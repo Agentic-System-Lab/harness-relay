@@ -178,7 +178,9 @@ describe('what decides how the agents run, as a working directory', () => {
   it("refuses a CLI's own folder, the CLIs' folder Harness Relay gives them and a program's folder, holding them or inside them", () => {
     expect(agentFolderOverlap(join(home, '.codex'), o)).toBe(join(home, '.codex'));
     expect(agentFolderOverlap(join(home, '.codex/packages/bin'), o)).toBe(join(home, '.codex'));
-    expect(agentFolderOverlap(join(home, '.local'), o)).toBe(join(home, '.local/bin'));
+    // ~/.local holds a program's folder (and Muse Code's data folder, moved away here).
+    expect(agentFolderOverlap(join(home, '.local'), { ...o, env: { XDG_DATA_HOME: join(root, 'xdg-data') } })).toBe(join(home, '.local/bin'));
+    expect(agentFolderOverlap(join(home, '.local/bin/x'), o)).toBe(join(home, '.local/bin'));
     expect(agentFolderOverlap(join(home, 'relay-agents/grok'), o)).toBe(join(home, 'relay-agents'));
     // A CLI home moved by its variable.
     expect(agentFolderOverlap(join(root, 'elsewhere'), { ...o, env: { CODEX_HOME: join(root, 'elsewhere/codex') } })).toBe(join(root, 'elsewhere/codex'));
@@ -198,6 +200,25 @@ describe('what decides how the agents run, as a working directory', () => {
     const account = { ...o, env: { HARNESS_RELAY_ANTIGRAVITY_HOME: join(root, 'accounts/antigravity-a1') } };
     expect(agentFolderOverlap(join(root, 'accounts/antigravity-a1/.gemini/antigravity-cli'), account)).toBe(join(root, 'accounts/antigravity-a1/.gemini'));
     expect(agentFolderOverlap(join(home, '.gemini'), account)).toBe(join(home, '.gemini'));
+    // Copilot's home (its settings, sign-in state, sessions, hooks), the user's own and the account's.
+    expect(agentFolderOverlap(join(home, '.copilot/session-state'), o)).toBe(join(home, '.copilot'));
+    const copilot = { ...o, env: { COPILOT_HOME: join(root, 'accounts/copilot-a1') } };
+    expect(agentFolderOverlap(join(root, 'accounts/copilot-a1/hooks'), copilot)).toBe(join(root, 'accounts/copilot-a1'));
+    expect(agentFolderOverlap(join(home, '.copilot'), copilot)).toBe(join(home, '.copilot'));
+    // Muse Code's config and data folders (its settings, sign-in, hooks, MCP servers, plugins, sessions),
+    // the user's own (XDG folders, also moved) and the account's.
+    expect(agentFolderOverlap(join(home, '.config/muse'), o)).toBe(join(home, '.config/muse'));
+    expect(agentFolderOverlap(join(home, '.local'), o)).toBe(join(home, '.local/share/muse'));
+    expect(agentFolderOverlap(join(home, '.local/share/muse/sessions'), o)).toBe(join(home, '.local/share/muse'));
+    expect(agentFolderOverlap(join(home, '.config/other'), o)).toBeUndefined();
+    const xdgMuse = { ...o, env: { XDG_CONFIG_HOME: join(root, 'xdg'), XDG_DATA_HOME: join(root, 'xdg-data') } };
+    expect(agentFolderOverlap(join(root, 'xdg/muse/skills'), xdgMuse)).toBe(join(root, 'xdg/muse'));
+    expect(agentFolderOverlap(join(root, 'xdg-data/muse'), xdgMuse)).toBe(join(root, 'xdg-data/muse'));
+    const museAccount = { ...o, env: { HARNESS_RELAY_MUSE_HOME: join(root, 'accounts/muse-a1') } };
+    expect(agentFolderOverlap(join(root, 'accounts/muse-a1/config/muse'), museAccount)).toBe(join(root, 'accounts/muse-a1/config/muse'));
+    expect(agentFolderOverlap(join(root, 'accounts/muse-a1/data/muse/sessions'), museAccount)).toBe(join(root, 'accounts/muse-a1/data/muse'));
+    // The account's own folders are refused besides the user's.
+    expect(agentFolderOverlap(join(home, '.config/muse'), museAccount)).toBe(join(home, '.config/muse'));
   });
 
   it("refuses the folder of the other accounts' homes, and a project in one of them", () => {

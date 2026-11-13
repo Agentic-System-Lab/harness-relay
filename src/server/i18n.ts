@@ -135,6 +135,43 @@ const zhTW = {
   antigravityConfigFailed: (err: string) => `無法替這一輪準備 Antigravity 的設定：${err}`,
   antigravityAccountLogin:
     'Antigravity 把 Google 登入存在系統的 keyring 裡，Harness Relay 無法確定另一個帳號的登入不會取代預設帳號的，所以額外的 Antigravity 帳號只能用 Gemini API key。預設帳號才用 Google 登入。',
+  copilotRefused: '超出這個對話的權限，已拒絕',
+  copilotProtected: '這是受保護的路徑（瀏覽器資料、Harness Relay 的資料庫等），低於完整權限時不能讀寫，已拒絕',
+  copilotEndsTurn: '（Copilot 在拒絕後會結束這一輪）',
+  copilotProjectHooks:
+    '這個專案有 Copilot 會自己執行的 hook（.github/hooks 裡的檔案，或專案 .github/copilot、.claude 設定裡的 hook）：Copilot 一開啟 session 和每次使用工具前都會執行它們，不經詢問，唯讀模式下也一樣（低於完整權限時在 Copilot 的沙箱裡），就算帳號設定裡略過了 hook 也一樣。另一個 agent 或這個 repository 的作者都可能放進這些 hook。允許後這一輪才會開始；檔案改變後會再問一次。',
+  copilotProjectHooksRefused: (files: string) =>
+    `這一輪沒有開始：這個專案有 Copilot 會自己執行的 hook（${files}），而它們沒有被允許。檢查並移除這些 hook，或允許它們，或改用完全存取。`,
+  copilotOutsideWrite: '這個檔案不在這個對話的工作目錄裡：編輯權限只涵蓋工作目錄內的寫入。',
+  copilotConfigWrite:
+    '這裡是 agent 的設定（例如 .github/hooks、.agents/、.git/hooks、.vscode/）：寫在這裡可能讓程式碼之後在沒有沙箱的情況下執行，或改變 agent 的行為，所以先詢問。',
+  copilotExitCode: (code: number) => `結束代碼 ${code}`,
+  copilotCancelled: 'Copilot 自行中止了這一輪（stopReason: cancelled），沒有給出原因。',
+  copilotNoSession: 'copilot 沒有回傳 session id',
+  copilotRejectedMode: (err: string) => `Copilot 無法切換到 agent 模式，或照權限設定 allow-all：${err}`,
+  copilotSignIn: (err: string) => `Copilot 尚未登入（${err}）。請到「設定」的 Copilot 登入 GitHub，或設定 GitHub token。`,
+  copilotConfigFailed: (err: string) => `無法替這一輪準備 Copilot 的設定：${err}`,
+  copilotSandbox: (problem: string) =>
+    `這一輪沒有開始：Copilot 的沙箱不是 Harness Relay 設定的樣子（${problem}），所以低於完整權限時它的指令不能執行。請更新 Copilot CLI，確認這台電腦能執行它的沙箱（Linux 需要 bubblewrap 等工具），或改用完全存取。`,
+  museRefused: '超出這個對話的權限，已拒絕',
+  museProtected: '這是受保護的路徑（瀏覽器資料、Harness Relay 的資料庫等），低於完整權限時不能讀寫，已拒絕',
+  museProtectedPattern: (path: string) =>
+    `這一輪沒有開始：受保護的路徑 ${path} 含有 *、? 或 [，Muse Code 會把它當成萬用字元樣式，無法照原樣拒絕它。請改名或移走它，或改用完全存取。`,
+  museCommandAsked: '唯讀對話裡每個指令都先詢問。允許後它在 Muse Code 的沙箱裡執行，可以寫入工作目錄。',
+  museNetwork: '這個指令要連網：Muse Code 的沙箱讓它連到的每個主機都先詢問。允許後只有這個指令能連網，仍在沙箱裡執行。',
+  museSessionGrant: '這個 Muse Code session 是在另一種權限下建立的（Muse 會沿用建立時的權限），所以這一輪開新的 session。',
+  musePublish: '這個指令會推送或發布到這台電腦之外（git push、npm publish 等），或執行它從標準輸入讀到的內容，編輯權限不涵蓋，所以先詢問。允許後它仍在 Muse Code 的沙箱裡執行。',
+  museOutsideWrite: '這個檔案不在這個對話的工作目錄裡：編輯權限只涵蓋工作目錄內的寫入。',
+  museConfigWrite:
+    '這裡是 agent 的設定（例如 .muse/、.agents/、.git/hooks、.vscode/）：寫在這裡可能讓程式碼之後在沒有沙箱的情況下執行，或改變 agent 的行為，所以先詢問。',
+  museExitCode: (code: number) => `結束代碼 ${code}`,
+  museCancelled: 'Muse Code 自行中止了這一輪（stopReason: cancelled），沒有給出原因。',
+  museNoSession: 'muse 沒有回傳 session id',
+  museRejectedMode: (err: string) => `Muse Code 無法切換權限模式：${err}`,
+  museSignIn: (err: string) => `Muse Code 尚未登入（${err}）。請到「設定」的 Muse Code 登入，或設定 Meta API key。`,
+  museConfigFailed: (err: string) => `無法替這一輪準備 Muse Code 的設定：${err}`,
+  museAccountLogin:
+    'Muse Code 在 macOS 把 Meta 登入存在登入鑰匙圈裡，名稱不隨它的資料夾改變，另一個帳號的登入可能取代預設帳號的，所以額外的 Muse Code 帳號只能用 Meta API key。預設帳號才用 Meta 帳號登入。',
 
   // Conversations and runs
   defaultTitle: '新對話',
@@ -519,6 +556,8 @@ const zhTW = {
   grokModelsEmpty: 'grok models 沒有回傳模型',
   cursorModelsFailed: 'cursor-agent 沒有回傳模型清單',
   antigravityModelsFailed: 'agy models 沒有回傳模型',
+  copilotModelsFailed: 'Copilot 沒有回傳模型',
+  museSkillsFailed: 'muse skills list 沒有回傳技能清單',
   // Voice input
   voiceNotReady: '語音輸入還沒安裝完成，請到「設定 → 語音輸入」查看。',
   voiceBusy: '語音輸入正在安裝中，請等它完成或先取消。',
@@ -549,6 +588,8 @@ const zhTW = {
     grokBrowser: ['xAI 瀏覽器登入', '在這台電腦開啟瀏覽器完成 OAuth 登入。'],
     cursorBrowser: ['Cursor 帳號', '開啟下方連結，在任何一台裝置的瀏覽器登入 Cursor 並允許 CLI。'],
     antigravityGoogle: ['Google 帳號', '開啟下方連結，在任何一台裝置的瀏覽器登入 Google，再把頁面顯示的授權碼（或整個網址）貼回來。'],
+    copilotDevice: ['GitHub 帳號（裝置代碼）', '開啟下方的 GitHub 連結，在任何一台裝置的瀏覽器輸入顯示的代碼並授權。'],
+    museMeta: ['Meta 帳號', '開啟下方連結，在任何一台裝置的瀏覽器登入 Meta 帳號，確認頁面上的代碼和下方的一樣。'],
   } as Record<string, [string, string]>,
 };
 
@@ -660,6 +701,43 @@ const en: ServerMessages = {
   antigravityConfigFailed: (err) => `Could not prepare Antigravity's settings for this turn: ${err}`,
   antigravityAccountLogin:
     "Antigravity keeps its Google sign-in in the system keyring, and Harness Relay cannot be sure that another account's sign-in would not replace the default one's, so an extra Antigravity account runs on a Gemini API key only. Only the default account signs in with Google.",
+  copilotRefused: "Refused: not covered by this conversation's permission",
+  copilotProtected: "Refused: a protected path (browser data, Harness Relay's database…), which agents below full access may not read or write",
+  copilotEndsTurn: ' (Copilot ends its turn after a refusal)',
+  copilotProjectHooks:
+    "This project has hooks Copilot runs by itself (files in .github/hooks, or hooks in its .github/copilot or .claude settings): Copilot runs them when its session opens and before each tool call, without asking, in read-only mode too (below full access inside its sandbox), even when hooks are left out in the account's settings. Another agent, or whoever made the repository, may have put them there. The turn starts once you allow them; if the files change, you are asked again.",
+  copilotProjectHooksRefused: (files) =>
+    `The turn did not start: this project has hooks Copilot would run by itself (${files}), and they were not allowed. Check and remove those hooks, allow them, or use full access.`,
+  copilotOutsideWrite: "This file is not in the chat's working directories: edit mode covers writes in them only.",
+  copilotConfigWrite:
+    "This is an agent's configuration (such as .github/hooks, .agents/, .git/hooks or .vscode/): a change here could make code run later outside any sandbox, or change how an agent works, so it asks first.",
+  copilotExitCode: (code) => `exit code ${code}`,
+  copilotCancelled: 'Copilot ended the turn by itself (stopReason: cancelled) without giving a reason.',
+  copilotNoSession: 'copilot returned no session id',
+  copilotRejectedMode: (err) => `Copilot could not switch to its agent mode, or set allow-all as the permission says: ${err}`,
+  copilotSignIn: (err) => `Copilot is not signed in (${err}). Sign in to GitHub under Copilot in Settings, or set a GitHub token.`,
+  copilotConfigFailed: (err) => `Could not prepare Copilot's settings for this turn: ${err}`,
+  copilotSandbox: (problem) =>
+    `The turn did not start: Copilot's sandbox is not as Harness Relay set it up (${problem}), so its commands may not run below full access. Update Copilot CLI, check that this computer can run its sandbox (on Linux it needs bubblewrap and a few other tools), or use full access.`,
+  museRefused: "Refused: not covered by this conversation's permission",
+  museProtected: "Refused: a protected path (browser data, Harness Relay's database…), which agents below full access may not read or write",
+  museProtectedPattern: (path) =>
+    `The turn did not start: the protected path ${path} has *, ? or [ in its name, which Muse Code reads as a pattern, so it cannot be denied as it is. Rename or move it, or use full access.`,
+  museCommandAsked: "In a read-only chat every command asks first. Allowed, it runs in Muse Code's sandbox, which lets it write in the working directories.",
+  museNetwork: "This command wants the network: Muse Code's sandbox asks about every host it reaches. Allowed, only this command may reach it, still in the sandbox.",
+  museSessionGrant: 'This Muse Code session was made with another permission (Muse keeps the one it was made with), so this turn starts a new session.',
+  musePublish: "This command pushes or publishes beyond this computer (git push, npm publish…), or runs what it reads on standard input, which edit mode does not cover, so it asks first. Allowed, it still runs in Muse Code's sandbox.",
+  museOutsideWrite: "This file is not in the chat's working directories: edit mode covers writes in them only.",
+  museConfigWrite:
+    "This is an agent's configuration (such as .muse/, .agents/, .git/hooks or .vscode/): a change here could make code run later outside any sandbox, or change how an agent works, so it asks first.",
+  museExitCode: (code) => `exit code ${code}`,
+  museCancelled: 'Muse Code ended the turn by itself (stopReason: cancelled) without giving a reason.',
+  museNoSession: 'muse returned no session id',
+  museRejectedMode: (err) => `Muse Code could not switch its permission mode: ${err}`,
+  museSignIn: (err) => `Muse Code is not signed in (${err}). Sign in under Muse Code in Settings, or set a Meta API key.`,
+  museConfigFailed: (err) => `Could not prepare Muse Code's settings for this turn: ${err}`,
+  museAccountLogin:
+    "On macOS Muse Code keeps its Meta sign-in in the login keychain under names its folders do not change, so another account's sign-in could replace the default one's: an extra Muse Code account runs on a Meta API key only. Only the default account signs in with a Meta account.",
 
   defaultTitle: 'New chat',
   conversationNotFound: 'Conversation not found',
@@ -1029,6 +1107,8 @@ const en: ServerMessages = {
   grokModelsEmpty: 'grok models returned no models',
   cursorModelsFailed: 'cursor-agent returned no model list',
   antigravityModelsFailed: 'agy models returned no models',
+  copilotModelsFailed: 'Copilot returned no models',
+  museSkillsFailed: 'muse skills list returned no skills',
   voiceNotReady: 'Voice input is not set up yet. See Settings → Voice input.',
   voiceBusy: 'Voice input is being installed. Wait for it to finish, or cancel it first.',
   voiceNoJob: 'No install is running',
@@ -1058,6 +1138,8 @@ const en: ServerMessages = {
     grokBrowser: ['xAI browser sign-in', 'Opens a browser on this computer to finish the OAuth sign-in.'],
     cursorBrowser: ['Cursor account', 'Open the link below in a browser on any device, sign in to Cursor and allow the CLI.'],
     antigravityGoogle: ['Google account', 'Open the link below in a browser on any device, sign in to Google, then paste back the code the page shows (or its whole address).'],
+    copilotDevice: ['GitHub account (device code)', 'Open the GitHub link below in a browser on any device, enter the code shown, and authorize it.'],
+    museMeta: ['Meta account', 'Open the link below in a browser on any device, sign in to your Meta account, and check that the page shows the code below.'],
   },
 };
 

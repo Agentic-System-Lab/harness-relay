@@ -15,7 +15,7 @@ Open an issue with the **Bug report** form. It asks for:
 - what you did, what you expected and what happened instead;
 - how you run Harness Relay (the desktop app, `npm start` or `npm run dev`);
 - your operating system, Node.js version (`node --version`) and Harness Relay version (the desktop app's under **Settings & sign-in → Version**, or the commit, `git rev-parse --short HEAD`);
-- the agent CLIs involved and their versions (`claude --version`, `codex --version`, `grok --version`, `cursor-agent --version`, `agy --version`, `opencode --version`…), and for an open-source agent the kind of model backend (an API or your own endpoint, and which server);
+- the agent CLIs involved and their versions (`claude --version`, `codex --version`, `grok --version`, `cursor-agent --version`, `agy --version`, `copilot --version`, `muse --version`, `opencode --version`…), and for an open-source agent the kind of model backend (an API or your own endpoint, and which server);
 - the conversation's mode (roundtable, parallel or relay), permission (read-only, edit or full access), and whether the lead agent's team is used without asking;
 - the error shown on the message (it includes the end of the CLI's stderr) and the server's output around that time (the `[server]` lines with `npm run dev`; in the desktop app, **Show log** in its menu).
 
@@ -31,11 +31,11 @@ The server can start agents with write access to your files, so security problem
 
 Open an issue with the **Feature request** form, and describe the problem you want solved before you describe a solution. For anything larger than a small fix (a new mode, a new agent CLI, a schema change, a new setting), please discuss it in an issue before you write the code, so that the work fits the design.
 
-Adding a coding agent? Follow [Adding a coding agent](docs/adding-a-coding-agent.md): the procedure Grok, Cursor, the open agents and Antigravity went through, from installing the CLI apart from your own setup and finding out how it really behaves, to recording it, checking it on macOS, Linux and Windows, and documenting it.
+Adding a coding agent? Follow [Adding a coding agent](docs/adding-a-coding-agent.md): the procedure Grok, Cursor, the open agents, Antigravity, Copilot and Muse Code went through, from installing the CLI apart from your own setup and finding out how it really behaves, to recording it, checking it on macOS, Linux and Windows, and documenting it.
 
 ## Setting up
 
-You need Node.js **22.13 or later**. The agent CLIs (`claude`, `codex`, `grok`, `cursor-agent`, `agy`, and the open-source `opencode`, `goose`, `cline`, `openhands`, `pi`) are only needed to try the app by hand; the tests never run them, and never start a real sandbox (`scripts/sandbox-check.ts` does that, by hand).
+You need Node.js **22.13 or later**. The agent CLIs (`claude`, `codex`, `grok`, `cursor-agent`, `agy`, `copilot`, `muse`, and the open-source `opencode`, `goose`, `cline`, `openhands`, `pi`) are only needed to try the app by hand; the tests never run them, and never start a real sandbox (`scripts/sandbox-check.ts` does that, by hand).
 
 ```bash
 git clone https://github.com/Agentic-System-Lab/harness-relay.git
@@ -55,7 +55,7 @@ Fork the repository (or create a branch if you have write access), branch off `m
 ### Code
 
 - Strict TypeScript with ES modules. Shared types live only in `src/shared/types.ts`.
-- Start child processes only through `src/server/process.ts`, so they are tracked and stopped on shutdown; a quick probe the server waits for (`lsof`, `ps`, `chflags`) goes through its `runSync()`, which kills it after its timeout. The relay sandbox's host (`relaySandboxHost.ts`) is a program of its own and starts the agent itself. Start programs directly, never through a shell; a shell script (`runShellScript()`, or `sh -c` given to `spawnDetached()`) is fixed text, and the values it needs (paths, names, settings) go in its environment, never in its text or its arguments. On Windows a CLI found as a `.cmd` (npm's shims, Cursor's launcher) is started as the program it runs (`src/server/winLaunch.ts`), never through `cmd.exe`.
+- Start child processes only through `src/server/process.ts`, so they are tracked and stopped on shutdown; a quick probe the server waits for (`lsof`, `ps`, `chflags`) goes through its `runSync()`, which kills it after its timeout. The relay sandbox's host (`relaySandboxHost.ts`) is a program of its own and starts the agent itself. Start programs directly, never through a shell; a shell script (`runShellScript()`, or `sh -c` given to `spawnDetached()`) is fixed text, and the values it needs (paths, names, settings) go in its environment, never in its text or its arguments. On Windows a CLI found as a `.cmd` (npm's shims, Cursor's and Muse Code's launchers) is started as the program it runs (`src/server/winLaunch.ts`), never through `cmd.exe`.
 - Keep CLI output parsers pure (lines in, `AgentEvent`s out) so they can be tested with recorded output.
 - Tests run in Node without a DOM. Put client logic you want to test in plain modules (like `src/web/chat.ts`), not inside components.
 - In the desktop app, only `desktop/src/main.ts` imports `electron`. Put the rest in modules without it (like `desktop/src/lifecycle.ts`), which the root `test/` tests like the other code.

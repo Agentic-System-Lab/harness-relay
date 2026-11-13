@@ -91,7 +91,7 @@ describe('Antigravity permission policy (it has no sandbox Harness Relay uses)',
     expect(antigravityPermissionDecision('edit', write('/work/lib/b.ts'), CWD, ['/work/lib'])).toEqual({ run: 'allow' });
     expect(antigravityPermissionDecision('edit', write('/work/other/c.ts'), CWD, ['/work/lib'])).toEqual({ run: 'ask' });
     expect(antigravityPermissionDecision('edit', write('~/notes.txt'), CWD)).toEqual({ run: 'ask' });
-    for (const p of ['.agents/hooks.json', '.agent/mcp_config.json', '_agents/hooks.json', '.gemini/settings.json', '.git/hooks/pre-commit', '.git/config', '.vscode/tasks.json', '.claude/settings.json', 'sub/.cursor/mcp.json', '.mcp.json']) {
+    for (const p of ['.agents/hooks.json', '.agent/mcp_config.json', '_agents/hooks.json', '.gemini/settings.json', '.git/hooks/pre-commit', '.git/config', '.vscode/tasks.json', '.claude/settings.json', 'sub/.cursor/mcp.json', '.mcp.json', '.github/hooks/h.json', '.github/copilot/settings.json', '.github/agents/a.agent.md']) {
       expect(antigravityPermissionDecision('edit', write(`/work/app/${p}`), CWD), p).toEqual({ run: 'ask' });
     }
     expect(antigravityPermissionDecision('edit', write('/work/app/.git/objects/ab/cd'), CWD)).toEqual({ run: 'allow' });

@@ -1,6 +1,6 @@
 /**
  * Installs the fake CLIs (`e2e/fake-cli/`) under each CLI's executable name (`claude`, `codex`,
- * `grok`, `cursor-agent`, `agy`, `opencode`, `goose`, `cline`, `openhands`, `pi`) in a folder of their
+ * `grok`, `cursor-agent`, `agy`, `muse`, `opencode`, `goose`, `cline`, `openhands`, `pi`) in a folder of their
  * own, which the servers under test find first on their PATH. A CLI whose fake is not written yet
  * (`implemented: false` in `clis/<provider>.ts`) is installed too, and says so when it runs.
  *
@@ -29,7 +29,8 @@
  *
  * For `e2e/specs/windows.spec.ts`, `installFakeLaunchers()` also builds the fakes as some Windows
  * users' CLIs come: Cursor's own launcher (`cursor-agent.cmd`, which starts a Node and a script of its
- * own), and npm's shims (`.cmd`), for a Node script (Cline, Pi) and for a program (OpenCode).
+ * own), Muse Code's (`muse.cmd`, which starts the binary its `.muse-version` names), and npm's shims
+ * (`.cmd`), for a Node script (Cline, Pi) and for a program (OpenCode).
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -290,7 +291,7 @@ async function buildExecutables(script: string, dir: string, bins: string[], che
 /** The launchers of `installFakeLaunchers()`: their folder, and each one's path by the CLI it starts. */
 export interface FakeLaunchers {
   dir: string;
-  bins: Record<'cursor' | 'cline' | 'pi' | 'opencode', string>;
+  bins: Record<'cursor' | 'muse' | 'cline' | 'pi' | 'opencode', string>;
 }
 
 /** Cursor's launcher, as its installer writes it: it says how it was invoked (`%~nx0`), and runs `cursor-agent.ps1`. */
@@ -299,6 +300,11 @@ const CURSOR_LAUNCHER =
   '%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%\\cursor-agent.ps1" %*\r\n';
 /** The version folder of Cursor's (`YYYY.M.D-<commit>`), which holds its Node and its script. */
 const CURSOR_VERSION = '2026.11.11-e2e0001';
+/** Muse Code's launcher, as its install.ps1 writes it: it runs `.muse-launcher.ps1` beside it with PowerShell. */
+const MUSE_LAUNCHER =
+  '@echo off\r\nsetlocal\r\n"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%~dp0.muse-launcher.ps1" %*\r\nexit /b %ERRORLEVEL%\r\n';
+/** The version Muse Code's `.muse-version` names (`<version>-R<build>`): its binary is `muse-bin-<it>.exe`. */
+const MUSE_VERSION = '1.4.999-R1';
 /** The lines npm's cmd-shim writes before the one that runs the CLI (npm 11). */
 const NPM_PREAMBLE = '@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\n';
 /** npm's shim for a program, `rel` from its folder. */
@@ -319,10 +325,13 @@ function linkOrCopy(from: string, to: string): void {
 
 /**
  * Writes the launchers into `dir` (the fake CLIs' bundle `script`, a Node at `node` for Cursor's
- * version folder, and the program `program` for OpenCode's shim), each in a folder of its kind, with
- * no `.exe` of a CLI's name beside it (it would be found first):
+ * version folder, and the program `program` for Muse Code's binary and OpenCode's shim), each in a
+ * folder of its kind, with no `.exe` of a CLI's name beside it (it would be found first):
  * - `cursor\cursor-agent.cmd`, Cursor's launcher, and `cursor\versions\<version>\node.exe` and
  *   `index.js` (the script, which tells it is Cursor from CURSOR_INVOKED_AS);
+ * - `muse\muse.cmd`, Muse Code's launcher, with its `.muse-launcher.ps1` (a stand-in: Harness Relay
+ *   never runs it), its `.muse-version` and the binary that names, `muse-bin-<version>.exe` (the
+ *   program, which tells it is Muse Code from that name);
  * - `npm\cline.cmd` and `npm\pi.cmd`, npm's shims for Node scripts (`node_modules\<cli>\<cli>.cjs`,
  *   run with the PATH's Node);
  * - `npm\opencode.cmd`, npm's shim for a program (`node_modules\opencode-ai\bin\opencode.exe`).
@@ -336,6 +345,13 @@ export function writeFakeLaunchers(dir: string, from: { script: string; node: st
   linkOrCopy(from.node, join(version, 'node.exe'));
   writeFileSync(join(version, 'index.js'), from.script);
 
+  const muse = join(dir, 'muse');
+  mkdirSync(muse, { recursive: true });
+  writeFileSync(join(muse, 'muse.cmd'), MUSE_LAUNCHER);
+  writeFileSync(join(muse, '.muse-launcher.ps1'), '# A stand-in for Muse Code\'s launcher script: Harness Relay starts the binary .muse-version names.\r\n');
+  writeFileSync(join(muse, '.muse-version'), `${MUSE_VERSION}\r\n`);
+  linkOrCopy(from.program, join(muse, `muse-bin-${MUSE_VERSION}.exe`));
+
   const npm = join(dir, 'npm');
   for (const p of ['cline', 'pi']) {
     mkdirSync(join(npm, 'node_modules', p), { recursive: true });
@@ -346,18 +362,18 @@ export function writeFakeLaunchers(dir: string, from: { script: string; node: st
   mkdirSync(join(npm, ...program.slice(0, -1)), { recursive: true });
   linkOrCopy(from.program, join(npm, ...program));
   writeFileSync(join(npm, 'opencode.cmd'), npmProgramShim(program.join('\\')));
-  return { cursor: join(cursor, 'cursor-agent.cmd'), cline: join(npm, 'cline.cmd'), pi: join(npm, 'pi.cmd'), opencode: join(npm, 'opencode.cmd') };
+  return { cursor: join(cursor, 'cursor-agent.cmd'), muse: join(muse, 'muse.cmd'), cline: join(npm, 'cline.cmd'), pi: join(npm, 'pi.cmd'), opencode: join(npm, 'opencode.cmd') };
 }
 
 /**
- * Builds (or finds) the launchers of `writeFakeLaunchers()` for the fake CLIs in `fakeBinDir` (OpenCode's
- * program is its executable there), kept in `node_modules/.cache/` like the fakes: Cursor's Node is a
+ * Builds (or finds) the launchers of `writeFakeLaunchers()` for the fake CLIs in `fakeBinDir` (Muse
+ * Code's binary and OpenCode's program are its executable there), kept in `node_modules/.cache/` like the fakes: Cursor's Node is a
  * copy of this one where it cannot be a link (another drive), about 90 MB. Windows only (the
  * launchers are `.cmd` scripts); a worker that finds another building them takes the one done first.
  */
 export function installFakeLaunchers(fakeBinDir: string): FakeLaunchers {
   const script = bundleFakeCli();
-  const key = createHash('sha256').update(LAYOUT).update('launchers-1').update(script).update(fakeBinDir).update(process.version).update(process.execPath).digest('hex').slice(0, 16);
+  const key = createHash('sha256').update(LAYOUT).update('launchers-2').update(script).update(fakeBinDir).update(process.version).update(process.execPath).digest('hex').slice(0, 16);
   const cache = join(ROOT, 'node_modules', '.cache', 'harness-relay-e2e');
   const dir = join(cache, `fake-launchers-${key}`);
   const done = join(dir, 'done');
@@ -380,7 +396,7 @@ export function installFakeLaunchers(fakeBinDir: string): FakeLaunchers {
   const now = new Date();
   utimesSync(dir, now, now);
   const at = (...parts: string[]) => join(dir, ...parts);
-  return { dir, bins: { cursor: at('cursor', 'cursor-agent.cmd'), cline: at('npm', 'cline.cmd'), pi: at('npm', 'pi.cmd'), opencode: at('npm', 'opencode.cmd') } };
+  return { dir, bins: { cursor: at('cursor', 'cursor-agent.cmd'), muse: at('muse', 'muse.cmd'), cline: at('npm', 'cline.cmd'), pi: at('npm', 'pi.cmd'), opencode: at('npm', 'opencode.cmd') } };
 }
 
 function run(bin: string, args: string[]): void {

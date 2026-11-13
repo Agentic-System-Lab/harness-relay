@@ -43,7 +43,7 @@ describe("a CLI's status when it cannot run", () => {
 
 describe('a signed-out account', () => {
   // What each CLI prints when its home has no sign-in (tried with the real ones).
-  const SIGNED_OUT: Record<'claude' | 'codex' | 'grok' | 'cursor', string> = {
+  const SIGNED_OUT: Record<'claude' | 'codex' | 'grok' | 'cursor' | 'muse', string> = {
     claude: `case "$1 $2" in
   "--version ") echo "2.1.0 (Claude Code)" ;;
   "auth status") echo '{\n  "loggedIn": false,\n  "authMethod": "none",\n  "apiProvider": "firstParty",\n  "loginExpiresAt": null\n}'; exit 1 ;;
@@ -60,21 +60,31 @@ esac`,
   "--version  ") echo "2026.11.11-043ef28" ;;
   "status --format json") printf '{\\n  "status": "unauthenticated",\\n  "isAuthenticated": false,\\n  "message": "Not logged in"\\n}\\n' ;;
 esac`,
+    muse: `case "$1" in
+  --version) echo "Muse Code 1.4.18 (1.4.18-R8587.1)" ;;
+  usage) echo 'muse usage: not logged in: run \`muse login\` first' >&2; exit 1 ;;
+esac`,
   };
   const posixIt = process.platform === 'win32' ? it.skip : it;
 
-  for (const provider of ['claude', 'codex', 'grok', 'cursor'] as const) {
+  for (const provider of ['claude', 'codex', 'grok', 'cursor', 'muse'] as const) {
     posixIt(`says only that it is signed out (${provider}), with nothing of the CLI's own words after the pill`, async () => {
-      const dir = join(root, `signed-out-${provider}`);
-      mkdirSync(dir, { recursive: true });
-      const bin = join(dir, provider);
-      writeFileSync(bin, `#!/bin/sh\n${SIGNED_OUT[provider]}\n`, { mode: 0o755 });
-      const settings = new SettingsStore(openDatabase(':memory:'));
-      settings.update(provider, { bin });
-      settings.setAgentHome(join(dir, 'homes'));
-      const status = await new ProviderService(settings).status(provider, true);
-      expect(status.installed).toBe(true);
-      expect(status.accounts).toEqual([{ id: '', label: '', auth: { loggedIn: false }, usingStoredApiKey: false }]);
+      // A Meta API key in the environment would sign Muse Code in without asking it.
+      vi.stubEnv('META_API_KEY', '');
+      try {
+        const dir = join(root, `signed-out-${provider}`);
+        mkdirSync(dir, { recursive: true });
+        const bin = join(dir, provider);
+        writeFileSync(bin, `#!/bin/sh\n${SIGNED_OUT[provider]}\n`, { mode: 0o755 });
+        const settings = new SettingsStore(openDatabase(':memory:'));
+        settings.update(provider, { bin });
+        settings.setAgentHome(join(dir, 'homes'));
+        const status = await new ProviderService(settings).status(provider, true);
+        expect(status.installed).toBe(true);
+        expect(status.accounts).toEqual([{ id: '', label: '', auth: { loggedIn: false }, usingStoredApiKey: false }]);
+      } finally {
+        vi.unstubAllEnvs();
+      }
     });
   }
 });
@@ -227,6 +237,168 @@ describe("Antigravity's sign-in", () => {
   });
 });
 
+describe("Copilot's sign-in", () => {
+  const posixIt = process.platform === 'win32' ? it.skip : it;
+
+  posixIt("signs each account in to GitHub with a device code in its own home, tells who it is signed in as, and signs out over ACP", async () => {
+    const { writeFakeCopilot } = await import('./fake-copilot');
+    const dir = join(root, 'copilot-sign-in');
+    mkdirSync(dir, { recursive: true });
+    const bin = writeFakeCopilot(join(dir, 'copilot'));
+    const logFile = join(dir, 'log.jsonl');
+    vi.stubEnv('FAKE_COPILOT_LOG', logFile);
+    // A GitHub token in the server's environment is the default account's only.
+    vi.stubEnv('GH_TOKEN', '');
+    vi.stubEnv('GITHUB_TOKEN', '');
+    vi.stubEnv('COPILOT_GITHUB_TOKEN', '');
+    try {
+      const settings = new SettingsStore(openDatabase(':memory:'));
+      settings.update('copilot', { bin });
+      settings.setAgentHome(join(dir, 'homes'));
+      const team = settings.addAccount('copilot', 'Team');
+      const service = new ProviderService(settings);
+      const log = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, any>) : []);
+      const starts = () => log().filter((l) => l.start);
+      const home = join(dir, 'homes', 'copilot');
+
+      // Nobody signed in yet: a session it opens (in a home of its own, with the account's sign-in state) says so.
+      let out = await service.status('copilot', true);
+      expect(out).toMatchObject({ installed: true, version: '1.0.109' });
+      expect(out.accounts.map((a) => [a.id, a.auth.loggedIn])).toEqual([
+        ['', false],
+        [team, false],
+      ]);
+
+      // Where it cannot keep the token (no credential store), it says so and exits 0: a failed sign-in.
+      vi.stubEnv('FAKE_COPILOT_NO_KEYRING', '1');
+      service.startLogin('copilot');
+      await vi.waitFor(() => expect(service.login('copilot')?.state).toBe('failed'));
+      expect(service.login('copilot')?.output).toContain('the token was not saved');
+      expect((await service.status('copilot', true)).accounts[0]!.auth.loggedIn).toBe(false);
+      vi.stubEnv('FAKE_COPILOT_NO_KEYRING', '');
+
+      // Its device sign-in prints GitHub's link and code, in the account's home.
+      const view = service.startLogin('copilot');
+      expect(view.method).toBe('device');
+      await vi.waitFor(() => expect(service.login('copilot')?.state).toBe('success'));
+      expect(service.login('copilot')?.urls).toEqual(['https://github.com/login/device']);
+      expect(service.login('copilot')?.codes).toEqual(['ABCD-1234']);
+      const login = starts().find((l) => l.argv[0] === 'login')!;
+      expect(login.argv).toEqual(['login', '--device-code']);
+      expect(login.env.COPILOT_HOME).toBe(home);
+      out = await service.status('copilot', true);
+      expect(out.accounts[0]!.auth).toEqual({ loggedIn: true, account: 'octocat' });
+      expect(out.accounts[1]!.auth.loggedIn).toBe(false);
+
+      // Another account signs in in its own home; with a token of its own it runs on that.
+      settings.updateAccount('copilot', team, { apiKey: 'github_pat_team' });
+      service.invalidate('copilot');
+      expect((await service.status('copilot', true)).accounts[1]).toMatchObject({ auth: { loggedIn: true, method: 'GitHub token' }, usingStoredApiKey: true });
+      expect(settings.env('copilot', team).COPILOT_GITHUB_TOKEN).toBe('github_pat_team');
+      // A token is asked about too: one Copilot does not take (a classic token) is not signed in, though it is set.
+      vi.stubEnv('FAKE_COPILOT_SIGNED_OUT', '1');
+      service.invalidate('copilot');
+      expect((await service.status('copilot', true)).accounts[1]!.auth.loggedIn).toBe(false);
+      vi.stubEnv('FAKE_COPILOT_SIGNED_OUT', '');
+      service.invalidate('copilot');
+
+      // The status asked Copilot itself: a session in a home of its own, never the account's, with no prompt.
+      const asks = starts().filter((l) => l.argv.join(' ') === '--acp');
+      expect(asks.length).toBeGreaterThan(0);
+      expect(asks.every((l) => l.env.COPILOT_HOME !== home)).toBe(true);
+      expect(log().some((l) => l.method === 'session/prompt')).toBe(false);
+
+      // The default account signs out with Copilot's ACP logout, in its home.
+      await service.logout('copilot');
+      const logout = starts().filter((l) => l.env.COPILOT_HOME === home).at(-1)!;
+      expect(logout.argv).toEqual(['--acp']);
+      expect(log().filter((l) => l.method === 'logout')).toHaveLength(1);
+      expect((await service.status('copilot', true)).accounts[0]!.auth.loggedIn).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe("Muse Code's sign-in", () => {
+  const posixIt = process.platform === 'win32' ? it.skip : it;
+
+  posixIt("asks `muse usage` in the account's own folders, signs the default account in with Muse's device code, and gives another account its key only", async () => {
+    const { KeyOnlyAccountError } = await import('../src/server/providers');
+    const { writeFakeMuse } = await import('./fake-muse');
+    const { t } = await import('../src/server/i18n');
+    const dir = join(root, 'muse-sign-in');
+    mkdirSync(dir, { recursive: true });
+    const bin = writeFakeMuse(join(dir, 'muse'));
+    const logFile = join(dir, 'log.jsonl');
+    vi.stubEnv('FAKE_MUSE_LOG', logFile);
+    vi.stubEnv('FAKE_MUSE_CLI', join(__dirname, 'fixtures', 'muse', 'cli'));
+    vi.stubEnv('FAKE_MUSE_USAGE', 'usage-signed-out.txt');
+    vi.stubEnv('FAKE_MUSE_LOGIN_MS', '300');
+    vi.stubEnv('META_API_KEY', '');
+    try {
+      const settings = new SettingsStore(openDatabase(':memory:'));
+      settings.update('muse', { bin });
+      settings.setAgentHome(join(dir, 'homes'));
+      const team = settings.addAccount('muse', 'Team');
+      const service = new ProviderService(settings);
+      const home = join(dir, 'homes', 'muse');
+      const log = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, any>) : []);
+      const starts = () => log().filter((l) => l.start);
+      // Muse's own folders are the account's home's, as its XDG folders; no variable of Harness Relay's reaches it.
+      const folders = { XDG_CONFIG_HOME: join(home, 'config'), XDG_DATA_HOME: join(home, 'data'), HARNESS_RELAY_MUSE_HOME: null, HARNESS_RELAY_MUSE_KEY_ONLY: null };
+
+      // Signed out, `muse usage` says so. The other account runs on its own key only: without one it is
+      // signed out, and muse is not asked (the Meta sign-in it keeps in the keychain is the default account's).
+      const out = await service.status('muse', true);
+      expect(out).toMatchObject({ installed: true, version: '1.4.18' });
+      expect(out.accounts.map((a) => [a.id, a.auth])).toEqual([
+        ['', { loggedIn: false }],
+        [team, { loggedIn: false }],
+      ]);
+      expect(starts().filter((l) => l.argv[0] === 'usage').map((l) => l.env)).toEqual([{ ...folders, MUSE_DISABLE_APPROVAL_JUDGE: null, META_API_KEY: false }]);
+      // Signed in (here with a key it keeps itself), it answers with its allowance.
+      vi.stubEnv('FAKE_MUSE_USAGE', 'usage-key.txt');
+      expect((await service.status('muse', true)).accounts[0]!.auth).toEqual({ loggedIn: true, detail: 'No subscription allowance (api_key)' });
+      // With a Meta API key it is signed in without being asked.
+      const usage = () => starts().filter((l) => l.argv[0] === 'usage').length;
+      const asked = usage();
+      vi.stubEnv('META_API_KEY', 'meta-own');
+      expect((await service.status('muse', true)).accounts[0]!.auth).toEqual({ loggedIn: true, method: 'API key' });
+      expect(usage()).toBe(asked);
+      vi.stubEnv('META_API_KEY', '');
+
+      // Its sign-in prints a link and a code to check, and ends once the code is approved.
+      const view = service.startLogin('muse');
+      expect(view.method).toBe('meta');
+      await vi.waitFor(() => expect(service.login('muse')?.urls).toEqual(['https://auth.meta.com/oauth/device/?code=ABCD-EFGH']));
+      expect(service.login('muse')).toMatchObject({ codes: ['ABCD-EFGH'], wantsInput: false });
+      await vi.waitFor(() => expect(service.login('muse')?.state).toBe('success'));
+      const login = starts().find((l) => l.argv[0] === 'login')!;
+      expect(login.argv).toEqual(['login']);
+      expect(login.env).toMatchObject(folders);
+      // Another account's sign-in could replace the default one's in the keychain: it runs on its key only.
+      expect(() => service.startLogin('muse', undefined, team)).toThrow(KeyOnlyAccountError);
+      expect(() => service.startLogin('muse', undefined, team)).toThrow(t().museAccountLogin);
+      settings.updateAccount('muse', team, { apiKey: 'meta-team' });
+      service.invalidate('muse');
+      expect((await service.status('muse', true)).accounts[1]).toMatchObject({ auth: { loggedIn: true, method: 'API key' }, usingStoredApiKey: true });
+
+      // Signing that account out drops nothing (the Meta sign-in muse keeps is the default account's);
+      // the default account signs out with `muse logout`, in its folders.
+      const count = starts().length;
+      expect(await service.logout('muse', team)).toBe('');
+      expect(starts().length).toBe(count);
+      expect(await service.logout('muse')).toBe('no stored Meta credential to remove');
+      const logout = starts().at(-1)!;
+      expect(logout.argv).toEqual(['logout']);
+      expect(logout.env).toMatchObject(folders);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
 describe('accounts of a CLI', () => {
   // A stand-in for `claude` that keeps its sign-in in its home, as the real one does.
   const FAKE_CLAUDE = `#!/bin/sh
@@ -355,6 +527,8 @@ esac
         ['grok', team],
         ['cursor', ''],
         ['antigravity', ''],
+        ['copilot', ''],
+        ['muse', ''],
         ...OPEN_PROVIDERS.map((p) => [p, '']),
       ]);
       expect(catalogFor(all, 'claude', work)?.defaultModel).toBe('haiku');

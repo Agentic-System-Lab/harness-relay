@@ -2,7 +2,7 @@
 
 # 開源 agent
 
-除了 `claude`、`codex`、`grok`、`cursor-agent` 與 `agy`（Antigravity），Harness Relay 也能執行五個開源的 coding agent CLI。程式裡稱它們為「open agents」（`src/shared/types.ts` 的 `OPEN_PROVIDERS`）：
+除了 `claude`、`codex`、`grok`、`cursor-agent`、`agy`（Antigravity）與 `copilot`（GitHub Copilot）與 `muse`（Muse Code），Harness Relay 也能執行五個開源的 coding agent CLI。程式裡稱它們為「open agents」（`src/shared/types.ts` 的 `OPEN_PROVIDERS`）：
 
 | Provider id | CLI | 協定 | 轉接器 |
 | --- | --- | --- | --- |
@@ -12,7 +12,7 @@
 | `openhands` | OpenHands（`openhands`，`uv tool install openhands`） | ACP：`openhands acp` | `src/server/agents/openhands.ts` |
 | `pi` | Pi（`pi`，npm `@earendil-works/pi-coding-agent`） | JSONL RPC：`pi --mode rpc` | `src/server/agents/pi.ts` |
 
-它們和另外五個 CLI 不同的地方在於模型從哪裡來：它們在 Harness Relay 裡沒有自己的登入，而是使用「設定」裡的**模型來源**（OpenAI、Anthropic 或 xAI 的 API key，或你自己的 OpenAI 相容端點）。這份文件說明它們共用的部分，最後每個 agent 各有一節。
+它們和另外七個 CLI 不同的地方在於模型從哪裡來：它們在 Harness Relay 裡沒有自己的登入，而是使用「設定」裡的**模型來源**（OpenAI、Anthropic 或 xAI 的 API key，或你自己的 OpenAI 相容端點）。這份文件說明它們共用的部分，最後每個 agent 各有一節。
 
 一個 agent 的轉接器完成之前（它的檔案裡 `implemented: true`），它的每次執行都會在任何東西啟動前就失敗，說明「not implemented yet」，「設定」中也顯示它尚未就緒。
 
@@ -29,7 +29,7 @@
 
 **每次執行拿到什麼。** `backendRun(o.backends, o.model, …)` 給每次執行它的模型來源與模型；沒有模型、id 不是 `<模型來源>/<模型>`，或模型來源還沒設定時，執行會失敗並說明該怎麼做：
 
-- 只有這次執行自己的 API 來源的金鑰，放在各 CLI 讀取的變數（`OPENAI_API_KEY`、`ANTHROPIC_API_KEY` 或 `XAI_API_KEY`），沒有其他的：agent 執行的指令會繼承這個環境，所以用 Anthropic 的執行絕不會拿到 OpenAI 的金鑰。伺服器保存的每一把金鑰，以及從你的 shell 繼承來的每個模型供應商的金鑰、登入憑證或位址，都會先移除（`backends.ts` 的 `INHERITED_BACKEND_VARS`）：OpenAI、Anthropic 與 xAI 的金鑰、base URL、組織與專案，`CLAUDE_CODE_OAUTH_TOKEN`，Google 的（`GEMINI_API_KEY`、`GOOGLE_API_KEY`、`GOOGLE_GENERATIVE_AI_API_KEY`、`GOOGLE_APPLICATION_CREDENTIALS`、`VERTEX_API_KEY`），OpenRouter、Mistral、Groq、DeepSeek、Together、Fireworks、Azure OpenAI、Cohere、Hugging Face、Perplexity、Cerebras、NVIDIA、Replicate、Voyage、Moonshot、DashScope、Z.ai、LiteLLM 的，Ollama 的（`OLLAMA_HOST`、`OLLAMA_API_KEY`），Bedrock 的 bearer token（`AWS_BEARER_TOKEN_BEDROCK`），Cursor 用來登入的金鑰（`CURSOR_API_KEY`、`CURSOR_AUTH_TOKEN`），以及 Antigravity 用 Application Default Credentials 登入的設定（`AGY_ADC_AUTH`）。不屬於模型來源的仍會傳給 agent，和其他 CLI 一樣：`PATH`、`HOME`、SSH agent、`GITHUB_TOKEN`、AWS 的其他變數。CLI 需要所有已設定金鑰的轉接器，必須說明並寫出原因（`allBackendKeys`）；目前沒有一個需要；
+- 只有這次執行自己的 API 來源的金鑰，放在各 CLI 讀取的變數（`OPENAI_API_KEY`、`ANTHROPIC_API_KEY` 或 `XAI_API_KEY`），沒有其他的：agent 執行的指令會繼承這個環境，所以用 Anthropic 的執行絕不會拿到 OpenAI 的金鑰。伺服器保存的每一把金鑰，以及從你的 shell 繼承來的每個模型供應商的金鑰、登入憑證或位址，都會先移除（`backends.ts` 的 `INHERITED_BACKEND_VARS`）：OpenAI、Anthropic 與 xAI 的金鑰、base URL、組織與專案，`CLAUDE_CODE_OAUTH_TOKEN`，Google 的（`GEMINI_API_KEY`、`GOOGLE_API_KEY`、`GOOGLE_GENERATIVE_AI_API_KEY`、`GOOGLE_APPLICATION_CREDENTIALS`、`VERTEX_API_KEY`），OpenRouter、Mistral、Groq、DeepSeek、Together、Fireworks、Azure OpenAI、Cohere、Hugging Face、Perplexity、Cerebras、NVIDIA、Replicate、Voyage、Moonshot、DashScope、Z.ai、LiteLLM 的，Ollama 的（`OLLAMA_HOST`、`OLLAMA_API_KEY`），Bedrock 的 bearer token（`AWS_BEARER_TOKEN_BEDROCK`），Cursor 用來登入的金鑰（`CURSOR_API_KEY`、`CURSOR_AUTH_TOKEN`），Antigravity 用 Application Default Credentials 登入的設定（`AGY_ADC_AUTH`），以及 Copilot 的登入 token 與它自己的模型供應商的位址與金鑰（`COPILOT_GITHUB_TOKEN`、`COPILOT_PROVIDER_BASE_URL`、`COPILOT_PROVIDER_API_KEY`、`COPILOT_PROVIDER_BEARER_TOKEN`），以及 Muse Code 用來登入的金鑰（`META_API_KEY`）。不屬於模型來源的仍會傳給 agent，和其他 CLI 一樣：`PATH`、`HOME`、SSH agent、`GITHUB_TOKEN`、AWS 的其他變數。CLI 需要所有已設定金鑰的轉接器，必須說明並寫出原因（`allBackendKeys`）；目前沒有一個需要；
 - 模型在自訂端點上時，該端點的 base URL 與金鑰：轉接器把金鑰放在它的 CLI 設定所指定的變數，絕不寫進設定檔；
 - 這次執行需要連到的主機（`api.openai.com`、`api.anthropic.com`、`api.x.ai`、端點的 `host:port`），交給 Harness Relay 的沙箱。
 
@@ -39,19 +39,20 @@ orchestrator 把模型來源傳給每次 開源 agent 的執行（`RunOptions.ba
 
 **狀態。** CLI 已安裝（`--version`）、轉接器已完成，且至少設定了一個模型來源時，開源 agent 就可使用。它沒有登入流程：登入相關的路由對它回應 400。Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI（Anthropic 不允許在第三方 agent 中使用它的訂閱）；「設定」會說明這點，Claude Code 與 Grok 本身的模型照常使用它們自己的登入。
 
-### Claude Code、Codex 與 Grok 在端點上執行
+### Claude Code、Codex、Grok 與 Copilot 在端點上執行
 
-自訂端點不只給開源 agent 用：Claude Code、Codex 與 Grok（`src/shared/types.ts` 的 `EndpointCli`、`ENDPOINT_CLI`）也能在上面執行，但絕不用 API 模型來源，那些金鑰只給開源 agent。`SettingsStore.backendsFor()` 只把端點交給它們的執行（`{ apis: {}, endpoints, deletedEndpoints }`），`backends.ts` 的 `endpointModel()` 判斷一次執行是不是在端點上：模型是 `<端點 id>/<模型>`，而且那個端點已設定。其他模型照原樣交給 CLI，包括它自己帶 `/` 的 id（例如使用者 Codex 設定裡某個 provider 的模型，像 OpenRouter 的），但在「設定」裡刪掉的端點的模型例外：刪掉的端點會被記住（`deleted_endpoints`，schema 版本 26，直到再新增同 id 的端點，或忘掉這個 id 為止，見下文），`endpointRunModel()` 會在 CLI 啟動前讓這樣的一輪失敗（`endpointDeleted`），而不是把那個 id 和 prompt 送到 CLI 自己的服務。session 屬於建立它的模型來源（`agent_sessions.backend`，schema 版本 26）：成員的模型在 CLI 自己的服務與端點之間移動，或換到另一個端點時，會帶著完整歷史開始新的 session（Claude Code 的 thinking 由寫下它的模型來源簽章；成員的模型改回 CLI 預設時，若接續 Grok 的 session，它會停留在端點的模型上）。對 Grok 來說，為端點輸入的模型（「自訂…」）若不在端點的清單裡，用到它的那次執行會為它另寫一個 table，因為 Grok 不接受設定裡沒有的模型；在同一個 Grok 家目錄裡每次重寫這個區塊（另一位成員的執行、首席 agent 的）都會保留這個 table，直到用到它的執行都結束（`holdGrokTypedModel()`）。已刪除端點的 id 會列在「設定」裡（`ModelBackendsView.deletedEndpoints`），可以忘掉（`DELETE /api/backends/deleted-endpoints/:id`），給剛好以同樣名稱開頭的 CLI 自己的模型用。它們的模型選單會在 CLI 自己的模型後面列出每個端點輸入的模型（`models.ts` 的 `withEndpointModels()`，標上 `ModelOption.endpoint`），並隨端點變動（`ProviderService.backendsChanged()` 會丟掉它們快取的選單，但不動登入狀態，也不動 Cursor 與 Antigravity 的選單，它們沒有端點的模型）。它們的狀態仍然是自己的登入。
+自訂端點不只給開源 agent 用：Claude Code、Codex、Grok 與 Copilot（`src/shared/types.ts` 的 `EndpointCli`、`ENDPOINT_CLI`）也能在上面執行，但絕不用 API 模型來源，那些金鑰只給開源 agent。`SettingsStore.backendsFor()` 只把端點交給它們的執行（`{ apis: {}, endpoints, deletedEndpoints }`），`backends.ts` 的 `endpointModel()` 判斷一次執行是不是在端點上：模型是 `<端點 id>/<模型>`，而且那個端點已設定。其他模型照原樣交給 CLI，包括它自己帶 `/` 的 id（例如使用者 Codex 設定裡某個 provider 的模型，像 OpenRouter 的），但在「設定」裡刪掉的端點的模型例外：刪掉的端點會被記住（`deleted_endpoints`，schema 版本 26，直到再新增同 id 的端點，或忘掉這個 id 為止，見下文），`endpointRunModel()` 會在 CLI 啟動前讓這樣的一輪失敗（`endpointDeleted`），而不是把那個 id 和 prompt 送到 CLI 自己的服務。session 屬於建立它的模型來源（`agent_sessions.backend`，schema 版本 26）：成員的模型在 CLI 自己的服務與端點之間移動，或換到另一個端點時，會帶著完整歷史開始新的 session（Claude Code 的 thinking 由寫下它的模型來源簽章；成員的模型改回 CLI 預設時，若接續 Grok 的 session，它會停留在端點的模型上）。對 Grok 來說，為端點輸入的模型（「自訂…」）若不在端點的清單裡，用到它的那次執行會為它另寫一個 table，因為 Grok 不接受設定裡沒有的模型；在同一個 Grok 家目錄裡每次重寫這個區塊（另一位成員的執行、首席 agent 的）都會保留這個 table，直到用到它的執行都結束（`holdGrokTypedModel()`）。已刪除端點的 id 會列在「設定」裡（`ModelBackendsView.deletedEndpoints`），可以忘掉（`DELETE /api/backends/deleted-endpoints/:id`），給剛好以同樣名稱開頭的 CLI 自己的模型用。它們的模型選單會在 CLI 自己的模型後面列出每個端點輸入的模型（`models.ts` 的 `withEndpointModels()`，標上 `ModelOption.endpoint`），並隨端點變動（`ProviderService.backendsChanged()` 會丟掉它們快取的選單，但不動登入狀態，也不動 Cursor 與 Antigravity 的選單，它們沒有端點的模型）。它們的狀態仍然是自己的登入。
 
-每個 CLI 用自己的 API，端點也要提供（vLLM、Ollama、LM Studio 與 llama.cpp 三種都提供）；端點的金鑰放在環境變數裡，不寫進會留下來的檔案：
+每個 CLI 用自己的 API，端點也要提供（vLLM、Ollama、LM Studio 與 llama.cpp 三種都提供，Grok 與 Copilot 都用 Chat Completions）；端點的金鑰放在環境變數裡，不寫進會留下來的檔案：
 
 | CLI | API | 執行時怎麼指到端點（`src/server/agents/`） | 登入 |
 | --- | --- | --- | --- |
 | Claude Code | Anthropic Messages（`/v1/messages`） | `claude.ts` 的 `claudeEndpointEnv()`：`ANTHROPIC_BASE_URL`（去掉結尾 `/v1` 的網址）、金鑰放在 `ANTHROPIC_AUTH_TOKEN`（沒有金鑰時是 `no-key`：Claude Code 會先用它，再輪到 `ANTHROPIC_API_KEY`、`apiKeyHelper` 或使用者的登入，所以這些都不會送到端點）、`ANTHROPIC_API_KEY` 與 `CLAUDE_CODE_OAUTH_TOKEN` 設為空、關掉 Bedrock、Vertex 與 Foundry，並讓這一輪、它的背景請求與子代理都用這個模型（`ANTHROPIC_MODEL`、`ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL`、`ANTHROPIC_SMALL_FAST_MODEL`、`CLAUDE_CODE_SUBAGENT_MODEL`）；這些放在這一輪的 `--settings`（`env`，屬於旗標層，蓋過使用者設定檔裡的值），也就是這次執行的私人檔案，也放在它的環境變數裡。`--model` 是模型本身的名稱。不顯示費用：Claude Code 會把不認得的模型當成自家模型計價 | 不需要 |
 | Codex | Responses（`/v1/responses`） | `codex.ts` 的 `codexThreadRequest()`：在 thread 的設定裡加一個自己的 model provider（`model_providers.harness-relay-<端點 id>`：`base_url`、`wire_api = "responses"`，端點有金鑰時加 `env_key = "HARNESS_RELAY_ENDPOINT_API_KEY"`），用那裡的 `model_provider` 與 `modelProvider` 指定，app-server 啟動時也帶同樣兩項設定（`-c`，裡面沒有秘密）：thread 的 provider 必須是 app-server 自己的，Codex 才接受。模型用它本身的名稱。自訂 provider 拿不到 ChatGPT 登入或 OpenAI 金鑰。在別的 provider 上開始的 session 無法在這個 provider 上接續，會重新開始 | 不需要 |
 | Grok | Chat Completions（`/v1/chat/completions`） | `grok.ts` 的 `writeGrokModels()`：Grok 只從它的 `config.toml` 讀自訂模型（它的 `GROK_CONFIG` 覆蓋層會丟掉 `[model.*]` 表格），所以在 `# >>> harness-relay models` 與 `# <<< harness-relay models` 之間的一段區塊，把每個端點模型定義成 `[model."harness-relay/<端點 id>/<模型>"]`（`base_url`、`env_key = "HARNESS_RELAY_ENDPOINT_API_KEY"`、`hidden = true`：不出現在 Grok 自己的模型選單，但仍可選用）。Grok 第一次在端點上執行時寫在檔案最後，之後每次 Grok 執行都會更新（最後一個端點刪掉時一起拿掉）；連結會跟著寫到它指向的檔案，檔案權限不變。寫入會經過執行中那些回合的設定守護（`guardGrokSettings`），它們會照寫入後的樣子接受。session 的模型就是那個 id。設定了 `env_key` 但變數沒有值時，Grok 不送金鑰，絕不送使用者的 Grok 登入（以 grok 1.0.77 確認） | 啟動時仍需要 |
+| Copilot | Chat Completions（`/v1/chat/completions`） | `copilot.ts` 的 `copilotEnv()`：Copilot 自己那組「使用者自己的模型供應商」變數（BYOK）：`COPILOT_PROVIDER_BASE_URL`（端點原本的 base URL，例如 `http://host:11434/v1`）、`COPILOT_PROVIDER_TYPE=openai`、`COPILOT_PROVIDER_WIRE_API=completions`、`COPILOT_MODEL`（模型本身的名稱；絕不同時用 `--model`，那樣 Copilot 會拒絕這種模型的任何推理強度），端點有金鑰時再加 `COPILOT_PROVIDER_API_KEY`；設定之前，會先清掉伺服器繼承來的這五個變數，以及 Copilot 其他的 provider 變數（`COPILOT_PROVIDER_API_KEY_COMMAND`、`COPILOT_PROVIDER_BEARER_TOKEN`、`COPILOT_PROVIDER_TRANSPORT`、`COPILOT_PROVIDER_MODEL_ID`、`COPILOT_PROVIDER_WIRE_MODEL`、`COPILOT_PROVIDER_HEADERS`、`COPILOT_PROVIDERS_CONFIG`）。金鑰不會交給它的指令與 MCP 伺服器（`--secret-env-vars`）。以 copilot 1.0.109 搭配照腳本回應的替身與 Ollama 確認 | 不需要 |
 
-**推理強度。** 在端點上執行時，只送這類伺服器都接受的推理強度（`ENDPOINT_CLI[...].efforts`、`endpointEffort()`）：Claude Code 是 `low`、`medium`、`high`（其他的不送，由 Claude Code 自己決定）；Codex 是 `none`、`low`、`medium`、`high`，其他的改送 `medium`，因為 Codex 無法設定成不送：給定的（成員的，或設定頁的預設）不在清單裡，或沒有給定但使用者的 Codex 設定有設（用 `config/read` 問；沒有設定時它回答沒有，這時就不送；Codex 答不出來時也送 `medium`）；Grok 不送，因為它會拒絕不認得的模型的推理強度。選單也照這樣顯示：這些模型只提供這些推理強度，「預設」顯示實際會用的（`inheritedEffort()`）。
+**推理強度。** 在端點上執行時，只送這類伺服器都接受的推理強度（`ENDPOINT_CLI[...].efforts`、`endpointEffort()`）：Claude Code 是 `low`、`medium`、`high`（其他的不送，由 Claude Code 自己決定）；Codex 是 `none`、`low`、`medium`、`high`，其他的改送 `medium`，因為 Codex 無法設定成不送：給定的（成員的，或設定頁的預設）不在清單裡，或沒有給定但使用者的 Codex 設定有設（用 `config/read` 問；沒有設定時它回答沒有，這時就不送；Codex 答不出來時也送 `medium`）；Grok 不送，因為它會拒絕不認得的模型的推理強度；Copilot 是 `low`、`medium`、`high`（其他的不送），以 `--reasoning-effort` 傳入，送到端點時是 `reasoning_effort`。選單也照這樣顯示：這些模型只提供這些推理強度，「預設」顯示實際會用的（`inheritedEffort()`）。
 
 這些執行做不到的事：CLI 需要自家服務的工具（Claude Code 的網路搜尋、Codex 與 Grok 的伺服器端工具），只能做到端點伺服器支援的程度。完全存取以外的權限下，CLI 自己的沙箱和用它們自己的模型時一樣：模型是 CLI 本身呼叫的，不在它的指令沙箱裡。
 
@@ -66,7 +67,7 @@ orchestrator 把模型來源傳給每次 開源 agent 的執行（`RunOptions.ba
 
 ### 每位成員自己的狀態
 
-一次執行能寫入的一切都屬於它自己：對話中一位成員的 session、記錄與快取，放在它自己的資料夾 `<家目錄>/private/<key>`，其他對話或其他成員的開源 agent 在沙箱中（完全存取以外）的執行都不能讀寫，其他在沙箱中的 agent 也都不能寫入。完全存取以外的 Claude Code、Codex、Grok、Cursor 與 Antigravity 讀得到它，就像它們讀得到彼此的 session：它們的沙箱（Cursor 與 Antigravity 沒有沙箱，則是 Cursor 的拒絕規則，以及 Antigravity 詢問時的拒絕）只擋住受保護路徑的讀取（[沙箱](sandboxing.zh-TW.md#agent-不能讀寫的地方)）。完全存取時沒有沙箱，和其他 CLI 一樣（曾有一個對話的執行在另一個對話的 session 檔加上一則假的使用者訊息，那個對話的下一個回答就照著做了）。
+一次執行能寫入的一切都屬於它自己：對話中一位成員的 session、記錄與快取，放在它自己的資料夾 `<家目錄>/private/<key>`，其他對話或其他成員的開源 agent 在沙箱中（完全存取以外）的執行都不能讀寫，其他在沙箱中的 agent 也都不能寫入。完全存取以外的 Claude Code、Codex、Grok、Cursor、Antigravity 與 Muse Code 讀得到它，就像它們讀得到彼此的 session：它們的沙箱（Cursor 與 Antigravity 沒有沙箱，則是 Cursor 的拒絕規則，以及 Antigravity 詢問時的拒絕）只擋住受保護路徑的讀取（[沙箱](sandboxing.zh-TW.md#agent-不能讀寫的地方)）。Copilot 的沙箱讓它的指令讀不到家目錄，而這些資料夾通常就在那裡。完全存取時沒有沙箱，和其他 CLI 一樣（曾有一個對話的執行在另一個對話的 session 檔加上一則假的使用者訊息，那個對話的下一個回答就照著做了）。
 
 - **key** 由 orchestrator 給出（`RunOptions.stateKey`，`src/server/agents/types.ts` 的 `stateKeys`）：成員是 `conv.<對話>.<成員>`，每一輪都相同，所以它的 session 可以接續；首席 agent 設計團隊、依你的要求修改團隊、把對話分進群組，分別是 `lead.<對話>`、`revise.<對話>` 與 `sort.<對話>`。分支出來的對話是另一個對話，所以它的成員從自己的狀態開始，session 也和以前一樣重新開始。沒有 key 的執行有一個自己的資料夾，執行後刪除。
 - **寫入。** 轉接器的 `home(root, state)` 把每個可寫入的路徑（`statePaths`）放在 `state` 裡；完全存取以外，有一個在它之外時就不會執行。伺服器為一個 key 留給之後執行的東西（Goose 的擴充清單）放在它旁邊的封存資料夾（`<家目錄>/private/.sealed-<key>`，`sealedFolder`），任何執行都不能讀寫，並和狀態資料夾一起清空。家目錄中共用的部分（每次執行前寫入的設定、模型清單）留在 `root`，沙箱中的執行絕不能寫入。

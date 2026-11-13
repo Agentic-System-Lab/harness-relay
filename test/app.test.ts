@@ -670,7 +670,7 @@ describe('accounts', () => {
 
   it("lists every account's models over HTTP, each with its own defaults", async () => {
     const { call, read, settings } = accountsApp();
-    // Not installed: no CLI runs (Claude Code's models are read from its settings file).
+    // Not installed: no CLI runs (Claude Code's models are read from its settings file, Muse Code's are a list of Harness Relay's own).
     settings.update('codex', { bin: join(root, 'no-such-codex') });
     settings.update('grok', { bin: join(root, 'no-such-grok') });
     for (const p of OPEN_PROVIDERS) settings.update(p, { bin: join(root, `no-such-${p}`) });
@@ -686,6 +686,8 @@ describe('accounts', () => {
       ['grok', '', undefined],
       ['cursor', '', undefined],
       ['antigravity', '', undefined],
+      ['copilot', '', undefined],
+      ['muse', '', undefined],
       // The open agents have their default account only.
       ...OPEN_PROVIDERS.map((p) => [p, '', undefined]),
     ]);
@@ -745,6 +747,16 @@ describe('accounts', () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/one sign-in per computer user/);
     expect((await (await read('/api/providers/cursor/login-methods')).json()).map((m: { id: string }) => m.id)).toEqual(['browser']);
+  });
+
+  it("refuses a Meta sign-in for a Muse Code account besides the default one, which signs in with its key", async () => {
+    const { call, read } = accountsApp();
+    const id = ((await (await call('POST', '/api/settings/providers/muse/accounts', { label: 'Team' })).json()) as { id: string }).id;
+    const res = await call('POST', `/api/providers/muse/login?account=${id}`, { method: 'meta' });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/runs on a Meta API key only/);
+    // The default account signs in with its Meta account (a device code).
+    expect(await (await read('/api/providers/muse/login-methods')).json()).toEqual([{ id: 'meta', label: expect.stringContaining('Meta'), description: expect.any(String) }]);
   });
 
   it('signs each account in and out on its own, and refuses accounts the CLI does not have', async () => {
@@ -1678,7 +1690,7 @@ describe('tool library', () => {
     expect(res.status).toBe(200);
     const view = await res.json();
     expect(view.skills).toEqual([{ path: skills, name: 'commit', description: 'Commit well.', providers: ['codex'] }]);
-    expect(view.memory).toEqual({ all: 'Be brief.', claude: 'Use pnpm.', codex: '', grok: '', cursor: '', antigravity: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' });
+    expect(view.memory).toEqual({ all: 'Be brief.', claude: 'Use pnpm.', codex: '', grok: '', cursor: '', antigravity: '', copilot: '', muse: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' });
     expect((await app.request('/api/tools', json('PUT', { memory: { gemini: 'x' } }))).status).toBe(400);
     expect((await app.request('/api/tools', json('PUT', { memory: { all: 'x'.repeat(20_001) } }))).status).toBe(400);
     expect((await app.request('/api/tools', json('PUT', { skills: [{ path: join(project, 'nothing-here') }] }))).status).toBe(400);

@@ -38,6 +38,8 @@ describe('client routes', () => {
       'grok',
       'cursor',
       'antigravity',
+      'copilot',
+      'muse',
       'opencode',
       'goose',
       'cline',

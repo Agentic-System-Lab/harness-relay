@@ -86,7 +86,7 @@ describe('the fake CLIs', () => {
       expect(m.name).toMatch(/^[A-Za-z0-9_-]+$/);
       for (const f of ['home', 'apiKey', 'main'] as const) expect(typeof m[f]).toBe('function');
       // What Settings shows: `v` and the version Harness Relay reads from `--version` (`parseVersion`).
-      expect(`v${/\d+\.\d+\.\d+[\w.-]*/.exec(m.version)?.[0]}`).toBe(FACTS[p].version);
+      expect(`v${/\d+\.\d+\.\d+[\w.-]*/.exec(m.version)?.[0].replace(/[.-]+$/, '')}`).toBe(FACTS[p].version);
       expect(m.versionRe.test(m.version)).toBe(true);
     }
   });
@@ -249,6 +249,18 @@ describe("the fakes as launchers start them on Windows (e2e/specs/windows.spec.t
     const version = `${WIN}\\cursor\\versions\\2026.11.11-e2e0001`;
     expect(launch).toEqual({ file: `${version}\\node.exe`, args: [`${version}\\index.js`, '--version'], env: { CURSOR_INVOKED_AS: 'cursor-agent.cmd' } });
     says('cursor', launch.args, launch.env);
+  });
+
+  it("starts Muse Code's launcher as the binary its .muse-version names, which runs as Muse Code", () => {
+    expect(win(bins.muse)).toBe(`${WIN}\\muse\\muse.cmd`);
+    const launch = windowsLaunch('muse', ['--version'], env('muse'), fs, null);
+    expect(launch).toEqual({ file: `${WIN}\\muse\\muse-bin-1.4.999-R1.exe`, args: ['--version'] });
+    expect(readFileSync(local(launch.file), 'utf8')).toBe('a stand-in for the fakes’ executable');
+    // The fakes' executable under that name is Muse Code's fake.
+    writeFileSync(script('muse-bin-1.4.999-R1'), bundleFakeCli());
+    const r = run('muse-bin-1.4.999-R1', ['--version']);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toMatch(fakeModule('muse').versionRe);
   });
 
   it.each([['cline'], ['pi']] as const)("starts %s's npm shim as the PATH's Node with its script", (p) => {

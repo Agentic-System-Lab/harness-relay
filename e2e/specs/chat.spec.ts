@@ -2,6 +2,9 @@ import { expect, test } from '../fixtures';
 import { askAndConfirm, awaitingPlan, chatId, composer, confirmTeam, finishedReply, replies, send, settled, startChat } from '../support/app';
 import { eachHalf, sharedPermission, teamOf } from '../support/clis';
 
+/** The most members the lead agent puts in a team it designs for a new question (`newTeamLimit` in src/server/planner.ts). */
+const LEAD_TEAM_MAX = 5;
+
 test.describe('a new chat', () => {
   test('the lead agent proposes a team, and once it is confirmed the team answers', async ({ page, relay }) => {
     await startChat(page);
@@ -33,20 +36,26 @@ test.describe('a new chat', () => {
     await expect(awaitingPlan(page)).toHaveCount(0);
   });
 
-  // The CLIs with a sign-in, then the open agents (those whose fake is written), each a team the lead
-  // agent picks, in a chat with the permission all of them can run with here.
+  // The CLIs with a sign-in, then the open agents (those whose fake is written), each in teams the lead
+  // agent picks, in a chat with the permission all of them can run with here. A half with more CLIs
+  // than the lead agent puts in a new team (`LEAD_TEAM_MAX`) answers as teams of about the same size,
+  // each in a chat of its own.
   eachHalf((half) => {
     test(half.title('a team of every CLI answers in turn'), async ({ page }) => {
-      const team = teamOf(half.clis);
-      await startChat(page, { permission: sharedPermission(team) });
-      await askAndConfirm(page, `Review the code together e2e:team=${team.map((c) => c.provider).join(',')}`);
-      for (const c of team) {
-        const reply = await finishedReply(page, c.name);
-        await expect(reply).toContainText(`Hello from ${c.name} (${c.label}). You said: “Review the code together”.`);
-        await expect(reply.locator('.provider-tag')).toHaveText(c.label);
+      const all = teamOf(half.clis);
+      const size = Math.ceil(all.length / Math.ceil(all.length / LEAD_TEAM_MAX));
+      for (let i = 0; i < all.length; i += size) {
+        const team = all.slice(i, i + size);
+        await startChat(page, { permission: sharedPermission(team) });
+        await askAndConfirm(page, `Review the code together e2e:team=${team.map((c) => c.provider).join(',')}`);
+        for (const c of team) {
+          const reply = await finishedReply(page, c.name);
+          await expect(reply).toContainText(`Hello from ${c.name} (${c.label}). You said: “Review the code together”.`);
+          await expect(reply.locator('.provider-tag')).toHaveText(c.label);
+        }
+        // Roundtable order: the team's.
+        await expect(page.locator('.msg-agent .msg-head strong')).toHaveText(team.map((c) => `@${c.name}`));
       }
-      // Roundtable order: the team's.
-      await expect(page.locator('.msg-agent .msg-head strong')).toHaveText(team.map((c) => `@${c.name}`));
     });
   });
 

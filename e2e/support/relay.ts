@@ -41,6 +41,8 @@ export interface FakeLogEntry {
   /** A session started (`resumed: false`) or resumed. */
   session?: string;
   resumed?: boolean;
+  /** Copilot: the project's hook files it would run by itself when its session opened (`.github/hooks/*.json`). */
+  projectHooks?: string[];
   /** The images and the tool library's MCP servers a turn got. */
   images?: number;
   mcp?: string[];
@@ -49,7 +51,7 @@ export interface FakeLogEntry {
   /** With `mcpEnv`: the URL of each server among them that the CLI was given as an HTTP server, by server. */
   mcpHttp?: Record<string, string>;
   /**
-   * A start: the CLI's home it runs in, its account's (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`,
+   * A start: the CLI's home it runs in, its account's (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, `COPILOT_HOME`,
    * Cursor's account folder, Antigravity's `.gemini` folder; for an open agent the folder of its state it
    * keeps its sessions in): the fake module's `home()`.
    */
@@ -247,9 +249,9 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
   // server's business. A spec that needs one sets it (`serverEnv`).
   for (const k of Object.keys(env)) if (/^(CLAUDECODE|CLAUDE_CODE_|PLAYWRIGHT_|PW_|TEST_|E2E_|RELAY_|FORCE_COLOR$)/.test(k)) delete env[k];
   // Nor the user's own Cursor or Antigravity sign-in by key or Google's credentials, Cursor's folder,
-  // credential store or launcher name, or the user's own XDG folders (set to the test's below); live
-  // runs sign in as the user does.
-  const OWN = /^(CURSOR_API_KEY|CURSOR_AUTH_TOKEN|CURSOR_CONFIG_DIR|CURSOR_INVOKED_AS|AGENT_CLI_CREDENTIAL_STORE|NO_OPEN_BROWSER|GEMINI_API_KEY|AGY_ADC_AUTH|GOOGLE_APPLICATION_CREDENTIALS|GOOGLE_CLOUD_PROJECT|ANTIGRAVITY_.*|XDG_DATA_HOME|XDG_STATE_HOME|XDG_CACHE_HOME)$/;
+  // credential store or launcher name, Copilot's own variables (its home, model, BYOK endpoint, allow-all),
+  // or the user's own XDG folders (set to the test's below); live runs sign in as the user does.
+  const OWN = /^(CURSOR_API_KEY|CURSOR_AUTH_TOKEN|CURSOR_CONFIG_DIR|CURSOR_INVOKED_AS|AGENT_CLI_CREDENTIAL_STORE|NO_OPEN_BROWSER|GEMINI_API_KEY|AGY_ADC_AUTH|GOOGLE_APPLICATION_CREDENTIALS|GOOGLE_CLOUD_PROJECT|ANTIGRAVITY_.*|COPILOT_.*|XDG_DATA_HOME|XDG_STATE_HOME|XDG_CACHE_HOME)$/;
   if (!o.live) for (const k of Object.keys(env)) if (OWN.test(k)) delete env[k];
   // Nor, outside live runs, the developer's credentials: should a real CLI or gh ever be found
   // instead of a fake (a fake build removed under a run), it finds no key or token to reach a service with.
@@ -266,6 +268,7 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
         CLAUDE_CONFIG_DIR: join(home, '.claude'),
         CODEX_HOME: join(home, '.codex'),
         GROK_HOME: join(home, '.grok'),
+        COPILOT_HOME: join(home, '.copilot'),
       };
   Object.assign(env, {
     PORT: '0',

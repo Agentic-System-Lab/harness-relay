@@ -32,6 +32,10 @@ export const AGENTSVIEW_SESSIONS: Record<Provider, { prefix: string } | 'recorde
   grok: { prefix: 'grok:' },
   // agy's conversations (`antigravity-cli/conversations/<id>.db`), AgentsView's "Antigravity CLI".
   antigravity: { prefix: 'antigravity-cli:' },
+  // Copilot's sessions (`session-state/<id>/events.jsonl` in its home, which each run links to), AgentsView's "Copilot".
+  copilot: { prefix: 'copilot:' },
+  // Muse's sessions (`${XDG_DATA_HOME:-~/.local/share}/muse/sessions/YYYY/MM/DD/<id>/session.jsonl`), AgentsView's "Muse Code" (0.46.1).
+  muse: { prefix: 'muse:' },
   cursor: 'recorded',
   opencode: 'recorded',
   goose: 'recorded',

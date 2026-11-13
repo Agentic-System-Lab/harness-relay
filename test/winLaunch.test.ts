@@ -125,6 +125,25 @@ describe('starting a CLI on Windows', () => {
     expect(() => windowsLaunch('mine', [], env(home), other)).toThrow(WindowsScriptError);
   });
 
+  it("starts Muse Code's active binary as its launcher does, the one its .muse-version names", () => {
+    const home = 'C:\\Users\\me\\AppData\\Local\\Programs\\muse';
+    // `muse.cmd` as Muse's install.ps1 writes it.
+    const shim = '@echo off\r\nsetlocal\r\n"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%~dp0.muse-launcher.ps1" %*\r\nexit /b %ERRORLEVEL%\r\n';
+    const fs = disk({
+      [`${home}\\muse.cmd`]: shim,
+      [`${home}\\.muse-launcher.ps1`]: '',
+      [`${home}\\.muse-version`]: '1.4.18-R8587.1\r\n',
+      [`${home}\\muse-bin-1.4.18-R8587.1.exe`]: '',
+      [`${home}\\muse-bin-1.4.17-R8100.exe`]: '',
+    });
+    expect(windowsLaunch('muse', ['acp'], env(home), fs)).toEqual({ file: `${home}\\muse-bin-1.4.18-R8587.1.exe`, args: ['acp'] });
+    // No binary for the version it names (an update cut short), or no version: the run fails saying so.
+    const cut = disk({ [`${home}\\muse.cmd`]: shim, [`${home}\\.muse-version`]: '1.4.19-R9000' });
+    expect(() => windowsLaunch('muse', [], env(home), cut)).toThrow(WindowsScriptError);
+    const odd = disk({ [`${home}\\muse.cmd`]: shim, [`${home}\\.muse-version`]: '..\\..\\evil', [`${home}\\muse-bin-..\\..\\evil.exe`]: '' });
+    expect(() => windowsLaunch('muse', [], env(home), odd)).toThrow(WindowsScriptError);
+  });
+
   it("takes a script for npm's shim only when every line of it is one npm writes, for Node", () => {
     expect(npmShimTarget(programShim('node_modules\\x\\x.exe'))).toEqual({ program: 'node_modules\\x\\x.exe' });
     expect(npmShimTarget(nodeShim('node_modules\\x\\cli.js'))).toEqual({ node: 'node_modules\\x\\cli.js' });

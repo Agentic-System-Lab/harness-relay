@@ -892,7 +892,7 @@ export const zhTW = {
     },
     /** Text on the shared page itself. */
     page: {
-      tagline: '讓真正的 Claude Code、Codex、Grok、Cursor、Antigravity CLI 與開源 coding agent 一起工作的本機群組聊天室',
+      tagline: '讓真正的 Claude Code、Codex、Grok、Cursor、Antigravity、Copilot CLI 與開源 coding agent 一起工作的本機群組聊天室',
       note: (date: string) => `分享於 ${date}`,
       /** The link icon beside the time: it links to Harness Relay's website. */
       site: 'Harness Relay 網站',
@@ -942,7 +942,7 @@ export const zhTW = {
 
   tools: {
     title: '工具庫',
-    hint: '這裡的 MCP 伺服器、skill 和記憶會提供給成員，每種 CLI 都能用（Claude Code、Codex、Grok、Cursor、Antigravity 與開源 agent），而且加在各 CLI 自己的設定之外。每一項可以給所有成員，或只給某幾種 CLI 的成員；要針對單一成員調整，在「新對話」或對話上方的「團隊設定」裡，用該成員卡片的「工具」欄位。變更從成員的下一回合開始生效。',
+    hint: '這裡的 MCP 伺服器、skill 和記憶會提供給成員，每種 CLI 都能用（Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 與開源 agent），而且加在各 CLI 自己的設定之外。每一項可以給所有成員，或只給某幾種 CLI 的成員；要針對單一成員調整，在「新對話」或對話上方的「團隊設定」裡，用該成員卡片的「工具」欄位。變更從成員的下一回合開始生效。',
     mcp: 'MCP 伺服器',
     mcpHint: '工具呼叫一樣受對話的權限限制：權限範圍以外的會詢問你，或依設定自動拒絕。',
     addMcp: '新增 MCP 伺服器',
@@ -1099,6 +1099,26 @@ export const zhTW = {
         agents: 'Antigravity 沒有能單次略過自訂 agent 的設定',
         plugins: 'Antigravity 沒有能單次略過 plugin 的設定（plugin 帶來的 skill、規則、MCP 與 hook 都照常載入）',
       },
+      copilot: {
+        skills: '它的 skill 工具與 skill 清單（內建的、~/.copilot/skills、專案 .github/skills 等）都不提供',
+        mcp: '它自己的 MCP 伺服器（~/.copilot/mcp-config.json 與內建的 GitHub MCP）都不啟動；只保留工具庫的，以及 plugin 沒被略過時 plugin 帶的',
+        tools: 'Copilot 不回報它的內建工具',
+        instructions: 'Copilot 透過 ACP 執行時不套用 --no-custom-instructions：AGENTS.md、CLAUDE.md、.github/copilot-instructions.md 等照常載入',
+        memory: '它的記憶（memory 設定關閉）',
+        hooks: '你自己的 hook（~/.copilot 的，disableAllHooks）。專案的 hook（.github/hooks，以及專案 .github/copilot 或 .claude 設定裡的）仍會執行，所以低於完整權限時，每次執行前都會先問你',
+        agents: 'Copilot 沒有能單次略過自訂 agent 的設定',
+        plugins: '每個已安裝的 plugin，連同它的 skill 與 MCP 伺服器',
+      },
+      muse: {
+        skills: 'Muse Code 沒有能單次略過 skill 的設定（它內建的、~/.config/muse/skills 的，以及你 Claude Code 與 Codex 的 skill 都會載入；專案的 skill 只在完全存取時載入，那時工作區才受信任）',
+        mcp: '把 Muse Code 設定裡的 MCP 伺服器從這一輪自己的設定中拿掉',
+        tools: 'Muse Code 不回報它的內建工具',
+        instructions: 'Muse Code 沒有能單次略過指示檔的設定（它自己的規則，以及你 Claude Code 與 Codex 的都會載入；專案的 AGENTS.md、CLAUDE.md 只在完全存取時載入，那時工作區才受信任）',
+        memory: 'Muse Code 沒有能單次略過記憶的設定',
+        hooks: '把 Muse Code 設定裡的 hook 從這一輪自己的設定中拿掉（專案的 .muse/hooks.json 只在完全存取時載入，那時工作區才受信任）',
+        agents: 'Muse Code 沒有能單次略過自訂 agent 的設定',
+        plugins: 'Muse Code 沒有能單次略過 plugin 的設定',
+      },
       goose: {
         skills: 'Goose 沒有關掉 skill 的設定：專案裡 .goose/skills、.claude/skills、.agents/skills 的 skill 一定會載入（它的家目錄是 Harness Relay 自己的，所以不會讀你 ~/.claude/skills 等處的 skill）',
         mcp: '專案 plugin 的 MCP 伺服器都不啟動，只保留工具庫的；從新的對話開始生效（接續的 session 沿用開始時的清單）',
@@ -1245,7 +1265,7 @@ export const zhTW = {
     sessionsHint: 'Harness Relay 啟動 claude、codex、grok、cursor-agent、agy 時，它們把登入、設定與 session 紀錄放在哪裡，以及是否在 AgentsView 中檢視每個對話。',
     agentHome: '各 CLI 自己的資料夾',
     agentHomeHint:
-      '設定後，Harness Relay 讓 claude、codex、grok、cursor-agent、agy 分別用這個資料夾下的 claude、codex、grok、cursor、antigravity 子資料夾當家目錄：登入、設定和 session 紀錄都放在那裡，和你平常直接使用 CLI 時分開。之後要在上方的各 CLI 重新登入一次（或設定 API key）；它們也不再讀你平常家目錄裡的設定、MCP、skill、記憶與 plugin，Harness Relay 工具庫裡的照常提供。Cursor 例外：只有它的設定與 session 紀錄會放到那裡；它的登入，以及 ~/.cursor 裡的 skill、MCP 與 hooks，仍留在 Cursor 為你的使用者保存的地方。Antigravity 的 .gemini 資料夾（設定、skill、MCP、hook 與對話紀錄）會放到那裡，它的 Google 登入則留在系統的 keyring。留空則使用各 CLI 平常的家目錄。',
+      '設定後，Harness Relay 讓 claude、codex、grok、cursor-agent、agy、copilot、muse 分別用這個資料夾下的 claude、codex、grok、cursor、antigravity、copilot、muse 子資料夾當家目錄：登入、設定和 session 紀錄都放在那裡，和你平常直接使用 CLI 時分開。之後要在上方的各 CLI 重新登入一次（或設定 API key）；它們也不再讀你平常家目錄裡的設定、MCP、skill、記憶與 plugin，Harness Relay 工具庫裡的照常提供。Cursor 例外：只有它的設定與 session 紀錄會放到那裡；它的登入，以及 ~/.cursor 裡的 skill、MCP 與 hooks，仍留在 Cursor 為你的使用者保存的地方。Antigravity 的 .gemini 資料夾（設定、skill、MCP、hook 與對話紀錄）會放到那裡，它的 Google 登入則留在系統的 keyring。Muse Code 的設定與資料資料夾（設定、登入與 session）也會放到那裡。留空則使用各 CLI 平常的家目錄。',
     agentHomeUse: (dir: string) => `使用 ${dir}`,
     agentHomeSaved: (dir: string) => `各 CLI 現在使用 ${dir} 下的資料夾，請在上方重新登入`,
     agentHomeOff: '各 CLI 已改回使用平常的家目錄',
@@ -1350,6 +1370,8 @@ export const zhTW = {
         'Codex 也能在你自己的端點上執行（模型來源）：給成員選一個端點的模型，例如 homelab/gemma4:e4b，或在下方「預設模型與推理強度」選一個，當作它的預設模型（沒有指定模型的成員就用它）。那台伺服器也要提供 Responses API（/v1/responses）；這時 Codex 不需要登入，你的登入也不會送到那裡。推理強度只送端點都接受的 none、low、medium、high，其他的改送 medium。',
       grok:
         'Grok 也能在你自己的端點上執行（模型來源）：給成員選一個端點的模型，例如 homelab/gemma4:e4b，或在下方「預設模型與推理強度」選一個，當作它的預設模型（沒有指定模型的成員就用它）。那台伺服器要提供 Chat Completions（/v1/chat/completions）。Grok 啟動時仍需要登入（或 API key），但不會把它送到那裡；Harness Relay 會把端點的模型寫進 Grok 的 config.toml，不出現在 Grok 自己的模型選單。這些模型不帶推理強度。',
+      copilot:
+        'Copilot 也能在你自己的端點上執行（模型來源）：給成員選一個端點的模型，例如 homelab/gemma4:e4b，或在下方「預設模型與推理強度」選一個，當作它的預設模型（沒有指定模型的成員就用它）。那台伺服器要提供 Chat Completions（/v1/chat/completions）；Harness Relay 用 Copilot 自己的 BYOK 變數（COPILOT_PROVIDER_*）指向它，這時 Copilot 不需要 GitHub 登入，你的登入也不會送到那裡。推理強度只送端點都接受的 low、medium、high。',
     },
     apiKeyHelp: {
       claude: '儲存後，Harness Relay 啟動 Claude Code 時會帶入 ANTHROPIC_API_KEY（改用 API 計費，優先於訂閱登入）。',
@@ -1358,6 +1380,9 @@ export const zhTW = {
       cursor: '儲存後，Harness Relay 啟動 Cursor 時會帶入 CURSOR_API_KEY，並讓 Cursor 只在那次執行中使用它，不會存進 Cursor 的登入（也就不會取代你自己的 Cursor 登入）。',
       antigravity:
         '儲存後，Harness Relay 啟動 Antigravity 時會帶入 GEMINI_API_KEY，並在那次執行自己的設定中加上 modelProvider: "gemini"，讓它改用 Gemini API（依用量計費）而不是 Google 登入；你自己的設定檔不會被改動。',
+      copilot:
+        '儲存後，Harness Relay 啟動 Copilot 時會帶入 COPILOT_GITHUB_TOKEN（優先於它保存的 GitHub 登入）。請用有「Copilot Requests」權限的 fine-grained personal access token；Copilot 不接受 classic token（ghp_）。',
+      muse: '儲存後，Harness Relay 啟動 Muse Code 時會帶入 META_API_KEY，它就改用這把金鑰（Meta API 計費），而不是你的 Meta 帳號登入。',
     },
     cliMissing: (bin: string) => `找不到 ${bin}`,
     setBinBelow: '（可在下方「執行檔」指定路徑）',
@@ -1372,6 +1397,8 @@ export const zhTW = {
       'Cursor 在每個電腦使用者只保留一個登入（macOS 上存在鑰匙圈裡，不論它的資料夾在哪），所以這個額外帳號只能用 API key：請在下方設定。Cursor 自己的登入只屬於預設帳號。',
     keyOnlyAntigravity:
       'Antigravity 把 Google 登入存在系統的 keyring 裡，Harness Relay 無法確定另一個帳號的登入不會取代預設帳號的，所以這個額外帳號只能用 Gemini API key：請在下方設定。Google 登入只屬於預設帳號。',
+    keyOnlyMuse:
+      'Muse Code 在 macOS 把 Meta 登入存在登入鑰匙圈裡，名稱不隨它的資料夾改變，另一個帳號的登入可能取代預設帳號的，所以這個額外帳號只能用 Meta API key：請在下方設定。Meta 帳號登入只屬於預設帳號。',
     keySaved: '已儲存 API key',
     keyRemoved: '已移除 API key',
     saved: '已儲存',
@@ -1423,11 +1450,11 @@ export const zhTW = {
     steps: [
       {
         title: '歡迎使用 Harness Relay',
-        body: '這是一個群組聊天室：Claude Code、Codex、Grok、Cursor 和 Antigravity，以及 OpenCode、Goose、Cline、OpenHands、Pi 五個開源 agent，會一起回答你的問題、一起改你的程式，全都在你的電腦上執行。接下來幾個步驟帶你認識主要功能。',
+        body: '這是一個群組聊天室：Claude Code、Codex、Grok、Cursor、Antigravity 和 Copilot，以及 OpenCode、Goose、Cline、OpenHands、Pi 五個開源 agent，會一起回答你的問題、一起改你的程式，全都在你的電腦上執行。接下來幾個步驟帶你認識主要功能。',
       },
       {
         title: '先確認各 agent 可以使用',
-        body: 'Harness Relay 直接呼叫你電腦上的 CLI。左下角的燈號是各 agent 的狀態；到「設定與登入」可以登入 Claude Code、Codex、Grok、Cursor 與 Antigravity，設定 API key 與預設模型。它只接受你登入過的瀏覽器：要用手機使用，請到「設定 → 已登入的瀏覽器」取得代碼。',
+        body: 'Harness Relay 直接呼叫你電腦上的 CLI。左下角的燈號是各 agent 的狀態；到「設定與登入」可以登入 Claude Code、Codex、Grok、Cursor、Antigravity 與 Copilot，設定 API key 與預設模型。它只接受你登入過的瀏覽器：要用手機使用，請到「設定 → 已登入的瀏覽器」取得代碼。',
       },
       {
         title: '開源 agent 與模型來源',
@@ -1507,7 +1534,7 @@ export const zhTW = {
           '唯讀：只讀檔、分析與上網查資料',
           '可編輯：在工作目錄內修改檔案、執行測試與建置',
           '完全存取：執行任何指令，不再詢問',
-          '完全存取以外，除了 Cursor 與 Antigravity，每個 agent 的指令都在沙箱中執行：只能寫入工作目錄與暫存資料夾，讀不到你瀏覽器的資料夾與 Harness Relay 的資料。Claude Code、Codex 與 Grok 用它們自己的沙箱，開源 agent 用 Harness Relay 自己的（原生 Windows 上只有 Codex 有沙箱，開源 agent 只能以完全存取執行）。Cursor 沒有沙箱：它要執行的每個指令都會先問你（對話設為自動拒絕時則直接拒絕），你的 Cursor 團隊允許清單上的除外；你允許的指令會以你的完整權限執行。Antigravity 也一樣，它要執行的每個指令都會先問你，而且拒絕一個操作後它會結束這一輪',
+          '完全存取以外，除了 Cursor 與 Antigravity，每個 agent 的指令都在沙箱中執行：只能寫入工作目錄與暫存資料夾，讀不到你瀏覽器的資料夾與 Harness Relay 的資料。Claude Code、Codex、Grok 與 Copilot 用它們自己的沙箱，開源 agent 用 Harness Relay 自己的（原生 Windows 上只有 Codex 與 Copilot 有沙箱，開源 agent 只能以完全存取執行）。Cursor 沒有沙箱：它要執行的每個指令都會先問你（對話設為自動拒絕時則直接拒絕），你的 Cursor 團隊允許清單上的除外；你允許的指令會以你的完整權限執行。Antigravity 也一樣，它要執行的每個指令都會先問你，而且拒絕一個操作後它會結束這一輪',
           '在你的家目錄與 Harness Relay 自己的資料夾中，不能使用可編輯模式：請選專案的資料夾',
           '提高權限時，每個 agent 下一輪都會帶著完整的歷史開始新的 session',
           '每回合改了哪些檔案都會列出來，可以看 diff；平行模式再選擇要套用誰的結果',

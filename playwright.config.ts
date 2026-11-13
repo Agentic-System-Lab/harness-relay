@@ -2,7 +2,7 @@ import { defineConfig, devices, type Project } from '@playwright/test';
 
 /*
  * End-to-end tests (`npm run test:e2e`): the real server and the built UI in a real browser, with
- * a fake for each of the ten agent CLIs (`e2e/fake-cli/`), so they run offline, on macOS, Linux
+ * a fake for each of the twelve agent CLIs (`e2e/fake-cli/`), so they run offline, on macOS, Linux
  * and Windows (below full access the open agents' fakes run in Harness Relay's own sandbox, on
  * macOS and Linux). Each test gets a server of its own (`e2e/fixtures.ts`). See the developer
  * guide, "End-to-end tests".

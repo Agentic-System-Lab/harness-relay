@@ -15,10 +15,11 @@
  * - `lib/plan.cjs`: what it says (the lead agent's answers, a turn's steps); `lib/home.cjs`: what it
  *   keeps in its home (sign-in, sessions); `lib/files.cjs`: files and folders;
  * - `agents/<provider>.cjs`: one CLI each, exporting `provider`, `bin` (and `aliases`: other names it
- *   answers to), `label` (PROVIDER_LABEL), `name` (the member name the fake lead agent gives it),
- *   `version` (what `--version` prints) and `versionRe` (what the build checks that against),
- *   `home(env, args)` (its home for this start: where its sign-in, sessions and marks go; for an open
- *   agent a folder its runs may write in Harness Relay's sandbox), `apiKey(env)` (whether it got the
+ *   answers to, and `aliasRe`, a pattern of them: Muse Code's versioned binary), `label`
+ *   (PROVIDER_LABEL), `name` (the member name the fake lead agent gives it), `version` (what
+ *   `--version` prints) and `versionRe` (what the build checks that against), `home(env, args)`
+ *   (its home for this start: where its sign-in, sessions and marks go; for an open agent a folder
+ *   its runs may write in Harness Relay's sandbox), `apiKey(env)` (whether it got the
  *   key a test expects, E2E_EXPECTED_API_KEY: 'expected', 'other' or null, never the key) and
  *   `main(args)` (the start: every static command the server runs, exiting non-zero at once on
  *   anything else, and its turns in its own protocol). A CLI whose fake is not written yet says so and
@@ -60,6 +61,8 @@ const AGENTS = [
   require('./agents/grok.cjs'),
   require('./agents/cursor.cjs'),
   require('./agents/antigravity.cjs'),
+  require('./agents/copilot.cjs'),
+  require('./agents/muse.cjs'),
   require('./agents/opencode.cjs'),
   require('./agents/goose.cjs'),
   require('./agents/cline.cjs'),
@@ -68,7 +71,7 @@ const AGENTS = [
 ];
 
 const name = self.runName();
-const agent = AGENTS.find((a) => a.bin === name || (a.aliases || []).includes(name));
+const agent = AGENTS.find((a) => a.bin === name || (a.aliases || []).includes(name) || (a.aliasRe && a.aliasRe.test(name)));
 if (!agent) {
   process.stderr.write(`fake-cli: run me as ${AGENTS.map((a) => a.bin).join(', ')} (not ${name})\n`, () => process.exit(2));
 } else {

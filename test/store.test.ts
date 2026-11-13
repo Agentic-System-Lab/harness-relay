@@ -1098,7 +1098,7 @@ describe('SettingsStore (SQLite)', () => {
     expect(storedKeys()).toEqual(['', '']);
     expect(s.env('claude').ANTHROPIC_API_KEY).toBe('sk-ant-secret-1234');
     const view = (v: SettingsStore) => Object.fromEntries(v.view().providers.map((p) => [p.provider, p.apiKeyStorage]));
-    expect(view(s)).toEqual({ claude: 'keychain', codex: undefined, grok: 'keychain', cursor: 'keychain', antigravity: 'keychain' });
+    expect(view(s)).toEqual({ claude: 'keychain', codex: undefined, grok: 'keychain', cursor: 'keychain', antigravity: 'keychain', copilot: 'keychain', muse: 'keychain' });
 
     const again = new SettingsStore(reopen(), keyring);
     expect(again.env('claude').ANTHROPIC_API_KEY).toBe('sk-ant-secret-1234');
@@ -1252,6 +1252,25 @@ describe('SettingsStore accounts', () => {
       expect([s.env('cursor', other).CURSOR_AUTH_TOKEN, s.env('cursor').CURSOR_AUTH_TOKEN]).toEqual([undefined, 'shell-token']);
       // Other CLIs are left alone.
       expect(s.env('claude', s.addAccount('claude', 'Work')).AGENT_CLI_CREDENTIAL_STORE).toBe('');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("gives a Muse Code account besides the default one a home of its own and its own Meta API key only", () => {
+    vi.stubEnv('META_API_KEY', 'meta-shell');
+    try {
+      const s = new SettingsStore(db, fakeKeyring());
+      s.setAgentHome(join(dir, 'agents'));
+      const team = s.addAccount('muse', 'Team');
+      const pick = (env: NodeJS.ProcessEnv) => [env.META_API_KEY, env.HARNESS_RELAY_MUSE_HOME, env.HARNESS_RELAY_MUSE_KEY_ONLY];
+      // The default account keeps the server's key, in Harness Relay's folder for Muse Code.
+      expect(pick(s.env('muse'))).toEqual(['meta-shell', join(dir, 'agents', 'muse'), undefined]);
+      // Another one: its own home, no key it did not get, and its key only (Muse keeps one sign-in per user on macOS).
+      expect(pick(s.env('muse', team))).toEqual([undefined, join(dir, 'agents', `muse-${team}`), '1']);
+      s.updateAccount('muse', team, { apiKey: 'meta-team' });
+      expect(pick(s.env('muse', team))).toEqual(['meta-team', join(dir, 'agents', `muse-${team}`), '1']);
+      expect(s.env('muse').META_API_KEY).toBe('meta-shell');
     } finally {
       vi.unstubAllEnvs();
     }

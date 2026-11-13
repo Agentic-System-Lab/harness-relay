@@ -15,6 +15,8 @@ import {
   type ProviderModels,
 } from '../shared/types';
 import { antigravityAppDir, antigravityProbeEnv, antigravityProbeSettings } from './agents/antigravity';
+import { askCopilotModels, parseCopilotModels } from './agents/copilot';
+import { museConfigBase, museDataBase, MUSE_EFFORTS } from './agents/muse';
 import { openAgents } from './agents/index';
 import { openHomeEnv, type OpenCatalog } from './agents/open';
 import { capture, converse, stripAnsi, tail } from './process';
@@ -28,6 +30,55 @@ const GROK_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
 const CODEX_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
 const CURSOR_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const ANTIGRAVITY_EFFORTS = ['low', 'medium', 'high'];
+/** Copilot's reasoning efforts (`--reasoning-effort`); each model takes some of them. */
+const COPILOT_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+/** Muse Code's efforts (`MUSE_EFFORTS`): its Meta provider refuses `none`, and `ultra` is not open to everyone. */
+const MUSE_EFFORT_LIST = [...MUSE_EFFORTS];
+
+/**
+ * Muse Code's models when it has no catalog of its own yet (`museCatalog`), as a signed-in muse 1.4.18
+ * listed them (November 2026): the `-contributor` ones trade the use of the session's data for a lower
+ * price; Spark 1.2 goes up to `xhigh`.
+ */
+const MUSE_MODELS: ModelOption[] = [
+  { id: 'muse-wonder-1.0', label: 'Muse Wonder 1.0' },
+  { id: 'muse-ember-1.0', label: 'Muse Ember 1.0' },
+  { id: 'muse-spark-1.3', label: 'Muse Spark 1.3' },
+  { id: 'muse-spark-1.3-contributor', label: 'Muse Spark 1.3 (contributor)' },
+  { id: 'muse-spark-1.2', label: 'Muse Spark 1.2', efforts: ['minimal', 'low', 'medium', 'high', 'xhigh'] },
+  { id: 'muse-spark-1.2-contributor', label: 'Muse Spark 1.2 (contributor)', efforts: ['minimal', 'low', 'medium', 'high', 'xhigh'] },
+];
+
+/**
+ * Where Muse keeps the Meta API's model catalog for its Meta provider (`meta`, profile `tbh`, the names
+ * in hex), once signed in: in its data folder, `model-catalog/6d657461__p746268.json` (muse 1.4.18).
+ */
+export const MUSE_CATALOG = join('muse', 'model-catalog', '6d657461__p746268.json');
+
+/**
+ * The models of the catalog Muse keeps (`MUSE_CATALOG`): its visible rows, each with the efforts it
+ * lists (of `MUSE_EFFORTS`), and the one it marks as the default. Undefined when there is none yet, or
+ * it cannot be read: a file of Muse's own, whose shape may change.
+ */
+export function museCatalog(env: NodeJS.ProcessEnv): { models: ModelOption[]; defaultModel?: string } | undefined {
+  let rows: unknown;
+  try {
+    rows = (JSON.parse(readFileSync(join(museDataBase(env), MUSE_CATALOG), 'utf8')) as { rows?: unknown }).rows;
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(rows)) return undefined;
+  const visible = rows.filter((r): r is Record<string, any> => r && typeof r === 'object' && typeof r.model_id === 'string' && r.model_id && r.visibility === 'visible');
+  if (!visible.length) return undefined;
+  const models = visible.map((r): ModelOption => {
+    const tiers = Array.isArray(r.reasoning_effort_variants) ? r.reasoning_effort_variants.map((v: any) => v?.tier) : [];
+    const efforts = MUSE_EFFORT_LIST.filter((e) => tiers.includes(e));
+    const label = typeof r.display_label === 'string' && r.display_label && r.display_label !== r.model_id ? r.display_label : undefined;
+    return { id: r.model_id, ...(label ? { label } : {}), ...(efforts.length ? { efforts } : {}) };
+  });
+  const def = visible.find((r) => r.is_default === true)?.model_id;
+  return { models, ...(def ? { defaultModel: def } : {}) };
+}
 
 /** Claude Code accepts aliases that always point at the latest model of each family. */
 const CLAUDE_MODELS: ModelOption[] = [
@@ -288,6 +339,26 @@ export interface ConfiguredBackends {
  * up, then each endpoint's typed models (`<endpoint id>/<model>`). Harness Relay never asks a model
  * API for its list.
  */
+/**
+ * Asks Copilot for its models the way Harness Relay runs it (a session opened over ACP in a home and
+ * folder of its own, `askCopilotModels`): signed in, those of the account's plan, and the account's
+ * default (`currentModelId`). The reasoning efforts are the default model's, else Copilot's own list.
+ */
+async function discoverCopilot(bin: string, env: NodeJS.ProcessEnv): Promise<DiscoveredModels> {
+  const { opened, error } = await askCopilotModels(bin, env);
+  const parsed = parseCopilotModels(opened);
+  const models: ModelOption[] = parsed.models.map((m) => ({ id: m.id, ...(m.label ? { label: m.label } : {}) }));
+  return {
+    provider: 'copilot',
+    models,
+    efforts: parsed.efforts.length ? parsed.efforts : COPILOT_EFFORTS,
+    ...(parsed.current ? { cliDefaultModel: parsed.current } : {}),
+    ...(parsed.effort ? { cliDefaultEffort: parsed.effort } : {}),
+    source: models.length ? 'cli' : 'builtin',
+    error: models.length ? undefined : (error ? tail(stripAnsi(error), 200) : undefined) || t().copilotModelsFailed,
+  };
+}
+
 export async function discoverOpenModels(p: OpenProvider, bin: string, env: NodeJS.ProcessEnv, backends: ConfiguredBackends): Promise<DiscoveredModels> {
   const agent = openAgents[p];
   let catalog: OpenCatalog = { models: [] };
@@ -339,6 +410,27 @@ export function withEndpointModels(p: EndpointCli, d: DiscoveredModels, endpoint
   return fromEndpoints.length ? { ...d, models: [...d.models, ...fromEndpoints] } : d;
 }
 
+/**
+ * Muse Code's models: those of the catalog it keeps once signed in (`museCatalog`), else a fixed list
+ * (`MUSE_MODELS`); the account's own default model and effort from its `settings.json` (`model`,
+ * `reasoning_effort`), else the catalog's default model and Muse's effort (`high`).
+ */
+export function discoverMuse(env: NodeJS.ProcessEnv): DiscoveredModels {
+  let own: Record<string, unknown> = {};
+  try {
+    own = JSON.parse(readFileSync(join(museConfigBase(env), 'muse', 'settings.json'), 'utf8')) as Record<string, unknown>;
+  } catch {
+    // none yet: Muse's defaults
+  }
+  const model = typeof own.model === 'string' && own.model.trim() ? own.model.trim() : undefined;
+  const effort = typeof own.reasoning_effort === 'string' && MUSE_EFFORT_LIST.includes(own.reasoning_effort as never) ? own.reasoning_effort : 'high';
+  const catalog = museCatalog(env);
+  const listed = catalog?.models ?? MUSE_MODELS;
+  const models = model && !listed.some((m) => m.id === model) ? [...listed, { id: model }] : listed;
+  const def = model ?? catalog?.defaultModel;
+  return { provider: 'muse', models, efforts: MUSE_EFFORT_LIST, ...(def ? { cliDefaultModel: def } : {}), cliDefaultEffort: effort, source: catalog ? 'cli' : 'builtin' };
+}
+
 export async function discoverModels(
   p: Provider,
   bin: string,
@@ -358,12 +450,14 @@ export async function discoverModels(
     else if (p === 'codex') own = await discoverCodex(bin, env);
     else if (p === 'cursor') own = await discoverCursor(bin, env);
     else if (p === 'antigravity') own = await discoverAntigravity(bin, env);
+    else if (p === 'copilot') own = await discoverCopilot(bin, env);
+    else if (p === 'muse') own = discoverMuse(env);
     else own = await discoverGrok(bin, env);
   } catch (err) {
-    const efforts = { claude: CLAUDE_EFFORTS, codex: CODEX_EFFORTS, grok: GROK_EFFORTS, cursor: CURSOR_EFFORTS, antigravity: ANTIGRAVITY_EFFORTS }[p];
-    own = { provider: p, models: p === 'claude' ? CLAUDE_MODELS : [], efforts, source: 'builtin', error: (err as Error).message };
+    const efforts = { claude: CLAUDE_EFFORTS, codex: CODEX_EFFORTS, grok: GROK_EFFORTS, cursor: CURSOR_EFFORTS, antigravity: ANTIGRAVITY_EFFORTS, copilot: COPILOT_EFFORTS, muse: MUSE_EFFORT_LIST }[p];
+    own = { provider: p, models: p === 'claude' ? CLAUDE_MODELS : p === 'muse' ? MUSE_MODELS : [], efforts, source: 'builtin', error: (err as Error).message };
   }
-  // Cursor's and Antigravity's models run only through their own services, so the endpoints' models are not theirs.
+  // Cursor's, Antigravity's and Muse Code's models run only through their own services, so the endpoints' models are not theirs.
   return isEndpointCli(p) ? withEndpointModels(p, own, backends.endpoints) : own;
 }
 

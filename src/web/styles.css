@@ -22,9 +22,11 @@
   --grok: #7c5cff;
   --cursor: #d6409f;
   --antigravity: #65a30d;
+  --copilot: #0f766e;
+  --muse: #e11d48;
   --opencode: #2563eb;
   --goose: #b45309;
-  --cline: #c026d3;
+  --cline: #2e7d32;
   --openhands: #0891b2;
   --pi: #64748b;
 
@@ -6012,12 +6014,13 @@ details.sub summary {
   gap: 0;
 }
 
-/* A dot with 4px before it and 6px after it, or less after it (down to 2px) when every CLI's dot and
-   the count would not fit on the sidebar's line otherwise. The circle a dot gets on hover and focus
+/* A dot with 4px before it and 6px after it, or less after it (down to none: the next dot's 4px before
+   it still keeps them apart) when every CLI's dot and the count would not fit on the sidebar's line
+   otherwise. The circle a dot gets on hover and focus
    is drawn around the dot, not the link, so that the first dot stays under Settings' ⚙. */
 .provider-health.compact a.health {
   flex: 0 1 18px;
-  min-width: 14px;
+  min-width: 12px;
   height: 16px;
   padding-left: 4px;
 }

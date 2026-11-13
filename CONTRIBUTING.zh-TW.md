@@ -15,7 +15,7 @@
 - 你做了什麼、預期會發生什麼，以及實際發生了什麼；
 - 你怎麼執行 Harness Relay（桌面 app、`npm start` 或 `npm run dev`）；
 - 作業系統、Node.js 版本（`node --version`）與 Harness Relay 的版本（桌面 app 在**設定與登入 → 版本**，或是 commit：`git rev-parse --short HEAD`）；
-- 用到的 agent CLI 與版本（`claude --version`、`codex --version`、`grok --version`、`cursor-agent --version`、`agy --version`、`opencode --version`…），開源 agent 再加上模型來源的種類（API 或你自己的端點，以及哪一種伺服器）；
+- 用到的 agent CLI 與版本（`claude --version`、`codex --version`、`grok --version`、`cursor-agent --version`、`agy --version`、`copilot --version`、`muse --version`、`opencode --version`…），開源 agent 再加上模型來源的種類（API 或你自己的端點，以及哪一種伺服器）；
 - 對話的模式（圓桌、平行或接力）、權限（唯讀、可編輯或完全存取），以及是否直接採用首席 agent 組的團隊；
 - 訊息上顯示的錯誤（裡面附有 CLI stderr 的最後一段），以及同一時間伺服器的輸出（用 `npm run dev` 時是其中的 `[server]` 行；桌面 app 則是選單裡的**查看記錄檔**）。
 
@@ -31,11 +31,11 @@
 
 請用 **Feature request · 功能建議** 表單開一個 issue，先描述你想解決的問題，再談解法。比小修正更大的改動（新的對話模式、新的 agent CLI、schema 變更、新的設定）請先在 issue 中討論再動手寫程式，讓這份工作能符合整體設計。
 
-要新增 coding agent？請照[新增 coding agent 的流程](docs/adding-a-coding-agent.zh-TW.md)做：Grok、Cursor、開源 agent 與 Antigravity 都走過這套流程，從把 CLI 裝在你自己的環境之外、弄清楚它實際的行為，到錄製、在 macOS、Linux 與 Windows 上確認，以及寫文件。
+要新增 coding agent？請照[新增 coding agent 的流程](docs/adding-a-coding-agent.zh-TW.md)做：Grok、Cursor、開源 agent、Antigravity、Copilot 與 Muse Code 都走過這套流程，從把 CLI 裝在你自己的環境之外、弄清楚它實際的行為，到錄製、在 macOS、Linux 與 Windows 上確認，以及寫文件。
 
 ## 建立開發環境
 
-需要 Node.js **22.13 以上**。agent CLI（`claude`、`codex`、`grok`、`cursor-agent`、`agy`，以及開源的 `opencode`、`goose`、`cline`、`openhands`、`pi`）只有在手動試用 app 時才需要；測試從不執行它們，也從不啟動真正的沙箱（那是手動執行的 `scripts/sandbox-check.ts` 做的事）。
+需要 Node.js **22.13 以上**。agent CLI（`claude`、`codex`、`grok`、`cursor-agent`、`agy`、`copilot`、`muse`，以及開源的 `opencode`、`goose`、`cline`、`openhands`、`pi`）只有在手動試用 app 時才需要；測試從不執行它們，也從不啟動真正的沙箱（那是手動執行的 `scripts/sandbox-check.ts` 做的事）。
 
 ```bash
 git clone https://github.com/Agentic-System-Lab/harness-relay.git
@@ -55,7 +55,7 @@ npm run dev        # API 在 :8789（檔案變更時重啟）+ 介面在 http://
 ### 程式碼
 
 - 使用 strict TypeScript 與 ES modules。共用型別只放在 `src/shared/types.ts`。
-- 子程序一律透過 `src/server/process.ts` 啟動，這樣才會被追蹤並在關閉時結束；伺服器等它結束的簡短檢查（`lsof`、`ps`、`chflags`）用它的 `runSync()`，逾時就結束它。Harness Relay 沙箱的 host（`relaySandboxHost.ts`）是獨立的程式，由它自己啟動 agent。程式要直接啟動，不經過 shell；shell 腳本（`runShellScript()`，或交給 `spawnDetached()` 的 `sh -c`）是固定的文字，它需要的值（路徑、名稱、設定）放在它的環境變數裡，絕不放進腳本文字或參數。在 Windows 上，找到的 CLI 若是 `.cmd`（npm 的包裝檔、Cursor 的啟動檔），會改為啟動它執行的程式（`src/server/winLaunch.ts`），絕不經過 `cmd.exe`。
+- 子程序一律透過 `src/server/process.ts` 啟動，這樣才會被追蹤並在關閉時結束；伺服器等它結束的簡短檢查（`lsof`、`ps`、`chflags`）用它的 `runSync()`，逾時就結束它。Harness Relay 沙箱的 host（`relaySandboxHost.ts`）是獨立的程式，由它自己啟動 agent。程式要直接啟動，不經過 shell；shell 腳本（`runShellScript()`，或交給 `spawnDetached()` 的 `sh -c`）是固定的文字，它需要的值（路徑、名稱、設定）放在它的環境變數裡，絕不放進腳本文字或參數。在 Windows 上，找到的 CLI 若是 `.cmd`（npm 的包裝檔、Cursor 與 Muse Code 的啟動檔），會改為啟動它執行的程式（`src/server/winLaunch.ts`），絕不經過 `cmd.exe`。
 - CLI 輸出的 parser 保持純函式（輸入一行行文字，輸出 `AgentEvent`），方便用錄下來的輸出測試。
 - 測試在沒有 DOM 的 Node 環境執行。想測試的前端邏輯請放在一般模組（例如 `src/web/chat.ts`），不要寫在元件裡。
 - 桌面 app 裡只有 `desktop/src/main.ts` 會 import `electron`。其他部分請放在不依賴它的模組（例如 `desktop/src/lifecycle.ts`），由根目錄的 `test/` 跟其他程式碼一樣測試。

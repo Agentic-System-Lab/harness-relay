@@ -15,7 +15,9 @@ import {
   type ProviderStatus,
 } from '../shared/types';
 import { antigravityKeyOnly, antigravityLogout, antigravityProbeEnv, antigravityProbeSettings, ANTIGRAVITY_NO_BROWSER } from './agents/antigravity';
+import { askCopilotModels, copilotHome, copilotLogout, copilotSignedInAs, copilotSignedOut } from './agents/copilot';
 import { openAgents } from './agents/index';
+import { museKeyOnly, museProbeEnv } from './agents/muse';
 import { openHomeEnv } from './agents/open';
 import { backendLabel } from './backends';
 import { HttpError } from './errors';
@@ -30,7 +32,8 @@ import { WindowsScriptError } from './winLaunch';
 
 function parseVersion(out: string): string | undefined {
   const m = stripAnsi(out).match(/\d+\.\d+\.\d+[\w.-]*/);
-  return m?.[0];
+  // Not the sentence's full stop: Copilot prints "GitHub Copilot CLI 1.0.109."
+  return m?.[0].replace(/[.-]+$/, '');
 }
 
 function firstJsonObject(s: string): Record<string, any> | null {
@@ -102,6 +105,32 @@ async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Prom
       const out = stripAnsi(`${r.stdout}\n${r.stderr}`);
       if (/please sign in|not signed in|authentication required/i.test(out)) return { loggedIn: false };
       return r.code === 0 ? { loggedIn: true } : { loggedIn: null, detail: tail(out, 200) };
+    }
+    case 'copilot': {
+      // It has no status command: a session opened over ACP, in a home and an empty folder of its own
+      // (`askCopilotModels`), needs a working sign-in ("Authentication required" otherwise). No prompt
+      // is sent. A GitHub token in its environment comes before the sign-in it keeps (Copilot's own
+      // order), and is asked about too: one Copilot does not take (a classic token) fails the same way.
+      // Who it is signed in as is in the account's `config.json`.
+      const { opened, error } = await askCopilotModels(bin, env);
+      if (opened) {
+        if (CREDENTIAL_ENV.copilot.some((k) => env[k])) return { loggedIn: true, method: 'GitHub token' };
+        const login = copilotSignedInAs(copilotHome(env));
+        return { loggedIn: true, ...(login ? { account: login } : {}) };
+      }
+      if (error && copilotSignedOut(error)) return { loggedIn: false };
+      return { loggedIn: null, detail: error ? tail(stripAnsi(error), 200) : undefined };
+    }
+    case 'muse': {
+      // `META_API_KEY` comes before any sign-in Muse keeps.
+      if (env.META_API_KEY) return { loggedIn: true, method: 'API key' };
+      // An account besides the default one runs on its own key only (`keyOnlyAccount`).
+      if (museKeyOnly(env)) return { loggedIn: false };
+      // `muse usage` answers signed in, and says "not logged in" otherwise; it opens no browser.
+      const r = await capture(bin, ['usage'], museProbeEnv(env), { timeoutMs: 30_000 });
+      const out = stripAnsi(`${r.stdout}\n${r.stderr}`).trim();
+      if (/not logged in|run `?muse login/i.test(out)) return { loggedIn: false };
+      return r.code === 0 ? { loggedIn: true, detail: out.split('\n')[0] || undefined } : { loggedIn: null, detail: tail(out, 200) };
     }
     default:
       return { loggedIn: null };
@@ -254,9 +283,10 @@ export class ProviderService {
     const method = LOGIN_METHODS[p].find((m) => m.id === methodId) ?? LOGIN_METHODS[p][0];
     if (!method) throw new HttpError(400, t().openNoLogin(PROVIDER_LABEL[p]));
     this.logins.get(slot(p, account))?.cancel();
-    // Antigravity's sign-in (`agy acp --login`) finds the account's home by `HOME` (`antigravityProbeEnv`).
+    // Antigravity's sign-in (`agy acp --login`) finds the account's home by `HOME` (`antigravityProbeEnv`),
+    // Muse Code's by its XDG folders (`museProbeEnv`).
     const own = this.settings.env(p, account);
-    const env = { ...(p === 'antigravity' ? antigravityProbeEnv(own) : own), ...method.env };
+    const env = { ...(p === 'antigravity' ? antigravityProbeEnv(own) : p === 'muse' ? museProbeEnv(own) : own), ...method.env };
     let session: LoginSession;
     try {
       session = new LoginSession(p, account, method, this.settings.bin(p), env, () => this.invalidate(p));
@@ -317,21 +347,22 @@ export class ProviderService {
   async logoutIn(p: Provider, env: NodeJS.ProcessEnv, timeoutMs = 30_000, keyOnly = false): Promise<string> {
     // Signed in for the one run only (an API key, an account besides the default): nothing is kept to sign out of.
     // An Antigravity account that signs in with its key only has no Google sign-in of its own to drop: the one agy keeps is the default account's.
-    if ((p === 'cursor' && env[CURSOR_SHARED_SIGN_IN] === 'memory') || (p === 'antigravity' && keyOnly)) {
+    if ((p === 'cursor' && env[CURSOR_SHARED_SIGN_IN] === 'memory') || ((p === 'antigravity' || p === 'muse') && keyOnly)) {
       this.invalidate(p);
       return '';
     }
     const bin = this.settings.bin(p);
-    if (p === 'antigravity') {
+    if (p === 'antigravity' || p === 'copilot') {
       try {
-        await antigravityLogout(bin, env, timeoutMs);
+        await (p === 'antigravity' ? antigravityLogout : copilotLogout)(bin, env, timeoutMs);
       } finally {
         this.invalidate(p);
       }
       return '';
     }
     const args = p === 'claude' ? ['auth', 'logout'] : ['logout'];
-    const r = await capture(bin, args, env, { timeoutMs });
+    // `muse logout` drops the stored key and the Meta sign-in, not a `META_API_KEY`.
+    const r = await capture(bin, args, p === 'muse' ? museProbeEnv(env) : env, { timeoutMs });
     this.invalidate(p);
     if (r.code !== 0) throw new Error(tail(r.stderr || r.stdout, 300) || t().logoutFailed(r.code));
     return tail(r.stdout || r.stderr, 300);
@@ -360,7 +391,7 @@ export class ProviderService {
  * `key` names the method's label and description in the server messages (i18n.ts); `env` is added to
  * the CLI's environment for the sign-in.
  */
-const LOGIN_METHODS: Record<Provider, { id: string; key: string; args: string[]; env?: Record<string, string> }[]> = {
+const LOGIN_METHODS: Record<Provider, { id: string; key: string; args: string[]; env?: Record<string, string>; failsWith?: RegExp }[]> = {
   claude: [
     {
       id: 'claudeai',
@@ -416,6 +447,25 @@ const LOGIN_METHODS: Record<Provider, { id: string; key: string; args: string[];
       env: { ...ANTIGRAVITY_NO_BROWSER },
     },
   ],
+  // `copilot login --device-code` prints GitHub's device link and a code, and waits for it to be
+  // authorized. Where it finds no credential store to keep the token in (a Linux server without a
+  // keyring), it says so and exits 0 all the same: that sign-in failed, and its words say what to do.
+  copilot: [
+    {
+      id: 'device',
+      key: 'copilotDevice',
+      args: ['login', '--device-code'],
+      failsWith: /token was not saved/i,
+    },
+  ],
+  // `muse login` prints its device link and code (it opens a browser only when Enter is pressed in a terminal).
+  muse: [
+    {
+      id: 'meta',
+      key: 'museMeta',
+      args: ['login'],
+    },
+  ],
   // The open agents have no sign-in: they use the model backends in Settings.
   opencode: [],
   goose: [],
@@ -427,7 +477,7 @@ const LOGIN_METHODS: Record<Provider, { id: string; key: string; args: string[];
 /** A browser sign-in asked for an account that signs in with its API key only (`keyOnlyAccount`). */
 export class KeyOnlyAccountError extends Error {
   constructor(p: Provider) {
-    super(p === 'antigravity' ? t().antigravityAccountLogin : t().cursorAccountLogin);
+    super(p === 'antigravity' ? t().antigravityAccountLogin : p === 'muse' ? t().museAccountLogin : t().cursorAccountLogin);
   }
 }
 
@@ -447,7 +497,8 @@ class LoginSession {
   constructor(
     readonly provider: Provider,
     readonly account: string,
-    readonly method: { id: string; args: string[] },
+    /** `failsWith`: what in its output means the sign-in failed, whatever its exit code. */
+    readonly method: { id: string; args: string[]; failsWith?: RegExp },
     bin: string,
     env: NodeJS.ProcessEnv,
     private onDone: () => void,
@@ -465,7 +516,8 @@ class LoginSession {
       this.finish('failed', null);
     });
     this.child.on('close', (code) => {
-      if (this.state === 'running') this.finish(code === 0 ? 'success' : 'failed', code);
+      const failed = code !== 0 || Boolean(this.method.failsWith?.test(stripAnsi(this.output)));
+      if (this.state === 'running') this.finish(failed ? 'failed' : 'success', code);
     });
     this.timer = setTimeout(() => this.cancel(), LOGIN_TIMEOUT_MS);
   }

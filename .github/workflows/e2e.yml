@@ -1,6 +1,6 @@
 name: End-to-end tests
 
-# The UI in a real browser against the real server (npm run test:e2e), with a fake for each of the ten
+# The UI in a real browser against the real server (npm run test:e2e), with a fake for each of the twelve
 # agent CLIs (e2e/fake-cli/), on Linux, macOS and Windows: no agent is paid for and nothing signs in.
 # Below full access the open agents' fakes run in Harness Relay's own sandbox for real (Linux, macOS).
 on:
@@ -120,7 +120,7 @@ jobs:
           # A test that needs Harness Relay's own sandbox fails, not skips, when it cannot run here.
           E2E_REQUIRE_RELAY_SANDBOX: ${{ runner.os != 'Windows' && '1' || '' }}
           # Each CLI's own tests on the systems its facts name (testedOn in e2e/support/clis/<cli>.ts):
-          # all ten on Linux; on macOS and Windows those Harness Relay runs differently there.
+          # all twelve on Linux; on macOS and Windows those Harness Relay runs differently there.
           E2E_SYSTEM_CLIS: ${{ !inputs.every_cli && '1' || '' }}
 
       # The HTML report, and for a failed test its trace, screenshot, video, server log and the fake
