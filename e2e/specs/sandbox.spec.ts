@@ -109,6 +109,7 @@ test.describe("a project's own setup", () => {
  */
 test.describe("a project's hooks", () => {
   needsFake('copilot');
+  withClis('copilot');
 
   test('copilot: are asked about before Copilot starts; a refusal keeps it from starting, and once allowed the turn runs', async ({ page, relay }) => {
     const cli = SIGNED_IN.find((c) => c.provider === 'copilot')!;
