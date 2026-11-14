@@ -644,11 +644,14 @@ export const zhTW = {
     title: '首席 agent 的審閱',
     by: (lead: string) => `首席 agent：${lead}`,
     reviewing: (lead: string) => `首席 agent（${lead}）正在審閱團隊的回覆…`,
-    aborted: '審閱已中斷；團隊下次回答後，首席 agent 會把這些回覆一起審閱。',
-    // Lead review was switched off (also after the review stopped): nothing reviews these replies unless it is switched on.
-    abortedOff: '審閱已中斷。首席 agent 審閱目前已關閉：重新開啟後，這些回覆才會和下一批一起審閱。',
-    failed: (why: string) => `首席 agent 無法審閱這些回覆（${why}）；團隊下次回答後會再一起審閱。`,
-    failedNoReason: '首席 agent 無法審閱這些回覆；團隊下次回答後會再一起審閱。',
+    aborted: '審閱已中斷。',
+    failed: (why: string) => `首席 agent 無法審閱這些回覆（${why}）。`,
+    failedNoReason: '首席 agent 無法審閱這些回覆。',
+    // On a stopped or failed card the next review will read: on, it will; off (switched off since), only once it is on again.
+    later: {
+      on: '團隊下次回答後，首席 agent 會把這些回覆一起審閱。',
+      off: '首席 agent 審閱目前已關閉：重新開啟後，這些回覆才會和下一批一起審閱。',
+    },
     read: (n: number) => `讀了 ${n} 則回覆`,
     attention: '特別注意',
     nothingToFlag: '沒有需要特別注意的地方。',

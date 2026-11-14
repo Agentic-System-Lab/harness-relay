@@ -45,6 +45,8 @@ export const SHARE_DROP = [
   '.more-button',
   '.plan-ask-save',
   '.plan-review',
+  // A stopped or failed review card's word on the next review: the chat's state, not the page's.
+  '.review-later',
   '.file-missing',
   '.branch-divider',
   '.head-branch',

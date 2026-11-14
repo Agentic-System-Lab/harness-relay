@@ -932,7 +932,10 @@ export class Orchestrator {
     const unattended = conv.queue.every((m) => m.scheduled) && conv.schedule?.approvals !== 'ask';
     // Written while the team worked, the current team answers them; written after it had answered
     // (while the lead agent reviewed), they are a new question, and with auto team its team is designed.
-    const asks = this.waitingQuestion(conv);
+    // A design that would wait for the user's confirmation takes no schedule's message along: nobody
+    // may be there to confirm it, and the schedule would be held (skipped) until someone did. The
+    // current team takes them all then, as a scheduled send does.
+    const asks = this.waitingQuestion(conv) && (Boolean(conv.settings.autoConfirm) || !conv.queue.some((m) => m.scheduled));
     // Its design would take no lock, but the team's run after it would: with another conversation
     // changing the folder, the question keeps waiting, as any run that finds its folder taken, rather
     // than being designed (and paid for) for a team that cannot start.

@@ -785,6 +785,43 @@ describe('questions written during a review, and reviews stopped', () => {
     }
   });
 
+  it("gives a scheduled message and a question written during the review to the current team when a design would wait for confirmation, so the schedule is not held", async () => {
+    // Auto team, asking before a design is used; the team is there already.
+    const conv = conversation({ mode: 'parallel', permission: 'read-only', autoTeam: true, leadReview: true });
+    const team = conv.agents.map((a) => a.name);
+    let release!: () => void;
+    fake.reviewGate = new Promise((r) => (release = r));
+    await orchestrator.send(conv.id, `@${team[0]} first question`);
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
+    conv.schedule = {
+      text: 'scheduled check',
+      repeat: { kind: 'interval', hours: 1 },
+      timeZone: 'UTC',
+      lang: 'en',
+      enabled: true,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+      updatedAt: Date.now(),
+      nextRunAt: Date.now() + 3_600_000,
+    };
+    store.saveSchedule(conv);
+    expect(await orchestrator.sendScheduled(conv.id)).toEqual({ result: 'queued' });
+    await orchestrator.send(conv.id, 'a brand new question');
+    fake.reviewGate = undefined;
+    release();
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(2), { timeout: 20_000 });
+    await finish(conv.id);
+    // No design waits for anyone: the current team answered both.
+    expect(leadCalls()).toHaveLength(0);
+    expect(conv.messages.some((m) => m.plan?.awaitingConfirmation)).toBe(false);
+    expect(conv.queue ?? []).toHaveLength(0);
+    expect(conv.agents.map((a) => a.name)).toEqual(team);
+    // So the schedule's next time is sent, not skipped as "team not confirmed yet".
+    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('sent');
+    await finish(conv.id);
+  });
+
   it('lets the members answer when one of the messages written during the review @mentions them', async () => {
     const conv = autoChat();
     let release!: () => void;

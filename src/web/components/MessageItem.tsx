@@ -332,6 +332,8 @@ interface Props {
   onSavePlan: (messageId: string, name: string) => Promise<void>;
   /** Whether the conversation has lead review on (given to team design cards and review cards only). */
   leadReview?: boolean;
+  /** A stopped or failed review card: the next review reads the replies it left (`nextReviewStart()`). */
+  readNext?: boolean;
   /** Turn lead review on or off (the latest team design card's box); resolves whether the server took it. */
   onLeadReview?: (on: boolean) => Promise<boolean>;
   onAdjustTeam: () => void;
@@ -507,10 +509,18 @@ function PlanCard({
 }
 
 /** The lead agent's review of the team's replies (lead review): what to look at closely, and what to do next. */
-function ReviewCard({ msg, onUseStep, leadReview }: Pick<Props, 'msg' | 'onUseStep' | 'leadReview'>) {
+function ReviewCard({ msg, onUseStep, leadReview, readNext }: Pick<Props, 'msg' | 'onUseStep' | 'leadReview' | 'readNext'>) {
   const t = useT();
   const review = msg.review!;
   const lead = leadLabel(review.lead);
+  // A stopped or failed review that the next one reads back over says so (and that it waits for lead
+  // review to be on again, when it is off); one it will not reach says nothing of a next review.
+  const later = readNext && (
+    <>
+      {' '}
+      <span className="review-later">{leadReview === false ? t.review.later.off : t.review.later.on}</span>
+    </>
+  );
 
   if (review.status === 'reviewing') {
     const live = msg.status === 'streaming';
@@ -519,8 +529,10 @@ function ReviewCard({ msg, onUseStep, leadReview }: Pick<Props, 'msg' | 'onUseSt
         <span className={`tool-icon ${live ? 'spin' : ''}`} aria-hidden>
           {live ? '◌' : '✦'}
         </span>
-        {/* Lead review is off now: nothing reviews these replies unless it is turned on again. */}
-        <span>{live ? t.review.reviewing(lead) : leadReview === false ? t.review.abortedOff : t.review.aborted}</span>
+        <span>
+          {live ? t.review.reviewing(lead) : t.review.aborted}
+          {!live && later}
+        </span>
       </div>
     );
   }
@@ -531,7 +543,10 @@ function ReviewCard({ msg, onUseStep, leadReview }: Pick<Props, 'msg' | 'onUseSt
         <span className="tool-icon" aria-hidden>
           ✦
         </span>
-        <span>{review.error ? t.review.failed(review.error) : t.review.failedNoReason}</span>
+        <span>
+          {review.error ? t.review.failed(review.error) : t.review.failedNoReason}
+          {later}
+        </span>
         {hasMeta(msg.meta) && <MetaText m={msg.meta} />}
       </div>
     );
@@ -873,12 +888,13 @@ export const MessageItem = memo(function MessageItem({
   marks,
   onUseStep,
   leadReview,
+  readNext,
   onLeadReview,
 }: Props) {
   const t = useT();
 
   if (msg.author.kind === 'system') {
-    if (msg.review) return <ReviewCard msg={msg} onUseStep={onUseStep} leadReview={leadReview} />;
+    if (msg.review) return <ReviewCard msg={msg} onUseStep={onUseStep} leadReview={leadReview} readNext={readNext} />;
     if (msg.plan) {
       return (
         <PlanCard
@@ -1008,7 +1024,7 @@ function AgentMessage({
               title={t.review.marksTitle(marked)}
               onClick={() => revealMessage(reviewElementId(marks.reviewId))}
             >
-              ⚑ {t.review.marks(marked)}
+              <span aria-hidden>⚑</span> {t.review.marks(marked)}
             </button>
           )}
         </div>

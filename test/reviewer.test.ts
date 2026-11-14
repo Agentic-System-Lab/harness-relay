@@ -1,12 +1,14 @@
-import { createElement } from 'react';
+import { createElement, type FunctionComponent } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { slow } from './timeouts';
 import type { ChatMessage } from '../src/shared/types';
-import { findQuote, hasQuote, highlightsByReply, markdownText, mostSerious, quoteChecker, quoteKey, reviewStart } from '../src/shared/review';
+import { findQuote, hasQuote, highlightsByReply, markdownText, mostSerious, nextReviewStart, quoteChecker, quoteKey, reviewStart } from '../src/shared/review';
 import { buildReviewPrompt, decideReview, hasNewReplies, parseReviewReply, reviewMaterial } from '../src/server/reviewer';
 import { Markdown } from '../src/web/components/Markdown';
 import { I18nProvider, currentLang, loadMessages } from '../src/web/i18n';
+import { MessageItem } from '../src/web/components/MessageItem';
+import { SHARE_DROP } from '../src/web/share';
 
 // As the page does before it draws anything: its language's messages.
 beforeAll(() => loadMessages(currentLang()));
@@ -521,11 +523,52 @@ describe('a review that failed or was stopped, and reading a reply once', () => 
     expect(reviewStart([user('u1', 'one'), reply('r1', 'Alice', 'a'), stopped, { ...user('q', 'also'), queued: true }, user('u2', 'two')])).toBe(0);
   });
 
+  it("says which stopped or failed reviews the next one reads back over, for their cards", () => {
+    const stopped = review('s1', 'failed', { fromId: 'u1' });
+    // The latest question after it is still being answered (or none yet): read again.
+    const waiting = [user('u1', 'one'), reply('r1', 'Alice', 'a'), stopped, user('u2', 'two')];
+    expect(nextReviewStart(waiting)).toBeLessThan(2);
+    expect(nextReviewStart(waiting.slice(0, 3))).toBeLessThan(2);
+    // Another question was answered since (lead review was off): never read again.
+    const passed = [...waiting, reply('r2', 'Alice', 'b')];
+    expect(nextReviewStart(passed)).toBeGreaterThan(2);
+    // A ready review came after it: read by that one, not by the next.
+    expect(nextReviewStart([...waiting, reply('r2', 'Alice', 'b'), review('v2')])).toBeGreaterThan(2);
+  });
+
   it('reads a piece of a reply once for as many quotes as asked', () => {
     const has = quoteChecker('We **must** migrate [the DB](x.md) first.');
     expect(has('must migrate the DB')).toBe(true);
     expect(has('the db first')).toBe(true);
     expect(has('x.md')).toBe(false);
     expect(has('  ')).toBe(false);
+  });
+});
+
+describe("a stopped or failed review card's word on the next review", () => {
+  const card = (m: ChatMessage, readNext: boolean, leadReview: boolean) =>
+    renderToStaticMarkup(
+      createElement(I18nProvider, null, createElement(MessageItem as unknown as FunctionComponent<Record<string, unknown>>, { msg: m, readNext, leadReview, onUseStep: () => {} })),
+    );
+  const stopped: ChatMessage = { ...review('s1', 'ready'), status: 'aborted', review: { status: 'reviewing', lead: { provider: 'claude' } } };
+  const failed = review('f1', 'failed', { error: 'quota' });
+
+  it('says the next review reads its replies only on a card it reaches, and that it waits for lead review while that is off', () => {
+    for (const m of [stopped, failed]) {
+      const on = card(m, true, true);
+      expect(on).toContain('class="review-later"');
+      expect(on).toContain('together with the next ones');
+      expect(card(m, true, false)).toContain('Lead review is off now');
+      // A review the next one does not reach back to: nothing of a next review.
+      const passed = card(m, false, true);
+      expect(passed).not.toContain('review-later');
+      expect(passed).not.toContain('next ones');
+    }
+    expect(card(stopped, false, true)).toContain('The review was stopped.');
+    expect(card(failed, false, true)).toContain('could not review these replies (quota).');
+  });
+
+  it("leaves that word out of a shared page: it is the chat's state, not the page's", () => {
+    expect(SHARE_DROP).toContain('.review-later');
   });
 });

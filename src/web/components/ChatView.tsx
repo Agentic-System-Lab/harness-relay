@@ -14,7 +14,7 @@ import {
   type ServerEvent,
 } from '../../shared/types';
 import { api, orCreateCwd, type AttachmentUpload } from '../api';
-import { highlightsByReply } from '../../shared/review';
+import { highlightsByReply, nextReviewStart } from '../../shared/review';
 import { afterStreamError, applyStates as findApplyStates, branchSource, draftStatus, followsAfterScroll, savesLeadReviewAlone, scrollSpot, teamToEdit } from '../chat';
 import { useI18n, useT } from '../i18n';
 import { refreshLimits, useLimits } from '../limits';
@@ -476,6 +476,9 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const designing = running && conv.messages.some((m) => m.plan?.status === 'planning' && m.status === 'streaming');
   // The lead agent is reviewing the team's replies: what the user sends meanwhile goes to the team after it.
   const reviewing = running && conv.messages.some((m) => m.review?.status === 'reviewing' && m.status === 'streaming');
+  // Where the next review would start reading: a stopped or failed review card before it says its
+  // replies are read then, the others nothing of a next review.
+  const nextReview = nextReviewStart(conv.messages);
   const latestPlanId = conv.messages.findLast((m) => m.plan?.status === 'ready')?.id;
   const leadText = leadLabel(lead ?? { provider: 'claude' });
   // An agent asked the user something and the team waits: its latest questions, and who asked.
@@ -654,7 +657,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
       >
         <div className="messages-inner">
           {conv.messages.length === 0 && <TeamIntro conv={conv} leadText={leadText} />}
-          {conv.messages.map((m) => {
+          {conv.messages.map((m, i) => {
             const item = (
               <MessageItem
                 key={m.id}
@@ -684,6 +687,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
                 marks={marks.get(m.id)}
                 onUseStep={onUseStep}
                 leadReview={m.plan || m.review ? Boolean(conv.settings.leadReview) : undefined}
+                readNext={m.review && m.review.status !== 'ready' ? i > nextReview : undefined}
                 onLeadReview={onLeadReview}
               />
             );

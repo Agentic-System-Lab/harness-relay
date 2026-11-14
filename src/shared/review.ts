@@ -331,6 +331,17 @@ export function reviewText(review: LeadReview | undefined): string {
   return lines.filter((l) => l.trim()).join('\n');
 }
 
+/** A question the user might write next, for `nextReviewStart()`. */
+const NEXT_QUESTION: ChatMessage = { id: '', author: { kind: 'user' }, createdAt: 0, status: 'done', parts: [] };
+
+/**
+ * Where the next review would start reading, were the user to ask another question now: a stopped or
+ * failed review before it left replies that review reads (its card says so); one at or after it, none.
+ */
+export function nextReviewStart(messages: readonly ChatMessage[]): number {
+  return reviewStart([...messages, NEXT_QUESTION]);
+}
+
 /** The highlights a reply has from the lead agent's reviews, and the review that has the latest of them. */
 export interface ReplyMarks {
   reviewId: string;
