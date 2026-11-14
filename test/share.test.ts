@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
+import { slow } from './timeouts';
 import { GH_MIN_VERSION, GH_MISSING, GH_SIGNED_OUT } from '../src/shared/types';
 import { t, withLang } from '../src/server/i18n';
 import { DATA_DIR } from '../src/server/settings';
@@ -20,6 +21,8 @@ import {
   findGistArgs,
   ghBin,
   ghEnv,
+  GhLogin,
+  GH_LOGIN_ARGS,
   gistArgs,
   gistExistsArgs,
   gistDescription,
@@ -166,6 +169,47 @@ describe('shareToGist', () => {
   it('says when gh took too long', () => {
     expect(gistError({ stderr: '', timedOut: true })).toBe(t().shareFailed(t().timedOut));
     expect(gistError({ stderr: '', timedOut: false })).toBe(t().shareFailed(t().shareNoDetail));
+  });
+});
+
+describe.skipIf(process.platform === 'win32')("signing gh in from the share dialog (a stand-in gh started by its #! line)", { timeout: slow(20_000) }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'relay-gh-login-'));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const said = join(dir, 'said');
+  // What gh prints without a terminal: its code and GitHub's device page; then it waits for approval.
+  writeFileSync(
+    join(dir, 'gh'),
+    `#!/bin/sh\necho "$* | token=\${GITHUB_TOKEN:-none} | own=\${GH_TOKEN:-none}" >> "${said}"\n` +
+      'echo "! First copy your one-time code: ABCD-1234"\n' +
+      'echo "Open this URL to continue in your web browser: https://github.com/login/device"\n' +
+      '[ -n "$GH_WAIT" ] && sleep 30\n' +
+      'echo "✓ Logged in as octocat" >&2\n',
+    { mode: 0o755 },
+  );
+  const env = (more: NodeJS.ProcessEnv = {}) => ({ PATH: `${dir}:${process.env.PATH}`, ...more });
+
+  it("runs gh's device sign-in for github.com, without a codespace's own token, and shows its code and page", async () => {
+    const login = new GhLogin();
+    expect(login.view()).toBeNull();
+    login.start(ghEnv(env({ CODESPACES: 'true', GITHUB_TOKEN: 'ghu_codespace', GH_TOKEN: 'github_pat_mine' })));
+    await vi.waitFor(() => expect(login.view()?.state).toBe('success'));
+    expect(login.view()).toMatchObject({ codes: ['ABCD-1234'], urls: ['https://github.com/login/device'], exitCode: 0 });
+    expect(GH_LOGIN_ARGS).toEqual(['auth', 'login', '--web', '--hostname', 'github.com']);
+    expect(readFileSync(said, 'utf8').trim().split('\n').at(-1)).toBe('auth login --web --hostname github.com | token=none | own=github_pat_mine');
+  });
+
+  it('stops a sign-in that waits when asked, and a new one stops the one before', async () => {
+    const login = new GhLogin();
+    login.start(env({ GH_WAIT: '1' }));
+    await vi.waitFor(() => expect(login.view()?.codes).toEqual(['ABCD-1234']));
+    expect(login.view()?.state).toBe('running');
+    login.cancel();
+    expect(login.view()?.state).toBe('cancelled');
+    const first = login.start(env({ GH_WAIT: '1' }));
+    const second = login.start(env({ GH_WAIT: '1' }));
+    expect(second.id).not.toBe(first.id);
+    expect(login.view()?.id).toBe(second.id);
+    login.cancel();
   });
 });
 

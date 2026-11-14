@@ -65,6 +65,7 @@ import {
   parseShareFileRefs,
   readShareFiles,
   shareToGist,
+  GhLogin,
   unshareGist,
   validGistId,
   type FoundShareFile,
@@ -154,6 +155,8 @@ export interface AppDeps {
     upload(files: GistUpload[]): Promise<ReportScreenshots>;
     remove(id: string): Promise<void>;
   };
+  /** Signs gh in for sharing from the share dialog (`GhLogin`: gh's own device sign-in; fakes in tests). */
+  ghLogin?: Pick<GhLogin, 'start' | 'view' | 'cancel'>;
   /** Browsers' push subscriptions and sending to them (`push.ts`); without it, no push notifications. */
   push?: PushService;
   /** Tells subscribed browsers when agents finish or need the user, unless their page is in front (`alerts.ts`). */
@@ -210,6 +213,7 @@ export function createApp({
     remove: unshareGist,
   },
   screenshotGists = { upload: (files) => uploadScreenshots(files), remove: unshareGist },
+  ghLogin = new GhLogin(),
   updates = new Updates(undefined, version),
   limits = limitsOf(CONFIG),
   push,
@@ -1211,6 +1215,15 @@ export function createApp({
       throw err;
     }
   }
+
+  // Signing gh in for sharing, from the share dialog when gh is not signed in: gh's own device sign-in,
+  // whose code and link the dialog shows (as Settings does for the CLIs' sign-ins), on this computer.
+  app.post('/api/gh/login', (c) => c.json(ghLogin.start()));
+  app.get('/api/gh/login', (c) => c.json(ghLogin.view()));
+  app.delete('/api/gh/login', (c) => {
+    ghLogin.cancel();
+    return c.json({ ok: true });
+  });
 
   // The conversations shared so far, the newest first (not those still being made); removing one
   // deletes its gists.

@@ -285,7 +285,7 @@ export function ShareDialog({ conv, upTo, chat, onClose }: Props) {
           </p>
         )}
         {streaming && phase === 'idle' && !link && <p className="muted small">{t.share.streaming}</p>}
-        {gh && <GhHelp problem={gh} retry={t.share.gh.retryLink} />}
+        {gh && <GhHelp problem={gh} retry={t.share.gh.retryLink} onSignedIn={() => void create()} />}
         {error && (
           <p className="error-line" role="alert">
             {error}
