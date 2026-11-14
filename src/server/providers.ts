@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto';
-import type { ChildProcess } from 'node:child_process';
 import {
   PROVIDERS,
   PROVIDER_LABEL,
@@ -23,7 +21,8 @@ import { openHomeEnv } from './agents/open';
 import { backendLabel } from './backends';
 import { HttpError } from './errors';
 import { discoverModels, type DiscoveredModels } from './models';
-import { CommandNotFoundError, capture, killTree, spawnInteractive, stripAnsi, tail } from './process';
+import { CliLogin } from './login';
+import { CommandNotFoundError, capture, stripAnsi, tail } from './process';
 import { CREDENTIAL_ENV, CURSOR_SHARED_SIGN_IN, type SettingsStore } from './settings';
 import { t } from './i18n';
 import { askUsage, type UsageAnswer } from './usage';
@@ -564,19 +563,8 @@ export class KeyOnlyAccountError extends Error {
   }
 }
 
-const LOGIN_TIMEOUT_MS = 15 * 60 * 1000;
-const URL_RE = /https?:\/\/[^\s"'<>\u001b]+/g;
-const CODE_RE = /\b[A-Z0-9]{4}-[A-Z0-9]{4,6}\b/g;
-
-class LoginSession {
-  readonly id = randomUUID();
-  readonly startedAt = Date.now();
-  private child: ChildProcess;
-  private output = '';
-  private state: LoginSessionView['state'] = 'running';
-  private exitCode: number | null | undefined;
-  private timer: NodeJS.Timeout;
-
+/** An account's sign-in, as Settings shows it: the CLI's own flow (`CliLogin`), for one account. */
+class LoginSession extends CliLogin {
   constructor(
     readonly provider: Provider,
     readonly account: string,
@@ -584,63 +572,12 @@ class LoginSession {
     readonly method: { id: string; args: string[]; failsWith?: RegExp },
     bin: string,
     env: NodeJS.ProcessEnv,
-    private onDone: () => void,
+    onDone: () => void,
   ) {
-    this.child = spawnInteractive(bin, method.args, env);
-    const onData = (chunk: Buffer) => {
-      this.output += chunk.toString('utf8');
-      if (this.output.length > 32_000) this.output = this.output.slice(-32_000);
-    };
-    this.child.stdout!.on('data', onData);
-    this.child.stderr!.on('data', onData);
-    this.child.stdin!.on('error', () => {});
-    this.child.on('error', (err: NodeJS.ErrnoException) => {
-      this.output += `\n${err.code === 'ENOENT' ? new CommandNotFoundError(bin).message : err.message}\n`;
-      this.finish('failed', null);
-    });
-    this.child.on('close', (code) => {
-      const failed = code !== 0 || Boolean(this.method.failsWith?.test(stripAnsi(this.output)));
-      if (this.state === 'running') this.finish(failed ? 'failed' : 'success', code);
-    });
-    this.timer = setTimeout(() => this.cancel(), LOGIN_TIMEOUT_MS);
+    super(bin, method.args, env, method.failsWith, onDone);
   }
 
-  private finish(state: LoginSessionView['state'], code: number | null): void {
-    this.state = state;
-    this.exitCode = code;
-    clearTimeout(this.timer);
-    this.onDone();
-  }
-
-  write(text: string): void {
-    if (this.state !== 'running' || !this.child.stdin?.writable) return;
-    this.child.stdin.write(text.trim() + '\n');
-  }
-
-  cancel(): void {
-    if (this.state !== 'running') return;
-    this.finish('cancelled', null);
-    killTree(this.child, 'SIGTERM');
-    setTimeout(() => killTree(this.child, 'SIGKILL'), 2000);
-  }
-
-  view(): LoginSessionView {
-    const clean = stripAnsi(this.output).replace(/\r/g, '');
-    const urls = [...new Set(clean.match(URL_RE) ?? [])];
-    const codes = [...new Set(clean.match(CODE_RE) ?? [])];
-    const lastLine = clean.trimEnd().split('\n').pop() ?? '';
-    return {
-      id: this.id,
-      provider: this.provider,
-      account: this.account,
-      method: this.method.id,
-      state: this.state,
-      startedAt: this.startedAt,
-      output: clean,
-      urls,
-      codes,
-      wantsInput: this.state === 'running' && /(paste|enter).*code|code.*>\s*$/i.test(lastLine),
-      exitCode: this.exitCode,
-    };
+  override view(): LoginSessionView {
+    return { ...super.view(), provider: this.provider, account: this.account, method: this.method.id };
   }
 }

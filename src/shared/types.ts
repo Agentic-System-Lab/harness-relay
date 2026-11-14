@@ -1811,12 +1811,9 @@ export const backendModelId = (backend: string, model: string): string => `${bac
 
 export type LoginState = 'running' | 'success' | 'failed' | 'cancelled';
 
-export interface LoginSessionView {
+/** A CLI's own sign-in as it runs (`CliLogin`): what it printed, and the links and codes in it. */
+export interface CliLoginView {
   id: string;
-  provider: Provider;
-  /** The account signing in; empty = the default account. */
-  account: string;
-  method: string;
   state: LoginState;
   startedAt: number;
   output: string;
@@ -1825,6 +1822,14 @@ export interface LoginSessionView {
   /** The CLI is waiting for something to be pasted on stdin (e.g. Claude's auth code). */
   wantsInput: boolean;
   exitCode?: number | null;
+}
+
+/** An account's sign-in in Settings. */
+export interface LoginSessionView extends CliLoginView {
+  provider: Provider;
+  /** The account signing in; empty = the default account. */
+  account: string;
+  method: string;
 }
 
 export interface LoginMethod {

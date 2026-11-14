@@ -9,6 +9,7 @@ import {
   clearRunTmp,
   CODESPACE_SHARED_DIR,
   codespaceSecretDirs,
+  makeCodespaceGhDir,
   commandPaths,
   overlaps,
   patternPath,
@@ -116,6 +117,23 @@ describe('what agents may not read', () => {
     expect(codespaceSecretDirs({ CODESPACES: 'true', XDG_CONFIG_HOME: resolve('/x') }, h, '/s')).toEqual(['/s', join(resolve('/x'), 'gh')]);
     expect(codespaceSecretDirs({ CODESPACES: 'true', GH_CONFIG_DIR: 'gh', XDG_CONFIG_HOME: 'cfg' }, h, '/s')).toEqual(['/s', join(h, '.config', 'gh')]);
     expect(CODESPACE_SHARED_DIR).toBe('/workspaces/.codespaces');
+  });
+
+  it("makes gh's folder at startup in a codespace, so that it is kept from turns already running when gh signs in", () => {
+    const home = join(root, 'home-gh-folder');
+    mkdirSync(home, { recursive: true });
+    const gh = join(home, '.config', 'gh');
+    // Anywhere else, nothing is made.
+    makeCodespaceGhDir({}, home);
+    expect(existsSync(gh)).toBe(false);
+    makeCodespaceGhDir({ CODESPACES: 'true' }, home);
+    expect(existsSync(gh)).toBe(true);
+    // Made there, it is a protected path from the first turn.
+    expect(protectedReads({ platform: 'linux', home, dataDir: join(root, 'no-data'), env: { CODESPACES: 'true' }, codespaceDir: join(root, 'missing') }).map((p) => resolve(p))).toEqual([gh]);
+    // Already there (signed in before): left as it is.
+    writeFileSync(join(gh, 'hosts.yml'), 'github.com: {}\n');
+    makeCodespaceGhDir({ CODESPACES: 'true' }, home);
+    expect(readdirSync(gh)).toEqual(['hosts.yml']);
   });
 });
 

@@ -86,7 +86,7 @@
 
 語音輸入是選用的，開啟時會自動安裝：macOS 需要 [Homebrew](https://brew.sh)；Linux 的預先編譯引擎需要 glibc 2.34 以上（Ubuntu 22.04、Debian 12 或更新）。
 
-把對話分享成連結也是選用的：需要 [GitHub CLI](https://cli.github.com)（`gh`）2.66.0 以上並用 `gh auth login` 登入，附上檔案時還需要 `git`。
+把對話分享成連結也是選用的：需要 [GitHub CLI](https://cli.github.com)（`gh`）2.66.0 以上並登入（在分享對話框裡，或用 `gh auth login`），附上檔案時還需要 `git`。
 
 ## 快速開始
 

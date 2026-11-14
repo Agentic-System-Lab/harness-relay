@@ -13,6 +13,7 @@ import {
   SHARE_FILE_URL_MAX,
   SHARE_MAX_BYTES,
   DEFAULT_LIMITS,
+  type CliLoginView,
   type Conversation,
   type ConversationSummary,
   type ProviderModels,
@@ -2439,6 +2440,43 @@ describe('sharing conversations', () => {
       gists: { create: gists.create ?? never, remove: gists.remove ?? never },
     });
   }
+
+  it("runs gh's own sign-in for sharing when the dialog asks, shows it, and stops it", async () => {
+    const view = (state: CliLoginView['state']): CliLoginView => ({
+      id: 'l1',
+      state,
+      startedAt: 1,
+      output: '! First copy your one-time code: ABCD-1234',
+      urls: ['https://github.com/login/device'],
+      codes: ['ABCD-1234'],
+      wantsInput: false,
+    });
+    let current: CliLoginView | null = null;
+    const calls: string[] = [];
+    const s = new SettingsStore(openDatabase(':memory:'));
+    const ghLogin = {
+      start: () => {
+        calls.push('start');
+        return (current = view('running'));
+      },
+      view: () => current,
+      cancel: () => {
+        calls.push('cancel');
+        current = current && view('cancelled');
+      },
+    };
+    const own = createApp({ auth: null, store, settings: s, hub: new Hub(), orchestrator, providers: new ProviderService(s), ghLogin });
+    const json = { ...HOST, 'content-type': 'application/json' };
+    expect(await (await own.request('/api/gh/login', { headers: HOST })).json()).toBeNull();
+    expect(await (await own.request('/api/gh/login', { method: 'POST', headers: json, body: '{}' })).json()).toMatchObject({ state: 'running', codes: ['ABCD-1234'] });
+    expect(await (await own.request('/api/gh/login', { headers: HOST })).json()).toMatchObject({ state: 'running', urls: ['https://github.com/login/device'] });
+    expect((await own.request('/api/gh/login', { method: 'DELETE', headers: json })).status).toBe(200);
+    expect(await (await own.request('/api/gh/login', { headers: HOST })).json()).toMatchObject({ state: 'cancelled' });
+    // Like any write, only from Harness Relay's own pages (the middleware's Host and content-type checks).
+    expect((await own.request('/api/gh/login', { method: 'POST', headers: { host: 'evil.example', 'content-type': 'application/json' }, body: '{}' })).status).toBe(403);
+    expect((await own.request('/api/gh/login', { method: 'POST', headers: { ...HOST, 'content-type': 'text/plain' }, body: '{}' })).status).toBe(415);
+    expect(calls).toEqual(['start', 'cancel']);
+  });
 
   it("puts the page on the web, described by the conversation's title, and lists it", async () => {
     const conv = await createConversation();

@@ -19,7 +19,7 @@ import { Scheduler } from './scheduler';
 import { clearShareTmp } from './share';
 import { openSecretStore, openSystemKeyring, type SecretStore } from './secrets';
 import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
-import { clearRunTmp, dataDirInTemp, relayTmpDir, voiceDirProblem } from './protect';
+import { clearRunTmp, dataDirInTemp, makeCodespaceGhDir, relayTmpDir, voiceDirProblem } from './protect';
 import { CONFIG_PROBLEMS } from './config';
 import { OPEN_PROVIDERS } from '../shared/types';
 import { RUN_TMP_DIR, clearOpenRunLeftovers } from './agents/open';
@@ -142,6 +142,12 @@ if (!built) {
 await clearShareTmp().catch((err: unknown) => console.error('[server] could not clear the temporary share folders:', err));
 // There before any agent runs, so that every sandbox is kept out of it from the first turn (protectedReads).
 mkdirSync(relayTmpDir(), { recursive: true, mode: 0o700 });
+// In a codespace, gh's sign-in folder: there before any turn, so that every sandbox keeps it out.
+try {
+  makeCodespaceGhDir();
+} catch (err) {
+  console.error("[server] could not make gh's folder:", err);
+}
 // What turns the server was stopped during left there (a Claude Code turn's settings may hold an
 // endpoint's key); none is running yet.
 try {
