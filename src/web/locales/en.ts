@@ -99,6 +99,7 @@ export const en: Messages = {
     matches: (n) => (n === 1 ? '1 matching message' : `${n} matching messages`),
     settings: 'Settings & sign-in',
     report: 'Report a problem',
+    star: 'Star us on GitHub',
     healthReady: (ready, total) => `${ready}/${total} ready`,
     healthShowNames: 'Show the CLIs’ names',
     healthHideNames: 'Dots only',
@@ -1466,6 +1467,15 @@ export const en: Messages = {
     noOutput: '(no output yet)',
   },
 
+  star: {
+    title: 'Give Harness Relay a star',
+    body: 'If Harness Relay works well for you and you would like to support the project, please star its repository on GitHub. Every star helps more people find Harness Relay, and encourages us to keep improving it.',
+    how: 'On the repository’s page, click Star at the top right (signed in to GitHub): once the star turns yellow and the button reads Starred, you are done.',
+    open: 'Star it on GitHub',
+    later: 'Later',
+    thanks: 'Thank you for your support!',
+  },
+
   update: {
     title: 'A new version is out',
     body: (version, current) => `Harness Relay ${version} is out (you have ${current}).`,
@@ -1637,7 +1647,7 @@ export const en: Messages = {
         body: 'In Settings you can switch the language (繁體中文 / English), set up the model backends (the open-source agents run on them, and Claude Code, Codex and Grok on their custom endpoints too), change the lead agent, see the skills, MCP servers and memory each CLI loads by itself, set the default working directory for new chats, turn notifications and sound on or off, manage voice input, agent sessions and shared conversations, and replay this tour. The links at the top jump straight to each one.',
         points: [
           'Version, the first card: the version you have; the desktop app checks for a new one every hour, offers it once in a dialog, and updates from there, from the card or from its menu',
-          'The button beside Settings & sign-in reports a problem or an idea by email, with the version and system details, and screenshots if you like',
+          'The speech-bubble button at the right end of the Settings & sign-in row reports a problem or an idea by email, with the version and system details, and screenshots if you like',
         ],
       },
     ],

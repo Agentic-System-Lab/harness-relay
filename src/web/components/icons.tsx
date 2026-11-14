@@ -245,6 +245,15 @@ export function ReportIcon({ size }: { size?: number }) {
   );
 }
 
+/** A five-pointed star: star Harness Relay on GitHub. */
+export function StarIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <path d="M12 3.1l2.4 6.2 6.6.4-5.1 4.2 1.7 6.4L12 16.7l-5.6 3.6 1.7-6.4-5.1-4.2 6.6-.4z" />
+    </Svg>
+  );
+}
+
 /** An envelope: send by email. */
 export function MailIcon({ size }: { size?: number }) {
   return (

@@ -3,6 +3,10 @@ import { PROVIDERS, type ConversationGroup, type ConversationSummary, type Provi
 import { expect, test } from '../fixtures';
 import { acceptNextDialog, askAndConfirm, chatId, finishedReply, homePage, openTeamChat, send, settled, startChat } from '../support/app';
 import type { RelayServer } from '../support/relay';
+import { REPO, REPO_URL } from '../../src/web/star';
+
+/** The star's yellow (`--star` in styles.css). */
+const YELLOW = 'rgb(250, 204, 21)';
 
 /** Makes a group in the sidebar, as the user does, and returns its section. */
 async function newGroup(page: Page, name: string): Promise<Locator> {
@@ -174,5 +178,91 @@ test.describe('the sidebar', () => {
     await toggle.click();
     await expect(health.locator('a[href="#/settings/antigravity"]')).toContainText('Antigravity');
     await expect.poll(async () => Math.abs((await measure()).chevron - dots.reportIcon)).toBeLessThan(0.5);
+  });
+
+  test('the star left of Report a problem asks for a star on GitHub, shows how, and opens the repository in a new tab', async ({ page }) => {
+    // The repository's page is never loaded: the new tab gets an empty page of the test's instead.
+    await page.context().route('https://github.com/**', (route) => route.fulfill({ contentType: 'text/html', body: '<title>e2e</title>' }));
+    const star = page.locator('.sidebar').getByRole('button', { name: 'Star us on GitHub' });
+    const report = page.locator('.sidebar').getByRole('button', { name: 'Report a problem' });
+    const [starBox, reportBox] = [await star.boundingBox(), await report.boundingBox()];
+    expect(starBox!.x + starBox!.width).toBeLessThanOrEqual(reportBox!.x);
+    expect(Math.abs(starBox!.y - reportBox!.y)).toBeLessThan(0.5);
+    // Yellow under the mouse.
+    await star.hover();
+    await expect(star.locator('svg')).toHaveCSS('fill', YELLOW);
+
+    await star.click();
+    const dialog = page.getByRole('dialog', { name: 'Give Harness Relay a star' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText('please star its repository on GitHub');
+    await expect(dialog).toContainText('click Star at the top right');
+    // The picture: the repository's page, its Star button pressed a few times by the pointer (with
+    // transform and opacity alone), then the pointer resting on Star.
+    const picture = dialog.locator('.star-picture');
+    await expect(picture).toContainText(`github.com/${REPO}`);
+    await expect(picture.locator('.star-picture-button')).toContainText('Star');
+    const played = await picture.evaluate((el) =>
+      el.getAnimations({ subtree: true }).map((a) => {
+        const effect = a.effect as KeyframeEffect;
+        const changed = new Set(effect.getKeyframes().flatMap((k) => Object.keys(k)));
+        for (const key of ['offset', 'computedOffset', 'easing', 'composite']) changed.delete(key);
+        return { name: (a as CSSAnimation).animationName, iterations: effect.getComputedTiming().iterations, changed: [...changed].sort() };
+      }),
+    );
+    expect(played.map((a) => a.name).sort()).toEqual(['star-filled', 'star-off', 'star-on', 'star-pointer']);
+    for (const a of played) {
+      expect(a.iterations, a.name).toBe(3);
+      expect(a.changed.every((p) => p === 'transform' || p === 'opacity'), `${a.name} changes ${a.changed.join(', ')}`).toBe(true);
+    }
+
+    const link = dialog.getByRole('link', { name: 'Star it on GitHub' });
+    await expect(link).toHaveAttribute('href', REPO_URL);
+    await expect(link).toHaveAttribute('target', '_blank');
+    await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    // Its star is yellow, filled.
+    await expect(link.locator('svg')).toHaveCSS('fill', YELLOW);
+    const opened = page.context().waitForEvent('page');
+    await link.click();
+    const tab = await opened;
+    await tab.waitForLoadState();
+    expect(tab.url()).toBe(REPO_URL);
+    await tab.close();
+    await page.bringToFront();
+    await expect(dialog.getByRole('status')).toHaveText('Thank you for your support!');
+    await dialog.getByRole('button', { name: 'Later' }).click();
+    await expect(dialog).toBeHidden();
+
+    // Opened again from the keyboard, it has not thanked the user yet; Escape closes it, and focus goes
+    // back to the star (a click focuses no button in WebKit, so the keyboard opens it here).
+    await star.focus();
+    await page.keyboard.press('Enter');
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('status')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(star).toBeFocused();
+
+    // × and a click beside the dialog close it too.
+    await star.click();
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await expect(dialog).toBeHidden();
+    await star.click();
+    await expect(dialog).toBeVisible();
+    await page.mouse.click(5, 5);
+    await expect(dialog).toBeHidden();
+  });
+
+  test('with reduced motion, the star dialog shows the pointer resting on Star, the press not played', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.locator('.sidebar').getByRole('button', { name: 'Star us on GitHub' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Give Harness Relay a star' });
+    await expect(dialog).toBeVisible();
+    expect(await dialog.locator('.star-picture').evaluate((el) => el.getAnimations({ subtree: true }).length)).toBe(0);
+    const shown = (selector: string) => dialog.locator(selector).evaluate((el) => getComputedStyle(el).opacity);
+    expect(await shown('.star-picture-pointer')).toBe('1');
+    expect(await shown('.star-picture-off')).toBe('1');
+    expect(await shown('.star-picture-on')).toBe('0');
+    expect(await shown('.star-picture-filled')).toBe('0');
   });
 });

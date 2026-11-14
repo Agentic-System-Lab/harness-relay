@@ -114,6 +114,7 @@ src/
     share.ts               分享頁不需要 DOM 的部分：拿掉哪些內容、圖片的大小預算、頁面與它的 CSP、Harness Relay 的頁尾；回覆連結的檔案（從下載連結讀回、每個連結會變成什麼、勾選哪些並在重新檢查時保留、哪些看起來像機密）
     update.ts              聊天介面裡的桌面 app 更新：每個版本只跳一次的對話框（只在 app 自己的視窗，且沒有其他對話框開著時）、設定的「版本」卡片、多久詢問一次；以及頁面對伺服器版本的監看，更新時開著的頁面會重新載入
     dialogs.ts             頁面上開著的對話框：只有最上層的處理按鍵（useDialog），以及開著幾個
+    star.ts                Harness Relay 在 GitHub 上的 repo（REPO、REPO_URL），星星對話框打開的連結，與網站的 REPO 相同
     report.ts              用電子郵件回報問題：信件的主旨與內容、一起附上的資訊、截圖的連結、mailto 與 Gmail 連結（報告太長放不進連結時改用剪貼簿）
     sharePage.tsx          從畫面上的聊天室做出分享頁（複製、拿掉不要的、樣式、圖片轉成 data URL 並控制在 1 MB 內、附檔的佔位連結）；要分享的訊息裡的檔案連結
     tools.ts               團隊編輯器的工具選擇：工具庫項目、依 CLI 的預設、成員的例外設定
@@ -151,7 +152,7 @@ src/
                            CwdInput（工作目錄輸入框：每個資料夾一個標籤、輸入內容後的 Enter 鍵、資料夾按鈕，以及使用中工作目錄的清單）、
                            ScheduleDrawer（對話的排程）、ScheduleForm（共用的排程表單）、
                            NewSchedule（「新排程」頁面）、
-                           ReportDialog（側邊欄的「回報問題」）、
+                           ReportDialog（側邊欄的「回報問題」）、StarDialog（它旁邊的星星：到 GitHub 給 repo 一顆星星）、
                            VersionSettings（設定 → 版本）、UpdateDialog（新版本，只提示一次）、
                            useDialog（對話框的焦點處理）
 test/                      Vitest 測試；fixtures/<agent>/ 放從開源 agent、Antigravity、Copilot 與 Muse Code 真正的 CLI 錄下的訊息（fixtures/antigravity/cli/ 與 fixtures/muse/cli/：agy 與 muse 自己的清單；fixtures/copilot/cli/：copilot 的；fixtures/usage/：各 CLI 對帳號方案用量的回答），fake-*.ts 是重播它們的替身（fake-antigravity.ts 給 antigravity.test.ts 用，fake-copilot.ts 給 copilot.test.ts 用，fake-muse.ts 給 muse.test.ts 與 providers.test.ts 中 Muse Code 的登入用）；setup.ts 與 timeouts.ts：測試等多久（Windows 上較長）；orchestrator-harness.ts：協調器測試共用的假 CLI
@@ -614,6 +615,7 @@ npx vitest test/store.test.ts
 - `test/approvals.test.ts`：「本對話都允許」的規則 key 與比對（串接指令、shell 包裝；讀網頁依主機與埠號）。
 - `test/codex.test.ts`：Codex app-server 轉接器：thread 項目轉成 `AgentEvent`（文字、推理、計畫、指令輸出、用量（輸出依 Codex 的總數只算一次推理；重複送來的同一個計數不再加一次），只有 `item/completed` 才帶的網路搜尋查詢，只改一個檔案時以變更種類（Edit、Create、Delete）為名稱、路徑為說明，改多個檔案時先寫出共同資料夾的最後兩層名稱，再以相對路徑列出），以及核准請求 / 回應。也測試工具庫的 MCP 伺服器放在一個 `mcp_servers` 表（完全存取下自行核准工具），以及 Codex 的 MCP 工具呼叫核准（codex-cli 0.167.0 送出的格式）和其他核准一樣顯示，其他 elicitation 則拒絕。也測試不載入 Codex 自己的內容：各項覆寫（包括 hook 與 plugin），以及改用 `-c` 參數傳入的同樣覆寫（inline table、key 加引號）；thread 開始後檢查設為不載入的 hook 與 plugin 確實關掉了（Codex 仍列出開著的或無法回答就失敗，沒有這個方法時照常執行），以及透過替身 `codex app-server` 的執行（開關也放在它的命令列、回合開始前檢查、Codex 忽略開關時失敗、檢查中按下停止就不開始回合；有要保護的路徑時，使用實驗性 API 與它自己的權限設定檔，Codex 沒有套用時失敗，並回答它詢問的時間）；在同一個表裡關掉它設定的每個 MCP 伺服器，不論名稱（工具庫取代的除外）；只在不載入 MCP 伺服器（全部、個別伺服器或它們的工具）時才用 `config/read` 詢問，問不到時以清楚的訊息讓執行失敗；個別的 skill（`skills.config`）、hook（`hooks.state`）與 plugin（`plugins`），寫成表與 `-c` 參數；只針對使用者設定裡的個別伺服器與工具（`disabled_tools` 保留使用者已關掉的）；檢查個別 skill、hook 與 plugin 確實關掉了；以及帶著這一切的 `thread/start` / `thread/resume` 請求。也測試在使用者自己的端點上執行：thread 的 model provider（`model_providers.harness-relay-<id>`、Responses API，有金鑰時才有 `env_key`）與送出的推理強度（`codexEndpointEffort()`：端點接受時用成員的，否則使用者的 Codex 設定有設的值改成 `medium`，用 `config/read` 問，沒設定時不送），也用替身 app-server 測。也測試已刪除端點的模型在 Codex 啟動前就失敗。可編輯模式下，其他工作目錄成為權限設定檔的 `write` 項目，或舊版沙箱的 `writable_roots`。
 - `test/schedule.test.ts`：排程何時送出：`HH:MM` 與時區、把牆上時間換成時刻（時鐘跳過的時間往後移、重複的時間取第一次）、每天（今天或明天，時鐘調整前後時間不變）、每週（只在選定的日子，必要時到下週）、每隔幾小時（從儲存時算起）與一次性排程，以及讀不懂的時間；時鐘往回撥的那一夜、午夜與半小時的調整（聖地牙哥、豪勳爵島）、時鐘調整前後的每週時間，以及依排程所在地的星期幾（東京）。也測試 `validateSchedule()`（預設值、星期去重並排序、永遠不會送出的設定、關閉時保留過去的一次性排程）與排程視窗的邏輯：新表單與讀回已儲存的排程、瀏覽器輸入的日期時間、表單顯示的問題（和伺服器一致）、接下來的時間、以排程自己的時區顯示時間、用幾個字描述排程（星期一在前）、何時需要注意，以及一次性排程何時算完成；是否每次開新對話（只有真正的 `true` 才算），在表單中與讀回時。
+- `test/star.test.ts`：星星對話框的 repo（`src/web/star.ts`）就是網站的 repo（`site/assets/downloads.js` 的 `REPO`），在 github.com 上。
 - `test/sidebar.test.ts`：側邊欄的對話狀態、各群組的對話（「其他」在最後、群組不存在的對話放在「其他」）、還沒確認的移動，以及收合群組顯示的狀態。也包括一串分支對話（`src/shared/family.ts`）：每個對話列在它分支出來的對話底下，先建立的在上面，放在最早建立的對話所在的群組，依最近的動態排序；從已刪除的對話分支出來的對話，一起留在它當時的標題底下；伺服器還沒回應時整串一起移動；有幾個對話是從某個對話分支出來的，以及收合的一串顯示的狀態；一串分支中間已刪除的對話以它的標題留在原位，上面已刪除的頂端也一樣；開啟被收合擋住的對話時展開擋住它的分支，不在側邊欄的節點的收合狀態會被忘掉；從任何一個對話移動整串，以及復原這次移動；遇到循環會切斷，不會一直繞下去。也測試底部的 CLI 狀態：有幾個可用，以及這個瀏覽器是否顯示它們的名稱（安全地存下，沒有儲存空間也可以）。
 - `test/search.test.ts`：搜尋的詞、不分大小寫的比對（長的優先、重疊合併）、第一個符合處附近的摘錄、標示關鍵字。
 - `test/grouping.test.ts`：請首席 agent 分類對話的 prompt，以及解讀它的回覆（編號或名稱；0 或 null 代表都不適合；其他都拒絕）。
@@ -701,7 +703,7 @@ E2E_BROWSERS=chromium,firefox,webkit npm run test:e2e   # 先執行 npx playwrig
 - `e2e/specs/team.spec.ts` — 在團隊設定中請首席 agent 加入成員，儲存後新成員回答；首席 agent 的回答無法解讀時改用範本；拒絕為新問題提議的團隊，由目前的團隊回答；新增成員卡和旁邊的成員一樣高（清單是有名稱、可以捲動的群組，下面還有時底部有陰影），自己一列時列出所有 CLI，一張卡變高只撐高自己那一列。
 - `e2e/specs/inputs.spec.ts` — 除了 prompt 之外交給各 CLI 的東西：工具庫的 MCP 伺服器（其秘密不會出現在命令列上）、透過 HTTP 的 MCP 伺服器（其秘密標頭也一樣；Antigravity 除外，它的轉接器不給它）與附加的圖片（Cline 除外，它不接受圖片）。
 - `e2e/specs/sandbox.spec.ts` — 包住開源 agent 的 Harness Relay 自己的沙箱：唯讀對話中使用者允許的寫入仍被拒絕，這次執行不能連的主機會先詢問、拒絕後就不連；在只能以完全存取執行的地方（Windows；Linux 上的 OpenCode），權限低於完全存取的開源 agent 不會啟動，並說明原因；macOS 上沒有終端機開關的 OpenHands；Antigravity 在 agy 啟動前先詢問專案自己的設定，被拒絕時就不啟動；Copilot 在啟動前先詢問專案的 hook，被拒絕時不啟動，允許後這一輪就執行。
-- `e2e/specs/sidebar.spec.ts` — 群組與首席 agent 把新對話分進群組、重新命名與刪除（刪除開著的對話後改為顯示首頁）、依 agent 寫的內容搜尋、一開始就給的標題；把對話拖進與拖出群組，以及分支對話的家族一起移動；每個 CLI 的狀態點與可用數量排在一行，箭頭尖端對齊回報問題圖示的右緣。
+- `e2e/specs/sidebar.spec.ts` — 群組與首席 agent 把新對話分進群組、重新命名與刪除（刪除開著的對話後改為顯示首頁）、依 agent 寫的內容搜尋、一開始就給的標題；把對話拖進與拖出群組，以及分支對話的家族一起移動；每個 CLI 的狀態點與可用數量排在一行，箭頭尖端對齊回報問題圖示的右緣；回報問題圖示左邊的星星：它的對話框、示意圖的按下動畫（播三次，減少動態效果時不播）與在新分頁打開 repo 的連結。
 - `e2e/specs/models.spec.ts` — 成員的模型與推理強度交給各 CLI（Claude Code 的參數、Codex 的 thread、Grok 的 session 選項，其他則照各自轉接器交給它們的方式；開源 agent 的模型來自假端點），以及設定中的預設模型與推理強度用於保留「預設」的成員。
 - `e2e/specs/tools.spec.ts` — 工具庫的頁面，每個 CLI 各一位成員，分成兩個團隊：MCP 伺服器（秘密遮蔽顯示且不在命令列上）、從資料夾挑選並由各 CLI 讀取的 skill、給所有成員與給某個 CLI 的記憶，以及各自對某個 CLI 或在成員的工具中關掉；給 MCP 伺服器新的值後移除它，以及移除 skill 與記憶筆記。還有成員的「工具」怎麼說它自己的 CLI 的設定：工具庫載入中什麼都不說，之後在工具庫是空的、沒有給它的 CLI 的項目時，以及在項目上方。
 - `e2e/specs/share.spec.ts` — 複製回答的 Markdown 與整段對話（Chromium）；透過假的 `gh` 分享成 secret gist，在設定中列出並移除；`gh` 未登入與不存在（Windows 上跳過）。

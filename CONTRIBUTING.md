@@ -19,7 +19,7 @@ Open an issue with the **Bug report** form. It asks for:
 - the conversation's mode (roundtable, parallel or relay), permission (read-only, edit or full access), and whether the lead agent's team is used without asking;
 - the error shown on the message (it includes the end of the CLI's stderr) and the server's output around that time (the `[server]` lines with `npm run dev`; in the desktop app, **Show log** in its menu).
 
-In the app, **Report a problem** (beside Settings & sign-in) sends a report by email instead, with the version and system details filled in.
+In the app, **Report a problem** (the speech-bubble icon at the right end of the Settings & sign-in row) sends a report by email instead, with the version and system details filled in.
 
 Before you paste logs or screenshots, remove API keys, tokens and anything from your projects you don't want public. Don't attach `data/relay.db`: it holds your conversations, the key your push notifications are signed with and, on a system without an OS credential store, your API keys.
 

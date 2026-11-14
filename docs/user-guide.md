@@ -550,6 +550,10 @@ Ran into a problem, or have an idea? The speech-bubble icon at the right of **Se
 - A report too long for a mail link goes on the clipboard instead, and the mail says to paste it. Should the clipboard refuse it, the report does not count as sent: what you typed stays until you copy it with **Copy report**.
 - What you typed stays when you close the dialog, until you send it.
 
+### Starring Harness Relay on GitHub
+
+If Harness Relay works well for you, the star to the left of the report icon, at the foot of the sidebar, opens a short dialog asking you to star the project on GitHub. Its picture shows where to click on the repository's page (**Star**, at the top right, signed in to GitHub; it reads **Starred** once it counts), and **Star it on GitHub** opens that page in a new tab (in the desktop app, in your browser). Nothing is sent from Harness Relay: the dialog only opens the link.
+
 ### Voice input
 
 Press 🎙 next to Send and speak; press it again (it shows a red timer while recording) and the text appears where the cursor is, so you can fix it, add an `@mention` and send it yourself. Esc cancels a recording, and one recording lasts at most two minutes. Speech is turned into text on your computer by whisper.cpp; the recording is never uploaded.
