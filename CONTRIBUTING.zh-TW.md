@@ -21,7 +21,7 @@
 
 在 app 裡，也可以用**回報問題**（「設定與登入」那一行最右邊的對話框圖示）改用 email 寄出回報，版本與系統資訊會自動附上。
 
-貼上 log 或截圖之前，請先移除 API key、token，以及專案中任何你不想公開的內容。請不要附上 `data/relay.db`：裡面有你的對話紀錄、簽署推播通知的金鑰；在沒有作業系統金鑰儲存區的系統上，也存著你的 API key。
+貼上 log 或截圖之前，請先移除 API key、token，以及專案中任何你不想公開的內容。請不要附上 `data/relay.db` 或 `data/secrets.key`：資料庫裡有你的對話紀錄、簽署推播通知的金鑰；在沒有作業系統金鑰儲存區的系統上，也存著你的 API key（以 `secrets.key` 裡的金鑰加密）。
 
 ## 回報安全性問題
 
@@ -64,7 +64,7 @@ npm run dev        # API 在 :8789（檔案變更時重啟）+ 介面在 http://
 ### 安全性
 
 - 新的路由放在 `/api/` 底下，才會經過 Host/Origin 檢查、寫入請求的 JSON content-type 檢查、登入檢查，並取得請求的語言。請不要放寬這些檢查。只有瀏覽器自己載入的唯讀路由（圖片、下載連結）可以只憑 cookie、不帶金鑰（`src/server/app.ts` 的 `BROWSER_LOADS`）。
-- 絕不把機密傳給前端。API key 放在作業系統的金鑰儲存區（`src/server/secrets.ts`），不放在資料庫。
+- 絕不把機密傳給前端。API key 放在作業系統的金鑰儲存區（`src/server/secrets.ts`），絕不以原文放進資料庫：沒有金鑰儲存區時，透過同一個 `SecretStore` 加密後存進資料庫（`openSecretStore()`）。
 - 伺服器只綁定 `127.0.0.1`，而且 agent 的回覆不能讓瀏覽器載入遠端內容（圖片以連結顯示；本機媒體要經過媒體端點的路徑檢查）。
 - 開源 agent 的程序只能透過 `startOpenProcess()`（`src/server/agents/open.ts`）啟動：完全存取以外，它會把程序放進 Harness Relay 自己的沙箱，沙箱無法啟動就不執行。模型的金鑰以環境變數交給 CLI（只有這次執行的模型來源那一把），絕不寫進轉接器寫的設定檔；一次執行寫入的一切都放在對話成員自己的狀態資料夾（`home(root, state)`）。沙箱的開口只由一個轉接器為它自己的 CLI 申請，並寫在 [docs/open-agents.zh-TW.md](docs/open-agents.zh-TW.md) 與 [docs/sandboxing.zh-TW.md](docs/sandboxing.zh-TW.md)。
 

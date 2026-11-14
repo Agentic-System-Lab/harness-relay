@@ -27,6 +27,7 @@ import { unknownMentions } from '../shared/mentions';
 import { CONFIG } from './config';
 import { t } from './i18n';
 import { probeCompleteness, type NativeProblem } from './native';
+import { familiesForLead, familyOf, guideMark, roleGuidesForLead, unlistedFamily } from './roleGuides';
 import { validateAgents } from './validate';
 
 /*
@@ -360,16 +361,21 @@ function names(list: string[], max = TOOL_NAMES_MAX): string {
   return list.length > max ? `${list.slice(0, max).join(', ')}, … (${list.length - max} more)` : list.join(', ');
 }
 
-/** A CLI's models as the lead reads them: each one's name, its efforts and its default effort. */
-function modelsForLead(c: ProviderModels): string {
+/**
+ * A CLI's models as the lead reads them: each one's name, its efforts and its default effort, and with
+ * `guided` (the lead reads role guides) the guide its role follows (`familyOf`).
+ */
+function modelsForLead(p: Provider, c: ProviderModels, guided: boolean): string {
   return c.models
     .map((m) => {
       const efforts = effortsFor(c, m.id);
+      const family = guided ? familyOf(p, m.id, m) : undefined;
       const notes = [
         m.label && m.label !== m.id ? m.label : '',
         m.latest ? 'always its family\'s newest' : '',
         efforts.length ? `efforts ${efforts.join('/')}` : '',
         m.defaultEffort ? `default effort ${m.defaultEffort}` : '',
+        family ? guideMark(family) : '',
       ].filter(Boolean);
       return notes.length ? `${m.id} (${notes.join('; ')})` : m.id;
     })
@@ -378,20 +384,27 @@ function modelsForLead(c: ProviderModels): string {
 
 /**
  * The coding agents the lead may staff: the signed-in CLIs, each with its models (and each model's
- * efforts and default effort), what it loads by itself in the working directory (built-in tools,
- * skills, MCP servers with their tools, subagents, plugins), and what its members get from the tool
- * library by default.
+ * efforts and default effort, and with `guided` the role guide it follows: also a default model the CLI
+ * does not list, and its own models when it lists none), what it loads by itself in the working directory
+ * (built-in tools, skills, MCP servers with their tools, subagents, plugins), and what its members get
+ * from the tool library by default.
  */
-function agentsForLead(ctx: PlannerContext): string {
+function agentsForLead(ctx: PlannerContext, guided: boolean): string {
   const available = ctx.available.length ? ctx.available : (Object.keys(PROVIDER_LABEL) as Provider[]);
   return available
     .map((p) => {
       const lines = [`- ${p} (${PROVIDER_LABEL[p]})`];
       // As its new members run it: in the home of the account they get, with that account's defaults.
       const c = catalogFor(ctx.catalog, p, ctx.accounts?.[p]?.[0]);
-      if (c?.models.length) lines.push(`  Models: ${modelsForLead(c)}`);
-      const defaults = [c?.defaultModel ? `model ${c.defaultModel}` : '', c?.defaultEffort ? `effort ${c.defaultEffort}` : ''].filter(Boolean);
+      if (c?.models.length) lines.push(`  Models: ${modelsForLead(p, c, guided)}`);
+      const unlisted = guided && c?.defaultModel && !c.models.some((m) => m.id === c.defaultModel) ? familyOf(p, c.defaultModel) : undefined;
+      const defaults = [
+        c?.defaultModel ? `model ${c.defaultModel}${unlisted ? ` (${guideMark(unlisted)})` : ''}` : '',
+        c?.defaultEffort ? `effort ${c.defaultEffort}` : '',
+      ].filter(Boolean);
       if (defaults.length) lines.push(`  Default ${defaults.join(', ')}`);
+      const ownFamily = guided ? unlistedFamily(p, c) : undefined;
+      if (ownFamily) lines.push(`  Its own models (not listed): ${guideMark(ownFamily)}`);
       else if (c?.efforts.length && !c.models.length) lines.push(`  Efforts: ${c.efforts.join('/')}`);
       const own = ctx.native?.[p];
       if (own?.unknown) {
@@ -442,13 +455,24 @@ const STAFFING =
   'and a model and effort that fit it: a stronger model or higher effort for hard reasoning (design, debugging, review), a faster one or lower effort for simple or bulk work. ' +
   'Every coding agent reads and edits files and runs commands in the working directory, within the file permission.';
 
+/**
+ * How the lead writes a role, for a design or a revision: its first line is what teammates see of it
+ * (`roleSummary` in prompt.ts), and the member's briefing already says what every member is told; with
+ * `guides`, written for the member's model as they say.
+ */
+const ROLE_RULE = (what: string, guides: string) =>
+  `- Write ${what} as instructions addressed to that member. Its first line says who the member is and their expertise: teammates see only that line. ` +
+  'Then what to focus on, and who to hand off to with @Name when the mode is relay. Say only what is particular to the member: its briefing already explains the chat, the team, taking turns, the workspace and the file permission.' +
+  (guides ? ' Write it for its model as the guides below say.' : '');
+
 export function buildPlannerPrompt(
   question: string,
   settings: ConversationSettings,
   ctx: PlannerContext,
   conv: PlanConversation = {},
 ): string {
-  const agents = agentsForLead(ctx);
+  const guides = roleGuidesForLead(familiesForLead(ctx), settings.permission);
+  const agents = agentsForLead(ctx, Boolean(guides));
   const templates = JSON.stringify(usablePresets(ctx).map((p) => templateForLead(p, ctx.library)), null, 2);
   const current = conv.current?.agents.length ? conv.current : undefined;
   const history = conv.history?.trim();
@@ -541,10 +565,10 @@ ${LEAD_REVIEW_OFFER}
 For an adapted or custom team:
 - Mixing coding agents helps: different models catch different things.
 ${STAFFING}
-- Write each member's role as instructions addressed to that member: their expertise, what to focus on, and who to hand off to with @Name when the mode is relay.
+${ROLE_RULE('each member\'s role', guides)}
 - Member names: letters, digits, _ or - only (no spaces), unique, e.g. Researcher, Backend_Dev. A member who stays on from the current team keeps its name and coding agent, so it keeps what it learned.
 - Give "model" and "effort" (from the lists above) only when the member's work needs other than its coding agent's default.
-
+${guides}
 Write the reason (and for a new team its name, description and roles) in the language of the user's question. Do not use tools unless the choice depends on the files in the working directory.
 
 Reply with only one of these JSON objects, in a \`\`\`json code block:
@@ -869,6 +893,7 @@ export function buildRevisePrompt(
 ): string {
   const history = conv.history?.trim();
   const scheduled = conv.schedule?.text.trim();
+  const guides = roleGuidesForLead(familiesForLead(ctx), settings.permission);
   const opening =
     conv.pending === 'schedule' && !conv.schedule
       ? "The user is reviewing the team you designed for the conversation's schedule, which has been deleted since, and asks you to change it. Once the user saves the team, it is the conversation's team."
@@ -911,7 +936,7 @@ ${request}
 </request>
 
 Coding agents you can use (only these), with what their members can use:
-${agentsForLead(ctx)}
+${agentsForLead(ctx, Boolean(guides))}
 ${libraryForPrompt(ctx)}
 Conversation modes:
 ${MODES.map((m) => `- ${m}: ${MODE_HELP[m]}`).join('\n')}
@@ -930,12 +955,12 @@ ${JSON.stringify(usablePresets(ctx).map((p) => templateForLead(p, ctx.library)),
 How to change the team:
 - Change only what the user asks for, and what that change needs (for example, roles that hand off to a member who was renamed or removed). List every member, in speaking order, but give "role" only for a new member or a role you rewrite: leave it out for every other member, whose role then stays exactly as it is.
 - A member who stays keeps its name and coding agent: then it keeps what it learned in this conversation. Rename a member or move it to another coding agent only when the user asks for it, and then give its current name as "was", so it stays the same member with its settings (moved to another coding agent, it reads this conversation afresh). "was" is only for that: never for a new member, even one based on another.
-- Write a new or rewritten role as instructions addressed to that member: their expertise, what to focus on, and who to hand off to with @Name when the mode is relay.
+${ROLE_RULE('a new or rewritten role', guides)}
 - Member names: letters, digits, _ or - only (no spaces), unique, e.g. Researcher, Backend_Dev. At most ${memberCount(teamLimit(ctx))}.
 - "model" and "effort": for a member who stays, leave them out to keep what it has, or give "" for its coding agent's default. For a new member, give them (from the lists above) only when its work needs other than its coding agent's default.
 ${STAFFING}
 - When the request cannot be done this way (for example, it asks to change the file permission, or to clear a member's role, which the user does in the editor), return the team as it is and say why in the reason.
-
+${guides}
 Write the reason (and any new or rewritten roles) in the language of the user's request. Do not use tools unless the change depends on the files in the folder you are running in.
 
 Reply with only this JSON object, in a \`\`\`json code block, with the whole team (every member, in speaking order):

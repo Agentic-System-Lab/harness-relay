@@ -33,7 +33,11 @@ const scratch = realpathSync(mkdtempSync(join(process.env.SANDBOX_CHECK_DIR || '
 const dataDir = join(scratch, 'data');
 mkdirSync(join(dataDir, 'tmp'), { recursive: true, mode: 0o700 });
 writeFileSync(join(dataDir, 'relay.db'), 'RELAY-DB-STAND-IN');
+// The key the secrets in the database are encrypted with when there is no credential store.
+writeFileSync(join(dataDir, 'secrets.key'), 'RELAY-KEY-STAND-IN', { mode: 0o600 });
 process.env.RELAY_DATA_DIR = dataDir;
+// The key file checked is the one in this data folder, never one the developer's shell names.
+delete process.env.RELAY_SECRETS_KEY_FILE;
 
 const relayStub = createServer((_q, r) => r.end('RELAY-API'));
 const relayPort: number = await new Promise((resolve) => relayStub.listen(0, '127.0.0.1', () => resolve((relayStub.address() as { port: number }).port)));
@@ -212,10 +216,15 @@ async function main() {
   }
 
   // Reads of protected paths (both modes).
-  for (const [label, path] of [['a browser folder', join(browser, 'Cookies')], ['a protected file', secret], ['the database', join(dataDir, 'relay.db')]] as [string, string][]) {
+  for (const [label, path] of [
+    ['a browser folder', join(browser, 'Cookies')],
+    ['a protected file', secret],
+    ['the database', join(dataDir, 'relay.db')],
+    ["the secrets' key file", join(dataDir, 'secrets.key')],
+  ] as [string, string][]) {
     if (!want('protected-read')) break;
     const r = await run(`cat "${path}" 2>&1 || true`, baseSpec('edit'));
-    const leaked = /SECRET|COOKIES|RELAY-DB/.test(r.out);
+    const leaked = /SECRET|COOKIES|RELAY-DB|RELAY-KEY/.test(r.out);
     check(`cannot read ${label}`, !leaked, r.out.trim().slice(0, 40));
   }
 

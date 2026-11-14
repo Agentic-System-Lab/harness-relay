@@ -1605,9 +1605,11 @@ export interface ReportScreenshots {
 
 /**
  * Where Harness Relay keeps API keys: the operating system's credential store (macOS Keychain,
- * Windows Credential Manager, Linux Secret Service) or, when there is none, its database.
+ * Windows Credential Manager, Linux Secret Service) or, when there is none, its database, encrypted
+ * with a key in a file of its own (`encrypted`). `database`: as they are, only where one could not be
+ * moved out of it.
  */
-export type KeyStorage = 'keychain' | 'credential-manager' | 'secret-service' | 'database';
+export type KeyStorage = 'keychain' | 'credential-manager' | 'secret-service' | 'encrypted' | 'database';
 
 export interface ProviderSettingsView {
   provider: Provider;

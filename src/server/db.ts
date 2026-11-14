@@ -408,7 +408,17 @@ const MIGRATIONS: string[] = [
     created_at INTEGER NOT NULL
   );
   `,
-  // 28: lead review: whether the lead agent reviews the team's replies once it has answered
+  // 28: the secrets kept in the database when there is no OS credential store (secrets: by the name
+  // a credential store would file it under, AES-256-GCM encrypted with the key in secrets.key,
+  // src/server/secrets.ts), instead of as they are in provider_settings.api_key,
+  // provider_accounts.api_key, model_backends.api_key and the tool library's JSON.
+  `
+  CREATE TABLE secrets (
+    name  TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+  `,
+  // 29: lead review: whether the lead agent reviews the team's replies once it has answered
   // (conversations.lead_review, 0/1), and the review a system message carries (messages.review, JSON:
   // LeadReview).
   `
@@ -674,18 +684,26 @@ export async function exitAfterRunDatabaseReads(code: number, graceMs = 1000, le
 
 /**
  * The files this process holds SQLite locks on while it runs: its database with its journal files
- * (`openDatabase`), and its data folder's lock (`lockDataDir`).
+ * (`openDatabase`), and its data folder's lock (`lockDataDir`); and the files it keeps from the
+ * Files panel and downloads for what they hold: the key its secrets are encrypted with (`withholdFile`).
  */
 const lockedFiles = new Set<string>();
 
+/** Keeps `file` from the Files panel, downloads and shares (`withheldFileKeys`), as if it were not there. */
+export function withholdFile(file: string): void {
+  lockedFiles.add(file);
+}
+
 /**
- * The files this process holds SQLite locks on, as `dev:ino` (`fileKey`), for the server never to
- * open them itself: the system drops every lock a process holds on a file as soon as that process
- * closes any other handle to it (POSIX advisory locks). Reading `server.lock` in the Files panel
- * would free the data folder for a second server, and reading `relay.db` would drop SQLite's own
- * locks while the database is in use. By file, not path: a link or another letter case names it too.
+ * The files the server never opens itself for the Files panel, a download or a share, as `dev:ino`
+ * (`fileKey`). Those it holds SQLite locks on: the system drops every lock a process holds on a file
+ * as soon as that process closes any other handle to it (POSIX advisory locks), so reading
+ * `server.lock` in the Files panel would free the data folder for a second server, and reading
+ * `relay.db` would drop SQLite's own locks while the database is in use. And the secrets' key file
+ * (`withholdFile`), which a reply could otherwise link to. By file, not path: a link or another
+ * letter case names it too.
  */
-export function lockedFileKeys(): Set<string> {
+export function withheldFileKeys(): Set<string> {
   const keys = new Set<string>();
   for (const file of lockedFiles) {
     try {

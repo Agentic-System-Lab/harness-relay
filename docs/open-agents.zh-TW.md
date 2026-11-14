@@ -23,7 +23,7 @@
 - **API 來源**：`openai`、`anthropic` 與 `xai`，各一把 API key。
 - **自訂端點**：你自己的 OpenAI 相容伺服器（vLLM、Ollama、LM Studio、llama.cpp），每個是 `{ id, name, baseUrl, models }`，加上選用的金鑰。id 是小寫的 slug（`ENDPOINT_ID_RE`，不能是 API 來源的名稱），是它的模型 id 的開頭，改名時不變；`models` 是你輸入的模型名稱，因為 Harness Relay 從不向任何模型 API 查詢。base URL 必須是 http(s)，不含帳號密碼、查詢字串或 #，也不能是 Harness Relay 在這台電腦上自己的位址（它的 API 的連接埠或開發伺服器的），不論怎麼寫：`localhost` 與它底下的名稱、結尾多一個點、127/8、`::1`、寫成 IPv6 的 IPv4 位址、未指定位址（`0`、`[::]`），或這台電腦自己的位址之一（`validEndpointUrl`）。
 
-**金鑰**存在作業系統的金鑰儲存區，服務名稱 `harness-relay`，帳號為 `backend-<id>-api-key` 與 `endpoint-<id>-api-key`，規則和各 CLI 的 API key 相同（[架構 → Provider](architecture.zh-TW.md#provider狀態登入與模型)）：沒有金鑰儲存區時留在資料庫，「設定」會註明；有儲存區時，在資料庫中找到的金鑰會搬進去、讀回確認並從資料庫清除（並做 WAL checkpoint）；儲存區拒絕儲存時請求直接失敗，絕不默默改存資料庫；啟動時讀不到的金鑰會標示出來，讓你重新輸入。介面只會拿到遮蔽過的金鑰：20 個字元以上的金鑰顯示 `••••` 加最後四個字元，較短的只顯示 `••••`（`maskSecret`），所以短的金鑰不會露出大半。端點本身存在 `model_backends` 資料表（schema 版本 22），API 來源的金鑰只有在必須留在資料庫時才放在這裡。
+**金鑰**存在作業系統的金鑰儲存區，服務名稱 `harness-relay`，帳號為 `backend-<id>-api-key` 與 `endpoint-<id>-api-key`，規則和各 CLI 的 API key 相同（[架構 → Provider](architecture.zh-TW.md#provider狀態登入與模型)）：沒有金鑰儲存區時以相同名稱加密存在資料庫（`secrets`，金鑰在 `secrets.key`），「設定」會註明；在 `model_backends` 欄位找到的金鑰（舊版以原文存的）會搬進儲存區、讀回確認並從資料庫清除（並做 WAL checkpoint）；儲存區拒絕儲存時請求直接失敗，絕不默默改存資料庫；啟動時讀不到的金鑰會標示出來，讓你重新輸入。介面只會拿到遮蔽過的金鑰：20 個字元以上的金鑰顯示 `••••` 加最後四個字元，較短的只顯示 `••••`（`maskSecret`），所以短的金鑰不會露出大半。端點本身存在 `model_backends` 資料表（schema 版本 22），API 來源的金鑰只有在無法從這裡搬出時才留在這裡。
 
 **模型 id。** 開源 agent 的模型寫成 `<模型來源>/<模型>`，例如 `openai/gpt-5.4-nano`、`anthropic/claude-haiku-5-5`、`xai/grok-4.3` 或 `homelab/muse-glimmer-30b-nvfp4`（只是例子：實際的 id 請以各 API 或 CLI 的模型清單為準）。第一個 `/` 之前是模型來源，所以模型名稱本身也可以含 `/`（`parseBackendModel()`，伺服器與介面共用）。
 

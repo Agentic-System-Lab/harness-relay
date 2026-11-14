@@ -1,5 +1,5 @@
 import { fork, spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
@@ -207,6 +207,35 @@ describe('a server whose port is taken', () => {
       }
     } finally {
       await new Promise((r) => taken.close(r));
+    }
+  }, 30_000);
+});
+
+describe('a server without the key its secrets are encrypted with', () => {
+  it('says how to make the key file RELAY_SECRETS_KEY_FILE names and exits with an error, before it listens', async () => {
+    const data = join(dir, 'data-no-key');
+    const keyFile = join(dir, 'no such folder', 'relay.key');
+    const child = spawn(process.execPath, ['--import', 'tsx', 'src/server/index.ts'], {
+      env: { ...process.env, HOST: '127.0.0.1', PORT: '0', RELAY_DATA_DIR: data, RELAY_KEYRING: 'off', RELAY_SECRETS_KEY_FILE: keyFile, RELAY_WEB_DIR: join(dir, 'no-web') },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const exited = new Promise<number | null>((r) => child.on('exit', r));
+    try {
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (b: Buffer) => (stdout += b.toString()));
+      child.stderr.on('data', (b: Buffer) => (stderr += b.toString()));
+      expect(await exited).toBe(1);
+      expect(stderr).toContain(`cannot read the secrets key file ${keyFile}`);
+      expect(stderr).toContain('(RELAY_SECRETS_KEY_FILE). Make one with: ');
+      expect(stderr).not.toContain('Unhandled');
+      expect(stdout).not.toMatch(/listening|http:\/\/127\.0\.0\.1:\d+/i);
+      // Nor did it make one, there or in its data folder.
+      expect(existsSync(keyFile)).toBe(false);
+      expect(existsSync(join(data, 'secrets.key'))).toBe(false);
+    } finally {
+      if (child.exitCode === null) child.kill('SIGKILL');
+      await exited;
     }
   }, 30_000);
 });
