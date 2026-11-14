@@ -550,6 +550,8 @@ const zhTW = {
   // Providers and models
   planDetail: (plan: string) => `方案：${plan}`,
   defaultModelDetail: (model: string) => `預設模型：${model}`,
+  copilotTokenUnconfirmed: (said?: string) =>
+    `Copilot 接受這個 GitHub token，卻沒有回報它的方案，所以無法確認這個帳號能不能使用 Copilot${said ? `：${said}` : '。'}`,
   logoutFailed: (code: number | null) => `logout 失敗（exit ${code}）`,
   codexLoginFailed: (code: number | null) => `codex login 失敗（exit ${code}）`,
   codexModelsFailed: 'codex debug models 失敗',
@@ -1101,6 +1103,8 @@ const en: ServerMessages = {
 
   planDetail: (plan) => `Plan: ${plan}`,
   defaultModelDetail: (model) => `Default model: ${model}`,
+  copilotTokenUnconfirmed: (said) =>
+    `Copilot takes this GitHub token but reports no plan for it, so whether this account can use Copilot is not known${said ? `: ${said}` : '.'}`,
   logoutFailed: (code) => `logout failed (exit ${code})`,
   codexLoginFailed: (code) => `codex login failed (exit ${code})`,
   codexModelsFailed: 'codex debug models failed',

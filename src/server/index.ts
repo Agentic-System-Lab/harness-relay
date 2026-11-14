@@ -11,7 +11,7 @@ import { Orchestrator } from './orchestrator';
 import { desktopParent } from './parent';
 import { Updates } from './updates';
 import { relayVersion } from './about';
-import { apiPort, isDevRun } from './ports';
+import { apiPort, DEFAULT_HOST, isDevRun } from './ports';
 import { killAll } from './process';
 import { ProviderService } from './providers';
 import { PushService } from './push';
@@ -165,7 +165,7 @@ clearOpenRunLeftovers(OPEN_PROVIDERS.flatMap((p) => settings.openAgentHomes(p)),
 for (const dir of [relaySandboxRoot(), relaySandboxHostRoot(), RUN_TMP_DIR]) mkdirSync(dir, { recursive: true, mode: 0o700 });
 
 const port = apiPort();
-const host = process.env.HOST ?? '127.0.0.1';
+const host = process.env.HOST ?? DEFAULT_HOST;
 const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
   // Kept from the open agents' sandbox like the port the settings name, also when PORT=0 let it pick one.
   noteListeningPort(info.port);

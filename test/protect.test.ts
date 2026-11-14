@@ -7,6 +7,8 @@ import {
   appBrowserDirs,
   browserDataDirs,
   clearRunTmp,
+  CODESPACE_SHARED_DIR,
+  codespaceSecretDirs,
   commandPaths,
   overlaps,
   patternPath,
@@ -94,6 +96,26 @@ describe('what agents may not read', () => {
     expect(appBrowserDirs({})).toEqual([]);
     expect(appBrowserDirs({ RELAY_APP_BROWSER_DIR: 'browser' })).toEqual([]);
     expect(protectedReads({ platform: 'linux', home, dataDir: join(root, 'no-data'), env: { RELAY_APP_BROWSER_DIR: join(root, 'missing') } })).toEqual([]);
+  });
+
+  it("takes a GitHub codespace's token files and gh's sign-in there, and nothing of them anywhere else", () => {
+    const home = join(root, 'home-codespace');
+    const shared = join(root, 'workspaces', '.codespaces');
+    mkdirSync(join(shared, 'shared'), { recursive: true });
+    mkdirSync(join(home, '.config', 'gh'), { recursive: true });
+    const at = (env: NodeJS.ProcessEnv, platform: NodeJS.Platform = 'linux') =>
+      protectedReads({ platform, home, dataDir: join(root, 'no-data'), env, codespaceDir: shared }).map((p) => resolve(p));
+    expect(at({ CODESPACES: 'true' })).toEqual([shared, join(home, '.config', 'gh')]);
+    // Elsewhere gh's folder is how the agents' own gh signs in; and Codespaces runs Linux only.
+    expect(at({})).toEqual([]);
+    expect(at({ CODESPACES: 'false' })).toEqual([]);
+    expect(at({ CODESPACES: 'true' }, 'darwin')).toEqual([]);
+    // gh's folder where gh looks for it: GH_CONFIG_DIR, else XDG_CONFIG_HOME/gh, else ~/.config/gh (absolute ones only).
+    const h = resolve('/h');
+    expect(codespaceSecretDirs({ CODESPACES: 'true', GH_CONFIG_DIR: resolve('/g') }, h, '/s')).toEqual(['/s', resolve('/g')]);
+    expect(codespaceSecretDirs({ CODESPACES: 'true', XDG_CONFIG_HOME: resolve('/x') }, h, '/s')).toEqual(['/s', join(resolve('/x'), 'gh')]);
+    expect(codespaceSecretDirs({ CODESPACES: 'true', GH_CONFIG_DIR: 'gh', XDG_CONFIG_HOME: 'cfg' }, h, '/s')).toEqual(['/s', join(h, '.config', 'gh')]);
+    expect(CODESPACE_SHARED_DIR).toBe('/workspaces/.codespaces');
   });
 });
 

@@ -325,3 +325,25 @@ if (tabs.length && tabs.length === panels.length) {
   }
   reduceMotion.addEventListener?.('change', () => select(Math.max(0, active), false));
 }
+
+// ---------- Codespaces: what to expect, before GitHub's page ----------
+// The Codespaces links open a dialog first; its button opens GitHub in a new tab, so the dialog's
+// directions stay here. A click with a modifier (a new tab, a new window) goes straight to GitHub.
+
+const codespaces = document.getElementById('codespaces');
+if (codespaces && typeof codespaces.showModal === 'function') {
+  for (const link of document.querySelectorAll('[data-codespaces]')) {
+    link.addEventListener('click', (event) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      codespaces.showModal();
+    });
+  }
+  for (const button of codespaces.querySelectorAll('[data-codespaces-close]')) {
+    button.addEventListener('click', () => codespaces.close());
+  }
+  // The dialog's body fills it: a click on the dialog itself is on the backdrop around it.
+  codespaces.addEventListener('click', (event) => {
+    if (event.target === codespaces) codespaces.close();
+  });
+}

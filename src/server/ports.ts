@@ -6,6 +6,8 @@
  * (`lockDataDir`), so a dev server beside an `npm start` of the same checkout refuses to start.
  */
 export const DEFAULT_PORT = 8787;
+/** The address the server listens on unless `HOST` says otherwise: this computer only. */
+export const DEFAULT_HOST = '127.0.0.1';
 /** The API's port under `npm run dev`. */
 export const DEV_API_PORT = 8789;
 /** Vite's port under `npm run dev` (`vite.config.ts`), where the dev UI and its sign-in link are. */
