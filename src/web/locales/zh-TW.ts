@@ -1395,7 +1395,7 @@ export const zhTW = {
       apiKeys: 'API key',
       notSet: '未設定',
       keySet: (masked: string) => `已設定 ${masked}`,
-      keyUnreadable: '無法從系統的金鑰儲存區讀取（可能已鎖定）；重新輸入即可取代。',
+      keyUnreadable: '無法從金鑰儲存區讀取（可能已鎖定，或加密它的金鑰檔不見了）；重新輸入即可取代。',
       endpoints: '自訂端點',
       endpointsHint: '你自己的 OpenAI 相容伺服器。Harness Relay 不會向它查詢模型清單，請自己輸入它提供的模型名稱。',
       noEndpoints: '還沒有自訂端點。',

@@ -36,6 +36,8 @@ writeFileSync(join(dataDir, 'relay.db'), 'RELAY-DB-STAND-IN');
 // The key the secrets in the database are encrypted with when there is no credential store.
 writeFileSync(join(dataDir, 'secrets.key'), 'RELAY-KEY-STAND-IN', { mode: 0o600 });
 process.env.RELAY_DATA_DIR = dataDir;
+// The key file checked is the one in this data folder, never one the developer's shell names.
+delete process.env.RELAY_SECRETS_KEY_FILE;
 
 const relayStub = createServer((_q, r) => r.end('RELAY-API'));
 const relayPort: number = await new Promise((resolve) => relayStub.listen(0, '127.0.0.1', () => resolve((relayStub.address() as { port: number }).port)));

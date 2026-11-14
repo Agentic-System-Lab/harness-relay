@@ -1,16 +1,18 @@
+import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDatabase, type Database } from '../src/server/db';
 import { fileInRoot, listFolder, previewFile, zipPlan } from '../src/server/files';
-import { resolveDownload } from '../src/server/media';
+import { resolveDownload, resolveMedia } from '../src/server/media';
 import {
   KEYRING_SERVICE,
   SECRETS_KEY_NAME,
   keyringService,
   loadSecretsKey,
+  makeKeyHint,
   openSealed,
   openSecretStore,
   openSystemKeyring,
@@ -48,6 +50,8 @@ describe('secrets encrypted in the database (no credential store)', () => {
   const dbFile = () => join(data, 'relay.db');
   const open = (env: NodeJS.ProcessEnv = {}, keyring?: SecretStore) => openSecretStore(db, keyring, { dataDir: data, env });
   const rows = () => db.prepare('SELECT name, value FROM secrets ORDER BY name').all() as { name: string; value: string }[];
+  /** Whether `text` is in the database's files as they are now (the WAL included). */
+  const inFiles = (text: string) => [dbFile(), `${dbFile()}-wal`].some((f) => existsSync(f) && readFileSync(f).includes(text));
   /** Whether `text` is anywhere in the database's files, once what the WAL holds is written into it. */
   const onDisk = (text: string) => {
     db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
@@ -110,15 +114,28 @@ describe('secrets encrypted in the database (no credential store)', () => {
     expect(() => openSealed(key, 'grok-api-key', 'v1:AAAA')).toThrow(/not one Harness Relay encrypted/);
   });
 
-  it('cannot read what was kept with another key, and says why', () => {
+  it('says so at the start when its key file is gone, and cannot read what was kept with the old key until it is set again', () => {
     open().set('grok-api-key', 'xai-old-key');
-    // The database copied elsewhere without its key file, or the file replaced: a new key.
+    open().set('mcp-github', '{}');
+    // The database copied elsewhere without its key file, or restored without it: a new key.
     rmSync(join(data, SECRETS_KEY_NAME));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const store = open();
-    expect(() => store.get('grok-api-key')).toThrow(/cannot be decrypted with the key in .*secrets\.key: it was encrypted with another one/);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/secrets\.key was missing, so a new key was made: the 2 secret\(s\) kept with the old one \(grok-api-key, mcp-github\) cannot be read/),
+    );
+    expect(() => store.get('grok-api-key')).toThrow(/cannot be decrypted with the key in .*secrets\.key: it was encrypted with another key/);
     // Set again, it can be read.
     store.set('grok-api-key', 'xai-new-key');
     expect(store.get('grok-api-key')).toBe('xai-new-key');
+    // With its key file there, a start says nothing.
+    warn.mockClear();
+    open();
+    expect(warn).not.toHaveBeenCalled();
+    // A row that is not one it wrote at all is said to be that, not one of another key.
+    db.prepare("UPDATE secrets SET value = 'xai-as-it-is' WHERE name = 'grok-api-key'").run();
+    expect(() => store.get('grok-api-key')).toThrow(/the secret grok-api-key is not one Harness Relay encrypted/);
   });
 
   it('refuses a key file of its own that holds no key, rather than make a new one over it', () => {
@@ -131,7 +148,7 @@ describe('secrets encrypted in the database (no credential store)', () => {
   it('takes the key from the file RELAY_SECRETS_KEY_FILE names, which must be there, in base64 or hex', () => {
     const keyFile = join(dir, 'keys', 'relay.key');
     const env = { RELAY_SECRETS_KEY_FILE: keyFile };
-    expect(() => open(env)).toThrow(/RELAY_SECRETS_KEY_FILE.*openssl rand -base64 32/);
+    expect(() => open(env)).toThrow(/RELAY_SECRETS_KEY_FILE\)\. Make one with: .*(openssl rand -base64 32|randomBytes\(32\))/);
     expect(existsSync(keyFile)).toBe(false);
 
     mkdirSync(join(dir, 'keys'));
@@ -145,6 +162,29 @@ describe('secrets encrypted in the database (no credential store)', () => {
     writeFileSync(keyFile, key.toString('hex').slice(2));
     expect(() => open(env)).toThrow(/does not hold a key/);
     expect(loadSecretsKey(join(dir, 'missing'), { create: true })).toHaveLength(32);
+  });
+
+  it('says how to make a key file in a way that works on each system', () => {
+    expect(makeKeyHint('/etc/relay key', 'linux')).toBe('openssl rand -base64 32 > "/etc/relay key" && chmod 600 "/etc/relay key"');
+    // Windows' shell has neither openssl nor chmod, and its > writes UTF-16: Node itself writes the file.
+    const hint = makeKeyHint(join(dir, 'made by hint.key'), 'win32');
+    const [, code, file] = /^node -e "(.*)" "(.*)"$/.exec(hint)!;
+    execFileSync(process.execPath, ['-e', code!, file!]);
+    expect(parseSecretsKey(readFileSync(join(dir, 'made by hint.key'), 'utf8'))).toHaveLength(32);
+  });
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('refuses a key file of its own it cannot read, rather than make a new one', () => {
+    open().set('grok-api-key', 'xai-1234');
+    const own = join(data, SECRETS_KEY_NAME);
+    const before = readFileSync(own, 'utf8');
+    chmodSync(own, 0o000);
+    try {
+      expect(() => open()).toThrow(/cannot read the secrets key file .*secrets\.key: EACCES.*put the file back/);
+    } finally {
+      chmodSync(own, 0o600);
+    }
+    expect(readFileSync(own, 'utf8')).toBe(before);
+    expect(open().get('grok-api-key')).toBe('xai-1234');
   });
 
   it.skipIf(process.platform === 'win32')('keeps its own key file owner-only, and warns about one of the user’s that is not', () => {
@@ -190,17 +230,55 @@ describe('secrets encrypted in the database (no credential store)', () => {
     expect(again.tools.view().mcpServers[0]!.env).toEqual(s.tools.view().mcpServers[0]!.env);
   });
 
+  // Each store writes the scrubbed pages into the database file itself (a WAL checkpoint), rather
+  // than leave the old ones, as they were, in the WAL until some later checkpoint.
+  it.each([
+    ['a CLI API key', (st: SettingsStore) => st.update('grok', { apiKey: 'plaintext-left-behind' })],
+    ["a model backend's key", (st: SettingsStore) => st.backends.setApiKey('xai', 'plaintext-left-behind')],
+    ["an MCP server's value", (st: SettingsStore) => st.tools.saveServer('gh', { transport: 'stdio', command: 'x', args: [], env: [{ name: 'T', value: 'plaintext-left-behind' }] })],
+  ])('leaves no copy of %s as it was in the database files once it moved it', (_what, save) => {
+    save(new SettingsStore(db));
+    expect(inFiles('plaintext-left-behind')).toBe(true);
+    new SettingsStore(db, open());
+    expect(inFiles('plaintext-left-behind')).toBe(false);
+  });
+
+  it('shows a secret it cannot decrypt as unreadable, and keeps it while other settings are saved', () => {
+    const s = new SettingsStore(db, open());
+    s.backends.setApiKey('openai', 'sk-openai-kept-with-the-old-key');
+    s.tools.saveServer('github', { transport: 'stdio', command: 'npx', args: [], env: [{ name: 'GITHUB_TOKEN', value: 'ghp_old' }] });
+    rmSync(join(data, SECRETS_KEY_NAME));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const after = new SettingsStore(db, open());
+    expect(after.backends.view().apis.find((a) => a.id === 'openai')).toMatchObject({ keyUnreadable: true, keyStorage: 'encrypted' });
+    expect(after.backends.forRun().apis).toEqual({});
+    // Saved without its values, the server would lose them: refused; and agents do not get it.
+    expect(() => after.tools.saveServer('github', { transport: 'stdio', command: 'npx', args: ['-y'], env: [{ name: 'GITHUB_TOKEN' }], previousName: 'github' })).toThrow(
+      /讀不到 MCP 伺服器「github」.*加密它們的金鑰檔不見了/,
+    );
+    after.update('codex', { bin: '/opt/codex' });
+    after.backends.putEndpoint('lab', { name: 'Lab', baseUrl: 'http://lab:8000/v1', models: ['m'] });
+    expect(rows().map((r) => r.name)).toEqual(['backend-openai-api-key', expect.stringMatching(/^mcp-/)]);
+    // Set again, it is read with the new key.
+    after.backends.setApiKey('openai', 'sk-openai-new');
+    expect(new SettingsStore(db, open()).backends.forRun().apis).toEqual({ openai: 'sk-openai-new' });
+  });
+
   it('moves what it kept into the credential store once there is one, and reads what it could not move from the database until that is set again', () => {
     const encrypted = open();
     encrypted.set('claude-api-key', 'sk-ant-moved');
     encrypted.set('mcp-github', '{"env":{"T":"x"},"headers":{}}');
     encrypted.set('grok-api-key', 'xai-stuck');
-    const kept = new Map<string, string>([['claude-api-key', 'sk-ant-older-in-the-keyring']]);
+    encrypted.set('cursor-api-key', 'crsr-stuck');
+    const kept = new Map<string, string>([
+      ['claude-api-key', 'sk-ant-older-in-the-keyring'],
+      ['grok-api-key', 'xai-older-in-the-keyring'],
+    ]);
     const keyring: SecretStore = {
       storage: 'secret-service',
       get: (name) => kept.get(name) ?? null,
       set: (name, value) => {
-        if (name === 'grok-api-key' && value === 'xai-stuck') throw new Error('locked');
+        if (value.endsWith('-stuck')) throw new Error('locked');
         kept.set(name, value);
       },
       delete: (name) => void kept.delete(name),
@@ -211,22 +289,35 @@ describe('secrets encrypted in the database (no credential store)', () => {
     // What it kept is newer than what the keyring had from before.
     expect(kept.get('claude-api-key')).toBe('sk-ant-moved');
     expect(kept.get('mcp-github')).toBe('{"env":{"T":"x"},"headers":{}}');
-    expect(rows().map((r) => r.name)).toEqual(['grok-api-key']);
+    expect(rows().map((r) => r.name)).toEqual(['cursor-api-key', 'grok-api-key']);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not move grok-api-key'));
+    // Not moved, it is still newer than what the keyring has from before.
     expect(store.get('grok-api-key')).toBe('xai-stuck');
+    expect(store.get('claude-api-key')).toBe('sk-ant-moved');
     store.set('grok-api-key', 'xai-new');
     expect(kept.get('grok-api-key')).toBe('xai-new');
+    store.delete('cursor-api-key');
+    expect(store.get('cursor-api-key')).toBeNull();
     expect(rows()).toEqual([]);
     // Moved, nothing more to do: the keyring itself.
     expect(open({}, keyring)).toBe(keyring);
 
-    // Without the key file, what is left cannot be moved; it stays, and the keyring is used.
+    // Without the key file, what is left can neither be read nor moved: unreadable, said once, until set again.
     open().set('cursor-api-key', 'crsr-left');
     rmSync(join(data, SECRETS_KEY_NAME));
-    expect(open({}, keyring)).toBe(keyring);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('1 secret(s) kept encrypted in the database cannot be moved'));
-    expect(rows().map((r) => r.name)).toEqual(['cursor-api-key']);
+    warn.mockClear();
+    const without = open({}, keyring);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('1 secret(s) kept encrypted in the database (cursor-api-key) cannot be read or moved'));
+    expect(() => without.get('cursor-api-key')).toThrow(/cannot be read: cannot read the secrets key file/);
+    expect(without.get('claude-api-key')).toBe('sk-ant-moved');
     expect(existsSync(join(data, SECRETS_KEY_NAME))).toBe(false);
+    without.set('cursor-api-key', 'crsr-new');
+    expect(kept.get('cursor-api-key')).toBe('crsr-new');
+    expect(rows()).toEqual([]);
+    warn.mockClear();
+    expect(open({}, keyring)).toBe(keyring);
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('keeps the key file from the Files panel, downloads and shares, whatever a reply links to', async () => {
@@ -237,8 +328,15 @@ describe('secrets encrypted in the database (no credential store)', () => {
     expect(listFolder(dir, 'data').entries.map((e) => e.name)).toEqual(['notes.txt']);
     expect(() => previewFile(dir, `data/${SECRETS_KEY_NAME}`)).toThrow(notFound);
     expect(() => fileInRoot(dir, `data/${SECRETS_KEY_NAME}`)).toThrow(notFound);
-    expect((await zipPlan(dir, 'data'))!.entries.map((e) => e.name)).not.toContain(expect.stringContaining(SECRETS_KEY_NAME));
+    const zipped = (await zipPlan(dir, 'data'))!.entries.map((e) => e.name);
+    expect(zipped.some((n) => n.endsWith('notes.txt'))).toBe(true);
+    expect(zipped.filter((n) => n.includes(SECRETS_KEY_NAME))).toEqual([]);
     expect(resolveDownload(`data/${SECRETS_KEY_NAME}`, [dir])).toBeUndefined();
+    // Nor by another name for the same file: a hard link a reply shows as an image.
+    linkSync(join(data, SECRETS_KEY_NAME), join(data, 'pic.png'));
+    expect(resolveMedia('data/pic.png', [dir])).toBeUndefined();
+    expect(resolveDownload('data/pic.png', [dir])).toBeUndefined();
+    expect(listFolder(dir, 'data').entries.map((e) => e.name)).toEqual(['notes.txt']);
     // Nor the database a reply could name the same way.
     expect(resolveDownload('data/relay.db', [dir])).toBeUndefined();
     expect(resolveDownload('data/notes.txt', [dir])).toBeDefined();

@@ -1366,7 +1366,7 @@ export const en: Messages = {
       apiKeys: 'API keys',
       notSet: 'Not set',
       keySet: (masked) => `Set: ${masked}`,
-      keyUnreadable: 'Could not be read from the system credential store (it may be locked); enter it again to replace it.',
+      keyUnreadable: 'Could not be read from the credential store (it may be locked, or the key it was encrypted with is gone); enter it again to replace it.',
       endpoints: 'Custom endpoints',
       endpointsHint: 'Your own OpenAI-compatible servers. Harness Relay never asks them for their models: type the model names each one serves.',
       noEndpoints: 'No custom endpoints yet.',

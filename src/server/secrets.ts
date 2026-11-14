@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { chmodSync, closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import type { KeyStorage } from '../shared/types';
@@ -162,10 +162,16 @@ export function sealSecret(key: Buffer, name: string, value: string): string {
   return SEALED_PREFIX + Buffer.concat([iv, body, cipher.getAuthTag()]).toString('base64');
 }
 
-/** The secret `name` that `sealSecret` encrypted with `key`; throws when it was not, or was changed since. */
+/** What `openSealed` throws for a value that is not in the form `sealSecret` writes at all. */
+export class NotSealedError extends Error {}
+
+/**
+ * The secret `name` that `sealSecret` encrypted with `key`; throws `NotSealedError` for a value not in
+ * its form, and Node's own error when it was encrypted with another key or name, or changed since.
+ */
 export function openSealed(key: Buffer, name: string, sealed: string): string {
   const raw = sealed.startsWith(SEALED_PREFIX) ? Buffer.from(sealed.slice(SEALED_PREFIX.length), 'base64') : undefined;
-  if (!raw || raw.length < IV_BYTES + TAG_BYTES) throw new Error(`the secret ${name} is not one Harness Relay encrypted`);
+  if (!raw || raw.length < IV_BYTES + TAG_BYTES) throw new NotSealedError(`the secret ${name} is not one Harness Relay encrypted`);
   const decipher = createDecipheriv('aes-256-gcm', key, raw.subarray(0, IV_BYTES), { authTagLength: TAG_BYTES });
   decipher.setAAD(associated(name));
   decipher.setAuthTag(raw.subarray(raw.length - TAG_BYTES));
@@ -181,9 +187,10 @@ export function openEncryptedStore(db: Database, key: Buffer, keyFile: string): 
       if (!row) return null;
       try {
         return openSealed(key, name, row.value);
-      } catch {
+      } catch (err) {
+        if (err instanceof NotSealedError) throw err;
         throw new Error(
-          `the secret ${name} cannot be decrypted with the key in ${keyFile}: it was encrypted with another one (the key file was replaced, or the database was copied without it)`,
+          `the secret ${name} cannot be decrypted with the key in ${keyFile}: it was encrypted with another key (the key file was replaced, or the database was copied without it), or changed since`,
         );
       }
     },
@@ -199,14 +206,38 @@ export function openEncryptedStore(db: Database, key: Buffer, keyFile: string): 
   };
 }
 
+/** How to make a key file at `file`, for this system: openssl, or Node itself on Windows (whose shell has neither it nor chmod). */
+export function makeKeyHint(file: string, platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32'
+    ? `node -e "require('fs').writeFileSync(process.argv[1], require('crypto').randomBytes(32).toString('base64'))" "${file}"`
+    : `openssl rand -base64 32 > "${file}" && chmod 600 "${file}"`;
+}
+
+/** A stand-in for secrets kept with a key that cannot be had: each reads as unreadable, and goes when it is removed. */
+function unreadableStore(db: Database, why: string): SecretStore {
+  return {
+    storage: 'encrypted',
+    get(name) {
+      throw new Error(`the secret ${name} kept encrypted in the database cannot be read: ${why}`);
+    },
+    set() {
+      throw new Error(why);
+    },
+    delete(name) {
+      db.prepare('DELETE FROM secrets WHERE name = ?').run(name);
+    },
+  };
+}
+
 /**
  * Where the secrets go: `keyring` (the OS credential store) when there is one; else the database,
  * encrypted with the key in `secretsKeyFile()`, made at the first start without one, unless
  * RELAY_SECRETS_KEY_FILE names it (that one must be there: a typo would otherwise start a new key).
  * Throws when the key cannot be had, for the server to refuse to start rather than keep secrets it
  * cannot read back. With a credential store, the secrets kept encrypted in the database while there
- * was none are moved into it; those that cannot be are still read from the database until they are
- * set again.
+ * was none are moved into it; those that cannot be are still read from the database (newer than any
+ * copy the credential store has from before) until they are set again, which also removes them there.
+ * Secrets whose key file is gone read as unreadable, as from a locked credential store, until then.
  */
 export function openSecretStore(
   db: Database,
@@ -217,7 +248,11 @@ export function openSecretStore(
   const file = secretsKeyFile(o.dataDir, env);
   const own = !env.RELAY_SECRETS_KEY_FILE?.trim();
   withholdFile(file);
+  const names = () => (db.prepare('SELECT name FROM secrets ORDER BY name').all() as { name: string }[]).map((r) => r.name);
   if (!keyring) {
+    // Its own key file gone while secrets kept with it are still there (the database copied or
+    // restored without it): a new key is made, and those cannot be read until they are set again.
+    const lost = own && !existsSync(file) ? names() : [];
     let key: Buffer;
     try {
       key = loadSecretsKey(file, { create: own });
@@ -226,23 +261,31 @@ export function openSecretStore(
       throw new Error(
         own
           ? `${what}. Without a system credential store, Harness Relay keeps its secrets encrypted with this key: put the file back, or remove it to start with a new key (the API keys and MCP values kept with the old one have to be set again).`
-          : `${what} (RELAY_SECRETS_KEY_FILE). Make one with: openssl rand -base64 32 > ${file} && chmod 600 ${file}`,
+          : `${what} (RELAY_SECRETS_KEY_FILE). Make one with: ${makeKeyHint(file)}`,
       );
     }
     keepOwnerOnly(file, own);
+    if (lost.length) {
+      console.warn(
+        `[secrets] ${file} was missing, so a new key was made: the ${lost.length} secret(s) kept with the old one (${lost.join(', ')}) cannot be read. Put the old key file back now, before saving any key, and restart; or set them again.`,
+      );
+    }
     return openEncryptedStore(db, key, file);
   }
-  const names = (db.prepare('SELECT name FROM secrets ORDER BY name').all() as { name: string }[]).map((r) => r.name);
-  if (!names.length) return keyring;
+  const kept = names();
+  if (!kept.length) return keyring;
   let encrypted: SecretStore;
+  let movable = true;
   try {
     encrypted = openEncryptedStore(db, loadSecretsKey(file, { create: false }), file);
   } catch (err) {
-    console.warn(`[secrets] ${names.length} secret(s) kept encrypted in the database cannot be moved to the credential store: ${(err as Error).message}`);
-    return keyring;
+    const why = (err as Error).message;
+    console.warn(`[secrets] ${kept.length} secret(s) kept encrypted in the database (${kept.join(', ')}) cannot be read or moved to the credential store, until each is set again: ${why}`);
+    encrypted = unreadableStore(db, why);
+    movable = false;
   }
-  const left = new Set<string>();
-  for (const name of names) {
+  const left = new Set<string>(movable ? [] : kept);
+  for (const name of movable ? kept : []) {
     try {
       const value = encrypted.get(name)!;
       keyring.set(name, value);
@@ -254,11 +297,12 @@ export function openSecretStore(
     }
   }
   // Write the emptied pages into the database file now, rather than at some later checkpoint.
-  if (left.size < names.length) db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+  if (left.size < kept.length) db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
   if (!left.size) return keyring;
   return {
     storage: keyring.storage,
-    get: (name) => keyring.get(name) ?? (left.has(name) ? encrypted.get(name) : null),
+    // One that could not be moved is newer than what the credential store may have of it from before.
+    get: (name) => (left.has(name) ? encrypted.get(name) : keyring.get(name)),
     set(name, value) {
       keyring.set(name, value);
       if (left.delete(name)) encrypted.delete(name);

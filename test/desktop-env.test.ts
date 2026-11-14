@@ -138,6 +138,10 @@ describe("the server's environment", () => {
     expect(serverEnv({ ...o, base }).RELAY_KEYRING_SERVICE).toBe('harness-relay-desktop');
     expect(serverEnv({ ...o, base: { ...base, RELAY_DATA_DIR: '/shared/data' } }).RELAY_KEYRING_SERVICE).toBeUndefined();
     expect(serverEnv({ ...o, base: { ...base, RELAY_KEYRING_SERVICE: 'mine' } }).RELAY_KEYRING_SERVICE).toBe('mine');
+    // The key the secrets are encrypted with without a credential store follows the data too: a
+    // shell's RELAY_SECRETS_KEY_FILE is the one for its RELAY_DATA_DIR's database, not the app's own.
+    expect(serverEnv({ ...o, base: { ...base, RELAY_SECRETS_KEY_FILE: '/etc/relay.key' } })).not.toHaveProperty('RELAY_SECRETS_KEY_FILE');
+    expect(serverEnv({ ...o, base: { ...base, RELAY_DATA_DIR: '/shared/data', RELAY_SECRETS_KEY_FILE: '/etc/relay.key' } }).RELAY_SECRETS_KEY_FILE).toBe('/etc/relay.key');
   });
 
   it('adds the tailnet name to the names the user allowed, once', () => {
