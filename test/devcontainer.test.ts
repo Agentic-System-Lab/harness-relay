@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,9 +46,9 @@ const serverLink = (code: string) => signInLink(code, { host: DEFAULT_HOST, port
  */
 const stubs = join(tmp, 'bin');
 mkdirSync(stubs);
-function stub(name: string, body: string): void {
-  writeFileSync(join(stubs, name), `#!/bin/sh\necho "${name} $*" >> "$STUB_CALLS"\n${body}\n`);
-  chmodSync(join(stubs, name), 0o755);
+function stub(name: string, body: string, dir = stubs): void {
+  writeFileSync(join(dir, name), `#!/bin/sh\necho "${name} $*" >> "$STUB_CALLS"\n${body}\n`);
+  chmodSync(join(dir, name), 0o755);
 }
 stub('curl', '[ "$STUB_RUNNING" = 1 ] && exit 0 || exit 7');
 stub(
@@ -76,6 +76,93 @@ function start(running: boolean, env: Record<string, string>): { out: string; ca
   });
   return { out, calls: readFileSync(calls, 'utf8').trim().split('\n') };
 }
+
+const INSTALLERS = ['https://x.ai/cli/install.sh', 'https://cursor.com/install', 'https://antigravity.google/cli/install.sh', 'https://dev.meta.ai/install.sh'];
+const NPM_INSTALL = 'npm install -g @anthropic-ai/claude-code @openai/codex @github/copilot';
+
+/**
+ * Stand-ins for what setup.sh runs, each noting its arguments in `STUB_CALLS`:
+ * - `sudo` does nothing.
+ * - `curl` fetches an installer (the argument that is a URL, into the one after `-o`) that notes it ran
+ *   and says so: the first one only once npm has started (it notes `npm not started` if npm has not
+ *   within 5 s), the last one leaving `STUB_DONE`. For `STUB_FAILING` it fails instead (once npm is
+ *   done, when npm does not wait), and for `STUB_BROKEN` it fetches one that fails.
+ * - `npm` notes it started, waits up to 10 s for `STUB_DONE` (unless `STUB_NPM_WAITS` is 0), so that it
+ *   is still installing while the installers run, then notes it is done, says so on both its outputs
+ *   and exits with `STUB_NPM_STATUS`.
+ */
+const setupStubs = join(tmp, 'setup-bin');
+mkdirSync(setupStubs);
+stub('sudo', '', setupStubs);
+// mktemp's own, in TMPDIR: macOS's puts a file of no template in its own temporary folder, whatever TMPDIR says.
+writeFileSync(join(setupStubs, 'mktemp'), '#!/bin/sh\nexec /usr/bin/mktemp "$TMPDIR/tmp.XXXXXX"\n');
+chmodSync(join(setupStubs, 'mktemp'), 0o755);
+stub(
+  'curl',
+  String.raw`url=; out=
+while [ $# -gt 0 ]; do
+  case "$1" in -o) out=$2; shift ;; https://*) url=$1 ;; esac
+  shift
+done
+if [ "$url" = "$STUB_FAILING" ]; then
+  i=0
+  while [ "$STUB_NPM_WAITS" = 0 ] && ! grep -qx "npm done" "$STUB_CALLS" && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+  exit 22
+fi
+cat > "$out" <<EOF
+if [ "$url" = ${INSTALLERS[0]} ]; then
+  i=0
+  while [ ! -e "\$STUB_NPM_STARTED" ] && [ \$i -lt 50 ]; do sleep 0.1; i=\$((i + 1)); done
+  [ -e "\$STUB_NPM_STARTED" ] || echo "npm not started" >> "\$STUB_CALLS"
+fi
+echo "ran $url" | tee -a "\$STUB_CALLS"
+[ "$url" != "\$STUB_BROKEN" ] || exit 5
+[ "$url" != ${INSTALLERS.at(-1)} ] || : > "\$STUB_DONE"
+EOF`,
+  setupStubs,
+);
+stub(
+  'npm',
+  `: > "$STUB_NPM_STARTED"
+i=0
+while [ "$STUB_NPM_WAITS" != 0 ] && [ ! -e "$STUB_DONE" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+echo "npm done" >> "$STUB_CALLS"
+echo "added 7 packages in 26s"
+echo "npm warn deprecated something" >&2
+exit "$STUB_NPM_STATUS"`,
+  setupStubs,
+);
+
+/**
+ * Runs setup.sh as `updateContentCommand` does, with the stand-ins, its temporary files in a folder of its
+ * own: what it printed, its exit status, the stand-ins' calls (read when asked), `STUB_DONE`'s path, and
+ * the temporary files it left.
+ */
+function setup(opts: { npmStatus?: number; npmWaits?: boolean; failing?: string; broken?: string } = {}) {
+  const at = mkdtempSync(join(tmp, 'setup-'));
+  const [calls, done, temp] = [join(at, 'calls'), join(at, 'done'), join(at, 'tmp')];
+  mkdirSync(temp);
+  writeFileSync(calls, '');
+  const r = spawnSync('bash', [join(root, '.devcontainer', 'setup.sh')], {
+    cwd: at,
+    env: clean({
+      HOME: at,
+      TMPDIR: temp,
+      PATH: `${setupStubs}${delimiter}${process.env.PATH}`,
+      STUB_CALLS: calls,
+      STUB_DONE: done,
+      STUB_NPM_STARTED: join(at, 'npm-started'),
+      STUB_NPM_WAITS: opts.npmWaits === false ? '0' : '1',
+      STUB_NPM_STATUS: String(opts.npmStatus ?? 0),
+      STUB_FAILING: opts.failing ?? '',
+      STUB_BROKEN: opts.broken ?? '',
+    }),
+    encoding: 'utf8',
+  });
+  return { out: r.stdout, status: r.status, calls: () => readFileSync(calls, 'utf8').trim().split('\n'), done, left: () => readdirSync(temp) };
+}
+/** The installers that ran, in order. */
+const ran = (calls: string[]) => calls.filter((c) => c.startsWith('ran '));
 
 /**
  * A checkout as count.sh needs it (its scripts and the module that names the mirror and the repository),
@@ -116,10 +203,11 @@ describe('the dev container', { timeout: slow(20_000) }, () => {
   it('forwards the port npm start listens on, and runs its own scripts', () => {
     expect(config.forwardPorts).toEqual([DEFAULT_PORT]);
     expect(Object.keys(config.portsAttributes as object)).toEqual([String(DEFAULT_PORT)]);
-    expect(config.onCreateCommand).toBe('bash .devcontainer/setup.sh');
+    // setup.sh also at each update of a prebuild, which runs onCreateCommand only when it is first made.
+    expect(config.onCreateCommand).toBeUndefined();
+    expect(config.updateContentCommand).toBe('bash .devcontainer/setup.sh && npm ci && npm run build');
     expect(config.postAttachCommand).toBe('bash .devcontainer/start.sh');
-    // After the codespace is made for someone, never in a prebuild (onCreateCommand and
-    // updateContentCommand run there).
+    // After the codespace is made for someone, never in a prebuild (updateContentCommand runs there).
     expect(config.postCreateCommand).toBe('bash .devcontainer/count.sh');
     // The create page asks for no secrets (recommended secrets): API keys and DO_NOT_TRACK are set on GitHub, if at all.
     expect(config.secrets).toBeUndefined();
@@ -135,17 +223,67 @@ describe('the dev container', { timeout: slow(20_000) }, () => {
 
   it('installs the seven agent CLIs that are not open source, where the server finds them, and no open-source agent', () => {
     const setup = read('.devcontainer/setup.sh');
-    expect(setup).toContain('npm install -g @anthropic-ai/claude-code @openai/codex @github/copilot\n');
-    // Their makers' own installers, fetched whole and given no input.
-    for (const url of ['https://x.ai/cli/install.sh', 'https://cursor.com/install', 'https://antigravity.google/cli/install.sh', 'https://dev.meta.ai/install.sh']) {
-      expect(setup).toContain(`install_with ${url}\n`);
-    }
+    expect(setup).toContain(`\n${NPM_INSTALL} > "$npm_log" 2>&1 &\n`);
+    // Their makers' own installers, fetched whole (again after a failure) and given no input.
+    for (const url of INSTALLERS) expect(setup).toContain(`\ninstall_with ${url}\n`);
+    expect(setup).toContain('curl -fsSL --retry 3 --retry-all-errors "$1" -o "$script"');
     expect(setup).toContain('bash "$script" < /dev/null');
     // Linked from a folder on every PATH: the installers' own folders are on an interactive shell's only.
     expect(setup).toContain('sudo ln -sf "$HOME/.grok/bin/grok" /usr/local/bin/grok');
     expect(setup).toContain('for cli in cursor-agent agy muse; do');
     for (const open of ['opencode', 'goose', 'cline', 'openhands', 'pi-coding-agent']) expect(setup, open).not.toContain(open + '-');
     expect(setup).not.toMatch(/npm install -g[^\n]*(opencode|cline|pi-coding-agent)/);
+  });
+
+  it.skipIf(!posix)("installs npm's CLIs while the makers' installers run one after another, and shows npm's output after theirs", () => {
+    const r = setup();
+    expect(r.status).toBe(0);
+    const calls = r.calls();
+    expect(calls).toContain(NPM_INSTALL);
+    expect(ran(calls)).toEqual(INSTALLERS.map((url) => `ran ${url}`));
+    // npm had started before the first installer ran, and was still installing when the last one had.
+    expect(calls).not.toContain('npm not started');
+    expect(calls.indexOf('npm done')).toBeGreaterThan(calls.indexOf(`ran ${INSTALLERS.at(-1)}`));
+    // The sandboxes' packages, the links and the playground.
+    expect(calls).toContain('sudo apt-get install -y --no-install-recommends bubblewrap socat ripgrep slirp4netns iproute2 iptables');
+    expect(calls.filter((c) => c.startsWith('sudo ln -sf '))).toHaveLength(4);
+    expect(calls.some((c) => c.startsWith('sudo install -d ') && c.endsWith(' /workspaces/playground'))).toBe(true);
+    // npm's output (both of its streams) in one piece, after the installers'; its log and the installers removed.
+    expect(r.out).toBe(`${ran(calls).join('\n')}\nadded 7 packages in 26s\nnpm warn deprecated something\n`);
+    expect(r.left()).toEqual([]);
+  });
+
+  it.skipIf(!posix)("fails when npm's install fails, once the rest is installed, with what npm said", () => {
+    const r = setup({ npmStatus: 3 });
+    expect(r.status).toBe(3);
+    expect(r.calls()).toContain(`ran ${INSTALLERS.at(-1)}`);
+    expect(r.out).toMatch(/\nadded 7 packages in 26s\nnpm warn deprecated something\n$/);
+    expect(r.left()).toEqual([]);
+  });
+
+  it.skipIf(!posix)("fails when an installer cannot be fetched or fails, and stops npm's install then", async () => {
+    const r = setup({ failing: INSTALLERS[1] });
+    expect(r.status).toBe(22);
+    expect(ran(r.calls())).toEqual([`ran ${INSTALLERS[0]}`]);
+    expect(r.out).not.toContain('added 7 packages');
+    // Nothing left: npm's log, nor the installer that could not be fetched.
+    expect(r.left()).toEqual([]);
+    // Stopped: once what it waits for is there, it would be done within a tenth of a second.
+    writeFileSync(r.done, '');
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect(r.calls()).not.toContain('npm done');
+
+    // An installer that fails: its status, and none after it.
+    const broken = setup({ broken: INSTALLERS[2] });
+    expect(broken.status).toBe(5);
+    expect(ran(broken.calls())).toEqual(INSTALLERS.slice(0, 3).map((url) => `ran ${url}`));
+    expect(broken.left()).toEqual([]);
+
+    // npm done already: the installer's status still, not that of stopping npm.
+    const early = setup({ failing: INSTALLERS[1], npmWaits: false });
+    expect(early.calls()).toContain('npm done');
+    expect(early.status).toBe(22);
+    expect(early.left()).toEqual([]);
   });
 
   it.skipIf(!posix)("starts the server with the codespace's address allowed, and its sign-in link on that address", () => {

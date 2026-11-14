@@ -17,10 +17,10 @@
   "securityOpt": ["seccomp=unconfined", "apparmor=unconfined", "systempaths=unconfined"],
   // Copilot's sandbox gives its commands a network of their own through slirp4netns, which needs a TUN device.
   "runArgs": ["--device=/dev/net/tun"],
-  // Once, when the container is made (also in a prebuild): the sandboxes' packages and some agent CLIs.
-  "onCreateCommand": "bash .devcontainer/setup.sh",
-  // When the code is new: the app's packages and its UI.
-  "updateContentCommand": "npm ci && npm run build",
+  // When the container is made, and when the code is new (each update of a prebuild, which runs no
+  // onCreateCommand after the first): the sandboxes' packages and some agent CLIs, at their newest; then
+  // the app's packages and its UI.
+  "updateContentCommand": "bash .devcontainer/setup.sh && npm ci && npm run build",
   // Once, when the codespace has been made for you (never in a prebuild): count it, with nothing about
   // you (docs/codespaces.md, "What is counted"); not with DO_NOT_TRACK set, and never outside Codespaces.
   "postCreateCommand": "bash .devcontainer/count.sh",
