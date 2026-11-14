@@ -60,6 +60,22 @@ describe('alertFor', () => {
     expect(seenAfter(begun, idle('m2'))).toEqual({ state: idle('m2') });
   });
 
+  it('tells nothing of what the user was needed for when a run began, back once it is over with no reply of its own; a new need is news', () => {
+    const asking: AlertState = { ...idle('q1'), asking: true };
+    // The run that takes the user's answer, seen while it is set up (the question is still there).
+    const answering = seenAfter(seen(asking), { ...asking, running: true });
+    expect(answering.runFrom).toEqual({ reply: 'q1', need: 'answer' });
+    expect(alertFor(seen(asking), answering.state)).toBeUndefined();
+    // It could not start: the question still waits, and the user was told of it.
+    expect(alertFor(answering, asking)).toBeUndefined();
+    // It went on, and an agent asked again, in a reply of its own; or waited for an approval.
+    expect(alertFor(answering, { ...idle('q2'), asking: true })).toBe('answer');
+    expect(alertFor(seenAfter(answering, { running: true, lastReplyId: 'q1' }), { running: true, waiting: true, lastReplyId: 'q1' })).toBe('approval');
+    // A run that began with nothing needed, then left a question: news.
+    expect(seenAfter(seen(idle('m1')), { running: true, lastReplyId: 'm1' }).runFrom).toEqual({ reply: 'm1' });
+    expect(alertFor(running('m1', 'm1'), { ...idle('m1'), asking: true })).toBe('answer');
+  });
+
   it('sorts kinds into what a browser asks for', () => {
     expect(needsOf({ running: true, waiting: true, confirmTeam: true })).toBe('approval');
     expect(wanted('done', { done: true, needs: false })).toBe(true);
@@ -86,10 +102,22 @@ describe('AlertTracker', () => {
     const t = new AlertTracker();
     t.next([summary('a', idle('a1'))]);
     expect(kinds(t, [summary('a', { running: true, lastReplyId: 'a1' })])).toEqual([]);
-    // The design run ended; the team's run has not begun yet (its workspace being prepared).
+    // The design run ended, and the team's run has not begun yet.
     expect(kinds(t, [summary('a', idle('a1'))])).toEqual([]);
     expect(kinds(t, [summary('a', { running: true, lastReplyId: 'a2' })])).toEqual([]);
     expect(kinds(t, [summary('a', idle('a2'))])).toEqual([['a', 'done']]);
+  });
+
+  it("tells once of a question, also when the run that takes the answer was seen being set up and could not start", () => {
+    const t = new AlertTracker();
+    t.next([summary('a', idle('a1'))]);
+    const asking = summary('a', { ...idle('a2'), asking: true });
+    expect(kinds(t, [asking])).toEqual([['a', 'answer']]);
+    expect(kinds(t, [summary('a', { ...idle('a2'), asking: true, running: true })])).toEqual([]);
+    expect(kinds(t, [asking])).toEqual([]);
+    // Answered again: the team went on and finished.
+    expect(kinds(t, [summary('a', { running: true, lastReplyId: 'a2' })])).toEqual([]);
+    expect(kinds(t, [summary('a', idle('a3'))])).toEqual([['a', 'done']]);
   });
 
   it('tells of nothing for a run first seen going that ends without a reply of its own, and of one whose reply was being written', () => {
