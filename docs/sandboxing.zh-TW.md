@@ -187,6 +187,12 @@ Harness Relay 本身在這三種平台上都能執行。在原生 Windows 上只
 - **Copilot**：它的 bubblewrap 沙箱在容器中同樣需要上方 Linux 列出的條件，包括 user 與 network namespace 以及 `/dev/net/tun`（沒有試過）。
 - **Muse Code**：它的 bubblewrap 需要 bubblewrap 需要的東西（沒有試過）。
 
+**這個 repo 的 dev container**（`.devcontainer/`，給 [GitHub Codespaces](codespaces.zh-TW.md) 用）會給 bubblewrap 它需要的條件：`securityOpt` 的 `seccomp=unconfined`、`apparmor=unconfined` 和 `systempaths=unconfined`，以及給 Copilot 沙箱的 TUN 裝置（`--device=/dev/net/tun`）；沒有用 `privileged`。2026 年 11 月 14 日在 codespace 裡試過（Debian 12、kernel 6.8、x86_64、2 核）：
+
+- 沒有這些選項時，`bwrap` 會以 `No permissions to create new namespace` 停下（Docker 的 seccomp 設定檔），所以完全存取以下的每個指令都會失敗。
+- 有了這些選項，`scripts/sandbox-check.ts` 的 51 項檢查全數通過；Codex 的沙箱（`codex sandbox`，workspace-write）寫得了工作目錄，寫不了 home 資料夾，也連不上網路；Copilot 的沙箱在 Harness Relay 的編輯模式對話裡讀不到資料庫（`Permission denied`），寫到 home 資料夾和 Harness Relay 資料夾的內容只留在沙箱裡，沒有寫到磁碟上。
+- Claude Code 的沙箱（與 Harness Relay 自己的沙箱用同一個 sandbox runtime）沒有在登入狀態下實際跑過。
+
 ### Windows
 
 - **Codex** 有自己的沙箱，分成三種實作（`config.toml` 中的 `[windows] sandbox = "…"`）：

@@ -100,6 +100,10 @@ npm start
 
 要用手機或其他裝置使用，把它分享到你的 tailnet：詳見[用手機連線（Tailscale）](docs/remote-access.zh-TW.md)。
 
+想不安裝任何東西就試用，可以在你自己的 GitHub codespace 打開它：它的 dev container 會安裝其中五個 CLI、建置並啟動 app，網址只有你的 GitHub 帳號打得開。詳見[在 GitHub Codespaces 試用](docs/codespaces.zh-TW.md)。
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1)
+
 要開發 Harness Relay 本身？改用 `npm run dev`：改程式時伺服器會自動重啟、介面會自動重新載入，網址是 <http://localhost:5173>。詳見[開發者說明](docs/developer-guide.zh-TW.md)。
 
 ### 開源 agent 與模型來源
@@ -146,6 +150,7 @@ npm run desktop:dist
 | 架構 | [docs/architecture.md](docs/architecture.md) | [docs/architecture.zh-TW.md](docs/architecture.zh-TW.md) |
 | 開發者說明 | [docs/developer-guide.md](docs/developer-guide.md) | [docs/developer-guide.zh-TW.md](docs/developer-guide.zh-TW.md) |
 | 用手機連線（Tailscale） | [docs/remote-access.md](docs/remote-access.md) | [docs/remote-access.zh-TW.md](docs/remote-access.zh-TW.md) |
+| 在 GitHub Codespaces 試用 | [docs/codespaces.md](docs/codespaces.md) | [docs/codespaces.zh-TW.md](docs/codespaces.zh-TW.md) |
 | 開源 agent（OpenCode、Goose、Cline、OpenHands、Pi） | [docs/open-agents.md](docs/open-agents.md) | [docs/open-agents.zh-TW.md](docs/open-agents.zh-TW.md) |
 | 各平台的作業系統沙箱 | [docs/sandboxing.md](docs/sandboxing.md) | [docs/sandboxing.zh-TW.md](docs/sandboxing.zh-TW.md) |
 | 新增 coding agent 的流程 | [docs/adding-a-coding-agent.md](docs/adding-a-coding-agent.md) | [docs/adding-a-coding-agent.zh-TW.md](docs/adding-a-coding-agent.zh-TW.md) |

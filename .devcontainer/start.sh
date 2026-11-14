@@ -4,7 +4,6 @@
 # the codespace's forwarded address, which only your GitHub account can open, and the server takes
 # that address (RELAY_ALLOWED_HOSTS). Outside a codespace it is `npm start`.
 set -euo pipefail
-cd "$(dirname "$0")/.."
 
 # A variable Codespaces sets, also in a shell that did not load its profile (`gh codespace ssh -- …`):
 # only the one named, from the file the profile reads, which holds the codespace's tokens too.
@@ -16,6 +15,28 @@ codespace_var() {
   printf '%s' "$value"
 }
 
+# The sign-in links on the forwarded address instead of 127.0.0.1, each with its code beside it: a
+# browser that has not opened the codespace's ports yet signs in to GitHub first, and may lose the link's
+# code on the way back. Vite's link (`npm run dev`) means nothing here. Line by line, as they come.
+links() {
+  if [ -z "$public" ]; then
+    cat
+    return
+  fi
+  local line re="^(.*)http://127\\.0\\.0\\.1:${port}/#code=([0-9A-Z-]+)(.*)\$"
+  while IFS= read -r line; do
+    case "$line" in
+      'With npm run dev:'* | 'Or type the code on the sign-in page:'*) continue ;;
+    esac
+    if [[ $line =~ $re ]]; then
+      printf '%s\n' "${BASH_REMATCH[1]}https://${public}/#code=${BASH_REMATCH[2]}${BASH_REMATCH[3]}" \
+        "  (or type this code on the sign-in page: ${BASH_REMATCH[2]})"
+    else
+      printf '%s\n' "$line"
+    fi
+  done
+}
+
 port="${PORT:-8787}"
 public=""
 name="$(codespace_var CODESPACE_NAME)"
@@ -25,19 +46,12 @@ if [ -n "$name" ] && [ -n "$domain" ]; then
   export RELAY_ALLOWED_HOSTS="${public}${RELAY_ALLOWED_HOSTS:+,${RELAY_ALLOWED_HOSTS}}"
 fi
 
-# The sign-in links on the forwarded address instead of 127.0.0.1, each with its code beside it: a
-# browser that has not opened the codespace's ports yet signs in to GitHub first, and may lose the link's
-# code on the way back. Vite's link (`npm run dev`) means nothing here.
-links() {
-  if [ -z "$public" ]; then
-    cat
-    return
-  fi
-  sed -u -E \
-    -e '/With npm run dev:/d' \
-    -e '/^Or type the code on the sign-in page:/d' \
-    -e "s#http://127\\.0\\.0\\.1:${port}/\\#code=([0-9A-Z-]+)#https://${public}/\\#code=\\1\\n  (or type this code on the sign-in page: \\1)#"
-}
+# Sourced (test/devcontainer.test.ts): the functions and the address only.
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then
+  return 0
+fi
+
+cd "$(dirname "$0")/.."
 
 if curl -fsS -o /dev/null --max-time 2 "http://127.0.0.1:${port}/api/auth" 2>/dev/null; then
   echo "Harness Relay is running already."

@@ -187,6 +187,12 @@ Containers often keep bubblewrap from working: they may block the user namespace
 - **Copilot**: its bubblewrap sandbox needs what Linux above lists inside the container too: user and network namespaces and `/dev/net/tun` among them (not tried).
 - **Muse Code**: its bubblewrap needs what bubblewrap needs (not tried).
 
+**This repository's dev container** (`.devcontainer/`, for [GitHub Codespaces](codespaces.md)) gives bubblewrap what it needs: `securityOpt` `seccomp=unconfined`, `apparmor=unconfined` and `systempaths=unconfined`, and a TUN device (`--device=/dev/net/tun`) for Copilot's sandbox; not `privileged`. Tried on 14 November 2026 in a codespace (Debian 12, kernel 6.8, x86_64, 2 cores):
+
+- Without those options, `bwrap` stopped with `No permissions to create new namespace` (Docker's seccomp profile), so every command below full access would have failed.
+- With them, `scripts/sandbox-check.ts` passed all 51 checks; Codex's sandbox (`codex sandbox`, workspace-write) wrote the working directory and neither the home folder nor the network; and Copilot's, in a Harness Relay turn in edit mode, could not read the database (`Permission denied`), while what it wrote in the home folder and Harness Relay's folder stayed inside the sandbox, not on disk.
+- Claude Code's sandbox (the same sandbox runtime as Harness Relay's own) was not run with a sign-in.
+
 ### Windows
 
 - **Codex** has a sandbox of its own, in three implementations (`[windows] sandbox = "…"` in `config.toml`):

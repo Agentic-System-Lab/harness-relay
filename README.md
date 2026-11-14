@@ -100,6 +100,10 @@ After a `git pull`, run `npm install` and `npm run build` again, then `npm start
 
 To use it from your phone or another device, share it with your tailnet: see [Use it from your phone (Tailscale)](docs/remote-access.md).
 
+To try it without installing anything, open it in a GitHub codespace of your own: its dev container installs five of the CLIs, builds the app and starts it, on an address only your GitHub account can open. See [Try it in GitHub Codespaces](docs/codespaces.md).
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1)
+
 Working on Harness Relay itself? Run `npm run dev` instead: the server restarts and the UI reloads as you edit, at http://localhost:5173. See the [developer guide](docs/developer-guide.md).
 
 ### Open-source agents and model backends
@@ -146,6 +150,7 @@ npm run desktop:dist
 | Architecture | [docs/architecture.md](docs/architecture.md) | [docs/architecture.zh-TW.md](docs/architecture.zh-TW.md) |
 | Developer guide | [docs/developer-guide.md](docs/developer-guide.md) | [docs/developer-guide.zh-TW.md](docs/developer-guide.zh-TW.md) |
 | Use it from your phone (Tailscale) | [docs/remote-access.md](docs/remote-access.md) | [docs/remote-access.zh-TW.md](docs/remote-access.zh-TW.md) |
+| Try it in GitHub Codespaces | [docs/codespaces.md](docs/codespaces.md) | [docs/codespaces.zh-TW.md](docs/codespaces.zh-TW.md) |
 | Open agents (OpenCode, Goose, Cline, OpenHands, Pi) | [docs/open-agents.md](docs/open-agents.md) | [docs/open-agents.zh-TW.md](docs/open-agents.zh-TW.md) |
 | OS sandboxes by platform | [docs/sandboxing.md](docs/sandboxing.md) | [docs/sandboxing.zh-TW.md](docs/sandboxing.zh-TW.md) |
 | Adding a coding agent | [docs/adding-a-coding-agent.md](docs/adding-a-coding-agent.md) | [docs/adding-a-coding-agent.zh-TW.md](docs/adding-a-coding-agent.zh-TW.md) |
