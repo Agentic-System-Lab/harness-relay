@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test } from '../fixtures';
 import { LEAD_REVIEW, awaitingPlan, composer, finishedReply, openNewChat, openTeamChat, reviewCards, send, settled, startChat } from '../support/app';
 
@@ -47,9 +49,9 @@ test.describe('lead review', () => {
     expect(conv.settings.leadReview).toBe(true);
     expect(relay.fakeLog().some((e) => e.prompt?.includes('<reply n="1" from="@Claude (Claude Code)">\nHello from Claude'))).toBe(true);
 
-    // The next new chat starts the same way.
+    // Every new chat starts with it off, whatever the last one had.
     await openNewChat(page);
-    await expect(page.getByRole('checkbox', { name: LEAD_REVIEW })).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: LEAD_REVIEW })).not.toBeChecked();
   });
 
   test("is off unless the chat asks for it, and once turned on in the chat's team settings reads the latest question's replies", async ({ page, relay }) => {
@@ -127,5 +129,33 @@ test.describe('lead review', () => {
     await expect(card).not.toContainText('turned the review on');
     // The lead agent was not offered it.
     expect(relay.fakeLog().some((e) => e.prompt?.includes('Lead review is off in this conversation'))).toBe(false);
+  });
+
+  test("a shared chat keeps the lead agent's review and why it turned it on, without the app's buttons or the box", async ({ page, relay }) => {
+    const id = await startChat(page, { autoConfirm: true, title: 'Reviewed chat' });
+    await send(page, 'Check my plan e2e:leadreview');
+    await finishedReply(page, 'Claude');
+    await expect(reviewCards(page)).toContainText('Suggested next steps');
+    await settled(relay, id);
+
+    await page.locator('.chat-head').getByRole('button', { name: 'Share', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Share conversation' });
+    await dialog.getByRole('button', { name: 'Create link' }).click();
+    const link = dialog.getByRole('textbox', { name: 'Public link' });
+    await expect(link).toHaveValue(/^https:\/\/gistpreview\.github\.io\/\?[0-9a-f]{32}$/);
+    const gistId = (await link.inputValue()).split('?')[1]!;
+    const html = readFileSync(join(relay.root, 'fake-github', 'gists', gistId, 'index.html'), 'utf8');
+    const body = html.slice(html.indexOf('<body'));
+    // The review: its summary, the point and the member it is about (as text), the steps.
+    expect(body).toContain("Lead agent's review");
+    expect(body).toContain('The fake lead agent read 1 reply.');
+    expect(body).toMatch(/<span class="review-reply-link"[^>]*>@Claude<\/span>/);
+    expect(body).toContain('Try the answer yourself.');
+    // Why the lead agent turned it on stays; the box, the step's button and the reply's tag do not.
+    expect(body).toContain('The lead agent turned the review on for this team');
+    expect(body).not.toContain('class="plan-review"');
+    expect(body).not.toContain('Ask the team');
+    expect(body).not.toContain('to note');
+    expect(body).not.toContain('<button');
   });
 });

@@ -25,6 +25,7 @@ import {
   teamTurns,
   thoughtTail,
   thoughtTitle,
+  restoredText,
 } from '../src/web/chat';
 import type { Team } from '../src/web/components/TeamEditor';
 import { clip, clipPath } from '../src/server/agents/types';
@@ -481,5 +482,19 @@ describe("an agent's work between its words", () => {
       expect(isPathDetail(clip(path + ' --verbose')), path).toBe(false);
       expect(isPathDetail(clip(path.replace(/[\\/ ]/g, '_'))), path).toBe(false);
     }
+  });
+});
+
+describe('text that comes into the message box', () => {
+  it('puts a withdrawn message back ahead of what is typed, even when the box has the same words', () => {
+    expect(restoredText('', { text: 'ok' })).toBe('ok');
+    expect(restoredText('  ', { text: 'ok' })).toBe('ok');
+    expect(restoredText('ok, and also this', { text: 'ok' })).toBe('ok\nok, and also this');
+  });
+
+  it("does not add a lead review's next step the box has already", () => {
+    expect(restoredText('', { text: '@Bob add tests', once: true })).toBe('@Bob add tests');
+    expect(restoredText('@Bob add tests', { text: '@Bob add tests', once: true })).toBe('@Bob add tests');
+    expect(restoredText('and docs', { text: '@Bob add tests', once: true })).toBe('@Bob add tests\nand docs');
   });
 });

@@ -299,6 +299,16 @@ export type Segment =
  * activity. Keys are the index of the segment's first part, so a block keeps its key (and stays open or
  * closed) while more steps stream into it. `last` marks an activity block that ends the message.
  */
+/**
+ * Text that comes into the message box (`Composer`'s `restore`): ahead of what is typed there. A
+ * withdrawn message always comes back; a lead review's next step (`once`) not when the box has it
+ * already, so asking twice does not send it twice.
+ */
+export function restoredText(current: string, restore: { text: string; once?: boolean }): string {
+  if (restore.once && current.includes(restore.text)) return current;
+  return current.trim() ? `${restore.text}\n${current}` : restore.text;
+}
+
 export function segments(parts: MessagePart[]): Segment[] {
   const out: Segment[] = [];
   const step = (item: ActivityItem) => {

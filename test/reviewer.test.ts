@@ -1,6 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { slow } from './timeouts';
 import type { ChatMessage } from '../src/shared/types';
 import { findQuote, hasQuote, highlightsByReply, markdownText, mostSerious, quoteKey, reviewStart } from '../src/shared/review';
 import { buildReviewPrompt, decideReview, hasNewReplies, parseReviewReply, reviewMaterial } from '../src/server/reviewer';
@@ -371,5 +372,46 @@ describe('small things of the review', () => {
   it("gives a reply's tag the most serious kind among its highlights", () => {
     expect(mostSerious([{ kind: 'note', note: '' }, { kind: 'verify', note: '' }, { kind: 'decision', note: '' }])).toBe('decision');
     expect(mostSerious([])).toBe('note');
+  });
+});
+
+describe('quotes and the pieces of a reply', () => {
+  it("keeps a quote only when one piece of the reply's text has it: the chat shows each on its own, between its tool calls", () => {
+    const split: ChatMessage = {
+      ...reply('r1', 'Alice', ''),
+      parts: [
+        { type: 'text', text: 'I will run the migration' },
+        { type: 'tool', id: 't', name: 'Shell', status: 'done' },
+        { type: 'text', text: 'and then drop the table.' },
+      ],
+    };
+    const r = decideReview(
+      {
+        highlights: [
+          { kind: 'risk', reply: 1, quote: 'migration and then drop', note: 'Across a tool call.' },
+          { kind: 'risk', reply: 1, quote: 'then drop the table', note: 'In one piece.' },
+        ],
+      },
+      [split],
+    );
+    expect(r.highlights!.map((h) => h.quote)).toEqual([undefined, 'then drop the table']);
+  });
+
+  it('takes an answer with only next_steps as a review', () => {
+    expect(decideReview({ next_steps: [] }, [])).toEqual({ highlights: [], nextSteps: [] });
+  });
+
+  it('drops the lines a rendered reply has no text for', () => {
+    expect(markdownText('a\n---\n- \n|:-|\nb')).toBe('a\n \n \n \nb');
+    expect(markdownText('x - y')).toBe('x - y');
+  });
+
+  it('reads a reply of any size in time proportional to it', () => {
+    for (const unit of ['[a](b', '[', '![a](', '<http://x', ' \t', '| - ', ' >', '\n']) {
+      const text = unit.repeat(Math.ceil(100_000 / unit.length));
+      const started = performance.now();
+      hasQuote(text, 'nothing like it');
+      expect(performance.now() - started, JSON.stringify(unit)).toBeLessThan(slow(1500));
+    }
   });
 });

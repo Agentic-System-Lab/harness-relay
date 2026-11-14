@@ -1440,7 +1440,8 @@ export function createApp({
   app.put('/api/conversations/:id/lead-review', async (c) => {
     const b = await body<{ on?: unknown }>(c);
     if (typeof b.on !== 'boolean') throw new HttpError(400, t().invalidField('on'));
-    return c.json(forClient(orchestrator.setLeadReview(c.req.param('id'), b.on)));
+    const conv = orchestrator.setLeadReview(c.req.param('id'), b.on);
+    return c.json({ leadReview: Boolean(conv.settings.leadReview) });
   });
 
   // Decline it: the current team stays, and answers the question.

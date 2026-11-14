@@ -548,7 +548,6 @@ function ReviewCard({ msg, onUseStep }: Pick<Props, 'msg' | 'onUseStep'>) {
         <Logo size={18} />
         <strong>{t.review.title}</strong>
         <span className="muted small">{t.review.by(lead)}</span>
-        {review.replyIds && <span className="muted small">· {t.review.read(review.replyIds.length)}</span>}
       </header>
       {review.summary && <p className="plan-reason review-summary">{review.summary}</p>}
       <div className="review-section">
@@ -586,9 +585,11 @@ function ReviewCard({ msg, onUseStep }: Pick<Props, 'msg' | 'onUseStep'>) {
           </ol>
         </div>
       )}
-      {hasMeta(msg.meta) && (
+      {/* How many replies it read beside its time and cost: the header keeps to its title on a phone. */}
+      {(review.replyIds || hasMeta(msg.meta)) && (
         <div className="plan-actions">
-          <MetaText m={msg.meta} />
+          {review.replyIds && <span className="muted small">{t.review.read(review.replyIds.length)}</span>}
+          {hasMeta(msg.meta) && <MetaText m={msg.meta} />}
         </div>
       )}
     </section>
@@ -636,9 +637,10 @@ function LeadReviewBox({ on, turnedOn, onChange }: { on: boolean; turnedOn?: { r
     if (chosen !== null && chosen === on) setChosen(null);
   }, [chosen, on]);
   const checked = chosen ?? on;
+  // The box is the app's own control (a shared page leaves it out); why the lead agent turned it on stays.
   return (
-    <div className="plan-review">
-      <div className="plan-review-box">
+    <>
+      <div className="plan-review">
         <label className="check-row">
           <input
             type="checkbox"
@@ -657,7 +659,7 @@ function LeadReviewBox({ on, turnedOn, onChange }: { on: boolean; turnedOn?: { r
         </span>
       </div>
       {turnedOn && <p className="small plan-review-why">✦ {t.plan.reviewTurnedOn(turnedOn.reason ?? '')}</p>}
-    </div>
+    </>
   );
 }
 

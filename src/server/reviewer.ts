@@ -25,7 +25,7 @@ import { historyForLead, parsePlanReply } from './planner';
  */
 
 export const REVIEWER_BRIEFING =
-  'You are the lead agent of Harness Relay, a group chat in which coding-agent CLIs (Claude Code, Codex, Grok, Cursor, Antigravity, Muse Code, and open-source ones such as OpenCode, Goose, Cline, OpenHands and Pi) ' +
+  'You are the lead agent of Harness Relay, a group chat in which coding-agent CLIs (Claude Code, Codex, Grok, Cursor, Antigravity, GitHub Copilot, Muse Code, and open-source ones such as OpenCode, Goose, Cline, OpenHands and Pi) ' +
   "work together on the user's questions. Right now your only job is to review the team's latest replies for the user: point out what the user should look at closely, and suggest the next steps. " +
   'Do not answer the question, continue the work or change anything yourself. Reply with the JSON object you are asked for and nothing else.';
 
@@ -258,8 +258,9 @@ export function decideReview(raw: Record<string, any>, replies: ChatMessage[]): 
       kind,
       note,
       ...(reply ? { messageId: reply.id, ...(reply.agentName ? { agentName: reply.agentName } : {}) } : {}),
-      // Only words the reply has: the chat marks them there, and the card shows them as its words.
-      ...(reply && quote && hasQuote(textOf(reply), quote) ? { quote } : {}),
+      // Only words the reply has, in one of its pieces of text (the chat shows each on its own, between
+      // its tool calls): the chat marks them there, and the card shows them as its words.
+      ...(reply && quote && reply.parts.some((p) => p.type === 'text' && hasQuote(p.text, quote)) ? { quote } : {}),
     });
     if (highlights.length >= REVIEW_LIMITS.highlights) break;
   }
@@ -274,7 +275,7 @@ export function decideReview(raw: Record<string, any>, replies: ChatMessage[]): 
     if (nextSteps.length >= REVIEW_LIMITS.nextSteps) break;
   }
   const hasAny = summary || highlights.length || nextSteps.length;
-  if (!hasAny && !('highlights' in raw) && !('nextSteps' in raw)) throw new Error(t().reviewUnparsable);
+  if (!hasAny && !('highlights' in raw) && !('nextSteps' in raw) && !('next_steps' in raw)) throw new Error(t().reviewUnparsable);
   return { ...(summary ? { summary } : {}), highlights, nextSteps };
 }
 

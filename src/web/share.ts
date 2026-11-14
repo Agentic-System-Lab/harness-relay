@@ -44,7 +44,7 @@ export const SHARE_DROP = [
   '.head-warning',
   '.more-button',
   '.plan-ask-save',
-  '.plan-review-box',
+  '.plan-review',
   '.file-missing',
   '.branch-divider',
   '.head-branch',

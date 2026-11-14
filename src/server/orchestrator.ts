@@ -221,8 +221,8 @@ export function titleFrom(text: string): string {
 }
 
 /**
- * Copies of messages with new ids (a branch's): what a lead review says of a copied reply points at
- * its copy, and of a reply not copied, at nothing.
+ * Copies of messages with new ids (a branch's): what a lead review says of a copied message (a reply
+ * it read or points out, where it started reading) points at its copy, and of one not copied, at nothing.
  */
 export function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
   const copies = messages.map((m) => ({ ...structuredClone(m), id: randomUUID() }));
@@ -230,6 +230,12 @@ export function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
   for (const m of copies) {
     if (!m.review) continue;
     if (m.review.replyIds) m.review.replyIds = m.review.replyIds.flatMap((id) => ids.get(id) ?? []);
+    // Where a review that failed or was stopped started: the branch's next review reads from there too.
+    if (m.review.fromId) {
+      const from = ids.get(m.review.fromId);
+      if (from) m.review.fromId = from;
+      else delete m.review.fromId;
+    }
     m.review.highlights = m.review.highlights?.map(({ messageId, ...h }) => {
       const id = messageId && ids.get(messageId);
       return id ? { ...h, messageId: id } : h;

@@ -27,6 +27,7 @@ import {
   type TeamDraft,
 } from '../src/server/planner';
 import { builtinPresets } from '../src/server/presets';
+import { REVIEWER_BRIEFING } from '../src/server/reviewer';
 
 const catalog: ProviderModels[] = [
   {
@@ -42,8 +43,10 @@ const lead = { provider: 'claude' as const };
 
 describe("the lead agent's briefings", () => {
   it('name the kinds of agents the chat holds, the open-source ones too', () => {
-    for (const briefing of [PLANNER_BRIEFING, REVISER_BRIEFING]) {
-      expect(briefing).toContain('(Claude Code, Codex, Grok, Cursor, Antigravity, Muse Code, and open-source ones such as OpenCode, Goose, Cline, OpenHands and Pi)');
+    for (const briefing of [PLANNER_BRIEFING, REVISER_BRIEFING, REVIEWER_BRIEFING]) {
+      expect(briefing).toContain(
+        '(Claude Code, Codex, Grok, Cursor, Antigravity, GitHub Copilot, Muse Code, and open-source ones such as OpenCode, Goose, Cline, OpenHands and Pi)',
+      );
     }
   });
 });

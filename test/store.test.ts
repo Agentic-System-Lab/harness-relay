@@ -211,6 +211,26 @@ describe('Store (SQLite)', () => {
     expect(new Store(reopen()).get(conv.id)!.settings.leadReview).toBeUndefined();
   });
 
+  it('keeps a review the server stopped during, as stopped, with where it started reading', () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    conv.settings = { ...conv.settings, leadReview: true };
+    store.create(conv);
+    const review: ChatMessage = {
+      id: 'review-2',
+      author: { kind: 'system' },
+      createdAt: 6,
+      status: 'streaming',
+      parts: [],
+      review: { status: 'reviewing', lead: { provider: 'claude' }, replyIds: ['m2'], fromId: 'm1' },
+    };
+    conv.messages.push(review);
+    store.saveMessage(conv.id, review, true);
+    const after = new Store(reopen()).get(conv.id)!.messages.at(-1)!;
+    expect(after.status).toBe('aborted');
+    expect(after.review).toEqual(review.review);
+  });
+
   it('keeps message order and updates a streaming message in place', () => {
     const store = new Store(db);
     const conv = sampleConversation();

@@ -4814,17 +4814,11 @@ details.sub summary {
 .plan-review {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   padding: 10px 12px;
   border-radius: 10px;
   background: var(--bg);
   border: 1px solid var(--border);
-}
-
-.plan-review-box {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
 
 .plan-review-why {

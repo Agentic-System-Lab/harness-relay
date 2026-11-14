@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
 import { ATTACHMENT_LIMITS, PROVIDER_LABEL, isInlineImage, type AgentConfig } from '../../shared/types';
 import type { AttachmentUpload } from '../api';
-import { enterSends, isTouchScreen } from '../chat';
+import { enterSends, isTouchScreen, restoredText } from '../chat';
 import { useT } from '../i18n';
 import { PROVIDER_COLOR, formatBytes, initials, toBase64 } from '../util';
 import { insertTranscript } from '../voice';
@@ -36,8 +36,11 @@ interface Props {
   onSend: (text: string, attachments: AttachmentUpload[], interrupt: boolean) => Promise<boolean>;
   onStop: () => void;
   onContinue: () => Promise<unknown>;
-  /** Text to put back in the composer (a withdrawn message to edit); a new object each time. */
-  restore?: { text: string };
+  /**
+   * Text to put in the composer (a withdrawn message to edit, or a lead review's next step, `once`);
+   * a new object each time.
+   */
+  restore?: { text: string; once?: boolean };
   /** An agent asked the user something: Continue lets the team go on without the answer. */
   skipQuestion?: boolean;
 }
@@ -127,11 +130,10 @@ export function Composer({
     ref.current?.focus();
   };
 
-  // A withdrawn message (or a lead review's next step) comes in, ahead of anything typed since; not
-  // twice when the box has it already.
+  // A withdrawn message (or a lead review's next step) comes in, ahead of anything typed since.
   useEffect(() => {
     if (!restore) return;
-    setText((cur) => (cur.includes(restore.text) ? cur : cur.trim() ? `${restore.text}\n${cur}` : restore.text));
+    setText((cur) => restoredText(cur, restore));
     requestAnimationFrame(() => ref.current?.focus());
   }, [restore]);
 

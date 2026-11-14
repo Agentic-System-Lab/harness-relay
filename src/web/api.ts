@@ -300,8 +300,8 @@ export const api = {
     request<{ ok: true }>('POST', `/api/conversations/${id}/messages/${messageId}/confirm-plan`),
   declinePlan: (id: string, messageId: string) =>
     request<{ ok: true }>('POST', `/api/conversations/${id}/messages/${messageId}/decline-plan`),
-  /** Lead review on or off (at any time); returns the conversation. */
-  setLeadReview: (id: string, on: boolean) => request<Conversation>('PUT', `/api/conversations/${id}/lead-review`, { on }),
+  /** Lead review on or off (at any time); returns whether it is on now. */
+  setLeadReview: (id: string, on: boolean) => request<{ leadReview: boolean }>('PUT', `/api/conversations/${id}/lead-review`, { on }),
   savePlan: (id: string, messageId: string, name?: string) =>
     request<TeamPreset>('POST', `/api/conversations/${id}/messages/${messageId}/save-plan`, { name }),
   /** Ask the lead agent to change the team being edited (nothing is saved); aborting `signal` stops it. */

@@ -101,14 +101,19 @@ const codePoint = (n: number, all: string) => (n > 0 && n <= 0x10ffff ? String.f
  * dropped (Markdown's other marks are ignored when looking).
  */
 export function markdownText(md: string): string {
+  // Each pattern reads at most a line, and a link's parts at most so far: a reply of any size (nothing
+  // shortens it) is read in time proportional to its length.
   return md
+    .split('\n')
+    // A table's rule, a thematic break or an empty list item: no text in the chat.
+    .map((line) => (line.includes('-') && /^[ \t|:-]+$/.test(line) ? ' ' : line))
+    .join('\n')
     .replace(/^ {0,3}(?:`{3,}|~{3,}).*$/gm, ' ')
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-    .replace(/\[([^\]]*)\]\((?:[^()]|\([^)]*\))*\)/g, '$1')
-    .replace(/\[([^\]]*)\]\[[^\]]*\]/g, '$1')
-    .replace(/<((?:https?|mailto):[^>\s]+)>/g, '$1')
-    .replace(/^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/gm, ' ')
-    .replace(/^((?:\s*>)*\s*)(?:[-*+]|\d{1,9}[.)])\s+/gm, '$1')
+    .replace(/!\[[^\]\n]{0,500}\]\([^)\n]{0,2048}\)/g, ' ')
+    .replace(/\[([^\]\n]{0,500})\]\((?:[^()\n]|\([^()\n]{0,2048}\)){0,2048}\)/g, '$1')
+    .replace(/\[([^\]\n]{0,500})\]\[[^\]\n]{0,500}\]/g, '$1')
+    .replace(/<((?:https?|mailto):[^>\s]{1,2048})>/g, '$1')
+    .replace(/^((?:[ \t]*>)*[ \t]*)(?:[-*+]|\d{1,9}[.)])[ \t]+/gm, '$1')
     .replace(/\\([\\`*_{}[\]()#+\-.!|>~])/g, '$1')
     .replace(/&(amp|lt|gt|quot|apos|nbsp);/g, (_, name: string) => ENTITIES[name]!)
     .replace(/&#(\d{1,7});/g, (all, n: string) => codePoint(Number(n), all))

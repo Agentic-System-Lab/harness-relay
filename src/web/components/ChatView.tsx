@@ -114,7 +114,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const [diff, setDiff] = useState<{ title: string; load: () => Promise<string> } | null>(null);
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
   /** A withdrawn message's text, going back into the composer to be edited. */
-  const [restore, setRestore] = useState<{ text: string }>();
+  const [restore, setRestore] = useState<{ text: string; once?: boolean }>();
   const scroller = useRef<HTMLDivElement>(null);
   const chipsRef = useRef<HTMLDivElement>(null);
   // The team row fades out on the right while more chips are hidden there.
@@ -441,7 +441,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const marks = useMemo(() => highlightsByReply(messages ?? []), [reviewIds]);
 
   // A next step the lead agent suggests goes in the message box, ahead of anything typed there.
-  const onUseStep = useCallback((text: string) => setRestore({ text }), []);
+  const onUseStep = useCallback((text: string) => setRestore({ text, once: true }), []);
 
   // Lead review on or off, from the latest team design card (the conversation event brings the setting).
   const onLeadReview = useCallback(async (on: boolean) => {

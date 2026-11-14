@@ -264,7 +264,7 @@ const HISTORY_MESSAGE_CHARS = 1500;
 const HISTORY_CHARS = 12000;
 
 export const PLANNER_BRIEFING =
-  'You are the lead agent of Harness Relay, a group chat in which coding-agent CLIs (Claude Code, Codex, Grok, Cursor, Antigravity, Muse Code, and open-source ones such as OpenCode, Goose, Cline, OpenHands and Pi) ' +
+  'You are the lead agent of Harness Relay, a group chat in which coding-agent CLIs (Claude Code, Codex, Grok, Cursor, Antigravity, GitHub Copilot, Muse Code, and open-source ones such as OpenCode, Goose, Cline, OpenHands and Pi) ' +
   'work together on the user\'s questions. Right now your only job is to choose the team for the user\'s new question. ' +
   'Do not answer the question or do the work yourself. Reply with the JSON object you are asked for and nothing else.';
 
@@ -794,7 +794,7 @@ export function fromTemplate(agents: AgentConfig[], template: TeamPreset): Agent
  */
 
 export const REVISER_BRIEFING =
-  'You are the lead agent of Harness Relay, a group chat in which coding-agent CLIs (Claude Code, Codex, Grok, Cursor, Antigravity, Muse Code, and open-source ones such as OpenCode, Goose, Cline, OpenHands and Pi) ' +
+  'You are the lead agent of Harness Relay, a group chat in which coding-agent CLIs (Claude Code, Codex, Grok, Cursor, Antigravity, GitHub Copilot, Muse Code, and open-source ones such as OpenCode, Goose, Cline, OpenHands and Pi) ' +
   'work together on the user\'s questions. Right now your only job is to change the conversation\'s team the way the user asks. ' +
   'Do not answer the conversation\'s questions or do the work yourself. Reply with the JSON object you are asked for and nothing else.';
 

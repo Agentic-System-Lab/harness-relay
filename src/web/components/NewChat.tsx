@@ -22,8 +22,6 @@ const TemplateEditor = lazyPart(() => import('./TemplateEditor').then((m) => m.T
 
 /** Whether the last new chat used the lead agent's teams without asking ("1"), so the next one starts the same way. */
 const AUTO_CONFIRM_KEY = 'relay:autoConfirm';
-/** Whether the last new chat had the lead agent review the team's replies ("1"), so the next one starts the same way. */
-const LEAD_REVIEW_KEY = 'relay:leadReview';
 
 function read(key: string): string {
   try {
@@ -48,18 +46,12 @@ export const lastAutoConfirm = () => read(AUTO_CONFIRM_KEY) === '1';
 /** Remember whether this one did, so the next one starts the same way. */
 export const rememberAutoConfirm = (on: boolean | undefined) => write(AUTO_CONFIRM_KEY, on ? '1' : '');
 
-/** Whether the last new chat (or schedule) had the lead agent review the team's replies. */
-export const lastLeadReview = () => read(LEAD_REVIEW_KEY) === '1';
-
-/** Remember whether this one does, so the next one starts the same way. */
-export const rememberLeadReview = (on: boolean | undefined) => write(LEAD_REVIEW_KEY, on ? '1' : '');
-
 /**
  * A new conversation: the lead agent designs the team for each question, so only the settings are
- * chosen here. It starts in the default working directories (`cwds`, the first where agents start).
- * `leadReview`: the lead agent also reviews the team's replies.
+ * chosen here. It starts in the default working directories (`cwds`, the first where agents start),
+ * with lead review off (the user, or the lead agent with a design, may turn it on).
  */
-export function autoTeam(cwds: string[], autoConfirm: boolean, leadReview = false): Team {
+export function autoTeam(cwds: string[], autoConfirm: boolean): Team {
   return {
     agents: [],
     settings: {
@@ -70,7 +62,6 @@ export function autoTeam(cwds: string[], autoConfirm: boolean, leadReview = fals
       ...cwdSettings(cwds),
       autoTeam: true,
       ...(autoConfirm ? { autoConfirm } : {}),
-      ...(leadReview ? { leadReview } : {}),
     },
   };
 }
@@ -106,7 +97,7 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
         if (initialized.current) return;
         initialized.current = true;
         // The default working directory from Settings; asking first unless the last chat did not.
-        setTeam(autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm(), lastLeadReview()));
+        setTeam(autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm()));
       })
       .catch((e) => setError(String(e.message ?? e)));
   }, [lang]);
@@ -125,7 +116,6 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
         (missing) => confirm(t.newChat.confirmCreateCwd(missing)),
       );
       rememberAutoConfirm(team.settings.autoConfirm);
-      rememberLeadReview(team.settings.leadReview);
       onCreated(conv);
     } catch (e) {
       setError((e as Error).message);

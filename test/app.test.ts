@@ -487,7 +487,8 @@ describe('settings', () => {
     const set = (id: string, body: unknown) => app.request(`/api/conversations/${id}/lead-review`, json('PUT', body));
     const res = await set(on.id, { on: true });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as Conversation).settings.leadReview).toBe(true);
+    // Just the setting, not the whole conversation.
+    expect(await res.json()).toEqual({ leadReview: true });
     expect(store.get(on.id)!.settings.leadReview).toBe(true);
     expect((await set(on.id, { on: 'yes' })).status).toBe(400);
     expect((await set('nope', { on: true })).status).toBe(404);

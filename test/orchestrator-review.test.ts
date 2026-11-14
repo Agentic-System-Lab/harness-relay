@@ -380,6 +380,46 @@ describe('lead review', () => {
   });
 });
 
+describe('lead review, stopped or branched before it was ready', () => {
+  it('is stopped by "Skip the review and send now", whose message the team answers; the next review reads from where the stopped one started', async () => {
+    const conv = conversation({ mode: 'parallel', permission: 'read-only', leadReview: true });
+    fake.reviewGate = new Promise(() => {});
+    await orchestrator.send(conv.id, 'first');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    const stopped = reviews(conv)[0]!;
+    expect(stopped.review!.fromId).toBe(conv.messages.find((m) => m.author.kind === 'user')!.id);
+    fake.reviewGate = undefined;
+    // The tray's button: stop the run (the review) and send what waits, now.
+    await orchestrator.send(conv.id, 'second', undefined, true);
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(2), { timeout: 20_000 });
+    await finish(conv.id);
+    expect(stopped.status).toBe('aborted');
+    const recent = recentOf(reviewerCalls()[1]!.prompt);
+    expect(recent).toContain('<message from="user">\nfirst\n</message>');
+    expect(recent).toContain('<message from="user">\nsecond\n</message>');
+    expect(reviews(conv)[1]!.review!.status).toBe('ready');
+  });
+
+  it("keeps, in a branch, where a review that failed started: the branch's next review reads from there", async () => {
+    const conv = conversation({ mode: 'parallel', permission: 'read-only', leadReview: true });
+    fake.reviewFail = 'model overloaded';
+    await orchestrator.send(conv.id, 'one');
+    await finish(conv.id);
+    await orchestrator.send(conv.id, 'two');
+    await finish(conv.id);
+    const branch = await orchestrator.branch(conv.id, replyOf(conv, 'Bob', 1).id);
+    const copied = branch.messages.find((m) => m.review)!.review!;
+    const one = branch.messages.find((m) => m.author.kind === 'user')!;
+    expect(copied.fromId).toBe(one.id);
+    fake.reviewFail = undefined;
+    await orchestrator.send(branch.id, 'three');
+    await finish(branch.id);
+    const recent = recentOf(reviewerCalls().at(-1)!.prompt);
+    expect(recent).toContain('<message from="user">\none\n</message>');
+    expect(recent).toContain('<message from="user">\nthree\n</message>');
+  });
+});
+
 describe('the lead agent turning lead review on when it designs a team', () => {
   const design = (more: Record<string, unknown> = {}) =>
     JSON.stringify({

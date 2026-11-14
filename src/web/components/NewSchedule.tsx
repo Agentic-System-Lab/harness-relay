@@ -5,7 +5,7 @@ import { useI18n } from '../i18n';
 import { useLimits } from '../limits';
 import { draftFrom, draftProblems, toUpdate, type ScheduleDraft } from '../schedule';
 import { leadLabel } from '../util';
-import { autoTeam, lastAutoConfirm, lastLeadReview, rememberAutoConfirm, rememberLeadReview } from './NewChat';
+import { autoTeam, lastAutoConfirm, rememberAutoConfirm } from './NewChat';
 import { ScheduleForm } from './ScheduleForm';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
 
@@ -38,10 +38,7 @@ export function NewSchedule({ providers, catalog, onCreated }: Props) {
       .then((settings) => {
         setLead(settings.lead);
         // The default working directory from Settings; asking first unless the last chat did not.
-        setTeam(
-          (current) =>
-            current ?? autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm(), lastLeadReview()),
-        );
+        setTeam((current) => current ?? autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm()));
       })
       .catch((e) => setError(String(e.message ?? e)));
   }, [lang]);
@@ -67,7 +64,6 @@ export function NewSchedule({ providers, catalog, onCreated }: Props) {
         (missing) => confirm(t.newChat.confirmCreateCwd(missing)),
       );
       rememberAutoConfirm(team.settings.autoConfirm);
-      rememberLeadReview(team.settings.leadReview);
       onCreated(conv);
     } catch (e) {
       setError((e as Error).message);
