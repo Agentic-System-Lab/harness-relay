@@ -1,0 +1,37 @@
+// Harness Relay in GitHub Codespaces (or any dev container): see docs/codespaces.md.
+{
+  "name": "Harness Relay",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22-bookworm",
+  "features": {
+    // For `gh codespace ssh`, and for signing the CLIs in from a terminal of your own.
+    "ghcr.io/devcontainers/features/sshd:1": {}
+  },
+  "hostRequirements": { "cpus": 2, "memory": "8gb" },
+  // Once, when the container is made (also in a prebuild): the sandboxes' packages and some agent CLIs.
+  "onCreateCommand": "bash .devcontainer/setup.sh",
+  // When the code is new: the app's packages and its UI.
+  "updateContentCommand": "npm ci && npm run build",
+  // Each time the editor opens it: start the server, or print another sign-in link if it runs.
+  "postAttachCommand": "bash .devcontainer/start.sh",
+  "forwardPorts": [8787],
+  "portsAttributes": {
+    // Private, as Codespaces makes every port: only your GitHub account can open it.
+    "8787": { "label": "Harness Relay", "onAutoForward": "silent" }
+  },
+  // Offered on the codespace's advanced create page; each one is optional. Codespaces passes them
+  // to the server as environment variables, so they are not kept in its database.
+  "secrets": {
+    "ANTHROPIC_API_KEY": {
+      "description": "Optional: an Anthropic API key. Claude Code then runs on it (billed by use) instead of a sign-in; the open-source agents can too.",
+      "documentationUrl": "https://console.anthropic.com/settings/keys"
+    },
+    "OPENAI_API_KEY": {
+      "description": "Optional: an OpenAI API key. Codex then runs on it (billed by use) instead of a sign-in; the open-source agents can too.",
+      "documentationUrl": "https://platform.openai.com/api-keys"
+    },
+    "XAI_API_KEY": {
+      "description": "Optional: an xAI API key, for Grok (billed by use) or the open-source agents.",
+      "documentationUrl": "https://console.x.ai"
+    }
+  }
+}
