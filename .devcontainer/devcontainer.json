@@ -7,6 +7,11 @@
     "ghcr.io/devcontainers/features/sshd:1": {}
   },
   "hostRequirements": { "cpus": 2, "memory": "8gb" },
+  // What bubblewrap needs in a container, for the sandboxes below full access (Claude Code's, Codex's,
+  // Copilot's and Harness Relay's own): user namespaces (seccomp) and mounting a fresh /proc (AppArmor,
+  // and /proc's masked paths). Without them every command below full access fails. Docker's own
+  // isolation is the less for it; in a codespace, the virtual machine around the container is yours alone.
+  "securityOpt": ["seccomp=unconfined", "apparmor=unconfined", "systempaths=unconfined"],
   // Once, when the container is made (also in a prebuild): the sandboxes' packages and some agent CLIs.
   "onCreateCommand": "bash .devcontainer/setup.sh",
   // When the code is new: the app's packages and its UI.
