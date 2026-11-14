@@ -6,9 +6,9 @@
 
 **Website:** https://agentic-system-lab.github.io/harness-relay/
 
-**Try it without installing anything:** open it in a GitHub codespace of your own. Its dev container installs the seven agent CLIs that are not open source (Claude Code, Codex, Copilot, Grok, Cursor, Antigravity and Muse Code), builds the app and starts it, on an address only your GitHub account can open. See [Try it in GitHub Codespaces](docs/codespaces.md).
+**Try it without installing anything:** open the newest release in a GitHub codespace of your own. Its dev container installs the seven agent CLIs that are not open source (Claude Code, Codex, Copilot, Grok, Cursor, Antigravity and Muse Code), builds the app and starts it, on an address only your GitHub account can open. See [Try it in GitHub Codespaces](docs/codespaces.md).
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1)
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1)
 
 A local group chat for the real **Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and Muse Code** CLIs, and five open-source coding agents (**OpenCode, Goose, Cline, OpenHands and Pi**) on the model backends you choose: give each a role, choose how they take turns, and they work on your code, or any question, and answer each other.
 
@@ -188,7 +188,7 @@ API keys you save in Settings, and the values of MCP servers' environment variab
 | `npm run desktop` | Build the desktop app and run it without installing it (after `npm install --prefix desktop`) |
 | `npm run desktop:dist` | Build the desktop app's installer for this system into `desktop/release/` |
 
-Every pull request and every push to `main` runs typecheck, tests and build on GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), and the end-to-end tests on Linux, macOS and Windows ([`.github/workflows/e2e.yml`](.github/workflows/e2e.yml)). The [website](https://agentic-system-lab.github.io/harness-relay/) is the static page in [`site/`](site/), published to GitHub Pages by [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
+Every pull request and every push to `main` runs typecheck, tests and build on GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), and the end-to-end tests on Linux, macOS and Windows ([`.github/workflows/e2e.yml`](.github/workflows/e2e.yml)); on a pull request, the slower jobs (the tests on Windows, the packaged desktop app, the end-to-end tests) only when it touches a file they depend on ([`scripts/ci-scope.ts`](scripts/ci-scope.ts)). The [website](https://agentic-system-lab.github.io/harness-relay/) is the static page in [`site/`](site/), published to GitHub Pages by [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
 
 ## Contributing
 

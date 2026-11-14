@@ -6,8 +6,8 @@ import { useDialog } from './useDialog';
 interface Props {
   version: string;
   current: string;
-  /** The release's page on GitHub. */
-  page: string;
+  /** Where what changed since the running version is read (GitHub's comparison of the two versions). */
+  changes: string;
   /** Has the desktop app update (it asks the user first, in its own dialog). */
   onUpdate: () => Promise<void>;
   /** Later: this version is not offered again with a dialog (Settings still offers it). */
@@ -20,7 +20,7 @@ interface Props {
  * Offers a newer version of the desktop app, once per version, in the app's own window (src/web/update.ts,
  * `shouldOffer`). The tray menu offers it as before.
  */
-export function UpdateDialog({ version, current, page, onUpdate, onLater, onClose }: Props) {
+export function UpdateDialog({ version, current, changes, onUpdate, onLater, onClose }: Props) {
   const t = useT();
   const u = t.update;
   const dialog = useRef<HTMLDivElement>(null);
@@ -65,8 +65,8 @@ export function UpdateDialog({ version, current, page, onUpdate, onLater, onClos
           </p>
         )}
         <footer className="update-foot">
-          <a className="small" href={page} target="_blank" rel="noopener noreferrer">
-            {u.releaseNotes}
+          <a className="small" href={changes} target="_blank" rel="noopener noreferrer">
+            {u.whatChanged}
           </a>
           <span className="update-buttons">
             <button type="button" className="ghost" onClick={onLater}>

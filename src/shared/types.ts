@@ -2035,8 +2035,11 @@ export type UpdateProgress = { kind: 'downloading'; percent: number } | { kind: 
 export interface DesktopUpdate {
   /** Whether this copy updates itself (a packaged app, RELAY_UPDATES not off): nothing else is set when not. */
   updates: boolean;
-  /** A newer release with an installer for this system: its version, and its page on GitHub. */
-  available?: { version: string; page: string };
+  /**
+   * A newer release with an installer for this system: its version, and where what changed since the
+   * running version is read (GitHub's comparison of the two; the release's page for a build of your own).
+   */
+  available?: { version: string; changes: string };
   progress?: UpdateProgress;
   /** GitHub is being asked now. */
   checking?: boolean;

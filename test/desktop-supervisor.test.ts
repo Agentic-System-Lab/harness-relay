@@ -390,7 +390,7 @@ describe('conversations with agents at work', () => {
 });
 
 describe("the chat's asks about updates", () => {
-  const update = { type: 'update' as const, update: { updates: true, available: { version: '2026-11-12', page: 'https://github.com/x/y/releases/tag/2026-11-12' } } };
+  const update = { type: 'update' as const, update: { updates: true, available: { version: '2026-11-12', changes: 'https://github.com/x/y/compare/2026-11-11...2026-11-12' } } };
 
   it('passes on what the running server asks for, and nothing else, and only from it', async () => {
     const { supervisor, servers } = setup();

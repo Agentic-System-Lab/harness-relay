@@ -9,7 +9,9 @@ import {
   appImageDownload,
   appImageTarget,
   busyWithoutAsking,
+  changesPage,
   chatUpdate,
+  COMPARE_PAGE,
   CHECK_EVERY_MS,
   CHECK_TIMEOUT_MS,
   checkLatest,
@@ -72,6 +74,7 @@ import {
   type UpdateSource,
 } from '../desktop/src/updateSource';
 import { spawnDetached } from '../src/server/process';
+import { releaseStep } from './release-steps';
 import { slow } from './timeouts';
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-update-')));
@@ -520,22 +523,6 @@ describe('the Release workflow’s check that an app can download the copies', (
     expect(step).toContain('process.exit(1)');
   });
 });
-
-/** A step's `run:` script in the Release workflow, as the runner gets it. */
-function releaseStep(name: string): string {
-  const workflow = readFileSync(join(__dirname, '../.github/workflows/release.yml'), 'utf8');
-  const from = workflow.indexOf(`- name: ${name}\n`);
-  if (from < 0) throw new Error(`no step ${name}`);
-  const run = workflow.indexOf('run: |\n', from);
-  const lines = workflow.slice(run + 'run: |\n'.length).split('\n');
-  const indent = /^ */.exec(lines[0]!)![0].length;
-  const body: string[] = [];
-  for (const line of lines) {
-    if (line.trim() && line.length - line.trimStart().length < indent) break;
-    body.push(line.slice(indent));
-  }
-  return body.join('\n');
-}
 
 // The steps' scripts, run as the runner runs them (bash, and Node with its types stripped), offline:
 // GitHub's API is a stand-in fetch loaded before the script.
@@ -1007,6 +994,41 @@ describe("GitHub's newest release", () => {
   });
 });
 
+describe('several versions out since the running one', () => {
+  const releases = (...list: string[]) => list.map((tag) => githubRelease(tag));
+
+  it('offers the newest alone, never one in between: a release the newest release, a release candidate the newest of either', () => {
+    // A release of 2026-11-13, after two releases on 2026-11-14 (GitHub's latest is the newest).
+    const latest = parse(githubRelease('2026-11-14.1'));
+    expect(isNewer(latest, '2026.1113.0')).toBe(true);
+    expect(latest?.version).toBe('2026-11-14.1');
+    // A release candidate, after releases and release candidates: the newest by version, whichever came out last.
+    expect(newest(releases('2026-11-14.1', '2026-11-15-rc', '2026-11-14', '2026-11-14-rc.1'), true)?.version).toBe('2026-11-15-rc');
+    expect(newest(releases('2026-11-14.1', '2026-11-14', '2026-11-14-rc.1'), true)?.version).toBe('2026-11-14.1');
+  });
+
+  it("are read on GitHub's comparison from the running version to the new one, every change since it however many came out", () => {
+    expect(COMPARE_PAGE).toBe('https://github.com/Agentic-System-Lab/harness-relay/compare');
+    const release = parse(githubRelease('2026-11-14.1'))!;
+    // Not the release's own notes, which start from 2026-11-14 and would leave out 2026-11-14's changes.
+    expect(changesPage(release, '2026-11-13')).toBe(`${COMPARE_PAGE}/2026-11-13...2026-11-14.1`);
+    expect(changesPage(release, '2026-11-14')).toBe(`${COMPARE_PAGE}/2026-11-14...2026-11-14.1`);
+    // From a release candidate, to a release or to a newer release candidate.
+    expect(changesPage(release, '2026-11-14-rc.1')).toBe(`${COMPARE_PAGE}/2026-11-14-rc.1...2026-11-14.1`);
+    expect(changesPage(parse(githubRelease('2026-11-15-rc'))!, '2026-11-14.1-rc')).toBe(`${COMPARE_PAGE}/2026-11-14.1-rc...2026-11-15-rc`);
+  });
+
+  it("are the release's page for a running version that has no tag (a build of your own), or is not older", () => {
+    const release = parse(githubRelease('2026-11-14.1'))!;
+    expect(changesPage(release, '2026-11-13-dev (30f3d4f)')).toBe(release.page);
+    expect(changesPage(release, '2026-11-13-dev')).toBe(release.page);
+    expect(changesPage(release, 'source (30f3d4f)')).toBe(release.page);
+    expect(changesPage(release, '')).toBe(release.page);
+    expect(changesPage(release, '2026-11-14.1')).toBe(release.page);
+    expect(changesPage(release, '2026-11-15')).toBe(release.page);
+  });
+});
+
 describe('how often GitHub is asked', () => {
   it('once an hour, of the 60 an hour GitHub allows an address without signing in', () => {
     expect(CHECK_EVERY_MS).toBe(60 * 60_000);
@@ -1038,20 +1060,22 @@ describe('what the chat is told of updates', () => {
   const release = { version: '2026-11-12', semver: '2026.1112.0', page: 'https://github.com/x/y/releases/tag/2026-11-12', candidate: false, assets: {} };
 
   it('is nothing more for a copy that does not update itself', () => {
-    expect(chatUpdate({ updates: false, update: release, updating: { kind: 'installing' }, checking: true, checkedAt: 1, checkFailed: true })).toEqual({ updates: false });
+    expect(chatUpdate({ updates: false, current: '2026-11-11', update: release, updating: { kind: 'installing' }, checking: true, checkedAt: 1, checkFailed: true })).toEqual({ updates: false });
   });
 
-  it('is the newer version, the update under way in whole percent, a check, when it last answered and whether the last one failed', () => {
-    expect(chatUpdate({ updates: true, checking: false, checkFailed: false })).toEqual({ updates: true });
-    expect(chatUpdate({ updates: true, update: release, updating: { kind: 'downloading', done: 0.429 }, checking: true, checkedAt: 5, checkFailed: true })).toEqual({
+  it('is the newer version and where its changes since this one are read, the update under way in whole percent, a check, when it last answered and whether the last one failed', () => {
+    expect(chatUpdate({ updates: true, current: '2026-11-11', checking: false, checkFailed: false })).toEqual({ updates: true });
+    expect(chatUpdate({ updates: true, current: '2026-11-11', update: release, updating: { kind: 'downloading', done: 0.429 }, checking: true, checkedAt: 5, checkFailed: true })).toEqual({
       updates: true,
-      available: { version: '2026-11-12', page: release.page },
+      available: { version: '2026-11-12', changes: `${COMPARE_PAGE}/2026-11-11...2026-11-12` },
       progress: { kind: 'downloading', percent: 42 },
       checking: true,
       checkedAt: 5,
       checkFailed: true,
     });
-    expect(chatUpdate({ updates: true, updating: { kind: 'waiting' }, checking: false, checkFailed: false }).progress).toEqual({ kind: 'waiting' });
+    expect(chatUpdate({ updates: true, current: '2026-11-11', updating: { kind: 'waiting' }, checking: false, checkFailed: false }).progress).toEqual({ kind: 'waiting' });
+    // A build of your own has no tag to compare from: the release's page.
+    expect(chatUpdate({ updates: true, current: '2026-11-11-dev (30f3d4f)', update: release, checking: false, checkFailed: false }).available).toEqual({ version: '2026-11-12', changes: release.page });
   });
 });
 

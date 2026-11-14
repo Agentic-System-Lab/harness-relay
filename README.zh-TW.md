@@ -6,9 +6,9 @@
 
 **網站：** https://agentic-system-lab.github.io/harness-relay/zh-TW/
 
-**不安裝任何東西就試用：** 在你自己的 GitHub codespace 打開它。它的 dev container 會安裝七個非開源的 agent CLI（Claude Code、Codex、Copilot、Grok、Cursor、Antigravity 和 Muse Code）、建置並啟動 app，網址只有你的 GitHub 帳號打得開。詳見[在 GitHub Codespaces 試用](docs/codespaces.zh-TW.md)。
+**不安裝任何東西就試用：** 在你自己的 GitHub codespace 打開最新的正式版。它的 dev container 會安裝七個非開源的 agent CLI（Claude Code、Codex、Copilot、Grok、Cursor、Antigravity 和 Muse Code）、建置並啟動 app，網址只有你的 GitHub 帳號打得開。詳見[在 GitHub Codespaces 試用](docs/codespaces.zh-TW.md)。
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1)
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1)
 
 一個在本機執行的群組聊天室，讓真正的 **Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 和 Muse Code** CLI，以及五個用你選的模型來源執行的開源 coding agent（**OpenCode、Goose、Cline、OpenHands 與 Pi**）組成團隊：替每個 agent 安排角色、決定輪流發言的方式，它們就會處理你的程式碼或任何問題，並且互相回應。
 
@@ -188,7 +188,7 @@ agent 會以你為對話選擇的檔案權限執行（**唯讀**、**可編輯**
 | `npm run desktop` | 建置桌面 app 並直接執行，不安裝（先執行 `npm install --prefix desktop`） |
 | `npm run desktop:dist` | 為目前的系統建置桌面 app 的安裝檔，放在 `desktop/release/` |
 
-每個 pull request 與每次推送到 `main` 都會在 GitHub Actions 上執行型別檢查、測試與建置（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)），並在 Linux、macOS 與 Windows 上執行端對端測試（[`.github/workflows/e2e.yml`](.github/workflows/e2e.yml)）。[網站](https://agentic-system-lab.github.io/harness-relay/zh-TW/)是 [`site/`](site/) 裡的靜態頁面，由 [`.github/workflows/pages.yml`](.github/workflows/pages.yml) 發佈到 GitHub Pages。
+每個 pull request 與每次推送到 `main` 都會在 GitHub Actions 上執行型別檢查、測試與建置（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)），並在 Linux、macOS 與 Windows 上執行端對端測試（[`.github/workflows/e2e.yml`](.github/workflows/e2e.yml)）；在 pull request 上，較慢的 job（Windows 上的測試、打包好的桌面 app、端對端測試）只在它碰到它們依賴的檔案時才會跑（[`scripts/ci-scope.ts`](scripts/ci-scope.ts)）。[網站](https://agentic-system-lab.github.io/harness-relay/zh-TW/)是 [`site/`](site/) 裡的靜態頁面，由 [`.github/workflows/pages.yml`](.github/workflows/pages.yml) 發佈到 GitHub Pages。
 
 ## 參與開發
 

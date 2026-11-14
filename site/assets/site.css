@@ -510,9 +510,12 @@ p {
   font-size: 19px;
   letter-spacing: -0.015em;
   margin-right: auto;
+  /* One line: the name is hidden where it does not fit (the narrow screens' rules below). */
+  white-space: nowrap;
 }
 
 .brand svg {
+  flex: none;
   width: 28px;
   height: 28px;
 }
@@ -540,6 +543,8 @@ p {
 
 .lang {
   display: inline-flex;
+  /* Never squeezed by the header's other buttons: 中文 would break between its characters. */
+  flex: none;
   padding: 3px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -550,6 +555,7 @@ p {
 .lang a {
   padding: 4px 11px;
   border-radius: 999px;
+  white-space: nowrap;
   text-decoration: none;
   color: var(--muted);
 }
@@ -2222,13 +2228,78 @@ html:not(.js) .theme-toggle {
   }
 }
 
-@media (max-width: 420px) {
+/* The header's name, its language switch and its buttons, with the header's wider gaps, fit on one
+   line from some 481px: below 500px the name goes, the logo stays (the link keeps its label for screen
+   readers). */
+@media (max-width: 500px) {
   .brand span {
     display: none;
   }
 
   .header-row {
     gap: 12px;
+  }
+}
+
+/* No page scrolls sideways, down to a 280px screen (the narrowest phones', folded; measured in Chromium
+   at every width from 280px, test/site-header.test.ts): a long command or package name in the text
+   breaks where it must, the approval card's buttons wrap, the headline scales with the screen so that
+   the phrases it keeps whole fit, and the header's controls draw closer. */
+@media (max-width: 480px) {
+  :not(pre) > code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .ui-approval .ui-btn {
+    white-space: normal;
+  }
+}
+
+@media (max-width: 380px) {
+  h1 {
+    font-size: min(2.6rem, 11.4vw);
+  }
+}
+
+@media (max-width: 360px) {
+  :root {
+    --gutter: 12px;
+  }
+
+  .header-row {
+    gap: 8px;
+  }
+
+  .header-tools {
+    gap: 6px;
+  }
+
+  .lang a {
+    padding: 4px 8px;
+  }
+
+  .header-tools .btn {
+    padding: 0 8px;
+  }
+
+  .header-tools .btn:has(.stars:not([hidden])) {
+    padding-right: 10px;
+  }
+
+  .header-tools .btn.theme-toggle {
+    width: 32px;
+    min-width: 32px;
+  }
+
+  .stars {
+    padding-left: 8px;
+  }
+}
+
+@media (max-width: 300px) {
+  .lang a {
+    padding: 4px 6px;
   }
 }
 
@@ -2251,6 +2322,7 @@ body:has(.cs-dialog[open]) {
 }
 
 .cs-dialog {
+  --cs-pad: clamp(20px, 4vw, 32px);
   width: min(680px, calc(100% - 32px));
   max-height: calc(100dvh - 32px);
   padding: 0;
@@ -2271,7 +2343,8 @@ body:has(.cs-dialog[open]) {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 16px;
-  padding: clamp(20px, 4vw, 32px);
+  /* No padding at the bottom: the actions' bar holds it. */
+  padding: var(--cs-pad) var(--cs-pad) 0;
 }
 
 .cs-head {
@@ -2393,8 +2466,98 @@ body:has(.cs-dialog[open]) {
 
 .cs-actions {
   display: flex;
+  /* One line, also on a phone: the rules for narrow screens below make it fit at every width from
+     280px, in both languages. Only where a phone's fonts are wider still does it wrap: two lines rather
+     than a dialog that scrolls sideways. */
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px 20px;
-  margin-top: 4px;
+  gap: 20px;
+  /* Kept at the dialog's bottom while the rest scrolls under it (the dialog is what scrolls), across
+     its whole width, over the text behind it. */
+  position: sticky;
+  bottom: 0;
+  margin: 4px calc(-1 * var(--cs-pad)) 0;
+  padding: 16px var(--cs-pad) var(--cs-pad);
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+/* Neither is squeezed: the button's label and the link stay whole. */
+.cs-actions > * {
+  flex: none;
+}
+
+/* On a phone the dialog takes more of the width (past the browser's own limit for a modal dialog,
+   100% - 2em - 6px), and its actions get smaller step by step, so that the button and the link stay on
+   one line down to a 320px screen, in both languages. */
+@media (max-width: 440px) {
+  .cs-dialog {
+    --cs-pad: 16px;
+    width: calc(100% - 16px);
+    max-width: none;
+  }
+
+  .cs-actions {
+    gap: 14px;
+  }
+
+  .cs-actions .btn {
+    padding: 0 14px;
+  }
+}
+
+@media (max-width: 400px) {
+  .cs-actions .btn svg {
+    display: none;
+  }
+
+  .cs-actions .btn,
+  .cs-actions .text-link {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 350px) {
+  .cs-dialog {
+    --cs-pad: 14px;
+  }
+
+  .cs-actions {
+    gap: 10px;
+  }
+
+  .cs-actions .btn {
+    padding: 0 11px;
+  }
+
+  .cs-actions .btn,
+  .cs-actions .text-link {
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 320px) {
+  .cs-dialog {
+    --cs-pad: 12px;
+    width: calc(100% - 8px);
+  }
+
+  .cs-actions {
+    gap: 6px;
+  }
+
+  .cs-actions .btn {
+    padding: 0 10px;
+  }
+
+  .cs-actions .btn,
+  .cs-actions .text-link {
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 295px) {
+  .cs-dialog {
+    --cs-pad: 10px;
+  }
 }

@@ -120,7 +120,7 @@ npm run build
 
 發佈只由維護者透過發佈 workflow 進行（**Actions → Release**，從 `main`，以今天的日期為版本）：絕不要手動建立版本 tag。詳見開發者說明的[發佈](docs/developer-guide.zh-TW.md#發佈)。
 
-[CI](.github/workflows/ci.yml) 會在每個 pull request 與每次推送到 `main` 時，以 Node 22 與 24 執行型別檢查、測試與建置，也在 Windows 上以 Node 24 執行。它也會型別檢查並建置桌面 app、像 app 一樣執行打包好的伺服器，並為 Linux 打包它，像檢查發佈一樣檢查。[另一個 workflow](.github/workflows/e2e.yml) 會在 Linux、macOS 與 Windows 上執行端對端測試。
+[CI](.github/workflows/ci.yml) 會在每個 pull request 與每次推送到 `main` 時，以 Node 22 與 24 執行型別檢查、測試與建置，也在 Windows 上以 Node 24 執行。它也會型別檢查並建置桌面 app、像 app 一樣執行打包好的伺服器，並為 Linux 打包它，像檢查發佈一樣檢查。[另一個 workflow](.github/workflows/e2e.yml) 會在 Linux、macOS 與 Windows 上執行端對端測試。在 pull request 上，Windows 上的測試、打包好的 app 與端對端測試，只在它碰到它們依賴的檔案時才會跑（[`scripts/ci-scope.ts`](scripts/ci-scope.ts)），執行摘要會說明哪些跑了、為什麼。推送到 `main` 時全部都會跑。如果你讓其中一個開始讀取、import 或打包它的 `IGNORES` 清單上的檔案，請把那個檔案從清單拿掉。每個 workflow 最後的檢查（**CI passed**、**End-to-end passed**）代表它所有的 job。
 
 如果你的修改會影響 agent 看到或做的事，也請在 app 中用至少一個真正的 CLI 試過，並說明用了哪些。
 
