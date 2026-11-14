@@ -21,6 +21,13 @@ codespace 算在你的 GitHub 帳號上。GitHub Free 個人帳號每月含 120 
 
 已安裝：Claude Code、Codex、Copilot、OpenCode 和 Pi。其他的請照 [README](../README.zh-TW.md#需求) 在 codespace 的終端機安裝；再次打開「**設定與登入**」時 Harness Relay 就會找到它們。
 
+## 在那裡有什麼不同
+
+- **沒有選資料夾的對話框。** 系統的選資料夾對話框只會為伺服器那台電腦上的瀏覽器打開，所以請直接輸入工作目錄的路徑。
+- **不能把對話分享成連結。** 分享對話需要 GitHub CLI（`gh`），dev container 沒有安裝它。
+- **沒有桌面 app。** 選單、用 Tailscale 分享和 app 的更新都是桌面 app 的功能；這裡只有伺服器本身（`npm start`）。
+- **沒在那裡試過：** 語音輸入、推播通知，以及登入 Claude Code 和 Codex。
+
 ## 安全
 
 - **網址是私人的。** Codespaces 只讓你的 GitHub 帳號打開它。不要把 port 改成公開（「**Ports**」→「**Port Visibility**」）：否則任何知道網址的人，都能連到可以寫檔的 agent 的登入頁。

@@ -21,6 +21,13 @@ Stop the server with Ctrl+C in that terminal, and start it again with `bash .dev
 
 Installed: Claude Code, Codex, Copilot, OpenCode and Pi. Install the others in the codespace's terminal as the [README](../README.md#requirements) says; Harness Relay finds them when you open **Settings & sign-in** again.
 
+## What works differently there
+
+- **No folder dialog.** The system's folder dialog opens only for a browser on the server's own computer, so type the working directory's path.
+- **No sharing as a link.** Sharing a conversation needs the GitHub CLI (`gh`), which the dev container does not install.
+- **No desktop app.** The menu, sharing with Tailscale and the app's updates are the desktop app's; here it is the server alone (`npm start`).
+- **Not tried there:** voice input, push notifications, and signing in to Claude Code and Codex.
+
 ## Safety
 
 - **The address is private.** Codespaces lets only your GitHub account open it. Do not make the port public (**Ports** → **Port Visibility**): anyone with the address could then reach the sign-in page of agents that can write.

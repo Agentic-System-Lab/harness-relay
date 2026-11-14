@@ -99,6 +99,9 @@
         <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
         </symbol>
+        <symbol id="i-cloud" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M7 18.5h10a4 4 0 0 0 .7-7.94A6 6 0 0 0 6.2 9.6 4.5 4.5 0 0 0 7 18.5Z" />
+        </symbol>
         <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
         </symbol>
@@ -180,6 +183,10 @@
               <p class="download-meta" data-release-meta data-hero hidden></p>
             </div>
             <div class="cta-row">
+              <a class="btn btn-ghost" href="https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1">
+                <svg aria-hidden="true"><use href="#i-cloud" /></svg>
+                在 Codespaces 試用
+              </a>
               <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
                 <svg aria-hidden="true"><use href="#i-github" /></svg>
                 在 GitHub 查看
@@ -909,6 +916,7 @@
           </ol>
           <div class="start-foot">
             <p>
+              手邊還沒有能安裝它的電腦？<a href="https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1">在 GitHub Codespaces 試用</a>：GitHub 雲端上一台屬於你的 Linux 機器，已裝好其中五個 agent 並啟動 Harness Relay，網址只有你的 GitHub 帳號打得開（<a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/codespaces.zh-TW.md">運作方式</a>）。
               要在沒有桌面環境的伺服器上執行，或要開發 Harness Relay 本身？請用 Node.js 22.13 以上<a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/README.zh-TW.md#快速開始">從原始碼執行</a>：<code>npm start</code>，修改程式時則用 <code>npm run dev</code>。
             </p>
             <nav class="docs" aria-label="文件">

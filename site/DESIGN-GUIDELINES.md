@@ -5,8 +5,8 @@ How the Harness Relay landing page (`site/`) looks, reads and behaves, and what 
 ## Goal
 
 - **Reader:** a developer who already uses one or more of the Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and Muse Code CLIs, or an open-source coding agent (OpenCode, Goose, Cline, OpenHands, Pi) on their own API keys or model.
-- **Job of the page:** within a minute, show that the coding agents the reader already has (any mix of the twelve, and one is enough) work in one chat, as three real CLIs do in the demo (Claude Code, Codex and Grok), then get the reader to download the desktop app for their system, or open the repository. There are no commands to start it: running from source (`npm start`, and `npm run dev` for people working on Harness Relay itself) is one line at the end of the quick start, for servers without a desktop, linking to the README.
-- **Primary action:** the download button in the hero, named after the visitor's system ("Download for macOS"), with the link to the requirements and the other systems beside it; the GitHub button sits under them. The buttons' column takes only the width they need, and the lead sentence the rest (up to its 38em), so that it reads in a few long lines. The hero is as wide as the header: the headline fills the width (`text-wrap: pretty`, not balanced shorter), and the buttons end at the right edge, under the header's GitHub button (on one column, 920px and narrower, they start at the left). The page ends on the quick start, never on a dead end.
+- **Job of the page:** within a minute, show that the coding agents the reader already has (any mix of the twelve, and one is enough) work in one chat, as three real CLIs do in the demo (Claude Code, Codex and Grok), then get the reader to download the desktop app for their system, try it in a GitHub codespace of their own (nothing to install: `.devcontainer/`, [docs/codespaces.md](../docs/codespaces.md)), or open the repository. There are no commands to start it: running from source (`npm start`, and `npm run dev` for people working on Harness Relay itself) is one line at the end of the quick start, for servers without a desktop, linking to the README.
+- **Primary action:** the download button in the hero, named after the visitor's system ("Download for macOS"), with the link to the requirements and the other systems beside it; the Codespaces button (secondary, *Try it in Codespaces*, to `codespaces.new/…?quickstart=1`) and the GitHub button sit under them, the GitHub button last. The buttons' column takes only the width they need, and the lead sentence the rest (up to its 38em), so that it reads in a few long lines. The hero is as wide as the header: the headline fills the width (`text-wrap: pretty`, not balanced shorter), and the buttons end at the right edge, under the header's GitHub button (on one column, 920px and narrower, they start at the left). The page ends on the quick start, never on a dead end.
 
 ## Principles
 
@@ -92,14 +92,14 @@ The font file only covers Latin; Chinese always comes from the system stack.
 - **Quick start step:** a step with more than one block (the download cards, text) wraps them in `.step-body`, so they stay together in the right-hand column.
 - **Command block** (`.cmd`, not on the page now): `$` prompts are not copied; the copy button copies the commands only and confirms with a check. One command per line, never joined with `&&`: Windows PowerShell 5.1, still the default shell on Windows, rejects `&&`, while separate lines run in every shell.
 - **UI excerpts** (`.ui`): approval card, question, changed files, waiting message tray, and Settings → Model backends (`.ui-backends`, from `src/web/components/BackendsSettings.tsx`). They recreate the app's components with sample content, and the page says so under them. Keep them faithful to the app when the app changes.
-- **Icons:** drawn inline SVG symbols in one 1.8px stroke. No emoji or Unicode glyphs as icons, and no company logos: the systems are a command key (macOS), a four-pane window (Windows) and a penguin (Linux).
+- **Icons:** drawn inline SVG symbols in one 1.8px stroke. No emoji or Unicode glyphs as icons, and no company logos: the systems are a command key (macOS), a four-pane window (Windows) and a penguin (Linux), and GitHub Codespaces is a cloud (`#i-cloud`). The GitHub button keeps GitHub's mark.
 
 ## Page structure
 
 | # | Section | Purpose |
 | --- | --- | --- |
 | 1 | Header | Mark, section links, EN / 中文 switch, GitHub with the star count, the theme button |
-| 2 | Hero | Headline about the reader's own agents in any mix (no agent names, so it never reads as a list to have), a lead that names the twelve, says one kind of agent is enough and that the lead agent designs the team for each question, the download button for the visitor's system with the link to the requirements beside it, GitHub button with the star count |
+| 2 | Hero | Headline about the reader's own agents in any mix (no agent names, so it never reads as a list to have), a lead that names the twelve, says one kind of agent is enough and that the lead agent designs the team for each question, the download button for the visitor's system with the link to the requirements beside it, the Codespaces button, GitHub button with the star count |
 | 3 | Screening (`#demo`) | Demo video and the chapter rail on the dark band |
 | 4 | The agents you installed (`#agents`) | How each signed-in CLI is driven (Claude Code, Codex, Grok, then Cursor, Antigravity, Copilot and Muse Code, with their colours on their dots only); the mark at page scale |
 | 5 | Open agents (`#open`) | The five open-source CLIs and how each is driven, the model backends they run on (API keys, your own endpoint, `backend/model`, no subscription) beside an excerpt of Settings → Model backends, and Harness Relay's own sandbox around them |
@@ -108,7 +108,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 | 8 | You stay in charge (`#control`) | Approvals, questions, diffs, the message tray |
 | 9 | Also in every chat (`#more`) | The remaining features as a two-column list |
 | 10 | Safety (`#safety`) | Local-only facts (sign-in, the CLIs' own sandboxes, Harness Relay's own sandbox around the open agents) and the permission table, with a link to the sandboxing doc |
-| 11 | Quick start (`#start`) | One row per step (title left, content right): requirements (the CLIs, the open-source ones with the versions tested), the three installers with the newest version and how to open them the first time, first steps, then (optional) opening it on a phone with the app's *Share with your phone*; then running from source in one line, and links to the docs |
+| 11 | Quick start (`#start`) | One row per step (title left, content right): requirements (the CLIs, the open-source ones with the versions tested), the three installers with the newest version and how to open them the first time, first steps, then (optional) opening it on a phone with the app's *Share with your phone*; then trying it in GitHub Codespaces and running from source, in one paragraph, and links to the docs |
 
 Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numbers, gradient text, stat counters.
 
