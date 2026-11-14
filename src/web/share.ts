@@ -253,6 +253,10 @@ export function shareDocument(o: { lang: string; title: string; css: string; bod
     `<meta http-equiv="Content-Security-Policy" content="${SHARE_CSP}">`,
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     '<meta name="referrer" content="no-referrer">',
+    // Anyone with the link can open it, but it is for those it was given to: never in a search engine's
+    // results, nor its links followed from here. gistpreview writes it into its own page, where the
+    // crawlers that run scripts (Google's) still read this.
+    '<meta name="robots" content="noindex, nofollow">',
     '<meta name="generator" content="Harness Relay">',
     `<title>${escapeHtml(o.title)} · Harness Relay</title>`,
     icon,

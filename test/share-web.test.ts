@@ -158,6 +158,11 @@ describe('the shared page', () => {
     expect(page).not.toContain('</style><script>');
   });
 
+  it('asks search engines to leave it out of their results and not follow its links', () => {
+    expect(page).toContain('<meta name="robots" content="noindex, nofollow">');
+    expect(page.indexOf('<meta name="robots"')).toBeLessThan(page.indexOf('</head>'));
+  });
+
   it('is titled by the conversation, escaped', () => {
     expect(page).toContain('<title>A &lt;b&gt;plan&lt;/b&gt; &amp; &quot;more&quot; · Harness Relay</title>');
     expect(page).toContain('<html lang="zh-TW">');

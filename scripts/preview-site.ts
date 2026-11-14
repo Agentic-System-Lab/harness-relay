@@ -21,6 +21,7 @@ const TYPES: Record<string, string> = {
   '.woff2': 'font/woff2',
   '.mp4': 'video/mp4',
   '.txt': 'text/plain; charset=utf-8',
+  '.xml': 'application/xml; charset=utf-8',
 };
 
 /** Files that stay in the repository only, like the Pages workflow leaves them out. */
