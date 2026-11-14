@@ -7,8 +7,12 @@ import { describe, expect, it } from 'vitest';
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const css = read('site/assets/site.css');
-/** A rule's declarations at the top level of site.css. */
-const rule = (selector: string) => css.match(new RegExp(`\\n${selector.replace(/[.*]/g, '\\$&')} \\{([^}]*)\\}`))![1]!;
+/** A rule's declarations at the top level of site.css, found as text (not by a pattern made from the selector). */
+const rule = (selector: string) => {
+  const start = css.indexOf(`\n${selector} {`);
+  expect(start, selector).toBeGreaterThanOrEqual(0);
+  return css.slice(start, css.indexOf('}', start));
+};
 
 describe("the landing page's header", () => {
   it('never breaks 中文, or the switch, onto two lines: the switch is not squeezed by the buttons beside it', () => {

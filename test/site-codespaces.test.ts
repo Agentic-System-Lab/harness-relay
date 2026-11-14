@@ -65,7 +65,12 @@ describe('the Codespaces dialog on the landing page', () => {
 
   it('keeps its button and guide link at its bottom while the rest scrolls under them', () => {
     const css = read('site/assets/site.css');
-    const rule = (selector: string) => css.match(new RegExp(`\\n${selector.replace(/[.*]/g, '\\$&')} \\{([^}]*)\\}`))![1]!;
+    // Found as text, not by a pattern made from the selector.
+    const rule = (selector: string) => {
+      const start = css.indexOf(`\n${selector} {`);
+      expect(start, selector).toBeGreaterThanOrEqual(0);
+      return css.slice(start, css.indexOf('}', start));
+    };
     // The dialog is what scrolls, so a sticky bar in it stays at its bottom edge.
     expect(rule('.cs-dialog')).toContain('overflow: auto;');
     const actions = rule('.cs-actions');
