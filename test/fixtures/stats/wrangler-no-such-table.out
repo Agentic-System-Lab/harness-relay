@@ -1,0 +1,15 @@
+
+{
+  "error": {
+    "text": "A request to the Cloudflare API (/accounts/00000000000000000000000000000000/d1/database/00000000-0000-0000-0000-000000000000/query) failed.",
+    "notes": [
+      {
+        "text": "no such table: codespaces: SQLITE_ERROR [code: 7500]"
+      }
+    ],
+    "kind": "error",
+    "name": "APIError",
+    "code": 7500,
+    "accountTag": "00000000000000000000000000000000"
+  }
+}
