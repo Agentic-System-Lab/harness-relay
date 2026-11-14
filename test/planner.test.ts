@@ -26,6 +26,7 @@ import {
   type TeamDraft,
 } from '../src/server/planner';
 import { builtinPresets } from '../src/server/presets';
+import { REVIEWER_BRIEFING } from '../src/server/reviewer';
 import { ROLE_GUIDES } from '../src/server/roleGuides';
 
 const catalog: ProviderModels[] = [
@@ -42,8 +43,10 @@ const lead = { provider: 'claude' as const };
 
 describe("the lead agent's briefings", () => {
   it('name the kinds of agents the chat holds, the open-source ones too', () => {
-    for (const briefing of [PLANNER_BRIEFING, REVISER_BRIEFING]) {
-      expect(briefing).toContain('(Claude Code, Codex, Grok, Cursor, Antigravity, Muse Code, and open-source ones such as OpenCode, Goose, Cline, OpenHands and Pi)');
+    for (const briefing of [PLANNER_BRIEFING, REVISER_BRIEFING, REVIEWER_BRIEFING]) {
+      expect(briefing).toContain(
+        '(Claude Code, Codex, Grok, Cursor, Antigravity, GitHub Copilot, Muse Code, and open-source ones such as OpenCode, Goose, Cline, OpenHands and Pi)',
+      );
     }
   });
 });
@@ -267,6 +270,21 @@ describe('lead agent reply', () => {
     const draft: TeamDraft = { settings: { mode: 'roundtable', rounds: 1, maxHops: 8 }, agents: [{ id: 'a1', name: 'A', provider: 'claude', role: 'r' }] };
     expect(buildPlannerPrompt('q', settings, ctx)).toContain("- Write each member's role as instructions addressed to that member. Its first line says who the member is and their expertise: teammates see only that line.");
     expect(buildRevisePrompt('x', draft, settings, ctx)).toContain('- Write a new or rewritten role as instructions addressed to that member. Its first line says who the member is and their expertise: teammates see only that line.');
+  });
+});
+
+describe('lead review and a team design', () => {
+  const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, permission: 'read-only' as const, cwd: '/tmp' };
+
+  it('is not the lead agent\'s to decide: its prompt says nothing of it, on or off, and a reply that names it changes nothing', () => {
+    for (const leadReview of [undefined, true]) {
+      const prompt = buildPlannerPrompt('Refactor the parser', { ...settings, ...(leadReview ? { leadReview } : {}) }, ctx);
+      expect(prompt).not.toMatch(/lead review|leadReview/i);
+    }
+    const lead = { provider: 'claude' as const };
+    expect(decidePlan({ choice: 'template', templateId: 'builtin-general', leadReview: true, leadReviewReason: 'x' }, ctx, lead)).not.toHaveProperty(
+      'leadReview',
+    );
   });
 });
 

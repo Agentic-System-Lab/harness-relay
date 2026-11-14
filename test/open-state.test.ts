@@ -259,13 +259,14 @@ describe('what a deleted conversation and a stopped server leave', () => {
     return dir;
   };
 
-  it("removes every open agent's state of a deleted conversation: its members', its lead agent's and its sorter's", () => {
+  it("removes every open agent's state of a deleted conversation: its members', its lead agent's (designing, changing, reviewing) and its sorter's", () => {
     const gone = [
       leave(homes[0]!, stateKeys.member('c1', 'a')),
       leave(homes[1]!, stateKeys.member('c1', 'b')),
       leave(homes[2]!, stateKeys.lead('c1')),
       leave(homes[3]!, stateKeys.revise('c1')),
       leave(homes[4]!, stateKeys.sort('c1')),
+      leave(homes[0]!, stateKeys.review('c1')),
     ];
     const kept = [leave(homes[0]!, stateKeys.member('c2', 'a')), leave(homes[0]!, stateKeys.member('c10', 'a'))];
     removeConversationState(homes, 'c1', ['a', 'b']);

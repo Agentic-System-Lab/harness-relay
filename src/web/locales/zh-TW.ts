@@ -180,6 +180,11 @@ export const zhTW = {
       on: '首席 agent 組好隊後，團隊立刻開始回答；你仍可以在團隊設計卡片上看到它的選擇與理由。',
       off: '首席 agent 組好隊後，會先等你確認或調整，團隊才開始回答。',
     },
+    leadReview: '團隊回答後，請首席 agent 審閱回覆',
+    leadReviewHint: {
+      on: '團隊每次回答完，首席 agent 會讀過新的回覆，標出你需要特別注意的地方，並建議接下來的步驟。',
+      off: '團隊回答完就結束；首席 agent 不會審閱回覆。',
+    },
     relayOrder: '第一位是隊長：訊息沒有 @ 任何人時由他先接。',
     order: '順序就是發言順序。',
     agentName: 'Agent 名稱',
@@ -352,6 +357,9 @@ export const zhTW = {
     placeholderNext: '提出新問題（首席 agent 會先組隊），或 @ 成員直接問他…',
     placeholderConfirm: '確認團隊後它就會回答；現在寫的訊息會一起送出…',
     placeholderDesigning: '首席 agent 正在組隊；現在寫的訊息會和問題一起交給團隊…',
+    placeholderReviewing: '首席 agent 正在審閱回覆；現在寫的是下一個問題，審閱完就送出（自動組隊會先組隊）…',
+    // Without auto team: the team answers it after the review.
+    placeholderReviewingTeam: '首席 agent 正在審閱回覆；現在寫的是下一個問題，審閱完就交給團隊…',
     placeholderBusy: '插話給團隊…（下一位發言前送達）',
     placeholderAnswer: (names: string) => `回答 ${names} 的問題…`,
     asking: (names: string) => `${names} 在等你回答`,
@@ -370,7 +378,7 @@ export const zhTW = {
       `直接提出你的問題。首席 agent（${lead}）會挑選合適的範本、依範本調整，或設計新的團隊，${asks ? '你確認後團隊就開始回答' : '團隊隨即開始回答'}。之後的每個新問題也會重新組隊；@ 成員的訊息則直接交給他。`,
     drawerNote: '角色修改會在下一個回合生效。更換成員的 coding agent 會讓他從頭讀一次對話紀錄。',
     confirmCreateCwd: (dirs: string) => `工作目錄不存在：\n${dirs}\n要建立並儲存團隊設定嗎？`,
-    drawerBusy: '團隊回覆中，停止後才能儲存',
+    drawerBusy: '團隊回覆中，停止後才能儲存（只改首席 agent 審閱的話，現在就能儲存）',
     drawerPending: '你正在調整首席 agent 提出、還在等確認的團隊：儲存後就會採用這個團隊，接著回答你的問題。',
     drawerChanged: '你編輯的期間團隊已經變更（例如首席 agent 已設計好團隊）。請先載入目前的團隊，再重新修改。',
     drawerReload: '載入目前的團隊',
@@ -634,6 +642,39 @@ export const zhTW = {
     abortedSchedule: '團隊設計已中斷；在排程視窗按「請首席 agent 組隊」可以重新組隊。',
   },
 
+  review: {
+    title: '首席 agent 的審閱',
+    by: (lead: string) => `首席 agent：${lead}`,
+    reviewing: (lead: string) => `首席 agent（${lead}）正在審閱團隊的回覆…`,
+    aborted: '審閱已中斷。',
+    failed: (why: string) => `首席 agent 無法審閱這些回覆（${why}）。`,
+    failedNoReason: '首席 agent 無法審閱這些回覆。',
+    // On a stopped or failed card the next review will read: on, it will; off (switched off since), only once it is on again.
+    later: {
+      on: '團隊下次回答後，首席 agent 會把這些回覆一起審閱。',
+      off: '首席 agent 審閱目前已關閉：重新開啟後，這些回覆才會和下一批一起審閱。',
+    },
+    read: (n: number) => `讀了 ${n} 則回覆`,
+    attention: '特別注意',
+    nothingToFlag: '沒有需要特別注意的地方。',
+    nextSteps: '建議的下一步',
+    kinds: {
+      risk: '風險',
+      decision: '待你決定',
+      conflict: '意見分歧',
+      verify: '待確認',
+      note: '注意',
+    },
+    byUser: '你',
+    byTeam: '團隊',
+    whole: '整體',
+    goToReply: (name: string) => `跳到 @${name} 的回覆`,
+    useStep: '交給團隊',
+    useStepTitle: '把這個步驟的訊息放進輸入框，你可以先修改再送出',
+    marks: (n: number) => `${n} 處注意`,
+    marksTitle: (n: number) => `首席 agent 在這則回覆指出 ${n} 處需要特別注意的地方，點一下看它的說明`,
+  },
+
   changes: {
     status: { A: '新增', M: '修改', D: '刪除' },
     confirmApply: (name: string) => `把 @${name} 的修改套用到工作目錄？\n會直接修改工作目錄中的檔案（不會 commit）。`,
@@ -666,6 +707,9 @@ export const zhTW = {
     // Phones and tablets: Enter starts a new line, the ↑ button sends.
     hintTouch: '按 ↑ 送出 · Enter 換行 · 輸入 @ 指定成員（只有被 @ 的對象會回覆） · 按 📎 附加檔案',
     hintBusyTouch: '按 ↑ 插話（下一位發言前送達） · Enter 換行',
+    // The lead agent reviews the team's replies: what is sent is a new question, for after the review.
+    hintReview: (mod: string) => `Enter 送出（審閱結束後交給團隊，算新問題） · ${mod}+Enter 略過審閱並立即送出 · Shift+Enter 換行`,
+    hintReviewTouch: '按 ↑ 送出（審閱結束後交給團隊，算新問題） · Enter 換行',
     hintConfirmTouch: '按 ↑ 送出（確認團隊後才會交給團隊） · Enter 換行',
     attach: '附加檔案',
     attachments: '要傳送的檔案',
@@ -756,6 +800,8 @@ export const zhTW = {
     label: '等待送出的訊息',
     busy: (n: number) => `${n} 則等待送出`,
     busyNote: '下一位發言前送達；@ 了成員的訊息會等該成員發言',
+    reviewNote: '首席 agent 審閱完回覆後送出；自動組隊的對話會先為新問題組隊',
+    skipReview: '略過審閱並立即送出',
     confirm: '團隊確定後送出',
     stopped: '這些訊息還沒送出',
     sendNow: '停止並立即送出',
@@ -1559,6 +1605,7 @@ export const zhTW = {
         points: [
           '在新對話頁或團隊設定勾選「直接採用首席 agent 組的團隊，不必等我確認」，就不必每次確認；不想用它提的團隊，可以按「不採用，沿用目前的團隊」',
           '確認前寫的訊息，確認後會跟問題一起送給團隊；@ 成員的訊息則直接交給他，不重新組隊',
+          '「團隊回答後，請首席 agent 審閱回覆」（每個新對話都預設開啟，由你關閉；團隊設計卡片上也有）：團隊回答完，首席 agent 會在回覆中標出需要特別注意的地方，並建議接下來的步驟',
           '首席 agent 可以在設定頁更換；檔案權限一律由你決定，首席 agent 不會改動',
         ],
       },

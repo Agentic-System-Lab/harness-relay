@@ -473,6 +473,41 @@ describe('settings', () => {
     expect(statSync(auto).isDirectory()).toBe(true);
   });
 
+  it('keeps lead review as asked (only `true` turns it on), turns it off with a PATCH, and switches it at any time on its own', async () => {
+    const post = (body: Record<string, unknown>) => app.request('/api/conversations', json('POST', body));
+    const agents = [{ name: 'Alice', provider: 'claude', role: '' }];
+    const on = (await (await post({ agents, settings: { cwd: project, leadReview: true } })).json()) as Conversation;
+    expect(on.settings.leadReview).toBe(true);
+    const odd = (await (await post({ agents, settings: { cwd: project, leadReview: 'yes' } })).json()) as Conversation;
+    expect(odd.settings.leadReview).toBeUndefined();
+
+    const off = await app.request(`/api/conversations/${on.id}`, json('PATCH', { settings: { ...on.settings, leadReview: false } }));
+    expect(((await off.json()) as Conversation).settings.leadReview).toBeUndefined();
+    expect(store.get(on.id)!.settings.leadReview).toBeUndefined();
+
+    const set = (id: string, body: unknown) => app.request(`/api/conversations/${id}/lead-review`, json('PUT', body));
+    const res = await set(on.id, { on: true });
+    expect(res.status).toBe(200);
+    // Just the setting, not the whole conversation.
+    expect(await res.json()).toEqual({ leadReview: true });
+    expect(store.get(on.id)!.settings.leadReview).toBe(true);
+    expect((await set(on.id, { on: 'yes' })).status).toBe(400);
+    // Switched on the card while a settings change prepares the workspace: the switch came later, and stands.
+    const prepare = vi.spyOn(orchestrator, 'prepareWorkspace').mockImplementationOnce(async () => {
+      orchestrator.setLeadReview(on.id, false);
+      return { isolated: false };
+    });
+    const saved = await app.request(`/api/conversations/${on.id}`, json('PATCH', { settings: { ...store.get(on.id)!.settings, leadReview: true, rounds: 2 } }));
+    expect(saved.status).toBe(200);
+    expect(store.get(on.id)!.settings).toMatchObject({ rounds: 2 });
+    expect(store.get(on.id)!.settings.leadReview).toBeUndefined();
+    prepare.mockRestore();
+    expect((await set(on.id, { on: true })).status).toBe(200);
+    expect((await set('nope', { on: true })).status).toBe(404);
+    expect((await set(on.id, { on: false })).status).toBe(200);
+    expect(store.get(on.id)!.settings.leadReview).toBeUndefined();
+  });
+
   it('takes several working directories, each once and at most eight, and names all those missing', async () => {
     const post = (body: Record<string, unknown>) => app.request('/api/conversations', json('POST', body, { 'x-relay-lang': 'en' }));
     const agents = [{ name: 'Alice', provider: 'claude', role: '' }];
@@ -2358,8 +2393,10 @@ describe('schedules', () => {
     orchestrator.stop(conv.id);
     await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
 
-    const titled = (await (await create({ title: ' Reports ', settings: { cwd: project }, schedule: valid })).json()) as Conversation;
+    const titled = (await (await create({ title: ' Reports ', settings: { cwd: project, leadReview: true }, schedule: valid })).json()) as Conversation;
     expect(titled.title).toBe('Reports');
+    // Lead review, as the New schedule page asked.
+    expect(titled.settings.leadReview).toBe(true);
     orchestrator.stop(titled.id);
     await vi.waitFor(() => expect(orchestrator.isRunning(titled.id)).toBe(false));
   });

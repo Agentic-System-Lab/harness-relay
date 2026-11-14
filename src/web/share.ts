@@ -44,6 +44,9 @@ export const SHARE_DROP = [
   '.head-warning',
   '.more-button',
   '.plan-ask-save',
+  '.plan-review',
+  // A stopped or failed review card's word on the next review: the chat's state, not the page's.
+  '.review-later',
   '.file-missing',
   '.branch-divider',
   '.head-branch',
@@ -60,8 +63,8 @@ export function messageElements<T extends { classList: { contains(name: string):
   return children.filter((el) => !el.classList.contains(BETWEEN_MESSAGES));
 }
 
-/** Buttons that show content (the title, a diagram) stay, as plain elements. Every other button goes. */
-export const SHARE_KEEP_BUTTONS = ['chat-title', 'mermaid-zoom'];
+/** Buttons that show content (the title, a diagram, the reply a review's point is about) stay, as plain elements. Every other button goes. */
+export const SHARE_KEEP_BUTTONS = ['chat-title', 'mermaid-zoom', 'review-reply-link'];
 
 /**
  * A role folded to its first lines (RoleText, as in the team design): its box, the class that folds its

@@ -106,7 +106,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 | 4 | The agents you installed (`#agents`) | How each signed-in CLI is driven (Claude Code, Codex, Grok, then Cursor, Antigravity, Copilot and Muse Code, with their colours on their dots only); the mark at page scale |
 | 5 | Open agents (`#open`) | The five open-source CLIs and how each is driven, the model backends they run on (API keys, your own endpoint, `backend/model`, no subscription) beside an excerpt of Settings → Model backends, and Harness Relay's own sandbox around them |
 | 6 | Modes (`#modes`) | Roundtable, Parallel, Relay as animated diagrams in tabs |
-| 7 | Teams (`#teams`) | A team for every question: the lead agent picks it and writes each role for the model its member runs on, you design the templates; the five built-in templates |
+| 7 | Teams (`#teams`) | A team for every question: the lead agent picks it and writes each role for the model its member runs on, reads the answers too (lead review), you design the templates; the five built-in templates |
 | 8 | You stay in charge (`#control`) | Approvals, questions, diffs, the message tray |
 | 9 | Also in every chat (`#more`) | The remaining features as a two-column list |
 | 10 | Safety (`#safety`) | Local-only facts (sign-in, the CLIs' own sandboxes, Harness Relay's own sandbox around the open agents) and the permission table, with a link to the sandboxing doc |

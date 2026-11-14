@@ -307,7 +307,8 @@ export function startStateOver(ctx: Pick<OpenRunContext, 'o' | 'home'>, err: Err
 
 /**
  * Removes what every open agent kept for a deleted conversation: each member's state folder (`agentIds`)
- * and the lead agent's and the group sorter's (`homes`: each open agent's home). A failure is logged.
+ * and the lead agent's (designing, changing and reviewing) and the group sorter's (`homes`: each open
+ * agent's home). A failure is logged.
  */
 export function removeConversationState(homes: readonly string[], conversationId: string, agentIds: readonly string[]): void {
   const keys = [
@@ -315,6 +316,7 @@ export function removeConversationState(homes: readonly string[], conversationId
     stateKeys.lead(conversationId),
     stateKeys.revise(conversationId),
     stateKeys.sort(conversationId),
+    stateKeys.review(conversationId),
   ];
   for (const home of homes) {
     for (const key of keys) {

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
-import { acceptNextDialog, chatId, finishedReply, openTeamChat, send } from '../support/app';
+import { LEAD_REVIEW, acceptNextDialog, chatId, finishedReply, openTeamChat, send } from '../support/app';
 import { chatWith, CLIS, eachCli, endsTurnNote, member, needsBelowFull, writtenBy } from '../support/clis';
 
 /*
@@ -63,6 +63,8 @@ test.describe('several working directories', () => {
 
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await page.getByRole('checkbox', { name: "Use the lead agent's team without asking me" }).check();
+    // No lead review here (the page ticks it in every new chat): these tests are about the folders.
+    await page.getByRole('checkbox', { name: LEAD_REVIEW }).uncheck();
     await page.getByRole('button', { name: 'Start chat →' }).click();
     await page.waitForURL(/#\/c\//);
     const conv = await relay.api<{ settings: { cwd: string; extraCwds?: string[] } }>(`/api/conversations/${chatId(page)}`);
@@ -186,6 +188,7 @@ test.describe('the folder dialog', () => {
 
       await page.getByRole('button', { name: 'Edit', exact: true }).click();
       await page.getByRole('checkbox', { name: "Use the lead agent's team without asking me" }).check();
+      await page.getByRole('checkbox', { name: LEAD_REVIEW }).uncheck();
       await page.getByRole('button', { name: 'Start chat →' }).click();
       await page.waitForURL(/#\/c\//);
       const conv = await relay.api<{ settings: { cwd: string; extraCwds?: string[] } }>(`/api/conversations/${chatId(page)}`);

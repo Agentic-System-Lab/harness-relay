@@ -12,6 +12,7 @@ import type {
   ConversationSchedule,
   ConversationSummary,
   Lang,
+  LeadReview,
   MessagePart,
   Mode,
   Permission,
@@ -31,6 +32,7 @@ import { PERMISSION_ORDER, PROVIDERS, TOOL_CALL_KINDS, cwdSettings, pendingPlan 
 import { byAge, familyOf, type FamilyMember } from '../shared/family';
 import { searchTerms, snippetAround, termsIn } from '../shared/search';
 import { nul, transaction, type Database } from './db';
+import { reviewText } from '../shared/review';
 import { currentLang } from './i18n';
 import { builtinPresets } from './presets';
 
@@ -82,6 +84,7 @@ interface ConversationRow {
   extra_cwds: string | null;
   auto_team: number;
   auto_confirm: number;
+  lead_review: number;
   approvals: string | null;
   allow_rules: string | null;
   queue: string | null;
@@ -122,6 +125,7 @@ interface MessageRow {
   change_branch: string | null;
   more_changes: string | null;
   plan: string | null;
+  review: string | null;
   queued: number | null;
   asked: number | null;
   scheduled: number | null;
@@ -327,6 +331,7 @@ function toMessage(r: MessageRow, parts: MessagePart[], files: FileChange[]): Ch
     provider: opt(r.provider),
     changes: toChanges(r, files),
     plan: parsePlan(r.plan),
+    review: parseReview(r.review),
     queued: r.queued ? true : undefined,
     asked: r.asked ? true : undefined,
     scheduled: r.scheduled ? true : undefined,
@@ -468,18 +473,23 @@ function parsePlan(json: string | null): TeamPlan | undefined {
   }
 }
 
+function parseReview(json: string | null): LeadReview | undefined {
+  const review = parseJson<LeadReview | null>(json, null);
+  return review && typeof review === 'object' ? review : undefined;
+}
+
 const UPSERT_MESSAGE = `INSERT INTO messages (id, conversation_id, seq, author_kind, agent_id, agent_name, provider, created_at,
                        status, passed, error, round, duration_ms, cost_usd, input_tokens, output_tokens,
-                       change_root, change_base, change_head, change_isolated, change_branch, more_changes, plan, queued, asked,
-                       scheduled)
- VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       change_root, change_base, change_head, change_isolated, change_branch, more_changes, plan, review, queued,
+                       asked, scheduled)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
  ON CONFLICT(id) DO UPDATE SET
    seq = excluded.seq, status = excluded.status, passed = excluded.passed, error = excluded.error,
    round = excluded.round, duration_ms = excluded.duration_ms, cost_usd = excluded.cost_usd,
    input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens,
    change_root = excluded.change_root, change_base = excluded.change_base, change_head = excluded.change_head,
    change_isolated = excluded.change_isolated, change_branch = excluded.change_branch,
-   more_changes = excluded.more_changes, plan = excluded.plan,
+   more_changes = excluded.more_changes, plan = excluded.plan, review = excluded.review,
    queued = excluded.queued, asked = excluded.asked, scheduled = excluded.scheduled`;
 
 const INSERT_PART = `INSERT INTO message_parts (message_id, idx, type, text, tool_id, tool_name, tool_detail, tool_status, tool_error,
@@ -728,6 +738,7 @@ export class Store {
         ...cwdSettings([c.cwd, ...extraCwdsOf(c.extra_cwds)]),
         ...(c.auto_team ? { autoTeam: true } : {}),
         ...(c.auto_confirm ? { autoConfirm: true } : {}),
+        ...(c.lead_review ? { leadReview: true } : {}),
         ...(c.approvals === 'deny' ? { approvals: 'deny' as const } : {}),
       },
       messages,
@@ -748,8 +759,8 @@ export class Store {
       this.db
         .prepare(
           `INSERT INTO conversations (id, title, created_at, updated_at, mode, rounds, max_hops, permission, cwd, extra_cwds,
-                                     auto_team, auto_confirm, approvals, allow_rules, pause, branch)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                     auto_team, auto_confirm, lead_review, approvals, allow_rules, pause, branch)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           conv.id,
@@ -764,6 +775,7 @@ export class Store {
           s.extraCwds?.length ? JSON.stringify(s.extraCwds) : null,
           s.autoTeam ? 1 : 0,
           s.autoConfirm ? 1 : 0,
+          s.leadReview ? 1 : 0,
           nul(s.approvals),
           conv.allowRules?.length ? JSON.stringify(conv.allowRules) : null,
           conv.pause ? JSON.stringify(conv.pause) : null,
@@ -783,7 +795,7 @@ export class Store {
       this.db
         .prepare(
           `UPDATE conversations SET title = ?, updated_at = ?, mode = ?, rounds = ?, max_hops = ?, permission = ?, cwd = ?,
-             extra_cwds = ?, auto_team = ?, auto_confirm = ?, approvals = ?, allow_rules = ?, pause = ?, branch = ?
+             extra_cwds = ?, auto_team = ?, auto_confirm = ?, lead_review = ?, approvals = ?, allow_rules = ?, pause = ?, branch = ?
            WHERE id = ?`,
         )
         .run(
@@ -797,6 +809,7 @@ export class Store {
           s.extraCwds?.length ? JSON.stringify(s.extraCwds) : null,
           s.autoTeam ? 1 : 0,
           s.autoConfirm ? 1 : 0,
+          s.leadReview ? 1 : 0,
           nul(s.approvals),
           conv.allowRules?.length ? JSON.stringify(conv.allowRules) : null,
           conv.pause ? JSON.stringify(conv.pause) : null,
@@ -1001,6 +1014,7 @@ export class Store {
         nul(first?.branch),
         more.length ? JSON.stringify(more) : null,
         m.plan ? JSON.stringify(m.plan) : null,
+        m.review ? JSON.stringify(m.review) : null,
         m.queued ? 1 : null,
         m.asked ? 1 : null,
         m.scheduled ? 1 : null,
@@ -1333,6 +1347,17 @@ export class Store {
          ORDER BY m.conversation_id, m.seq, p.idx`,
       )
       .all(...like) as { conversation_id: string; message_id: string; text: string }[];
+    // The lead agent's reviews too (their text is in `review`, not in parts): what they say, not their JSON.
+    const reviews = this.db
+      .prepare(
+        `SELECT conversation_id, id AS message_id, review FROM messages
+         WHERE review IS NOT NULL AND (${like.map(() => "review LIKE ? ESCAPE '\\'").join(' OR ')})`,
+      )
+      .all(...like) as { conversation_id: string; message_id: string; review: string }[];
+    for (const r of reviews) {
+      const text = reviewText(parseReview(r.review));
+      if (text) hits.push({ conversation_id: r.conversation_id, message_id: r.message_id, text });
+    }
     const byConv = new Map<string, typeof hits>();
     for (const h of hits) {
       const list = byConv.get(h.conversation_id) ?? [];

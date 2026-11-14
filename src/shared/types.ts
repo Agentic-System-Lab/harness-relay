@@ -779,6 +779,15 @@ export interface ConversationSettings {
   /** Auto team: the lead agent's team answers at once, without waiting for the user to confirm it. */
   autoConfirm?: boolean;
   /**
+   * Lead review: once the team has answered, the lead agent (Settings) reads its new replies, points out
+   * what the user should look at closely, and suggests the next steps (`LeadReview`). Any conversation
+   * may have it, with or without auto team. On in every new chat the New chat and New schedule pages
+   * make (off for one made through the API without it); only the user switches it (the New
+   * chat and New schedule pages, Team settings, the team design card), for the question being answered
+   * and the ones after it.
+   */
+  leadReview?: boolean;
+  /**
    * What happens when an agent wants to do something its permission does not cover:
    * ask the user in the chat (default), or refuse automatically.
    */
@@ -854,6 +863,65 @@ export interface TeamPlan {
    */
   forSchedule?: boolean;
 }
+
+/**
+ * What a highlight of the lead agent's review is about: a risk (a bug, data loss, a security or
+ * destructive change), a decision the user has to make, members who disagree, a claim or assumption
+ * to check before relying on it, or anything else worth a closer look.
+ */
+export type ReviewKind = 'risk' | 'decision' | 'conflict' | 'verify' | 'note';
+export const REVIEW_KINDS: ReviewKind[] = ['risk', 'decision', 'conflict', 'verify', 'note'];
+
+/** A place in the team's replies the lead agent wants the user to look at closely. */
+export interface ReviewHighlight {
+  kind: ReviewKind;
+  /** Why it matters, for the user. */
+  note: string;
+  /** The reply it is about (its message id); absent: the replies as a whole. */
+  messageId?: string;
+  /** Who wrote that reply, as the reply names them (members can be renamed later). */
+  agentName?: string;
+  /** Words of that reply it is about, as the reply has them (marked in the reply when they are found). */
+  quote?: string;
+}
+
+/** A next step the lead agent suggests: one for the user to do, or one to ask the team for. */
+export interface ReviewStep {
+  text: string;
+  by: 'user' | 'team';
+  /** For the team: the message to send it (absent: `text`). */
+  message?: string;
+}
+
+/**
+ * The lead agent's review of the team's replies since its last review (`ConversationSettings.leadReview`),
+ * shown as a card after them. `failed`: it could not review them (`error` says why); stopped, the
+ * message is `aborted`. Only a `ready` review counts as read: the next one reads from there on.
+ */
+export interface LeadReview {
+  status: 'reviewing' | 'ready' | 'failed';
+  lead: LeadAgentSettings;
+  /** Where the team got to, in a sentence or two. */
+  summary?: string;
+  highlights?: ReviewHighlight[];
+  nextSteps?: ReviewStep[];
+  /** The replies it read (message ids), oldest first. */
+  replyIds?: string[];
+  /** The first message it read (the id): a review that fails or is stopped leaves the next one to read from there. */
+  fromId?: string;
+  error?: string;
+}
+
+/** Most highlights and next steps one review keeps, and the longest of each part, in characters. */
+export const REVIEW_LIMITS = {
+  highlights: 8,
+  nextSteps: 6,
+  summary: 800,
+  note: 500,
+  quote: 300,
+  step: 300,
+  message: 2000,
+};
 
 /** The lead agent's team design that is waiting for the user's confirmation, if any. */
 export function pendingPlan(messages: ChatMessage[]): ChatMessage | undefined {
@@ -1070,12 +1138,20 @@ export interface ChatMessage {
   changes?: MessageChanges[];
   /** A system message carrying the lead agent's team design (auto-team conversations). */
   plan?: TeamPlan;
+  /** A system message carrying the lead agent's review of the team's replies (`ConversationSettings.leadReview`). */
+  review?: LeadReview;
   /** A user message sent while the team was replying: it waited in the queue for a later turn. */
   queued?: boolean;
   /** An agent reply that asks the user something (it ended with `ASK_TOKEN`): the team waited for the answer. */
   asked?: boolean;
   /** A user message the conversation's schedule sent (see `ConversationSchedule`), not one the user typed. */
   scheduled?: boolean;
+  /**
+   * A user message waiting in the queue that was written once the team had answered, while the lead
+   * agent reviewed its replies (lead review): a new question, whose team the lead agent designs (auto
+   * team). Only while it waits; posted, it is a message like any other.
+   */
+  duringReview?: boolean;
 }
 
 /**

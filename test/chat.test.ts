@@ -25,6 +25,9 @@ import {
   teamTurns,
   thoughtTail,
   thoughtTitle,
+  restoredText,
+  onlyLeadReview,
+  savesLeadReviewAlone,
 } from '../src/web/chat';
 import type { Team } from '../src/web/components/TeamEditor';
 import { clip, clipPath } from '../src/server/agents/types';
@@ -481,5 +484,45 @@ describe("an agent's work between its words", () => {
       expect(isPathDetail(clip(path + ' --verbose')), path).toBe(false);
       expect(isPathDetail(clip(path.replace(/[\\/ ]/g, '_'))), path).toBe(false);
     }
+  });
+});
+
+describe('text that comes into the message box', () => {
+  it('puts a withdrawn message back ahead of what is typed, even when the box has the same words', () => {
+    expect(restoredText('', { text: 'ok' })).toBe('ok');
+    expect(restoredText('  ', { text: 'ok' })).toBe('ok');
+    expect(restoredText('ok, and also this', { text: 'ok' })).toBe('ok\nok, and also this');
+  });
+
+  it("does not add a lead review's next step the box has already", () => {
+    expect(restoredText('', { text: '@Bob add tests', once: true })).toBe('@Bob add tests');
+    expect(restoredText('@Bob add tests', { text: '@Bob add tests', once: true })).toBe('@Bob add tests');
+    expect(restoredText('and docs', { text: '@Bob add tests', once: true })).toBe('@Bob add tests\nand docs');
+  });
+});
+
+describe("the team drawer's lead review box", () => {
+  const team = (settings: Partial<ConversationSettings> = {}): Team => ({
+    agents: [{ id: 'a1', name: 'Alice', provider: 'claude' } as AgentConfig],
+    settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'read-only', cwd: '/w', ...settings },
+  });
+
+  it('is saved on its own (also while the team replies) when it is all that changed', () => {
+    expect(onlyLeadReview(team(), team({ leadReview: true }))).toBe(true);
+    expect(onlyLeadReview(team({ leadReview: true }), { ...team(), settings: { ...team().settings, leadReview: undefined } })).toBe(true);
+    // Nothing changed, or something else changed too.
+    expect(onlyLeadReview(team(), team())).toBe(false);
+    expect(onlyLeadReview(team(), team({ leadReview: true, rounds: 2 }))).toBe(false);
+    expect(onlyLeadReview(team(), { ...team({ leadReview: true }), agents: [] })).toBe(false);
+  });
+
+  it('saves the box alone only while the team replies and no design waits for confirmation', () => {
+    const on = team({ leadReview: true });
+    expect(savesLeadReviewAlone(team(), on, true, false)).toBe(true);
+    // Idle: the usual save, which also checks the rest.
+    expect(savesLeadReviewAlone(team(), on, false, false)).toBe(false);
+    // A design waits: saving confirms it, so the usual save.
+    expect(savesLeadReviewAlone(team(), on, true, true)).toBe(false);
+    expect(savesLeadReviewAlone(team(), on, false, true)).toBe(false);
   });
 });

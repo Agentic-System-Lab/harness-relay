@@ -1013,6 +1013,9 @@ export function createApp({
 
   app.patch('/api/conversations/:id', async (c) => {
     const conv = getConv(c.req.param('id'));
+    // Lead review may be switched (on the team design card) while this request is read and its
+    // workspace prepared: that switch came after this request, so it stands.
+    const reviewBefore = Boolean(conv.settings.leadReview);
     const b = await body<Partial<Conversation> & { createCwd?: unknown }>(c);
     const save = () => {
       if (b.title !== undefined) conv.title = String(b.title).trim().slice(0, 200) || conv.title;
@@ -1037,6 +1040,10 @@ export function createApp({
       if (conv.settings.autoTeam) next.autoTeam = true;
       else delete next.autoTeam;
       if (b.settings) await orchestrator.prepareWorkspace({ ...conv, settings: next });
+      if (Boolean(conv.settings.leadReview) !== reviewBefore) {
+        if (conv.settings.leadReview) next.leadReview = true;
+        else delete next.leadReview;
+      }
       conv.agents = agents;
       conv.settings = next;
       if (b.agents) confirmed = orchestrator.confirmPendingPlan(conv);
@@ -1447,6 +1454,14 @@ export function createApp({
   app.post('/api/conversations/:id/messages/:messageId/confirm-plan', async (c) => {
     orchestrator.confirmPlan(c.req.param('id'), c.req.param('messageId'));
     return c.json({ ok: true });
+  });
+
+  // Lead review on or off, at any time (the team design card's box): read when the team has answered.
+  app.put('/api/conversations/:id/lead-review', async (c) => {
+    const b = await body<{ on?: unknown }>(c);
+    if (typeof b.on !== 'boolean') throw new HttpError(400, t().invalidField('on'));
+    const conv = orchestrator.setLeadReview(c.req.param('id'), b.on);
+    return c.json({ leadReview: Boolean(conv.settings.leadReview) });
   });
 
   // Decline it: the current team stays, and answers the question.

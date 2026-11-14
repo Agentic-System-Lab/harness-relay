@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
 import { ATTACHMENT_LIMITS, PROVIDER_LABEL, isInlineImage, type AgentConfig } from '../../shared/types';
 import type { AttachmentUpload } from '../api';
-import { enterSends, isTouchScreen } from '../chat';
+import { enterSends, isTouchScreen, restoredText } from '../chat';
 import { useT } from '../i18n';
 import { PROVIDER_COLOR, formatBytes, initials, toBase64 } from '../util';
 import { insertTranscript } from '../voice';
@@ -31,13 +31,18 @@ interface Props {
   canContinue: boolean;
   /** The team is being designed or waits for confirmation: what is sent waits for it (no Continue, no interrupting). */
   locked?: boolean;
+  /** The lead agent reviews the team's replies: what is sent is a new question, for after the review. */
+  reviewing?: boolean;
   placeholder: string;
   /** `interrupt`: stop the team and send this now (Cmd/Ctrl+Enter while it replies). */
   onSend: (text: string, attachments: AttachmentUpload[], interrupt: boolean) => Promise<boolean>;
   onStop: () => void;
   onContinue: () => Promise<unknown>;
-  /** Text to put back in the composer (a withdrawn message to edit); a new object each time. */
-  restore?: { text: string };
+  /**
+   * Text to put in the composer (a withdrawn message to edit, or a lead review's next step, `once`);
+   * a new object each time.
+   */
+  restore?: { text: string; once?: boolean };
   /** An agent asked the user something: Continue lets the team go on without the answer. */
   skipQuestion?: boolean;
 }
@@ -51,6 +56,7 @@ export function Composer({
   running,
   canContinue,
   locked = false,
+  reviewing = false,
   placeholder,
   onSend,
   onStop,
@@ -127,10 +133,10 @@ export function Composer({
     ref.current?.focus();
   };
 
-  // A withdrawn message comes back for editing, ahead of anything typed since.
+  // A withdrawn message (or a lead review's next step) comes in, ahead of anything typed since.
   useEffect(() => {
     if (!restore) return;
-    setText((cur) => (cur.trim() ? `${restore.text}\n${cur}` : restore.text));
+    setText((cur) => restoredText(cur, restore));
     requestAnimationFrame(() => ref.current?.focus());
   }, [restore]);
 
@@ -244,8 +250,8 @@ export function Composer({
 
   const c = t.composer;
   const hint = isTouchScreen()
-    ? locked ? c.hintConfirmTouch : running ? c.hintBusyTouch : c.hintTouch
-    : locked ? c.hintConfirm : running ? c.hintBusy(MOD_KEY) : c.hint;
+    ? locked ? c.hintConfirmTouch : reviewing ? c.hintReviewTouch : running ? c.hintBusyTouch : c.hintTouch
+    : locked ? c.hintConfirm : reviewing ? c.hintReview(MOD_KEY) : running ? c.hintBusy(MOD_KEY) : c.hint;
 
   return (
     <div

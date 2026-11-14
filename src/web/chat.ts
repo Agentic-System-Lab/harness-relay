@@ -122,6 +122,26 @@ export function sameTeam(a: Team, b: Team): boolean {
 }
 
 /**
+ * The team drawer saves only lead review (its box), through its own request: while the team replies
+ * (when nothing else may be saved, and the switch is read once the team has answered), and only when
+ * the box is all the draft changes. Not while a design waits for confirmation (`proposed`): saving
+ * there confirms the design, which the drawer's usual save does.
+ */
+export function savesLeadReviewAlone(base: Team, draft: Team, running: boolean, proposed: boolean): boolean {
+  return running && !proposed && onlyLeadReview(base, draft);
+}
+
+/** The draft changes only lead review (the team drawer's box). */
+export function onlyLeadReview(base: Team, draft: Team): boolean {
+  if (Boolean(base.settings.leadReview) === Boolean(draft.settings.leadReview)) return false;
+  const without = (t: Team): Team => {
+    const { leadReview: _review, ...settings } = t.settings;
+    return { ...t, settings };
+  };
+  return sameTeam(without(base), without(draft));
+}
+
+/**
  * The team drawer edits a copy (`draft`) of the conversation's team as it was when the copy was made
  * (`base`). When the team changes underneath (the lead agent designed it, another tab saved it), an
  * untouched draft follows it ('refresh'); an edited one must not be saved over it ('conflict'), unless
@@ -293,6 +313,16 @@ export type Segment =
   | { kind: 'activity'; items: ActivityItem[]; key: number; last: boolean }
   | { kind: 'todo'; entries: PlanEntry[]; key: number }
   | { kind: 'approval'; part: ApprovalPart; key: number };
+
+/**
+ * Text that comes into the message box (`Composer`'s `restore`): ahead of what is typed there. A
+ * withdrawn message always comes back; a lead review's next step (`once`) not when the box has it
+ * already, so asking twice does not send it twice.
+ */
+export function restoredText(current: string, restore: { text: string; once?: boolean }): string {
+  if (restore.once && current.includes(restore.text)) return current;
+  return current.trim() ? `${restore.text}\n${current}` : restore.text;
+}
 
 /**
  * A message's parts as segments. Blank text and thinking are left out, so they don't split a run of
