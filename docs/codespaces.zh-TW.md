@@ -4,7 +4,9 @@
 
 codespace 是 GitHub 雲端上一台屬於你的 Linux 機器。這個 repo 的 dev container（`.devcontainer/`）會幫 Harness Relay 準備好一台：Node.js、Linux 上沙箱需要的套件、GitHub CLI、七個非開源的 agent CLI（Claude Code、Codex、Copilot、Grok、Cursor、Antigravity 和 Muse Code），並建置、啟動 app。你在瀏覽器裡就能試用 Harness Relay，電腦上不用安裝任何東西。
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1)
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1)
+
+這個按鈕打開的是 Harness Relay 最新的正式版，不是當下的 `main`：也就是 `latest-release` 分支，Release workflow 每次發版都會把它移到那一版。想在 codespace 裡開發 Harness Relay 本身，請從 repo 的「**Code → Codespaces**」在 `main` 或你自己的分支上建立（這些不會被計數：見[計算了什麼](#計算了什麼)）。
 
 ## 費用
 
@@ -12,12 +14,14 @@ codespace 算在你的 GitHub 帳號上。GitHub Free 個人帳號每月含 120 
 
 ## 步驟
 
-1. **建立。** 點上面的按鈕，再點「**Create codespace**」。第一次需要幾分鐘：安裝套件與 CLI、建置介面。在「**Change options**」裡也能先填入它提供的 API key（見 [API key](#api-key)）。
+1. **建立。** 點上面的按鈕，再點「**Create codespace**」。第一次需要幾分鐘：安裝套件與 CLI、建置介面。
 2. **登入。** 編輯器開好後，它的終端機會啟動 Harness Relay（`bash .devcontainer/start.sh`），並印出 codespace 自己網址上的登入連結 `https://<codespace>-8787.app.github.dev/#code=…`，旁邊附上登入碼。打開這個連結。第一次 GitHub 可能會先確認是你本人，再放行頁面，接著頁面會要你輸入登入碼：輸入終端機印出的那組即可。
 3. **登入 agent。** 在「**設定與登入**」登入你有帳號的那些：Claude Code 和 Cursor 用它們的連結，Codex 用它的裝置代碼（它用瀏覽器登入時，會把瀏覽器導回 `localhost`，那是你自己的電腦，不是 codespace），Grok 和 Muse Code 用它們的裝置代碼，Antigravity 則用 Google 的連結，再把它給你的代碼貼回來。Copilot 用 codespace 的 GitHub token 登入（見 [codespace 的 GitHub token](#codespace-的-github-token)），等 Copilot 回報你帳號的方案後才顯示為已登入；Copilot Free 也算。
 4. **提問。** 點「**新對話**」，工作目錄用 `/workspaces/playground`：dev container 已經幫你建好。Harness Relay 自己的資料夾（`/workspaces/harness-relay`）和包含它的 `/workspaces`，在完全存取以下的編輯模式都會被拒絕。
 
 在那個終端機按 Ctrl+C 停止伺服器，用 `bash .devcontainer/start.sh` 再次啟動。伺服器執行中時再跑同一個指令，可以拿到另一個登入連結，給另一個瀏覽器或手機用。
+
+codespace 會停在建立時的那一版，之後再按按鈕，它會讓你回到同一個（「**Resume this codespace**」）。要用較新的版本，就在那裡選「**Create a new one**」（再到 [github.com/codespaces](https://github.com/codespaces) 刪掉舊的）：新的 codespace 也會裝上較新的 dev container 要裝的東西。或者在舊的那個的終端機裡停止伺服器，執行 `git pull && npm ci && npm run build`，再啟動它。
 
 已安裝：Claude Code、Codex 和 Copilot 由 npm 安裝，Grok、Cursor、Antigravity 和 Muse Code 則用各家自己的安裝程式，它們會自己保持在最新版。開源 agent（OpenCode、Goose、Cline、OpenHands、Pi）沒有預裝：想用哪個，就照 [README](../README.zh-TW.md#需求) 在 codespace 的終端機安裝，再到「**設定 → 模型來源**」給它[模型來源](open-agents.zh-TW.md)。有兩個例外：README 用 Homebrew 安裝 Goose，而 codespace 沒有 Homebrew（請看 Goose 自己的安裝說明）；OpenHands 要先裝 [uv](https://docs.astral.sh/uv/)。裝到 `~/.local/bin` 的 CLI，要從新開的終端機（它的 shell 會把那個資料夾放上 `PATH`）重新啟動伺服器後才找得到。
 
@@ -29,6 +33,15 @@ codespace 算在你的 GitHub 帳號上。GitHub Free 個人帳號每月含 120 
 - **沒有桌面 app。** 選單、用 Tailscale 分享和 app 的更新都是桌面 app 的功能；這裡只有伺服器本身（`npm start`）。
 - **Antigravity 的 Google 登入**在其他地方存放在系統金鑰圈，而 codespace 沒有金鑰圈：它在那裡能不能保持登入沒有試過。它也能用 Gemini API key（`GEMINI_API_KEY`）執行，不需要金鑰圈。
 - **沒在那裡試過：** 完成 Claude Code、Codex、Grok、Cursor、Antigravity 和 Muse Code 的登入（每一個的登入流程都能在那裡開始，並顯示它的連結或代碼）、從分享對話框完成 GitHub 登入、語音輸入與推播通知。
+
+## 計算了什麼
+
+GitHub 不會告訴 repo 的維護者，有多少人用它建立了 codespace。所以 codespace 建好時會說一次：dev container 的 `postCreateCommand` 執行 `.devcontainer/count.sh`，對 Harness Relay 的下載鏡像（網站下載按鈕所用的 Cloudflare Worker，`mirror/`）送出一個請求。
+
+- **送出什麼：** 一個空的 `POST`，送到鏡像的 `/codespaces`。不帶帳號、名稱、token，也不帶任何關於你或這個 codespace 的資訊。
+- **留下什麼：** 計數只有每天建立了幾個 codespace，沒有別的：沒有位址、沒有幾點幾分、沒有 user agent。和任何網站一樣，Cloudflare 看得到請求從哪裡來（codespace 在 GitHub 雲端的位址，不是你電腦的），鏡像在 Cloudflare 上的請求紀錄也會把每個請求保留幾天（免費方案 3 天，付費方案 7 天），跟每次下載一樣：它的時間、user agent（`curl`），以及 Cloudflare 記下的請求資訊。
+- **什麼時候：** 用按鈕為你建好 codespace 之後一次：也就是這個 repo、`latest-release` 上的 codespace。它再次啟動時不算，重建時也不算（它會在 `data/` 留下記號，重建會保留）；建在 `main` 或其他分支上的、fork 的 codespace 都不算，在 GitHub Codespaces 以外也從來不算，例如你自己電腦上的 dev container。連不到鏡像時，這個 codespace 就不算，照常啟動。
+- **要關掉，** 就在建立 codespace 之前，在 GitHub 的「**Settings → Codespaces**」為這個 repo 設一個 Codespaces secret，把 `DO_NOT_TRACK` 設為 `1`。它就會說這個 codespace 不算，什麼都不送。
 
 ## 安全
 
@@ -49,10 +62,10 @@ Copilot 自己的裝置登入需要金鑰圈，而 codespace 沒有：請改給�
 
 ### API key
 
-codespace 沒有系統金鑰圈，所以在「**設定**」裡輸入的 API key 會以 `data/secrets.key` 裡的金鑰加密後，存在 codespace 裡的資料庫（完全存取以下的 agent 兩者都讀不到）。Claude Code 和 Codex 的 key 也可以改用 Codespaces secret，由 GitHub 保管，而不是存在 codespace 裡：建立頁的「**Change options**」提供 `ANTHROPIC_API_KEY` 和 `OPENAI_API_KEY`，其他的可以在 GitHub 的「**Settings → Codespaces**」為這個 repo 設定。它們會以環境變數的形式交給伺服器。這時 Claude Code 會改用 `ANTHROPIC_API_KEY`、Codex 會改用 `OPENAI_API_KEY`，而不是你的登入，依用量計費。開源 agent 只用「**設定 → 模型來源**」裡設定的 key。
+codespace 沒有系統金鑰圈，所以在「**設定**」裡輸入的 API key 會以 `data/secrets.key` 裡的金鑰加密後，存在 codespace 裡的資料庫（完全存取以下的 agent 兩者都讀不到）。Claude Code 和 Codex 的 key 也可以改用 Codespaces secret，由 GitHub 保管，而不是存在 codespace 裡：在建立 codespace 之前，到 GitHub 的「**Settings → Codespaces**」為這個 repo 設定 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。它們會以環境變數的形式交給伺服器。這時 Claude Code 會改用 `ANTHROPIC_API_KEY`、Codex 會改用 `OPENAI_API_KEY`，而不是你的登入，依用量計費。開源 agent 只用「**設定 → 模型來源**」裡設定的 key。
 
 ## 在你自己的電腦上
 
 同一個 dev container 也能用 VS Code 的 Dev Containers 執行，它會把 port 轉發到你的電腦：這時 `start.sh` 就是 `npm start`，打開它印出的 `http://127.0.0.1:8787` 連結即可。它的容器選項同樣會削弱 Docker 與你電腦之間的隔離：在那裡，有完全存取的 agent 可能透過它們碰到你的電腦，所以只在 codespace 裡給 agent 完全存取。
 
-給維護者：[prebuild](https://docs.github.com/en/codespaces/prebuilding-your-codespaces) 能讓 codespace 更快就緒。它算在 repo 擁有者的帳上，目前沒有設定。
+給維護者：[prebuild](https://docs.github.com/en/codespaces/prebuilding-your-codespaces) 能讓 codespace 更快就緒。它算在 repo 擁有者的帳上，目前沒有設定；設了之後，計數仍然只算為某人建立的 codespace（prebuild 不會執行 `postCreateCommand`）。怎麼讀計數、`latest-release` 怎麼移動：見[開發者指南](developer-guide.zh-TW.md#發佈)。

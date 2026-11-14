@@ -5,16 +5,9 @@
 # that address (RELAY_ALLOWED_HOSTS). Outside a codespace it is `npm start`.
 set -euo pipefail
 
-# A variable Codespaces sets, also in a shell that did not load its profile (`gh codespace ssh -- …`):
-# only the one named, from the file the profile reads (`$2`, for a test), which holds the codespace's
-# tokens too.
-codespace_var() {
-  local value="${!1:-}" file="${2:-/workspaces/.codespaces/shared/.env}"
-  if [ -z "$value" ] && [ -r "$file" ]; then
-    value="$(sed -n "s/^$1=//p" "$file" | tail -n 1)"
-  fi
-  printf '%s' "$value"
-}
+# codespace_var: a variable Codespaces sets, also in a shell that did not load its profile.
+# shellcheck source=.devcontainer/codespace.sh
+source "$(dirname "${BASH_SOURCE[0]}")/codespace.sh"
 
 # The sign-in links on the forwarded address instead of 127.0.0.1, each with its code beside it: a
 # browser that has not opened the codespace's ports yet signs in to GitHub first, and may lose the link's

@@ -18,3 +18,11 @@ bucket_name = "harness-relay-mirror"
 
 [observability]
 enabled = true
+
+# The codespaces count (POST /codespaces, from .devcontainer/count.sh): how many codespaces were made a
+# day, in a D1 database of this name, which `wrangler deploy` makes the first time (it needs no
+# database_id) and the Worker's first count fills with its table. Read it with
+# `npx wrangler d1 execute harness-relay-counts --remote --config mirror/wrangler.toml --command "SELECT day, created FROM codespaces ORDER BY day"`.
+[[d1_databases]]
+binding = "COUNTS"
+database_name = "harness-relay-counts"

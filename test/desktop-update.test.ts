@@ -74,6 +74,7 @@ import {
   type UpdateSource,
 } from '../desktop/src/updateSource';
 import { spawnDetached } from '../src/server/process';
+import { releaseStep } from './release-steps';
 import { slow } from './timeouts';
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-update-')));
@@ -522,22 +523,6 @@ describe('the Release workflow’s check that an app can download the copies', (
     expect(step).toContain('process.exit(1)');
   });
 });
-
-/** A step's `run:` script in the Release workflow, as the runner gets it. */
-function releaseStep(name: string): string {
-  const workflow = readFileSync(join(__dirname, '../.github/workflows/release.yml'), 'utf8');
-  const from = workflow.indexOf(`- name: ${name}\n`);
-  if (from < 0) throw new Error(`no step ${name}`);
-  const run = workflow.indexOf('run: |\n', from);
-  const lines = workflow.slice(run + 'run: |\n'.length).split('\n');
-  const indent = /^ */.exec(lines[0]!)![0].length;
-  const body: string[] = [];
-  for (const line of lines) {
-    if (line.trim() && line.length - line.trimStart().length < indent) break;
-    body.push(line.slice(indent));
-  }
-  return body.join('\n');
-}
 
 // The steps' scripts, run as the runner runs them (bash, and Node with its types stripped), offline:
 // GitHub's API is a stand-in fetch loaded before the script.
