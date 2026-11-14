@@ -14,7 +14,8 @@ import {
   type ServerEvent,
 } from '../../shared/types';
 import { api, orCreateCwd, type AttachmentUpload } from '../api';
-import { afterStreamError, applyStates as findApplyStates, branchSource, draftStatus, followsAfterScroll, scrollSpot, teamToEdit } from '../chat';
+import { highlightsByReply, nextReviewStart } from '../../shared/review';
+import { afterStreamError, applyStates as findApplyStates, branchSource, draftStatus, followsAfterScroll, savesLeadReviewAlone, scrollSpot, teamToEdit } from '../chat';
 import { useI18n, useT } from '../i18n';
 import { refreshLimits, useLimits } from '../limits';
 import { hashFor } from '../route';
@@ -113,7 +114,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const [diff, setDiff] = useState<{ title: string; load: () => Promise<string> } | null>(null);
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
   /** A withdrawn message's text, going back into the composer to be edited. */
-  const [restore, setRestore] = useState<{ text: string }>();
+  const [restore, setRestore] = useState<{ text: string; once?: boolean }>();
   const scroller = useRef<HTMLDivElement>(null);
   const chipsRef = useRef<HTMLDivElement>(null);
   // The team row fades out on the right while more chips are hidden there.
@@ -433,6 +434,29 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const agents = state.conv?.agents;
   const mentionNames = useMemo(() => (agents ?? []).map((a) => a.name), [agents]);
 
+  // What the lead agent's reviews point out, by reply: worked out again only when a review is added
+  // or goes (a ready review never changes), so a reply's marks keep their identity while others stream.
+  const reviewIds = (messages ?? []).flatMap((m) => (m.review?.status === 'ready' ? [m.id] : [])).join(' ');
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the review ids say when `messages` matters
+  const marks = useMemo(() => highlightsByReply(messages ?? []), [reviewIds]);
+
+  // A next step the lead agent suggests goes in the message box, ahead of anything typed there.
+  const onUseStep = useCallback((text: string) => setRestore({ text, once: true }), []);
+
+  // Lead review on or off, from the latest team design card (the conversation event brings the setting).
+  const onLeadReview = useCallback(async (on: boolean) => {
+    const c = convRef.current;
+    if (!c) return false;
+    setError('');
+    try {
+      await api.setLeadReview(c.id, on);
+      return true;
+    } catch (e) {
+      setError((e as Error).message);
+      return false;
+    }
+  }, []);
+
   const { conv, running, active } = state;
   if (!conv) return <div className="page-center muted">{error || t.common.loading}</div>;
 
@@ -450,6 +474,11 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const awaitingConfirm = Boolean(pendingPlan(conv.messages));
   // The lead agent is designing the team: what the user sends meanwhile waits for the confirmed team.
   const designing = running && conv.messages.some((m) => m.plan?.status === 'planning' && m.status === 'streaming');
+  // The lead agent is reviewing the team's replies: what the user sends meanwhile stops the review and goes now.
+  const reviewing = running && conv.messages.some((m) => m.review?.status === 'reviewing' && m.status === 'streaming');
+  // Where the next review would start reading: a stopped or failed review card before it says its
+  // replies are read then, the others nothing of a next review.
+  const nextReview = conv.messages.some((m) => m.review && m.review.status !== 'ready') ? nextReviewStart(conv.messages) : Infinity;
   const latestPlanId = conv.messages.findLast((m) => m.plan?.status === 'ready')?.id;
   const leadText = leadLabel(lead ?? { provider: 'claude' });
   // An agent asked the user something and the team waits: its latest questions, and who asked.
@@ -622,12 +651,13 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
         onClickCapture={(e) => {
           // Opening or folding part of a message (an activity row, Show more) leaves it where the reader
           // is looking: following would scroll what just opened out of view.
-          if ((e.target as Element).closest('summary, [aria-expanded], [aria-pressed]')) stopFollowing();
+          // So does jumping between a reply and the lead agent's review of it.
+          if ((e.target as Element).closest('summary, [aria-expanded], [aria-pressed], .review-reply-link, .review-mark-tag')) stopFollowing();
         }}
       >
         <div className="messages-inner">
           {conv.messages.length === 0 && <TeamIntro conv={conv} leadText={leadText} />}
-          {conv.messages.map((m) => {
+          {conv.messages.map((m, i) => {
             const item = (
               <MessageItem
                 key={m.id}
@@ -654,6 +684,11 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
                 onSkipQuestion={onSkipQuestion}
                 onShare={onShare}
                 onBranch={onBranch}
+                marks={marks.get(m.id)}
+                onUseStep={onUseStep}
+                leadReview={m.plan || m.review ? Boolean(conv.settings.leadReview) : undefined}
+                readNext={m.review && m.review.status !== 'ready' ? i > nextReview : undefined}
+                onLeadReview={onLeadReview}
               />
             );
             // A branch: a line after the messages copied from the conversation it comes from (a shared
@@ -708,7 +743,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
         )}
         <QueueTray
           queue={conv.queue ?? []}
-          state={awaitingConfirm || designing ? 'confirm' : running ? 'busy' : 'stopped'}
+          state={awaitingConfirm || designing ? 'confirm' : reviewing ? 'review' : running ? 'busy' : 'stopped'}
           onSendNow={() => send('', [], running)}
           onWithdraw={withdraw}
         />
@@ -717,6 +752,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
           running={running}
           canContinue={hasUserMessage}
           locked={awaitingConfirm || designing}
+          reviewing={reviewing}
           skipQuestion={questions.length > 0}
           placeholder={
             designing
@@ -725,6 +761,8 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
               ? t.chat.placeholderConfirm
               : questions.length > 0
                 ? t.chat.placeholderAnswer(askers)
+                : reviewing
+                ? t.chat.placeholderReviewing
                 : running
                 ? t.chat.placeholderBusy
                 : waitingForTeam
@@ -766,6 +804,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
           providers={providers}
           catalog={catalog}
           running={running}
+          reviewing={reviewing}
           leadText={leadText}
           onClose={() => setTeamOpen(false)}
           onError={setError}
@@ -905,6 +944,7 @@ function TeamDrawer({
   providers,
   catalog,
   running,
+  reviewing,
   leadText,
   onClose,
   onError,
@@ -913,6 +953,8 @@ function TeamDrawer({
   providers: ProviderStatus[];
   catalog: ProviderModels[];
   running: boolean;
+  /** The team has answered and the lead agent reviews its replies. */
+  reviewing: boolean;
   leadText: string;
   onClose: () => void;
   onError: (s: string) => void;
@@ -941,6 +983,8 @@ function TeamDrawer({
   // The team can change while the drawer is open (e.g. the lead agent designs it): follow it until
   // the user edits; after that, saving would overwrite it, so ask to reload first.
   const status = draftStatus(base, team, current);
+  // While the team replies, the lead review box alone is saved on its own (the rest waits for it).
+  const reviewOnly = savesLeadReviewAlone(base, team, running, proposed);
   const reload = useCallback(() => {
     setBase(current);
     setTeam(current);
@@ -952,6 +996,11 @@ function TeamDrawer({
   const save = async () => {
     setSaving(true);
     try {
+      if (reviewOnly) {
+        await api.setLeadReview(conv.id, Boolean(team.settings.leadReview));
+        onClose();
+        return;
+      }
       // While the lead agent has not designed a team yet, only the settings can change.
       const change = members ? { agents: team.agents, settings: team.settings } : { settings: team.settings };
       await orCreateCwd(
@@ -1027,13 +1076,18 @@ function TeamDrawer({
           ) : (
             problems[0] && <span className="error-line">{problems[0]}</span>
           )}
-          {running && <span className="muted small">{t.chat.drawerBusy}</span>}
+          {running && (
+            <span className="muted small">
+              {reviewing ? t.chat.drawerReviewing : t.chat.drawerBusy}
+              {!proposed && status !== 'conflict' && t.chat.drawerBusyReview}
+            </span>
+          )}
           <button className="ghost" onClick={onClose}>
             {t.common.cancel}
           </button>
           <button
             className="primary"
-            disabled={saving || running || revising || problems.length > 0 || status === 'conflict'}
+            disabled={saving || revising || status === 'conflict' || (!reviewOnly && (running || problems.length > 0))}
             onClick={save}
           >
             {t.common.save}

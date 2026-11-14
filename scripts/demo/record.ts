@@ -436,7 +436,9 @@ export async function record(opts: RecordOptions, base: string, log: (...a: unkn
     mark('template-shown', { template: L.template });
     await moveClick(page.locator('.template-editor-foot .ghost'), { after: 700 });
 
-    // Start the chat and ask straight away.
+    // Start the chat and ask straight away. Without lead review (the page ticks it in every new chat),
+    // which the chapters and stills do not show.
+    await page.locator('.lead-review input[type="checkbox"]').uncheck();
     await moveClick('.start-bar .primary', { after: 900 });
     await page.waitForURL(/#\/c\//);
     const id = decodeURIComponent(/#\/c\/([^/?]+)/.exec(page.url())?.[1] ?? '');

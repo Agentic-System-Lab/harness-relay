@@ -4,10 +4,11 @@ import { useT } from '../i18n';
 import { ClockIcon, PaperclipIcon } from './icons';
 
 /**
- * busy: the team replies, the messages go before its next turn; confirm: they wait for the user to
- * confirm the lead agent's team design; stopped: the team was stopped before they were delivered.
+ * busy: the team replies, the messages go before its next turn; review: the team has answered and the
+ * lead agent reviews its replies, the messages go to the team after it; confirm: they wait for the user
+ * to confirm the lead agent's team design; stopped: the team was stopped before they were delivered.
  */
-export type QueueState = 'busy' | 'confirm' | 'stopped';
+export type QueueState = 'busy' | 'review' | 'confirm' | 'stopped';
 
 interface Props {
   queue: ChatMessage[];
@@ -41,16 +42,18 @@ export function QueueTray({ queue, state, onSendNow, onWithdraw }: Props) {
     }
   };
 
-  const title = state === 'busy' ? t.queue.busy(queue.length) : state === 'confirm' ? t.queue.confirm : t.queue.stopped;
+  const title =
+    state === 'busy' || state === 'review' ? t.queue.busy(queue.length) : state === 'confirm' ? t.queue.confirm : t.queue.stopped;
 
   return (
     <section className={`queue-tray ${state}`} aria-label={t.queue.label}>
       <header className="queue-head">
         <span className="queue-title">{title}</span>
         {state === 'busy' && <span className="queue-note muted">{t.queue.busyNote}</span>}
+        {state === 'review' && <span className="queue-note muted">{t.queue.reviewNote}</span>}
         {state !== 'confirm' && (
           <button type="button" className="ghost small-button" onClick={() => void once(onSendNow)}>
-            {state === 'busy' ? t.queue.sendNow : t.queue.send}
+            {state === 'busy' ? t.queue.sendNow : state === 'review' ? t.queue.skipReview : t.queue.send}
           </button>
         )}
       </header>

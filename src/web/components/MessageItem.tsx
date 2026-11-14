@@ -1,4 +1,4 @@
-import { memo, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { memo, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import {
   PROVIDER_LABEL,
   isInlineImage,
@@ -8,7 +8,9 @@ import {
   type ChatMessage,
   type MessageMeta,
   type PlanEntry,
+  type ReviewHighlight,
 } from '../../shared/types';
+import { mostSerious, type ReplyMarks } from '../../shared/review';
 import { splitAsk } from '../../shared/ask';
 import { api } from '../api';
 import {
@@ -33,6 +35,7 @@ import { BranchIcon, ClockIcon, CopyIcon, PaperclipIcon, PencilIcon, RetryIcon, 
 import { Logo } from './Logo';
 import { Markdown } from './Markdown';
 import { RoleText } from './RoleText';
+import { markQuotes, replyElementId, revealMessage, reviewElementId } from '../review';
 
 /**
  * A tool call's detail on one line. A path too long for it loses its start, not its file name: it is
@@ -327,6 +330,12 @@ interface Props {
   scheduleText?: string;
   /** Save the team the lead agent designed (auto team) as a template. */
   onSavePlan: (messageId: string, name: string) => Promise<void>;
+  /** Whether the conversation has lead review on (given to team design cards and review cards only). */
+  leadReview?: boolean;
+  /** A stopped or failed review card: the next review reads the replies it left (`nextReviewStart()`). */
+  readNext?: boolean;
+  /** Turn lead review on or off (the latest team design card's box); resolves whether the server took it. */
+  onLeadReview?: (on: boolean) => Promise<boolean>;
   onAdjustTeam: () => void;
   /** Answer an agent's approval request. */
   onApproval: (approvalId: string, answer: ApprovalAnswer) => Promise<void>;
@@ -338,6 +347,10 @@ interface Props {
   onSkipQuestion?: () => void;
   /** Copy or share the conversation up to and including this reply. */
   onShare?: (messageId: string) => void;
+  /** What the lead agent's reviews point out in this reply (lead review): marked in it. */
+  marks?: ReplyMarks;
+  /** Put a next step the lead agent suggests in the message box (lead review). */
+  onUseStep?: (text: string) => void;
   /** Branch the conversation from this reply: a new one with the messages up to and including it. */
   onBranch?: (messageId: string) => void;
 }
@@ -360,7 +373,22 @@ function PlanCard({
   onDeclinePlan,
   onSavePlan,
   onAdjustTeam,
-}: Pick<Props, 'msg' | 'cwd' | 'agents' | 'latestPlan' | 'scheduleText' | 'onConfirmPlan' | 'onDeclinePlan' | 'onSavePlan' | 'onAdjustTeam'>) {
+  leadReview,
+  onLeadReview,
+}: Pick<
+  Props,
+  | 'msg'
+  | 'cwd'
+  | 'agents'
+  | 'latestPlan'
+  | 'scheduleText'
+  | 'onConfirmPlan'
+  | 'onDeclinePlan'
+  | 'onSavePlan'
+  | 'onAdjustTeam'
+  | 'leadReview'
+  | 'onLeadReview'
+>) {
   const t = useT();
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -430,6 +458,8 @@ function PlanCard({
           </li>
         ))}
       </ul>
+      {/* Lead review: the latest design has its box, for the conversation from now on. */}
+      {latestPlan && onLeadReview && <LeadReviewBox on={Boolean(leadReview)} onChange={onLeadReview} />}
       {/* A team that misses someone the schedule's message @mentions (any design, in a chat with a schedule). */}
       {scheduleText && planChecksMentions(plan, Boolean(latestPlan)) && (
         <MissedMentions text={scheduleText} names={(plan.agents ?? []).map((a) => a.name)} />
@@ -475,6 +505,170 @@ function PlanCard({
         {hasMeta(msg.meta) && <MetaText m={msg.meta} />}
       </div>
     </section>
+  );
+}
+
+/** The lead agent's review of the team's replies (lead review): what to look at closely, and what to do next. */
+function ReviewCard({ msg, onUseStep, leadReview, readNext }: Pick<Props, 'msg' | 'onUseStep' | 'leadReview' | 'readNext'>) {
+  const t = useT();
+  const review = msg.review!;
+  const lead = leadLabel(review.lead);
+  // A stopped or failed review that the next one reads back over says so (and that it waits for lead
+  // review to be on again, when it is off); one it will not reach says nothing of a next review.
+  const later = readNext && (
+    <>
+      {' '}
+      <span className="review-later">{leadReview === false ? t.review.later.off : t.review.later.on}</span>
+    </>
+  );
+
+  if (review.status === 'reviewing') {
+    const live = msg.status === 'streaming';
+    return (
+      <div className="plan-card planning review-card" role="status" id={reviewElementId(msg.id)}>
+        <span className={`tool-icon ${live ? 'spin' : ''}`} aria-hidden>
+          {live ? '◌' : '✦'}
+        </span>
+        <span>
+          {live ? t.review.reviewing(lead) : t.review.aborted}
+          {!live && later}
+        </span>
+      </div>
+    );
+  }
+
+  if (review.status === 'failed') {
+    return (
+      <div className="plan-card planning review-card failed" id={reviewElementId(msg.id)}>
+        <span className="tool-icon" aria-hidden>
+          ✦
+        </span>
+        <span>
+          {review.error ? t.review.failed(review.error) : t.review.failedNoReason}
+          {later}
+        </span>
+        {hasMeta(msg.meta) && <MetaText m={msg.meta} />}
+      </div>
+    );
+  }
+
+  const highlights = review.highlights ?? [];
+  const steps = review.nextSteps ?? [];
+  return (
+    <section className="plan-card review-card" aria-label={t.review.title} id={reviewElementId(msg.id)}>
+      <header className="plan-head">
+        <Logo size={18} />
+        <strong>{t.review.title}</strong>
+        <span className="muted small">{t.review.by(lead)}</span>
+      </header>
+      {review.summary && <p className="plan-reason review-summary">{review.summary}</p>}
+      <div className="review-section">
+        <h4>{t.review.attention}</h4>
+        {highlights.length ? (
+          <ul className="review-highlights">
+            {highlights.map((h, i) => (
+              <ReviewPoint key={i} h={h} />
+            ))}
+          </ul>
+        ) : (
+          <p className="muted small review-none">{t.review.nothingToFlag}</p>
+        )}
+      </div>
+      {steps.length > 0 && (
+        <div className="review-section">
+          <h4>{t.review.nextSteps}</h4>
+          <ol className="review-steps">
+            {steps.map((s, i) => (
+              <li key={i} className={`review-step ${s.by}`}>
+                <span className="review-by">{s.by === 'team' ? t.review.byTeam : t.review.byUser}</span>
+                <span className="review-step-text">{s.text}</span>
+                {s.by === 'team' && onUseStep && (
+                  <button
+                    type="button"
+                    className="ghost small-button review-use"
+                    title={t.review.useStepTitle}
+                    onClick={() => onUseStep(s.message ?? s.text)}
+                  >
+                    {t.review.useStep}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {/* How many replies it read beside its time and cost: the header keeps to its title on a phone. */}
+      {(review.replyIds || hasMeta(msg.meta)) && (
+        <div className="plan-actions">
+          {review.replyIds && <span className="muted small">{t.review.read(review.replyIds.length)}</span>}
+          {hasMeta(msg.meta) && <MetaText m={msg.meta} />}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** One thing the lead agent points out: its kind, the reply and words it is about, and why it matters. */
+function ReviewPoint({ h }: { h: ReviewHighlight }) {
+  const t = useT();
+  return (
+    <li className={`review-point ${h.kind}`}>
+      <div className="review-point-head">
+        <span className={`review-kind ${h.kind}`}>{t.review.kinds[h.kind]}</span>
+        {h.messageId && h.agentName ? (
+          <button
+            type="button"
+            className="review-reply-link"
+            title={t.review.goToReply(h.agentName)}
+            onClick={() => revealMessage(replyElementId(h.messageId!))}
+          >
+            @{h.agentName}
+          </button>
+        ) : h.agentName ? (
+          <span className="muted small">@{h.agentName}</span>
+        ) : (
+          !h.messageId && <span className="muted small">{t.review.whole}</span>
+        )}
+      </div>
+      {h.quote && <blockquote className={`review-quote ${h.kind}`}>{h.quote}</blockquote>}
+      <p className="review-note">{h.note}</p>
+    </li>
+  );
+}
+
+/**
+ * Lead review's box on the latest team design card: on or off for the conversation (the question being
+ * answered and the ones after it), and what that means. Only the user switches it.
+ */
+function LeadReviewBox({ on, onChange }: { on: boolean; onChange: (on: boolean) => Promise<boolean> }) {
+  const t = useT();
+  const hint = useId();
+  // What the user just chose, shown until the conversation says so too (or the server refused it).
+  const [chosen, setChosen] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (chosen !== null && chosen === on) setChosen(null);
+  }, [chosen, on]);
+  const checked = chosen ?? on;
+  // The box is the app's own control: a shared page leaves it out.
+  return (
+    <div className="plan-review">
+      <label className="check-row">
+        <input
+          type="checkbox"
+          aria-describedby={hint}
+          checked={checked}
+          onChange={async (e) => {
+            const next = e.target.checked;
+            setChosen(next);
+            if (!(await onChange(next))) setChosen(null);
+          }}
+        />
+        <span>{t.team.leadReview}</span>
+      </label>
+      <span className="small muted" id={hint}>
+        {checked ? t.team.leadReviewHint.on : t.team.leadReviewHint.off}
+      </span>
+    </div>
   );
 }
 
@@ -691,10 +885,16 @@ export const MessageItem = memo(function MessageItem({
   onSkipQuestion,
   onShare,
   onBranch,
+  marks,
+  onUseStep,
+  leadReview,
+  readNext,
+  onLeadReview,
 }: Props) {
   const t = useT();
 
   if (msg.author.kind === 'system') {
+    if (msg.review) return <ReviewCard msg={msg} onUseStep={onUseStep} leadReview={leadReview} readNext={readNext} />;
     if (msg.plan) {
       return (
         <PlanCard
@@ -707,6 +907,8 @@ export const MessageItem = memo(function MessageItem({
           onDeclinePlan={onDeclinePlan}
           onSavePlan={onSavePlan}
           onAdjustTeam={onAdjustTeam}
+          leadReview={leadReview}
+          onLeadReview={onLeadReview}
         />
       );
     }
@@ -720,20 +922,93 @@ export const MessageItem = memo(function MessageItem({
   if (msg.author.kind === 'user') {
     return <UserMessage msg={msg} convId={convId} mentionNames={mentionNames} canEdit={!running} onResend={onResend} />;
   }
+  return (
+    <AgentMessage
+      msg={msg}
+      convId={convId}
+      agents={agents}
+      mentionNames={mentionNames}
+      showRound={showRound}
+      applyState={applyState}
+      running={running}
+      onDiff={onDiff}
+      onApply={onApply}
+      onApproval={onApproval}
+      onRetry={onRetry}
+      waitingAnswer={waitingAnswer}
+      onSkipQuestion={onSkipQuestion}
+      onShare={onShare}
+      onBranch={onBranch}
+      marks={marks}
+    />
+  );
+});
 
-  const agentId = msg.author.agentId;
+/** An agent's reply, with what the lead agent's review marked in it. */
+function AgentMessage({
+  msg,
+  convId,
+  agents,
+  mentionNames,
+  showRound,
+  applyState,
+  running,
+  onDiff,
+  onApply,
+  onApproval,
+  onRetry,
+  waitingAnswer,
+  onSkipQuestion,
+  onShare,
+  onBranch,
+  marks,
+}: Pick<
+  Props,
+  | 'msg'
+  | 'convId'
+  | 'agents'
+  | 'mentionNames'
+  | 'showRound'
+  | 'applyState'
+  | 'running'
+  | 'onDiff'
+  | 'onApply'
+  | 'onApproval'
+  | 'onRetry'
+  | 'waitingAnswer'
+  | 'onSkipQuestion'
+  | 'onShare'
+  | 'onBranch'
+  | 'marks'
+>) {
+  const t = useT();
+  const body = useRef<HTMLDivElement>(null);
+  const live = msg.status === 'streaming';
+  // The words the lead agent quotes, marked where the reply has them (again when the reply re-renders).
+  useLayoutEffect(() => {
+    const el = body.current;
+    if (!el || live || !marks?.highlights.length) return;
+    return markQuotes(el, marks.highlights);
+    // The reply's text re-renders when the team's names change (mentions): mark it again then too.
+  }, [marks, live, msg.parts, mentionNames]);
+
+  const agentId = msg.author.kind === 'agent' ? msg.author.agentId : '';
   const who = speaker(msg, agents);
   const name = who.name;
   const provider = who.provider ?? 'claude';
-  const live = msg.status === 'streaming';
   const segs = segments(msg.parts);
+  const marked = marks?.highlights.length ?? 0;
   const m = msg.meta;
   const copyable = !msg.passed && messageText(msg).length > 0;
 
   return (
-    <div className={`msg-agent ${msg.passed ? 'passed' : ''}`} style={{ ['--accent' as string]: PROVIDER_COLOR[provider] }}>
+    <div
+      className={`msg-agent ${msg.passed ? 'passed' : ''}`}
+      id={replyElementId(msg.id)}
+      style={{ ['--accent' as string]: PROVIDER_COLOR[provider] }}
+    >
       <span className="avatar">{initials(name)}</span>
-      <div className="msg-body">
+      <div className="msg-body" ref={body}>
         <div className="msg-head">
           <strong>@{name}</strong>
           <span className="provider-tag">{PROVIDER_LABEL[provider]}</span>
@@ -742,6 +1017,16 @@ export const MessageItem = memo(function MessageItem({
           )}
           {live && <span className="live-tag">{t.message.live}</span>}
           {msg.asked && !waitingAnswer && <span className="round-tag">{t.message.askedTag}</span>}
+          {marked > 0 && marks && (
+            <button
+              type="button"
+              className={`review-mark-tag ${mostSerious(marks.highlights)}`}
+              title={t.review.marksTitle(marked)}
+              onClick={() => revealMessage(reviewElementId(marks.reviewId))}
+            >
+              <span aria-hidden>⚑</span> {t.review.marks(marked)}
+            </button>
+          )}
         </div>
 
         {msg.passed && msg.status === 'done' ? (
@@ -845,4 +1130,4 @@ export const MessageItem = memo(function MessageItem({
       </div>
     </div>
   );
-});
+}

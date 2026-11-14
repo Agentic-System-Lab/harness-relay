@@ -101,7 +101,8 @@ export interface RunOptions {
   sandboxTerminal?: boolean;
   /**
    * Whose state this run is, as a stable key from the orchestrator (`stateKeys`): one per member of a
-   * conversation, and one each for the lead agent's and the group sorter's runs for a conversation.
+   * conversation, and one each for the lead agent's runs for a conversation (designing, changing and
+   * reviewing its team's work) and the group sorter's.
    * An open agent keeps everything its run may write (sessions, logs, caches) in a folder of that key's
    * own, which no run of another key can read or write; without a key, in a folder of the run's own,
    * removed after it (nothing can be resumed then).
@@ -127,6 +128,8 @@ export const stateKeys = {
   revise: (conversationId: string): string => `revise.${conversationId}`,
   /** The lead agent sorting a conversation into a sidebar group. */
   sort: (conversationId: string): string => `sort.${conversationId}`,
+  /** The lead agent reviewing the team's replies in a conversation. */
+  review: (conversationId: string): string => `review.${conversationId}`,
 };
 
 /** The model backends one open-agent run may use, with their secrets (never sent to the client). */
