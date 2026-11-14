@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   PROVIDER_LABEL,
+  confirmedUnanswered,
   cwdsOf,
   pendingPlan,
   type ApprovalAnswer,
@@ -769,6 +770,8 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
                 ? t.chat.placeholderFolder
                 : waitingForTeam
                   ? t.chat.placeholderAuto
+                  : autoTeam && confirmedUnanswered(conv.messages)
+                    ? t.chat.placeholderConfirmed
                   : autoTeam
                     ? t.chat.placeholderNext
                     : conv.settings.mode === 'relay' && conv.agents[0]

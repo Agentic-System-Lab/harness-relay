@@ -23,7 +23,7 @@ import type {
   TeamRevision,
 } from '../shared/types';
 import { splitAsk } from '../shared/ask';
-import { OPEN_PROVIDERS, PROVIDER_LABEL, REVISE_REQUEST_MAX, cwdsOf, isEndpointCli, isOpenProvider, pendingPlan, permissionAbove, planSavable } from '../shared/types';
+import { OPEN_PROVIDERS, PROVIDER_LABEL, REVISE_REQUEST_MAX, confirmedUnanswered, cwdsOf, isEndpointCli, isOpenProvider, pendingPlan, permissionAbove, planSavable } from '../shared/types';
 import { AgentRunError, runners, type AgentEvent, type RunResult } from './agents';
 import { emptyStateFolder, removeConversationState } from './agents/open';
 import { stateKeys, type ApprovalRequest } from './agents/types';
@@ -492,6 +492,8 @@ export class Orchestrator {
   private folderWaiters = new Map<string, FolderWait>();
   /** Conversations whose run being set up Stop came for: it does not start (`STOPPED`). */
   private stopping = new Set<string>();
+  /** The start under way of a run nobody waits for (`startInBackground()`), by conversation, until it is set up or fails. */
+  private settingUp = new Map<string, Promise<void>>();
   /** Conversations being deleted. */
   private deleting = new Set<string>();
   /** The server is shutting down: nothing new starts. */
@@ -997,7 +999,13 @@ export class Orchestrator {
    */
   private startInBackground(conv: Conversation, opts: StartOptions, wait: FolderWait): void {
     const waited = this.folderWaiters.has(conv.id);
-    this.start(conv, '', opts).catch((err) => {
+    const started = this.start(conv, '', opts);
+    this.settingUp.set(conv.id, started);
+    const done = () => {
+      if (this.settingUp.get(conv.id) === started) this.settingUp.delete(conv.id);
+    };
+    started.then(done, done);
+    started.catch((err) => {
       const code = err instanceof HttpError ? err.code : undefined;
       if (this.closing && waited) return;
       if (code === STOPPED) {
@@ -1285,6 +1293,9 @@ export class Orchestrator {
     if (opts.designSchedule || conv.agents.length === 0) return true;
     if (opts.keepTeam) return false;
     if (opts.question === 'new' && conv.pause) return false;
+    // The team the user just confirmed has not answered yet (Stop came as it started, or while it
+    // waited for its folder): it answers what they write now too, with the question it was for.
+    if (opts.question && confirmedUnanswered(conv.messages)) return false;
     if (opts.question) return parseMentions(text, conv.agents).length === 0;
     return designOwed(conv.messages);
   }
@@ -1369,7 +1380,6 @@ export class Orchestrator {
         } catch (err) {
           console.error('[orchestrator] could not save the end of a run:', err);
         } finally {
-          if (run.lockRoots) this.unlockDirs(run.lockRoots, conv.id);
           this.runs.delete(convId);
           this.designing.delete(convId);
           // The team the lead agent just designed answers at once, when it needs no confirmation.
@@ -1378,6 +1388,9 @@ export class Orchestrator {
           const next =
             !run.abort.signal.aborted &&
             (run.answerNext ? this.startConfirmed(conv, run.refuseApprovals) : this.startQueued(conv));
+          // Its own next run goes before the conversations waiting for its folder: they try once that
+          // run has taken the folder again (or could not).
+          if (run.lockRoots) this.unlockDirs(run.lockRoots, conv.id, next ? this.settingUp.get(convId) : undefined);
           if (!next) this.emitStatus(conv.id);
           this.trace(conv);
         }
@@ -1552,16 +1565,22 @@ export class Orchestrator {
     return undefined;
   }
 
-  private unlockDirs(roots: string[], convId: string): void {
+  /**
+   * Release a conversation's directory locks. A folder is free now: who waited for one tries again,
+   * once whatever released it has finished its step, and after `first` (the releasing conversation's
+   * own next run, being set up) has taken the folder again or could not.
+   */
+  private unlockDirs(roots: string[], convId: string, first?: Promise<unknown>): void {
     let freed = false;
     for (const root of roots) {
       if (this.dirLocks.get(root) !== convId) continue;
       this.dirLocks.delete(root);
       freed = true;
     }
-    // A folder is free now: who waited for one tries again, once whatever released it has finished its
-    // step (a run's end may start the next run itself).
-    if (freed && this.folderWaiters.size) setImmediate(() => this.retryFolderWaiters());
+    if (!freed || !this.folderWaiters.size) return;
+    const retry = () => void setImmediate(() => this.retryFolderWaiters());
+    if (first) first.then(retry, retry);
+    else retry();
   }
 
   /**

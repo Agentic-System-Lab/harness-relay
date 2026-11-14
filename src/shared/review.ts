@@ -199,9 +199,10 @@ function footnotes(lines: readonly string[], kinds: Uint8Array): (text: string) 
 /**
  * Escapes (of any ASCII punctuation) and entities (every named one HTML has, as the chat's Markdown
  * reads them) read, outside inline code (whose text the chat shows as written); `ticks` matches inline
- * code first, which is kept as it is.
+ * code first, which is kept as it is. It opens only where a run of backticks starts, so a long run is
+ * tried once, not from each of its backticks.
  */
-const INLINE = /(`+)[^`\n]{1,2000}?\1(?!`)|\\([!-/:-@[-`{-~])|&([A-Za-z][A-Za-z\d]{1,31});|&#(\d{1,7});|&#[xX]([\da-fA-F]{1,6});/g;
+const INLINE = /(?<!`)(`+)[^`\n]{1,2000}?\1(?!`)|\\([!-/:-@[-`{-~])|&([A-Za-z][A-Za-z\d]{1,31});|&#(\d{1,7});|&#[xX]([\da-fA-F]{1,6});/g;
 
 /** A run of a reply's text lines as the chat shows them; `notes` reads its footnotes. */
 function inlineText(text: string, notes: (text: string) => string): string {

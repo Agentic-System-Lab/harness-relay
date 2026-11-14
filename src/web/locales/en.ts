@@ -332,6 +332,7 @@ export const en: Messages = {
     placeholderRelay: (name) => `Message the team (@${name} answers first by default)`,
     placeholderAuto: 'Ask your question; the lead agent builds a team for it first…',
     placeholderNext: 'Ask a new question (the lead agent builds a team first), or @mention a member to ask them…',
+    placeholderConfirmed: 'The team you confirmed has not answered yet: what you write goes to it with your question…',
     placeholderConfirm: 'The team answers once you confirm it; what you write now goes with it…',
     placeholderDesigning: 'The lead agent is choosing the team; what you write now goes to the team with your question…',
     placeholderReviewing: 'The lead agent is reviewing the replies; what you write now is your next question, sent once it is done (auto team designs its team first)…',

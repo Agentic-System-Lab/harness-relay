@@ -452,11 +452,17 @@ describe('quotes and the pieces of a reply', () => {
   });
 
   it('reads a reply of any size in time proportional to it', () => {
-    for (const unit of ['[a](b', '[', '![a](', '<http://x', ' \t', '| - ', ' >', '\n']) {
+    for (const unit of ['[a](b', '[', '![a](', '<http://x', ' \t', '| - ', ' >', '\n', '`a', '\\', '&abcdefgh', '```\n', '\n    x\n', '- a\n\n    b\n']) {
       const text = unit.repeat(Math.ceil(100_000 / unit.length));
       const started = performance.now();
       hasQuote(text, 'nothing like it');
       expect(performance.now() - started, JSON.stringify(unit)).toBeLessThan(slow(1500));
+    }
+    // One long run of backticks in a line of text (not a fence): tried once, not from each backtick.
+    for (const text of ['a' + '`'.repeat(100_000), 'a' + '`'.repeat(50_000) + 'b' + '`'.repeat(50_000)]) {
+      const started = performance.now();
+      hasQuote(text, 'nothing like it');
+      expect(performance.now() - started, text.slice(0, 3)).toBeLessThan(slow(1500));
     }
   });
 });

@@ -1,7 +1,7 @@
 /*
  * Lead review: the lead agent reviewing the team's replies once it has answered — when it does and
  * when it does not, what it reads, its card, Stop, a failure, messages sent meanwhile, and branches;
- * and the lead agent turning it on when it designs a team.
+ * a run waiting for the folder another conversation is changing; and lead review being the user's alone.
  *
  * The fake CLI, and what each test starts with, are in ./orchestrator-harness.ts.
  */
@@ -604,6 +604,95 @@ describe('waiting for the folder', () => {
     prepare.mockRestore();
   });
 
+  /** An auto-team chat whose team the user confirmed while `other` holds the folder: it waits for it. */
+  async function confirmedWaiting() {
+    const conv = conversation({ mode: 'roundtable', permission: 'edit', autoTeam: true });
+    conv.agents = [];
+    store.saveMeta(conv);
+    fake.leadReply = JSON.stringify({
+      choice: 'custom',
+      name: 'Solo',
+      mode: 'roundtable',
+      rounds: 1,
+      agents: [{ name: 'Alice', provider: 'claude', role: 'Build it' }],
+      reason: 'x',
+    });
+    await orchestrator.send(conv.id, 'build it');
+    await finish(conv.id);
+    const other = conversation({ mode: 'roundtable', permission: 'edit' });
+    let releaseOther!: () => void;
+    fake.gate = new Promise((r) => (releaseOther = r));
+    await orchestrator.send(other.id, 'other');
+    orchestrator.confirmPlan(conv.id, conv.messages.find((m) => m.plan)!.id);
+    await vi.waitFor(() => expect(waitNote(conv)).toHaveLength(1));
+    return { conv, other, releaseOther };
+  }
+  const leadCallCount = () => calls.filter((c) => c.name === 'lead').length;
+
+  it('gives what the user sends after stopping a confirmed team\'s wait to that team, with its question, without designing again', async () => {
+    const { conv, other, releaseOther } = await confirmedWaiting();
+    orchestrator.stop(conv.id);
+    fake.gate = Promise.resolve();
+    releaseOther();
+    await finish(other.id);
+    expect(leadCallCount()).toBe(1);
+    await orchestrator.send(conv.id, 'go ahead now');
+    await finish(conv.id);
+    expect(leadCallCount()).toBe(1);
+    const alice = calls.findLast((c) => c.name === 'Alice')!;
+    expect(alice.prompt).toContain('go ahead now');
+    expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(1);
+    // Answered, the next question gets a design again.
+    await orchestrator.send(conv.id, 'something new');
+    await finish(conv.id);
+    expect(leadCallCount()).toBe(2);
+  });
+
+  it('resumes a confirmed team\'s wait after a restart', async () => {
+    const { conv, other, releaseOther } = await confirmedWaiting();
+    expect(store.folderWaits()).toEqual([{ id: conv.id, wait: 'team' }]);
+    orchestrator.stopAll();
+    fake.gate = Promise.resolve();
+    releaseOther();
+    await finish(other.id);
+    const restarted = new Store(db);
+    setStore(restarted);
+    setOrchestrator(new Orchestrator(restarted, new Hub(), settings, { context: async () => ({ available: ['claude'], catalog: [], presets: restarted.listPresets() }) }));
+    orchestrator.resumeFolderWaits();
+    const again = restarted.get(conv.id)!;
+    await vi.waitFor(() => expect(agentMessages(again).filter((m) => m.status === 'done')).toHaveLength(1), { timeout: 20_000 });
+    await finish(again.id);
+    expect(leadCallCount()).toBe(1);
+    expect(restarted.folderWaits()).toEqual([]);
+  });
+
+  it("lets a conversation's own follow-up go before those waiting for its folder", async () => {
+    const { first, other, releaseOther } = await waitingBehindOther();
+    // The holder gets a message that waits for a run of its own (for Alice, who has spoken).
+    await orchestrator.send(other.id, '@Alice and another thing');
+    expect(other.queue?.length ?? 0).toBeGreaterThan(0);
+    // Its own next run is slow to set up: it still goes first, the waiting one trying only after it.
+    const real = orchestrator.prepareWorkspace.bind(orchestrator);
+    const prepare = vi.spyOn(orchestrator, 'prepareWorkspace').mockImplementation(async (c) => {
+      if (c.id === other.id) await new Promise((r) => setTimeout(r, 300));
+      return real(c);
+    });
+    fake.gate = Promise.resolve();
+    releaseOther();
+    // Its own run for that message takes the folder again; the waiting conversation waits on.
+    await vi.waitFor(() => expect(other.queue ?? []).toHaveLength(0), { timeout: 20_000 });
+    await finish(other.id);
+    expect(waitNote(other)).toHaveLength(0);
+    expect(agentMessages(other).filter((m) => m.status === 'done')).toHaveLength(3);
+    expect(calls.findLast((c) => c.name === 'Alice' && c.prompt.includes('another thing'))).toBeDefined();
+    // The waiting conversation had not started meanwhile.
+    expect(agentMessages(first).filter((m) => m.status === 'done')).toHaveLength(2);
+    await vi.waitFor(() => expect(first.queue ?? []).toHaveLength(0), { timeout: 20_000 });
+    await finish(first.id);
+    expect(waitNote(first)).toHaveLength(1);
+    prepare.mockRestore();
+  });
+
   it('starts a team the user confirmed once the folder is free', async () => {
     const conv = conversation({ mode: 'roundtable', permission: 'edit', autoTeam: true });
     conv.agents = [];
@@ -791,7 +880,8 @@ describe('waiting for the folder', () => {
     const { conv, go, restore } = await startHeldWaiting();
     orchestrator.stop(conv.id);
     go();
-    await new Promise((r) => setTimeout(r, 200));
+    // Its start, set up as slowly as git is on the computer, ends without a run.
+    await vi.waitFor(() => expect(orchestrator.busy()).toBe(0), { timeout: 20_000 });
     expect(orchestrator.isRunning(conv.id)).toBe(false);
     expect(agentMessages(conv).filter((m) => textOf(m).includes('next'))).toHaveLength(0);
     expect(conv.queue).toHaveLength(1);
@@ -873,10 +963,10 @@ describe('Stop while a run is being set up', () => {
     await vi.waitFor(() => expect(prepare).toHaveBeenCalled());
     orchestrator.stop(conv.id);
     prepared();
-    await new Promise((r) => setTimeout(r, 200));
+    await vi.waitFor(() => expect(textOf(conv.messages.at(-1)!)).toMatch(/^(Stopped\.|已停止。)$/), { timeout: 20_000 });
+    await vi.waitFor(() => expect(orchestrator.busy()).toBe(0), { timeout: 20_000 });
     expect(orchestrator.isRunning(conv.id)).toBe(false);
     expect(conv.queue).toHaveLength(1);
-    expect(textOf(conv.messages.at(-1)!)).toMatch(/^(Stopped\.|已停止。)$/);
     prepare.mockRestore();
   });
 });

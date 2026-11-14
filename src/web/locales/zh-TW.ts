@@ -355,6 +355,8 @@ export const zhTW = {
     placeholderRelay: (name: string) => `傳訊息給團隊（預設由 @${name} 先接）`,
     placeholderAuto: '提出你的問題，首席 agent 會先為它組隊…',
     placeholderNext: '提出新問題（首席 agent 會先組隊），或 @ 成員直接問他…',
+    // The team the user confirmed has not answered yet (it was stopped as it started, or waited for its folder).
+    placeholderConfirmed: '你確認的團隊還沒回答：現在寫的會和你的問題一起交給它…',
     placeholderConfirm: '確認團隊後它就會回答；現在寫的訊息會一起送出…',
     placeholderDesigning: '首席 agent 正在組隊；現在寫的訊息會和問題一起交給團隊…',
     placeholderReviewing: '首席 agent 正在審閱回覆；現在寫的是下一個問題，審閱完就送出（自動組隊會先組隊）…',
