@@ -54,7 +54,7 @@ For Copilot, its own device sign-in needs a keyring, which a codespace does not 
 
 ### API keys
 
-A codespace has no system keyring, so an API key you type in **Settings** stays in the database, in the codespace. For Claude Code and Codex, give it as a Codespaces secret instead: the create page's **Change options** offers `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`, and **Settings → Codespaces** on GitHub keeps any other one for this repository. They reach the server as environment variables. Claude Code then runs on `ANTHROPIC_API_KEY`, and Codex on `OPENAI_API_KEY`, instead of your sign-in, billed by use. The open-source agents take only the keys set in **Settings → Model backends**.
+A codespace has no system keyring, so an API key you type in **Settings** is kept in the database in the codespace, encrypted with the key in `data/secrets.key` (agents below full access can read neither). For Claude Code and Codex you can give it as a Codespaces secret instead, kept by GitHub rather than in the codespace: the create page's **Change options** offers `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`, and **Settings → Codespaces** on GitHub keeps any other one for this repository. They reach the server as environment variables. Claude Code then runs on `ANTHROPIC_API_KEY`, and Codex on `OPENAI_API_KEY`, instead of your sign-in, billed by use. The open-source agents take only the keys set in **Settings → Model backends**.
 
 ## On your own computer
 

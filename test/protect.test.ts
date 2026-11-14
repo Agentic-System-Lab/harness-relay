@@ -54,6 +54,7 @@ describe('what agents may not read', () => {
     mkdirSync(join(home, '.mozilla'), { recursive: true });
     mkdirSync(data, { recursive: true });
     writeFileSync(join(data, 'relay.db'), '');
+    writeFileSync(join(data, 'secrets.key'), '');
     mkdirSync(join(data, 'tmp'));
     // A link to a folder (Windows makes a link to a file of one whose target is not there yet).
     symlinkSync(join(root, 'elsewhere'), join(home, '.zen'), 'dir');
@@ -62,6 +63,8 @@ describe('what agents may not read', () => {
     const paths = protectedReads({ platform: 'linux', home, dataDir: data }).map((p) => resolve(p));
     expect(paths).toContain(join(home, '.mozilla'));
     expect(paths).toContain(join(data, 'relay.db'));
+    // The key the secrets in the database are encrypted with, when there is no credential store.
+    expect(paths).toContain(join(data, 'secrets.key'));
     // Its own temporary folder too, where a Claude Code turn's settings and MCP config wait.
     expect(paths).toContain(relayTmpDir(data));
     expect(relayTmpDir('/d')).toBe(join('/d', 'tmp'));
@@ -71,7 +74,13 @@ describe('what agents may not read', () => {
     // Not there: left out, so a sandbox does not refuse to start over it.
     expect(paths).not.toContain(join(home, '.config/google-chrome'));
     expect(paths).not.toContain(join(data, 'relay.db-wal'));
-    expect(relayDatabaseFiles('/d')).toEqual(['relay.db', 'relay.db-wal', 'relay.db-shm'].map((f) => join('/d', f)));
+    expect(relayDatabaseFiles('/d', {})).toEqual(['relay.db', 'relay.db-wal', 'relay.db-shm', 'secrets.key'].map((f) => join('/d', f)));
+    // A key file RELAY_SECRETS_KEY_FILE puts elsewhere is protected where it is.
+    const keyFile = join(root, 'keys', 'relay.key');
+    mkdirSync(join(root, 'keys'));
+    writeFileSync(keyFile, '');
+    expect(relayDatabaseFiles('/d', { RELAY_SECRETS_KEY_FILE: keyFile })).toContain(keyFile);
+    expect(protectedReads({ platform: 'linux', home, dataDir: data, env: { RELAY_SECRETS_KEY_FILE: keyFile } }).map((p) => resolve(p))).toContain(keyFile);
     expect(protectedReads({ platform: 'win32', home, dataDir: data })).toEqual([]);
   });
 

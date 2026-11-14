@@ -21,7 +21,7 @@ Open an issue with the **Bug report** form. It asks for:
 
 In the app, **Report a problem** (the speech-bubble icon at the right end of the Settings & sign-in row) sends a report by email instead, with the version and system details filled in.
 
-Before you paste logs or screenshots, remove API keys, tokens and anything from your projects you don't want public. Don't attach `data/relay.db`: it holds your conversations, the key your push notifications are signed with and, on a system without an OS credential store, your API keys.
+Before you paste logs or screenshots, remove API keys, tokens and anything from your projects you don't want public. Don't attach `data/relay.db` or `data/secrets.key`: the database holds your conversations, the key your push notifications are signed with and, on a system without an OS credential store, your API keys, encrypted with the key in `secrets.key`.
 
 ## Reporting a security problem
 
@@ -64,7 +64,7 @@ Fork the repository (or create a branch if you have write access), branch off `m
 ### Security
 
 - New routes go under `/api/`, so they get the Host/Origin checks, the JSON content-type check on writes, sign-in and the request language. Don't weaken these checks. Only a read-only route the browser loads by itself (an image, a download link) may take the cookie without the key (`BROWSER_LOADS` in `src/server/app.ts`).
-- Never send secrets to the client. API keys belong in the OS credential store (`src/server/secrets.ts`), not in the database.
+- Never send secrets to the client. API keys belong in the OS credential store (`src/server/secrets.ts`), never in the database as they are: without a credential store they go to the database encrypted (`openSecretStore()`), through the same `SecretStore`.
 - The server binds to `127.0.0.1`, and agent replies must not make the browser load remote content (images are shown as links; local media goes through the media endpoint's path checks).
 - An open-source agent's process starts only through `startOpenProcess()` (`src/server/agents/open.ts`), which puts it in Harness Relay's own sandbox below full access and fails closed. Model keys reach the CLI in environment variables (only the run's own backend's), never in the config files its adapter writes, and everything a run writes goes in the conversation member's own state folder (`home(root, state)`). A sandbox opening is asked for by one adapter for its own CLI only, and documented in [docs/open-agents.md](docs/open-agents.md) and [docs/sandboxing.md](docs/sandboxing.md).
 

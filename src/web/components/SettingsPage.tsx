@@ -799,7 +799,7 @@ function AccountBlock({
             {t.settings.apiKeyHelp[provider as SignInCli]}
             {account?.apiKeyStorage && t.settings.keyStorage(t.settings.keyStorageName[account.apiKeyStorage])}
             {/* The server's own environment is the default account's only. */}
-            {!id && account?.apiKeyStorage === 'database' && t.settings.keyEnvHint(KEY_ENV[provider as SignInCli])}
+            {!id && (account?.apiKeyStorage === 'encrypted' || account?.apiKeyStorage === 'database') && t.settings.keyEnvHint(KEY_ENV[provider as SignInCli])}
           </p>
           <div className="input-row">
             <input

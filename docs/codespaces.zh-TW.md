@@ -54,7 +54,7 @@ Copilot 自己的裝置登入需要金鑰圈，而 codespace 沒有：請改給�
 
 ### API key
 
-codespace 沒有系統金鑰圈，所以在「**設定**」裡輸入的 API key 會留在 codespace 裡的資料庫。Claude Code 和 Codex 的 key 建議改用 Codespaces secret：建立頁的「**Change options**」提供 `ANTHROPIC_API_KEY` 和 `OPENAI_API_KEY`，其他的可以在 GitHub 的「**Settings → Codespaces**」為這個 repo 設定。它們會以環境變數的形式交給伺服器。這時 Claude Code 會改用 `ANTHROPIC_API_KEY`、Codex 會改用 `OPENAI_API_KEY`，而不是你的登入，依用量計費。開源 agent 只用「**設定 → 模型來源**」裡設定的 key。
+codespace 沒有系統金鑰圈，所以在「**設定**」裡輸入的 API key 會以 `data/secrets.key` 裡的金鑰加密後，存在 codespace 裡的資料庫（完全存取以下的 agent 兩者都讀不到）。Claude Code 和 Codex 的 key 也可以改用 Codespaces secret，由 GitHub 保管，而不是存在 codespace 裡：建立頁的「**Change options**」提供 `ANTHROPIC_API_KEY` 和 `OPENAI_API_KEY`，其他的可以在 GitHub 的「**Settings → Codespaces**」為這個 repo 設定。它們會以環境變數的形式交給伺服器。這時 Claude Code 會改用 `ANTHROPIC_API_KEY`、Codex 會改用 `OPENAI_API_KEY`，而不是你的登入，依用量計費。開源 agent 只用「**設定 → 模型來源**」裡設定的 key。
 
 ## 在你自己的電腦上
 

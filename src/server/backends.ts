@@ -22,8 +22,9 @@ import { maskSecret, type SecretStore } from './secrets';
  * Claude Code, Codex and Grok can run on too (`endpointModel`).
  * Keys live in the OS credential store (`backend-<id>-api-key`, `endpoint-<id>-api-key`, service
  * `harness-relay`), with the same fallback and migration as the CLIs' API keys (settings.ts): without
- * a credential store they stay in the database; one found there while a store exists is moved into
- * it. Harness Relay never calls these APIs itself: it only hands them to the CLIs.
+ * a credential store they are kept encrypted in the database under the same names (secrets.ts); one
+ * found in `model_backends.api_key` is moved out of it. Harness Relay never calls these APIs itself:
+ * it only hands them to the CLIs.
  */
 
 /** The variable each CLI reads an API backend's key from. */
@@ -217,7 +218,7 @@ export class ModelBackendStore {
           moved = true;
         } catch (err) {
           this.keysLeftInDb.add(id);
-          console.warn(`[backends] could not move the ${id} API key to the system keyring: ${(err as Error).message}`);
+          console.warn(`[backends] could not move the ${id} API key to the credential store: ${(err as Error).message}`);
         }
         continue;
       }
@@ -226,7 +227,7 @@ export class ModelBackendStore {
         if (key) this.setKey(id, key);
       } catch (err) {
         this.unreadable.add(id);
-        console.warn(`[backends] could not read the ${id} API key from the system keyring: ${(err as Error).message}`);
+        console.warn(`[backends] could not read the ${id} API key from the credential store: ${(err as Error).message}`);
       }
     }
     // Write the scrubbed page into the database file now; until a checkpoint the old plaintext stays there.
@@ -326,15 +327,15 @@ export class ModelBackendStore {
           else this.keyring.delete(name);
         } catch (err) {
           putBack = false;
-          console.warn(`[backends] could not put back the ${id} API key in the system keyring: ${(err as Error).message}`);
+          console.warn(`[backends] could not put back the ${id} API key in the credential store: ${(err as Error).message}`);
         }
         // One that could not be read at startup was replaced, so it cannot come back: there is none now,
         // or (when the new one could not be taken out) the keyring holds the key of the change not saved.
         if (flags.unreadable) {
           console.warn(
             putBack
-              ? `[backends] the ${id} API key the system keyring could not give is gone: set it again`
-              : `[backends] the ${id} API key the system keyring could not give was replaced, and the keyring still holds the key of the change that was not saved: set the key again`,
+              ? `[backends] the ${id} API key the credential store could not give is gone: set it again`
+              : `[backends] the ${id} API key the credential store could not give was replaced, and the credential store still holds the key of the change that was not saved: set the key again`,
           );
         }
       }

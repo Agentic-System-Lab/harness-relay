@@ -34,7 +34,8 @@ import type { SecretStore } from './secrets';
  * or a skill keeps them.
  *
  * The values of an MCP server's environment variables and headers are secrets (tokens): they go to
- * the OS credential store when there is one, like API keys, and the UI only ever sees them masked.
+ * the OS credential store when there is one, else encrypted into the database (secrets.ts), like API
+ * keys, and the UI only ever sees them masked.
  * They are kept by the server's id, not its name, so a rename never touches them (a store with
  * case-insensitive names, like Windows', would otherwise see `github` → `GitHub` as one entry).
  */
@@ -62,7 +63,7 @@ interface Stored {
   mcpServers: StoredServer[];
   skills: { path: string; providers: Provider[] }[];
   memory: Record<MemoryScope, string>;
-  /** Without a credential store: the secret values, by server id. */
+  /** Without a secret store (tests), or saved by an older version: the secret values, by server id. */
   secrets?: Record<string, Secrets>;
 }
 
@@ -244,7 +245,7 @@ export class ToolLibrary {
     for (const s of this.data.mcpServers) {
       let secrets: Secrets | undefined = this.data.secrets?.[s.id];
       if (keyring && secrets) {
-        // Saved while there was no credential store: move the values there, or keep them where they are.
+        // Saved as they are (by an older version, or with no store): move the values there, or keep them where they are.
         try {
           this.writeSecrets(s.id, secrets);
           moved = true;
@@ -264,7 +265,11 @@ export class ToolLibrary {
       this.secrets.set(s.id, { env: secrets?.env ?? {}, headers: secrets?.headers ?? {} });
     }
     delete this.data.secrets;
-    if (moved) this.save();
+    if (moved) {
+      this.save();
+      // Write the scrubbed page into the database file now; until a checkpoint the old values stay there.
+      this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    }
   }
 
   /** With a credential store: servers (ids) whose values are still in the database because moving them failed. */

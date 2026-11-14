@@ -3,6 +3,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { cwdsOf, type AgentWorktree, type ChatMessage, type Conversation } from '../shared/types';
 import { mediaType } from '../shared/media';
 import { attachmentsDir } from './attachments';
+import { fileKey, withheldFileKeys } from './db';
 import { worktreeDir } from './workspace';
 
 export { mediaType };
@@ -86,7 +87,8 @@ function inGit(real: string, root: string): boolean {
 
 /**
  * The real path of the file `ref` names, when it lies inside one of `roots` (after following
- * symlinks), outside `.git`, and `accept`s it. A relative `ref` is resolved against each root in turn.
+ * symlinks), outside `.git`, is not one the server withholds (`withheldFileKeys`), and `accept`s it.
+ * A relative `ref` is resolved against each root in turn.
  */
 function resolveIn(ref: string, roots: string[], accept: (real: string) => boolean): string | undefined {
   if (!ref || ref.includes('\0')) return undefined;
@@ -98,7 +100,10 @@ function resolveIn(ref: string, roots: string[], accept: (real: string) => boole
       // make this computer connect to another one (and offer it the user's credentials).
       if (!inside(target, realRoot) && !inside(target, resolve(root))) continue;
       const real = realpathSync(target);
-      if (inside(real, realRoot) && !inGit(real, realRoot) && accept(real) && statSync(real).isFile()) return real;
+      if (!inside(real, realRoot) || inGit(real, realRoot) || !accept(real)) continue;
+      const st = statSync(real);
+      // Never one the server withholds (its database, the secrets' key file): a reply may name it.
+      if (st.isFile() && !withheldFileKeys().has(fileKey(st))) return real;
     } catch {
       /* not there: try the next root */
     }
