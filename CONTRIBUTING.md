@@ -120,7 +120,7 @@ If you changed the desktop app, also run `npm run desktop:typecheck`, and try it
 
 Releases are made by maintainers with the Release workflow only (**Actions → Release**, from `main`, today's date as the version): never tag a version by hand. See [Releasing](docs/developer-guide.md#releasing) in the developer guide.
 
-[CI](.github/workflows/ci.yml) runs the typecheck, the tests and the build on Node 22 and 24 for every pull request and every push to `main`, and on Windows with Node 24. It also typechecks and builds the desktop app, runs its bundled server as the app does, and packages it for Linux to check it as a release is checked. [Another workflow](.github/workflows/e2e.yml) runs the end-to-end tests on Linux, macOS and Windows.
+[CI](.github/workflows/ci.yml) runs the typecheck, the tests and the build on Node 22 and 24 for every pull request and every push to `main`, and on Windows with Node 24. It also typechecks and builds the desktop app, runs its bundled server as the app does, and packages it for Linux to check it as a release is checked. [Another workflow](.github/workflows/e2e.yml) runs the end-to-end tests on Linux, macOS and Windows. The tests on Windows, the packaged app and the end-to-end tests run only when the change touches a file they depend on ([`scripts/ci-scope.ts`](scripts/ci-scope.ts)): the run's summary says which ran and why. If you make one of them read, import or ship a file its `IGNORES` list names, take the file off the list. Each workflow's last check (**CI passed**, **End-to-end passed**) stands for all its jobs.
 
 If your change affects what agents see or do, also try it in the app with at least one real CLI, and say which ones you used.
 

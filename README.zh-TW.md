@@ -187,7 +187,7 @@ agent 會以你為對話選擇的檔案權限執行（**唯讀**、**可編輯**
 | `npm run desktop` | 建置桌面 app 並直接執行，不安裝（先執行 `npm install --prefix desktop`） |
 | `npm run desktop:dist` | 為目前的系統建置桌面 app 的安裝檔，放在 `desktop/release/` |
 
-每個 pull request 與每次推送到 `main` 都會在 GitHub Actions 上執行型別檢查、測試與建置（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)），並在 Linux、macOS 與 Windows 上執行端對端測試（[`.github/workflows/e2e.yml`](.github/workflows/e2e.yml)）。[網站](https://agentic-system-lab.github.io/harness-relay/zh-TW/)是 [`site/`](site/) 裡的靜態頁面，由 [`.github/workflows/pages.yml`](.github/workflows/pages.yml) 發佈到 GitHub Pages。
+每個 pull request 與每次推送到 `main` 都會在 GitHub Actions 上執行型別檢查、測試與建置（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)），並在 Linux、macOS 與 Windows 上執行端對端測試（[`.github/workflows/e2e.yml`](.github/workflows/e2e.yml)）；較慢的 job（Windows 上的測試、打包好的桌面 app、端對端測試）只在改動碰到它們依賴的檔案時才會跑（[`scripts/ci-scope.ts`](scripts/ci-scope.ts)）。[網站](https://agentic-system-lab.github.io/harness-relay/zh-TW/)是 [`site/`](site/) 裡的靜態頁面，由 [`.github/workflows/pages.yml`](.github/workflows/pages.yml) 發佈到 GitHub Pages。
 
 ## 參與開發
 
