@@ -100,6 +100,8 @@ export type Updating = { kind: 'downloading'; done: number } | { kind: 'installi
  */
 export function chatUpdate(o: {
   updates: boolean;
+  /** The running app's version, as released (`__RELAY_VERSION__`): where the changes since it are read from (`changesPage`). */
+  current: string;
   update?: UpdateRelease;
   updating?: Updating;
   checking: boolean;
@@ -111,7 +113,7 @@ export function chatUpdate(o: {
   const progress: UpdateProgress | undefined = u?.kind === 'downloading' ? { kind: 'downloading', percent: Math.floor(u.done * 100) } : u;
   return {
     updates: true,
-    ...(o.update ? { available: { version: o.update.version, page: o.update.page } } : {}),
+    ...(o.update ? { available: { version: o.update.version, changes: changesPage(o.update, o.current) } } : {}),
     ...(progress ? { progress } : {}),
     ...(o.checking ? { checking: true } : {}),
     ...(o.checkedAt !== undefined ? { checkedAt: o.checkedAt } : {}),
@@ -248,6 +250,23 @@ export function newestRelease(json: unknown, source: UpdateSource, candidates = 
  */
 export function takesCandidates(current: string): boolean {
   return current.split('+')[0]!.includes('-');
+}
+
+/** GitHub's comparisons of two versions of ours: `/compare/<from>...<to>`. */
+export const COMPARE_PAGE = `https://github.com/${REPO}/compare`;
+
+/**
+ * Where what changed from the running app's version (`current`, as released: `__RELAY_VERSION__`) to
+ * `release` is read: GitHub's comparison of their tags, every commit between them however many
+ * versions came out in between (a release's own notes list only those since the version before it:
+ * 2026-11-14.1's, those since 2026-11-14, so an app of 2026-11-13 would miss 2026-11-14's). The
+ * release's page for an app whose version is no release's tag (a build of your own, `-dev`), or not
+ * older than `release`.
+ */
+export function changesPage(release: UpdateRelease, current: string): string {
+  const from = parseVersion(current);
+  if (!from.ok || compareSemver(semverOf(from.value), release.semver) >= 0) return release.page;
+  return `${COMPARE_PAGE}/${from.value.version}...${release.version}`;
 }
 
 /** Whether `latest` is newer than the running app, whose version is `current` (semver, app.getVersion()). */

@@ -56,8 +56,8 @@ export function VersionCard({ status, onUpdate }: Props) {
               <button type="button" className="primary small-button" disabled={busy} onClick={() => void update()}>
                 {v.update}
               </button>
-              <a className="small" href={offer.page} target="_blank" rel="noopener noreferrer">
-                {v.releaseNotes}
+              <a className="small" href={offer.changes} target="_blank" rel="noopener noreferrer">
+                {v.whatChanged}
               </a>
             </>
           )}

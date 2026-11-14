@@ -1395,7 +1395,7 @@ describe('/api/update', () => {
   it("gives this version and what the desktop app says of its updates, and passes the chat's asks on to it", async () => {
     const s = new SettingsStore(openDatabase(':memory:'));
     const sent: unknown[] = [];
-    let say: (u: { updates: boolean; available?: { version: string; page: string }; checkedAt?: number }) => void = () => {};
+    let say: (u: { updates: boolean; available?: { version: string; changes: string }; checkedAt?: number }) => void = () => {};
     const updates = new Updates({ send: (m) => sent.push(m), onUpdate: (fn) => (say = fn) }, async () => '2026-11-11');
     const own = createApp({ auth: null, store, settings: s, hub: new Hub(), orchestrator, providers: new ProviderService(s), updates });
     const get = async () => (await own.request('/api/update', { headers: HOST })).json();
@@ -1411,7 +1411,7 @@ describe('/api/update', () => {
     const checked = own.request('/api/update/check', json('POST', {}));
     await new Promise((r) => setTimeout(r, 0));
     expect(sent).toEqual([{ type: 'update-check', id: 1 }]);
-    const available = { version: '2026-11-12', page: 'https://github.com/x/y/releases/tag/2026-11-12' };
+    const available = { version: '2026-11-12', changes: 'https://github.com/x/y/compare/2026-11-11...2026-11-12' };
     say({ updates: true, available, checkedAt: 7, answered: [1] } as Parameters<typeof say>[0]);
     expect(await (await checked).json()).toEqual({ updates: true, available, checkedAt: 7, current: '2026-11-11' });
 
