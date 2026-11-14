@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,9 +46,9 @@ const serverLink = (code: string) => signInLink(code, { host: DEFAULT_HOST, port
  */
 const stubs = join(tmp, 'bin');
 mkdirSync(stubs);
-function stub(name: string, body: string): void {
-  writeFileSync(join(stubs, name), `#!/bin/sh\necho "${name} $*" >> "$STUB_CALLS"\n${body}\n`);
-  chmodSync(join(stubs, name), 0o755);
+function stub(name: string, body: string, dir = stubs): void {
+  writeFileSync(join(dir, name), `#!/bin/sh\necho "${name} $*" >> "$STUB_CALLS"\n${body}\n`);
+  chmodSync(join(dir, name), 0o755);
 }
 stub('curl', '[ "$STUB_RUNNING" = 1 ] && exit 0 || exit 7');
 stub(
@@ -75,6 +75,64 @@ function start(running: boolean, env: Record<string, string>): { out: string; ca
     encoding: 'utf8',
   });
   return { out, calls: readFileSync(calls, 'utf8').trim().split('\n') };
+}
+
+const INSTALLERS = ['https://x.ai/cli/install.sh', 'https://cursor.com/install', 'https://antigravity.google/cli/install.sh', 'https://dev.meta.ai/install.sh'];
+const NPM_INSTALL = 'npm install -g @anthropic-ai/claude-code @openai/codex @github/copilot';
+
+/**
+ * Stand-ins for what setup.sh runs, each noting its arguments in `STUB_CALLS`: `sudo` (does nothing),
+ * `curl` (fetches an installer that notes it ran and says so, the last one leaving `STUB_DONE`; fails
+ * for `STUB_FAILING`) and `npm` (waits up to 10 s for `STUB_DONE`, so that it is still installing while
+ * the installers run, then notes it is done, says so on both its outputs and exits with
+ * `STUB_NPM_STATUS`).
+ */
+const setupStubs = join(tmp, 'setup-bin');
+mkdirSync(setupStubs);
+stub('sudo', '', setupStubs);
+stub(
+  'curl',
+  String.raw`[ "$2" = "$STUB_FAILING" ] && exit 22
+cat > "$4" <<EOF
+echo "ran $2" | tee -a "\$STUB_CALLS"
+[ "$2" != ${INSTALLERS.at(-1)} ] || : > "\$STUB_DONE"
+EOF`,
+  setupStubs,
+);
+stub(
+  'npm',
+  `i=0
+while [ ! -e "$STUB_DONE" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+echo "npm done" >> "$STUB_CALLS"
+echo "added 7 packages in 26s"
+echo "npm warn deprecated something" >&2
+exit "$STUB_NPM_STATUS"`,
+  setupStubs,
+);
+
+/**
+ * Runs setup.sh as `onCreateCommand` does, with the stand-ins, its temporary files in a folder of its own:
+ * what it printed, its exit status, the stand-ins' calls (read when asked), `STUB_DONE`'s path, and the
+ * temporary files it left.
+ */
+function setup(opts: { npmStatus?: number; failing?: string } = {}) {
+  const at = mkdtempSync(join(tmp, 'setup-'));
+  const [calls, done, temp] = [join(at, 'calls'), join(at, 'done'), join(at, 'tmp')];
+  mkdirSync(temp);
+  const r = spawnSync('bash', [join(root, '.devcontainer', 'setup.sh')], {
+    cwd: at,
+    env: clean({
+      HOME: at,
+      TMPDIR: temp,
+      PATH: `${setupStubs}${delimiter}${process.env.PATH}`,
+      STUB_CALLS: calls,
+      STUB_DONE: done,
+      STUB_FAILING: opts.failing ?? '',
+      STUB_NPM_STATUS: String(opts.npmStatus ?? 0),
+    }),
+    encoding: 'utf8',
+  });
+  return { out: r.stdout, status: r.status, calls: () => readFileSync(calls, 'utf8').trim().split('\n'), done, left: () => readdirSync(temp) };
 }
 
 /**
@@ -135,17 +193,52 @@ describe('the dev container', { timeout: slow(20_000) }, () => {
 
   it('installs the seven agent CLIs that are not open source, where the server finds them, and no open-source agent', () => {
     const setup = read('.devcontainer/setup.sh');
-    expect(setup).toContain('npm install -g @anthropic-ai/claude-code @openai/codex @github/copilot\n');
+    expect(setup).toContain(`\n${NPM_INSTALL} > "$npm_log" 2>&1 &\n`);
     // Their makers' own installers, fetched whole and given no input.
-    for (const url of ['https://x.ai/cli/install.sh', 'https://cursor.com/install', 'https://antigravity.google/cli/install.sh', 'https://dev.meta.ai/install.sh']) {
-      expect(setup).toContain(`install_with ${url}\n`);
-    }
+    for (const url of INSTALLERS) expect(setup).toContain(`\ninstall_with ${url}\n`);
     expect(setup).toContain('bash "$script" < /dev/null');
     // Linked from a folder on every PATH: the installers' own folders are on an interactive shell's only.
     expect(setup).toContain('sudo ln -sf "$HOME/.grok/bin/grok" /usr/local/bin/grok');
     expect(setup).toContain('for cli in cursor-agent agy muse; do');
     for (const open of ['opencode', 'goose', 'cline', 'openhands', 'pi-coding-agent']) expect(setup, open).not.toContain(open + '-');
     expect(setup).not.toMatch(/npm install -g[^\n]*(opencode|cline|pi-coding-agent)/);
+  });
+
+  it.skipIf(!posix)("installs npm's CLIs while the makers' installers run one after another, and shows npm's output after theirs", () => {
+    const r = setup();
+    expect(r.status).toBe(0);
+    const calls = r.calls();
+    expect(calls).toContain(NPM_INSTALL);
+    const ran = calls.filter((c) => c.startsWith('ran '));
+    expect(ran).toEqual(INSTALLERS.map((url) => `ran ${url}`));
+    // npm was still installing when the last installer ran (else it would have waited 10 s, and been done first).
+    expect(calls.indexOf('npm done')).toBeGreaterThan(calls.indexOf(`ran ${INSTALLERS.at(-1)}`));
+    // The sandboxes' packages, the links and the playground.
+    expect(calls).toContain('sudo apt-get install -y --no-install-recommends bubblewrap socat ripgrep slirp4netns iproute2 iptables');
+    expect(calls.filter((c) => c.startsWith('sudo ln -sf '))).toHaveLength(4);
+    expect(calls.some((c) => c.startsWith('sudo install -d ') && c.endsWith(' /workspaces/playground'))).toBe(true);
+    // npm's output (both of its streams) in one piece, after the installers'; its log removed.
+    expect(r.out).toBe(`${ran.join('\n')}\nadded 7 packages in 26s\nnpm warn deprecated something\n`);
+    expect(r.left()).toEqual([]);
+  });
+
+  it.skipIf(!posix)("fails when npm's install fails, once the rest is installed, with what npm said", () => {
+    const r = setup({ npmStatus: 3 });
+    expect(r.status).toBe(3);
+    expect(r.calls()).toContain(`ran ${INSTALLERS.at(-1)}`);
+    expect(r.out).toMatch(/\nadded 7 packages in 26s\nnpm warn deprecated something\n$/);
+    expect(r.left()).toEqual([]);
+  });
+
+  it.skipIf(!posix)("stops npm's install when an installer fails, and fails with it", async () => {
+    const r = setup({ failing: INSTALLERS[1] });
+    expect(r.status).toBe(22);
+    expect(r.calls().filter((c) => c.startsWith('ran '))).toEqual([`ran ${INSTALLERS[0]}`]);
+    // Stopped: once what it waits for is there, it would be done within a tenth of a second.
+    writeFileSync(r.done, '');
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect(r.calls()).not.toContain('npm done');
+    expect(r.out).not.toContain('added 7 packages');
   });
 
   it.skipIf(!posix)("starts the server with the codespace's address allowed, and its sign-in link on that address", () => {

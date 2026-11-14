@@ -14,7 +14,7 @@ codespace 算在你的 GitHub 帳號上。GitHub Free 個人帳號每月含 120 
 
 ## 步驟
 
-1. **建立。** 點上面的按鈕，再點「**Create codespace**」。第一次需要幾分鐘：安裝套件與 CLI、建置介面。
+1. **建立。** 點上面的按鈕，再點「**Create codespace**」。GitHub 在你的地區已經預先做好最新正式版的 codespace 時（prebuild，每次發版時做），它會比較快就緒；沒有的話大約需要四分鐘：安裝套件與 CLI、建置介面。
 2. **登入。** 編輯器開好後，它的終端機會啟動 Harness Relay（`bash .devcontainer/start.sh`），並印出 codespace 自己網址上的登入連結 `https://<codespace>-8787.app.github.dev/#code=…`，旁邊附上登入碼。打開這個連結。第一次 GitHub 可能會先確認是你本人，再放行頁面，接著頁面會要你輸入登入碼：輸入終端機印出的那組即可。
 3. **登入 agent。** 在「**設定與登入**」登入你有帳號的那些：Claude Code 和 Cursor 用它們的連結，Codex 用它的裝置代碼（它用瀏覽器登入時，會把瀏覽器導回 `localhost`，那是你自己的電腦，不是 codespace），Grok 和 Muse Code 用它們的裝置代碼，Antigravity 則用 Google 的連結，再把它給你的代碼貼回來。Copilot 用 codespace 的 GitHub token 登入（見 [codespace 的 GitHub token](#codespace-的-github-token)），等 Copilot 回報你帳號的方案後才顯示為已登入；Copilot Free 也算。
 4. **提問。** 點「**新對話**」，工作目錄用 `/workspaces/playground`：dev container 已經幫你建好。Harness Relay 自己的資料夾（`/workspaces/harness-relay`）和包含它的 `/workspaces`，在完全存取以下的編輯模式都會被拒絕。
@@ -68,4 +68,4 @@ codespace 沒有系統金鑰圈，所以在「**設定**」裡輸入的 API key 
 
 同一個 dev container 也能用 VS Code 的 Dev Containers 執行，它會把 port 轉發到你的電腦：這時 `start.sh` 就是 `npm start`，打開它印出的 `http://127.0.0.1:8787` 連結即可。它的容器選項同樣會削弱 Docker 與你電腦之間的隔離：在那裡，有完全存取的 agent 可能透過它們碰到你的電腦，所以只在 codespace 裡給 agent 完全存取。
 
-給維護者：[prebuild](https://docs.github.com/en/codespaces/prebuilding-your-codespaces) 能讓 codespace 更快就緒。它算在 repo 擁有者的帳上，目前沒有設定；設了之後，計數仍然只算為某人建立的 codespace（prebuild 不會執行 `postCreateCommand`）。怎麼讀計數、`latest-release` 怎麼移動：見[開發者指南](developer-guide.zh-TW.md#發佈)。
+給維護者：`latest-release` 的 [prebuild](https://docs.github.com/en/codespaces/prebuilding-your-codespaces) 讓按鈕建立的 codespace 更快就緒。GitHub 每次發版時做一份，把 dev container 執行到 `updateContentCommand` 為止（含），用它建立的 codespace 只執行之後的步驟；計數仍然只算為某人建立的 codespace（prebuild 不會執行 `postCreateCommand`）。它算在組織的帳上，不算在建立 codespace 的人身上。怎麼設定、怎麼讀計數、`latest-release` 怎麼移動：見[開發者指南](developer-guide.zh-TW.md#發佈)。
