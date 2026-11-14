@@ -93,6 +93,21 @@ describe('the dev container', { timeout: slow(20_000) }, () => {
     expect(Object.keys(config.features as object)).toEqual(['ghcr.io/devcontainers/features/sshd:1', 'ghcr.io/devcontainers/features/github-cli:1']);
   });
 
+  it('installs the seven agent CLIs that are not open source, where the server finds them, and no open-source agent', () => {
+    const setup = read('.devcontainer/setup.sh');
+    expect(setup).toContain('npm install -g @anthropic-ai/claude-code @openai/codex @github/copilot\n');
+    // Their makers' own installers, fetched whole and given no input.
+    for (const url of ['https://x.ai/cli/install.sh', 'https://cursor.com/install', 'https://antigravity.google/cli/install.sh', 'https://dev.meta.ai/install.sh']) {
+      expect(setup).toContain(`install_with ${url}\n`);
+    }
+    expect(setup).toContain('bash "$script" < /dev/null');
+    // Linked from a folder on every PATH: the installers' own folders are on an interactive shell's only.
+    expect(setup).toContain('sudo ln -sf "$HOME/.grok/bin/grok" /usr/local/bin/grok');
+    expect(setup).toContain('for cli in cursor-agent agy muse; do');
+    for (const open of ['opencode', 'goose', 'cline', 'openhands', 'pi-coding-agent']) expect(setup, open).not.toContain(open + '-');
+    expect(setup).not.toMatch(/npm install -g[^\n]*(opencode|cline|pi-coding-agent)/);
+  });
+
   it.skipIf(!posix)("starts the server with the codespace's address allowed, and its sign-in link on that address", () => {
     const { out, calls } = start(false, codespace);
     expect(out).toBe(

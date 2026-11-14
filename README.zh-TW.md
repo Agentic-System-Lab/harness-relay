@@ -6,6 +6,10 @@
 
 **網站：** https://agentic-system-lab.github.io/harness-relay/zh-TW/
 
+**不安裝任何東西就試用：** 在你自己的 GitHub codespace 打開它。它的 dev container 會安裝七個非開源的 agent CLI（Claude Code、Codex、Copilot、Grok、Cursor、Antigravity 和 Muse Code）、建置並啟動 app，網址只有你的 GitHub 帳號打得開。詳見[在 GitHub Codespaces 試用](docs/codespaces.zh-TW.md)。
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1)
+
 一個在本機執行的群組聊天室，讓真正的 **Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 和 Muse Code** CLI，以及五個用你選的模型來源執行的開源 coding agent（**OpenCode、Goose、Cline、OpenHands 與 Pi**）組成團隊：替每個 agent 安排角色、決定輪流發言的方式，它們就會處理你的程式碼或任何問題，並且互相回應。
 
 每個問題都由首席 agent 從你的範本挑選團隊（或依範本調整、重新設計），你確認後團隊才開始回答：每個 agent 的定位（架構師、實作者、審查者、魔鬼代言人……）、模型與推理強度，以及對話模式（圓桌、平行或接力）。團隊設計放在範本裡。Harness Relay 會用你自己的登入與工具執行 `claude`、`codex`、`grok`、`cursor-agent`、`agy`、`copilot`、`muse`，用你的 API key 或你自己的模型伺服器執行開源 CLI，把每個 agent 還沒看過的訊息交給它，並把所有內容即時串流到同一個聊天畫面。
@@ -99,10 +103,6 @@ npm start
 `git pull` 之後，請重新執行 `npm install` 和 `npm run build`，再執行 `npm start`。
 
 要用手機或其他裝置使用，把它分享到你的 tailnet：詳見[用手機連線（Tailscale）](docs/remote-access.zh-TW.md)。
-
-想不安裝任何東西就試用，可以在你自己的 GitHub codespace 打開它：它的 dev container 會安裝其中五個 CLI、建置並啟動 app，網址只有你的 GitHub 帳號打得開。詳見[在 GitHub Codespaces 試用](docs/codespaces.zh-TW.md)。
-
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1)
 
 要開發 Harness Relay 本身？改用 `npm run dev`：改程式時伺服器會自動重啟、介面會自動重新載入，網址是 <http://localhost:5173>。詳見[開發者說明](docs/developer-guide.zh-TW.md)。
 

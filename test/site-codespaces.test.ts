@@ -35,8 +35,8 @@ describe('the Codespaces dialog on the landing page', () => {
     const [en, zh] = Object.keys(PAGES).map((p) => dialogOf(read(p)));
     const count = (html: string, pattern: RegExp) => html.match(pattern)?.length ?? 0;
     for (const pattern of [/<li>/g, /<code>/g, /<h[23]\b/g, /<a /g]) expect(count(zh!, pattern), String(pattern)).toBe(count(en!, pattern));
-    // The facts that are the same words in both: the agents it installs, the folder, the commands.
-    for (const fact of ['Claude Code', 'Codex', 'Copilot', 'OpenCode', 'Pi', '120 core-hours', '/workspaces/playground', 'env -u GITHUB_TOKEN gh auth login', 'bash .devcontainer/start.sh', '8787']) {
+    // The facts that are the same words in both: the agents it installs (the seven that are not open source), the folder, the commands.
+    for (const fact of ['Claude Code', 'Codex', 'Copilot', 'Grok', 'Cursor', 'Antigravity', 'Muse Code', 'OpenCode', '120 core-hours', '/workspaces/playground', 'env -u GITHUB_TOKEN gh auth login', 'bash .devcontainer/start.sh', '8787']) {
       expect(en, fact).toContain(fact);
       expect(zh, fact).toContain(fact);
     }

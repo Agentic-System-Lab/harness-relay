@@ -6,6 +6,10 @@
 
 **Website:** https://agentic-system-lab.github.io/harness-relay/
 
+**Try it without installing anything:** open it in a GitHub codespace of your own. Its dev container installs the seven agent CLIs that are not open source (Claude Code, Codex, Copilot, Grok, Cursor, Antigravity and Muse Code), builds the app and starts it, on an address only your GitHub account can open. See [Try it in GitHub Codespaces](docs/codespaces.md).
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1)
+
 A local group chat for the real **Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and Muse Code** CLIs, and five open-source coding agents (**OpenCode, Goose, Cline, OpenHands and Pi**) on the model backends you choose: give each a role, choose how they take turns, and they work on your code, or any question, and answer each other.
 
 For each question, a lead agent picks the team from your templates (or adapts one, or designs a new one), and you confirm it: a position for every agent (architect, builder, reviewer, skeptic…), its model and reasoning effort, and a mode (roundtable, parallel or relay). You design teams as templates. Harness Relay then runs `claude`, `codex`, `grok`, `cursor-agent`, `agy`, `copilot` and `muse` with your own logins and tools, and the open-source CLIs on your API keys or your own model server, passes each agent the messages it hasn't seen yet, and streams everything into one chat.
@@ -99,10 +103,6 @@ Open the sign-in link `npm start` prints in the terminal (`http://127.0.0.1:8787
 After a `git pull`, run `npm install` and `npm run build` again, then `npm start`.
 
 To use it from your phone or another device, share it with your tailnet: see [Use it from your phone (Tailscale)](docs/remote-access.md).
-
-To try it without installing anything, open it in a GitHub codespace of your own: its dev container installs five of the CLIs, builds the app and starts it, on an address only your GitHub account can open. See [Try it in GitHub Codespaces](docs/codespaces.md).
-
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1)
 
 Working on Harness Relay itself? Run `npm run dev` instead: the server restarts and the UI reloads as you edit, at http://localhost:5173. See the [developer guide](docs/developer-guide.md).
 

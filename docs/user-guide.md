@@ -14,7 +14,7 @@ npm run build
 npm start
 ```
 
-Nothing to install it on? [Try it in GitHub Codespaces](codespaces.md): a Linux machine of your own in GitHub's cloud, with five of the agents installed and Harness Relay started.
+Nothing to install it on? [Try it in GitHub Codespaces](codespaces.md): a Linux machine of your own in GitHub's cloud, with the seven agents that are not open source installed and Harness Relay started.
 
 Open the sign-in link `npm start` prints in the terminal (`http://127.0.0.1:8787/#code=…`): Harness Relay takes only browsers that signed in, so other programs on your computer, code an agent runs included, cannot drive it. The link works once, within an hour; to sign in another browser later, run `npm run login`, or use **Settings → Signed-in browsers → Sign in another device**, which also lists the signed-in browsers so you can sign them out. After a `git pull`, run `npm install` and `npm run build` again, then `npm start`. (To work on Harness Relay itself, run `npm run dev` instead and open http://localhost:5173; see the [developer guide](developer-guide.md).)
 

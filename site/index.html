@@ -986,7 +986,7 @@
           <div class="start-foot">
             <p>
               Nothing to install it on yet? <a href="https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1" data-codespaces>Try it in GitHub Codespaces</a>: a Linux machine of your own in
-              GitHub's cloud, with five of the agents installed and Harness Relay started, on an address only your GitHub
+              GitHub's cloud, with the seven agents that are not open source installed and Harness Relay started, on an address only your GitHub
               account can open (<a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/codespaces.md">how it works</a>).
               On a server without a desktop, or working on Harness Relay itself?
               <a href="https://github.com/Agentic-System-Lab/harness-relay#quick-start">Run it from source</a> with Node.js 22.13 or
@@ -1024,13 +1024,13 @@
           </button>
         </div>
         <p class="cs-lead">
-          A Linux machine of your own in GitHub's cloud. It installs Claude Code, Codex, Copilot, OpenCode and Pi, and starts
-          Harness Relay. Nothing goes on your computer.
+          A Linux machine of your own in GitHub's cloud. It installs the seven agents that are not open source (Claude Code,
+          Codex, Copilot, Grok, Cursor, Antigravity and Muse Code) and starts Harness Relay. Nothing goes on your computer.
         </p>
         <ul class="cs-facts">
           <li><b>It runs on your GitHub account.</b> A free personal account includes 120 core-hours a month, about 60 hours of this 2-core machine. It stops after 30 minutes without use; delete it at github.com/codespaces when you are done.</li>
-          <li><b>You still need an agent.</b> Sign in to Claude Code or Codex under Settings &amp; sign-in, or add a model backend for Pi. Copilot signs in with your GitHub account, if it has Copilot (Copilot Free counts).</li>
-          <li><b>Some things work differently.</b> OpenCode runs with full access only. There is no folder dialog: type the working directory, such as <code>/workspaces/playground</code>. Sharing a conversation as a link needs <code>env -u GITHUB_TOKEN gh auth login</code> once. The desktop app's menu and Tailscale sharing are not there.</li>
+          <li><b>You still need an agent signed in.</b> Sign in under Settings &amp; sign-in to the ones you have an account for. Copilot signs in with your GitHub account, if it has Copilot (Copilot Free counts).</li>
+          <li><b>Some things work differently.</b> The open-source agents are not installed: add them from the codespace's terminal (OpenCode then runs with full access only). There is no folder dialog: type the working directory, such as <code>/workspaces/playground</code>. Sharing a conversation as a link needs <code>env -u GITHUB_TOKEN gh auth login</code> once. The desktop app's menu and Tailscale sharing are not there.</li>
           <li><b>Only you can open it.</b> Its address is private to your GitHub account, and the agents' sandboxes work there. An agent with full access can use anything in the codespace, its GitHub token included.</li>
         </ul>
         <h3>Where Harness Relay opens</h3>

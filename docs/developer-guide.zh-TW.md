@@ -171,7 +171,7 @@ e2e/                       端對端測試（Playwright）：npm run test:e2e
 playwright.config.ts       端對端測試的設定（E2E_BROWSERS）
 playwright.live.config.ts  實機測試的設定
 .gitattributes             所有文字檔都以 LF 換行取出，在 Windows 上也一樣
-.devcontainer/             GitHub Codespaces 的 dev container（docs/codespaces.zh-TW.md）：setup.sh 安裝沙箱需要的套件與五個 CLI，start.sh 在 codespace 的網址上啟動伺服器
+.devcontainer/             GitHub Codespaces 的 dev container（docs/codespaces.zh-TW.md）：setup.sh 安裝沙箱需要的套件與七個非開源的 CLI，start.sh 在 codespace 的網址上啟動伺服器
 .github/workflows/ci.yml   CI：pull request 與推送到 main 時，在 Linux 與 Windows 上執行型別檢查、測試與建置；為 Linux 打包桌面 app 並檢查
 .github/workflows/e2e.yml  在 Linux、macOS 與 Windows 上執行端對端測試
 .github/workflows/pages.yml  把 site/ 發佈到 GitHub Pages
@@ -653,7 +653,7 @@ npx vitest test/store.test.ts
 - `test/open-state.test.ts`：每個開源 agent 自己的狀態：兩個對話的執行，彼此都不能讀寫對方的狀態資料夾（Harness Relay 沙箱的規格與它的檔案規則）、key 的資料夾從一輪留到下一輪並在 `freshState` 時清空、沒有 key 的執行用執行後就刪除的資料夾、完全存取以外拒絕在成員資料夾之外的狀態路徑、key 作為資料夾名稱（不尋常的用雜湊）、每個開源 agent 的 private 資料夾不能讀取；五個轉接器各自的配置（一次執行寫入的一切都在狀態資料夾，CLI 也指向那裡）；執行的環境中只有它自己模型來源的金鑰，沒有其他模型供應商繼承來的金鑰，不屬於模型來源的仍會傳入（`allBackendKeys` 時全部）；不論執行對狀態資料夾做了什麼（以 `chmod 000` 鎖住的資料夾、唯讀的檔案）都能清空，且不跟隨連結到資料夾外；刪除的對話的狀態從每個開源 agent 的家目錄移除，啟動時清掉停下的伺服器的執行留下的東西（包括移到一旁的資料夾）；驗證會保留成員對開源 agent 記憶的例外；MCP 工具的核准卡片（它的輸入，唯讀仍是界線）。也測試家目錄先前所在資料夾裡的 private 資料夾，執行讀不到（從它的環境變數得知），那裡也不會建立任何資料夾；以及停下的執行留下的東西可能還在執行時，啟動時的清理不恢復權限。
 - `test/e2e-fakes.test.ts`：端對端測試的假 CLI（`e2e/fake-cli/`），照 `e2e/support/fake-cli.ts` 的方式打包，並依檔名以每個 CLI 的身分執行：十二個 CLI 各有一個模組，名稱、標籤與版本和 Harness Relay 及 spec 的資料（`e2e/support/clis/`）一致，也會回答 `--version`（照 Harness Relay 的讀法讀取，略過版本後面的句點，Copilot 就會印出一個）；拒絕以不是 CLI 的名稱執行；每次啟動都以 provider id 記下，並附上家目錄；假首席 agent 為每個 CLI 取的成員名稱和測試用的一樣；不能寫紀錄檔的地方（像在 Harness Relay 自己的沙箱裡），改把紀錄送到假端點（`E2E_FAKE_LOG_URL`）；`e2e/specs/windows.spec.ts` 的 Windows 啟動器照 `src/server/winLaunch.ts` 的方式啟動（Cursor 的是它的 Node 與腳本，Cline 與 Pi 給 Node 腳本的 npm shim 是 PATH 上的 Node 加上它的腳本，OpenCode 的是它指向的程式）；以及測試伺服器的資料資料夾短到放得下沙箱的 socket，照伺服器的算法（`DATA_DIR_MAX` 對照 `hostTmpRefusal()`）。
 - `test/quickstart.test.ts`：使用者複製的指令在任何 shell 都能執行：npm scripts 不用 Unix 的方式設定環境變數（npm 在 Windows 上用 cmd.exe 執行），首頁、README 與使用指南不用 `&&` 串接指令（Windows PowerShell 5.1 不接受），README 的快速開始從 clone 開始並執行建置好的 app（先 `npm run build` 再 `npm start`，登入連結在 <http://127.0.0.1:8787>）。首頁安裝的是桌面 app：各系統的下載按鈕，沒有指令區塊也沒有 `git clone`，`npm run dev` 與 `npm start` 各出現一次，並連到 README 的快速開始。也測試中文文件裡沒有網址直接接著中文字，否則 GitHub 會把後面的字一起變成連結（請寫成 `<http://…>`）。
-- `test/devcontainer.test.ts`：GitHub Codespaces 的 dev container（`.devcontainer/`）：轉發 `npm start` 聽的 port 並執行它自己的 script；容器選項正好是 bubblewrap 需要的、沒有多給（沒有 `privileged`、capability、mount 或 `init`；feature 只有 sshd 與 GitHub CLI）；用替身 `npm` 與 `curl` 執行 `start.sh`：它向伺服器的預設位址（`DEFAULT_HOST`）確認是否已有伺服器在執行，沒有就啟動它，把 codespace 的網址加進 `RELAY_ALLOWED_HOSTS`，並把登入連結（以及伺服器的 stderr）印成那個網址、旁邊附上登入碼，已在執行則印出 `npm run login` 改寫後的連結、不含 Vite 的；它保留原有的允許主機、在沒有載入設定檔的 shell 裡只從 Codespaces 的檔案讀它要的名稱，不在 codespace 時什麼都不改（用 `bash`；Windows 上略過）。
+- `test/devcontainer.test.ts`：GitHub Codespaces 的 dev container（`.devcontainer/`）：轉發 `npm start` 聽的 port 並執行它自己的 script；容器選項正好是 bubblewrap 需要的、沒有多給（沒有 `privileged`、capability、mount 或 `init`；feature 只有 sshd 與 GitHub CLI）；`setup.sh` 安裝七個非開源的 CLI（npm 的，以及各家自己的安裝程式：先完整下載、不給它任何輸入，再連結到 `/usr/local/bin`），不裝任何開源 agent；用替身 `npm` 與 `curl` 執行 `start.sh`：它向伺服器的預設位址（`DEFAULT_HOST`）確認是否已有伺服器在執行，沒有就啟動它，把 codespace 的網址加進 `RELAY_ALLOWED_HOSTS`，並把登入連結（以及伺服器的 stderr）印成那個網址、旁邊附上登入碼，已在執行則印出 `npm run login` 改寫後的連結、不含 Vite 的；它保留原有的允許主機、在沒有載入設定檔的 shell 裡只從 Codespaces 的檔案讀它要的名稱，不在 codespace 時什麼都不改（用 `bash`；Windows 上略過）。
 
 接下來適合補上的：
 
