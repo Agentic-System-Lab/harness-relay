@@ -32,9 +32,11 @@ interface RoleGuide {
 }
 
 /**
- * Each family's guide, from its makers' own prompting guides and agent docs (November 2026; the sources
- * are in the developer guide, "Changing prompts"). Only what changes how a role is written for that
- * family, and only what holds inside Harness Relay, whose briefing around the role says the rest.
+ * Each family's guide, from its makers' own prompting guides and agent docs, surveyed on 2026-11-14 (the
+ * sources, and which families have no guide of their own or had theirs taken down, are in the developer
+ * guide, "Changing prompts": update the date there with the guides). Only what changes how a role is
+ * written for that family, and only what holds inside Harness Relay, whose briefing around the role says
+ * the rest.
  */
 export const ROLE_GUIDES: Record<ModelFamily, RoleGuide> = {
   claude: {
