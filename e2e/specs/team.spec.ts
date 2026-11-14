@@ -47,6 +47,35 @@ test.describe("changing a chat's team", () => {
     await expect(replies(page, 'Codex')).toHaveCount(0);
   });
 
+  test("the team design card's Adjust team waits while agents are at work, and once the team is adjusted the card shows it", async ({ page, relay }) => {
+    const id = await startChat(page, { autoConfirm: true });
+    await send(page, 'Take your time e2e:slow=4');
+    const card = page.locator('.plan-card').last();
+    await expect(card).toContainText('Used without asking');
+    const adjust = card.getByRole('button', { name: 'Adjust team' });
+    // The team answers: nothing it could save, so nothing to open.
+    await expect(adjust).toBeDisabled();
+    await expect(adjust).toHaveAttribute('title', 'The team cannot be adjusted while agents are at work: adjust it once they finish.');
+    await finishedReply(page, 'Claude');
+    await settled(relay, id);
+    await expect(adjust).toBeEnabled();
+    await expect(adjust).not.toHaveAttribute('title');
+
+    await adjust.click();
+    const drawer = page.getByRole('dialog', { name: 'Team settings' });
+    await drawer.getByRole('textbox', { name: 'Agent name' }).fill('Ada');
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drawer).toBeHidden();
+    // The card names the team the chat has now, and says the user adjusted it.
+    await expect(card.locator('.plan-members strong')).toHaveText(['@Ada']);
+    await expect(card).toContainText('You adjusted this team');
+    const conv = await settled(relay, id);
+    expect(conv.messages.find((m) => m.plan)!.plan).toMatchObject({ agents: [{ name: 'Ada' }], adjustedAt: expect.any(Number) });
+    // And after a reload, from what the server keeps.
+    await page.reload();
+    await expect(page.locator('.plan-card').last().locator('.plan-members strong')).toHaveText(['@Ada']);
+  });
+
   test('the add card is as tall as the members beside it with a shadow while more CLIs are below, lists every CLI on a row of its own, and one tall card stretches only its row', async ({ page, relay }) => {
     // Tall enough to show the whole card above the drawer's buttons.
     await page.setViewportSize({ width: 1280, height: 1300 });

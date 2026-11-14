@@ -450,7 +450,7 @@ describe('auto team', () => {
     await finish(conv.id);
     const plan = conv.messages.find((m) => m.plan)!;
     expect(plan.plan!.awaitingConfirmation).toBe(true);
-    orchestrator.confirmPendingPlan(conv); // what PATCH { agents } does
+    orchestrator.teamSetByHand(conv, true); // what PATCH { agents } does
     expect(plan.plan!.awaitingConfirmation).toBeUndefined();
     // Confirming again, or a plan that never waited, changes nothing.
     const at = plan.plan!.confirmedAt;

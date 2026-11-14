@@ -35,7 +35,7 @@ import { BranchIcon, ClockIcon, CopyIcon, PaperclipIcon, PencilIcon, RetryIcon, 
 import { Logo } from './Logo';
 import { Markdown } from './Markdown';
 import { RoleText } from './RoleText';
-import { markQuotes, replyElementId, revealMessage, reviewElementId } from '../review';
+import { markQuotes, replyElementId, revealMessage, revealQuote, reviewElementId } from '../review';
 
 /**
  * A tool call's detail on one line. A path too long for it loses its start, not its file name: it is
@@ -373,6 +373,7 @@ function PlanCard({
   onDeclinePlan,
   onSavePlan,
   onAdjustTeam,
+  running,
   leadReview,
   onLeadReview,
 }: Pick<
@@ -386,6 +387,7 @@ function PlanCard({
   | 'onDeclinePlan'
   | 'onSavePlan'
   | 'onAdjustTeam'
+  | 'running'
   | 'leadReview'
   | 'onLeadReview'
 >) {
@@ -425,6 +427,18 @@ function PlanCard({
   // Declining keeps the current team: offered when there is one and the design is another team.
   const keepsTeam = plan.source === 'kept' || (plan.source === 'fallback' && !plan.presetId);
   const declinable = awaiting && agents.length > 0 && !keepsTeam;
+  // While agents are at work (the team answering, the lead agent reviewing), the team cannot be saved.
+  const adjust = (
+    <button
+      type="button"
+      className="ghost small-button"
+      onClick={onAdjustTeam}
+      disabled={running}
+      title={running ? t.plan.adjustBusy : undefined}
+    >
+      {t.plan.adjust}
+    </button>
+  );
   const answer = async (fn: (id: string) => Promise<void>) => {
     setConfirming(true);
     try {
@@ -472,9 +486,7 @@ function PlanCard({
           <button type="button" className="primary small-button" onClick={() => answer(onConfirmPlan)} disabled={confirming}>
             {confirming ? t.plan.confirming : t.plan.confirm}
           </button>
-          <button type="button" className="ghost small-button" onClick={onAdjustTeam}>
-            {t.plan.adjust}
-          </button>
+          {adjust}
           {declinable && (
             <button type="button" className="ghost small-button" onClick={() => answer(onDeclinePlan)} disabled={confirming}>
               {t.plan.decline}
@@ -485,6 +497,7 @@ function PlanCard({
       <div className="plan-actions">
         {plan.confirmedAt && <span className="small plan-saved">✓ {plan.autoConfirmed ? t.plan.autoConfirmed : t.plan.confirmed}</span>}
         {plan.declinedAt && <span className="small plan-saved">{t.plan.declined}</span>}
+        {plan.adjustedAt && <span className="small plan-saved">✎ {t.plan.adjusted}</span>}
         {planSavable(plan) &&
           (plan.savedPresetId ? (
             <span className="small plan-saved">✓ {t.plan.saved(plan.name ?? '')}</span>
@@ -497,11 +510,7 @@ function PlanCard({
             </>
           ))}
         {/* Only the latest design is the team now: an earlier card has nothing left to adjust. */}
-        {!awaiting && latestPlan && (
-          <button type="button" className="ghost small-button" onClick={onAdjustTeam}>
-            {t.plan.adjust}
-          </button>
-        )}
+        {!awaiting && latestPlan && adjust}
         {hasMeta(msg.meta) && <MetaText m={msg.meta} />}
       </div>
     </section>
@@ -619,8 +628,8 @@ function ReviewPoint({ h }: { h: ReviewHighlight }) {
           <button
             type="button"
             className="review-reply-link"
-            title={t.review.goToReply(h.agentName)}
-            onClick={() => revealMessage(replyElementId(h.messageId!))}
+            title={h.quote ? t.review.goToQuote(h.agentName) : t.review.goToReply(h.agentName)}
+            onClick={() => revealQuote(h.messageId!, h.quote)}
           >
             @{h.agentName}
           </button>
@@ -907,6 +916,7 @@ export const MessageItem = memo(function MessageItem({
           onDeclinePlan={onDeclinePlan}
           onSavePlan={onSavePlan}
           onAdjustTeam={onAdjustTeam}
+          running={running}
           leadReview={leadReview}
           onLeadReview={onLeadReview}
         />

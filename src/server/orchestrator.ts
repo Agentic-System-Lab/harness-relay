@@ -22,7 +22,18 @@ import type {
   TeamRevision,
 } from '../shared/types';
 import { splitAsk } from '../shared/ask';
-import { OPEN_PROVIDERS, PROVIDER_LABEL, REVISE_REQUEST_MAX, cwdsOf, isEndpointCli, isOpenProvider, pendingPlan, permissionAbove, planSavable } from '../shared/types';
+import {
+  OPEN_PROVIDERS,
+  PROVIDER_LABEL,
+  REVISE_REQUEST_MAX,
+  currentPlan,
+  cwdsOf,
+  isEndpointCli,
+  isOpenProvider,
+  pendingPlan,
+  permissionAbove,
+  planSavable,
+} from '../shared/types';
 import { AgentRunError, runners, type AgentEvent, type RunResult } from './agents';
 import { emptyStateFolder, removeConversationState } from './agents/open';
 import { stateKeys, type ApprovalRequest } from './agents/types';
@@ -43,6 +54,7 @@ import {
   fallbackPlan,
   historyForLead,
   keepMemberIds,
+  planFollowsTeam,
   parsePlanReply,
   teamSettings,
   type PlanConversation,
@@ -1868,15 +1880,27 @@ export class Orchestrator {
   }
 
   /**
-   * A team set by hand is the user's decision too: it settles a design that was waiting (the team
-   * set by hand is the one that answers). Returns whether it did (the caller then lets the team
-   * answer, `startConfirmed`).
+   * The team was set by hand (the team drawer: `members` when its members were sent, not only its
+   * settings). A team set by hand is the user's decision too: it settles a design that was waiting
+   * (the team set by hand is the one that answers). The design the team comes from now (that one, or
+   * the latest one used) shows the team as the user set it, so its card names the members the
+   * conversation has (`planFollowsTeam`). Returns whether a waiting design was settled (the caller
+   * then lets the team answer, `startConfirmed`).
    */
-  confirmPendingPlan(conv: Conversation): boolean {
-    const msg = pendingPlan(conv.messages);
+  teamSetByHand(conv: Conversation, members: boolean): boolean {
+    const waiting = members ? pendingPlan(conv.messages) : undefined;
+    const msg = waiting ?? currentPlan(conv.messages);
     if (!msg) return false;
-    this.markAnswered(conv, msg, 'confirm');
-    return true;
+    const changed = planFollowsTeam(msg.plan!, conv);
+    if (waiting) {
+      this.markAnswered(conv, waiting, 'confirm');
+      return true;
+    }
+    if (changed) {
+      this.store.saveMessage(conv.id, msg, true);
+      this.hub.emit(conv.id, { type: 'message', message: msg });
+    }
+    return false;
   }
 
   private markAnswered(conv: Conversation, msg: ChatMessage, answer: 'confirm' | 'decline'): void {

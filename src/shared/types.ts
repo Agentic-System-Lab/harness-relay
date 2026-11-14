@@ -858,6 +858,12 @@ export interface TeamPlan {
   /** Confirmed without asking: the conversation uses the lead agent's team at once (`autoConfirm`). */
   autoConfirmed?: boolean;
   /**
+   * The user set the team by hand (the team drawer) after the lead agent designed it, or while it waited
+   * for confirmation: `agents` and `settings` are the team as the user set it then, so the card shows
+   * the team the conversation has (`planFollowsTeam`).
+   */
+  adjustedAt?: number;
+  /**
    * Designed for the conversation's schedule (its message, which nobody posted): once confirmed, the
    * team answers nothing now; it gets the message when the schedule sends it.
    */
@@ -926,6 +932,16 @@ export const REVIEW_LIMITS = {
 /** The lead agent's team design that is waiting for the user's confirmation, if any. */
 export function pendingPlan(messages: ChatMessage[]): ChatMessage | undefined {
   return messages.find((m) => m.plan?.status === 'ready' && m.plan.awaitingConfirmation);
+}
+
+/**
+ * The lead agent's team design the conversation's team comes from: the latest one, when it was used
+ * (confirmed, or from before confirmation was asked). Not one declined, nor one still waiting: the
+ * conversation kept the team it had then.
+ */
+export function currentPlan(messages: ChatMessage[]): ChatMessage | undefined {
+  const msg = messages.findLast((m) => m.plan?.status === 'ready');
+  return msg && !msg.plan!.awaitingConfirmation && !msg.plan!.declinedAt ? msg : undefined;
 }
 
 /** Only a team the lead designed or adapted is new, and can be saved as a template. */

@@ -768,6 +768,38 @@ export function keepMemberIds(next: AgentConfig[], current: AgentConfig[]): Agen
   });
 }
 
+/** A member as a team design keeps it, its empty fields left out: two of them are the same member when these are. */
+function memberKey(a: AgentConfig): string {
+  const tools = Object.entries(a.tools ?? {}).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0));
+  return JSON.stringify([a.name, a.provider, a.role.trim(), a.model || '', a.effort || '', a.account || '', tools]);
+}
+
+/**
+ * A team design the conversation's team comes from (`currentPlan`, or the one waiting that a team set
+ * by hand settles), made to show `team` as the user set it by hand in the team drawer: its members and
+ * how they take turns, and when (`adjustedAt`). A template saved from the design before was of the team
+ * as it was then: the card offers to save this one. Returns whether anything changed (a team saved as
+ * the design has it changes nothing).
+ */
+export function planFollowsTeam(
+  plan: TeamPlan,
+  team: { agents: AgentConfig[]; settings: Pick<ConversationSettings, 'mode' | 'rounds' | 'maxHops'> },
+  now = Date.now(),
+): boolean {
+  const s = team.settings;
+  const settings = { mode: s.mode, rounds: s.rounds, maxHops: s.maxHops };
+  const was = plan.settings;
+  const sameWay = was?.mode === s.mode && (s.mode === 'relay' ? was.maxHops === s.maxHops : was.rounds === s.rounds);
+  const members = plan.agents ?? [];
+  const sameMembers = members.length === team.agents.length && members.every((a, i) => memberKey(a) === memberKey(team.agents[i]!));
+  if (sameWay && sameMembers) return false;
+  plan.agents = team.agents.map((a) => ({ ...a }));
+  plan.settings = settings;
+  plan.adjustedAt = now;
+  delete plan.savedPresetId;
+  return true;
+}
+
 /**
  * Members of a team adapted from a template who are one of its members (same name, ignoring case, and
  * same CLI) keep that member's tools and account, as when the template is used as it is: the lead's

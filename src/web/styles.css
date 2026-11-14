@@ -5044,6 +5044,13 @@ details.sub summary {
   background-color: rgb(250 204 21 / 0.32);
 }
 
+/* The words a review point's @name jumped to (revealQuote): over their kind's colour, for a moment. */
+::highlight(review-focus) {
+  background-color: rgb(37 99 235 / 0.32);
+  text-decoration: underline 2px rgb(37 99 235);
+  text-underline-offset: 3px;
+}
+
 /* High contrast: the system's own highlight colours, which it keeps (the card lists each point too). */
 @media (forced-colors: active) {
   ::highlight(review-risk),
@@ -5054,6 +5061,46 @@ details.sub summary {
     background-color: Highlight;
     color: HighlightText;
   }
+
+  ::highlight(review-focus) {
+    background-color: Mark;
+    color: MarkText;
+  }
+}
+
+/* A shared page, which runs no script, has the same words marked as elements (sharePage.tsx), in the
+   same colours; a point's @name links to its words, which then stand a little below the top. */
+.review-quote-mark {
+  color: inherit;
+  background-color: transparent;
+  border-radius: 2px;
+  scroll-margin-top: 40vh;
+}
+
+.review-quote-mark.risk {
+  background-color: rgb(220 38 38 / 0.2);
+}
+
+.review-quote-mark.decision {
+  background-color: rgb(37 99 235 / 0.18);
+}
+
+.review-quote-mark.conflict {
+  background-color: rgb(139 92 246 / 0.2);
+}
+
+.review-quote-mark.verify {
+  background-color: rgb(217 119 6 / 0.22);
+}
+
+.review-quote-mark.note {
+  background-color: rgb(250 204 21 / 0.32);
+}
+
+.review-quote-mark:target {
+  text-decoration: underline 2px rgb(37 99 235);
+  text-underline-offset: 3px;
+  animation: review-flash 1.6s ease-out;
 }
 
 /* A reply or review card the user jumped to from the other one. */

@@ -10,12 +10,14 @@ import {
   SHARE_FILE_URL_MAX,
   SHARE_MAX_BYTES,
   type ChatMessage,
+  type ReviewKind,
   type ShareFileInfo,
   type ShareFileRef,
   type SharedPage,
 } from '../shared/types';
 import { shareFileHref } from '../shared/share';
 import type { Messages } from './i18n';
+import { quoteElementId, replyElementId } from './review';
 
 /** Harness Relay's website: every shared page links to it. */
 export const HARNESS_RELAY_URL = 'https://agentic-system-lab.github.io/harness-relay/';
@@ -63,7 +65,48 @@ export function messageElements<T extends { classList: { contains(name: string):
   return children.filter((el) => !el.classList.contains(BETWEEN_MESSAGES));
 }
 
-/** Buttons that show content (the title, a diagram, the reply a review's point is about) stay, as plain elements. Every other button goes. */
+/**
+ * The words the lead agent's reviews on a shared page quote, as the chat marks them in their replies
+ * (each ready review's points about a reply, with words): the id of the mark that has them on the page
+ * (`quoteElementId`), the reply, the words and their kind.
+ */
+export function shareQuotes(messages: readonly ChatMessage[]): { id: string; replyId: string; quote: string; kind: ReviewKind }[] {
+  return messages.flatMap((m) =>
+    m.review?.status === 'ready'
+      ? (m.review.highlights ?? []).flatMap((h, i) =>
+          h.messageId && h.quote ? [{ id: quoteElementId(m.id, i), replyId: h.messageId, quote: h.quote, kind: h.kind }] : [],
+        )
+      : [],
+  );
+}
+
+/**
+ * Where each review point's @name links on a shared page, which runs no script: the words it quotes,
+ * when they were marked in their reply (`marked`, by mark id), else the reply, when the page has it
+ * (`onPage`, by message id). A point is the `index`-th of review `reviewId`, as its card lists them; one
+ * with no @name on the card (about the replies as a whole), or with nowhere to go, is left out.
+ */
+export function shareReviewLinks(
+  messages: readonly ChatMessage[],
+  marked: ReadonlySet<string>,
+  onPage: ReadonlySet<string>,
+): { reviewId: string; index: number; href: string }[] {
+  return messages.flatMap((m) =>
+    m.review?.status === 'ready'
+      ? (m.review.highlights ?? []).flatMap((h, index) => {
+          if (!h.messageId || !h.agentName) return [];
+          const quote = quoteElementId(m.id, index);
+          const target = marked.has(quote) ? quote : onPage.has(h.messageId) ? replyElementId(h.messageId) : undefined;
+          return target ? [{ reviewId: m.id, index, href: `#${target}` }] : [];
+        })
+      : [],
+  );
+}
+
+/**
+ * Buttons that show content (the title, a diagram, the reply a review's point is about) stay, as plain
+ * elements (a point's @name then links to its words: shareReviewLinks). Every other button goes.
+ */
 export const SHARE_KEEP_BUTTONS = ['chat-title', 'mermaid-zoom', 'review-reply-link'];
 
 /**

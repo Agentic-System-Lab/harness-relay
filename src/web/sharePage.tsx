@@ -5,10 +5,11 @@
 
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import { SHARE_MAX_BYTES, type ChatMessage, type ShareFileRef } from '../shared/types';
+import { SHARE_MAX_BYTES, type ChatMessage, type ReviewKind, type ShareFileRef } from '../shared/types';
 import { Logo } from './components/Logo';
 import { LinkIcon } from './components/icons';
 import type { Messages } from './i18n';
+import { quoteFinder, replyElementId, reviewElementId } from './review';
 import {
   IMAGE_STEPS,
   SHARE_DROP,
@@ -25,6 +26,8 @@ import {
   messagesUpTo,
   shareDocument,
   shareFooter,
+  shareQuotes,
+  shareReviewLinks,
   shareRoleFolds,
 } from './share';
 
@@ -206,6 +209,70 @@ function strip(
   return fileLinkRoom(plans);
 }
 
+/** Wrap the words of `range` in <mark> elements of a quote of kind `kind`, one for each text node it covers; the first has the id `id`. */
+function wrapQuote(range: Range, kind: ReviewKind, id: string): void {
+  const doc = range.startContainer.ownerDocument ?? document;
+  const root = range.commonAncestorContainer;
+  const texts: Text[] = [];
+  if (root.nodeType === Node.TEXT_NODE) texts.push(root as Text);
+  else {
+    const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) if (range.intersectsNode(n)) texts.push(n as Text);
+  }
+  // Where in each node, read before any is split: splitting moves the range.
+  const pieces = texts.map((text) => ({
+    text,
+    start: text === range.startContainer ? range.startOffset : 0,
+    end: text === range.endContainer ? range.endOffset : text.data.length,
+  }));
+  let first = true;
+  for (const { text, start, end } of pieces) {
+    // Nothing of it, or only the space between two blocks (a mark there would sit in a list or table).
+    if (end <= start || !/\S/.test(text.data.slice(start, end))) continue;
+    if (end < text.data.length) text.splitText(end);
+    const words = start > 0 ? text.splitText(start) : text;
+    const mark = doc.createElement('mark');
+    mark.className = `review-quote-mark ${kind}`;
+    if (first) mark.id = id;
+    first = false;
+    words.replaceWith(mark);
+    mark.append(words);
+  }
+}
+
+/**
+ * The words the reviews on the page quote, marked in their replies as the chat marks them (with
+ * <mark> elements: a shared page runs no script, so not with the Highlight API), the first piece of
+ * each with the id its point's @name links to. Returns the ids marked.
+ */
+function markShareQuotes(page: HTMLElement, messages: ChatMessage[]): Set<string> {
+  const marked = new Set<string>();
+  for (const q of shareQuotes(messages)) {
+    const reply = page.querySelector(`#${CSS.escape(replyElementId(q.replyId))}`);
+    // Read again for each quote: marking one splits the reply's text nodes.
+    const range = reply && quoteFinder(reply)(q.quote);
+    if (!range) continue;
+    wrapQuote(range, q.kind, q.id);
+    marked.add(q.id);
+  }
+  return marked;
+}
+
+/** Each review point's @name (left as text by strip()) becomes a link to the words it quotes, or to its reply (see shareReviewLinks). */
+function linkReviewPoints(page: HTMLElement, messages: ChatMessage[], marked: Set<string>): void {
+  const onPage = new Set(messages.filter((m) => page.querySelector(`#${CSS.escape(replyElementId(m.id))}`)).map((m) => m.id));
+  for (const link of shareReviewLinks(messages, marked, onPage)) {
+    const card = page.querySelector(`#${CSS.escape(reviewElementId(link.reviewId))}`);
+    const name = card?.querySelectorAll('.review-point')[link.index]?.querySelector('span.review-reply-link');
+    if (!name) continue;
+    const a = document.createElement('a');
+    a.className = name.className;
+    a.setAttribute('href', link.href);
+    a.append(...Array.from(name.childNodes));
+    name.replaceWith(a);
+  }
+}
+
 /** The messages a share holds, as ChatView shows them (each MessageItem is one element, in order); undefined when they cannot be told. */
 function shownItems(chat: HTMLElement, messages: ChatMessage[], upTo?: string): Element[] | undefined {
   const range = messagesUpTo(messages, upTo);
@@ -292,9 +359,13 @@ export async function sharePage(o: {
   list.append(...copies);
   scroller.append(list);
   page.append(head.cloneNode(true), scroller);
+  // Before strip(): the replies' text as the chat has it, where the chat found the words.
+  const marked = markShareQuotes(page, range);
   const css = appCss();
   // Each link to a file grows to its address on GitHub once the server fills it in.
   const room = strip(page, t, o.convId, o.files, rolesTooLong(copies, css, o.lang));
+  // After strip(), which leaves links into the page as text.
+  linkReviewPoints(page, range, marked);
   const limit = SHARE_MAX_BYTES - room;
 
   const date = new Intl.DateTimeFormat(o.lang, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date());
