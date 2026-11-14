@@ -122,6 +122,19 @@ export function sameTeam(a: Team, b: Team): boolean {
 }
 
 /**
+ * The draft changes only lead review (the team drawer's box): it can be saved on its own, also while
+ * the team replies, since it is read once the team has answered.
+ */
+export function onlyLeadReview(base: Team, draft: Team): boolean {
+  if (Boolean(base.settings.leadReview) === Boolean(draft.settings.leadReview)) return false;
+  const without = (t: Team): Team => {
+    const { leadReview: _review, ...settings } = t.settings;
+    return { ...t, settings };
+  };
+  return sameTeam(without(base), without(draft));
+}
+
+/**
  * The team drawer edits a copy (`draft`) of the conversation's team as it was when the copy was made
  * (`base`). When the team changes underneath (the lead agent designed it, another tab saved it), an
  * untouched draft follows it ('refresh'); an edited one must not be saved over it ('conflict'), unless

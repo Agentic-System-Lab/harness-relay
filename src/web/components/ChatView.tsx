@@ -15,7 +15,7 @@ import {
 } from '../../shared/types';
 import { api, orCreateCwd, type AttachmentUpload } from '../api';
 import { highlightsByReply } from '../../shared/review';
-import { afterStreamError, applyStates as findApplyStates, branchSource, draftStatus, followsAfterScroll, scrollSpot, teamToEdit } from '../chat';
+import { afterStreamError, applyStates as findApplyStates, branchSource, draftStatus, followsAfterScroll, onlyLeadReview, scrollSpot, teamToEdit } from '../chat';
 import { useI18n, useT } from '../i18n';
 import { refreshLimits, useLimits } from '../limits';
 import { hashFor } from '../route';
@@ -748,6 +748,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
           running={running}
           canContinue={hasUserMessage}
           locked={awaitingConfirm || designing}
+          reviewing={reviewing}
           skipQuestion={questions.length > 0}
           placeholder={
             designing
@@ -974,6 +975,8 @@ function TeamDrawer({
   // The team can change while the drawer is open (e.g. the lead agent designs it): follow it until
   // the user edits; after that, saving would overwrite it, so ask to reload first.
   const status = draftStatus(base, team, current);
+  // Only lead review changed: saved on its own, also while the team replies (the rest waits for it).
+  const reviewOnly = onlyLeadReview(base, team);
   const reload = useCallback(() => {
     setBase(current);
     setTeam(current);
@@ -985,6 +988,11 @@ function TeamDrawer({
   const save = async () => {
     setSaving(true);
     try {
+      if (reviewOnly) {
+        await api.setLeadReview(conv.id, Boolean(team.settings.leadReview));
+        onClose();
+        return;
+      }
       // While the lead agent has not designed a team yet, only the settings can change.
       const change = members ? { agents: team.agents, settings: team.settings } : { settings: team.settings };
       await orCreateCwd(
@@ -1066,7 +1074,7 @@ function TeamDrawer({
           </button>
           <button
             className="primary"
-            disabled={saving || running || revising || problems.length > 0 || status === 'conflict'}
+            disabled={saving || (running && !reviewOnly) || revising || problems.length > 0 || status === 'conflict'}
             onClick={save}
           >
             {t.common.save}

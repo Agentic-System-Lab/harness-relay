@@ -11,7 +11,10 @@ export interface NewChatOptions {
   permission?: Permission;
   /** Use the lead agent's teams without asking (the default asks first). */
   autoConfirm?: boolean;
-  /** Have the lead agent review the team's replies (every new chat starts with it off). */
+  /**
+   * Have the lead agent review the team's replies. The New chat page ticks it in every new chat; a test
+   * gets it only when it asks, so the other specs see no reviews.
+   */
   leadReview?: boolean;
   title?: string;
 }
@@ -47,7 +50,7 @@ export async function startChat(page: Page, o: NewChatOptions = {}): Promise<str
   if (o.permission) await page.getByRole('button', { name: permissionLabel(o.permission), exact: true }).click();
   const auto = page.getByRole('checkbox', { name: "Use the lead agent's team without asking me" });
   if (o.autoConfirm !== undefined) await auto.setChecked(o.autoConfirm);
-  if (o.leadReview !== undefined) await page.getByRole('checkbox', { name: LEAD_REVIEW }).setChecked(o.leadReview);
+  await page.getByRole('checkbox', { name: LEAD_REVIEW }).setChecked(o.leadReview ?? false);
   if (o.title) await page.getByPlaceholder(/Conversation title/).fill(o.title);
   await page.getByRole('button', { name: 'Start chat →' }).click();
   await page.waitForURL(/#\/c\//);

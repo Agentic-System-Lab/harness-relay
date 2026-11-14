@@ -781,8 +781,10 @@ export interface ConversationSettings {
   /**
    * Lead review: once the team has answered, the lead agent (Settings) reads its new replies, points out
    * what the user should look at closely, and suggests the next steps (`LeadReview`). Any conversation
-   * may have it, with or without auto team. Off in every new chat; only the user switches it (the New
-   * chat page, Team settings, the team design card), for the question being answered and the ones after it.
+   * may have it, with or without auto team. On in every new chat the New chat and New schedule pages
+   * make (off for one made through the API without it); only the user switches it (the New
+   * chat and New schedule pages, Team settings, the team design card), for the question being answered
+   * and the ones after it.
    */
   leadReview?: boolean;
   /**

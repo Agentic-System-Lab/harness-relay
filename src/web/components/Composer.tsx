@@ -31,6 +31,8 @@ interface Props {
   canContinue: boolean;
   /** The team is being designed or waits for confirmation: what is sent waits for it (no Continue, no interrupting). */
   locked?: boolean;
+  /** The lead agent reviews the team's replies: what is sent is a new question, for after the review. */
+  reviewing?: boolean;
   placeholder: string;
   /** `interrupt`: stop the team and send this now (Cmd/Ctrl+Enter while it replies). */
   onSend: (text: string, attachments: AttachmentUpload[], interrupt: boolean) => Promise<boolean>;
@@ -54,6 +56,7 @@ export function Composer({
   running,
   canContinue,
   locked = false,
+  reviewing = false,
   placeholder,
   onSend,
   onStop,
@@ -247,8 +250,8 @@ export function Composer({
 
   const c = t.composer;
   const hint = isTouchScreen()
-    ? locked ? c.hintConfirmTouch : running ? c.hintBusyTouch : c.hintTouch
-    : locked ? c.hintConfirm : running ? c.hintBusy(MOD_KEY) : c.hint;
+    ? locked ? c.hintConfirmTouch : reviewing ? c.hintReviewTouch : running ? c.hintBusyTouch : c.hintTouch
+    : locked ? c.hintConfirm : reviewing ? c.hintReview(MOD_KEY) : running ? c.hintBusy(MOD_KEY) : c.hint;
 
   return (
     <div

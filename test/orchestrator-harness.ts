@@ -72,6 +72,8 @@ export interface Call {
   home?: string;
   model?: string;
   effort?: string;
+  /** It was given a way to ask the user's approval (`requestApproval`). */
+  asksApproval?: boolean;
 }
 
 /** Every fake CLI run, in order (emptied before each test; a test empties it with `calls.length = 0`). */
@@ -179,6 +181,7 @@ beforeAll(() => {
           permission: o.permission,
           model: o.model,
           effort: o.effort,
+          ...(o.requestApproval ? { asksApproval: true } : {}),
         });
         if (fake.reviewGate && !o.signal?.aborted) {
           await Promise.race([fake.reviewGate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);

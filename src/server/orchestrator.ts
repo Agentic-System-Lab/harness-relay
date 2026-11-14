@@ -12,7 +12,6 @@ import type {
   Conversation,
   ConversationBranch,
   ConversationSchedule,
-  ConversationSettings,
   FileChange,
   LeadReview,
   MessageChanges,
@@ -168,6 +167,8 @@ interface Run {
   answerNext?: boolean;
   /** The team's turns are over and the lead agent reviews its replies (lead review). */
   reviewing?: boolean;
+  /** Stops the review alone (lead review switched off while it runs): the run then ends as usual. */
+  reviewAbort?: AbortController;
   /** Settles once the run has finished, including its clean-up. */
   done: Promise<void>;
 }
@@ -227,7 +228,7 @@ export function titleFrom(text: string): string {
  * Copies of messages with new ids (a branch's): what a lead review says of a copied message (a reply
  * it read or points out, where it started reading) points at its copy, and of one not copied, at nothing.
  */
-export function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
+function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
   const copies = messages.map((m) => ({ ...structuredClone(m), id: randomUUID() }));
   const ids = new Map(messages.map((m, i) => [m.id, copies[i]!.id]));
   for (const m of copies) {
@@ -248,12 +249,6 @@ export function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
   return copies;
 }
 
-
-/** A new chat's copy of a conversation's settings (a schedule's new chat each time): lead review starts off there. */
-function newChatSettings(settings: ConversationSettings): ConversationSettings {
-  const { leadReview: _off, ...rest } = structuredClone(settings);
-  return rest;
-}
 
 /** Longest name of a template saved from a plan. */
 const MAX_PRESET_NAME = 100;
@@ -768,9 +763,12 @@ export class Orchestrator {
       // user sends meanwhile is not left in the queue of a run that then cannot start.
       const locked = this.folderLockedBy(conv);
       if (locked) return { result: 'busy', reason: locked };
+      // A question the user wrote during a review that was then stopped waits too: the lead agent
+      // designs its team, as when they send it (they are there; with auto team only).
+      const asks = this.waitingQuestion(conv);
       await this.start(conv, waiting ? '' : s.text, {
         queue: true,
-        keepTeam: true,
+        ...(asks ? { question: 'new' as const } : { keepTeam: true }),
         scheduled: !waiting,
         refuseApprovals: s.approvals !== 'ask',
       });
@@ -782,10 +780,9 @@ export class Orchestrator {
   }
 
   /**
-   * Send the schedule's message in a new conversation: a copy of this one's team, settings (but lead
-   * review, off as in every new chat), "always allow" answers and sidebar group (the lead agent does
-   * not sort it), named after it and the time it
-   * came due, which says where it comes from. Whatever this conversation is doing — replying, waiting
+   * Send the schedule's message in a new conversation: a copy of this one's team, settings (lead review
+   * included, as the schedule has it), "always allow" answers and sidebar group (the lead agent does
+   * not sort it), named after it and the time it came due, which says where it comes from. Whatever this conversation is doing — replying, waiting
    * for the user's answer, holding messages in its queue — does not matter; only another conversation
    * writing in the same folder (this one included) makes it wait. A conversation whose run could not
    * start is removed again: nothing was sent in it.
@@ -805,7 +802,7 @@ export class Orchestrator {
       createdAt: now,
       updatedAt: now,
       agents: structuredClone(conv.agents),
-      settings: newChatSettings(conv.settings),
+      settings: structuredClone(conv.settings),
       messages: [],
       agentState: {},
       worktrees: {},
@@ -923,9 +920,10 @@ export class Orchestrator {
 
   /**
    * Start a run for the messages still waiting, when nothing else is going on and the team may
-   * answer (the lead agent's team design is not waiting for confirmation). They were written while the
-   * team worked, so the current team answers them. Returns whether it starts; a run that fails to
-   * start says why in the chat, and its messages keep waiting.
+   * answer (the lead agent's team design is not waiting for confirmation): the current team answers
+   * them, or with auto team a new team, for a question written while the lead agent reviewed
+   * (`waitingQuestion()`). Returns whether it starts; a run that fails to start says why in the chat,
+   * and its messages keep waiting.
    */
   startQueued(conv: Conversation): boolean {
     if (!conv.queue?.length || !this.mayStart(conv)) return false;
@@ -1727,6 +1725,9 @@ export class Orchestrator {
     this.store.saveMessage(conv.id, msg, true);
 
     this.reviewing.add(conv.id);
+    // Stop stops it with the run; switching lead review off stops it alone.
+    run.reviewAbort = new AbortController();
+    const signal = AbortSignal.any([run.abort.signal, run.reviewAbort.signal]);
     const started = Date.now();
     let result: RunResult | undefined;
     let review: Pick<LeadReview, 'summary' | 'highlights' | 'nextSteps'> | undefined;
@@ -1748,7 +1749,7 @@ export class Orchestrator {
         stateKey: stateKeys.review(conv.id),
         model: await this.modelFor(lead.provider, lead.model, lead.account),
         effort: lead.effort || this.settings.defaultEffort(lead.provider, lead.account) || undefined,
-        signal: run.abort.signal,
+        signal,
         onEvent: (e) => {
           if (e.type === 'text') reply += e.text;
           else if (e.type === 'text_end') reply += '\n';
@@ -1758,7 +1759,7 @@ export class Orchestrator {
       if (result.sessionId) this.linkSession(conv, lead.provider, result.sessionId);
       review = parseReviewReply(reply, material.replies);
     } catch (err) {
-      if (!run.abort.signal.aborted) {
+      if (!signal.aborted) {
         console.warn('[orchestrator] lead review failed:', (err as Error).message);
         failure = (err as Error).message.trim().slice(0, 500);
       }
@@ -1772,7 +1773,7 @@ export class Orchestrator {
       inputTokens: result?.inputTokens,
       outputTokens: result?.outputTokens,
     };
-    if (run.abort.signal.aborted) {
+    if (signal.aborted) {
       msg.status = 'aborted';
     } else {
       const read = { replyIds, ...(material.fromId ? { fromId: material.fromId } : {}) };
@@ -1804,8 +1805,9 @@ export class Orchestrator {
   }
 
   /**
-   * Turn lead review on or off (the team design card's box). Any time, also while the team replies:
-   * whether the lead agent reviews is decided when the team has answered.
+   * Turn lead review on or off (the team design card's box, or Team settings' while the team replies).
+   * Any time, also while the team replies: whether the lead agent reviews is decided when the team has
+   * answered.
    */
   setLeadReview(convId: string, on: boolean): Conversation {
     const conv = this.store.get(convId);
@@ -1816,6 +1818,9 @@ export class Orchestrator {
       this.store.saveMeta(conv);
       this.emitConversation(conv);
     }
+    // Off while the lead agent reviews: that review stops too (its card says so), and the run ends as
+    // usual (what waits for it starts).
+    if (!on) this.runs.get(convId)?.reviewAbort?.abort();
     return conv;
   }
 

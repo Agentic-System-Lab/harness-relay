@@ -74,7 +74,9 @@ export function markQuotes(root: HTMLElement, marks: readonly ReviewHighlight[])
 export function revealMessage(elementId: string): void {
   const el = document.getElementById(elementId);
   if (!el) return;
-  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  // At once for those who asked for less motion (the flash is turned off for them by the stylesheet).
+  const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  el.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'center' });
   el.classList.remove('flash');
   // Restarted on each click: the class is put back on the next frame.
   requestAnimationFrame(() => {

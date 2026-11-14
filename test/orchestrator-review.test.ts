@@ -96,6 +96,43 @@ describe('lead review', () => {
     expect(saved.messages.at(-1)!.review).toEqual(review);
   });
 
+  it('never lets the lead ask for an approval, so it can take no directory lock while it reviews', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'edit', leadReview: true });
+    await orchestrator.send(conv.id, 'one');
+    await finish(conv.id);
+    expect(reviewerCalls()).toHaveLength(1);
+    expect(reviewerCalls()[0]).toMatchObject({ permission: 'read-only' });
+    expect(reviewerCalls()[0]!.asksApproval).toBeUndefined();
+  });
+
+  it('stops a review under way when it is switched off; the run ends as usual and what waited starts', async () => {
+    const conv = conversation({ mode: 'parallel', leadReview: true });
+    fake.reviewGate = new Promise(() => {});
+    await orchestrator.send(conv.id, 'one');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    await orchestrator.send(conv.id, 'next');
+    fake.reviewGate = undefined;
+    orchestrator.setLeadReview(conv.id, false);
+    await vi.waitFor(() => expect(agentMessages(conv)).toHaveLength(4));
+    await finish(conv.id);
+    // Its card says it stopped; no "Stopped" note, and the message that waited was answered.
+    expect(reviews(conv).map((m) => m.status)).toEqual(['aborted']);
+    expect(conv.messages.some((m) => m.author.kind === 'system' && textOf(m) === 'Stopped.')).toBe(false);
+    expect(conv.queue ?? []).toHaveLength(0);
+    expect(reviewerCalls()).toHaveLength(1);
+    // Switched on again with nothing new to read, nothing more runs.
+    orchestrator.setLeadReview(conv.id, true);
+    expect(orchestrator.isRunning(conv.id)).toBe(false);
+  });
+
+  it('refuses the switch for a conversation being deleted', async () => {
+    const conv = conversation({ mode: 'parallel' });
+    const deleting = orchestrator.deleteConversation(conv.id);
+    expect(() => orchestrator.setLeadReview(conv.id, true)).toThrow(expect.objectContaining({ status: 404 }));
+    await deleting;
+    expect(() => orchestrator.setLeadReview(conv.id, true)).toThrow(expect.objectContaining({ status: 404 }));
+  });
+
   it('does not review when the conversation does not ask for it', async () => {
     const conv = conversation({ mode: 'parallel' });
     await orchestrator.send(conv.id, 'hello');
@@ -376,7 +413,7 @@ describe('lead review', () => {
     expect(() => orchestrator.setLeadReview('nope', true)).toThrow();
   });
 
-  it('starts the new conversation a schedule opens each time with it off, as every new chat starts', async () => {
+  it('copies the setting to the new conversation a schedule opens each time, as its other settings', async () => {
     const conv = conversation({ mode: 'parallel', leadReview: true });
     conv.schedule = {
       text: 'scheduled check',
@@ -394,12 +431,16 @@ describe('lead review', () => {
     expect(sent.result).toBe('sent');
     const chat = store.get((sent as { chatId: string }).chatId)!;
     await finish(chat.id);
-    expect(chat.settings.leadReview).toBeUndefined();
-    expect(new Store(db).get(chat.id)!.settings.leadReview).toBeUndefined();
-    expect(chat.messages.filter((m) => m.review)).toHaveLength(0);
-    expect(reviewerCalls()).toHaveLength(0);
-    // The schedule's own conversation keeps it.
-    expect(store.get(conv.id)!.settings.leadReview).toBe(true);
+    expect(chat.settings.leadReview).toBe(true);
+    expect(new Store(db).get(chat.id)!.settings.leadReview).toBe(true);
+    expect(chat.messages.filter((m) => m.review)).toHaveLength(1);
+    // Off in the schedule's conversation: off in the next one it opens.
+    orchestrator.setLeadReview(conv.id, false);
+    const next = await orchestrator.sendScheduled(conv.id);
+    const other = store.get((next as { chatId: string }).chatId)!;
+    await finish(other.id);
+    expect(other.settings.leadReview).toBeUndefined();
+    expect(other.messages.filter((m) => m.review)).toHaveLength(0);
   });
 });
 
@@ -611,6 +652,38 @@ describe('questions written during a review, and reviews stopped', () => {
     expect(leadCalls()[1]!.prompt).toContain('a brand new question');
     // Posted, the mark is gone.
     expect(again.messages.find((m) => m.author.kind === 'user' && m.parts.some((p) => p.type === 'text' && p.text === 'a brand new question'))!.duringReview).toBeUndefined();
+  });
+
+  it("has the lead agent design the team for a question left by a stopped review when the schedule sends first", async () => {
+    const conv = autoChat();
+    fake.reviewGate = new Promise(() => {});
+    await orchestrator.send(conv.id, 'first question');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
+    await orchestrator.send(conv.id, 'a brand new question');
+    orchestrator.stop(conv.id);
+    await finish(conv.id);
+    fake.reviewGate = undefined;
+    conv.schedule = {
+      text: 'scheduled check',
+      repeat: { kind: 'interval', hours: 1 },
+      timeZone: 'UTC',
+      lang: 'en',
+      enabled: true,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+      updatedAt: 0,
+    };
+    store.saveSchedule(conv);
+    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('sent');
+    await vi.waitFor(() => expect(leadCalls()).toHaveLength(2), { timeout: 20_000 });
+    await finish(conv.id);
+    expect(leadCalls()[1]!.prompt).toContain('a brand new question');
+    expect(conv.queue ?? []).toHaveLength(0);
+    // Without such a question, the current team takes the schedule's message, with no design.
+    await orchestrator.sendScheduled(conv.id);
+    await finish(conv.id);
+    expect(leadCalls()).toHaveLength(2);
   });
 
   it('drops the mark of a question written during a review when it is withdrawn', async () => {

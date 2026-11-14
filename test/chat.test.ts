@@ -26,6 +26,7 @@ import {
   thoughtTail,
   thoughtTitle,
   restoredText,
+  onlyLeadReview,
 } from '../src/web/chat';
 import type { Team } from '../src/web/components/TeamEditor';
 import { clip, clipPath } from '../src/server/agents/types';
@@ -496,5 +497,21 @@ describe('text that comes into the message box', () => {
     expect(restoredText('', { text: '@Bob add tests', once: true })).toBe('@Bob add tests');
     expect(restoredText('@Bob add tests', { text: '@Bob add tests', once: true })).toBe('@Bob add tests');
     expect(restoredText('and docs', { text: '@Bob add tests', once: true })).toBe('@Bob add tests\nand docs');
+  });
+});
+
+describe("the team drawer's lead review box", () => {
+  const team = (settings: Partial<ConversationSettings> = {}): Team => ({
+    agents: [{ id: 'a1', name: 'Alice', provider: 'claude' } as AgentConfig],
+    settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'read-only', cwd: '/w', ...settings },
+  });
+
+  it('is saved on its own (also while the team replies) when it is all that changed', () => {
+    expect(onlyLeadReview(team(), team({ leadReview: true }))).toBe(true);
+    expect(onlyLeadReview(team({ leadReview: true }), { ...team(), settings: { ...team().settings, leadReview: undefined } })).toBe(true);
+    // Nothing changed, or something else changed too.
+    expect(onlyLeadReview(team(), team())).toBe(false);
+    expect(onlyLeadReview(team(), team({ leadReview: true, rounds: 2 }))).toBe(false);
+    expect(onlyLeadReview(team(), { ...team({ leadReview: true }), agents: [] })).toBe(false);
   });
 });
