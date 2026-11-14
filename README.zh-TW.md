@@ -46,8 +46,8 @@
 - **瀏覽工作目錄**：對話上方的 **檔案** 會列出工作目錄（平行模式下也可以看某位成員的 worktree），並預覽程式碼（附行號和語法上色）、Markdown、圖片與影片；任何檔案都可以下載，任何資料夾（包括目前所在的資料夾）也可以下載成 ZIP 檔。
 - **每個 CLI 多個帳號**：每個 CLI 都能登入多個帳號，例如兩個 Claude 訂閱、Codex 的三個 ChatGPT 帳號、Grok 的三個 xAI 帳號（Cursor 在每個電腦使用者只保留一個登入，所以它額外的帳號用 API key 登入；Antigravity 把 Google 登入存在系統的金鑰儲存區，所以它額外的帳號用 Gemini API key 登入；Muse Code 把 Meta 登入存在 macOS 的登入鑰匙圈，所以它額外的帳號用 Meta API key 登入），各自有自己的登入、API key、資料夾、預設模型與推理強度，以及不載入哪些項目，並為每位團隊成員（以及首席 agent）選擇要用哪個帳號。見[使用說明](docs/user-guide.zh-TW.md#多個帳號)。
 - **設定與登入頁**：分別登入各個 CLI（裝置碼、瀏覽器、貼上授權碼），設定執行檔路徑、模型來源與首席 agent，並為每個帳號設定 API key、預設模型與推理強度；查看每個帳號的方案還剩多少（Claude Code、Codex、Grok、Copilot、Antigravity 與 Muse Code 回報的額度；Cursor 的方案）；也能查看各 CLI 在每個帳號裡自己載入的 skill、MCP 伺服器與它們的工具、內建工具、hook、subagent、plugin、指示與記憶，並讓 Harness Relay 執行時整類或逐項不載入（Cursor 與 Antigravity 沒辦法，Muse Code 只能對它的 MCP 伺服器與 hook 這樣做）。
-- **回報問題**：側邊欄「設定」旁的圖示會用你的郵件程式或 Gmail 寫信給開發者，回報內容與版本、系統資訊都已填好；截圖可以拖進信裡，或用 `gh` 上傳成 secret gist 讓信裡附上連結，再寄出。
-- **在 GitHub 給一顆星星**：旁邊的星星圖示會說明 GitHub 的 Star 按鈕在哪裡，並打開 repo 頁面，給願意支持這個專案的人。
+- **回報問題**：側邊欄「設定」那一行最右邊的對話框圖示會用你的郵件程式或 Gmail 寫信給開發者，回報內容與版本、系統資訊都已填好；截圖可以拖進信裡，或用 `gh` 上傳成 secret gist 讓信裡附上連結，再寄出。
+- **在 GitHub 給一顆星星**：它左邊的星星圖示會說明 GitHub 的 Star 按鈕在哪裡，並打開 repo 頁面，給願意支持這個專案的人。
 - **English 與繁體中文**：介面跟著瀏覽器的語言（可在設定頁切換）；第一次開啟時會有使用導覽介紹主要功能。
 - **完全在本機**：所有資料存在單一 SQLite 檔案；伺服器只監聽 `127.0.0.1`。
 - **手機也能用**：用 `tailscale serve` 分享到你的 [Tailscale](https://tailscale.com) tailnet（HTTPS，只有你的裝置連得到），就能用手機打開，也能加到主畫面，iOS 與 Android 都可以。詳見[用手機連線](docs/remote-access.zh-TW.md)。

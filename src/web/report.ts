@@ -1,4 +1,4 @@
-// A problem report (the sidebar's button beside Settings), sent by email: the dialog's text, made
+// A problem report (the sidebar's button at the right end of Settings' row), sent by email: the dialog's text, made
 // into a mail the user's own mail app (a mailto link) or Gmail opens, filled in, for them to send.
 // Nothing goes out until they do. Pure, so it can be tested without a DOM.
 

@@ -830,7 +830,7 @@ export const zhTW = {
     link: '連結：',
   },
 
-  /** Reporting a problem or an idea by email (the sidebar's button beside Settings). */
+  /** Reporting a problem or an idea by email (the sidebar's button at the right end of Settings' row). */
   report: {
     title: '回報問題',
     intro: '遇到問題或有想法？寫下來，會寄到開發者的信箱。',
@@ -1677,7 +1677,7 @@ export const zhTW = {
         body: '在設定頁可以切換介面語言（繁體中文 / English）、設定模型來源（開源 agent 用它，Claude Code、Codex 與 Grok 也能用它的自訂端點）、更換首席 agent、查看各 CLI 自己載入的 skill、MCP 與記憶、設定新對話的預設工作目錄、開關通知與提示音、管理語音輸入、agent 的 session 與分享的對話，也能重新觀看這份導覽。上方的區塊連結會帶你直接跳到每一項。',
         points: [
           '最前面的「版本」：目前的版本；桌面版每小時檢查一次有沒有新版本，有的話會跳出一次對話框，可以從那裡、這張卡片或選單更新',
-          '「設定與登入」右邊的按鈕可以用電子郵件回報問題或建議，附上版本與系統資訊，也可以附上截圖',
+          '「設定與登入」那一行最右邊的對話框按鈕可以用電子郵件回報問題或建議，附上版本與系統資訊，也可以附上截圖',
         ],
       },
     ] as { title: string; body: string; points?: string[] }[],

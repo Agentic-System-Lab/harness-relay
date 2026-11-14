@@ -5,6 +5,9 @@ import { acceptNextDialog, askAndConfirm, chatId, finishedReply, homePage, openT
 import type { RelayServer } from '../support/relay';
 import { REPO, REPO_URL } from '../../src/web/star';
 
+/** The star's yellow (`--star` in styles.css). */
+const YELLOW = 'rgb(250, 204, 21)';
+
 /** Makes a group in the sidebar, as the user does, and returns its section. */
 async function newGroup(page: Page, name: string): Promise<Locator> {
   await page.getByRole('button', { name: 'New group' }).click();
@@ -185,6 +188,9 @@ test.describe('the sidebar', () => {
     const [starBox, reportBox] = [await star.boundingBox(), await report.boundingBox()];
     expect(starBox!.x + starBox!.width).toBeLessThanOrEqual(reportBox!.x);
     expect(Math.abs(starBox!.y - reportBox!.y)).toBeLessThan(0.5);
+    // Yellow under the mouse.
+    await star.hover();
+    await expect(star.locator('svg')).toHaveCSS('fill', YELLOW);
 
     await star.click();
     const dialog = page.getByRole('dialog', { name: 'Give Harness Relay a star' });
@@ -214,6 +220,8 @@ test.describe('the sidebar', () => {
     await expect(link).toHaveAttribute('href', REPO_URL);
     await expect(link).toHaveAttribute('target', '_blank');
     await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    // Its star is yellow, filled.
+    await expect(link.locator('svg')).toHaveCSS('fill', YELLOW);
     const opened = page.context().waitForEvent('page');
     await link.click();
     const tab = await opened;
@@ -234,6 +242,15 @@ test.describe('the sidebar', () => {
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
     await expect(star).toBeFocused();
+
+    // × and a click beside the dialog close it too.
+    await star.click();
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await expect(dialog).toBeHidden();
+    await star.click();
+    await expect(dialog).toBeVisible();
+    await page.mouse.click(5, 5);
+    await expect(dialog).toBeHidden();
   });
 
   test('with reduced motion, the star dialog shows the pointer resting on Star, the press not played', async ({ page }) => {

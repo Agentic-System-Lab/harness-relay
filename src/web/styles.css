@@ -879,12 +879,15 @@ p {
   border-radius: 10px;
 }
 
-.sidebar-bottom-row .star-button:hover {
-  color: var(--star-edge);
-}
+/* Yellow under a mouse; not left yellow after a tap on a phone. */
+@media (hover: hover) {
+  .sidebar-bottom-row .star-button:hover {
+    color: var(--star-edge);
+  }
 
-.sidebar-bottom-row .star-button:hover svg {
-  fill: var(--star);
+  .sidebar-bottom-row .star-button:hover svg {
+    fill: var(--star);
+  }
 }
 
 .main {
@@ -6964,7 +6967,7 @@ a.share-action {
   white-space: nowrap;
 }
 
-/* Report a problem (the sidebar's button beside Settings): a mail, filled in */
+/* Report a problem (the sidebar's button at the right end of Settings' row): a mail, filled in */
 .modal.report-dialog {
   width: min(560px, 100%);
   overflow-y: auto;
