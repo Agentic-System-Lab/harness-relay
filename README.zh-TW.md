@@ -8,7 +8,7 @@
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1)
 
-**不安裝任何東西就試用：** 在你自己的 GitHub codespace 打開最新的正式版。它的 dev container 會安裝七個非開源的 agent CLI（Claude Code、Codex、Copilot、Grok、Cursor、Antigravity 和 Muse Code）、建置並啟動 app，網址只有你的 GitHub 帳號打得開。詳見[在 GitHub Codespaces 試用](docs/codespaces.zh-TW.md)。
+**不安裝任何東西就能免費體驗：** 在你自己的 GitHub codespace 打開最新的正式版。它的 dev container 會安裝七個非開源的 agent CLI（Claude Code、Codex、Copilot、Grok、Cursor、Antigravity 和 Muse Code）、建置並啟動 app，網址只有你的 GitHub 帳號打得開。詳見[在 GitHub Codespaces 試用](docs/codespaces.zh-TW.md)。
 
 ---
 
