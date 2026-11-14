@@ -378,6 +378,7 @@ export const zhTW = {
     drawerNote: '角色修改會在下一個回合生效。更換成員的 coding agent 會讓他從頭讀一次對話紀錄。',
     confirmCreateCwd: (dirs: string) => `工作目錄不存在：\n${dirs}\n要建立並儲存團隊設定嗎？`,
     drawerBusy: '團隊回覆中，停止後才能儲存',
+    drawerReviewing: '首席 agent 正在審閱回覆，停止後才能儲存',
     // Only when the box can be saved alone: no design waits, and the draft is not in conflict.
     drawerBusyReview: '（只改首席 agent 審閱的話，現在就能儲存）',
     drawerPending: '你正在調整首席 agent 提出、還在等確認的團隊：儲存後就會採用這個團隊，接著回答你的問題。',

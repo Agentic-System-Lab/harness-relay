@@ -22,6 +22,7 @@ import {
   project,
   root,
   setOrchestrator,
+  setStore,
   settings,
   stateKeys,
   store,
@@ -621,6 +622,76 @@ describe('after the review', () => {
     const recent = recentOf(reviewerCalls()[1]!.prompt);
     expect(recent).toContain('<message from="user">\nfirst\n</message>');
     expect(recent).toContain('<message from="user">\nnext\n</message>');
+  });
+
+  it('refuses "Skip the review and send now" too when another conversation took the folder, and goes on reviewing', async () => {
+    const first = conversation({ mode: 'roundtable', permission: 'edit', leadReview: true });
+    const other = conversation({ mode: 'roundtable', permission: 'edit' });
+    fake.reviewGate = new Promise(() => {});
+    await orchestrator.send(first.id, 'first');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    scheduleIn(first);
+    expect(await orchestrator.sendScheduled(first.id)).toEqual({ result: 'queued' });
+    let releaseOther!: () => void;
+    fake.gate = new Promise((r) => (releaseOther = r));
+    await orchestrator.send(other.id, 'other');
+    // The tray's button: nothing typed, what waits sent now.
+    await expect(withLang('en', () => orchestrator.send(first.id, '', undefined, true))).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringContaining('is changing'),
+    });
+    expect(reviews(first)[0]!.review!.status).toBe('reviewing');
+    expect(first.queue).toHaveLength(1);
+    fake.reviewGate = undefined;
+    orchestrator.stop(first.id);
+    fake.gate = Promise.resolve();
+    releaseOther();
+    await finish(other.id);
+    await finish(first.id);
+  });
+
+  it('keeps the folder while it stops the review for a message, so another conversation cannot take it meanwhile', async () => {
+    const first = conversation({ mode: 'roundtable', permission: 'edit', leadReview: true });
+    const other = conversation({ mode: 'roundtable', permission: 'edit' });
+    fake.reviewGate = new Promise(() => {});
+    await orchestrator.send(first.id, 'first');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    fake.reviewGate = undefined;
+    // Both at once: the message that stops the review holds the folder before it does.
+    const mine = orchestrator.send(first.id, 'next');
+    const theirs = withLang('en', () => orchestrator.send(other.id, 'other'));
+    await expect(theirs).rejects.toMatchObject({ status: 409, message: expect.stringContaining('is changing') });
+    await expect(mine).resolves.toEqual({ queued: false });
+    await finish(first.id);
+    expect(userTexts(first)).toEqual(['first', 'next']);
+    expect(reviews(first).map((m) => m.review!.status)).toEqual(['reviewing', 'ready']);
+    expect(reviews(first)[0]!.status).toBe('aborted');
+    // Once its run is over, the folder is free again.
+    await orchestrator.send(other.id, 'other');
+    await finish(other.id);
+  });
+
+  it('reads, after a restart, from where a review stopped before it started', async () => {
+    const conv = conversation({ mode: 'parallel', leadReview: true });
+    fake.reviewGate = new Promise(() => {});
+    await orchestrator.send(conv.id, 'one');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    orchestrator.stop(conv.id);
+    await finish(conv.id);
+    fake.reviewGate = undefined;
+    // The server starts again: the stopped card comes back with where it started reading.
+    const restarted = new Store(db);
+    setStore(restarted);
+    setOrchestrator(new Orchestrator(restarted, new Hub(), settings, { context: async () => ({ available: ['claude'], catalog: [], presets: restarted.listPresets() }) }));
+    const again = restarted.get(conv.id)!;
+    expect(reviews(again)[0]!.status).toBe('aborted');
+    expect(reviews(again)[0]!.review!.fromId).toBe(again.messages.find((m) => m.author.kind === 'user')!.id);
+    await orchestrator.send(again.id, 'two');
+    await finish(again.id);
+    const recent = recentOf(reviewerCalls().at(-1)!.prompt);
+    expect(recent).toContain('<message from="user">\none\n</message>');
+    expect(recent).toContain('<message from="user">\ntwo\n</message>');
+    expect(reviews(again).at(-1)!.review!.status).toBe('ready');
   });
 
   it('reads the latest question when turned on again, not everything since an old review', async () => {

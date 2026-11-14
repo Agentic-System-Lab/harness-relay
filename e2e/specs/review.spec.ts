@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
-import { LEAD_REVIEW, awaitingPlan, composer, finishedReply, openNewChat, openTeamChat, reviewCards, send, settled, startChat } from '../support/app';
+import { LEAD_REVIEW, awaitingPlan, composer, finishedReply, openNewChat, openTeamChat, replies, reviewCards, send, settled, startChat } from '../support/app';
 
 /*
  * Lead review: once the team has answered, the lead agent reads its replies, marks what needs a closer
@@ -158,6 +158,29 @@ test.describe('lead review', () => {
     expect(conv.queue ?? []).toHaveLength(0);
     await expect(page.locator('.msg-system').filter({ hasText: /^Stopped\.$/ })).toHaveCount(0);
     expect(await page.evaluate(() => (window as unknown as { trayShown?: boolean }).trayShown)).toBe(false);
+  });
+
+  test("a schedule's message that comes due during a review waits for it in the tray, and \"Skip the review and send now\" sends it now", async ({ page, relay }) => {
+    const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { leadReview: true });
+    await relay.api(`/api/conversations/${id}/schedule`, {
+      method: 'PUT',
+      body: { text: 'Scheduled check', repeat: { kind: 'interval', hours: 24 }, approvals: 'deny', missed: 'skip', enabled: true },
+    });
+    await send(page, 'Go e2e:slowreview');
+    await finishedReply(page, 'Claude');
+    await expect(reviewCards(page).last()).toContainText('is reviewing');
+    // Sent now, as when it comes due: it waits for the review.
+    await relay.api(`/api/conversations/${id}/schedule/run`, { body: {} });
+    const tray = page.locator('.queue-tray');
+    await expect(tray.locator('.queue-title')).toHaveText('1 waiting');
+    await expect(tray).toContainText('Sent once the lead agent has reviewed the replies');
+    await tray.getByRole('button', { name: 'Skip the review and send now' }).click();
+    await expect(reviewCards(page).first()).toContainText('The review was stopped');
+    await expect(tray).toBeHidden();
+    await expect(page.locator('.msg-user').last()).toContainText('Scheduled check');
+    await expect(replies(page, 'Claude')).toHaveCount(2);
+    await page.getByRole('button', { name: 'Stop', exact: true }).click();
+    await settled(relay, id);
   });
 
   test("the team design card has the box, which the lead agent leaves alone: ticked there, it holds for the question being answered and the next ones", async ({

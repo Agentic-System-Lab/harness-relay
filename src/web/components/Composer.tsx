@@ -365,8 +365,9 @@ export function Composer({
               className="send"
               onClick={() => void submit()}
               disabled={!canSend}
-              aria-label={running && !locked ? t.composer.queueLabel : t.composer.sendLabel}
-              title={running && !locked ? t.composer.queueLabel : undefined}
+              // While the team replies it adds to the discussion; during a review it sends now (stopping it).
+              aria-label={running && !locked && !reviewing ? t.composer.queueLabel : t.composer.sendLabel}
+              title={running && !locked && !reviewing ? t.composer.queueLabel : undefined}
             >
               ↑
             </button>

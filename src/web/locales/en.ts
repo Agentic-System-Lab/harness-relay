@@ -354,6 +354,7 @@ export const en: Messages = {
     drawerNote: "Role changes apply from the next turn. Switching a member's coding agent makes it re-read the conversation from the start.",
     confirmCreateCwd: (dirs) => `These working directories do not exist:\n${dirs}\nCreate them and save the team settings?`,
     drawerBusy: 'The team is replying; stop it to save',
+    drawerReviewing: "The lead agent is reviewing the team's replies; stop it to save",
     drawerBusyReview: ' (lead review alone can be saved now)',
     drawerPending: "You are adjusting the team the lead agent proposed, which waits for your confirmation: saving uses this team, and it then answers your question.",
     drawerChanged: 'The team changed while you were editing (for example, the lead agent designed it). Load it, then make your changes again.',

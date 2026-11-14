@@ -804,6 +804,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
           providers={providers}
           catalog={catalog}
           running={running}
+          reviewing={reviewing}
           leadText={leadText}
           onClose={() => setTeamOpen(false)}
           onError={setError}
@@ -943,6 +944,7 @@ function TeamDrawer({
   providers,
   catalog,
   running,
+  reviewing,
   leadText,
   onClose,
   onError,
@@ -951,6 +953,8 @@ function TeamDrawer({
   providers: ProviderStatus[];
   catalog: ProviderModels[];
   running: boolean;
+  /** The team has answered and the lead agent reviews its replies. */
+  reviewing: boolean;
   leadText: string;
   onClose: () => void;
   onError: (s: string) => void;
@@ -1074,7 +1078,7 @@ function TeamDrawer({
           )}
           {running && (
             <span className="muted small">
-              {t.chat.drawerBusy}
+              {reviewing ? t.chat.drawerReviewing : t.chat.drawerBusy}
               {!proposed && status !== 'conflict' && t.chat.drawerBusyReview}
             </span>
           )}

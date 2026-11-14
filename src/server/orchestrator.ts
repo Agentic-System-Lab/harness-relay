@@ -687,31 +687,48 @@ export class Orchestrator {
     const content = Boolean(text || uploads?.length);
     const found = this.store.get(convId);
     if (!found) throw new HttpError(404, t().conversationNotFound);
-    const reviewing = content && this.reviewing.has(convId);
-    // Another conversation took the folder while the lead agent reviewed: the message could not start,
-    // so it is refused (the message box keeps it) and the review goes on.
-    if (reviewing) {
-      const locked = this.folderLockedBy(found);
-      if (locked) throw new HttpError(409, locked);
-    }
-    if ((interrupt || reviewing) && (content || found.queue?.length)) await this.interrupt(convId);
-    if (content && this.queues(found)) {
-      this.enqueue(found, text, uploads);
-      return { queued: true };
-    }
-    const conv = this.getIdle(convId);
-    if (pendingPlan(conv.messages)) throw new HttpError(409, t().planAwaitingConfirm);
-    if (!content && !conv.queue?.length && !conv.messages.some((m) => m.author.kind === 'user')) {
-      throw new HttpError(400, t().typeFirst);
-    }
-    const files = saveAttachments(conv.id, uploads);
+    // While the lead agent reviews, a message stops the review and goes now, and so does what waits when
+    // the tray's "Skip the review and send now" sends it.
+    const stopsReview = this.reviewing.has(convId) && (content || (interrupt && Boolean(found.queue?.length)));
+    // Held from before the review is stopped until the run that follows takes the folder itself (or
+    // needs none): another conversation that took it meanwhile refuses this send (the message box keeps
+    // it) and the review goes on; none can take it while the review is being stopped.
+    const held = stopsReview ? this.holdFolders(found) : undefined;
     try {
-      await this.start(conv, text, { files, queue: true, ...(content ? { question: 'new' as const } : {}) });
-    } catch (err) {
-      removeAttachments(conv.id, files);
-      throw err;
+      if ((interrupt || stopsReview) && (content || found.queue?.length)) await this.interrupt(convId);
+      if (content && this.queues(found)) {
+        this.enqueue(found, text, uploads);
+        return { queued: true };
+      }
+      const conv = this.getIdle(convId);
+      if (pendingPlan(conv.messages)) throw new HttpError(409, t().planAwaitingConfirm);
+      if (!content && !conv.queue?.length && !conv.messages.some((m) => m.author.kind === 'user')) {
+        throw new HttpError(400, t().typeFirst);
+      }
+      const files = saveAttachments(conv.id, uploads);
+      try {
+        await this.start(conv, text, { files, queue: true, ...(content ? { question: 'new' as const } : {}) });
+      } catch (err) {
+        removeAttachments(conv.id, files);
+        throw err;
+      }
+      return { queued: false };
+    } finally {
+      if (held && !this.runs.get(convId)?.lockRoots) this.unlockDirs(held, convId);
     }
-    return { queued: false };
+  }
+
+  /**
+   * Take a reviewing conversation's directory locks again, on the folders its run wrote in (none in
+   * parallel mode or read-only): refused (409, "… is changing …") when another conversation took one
+   * of them while the lead agent reviewed.
+   */
+  private holdFolders(conv: Conversation): string[] | undefined {
+    const ws = this.runs.get(conv.id)?.ws;
+    if (!ws?.folders || ws.isolated) return undefined;
+    const roots = rootsOf(ws);
+    this.lockDirs(roots, conv);
+    return roots;
   }
 
   /** Take back a message that is still waiting in the queue (it is returned, e.g. to edit it). */
@@ -922,9 +939,10 @@ export class Orchestrator {
 
   /**
    * Start a run for the messages still waiting, when nothing else is going on and the team may
-   * answer (the lead agent's team design is not waiting for confirmation). They were written while the
-   * team worked, so the current team answers them. Returns whether it starts; a run that fails to
-   * start says why in the chat, and its messages keep waiting.
+   * answer (the lead agent's team design is not waiting for confirmation): messages written while the
+   * team worked, or a schedule's message that came due while the lead agent reviewed, which the current
+   * team answers. Returns whether it starts; a run that fails to start says why in the chat, and its
+   * messages keep waiting.
    */
   startQueued(conv: Conversation): boolean {
     if (!conv.queue?.length || !this.mayStart(conv)) return false;
