@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Locator, Page, Request } from '@playwright/test';
 import type { Provider, SettingsView } from '../../src/shared/types';
@@ -190,7 +190,7 @@ test.describe('more than one account', () => {
     test.describe(() => {
       test.use({ serverEnv: { E2E_EXPECTED_API_KEY: key } });
 
-      test(`${cli.provider}: with the credential store off, an account's API key is kept in the database, shown masked, and given to its CLI only`, async ({ page, relay }) => {
+      test(`${cli.provider}: with the credential store off, an account's API key is kept encrypted in the database, shown masked, and given to its CLI only`, async ({ page, relay }) => {
         const { id } = await apiAccount(relay, cli.provider);
         await openSettings(page, relay, cli.provider);
         const work = accountBlock(page, cli.provider, 'Work');
@@ -198,7 +198,9 @@ test.describe('more than one account', () => {
 
         // The tests' servers run with RELAY_KEYRING=off: the boxes say where a key goes.
         await keyBox(main).locator('summary').click();
-        await expect(keyBox(main)).toContainText("Keys are kept in Harness Relay's database (readable only by your user account).");
+        await expect(keyBox(main)).toContainText(
+          "Keys are kept in Harness Relay's database, encrypted (with a key kept in a file of its own, readable only by your user account).",
+        );
         // The server's own environment is the default account's only.
         await expect(keyBox(main)).toContainText(`To keep it out of the database, set ${cli.apiKeyEnv} before starting Harness Relay instead.`);
         // A key-only account's box is open already: its key is how it signs in.
@@ -211,8 +213,12 @@ test.describe('more than one account', () => {
         await expect(keyBox(work).locator('summary')).toHaveText(`API key (set: ${masked})`);
         await expect(work.locator('.pill')).toHaveText('Using an API key');
         await expect(main.locator('.pill')).toHaveText('Signed in');
-        // Never sent back to the browser.
+        // Never sent back to the browser, nor written as it is into the database's files.
         expect(JSON.stringify(await relay.api('/api/settings'))).not.toContain(key);
+        for (const f of ['relay.db', 'relay.db-wal'].map((n) => join(relay.dataDir, n))) {
+          expect(existsSync(f) && readFileSync(f).includes(key), f).toBe(false);
+        }
+        expect(existsSync(join(relay.dataDir, 'secrets.key'))).toBe(true);
 
         const conv = await chatWith(page, relay, [
           { name: cli.name, provider: cli.provider, account: id },

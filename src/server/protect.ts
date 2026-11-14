@@ -5,13 +5,15 @@ import { fileURLToPath } from 'node:url';
 import { PROVIDERS, type Provider } from '../shared/types';
 import { CONFIG } from './config';
 import { t } from './i18n';
+import { secretsKeyFile } from './secrets';
 import { ANTIGRAVITY_HOME_ENV, DATA_DIR, MUSE_HOME_ENV } from './settings';
 
 /*
  * What agents below full access must not reach, besides what their sandbox already keeps them from
  * (see docs/architecture.md, "Signing in"):
  * - reading the browsers' own folders, where a signed-in browser keeps its key (and, in some, its
- *   cookie) on disk, nor Harness Relay's database or its own temporary folder;
+ *   cookie) on disk, nor Harness Relay's database (with the key of the secrets in it) or its own
+ *   temporary folder;
  * - working, in edit mode, in a folder that holds what decides how the agents run: Harness Relay's
  *   own folder or its data folder (its code, its database), the home folder (shell and tool
  *   settings), a CLI's own folder (its settings, hooks, MCP servers, program) or a CLI's program,
@@ -128,9 +130,13 @@ export function appBrowserDirs(env: NodeJS.ProcessEnv = process.env): string[] {
   return dir && isAbsolute(dir) ? [dir] : [];
 }
 
-/** Harness Relay's database and the files SQLite keeps beside it. */
-export function relayDatabaseFiles(dataDir = DATA_DIR): string[] {
-  return ['relay.db', 'relay.db-wal', 'relay.db-shm'].map((f) => join(dataDir, f));
+/**
+ * Harness Relay's database, the files SQLite keeps beside it, and the key the secrets kept in it are
+ * encrypted with when there is no OS credential store (`secretsKeyFile`, also where
+ * RELAY_SECRETS_KEY_FILE puts it outside the data folder).
+ */
+export function relayDatabaseFiles(dataDir = DATA_DIR, env: NodeJS.ProcessEnv = process.env): string[] {
+  return [...['relay.db', 'relay.db-wal', 'relay.db-shm'].map((f) => join(dataDir, f)), secretsKeyFile(dataDir, env)];
 }
 
 /**
@@ -210,7 +216,7 @@ export function protectedReads(
 ): string[] {
   const platform = o.platform ?? process.platform;
   if (platform === 'win32') return [];
-  const relay = [...relayDatabaseFiles(o.dataDir), relayTmpDir(o.dataDir)];
+  const relay = [...relayDatabaseFiles(o.dataDir, o.env), relayTmpDir(o.dataDir)];
   const paths = [...browserDataDirs(platform, o.home), ...appBrowserDirs(o.env), ...relay].filter((p) => existsSync(p));
   return [...new Set(paths.flatMap((p) => [p, real(p)]))];
 }

@@ -17,7 +17,7 @@ import { ProviderService } from './providers';
 import { PushService } from './push';
 import { Scheduler } from './scheduler';
 import { clearShareTmp } from './share';
-import { openSystemKeyring } from './secrets';
+import { openSecretStore, openSystemKeyring, type SecretStore } from './secrets';
 import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
 import { clearRunTmp, dataDirInTemp, relayTmpDir, voiceDirProblem } from './protect';
 import { CONFIG_PROBLEMS } from './config';
@@ -56,7 +56,16 @@ if (!lockDataDir(DATA_DIR)) {
 
 const db = openDatabase(DB_FILE);
 const auth = new AuthStore(db);
-const settings = new SettingsStore(db, openSystemKeyring());
+// The OS credential store, else the database encrypted with the key file: refuse to start without
+// that key rather than keep secrets that could not be read back.
+let secrets: SecretStore;
+try {
+  secrets = openSecretStore(db, openSystemKeyring(), { dataDir: DATA_DIR });
+} catch (err) {
+  console.error(`[server] ${(err as Error).message}`);
+  process.exit(1);
+}
+const settings = new SettingsStore(db, secrets);
 const store = new Store(db);
 const hub = new Hub();
 const providers = new ProviderService(settings);

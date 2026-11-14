@@ -230,7 +230,7 @@ function parseJson(text: string): unknown {
   }
 }
 
-/** Name of an account's API key in the system keyring (the default account's: `<provider>-api-key`). */
+/** Name of an account's API key in the credential store (the default account's: `<provider>-api-key`). */
 const keyName = (p: Provider, account = '') => (account ? `${p}-api-key-${account}` : `${p}-api-key`);
 
 /** One account of one CLI, as a key of a set. */
@@ -245,8 +245,9 @@ export const ACCOUNTS_DIR = join(DATA_DIR, 'accounts');
 /**
  * Provider settings and app-wide settings, stored in SQLite and cached in memory.
  *
- * API keys go to `keyring` (the OS credential store) when there is one; without it they stay in
- * the database, which only the current user can read.
+ * API keys go to `keyring`: the OS credential store when there is one, else the database encrypted
+ * (`openSecretStore` in secrets.ts). Without one at all (tests) they stay in their columns as they
+ * are; a key found there while there is one is moved into it.
  */
 export class SettingsStore {
   private providers: Record<Provider, ProviderSettings>;
@@ -406,14 +407,14 @@ export class SettingsStore {
             moved = true;
           } catch (err) {
             this.keysLeftInDb.add(slot(p, id));
-            console.warn(`[settings] could not move ${what} to the system keyring: ${(err as Error).message}`);
+            console.warn(`[settings] could not move ${what} to the credential store: ${(err as Error).message}`);
           }
           continue;
         }
         try {
           key.apiKey = keyring.get(keyName(p, id)) ?? '';
         } catch (err) {
-          console.warn(`[settings] could not read ${what} from the system keyring: ${(err as Error).message}`);
+          console.warn(`[settings] could not read ${what} from the credential store: ${(err as Error).message}`);
         }
       }
     }
@@ -626,7 +627,7 @@ export class SettingsStore {
       try {
         this.keyring.delete(keyName(p, account));
       } catch (err) {
-        console.warn(`[settings] could not remove the ${p} API key of account ${account} from the system keyring: ${(err as Error).message}`);
+        console.warn(`[settings] could not remove the ${p} API key of account ${account} from the credential store: ${(err as Error).message}`);
       }
     }
     this.keysLeftInDb.delete(slot(p, account));

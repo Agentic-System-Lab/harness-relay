@@ -209,7 +209,9 @@ export const DESKTOP_KEYRING_SERVICE = 'harness-relay-desktop';
  * a shell profile exports for other programs; RELAY_DATA_DIR and RELAY_DEFAULT_CWD from the profile
  * are the user's own choice and are kept. Keys follow the data: with the app's own data folder they
  * are filed apart from `npm start`'s (which reads the same credential store), with RELAY_DATA_DIR set
- * (data shared with `npm start`, say) under the usual name.
+ * (data shared with `npm start`, say) under the usual name. So does the key the secrets are encrypted
+ * with when there is no credential store: RELAY_SECRETS_KEY_FILE names the one for the database in
+ * RELAY_DATA_DIR, so with the app's own data folder it is left out, for its own `secrets.key`.
  */
 export function serverEnv(o: ServerEnvOptions): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
@@ -220,6 +222,7 @@ export function serverEnv(o: ServerEnvOptions): NodeJS.ProcessEnv {
   const ownData = !o.base.RELAY_DATA_DIR?.trim();
   env.RELAY_DATA_DIR = o.base.RELAY_DATA_DIR?.trim() || o.dataDir;
   if (ownData && !o.base.RELAY_KEYRING_SERVICE?.trim()) env.RELAY_KEYRING_SERVICE = DESKTOP_KEYRING_SERVICE;
+  if (ownData) delete env.RELAY_SECRETS_KEY_FILE;
   env.RELAY_DEFAULT_CWD = o.base.RELAY_DEFAULT_CWD?.trim() || o.home;
   env.RELAY_WEB_DIR = o.webDir;
   env.RELAY_APP_BROWSER_DIR = o.browserDir;
