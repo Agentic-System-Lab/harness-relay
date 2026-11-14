@@ -528,8 +528,16 @@ export class Orchestrator {
     }
   }
 
+  /**
+   * A run is under way: registered, or being set up (`starting`, from the moment `start()` is called,
+   * before its workspace is prepared). A run that follows another (a message sent during a review or
+   * with "stop and send this instead", what waited for a run of its own, the team the lead agent just
+   * designed) is set up after the one before has ended, with git awaited meanwhile: counted from its
+   * start, the conversation never looks done in between, so the sidebar shows no gap and no "agents
+   * finished" notification goes out before the run that answers is over.
+   */
   isRunning(id: string): boolean {
-    return this.runs.has(id);
+    return this.runs.has(id) || this.starting.has(id);
   }
 
   /**

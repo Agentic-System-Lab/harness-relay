@@ -33,6 +33,7 @@ import {
   textOf,
   withLang,
 } from './orchestrator-harness';
+import { slow } from './timeouts';
 
 const reviews = (conv: Conversation) => conv.messages.filter((m) => m.review);
 const reviewerCalls = () => calls.filter((c) => c.name === 'reviewer');
@@ -980,10 +981,15 @@ class RecordingPush extends PushService {
 describe('lead review and notifications', () => {
   /**
    * A phone subscribed to every notification, with no page of Harness Relay in front, and the watcher
-   * that tells it; `check()` is one of the watcher's checks (every 1.5 s on the server), taken when the
-   * test says. The first one is where it starts.
+   * that tells it, wired as `src/server/index.ts` wires it (an orchestrator of the test's own, so that
+   * its hub's events reach the watcher). `check()` is one of the watcher's checks (every 1.5 s on the
+   * server), taken when the test says; the first one is where it starts. `settingUp()` has the watcher
+   * check too while each run from then on is being set up (its workspace prepared, which awaits git),
+   * where one run hands over to the next; it returns how many such checks were taken.
    */
   async function phone() {
+    const hub = new Hub();
+    setOrchestrator(new Orchestrator(store, hub, settings, { context: async () => ({ available: ['claude'], catalog: [], presets: store.listPresets() }) }));
     const push = new RecordingPush(db);
     const keys = { p256dh: Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 1)]).toString('base64url'), auth: Buffer.alloc(16, 1).toString('base64url') };
     push.subscribe(undefined, { endpoint: 'https://web.push.apple.com/phone', keys }, { done: true, needs: true, sound: true }, 'en');
@@ -996,9 +1002,21 @@ describe('lead review and notifications', () => {
         ),
       get: (id) => store.get(id),
       push,
+      busy: () => orchestrator.busy() > 0,
     });
+    hub.subscribeAll(() => watcher.touch());
     await watcher.check();
-    return { sent: push.sent, check: () => watcher.check() };
+    const settingUp = () => {
+      let checks = 0;
+      const prepare = orchestrator.prepareWorkspace.bind(orchestrator);
+      vi.spyOn(orchestrator, 'prepareWorkspace').mockImplementation(async (c) => {
+        await watcher.check();
+        checks++;
+        return prepare(c);
+      });
+      return () => checks;
+    };
+    return { sent: push.sent, check: () => watcher.check(), settingUp };
   }
   /** A gate the fake lead agent's review waits for, and its key. */
   const holdReview = () => {
@@ -1050,6 +1068,22 @@ describe('lead review and notifications', () => {
     expect(alerts.sent).toEqual([bobDone]);
   });
 
+  it("tells of the error once the lead has reviewed the replies, when the team's last reply failed", async () => {
+    const conv = conversation({ mode: 'roundtable', leadReview: true });
+    const alerts = await phone();
+    fake.fail = (name) => (name === 'Bob' ? new Error('rate limited') : undefined);
+    const release = holdReview();
+    await orchestrator.send(conv.id, 'go');
+    // Alice answered, so the lead reviews.
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    await alerts.check();
+    expect(alerts.sent).toEqual([]);
+    release();
+    await finish(conv.id);
+    await alerts.check();
+    expect(alerts.sent).toEqual([{ kind: 'error', body: expect.stringMatching(/^Bob ran into an error\n.*rate limited/) }]);
+  });
+
   it('tells that the team finished once a review switched off meanwhile has stopped and the run is over', async () => {
     const conv = conversation({ mode: 'roundtable', leadReview: true });
     const alerts = await phone();
@@ -1080,19 +1114,21 @@ describe('lead review and notifications', () => {
     expect(alerts.sent).toEqual([bobDone]);
   });
 
-  it('tells once, after the next review, when a message sent during a review stops it and the team answers that message', async () => {
+  it('tells once, after the next review, when a message sent during a review stops it: not while the run that answers it is set up', async () => {
     const conv = conversation({ mode: 'roundtable', leadReview: true });
     const alerts = await phone();
     fake.reviewGate = new Promise(() => {});
     await orchestrator.send(conv.id, 'first');
     await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
     await alerts.check();
+    const settingUp = alerts.settingUp();
     const release = holdReview();
     expect(await orchestrator.send(conv.id, 'next one')).toEqual({ queued: false });
-    // The team answers the message in a run of its own, which has begun by the time `send` returns.
-    expect(orchestrator.isRunning(conv.id)).toBe(true);
-    await alerts.check();
-    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(2), { timeout: 20_000 });
+    // The review stopped and its run ended, then the run that answers the message was set up: the
+    // conversation was at work throughout, so the watcher's check meanwhile had no news.
+    expect(settingUp()).toBe(1);
+    expect(alerts.sent).toEqual([]);
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(2), { timeout: slow(20_000) });
     await alerts.check();
     expect(alerts.sent).toEqual([]);
     release();
@@ -1101,6 +1137,53 @@ describe('lead review and notifications', () => {
     await alerts.check();
     expect(alerts.sent).toEqual([bobDone]);
     expect(replyOf(conv, 'Bob', 1).id).toBe(agentMessages(conv).at(-1)!.id);
+  });
+
+  it('tells once, after the next review, when "Skip the review and send now" sends what waited: not while that run is set up', async () => {
+    const conv = conversation({ mode: 'roundtable', leadReview: true });
+    const alerts = await phone();
+    fake.reviewGate = new Promise(() => {});
+    await orchestrator.send(conv.id, 'first');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    scheduleIn(conv);
+    expect(await orchestrator.sendScheduled(conv.id)).toEqual({ result: 'queued' });
+    const settingUp = alerts.settingUp();
+    const release = holdReview();
+    expect(await orchestrator.send(conv.id, '', undefined, true)).toEqual({ queued: false });
+    expect(settingUp()).toBe(1);
+    expect(alerts.sent).toEqual([]);
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(2), { timeout: slow(20_000) });
+    release();
+    await finish(conv.id);
+    expect(userTexts(conv)).toEqual(['first', 'scheduled check']);
+    await alerts.check();
+    expect(alerts.sent).toEqual([bobDone]);
+  });
+
+  it("tells once, after the review, when a message sent during the team's turn waits for a run of its own: not for the run before it, which is not reviewed, nor while the next is set up", async () => {
+    const conv = conversation({ mode: 'roundtable', leadReview: true });
+    const alerts = await phone();
+    let releaseAlice!: () => void;
+    fake.gates.Alice = new Promise((r) => (releaseAlice = r));
+    await orchestrator.send(conv.id, 'first');
+    await vi.waitFor(() => expect(calls.some((c) => c.name === 'Alice')).toBe(true));
+    // For Alice only: Bob's turn in this run does not take it, so it waits for a run of its own.
+    expect(await orchestrator.send(conv.id, '@Alice and another thing')).toEqual({ queued: true });
+    const settingUp = alerts.settingUp();
+    const release = holdReview();
+    delete fake.gates.Alice;
+    releaseAlice();
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: slow(20_000) });
+    // The first run ended with no review (a message waited) and the next one was set up at once.
+    expect(settingUp()).toBe(1);
+    await alerts.check();
+    expect(alerts.sent).toEqual([]);
+    release();
+    await finish(conv.id);
+    expect(reviews(conv)).toHaveLength(1);
+    await alerts.check();
+    // Alice answered the message, last.
+    expect(alerts.sent).toEqual([{ kind: 'done', body: 'Alice finished replying\nAlice done' }]);
   });
 
   it("tells at once that an agent asked the user something, with no review; once they answered, that the team finished after the review", async () => {
@@ -1159,7 +1242,7 @@ describe('lead review and notifications', () => {
 
     const release = holdReview();
     orchestrator.confirmPlan(conv.id, conv.messages.findLast((m) => m.plan)!.id);
-    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: slow(20_000) });
     await alerts.check();
     expect(alerts.sent).toHaveLength(1);
     release();
