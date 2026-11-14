@@ -6,7 +6,7 @@
 
 **Website:** https://agentic-system-lab.github.io/harness-relay/
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1)
+[![Try it free in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1)
 
 **Try it without installing anything:** open the newest release in a GitHub codespace of your own. Its dev container installs the seven agent CLIs that are not open source (Claude Code, Codex, Copilot, Grok, Cursor, Antigravity and Muse Code), builds the app and starts it, on an address only your GitHub account can open. See [Try it in GitHub Codespaces](docs/codespaces.md).
 
