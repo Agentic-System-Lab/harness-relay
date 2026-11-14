@@ -65,7 +65,7 @@ describe('the Codespaces dialog on the landing page', () => {
 
   it('keeps its button and guide link at its bottom while the rest scrolls under them', () => {
     const css = read('site/assets/site.css');
-    const rule = (selector: string) => css.match(new RegExp(`\\n${selector.replace('.', '\\.')} \\{([^}]*)\\}`))![1]!;
+    const rule = (selector: string) => css.match(new RegExp(`\\n${selector.replace(/[.*]/g, '\\$&')} \\{([^}]*)\\}`))![1]!;
     // The dialog is what scrolls, so a sticky bar in it stays at its bottom edge.
     expect(rule('.cs-dialog')).toContain('overflow: auto;');
     const actions = rule('.cs-actions');
@@ -74,6 +74,16 @@ describe('the Codespaces dialog on the landing page', () => {
     expect(actions).toContain('margin: 4px calc(-1 * var(--cs-pad)) 0;');
     expect(actions).toContain('padding: 16px var(--cs-pad) var(--cs-pad);');
     expect(rule('.cs-body')).toContain('padding: var(--cs-pad) var(--cs-pad) 0;');
+    // On one line, also on a phone (measured in Chromium at every width from 320px to 1300px, in both
+    // languages): it never wraps, neither the button nor the link is squeezed, and on narrow screens the
+    // dialog takes more of the width (past the browser's own limit for a modal dialog) and the two get smaller.
+    expect(actions).toContain('flex-wrap: nowrap;');
+    expect(rule('.cs-actions > *')).toContain('flex: none;');
+    const narrow = (width: number) => css.match(new RegExp(`@media \\(max-width: ${width}px\\) \\{\\n  \\.cs-[\\s\\S]*?\\n\\}`))![0];
+    expect(narrow(440)).toMatch(/\.cs-dialog \{[^}]*--cs-pad: 16px;[^}]*width: calc\(100% - 16px\);[^}]*max-width: none;/);
+    expect(narrow(400)).toMatch(/\.cs-actions \.btn svg \{\s*display: none;/);
+    expect(narrow(400)).toContain('font-size: 14px;');
+    expect(narrow(350)).toContain('font-size: 13px;');
     // The last thing in the dialog, so nothing is hidden below it.
     const dialog = dialogOf(read('site/index.html'));
     expect(dialog.slice(dialog.indexOf('<div class="cs-actions">')).replace(/<div class="cs-actions">|<a [\s\S]*?<\/a>|<\/(div|dialog)>|\s+/g, '')).toBe('');
