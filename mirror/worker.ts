@@ -14,6 +14,14 @@
 // agent, so that GitHub's download counts count it as before. A HEAD (the website's check) and a part
 // further on (the Release workflow's check) are never counted.
 //
+// POST /codespaces: a codespace made from the dev container says, once, that it was made
+// (.devcontainer/count.sh), so that the maintainers know how many people try Harness Relay in GitHub
+// Codespaces, which GitHub does not tell a repository's owner. The request holds nothing; the Worker
+// adds one to the day's count in a D1 database (COUNTS), with nothing else: no address, no time of day,
+// no user agent. (Workers Logs, [observability] in wrangler.toml, keeps every request a few days, these
+// as the downloads.) A browser's request, which says its page's Origin, is refused: a web page cannot
+// have its visitors count.
+//
 // Deployed by hand with wrangler (mirror/wrangler.toml); tested in test/mirror.test.ts. No build step
 // and no dependency: wrangler bundles it with the site module it shares the installers' names with.
 
@@ -32,9 +40,19 @@ export interface MirrorBucket {
   head(key: string): Promise<MirrorObject | null>;
   get(key: string, options?: { range?: { offset: number; length: number } }): Promise<MirrorBody | null>;
 }
+/** What the Worker uses of D1 (Cloudflare's D1Database binding): statements run together, in one transaction. */
+export interface CountStatement {
+  bind(...values: string[]): CountStatement;
+}
+export interface CountDatabase {
+  prepare(query: string): CountStatement;
+  batch(statements: CountStatement[]): Promise<unknown[]>;
+}
 export interface Env {
   /** The bucket (wrangler.toml's r2_buckets binding). */
   BUCKET: MirrorBucket;
+  /** The codespaces count (wrangler.toml's d1_databases binding). */
+  COUNTS: CountDatabase;
 }
 /** The request's context: what runs on after the answer is sent. */
 export interface Context {
@@ -135,7 +153,42 @@ function unchanged(header: string | null, etag: string): boolean {
   return header.split(',').some((tag) => tag.trim() === '*' || weakless(tag) === weakless(etag));
 }
 
-export async function handle(request: Request, env: Env, ctx: Context, fetcher: Fetcher): Promise<Response> {
+// Not exported, nor the statements below: the Workers runtime takes each of the module's exports for an
+// entry point, and refuses to start with one that is not a function or a handler.
+/** Where a codespace says it was made (.devcontainer/count.sh). */
+const CODESPACES_PATH = '/codespaces';
+
+/** The day `now` is in Taiwan, as YYYY-MM-DD: the day a release's version is (scripts/release.ts). */
+export function dayOf(now: Date): string {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now);
+  const part = (type: string) => parts.find((p) => p.type === type)!.value;
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
+/** The count's table, made by the first count (a database `wrangler deploy` made is empty), and one more for a day. */
+const COUNT_TABLE = 'CREATE TABLE IF NOT EXISTS codespaces (day TEXT PRIMARY KEY, created INTEGER NOT NULL)';
+const COUNT_ONE = 'INSERT INTO codespaces (day, created) VALUES (?1, 1) ON CONFLICT (day) DO UPDATE SET created = created + 1';
+
+/**
+ * A codespace made: one more for the day. Its request's body and address are not read, nor its headers
+ * but Origin: a browser sends it with a POST from a page (a cross-origin one needs no preflight without a
+ * body), curl in a codespace does not.
+ */
+async function countCodespace(request: Request, env: Env, now: Date): Promise<Response> {
+  const text = { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' };
+  if (request.method !== 'POST') return new Response('Method not allowed\n', { status: 405, headers: { ...text, Allow: 'POST' } });
+  if (request.headers.has('Origin')) return new Response('Forbidden\n', { status: 403, headers: text });
+  try {
+    await env.COUNTS.batch([env.COUNTS.prepare(COUNT_TABLE), env.COUNTS.prepare(COUNT_ONE).bind(dayOf(now))]);
+  } catch {
+    // D1 out of order: this codespace goes uncounted (count.sh tries again when it is rebuilt).
+    return new Response('Unavailable\n', { status: 503, headers: text });
+  }
+  return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
+}
+
+export async function handle(request: Request, env: Env, ctx: Context, fetcher: Fetcher, now: Date = new Date()): Promise<Response> {
+  if (new URL(request.url).pathname === CODESPACES_PATH) return countCodespace(request, env, now);
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     return new Response('Method not allowed\n', { status: 405, headers: { Allow: 'GET, HEAD' } });
   }

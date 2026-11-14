@@ -21,24 +21,16 @@
   "onCreateCommand": "bash .devcontainer/setup.sh",
   // When the code is new: the app's packages and its UI.
   "updateContentCommand": "npm ci && npm run build",
+  // Once, when the codespace has been made for you (never in a prebuild): count it, with nothing about
+  // you (docs/codespaces.md, "What is counted"); not with DO_NOT_TRACK set, and never outside Codespaces.
+  "postCreateCommand": "bash .devcontainer/count.sh",
   // Each time the editor opens it: start the server, or print another sign-in link if it runs.
   "postAttachCommand": "bash .devcontainer/start.sh",
   "forwardPorts": [8787],
   "portsAttributes": {
     // Private, as Codespaces makes every port: only your GitHub account can open it.
     "8787": { "label": "Harness Relay", "onAutoForward": "silent" }
-  },
-  // Offered on the codespace's advanced create page; each one is optional. Codespaces passes them
-  // to the server as environment variables, so they are not kept in its database. (The open-source
-  // agents take only the keys set in Settings → Model backends, never the server's own.)
-  "secrets": {
-    "ANTHROPIC_API_KEY": {
-      "description": "Optional: an Anthropic API key. Claude Code then runs on it, billed by use, instead of a sign-in.",
-      "documentationUrl": "https://console.anthropic.com/settings/keys"
-    },
-    "OPENAI_API_KEY": {
-      "description": "Optional: an OpenAI API key. Codex then runs on it, billed by use, instead of a sign-in.",
-      "documentationUrl": "https://platform.openai.com/api-keys"
-    }
   }
+  // No recommended secrets: the create page asks for none. API keys and DO_NOT_TRACK can still be set
+  // as Codespaces secrets on GitHub (docs/codespaces.md).
 }

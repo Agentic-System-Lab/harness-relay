@@ -1,6 +1,19 @@
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
-import worker, { countOnGitHub, githubUrl, handle, installerOf, rangeOf, type Fetcher, type MirrorBucket } from '../mirror/worker.ts';
+import * as mirror from '../mirror/worker.ts';
+import worker, {
+  countOnGitHub,
+  dayOf,
+  githubUrl,
+  handle,
+  installerOf,
+  rangeOf,
+  type CountDatabase,
+  type CountStatement,
+  type Fetcher,
+  type MirrorBucket,
+} from '../mirror/worker.ts';
 import { INSTALLERS, MIRROR, UPDATE_INSTALLERS, isMirror } from '../site/assets/downloads.js';
 
 const TAG = '2026-11-13';
@@ -29,6 +42,47 @@ function bucket(files: Record<string, Uint8Array<ArrayBuffer>>, gone = new Set<s
 
 const bytes = (n: number) => Uint8Array.from({ length: n }, (_, i) => i % 251);
 
+/** The Worker's codespaces count: where a codespace says it was made, its table, and one more for a day. */
+const CODESPACES_PATH = '/codespaces';
+const COUNT_TABLE = 'CREATE TABLE IF NOT EXISTS codespaces (day TEXT PRIMARY KEY, created INTEGER NOT NULL)';
+const COUNT_ONE = 'INSERT INTO codespaces (day, created) VALUES (?1, 1) ON CONFLICT (day) DO UPDATE SET created = created + 1';
+
+const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
+type Statement = CountStatement & { sql: string; values: string[] };
+
+/**
+ * The count's database as D1's binding answers, on SQLite as D1 is (a batch in one transaction), noting
+ * each batch's statements; failing every batch with `fails`.
+ */
+function counts(fails = false) {
+  const db = new DatabaseSync(':memory:');
+  const batches: { sql: string; values: string[] }[][] = [];
+  const statement = (sql: string, values: string[] = []): Statement => ({ sql, values, bind: (...v: string[]) => statement(sql, v) });
+  const d: CountDatabase = {
+    prepare: (sql) => statement(sql),
+    batch: async (statements) => {
+      const list = statements as Statement[];
+      batches.push(list.map(({ sql, values }) => ({ sql, values })));
+      if (fails) throw new Error('D1 is down');
+      db.exec('BEGIN');
+      try {
+        for (const { sql, values } of list) db.prepare(sql).run(...values);
+        db.exec('COMMIT');
+      } catch (err) {
+        db.exec('ROLLBACK');
+        throw err;
+      }
+      return [];
+    },
+  };
+  /** The count's table as it is: each day's codespaces. */
+  const rows = () => {
+    const exists = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'codespaces'").get();
+    return exists ? db.prepare('SELECT day, created FROM codespaces ORDER BY day').all().map((r) => ({ ...r })) : [];
+  };
+  return { d, batches, rows };
+}
+
 /** The Worker asked for `path`, with GitHub's counting requests recorded and awaited. */
 async function ask(path: string, init: RequestInit & { files?: Record<string, Uint8Array<ArrayBuffer>>; gone?: Set<string>; github?: Fetcher } = {}) {
   const { b, asked } = bucket(init.files ?? { [`${TAG}/${MAC}`]: bytes(1000) }, init.gone);
@@ -40,7 +94,7 @@ async function ask(path: string, init: RequestInit & { files?: Record<string, Ui
       counted.push({ url, init: i });
       return new Response('x', { status: 206 });
     });
-  const res = await handle(new Request(`https://mirror.example${path}`, init), { BUCKET: b }, { waitUntil: (p) => void later.push(p) }, github);
+  const res = await handle(new Request(`https://mirror.example${path}`, init), { BUCKET: b, COUNTS: counts().d }, { waitUntil: (p) => void later.push(p) }, github);
   await Promise.all(later);
   return { res, counted, asked, body: res.body ? new Uint8Array(await res.arrayBuffer()) : null };
 }
@@ -179,7 +233,7 @@ describe('the download mirror', () => {
         const { b } = bucket({ [`${TAG}/${MAC}`]: bytes(1000) });
         b[fails] = async () => Promise.reject(new Error('R2 is down'));
         const counted: string[] = [];
-        const res = await handle(new Request(`https://mirror.example/${TAG}/${MAC}`, { method }), { BUCKET: b }, { waitUntil: () => {} }, async (url) => (counted.push(url), new Response()));
+        const res = await handle(new Request(`https://mirror.example/${TAG}/${MAC}`, { method }), { BUCKET: b, COUNTS: counts().d }, { waitUntil: () => {} }, async (url) => (counted.push(url), new Response()));
         if (fails === 'get' && method === 'HEAD') {
           expect(res.status).toBe(200);
           continue;
@@ -238,7 +292,7 @@ describe('the download mirror', () => {
     for (const fails of ['head', 'get'] as const) {
       const { b } = bucket({ [`${TAG}/${MAC}`]: bytes(1000) });
       b[fails] = async () => Promise.reject(new Error('R2 is down'));
-      const res = await handle(new Request(`https://mirror.example/${TAG}/${COPY}`), { BUCKET: b }, { waitUntil: () => {} }, async () => new Response());
+      const res = await handle(new Request(`https://mirror.example/${TAG}/${COPY}`), { BUCKET: b, COUNTS: counts().d }, { waitUntil: () => {} }, async () => new Response());
       expect(res.status, fails).toBe(503);
       expect(res.headers.get('Location')).toBeNull();
     }
@@ -258,14 +312,104 @@ describe('the download mirror', () => {
     expect(cancelled).toBe(true);
   });
 
-  it('is deployed with its bucket, the one the Release workflow uploads to', () => {
+  it('is deployed with its bucket, the one the Release workflow uploads to, and the count\'s database, which wrangler makes', () => {
     expect(typeof worker.fetch).toBe('function');
+    // The Workers runtime takes every export for an entry point, and starts only when each is a function
+    // or a handler (a string among them stops it).
+    for (const [name, value] of Object.entries(mirror)) if (name !== 'default') expect(typeof value, name).toBe('function');
+    expect(mirror.default).toBe(worker);
     const config = readFileSync('mirror/wrangler.toml', 'utf8');
     expect(config).toMatch(/^main = "worker\.ts"$/m);
     expect(config).toMatch(/^\[\[r2_buckets\]\]\nbinding = "BUCKET"\nbucket_name = "harness-relay-mirror"$/m);
+    // By its name alone: `wrangler deploy` makes it the first time, and finds it after.
+    expect(config).toMatch(/^\[\[d1_databases\]\]\nbinding = "COUNTS"\ndatabase_name = "harness-relay-counts"$/m);
+    expect(config).not.toMatch(/^database_id\s*=/m);
+    // The command its comment gives reads the table the Worker writes.
+    expect(config).toContain('npx wrangler d1 execute harness-relay-counts --remote --config mirror/wrangler.toml --command "SELECT day, created FROM codespaces ORDER BY day"');
     const workflow = readFileSync('.github/workflows/release.yml', 'utf8');
     expect(workflow).toMatch(/^ {2}MIRROR_BUCKET: harness-relay-mirror$/m);
     // The website's mirror is none, or an https origin the workflow can upload to.
     expect(MIRROR === '' || isMirror(MIRROR)).toBe(true);
+  });
+});
+
+describe("the download mirror's codespaces count", () => {
+  /** The Worker asked at `path` with the count's database `c`, at `now`; the bucket and GitHub noted. */
+  async function count(c: ReturnType<typeof counts>, init: RequestInit = { method: 'POST' }, now = new Date('2026-11-14T03:00:00Z'), path = CODESPACES_PATH) {
+    const { b, asked } = bucket({});
+    const counted: string[] = [];
+    const res = await handle(new Request(`https://mirror.example${path}`, init), { BUCKET: b, COUNTS: c.d }, { waitUntil: () => {} }, async (url) => (counted.push(url), new Response()), now);
+    return { res, asked, counted };
+  }
+
+  it("adds a codespace to its day's count, and keeps nothing else", async () => {
+    const c = counts();
+    const { res, asked, counted } = await count(c, { method: 'POST', headers: { 'User-Agent': 'curl/8.5.0', 'CF-Connecting-IP': '20.1.2.3' } });
+    expect(res.status).toBe(204);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect(await res.text()).toBe('');
+    // The table made by the first count, in the same batch: a new database is empty.
+    expect(c.batches).toEqual([[{ sql: COUNT_TABLE, values: [] }, { sql: COUNT_ONE, values: ['2026-11-14'] }]]);
+    expect(c.rows()).toEqual([{ day: '2026-11-14', created: 1 }]);
+    // Neither the bucket nor GitHub.
+    expect(asked).toEqual([]);
+    expect(counted).toEqual([]);
+    // Its user agent and address are kept nowhere: the table has the day and the count only.
+    expect(Object.keys(c.rows()[0]!)).toEqual(['day', 'created']);
+  });
+
+  it("counts each day apart, by Taiwan's day, as releases go", async () => {
+    const c = counts();
+    await count(c);
+    await count(c, { method: 'POST', body: 'anything' });
+    // 15:59 UTC is 23:59 in Taiwan; 16:00 UTC the next day there.
+    await count(c, { method: 'POST' }, new Date('2026-11-14T15:59:59Z'));
+    await count(c, { method: 'POST' }, new Date('2026-11-14T16:00:00Z'));
+    expect(c.rows()).toEqual([
+      { day: '2026-11-14', created: 3 },
+      { day: '2026-11-15', created: 1 },
+    ]);
+    expect(dayOf(new Date('2026-12-31T16:00:00Z'))).toBe('2027-01-01');
+    expect(dayOf(new Date('2026-03-01T15:59:59Z'))).toBe('2026-03-01');
+  });
+
+  it('takes a POST only, at that path only', async () => {
+    for (const method of ['GET', 'HEAD', 'PUT', 'DELETE']) {
+      const c = counts();
+      const { res } = await count(c, { method });
+      expect(res.status, method).toBe(405);
+      expect(res.headers.get('Allow'), method).toBe('POST');
+      expect(c.batches, method).toEqual([]);
+    }
+    // Any other path is the installers' (a POST there is refused, a GET is not found).
+    for (const path of ['/codespaces/', '/codespaces/1', '/Codespaces', `/${TAG}/codespaces`]) {
+      const c = counts();
+      const { res } = await count(c, { method: 'POST' }, undefined, path);
+      expect(res.status, path).toBe(405);
+      expect(res.headers.get('Allow'), path).toBe('GET, HEAD');
+      expect(c.batches, path).toEqual([]);
+    }
+    // A query string does not change the path.
+    const c = counts();
+    expect((await count(c, { method: 'POST' }, undefined, `${CODESPACES_PATH}?v=1`)).res.status).toBe(204);
+    expect(c.rows()).toEqual([{ day: '2026-11-14', created: 1 }]);
+  });
+
+  it("refuses a browser's request, which names its page: a web page cannot have its visitors count", async () => {
+    for (const origin of ['https://example.com', 'null', 'https://agentic-system-lab.github.io']) {
+      const c = counts();
+      const { res } = await count(c, { method: 'POST', headers: { Origin: origin } });
+      expect(res.status, origin).toBe(403);
+      expect(res.headers.get('Access-Control-Allow-Origin'), origin).toBeNull();
+      expect(c.batches, origin).toEqual([]);
+    }
+  });
+
+  it('says so when the database fails, and the codespace goes uncounted', async () => {
+    const c = counts(true);
+    const { res } = await count(c);
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect(c.batches).toHaveLength(1);
   });
 });

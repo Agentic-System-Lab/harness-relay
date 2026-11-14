@@ -474,7 +474,7 @@ function RelayApp() {
         <UpdateDialog
           version={update.available.version}
           current={update.current}
-          page={update.available.page}
+          changes={update.available.changes}
           onUpdate={installUpdate}
           onLater={() => dismiss(update.available!.version)}
           onClose={() => setClosedFor(update.available!.version)}

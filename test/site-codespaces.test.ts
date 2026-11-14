@@ -5,7 +5,8 @@ import { describe, expect, it } from 'vitest';
 // same, the links still work without JavaScript, and its sample terminal is what start.sh prints.
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
-const CODESPACES = 'https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1';
+// The newest release's branch (test/codespaces-release.test.ts).
+const CODESPACES = 'https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1';
 const PAGES = { 'site/index.html': 'docs/codespaces.md', 'site/zh-TW/index.html': 'docs/codespaces.zh-TW.md' } as const;
 
 /** The page's Codespaces dialog, as written. */
@@ -60,6 +61,41 @@ describe('the Codespaces dialog on the landing page', () => {
     expect(server).toContain('Sign this browser in (once, within an hour): ${');
     expect(en).toContain('\n  (or type this code on the sign-in page: ');
     expect(start).toContain('"  (or type this code on the sign-in page: ${BASH_REMATCH[2]})"');
+  });
+
+  it('keeps its button and guide link at its bottom while the rest scrolls under them', () => {
+    const css = read('site/assets/site.css');
+    // Found as text, not by a pattern made from the selector.
+    const rule = (selector: string) => {
+      const start = css.indexOf(`\n${selector} {`);
+      expect(start, selector).toBeGreaterThanOrEqual(0);
+      return css.slice(start, css.indexOf('}', start));
+    };
+    // The dialog is what scrolls, so a sticky bar in it stays at its bottom edge.
+    expect(rule('.cs-dialog')).toContain('overflow: auto;');
+    const actions = rule('.cs-actions');
+    for (const declaration of ['position: sticky;', 'bottom: 0;', 'background: var(--bg);']) expect(actions).toContain(declaration);
+    // Across the dialog's whole width, holding the bottom padding the body leaves out.
+    expect(actions).toContain('margin: 4px calc(-1 * var(--cs-pad)) 0;');
+    expect(actions).toContain('padding: 16px var(--cs-pad) var(--cs-pad);');
+    expect(rule('.cs-body')).toContain('padding: var(--cs-pad) var(--cs-pad) 0;');
+    // On one line, also on a phone (measured in Chromium at every width from 280px to 1920px, in both
+    // languages): neither the button nor the link is squeezed, and on narrow screens the dialog takes more
+    // of the width (past the browser's own limit for a modal dialog) and the two get smaller. It may wrap
+    // only where a phone's fonts are wider still: two lines rather than a dialog that scrolls sideways.
+    expect(actions).toContain('flex-wrap: wrap;');
+    expect(rule('.cs-actions > *')).toContain('flex: none;');
+    const narrow = (width: number) => css.match(new RegExp(`@media \\(max-width: ${width}px\\) \\{\\n  \\.cs-[\\s\\S]*?\\n\\}`))![0];
+    expect(narrow(440)).toMatch(/\.cs-dialog \{[^}]*--cs-pad: 16px;[^}]*width: calc\(100% - 16px\);[^}]*max-width: none;/);
+    expect(narrow(400)).toMatch(/\.cs-actions \.btn svg \{\s*display: none;/);
+    expect(narrow(400)).toContain('font-size: 14px;');
+    expect(narrow(350)).toContain('font-size: 13px;');
+    expect(narrow(320)).toMatch(/\.cs-dialog \{[^}]*--cs-pad: 12px;[^}]*width: calc\(100% - 8px\);/);
+    expect(narrow(320)).toContain('font-size: 12px;');
+    expect(narrow(295)).toContain('--cs-pad: 10px;');
+    // The last thing in the dialog, so nothing is hidden below it.
+    const dialog = dialogOf(read('site/index.html'));
+    expect(dialog.slice(dialog.indexOf('<div class="cs-actions">')).replace(/<div class="cs-actions">|<a [\s\S]*?<\/a>|<\/(div|dialog)>|\s+/g, '')).toBe('');
   });
 
   it('is opened by site.js only where the browser has modal dialogs, and a modified click goes to GitHub', () => {
