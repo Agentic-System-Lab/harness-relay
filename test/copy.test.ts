@@ -114,6 +114,63 @@ describe('naming the team the lead agent chose', () => {
   });
 });
 
+describe("the lead agent's review in a copied conversation", () => {
+  const lead = { provider: 'claude' as const };
+  const review = (r: Partial<NonNullable<ChatMessage['review']>>): ChatMessage => ({
+    id: 'r',
+    author: { kind: 'system' },
+    createdAt: 0,
+    status: 'done',
+    parts: [],
+    review: { status: 'ready', lead, ...r },
+  });
+
+  it('gives its summary, what it points out, and the next steps', () => {
+    const md = conversationMarkdown(
+      {
+        ...conv,
+        messages: [
+          review({
+            summary: 'Both agree.',
+            highlights: [
+              { kind: 'risk', note: 'It deletes the cache.', messageId: 'm2', agentName: 'Analyst', quote: 'rm -rf\n cache' },
+              { kind: 'decision', note: 'Pick a name.' },
+            ],
+            nextSteps: [
+              { text: 'Add a test', by: 'team', message: '@Analyst add a test' },
+              { text: 'Try it', by: 'user' },
+            ],
+          }),
+        ],
+      },
+      en,
+    );
+    expect(md).toContain(
+      [
+        "*Lead agent's review*: Both agree.",
+        '',
+        '**Look closely**',
+        '',
+        '- **Risk** · @Analyst: “rm -rf cache” It deletes the cache.',
+        '- **Your call**: Pick a name.',
+        '',
+        '**Suggested next steps**',
+        '',
+        '1. (Team) Add a test',
+        '2. (You) Try it',
+      ].join('\n'),
+    );
+  });
+
+  it('leaves out a review that is not ready', () => {
+    const md = conversationMarkdown(
+      { ...conv, messages: [review({ status: 'failed', error: 'boom' }), { ...review({ status: 'reviewing' }), status: 'aborted' }] },
+      zhTW,
+    );
+    expect(md).toBe(`# ${conv.title}\n\n\n`);
+  });
+});
+
 describe('copying a conversation', () => {
   it('joins a message\'s text blocks and leaves tool activity out', () => {
     expect(messageText(conv.messages[1]!)).toBe('先查資料。\n\n## 重點\n\n- 一\n- 二');

@@ -153,6 +153,8 @@ const zhTW = {
   copilotConfigFailed: (err: string) => `無法替這一輪準備 Copilot 的設定：${err}`,
   copilotSandbox: (problem: string) =>
     `這一輪沒有開始：Copilot 的沙箱不是 Harness Relay 設定的樣子（${problem}），所以低於完整權限時它的指令不能執行。請更新 Copilot CLI，確認這台電腦能執行它的沙箱（Linux 需要 bubblewrap 等工具），或改用完全存取。`,
+  copilotKeptWritable: (dir: string) =>
+    `這一輪沒有開始：Copilot 的沙箱本身就讓 ${dir} 可寫入（它是暫存資料夾），所以唯讀的對話保護不了它。請為這個對話換一個工作目錄，或換一種權限。`,
   museRefused: '超出這個對話的權限，已拒絕',
   museProtected: '這是受保護的路徑（瀏覽器資料、Harness Relay 的資料庫等），低於完整權限時不能讀寫，已拒絕',
   museProtectedPattern: (path: string) =>
@@ -417,6 +419,7 @@ const zhTW = {
   planNotSavable: '只有首席 agent 設計或調整過的團隊可以存成範本',
   planFailed: (why: string) => `首席 agent 沒有給出可用的團隊設計（${why}），改用預設範本。`,
   planUnparsable: '回覆中找不到 JSON 團隊設計',
+  reviewUnparsable: '回覆中找不到 JSON 審閱結果',
   planUnknownTemplate: (id: string) => `沒有 id 為「${id}」的範本`,
   planTemplateTooBig: (name: string, max: number) => `範本「${name}」的成員比隊伍上限（${max} 位）多`,
   planTemplateFits: (name: string) => `首席 agent 判斷範本「${name}」適合這個問題，直接套用。`,
@@ -443,6 +446,7 @@ const zhTW = {
   scheduleBadTimeZone: (tz: string) => `不認得時區「${tz}」`,
   scheduleNeedsTeam: '請先確認團隊，再設定排程',
   scheduleNoTeam: '團隊還沒確認',
+  scheduleDesigning: '首席 agent 正在為一個問題組隊，稍後再送出',
   scheduleWaitsForAnswer: '團隊在等你回答問題',
   scheduleStillQueued: '上一則排程訊息還在等待送出',
   scheduleBusy: '對話正在更新，請稍後再試',
@@ -723,6 +727,8 @@ const en: ServerMessages = {
   copilotConfigFailed: (err) => `Could not prepare Copilot's settings for this turn: ${err}`,
   copilotSandbox: (problem) =>
     `The turn did not start: Copilot's sandbox is not as Harness Relay set it up (${problem}), so its commands may not run below full access. Update Copilot CLI, check that this computer can run its sandbox (on Linux it needs bubblewrap and a few other tools), or use full access.`,
+  copilotKeptWritable: (dir) =>
+    `The turn did not start: Copilot's sandbox keeps ${dir} writable by itself (it is a temporary folder), so a read-only chat cannot keep it from being changed. Give this chat another working directory, or another permission.`,
   museRefused: "Refused: not covered by this conversation's permission",
   museProtected: "Refused: a protected path (browser data, Harness Relay's database…), which agents below full access may not read or write",
   museProtectedPattern: (path) =>
@@ -980,6 +986,7 @@ const en: ServerMessages = {
   planNotSavable: 'Only a team the lead agent designed or adapted can be saved as a template',
   planFailed: (why) => `The lead agent did not produce a usable team design (${why}); using the default template instead.`,
   planUnparsable: 'no JSON team design found in the reply',
+  reviewUnparsable: 'no JSON review found in the reply',
   planUnknownTemplate: (id) => `there is no template with id "${id}"`,
   planTemplateTooBig: (name, max) => `the template "${name}" has more members than a team may have (${max})`,
   planTemplateFits: (name) => `The lead agent found the template "${name}" a good fit for this question and uses it as it is.`,
@@ -1004,6 +1011,7 @@ const en: ServerMessages = {
   scheduleBadTimeZone: (tz) => `Unknown time zone "${tz}"`,
   scheduleNeedsTeam: 'Confirm the team before you set a schedule',
   scheduleNoTeam: 'the team is not confirmed yet',
+  scheduleDesigning: 'the lead agent is designing a team for a question; sent a little later',
   scheduleWaitsForAnswer: 'the team is waiting for your answer',
   scheduleStillQueued: 'the previous scheduled message is still waiting to be delivered',
   scheduleBusy: 'The conversation is being updated; try again in a moment',

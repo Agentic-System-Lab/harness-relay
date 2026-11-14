@@ -513,6 +513,7 @@ export function validateSettings(
     ...dirs,
     ...(s.autoTeam === true ? { autoTeam: true } : {}),
     ...(s.autoConfirm === true ? { autoConfirm: true } : {}),
+    ...(s.leadReview === true ? { leadReview: true } : {}),
     ...(s.approvals === 'deny' ? { approvals: 'deny' as const } : {}),
   };
 }
