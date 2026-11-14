@@ -220,7 +220,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 工作目錄與其他資料夾
 
-[`folders.spec.ts`](specs/folders.spec.ts)：假 CLI 只會寫在真正的 CLI 能寫的地方，所以這些測試能看出對話的資料夾有沒有傳到各 CLI。開源 agent 的假 CLI 會真的寫檔，不屬於它們的地方由 Harness Relay 自己的沙箱拒絕。最後是同一個資料夾的兩個對話：一個在修改它（很慢的回覆，`e2e:slow=12`），另一個的團隊等它結束。
+[`folders.spec.ts`](specs/folders.spec.ts)：假 CLI 只會寫在真正的 CLI 能寫的地方，所以這些測試能看出對話的資料夾有沒有傳到各 CLI。開源 agent 的假 CLI 會真的寫檔，不屬於它們的地方由 Harness Relay 自己的沙箱拒絕。最後是同一個資料夾的兩個對話：一個在修改它（很慢的回覆，`e2e:slow=20`），另一個的團隊等它結束。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |

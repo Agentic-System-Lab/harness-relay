@@ -326,6 +326,8 @@ describe("a quote across Markdown's other forms is found as the chat shows it", 
     ['- item\n\n    more &amp; more', 'item more & more'],
     // Every named entity, and an escape of any punctuation.
     ['&copy; 2026 &mdash; &hellip; \\$5 \\@me', '© 2026 — … $5 @me'],
+    // An escaped backtick, then inline code: the code's text as written.
+    ['Use \\``a&amp;b` here', 'Use `a&amp;b here'],
   ] as const) {
     it(`finds “${quote}” in ${JSON.stringify(md)} and in the rendered reply`, () => {
       const page = renderedParts(md);

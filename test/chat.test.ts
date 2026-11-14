@@ -43,13 +43,13 @@ describe('a confirmed team that has not answered yet', () => {
   const user = (id: string): ChatMessage => ({ id, author: { kind: 'user' }, createdAt: 1, status: 'done', parts: [{ type: 'text', text: id }] });
   const agent = (id: string): ChatMessage => ({ id, author: { kind: 'agent', agentId: 'a1' }, agentName: 'Alice', createdAt: 1, status: 'done', parts: [] });
 
-  it('is the latest design, confirmed (or used at once), with no reply after it; not one for a schedule, waiting, or declined', () => {
+  it('is the latest design, confirmed, used at once or declined (the current team keeps the question), with no reply after it; not one for a schedule or waiting', () => {
     expect(confirmedUnanswered([user('q'), plan('p', { confirmedAt: 2 })])).toBe(true);
     expect(confirmedUnanswered([user('q'), plan('p', { confirmedAt: 2, autoConfirmed: true }), user('more')])).toBe(true);
     expect(confirmedUnanswered([user('q'), plan('p', { confirmedAt: 2 }), agent('r')])).toBe(false);
     expect(confirmedUnanswered([user('q'), plan('p', { confirmedAt: 2, forSchedule: true })])).toBe(false);
     expect(confirmedUnanswered([user('q'), plan('p', { awaitingConfirmation: true })])).toBe(false);
-    expect(confirmedUnanswered([user('q'), plan('p', { declinedAt: 2 })])).toBe(false);
+    expect(confirmedUnanswered([user('q'), plan('p', { declinedAt: 2 })])).toBe(true);
     expect(confirmedUnanswered([user('q'), plan('p', { confirmedAt: 2 }), agent('r'), user('q2'), plan('p2', { awaitingConfirmation: true })])).toBe(false);
     expect(confirmedUnanswered([user('q')])).toBe(false);
   });

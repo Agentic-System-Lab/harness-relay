@@ -648,6 +648,49 @@ describe('waiting for the folder', () => {
     expect(leadCallCount()).toBe(2);
   });
 
+  it('designs again for an edited question whose confirmed team had not answered, as for any edit', async () => {
+    const { conv, other, releaseOther } = await confirmedWaiting();
+    orchestrator.stop(conv.id);
+    fake.gate = Promise.resolve();
+    releaseOther();
+    await finish(other.id);
+    const question = conv.messages.find((m) => m.author.kind === 'user')!;
+    await orchestrator.resend(conv.id, question.id, 'build it, better');
+    await finish(conv.id);
+    expect(leadCallCount()).toBe(2);
+    expect(conv.messages.filter((m) => m.plan)).toHaveLength(1);
+    expect(conv.messages.find((m) => m.plan)!.plan!.awaitingConfirmation).toBe(true);
+  });
+
+  it('gives what the user sends after stopping the wait of a design they declined to the current team', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'edit', autoTeam: true });
+    fake.leadReply = JSON.stringify({
+      choice: 'custom',
+      name: 'Solo',
+      mode: 'roundtable',
+      rounds: 1,
+      agents: [{ name: 'Carol', provider: 'claude', role: 'Build it' }],
+      reason: 'x',
+    });
+    await orchestrator.send(conv.id, 'build it');
+    await finish(conv.id);
+    const other = conversation({ mode: 'roundtable', permission: 'edit' });
+    let releaseOther!: () => void;
+    fake.gate = new Promise((r) => (releaseOther = r));
+    await orchestrator.send(other.id, 'other');
+    // Declined: the current team (Alice and Bob) answers the question, once the folder is free.
+    orchestrator.declinePlan(conv.id, conv.messages.find((m) => m.plan)!.id);
+    await vi.waitFor(() => expect(waitNote(conv)).toHaveLength(1));
+    orchestrator.stop(conv.id);
+    fake.gate = Promise.resolve();
+    releaseOther();
+    await finish(other.id);
+    await orchestrator.send(conv.id, 'go ahead now');
+    await finish(conv.id);
+    expect(leadCallCount()).toBe(1);
+    expect(agentMessages(conv).filter((m) => m.status === 'done').map((m) => m.agentName)).toEqual(['Alice', 'Bob']);
+  });
+
   it('resumes a confirmed team\'s wait after a restart', async () => {
     const { conv, other, releaseOther } = await confirmedWaiting();
     expect(store.folderWaits()).toEqual([{ id: conv.id, wait: 'team' }]);
@@ -677,16 +720,22 @@ describe('waiting for the folder', () => {
       if (c.id === other.id) await new Promise((r) => setTimeout(r, 300));
       return real(c);
     });
+    // That run is held once it has started (Alice's turn), to see who has the folder then.
+    let releaseFollowUp!: () => void;
+    fake.gates.Alice = new Promise((r) => (releaseFollowUp = r));
     fake.gate = Promise.resolve();
     releaseOther();
-    // Its own run for that message takes the folder again; the waiting conversation waits on.
-    await vi.waitFor(() => expect(other.queue ?? []).toHaveLength(0), { timeout: 20_000 });
-    await finish(other.id);
+    // Its own run for that message took the folder again; the waiting conversation waits on.
+    await vi.waitFor(() => expect(calls.some((c) => c.name === 'Alice' && c.prompt.includes('another thing'))).toBe(true), { timeout: 10_000 });
+    expect(orchestrator.isRunning(other.id)).toBe(true);
     expect(waitNote(other)).toHaveLength(0);
-    expect(agentMessages(other).filter((m) => m.status === 'done')).toHaveLength(3);
-    expect(calls.findLast((c) => c.name === 'Alice' && c.prompt.includes('another thing'))).toBeDefined();
-    // The waiting conversation had not started meanwhile.
-    expect(agentMessages(first).filter((m) => m.status === 'done')).toHaveLength(2);
+    expect(orchestrator.isRunning(first.id)).toBe(false);
+    expect(orchestrator.waitsForFolder(first.id)).toBe(true);
+    expect(first.queue).toHaveLength(1);
+    // Once it is done, the waiting conversation starts.
+    delete fake.gates.Alice;
+    releaseFollowUp();
+    await finish(other.id);
     await vi.waitFor(() => expect(first.queue ?? []).toHaveLength(0), { timeout: 20_000 });
     await finish(first.id);
     expect(waitNote(first)).toHaveLength(1);
@@ -864,13 +913,14 @@ describe('waiting for the folder', () => {
     await takeAgain();
     orchestrator.stop(first.id);
     prepared();
-    await new Promise((r) => setTimeout(r, 100));
+    // Its start ends however slow git is: only the other conversation's run is left.
+    await vi.waitFor(() => expect(orchestrator.busy()).toBe(1), { timeout: 20_000 });
     expect(orchestrator.waitsForFolder(first.id)).toBe(false);
     expect(waitNote(first)).toHaveLength(1);
     fake.gate = Promise.resolve();
     releaseAgain();
     await finish(other.id);
-    await new Promise((r) => setTimeout(r, 100));
+    await vi.waitFor(() => expect(orchestrator.busy()).toBe(0), { timeout: 20_000 });
     expect(orchestrator.isRunning(first.id)).toBe(false);
     expect(first.queue).toHaveLength(1);
     prepare.mockRestore();
@@ -943,6 +993,39 @@ describe('waiting for the folder', () => {
 });
 
 describe('Stop while a run is being set up', () => {
+  it('skips a scheduled message whose run Stop catches while it is set up, rather than trying it again', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    conv.schedule = {
+      text: 'scheduled check',
+      repeat: { kind: 'interval', hours: 1 },
+      timeZone: 'UTC',
+      lang: 'en',
+      enabled: true,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+      updatedAt: Date.now(),
+      nextRunAt: Date.now() + 3_600_000,
+    };
+    store.saveSchedule(conv);
+    let prepared!: () => void;
+    const preparing = new Promise<void>((r) => (prepared = r));
+    const real = orchestrator.prepareWorkspace.bind(orchestrator);
+    const prepare = vi.spyOn(orchestrator, 'prepareWorkspace').mockImplementation(async (c) => {
+      if (c.id === conv.id) await preparing;
+      return real(c);
+    });
+    const sending = orchestrator.sendScheduled(conv.id);
+    await vi.waitFor(() => expect(prepare).toHaveBeenCalled());
+    orchestrator.stop(conv.id);
+    prepared();
+    const result = await sending;
+    expect(result.result).toBe('skipped');
+    expect(orchestrator.isRunning(conv.id)).toBe(false);
+    expect(agentMessages(conv)).toHaveLength(0);
+    prepare.mockRestore();
+  });
+
   it('keeps the messages waiting when Stop comes as the run after a review is set up, and says it stopped', async () => {
     const conv = conversation({ mode: 'roundtable', permission: 'read-only', leadReview: true });
     let releaseReview!: () => void;

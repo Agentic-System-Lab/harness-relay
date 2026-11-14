@@ -218,7 +218,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 
 ## Working directories and other folders
 
-[`folders.spec.ts`](specs/folders.spec.ts): the fakes write only where the real CLIs could, so these tell whether a chat's folders reach each CLI. The open agents' fakes write for real, and Harness Relay's own sandbox refuses what is not theirs to write. Last, two chats in one folder: one changes it (a slow reply, `e2e:slow=12`) while the other's team waits for it.
+[`folders.spec.ts`](specs/folders.spec.ts): the fakes write only where the real CLIs could, so these tell whether a chat's folders reach each CLI. The open agents' fakes write for real, and Harness Relay's own sandbox refuses what is not theirs to write. Last, two chats in one folder: one changes it (a slow reply, `e2e:slow=20`) while the other's team waits for it.
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |

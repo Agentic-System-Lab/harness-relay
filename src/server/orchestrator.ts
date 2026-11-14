@@ -211,8 +211,19 @@ export type ScheduledSend =
   | { result: 'busy'; reason?: string }
   | { result: 'skipped' | 'failed'; reason: string };
 
-/** A run that could not start: another conversation is writing in the same folder (409) or the server is stopping (503), or else it failed. */
+/** `HttpError.code` of a run that cannot start because another conversation is changing its folder. */
+const FOLDER_LOCKED = 'folder-locked';
+
+/** `HttpError.code` of a run that Stop kept from starting while it was being set up. */
+const STOPPED = 'stopped';
+
+/**
+ * A run that could not start: Stop came while it was set up (not tried again), another conversation is
+ * writing in the same folder (409) or the server is stopping (503), or else it failed.
+ */
 function sendFailure(err: unknown): ScheduledSend {
+  // Stop came while its run was set up: the user does not want it now, so it is not tried again.
+  if (err instanceof HttpError && err.code === STOPPED) return { result: 'skipped', reason: err.message };
   if (err instanceof HttpError && (err.status === 409 || err.status === 503)) return { result: 'busy', reason: err.message };
   return { result: 'failed', reason: (err as Error).message };
 }
@@ -248,11 +259,6 @@ export function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
   return copies;
 }
 
-/** `HttpError.code` of a run that cannot start because another conversation is changing its folder. */
-const FOLDER_LOCKED = 'folder-locked';
-
-/** `HttpError.code` of a run that Stop kept from starting while it was being set up. */
-const STOPPED = 'stopped';
 
 /** Longest name of a template saved from a plan. */
 const MAX_PRESET_NAME = 100;
@@ -1293,9 +1299,10 @@ export class Orchestrator {
     if (opts.designSchedule || conv.agents.length === 0) return true;
     if (opts.keepTeam) return false;
     if (opts.question === 'new' && conv.pause) return false;
-    // The team the user just confirmed has not answered yet (Stop came as it started, or while it
-    // waited for its folder): it answers what they write now too, with the question it was for.
-    if (opts.question && confirmedUnanswered(conv.messages)) return false;
+    // The team chosen for the latest question has not answered yet (Stop came as it started, or while
+    // it waited for its folder): it answers what they write now too, with that question. Not for an
+    // edited question, which drops that design with what follows it.
+    if (opts.question === 'new' && confirmedUnanswered(conv.messages)) return false;
     if (opts.question) return parseMentions(text, conv.agents).length === 0;
     return designOwed(conv.messages);
   }
@@ -1385,9 +1392,14 @@ export class Orchestrator {
           // The team the lead agent just designed answers at once, when it needs no confirmation.
           // Otherwise, messages sent while the team replied that no turn took: the team answers them
           // now. After Stop they keep waiting, for the user to send or withdraw.
-          const next =
-            !run.abort.signal.aborted &&
-            (run.answerNext ? this.startConfirmed(conv, run.refuseApprovals) : this.startQueued(conv));
+          let next = false;
+          try {
+            next =
+              !run.abort.signal.aborted &&
+              (run.answerNext ? this.startConfirmed(conv, run.refuseApprovals) : this.startQueued(conv));
+          } catch (err) {
+            console.error('[orchestrator] could not start the next run:', err);
+          }
           // Its own next run goes before the conversations waiting for its folder: they try once that
           // run has taken the folder again (or could not).
           if (run.lockRoots) this.unlockDirs(run.lockRoots, conv.id, next ? this.settingUp.get(convId) : undefined);

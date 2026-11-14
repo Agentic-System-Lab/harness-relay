@@ -228,7 +228,7 @@ test.describe('two chats in one folder', () => {
   /** A chat whose member changes the folder for a few seconds, and an auto-team chat in the same folder, open. */
   async function holderAndWaiter(page: import('@playwright/test').Page, relay: import('../support/relay').RelayServer) {
     const holder = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' }, 'Holder');
-    await send(page, 'Take your time e2e:slow=12');
+    await send(page, 'Take your time e2e:slow=20');
     const waiter = await relay.api<Conversation>('/api/conversations', {
       body: {
         title: 'Waiter',

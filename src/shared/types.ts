@@ -935,14 +935,15 @@ export function pendingPlan(messages: ChatMessage[]): ChatMessage | undefined {
 }
 
 /**
- * The team the user confirmed (or let answer at once) for the latest question has not answered it yet:
- * its run was stopped while it was set up, waited for its folder, or could not start. What the user
- * writes then goes to that team, with the question (not a design for the schedule's message).
+ * The team chosen for the latest question (the design the user confirmed or let answer at once, or the
+ * current team when they declined the design) has not answered it yet: its run was stopped while it
+ * was set up, waited for its folder, or could not start. What the user writes then goes to that team,
+ * with the question (not a design for the schedule's message).
  */
 export function confirmedUnanswered(messages: readonly ChatMessage[]): boolean {
   const at = messages.findLastIndex((m) => m.plan?.status === 'ready');
   const plan = messages[at]?.plan;
-  if (!plan?.confirmedAt || plan.forSchedule) return false;
+  if (!(plan?.confirmedAt || plan?.declinedAt) || plan.forSchedule) return false;
   for (let i = at + 1; i < messages.length; i++) if (messages[i]!.author.kind === 'agent') return false;
   return true;
 }
