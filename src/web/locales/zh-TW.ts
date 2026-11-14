@@ -357,7 +357,7 @@ export const zhTW = {
     placeholderNext: '提出新問題（首席 agent 會先組隊），或 @ 成員直接問他…',
     placeholderConfirm: '確認團隊後它就會回答；現在寫的訊息會一起送出…',
     placeholderDesigning: '首席 agent 正在組隊；現在寫的訊息會和問題一起交給團隊…',
-    placeholderReviewing: '首席 agent 正在審閱回覆；現在寫的是下一個問題，審閱完就送出（自動組隊會先組隊）…',
+    placeholderReviewing: '首席 agent 正在審閱回覆；現在寫的是下一個問題，審閱完就送出（自動組隊可能會先組隊）…',
     // Without auto team: the team answers it after the review.
     placeholderReviewingTeam: '首席 agent 正在審閱回覆；現在寫的是下一個問題，審閱完就交給團隊…',
     placeholderBusy: '插話給團隊…（下一位發言前送達）',
@@ -378,7 +378,9 @@ export const zhTW = {
       `直接提出你的問題。首席 agent（${lead}）會挑選合適的範本、依範本調整，或設計新的團隊，${asks ? '你確認後團隊就開始回答' : '團隊隨即開始回答'}。之後的每個新問題也會重新組隊；@ 成員的訊息則直接交給他。`,
     drawerNote: '角色修改會在下一個回合生效。更換成員的 coding agent 會讓他從頭讀一次對話紀錄。',
     confirmCreateCwd: (dirs: string) => `工作目錄不存在：\n${dirs}\n要建立並儲存團隊設定嗎？`,
-    drawerBusy: '團隊回覆中，停止後才能儲存（只改首席 agent 審閱的話，現在就能儲存）',
+    drawerBusy: '團隊回覆中，停止後才能儲存',
+    // Only when the box can be saved alone: no design waits, and the draft is not in conflict.
+    drawerBusyReview: '（只改首席 agent 審閱的話，現在就能儲存）',
     drawerPending: '你正在調整首席 agent 提出、還在等確認的團隊：儲存後就會採用這個團隊，接著回答你的問題。',
     drawerChanged: '你編輯的期間團隊已經變更（例如首席 agent 已設計好團隊）。請先載入目前的團隊，再重新修改。',
     drawerReload: '載入目前的團隊',
@@ -800,7 +802,7 @@ export const zhTW = {
     label: '等待送出的訊息',
     busy: (n: number) => `${n} 則等待送出`,
     busyNote: '下一位發言前送達；@ 了成員的訊息會等該成員發言',
-    reviewNote: '首席 agent 審閱完回覆後送出；自動組隊的對話會先為新問題組隊',
+    reviewNote: '首席 agent 審閱完回覆後送出；自動組隊的對話可能會先為新問題組隊',
     skipReview: '略過審閱並立即送出',
     confirm: '團隊確定後送出',
     stopped: '這些訊息還沒送出',

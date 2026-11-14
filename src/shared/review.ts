@@ -290,14 +290,23 @@ function firstReviewStart(messages: readonly ChatMessage[]): number {
   const asks = (m: ChatMessage) => m.author.kind === 'user' && !m.queued;
   let at = messages.findLastIndex(asks);
   if (at < 0) return 0;
-  for (;;) {
-    const before = messages.findLastIndex((m, i) => i < at && asks(m));
-    if (before < 0) return at;
-    // Only a finished reply answers it: one stopped, failed or passed leaves the question open.
-    const replies = messages.slice(before + 1, at).filter((m) => m.author.kind === 'agent' && m.status === 'done' && !m.passed);
-    if (replies.length && !replies.some((m) => m.asked)) return at;
-    at = before;
+  // One pass back: the finished replies since the question before `at` (only a finished reply answers
+  // it: one stopped, failed or passed leaves the question open), and whether one asked the user.
+  let replies = 0;
+  let asked = false;
+  for (let i = at - 1; i >= 0; i--) {
+    const m = messages[i]!;
+    if (m.author.kind === 'agent' && m.status === 'done' && !m.passed) {
+      replies++;
+      asked ||= Boolean(m.asked);
+    } else if (asks(m)) {
+      if (replies && !asked) return at;
+      at = i;
+      replies = 0;
+      asked = false;
+    }
   }
+  return at;
 }
 
 /**

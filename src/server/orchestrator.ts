@@ -750,6 +750,10 @@ export class Orchestrator {
     if (conv.pause && !replying) return { result: 'skipped', reason: t().scheduleWaitsForAnswer };
     const waiting = Boolean(conv.queue?.some((m) => m.scheduled));
     if (waiting && replying) return { result: 'skipped', reason: t().scheduleStillQueued };
+    // The lead agent designs a team that will wait for the user's confirmation (a question written
+    // during a review, say): queued now, the message would go into that question and wait with it.
+    // Tried again a little later instead, as for any busy moment.
+    if (this.designing.has(convId) && !conv.settings.autoConfirm) return { result: 'busy', reason: t().scheduleDesigning };
     if (replying && (conv.queue?.length ?? 0) >= MAX_QUEUE) return { result: 'skipped', reason: t().scheduleQueueFull };
     try {
       if (replying) {
@@ -899,7 +903,9 @@ export class Orchestrator {
           i++;
           continue;
         }
-      } else if (!isFor(next, which.recipients, conv.agents)) {
+      } else if (next.duringReview || !isFor(next, which.recipients, conv.agents)) {
+        // Written during a review, it is a new question, not part of this discussion (a retry or an
+        // edit after the review was stopped): it waits for a run of its own after this one.
         break;
       }
       // Posted before it leaves the saved queue: a crash in between keeps it once, as delivered.

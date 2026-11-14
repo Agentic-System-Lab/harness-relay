@@ -478,7 +478,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const reviewing = running && conv.messages.some((m) => m.review?.status === 'reviewing' && m.status === 'streaming');
   // Where the next review would start reading: a stopped or failed review card before it says its
   // replies are read then, the others nothing of a next review.
-  const nextReview = nextReviewStart(conv.messages);
+  const nextReview = conv.messages.some((m) => m.review && m.review.status !== 'ready') ? nextReviewStart(conv.messages) : Infinity;
   const latestPlanId = conv.messages.findLast((m) => m.plan?.status === 'ready')?.id;
   const leadText = leadLabel(lead ?? { provider: 'claude' });
   // An agent asked the user something and the team waits: its latest questions, and who asked.
@@ -1074,7 +1074,12 @@ function TeamDrawer({
           ) : (
             problems[0] && <span className="error-line">{problems[0]}</span>
           )}
-          {running && <span className="muted small">{t.chat.drawerBusy}</span>}
+          {running && (
+            <span className="muted small">
+              {t.chat.drawerBusy}
+              {!proposed && status !== 'conflict' && t.chat.drawerBusyReview}
+            </span>
+          )}
           <button className="ghost" onClick={onClose}>
             {t.common.cancel}
           </button>

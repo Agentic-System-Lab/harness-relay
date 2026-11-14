@@ -855,6 +855,91 @@ describe('questions written during a review, and reviews stopped', () => {
     await finish(conv.id);
   });
 
+  it("tries a schedule's message again later, rather than queue it into a design that will wait for confirmation", async () => {
+    const conv = conversation({ mode: 'parallel', permission: 'read-only', autoTeam: true, leadReview: true });
+    const team = conv.agents.map((a) => a.name);
+    fake.leadReply = JSON.stringify({ choice: 'custom', name: 'Pair', mode: 'parallel', rounds: 1, agents: [{ name: 'Alice', provider: 'claude', role: 'Build it' }], reason: 'x' });
+    let releaseReview!: () => void;
+    fake.reviewGate = new Promise((r) => (releaseReview = r));
+    await orchestrator.send(conv.id, `@${team[0]} first question`);
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
+    await orchestrator.send(conv.id, 'a brand new question');
+    // The review ends: the lead agent designs a team for the question (held until the test lets it go).
+    let releaseLead!: () => void;
+    fake.leadGate = new Promise((r) => (releaseLead = r));
+    fake.reviewGate = undefined;
+    releaseReview();
+    await vi.waitFor(() => expect(leadCalls()).toHaveLength(1), { timeout: 20_000 });
+    conv.schedule = {
+      text: 'scheduled check',
+      repeat: { kind: 'interval', hours: 1 },
+      timeZone: 'UTC',
+      lang: 'en',
+      enabled: true,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+      updatedAt: Date.now(),
+      nextRunAt: Date.now() + 3_600_000,
+    };
+    store.saveSchedule(conv);
+    // Not queued into the design's question: tried again later.
+    expect(await orchestrator.sendScheduled(conv.id)).toMatchObject({ result: 'busy' });
+    expect(conv.queue ?? []).toHaveLength(0);
+    fake.leadGate = undefined;
+    releaseLead();
+    await finish(conv.id);
+    // The design waits for the user, and its question has no schedule's message in it.
+    const plan = conv.messages.findLast((m) => m.plan)!;
+    expect(plan.plan!.awaitingConfirmation).toBe(true);
+    expect(leadCalls()[0]!.prompt).not.toContain('scheduled check');
+  });
+
+  it("leaves a question written during a stopped review waiting when the user retries a reply, for a run of its own after it", async () => {
+    const conv = conversation({ mode: 'parallel', leadReview: true });
+    fake.reviewGate = new Promise(() => {});
+    await orchestrator.send(conv.id, 'Q1');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    await orchestrator.send(conv.id, 'M');
+    orchestrator.stop(conv.id);
+    await finish(conv.id);
+    fake.reviewGate = undefined;
+    const bob = replyOf(conv, 'Bob');
+    await orchestrator.retry(conv.id, bob.id);
+    await vi.waitFor(() => expect(conv.queue ?? []).toHaveLength(0), { timeout: 20_000 });
+    await finish(conv.id);
+    // The retried reply first, then M in a run of its own, answered and reviewed after it.
+    const order = conv.messages.filter((m) => m.author.kind !== 'system').map((m) => (m.author.kind === 'user' ? textOf(m) : m.agentName));
+    const retried = order.lastIndexOf('Bob', order.indexOf('M'));
+    expect(retried).toBeGreaterThan(-1);
+    expect(order.indexOf('M')).toBeGreaterThan(retried);
+    expect(order.slice(order.indexOf('M') + 1)).toEqual(expect.arrayContaining(['Alice', 'Bob']));
+    // M was not taken into the retried turn's prompt.
+    const retriedCall = calls.filter((c) => c.name === 'Bob').at(1)!;
+    expect(retriedCall.prompt).not.toContain('>\nM\n<');
+    const last = reviews(conv).at(-1)!;
+    expect(last.review!.status).toBe('ready');
+    expect(recentOf(reviewerCalls().at(-1)!.prompt)).toContain('M');
+  });
+
+  it("refuses Retry, Edit, Apply and a settings change while the lead agent reviews: they wait for it, or for Stop", async () => {
+    const conv = conversation({ mode: 'parallel', permission: 'edit', leadReview: true });
+    let release!: () => void;
+    fake.reviewGate = new Promise((r) => (release = r));
+    await orchestrator.send(conv.id, 'one');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    const reply = replyOf(conv, 'Alice');
+    const user = conv.messages.find((m) => m.author.kind === 'user')!;
+    await expect(orchestrator.retry(conv.id, reply.id)).rejects.toMatchObject({ status: 409 });
+    await expect(orchestrator.resend(conv.id, user.id, 'again')).rejects.toMatchObject({ status: 409 });
+    await expect(orchestrator.applyAgentWork(conv.id, reply.author.kind === 'agent' ? reply.author.agentId : '')).rejects.toMatchObject({ status: 409 });
+    await expect(orchestrator.exclusive(conv.id, 'busy', async () => 'saved')).rejects.toMatchObject({ status: 409 });
+    fake.reviewGate = undefined;
+    release();
+    await finish(conv.id);
+    await expect(orchestrator.exclusive(conv.id, 'busy', async () => 'saved')).resolves.toBe('saved');
+  });
+
   it('lets the members answer when one of the messages written during the review @mentions them', async () => {
     const conv = autoChat();
     let release!: () => void;

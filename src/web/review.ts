@@ -77,6 +77,9 @@ export function revealMessage(elementId: string): void {
   // At once for those who asked for less motion (the flash is turned off for them by the stylesheet).
   const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   el.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'center' });
+  // Focus goes along, for keyboards and screen readers (the scroll above places it).
+  if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1');
+  el.focus({ preventScroll: true });
   el.classList.remove('flash');
   // Restarted on each click: the class is put back on the next frame.
   requestAnimationFrame(() => {

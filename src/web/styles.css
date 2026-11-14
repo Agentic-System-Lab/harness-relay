@@ -5044,6 +5044,18 @@ details.sub summary {
   background-color: rgb(250 204 21 / 0.32);
 }
 
+/* High contrast: the system's own highlight colours, which it keeps (the card lists each point too). */
+@media (forced-colors: active) {
+  ::highlight(review-risk),
+  ::highlight(review-decision),
+  ::highlight(review-conflict),
+  ::highlight(review-verify),
+  ::highlight(review-note) {
+    background-color: Highlight;
+    color: HighlightText;
+  }
+}
+
 /* A reply or review card the user jumped to from the other one. */
 .msg-agent.flash,
 .review-card.flash {
