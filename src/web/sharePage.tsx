@@ -209,6 +209,12 @@ function strip(
   return fileLinkRoom(plans);
 }
 
+/** Elements that are blocks of a reply, or hold blocks. */
+const BLOCK_ELEMENTS = 'p, div, li, ul, ol, dl, dt, dd, table, thead, tbody, tfoot, tr, td, th, pre, blockquote, h1, h2, h3, h4, h5, h6, hr';
+
+/** Whether a text node is beside a block (the space between two list items, a paragraph and a list…). */
+const besideBlock = (text: Text) => [text.previousSibling, text.nextSibling].some((n) => n instanceof Element && n.matches(BLOCK_ELEMENTS));
+
 /** Wrap the words of `range` in <mark> elements of a quote of kind `kind`, one for each text node it covers; the first has the id `id`. */
 function wrapQuote(range: Range, kind: ReviewKind, id: string): void {
   const doc = range.startContainer.ownerDocument ?? document;
@@ -227,8 +233,9 @@ function wrapQuote(range: Range, kind: ReviewKind, id: string): void {
   }));
   let first = true;
   for (const { text, start, end } of pieces) {
-    // Nothing of it, or only the space between two blocks (a mark there would sit in a list or table).
-    if (end <= start || !/\S/.test(text.data.slice(start, end))) continue;
+    // Nothing of it, or only the space beside a block (between two list items, say), where a mark would
+    // sit in a list or table. The space between two words of a paragraph, in two elements, is marked.
+    if (end <= start || (!/\S/.test(text.data.slice(start, end)) && besideBlock(text))) continue;
     if (end < text.data.length) text.splitText(end);
     const words = start > 0 ? text.splitText(start) : text;
     const mark = doc.createElement('mark');

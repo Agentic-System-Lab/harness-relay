@@ -138,6 +138,7 @@ function reviseReply(prompt) {
 /**
  * The lead agent's review of the team's replies: one highlight quoting the first words of the first
  * reply (`e2e:reviewquote=list` for the words of the list `e2e:markdown` writes, across its two items;
+ * `e2e:reviewquote=none` for none: the point is about the reply, with no words of it;
  * `e2e:reviewkind=<kind>` for its kind, a risk by default), a step for the user and one for the
  * team, which asks the first reply's member to go on. Not JSON at all with `e2e:badreview`, and slow
  * (about ten seconds, to be stopped) with `e2e:slowreview`; both read from the user's messages it got.
@@ -153,13 +154,14 @@ function reviewReply(prompt) {
     text: m[3],
   }));
   const first = replies[0];
-  // `e2e:reviewquote=list`: words across the two items of the list `e2e:markdown` writes.
-  const words = d.reviewquote === 'list' ? 'first point second point' : first ? first.text.split(/\s+/).slice(0, 4).join(' ') : '';
+  // `e2e:reviewquote=list`: words across the two items of the list `e2e:markdown` writes; `none`: no words.
+  const words =
+    d.reviewquote === 'none' ? '' : d.reviewquote === 'list' ? 'first point second point' : first ? first.text.split(/\s+/).slice(0, 4).join(' ') : '';
   const kind = typeof d.reviewkind === 'string' ? d.reviewkind : 'risk';
   return {
     text: json({
       summary: `The fake lead agent read ${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}.`,
-      highlights: first ? [{ kind, reply: first.n, quote: words, note: `The fake lead agent flags what @${first.name} said first.` }] : [],
+      highlights: first ? [{ kind, reply: first.n, ...(words ? { quote: words } : {}), note: `The fake lead agent flags what @${first.name} said first.` }] : [],
       nextSteps: [
         { text: 'Try the answer yourself.', by: 'user' },
         ...(first ? [{ text: `Ask @${first.name} to go on.`, by: 'team', message: `@${first.name} please go on with the next part.` }] : []),

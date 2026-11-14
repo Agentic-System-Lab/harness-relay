@@ -955,9 +955,10 @@ describe('a team design and the team set by hand', () => {
     expect(currentPlan([msg('q'), used, msg('q2')])?.id).toBe('used');
     // From before confirmation was asked: used at once.
     expect(currentPlan([msg('old', { confirmedAt: undefined })])?.id).toBe('old');
-    // A later design declined, or still waiting: the conversation kept the team it had, which no design shows.
-    expect(currentPlan([used, msg('no', { confirmedAt: undefined, declinedAt: 2 })])).toBeUndefined();
-    expect(currentPlan([used, msg('wait', { confirmedAt: undefined, awaitingConfirmation: true })])).toBeUndefined();
+    // A later design declined, or still waiting: the conversation kept the team it had, which the one used shows.
+    expect(currentPlan([used, msg('no', { confirmedAt: undefined, declinedAt: 2 })])?.id).toBe('used');
+    expect(currentPlan([used, msg('wait', { confirmedAt: undefined, awaitingConfirmation: true })])?.id).toBe('used');
+    expect(currentPlan([msg('no', { confirmedAt: undefined, declinedAt: 2 })])).toBeUndefined();
     // One still being designed is not one yet.
     expect(currentPlan([used, msg('designing', { status: 'planning' })])?.id).toBe('used');
     expect(currentPlan([msg('q')])).toBeUndefined();
