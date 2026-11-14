@@ -1,4 +1,4 @@
-import { devices } from '@playwright/test';
+import { devices, type Locator } from '@playwright/test';
 import { SCHEDULE_KINDS } from '../../src/shared/types';
 import { en } from '../../src/web/locales/en';
 import { zhTW } from '../../src/web/locales/zh-TW';
@@ -7,6 +7,27 @@ import { composer, finishedReply, homePage, openTeamChat } from '../support/app'
 
 // A phone's screen, the way the chat is used over Tailscale (docs/remote-access.md).
 const { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch } = devices['Pixel 7'];
+
+/**
+ * A finger's swipe from the middle of `on` by (dx, dy), as touch events in one go (Playwright's
+ * touchscreen only taps), so that the move comes right after the touch as a real swipe's does.
+ */
+async function swipe(on: Locator, dx: number, dy = 0): Promise<void> {
+  await on.evaluate(
+    (el, [dx, dy]) => {
+      const r = el.getBoundingClientRect();
+      const [x, y] = [r.left + r.width / 2, r.top + r.height / 2];
+      const steps = 6;
+      const at = (i: number) => new Touch({ identifier: 0, target: el, clientX: x + (dx * i) / steps, clientY: y + (dy * i) / steps });
+      const send = (type: string, touches: Touch[], changed: Touch[]) =>
+        el.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true, composed: true, touches, targetTouches: touches, changedTouches: changed }));
+      send('touchstart', [at(0)], [at(0)]);
+      for (let i = 1; i <= steps; i++) send('touchmove', [at(i)], [at(i)]);
+      send('touchend', [], [at(steps)]);
+    },
+    [dx, dy] as const,
+  );
+}
 
 test.describe('on a phone', () => {
   test.use({ viewport, userAgent, deviceScaleFactor, isMobile, hasTouch });
@@ -44,6 +65,36 @@ test.describe('on a phone', () => {
     await page.getByRole('button', { name: 'More' }).tap();
     await page.locator('.chat-head').getByRole('button', { name: 'Files' }).tap();
     await expect(page.getByRole('dialog', { name: 'Files' })).toBeVisible();
+  });
+
+  test('a swipe right opens the sidebar and a swipe left closes it; a scroll or a swipe in the message box does not', async ({ page, relay }) => {
+    await openTeamChat(page, relay, [{ name: 'Grok', provider: 'grok' }], {}, 'Swiped open');
+    const app = page.locator('.app');
+    const sidebar = page.locator('.sidebar');
+    const messages = page.locator('.messages');
+    await expect(sidebar).not.toBeInViewport();
+
+    // Up and down is a scroll.
+    await swipe(messages, 10, -150);
+    await expect(app).not.toHaveClass(/sidebar-open/);
+    // A swipe right anywhere on the chat, not only from the screen's edge.
+    await swipe(messages, 150);
+    await expect(page.locator('.conv-link', { hasText: 'Swiped open' })).toBeInViewport();
+    // A swipe left on the sidebar, or beside it, closes it.
+    await swipe(sidebar, -150);
+    await expect(sidebar).not.toBeInViewport();
+    await swipe(messages, 150);
+    await expect(sidebar).toBeInViewport();
+    await swipe(page.locator('.sidebar-scrim'), -150);
+    await expect(sidebar).not.toBeInViewport();
+
+    // In the message box the finger moves the caret.
+    await swipe(composer(page), 150);
+    await expect(app).not.toHaveClass(/sidebar-open/);
+    // On a wide screen the sidebar is no drawer.
+    await page.setViewportSize({ width: 1000, height: 800 });
+    await swipe(messages, 150);
+    await expect(app).not.toHaveClass(/sidebar-open/);
   });
 
   test('a long message keeps the page from scrolling sideways', async ({ page, relay }) => {

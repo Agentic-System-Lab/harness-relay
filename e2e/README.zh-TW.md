@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 31 個 spec 檔、408 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 31 個 spec 檔、409 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -65,7 +65,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [通知與提示音](#通知與提示音) | [`notifications.spec.ts`](specs/notifications.spec.ts) | 4 | [使用者說明 → 通知與提示音](../docs/user-guide.zh-TW.md#通知與提示音)、[架構 → 通知](../docs/architecture.zh-TW.md#通知) |
 | [環境變數設定的上限](#環境變數設定的上限) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [開發者說明 → 環境變數](../docs/developer-guide.zh-TW.md#環境變數) |
 | [語言](#語言) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 5 | [架構 → 語言](../docs/architecture.zh-TW.md#語言) |
-| [在手機上](#在手機上) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 5 | [用手機連線](../docs/remote-access.zh-TW.md) |
+| [在手機上](#在手機上) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 6 | [用手機連線](../docs/remote-access.zh-TW.md) |
 
 測試以英文介面執行，所以下面括號裡附上測試實際操作的英文標籤。
 
@@ -462,6 +462,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 從選單開啟側邊欄，以觸控使用對話 | Grok | 選單按鈕的三條線（圖示）在按鈕正中央，誤差在十分之一個像素內；按**開啟側邊欄**（Open sidebar）前側邊欄不在畫面上，前往別處時又會收起；送出按鈕會送出（觸控螢幕上 Enter 是換行）；標題列的動作收在**更多**（More）之下。 |
+| 向右滑打開側邊欄、向左滑收起；捲動或在訊息框中滑動不會 | Grok | 一次送出整串觸控事件（Playwright 的觸控螢幕只能點）：在對話中往上移動，側邊欄維持收起；從對話中間（不是螢幕邊緣）向右滑會打開它；在側邊欄上、以及在它旁邊變暗的頁面上向左滑會收起它；從訊息框開始向右滑，以及在側邊欄不是抽屜的 1000px 寬螢幕上向右滑，都不會改變它。 |
 | 很長的訊息不會讓頁面左右捲動 | Claude Code | 300 個字元的單字與 Markdown 回答都不會造成左右捲動。 |
 | 很窄的手機上，範本編輯視窗和團隊設定不會左右捲動，新增成員卡列出所有 CLI | — | 在 320px（比 290px 的成員卡加上邊距還窄）和 280px（英文的 **hand-offs / message** 會自己換到下一行）下，內建接力範本的編輯視窗和接力對話的**團隊設定**左右捲動都不超過一個像素；只有一欄時，新增成員卡全部列出所有 CLI，不必自己捲動。 |
 | 很窄的手機上，任何一種新排程都不會左右捲動（兩種語言），對話的排程也不會 | — | 在新排程頁，每一種排程方式在 320px 和 280px 下、英文另外在 400px 和 430px、中文另外在 250px 下，都沒有東西會左右捲動。四種排程方式在英文 400px 以下排成兩列（欄寬小於 380px 就兩兩排列，留給較寬的字型），430px 時一列；中文只有 250px 時兩列。一週七天在英文 320px、280px 與中文 280px、250px 時排成兩列，其他時候一列。選**每隔幾小時**時，間隔的單位只有「小時」，說明另起一行，並且是小時數字框的無障礙說明。對話的**排程**抽屜選**每週**時，在 320px 和 280px 下也不會左右捲動。 |
@@ -551,6 +552,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **首頁 logo 動畫的流暢度。**[首頁](#首頁)檢查它只動 `transform` 與 `opacity`、只播一次；它由 Chrome 的 compositor 執行、頁面畫好之後不再重新排版或繪製，則是在 Chrome 的 trace 中手動確認的。
 - **推播通知與系統本身的通知。**[通知與提示音](#通知與提示音)用替身記錄它們；推播需要真正的推播服務（Google、Apple 的…），所以伺服器這一端（訂閱、加密、簽章、送出與保留什麼）由單元測試涵蓋（`test/push.test.ts`、`test/alerts.test.ts`、`test/push-api.test.ts`），頁面這一端由 `test/alerts-web.test.ts` 涵蓋，service worker 的處理程序則以替身的 `self` 由 `test/sw.test.ts` 涵蓋；瀏覽器向推播服務訂閱、真正的推播送到手機，則沒有任何測試走過。
 - **OpenCode 與 Goose 的 token 和費用。** Harness Relay 從這兩個 CLI 自己的 SQLite 資料庫（`opencode.db`、`sessions.db`）讀取，它們的假 CLI 不保存這些資料庫，所以在這裡它們的回覆不顯示用量；轉接器的測試（`test/opencode.test.ts`、`test/goose.test.ts`）會對照真正 CLI 寫法寫成的資料庫跑完整的回合。
+- **真正手指的滑動。**[在手機上](#在手機上)的滑動觸控事件是從頁面本身送出的，所以瀏覽器不會跟著捲動，也沒有手機自己的手勢：從螢幕最邊緣開始的滑動（手機可能留給「返回」用）沒有測試。
 - **還沒有 spec 走過的功能**：語音輸入本身的錄音與轉寫（它會下載引擎與模型，也需要麥克風；只測了安裝的面板）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 加密存在資料庫）；從設定登入 Codex、Grok、Cursor、Antigravity、Copilot 與 Muse Code（它們自己的登入流程；Copilot 的裝置登入由 `test/providers.test.ts` 測試），以及真正的 Codex 拿到 `codex login --with-api-key` 的 key 之後做了什麼；Copilot 沙箱的政策和這次執行設定的不一樣時，完全存取以外拒絕啟動（由 `test/copilot.test.ts` 測試）；Muse Code 詢問指令要不要連網（它的假 CLI 在沙箱中會為 `e2e:approve=publish` 詢問，但沒有 spec 送出這個指令），以及對話的權限改變或伺服器重新啟動後，Muse Code 的成員開新的 session（由 `test/muse.test.ts` 測試）；AgentsView 中首席 agent 與分類對話的 session 連結、設定網址後才送出的對話，以及 Harness Relay 為開源 agent 記下的成員 session（由 `test/agentsview.test.ts` 測試，Cursor 的也是，另有 spec 試過）；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
 
 ## 實機測試

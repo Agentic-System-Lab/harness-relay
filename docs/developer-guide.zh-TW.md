@@ -108,6 +108,7 @@ src/
     alerts.ts              agent 回覆完或需要使用者時的通知與提示音（設定 → 通知與提示音）：瀏覽器的選擇、它能做什麼、頁面在各種情況下怎麼做、每則通知只由一個分頁處理、與選擇同步的推播訂閱、提示音
     chat.ts                ChatView 的純邏輯：串流是否重新連線、能否套用、團隊設定草稿與它編輯的團隊、訊息何時跟著新內容捲動
     sidebar.ts             側邊欄的純邏輯：各群組的對話、每串分支排成樹狀、還沒確認的移動、收合群組或分支的狀態
+    swipe.ts               手機與平板上抽屜側邊欄的滑動（向右打開、向左收起）：哪些觸控可以滑動、怎樣的移動才算滑動（由 useSidebarSwipe 交給它觸控）
     schedule.ts            排程視窗的純邏輯：表單、表單的問題、接下來的時間、用幾個字描述排程
     templates.ts           範本編輯器的純邏輯：範本有沒有被修改
     files.ts               檔案瀏覽的純邏輯：路徑導覽列、篩選、程式語言、行數、資料夾 zip 的選擇
@@ -156,7 +157,7 @@ src/
                            NewSchedule（「新排程」頁面）、
                            ReportDialog（側邊欄的「回報問題」）、StarDialog（它旁邊的星星：到 GitHub 給 repo 一顆星星）、
                            VersionSettings（設定 → 版本）、UpdateDialog（新版本，只提示一次）、
-                           useDialog（對話框的焦點處理）
+                           useDialog（對話框的焦點處理）、useSidebarSwipe（側邊欄滑動的觸控，src/web/swipe.ts）
 test/                      Vitest 測試；fixtures/<agent>/ 放從開源 agent、Antigravity、Copilot 與 Muse Code 真正的 CLI 錄下的訊息（fixtures/antigravity/cli/ 與 fixtures/muse/cli/：agy 與 muse 自己的清單；fixtures/copilot/cli/：copilot 的；fixtures/usage/：各 CLI 對帳號方案用量的回答），fake-*.ts 是重播它們的替身（fake-antigravity.ts 給 antigravity.test.ts 用，fake-copilot.ts 給 copilot.test.ts 用，fake-muse.ts 給 muse.test.ts 與 providers.test.ts 中 Muse Code 的登入用）；setup.ts 與 timeouts.ts：測試等多久（Windows 上較長）；orchestrator-harness.ts：協調器測試共用的假 CLI；release-steps.ts：發佈 workflow 的步驟，給會執行它們的測試用
 e2e/                       端對端測試（Playwright）：npm run test:e2e
   README.zh-TW.md          它們測到的情境，依 spec 列出（英文版是 README.md）
@@ -642,6 +643,7 @@ npx vitest test/store.test.ts
 - `test/schedule.test.ts`：排程何時送出：`HH:MM` 與時區、把牆上時間換成時刻（時鐘跳過的時間往後移、重複的時間取第一次）、每天（今天或明天，時鐘調整前後時間不變）、每週（只在選定的日子，必要時到下週）、每隔幾小時（從儲存時算起）與一次性排程，以及讀不懂的時間；時鐘往回撥的那一夜、午夜與半小時的調整（聖地牙哥、豪勳爵島）、時鐘調整前後的每週時間，以及依排程所在地的星期幾（東京）。也測試 `validateSchedule()`（預設值、星期去重並排序、永遠不會送出的設定、關閉時保留過去的一次性排程）與排程視窗的邏輯：新表單與讀回已儲存的排程、瀏覽器輸入的日期時間、表單顯示的問題（和伺服器一致）、接下來的時間、以排程自己的時區顯示時間、用幾個字描述排程（星期一在前）、何時需要注意，以及一次性排程何時算完成；是否每次開新對話（只有真正的 `true` 才算），在表單中與讀回時。
 - `test/star.test.ts`：星星對話框的 repo（`src/web/star.ts`）就是網站的 repo（`site/assets/downloads.js` 的 `REPO`），在 github.com 上。
 - `test/sidebar.test.ts`：側邊欄的對話狀態、各群組的對話（「其他」在最後、群組不存在的對話放在「其他」）、還沒確認的移動，以及收合群組顯示的狀態。也包括一串分支對話（`src/shared/family.ts`）：每個對話列在它分支出來的對話底下，先建立的在上面，放在最早建立的對話所在的群組，依最近的動態排序；從已刪除的對話分支出來的對話，一起留在它當時的標題底下；伺服器還沒回應時整串一起移動；有幾個對話是從某個對話分支出來的，以及收合的一串顯示的狀態；一串分支中間已刪除的對話以它的標題留在原位，上面已刪除的頂端也一樣；開啟被收合擋住的對話時展開擋住它的分支，不在側邊欄的節點的收合狀態會被忘掉；從任何一個對話移動整串，以及復原這次移動；遇到循環會切斷，不會一直繞下去。也測試底部的 CLI 狀態：有幾個可用，以及這個瀏覽器是否顯示它們的名稱（安全地存下，沒有儲存空間也可以）。
+- `test/swipe.test.ts`：側邊欄是抽屜時的滑動（`src/web/swipe.ts`）：手指往那個方向移動 50px 後，向右滑打開收起的抽屜，向左滑收起打開的抽屜；寬螢幕上、兩隻手指、在對話框或表單欄位中、有選取文字時都不算滑動，大多是上下的移動、反方向的移動、長按之後的移動（那是在選取文字）也不算；手指下可以左右捲動的區塊還能往那個方向捲動時由它處理（不算一個像素的進位誤差），捲到底了才交給側邊欄。
 - `test/search.test.ts`：搜尋的詞、不分大小寫的比對（長的優先、重疊合併）、第一個符合處附近的摘錄、標示關鍵字。
 - `test/grouping.test.ts`：請首席 agent 分類對話的 prompt，以及解讀它的回覆（編號或名稱；0 或 null 代表都不適合；其他都拒絕）。
 - `test/mentions.test.ts`：訊息 @ 了但不在團隊裡的名字（`unknownMentions`）：不分大小寫、每個只列一次、已知名字後直接接中文、較長的單字、已知與未知的名字同時出現、套件 scope 與 decorator 當成程式碼、標題、強調與表格，以及只看一般文字（不含程式碼、連結與 email），沒包起來的網址後面直接接的中文算一般文字。
