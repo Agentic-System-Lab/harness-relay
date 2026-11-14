@@ -1,7 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, SIGN_IN_TIMEOUT_MS, SIGNED_OUT_EVENT, api } from '../src/web/api';
 import { clearKey, keyArrived, readKey, signedOutAnswer, whileSigningIn, writeKey } from '../src/web/auth';
+import { currentLang, loadMessages } from '../src/web/i18n';
 import { en } from '../src/web/locales/en';
+
+// As the page does before it draws anything (main.tsx): the API client's own errors are in its language.
+beforeAll(() => loadMessages(currentLang()));
 
 const KEY = 'x-relay-key';
 const SIGNED_OUT = { error: 'Signed out', code: 'signed-out' };

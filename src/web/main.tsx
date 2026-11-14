@@ -3,7 +3,8 @@ import { createRoot } from 'react-dom/client';
 import 'highlight.js/styles/github-dark.css';
 import './styles.css';
 import { App } from './App';
-import { I18nProvider } from './i18n';
+import { LoadFailed, PAGE_LOAD_FAILED } from './components/Deferred';
+import { I18nProvider, currentLang, loadMessages } from './i18n';
 import { startTheme } from './theme';
 import { api } from './api';
 import { watchVersion } from './update';
@@ -22,10 +23,21 @@ watchVersion(api.serverVersion, () => location.reload(), {
   },
 });
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <I18nProvider>
-      <App />
-    </I18nProvider>
-  </StrictMode>,
+// Only the language the page shows is loaded, before it is drawn (i18n.tsx); the other when chosen.
+// When they cannot be loaded, the page reloads for them once (chunks.ts), waiting meanwhile; after
+// that, it says so in both languages.
+const root = createRoot(document.getElementById('root')!);
+loadMessages(currentLang()).then(
+  () =>
+    root.render(
+      <StrictMode>
+        <I18nProvider>
+          <App />
+        </I18nProvider>
+      </StrictMode>,
+    ),
+  (err: unknown) => {
+    console.error(err);
+    root.render(<LoadFailed {...PAGE_LOAD_FAILED} />);
+  },
 );

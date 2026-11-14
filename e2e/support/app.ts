@@ -14,6 +14,22 @@ export interface NewChatOptions {
   title?: string;
 }
 
+/**
+ * Counts the pages the tab loads from now on (a reload is one more), each new page adding one in the
+ * tab's sessionStorage as it starts, so that no page goes uncounted however soon it reloads. Returns
+ * how many so far (-1 while a page is between two, to be polled).
+ */
+export async function countPages(page: Page): Promise<() => Promise<number>> {
+  await page.addInitScript(() => {
+    try {
+      sessionStorage.setItem('e2e:pages', String(Number(sessionStorage.getItem('e2e:pages') ?? 0) + 1));
+    } catch {
+      /* storage unavailable */
+    }
+  });
+  return () => page.evaluate(() => Number(sessionStorage.getItem('e2e:pages') ?? 0)).catch(() => -1);
+}
+
 /** The home page (#/), where the app opens: the logo and its tagline. Shows once the browser is signed in. */
 export const homePage = (page: Page) => page.getByRole('heading', { name: 'From now on, let your agent team work for you' });
 
@@ -148,6 +164,22 @@ export async function openTeamChat(
   await page.goto(`${relay.base}/#/c/${conv.id}`);
   await expect(composer(page)).toBeVisible();
   return conv.id;
+}
+
+/**
+ * A team editor card's height, and its height with the add card hidden. They are the same when the
+ * add card takes its row's height rather than setting it: comparing the add card with the member
+ * beside it proves nothing, as the cards of a grid row are always as tall as each other.
+ */
+export async function heightWithoutAddCard(page: Page, card: Locator): Promise<{ shown: number; hidden: number }> {
+  // Once the tool library has loaded, the card's Tools say more than their label: before that it is
+  // shorter, and an answer landing between the two measurements would change its height.
+  await expect(card.locator('.agent-tools > :nth-child(2)')).toBeAttached();
+  const shown = (await card.boundingBox())!.height;
+  const style = await page.addStyleTag({ content: '.add-card { display: none !important; }' });
+  const hidden = (await card.boundingBox())!.height;
+  await style.evaluate((el) => (el as Element).remove());
+  return { shown, hidden };
 }
 
 /** Accepts the next `confirm()` / `alert()` the page shows (Playwright dismisses them by default). */

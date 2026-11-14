@@ -1318,8 +1318,12 @@ p {
 
 .agent-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  /* Never wider than the grid: on a phone narrower than about 334px (320px, or a larger display zoom),
+     a 290px column would scroll the template editor and the team settings sideways. */
+  grid-template-columns: repeat(auto-fill, minmax(min(290px, 100%), 1fr));
   gap: 14px;
+  /* Its width tells how many columns it has: the add card below needs to know whether it shares a row. */
+  container: agent-grid / inline-size;
 }
 
 .agent-card {
@@ -1367,9 +1371,103 @@ p {
 
 .add-card {
   border-style: dashed;
-  justify-content: center;
-  align-items: stretch;
   background: transparent;
+  /* Its height while it takes its row's (below): a floor, never an empty box, should the column
+     count below ever be wrong (a zoom's fractional width, say). */
+  contain-intrinsic-block-size: 280px;
+}
+
+/*
+ * Beside members, the add card takes their height instead of setting it (a button for each of the
+ * twelve CLIs would make it the tallest card of the row), and its list scrolls. On a row of its own
+ * (no members, the members filling the rows above, or one column on a phone) it lists every CLI.
+ * It comes after the members, so it starts a row when its place is one more than a multiple of the
+ * columns' count; with 290px columns and 14px gaps there are two from 594px, three from 898px and
+ * four from 1202px, five from 1506px. Change those with the column or the gap. The widest editor,
+ * the template's (about 960px), has room for three; from five columns on the add card is never
+ * contained: beside members it stretches them, as it did before, and on a row of its own it is
+ * as it should be.
+ */
+@container agent-grid (594px <= width < 898px) {
+  .agent-card + .add-card:nth-child(even) {
+    contain: size;
+  }
+}
+
+@container agent-grid (898px <= width < 1202px) {
+  .agent-card + .add-card:not(:nth-child(3n + 1)) {
+    contain: size;
+  }
+}
+
+@container agent-grid (1202px <= width < 1506px) {
+  .agent-card + .add-card:not(:nth-child(4n + 1)) {
+    contain: size;
+  }
+}
+
+.add-card-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* Room for the buttons' focus rings, which the scrolling list would clip. */
+  margin: -3px;
+  padding: 3px;
+}
+
+/*
+ * While more CLIs are below, a shadow fades in along the list's bottom edge: a sign that it scrolls
+ * where the scrollbar hides until used (macOS's overlay scrollbars). Fading the buttons out would not
+ * do: where the list's edge falls between two buttons there is nothing to fade, and the list looks
+ * complete. The shadow is pinned to the edge (sticky, over the last buttons, taking no room), follows
+ * the list's own scroll and is gone at its end; a list that does not scroll has no scroll timeline,
+ * so the shadow stays at its resting opacity, 0. Without scroll-driven animations (Firefox) there is
+ * none, as before.
+ */
+@keyframes add-list-more {
+  from,
+  85% {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@supports (animation-timeline: scroll()) {
+  .add-card-list::after {
+    content: '';
+    flex: none;
+    position: sticky;
+    /* The list's own 3px padding: flush with the bottom of what shows. */
+    bottom: -3px;
+    height: 14px;
+    /* Over the last buttons, taking no room: its height and the gap before it. */
+    margin: -26px -3px 0;
+    background: radial-gradient(farthest-side at 50% 100%, color-mix(in srgb, var(--text) 22%, transparent), transparent);
+    pointer-events: none;
+    opacity: 0;
+    animation: add-list-more linear both;
+    animation-timeline: scroll(nearest);
+  }
+
+  /* A button the keys move to stops above the shadow. */
+  .add-card-list {
+    scroll-padding-block-end: 16px;
+  }
+
+  /* Not motion: the shadow follows the list's scroll, as a scrollbar does, so it stays with reduced
+     motion too (the rule further down turns every animation off). */
+  @media (prefers-reduced-motion: reduce) {
+    .add-card-list::after {
+      animation: add-list-more linear both !important;
+      animation-timeline: scroll(nearest) !important;
+    }
+  }
 }
 
 .add-agent {
@@ -1506,6 +1604,13 @@ p {
 .field.inline .unit {
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+/* Where even one line of label, box and unit is wider than the screen (English under about 300px),
+   the unit goes onto a line of its own, whole, rather than past the edge. */
+.field.inline:has(> .unit) {
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 
 .field textarea {
@@ -2113,6 +2218,49 @@ details.sub .model-picker {
   padding: 6px;
   background: color-mix(in srgb, var(--warn) 15%, var(--bg));
   color: var(--warn);
+}
+
+/* A part of the page that could not be loaded (components/Deferred.tsx): above everything, dialogs and
+   the tour included, since it stands for one of them. */
+.load-failed {
+  position: fixed;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 90;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px 14px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
+  border-radius: var(--radius);
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.load-failed > span:first-child {
+  flex: 1 1 260px;
+}
+
+/* For a page (Settings): in the page's own place, under nothing, so that a phone's sidebar stays clear. */
+.load-failed.in-page {
+  position: static;
+  transform: none;
+  z-index: auto;
+  width: auto;
+  max-width: min(560px, calc(100% - 32px));
+  margin: 48px auto;
+}
+
+.load-failed-buttons {
+  display: flex;
+  gap: 8px;
 }
 
 .messages {
@@ -3647,6 +3795,35 @@ video.chat-media {
   gap: 18px;
 }
 
+/* The four kinds of schedule need about 220px on one row in Chinese and 340px in English (about 366px
+   with a wider font, such as Linux's DejaVu Sans); narrower than that (a phone), they go two by two,
+   as the voice input's languages do, and a label may wrap. */
+.schedule-repeat {
+  container: schedule-repeat / inline-size;
+}
+
+@container schedule-repeat (width < 230px) {
+  .schedule-repeat .segmented {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .schedule-repeat .segmented button {
+    white-space: normal;
+  }
+}
+
+@container schedule-repeat (width < 380px) {
+  :lang(en) .schedule-repeat .segmented {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  :lang(en) .schedule-repeat .segmented button {
+    white-space: normal;
+  }
+}
+
 .schedule-sub {
   margin-top: 4px;
 }
@@ -3665,6 +3842,9 @@ video.chat-media {
 
 .day-picker {
   display: flex;
+  /* The seven days need about 310px in English: on a narrower phone they go on two rows rather
+     than past the edge. */
+  flex-wrap: wrap;
   gap: 4px;
 }
 

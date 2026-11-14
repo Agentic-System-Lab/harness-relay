@@ -3,13 +3,16 @@
 import {
   MEMORY_SCOPES,
   PROVIDERS,
+  PROVIDER_LABEL,
   agentHasTool,
+  isOpenProvider,
   toolKey,
   type AgentConfig,
   type Provider,
   type ToolKind,
   type ToolLibraryView,
 } from '../shared/types';
+import type { Messages } from './locales/zh-TW';
 
 export interface ToolItem {
   key: string;
@@ -41,6 +44,29 @@ export function toolItems(lib: ToolLibraryView): ToolItem[] {
     })),
   ];
 }
+
+/**
+ * What a member's CLI loads besides the tool library, as its Tools say it: a CLI with a sign-in loads
+ * its own setup, which Settings lists for each account; an open agent runs with a config folder of Harness
+ * Relay's own instead of its own one in the user's home, which is not read (docs/open-agents.md,
+ * "Agent homes"); what else it loads (a project's skills, Cline's ~/.agents) Settings lists.
+ */
+export function ownSetupText(t: Messages, provider: Provider): string {
+  const cli = PROVIDER_LABEL[provider];
+  return isOpenProvider(provider) ? t.team.toolsOwnSetup.open(cli) : t.team.toolsOwnSetup.own(cli);
+}
+
+/** A member's Tools while the tool library is empty: not "no tools", but what its CLI loads anyway. */
+export const emptyLibraryText = (t: Messages, provider: Provider): string => t.team.toolsEmpty(ownSetupText(t, provider));
+
+/**
+ * A member's Tools while the tool library holds nothing for its CLI: only other CLIs' memory notes,
+ * which `itemsFor` leaves out. Not "empty", which it is not.
+ */
+export const noneForCliText = (t: Messages, provider: Provider): string => t.team.toolsNoneForCli(ownSetupText(t, provider));
+
+/** The hint over a member's tool library items: they come on top of what its CLI loads by itself. */
+export const toolsHintText = (t: Messages, provider: Provider): string => t.team.toolsHint(ownSetupText(t, provider));
 
 /** The items that apply to an agent of `provider`: all but the memory parts for other CLIs. */
 export function itemsFor(items: ToolItem[], provider: Provider): ToolItem[] {

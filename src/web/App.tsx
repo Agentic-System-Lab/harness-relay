@@ -3,11 +3,10 @@ import type { ConversationGroup, ConversationSummary, ProviderModels, ProviderSt
 import { SIGNED_OUT_EVENT, api } from './api';
 import { keyArrived } from './auth';
 import { ChatView } from './components/ChatView';
+import { Deferred, lazyPart } from './components/Deferred';
 import { Home } from './components/Home';
 import { NewChat } from './components/NewChat';
 import { NewSchedule } from './components/NewSchedule';
-import { Onboarding, onboardingDone } from './components/Onboarding';
-import { SettingsPage } from './components/SettingsPage';
 import { SignIn } from './components/SignIn';
 import { UpdateDialog } from './components/UpdateDialog';
 import { hashFor, routeFromHash, type Route } from './route';
@@ -28,6 +27,11 @@ import { refreshLimits } from './limits';
 import { latestLoader, newerStatuses } from './refresh';
 import { AFTER_UPDATE_MS, TYPING_PAUSE_MS, isAppWindow, offerShows, pollDelay, readDismissed, shouldOffer, typesText, writeDismissed } from './update';
 import { useDialogsHeld, useDialogsOpen } from './components/useDialog';
+import { onboardingDone } from './tour';
+
+// Loaded when first opened, not with the page: Settings and its panels, and the guided tour.
+const SettingsPage = lazyPart(() => import('./components/SettingsPage').then((m) => m.SettingsPage));
+const Onboarding = lazyPart(() => import('./components/Onboarding').then((m) => m.Onboarding));
 
 type SeenMap = Record<string, number>;
 const SEEN_KEY = 'relay:seen';
@@ -447,19 +451,25 @@ function RelayApp() {
           />
         )}
         {route.page === 'settings' && (
-          <SettingsPage
-            section={route.section}
-            providers={providers}
-            catalog={catalog}
-            refreshProviders={refreshProviderInfo}
-            onShowTour={() => setTourOpen(true)}
-            update={update}
-            onCheckUpdate={checkUpdate}
-            onInstallUpdate={installUpdate}
-          />
+          <Deferred inPage>
+            <SettingsPage
+              section={route.section}
+              providers={providers}
+              catalog={catalog}
+              refreshProviders={refreshProviderInfo}
+              onShowTour={() => setTourOpen(true)}
+              update={update}
+              onCheckUpdate={checkUpdate}
+              onInstallUpdate={installUpdate}
+            />
+          </Deferred>
         )}
       </main>
-      {tourOpen && <Onboarding onClose={() => setTourOpen(false)} />}
+      {tourOpen && (
+        <Deferred onClose={() => setTourOpen(false)}>
+          <Onboarding onClose={() => setTourOpen(false)} />
+        </Deferred>
+      )}
       {offer && update?.available && (
         <UpdateDialog
           version={update.available.version}

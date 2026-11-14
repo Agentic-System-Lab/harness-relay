@@ -1,9 +1,9 @@
-import hljs from 'highlight.js/lib/common';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FILE_LIMITS, cwdsOf, type Conversation, type FileEntry, type FileListing, type FilePreview } from '../../shared/types';
 import { api } from '../api';
 import { useT } from '../i18n';
 import { codeLanguage, crumbs, filterEntries, isMarkdown, joinPath, lineCount, parentPath, zipChoice } from '../files';
+import { highlightHtml } from '../highlight';
 import { formatBytes, relativeTime } from '../util';
 import { CopyButton } from './CopyButton';
 import { ChevronIcon, CopyIcon, DownloadIcon, FolderIcon } from './icons';
@@ -384,10 +384,10 @@ export function TextContent({ name, preview, source }: { name: string; preview: 
 function CodeView({ text, name }: { text: string; name: string }) {
   const html = useMemo(() => {
     const lang = codeLanguage(name);
-    if (!lang || text.length > HIGHLIGHT_MAX_CHARS || !hljs.getLanguage(lang)) return null;
+    if (!lang || text.length > HIGHLIGHT_MAX_CHARS) return null;
     try {
-      // highlight.js escapes the text; its output is only <span class="hljs-…"> elements.
-      return hljs.highlight(text, { language: lang, ignoreIllegals: true }).value;
+      // Escaped text in <span class="hljs-…"> elements only (highlightHtml).
+      return highlightHtml(text, lang);
     } catch {
       return null;
     }

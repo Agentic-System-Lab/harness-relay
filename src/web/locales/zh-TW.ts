@@ -47,6 +47,9 @@ export const zhTW = {
     sending: '傳送中…',
     clickToCopy: '點擊複製',
     listSeparator: '、',
+    partFailed: '這部分的頁面無法載入（Harness Relay 可能剛更新過）。重新載入頁面再試一次。',
+    partBroken: '這部分的頁面出了問題，無法顯示。請重新載入頁面；如果再次發生，請回報問題。',
+    reload: '重新載入',
   },
   modes: {
     roundtable: { label: '圓桌', hint: '依序發言，後面的人看得到前面說了什麼；可設定多輪，全部 [PASS] 時提前結束。' },
@@ -150,6 +153,8 @@ export const zhTW = {
     editTitle: (name: string) => `修改範本「${name}」`,
     builtinTitle: (name: string) => `內建範本「${name}」`,
     builtinNote: '內建範本不能直接修改；調整後可以另存成你自己的範本。',
+    /** Members whose CLI cannot run here moved to one that can (`fitTemplateAgents`); `names` joined. */
+    moved: (names: string) => `${names} 原本用的 CLI 在這台電腦還不能用（沒有安裝或沒有登入），已改用可以用的 CLI；儲存範本就會照這樣保存。`,
     name: '範本名稱',
     namePlaceholder: '例如：前後端分工',
     description: '說明',
@@ -218,14 +223,34 @@ export const zhTW = {
     /** An open agent with no default model (none in Settings, none its CLI's catalog gives on a configured backend). */
     noDefaultModel: '沒有預設模型：請選一個',
     tools: '工具',
-    toolsHint: '勾選這位成員可以用的工具庫項目（在「設定 → 工具庫」管理）。這些是加在 CLI 自己的設定之外，CLI 本來就有的 skill、MCP 照常可用。',
+    /**
+     * What a member's CLI loads besides the tool library, said in its Tools (`ownSetupText()`): a CLI
+     * with a sign-in, its own setup, which Settings lists for the member's account and the default
+     * working directory, the one Settings asks about (a chat elsewhere may load another project's) (not "as usual": its
+     * home may be Harness Relay's, Settings → Agent sessions, or the account's own, and some of it may
+     * be left out there); an open agent runs with a config folder of Harness Relay's own
+     * instead of its own one in the user's home (~/.config/opencode, ~/.cline…), which is not read.
+     * Never that its skills do not load: a project's skills do for most of them, and Cline also reads
+     * the user's ~/.agents and ~/Documents/Cline (docs/open-agents.md).
+     */
+    toolsOwnSetup: {
+      own: (cli: string) => `${cli} 也會載入它自己的設定，例如它的 skill 和 MCP 伺服器：「設定 → ${cli}」列出它在預設工作目錄中會載入哪些。`,
+      open: (cli: string) =>
+        `${cli} 在 Harness Relay 裡用的是 Harness Relay 自己的設定資料夾，而不是你家目錄裡它自己的那個，所以你在那裡的設定（例如 MCP 伺服器）不會被讀取；它還會自己載入的（例如專案的 AGENTS.md）列在「設定 → ${cli}」，以預設工作目錄為準。`,
+    },
+    /** `setup`: `toolsOwnSetup`'s sentence for the member's CLI. */
+    toolsHint: (setup: string) => `勾選這位成員可以用的工具庫項目（在「設定 → 工具庫」管理），它們加在 CLI 自己的設定之外。${setup}`,
     toolMemory: '共享記憶',
     toolProviderMemory: (p: string) => `${p} 專屬記憶`,
     toolOffByDefault: '預設不給這個 CLI',
     toolsNone: '沒有提供任何工具庫項目',
     toolsEdit: '調整',
     toolsDone: '收起',
-    toolsEmpty: '工具庫還是空的：可以加入 MCP 伺服器、skill 和記憶，給所有 CLI 共用，或只給某幾種 CLI。',
+    /** `setup`: `toolsOwnSetup`'s sentence for the member's CLI. */
+    toolsEmpty: (setup: string) => `工具庫還是空的。${setup}工具庫可以加入 MCP 伺服器、skill 和記憶，給所有 CLI 共用，或只給某幾種 CLI。`,
+    /** The library holds only other CLIs' memory notes. `setup`: `toolsOwnSetup`'s sentence for the member's CLI. */
+    toolsNoneForCli: (setup: string) =>
+      `工具庫裡還沒有給這個 CLI 的項目，只有給其他 CLI 的記憶。${setup}工具庫可以加入 MCP 伺服器、skill 和記憶，給所有 CLI 共用，或只給某幾種 CLI。`,
     goToolLibrary: '前往設定 → 工具庫',
     toolProblem: '目前無法使用',
     problems: {
@@ -1150,10 +1175,10 @@ export const zhTW = {
         plugins: '每個已安裝的 plugin，連同它的 skill 與 MCP 伺服器',
       },
       muse: {
-        skills: 'Muse Code 沒有能單次略過 skill 的設定（它內建的、~/.config/muse/skills 的，以及你 Claude Code 與 Codex 的 skill 都會載入；專案的 skill 只在完全存取時載入，那時工作區才受信任）',
+        skills: 'Muse Code 沒有能單次略過 skill 的設定（它內建的、~/.config/muse/skills 與 ~/.agents/skills 的，以及你 Claude Code 與 Codex 的 skill 都會載入；專案的 skill 只在完全存取時載入，那時工作區才受信任）',
         mcp: '把 Muse Code 設定裡的 MCP 伺服器從這一輪自己的設定中拿掉',
         tools: 'Muse Code 不回報它的內建工具',
-        instructions: 'Muse Code 沒有能單次略過指示檔的設定（它自己的規則，以及你 Claude Code 與 Codex 的都會載入；專案的 AGENTS.md、CLAUDE.md 只在完全存取時載入，那時工作區才受信任）',
+        instructions: 'Muse Code 沒有能單次略過指示檔的設定（會載入它自己的規則，也就是它設定資料夾裡的 AGENTS.md（預設帳號是 ~/.config/muse），沒有的話則是你的 ~/.claude/CLAUDE.md；專案的 AGENTS.md、CLAUDE.md 只在完全存取時載入，那時工作區才受信任）',
         memory: 'Muse Code 沒有能單次略過記憶的設定',
         hooks: '把 Muse Code 設定裡的 hook 從這一輪自己的設定中拿掉（專案的 .muse/hooks.json 只在完全存取時載入，那時工作區才受信任）',
         agents: 'Muse Code 沒有能單次略過自訂 agent 的設定',
@@ -1279,6 +1304,7 @@ export const zhTW = {
     },
     language: '介面語言',
     languageHint: '第一次開啟時依瀏覽器語言決定，之後記在這個瀏覽器。',
+    languageFailed: (name: string) => `無法載入${name}。重新載入頁面再試一次。`,
     appearance: '外觀',
     appearanceHint: '介面要用淺色還是深色背景。記在這個瀏覽器；「跟隨系統」會隨電腦或手機的淺色／深色模式切換。',
     themes: { system: '跟隨系統', light: '淺色', dark: '深色' } as Record<ThemeChoice, string>,
@@ -1305,7 +1331,7 @@ export const zhTW = {
     sessionsHint: 'Harness Relay 啟動 claude、codex、grok、cursor-agent、agy、copilot、muse 時，它們把登入、設定與 session 紀錄放在哪裡，以及是否在 AgentsView 中檢視每個對話。',
     agentHome: '各 CLI 自己的資料夾',
     agentHomeHint:
-      '設定後，Harness Relay 讓 claude、codex、grok、cursor-agent、agy、copilot、muse 分別用這個資料夾下的 claude、codex、grok、cursor、antigravity、copilot、muse 子資料夾當家目錄：登入、設定和 session 紀錄都放在那裡，和你平常直接使用 CLI 時分開。之後要在上方的各 CLI 重新登入一次（或設定 API key）；它們也不再讀你平常家目錄裡的設定、MCP、skill、記憶與 plugin，Harness Relay 工具庫裡的照常提供。Cursor 例外：只有它的設定與 session 紀錄會放到那裡；它的登入，以及 ~/.cursor 裡的 skill、MCP 與 hooks，仍留在 Cursor 為你的使用者保存的地方。Antigravity 的 .gemini 資料夾（設定、skill、MCP、hook 與對話紀錄）會放到那裡，它的 Google 登入則留在系統的 keyring。Muse Code 的設定與資料資料夾（設定、登入與 session）也會放到那裡。留空則使用各 CLI 平常的家目錄。',
+      '設定後，Harness Relay 讓 claude、codex、grok、cursor-agent、agy、copilot、muse 分別用這個資料夾下的 claude、codex、grok、cursor、antigravity、copilot、muse 子資料夾當家目錄：登入、設定和 session 紀錄都放在那裡，和你平常直接使用 CLI 時分開。之後要在上方的各 CLI 重新登入一次（或設定 API key）；它們放在平常家目錄裡的內容不再載入，但有些仍會自己讀你家目錄的部分內容：其他 CLI 的 skill（Codex、Grok、Muse Code 與 Cursor；例如 ~/.agents/skills 的）、MCP 與 hook（Grok 讀 Claude Code 的 plugin，以及 ~/.claude.json 與 ~/.cursor/mcp.json 的伺服器；Cursor 讀 ~/.cursor 裡它自己的，以及 Claude Code 的 hook；專案在家目錄底下時，Claude Code 讀 ~/.mcp.json 的），以及指示檔（Grok 讀 ~/.claude/CLAUDE.md，Muse Code 沒有自己的規則時也讀；專案在家目錄底下時，Claude Code 與 Cursor 讀家目錄裡的）。Cursor 的登入仍留在 Cursor 為你的使用者保存的地方，只有它的設定與 session 紀錄會放到那裡。各 CLI 會讀什麼見使用者說明；上方各 CLI 的卡片列出它會載入的 skill、MCP 與 hook。Harness Relay 工具庫裡的照常提供。Antigravity 的 .gemini 資料夾（設定、skill、MCP、hook 與對話紀錄）會放到那裡，它的 Google 登入則留在系統的 keyring。Muse Code 的設定與資料資料夾（設定、登入與 session）也會放到那裡。留空則使用各 CLI 平常的家目錄。',
     agentHomeUse: (dir: string) => `使用 ${dir}`,
     agentHomeSaved: (dir: string) => `各 CLI 現在使用 ${dir} 下的資料夾，請在上方重新登入`,
     agentHomeOff: '各 CLI 已改回使用平常的家目錄',

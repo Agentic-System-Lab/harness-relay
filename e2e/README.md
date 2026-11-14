@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 386 tests in 31 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 399 tests in 31 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -36,10 +36,10 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | Area | Spec | Tests | Related docs |
 | --- | --- | --- | --- |
 | [Signing in](#signing-in) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [Architecture → Signing in](../docs/architecture.md#signing-in) |
-| [The home page](#the-home-page) | [`home.spec.ts`](specs/home.spec.ts) | 2 | [User guide → Start a chat](../docs/user-guide.md#3-start-a-chat--new-chat-and-templates) |
+| [The home page](#the-home-page) | [`home.spec.ts`](specs/home.spec.ts) | 5 | [User guide → Start a chat](../docs/user-guide.md#3-start-a-chat--new-chat-and-templates) |
 | [A new chat and the lead agent's team](#a-new-chat-and-the-lead-agents-team) | [`chat.spec.ts`](specs/chat.spec.ts) | 5 | [User guide → Auto team](../docs/user-guide.md#auto-team), [Architecture → Auto team](../docs/architecture.md#auto-team) |
-| [Templates](#templates) | [`templates.spec.ts`](specs/templates.spec.ts) | 3 | [User guide → Templates](../docs/user-guide.md#templates) |
-| [Changing a chat's team](#changing-a-chats-team) | [`team.spec.ts`](specs/team.spec.ts) | 3 | [User guide → Editing the team mid-chat](../docs/user-guide.md#editing-the-team-mid-chat) |
+| [Templates](#templates) | [`templates.spec.ts`](specs/templates.spec.ts) | 6 | [User guide → Templates](../docs/user-guide.md#templates) |
+| [Changing a chat's team](#changing-a-chats-team) | [`team.spec.ts`](specs/team.spec.ts) | 4 | [User guide → Editing the team mid-chat](../docs/user-guide.md#editing-the-team-mid-chat) |
 | [A member's model and reasoning effort](#a-members-model-and-reasoning-effort) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [User guide → Default model and reasoning effort](../docs/user-guide.md#default-model-and-reasoning-effort), [Team members](../docs/user-guide.md#team-members) |
 | [How members take turns](#how-members-take-turns) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [Architecture → Turn scheduling](../docs/architecture.md#turn-scheduling-modes), [How agents share context](../docs/architecture.md#how-agents-share-context) |
 | [What an agent does on its way to a reply](#what-an-agent-does-on-its-way-to-a-reply) | [`activity.spec.ts`](specs/activity.spec.ts) | 13 | [Architecture → Agent activity](../docs/architecture.md#agent-activity) |
@@ -48,7 +48,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Working directories and other folders](#working-directories-and-other-folders) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [Architecture → Several working directories](../docs/architecture.md#several-working-directories), [OS sandboxes by platform](../docs/sandboxing.md) |
 | [Harness Relay's own sandbox](#harness-relays-own-sandbox) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [OS sandboxes by platform → Harness Relay's own sandbox](../docs/sandboxing.md#harness-relays-own-sandbox), [Open agents → The relay sandbox](../docs/open-agents.md#the-relay-sandbox) |
 | [What reaches each CLI besides the prompt](#what-reaches-each-cli-besides-the-prompt) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [Architecture → Tool library](../docs/architecture.md#tool-library) |
-| [The tool library](#the-tool-library) | [`tools.spec.ts`](specs/tools.spec.ts) | 14 | [User guide → Tool library](../docs/user-guide.md#tool-library-mcp-servers-skills-and-memory), [Architecture → Tool library](../docs/architecture.md#tool-library) |
+| [The tool library](#the-tool-library) | [`tools.spec.ts`](specs/tools.spec.ts) | 15 | [User guide → Tool library](../docs/user-guide.md#tool-library-mcp-servers-skills-and-memory), [Architecture → Tool library](../docs/architecture.md#tool-library) |
 | [Changing a chat's history](#changing-a-chats-history) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [User guide → Copying, editing and retrying](../docs/user-guide.md#copying-editing-and-retrying), [Branching a conversation](../docs/user-guide.md#branching-a-conversation) |
 | [Copying and sharing](#copying-and-sharing) | [`share.spec.ts`](specs/share.spec.ts) | 5 | [User guide → Sharing a conversation](../docs/user-guide.md#sharing-a-conversation), [Architecture → Sharing a conversation](../docs/architecture.md#sharing-a-conversation) |
 | [The sidebar](#the-sidebar) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 7 | [User guide → Groups](../docs/user-guide.md#groups), [Search](../docs/user-guide.md#search) |
@@ -64,8 +64,8 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [The guided tour and the theme](#the-guided-tour-and-the-theme) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 7 | [User guide → Language and the guided tour](../docs/user-guide.md#language-and-the-guided-tour) |
 | [Notifications and sound](#notifications-and-sound) | [`notifications.spec.ts`](specs/notifications.spec.ts) | 4 | [User guide → Notifications and sound](../docs/user-guide.md#notifications-and-sound), [Architecture → Notifications](../docs/architecture.md#notifications) |
 | [Limits the environment sets](#limits-the-environment-sets) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [Developer guide → Environment variables](../docs/developer-guide.md#environment-variables) |
-| [Languages](#languages) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 2 | [Architecture → Languages](../docs/architecture.md#languages) |
-| [On a phone](#on-a-phone) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 3 | [Use it from your phone](../docs/remote-access.md) |
+| [Languages](#languages) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 5 | [Architecture → Languages](../docs/architecture.md#languages) |
+| [On a phone](#on-a-phone) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 5 | [Use it from your phone](../docs/remote-access.md) |
 
 ## Signing in
 
@@ -95,6 +95,9 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | --- | --- |
 | The app opens on it, and the logo and name lead back to it | The home page shows the logo and its tagline; the sidebar's logo and **Harness Relay** (marked as the current page there) go back to it from the New chat page and from a chat (`#/`). |
 | The logo plays its animation once on each visit, with transform and opacity alone, and not with reduced motion | The logo's dots, its turn and the tagline animate for a while (not for no time, as a nameless `animation` shorthand minified to `none` would), once, changing only `transform` and `opacity`; they end by themselves and play again when the home page opens again; with reduced motion nothing animates. |
+| A part of the page that cannot be loaded: the page reloads once for it, then says so; the note closes, and Reload brings it | With the report dialog's file missing (404), as in a page left open across an update, **Report a problem** reloads the page once; a second click within the minute shows a note instead of an empty page, whose **Close** closes it and whose **Reload** reloads the page, after which the dialog opens. The pages are counted as each one starts, so that none goes uncounted. |
+| A part of the page that loads but fails to draw says so, not that it could not be loaded, and the page does not reload | With a report dialog that throws as it draws, **Report a problem** shows the note that it ran into a problem (not that it could not be loaded), the page does not reload, and **Close** closes the note. |
+| A diagram that cannot be loaded shows its source, and the page does not reload for it | With Mermaid's file missing, a reply with a diagram (`e2e:mermaid`) shows its source and says it could not be drawn; the page does not reload, as it does for the parts above. |
 
 ## A new chat and the lead agent's team
 
@@ -114,6 +117,9 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
 | The built-in templates are listed, and one opens to show its members | — | "Three-way debate" is marked built-in, and its dialog lists Proposer, Pragmatist and Skeptic. |
+| A new template has a member for each CLI installed here only, also when opened before the CLIs' statuses came | — | With `/api/providers` held back after a reload, **＋ New template** opens with no member; once the statuses come, one each on Claude Code, Codex and Grok (the test server's), and closing asks nothing. |
+| A template's member on a CLI not installed here moves to one that is, says so, and the template can be saved so | — | With Grok not installed: a new template has Claude Code and Codex only; "Three-way debate" opens with Skeptic on Claude Code (both other CLIs taken), the dialog names Skeptic as moved, and **Save as my template** is enabled though nothing else changed. |
+| In a template's editor, three columns wide, the add card lists every CLI on a row of its own and is as tall as a member beside it | — | At 1280px the editor's grid has three columns: with the built-in relay template's three members the add card is on a row of its own and lists every CLI without scrolling; beside a fourth member, and beside the first row's two once two are removed, its list scrolls and those members keep their own heights (measured again with the add card hidden: cards in one row are always as tall as each other, so comparing them would prove nothing). |
 | The lead agent picks a template as it is | Claude Code, Codex, Grok | The card says it uses "Three-way debate"; over its two rounds each member answers with its CLI, then passes (six replies). |
 | A team the lead agent designed is saved as a template | Claude Code, Grok | **Save as template** suggests the team's name, the card says it was saved, and the template is on the New chat page. |
 
@@ -126,6 +132,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | The lead agent changes the team when asked, and the new member answers once it is saved | Claude Code, Grok | In **Team settings → Ask the lead agent**, the request reaches the lead agent, the drawer shows the member it added, and after **Save** both members answer. |
 | When the lead agent's answer cannot be read, a template stands in | Claude Code | An answer that is not JSON falls back to "General-question panel", whose three members answer. |
 | A team proposed for a new question is declined | Claude Code, Codex | **No, keep the current team**: the card says it was not used, the current team answers and the proposed member does not. |
+| The add card is as tall as the members beside it with a shadow while more CLIs are below, lists every CLI on a row of its own, and one tall card stretches only its row | — | In **Team settings** (two columns at 1280px), the list being a group named **Add member**: beside one member, the member keeps its own height (measured again with the add card hidden) and the list of the twelve CLIs scrolls. Where the browser has scroll-driven animations, a shadow shows along the list's bottom edge (a screenshot of that strip differs without it), also with reduced motion, each button given the focus stops above it, and it is gone once the list is scrolled to its end. With two members, on a row of its own, the card lists them all without scrolling or shadow; made to take a height it is not given (as a wrong column count would), it is at least 280px tall and scrolls, never an empty box. Beside a third member that member keeps its own height, and a role box made taller in the first row leaves the second row's cards as they were. |
 
 ## A member's model and reasoning effort
 
@@ -188,7 +195,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | Grok in a read-only chat that refuses automatically says why | Grok | The tool's error says it is not allowed in read-only mode. |
 | Every CLI writes in edit mode, and each turn records its own change | two teams | Each member writes its own file (`<cli>.txt`), and each reply's changes card lists it. A CLI that runs only with full access here does so in a chat of its own. |
 | In parallel mode each member works in its own worktree, and a result can be applied | Claude Code, Codex | Both changes cards say "in worktree" and nothing reaches the working directory until **Apply to working directory** brings in Codex's file. |
-| The file browser shows the working directory and previews a file | Claude Code | **Files** lists the project; `src/hello.ts` opens with its code; Escape closes it. |
+| The file browser shows the working directory and previews a file | Claude Code | **Files** lists the project; `src/hello.ts` opens with its code, highlighted as TypeScript (its keywords and types in their own classes); Escape closes it. |
 | A folder downloads as a ZIP file of its files, without .git | Claude Code | The working directory's ZIP (`work.zip`) holds exactly its files, with their contents, and no `.git`; a folder's own (`src.zip`) only that folder. |
 | A folder too large to zip in full is offered without what git ignores | Claude Code | An ignored file set to more than 1 GiB without writing to it (on Windows it still takes the space on disk) makes it too large: declining the offer downloads nothing, accepting gives the ZIP without the ignored folder. |
 
@@ -233,12 +240,13 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 
 ## The tool library
 
-[`tools.spec.ts`](specs/tools.spec.ts): **Settings → Tool library**, each test twice: in a chat with a member of each CLI with a sign-in, and in one with a member of each open agent (`open agents: …`). A test that turns an item off for a CLI, or on or off for a member, takes the team's second and third members for that (Codex and Grok; Goose and Cline).
+[`tools.spec.ts`](specs/tools.spec.ts): **Settings → Tool library**. What a member's Tools say with the library empty is checked once; every other test runs twice: in a chat with a member of each CLI with a sign-in, and in one with a member of each open agent (`open agents: …`). A test that turns an item off for a CLI, or on or off for a member, takes the team's second and third members for that (Codex and Grok; Goose and Cline).
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
+| With an empty tool library, or one with nothing for its CLI, each member's Tools say what its own CLI loads by itself | Claude Code, Goose | In **Team settings**, while the library is still loading, a card says nothing of it (only **Tools**); then Claude Code's card says it also loads its own setup and Goose's that it runs with a config folder of Harness Relay's own, each the text for its own CLI (`emptyLibraryText()`), with the link to the tool library. With a memory note for Codex only, neither card calls the library empty: each says it has nothing for that CLI yet (`noneForCliText()`). |
 | An MCP server added on the page reaches every CLI, its secret masked and kept off the command line | two teams | The row says "All members"; editing shows the value empty with a masked placeholder; neither the page nor `GET /api/tools` holds the secret; each member names the server and got its value, in no argument; Claude Code's `--mcp-config` file is gone after the turn. |
-| An MCP server turned off for a CLI, or in a member's Tools, is not given | two teams | Off for the second CLI (Codex; Goose) in "Given by default to", it gets nothing; ticked in its member's **Tools** and unticked in the third's (Grok; Cline), the second gets it (its saved value kept) and the third does not. |
+| An MCP server turned off for a CLI, or in a member's Tools, is not given | two teams | Off for the second CLI (Codex; Goose) in "Given by default to", it gets nothing; ticked in its member's **Tools** and unticked in the third's (Grok; Cline), the second gets it (its saved value kept) and the third does not. Over its items, the second member's **Tools** say what its own CLI loads by itself (`toolsHintText()`). |
 | A skill picked from a folder is in each CLI's briefing, and each reads its SKILL.md | two teams | Of a folder with two skills, the one added is in each briefing and each reads its first line; the other never shows. Claude Code may read it only through the `Read(…)` rule its adapter adds (the fake refuses without it). |
 | A skill turned off for a CLI, or in a member's Tools, is not given | two teams | Off for the third CLI (Grok; Cline) and unticked in the first's **Tools** (Claude; OpenCode), neither gets it, and Claude Code's arguments name it nowhere. |
 | Memory for all members and for one CLI reaches each briefing, and a member's Tools can leave it out | two teams | The second CLI (Codex; Goose) gets the shared memory and its own note, in order, the others only the shared one; unticking "Shared memory" in the third's **Tools** (Grok; Cline) leaves it none. |
@@ -432,6 +440,9 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | --- | --- |
 | The app, its templates and the lead agent's card are in Chinese; the agents get English prompts | In zh-TW, the home page's tagline, the New chat page, a built-in template, the composer's hint and the team card are in Chinese, and the turn prompt is in English ([AGENTS.md](../AGENTS.md), "Prompts and languages"). |
 | The sign-in page and the server's own messages follow the language | The sign-in page and the server's error for a wrong code are in Chinese. |
+| Only the language shown is fetched, with the page's own files; the other once it is chosen | The page's head asks for the saved language's file (a `modulepreload` link), and only that language is fetched; choosing 繁體中文 in Settings fetches it, and after a reload the head asks for that one. |
+| A language chosen whose words cannot be loaded: the page reloads once for them, then says so and stays as it was | With the Chinese file missing (404), choosing 繁體中文 reloads the page once; choosing it again says it could not be loaded, and English stays chosen; once the file is there, after a reload, the page switches. |
+| A page whose own words cannot be loaded reloads once for them, then says so in both languages | With the English file missing from the tab's first page (a sign-in link: a page that had the file could take it from WebKit's memory cache, which the test cannot hold back), the page reloads once, then says in Chinese and English that it could not load, with a button that reloads it; once the file is there, the button brings the page back, signed in. |
 
 ## On a phone
 
@@ -441,6 +452,8 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | --- | --- | --- |
 | The sidebar opens from the menu, and a chat works by touch | Grok | The menu button's three lines (an icon) sit in the middle of it, within a tenth of a pixel; the sidebar is out of view until **Open sidebar**, and closes again on going somewhere; the send button sends (Enter is a new line on a touch screen); the header's actions are under **More**. |
 | A long message keeps the page from scrolling sideways | Claude Code | A 300-character word and a Markdown reply leave no sideways scroll. |
+| On a narrow phone, a template's editor and the team settings do not scroll sideways, and the add card lists every CLI | — | At 320px (narrower than a 290px member card and its margins) and 280px (where English's **hand-offs / message** goes on a line of its own), the built-in relay template's editor and a relay chat's **Team settings** scroll no more than a pixel sideways, and in their one column the add card lists every CLI without a scroll of its own. |
+| On a narrow phone, a new schedule of any kind does not scroll sideways, in either language, nor does a chat's Schedule | — | On the New schedule page, for each kind of schedule, nothing scrolls sideways at 320px and 280px, in English also at 400px and 430px and in Chinese at 250px. The four kinds of schedule take two rows in English up to 400px (they go two by two below a 380px column, room for wider fonts) and one at 430px, and in Chinese one row but at 250px; the week's seven days take two rows in English at 320px and 280px and in Chinese at 280px and 250px, one otherwise. With **Every few hours** the interval's unit is only "hours", and its hint, a line of its own, is the hours box's accessible description. A chat's **Schedule** drawer with **Every week** does not scroll sideways at 320px and 280px either. |
 | The home page's tagline is smaller, each of its lines on one line, and the logo closes the sidebar | — | The tagline is under its 22px, English on two lines and Chinese on one, without sideways scroll; tapping the sidebar's **Harness Relay** on the home page closes the sidebar. |
 
 ## Each CLI at a glance
@@ -512,6 +525,7 @@ The open agents, in Harness Relay's own sandbox below full access:
 - "A folder the chat was not given stays out of reach" is skipped for Grok on Windows, which has no sandbox there ([OS sandboxes by platform](../docs/sandboxing.md)).
 - Copilot runs below full access on macOS, Linux and Windows alike, as its own sandbox does: its fake keeps to the policy its run's settings give, so its tests need no sandbox on the computer that runs them.
 - [On a phone](#on-a-phone) is skipped in Firefox.
+- The add card test in [Changing a chat's team](#changing-a-chats-team) checks the list's shadow only in a browser with scroll-driven animations (Chromium, WebKit), as there is no shadow elsewhere: in Firefox it checks the rest.
 - The two copy tests in [Copying and sharing](#copying-and-sharing) run in Chromium only (reading the clipboard), and "Without gh" is skipped on Windows.
 - The three tests of [Reporting a problem](#reporting-a-problem) that read the mail's links are skipped in a browser without the Navigation API.
 

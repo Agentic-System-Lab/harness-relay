@@ -31,9 +31,55 @@ function startupChunkLimit(limitKb: number): Plugin {
   };
 }
 
+/**
+ * Fetch the words of the language the page will show together with the page's own files: the page
+ * loads them before it is drawn (`loadMessages` in src/web/i18n.tsx), one round trip after its files
+ * otherwise. The language saved in this browser (`STORAGE_KEY` there, saved from the first visit on);
+ * none on a first visit, which waits for that round trip.
+ */
+function languagePreload(): Plugin {
+  let base = '/';
+  return {
+    name: 'relay:language-preload',
+    apply: 'build',
+    configResolved(config) {
+      base = config.base;
+    },
+    transformIndexHtml: {
+      order: 'post',
+      handler(html, ctx) {
+        const files: Record<string, string> = {};
+        for (const file of Object.values(ctx.bundle ?? {})) {
+          const lang = file.type === 'chunk' ? /[\\/]locales[\\/](zh-TW|en)\.ts$/.exec(file.facadeModuleId ?? '')?.[1] : undefined;
+          if (lang) files[lang] = `${base}${file.fileName}`;
+        }
+        if (Object.keys(files).length !== 2) throw new Error(`languagePreload: expected the two languages' chunks, found ${JSON.stringify(files)}`);
+        const script = [
+          '(function () {',
+          '  try {',
+          `    var files = ${JSON.stringify(files)}, lang = localStorage.getItem('relay:lang');`,
+          '    if (!lang || !Object.prototype.hasOwnProperty.call(files, lang)) return;',
+          "    var link = document.createElement('link');",
+          "    link.rel = 'modulepreload';",
+          "    link.crossOrigin = '';",
+          '    link.href = files[lang];',
+          '    document.head.appendChild(link);',
+          '  } catch (e) {}',
+          '})();',
+        ].join('\n');
+        // Right after the charset, before any stylesheet: an inline script after one waits for it to load
+        // before it runs, and so would the language's request.
+        const charset = /<meta charset="UTF-8" \/>\r?\n/;
+        if (!charset.test(html)) throw new Error('languagePreload: no <meta charset="UTF-8" /> line in index.html to put the script after');
+        return html.replace(charset, (line) => `${line}    <script>\n${script}\n    </script>\n`);
+      },
+    },
+  };
+}
+
 export default defineConfig({
   root: 'src/web',
-  plugins: [react(), startupChunkLimit(STARTUP_CHUNK_LIMIT_KB)],
+  plugins: [react(), startupChunkLimit(STARTUP_CHUNK_LIMIT_KB), languagePreload()],
   server: {
     port: DEV_WEB_PORT,
     // Trailing slash matters: a bare '/api' prefix would also swallow the client module '/api.ts'.

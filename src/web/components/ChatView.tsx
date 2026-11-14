@@ -22,16 +22,19 @@ import { describeRepeat, scheduleState, scheduleTrouble } from '../schedule';
 import { PROVIDER_COLOR, initials, leadLabel, modelSummary } from '../util';
 import { DiffView } from './ChangesCard';
 import { Composer } from './Composer';
-import { FileBrowser } from './FileBrowser';
+import { Deferred, lazyPart } from './Deferred';
 import { BranchIcon, ClockIcon, FolderIcon, MoreIcon, ShareIcon, UsersIcon } from './icons';
 import { MessageItem } from './MessageItem';
 import { QueueTray } from './QueueTray';
 import { RoleText } from './RoleText';
-import { ScheduleDrawer } from './ScheduleDrawer';
-import { ShareDialog } from './ShareDialog';
 import { TeamEditor, teamProblems, type Team } from './TeamEditor';
 import { TeamReviser } from './TeamReviser';
 import { useDialog } from './useDialog';
+
+// Loaded when first opened, not with the chat: the file browser, the schedule and sharing.
+const FileBrowser = lazyPart(() => import('./FileBrowser').then((m) => m.FileBrowser));
+const ScheduleDrawer = lazyPart(() => import('./ScheduleDrawer').then((m) => m.ScheduleDrawer));
+const ShareDialog = lazyPart(() => import('./ShareDialog').then((m) => m.ShareDialog));
 
 /** How long to wait before reconnecting when the browser gave up on the event stream. */
 const RECONNECT_MS = 3000;
@@ -745,15 +748,17 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
       {diff && <DiffModal title={diff.title} load={diff.load} onClose={() => setDiff(null)} />}
 
       {scheduleOpen && (
-        <ScheduleDrawer
-          conv={conv}
-          running={running}
-          onClose={() => setScheduleOpen(false)}
-          onEditTeam={() => {
-            setScheduleOpen(false);
-            setTeamOpen(true);
-          }}
-        />
+        <Deferred onClose={() => setScheduleOpen(false)}>
+          <ScheduleDrawer
+            conv={conv}
+            running={running}
+            onClose={() => setScheduleOpen(false)}
+            onEditTeam={() => {
+              setScheduleOpen(false);
+              setTeamOpen(true);
+            }}
+          />
+        </Deferred>
       )}
       {teamOpen && (
         <TeamDrawer
@@ -766,8 +771,16 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
           onError={setError}
         />
       )}
-      {filesOpen && <FileBrowser conv={conv} onClose={() => setFilesOpen(false)} />}
-      {share && <ShareDialog conv={conv} upTo={share.upTo} chat={() => chatRef.current} onClose={() => setShare(null)} />}
+      {filesOpen && (
+        <Deferred onClose={() => setFilesOpen(false)}>
+          <FileBrowser conv={conv} onClose={() => setFilesOpen(false)} />
+        </Deferred>
+      )}
+      {share && (
+        <Deferred onClose={() => setShare(null)}>
+          <ShareDialog conv={conv} upTo={share.upTo} chat={() => chatRef.current} onClose={() => setShare(null)} />
+        </Deferred>
+      )}
     </div>
   );
 }

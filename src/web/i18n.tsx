@@ -1,13 +1,50 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { LANGS, type Lang } from '../shared/types';
-import { en } from './locales/en';
-import { zhTW, type Messages } from './locales/zh-TW';
+import { loadPart } from './chunks';
+import type { Messages } from './locales/zh-TW';
 
 const STORAGE_KEY = 'relay:lang';
-const MESSAGES: Record<Lang, Messages> = { 'zh-TW': zhTW, en };
 
-/** Each language named in itself, for the language switch. */
-export const LANG_NAMES: Record<Lang, string> = { 'zh-TW': zhTW.langName, en: en.langName };
+/** Each language's messages, loaded when first needed: the page carries only the one it shows. */
+const LOAD: Record<Lang, () => Promise<Messages>> = {
+  'zh-TW': () => import('./locales/zh-TW').then((m) => m.zhTW),
+  en: () => import('./locales/en').then((m) => m.en),
+};
+const MESSAGES: Partial<Record<Lang, Messages>> = {};
+
+/**
+ * The messages in `lang`, loaded once; before the page is drawn, its language's (`main.tsx`, with its
+ * file fetched beside the page's own: `languagePreload` in vite.config.ts). When they cannot be
+ * loaded, the page reloads for them once, the promise waiting meanwhile; after that, it rejects
+ * (`loadPart` in chunks.ts).
+ */
+export async function loadMessages(lang: Lang): Promise<Messages> {
+  return (MESSAGES[lang] ??= await loadPart(LOAD[lang]));
+}
+
+/**
+ * Loads each choice (`load`) and applies (`apply`) only the last one made, once loaded: one made
+ * before it that finishes loading after it does not undo it. A choice that cannot be loaded rejects,
+ * unless another came after it.
+ */
+export function lastChoice<T>(load: (choice: T) => Promise<unknown>, apply: (choice: T) => void): (choice: T) => Promise<void> {
+  let last: object | undefined;
+  return async (choice) => {
+    const mine = {};
+    last = mine;
+    try {
+      await load(choice);
+    } catch (err) {
+      if (last !== mine) return;
+      last = undefined;
+      throw err;
+    }
+    if (last === mine) apply(choice);
+  };
+}
+
+/** Each language named in itself, for the language switch: its `langName`, here so that neither is loaded for it. */
+export const LANG_NAMES: Record<Lang, string> = { 'zh-TW': '繁體中文', en: 'English' };
 
 function readSaved(): Lang | null {
   try {
@@ -54,12 +91,20 @@ export function currentLang(): Lang {
 
 /** The messages in that language, for code outside React (an error the API client makes itself). */
 export function currentMessages(): Messages {
-  return MESSAGES[current];
+  return loaded(current);
+}
+
+/** Messages already loaded (`loadMessages`): the page's language is, before anything is drawn. */
+function loaded(lang: Lang): Messages {
+  const m = MESSAGES[lang];
+  if (!m) throw new Error(`messages in ${lang} not loaded`);
+  return m;
 }
 
 interface I18n {
   lang: Lang;
-  setLang: (lang: Lang) => void;
+  /** Shows the page in `lang` once its messages are loaded; rejects when they cannot be. */
+  setLang: (lang: Lang) => Promise<void>;
   t: Messages;
 }
 
@@ -71,13 +116,19 @@ function applyToDocument(lang: Lang): void {
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>(current);
-  const setLang = useCallback((next: Lang) => {
-    current = next;
-    save(next);
-    setLangState(next);
-  }, []);
+  // The other language is loaded first, then shown: the page keeps its words meanwhile, and the
+  // language last chosen is the one shown.
+  const setLang = useMemo(
+    () =>
+      lastChoice(loadMessages, (next: Lang) => {
+        current = next;
+        save(next);
+        setLangState(next);
+      }),
+    [],
+  );
   useEffect(() => applyToDocument(lang), [lang]);
-  const value = useMemo(() => ({ lang, setLang, t: MESSAGES[lang] }), [lang, setLang]);
+  const value = useMemo(() => ({ lang, setLang, t: loaded(lang) }), [lang, setLang]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

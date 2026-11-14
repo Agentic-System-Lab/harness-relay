@@ -5,11 +5,14 @@ import { navigate, type Route } from '../App';
 import { hashFor, settingsHref } from '../route';
 import { useT, type Messages } from '../i18n';
 import { branchCount, readHealthNames, readyCount, writeHealthNames } from '../sidebar';
+import { Deferred, lazyPart } from './Deferred';
 import { CalendarPlusIcon, ChevronIcon, FolderPlusIcon, PanelIcon, ReportIcon, SearchIcon } from './icons';
 import { Logo } from './Logo';
-import { ReportDialog } from './ReportDialog';
 import { NewGroupBox, SidebarGroups } from './SidebarGroups';
 import { SearchBox, SearchResults } from './SidebarSearch';
+
+// Loaded when first opened, not with the page.
+const ReportDialog = lazyPart(() => import('./ReportDialog').then((m) => m.ReportDialog));
 
 interface Props {
   route: Route;
@@ -177,7 +180,11 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
           </button>
         </div>
       </div>
-      {reporting && <ReportDialog providers={providers} onClose={() => setReporting(false)} />}
+      {reporting && (
+        <Deferred onClose={() => setReporting(false)}>
+          <ReportDialog providers={providers} onClose={() => setReporting(false)} />
+        </Deferred>
+      )}
     </aside>
   );
 }

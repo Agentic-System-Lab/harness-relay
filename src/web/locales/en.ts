@@ -26,6 +26,9 @@ export const en: Messages = {
     sending: 'Sending…',
     clickToCopy: 'Click to copy',
     listSeparator: ', ',
+    partFailed: 'This part of the page could not be loaded (Harness Relay may have just been updated). Reload the page to try again.',
+    partBroken: 'This part of the page ran into a problem and could not be shown. Reload the page; if it happens again, please report the problem.',
+    reload: 'Reload',
   },
   modes: {
     roundtable: {
@@ -138,6 +141,7 @@ export const en: Messages = {
     editTitle: (name) => `Edit the template "${name}"`,
     builtinTitle: (name) => `Built-in template "${name}"`,
     builtinNote: 'Built-in templates cannot be changed; adjust this one and save it as a template of your own.',
+    moved: (names) => `${names} used a CLI that cannot run on this computer yet (not installed, or not signed in), so they now use one that can; saving the template keeps them so.`,
     name: 'Template name',
     namePlaceholder: 'e.g. Frontend and backend',
     description: 'Description',
@@ -207,14 +211,23 @@ export const en: Messages = {
     cliDecides: 'decided by the CLI',
     noDefaultModel: 'No default model: pick one',
     tools: 'Tools',
-    toolsHint: "Choose what this member gets from the tool library (managed in Settings → Tool library). These come in addition to the CLI's own setup: its own skills and MCP servers keep working.",
+    toolsOwnSetup: {
+      own: (cli) => `${cli} also loads its own setup, such as its skills and MCP servers: Settings → ${cli} lists what it loads in the default working directory.`,
+      open: (cli) =>
+        `In Harness Relay, ${cli} runs with a config folder of Harness Relay's own instead of its own one in your home folder, so what you set up there (MCP servers, say) is not read; what it still loads by itself (the project's AGENTS.md, say) is listed in Settings → ${cli}, for the default working directory.`,
+    },
+    toolsHint: (setup) =>
+      `Choose what this member gets from the tool library (managed in Settings → Tool library), in addition to the CLI's own setup. ${setup}`,
     toolMemory: 'Shared memory',
     toolProviderMemory: (p) => `Memory for ${p}`,
     toolOffByDefault: 'not given to this CLI by default',
     toolsNone: 'Nothing from the tool library',
     toolsEdit: 'Change',
     toolsDone: 'Done',
-    toolsEmpty: 'The tool library is empty: add MCP servers, skills and memory, shared by every CLI or given only to some.',
+    toolsEmpty: (setup) =>
+      `The tool library is empty. ${setup} Add MCP servers, skills and memory to the tool library, shared by every CLI or given only to some.`,
+    toolsNoneForCli: (setup) =>
+      `The tool library has nothing for this CLI yet, only memory for other CLIs. ${setup} Add MCP servers, skills and memory to the tool library, shared by every CLI or given only to some.`,
     goToolLibrary: 'Go to Settings → Tool library',
     toolProblem: 'unavailable right now',
     problems: {
@@ -1134,10 +1147,10 @@ export const en: Messages = {
         plugins: 'Every installed plugin, with its skills and MCP servers',
       },
       muse: {
-        skills: "Muse Code has no setting to skip skills for one run (its bundled ones, those in ~/.config/muse/skills, and your Claude Code and Codex skills load; a project's only in full access, where the workspace is trusted)",
+        skills: "Muse Code has no setting to skip skills for one run (its bundled ones, those in ~/.config/muse/skills and ~/.agents/skills, and your Claude Code and Codex skills load; a project's only in full access, where the workspace is trusted)",
         mcp: "Leaves the MCP servers of Muse Code's settings out of this run's own settings",
         tools: 'Muse Code does not report its built-in tools',
-        instructions: "Muse Code has no setting to skip instruction files for one run (its own rules, and your Claude Code and Codex ones, load; a project's AGENTS.md and CLAUDE.md only in full access, where the workspace is trusted)",
+        instructions: "Muse Code has no setting to skip instruction files for one run (its own rules, AGENTS.md in its config folder (~/.config/muse for the default account), load, or, without them, your ~/.claude/CLAUDE.md; a project's AGENTS.md and CLAUDE.md only in full access, where the workspace is trusted)",
         memory: 'Muse Code has no setting to skip its memory for one run',
         hooks: "Leaves the hooks of Muse Code's settings out of this run's own settings (a project's .muse/hooks.json loads only in full access, where the workspace is trusted)",
         agents: 'Muse Code has no setting to skip custom agents for one run',
@@ -1266,6 +1279,7 @@ export const en: Messages = {
     },
     language: 'Language',
     languageHint: 'Chosen from your browser language on the first visit, then remembered in this browser.',
+    languageFailed: (name) => `Could not load ${name}. Reload the page to try again.`,
     appearance: 'Appearance',
     appearanceHint: "A light or dark background for the interface. Remembered in this browser; Follow system switches with your computer's or phone's light or dark mode.",
     themes: { system: 'Follow system', light: 'Light', dark: 'Dark' },
@@ -1292,7 +1306,7 @@ export const en: Messages = {
       'Where claude, codex, grok, cursor-agent, agy, copilot and muse keep their sign-in, settings and session records when Harness Relay runs them, and whether to view each conversation in AgentsView.',
     agentHome: "The CLIs' own folder",
     agentHomeHint:
-      "When set, Harness Relay has claude, codex, grok, cursor-agent, agy, copilot and muse use its claude, codex, grok, cursor, antigravity, copilot and muse subfolders as their homes: their sign-in, settings and session records go there, apart from your own use of the CLIs. Sign in to each CLI again above (or set an API key). They also stop reading the settings, MCP servers, skills, memory and plugins in your usual homes; those in Harness Relay's tool library are still given. Cursor is the exception: only its settings and session records move there; its sign-in, and the skills, MCP servers and hooks in ~/.cursor, stay where Cursor keeps them for your user. Antigravity's .gemini folder (its settings, skills, MCP servers, hooks and conversations) moves there, while its Google sign-in stays in the system keyring. Muse Code's config and data folders (its settings, sign-in and sessions) move there too. Leave it empty to use each CLI's usual home.",
+      "When set, Harness Relay has claude, codex, grok, cursor-agent, agy, copilot and muse use its claude, codex, grok, cursor, antigravity, copilot and muse subfolders as their homes: their sign-in, settings and session records go there, apart from your own use of the CLIs. Sign in to each CLI again above (or set an API key). What they keep in their usual homes no longer loads, but some still read parts of your home folder by themselves: other CLIs' skills (Codex, Grok, Muse Code and Cursor; those in ~/.agents/skills, for one), MCP servers and hooks (Grok loads Claude Code's plugins and the servers in ~/.claude.json and ~/.cursor/mcp.json; Cursor its own in ~/.cursor, and Claude Code's hooks; Claude Code those in ~/.mcp.json for a project inside your home folder), and instructions (Grok reads ~/.claude/CLAUDE.md, and Muse Code too without rules of its own; Claude Code and Cursor those in your home folder for a project inside it). Cursor's sign-in stays where Cursor keeps it for your user: only its settings and session records move there. The user guide lists what each CLI reads; each CLI's card above lists the skills, MCP servers and hooks it loads. Those in Harness Relay's tool library are still given. Antigravity's .gemini folder (its settings, skills, MCP servers, hooks and conversations) moves there, while its Google sign-in stays in the system keyring. Muse Code's config and data folders (its settings, sign-in and sessions) move there too. Leave it empty to use each CLI's usual home.",
     agentHomeUse: (dir: string) => `Use ${dir}`,
     agentHomeSaved: (dir: string) => `The CLIs now use the folders in ${dir}. Sign in to them again above.`,
     agentHomeOff: 'The CLIs use their usual homes again',

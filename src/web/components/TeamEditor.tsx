@@ -20,7 +20,7 @@ import { mentionWarning } from '../copy';
 import { useT, type Messages } from '../i18n';
 import { useLimits } from '../limits';
 import { settingsHref } from '../route';
-import { defaultOn, hasTool, itemsFor, setTool, toolItems, type ToolItem } from '../tools';
+import { defaultOn, emptyLibraryText, hasTool, itemsFor, noneForCliText, setTool, toolItems, toolsHintText, type ToolItem } from '../tools';
 import { PROVIDER_COLOR, accountName, accountOf, accountState, inheritModelLabel, initials, newAgent, readyAccount, switchProvider, type ModelChoice } from '../util';
 import { AccountPicker } from './AccountPicker';
 import { CwdInput } from './CwdInput';
@@ -89,7 +89,8 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
   const { agents, settings } = value;
   /** Per member: the model, effort and account picked for each CLI, so switching a member's CLI and back restores them. */
   const kept = useRef(new Map<string, Partial<Record<Provider, ModelChoice>>>());
-  const [tools, setTools] = useState<ToolItem[]>([]);
+  /** The tool library's items; null until it has loaded, when a member's Tools say nothing yet (not "empty"). */
+  const [tools, setTools] = useState<ToolItem[] | null>(null);
   const [toolsError, setToolsError] = useState('');
   useEffect(() => {
     api.tools().then(
@@ -100,6 +101,7 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
   const auto = Boolean(settings.autoTeam) && !template;
   const confirmHint = useId();
   const cwdId = useId();
+  const addMemberId = useId();
   const showMembers = members ?? !auto;
   // Members renamed or removed: the schedule's message may @mention someone the team no longer has.
   const names = agents.map((a) => a.name).join('\n');
@@ -220,22 +222,28 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
             })}
 
             <div className="agent-card add-card">
-              <span className="muted small">{t.team.addMember}</span>
-              {PROVIDERS.map((p) => (
-                <button
-                  key={p}
-                  className="add-agent"
-                  style={{ ['--accent' as string]: PROVIDER_COLOR[p] }}
-                  disabled={agents.length >= maxTeamAgents}
-                  onClick={() => {
-                    const agent = newAgent(p, agents.map((a) => a.name));
-                    const account = readyAccount(providers.find((s) => s.provider === p));
-                    setAgents([...agents, account ? { ...agent, account } : agent]);
-                  }}
-                >
-                  ＋ {PROVIDER_LABEL[p]}
-                </button>
-              ))}
+              <span id={addMemberId} className="muted small">
+                {t.team.addMember}
+              </span>
+              {/* Beside members the card is as tall as theirs and this list scrolls; on a row of its own it lists every CLI (styles.css, .add-card).
+                  Named: a list that scrolls takes the focus itself where all its buttons are disabled (a full team). */}
+              <div className="add-card-list" role="group" aria-labelledby={addMemberId}>
+                {PROVIDERS.map((p) => (
+                  <button
+                    key={p}
+                    className="add-agent"
+                    style={{ ['--accent' as string]: PROVIDER_COLOR[p] }}
+                    disabled={agents.length >= maxTeamAgents}
+                    onClick={() => {
+                      const agent = newAgent(p, agents.map((a) => a.name));
+                      const account = readyAccount(providers.find((s) => s.provider === p));
+                      setAgents([...agents, account ? { ...agent, account } : agent]);
+                    }}
+                  >
+                    ＋ {PROVIDER_LABEL[p]}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </section>
@@ -395,14 +403,15 @@ function AgentTools({
   onChange,
 }: {
   agent: AgentConfig;
-  items: ToolItem[];
+  /** Null while the library loads. */
+  items: ToolItem[] | null;
   /** The library could not be loaded: say so rather than call it empty. */
   error: string;
   onChange: (tools: AgentConfig['tools']) => void;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const items = itemsFor(all, agent.provider);
+  const items = itemsFor(all ?? [], agent.provider);
   const given = items.filter((i) => hasTool(agent, i));
   const label = (i: ToolItem) =>
     i.kind !== 'memory' ? i.name : i.name === 'all' ? t.team.toolMemory : t.team.toolProviderMemory(PROVIDER_LABEL[agent.provider]);
@@ -412,9 +421,11 @@ function AgentTools({
       <span>{t.team.tools}</span>
       {error ? (
         <p className="warn-line small">{error}</p>
-      ) : items.length === 0 ? (
+      ) : !all ? null : items.length === 0 ? (
         <p className="muted small">
-          {t.team.toolsEmpty} <a href={settingsHref('tools')}>{t.team.goToolLibrary}</a>
+          {/* Not empty, but nothing for this CLI: only other CLIs' memory notes (itemsFor leaves them out). */}
+          {all.length ? noneForCliText(t, agent.provider) : emptyLibraryText(t, agent.provider)}{' '}
+          <a href={settingsHref('tools')}>{t.team.goToolLibrary}</a>
         </p>
       ) : (
         <>
@@ -435,7 +446,7 @@ function AgentTools({
           </div>
           {open && (
             <>
-              <p className="muted small">{t.team.toolsHint}</p>
+              <p className="muted small">{toolsHintText(t, agent.provider)}</p>
               <ul>
                 {items.map((i) => (
                   <li key={i.key}>
