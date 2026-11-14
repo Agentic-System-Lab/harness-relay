@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Run once when the dev container is made (onCreateCommand in devcontainer.json; in a prebuild too):
-# what the sandboxes need on Linux, and the seven agent CLIs that are not open source. The open-source
-# agents (OpenCode, Goose, Cline, OpenHands, Pi) install as the README says, in the codespace's terminal.
+# Run when the dev container is made, and again at each update of a Codespaces prebuild (in
+# updateContentCommand in devcontainer.json: a prebuild runs onCreateCommand only once, when it is first
+# made), so that a prebuild has the CLIs' newest versions and this script as it is: what the sandboxes
+# need on Linux, and the seven agent CLIs that are not open source. It can run over an earlier run of
+# itself. The open-source agents (OpenCode, Goose, Cline, OpenHands, Pi) install as the README says, in
+# the codespace's terminal.
 set -euo pipefail
 
 # Claude Code, Codex and Copilot, from npm, while the rest installs: npm writes only its own folders
@@ -18,16 +21,17 @@ sudo apt-get update
 sudo apt-get install -y --no-install-recommends bubblewrap socat ripgrep slirp4netns iproute2 iptables
 
 # Grok, Cursor, Antigravity and Muse Code, with their makers' own installers, which put them in
-# ~/.grok/bin and ~/.local/bin and keep them up to date. One after another: Grok's leaves the names
-# Cursor's takes in ~/.local/bin to it, and three of them add to the same shell profiles. Each is fetched
-# whole first, and given no input to read. Linked from /usr/local/bin, so that the server finds them
+# ~/.grok/bin and ~/.local/bin and keep them up to date. One after another: three of them add to the
+# same shell profiles, and Grok's reads what Cursor's records when it takes over the name `agent`. Each
+# is fetched whole first (again after a failure: their hosts sometimes reset a connection from a
+# codespace), and given no input to read. Linked from /usr/local/bin, so that the server finds them
 # however it is started (only an interactive shell's profile puts those folders on the PATH).
 install_with() {
-  local script
+  local script status=0
   script="$(mktemp)"
-  curl -fsSL "$1" -o "$script"
-  bash "$script" < /dev/null
+  curl -fsSL --retry 3 --retry-all-errors "$1" -o "$script" && bash "$script" < /dev/null || status=$?
   rm -f "$script"
+  return "$status"
 }
 install_with https://x.ai/cli/install.sh
 install_with https://cursor.com/install
