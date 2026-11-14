@@ -17,8 +17,11 @@
  * Its gists are folders in `fake-github/gists/<id>/`, next to E2E_FAKE_LOG (the test's own folder):
  * each with its files and `gist.json` (the description, whether it is public, the files' names).
  * E2E_FAKE_SIGNED_OUT (a list, as for the fake CLIs) with `gh` in it makes it signed out: every
- * command but `--version` fails as gh does without an account. Each start goes to E2E_FAKE_LOG with
- * its arguments (`cli: 'gh'`), for the tests to read.
+ * command but `--version` and `auth login` fails as gh does without an account, until it is signed in.
+ * `auth login --web --hostname github.com` signs it in as gh's device sign-in does without a terminal:
+ * it prints its one-time code (ABCD-1234) and GitHub's device page, waits until the test approves it
+ * (a file `fake-github/approve`; at most a minute), then keeps the sign-in (`fake-github/signed-in`)
+ * and exits 0; or fails as gh does when the code is denied (`fake-github/deny`). Each start goes to E2E_FAKE_LOG with its arguments (`cli: 'gh'`), for the tests to read.
  */
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -50,10 +53,14 @@ async function main() {
     process.stdout.write('gh version 2.88.1 (2026-03-12)\nhttps://github.com/cli/cli/releases/tag/v2.88.1\n');
     return;
   }
-  const signedOut = (process.env.E2E_FAKE_SIGNED_OUT || '')
-    .split(',')
-    .map((s) => s.trim().toLowerCase())
-    .includes('gh');
+  if (!GISTS) fail('fake gh: E2E_FAKE_LOG is not set, so it has nowhere to keep gists');
+  const github = path.dirname(GISTS);
+  if (args[0] === 'auth' && args[1] === 'login') return login(github);
+  const signedOut =
+    (process.env.E2E_FAKE_SIGNED_OUT || '')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .includes('gh') && !fs.existsSync(path.join(github, 'signed-in'));
   if (signedOut) {
     fail(
       'To get started with GitHub CLI, please run:  gh auth login\n' +
@@ -61,8 +68,6 @@ async function main() {
       4,
     );
   }
-  if (!GISTS) fail('fake gh: E2E_FAKE_LOG is not set, so it has nowhere to keep gists');
-
   const [cmd, sub, ...rest] = args;
   if (cmd === 'gist' && sub === 'create') return create(rest);
   if (cmd === 'gist' && sub === 'delete') return remove(rest);
@@ -72,6 +77,22 @@ async function main() {
     return;
   }
   fail(`fake gh: not faked: gh ${args.join(' ')}`);
+}
+
+/** `auth login --web --hostname github.com`, without a terminal: the code, the page, then the test's approval. */
+async function login(github) {
+  if (args.join(' ') !== 'auth login --web --hostname github.com') fail(`fake gh: not faked: gh ${args.join(' ')}`);
+  // Where the test puts its approval, there before any gist is.
+  fs.mkdirSync(github, { recursive: true });
+  process.stdout.write('! First copy your one-time code: ABCD-1234\nOpen this URL to continue in your web browser: https://github.com/login/device\n');
+  const approve = path.join(github, 'approve');
+  for (let waited = 0; !fs.existsSync(approve); waited += 100) {
+    if (fs.existsSync(path.join(github, 'deny'))) fail('error: authorization was denied by the user');
+    if (waited > 60_000) fail('error: timed out waiting for authorization');
+    await new Promise((done) => setTimeout(done, 100));
+  }
+  fs.writeFileSync(path.join(github, 'signed-in'), 'relay-e2e\n');
+  process.stderr.write('✓ Authentication complete.\n✓ Logged in as relay-e2e\n');
 }
 
 /** `gist create [--filename <name>] [--desc <text>] [--public] <file | ->`: one file, from stdin or a path. */

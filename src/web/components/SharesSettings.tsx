@@ -149,7 +149,7 @@ export function SharesCard() {
         </>
       )}
       {note.text && <p className={note.error ? 'error-line share-note' : 'muted small'}>{note.text}</p>}
-      {gh && <GhHelp problem={gh} retry={t.share.gh.retryRemove} />}
+      {gh && <GhHelp problem={gh} retry={t.share.gh.retryRemove} onSignedIn={() => setNote({ text: '' })} />}
     </section>
   );
 }

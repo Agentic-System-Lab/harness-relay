@@ -20,6 +20,7 @@ import type {
   FileListing,
   FilePreview,
   GrokFolderTrust,
+  CliLoginView,
   LoginMethod,
   LoginSessionView,
   McpServerUpdate,
@@ -434,6 +435,10 @@ export const api = {
   loginInput: (p: Provider, text: string, account = '') =>
     request<LoginSessionView>('POST', `/api/providers/${p}/login/input${accountQuery(account)}`, { text }),
   cancelLogin: (p: Provider, account = '') => request<{ ok: true }>('DELETE', `/api/providers/${p}/login${accountQuery(account)}`),
+  /** gh's own sign-in, for sharing (the share dialog's gh help). */
+  startGhLogin: () => request<CliLoginView>('POST', '/api/gh/login', {}),
+  getGhLogin: () => request<CliLoginView | null>('GET', '/api/gh/login'),
+  cancelGhLogin: () => request<{ ok: true }>('DELETE', '/api/gh/login'),
   logout: (p: Provider, account = '') =>
     request<{ ok: true; output: string }>('POST', `/api/providers/${p}/logout${accountQuery(account)}`),
 

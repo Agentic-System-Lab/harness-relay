@@ -6999,6 +6999,24 @@ a.share-action {
   margin: 0;
 }
 
+/* gh's sign-in from the dialog (GhHelp): GitHub's code and link, as Settings shows the CLIs'. */
+.gh-sign-in {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 2px 0 4px;
+}
+
+.gh-sign-in .login-panel {
+  align-self: stretch;
+}
+
+.gh-signed-in {
+  color: var(--ok);
+  font-weight: 600;
+}
+
 .gh-help ol {
   margin: 0;
   padding-left: 20px;

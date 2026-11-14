@@ -1,3 +1,5 @@
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { PROVIDER_LABEL, PROVIDERS, type AboutInfo, type ProviderStatus } from '../../src/shared/types';
 import { MAILTO_MAX, REPORT_EMAIL } from '../../src/web/report';
@@ -213,15 +215,42 @@ test.describe('reporting a problem without GitHub', () => {
     await dialog.getByRole('textbox', { name: 'Details' }).fill('The button is cut off.');
     await dialog.locator('input[type="file"]').setInputFiles({ name: 'screen.png', mimeType: 'image/png', buffer: PNG });
     await dialog.getByRole('button', { name: 'Upload screenshots' }).click();
-    const alert = dialog.getByRole('alert');
-    await expect(alert).toContainText('GitHub CLI (gh) is not signed in. Run gh auth login in a terminal, then try again.');
-    await expect(alert).toContainText('Or remove the screenshots, and drag them into the mail once it opens.');
+    // The share dialog's help: sign in here, or with the terminal's command.
+    const help = dialog.getByRole('alert').filter({ hasText: 'GitHub CLI (gh) is not signed in' });
+    await expect(help).toBeVisible();
+    await expect(help.getByRole('button', { name: 'Sign in to GitHub' })).toBeVisible();
+    await expect(help.getByText('gh auth login', { exact: true })).toBeVisible();
+    await expect(help).toContainText('Then come back and press "Upload screenshots" again.');
+    await expect(dialog.getByText('Or remove the screenshots, and drag them into the mail once it opens.')).toBeVisible();
     expect(relay.fakeLog().some((e) => e.cli === 'gh')).toBe(true);
     await expect(dialog.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
 
     await dialog.getByRole('button', { name: 'Remove screenshot 1' }).click();
-    await expect(alert).toBeHidden();
+    await expect(help).toBeHidden();
     await expect(dialog.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+  });
+
+  test("signs gh in from the report dialog with GitHub's code, then uploads the screenshots by itself", async ({ page, relay }) => {
+    const ghCalls = () => relay.fakeLog().filter((e) => e.cli === 'gh').map((e) => e.args ?? []);
+    await page.getByRole('button', { name: 'Report a problem' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Report a problem' });
+    await dialog.getByRole('textbox', { name: 'Details' }).fill('The button is cut off.');
+    await dialog.locator('input[type="file"]').setInputFiles({ name: 'screen.png', mimeType: 'image/png', buffer: PNG });
+    await dialog.getByRole('button', { name: 'Upload screenshots' }).click();
+    const help = dialog.getByRole('alert').filter({ hasText: 'GitHub CLI (gh) is not signed in' });
+    await help.getByRole('button', { name: 'Sign in to GitHub' }).click();
+    await expect(help.getByRole('button', { name: /ABCD-1234/ })).toBeVisible();
+    const uploads = () => ghCalls().filter((a) => a[0] === 'api' && a[1] === 'gists');
+    expect(uploads()).toHaveLength(1);
+
+    // Approved on GitHub: the help goes, and the dialog uploads the screenshots again by itself (the
+    // fake gh then stops at the upload itself, which takes git: see e2e/README.md).
+    writeFileSync(join(relay.root, 'fake-github', 'approve'), '');
+    await expect(help).toBeHidden();
+    await expect.poll(() => uploads().length).toBe(2);
+    // Once only, however its questions about the sign-in come back.
+    await page.waitForTimeout(3000);
+    expect(uploads()).toHaveLength(2);
   });
 });
 
