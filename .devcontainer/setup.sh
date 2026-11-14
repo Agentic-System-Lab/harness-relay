@@ -16,3 +16,7 @@ npm install -g \
   @github/copilot \
   opencode-ai@1.19.5 \
   @earendil-works/pi-coding-agent@1.5.1
+
+# A folder for the agents to work in. Harness Relay's own folder will not do below full access in edit
+# mode, nor /workspaces, which holds it; /workspaces is what a codespace keeps when it is rebuilt.
+mkdir -p /workspaces/playground

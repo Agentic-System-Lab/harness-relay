@@ -6,10 +6,22 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# A variable Codespaces sets, also in a shell that did not load its profile (`gh codespace ssh -- …`):
+# only the one named, from the file the profile reads, which holds the codespace's tokens too.
+codespace_var() {
+  local value="${!1:-}"
+  if [ -z "$value" ] && [ -r /workspaces/.codespaces/shared/.env ]; then
+    value="$(sed -n "s/^$1=//p" /workspaces/.codespaces/shared/.env | tail -n 1)"
+  fi
+  printf '%s' "$value"
+}
+
 port="${PORT:-8787}"
 public=""
-if [ -n "${CODESPACE_NAME:-}" ] && [ -n "${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:-}" ]; then
-  public="${CODESPACE_NAME}-${port}.${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN}"
+name="$(codespace_var CODESPACE_NAME)"
+domain="$(codespace_var GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN)"
+if [ -n "$name" ] && [ -n "$domain" ]; then
+  public="${name}-${port}.${domain}"
   export RELAY_ALLOWED_HOSTS="${public}${RELAY_ALLOWED_HOSTS:+,${RELAY_ALLOWED_HOSTS}}"
 fi
 
