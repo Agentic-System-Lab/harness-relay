@@ -6,13 +6,14 @@ import { hashFor, settingsHref } from '../route';
 import { useT, type Messages } from '../i18n';
 import { branchCount, readHealthNames, readyCount, writeHealthNames } from '../sidebar';
 import { Deferred, lazyPart } from './Deferred';
-import { CalendarPlusIcon, ChevronIcon, FolderPlusIcon, PanelIcon, ReportIcon, SearchIcon } from './icons';
+import { CalendarPlusIcon, ChevronIcon, FolderPlusIcon, PanelIcon, ReportIcon, SearchIcon, StarIcon } from './icons';
 import { Logo } from './Logo';
 import { NewGroupBox, SidebarGroups } from './SidebarGroups';
 import { SearchBox, SearchResults } from './SidebarSearch';
 
 // Loaded when first opened, not with the page.
 const ReportDialog = lazyPart(() => import('./ReportDialog').then((m) => m.ReportDialog));
+const StarDialog = lazyPart(() => import('./StarDialog').then((m) => m.StarDialog));
 
 interface Props {
   route: Route;
@@ -46,6 +47,7 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
   /** The CLIs' names beside their dots at the sidebar's foot (else the dots alone, on one line). */
   const [healthNames, setHealthNames] = useState(readHealthNames);
   const [reporting, setReporting] = useState(false);
+  const [starring, setStarring] = useState(false);
 
   const openSearch = () => {
     setCreating(false);
@@ -164,11 +166,20 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
             </div>
           );
         })()}
-        {/* Report a problem: an icon only, at the row's end, so Settings keeps the row. */}
+        {/* Star on GitHub and Report a problem: icons only, at the row's end, so Settings keeps the row. */}
         <div className="sidebar-bottom-row">
           <a href="#/settings" className={`settings-link ${route.page === 'settings' ? 'active' : ''}`}>
             ⚙ {t.sidebar.settings}
           </a>
+          <button
+            type="button"
+            className="icon-button star-button"
+            onClick={() => setStarring(true)}
+            aria-label={t.sidebar.star}
+            title={t.sidebar.star}
+          >
+            <StarIcon size={18} />
+          </button>
           <button
             type="button"
             className="icon-button report-button"
@@ -183,6 +194,11 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
       {reporting && (
         <Deferred onClose={() => setReporting(false)}>
           <ReportDialog providers={providers} onClose={() => setReporting(false)} />
+        </Deferred>
+      )}
+      {starring && (
+        <Deferred onClose={() => setStarring(false)}>
+          <StarDialog onClose={() => setStarring(false)} />
         </Deferred>
       )}
     </aside>
