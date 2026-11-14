@@ -155,7 +155,6 @@ export function ReportDialog({ providers, onClose }: Props) {
     }
     setNotice(problem);
     setFailure('');
-    setGh(undefined);
     setShots((prev) => [...prev, ...added]);
   };
 
@@ -165,7 +164,8 @@ export function ReportDialog({ providers, onClose }: Props) {
     setShots((prev) => prev.filter((s) => s.id !== id));
     setNotice('');
     setFailure('');
-    setGh(undefined);
+    // Another screenshot changes nothing for gh (a sign-in may be under way); none left, nothing to upload.
+    if (shots.length <= 1) setGh(undefined);
   };
 
   /**

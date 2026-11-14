@@ -248,6 +248,9 @@ test.describe('reporting a problem without GitHub', () => {
     writeFileSync(join(relay.root, 'fake-github', 'approve'), '');
     await expect(help).toBeHidden();
     await expect.poll(() => uploads().length).toBe(2);
+    // Once only, however its questions about the sign-in come back.
+    await page.waitForTimeout(3000);
+    expect(uploads()).toHaveLength(2);
   });
 });
 

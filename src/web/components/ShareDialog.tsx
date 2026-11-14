@@ -124,6 +124,9 @@ export function ShareDialog({ conv, upTo, chat, onClose }: Props) {
   // One at a time: a click, and the gh sign-in's own retry (`GhHelp`), may come together.
   const creating = useRef(false);
   const canCreate = phase === 'idle' && Boolean(range) && !streaming && Boolean(files) && !files?.checking && selection.over === undefined;
+  // As it is when the sign-in's retry comes, not when the help last rendered.
+  const canCreateNow = useRef(canCreate);
+  canCreateNow.current = canCreate;
   const create = async () => {
     const el = chat();
     if (!el || creating.current) return;
@@ -291,7 +294,7 @@ export function ShareDialog({ conv, upTo, chat, onClose }: Props) {
           </p>
         )}
         {streaming && phase === 'idle' && !link && <p className="muted small">{t.share.streaming}</p>}
-        {gh && <GhHelp problem={gh} retry={t.share.gh.retryLink} onSignedIn={() => canCreate && void create()} />}
+        {gh && <GhHelp problem={gh} retry={t.share.gh.retryLink} onSignedIn={() => canCreateNow.current && void create()} />}
         {error && (
           <p className="error-line" role="alert">
             {error}

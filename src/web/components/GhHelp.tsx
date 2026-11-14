@@ -35,6 +35,7 @@ function GhSignIn({ onSignedIn }: { onSignedIn?: () => void }) {
   const g = t.share.gh;
   const [login, setLogin] = useState<CliLoginView | null>(null);
   const [error, setError] = useState('');
+  const [starting, setStarting] = useState(false);
   const running = login?.state === 'running';
   const signedIn = useRef(onSignedIn);
   signedIn.current = onSignedIn;
@@ -45,7 +46,8 @@ function GhSignIn({ onSignedIn }: { onSignedIn?: () => void }) {
   useEffect(() => {
     let gone = false;
     api.getGhLogin().then(
-      (v) => !gone && v?.state === 'running' && setLogin(v),
+      // Never over one started here meanwhile.
+      (v) => !gone && v?.state === 'running' && setLogin((cur) => cur ?? v),
       () => {},
     );
     return () => {
@@ -79,7 +81,11 @@ function GhSignIn({ onSignedIn }: { onSignedIn?: () => void }) {
   const start = () => {
     setError('');
     told.current = false;
-    api.startGhLogin().then(setLogin, (e: Error) => setError(e.message));
+    setStarting(true);
+    api
+      .startGhLogin()
+      .then(setLogin, (e: Error) => setError(e.message))
+      .finally(() => setStarting(false));
   };
   const cancel = () =>
     api
@@ -87,13 +93,12 @@ function GhSignIn({ onSignedIn }: { onSignedIn?: () => void }) {
       .then(() => api.getGhLogin())
       .then(setLogin, (e: Error) => setError(e.message));
 
-  if (login?.state === 'success') return <p className="gh-signed-in">{g.signedIn}</p>;
   return (
     <div className="gh-sign-in">
       <p>{g.signInHere}</p>
       <p className="muted small">{g.signInScope}</p>
       {!running && (
-        <button className="primary" onClick={start}>
+        <button className="primary" onClick={start} disabled={starting}>
           {g.signIn}
         </button>
       )}
@@ -133,11 +138,29 @@ export function GhHelp({
 }) {
   const g = useT().share.gh;
   const missing = problem === GH_MISSING;
+  const [signedIn, setSignedIn] = useState(false);
+  // Signed in here: the help says so and how to go on, no longer that gh is signed out (the share
+  // dialog goes on by itself, and this help goes with it).
+  if (signedIn) {
+    return (
+      <div className="gh-help" role="status">
+        <p className="gh-signed-in">{g.signedIn}</p>
+        <p>{retry}</p>
+      </div>
+    );
+  }
   return (
     <div className="gh-help" role="alert">
       <strong>{missing ? g.missingTitle : g.signedOutTitle}</strong>
       <p>{missing ? g.missingIntro : g.signedOutIntro}</p>
-      {!missing && <GhSignIn onSignedIn={onSignedIn} />}
+      {!missing && (
+        <GhSignIn
+          onSignedIn={() => {
+            setSignedIn(true);
+            onSignedIn?.();
+          }}
+        />
+      )}
       <ol>
         {missing && (
           <li>

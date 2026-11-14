@@ -336,7 +336,7 @@ const zhTW = {
     `GitHub CLI（gh）版本太舊${version ? `（目前是 ${version}）` : ''}：需要 ${min} 以上。請從 https://cli.github.com 更新 gh（用 Homebrew 裝的可以執行 brew upgrade gh）後再試一次。`,
   ghLoginTokenSet: (name: string) =>
     `gh 會用 Harness Relay 環境裡的 ${name} 登入：它優先於 gh 保存的登入，而且有它在，gh 就不肯保存另一個登入。請在啟動 Harness Relay 的地方修正或移除 ${name}，再重新啟動。`,
-  shareSignedOut: 'GitHub CLI（gh）尚未登入。請在終端機執行 gh auth login 後再試一次。',
+  shareSignedOut: 'GitHub CLI（gh）尚未登入。請在這裡登入 GitHub，或在終端機執行 gh auth login，再試一次。',
   shareFailed: (detail: string) => `無法建立 gist：${detail}`,
   shareNoDetail: 'gh 沒有說明原因',
   shareNoUrl: 'gh 沒有回傳 github.com 上的 gist 網址（gistpreview 只能顯示 github.com 的 gist）。如果已經建立了 gist，可以用 gh gist list 找到它再刪除',
@@ -901,7 +901,7 @@ const en: ServerMessages = {
     `GitHub CLI (gh) is too old${version ? ` (this one is ${version})` : ''}: Harness Relay needs ${min} or later. Update gh from https://cli.github.com (installed with Homebrew: brew upgrade gh), then try again.`,
   ghLoginTokenSet: (name) =>
     `gh signs in with ${name} from Harness Relay's environment, which comes before any sign-in gh keeps, and while it is set gh keeps no other. Fix or remove ${name} where Harness Relay is started, then start it again.`,
-  shareSignedOut: 'GitHub CLI (gh) is not signed in. Run gh auth login in a terminal, then try again.',
+  shareSignedOut: 'GitHub CLI (gh) is not signed in. Sign in to GitHub here, or run gh auth login in a terminal, then try again.',
   shareFailed: (detail) => `Could not create the gist: ${detail}`,
   shareNoDetail: 'gh gave no reason',
   shareNoUrl: 'gh did not return a gist address on github.com (gistpreview can only show gists on github.com). If a gist was created, find it with gh gist list and delete it',

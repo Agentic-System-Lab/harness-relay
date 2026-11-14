@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 31 個 spec 檔、407 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 31 個 spec 檔、408 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -50,7 +50,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 15 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
-| [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 10 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
+| [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 11 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 9 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
 | [排程](#排程) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 1 | [使用者說明 → 排程](../docs/user-guide.zh-TW.md#排程)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
 | [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 13 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席-agent)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
@@ -278,7 +278,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | gh 未登入時，對話框用 GitHub 的代碼登入它，再建立連結 | Grok | **登入 GitHub** 在伺服器上執行 `gh auth login --web --hostname github.com`；對話框顯示 GitHub 的代碼和它的裝置頁面（終端機的指令仍保留，作為另一種方法）；測試核准之後（假 `gh` 的 `fake-github/approve`），gh 就登入了，對話框會自己建立連結。 |
 | 從對話框開始的登入可以取消，也能再開始 | Grok | **取消**會停止 gh 的登入（對話框顯示已取消，代碼消失），什麼都沒分享，**登入 GitHub** 會開始新的登入並顯示它的代碼。 |
 | 被 GitHub 拒絕的登入會說明，附上 gh 的訊息，也能再試 | Grok | 被拒絕（假 `gh` 的 `fake-github/deny`）：顯示登入失敗與 gh 自己的錯誤，什麼都沒分享，**登入 GitHub** 又出現。 |
-| gh 未登入時，在設定移除分享會在那裡登入，再移除 | Grok | 先透過對話框的登入建立一個分享，再讓 gh 登出（刪掉假 gh 的 `signed-in`）：在設定按**移除**會顯示同樣的說明，在那裡登入（已登入 GitHub。），下一次就移除成功（移除會先詢問，所以不會自己重做）。 |
+| 對話框再次打開時接手仍在等待的登入，一次失敗的詢問也保留它的代碼 | Grok | 在 gh 等待時關掉再打開對話框、再按**建立連結**：顯示同一組代碼，不會開始新的登入（只有一次 `auth login`）；中斷一次詢問，代碼仍留在畫面上；核准後，接手的登入只建立一個連結。 |
+| gh 未登入時，在設定移除分享會在那裡登入，再移除 | Grok | 先透過對話框的登入建立一個分享，再讓 gh 登出（刪掉假 gh 的 `signed-in`）：在設定按**移除**會顯示同樣的說明，在那裡登入（說明接著只寫已登入 GitHub。與接下來怎麼做，卡片上也不再說 gh 沒有登入），下一次就移除成功（移除會先詢問，所以不會自己重做）。 |
 | 網路很慢時，登入後仍只建立一個連結，而且只建立一次 | Grok | 每次詢問登入狀態都要 2.5 秒（比兩次詢問的間隔一秒還久）：核准後對話框只建立一個連結，還在路上的回應不會再建立第二個。 |
 | 沒有 gh 時，分享會說明如何安裝並登入 | Claude Code | 無法啟動的 `gh` 得到含安裝指令與重新啟動提醒的說明。Windows 上跳過，因為那裡不能用 `#!` 行代替不存在的程式。 |
 
@@ -395,7 +396,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 太長而放不進郵件連結的回報放到剪貼簿，郵件請你貼上 | `mailto:` 連結維持在上限內並請你貼上回報，回報已在剪貼簿裡；Gmail 連結仍帶著全部內容。 |
 | 加入的截圖要先上傳或移除，郵件才能送出 | 文字檔會被拒絕並說明原因；PNG 顯示縮圖，兩個送出按鈕都暫停，直到移除它。 |
 | 無法上傳的截圖會說明原因，回報不帶截圖送出 | 假的 `gh` 未登入時，**上傳截圖**顯示和分享對話框一樣的說明（**登入 GitHub**、終端機的指令、再上傳一次），以及改用郵件附上截圖的方法，移除截圖後就能送出。 |
-| 從回報視窗登入 gh，再自動上傳截圖 | 在那裡按**登入 GitHub** 會顯示 GitHub 的代碼；核准後說明消失，視窗會自己再上傳一次（假的 `gh` 停在上傳本身，因為那需要 git）。 |
+| 從回報視窗登入 gh，再自動上傳截圖 | 在那裡按**登入 GitHub** 會顯示 GitHub 的代碼；核准後說明消失，視窗會自己再上傳一次，而且只有一次（假的 `gh` 停在上傳本身，因為那需要 git）。 |
 
 ## 語音輸入的安裝
 
