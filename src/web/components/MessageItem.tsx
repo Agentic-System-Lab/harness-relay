@@ -330,7 +330,7 @@ interface Props {
   scheduleText?: string;
   /** Save the team the lead agent designed (auto team) as a template. */
   onSavePlan: (messageId: string, name: string) => Promise<void>;
-  /** Whether the conversation has lead review on (given to team design cards only). */
+  /** Whether the conversation has lead review on (given to team design cards and review cards only). */
   leadReview?: boolean;
   /** Turn lead review on or off (the latest team design card's box); resolves whether the server took it. */
   onLeadReview?: (on: boolean) => Promise<boolean>;
@@ -507,7 +507,7 @@ function PlanCard({
 }
 
 /** The lead agent's review of the team's replies (lead review): what to look at closely, and what to do next. */
-function ReviewCard({ msg, onUseStep }: Pick<Props, 'msg' | 'onUseStep'>) {
+function ReviewCard({ msg, onUseStep, leadReview }: Pick<Props, 'msg' | 'onUseStep' | 'leadReview'>) {
   const t = useT();
   const review = msg.review!;
   const lead = leadLabel(review.lead);
@@ -519,7 +519,8 @@ function ReviewCard({ msg, onUseStep }: Pick<Props, 'msg' | 'onUseStep'>) {
         <span className={`tool-icon ${live ? 'spin' : ''}`} aria-hidden>
           {live ? '◌' : '✦'}
         </span>
-        <span>{live ? t.review.reviewing(lead) : t.review.aborted}</span>
+        {/* Lead review is off now: nothing reviews these replies unless it is turned on again. */}
+        <span>{live ? t.review.reviewing(lead) : leadReview === false ? t.review.abortedOff : t.review.aborted}</span>
       </div>
     );
   }
@@ -877,7 +878,7 @@ export const MessageItem = memo(function MessageItem({
   const t = useT();
 
   if (msg.author.kind === 'system') {
-    if (msg.review) return <ReviewCard msg={msg} onUseStep={onUseStep} />;
+    if (msg.review) return <ReviewCard msg={msg} onUseStep={onUseStep} leadReview={leadReview} />;
     if (msg.plan) {
       return (
         <PlanCard

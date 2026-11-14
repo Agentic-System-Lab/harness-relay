@@ -122,9 +122,16 @@ export function sameTeam(a: Team, b: Team): boolean {
 }
 
 /**
- * The draft changes only lead review (the team drawer's box): it can be saved on its own, also while
- * the team replies, since it is read once the team has answered.
+ * The team drawer saves only lead review (its box), through its own request: while the team replies
+ * (when nothing else may be saved, and the switch is read once the team has answered), and only when
+ * the box is all the draft changes. Not while a design waits for confirmation (`proposed`): saving
+ * there confirms the design, which the drawer's usual save does.
  */
+export function savesLeadReviewAlone(base: Team, draft: Team, running: boolean, proposed: boolean): boolean {
+  return running && !proposed && onlyLeadReview(base, draft);
+}
+
+/** The draft changes only lead review (the team drawer's box). */
 export function onlyLeadReview(base: Team, draft: Team): boolean {
   if (Boolean(base.settings.leadReview) === Boolean(draft.settings.leadReview)) return false;
   const without = (t: Team): Team => {

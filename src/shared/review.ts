@@ -1,5 +1,5 @@
 import { decodeNamedCharacterReference } from 'decode-named-character-reference';
-import type { ChatMessage, ReviewHighlight, ReviewKind } from './types';
+import type { ChatMessage, LeadReview, ReviewHighlight, ReviewKind } from './types';
 
 /*
  * The lead agent's review quotes words of the team's replies (`ReviewHighlight.quote`). The server
@@ -317,6 +317,18 @@ export function reviewStart(messages: readonly ChatMessage[]): number {
   const fromId = messages[pending]!.review!.fromId;
   const from = fromId ? messages.findIndex((m) => m.id === fromId) : -1;
   return from >= after && from < start ? from : start;
+}
+
+/**
+ * What a ready review says, as text (search): its summary, each highlight's note and quote, and each
+ * next step with the message it sends; nothing for a review that is not ready.
+ */
+export function reviewText(review: LeadReview | undefined): string {
+  if (review?.status !== 'ready') return '';
+  const lines = [review.summary ?? ''];
+  for (const h of review.highlights ?? []) lines.push(h.note, h.quote ?? '');
+  for (const s of review.nextSteps ?? []) lines.push(s.text, s.message ?? '');
+  return lines.filter((l) => l.trim()).join('\n');
 }
 
 /** The highlights a reply has from the lead agent's reviews, and the review that has the latest of them. */

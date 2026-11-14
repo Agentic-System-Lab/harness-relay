@@ -763,12 +763,11 @@ export class Orchestrator {
       // user sends meanwhile is not left in the queue of a run that then cannot start.
       const locked = this.folderLockedBy(conv);
       if (locked) return { result: 'busy', reason: locked };
-      // A question the user wrote during a review that was then stopped waits too: the lead agent
-      // designs its team, as when they send it (they are there; with auto team only).
-      const asks = this.waitingQuestion(conv);
+      // Also with a question the user wrote during a review that was then stopped, still waiting: the
+      // current team takes both (nobody may be there to confirm a design).
       await this.start(conv, waiting ? '' : s.text, {
         queue: true,
-        ...(asks ? { question: 'new' as const } : { keepTeam: true }),
+        keepTeam: true,
         scheduled: !waiting,
         refuseApprovals: s.approvals !== 'ask',
       });
@@ -934,6 +933,14 @@ export class Orchestrator {
     // Written while the team worked, the current team answers them; written after it had answered
     // (while the lead agent reviewed), they are a new question, and with auto team its team is designed.
     const asks = this.waitingQuestion(conv);
+    // Its design would take no lock, but the team's run after it would: with another conversation
+    // changing the folder, the question keeps waiting, as any run that finds its folder taken, rather
+    // than being designed (and paid for) for a team that cannot start.
+    const locked = asks ? this.folderLockedBy(conv) : undefined;
+    if (locked) {
+      this.systemNote(conv, t().runFailed(locked));
+      return false;
+    }
     this.startInBackground(conv, { queue: true, ...(asks ? { question: 'new' as const } : { keepTeam: true }), refuseApprovals: unattended });
     return true;
   }

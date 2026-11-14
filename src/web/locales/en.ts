@@ -621,6 +621,7 @@ export const en: Messages = {
     by: (lead) => `Lead agent: ${lead}`,
     reviewing: (lead) => `The lead agent (${lead}) is reviewing the team's replies…`,
     aborted: 'The review was stopped; the lead agent reviews these replies together with the next ones.',
+    abortedOff: 'The review was stopped. Lead review is off now: turn it on to have these replies reviewed with the next ones.',
     failed: (why) => `The lead agent could not review these replies (${why}); it reviews them together with the next ones.`,
     failedNoReason: 'The lead agent could not review these replies; it reviews them together with the next ones.',
     read: (n) => `Read ${n} ${n === 1 ? 'reply' : 'replies'}`,

@@ -654,7 +654,7 @@ describe('questions written during a review, and reviews stopped', () => {
     expect(again.messages.find((m) => m.author.kind === 'user' && m.parts.some((p) => p.type === 'text' && p.text === 'a brand new question'))!.duringReview).toBeUndefined();
   });
 
-  it("has the lead agent design the team for a question left by a stopped review when the schedule sends first", async () => {
+  it("gives a question left by a stopped review to the current team with the schedule's message, with no design (nobody may be there to confirm one)", async () => {
     const conv = autoChat();
     fake.reviewGate = new Promise(() => {});
     await orchestrator.send(conv.id, 'first question');
@@ -663,6 +663,7 @@ describe('questions written during a review, and reviews stopped', () => {
     orchestrator.stop(conv.id);
     await finish(conv.id);
     fake.reviewGate = undefined;
+    const team = conv.agents.map((a) => a.name);
     conv.schedule = {
       text: 'scheduled check',
       repeat: { kind: 'interval', hours: 1 },
@@ -675,15 +676,54 @@ describe('questions written during a review, and reviews stopped', () => {
       updatedAt: 0,
     };
     store.saveSchedule(conv);
+    calls.length = 0;
     expect((await orchestrator.sendScheduled(conv.id)).result).toBe('sent');
-    await vi.waitFor(() => expect(leadCalls()).toHaveLength(2), { timeout: 20_000 });
     await finish(conv.id);
-    expect(leadCalls()[1]!.prompt).toContain('a brand new question');
+    // The current team answered both; the lead agent did not design, and no design waits.
+    expect(leadCalls()).toHaveLength(0);
+    expect(conv.agents.map((a) => a.name)).toEqual(team);
     expect(conv.queue ?? []).toHaveLength(0);
-    // Without such a question, the current team takes the schedule's message, with no design.
-    await orchestrator.sendScheduled(conv.id);
-    await finish(conv.id);
-    expect(leadCalls()).toHaveLength(2);
+    expect(calls.filter((c) => team.includes(c.name))[0]!.prompt).toContain('a brand new question');
+    expect(conv.messages.some((m) => m.plan?.awaitingConfirmation)).toBe(false);
+  });
+
+  it('keeps a question written during a review waiting, with no design, when another chat took the folder meanwhile', async () => {
+    const first = conversation({ mode: 'roundtable', permission: 'edit', autoTeam: true, leadReview: true });
+    const other = conversation({ mode: 'roundtable', permission: 'edit' });
+    fake.leadReply = JSON.stringify({
+      choice: 'custom',
+      name: 'Solo',
+      mode: 'roundtable',
+      rounds: 1,
+      agents: [{ name: 'Alice', provider: 'claude', role: 'Build it' }],
+      reason: 'x',
+    });
+    let releaseReview!: () => void;
+    fake.reviewGate = new Promise((r) => (releaseReview = r));
+    // @mentions the team: no design for the first question.
+    await orchestrator.send(first.id, '@Alice first');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    let releaseOther!: () => void;
+    fake.gate = new Promise((r) => (releaseOther = r));
+    await orchestrator.send(other.id, 'other');
+    await orchestrator.send(first.id, 'a new question');
+    fake.reviewGate = undefined;
+    releaseReview();
+    // Main's note, and the question still waits: no design was made for a team that cannot start.
+    const locked = (m: ChatMessage) => m.author.kind === 'system' && m.parts.some((p) => p.type === 'text' && p.text.includes(project) && !p.text.includes('git'));
+    await vi.waitFor(() => expect(first.messages.filter(locked)).toHaveLength(1));
+    await finish(first.id);
+    expect(first.queue!.map((m) => m.duringReview)).toEqual([true]);
+    expect(leadCalls()).toHaveLength(0);
+    fake.gate = Promise.resolve();
+    releaseOther();
+    await finish(other.id);
+    // Sent once the folder is free: designed for, as a new question.
+    await orchestrator.send(first.id, '');
+    await vi.waitFor(() => expect(leadCalls()).toHaveLength(1), { timeout: 20_000 });
+    await finish(first.id);
+    expect(leadCalls()[0]!.prompt).toContain('a new question');
+    expect(first.queue ?? []).toHaveLength(0);
   });
 
   it('drops the mark of a question written during a review when it is withdrawn', async () => {

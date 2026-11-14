@@ -10,6 +10,8 @@ test.describe('in Traditional Chinese', () => {
     await page.getByRole('button', { name: '新對話' }).first().click();
     await expect(page.getByRole('heading', { name: '新對話' })).toBeVisible();
     await expect(page.locator('.preset-card', { hasText: '三方辯論' })).toBeVisible();
+    // Lead review, ticked in every new chat, is not what this test is about.
+    await page.getByRole('checkbox', { name: '團隊回答後，請首席 agent 審閱回覆' }).uncheck();
 
     await page.getByRole('button', { name: '開始對話 →' }).click();
     await page.waitForURL(/#\/c\//);

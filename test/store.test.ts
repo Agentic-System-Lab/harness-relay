@@ -211,6 +211,41 @@ describe('Store (SQLite)', () => {
     expect(new Store(reopen()).get(conv.id)!.settings.leadReview).toBeUndefined();
   });
 
+  it("finds what a ready review says (its summary, notes, quotes and steps), not its JSON", () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    store.create(conv);
+    const review: ChatMessage = {
+      id: 'review-s',
+      author: { kind: 'system' },
+      createdAt: 5,
+      status: 'done',
+      parts: [],
+      review: {
+        status: 'ready',
+        lead: { provider: 'claude' },
+        summary: 'The migration is half done.',
+        highlights: [{ kind: 'risk', note: 'Rollback is untested.', quote: 'drop the column' }],
+        nextSteps: [{ text: 'Write the rollback', by: 'team', message: 'Please add a rollback script' }],
+      },
+    };
+    conv.messages.push(review);
+    store.saveMessage(conv.id, review, true);
+    for (const words of ['half done', 'rollback untested', 'drop the column', 'rollback script']) {
+      const [hit] = store.search(words);
+      expect(hit, words).toMatchObject({ id: conv.id, matches: 1 });
+    }
+    expect(store.search('rollback')[0]!.snippet).toContain('ollback');
+    // Its JSON's keys and values that are not text are not what it says.
+    expect(store.search('highlights')).toEqual([]);
+    expect(store.search('nextSteps')).toEqual([]);
+    // A review that failed says nothing to find.
+    const failed: ChatMessage = { ...review, id: 'review-f', review: { status: 'failed', lead: { provider: 'claude' }, error: 'quota exhausted' } };
+    conv.messages.push(failed);
+    store.saveMessage(conv.id, failed, true);
+    expect(store.search('quota exhausted')).toEqual([]);
+  });
+
   it('keeps a review the server stopped during, as stopped, with where it started reading', () => {
     const store = new Store(db);
     const conv = sampleConversation();

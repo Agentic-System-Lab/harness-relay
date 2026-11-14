@@ -140,7 +140,9 @@ test.describe('lead review', () => {
     await expect(save).toBeEnabled();
     await save.click();
     await expect(drawer).toBeHidden();
-    await expect(reviewCards(page).last()).toContainText('The review was stopped');
+    // Its card says lead review is off now; the first stopped one, too.
+    await expect(reviewCards(page).last()).toContainText('The review was stopped. Lead review is off now');
+    await expect(reviewCards(page).first()).toContainText('Lead review is off now');
     const conv = await settled(relay, id);
     expect(conv.settings.leadReview).toBeUndefined();
     await expect(page.locator('.msg-system').filter({ hasText: /^Stopped\.$/ })).toHaveCount(0);

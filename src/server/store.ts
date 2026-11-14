@@ -32,6 +32,7 @@ import { PERMISSION_ORDER, PROVIDERS, TOOL_CALL_KINDS, cwdSettings, pendingPlan 
 import { byAge, familyOf, type FamilyMember } from '../shared/family';
 import { searchTerms, snippetAround, termsIn } from '../shared/search';
 import { nul, transaction, type Database } from './db';
+import { reviewText } from '../shared/review';
 import { currentLang } from './i18n';
 import { builtinPresets } from './presets';
 
@@ -1346,6 +1347,17 @@ export class Store {
          ORDER BY m.conversation_id, m.seq, p.idx`,
       )
       .all(...like) as { conversation_id: string; message_id: string; text: string }[];
+    // The lead agent's reviews too (their text is in `review`, not in parts): what they say, not their JSON.
+    const reviews = this.db
+      .prepare(
+        `SELECT conversation_id, id AS message_id, review FROM messages
+         WHERE review IS NOT NULL AND (${like.map(() => "review LIKE ? ESCAPE '\\'").join(' OR ')})`,
+      )
+      .all(...like) as { conversation_id: string; message_id: string; review: string }[];
+    for (const r of reviews) {
+      const text = reviewText(parseReview(r.review));
+      if (text) hits.push({ conversation_id: r.conversation_id, message_id: r.message_id, text });
+    }
     const byConv = new Map<string, typeof hits>();
     for (const h of hits) {
       const list = byConv.get(h.conversation_id) ?? [];

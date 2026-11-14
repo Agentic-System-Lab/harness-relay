@@ -15,7 +15,7 @@ import {
 } from '../../shared/types';
 import { api, orCreateCwd, type AttachmentUpload } from '../api';
 import { highlightsByReply } from '../../shared/review';
-import { afterStreamError, applyStates as findApplyStates, branchSource, draftStatus, followsAfterScroll, onlyLeadReview, scrollSpot, teamToEdit } from '../chat';
+import { afterStreamError, applyStates as findApplyStates, branchSource, draftStatus, followsAfterScroll, savesLeadReviewAlone, scrollSpot, teamToEdit } from '../chat';
 import { useI18n, useT } from '../i18n';
 import { refreshLimits, useLimits } from '../limits';
 import { hashFor } from '../route';
@@ -683,7 +683,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
                 onBranch={onBranch}
                 marks={marks.get(m.id)}
                 onUseStep={onUseStep}
-                leadReview={m.plan ? Boolean(conv.settings.leadReview) : undefined}
+                leadReview={m.plan || m.review ? Boolean(conv.settings.leadReview) : undefined}
                 onLeadReview={onLeadReview}
               />
             );
@@ -975,8 +975,8 @@ function TeamDrawer({
   // The team can change while the drawer is open (e.g. the lead agent designs it): follow it until
   // the user edits; after that, saving would overwrite it, so ask to reload first.
   const status = draftStatus(base, team, current);
-  // Only lead review changed: saved on its own, also while the team replies (the rest waits for it).
-  const reviewOnly = onlyLeadReview(base, team);
+  // While the team replies, the lead review box alone is saved on its own (the rest waits for it).
+  const reviewOnly = savesLeadReviewAlone(base, team, running, proposed);
   const reload = useCallback(() => {
     setBase(current);
     setTeam(current);
@@ -1074,7 +1074,7 @@ function TeamDrawer({
           </button>
           <button
             className="primary"
-            disabled={saving || (running && !reviewOnly) || revising || problems.length > 0 || status === 'conflict'}
+            disabled={saving || revising || status === 'conflict' || (!reviewOnly && (running || problems.length > 0))}
             onClick={save}
           >
             {t.common.save}

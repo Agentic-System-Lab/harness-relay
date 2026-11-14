@@ -139,14 +139,14 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 首席 agent 的審閱
 
-[`review.spec.ts`](specs/review.spec.ts)：**團隊回答後，請首席 agent 審閱回覆**（Have the lead agent review the team's replies）。假首席 agent 會把它讀到的第一則回覆開頭的幾個字標成風險，並建議一個給使用者、一個給團隊的下一步（`e2e:badreview`、`e2e:slowreview` 與 `e2e:reviewkind` 會改變這些）。新對話頁面每個新對話都會勾選這個勾選框，所以除非測試要求（`leadReview: true`），`startChat()` 會取消勾選，其他 spec 就不會出現審閱。
+[`review.spec.ts`](specs/review.spec.ts)：**團隊回答後，請首席 agent 審閱回覆**（Have the lead agent review the team's replies）。假首席 agent 會把它讀到的第一則回覆開頭的幾個字標成風險，並建議一個給使用者、一個給團隊的下一步（`e2e:badreview`、`e2e:slowreview` 與 `e2e:reviewkind` 會改變這些）。新對話頁面每個新對話都會勾選這個勾選框，所以除非測試要求（`leadReview: true`），`startChat()` 會取消勾選，自己在這個頁面開始對話的測試（`folders.spec.ts` 與 `i18n.spec.ts` 裡的）也會，其他 spec 就不會出現審閱。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 首席 agent 審閱團隊的回覆，把它引用的文字標在回覆中，給團隊的下一步可以放進輸入框 | Claude Code | 勾選後開始的新對話，回覆之後出現**首席 agent 的審閱**（Lead agent's review）卡片：摘要、一個**風險**（Risk）及回覆的原文與說明，以及下一步（**你**，與附上**交給團隊**的**團隊**）。引用的文字標在回覆中（`CSS.highlights` 的 `review-risk` 裡有一個範圍），回覆標頭顯示 **⚑ 1 處注意**（1 to note）：點它跳到卡片，點卡片上的 **@Claude** 跳到回覆（都會閃一下）。**交給團隊**（Ask the team）會把那一步的訊息放進輸入框；送出後團隊回答並再次被審閱，每則回覆各有一個標記範圍（第一則回覆不會重複標記）。首席 agent 拿到了編號的回覆；設定有保存，以未勾選開始一個對話之後，新對話頁面又會是勾選的。 |
 | 對話沒要求就不審閱；在團隊設定開啟後，讀的是最新一個問題的回覆 | Claude Code | 透過 API 建立、沒開啟的對話沒有卡片；在**團隊設定**勾選並儲存後，下一次回答的卡片只讀了那次的回答（**讀了 1 則回覆**，Read 1 reply），第一個問題則作為背景放在首席 agent 的 prompt 中。 |
 | 「停止」會停止它，讀不懂首席 agent 的回答時也會說明 | Claude Code | 審閱很慢時，卡片顯示首席 agent 正在審閱，輸入框提示送出的訊息會等它；**■ 停止**讓卡片顯示已中斷。下一次回答的審閱會再讀那些回覆（prompt 中有被停止的那次審閱的問題，並編了兩則回覆），回答不是 JSON 時卡片會說明無法審閱，以及原因。 |
-| 審閱期間寫的訊息會等審閱結束、算新問題，略過審閱就立刻送出，團隊設定也能在審閱途中關閉它 | Claude Code | 審閱很慢時，輸入框的提示說明按 Enter 會在審閱結束後送出、算新問題（Enter to send it after the review, as a new question）。這時送出的訊息在佇列區等待（**1 則等待送出**，1 waiting；*首席 agent 審閱完回覆後送出…*，Sent once the lead agent has reviewed the replies）；**略過審閱並立即送出**（Skip the review and send now）讓卡片顯示已中斷、清空佇列區並送出訊息。它的回答有第二次審閱，同樣很慢，因為它從被停止的那次開始讀的地方讀起（也包括第一個問題）。這段期間 **團隊設定** 會說明只改首席 agent 審閱的話現在就能儲存（lead review alone can be saved now）：**儲存**（Save）在取消勾選之前是停用的，之後就能儲存，那次審閱也隨之停止（卡片顯示已中斷）。之後對話的審閱是關閉的，也沒有多出 *已停止*（Stopped.）的說明。 |
+| 審閱期間寫的訊息會等審閱結束、算新問題，略過審閱就立刻送出，團隊設定也能在審閱途中關閉它 | Claude Code | 審閱很慢時，輸入框的提示說明按 Enter 會在審閱結束後送出、算新問題（Enter to send it after the review, as a new question）。這時送出的訊息在佇列區等待（**1 則等待送出**，1 waiting；*首席 agent 審閱完回覆後送出…*，Sent once the lead agent has reviewed the replies）；**略過審閱並立即送出**（Skip the review and send now）讓卡片顯示已中斷、清空佇列區並送出訊息。它的回答有第二次審閱，同樣很慢，因為它從被停止的那次開始讀的地方讀起（也包括第一個問題）。這段期間 **團隊設定** 會說明只改首席 agent 審閱的話現在就能儲存（lead review alone can be saved now）：**儲存**（Save）在取消勾選之前是停用的，之後就能儲存，那次審閱也隨之停止。之後兩張被停止的卡片都說明 *審閱已中斷。首席 agent 審閱目前已關閉…*（The review was stopped. Lead review is off now…），對話的審閱是關閉的，也沒有多出 *已停止*（Stopped.）的說明。 |
 | 團隊設計卡片上有勾選框，首席 agent 不會去動它：在卡片上勾選後，正在回答的問題與之後的問題都會被審閱 | Claude Code | 在以未勾選開始的新對話中，設計卡片顯示未勾選的勾選框與說明，首席 agent 組隊的 prompt 完全不提它。在卡片上勾選後對話就開啟審閱；確認團隊後，回答會被審閱。下一個問題的設計卡片上勾選框仍是勾選的（第一張卡片已經沒有勾選框），它的回答也會被審閱；在最新的卡片上取消勾選後，下一個回答就不審閱。 |
 | 新排程頁的勾選框一開始是勾選的，排程的對話照那裡的設定 | — | 在**新排程**，勾選框一開始是勾選的。保持勾選並勾選**每次開新對話**（Start a new chat each time；它開的新對話會像複製其他設定一樣複製這個設定）後，**建立排程**（Create schedule）開的對話有開啟審閱，它的**團隊設定**中勾選框是勾選的；再建立一次、把（一開始又是勾選的）勾選框取消，對話就是關閉的。 |
 | 分享的對話保留審閱，但不含 app 的按鈕與設計卡片的勾選框 | Claude Code | 分享頁面（假 `gh` 的 gist）有審閱的摘要、那一點與純文字的 **@Claude**，以及下一步；沒有設計卡片的勾選框、**交給團隊**（Ask the team）、回覆的標籤，也沒有任何按鈕。 |

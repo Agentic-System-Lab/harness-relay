@@ -27,6 +27,7 @@ import {
   thoughtTitle,
   restoredText,
   onlyLeadReview,
+  savesLeadReviewAlone,
 } from '../src/web/chat';
 import type { Team } from '../src/web/components/TeamEditor';
 import { clip, clipPath } from '../src/server/agents/types';
@@ -513,5 +514,15 @@ describe("the team drawer's lead review box", () => {
     expect(onlyLeadReview(team(), team())).toBe(false);
     expect(onlyLeadReview(team(), team({ leadReview: true, rounds: 2 }))).toBe(false);
     expect(onlyLeadReview(team(), { ...team({ leadReview: true }), agents: [] })).toBe(false);
+  });
+
+  it('saves the box alone only while the team replies and no design waits for confirmation', () => {
+    const on = team({ leadReview: true });
+    expect(savesLeadReviewAlone(team(), on, true, false)).toBe(true);
+    // Idle: the usual save, which also checks the rest.
+    expect(savesLeadReviewAlone(team(), on, false, false)).toBe(false);
+    // A design waits: saving confirms it, so the usual save.
+    expect(savesLeadReviewAlone(team(), on, true, true)).toBe(false);
+    expect(savesLeadReviewAlone(team(), on, false, true)).toBe(false);
   });
 });
