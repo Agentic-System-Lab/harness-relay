@@ -678,14 +678,23 @@ export class Orchestrator {
    * confirmation) the message waits in the conversation's queue instead: it is posted before the
    * next turn of an agent it is for, and what no turn took starts another run when this one ends
    * (see `deliverQueued`, `startQueued`). `interrupt` stops the team first and sends it, after the
-   * messages waiting, now.
+   * messages waiting, now. While the lead agent reviews the team's replies (lead review), a message
+   * always does: the review stops, so it never holds the user up, and the next review reads those
+   * replies too.
    */
   async send(convId: string, rawText: string, uploads?: AttachmentUpload[], interrupt = false): Promise<{ queued: boolean }> {
     const text = rawText.trim();
     const content = Boolean(text || uploads?.length);
     const found = this.store.get(convId);
     if (!found) throw new HttpError(404, t().conversationNotFound);
-    if (interrupt && (content || found.queue?.length)) await this.interrupt(convId);
+    const reviewing = content && this.reviewing.has(convId);
+    // Another conversation took the folder while the lead agent reviewed: the message could not start,
+    // so it is refused (the message box keeps it) and the review goes on.
+    if (reviewing) {
+      const locked = this.folderLockedBy(found);
+      if (locked) throw new HttpError(409, locked);
+    }
+    if ((interrupt || reviewing) && (content || found.queue?.length)) await this.interrupt(convId);
     if (content && this.queues(found)) {
       this.enqueue(found, text, uploads);
       return { queued: true };
@@ -697,9 +706,7 @@ export class Orchestrator {
     }
     const files = saveAttachments(conv.id, uploads);
     try {
-      // What waits may be a new question, written while the lead agent reviewed (also when it is sent now).
-      const asks = content || this.waitingQuestion(conv);
-      await this.start(conv, text, { files, queue: true, ...(asks ? { question: 'new' as const } : {}) });
+      await this.start(conv, text, { files, queue: true, ...(content ? { question: 'new' as const } : {}) });
     } catch (err) {
       removeAttachments(conv.id, files);
       throw err;
@@ -714,7 +721,6 @@ export class Orchestrator {
     const index = conv.queue?.findIndex((m) => m.id === messageId) ?? -1;
     if (index < 0) throw new HttpError(404, t().queuedNotFound);
     const [msg] = conv.queue!.splice(index, 1);
-    delete msg!.duringReview;
     this.saveQueue(conv);
     removeAttachments(conv.id, attachmentsOf(msg!));
     return msg!;
@@ -750,9 +756,9 @@ export class Orchestrator {
     if (conv.pause && !replying) return { result: 'skipped', reason: t().scheduleWaitsForAnswer };
     const waiting = Boolean(conv.queue?.some((m) => m.scheduled));
     if (waiting && replying) return { result: 'skipped', reason: t().scheduleStillQueued };
-    // The lead agent designs a team that will wait for the user's confirmation (a question written
-    // during a review, say): queued now, the message would go into that question and wait with it.
-    // Tried again a little later instead, as for any busy moment.
+    // The lead agent designs a team that will wait for the user's confirmation: queued now, the
+    // message would go into that question and wait with it. Tried again a little later instead, as
+    // for any busy moment.
     if (this.designing.has(convId) && !conv.settings.autoConfirm) return { result: 'busy', reason: t().scheduleDesigning };
     if (replying && (conv.queue?.length ?? 0) >= MAX_QUEUE) return { result: 'skipped', reason: t().scheduleQueueFull };
     try {
@@ -766,8 +772,6 @@ export class Orchestrator {
       // user sends meanwhile is not left in the queue of a run that then cannot start.
       const locked = this.folderLockedBy(conv);
       if (locked) return { result: 'busy', reason: locked };
-      // Also with a question the user wrote during a review that was then stopped, still waiting: the
-      // current team takes both (nobody may be there to confirm a design).
       await this.start(conv, waiting ? '' : s.text, {
         queue: true,
         keepTeam: true,
@@ -869,8 +873,6 @@ export class Orchestrator {
       status: 'done',
       ...(midReply ? { queued: true } : {}),
       ...(scheduled ? { scheduled: true } : {}),
-      // Written once the team had answered: a new question (kept with the queue, also across a restart).
-      ...(this.reviewing.has(conv.id) && !scheduled ? { duringReview: true } : {}),
     });
     try {
       this.saveQueue(conv);
@@ -903,14 +905,10 @@ export class Orchestrator {
           i++;
           continue;
         }
-      } else if (next.duringReview || !isFor(next, which.recipients, conv.agents)) {
-        // Written during a review, it is a new question, not part of this discussion (a retry or an
-        // edit after the review was stopped): it waits for a run of its own after this one.
+      } else if (!isFor(next, which.recipients, conv.agents)) {
         break;
       }
       // Posted before it leaves the saved queue: a crash in between keeps it once, as delivered.
-      // Posted, it is a message like any other: the mark was only for while it waited.
-      delete next.duringReview;
       conv.messages.push(next);
       queue.splice(i, 1);
       this.store.saveMessage(conv.id, next, true);
@@ -924,10 +922,9 @@ export class Orchestrator {
 
   /**
    * Start a run for the messages still waiting, when nothing else is going on and the team may
-   * answer (the lead agent's team design is not waiting for confirmation): the current team answers
-   * them, or with auto team a new team, for a question written while the lead agent reviewed
-   * (`waitingQuestion()`). Returns whether it starts; a run that fails to start says why in the chat,
-   * and its messages keep waiting.
+   * answer (the lead agent's team design is not waiting for confirmation). They were written while the
+   * team worked, so the current team answers them. Returns whether it starts; a run that fails to
+   * start says why in the chat, and its messages keep waiting.
    */
   startQueued(conv: Conversation): boolean {
     if (!conv.queue?.length || !this.mayStart(conv)) return false;
@@ -935,36 +932,8 @@ export class Orchestrator {
     if (conv.pause) return false;
     // Only the schedule's message waits: nobody may be watching this run either.
     const unattended = conv.queue.every((m) => m.scheduled) && conv.schedule?.approvals !== 'ask';
-    // Written while the team worked, the current team answers them; written after it had answered
-    // (while the lead agent reviewed), they are a new question, and with auto team its team is designed.
-    const asks = this.waitingQuestion(conv);
-    // Its design would take no lock, but the team's run after it would: with another conversation
-    // changing the folder, the question keeps waiting, as any run that finds its folder taken, rather
-    // than being designed (and paid for) for a team that cannot start.
-    const locked = asks ? this.folderLockedBy(conv) : undefined;
-    if (locked) {
-      this.systemNote(conv, t().runFailed(locked));
-      return false;
-    }
-    this.startInBackground(conv, { queue: true, ...(asks ? { question: 'new' as const } : { keepTeam: true }), refuseApprovals: unattended });
+    this.startInBackground(conv, { queue: true, keepTeam: true, refuseApprovals: unattended });
     return true;
-  }
-
-  /**
-   * Auto team: the messages waiting include one the user wrote once the team had answered (while the
-   * lead agent reviewed its replies, `duringReview`), so they ask a new question, whose team the lead
-   * agent designs — unless one of them @mentions members of the team, who then answer.
-   */
-  private waitingQuestion(conv: Conversation): boolean {
-    if (!conv.settings.autoTeam) return false;
-    const queue = conv.queue ?? [];
-    const fresh = queue.filter((m) => m.duringReview);
-    if (!fresh.length || !fresh.every((m) => parseMentions(textOf(m), conv.agents).length === 0)) return false;
-    // A design that would wait for the user's confirmation takes no schedule's message along (when the
-    // review ends, and when they send what waits with Skip, Send or Continue): nobody may be there to
-    // confirm it, and the schedule would be held (skipped) until someone did. The current team takes
-    // them all then, as a scheduled send does.
-    return Boolean(conv.settings.autoConfirm) || !queue.some((m) => m.scheduled);
   }
 
   /**
@@ -1718,8 +1687,9 @@ export class Orchestrator {
   /**
    * Lead review: the lead agent (Settings) reads what the team said since its last review and tells
    * the user what to look at closely and what to do next, on a card after the replies. It runs
-   * read-only, as the last step of the team's run: Stop stops it, and what the user sends meanwhile
-   * waits for it. A review that fails says why on its card; the next one reads these replies again.
+   * read-only, as the last step of the team's run: Stop stops it, and so does a message the user sends
+   * meanwhile, which goes at once. A review that fails or is stopped says so on its card; the next one
+   * reads these replies again.
    */
   private async reviewReplies(conv: Conversation, run: Run): Promise<void> {
     const material = reviewMaterial(conv.messages);

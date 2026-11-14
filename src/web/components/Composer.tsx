@@ -31,7 +31,7 @@ interface Props {
   canContinue: boolean;
   /** The team is being designed or waits for confirmation: what is sent waits for it (no Continue, no interrupting). */
   locked?: boolean;
-  /** The lead agent reviews the team's replies: what is sent is a new question, for after the review. */
+  /** The lead agent reviews the team's replies: sending stops the review and sends the message now. */
   reviewing?: boolean;
   placeholder: string;
   /** `interrupt`: stop the team and send this now (Cmd/Ctrl+Enter while it replies). */
@@ -251,7 +251,7 @@ export function Composer({
   const c = t.composer;
   const hint = isTouchScreen()
     ? locked ? c.hintConfirmTouch : reviewing ? c.hintReviewTouch : running ? c.hintBusyTouch : c.hintTouch
-    : locked ? c.hintConfirm : reviewing ? c.hintReview(MOD_KEY) : running ? c.hintBusy(MOD_KEY) : c.hint;
+    : locked ? c.hintConfirm : reviewing ? c.hintReview : running ? c.hintBusy(MOD_KEY) : c.hint;
 
   return (
     <div

@@ -1348,12 +1348,14 @@ export class Store {
       )
       .all(...like) as { conversation_id: string; message_id: string; text: string }[];
     // The lead agent's reviews too (their text is in `review`, not in parts): what they say, not their JSON.
+    // Their column holds JSON, which escapes quotes and backslashes: the words are looked for as it writes them.
+    const inJson = terms.map((t) => `%${JSON.stringify(t).slice(1, -1).replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
     const reviews = this.db
       .prepare(
         `SELECT conversation_id, id AS message_id, review FROM messages
-         WHERE review IS NOT NULL AND (${like.map(() => "review LIKE ? ESCAPE '\\'").join(' OR ')})`,
+         WHERE review IS NOT NULL AND (${inJson.map(() => "review LIKE ? ESCAPE '\\'").join(' OR ')})`,
       )
-      .all(...like) as { conversation_id: string; message_id: string; review: string }[];
+      .all(...inJson) as { conversation_id: string; message_id: string; review: string }[];
     for (const r of reviews) {
       const text = reviewText(parseReview(r.review));
       if (text) hits.push({ conversation_id: r.conversation_id, message_id: r.message_id, text });

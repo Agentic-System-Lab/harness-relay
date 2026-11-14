@@ -236,6 +236,11 @@ describe('Store (SQLite)', () => {
       expect(hit, words).toMatchObject({ id: conv.id, matches: 1 });
     }
     expect(store.search('rollback')[0]!.snippet).toContain('ollback');
+    // Words with quotes or backslashes, which its JSON escapes, are found too.
+    const quoted: ChatMessage = { ...review, id: 'review-q', review: { status: 'ready', lead: { provider: 'claude' }, summary: 'Run "npm test" in C:\\Users\\me first.' } };
+    conv.messages.push(quoted);
+    store.saveMessage(conv.id, quoted, true);
+    for (const words of ['test"', '"npm test"', 'C:\\Users', 'Users\\me']) expect(store.search(words), words).toHaveLength(1);
     // Its JSON's keys and values that are not text are not what it says.
     expect(store.search('highlights')).toEqual([]);
     expect(store.search('nextSteps')).toEqual([]);

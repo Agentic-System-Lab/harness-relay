@@ -357,9 +357,8 @@ export const zhTW = {
     placeholderNext: '提出新問題（首席 agent 會先組隊），或 @ 成員直接問他…',
     placeholderConfirm: '確認團隊後它就會回答；現在寫的訊息會一起送出…',
     placeholderDesigning: '首席 agent 正在組隊；現在寫的訊息會和問題一起交給團隊…',
-    placeholderReviewing: '首席 agent 正在審閱回覆；現在寫的是下一個問題，審閱完就送出（自動組隊可能會先組隊）…',
-    // Without auto team: the team answers it after the review.
-    placeholderReviewingTeam: '首席 agent 正在審閱回覆；現在寫的是下一個問題，審閱完就交給團隊…',
+    // A message sent during the review stops it and goes at once (the next review reads these replies too).
+    placeholderReviewing: '首席 agent 正在審閱回覆；現在送出訊息會停止審閱並立刻送出（下一次審閱會把這些回覆一起讀）…',
     placeholderBusy: '插話給團隊…（下一位發言前送達）',
     placeholderAnswer: (names: string) => `回答 ${names} 的問題…`,
     asking: (names: string) => `${names} 在等你回答`,
@@ -709,9 +708,9 @@ export const zhTW = {
     // Phones and tablets: Enter starts a new line, the ↑ button sends.
     hintTouch: '按 ↑ 送出 · Enter 換行 · 輸入 @ 指定成員（只有被 @ 的對象會回覆） · 按 📎 附加檔案',
     hintBusyTouch: '按 ↑ 插話（下一位發言前送達） · Enter 換行',
-    // The lead agent reviews the team's replies: what is sent is a new question, for after the review.
-    hintReview: (mod: string) => `Enter 送出（審閱結束後交給團隊，算新問題） · ${mod}+Enter 略過審閱並立即送出 · Shift+Enter 換行`,
-    hintReviewTouch: '按 ↑ 送出（審閱結束後交給團隊，算新問題） · Enter 換行',
+    // The lead agent reviews the team's replies: sending stops the review and sends the message now.
+    hintReview: 'Enter 停止審閱並立刻送出 · Shift+Enter 換行',
+    hintReviewTouch: '按 ↑ 停止審閱並立刻送出 · Enter 換行',
     hintConfirmTouch: '按 ↑ 送出（確認團隊後才會交給團隊） · Enter 換行',
     attach: '附加檔案',
     attachments: '要傳送的檔案',
@@ -802,7 +801,8 @@ export const zhTW = {
     label: '等待送出的訊息',
     busy: (n: number) => `${n} 則等待送出`,
     busyNote: '下一位發言前送達；@ 了成員的訊息會等該成員發言',
-    reviewNote: '首席 agent 審閱完回覆後送出；自動組隊的對話可能會先為新問題組隊',
+    // Only a schedule's message waits for a review now: what the user sends stops it.
+    reviewNote: '首席 agent 審閱完回覆後送出',
     skipReview: '略過審閱並立即送出',
     confirm: '團隊確定後送出',
     stopped: '這些訊息還沒送出',

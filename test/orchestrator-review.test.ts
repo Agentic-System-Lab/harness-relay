@@ -22,12 +22,12 @@ import {
   project,
   root,
   setOrchestrator,
-  setStore,
   settings,
   stateKeys,
   store,
   Store,
   textOf,
+  withLang,
 } from './orchestrator-harness';
 
 const reviews = (conv: Conversation) => conv.messages.filter((m) => m.review);
@@ -35,6 +35,24 @@ const reviewerCalls = () => calls.filter((c) => c.name === 'reviewer');
 /** What a review prompt says was said since the last review. */
 const recentOf = (prompt: string) => /<recent>\n([\s\S]*?)\n<\/recent>/.exec(prompt)![1]!;
 const replyOf = (conv: Conversation, name: string, nth = 0) => agentMessages(conv).filter((m) => m.agentName === name)[nth]!;
+const userTexts = (conv: Conversation) => conv.messages.filter((m) => m.author.kind === 'user').map(textOf);
+const stoppedNote = (conv: Conversation) => conv.messages.some((m) => m.author.kind === 'system' && textOf(m) === 'Stopped.');
+/** Give the conversation a schedule that sends in it (not in a new chat), its next time an hour away. */
+const scheduleIn = (conv: Conversation) => {
+  conv.schedule = {
+    text: 'scheduled check',
+    repeat: { kind: 'interval', hours: 1 },
+    timeZone: 'UTC',
+    lang: 'en',
+    enabled: true,
+    approvals: 'deny',
+    missed: 'skip',
+    newChat: false,
+    updatedAt: Date.now(),
+    nextRunAt: Date.now() + 3_600_000,
+  };
+  store.saveSchedule(conv);
+};
 
 describe('lead review', () => {
   it("has the lead agent review the team's replies once the team has answered, read-only, and shows its review on a card", async () => {
@@ -110,15 +128,18 @@ describe('lead review', () => {
     fake.reviewGate = new Promise(() => {});
     await orchestrator.send(conv.id, 'one');
     await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
-    await orchestrator.send(conv.id, 'next');
+    // A schedule's message comes due meanwhile: it waits for the review (what the user sends stops it).
+    scheduleIn(conv);
+    expect(await orchestrator.sendScheduled(conv.id)).toEqual({ result: 'queued' });
     fake.reviewGate = undefined;
     orchestrator.setLeadReview(conv.id, false);
     await vi.waitFor(() => expect(agentMessages(conv)).toHaveLength(4));
     await finish(conv.id);
     // Its card says it stopped; no "Stopped" note, and the message that waited was answered.
     expect(reviews(conv).map((m) => m.status)).toEqual(['aborted']);
-    expect(conv.messages.some((m) => m.author.kind === 'system' && textOf(m) === 'Stopped.')).toBe(false);
+    expect(stoppedNote(conv)).toBe(false);
     expect(conv.queue ?? []).toHaveLength(0);
+    expect(userTexts(conv)).toEqual(['one', 'scheduled check']);
     expect(reviewerCalls()).toHaveLength(1);
     // Switched on again with nothing new to read, nothing more runs.
     orchestrator.setLeadReview(conv.id, true);
@@ -212,23 +233,45 @@ describe('lead review', () => {
     expect(conv.messages.at(-1)).toBe(card);
   });
 
-  it('keeps a message sent while it reviews waiting, unmarked, and the team answers it after the review', async () => {
+  it('is stopped by a message sent while it reviews, which goes at once; the team answers it and the next review reads both', async () => {
     const conv = conversation({ mode: 'parallel', leadReview: true });
-    let release!: () => void;
-    fake.reviewGate = new Promise((r) => (release = r));
+    fake.reviewGate = new Promise(() => {});
     await orchestrator.send(conv.id, 'first');
     await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
-    expect(await orchestrator.send(conv.id, 'next one')).toEqual({ queued: true });
-    // Not sent while the team was replying: the team had answered.
-    expect(conv.queue![0]!.queued).toBeUndefined();
     fake.reviewGate = undefined;
-    release();
+    // Not queued: the review stops and the message is sent now, as with "Skip the review and send now".
+    expect(await orchestrator.send(conv.id, 'next one')).toEqual({ queued: false });
+    expect(conv.queue ?? []).toHaveLength(0);
+    expect(reviews(conv)[0]!.status).toBe('aborted');
     await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(2), { timeout: 20_000 });
     await finish(conv.id);
     const said = conv.messages.flatMap((m: ChatMessage) =>
       m.review ? ['review'] : m.author.kind === 'user' ? ['user'] : m.author.kind === 'agent' ? [m.agentName] : [],
     );
     expect(said).toEqual(['user', 'Alice', 'Bob', 'review', 'user', 'Alice', 'Bob', 'review']);
+    // The stopped card says so: no "Stopped" note. The next review reads from where it started.
+    expect(stoppedNote(conv)).toBe(false);
+    const recent = recentOf(reviewerCalls()[1]!.prompt);
+    expect(recent).toContain('<message from="user">\nfirst\n</message>');
+    expect(recent).toContain('<message from="user">\nnext one\n</message>');
+    expect(reviews(conv)[1]!.review).toMatchObject({ status: 'ready', replyIds: agentMessages(conv).map((m) => m.id) });
+  });
+
+  it('is stopped by a message of files alone too, but not by Continue, which waits for it', async () => {
+    const conv = conversation({ mode: 'parallel', leadReview: true });
+    fake.reviewGate = new Promise(() => {});
+    await orchestrator.send(conv.id, 'first');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    // Nothing to send: the conversation is busy, and the review goes on.
+    await expect(orchestrator.send(conv.id, '')).rejects.toMatchObject({ status: 409 });
+    expect(reviews(conv)[0]!.review!.status).toBe('reviewing');
+    expect(orchestrator.isRunning(conv.id)).toBe(true);
+    fake.reviewGate = undefined;
+    expect(await orchestrator.send(conv.id, '', [{ name: 'notes.txt', mimeType: 'text/plain', data: 'aGk=' }])).toEqual({ queued: false });
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(2), { timeout: 20_000 });
+    await finish(conv.id);
+    expect(reviews(conv).map((m) => m.status)).toEqual(['aborted', 'done']);
+    expect(recentOf(reviewerCalls()[1]!.prompt)).toContain('(Attached files: notes.txt)');
   });
 
   it("does not review a run in which nobody answered (every member passed or failed)", async () => {
@@ -445,22 +488,26 @@ describe('lead review', () => {
 });
 
 describe('lead review, stopped or branched before it was ready', () => {
-  it('is stopped by "Skip the review and send now", whose message the team answers; the next review reads from where the stopped one started', async () => {
+  it('is stopped by "Skip the review and send now", which sends what waits (a schedule\'s message) to the team; the next review reads from where the stopped one started', async () => {
     const conv = conversation({ mode: 'parallel', permission: 'read-only', leadReview: true });
     fake.reviewGate = new Promise(() => {});
     await orchestrator.send(conv.id, 'first');
     await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
     const stopped = reviews(conv)[0]!;
     expect(stopped.review!.fromId).toBe(conv.messages.find((m) => m.author.kind === 'user')!.id);
+    scheduleIn(conv);
+    expect(await orchestrator.sendScheduled(conv.id)).toEqual({ result: 'queued' });
     fake.reviewGate = undefined;
     // The tray's button: stop the run (the review) and send what waits, now.
-    await orchestrator.send(conv.id, 'second', undefined, true);
+    expect(await orchestrator.send(conv.id, '', undefined, true)).toEqual({ queued: false });
     await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(2), { timeout: 20_000 });
     await finish(conv.id);
     expect(stopped.status).toBe('aborted');
+    expect(conv.queue ?? []).toHaveLength(0);
+    expect(userTexts(conv)).toEqual(['first', 'scheduled check']);
     const recent = recentOf(reviewerCalls()[1]!.prompt);
     expect(recent).toContain('<message from="user">\nfirst\n</message>');
-    expect(recent).toContain('<message from="user">\nsecond\n</message>');
+    expect(recent).toContain('<message from="user">\nscheduled check\n</message>');
     expect(reviews(conv)[1]!.review!.status).toBe('ready');
   });
 
@@ -506,82 +553,74 @@ describe('after the review', () => {
   };
   const leadCalls = () => calls.filter((c) => c.name === 'lead');
 
-  it('has the lead agent design the team for a question written while it reviewed, as for any new question', async () => {
-    const conv = autoChat();
-    let release!: () => void;
-    fake.reviewGate = new Promise((r) => (release = r));
-    await orchestrator.send(conv.id, 'first question');
-    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
-    expect(await orchestrator.send(conv.id, 'a brand new question')).toEqual({ queued: true });
-    fake.reviewGate = undefined;
-    release();
-    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(2), { timeout: 20_000 });
-    await finish(conv.id);
-    expect(leadCalls()).toHaveLength(2);
-    expect(leadCalls()[1]!.prompt).toContain('<question>\na brand new question\n</question>');
-    expect(calls.map((c) => c.name).filter((n) => n === 'lead' || n === 'reviewer')).toEqual(['lead', 'reviewer', 'lead', 'reviewer']);
+  it('has the lead agent design the team for a message sent while it reviews (Enter or Cmd+Enter), which stops the review first, as for any new question', async () => {
+    for (const interrupt of [false, true]) {
+      calls.length = 0;
+      const conv = autoChat();
+      fake.reviewGate = new Promise(() => {});
+      await orchestrator.send(conv.id, 'first question');
+      await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
+      fake.reviewGate = undefined;
+      expect(await orchestrator.send(conv.id, 'a brand new question', undefined, interrupt)).toEqual({ queued: false });
+      await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(2), { timeout: 20_000 });
+      await finish(conv.id);
+      expect(reviews(conv).map((m) => m.status)).toEqual(['aborted', 'done']);
+      expect(leadCalls()).toHaveLength(2);
+      expect(leadCalls()[1]!.prompt).toContain('<question>\na brand new question\n</question>');
+      expect(calls.map((c) => c.name).filter((n) => n === 'lead' || n === 'reviewer')).toEqual(['lead', 'reviewer', 'lead', 'reviewer']);
+      // The next review reads from where the stopped one started.
+      expect(recentOf(reviewerCalls()[1]!.prompt)).toContain('<message from="user">\nfirst question\n</message>');
+    }
   });
 
-  it('lets the members a question written while it reviewed @mentions answer it, with no new design', async () => {
-    const conv = autoChat();
-    let release!: () => void;
-    fake.reviewGate = new Promise((r) => (release = r));
-    await orchestrator.send(conv.id, 'first question');
-    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
-    await orchestrator.send(conv.id, '@Alice one more thing');
-    fake.reviewGate = undefined;
-    release();
-    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(2), { timeout: 20_000 });
-    await finish(conv.id);
-    expect(leadCalls()).toHaveLength(1);
-    expect(agentMessages(conv).map((m) => m.agentName).sort()).toEqual(['Alice', 'Alice', 'Bob']);
-  });
-
-  it('designs the team for a question sent with "Skip the review and send now"', async () => {
+  it('lets the members a message sent while it reviews @mentions answer it at once, with no new design', async () => {
     const conv = autoChat();
     fake.reviewGate = new Promise(() => {});
     await orchestrator.send(conv.id, 'first question');
     await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
-    await orchestrator.send(conv.id, 'a brand new question');
     fake.reviewGate = undefined;
-    await orchestrator.send(conv.id, '', undefined, true);
+    expect(await orchestrator.send(conv.id, '@Alice one more thing')).toEqual({ queued: false });
     await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(2), { timeout: 20_000 });
     await finish(conv.id);
-    expect(leadCalls()).toHaveLength(2);
+    expect(reviews(conv)[0]!.status).toBe('aborted');
+    expect(leadCalls()).toHaveLength(1);
+    expect(agentMessages(conv).map((m) => m.agentName).sort()).toEqual(['Alice', 'Alice', 'Bob']);
   });
 
-  it('says so when another conversation took the folder while it reviewed; a message written meanwhile starts when the user sends it', async () => {
+  it('refuses a message sent while it reviews when another conversation took the folder meanwhile, and goes on reviewing', async () => {
     const first = conversation({ mode: 'roundtable', permission: 'edit', leadReview: true });
     const other = conversation({ mode: 'roundtable', permission: 'edit' });
-    let releaseReview!: () => void;
-    fake.reviewGate = new Promise((r) => (releaseReview = r));
+    fake.reviewGate = new Promise(() => {});
     await orchestrator.send(first.id, 'first');
     await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    fake.reviewGate = undefined;
     // The other conversation takes the folder while the lead agent reviews.
     let releaseOther!: () => void;
     fake.gate = new Promise((r) => (releaseOther = r));
     await orchestrator.send(other.id, 'other');
-    await orchestrator.send(first.id, 'next');
-    fake.reviewGate = undefined;
-    releaseReview();
-    // Its run cannot start: a note says who is changing the folder, and the message keeps waiting.
-    const locked = (m: ChatMessage) => m.author.kind === 'system' && m.parts.some((p) => p.type === 'text' && p.text.includes(project) && !p.text.includes('git'));
-    await vi.waitFor(() => expect(first.messages.filter(locked)).toHaveLength(1));
+    // Its run could not start: refused, saying who is changing the folder, and the review goes on.
+    await expect(withLang('en', () => orchestrator.send(first.id, 'next'))).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringContaining('is changing'),
+    });
+    expect(orchestrator.isRunning(first.id)).toBe(true);
+    expect(reviews(first)[0]!.review!.status).toBe('reviewing');
+    expect(first.queue ?? []).toHaveLength(0);
+    expect(userTexts(first)).toEqual(['first']);
+    // Stop ends it; once the folder is free, the message is sent and reviewed from where it started.
+    orchestrator.stop(first.id);
     await finish(first.id);
-    expect(first.queue).toHaveLength(1);
+    expect(stoppedNote(first)).toBe(false);
     fake.gate = Promise.resolve();
     releaseOther();
     await finish(other.id);
-    // Nothing starts it by itself: the user does (the queue tray's Send, or Continue).
-    await new Promise((r) => setImmediate(r));
-    expect(first.queue).toHaveLength(1);
-    expect(orchestrator.isRunning(first.id)).toBe(false);
-    await orchestrator.send(first.id, '');
+    await orchestrator.send(first.id, 'next');
     await finish(first.id);
-    expect(first.queue ?? []).toHaveLength(0);
-    expect(first.messages.filter((m) => m.author.kind === 'user').map((m) => m.parts[0]!.type === 'text' && m.parts[0]!.text)).toEqual(['first', 'next']);
+    expect(userTexts(first)).toEqual(['first', 'next']);
     expect(reviewerCalls()).toHaveLength(2);
-    expect(first.messages.filter(locked)).toHaveLength(1);
+    const recent = recentOf(reviewerCalls()[1]!.prompt);
+    expect(recent).toContain('<message from="user">\nfirst\n</message>');
+    expect(recent).toContain('<message from="user">\nnext\n</message>');
   });
 
   it('reads the latest question when turned on again, not everything since an old review', async () => {
@@ -610,7 +649,7 @@ describe('after the review', () => {
   });
 });
 
-describe('questions written during a review, and reviews stopped', () => {
+describe('schedules during a review, and Retry and Edit after a stopped one', () => {
   const pair = JSON.stringify({
     choice: 'custom',
     name: 'Pair',
@@ -631,258 +670,62 @@ describe('questions written during a review, and reviews stopped', () => {
   };
   const leadCalls = () => calls.filter((c) => c.name === 'lead');
 
-  it('keeps a question written during a review a new question across a restart', async () => {
-    const conv = autoChat();
-    fake.reviewGate = new Promise(() => {});
-    await orchestrator.send(conv.id, 'first question');
-    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
-    await orchestrator.send(conv.id, 'a brand new question');
-    orchestrator.stop(conv.id);
-    await finish(conv.id);
-    fake.reviewGate = undefined;
-    // The server starts again: the queue comes back from the database, its mark with it.
-    const restarted = new Store(db);
-    setStore(restarted);
-    setOrchestrator(new Orchestrator(restarted, new Hub(), settings, { context: async () => ({ available: ['claude'], catalog: [], presets: restarted.listPresets() }) }));
-    const again = restarted.get(conv.id)!;
-    expect(again.queue!.map((m) => m.duringReview)).toEqual([true]);
-    await orchestrator.send(again.id, '');
-    await vi.waitFor(() => expect(leadCalls()).toHaveLength(2), { timeout: 20_000 });
-    await finish(again.id);
-    expect(leadCalls()[1]!.prompt).toContain('a brand new question');
-    // Posted, the mark is gone.
-    expect(again.messages.find((m) => m.author.kind === 'user' && m.parts.some((p) => p.type === 'text' && p.text === 'a brand new question'))!.duringReview).toBeUndefined();
-  });
-
-  it("gives a question left by a stopped review to the current team with the schedule's message, with no design (nobody may be there to confirm one)", async () => {
-    const conv = autoChat();
-    fake.reviewGate = new Promise(() => {});
-    await orchestrator.send(conv.id, 'first question');
-    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
-    await orchestrator.send(conv.id, 'a brand new question');
-    orchestrator.stop(conv.id);
-    await finish(conv.id);
-    fake.reviewGate = undefined;
-    const team = conv.agents.map((a) => a.name);
-    conv.schedule = {
-      text: 'scheduled check',
-      repeat: { kind: 'interval', hours: 1 },
-      timeZone: 'UTC',
-      lang: 'en',
-      enabled: true,
-      approvals: 'deny',
-      missed: 'skip',
-      newChat: false,
-      updatedAt: 0,
-    };
-    store.saveSchedule(conv);
-    calls.length = 0;
-    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('sent');
-    await finish(conv.id);
-    // The current team answered both; the lead agent did not design, and no design waits.
-    expect(leadCalls()).toHaveLength(0);
-    expect(conv.agents.map((a) => a.name)).toEqual(team);
-    expect(conv.queue ?? []).toHaveLength(0);
-    expect(calls.filter((c) => team.includes(c.name))[0]!.prompt).toContain('a brand new question');
-    expect(conv.messages.some((m) => m.plan?.awaitingConfirmation)).toBe(false);
-  });
-
-  it('keeps a question written during a review waiting, with no design, when another chat took the folder meanwhile', async () => {
-    const first = conversation({ mode: 'roundtable', permission: 'edit', autoTeam: true, leadReview: true });
-    const other = conversation({ mode: 'roundtable', permission: 'edit' });
-    fake.leadReply = JSON.stringify({
-      choice: 'custom',
-      name: 'Solo',
-      mode: 'roundtable',
-      rounds: 1,
-      agents: [{ name: 'Alice', provider: 'claude', role: 'Build it' }],
-      reason: 'x',
-    });
-    let releaseReview!: () => void;
-    fake.reviewGate = new Promise((r) => (releaseReview = r));
-    // @mentions the team: no design for the first question.
-    await orchestrator.send(first.id, '@Alice first');
-    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
-    let releaseOther!: () => void;
-    fake.gate = new Promise((r) => (releaseOther = r));
-    await orchestrator.send(other.id, 'other');
-    await orchestrator.send(first.id, 'a new question');
-    fake.reviewGate = undefined;
-    releaseReview();
-    // Main's note, and the question still waits: no design was made for a team that cannot start.
-    const locked = (m: ChatMessage) => m.author.kind === 'system' && m.parts.some((p) => p.type === 'text' && p.text.includes(project) && !p.text.includes('git'));
-    await vi.waitFor(() => expect(first.messages.filter(locked)).toHaveLength(1));
-    await finish(first.id);
-    expect(first.queue!.map((m) => m.duringReview)).toEqual([true]);
-    expect(leadCalls()).toHaveLength(0);
-    fake.gate = Promise.resolve();
-    releaseOther();
-    await finish(other.id);
-    // Sent once the folder is free: designed for, as a new question.
-    await orchestrator.send(first.id, '');
-    await vi.waitFor(() => expect(leadCalls()).toHaveLength(1), { timeout: 20_000 });
-    await finish(first.id);
-    expect(leadCalls()[0]!.prompt).toContain('a new question');
-    expect(first.queue ?? []).toHaveLength(0);
-  });
-
-  it('drops the mark of a question written during a review when it is withdrawn', async () => {
+  it("leaves a schedule's message that comes due during a review to the current team: queued unmarked, answered after the review with no design, and reviewed", async () => {
     const conv = autoChat();
     let release!: () => void;
     fake.reviewGate = new Promise((r) => (release = r));
     await orchestrator.send(conv.id, 'first question');
     await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
-    await orchestrator.send(conv.id, 'a new question');
-    expect(conv.queue![0]!.duringReview).toBe(true);
-    const back = orchestrator.withdraw(conv.id, conv.queue![0]!.id);
-    expect(back.duringReview).toBeUndefined();
-    expect(store.get(conv.id)!.queue ?? []).toHaveLength(0);
-    fake.reviewGate = undefined;
-    release();
-    await finish(conv.id);
-    // Nothing waits: no new design, no other run.
-    expect(leadCalls()).toHaveLength(1);
-    expect(reviewerCalls()).toHaveLength(1);
-  });
-
-  it("leaves a scheduled message that arrives during a review to the current team, and designs a team when the user wrote a new question too", async () => {
-    const scheduled = (conv: Conversation) => {
-      conv.schedule = {
-        text: 'scheduled check',
-        repeat: { kind: 'interval', hours: 1 },
-        timeZone: 'UTC',
-        lang: 'en',
-        enabled: true,
-        approvals: 'deny',
-        missed: 'skip',
-        newChat: false,
-        updatedAt: Date.now(),
-        nextRunAt: Date.now() + 3_600_000,
-      };
-      store.saveSchedule(conv);
-    };
-    for (const alsoAsks of [false, true]) {
-      calls.length = 0;
-      const conv = autoChat();
-      let release!: () => void;
-      fake.reviewGate = new Promise((r) => (release = r));
-      await orchestrator.send(conv.id, 'first question');
-      await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
-      scheduled(conv);
-      expect(await orchestrator.sendScheduled(conv.id)).toEqual({ result: 'queued' });
-      expect(conv.queue![0]).toMatchObject({ scheduled: true });
-      expect(conv.queue![0]!.duringReview).toBeUndefined();
-      if (alsoAsks) await orchestrator.send(conv.id, 'a brand new question');
-      fake.reviewGate = undefined;
-      release();
-      await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(2), { timeout: 20_000 });
-      await finish(conv.id);
-      expect(conv.queue ?? []).toHaveLength(0);
-      // The scheduled message alone: the team that answered the last question answers it.
-      expect(leadCalls()).toHaveLength(alsoAsks ? 2 : 1);
-      if (alsoAsks) expect(leadCalls()[1]!.prompt).toContain('a brand new question');
-      expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(4);
-    }
-  });
-
-  it("gives a scheduled message and a question written during the review to the current team when a design would wait for confirmation, so the schedule is not held", async () => {
-    // Auto team, asking before a design is used; the team is there already.
-    const conv = conversation({ mode: 'parallel', permission: 'read-only', autoTeam: true, leadReview: true });
-    const team = conv.agents.map((a) => a.name);
-    let release!: () => void;
-    fake.reviewGate = new Promise((r) => (release = r));
-    await orchestrator.send(conv.id, `@${team[0]} first question`);
-    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
-    conv.schedule = {
-      text: 'scheduled check',
-      repeat: { kind: 'interval', hours: 1 },
-      timeZone: 'UTC',
-      lang: 'en',
-      enabled: true,
-      approvals: 'deny',
-      missed: 'skip',
-      newChat: false,
-      updatedAt: Date.now(),
-      nextRunAt: Date.now() + 3_600_000,
-    };
-    store.saveSchedule(conv);
+    scheduleIn(conv);
     expect(await orchestrator.sendScheduled(conv.id)).toEqual({ result: 'queued' });
-    await orchestrator.send(conv.id, 'a brand new question');
+    // Not marked as sent while the team replied: the team had answered.
+    expect(conv.queue![0]).toMatchObject({ scheduled: true });
+    expect(conv.queue![0]!.queued).toBeUndefined();
     fake.reviewGate = undefined;
     release();
     await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(2), { timeout: 20_000 });
     await finish(conv.id);
-    // No design waits for anyone: the current team answered both.
-    expect(leadCalls()).toHaveLength(0);
-    expect(conv.messages.some((m) => m.plan?.awaitingConfirmation)).toBe(false);
     expect(conv.queue ?? []).toHaveLength(0);
-    expect(conv.agents.map((a) => a.name)).toEqual(team);
-    // So the schedule's next time is sent, not skipped as "team not confirmed yet".
-    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('sent');
-    await finish(conv.id);
+    // The team that answered the last question answers it, once the review is done: no design.
+    expect(leadCalls()).toHaveLength(1);
+    expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(4);
+    expect(reviews(conv).map((m) => m.review!.status)).toEqual(['ready', 'ready']);
+    const recent = recentOf(reviewerCalls()[1]!.prompt);
+    expect(recent).toContain('<message from="user">\nscheduled check\n</message>');
+    expect(recent).not.toContain('<message from="user">\nfirst question\n</message>');
   });
 
-  it('gives them to the current team too when the user sends them with "Skip the review and send now", Send or Continue', async () => {
-    const conv = conversation({ mode: 'parallel', permission: 'read-only', autoTeam: true, leadReview: true });
-    const team = conv.agents.map((a) => a.name);
+  it("sends a schedule's message that waits for a review with the message the user sends meanwhile, which stops the review", async () => {
+    const conv = autoChat();
     fake.reviewGate = new Promise(() => {});
-    await orchestrator.send(conv.id, `@${team[0]} first question`);
+    await orchestrator.send(conv.id, 'first question');
     await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
-    conv.schedule = {
-      text: 'scheduled check',
-      repeat: { kind: 'interval', hours: 1 },
-      timeZone: 'UTC',
-      lang: 'en',
-      enabled: true,
-      approvals: 'deny',
-      missed: 'skip',
-      newChat: false,
-      updatedAt: Date.now(),
-      nextRunAt: Date.now() + 3_600_000,
-    };
-    store.saveSchedule(conv);
+    scheduleIn(conv);
     expect(await orchestrator.sendScheduled(conv.id)).toEqual({ result: 'queued' });
-    await orchestrator.send(conv.id, 'a brand new question');
     fake.reviewGate = undefined;
-    // Skip the review and send now: the review stops, and what waits goes out at once.
-    await orchestrator.send(conv.id, '', undefined, true);
-    await vi.waitFor(() => expect(conv.queue ?? []).toHaveLength(0), { timeout: 20_000 });
+    // Sent now, after what waited: a new question, whose team the lead agent designs.
+    expect(await orchestrator.send(conv.id, 'a brand new question')).toEqual({ queued: false });
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(2), { timeout: 20_000 });
     await finish(conv.id);
-    expect(leadCalls()).toHaveLength(0);
-    expect(conv.messages.some((m) => m.plan?.awaitingConfirmation)).toBe(false);
-    expect(conv.agents.map((a) => a.name)).toEqual(team);
-    expect((await orchestrator.sendScheduled(conv.id)).result).toBe('sent');
-    await finish(conv.id);
+    expect(conv.queue ?? []).toHaveLength(0);
+    expect(userTexts(conv)).toEqual(['first question', 'scheduled check', 'a brand new question']);
+    expect(leadCalls()).toHaveLength(2);
+    expect(leadCalls()[1]!.prompt).toContain('a brand new question');
+    expect(reviews(conv).map((m) => m.status)).toEqual(['aborted', 'done']);
+    const recent = recentOf(reviewerCalls()[1]!.prompt);
+    for (const q of ['first question', 'scheduled check', 'a brand new question']) expect(recent).toContain(`<message from="user">\n${q}\n</message>`);
   });
 
   it("tries a schedule's message again later, rather than queue it into a design that will wait for confirmation", async () => {
-    const conv = conversation({ mode: 'parallel', permission: 'read-only', autoTeam: true, leadReview: true });
-    const team = conv.agents.map((a) => a.name);
+    // Auto team, asking before a design is used; the team is there already.
+    const conv = conversation({ mode: 'parallel', permission: 'read-only', autoTeam: true });
     fake.leadReply = JSON.stringify({ choice: 'custom', name: 'Pair', mode: 'parallel', rounds: 1, agents: [{ name: 'Alice', provider: 'claude', role: 'Build it' }], reason: 'x' });
-    let releaseReview!: () => void;
-    fake.reviewGate = new Promise((r) => (releaseReview = r));
-    await orchestrator.send(conv.id, `@${team[0]} first question`);
-    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
-    await orchestrator.send(conv.id, 'a brand new question');
-    // The review ends: the lead agent designs a team for the question (held until the test lets it go).
+    // A new question: the lead agent designs a team for it (held until the test lets it go).
     let releaseLead!: () => void;
     fake.leadGate = new Promise((r) => (releaseLead = r));
-    fake.reviewGate = undefined;
-    releaseReview();
+    await orchestrator.send(conv.id, 'a brand new question');
     await vi.waitFor(() => expect(leadCalls()).toHaveLength(1), { timeout: 20_000 });
-    conv.schedule = {
-      text: 'scheduled check',
-      repeat: { kind: 'interval', hours: 1 },
-      timeZone: 'UTC',
-      lang: 'en',
-      enabled: true,
-      approvals: 'deny',
-      missed: 'skip',
-      newChat: false,
-      updatedAt: Date.now(),
-      nextRunAt: Date.now() + 3_600_000,
-    };
-    store.saveSchedule(conv);
+    scheduleIn(conv);
     // Not queued into the design's question: tried again later.
     expect(await orchestrator.sendScheduled(conv.id)).toMatchObject({ result: 'busy' });
     expect(conv.queue ?? []).toHaveLength(0);
@@ -893,33 +736,41 @@ describe('questions written during a review, and reviews stopped', () => {
     const plan = conv.messages.findLast((m) => m.plan)!;
     expect(plan.plan!.awaitingConfirmation).toBe(true);
     expect(leadCalls()[0]!.prompt).not.toContain('scheduled check');
+    expect(userTexts(conv)).toEqual(['a brand new question']);
   });
 
-  it("leaves a question written during a stopped review waiting when the user retries a reply, for a run of its own after it", async () => {
-    const conv = conversation({ mode: 'parallel', leadReview: true });
-    fake.reviewGate = new Promise(() => {});
-    await orchestrator.send(conv.id, 'Q1');
-    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
-    await orchestrator.send(conv.id, 'M');
-    orchestrator.stop(conv.id);
-    await finish(conv.id);
-    fake.reviewGate = undefined;
-    const bob = replyOf(conv, 'Bob');
-    await orchestrator.retry(conv.id, bob.id);
-    await vi.waitFor(() => expect(conv.queue ?? []).toHaveLength(0), { timeout: 20_000 });
-    await finish(conv.id);
-    // The retried reply first, then M in a run of its own, answered and reviewed after it.
-    const order = conv.messages.filter((m) => m.author.kind !== 'system').map((m) => (m.author.kind === 'user' ? textOf(m) : m.agentName));
-    const retried = order.lastIndexOf('Bob', order.indexOf('M'));
-    expect(retried).toBeGreaterThan(-1);
-    expect(order.indexOf('M')).toBeGreaterThan(retried);
-    expect(order.slice(order.indexOf('M') + 1)).toEqual(expect.arrayContaining(['Alice', 'Bob']));
-    // M was not taken into the retried turn's prompt.
-    const retriedCall = calls.filter((c) => c.name === 'Bob').at(1)!;
-    expect(retriedCall.prompt).not.toContain('>\nM\n<');
-    const last = reviews(conv).at(-1)!;
-    expect(last.review!.status).toBe('ready');
-    expect(recentOf(reviewerCalls().at(-1)!.prompt)).toContain('M');
+  it('reviews a Retry and an Edit after a stopped review, reading their replies and those the stopped reviews left', async () => {
+    for (const how of ['retry', 'edit'] as const) {
+      calls.length = 0;
+      const conv = conversation({ mode: 'roundtable', permission: 'read-only', leadReview: true });
+      fake.reviewGate = new Promise(() => {});
+      await orchestrator.send(conv.id, 'Q1');
+      await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+      // The next message stops that review and goes at once; its own review is stopped with Stop.
+      await orchestrator.send(conv.id, 'Q2');
+      await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(2), { timeout: 20_000 });
+      orchestrator.stop(conv.id);
+      await finish(conv.id);
+      expect(reviews(conv).map((m) => m.status)).toEqual(['aborted', 'aborted']);
+      fake.reviewGate = undefined;
+      if (how === 'retry') {
+        await orchestrator.retry(conv.id, replyOf(conv, 'Bob', 1).id);
+      } else {
+        const q2 = conv.messages.find((m) => m.author.kind === 'user' && textOf(m) === 'Q2')!;
+        await orchestrator.resend(conv.id, q2.id, 'Q2 again');
+      }
+      await finish(conv.id);
+      // Reviewed: from the first question the stopped reviews left, the retried or edited run's replies included.
+      expect(reviewerCalls()).toHaveLength(3);
+      expect(userTexts(conv)).toEqual(['Q1', how === 'retry' ? 'Q2' : 'Q2 again']);
+      const last = reviews(conv).at(-1)!;
+      expect(conv.messages.at(-1)).toBe(last);
+      expect(last.review).toMatchObject({ status: 'ready', replyIds: agentMessages(conv).map((m) => m.id) });
+      expect(last.review!.replyIds).toContain(replyOf(conv, 'Bob', 1).id);
+      const recent = recentOf(reviewerCalls()[2]!.prompt);
+      for (const q of userTexts(conv)) expect(recent).toContain(`<message from="user">\n${q}\n</message>`);
+      expect(recent).toContain('<reply n="4" from="@Bob (Claude Code)">');
+    }
   });
 
   it("refuses Retry, Edit, Apply and a settings change while the lead agent reviews: they wait for it, or for Stop", async () => {
@@ -938,21 +789,6 @@ describe('questions written during a review, and reviews stopped', () => {
     release();
     await finish(conv.id);
     await expect(orchestrator.exclusive(conv.id, 'busy', async () => 'saved')).resolves.toBe('saved');
-  });
-
-  it('lets the members answer when one of the messages written during the review @mentions them', async () => {
-    const conv = autoChat();
-    let release!: () => void;
-    fake.reviewGate = new Promise((r) => (release = r));
-    await orchestrator.send(conv.id, 'first question');
-    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
-    await orchestrator.send(conv.id, 'something else');
-    await orchestrator.send(conv.id, '@Alice and you');
-    fake.reviewGate = undefined;
-    release();
-    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(2), { timeout: 20_000 });
-    await finish(conv.id);
-    expect(leadCalls()).toHaveLength(1);
   });
 
   it('reads the latest question, not since a review stopped before other questions', async () => {

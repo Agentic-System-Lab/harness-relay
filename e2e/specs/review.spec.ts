@@ -109,28 +109,38 @@ test.describe('lead review', () => {
     expect(prompt).toContain('<reply n="2" from="@Claude (Claude Code)">');
   });
 
-  test('what is written during a review waits for it as a new question, skipping it sends now, and Team settings can switch it off mid-review', async ({ page, relay }) => {
+  test('a message sent during a review stops it and goes at once, the next review reads from where the stopped one started, and Team settings can switch it off mid-review', async ({
+    page,
+    relay,
+  }) => {
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { leadReview: true });
     await send(page, 'Go e2e:slowreview');
     await finishedReply(page, 'Claude');
     await expect(reviewCards(page).last()).toContainText('is reviewing');
-    // The message box says what is written now is a new question, for after the review.
-    await expect(page.locator('.composer-hint')).toContainText('Enter to send it after the review, as a new question');
+    // The message box says sending now stops the review and sends the message at once.
+    await expect(page.locator('.composer-hint')).toContainText('Enter to stop the review and send it now');
+    await expect(composer(page)).toHaveAttribute('placeholder', /sending a message stops the review and sends it now/);
+    // Whether the queue tray shows at any moment from now on: it never does, as nothing waits.
+    await page.evaluate(() => {
+      const seen = window as unknown as { trayShown?: boolean };
+      seen.trayShown = false;
+      new MutationObserver(() => {
+        if (document.querySelector('.queue-tray')) seen.trayShown = true;
+      }).observe(document.body, { childList: true, subtree: true });
+    });
     await composer(page).fill('And this');
     await composer(page).press('Enter');
-    const tray = page.locator('.queue-tray');
-    await expect(tray.locator('.queue-title')).toHaveText('1 waiting');
-    await expect(tray).toContainText('Sent once the lead agent has reviewed the replies');
-    // Skipping the review stops it and sends the message now.
-    await tray.getByRole('button', { name: 'Skip the review and send now' }).click();
     await expect(reviewCards(page).first()).toContainText('The review was stopped');
-    await expect(tray).toBeHidden();
     await expect(page.locator('.msg-user').last()).toContainText('And this');
 
-    // The next review reads from where the stopped one started (slow again). Team settings can be
-    // saved now with only the box changed, and switching it off stops that review too.
+    // The next review reads from where the stopped one started: slow again, as it reads the first
+    // message too. Team settings can be saved now with only the box changed, and switching it off
+    // stops that review too.
     await expect(reviewCards(page)).toHaveCount(2);
     await expect(reviewCards(page).last()).toContainText('is reviewing');
+    const lastReview = () => relay.fakeLog().findLast((e) => e.prompt?.includes('with your review'))?.prompt ?? '';
+    await expect.poll(lastReview).toContain('<message from="user">\nAnd this\n</message>');
+    expect(lastReview()).toContain('<message from="user">\nGo e2e:slowreview\n</message>');
     await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     await expect(drawer).toContainText('lead review alone can be saved now');
@@ -145,7 +155,9 @@ test.describe('lead review', () => {
     await expect(reviewCards(page).first()).toContainText('Lead review is off now');
     const conv = await settled(relay, id);
     expect(conv.settings.leadReview).toBeUndefined();
+    expect(conv.queue ?? []).toHaveLength(0);
     await expect(page.locator('.msg-system').filter({ hasText: /^Stopped\.$/ })).toHaveCount(0);
+    expect(await page.evaluate(() => (window as unknown as { trayShown?: boolean }).trayShown)).toBe(false);
   });
 
   test("the team design card has the box, which the lead agent leaves alone: ticked there, it holds for the question being answered and the next ones", async ({

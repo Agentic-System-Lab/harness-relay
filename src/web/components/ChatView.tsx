@@ -474,7 +474,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const awaitingConfirm = Boolean(pendingPlan(conv.messages));
   // The lead agent is designing the team: what the user sends meanwhile waits for the confirmed team.
   const designing = running && conv.messages.some((m) => m.plan?.status === 'planning' && m.status === 'streaming');
-  // The lead agent is reviewing the team's replies: what the user sends meanwhile goes to the team after it.
+  // The lead agent is reviewing the team's replies: what the user sends meanwhile stops the review and goes now.
   const reviewing = running && conv.messages.some((m) => m.review?.status === 'reviewing' && m.status === 'streaming');
   // Where the next review would start reading: a stopped or failed review card before it says its
   // replies are read then, the others nothing of a next review.
@@ -762,9 +762,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
               : questions.length > 0
                 ? t.chat.placeholderAnswer(askers)
                 : reviewing
-                ? autoTeam
-                  ? t.chat.placeholderReviewing
-                  : t.chat.placeholderReviewingTeam
+                ? t.chat.placeholderReviewing
                 : running
                 ? t.chat.placeholderBusy
                 : waitingForTeam
