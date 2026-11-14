@@ -99,7 +99,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 | # | Section | Purpose |
 | --- | --- | --- |
 | 1 | Header | Mark, section links, EN / 中文 switch, GitHub with the star count, the theme button |
-| 2 | Hero | Headline about the reader's own agents in any mix (no agent names, so it never reads as a list to have), a lead that names the twelve, says one kind of agent is enough and that the lead agent designs the team for each question, the download button for the visitor's system with the link to the requirements beside it, GitHub button with the star count |
+| 2 | Hero | Headline about the reader's own agents in any mix (no agent names, so it never reads as a list to have), a lead that names the twelve, says one kind of agent is enough and that the lead agent designs the team for each question with each model's own traits in mind, the download button for the visitor's system with the link to the requirements beside it, GitHub button with the star count |
 | 3 | Screening (`#demo`) | Demo video and the chapter rail on the dark band |
 | 4 | The agents you installed (`#agents`) | How each signed-in CLI is driven (Claude Code, Codex, Grok, then Cursor, Antigravity, Copilot and Muse Code, with their colours on their dots only); the mark at page scale |
 | 5 | Open agents (`#open`) | The five open-source CLIs and how each is driven, the model backends they run on (API keys, your own endpoint, `backend/model`, no subscription) beside an excerpt of Settings → Model backends, and Harness Relay's own sandbox around them |
