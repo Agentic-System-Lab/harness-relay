@@ -14,6 +14,8 @@ npm run build
 npm start
 ```
 
+手邊沒有能安裝它的電腦？可以[在 GitHub Codespaces 試用](codespaces.zh-TW.md)：GitHub 雲端上一台屬於你的 Linux 機器，已經裝好其中五個 agent 並啟動 Harness Relay。
+
 打開 `npm start` 在終端機印出的登入連結（`http://127.0.0.1:8787/#code=…`）：Harness Relay 只接受登入過的瀏覽器，所以你電腦上的其他程式，包括 agent 執行的程式碼，都無法操作它。這個連結只能用一次，一小時內有效；之後要讓另一個瀏覽器登入，請執行 `npm run login`，或使用「**設定 → 已登入的瀏覽器 → 讓另一個裝置登入**」，那裡也會列出已登入的瀏覽器，讓你登出。`git pull` 之後，請重新執行 `npm install` 和 `npm run build`，再執行 `npm start`。（要開發 Harness Relay 本身，改用 `npm run dev` 並打開 <http://localhost:5173>；詳見[開發者說明](developer-guide.zh-TW.md)。）
 
 側邊欄底部的圓點代表各 agent 的狀態：綠色＝可以使用、橘色＝尚未登入（開源 agent 則是還沒有模型來源）、紅色＝找不到 CLI。開源 agent 要等它的 CLI 安裝好才會出現圓點。這些圓點排成一行，後面是可用的數目（*4/11 可用*）；把滑鼠移到圓點上可以看到它的名稱與狀態，點它會打開那個 agent 的設定。旁邊的箭頭可以顯示名稱，再按一次就收起來；這個瀏覽器會記住你的選擇。

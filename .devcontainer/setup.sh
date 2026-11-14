@@ -19,4 +19,5 @@ npm install -g \
 
 # A folder for the agents to work in. Harness Relay's own folder will not do below full access in edit
 # mode, nor /workspaces, which holds it; /workspaces is what a codespace keeps when it is rebuilt.
-mkdir -p /workspaces/playground
+# Made by root, for this user: outside a codespace, Docker makes /workspaces root's.
+sudo install -d -o "$(id -u)" -g "$(id -g)" /workspaces/playground

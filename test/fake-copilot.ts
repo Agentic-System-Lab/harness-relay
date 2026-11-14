@@ -27,6 +27,9 @@ import { writeFileSync } from 'node:fs';
  * - `login --device-code`: prints GitHub's device link and a code, then records the user as signed in
  *   (`config.json` in `COPILOT_HOME`) and exits 0; with `FAKE_COPILOT_NO_KEYRING`, says the token was
  *   not saved (no credential store) and exits 0 too. `logout` (ACP) leaves no user there.
+ * - `--headless --stdio`: its headless server (Content-Length frames): `connect`, `account.getQuota` (a
+ *   premium-request quota; "Not authenticated" with `FAKE_COPILOT_SIGNED_OUT`, the error
+ *   `FAKE_COPILOT_NO_PLAN` holds when set) and `account.getCurrentAuth` (octocat, plan "individual").
  * - `--version`: prints Copilot's version line. `<what> list --json` prints `FAKE_COPILOT_CLI/<what>.json`.
  * Every message it receives is appended to `FAKE_COPILOT_LOG` as a JSON line, after a first line with
  * its arguments, its folder, its COPILOT_ variables and its home's files (settings, config, briefing,
@@ -64,6 +67,30 @@ if (argv[0] === 'login') {
     process.stdout.write('Signed in successfully as octocat.\\n');
     process.exit(0);
   }, 50);
+  return;
+}
+if (argv[0] === '--headless' && argv.includes('--stdio')) {
+  // Its headless server, framed by Content-Length headers: connect, then the quota and the user.
+  let buf = Buffer.alloc(0);
+  const frame = (o) => { const s = JSON.stringify({ jsonrpc: '2.0', ...o }); process.stdout.write('Content-Length: ' + Buffer.byteLength(s) + '\\r\\n\\r\\n' + s); };
+  process.stdin.on('data', (d) => {
+    buf = Buffer.concat([buf, d]);
+    for (;;) {
+      const h = buf.indexOf('\\r\\n\\r\\n');
+      if (h < 0) return;
+      const len = Number(/Content-Length: (\\d+)/i.exec(buf.slice(0, h).toString())[1]);
+      if (buf.length < h + 4 + len) return;
+      const m = JSON.parse(buf.slice(h + 4, h + 4 + len).toString());
+      buf = buf.slice(h + 4 + len);
+      record(m);
+      if (m.method === 'connect') frame({ id: m.id, result: { ok: true, protocolVersion: 3 } });
+      else if (m.method === 'account.getQuota' && env.FAKE_COPILOT_SIGNED_OUT) frame({ id: m.id, error: { code: -32603, message: 'Request account.getQuota failed with message: Not authenticated' } });
+      else if (m.method === 'account.getQuota' && env.FAKE_COPILOT_NO_PLAN) frame({ id: m.id, error: { code: -32603, message: env.FAKE_COPILOT_NO_PLAN } });
+      else if (m.method === 'account.getQuota') frame({ id: m.id, result: { quotaSnapshots: { premium_interactions: { isUnlimitedEntitlement: false, entitlementRequests: 300, usedRequests: 30, remainingPercentage: 90 } } } });
+      else if (m.method === 'account.getCurrentAuth') frame({ id: m.id, result: { authInfo: { login: 'octocat', copilotUser: { copilot_plan: 'individual' } } } });
+    }
+  });
+  process.stdin.on('end', () => process.exit(0));
   return;
 }
 if (argv[0] !== '--acp') { process.stderr.write('unexpected: ' + argv.join(' ') + '\\n'); process.exit(2); }

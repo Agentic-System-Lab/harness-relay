@@ -10,7 +10,8 @@ process.env.RELAY_DATA_DIR = join(root, 'data');
 afterAll(() => removeTree(root, { restore: true }));
 
 const { openDatabase } = await import('../src/server/db');
-const { ProviderService, USAGE_TTL_MS } = await import('../src/server/providers');
+const { copilotTokenAuth, ProviderService, USAGE_TTL_MS } = await import('../src/server/providers');
+const { t } = await import('../src/server/i18n');
 const { SettingsStore } = await import('../src/server/settings');
 const { OPEN_PROVIDERS, catalogFor } = await import('../src/shared/types');
 
@@ -301,6 +302,15 @@ describe("Copilot's sign-in", () => {
       expect((await service.status('copilot', true)).accounts[1]!.auth.loggedIn).toBe(false);
       vi.stubEnv('FAKE_COPILOT_SIGNED_OUT', '');
       service.invalidate('copilot');
+      // Any GitHub user's token opens a session, with Copilot or without (a codespace gives every program
+      // one): it counts as signed in only once Copilot's headless server reports a plan for it.
+      expect(log().some((l) => l.method === 'account.getQuota')).toBe(true);
+      const noPlan = 'Request account.getQuota failed with message: not found';
+      vi.stubEnv('FAKE_COPILOT_NO_PLAN', noPlan);
+      service.invalidate('copilot');
+      expect((await service.status('copilot', true)).accounts[1]!.auth).toEqual({ loggedIn: null, method: 'GitHub token', detail: t().copilotTokenUnconfirmed(noPlan) });
+      vi.stubEnv('FAKE_COPILOT_NO_PLAN', '');
+      service.invalidate('copilot');
 
       // The status asked Copilot itself: a session in a home of its own, never the account's, with no prompt.
       const asks = starts().filter((l) => l.argv.join(' ') === '--acp');
@@ -317,6 +327,21 @@ describe("Copilot's sign-in", () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe("Copilot on a GitHub token from its environment", () => {
+  it('counts as signed in only once Copilot reports a plan for the token', () => {
+    const method = 'GitHub token';
+    expect(copilotTokenAuth({ limits: [{ span: 'month', kind: 'premiumRequests', usedPercent: 10 }] })).toEqual({ loggedIn: true, method });
+    expect(copilotTokenAuth({ plan: 'business', limits: [], none: 'noData' })).toEqual({ loggedIn: true, method });
+    expect(copilotTokenAuth({ limits: [], none: 'unlimited' })).toEqual({ loggedIn: true, method });
+    // Copilot says the token signs nobody in.
+    expect(copilotTokenAuth({ limits: [], none: 'signedOut' })).toEqual({ loggedIn: false });
+    // No plan, an error, no answer: not known, never signed in.
+    expect(copilotTokenAuth({ limits: [], none: 'noData' })).toEqual({ loggedIn: null, method, detail: t().copilotTokenUnconfirmed(undefined) });
+    expect(copilotTokenAuth({ limits: [], error: 'HTTP 404' })).toEqual({ loggedIn: null, method, detail: t().copilotTokenUnconfirmed('HTTP 404') });
+    expect(copilotTokenAuth({ limits: [], problem: 'timedOut' })).toMatchObject({ loggedIn: null });
   });
 });
 

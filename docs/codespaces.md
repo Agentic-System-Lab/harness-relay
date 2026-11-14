@@ -2,29 +2,36 @@
 
 # Try it in GitHub Codespaces
 
-A codespace is a Linux machine of your own in GitHub's cloud. This repository's dev container (`.devcontainer/`) sets one up for Harness Relay: Node.js, what the sandboxes need on Linux, five agent CLIs, the app built and started. You try Harness Relay in your browser without installing anything on your computer.
+A codespace is a Linux machine of your own in GitHub's cloud. This repository's dev container (`.devcontainer/`) sets one up for Harness Relay: Node.js, what the sandboxes need on Linux, the GitHub CLI, five agent CLIs, and the app built and started. You try Harness Relay in your browser without installing anything on your computer.
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1)
 
 ## What it costs
 
-A codespace runs on your GitHub account. A GitHub Free personal account includes 120 core-hours and 15 GB-month of storage a month; the 2-core machine this dev container asks for uses 2 core-hours an hour, so about 60 hours. A codespace stops after 30 minutes without use (your setting on GitHub), and a stopped one still counts its storage until you delete it at [github.com/codespaces](https://github.com/codespaces). See [About billing for GitHub Codespaces](https://docs.github.com/en/billing/managing-billing-for-your-products/managing-billing-for-github-codespaces/about-billing-for-github-codespaces).
+A codespace runs on your GitHub account. A GitHub Free personal account includes 120 core-hours and 15 GB-month of storage a month; the 2-core machine this dev container asks for uses 2 core-hours an hour, so about 60 hours. A codespace stops after 30 minutes without activity (change it under **Settings → Codespaces** on GitHub; raise it before a long run), and a stopped one still counts its storage until you delete it at [github.com/codespaces](https://github.com/codespaces). See [About billing for GitHub Codespaces](https://docs.github.com/en/billing/managing-billing-for-your-products/managing-billing-for-github-codespaces/about-billing-for-github-codespaces).
 
 ## Steps
 
 1. **Create it.** Click the button above, then **Create codespace**. The first time takes two minutes or so: it installs the packages and the CLIs and builds the UI. With **Change options**, you can also give it the API keys it offers (see [API keys](#api-keys)).
 2. **Sign in.** When the editor opens, its terminal starts Harness Relay (`bash .devcontainer/start.sh`) and prints a sign-in link on the codespace's own address, `https://<codespace>-8787.app.github.dev/#code=…`, with its code beside it. Open the link. The first time, GitHub may check that it is you before it lets the page through and then the page asks for the code: type the one the terminal printed.
-3. **Sign the agents in.** In **Settings & sign-in**, sign in to Claude Code or Codex with a link or a device code, or set up a [model backend](open-agents.md) for OpenCode and Pi. Copilot is signed in already with the codespace's GitHub token, if your GitHub account has Copilot (see [The codespace's GitHub token](#the-codespaces-github-token)).
+3. **Sign the agents in.** In **Settings & sign-in**: Claude Code with its link, Codex with its device code (its browser sign-in sends the browser back to `localhost`, which is your own computer, not the codespace). Copilot signs in with the codespace's GitHub token (see [The codespace's GitHub token](#the-codespaces-github-token)), and shows as signed in once Copilot reports a plan for your account; Copilot Free counts. For Pi, set up a [model backend](open-agents.md).
 4. **Ask.** Click **New chat** and use `/workspaces/playground` as the working directory: the dev container makes it for you. Harness Relay's own folder (`/workspaces/harness-relay`) and `/workspaces`, which holds it, are refused in edit mode below full access.
 
 Stop the server with Ctrl+C in that terminal, and start it again with `bash .devcontainer/start.sh`. Run the same command while it runs to get another sign-in link, for another browser or a phone.
 
-Installed: Claude Code, Codex, Copilot, OpenCode and Pi. Install the others in the codespace's terminal as the [README](../README.md#requirements) says; Harness Relay finds them when you open **Settings & sign-in** again.
+Installed: Claude Code, Codex, Copilot, OpenCode and Pi. Install the others in the codespace's terminal as the [README](../README.md#requirements) says, with two exceptions: the README installs Goose with Homebrew, which the codespace does not have (see Goose's own install guide), and OpenHands needs [uv](https://docs.astral.sh/uv/) first. A CLI installed into a folder the server did not have on its `PATH` (such as `~/.local/bin`, once it is made) is found after you start the server again.
 
 ## What works differently there
 
 - **No folder dialog.** The system's folder dialog opens only for a browser on the server's own computer, so type the working directory's path.
-- **No sharing as a link.** Sharing a conversation needs the GitHub CLI (`gh`), which the dev container does not install.
+- **OpenCode runs with full access only.** On Linux, Harness Relay's own sandbox cannot watch OpenCode's server, so below full access it refuses to run it ([Open agents](open-agents.md)). Pi runs below full access.
+- **Sharing as a link needs gh signed in.** The GitHub CLI is installed, but the codespace's own token cannot make the gist a shared conversation goes into, and `gh auth login` refuses to keep a sign-in while that token is set. Sign gh in once in the codespace's terminal, without it:
+
+  ```bash
+  env -u GITHUB_TOKEN gh auth login
+  ```
+
+  Harness Relay's `gh` then uses that sign-in for sharing (and leaves out the codespace's token there). With no keyring in a codespace, gh keeps the sign-in in a file in its folder (`~/.config/gh`); below full access, agents cannot read that folder in a codespace (see [Safety](#safety)).
 - **No desktop app.** The menu, sharing with Tailscale and the app's updates are the desktop app's; here it is the server alone (`npm start`).
 - **Not tried there:** voice input, push notifications, and signing in to Claude Code and Codex.
 
@@ -32,22 +39,25 @@ Installed: Claude Code, Codex, Copilot, OpenCode and Pi. Install the others in t
 
 - **The address is private.** Codespaces lets only your GitHub account open it. Do not make the port public (**Ports** → **Port Visibility**): anyone with the address could then reach the sign-in page of agents that can write.
 - **The sandboxes work below full access.** For bubblewrap, the dev container runs with `seccomp`, `apparmor` and `systempaths` unconfined, and with a TUN device for Copilot's sandbox. That leaves the container less isolated from the machine around it; in a codespace that machine is yours alone. Harness Relay's own sandbox (`npx tsx scripts/sandbox-check.ts`: 51 of 51 checks), Codex's and Copilot's were tried in a codespace; see [OS sandboxes by platform](sandboxing.md#docker-and-dev-containers).
+- **The codespace's token files are kept from the agents** below full access: `/workspaces/.codespaces`, where Codespaces keeps its token, its registry sign-ins and your Codespaces secrets in files every program there may read, and gh's folder ([What agents may not read or write](sandboxing.md#what-agents-may-not-read-or-write)). With full access an agent can read anything in the codespace.
 - **What you sign in to stays in the codespace**: the CLIs' sign-ins in its home folder, the database in `data/`. Anyone who can use your GitHub account can open it. Delete the codespace when you are done, and sign the CLIs out first if you want their sessions ended too.
 
 ### The codespace's GitHub token
 
-Codespaces puts a GitHub token of yours in the codespace's environment (`GITHUB_TOKEN`). Harness Relay passes it on to the agents as it does your shell's: Copilot signs in with it, and an agent with full access can use it as you could, for what Codespaces lets it do (see [Security in GitHub Codespaces](https://docs.github.com/en/codespaces/reference/security-in-github-codespaces)). To keep it from the agents, start the server without it:
+Codespaces gives every program in the codespace a GitHub token of yours (`GITHUB_TOKEN`), for what Codespaces allows it (see [Security in GitHub Codespaces](https://docs.github.com/en/codespaces/reference/security-in-github-codespaces)). Harness Relay passes it on to the agents with the rest of its environment, as it does your shell's: Copilot signs in with it, and any agent's commands can use it, also below full access (Copilot's sandbox, for one, lets its commands reach the network). To keep it out of the agents' environment, start the server without it:
 
 ```bash
 env -u GITHUB_TOKEN bash .devcontainer/start.sh
 ```
 
+For Copilot, its own device sign-in needs a keyring, which a codespace does not have: give it a token of its own instead, as a `COPILOT_GITHUB_TOKEN` Codespaces secret.
+
 ### API keys
 
-A codespace has no system keyring, so an API key you type in **Settings** stays in the database, in the codespace. Give it as a Codespaces secret instead: the create page's **Change options** offers `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `XAI_API_KEY`, and **Settings → Codespaces** on GitHub keeps any other one for this repository. They reach the server as environment variables. Claude Code then runs on `ANTHROPIC_API_KEY`, and Codex on `OPENAI_API_KEY`, instead of your sign-in, billed by use.
+A codespace has no system keyring, so an API key you type in **Settings** stays in the database, in the codespace. For Claude Code and Codex, give it as a Codespaces secret instead: the create page's **Change options** offers `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`, and **Settings → Codespaces** on GitHub keeps any other one for this repository. They reach the server as environment variables. Claude Code then runs on `ANTHROPIC_API_KEY`, and Codex on `OPENAI_API_KEY`, instead of your sign-in, billed by use. The open-source agents take only the keys set in **Settings → Model backends**.
 
-## Elsewhere
+## On your own computer
 
-The same dev container works with VS Code's Dev Containers or the `devcontainer` CLI on your own computer. There `start.sh` is `npm start`: open the `http://127.0.0.1:8787` link it prints.
+The same dev container works with VS Code's Dev Containers, which forwards the port to your computer: there `start.sh` is `npm start`, so open the `http://127.0.0.1:8787` link it prints. Its container options weaken Docker's isolation from your computer too: there an agent with full access could reach your computer through them, so give agents full access only in a codespace.
 
 For maintainers: [prebuilds](https://docs.github.com/en/codespaces/prebuilding-your-codespaces) would make a codespace ready sooner. They are billed to the repository's owner, and are not set up.

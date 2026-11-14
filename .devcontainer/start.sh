@@ -6,19 +6,22 @@
 set -euo pipefail
 
 # A variable Codespaces sets, also in a shell that did not load its profile (`gh codespace ssh -- …`):
-# only the one named, from the file the profile reads, which holds the codespace's tokens too.
+# only the one named, from the file the profile reads (`$2`, for a test), which holds the codespace's
+# tokens too.
 codespace_var() {
-  local value="${!1:-}"
-  if [ -z "$value" ] && [ -r /workspaces/.codespaces/shared/.env ]; then
-    value="$(sed -n "s/^$1=//p" /workspaces/.codespaces/shared/.env | tail -n 1)"
+  local value="${!1:-}" file="${2:-/workspaces/.codespaces/shared/.env}"
+  if [ -z "$value" ] && [ -r "$file" ]; then
+    value="$(sed -n "s/^$1=//p" "$file" | tail -n 1)"
   fi
   printf '%s' "$value"
 }
 
 # The sign-in links on the forwarded address instead of 127.0.0.1, each with its code beside it: a
 # browser that has not opened the codespace's ports yet signs in to GitHub first, and may lose the link's
-# code on the way back. Vite's link (`npm run dev`) means nothing here. Line by line, as they come.
+# code on the way back. Vite's link (`npm run dev`) means nothing here. Line by line, as they come; on
+# Ctrl+C on to the end, so that what the server says as it stops is still shown.
 links() {
+  trap '' INT
   if [ -z "$public" ]; then
     cat
     return

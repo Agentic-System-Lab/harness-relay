@@ -1,6 +1,6 @@
 import { GH_MIN_VERSION, GH_MISSING, GH_SIGNED_OUT } from '../../shared/types';
 import { useT } from '../i18n';
-import { GH_INSTALL, GH_LINKS } from '../share';
+import { GH_INSTALL, GH_LINKS, ghLoginCommand } from '../share';
 import { CopyButton } from './CopyButton';
 import { CopyIcon } from './icons';
 
@@ -54,7 +54,7 @@ export function GhHelp({ problem, retry }: { problem: typeof GH_MISSING | typeof
         )}
         <li>
           {g.login}
-          <Command text="gh auth login" /> <Link href={GH_LINKS.login}>{g.loginHelp}</Link>
+          <Command text={ghLoginCommand(location.hostname)} /> <Link href={GH_LINKS.login}>{g.loginHelp}</Link>
           <br />
           {g.noAccount} <Link href={GH_LINKS.signup}>{g.signup}</Link>
         </li>

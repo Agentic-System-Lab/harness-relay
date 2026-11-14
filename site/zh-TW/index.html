@@ -795,13 +795,13 @@
         <div class="wrap safety-grid">
           <div class="safety-copy">
             <h2 id="safety-title">完全在你的電腦上執行</h2>
-            <p>沒有任何雲端服務。伺服器只在你的電腦上監聽，agent 的回覆也無法讓瀏覽器載入遠端內容。</p>
+            <p>Harness Relay 不架設任何服務。伺服器只在你的電腦上監聽（在 GitHub Codespaces 試用時，則是在你自己的 codespace 上，網址只有你的 GitHub 帳號打得開），agent 的回覆也無法讓瀏覽器載入遠端內容。</p>
             <ul class="facts">
               <li><svg aria-hidden="true"><use href="#i-lock" /></svg><span>只綁定 <code>127.0.0.1</code>，只接受你登入過的瀏覽器，並拒絕跨站請求。</span></li>
               <li><svg aria-hidden="true"><use href="#i-shield" /></svg><span>完全存取以外，Claude Code、Codex、Grok、Copilot 和 Muse Code 的指令都在它們各自的作業系統沙箱中執行：只能寫入工作目錄，讀不到你瀏覽器的資料夾與 Harness Relay 的資料。Cursor 沒有沙箱，所以每個指令都會先問你（對話設為自動拒絕時則直接拒絕），你的 Cursor 團隊允許清單上的除外。Antigravity 也沒有沙箱：每個指令都會先問你，而只要被拒絕一次，它就會結束這一輪。Copilot 被拒絕時也會結束這一輪。</span></li>
               <li><svg aria-hidden="true"><use href="#i-box" /></svg><span>五個開源 agent 和它們啟動的一切，都在 Harness Relay 自己的沙箱中執行（sandbox-runtime：macOS 上用 Seatbelt、Linux 上用 bubblewrap，網路經過會過濾的 proxy）：同樣碰不到那些資料夾，每位成員的 session 都是它自己的，不必詢問就能連到的只有這次執行的模型來源。沙箱無法啟動就不執行；在原生 Windows 上只能以完全存取執行。</span></li>
               <li><svg aria-hidden="true"><use href="#i-branch" /></svg><span>每個改檔的回合都有 git 快照；平行模式的 agent 在各自的 worktree 工作。</span></li>
-              <li><svg aria-hidden="true"><use href="#i-key" /></svg><span>API key 與 MCP 伺服器的 token 存在作業系統的憑證儲存區：macOS 鑰匙圈、Windows 認證管理員或 Secret Service。</span></li>
+              <li><svg aria-hidden="true"><use href="#i-key" /></svg><span>API key 與 MCP 伺服器的 token 存在作業系統的憑證儲存區：macOS 鑰匙圈、Windows 認證管理員或 Secret Service（codespace 沒有這些：請把 key 設成 Codespaces secret）。</span></li>
               <li><svg aria-hidden="true"><use href="#i-db" /></svg><span>所有對話都存在一個 SQLite 檔案裡；只有在你把對話分享成連結時，Harness Relay 才會把它發布出去。</span></li>
             </ul>
           </div>

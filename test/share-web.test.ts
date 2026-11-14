@@ -45,6 +45,7 @@ import {
   shareDocument,
   shareFooter,
   shareScope,
+  ghLoginCommand,
   ghProblem,
   GH_INSTALL,
   GH_LINKS,
@@ -402,6 +403,13 @@ describe('when the GitHub CLI cannot be used', () => {
   it('points to the official install commands and pages', () => {
     expect(GH_INSTALL).toEqual({ macos: 'brew install gh', windows: 'winget install --id GitHub.cli --source winget' });
     for (const url of Object.values(GH_LINKS)) expect(url).toMatch(/^https:\/\/(cli\.)?github\.com\//);
+  });
+
+  it("signs gh in without a GitHub codespace's own token on a codespace's address", () => {
+    expect(ghLoginCommand('127.0.0.1')).toBe('gh auth login');
+    expect(ghLoginCommand('my-computer.tail1234.ts.net')).toBe('gh auth login');
+    expect(ghLoginCommand('demo-x5w-8787.app.github.dev')).toBe('env -u GITHUB_TOKEN gh auth login');
+    expect(ghLoginCommand('app.github.dev.example.com')).toBe('gh auth login');
   });
 });
 

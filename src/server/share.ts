@@ -124,6 +124,18 @@ export function ghBin(
   return findOnPath('gh', env, platform, platform === 'win32' ? [] : BREW_DIRS, isFile) ?? 'gh';
 }
 
+/**
+ * gh's environment: the server's, but in a GitHub codespace (`CODESPACES=true`) without the token
+ * Codespaces gives every program there (`GITHUB_TOKEN`). gh would take it before the sign-in
+ * `gh auth login` keeps, and GitHub refuses it a gist ("Resource not accessible by integration": it
+ * covers the codespace's repository alone). A `GH_TOKEN`, the user's own, stays.
+ */
+export function ghEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const out = { ...env };
+  if (env.CODESPACES === 'true') delete out.GITHUB_TOKEN;
+  return out;
+}
+
 /** Runs gh, saying how to install it when it is missing. */
 async function gh(
   run: (o: SpawnOptions) => Promise<SpawnResult>,
@@ -132,7 +144,7 @@ async function gh(
   timeoutMs = 60_000,
 ): Promise<SpawnResult> {
   try {
-    return await run({ bin: ghBin(), args, env: { ...process.env }, stdin, timeoutMs });
+    return await run({ bin: ghBin(), args, env: ghEnv(), stdin, timeoutMs });
   } catch (err) {
     if (err instanceof CommandNotFoundError) throw new ShareError(t().shareNoGh(GH_MIN_VERSION), GH_MISSING);
     throw err;
@@ -142,7 +154,7 @@ async function gh(
 /** The installed gh's version, if it says. */
 async function ghVersion(run: (o: SpawnOptions) => Promise<SpawnResult>): Promise<string | undefined> {
   try {
-    const r = await run({ bin: ghBin(), args: ['--version'], env: { ...process.env }, timeoutMs: 10_000 });
+    const r = await run({ bin: ghBin(), args: ['--version'], env: ghEnv(), timeoutMs: 10_000 });
     return r.code === 0 ? parseGhVersion(r.stdout) : undefined;
   } catch {
     return undefined;
@@ -380,14 +392,14 @@ export function gitConfig(gh: string): string[] {
 const GIT_REPO_ENV = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR'];
 
 /**
- * git's environment: the server's, without a repository to fall back on, the commit by Harness Relay,
+ * git's environment: gh's (`ghEnv`: it signs git in), without a repository to fall back on, the commit by Harness Relay,
  * never asking for a password (no terminal, no askpass program: when gh cannot sign git in, it fails),
  * and HTTPS the only way to reach a remote, whatever a configuration rewrites its address to (no
  * `ssh` with its command, no `file` or `ext` that run one here).
  */
 export function gitEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const out: NodeJS.ProcessEnv = {
-    ...env,
+    ...ghEnv(env),
     GIT_AUTHOR_NAME: 'Harness Relay',
     GIT_AUTHOR_EMAIL: 'harness-relay@localhost',
     GIT_COMMITTER_NAME: 'Harness Relay',

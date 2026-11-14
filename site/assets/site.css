@@ -676,7 +676,7 @@ html:not(.js) .theme-toggle {
   grid-row: 3;
 }
 
-/* The download button and the GitHub button end at the right edge, under the header's GitHub button. */
+/* The download button, and the Codespaces and GitHub buttons, end at the right edge: the GitHub button under the header's. */
 .hero-grid .download,
 .hero-grid .cta-row {
   justify-self: end;

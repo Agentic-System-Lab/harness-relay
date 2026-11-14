@@ -128,6 +128,24 @@ export function appBrowserDirs(env: NodeJS.ProcessEnv = process.env): string[] {
   return dir && isAbsolute(dir) ? [dir] : [];
 }
 
+/** Where a GitHub codespace keeps its tokens and the user's Codespaces secrets, which every program there may read. */
+export const CODESPACE_SHARED_DIR = '/workspaces/.codespaces';
+
+/**
+ * In a GitHub codespace (`CODESPACES=true`), what holds GitHub tokens in plain files: the folder
+ * Codespaces keeps its token, its registry sign-ins and the user's Codespaces secrets in
+ * (`CODESPACE_SHARED_DIR`), and gh's own sign-in (`gh auth login` for sharing: a file there, without
+ * a keyring). Agents have the token Codespaces gives every program (`GITHUB_TOKEN`) for gh and git, so
+ * they need neither. None anywhere else, where gh's folder is how agents' gh signs in.
+ */
+export function codespaceSecretDirs(env: NodeJS.ProcessEnv = process.env, home = homedir(), shared = CODESPACE_SHARED_DIR): string[] {
+  if (env.CODESPACES !== 'true') return [];
+  const ghConfig = env.GH_CONFIG_DIR?.trim();
+  const xdgConfig = env.XDG_CONFIG_HOME?.trim();
+  const gh = ghConfig && isAbsolute(ghConfig) ? ghConfig : join(xdgConfig && isAbsolute(xdgConfig) ? xdgConfig : join(home, '.config'), 'gh');
+  return [shared, gh];
+}
+
 /** Harness Relay's database and the files SQLite keeps beside it. */
 export function relayDatabaseFiles(dataDir = DATA_DIR): string[] {
   return ['relay.db', 'relay.db-wal', 'relay.db-shm'].map((f) => join(dataDir, f));
@@ -201,17 +219,18 @@ function real(path: string): string {
 /**
  * The paths agents below full access may not read, as their sandboxes take them: the browsers'
  * folders (the desktop app's window's too), Harness Relay's database files and its own temporary
- * folder that exist now (a sandbox may refuse to start for a path that does not), each also by its
+ * folder, and in a GitHub codespace the files that hold its tokens (`codespaceSecretDirs`), that exist now (a sandbox may refuse to start for a path that does not), each also by its
  * real path when that differs. None on Windows, where Claude Code and Grok have no sandbox to enforce
  * them.
  */
 export function protectedReads(
-  o: { platform?: NodeJS.Platform; home?: string; dataDir?: string; env?: NodeJS.ProcessEnv } = {},
+  o: { platform?: NodeJS.Platform; home?: string; dataDir?: string; env?: NodeJS.ProcessEnv; codespaceDir?: string } = {},
 ): string[] {
   const platform = o.platform ?? process.platform;
   if (platform === 'win32') return [];
   const relay = [...relayDatabaseFiles(o.dataDir), relayTmpDir(o.dataDir)];
-  const paths = [...browserDataDirs(platform, o.home), ...appBrowserDirs(o.env), ...relay].filter((p) => existsSync(p));
+  const codespace = platform === 'linux' ? codespaceSecretDirs(o.env, o.home, o.codespaceDir) : [];
+  const paths = [...browserDataDirs(platform, o.home), ...appBrowserDirs(o.env), ...relay, ...codespace].filter((p) => existsSync(p));
   return [...new Set(paths.flatMap((p) => [p, real(p)]))];
 }
 
