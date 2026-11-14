@@ -6,6 +6,10 @@
 
 **Website:** https://agentic-system-lab.github.io/harness-relay/
 
+**Try it without installing anything:** open it in a GitHub codespace of your own. Its dev container installs the seven agent CLIs that are not open source (Claude Code, Codex, Copilot, Grok, Cursor, Antigravity and Muse Code), builds the app and starts it, on an address only your GitHub account can open. See [Try it in GitHub Codespaces](docs/codespaces.md).
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1)
+
 A local group chat for the real **Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and Muse Code** CLIs, and five open-source coding agents (**OpenCode, Goose, Cline, OpenHands and Pi**) on the model backends you choose: give each a role, choose how they take turns, and they work on your code, or any question, and answer each other.
 
 For each question, a lead agent picks the team from your templates (or adapts one, or designs a new one), and you confirm it: a position for every agent (architect, builder, reviewer, skeptic…), its model and reasoning effort, and a mode (roundtable, parallel or relay). You design teams as templates. Harness Relay then runs `claude`, `codex`, `grok`, `cursor-agent`, `agy`, `copilot` and `muse` with your own logins and tools, and the open-source CLIs on your API keys or your own model server, passes each agent the messages it hasn't seen yet, and streams everything into one chat.
@@ -147,6 +151,7 @@ npm run desktop:dist
 | Architecture | [docs/architecture.md](docs/architecture.md) | [docs/architecture.zh-TW.md](docs/architecture.zh-TW.md) |
 | Developer guide | [docs/developer-guide.md](docs/developer-guide.md) | [docs/developer-guide.zh-TW.md](docs/developer-guide.zh-TW.md) |
 | Use it from your phone (Tailscale) | [docs/remote-access.md](docs/remote-access.md) | [docs/remote-access.zh-TW.md](docs/remote-access.zh-TW.md) |
+| Try it in GitHub Codespaces | [docs/codespaces.md](docs/codespaces.md) | [docs/codespaces.zh-TW.md](docs/codespaces.zh-TW.md) |
 | Open agents (OpenCode, Goose, Cline, OpenHands, Pi) | [docs/open-agents.md](docs/open-agents.md) | [docs/open-agents.zh-TW.md](docs/open-agents.zh-TW.md) |
 | OS sandboxes by platform | [docs/sandboxing.md](docs/sandboxing.md) | [docs/sandboxing.zh-TW.md](docs/sandboxing.zh-TW.md) |
 | Adding a coding agent | [docs/adding-a-coding-agent.md](docs/adding-a-coding-agent.md) | [docs/adding-a-coding-agent.zh-TW.md](docs/adding-a-coding-agent.zh-TW.md) |

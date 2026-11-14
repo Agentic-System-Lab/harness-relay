@@ -35,6 +35,7 @@ body:
         - Desktop app · 桌面 app
         - npm start
         - npm run dev
+        - GitHub Codespaces
         - Other · 其他
     validations:
       required: true

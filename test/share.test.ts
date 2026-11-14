@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { GH_MIN_VERSION, GH_MISSING, GH_SIGNED_OUT } from '../src/shared/types';
 import { t, withLang } from '../src/server/i18n';
 import { DATA_DIR } from '../src/server/settings';
@@ -19,6 +19,7 @@ import {
   filesGistDescription,
   findGistArgs,
   ghBin,
+  ghEnv,
   gistArgs,
   gistExistsArgs,
   gistDescription,
@@ -113,6 +114,31 @@ describe('shareToGist', () => {
     expect(seen?.args).toEqual(gistArgs('Chat · Harness Relay'));
     expect(seen?.stdin).toBe('<!doctype html>…');
     expect(link).toEqual({ id: ID, url: `https://gistpreview.github.io/?${ID}`, gistUrl: `https://gist.github.com/me/${ID}` });
+  });
+
+  it("leaves out a GitHub codespace's own token, which GitHub refuses a gist, for the sign-in gh keeps", async () => {
+    let seen: SpawnOptions | undefined;
+    const run = async (o: SpawnOptions) => {
+      seen = o;
+      return result({ stdout: `https://gist.github.com/me/${ID}\n` });
+    };
+    vi.stubEnv('GITHUB_TOKEN', 'ghu_codespace');
+    vi.stubEnv('GH_TOKEN', 'github_pat_mine');
+    try {
+      vi.stubEnv('CODESPACES', 'true');
+      await shareToGist('x', 'd', run);
+      expect(seen?.env?.GITHUB_TOKEN).toBeUndefined();
+      // A token of the user's own, which gh takes first, stays.
+      expect(seen?.env?.GH_TOKEN).toBe('github_pat_mine');
+      // Anywhere else, the shell's GITHUB_TOKEN is how gh may be signed in: it stays.
+      vi.stubEnv('CODESPACES', '');
+      await shareToGist('x', 'd', run);
+      expect(seen?.env?.GITHUB_TOKEN).toBe('ghu_codespace');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(ghEnv({ CODESPACES: 'true', GITHUB_TOKEN: 'ghu_x', PATH: '/bin' })).toEqual({ CODESPACES: 'true', PATH: '/bin' });
+    expect(ghEnv({ GITHUB_TOKEN: 'ghp_x' })).toEqual({ GITHUB_TOKEN: 'ghp_x' });
   });
 
   it('says how to install gh when it is missing, with a code the UI explains', async () => {
@@ -394,6 +420,9 @@ describe('the files a shared page takes along', () => {
     const env = gitEnv({ PATH: '/bin', GIT_DIR: '/x/.git', GIT_WORK_TREE: '/x', GIT_INDEX_FILE: 'i', GIT_OBJECT_DIRECTORY: 'o', GIT_ASKPASS: '/askpass', HTTPS_PROXY: 'http://proxy' });
     expect(env).toMatchObject({ PATH: '/bin', HTTPS_PROXY: 'http://proxy', GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '' });
     for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY']) expect(env[k], k).toBeUndefined();
+    // gh signs git in (`gh auth git-credential`), so git runs without a codespace's token as gh does.
+    expect(gitEnv({ CODESPACES: 'true', GITHUB_TOKEN: 'ghu_x' }).GITHUB_TOKEN).toBeUndefined();
+    expect(gitEnv({ GITHUB_TOKEN: 'ghp_x' }).GITHUB_TOKEN).toBe('ghp_x');
   });
 
   /** git as the tests run it for real: on the test's repositories, a local folder allowed as a remote. */

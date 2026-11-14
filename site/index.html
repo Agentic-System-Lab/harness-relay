@@ -102,6 +102,12 @@
         <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
         </symbol>
+        <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </symbol>
+        <symbol id="i-cloud" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M7 18.5h10a4 4 0 0 0 .7-7.94A6 6 0 0 0 6.2 9.6 4.5 4.5 0 0 0 7 18.5Z" />
+        </symbol>
         <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
         </symbol>
@@ -187,6 +193,10 @@
               <p class="download-meta" data-release-meta data-hero hidden></p>
             </div>
             <div class="cta-row">
+              <a class="btn btn-ghost" href="https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1" data-codespaces>
+                <svg aria-hidden="true"><use href="#i-cloud" /></svg>
+                Try it in Codespaces
+              </a>
               <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
                 <svg aria-hidden="true"><use href="#i-github" /></svg>
                 View on GitHub
@@ -838,15 +848,16 @@
           <div class="safety-copy">
             <h2 id="safety-title">Runs on your machine</h2>
             <p>
-              Nothing is hosted. The server listens on your computer only, and agent replies cannot make your browser load
-              remote content.
+              Harness Relay hosts nothing. The server listens on your computer only (when you try it in GitHub Codespaces, on
+              your own codespace, at an address only your GitHub account can open), and agent replies cannot make your browser
+              load remote content.
             </p>
             <ul class="facts">
               <li><svg aria-hidden="true"><use href="#i-lock" /></svg><span>Bound to <code>127.0.0.1</code> and takes only browsers you signed in; cross-site requests are rejected.</span></li>
               <li><svg aria-hidden="true"><use href="#i-shield" /></svg><span>Below full access, Claude Code’s, Codex’s, Grok’s, Copilot and Muse Code’s commands run in their own OS sandbox: they write only in the working directory, and can’t read your browsers’ folders or Harness Relay’s data. Cursor has no sandbox, so it asks you before every command (or refuses it, if the conversation refuses automatically), except those on your Cursor team’s allowlist. Antigravity has none either: it asks you before every command, and a refusal ends its turn. A refusal ends Copilot’s turn too.</span></li>
               <li><svg aria-hidden="true"><use href="#i-box" /></svg><span>The five open-source agents, and everything they start, run in Harness Relay’s own sandbox (sandbox-runtime: Seatbelt on macOS, bubblewrap on Linux, a filtering proxy for the network): the same folders are out of reach, each member’s sessions are its own, and only the run’s model backend is reachable without asking. If it can’t start, they don’t run; on native Windows they run only with full access.</span></li>
               <li><svg aria-hidden="true"><use href="#i-branch" /></svg><span>Git snapshots for every turn that edits; parallel agents in their own worktrees.</span></li>
-              <li><svg aria-hidden="true"><use href="#i-key" /></svg><span>API keys and MCP server tokens in your OS credential store: macOS Keychain, Windows Credential Manager or Secret Service.</span></li>
+              <li><svg aria-hidden="true"><use href="#i-key" /></svg><span>API keys and MCP server tokens in your OS credential store: macOS Keychain, Windows Credential Manager or Secret Service; where there is none, as in a codespace, encrypted in the database.</span></li>
               <li><svg aria-hidden="true"><use href="#i-db" /></svg><span>Your conversations live in one SQLite file; Harness Relay publishes one only when you share it as a link.</span></li>
             </ul>
           </div>
@@ -986,6 +997,9 @@
           </ol>
           <div class="start-foot">
             <p>
+              Nothing to install it on yet? <a href="https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1" data-codespaces>Try it in GitHub Codespaces</a>: a Linux machine of your own in
+              GitHub's cloud, with the seven agents that are not open source installed and Harness Relay started, on an address only your GitHub
+              account can open (<a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/codespaces.md">how it works</a>).
               On a server without a desktop, or working on Harness Relay itself?
               <a href="https://github.com/Agentic-System-Lab/harness-relay#quick-start">Run it from source</a> with Node.js 22.13 or
               newer: <code>npm start</code>, or <code>npm run dev</code> while you change it.
@@ -1012,5 +1026,51 @@
         </nav>
       </div>
     </footer>
+
+    <dialog class="cs-dialog" id="codespaces" aria-labelledby="codespaces-title">
+      <div class="cs-body">
+        <div class="cs-head">
+          <h2 id="codespaces-title">Try it in GitHub Codespaces</h2>
+          <button class="cs-close" type="button" data-codespaces-close aria-label="Close">
+            <svg aria-hidden="true"><use href="#i-close" /></svg>
+          </button>
+        </div>
+        <p class="cs-lead">
+          A Linux machine of your own in GitHub's cloud. It installs the seven agents that are not open source (Claude Code,
+          Codex, Copilot, Grok, Cursor, Antigravity and Muse Code) and starts Harness Relay. Nothing goes on your computer.
+        </p>
+        <ul class="cs-facts">
+          <li><b>It runs on your GitHub account.</b> A free personal account includes 120 core-hours a month, about 60 hours of this 2-core machine. It stops after 30 minutes without use; delete it at github.com/codespaces when you are done.</li>
+          <li><b>You still need an agent signed in.</b> Sign in under Settings &amp; sign-in to the ones you have an account for. Copilot signs in with your GitHub account, if it has Copilot (Copilot Free counts).</li>
+          <li><b>Some things work differently.</b> The open-source agents are not installed: add them from the codespace's terminal (OpenCode then runs with full access only). There is no folder dialog: type the working directory, such as <code>/workspaces/playground</code>. Sharing a conversation as a link needs <code>env -u GITHUB_TOKEN gh auth login</code> once. The desktop app's menu and Tailscale sharing are not there.</li>
+          <li><b>Only you can open it.</b> Its address is private to your GitHub account, and the agents' sandboxes work there. An agent with full access can use anything in the codespace, its GitHub token included.</li>
+        </ul>
+        <h3>Where Harness Relay opens</h3>
+        <p class="cs-lead">
+          The first start takes about two minutes. Then the terminal at the bottom of the editor prints a sign-in link:
+          ⌘-click it on a Mac, Ctrl-click it elsewhere. If the page asks for a code, type the one printed under the link.
+        </p>
+        <figure class="cs-shot">
+              <div class="ui cs-term">
+                <div class="cs-tabs" aria-hidden="true"><span>Terminal</span><span>Ports</span></div>
+                <pre>Starting Harness Relay. Stop it with Ctrl+C; start it again with: bash .devcontainer/start.sh
+Harness Relay API listening on http://127.0.0.1:8787
+Sign this browser in (once, within an hour): <span class="cs-link">https://your-codespace-8787.app.github.dev/#code=ABCD-EF12</span> <span class="chip cs-click">⌘ / Ctrl-click</span>
+  (or type this code on the sign-in page: ABCD-EF12)</pre>
+              </div>
+          <figcaption class="excerpt-note">
+            The codespace's terminal, recreated with sample content. Closed it? Run <code>bash .devcontainer/start.sh</code>
+            there for another link, or open <b>Ports</b> and the globe beside 8787.
+          </figcaption>
+        </figure>
+        <div class="cs-actions">
+          <a class="btn btn-primary" href="https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1" target="_blank" rel="noopener">
+            <svg aria-hidden="true"><use href="#i-cloud" /></svg>
+            Create my codespace<span class="visually-hidden"> (opens GitHub in a new tab)</span>
+          </a>
+          <a class="text-link" href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/codespaces.md">The full guide</a>
+        </div>
+      </div>
+    </dialog>
   </body>
 </html>

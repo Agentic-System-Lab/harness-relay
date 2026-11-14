@@ -99,6 +99,12 @@
         <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
         </symbol>
+        <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </symbol>
+        <symbol id="i-cloud" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M7 18.5h10a4 4 0 0 0 .7-7.94A6 6 0 0 0 6.2 9.6 4.5 4.5 0 0 0 7 18.5Z" />
+        </symbol>
         <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
         </symbol>
@@ -180,6 +186,10 @@
               <p class="download-meta" data-release-meta data-hero hidden></p>
             </div>
             <div class="cta-row">
+              <a class="btn btn-ghost" href="https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1" data-codespaces>
+                <svg aria-hidden="true"><use href="#i-cloud" /></svg>
+                在 Codespaces 試用
+              </a>
               <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
                 <svg aria-hidden="true"><use href="#i-github" /></svg>
                 在 GitHub 查看
@@ -796,13 +806,13 @@
         <div class="wrap safety-grid">
           <div class="safety-copy">
             <h2 id="safety-title">完全在你的電腦上執行</h2>
-            <p>沒有任何雲端服務。伺服器只在你的電腦上監聽，agent 的回覆也無法讓瀏覽器載入遠端內容。</p>
+            <p>Harness Relay 不架設任何服務。伺服器只在你的電腦上監聽（在 GitHub Codespaces 試用時，則是在你自己的 codespace 上，網址只有你的 GitHub 帳號打得開），agent 的回覆也無法讓瀏覽器載入遠端內容。</p>
             <ul class="facts">
               <li><svg aria-hidden="true"><use href="#i-lock" /></svg><span>只綁定 <code>127.0.0.1</code>，只接受你登入過的瀏覽器，並拒絕跨站請求。</span></li>
               <li><svg aria-hidden="true"><use href="#i-shield" /></svg><span>完全存取以外，Claude Code、Codex、Grok、Copilot 和 Muse Code 的指令都在它們各自的作業系統沙箱中執行：只能寫入工作目錄，讀不到你瀏覽器的資料夾與 Harness Relay 的資料。Cursor 沒有沙箱，所以每個指令都會先問你（對話設為自動拒絕時則直接拒絕），你的 Cursor 團隊允許清單上的除外。Antigravity 也沒有沙箱：每個指令都會先問你，而只要被拒絕一次，它就會結束這一輪。Copilot 被拒絕時也會結束這一輪。</span></li>
               <li><svg aria-hidden="true"><use href="#i-box" /></svg><span>五個開源 agent 和它們啟動的一切，都在 Harness Relay 自己的沙箱中執行（sandbox-runtime：macOS 上用 Seatbelt、Linux 上用 bubblewrap，網路經過會過濾的 proxy）：同樣碰不到那些資料夾，每位成員的 session 都是它自己的，不必詢問就能連到的只有這次執行的模型來源。沙箱無法啟動就不執行；在原生 Windows 上只能以完全存取執行。</span></li>
               <li><svg aria-hidden="true"><use href="#i-branch" /></svg><span>每個改檔的回合都有 git 快照；平行模式的 agent 在各自的 worktree 工作。</span></li>
-              <li><svg aria-hidden="true"><use href="#i-key" /></svg><span>API key 與 MCP 伺服器的 token 存在作業系統的憑證儲存區：macOS 鑰匙圈、Windows 認證管理員或 Secret Service。</span></li>
+              <li><svg aria-hidden="true"><use href="#i-key" /></svg><span>API key 與 MCP 伺服器的 token 存在作業系統的憑證儲存區：macOS 鑰匙圈、Windows 認證管理員或 Secret Service；沒有這些時（例如在 codespace 裡）則加密後存在資料庫。</span></li>
               <li><svg aria-hidden="true"><use href="#i-db" /></svg><span>所有對話都存在一個 SQLite 檔案裡；只有在你把對話分享成連結時，Harness Relay 才會把它發布出去。</span></li>
             </ul>
           </div>
@@ -917,6 +927,7 @@
           </ol>
           <div class="start-foot">
             <p>
+              手邊還沒有能安裝它的電腦？<a href="https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1" data-codespaces>在 GitHub Codespaces 試用</a>：GitHub 雲端上一台屬於你的 Linux 機器，已裝好七個非開源的 agent 並啟動 Harness Relay，網址只有你的 GitHub 帳號打得開（<a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/codespaces.zh-TW.md">運作方式</a>）。
               要在沒有桌面環境的伺服器上執行，或要開發 Harness Relay 本身？請用 Node.js 22.13 以上<a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/README.zh-TW.md#快速開始">從原始碼執行</a>：<code>npm start</code>，修改程式時則用 <code>npm run dev</code>。
             </p>
             <nav class="docs" aria-label="文件">
@@ -941,5 +952,45 @@
         </nav>
       </div>
     </footer>
+
+    <dialog class="cs-dialog" id="codespaces" aria-labelledby="codespaces-title">
+      <div class="cs-body">
+        <div class="cs-head">
+          <h2 id="codespaces-title">在 GitHub Codespaces 試用</h2>
+          <button class="cs-close" type="button" data-codespaces-close aria-label="關閉">
+            <svg aria-hidden="true"><use href="#i-close" /></svg>
+          </button>
+        </div>
+        <p class="cs-lead">GitHub 雲端上一台屬於你的 Linux 機器。它會安裝七個非開源的 agent（Claude Code、Codex、Copilot、Grok、Cursor、Antigravity 和 Muse Code），並啟動 Harness Relay。你的電腦上不會安裝任何東西。</p>
+        <ul class="cs-facts">
+          <li><b>算在你的 GitHub 帳號上。</b>免費的個人帳號每月含 120 core-hours，這台 2 核機器大約能用 60 小時。閒置 30 分鐘會自動停下；用完請到 github.com/codespaces 刪除。</li>
+          <li><b>你還是需要登入一個 agent。</b>在「設定與登入」登入你有帳號的那些。如果你的 GitHub 帳號有 Copilot（Copilot Free 也算），Copilot 會用它登入。</li>
+          <li><b>有些事不一樣。</b>開源 agent 沒有預裝：請從 codespace 的終端機安裝（OpenCode 之後只能用完全存取）。沒有選資料夾的對話框：請直接輸入工作目錄，例如 <code>/workspaces/playground</code>。要把對話分享成連結，得先執行一次 <code>env -u GITHUB_TOKEN gh auth login</code>。也沒有桌面 app 的選單和 Tailscale 分享。</li>
+          <li><b>只有你打得開。</b>它的網址只對你的 GitHub 帳號開放，agent 的沙箱在那裡也能運作。有完全存取的 agent，可以使用 codespace 裡的任何東西，包括它的 GitHub token。</li>
+        </ul>
+        <h3>Harness Relay 在哪裡打開</h3>
+        <p class="cs-lead">第一次啟動約需兩分鐘。之後編輯器下方的終端機會印出登入連結：在 Mac 上按住 ⌘ 點它，其他系統按住 Ctrl 點它。如果頁面要你輸入登入碼，就輸入連結下面印的那組。</p>
+        <figure class="cs-shot">
+              <div class="ui cs-term">
+                <div class="cs-tabs" aria-hidden="true"><span>Terminal</span><span>Ports</span></div>
+                <pre>Starting Harness Relay. Stop it with Ctrl+C; start it again with: bash .devcontainer/start.sh
+Harness Relay API listening on http://127.0.0.1:8787
+Sign this browser in (once, within an hour): <span class="cs-link">https://your-codespace-8787.app.github.dev/#code=ABCD-EF12</span> <span class="chip cs-click">⌘ / Ctrl + 點擊</span>
+  (or type this code on the sign-in page: ABCD-EF12)</pre>
+              </div>
+          <figcaption class="excerpt-note">
+            仿製的 codespace 終端機畫面，內容為範例。不小心關掉了？在那裡執行 <code>bash .devcontainer/start.sh</code>
+            可以拿到另一個連結，或打開 <b>Ports</b>，點 8787 旁邊的地球圖示。
+          </figcaption>
+        </figure>
+        <div class="cs-actions">
+          <a class="btn btn-primary" href="https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1" target="_blank" rel="noopener">
+            <svg aria-hidden="true"><use href="#i-cloud" /></svg>
+            建立我的 codespace<span class="visually-hidden">（在新分頁打開 GitHub）</span>
+          </a>
+          <a class="text-link" href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/codespaces.zh-TW.md">完整說明</a>
+        </div>
+      </div>
+    </dialog>
   </body>
 </html>

@@ -1,0 +1,44 @@
+// Harness Relay in GitHub Codespaces (or any dev container): see docs/codespaces.md.
+{
+  "name": "Harness Relay",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22-bookworm",
+  "features": {
+    // For `gh codespace ssh`, and for signing the CLIs in from a terminal of your own.
+    "ghcr.io/devcontainers/features/sshd:1": {},
+    // For sharing a conversation as a link (a secret gist), once signed in: docs/codespaces.md.
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "hostRequirements": { "cpus": 2, "memory": "8gb" },
+  // What bubblewrap needs in a container, for the sandboxes below full access (Claude Code's, Codex's,
+  // Copilot's and Harness Relay's own): user namespaces (seccomp) and mounting a fresh /proc (AppArmor,
+  // and /proc's masked paths). Without them every command below full access fails. Docker's own
+  // isolation is the less for it: in a codespace the virtual machine around the container is yours
+  // alone, but on your own computer an agent with full access could reach that computer through them.
+  "securityOpt": ["seccomp=unconfined", "apparmor=unconfined", "systempaths=unconfined"],
+  // Copilot's sandbox gives its commands a network of their own through slirp4netns, which needs a TUN device.
+  "runArgs": ["--device=/dev/net/tun"],
+  // Once, when the container is made (also in a prebuild): the sandboxes' packages and some agent CLIs.
+  "onCreateCommand": "bash .devcontainer/setup.sh",
+  // When the code is new: the app's packages and its UI.
+  "updateContentCommand": "npm ci && npm run build",
+  // Each time the editor opens it: start the server, or print another sign-in link if it runs.
+  "postAttachCommand": "bash .devcontainer/start.sh",
+  "forwardPorts": [8787],
+  "portsAttributes": {
+    // Private, as Codespaces makes every port: only your GitHub account can open it.
+    "8787": { "label": "Harness Relay", "onAutoForward": "silent" }
+  },
+  // Offered on the codespace's advanced create page; each one is optional. Codespaces passes them
+  // to the server as environment variables, so they are not kept in its database. (The open-source
+  // agents take only the keys set in Settings → Model backends, never the server's own.)
+  "secrets": {
+    "ANTHROPIC_API_KEY": {
+      "description": "Optional: an Anthropic API key. Claude Code then runs on it, billed by use, instead of a sign-in.",
+      "documentationUrl": "https://console.anthropic.com/settings/keys"
+    },
+    "OPENAI_API_KEY": {
+      "description": "Optional: an OpenAI API key. Codex then runs on it, billed by use, instead of a sign-in.",
+      "documentationUrl": "https://platform.openai.com/api-keys"
+    }
+  }
+}

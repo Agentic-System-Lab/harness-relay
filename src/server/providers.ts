@@ -26,7 +26,7 @@ import { discoverModels, type DiscoveredModels } from './models';
 import { CommandNotFoundError, capture, killTree, spawnInteractive, stripAnsi, tail } from './process';
 import { CREDENTIAL_ENV, CURSOR_SHARED_SIGN_IN, type SettingsStore } from './settings';
 import { t } from './i18n';
-import { askUsage } from './usage';
+import { askUsage, type UsageAnswer } from './usage';
 import { WindowsScriptError } from './winLaunch';
 
 // ---------------------------------------------------------------------------
@@ -47,6 +47,20 @@ function firstJsonObject(s: string): Record<string, any> | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Copilot on a GitHub token from its environment, as its plan says. Any GitHub user's token opens a
+ * session (a codespace gives every program one, `GITHUB_TOKEN`), with Copilot or without, so it counts
+ * as signed in only once Copilot reports a plan for it (`account.getQuota`: limits, or a plan with
+ * none). Copilot answering that it is not signed in is signed out; anything else cannot be told.
+ */
+export function copilotTokenAuth(u: UsageAnswer): ProviderAuth {
+  const method = 'GitHub token';
+  if (u.none === 'signedOut') return { loggedIn: false };
+  // Not its plan's name: Copilot names Copilot Free's "individual" too.
+  if (u.plan || u.limits.length > 0 || u.none === 'unlimited') return { loggedIn: true, method };
+  return { loggedIn: null, method, detail: t().copilotTokenUnconfirmed(u.error ? tail(stripAnsi(u.error), 200) : undefined) };
 }
 
 /**
@@ -116,7 +130,7 @@ async function checkAuth(p: Provider, bin: string, env: NodeJS.ProcessEnv): Prom
       // Who it is signed in as is in the account's `config.json`.
       const { opened, error } = await askCopilotModels(bin, env);
       if (opened) {
-        if (CREDENTIAL_ENV.copilot.some((k) => env[k])) return { loggedIn: true, method: 'GitHub token' };
+        if (CREDENTIAL_ENV.copilot.some((k) => env[k])) return copilotTokenAuth(await askUsage('copilot', bin, env));
         const login = copilotSignedInAs(copilotHome(env));
         return { loggedIn: true, ...(login ? { account: login } : {}) };
       }

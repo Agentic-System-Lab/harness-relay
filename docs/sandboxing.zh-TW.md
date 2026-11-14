@@ -81,7 +81,7 @@ Harness Relay 啟動真正的 `claude`、`codex`、`grok`、`cursor-agent`、`ag
 | 唯讀 | 下列受保護路徑以外的一切 | 只有這次執行自己的暫存資料夾與 agent 的狀態資料夾（它的 session、記錄與快取）——**不含工作目錄** |
 | 可編輯 | 同上 | 上述加上各工作目錄與這個對話的附件資料夾 |
 
-- 完全不能讀**也**不能寫（`denyRead` + `denyWrite`）：受保護路徑（`protectedReads()`：瀏覽器自己的資料夾、Harness Relay 的資料庫（連同機密的金鑰檔）與暫存資料夾，與其他 CLI 相同，見[agent 不能讀寫的地方](#agent-不能讀寫的地方)）。
+- 完全不能讀**也**不能寫（`denyRead` + `denyWrite`）：受保護路徑（`protectedReads()`：瀏覽器自己的資料夾、Harness Relay 的資料庫（連同機密的金鑰檔）與暫存資料夾，在 codespace 裡還有它的 token 檔案，與其他 CLI 相同，見[agent 不能讀寫的地方](#agent-不能讀寫的地方)）。
 - 永遠不能寫（`denyWrite`），即使上層資料夾可寫：agent 的設定路徑（所有啟動時會改變 CLI 行為的東西——它的設定、plugin、擴充功能、hook、MCP 設定、指示檔），這樣一次執行就不能放寬它下一次執行；可編輯模式下，工作目錄裡其他 CLI 與這些開源 agent 自己的設定（`.claude`、`.codex`、`.grok`、`.cursor`（Cursor 沒有沙箱，會從這裡讀它的規則、subagent、skill 與 MCP 伺服器）、`.mcp.json`、`.opencode`、`opencode.json`、`opencode.jsonc`、`.goose`、`.cline`、`.clinerules`（Cline 會不經詢問執行 `.clinerules/hooks` 裡的 hook）、`.openhands`、`.pi`、`.agents`，以及 `.agent`、`_agents` 與 `_agent`，沒有沙箱的 Antigravity 也會從這些地方讀專案的 hook 與 MCP 伺服器，還有 `.github/hooks`、`.github/copilot`、`.github/mcp.json`、`.github/lsp.json`、`.github/extensions` 與 `.github/agents`（只在有 `.github` 資料夾時，好讓這個資料夾還建立得起來），因為 Copilot 會不經詢問執行專案 `.github/hooks` 裡的 hook，也從那裡讀它的設定、MCP 與語言伺服器、擴充功能與自訂 agent，而自訂 agent 可能指定 MCP 伺服器，以及 `.muse`，在受信任的工作區裡 Muse Code 會在它的沙箱外執行其中的 hook）、沙箱要執行的程式所在的資料夾，以及 sandbox-runtime 原本會讓任何指令寫入的地方（`/tmp/claude`、`~/.npm/_logs`、`~/.claude/debug`）。sandbox-runtime 自己也會把 `.git/hooks`、`.git/config`、`.gitmodules` 與 shell 的設定檔設為唯讀。
 - **每次執行寫自己全新的暫存資料夾**（在 Harness Relay 的資料夾裡，執行結束時刪除），不是共用的。sandbox-runtime 預設給每次執行同一個 `TMPDIR`（`/tmp/claude`）；Harness Relay 把它改掉，這樣一次執行就不能留下一個檔案（例如一份轉譯或編譯快取）讓下一次執行——也許是另一個對話的——載入並執行。
 - **host 自己的暫存資料夾**（sandbox-runtime 的 socket、它的 CA bundle）也在資料夾裡，`data/srt/<亂數>`，其他執行都讀不到：絕不放在系統的暫存資料夾，那裡其他 CLI 沙箱中的指令可以替換或刪除裡面的東西。Unix socket 的路徑在 macOS 上必須放得進 104 個位元組、Linux 上 108 個，所以資料夾路徑太長、放不下這些 socket 時（macOS 上超過 70 個位元組，Linux 上超過 61 個，以 UTF-8 計：中文字每個佔 3 個），完全存取以外會拒絕執行，並提示把 `RELAY_DATA_DIR` 設成較短的資料夾。桌面 app 的資料夾放得下，除非使用者名稱很長；很深的 checkout（例如 `.claude/worktrees/` 下的 worktree）可能放不下。
@@ -120,6 +120,7 @@ Harness Relay 啟動真正的 `claude`、`codex`、`grok`、`cursor-agent`、`ag
 - **桌面 app 視窗自己的資料夾**（app 資料夾裡的 `browser/`：macOS 是 `~/Library/Application Support/Harness Relay/browser`，Linux 是 `~/.config/Harness Relay/browser`），它的視窗把 cookie 與金鑰放在這裡；app 以 `RELAY_APP_BROWSER_DIR` 告訴伺服器。
 - **Harness Relay 的資料庫**（`relay.db` 與 SQLite 放在它旁邊的檔案，在 `data/` 裡；桌面 app 則在它自己資料夾的 `data` 裡），即使工作目錄包含它也一樣；以及沒有作業系統金鑰儲存區時，用來加密其中機密的金鑰（旁邊的 `secrets.key`，或 `RELAY_SECRETS_KEY_FILE` 指定的檔案，不論它在哪裡）。
 - **Harness Relay 自己的暫存資料夾**（`data/tmp`，桌面 app 則是它資料夾裡的 `data/tmp`），Claude Code 一輪的 `--settings` 與 MCP 設定放在這裡等它讀取，Cursor 每一輪的設定資料夾與 Copilot 每一輪的家目錄（它的設定決定它的沙箱，還有帳號登入狀態的副本）也在這裡。若放在每個沙箱都讓指令寫入的系統暫存資料夾，另一個 agent 的指令就能在 Claude Code（或 Copilot）讀取前改掉它們（關掉它的沙箱，或把自己的指令當成 MCP 伺服器，在任何沙箱之外啟動），或讀到 MCP 伺服器的秘密值。每一輪結束時會刪掉它的資料夾；伺服器在某一輪進行中停止時留下的（Claude Code 在端點上執行時，它的設定裡有端點的金鑰），會在伺服器下次啟動時刪掉（`clearRunTmp()`）。
+- **在 GitHub codespace 裡**（[在 GitHub Codespaces 試用](codespaces.zh-TW.md)），以明文存放 GitHub token 的檔案：`/workspaces/.codespaces`，Codespaces 在那裡存放 codespace 的 token、它登入各 registry 的憑證與使用者的 Codespaces secret，codespace 裡的每個程式都讀得到；以及 gh 自己的資料夾（`~/.config/gh`，或 `GH_CONFIG_DIR`、`XDG_CONFIG_HOME` 指定的位置），沒有金鑰圈時，為了分享而做的登入就存成那裡的一個檔案。agent 自己的 `gh` 與 `git` 仍用 Codespaces 給每個程式的 token（`GITHUB_TOKEN`）。只在 `CODESPACES=true` 時如此（`codespaceSecretDirs()`）：在其他地方，gh 的資料夾就是 agent 自己的 `gh` 登入的方式。
 
 各 CLI 的做法：
 
@@ -186,6 +187,12 @@ Harness Relay 本身在這三種平台上都能執行。在原生 Windows 上只
 - **Antigravity**：同上，因為 Harness Relay 不開啟它的沙箱（沒有試過）。
 - **Copilot**：它的 bubblewrap 沙箱在容器中同樣需要上方 Linux 列出的條件，包括 user 與 network namespace 以及 `/dev/net/tun`（沒有試過）。
 - **Muse Code**：它的 bubblewrap 需要 bubblewrap 需要的東西（沒有試過）。
+
+**這個 repo 的 dev container**（`.devcontainer/`，給 [GitHub Codespaces](codespaces.zh-TW.md) 用）會給 bubblewrap 它需要的條件：`securityOpt` 的 `seccomp=unconfined`、`apparmor=unconfined` 和 `systempaths=unconfined`，以及給 Copilot 沙箱的 TUN 裝置（`--device=/dev/net/tun`）；沒有用 `privileged`。2026 年 11 月 14 日在 codespace 裡試過（Debian 12、kernel 6.8、x86_64、2 核）：
+
+- 沒有這些選項時，`bwrap` 會以 `No permissions to create new namespace` 停下（Docker 的 seccomp 設定檔），所以完全存取以下的每個指令都會失敗。
+- 有了這些選項，`scripts/sandbox-check.ts` 的 51 項檢查全數通過；Codex 的沙箱（`codex sandbox`，workspace-write）寫得了工作目錄，寫不了 home 資料夾，也連不上網路；Copilot 的沙箱在 Harness Relay 的編輯模式對話裡讀不到資料庫（`Permission denied`），寫到 home 資料夾和 Harness Relay 資料夾的內容只留在沙箱裡，沒有寫到磁碟上。
+- Claude Code 的沙箱（與 Harness Relay 自己的沙箱用同一個 sandbox runtime）沒有在登入狀態下實際跑過。
 
 ### Windows
 

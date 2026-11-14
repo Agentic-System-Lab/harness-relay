@@ -288,6 +288,16 @@ export const GH_LINKS = {
 /** The official install commands (cli/cli's docs/install_macos.md and install_windows.md). */
 export const GH_INSTALL = { macos: 'brew install gh', windows: 'winget install --id GitHub.cli --source winget' };
 
+/**
+ * The command that signs gh in on the computer that serves this page (`hostname`, the page's own). In
+ * a GitHub codespace (its forwarded address, `*.app.github.dev`) `gh auth login` refuses to keep a
+ * sign-in while the token Codespaces gives every program (`GITHUB_TOKEN`) is set, and that token
+ * cannot make gists: the server's gh leaves it out (`ghEnv`), and the sign-in is made without it.
+ */
+export function ghLoginCommand(hostname: string): string {
+  return /\.app\.github\.dev$/i.test(hostname) ? 'env -u GITHUB_TOKEN gh auth login' : 'gh auth login';
+}
+
 /** Whether an error from the share routes is about the GitHub CLI: not installed, or not signed in. */
 export function ghProblem(e: unknown): typeof GH_MISSING | typeof GH_SIGNED_OUT | undefined {
   const code = typeof e === 'object' && e !== null && 'code' in e ? (e as { code?: unknown }).code : undefined;
