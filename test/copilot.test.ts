@@ -39,6 +39,7 @@ import {
   copilotProjectHooks,
   copilotReadOnlyPaths,
   copilotRepoPaths,
+  copilotKeptWritable,
   copilotToolCaches,
   copilotRunConfig,
   copilotRunSettings,
@@ -597,13 +598,17 @@ describe("what Copilot's sandbox keeps read-only below full access", () => {
     }
   });
 
-  it("gives a read-only run what git needs of each working directory's repository: its folder, and a worktree's git folders", () => {
+  it("gives a read-only run what Copilot grants git for its working directory: the repository's folder, and a worktree's git folders", () => {
     const root = mkdtempSync(join(tmpdir(), 'relay-copilot-repo-'));
     try {
+      const home = join(root, 'home');
+      mkdirSync(home);
       // A folder below a repository's: the repository's folder (its .git with it).
       const repo = join(root, 'repo');
       mkdirSync(join(repo, '.git'), { recursive: true });
       mkdirSync(join(repo, 'sub', 'deeper'), { recursive: true });
+      expect(copilotRepoPaths(join(repo, 'sub', 'deeper'), home)).toEqual([repo]);
+      expect(copilotRepoPaths(repo, home)).toEqual([repo]);
       // A worktree of git's: its folder, its git folder and the repository's own (commondir, relative).
       const main = join(root, 'main');
       const held = join(main, '.git', 'worktrees', 'wt');
@@ -612,23 +617,34 @@ describe("what Copilot's sandbox keeps read-only below full access", () => {
       const wt = join(root, 'wt');
       mkdirSync(wt);
       writeFileSync(join(wt, '.git'), `gitdir: ${held}\n`);
-      // A submodule's: a git folder without commondir.
-      const modHeld = join(repo, '.git', 'modules', 'm');
-      mkdirSync(modHeld, { recursive: true });
+      expect(copilotRepoPaths(wt, home)).toEqual([wt, held, join(main, '.git')]);
+      // A submodule's (a git folder without commondir): its folder alone, as Copilot grants it.
+      mkdirSync(join(repo, '.git', 'modules', 'm'), { recursive: true });
       const mod = join(repo, 'm');
       mkdirSync(mod);
       writeFileSync(join(mod, '.git'), 'gitdir: ../.git/modules/m\n');
-      // Not in a repository at all: nothing.
-      const plain = join(root, 'plain');
-      mkdirSync(plain);
-      expect(copilotRepoPaths([join(repo, 'sub', 'deeper'), wt, mod, plain, repo])).toEqual([repo, wt, held, join(main, '.git'), mod, modHeld]);
+      expect(copilotRepoPaths(mod, home)).toEqual([mod]);
       // A .git file that names no git folder, or one that is gone: the folder alone.
       const odd = join(root, 'odd');
       mkdirSync(odd);
       writeFileSync(join(odd, '.git'), 'not a gitdir line\n');
-      expect(copilotRepoPaths([odd])).toEqual([odd]);
+      expect(copilotRepoPaths(odd, home)).toEqual([odd]);
       writeFileSync(join(odd, '.git'), `gitdir: ${join(root, 'gone')}\n`);
-      expect(copilotRepoPaths([odd])).toEqual([odd]);
+      expect(copilotRepoPaths(odd, home)).toEqual([odd]);
+      // Not in a repository at all: nothing.
+      const plain = join(root, 'plain');
+      mkdirSync(plain);
+      expect(copilotRepoPaths(plain, home)).toEqual([]);
+      // A repository rooted at the home folder (dotfiles), or above it: nothing, as Copilot grants
+      // nothing there either, so the rest of the home folder (~/.ssh) stays out of reach.
+      mkdirSync(join(home, 'proj'));
+      mkdirSync(join(home, '.git'));
+      expect(copilotRepoPaths(join(home, 'proj'), home)).toEqual([]);
+      expect(copilotRepoPaths(home, home)).toEqual([]);
+      const above = join(root, 'above');
+      mkdirSync(join(above, 'user', 'proj'), { recursive: true });
+      mkdirSync(join(above, '.git'));
+      expect(copilotRepoPaths(join(above, 'user', 'proj'), join(above, 'user'))).toEqual([]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -686,6 +702,15 @@ describe("Copilot's sandbox policy, checked before each turn below full access",
     expect(copilotPolicyProblem(printed, { ...given, addDirs: ['/work/other'] })).toBe('/work/other is not among its read-only paths');
     // Edit mode wants the other ones read-write, as before: the read-only policy does not do.
     expect(copilotPolicyProblem(printed, { ...given, permission: 'edit' })).toBe('/work/outside is not among its read-write paths');
+  });
+
+  it('names a working directory its sandbox keeps writable by itself (a temporary folder) in a read-only run', () => {
+    const printed = readFileSync(join(FIX, 'policy-read-only.txt'), 'utf8');
+    // The system's /tmp is among its read-write paths: a read-only chat whose working directory it is.
+    const inTmp = printed.replace('Effective sandbox policy for /work/app', 'Effective sandbox policy for /tmp').split('/work/app').join('/tmp');
+    expect(copilotPolicyProblem(inTmp, { ...readOnly, cwd: '/tmp', protectedPaths: ['/work/secret'], addDirs: ['/work/outside'] }, 'linux')).toBe('/tmp is among its read-write paths');
+    expect(copilotKeptWritable(inTmp, ['/tmp', '/work/outside'], 'linux')).toBe('/tmp');
+    expect(copilotKeptWritable(printed, [CWD, '/work/outside'], 'linux')).toBeUndefined();
   });
 
   it('compares paths on Windows without letter case, and either slash', () => {
@@ -1186,6 +1211,15 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
     const below = run(undefined, { permission: 'read-only', cwd: other });
     await copilotRunner.run(below.o);
     expect(JSON.parse(below.log()[0]!.files['settings.json']).sandbox.userPolicy.filesystem.readonlyPaths).toEqual(expect.arrayContaining([other, repo]));
+    // Another working directory in a repository gets its own folder alone, as Copilot grants it (in edit mode too).
+    const elsewhere = join(root, `elsewhere-${n}`);
+    mkdirSync(join(elsewhere, '.git'), { recursive: true });
+    mkdirSync(join(elsewhere, 'notes'));
+    const others = run(undefined, { permission: 'read-only', cwd: repo, addDirs: [join(elsewhere, 'notes')] });
+    await copilotRunner.run(others.o);
+    const ro = JSON.parse(others.log()[0]!.files['settings.json']).sandbox.userPolicy.filesystem.readonlyPaths;
+    expect(ro).toContain(join(elsewhere, 'notes'));
+    expect(ro).not.toContain(elsewhere);
     // Edit mode: the other one read-write, the working directory through Copilot's own setting, the repository not added.
     const edit = run(undefined, { permission: 'edit', cwd: repo, addDirs: [other] });
     await copilotRunner.run(edit.o);
@@ -1197,6 +1231,14 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
     const old = run('ro-deny', { permission: 'read-only' });
     await expect(withLang('en', () => copilotRunner.run(old.o))).rejects.toThrow(`${old.o.cwd} is not among its read-only paths`);
     expect(old.log().filter((l) => l.method === 'session/prompt')).toHaveLength(1);
+  });
+
+  it('says plainly why a read-only chat cannot run where its sandbox keeps the working directory writable by itself', async () => {
+    // As Copilot lists a temporary folder among its read-write paths (here through its dev-tool section).
+    const r = run(undefined, { permission: 'read-only' });
+    r.o.env = { ...r.o.env, FAKE_COPILOT_DEV_WRITES: r.o.cwd };
+    await expect(withLang('en', () => copilotRunner.run(r.o))).rejects.toThrow(withLang('en', () => t().copilotKeptWritable(r.o.cwd)));
+    expect(r.log().filter((l) => l.method === 'session/prompt')).toHaveLength(1);
   });
 
   it("checks a read-only run's sandbox in a start of its own before a project's hooks run, naming the run's own working directory", async () => {
