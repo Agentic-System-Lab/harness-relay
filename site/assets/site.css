@@ -2228,15 +2228,78 @@ html:not(.js) .theme-toggle {
   }
 }
 
-/* The header's name, its language switch and its buttons do not fit on one line below 465px: the name
-   goes, the logo stays (the link keeps its label for screen readers). */
-@media (max-width: 480px) {
+/* The header's name, its language switch and its buttons, with the header's wider gaps, fit on one
+   line from some 481px: below 500px the name goes, the logo stays (the link keeps its label for screen
+   readers). */
+@media (max-width: 500px) {
   .brand span {
     display: none;
   }
 
   .header-row {
     gap: 12px;
+  }
+}
+
+/* No page scrolls sideways, down to a 280px screen (the narrowest phones', folded; measured in Chromium
+   at every width from 280px, test/site-header.test.ts): a long command or package name in the text
+   breaks where it must, the approval card's buttons wrap, the headline scales with the screen so that
+   the phrases it keeps whole fit, and the header's controls draw closer. */
+@media (max-width: 480px) {
+  :not(pre) > code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .ui-approval .ui-btn {
+    white-space: normal;
+  }
+}
+
+@media (max-width: 380px) {
+  h1 {
+    font-size: min(2.6rem, 11.4vw);
+  }
+}
+
+@media (max-width: 360px) {
+  :root {
+    --gutter: 12px;
+  }
+
+  .header-row {
+    gap: 8px;
+  }
+
+  .header-tools {
+    gap: 6px;
+  }
+
+  .lang a {
+    padding: 4px 8px;
+  }
+
+  .header-tools .btn {
+    padding: 0 8px;
+  }
+
+  .header-tools .btn:has(.stars:not([hidden])) {
+    padding-right: 10px;
+  }
+
+  .header-tools .btn.theme-toggle {
+    width: 32px;
+    min-width: 32px;
+  }
+
+  .stars {
+    padding-left: 8px;
+  }
+}
+
+@media (max-width: 300px) {
+  .lang a {
+    padding: 4px 6px;
   }
 }
 
@@ -2403,8 +2466,10 @@ body:has(.cs-dialog[open]) {
 
 .cs-actions {
   display: flex;
-  /* One line, also on a phone: the rules for narrow screens below make it fit. */
-  flex-wrap: nowrap;
+  /* One line, also on a phone: the rules for narrow screens below make it fit at every width from
+     280px, in both languages. Only where a phone's fonts are wider still does it wrap: two lines rather
+     than a dialog that scrolls sideways. */
+  flex-wrap: wrap;
   align-items: center;
   gap: 20px;
   /* Kept at the dialog's bottom while the rest scrolls under it (the dialog is what scrolls), across
@@ -2468,5 +2533,31 @@ body:has(.cs-dialog[open]) {
   .cs-actions .btn,
   .cs-actions .text-link {
     font-size: 13px;
+  }
+}
+
+@media (max-width: 320px) {
+  .cs-dialog {
+    --cs-pad: 12px;
+    width: calc(100% - 8px);
+  }
+
+  .cs-actions {
+    gap: 6px;
+  }
+
+  .cs-actions .btn {
+    padding: 0 10px;
+  }
+
+  .cs-actions .btn,
+  .cs-actions .text-link {
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 295px) {
+  .cs-dialog {
+    --cs-pad: 10px;
   }
 }
