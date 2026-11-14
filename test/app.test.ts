@@ -13,6 +13,7 @@ import {
   SHARE_FILE_URL_MAX,
   SHARE_MAX_BYTES,
   DEFAULT_LIMITS,
+  type ChatMessage,
   type CliLoginView,
   type Conversation,
   type ConversationSummary,
@@ -52,6 +53,7 @@ const noPicker: FolderPicker = { available: () => false, pick: async () => [] };
 let app: ReturnType<typeof createApp>;
 let orchestrator: InstanceType<typeof Orchestrator>;
 let store: InstanceType<typeof Store>;
+let hub: InstanceType<typeof Hub>;
 let project: string;
 let n = 0;
 
@@ -75,7 +77,7 @@ beforeEach(() => {
   const db = openDatabase(':memory:');
   const settings = new SettingsStore(db);
   store = new Store(db);
-  const hub = new Hub();
+  hub = new Hub();
   orchestrator = new Orchestrator(store, hub, settings);
   app = createApp({ auth: null, store, settings, hub, orchestrator, providers: new ProviderService(settings), folderPicker: noPicker });
   project = join(root, `project-${++n}`);
@@ -1137,9 +1139,82 @@ describe('a team design waiting for confirmation', () => {
     expect(store.get(conv.id)!.messages[1]!.plan!.awaitingConfirmation).toBeUndefined();
     // The team set by hand is the one that answers, not the design.
     expect(store.get(conv.id)!.agents.map((a) => a.name)).toEqual(['Zed']);
+    // Its card shows that team, confirmed, and says the user adjusted it.
+    expect(store.get(conv.id)!.messages[1]!.plan).toMatchObject({
+      agents: [{ name: 'Zed', role: 'Mine.' }],
+      confirmedAt: expect.any(Number),
+      adjustedAt: expect.any(Number),
+    });
     await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(true));
     orchestrator.stop(conv.id);
     await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+  });
+
+  it('is confirmed as it is by its own team saved unchanged, which says nothing of an adjustment', async () => {
+    const conv = await waiting();
+    const live = store.get(conv.id)!;
+    live.messages[1]!.plan!.settings = { mode: 'roundtable', rounds: 1, maxHops: 8 };
+    const res = await app.request(`/api/conversations/${conv.id}`, json('PATCH', { agents: live.messages[1]!.plan!.agents }));
+    expect(res.status).toBe(200);
+    expect(live.messages[1]!.plan!.confirmedAt).toEqual(expect.any(Number));
+    expect(live.messages[1]!.plan!.adjustedAt).toBeUndefined();
+    orchestrator.stop(conv.id);
+    await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+  });
+
+  it('once used, shows the team as the user changes it later, and only while it is the team', async () => {
+    const conv = await waiting();
+    const live = store.get(conv.id)!;
+    const plan = live.messages[1]!.plan!;
+    delete plan.awaitingConfirmation;
+    plan.confirmedAt = 1;
+    plan.settings = { mode: 'roundtable', rounds: 1, maxHops: 8 };
+    const events: { type: string; message?: ChatMessage }[] = [];
+    const off = hub.subscribe(conv.id, (e) => events.push(e as never));
+    const patch = (body: Record<string, unknown>) => app.request(`/api/conversations/${conv.id}`, json('PATCH', body));
+    try {
+      // A member renamed in the team drawer.
+      expect((await patch({ agents: [{ ...live.agents[0]!, name: 'Ada' }] })).status).toBe(200);
+      expect(plan.agents!.map((a) => a.name)).toEqual(['Ada']);
+      expect(plan.adjustedAt).toEqual(expect.any(Number));
+      expect(store.get(conv.id)!.messages[1]!.plan!.agents!.map((a) => a.name)).toEqual(['Ada']);
+      // The chat hears of it.
+      expect(events.some((e) => e.type === 'message' && e.message?.id === 'plan' && e.message.plan?.agents?.[0]?.name === 'Ada')).toBe(true);
+      // How they take turns, changed alone.
+      expect((await patch({ settings: { ...live.settings, mode: 'relay', maxHops: 4 } })).status).toBe(200);
+      expect(plan.settings).toEqual({ mode: 'relay', rounds: 1, maxHops: 4 });
+      // Saved again as it is: nothing to tell.
+      events.length = 0;
+      expect((await patch({ agents: live.agents })).status).toBe(200);
+      expect(events.filter((e) => e.type === 'message')).toEqual([]);
+
+      // A later design declined: the team is not that design's, and neither card changes.
+      plan.declinedAt = undefined;
+      live.messages.push({
+        id: 'no',
+        author: { kind: 'system' },
+        createdAt: Date.now(),
+        parts: [],
+        status: 'done',
+        plan: { status: 'ready', lead: { provider: 'claude' }, source: 'custom', agents: [{ id: 'z', name: 'Zed', provider: 'claude', role: '' }], declinedAt: 2 },
+      });
+      expect((await patch({ agents: [{ ...live.agents[0]!, name: 'Bea' }] })).status).toBe(200);
+      expect(plan.agents!.map((a) => a.name)).toEqual(['Ada']);
+      expect(live.messages[2]!.plan!.agents!.map((a) => a.name)).toEqual(['Zed']);
+      expect(live.messages[2]!.plan!.adjustedAt).toBeUndefined();
+    } finally {
+      off();
+    }
+  });
+
+  it('is left waiting, as the lead designed it, when only the settings change', async () => {
+    const conv = await waiting();
+    const live = store.get(conv.id)!;
+    const res = await app.request(`/api/conversations/${conv.id}`, json('PATCH', { settings: { ...live.settings, mode: 'relay' } }));
+    expect(res.status).toBe(200);
+    expect(live.messages[1]!.plan).toMatchObject({ awaitingConfirmation: true });
+    expect(live.messages[1]!.plan!.adjustedAt).toBeUndefined();
+    expect(orchestrator.isRunning(conv.id)).toBe(false);
   });
 
   it("is changed by the lead agent at the user's request, then saved: the changed team answers", async () => {

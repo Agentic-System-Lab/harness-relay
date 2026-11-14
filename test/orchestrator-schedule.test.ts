@@ -694,7 +694,7 @@ describe('schedules', () => {
       await orchestrator.designForSchedule(conv.id);
       await finish(conv.id);
       conv.agents = [agents[0]!];
-      expect(orchestrator.confirmPendingPlan(conv)).toBe(true);
+      expect(orchestrator.teamSetByHand(conv, true)).toBe(true);
       expect(orchestrator.startConfirmed(conv)).toBe(false);
       expect(orchestrator.isRunning(conv.id)).toBe(false);
     });

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
 import { LEAD_REVIEW, awaitingPlan, composer, finishedReply, openNewChat, openTeamChat, replies, reviewCards, send, settled, startChat } from '../support/app';
 
@@ -8,6 +9,19 @@ import { LEAD_REVIEW, awaitingPlan, composer, finishedReply, openNewChat, openTe
  * look and suggests the next steps. The fake lead agent flags the first words of the first reply as a
  * risk, and suggests a step for the user and one for the team (`reviewReply` in e2e/fake-cli/lib/plan.cjs).
  */
+/** The words a review point's @name just jumped to (the `review-focus` highlight). */
+const focusedWords = (page: Page) =>
+  page.evaluate(() => [...(CSS.highlights.get('review-focus') ?? [])].map((r) => (r as Range).toString()));
+
+/** How far the middle of the latest `review-<kind>` mark is from the middle of the chat's message list, in pixels; null when there is none. */
+const markOffCentre = (page: Page, kind: string) =>
+  page.evaluate((kind) => {
+    const range = [...(CSS.highlights.get(`review-${kind}`) ?? [])].at(-1) as Range | undefined;
+    const box = document.querySelector('.messages')!.getBoundingClientRect();
+    const rect = range?.getBoundingClientRect();
+    return rect ? Math.round(Math.abs(rect.top + rect.height / 2 - (box.top + box.height / 2))) : null;
+  }, kind);
+
 test.describe('lead review', () => {
   test("the lead agent reviews the team's replies, marks the words it quotes in the reply, and its next step for the team goes into the message box", async ({
     page,
@@ -38,8 +52,11 @@ test.describe('lead review', () => {
     await expect(tag).toBeVisible();
     await tag.click();
     await expect(card).toHaveClass(/flash/);
+    // The point's @name goes to the words it quotes, shown for a moment over their mark, and focus goes to their reply.
     await card.getByRole('button', { name: '@Claude' }).click();
-    await expect(reply).toHaveClass(/flash/);
+    await expect.poll(() => focusedWords(page)).toEqual(['Hello from Claude (Claude']);
+    await expect(reply).toBeFocused();
+    await expect.poll(() => focusedWords(page), { timeout: 5_000 }).toEqual([]);
 
     await card.getByRole('button', { name: 'Ask the team' }).click();
     await expect(composer(page)).toHaveValue('@Claude please go on with the next part.');
@@ -249,9 +266,12 @@ test.describe('lead review', () => {
     expect(await create(false)).toBeUndefined();
   });
 
-  test("a shared chat keeps the lead agent's review, without the app's buttons or the design card's box", async ({ page, relay }) => {
+  test("a shared chat keeps the lead agent's review, with its marks, and each point's @name links to the words it quotes, without the app's buttons or the design card's box", async ({
+    page,
+    relay,
+  }) => {
     const id = await startChat(page, { autoConfirm: true, leadReview: true, title: 'Reviewed chat' });
-    await send(page, 'Check my plan');
+    await send(page, 'Check my plan e2e:long');
     await finishedReply(page, 'Claude');
     await expect(reviewCards(page)).toContainText('Suggested next steps');
     await expect(page.locator('.plan-review')).toHaveCount(1);
@@ -268,13 +288,57 @@ test.describe('lead review', () => {
     // The review: its summary, the point and the member it is about (as text), the steps.
     expect(body).toContain("Lead agent's review");
     expect(body).toContain('The fake lead agent read 1 reply.');
-    expect(body).toMatch(/<span class="review-reply-link"[^>]*>@Claude<\/span>/);
+    // The point's @name links to the words it quotes, marked in the reply as in the chat (no script runs there).
+    const target = /<a class="review-reply-link" href="#(quote-[^"]+-0)">@Claude<\/a>/.exec(body)?.[1];
+    expect(target).toBeDefined();
+    expect(body).toContain(`<mark class="review-quote-mark risk" id="${target}">Hello from Claude (Claude</mark>`);
     expect(body).toContain('Try the answer yourself.');
     // The design card's box, the step's button and the reply's tag are the app's own.
     expect(body).not.toContain('class="plan-review"');
     expect(body).not.toContain('Ask the team');
     expect(body).not.toContain('to note');
     expect(body).not.toContain('<button');
+
+    // Opened as gistpreview shows it, the link brings the words into view, set apart from other marks.
+    const shared = await page.context().newPage();
+    await shared.route('https://share.e2e.test/**', (route) => route.fulfill({ contentType: 'text/html', body: html }));
+    await shared.goto(`https://share.e2e.test/?${gistId}`);
+    const words = shared.locator('mark.review-quote-mark');
+    await shared.locator('.messages').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+    await expect(words).not.toBeInViewport();
+    await shared.locator('a.review-reply-link').click();
+    await expect(words).toBeInViewport();
+    await expect(shared).toHaveURL(new RegExp(`#${target}$`));
+    expect(await words.evaluate((el) => el.matches(':target') && getComputedStyle(el).textDecorationLine)).toBe('underline');
+    await shared.close();
+  });
+
+  test("a point's @name brings the words it quotes to the middle of the chat, at the top of a reply taller than the window", async ({ page, relay }) => {
+    const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { leadReview: true });
+    // A first answer and its review above, so the chat can scroll the next one's first words to its middle.
+    await send(page, 'Tell me everything e2e:long');
+    await finishedReply(page, 'Claude');
+    // Reviewed before the next message, which would stop the review.
+    await settled(relay, id);
+    await expect(reviewCards(page)).toHaveCount(1);
+    await send(page, 'And more e2e:long');
+    await expect(reviewCards(page)).toHaveCount(2);
+    const reply = await finishedReply(page, 'Claude');
+    const card = reviewCards(page).last();
+    await expect(card.locator('.review-quote')).toHaveText('Hello from Claude (Claude');
+    await settled(relay, id);
+    // The words are the reply's first: with the card in view, they are far above it.
+    const messages = page.locator('.messages');
+    expect(await reply.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThan(await messages.evaluate((el) => el.clientHeight));
+    await card.scrollIntoViewIfNeeded();
+    expect(await markOffCentre(page, 'risk')).toBeGreaterThan(200);
+
+    await card.getByRole('button', { name: '@Claude' }).click();
+    await expect.poll(() => markOffCentre(page, 'risk')).toBeLessThan(30);
+    await expect.poll(() => focusedWords(page)).toEqual(['Hello from Claude (Claude']);
+    // It stays there: the chat does not follow its end again.
+    await page.waitForTimeout(500);
+    expect(await markOffCentre(page, 'risk')).toBeLessThan(30);
   });
 
   test('marks words it quotes across the items of a list in the reply, in the colour of its kind', async ({ page, relay }) => {

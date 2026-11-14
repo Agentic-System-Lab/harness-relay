@@ -1046,7 +1046,7 @@ export function createApp({
       }
       conv.agents = agents;
       conv.settings = next;
-      if (b.agents) confirmed = orchestrator.confirmPendingPlan(conv);
+      confirmed = orchestrator.teamSetByHand(conv, Boolean(b.agents));
       return save();
     });
     // The team set by hand answers the question its design was for.

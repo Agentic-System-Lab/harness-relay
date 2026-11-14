@@ -44,12 +44,15 @@ import {
   messagesUpTo,
   shareDocument,
   shareFooter,
+  shareQuotes,
+  shareReviewLinks,
   shareScope,
   ghLoginCommand,
   ghProblem,
   GH_INSTALL,
   GH_LINKS,
 } from '../src/web/share';
+import { quoteElementId, scrollToCenter } from '../src/web/review';
 import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
 
@@ -118,6 +121,57 @@ describe('what a shared page holds', () => {
     expect(linkKept('/api/conversations/x/messages/y/download?path=a.txt')).toBe(false);
     expect(linkKept('javascript:alert(1)')).toBe(false);
     expect(linkKept(null)).toBe(false);
+  });
+});
+
+describe("the lead agent's review on a shared page", () => {
+  const review = (id: string, status: 'ready' | 'failed', highlights: NonNullable<ChatMessage['review']>['highlights']): ChatMessage =>
+    ({ id, author: { kind: 'system' }, parts: [], status: 'done', createdAt: 0, review: { status, lead: { provider: 'claude' }, highlights } }) as ChatMessage;
+  const messages = [
+    msg('q'),
+    { ...msg('r1'), author: { kind: 'agent', agentId: 'a' } } as ChatMessage,
+    review('rev', 'ready', [
+      { kind: 'risk', note: 'Check it.', messageId: 'r1', agentName: 'Claude', quote: 'Hello from Claude' },
+      { kind: 'note', note: 'All of them.' },
+      { kind: 'decision', note: 'Yours.', messageId: 'r1', agentName: 'Claude' },
+      { kind: 'verify', note: 'Gone since.', messageId: 'gone', agentName: 'Codex', quote: 'lost words' },
+      { kind: 'conflict', note: 'Unnamed.', messageId: 'r1', quote: 'from' },
+    ]),
+    review('failed', 'failed', [{ kind: 'risk', note: 'x', messageId: 'r1', agentName: 'Claude', quote: 'Hello' }]),
+  ];
+
+  it("marks the words each ready review quotes in the reply they come from, under ids of the review's points", () => {
+    expect(shareQuotes(messages)).toEqual([
+      { id: 'quote-rev-0', replyId: 'r1', quote: 'Hello from Claude', kind: 'risk' },
+      { id: 'quote-rev-3', replyId: 'gone', quote: 'lost words', kind: 'verify' },
+      { id: 'quote-rev-4', replyId: 'r1', quote: 'from', kind: 'conflict' },
+    ]);
+    expect(quoteElementId('rev', 0)).toBe('quote-rev-0');
+  });
+
+  it("links each point's @name to its words where they were marked, else to its reply on the page, else nowhere", () => {
+    const links = shareReviewLinks(messages, new Set(['quote-rev-0', 'quote-rev-4']), new Set(['q', 'r1']));
+    expect(links).toEqual([
+      { reviewId: 'rev', index: 0, href: '#quote-rev-0' },
+      // No words: its reply.
+      { reviewId: 'rev', index: 2, href: '#msg-r1' },
+      // A reply that is not on the page, and a point without an @name on its card, are left as they are.
+    ]);
+    // Words not found in the reply: the reply.
+    expect(shareReviewLinks(messages, new Set(), new Set(['r1']))[0]).toEqual({ reviewId: 'rev', index: 0, href: '#msg-r1' });
+  });
+});
+
+describe('jumping to the words a review point quotes', () => {
+  const view = { top: 100, height: 600 };
+
+  it('puts them in the middle of the view', () => {
+    expect(scrollToCenter({ top: 1000, height: 20 }, view)).toBe(1000 + 10 - 400);
+    expect(scrollToCenter({ top: 110, height: 20 }, view)).toBe(110 + 10 - 400);
+  });
+
+  it('starts words taller than most of the view near its top, so their first line shows', () => {
+    expect(scrollToCenter({ top: 1000, height: 500 }, view)).toBe(1000 - 100 - 16);
   });
 });
 

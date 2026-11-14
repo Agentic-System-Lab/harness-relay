@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { PROVIDERS, planSavable, type AgentConfig, type ChatMessage, type ProviderModels, type TeamPreset } from '../src/shared/types';
+import { PROVIDERS, currentPlan, planSavable, type AgentConfig, type ChatMessage, type ProviderModels, type TeamPlan, type TeamPreset } from '../src/shared/types';
 import { withLang } from '../src/server/i18n';
 import {
   buildPlannerPrompt,
@@ -14,6 +14,7 @@ import {
   keepMemberIds,
   libraryForLead,
   parsePlanReply,
+  planFollowsTeam,
   plannerContext,
   PLANNER_BRIEFING,
   REVISER_BRIEFING,
@@ -882,6 +883,84 @@ describe('changing a team at the user\'s request', () => {
 
   it('tells the lead it cannot clear a role', () => {
     expect(buildRevisePrompt('x', draft, where, ctx)).toContain("or to clear a member's role, which the user does in the editor");
+  });
+});
+
+describe('a team design and the team set by hand', () => {
+  const alice: AgentConfig = { id: 'a', name: 'Alice', provider: 'claude', role: 'Plan it.' };
+  const bob: AgentConfig = { id: 'b', name: 'Bob', provider: 'codex', role: 'Build it.', model: 'gpt-5' };
+  const roundtable = { mode: 'roundtable' as const, rounds: 2, maxHops: 8 };
+  const design = (more: Partial<TeamPlan> = {}): TeamPlan => ({
+    status: 'ready',
+    lead: { provider: 'claude' },
+    source: 'custom',
+    name: 'Duo',
+    settings: { ...roundtable },
+    agents: [alice, bob],
+    confirmedAt: 1,
+    ...more,
+  });
+
+  it('shows the members and the way they take turns as the user set them, and when', () => {
+    const plan = design({ savedPresetId: 'user-1' });
+    const carol: AgentConfig = { id: 'c', name: 'Carol', provider: 'grok', role: 'Test it.' };
+    expect(planFollowsTeam(plan, { agents: [alice, carol], settings: { mode: 'relay', rounds: 2, maxHops: 4 } }, 42)).toBe(true);
+    expect(plan.agents!.map((a) => a.name)).toEqual(['Alice', 'Carol']);
+    expect(plan.settings).toEqual({ mode: 'relay', rounds: 2, maxHops: 4 });
+    expect(plan.adjustedAt).toBe(42);
+    // The template saved before is of the team as it was: the card offers to save this one.
+    expect(plan.savedPresetId).toBeUndefined();
+    // Its own copies: the conversation's members changing later does not change the card.
+    carol.name = 'Dana';
+    expect(plan.agents![1]!.name).toBe('Carol');
+    // What the lead decided stays.
+    expect(plan).toMatchObject({ source: 'custom', name: 'Duo', confirmedAt: 1 });
+  });
+
+  it('changes nothing for the team as the design has it, however its empty fields are written', () => {
+    const plan = design({ savedPresetId: 'user-1' });
+    const same = [
+      { ...alice, role: ' Plan it. ', model: '', effort: undefined },
+      { ...bob, id: 'other', tools: {} },
+    ];
+    expect(planFollowsTeam(plan, { agents: same, settings: { ...roundtable, maxHops: 3 } }, 42)).toBe(false);
+    expect(plan.adjustedAt).toBeUndefined();
+    expect(plan.savedPresetId).toBe('user-1');
+    // Hops count only in relay, rounds only outside it.
+    const relay = design({ settings: { mode: 'relay', rounds: 1, maxHops: 8 } });
+    expect(planFollowsTeam(relay, { agents: [alice, bob], settings: { mode: 'relay', rounds: 5, maxHops: 8 } })).toBe(false);
+  });
+
+  it('counts a change of order, model, effort, account or tools, which a template saved from it would keep', () => {
+    const team = (agents: AgentConfig[]) => ({ agents, settings: roundtable });
+    expect(planFollowsTeam(design(), team([bob, alice]))).toBe(true);
+    expect(planFollowsTeam(design(), team([alice, { ...bob, model: 'gpt-5-mini' }]))).toBe(true);
+    expect(planFollowsTeam(design(), team([alice, { ...bob, effort: 'high' }]))).toBe(true);
+    expect(planFollowsTeam(design(), team([alice, { ...bob, account: 'work' }]))).toBe(true);
+    expect(planFollowsTeam(design(), team([alice, { ...bob, tools: { memory: false } }]))).toBe(true);
+    expect(planFollowsTeam(design(), { agents: [alice, bob], settings: { ...roundtable, rounds: 3 } })).toBe(true);
+    expect(planFollowsTeam(design({ settings: undefined }), team([alice, bob]))).toBe(true);
+  });
+
+  it('is the latest design, when the conversation used it', () => {
+    const msg = (id: string, plan?: Partial<TeamPlan>): ChatMessage => ({
+      id,
+      author: { kind: plan ? 'system' : 'user' },
+      createdAt: 0,
+      parts: [],
+      status: 'done',
+      ...(plan ? { plan: design(plan) } : {}),
+    });
+    const used = msg('used', {});
+    expect(currentPlan([msg('q'), used, msg('q2')])?.id).toBe('used');
+    // From before confirmation was asked: used at once.
+    expect(currentPlan([msg('old', { confirmedAt: undefined })])?.id).toBe('old');
+    // A later design declined, or still waiting: the conversation kept the team it had, which no design shows.
+    expect(currentPlan([used, msg('no', { confirmedAt: undefined, declinedAt: 2 })])).toBeUndefined();
+    expect(currentPlan([used, msg('wait', { confirmedAt: undefined, awaitingConfirmation: true })])).toBeUndefined();
+    // One still being designed is not one yet.
+    expect(currentPlan([used, msg('designing', { status: 'planning' })])?.id).toBe('used');
+    expect(currentPlan([msg('q')])).toBeUndefined();
   });
 });
 

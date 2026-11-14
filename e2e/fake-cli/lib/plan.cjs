@@ -29,6 +29,7 @@ const DIRECTIVES = {
   fail: 'exit with an error on stderr',
   error: "fail the turn inside the CLI's protocol (Claude's error result, a failed Codex turn, a JSON-RPC error over ACP)",
   flaky: 'fail the first time this message is answered, answer the next time (a retry)',
+  long: 'answer with forty short paragraphs, before what `e2e:markdown` writes (a reply taller than the window)',
   markdown: 'answer with a heading, a list, a table and a code block',
   mermaid: 'answer with a Mermaid diagram (a ```mermaid code block)',
   widecode: 'answer with a code block of one line far wider than a phone, which scrolls sideways',
@@ -223,6 +224,7 @@ function plan(prompt, turn) {
   if (turn.mcp && turn.mcp.length) text += ` My tool library's MCP servers: ${turn.mcp.join(', ')}.`;
   if (d.memory) text += memoryIn(turn.briefing) ? ` My memory: “${memoryIn(turn.briefing)}”.` : ' I have no memory notes.';
   if (d.skills) text += readSkills(turn);
+  if (d.long) text += Array.from({ length: 40 }, (_, i) => `\n\nPadding paragraph ${i + 1} of a long reply.`).join('');
   if (d.markdown) {
     text += '\n\n## Fake findings\n\n- first point\n- second point\n\n| CLI | Fake |\n| --- | --- |\n| ' + self.label() + ' | yes |\n\n```js\nconst answer = 42;\n```';
   }
