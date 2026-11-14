@@ -3,6 +3,7 @@ import {
   type AgentConfig,
   type ChatMessage,
   type Conversation,
+  type LeadReview,
   type Provider,
   type TeamPlan,
 } from '../shared/types';
@@ -127,14 +128,38 @@ export function planHeadline(plan: TeamPlan, t: Messages): string {
   }
 }
 
+/** The lead agent's review as Markdown: its summary, what it points out and the next steps. */
+export function reviewMarkdown(review: LeadReview, t: Messages): string {
+  const lines = [`*${t.review.title}*${review.summary ? `: ${review.summary}` : ''}`];
+  const highlights = review.highlights ?? [];
+  if (highlights.length) {
+    lines.push('', `**${t.review.attention}**`, '');
+    for (const h of highlights) {
+      const who = h.agentName ? ` · @${h.agentName}` : '';
+      const words = h.quote ? ` “${h.quote.replace(/\s+/g, ' ')}”` : '';
+      lines.push(`- **${t.review.kinds[h.kind]}**${who}:${words} ${h.note}`);
+    }
+  }
+  const steps = review.nextSteps ?? [];
+  if (steps.length) {
+    lines.push('', `**${t.review.nextSteps}**`, '');
+    steps.forEach((step, i) => lines.push(`${i + 1}. (${step.by === 'team' ? t.review.byTeam : t.review.byUser}) ${step.text}`));
+  }
+  return lines.join('\n');
+}
+
 /** The whole conversation as Markdown: one block per message, labelled with who said it. */
 export function conversationMarkdown(conv: Conversation, t: Messages): string {
   const blocks: string[] = [];
   for (const m of conv.messages) {
     const text = closeFences(messageText(m));
     if (m.author.kind === 'system') {
+      // A review that is not ready (being written, stopped, failed) says nothing of the replies.
+      if (m.review) {
+        if (m.review.status === 'ready') blocks.push(reviewMarkdown(m.review, t));
+      }
       // A declined design did not answer: say so.
-      if (m.plan?.status === 'ready') {
+      else if (m.plan?.status === 'ready') {
         blocks.push(`*${t.plan.title}: ${planHeadline(m.plan, t)}${m.plan.declinedAt ? ` (${t.plan.declined})` : ''}*`);
       }
       else if (text) blocks.push(`*${text}*`);

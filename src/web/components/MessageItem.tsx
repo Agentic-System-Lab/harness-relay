@@ -8,7 +8,9 @@ import {
   type ChatMessage,
   type MessageMeta,
   type PlanEntry,
+  type ReviewHighlight,
 } from '../../shared/types';
+import type { ReplyMarks } from '../../shared/review';
 import { splitAsk } from '../../shared/ask';
 import { api } from '../api';
 import {
@@ -33,6 +35,7 @@ import { BranchIcon, ClockIcon, CopyIcon, PaperclipIcon, PencilIcon, RetryIcon, 
 import { Logo } from './Logo';
 import { Markdown } from './Markdown';
 import { RoleText } from './RoleText';
+import { markQuotes, replyElementId, revealMessage, reviewElementId } from '../review';
 
 /**
  * A tool call's detail on one line. A path too long for it loses its start, not its file name: it is
@@ -338,6 +341,10 @@ interface Props {
   onSkipQuestion?: () => void;
   /** Copy or share the conversation up to and including this reply. */
   onShare?: (messageId: string) => void;
+  /** What the lead agent's reviews point out in this reply (lead review): marked in it. */
+  marks?: ReplyMarks;
+  /** Put a next step the lead agent suggests in the message box (lead review). */
+  onUseStep?: (text: string) => void;
   /** Branch the conversation from this reply: a new one with the messages up to and including it. */
   onBranch?: (messageId: string) => void;
 }
@@ -475,6 +482,119 @@ function PlanCard({
         {hasMeta(msg.meta) && <MetaText m={msg.meta} />}
       </div>
     </section>
+  );
+}
+
+/** The lead agent's review of the team's replies (lead review): what to look at closely, and what to do next. */
+function ReviewCard({ msg, onUseStep }: Pick<Props, 'msg' | 'onUseStep'>) {
+  const t = useT();
+  const review = msg.review!;
+  const lead = leadLabel(review.lead);
+
+  if (review.status === 'reviewing') {
+    const live = msg.status === 'streaming';
+    return (
+      <div className="plan-card planning review-card" role="status" id={reviewElementId(msg.id)}>
+        <span className={`tool-icon ${live ? 'spin' : ''}`} aria-hidden>
+          {live ? '◌' : '✦'}
+        </span>
+        <span>{live ? t.review.reviewing(lead) : t.review.aborted}</span>
+      </div>
+    );
+  }
+
+  if (review.status === 'failed') {
+    return (
+      <div className="plan-card planning review-card failed" id={reviewElementId(msg.id)}>
+        <span className="tool-icon" aria-hidden>
+          ✦
+        </span>
+        <span>{review.error ? t.review.failed(review.error) : t.review.failedNoReason}</span>
+        {hasMeta(msg.meta) && <MetaText m={msg.meta} />}
+      </div>
+    );
+  }
+
+  const highlights = review.highlights ?? [];
+  const steps = review.nextSteps ?? [];
+  return (
+    <section className="plan-card review-card" aria-label={t.review.title} id={reviewElementId(msg.id)}>
+      <header className="plan-head">
+        <Logo size={18} />
+        <strong>{t.review.title}</strong>
+        <span className="muted small">{t.review.by(lead)}</span>
+        {review.replyIds && <span className="muted small">· {t.review.read(review.replyIds.length)}</span>}
+      </header>
+      {review.summary && <p className="plan-reason review-summary">{review.summary}</p>}
+      <div className="review-section">
+        <h4>{t.review.attention}</h4>
+        {highlights.length ? (
+          <ul className="review-highlights">
+            {highlights.map((h, i) => (
+              <ReviewPoint key={i} h={h} />
+            ))}
+          </ul>
+        ) : (
+          <p className="muted small review-none">{t.review.nothingToFlag}</p>
+        )}
+      </div>
+      {steps.length > 0 && (
+        <div className="review-section">
+          <h4>{t.review.nextSteps}</h4>
+          <ol className="review-steps">
+            {steps.map((s, i) => (
+              <li key={i} className={`review-step ${s.by}`}>
+                <span className="review-by">{s.by === 'team' ? t.review.byTeam : t.review.byUser}</span>
+                <span className="review-step-text">{s.text}</span>
+                {s.by === 'team' && onUseStep && (
+                  <button
+                    type="button"
+                    className="ghost small-button review-use"
+                    title={t.review.useStepTitle}
+                    onClick={() => onUseStep(s.message ?? s.text)}
+                  >
+                    {t.review.useStep}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {hasMeta(msg.meta) && (
+        <div className="plan-actions">
+          <MetaText m={msg.meta} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** One thing the lead agent points out: its kind, the reply and words it is about, and why it matters. */
+function ReviewPoint({ h }: { h: ReviewHighlight }) {
+  const t = useT();
+  return (
+    <li className={`review-point ${h.kind}`}>
+      <div className="review-point-head">
+        <span className={`review-kind ${h.kind}`}>{t.review.kinds[h.kind]}</span>
+        {h.messageId && h.agentName ? (
+          <button
+            type="button"
+            className="review-reply-link"
+            title={t.review.goToReply(h.agentName)}
+            onClick={() => revealMessage(replyElementId(h.messageId!))}
+          >
+            @{h.agentName}
+          </button>
+        ) : h.agentName ? (
+          <span className="muted small">@{h.agentName}</span>
+        ) : (
+          !h.messageId && <span className="muted small">{t.review.whole}</span>
+        )}
+      </div>
+      {h.quote && <blockquote className={`review-quote ${h.kind}`}>{h.quote}</blockquote>}
+      <p className="review-note">{h.note}</p>
+    </li>
   );
 }
 
@@ -691,10 +811,13 @@ export const MessageItem = memo(function MessageItem({
   onSkipQuestion,
   onShare,
   onBranch,
+  marks,
+  onUseStep,
 }: Props) {
   const t = useT();
 
   if (msg.author.kind === 'system') {
+    if (msg.review) return <ReviewCard msg={msg} onUseStep={onUseStep} />;
     if (msg.plan) {
       return (
         <PlanCard
@@ -720,20 +843,92 @@ export const MessageItem = memo(function MessageItem({
   if (msg.author.kind === 'user') {
     return <UserMessage msg={msg} convId={convId} mentionNames={mentionNames} canEdit={!running} onResend={onResend} />;
   }
+  return (
+    <AgentMessage
+      msg={msg}
+      convId={convId}
+      agents={agents}
+      mentionNames={mentionNames}
+      showRound={showRound}
+      applyState={applyState}
+      running={running}
+      onDiff={onDiff}
+      onApply={onApply}
+      onApproval={onApproval}
+      onRetry={onRetry}
+      waitingAnswer={waitingAnswer}
+      onSkipQuestion={onSkipQuestion}
+      onShare={onShare}
+      onBranch={onBranch}
+      marks={marks}
+    />
+  );
+});
 
-  const agentId = msg.author.agentId;
+/** An agent's reply, with what the lead agent's review marked in it. */
+function AgentMessage({
+  msg,
+  convId,
+  agents,
+  mentionNames,
+  showRound,
+  applyState,
+  running,
+  onDiff,
+  onApply,
+  onApproval,
+  onRetry,
+  waitingAnswer,
+  onSkipQuestion,
+  onShare,
+  onBranch,
+  marks,
+}: Pick<
+  Props,
+  | 'msg'
+  | 'convId'
+  | 'agents'
+  | 'mentionNames'
+  | 'showRound'
+  | 'applyState'
+  | 'running'
+  | 'onDiff'
+  | 'onApply'
+  | 'onApproval'
+  | 'onRetry'
+  | 'waitingAnswer'
+  | 'onSkipQuestion'
+  | 'onShare'
+  | 'onBranch'
+  | 'marks'
+>) {
+  const t = useT();
+  const body = useRef<HTMLDivElement>(null);
+  const live = msg.status === 'streaming';
+  // The words the lead agent quotes, marked where the reply has them (again when the reply re-renders).
+  useLayoutEffect(() => {
+    const el = body.current;
+    if (!el || live || !marks?.highlights.length) return;
+    return markQuotes(el, marks.highlights);
+  }, [marks, live, msg.parts]);
+
+  const agentId = msg.author.kind === 'agent' ? msg.author.agentId : '';
   const who = speaker(msg, agents);
   const name = who.name;
   const provider = who.provider ?? 'claude';
-  const live = msg.status === 'streaming';
   const segs = segments(msg.parts);
+  const marked = marks?.highlights.length ?? 0;
   const m = msg.meta;
   const copyable = !msg.passed && messageText(msg).length > 0;
 
   return (
-    <div className={`msg-agent ${msg.passed ? 'passed' : ''}`} style={{ ['--accent' as string]: PROVIDER_COLOR[provider] }}>
+    <div
+      className={`msg-agent ${msg.passed ? 'passed' : ''}`}
+      id={replyElementId(msg.id)}
+      style={{ ['--accent' as string]: PROVIDER_COLOR[provider] }}
+    >
       <span className="avatar">{initials(name)}</span>
-      <div className="msg-body">
+      <div className="msg-body" ref={body}>
         <div className="msg-head">
           <strong>@{name}</strong>
           <span className="provider-tag">{PROVIDER_LABEL[provider]}</span>
@@ -742,6 +937,16 @@ export const MessageItem = memo(function MessageItem({
           )}
           {live && <span className="live-tag">{t.message.live}</span>}
           {msg.asked && !waitingAnswer && <span className="round-tag">{t.message.askedTag}</span>}
+          {marked > 0 && marks && (
+            <button
+              type="button"
+              className={`review-mark-tag ${marks.highlights[0]!.kind}`}
+              title={t.review.marksTitle(marked)}
+              onClick={() => revealMessage(reviewElementId(marks.reviewId))}
+            >
+              ⚑ {t.review.marks(marked)}
+            </button>
+          )}
         </div>
 
         {msg.passed && msg.status === 'done' ? (
@@ -845,4 +1050,4 @@ export const MessageItem = memo(function MessageItem({
       </div>
     </div>
   );
-});
+}

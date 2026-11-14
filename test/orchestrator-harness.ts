@@ -44,6 +44,7 @@ export const { removeTree } = await import('../src/server/fsRemove');
 export const { stateFolder } = await import('../src/server/agents/open');
 export const { PLANNER_BRIEFING, REVISER_BRIEFING } = await import('../src/server/planner');
 export const { GROUPER_BRIEFING } = await import('../src/server/grouping');
+export const { REVIEWER_BRIEFING } = await import('../src/server/reviewer');
 export const { withLang } = await import('../src/server/i18n');
 export const { attachmentPath, attachmentsDir, safeFileName } = await import('../src/server/attachments');
 export const { mediaRoots, resolveMedia } = await import('../src/server/media');
@@ -115,6 +116,12 @@ export interface Fake {
   sorterReply: string;
   /** When set, the fake lead agent waits for it before sorting (or until it is stopped). */
   sorterGate: Promise<void> | undefined;
+  /** What the fake lead agent replies when asked to review the team's replies (lead review). */
+  reviewReply: string;
+  /** When set, the fake lead agent waits for it before reviewing (or until it is stopped). */
+  reviewGate: Promise<void> | undefined;
+  /** When set, the fake lead agent's CLI fails with this message when asked to review. */
+  reviewFail: string | undefined;
   /** Runs inside an agent's fake CLI turn after it wrote its files (e.g. to commit them itself). */
   during: ((name: string, cwd: string) => void) | undefined;
   /** Agents that ask the user a question until their prompt carries an answer ("ANSWER:"). */
@@ -136,6 +143,9 @@ const fresh = (): Fake => ({
   reviseFail: undefined,
   sorterReply: '{"group": 0}',
   sorterGate: undefined,
+  reviewReply: '{"summary": "All good.", "highlights": [], "nextSteps": []}',
+  reviewGate: undefined,
+  reviewFail: undefined,
   during: undefined,
   asking: new Set(),
   fail: undefined,
@@ -158,6 +168,17 @@ beforeAll(() => {
         o.onEvent({ type: 'text', text: fake.sorterReply });
         o.onEvent({ type: 'text_end' });
         return { sessionId: 'sorter-session' };
+      }
+      if (o.systemPrompt === REVIEWER_BRIEFING) {
+        calls.push({ name: 'reviewer', prompt: o.prompt, cwd: o.cwd, stateKey: o.stateKey, permission: o.permission, model: o.model, effort: o.effort });
+        if (fake.reviewGate && !o.signal?.aborted) {
+          await Promise.race([fake.reviewGate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
+        }
+        if (o.signal?.aborted) throw new AgentRunError('stopped', true);
+        if (fake.reviewFail) throw new Error(fake.reviewFail);
+        o.onEvent({ type: 'text', text: fake.reviewReply });
+        o.onEvent({ type: 'text_end' });
+        return { costUsd: 0.03, sessionId: 'reviewer-session' };
       }
       if (o.systemPrompt === REVISER_BRIEFING) {
         calls.push({ name: 'reviser', prompt: o.prompt, cwd: o.cwd, stateKey: o.stateKey, model: o.model, effort: o.effort, nativeOff: o.nativeOff, home: o.env?.CLAUDE_CONFIG_DIR });

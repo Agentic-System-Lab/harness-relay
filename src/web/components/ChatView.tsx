@@ -14,6 +14,7 @@ import {
   type ServerEvent,
 } from '../../shared/types';
 import { api, orCreateCwd, type AttachmentUpload } from '../api';
+import { highlightsByReply } from '../../shared/review';
 import { afterStreamError, applyStates as findApplyStates, branchSource, draftStatus, followsAfterScroll, scrollSpot, teamToEdit } from '../chat';
 import { useI18n, useT } from '../i18n';
 import { refreshLimits, useLimits } from '../limits';
@@ -433,6 +434,15 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const agents = state.conv?.agents;
   const mentionNames = useMemo(() => (agents ?? []).map((a) => a.name), [agents]);
 
+  // What the lead agent's reviews point out, by reply: worked out again only when a review is added
+  // or goes (a ready review never changes), so a reply's marks keep their identity while others stream.
+  const reviewIds = (messages ?? []).flatMap((m) => (m.review?.status === 'ready' ? [m.id] : [])).join(' ');
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the review ids say when `messages` matters
+  const marks = useMemo(() => highlightsByReply(messages ?? []), [reviewIds]);
+
+  // A next step the lead agent suggests goes in the message box, ahead of anything typed there.
+  const onUseStep = useCallback((text: string) => setRestore({ text }), []);
+
   const { conv, running, active } = state;
   if (!conv) return <div className="page-center muted">{error || t.common.loading}</div>;
 
@@ -450,6 +460,8 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const awaitingConfirm = Boolean(pendingPlan(conv.messages));
   // The lead agent is designing the team: what the user sends meanwhile waits for the confirmed team.
   const designing = running && conv.messages.some((m) => m.plan?.status === 'planning' && m.status === 'streaming');
+  // The lead agent is reviewing the team's replies: what the user sends meanwhile goes to the team after it.
+  const reviewing = running && conv.messages.some((m) => m.review?.status === 'reviewing' && m.status === 'streaming');
   const latestPlanId = conv.messages.findLast((m) => m.plan?.status === 'ready')?.id;
   const leadText = leadLabel(lead ?? { provider: 'claude' });
   // An agent asked the user something and the team waits: its latest questions, and who asked.
@@ -654,6 +666,8 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
                 onSkipQuestion={onSkipQuestion}
                 onShare={onShare}
                 onBranch={onBranch}
+                marks={marks.get(m.id)}
+                onUseStep={onUseStep}
               />
             );
             // A branch: a line after the messages copied from the conversation it comes from (a shared
@@ -725,6 +739,8 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
               ? t.chat.placeholderConfirm
               : questions.length > 0
                 ? t.chat.placeholderAnswer(askers)
+                : reviewing
+                ? t.chat.placeholderReviewing
                 : running
                 ? t.chat.placeholderBusy
                 : waitingForTeam

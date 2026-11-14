@@ -57,6 +57,7 @@ flowchart LR
 | `desktop/` | 桌面 app（Electron，獨立的套件）：用登入 shell 的環境在 utility process 裡執行伺服器，在自己的視窗裡顯示對話，系統匣選單、登入時自動啟動、分享到 tailnet、更新；見[桌面 app](#桌面-app) |
 | `src/server/orchestrator.ts` | 執行一次「團隊回合」：依模式決定發言者、組出每個 agent 的 prompt、執行 CLI、串流結果；自動組隊的對話中，每個新問題都先讓首席 agent 設計團隊 |
 | `src/server/planner.ts` | 自動組隊：首席 agent 的 prompt（問題、到目前為止的對話、目前的團隊、範本）、解析它的 JSON 回覆、轉成可執行的團隊、備援方案 |
+| `src/server/reviewer.ts` | 首席 agent 審閱：首席 agent 從上次審閱之後讀到的團隊回覆、它的 prompt，以及把它的 JSON 回覆轉成審閱結果（`src/shared/review.ts`：找出它引用的文字，與聊天畫面共用） |
 | `src/server/grouping.ts` | 側邊欄群組：首席 agent 在背景依新對話的第一則訊息，把它分到使用者的某個群組（`AutoGrouper`） |
 | `src/server/prompt.ts` | 角色簡報（system prompt）、每回合的 prompt、`@` 解析、`[PASS]` 判斷 |
 | `src/server/approvals.ts` | 「本對話都允許」的規則 key 與比對 |
@@ -89,7 +90,7 @@ flowchart LR
 
 ## 對話模型
 
-一個**對話**包含團隊（`agents`）、設定（`mode`、`rounds`、`maxHops`、`permission`、`cwd`，有一個以上的工作目錄時另有 `extraCwds`（見[多個工作目錄](#多個工作目錄)）；[自動組隊](#自動組隊)時另有 `autoTeam`，直接採用首席 agent 的團隊、不必確認時再加上 `autoConfirm`）以及有順序的**訊息**。訊息的作者可能是使用者、agent 或系統，由多個 **part** 組成：依發生順序排列的文字區塊與工具呼叫（`Read`、`Edit`、`Shell`……）；失敗或被拒絕的工具呼叫會保留原因。系統訊息可能帶有一份 **plan**，也就是首席 agent 的團隊設計。
+一個**對話**包含團隊（`agents`）、設定（`mode`、`rounds`、`maxHops`、`permission`、`cwd`，有一個以上的工作目錄時另有 `extraCwds`（見[多個工作目錄](#多個工作目錄)）；[自動組隊](#自動組隊)時另有 `autoTeam`，直接採用首席 agent 的團隊、不必確認時再加上 `autoConfirm`；首席 agent [審閱團隊的回覆](#首席-agent-審閱)時另有 `leadReview`）以及有順序的**訊息**。訊息的作者可能是使用者、agent 或系統，由多個 **part** 組成：依發生順序排列的文字區塊與工具呼叫（`Read`、`Edit`、`Shell`……）；失敗或被拒絕的工具呼叫會保留原因。系統訊息可能帶有一份 **plan**，也就是首席 agent 的團隊設計，或一份 **review**，也就是首席 agent 對團隊回覆的審閱。
 
 對話也會為每個 agent 保存 **agent 狀態**：
 
@@ -196,6 +197,18 @@ flowchart LR
 設計團隊的執行不會寫入任何東西（首席 agent 是唯讀的，其他人也不發言），所以不會鎖住目錄；團隊自己的執行則照確認後的模式上鎖。`POST /api/conversations/:id/messages/:messageId/save-plan` 會把首席 agent 設計或調整的團隊（`planSavable()`）存成使用者範本（沿用對話的權限），並記錄 `plan.savedPresetId`；直接套用的範本或保留的目前團隊都不是新團隊，卡片不會提供儲存。編輯問題會連同它的 plan 一起刪除，並依修改後的問題重新設計，之前的內容作為歷史。手動設定團隊或修改設定都不會開啟或關閉自動組隊（`PATCH` 會保留原本的 `autoTeam`）；`autoConfirm` 可以在團隊設定中修改。schema 第 13 版（`conversations.auto_confirm`）為在它之前儲存的每個對話開啟了自動組隊。
 
 **依使用者的要求修改團隊。** 團隊設定可以請首席 agent 修改它顯示的團隊（對話的團隊，或等待確認的設計，連同使用者已經做的修改）。`POST /api/conversations/:id/revise-team` 帶著 `{ request, agents, settings }`（`settings`：成員的輪流方式，以及團隊設定裡的權限與工作目錄，不論是否已儲存，首席 agent 只會讀到它們：`draftPlace()`），以 `REVISER_BRIEFING` 與 `buildRevisePrompt()` 在已儲存的工作目錄中以唯讀方式執行首席 agent：要求、團隊、目前為止的對話、這個團隊是否是等待確認的設計（針對最新的問題、排程的訊息，或之後已刪除的排程）、排程開啟時或等待中的設計針對排程時的排程訊息（排程關閉時會說明）、團隊設定指定了別的資料夾時首席 agent 自己是在哪個資料夾執行、可以用的 CLI 與範本。它以 JSON 回覆整個團隊，只為新成員或改寫的角色給出角色，再由 `decideRevision()` 讓它可以執行。首席 agent 用 `was` 指出的成員（改名或換到另一個 CLI）、名字（不分大小寫）與 CLI 都沒變的成員、名字沒變但換了 CLI 的成員，或在兩邊剛好各只剩一位、且列出的那位沒有角色或角色相同時的那一位（改了名卻沒說），仍是同一位成員。所有的 `was` 會先於名字比對，所以和被改名的成員同名的新成員不會佔走它的位置，互換名字或連續改名時每位成員也都保留下來。如果 `was` 指向的成員也以原名、不變地（沒有角色、自己也不是改名來的）列在回覆裡，這個 `was` 會被忽略：它被誤用在以那位成員為範本的新成員上，這位新成員會從那位成員的角色開始，也不會被當成要移除的成員改名而來。它保留 id（也就保留 session；換到另一個 CLI 時 session 會重新開始，和手動修改一樣）、工具，以及首席 agent 沒有給（或給 `null`、空白角色）的角色、模型與推理強度（模型與推理強度不會帶到另一個 CLI）；首席 agent 照抄但去掉前後空白的角色，維持使用者原本寫的樣子；CLI 沒變的成員即使那個 CLI 沒有登入也不換，因為那是使用者選的。新成員、換 CLI 的成員，以及改過的模型與推理強度，則和設計團隊時一樣調整成可用的。沒有成員的回覆（首席 agent 婉拒並說明原因）會保留原本的成員。回應是 `TeamRevision`（成員、輪流方式、首席 agent 的說明，以及這次執行的時間與花費）。對話本身不會有任何變更：團隊設定會顯示這個團隊、列出改了什麼（`src/web/chat.ts` 的 `teamChanges()`，空的模型與角色前後的空白不算改變）並提供復原，直到使用者照常用 `PATCH` 儲存（等待中的設計也因此確認）。如果這段期間團隊設定重新載入了團隊，或已經無法儲存，就不採用這個回應（`revisionOutcome()`）。新的要求會停止前一個（409），關閉請求（關掉團隊設定，或按停止）、刪除對話與關閉伺服器也一樣；被停止的修改在刪除對話與關閉伺服器時仍會等到首席 agent 的程序結束。首席 agent 的 session 會在 AgentsView 中連到這個對話。
+
+## 首席 agent 審閱
+
+有 `settings.leadReview` 時（任何對話都可以，不論有沒有自動組隊：「新對話」頁面與團隊設定中的「團隊回答後，請首席 agent 審閱回覆」；新對話會沿用上一個新對話的選擇，記在瀏覽器裡），團隊回答完之後，首席 agent 會讀過團隊說的內容，告訴使用者哪些地方需要特別注意、接下來可以做什麼（協調器中的 `reviewReplies()`，以及 `src/server/reviewer.ts`）。
+
+**什麼時候。** 作為團隊這次執行的最後一步（`execute()` 先跑團隊的回合，再看 `reviewsNow()`）：只有從上次完成的審閱之後有成員回答（已完成、不是 pass）時才審閱（`hasNewReplies()`），而且團隊這次已經做完：沒有被停止、沒有在等使用者回答問題（使用者回答、團隊接著做完之後才審閱，連同那個問題一起），也沒有訊息在等這次之後自己的一次執行（那次執行的審閱會一起讀）。設計團隊的執行（自動組隊）不會被審閱。因為它是執行的一部分，「停止」會停止它，對話算是忙碌中，這時使用者送出的訊息會放進佇列（不會標成團隊回覆時插話），審閱完才交給團隊；「agent 已完成」的通知也會在審閱完成後才送出。
+
+**首席 agent 讀到什麼**（`reviewMaterial()`、`buildReviewPrompt()`）：從上次完成的審閱之後說的內容（`src/shared/review.ts` 的 `reviewStart()`；失敗或被停止的審閱會把這些回覆留給下一次）：使用者的訊息與團隊的回覆，回覆會編號，每則附上成員與 CLI、是否向使用者提問、失敗或被停止的回覆是怎麼結束的，以及該回合修改的檔案（路徑與 A/M/D）；每則最多 6,000 字元，全部最多 40,000 字元，保留最新的。在那之前的對話則像設計團隊時一樣（`historyForLead()`）作為背景。接著是團隊（每位成員的名稱、CLI 與角色的開頭）、權限與工作目錄。它以唯讀權限在對話的工作目錄中執行一次，system prompt 為 `REVIEWER_BRIEFING`，有自己的狀態（`stateKeys.review`），它的 session 會在 AgentsView 中連到這個對話。
+
+**它的回答**是一個 JSON 物件：`summary`（團隊做到哪裡）、`highlights`（最多 8 項，最重要的在前；沒有也可以）與 `nextSteps`（最多 6 項）。每個 highlight 有類型（`risk`、`decision`、`conflict`、`verify`、`note`）、給使用者的說明，關於某則回覆的還有它的編號與 `quote`：從那則回覆複製的文字。`decideReview()` 只保留有說明的 highlight，把回覆編號（或 `@名稱`，代表該成員最新的回覆）換成那則回覆的訊息 id 與成員名稱，並且只有在那則回覆確實有這些文字時才保留引用（`hasQuote()`：不分大小寫、忽略空白與 Markdown 符號）；指向它沒看過的回覆的 highlight，視為針對整體回覆。下一步分成使用者要做的（`by: "user"`：決定、在自己的電腦上試、部署）與團隊可以做的（`by: "team"`，附上要送給團隊的 `message`）。不認得的類型視為 note；太長的部分會被截斷。
+
+**卡片**（系統訊息上的 `LeadReview`，以 JSON 存在 `messages.review`；schema 版本 28，連同 `conversations.lead_review`）在首席 agent 審閱時就出現在回覆之後（`status: "reviewing"`），之後顯示摘要、highlight（各有類型、連到該回覆的連結、引用的文字與說明）與下一步（團隊的步驟有「交給團隊」，會把訊息放進輸入框、排在已輸入的內容前面，讓使用者修改或送出）。highlight 引用的文字會用 CSS Custom Highlight API 標在回覆中（`src/web/review.ts`：用 `findQuote()` 在回覆渲染後的文字上建立範圍，所以回覆本身的 DOM 完全不變；不支援這個 API 的瀏覽器只會顯示卡片），回覆標頭也會顯示首席 agent 標了幾處，點一下回到卡片。審閱失敗時卡片會說明原因（`status: "failed"`、`error`）；被停止的則標為已中斷。卡片會顯示首席 agent 花的時間、費用與 token。審閱卡片是系統訊息，所以永遠不會轉給 agent；分支複製的卡片會指向複製後的回覆（`copyMessages()`）；複製對話時，完成的審閱會以 Markdown 輸出（`src/web/copy.ts` 的 `reviewMarkdown()`），分享頁面則不含它的按鈕。
 
 ## 排程
 
@@ -543,10 +556,10 @@ Cursor 和 Grok 不同，任何一類都沒有開關，連它從其他 CLI 的�
 
 | 資料表 | 內容 |
 | --- | --- |
-| `conversations` | id、標題、時間、模式、輪數、接力上限、權限、工作目錄、`extra_cwds`（之後的工作目錄，JSON；NULL 代表沒有）、`auto_team`（首席 agent 為每個新問題設計團隊）、`auto_confirm`（直接採用它的團隊、不必確認）、`approvals`（`deny` 代表自動拒絕）、`allow_rules`（JSON）、`group_id`（側邊欄群組；NULL 代表「其他」）、`group_source`（`user` 或 `auto`；NULL 代表尚未分類）與 `branch`（JSON：從哪個對話分支出來，以及最後一則複製的訊息；schema 版本 17） |
+| `conversations` | id、標題、時間、模式、輪數、接力上限、權限、工作目錄、`extra_cwds`（之後的工作目錄，JSON；NULL 代表沒有）、`auto_team`（首席 agent 為每個新問題設計團隊）、`auto_confirm`（直接採用它的團隊、不必確認）、`lead_review`（首席 agent 審閱團隊的回覆；schema 版本 28）、`approvals`（`deny` 代表自動拒絕）、`allow_rules`（JSON）、`group_id`（側邊欄群組；NULL 代表「其他」）、`group_source`（`user` 或 `auto`；NULL 代表尚未分類）與 `branch`（JSON：從哪個對話分支出來，以及最後一則複製的訊息；schema 版本 17） |
 | `conversation_groups` | 使用者的側邊欄群組（名稱、順序） |
 | `conversation_agents` | 每個對話的團隊成員與順序（名稱、provider、角色、模型、推理強度、`tools`：成員對工具庫的例外設定，JSON；`account`：成員使用的 CLI 帳號，NULL 表示預設帳號，schema 版本 19） |
-| `messages` | 每則訊息一列（作者、狀態、是否 pass、錯誤、輪次、耗時、費用、token、該回合修改的 commit、存成 JSON 的團隊設計 `plan`，以及是否在佇列中等過、是否向使用者提問、是否由排程送出：`queued`、`asked`、`scheduled`），依 `seq` 排序 |
+| `messages` | 每則訊息一列（作者、狀態、是否 pass、錯誤、輪次、耗時、費用、token、該回合修改的 commit、存成 JSON 的團隊設計 `plan`、存成 JSON 的首席 agent 審閱 `review`（schema 版本 28），以及是否在佇列中等過、是否向使用者提問、是否由排程送出：`queued`、`asked`、`scheduled`），依 `seq` 排序 |
 | `schedules` | 每個對話一個，隨對話刪除：訊息、`repeat`（JSON）、時區、語言、是否啟用、核准與錯過時間的選擇、是否每次開新對話（`new_chat`）、下一次，以及上次結果（含它開的對話 `last_chat_id`） |
 | `message_changes` | 每則訊息在它改的第一個 repository 中修改的檔案（路徑、A/M/D、增刪行數）；這一輪在其他 repository 的修改（含檔案）以 JSON 存在 `messages.more_changes` |
 | `agent_worktrees` | 平行模式中每個 agent 的 worktree，工作目錄的每個 repository 各一個（repository 根目錄、路徑、分支、起始快照、是否需要重設） |

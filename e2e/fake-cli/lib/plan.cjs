@@ -1,6 +1,7 @@
 'use strict';
 /*
- * What a fake says, whichever CLI it is: the lead agent's answers (a team, a group, a changed team),
+ * What a fake says, whichever CLI it is: the lead agent's answers (a team, a group, a changed team, a
+ * review of the team's replies),
  * and the steps of a turn's reply (`plan()`), shaped by the `e2e:` directives in the user's message,
  * which each CLI's module then plays in its own protocol.
  */
@@ -132,6 +133,38 @@ function reviseReply(prompt) {
   });
 }
 
+/**
+ * The lead agent's review of the team's replies: one highlight quoting the first words of the first
+ * reply (`e2e:reviewkind=<kind>` for its kind, a risk by default), a step for the user and one for the
+ * team, which asks the first reply's member to go on. Not JSON at all with `e2e:badreview`, and slow
+ * (about ten seconds, to be stopped) with `e2e:slowreview`; both read from the user's messages it got.
+ */
+function reviewReply(prompt) {
+  const recent = tag(prompt, 'recent');
+  const users = [...recent.matchAll(/<message from="user">\n([\s\S]*?)\n<\/message>/g)].map((m) => m[1]);
+  const d = directivesIn(users.join('\n'));
+  if (d.badreview) return { text: 'The replies look fine to me.' };
+  const replies = [...recent.matchAll(/<reply n="(\d+)" from="@([^\s"]+)[^>]*>\n([\s\S]*?)\n<\/reply>/g)].map((m) => ({
+    n: Number(m[1]),
+    name: m[2],
+    text: m[3],
+  }));
+  const first = replies[0];
+  const words = first ? first.text.split(/\s+/).slice(0, 4).join(' ') : '';
+  const kind = typeof d.reviewkind === 'string' ? d.reviewkind : 'risk';
+  return {
+    text: json({
+      summary: `The fake lead agent read ${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}.`,
+      highlights: first ? [{ kind, reply: first.n, quote: words, note: `The fake lead agent flags what @${first.name} said first.` }] : [],
+      nextSteps: [
+        { text: 'Try the answer yourself.', by: 'user' },
+        ...(first ? [{ text: `Ask @${first.name} to go on.`, by: 'team', message: `@${first.name} please go on with the next part.` }] : []),
+      ],
+    }),
+    slow: d.slowreview ? slowMs(true) : 0,
+  };
+}
+
 const json = (value) => '```json\n' + JSON.stringify(value, null, 2) + '\n```';
 
 /**
@@ -145,6 +178,10 @@ function plan(prompt, turn) {
   if (/Reply with only this JSON object: \{"group"/.test(prompt)) return [{ type: 'text', text: groupReply(prompt) }];
   if (/Reply with only this JSON object, in a ```json code block, with the whole team/.test(prompt)) {
     return [{ type: 'text', text: reviseReply(prompt) }];
+  }
+  if (/Reply with only this JSON object, in a ```json code block, with your review/.test(prompt)) {
+    const { text, slow } = reviewReply(prompt);
+    return [{ type: 'text', text, slow }];
   }
 
   const me = (/your turn, @([^\s.,!?:;]+)/.exec(prompt) || [])[1] || self.label();

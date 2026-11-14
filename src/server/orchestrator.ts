@@ -13,6 +13,7 @@ import type {
   ConversationBranch,
   ConversationSchedule,
   FileChange,
+  LeadReview,
   MessageChanges,
   MessagePart,
   Provider,
@@ -68,6 +69,7 @@ import {
   type TurnInfo,
 } from './prompt';
 import { endpointModel } from './backends';
+import { REVIEWER_BRIEFING, buildReviewPrompt, hasNewReplies, parseReviewReply, reviewMaterial } from './reviewer';
 import { DATA_DIR, OPEN_HOMES_DIR, type SettingsStore } from './settings';
 import type { Store } from './store';
 import {
@@ -216,6 +218,25 @@ function sendFailure(err: unknown): ScheduledSend {
 export function titleFrom(text: string): string {
   const line = (text.split('\n')[0] ?? '').trim();
   return line.length > 40 ? line.slice(0, 39) + '…' : line;
+}
+
+/**
+ * Copies of messages with new ids (a branch's): what a lead review says of a copied reply points at
+ * its copy, and of a reply not copied, at nothing.
+ */
+export function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
+  const copies = messages.map((m) => ({ ...structuredClone(m), id: randomUUID() }));
+  const ids = new Map(messages.map((m, i) => [m.id, copies[i]!.id]));
+  for (const m of copies) {
+    if (!m.review) continue;
+    if (m.review.replyIds) m.review.replyIds = m.review.replyIds.flatMap((id) => ids.get(id) ?? []);
+    m.review.highlights = m.review.highlights?.map(({ messageId, ...h }) => {
+      const id = messageId && ids.get(messageId);
+      return id ? { ...h, messageId: id } : h;
+    });
+    if (!m.review.highlights) delete m.review.highlights;
+  }
+  return copies;
 }
 
 /** Longest name of a template saved from a plan. */
@@ -445,6 +466,8 @@ export class Orchestrator {
   private starting = new Set<string>();
   /** Conversations whose run (running or being set up) only designs the team: nobody is replying yet. */
   private designing = new Set<string>();
+  /** Conversations whose run has the lead agent review the team's replies: the team has answered. */
+  private reviewing = new Set<string>();
   /** Conversations being deleted. */
   private deleting = new Set<string>();
   /** The server is shutting down: nothing new starts. */
@@ -816,8 +839,9 @@ export class Orchestrator {
     if (queue.length >= MAX_QUEUE) throw new HttpError(409, t().queueFull(MAX_QUEUE));
     const files = saveAttachments(conv.id, uploads);
     // Marked only when it joins a team's discussion: not a question written while the lead agent
-    // designs the team or its design waits for confirmation.
-    const midReply = (this.runs.has(conv.id) || this.starting.has(conv.id)) && !this.designing.has(conv.id);
+    // designs the team, its design waits for confirmation, or the lead reviews the team's replies.
+    const midReply =
+      (this.runs.has(conv.id) || this.starting.has(conv.id)) && !this.designing.has(conv.id) && !this.reviewing.has(conv.id);
     queue.push({
       id: randomUUID(),
       author: { kind: 'user' },
@@ -999,7 +1023,7 @@ export class Orchestrator {
 
   private async makeBranch(conv: Conversation, index: number): Promise<Conversation> {
     const copied = conv.messages.slice(0, index + 1);
-    const messages = copied.map((m) => ({ ...structuredClone(m), id: randomUUID() }));
+    const messages = copyMessages(copied);
     const pause = branchPause(conv, index);
     // A branch of the conversation the reply was written in (this one, or one it was copied from).
     const titleOf = (from: string) => this.store.titleOf(from);
@@ -1636,6 +1660,86 @@ export class Orchestrator {
     this.hub.emit(conv.id, { type: 'message', message: msg });
   }
 
+  /**
+   * Lead review: the lead agent (Settings) reads what the team said since its last review and tells
+   * the user what to look at closely and what to do next, on a card after the replies. It runs
+   * read-only, as the last step of the team's run: Stop stops it, and what the user sends meanwhile
+   * waits for it. A review that fails says why on its card; the next one reads these replies again.
+   */
+  private async reviewReplies(conv: Conversation, run: Run): Promise<void> {
+    const material = reviewMaterial(conv.messages);
+    if (!material.replies.length) return;
+    const lead = this.settings.lead;
+    const replyIds = material.replies.map((m) => m.id);
+    const msg: ChatMessage = {
+      id: randomUUID(),
+      author: { kind: 'system' },
+      createdAt: Date.now(),
+      parts: [],
+      status: 'streaming',
+      review: { status: 'reviewing', lead, replyIds },
+    };
+    conv.messages.push(msg);
+    this.hub.emit(conv.id, { type: 'message', message: msg });
+    this.store.saveMessage(conv.id, msg, true);
+
+    this.reviewing.add(conv.id);
+    const started = Date.now();
+    let result: RunResult | undefined;
+    let review: Pick<LeadReview, 'summary' | 'highlights' | 'nextSteps'> | undefined;
+    let failure = '';
+    try {
+      let reply = '';
+      result = await runners[lead.provider].run({
+        bin: this.settings.bin(lead.provider),
+        env: this.settings.env(lead.provider, lead.account),
+        backends: this.settings.backendsFor(lead.provider),
+        nativeOff: this.settings.nativeOff(lead.provider, lead.account),
+        nativeItems: this.settings.nativeItems(lead.provider, lead.account),
+        sandboxTerminal: this.settings.sandboxTerminal(lead.provider),
+        prompt: buildReviewPrompt(material, conv.agents, conv.settings),
+        systemPrompt: REVIEWER_BRIEFING,
+        cwd: conv.settings.cwd,
+        permission: 'read-only',
+        stateKey: stateKeys.review(conv.id),
+        model: await this.modelFor(lead.provider, lead.model, lead.account),
+        effort: lead.effort || this.settings.defaultEffort(lead.provider, lead.account) || undefined,
+        signal: run.abort.signal,
+        onEvent: (e) => {
+          if (e.type === 'text') reply += e.text;
+          else if (e.type === 'text_end') reply += '\n';
+        },
+      });
+      // The lead agent's session belongs to this conversation too.
+      if (result.sessionId) this.linkSession(conv, lead.provider, result.sessionId);
+      review = parseReviewReply(reply, material.replies);
+    } catch (err) {
+      if (!run.abort.signal.aborted) {
+        console.warn('[orchestrator] lead review failed:', (err as Error).message);
+        failure = (err as Error).message.trim().slice(0, 500);
+      }
+    } finally {
+      this.reviewing.delete(conv.id);
+    }
+
+    msg.meta = {
+      durationMs: Date.now() - started,
+      costUsd: result?.costUsd,
+      inputTokens: result?.inputTokens,
+      outputTokens: result?.outputTokens,
+    };
+    if (run.abort.signal.aborted) {
+      msg.status = 'aborted';
+    } else {
+      msg.review = review
+        ? { status: 'ready', lead, ...review, replyIds }
+        : { status: 'failed', lead, replyIds, ...(failure ? { error: failure } : {}) };
+      msg.status = 'done';
+    }
+    this.store.saveMessage(conv.id, msg, true);
+    this.hub.emit(conv.id, { type: 'message', message: msg });
+  }
+
   /** The lead agent's team becomes the conversation's team (members and how they take turns). */
   private applyPlan(conv: Conversation, plan: NonNullable<ChatMessage['plan']>): void {
     if (!plan.agents?.length || !plan.settings) return;
@@ -1870,9 +1974,8 @@ export class Orchestrator {
   // -------------------------------------------------------------------------
 
   /**
-   * The team's turns for the user's `posted` messages (none for Continue / retry). Messages sent while
-   * it runs are delivered before the next turn of an agent they are for (`deliverQueued`). A reply that
-   * asks the user something stops the run there (`pauseFor`); `resume` picks it up once they replied.
+   * A run: the lead agent's team design (auto team), or the team's turns followed, with lead review,
+   * by the lead agent's review of what the team said (`reviewsNow`).
    */
   private async execute(
     conv: Conversation,
@@ -1887,6 +1990,35 @@ export class Orchestrator {
       await this.designTeam(conv, run);
       return;
     }
+    await this.teamTurns(conv, posted, run, only, resume);
+    if (this.reviewsNow(conv, run)) await this.reviewReplies(conv, run);
+  }
+
+  /**
+   * Whether the lead agent reviews the team's replies at the end of this run (lead review): the team
+   * answered something new since the last review, and is done for now — not stopped, not waiting for
+   * the user's answer to a question, and no message waiting for a run of its own after this one (the
+   * review comes after that run, and reads both).
+   */
+  private reviewsNow(conv: Conversation, run: Run): boolean {
+    if (!conv.settings.leadReview || run.abort.signal.aborted || this.closing) return false;
+    if (this.deleting.has(conv.id) || this.store.get(conv.id) !== conv) return false;
+    if (conv.pause || conv.queue?.length) return false;
+    return hasNewReplies(conv.messages);
+  }
+
+  /**
+   * The team's turns for the user's `posted` messages (none for Continue / retry). Messages sent while
+   * it runs are delivered before the next turn of an agent they are for (`deliverQueued`). A reply that
+   * asks the user something stops the run there (`pauseFor`); `resume` picks it up once they replied.
+   */
+  private async teamTurns(
+    conv: Conversation,
+    posted: ChatMessage[],
+    run: Run,
+    only?: AgentConfig[],
+    resume?: Schedule,
+  ): Promise<void> {
     const { mode, maxHops } = conv.settings;
     const s = resume ?? this.schedule(conv, posted, only);
     const aborted = () => run.abort.signal.aborted;

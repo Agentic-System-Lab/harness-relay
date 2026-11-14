@@ -408,6 +408,13 @@ const MIGRATIONS: string[] = [
     created_at INTEGER NOT NULL
   );
   `,
+  // 28: lead review: whether the lead agent reviews the team's replies once it has answered
+  // (conversations.lead_review, 0/1), and the review a system message carries (messages.review, JSON:
+  // LeadReview).
+  `
+  ALTER TABLE conversations ADD COLUMN lead_review INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE messages ADD COLUMN review TEXT;
+  `,
 ];
 
 /**

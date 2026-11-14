@@ -100,6 +100,7 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
   }, []);
   const auto = Boolean(settings.autoTeam) && !template;
   const confirmHint = useId();
+  const reviewHint = useId();
   const cwdId = useId();
   const addMemberId = useId();
   const showMembers = members ?? !auto;
@@ -272,6 +273,22 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
             </label>
             <span className="small muted" id={confirmHint}>
               {settings.autoConfirm ? t.team.autoConfirmHint.on : t.team.autoConfirmHint.off}
+            </span>
+          </div>
+        )}
+        {!template && (
+          <div className="field auto-team lead-review">
+            <label className="check-row">
+              <input
+                type="checkbox"
+                aria-describedby={reviewHint}
+                checked={Boolean(settings.leadReview)}
+                onChange={(e) => setSettings({ leadReview: e.target.checked || undefined })}
+              />
+              <span>{t.team.leadReview}</span>
+            </label>
+            <span className="small muted" id={reviewHint}>
+              {settings.leadReview ? t.team.leadReviewHint.on : t.team.leadReviewHint.off}
             </span>
           </div>
         )}

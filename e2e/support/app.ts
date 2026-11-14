@@ -11,6 +11,8 @@ export interface NewChatOptions {
   permission?: Permission;
   /** Use the lead agent's teams without asking (the default asks first). */
   autoConfirm?: boolean;
+  /** Have the lead agent review the team's replies (the default: as the last new chat did). */
+  leadReview?: boolean;
   title?: string;
 }
 
@@ -45,6 +47,7 @@ export async function startChat(page: Page, o: NewChatOptions = {}): Promise<str
   if (o.permission) await page.getByRole('button', { name: permissionLabel(o.permission), exact: true }).click();
   const auto = page.getByRole('checkbox', { name: "Use the lead agent's team without asking me" });
   if (o.autoConfirm !== undefined) await auto.setChecked(o.autoConfirm);
+  if (o.leadReview !== undefined) await page.getByRole('checkbox', { name: LEAD_REVIEW }).setChecked(o.leadReview);
   if (o.title) await page.getByPlaceholder(/Conversation title/).fill(o.title);
   await page.getByRole('button', { name: 'Start chat →' }).click();
   await page.waitForURL(/#\/c\//);
@@ -72,6 +75,12 @@ export async function send(page: Page, text: string): Promise<void> {
 }
 
 const firstLine = (text: string) => text.split('\n')[0]!.replace(/\be2e:\S+/g, '').trim().slice(0, 40) || text.slice(0, 40);
+
+/** The checkbox that has the lead agent review the team's replies (New chat, Team settings). */
+export const LEAD_REVIEW = "Have the lead agent review the team's replies";
+
+/** The lead agent's review cards (lead review), oldest first. */
+export const reviewCards = (page: Page) => page.locator('.review-card');
 
 /** The lead agent's team card that waits for the user. */
 export const awaitingPlan = (page: Page) => page.locator('.plan-card.awaiting');
