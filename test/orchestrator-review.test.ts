@@ -1016,6 +1016,9 @@ describe('lead review and notifications', () => {
       let checks = 0;
       const prepare = orchestrator.prepareWorkspace.bind(orchestrator);
       vi.spyOn(orchestrator, 'prepareWorkspace').mockImplementation(async (c) => {
+        // At work while it is set up, in the list the sidebar and the alerts read too.
+        expect(orchestrator.isRunning(c.id)).toBe(true);
+        expect(list().find((x) => x.id === c.id)?.running).toBe(true);
         await check();
         checks++;
         if (fail) throw fail;
