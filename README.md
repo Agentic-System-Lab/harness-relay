@@ -1,14 +1,16 @@
+[![CI](https://github.com/Agentic-System-Lab/harness-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/Agentic-System-Lab/harness-relay/actions/workflows/ci.yml)
+
 **English** | [繁體中文](README.zh-TW.md)
 
 # Harness Relay
 
-[![CI](https://github.com/Agentic-System-Lab/harness-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/Agentic-System-Lab/harness-relay/actions/workflows/ci.yml)
-
 **Website:** https://agentic-system-lab.github.io/harness-relay/
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1)
 
 **Try it without installing anything:** open the newest release in a GitHub codespace of your own. Its dev container installs the seven agent CLIs that are not open source (Claude Code, Codex, Copilot, Grok, Cursor, Antigravity and Muse Code), builds the app and starts it, on an address only your GitHub account can open. See [Try it in GitHub Codespaces](docs/codespaces.md).
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1)
+---
 
 A local group chat for the real **Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and Muse Code** CLIs, and five open-source coding agents (**OpenCode, Goose, Cline, OpenHands and Pi**) on the model backends you choose: give each a role, choose how they take turns, and they work on your code, or any question, and answer each other.
 
