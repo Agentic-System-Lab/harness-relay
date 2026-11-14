@@ -22,7 +22,8 @@
     "desktop:typecheck": "npm --prefix desktop run typecheck",
     "release:next": "tsx scripts/release.ts next --remote",
     "release:check": "tsx scripts/release.ts check",
-    "release:notes": "tsx scripts/release.ts notes"
+    "release:notes": "tsx scripts/release.ts notes",
+    "stats": "tsx scripts/stats.ts"
   },
   "engines": {
     "node": ">=22.13"
