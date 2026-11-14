@@ -12,6 +12,8 @@
   // and /proc's masked paths). Without them every command below full access fails. Docker's own
   // isolation is the less for it; in a codespace, the virtual machine around the container is yours alone.
   "securityOpt": ["seccomp=unconfined", "apparmor=unconfined", "systempaths=unconfined"],
+  // Copilot's sandbox gives its commands a network of their own through slirp4netns, which needs a TUN device.
+  "runArgs": ["--device=/dev/net/tun"],
   // Once, when the container is made (also in a prebuild): the sandboxes' packages and some agent CLIs.
   "onCreateCommand": "bash .devcontainer/setup.sh",
   // When the code is new: the app's packages and its UI.
