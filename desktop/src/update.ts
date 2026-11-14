@@ -258,8 +258,9 @@ export const COMPARE_PAGE = `https://github.com/${REPO}/compare`;
 /**
  * Where what changed from the running app's version (`current`, as released: `__RELAY_VERSION__`) to
  * `release` is read: GitHub's comparison of their tags, every commit between them however many
- * versions came out in between (a release's own notes list only those since the version before it:
- * 2026-11-14.1's, those since 2026-11-14, so an app of 2026-11-13 would miss 2026-11-14's). The
+ * versions came out in between (a release's own notes list only those since the release before it,
+ * `previousVersion()` in scripts/release.ts: 2026-11-14.1's, those since 2026-11-14, so an app of
+ * 2026-11-13 would miss 2026-11-14's). The
  * release's page for an app whose version is no release's tag (a build of your own, `-dev`), or not
  * older than `release`.
  */
