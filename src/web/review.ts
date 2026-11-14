@@ -21,16 +21,26 @@ function highlightFor(kind: ReviewKind): Highlight | undefined {
   return h;
 }
 
-/** The text nodes of one piece of rendered reply text, in order. */
-function textNodes(el: Element): Text[] {
-  const out: Text[] = [];
+/** The elements that are blocks of a reply's text: words in two of them are apart, with no space between their nodes. */
+const BLOCKS = 'p, li, td, th, tr, h1, h2, h3, h4, h5, h6, pre, blockquote, dt, dd, div';
+
+/** The text nodes of one piece of rendered reply text, in order, and which of them start a new block. */
+function textNodes(el: Element): { nodes: Text[]; breaks: boolean[] } {
+  const nodes: Text[] = [];
+  const breaks: boolean[] = [];
+  let block: Element | null = null;
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-  for (let n = walker.nextNode(); n; n = walker.nextNode()) out.push(n as Text);
-  return out;
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const own = n.parentElement?.closest(BLOCKS) ?? null;
+    breaks.push(nodes.length > 0 && own !== block);
+    block = own;
+    nodes.push(n as Text);
+  }
+  return { nodes, breaks };
 }
 
 /**
- * Mark the words each highlight quotes in the reply rendered in `root` (its `.markdown` blocks, each on
+ * Mark the words each highlight quotes in the reply rendered in `root` (its `.markdown` pieces, each on
  * its own: a quote does not run from one into the next). Returns what takes the marks off again.
  */
 export function markQuotes(root: HTMLElement, marks: readonly ReviewHighlight[]): () => void {
@@ -40,10 +50,11 @@ export function markQuotes(root: HTMLElement, marks: readonly ReviewHighlight[])
     if (!mark.quote) continue;
     const h = highlightFor(mark.kind);
     if (!h) break;
-    for (const nodes of blocks) {
+    for (const { nodes, breaks } of blocks) {
       const span = findQuote(
         nodes.map((n) => n.data),
         mark.quote,
+        breaks,
       );
       if (!span) continue;
       const range = document.createRange();

@@ -127,10 +127,11 @@ export function Composer({
     ref.current?.focus();
   };
 
-  // A withdrawn message comes back for editing, ahead of anything typed since.
+  // A withdrawn message (or a lead review's next step) comes in, ahead of anything typed since; not
+  // twice when the box has it already.
   useEffect(() => {
     if (!restore) return;
-    setText((cur) => (cur.trim() ? `${restore.text}\n${cur}` : restore.text));
+    setText((cur) => (cur.includes(restore.text) ? cur : cur.trim() ? `${restore.text}\n${cur}` : restore.text));
     requestAnimationFrame(() => ref.current?.focus());
   }, [restore]);
 

@@ -170,7 +170,16 @@ beforeAll(() => {
         return { sessionId: 'sorter-session' };
       }
       if (o.systemPrompt === REVIEWER_BRIEFING) {
-        calls.push({ name: 'reviewer', prompt: o.prompt, cwd: o.cwd, stateKey: o.stateKey, permission: o.permission, model: o.model, effort: o.effort });
+        calls.push({
+          name: 'reviewer',
+          prompt: o.prompt,
+          cwd: o.cwd,
+          ...(o.addDirs ? { addDirs: o.addDirs } : {}),
+          stateKey: o.stateKey,
+          permission: o.permission,
+          model: o.model,
+          effort: o.effort,
+        });
         if (fake.reviewGate && !o.signal?.aborted) {
           await Promise.race([fake.reviewGate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
         }

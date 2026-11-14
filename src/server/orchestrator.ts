@@ -1639,10 +1639,20 @@ export class Orchestrator {
       // Members who stay on keep their ids, and with them their sessions.
       const agents = keepMemberIds(decision.agents, conv.agents);
       const now = Boolean(conv.settings.autoConfirm);
+      // Lead review: the lead may turn it on (at once, whether or not the team is confirmed), never
+      // off, and leaves it alone when it is on already.
+      const { leadReview: turnsOn, ...team } = decision;
+      const reviews = Boolean(turnsOn) && !conv.settings.leadReview;
+      if (reviews) {
+        conv.settings = { ...conv.settings, leadReview: true };
+        this.store.saveMeta(conv);
+        this.emitConversation(conv);
+      }
       msg.plan = {
         status: 'ready',
         lead,
-        ...decision,
+        ...team,
+        ...(reviews ? { leadReview: turnsOn } : {}),
         agents,
         ...(now ? { confirmedAt: Date.now(), autoConfirmed: true } : { awaitingConfirmation: true }),
         ...(run.designFor !== undefined ? { forSchedule: true } : {}),
@@ -1671,13 +1681,17 @@ export class Orchestrator {
     if (!material.replies.length) return;
     const lead = this.settings.lead;
     const replyIds = material.replies.map((m) => m.id);
+    // In parallel mode with write access, what each member changed is in its own worktrees until it is
+    // applied: the lead is told where, and may read them, as it may the other working directories.
+    const worktrees = run.ws.isolated ? this.reviewWorktrees(conv, run, material.replies) : [];
+    const addDirs = [...(conv.settings.extraCwds ?? []), ...worktrees.flatMap((w) => w.dirs)];
     const msg: ChatMessage = {
       id: randomUUID(),
       author: { kind: 'system' },
       createdAt: Date.now(),
       parts: [],
       status: 'streaming',
-      review: { status: 'reviewing', lead, replyIds },
+      review: { status: 'reviewing', lead, replyIds, ...(material.fromId ? { fromId: material.fromId } : {}) },
     };
     conv.messages.push(msg);
     this.hub.emit(conv.id, { type: 'message', message: msg });
@@ -1697,9 +1711,10 @@ export class Orchestrator {
         nativeOff: this.settings.nativeOff(lead.provider, lead.account),
         nativeItems: this.settings.nativeItems(lead.provider, lead.account),
         sandboxTerminal: this.settings.sandboxTerminal(lead.provider),
-        prompt: buildReviewPrompt(material, conv.agents, conv.settings),
+        prompt: buildReviewPrompt(material, conv.agents, conv.settings, worktrees),
         systemPrompt: REVIEWER_BRIEFING,
         cwd: conv.settings.cwd,
+        ...(addDirs.length ? { addDirs } : {}),
         permission: 'read-only',
         stateKey: stateKeys.review(conv.id),
         model: await this.modelFor(lead.provider, lead.model, lead.account),
@@ -1731,13 +1746,48 @@ export class Orchestrator {
     if (run.abort.signal.aborted) {
       msg.status = 'aborted';
     } else {
+      const read = { replyIds, ...(material.fromId ? { fromId: material.fromId } : {}) };
       msg.review = review
-        ? { status: 'ready', lead, ...review, replyIds }
-        : { status: 'failed', lead, replyIds, ...(failure ? { error: failure } : {}) };
+        ? { status: 'ready', lead, ...review, ...read }
+        : { status: 'failed', lead, ...read, ...(failure ? { error: failure } : {}) };
       msg.status = 'done';
     }
     this.store.saveMessage(conv.id, msg, true);
     this.hub.emit(conv.id, { type: 'message', message: msg });
+  }
+
+  /**
+   * The worktrees of the members whose replies a review reads, in parallel mode with write access: for
+   * each member, its folder of each working directory, in their order.
+   */
+  private reviewWorktrees(conv: Conversation, run: Run, replies: ChatMessage[]): { name: string; dirs: string[] }[] {
+    const out: { name: string; dirs: string[] }[] = [];
+    for (const agent of conv.agents) {
+      if (!replies.some((m) => m.author.kind === 'agent' && m.author.agentId === agent.id)) continue;
+      const own = conv.worktrees[agent.id] ?? [];
+      const dirs = (run.ws.folders ?? []).flatMap((f) => {
+        const wt = own.find((w) => w.root === f.root);
+        return wt ? [worktreeCwd(f.root, f.cwd, wt.path)] : [];
+      });
+      if (dirs.length) out.push({ name: agent.name, dirs });
+    }
+    return out;
+  }
+
+  /**
+   * Turn lead review on or off (the team design card's box). Any time, also while the team replies:
+   * whether the lead agent reviews is decided when the team has answered.
+   */
+  setLeadReview(convId: string, on: boolean): Conversation {
+    const conv = this.store.get(convId);
+    if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
+    if (Boolean(conv.settings.leadReview) !== on) {
+      const { leadReview: _was, ...rest } = conv.settings;
+      conv.settings = on ? { ...rest, leadReview: true } : rest;
+      this.store.saveMeta(conv);
+      this.emitConversation(conv);
+    }
+    return conv;
   }
 
   /** The lead agent's team becomes the conversation's team (members and how they take turns). */
@@ -1991,7 +2041,13 @@ export class Orchestrator {
       return;
     }
     await this.teamTurns(conv, posted, run, only, resume);
-    if (this.reviewsNow(conv, run)) await this.reviewReplies(conv, run);
+    if (!this.reviewsNow(conv, run)) return;
+    // The review writes nothing: other conversations may write in these folders meanwhile.
+    if (run.lockRoots) {
+      this.unlockDirs(run.lockRoots, conv.id);
+      run.lockRoots = undefined;
+    }
+    await this.reviewReplies(conv, run);
   }
 
   /**

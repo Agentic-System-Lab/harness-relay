@@ -1436,6 +1436,13 @@ export function createApp({
     return c.json({ ok: true });
   });
 
+  // Lead review on or off, at any time (the team design card's box): read when the team has answered.
+  app.put('/api/conversations/:id/lead-review', async (c) => {
+    const b = await body<{ on?: unknown }>(c);
+    if (typeof b.on !== 'boolean') throw new HttpError(400, t().invalidField('on'));
+    return c.json(forClient(orchestrator.setLeadReview(c.req.param('id'), b.on)));
+  });
+
   // Decline it: the current team stays, and answers the question.
   app.post('/api/conversations/:id/messages/:messageId/decline-plan', async (c) => {
     orchestrator.declinePlan(c.req.param('id'), c.req.param('messageId'));

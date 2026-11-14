@@ -1,4 +1,4 @@
-import { memo, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { memo, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import {
   PROVIDER_LABEL,
   isInlineImage,
@@ -10,7 +10,7 @@ import {
   type PlanEntry,
   type ReviewHighlight,
 } from '../../shared/types';
-import type { ReplyMarks } from '../../shared/review';
+import { mostSerious, type ReplyMarks } from '../../shared/review';
 import { splitAsk } from '../../shared/ask';
 import { api } from '../api';
 import {
@@ -330,6 +330,10 @@ interface Props {
   scheduleText?: string;
   /** Save the team the lead agent designed (auto team) as a template. */
   onSavePlan: (messageId: string, name: string) => Promise<void>;
+  /** Whether the conversation has lead review on (given to team design cards only). */
+  leadReview?: boolean;
+  /** Turn lead review on or off (the latest team design card's box); resolves whether the server took it. */
+  onLeadReview?: (on: boolean) => Promise<boolean>;
   onAdjustTeam: () => void;
   /** Answer an agent's approval request. */
   onApproval: (approvalId: string, answer: ApprovalAnswer) => Promise<void>;
@@ -367,7 +371,22 @@ function PlanCard({
   onDeclinePlan,
   onSavePlan,
   onAdjustTeam,
-}: Pick<Props, 'msg' | 'cwd' | 'agents' | 'latestPlan' | 'scheduleText' | 'onConfirmPlan' | 'onDeclinePlan' | 'onSavePlan' | 'onAdjustTeam'>) {
+  leadReview,
+  onLeadReview,
+}: Pick<
+  Props,
+  | 'msg'
+  | 'cwd'
+  | 'agents'
+  | 'latestPlan'
+  | 'scheduleText'
+  | 'onConfirmPlan'
+  | 'onDeclinePlan'
+  | 'onSavePlan'
+  | 'onAdjustTeam'
+  | 'leadReview'
+  | 'onLeadReview'
+>) {
   const t = useT();
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -437,6 +456,12 @@ function PlanCard({
           </li>
         ))}
       </ul>
+      {/* Lead review: the latest design has its box (and why the lead turned it on); an earlier one only says so. */}
+      {latestPlan && onLeadReview ? (
+        <LeadReviewBox on={Boolean(leadReview)} turnedOn={plan.leadReview} onChange={onLeadReview} />
+      ) : (
+        plan.leadReview && <p className="small plan-review-why">✦ {t.plan.reviewTurnedOn(plan.leadReview.reason ?? '')}</p>
+      )}
       {/* A team that misses someone the schedule's message @mentions (any design, in a chat with a schedule). */}
       {scheduleText && planChecksMentions(plan, Boolean(latestPlan)) && (
         <MissedMentions text={scheduleText} names={(plan.agents ?? []).map((a) => a.name)} />
@@ -595,6 +620,44 @@ function ReviewPoint({ h }: { h: ReviewHighlight }) {
       {h.quote && <blockquote className={`review-quote ${h.kind}`}>{h.quote}</blockquote>}
       <p className="review-note">{h.note}</p>
     </li>
+  );
+}
+
+/**
+ * Lead review's box on the latest team design card: on or off for the conversation, what that means,
+ * and why the lead agent turned it on (when it did with this design).
+ */
+function LeadReviewBox({ on, turnedOn, onChange }: { on: boolean; turnedOn?: { reason?: string }; onChange: (on: boolean) => Promise<boolean> }) {
+  const t = useT();
+  const hint = useId();
+  // What the user just chose, shown until the conversation says so too (or the server refused it).
+  const [chosen, setChosen] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (chosen !== null && chosen === on) setChosen(null);
+  }, [chosen, on]);
+  const checked = chosen ?? on;
+  return (
+    <div className="plan-review">
+      <div className="plan-review-box">
+        <label className="check-row">
+          <input
+            type="checkbox"
+            aria-describedby={hint}
+            checked={checked}
+            onChange={async (e) => {
+              const next = e.target.checked;
+              setChosen(next);
+              if (!(await onChange(next))) setChosen(null);
+            }}
+          />
+          <span>{t.team.leadReview}</span>
+        </label>
+        <span className="small muted" id={hint}>
+          {checked ? t.team.leadReviewHint.on : t.team.leadReviewHint.off}
+        </span>
+      </div>
+      {turnedOn && <p className="small plan-review-why">✦ {t.plan.reviewTurnedOn(turnedOn.reason ?? '')}</p>}
+    </div>
   );
 }
 
@@ -813,6 +876,8 @@ export const MessageItem = memo(function MessageItem({
   onBranch,
   marks,
   onUseStep,
+  leadReview,
+  onLeadReview,
 }: Props) {
   const t = useT();
 
@@ -830,6 +895,8 @@ export const MessageItem = memo(function MessageItem({
           onDeclinePlan={onDeclinePlan}
           onSavePlan={onSavePlan}
           onAdjustTeam={onAdjustTeam}
+          leadReview={leadReview}
+          onLeadReview={onLeadReview}
         />
       );
     }
@@ -910,7 +977,8 @@ function AgentMessage({
     const el = body.current;
     if (!el || live || !marks?.highlights.length) return;
     return markQuotes(el, marks.highlights);
-  }, [marks, live, msg.parts]);
+    // The reply's text re-renders when the team's names change (mentions): mark it again then too.
+  }, [marks, live, msg.parts, mentionNames]);
 
   const agentId = msg.author.kind === 'agent' ? msg.author.agentId : '';
   const who = speaker(msg, agents);
@@ -940,7 +1008,7 @@ function AgentMessage({
           {marked > 0 && marks && (
             <button
               type="button"
-              className={`review-mark-tag ${marks.highlights[0]!.kind}`}
+              className={`review-mark-tag ${mostSerious(marks.highlights)}`}
               title={t.review.marksTitle(marked)}
               onClick={() => revealMessage(reviewElementId(marks.reviewId))}
             >

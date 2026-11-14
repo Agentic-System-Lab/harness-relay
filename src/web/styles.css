@@ -4810,6 +4810,29 @@ details.sub summary {
   color: var(--ok);
 }
 
+/* Lead review's box on the latest team design card, and why the lead agent turned it on. */
+.plan-review {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.plan-review-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.plan-review-why {
+  margin: 0;
+  color: var(--info);
+  overflow-wrap: anywhere;
+}
+
 /* Lead review: the lead agent's card after the team's replies, what it points out and the next steps. */
 .review-card.failed {
   flex-wrap: wrap;

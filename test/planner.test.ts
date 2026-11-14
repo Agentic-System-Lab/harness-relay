@@ -13,6 +13,7 @@ import {
   historyForLead,
   keepMemberIds,
   libraryForLead,
+  leadReviewOf,
   parsePlanReply,
   plannerContext,
   PLANNER_BRIEFING,
@@ -224,6 +225,31 @@ describe('lead agent reply', () => {
     expect(prompt).toContain('"id": "builtin-general"');
     expect(prompt).toContain('"read-only"');
     expect(prompt).toContain('```json');
+  });
+});
+
+describe('lead review in a team design', () => {
+  const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, permission: 'read-only' as const, cwd: '/tmp' };
+
+  it('is offered while it is off, and not while it is on', () => {
+    const off = buildPlannerPrompt('Refactor the parser', settings, ctx);
+    expect(off).toContain('Lead review is off in this conversation');
+    expect(off).toContain('You cannot turn it off.');
+    expect(off).toContain('To turn lead review on, add to the object you reply with: "leadReview": true, "leadReviewReason"');
+    const on = buildPlannerPrompt('Refactor the parser', { ...settings, leadReview: true }, ctx);
+    expect(on).not.toContain('Lead review');
+    expect(on).not.toContain('leadReview');
+  });
+
+  it('is turned on by the reply, with its reason, whatever team it names', () => {
+    expect(leadReviewOf({ leadReview: true, leadReviewReason: '  Risky changes.  ' })).toEqual({ leadReview: { reason: 'Risky changes.' } });
+    expect(leadReviewOf({ leadReview: 'true' })).toEqual({ leadReview: {} });
+    expect(leadReviewOf({ leadReview: false, leadReviewReason: 'x' })).toEqual({});
+    expect(leadReviewOf({ leadReview: 'yes' })).toEqual({});
+    expect(leadReviewOf({})).toEqual({});
+    const lead = { provider: 'claude' as const };
+    expect(decidePlan({ choice: 'template', templateId: 'builtin-general', leadReview: true }, ctx, lead).leadReview).toEqual({});
+    expect(decidePlan({ choice: 'template', templateId: 'builtin-general' }, ctx, lead).leadReview).toBeUndefined();
   });
 });
 

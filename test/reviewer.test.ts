@@ -1,7 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { beforeAll, describe, expect, it } from 'vitest';
 import type { ChatMessage } from '../src/shared/types';
-import { findQuote, hasQuote, highlightsByReply, quoteKey, reviewStart } from '../src/shared/review';
+import { findQuote, hasQuote, highlightsByReply, markdownText, mostSerious, quoteKey, reviewStart } from '../src/shared/review';
 import { buildReviewPrompt, decideReview, hasNewReplies, parseReviewReply, reviewMaterial } from '../src/server/reviewer';
+import { Markdown } from '../src/web/components/Markdown';
+import { I18nProvider, currentLang, loadMessages } from '../src/web/i18n';
+
+// As the page does before it draws anything: its language's messages.
+beforeAll(() => loadMessages(currentLang()));
 
 const user = (id: string, text: string): ChatMessage => ({ id, author: { kind: 'user' }, createdAt: 0, status: 'done', parts: [{ type: 'text', text }] });
 const reply = (id: string, name: string, text: string, more: Partial<ChatMessage> = {}): ChatMessage => ({
@@ -28,10 +35,28 @@ describe('finding the words a review quotes', () => {
     expect(hasQuote('This **deletes** the `cache` folder.', 'deletes the cache')).toBe(true);
     expect(hasQuote('Line one\n\n   line   two', 'one line two')).toBe(true);
     expect(hasQuote('It Works', '“it works”')).toBe(true);
-    expect(hasQuote('A [link](https://example.com) here', 'A link here')).toBe(false); // the link's target stays in Markdown
+    expect(hasQuote('A [link](https://example.com) here', 'A link here')).toBe(true); // a link by its text, as the chat shows it
+    expect(hasQuote('A [link](https://example.com) here', 'example.com')).toBe(false);
     expect(hasQuote('nothing like it', 'something else')).toBe(false);
     expect(hasQuote('anything', '  ')).toBe(false);
     expect(quoteKey('…the rest...')).toBe('the rest');
+    // A list's marker is not text in the chat.
+    expect(quoteKey('1. Run the migration first')).toBe('run the migration first');
+    expect(quoteKey('- first point')).toBe('first point');
+  });
+
+  it("reads a reply's Markdown as the chat shows its text", () => {
+    expect(markdownText('See [the docs](https://x.io/a_(b)) and ![logo](l.png) <https://y.io>')).toBe('See the docs and   https://y.io');
+    expect(markdownText('1. one\n2) two\n- three\n> * four')).toBe('one\ntwo\nthree\n> four');
+    expect(markdownText('| a | b |\n| --- | :-: |\n| c | d |')).toBe('| a | b |\n \n| c | d |');
+    expect(markdownText('```ts\ncode()\n```')).toBe(' \ncode()\n ');
+    expect(markdownText('Tom &amp; Jerry &lt;3 &#233;&#x1F389; \\*not bold\\*')).toBe('Tom & Jerry <3 é🎉 *not bold*');
+    expect(markdownText('&#0; &#x110000;')).toBe('&#0; &#x110000;');
+  });
+
+  it('starts a new block with a space between text nodes', () => {
+    expect(findQuote(['first', 'second'], 'first second')).toBeUndefined();
+    expect(findQuote(['first', 'second'], 'first second', [false, true])).toEqual({ start: { part: 0, offset: 0 }, end: { part: 1, offset: 6 } });
   });
 
   it('finds them across text nodes, giving where they start and end in each', () => {
@@ -190,5 +215,161 @@ describe('the marks in the chat', () => {
         { kind: 'verify', note: 'z', messageId: 'r1' },
       ],
     });
+  });
+});
+
+/**
+ * The text nodes of a reply as the chat renders it (the app's Markdown, as static HTML), and which of
+ * them start a block, as `markQuotes` in src/web/review.ts reads them from the page.
+ */
+function renderedParts(md: string): { parts: string[]; breaks: boolean[] } {
+  const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(Markdown, { text: md, mentions: [] })));
+  const BLOCKS = new Set(['p', 'li', 'td', 'th', 'tr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre', 'blockquote', 'dt', 'dd', 'div']);
+  const VOID = new Set(['br', 'hr', 'img', 'input']);
+  const decode = (t: string) =>
+    t.replace(/&(amp|lt|gt|quot|#39|#x27);/g, (_, e: string) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", '#x27': "'" })[e]!);
+  const stack: { tag: string; id: number }[] = [];
+  const parts: string[] = [];
+  const breaks: boolean[] = [];
+  let ids = 0;
+  let block: number | undefined;
+  for (const m of html.matchAll(/<(\/?)([a-z0-9]+)[^>]*?(\/?)>|([^<]+)/gi)) {
+    const [, close, tag, selfClose, text] = m;
+    if (text !== undefined) {
+      const own = [...stack].reverse().find((e) => BLOCKS.has(e.tag))?.id;
+      breaks.push(parts.length > 0 && own !== block);
+      block = own;
+      parts.push(decode(text));
+    } else if (close) {
+      const at = stack.map((e) => e.tag).lastIndexOf(tag!.toLowerCase());
+      if (at >= 0) stack.length = at;
+    } else if (!selfClose && !VOID.has(tag!.toLowerCase())) {
+      stack.push({ tag: tag!.toLowerCase(), id: ++ids });
+    }
+  }
+  return { parts, breaks };
+}
+
+describe('a quote the server keeps is one the chat marks', () => {
+  const reply = [
+    '## Plan',
+    '',
+    'See the [migration notes](docs/migrate.md) before you run **anything**: Tom &amp; Jerry agree.',
+    '',
+    '1. Run the migration first',
+    '2. Then `npm test`',
+    '',
+    '- first point',
+    '- second point',
+    '',
+    '| CLI | Ready |',
+    '| --- | --- |',
+    '| Codex | no |',
+    '',
+    '> Back up the `users` table.',
+    '',
+    '```sql',
+    'DROP TABLE users;',
+    '```',
+  ].join('\n');
+  // Rendered once the page's messages have loaded (beforeAll), not while the tests are collected.
+  let rendered: ReturnType<typeof renderedParts> | undefined;
+  const page = () => (rendered ??= renderedParts(reply));
+
+  for (const quote of [
+    'See the migration notes before you run anything',
+    'Tom & Jerry agree',
+    '1. Run the migration first',
+    'Then npm test',
+    'first point second point',
+    'CLI Ready',
+    'Codex no',
+    'Back up the users table',
+    'DROP TABLE users;',
+    'Plan',
+  ]) {
+    it(`finds “${quote}” in the Markdown and in the rendered reply`, () => {
+      expect(hasQuote(reply, quote)).toBe(true);
+      expect(findQuote(page().parts, quote, page().breaks)).toBeDefined();
+    });
+  }
+
+  for (const quote of ['docs/migrate.md', 'Ready Codex no maybe', 'sql DROP']) {
+    it(`finds “${quote}” in neither`, () => {
+      expect(hasQuote(reply, quote)).toBe(false);
+      expect(findQuote(page().parts, quote, page().breaks)).toBeUndefined();
+    });
+  }
+});
+
+describe('where a first review starts', () => {
+  const asked = (id: string, name: string) => reply(id, name, 'A or B?', { asked: true });
+
+  it('at the question the latest run answered, before any review was ready', () => {
+    const msgs = [user('u1', 'old'), reply('r1', 'Alice', 'a'), user('u2', 'new'), reply('r2', 'Alice', 'b')];
+    expect(reviewStart(msgs)).toBe(2);
+  });
+
+  it("at the question an answer was for, and a message sent mid-run does not count as one", () => {
+    const msgs = [
+      user('u1', 'old'),
+      reply('r1', 'Alice', 'a'),
+      user('u2', 'which?'),
+      asked('r2', 'Alice'),
+      user('u3', 'A'),
+      reply('r3', 'Alice', 'done'),
+      { ...user('u4', 'and also'), queued: true },
+      reply('r4', 'Bob', 'ok'),
+    ];
+    expect(reviewStart(msgs)).toBe(2);
+  });
+
+  it('where a review that failed or was stopped started, when that is earlier', () => {
+    const msgs = [
+      user('u1', 'one'),
+      reply('r1', 'Alice', 'a'),
+      review('v1', 'failed', { fromId: 'u1' }),
+      user('u2', 'two'),
+      reply('r2', 'Alice', 'b'),
+    ];
+    expect(reviewStart(msgs)).toBe(0);
+    // Once one was ready, after it.
+    expect(reviewStart([...msgs, review('v2'), user('u3', 'three')])).toBe(6);
+  });
+
+  it('records where it read from, and what the last ready review said', () => {
+    const msgs = [
+      user('u1', 'one'),
+      reply('r1', 'Alice', 'a'),
+      review('v1', 'ready', { summary: 'Fine.', highlights: [{ kind: 'verify', note: 'Check it.', agentName: 'Alice' }], nextSteps: [{ text: 'Ship', by: 'user' }] }),
+      user('u2', 'two'),
+      reply('r2', 'Alice', 'b'),
+    ];
+    const m = reviewMaterial(msgs);
+    expect(m.fromId).toBe('u2');
+    expect(m.previous).toBe('Summary: Fine.\n- verify (@Alice): Check it.\n- next step for the user: Ship');
+    const prompt = buildReviewPrompt(m, [], { permission: 'read-only', cwd: '/w' });
+    expect(prompt).toContain('<last_review>\nSummary: Fine.');
+    expect(reviewMaterial(msgs.slice(0, 2)).previous).toBeUndefined();
+  });
+
+  it("tells the lead where each member's changes are in parallel mode", () => {
+    const m = reviewMaterial([user('u', 'go'), reply('r', 'Alice', 'done')]);
+    const prompt = buildReviewPrompt(m, [], { permission: 'edit', cwd: '/w' }, [{ name: 'Alice', dirs: ['/wt/a', '/wt/a2'] }]);
+    expect(prompt).toContain('each member in git worktrees of its own');
+    expect(prompt).toContain('- @Alice: /wt/a, /wt/a2');
+    expect(prompt).toContain("or a member's worktrees above");
+    expect(buildReviewPrompt(m, [], { permission: 'edit', cwd: '/w' })).not.toContain('worktrees');
+  });
+});
+
+describe('small things of the review', () => {
+  it('takes next steps written as next_steps', () => {
+    expect(decideReview({ next_steps: [{ text: 'Do it', by: 'user' }] }, []).nextSteps).toEqual([{ text: 'Do it', by: 'user' }]);
+  });
+
+  it("gives a reply's tag the most serious kind among its highlights", () => {
+    expect(mostSerious([{ kind: 'note', note: '' }, { kind: 'verify', note: '' }, { kind: 'decision', note: '' }])).toBe('decision');
+    expect(mostSerious([])).toBe('note');
   });
 });

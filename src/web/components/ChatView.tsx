@@ -443,6 +443,20 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   // A next step the lead agent suggests goes in the message box, ahead of anything typed there.
   const onUseStep = useCallback((text: string) => setRestore({ text }), []);
 
+  // Lead review on or off, from the latest team design card (the conversation event brings the setting).
+  const onLeadReview = useCallback(async (on: boolean) => {
+    const c = convRef.current;
+    if (!c) return false;
+    setError('');
+    try {
+      await api.setLeadReview(c.id, on);
+      return true;
+    } catch (e) {
+      setError((e as Error).message);
+      return false;
+    }
+  }, []);
+
   const { conv, running, active } = state;
   if (!conv) return <div className="page-center muted">{error || t.common.loading}</div>;
 
@@ -634,7 +648,8 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
         onClickCapture={(e) => {
           // Opening or folding part of a message (an activity row, Show more) leaves it where the reader
           // is looking: following would scroll what just opened out of view.
-          if ((e.target as Element).closest('summary, [aria-expanded], [aria-pressed]')) stopFollowing();
+          // So does jumping between a reply and the lead agent's review of it.
+          if ((e.target as Element).closest('summary, [aria-expanded], [aria-pressed], .review-reply-link, .review-mark-tag')) stopFollowing();
         }}
       >
         <div className="messages-inner">
@@ -668,6 +683,8 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
                 onBranch={onBranch}
                 marks={marks.get(m.id)}
                 onUseStep={onUseStep}
+                leadReview={m.plan ? Boolean(conv.settings.leadReview) : undefined}
+                onLeadReview={onLeadReview}
               />
             );
             // A branch: a line after the messages copied from the conversation it comes from (a shared
@@ -722,7 +739,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
         )}
         <QueueTray
           queue={conv.queue ?? []}
-          state={awaitingConfirm || designing ? 'confirm' : running ? 'busy' : 'stopped'}
+          state={awaitingConfirm || designing ? 'confirm' : reviewing ? 'review' : running ? 'busy' : 'stopped'}
           onSendNow={() => send('', [], running)}
           onWithdraw={withdraw}
         />

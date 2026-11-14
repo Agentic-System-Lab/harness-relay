@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 402 tests in 32 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 404 tests in 32 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -40,7 +40,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [A new chat and the lead agent's team](#a-new-chat-and-the-lead-agents-team) | [`chat.spec.ts`](specs/chat.spec.ts) | 5 | [User guide → Auto team](../docs/user-guide.md#auto-team), [Architecture → Auto team](../docs/architecture.md#auto-team) |
 | [Templates](#templates) | [`templates.spec.ts`](specs/templates.spec.ts) | 6 | [User guide → Templates](../docs/user-guide.md#templates) |
 | [Changing a chat's team](#changing-a-chats-team) | [`team.spec.ts`](specs/team.spec.ts) | 4 | [User guide → Editing the team mid-chat](../docs/user-guide.md#editing-the-team-mid-chat) |
-| [The lead agent's review](#the-lead-agents-review) | [`review.spec.ts`](specs/review.spec.ts) | 3 | [User guide → Lead review](../docs/user-guide.md#lead-review), [Architecture → Lead review](../docs/architecture.md#lead-review) |
+| [The lead agent's review](#the-lead-agents-review) | [`review.spec.ts`](specs/review.spec.ts) | 5 | [User guide → Lead review](../docs/user-guide.md#lead-review), [Architecture → Lead review](../docs/architecture.md#lead-review) |
 | [A member's model and reasoning effort](#a-members-model-and-reasoning-effort) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [User guide → Default model and reasoning effort](../docs/user-guide.md#default-model-and-reasoning-effort), [Team members](../docs/user-guide.md#team-members) |
 | [How members take turns](#how-members-take-turns) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [Architecture → Turn scheduling](../docs/architecture.md#turn-scheduling-modes), [How agents share context](../docs/architecture.md#how-agents-share-context) |
 | [What an agent does on its way to a reply](#what-an-agent-does-on-its-way-to-a-reply) | [`activity.spec.ts`](specs/activity.spec.ts) | 13 | [Architecture → Agent activity](../docs/architecture.md#agent-activity) |
@@ -137,13 +137,15 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 
 ## The lead agent's review
 
-[`review.spec.ts`](specs/review.spec.ts): **Have the lead agent review the team's replies**. The fake lead agent flags the first words of the first reply it reads as a risk, and suggests a step for the user and one for the team (`e2e:badreview` and `e2e:slowreview` change that).
+[`review.spec.ts`](specs/review.spec.ts): **Have the lead agent review the team's replies**. The fake lead agent flags the first words of the first reply it reads as a risk, and suggests a step for the user and one for the team (`e2e:badreview` and `e2e:slowreview` change that); asked to design a team with `e2e:leadreview`, it turns the review on when the prompt offers it.
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
 | The lead agent reviews the team's replies, marks the words it quotes in the reply, and its next step for the team goes into the message box | Claude Code | In a new chat with the box ticked, after the reply a **Lead agent's review** card gives the summary, one **Risk** with the reply's own words and the note, and the steps (**You**, and **Team** with **Ask the team**). The quoted words are marked in the reply (a range in `CSS.highlights`, `review-risk`), whose header shows **⚑ 1 to note**: it jumps to the card, and the card's **@Claude** to the reply (each flashes). **Ask the team** puts the step's message in the message box. The lead agent got the numbered reply; the setting is saved, and the next new chat starts with the box ticked. |
-| Off unless the chat asks for it; once turned on in the team settings it reads every reply since | Claude Code | A chat without it gets no card; ticked in **Team settings** and saved, the next answer gets a card that read both replies (**Read 2 replies**). |
-| Stopped by Stop, and says so when it cannot read the lead agent's answer | Claude Code | While a slow review runs, its card says the lead agent is reviewing and the message box says what is sent waits for it; **■ Stop** leaves the card stopped. The next answer's review reads those replies again, and an answer that is not JSON gives a card that says it could not review them, and why. |
+| Off unless the chat asks for it; once turned on in the team settings it reads the latest question's replies | Claude Code | A chat without it gets no card; ticked in **Team settings** and saved, the next answer gets a card that read only that answer (**Read 1 reply**), the first question being in the lead agent's prompt as context. |
+| Stopped by Stop, and says so when it cannot read the lead agent's answer | Claude Code | While a slow review runs, its card says the lead agent is reviewing and the message box says what is sent waits for it; **■ Stop** leaves the card stopped. The next answer's review reads those replies again (its prompt has the stopped review's question and numbers two replies), and an answer that is not JSON gives a card that says it could not review them, and why. |
+| The lead agent turns it on when it designs a team, and the team design card has the box and says why | Claude Code | In a chat without it, the design card shows the box ticked, its explanation and the lead agent's reason, and the chat has it on before the team is confirmed; once confirmed, the answer gets a review. Unticking the box on the card turns it off, and the next answer gets none. |
+| A design leaves it as it is when it is on already | Claude Code | In a chat with it on, the design card shows the box ticked without a reason, and the lead agent was not offered it. |
 
 ## A member's model and reasoning effort
 

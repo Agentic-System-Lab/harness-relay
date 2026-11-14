@@ -613,6 +613,7 @@ export const en: Messages = {
     planningSchedule: (lead) => `The lead agent (${lead}) is designing a team for this schedule…`,
     confirmHintSchedule: 'Once you confirm this team, it gets the message at the schedule\'s times; nothing runs now.',
     abortedSchedule: 'The team design was stopped; "Have the lead agent design the team" in the schedule window designs it again.',
+    reviewTurnedOn: (reason) => (reason ? `The lead agent turned the review on for this team: ${reason}` : 'The lead agent turned the review on for this team.'),
   },
 
   review: {
@@ -640,7 +641,7 @@ export const en: Messages = {
     useStep: 'Ask the team',
     useStepTitle: 'Put the message for this step in the message box, to change it or send it',
     marks: (n) => `${n} to note`,
-    marksTitle: (n) => `The lead agent marked ${n} ${n === 1 ? 'place' : 'places'} in this reply to look at closely; click to see why`,
+    marksTitle: (n) => `The lead agent points out ${n} ${n === 1 ? 'thing' : 'things'} in this reply to look at closely; click to see why`,
   },
 
   changes: {
@@ -763,6 +764,8 @@ export const en: Messages = {
     label: 'Messages waiting to be delivered',
     busy: (n) => `${n} waiting`,
     busyNote: 'Delivered before the next turn; a message that @mentions someone waits for their turn',
+    reviewNote: 'Goes to the team once the lead agent has reviewed the replies',
+    skipReview: 'Skip the review and send now',
     confirm: 'Sent once the team is set',
     stopped: 'Not delivered yet',
     sendNow: 'Stop and send now',
@@ -1546,6 +1549,7 @@ export const en: Messages = {
         points: [
           'Tick "Use the lead agent\'s team without asking me" on the new chat page or in the team settings to skip confirming; to turn down a team it proposes, press "No, keep the current team"',
           'What you write before confirming goes to the team with the question; a message that @mentions a member goes straight to them, with no new team',
+          '"Have the lead agent review the team\'s replies" (off unless you or the lead agent turn it on; it is on the team card too): once the team has answered, the lead agent marks what needs a close look in the replies and suggests the next steps',
           'Change the lead agent in Settings; the file permission is always yours to choose, and the lead agent never changes it',
         ],
       },

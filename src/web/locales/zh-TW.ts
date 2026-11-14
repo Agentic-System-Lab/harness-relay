@@ -637,6 +637,7 @@ export const zhTW = {
     planningSchedule: (lead: string) => `首席 agent（${lead}）正在為這個排程組隊…`,
     confirmHintSchedule: '確認後，這個團隊會在排程的時間收到訊息；現在不會執行。',
     abortedSchedule: '團隊設計已中斷；在排程視窗按「請首席 agent 組隊」可以重新組隊。',
+    reviewTurnedOn: (reason: string) => (reason ? `首席 agent 為這個團隊開啟了審閱：${reason}` : '首席 agent 為這個團隊開啟了審閱。'),
   },
 
   review: {
@@ -664,7 +665,7 @@ export const zhTW = {
     useStep: '交給團隊',
     useStepTitle: '把這個步驟的訊息放進輸入框，你可以先修改再送出',
     marks: (n: number) => `${n} 處注意`,
-    marksTitle: (n: number) => `首席 agent 在這則回覆標出 ${n} 處需要注意的地方，點一下看它的說明`,
+    marksTitle: (n: number) => `首席 agent 在這則回覆指出 ${n} 處需要特別注意的地方，點一下看它的說明`,
   },
 
   changes: {
@@ -789,6 +790,8 @@ export const zhTW = {
     label: '等待送出的訊息',
     busy: (n: number) => `${n} 則等待送出`,
     busyNote: '下一位發言前送達；@ 了成員的訊息會等該成員發言',
+    reviewNote: '首席 agent 審閱完回覆後交給團隊',
+    skipReview: '略過審閱並立即送出',
     confirm: '團隊確定後送出',
     stopped: '這些訊息還沒送出',
     sendNow: '停止並立即送出',
@@ -1576,6 +1579,7 @@ export const zhTW = {
         points: [
           '在新對話頁或團隊設定勾選「直接採用首席 agent 組的團隊，不必等我確認」，就不必每次確認；不想用它提的團隊，可以按「不採用，沿用目前的團隊」',
           '確認前寫的訊息，確認後會跟問題一起送給團隊；@ 成員的訊息則直接交給他，不重新組隊',
+          '「團隊回答後，請首席 agent 審閱回覆」（預設關閉，由你或首席 agent 開啟；團隊卡片上也有）：團隊回答完，首席 agent 會在回覆中標出需要特別注意的地方，並建議接下來的步驟',
           '首席 agent 可以在設定頁更換；檔案權限一律由你決定，首席 agent 不會改動',
         ],
       },

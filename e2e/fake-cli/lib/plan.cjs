@@ -72,13 +72,20 @@ const providersIn = (list) =>
     .map((p) => p.trim().toLowerCase())
     .filter((p) => self.agents().some((a) => a.provider === p));
 
-/** The lead agent's answer: the team for a question (not JSON at all with `e2e:badplan`). */
+/**
+ * The lead agent's answer: the team for a question (not JSON at all with `e2e:badplan`), turning lead
+ * review on with `e2e:leadreview` (when the prompt offers it).
+ */
 function planReply(prompt) {
   const question = tag(prompt, 'question');
   const d = directivesIn(question);
   if (d.badplan) return 'I would rather not choose a team for this one.';
+  const review =
+    d.leadreview && /To turn lead review on/.test(prompt)
+      ? { leadReview: true, leadReviewReason: 'The fake lead agent wants to review what this team says.' }
+      : {};
   if (typeof d.template === 'string') {
-    return json({ choice: 'template', templateId: d.template, reason: 'The fake lead agent picked this template, as the question asked.' });
+    return json({ choice: 'template', templateId: d.template, reason: 'The fake lead agent picked this template, as the question asked.', ...review });
   }
   const providers = typeof d.team === 'string' ? providersIn(d.team) : [];
   const count = {};
@@ -97,6 +104,7 @@ function planReply(prompt) {
     maxHops: Number(d.hops) || 8,
     agents,
     reason: 'The fake lead agent picked the members the question asked for.',
+    ...review,
   });
 }
 

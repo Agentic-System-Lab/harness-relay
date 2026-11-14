@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures';
-import { LEAD_REVIEW, composer, finishedReply, openNewChat, openTeamChat, reviewCards, send, settled, startChat } from '../support/app';
+import { LEAD_REVIEW, awaitingPlan, composer, finishedReply, openNewChat, openTeamChat, reviewCards, send, settled, startChat } from '../support/app';
 
 /*
  * Lead review: once the team has answered, the lead agent reads its replies, marks what needs a closer
@@ -52,7 +52,7 @@ test.describe('lead review', () => {
     await expect(page.getByRole('checkbox', { name: LEAD_REVIEW })).toBeChecked();
   });
 
-  test("is off unless the chat asks for it, and once turned on in the chat's team settings reads every reply since", async ({ page, relay }) => {
+  test("is off unless the chat asks for it, and once turned on in the chat's team settings reads the latest question's replies", async ({ page, relay }) => {
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
     await send(page, 'First');
     await finishedReply(page, 'Claude');
@@ -67,8 +67,12 @@ test.describe('lead review', () => {
 
     await send(page, 'Second');
     await expect(reviewCards(page)).toHaveCount(1);
-    await expect(reviewCards(page)).toContainText('The fake lead agent read 2 replies.');
-    await expect(reviewCards(page)).toContainText('Read 2 replies');
+    // Its first review reads the question the team just answered; what came before is context.
+    await expect(reviewCards(page)).toContainText('The fake lead agent read 1 reply.');
+    await expect(reviewCards(page)).toContainText('Read 1 reply');
+    const prompt = relay.fakeLog().findLast((e) => e.prompt?.includes('with your review'))!.prompt!;
+    expect(prompt).toContain('<conversation>\n[User]: First');
+    expect(prompt).toContain('<recent>\n<message from="user">\nSecond\n</message>');
   });
 
   test("is stopped by Stop, and says so when it cannot read the lead agent's answer", async ({ page, relay }) => {
@@ -85,5 +89,43 @@ test.describe('lead review', () => {
     await send(page, 'Again e2e:badreview');
     await expect(reviewCards(page)).toHaveCount(2);
     await expect(reviewCards(page).last()).toContainText('The lead agent could not review these replies (no JSON review found in the reply)');
+    const prompt = relay.fakeLog().findLast((e) => e.prompt?.includes('with your review'))!.prompt!;
+    expect(prompt).toContain('<message from="user">\nGo e2e:slowreview\n</message>');
+    expect(prompt).toContain('<reply n="2" from="@Claude (Claude Code)">');
+  });
+
+  test('the lead agent turns it on when it designs a team, and the team design card has the box and says why', async ({ page, relay }) => {
+    const id = await startChat(page, { leadReview: false });
+    await send(page, 'Build and check it e2e:leadreview');
+    const card = awaitingPlan(page);
+    const box = card.getByRole('checkbox', { name: LEAD_REVIEW });
+    await expect(box).toBeChecked();
+    await expect(card).toContainText('The lead agent turned the review on for this team: The fake lead agent wants to review what this team says.');
+    await expect(card).toContainText('Each time the team has answered, the lead agent reads the new replies');
+    // On at once, before the team is confirmed.
+    expect((await relay.api<{ settings: { leadReview?: boolean } }>(`/api/conversations/${id}`)).settings.leadReview).toBe(true);
+    await card.getByRole('button', { name: 'Confirm team' }).click();
+    await finishedReply(page, 'Claude');
+    await expect(reviewCards(page)).toHaveCount(1);
+    await expect(reviewCards(page)).toContainText('The fake lead agent read 1 reply.');
+
+    // The box turns it off, and the next answer is not reviewed.
+    const latest = page.locator('.plan-card').filter({ has: page.getByRole('checkbox', { name: LEAD_REVIEW }) });
+    await latest.getByRole('checkbox', { name: LEAD_REVIEW }).uncheck();
+    await expect.poll(async () => (await relay.api<{ settings: { leadReview?: boolean } }>(`/api/conversations/${id}`)).settings.leadReview).toBeUndefined();
+    await send(page, '@Claude one more thing');
+    await expect(await finishedReply(page, 'Claude')).toContainText('one more thing');
+    await settled(relay, id);
+    await expect(reviewCards(page)).toHaveCount(1);
+  });
+
+  test('a design leaves it as it is when it is on already', async ({ page, relay }) => {
+    await startChat(page, { leadReview: true });
+    await send(page, 'Build it e2e:leadreview');
+    const card = awaitingPlan(page);
+    await expect(card.getByRole('checkbox', { name: LEAD_REVIEW })).toBeChecked();
+    await expect(card).not.toContainText('turned the review on');
+    // The lead agent was not offered it.
+    expect(relay.fakeLog().some((e) => e.prompt?.includes('Lead review is off in this conversation'))).toBe(false);
   });
 });
