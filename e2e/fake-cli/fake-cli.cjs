@@ -28,7 +28,7 @@
  * Each speaks its CLI's own protocol as Harness Relay drives it, with no model behind it (see each
  * module). What it answers depends on the prompt, as a model's would:
  * - the lead agent's prompts: the team for a question (`e2e:team=…`, `e2e:mode=…`, `e2e:rounds=…`,
- *   `e2e:name=…`, `e2e:template=…`, `e2e:badplan`, `e2e:leadreview`; one Claude member by default), the group of a new
+ *   `e2e:name=…`, `e2e:template=…`, `e2e:badplan`; one Claude member by default), the group of a new
  *   conversation (the first group named in its first message), a changed team (`e2e:add=<cli>`), and
  *   a review of the team's replies (`e2e:reviewkind=…`, `e2e:reviewquote=list`, `e2e:badreview`, `e2e:slowreview`);
  * - a turn: a short reply that names the agent and repeats the user's latest message, streamed in

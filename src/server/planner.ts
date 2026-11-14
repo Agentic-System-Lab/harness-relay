@@ -235,7 +235,7 @@ export interface PlanConversation {
 
 /** The parts of a TeamPlan the planner decides. */
 export type PlanDecision = Required<Pick<TeamPlan, 'source' | 'name' | 'reason' | 'settings' | 'agents'>> &
-  Pick<TeamPlan, 'presetId' | 'basedOn' | 'description' | 'leadReview'>;
+  Pick<TeamPlan, 'presetId' | 'basedOn' | 'description'>;
 
 const MODES: Mode[] = ['roundtable', 'parallel', 'relay'];
 const FALLBACK_PRESET = 'builtin-general';
@@ -559,9 +559,7 @@ How to decide: read ${current ? 'the current team and ' : ''}the templates first
 ${choices.map((c, i) => `${i + 1}. ${c}`).join('\n')}
 
 Whichever you pick, keep it proportionate: simple work needs 1-2 members and one round; reserve big teams and several rounds for hard or open-ended problems. At most ${memberCount(newTeamLimit(ctx))}.
-${settings.leadReview ? '' : `
-${LEAD_REVIEW_OFFER}
-`}
+
 For an adapted or custom team:
 - Mixing coding agents helps: different models catch different things.
 ${STAFFING}
@@ -574,19 +572,8 @@ Write the reason (and for a new team its name, description and roles) in the lan
 Reply with only one of these JSON objects, in a \`\`\`json code block:
 ${current ? '- current team as it is: {"choice": "keep", "reason": "<why it still fits: one or two sentences for the user>"}\n' : ''}- template as it is: {"choice": "template", "templateId": "<id>", "reason": "<why it fits: one or two sentences for the user>"}
 - adapted template: {"choice": "adapted", "baseTemplateId": "<id>", ${TEAM_FIELDS}, "reason": "<what you changed and why: one or two sentences for the user>"}
-- new team: {"choice": "custom", ${TEAM_FIELDS}, "reason": "<why no template fits: one or two sentences for the user>"}${
-    settings.leadReview ? '' : `
-To turn lead review on, add to the object you reply with: "leadReview": true, "leadReviewReason": "<why: one sentence for the user, in the language of their question>".`
-  }`;
+- new team: {"choice": "custom", ${TEAM_FIELDS}, "reason": "<why no template fits: one or two sentences for the user>"}`;
 }
-
-/**
- * Lead review, offered to the lead agent while it is off: it may turn it on with its design, never off
- * (and is not asked when it is on already).
- */
-const LEAD_REVIEW_OFFER =
-  'Lead review is off in this conversation. You may turn it on with your design: then each time the team has answered, you read its replies, point out to the user what needs a close look (risks, decisions for the user, members who disagree, claims to check) and suggest the next steps. ' +
-  'It costs one more run of yours after each answer. Turn it on only when this work makes that worth it: several members whose replies the user has to weigh, changes to files or risky commands, or answers the user should check before acting on them. Leave it off for simple questions. You cannot turn it off.';
 
 /** The JSON object in the lead's reply (a ```json block, or the outermost braces). */
 export function parsePlanReply(text: string): Record<string, any> {
@@ -705,27 +692,10 @@ function keptDecision(current: NonNullable<PlanConversation['current']>, source:
 }
 
 /**
- * Turn the lead's JSON into a team, and whether it turns lead review on. Throws (with a user-readable
- * message) when the team is unusable. `current`: the conversation's team, which the lead may keep.
+ * Turn the lead's JSON into a team. Throws (with a user-readable message) when it is unusable.
+ * `current`: the conversation's team, which the lead may keep.
  */
 export function decidePlan(
-  raw: Record<string, any>,
-  ctx: PlannerContext,
-  lead: LeadAgentSettings,
-  current?: PlanConversation['current'],
-): PlanDecision {
-  return { ...decideTeam(raw, ctx, lead, current), ...leadReviewOf(raw) };
-}
-
-/** Whether the lead's reply turns lead review on (`"leadReview": true`), and why. */
-export function leadReviewOf(raw: Record<string, any>): Pick<PlanDecision, 'leadReview'> {
-  if (raw.leadReview !== true && raw.leadReview !== 'true') return {};
-  const reason = typeof raw.leadReviewReason === 'string' ? raw.leadReviewReason.trim().slice(0, 400) : '';
-  return { leadReview: reason ? { reason } : {} };
-}
-
-/** The team the lead's JSON names (see `decidePlan`). */
-function decideTeam(
   raw: Record<string, any>,
   ctx: PlannerContext,
   lead: LeadAgentSettings,

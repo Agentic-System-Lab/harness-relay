@@ -456,12 +456,8 @@ function PlanCard({
           </li>
         ))}
       </ul>
-      {/* Lead review: the latest design has its box (and why the lead turned it on); an earlier one only says so. */}
-      {latestPlan && onLeadReview ? (
-        <LeadReviewBox on={Boolean(leadReview)} turnedOn={plan.leadReview} onChange={onLeadReview} />
-      ) : (
-        plan.leadReview && <p className="small plan-review-why">✦ {t.plan.reviewTurnedOn(plan.leadReview.reason ?? '')}</p>
-      )}
+      {/* Lead review: the latest design has its box, for the conversation from now on. */}
+      {latestPlan && onLeadReview && <LeadReviewBox on={Boolean(leadReview)} onChange={onLeadReview} />}
       {/* A team that misses someone the schedule's message @mentions (any design, in a chat with a schedule). */}
       {scheduleText && planChecksMentions(plan, Boolean(latestPlan)) && (
         <MissedMentions text={scheduleText} names={(plan.agents ?? []).map((a) => a.name)} />
@@ -625,10 +621,10 @@ function ReviewPoint({ h }: { h: ReviewHighlight }) {
 }
 
 /**
- * Lead review's box on the latest team design card: on or off for the conversation, what that means,
- * and why the lead agent turned it on (when it did with this design).
+ * Lead review's box on the latest team design card: on or off for the conversation (the question being
+ * answered and the ones after it), and what that means. Only the user switches it.
  */
-function LeadReviewBox({ on, turnedOn, onChange }: { on: boolean; turnedOn?: { reason?: string }; onChange: (on: boolean) => Promise<boolean> }) {
+function LeadReviewBox({ on, onChange }: { on: boolean; onChange: (on: boolean) => Promise<boolean> }) {
   const t = useT();
   const hint = useId();
   // What the user just chose, shown until the conversation says so too (or the server refused it).
@@ -637,29 +633,26 @@ function LeadReviewBox({ on, turnedOn, onChange }: { on: boolean; turnedOn?: { r
     if (chosen !== null && chosen === on) setChosen(null);
   }, [chosen, on]);
   const checked = chosen ?? on;
-  // The box is the app's own control (a shared page leaves it out); why the lead agent turned it on stays.
+  // The box is the app's own control: a shared page leaves it out.
   return (
-    <>
-      <div className="plan-review">
-        <label className="check-row">
-          <input
-            type="checkbox"
-            aria-describedby={hint}
-            checked={checked}
-            onChange={async (e) => {
-              const next = e.target.checked;
-              setChosen(next);
-              if (!(await onChange(next))) setChosen(null);
-            }}
-          />
-          <span>{t.team.leadReview}</span>
-        </label>
-        <span className="small muted" id={hint}>
-          {checked ? t.team.leadReviewHint.on : t.team.leadReviewHint.off}
-        </span>
-      </div>
-      {turnedOn && <p className="small plan-review-why">✦ {t.plan.reviewTurnedOn(turnedOn.reason ?? '')}</p>}
-    </>
+    <div className="plan-review">
+      <label className="check-row">
+        <input
+          type="checkbox"
+          aria-describedby={hint}
+          checked={checked}
+          onChange={async (e) => {
+            const next = e.target.checked;
+            setChosen(next);
+            if (!(await onChange(next))) setChosen(null);
+          }}
+        />
+        <span>{t.team.leadReview}</span>
+      </label>
+      <span className="small muted" id={hint}>
+        {checked ? t.team.leadReviewHint.on : t.team.leadReviewHint.off}
+      </span>
+    </div>
   );
 }
 

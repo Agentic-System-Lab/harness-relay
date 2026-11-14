@@ -492,8 +492,6 @@ export class Orchestrator {
   private folderWaiters = new Map<string, FolderWait>();
   /** Conversations whose run being set up Stop came for: it does not start (`STOPPED`). */
   private stopping = new Set<string>();
-  /** How many times the user switched lead review, by conversation: a design leaves alone what the user set meanwhile. */
-  private reviewSwitches = new Map<string, number>();
   /** Conversations being deleted. */
   private deleting = new Set<string>();
   /** The server is shutting down: nothing new starts. */
@@ -630,7 +628,6 @@ export class Orchestrator {
   async deleteConversation(convId: string): Promise<void> {
     this.deleting.add(convId);
     this.endFolderWait(convId);
-    this.reviewSwitches.delete(convId);
     try {
       // A branch being made from it is still copying its attached files.
       await Promise.allSettled([...(this.branching.get(convId) ?? [])]);
@@ -1759,9 +1756,6 @@ export class Orchestrator {
       ? { agents: conv.agents, settings: { mode: conv.settings.mode, rounds: conv.settings.rounds, maxHops: conv.settings.maxHops } }
       : undefined;
     const history = historyForLead(conv.messages.slice(0, since));
-    // Lead review is offered while it is off; what the user switches meanwhile stands.
-    const switches = this.reviewSwitches.get(conv.id) ?? 0;
-    const offered = !conv.settings.leadReview;
     const started = Date.now();
     let ctx: PlannerContext = { available: [], catalog: [], presets: this.store.listPresets() };
     let decision: PlanDecision | undefined;
@@ -1815,21 +1809,10 @@ export class Orchestrator {
       // Members who stay on keep their ids, and with them their sessions.
       const agents = keepMemberIds(decision.agents, conv.agents);
       const now = Boolean(conv.settings.autoConfirm);
-      // Lead review: the lead may turn it on (at once, whether or not the team is confirmed), never
-      // off, and leaves it alone when it is on already.
-      const { leadReview: turnsOn, ...team } = decision;
-      const reviews =
-        Boolean(turnsOn) && offered && !conv.settings.leadReview && (this.reviewSwitches.get(conv.id) ?? 0) === switches;
-      if (reviews) {
-        conv.settings = { ...conv.settings, leadReview: true };
-        this.store.saveMeta(conv);
-        this.emitConversation(conv);
-      }
       msg.plan = {
         status: 'ready',
         lead,
-        ...team,
-        ...(reviews ? { leadReview: turnsOn } : {}),
+        ...decision,
         agents,
         ...(now ? { confirmedAt: Date.now(), autoConfirmed: true } : { awaitingConfirmation: true }),
         ...(run.designFor !== undefined ? { forSchedule: true } : {}),
@@ -1958,7 +1941,6 @@ export class Orchestrator {
   setLeadReview(convId: string, on: boolean): Conversation {
     const conv = this.store.get(convId);
     if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
-    this.reviewSwitches.set(convId, (this.reviewSwitches.get(convId) ?? 0) + 1);
     if (Boolean(conv.settings.leadReview) !== on) {
       const { leadReview: _was, ...rest } = conv.settings;
       conv.settings = on ? { ...rest, leadReview: true } : rest;

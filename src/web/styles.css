@@ -4828,7 +4828,7 @@ details.sub summary {
   color: var(--ok);
 }
 
-/* Lead review's box on the latest team design card, and why the lead agent turned it on. */
+/* Lead review's box on the latest team design card. */
 .plan-review {
   display: flex;
   flex-direction: column;
@@ -4837,12 +4837,6 @@ details.sub summary {
   border-radius: 10px;
   background: var(--bg);
   border: 1px solid var(--border);
-}
-
-.plan-review-why {
-  margin: 0;
-  color: var(--info);
-  overflow-wrap: anywhere;
 }
 
 /* Lead review: the lead agent's card after the team's replies, what it points out and the next steps. */

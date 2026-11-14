@@ -1032,7 +1032,7 @@ describe('questions written during a review, and reviews stopped', () => {
   });
 });
 
-describe('the lead agent turning lead review on when it designs a team', () => {
+describe("lead review is the user's to switch", () => {
   const design = (more: Record<string, unknown> = {}) =>
     JSON.stringify({
       choice: 'custom',
@@ -1047,113 +1047,51 @@ describe('the lead agent turning lead review on when it designs a team', () => {
       ...more,
     });
   const leadCalls = () => calls.filter((c) => c.name === 'lead');
-  const planOf = (conv: Conversation) => conv.messages.find((m) => m.plan)!.plan!;
+  const answered = (conv: Conversation) => agentMessages(conv).filter((m) => m.status === 'done').length;
 
-  it('is offered while it is off, and turned on at once with the design, which says why; the team is then reviewed once', async () => {
+  it('is never turned on by a team design, whatever the lead agent replies, and its prompt says nothing of it', async () => {
     const conv = conversation({ mode: 'parallel', permission: 'read-only', autoTeam: true, autoConfirm: true });
     conv.agents = [];
     store.saveMeta(conv);
-    fake.leadReply = design({ leadReview: true, leadReviewReason: '  Two members change files.  ' });
+    fake.leadReply = design({ leadReview: true, leadReviewReason: 'Two members change files.' });
     await orchestrator.send(conv.id, 'build and check it');
-    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
+    await vi.waitFor(() => expect(answered(conv)).toBe(2), { timeout: 20_000 });
     await finish(conv.id);
-    expect(leadCalls()[0]!.prompt).toContain('Lead review is off in this conversation');
-    expect(leadCalls()[0]!.prompt).toContain('"leadReview": true, "leadReviewReason"');
-    expect(planOf(conv).leadReview).toEqual({ reason: 'Two members change files.' });
-    expect(conv.settings.leadReview).toBe(true);
-    expect(new Store(db).get(conv.id)!.settings.leadReview).toBe(true);
-    // No review of the design run itself: one, after the team answered.
-    expect(calls.map((c) => c.name).sort()).toEqual(['Alice', 'Bob', 'lead', 'reviewer']);
-    expect([calls[0]!.name, calls.at(-1)!.name]).toEqual(['lead', 'reviewer']);
-    expect(reviews(conv)).toHaveLength(1);
-  });
-
-  it('turns it on while the design waits for confirmation, and keeps it when the user declines the team', async () => {
-    const conv = conversation({ mode: 'parallel', permission: 'read-only', autoTeam: true });
-    store.saveMeta(conv);
-    await orchestrator.send(conv.id, 'first');
-    await finish(conv.id);
-    const first = conv.messages.find((m) => m.plan)!;
-    orchestrator.declinePlan(conv.id, first.id);
-    // The current team answers in a run that starts in the background.
-    await vi.waitFor(() => expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(2));
-    await finish(conv.id);
+    expect(leadCalls()[0]!.prompt).not.toMatch(/lead review|leadReview/i);
+    expect(conv.messages.find((m) => m.plan)!.plan).not.toHaveProperty('leadReview');
     expect(conv.settings.leadReview).toBeUndefined();
-    fake.leadReply = design({ leadReview: true });
-    await orchestrator.send(conv.id, 'second, harder');
-    await finish(conv.id);
-    const plan = conv.messages.findLast((m) => m.plan)!;
-    expect(plan.plan!.awaitingConfirmation).toBe(true);
-    expect(plan.plan!.leadReview).toEqual({});
-    expect(conv.settings.leadReview).toBe(true);
-    orchestrator.declinePlan(conv.id, plan.id);
-    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
-    await finish(conv.id);
-    expect(conv.settings.leadReview).toBe(true);
+    expect(reviewerCalls()).toHaveLength(0);
   });
 
-  it("leaves the user's choice alone when they switch it while the lead agent designs", async () => {
-    const conv = conversation({ mode: 'parallel', permission: 'read-only', autoTeam: true });
-    conv.agents = [];
-    store.saveMeta(conv);
-    let release!: () => void;
-    fake.leadGate = new Promise((r) => (release = r));
-    fake.leadReply = design({ leadReview: true, leadReviewReason: 'x' });
-    await orchestrator.send(conv.id, 'build it');
-    await vi.waitFor(() => expect(leadCalls()).toHaveLength(1));
-    orchestrator.setLeadReview(conv.id, true);
-    orchestrator.setLeadReview(conv.id, false);
-    release();
-    await finish(conv.id);
-    expect(planOf(conv).leadReview).toBeUndefined();
-    expect(conv.settings.leadReview).toBeUndefined();
-  });
-
-  it("is offered with the team the lead agent designs for a schedule", async () => {
-    const conv = conversation({ mode: 'parallel', permission: 'read-only', autoTeam: true });
-    conv.agents = [];
-    store.saveMeta(conv);
-    conv.schedule = {
-      text: 'Weekly report',
-      repeat: { kind: 'interval', hours: 1 },
-      timeZone: 'UTC',
-      lang: 'en',
-      enabled: true,
-      approvals: 'deny',
-      missed: 'skip',
-      newChat: false,
-      updatedAt: 0,
-    };
-    store.saveSchedule(conv);
-    fake.leadReply = design({ leadReview: true, leadReviewReason: 'Nobody watches it.' });
-    await orchestrator.designForSchedule(conv.id);
-    await finish(conv.id);
-    expect(leadCalls()[0]!.prompt).toContain('Lead review is off in this conversation');
-    expect(planOf(conv)).toMatchObject({ forSchedule: true, leadReview: { reason: 'Nobody watches it.' } });
-    expect(conv.settings.leadReview).toBe(true);
-  });
-
-  it('is not offered, nor touched, when it is on already, and the lead cannot turn it off', async () => {
-    const conv = conversation({ mode: 'parallel', permission: 'read-only', autoTeam: true, autoConfirm: true, leadReview: true });
+  it('applies, once the user switches it, to the question being answered and every later one; designs leave it as it is', async () => {
+    const conv = conversation({ mode: 'parallel', permission: 'read-only', autoTeam: true, autoConfirm: true });
     conv.agents = [];
     store.saveMeta(conv);
     fake.leadReply = design({ leadReview: false });
-    await orchestrator.send(conv.id, 'build it');
+    let release!: () => void;
+    fake.gate = new Promise((r) => (release = r));
+    await orchestrator.send(conv.id, 'first');
+    // Turned on while the team answers the first question: that question is reviewed.
+    await vi.waitFor(() => expect(calls.filter((c) => c.name === 'Alice' || c.name === 'Bob')).toHaveLength(2), { timeout: 20_000 });
+    orchestrator.setLeadReview(conv.id, true);
+    fake.gate = Promise.resolve();
+    release();
     await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
     await finish(conv.id);
-    expect(leadCalls()[0]!.prompt).not.toContain('Lead review is off');
-    expect(leadCalls()[0]!.prompt).not.toContain('leadReviewReason');
-    expect(planOf(conv).leadReview).toBeUndefined();
-    expect(conv.settings.leadReview).toBe(true);
-
-    // Asked to turn it on while it is on: nothing on the card.
-    const again = conversation({ mode: 'parallel', permission: 'read-only', autoTeam: true, autoConfirm: true, leadReview: true });
-    again.agents = [];
-    store.saveMeta(again);
-    fake.leadReply = design({ leadReview: true, leadReviewReason: 'x' });
-    await orchestrator.send(again.id, 'build it');
+    // The next question gets a design of its own, which leaves it on, and is reviewed too.
+    await orchestrator.send(conv.id, 'second');
     await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(2), { timeout: 20_000 });
-    await finish(again.id);
-    expect(planOf(again).leadReview).toBeUndefined();
+    await finish(conv.id);
+    expect(leadCalls()).toHaveLength(2);
+    expect(conv.settings.leadReview).toBe(true);
+    // Turned off, the questions after are not reviewed, whatever the lead agent's designs say.
+    orchestrator.setLeadReview(conv.id, false);
+    fake.leadReply = design({ leadReview: true });
+    await orchestrator.send(conv.id, 'third');
+    await vi.waitFor(() => expect(answered(conv)).toBe(6), { timeout: 20_000 });
+    await finish(conv.id);
+    expect(leadCalls()).toHaveLength(3);
+    expect(reviewerCalls()).toHaveLength(2);
+    expect(new Store(db).get(conv.id)!.settings.leadReview).toBeUndefined();
   });
 });

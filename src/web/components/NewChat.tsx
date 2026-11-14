@@ -49,7 +49,7 @@ export const rememberAutoConfirm = (on: boolean | undefined) => write(AUTO_CONFI
 /**
  * A new conversation: the lead agent designs the team for each question, so only the settings are
  * chosen here. It starts in the default working directories (`cwds`, the first where agents start),
- * with lead review off (the user, or the lead agent with a design, may turn it on).
+ * with lead review off (only the user turns it on, here or later in the chat).
  */
 export function autoTeam(cwds: string[], autoConfirm: boolean): Team {
   return {

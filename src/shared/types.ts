@@ -781,8 +781,8 @@ export interface ConversationSettings {
   /**
    * Lead review: once the team has answered, the lead agent (Settings) reads its new replies, points out
    * what the user should look at closely, and suggests the next steps (`LeadReview`). Any conversation
-   * may have it, with or without auto team. Off by default; the lead agent may turn it on when it
-   * designs a team (`TeamPlan.leadReview`), never off.
+   * may have it, with or without auto team. Off in every new chat; only the user switches it (the New
+   * chat page, Team settings, the team design card), for the question being answered and the ones after it.
    */
   leadReview?: boolean;
   /**
@@ -860,11 +860,6 @@ export interface TeamPlan {
    * team answers nothing now; it gets the message when the schedule sends it.
    */
   forSchedule?: boolean;
-  /**
-   * Lead review was off and the lead agent turned it on with this design (`ConversationSettings.leadReview`),
-   * with why. It never turns it off, nor touches it when it is on already; the user can turn it off.
-   */
-  leadReview?: { reason?: string };
 }
 
 /**
