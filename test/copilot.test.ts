@@ -38,6 +38,7 @@ import {
   copilotPolicyProblem,
   copilotProjectHooks,
   copilotReadOnlyPaths,
+  copilotRepoPaths,
   copilotToolCaches,
   copilotRunConfig,
   copilotRunSettings,
@@ -65,7 +66,8 @@ import { writeFakeCopilot } from './fake-copilot';
  * API (its BYOK variables, as a run on the user's own endpoint) and on a GitHub sign-in with real
  * models (`real-*`), scrubbed (the working directory is /work/app, the protected folder /work/secret,
  * another folder /work/outside), replayed through a stand-in (test/fake-copilot.ts). Its listings
- * (`mcp list --json`…) are recorded too (test/fixtures/copilot/cli/).
+ * (`mcp list --json`…) are recorded too (test/fixtures/copilot/cli/), and so is the policy copilot
+ * 1.0.112 printed on Linux for a read-only run's settings (`policy-read-only.txt`).
  */
 const FIX = fileURLToPath(new URL('./fixtures/copilot/', import.meta.url));
 const CLI = join(FIX, 'cli');
@@ -300,7 +302,7 @@ describe("Copilot's home and settings for one run", () => {
   };
 
   it("keeps the account's model and what it loads, nothing that widens what runs, and turns its sandbox on below full access", () => {
-    const s = copilotRunSettings(own, { permission: 'edit', addDirs: ['/work/other'], readDirs: ['/skills'], protectedPaths: ['/work/secret'] });
+    const s = copilotRunSettings(own, { permission: 'edit', cwd: CWD, addDirs: ['/work/other'], readDirs: ['/skills'], protectedPaths: ['/work/secret'] });
     expect(s).toEqual({
       model: 'claude-sonnet-5.5',
       effortLevel: 'high',
@@ -325,23 +327,35 @@ describe("Copilot's home and settings for one run", () => {
         },
       },
     });
-    expect(copilotRunSettings(own, { permission: 'full' }).sandbox).toEqual({ enabled: false });
+    expect(copilotRunSettings(own, { permission: 'full', cwd: CWD }).sandbox).toEqual({ enabled: false });
     // Whether its sessions sync to GitHub, its updates and its proxy stay as the user set them.
-    expect(copilotRunSettings({ remoteExport: false, autoUpdate: false, proxyUrl: 'http://proxy:3128' }, { permission: 'full' })).toMatchObject({ remoteExport: false, autoUpdate: false, proxyUrl: 'http://proxy:3128' });
+    expect(copilotRunSettings({ remoteExport: false, autoUpdate: false, proxyUrl: 'http://proxy:3128' }, { permission: 'full', cwd: CWD })).toMatchObject({ remoteExport: false, autoUpdate: false, proxyUrl: 'http://proxy:3128' });
     // On the user's own endpoint the account's model keys would name one of Copilot's service: left out.
-    const onEndpoint = copilotRunSettings({ ...own, modelProviderId: 'github', contextTier: 'x' }, { permission: 'full', onEndpoint: true });
+    const onEndpoint = copilotRunSettings({ ...own, modelProviderId: 'github', contextTier: 'x' }, { permission: 'full', cwd: CWD, onEndpoint: true });
     for (const k of ['model', 'modelProviderId', 'effortLevel', 'contextTier']) expect(onEndpoint).not.toHaveProperty(k);
     expect(onEndpoint).toMatchObject({ memory: true, disabledSkills: ['own-skill'] });
-    expect(copilotRunSettings('not json', { permission: 'full' })).toEqual({ sessionManagementTools: { enabled: false }, sandbox: { enabled: false } });
+    expect(copilotRunSettings('not json', { permission: 'full', cwd: CWD })).toEqual({ sessionManagementTools: { enabled: false }, sandbox: { enabled: false } });
+  });
+
+  it('makes every working directory read-only to its sandbox in a read-only run, and read-write in edit mode', () => {
+    const fsOf = (permission: 'read-only' | 'edit') => {
+      const sb = copilotRunSettings(own, { permission, cwd: CWD, addDirs: ['/work/other'], readDirs: ['/skills', CWD], protectedPaths: ['/work/secret'] }).sandbox as Record<string, any>;
+      return { cwd: sb.addCurrentWorkingDirectory, ...sb.userPolicy.filesystem };
+    };
+    // Edit: the working directory through Copilot's own setting, the other ones as read-write paths.
+    expect(fsOf('edit')).toEqual({ cwd: true, readwritePaths: ['/work/other'], readonlyPaths: ['/skills', CWD], deniedPaths: ['/work/secret'] });
+    // Read-only: that setting would make the working directory writable whatever the permission, so it
+    // is off, and every working directory is a read-only path (each once).
+    expect(fsOf('read-only')).toEqual({ cwd: false, readwritePaths: [], readonlyPaths: [CWD, '/work/other', '/skills'], deniedPaths: ['/work/secret'] });
   });
 
   it('leaves out memory, hooks, plugins and skills as the run says, and disables single skills by name', () => {
-    const s = copilotRunSettings(own, { permission: 'edit', nativeOff: ['memory', 'hooks', 'plugins', 'skills'], nativeItems: {} });
+    const s = copilotRunSettings(own, { permission: 'edit', cwd: CWD, nativeOff: ['memory', 'hooks', 'plugins', 'skills'], nativeItems: {} });
     expect(s).toMatchObject({ memory: false, disableAllHooks: true });
     expect(s).not.toHaveProperty('hooks');
     expect(s).not.toHaveProperty('enabledPlugins');
     expect(s).not.toHaveProperty('disabledSkills');
-    expect(copilotRunSettings(own, { permission: 'edit', nativeItems: { skills: ['a', 'own-skill'] } }).disabledSkills).toEqual(['own-skill', 'a']);
+    expect(copilotRunSettings(own, { permission: 'edit', cwd: CWD, nativeItems: { skills: ['a', 'own-skill'] } }).disabledSkills).toEqual(['own-skill', 'a']);
   });
 
   it("takes the account's sign-in state without the folders it trusted, and without its plugins' when they are left out", () => {
@@ -382,7 +396,7 @@ describe("Copilot's home and settings for one run", () => {
       writeFileSync(join(account, 'permissions-config.json'), '{"allow":["shell(rm)"]}');
       writeFileSync(join(account, 'copilot-instructions.md'), 'My own rules.');
       writeFileSync(join(account, 'config.json'), JSON.stringify({ loggedInUsers: [{ login: 'octocat' }], trustedFolders: ['/'] }));
-      const run = prepareCopilotRun(account, { permission: 'edit', nativeOff: ['hooks'] }, 'You are @Ada.');
+      const run = prepareCopilotRun(account, { permission: 'edit', cwd: CWD, nativeOff: ['hooks'] }, 'You are @Ada.');
       expect(run.dir.startsWith(relayTmpDir())).toBe(true);
       const names = readdirSync(run.dir).sort();
       // Its sessions and (but on Windows) their index, the account's.
@@ -582,44 +596,102 @@ describe("what Copilot's sandbox keeps read-only below full access", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("gives a read-only run what git needs of each working directory's repository: its folder, and a worktree's git folders", () => {
+    const root = mkdtempSync(join(tmpdir(), 'relay-copilot-repo-'));
+    try {
+      // A folder below a repository's: the repository's folder (its .git with it).
+      const repo = join(root, 'repo');
+      mkdirSync(join(repo, '.git'), { recursive: true });
+      mkdirSync(join(repo, 'sub', 'deeper'), { recursive: true });
+      // A worktree of git's: its folder, its git folder and the repository's own (commondir, relative).
+      const main = join(root, 'main');
+      const held = join(main, '.git', 'worktrees', 'wt');
+      mkdirSync(held, { recursive: true });
+      writeFileSync(join(held, 'commondir'), '../..\n');
+      const wt = join(root, 'wt');
+      mkdirSync(wt);
+      writeFileSync(join(wt, '.git'), `gitdir: ${held}\n`);
+      // A submodule's: a git folder without commondir.
+      const modHeld = join(repo, '.git', 'modules', 'm');
+      mkdirSync(modHeld, { recursive: true });
+      const mod = join(repo, 'm');
+      mkdirSync(mod);
+      writeFileSync(join(mod, '.git'), 'gitdir: ../.git/modules/m\n');
+      // Not in a repository at all: nothing.
+      const plain = join(root, 'plain');
+      mkdirSync(plain);
+      expect(copilotRepoPaths([join(repo, 'sub', 'deeper'), wt, mod, plain, repo])).toEqual([repo, wt, held, join(main, '.git'), mod, modHeld]);
+      // A .git file that names no git folder, or one that is gone: the folder alone.
+      const odd = join(root, 'odd');
+      mkdirSync(odd);
+      writeFileSync(join(odd, '.git'), 'not a gitdir line\n');
+      expect(copilotRepoPaths([odd])).toEqual([odd]);
+      writeFileSync(join(odd, '.git'), `gitdir: ${join(root, 'gone')}\n`);
+      expect(copilotRepoPaths([odd])).toEqual([odd]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("Copilot's sandbox policy, checked before each turn below full access", () => {
+  const edit = { permission: 'edit', cwd: CWD } as const;
+  const readOnly = { permission: 'read-only', cwd: CWD } as const;
   const policy = (denied: string[], rw: string[] = [], bypass = 'no') =>
     `Effective sandbox policy for /work/app\n\n\u001b[1mUser-configured paths:\u001b[22m\n  Read-write paths (${rw.length}):\n${rw.map((p) => `    ${p}\n`).join('')}  Denied paths (${denied.length}):\n${denied.map((p) => `    ${p}\n`).join('')}\n\u001b[1mCapabilities:\u001b[22m\n  Allow sandbox bypass: ${bypass}\n`;
 
   it("passes the policy the run set up, the recordings' too", () => {
-    expect(copilotPolicyProblem(policy(['/work/secret'], ['/work/outside']), { protectedPaths: ['/work/secret'], addDirs: ['/work/outside'] })).toBeUndefined();
+    expect(copilotPolicyProblem(policy(['/work/secret'], ['/work/outside']), { ...edit, protectedPaths: ['/work/secret'], addDirs: ['/work/outside'] })).toBeUndefined();
     const recorded = (name: string) =>
       rows(name)
         .filter((r) => r.msg?.params?.update?.sessionUpdate === 'agent_message_chunk')
         .map((r) => r.msg.params.update.content.text)
         .find((text: string) => text.startsWith('Effective sandbox policy'));
-    expect(copilotPolicyProblem(recorded('protected')!, { protectedPaths: ['/work/secret'] })).toBeUndefined();
-    expect(copilotPolicyProblem(recorded('add-dir')!, { protectedPaths: ['/work/secret'], addDirs: ['/work/outside'] })).toBeUndefined();
+    expect(copilotPolicyProblem(recorded('protected')!, { ...edit, protectedPaths: ['/work/secret'] })).toBeUndefined();
+    expect(copilotPolicyProblem(recorded('add-dir')!, { ...edit, protectedPaths: ['/work/secret'], addDirs: ['/work/outside'] })).toBeUndefined();
   });
 
   it('fails when the sandbox is off, a command may leave it, or a path the run gave it is not in it', () => {
-    expect(copilotPolicyProblem('Command sandboxing is disabled, so no policy is in force and commands run unrestricted.\n', {})).toBe('Command sandboxing is disabled, so no policy is in force and commands run unrestricted.');
-    expect(copilotPolicyProblem(policy([], [], 'yes'), {})).toBe('a command may leave the sandbox (bypass)');
-    expect(copilotPolicyProblem(policy([]), { protectedPaths: ['/work/secret'] })).toBe('/work/secret is not among its denied paths');
-    expect(copilotPolicyProblem(policy(['/work/secret']), { protectedPaths: ['/work/secret'], addDirs: ['/work/other'] })).toBe('/work/other is not among its read-write paths');
-    expect(copilotPolicyProblem('', {})).toBe('no policy');
+    expect(copilotPolicyProblem('Command sandboxing is disabled, so no policy is in force and commands run unrestricted.\n', edit)).toBe('Command sandboxing is disabled, so no policy is in force and commands run unrestricted.');
+    expect(copilotPolicyProblem(policy([], [], 'yes'), edit)).toBe('a command may leave the sandbox (bypass)');
+    expect(copilotPolicyProblem(policy([]), { ...edit, protectedPaths: ['/work/secret'] })).toBe('/work/secret is not among its denied paths');
+    expect(copilotPolicyProblem(policy(['/work/secret']), { ...edit, protectedPaths: ['/work/secret'], addDirs: ['/work/other'] })).toBe('/work/other is not among its read-write paths');
+    expect(copilotPolicyProblem('', edit)).toBe('no policy');
     // A path only mentioned elsewhere (inside another one listed, or under another kind) does not count.
-    expect(copilotPolicyProblem(policy(['/work/secret/inner'], ['/work/secret']), { protectedPaths: ['/work/secret'] })).toBe('/work/secret is not among its denied paths');
-    expect(copilotPolicyProblem(policy(['/work/secret'], ['/work/secret/sub']), { protectedPaths: ['/work/secret'], addDirs: ['/work/secret'] })).toBe('/work/secret is not among its read-write paths');
+    expect(copilotPolicyProblem(policy(['/work/secret/inner'], ['/work/secret']), { ...edit, protectedPaths: ['/work/secret'] })).toBe('/work/secret is not among its denied paths');
+    expect(copilotPolicyProblem(policy(['/work/secret'], ['/work/secret/sub']), { ...edit, protectedPaths: ['/work/secret'], addDirs: ['/work/secret'] })).toBe('/work/secret is not among its read-write paths');
     // A bypass that is only mentioned, not set, does not count either.
-    expect(copilotPolicyProblem(`${policy([])}\nAllow sandbox bypass: no is what Harness Relay wants\n`.replace('Allow sandbox bypass: no\n', 'Allow sandbox bypass: yes\n'), {})).toBe('a command may leave the sandbox (bypass)');
+    expect(copilotPolicyProblem(`${policy([])}\nAllow sandbox bypass: no is what Harness Relay wants\n`.replace('Allow sandbox bypass: no\n', 'Allow sandbox bypass: yes\n'), edit)).toBe('a command may leave the sandbox (bypass)');
     expect(copilotPolicyPaths(policy(['/a', '/b'], ['/c']))).toEqual({ 'read-write': ['/c'], denied: ['/a', '/b'] });
     // What would hand its commands the user's credentials.
-    expect(copilotPolicyProblem(policy([]).replace('Allow sandbox bypass: no', 'Allow sandbox bypass: no\n  Allow keychain access: on'), {})).toBe('Allow keychain access: on');
-    expect(copilotPolicyProblem(policy([]).replace('Allow sandbox bypass: no', 'Allow sandbox bypass: no\n  Authenticate git (sandbox setting): on'), {})).toBe('Authenticate git (sandbox setting): on');
+    expect(copilotPolicyProblem(policy([]).replace('Allow sandbox bypass: no', 'Allow sandbox bypass: no\n  Allow keychain access: on'), edit)).toBe('Allow keychain access: on');
+    expect(copilotPolicyProblem(policy([]).replace('Allow sandbox bypass: no', 'Allow sandbox bypass: no\n  Authenticate git (sandbox setting): on'), edit)).toBe('Authenticate git (sandbox setting): on');
+  });
+
+  it('wants every working directory among its read-only paths in a read-only run, and none among its read-write ones', () => {
+    // What copilot 1.0.112 printed for a read-only run's settings: no "Working directory" section.
+    const printed = readFileSync(join(FIX, 'policy-read-only.txt'), 'utf8');
+    const given = { ...readOnly, protectedPaths: ['/work/secret'], addDirs: ['/work/outside'] };
+    expect(copilotPolicyProblem(printed, given)).toBeUndefined();
+    // As it printed the settings before (the working directory read-write, through addCurrentWorkingDirectory): refused.
+    const recorded = rows('add-dir')
+      .filter((r) => r.msg?.params?.update?.sessionUpdate === 'agent_message_chunk')
+      .map((r) => r.msg.params.update.content.text)
+      .find((text: string) => text.startsWith('Effective sandbox policy'))!;
+    expect(copilotPolicyProblem(recorded, given)).toBe('/work/app is not among its read-only paths');
+    // A working directory listed read-only, but read-write too (elsewhere in the policy): refused.
+    const both = printed.replace('\u001b[1mSystem:', '\u001b[1mWorking directory:\u001b[22m\n  Read-write paths (1):\n    /work/outside\n\n\u001b[1mSystem:');
+    expect(copilotPolicyProblem(both, given)).toBe('/work/outside is among its read-write paths');
+    expect(copilotPolicyProblem(printed, { ...given, addDirs: ['/work/other'] })).toBe('/work/other is not among its read-only paths');
+    // Edit mode wants the other ones read-write, as before: the read-only policy does not do.
+    expect(copilotPolicyProblem(printed, { ...given, permission: 'edit' })).toBe('/work/outside is not among its read-write paths');
   });
 
   it('compares paths on Windows without letter case, and either slash', () => {
     const win = `Effective sandbox policy for C:\\work\\app\n\nUser-configured paths:\n  Read-write paths (1):\n    C:\\Work\\Other\n  Denied paths (1):\n    c:\\work\\secret\\\n\nCapabilities:\n  Allow sandbox bypass: no\n`;
-    expect(copilotPolicyProblem(win, { protectedPaths: ['C:/Work/Secret'], addDirs: ['c:\\work\\other'] }, 'win32')).toBeUndefined();
-    expect(copilotPolicyProblem(win, { protectedPaths: ['C:/Work/Secret'] }, 'linux')).toBe('C:/Work/Secret is not among its denied paths');
+    expect(copilotPolicyProblem(win, { ...edit, protectedPaths: ['C:/Work/Secret'], addDirs: ['c:\\work\\other'] }, 'win32')).toBeUndefined();
+    expect(copilotPolicyProblem(win, { ...edit, protectedPaths: ['C:/Work/Secret'] }, 'linux')).toBe('C:/Work/Secret is not among its denied paths');
   });
 
   it("finds what its dev-tool access lets commands write that the run's read-only paths do not cover", () => {
@@ -901,7 +973,9 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
   });
 
   it('asks about a command in read-only mode; a refusal shows its note, and Copilot ends the turn there', async () => {
-    const r = run('ro-deny', { permission: 'read-only' }, () => ({ allow: false, note: 'Not now' }));
+    // Recorded with the settings before read-only runs made the working directories read-only: the
+    // policy is the one the run's settings give now (FAKE_COPILOT_OWN_POLICY), as copilot 1.0.112 prints it.
+    const r = run('ro-deny', { permission: 'read-only' }, () => ({ allow: false, note: 'Not now' }), { FAKE_COPILOT_OWN_POLICY: '1' });
     await withLang('en', () => copilotRunner.run(r.o));
     expect(r.approvals).toEqual([{ kind: 'command', detail: 'touch ro.txt' }]);
     expect(r.log().find((l) => l.result?.outcome)?.result.outcome.optionId).toBe('reject_once');
@@ -909,7 +983,7 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
   });
 
   it('refuses by itself what the permission does not cover when the conversation refuses approvals', async () => {
-    const r = run('ro-auto', { permission: 'read-only' });
+    const r = run('ro-auto', { permission: 'read-only' }, undefined, { FAKE_COPILOT_OWN_POLICY: '1' });
     await withLang('en', () => copilotRunner.run(r.o));
     expect(r.log().find((l) => l.result?.outcome)?.result.outcome.optionId).toBe('reject_once');
     expect(r.events.find((e) => e.type === 'tool_end')).toMatchObject({ ok: false, error: `${withLang('en', () => t().copilotRefused)}${withLang('en', () => t().copilotEndsTurn)}` });
@@ -1093,6 +1167,51 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
     expect(r.log().find((l) => l.method === 'session/new')?.params.mcpServers).toEqual([{ name: 'notes', command: 'notes-mcp', args: ['--x'], env: [{ name: 'TOKEN', value: 't' }] }]);
     const prompt = r.log().filter((l) => l.method === 'session/prompt').at(-1)!.params.prompt;
     expect(prompt.map((b: any) => b.type)).toEqual(['text', 'image']);
+  });
+
+  it('makes every working directory, and its repository, read-only in a read-only run, and checks that its sandbox says so', async () => {
+    const repo = join(root, `repo-${n}`);
+    const other = join(repo, 'other');
+    mkdirSync(join(repo, '.git'), { recursive: true });
+    mkdirSync(other, { recursive: true });
+    const r = run(undefined, { permission: 'read-only', cwd: repo, addDirs: [other] });
+    await copilotRunner.run(r.o);
+    const sb = JSON.parse(r.log()[0]!.files['settings.json']).sandbox;
+    expect(sb.addCurrentWorkingDirectory).toBe(false);
+    expect(sb.userPolicy.filesystem.readwritePaths).toEqual([]);
+    expect(sb.userPolicy.filesystem.readonlyPaths.slice(0, 2)).toEqual([repo, other]);
+    expect(r.log()[0]!.argv).toEqual(expect.arrayContaining(['--sandbox', '--add-dir', other]));
+    expect(r.log().filter((l) => l.method === 'session/prompt').map((l) => l.params.prompt[0].text)).toEqual(['/sandbox policy', r.o.prompt]);
+    // A working directory below the repository's folder: that folder (and its .git) read-only too, so git works there.
+    const below = run(undefined, { permission: 'read-only', cwd: other });
+    await copilotRunner.run(below.o);
+    expect(JSON.parse(below.log()[0]!.files['settings.json']).sandbox.userPolicy.filesystem.readonlyPaths).toEqual(expect.arrayContaining([other, repo]));
+    // Edit mode: the other one read-write, the working directory through Copilot's own setting, the repository not added.
+    const edit = run(undefined, { permission: 'edit', cwd: repo, addDirs: [other] });
+    await copilotRunner.run(edit.o);
+    const esb = JSON.parse(edit.log()[0]!.files['settings.json']).sandbox;
+    expect(esb.addCurrentWorkingDirectory).toBe(true);
+    expect(esb.userPolicy.filesystem.readwritePaths).toEqual([other]);
+    expect(esb.userPolicy.filesystem.readonlyPaths).not.toContain(repo);
+    // A sandbox that still has the working directory read-write (the recorded policy, from the settings before): the turn does not run.
+    const old = run('ro-deny', { permission: 'read-only' });
+    await expect(withLang('en', () => copilotRunner.run(old.o))).rejects.toThrow(`${old.o.cwd} is not among its read-only paths`);
+    expect(old.log().filter((l) => l.method === 'session/prompt')).toHaveLength(1);
+  });
+
+  it("checks a read-only run's sandbox in a start of its own before a project's hooks run, naming the run's own working directory", async () => {
+    const r = run(undefined, { permission: 'read-only' }, () => ({ allow: true }));
+    mkdirSync(join(r.o.cwd, '.git'));
+    mkdirSync(join(r.o.cwd, '.github', 'hooks'), { recursive: true });
+    writeFileSync(join(r.o.cwd, '.github', 'hooks', 'h.json'), '{"version":1,"hooks":{}}');
+    await copilotRunner.run(r.o);
+    const [check, turn] = starts(r);
+    expect(check!.cwd).toContain('relay-copilot-check-');
+    // The check's start has the run's settings: the run's working directory read-only, not its own empty folder.
+    expect(JSON.parse(check!.files['settings.json']).sandbox.userPolicy.filesystem.readonlyPaths).toContain(r.o.cwd);
+    expect(JSON.parse(check!.files['settings.json']).sandbox.addCurrentWorkingDirectory).toBe(false);
+    expect(realpathSync(turn!.cwd)).toBe(realpathSync(r.o.cwd));
+    expect(r.log().filter((l) => l.method === 'session/prompt').map((l) => l.params.prompt[0].text)).toEqual(['/sandbox policy', '/sandbox policy', r.o.prompt]);
   });
 
   it("refuses to start below full access when a protected path's name is a pattern", async () => {

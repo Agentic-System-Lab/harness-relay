@@ -38,7 +38,11 @@ import {
  * - Its own sandbox (`--sandbox`: Seatbelt on macOS, bubblewrap on Linux, a process container on
  *   Windows) works over ACP: commands write only in the working directory and the temporary folder,
  *   read only system, tool and working folders, and never the policy's denied paths; its file tools
- *   keep to the same policy. A read-only path inside the working directory holds against its
+ *   keep to the same policy. Its `addCurrentWorkingDirectory` makes the working directory writable
+ *   whatever the run's permission, so a read-only run turns it off and gives every working directory
+ *   as a read-only path instead (copilot 1.0.112 on Linux: it still lists, reads and searches them,
+ *   and loads their instruction files; a write there fails, and its file tools refuse one without
+ *   asking). A read-only path inside the working directory holds against its
  *   commands (`copilotReadOnlyPaths`: git's hooks and config, the agents' config), but only one that
  *   exists when the sandbox starts, and on macOS not against a command that renames the folder above
  *   it; git needs the user's `~/.gitconfig` readable to run at all. A command it asks about still
@@ -141,7 +145,12 @@ const KEPT: Record<'model' | 'always' | 'skills' | 'mcp' | 'hooks' | 'plugins' |
 /** What a run's settings need besides the account's own: its permission and folders. */
 export interface CopilotRunPolicy {
   permission: Permission;
-  /** The conversation's other working directories: read-write in the sandbox (`--add-dir` does not make them so). */
+  /** The working directory: read-write in its sandbox in edit mode (`addCurrentWorkingDirectory`), read-only in a read-only run. */
+  cwd: string;
+  /**
+   * The conversation's other working directories, with the working directory's access: read-write in
+   * the sandbox in edit mode (`--add-dir` does not make them so), read-only in a read-only run.
+   */
   addDirs?: readonly string[];
   /** Folders the agent may read besides them (its skills, the attachments). */
   readDirs?: readonly string[];
@@ -155,8 +164,10 @@ export interface CopilotRunPolicy {
 
 /**
  * The settings of one run (`settings.json` in its home): the account's kept keys (`KEPT`), with
- * below full access Copilot's sandbox on: commands write in the working directories only, read what
- * the run may read, never the protected paths, no command may leave the sandbox (`allowBypass`), and
+ * below full access Copilot's sandbox on: commands write in the working directories only in edit mode
+ * (in a read-only run they are all read-only, the first one too: `addCurrentWorkingDirectory` would
+ * make it writable whatever the permission), read what the run may read, never the protected paths,
+ * no command may leave the sandbox (`allowBypass`), and
  * git and gh get no credentials through its proxy, nor commands the macOS keychain; MCP servers (the user's own, the tool library's)
  * run outside it, as with every other CLI. Its dev-tool access stays on (commands read the tool
  * folders builds need), but what it would let them write besides the working directories (shared
@@ -189,10 +200,12 @@ export function copilotRunSettings(own: unknown, p: CopilotRunPolicy): Record<st
     out.sandbox = { enabled: false };
     return out;
   }
+  const writable = p.permission === 'edit';
+  const dirs = [p.cwd, ...(p.addDirs ?? [])];
   out.sandbox = {
     enabled: true,
     allowBypass: false,
-    addCurrentWorkingDirectory: true,
+    addCurrentWorkingDirectory: writable,
     allowDevToolAccess: true,
     auth: { git: false, gh: false },
     sandboxMcpServers: false,
@@ -200,8 +213,8 @@ export function copilotRunSettings(own: unknown, p: CopilotRunPolicy): Record<st
     sandboxExtensions: true,
     userPolicy: {
       filesystem: {
-        readwritePaths: [...(p.addDirs ?? [])],
-        readonlyPaths: [...(p.readDirs ?? [])],
+        readwritePaths: writable ? [...(p.addDirs ?? [])] : [],
+        readonlyPaths: [...new Set([...(writable ? [] : dirs), ...(p.readDirs ?? [])])],
         deniedPaths: [...(p.protectedPaths ?? [])],
       },
       network: { allowOutbound: true, allowLocalNetwork: true },
@@ -584,6 +597,45 @@ export function copilotReadOnlyPaths(dirs: readonly string[], env: NodeJS.Proces
   return [...new Set([...git, ...copilotToolCaches(env, home, platform), ...project])].filter((p) => existsSync(p));
 }
 
+/**
+ * What git needs readable for the working directories besides the folders themselves, which Copilot's
+ * `addCurrentWorkingDirectory` would grant (copilot 1.0.112 on Linux): the folder of the repository
+ * each one is in (that grant makes it read-only, and its `.git` read-write), and for a worktree of
+ * git's or a submodule its git folder, and a worktree's repository's own (`commondir`). A read-only run turns
+ * that setting off, so they are read-only paths of its own: git works in each folder as in edit mode,
+ * and writes nothing. Only the paths that exist.
+ */
+export function copilotRepoPaths(dirs: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const dir of dirs) {
+    const root = upToRepo(dir).at(-1)!;
+    const dotGit = join(root, '.git');
+    let folder: boolean;
+    try {
+      folder = statSync(dotGit).isDirectory();
+    } catch {
+      continue; // not in a repository
+    }
+    out.push(root);
+    if (folder) continue;
+    let held: string | undefined;
+    try {
+      const gitdir = /^gitdir: (.+)$/m.exec(readFileSync(dotGit, 'utf8'))?.[1]?.trim();
+      held = gitdir ? resolve(root, gitdir) : undefined;
+    } catch {
+      held = undefined;
+    }
+    if (!held) continue;
+    out.push(held);
+    try {
+      out.push(resolve(held, readFileSync(join(held, 'commondir'), 'utf8').trim()));
+    } catch {
+      // a submodule's git folder: no `commondir`
+    }
+  }
+  return [...new Set(out)].filter((p) => existsSync(p));
+}
+
 /** A path as Copilot's policy may print it: as given, and by its real path (macOS's `/private/tmp` for `/tmp`). */
 const spellings = (path: string) => [...new Set([path, realPath(path)].map((p) => p.replace(/[\\/]+$/, '')))];
 
@@ -618,11 +670,13 @@ export function copilotPolicyPaths(text: string, section?: string): Record<strin
 /**
  * What is wrong with the policy Copilot says is in force (`/sandbox policy`) for a run below full
  * access, or undefined: it must be on, let no command leave it, list each protected path among its
- * denied paths and each other working directory among its read-write ones, each as a line of its own.
+ * denied paths, and each other working directory among its read-write paths in edit mode; in a
+ * read-only run each working directory, the first one too, among its read-only paths and none of
+ * them among its read-write ones, each as a line of its own.
  */
 export function copilotPolicyProblem(
   text: string,
-  p: { protectedPaths?: readonly string[]; addDirs?: readonly string[] },
+  p: { permission: Permission; cwd: string; protectedPaths?: readonly string[]; addDirs?: readonly string[] },
   platform: NodeJS.Platform = process.platform,
 ): string | undefined {
   const policy = stripAnsi(text);
@@ -642,8 +696,15 @@ export function copilotPolicyProblem(
   const listed = (path: string, kind: string) => spellings(path).some((s) => (paths[kind] ?? []).some((l) => norm(l) === norm(s)));
   const notDenied = (p.protectedPaths ?? []).find((path) => !listed(path, 'denied'));
   if (notDenied) return `${notDenied} is not among its denied paths`;
-  const notWritable = (p.addDirs ?? []).find((path) => !listed(path, 'read-write'));
-  return notWritable ? `${notWritable} is not among its read-write paths` : undefined;
+  if (p.permission === 'edit') {
+    const notWritable = (p.addDirs ?? []).find((path) => !listed(path, 'read-write'));
+    return notWritable ? `${notWritable} is not among its read-write paths` : undefined;
+  }
+  const dirs = [p.cwd, ...(p.addDirs ?? [])];
+  const notReadOnly = dirs.find((path) => !listed(path, 'read-only'));
+  if (notReadOnly) return `${notReadOnly} is not among its read-only paths`;
+  const writable = dirs.find((path) => listed(path, 'read-write'));
+  return writable ? `${writable} is among its read-write paths` : undefined;
 }
 
 /** The temporary folders every CLI's commands may write: the environment's, and the system's (pnpm keeps its lock folders in `/tmp`). */
@@ -1119,15 +1180,23 @@ export const copilotRunner: AgentRunner = {
     const pattern = patternPath(protectedPaths);
     if (pattern) throw new AgentRunError(t().protectedPattern(pattern));
     const projectHooks = await copilotProjectGate(o);
-    // What it may read besides the working directories (only folders that exist: bubblewrap refuses a missing one).
+    // What it may read besides the working directories (only folders that exist: bubblewrap refuses a missing one),
+    // and in a read-only run their repositories, which its sandbox then does not grant by itself (`copilotRepoPaths`).
+    const dirs = [o.cwd, ...(o.addDirs ?? [])];
     const baseReadDirs =
       o.permission === 'full'
         ? []
-        : [...new Set([...(o.readDirs ?? []), ...(o.attachmentsDir ? [o.attachmentsDir] : []), ...copilotReadOnlyPaths([o.cwd, ...(o.addDirs ?? [])], o.env)])].filter((p) =>
-            existsSync(p),
-          );
+        : [
+            ...new Set([
+              ...(o.readDirs ?? []),
+              ...(o.attachmentsDir ? [o.attachmentsDir] : []),
+              ...(o.permission === 'read-only' ? copilotRepoPaths(dirs) : []),
+              ...copilotReadOnlyPaths(dirs, o.env),
+            ]),
+          ].filter((p) => existsSync(p));
     const policy = (more: readonly string[]): CopilotRunPolicy => ({
       permission: o.permission,
+      cwd: o.cwd,
       addDirs: o.addDirs,
       readDirs: [...new Set([...baseReadDirs, ...more])],
       protectedPaths,
@@ -1159,7 +1228,7 @@ export const copilotRunner: AgentRunner = {
       const p = policy(more);
       const run = prepare(() => prepareCopilotRun(copilotHome(o.env), p, o.systemPrompt));
       try {
-        const how = { protectedPaths, readOnly: p.readDirs ?? [], onEndpoint: Boolean(endpoint) };
+        const how = { cwd: o.cwd, protectedPaths, readOnly: p.readDirs ?? [], onEndpoint: Boolean(endpoint) };
         // Its sandbox checked before a session that would run something by itself (hooks) opens.
         if (!checked && copilotStartsSomething(run.dir, projectHooks)) {
           const home = prepare(() => prepareCopilotPolicyHome(copilotHome(o.env), p));
@@ -1198,6 +1267,8 @@ export const copilotRunner: AgentRunner = {
 
 /** How a turn goes besides its options: what the run made read-only, and whether it only checks the sandbox. */
 interface CopilotTurnHow {
+  /** The run's working directory, as its sandbox settings name it (a check in a start of its own runs in an empty folder). */
+  cwd: string;
   protectedPaths: readonly string[];
   /** What its sandbox keeps read-only (the settings' `readonlyPaths`). */
   readOnly: readonly string[];
@@ -1326,7 +1397,7 @@ async function copilotTurn(o: RunOptions, args: string[], env: NodeJS.ProcessEnv
       policy = undefined;
       // Answered by Copilot itself, never by its model (which reports usage, and could call tools).
       if (policyReachedModel || checked?.usage) throw new AgentRunError(t().copilotSandbox('/sandbox policy reached the model'));
-      const problem = copilotPolicyProblem(text, { protectedPaths, addDirs: o.addDirs });
+      const problem = copilotPolicyProblem(text, { permission: o.permission, cwd: how.cwd, protectedPaths, addDirs: o.addDirs });
       if (problem) throw new AgentRunError(t().copilotSandbox(problem));
       if (userAborted) throw new AgentRunError(t().stopped, true);
       const more = copilotDevWrites(text, how.readOnly, copilotTempDirs(o.env));
