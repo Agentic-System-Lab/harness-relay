@@ -1028,11 +1028,18 @@ export function createApp({
       if (b.settings) refuseRelayFolderFirst(b.settings, conv.settings);
       const next = b.settings ? validateSettings(b.settings, conv.settings, b.createCwd === true) : { ...conv.settings };
       refuseRelayFolder(next);
+      // Lead review may be switched (on the team design card) while the workspace is prepared: that
+      // switch came after this request, so it stands.
+      const reviewBefore = Boolean(conv.settings.leadReview);
       // Edits never switch auto team on or off; a team set by hand replaces the lead agent's pending
       // design (the next question is designed again).
       if (conv.settings.autoTeam) next.autoTeam = true;
       else delete next.autoTeam;
       if (b.settings) await orchestrator.prepareWorkspace({ ...conv, settings: next });
+      if (Boolean(conv.settings.leadReview) !== reviewBefore) {
+        if (conv.settings.leadReview) next.leadReview = true;
+        else delete next.leadReview;
+      }
       conv.agents = agents;
       conv.settings = next;
       if (b.agents) confirmed = orchestrator.confirmPendingPlan(conv);

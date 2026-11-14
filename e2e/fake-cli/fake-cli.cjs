@@ -30,7 +30,7 @@
  * - the lead agent's prompts: the team for a question (`e2e:team=…`, `e2e:mode=…`, `e2e:rounds=…`,
  *   `e2e:name=…`, `e2e:template=…`, `e2e:badplan`, `e2e:leadreview`; one Claude member by default), the group of a new
  *   conversation (the first group named in its first message), a changed team (`e2e:add=<cli>`), and
- *   a review of the team's replies (`e2e:reviewkind=…`, `e2e:badreview`, `e2e:slowreview`);
+ *   a review of the team's replies (`e2e:reviewkind=…`, `e2e:reviewquote=list`, `e2e:badreview`, `e2e:slowreview`);
  * - a turn: a short reply that names the agent and repeats the user's latest message, streamed in
  *   pieces, changed by the directives in that message (DIRECTIVES in `lib/plan.cjs`). A directive
  *   written as `e2e:<name>@<cli>` is for that CLI only, `e2e:write=notes.md@codex` say.

@@ -16,6 +16,8 @@
   --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 6px 24px rgb(0 0 0 / 0.06);
   /* Search matches. */
   --mark: rgb(250 204 21 / 0.4);
+  /* A lead review's point where members disagree (the same in both themes, like the CLIs' colours). */
+  --conflict: #8b5cf6;
 
   --claude: #d97757;
   --codex: #10a37f;
@@ -4908,7 +4910,7 @@ details.sub summary {
 
 .review-kind.conflict,
 .review-mark-tag.conflict {
-  --kind: #8b5cf6;
+  --kind: var(--conflict);
 }
 
 .review-kind.verify,
@@ -4958,7 +4960,7 @@ details.sub summary {
 }
 
 .review-quote.conflict {
-  --kind: #8b5cf6;
+  --kind: var(--conflict);
 }
 
 .review-quote.verify {
@@ -5005,7 +5007,9 @@ details.sub summary {
   vertical-align: baseline;
 }
 
-/* The words the lead agent's review quotes, marked in the reply (src/web/review.ts). */
+/* The words the lead agent's review quotes, marked in the reply (src/web/review.ts). Colours written out:
+   a custom property in ::highlight() is not read the same way in every browser. Each is light enough to
+   read text through in both themes. */
 ::highlight(review-risk) {
   background-color: rgb(220 38 38 / 0.2);
 }
@@ -5023,7 +5027,7 @@ details.sub summary {
 }
 
 ::highlight(review-note) {
-  background-color: var(--mark);
+  background-color: rgb(250 204 21 / 0.32);
 }
 
 /* A reply or review card the user jumped to from the other one. */

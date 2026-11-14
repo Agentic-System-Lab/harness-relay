@@ -143,7 +143,8 @@ function reviseReply(prompt) {
 
 /**
  * The lead agent's review of the team's replies: one highlight quoting the first words of the first
- * reply (`e2e:reviewkind=<kind>` for its kind, a risk by default), a step for the user and one for the
+ * reply (`e2e:reviewquote=list` for the words of the list `e2e:markdown` writes, across its two items;
+ * `e2e:reviewkind=<kind>` for its kind, a risk by default), a step for the user and one for the
  * team, which asks the first reply's member to go on. Not JSON at all with `e2e:badreview`, and slow
  * (about ten seconds, to be stopped) with `e2e:slowreview`; both read from the user's messages it got.
  */
@@ -158,7 +159,8 @@ function reviewReply(prompt) {
     text: m[3],
   }));
   const first = replies[0];
-  const words = first ? first.text.split(/\s+/).slice(0, 4).join(' ') : '';
+  // `e2e:reviewquote=list`: words across the two items of the list `e2e:markdown` writes.
+  const words = d.reviewquote === 'list' ? 'first point second point' : first ? first.text.split(/\s+/).slice(0, 4).join(' ') : '';
   const kind = typeof d.reviewkind === 'string' ? d.reviewkind : 'risk';
   return {
     text: json({

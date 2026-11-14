@@ -158,4 +158,21 @@ test.describe('lead review', () => {
     expect(body).not.toContain('to note');
     expect(body).not.toContain('<button');
   });
+
+  test('marks words it quotes across the items of a list in the reply', async ({ page, relay }) => {
+    const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { leadReview: true });
+    await send(page, 'List them e2e:markdown e2e:reviewquote=list');
+    await finishedReply(page, 'Claude');
+    await expect(reviewCards(page).locator('.review-quote')).toHaveText('first point second point');
+    await settled(relay, id);
+    // One range from the first item into the second, read as the page shows it.
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const h = CSS.highlights.get('review-risk');
+          return h ? [...h].map((r) => (r as Range).toString().replace(/\s+/g, ' ')) : [];
+        }),
+      )
+      .toEqual(['first point second point']);
+  });
 });

@@ -11,7 +11,7 @@ export interface NewChatOptions {
   permission?: Permission;
   /** Use the lead agent's teams without asking (the default asks first). */
   autoConfirm?: boolean;
-  /** Have the lead agent review the team's replies (the default: as the last new chat did). */
+  /** Have the lead agent review the team's replies (every new chat starts with it off). */
   leadReview?: boolean;
   title?: string;
 }

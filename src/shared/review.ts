@@ -109,7 +109,11 @@ export function markdownText(md: string): string {
     .map((line) => (line.includes('-') && /^[ \t|:-]+$/.test(line) ? ' ' : line))
     .join('\n')
     .replace(/^ {0,3}(?:`{3,}|~{3,}).*$/gm, ' ')
-    .replace(/!\[[^\]\n]{0,500}\]\([^)\n]{0,2048}\)/g, ' ')
+    // An image on the web shows as a link with its alt text (or its address); one on this computer as
+    // the image itself, with no text.
+    .replace(/!\[([^\]\n]{0,500})\]\(([^)\s]{0,2048})(?:[ \t]+"[^"\n]{0,500}")?\)/g, (_, alt: string, url: string) =>
+      /^(?:https?|ftp):\/\//i.test(url) ? alt || url : ' ',
+    )
     .replace(/\[([^\]\n]{0,500})\]\((?:[^()\n]|\([^()\n]{0,2048}\)){0,2048}\)/g, '$1')
     .replace(/\[([^\]\n]{0,500})\]\[[^\]\n]{0,500}\]/g, '$1')
     .replace(/<((?:https?|mailto):[^>\s]{1,2048})>/g, '$1')
@@ -126,9 +130,8 @@ export function hasQuote(markdown: string, quote: string): boolean {
 }
 
 /**
- * Where a first review starts reading (none was ready yet): at the question the latest run answers —
- * the user's latest message that did not join a discussion under way (`queued`), or, when that one
- * answered an agent's question, the question before it, and so on.
+ * The question the latest run answers: the user's latest message that did not join a discussion under
+ * way (`queued`), or, when that one answered an agent's question, the question before it, and so on.
  */
 function firstReviewStart(messages: readonly ChatMessage[]): number {
   const asks = (m: ChatMessage) => m.author.kind === 'user' && !m.queued;
@@ -142,18 +145,18 @@ function firstReviewStart(messages: readonly ChatMessage[]): number {
 }
 
 /**
- * Where the lead agent's next review starts reading: after its last review that was ready; before the
- * first one, at the question the latest run answers (`firstReviewStart`), or earlier where a review
- * that failed or was stopped started (it left those replies to this one).
+ * Where the lead agent's next review starts reading: at the question the latest run answers
+ * (`firstReviewStart`), or earlier where a review that failed or was stopped started (it left those
+ * replies to this one); never before its last review that was ready, which read what came before. So
+ * a review turned on mid-chat, or again after a while, reads the latest question, not everything since.
  */
 export function reviewStart(messages: readonly ChatMessage[]): number {
-  const ready = messages.findLastIndex((m) => m.review?.status === 'ready');
-  if (ready >= 0) return ready + 1;
-  let start = firstReviewStart(messages);
-  for (const m of messages) {
+  const after = messages.findLastIndex((m) => m.review?.status === 'ready') + 1;
+  let start = Math.max(after, firstReviewStart(messages));
+  for (const m of messages.slice(after)) {
     const fromId = m.review?.fromId;
     const from = fromId ? messages.findIndex((x) => x.id === fromId) : -1;
-    if (from >= 0 && from < start) start = from;
+    if (from >= after && from < start) start = from;
   }
   return start;
 }

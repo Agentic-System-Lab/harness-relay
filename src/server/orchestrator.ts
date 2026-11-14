@@ -165,6 +165,8 @@ interface Run {
   designFor?: string;
   /** The design needed no confirmation (`autoConfirm`): once this run ends, the team answers. */
   answerNext?: boolean;
+  /** The team's turns are over and the lead agent reviews its replies (lead review). */
+  reviewing?: boolean;
   /** Settles once the run has finished, including its clean-up. */
   done: Promise<void>;
 }
@@ -244,6 +246,9 @@ export function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
   }
   return copies;
 }
+
+/** `HttpError.code` of a run that cannot start because another conversation is changing its folder. */
+const FOLDER_LOCKED = 'folder-locked';
 
 /** Longest name of a template saved from a plan. */
 const MAX_PRESET_NAME = 100;
@@ -474,6 +479,18 @@ export class Orchestrator {
   private designing = new Set<string>();
   /** Conversations whose run has the lead agent review the team's replies: the team has answered. */
   private reviewing = new Set<string>();
+  /**
+   * Conversations whose waiting messages could not start their run because another conversation was
+   * changing the same folder: they start once a folder lock is released.
+   */
+  private folderWaiters = new Set<string>();
+  /**
+   * Messages waiting in a queue that the user wrote while the lead agent reviewed the team's replies
+   * (by id): the team had answered, so they ask a new question (`waitingQuestion`).
+   */
+  private reviewQuestions = new Set<string>();
+  /** How many times the user switched lead review, by conversation: a design leaves alone what the user set meanwhile. */
+  private reviewSwitches = new Map<string, number>();
   /** Conversations being deleted. */
   private deleting = new Set<string>();
   /** The server is shutting down: nothing new starts. */
@@ -606,6 +623,8 @@ export class Orchestrator {
    */
   async deleteConversation(convId: string): Promise<void> {
     this.deleting.add(convId);
+    this.folderWaiters.delete(convId);
+    this.reviewSwitches.delete(convId);
     try {
       // A branch being made from it is still copying its attached files.
       await Promise.allSettled([...(this.branching.get(convId) ?? [])]);
@@ -693,7 +712,9 @@ export class Orchestrator {
     }
     const files = saveAttachments(conv.id, uploads);
     try {
-      await this.start(conv, text, { files, queue: true, ...(content ? { question: 'new' as const } : {}) });
+      // What waits may be a new question, written while the lead agent reviewed (also when it is sent now).
+      const asks = content || this.waitingQuestion(conv);
+      await this.start(conv, text, { files, queue: true, ...(asks ? { question: 'new' as const } : {}) });
     } catch (err) {
       removeAttachments(conv.id, files);
       throw err;
@@ -708,6 +729,7 @@ export class Orchestrator {
     const index = conv.queue?.findIndex((m) => m.id === messageId) ?? -1;
     if (index < 0) throw new HttpError(404, t().queuedNotFound);
     const [msg] = conv.queue!.splice(index, 1);
+    this.reviewQuestions.delete(msg!.id);
     this.saveQueue(conv);
     removeAttachments(conv.id, attachmentsOf(msg!));
     return msg!;
@@ -848,8 +870,10 @@ export class Orchestrator {
     // designs the team, its design waits for confirmation, or the lead reviews the team's replies.
     const midReply =
       (this.runs.has(conv.id) || this.starting.has(conv.id)) && !this.designing.has(conv.id) && !this.reviewing.has(conv.id);
+    const id = randomUUID();
+    if (this.reviewing.has(conv.id) && !scheduled) this.reviewQuestions.add(id);
     queue.push({
-      id: randomUUID(),
+      id,
       author: { kind: 'user' },
       createdAt: Date.now(),
       parts: [...(text ? [{ type: 'text' as const, text }] : []), ...files],
@@ -894,6 +918,7 @@ export class Orchestrator {
       // Posted before it leaves the saved queue: a crash in between keeps it once, as delivered.
       conv.messages.push(next);
       queue.splice(i, 1);
+      this.reviewQuestions.delete(next.id);
       this.store.saveMessage(conv.id, next, true);
       this.hub.emit(conv.id, { type: 'message', message: next });
       this.nameAfter(conv, next);
@@ -915,8 +940,22 @@ export class Orchestrator {
     if (conv.pause) return false;
     // Only the schedule's message waits: nobody may be watching this run either.
     const unattended = conv.queue.every((m) => m.scheduled) && conv.schedule?.approvals !== 'ask';
-    this.startInBackground(conv, { queue: true, keepTeam: true, refuseApprovals: unattended });
+    // Written while the team worked, the current team answers them; written after it had answered
+    // (while the lead agent reviewed), they are a new question, and with auto team its team is designed.
+    const asks = this.waitingQuestion(conv);
+    this.startInBackground(conv, { queue: true, ...(asks ? { question: 'new' as const } : { keepTeam: true }), refuseApprovals: unattended });
     return true;
+  }
+
+  /**
+   * Auto team: the messages waiting include one the user wrote once the team had answered (while the
+   * lead agent reviewed its replies, `reviewQuestions`), so they ask a new question, whose team the
+   * lead agent designs — unless one of them @mentions members of the team, who then answer.
+   */
+  private waitingQuestion(conv: Conversation): boolean {
+    if (!conv.settings.autoTeam) return false;
+    const fresh = (conv.queue ?? []).filter((m) => this.reviewQuestions.has(m.id));
+    return fresh.length > 0 && fresh.every((m) => parseMentions(textOf(m), conv.agents).length === 0);
   }
 
   /**
@@ -940,9 +979,25 @@ export class Orchestrator {
   /** Start a run nobody waits for; one that fails to start says why in the chat. */
   private startInBackground(conv: Conversation, opts: StartOptions): void {
     this.start(conv, '', opts).catch((err) => {
-      if (!(err instanceof HttpError && err.status === 404)) this.systemNote(conv, t().runFailed((err as Error).message));
+      if (err instanceof HttpError && err.code === FOLDER_LOCKED) {
+        // Another conversation is changing the folder: the messages start once it is free (said once).
+        if (!this.folderWaiters.has(conv.id)) this.systemNote(conv, t().queueWaitsForFolder(err.paths?.[0] ?? conv.settings.cwd));
+        this.folderWaiters.add(conv.id);
+      } else if (!(err instanceof HttpError && err.status === 404)) {
+        this.systemNote(conv, t().runFailed((err as Error).message));
+      }
       this.emitStatus(conv.id);
     });
+  }
+
+  /** A folder lock was released: the conversations whose messages waited for one try again. */
+  private retryFolderWaiters(): void {
+    for (const id of [...this.folderWaiters]) {
+      const conv = this.store.get(id);
+      // Gone, nothing left to send (withdrawn, or sent by the user), or it runs or waits for something
+      // else: its own run's end, the user's answer or a confirmation starts it then.
+      if (!conv || this.deleting.has(id) || !conv.queue?.length || !this.startQueued(conv)) this.folderWaiters.delete(id);
+    }
   }
 
   /**
@@ -1203,6 +1258,7 @@ export class Orchestrator {
         done: Promise.resolve(),
       };
       this.runs.set(convId, run);
+      this.folderWaiters.delete(convId);
     } catch (err) {
       if (lockRoots && !this.runs.has(convId)) this.unlockDirs(lockRoots, convId);
       this.designing.delete(convId);
@@ -1220,7 +1276,8 @@ export class Orchestrator {
       })
       .finally(() => {
         try {
-          if (run.abort.signal.aborted) this.systemNote(conv, t().stoppedNote);
+          // A review stopped says so on its card.
+          if (run.abort.signal.aborted && !run.reviewing) this.systemNote(conv, t().stoppedNote);
           conv.updatedAt = Date.now();
           this.store.flush(conv.id);
           this.store.saveMeta(conv);
@@ -1365,7 +1422,7 @@ export class Orchestrator {
       for (const [held, holder] of this.dirLocks) {
         if (holder !== conv.id && (held === root || within(held, root) || within(root, held))) {
           const title = this.store.get(holder)?.title ?? holder;
-          throw new HttpError(409, t().dirLocked(title, held));
+          throw new HttpError(409, t().dirLocked(title, held), FOLDER_LOCKED, [held]);
         }
       }
     }
@@ -1398,6 +1455,8 @@ export class Orchestrator {
 
   private unlockDirs(roots: string[], convId: string): void {
     for (const root of roots) if (this.dirLocks.get(root) === convId) this.dirLocks.delete(root);
+    // After whatever released it has finished its step (a run's end may start the next run itself).
+    if (this.folderWaiters.size) setImmediate(() => this.retryFolderWaiters());
   }
 
   /**
@@ -1592,6 +1651,9 @@ export class Orchestrator {
       ? { agents: conv.agents, settings: { mode: conv.settings.mode, rounds: conv.settings.rounds, maxHops: conv.settings.maxHops } }
       : undefined;
     const history = historyForLead(conv.messages.slice(0, since));
+    // Lead review is offered while it is off; what the user switches meanwhile stands.
+    const switches = this.reviewSwitches.get(conv.id) ?? 0;
+    const offered = !conv.settings.leadReview;
     const started = Date.now();
     let ctx: PlannerContext = { available: [], catalog: [], presets: this.store.listPresets() };
     let decision: PlanDecision | undefined;
@@ -1648,7 +1710,8 @@ export class Orchestrator {
       // Lead review: the lead may turn it on (at once, whether or not the team is confirmed), never
       // off, and leaves it alone when it is on already.
       const { leadReview: turnsOn, ...team } = decision;
-      const reviews = Boolean(turnsOn) && !conv.settings.leadReview;
+      const reviews =
+        Boolean(turnsOn) && offered && !conv.settings.leadReview && (this.reviewSwitches.get(conv.id) ?? 0) === switches;
       if (reviews) {
         conv.settings = { ...conv.settings, leadReview: true };
         this.store.saveMeta(conv);
@@ -1787,6 +1850,7 @@ export class Orchestrator {
   setLeadReview(convId: string, on: boolean): Conversation {
     const conv = this.store.get(convId);
     if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
+    this.reviewSwitches.set(convId, (this.reviewSwitches.get(convId) ?? 0) + 1);
     if (Boolean(conv.settings.leadReview) !== on) {
       const { leadReview: _was, ...rest } = conv.settings;
       conv.settings = on ? { ...rest, leadReview: true } : rest;
@@ -2048,6 +2112,7 @@ export class Orchestrator {
     }
     await this.teamTurns(conv, posted, run, only, resume);
     if (!this.reviewsNow(conv, run)) return;
+    run.reviewing = true;
     // The review writes nothing: other conversations may write in these folders meanwhile.
     if (run.lockRoots) {
       this.unlockDirs(run.lockRoots, conv.id);

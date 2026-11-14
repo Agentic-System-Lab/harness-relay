@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 405 tests in 32 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 406 tests in 32 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -40,7 +40,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [A new chat and the lead agent's team](#a-new-chat-and-the-lead-agents-team) | [`chat.spec.ts`](specs/chat.spec.ts) | 5 | [User guide → Auto team](../docs/user-guide.md#auto-team), [Architecture → Auto team](../docs/architecture.md#auto-team) |
 | [Templates](#templates) | [`templates.spec.ts`](specs/templates.spec.ts) | 6 | [User guide → Templates](../docs/user-guide.md#templates) |
 | [Changing a chat's team](#changing-a-chats-team) | [`team.spec.ts`](specs/team.spec.ts) | 4 | [User guide → Editing the team mid-chat](../docs/user-guide.md#editing-the-team-mid-chat) |
-| [The lead agent's review](#the-lead-agents-review) | [`review.spec.ts`](specs/review.spec.ts) | 6 | [User guide → Lead review](../docs/user-guide.md#lead-review), [Architecture → Lead review](../docs/architecture.md#lead-review) |
+| [The lead agent's review](#the-lead-agents-review) | [`review.spec.ts`](specs/review.spec.ts) | 7 | [User guide → Lead review](../docs/user-guide.md#lead-review), [Architecture → Lead review](../docs/architecture.md#lead-review) |
 | [A member's model and reasoning effort](#a-members-model-and-reasoning-effort) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [User guide → Default model and reasoning effort](../docs/user-guide.md#default-model-and-reasoning-effort), [Team members](../docs/user-guide.md#team-members) |
 | [How members take turns](#how-members-take-turns) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [Architecture → Turn scheduling](../docs/architecture.md#turn-scheduling-modes), [How agents share context](../docs/architecture.md#how-agents-share-context) |
 | [What an agent does on its way to a reply](#what-an-agent-does-on-its-way-to-a-reply) | [`activity.spec.ts`](specs/activity.spec.ts) | 13 | [Architecture → Agent activity](../docs/architecture.md#agent-activity) |
@@ -147,6 +147,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | The lead agent turns it on when it designs a team, and the team design card has the box and says why | Claude Code | In a chat without it, the design card shows the box ticked, its explanation and the lead agent's reason, and the chat has it on before the team is confirmed; once confirmed, the answer gets a review. Unticking the box on the card turns it off, and the next answer gets none. |
 | A design leaves it as it is when it is on already | Claude Code | In a chat with it on, the design card shows the box ticked without a reason, and the lead agent was not offered it. |
 | A shared chat keeps the review and why the lead agent turned it on, without the app's buttons or the box | Claude Code | The shared page (the fake `gh`'s gist) has the review's summary, its point with **@Claude** as plain text, the steps and the lead agent's reason; not the design card's box, **Ask the team**, the reply's tag, nor any button. |
+| Marks words it quotes across the items of a list in the reply | Claude Code | With `e2e:markdown` and `e2e:reviewquote=list`, the card quotes "first point second point", and one range in `CSS.highlights` runs from the first item into the second (the chat finds it with a space between blocks). |
 
 ## A member's model and reasoning effort
 

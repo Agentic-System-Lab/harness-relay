@@ -415,3 +415,32 @@ describe('quotes and the pieces of a reply', () => {
     }
   });
 });
+
+describe('images and where a review starts, again', () => {
+  it('reads an image on the web as the chat shows it (its alt text, or its address), and one on this computer as no text', () => {
+    expect(markdownText('See ![the chart](https://x.io/c.png) below')).toBe('See the chart below');
+    expect(markdownText('See ![](https://x.io/c.png) below')).toBe('See https://x.io/c.png below');
+    expect(markdownText('See ![chart](out/c.png "Chart") below')).toBe('See   below');
+    expect(hasQuote('See ![the chart](https://x.io/c.png) below', 'see the chart below')).toBe(true);
+  });
+
+  it('starts at the latest question, never before the last ready review, nor reading what came long after it', () => {
+    const msgs = [
+      user('u1', 'one'),
+      reply('r1', 'Alice', 'a'),
+      review('v1'),
+      user('u2', 'two'),
+      reply('r2', 'Alice', 'b'),
+      user('u3', 'three'),
+      reply('r3', 'Alice', 'c'),
+    ];
+    // Turned off after v1 and on again: the latest question only.
+    expect(reviewStart(msgs)).toBe(5);
+    // A Continue after a review (no new question): from the review on.
+    expect(reviewStart([...msgs, review('v2'), reply('r4', 'Alice', 'd')])).toBe(8);
+    // A review that failed after the ready one started earlier: from there.
+    expect(reviewStart([...msgs.slice(0, 5), review('v2', 'failed', { fromId: 'u2' }), ...msgs.slice(5)])).toBe(3);
+    // A failed review from before the ready one does not reach back past it.
+    expect(reviewStart([user('u0', 'zero'), review('f0', 'failed', { fromId: 'u0' }), ...msgs])).toBe(7);
+  });
+});

@@ -491,6 +491,17 @@ describe('settings', () => {
     expect(await res.json()).toEqual({ leadReview: true });
     expect(store.get(on.id)!.settings.leadReview).toBe(true);
     expect((await set(on.id, { on: 'yes' })).status).toBe(400);
+    // Switched on the card while a settings change prepares the workspace: the switch came later, and stands.
+    const prepare = vi.spyOn(orchestrator, 'prepareWorkspace').mockImplementationOnce(async () => {
+      orchestrator.setLeadReview(on.id, false);
+      return { isolated: false };
+    });
+    const saved = await app.request(`/api/conversations/${on.id}`, json('PATCH', { settings: { ...store.get(on.id)!.settings, leadReview: true, rounds: 2 } }));
+    expect(saved.status).toBe(200);
+    expect(store.get(on.id)!.settings).toMatchObject({ rounds: 2 });
+    expect(store.get(on.id)!.settings.leadReview).toBeUndefined();
+    prepare.mockRestore();
+    expect((await set(on.id, { on: true })).status).toBe(200);
     expect((await set('nope', { on: true })).status).toBe(404);
     expect((await set(on.id, { on: false })).status).toBe(200);
     expect(store.get(on.id)!.settings.leadReview).toBeUndefined();
