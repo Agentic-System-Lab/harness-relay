@@ -21,7 +21,7 @@
  * `auth login --web --hostname github.com` signs it in as gh's device sign-in does without a terminal:
  * it prints its one-time code (ABCD-1234) and GitHub's device page, waits until the test approves it
  * (a file `fake-github/approve`; at most a minute), then keeps the sign-in (`fake-github/signed-in`)
- * and exits 0. Each start goes to E2E_FAKE_LOG with its arguments (`cli: 'gh'`), for the tests to read.
+ * and exits 0; or fails as gh does when the code is denied (`fake-github/deny`). Each start goes to E2E_FAKE_LOG with its arguments (`cli: 'gh'`), for the tests to read.
  */
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -87,6 +87,7 @@ async function login(github) {
   process.stdout.write('! First copy your one-time code: ABCD-1234\nOpen this URL to continue in your web browser: https://github.com/login/device\n');
   const approve = path.join(github, 'approve');
   for (let waited = 0; !fs.existsSync(approve); waited += 100) {
+    if (fs.existsSync(path.join(github, 'deny'))) fail('error: authorization was denied by the user');
     if (waited > 60_000) fail('error: timed out waiting for authorization');
     await new Promise((done) => setTimeout(done, 100));
   }

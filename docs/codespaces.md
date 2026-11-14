@@ -28,7 +28,7 @@ Installed: Claude Code, Codex and Copilot from npm, and Grok, Cursor, Antigravit
 - **Sharing as a link needs gh signed in.** The GitHub CLI is installed, but the codespace's own token cannot make the gist a shared conversation goes into. The first time you share, the dialog says gh is not signed in: press **Sign in to GitHub** there and enter the code it shows on GitHub's page; the dialog then creates the link. (From the codespace's terminal it is `env -u GITHUB_TOKEN gh auth login`: `gh auth login` refuses to keep a sign-in while that token is set.) Harness Relay's `gh` uses that sign-in for sharing, and leaves out the codespace's token there. With no keyring in a codespace, gh keeps the sign-in in a file in its folder (`~/.config/gh`); below full access, agents cannot read that folder in a codespace (see [Safety](#safety)).
 - **No desktop app.** The menu, sharing with Tailscale and the app's updates are the desktop app's; here it is the server alone (`npm start`).
 - **Antigravity's Google sign-in** is kept in the system's keyring elsewhere, which a codespace does not have: whether it stays signed in there was not tried. It also runs on a Gemini API key (`GEMINI_API_KEY`), which needs no keyring.
-- **Not tried there:** finishing the sign-ins of Claude Code, Codex, Grok, Cursor, Antigravity and Muse Code (each one's starts there and shows its link or code), voice input and push notifications.
+- **Not tried there:** finishing the sign-ins of Claude Code, Codex, Grok, Cursor, Antigravity and Muse Code (each one's starts there and shows its link or code), finishing a GitHub sign-in from the share dialog, voice input and push notifications.
 
 ## Safety
 

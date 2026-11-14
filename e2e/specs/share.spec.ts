@@ -210,9 +210,55 @@ test.describe('sharing as a secret gist', () => {
       await help.getByRole('button', { name: 'Cancel' }).click();
       await expect(help.getByText('Cancelled')).toBeVisible();
       await expect(help.getByRole('button', { name: /ABCD-1234/ })).toHaveCount(0);
-      // Nothing was shared, and it can start again.
+      // Nothing was shared, and it starts again: a new sign-in of gh, with its code.
       expect(await relay.api('/api/shares')).toEqual([]);
+      await help.getByRole('button', { name: 'Sign in to GitHub' }).click();
+      await expect(help.getByRole('button', { name: /ABCD-1234/ })).toBeVisible();
+      expect(ghCalls(relay).filter((a) => a[0] === 'auth')).toHaveLength(2);
+      await help.getByRole('button', { name: 'Cancel' }).click();
+      await expect(help.getByText('Cancelled')).toBeVisible();
+    });
+
+    test("a sign-in GitHub refuses says so, with gh's words, and can be tried again", async ({ page, relay }) => {
+      const id = await openTeamChat(page, relay, [{ name: 'Grok', provider: 'grok' }], {}, 'Denied');
+      await send(page, 'Share me');
+      await finishedReply(page, 'Grok');
+      await settled(relay, id);
+
+      const dialog = await shareChat(page);
+      await dialog.getByRole('button', { name: 'Create link' }).click();
+      const help = dialog.getByRole('alert').filter({ hasText: 'GitHub CLI (gh) is not signed in' });
+      await help.getByRole('button', { name: 'Sign in to GitHub' }).click();
+      await expect(help.getByRole('button', { name: /ABCD-1234/ })).toBeVisible();
+      writeFileSync(join(relay.root, 'fake-github', 'deny'), '');
+      await expect(help.getByText('Sign-in failed')).toBeVisible();
+      await expect(help.getByText('error: authorization was denied by the user')).toBeVisible();
       await expect(help.getByRole('button', { name: 'Sign in to GitHub' })).toBeVisible();
+      expect(await relay.api('/api/shares')).toEqual([]);
+    });
+
+    test('on a slow network the sign-in still makes one link, and only once', async ({ page, relay }) => {
+      const id = await openTeamChat(page, relay, [{ name: 'Grok', provider: 'grok' }], {}, 'Slow line');
+      await send(page, 'Share me');
+      await finishedReply(page, 'Grok');
+      await settled(relay, id);
+      // Every question about the sign-in takes longer than the second between them, as on a phone.
+      await page.route('**/api/gh/login', async (route) => {
+        if (route.request().method() === 'GET') await new Promise((done) => setTimeout(done, 2500));
+        await route.continue();
+      });
+
+      const dialog = await shareChat(page);
+      await dialog.getByRole('button', { name: 'Create link' }).click();
+      const help = dialog.getByRole('alert').filter({ hasText: 'GitHub CLI (gh) is not signed in' });
+      await help.getByRole('button', { name: 'Sign in to GitHub' }).click();
+      await expect(help.getByRole('button', { name: /ABCD-1234/ })).toBeVisible();
+      writeFileSync(join(relay.root, 'fake-github', 'approve'), '');
+      await expect(dialog.getByRole('textbox', { name: 'Public link' })).toHaveValue(/^https:\/\/gistpreview\.github\.io\/\?[0-9a-f]{32}$/);
+      // Answers still on their way when it was signed in make no second link.
+      await page.waitForTimeout(6000);
+      expect(await relay.api('/api/shares')).toHaveLength(1);
+      expect(ghCalls(relay).filter((a) => a[0] === 'gist')).toHaveLength(2);
     });
   });
 

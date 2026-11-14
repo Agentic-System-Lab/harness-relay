@@ -68,6 +68,7 @@ flowchart LR
 | `src/server/process.ts` | 以獨立 process group 啟動程序、逐行讀 stdout、以原始位元組保存輸出、處理中止與逾時（先 SIGTERM，再對整個 process group 送 SIGKILL） |
 | `src/server/winLaunch.ts` | 在 Windows 上，找到的 CLI 是 `.cmd` 時要啟動什麼：npm 包裝檔指名的程式或 Node 腳本，或 Cursor 的最新版本（見 [CLI 轉接器](#cli-轉接器)） |
 | `src/server/providers.ts` | CLI 狀態（是否安裝、版本、是否登入）、登入流程、登出、模型清單快取 |
+| `src/server/login.ts` | 在沒有終端機的情況下執行 CLI 自己的登入（`CliLogin`）：它的輸出、其中的連結與代碼、貼給它的內容、取消與 15 分鐘的上限；設定頁裡各 CLI 的登入與分享用的 gh 登入（`GhLogin`）都是它 |
 | `src/server/models.ts` | 從各 CLI 取得可用模型與推理強度 |
 | `src/server/workspace.ts` | git 相關操作：自動 `git init`、工作目錄快照、每個 agent 的 worktree、diff、套用結果 |
 | `src/server/store.ts` | 用 SQLite 保存對話、訊息、agent session 與範本 |
@@ -78,7 +79,7 @@ flowchart LR
 | `src/server/secrets.ts` | 存放 API key 的作業系統金鑰儲存區（`@napi-rs/keyring`）；系統沒有可用的儲存區時則為無 |
 | `src/server/db.ts` | 開啟 SQLite、套用 schema 遷移、交易輔助函式 |
 | `src/server/hub.ts` | 把每個對話的事件廣播給連線中的 SSE 用戶端 |
-| `src/server/share.ts` | 分享對話：介面做好的頁面透過使用者自己的 `gh` 上傳成 GitHub 上的 secret gist（`gh gist create`，在 gistpreview.github.io 閱讀），回覆連結的檔案不限種類，放進另一個 secret gist（用 `gh api` 建立，再用 git 把檔案推上去，由 `gh` 幫 git 登入），移除時兩個都用 `gh gist delete` 刪掉 |
+| `src/server/share.ts` | 分享對話（以及從分享對話框為它登入 `gh`，`GhLogin`）：介面做好的頁面透過使用者自己的 `gh` 上傳成 GitHub 上的 secret gist（`gh gist create`，在 gistpreview.github.io 閱讀），回覆連結的檔案不限種類，放進另一個 secret gist（用 `gh api` 建立，再用 git 把檔案推上去，由 `gh` 幫 git 登入），移除時兩個都用 `gh gist delete` 刪掉 |
 | `src/shared/share.ts` | 分享頁面上指向附檔的連結：介面寫入的佔位連結（`relay-share-file:<n>`，只認真正 `<a>` 標籤的 href），由伺服器換成檔案在 GitHub 上的網址；依分享上限的算法顯示大小 |
 | `src/shared/search.ts` | 搜尋對話：拆出搜尋的詞、找出符合的位置（不分大小寫）、第一個符合處附近的摘錄、標示關鍵字 |
 | `src/shared/mentions.ts` | 伺服器（判斷點名了誰）與介面（標示 @）共用的 `@` 規則：以 Markdown（GFM）解析訊息，只看一般文字，不含程式碼與連結文字 |
@@ -714,6 +715,7 @@ sequenceDiagram
 - 每一輪 Copilot 都在自己的家目錄中執行（只有擁有者能存取，在 `data/tmp` 裡，回合結束後刪除），沒有帳號存下的核准（`permissions-config.json`）、信任的資料夾，也沒有決定哪些東西不經詢問就執行的設定，環境變數裡也沒有 `COPILOT_ALLOW_ALL` 與 `COPILOT_ASSISTED_APPROVAL`；在完全存取以外的權限，它在 Copilot 自己的沙箱中執行，這個沙箱以旗標開啟，所以失敗時會關閉，並在 prompt 之前用 `/sandbox policy` 檢查（否則這一輪不會開始）：任何指令都不能離開沙箱，git 與 gh 不會透過它的 proxy 拿到憑證，它的指令不能用鑰匙圈，受保護的路徑禁止存取，決定 agent 之後如何執行的東西（git 的 hook 與設定、每個工作目錄裡 agent 與編輯器的設定）與共用的套件與建置快取則是唯讀，只限這次執行開始時已經存在的。Copilot 會不經詢問就執行的專案 hook，會在它啟動前先詢問，這次執行略過 hook 時也一樣；session 開啟時會自己執行東西的，會先在一次什麼都不會執行的啟動中檢查它的沙箱；在完全存取以外的權限，沒有回報 allow-all 選項的 session 不會執行；可編輯模式下，它的 MCP 工具呼叫與儲存記憶會詢問；它的請求從不以 allow-always 回覆；它的金鑰不讓它的指令與 MCP 伺服器看到（`--secret-env-vars`）；一次執行也從不修改帳號自己的 `settings.json` 或 `config.json`（它拿到的是副本）；
 - 每一輪 Muse Code 都用自己的設定資料夾執行（`XDG_CONFIG_HOME`：只有擁有者能存取，放在資料夾的 `muse-runs` 裡，這一輪結束後刪除），它的設定裡是 Harness Relay 的權限設定檔，以及帳號設定中允許清單上的那些（`MUSE_KEPT_SETTINGS`：沒有 `permissions`、自訂 agent、`run`，runtime capabilities 也只保留它提醒的開關；workflow 關閉），它的 `trust.json` 把工作目錄標成不受信任（絕不用帳號的）；完全存取以外的權限也不給 `--trust-workspace`，所以 Muse 不信任任何工作區，專案自己的指示檔、skill 與 hook 都不會載入（它的 hook，`.muse/hooks.json`，會在沙箱外執行）；`MUSE_DISABLE_APPROVAL_JUDGE=1` 讓模型無法決定什麼可以執行，由 `:ask-me` 延伸的設定檔也是由人審核；它的拒絕規則讓它的檔案工具與沙箱裡的指令都碰不到受保護的路徑（在 macOS 與 Linux 上以 `read_file` 與 `cat` 驗證過；Muse 的 `:read-only` 設定檔不接受拒絕規則，所以唯讀是那個設定檔加上 `--disable-write` 與 `promptUnmatched` 模式）；它的請求只以 allow-once 或 reject-once 回覆，指令要連網一律由使用者回答；session 只在權限與受保護路徑和建立時相同時才接續，因為 Muse 會沿用它們；帳號自己的 `settings.json` 也從不修改；
 - 工作目錄輸入框的選擇資料夾視窗（`src/server/folderPicker.ts`、`POST /api/cwds/pick`，和所有寫入一樣是 JSON POST）只為以本機名稱連線的請求開啟，所以經由 `tailscale serve` 的手機永遠不會開啟它（那裡沒人看得到）；一次只開一個，請求關閉時或十分鐘後關閉。它的腳本是固定的文字：AppleScript 從 run handler 的參數取得標題與資料夾，Windows PowerShell 從環境變數，zenity 與 kdialog 從參數，都不經過 shell。伺服器沒有 UTF-8 字元集時（由服務啟動的伺服器可能沒有），zenity 與 kdialog 會得到一個（`LC_CTYPE=C.UTF-8`，`LC_ALL` 指定別的時改它）：沒有的話，zenity 3.44 與 4.0 會拒絕它無法當成文字讀的標題（中文的那個）。它只回答使用者選的路徑，輸入框再像手動輸入的一樣使用它們；
+- 分享對話框的 GitHub 登入（`POST /api/gh/login`，和所有寫入一樣是 JSON POST，而且來自已登入的瀏覽器）會在伺服器上啟動 gh 自己的裝置登入，同時只有一個，最多 15 分鐘；它登入的是那台電腦的 `gh`，權限是 gh 一般的範圍，那裡每個使用 gh 的程式都能用（包括 agent），和在終端機執行 `gh auth login` 一樣。設了 `GH_TOKEN`（或在 codespace 以外設了 `GITHUB_TOKEN`）時會拒絕，因為 gh 會改用它；在 codespace 裡 gh 的資料夾是受保護路徑，在其他地方則是 agent 自己的 `gh` 登入的方式；
 - 對話只會送到這台電腦上的 AgentsView：`validAgentsViewUrl` 只接受 `localhost`、`127.0.0.1` 或 `[::1]` 的 `http(s)` 網址，不能帶帳號密碼，並只儲存 origin；也不跟隨重新導向。介面連結打開的網址（`agentsViewLink`）可以是任何 http(s) 網址，因為不會有資料送過去；
 - 瀏覽檔案（以及把資料夾下載成 ZIP 檔）只會讀取工作目錄或成員 worktree 裡的內容（跟隨符號連結之後），絕不讀 `.git`（不分大小寫，因為在不分大小寫的檔案系統上 `.GIT` 會開到 `.git`；結尾多一個點或空白，或 Windows 的短檔名如 `GIT~1` 也一樣，在 Windows 上會再用系統自己的真實路徑檢查），圖片與影片的提供方式和媒體端點相同，其他檔案只以下載提供（見[瀏覽檔案](#瀏覽檔案)）；
 - 完全存取以外，開源 agent 與它們啟動的一切都在 Harness Relay 自己的沙箱中執行（[各平台的作業系統沙箱](sandboxing.zh-TW.md#harness-relay-自己的沙箱)）：只能寫入權限允許的地方，受保護的路徑不能讀也不能寫，它們自己的設定唯讀，網路只到這次執行的模型來源（其他主機會詢問，但這台電腦自己與 link-local 的位址、安靜拒絕的主機，以及一次執行中第 30 個之後的主機會直接拒絕；Harness Relay 自己的埠（`PORT`（為 0 時是伺服器實際取得的埠）、8787、8789 與 5173：`npm start` 與桌面 app 的，以及 `npm run dev` 的 API 與 Vite）一律連不到）。沙箱無法啟動就不執行，在原生 Windows 上它們只能以完全存取執行，Linux 上的 OpenCode 也是。它們的模型金鑰只透過環境變數傳入，絕不寫進設定檔；

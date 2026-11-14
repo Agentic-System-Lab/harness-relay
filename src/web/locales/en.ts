@@ -941,6 +941,7 @@ export const en: Messages = {
       linuxGuide: 'install guide',
       login: 'Sign in to GitHub by running this command in a terminal (choose GitHub.com, then follow the steps in the browser): ',
       signInHere: 'Sign in here: GitHub gives you a code to enter on its page, no terminal needed.',
+      signInScope: "It signs in the GitHub CLI on that computer, with gh's usual access (repositories, organizations, gists), for every program there that uses gh, the agents included.",
       signIn: 'Sign in to GitHub',
       signedIn: 'Signed in to GitHub.',
       orTerminal: 'Or run this command in a terminal on that computer (choose GitHub.com, then follow the steps in the browser): ',

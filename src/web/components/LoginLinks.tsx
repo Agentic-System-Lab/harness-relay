@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { CliLoginView } from '../../shared/types';
+import { copyText } from '../copy';
 import { useT } from '../i18n';
 
 /**
@@ -11,8 +12,9 @@ export function LoginLinks({ login }: { login: CliLoginView }) {
   const [copied, setCopied] = useState('');
   if (login.state !== 'running') return null;
 
+  // Also where the page is not a secure context (a phone opening it over the network).
   const copy = async (c: string) => {
-    await navigator.clipboard?.writeText(c).catch(() => {});
+    if (!(await copyText(c))) return;
     setCopied(c);
     setTimeout(() => setCopied(''), 1500);
   };

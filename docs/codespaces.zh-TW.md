@@ -28,7 +28,7 @@ codespace 算在你的 GitHub 帳號上。GitHub Free 個人帳號每月含 120 
 - **要先登入 gh 才能分享成連結。** GitHub CLI 已經裝好，但 codespace 自己的 token 不能建立分享對話所用的 gist。第一次分享時，對話框會說 gh 還沒登入：按那裡的「**登入 GitHub**」，到 GitHub 的頁面輸入它顯示的代碼，對話框接著就會建立連結。（從 codespace 的終端機登入則是 `env -u GITHUB_TOKEN gh auth login`：只要那個 token 還在，`gh auth login` 就不肯保存登入。）Harness Relay 的 `gh` 分享時會用這個登入，並且不帶 codespace 的 token。codespace 裡沒有金鑰圈，所以 gh 把登入存成它資料夾（`~/.config/gh`）裡的一個檔案；在 codespace 裡，完全存取以下的 agent 讀不到這個資料夾（見[安全](#安全)）。
 - **沒有桌面 app。** 選單、用 Tailscale 分享和 app 的更新都是桌面 app 的功能；這裡只有伺服器本身（`npm start`）。
 - **Antigravity 的 Google 登入**在其他地方存放在系統金鑰圈，而 codespace 沒有金鑰圈：它在那裡能不能保持登入沒有試過。它也能用 Gemini API key（`GEMINI_API_KEY`）執行，不需要金鑰圈。
-- **沒在那裡試過：** 完成 Claude Code、Codex、Grok、Cursor、Antigravity 和 Muse Code 的登入（每一個的登入流程都能在那裡開始，並顯示它的連結或代碼）、語音輸入與推播通知。
+- **沒在那裡試過：** 完成 Claude Code、Codex、Grok、Cursor、Antigravity 和 Muse Code 的登入（每一個的登入流程都能在那裡開始，並顯示它的連結或代碼）、從分享對話框完成 GitHub 登入、語音輸入與推播通知。
 
 ## 安全
 

@@ -975,6 +975,7 @@ export const zhTW = {
       linuxGuide: '安裝說明',
       login: '在終端機執行這個指令登入 GitHub（選 GitHub.com，再依指示用瀏覽器登入）：',
       signInHere: '在這裡登入：GitHub 會給你一組代碼，到它的頁面輸入即可，不必開終端機。',
+      signInScope: '這會登入那台電腦上的 GitHub CLI，權限是 gh 一般的範圍（repository、組織、gist），那裡每個使用 gh 的程式都能用，包括 agent。',
       signIn: '登入 GitHub',
       signedIn: '已登入 GitHub。',
       orTerminal: '或在那台電腦的終端機執行這個指令（選 GitHub.com，再依指示用瀏覽器登入）：',

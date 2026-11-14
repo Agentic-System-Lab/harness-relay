@@ -28,7 +28,7 @@ function Link({ href, children }: { href: string; children: string }) {
 /**
  * gh's own sign-in, run from here on the computer that runs Harness Relay (`/api/gh/login`): GitHub's
  * code and the page to enter it on, without a terminal (a phone, a codespace, a server). Once GitHub
- * has it, `onSignedIn` (the share dialog creates its link again).
+ * has it, `onSignedIn`, once (the share dialog creates its link again).
  */
 function GhSignIn({ onSignedIn }: { onSignedIn?: () => void }) {
   const t = useT();
@@ -38,20 +38,47 @@ function GhSignIn({ onSignedIn }: { onSignedIn?: () => void }) {
   const running = login?.state === 'running';
   const signedIn = useRef(onSignedIn);
   signedIn.current = onSignedIn;
+  const told = useRef(false);
 
-  // Asked again while it waits for GitHub, as Settings does for the CLIs' sign-ins.
+  // A sign-in still waiting from before (the dialog opened again, or this help shown again after
+  // another try): its code goes on showing, rather than a new sign-in replacing it.
+  useEffect(() => {
+    let gone = false;
+    api.getGhLogin().then(
+      (v) => !gone && v?.state === 'running' && setLogin(v),
+      () => {},
+    );
+    return () => {
+      gone = true;
+    };
+  }, []);
+
+  // Asked again while it waits for GitHub, each time once the last answer is in (on a slow network
+  // answers would otherwise pile up). A failed ask keeps what was shown and asks again.
   useEffect(() => {
     if (!running) return;
-    const timer = setInterval(async () => {
-      const v = await api.getGhLogin().catch(() => null);
-      setLogin(v);
-      if (v?.state === 'success') signedIn.current?.();
-    }, 1000);
-    return () => clearInterval(timer);
+    let gone = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const ask = async () => {
+      const v = await api.getGhLogin().catch(() => undefined);
+      if (gone) return;
+      if (v !== undefined) setLogin(v);
+      if (v?.state === 'success' && !told.current) {
+        told.current = true;
+        signedIn.current?.();
+      }
+      if (v === undefined || v?.state === 'running') timer = setTimeout(ask, 1000);
+    };
+    timer = setTimeout(ask, 1000);
+    return () => {
+      gone = true;
+      clearTimeout(timer);
+    };
   }, [running]);
 
   const start = () => {
     setError('');
+    told.current = false;
     api.startGhLogin().then(setLogin, (e: Error) => setError(e.message));
   };
   const cancel = () =>
@@ -64,6 +91,7 @@ function GhSignIn({ onSignedIn }: { onSignedIn?: () => void }) {
   return (
     <div className="gh-sign-in">
       <p>{g.signInHere}</p>
+      <p className="muted small">{g.signInScope}</p>
       {!running && (
         <button className="primary" onClick={start}>
           {g.signIn}

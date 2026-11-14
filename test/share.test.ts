@@ -179,7 +179,7 @@ describe.skipIf(process.platform === 'win32')("signing gh in from the share dial
   // What gh prints without a terminal: its code and GitHub's device page; then it waits for approval.
   writeFileSync(
     join(dir, 'gh'),
-    `#!/bin/sh\necho "$* | token=\${GITHUB_TOKEN:-none} | own=\${GH_TOKEN:-none}" >> "${said}"\n` +
+    `#!/bin/sh\necho "$* | token=\${GITHUB_TOKEN:-none} | pid=$$" >> "${said}"\n` +
       'echo "! First copy your one-time code: ABCD-1234"\n' +
       'echo "Open this URL to continue in your web browser: https://github.com/login/device"\n' +
       '[ -n "$GH_WAIT" ] && sleep 30\n' +
@@ -188,27 +188,51 @@ describe.skipIf(process.platform === 'win32')("signing gh in from the share dial
   );
   const env = (more: NodeJS.ProcessEnv = {}) => ({ PATH: `${dir}:${process.env.PATH}`, ...more });
 
+  const lastSaid = () => readFileSync(said, 'utf8').trim().split('\n').at(-1)!;
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   it("runs gh's device sign-in for github.com, without a codespace's own token, and shows its code and page", async () => {
     const login = new GhLogin();
     expect(login.view()).toBeNull();
-    login.start(ghEnv(env({ CODESPACES: 'true', GITHUB_TOKEN: 'ghu_codespace', GH_TOKEN: 'github_pat_mine' })));
+    // The server's own environment, as the route passes it: GhLogin leaves the codespace's token out itself.
+    login.start(env({ CODESPACES: 'true', GITHUB_TOKEN: 'ghu_codespace' }));
     await vi.waitFor(() => expect(login.view()?.state).toBe('success'));
     expect(login.view()).toMatchObject({ codes: ['ABCD-1234'], urls: ['https://github.com/login/device'], exitCode: 0 });
     expect(GH_LOGIN_ARGS).toEqual(['auth', 'login', '--web', '--hostname', 'github.com']);
-    expect(readFileSync(said, 'utf8').trim().split('\n').at(-1)).toBe('auth login --web --hostname github.com | token=none | own=github_pat_mine');
+    expect(lastSaid()).toMatch(/^auth login --web --hostname github\.com \| token=none \| pid=\d+$/);
   });
 
-  it('stops a sign-in that waits when asked, and a new one stops the one before', async () => {
+  it("refuses to start while a token gh would sign in with instead is set, saying which", () => {
+    const login = new GhLogin();
+    expect(() => login.start(env({ GH_TOKEN: 'github_pat_old' }))).toThrow(t().ghLoginTokenSet('GH_TOKEN'));
+    expect(() => login.start(env({ GITHUB_TOKEN: 'ghp_old' }))).toThrow(t().ghLoginTokenSet('GITHUB_TOKEN'));
+    expect(() => login.start(env({ GITHUB_TOKEN: 'ghp_old' }))).toThrow(expect.objectContaining({ status: 409 }));
+    expect(login.view()).toBeNull();
+  });
+
+  it('stops a sign-in that waits when asked, and a new one stops the one before, process and all', async () => {
     const login = new GhLogin();
     login.start(env({ GH_WAIT: '1' }));
     await vi.waitFor(() => expect(login.view()?.codes).toEqual(['ABCD-1234']));
     expect(login.view()?.state).toBe('running');
     login.cancel();
     expect(login.view()?.state).toBe('cancelled');
+
     const first = login.start(env({ GH_WAIT: '1' }));
+    await vi.waitFor(() => expect(login.view()?.codes).toEqual(['ABCD-1234']));
+    const firstPid = Number(lastSaid().split('pid=')[1]);
+    expect(alive(firstPid)).toBe(true);
     const second = login.start(env({ GH_WAIT: '1' }));
     expect(second.id).not.toBe(first.id);
     expect(login.view()?.id).toBe(second.id);
+    await vi.waitFor(() => expect(alive(firstPid)).toBe(false));
     login.cancel();
   });
 });
