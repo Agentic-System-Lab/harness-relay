@@ -22,6 +22,7 @@ import {
   project,
   root,
   setOrchestrator,
+  setStore,
   settings,
   stateKeys,
   store,
@@ -407,7 +408,8 @@ describe('lead review, stopped or branched before it was ready', () => {
     fake.reviewFail = 'model overloaded';
     await orchestrator.send(conv.id, 'one');
     await finish(conv.id);
-    await orchestrator.send(conv.id, 'two');
+    // Continue: the team goes on without a new question, and the branch is made from its replies.
+    await orchestrator.send(conv.id, '');
     await finish(conv.id);
     const branch = await orchestrator.branch(conv.id, replyOf(conv, 'Bob', 1).id);
     const copied = branch.messages.find((m) => m.review)!.review!;
@@ -541,6 +543,215 @@ describe('after the review', () => {
     await finish(conv.id);
     expect(calls.map((c) => c.name)).toEqual(['Alice', 'reviewer']);
     expect(reviews(conv)[0]!.review!.status).toBe('ready');
+  });
+});
+
+describe('waiting for the folder', () => {
+  /** A conversation in a folder of its own, with one member, Carol, whom the team-wide gate does not hold. */
+  const elsewhere = () => {
+    const dir = join(root, `elsewhere-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(dir, { recursive: true });
+    const conv = conversation({ mode: 'roundtable', permission: 'edit', cwd: dir });
+    conv.agents = [{ id: 'c1', name: 'Carol', provider: 'claude', role: '' }];
+    store.saveMeta(conv);
+    fake.gates.Carol = Promise.resolve();
+    return conv;
+  };
+  const waitNote = (conv: Conversation) =>
+    conv.messages.filter((m) => m.author.kind === 'system' && m.parts.some((p) => p.type === 'text' && p.text.includes(project) && !p.text.includes('git')));
+
+  /** `first` reviews, `other` takes the folder meanwhile, and a message written during the review waits for it. */
+  async function waitingBehindOther() {
+    const first = conversation({ mode: 'roundtable', permission: 'edit', leadReview: true });
+    const other = conversation({ mode: 'roundtable', permission: 'edit' });
+    let releaseReview!: () => void;
+    fake.reviewGate = new Promise((r) => (releaseReview = r));
+    await orchestrator.send(first.id, 'first');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    let releaseOther!: () => void;
+    fake.gate = new Promise((r) => (releaseOther = r));
+    await orchestrator.send(other.id, 'other');
+    await orchestrator.send(first.id, 'next');
+    fake.reviewGate = undefined;
+    releaseReview();
+    await vi.waitFor(() => expect(waitNote(first)).toHaveLength(1));
+    await finish(first.id);
+    return { first, other, releaseOther };
+  }
+
+  it('does not try again while another conversation still holds the folder, however many other folders are freed', async () => {
+    const { first, other, releaseOther } = await waitingBehindOther();
+    const prepare = vi.spyOn(orchestrator, 'prepareWorkspace');
+    const tries = () => prepare.mock.calls.filter(([c]) => c.id === first.id).length;
+    // A conversation in another folder finishes twice: each frees a folder, but not this one.
+    const third = elsewhere();
+    for (const q of ['one', 'two']) {
+      await orchestrator.send(third.id, q);
+      await finish(third.id);
+    }
+    await new Promise((r) => setTimeout(r, 200));
+    expect(tries()).toBe(0);
+    expect(first.queue).toHaveLength(1);
+    // Once the folder is free, it starts, once.
+    fake.gate = Promise.resolve();
+    releaseOther();
+    await finish(other.id);
+    await vi.waitFor(() => expect(first.queue ?? []).toHaveLength(0), { timeout: 20_000 });
+    await finish(first.id);
+    expect(tries()).toBe(1);
+    expect(waitNote(first)).toHaveLength(1);
+    prepare.mockRestore();
+  });
+
+  it('starts a team the user confirmed once the folder is free', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'edit', autoTeam: true });
+    conv.agents = [];
+    store.saveMeta(conv);
+    fake.leadReply = JSON.stringify({
+      choice: 'custom',
+      name: 'Solo',
+      mode: 'roundtable',
+      rounds: 1,
+      agents: [{ name: 'Alice', provider: 'claude', role: 'Build it' }],
+      reason: 'x',
+    });
+    await orchestrator.send(conv.id, 'build it');
+    await finish(conv.id);
+    const other = conversation({ mode: 'roundtable', permission: 'edit' });
+    let releaseOther!: () => void;
+    fake.gate = new Promise((r) => (releaseOther = r));
+    await orchestrator.send(other.id, 'other');
+    orchestrator.confirmPlan(conv.id, conv.messages.find((m) => m.plan)!.id);
+    await vi.waitFor(() => expect(waitNote(conv)).toHaveLength(1));
+    expect(agentMessages(conv)).toHaveLength(0);
+    fake.gate = Promise.resolve();
+    releaseOther();
+    await vi.waitFor(() => expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(1), { timeout: 20_000 });
+    await finish(conv.id);
+  });
+
+  it('stops waiting when its run fails for another reason, and says so once', async () => {
+    const { first, other, releaseOther } = await waitingBehindOther();
+    const prepare = vi.spyOn(orchestrator, 'prepareWorkspace').mockImplementation(async (c) => {
+      if (c.id === first.id) throw new Error('disk full');
+      return { isolated: false };
+    });
+    fake.gate = Promise.resolve();
+    releaseOther();
+    await finish(other.id);
+    const failed = () => first.messages.filter((m) => m.parts.some((p) => p.type === 'text' && p.text.includes('disk full')));
+    await vi.waitFor(() => expect(failed()).toHaveLength(1));
+    // Another folder freed later does not try it again.
+    prepare.mockRestore();
+    const third = elsewhere();
+    await orchestrator.send(third.id, 'later');
+    await finish(third.id);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(failed()).toHaveLength(1);
+    expect(first.queue).toHaveLength(1);
+  });
+
+  it('forgets a conversation deleted while it waits', async () => {
+    const { first, other, releaseOther } = await waitingBehindOther();
+    await orchestrator.deleteConversation(first.id);
+    fake.gate = Promise.resolve();
+    releaseOther();
+    await finish(other.id);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(store.get(first.id)).toBeUndefined();
+    expect(orchestrator.isRunning(first.id)).toBe(false);
+  });
+});
+
+describe('questions written during a review, and reviews stopped', () => {
+  const pair = JSON.stringify({
+    choice: 'custom',
+    name: 'Pair',
+    mode: 'parallel',
+    rounds: 1,
+    agents: [
+      { name: 'Alice', provider: 'claude', role: 'Build it' },
+      { name: 'Bob', provider: 'claude', role: 'Check it' },
+    ],
+    reason: 'x',
+  });
+  const autoChat = () => {
+    const conv = conversation({ mode: 'parallel', permission: 'read-only', autoTeam: true, autoConfirm: true, leadReview: true });
+    conv.agents = [];
+    store.saveMeta(conv);
+    fake.leadReply = pair;
+    return conv;
+  };
+  const leadCalls = () => calls.filter((c) => c.name === 'lead');
+
+  it('keeps a question written during a review a new question across a restart', async () => {
+    const conv = autoChat();
+    fake.reviewGate = new Promise(() => {});
+    await orchestrator.send(conv.id, 'first question');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
+    await orchestrator.send(conv.id, 'a brand new question');
+    orchestrator.stop(conv.id);
+    await finish(conv.id);
+    fake.reviewGate = undefined;
+    // The server starts again: the queue comes back from the database, its mark with it.
+    const restarted = new Store(db);
+    setStore(restarted);
+    setOrchestrator(new Orchestrator(restarted, new Hub(), settings, { context: async () => ({ available: ['claude'], catalog: [], presets: restarted.listPresets() }) }));
+    const again = restarted.get(conv.id)!;
+    expect(again.queue!.map((m) => m.duringReview)).toEqual([true]);
+    await orchestrator.send(again.id, '');
+    await vi.waitFor(() => expect(leadCalls()).toHaveLength(2), { timeout: 20_000 });
+    await finish(again.id);
+    expect(leadCalls()[1]!.prompt).toContain('a brand new question');
+    // Posted, the mark is gone.
+    expect(again.messages.find((m) => m.author.kind === 'user' && m.parts.some((p) => p.type === 'text' && p.text === 'a brand new question'))!.duringReview).toBeUndefined();
+  });
+
+  it('lets the members answer when one of the messages written during the review @mentions them', async () => {
+    const conv = autoChat();
+    let release!: () => void;
+    fake.reviewGate = new Promise((r) => (release = r));
+    await orchestrator.send(conv.id, 'first question');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
+    await orchestrator.send(conv.id, 'something else');
+    await orchestrator.send(conv.id, '@Alice and you');
+    fake.reviewGate = undefined;
+    release();
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(2), { timeout: 20_000 });
+    await finish(conv.id);
+    expect(leadCalls()).toHaveLength(1);
+  });
+
+  it('reads the latest question, not since a review stopped before other questions', async () => {
+    const conv = conversation({ mode: 'parallel', permission: 'read-only', leadReview: true });
+    fake.reviewGate = new Promise(() => {});
+    await orchestrator.send(conv.id, 'one');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    orchestrator.stop(conv.id);
+    await finish(conv.id);
+    fake.reviewGate = undefined;
+    orchestrator.setLeadReview(conv.id, false);
+    for (const q of ['two', 'three']) {
+      await orchestrator.send(conv.id, q);
+      await finish(conv.id);
+    }
+    orchestrator.setLeadReview(conv.id, true);
+    await orchestrator.send(conv.id, 'four');
+    await finish(conv.id);
+    const recent = recentOf(reviewerCalls().at(-1)!.prompt);
+    expect(recent).toContain('<message from="user">\nfour\n</message>');
+    for (const q of ['one', 'two', 'three']) expect(recent).not.toContain(`<message from="user">\n${q}\n</message>`);
+  });
+
+  it('is stopped by shutting down, and none starts once the server is stopping', async () => {
+    const conv = conversation({ mode: 'parallel', permission: 'read-only', leadReview: true });
+    fake.reviewGate = new Promise(() => {});
+    await orchestrator.send(conv.id, 'go');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    orchestrator.stopAll();
+    await finish(conv.id);
+    expect(reviews(conv)[0]!.status).toBe('aborted');
+    expect(reviewerCalls()).toHaveLength(1);
   });
 });
 

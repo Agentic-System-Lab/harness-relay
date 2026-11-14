@@ -9,51 +9,70 @@ import type { ChatMessage, ReviewHighlight, ReviewKind } from './types';
  * the start of the quote (a list's numbers are not text in the chat).
  */
 
-/** Characters left out when looking for a quote: Markdown's marks, which a rendered reply does not show. */
-const MARKS = new Set(['*', '_', '`', '#', '>', '|', '[', ']', '~']);
+/** Characters left out when looking for a quote (by UTF-16 code): Markdown's marks, which a rendered reply does not show. */
+const MARKS = new Set([...'*_`#>|[]~'].map((c) => c.charCodeAt(0)));
 
-/** A character of the text a quote is looked for in, and where it came from: which string, and where in it. */
-interface Origin {
-  part: number;
-  offset: number;
-  length: number;
+/** Whether a UTF-16 unit is whitespace, as `\s` says. */
+function isSpace(code: number): boolean {
+  if (code < 128) return code === 32 || (code >= 9 && code <= 13);
+  return /\s/.test(String.fromCharCode(code));
 }
 
 /**
- * `parts` (strings in order, as a reply's text nodes) as one string to search, each character with its
- * origin. `breaks[i]`: part `i` starts a new block, so a space comes before it.
+ * `parts` (strings in order, as a reply's text nodes) as one string to search: whitespace collapsed,
+ * marks left out, lower case. `breaks[i]`: part `i` starts a new block, so a space comes before it.
+ * With `origins`, where each of its UTF-16 units came from (which part, where in it, how long there),
+ * kept in arrays of numbers, not an object a character: a reply of any size is read quickly.
  */
-function searchable(parts: readonly string[], breaks: readonly boolean[] = []): { text: string; origins: Origin[] } {
-  let text = '';
-  const origins: Origin[] = [];
+function searchable(
+  parts: readonly string[],
+  breaks: readonly boolean[] = [],
+  origins = false,
+): { text: string; part: number[]; offset: number[]; length: number[] } {
+  const codes: number[] = [];
+  const part: number[] = [];
+  const offset: number[] = [];
+  const length: number[] = [];
+  const push = (code: number, p: number, o: number, l: number) => {
+    codes.push(code);
+    if (!origins) return;
+    part.push(p);
+    offset.push(o);
+    length.push(l);
+  };
   let space = true; // at the start: leading whitespace is left out
-  parts.forEach((part, p) => {
+  parts.forEach((str, p) => {
     if (breaks[p] && !space) {
-      text += ' ';
-      origins.push({ part: p, offset: 0, length: 0 });
+      push(32, p, 0, 0);
       space = true;
     }
-    for (let i = 0; i < part.length; ) {
-      const ch = String.fromCodePoint(part.codePointAt(i)!);
-      const origin = { part: p, offset: i, length: ch.length };
-      i += ch.length;
-      if (/\s/.test(ch)) {
+    for (let i = 0; i < str.length; ) {
+      const code = str.charCodeAt(i);
+      const pair = code >= 0xd800 && code <= 0xdbff && i + 1 < str.length && (str.charCodeAt(i + 1) & 0xfc00) === 0xdc00;
+      const size = pair ? 2 : 1;
+      const at = i;
+      i += size;
+      if (!pair && isSpace(code)) {
         if (!space) {
-          text += ' ';
-          origins.push(origin);
+          push(32, p, at, 1);
           space = true;
         }
         continue;
       }
-      if (MARKS.has(ch)) continue;
-      // One origin per UTF-16 unit, as `indexOf` counts.
-      const lower = ch.toLowerCase();
-      text += lower;
-      for (let u = 0; u < lower.length; u++) origins.push(origin);
+      if (!pair && MARKS.has(code)) continue;
+      if (code < 128) {
+        push(code >= 65 && code <= 90 ? code + 32 : code, p, at, 1);
+      } else {
+        // One origin per UTF-16 unit, as `indexOf` counts (lower case may be longer).
+        const lower = str.slice(at, at + size).toLowerCase();
+        for (let u = 0; u < lower.length; u++) push(lower.charCodeAt(u), p, at, size);
+      }
       space = false;
     }
   });
-  return { text, origins };
+  let text = '';
+  for (let k = 0; k < codes.length; k += 8192) text += String.fromCharCode(...codes.slice(k, k + 8192));
+  return { text, part, offset, length };
 }
 
 /**
@@ -82,12 +101,11 @@ export interface QuoteSpan {
 export function findQuote(parts: readonly string[], quote: string, breaks?: readonly boolean[]): QuoteSpan | undefined {
   const key = quoteKey(quote);
   if (!key) return undefined;
-  const { text, origins } = searchable(parts, breaks);
+  const { text, part, offset, length } = searchable(parts, breaks, true);
   const at = text.indexOf(key);
   if (at < 0) return undefined;
-  const first = origins[at]!;
-  const last = origins[at + key.length - 1]!;
-  return { start: { part: first.part, offset: first.offset }, end: { part: last.part, offset: last.offset + last.length } };
+  const last = at + key.length - 1;
+  return { start: { part: part[at]!, offset: offset[at]! }, end: { part: part[last]!, offset: offset[last]! + length[last]! } };
 }
 
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
@@ -111,12 +129,12 @@ export function markdownText(md: string): string {
     .replace(/^ {0,3}(?:`{3,}|~{3,}).*$/gm, ' ')
     // An image on the web shows as a link with its alt text (or its address); one on this computer as
     // the image itself, with no text.
-    .replace(/!\[([^\]\n]{0,500})\]\(([^)\s]{0,2048})(?:[ \t]+"[^"\n]{0,500}")?\)/g, (_, alt: string, url: string) =>
+    .replace(/!\[([^[\]\n]{0,300})\]\(([^()\s]{0,2048})(?:[ \t]+"[^"\n]{0,500}")?\)/g, (_, alt: string, url: string) =>
       /^(?:https?|ftp):\/\//i.test(url) ? alt || url : ' ',
     )
-    .replace(/\[([^\]\n]{0,500})\]\((?:[^()\n]|\([^()\n]{0,2048}\)){0,2048}\)/g, '$1')
-    .replace(/\[([^\]\n]{0,500})\]\[[^\]\n]{0,500}\]/g, '$1')
-    .replace(/<((?:https?|mailto):[^>\s]{1,2048})>/g, '$1')
+    .replace(/\[([^[\]\n]{0,300})\]\((?:[^()\n]|\([^()\n]{0,2048}\)){0,2048}\)/g, '$1')
+    .replace(/\[([^[\]\n]{0,300})\]\[[^[\]\n]{0,300}\]/g, '$1')
+    .replace(/<((?:https?|mailto):[^<>\s]{1,2048})>/g, '$1')
     .replace(/^((?:[ \t]*>)*[ \t]*)(?:[-*+]|\d{1,9}[.)])[ \t]+/gm, '$1')
     .replace(/\\([\\`*_{}[\]()#+\-.!|>~])/g, '$1')
     .replace(/&(amp|lt|gt|quot|apos|nbsp);/g, (_, name: string) => ENTITIES[name]!)
@@ -124,9 +142,23 @@ export function markdownText(md: string): string {
     .replace(/&#x([\da-f]{1,6});/gi, (all, n: string) => codePoint(parseInt(n, 16), all));
 }
 
+/**
+ * Whether a piece of a reply (its Markdown) has a quote's words, as the chat shows it: read once, for
+ * as many quotes as asked.
+ */
+export function quoteChecker(markdown: string): (quote: string) => boolean {
+  let text: string | undefined;
+  return (quote) => {
+    const key = quoteKey(quote);
+    if (!key) return false;
+    text ??= searchable([markdownText(markdown)]).text;
+    return text.includes(key);
+  };
+}
+
 /** The reply (its Markdown) has these words, as the chat shows it. */
 export function hasQuote(markdown: string, quote: string): boolean {
-  return findQuote([markdownText(markdown)], quote) !== undefined;
+  return quoteChecker(markdown)(quote);
 }
 
 /**
@@ -146,19 +178,22 @@ function firstReviewStart(messages: readonly ChatMessage[]): number {
 
 /**
  * Where the lead agent's next review starts reading: at the question the latest run answers
- * (`firstReviewStart`), or earlier where a review that failed or was stopped started (it left those
- * replies to this one); never before its last review that was ready, which read what came before. So
- * a review turned on mid-chat, or again after a while, reads the latest question, not everything since.
+ * (`firstReviewStart`); or earlier, where the review of the run just before that one started, when it
+ * failed or was stopped (it left those replies to this one, and its own start reaches back over the
+ * reviews that failed before it); never before its last review that was ready, which read what came
+ * before. So a review turned on mid-chat, or again after a while (a review stopped long ago, before
+ * other questions, included), reads the latest question, not everything since.
  */
 export function reviewStart(messages: readonly ChatMessage[]): number {
   const after = messages.findLastIndex((m) => m.review?.status === 'ready') + 1;
-  let start = Math.max(after, firstReviewStart(messages));
-  for (const m of messages.slice(after)) {
-    const fromId = m.review?.fromId;
-    const from = fromId ? messages.findIndex((x) => x.id === fromId) : -1;
-    if (from >= after && from < start) start = from;
-  }
-  return start;
+  const start = Math.max(after, firstReviewStart(messages));
+  // The latest review that is not ready, if it comes right before the latest question (no other
+  // question of the user's between them).
+  const pending = messages.findLastIndex((m, i) => i >= after && i < start && m.review && m.review.status !== 'ready');
+  if (pending < 0 || messages.slice(pending + 1, start).some((m) => m.author.kind === 'user' && !m.queued)) return start;
+  const fromId = messages[pending]!.review!.fromId;
+  const from = fromId ? messages.findIndex((m) => m.id === fromId) : -1;
+  return from >= after && from < start ? from : start;
 }
 
 /** The highlights a reply has from the lead agent's reviews, and the review that has the latest of them. */

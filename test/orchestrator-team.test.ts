@@ -299,7 +299,7 @@ describe('auto team', () => {
     expect(plans(conv).at(-1)!.plan).toMatchObject({ source: 'kept', awaitingConfirmation: true });
   });
 
-  it('says why when the team used at once cannot start, and Continue lets it answer without a new design', async () => {
+  it('says why when the team used at once cannot start yet, and it answers by itself once the folder is free, without a new design', async () => {
     // Another conversation is writing in the same folder.
     let release!: () => void;
     fake.gate = new Promise<void>((r) => (release = r));
@@ -316,13 +316,14 @@ describe('auto team', () => {
     expect(agentMessages(conv)).toHaveLength(0);
     expect(plans(conv)[0]!.plan).toMatchObject({ autoConfirmed: true });
 
+    calls.length = 0;
     release();
     await finish(writer.id);
-    calls.length = 0;
-    await orchestrator.send(conv.id, '');
     await vi.waitFor(() => expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(2), { timeout: 20_000 });
     await finish(conv.id);
-    expect(calls.map((c) => c.name)).toEqual(['Alice', 'Bob']);
+    // The team it designed answered; the lead agent was not asked again.
+    expect(agentMessages(conv).map((m) => m.agentName)).toEqual(['Alice', 'Bob']);
+    expect(calls.filter((c) => c.name === 'lead')).toHaveLength(0);
   });
 
   it('refuses to confirm while something else holds the conversation', async () => {

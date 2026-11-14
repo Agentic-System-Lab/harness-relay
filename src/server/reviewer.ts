@@ -11,7 +11,7 @@ import {
   type ReviewKind,
   type ReviewStep,
 } from '../shared/types';
-import { hasQuote, reviewStart } from '../shared/review';
+import { quoteChecker, reviewStart } from '../shared/review';
 import { t } from './i18n';
 import { historyForLead, parsePlanReply } from './planner';
 
@@ -248,6 +248,13 @@ export function decideReview(raw: Record<string, any>, replies: ChatMessage[]): 
   const summary = field(raw.summary, REVIEW_LIMITS.summary);
   const listed = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === 'object') : []);
   const highlights: ReviewHighlight[] = [];
+  // Each reply's pieces of text, read once for all the quotes about it.
+  const checkers = new Map<string, ((quote: string) => boolean)[]>();
+  const quoted = (reply: ChatMessage, quote: string) => {
+    let pieces = checkers.get(reply.id);
+    if (!pieces) checkers.set(reply.id, (pieces = reply.parts.flatMap((p) => (p.type === 'text' ? [quoteChecker(p.text)] : []))));
+    return pieces.some((has) => has(quote));
+  };
   for (const h of listed(raw.highlights)) {
     const note = field(h.note, REVIEW_LIMITS.note);
     if (!note) continue;
@@ -260,7 +267,7 @@ export function decideReview(raw: Record<string, any>, replies: ChatMessage[]): 
       ...(reply ? { messageId: reply.id, ...(reply.agentName ? { agentName: reply.agentName } : {}) } : {}),
       // Only words the reply has, in one of its pieces of text (the chat shows each on its own, between
       // its tool calls): the chat marks them there, and the card shows them as its words.
-      ...(reply && quote && reply.parts.some((p) => p.type === 'text' && hasQuote(p.text, quote)) ? { quote } : {}),
+      ...(reply && quote && quoted(reply, quote) ? { quote } : {}),
     });
     if (highlights.length >= REVIEW_LIMITS.highlights) break;
   }

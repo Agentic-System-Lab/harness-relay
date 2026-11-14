@@ -175,4 +175,38 @@ test.describe('lead review', () => {
       )
       .toEqual(['first point second point']);
   });
+
+  test("the design card's box goes back when the server refuses the change, and says why", async ({ page }) => {
+    await startChat(page);
+    await send(page, 'Build it e2e:leadreview');
+    const box = awaitingPlan(page).getByRole('checkbox', { name: LEAD_REVIEW });
+    await expect(box).toBeChecked();
+    await page.route('**/lead-review', (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Refused for the test' }) }),
+    );
+    await box.click();
+    await expect(page.getByRole('alert')).toContainText('Refused for the test');
+    await expect(box).toBeChecked();
+  });
+});
+
+test.describe('lead review in Chinese, on a narrow phone', () => {
+  test.use({ lang: 'zh-TW' });
+
+  test('the review card is in Chinese and fits a 320px screen', async ({ page, relay }) => {
+    await page.setViewportSize({ width: 320, height: 720 });
+    const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { leadReview: true });
+    await send(page, 'Check it e2e:markdown');
+    await finishedReply(page, 'Claude');
+    const card = reviewCards(page).last();
+    await expect(card).toContainText('首席 agent 的審閱');
+    await expect(card.locator('.review-kind')).toHaveText('風險');
+    await expect(card).toContainText('建議的下一步');
+    await expect(card).toContainText('讀了 1 則回覆');
+    await expect(card.getByRole('button', { name: '交給團隊' })).toBeVisible();
+    await settled(relay, id);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+    const box = await card.boundingBox();
+    expect(box!.x + box!.width).toBeLessThanOrEqual(320);
+  });
 });

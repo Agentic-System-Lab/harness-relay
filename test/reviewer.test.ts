@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { slow } from './timeouts';
 import type { ChatMessage } from '../src/shared/types';
-import { findQuote, hasQuote, highlightsByReply, markdownText, mostSerious, quoteKey, reviewStart } from '../src/shared/review';
+import { findQuote, hasQuote, highlightsByReply, markdownText, mostSerious, quoteChecker, quoteKey, reviewStart } from '../src/shared/review';
 import { buildReviewPrompt, decideReview, hasNewReplies, parseReviewReply, reviewMaterial } from '../src/server/reviewer';
 import { Markdown } from '../src/web/components/Markdown';
 import { I18nProvider, currentLang, loadMessages } from '../src/web/i18n';
@@ -442,5 +442,26 @@ describe('images and where a review starts, again', () => {
     expect(reviewStart([...msgs.slice(0, 5), review('v2', 'failed', { fromId: 'u2' }), ...msgs.slice(5)])).toBe(3);
     // A failed review from before the ready one does not reach back past it.
     expect(reviewStart([user('u0', 'zero'), review('f0', 'failed', { fromId: 'u0' }), ...msgs])).toBe(7);
+  });
+});
+
+describe('a review that failed or was stopped, and reading a reply once', () => {
+  it('reaches back to where it started only when it came right before the latest question', () => {
+    const stopped = review('s1', 'failed', { fromId: 'u1' });
+    // Right before the latest question: from its start.
+    expect(reviewStart([user('u1', 'one'), reply('r1', 'Alice', 'a'), stopped, user('u2', 'two'), reply('r2', 'Alice', 'b')])).toBe(0);
+    // Other questions came after it (the review was off for them): the latest question only.
+    const later = [user('u1', 'one'), reply('r1', 'Alice', 'a'), stopped, user('u2', 'two'), reply('r2', 'Alice', 'b'), user('u3', 'three'), reply('r3', 'Alice', 'c')];
+    expect(reviewStart(later)).toBe(5);
+    // A message written into the discussion (queued) is no question of its own.
+    expect(reviewStart([user('u1', 'one'), reply('r1', 'Alice', 'a'), stopped, { ...user('q', 'also'), queued: true }, user('u2', 'two')])).toBe(0);
+  });
+
+  it('reads a piece of a reply once for as many quotes as asked', () => {
+    const has = quoteChecker('We **must** migrate [the DB](x.md) first.');
+    expect(has('must migrate the DB')).toBe(true);
+    expect(has('the db first')).toBe(true);
+    expect(has('x.md')).toBe(false);
+    expect(has('  ')).toBe(false);
   });
 });

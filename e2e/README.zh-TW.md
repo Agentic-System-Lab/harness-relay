@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 32 個 spec 檔、408 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 32 個 spec 檔、410 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -40,7 +40,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊) | [`chat.spec.ts`](specs/chat.spec.ts) | 5 | [使用者說明 → 自動組隊](../docs/user-guide.zh-TW.md#自動組隊)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
 | [範本](#範本) | [`templates.spec.ts`](specs/templates.spec.ts) | 6 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本) |
 | [修改對話的團隊](#修改對話的團隊) | [`team.spec.ts`](specs/team.spec.ts) | 4 | [使用者說明 → 對話中修改團隊](../docs/user-guide.zh-TW.md#對話中修改團隊) |
-| [首席 agent 的審閱](#首席-agent-的審閱) | [`review.spec.ts`](specs/review.spec.ts) | 7 | [使用者說明 → 首席 agent 審閱](../docs/user-guide.zh-TW.md#首席-agent-審閱)、[架構 → 首席 agent 審閱](../docs/architecture.zh-TW.md#首席-agent-審閱) |
+| [首席 agent 的審閱](#首席-agent-的審閱) | [`review.spec.ts`](specs/review.spec.ts) | 9 | [使用者說明 → 首席 agent 審閱](../docs/user-guide.zh-TW.md#首席-agent-審閱)、[架構 → 首席 agent 審閱](../docs/architecture.zh-TW.md#首席-agent-審閱) |
 | [成員的模型與推理強度](#成員的模型與推理強度) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [使用者說明 → 預設模型與推理強度](../docs/user-guide.zh-TW.md#預設模型與推理強度)、[團隊成員](../docs/user-guide.zh-TW.md#團隊成員) |
 | [成員如何輪流發言](#成員如何輪流發言) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式)、[agent 之間如何共享上下文](../docs/architecture.zh-TW.md#agent-之間如何共享上下文) |
 | [agent 回答前做了什麼](#agent-回答前做了什麼) | [`activity.spec.ts`](specs/activity.spec.ts) | 13 | [架構 → agent 活動](../docs/architecture.zh-TW.md#agent-活動) |
@@ -150,6 +150,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 已經開啟時，組隊不會更動它 | Claude Code | 在已開啟的對話中，設計卡片顯示已勾選的勾選框、沒有原因，而且首席 agent 沒有被提供這個選項。 |
 | 分享的對話保留審閱與首席 agent 開啟它的原因，但不含 app 的按鈕與勾選框 | Claude Code | 分享頁面（假 `gh` 的 gist）有審閱的摘要、那一點與純文字的 **@Claude**、下一步，以及首席 agent 的原因；沒有設計卡片的勾選框、**交給團隊**（Ask the team）、回覆的標籤，也沒有任何按鈕。 |
 | 標出回覆中跨越清單項目的引用 | Claude Code | 用 `e2e:markdown` 與 `e2e:reviewquote=list`，卡片引用「first point second point」，`CSS.highlights` 中有一個範圍從第一個項目延伸到第二個（聊天畫面在區塊之間視為有空白）。 |
+| 伺服器拒絕變更時，設計卡片的勾選框會恢復原狀並說明原因 | Claude Code | 變更被拒絕時（以替代的回應模擬），勾選框恢復為已勾選，錯誤列說明原因。 |
+| 中文、窄手機上的審閱卡片 | Claude Code | 在 320px、中文介面下，卡片有標題、類型（風險）、下一步、讀了幾則回覆與 **交給團隊**，頁面不會左右捲動。 |
 
 ## 成員的模型與推理強度
 

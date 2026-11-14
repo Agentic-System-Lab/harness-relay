@@ -1149,6 +1149,12 @@ export interface ChatMessage {
   asked?: boolean;
   /** A user message the conversation's schedule sent (see `ConversationSchedule`), not one the user typed. */
   scheduled?: boolean;
+  /**
+   * A user message waiting in the queue that was written once the team had answered, while the lead
+   * agent reviewed its replies (lead review): a new question, whose team the lead agent designs (auto
+   * team). Only while it waits; posted, it is a message like any other.
+   */
+  duringReview?: boolean;
 }
 
 /**
