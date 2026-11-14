@@ -935,13 +935,12 @@ export function pendingPlan(messages: ChatMessage[]): ChatMessage | undefined {
 }
 
 /**
- * The lead agent's team design the conversation's team comes from: the latest one, when it was used
- * (confirmed, or from before confirmation was asked). Not one declined, nor one still waiting: the
- * conversation kept the team it had then.
+ * The lead agent's team design the conversation's team comes from: the latest one that was used
+ * (confirmed, or from before confirmation was asked). Designs declined since it, and one still
+ * waiting, are passed over: the conversation kept the team it had.
  */
 export function currentPlan(messages: ChatMessage[]): ChatMessage | undefined {
-  const msg = messages.findLast((m) => m.plan?.status === 'ready');
-  return msg && !msg.plan!.awaitingConfirmation && !msg.plan!.declinedAt ? msg : undefined;
+  return messages.findLast((m) => m.plan?.status === 'ready' && !m.plan.awaitingConfirmation && !m.plan.declinedAt);
 }
 
 /** Only a team the lead designed or adapted is new, and can be saved as a template. */

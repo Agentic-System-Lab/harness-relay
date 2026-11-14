@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 32 個 spec 檔、426 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 32 個 spec 檔、427 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -40,7 +40,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊) | [`chat.spec.ts`](specs/chat.spec.ts) | 5 | [使用者說明 → 自動組隊](../docs/user-guide.zh-TW.md#自動組隊)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
 | [範本](#範本) | [`templates.spec.ts`](specs/templates.spec.ts) | 6 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本) |
 | [修改對話的團隊](#修改對話的團隊) | [`team.spec.ts`](specs/team.spec.ts) | 5 | [使用者說明 → 對話中修改團隊](../docs/user-guide.zh-TW.md#對話中修改團隊) |
-| [首席 agent 的審閱](#首席-agent-的審閱) | [`review.spec.ts`](specs/review.spec.ts) | 12 | [使用者說明 → 首席 agent 審閱](../docs/user-guide.zh-TW.md#首席-agent-審閱)、[架構 → 首席 agent 審閱](../docs/architecture.zh-TW.md#首席-agent-審閱) |
+| [首席 agent 的審閱](#首席-agent-的審閱) | [`review.spec.ts`](specs/review.spec.ts) | 13 | [使用者說明 → 首席 agent 審閱](../docs/user-guide.zh-TW.md#首席-agent-審閱)、[架構 → 首席 agent 審閱](../docs/architecture.zh-TW.md#首席-agent-審閱) |
 | [成員的模型與推理強度](#成員的模型與推理強度) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [使用者說明 → 預設模型與推理強度](../docs/user-guide.zh-TW.md#預設模型與推理強度)、[團隊成員](../docs/user-guide.zh-TW.md#團隊成員) |
 | [成員如何輪流發言](#成員如何輪流發言) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式)、[agent 之間如何共享上下文](../docs/architecture.zh-TW.md#agent-之間如何共享上下文) |
 | [agent 回答前做了什麼](#agent-回答前做了什麼) | [`activity.spec.ts`](specs/activity.spec.ts) | 13 | [架構 → agent 活動](../docs/architecture.zh-TW.md#agent-活動) |
@@ -135,7 +135,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 請首席 agent 調整團隊，儲存後新成員回答 | Claude Code、Grok | 在**團隊設定 → 請首席 agent 調整**（Team settings → Ask the lead agent）中，要求會交給首席 agent，抽屜顯示它加入的成員，按**儲存**後兩位成員都回答。 |
 | 首席 agent 的回答無法解讀時，改用範本 | Claude Code | 回答不是 JSON 時改用「一般問題智囊團」（General-question panel），由它的三位成員回答。 |
 | 拒絕為新問題提議的團隊 | Claude Code、Codex | 按**不採用，沿用目前的團隊**（No, keep the current team）：卡片顯示沒有採用，由目前的團隊回答，提議的成員不回答。 |
-| agent 工作時團隊設計卡片的「調整團隊」不能按，調整團隊後卡片顯示調整後的團隊 | Claude Code | 回覆緩慢串流時，卡片的**調整團隊**（Adjust team）是停用的，提示說明原因；團隊回答完後可以按。在它開啟的抽屜中為成員改名並儲存：卡片列出 **@Ada** 而不是 **@Claude**，寫著*你調整過這個團隊*（You adjusted this team），伺服器保存的設計（`adjustedAt`）與重新載入後的卡片也是。 |
+| agent 工作時（團隊回答中、首席 agent 審閱中）團隊設計卡片的「調整團隊」不能按，調整團隊後卡片顯示調整後的團隊 | Claude Code | 回覆緩慢串流時，卡片的**調整團隊**（Adjust team）是停用的，提示說明原因，審閱很慢時也一樣；按 **■ 停止**停止審閱後可以按。在它開啟的抽屜中為成員改名並儲存：卡片列出 **@Ada** 而不是 **@Claude**，寫著*你調整過這個團隊*（You adjusted this team），伺服器保存的設計（`adjustedAt`）與重新載入後的卡片也是。 |
 | 新增成員卡和旁邊的成員一樣高，下面還有 CLI 時底部有陰影，自己一列時列出所有 CLI，一張卡變高只撐高自己那一列 | — | 在**團隊設定**中（1280px 下兩欄），清單是名為**新增成員**（Add member）的群組：在一位成員旁邊時，那位成員保有自己的高度（隱藏新增成員卡再量一次比對），十二個 CLI 的清單可以捲動。瀏覽器支援捲動驅動動畫時，清單底部邊緣有陰影（那一條的截圖和拿掉陰影時不同），減少動態效果時也有，取得焦點的每個按鈕都停在它上方，捲到底後陰影消失。兩位成員時它自己一列，全部列出、不用捲動，也沒有陰影；硬讓它取用沒有給它的高度時（欄數算錯時就會這樣），它至少有 280px 高並可以捲動，不會變成空框。在第三位旁邊時那一位保有自己的高度，而第一列的角色框拉高後，第二列的卡片高度不變。 |
 
 ## 首席 agent 的審閱
@@ -153,7 +153,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 新排程頁的勾選框一開始是勾選的，排程的對話照那裡的設定 | — | 在**新排程**，勾選框一開始是勾選的。保持勾選並勾選**每次開新對話**（Start a new chat each time；它開的新對話會像複製其他設定一樣複製這個設定）後，**建立排程**（Create schedule）開的對話有開啟審閱，它的**團隊設定**中勾選框是勾選的；再建立一次、把（一開始又是勾選的）勾選框取消，對話就是關閉的。 |
 | 重點上的 @名稱 把它引用的文字帶到對話中間，即使在比視窗還高的回覆開頭 | Claude Code | 用 `e2e:long`（回覆多了四十段），卡片引用回覆開頭的幾個字，在畫面中的卡片上方很遠處；按它的 **@Claude** 會捲動對話，直到那段標記離中間不到 30px，並在標記上加強顯示（`review-focus`），對話停在那裡。 |
 | 分享的對話保留審閱與它的標記，每個重點的 @名稱 連到它引用的文字，但不含 app 的按鈕與設計卡片的勾選框 | Claude Code | 分享頁面（假 `gh` 的 gist）有審閱的摘要、那一點與下一步；引用的文字在回覆中是 `<mark class="review-quote-mark risk">`，那一點的 **@Claude** 變成連結（`#quote-…`），指向它的 id。以網頁開啟（離線攔截）並捲到底後，點連結會把標記帶進畫面，成為頁面的 `:target` 並加上底線。沒有設計卡片的勾選框、**交給團隊**（Ask the team）、回覆的標籤，也沒有任何按鈕。 |
-| 標出回覆中跨越清單項目的引用，用它類型的顏色 | Claude Code | 用 `e2e:markdown`、`e2e:reviewquote=list` 與 `e2e:reviewkind=decision`，卡片以**待你決定**（Your call）引用「first point second point」，`CSS.highlights` 中（`review-decision`）有一個範圍從第一個項目延伸到第二個（聊天畫面在區塊之間視為有空白）。 |
+| 標出回覆中跨越清單項目的引用，用它類型的顏色 | Claude Code | 用 `e2e:markdown`、`e2e:reviewquote=list` 與 `e2e:reviewkind=decision`，卡片以**待你決定**（Your call）引用「first point second point」，`CSS.highlights` 中（`review-decision`）有一個範圍從第一個項目延伸到第二個（聊天畫面在區塊之間視為有空白）。在分享頁上它們是兩個標記，每個項目各一個、項目之間沒有，那一點的 **@Claude** 連到第一個。 |
+| 針對回覆但沒有引用文字的重點會跳到回覆，在分享頁上它的 @名稱 連到回覆 | Claude Code | 用 `e2e:reviewquote=none`，那一點不引用任何文字：它的 **@Claude** 讓回覆閃一下並取得焦點，不加強顯示任何文字；在分享頁上它連到回覆（`#msg-…`），也沒有任何標記。 |
 | 伺服器拒絕變更時，設計卡片的勾選框會恢復原狀並說明原因 | Claude Code | 變更被拒絕時（以替代的回應模擬），勾選框恢復為未勾選，錯誤列說明原因。 |
 | 中文、窄手機上的審閱卡片 | Claude Code | 在 320px、中文介面下，卡片有標題、類型（風險）、下一步、讀了幾則回覆與 **交給團隊**，頁面不會左右捲動。 |
 

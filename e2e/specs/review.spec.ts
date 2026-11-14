@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
+import type { RelayServer } from '../support/relay';
 import { LEAD_REVIEW, awaitingPlan, composer, finishedReply, openNewChat, openTeamChat, replies, reviewCards, send, settled, startChat } from '../support/app';
 
 /*
@@ -9,6 +10,19 @@ import { LEAD_REVIEW, awaitingPlan, composer, finishedReply, openNewChat, openTe
  * look and suggests the next steps. The fake lead agent flags the first words of the first reply as a
  * risk, and suggests a step for the user and one for the team (`reviewReply` in e2e/fake-cli/lib/plan.cjs).
  */
+/** Shares the open chat as a link (into the fake `gh`'s gist) and returns the page made, its body and the gist's id. */
+async function shareOpenChat(page: Page, relay: RelayServer): Promise<{ html: string; body: string; gistId: string }> {
+  await page.locator('.chat-head').getByRole('button', { name: 'Share', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Share conversation' });
+  await dialog.getByRole('button', { name: 'Create link' }).click();
+  const link = dialog.getByRole('textbox', { name: 'Public link' });
+  await expect(link).toHaveValue(/^https:\/\/gistpreview\.github\.io\/\?[0-9a-f]{32}$/);
+  const gistId = (await link.inputValue()).split('?')[1]!;
+  const html = readFileSync(join(relay.root, 'fake-github', 'gists', gistId, 'index.html'), 'utf8');
+  await dialog.getByRole('button', { name: 'Close' }).first().click();
+  return { html, body: html.slice(html.indexOf('<body')), gistId };
+}
+
 /** The words a review point's @name just jumped to (the `review-focus` highlight). */
 const focusedWords = (page: Page) =>
   page.evaluate(() => [...(CSS.highlights.get('review-focus') ?? [])].map((r) => (r as Range).toString()));
@@ -277,14 +291,7 @@ test.describe('lead review', () => {
     await expect(page.locator('.plan-review')).toHaveCount(1);
     await settled(relay, id);
 
-    await page.locator('.chat-head').getByRole('button', { name: 'Share', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'Share conversation' });
-    await dialog.getByRole('button', { name: 'Create link' }).click();
-    const link = dialog.getByRole('textbox', { name: 'Public link' });
-    await expect(link).toHaveValue(/^https:\/\/gistpreview\.github\.io\/\?[0-9a-f]{32}$/);
-    const gistId = (await link.inputValue()).split('?')[1]!;
-    const html = readFileSync(join(relay.root, 'fake-github', 'gists', gistId, 'index.html'), 'utf8');
-    const body = html.slice(html.indexOf('<body'));
+    const { html, body, gistId } = await shareOpenChat(page, relay);
     // The review: its summary, the point and the member it is about (as text), the steps.
     expect(body).toContain("Lead agent's review");
     expect(body).toContain('The fake lead agent read 1 reply.');
@@ -357,6 +364,34 @@ test.describe('lead review', () => {
         }),
       )
       .toEqual(['first point second point']);
+
+    // On a shared page, a mark in each item and none between them (it would sit in the list), the first the one its @name links to.
+    const { body } = await shareOpenChat(page, relay);
+    const marks = [...body.matchAll(/<mark class="review-quote-mark decision"(?: id="([^"]+)")?>([^<]*)<\/mark>/g)];
+    expect(marks.map((m) => [m[1] !== undefined, m[2]])).toEqual([
+      [true, 'first point'],
+      [false, 'second point'],
+    ]);
+    expect(body).toContain(`<a class="review-reply-link" href="#${marks[0]![1]}">@Claude</a>`);
+    expect(body).toMatch(/<li><mark class="review-quote-mark decision" id="[^"]+">first point<\/mark><\/li>\s*<li><mark class="review-quote-mark decision">second point<\/mark><\/li>/);
+  });
+
+  test('a point about a reply without words of it goes to the reply, and on a shared page its @name links to the reply', async ({ page, relay }) => {
+    const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { leadReview: true });
+    await send(page, 'Look it over e2e:reviewquote=none');
+    const reply = await finishedReply(page, 'Claude');
+    const card = reviewCards(page).last();
+    await expect(card.locator('.review-point')).toHaveCount(1);
+    await expect(card.locator('.review-quote')).toHaveCount(0);
+    await settled(relay, id);
+    await card.getByRole('button', { name: '@Claude' }).click();
+    await expect(reply).toHaveClass(/flash/);
+    await expect(reply).toBeFocused();
+    expect(await focusedWords(page)).toEqual([]);
+
+    const { body } = await shareOpenChat(page, relay);
+    expect(body).toContain(`<a class="review-reply-link" href="#${await reply.getAttribute('id')}">@Claude</a>`);
+    expect(body).not.toContain('review-quote-mark');
   });
 
   test("the design card's box goes back when the server refuses the change, and says why", async ({ page }) => {

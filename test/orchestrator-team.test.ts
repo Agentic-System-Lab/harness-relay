@@ -450,8 +450,12 @@ describe('auto team', () => {
     await finish(conv.id);
     const plan = conv.messages.find((m) => m.plan)!;
     expect(plan.plan!.awaitingConfirmation).toBe(true);
-    orchestrator.teamSetByHand(conv, true); // what PATCH { agents } does
+    // What PATCH { agents } does: the team set, then the design settled by it, showing it.
+    conv.agents = [{ id: 'z', name: 'Zed', provider: 'claude', role: 'Mine.' }];
+    expect(orchestrator.teamSetByHand(conv, true)).toBe(true);
     expect(plan.plan!.awaitingConfirmation).toBeUndefined();
+    expect(plan.plan!.agents!.map((a) => a.name)).toEqual(['Zed']);
+    expect(plan.plan!.adjustedAt).toEqual(expect.any(Number));
     // Confirming again, or a plan that never waited, changes nothing.
     const at = plan.plan!.confirmedAt;
     orchestrator.confirmPlan(conv.id, plan.id);

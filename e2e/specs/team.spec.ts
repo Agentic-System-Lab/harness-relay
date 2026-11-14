@@ -1,7 +1,7 @@
 import type { Locator } from '@playwright/test';
 import { PROVIDERS } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { askAndConfirm, awaitingPlan, finishedReply, heightWithoutAddCard, openTeamChat, replies, send, settled, startChat } from '../support/app';
+import { askAndConfirm, awaitingPlan, finishedReply, heightWithoutAddCard, openTeamChat, replies, reviewCards, send, settled, startChat } from '../support/app';
 
 test.describe("changing a chat's team", () => {
   test('the lead agent changes the team when asked, and the new member answers once it is saved', async ({ page, relay }) => {
@@ -47,16 +47,22 @@ test.describe("changing a chat's team", () => {
     await expect(replies(page, 'Codex')).toHaveCount(0);
   });
 
-  test("the team design card's Adjust team waits while agents are at work, and once the team is adjusted the card shows it", async ({ page, relay }) => {
-    const id = await startChat(page, { autoConfirm: true });
-    await send(page, 'Take your time e2e:slow=4');
-    const card = page.locator('.plan-card').last();
+  test("the team design card's Adjust team waits while agents are at work (the team answering, the lead agent reviewing), and once the team is adjusted the card shows it", async ({ page, relay }) => {
+    const id = await startChat(page, { autoConfirm: true, leadReview: true });
+    await send(page, 'Take your time e2e:slow=4 e2e:slowreview');
+    // The design's card (a review card is one too).
+    const card = page.locator('.plan-card:not(.review-card)').last();
     await expect(card).toContainText('Used without asking');
     const adjust = card.getByRole('button', { name: 'Adjust team' });
     // The team answers: nothing it could save, so nothing to open.
     await expect(adjust).toBeDisabled();
     await expect(adjust).toHaveAttribute('title', 'The team cannot be adjusted while agents are at work: adjust it once they finish.');
     await finishedReply(page, 'Claude');
+    // Nor while the lead agent reviews the replies (stopped here, not waited for).
+    await expect(reviewCards(page).last()).toContainText("is reviewing the team's replies");
+    await expect(adjust).toBeDisabled();
+    await page.getByRole('button', { name: 'Stop', exact: true }).click();
+    await expect(reviewCards(page).last()).toContainText('The review was stopped');
     await settled(relay, id);
     await expect(adjust).toBeEnabled();
     await expect(adjust).not.toHaveAttribute('title');
@@ -73,7 +79,7 @@ test.describe("changing a chat's team", () => {
     expect(conv.messages.find((m) => m.plan)!.plan).toMatchObject({ agents: [{ name: 'Ada' }], adjustedAt: expect.any(Number) });
     // And after a reload, from what the server keeps.
     await page.reload();
-    await expect(page.locator('.plan-card').last().locator('.plan-members strong')).toHaveText(['@Ada']);
+    await expect(page.locator('.plan-card:not(.review-card)').last().locator('.plan-members strong')).toHaveText(['@Ada']);
   });
 
   test('the add card is as tall as the members beside it with a shadow while more CLIs are below, lists every CLI on a row of its own, and one tall card stretches only its row', async ({ page, relay }) => {

@@ -5066,6 +5066,13 @@ details.sub summary {
     background-color: Mark;
     color: MarkText;
   }
+
+  /* A shared page's marks (below), which would otherwise take the page's colours. */
+  .review-quote-mark {
+    forced-color-adjust: none;
+    background-color: Highlight;
+    color: HighlightText;
+  }
 }
 
 /* A shared page, which runs no script, has the same words marked as elements (sharePage.tsx), in the

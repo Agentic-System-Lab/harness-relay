@@ -21,6 +21,7 @@ import {
   type ServerLimits,
   type SettingsView,
   type ShareFileInfo,
+  type TeamPreset,
   type TeamRevision,
   type WorkingDirectories,
 } from '../src/shared/types';
@@ -1162,7 +1163,7 @@ describe('a team design waiting for confirmation', () => {
     await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
   });
 
-  it('once used, shows the team as the user changes it later, and only while it is the team', async () => {
+  it('once used, shows the team as the user changes it later, also after a later design is declined', async () => {
     const conv = await waiting();
     const live = store.get(conv.id)!;
     const plan = live.messages[1]!.plan!;
@@ -1188,8 +1189,8 @@ describe('a team design waiting for confirmation', () => {
       expect((await patch({ agents: live.agents })).status).toBe(200);
       expect(events.filter((e) => e.type === 'message')).toEqual([]);
 
-      // A later design declined: the team is not that design's, and neither card changes.
-      plan.declinedAt = undefined;
+      // A later design declined: the team is still the one this design shows, which follows it; the
+      // declined card stays as the lead made it.
       live.messages.push({
         id: 'no',
         author: { kind: 'system' },
@@ -1199,9 +1200,16 @@ describe('a team design waiting for confirmation', () => {
         plan: { status: 'ready', lead: { provider: 'claude' }, source: 'custom', agents: [{ id: 'z', name: 'Zed', provider: 'claude', role: '' }], declinedAt: 2 },
       });
       expect((await patch({ agents: [{ ...live.agents[0]!, name: 'Bea' }] })).status).toBe(200);
-      expect(plan.agents!.map((a) => a.name)).toEqual(['Ada']);
+      expect(plan.agents!.map((a) => a.name)).toEqual(['Bea']);
       expect(live.messages[2]!.plan!.agents!.map((a) => a.name)).toEqual(['Zed']);
       expect(live.messages[2]!.plan!.adjustedAt).toBeUndefined();
+
+      // Saved as a template once adjusted, it is the team as adjusted.
+      plan.source = 'custom';
+      plan.name = 'Mine';
+      const saved = await app.request(`/api/conversations/${conv.id}/messages/plan/save-plan`, json('POST', { name: 'Mine' }));
+      expect(saved.status).toBe(200);
+      expect(((await saved.json()) as TeamPreset).agents.map((a) => a.name)).toEqual(['Bea']);
     } finally {
       off();
     }
