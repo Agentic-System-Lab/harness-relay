@@ -1,16 +1,19 @@
 /*
  * Lead review: the lead agent reviewing the team's replies once it has answered — when it does and
  * when it does not, what it reads, its card, Stop, a failure, messages sent meanwhile, schedules and
- * branches; and lead review being the user's alone.
+ * branches; lead review being the user's alone; and when the user is told that the team finished
+ * (push notifications) while the lead reviews.
  *
  * The fake CLI, and what each test starts with, are in ./orchestrator-harness.ts.
  */
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import type { ChatMessage, Conversation } from '../src/shared/types';
+import type { PushSubscriptionRecord } from '../src/server/push';
+import type { AlertPayload, ChatMessage, Conversation } from '../src/shared/types';
 import {
   agentMessages,
+  agents,
   calls,
   conversation,
   db,
@@ -956,5 +959,212 @@ describe("lead review is the user's to switch", () => {
     expect(leadCalls()).toHaveLength(3);
     expect(reviewerCalls()).toHaveLength(2);
     expect(new Store(db).get(conv.id)!.settings.leadReview).toBeUndefined();
+  });
+});
+
+// The server's push notifications, as `src/server/index.ts` sets them up; the page's own notifications
+// follow the same rule (`AlertTracker`) over the same list (`GET /api/conversations`). Loaded after the
+// harness, which sets the data folder first.
+const { AlertWatcher } = await import('../src/server/alerts');
+const { PushService } = await import('../src/server/push');
+
+/** A push service that records the notifications it would send, rather than sending them. */
+class RecordingPush extends PushService {
+  readonly sent: { kind: AlertPayload['kind']; body: string }[] = [];
+  override async push(_sub: PushSubscriptionRecord, payload: AlertPayload) {
+    this.sent.push({ kind: payload.kind, body: payload.body });
+    return 'sent' as const;
+  }
+}
+
+describe('lead review and notifications', () => {
+  /**
+   * A phone subscribed to every notification, with no page of Harness Relay in front, and the watcher
+   * that tells it; `check()` is one of the watcher's checks (every 1.5 s on the server), taken when the
+   * test says. The first one is where it starts.
+   */
+  async function phone() {
+    const push = new RecordingPush(db);
+    const keys = { p256dh: Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 1)]).toString('base64url'), auth: Buffer.alloc(16, 1).toString('base64url') };
+    push.subscribe(undefined, { endpoint: 'https://web.push.apple.com/phone', keys }, { done: true, needs: true, sound: true }, 'en');
+    const watcher = new AlertWatcher({
+      list: () =>
+        store.list(
+          (id) => orchestrator.isRunning(id),
+          (id) => orchestrator.isWaiting(id),
+          (id) => orchestrator.isSorting(id),
+        ),
+      get: (id) => store.get(id),
+      push,
+    });
+    await watcher.check();
+    return { sent: push.sent, check: () => watcher.check() };
+  }
+  /** A gate the fake lead agent's review waits for, and its key. */
+  const holdReview = () => {
+    let release!: () => void;
+    fake.reviewGate = new Promise((r) => (release = r));
+    return () => {
+      fake.reviewGate = undefined;
+      release();
+    };
+  };
+  const bobDone = { kind: 'done', body: 'Bob finished replying\nBob done' };
+
+  it("tells that the team finished only once the lead has reviewed its replies, of the team's last reply, not the review", async () => {
+    const conv = conversation({ mode: 'roundtable', leadReview: true });
+    const alerts = await phone();
+    fake.reviewReply = JSON.stringify({ summary: 'The review says this.', highlights: [], nextSteps: [] });
+    const release = holdReview();
+    await orchestrator.send(conv.id, 'go');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    // The team's replies are done, and the lead reviews them: the run is not over, so no news yet.
+    expect(agentMessages(conv).map((m) => [m.agentName, m.status])).toEqual([
+      ['Alice', 'done'],
+      ['Bob', 'done'],
+    ]);
+    await alerts.check();
+    expect(alerts.sent).toEqual([]);
+    release();
+    await finish(conv.id);
+    expect(reviews(conv)[0]!.review!.status).toBe('ready');
+    await alerts.check();
+    await alerts.check();
+    // Once, about Bob's reply (the latest), never the review's card.
+    expect(alerts.sent).toEqual([bobDone]);
+  });
+
+  it('tells that the team finished once a review that failed has ended, as done, not as an error', async () => {
+    const conv = conversation({ mode: 'roundtable', leadReview: true });
+    const alerts = await phone();
+    fake.reviewFail = 'model overloaded';
+    const release = holdReview();
+    await orchestrator.send(conv.id, 'go');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    await alerts.check();
+    expect(alerts.sent).toEqual([]);
+    release();
+    await finish(conv.id);
+    expect(reviews(conv)[0]!.review).toMatchObject({ status: 'failed', error: 'model overloaded' });
+    await alerts.check();
+    expect(alerts.sent).toEqual([bobDone]);
+  });
+
+  it('tells that the team finished once a review switched off meanwhile has stopped and the run is over', async () => {
+    const conv = conversation({ mode: 'roundtable', leadReview: true });
+    const alerts = await phone();
+    fake.reviewGate = new Promise(() => {});
+    await orchestrator.send(conv.id, 'go');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    await alerts.check();
+    expect(alerts.sent).toEqual([]);
+    orchestrator.setLeadReview(conv.id, false);
+    await finish(conv.id);
+    expect(reviews(conv)[0]!.status).toBe('aborted');
+    await alerts.check();
+    expect(alerts.sent).toEqual([bobDone]);
+  });
+
+  it("tells that the team finished when Stop stops the review: the team's replies were done, only the review was stopped", async () => {
+    const conv = conversation({ mode: 'roundtable', leadReview: true });
+    const alerts = await phone();
+    fake.reviewGate = new Promise(() => {});
+    await orchestrator.send(conv.id, 'go');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    await alerts.check();
+    expect(alerts.sent).toEqual([]);
+    orchestrator.stop(conv.id);
+    await finish(conv.id);
+    expect(reviews(conv)[0]!.status).toBe('aborted');
+    await alerts.check();
+    expect(alerts.sent).toEqual([bobDone]);
+  });
+
+  it('tells once, after the next review, when a message sent during a review stops it and the team answers that message', async () => {
+    const conv = conversation({ mode: 'roundtable', leadReview: true });
+    const alerts = await phone();
+    fake.reviewGate = new Promise(() => {});
+    await orchestrator.send(conv.id, 'first');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    await alerts.check();
+    const release = holdReview();
+    expect(await orchestrator.send(conv.id, 'next one')).toEqual({ queued: false });
+    // The team answers the message in a run of its own, which has begun by the time `send` returns.
+    expect(orchestrator.isRunning(conv.id)).toBe(true);
+    await alerts.check();
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(2), { timeout: 20_000 });
+    await alerts.check();
+    expect(alerts.sent).toEqual([]);
+    release();
+    await finish(conv.id);
+    expect(reviews(conv).map((m) => m.status)).toEqual(['aborted', 'done']);
+    await alerts.check();
+    expect(alerts.sent).toEqual([bobDone]);
+    expect(replyOf(conv, 'Bob', 1).id).toBe(agentMessages(conv).at(-1)!.id);
+  });
+
+  it("tells at once that an agent asked the user something, with no review; once they answered, that the team finished after the review", async () => {
+    const conv = conversation({ mode: 'roundtable', leadReview: true });
+    const alerts = await phone();
+    fake.asking.add('Alice');
+    await orchestrator.send(conv.id, 'which one?');
+    await finish(conv.id);
+    await alerts.check();
+    expect(alerts.sent).toEqual([{ kind: 'answer', body: 'Alice asked you something\nAlice asks: A or B?' }]);
+    expect(reviewerCalls()).toHaveLength(0);
+
+    const release = holdReview();
+    await orchestrator.send(conv.id, 'ANSWER: A');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    await alerts.check();
+    expect(alerts.sent).toHaveLength(1);
+    release();
+    await finish(conv.id);
+    await alerts.check();
+    expect(alerts.sent.slice(1)).toEqual([bobDone]);
+  });
+
+  it('tells at once that an agent waits for an approval, during the team\'s turn; that the team finished after the review', async () => {
+    const conv = conversation({ mode: 'roundtable', leadReview: true });
+    conv.agents = [agents[0]!];
+    store.saveMeta(conv);
+    const alerts = await phone();
+    const release = holdReview();
+    await orchestrator.send(conv.id, 'please install');
+    const pending = () => conv.messages.flatMap((m) => m.parts).find((p) => p.type === 'approval' && p.status === 'pending') as { id: string } | undefined;
+    await vi.waitFor(() => expect(pending()).toBeDefined());
+    await alerts.check();
+    expect(alerts.sent).toEqual([{ kind: 'approval', body: 'Alice is waiting for your approval\nnpm install left-pad' }]);
+    orchestrator.answerApproval(conv.id, pending()!.id, { allow: true });
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    await alerts.check();
+    expect(alerts.sent).toHaveLength(1);
+    release();
+    await finish(conv.id);
+    await alerts.check();
+    expect(alerts.sent.slice(1)).toEqual([{ kind: 'done', body: 'Alice finished replying\nAlice installed' }]);
+  });
+
+  it("tells at once that the lead agent's team waits for confirmation, with no review; once confirmed, that the team finished after the review", async () => {
+    const conv = conversation({ mode: 'parallel', permission: 'read-only', autoTeam: true, leadReview: true });
+    conv.agents = [];
+    store.saveMeta(conv);
+    fake.leadReply = JSON.stringify({ choice: 'custom', name: 'Solo', mode: 'parallel', rounds: 1, agents: [{ name: 'Alice', provider: 'claude', role: 'Build it' }], reason: 'x' });
+    const alerts = await phone();
+    await orchestrator.send(conv.id, 'a question');
+    await finish(conv.id);
+    await alerts.check();
+    expect(alerts.sent).toEqual([{ kind: 'confirm', body: "The lead agent's team is ready for you to confirm" }]);
+    expect(reviewerCalls()).toHaveLength(0);
+
+    const release = holdReview();
+    orchestrator.confirmPlan(conv.id, conv.messages.findLast((m) => m.plan)!.id);
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1), { timeout: 20_000 });
+    await alerts.check();
+    expect(alerts.sent).toHaveLength(1);
+    release();
+    await finish(conv.id);
+    await alerts.check();
+    expect(alerts.sent.slice(1)).toEqual([{ kind: 'done', body: 'Alice finished replying\nAlice done' }]);
   });
 });
