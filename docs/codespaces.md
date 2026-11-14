@@ -6,7 +6,7 @@ A codespace is a Linux machine of your own in GitHub's cloud. This repository's 
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1)
 
-The button opens the newest release of Harness Relay, not `main` as it is: the `latest-release` branch, which the Release workflow moves to each release. To work on Harness Relay itself in a codespace, make one on `main` or on a branch of yours from the repository's **Code → Codespaces**.
+The button opens the newest release of Harness Relay, not `main` as it is: the `latest-release` branch, which the Release workflow moves to each release. To work on Harness Relay itself in a codespace, make one on `main` or on a branch of yours from the repository's **Code → Codespaces** (those are not counted: see [What is counted](#what-is-counted)).
 
 ## What it costs
 
@@ -45,8 +45,8 @@ Installed: Claude Code, Codex and Copilot from npm, and Grok, Cursor, Antigravit
 GitHub does not tell a repository's maintainers how many codespaces people make of it. So a codespace says once that it was made: `.devcontainer/count.sh`, run as the dev container's `postCreateCommand`, sends one request to Harness Relay's download mirror (the Cloudflare Worker the website's download buttons use, `mirror/`).
 
 - **What it sends:** an empty `POST` to the mirror's `/codespaces`. No account, name, token or anything else about you or the codespace goes with it.
-- **What is kept:** how many codespaces were made each day, and nothing else: no address, no time of day, no user agent. Like any website, Cloudflare sees where the request comes from: the codespace's address in GitHub's cloud, not your computer's.
-- **When:** once, after the codespace has been made for you. Not when it starts again, nor when it is rebuilt (it leaves a mark in `data/`, which a rebuild keeps), and never outside GitHub Codespaces, such as in a dev container on your own computer. If the mirror cannot be reached, the codespace goes uncounted and starts as usual.
+- **What is kept:** the count is how many codespaces were made each day, with nothing else: no address, no time of day, no user agent. Like any website, Cloudflare sees where the request comes from (the codespace's address in GitHub's cloud, not your computer's), and the mirror's request logs on Cloudflare keep each request a few days (3 on its free plan, 7 on a paid one), as they keep each download: its time, its user agent (`curl`) and what Cloudflare records of the request.
+- **When:** once, after the codespace has been made for you from the button: this repository's, on `latest-release`. Not when it starts again, nor when it is rebuilt (it leaves a mark in `data/`, which a rebuild keeps); never for a codespace on `main` or another branch, nor for a fork's, and never outside GitHub Codespaces, such as in a dev container on your own computer. If the mirror cannot be reached, the codespace goes uncounted and starts as usual.
 - **To turn it off,** set `DO_NOT_TRACK` to `1` before you make the codespace, as a Codespaces secret for this repository under **Settings → Codespaces** on GitHub. It then says that it is not counted, and sends nothing.
 
 ## Safety

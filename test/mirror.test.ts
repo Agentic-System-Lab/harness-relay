@@ -395,6 +395,16 @@ describe("the download mirror's codespaces count", () => {
     expect(c.rows()).toEqual([{ day: '2026-11-14', created: 1 }]);
   });
 
+  it("refuses a browser's request, which names its page: a web page cannot have its visitors count", async () => {
+    for (const origin of ['https://example.com', 'null', 'https://agentic-system-lab.github.io']) {
+      const c = counts();
+      const { res } = await count(c, { method: 'POST', headers: { Origin: origin } });
+      expect(res.status, origin).toBe(403);
+      expect(res.headers.get('Access-Control-Allow-Origin'), origin).toBeNull();
+      expect(c.batches, origin).toEqual([]);
+    }
+  });
+
   it('says so when the database fails, and the codespace goes uncounted', async () => {
     const c = counts(true);
     const { res } = await count(c);

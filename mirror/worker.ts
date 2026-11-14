@@ -17,8 +17,10 @@
 // POST /codespaces: a codespace made from the dev container says, once, that it was made
 // (.devcontainer/count.sh), so that the maintainers know how many people try Harness Relay in GitHub
 // Codespaces, which GitHub does not tell a repository's owner. The request holds nothing; the Worker
-// adds one to the day's count in a D1 database (COUNTS) and keeps nothing else: no address, no time
-// of day, no user agent.
+// adds one to the day's count in a D1 database (COUNTS), with nothing else: no address, no time of day,
+// no user agent. (Workers Logs, [observability] in wrangler.toml, keeps every request a few days, these
+// as the downloads.) A browser's request, which says its page's Origin, is refused: a web page cannot
+// have its visitors count.
 //
 // Deployed by hand with wrangler (mirror/wrangler.toml); tested in test/mirror.test.ts. No build step
 // and no dependency: wrangler bundles it with the site module it shares the installers' names with.
@@ -167,10 +169,15 @@ export function dayOf(now: Date): string {
 const COUNT_TABLE = 'CREATE TABLE IF NOT EXISTS codespaces (day TEXT PRIMARY KEY, created INTEGER NOT NULL)';
 const COUNT_ONE = 'INSERT INTO codespaces (day, created) VALUES (?1, 1) ON CONFLICT (day) DO UPDATE SET created = created + 1';
 
-/** A codespace made: one more for the day. Its request's body, headers and address are not read. */
+/**
+ * A codespace made: one more for the day. Its request's body and address are not read, nor its headers
+ * but Origin: a browser sends it with a POST from a page (a cross-origin one needs no preflight without a
+ * body), curl in a codespace does not.
+ */
 async function countCodespace(request: Request, env: Env, now: Date): Promise<Response> {
   const text = { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' };
   if (request.method !== 'POST') return new Response('Method not allowed\n', { status: 405, headers: { ...text, Allow: 'POST' } });
+  if (request.headers.has('Origin')) return new Response('Forbidden\n', { status: 403, headers: text });
   try {
     await env.COUNTS.batch([env.COUNTS.prepare(COUNT_TABLE), env.COUNTS.prepare(COUNT_ONE).bind(dayOf(now))]);
   } catch {

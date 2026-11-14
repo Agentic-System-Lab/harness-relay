@@ -45,9 +45,10 @@ const tmp = mkdtempSync(join(tmpdir(), 'relay-codespaces-release-'));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 /**
- * A stand-in for `gh`, noting its arguments in `GH_CALLS`: the branch is there when `GH_BRANCH` is
- * `there`, and GitHub moves or makes it when `GH_MOVE` is `ok` (else it refuses, as it can a workflow's
- * token).
+ * A stand-in for `gh`, noting its arguments in `GH_CALLS`, answering as gh does (a failed request: GitHub's
+ * JSON on stdout, gh's line on stderr): the branch is there when `GH_BRANCH` is `there`, missing (404) when
+ * `missing`, and GitHub fails to say (502) when `unknown`; GitHub moves or makes it when `GH_MOVE` is `ok`,
+ * and refuses as it refuses the workflow's token a commit whose workflows are not main's (403) when not.
  */
 const bin = join(tmp, 'bin');
 mkdirSync(bin);
@@ -56,8 +57,16 @@ writeFileSync(
   `#!/bin/sh
 printf '%s\\n' "$*" >> "$GH_CALLS"
 case "$*" in
-  *"/git/ref/heads/"*) [ "$GH_BRANCH" = there ] && exit 0; echo 'gh: Not Found (HTTP 404)' >&2; exit 1 ;;
-  *"--jq .object.sha") [ "$GH_MOVE" = ok ] && { echo "$GITHUB_SHA"; exit 0; }; echo 'gh: refusing to allow a GitHub App to create or update workflow (HTTP 422)' >&2; exit 1 ;;
+  *"/git/ref/heads/"*)
+    case "$GH_BRANCH" in
+      there) exit 0 ;;
+      missing) echo 'gh: Not Found (HTTP 404)' >&2; exit 1 ;;
+      *) echo 'gh: Server Error (HTTP 502)' >&2; exit 1 ;;
+    esac ;;
+  *"--jq .object.sha")
+    [ "$GH_MOVE" = ok ] && { echo "$GITHUB_SHA"; exit 0; }
+    echo '{"message":"Resource not accessible by integration","status":"403"}'
+    echo 'gh: Resource not accessible by integration (HTTP 403)' >&2; exit 1 ;;
 esac
 exit 9
 `,
@@ -67,10 +76,13 @@ chmodSync(join(bin, 'gh'), 0o755);
 const SHA = '0123456789abcdef0123456789abcdef01234567';
 const TAG = '2026-11-15';
 
-/** The workflow's step, run as the runner runs it, with the stand-in: its output and gh's arguments. */
-function point(env: { GH_BRANCH: 'there' | 'missing'; GH_MOVE: 'ok' | 'refused'; PRERELEASE?: string }) {
-  const calls = join(mkdtempSync(join(tmp, 'run-')), 'calls');
+/** The workflow's step, run as the runner runs it, with the stand-in: its output, gh's arguments and the job's summary. */
+function point(env: { GH_BRANCH: 'there' | 'missing' | 'unknown'; GH_MOVE: 'ok' | 'refused'; PRERELEASE?: string }) {
+  const run = mkdtempSync(join(tmp, 'run-'));
+  const calls = join(run, 'calls');
+  const summary = join(run, 'summary.md');
   writeFileSync(calls, '');
+  writeFileSync(summary, '');
   const r = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', releaseStep('Point GitHub Codespaces at the release')], {
     encoding: 'utf8',
     timeout: slow(20_000),
@@ -80,6 +92,7 @@ function point(env: { GH_BRANCH: 'there' | 'missing'; GH_MOVE: 'ok' | 'refused';
       GH_TOKEN: 'ghs_token',
       GITHUB_REPOSITORY: REPO,
       GITHUB_SHA: SHA,
+      GITHUB_STEP_SUMMARY: summary,
       CODESPACES_BRANCH: BRANCH!,
       TAG,
       PRERELEASE: env.PRERELEASE ?? 'false',
@@ -87,12 +100,21 @@ function point(env: { GH_BRANCH: 'there' | 'missing'; GH_MOVE: 'ok' | 'refused';
       GH_MOVE: env.GH_MOVE,
     },
   });
-  return { status: r.status, out: r.stdout, calls: readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean) };
+  return {
+    status: r.status,
+    out: r.stdout,
+    calls: readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean),
+    summary: readFileSync(summary, 'utf8'),
+  };
 }
 
 const ASK = `api repos/${REPO}/git/ref/heads/latest-release --silent`;
 const MOVE = `api -X PATCH repos/${REPO}/git/refs/heads/latest-release -f sha=${SHA} -F force=true --jq .object.sha`;
 const MAKE = `api -X POST repos/${REPO}/git/refs -f ref=refs/heads/latest-release -f sha=${SHA} --jq .object.sha`;
+const BY_PATCH = `gh api -X PATCH repos/${REPO}/git/refs/heads/latest-release -f sha=${SHA} -F force=true`;
+const BY_POST = `gh api -X POST repos/${REPO}/git/refs -f ref=refs/heads/latest-release -f sha=${SHA}`;
+const failed = (why: string, how: string) =>
+  `Could not point latest-release at ${TAG} (${why}): GitHub Codespaces still opens the release before it. By hand, with a token that may change workflows: ${how}\n`;
 
 // The step's script runs in bash, which the Windows runners do not have as Linux's.
 describe.skipIf(process.platform === 'win32')("the Release workflow's Codespaces step, run", { timeout: slow(20_000) }, () => {
@@ -101,26 +123,35 @@ describe.skipIf(process.platform === 'win32')("the Release workflow's Codespaces
     expect(r.status).toBe(0);
     expect(r.calls).toEqual([ASK, MOVE]);
     expect(r.out).toBe(`GitHub Codespaces opens ${TAG}: latest-release is at ${SHA}.\n`);
+    expect(r.summary).toBe('');
   });
 
-  it('makes it there the first time', () => {
+  it('makes it there the first time, only when GitHub says there is none', () => {
     const r = point({ GH_BRANCH: 'missing', GH_MOVE: 'ok' });
     expect(r.status).toBe(0);
     expect(r.calls).toEqual([ASK, MAKE]);
     expect(r.out).toContain(`latest-release is at ${SHA}.`);
   });
 
-  it('only warns when GitHub refuses it, with what to run by hand', () => {
+  it('says so as an error when GitHub refuses it, without failing the run, with what to run by hand and not gh\'s JSON', () => {
     for (const [GH_BRANCH, how] of [
-      ['there', `gh api -X PATCH repos/${REPO}/git/refs/heads/latest-release -f sha=${SHA} -F force=true`],
-      ['missing', `gh api -X POST repos/${REPO}/git/refs -f ref=refs/heads/latest-release -f sha=${SHA}`],
+      ['there', BY_PATCH],
+      ['missing', BY_POST],
     ] as const) {
       const r = point({ GH_BRANCH, GH_MOVE: 'refused' });
       expect(r.status, GH_BRANCH).toBe(0);
-      expect(r.out, GH_BRANCH).toBe(
-        `::warning::Could not point latest-release at ${TAG} (gh: refusing to allow a GitHub App to create or update workflow (HTTP 422)): GitHub Codespaces still opens the release before it. By hand: ${how}\n`,
-      );
+      const message = failed('gh: Resource not accessible by integration (HTTP 403)', how);
+      expect(r.out, GH_BRANCH).toBe(`::error::${message}`);
+      // And in the run's summary, where it is seen.
+      expect(r.summary, GH_BRANCH).toBe(message);
     }
+  });
+
+  it('neither moves nor makes it when GitHub cannot say whether it is there, and gives both commands', () => {
+    const r = point({ GH_BRANCH: 'unknown', GH_MOVE: 'ok' });
+    expect(r.status).toBe(0);
+    expect(r.calls).toEqual([ASK]);
+    expect(r.out).toBe(`::error::${failed('gh: Server Error (HTTP 502)', `${BY_PATCH} (or, if there is no such branch: ${BY_POST})`)}`);
   });
 
   it('leaves it at the release for a release candidate', () => {

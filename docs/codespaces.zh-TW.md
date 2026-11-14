@@ -6,7 +6,7 @@ codespace 是 GitHub 雲端上一台屬於你的 Linux 機器。這個 repo 的 
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1)
 
-這個按鈕打開的是 Harness Relay 最新的正式版，不是當下的 `main`：也就是 `latest-release` 分支，Release workflow 每次發版都會把它移到那一版。想在 codespace 裡開發 Harness Relay 本身，請從 repo 的「**Code → Codespaces**」在 `main` 或你自己的分支上建立。
+這個按鈕打開的是 Harness Relay 最新的正式版，不是當下的 `main`：也就是 `latest-release` 分支，Release workflow 每次發版都會把它移到那一版。想在 codespace 裡開發 Harness Relay 本身，請從 repo 的「**Code → Codespaces**」在 `main` 或你自己的分支上建立（這些不會被計數：見[計算了什麼](#計算了什麼)）。
 
 ## 費用
 
@@ -45,8 +45,8 @@ codespace 會停在建立時的那一版，之後再按按鈕，它會讓你回�
 GitHub 不會告訴 repo 的維護者，有多少人用它建立了 codespace。所以 codespace 建好時會說一次：dev container 的 `postCreateCommand` 執行 `.devcontainer/count.sh`，對 Harness Relay 的下載鏡像（網站下載按鈕所用的 Cloudflare Worker，`mirror/`）送出一個請求。
 
 - **送出什麼：** 一個空的 `POST`，送到鏡像的 `/codespaces`。不帶帳號、名稱、token，也不帶任何關於你或這個 codespace 的資訊。
-- **留下什麼：** 每天建立了幾個 codespace，此外什麼都不留：沒有位址、沒有幾點幾分、沒有 user agent。和任何網站一樣，Cloudflare 看得到請求從哪裡來：那是 codespace 在 GitHub 雲端的位址，不是你電腦的。
-- **什麼時候：** codespace 為你建好之後一次。它再次啟動時不算，重建時也不算（它會在 `data/` 留下記號，重建會保留），在 GitHub Codespaces 以外也從來不算，例如你自己電腦上的 dev container。連不到鏡像時，這個 codespace 就不算，照常啟動。
+- **留下什麼：** 計數只有每天建立了幾個 codespace，沒有別的：沒有位址、沒有幾點幾分、沒有 user agent。和任何網站一樣，Cloudflare 看得到請求從哪裡來（codespace 在 GitHub 雲端的位址，不是你電腦的），鏡像在 Cloudflare 上的請求紀錄也會把每個請求保留幾天（免費方案 3 天，付費方案 7 天），跟每次下載一樣：它的時間、user agent（`curl`），以及 Cloudflare 記下的請求資訊。
+- **什麼時候：** 用按鈕為你建好 codespace 之後一次：也就是這個 repo、`latest-release` 上的 codespace。它再次啟動時不算，重建時也不算（它會在 `data/` 留下記號，重建會保留）；建在 `main` 或其他分支上的、fork 的 codespace 都不算，在 GitHub Codespaces 以外也從來不算，例如你自己電腦上的 dev container。連不到鏡像時，這個 codespace 就不算，照常啟動。
 - **要關掉，** 就在建立 codespace 之前，在 GitHub 的「**Settings → Codespaces**」為這個 repo 設一個 Codespaces secret，把 `DO_NOT_TRACK` 設為 `1`。它就會說這個 codespace 不算，什麼都不送。
 
 ## 安全

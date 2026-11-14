@@ -576,10 +576,13 @@ jobs:
       # The README's and the website's Codespaces links open CODESPACES_BRANCH, so that a codespace runs
       # the newest release, not main as it is (docs/codespaces.md): the branch is moved to the commit the
       # release was made on, or made there the first time. A release only, as the website offers no
-      # release candidate. GitHub can refuse the workflow's token a branch that changes .github/workflows
-      # (when main's workflow files changed while this run built, say): then, and on any other failure, it
-      # only warns (the release is out, and codespaces open the release before) and says how to move it by
-      # hand (docs/developer-guide.md, "Releasing").
+      # release candidate. GitHub lets the workflow's token point a branch only at a commit whose
+      # .github/workflows are main's as they are (tried on this repository: moved from an older release to
+      # main's tip across workflow changes; refused, 403, at a commit whose workflows differ from main's).
+      # So it fails when main's workflow files changed while this run built: then, and on any other
+      # failure, the release is out, codespaces keep opening the release before it, and the step says so
+      # as an error, without failing the run, with the command to move it by hand (docs/developer-guide.md,
+      # "Releasing"). gh's own answer to a failed request (its JSON, on stdout) is not shown.
       - name: Point GitHub Codespaces at the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -590,16 +593,26 @@ jobs:
             echo "A release candidate: GitHub Codespaces keeps opening the newest release."
             exit 0
           fi
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$CODESPACES_BRANCH" --silent 2>/dev/null; then
-            move=(-X PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/$CODESPACES_BRANCH" -f sha="$GITHUB_SHA" -F force=true)
+          err=$(mktemp)
+          patch=(-X PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/$CODESPACES_BRANCH" -f sha="$GITHUB_SHA" -F force=true)
+          post=(-X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/heads/$CODESPACES_BRANCH" -f sha="$GITHUB_SHA")
+          moved=''
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$CODESPACES_BRANCH" --silent 2>"$err"; then
+            how="gh api ${patch[*]}"
+            moved=$(gh api "${patch[@]}" --jq .object.sha 2>"$err") || true
+          elif grep -q '(HTTP 404)' "$err"; then
+            how="gh api ${post[*]}"
+            moved=$(gh api "${post[@]}" --jq .object.sha 2>"$err") || true
           else
-            move=(-X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/heads/$CODESPACES_BRANCH" -f sha="$GITHUB_SHA")
+            how="gh api ${patch[*]} (or, if there is no such branch: gh api ${post[*]})"
           fi
-          moved=$(gh api "${move[@]}" --jq .object.sha 2>&1) || true
           if [ "$moved" = "$GITHUB_SHA" ]; then
             echo "GitHub Codespaces opens $TAG: $CODESPACES_BRANCH is at $GITHUB_SHA."
           else
-            echo "::warning::Could not point $CODESPACES_BRANCH at $TAG ($moved): GitHub Codespaces still opens the release before it. By hand: gh api ${move[*]}"
+            why=$(tail -n 1 "$err")
+            message="Could not point $CODESPACES_BRANCH at $TAG (${why:-no answer}): GitHub Codespaces still opens the release before it. By hand, with a token that may change workflows: $how"
+            echo "::error::$message"
+            echo "$message" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
           fi
 
       # The mirror keeps the newest two releases (by version): the one before may still be offered by a
