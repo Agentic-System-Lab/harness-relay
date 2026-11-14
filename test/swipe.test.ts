@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  FLICK_DISTANCE,
+  FLICK_MS,
   SWIPE_DISTANCE,
   SWIPE_HOLD_MS,
   SWIPE_SLOP,
@@ -16,15 +18,22 @@ const start = (extra: Partial<SwipeStart> = {}): SwipeStart => ({
   open: false,
   touches: 1,
   dialog: false,
-  field: false,
+  control: false,
   selecting: false,
-  boxes: [],
   ...extra,
 });
 
-const box = (extra: Partial<SideScroll> = {}): SideScroll => ({ overflowX: 'auto', scrollLeft: 0, scrollWidth: 600, clientWidth: 300, ...extra });
+/** A box 300px wide with 600px inside (300px to scroll), at its left end unless told. */
+const box = (extra: Partial<SideScroll> = {}): SideScroll => ({
+  overflowX: 'auto',
+  direction: 'ltr',
+  scrollLeft: 0,
+  scrollWidth: 600,
+  clientWidth: 300,
+  ...extra,
+});
 
-/** The steps of a finger that touched at (100, 300) at 0 ms and moved through `points` ([x, y, ms]). */
+/** The steps of a swipe through `points` ([x, y, ms]). */
 function steps(swipe: SidebarSwipe, points: [number, number, number][]): SwipeStep[] {
   return points.map(([x, y, at]) => swipe.move(x, y, at));
 }
@@ -35,46 +44,57 @@ describe('what a touch may do', () => {
     expect(swipeWay(start({ open: true }))).toBe('close');
   });
 
-  it('does nothing where the sidebar is no drawer, with two fingers, in a dialog, a field or a selection', () => {
+  it('does nothing where the sidebar is no drawer, with two fingers, in a dialog, on a control or a selection', () => {
     expect(swipeWay(start({ drawer: false }))).toBeUndefined();
     expect(swipeWay(start({ touches: 2 }))).toBeUndefined();
+    expect(swipeWay(start({ touches: 0 }))).toBeUndefined();
     expect(swipeWay(start({ dialog: true }))).toBeUndefined();
-    expect(swipeWay(start({ field: true }))).toBeUndefined();
+    expect(swipeWay(start({ control: true }))).toBeUndefined();
     expect(swipeWay(start({ selecting: true }))).toBeUndefined();
-  });
-
-  it('leaves the move to a box that scrolls sideways that way', () => {
-    // Scrolled on: a swipe right scrolls it back.
-    expect(swipeWay(start({ boxes: [box({ scrollLeft: 40 })] }))).toBeUndefined();
-    // At its start: the swipe right is the sidebar's.
-    expect(swipeWay(start({ boxes: [box()] }))).toBe('open');
-    // An open drawer with a box that has more on the right: a swipe left scrolls it on.
-    expect(swipeWay(start({ open: true, boxes: [box()] }))).toBeUndefined();
-    expect(swipeWay(start({ open: true, boxes: [box({ scrollLeft: 300 })] }))).toBe('close');
+    expect(swipeWay(start({ open: true, dialog: true }))).toBeUndefined();
   });
 });
 
 describe('a box that scrolls sideways', () => {
-  it('takes a swipe only while it can scroll that way', () => {
+  it('takes a swipe right while it is scrolled from its left end, a swipe left while it has more on the right', () => {
+    expect(scrollTakesSwipe([box({ scrollLeft: 40 })], 'open')).toBe(true);
+    expect(scrollTakesSwipe([box()], 'open')).toBe(false);
+    expect(scrollTakesSwipe([box()], 'close')).toBe(true);
+    expect(scrollTakesSwipe([box({ scrollLeft: 300 })], 'close')).toBe(false);
+  });
+
+  it('leaves out a pixel of rounding at either end', () => {
     expect(scrollTakesSwipe([box({ scrollLeft: 1 })], 'open')).toBe(true);
     expect(scrollTakesSwipe([box({ scrollLeft: 0.5 })], 'open')).toBe(false);
     expect(scrollTakesSwipe([box({ scrollLeft: 298 })], 'close')).toBe(true);
     expect(scrollTakesSwipe([box({ scrollLeft: 299 })], 'close')).toBe(false);
+    // A pixel more inside than it shows is nothing to scroll.
+    expect(scrollTakesSwipe([box({ scrollWidth: 301, scrollLeft: 1 })], 'open')).toBe(false);
+    expect(scrollTakesSwipe([box({ scrollWidth: 301 })], 'close')).toBe(false);
   });
 
-  it('takes none when it does not scroll, or has nothing more to show', () => {
+  it('counts from its right end in a right-to-left box', () => {
+    // At its start, its right end (scrollLeft 0): more to show on the left.
+    expect(scrollTakesSwipe([box({ direction: 'rtl' })], 'open')).toBe(true);
+    expect(scrollTakesSwipe([box({ direction: 'rtl' })], 'close')).toBe(false);
+    // At its left end (scrollLeft -300).
+    expect(scrollTakesSwipe([box({ direction: 'rtl', scrollLeft: -300 })], 'open')).toBe(false);
+    expect(scrollTakesSwipe([box({ direction: 'rtl', scrollLeft: -300 })], 'close')).toBe(true);
+    expect(scrollTakesSwipe([box({ direction: 'rtl', scrollLeft: -299.5 })], 'open')).toBe(false);
+  });
+
+  it('takes none when it does not scroll', () => {
     for (const overflowX of ['visible', 'hidden', 'clip']) {
       expect(scrollTakesSwipe([box({ overflowX, scrollLeft: 40 })], 'open')).toBe(false);
       expect(scrollTakesSwipe([box({ overflowX })], 'close')).toBe(false);
     }
     expect(scrollTakesSwipe([box({ overflowX: 'scroll', scrollLeft: 40 })], 'open')).toBe(true);
-    // A pixel of rounding is no more to show.
-    expect(scrollTakesSwipe([box({ scrollWidth: 301, scrollLeft: 1 })], 'open')).toBe(false);
     expect(scrollTakesSwipe([], 'open')).toBe(false);
   });
 
-  it('takes it when any box under the finger can scroll', () => {
+  it('takes it when any box under the finger can scroll that way', () => {
     expect(scrollTakesSwipe([box(), box({ scrollLeft: 40 })], 'open')).toBe(true);
+    expect(scrollTakesSwipe([box(), box({ overflowX: 'hidden', scrollLeft: 40 })], 'open')).toBe(false);
   });
 });
 
@@ -89,16 +109,31 @@ describe('a swipe', () => {
     expect(steps(swipe, [[285, 298, 15], [300 - SWIPE_DISTANCE + 1, 296, 40], [300 - SWIPE_DISTANCE, 296, 50]])).toEqual(['wait', 'wait', 'close']);
   });
 
+  it('tells its direction once the finger has gone SWIPE_SLOP pixels, not before', () => {
+    // Under the slop, even a move straight down waits.
+    expect(new SidebarSwipe('open', 100, 300, 0).move(100, 300 + SWIPE_SLOP - 1, 20)).toBe('wait');
+    expect(new SidebarSwipe('open', 100, 300, 0).move(100 + SWIPE_SLOP - 1, 300, 20)).toBe('wait');
+    // At the slop the direction is told: too slanted here.
+    expect(new SidebarSwipe('open', 100, 300, 0).move(100 + SWIPE_SLOP, 307, 20)).toBe('drop');
+    expect(new SidebarSwipe('open', 100, 300, 0).move(100 + SWIPE_SLOP, 306, 20)).toBe('wait');
+  });
+
   it('is not the other way', () => {
     expect(new SidebarSwipe('open', 100, 300, 0).move(80, 300, 20)).toBe('drop');
     expect(new SidebarSwipe('close', 300, 300, 0).move(320, 300, 20)).toBe('drop');
   });
 
-  it('is no scroll up or down, nor a move that slants too much', () => {
+  it('is no scroll up or down, nor a move that slants as much as 1.5 times its rise', () => {
     expect(new SidebarSwipe('open', 100, 300, 0).move(102, 280, 20)).toBe('drop');
     expect(new SidebarSwipe('open', 100, 300, 0).move(112, 290, 20)).toBe('drop');
-    // A little slant is still a swipe.
+    // Exactly 1.5 times as far sideways as down.
+    expect(new SidebarSwipe('open', 100, 300, 0).move(115, 310, 20)).toBe('drop');
+    // A little less slant is a swipe.
     expect(new SidebarSwipe('open', 100, 300, 0).move(112, 295, 20)).toBe('wait');
+    // The same for closing.
+    expect(new SidebarSwipe('close', 300, 300, 0).move(298, 280, 20)).toBe('drop');
+    expect(new SidebarSwipe('close', 300, 300, 0).move(288, 290, 20)).toBe('drop');
+    expect(new SidebarSwipe('close', 300, 300, 0).move(288, 295, 20)).toBe('wait');
   });
 
   it('is no move after a long press, which selects text', () => {
@@ -110,5 +145,88 @@ describe('a swipe', () => {
   it('goes on sideways once its direction is told, whatever the finger does then', () => {
     const swipe = new SidebarSwipe('open', 100, 300, 0);
     expect(steps(swipe, [[115, 300, 20], [125, 330, 40], [105, 340, 2000], [160, 360, 2100]])).toEqual(['wait', 'wait', 'wait', 'open']);
+  });
+
+  it('waits while the finger turns back, and opens only once it is far enough from where it touched', () => {
+    const swipe = new SidebarSwipe('open', 100, 300, 0);
+    // Back past where it touched, then right again: the distance counts from the touch, not the turn.
+    expect(steps(swipe, [[115, 300, 20], [40, 300, 60], [120, 300, 100], [100 + SWIPE_DISTANCE, 300, 140]])).toEqual(['wait', 'wait', 'wait', 'open']);
+  });
+
+  it('asks whether a box takes the move once, when the move turns out sideways', () => {
+    let asked = 0;
+    const takes = (answer: boolean) => () => {
+      asked++;
+      return answer;
+    };
+    // A tap, or a scroll, asks nothing.
+    new SidebarSwipe('open', 100, 300, 0, takes(false)).move(103, 302, 20);
+    new SidebarSwipe('open', 100, 300, 0, takes(false)).move(100, 260, 20);
+    expect(asked).toBe(0);
+    const swipe = new SidebarSwipe('open', 100, 300, 0, takes(false));
+    expect(steps(swipe, [[115, 300, 20], [130, 300, 40], [100 + SWIPE_DISTANCE, 300, 60]])).toEqual(['wait', 'wait', 'open']);
+    expect(asked).toBe(1);
+    // A box that takes it: the swipe is the box's.
+    expect(new SidebarSwipe('open', 100, 300, 0, takes(true)).move(115, 300, 20)).toBe('drop');
+    expect(asked).toBe(2);
+  });
+});
+
+describe('where the finger lifts', () => {
+  it('opens or closes on a quick flick short of the distance', () => {
+    const open = new SidebarSwipe('open', 100, 300, 0);
+    expect(open.move(115, 300, 20)).toBe('wait');
+    expect(open.end(100 + FLICK_DISTANCE + 10, 300, 40)).toBe('open');
+    const close = new SidebarSwipe('close', 300, 300, 0);
+    expect(close.move(285, 300, 20)).toBe('wait');
+    expect(close.end(300 - FLICK_DISTANCE - 10, 300, 40)).toBe('close');
+  });
+
+  it('opens on moves sent together, at the same time', () => {
+    const swipe = new SidebarSwipe('open', 100, 300, 5);
+    expect(swipe.move(115, 300, 5)).toBe('wait');
+    expect(swipe.end(100 + FLICK_DISTANCE, 300, 5)).toBe('open');
+  });
+
+  it('does nothing for a flick shorter than FLICK_DISTANCE, or a slow drag', () => {
+    const short = new SidebarSwipe('open', 100, 300, 0);
+    short.move(112, 300, 10);
+    expect(short.end(100 + FLICK_DISTANCE - 1, 300, 20)).toBe('drop');
+    // 30px over 300ms: 0.1px/ms.
+    const slow = new SidebarSwipe('open', 100, 300, 0);
+    expect(steps(slow, [[110, 300, 100], [120, 300, 200]])).toEqual(['wait', 'wait']);
+    expect(slow.end(130, 300, 300)).toBe('drop');
+  });
+
+  it('counts only the last FLICK_MS: a slow drag that ends in a flick opens, one that stops before lifting does not', () => {
+    const flicked = new SidebarSwipe('open', 100, 300, 0);
+    expect(steps(flicked, [[112, 300, 100], [115, 300, 260], [120, 300, 300]])).toEqual(['wait', 'wait', 'wait']);
+    // 33px over the last 70ms (from 115 at 260ms): 0.47px/ms, though 48px over 330ms in all.
+    expect(flicked.end(148, 300, 330)).toBe('open');
+    // The same drag lifted later: from 120 at 300ms, 27px over 70ms is 0.39px/ms, short of a flick.
+    const later = new SidebarSwipe('open', 100, 300, 0);
+    steps(later, [[112, 300, 100], [115, 300, 260], [120, 300, 300]]);
+    expect(later.end(147, 300, 370)).toBe('drop');
+    const stopped = new SidebarSwipe('open', 100, 300, 0);
+    expect(steps(stopped, [[112, 300, 10], [140, 300, 30]])).toEqual(['wait', 'wait']);
+    // Lifted where it stopped, FLICK_MS later.
+    expect(stopped.end(140, 300, 30 + FLICK_MS + 1)).toBe('drop');
+  });
+
+  it('does nothing when the finger lifts before its direction is told, the other way, or going back', () => {
+    // A tap.
+    expect(new SidebarSwipe('open', 100, 300, 0).end(102, 301, 50)).toBe('drop');
+    // Told at the lift: down, so no swipe.
+    expect(new SidebarSwipe('open', 100, 300, 0).end(105, 340, 20)).toBe('drop');
+    const back = new SidebarSwipe('open', 100, 300, 0);
+    expect(steps(back, [[115, 300, 10], [140, 300, 20]])).toEqual(['wait', 'wait']);
+    // Flicked back left: still 25px right of the touch, but going the other way.
+    expect(back.end(125, 300, 30)).toBe('drop');
+  });
+
+  it('still does a swipe that reaches its distance as the finger lifts', () => {
+    const swipe = new SidebarSwipe('open', 100, 300, 0);
+    swipe.move(115, 300, 20);
+    expect(swipe.end(100 + SWIPE_DISTANCE, 300, 2000)).toBe('open');
   });
 });

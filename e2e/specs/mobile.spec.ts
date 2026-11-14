@@ -1,4 +1,6 @@
-import { devices, type Locator } from '@playwright/test';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { devices, type Locator, type Page } from '@playwright/test';
 import { SCHEDULE_KINDS } from '../../src/shared/types';
 import { en } from '../../src/web/locales/en';
 import { zhTW } from '../../src/web/locales/zh-TW';
@@ -8,26 +10,85 @@ import { composer, finishedReply, homePage, openTeamChat } from '../support/app'
 // A phone's screen, the way the chat is used over Tailscale (docs/remote-access.md).
 const { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch } = devices['Pixel 7'];
 
+/** Where the fingers are, as offsets from the gesture's first point, one [dx, dy] for each. */
+type Fingers = [number, number][];
+
+/** One step of a gesture: its event, the fingers on the screen after it, those it is about, and how long it waits first (ms). */
+interface TouchStep {
+  type: 'touchstart' | 'touchmove' | 'touchend' | 'touchcancel';
+  touches: Fingers;
+  changed: Fingers;
+  wait?: number;
+}
+
 /**
- * A finger's swipe from the middle of `on` by (dx, dy), as touch events in one go (Playwright's
- * touchscreen only taps), so that the move comes right after the touch as a real swipe's does.
+ * Touch events from the page (Playwright's touchscreen only taps), sent where a finger's go: to the
+ * element under the gesture's first point, `at` (a fraction of `on`'s box, its middle by default),
+ * which must be on `on`. In one go, so that the moves follow the touch as a real swipe's do, unless a
+ * step waits. WebKit has no `Touch` constructor: there they are made as Playwright makes them.
  */
-async function swipe(on: Locator, dx: number, dy = 0): Promise<void> {
+async function gesture(on: Locator, steps: TouchStep[], at: [number, number] = [0.5, 0.5]): Promise<void> {
   await on.evaluate(
-    (el, [dx, dy]) => {
+    async (el, { steps, at }) => {
       const r = el.getBoundingClientRect();
-      const [x, y] = [r.left + r.width / 2, r.top + r.height / 2];
-      const steps = 6;
-      const at = (i: number) => new Touch({ identifier: 0, target: el, clientX: x + (dx * i) / steps, clientY: y + (dy * i) / steps });
-      const send = (type: string, touches: Touch[], changed: Touch[]) =>
-        el.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true, composed: true, touches, targetTouches: touches, changedTouches: changed }));
-      send('touchstart', [at(0)], [at(0)]);
-      for (let i = 1; i <= steps; i++) send('touchmove', [at(i)], [at(i)]);
-      send('touchend', [], [at(steps)]);
+      const [x0, y0] = [r.left + r.width * at[0], r.top + r.height * at[1]];
+      const target = document.elementFromPoint(x0, y0);
+      if (!target || !el.contains(target)) throw new Error(`(${x0}, ${y0}) is not on ${el.className || el.tagName}`);
+      const legacy = document as Document & {
+        createTouch(view: Window, target: EventTarget, id: number, pageX: number, pageY: number, screenX: number, screenY: number): Touch;
+        createTouchList(...touches: Touch[]): TouchList;
+      };
+      let constructible = true;
+      try {
+        new Touch({ identifier: 0, target, clientX: x0, clientY: y0 });
+      } catch {
+        constructible = false;
+      }
+      const touch = (id: number, [dx, dy]: [number, number]) => {
+        const [x, y] = [x0 + dx, y0 + dy];
+        return constructible
+          ? new Touch({ identifier: id, target, clientX: x, clientY: y, pageX: x, pageY: y, screenX: x, screenY: y })
+          : legacy.createTouch(window, target, id, x, y, x, y);
+      };
+      const list = (fingers: [number, number][]) => {
+        const touches = fingers.map((f, i) => touch(i, f));
+        return (constructible ? touches : legacy.createTouchList(...touches)) as Touch[];
+      };
+      for (const step of steps) {
+        if (step.wait) await new Promise((done) => setTimeout(done, step.wait));
+        const [touches, changed] = [list(step.touches), list(step.changed)];
+        target.dispatchEvent(new TouchEvent(step.type, { bubbles: true, cancelable: true, composed: true, touches, targetTouches: touches, changedTouches: changed }));
+      }
     },
-    [dx, dy] as const,
+    { steps, at },
   );
 }
+
+/** A finger's swipe by (dx, dy) from `at` on `on`, in six moves, then lifted (or cancelled). */
+async function swipe(on: Locator, dx: number, dy = 0, { at, cancel = false }: { at?: [number, number]; cancel?: boolean } = {}): Promise<void> {
+  const moves: TouchStep[] = [1, 2, 3, 4, 5, 6].map((i) => ({ type: 'touchmove', touches: [[(dx * i) / 6, (dy * i) / 6]], changed: [[(dx * i) / 6, (dy * i) / 6]] }));
+  const last: TouchStep = cancel ? { type: 'touchcancel', touches: [], changed: [[dx, dy]] } : { type: 'touchend', touches: [], changed: [[dx, dy]] };
+  await gesture(on, [{ type: 'touchstart', touches: [[0, 0]], changed: [[0, 0]] }, ...moves, last], at);
+}
+
+/**
+ * Whether the sidebar drawer is open: its class, once two frames have passed, so that React has drawn
+ * what the gesture set (no transition to wait for, and a wrong open shows).
+ */
+const drawerOpen = (page: Page) =>
+  page.locator('.app').evaluate(async (el) => {
+    for (let i = 0; i < 2; i++) await new Promise((done) => requestAnimationFrame(() => done(undefined)));
+    return el.classList.contains('sidebar-open');
+  });
+
+/** Sends a message by touch: on a touch screen Enter is a new line, and the send button sends. */
+async function tapSend(page: Page, text: string): Promise<void> {
+  await composer(page).fill(text);
+  await page.getByRole('button', { name: 'Send' }).tap();
+}
+
+/** A one-second grey WebM, 64×36, for a reply's video (made with ffmpeg; 534 bytes). */
+const CLIP = 'GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAHmEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHYTbuMU6uEElTDZ1OsggEeTbuMU6uEHFO7a1OsggHQ7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsirXsYMPQkBNgI1MYXZmNjAuMTYuMTAwV0GNTGF2ZjYwLjE2LjEwMESJiECPQAAAAAAAFlSua8GuAQAAAAAAADjXgQFzxYhcf7hST/khzpyBACK1nIN1bmSIgQCGhVZfVlA4g4EBI+ODhDuaygDgibCBQLqBJJqBAhJUw2f8c3OgY8CAZ8iaRaOHRU5DT0RFUkSHjUxhdmY2MC4xNi4xMDBzc9ZjwItjxYhcf7hST/khzmfIoUWjh0VOQ09ERVJEh5RMYXZjNjAuMzEuMTAyIGxpYnZweGfIoUWjiERVUkFUSU9ORIeTMDA6MDA6MDEuMDAwMDAwMDAwAB9DtnWs54EAo6eBAACAsAIAnQEqQAAkAABHCIWFiJmEiAICAAaOT8zHm/FYAP7D4AAcU7trkbuPs4EAt4r3gQHxggGf8IED';
 
 test.describe('on a phone', () => {
   test.use({ viewport, userAgent, deviceScaleFactor, isMobile, hasTouch });
@@ -67,34 +128,165 @@ test.describe('on a phone', () => {
     await expect(page.getByRole('dialog', { name: 'Files' })).toBeVisible();
   });
 
-  test('a swipe right opens the sidebar and a swipe left closes it; a scroll or a swipe in the message box does not', async ({ page, relay }) => {
+  test('a swipe right opens the sidebar and a swipe left closes it; a scroll, a swipe in the message box or on a wide screen does not, and a wide screen closes it', async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Grok', provider: 'grok' }], {}, 'Swiped open');
-    const app = page.locator('.app');
     const sidebar = page.locator('.sidebar');
     const messages = page.locator('.messages');
     await expect(sidebar).not.toBeInViewport();
 
-    // Up and down is a scroll.
-    await swipe(messages, 10, -150);
-    await expect(app).not.toHaveClass(/sidebar-open/);
+    // Up and down is a scroll, also one that goes more than a swipe's distance sideways.
+    await swipe(messages, 60, -150);
+    expect(await drawerOpen(page)).toBe(false);
     // A swipe right anywhere on the chat, not only from the screen's edge.
     await swipe(messages, 150);
     await expect(page.locator('.conv-link', { hasText: 'Swiped open' })).toBeInViewport();
-    // A swipe left on the sidebar, or beside it, closes it.
+    // Wholly in view (it slides in) before a finger goes on it.
+    await expect(sidebar).toBeInViewport({ ratio: 1 });
+    // A swipe left on the sidebar closes it, and one on the dimmed page beside it (right of its 268px).
     await swipe(sidebar, -150);
     await expect(sidebar).not.toBeInViewport();
     await swipe(messages, 150);
-    await expect(sidebar).toBeInViewport();
-    await swipe(page.locator('.sidebar-scrim'), -150);
+    await expect(sidebar).toBeInViewport({ ratio: 1 });
+    await swipe(page.locator('.sidebar-scrim'), -150, 0, { at: [0.85, 0.5] });
     await expect(sidebar).not.toBeInViewport();
 
     // In the message box the finger moves the caret.
     await swipe(composer(page), 150);
-    await expect(app).not.toHaveClass(/sidebar-open/);
-    // On a wide screen the sidebar is no drawer.
-    await page.setViewportSize({ width: 1000, height: 800 });
+    expect(await drawerOpen(page)).toBe(false);
+
+    // Once the screen is wide enough for it to be no drawer, it closes: narrow again, it is shut.
     await swipe(messages, 150);
-    await expect(app).not.toHaveClass(/sidebar-open/);
+    await expect(sidebar).toBeInViewport({ ratio: 1 });
+    await page.setViewportSize({ width: 1000, height: 800 });
+    await expect.poll(() => drawerOpen(page)).toBe(false);
+    // On a wide screen a swipe does nothing.
+    await swipe(messages, 150);
+    expect(await drawerOpen(page)).toBe(false);
+    await page.setViewportSize(viewport);
+    await expect(sidebar).not.toBeInViewport();
+  });
+
+  test('a quick flick opens the sidebar; a slow short drag, a cancelled touch, a second finger, a dialog or selected text do not', async ({ page, relay, browserName }) => {
+    await openTeamChat(page, relay, [{ name: 'Grok', provider: 'grok' }], {}, 'Flicked open');
+    const messages = page.locator('.messages');
+    const sidebar = page.locator('.sidebar');
+    await tapSend(page, 'Quick question');
+    await finishedReply(page, 'Grok');
+
+    // 40px, short of a swipe's 50: lifted at once it is a flick, cancelled it is nothing.
+    await swipe(messages, 40, 0, { cancel: true });
+    expect(await drawerOpen(page)).toBe(false);
+    await swipe(messages, 40);
+    await expect(sidebar).toBeInViewport({ ratio: 1 });
+    await swipe(page.locator('.sidebar-scrim'), -40, 0, { at: [0.85, 0.5] });
+    await expect(sidebar).not.toBeInViewport();
+    // The same 40px slowly, stopped a moment before it lifts.
+    await gesture(messages, [
+      { type: 'touchstart', touches: [[0, 0]], changed: [[0, 0]] },
+      { type: 'touchmove', touches: [[12, 0]], changed: [[12, 0]], wait: 30 },
+      { type: 'touchmove', touches: [[25, 0]], changed: [[25, 0]], wait: 150 },
+      { type: 'touchmove', touches: [[40, 0]], changed: [[40, 0]], wait: 150 },
+      { type: 'touchend', touches: [], changed: [[40, 0]], wait: 150 },
+    ]);
+    expect(await drawerOpen(page)).toBe(false);
+
+    // A second finger on the screen: a pinch or a scroll, not a swipe.
+    await gesture(messages, [
+      { type: 'touchstart', touches: [[0, 0]], changed: [[0, 0]] },
+      { type: 'touchmove', touches: [[20, 0]], changed: [[20, 0]] },
+      { type: 'touchstart', touches: [[20, 0], [0, 120]], changed: [[0, 120]] },
+      { type: 'touchmove', touches: [[150, 0], [130, 120]], changed: [[150, 0], [130, 120]] },
+      { type: 'touchend', touches: [[130, 120]], changed: [[150, 0]] },
+      { type: 'touchend', touches: [], changed: [[130, 120]] },
+    ]);
+    expect(await drawerOpen(page)).toBe(false);
+
+    // Text selected in a message: the finger may be dragging its handles.
+    await page.locator('.msg-user', { hasText: 'Quick question' }).evaluate((el) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      document.getSelection()!.removeAllRanges();
+      document.getSelection()!.addRange(range);
+    });
+    await swipe(messages, 150);
+    expect(await drawerOpen(page)).toBe(false);
+    await page.evaluate(() => document.getSelection()!.removeAllRanges());
+    // Text selected in the message box is the box's own: a swipe on the chat still opens the sidebar.
+    await composer(page).fill('Some words');
+    await composer(page).evaluate((box: HTMLTextAreaElement) => {
+      box.focus();
+      box.select();
+    });
+    if (browserName === 'chromium') expect(await page.evaluate(() => document.getSelection()?.type)).toBe('Range');
+    await swipe(messages, 150);
+    await expect(sidebar).toBeInViewport({ ratio: 1 });
+    await swipe(sidebar, -150);
+    await expect(sidebar).not.toBeInViewport();
+    // Also once the box has lost the focus, its selection kept (Chromium still calls it a Range then).
+    await composer(page).evaluate((box: HTMLTextAreaElement) => box.blur());
+    if (browserName === 'chromium') expect(await page.evaluate(() => document.getSelection()?.type)).toBe('Range');
+    await swipe(messages, 150);
+    await expect(sidebar).toBeInViewport({ ratio: 1 });
+    await swipe(sidebar, -150);
+    await expect(sidebar).not.toBeInViewport();
+
+    // A dialog has the page; once it is closed, a swipe opens the sidebar again.
+    await page.getByRole('button', { name: 'More' }).tap();
+    await page.locator('.chat-head').getByRole('button', { name: 'Files' }).tap();
+    const files = page.getByRole('dialog', { name: 'Files' });
+    await expect(files).toBeVisible();
+    await swipe(files, 150);
+    expect(await drawerOpen(page)).toBe(false);
+    await page.keyboard.press('Escape');
+    await expect(files).toBeHidden();
+    await swipe(messages, 150);
+    await expect(sidebar).toBeInViewport({ ratio: 1 });
+  });
+
+  test("a swipe on a code block scrolled sideways is the code block's, and one on a video's controls is the video's", async ({ page, relay }) => {
+    writeFileSync(join(relay.workDir, 'clip.webm'), Buffer.from(CLIP, 'base64'));
+    await openTeamChat(page, relay, [{ name: 'Grok', provider: 'grok' }], {}, 'Wide code');
+    await tapSend(page, 'A clip ![clip](clip.webm) e2e:widecode');
+    const reply = await finishedReply(page, 'Grok');
+    const sidebar = page.locator('.sidebar');
+
+    // The code block scrolls sideways (highlight.js's code element does).
+    const code = reply.locator('pre code');
+    expect(await code.evaluate((el) => [getComputedStyle(el).overflowX, el.scrollWidth > el.clientWidth + 100])).toEqual(['auto', true]);
+    await code.evaluate((el) => {
+      el.scrollLeft = 120;
+    });
+    await swipe(code, 150, 0, { at: [0.3, 0.5] });
+    expect(await drawerOpen(page)).toBe(false);
+    // Back at its start, the swipe is the sidebar's.
+    await code.evaluate((el) => {
+      el.scrollLeft = 0;
+    });
+    await swipe(code, 150, 0, { at: [0.3, 0.5] });
+    await expect(sidebar).toBeInViewport({ ratio: 1 });
+    await swipe(page.locator('.sidebar-scrim'), -150, 0, { at: [0.85, 0.5] });
+    await expect(sidebar).not.toBeInViewport();
+
+    // A video's seek bar moves with the finger.
+    const video = reply.locator('video');
+    await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState)).toBeGreaterThan(0);
+    await swipe(video, 150, 0, { at: [0.2, 0.9] });
+    expect(await drawerOpen(page)).toBe(false);
+  });
+
+  test.describe('with the guided tour', () => {
+    test.use({ tour: true });
+
+    test('a swipe over the guided tour leaves the sidebar shut, and opens it once the tour is skipped', async ({ page }) => {
+      const tour = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Skip tour' }) });
+      await expect(tour).toBeVisible();
+      await swipe(tour, 150);
+      expect(await drawerOpen(page)).toBe(false);
+      await tour.getByRole('button', { name: 'Skip tour' }).tap();
+      await expect(tour).toBeHidden();
+      await swipe(page.locator('.main'), 150);
+      await expect(page.locator('.sidebar')).toBeInViewport({ ratio: 1 });
+    });
   });
 
   test('a long message keeps the page from scrolling sideways', async ({ page, relay }) => {

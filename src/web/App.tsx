@@ -27,7 +27,7 @@ import { refreshLimits } from './limits';
 import { latestLoader, newerStatuses } from './refresh';
 import { AFTER_UPDATE_MS, TYPING_PAUSE_MS, isAppWindow, offerShows, pollDelay, readDismissed, shouldOffer, typesText, writeDismissed } from './update';
 import { useDialogsHeld, useDialogsOpen } from './components/useDialog';
-import { useSidebarSwipe } from './components/useSidebarSwipe';
+import { useSidebarDrawer } from './components/useSidebarDrawer';
 import { onboardingDone } from './tour';
 
 // Loaded when first opened, not with the page: Settings and its panels, and the guided tour.
@@ -157,8 +157,8 @@ function RelayApp() {
   const [catalog, setCatalog] = useState<ProviderModels[]>([]);
   /** Mobile: the sidebar drawer is open. */
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  // A swipe right opens the drawer, a swipe left closes it.
-  useSidebarSwipe(sidebarOpen, setSidebarOpen);
+  // A swipe right opens the drawer, a swipe left closes it; a wide screen closes it.
+  useSidebarDrawer(sidebarOpen, setSidebarOpen);
   /** Wide screens: the sidebar is collapsed (remembered in this browser). */
   const [collapsed, setCollapsedState] = useState(readCollapsed);
   const setCollapsed = (v: boolean) => {
