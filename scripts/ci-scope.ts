@@ -1,6 +1,7 @@
 /**
- * Which of CI's slower jobs a change needs. The first job of the CI and End-to-end tests workflows
- * (.github/workflows/ci.yml and e2e.yml) runs this, and the jobs it names run only when it says so:
+ * Which of CI's slower jobs a pull request needs. The first job of the CI and End-to-end tests
+ * workflows (.github/workflows/ci.yml and e2e.yml) runs this, and the jobs it names run only when it
+ * says so:
  *
  *   windows   the tests on Windows (ci.yml, job windows)
  *   desktop   the desktop app packaged and checked, on Linux and Windows (ci.yml, job desktop-package)
@@ -8,17 +9,17 @@
  *
  * Each job lists what it does not depend on (IGNORES), never what it needs: it runs unless every file
  * the change touches is on its list, so a file or folder no list names runs everything. Everything
- * also runs when the change cannot be told: a run by hand (workflow_dispatch) or any other event than
- * a pull request or a push, the first push of a branch, a push whose commit before it cannot be
- * fetched, a change of no files, an error, and a change to this file (ALWAYS).
+ * runs for every other event than a pull request: each push to main (what main is, checked whole
+ * after each merge, also where these rules miss a file) and a run by hand (workflow_dispatch). And
+ * for a pull request whose change cannot be told: a checkout that is not its merge commit, a change
+ * of no files, an error, and a change to this file (ALWAYS).
  *
  * The Linux checks of the CI workflow (typecheck, npm test, the build, the desktop app's typecheck,
  * build and bundled server) are not gated: npm test also reads the docs, the landing page, the issue
  * forms, the dev container and the workflows, so every file is theirs, and they take two minutes.
  *
- * What changed: for a pull request, the merge commit GitHub checks out against its first parent (the
- * base branch it merges into: what main would get); for a push, the pushed commit against the one
- * before it (the event's `before`). Renames count as a deletion and an addition, so a file moved out
+ * What changed: the merge commit GitHub checks out against its first parent (the base branch it
+ * merges into: what main would get). Renames count as a deletion and an addition, so a file moved out
  * of a folder still counts for the jobs that depend on that folder.
  *
  * A pattern is a path from the repository's root: `*` matches within one folder, `**` across folders,
@@ -35,7 +36,7 @@
  * before npm ci.
  */
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 export const SCOPES = ['windows', 'desktop', 'e2e'] as const;
@@ -188,31 +189,15 @@ export function needsOf(files: readonly string[]): Needs {
 export type Git = (args: string[]) => string;
 
 /**
- * The files a run's change touches, or why they cannot be told. `before` is a push's commit before it.
- * The checkout is GitHub's: a pull request's merge commit, or the pushed commit, with its parents.
+ * The files a pull request's change touches, or why everything runs. The checkout is GitHub's: the
+ * pull request's merge commit, with its parents.
  */
-export function changedFiles(event: string, before: string | undefined, git: Git): string[] | string {
-  let base: string;
-  if (event === 'pull_request') {
-    const [, ...parents] = git(['rev-list', '--parents', '-n', '1', 'HEAD']).trim().split(/\s+/);
-    if (parents.length !== 2) return "the checkout is not the pull request's merge commit";
-    base = parents[0];
-  } else if (event === 'push') {
-    if (!before || /^0+$/.test(before)) return 'the push starts a branch';
-    try {
-      git(['cat-file', '-e', `${before}^{commit}`]);
-    } catch {
-      try {
-        git(['fetch', '--quiet', '--no-tags', '--depth=1', 'origin', before]);
-      } catch {
-        return `the commit before the push (${before.slice(0, 12)}) cannot be fetched`;
-      }
-    }
-    base = before;
-  } else {
-    return `a ${event || 'local'} run tests everything`;
-  }
-  return git(['diff', '--name-only', '--no-renames', '-z', base, 'HEAD']).split('\0').filter(Boolean);
+export function changedFiles(event: string, git: Git): string[] | string {
+  if (event === 'push') return 'a push to main tests everything';
+  if (event !== 'pull_request') return `a ${event || 'local'} run tests everything`;
+  const [, ...parents] = git(['rev-list', '--parents', '-n', '1', 'HEAD']).trim().split(/\s+/);
+  if (parents.length !== 2) return "the checkout is not the pull request's merge commit";
+  return git(['diff', '--name-only', '--no-renames', '-z', parents[0], 'HEAD']).split('\0').filter(Boolean);
 }
 
 /** The step's outputs, for $GITHUB_OUTPUT. */
@@ -238,10 +223,7 @@ function main(args: string[]): number {
   try {
     let changed: string[] | string;
     if (inActions) {
-      const event = process.env.GITHUB_EVENT_NAME ?? '';
-      const path = process.env.GITHUB_EVENT_PATH;
-      const before = event === 'push' && path ? (JSON.parse(readFileSync(path, 'utf8')) as { before?: string }).before : undefined;
-      changed = changedFiles(event, before, run);
+      changed = changedFiles(process.env.GITHUB_EVENT_NAME ?? '', run);
     } else {
       const base = args[0] ?? 'origin/main';
       changed = run(['diff', '--name-only', '--no-renames', '-z', `${base}...HEAD`]).split('\0').filter(Boolean);

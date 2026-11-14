@@ -3,8 +3,8 @@ name: CI
 # Every pull request and every push to main (including merges) must typecheck, pass the tests
 # and build, on Linux and on Windows; the desktop app is also packaged for Linux and Windows and
 # checked as a release is, a question to its agents (fake CLIs) included. The Windows tests and the
-# packaged app run only when the change touches a file they depend on (scripts/ci-scope.ts); the
-# Linux checks always run. A run by hand runs everything.
+# packaged app run for a pull request only when it touches a file they depend on
+# (scripts/ci-scope.ts); the Linux checks always run. A push to main and a run by hand run everything.
 on:
   pull_request:
   push:
@@ -20,8 +20,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Which of the jobs below the change needs, and why (in the run's summary): each job runs unless
-  # every file the change touches is one it is known not to depend on (IGNORES in the script).
+  # Which of the jobs below the change needs, and why (in the run's summary): for a pull request, each
+  # job runs unless every file it touches is one the job is known not to depend on (IGNORES in the
+  # script); for a push to main or a run by hand, every job runs.
   changes:
     name: What the change needs
     runs-on: ubuntu-latest
@@ -30,8 +31,7 @@ jobs:
       windows: ${{ steps.scope.outputs.windows }}
       desktop: ${{ steps.scope.outputs.desktop }}
     steps:
-      # A pull request's merge commit with its parents (the base it merges into), or the pushed commit
-      # with the one before it; the script fetches an older one itself.
+      # A pull request's merge commit with its parents: the base it merges into.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 2

@@ -3,7 +3,8 @@ name: End-to-end tests
 # The UI in a real browser against the real server (npm run test:e2e), with a fake for each of the twelve
 # agent CLIs (e2e/fake-cli/), on Linux, macOS and Windows: no agent is paid for and nothing signs in.
 # Below full access the open agents' fakes run in Harness Relay's own sandbox for real (Linux, macOS).
-# Only when the change touches a file they depend on (scripts/ci-scope.ts); a run by hand runs them.
+# For a pull request only when it touches a file they depend on (scripts/ci-scope.ts); a push to main
+# and a run by hand always run them.
 on:
   pull_request:
   push:
@@ -29,8 +30,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Whether the change needs the tests, and why (in the run's summary): they run unless every file the
-  # change touches is one they are known not to depend on (IGNORES in the script), as in ci.yml.
+  # Whether the change needs the tests, and why (in the run's summary): for a pull request, they run
+  # unless every file it touches is one they are known not to depend on (IGNORES in the script), as in
+  # ci.yml; a push to main or a run by hand runs them.
   changes:
     name: What the change needs
     runs-on: ubuntu-latest

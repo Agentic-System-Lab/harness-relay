@@ -128,37 +128,22 @@ const fakeGit = (answers: Record<string, string | Error>): Git & { calls: string
 };
 
 describe('changedFiles', () => {
-  const BEFORE = 'b'.repeat(40);
-  const diff = (base: string) => `diff --name-only --no-renames -z ${base} HEAD`;
-
   it("compares a pull request's merge commit with the base it merges into, renames as two files", () => {
-    const git = fakeGit({ 'rev-list --parents -n 1 HEAD': 'merge base head\n', [diff('base')]: 'src/old.ts\0docs/new.md\0' });
-    expect(changedFiles('pull_request', undefined, git)).toEqual(['src/old.ts', 'docs/new.md']);
+    const git = fakeGit({ 'rev-list --parents -n 1 HEAD': 'merge base head\n', 'diff --name-only --no-renames -z base HEAD': 'src/old.ts\0docs/new.md\0' });
+    expect(changedFiles('pull_request', git)).toEqual(['src/old.ts', 'docs/new.md']);
   });
 
   it('tells everything to run when a pull request checkout is not a merge commit', () => {
     const git = fakeGit({ 'rev-list --parents -n 1 HEAD': 'head parent\n' });
-    expect(changedFiles('pull_request', undefined, git)).toBe("the checkout is not the pull request's merge commit");
+    expect(changedFiles('pull_request', git)).toBe("the checkout is not the pull request's merge commit");
   });
 
-  it('compares a push with the commit before it, fetching that one when the checkout has not got it', () => {
-    const have = fakeGit({ [`cat-file -e ${BEFORE}^{commit}`]: '', [diff(BEFORE)]: 'README.md\0' });
-    expect(changedFiles('push', BEFORE, have)).toEqual(['README.md']);
-    expect(have.calls.some((c) => c.startsWith('fetch'))).toBe(false);
-
-    const fetch = fakeGit({ [`cat-file -e ${BEFORE}^{commit}`]: new Error('missing'), [`fetch --quiet --no-tags --depth=1 origin ${BEFORE}`]: '', [diff(BEFORE)]: 'a\0b\0' });
-    expect(changedFiles('push', BEFORE, fetch)).toEqual(['a', 'b']);
-  });
-
-  it('tells everything to run for a push it cannot compare', () => {
-    expect(changedFiles('push', '0'.repeat(40), fakeGit({}))).toBe('the push starts a branch');
-    expect(changedFiles('push', undefined, fakeGit({}))).toBe('the push starts a branch');
-    expect(changedFiles('push', BEFORE, fakeGit({}))).toBe(`the commit before the push (${BEFORE.slice(0, 12)}) cannot be fetched`);
-  });
-
-  it('tells everything to run for a run by hand or any other event', () => {
-    expect(changedFiles('workflow_dispatch', undefined, fakeGit({}))).toBe('a workflow_dispatch run tests everything');
-    expect(changedFiles('merge_group', undefined, fakeGit({}))).toBe('a merge_group run tests everything');
+  it('tells everything to run for a push to main, a run by hand or any other event, without asking git', () => {
+    const git = fakeGit({});
+    expect(changedFiles('push', git)).toBe('a push to main tests everything');
+    expect(changedFiles('workflow_dispatch', git)).toBe('a workflow_dispatch run tests everything');
+    expect(changedFiles('merge_group', git)).toBe('a merge_group run tests everything');
+    expect(git.calls).toEqual([]);
   });
 });
 
