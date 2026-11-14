@@ -220,32 +220,53 @@ describe('lead agent reply', () => {
     const prompt = buildPlannerPrompt('How do I bake bread?', { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'read-only', cwd: '/tmp' }, ctx);
     expect(prompt).toContain('How do I bake bread?');
     // Each model with the efforts it takes (its own list, else the CLI's), and the defaults.
-    expect(prompt).toContain('- claude (Claude Code)\n  Models: opus (efforts low/medium/high), haiku (efforts low)\n  Default model opus');
+    expect(prompt).toContain('- claude (Claude Code)\n  Models: opus (efforts low/medium/high; guide: Claude), haiku (efforts low; guide: Claude)\n  Default model opus');
     expect(prompt).not.toContain('- grok');
     expect(prompt).toContain('"id": "builtin-general"');
     expect(prompt).toContain('"read-only"');
     expect(prompt).toContain('```json');
   });
 
-  it("gives the lead the role guides of the models its coding agents run, and only those", () => {
-    const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, permission: 'read-only' as const, cwd: '/tmp' };
+  it("gives the lead the role guides of the models its coding agents run, and only those, with each model marked with its own", () => {
+    const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, permission: 'edit' as const, cwd: '/tmp' };
     const draft: TeamDraft = { settings: { mode: 'roundtable', rounds: 1, maxHops: 8 }, agents: [{ id: 'a1', name: 'A', provider: 'claude', role: 'r' }] };
+    const guide = (f: keyof typeof ROLE_GUIDES, edits = true) => `- ${ROLE_GUIDES[f].label} (${ROLE_GUIDES[f].about}): ${ROLE_GUIDES[f].text(edits)}`;
     // Claude Code runs Claude, Codex lists no models here: GPT, its own.
     for (const prompt of [buildPlannerPrompt('q', settings, ctx), buildRevisePrompt('add a tester', draft, settings, ctx)]) {
-      expect(prompt).toContain(`- ${ROLE_GUIDES.claude}\n- ${ROLE_GUIDES.gpt}\n`);
-      expect(prompt).toContain('; write it for its model as the guides below say.');
-      for (const f of ['gemini', 'grok', 'muse', 'composer', 'open'] as const) expect(prompt).not.toContain(ROLE_GUIDES[f]);
+      expect(prompt).toContain(`${guide('claude')}\n${guide('gpt')}\n`);
+      expect(prompt).toContain('Models: opus (efforts low/medium/high; guide: Claude), haiku (efforts low; guide: Claude)');
+      expect(prompt).toContain('- codex (Codex)\n  Its own models (not listed): guide: GPT');
+      expect(prompt).toContain(' Write it for its model as the guides below say.');
+      for (const f of ['gemini', 'grok', 'muse', 'composer', 'open'] as const) expect(prompt).not.toContain(ROLE_GUIDES[f].about);
     }
-    // A model on the user's own server is open weights.
-    const local: PlannerContext = { ...ctx, catalog: [{ ...catalog[0]!, models: [...catalog[0]!.models, { id: 'homelab/qwen3-coder', endpoint: 'homelab' }] }] };
-    expect(buildPlannerPrompt('q', settings, local)).toContain(ROLE_GUIDES.open);
-    // No family known (Copilot listed no models): no guides, and the roles are asked for as before.
-    const unknown: PlannerContext = { ...ctx, available: ['copilot'] };
+    // Read-only: the guides ask for no edits.
+    const readOnly = buildPlannerPrompt('q', { ...settings, permission: 'read-only' }, ctx);
+    expect(readOnly).toContain(guide('claude', false));
+    expect(readOnly).not.toContain('Ask for the action itself');
+    // A model on the user's own server is open weights, and so marked; a default the CLI does not list is marked too.
+    const local: PlannerContext = {
+      ...ctx,
+      catalog: [{ ...catalog[0]!, defaultModel: 'opus[1m]', models: [...catalog[0]!.models, { id: 'homelab/qwen3-coder', endpoint: 'homelab' }] }],
+    };
+    const prompt = buildPlannerPrompt('q', settings, local);
+    expect(prompt).toContain(guide('open'));
+    expect(prompt).toContain('homelab/qwen3-coder (efforts low/medium/high; guide: Open-weight)');
+    expect(prompt).toContain('Default model opus[1m] (guide: Claude)');
+    // No family known (Copilot listed no models): no guides and no marks, and the roles are asked for without them.
+    const unknown: PlannerContext = { ...ctx, available: ['copilot'], catalog: [{ provider: 'copilot', models: [{ id: 'auto' }], efforts: [], source: 'cli' }] };
     for (const prompt of [buildPlannerPrompt('q', settings, unknown), buildRevisePrompt('add a tester', draft, settings, unknown)]) {
-      expect(prompt).not.toContain('How to write each role');
-      expect(prompt).not.toContain('as the guides below say');
-      expect(prompt).toContain('who to hand off to with @Name when the mode is relay.\n');
+      expect(prompt).not.toContain('How to write a role for the model');
+      expect(prompt).not.toContain('guide');
+      expect(prompt).toContain('Models: auto\n');
+      expect(prompt).toContain('its briefing already explains the chat, the team, taking turns, the workspace and the file permission.\n');
     }
+  });
+
+  it("asks for roles whose first line says who the member is, which is what teammates see", () => {
+    const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, permission: 'edit' as const, cwd: '/tmp' };
+    const draft: TeamDraft = { settings: { mode: 'roundtable', rounds: 1, maxHops: 8 }, agents: [{ id: 'a1', name: 'A', provider: 'claude', role: 'r' }] };
+    expect(buildPlannerPrompt('q', settings, ctx)).toContain("- Write each member's role as instructions addressed to that member. Its first line says who the member is and their expertise: teammates see only that line.");
+    expect(buildRevisePrompt('x', draft, settings, ctx)).toContain('- Write a new or rewritten role as instructions addressed to that member. Its first line says who the member is and their expertise: teammates see only that line.');
   });
 });
 
@@ -919,7 +940,7 @@ describe("what the lead knows of each coding agent's tools and models", () => {
       settings: { mode: 'roundtable' as const, rounds: 1, maxHops: 8 },
     };
     const prompt = buildPlannerPrompt('Fix the login bug', { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'edit', cwd: '/w' }, rich, { current });
-    expect(prompt).toContain('  Models: fable (Fable; always its family\'s newest; efforts low/high/max; default effort high), haiku (efforts low/medium)');
+    expect(prompt).toContain('  Models: fable (Fable; always its family\'s newest; efforts low/high/max; default effort high; guide: Claude), haiku (efforts low/medium; guide: Claude)');
     expect(prompt).toContain('  Default model fable, effort medium');
     // As its new members run it: the models and defaults of the account they get.
     const work = buildPlannerPrompt(
@@ -932,7 +953,7 @@ describe("what the lead knows of each coding agent's tools and models", () => {
       },
       { current },
     );
-    expect(work).toContain('  Models: sonnet (efforts low)');
+    expect(work).toContain('  Models: sonnet (efforts low; guide: Claude)');
     expect(work).toContain('  Default model sonnet, effort low');
     expect(work).not.toContain('Default model fable');
     expect(prompt).toContain('  Built-in tools: Bash, WebSearch');
@@ -941,7 +962,7 @@ describe("what the lead knows of each coding agent's tools and models", () => {
     expect(prompt).toContain('  Its own subagents: explorer');
     expect(prompt).toContain('  (It did not answer every question, so these lists may be incomplete.)');
     expect(prompt).toContain('  New members get from the tool library: mcp:browser, skill:pdf, memory');
-    expect(prompt).toContain('- codex (Codex)\n  Its own tools, skills and MCP servers: unknown (it did not answer in time)\n  New members get from the tool library: skill:pdf, memory, memory:codex');
+    expect(prompt).toContain('- codex (Codex)\n  Its own models (not listed): guide: GPT\n  Its own tools, skills and MCP servers: unknown (it did not answer in time)\n  New members get from the tool library: skill:pdf, memory, memory:codex');
     expect(prompt).toContain('- mcp:db: no member gets it unless the user gives it');
     expect(prompt).toContain('- memory:codex (Codex: run tests): only for codex members');
     expect(prompt).toContain('Choose the coding agent whose tools (built in, its own skills and MCP servers, and what it gets from the tool library) cover that part');

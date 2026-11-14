@@ -58,7 +58,7 @@
 
 ## 5. 寫 adapter
 
-照著[開發者說明的檢查清單](developer-guide.zh-TW.md#新增一個-agent-cli)（原生 adapter 或開源 agent）做，再處理型別檢查找不到的地方：首席 agent 與各 agent 的簡報（CLI 的清單）、`agentFolders()`，以及需要時的 `INHERITED_BACKEND_VARS`、`PROJECT_AGENT_CONFIG`、`RUN_TMP_PREFIXES`（每次執行放在 Harness Relay 自己暫存資料夾裡的資料夾，像 Copilot 的家目錄）、`AGENT_CONFIG`（可編輯模式下寫到那裡要詢問的 agent 設定）、`RUN_TMP_PREFIXES`（每次執行在 `data/tmp` 裡自己的資料夾）、`keyOnlyAccount()`、`failedProbe()`，以及模型 id 看不出來時它跑的模型家族（`src/server/roleGuides.ts` 的 `CLI_FAMILY`；首席 agent 還沒有角色指引的家族，要依那個家族自己的 prompt 指南在 `ROLE_GUIDES` 加上一份，只寫會改變它角色寫法的部分）。`AGENTSVIEW_SESSIONS` 型別檢查會指出來，但該填什麼它不知道：先從 AgentsView 自己的原始碼查清楚，它讀不讀得到 Harness Relay 的執行留下 session 的地方、用什麼 id，再決定給它前綴還是 `recorded`。接著：
+照著[開發者說明的檢查清單](developer-guide.zh-TW.md#新增一個-agent-cli)（原生 adapter 或開源 agent）做，再處理型別檢查找不到的地方：首席 agent 與各 agent 的簡報（CLI 的清單）、`agentFolders()`，以及需要時的 `INHERITED_BACKEND_VARS`、`PROJECT_AGENT_CONFIG`、`RUN_TMP_PREFIXES`（每次執行放在 Harness Relay 自己暫存資料夾裡的資料夾，像 Copilot 的家目錄）、`AGENT_CONFIG`（可編輯模式下寫到那裡要詢問的 agent 設定）、`RUN_TMP_PREFIXES`（每次執行在 `data/tmp` 裡自己的資料夾）、`keyOnlyAccount()`、`failedProbe()`，以及它自己的模型屬於哪個家族，供它一個模型都沒列出時使用（`src/server/roleGuides.ts` 的 `CLI_FAMILY`；確認 `modelFamily()` 看得懂它的模型 id；首席 agent 還沒有角色指引的家族，要依那個家族自己的指南在 `ROLE_GUIDES` 加上一份，只寫會改變它角色寫法的部分）。`AGENTSVIEW_SESSIONS` 型別檢查會指出來，但該填什麼它不知道：先從 AgentsView 自己的原始碼查清楚，它讀不讀得到 Harness Relay 的執行留下 session 的地方、用什麼 id，再決定給它前綴還是 `recorded`。接著：
 
 - 讓 parser 保持純函式（更新進、`AgentEvent` 出），決策也是（`<name>PermissionDecision`、`<name>ApprovalRequest`），測試才能餵它錄下來的訊息。
 - 只透過 `src/server/process.ts` 啟動 CLI，絕不透過 shell；開源 agent 透過 `startOpenProcess()`。
