@@ -2251,6 +2251,7 @@ body:has(.cs-dialog[open]) {
 }
 
 .cs-dialog {
+  --cs-pad: clamp(20px, 4vw, 32px);
   width: min(680px, calc(100% - 32px));
   max-height: calc(100dvh - 32px);
   padding: 0;
@@ -2271,7 +2272,8 @@ body:has(.cs-dialog[open]) {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 16px;
-  padding: clamp(20px, 4vw, 32px);
+  /* No padding at the bottom: the actions' bar holds it. */
+  padding: var(--cs-pad) var(--cs-pad) 0;
 }
 
 .cs-head {
@@ -2396,5 +2398,12 @@ body:has(.cs-dialog[open]) {
   flex-wrap: wrap;
   align-items: center;
   gap: 12px 20px;
-  margin-top: 4px;
+  /* Kept at the dialog's bottom while the rest scrolls under it (the dialog is what scrolls), across
+     its whole width, over the text behind it. */
+  position: sticky;
+  bottom: 0;
+  margin: 4px calc(-1 * var(--cs-pad)) 0;
+  padding: 16px var(--cs-pad) var(--cs-pad);
+  border-top: 1px solid var(--border);
+  background: var(--bg);
 }

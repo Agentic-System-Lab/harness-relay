@@ -63,6 +63,22 @@ describe('the Codespaces dialog on the landing page', () => {
     expect(start).toContain('"  (or type this code on the sign-in page: ${BASH_REMATCH[2]})"');
   });
 
+  it('keeps its button and guide link at its bottom while the rest scrolls under them', () => {
+    const css = read('site/assets/site.css');
+    const rule = (selector: string) => css.match(new RegExp(`\\n${selector.replace('.', '\\.')} \\{([^}]*)\\}`))![1]!;
+    // The dialog is what scrolls, so a sticky bar in it stays at its bottom edge.
+    expect(rule('.cs-dialog')).toContain('overflow: auto;');
+    const actions = rule('.cs-actions');
+    for (const declaration of ['position: sticky;', 'bottom: 0;', 'background: var(--bg);']) expect(actions).toContain(declaration);
+    // Across the dialog's whole width, holding the bottom padding the body leaves out.
+    expect(actions).toContain('margin: 4px calc(-1 * var(--cs-pad)) 0;');
+    expect(actions).toContain('padding: 16px var(--cs-pad) var(--cs-pad);');
+    expect(rule('.cs-body')).toContain('padding: var(--cs-pad) var(--cs-pad) 0;');
+    // The last thing in the dialog, so nothing is hidden below it.
+    const dialog = dialogOf(read('site/index.html'));
+    expect(dialog.slice(dialog.indexOf('<div class="cs-actions">')).replace(/<div class="cs-actions">|<a [\s\S]*?<\/a>|<\/(div|dialog)>|\s+/g, '')).toBe('');
+  });
+
   it('is opened by site.js only where the browser has modal dialogs, and a modified click goes to GitHub', () => {
     const js = read('site/assets/site.js');
     expect(js).toContain("document.getElementById('codespaces')");
