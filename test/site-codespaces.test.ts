@@ -43,16 +43,22 @@ describe('the Codespaces dialog on the landing page', () => {
   });
 
   it("shows the terminal as start.sh and the server print it, the same on both pages", () => {
-    const terminals = Object.keys(PAGES).map((p) => dialogOf(read(p)).match(/<pre>[\s\S]*?<\/pre>/)![0].replace(/<span class="chip cs-click">.*?<\/span>/, ''));
-    expect(terminals[1]).toBe(terminals[0]);
-    const text = terminals[0]!.replace(/<[^>]+>/g, '');
+    // Compared as written, markup and all: only the chip saying how to click is in the page's language.
+    const terminalOf = (page: string) => {
+      const pre = dialogOf(read(page)).match(/<pre>[\s\S]*?<\/pre>/)![0];
+      const chip = pre.indexOf('<span class="chip cs-click">');
+      expect(chip).toBeGreaterThan(0);
+      return pre.slice(0, chip) + pre.slice(pre.indexOf('</span>', chip) + '</span>'.length);
+    };
+    const [en, zh] = Object.keys(PAGES).map(terminalOf);
+    expect(zh).toBe(en);
     const start = read('.devcontainer/start.sh');
     const server = read('src/server/index.ts');
-    expect(text).toContain('Starting Harness Relay. Stop it with Ctrl+C; start it again with: bash .devcontainer/start.sh');
+    expect(en).toContain('Starting Harness Relay. Stop it with Ctrl+C; start it again with: bash .devcontainer/start.sh');
     expect(start).toContain('echo "Starting Harness Relay. Stop it with Ctrl+C; start it again with: bash .devcontainer/start.sh"');
-    expect(text).toContain('Sign this browser in (once, within an hour): https://your-codespace-8787.app.github.dev/#code=');
+    expect(en).toContain('Sign this browser in (once, within an hour): <span class="cs-link">https://your-codespace-8787.app.github.dev/#code=');
     expect(server).toContain('Sign this browser in (once, within an hour): ${');
-    expect(text).toContain('  (or type this code on the sign-in page: ');
+    expect(en).toContain('\n  (or type this code on the sign-in page: ');
     expect(start).toContain('"  (or type this code on the sign-in page: ${BASH_REMATCH[2]})"');
   });
 
