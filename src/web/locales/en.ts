@@ -335,6 +335,7 @@ export const en: Messages = {
     placeholderConfirm: 'The team answers once you confirm it; what you write now goes with it…',
     placeholderDesigning: 'The lead agent is choosing the team; what you write now goes to the team with your question…',
     placeholderReviewing: 'The lead agent is reviewing the replies; what you write now is your next question, sent once it is done (auto team designs its team first)…',
+    placeholderReviewingTeam: 'The lead agent is reviewing the replies; what you write now is your next question, for the team once it is done…',
     placeholderBusy: 'Add to the discussion… (delivered before the next turn)',
     placeholderAnswer: (names) => `Answer ${names}…`,
     asking: (names) => `Waiting for your answer: ${names}`,

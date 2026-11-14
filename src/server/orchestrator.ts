@@ -249,7 +249,6 @@ function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
   return copies;
 }
 
-
 /** Longest name of a template saved from a plan. */
 const MAX_PRESET_NAME = 100;
 
@@ -932,10 +931,7 @@ export class Orchestrator {
     const unattended = conv.queue.every((m) => m.scheduled) && conv.schedule?.approvals !== 'ask';
     // Written while the team worked, the current team answers them; written after it had answered
     // (while the lead agent reviewed), they are a new question, and with auto team its team is designed.
-    // A design that would wait for the user's confirmation takes no schedule's message along: nobody
-    // may be there to confirm it, and the schedule would be held (skipped) until someone did. The
-    // current team takes them all then, as a scheduled send does.
-    const asks = this.waitingQuestion(conv) && (Boolean(conv.settings.autoConfirm) || !conv.queue.some((m) => m.scheduled));
+    const asks = this.waitingQuestion(conv);
     // Its design would take no lock, but the team's run after it would: with another conversation
     // changing the folder, the question keeps waiting, as any run that finds its folder taken, rather
     // than being designed (and paid for) for a team that cannot start.
@@ -955,8 +951,14 @@ export class Orchestrator {
    */
   private waitingQuestion(conv: Conversation): boolean {
     if (!conv.settings.autoTeam) return false;
-    const fresh = (conv.queue ?? []).filter((m) => m.duringReview);
-    return fresh.length > 0 && fresh.every((m) => parseMentions(textOf(m), conv.agents).length === 0);
+    const queue = conv.queue ?? [];
+    const fresh = queue.filter((m) => m.duringReview);
+    if (!fresh.length || !fresh.every((m) => parseMentions(textOf(m), conv.agents).length === 0)) return false;
+    // A design that would wait for the user's confirmation takes no schedule's message along (when the
+    // review ends, and when they send what waits with Skip, Send or Continue): nobody may be there to
+    // confirm it, and the schedule would be held (skipped) until someone did. The current team takes
+    // them all then, as a scheduled send does.
+    return Boolean(conv.settings.autoConfirm) || !queue.some((m) => m.scheduled);
   }
 
   /**

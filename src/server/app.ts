@@ -1013,6 +1013,9 @@ export function createApp({
 
   app.patch('/api/conversations/:id', async (c) => {
     const conv = getConv(c.req.param('id'));
+    // Lead review may be switched (on the team design card) while this request is read and its
+    // workspace prepared: that switch came after this request, so it stands.
+    const reviewBefore = Boolean(conv.settings.leadReview);
     const b = await body<Partial<Conversation> & { createCwd?: unknown }>(c);
     const save = () => {
       if (b.title !== undefined) conv.title = String(b.title).trim().slice(0, 200) || conv.title;
@@ -1032,9 +1035,6 @@ export function createApp({
       if (b.settings) refuseRelayFolderFirst(b.settings, conv.settings);
       const next = b.settings ? validateSettings(b.settings, conv.settings, b.createCwd === true) : { ...conv.settings };
       refuseRelayFolder(next);
-      // Lead review may be switched (on the team design card) while the workspace is prepared: that
-      // switch came after this request, so it stands.
-      const reviewBefore = Boolean(conv.settings.leadReview);
       // Edits never switch auto team on or off; a team set by hand replaces the lead agent's pending
       // design (the next question is designed again).
       if (conv.settings.autoTeam) next.autoTeam = true;

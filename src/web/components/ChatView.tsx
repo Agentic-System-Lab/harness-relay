@@ -762,7 +762,9 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
               : questions.length > 0
                 ? t.chat.placeholderAnswer(askers)
                 : reviewing
-                ? t.chat.placeholderReviewing
+                ? autoTeam
+                  ? t.chat.placeholderReviewing
+                  : t.chat.placeholderReviewingTeam
                 : running
                 ? t.chat.placeholderBusy
                 : waitingForTeam

@@ -157,9 +157,8 @@ export function conversationMarkdown(conv: Conversation, t: Messages): string {
       // A review that is not ready (being written, stopped, failed) says nothing of the replies.
       if (m.review) {
         if (m.review.status === 'ready') blocks.push(reviewMarkdown(m.review, t));
-      }
-      // A declined design did not answer: say so.
-      else if (m.plan?.status === 'ready') {
+      } else if (m.plan?.status === 'ready') {
+        // A declined design did not answer: say so.
         blocks.push(`*${t.plan.title}: ${planHeadline(m.plan, t)}${m.plan.declinedAt ? ` (${t.plan.declined})` : ''}*`);
       }
       else if (text) blocks.push(`*${text}*`);

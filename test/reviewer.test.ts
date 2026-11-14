@@ -536,6 +536,17 @@ describe('a review that failed or was stopped, and reading a reply once', () => 
     expect(nextReviewStart([...waiting, reply('r2', 'Alice', 'b'), review('v2')])).toBeGreaterThan(2);
   });
 
+  it('leaves a question open when its reply was stopped, failed or passed: the next question is the same one', () => {
+    for (const end of [{ status: 'aborted' as const }, { status: 'error' as const }, { passed: true }]) {
+      expect(reviewStart([user('u1', 'one'), reply('r1', 'Alice', 'a', end), user('u2', 'two'), reply('r2', 'Alice', 'b')])).toBe(0);
+    }
+    // So a stopped review's card still says its replies are read, when the answer after it was stopped
+    // too: Continue (or a new question) reads from where it started.
+    const msgs = [user('u1', 'Q'), reply('r1', 'Alice', 'a'), review('s1', 'failed', { fromId: 'u1' }), user('u2', 'N'), reply('r2', 'Alice', 'b', { status: 'aborted' })];
+    expect(nextReviewStart(msgs)).toBeLessThan(2);
+    expect(reviewStart(msgs)).toBe(0);
+  });
+
   it('reads a piece of a reply once for as many quotes as asked', () => {
     const has = quoteChecker('We **must** migrate [the DB](x.md) first.');
     expect(has('must migrate the DB')).toBe(true);

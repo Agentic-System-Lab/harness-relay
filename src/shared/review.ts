@@ -282,7 +282,7 @@ export function hasQuote(markdown: string, quote: string): boolean {
 
 /**
  * The question the latest run answers: the user's latest message that did not join a discussion under
- * way (`queued`), with the ones they wrote before it that no agent answered in between (while the team
+ * way (`queued`), with the ones they wrote before it that no agent answered (finished, not a pass) in between (while the team
  * was designed, its design waited for confirmation, or a run could not start: one question); or, when
  * it answered an agent's question, the question before it, and so on.
  */
@@ -293,7 +293,8 @@ function firstReviewStart(messages: readonly ChatMessage[]): number {
   for (;;) {
     const before = messages.findLastIndex((m, i) => i < at && asks(m));
     if (before < 0) return at;
-    const replies = messages.slice(before + 1, at).filter((m) => m.author.kind === 'agent');
+    // Only a finished reply answers it: one stopped, failed or passed leaves the question open.
+    const replies = messages.slice(before + 1, at).filter((m) => m.author.kind === 'agent' && m.status === 'done' && !m.passed);
     if (replies.length && !replies.some((m) => m.asked)) return at;
     at = before;
   }

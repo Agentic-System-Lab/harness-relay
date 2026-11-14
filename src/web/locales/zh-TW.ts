@@ -358,6 +358,8 @@ export const zhTW = {
     placeholderConfirm: '確認團隊後它就會回答；現在寫的訊息會一起送出…',
     placeholderDesigning: '首席 agent 正在組隊；現在寫的訊息會和問題一起交給團隊…',
     placeholderReviewing: '首席 agent 正在審閱回覆；現在寫的是下一個問題，審閱完就送出（自動組隊會先組隊）…',
+    // Without auto team: the team answers it after the review.
+    placeholderReviewingTeam: '首席 agent 正在審閱回覆；現在寫的是下一個問題，審閱完就交給團隊…',
     placeholderBusy: '插話給團隊…（下一位發言前送達）',
     placeholderAnswer: (names: string) => `回答 ${names} 的問題…`,
     asking: (names: string) => `${names} 在等你回答`,
