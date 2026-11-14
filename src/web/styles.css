@@ -1289,7 +1289,9 @@ p {
   }
 
   .template-fields {
-    grid-template-columns: 1fr;
+    /* Not narrower than nothing: a plain 1fr would not go below the name box's own width, which a
+       wide font makes more than a narrow phone has. */
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
