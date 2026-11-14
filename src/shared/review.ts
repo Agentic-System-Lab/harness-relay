@@ -63,9 +63,10 @@ function searchable(
       if (code < 128) {
         push(code >= 65 && code <= 90 ? code + 32 : code, p, at, 1);
       } else {
-        // One origin per UTF-16 unit, as `indexOf` counts (lower case may be longer).
+        // One origin per UTF-16 unit, as `indexOf` counts (lower case may be longer). The dot above
+        // that lower case adds to a dotted capital I (Turkish İ) is left out: "İzmir" is "izmir".
         const lower = str.slice(at, at + size).toLowerCase();
-        for (let u = 0; u < lower.length; u++) push(lower.charCodeAt(u), p, at, size);
+        for (let u = 0; u < lower.length; u++) if (lower.charCodeAt(u) !== 0x307) push(lower.charCodeAt(u), p, at, size);
       }
       space = false;
     }
@@ -113,20 +114,54 @@ const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"'
 /** A character for a numeric entity, or the entity as written when it names none. */
 const codePoint = (n: number, all: string) => (n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : all);
 
+/** A line with no text in the chat: a table's rule, a thematic break, an empty list item, a heading's underline. */
+const ruleLine = (line: string) => (line.includes('-') && /^[ \t|:-]+$/.test(line)) || /^ {0,3}=+[ \t]*$/.test(line);
+
+/** A line that ends in a hard line break written as a backslash (an odd number of them: an even one is text). */
+const breakLine = (line: string) => line.endsWith('\\') && /(?:^|[^\\])(?:\\\\)*\\$/.test(line);
+
+/**
+ * Footnotes: a reference to one that is defined shows as its number (in the order they are first
+ * referred to), and a definition's text without its label (the chat puts it at the end, which is
+ * near enough).
+ */
+function footnotes(md: string): string {
+  const defined = new Set([...md.matchAll(/^ {0,3}\[\^([^\]\s]{1,100})\]:/gm)].map((m) => m[1]!.toLowerCase()));
+  if (!defined.size) return md;
+  const numbers = new Map<string, number>();
+  return md
+    .replace(/^( {0,3})\[\^([^\]\s]{1,100})\]:[ \t]*/gm, '$1')
+    .replace(/\[\^([^\]\s]{1,100})\]/g, (all, label: string) => {
+      const key = label.toLowerCase();
+      if (!defined.has(key)) return all;
+      if (!numbers.has(key)) numbers.set(key, numbers.size + 1);
+      return String(numbers.get(key));
+    });
+}
+
+/**
+ * Escapes and entities read, outside inline code (whose text the chat shows as written); `ticks`
+ * matches inline code first, which is kept as it is.
+ */
+const INLINE = /(`+)[^`\n]{1,2000}?\1(?!`)|\\([\\`*_{}[\]()#+\-.!|>~])|&(amp|lt|gt|quot|apos|nbsp);|&#(\d{1,7});|&#[xX]([\da-fA-F]{1,6});/g;
+
 /**
  * A reply's Markdown as the chat shows its text, near enough to find a quote in it: links by their
- * text, images and code fences' lines left out, entities and escapes read, list markers and table rules
- * dropped (Markdown's other marks are ignored when looking).
+ * text, images and code fences' lines left out, footnotes by their numbers, entities and escapes read
+ * (not in inline code), list markers, table rules, headings' underlines and hard line breaks dropped
+ * (Markdown's other marks are ignored when looking).
  */
 export function markdownText(md: string): string {
   // Each pattern reads at most a line, and a link's parts at most so far: a reply of any size (nothing
   // shortens it) is read in time proportional to its length.
-  return md
-    .split('\n')
-    // A table's rule, a thematic break or an empty list item: no text in the chat.
-    .map((line) => (line.includes('-') && /^[ \t|:-]+$/.test(line) ? ' ' : line))
-    .join('\n')
-    .replace(/^ {0,3}(?:`{3,}|~{3,}).*$/gm, ' ')
+  const lines = md.split('\n');
+  return footnotes(
+    lines
+      .map((line, i) => (ruleLine(line) ? ' ' : breakLine(line) && lines[i + 1]?.trim() ? line.slice(0, -1) : line))
+      .join('\n'),
+  )
+    // A fence's line (a backtick fence's info has no backtick: "```a``` b" is inline code).
+    .replace(/^ {0,3}(?:`{3,}[^`\n]*|~{3,}.*)$/gm, ' ')
     // An image on the web shows as a link with its alt text (or its address); one on this computer as
     // the image itself, with no text.
     .replace(/!\[([^[\]\n]{0,300})\]\(([^()\s]{0,2048})(?:[ \t]+"[^"\n]{0,500}")?\)/g, (_, alt: string, url: string) =>
@@ -136,10 +171,17 @@ export function markdownText(md: string): string {
     .replace(/\[([^[\]\n]{0,300})\]\[[^[\]\n]{0,300}\]/g, '$1')
     .replace(/<((?:https?|mailto):[^<>\s]{1,2048})>/g, '$1')
     .replace(/^((?:[ \t]*>)*[ \t]*)(?:[-*+]|\d{1,9}[.)])[ \t]+/gm, '$1')
-    .replace(/\\([\\`*_{}[\]()#+\-.!|>~])/g, '$1')
-    .replace(/&(amp|lt|gt|quot|apos|nbsp);/g, (_, name: string) => ENTITIES[name]!)
-    .replace(/&#(\d{1,7});/g, (all, n: string) => codePoint(Number(n), all))
-    .replace(/&#x([\da-f]{1,6});/gi, (all, n: string) => codePoint(parseInt(n, 16), all));
+    .replace(INLINE, (all, ticks?: string, escaped?: string, name?: string, dec?: string, hex?: string) =>
+      ticks
+        ? all
+        : escaped !== undefined
+          ? escaped
+          : name !== undefined
+            ? ENTITIES[name]!
+            : dec !== undefined
+              ? codePoint(Number(dec), all)
+              : codePoint(parseInt(hex!, 16), all),
+    );
 }
 
 /**

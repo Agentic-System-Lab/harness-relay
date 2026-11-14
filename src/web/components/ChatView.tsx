@@ -44,6 +44,8 @@ interface State {
   conv: Conversation | null;
   running: boolean;
   active: string[];
+  /** It waits for a folder another conversation is changing, and starts by itself once it is free. */
+  waitsForFolder?: boolean;
 }
 
 function upsert(messages: ChatMessage[], m: ChatMessage): ChatMessage[] {
@@ -55,8 +57,8 @@ function upsert(messages: ChatMessage[], m: ChatMessage): ChatMessage[] {
 }
 
 function reducer(s: State, e: ServerEvent): State {
-  if (e.type === 'snapshot') return { conv: e.conversation, running: e.running, active: e.activeAgentIds };
-  if (e.type === 'status') return { ...s, running: e.running, active: e.activeAgentIds };
+  if (e.type === 'snapshot') return { conv: e.conversation, running: e.running, active: e.activeAgentIds, waitsForFolder: e.waitsForFolder };
+  if (e.type === 'status') return { ...s, running: e.running, active: e.activeAgentIds, waitsForFolder: e.waitsForFolder };
   if (!s.conv) return s;
   switch (e.type) {
     case 'message':
@@ -458,6 +460,8 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   }, []);
 
   const { conv, running, active } = state;
+  // Another conversation is changing its folder: the team starts by itself once it is free.
+  const folderWait = !running && Boolean(state.waitsForFolder);
   if (!conv) return <div className="page-center muted">{error || t.common.loading}</div>;
 
   // Approval requests still waiting for an answer (only while the agent's turn is running).
@@ -739,7 +743,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
         )}
         <QueueTray
           queue={conv.queue ?? []}
-          state={awaitingConfirm || designing ? 'confirm' : reviewing ? 'review' : running ? 'busy' : 'stopped'}
+          state={awaitingConfirm || designing ? 'confirm' : reviewing ? 'review' : running ? 'busy' : folderWait ? 'folder' : 'stopped'}
           onSendNow={() => send('', [], running)}
           onWithdraw={withdraw}
         />
@@ -748,6 +752,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
           running={running}
           canContinue={hasUserMessage}
           locked={awaitingConfirm || designing}
+          waiting={folderWait}
           skipQuestion={questions.length > 0}
           placeholder={
             designing
@@ -760,6 +765,8 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
                 ? t.chat.placeholderReviewing
                 : running
                 ? t.chat.placeholderBusy
+                : folderWait
+                ? t.chat.placeholderFolder
                 : waitingForTeam
                   ? t.chat.placeholderAuto
                   : autoTeam

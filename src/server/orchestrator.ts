@@ -609,6 +609,9 @@ export class Orchestrator {
       return await fn();
     } finally {
       release();
+      // Waiting for its folder, it was passed over while this held it: it tries now, once whatever
+      // follows the change (a confirmed team starting, say) has had its go.
+      if (this.folderWaiters.has(convId)) setImmediate(() => this.retryFolderWaiters([convId]));
     }
   }
 
@@ -852,10 +855,16 @@ export class Orchestrator {
     await run.done;
   }
 
-  /** A message sent now waits in the queue (anything else that keeps the conversation busy refuses it). */
+  /**
+   * A message sent now waits in the queue (anything else that keeps the conversation busy refuses it):
+   * while the team replies, its design waits, or it waits for its folder (the message then starts with
+   * the rest once the folder is free).
+   */
   private queues(conv: Conversation): boolean {
     if (this.deleting.has(conv.id) || this.closing) return false;
-    return this.runs.has(conv.id) || this.starting.has(conv.id) || Boolean(pendingPlan(conv.messages));
+    return (
+      this.runs.has(conv.id) || this.starting.has(conv.id) || Boolean(pendingPlan(conv.messages)) || this.folderWaiters.has(conv.id)
+    );
   }
 
   private enqueue(conv: Conversation, text: string, uploads?: AttachmentUpload[], scheduled = false): void {
@@ -978,12 +987,18 @@ export class Orchestrator {
   /**
    * Start a run nobody waits for; one that fails to start says why in the chat. One that another
    * conversation's work in the same folder keeps from starting waits for it (`retry` starts it then),
-   * and says so once.
+   * and says so once; one whose waiting the user stopped (or that was deleted) while it was being set
+   * up does not wait again.
    */
   private startInBackground(conv: Conversation, opts: StartOptions, retry: () => boolean): void {
+    const waited = this.folderWaiters.has(conv.id);
     this.start(conv, '', opts).catch((err) => {
       if (err instanceof HttpError && err.code === FOLDER_LOCKED) {
-        if (!this.folderWaiters.has(conv.id)) this.systemNote(conv, t().queueWaitsForFolder(err.paths?.[0] ?? conv.settings.cwd));
+        if (waited && !this.folderWaiters.has(conv.id)) {
+          this.emitStatus(conv.id);
+          return;
+        }
+        if (!waited) this.systemNote(conv, t().queueWaitsForFolder(err.paths?.[0] ?? conv.settings.cwd));
         this.folderWaiters.set(conv.id, retry);
       } else {
         this.folderWaiters.delete(conv.id);
@@ -994,20 +1009,28 @@ export class Orchestrator {
   }
 
   /**
-   * A folder lock was released: each conversation that waited for its folder tries again, when no
-   * other conversation holds it now (as far as can be told without git). One with nothing to start any
-   * more (its messages withdrawn or sent, or it runs or waits for something else, whose end starts it)
-   * stops waiting; one that finds its folder taken again waits again, without another note.
+   * A folder lock was released (or a change to a waiting conversation is over): each conversation in
+   * `ids` that waits for its folder tries again, when no other conversation holds it now (as far as can
+   * be told without git). One that something else has for the moment (a settings change, an apply, a
+   * start of its own being set up) waits on: the end of that change tries it again (`exclusive`), and a
+   * start of its own takes it out of waiting or leaves it waiting, without another note. One with
+   * nothing to start any more (its messages withdrawn or sent, or it waits for the user, whose answer
+   * starts it) stops waiting; one that finds its folder taken again waits again, without another note.
    */
-  private retryFolderWaiters(): void {
-    for (const [id, retry] of [...this.folderWaiters]) {
+  private retryFolderWaiters(ids = [...this.folderWaiters.keys()]): void {
+    for (const id of ids) {
+      const retry = this.folderWaiters.get(id);
+      if (!retry) continue;
       const conv = this.store.get(id);
       if (!conv || this.deleting.has(id) || this.closing) {
         this.folderWaiters.delete(id);
         continue;
       }
-      if (this.folderLockedBy(conv)) continue;
-      if (!retry()) this.folderWaiters.delete(id);
+      if (this.folderLockedBy(conv) || this.isBusy(id)) continue;
+      if (!retry()) {
+        this.folderWaiters.delete(id);
+        this.emitStatus(id);
+      }
     }
   }
 
@@ -1200,7 +1223,13 @@ export class Orchestrator {
         this.store.saveMeta(conv);
       }
     }
-    this.hub.emit(conv.id, { type: 'snapshot', conversation: forClient(conv), running: false, activeAgentIds: [] });
+    this.hub.emit(conv.id, {
+      type: 'snapshot',
+      conversation: forClient(conv),
+      running: false,
+      activeAgentIds: [],
+      ...(this.folderWaiters.has(conv.id) ? { waitsForFolder: true } : {}),
+    });
   }
 
   /**
@@ -1383,6 +1412,17 @@ export class Orchestrator {
 
   stop(convId: string): void {
     this.runs.get(convId)?.abort.abort();
+    // Waiting for its folder: it stops waiting, and starts when the user sends or continues.
+    if (this.folderWaiters.delete(convId)) {
+      const conv = this.store.get(convId);
+      if (conv && !this.deleting.has(convId)) this.systemNote(conv, t().folderWaitStopped);
+      this.emitStatus(convId);
+    }
+  }
+
+  /** It waits for a folder another conversation is changing, and starts by itself once it is free. */
+  waitsForFolder(id: string): boolean {
+    return this.folderWaiters.has(id);
   }
 
   /** Shutting down: stop every run, and refuse new runs, applies and settings changes. */
@@ -2812,6 +2852,11 @@ export class Orchestrator {
   }
 
   private emitStatus(id: string): void {
-    this.hub.emit(id, { type: 'status', running: this.isRunning(id), activeAgentIds: this.activeAgentIds(id) });
+    this.hub.emit(id, {
+      type: 'status',
+      running: this.isRunning(id),
+      activeAgentIds: this.activeAgentIds(id),
+      ...(this.folderWaiters.has(id) ? { waitsForFolder: true } : {}),
+    });
   }
 }

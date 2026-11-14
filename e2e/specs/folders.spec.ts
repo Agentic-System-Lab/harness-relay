@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
-import { acceptNextDialog, chatId, finishedReply, openTeamChat, send } from '../support/app';
+import type { Conversation } from '../../src/shared/types';
+import { acceptNextDialog, chatId, composer, confirmTeam, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
 import { chatWith, CLIS, eachCli, endsTurnNote, member, needsBelowFull, writtenBy } from '../support/clis';
 
 /*
@@ -215,5 +216,62 @@ test.describe('the folder dialog', () => {
       expect(opened!.args).toContain('--title=選擇工作目錄');
       expect(opened!.env).toEqual({ LANG: 'C', LC_CTYPE: 'C.UTF-8' });
     });
+  });
+});
+
+/*
+ * Two chats in one folder: while one changes it, a team the other confirms waits for it (its note, the
+ * message box and the tray say so), gathers what the user writes meanwhile and starts on its own once
+ * the folder is free; Stop stops it waiting.
+ */
+test.describe('two chats in one folder', () => {
+  /** A chat whose member changes the folder for a few seconds, and an auto-team chat in the same folder, open. */
+  async function holderAndWaiter(page: import('@playwright/test').Page, relay: import('../support/relay').RelayServer) {
+    const holder = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' }, 'Holder');
+    await send(page, 'Take your time e2e:slow=8');
+    const waiter = await relay.api<Conversation>('/api/conversations', {
+      body: {
+        title: 'Waiter',
+        agents: [],
+        settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'edit', cwd: relay.workDir, autoTeam: true },
+      },
+    });
+    await page.goto(`${relay.base}/#/c/${waiter.id}`);
+    await send(page, 'Build it');
+    await confirmTeam(page);
+    await expect(page.locator('.msg-system').last()).toContainText('Another conversation is changing');
+    return { holder, waiter: waiter.id };
+  }
+  const tray = (page: import('@playwright/test').Page) => page.locator('.queue-tray');
+
+  test('a team confirmed while another chat changes the folder waits, gathers what is written meanwhile, and starts on its own', async ({ page, relay }) => {
+    await holderAndWaiter(page, relay);
+    await expect(composer(page)).toHaveAttribute('placeholder', /Another conversation is changing this folder/);
+    await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
+    // What is written meanwhile waits with the team, and the tray says it starts on its own.
+    await composer(page).fill('And look at the tests');
+    await composer(page).press('Enter');
+    await expect(tray(page)).toContainText('1 waiting');
+    await expect(tray(page)).toContainText('the team starts on its own once it has finished');
+    await expect(tray(page).getByRole('button', { name: /^Send/ })).toHaveCount(0);
+    // The other chat finishes: the team answers, with the message.
+    const reply = await finishedReply(page, 'Claude', 30_000);
+    await expect(tray(page)).toBeHidden();
+    await expect(page.locator('.msg-user').last()).toContainText('And look at the tests');
+    await expect(reply).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeHidden();
+  });
+
+  test('Stop stops the wait: the team starts when the user sends', async ({ page, relay }) => {
+    const { holder } = await holderAndWaiter(page, relay);
+    await page.getByRole('button', { name: 'Stop', exact: true }).click();
+    await expect(page.locator('.msg-system').last()).toContainText('Stopped waiting for the folder');
+    await expect(composer(page)).not.toHaveAttribute('placeholder', /Another conversation is changing/);
+    // The other chat finishes; this one stays as it is.
+    await settled(relay, holder);
+    await page.waitForTimeout(500);
+    await expect(replies(page, 'Claude')).toHaveCount(0);
+    await page.getByRole('button', { name: /^Continue/ }).click();
+    await finishedReply(page, 'Claude');
   });
 });

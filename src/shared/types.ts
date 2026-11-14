@@ -1408,10 +1408,11 @@ export interface SearchResult {
 
 /** Events pushed to the browser over SSE for one conversation. */
 export type ServerEvent =
-  | { type: 'snapshot'; conversation: Conversation; running: boolean; activeAgentIds: string[] }
+  /** `waitsForFolder`: it waits for a folder another conversation is changing, and starts by itself once it is free. */
+  | { type: 'snapshot'; conversation: Conversation; running: boolean; activeAgentIds: string[]; waitsForFolder?: boolean }
   | { type: 'message'; message: ChatMessage }
   | { type: 'delta'; messageId: string; partIndex: number; text: string }
-  | { type: 'status'; running: boolean; activeAgentIds: string[] }
+  | { type: 'status'; running: boolean; activeAgentIds: string[]; waitsForFolder?: boolean }
   | { type: 'queue'; queue: ChatMessage[] }
   | {
       type: 'conversation';

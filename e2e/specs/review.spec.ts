@@ -44,6 +44,18 @@ test.describe('lead review', () => {
     await card.getByRole('button', { name: 'Ask the team' }).click();
     await expect(composer(page)).toHaveValue('@Claude please go on with the next part.');
 
+    // Sent, it is answered and reviewed in turn: the first reply keeps its one mark, the new one has its own.
+    await composer(page).press('Enter');
+    await expect(reviewCards(page)).toHaveCount(2);
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const h = CSS.highlights.get('review-risk');
+          return h ? [...h].map((r) => (r as Range).toString()) : [];
+        }),
+      )
+      .toEqual(['Hello from Claude (Claude', 'Hello from Claude (Claude']);
+
     // The lead agent read the reply as it was written, and ran on its own state.
     const conv = await settled(relay, id);
     expect(conv.settings.leadReview).toBe(true);
@@ -119,6 +131,34 @@ test.describe('lead review', () => {
     await expect(await finishedReply(page, 'Claude')).toContainText('one more thing');
     await settled(relay, id);
     await expect(reviewCards(page)).toHaveCount(1);
+  });
+
+  test("an older team design card keeps why the lead agent turned it on, and only the latest has the box", async ({ page }) => {
+    await startChat(page, { leadReview: false });
+    await send(page, 'Build it e2e:leadreview');
+    await awaitingPlan(page).getByRole('button', { name: 'Confirm team' }).click();
+    await finishedReply(page, 'Claude');
+    await expect(reviewCards(page)).toHaveCount(1);
+    // The next question gets a design of its own; the review is on already, so it is not offered again.
+    await send(page, 'Now something else');
+    const latest = awaitingPlan(page);
+    await expect(latest.getByRole('checkbox', { name: LEAD_REVIEW })).toBeChecked();
+    await expect(latest).not.toContainText('turned the review on');
+    const first = page.locator('.plan-card').first();
+    await expect(first).toContainText('The lead agent turned the review on for this team: The fake lead agent wants to review what this team says.');
+    await expect(first.getByRole('checkbox', { name: LEAD_REVIEW })).toHaveCount(0);
+  });
+
+  test("the New schedule page's box turns it on for the schedule's chat", async ({ page, relay }) => {
+    await page.getByRole('button', { name: 'New schedule' }).click();
+    await page.getByRole('textbox', { name: 'Message to send the team' }).fill('Check the build');
+    const box = page.getByRole('checkbox', { name: LEAD_REVIEW });
+    await expect(box).not.toBeChecked();
+    await box.check();
+    await page.getByRole('button', { name: 'Create schedule' }).click();
+    await page.waitForURL(/#\/c\//);
+    const id = /#\/c\/([^/?]+)/.exec(page.url())![1]!;
+    expect((await relay.api<{ settings: { leadReview?: boolean } }>(`/api/conversations/${id}`)).settings.leadReview).toBe(true);
   });
 
   test('a design leaves it as it is when it is on already', async ({ page, relay }) => {

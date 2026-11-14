@@ -303,6 +303,39 @@ describe('a quote the server keeps is one the chat marks', () => {
   }
 });
 
+describe("a quote across Markdown's other forms is found as the chat shows it", () => {
+  for (const [md, quote] of [
+    ['Title\n===\n\nbody', 'Title body'],
+    ['one\\\ntwo', 'one two'],
+    ['```x``` and y', 'x and y'],
+    ['Text[^n] more.\n\n[^n]: The note.', 'Text1 more.'],
+    ['Text[^n] more.\n\n[^n]: The note.', 'The note.'],
+    ['Use `&amp;` and `\\*`', 'Use &amp; and \\*'],
+    ['İzmir is far', 'izmir is far'],
+    ['Izmir is far', 'İzmir is far'],
+    ['end \\', 'end \\'],
+  ] as const) {
+    it(`finds “${quote}” in ${JSON.stringify(md)} and in the rendered reply`, () => {
+      const page = renderedParts(md);
+      expect(hasQuote(md, quote)).toBe(true);
+      expect(findQuote(page.parts, quote, page.breaks)).toBeDefined();
+    });
+  }
+
+  it('reads them as the chat does', () => {
+    expect(markdownText('Title\n===\n\nbody')).toBe('Title\n \n\nbody');
+    // A hard line break; two backslashes are one, as text; at a paragraph's end it is text.
+    expect(markdownText('one\\\ntwo')).toBe('one\ntwo');
+    expect(markdownText('one\\\\\ntwo')).toBe('one\\\ntwo');
+    expect(markdownText('end \\\n\nnext')).toBe('end \\\n\nnext');
+    expect(markdownText('```x``` and y\n```ts\ncode\n```')).toBe('```x``` and y\n \ncode\n ');
+    // Footnotes by their numbers, in the order they are referred to; one with no definition is text.
+    expect(markdownText('a[^b] c[^a] d[^b] e[^x]\n\n[^a]: A.\n[^B]: B.')).toBe('a1 c2 d1 e[^x]\n\nA.\nB.');
+    expect(markdownText('Use `&amp;` and `\\*`, not &amp; \\*')).toBe('Use `&amp;` and `\\*`, not & *');
+    expect(findQuote(['İzmir'], 'izmir')).toEqual({ start: { part: 0, offset: 0 }, end: { part: 0, offset: 5 } });
+  });
+});
+
 describe('where a first review starts', () => {
   const asked = (id: string, name: string) => reply(id, name, 'A or B?', { asked: true });
 
