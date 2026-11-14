@@ -18,7 +18,7 @@ function fakeApp() {
 }
 
 const version = async () => '2026-11-11';
-const available = { version: '2026-11-12', page: 'https://github.com/x/y/releases/tag/2026-11-12' };
+const available = { version: '2026-11-12', changes: 'https://github.com/x/y/compare/2026-11-11...2026-11-12' };
 
 describe("the desktop app's updates, as the server passes them on", () => {
   it('are only the version when no desktop app started the server', async () => {

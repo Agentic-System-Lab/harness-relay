@@ -56,6 +56,7 @@ import {
   appImageDownload,
   appImageTarget,
   busyWithoutAsking,
+  changesPage,
   chatUpdate,
   CheckAnswers,
   CHECK_EVERY_MS,
@@ -705,7 +706,7 @@ function run(): void {
 
   /** What the chat shows of updates (Settings' Version card, the dialog offering a new version). */
   function desktopUpdate() {
-    return chatUpdate({ updates: checksUpdates(), update, updating, checking, checkedAt, checkFailed });
+    return chatUpdate({ updates: checksUpdates(), current: __RELAY_VERSION__, update, updating, checking, checkedAt, checkFailed });
   }
 
   /** Tells the server what the chat shows of updates, each time that changes, and which of its checks that answers. */
@@ -848,11 +849,12 @@ function run(): void {
       type: 'question',
       message: t.updateConfirm(release.version),
       detail: t.updateConfirmDetail,
-      buttons: [t.updateNow, t.releaseNotes, t.cancel],
+      buttons: [t.updateNow, t.whatChanged, t.cancel],
       defaultId: 0,
       cancelId: 2,
     });
-    if (response === 1) void shell.openExternal(release.page);
+    // Every change since this version, however many versions came out in between.
+    if (response === 1) void shell.openExternal(changesPage(release, __RELAY_VERSION__));
     if (response !== 0) return;
 
     setUpdating({ kind: 'downloading', done: 0 });
