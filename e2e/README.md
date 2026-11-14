@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 405 tests in 31 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 407 tests in 31 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -50,7 +50,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [What reaches each CLI besides the prompt](#what-reaches-each-cli-besides-the-prompt) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [Architecture → Tool library](../docs/architecture.md#tool-library) |
 | [The tool library](#the-tool-library) | [`tools.spec.ts`](specs/tools.spec.ts) | 15 | [User guide → Tool library](../docs/user-guide.md#tool-library-mcp-servers-skills-and-memory), [Architecture → Tool library](../docs/architecture.md#tool-library) |
 | [Changing a chat's history](#changing-a-chats-history) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [User guide → Copying, editing and retrying](../docs/user-guide.md#copying-editing-and-retrying), [Branching a conversation](../docs/user-guide.md#branching-a-conversation) |
-| [Copying and sharing](#copying-and-sharing) | [`share.spec.ts`](specs/share.spec.ts) | 9 | [User guide → Sharing a conversation](../docs/user-guide.md#sharing-a-conversation), [Architecture → Sharing a conversation](../docs/architecture.md#sharing-a-conversation) |
+| [Copying and sharing](#copying-and-sharing) | [`share.spec.ts`](specs/share.spec.ts) | 10 | [User guide → Sharing a conversation](../docs/user-guide.md#sharing-a-conversation), [Architecture → Sharing a conversation](../docs/architecture.md#sharing-a-conversation) |
 | [The sidebar](#the-sidebar) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 9 | [User guide → Groups](../docs/user-guide.md#groups), [Search](../docs/user-guide.md#search), [Starring Harness Relay on GitHub](../docs/user-guide.md#starring-harness-relay-on-github) |
 | [Schedules](#schedules) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 1 | [User guide → Schedules](../docs/user-guide.md#schedules), [Architecture → Schedules](../docs/architecture.md#schedules) |
 | [Settings](#settings) | [`settings.spec.ts`](specs/settings.spec.ts) | 13 | [User guide → Signing in](../docs/user-guide.md#signing-in), [Lead agent](../docs/user-guide.md#lead-agent), [Open agents → Model backends](../docs/open-agents.md#model-backends) |
@@ -60,7 +60,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [What each CLI loads by itself, and Grok's trust](#what-each-cli-loads-by-itself-and-groks-trust) | [`native.spec.ts`](specs/native.spec.ts) | 5 | [User guide → What each CLI loads by itself](../docs/user-guide.md#what-each-cli-loads-by-itself), [Architecture → What each CLI loads by itself](../docs/architecture.md#what-each-cli-loads-by-itself) |
 | [Agent sessions and AgentsView](#agent-sessions-and-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 10 | [User guide → Agent sessions](../docs/user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview), [Architecture → Agent homes and AgentsView](../docs/architecture.md#agent-homes-and-agentsview) |
 | [Voice input's install](#voice-inputs-install) | [`voice.spec.ts`](specs/voice.spec.ts) | 2 | [User guide → Voice input](../docs/user-guide.md#voice-input), [Architecture → Voice input](../docs/architecture.md#voice-input) |
-| [Reporting a problem](#reporting-a-problem) | [`report.spec.ts`](specs/report.spec.ts) | 5 | [User guide → Reporting a problem](../docs/user-guide.md#reporting-a-problem), [Architecture → Reporting a problem](../docs/architecture.md#reporting-a-problem) |
+| [Reporting a problem](#reporting-a-problem) | [`report.spec.ts`](specs/report.spec.ts) | 6 | [User guide → Reporting a problem](../docs/user-guide.md#reporting-a-problem), [Architecture → Reporting a problem](../docs/architecture.md#reporting-a-problem) |
 | [The guided tour and the theme](#the-guided-tour-and-the-theme) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 7 | [User guide → Language and the guided tour](../docs/user-guide.md#language-and-the-guided-tour) |
 | [Notifications and sound](#notifications-and-sound) | [`notifications.spec.ts`](specs/notifications.spec.ts) | 4 | [User guide → Notifications and sound](../docs/user-guide.md#notifications-and-sound), [Architecture → Notifications](../docs/architecture.md#notifications) |
 | [Limits the environment sets](#limits-the-environment-sets) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [Developer guide → Environment variables](../docs/developer-guide.md#environment-variables) |
@@ -276,6 +276,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | With gh signed out, the dialog signs it in with GitHub's code, then creates the link | Grok | **Sign in to GitHub** runs `gh auth login --web --hostname github.com` on the server; the dialog shows GitHub's code and its device page (the terminal's command stays as the other way); once the test approves it (the fake `gh`'s `fake-github/approve`), gh is signed in and the dialog creates the link by itself. |
 | A sign-in from the dialog can be cancelled, and started again | Grok | **Cancel** stops gh's sign-in (the dialog says Cancelled, the code goes), nothing is shared, and **Sign in to GitHub** starts a new one with its code. |
 | A sign-in GitHub refuses says so, with gh's words, and can be tried again | Grok | Denied (the fake `gh`'s `fake-github/deny`): Sign-in failed, gh's own error shown, nothing shared, **Sign in to GitHub** back. |
+| Removing a share in Settings with gh signed out signs it in there, then removes it | Grok | A share made through the dialog's sign-in, then gh signed out (the fake's `signed-in` removed): **Remove** in Settings shows the same help, signs in there (Signed in to GitHub.), and removes it on the next try (removing asks first, so it is not redone by itself). |
 | On a slow network the sign-in still makes one link, and only once | Grok | Every question about the sign-in takes 2.5 s (longer than the second between them): once approved, the dialog makes one link, and answers still on their way make no second one. |
 | Without gh, sharing says how to install it and sign it in | Claude Code | A `gh` that cannot start gets the help with the install commands and the restart note. Not on Windows, where a `#!` line cannot stand in for a missing program. |
 
@@ -391,7 +392,8 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | A report closed before it was sent is kept, and the kind and subject chosen go in the mail | The kind, subject and description outlive Escape, and the mail says `[Harness Relay] Idea: <subject>` and `Type: Idea`. |
 | A report too long for the mail link goes on the clipboard, and the mail says to paste it | The `mailto:` link stays within its limit and asks to paste the report, which is on the clipboard; the Gmail link still carries all of it. |
 | Screenshots added must be uploaded or removed before the mail can go | A text file is refused with its reason; a PNG shows a thumbnail and holds both send buttons until it is removed. |
-| Screenshots that cannot be uploaded say why, and the report goes without them | With the fake `gh` signed out, **Upload screenshots** says gh is not signed in, and once the screenshot is removed the report can go. |
+| Screenshots that cannot be uploaded say why, and the report goes without them | With the fake `gh` signed out, **Upload screenshots** shows the share dialog's help (**Sign in to GitHub**, the terminal's command, upload again), with the mail's way round it, and once the screenshot is removed the report can go. |
+| Signs gh in from the report dialog, then uploads the screenshots by itself | **Sign in to GitHub** there shows GitHub's code; once approved the help goes and the dialog uploads again by itself (the fake `gh` stops at the upload itself, which takes git). |
 
 ## Voice input's install
 

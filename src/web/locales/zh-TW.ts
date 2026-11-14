@@ -853,6 +853,7 @@ export const zhTW = {
       hint: (max: number) =>
         `可以貼上、拖進來或選擇圖片，最多 ${max} 張。按「上傳截圖」會用你的 GitHub CLI（gh）把截圖上傳成 secret gist（上傳前會拿掉拍攝位置等中繼資料），信裡附上連結。有連結的人都看得到，連結裡也看得到你的 GitHub 帳號名稱。信寄出後就收不回來：之後在 GitHub 上刪除 gist，信裡的連結會失效，但開發者已經看過或存下的截圖收不回來。`,
       upload: '上傳截圖',
+      retryUpload: '完成後回到這裡，再按一次「上傳截圖」。',
       uploading: '上傳中…',
       uploaded: '截圖已上傳，信裡會附上連結。',
       view: '在 GitHub 上查看',

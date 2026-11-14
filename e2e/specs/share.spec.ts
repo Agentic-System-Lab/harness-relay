@@ -196,6 +196,43 @@ test.describe('sharing as a secret gist', () => {
       expect(await relay.api('/api/shares')).toHaveLength(1);
     });
 
+    test("removing a share in Settings with gh signed out signs it in there, then removes it", async ({ page, relay }) => {
+      const id = await openTeamChat(page, relay, [{ name: 'Grok', provider: 'grok' }], {}, 'Remove me later');
+      await send(page, 'Share me');
+      await finishedReply(page, 'Grok');
+      await settled(relay, id);
+      // A share made while gh was signed in (from the dialog), then gh signed out again.
+      const dialog = await shareChat(page);
+      await dialog.getByRole('button', { name: 'Create link' }).click();
+      const help = dialog.getByRole('alert').filter({ hasText: 'GitHub CLI (gh) is not signed in' });
+      await help.getByRole('button', { name: 'Sign in to GitHub' }).click();
+      await expect(help.getByRole('button', { name: /ABCD-1234/ })).toBeVisible();
+      writeFileSync(join(relay.root, 'fake-github', 'approve'), '');
+      const link = dialog.getByRole('textbox', { name: 'Public link' });
+      await expect(link).toHaveValue(/\?[0-9a-f]{32}$/);
+      const gistId = (await link.inputValue()).split('?')[1]!;
+      rmSync(join(relay.root, 'fake-github', 'signed-in'));
+      rmSync(join(relay.root, 'fake-github', 'approve'));
+
+      await dialog.getByRole('link', { name: 'Manage or remove shares in Settings' }).click();
+      const card = page.locator('section', { has: page.getByRole('heading', { name: 'Shared conversations' }) });
+      const row = card.getByRole('listitem').filter({ hasText: 'Remove me later' });
+      acceptNextDialog(page);
+      await row.getByRole('button', { name: 'Remove' }).click();
+      const settingsHelp = card.getByRole('alert').filter({ hasText: 'GitHub CLI (gh) is not signed in' });
+      await expect(settingsHelp).toContainText('Then come back and remove it again.');
+      await settingsHelp.getByRole('button', { name: 'Sign in to GitHub' }).click();
+      await expect(settingsHelp.getByRole('button', { name: /ABCD-1234/ })).toBeVisible();
+      writeFileSync(join(relay.root, 'fake-github', 'approve'), '');
+      await expect(settingsHelp.getByText('Signed in to GitHub.')).toBeVisible();
+      // Removing asks first, so it is not done by itself: removed on the next try.
+      expect(existsSync(fakeGist(relay, gistId).dir)).toBe(true);
+      acceptNextDialog(page);
+      await row.getByRole('button', { name: 'Remove' }).click();
+      await expect(card.getByText('Removed 1 shared page.')).toBeVisible();
+      expect(existsSync(join(relay.root, 'fake-github', 'gists', gistId))).toBe(false);
+    });
+
     test('a sign-in from the dialog can be cancelled, and started again', async ({ page, relay }) => {
       const id = await openTeamChat(page, relay, [{ name: 'Grok', provider: 'grok' }], {}, 'Not now');
       await send(page, 'Share me');

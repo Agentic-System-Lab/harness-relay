@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type DragEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { REPORT_SCREENSHOT_EXTENSIONS, REPORT_SCREENSHOT_LIMITS, type AboutInfo, type ProviderStatus } from '../../shared/types';
+import { REPORT_SCREENSHOT_EXTENSIONS, REPORT_SCREENSHOT_LIMITS, type AboutInfo, type GH_MISSING, type GH_SIGNED_OUT, type ProviderStatus } from '../../shared/types';
 import { ApiError, api } from '../api';
 import { copyText } from '../copy';
 import { useI18n } from '../i18n';
@@ -30,9 +30,11 @@ import {
   type ReportDraft,
   type Sent,
 } from '../report';
+import { ghProblem } from '../share';
 import { isAppWindow } from '../update';
 import { formatBytes, toBase64 } from '../util';
 import { CopyButton } from './CopyButton';
+import { GhHelp } from './GhHelp';
 import { CopyIcon, MailIcon } from './icons';
 import { useDialog } from './useDialog';
 
@@ -93,6 +95,8 @@ export function ReportDialog({ providers, onClose }: Props) {
   const [notice, setNotice] = useState('');
   /** Why the upload, or removing it, failed. */
   const [failure, setFailure] = useState('');
+  /** The GitHub CLI could not be used for it (missing, or signed out), and which of the two to do again. */
+  const [gh, setGh] = useState<{ problem: typeof GH_MISSING | typeof GH_SIGNED_OUT; action: 'upload' | 'remove' }>();
   /** undefined while it loads; null when it could not be loaded (the report goes without it). */
   const [about, setAbout] = useState<AboutInfo | null>();
   const [sent, setSent] = useState<Sent>();
@@ -151,6 +155,7 @@ export function ReportDialog({ providers, onClose }: Props) {
     }
     setNotice(problem);
     setFailure('');
+    setGh(undefined);
     setShots((prev) => [...prev, ...added]);
   };
 
@@ -160,26 +165,35 @@ export function ReportDialog({ providers, onClose }: Props) {
     setShots((prev) => prev.filter((s) => s.id !== id));
     setNotice('');
     setFailure('');
+    setGh(undefined);
   };
 
-  /** Says why it failed while the dialog is open. */
-  const failed = (err: unknown) => {
-    if (live.current) setFailure((err as Error).message);
+  /**
+   * Says why it failed while the dialog is open: a GitHub CLI that is missing or signed out gets the
+   * share dialog's help, with its sign-in (`GhHelp`), anything else its own words.
+   */
+  const failed = (action: 'upload' | 'remove') => (err: unknown) => {
+    if (!live.current) return;
+    const problem = ghProblem(err);
+    if (problem) setGh({ problem, action });
+    else setFailure((err as Error).message);
   };
   // Opened again while the screenshots go up: says how that upload went.
   useEffect(() => {
-    uploads.pending?.catch(failed);
+    uploads.pending?.catch(failed('upload'));
   }, []);
 
   const uploadShots = () => {
     setNotice('');
     setFailure('');
-    uploads.upload(() => Promise.all(shots.map((s) => toBase64(s.file)))).catch(failed);
+    setGh(undefined);
+    uploads.upload(() => Promise.all(shots.map((s) => toBase64(s.file)))).catch(failed('upload'));
   };
 
   const removeUpload = () => {
     setFailure('');
-    uploads.remove().catch(failed);
+    setGh(undefined);
+    uploads.remove().catch(failed('remove'));
   };
 
   // Images pasted anywhere in the dialog, or dropped on it, become screenshots.
@@ -328,6 +342,17 @@ export function ReportDialog({ providers, onClose }: Props) {
             <p className="small warn-text" role="alert">
               {failure} {waiting && r.shots.fallback}
             </p>
+          )}
+          {gh && (
+            <>
+              {/* Signed in here, it does again what failed: the screenshots go up by themselves. */}
+              <GhHelp
+                problem={gh.problem}
+                retry={gh.action === 'upload' ? r.shots.retryUpload : t.share.gh.retryRemove}
+                onSignedIn={gh.action === 'upload' ? uploadShots : removeUpload}
+              />
+              {waiting && <p className="small muted">{r.shots.fallback}</p>}
+            </>
           )}
         </div>
 
