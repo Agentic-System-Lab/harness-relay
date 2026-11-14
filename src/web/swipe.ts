@@ -26,8 +26,11 @@ export const FLICK_SPEED = 0.4;
 /** …over its last moves, this long (ms)… */
 export const FLICK_MS = 100;
 
-/** …once it has gone this far that way (px), opens or closes the sidebar short of a swipe's distance. */
+/** …once it has gone this far that way (px), opens or closes the sidebar short of a swipe's distance… */
 export const FLICK_DISTANCE = 20;
+
+/** …unless it went back more than this (px) from the farthest it went over those moves: more than a lifting finger's wobble. */
+export const FLICK_WOBBLE = 3;
 
 /** What a swipe does: open a closed sidebar, or close an open one. */
 export type SwipeWay = 'open' | 'close';
@@ -91,8 +94,6 @@ export function swipeWay(s: SwipeStart): SwipeWay | undefined {
  */
 export class SidebarSwipe {
   private sideways = false;
-  /** The finger's last move sideways went back, the other way from the swipe's. */
-  private back = false;
   /** Where the finger was over the last `FLICK_MS`, oldest first (at least its latest place). */
   private trail: { x: number; at: number }[];
 
@@ -113,8 +114,6 @@ export class SidebarSwipe {
 
   /** The finger moved to (x, y) at `at` (ms, on the clock the start was on). */
   move(x: number, y: number, at: number): SwipeStep {
-    const last = this.trail[this.trail.length - 1]!;
-    if (x !== last.x) this.back = this.ahead(x, last.x) < 0;
     this.trail.push({ x, at });
     while (this.trail.length > 1 && this.trail[0]!.at < at - FLICK_MS) this.trail.shift();
     const forward = this.ahead(x, this.x);
@@ -133,11 +132,13 @@ export class SidebarSwipe {
   end(x: number, y: number, at: number): SwipeStep {
     const step = this.move(x, y, at);
     if (step !== 'wait') return step;
-    // Not sideways, not far enough, or turned back before it lifted: no flick.
-    if (!this.sideways || this.back || this.ahead(x, this.x) < FLICK_DISTANCE) return 'drop';
+    if (!this.sideways || this.ahead(x, this.x) < FLICK_DISTANCE) return 'drop';
+    // Turned back before it lifted, more than a wobble: no flick.
+    const farthest = Math.max(...this.trail.map((p) => this.ahead(p.x, this.x)));
+    if (farthest - this.ahead(x, this.x) > FLICK_WOBBLE) return 'drop';
     const from = this.trail[0]!;
-    // At least a millisecond: moves sent together have the same time.
-    const speed = this.ahead(x, from.x) / Math.max(at - from.at, 1);
+    // Moves sent together have the same time: Infinity, a flick (and with no move, NaN, none).
+    const speed = this.ahead(x, from.x) / (at - from.at);
     return speed >= FLICK_SPEED ? this.way : 'drop';
   }
 }

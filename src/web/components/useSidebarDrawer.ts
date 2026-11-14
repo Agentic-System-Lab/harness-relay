@@ -45,6 +45,12 @@ export function useSidebarDrawer(open: boolean, setOpen: (open: boolean) => void
     if (typeof matchMedia !== 'function') return;
     const drawer = matchMedia(DRAWER_MEDIA);
     let swipe: SidebarSwipe | undefined;
+    /**
+     * The boxes under the finger that scroll sideways, measured at its first move (a tap has none, or
+     * hardly any), before the browser scrolls one: by the time the move turns out sideways, Android's
+     * Chrome, which sends moves from 8dp on, may have started scrolling a box near its end.
+     */
+    let boxes: (() => SideScroll[]) | undefined;
     const apply = (step: ReturnType<SidebarSwipe['move']>) => {
       if (step === 'wait') return;
       swipe = undefined;
@@ -53,6 +59,7 @@ export function useSidebarDrawer(open: boolean, setOpen: (open: boolean) => void
 
     const onStart = (e: TouchEvent) => {
       swipe = undefined;
+      boxes = undefined;
       const touch = e.touches[0];
       if (!touch) return;
       const target = e.target instanceof Element ? e.target : null;
@@ -64,11 +71,16 @@ export function useSidebarDrawer(open: boolean, setOpen: (open: boolean) => void
         control: !!target?.closest(CONTROLS),
         selecting: textSelected(),
       });
-      if (way) swipe = new SidebarSwipe(way, touch.clientX, touch.clientY, e.timeStamp, () => scrollTakesSwipe(sideScrolls(target), way));
+      if (!way) return;
+      let measured: SideScroll[] | undefined;
+      const measure = () => (measured ??= sideScrolls(target));
+      boxes = measure;
+      swipe = new SidebarSwipe(way, touch.clientX, touch.clientY, e.timeStamp, () => scrollTakesSwipe(measure(), way));
     };
     const onMove = (e: TouchEvent) => {
       const touch = e.touches[0];
       if (!swipe || !touch) return;
+      boxes?.();
       apply(e.touches.length === 1 ? swipe.move(touch.clientX, touch.clientY, e.timeStamp) : 'drop');
     };
     const onEnd = (e: TouchEvent) => {

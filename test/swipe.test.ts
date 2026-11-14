@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   FLICK_DISTANCE,
   FLICK_MS,
+  FLICK_WOBBLE,
   SWIPE_DISTANCE,
   SWIPE_HOLD_MS,
   SWIPE_SLOP,
@@ -211,6 +212,42 @@ describe('where the finger lifts', () => {
     expect(steps(stopped, [[112, 300, 10], [140, 300, 30]])).toEqual(['wait', 'wait']);
     // Lifted where it stopped, FLICK_MS later.
     expect(stopped.end(140, 300, 30 + FLICK_MS + 1)).toBe('drop');
+  });
+
+  it('counts a point exactly FLICK_MS old, a speed of exactly FLICK_SPEED, and the distance from where it touched', () => {
+    // From 101 at 100ms (exactly 100ms before the lift) 45px: 0.45px/ms; from 144 at 190ms only 0.2.
+    const edge = new SidebarSwipe('open', 100, 300, 0);
+    expect(steps(edge, [[101, 300, 100], [144, 300, 190]])).toEqual(['wait', 'wait']);
+    expect(edge.end(146, 300, 200)).toBe('open');
+    // 40px over the last 100ms: exactly 0.4px/ms.
+    const exact = new SidebarSwipe('open', 100, 300, 0);
+    expect(steps(exact, [[101, 300, 100], [130, 300, 190]])).toEqual(['wait', 'wait']);
+    expect(exact.end(141, 300, 200)).toBe('open');
+    // 15px slowly, then 10px quickly: 25px from the touch, though only 10px over the last 100ms.
+    const late = new SidebarSwipe('open', 100, 300, 0);
+    expect(steps(late, [[112, 300, 150], [115, 300, 300]])).toEqual(['wait', 'wait']);
+    expect(late.end(125, 300, 320)).toBe('open');
+  });
+
+  it("does not let a lifting finger's wobble back undo a flick, only a turn back of more than FLICK_WOBBLE", () => {
+    const flick = (back: number) => {
+      const swipe = new SidebarSwipe('open', 100, 300, 0);
+      steps(swipe, [[115, 300, 10], [140, 300, 20]]);
+      return swipe.end(140 - back, 300, 30);
+    };
+    expect(flick(0.5)).toBe('open');
+    expect(flick(1)).toBe('open');
+    expect(flick(FLICK_WOBBLE)).toBe('open');
+    expect(flick(FLICK_WOBBLE + 0.5)).toBe('drop');
+    expect(flick(5)).toBe('drop');
+    // The same closing.
+    const close = new SidebarSwipe('close', 300, 300, 0);
+    steps(close, [[285, 300, 10], [260, 300, 20]]);
+    expect(close.end(261, 300, 30)).toBe('close');
+    // Back a pixel at a time, more than FLICK_WOBBLE in all.
+    const creep = new SidebarSwipe('open', 100, 300, 0);
+    steps(creep, [[115, 300, 10], [140, 300, 20], [139, 300, 25], [138, 300, 30], [137, 300, 35], [136, 300, 40]]);
+    expect(creep.end(135, 300, 45)).toBe('drop');
   });
 
   it('does nothing when the finger lifts before its direction is told, the other way, or going back', () => {
