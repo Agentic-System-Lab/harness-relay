@@ -711,7 +711,12 @@ describe('waiting for the folder', () => {
 
   it("lets a conversation's own follow-up go before those waiting for its folder", async () => {
     const { first, other, releaseOther } = await waitingBehindOther();
-    // The holder gets a message that waits for a run of its own (for Alice, who has spoken).
+    // The holder's first turn (Alice's) has started, and so has taken the gate it waits on: the one
+    // set below is for her next turn only.
+    await vi.waitFor(() => expect(calls.some((c) => c.name === 'Alice' && c.stateKey?.startsWith(`conv.${other.id}.`))).toBe(true), {
+      timeout: 20_000,
+    });
+    // The holder gets a message that waits for a run of its own (for Alice, whose turn is under way).
     await orchestrator.send(other.id, '@Alice and another thing');
     expect(other.queue?.length ?? 0).toBeGreaterThan(0);
     // Its own next run is slow to set up: it still goes first, the waiting one trying only after it.
