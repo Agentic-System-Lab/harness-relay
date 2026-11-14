@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
+import { MIRROR } from '../site/assets/downloads.js';
 import { DEFAULT_HOST, DEFAULT_PORT } from '../src/server/ports';
 import { signInLink } from '../src/server/signin';
 import { slow } from './timeouts';
@@ -22,7 +23,7 @@ afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 /** The environment without what Codespaces, an earlier test or the user's shell set for start.sh. */
 function clean(env: Record<string, string>): NodeJS.ProcessEnv {
-  const drop = ['CODESPACE_NAME', 'GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN', 'PORT', 'RELAY_ALLOWED_HOSTS'];
+  const drop = ['CODESPACES', 'CODESPACE_NAME', 'GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN', 'PORT', 'RELAY_ALLOWED_HOSTS', 'DO_NOT_TRACK'];
   return { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !drop.includes(k))), ...env };
 }
 
@@ -76,6 +77,34 @@ function start(running: boolean, env: Record<string, string>): { out: string; ca
   return { out, calls: readFileSync(calls, 'utf8').trim().split('\n') };
 }
 
+/**
+ * A checkout as count.sh needs it (its scripts and the module that names the mirror), in a folder of its
+ * own, so that its mark goes there: count.sh run in it as `postCreateCommand` runs it, with a stand-in
+ * for `curl` that succeeds unless `fails`. What it printed, curl's arguments, and whether it left its mark.
+ */
+function counter() {
+  const at = mkdtempSync(join(tmp, 'checkout-'));
+  for (const path of ['.devcontainer/count.sh', '.devcontainer/codespace.sh', 'site/assets/downloads.js']) {
+    mkdirSync(join(at, path, '..'), { recursive: true });
+    writeFileSync(join(at, path), read(path));
+  }
+  const curl = join(at, 'bin', 'curl');
+  mkdirSync(join(at, 'bin'));
+  writeFileSync(curl, '#!/bin/sh\necho "curl $*" >> "$STUB_CALLS"\n[ "$STUB_FAILS" = 1 ] && exit 22 || exit 0\n');
+  chmodSync(curl, 0o755);
+  const calls = join(at, 'calls');
+  return (env: Record<string, string>, fails = false) => {
+    writeFileSync(calls, '');
+    const out = execFileSync('bash', [join(at, '.devcontainer', 'count.sh')], {
+      cwd: tmp,
+      env: clean({ ...env, PATH: `${join(at, 'bin')}${delimiter}${process.env.PATH}`, STUB_CALLS: calls, STUB_FAILS: fails ? '1' : '0' }),
+      encoding: 'utf8',
+    });
+    return { out, calls: readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean), marked: existsSync(join(at, 'data', 'codespace-counted')) };
+  };
+}
+const COUNT = `curl -fsS -o /dev/null --max-time 10 -X POST ${MIRROR}/codespaces`;
+
 // Each start runs bash, sed and the stand-ins: more than Vitest's 5 s on a busy system.
 describe('the dev container', { timeout: slow(20_000) }, () => {
   it('forwards the port npm start listens on, and runs its own scripts', () => {
@@ -83,6 +112,14 @@ describe('the dev container', { timeout: slow(20_000) }, () => {
     expect(Object.keys(config.portsAttributes as object)).toEqual([String(DEFAULT_PORT)]);
     expect(config.onCreateCommand).toBe('bash .devcontainer/setup.sh');
     expect(config.postAttachCommand).toBe('bash .devcontainer/start.sh');
+    // After the codespace is made for someone, never in a prebuild (onCreateCommand and
+    // updateContentCommand run there).
+    expect(config.postCreateCommand).toBe('bash .devcontainer/count.sh');
+    // Offered on the create page, to leave it uncounted.
+    expect(Object.keys(config.secrets as object)).toEqual(['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'DO_NOT_TRACK']);
+    expect((config.secrets as Record<string, { documentationUrl: string }>).DO_NOT_TRACK!.documentationUrl).toBe(
+      'https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/codespaces.md#what-is-counted',
+    );
   });
 
   it('gives bubblewrap what it needs, and no more than that', () => {
@@ -153,6 +190,52 @@ describe('the dev container', { timeout: slow(20_000) }, () => {
     // The environment first.
     expect(ask('CODESPACE_NAME', { CODESPACE_NAME: 'from-env' })).toBe('from-env');
     expect(ask('GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN')).toBe('');
+  });
+
+  it.skipIf(!posix)('counts a codespace once, at the mirror, with nothing in the request', () => {
+    const run = counter();
+    const first = run({ CODESPACES: 'true' });
+    expect(first.calls).toEqual([COUNT]);
+    expect(first.out).toBe('');
+    expect(first.marked).toBe(true);
+    // Not again, when it is rebuilt: the mark is in data/, which a rebuild keeps with /workspaces.
+    expect(run({ CODESPACES: 'true' }).calls).toEqual([]);
+    expect(read('.gitignore')).toMatch(/^\/?data\/?$/m);
+  });
+
+  it.skipIf(!posix)('tries again at the next rebuild when the mirror could not count it, and never fails the codespace', () => {
+    const run = counter();
+    const failed = run({ CODESPACES: 'true' }, true);
+    expect(failed.calls).toEqual([COUNT]);
+    expect(failed.out).toBe('');
+    expect(failed.marked).toBe(false);
+    expect(run({ CODESPACES: 'true' }).calls).toEqual([COUNT]);
+  });
+
+  it.skipIf(!posix)('leaves it uncounted with DO_NOT_TRACK set, and says so', () => {
+    for (const value of ['1', 'true', 'yes']) {
+      const r = counter()({ CODESPACES: 'true', DO_NOT_TRACK: value });
+      expect(r.calls, value).toEqual([]);
+      expect(r.out, value).toBe('DO_NOT_TRACK is set: this codespace is not counted.\n');
+      expect(r.marked, value).toBe(false);
+    }
+    // 0, or empty, is not set.
+    for (const value of ['0', '']) expect(counter()({ CODESPACES: 'true', DO_NOT_TRACK: value }).calls, value).toEqual([COUNT]);
+  });
+
+  it('counts at the mirror the website names', () => {
+    expect(MIRROR).toMatch(/^https:\/\/[^/]+$/);
+    expect(read('.devcontainer/count.sh')).toContain(`import { MIRROR } from './site/assets/downloads.js'`);
+  });
+
+  // In a codespace, Codespaces' file says it is one, whatever the environment says.
+  it.skipIf(!posix || existsSync(CODESPACES_ENV))('counts nothing outside a codespace (a dev container on your own computer)', () => {
+    for (const env of [{}, { CODESPACES: 'false' }] as Record<string, string>[]) {
+      const r = counter()(env);
+      expect(r.calls).toEqual([]);
+      expect(r.out).toBe('');
+      expect(r.marked).toBe(false);
+    }
   });
 
   // In a codespace, start.sh finds its address in the file Codespaces writes, whatever the environment says.

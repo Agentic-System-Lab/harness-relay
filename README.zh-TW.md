@@ -6,9 +6,9 @@
 
 **網站：** https://agentic-system-lab.github.io/harness-relay/zh-TW/
 
-**不安裝任何東西就試用：** 在你自己的 GitHub codespace 打開它。它的 dev container 會安裝七個非開源的 agent CLI（Claude Code、Codex、Copilot、Grok、Cursor、Antigravity 和 Muse Code）、建置並啟動 app，網址只有你的 GitHub 帳號打得開。詳見[在 GitHub Codespaces 試用](docs/codespaces.zh-TW.md)。
+**不安裝任何東西就試用：** 在你自己的 GitHub codespace 打開最新的正式版。它的 dev container 會安裝七個非開源的 agent CLI（Claude Code、Codex、Copilot、Grok、Cursor、Antigravity 和 Muse Code）、建置並啟動 app，網址只有你的 GitHub 帳號打得開。詳見[在 GitHub Codespaces 試用](docs/codespaces.zh-TW.md)。
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1)
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1)
 
 一個在本機執行的群組聊天室，讓真正的 **Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 和 Muse Code** CLI，以及五個用你選的模型來源執行的開源 coding agent（**OpenCode、Goose、Cline、OpenHands 與 Pi**）組成團隊：替每個 agent 安排角色、決定輪流發言的方式，它們就會處理你的程式碼或任何問題，並且互相回應。
 

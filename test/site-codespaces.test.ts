@@ -5,7 +5,8 @@ import { describe, expect, it } from 'vitest';
 // same, the links still work without JavaScript, and its sample terminal is what start.sh prints.
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
-const CODESPACES = 'https://codespaces.new/Agentic-System-Lab/harness-relay?quickstart=1';
+// The newest release's branch (test/codespaces-release.test.ts).
+const CODESPACES = 'https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1';
 const PAGES = { 'site/index.html': 'docs/codespaces.md', 'site/zh-TW/index.html': 'docs/codespaces.zh-TW.md' } as const;
 
 /** The page's Codespaces dialog, as written. */
@@ -36,7 +37,7 @@ describe('the Codespaces dialog on the landing page', () => {
     const count = (html: string, pattern: RegExp) => html.match(pattern)?.length ?? 0;
     for (const pattern of [/<li>/g, /<code>/g, /<h[23]\b/g, /<a /g]) expect(count(zh!, pattern), String(pattern)).toBe(count(en!, pattern));
     // The facts that are the same words in both: the agents it installs (the seven that are not open source), the folder, the commands.
-    for (const fact of ['Claude Code', 'Codex', 'Copilot', 'Grok', 'Cursor', 'Antigravity', 'Muse Code', 'OpenCode', '120 core-hours', '/workspaces/playground', 'env -u GITHUB_TOKEN gh auth login', 'bash .devcontainer/start.sh', '8787']) {
+    for (const fact of ['Claude Code', 'Codex', 'Copilot', 'Grok', 'Cursor', 'Antigravity', 'Muse Code', 'OpenCode', '120 core-hours', '/workspaces/playground', 'env -u GITHUB_TOKEN gh auth login', 'bash .devcontainer/start.sh', '8787', 'DO_NOT_TRACK']) {
       expect(en, fact).toContain(fact);
       expect(zh, fact).toContain(fact);
     }

@@ -35,6 +35,9 @@ env:
   RELEASE_TIME_ZONE: Asia/Taipei
   # The download mirror's R2 bucket (bucket_name in mirror/wrangler.toml).
   MIRROR_BUCKET: harness-relay-mirror
+  # The branch GitHub Codespaces opens from the README's and the website's links: the newest release's
+  # commit, moved there by the release job (docs/codespaces.md).
+  CODESPACES_BRANCH: latest-release
 
 defaults:
   run:
@@ -569,6 +572,35 @@ jobs:
           cat "$RUNNER_TEMP/changes.md" >> "$RUNNER_TEMP/notes.md"
           # The tag is made on the commit that was checked and built.
           gh release create "$TAG" installers/* --target "$GITHUB_SHA" --title "$TITLE" --notes-file "$RUNNER_TEMP/notes.md" "${channel[@]}"
+
+      # The README's and the website's Codespaces links open CODESPACES_BRANCH, so that a codespace runs
+      # the newest release, not main as it is (docs/codespaces.md): the branch is moved to the commit the
+      # release was made on, or made there the first time. A release only, as the website offers no
+      # release candidate. GitHub can refuse the workflow's token a branch that changes .github/workflows
+      # (when main's workflow files changed while this run built, say): then, and on any other failure, it
+      # only warns (the release is out, and codespaces open the release before) and says how to move it by
+      # hand (docs/developer-guide.md, "Releasing").
+      - name: Point GitHub Codespaces at the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.check.outputs.tag }}
+          PRERELEASE: ${{ needs.check.outputs.prerelease }}
+        run: |
+          if [ "$PRERELEASE" = true ]; then
+            echo "A release candidate: GitHub Codespaces keeps opening the newest release."
+            exit 0
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$CODESPACES_BRANCH" --silent 2>/dev/null; then
+            move=(-X PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/$CODESPACES_BRANCH" -f sha="$GITHUB_SHA" -F force=true)
+          else
+            move=(-X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/heads/$CODESPACES_BRANCH" -f sha="$GITHUB_SHA")
+          fi
+          moved=$(gh api "${move[@]}" --jq .object.sha 2>&1) || true
+          if [ "$moved" = "$GITHUB_SHA" ]; then
+            echo "GitHub Codespaces opens $TAG: $CODESPACES_BRANCH is at $GITHUB_SHA."
+          else
+            echo "::warning::Could not point $CODESPACES_BRANCH at $TAG ($moved): GitHub Codespaces still opens the release before it. By hand: gh api ${move[*]}"
+          fi
 
       # The mirror keeps the newest two releases (by version): the one before may still be offered by a
       # page that kept it (for ten minutes), or be downloading. Older ones are removed, so that the bucket

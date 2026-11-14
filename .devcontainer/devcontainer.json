@@ -21,6 +21,9 @@
   "onCreateCommand": "bash .devcontainer/setup.sh",
   // When the code is new: the app's packages and its UI.
   "updateContentCommand": "npm ci && npm run build",
+  // Once, when the codespace has been made for you (never in a prebuild): count it, with nothing about
+  // you (docs/codespaces.md, "What is counted"); not with DO_NOT_TRACK set, and never outside Codespaces.
+  "postCreateCommand": "bash .devcontainer/count.sh",
   // Each time the editor opens it: start the server, or print another sign-in link if it runs.
   "postAttachCommand": "bash .devcontainer/start.sh",
   "forwardPorts": [8787],
@@ -30,7 +33,8 @@
   },
   // Offered on the codespace's advanced create page; each one is optional. Codespaces passes them
   // to the server as environment variables, so they are not kept in its database. (The open-source
-  // agents take only the keys set in Settings → Model backends, never the server's own.)
+  // agents take only the keys set in Settings → Model backends, never the server's own.) DO_NOT_TRACK
+  // is for count.sh, and no secret.
   "secrets": {
     "ANTHROPIC_API_KEY": {
       "description": "Optional: an Anthropic API key. Claude Code then runs on it, billed by use, instead of a sign-in.",
@@ -39,6 +43,10 @@
     "OPENAI_API_KEY": {
       "description": "Optional: an OpenAI API key. Codex then runs on it, billed by use, instead of a sign-in.",
       "documentationUrl": "https://platform.openai.com/api-keys"
+    },
+    "DO_NOT_TRACK": {
+      "description": "Optional: 1, and this codespace is not counted. Otherwise it tells Harness Relay once that a codespace was made, with nothing about you.",
+      "documentationUrl": "https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/codespaces.md#what-is-counted"
     }
   }
 }
