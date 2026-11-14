@@ -23,7 +23,8 @@ export const copilot: CliFacts = {
   // It runs `echo` without asking (it takes it for read-only); edit mode asks before publishing.
   approve: { permission: 'edit', directive: 'e2e:approve=publish', command: 'npm publish e2e-approval' },
   decline: 'ends-turn',
-  readOnlyWriteAsks: true,
+  // In a read-only chat every working directory is read-only in its sandbox, whose file tools refuse a write there without asking.
+  readOnlyWriteAsks: false,
   // Its file tools keep to its sandbox's policy: a write outside it fails without asking.
   outsideWrite: { asks: false, writtenOnceAllowed: false },
   otherCwdWriteAsks: false,

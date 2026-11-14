@@ -17,10 +17,12 @@
  * Whether something happens is decided only by what Harness Relay gave it, as with the real one: its
  * flags (`--sandbox`, `--allow-all`, `--add-dir`, `--model`, `--reasoning-effort`,
  * `--excluded-tools skill`), its home's `settings.json` (`sandbox`: on only with `--sandbox` too, its
- * read-write and denied paths), the session's `allow_all` option, and the answers to its permission
- * requests. Without allow-all it asks before every command but `echo` (which it takes for read-only),
- * every file it writes and every URL it fetches; in its sandbox a write outside the working directory,
- * a temporary folder of its own and the policy's read-write paths (or in a denied one) fails without asking.
+ * read-write and denied paths, and `addCurrentWorkingDirectory`, off in a read-only run), the session's
+ * `allow_all` option, and the answers to its permission requests. Without allow-all it asks before
+ * every command but `echo` (which it takes for read-only), every file it writes and every URL it
+ * fetches; in its sandbox a write outside the working directory (while `addCurrentWorkingDirectory`
+ * is on), a temporary folder of its own and the policy's read-write paths (or in a denied one) fails
+ * without asking, so in a read-only run every write does.
  * A refused, cancelled or unanswered call fails, and the turn ends there at once (`end_turn`, nothing
  * more said). `/sandbox policy` is answered without the model: the policy its settings give, as
  * Copilot prints it.
@@ -214,6 +216,9 @@ function sandboxOf(cwd) {
   return {
     on: true,
     bypass: sb.allowBypass === true,
+    // Its working directory is writable only while `addCurrentWorkingDirectory` is on (a read-only run turns it off).
+    cwdWritable: sb.addCurrentWorkingDirectory !== false,
+    userWritable: fsp.readwritePaths || [],
     // Its own temporary folder only (`<temp>/copilot-<uuid>`), not the system's whole temporary folder.
     writable: [...(sb.addCurrentWorkingDirectory === false ? [] : [cwd]), ...(fsp.readwritePaths || []), path.join(os.tmpdir(), `copilot-${process.pid}`)],
     readonly: fsp.readonlyPaths || [],
@@ -229,9 +234,9 @@ function policyText(cwd, sb) {
     `Effective sandbox policy for ${cwd}`,
     '',
     `\u001b[1mUser-configured paths:\u001b[22m`,
-    list('Read-write paths', sb.writable.slice(1, -1)) + list('Read-only paths', sb.readonly) + list('Denied paths', sb.denied),
-    `\u001b[1mWorking directory:\u001b[22m`,
-    `  Read-write paths (1):\n    ${cwd}\n`,
+    list('Read-write paths', sb.userWritable) + list('Read-only paths', sb.readonly) + list('Denied paths', sb.denied),
+    // Only while the setting is on, as copilot 1.0.112 prints it.
+    ...(sb.cwdWritable ? [`\u001b[1mWorking directory:\u001b[22m`, `  Read-write paths (1):\n    ${cwd}\n`] : []),
     `\u001b[1mCapabilities:\u001b[22m`,
     `  Allow sandbox bypass: ${sb.bypass ? 'yes' : 'no'}`,
     '',
