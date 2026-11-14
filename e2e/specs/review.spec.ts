@@ -151,12 +151,18 @@ test.describe('lead review', () => {
     await expect(reviewCards(page)).toHaveCount(2);
   });
 
-  test("the New schedule page's box turns it on for the schedule's chat", async ({ page, relay }) => {
+  test("the New schedule page's box turns it on for the schedule's chat, and says a new chat each time starts with it off", async ({ page, relay }) => {
     await page.getByRole('button', { name: 'New schedule' }).click();
     await page.getByRole('textbox', { name: 'Message to send the team' }).fill('Check the build');
     const box = page.getByRole('checkbox', { name: LEAD_REVIEW });
     await expect(box).not.toBeChecked();
     await box.check();
+    // Each new chat the schedule opens starts with it off: the box is for the schedule's own chat.
+    const hint = page.locator('.lead-review');
+    await expect(hint).not.toContainText('Each new chat the schedule opens');
+    await page.getByRole('checkbox', { name: 'Start a new chat each time' }).check();
+    await expect(hint).toContainText('Each new chat the schedule opens starts with it off.');
+    await page.getByRole('checkbox', { name: 'Start a new chat each time' }).uncheck();
     await page.getByRole('button', { name: 'Create schedule' }).click();
     await page.waitForURL(/#\/c\//);
     const id = /#\/c\/([^/?]+)/.exec(page.url())![1]!;

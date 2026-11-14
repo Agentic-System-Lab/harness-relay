@@ -1519,7 +1519,6 @@ export function createApp({
         conversation: forClient(conv),
         running: orchestrator.isRunning(conv.id),
         activeAgentIds: orchestrator.activeAgentIds(conv.id),
-        ...(orchestrator.waitsForFolder(conv.id) ? { waitsForFolder: true } : {}),
       });
       while (queue.length) await send(queue.shift()!);
       ready = true;

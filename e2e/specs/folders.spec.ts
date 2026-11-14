@@ -1,8 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
-import type { Conversation } from '../../src/shared/types';
-import { acceptNextDialog, chatId, composer, confirmTeam, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
+import { acceptNextDialog, chatId, finishedReply, openTeamChat, send } from '../support/app';
 import { chatWith, CLIS, eachCli, endsTurnNote, member, needsBelowFull, writtenBy } from '../support/clis';
 
 /*
@@ -216,77 +215,5 @@ test.describe('the folder dialog', () => {
       expect(opened!.args).toContain('--title=選擇工作目錄');
       expect(opened!.env).toEqual({ LANG: 'C', LC_CTYPE: 'C.UTF-8' });
     });
-  });
-});
-
-/*
- * Two chats in one folder: while one changes it, a team the other confirms waits for it (its note, the
- * message box and the tray say so), gathers what the user writes meanwhile and starts on its own once
- * the folder is free; Stop stops it waiting.
- */
-test.describe('two chats in one folder', () => {
-  /**
-   * A chat whose member changes the folder until the test stops it (its reply would take two minutes:
-   * no test waits on a time), and an auto-team chat in the same folder, open.
-   */
-  async function holderAndWaiter(page: import('@playwright/test').Page, relay: import('../support/relay').RelayServer) {
-    const holder = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' }, 'Holder');
-    await send(page, 'Take your time e2e:slow=120');
-    const waiter = await relay.api<Conversation>('/api/conversations', {
-      body: {
-        title: 'Waiter',
-        agents: [],
-        settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'edit', cwd: relay.workDir, autoTeam: true },
-      },
-    });
-    await page.goto(`${relay.base}/#/c/${waiter.id}`);
-    await send(page, 'Build it');
-    await confirmTeam(page);
-    await expect(page.locator('.msg-system').last()).toContainText('Another conversation is changing');
-    return { holder, waiter: waiter.id };
-  }
-  const tray = (page: import('@playwright/test').Page) => page.locator('.queue-tray');
-  /** The other chat is done changing the folder (stopped): the folder is free. */
-  const freeFolder = (relay: import('../support/relay').RelayServer, holder: string) => relay.api(`/api/conversations/${holder}/stop`, { body: {} });
-
-  test('a team confirmed while another chat changes the folder waits, gathers what is written meanwhile, and starts on its own', async ({ page, relay }) => {
-    const { holder } = await holderAndWaiter(page, relay);
-    await expect(composer(page)).toHaveAttribute('placeholder', /Another conversation is changing this folder/);
-    await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
-    // What is written meanwhile waits with the team, and the tray says it starts on its own.
-    await composer(page).fill('And look at the tests');
-    await composer(page).press('Enter');
-    await expect(tray(page)).toContainText('1 waiting for the folder');
-    await expect(tray(page)).toContainText('the team starts on its own once it has finished');
-    await expect(tray(page).getByRole('button', { name: /^Send/ })).toHaveCount(0);
-    // Opened again (the stream's first snapshot), it still says so; on a phone too, where the tray's
-    // note is hidden but its title says it.
-    await page.reload();
-    await expect(composer(page)).toHaveAttribute('placeholder', /Another conversation is changing this folder/);
-    await page.setViewportSize({ width: 360, height: 760 });
-    await expect(tray(page).locator('.queue-title')).toHaveText('1 waiting for the folder');
-    await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
-    // The other chat is done: the team answers, with the message.
-    await freeFolder(relay, holder);
-    const reply = await finishedReply(page, 'Claude');
-    await expect(tray(page)).toBeHidden();
-    await expect(page.locator('.msg-user').last()).toContainText('And look at the tests');
-    await expect(reply).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeHidden();
-  });
-
-  test('Stop stops the wait: the team starts when the user sends', async ({ page, relay }) => {
-    const { holder } = await holderAndWaiter(page, relay);
-    await page.getByRole('button', { name: 'Stop', exact: true }).click();
-    await expect(page.locator('.msg-system').last()).toContainText('Stopped waiting for the folder');
-    await expect(composer(page)).not.toHaveAttribute('placeholder', /Another conversation is changing/);
-    // The other chat is done; this one stays as it is.
-    await freeFolder(relay, holder);
-    await settled(relay, holder);
-    await page.waitForTimeout(500);
-    await expect(replies(page, 'Claude')).toHaveCount(0);
-    await page.getByRole('button', { name: /^Continue/ }).click();
-    await finishedReply(page, 'Claude');
   });
 });

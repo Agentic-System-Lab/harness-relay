@@ -12,8 +12,8 @@ import type {
   Conversation,
   ConversationBranch,
   ConversationSchedule,
+  ConversationSettings,
   FileChange,
-  FolderWait,
   LeadReview,
   MessageChanges,
   MessagePart,
@@ -23,7 +23,7 @@ import type {
   TeamRevision,
 } from '../shared/types';
 import { splitAsk } from '../shared/ask';
-import { OPEN_PROVIDERS, PROVIDER_LABEL, REVISE_REQUEST_MAX, confirmedUnanswered, cwdsOf, isEndpointCli, isOpenProvider, pendingPlan, permissionAbove, planSavable } from '../shared/types';
+import { OPEN_PROVIDERS, PROVIDER_LABEL, REVISE_REQUEST_MAX, cwdsOf, isEndpointCli, isOpenProvider, pendingPlan, permissionAbove, planSavable } from '../shared/types';
 import { AgentRunError, runners, type AgentEvent, type RunResult } from './agents';
 import { emptyStateFolder, removeConversationState } from './agents/open';
 import { stateKeys, type ApprovalRequest } from './agents/types';
@@ -211,19 +211,8 @@ export type ScheduledSend =
   | { result: 'busy'; reason?: string }
   | { result: 'skipped' | 'failed'; reason: string };
 
-/** `HttpError.code` of a run that cannot start because another conversation is changing its folder. */
-const FOLDER_LOCKED = 'folder-locked';
-
-/** `HttpError.code` of a run that Stop kept from starting while it was being set up. */
-const STOPPED = 'stopped';
-
-/**
- * A run that could not start: Stop came while it was set up (not tried again), another conversation is
- * writing in the same folder (409) or the server is stopping (503), or else it failed.
- */
+/** A run that could not start: another conversation is writing in the same folder (409) or the server is stopping (503), or else it failed. */
 function sendFailure(err: unknown): ScheduledSend {
-  // Stop came while its run was set up: the user does not want it now, so it is not tried again.
-  if (err instanceof HttpError && err.code === STOPPED) return { result: 'skipped', reason: err.message };
   if (err instanceof HttpError && (err.status === 409 || err.status === 503)) return { result: 'busy', reason: err.message };
   return { result: 'failed', reason: (err as Error).message };
 }
@@ -259,6 +248,12 @@ export function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
   return copies;
 }
 
+
+/** A new chat's copy of a conversation's settings (a schedule's new chat each time): lead review starts off there. */
+function newChatSettings(settings: ConversationSettings): ConversationSettings {
+  const { leadReview: _off, ...rest } = structuredClone(settings);
+  return rest;
+}
 
 /** Longest name of a template saved from a plan. */
 const MAX_PRESET_NAME = 100;
@@ -489,17 +484,6 @@ export class Orchestrator {
   private designing = new Set<string>();
   /** Conversations whose run has the lead agent review the team's replies: the team has answered. */
   private reviewing = new Set<string>();
-  /**
-   * Conversations whose run could not start because another conversation was changing the same folder,
-   * with what starts it (the messages waiting, or the team just confirmed): tried again when a folder
-   * lock is released and theirs looks free. Kept in the database too (`folder_wait`), so a restart
-   * resumes them (`resumeFolderWaits()`).
-   */
-  private folderWaiters = new Map<string, FolderWait>();
-  /** Conversations whose run being set up Stop came for: it does not start (`STOPPED`). */
-  private stopping = new Set<string>();
-  /** The start under way of a run nobody waits for (`startInBackground()`), by conversation, until it is set up or fails. */
-  private settingUp = new Map<string, Promise<void>>();
   /** Conversations being deleted. */
   private deleting = new Set<string>();
   /** The server is shutting down: nothing new starts. */
@@ -622,9 +606,6 @@ export class Orchestrator {
       return await fn();
     } finally {
       release();
-      // Waiting for its folder, it was passed over while this held it: it tries now, once whatever
-      // follows the change (a confirmed team starting, say) has had its go.
-      if (this.folderWaiters.has(convId)) setImmediate(() => this.retryFolderWaiters([convId]));
     }
   }
 
@@ -635,7 +616,6 @@ export class Orchestrator {
    */
   async deleteConversation(convId: string): Promise<void> {
     this.deleting.add(convId);
-    this.endFolderWait(convId);
     try {
       // A branch being made from it is still copying its attached files.
       await Promise.allSettled([...(this.branching.get(convId) ?? [])]);
@@ -743,8 +723,6 @@ export class Orchestrator {
     delete msg!.duringReview;
     this.saveQueue(conv);
     removeAttachments(conv.id, attachmentsOf(msg!));
-    // The messages that waited for their folder are all taken back: nothing waits for it any more.
-    if (!conv.queue!.length && this.folderWaiters.get(convId) === 'queue' && this.endFolderWait(convId)) this.emitStatus(convId);
     return msg!;
   }
 
@@ -804,8 +782,9 @@ export class Orchestrator {
   }
 
   /**
-   * Send the schedule's message in a new conversation: a copy of this one's team, settings, "always
-   * allow" answers and sidebar group (the lead agent does not sort it), named after it and the time it
+   * Send the schedule's message in a new conversation: a copy of this one's team, settings (but lead
+   * review, off as in every new chat), "always allow" answers and sidebar group (the lead agent does
+   * not sort it), named after it and the time it
    * came due, which says where it comes from. Whatever this conversation is doing — replying, waiting
    * for the user's answer, holding messages in its queue — does not matter; only another conversation
    * writing in the same folder (this one included) makes it wait. A conversation whose run could not
@@ -826,7 +805,7 @@ export class Orchestrator {
       createdAt: now,
       updatedAt: now,
       agents: structuredClone(conv.agents),
-      settings: structuredClone(conv.settings),
+      settings: newChatSettings(conv.settings),
       messages: [],
       agentState: {},
       worktrees: {},
@@ -869,16 +848,10 @@ export class Orchestrator {
     await run.done;
   }
 
-  /**
-   * A message sent now waits in the queue (anything else that keeps the conversation busy refuses it):
-   * while the team replies, its design waits, or it waits for its folder (the message then starts with
-   * the rest once the folder is free).
-   */
+  /** A message sent now waits in the queue (anything else that keeps the conversation busy refuses it). */
   private queues(conv: Conversation): boolean {
     if (this.deleting.has(conv.id) || this.closing) return false;
-    return (
-      this.runs.has(conv.id) || this.starting.has(conv.id) || Boolean(pendingPlan(conv.messages)) || this.folderWaiters.has(conv.id)
-    );
+    return this.runs.has(conv.id) || this.starting.has(conv.id) || Boolean(pendingPlan(conv.messages));
   }
 
   private enqueue(conv: Conversation, text: string, uploads?: AttachmentUpload[], scheduled = false): void {
@@ -963,7 +936,7 @@ export class Orchestrator {
     // Written while the team worked, the current team answers them; written after it had answered
     // (while the lead agent reviewed), they are a new question, and with auto team its team is designed.
     const asks = this.waitingQuestion(conv);
-    this.startInBackground(conv, { queue: true, ...(asks ? { question: 'new' as const } : { keepTeam: true }), refuseApprovals: unattended }, 'queue');
+    this.startInBackground(conv, { queue: true, ...(asks ? { question: 'new' as const } : { keepTeam: true }), refuseApprovals: unattended });
     return true;
   }
 
@@ -986,7 +959,7 @@ export class Orchestrator {
   startConfirmed(conv: Conversation, refuseApprovals = false): boolean {
     if (conv.messages.findLast((m) => m.plan?.status === 'ready')?.plan?.forSchedule) return this.startQueued(conv);
     if (!this.mayStart(conv)) return false;
-    this.startInBackground(conv, { queue: true, keepTeam: true, refuseApprovals }, refuseApprovals ? 'team-unattended' : 'team');
+    this.startInBackground(conv, { queue: true, keepTeam: true, refuseApprovals });
     return true;
   }
 
@@ -996,96 +969,12 @@ export class Orchestrator {
     return !pendingPlan(conv.messages) && (conv.agents.length > 0 || Boolean(conv.settings.autoTeam));
   }
 
-  /**
-   * Start a run nobody waits for; one that fails to start says why in the chat. One that another
-   * conversation's work in the same folder keeps from starting waits for it (`wait` says what starts it
-   * then), and says so once; one whose waiting the user stopped (or that was deleted) while it was
-   * being set up does not wait again, and one that Stop came for while it was set up does not start
-   * (what waits stays for the user). Shutting down, a wait is kept for the next start.
-   */
-  private startInBackground(conv: Conversation, opts: StartOptions, wait: FolderWait): void {
-    const waited = this.folderWaiters.has(conv.id);
-    const started = this.start(conv, '', opts);
-    this.settingUp.set(conv.id, started);
-    const done = () => {
-      if (this.settingUp.get(conv.id) === started) this.settingUp.delete(conv.id);
-    };
-    started.then(done, done);
-    started.catch((err) => {
-      const code = err instanceof HttpError ? err.code : undefined;
-      if (this.closing && waited) return;
-      if (code === STOPPED) {
-        // A wait the user stopped says so already (`stop()`).
-        if (!waited) this.systemNote(conv, t().stoppedNote);
-        this.endFolderWait(conv.id);
-      } else if (code === FOLDER_LOCKED) {
-        // Unless its wait was stopped, or it was deleted, meanwhile.
-        if (!waited || this.folderWaiters.has(conv.id)) {
-          if (!waited) this.systemNote(conv, t().queueWaitsForFolder((err as HttpError).paths?.[0] ?? conv.settings.cwd));
-          this.waitForFolder(conv.id, wait);
-        }
-      } else {
-        this.endFolderWait(conv.id);
-        if (!(err instanceof HttpError && err.status === 404)) this.systemNote(conv, t().runFailed((err as Error).message));
-      }
+  /** Start a run nobody waits for; one that fails to start says why in the chat. */
+  private startInBackground(conv: Conversation, opts: StartOptions): void {
+    this.start(conv, '', opts).catch((err) => {
+      if (!(err instanceof HttpError && err.status === 404)) this.systemNote(conv, t().runFailed((err as Error).message));
       this.emitStatus(conv.id);
     });
-  }
-
-  /** It waits for its folder, and starts `wait` once it is free; kept in the database, so a restart resumes it. */
-  private waitForFolder(id: string, wait: FolderWait): void {
-    this.folderWaiters.set(id, wait);
-    this.store.saveFolderWait(id, wait);
-  }
-
-  /** It no longer waits for its folder; whether it did. */
-  private endFolderWait(id: string): boolean {
-    if (!this.folderWaiters.delete(id)) return false;
-    this.store.saveFolderWait(id, null);
-    return true;
-  }
-
-  /** Start what a conversation waiting for its folder starts; whether a run starts. */
-  private startWaiting(conv: Conversation, wait: FolderWait): boolean {
-    return wait === 'queue' ? this.startQueued(conv) : this.startConfirmed(conv, wait === 'team-unattended');
-  }
-
-  /**
-   * At startup: the conversations that waited for their folder when the server stopped (it was shut
-   * down, or updated) wait again, without another note, and start once their folder is free, as their
-   * note said they would; nothing holds a folder yet, so they usually start at once.
-   */
-  resumeFolderWaits(): void {
-    for (const { id, wait } of this.store.folderWaits()) {
-      if (this.store.get(id)) this.folderWaiters.set(id, wait);
-      else this.store.saveFolderWait(id, null);
-    }
-    if (this.folderWaiters.size) setImmediate(() => this.retryFolderWaiters());
-  }
-
-  /**
-   * A folder lock was released (or a change to a waiting conversation is over): each conversation in
-   * `ids` that waits for its folder tries again, when no other conversation holds it now (as far as can
-   * be told without git). One that something else has for the moment (a settings change, an apply, a
-   * start of its own being set up) waits on: the end of that change tries it again (`exclusive`), and a
-   * start of its own takes it out of waiting or leaves it waiting, without another note. One with
-   * nothing to start any more (its messages withdrawn or sent, or it waits for the user, whose answer
-   * starts it) stops waiting; one that finds its folder taken again waits again, without another note.
-   */
-  private retryFolderWaiters(ids = [...this.folderWaiters.keys()]): void {
-    // Shutting down: what waits is kept for the next start.
-    if (this.closing) return;
-    for (const id of ids) {
-      const wait = this.folderWaiters.get(id);
-      if (!wait) continue;
-      const conv = this.store.get(id);
-      if (!conv || this.deleting.has(id)) {
-        this.endFolderWait(id);
-        continue;
-      }
-      if (this.folderLockedBy(conv) || this.isBusy(id)) continue;
-      if (!this.startWaiting(conv, wait) && this.endFolderWait(id)) this.emitStatus(id);
-    }
   }
 
   /**
@@ -1277,13 +1166,7 @@ export class Orchestrator {
         this.store.saveMeta(conv);
       }
     }
-    this.hub.emit(conv.id, {
-      type: 'snapshot',
-      conversation: forClient(conv),
-      running: false,
-      activeAgentIds: [],
-      ...(this.folderWaiters.has(conv.id) ? { waitsForFolder: true } : {}),
-    });
+    this.hub.emit(conv.id, { type: 'snapshot', conversation: forClient(conv), running: false, activeAgentIds: [] });
   }
 
   /**
@@ -1299,10 +1182,6 @@ export class Orchestrator {
     if (opts.designSchedule || conv.agents.length === 0) return true;
     if (opts.keepTeam) return false;
     if (opts.question === 'new' && conv.pause) return false;
-    // The team chosen for the latest question has not answered yet (Stop came as it started, or while
-    // it waited for its folder): it answers what they write now too, with that question. Not for an
-    // edited question, which drops that design with what follows it.
-    if (opts.question === 'new' && confirmedUnanswered(conv.messages)) return false;
     if (opts.question) return parseMentions(text, conv.agents).length === 0;
     return designOwed(conv.messages);
   }
@@ -1336,12 +1215,8 @@ export class Orchestrator {
         throw new HttpError(404, t().conversationNotFound);
       }
       if (this.closing) throw new HttpError(503, t().shuttingDown);
-      // Stop came while it was set up (the messages waiting, or a confirmed team, starting by themselves).
-      if (this.stopping.has(convId)) throw new HttpError(409, t().stoppedNote, STOPPED);
-      // Set once the locks are taken: a run that could not take them releases none.
-      const roots = ws.folders && !ws.isolated && !planning ? rootsOf(ws) : undefined;
-      if (roots) this.lockDirs(roots, conv);
-      lockRoots = roots;
+      lockRoots = ws.folders && !ws.isolated && !planning ? rootsOf(ws) : undefined;
+      if (lockRoots) this.lockDirs(lockRoots, conv);
       beforePost?.();
       if (ahead) posted = this.deliverQueued(conv, { ids: ahead });
       const own = this.postUserMessage(conv, text, files, opts.scheduled);
@@ -1360,14 +1235,12 @@ export class Orchestrator {
         done: Promise.resolve(),
       };
       this.runs.set(convId, run);
-      this.endFolderWait(convId);
     } catch (err) {
       if (lockRoots && !this.runs.has(convId)) this.unlockDirs(lockRoots, convId);
       this.designing.delete(convId);
       throw err;
     } finally {
       this.starting.delete(convId);
-      this.stopping.delete(convId);
       release();
     }
     this.emitStatus(conv.id);
@@ -1387,22 +1260,15 @@ export class Orchestrator {
         } catch (err) {
           console.error('[orchestrator] could not save the end of a run:', err);
         } finally {
+          if (run.lockRoots) this.unlockDirs(run.lockRoots, conv.id);
           this.runs.delete(convId);
           this.designing.delete(convId);
           // The team the lead agent just designed answers at once, when it needs no confirmation.
           // Otherwise, messages sent while the team replied that no turn took: the team answers them
           // now. After Stop they keep waiting, for the user to send or withdraw.
-          let next = false;
-          try {
-            next =
-              !run.abort.signal.aborted &&
-              (run.answerNext ? this.startConfirmed(conv, run.refuseApprovals) : this.startQueued(conv));
-          } catch (err) {
-            console.error('[orchestrator] could not start the next run:', err);
-          }
-          // Its own next run goes before the conversations waiting for its folder: they try once that
-          // run has taken the folder again (or could not).
-          if (run.lockRoots) this.unlockDirs(run.lockRoots, conv.id, next ? this.settingUp.get(convId) : undefined);
+          const next =
+            !run.abort.signal.aborted &&
+            (run.answerNext ? this.startConfirmed(conv, run.refuseApprovals) : this.startQueued(conv));
           if (!next) this.emitStatus(conv.id);
           this.trace(conv);
         }
@@ -1479,21 +1345,7 @@ export class Orchestrator {
   }
 
   stop(convId: string): void {
-    const run = this.runs.get(convId);
-    if (run) run.abort.abort();
-    // A run being set up (the messages waiting, or a confirmed team, starting by themselves): it does not start.
-    else if (this.starting.has(convId)) this.stopping.add(convId);
-    // Waiting for its folder: it stops waiting, and starts when the user sends or continues.
-    if (this.endFolderWait(convId)) {
-      const conv = this.store.get(convId);
-      if (conv && !this.deleting.has(convId)) this.systemNote(conv, t().folderWaitStopped);
-      this.emitStatus(convId);
-    }
-  }
-
-  /** It waits for a folder another conversation is changing, and starts by itself once it is free. */
-  waitsForFolder(id: string): boolean {
-    return this.folderWaiters.has(id);
+    this.runs.get(convId)?.abort.abort();
   }
 
   /** Shutting down: stop every run, and refuse new runs, applies and settings changes. */
@@ -1546,7 +1398,7 @@ export class Orchestrator {
       for (const [held, holder] of this.dirLocks) {
         if (holder !== conv.id && (held === root || within(held, root) || within(root, held))) {
           const title = this.store.get(holder)?.title ?? holder;
-          throw new HttpError(409, t().dirLocked(title, held), FOLDER_LOCKED, [held]);
+          throw new HttpError(409, t().dirLocked(title, held));
         }
       }
     }
@@ -1577,22 +1429,8 @@ export class Orchestrator {
     return undefined;
   }
 
-  /**
-   * Release a conversation's directory locks. A folder is free now: who waited for one tries again,
-   * once whatever released it has finished its step, and after `first` (the releasing conversation's
-   * own next run, being set up) has taken the folder again or could not.
-   */
-  private unlockDirs(roots: string[], convId: string, first?: Promise<unknown>): void {
-    let freed = false;
-    for (const root of roots) {
-      if (this.dirLocks.get(root) !== convId) continue;
-      this.dirLocks.delete(root);
-      freed = true;
-    }
-    if (!freed || !this.folderWaiters.size) return;
-    const retry = () => void setImmediate(() => this.retryFolderWaiters());
-    if (first) first.then(retry, retry);
-    else retry();
+  private unlockDirs(roots: string[], convId: string): void {
+    for (const root of roots) if (this.dirLocks.get(root) === convId) this.dirLocks.delete(root);
   }
 
   /**
@@ -2914,11 +2752,6 @@ export class Orchestrator {
   }
 
   private emitStatus(id: string): void {
-    this.hub.emit(id, {
-      type: 'status',
-      running: this.isRunning(id),
-      activeAgentIds: this.activeAgentIds(id),
-      ...(this.folderWaiters.has(id) ? { waitsForFolder: true } : {}),
-    });
+    this.hub.emit(id, { type: 'status', running: this.isRunning(id), activeAgentIds: this.activeAgentIds(id) });
   }
 }

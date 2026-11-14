@@ -372,6 +372,17 @@ describe('where a first review starts', () => {
     expect(reviewStart(msgs)).toBe(2);
   });
 
+  it('at the first of the messages no agent answered in between: one question', () => {
+    const card: ChatMessage = { id: 'p', author: { kind: 'system' }, createdAt: 0, status: 'done', parts: [] };
+    // Written while the team was designed, or its design waited for confirmation.
+    const msgs = [user('u1', 'old'), reply('r1', 'Alice', 'a'), user('u2', 'the question'), card, user('u3', 'also this'), user('u4', 'and this'), reply('r2', 'Alice', 'b')];
+    expect(reviewStart(msgs)).toBe(2);
+    // Never before the last ready review.
+    expect(reviewStart([user('u1', 'old'), review('v1'), user('u2', 'new'), reply('r2', 'Alice', 'b')])).toBe(2);
+    // Each question its own, once an agent answered in between.
+    expect(reviewStart([user('u1', 'old'), card, user('u2', 'new'), reply('r2', 'Alice', 'b'), user('u3', 'newer'), reply('r3', 'Alice', 'c')])).toBe(4);
+  });
+
   it('where a review that failed or was stopped started, when that is earlier', () => {
     const msgs = [
       user('u1', 'one'),

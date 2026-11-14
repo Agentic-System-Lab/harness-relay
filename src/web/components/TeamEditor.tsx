@@ -289,6 +289,8 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
             </label>
             <span className="small muted" id={reviewHint}>
               {settings.leadReview ? t.team.leadReviewHint.on : t.team.leadReviewHint.off}
+              {/* Each new chat starts with it off, the schedule's too: this box is for this conversation. */}
+              {schedule?.newChat && ` ${t.team.leadReviewNewChat}`}
             </span>
           </div>
         )}

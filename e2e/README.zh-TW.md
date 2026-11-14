@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 32 個 spec 檔、419 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 32 個 spec 檔、417 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -46,7 +46,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [agent 回答前做了什麼](#agent-回答前做了什麼) | [`activity.spec.ts`](specs/activity.spec.ts) | 13 | [架構 → agent 活動](../docs/architecture.zh-TW.md#agent-活動) |
 | [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 39 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
 | [檔案與修改](#檔案與修改) | [`files.spec.ts`](specs/files.spec.ts) | 20 | [使用者說明 → 檢視與套用修改](../docs/user-guide.zh-TW.md#檢視與套用修改)、[瀏覽檔案](../docs/user-guide.zh-TW.md#瀏覽檔案)、[架構 → 工作區與檔案修改](../docs/architecture.zh-TW.md#工作區與檔案修改) |
-| [工作目錄與其他資料夾](#工作目錄與其他資料夾) | [`folders.spec.ts`](specs/folders.spec.ts) | 36 | [架構 → 多個工作目錄](../docs/architecture.zh-TW.md#多個工作目錄)、[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md) |
+| [工作目錄與其他資料夾](#工作目錄與其他資料夾) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [架構 → 多個工作目錄](../docs/architecture.zh-TW.md#多個工作目錄)、[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md) |
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 15 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
@@ -147,7 +147,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 對話沒要求就不審閱；在團隊設定開啟後，讀的是最新一個問題的回覆 | Claude Code | 沒開啟的對話沒有卡片；在**團隊設定**勾選並儲存後，下一次回答的卡片只讀了那次的回答（**讀了 1 則回覆**，Read 1 reply），第一個問題則作為背景放在首席 agent 的 prompt 中。 |
 | 「停止」會停止它，讀不懂首席 agent 的回答時也會說明 | Claude Code | 審閱很慢時，卡片顯示首席 agent 正在審閱，輸入框提示送出的訊息會等它；**■ 停止**讓卡片顯示已中斷。下一次回答的審閱會再讀那些回覆（prompt 中有被停止的那次審閱的問題，並編了兩則回覆），回答不是 JSON 時卡片會說明無法審閱，以及原因。 |
 | 團隊設計卡片上有勾選框，首席 agent 不會去動它：在卡片上勾選後，正在回答的問題與之後的問題都會被審閱 | Claude Code | 在新對話中（勾選框未勾選），設計卡片顯示未勾選的勾選框與說明，首席 agent 組隊的 prompt 完全不提它。在卡片上勾選後對話就開啟審閱；確認團隊後，回答會被審閱。下一個問題的設計卡片上勾選框仍是勾選的（第一張卡片已經沒有勾選框），它的回答也會被審閱；在最新的卡片上取消勾選後，下一個回答就不審閱。 |
-| 新排程頁的勾選框會為排程的對話開啟審閱 | — | 在**新排程**勾選（一開始未勾選）後，它開的對話有開啟審閱。 |
+| 新排程頁的勾選框會為排程的對話開啟審閱，並說明每次開的新對話從關閉開始 | — | 在**新排程**，勾選框一開始未勾選；勾選後，說明在勾選**每次開新對話**（Start a new chat each time）之前不會提到新對話，勾選之後才加上 *Each new chat the schedule opens starts with it off.*（中文介面為「排程每次開的新對話一律從關閉開始。」）。再取消**每次開新對話**後，**建立排程**（Create schedule）開的對話有開啟審閱。 |
 | 分享的對話保留審閱，但不含 app 的按鈕與設計卡片的勾選框 | Claude Code | 分享頁面（假 `gh` 的 gist）有審閱的摘要、那一點與純文字的 **@Claude**，以及下一步；沒有設計卡片的勾選框、**交給團隊**（Ask the team）、回覆的標籤，也沒有任何按鈕。 |
 | 標出回覆中跨越清單項目的引用 | Claude Code | 用 `e2e:markdown` 與 `e2e:reviewquote=list`，卡片引用「first point second point」，`CSS.highlights` 中有一個範圍從第一個項目延伸到第二個（聊天畫面在區塊之間視為有空白）。 |
 | 伺服器拒絕變更時，設計卡片的勾選框會恢復原狀並說明原因 | Claude Code | 變更被拒絕時（以替代的回應模擬），勾選框恢復為未勾選，錯誤列說明原因。 |
@@ -220,7 +220,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 工作目錄與其他資料夾
 
-[`folders.spec.ts`](specs/folders.spec.ts)：假 CLI 只會寫在真正的 CLI 能寫的地方，所以這些測試能看出對話的資料夾有沒有傳到各 CLI。開源 agent 的假 CLI 會真的寫檔，不屬於它們的地方由 Harness Relay 自己的沙箱拒絕。最後是同一個資料夾的兩個對話：一個在修改它（要兩分鐘才會結束的回覆，`e2e:slow=120`，測試需要資料夾空出來時就停止它），另一個的團隊等它結束。
+[`folders.spec.ts`](specs/folders.spec.ts)：假 CLI 只會寫在真正的 CLI 能寫的地方，所以這些測試能看出對話的資料夾有沒有傳到各 CLI。開源 agent 的假 CLI 會真的寫檔，不屬於它們的地方由 Harness Relay 自己的沙箱拒絕。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
@@ -233,8 +233,6 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 新對話從設定中的預設工作目錄開始 | — | 在**設定 → 預設工作目錄**存下的資料夾，出現在下一個新對話的輸入框裡。 |
 | 選擇資料夾視窗加入在其中選的資料夾，對話在所有資料夾中開始 | 只在 Linux | **選擇資料夾…**（Choose folders…，假的 `zenity`）加入兩個資料夾；視窗開在最後一個資料夾裡，允許多選，標題是英文；新對話有這三個資料夾。 |
 | 在沒有 UTF-8 locale 的伺服器上，以中文開啟選擇資料夾視窗 | 只在 Linux | 視窗標題是中文，並帶 `LC_CTYPE=C.UTF-8`；按取消不會加入任何資料夾。 |
-| 另一個對話修改資料夾時確認的團隊會等待，這時寫的訊息一起等，之後自動開始 | Claude Code | 在同一個資料夾的自動組隊對話中，確認團隊後留下一則說明，指出另一個對話正在修改它；輸入框會說明，並提供 **■ 停止**；這時送出的訊息在佇列區等待（**1 waiting for the folder**、團隊會自動開始、沒有 **Send**）。重新載入後頁面仍說明在等待；在 360px 寬時佇列區的標題會說明，頁面也不會左右捲動。另一個對話結束後（透過 API 停止），團隊連同那則訊息一起回答，佇列區與「停止」都會消失。 |
-| 「停止」取消等待：使用者送出時團隊才開始 | Claude Code | 等待時按 **■ 停止** 會留下一則已停止等待的說明，輸入框也不再說明在等待；另一個對話結束（被停止）不會開始任何東西，之後按**繼續**（Continue）團隊才回答。 |
 
 ## Harness Relay 自己的沙箱
 

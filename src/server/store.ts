@@ -27,9 +27,8 @@ import type {
   MessageStatus,
   SearchResult,
   SharedPage,
-  FolderWait,
 } from '../shared/types';
-import { FOLDER_WAITS, PERMISSION_ORDER, PROVIDERS, TOOL_CALL_KINDS, cwdSettings, pendingPlan } from '../shared/types';
+import { PERMISSION_ORDER, PROVIDERS, TOOL_CALL_KINDS, cwdSettings, pendingPlan } from '../shared/types';
 import { byAge, familyOf, type FamilyMember } from '../shared/family';
 import { searchTerms, snippetAround, termsIn } from '../shared/search';
 import { nul, transaction, type Database } from './db';
@@ -870,18 +869,6 @@ export class Store {
     this.db
       .prepare('UPDATE conversations SET queue = ? WHERE id = ?')
       .run(conv.queue?.length ? JSON.stringify(conv.queue) : null, conv.id);
-  }
-
-  /** Persist what a conversation waiting for its folder starts once it is free (null: it no longer waits). */
-  saveFolderWait(convId: string, wait: FolderWait | null): void {
-    if (this.deleted.has(convId)) return;
-    this.db.prepare('UPDATE conversations SET folder_wait = ? WHERE id = ?').run(wait, convId);
-  }
-
-  /** The conversations that waited for their folder when the server stopped, with what each starts (unknown values left out). */
-  folderWaits(): { id: string; wait: FolderWait }[] {
-    const rows = this.db.prepare('SELECT id, folder_wait AS wait FROM conversations WHERE folder_wait IS NOT NULL').all() as { id: string; wait: string }[];
-    return rows.filter((r): r is { id: string; wait: FolderWait } => (FOLDER_WAITS as readonly string[]).includes(r.wait));
   }
 
   // Schedules ----------------------------------------------------------------------

@@ -185,6 +185,7 @@ export const zhTW = {
       on: '團隊每次回答完，首席 agent 會讀過新的回覆，標出你需要特別注意的地方，並建議接下來的步驟。',
       off: '團隊回答完就結束；首席 agent 不會審閱回覆。',
     },
+    leadReviewNewChat: '排程每次開的新對話一律從關閉開始。',
     relayOrder: '第一位是隊長：訊息沒有 @ 任何人時由他先接。',
     order: '順序就是發言順序。',
     agentName: 'Agent 名稱',
@@ -356,12 +357,10 @@ export const zhTW = {
     placeholderAuto: '提出你的問題，首席 agent 會先為它組隊…',
     placeholderNext: '提出新問題（首席 agent 會先組隊），或 @ 成員直接問他…',
     // The team chosen for the question has not answered yet (it was stopped as it started, or waited for its folder).
-    placeholderConfirmed: '團隊還沒回答你的問題：現在寫的會和你的問題一起交給它…',
     placeholderConfirm: '確認團隊後它就會回答；現在寫的訊息會一起送出…',
     placeholderDesigning: '首席 agent 正在組隊；現在寫的訊息會和問題一起交給團隊…',
     placeholderReviewing: '首席 agent 正在審閱回覆；現在寫的是下一個問題，審閱完就送出（自動組隊會先組隊）…',
     placeholderBusy: '插話給團隊…（下一位發言前送達）',
-    placeholderFolder: '另一個對話正在修改這個資料夾；現在寫的會一起等，資料夾空出來時團隊就會開始…',
     placeholderAnswer: (names: string) => `回答 ${names} 的問題…`,
     asking: (names: string) => `${names} 在等你回答`,
     retryConfirm: (later: number, changed: number) =>
@@ -705,8 +704,6 @@ export const zhTW = {
     hintBusyTouch: '按 ↑ 插話（下一位發言前送達） · Enter 換行',
     hintConfirmTouch: '按 ↑ 送出（確認團隊後才會交給團隊） · Enter 換行',
     // The team waits for a folder another conversation is changing.
-    hintFolder: 'Enter 送出（團隊開始時一起送達） · 停止可取消等待 · Shift+Enter 換行',
-    hintFolderTouch: '按 ↑ 送出（團隊開始時一起送達） · Enter 換行',
     attach: '附加檔案',
     attachments: '要傳送的檔案',
     removeFile: (name: string) => `移除 ${name}`,
@@ -796,10 +793,8 @@ export const zhTW = {
     label: '等待送出的訊息',
     busy: (n: number) => `${n} 則等待送出`,
     // Also on a phone, where the note beside it is hidden.
-    folder: (n: number) => `${n} 則等資料夾空出來`,
     busyNote: '下一位發言前送達；@ 了成員的訊息會等該成員發言',
     reviewNote: '首席 agent 審閱完回覆後送出；自動組隊的對話會先為新問題組隊',
-    folderNote: '另一個對話正在修改這個資料夾；它結束後團隊會自動開始，按「停止」可取消等待',
     skipReview: '略過審閱並立即送出',
     confirm: '團隊確定後送出',
     stopped: '這些訊息還沒送出',

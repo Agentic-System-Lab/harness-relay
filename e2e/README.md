@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 419 tests in 32 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 417 tests in 32 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -46,7 +46,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [What an agent does on its way to a reply](#what-an-agent-does-on-its-way-to-a-reply) | [`activity.spec.ts`](specs/activity.spec.ts) | 13 | [Architecture → Agent activity](../docs/architecture.md#agent-activity) |
 | [Approvals](#approvals) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 39 | [User guide → Approvals](../docs/user-guide.md#approvals), [Architecture → Approvals](../docs/architecture.md#approvals), [Permission mapping](../docs/architecture.md#permission-mapping) |
 | [Files and changes](#files-and-changes) | [`files.spec.ts`](specs/files.spec.ts) | 20 | [User guide → Reviewing and applying changes](../docs/user-guide.md#reviewing-and-applying-changes), [Browsing files](../docs/user-guide.md#browsing-files), [Architecture → Workspaces and file changes](../docs/architecture.md#workspaces-and-file-changes) |
-| [Working directories and other folders](#working-directories-and-other-folders) | [`folders.spec.ts`](specs/folders.spec.ts) | 36 | [Architecture → Several working directories](../docs/architecture.md#several-working-directories), [OS sandboxes by platform](../docs/sandboxing.md) |
+| [Working directories and other folders](#working-directories-and-other-folders) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [Architecture → Several working directories](../docs/architecture.md#several-working-directories), [OS sandboxes by platform](../docs/sandboxing.md) |
 | [Harness Relay's own sandbox](#harness-relays-own-sandbox) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [OS sandboxes by platform → Harness Relay's own sandbox](../docs/sandboxing.md#harness-relays-own-sandbox), [Open agents → The relay sandbox](../docs/open-agents.md#the-relay-sandbox) |
 | [What reaches each CLI besides the prompt](#what-reaches-each-cli-besides-the-prompt) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [Architecture → Tool library](../docs/architecture.md#tool-library) |
 | [The tool library](#the-tool-library) | [`tools.spec.ts`](specs/tools.spec.ts) | 15 | [User guide → Tool library](../docs/user-guide.md#tool-library-mcp-servers-skills-and-memory), [Architecture → Tool library](../docs/architecture.md#tool-library) |
@@ -145,7 +145,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | Off unless the chat asks for it; once turned on in the team settings it reads the latest question's replies | Claude Code | A chat without it gets no card; ticked in **Team settings** and saved, the next answer gets a card that read only that answer (**Read 1 reply**), the first question being in the lead agent's prompt as context. |
 | Stopped by Stop, and says so when it cannot read the lead agent's answer | Claude Code | While a slow review runs, its card says the lead agent is reviewing and the message box says what is sent waits for it; **■ Stop** leaves the card stopped. The next answer's review reads those replies again (its prompt has the stopped review's question and numbers two replies), and an answer that is not JSON gives a card that says it could not review them, and why. |
 | The team design card has the box, which the lead agent leaves alone: ticked there, it holds for the question being answered and the next ones | Claude Code | In a new chat (the box unticked), the design card shows the box unticked with its explanation, and the lead agent's design prompt says nothing of it. Ticked on the card, the chat has it on; once confirmed, the answer gets a review. The next question's design card has the box still ticked (the first card has none now), and its answer is reviewed too; unticked on the latest card, the next answer gets none. |
-| The New schedule page's box turns it on for the schedule's chat | — | **New schedule** with the box ticked (unticked at first): the chat it opens has it on. |
+| The New schedule page's box turns it on for the schedule's chat, and says a new chat each time starts with it off | — | On **New schedule**, the box is unticked at first; ticked, its hint says nothing of new chats until **Start a new chat each time** is ticked, and then adds *Each new chat the schedule opens starts with it off.* With **Start a new chat each time** unticked again, the chat **Create schedule** opens has it on. |
 | A shared chat keeps the review, without the app's buttons or the design card's box | Claude Code | The shared page (the fake `gh`'s gist) has the review's summary, its point with **@Claude** as plain text and the steps; not the design card's box, **Ask the team**, the reply's tag, nor any button. |
 | Marks words it quotes across the items of a list in the reply | Claude Code | With `e2e:markdown` and `e2e:reviewquote=list`, the card quotes "first point second point", and one range in `CSS.highlights` runs from the first item into the second (the chat finds it with a space between blocks). |
 | The design card's box goes back when the server refuses the change, and says why | Claude Code | With the change refused (the route stood in for), the box is unticked again and the error line says why. |
@@ -218,7 +218,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 
 ## Working directories and other folders
 
-[`folders.spec.ts`](specs/folders.spec.ts): the fakes write only where the real CLIs could, so these tell whether a chat's folders reach each CLI. The open agents' fakes write for real, and Harness Relay's own sandbox refuses what is not theirs to write. Last, two chats in one folder: one changes it (a reply that would take two minutes, `e2e:slow=120`, which the test stops when it wants the folder free) while the other's team waits for it.
+[`folders.spec.ts`](specs/folders.spec.ts): the fakes write only where the real CLIs could, so these tell whether a chat's folders reach each CLI. The open agents' fakes write for real, and Harness Relay's own sandbox refuses what is not theirs to write.
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
@@ -231,8 +231,6 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | Settings' default working directories are where new chats start | — | A folder saved in **Settings → Default working directories** is in the box of the next new chat. |
 | The folder dialog adds the folders chosen in it, and the chat starts in all of them | Linux only | **Choose folders…** (the fake `zenity`) adds two folders; the dialog opened inside the last folder, with several allowed and an English title; the new chat has the three folders. |
 | The folder dialog in Chinese, on a server without a UTF-8 locale | Linux only | The dialog's title is in Chinese and it gets `LC_CTYPE=C.UTF-8`; Cancel adds nothing. |
-| A team confirmed while another chat changes the folder waits, gathers what is written meanwhile, and starts on its own | Claude Code | In an auto-team chat in the same folder, confirming the team leaves a note that another conversation is changing it; the message box says so and offers **■ Stop**; a message sent then waits in the tray (**1 waiting for the folder**, the team starts on its own, no **Send**). Reloaded, the page still says it waits; at 360px the tray's title says so and nothing scrolls sideways. Once the other chat is done (stopped through the API), the team answers with the message, and the tray and Stop go. |
-| Stop stops the wait: the team starts when the user sends | Claude Code | **■ Stop** while it waits leaves a note that it stopped waiting, and the message box no longer says it waits; the other chat being done (stopped) starts nothing, and **Continue** then has the team answer. |
 
 ## Harness Relay's own sandbox
 

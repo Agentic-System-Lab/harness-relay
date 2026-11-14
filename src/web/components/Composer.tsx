@@ -31,11 +31,6 @@ interface Props {
   canContinue: boolean;
   /** The team is being designed or waits for confirmation: what is sent waits for it (no Continue, no interrupting). */
   locked?: boolean;
-  /**
-   * The team waits for a folder another conversation is changing: what is sent waits with it, and
-   * Stop stops waiting (no Continue, no interrupting: there is nothing to stop yet).
-   */
-  waiting?: boolean;
   placeholder: string;
   /** `interrupt`: stop the team and send this now (Cmd/Ctrl+Enter while it replies). */
   onSend: (text: string, attachments: AttachmentUpload[], interrupt: boolean) => Promise<boolean>;
@@ -59,7 +54,6 @@ export function Composer({
   running,
   canContinue,
   locked = false,
-  waiting = false,
   placeholder,
   onSend,
   onStop,
@@ -253,8 +247,8 @@ export function Composer({
 
   const c = t.composer;
   const hint = isTouchScreen()
-    ? locked ? c.hintConfirmTouch : running ? c.hintBusyTouch : waiting ? c.hintFolderTouch : c.hintTouch
-    : locked ? c.hintConfirm : running ? c.hintBusy(MOD_KEY) : waiting ? c.hintFolder : c.hint;
+    ? locked ? c.hintConfirmTouch : running ? c.hintBusyTouch : c.hintTouch
+    : locked ? c.hintConfirm : running ? c.hintBusy(MOD_KEY) : c.hint;
 
   return (
     <div
@@ -346,7 +340,7 @@ export function Composer({
           />
           <div className="composer-actions">
             <VoiceButton onText={insertVoice} onError={setNotice} />
-            {running || waiting ? (
+            {running ? (
               <button className="stop" onClick={onStop} aria-label={t.composer.stopLabel}>
                 {t.composer.stop}
               </button>

@@ -193,8 +193,6 @@ const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
   }
   // Times missed while the server was not running are handled now, by each schedule's choice.
   scheduler.start();
-  // Chats that waited for a folder another one was changing start once it is free, as they said they would.
-  orchestrator.resumeFolderWaits();
   alerts.start();
 });
 // Without a listener, a port already in use would end the process with a stack trace.

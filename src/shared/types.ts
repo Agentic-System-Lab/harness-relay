@@ -863,14 +863,6 @@ export interface TeamPlan {
 }
 
 /**
- * What a conversation waiting for its folder (another conversation is changing it) starts once it is
- * free: the messages waiting in its queue, or the team just confirmed (`team-unattended`: one designed
- * for a schedule's message, whose run refuses approvals). Kept with the conversation (`folder_wait`).
- */
-export type FolderWait = 'queue' | 'team' | 'team-unattended';
-export const FOLDER_WAITS: readonly FolderWait[] = ['queue', 'team', 'team-unattended'];
-
-/**
  * What a highlight of the lead agent's review is about: a risk (a bug, data loss, a security or
  * destructive change), a decision the user has to make, members who disagree, a claim or assumption
  * to check before relying on it, or anything else worth a closer look.
@@ -932,20 +924,6 @@ export const REVIEW_LIMITS = {
 /** The lead agent's team design that is waiting for the user's confirmation, if any. */
 export function pendingPlan(messages: ChatMessage[]): ChatMessage | undefined {
   return messages.find((m) => m.plan?.status === 'ready' && m.plan.awaitingConfirmation);
-}
-
-/**
- * The team chosen for the latest question (the design the user confirmed or let answer at once, or the
- * current team when they declined the design) has not answered it yet: its run was stopped while it
- * was set up, waited for its folder, or could not start. What the user writes then goes to that team,
- * with the question (not a design for the schedule's message).
- */
-export function confirmedUnanswered(messages: readonly ChatMessage[]): boolean {
-  const at = messages.findLastIndex((m) => m.plan?.status === 'ready');
-  const plan = messages[at]?.plan;
-  if (!(plan?.confirmedAt || plan?.declinedAt) || plan.forSchedule) return false;
-  for (let i = at + 1; i < messages.length; i++) if (messages[i]!.author.kind === 'agent') return false;
-  return true;
 }
 
 /** Only a team the lead designed or adapted is new, and can be saved as a template. */
@@ -1425,11 +1403,10 @@ export interface SearchResult {
 
 /** Events pushed to the browser over SSE for one conversation. */
 export type ServerEvent =
-  /** `waitsForFolder`: it waits for a folder another conversation is changing, and starts by itself once it is free. */
-  | { type: 'snapshot'; conversation: Conversation; running: boolean; activeAgentIds: string[]; waitsForFolder?: boolean }
+  | { type: 'snapshot'; conversation: Conversation; running: boolean; activeAgentIds: string[] }
   | { type: 'message'; message: ChatMessage }
   | { type: 'delta'; messageId: string; partIndex: number; text: string }
-  | { type: 'status'; running: boolean; activeAgentIds: string[]; waitsForFolder?: boolean }
+  | { type: 'status'; running: boolean; activeAgentIds: string[] }
   | { type: 'queue'; queue: ChatMessage[] }
   | {
       type: 'conversation';
