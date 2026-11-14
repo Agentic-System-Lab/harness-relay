@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 399 tests in 31 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 401 tests in 31 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -51,7 +51,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [The tool library](#the-tool-library) | [`tools.spec.ts`](specs/tools.spec.ts) | 15 | [User guide → Tool library](../docs/user-guide.md#tool-library-mcp-servers-skills-and-memory), [Architecture → Tool library](../docs/architecture.md#tool-library) |
 | [Changing a chat's history](#changing-a-chats-history) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [User guide → Copying, editing and retrying](../docs/user-guide.md#copying-editing-and-retrying), [Branching a conversation](../docs/user-guide.md#branching-a-conversation) |
 | [Copying and sharing](#copying-and-sharing) | [`share.spec.ts`](specs/share.spec.ts) | 5 | [User guide → Sharing a conversation](../docs/user-guide.md#sharing-a-conversation), [Architecture → Sharing a conversation](../docs/architecture.md#sharing-a-conversation) |
-| [The sidebar](#the-sidebar) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 7 | [User guide → Groups](../docs/user-guide.md#groups), [Search](../docs/user-guide.md#search) |
+| [The sidebar](#the-sidebar) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 9 | [User guide → Groups](../docs/user-guide.md#groups), [Search](../docs/user-guide.md#search), [Starring Harness Relay on GitHub](../docs/user-guide.md#starring-harness-relay-on-github) |
 | [Schedules](#schedules) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 1 | [User guide → Schedules](../docs/user-guide.md#schedules), [Architecture → Schedules](../docs/architecture.md#schedules) |
 | [Settings](#settings) | [`settings.spec.ts`](specs/settings.spec.ts) | 13 | [User guide → Signing in](../docs/user-guide.md#signing-in), [Lead agent](../docs/user-guide.md#lead-agent), [Open agents → Model backends](../docs/open-agents.md#model-backends) |
 | [CLIs that are scripts on Windows](#clis-that-are-scripts-on-windows) | [`windows.spec.ts`](specs/windows.spec.ts) | 5 | [Architecture → CLI adapters](../docs/architecture.md#cli-adapters) |
@@ -288,6 +288,8 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | A conversation dragged into a group is kept there, and dragged out goes back to Other | — | The server stores the group, which a reload keeps; dragged to Other, its group is cleared and the group shows "Drag conversations here" again. |
 | A branched conversation's family moves between groups as one | Codex | Dragging the branch moves its original with it, the branch still under it; dragging the original back brings both. |
 | Every CLI's dot and the count fit on one line | — | With all twelve CLIs installed and ready (the server's answer changed on the way, "12/12 ready"), the line overflows nowhere, its first dot is under Settings' ⚙, and the chevron's tip ends at the report icon's right edge, also turned down with the names shown. |
+| The star left of Report a problem asks for a star on GitHub, shows how, and opens the repository in a new tab | — | The star sits left of the report icon, on its line; its dialog asks for a star and says where to click; its picture names the repository and plays the press three times, with `transform` and `opacity` alone; **Star it on GitHub** links to the repository (`REPO_URL`) in a new tab with `noopener`, which opens there (GitHub's page stood in for, so nothing goes online) and the dialog thanks the user; **Later** closes it; opened again from the keyboard, it has not thanked yet, Escape closes it and focus goes back to the star. |
+| With reduced motion, the star dialog shows the pointer resting on Star, the press not played | — | No animation runs in the picture; the pointer and **Star** show, **Starred** and the filled star do not. |
 
 ## Schedules
 

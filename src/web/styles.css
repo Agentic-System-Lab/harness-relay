@@ -16,6 +16,10 @@
   --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 6px 24px rgb(0 0 0 / 0.06);
   /* Search matches. */
   --mark: rgb(250 204 21 / 0.4);
+  /* A star on GitHub (the sidebar's star, the star dialog): yellow, with a deeper edge that shows on
+     light and dark alike. */
+  --star: #facc15;
+  --star-edge: #d29a00;
 
   --claude: #d97757;
   --codex: #10a37f;
@@ -868,10 +872,19 @@ p {
   min-width: 0;
 }
 
+.sidebar-bottom-row .star-button,
 .sidebar-bottom-row .report-button {
   width: 34px;
   height: 34px;
   border-radius: 10px;
+}
+
+.sidebar-bottom-row .star-button:hover {
+  color: var(--star-edge);
+}
+
+.sidebar-bottom-row .star-button:hover svg {
+  fill: var(--star);
 }
 
 .main {
@@ -7055,6 +7068,266 @@ a.share-action {
   display: flex;
   gap: 8px;
   margin-left: auto;
+}
+
+/* Star on GitHub (the sidebar's star beside Report a problem): the repository's page, its Star
+   button pressed. The picture's resting state, all reduced motion shows, is the pointer on Star; the
+   press plays a few times, then rests there. */
+.modal.star-dialog {
+  width: min(480px, 100%);
+  overflow-y: auto;
+}
+
+.star-dialog p {
+  margin: 0;
+}
+
+.star-demo {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.star-picture {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg);
+  user-select: none;
+}
+
+.star-picture-bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.star-picture-bar i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.star-picture-address {
+  flex: 1;
+  min-width: 0;
+  margin-left: 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.star-picture-page {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 16px 14px 18px;
+}
+
+.star-picture-repo {
+  /* Text that wraps on a phone after the slash, its button on a line of its own then. */
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+/* Each name whole, never broken at its hyphens. */
+.star-picture-repo > span,
+.star-picture-repo > b {
+  white-space: nowrap;
+}
+
+.star-picture-repo svg {
+  color: var(--muted);
+  margin-right: 6px;
+  vertical-align: -3px;
+}
+
+.star-picture-button {
+  position: relative;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.star-picture-stars,
+.star-picture-labels {
+  display: inline-grid;
+}
+
+.star-picture-stars > *,
+.star-picture-labels > * {
+  grid-area: 1 / 1;
+}
+
+.star-picture-stars svg {
+  display: block;
+  color: var(--muted);
+}
+
+.star-picture-filled svg {
+  color: var(--star-edge);
+  fill: var(--star);
+}
+
+.star-picture-filled,
+.star-picture-on {
+  opacity: 0;
+}
+
+.star-picture-pointer {
+  position: absolute;
+  left: 54%;
+  top: 56%;
+  /* Pressed at its tip. */
+  transform-origin: 4px 2px;
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.25));
+  pointer-events: none;
+}
+
+.star-picture-pointer,
+.star-picture-filled,
+.star-picture-off,
+.star-picture-on {
+  animation-duration: 3.6s;
+  animation-delay: 0.4s;
+  animation-iteration-count: 3;
+  animation-timing-function: ease-out;
+  /* The first frame during the delay: the pointer is not there yet. */
+  animation-fill-mode: backwards;
+}
+
+.star-picture-pointer {
+  animation-name: star-pointer;
+}
+
+.star-picture-filled {
+  animation-name: star-filled;
+}
+
+.star-picture-off {
+  animation-name: star-off;
+}
+
+.star-picture-on {
+  animation-name: star-on;
+}
+
+@keyframes star-pointer {
+  0% {
+    opacity: 0;
+    transform: translate(22px, 16px);
+  }
+  12% {
+    opacity: 1;
+  }
+  32% {
+    transform: translate(0, 0) scale(1);
+  }
+  38% {
+    transform: translate(0, 0) scale(0.82);
+  }
+  44%,
+  100% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes star-filled {
+  0%,
+  38% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  46% {
+    opacity: 1;
+    transform: scale(1.3);
+  }
+  54%,
+  86% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  96%,
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+@keyframes star-off {
+  0%,
+  38% {
+    opacity: 1;
+  }
+  44%,
+  88% {
+    opacity: 0;
+  }
+  96%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes star-on {
+  0%,
+  38% {
+    opacity: 0;
+  }
+  44%,
+  88% {
+    opacity: 1;
+  }
+  96%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.star-thanks {
+  color: var(--ok);
+}
+
+.star-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.star-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+}
+
+/* A yellow star on the button, dark (light mode) or light (dark mode): filled, with a deeper edge. */
+.star-go svg {
+  color: var(--star-edge);
+  fill: var(--star);
 }
 
 /* Settings' Version card */

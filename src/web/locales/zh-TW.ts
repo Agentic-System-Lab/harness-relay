@@ -111,6 +111,7 @@ export const zhTW = {
     matches: (n: number) => `${n} 則訊息符合`,
     settings: '設定與登入',
     report: '回報問題',
+    star: '在 GitHub 給我們一顆星星',
     healthReady: (ready: number, total: number) => `${ready}/${total} 可用`,
     healthShowNames: '顯示 CLI 名稱',
     healthHideNames: '只顯示圓點',
@@ -1494,6 +1495,15 @@ export const zhTW = {
     submit: '送出',
     cliOutput: 'CLI 輸出',
     noOutput: '(尚無輸出)',
+  },
+
+  star: {
+    title: '給 Harness Relay 一顆星星',
+    body: '如果你覺得目前使用上滿意，且願意支持這個專案，懇請幫忙到 GitHub 上的 repo 按個星星表示支持。每一顆星星都能讓更多人發現 Harness Relay，也是我們繼續改進它的動力。',
+    how: '在 repo 頁面按右上方的「Star」（需要登入 GitHub）：星星變成黃色、按鈕變成「Starred」就完成了。',
+    open: '到 GitHub 按星星',
+    later: '稍後再說',
+    thanks: '謝謝你的支持！',
   },
 
   update: {

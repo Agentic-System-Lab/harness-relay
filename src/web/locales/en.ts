@@ -99,6 +99,7 @@ export const en: Messages = {
     matches: (n) => (n === 1 ? '1 matching message' : `${n} matching messages`),
     settings: 'Settings & sign-in',
     report: 'Report a problem',
+    star: 'Star us on GitHub',
     healthReady: (ready, total) => `${ready}/${total} ready`,
     healthShowNames: 'Show the CLIs’ names',
     healthHideNames: 'Dots only',
@@ -1464,6 +1465,15 @@ export const en: Messages = {
     submit: 'Submit',
     cliOutput: 'CLI output',
     noOutput: '(no output yet)',
+  },
+
+  star: {
+    title: 'Give Harness Relay a star',
+    body: 'If Harness Relay works well for you and you would like to support the project, please star its repository on GitHub. Every star helps more people find Harness Relay, and keeps us improving it.',
+    how: 'On the repository’s page, click Star at the top right (signed in to GitHub): once the star turns yellow and the button reads Starred, you are done.',
+    open: 'Star it on GitHub',
+    later: 'Later',
+    thanks: 'Thank you for your support!',
   },
 
   update: {
