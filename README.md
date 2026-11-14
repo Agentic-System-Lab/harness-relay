@@ -187,7 +187,7 @@ API keys you save in Settings, and the values of MCP servers' environment variab
 | `npm run desktop` | Build the desktop app and run it without installing it (after `npm install --prefix desktop`) |
 | `npm run desktop:dist` | Build the desktop app's installer for this system into `desktop/release/` |
 
-Every pull request and every push to `main` runs typecheck, tests and build on GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), and the end-to-end tests on Linux, macOS and Windows ([`.github/workflows/e2e.yml`](.github/workflows/e2e.yml)). The [website](https://agentic-system-lab.github.io/harness-relay/) is the static page in [`site/`](site/), published to GitHub Pages by [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
+Every pull request and every push to `main` runs typecheck, tests and build on GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), and the end-to-end tests on Linux, macOS and Windows ([`.github/workflows/e2e.yml`](.github/workflows/e2e.yml)); on a pull request, the slower jobs (the tests on Windows, the packaged desktop app, the end-to-end tests) only when it touches a file they depend on ([`scripts/ci-scope.ts`](scripts/ci-scope.ts)). The [website](https://agentic-system-lab.github.io/harness-relay/) is the static page in [`site/`](site/), published to GitHub Pages by [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
 
 ## Contributing
 

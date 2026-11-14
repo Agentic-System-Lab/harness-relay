@@ -3,6 +3,8 @@ name: End-to-end tests
 # The UI in a real browser against the real server (npm run test:e2e), with a fake for each of the twelve
 # agent CLIs (e2e/fake-cli/), on Linux, macOS and Windows: no agent is paid for and nothing signs in.
 # Below full access the open agents' fakes run in Harness Relay's own sandbox for real (Linux, macOS).
+# For a pull request only when it touches a file they depend on (scripts/ci-scope.ts); a push to main
+# and a run by hand always run them.
 on:
   pull_request:
   push:
@@ -28,8 +30,33 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Whether the change needs the tests, and why (in the run's summary): for a pull request, they run
+  # unless every file it touches is one they are known not to depend on (IGNORES in the script), as in
+  # ci.yml; a push to main or a run by hand runs them.
+  changes:
+    name: What the change needs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      e2e: ${{ steps.scope.outputs.e2e }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Find what the change needs
+        id: scope
+        run: node scripts/ci-scope.ts
+
   e2e:
     name: End-to-end (${{ matrix.os }}, Node ${{ matrix.node }}, part ${{ matrix.part }} of 2)
+    needs: changes
+    # Anything but a plain no runs them, an output the script did not write too.
+    if: needs.changes.outputs.e2e != 'false'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -135,3 +162,23 @@ jobs:
             test-results/
           retention-days: 14
           if-no-files-found: ignore
+
+  # The one check that stands for all the jobs above, for main's ruleset to require, as in ci.yml.
+  passed:
+    name: End-to-end passed
+    needs: [changes, e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed or was not needed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Results: $RESULTS"
+          for result in $RESULTS; do
+            case "$result" in
+              success|skipped) ;;
+              *) echo "::error::A job of this workflow ended in $result."; exit 1 ;;
+            esac
+          done
