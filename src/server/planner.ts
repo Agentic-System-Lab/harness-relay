@@ -27,6 +27,7 @@ import { unknownMentions } from '../shared/mentions';
 import { CONFIG } from './config';
 import { t } from './i18n';
 import { probeCompleteness, type NativeProblem } from './native';
+import { familiesForLead, roleGuidesForLead } from './roleGuides';
 import { validateAgents } from './validate';
 
 /*
@@ -449,6 +450,7 @@ export function buildPlannerPrompt(
   conv: PlanConversation = {},
 ): string {
   const agents = agentsForLead(ctx);
+  const guides = roleGuidesForLead(familiesForLead(ctx));
   const templates = JSON.stringify(usablePresets(ctx).map((p) => templateForLead(p, ctx.library)), null, 2);
   const current = conv.current?.agents.length ? conv.current : undefined;
   const history = conv.history?.trim();
@@ -539,10 +541,10 @@ Whichever you pick, keep it proportionate: simple work needs 1-2 members and one
 For an adapted or custom team:
 - Mixing coding agents helps: different models catch different things.
 ${STAFFING}
-- Write each member's role as instructions addressed to that member: their expertise, what to focus on, and who to hand off to with @Name when the mode is relay.
+- Write each member's role as instructions addressed to that member: their expertise, what to focus on, and who to hand off to with @Name when the mode is relay${guides ? '; write it for its model as the guides below say' : ''}.
 - Member names: letters, digits, _ or - only (no spaces), unique, e.g. Researcher, Backend_Dev. A member who stays on from the current team keeps its name and coding agent, so it keeps what it learned.
 - Give "model" and "effort" (from the lists above) only when the member's work needs other than its coding agent's default.
-
+${guides}
 Write the reason (and for a new team its name, description and roles) in the language of the user's question. Do not use tools unless the choice depends on the files in the working directory.
 
 Reply with only one of these JSON objects, in a \`\`\`json code block:
@@ -839,6 +841,7 @@ export function buildRevisePrompt(
 ): string {
   const history = conv.history?.trim();
   const scheduled = conv.schedule?.text.trim();
+  const guides = roleGuidesForLead(familiesForLead(ctx));
   const opening =
     conv.pending === 'schedule' && !conv.schedule
       ? "The user is reviewing the team you designed for the conversation's schedule, which has been deleted since, and asks you to change it. Once the user saves the team, it is the conversation's team."
@@ -900,12 +903,12 @@ ${JSON.stringify(usablePresets(ctx).map((p) => templateForLead(p, ctx.library)),
 How to change the team:
 - Change only what the user asks for, and what that change needs (for example, roles that hand off to a member who was renamed or removed). List every member, in speaking order, but give "role" only for a new member or a role you rewrite: leave it out for every other member, whose role then stays exactly as it is.
 - A member who stays keeps its name and coding agent: then it keeps what it learned in this conversation. Rename a member or move it to another coding agent only when the user asks for it, and then give its current name as "was", so it stays the same member with its settings (moved to another coding agent, it reads this conversation afresh). "was" is only for that: never for a new member, even one based on another.
-- Write a new or rewritten role as instructions addressed to that member: their expertise, what to focus on, and who to hand off to with @Name when the mode is relay.
+- Write a new or rewritten role as instructions addressed to that member: their expertise, what to focus on, and who to hand off to with @Name when the mode is relay${guides ? '; write it for its model as the guides below say' : ''}.
 - Member names: letters, digits, _ or - only (no spaces), unique, e.g. Researcher, Backend_Dev. At most ${memberCount(teamLimit(ctx))}.
 - "model" and "effort": for a member who stays, leave them out to keep what it has, or give "" for its coding agent's default. For a new member, give them (from the lists above) only when its work needs other than its coding agent's default.
 ${STAFFING}
 - When the request cannot be done this way (for example, it asks to change the file permission, or to clear a member's role, which the user does in the editor), return the team as it is and say why in the reason.
-
+${guides}
 Write the reason (and any new or rewritten roles) in the language of the user's request. Do not use tools unless the change depends on the files in the folder you are running in.
 
 Reply with only this JSON object, in a \`\`\`json code block, with the whole team (every member, in speaking order):

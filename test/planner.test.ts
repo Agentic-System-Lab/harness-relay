@@ -26,6 +26,7 @@ import {
   type TeamDraft,
 } from '../src/server/planner';
 import { builtinPresets } from '../src/server/presets';
+import { ROLE_GUIDES } from '../src/server/roleGuides';
 
 const catalog: ProviderModels[] = [
   {
@@ -224,6 +225,27 @@ describe('lead agent reply', () => {
     expect(prompt).toContain('"id": "builtin-general"');
     expect(prompt).toContain('"read-only"');
     expect(prompt).toContain('```json');
+  });
+
+  it("gives the lead the role guides of the models its coding agents run, and only those", () => {
+    const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, permission: 'read-only' as const, cwd: '/tmp' };
+    const draft: TeamDraft = { settings: { mode: 'roundtable', rounds: 1, maxHops: 8 }, agents: [{ id: 'a1', name: 'A', provider: 'claude', role: 'r' }] };
+    // Claude Code runs Claude, Codex lists no models here: GPT, its own.
+    for (const prompt of [buildPlannerPrompt('q', settings, ctx), buildRevisePrompt('add a tester', draft, settings, ctx)]) {
+      expect(prompt).toContain(`- ${ROLE_GUIDES.claude}\n- ${ROLE_GUIDES.gpt}\n`);
+      expect(prompt).toContain('; write it for its model as the guides below say.');
+      for (const f of ['gemini', 'grok', 'muse', 'composer', 'open'] as const) expect(prompt).not.toContain(ROLE_GUIDES[f]);
+    }
+    // A model on the user's own server is open weights.
+    const local: PlannerContext = { ...ctx, catalog: [{ ...catalog[0]!, models: [...catalog[0]!.models, { id: 'homelab/qwen3-coder', endpoint: 'homelab' }] }] };
+    expect(buildPlannerPrompt('q', settings, local)).toContain(ROLE_GUIDES.open);
+    // No family known (Copilot listed no models): no guides, and the roles are asked for as before.
+    const unknown: PlannerContext = { ...ctx, available: ['copilot'] };
+    for (const prompt of [buildPlannerPrompt('q', settings, unknown), buildRevisePrompt('add a tester', draft, settings, unknown)]) {
+      expect(prompt).not.toContain('How to write each role');
+      expect(prompt).not.toContain('as the guides below say');
+      expect(prompt).toContain('who to hand off to with @Name when the mode is relay.\n');
+    }
   });
 });
 
