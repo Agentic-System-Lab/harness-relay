@@ -225,10 +225,13 @@ test.describe('the folder dialog', () => {
  * the folder is free; Stop stops it waiting.
  */
 test.describe('two chats in one folder', () => {
-  /** A chat whose member changes the folder for a few seconds, and an auto-team chat in the same folder, open. */
+  /**
+   * A chat whose member changes the folder until the test stops it (its reply would take two minutes:
+   * no test waits on a time), and an auto-team chat in the same folder, open.
+   */
   async function holderAndWaiter(page: import('@playwright/test').Page, relay: import('../support/relay').RelayServer) {
     const holder = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' }, 'Holder');
-    await send(page, 'Take your time e2e:slow=20');
+    await send(page, 'Take your time e2e:slow=120');
     const waiter = await relay.api<Conversation>('/api/conversations', {
       body: {
         title: 'Waiter',
@@ -243,9 +246,11 @@ test.describe('two chats in one folder', () => {
     return { holder, waiter: waiter.id };
   }
   const tray = (page: import('@playwright/test').Page) => page.locator('.queue-tray');
+  /** The other chat is done changing the folder (stopped): the folder is free. */
+  const freeFolder = (relay: import('../support/relay').RelayServer, holder: string) => relay.api(`/api/conversations/${holder}/stop`, { body: {} });
 
   test('a team confirmed while another chat changes the folder waits, gathers what is written meanwhile, and starts on its own', async ({ page, relay }) => {
-    await holderAndWaiter(page, relay);
+    const { holder } = await holderAndWaiter(page, relay);
     await expect(composer(page)).toHaveAttribute('placeholder', /Another conversation is changing this folder/);
     await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
     // What is written meanwhile waits with the team, and the tray says it starts on its own.
@@ -262,8 +267,9 @@ test.describe('two chats in one folder', () => {
     await expect(tray(page).locator('.queue-title')).toHaveText('1 waiting for the folder');
     await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
-    // The other chat finishes: the team answers, with the message.
-    const reply = await finishedReply(page, 'Claude', 30_000);
+    // The other chat is done: the team answers, with the message.
+    await freeFolder(relay, holder);
+    const reply = await finishedReply(page, 'Claude');
     await expect(tray(page)).toBeHidden();
     await expect(page.locator('.msg-user').last()).toContainText('And look at the tests');
     await expect(reply).toBeVisible();
@@ -275,7 +281,8 @@ test.describe('two chats in one folder', () => {
     await page.getByRole('button', { name: 'Stop', exact: true }).click();
     await expect(page.locator('.msg-system').last()).toContainText('Stopped waiting for the folder');
     await expect(composer(page)).not.toHaveAttribute('placeholder', /Another conversation is changing/);
-    // The other chat finishes; this one stays as it is.
+    // The other chat is done; this one stays as it is.
+    await freeFolder(relay, holder);
     await settled(relay, holder);
     await page.waitForTimeout(500);
     await expect(replies(page, 'Claude')).toHaveCount(0);
