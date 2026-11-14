@@ -314,6 +314,18 @@ describe("a quote across Markdown's other forms is found as the chat shows it", 
     ['İzmir is far', 'izmir is far'],
     ['Izmir is far', 'İzmir is far'],
     ['end \\', 'end \\'],
+    // Code, fenced or indented, is shown as written: a diff's lines, a command's continuations, YAML's
+    // list items, a rule, a link, an entity and an escape in it are its text.
+    ['```diff\n- const limit = 10;\n+ const limit = 0;\n```', '- const limit = 10; + const limit = 0;'],
+    ['```sh\nnpm run build \\\n  --prod\n```', 'npm run build \\ --prod'],
+    ['```yaml\nsteps:\n  - run: rm -rf build\n```', 'steps: - run: rm -rf build'],
+    ['```\na &amp; b\n---\nsee [x](y) \\*\n```', 'a &amp; b --- see [x](y) \\*'],
+    ['~~~~\n```\ninner\n```\n~~~~', '``` inner ```'],
+    ['Text:\n\n    - indented code\n    a &amp; b', '- indented code a &amp; b'],
+    // An indented line in a list is the item's text, read as such.
+    ['- item\n\n    more &amp; more', 'item more & more'],
+    // Every named entity, and an escape of any punctuation.
+    ['&copy; 2026 &mdash; &hellip; \\$5 \\@me', '© 2026 — … $5 @me'],
   ] as const) {
     it(`finds “${quote}” in ${JSON.stringify(md)} and in the rendered reply`, () => {
       const page = renderedParts(md);

@@ -625,6 +625,8 @@ describe('waiting for the folder', () => {
     orchestrator.confirmPlan(conv.id, conv.messages.find((m) => m.plan)!.id);
     await vi.waitFor(() => expect(waitNote(conv)).toHaveLength(1));
     expect(agentMessages(conv)).toHaveLength(0);
+    // Kept with the conversation, for a restart.
+    expect(store.folderWaits()).toEqual([{ id: conv.id, wait: 'team' }]);
     fake.gate = Promise.resolve();
     releaseOther();
     await vi.waitFor(() => expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(1), { timeout: 20_000 });
@@ -676,6 +678,13 @@ describe('waiting for the folder', () => {
       await vi.waitFor(() => expect(orchestrator.isRunning(other.id)).toBe(true));
     };
     return { prepared, takeAgain, releaseAgain: () => releaseAgain(), prepare };
+  }
+
+  /** A conversation waiting for the folder, whose own start, once it is free, is held while it prepares its workspace. */
+  async function startHeldWaiting() {
+    const { first, other, releaseOther } = await waitingBehindOther();
+    const { prepared, prepare } = await startHeld(first, other, releaseOther);
+    return { conv: first, go: prepared, restore: () => prepare.mockRestore() };
   }
 
   it('waits on when a settings change has it as the folder is freed, and starts once the change is over', async () => {
@@ -778,6 +787,59 @@ describe('waiting for the folder', () => {
     prepare.mockRestore();
   });
 
+  it('does not start when Stop comes while its own start is being set up and the folder is free', async () => {
+    const { conv, go, restore } = await startHeldWaiting();
+    orchestrator.stop(conv.id);
+    go();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(orchestrator.isRunning(conv.id)).toBe(false);
+    expect(agentMessages(conv).filter((m) => textOf(m).includes('next'))).toHaveLength(0);
+    expect(conv.queue).toHaveLength(1);
+    expect(orchestrator.waitsForFolder(conv.id)).toBe(false);
+    expect(store.folderWaits()).toEqual([]);
+    // One note that it waited, one that it stopped waiting; then the user starts it.
+    expect(waitNote(conv)).toHaveLength(1);
+    restore();
+    await orchestrator.send(conv.id, '');
+    await finish(conv.id);
+    expect(conv.queue ?? []).toHaveLength(0);
+  });
+
+  it('stops waiting when every message that waited is taken back', async () => {
+    const { first, other, releaseOther } = await waitingBehindOther();
+    orchestrator.withdraw(first.id, first.queue![0]!.id);
+    expect(orchestrator.waitsForFolder(first.id)).toBe(false);
+    expect(store.folderWaits()).toEqual([]);
+    fake.gate = Promise.resolve();
+    releaseOther();
+    await finish(other.id);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(orchestrator.isRunning(first.id)).toBe(false);
+  });
+
+  it('starts after a restart, as its note said, when the server stopped while it waited', async () => {
+    const { first, other, releaseOther } = await waitingBehindOther();
+    expect(store.folderWaits()).toEqual([{ id: first.id, wait: 'queue' }]);
+    // Shutting down: the other conversation's run ends, and the wait is kept.
+    orchestrator.stopAll();
+    fake.gate = Promise.resolve();
+    releaseOther();
+    await finish(other.id);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(store.folderWaits()).toEqual([{ id: first.id, wait: 'queue' }]);
+    const restarted = new Store(db);
+    setStore(restarted);
+    setOrchestrator(new Orchestrator(restarted, new Hub(), settings, { context: async () => ({ available: ['claude'], catalog: [], presets: restarted.listPresets() }) }));
+    orchestrator.resumeFolderWaits();
+    const again = restarted.get(first.id)!;
+    await vi.waitFor(() => expect(again.queue ?? []).toHaveLength(0), { timeout: 20_000 });
+    await finish(again.id);
+    expect(again.messages.filter((m) => m.author.kind === 'user').map(textOf)).toEqual(['first', 'next']);
+    expect(restarted.folderWaits()).toEqual([]);
+    // No other note: it said it would start on its own.
+    expect(waitNote(again)).toHaveLength(1);
+  });
+
   it('forgets a conversation deleted while it waits', async () => {
     const { first, other, releaseOther } = await waitingBehindOther();
     await orchestrator.deleteConversation(first.id);
@@ -787,6 +849,35 @@ describe('waiting for the folder', () => {
     await new Promise((r) => setTimeout(r, 100));
     expect(store.get(first.id)).toBeUndefined();
     expect(orchestrator.isRunning(first.id)).toBe(false);
+  });
+});
+
+describe('Stop while a run is being set up', () => {
+  it('keeps the messages waiting when Stop comes as the run after a review is set up, and says it stopped', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', leadReview: true });
+    let releaseReview!: () => void;
+    fake.reviewGate = new Promise((r) => (releaseReview = r));
+    await orchestrator.send(conv.id, 'first');
+    await vi.waitFor(() => expect(reviewerCalls()).toHaveLength(1));
+    await orchestrator.send(conv.id, 'next');
+    // The run for the message, once the review is over, waits in preparing its workspace.
+    let prepared!: () => void;
+    const preparing = new Promise<void>((r) => (prepared = r));
+    const real = orchestrator.prepareWorkspace.bind(orchestrator);
+    const prepare = vi.spyOn(orchestrator, 'prepareWorkspace').mockImplementation(async (c) => {
+      if (c.id === conv.id) await preparing;
+      return real(c);
+    });
+    fake.reviewGate = undefined;
+    releaseReview();
+    await vi.waitFor(() => expect(prepare).toHaveBeenCalled());
+    orchestrator.stop(conv.id);
+    prepared();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(orchestrator.isRunning(conv.id)).toBe(false);
+    expect(conv.queue).toHaveLength(1);
+    expect(textOf(conv.messages.at(-1)!)).toMatch(/^(Stopped\.|已停止。)$/);
+    prepare.mockRestore();
   });
 });
 

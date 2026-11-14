@@ -45,9 +45,11 @@ export function QueueTray({ queue, state, onSendNow, onWithdraw }: Props) {
   };
 
   const title =
-    state === 'busy' || state === 'review' || state === 'folder'
+    state === 'busy' || state === 'review'
       ? t.queue.busy(queue.length)
-      : state === 'confirm'
+      : state === 'folder'
+        ? t.queue.folder(queue.length)
+        : state === 'confirm'
         ? t.queue.confirm
         : t.queue.stopped;
 

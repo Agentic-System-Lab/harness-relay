@@ -872,6 +872,14 @@ export interface TeamPlan {
  * destructive change), a decision the user has to make, members who disagree, a claim or assumption
  * to check before relying on it, or anything else worth a closer look.
  */
+/**
+ * What a conversation waiting for its folder (another conversation is changing it) starts once it is
+ * free: the messages waiting in its queue, or the team just confirmed (`team-unattended`: one designed
+ * for a schedule's message, whose run refuses approvals). Kept with the conversation (`folder_wait`).
+ */
+export type FolderWait = 'queue' | 'team' | 'team-unattended';
+export const FOLDER_WAITS: readonly FolderWait[] = ['queue', 'team', 'team-unattended'];
+
 export type ReviewKind = 'risk' | 'decision' | 'conflict' | 'verify' | 'note';
 export const REVIEW_KINDS: ReviewKind[] = ['risk', 'decision', 'conflict', 'verify', 'note'];
 

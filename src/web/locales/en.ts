@@ -767,6 +767,7 @@ export const en: Messages = {
   queue: {
     label: 'Messages waiting to be delivered',
     busy: (n) => `${n} waiting`,
+    folder: (n) => `${n} waiting for the folder`,
     busyNote: 'Delivered before the next turn; a message that @mentions someone waits for their turn',
     reviewNote: 'Sent once the lead agent has reviewed the replies; in an auto-team chat, a new question gets its team first',
     folderNote: 'Another conversation is changing this folder; the team starts on its own once it has finished (Stop to stop waiting)',

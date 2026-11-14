@@ -794,6 +794,8 @@ export const zhTW = {
   queue: {
     label: '等待送出的訊息',
     busy: (n: number) => `${n} 則等待送出`,
+    // Also on a phone, where the note beside it is hidden.
+    folder: (n: number) => `${n} 則等資料夾空出來`,
     busyNote: '下一位發言前送達；@ 了成員的訊息會等該成員發言',
     reviewNote: '首席 agent 審閱完回覆後送出；自動組隊的對話會先為新問題組隊',
     folderNote: '另一個對話正在修改這個資料夾；它結束後團隊會自動開始，按「停止」可取消等待',

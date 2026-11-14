@@ -228,7 +228,7 @@ test.describe('two chats in one folder', () => {
   /** A chat whose member changes the folder for a few seconds, and an auto-team chat in the same folder, open. */
   async function holderAndWaiter(page: import('@playwright/test').Page, relay: import('../support/relay').RelayServer) {
     const holder = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' }, 'Holder');
-    await send(page, 'Take your time e2e:slow=8');
+    await send(page, 'Take your time e2e:slow=12');
     const waiter = await relay.api<Conversation>('/api/conversations', {
       body: {
         title: 'Waiter',
@@ -251,9 +251,17 @@ test.describe('two chats in one folder', () => {
     // What is written meanwhile waits with the team, and the tray says it starts on its own.
     await composer(page).fill('And look at the tests');
     await composer(page).press('Enter');
-    await expect(tray(page)).toContainText('1 waiting');
+    await expect(tray(page)).toContainText('1 waiting for the folder');
     await expect(tray(page)).toContainText('the team starts on its own once it has finished');
     await expect(tray(page).getByRole('button', { name: /^Send/ })).toHaveCount(0);
+    // Opened again (the stream's first snapshot), it still says so; on a phone too, where the tray's
+    // note is hidden but its title says it.
+    await page.reload();
+    await expect(composer(page)).toHaveAttribute('placeholder', /Another conversation is changing this folder/);
+    await page.setViewportSize({ width: 360, height: 760 });
+    await expect(tray(page).locator('.queue-title')).toHaveText('1 waiting for the folder');
+    await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
     // The other chat finishes: the team answers, with the message.
     const reply = await finishedReply(page, 'Claude', 30_000);
     await expect(tray(page)).toBeHidden();

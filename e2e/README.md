@@ -220,7 +220,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 
 ## Working directories and other folders
 
-[`folders.spec.ts`](specs/folders.spec.ts): the fakes write only where the real CLIs could, so these tell whether a chat's folders reach each CLI. The open agents' fakes write for real, and Harness Relay's own sandbox refuses what is not theirs to write. Last, two chats in one folder: one changes it (a slow reply, `e2e:slow=8`) while the other's team waits for it.
+[`folders.spec.ts`](specs/folders.spec.ts): the fakes write only where the real CLIs could, so these tell whether a chat's folders reach each CLI. The open agents' fakes write for real, and Harness Relay's own sandbox refuses what is not theirs to write. Last, two chats in one folder: one changes it (a slow reply, `e2e:slow=12`) while the other's team waits for it.
 
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
@@ -233,7 +233,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | Settings' default working directories are where new chats start | — | A folder saved in **Settings → Default working directories** is in the box of the next new chat. |
 | The folder dialog adds the folders chosen in it, and the chat starts in all of them | Linux only | **Choose folders…** (the fake `zenity`) adds two folders; the dialog opened inside the last folder, with several allowed and an English title; the new chat has the three folders. |
 | The folder dialog in Chinese, on a server without a UTF-8 locale | Linux only | The dialog's title is in Chinese and it gets `LC_CTYPE=C.UTF-8`; Cancel adds nothing. |
-| A team confirmed while another chat changes the folder waits, gathers what is written meanwhile, and starts on its own | Claude Code | In an auto-team chat in the same folder, confirming the team leaves a note that another conversation is changing it; the message box says so and offers **■ Stop**; a message sent then waits in the tray (**1 waiting**, the team starts on its own, no **Send**). Once the other chat is done, the team answers with the message, and the tray and Stop go. |
+| A team confirmed while another chat changes the folder waits, gathers what is written meanwhile, and starts on its own | Claude Code | In an auto-team chat in the same folder, confirming the team leaves a note that another conversation is changing it; the message box says so and offers **■ Stop**; a message sent then waits in the tray (**1 waiting for the folder**, the team starts on its own, no **Send**). Reloaded, the page still says it waits; at 360px the tray's title says so and nothing scrolls sideways. Once the other chat is done, the team answers with the message, and the tray and Stop go. |
 | Stop stops the wait: the team starts when the user sends | Claude Code | **■ Stop** while it waits leaves a note that it stopped waiting, and the message box no longer says it waits; the other chat finishing starts nothing, and **Continue** then has the team answer. |
 
 ## Harness Relay's own sandbox

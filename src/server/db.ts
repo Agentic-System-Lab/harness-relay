@@ -425,6 +425,11 @@ const MIGRATIONS: string[] = [
   ALTER TABLE conversations ADD COLUMN lead_review INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE messages ADD COLUMN review TEXT;
   `,
+  // 30: what a conversation waiting for its folder starts once it is free (conversations.folder_wait:
+  // 'queue', 'team' or 'team-unattended', FolderWait; NULL: it does not wait), so a restart resumes it.
+  `
+  ALTER TABLE conversations ADD COLUMN folder_wait TEXT;
+  `,
 ];
 
 /**

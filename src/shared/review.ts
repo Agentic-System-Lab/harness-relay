@@ -1,3 +1,4 @@
+import { decodeNamedCharacterReference } from 'decode-named-character-reference';
 import type { ChatMessage, ReviewHighlight, ReviewKind } from './types';
 
 /*
@@ -109,8 +110,6 @@ export function findQuote(parts: readonly string[], quote: string, breaks?: read
   return { start: { part: part[at]!, offset: offset[at]! }, end: { part: part[last]!, offset: offset[last]! + length[last]! } };
 }
 
-const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
-
 /** A character for a numeric entity, or the entity as written when it names none. */
 const codePoint = (n: number, all: string) => (n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : all);
 
@@ -120,18 +119,76 @@ const ruleLine = (line: string) => (line.includes('-') && /^[ \t|:-]+$/.test(lin
 /** A line that ends in a hard line break written as a backslash (an odd number of them: an even one is text). */
 const breakLine = (line: string) => line.endsWith('\\') && /(?:^|[^\\])(?:\\\\)*\\$/.test(line);
 
+/** What a line of a reply is: text, code the chat shows as written, or a code fence (no text). */
+const PROSE = 0;
+const CODE = 1;
+const FENCE = 2;
+
+/** A list item's first line: its indented lines are its text, not code. */
+const LIST_ITEM = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/;
+
 /**
- * Footnotes: a reference to one that is defined shows as its number (in the order they are first
- * referred to), and a definition's text without its label (the chat puts it at the end, which is
- * near enough).
+ * Which of a reply's lines are code the chat shows as written: a fenced block's (between fences of the
+ * same character, the closing one at least as long; a backtick fence's info has no backtick, so
+ * "```a``` b" is inline code; one never closed runs to the end), and an indented block's (four spaces
+ * or a tab, after a blank line and not in a list, with the blank lines inside it).
  */
-function footnotes(md: string): string {
-  const defined = new Set([...md.matchAll(/^ {0,3}\[\^([^\]\s]{1,100})\]:/gm)].map((m) => m[1]!.toLowerCase()));
-  if (!defined.size) return md;
+function lineKinds(lines: readonly string[]): Uint8Array {
+  const kinds = new Uint8Array(lines.length);
+  let fence: { char: string; size: number } | undefined;
+  let blank = true; // the line before is blank, or there is none, or a block of code ended there
+  let list = false;
+  let indented = false; // in an indented block of code
+  lines.forEach((line, i) => {
+    if (fence) {
+      const close = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line);
+      if (close && close[1]![0] === fence.char && close[1]!.length >= fence.size) {
+        kinds[i] = FENCE;
+        fence = undefined;
+        blank = true;
+      } else kinds[i] = CODE;
+      return;
+    }
+    const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (open && !(open[1]![0] === '`' && open[2]!.includes('`'))) {
+      kinds[i] = FENCE;
+      fence = { char: open[1]![0]!, size: open[1]!.length };
+      indented = false;
+      return;
+    }
+    if (!line.trim()) {
+      blank = true;
+      return;
+    }
+    if (/^(?: {4}|\t)/.test(line) && (indented || (blank && !list))) {
+      kinds[i] = CODE;
+      indented = true;
+      blank = false;
+      return;
+    }
+    if (LIST_ITEM.test(line)) list = true;
+    else if (blank && !/^[ \t]/.test(line)) list = false;
+    blank = false;
+    indented = false;
+  });
+  return kinds;
+}
+
+/**
+ * Footnotes, defined in the reply's text (not its code): a reference to one shows as its number, in
+ * the order they are first referred to across the reply, and a definition's text without its label
+ * (the chat puts it at the end, which is near enough). Returns what reads them in a run of text, in order.
+ */
+function footnotes(lines: readonly string[], kinds: Uint8Array): (text: string) => string {
+  const defined = new Set<string>();
+  lines.forEach((line, i) => {
+    const m = kinds[i] === PROSE ? /^ {0,3}\[\^([^\]\s]{1,100})\]:/.exec(line) : null;
+    if (m) defined.add(m[1]!.toLowerCase());
+  });
+  if (!defined.size) return (text) => text;
   const numbers = new Map<string, number>();
-  return md
-    .replace(/^( {0,3})\[\^([^\]\s]{1,100})\]:[ \t]*/gm, '$1')
-    .replace(/\[\^([^\]\s]{1,100})\]/g, (all, label: string) => {
+  return (text) =>
+    text.replace(/^( {0,3})\[\^([^\]\s]{1,100})\]:[ \t]*/gm, '$1').replace(/\[\^([^\]\s]{1,100})\]/g, (all, label: string) => {
       const key = label.toLowerCase();
       if (!defined.has(key)) return all;
       if (!numbers.has(key)) numbers.set(key, numbers.size + 1);
@@ -140,48 +197,67 @@ function footnotes(md: string): string {
 }
 
 /**
- * Escapes and entities read, outside inline code (whose text the chat shows as written); `ticks`
- * matches inline code first, which is kept as it is.
+ * Escapes (of any ASCII punctuation) and entities (every named one HTML has, as the chat's Markdown
+ * reads them) read, outside inline code (whose text the chat shows as written); `ticks` matches inline
+ * code first, which is kept as it is.
  */
-const INLINE = /(`+)[^`\n]{1,2000}?\1(?!`)|\\([\\`*_{}[\]()#+\-.!|>~])|&(amp|lt|gt|quot|apos|nbsp);|&#(\d{1,7});|&#[xX]([\da-fA-F]{1,6});/g;
+const INLINE = /(`+)[^`\n]{1,2000}?\1(?!`)|\\([!-/:-@[-`{-~])|&([A-Za-z][A-Za-z\d]{1,31});|&#(\d{1,7});|&#[xX]([\da-fA-F]{1,6});/g;
+
+/** A run of a reply's text lines as the chat shows them; `notes` reads its footnotes. */
+function inlineText(text: string, notes: (text: string) => string): string {
+  return (
+    notes(text)
+      // An image on the web shows as a link with its alt text (or its address); one on this computer as
+      // the image itself, with no text.
+      .replace(/!\[([^[\]\n]{0,300})\]\(([^()\s]{0,2048})(?:[ \t]+"[^"\n]{0,500}")?\)/g, (_, alt: string, url: string) =>
+        /^(?:https?|ftp):\/\//i.test(url) ? alt || url : ' ',
+      )
+      .replace(/\[([^[\]\n]{0,300})\]\((?:[^()\n]|\([^()\n]{0,2048}\)){0,2048}\)/g, '$1')
+      .replace(/\[([^[\]\n]{0,300})\]\[[^[\]\n]{0,300}\]/g, '$1')
+      .replace(/<((?:https?|mailto):[^<>\s]{1,2048})>/g, '$1')
+      .replace(/^((?:[ \t]*>)*[ \t]*)(?:[-*+]|\d{1,9}[.)])[ \t]+/gm, '$1')
+      .replace(INLINE, (all, ticks?: string, escaped?: string, name?: string, dec?: string, hex?: string) =>
+        ticks
+          ? all
+          : escaped !== undefined
+            ? escaped
+            : name !== undefined
+              ? decodeNamedCharacterReference(name) || all
+              : dec !== undefined
+                ? codePoint(Number(dec), all)
+                : codePoint(parseInt(hex!, 16), all),
+      )
+  );
+}
 
 /**
- * A reply's Markdown as the chat shows its text, near enough to find a quote in it: links by their
- * text, images and code fences' lines left out, footnotes by their numbers, entities and escapes read
- * (not in inline code), list markers, table rules, headings' underlines and hard line breaks dropped
- * (Markdown's other marks are ignored when looking).
+ * A reply's Markdown as the chat shows its text, near enough to find a quote in it. In its text: links
+ * by their text, images left out, footnotes by their numbers, entities and escapes read (not in inline
+ * code), list markers, table rules, headings' underlines and hard line breaks dropped (Markdown's other
+ * marks are ignored when looking). Its code (fenced or indented) as written, its fences left out.
  */
 export function markdownText(md: string): string {
   // Each pattern reads at most a line, and a link's parts at most so far: a reply of any size (nothing
   // shortens it) is read in time proportional to its length.
   const lines = md.split('\n');
-  return footnotes(
-    lines
-      .map((line, i) => (ruleLine(line) ? ' ' : breakLine(line) && lines[i + 1]?.trim() ? line.slice(0, -1) : line))
-      .join('\n'),
-  )
-    // A fence's line (a backtick fence's info has no backtick: "```a``` b" is inline code).
-    .replace(/^ {0,3}(?:`{3,}[^`\n]*|~{3,}.*)$/gm, ' ')
-    // An image on the web shows as a link with its alt text (or its address); one on this computer as
-    // the image itself, with no text.
-    .replace(/!\[([^[\]\n]{0,300})\]\(([^()\s]{0,2048})(?:[ \t]+"[^"\n]{0,500}")?\)/g, (_, alt: string, url: string) =>
-      /^(?:https?|ftp):\/\//i.test(url) ? alt || url : ' ',
-    )
-    .replace(/\[([^[\]\n]{0,300})\]\((?:[^()\n]|\([^()\n]{0,2048}\)){0,2048}\)/g, '$1')
-    .replace(/\[([^[\]\n]{0,300})\]\[[^[\]\n]{0,300}\]/g, '$1')
-    .replace(/<((?:https?|mailto):[^<>\s]{1,2048})>/g, '$1')
-    .replace(/^((?:[ \t]*>)*[ \t]*)(?:[-*+]|\d{1,9}[.)])[ \t]+/gm, '$1')
-    .replace(INLINE, (all, ticks?: string, escaped?: string, name?: string, dec?: string, hex?: string) =>
-      ticks
-        ? all
-        : escaped !== undefined
-          ? escaped
-          : name !== undefined
-            ? ENTITIES[name]!
-            : dec !== undefined
-              ? codePoint(Number(dec), all)
-              : codePoint(parseInt(hex!, 16), all),
-    );
+  const kinds = lineKinds(lines);
+  const notes = footnotes(lines, kinds);
+  const out: string[] = [];
+  let run: string[] = [];
+  const flush = () => {
+    if (run.length) out.push(inlineText(run.join('\n'), notes));
+    run = [];
+  };
+  lines.forEach((line, i) => {
+    if (kinds[i] === PROSE) {
+      run.push(ruleLine(line) ? ' ' : breakLine(line) && kinds[i + 1] === PROSE && lines[i + 1]!.trim() ? line.slice(0, -1) : line);
+      return;
+    }
+    flush();
+    out.push(kinds[i] === FENCE ? ' ' : line);
+  });
+  flush();
+  return out.join('\n');
 }
 
 /**
