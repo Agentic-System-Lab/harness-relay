@@ -81,7 +81,7 @@ Harness Relay 啟動真正的 `claude`、`codex`、`grok`、`cursor-agent`、`ag
 | 唯讀 | 下列受保護路徑以外的一切 | 只有這次執行自己的暫存資料夾與 agent 的狀態資料夾（它的 session、記錄與快取）——**不含工作目錄** |
 | 可編輯 | 同上 | 上述加上各工作目錄與這個對話的附件資料夾 |
 
-- 完全不能讀**也**不能寫（`denyRead` + `denyWrite`）：受保護路徑（`protectedReads()`：瀏覽器自己的資料夾、Harness Relay 的資料庫與暫存資料夾，與其他 CLI 相同，見[agent 不能讀寫的地方](#agent-不能讀寫的地方)）。
+- 完全不能讀**也**不能寫（`denyRead` + `denyWrite`）：受保護路徑（`protectedReads()`：瀏覽器自己的資料夾、Harness Relay 的資料庫（連同機密的金鑰檔）與暫存資料夾，與其他 CLI 相同，見[agent 不能讀寫的地方](#agent-不能讀寫的地方)）。
 - 永遠不能寫（`denyWrite`），即使上層資料夾可寫：agent 的設定路徑（所有啟動時會改變 CLI 行為的東西——它的設定、plugin、擴充功能、hook、MCP 設定、指示檔），這樣一次執行就不能放寬它下一次執行；可編輯模式下，工作目錄裡其他 CLI 與這些開源 agent 自己的設定（`.claude`、`.codex`、`.grok`、`.cursor`（Cursor 沒有沙箱，會從這裡讀它的規則、subagent、skill 與 MCP 伺服器）、`.mcp.json`、`.opencode`、`opencode.json`、`opencode.jsonc`、`.goose`、`.cline`、`.clinerules`（Cline 會不經詢問執行 `.clinerules/hooks` 裡的 hook）、`.openhands`、`.pi`、`.agents`，以及 `.agent`、`_agents` 與 `_agent`，沒有沙箱的 Antigravity 也會從這些地方讀專案的 hook 與 MCP 伺服器，還有 `.github/hooks`、`.github/copilot`、`.github/mcp.json`、`.github/lsp.json`、`.github/extensions` 與 `.github/agents`（只在有 `.github` 資料夾時，好讓這個資料夾還建立得起來），因為 Copilot 會不經詢問執行專案 `.github/hooks` 裡的 hook，也從那裡讀它的設定、MCP 與語言伺服器、擴充功能與自訂 agent，而自訂 agent 可能指定 MCP 伺服器，以及 `.muse`，在受信任的工作區裡 Muse Code 會在它的沙箱外執行其中的 hook）、沙箱要執行的程式所在的資料夾，以及 sandbox-runtime 原本會讓任何指令寫入的地方（`/tmp/claude`、`~/.npm/_logs`、`~/.claude/debug`）。sandbox-runtime 自己也會把 `.git/hooks`、`.git/config`、`.gitmodules` 與 shell 的設定檔設為唯讀。
 - **每次執行寫自己全新的暫存資料夾**（在 Harness Relay 的資料夾裡，執行結束時刪除），不是共用的。sandbox-runtime 預設給每次執行同一個 `TMPDIR`（`/tmp/claude`）；Harness Relay 把它改掉，這樣一次執行就不能留下一個檔案（例如一份轉譯或編譯快取）讓下一次執行——也許是另一個對話的——載入並執行。
 - **host 自己的暫存資料夾**（sandbox-runtime 的 socket、它的 CA bundle）也在資料夾裡，`data/srt/<亂數>`，其他執行都讀不到：絕不放在系統的暫存資料夾，那裡其他 CLI 沙箱中的指令可以替換或刪除裡面的東西。Unix socket 的路徑在 macOS 上必須放得進 104 個位元組、Linux 上 108 個，所以資料夾路徑太長、放不下這些 socket 時（macOS 上超過 70 個位元組，Linux 上超過 61 個，以 UTF-8 計：中文字每個佔 3 個），完全存取以外會拒絕執行，並提示把 `RELAY_DATA_DIR` 設成較短的資料夾。桌面 app 的資料夾放得下，除非使用者名稱很長；很深的 checkout（例如 `.claude/worktrees/` 下的 worktree）可能放不下。
@@ -118,7 +118,7 @@ Harness Relay 啟動真正的 `claude`、`codex`、`grok`、`cursor-agent`、`ag
 
 - **瀏覽器自己的資料夾**：已登入的瀏覽器把送給 Harness Relay 的金鑰（有些瀏覽器還有 cookie）存放在磁碟上的位置：Chrome、Chromium、Edge、Brave、Arc、Vivaldi、Opera、Firefox、LibreWolf、Zen、Orion、Floorp、Waterfox、Helium、DuckDuckGo 與 GNOME Web，以及 Safari 與 WebKit 的資料夾（macOS 上的 `~/Library/…`；Linux 上的 `~/.config/…` 與 `$XDG_CONFIG_HOME/…`、`~/.mozilla`、snap 與 Flatpak 資料夾）。只列出實際存在的，每個也連同它的真實路徑。
 - **桌面 app 視窗自己的資料夾**（app 資料夾裡的 `browser/`：macOS 是 `~/Library/Application Support/Harness Relay/browser`，Linux 是 `~/.config/Harness Relay/browser`），它的視窗把 cookie 與金鑰放在這裡；app 以 `RELAY_APP_BROWSER_DIR` 告訴伺服器。
-- **Harness Relay 的資料庫**（`relay.db` 與 SQLite 放在它旁邊的檔案，在 `data/` 裡；桌面 app 則在它自己資料夾的 `data` 裡），即使工作目錄包含它也一樣。
+- **Harness Relay 的資料庫**（`relay.db` 與 SQLite 放在它旁邊的檔案，在 `data/` 裡；桌面 app 則在它自己資料夾的 `data` 裡），即使工作目錄包含它也一樣；以及沒有作業系統金鑰儲存區時，用來加密其中機密的金鑰（旁邊的 `secrets.key`，或 `RELAY_SECRETS_KEY_FILE` 指定的檔案，不論它在哪裡）。
 - **Harness Relay 自己的暫存資料夾**（`data/tmp`，桌面 app 則是它資料夾裡的 `data/tmp`），Claude Code 一輪的 `--settings` 與 MCP 設定放在這裡等它讀取，Cursor 每一輪的設定資料夾與 Copilot 每一輪的家目錄（它的設定決定它的沙箱，還有帳號登入狀態的副本）也在這裡。若放在每個沙箱都讓指令寫入的系統暫存資料夾，另一個 agent 的指令就能在 Claude Code（或 Copilot）讀取前改掉它們（關掉它的沙箱，或把自己的指令當成 MCP 伺服器，在任何沙箱之外啟動），或讀到 MCP 伺服器的秘密值。每一輪結束時會刪掉它的資料夾；伺服器在某一輪進行中停止時留下的（Claude Code 在端點上執行時，它的設定裡有端點的金鑰），會在伺服器下次啟動時刪掉（`clearRunTmp()`）。
 
 各 CLI 的做法：
