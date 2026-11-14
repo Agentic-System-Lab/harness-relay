@@ -30,7 +30,8 @@
  *   node scripts/ci-scope.ts            in GitHub Actions: writes windows=, desktop= and e2e= (true or
  *                                       false) to $GITHUB_OUTPUT, and what runs and why to the summary
  *   node scripts/ci-scope.ts [<base>]   elsewhere: what CI would run for this branch's commits since
- *                                       it left <base> (origin/main by default)
+ *                                       it left <base> (origin/main by default), as a pull request;
+ *                                       with Node 22.18 or later, else npx tsx scripts/ci-scope.ts
  *
  * Only erasable TypeScript here, and only Node's own modules: the workflows run it with plain `node`,
  * before npm ci.
