@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, join, posix, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -146,6 +146,16 @@ export function codespaceSecretDirs(env: NodeJS.ProcessEnv = process.env, home =
   const xdgConfig = env.XDG_CONFIG_HOME?.trim();
   const gh = ghConfig && isAbsolute(ghConfig) ? ghConfig : join(xdgConfig && isAbsolute(xdgConfig) ? xdgConfig : join(home, '.config'), 'gh');
   return [shared, gh];
+}
+
+/**
+ * In a GitHub codespace, gh's sign-in folder made if it is not there yet (at startup), so that the
+ * sandboxes keep it from every turn, also those running when gh is first signed in (`protectedReads`
+ * takes only paths that exist when a turn starts). Elsewhere, nothing.
+ */
+export function makeCodespaceGhDir(env: NodeJS.ProcessEnv = process.env, home = homedir()): void {
+  const gh = codespaceSecretDirs(env, home)[1];
+  if (gh && !existsSync(gh)) mkdirSync(gh, { recursive: true, mode: 0o700 });
 }
 
 /**

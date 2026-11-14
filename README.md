@@ -86,7 +86,7 @@ Below full access they run in Harness Relay's own sandbox (see [Safety](#safety)
 
 Voice input is optional and installs itself when you turn it on: on macOS it needs [Homebrew](https://brew.sh); on Linux the prebuilt engine needs glibc 2.34 or later (Ubuntu 22.04, Debian 12 and newer).
 
-Sharing a conversation as a link is optional too: it needs the [GitHub CLI](https://cli.github.com) (`gh`) 2.66.0 or later, signed in with `gh auth login`, and `git` for the files that go along with the page.
+Sharing a conversation as a link is optional too: it needs the [GitHub CLI](https://cli.github.com) (`gh`) 2.66.0 or later, signed in (from the share dialog, or with `gh auth login`), and `git` for the files that go along with the page.
 
 ## Quick start
 

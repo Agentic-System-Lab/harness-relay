@@ -17,12 +17,15 @@ import {
   SHARE_FILE_MAX_BYTES,
   SHARE_FILES_MAX_BYTES,
   SHARE_MAX_BYTES,
+  type CliLoginView,
   type Conversation,
   type ShareFileInfo,
   type ShareFileRef,
   type ShareLink,
 } from '../shared/types';
+import { HttpError } from './errors';
 import { t } from './i18n';
+import { CliLogin } from './login';
 import { downloadProblem, mediaRoots, resolveDownload } from './media';
 import { DATA_DIR } from './settings';
 import { CommandNotFoundError, runProcess, tail, type SpawnOptions, type SpawnResult } from './process';
@@ -134,6 +137,46 @@ export function ghEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const out = { ...env };
   if (env.CODESPACES === 'true') delete out.GITHUB_TOKEN;
   return out;
+}
+
+/**
+ * `gh auth login` as the share dialog runs it: GitHub's device sign-in for github.com. Without a
+ * terminal gh prints its one-time code and the link to enter it at, opens no browser, and waits until
+ * the code is approved; it keeps the sign-in as it does from a terminal (in the system's credential
+ * store, else in a file in its folder).
+ */
+export const GH_LOGIN_ARGS = ['auth', 'login', '--web', '--hostname', 'github.com'];
+
+/** The variables gh takes a token from before any sign-in it keeps, in its order. */
+const GH_TOKEN_VARS = ['GH_TOKEN', 'GITHUB_TOKEN'];
+
+/**
+ * Signs gh in for sharing from the share dialog, with gh's own device sign-in (`CliLogin`): the code
+ * and the link go to the dialog, so no terminal is needed (a phone, a codespace, a server). In gh's
+ * environment for sharing (`ghEnv`): in a GitHub codespace without its own token, with which
+ * `gh auth login` would not keep a sign-in. A token still there (`GH_TOKEN`, or `GITHUB_TOKEN`
+ * elsewhere) is what gh signs in with, and `gh auth login` refuses to keep another: refused before
+ * it starts, saying which. One at a time: a new one cancels the one before.
+ */
+export class GhLogin {
+  private session: CliLogin | undefined;
+
+  start(env: NodeJS.ProcessEnv = process.env): CliLoginView {
+    const own = ghEnv(env);
+    const token = GH_TOKEN_VARS.find((k) => own[k]);
+    if (token) throw new HttpError(409, t().ghLoginTokenSet(token));
+    this.session?.cancel();
+    this.session = new CliLogin(ghBin(own), GH_LOGIN_ARGS, own, undefined, () => {});
+    return this.session.view();
+  }
+
+  view(): CliLoginView | null {
+    return this.session?.view() ?? null;
+  }
+
+  cancel(): void {
+    this.session?.cancel();
+  }
 }
 
 /** Runs gh, saying how to install it when it is missing. */

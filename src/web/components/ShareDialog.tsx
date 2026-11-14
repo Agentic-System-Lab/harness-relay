@@ -121,9 +121,16 @@ export function ShareDialog({ conv, upTo, chat, onClose }: Props) {
   const selection = files ? fileSelection(files.list, files.chosen) : { count: 0, bytes: 0 };
   const toggle = (i: number) => setFiles((f) => f && { ...f, chosen: f.chosen.map((v, j) => (j === i ? !v : v)) });
 
+  // One at a time: a click, and the gh sign-in's own retry (`GhHelp`), may come together.
+  const creating = useRef(false);
+  const canCreate = phase === 'idle' && Boolean(range) && !streaming && Boolean(files) && !files?.checking && selection.over === undefined;
+  // As it is when the sign-in's retry comes, not when the help last rendered.
+  const canCreateNow = useRef(canCreate);
+  canCreateNow.current = canCreate;
   const create = async () => {
     const el = chat();
-    if (!el) return;
+    if (!el || creating.current) return;
+    creating.current = true;
     setError('');
     setGh(undefined);
     setNotes([]);
@@ -147,6 +154,8 @@ export function ShareDialog({ conv, upTo, chat, onClose }: Props) {
       // A file changed since it was checked: check them all again.
       if (e instanceof ApiError && e.code === SHARE_FILE_REFUSED) setRecheck((n) => n + 1);
       setPhase('idle');
+    } finally {
+      creating.current = false;
     }
   };
 
@@ -192,7 +201,7 @@ export function ShareDialog({ conv, upTo, chat, onClose }: Props) {
             <button
               type="button"
               className="primary small-button share-action"
-              disabled={phase !== 'idle' || !range || streaming || !files || files.checking || selection.over !== undefined}
+              disabled={!canCreate}
               onClick={create}
             >
               <ShareIcon size={15} />
@@ -285,7 +294,7 @@ export function ShareDialog({ conv, upTo, chat, onClose }: Props) {
           </p>
         )}
         {streaming && phase === 'idle' && !link && <p className="muted small">{t.share.streaming}</p>}
-        {gh && <GhHelp problem={gh} retry={t.share.gh.retryLink} />}
+        {gh && <GhHelp problem={gh} retry={t.share.gh.retryLink} onSignedIn={() => canCreateNow.current && void create()} />}
         {error && (
           <p className="error-line" role="alert">
             {error}

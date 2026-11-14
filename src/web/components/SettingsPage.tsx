@@ -48,6 +48,7 @@ import { PROVIDER_COLOR, accountName, accountOf, accountState, inheritModelLabel
 import { AccountPicker } from './AccountPicker';
 import { BackendsCard } from './BackendsSettings';
 import { CwdInput } from './CwdInput';
+import { LoginLinks, LoginOutput } from './LoginLinks';
 import { CliPicker } from './CliPicker';
 import { ModelPicker } from './ModelPicker';
 import { NotificationsCard } from './NotificationsSettings';
@@ -1082,16 +1083,9 @@ function LoginPanel({
 }) {
   const t = useT();
   const [code, setCode] = useState('');
-  const [copied, setCopied] = useState('');
   const running = login.state === 'running';
   // Claude's flow prints a URL and then waits for the code shown after authorising.
   const askForCode = running && (login.wantsInput || provider === 'claude');
-
-  const copy = async (c: string) => {
-    await navigator.clipboard?.writeText(c).catch(() => {});
-    setCopied(c);
-    setTimeout(() => setCopied(''), 1500);
-  };
 
   const submitCode = async () => {
     if (!code.trim()) return;
@@ -1121,34 +1115,7 @@ function LoginPanel({
         )}
       </div>
 
-      {running && login.urls.length > 0 && (
-        <div className="login-step">
-          <span className="step-no">1</span>
-          <div>
-            <p>{t.settings.openAuthPage}</p>
-            {login.urls.map((u) => (
-              <a key={u} href={u} target="_blank" rel="noreferrer" className="login-url">
-                {u.length > 90 ? u.slice(0, 89) + '…' : u} ↗
-              </a>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {running && login.codes.length > 0 && (
-        <div className="login-step">
-          <span className="step-no">2</span>
-          <div>
-            <p>{t.settings.enterCode}</p>
-            {login.codes.map((c) => (
-              <button key={c} className="device-code" onClick={() => copy(c)} title={t.common.clickToCopy}>
-                {c}
-                <span className="small muted">{copied === c ? t.common.copied : t.common.copy}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      <LoginLinks login={login} />
 
       {askForCode && (
         <div className="login-step">
@@ -1172,10 +1139,7 @@ function LoginPanel({
         </div>
       )}
 
-      <details className="login-output" open={login.state === 'failed'}>
-        <summary className="small muted">{t.settings.cliOutput}</summary>
-        <pre>{login.output.trim() || t.settings.noOutput}</pre>
-      </details>
+      <LoginOutput login={login} />
     </div>
   );
 }
