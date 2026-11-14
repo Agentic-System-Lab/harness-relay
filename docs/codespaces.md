@@ -14,7 +14,7 @@ A codespace runs on your GitHub account. A GitHub Free personal account includes
 
 ## Steps
 
-1. **Create it.** Click the button above, then **Create codespace**. The first time takes a few minutes: it installs the packages and the CLIs and builds the UI. With **Change options**, you can also give it the API keys it offers (see [API keys](#api-keys)).
+1. **Create it.** Click the button above, then **Create codespace**. The first time takes a few minutes: it installs the packages and the CLIs and builds the UI.
 2. **Sign in.** When the editor opens, its terminal starts Harness Relay (`bash .devcontainer/start.sh`) and prints a sign-in link on the codespace's own address, `https://<codespace>-8787.app.github.dev/#code=…`, with its code beside it. Open the link. The first time, GitHub may check that it is you before it lets the page through and then the page asks for the code: type the one the terminal printed.
 3. **Sign the agents in.** In **Settings & sign-in**, sign in to the ones you have an account for: Claude Code and Cursor with their links, Codex with its device code (its browser sign-in sends the browser back to `localhost`, which is your own computer, not the codespace), Grok and Muse Code with their device codes, and Antigravity with Google's link and the code it gives you to paste back. Copilot signs in with the codespace's GitHub token (see [The codespace's GitHub token](#the-codespaces-github-token)), and shows as signed in once Copilot reports a plan for your account; Copilot Free counts.
 4. **Ask.** Click **New chat** and use `/workspaces/playground` as the working directory: the dev container makes it for you. Harness Relay's own folder (`/workspaces/harness-relay`) and `/workspaces`, which holds it, are refused in edit mode below full access.
@@ -47,7 +47,7 @@ GitHub does not tell a repository's maintainers how many codespaces people make 
 - **What it sends:** an empty `POST` to the mirror's `/codespaces`. No account, name, token or anything else about you or the codespace goes with it.
 - **What is kept:** how many codespaces were made each day, and nothing else: no address, no time of day, no user agent. Like any website, Cloudflare sees where the request comes from: the codespace's address in GitHub's cloud, not your computer's.
 - **When:** once, after the codespace has been made for you. Not when it starts again, nor when it is rebuilt (it leaves a mark in `data/`, which a rebuild keeps), and never outside GitHub Codespaces, such as in a dev container on your own computer. If the mirror cannot be reached, the codespace goes uncounted and starts as usual.
-- **To turn it off,** set `DO_NOT_TRACK` to `1` before you make the codespace: in the create page's **Change options**, or as a Codespaces secret for this repository under **Settings → Codespaces** on GitHub. It then says that it is not counted, and sends nothing.
+- **To turn it off,** set `DO_NOT_TRACK` to `1` before you make the codespace, as a Codespaces secret for this repository under **Settings → Codespaces** on GitHub. It then says that it is not counted, and sends nothing.
 
 ## Safety
 
@@ -68,7 +68,7 @@ For Copilot, its own device sign-in needs a keyring, which a codespace does not 
 
 ### API keys
 
-A codespace has no system keyring, so an API key you type in **Settings** is kept in the database in the codespace, encrypted with the key in `data/secrets.key` (agents below full access can read neither). For Claude Code and Codex you can give it as a Codespaces secret instead, kept by GitHub rather than in the codespace: the create page's **Change options** offers `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`, and **Settings → Codespaces** on GitHub keeps any other one for this repository. They reach the server as environment variables. Claude Code then runs on `ANTHROPIC_API_KEY`, and Codex on `OPENAI_API_KEY`, instead of your sign-in, billed by use. The open-source agents take only the keys set in **Settings → Model backends**.
+A codespace has no system keyring, so an API key you type in **Settings** is kept in the database in the codespace, encrypted with the key in `data/secrets.key` (agents below full access can read neither). For Claude Code and Codex you can give it as a Codespaces secret instead, kept by GitHub rather than in the codespace: `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, set for this repository under **Settings → Codespaces** on GitHub before you make the codespace. They reach the server as environment variables. Claude Code then runs on `ANTHROPIC_API_KEY`, and Codex on `OPENAI_API_KEY`, instead of your sign-in, billed by use. The open-source agents take only the keys set in **Settings → Model backends**.
 
 ## On your own computer
 

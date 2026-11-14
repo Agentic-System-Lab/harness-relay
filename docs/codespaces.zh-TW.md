@@ -14,7 +14,7 @@ codespace 算在你的 GitHub 帳號上。GitHub Free 個人帳號每月含 120 
 
 ## 步驟
 
-1. **建立。** 點上面的按鈕，再點「**Create codespace**」。第一次需要幾分鐘：安裝套件與 CLI、建置介面。在「**Change options**」裡也能先填入它提供的 API key（見 [API key](#api-key)）。
+1. **建立。** 點上面的按鈕，再點「**Create codespace**」。第一次需要幾分鐘：安裝套件與 CLI、建置介面。
 2. **登入。** 編輯器開好後，它的終端機會啟動 Harness Relay（`bash .devcontainer/start.sh`），並印出 codespace 自己網址上的登入連結 `https://<codespace>-8787.app.github.dev/#code=…`，旁邊附上登入碼。打開這個連結。第一次 GitHub 可能會先確認是你本人，再放行頁面，接著頁面會要你輸入登入碼：輸入終端機印出的那組即可。
 3. **登入 agent。** 在「**設定與登入**」登入你有帳號的那些：Claude Code 和 Cursor 用它們的連結，Codex 用它的裝置代碼（它用瀏覽器登入時，會把瀏覽器導回 `localhost`，那是你自己的電腦，不是 codespace），Grok 和 Muse Code 用它們的裝置代碼，Antigravity 則用 Google 的連結，再把它給你的代碼貼回來。Copilot 用 codespace 的 GitHub token 登入（見 [codespace 的 GitHub token](#codespace-的-github-token)），等 Copilot 回報你帳號的方案後才顯示為已登入；Copilot Free 也算。
 4. **提問。** 點「**新對話**」，工作目錄用 `/workspaces/playground`：dev container 已經幫你建好。Harness Relay 自己的資料夾（`/workspaces/harness-relay`）和包含它的 `/workspaces`，在完全存取以下的編輯模式都會被拒絕。
@@ -47,7 +47,7 @@ GitHub 不會告訴 repo 的維護者，有多少人用它建立了 codespace。
 - **送出什麼：** 一個空的 `POST`，送到鏡像的 `/codespaces`。不帶帳號、名稱、token，也不帶任何關於你或這個 codespace 的資訊。
 - **留下什麼：** 每天建立了幾個 codespace，此外什麼都不留：沒有位址、沒有幾點幾分、沒有 user agent。和任何網站一樣，Cloudflare 看得到請求從哪裡來：那是 codespace 在 GitHub 雲端的位址，不是你電腦的。
 - **什麼時候：** codespace 為你建好之後一次。它再次啟動時不算，重建時也不算（它會在 `data/` 留下記號，重建會保留），在 GitHub Codespaces 以外也從來不算，例如你自己電腦上的 dev container。連不到鏡像時，這個 codespace 就不算，照常啟動。
-- **要關掉，** 就在建立 codespace 之前把 `DO_NOT_TRACK` 設為 `1`：在建立頁的「**Change options**」，或在 GitHub 的「**Settings → Codespaces**」為這個 repo 設成 Codespaces secret。它就會說這個 codespace 不算，什麼都不送。
+- **要關掉，** 就在建立 codespace 之前，在 GitHub 的「**Settings → Codespaces**」為這個 repo 設一個 Codespaces secret，把 `DO_NOT_TRACK` 設為 `1`。它就會說這個 codespace 不算，什麼都不送。
 
 ## 安全
 
@@ -68,7 +68,7 @@ Copilot 自己的裝置登入需要金鑰圈，而 codespace 沒有：請改給�
 
 ### API key
 
-codespace 沒有系統金鑰圈，所以在「**設定**」裡輸入的 API key 會以 `data/secrets.key` 裡的金鑰加密後，存在 codespace 裡的資料庫（完全存取以下的 agent 兩者都讀不到）。Claude Code 和 Codex 的 key 也可以改用 Codespaces secret，由 GitHub 保管，而不是存在 codespace 裡：建立頁的「**Change options**」提供 `ANTHROPIC_API_KEY` 和 `OPENAI_API_KEY`，其他的可以在 GitHub 的「**Settings → Codespaces**」為這個 repo 設定。它們會以環境變數的形式交給伺服器。這時 Claude Code 會改用 `ANTHROPIC_API_KEY`、Codex 會改用 `OPENAI_API_KEY`，而不是你的登入，依用量計費。開源 agent 只用「**設定 → 模型來源**」裡設定的 key。
+codespace 沒有系統金鑰圈，所以在「**設定**」裡輸入的 API key 會以 `data/secrets.key` 裡的金鑰加密後，存在 codespace 裡的資料庫（完全存取以下的 agent 兩者都讀不到）。Claude Code 和 Codex 的 key 也可以改用 Codespaces secret，由 GitHub 保管，而不是存在 codespace 裡：在建立 codespace 之前，到 GitHub 的「**Settings → Codespaces**」為這個 repo 設定 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。它們會以環境變數的形式交給伺服器。這時 Claude Code 會改用 `ANTHROPIC_API_KEY`、Codex 會改用 `OPENAI_API_KEY`，而不是你的登入，依用量計費。開源 agent 只用「**設定 → 模型來源**」裡設定的 key。
 
 ## 在你自己的電腦上
 

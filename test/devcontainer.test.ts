@@ -115,11 +115,8 @@ describe('the dev container', { timeout: slow(20_000) }, () => {
     // After the codespace is made for someone, never in a prebuild (onCreateCommand and
     // updateContentCommand run there).
     expect(config.postCreateCommand).toBe('bash .devcontainer/count.sh');
-    // Offered on the create page, to leave it uncounted.
-    expect(Object.keys(config.secrets as object)).toEqual(['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'DO_NOT_TRACK']);
-    expect((config.secrets as Record<string, { documentationUrl: string }>).DO_NOT_TRACK!.documentationUrl).toBe(
-      'https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/codespaces.md#what-is-counted',
-    );
+    // The create page asks for no secrets (recommended secrets): API keys and DO_NOT_TRACK are set on GitHub, if at all.
+    expect(config.secrets).toBeUndefined();
   });
 
   it('gives bubblewrap what it needs, and no more than that', () => {

@@ -30,23 +30,7 @@
   "portsAttributes": {
     // Private, as Codespaces makes every port: only your GitHub account can open it.
     "8787": { "label": "Harness Relay", "onAutoForward": "silent" }
-  },
-  // Offered on the codespace's advanced create page; each one is optional. Codespaces passes them
-  // to the server as environment variables, so they are not kept in its database. (The open-source
-  // agents take only the keys set in Settings → Model backends, never the server's own.) DO_NOT_TRACK
-  // is for count.sh, and no secret.
-  "secrets": {
-    "ANTHROPIC_API_KEY": {
-      "description": "Optional: an Anthropic API key. Claude Code then runs on it, billed by use, instead of a sign-in.",
-      "documentationUrl": "https://console.anthropic.com/settings/keys"
-    },
-    "OPENAI_API_KEY": {
-      "description": "Optional: an OpenAI API key. Codex then runs on it, billed by use, instead of a sign-in.",
-      "documentationUrl": "https://platform.openai.com/api-keys"
-    },
-    "DO_NOT_TRACK": {
-      "description": "Optional: 1, and this codespace is not counted. Otherwise it tells Harness Relay once that a codespace was made, with nothing about you.",
-      "documentationUrl": "https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/codespaces.md#what-is-counted"
-    }
   }
+  // No recommended secrets: the create page asks for none. API keys and DO_NOT_TRACK can still be set
+  // as Codespaces secrets on GitHub (docs/codespaces.md).
 }
