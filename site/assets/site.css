@@ -2241,3 +2241,160 @@ html:not(.js) .theme-toggle {
     animation-iteration-count: 1 !important;
   }
 }
+
+/* ---------- The Codespaces dialog ----------
+   site.js opens it from the Codespaces links (without JavaScript they go to GitHub): what a codespace
+   is and is not, and where Harness Relay's link shows, before GitHub's page opens in a new tab. */
+
+body:has(.cs-dialog[open]) {
+  overflow: hidden;
+}
+
+.cs-dialog {
+  width: min(680px, calc(100% - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.cs-dialog::backdrop {
+  background: rgb(0 0 0 / 0.5);
+}
+
+.cs-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  padding: clamp(20px, 4vw, 32px);
+}
+
+.cs-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.cs-head h2 {
+  font-size: clamp(1.6rem, 1.3rem + 1.2vw, 2.1rem);
+  line-height: 1.08;
+}
+
+.cs-body h3 {
+  margin-top: 8px;
+}
+
+.cs-close {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.cs-close:hover {
+  border-color: color-mix(in srgb, var(--text) 35%, var(--border));
+}
+
+.cs-close svg {
+  width: 18px;
+  height: 18px;
+}
+
+.cs-lead {
+  color: var(--muted);
+}
+
+/* A command in the text wraps rather than widen the dialog on a phone. */
+.cs-body code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.cs-facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  margin: 0;
+  padding-left: 1.2em;
+  color: var(--muted);
+}
+
+.cs-facts b {
+  color: var(--text);
+}
+
+.cs-shot {
+  margin: 0;
+}
+
+.cs-shot .excerpt-note {
+  margin-top: 10px;
+}
+
+.cs-term {
+  padding: 0;
+  overflow: hidden;
+}
+
+.cs-tabs {
+  display: flex;
+  gap: 18px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.cs-tabs span:first-child {
+  color: var(--text);
+  box-shadow: inset 0 -1px 0 var(--text);
+}
+
+.cs-term pre {
+  margin: 0;
+  padding: 12px 14px 14px;
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The link the visitor is to click, and how. */
+.cs-link {
+  color: var(--text);
+  font-weight: 700;
+  text-decoration: underline 2px;
+  text-underline-offset: 3px;
+}
+
+.cs-click {
+  margin-left: 4px;
+  background: var(--bg);
+  font-family: var(--font);
+  color: var(--text);
+}
+
+.cs-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  margin-top: 4px;
+}
