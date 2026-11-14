@@ -26,11 +26,12 @@ export type AlertState = Pick<ConversationSummary, 'running' | 'waiting' | 'conf
 
 /**
  * A conversation as the alerts last saw it: its state and, while it runs, its latest agent reply when
- * the run began (`runFrom`; absent when that is not known: its reply was being written at the first look).
+ * the run began and what it needed from the user then (`runFrom`; absent when that is not known: its
+ * reply was being written at the first look).
  */
 export interface Seen {
   state: AlertState;
-  runFrom?: { reply?: string };
+  runFrom?: { reply?: string; need?: AlertKind };
 }
 
 const stateOf = (c: AlertState): AlertState => ({
@@ -44,7 +45,9 @@ const stateOf = (c: AlertState): AlertState => ({
 
 /**
  * What to alert the user to, from how a conversation was last seen (undefined: not seen before, which
- * is no news unless it needs something) to its state now: something it needs that it did not before;
+ * is no news unless it needs something) to its state now: something it needs that it did not before
+ * (not what it needed when a run began, back once that run is over with no reply of its own: the run
+ * that takes the user's answer could not be set up, say, and the question still waits);
  * else, when a run ended with an agent reply it did not have when it began, how that reply ended
  * (`done`, `error`; a reply the user stopped is no news). So a run that ended without a reply of its
  * own (the lead agent designing a team, a run stopped before anyone answered) tells of nothing, and a
@@ -55,7 +58,11 @@ export function alertFor(before: Seen | undefined, now: AlertState): AlertKind |
   // for the answer to a question its last reply asked.
   if (!before && now.branchFrom) return undefined;
   const needs = needsOf(now);
-  if (needs) return needs === (before && needsOf(before.state)) ? undefined : needs;
+  if (needs) {
+    if (before && needs === needsOf(before.state)) return undefined;
+    const run = before?.state.running ? before.runFrom : undefined;
+    return run?.need === needs && now.lastReplyId === run.reply ? undefined : needs;
+  }
   if (now.running || !before) return undefined;
   const from = before.state.running ? before.runFrom : { reply: before.state.lastReplyId };
   const replied = !from || (now.lastReplyId !== undefined && now.lastReplyId !== from.reply);
@@ -64,7 +71,8 @@ export function alertFor(before: Seen | undefined, now: AlertState): AlertKind |
 }
 
 /**
- * How a conversation is remembered after a look: a run seen beginning keeps the reply it began after.
+ * How a conversation is remembered after a look: a run seen beginning keeps the reply it began after,
+ * and what the conversation needed from the user then.
  * One already running at the first look began after its latest reply, unless that reply is still
  * being written (then it is the run's own, and when the run began is not known).
  */
@@ -72,7 +80,10 @@ export function seenAfter(before: Seen | undefined, now: AlertState): Seen {
   const state = stateOf(now);
   if (!now.running) return { state };
   if (before?.state.running) return before.runFrom ? { state, runFrom: before.runFrom } : { state };
-  if (before) return { state, runFrom: before.state.lastReplyId ? { reply: before.state.lastReplyId } : {} };
+  if (before) {
+    const need = needsOf(before.state);
+    return { state, runFrom: { ...(before.state.lastReplyId ? { reply: before.state.lastReplyId } : {}), ...(need ? { need } : {}) } };
+  }
   if (now.lastStatus === 'streaming') return { state };
   return { state, runFrom: now.lastReplyId ? { reply: now.lastReplyId } : {} };
 }

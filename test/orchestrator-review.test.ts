@@ -8,7 +8,7 @@
  */
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PushSubscriptionRecord } from '../src/server/push';
 import type { AlertPayload, ChatMessage, Conversation } from '../src/shared/types';
 import {
@@ -967,6 +967,7 @@ describe("lead review is the user's to switch", () => {
 // follow the same rule (`AlertTracker`) over the same list (`GET /api/conversations`). Loaded after the
 // harness, which sets the data folder first.
 const { AlertWatcher } = await import('../src/server/alerts');
+const { AlertTracker } = await import('../src/shared/notify');
 const { PushService } = await import('../src/server/push');
 
 /** A push service that records the notifications it would send, rather than sending them. */
@@ -985,7 +986,10 @@ describe('lead review and notifications', () => {
    * its hub's events reach the watcher). `check()` is one of the watcher's checks (every 1.5 s on the
    * server), taken when the test says; the first one is where it starts. `settingUp()` has the watcher
    * check too while each run from then on is being set up (its workspace prepared, which awaits git),
-   * where one run hands over to the next; it returns how many such checks were taken.
+   * where one run hands over to the next, and with `fail` has that setup fail then; it returns how many
+   * such checks were taken. `page` is what the page's own rule (`AlertTracker`, `src/web/alerts.ts`)
+   * tells of, given the list at each check as the page's poll is (with no quiet checks); `touch()` is
+   * an event in some conversation, after which the watcher reads the list again.
    */
   async function phone() {
     const hub = new Hub();
@@ -993,30 +997,33 @@ describe('lead review and notifications', () => {
     const push = new RecordingPush(db);
     const keys = { p256dh: Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 1)]).toString('base64url'), auth: Buffer.alloc(16, 1).toString('base64url') };
     push.subscribe(undefined, { endpoint: 'https://web.push.apple.com/phone', keys }, { done: true, needs: true, sound: true }, 'en');
-    const watcher = new AlertWatcher({
-      list: () =>
-        store.list(
-          (id) => orchestrator.isRunning(id),
-          (id) => orchestrator.isWaiting(id),
-          (id) => orchestrator.isSorting(id),
-        ),
-      get: (id) => store.get(id),
-      push,
-      busy: () => orchestrator.busy() > 0,
-    });
+    const list = () =>
+      store.list(
+        (id) => orchestrator.isRunning(id),
+        (id) => orchestrator.isWaiting(id),
+        (id) => orchestrator.isSorting(id),
+      );
+    const watcher = new AlertWatcher({ list, get: (id) => store.get(id), push, busy: () => orchestrator.busy() > 0 });
     hub.subscribeAll(() => watcher.touch());
-    await watcher.check();
-    const settingUp = () => {
+    const tracker = new AlertTracker();
+    const page: string[] = [];
+    const check = async () => {
+      page.push(...tracker.next(list()).map((a) => a.kind));
+      await watcher.check();
+    };
+    await check();
+    const settingUp = (fail?: Error) => {
       let checks = 0;
       const prepare = orchestrator.prepareWorkspace.bind(orchestrator);
       vi.spyOn(orchestrator, 'prepareWorkspace').mockImplementation(async (c) => {
-        await watcher.check();
+        await check();
         checks++;
+        if (fail) throw fail;
         return prepare(c);
       });
       return () => checks;
     };
-    return { sent: push.sent, check: () => watcher.check(), settingUp };
+    return { sent: push.sent, page, check, touch: () => watcher.touch(), settingUp };
   }
   /** A gate the fake lead agent's review waits for, and its key. */
   const holdReview = () => {
@@ -1028,6 +1035,8 @@ describe('lead review and notifications', () => {
     };
   };
   const bobDone = { kind: 'done', body: 'Bob finished replying\nBob done' };
+  // A test that fails midway leaves no run going into the next one.
+  afterEach(() => orchestrator.stopAll());
 
   it("tells that the team finished only once the lead has reviewed its replies, of the team's last reply, not the review", async () => {
     const conv = conversation({ mode: 'roundtable', leadReview: true });
@@ -1205,6 +1214,36 @@ describe('lead review and notifications', () => {
     await finish(conv.id);
     await alerts.check();
     expect(alerts.sent.slice(1)).toEqual([bobDone]);
+  });
+
+  it("tells once that an agent asked the user something, also when the run that takes the answer could not be set up", async () => {
+    const conv = conversation({ mode: 'roundtable', leadReview: true });
+    const alerts = await phone();
+    fake.asking.add('Alice');
+    await orchestrator.send(conv.id, 'which one?');
+    await finish(conv.id);
+    await alerts.check();
+    const asked = { kind: 'answer', body: 'Alice asked you something\nAlice asks: A or B?' };
+    expect(alerts.sent).toEqual([asked]);
+    // The answer's run is at work when the watcher checks, then cannot start (git failed, say): the
+    // question still waits, and the user was told of it.
+    const settingUp = alerts.settingUp(new Error('git failed'));
+    await expect(orchestrator.send(conv.id, 'ANSWER: A')).rejects.toThrow('git failed');
+    expect(settingUp()).toBe(1);
+    expect(conv.pause).toBeDefined();
+    expect(orchestrator.isRunning(conv.id)).toBe(false);
+    alerts.touch();
+    await alerts.check();
+    expect(alerts.sent).toEqual([asked]);
+    expect(alerts.page).toEqual(['answer']);
+    // Answered again, the team goes on, and finishes after the review.
+    vi.mocked(orchestrator.prepareWorkspace).mockRestore();
+    await orchestrator.send(conv.id, 'ANSWER: A');
+    await finish(conv.id);
+    expect(reviewerCalls()).toHaveLength(1);
+    await alerts.check();
+    expect(alerts.sent).toEqual([asked, bobDone]);
+    expect(alerts.page).toEqual(['answer', 'done']);
   });
 
   it('tells at once that an agent waits for an approval, during the team\'s turn; that the team finished after the review', async () => {

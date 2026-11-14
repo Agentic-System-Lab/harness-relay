@@ -533,8 +533,10 @@ export class Orchestrator {
    * before its workspace is prepared). A run that follows another (a message sent during a review or
    * with "stop and send this instead", what waited for a run of its own, the team the lead agent just
    * designed) is set up after the one before has ended, with git awaited meanwhile: counted from its
-   * start, the conversation never looks done in between, so the sidebar shows no gap and no "agents
-   * finished" notification goes out before the run that answers is over.
+   * start, the conversations' list never shows the conversation done in between, so the sidebar shows
+   * no gap and no "agents finished" notification goes out before the run that answers is over. (The
+   * open chat's status event still says the run before ended, after Stop or "stop and send this
+   * instead", until the next one is registered: `emitStatus()`.)
    */
   isRunning(id: string): boolean {
     return this.runs.has(id) || this.starting.has(id);
