@@ -1,0 +1,64 @@
+Effective sandbox policy for /work/app
+
+[1mUser-configured paths:[22m
+  Read-only paths (2):
+    /work/app
+    /work/outside
+  Denied paths (1):
+    /work/secret
+
+[1mSystem:[22m
+  Read-only paths (7):
+    /etc
+    /usr/bin
+    /usr/lib
+    /usr/lib64
+    /usr/libexec
+    /usr/sbin
+    /usr/share
+  Read-write paths (1):
+    /tmp
+
+[1mCurrent session:[22m
+  Read-write paths (1):
+    /home/user/.copilot/session-state/eb49c30b-15c7-432a-a18a-a2e6b8eb47d6/files
+
+[1mCopilot home:[22m
+  Read-only paths (1):
+    /data/tmp/copilot-VDiVRz/logs
+
+[1mDev tools:[22m
+  Tools detected in this directory: (none)
+  A command can bring in more: run /sandbox policy <command> to resolve those.
+  Read-only paths (17):
+    /home/user/src/harness-relay/node_modules/.bin
+    /nix/var/nix/profiles/default/bin
+    /opt/gradle/bin
+    /opt/maven/bin
+    /opt/node22/bin
+    /opt/node22/lib/node_modules/npm/node_modules/@npmcli/run-script/lib/node-gyp-bin
+    /opt/rbenv/bin
+    /home/user/.bun/bin
+    /home/user/.cargo/bin
+    /home/user/.local/bin
+    /home/user/.local/lib
+    /home/user/.rustup
+    /usr/lib/jvm/java-21-openjdk-amd64
+    /usr/local/bin
+    /usr/local/go/bin
+    /usr/local/lib/node_modules_global
+    /usr/local/sbin
+
+[1mNetwork:[22m
+  Outbound: allowed
+  Local network: allowed
+
+[1mCapabilities:[22m
+  Allow sandbox bypass: no
+  Sandbox MCP servers: not sandboxed
+  Sandbox LSP servers: sandboxed
+  Sandbox extensions: sandboxed
+  Authenticate git (sandbox setting): off
+  Authenticate gh (sandbox setting): off
+  Denial capture: off
+

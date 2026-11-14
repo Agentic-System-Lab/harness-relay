@@ -153,6 +153,8 @@ const zhTW = {
   copilotConfigFailed: (err: string) => `無法替這一輪準備 Copilot 的設定：${err}`,
   copilotSandbox: (problem: string) =>
     `這一輪沒有開始：Copilot 的沙箱不是 Harness Relay 設定的樣子（${problem}），所以低於完整權限時它的指令不能執行。請更新 Copilot CLI，確認這台電腦能執行它的沙箱（Linux 需要 bubblewrap 等工具），或改用完全存取。`,
+  copilotKeptWritable: (dir: string) =>
+    `這一輪沒有開始：Copilot 的沙箱本身就讓 ${dir} 可寫入（它是暫存資料夾），所以唯讀的對話保護不了它。請為這個對話換一個工作目錄，或換一種權限。`,
   museRefused: '超出這個對話的權限，已拒絕',
   museProtected: '這是受保護的路徑（瀏覽器資料、Harness Relay 的資料庫等），低於完整權限時不能讀寫，已拒絕',
   museProtectedPattern: (path: string) =>
@@ -725,6 +727,8 @@ const en: ServerMessages = {
   copilotConfigFailed: (err) => `Could not prepare Copilot's settings for this turn: ${err}`,
   copilotSandbox: (problem) =>
     `The turn did not start: Copilot's sandbox is not as Harness Relay set it up (${problem}), so its commands may not run below full access. Update Copilot CLI, check that this computer can run its sandbox (on Linux it needs bubblewrap and a few other tools), or use full access.`,
+  copilotKeptWritable: (dir) =>
+    `The turn did not start: Copilot's sandbox keeps ${dir} writable by itself (it is a temporary folder), so a read-only chat cannot keep it from being changed. Give this chat another working directory, or another permission.`,
   museRefused: "Refused: not covered by this conversation's permission",
   museProtected: "Refused: a protected path (browser data, Harness Relay's database…), which agents below full access may not read or write",
   museProtectedPattern: (path) =>

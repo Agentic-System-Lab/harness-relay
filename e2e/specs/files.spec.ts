@@ -63,8 +63,9 @@ test.describe('files and changes', () => {
   });
 
   // A read-only chat as each CLI is set up for it: without file tools (Claude Code, Pi), or its write
-  // refused by its own rules without a card (Cursor), or asking (`readOnlyWriteAsks`), declined by the
-  // user. (That a write the user allows still cannot reach the folder: sandbox.spec.ts.)
+  // refused without a card by its own rules (Cursor) or by its sandbox (Copilot, whose working
+  // directories are read-only there), or asking (`readOnlyWriteAsks`), declined by the user. (That a
+  // write the user allows still cannot reach the folder: sandbox.spec.ts.)
   eachCli(CLIS, (cli) => {
     test(`${cli.provider}: in a read-only chat no file is written`, async ({ page, relay }) => {
       needsBelowFull(cli.provider);

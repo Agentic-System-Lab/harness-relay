@@ -16,7 +16,9 @@ import { writeFileSync } from 'node:fs';
  *   `FAKE_COPILOT_NO_EFFORT` when `--reasoning-effort` is given; no allow-all option with
  *   `FAKE_COPILOT_NO_ALLOW_ALL`), `session/load` (it replays one old
  *   message first, as Copilot does; "not found" for the session `missing`), `session/prompt` (for
- *   `/sandbox policy`, the policy its home's `settings.json` gives, as Copilot prints it, or that it is
+ *   `/sandbox policy`, the policy its home's `settings.json` gives, as Copilot prints it (its working
+ *   directory read-write only while `addCurrentWorkingDirectory` is on, as copilot 1.0.112 prints it),
+ *   also in place of a fixture's recorded one with `FAKE_COPILOT_OWN_POLICY`, or that it is
  *   off with `FAKE_COPILOT_POLICY=off`, or, with `FAKE_COPILOT_POLICY_MODEL`, as its model would: a
  *   permission request first, then the policy and usage; its dev-tool access writes the paths in
  *   `FAKE_COPILOT_DEV_WRITES` (path-delimited), and its keychain access is `FAKE_COPILOT_KEYCHAIN`
@@ -103,7 +105,8 @@ if (env.FAKE_COPILOT_FIXTURE) {
   for (const r of fs.readFileSync(env.FAKE_COPILOT_FIXTURE, 'utf8').split('\\n').filter(Boolean).map((l) => JSON.parse(l))) {
     if (r.dir === 'client->agent') {
       const m = r.msg;
-      seg = { recordedId: m.id, items: [] };
+      const said = ((m.params && m.params.prompt) || []).map((b) => b.text || '').join('');
+      seg = { recordedId: m.id, items: [], policy: m.method === 'session/prompt' && said === '/sandbox policy' };
       if (m.method !== undefined && m.id !== undefined) { const k = 'req:' + m.method; if (!queues.has(k)) queues.set(k, []); queues.get(k).push(seg); }
       else if (m.method !== undefined) { const k = 'note:' + m.method; if (!queues.has(k)) queues.set(k, []); queues.get(k).push(seg); }
       else responses.set(String(m.id), seg);
@@ -135,7 +138,7 @@ function policy() {
   const fsp = (sb.userPolicy && sb.userPolicy.filesystem) || {};
   const list = (title, paths) => (paths && paths.length ? '  ' + title + ' (' + paths.length + '):\\n' + paths.map((p) => '    ' + p).join('\\n') + '\\n' : '');
   return 'Effective sandbox policy for ' + process.cwd() + '\\n\\n\\u001b[1mUser-configured paths:\\u001b[22m\\n' + list('Read-write paths', fsp.readwritePaths) + list('Read-only paths', fsp.readonlyPaths) + list('Denied paths', env.FAKE_COPILOT_DROP_DENIED ? [] : fsp.deniedPaths) +
-    '\\n\\u001b[1mWorking directory:\\u001b[22m\\n  Read-write paths (1):\\n    ' + process.cwd() + '\\n' + devTools() +
+    (sb.addCurrentWorkingDirectory === false ? '' : '\\n\\u001b[1mWorking directory:\\u001b[22m\\n  Read-write paths (1):\\n    ' + process.cwd() + '\\n') + devTools() +
     '\\n\\u001b[1mCapabilities:\\u001b[22m\\n  Allow sandbox bypass: ' + (sb.allowBypass ? 'yes' : 'no') + '\\n  Authenticate git (sandbox setting): ' + (sb.auth && sb.auth.git ? 'on' : 'off') + '\\n  Authenticate gh (sandbox setting): off\\n  Allow keychain access: ' + (env.FAKE_COPILOT_KEYCHAIN || 'off') + '\\n';
   function devTools() {
     const w = (env.FAKE_COPILOT_DEV_WRITES || '').split(path.delimiter).filter(Boolean);
@@ -160,7 +163,11 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   try { m = JSON.parse(line); } catch { return; }
   record(m);
   if (m.method !== undefined && m.id !== undefined) {
-    const s = (queues.get('req:' + m.method) || []).shift();
+    const said = ((m.params && m.params.prompt) || []).map((b) => b.text || '').join('');
+    const queue = queues.get('req:' + m.method) || [];
+    // Its own policy in place of the recorded one: that segment is left out.
+    if (env.FAKE_COPILOT_OWN_POLICY && said === '/sandbox policy' && queue[0] && queue[0].policy) queue.shift();
+    const s = env.FAKE_COPILOT_OWN_POLICY && said === '/sandbox policy' ? undefined : queue.shift();
     if (s) { ids.set(s.recordedId, m.id); return play(s); }
     if (m.method === 'initialize') return send({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: 1, agentCapabilities: { auth: { logout: {} }, loadSession: true, mcpCapabilities: { http: true, sse: true }, promptCapabilities: { image: true, audio: false, embeddedContext: true }, sessionCapabilities: { close: {}, list: {} } }, agentInfo: { name: 'Copilot', title: 'Copilot', version: '1.0.109' }, authMethods: [] } });
     if (m.method === 'logout') {
