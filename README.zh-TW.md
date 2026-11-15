@@ -8,7 +8,7 @@
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1)
 
-**不安裝任何東西就能免費體驗：** 在你自己的 GitHub codespace 打開最新的正式版，七個非開源的 agent CLI 都已裝好、app 也已啟動，網址只有你的 GitHub 帳號打得開。詳見[在 GitHub Codespaces 試用](docs/codespaces.zh-TW.md)。
+**不安裝任何東西就能免費體驗：** 在你自己的 GitHub codespace 打開最新的正式版，七個非開源的 agent CLI 都已裝好、app 也已啟動，網址只有你的 GitHub 帳號打得開。詳見[在 GitHub Codespaces 試用](docs/codespaces.zh-TW.md#步驟)。
 
 ---
 
@@ -30,7 +30,7 @@
 - **檔案、語音與分享**：附加檔案與截圖、瀏覽工作目錄、用只在你電腦上執行的語音輸入說話，並把對話分享成 Markdown 或連結。（[瀏覽檔案](docs/user-guide.zh-TW.md#瀏覽檔案)、[語音輸入](docs/user-guide.zh-TW.md#語音輸入)、[分享對話](docs/user-guide.zh-TW.md#分享對話)）
 - **井然有序**：群組、搜尋、側邊欄上每個對話的狀態，以及通知與提示音（手機上是推播通知）。（[群組](docs/user-guide.zh-TW.md#群組)、[搜尋](docs/user-guide.zh-TW.md#搜尋)、[通知與提示音](docs/user-guide.zh-TW.md#通知與提示音)）
 - **設定一次，每個 CLI 都適用**：MCP 伺服器、skill 與記憶的工具庫，每個 CLI 多個帳號、每個帳號的方案用量、各 CLI 自己載入的內容，以及在 [AgentsView](https://www.agentsview.io) 中檢視 agent 的 session。（[工具庫](docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[多個帳號](docs/user-guide.zh-TW.md#多個帳號)、[方案用量](docs/user-guide.zh-TW.md#方案用量)、[AgentsView](docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)）
-- **完全在本機，你的裝置都能用**：所有資料存在單一 SQLite 檔案，伺服器只監聽 `127.0.0.1`；透過 Tailscale 用手機連線；選用的桌面 app；English 與繁體中文。（[用手機連線](docs/remote-access.zh-TW.md)、[桌面 app](#桌面-app)）
+- **完全在本機，你的裝置都能用**：所有資料存在單一 SQLite 檔案，伺服器只監聽 `127.0.0.1`；透過 Tailscale 用手機連線；選用的桌面 app；English 與繁體中文。（[用手機連線](docs/remote-access.zh-TW.md#1-把伺服器分享到-tailnet)、[桌面 app](#桌面-app)）
 
 每個功能的詳細步驟都在[使用者說明](docs/user-guide.zh-TW.md)。
 
@@ -53,14 +53,14 @@ npm start
 打開 `npm start` 在終端機印出的登入連結（`http://127.0.0.1:8787/#code=…`；Harness Relay 只接受登入過的瀏覽器，見[安全性](#安全性)），先到「**設定與登入**」確認每個 agent 都已登入（開源 agent 則設定模型來源，見下方），再點「**新對話**」，選好工作目錄與權限，直接提出第一個問題：首席 agent 會先為它組隊。
 
 - `git pull` 之後，請重新執行 `npm install` 和 `npm run build`，再執行 `npm start`。
-- 要用手機使用，把它分享到你的 tailnet：詳見[用手機連線（Tailscale）](docs/remote-access.zh-TW.md)。
-- 要開發 Harness Relay 本身？改用 `npm run dev`（網址是 <http://localhost:5173>）：詳見[開發者說明](docs/developer-guide.zh-TW.md)。
+- 要用手機使用，把它分享到你的 tailnet：詳見[用手機連線（Tailscale）](docs/remote-access.zh-TW.md#1-把伺服器分享到-tailnet)。
+- 要開發 Harness Relay 本身？改用 `npm run dev`（網址是 <http://localhost:5173>）：詳見開發者說明的[執行](docs/developer-guide.zh-TW.md#執行)。
 
 ### 開源 agent 與模型來源
 
 OpenCode、Goose、Cline、OpenHands 與 Pi 沒有登入流程，而是使用你在 **設定 → 模型來源** 設定的模型來源：OpenAI、Anthropic 或 xAI 的 API key，或你自己的 OpenAI 相容伺服器（vLLM、Ollama、LM Studio、llama.cpp）。成員的模型寫成「模型來源/模型」，例如 `openai/gpt-5.4-nano` 或 `homelab/muse-glimmer-30b-nvfp4`。Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI。Claude Code、Codex、Grok 與 Copilot 也能在你自己的端點上執行。
 
-怎麼設定，以及每個 agent 要注意的地方：使用者說明的[開源 agent 與模型來源](docs/user-guide.zh-TW.md#開源-agent-與模型來源)。每個 agent 怎麼運作：[開源 agent](docs/open-agents.zh-TW.md)。
+怎麼設定，以及每個 agent 要注意的地方：使用者說明的[開源 agent 與模型來源](docs/user-guide.zh-TW.md#開源-agent-與模型來源)。每個 agent 怎麼運作，見「開源 agent」文件的 [OpenCode](docs/open-agents.zh-TW.md#opencode)、[Goose](docs/open-agents.zh-TW.md#goose)、[Cline](docs/open-agents.zh-TW.md#cline)、[OpenHands](docs/open-agents.zh-TW.md#openhands) 與 [Pi](docs/open-agents.zh-TW.md#pi)。
 
 ## 桌面 app
 
@@ -73,7 +73,7 @@ OpenCode、Goose、Cline、OpenHands 與 Pi 沒有登入流程，而是使用你
 agent 會修改你的檔案、執行指令，所以 Harness Relay 讓它們只在你設定的範圍內做事：
 
 - **每個對話有自己的權限**：唯讀、可編輯或完全存取。完全存取讓 agent 不必詢問就能執行任何指令，只在你信任的目錄中使用；其他權限下，超出範圍的動作會在對話中詢問你。
-- **完全存取以外的作業系統沙箱**：Claude Code、Codex、Grok、Copilot 與 Muse Code 用它們自己的，五個開源 agent 則在 [Harness Relay 自己的沙箱](docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)中執行。Cursor 與 Antigravity 沒有 Harness Relay 能用的沙箱，所以它們想執行的每個指令都會先問你（Cursor 在你的 Cursor 團隊自動執行允許清單上的除外）。各沙箱擋的東西不同，網路尤其如此（可編輯模式下，Grok 或 Copilot 執行的專案程式碼仍連得上網路），原生 Windows 上能用的沙箱也比較少，所以不信任的程式碼或指示請用唯讀。逐個平台的說明：[各平台的作業系統沙箱](docs/sandboxing.zh-TW.md)；逐個 CLI 的說明：[架構 → 權限對應](docs/architecture.zh-TW.md#權限對應)。
+- **完全存取以外的作業系統沙箱**：Claude Code、Codex、Grok、Copilot 與 Muse Code 用它們自己的，五個開源 agent 則在 [Harness Relay 自己的沙箱](docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)中執行。Cursor 與 Antigravity 沒有 Harness Relay 能用的沙箱，所以它們想執行的每個指令都會先問你（Cursor 在你的 Cursor 團隊自動執行允許清單上的除外）。各沙箱擋的東西不同，網路尤其如此（可編輯模式下，Grok 或 Copilot 執行的專案程式碼仍連得上網路），原生 Windows 上能用的沙箱也比較少，所以不信任的程式碼或指示請用唯讀。逐個平台的說明：[各平台的作業系統沙箱](docs/sandboxing.zh-TW.md#各平台)；逐個 CLI 的說明：[架構 → 權限對應](docs/architecture.zh-TW.md#權限對應)。
 - **agent 碰不到的地方**：完全存取以外，碰不到你瀏覽器的資料夾與 Harness Relay 的資料庫；在含有 Harness Relay 本身、你的家目錄或某個 CLI 自己資料夾的目錄中，不能使用可編輯模式。（[agent 不能讀寫的地方](docs/sandboxing.zh-TW.md#agent-不能讀寫的地方)）
 - **只接受你的瀏覽器**：伺服器只綁定 `127.0.0.1`、拒絕跨站請求，並且只接受你登入過的瀏覽器。只透過 `tailscale serve` 分享到你的 tailnet。（[架構 → 安全性](docs/architecture.zh-TW.md#安全性)、[用手機連線 → 安全性](docs/remote-access.zh-TW.md#安全性)）
 - **金鑰存在系統的金鑰儲存區**：API key 與 MCP 伺服器的機密值存在 macOS 鑰匙圈、Windows 認證管理員或 Linux 的 Secret Service；沒有這類儲存區的系統，才加密後存在資料庫。（[API key](docs/user-guide.zh-TW.md#api-key選用)）
@@ -107,7 +107,7 @@ agent 會修改你的檔案、執行指令，所以 Harness Relay 讓它們只�
 
 ## 參與開發
 
-歡迎回報問題、提出想法或送出 pull request。[CONTRIBUTING.zh-TW.md](CONTRIBUTING.zh-TW.md) 說明怎麼回報問題、建立開發環境與準備修改；所有給使用者看的文字與文件都要同時有 English 與繁體中文。也可以直接在 app 裡[回報問題](docs/user-guide.zh-TW.md#回報問題)。參與的每個人都要遵守[行為準則](CODE_OF_CONDUCT.zh-TW.md)。發現安全性問題？請依 [SECURITY.zh-TW.md](SECURITY.zh-TW.md) 的說明私下回報。
+歡迎回報問題、提出想法或送出 pull request。[CONTRIBUTING.zh-TW.md](CONTRIBUTING.zh-TW.md) 說明怎麼回報問題、建立開發環境與準備修改；所有給使用者看的文字與文件都要同時有 English 與繁體中文。也可以直接在 app 裡[回報問題](docs/user-guide.zh-TW.md#回報問題)。參與的每個人都要遵守[行為準則](CODE_OF_CONDUCT.zh-TW.md)。發現安全性問題？請依 [SECURITY.zh-TW.md](SECURITY.zh-TW.md#回報漏洞) 的說明私下回報。
 
 ## 授權
 
