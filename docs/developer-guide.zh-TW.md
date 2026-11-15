@@ -243,6 +243,9 @@ npm run login      # 另一個一次性登入連結（10 分鐘內有效）
 npx tsx scripts/sandbox-check.ts   # 在這台電腦上實際執行 Harness Relay 自己的沙箱（macOS；Linux 需 bubblewrap、socat、ripgrep）
                                    # --only <文字>：只跑名稱包含它的檢查；--keep：保留它的暫存資料夾
                                    # 改過 relaySandbox.ts、relaySandboxHost.ts、sandboxProcs.ts 或轉接器的沙箱需求後執行
+npm run site:preview   # 在 127.0.0.1:4180 預覽網站（site/），和 GitHub Pages 一樣
+npm run icons          # 重畫 src/web/public/ 裡的主畫面圖示與 web app manifest
+npm run demo           # 用真正的 CLI 重新錄製示範影片（見「錄製示範影片」）
 
 npm install --prefix desktop   # 只有桌面 app 需要，執行一次：Electron 與 electron-builder
 npm run desktop                # 建置介面與桌面 app，並直接執行（不安裝）

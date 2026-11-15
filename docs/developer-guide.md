@@ -245,6 +245,9 @@ npm run login      # another one-time sign-in link (ten minutes)
 npx tsx scripts/sandbox-check.ts   # Harness Relay's own sandbox for real on this computer (macOS; Linux with bubblewrap, socat, ripgrep)
                                    # --only <text>: the checks whose name contains it; --keep: keep its scratch folder
                                    # run it after changing relaySandbox.ts, relaySandboxHost.ts, sandboxProcs.ts or an adapter's sandbox needs
+npm run site:preview   # the website (site/) on 127.0.0.1:4180, as GitHub Pages serves it
+npm run icons          # redraw the home-screen icons and the web app manifest in src/web/public/
+npm run demo           # record the demo again with the real CLIs (see Recording the demo)
 
 npm install --prefix desktop   # once, for the desktop app only: Electron and electron-builder
 npm run desktop                # build the UI and the desktop app, and run it without installing it

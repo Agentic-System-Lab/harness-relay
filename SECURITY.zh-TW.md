@@ -66,7 +66,7 @@ Harness Relay 會啟動可以修改你的檔案、執行指令的 coding agent�
 - CLI 沙箱管不到的事，如[各平台的作業系統沙箱 → 沙箱管不到的事](docs/sandboxing.zh-TW.md#沙箱管不到的事)與[已知限制](docs/architecture.zh-TW.md#已知限制)所述。除了上面那幾個地方，指令幾乎可以讀取整台電腦（包括 `~/.ssh` 與 `~/.aws`）；Grok 或 Copilot 執行的專案程式碼可以連上網路；Claude Code 的沙箱只管它的 Bash 指令，不管它自己的工具、hook 與 MCP 伺服器，Copilot 的沙箱也不管它的 MCP 伺服器；在 macOS 上，Copilot 在工作目錄裡的唯讀路徑是路徑規則，指令可以把上一層的資料夾改名來繞過；你允許的指令會在沙箱外執行；而在原生 Windows 上 Claude Code 與 Grok 完全沒有沙箱，開源 agent 也只能以完全存取執行；
 - Cursor 在 Harness Relay 執行它的模式下沒有沙箱：你允許的指令以你的完整權限執行，Cursor 團隊的自動執行允許清單可以讓指令不經詢問就執行，而讓它自己的檔案工具碰不到受保護路徑的拒絕規則，是拿寫下來的路徑去比對（換個大小寫，或用連結，都擋不住）；
 - 登入擋不住的事，如[架構 → 登入](docs/architecture.zh-TW.md#登入)所述：沙箱外、能讀取你瀏覽器設定檔或寫入 Harness Relay `data/` 資料夾的程式；agent 在這台電腦另一個 port 提供的網頁，若你打開了，就會拿到 cookie，而瀏覽器自己載入的唯讀路由只需要 cookie；不斷送出錯誤代碼的程式，在它這麼做的期間讓新的瀏覽器無法登入；
-- 在沒有金鑰儲存區的系統上，API key 以 `data/secrets.key`（或 `RELAY_SECRETS_KEY_FILE` 指定的檔案）裡的金鑰加密後存在 `data/relay.db` 裡，如 [README](README.zh-TW.md#安全性) 所述：能以你的使用者身分讀到這兩個檔案的程式就能解密；
+- 在沒有金鑰儲存區的系統上，API key 以 `data/secrets.key`（或 `RELAY_SECRETS_KEY_FILE` 指定的檔案）裡的金鑰加密後存在 `data/relay.db` 裡，如使用者說明的 [API key](docs/user-guide.zh-TW.md#api-key選用) 所述：能以你的使用者身分讀到這兩個檔案的程式就能解密；
 - 桌面 app 為了從 private repository 下載更新而可能帶著的唯讀 token：任何拿到一份 app 的人都讀得到它（agent 執行的指令也是）。建置只接受 fine-grained token，把它編碼只是為了不讓 GitHub 的 secret scanning 撤銷它（擋不了任何人）；維護者把它限制成只能讀那個 repository，而那裡只放公開安裝檔的副本（[開發者說明 → 發佈](docs/developer-guide.zh-TW.md#發佈)）。有人用完它的請求額度、或讓它被撤銷，只會讓更新改下載安裝檔（如果發佈副本的 token 屬於同一個帳號，也會讓副本要等額度恢復才能發佈：維護者會用一個專用的帳號建立讀取用的 token）；
 - 簽署推播通知的金鑰與瀏覽器的推播訂閱存在 `data/relay.db` 裡（[架構 → 通知](docs/architecture.zh-TW.md#通知)）：拿到它副本的人可以傳通知到你的裝置（點通知仍然只會打開你的 Harness Relay），所以 `data/` 資料夾請勿外流；
 - 用 `tailscale serve` 分享伺服器之後，tailnet 裡每台裝置都連得到的東西：它的登入頁，以及沒有登入機制的 AgentsView（[用手機連線 → 安全性](docs/remote-access.zh-TW.md#安全性)）；

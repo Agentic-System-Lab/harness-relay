@@ -85,7 +85,7 @@ Harness Relay 是雙語的：每一段給使用者看的文字都有繁體中文
 
 ### 文件
 
-文件成對存在：`README.md` / `README.zh-TW.md`、`CONTRIBUTING.md` / `CONTRIBUTING.zh-TW.md`、`CODE_OF_CONDUCT.md` / `CODE_OF_CONDUCT.zh-TW.md`、`SECURITY.md` / `SECURITY.zh-TW.md`、`docs/<name>.md` / `docs/<name>.zh-TW.md`，以及 `e2e/` 與 `desktop/` 的 README（各自的 `README.md` / `README.zh-TW.md`）。當修改影響到行為、HTTP API、schema、設定、環境變數或測試清單時，請在同一個 pull request 中更新兩種語言。開發者說明列出了每一條 HTTP 路由與每個測試檔涵蓋的內容，請保持這些清單是最新的。
+文件成對存在：`README.md` / `README.zh-TW.md`、`CONTRIBUTING.md` / `CONTRIBUTING.zh-TW.md`、`CODE_OF_CONDUCT.md` / `CODE_OF_CONDUCT.zh-TW.md`、`SECURITY.md` / `SECURITY.zh-TW.md`、`docs/<name>.md` / `docs/<name>.zh-TW.md`，以及 `e2e/` 與 `desktop/` 的 README（各自的 `README.md` / `README.zh-TW.md`）。當修改影響到行為、HTTP API、schema、設定、環境變數或測試清單時，請在同一個 pull request 中更新兩種語言。開發者說明列出了每一條 HTTP 路由與每個測試檔涵蓋的內容，請保持這些清單是最新的。README 只是簡短的概覽：每一節用幾句話摘要，再連到有細節的文件，所以細節請寫在文件裡（使用者說明、架構、沙箱、開發者說明），新功能在 README 最多加一行並附上連結。
 
 [`e2e/README.zh-TW.md`](e2e/README.zh-TW.md) 列出每個端對端測試的情境：新增、修改或刪除端對端測試時，請在同一個 pull request 中一起更新它與英文版。[`desktop/README.zh-TW.md`](desktop/README.zh-TW.md) 是寫給開發者的桌面 app 說明：app 的檔案、指令或檢查改變時，請更新它（兩種語言）。
 
