@@ -68,22 +68,6 @@ OpenCode、Goose、Cline、OpenHands 與 Pi 沒有登入流程，而是使用你
 
 從[網站](https://agentic-system-lab.github.io/harness-relay/zh-TW/)或 [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases) 下載。安裝檔還沒有簽署，所以第一次打開時系統會警告：使用者說明的[桌面 app](docs/user-guide.zh-TW.md#桌面-app) 說明該怎麼做、怎麼更新，以及怎麼自己建置。
 
-## 文件
-
-| | English | 繁體中文 |
-| --- | --- | --- |
-| 使用者說明 | [docs/user-guide.md](docs/user-guide.md) | [docs/user-guide.zh-TW.md](docs/user-guide.zh-TW.md) |
-| 架構 | [docs/architecture.md](docs/architecture.md) | [docs/architecture.zh-TW.md](docs/architecture.zh-TW.md) |
-| 開發者說明 | [docs/developer-guide.md](docs/developer-guide.md) | [docs/developer-guide.zh-TW.md](docs/developer-guide.zh-TW.md) |
-| 用手機連線（Tailscale） | [docs/remote-access.md](docs/remote-access.md) | [docs/remote-access.zh-TW.md](docs/remote-access.zh-TW.md) |
-| 在 GitHub Codespaces 試用 | [docs/codespaces.md](docs/codespaces.md) | [docs/codespaces.zh-TW.md](docs/codespaces.zh-TW.md) |
-| 開源 agent（OpenCode、Goose、Cline、OpenHands、Pi） | [docs/open-agents.md](docs/open-agents.md) | [docs/open-agents.zh-TW.md](docs/open-agents.zh-TW.md) |
-| 各平台的作業系統沙箱 | [docs/sandboxing.md](docs/sandboxing.md) | [docs/sandboxing.zh-TW.md](docs/sandboxing.zh-TW.md) |
-| 新增 coding agent 的流程 | [docs/adding-a-coding-agent.md](docs/adding-a-coding-agent.md) | [docs/adding-a-coding-agent.zh-TW.md](docs/adding-a-coding-agent.zh-TW.md) |
-| 端對端測試的情境 | [e2e/README.md](e2e/README.md) | [e2e/README.zh-TW.md](e2e/README.zh-TW.md) |
-| 桌面 app（給開發者） | [desktop/README.md](desktop/README.md) | [desktop/README.zh-TW.md](desktop/README.zh-TW.md) |
-| 提案（尚未實作） | [docs/proposals/README.md](docs/proposals/README.md) | [docs/proposals/README.zh-TW.md](docs/proposals/README.zh-TW.md) |
-
 ## 安全性
 
 agent 會修改你的檔案、執行指令，所以 Harness Relay 讓它們只在你設定的範圍內做事：
@@ -104,6 +88,22 @@ agent 會修改你的檔案、執行指令，所以 Harness Relay 讓它們只�
 | `npm run typecheck`、`npm test`、`npm run build` | CI 對每個 pull request 執行的檢查 |
 
 其他指令（端對端測試、桌面 app、網站、示範影片）都在[開發者說明](docs/developer-guide.zh-TW.md#執行)，也說明了 [CI](docs/developer-guide.zh-TW.md#持續整合ci) 會執行什麼。
+
+## 文件
+
+| | English | 繁體中文 |
+| --- | --- | --- |
+| 使用者說明 | [docs/user-guide.md](docs/user-guide.md) | [docs/user-guide.zh-TW.md](docs/user-guide.zh-TW.md) |
+| 架構 | [docs/architecture.md](docs/architecture.md) | [docs/architecture.zh-TW.md](docs/architecture.zh-TW.md) |
+| 開發者說明 | [docs/developer-guide.md](docs/developer-guide.md) | [docs/developer-guide.zh-TW.md](docs/developer-guide.zh-TW.md) |
+| 用手機連線（Tailscale） | [docs/remote-access.md](docs/remote-access.md) | [docs/remote-access.zh-TW.md](docs/remote-access.zh-TW.md) |
+| 在 GitHub Codespaces 試用 | [docs/codespaces.md](docs/codespaces.md) | [docs/codespaces.zh-TW.md](docs/codespaces.zh-TW.md) |
+| 開源 agent（OpenCode、Goose、Cline、OpenHands、Pi） | [docs/open-agents.md](docs/open-agents.md) | [docs/open-agents.zh-TW.md](docs/open-agents.zh-TW.md) |
+| 各平台的作業系統沙箱 | [docs/sandboxing.md](docs/sandboxing.md) | [docs/sandboxing.zh-TW.md](docs/sandboxing.zh-TW.md) |
+| 新增 coding agent 的流程 | [docs/adding-a-coding-agent.md](docs/adding-a-coding-agent.md) | [docs/adding-a-coding-agent.zh-TW.md](docs/adding-a-coding-agent.zh-TW.md) |
+| 端對端測試的情境 | [e2e/README.md](e2e/README.md) | [e2e/README.zh-TW.md](e2e/README.zh-TW.md) |
+| 桌面 app（給開發者） | [desktop/README.md](desktop/README.md) | [desktop/README.zh-TW.md](desktop/README.zh-TW.md) |
+| 提案（尚未實作） | [docs/proposals/README.md](docs/proposals/README.md) | [docs/proposals/README.zh-TW.md](docs/proposals/README.zh-TW.md) |
 
 ## 參與開發
 
