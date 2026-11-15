@@ -12,13 +12,13 @@
 
 ---
 
-一個在本機執行的群組聊天室，讓真正的 **Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 和 Muse Code** CLI，以及五個用你選的模型來源執行的開源 coding agent（**OpenCode、Goose、Cline、OpenHands 與 Pi**）組成團隊：替每個 agent 安排角色、決定輪流發言的方式，它們就會處理你的程式碼或任何問題，並且互相回應。
-
-每個問題都由首席 agent 從你的範本挑選團隊（或依範本調整、重新設計），你確認後團隊才開始回答：每個 agent 的定位（架構師、實作者、審查者、魔鬼代言人……）、模型與推理強度，以及對話模式（圓桌、平行或接力）。團隊設計放在範本裡。Harness Relay 會用你自己的登入與工具執行 `claude`、`codex`、`grok`、`cursor-agent`、`agy`、`copilot`、`muse`，用你的 API key 或你自己的模型伺服器執行開源 CLI，把每個 agent 還沒看過的訊息交給它，並把所有內容即時串流到同一個聊天畫面。
-
 ## 示範
 
 [![Harness Relay 示範：新增群組並提問，首席 agent 把對話歸進群組並為這個問題設計團隊，確認後 Claude Code、Codex 與 Grok 閱讀程式碼並回答，接著的新問題也有自己的團隊，再到檔案瀏覽器裡看它們討論到的程式碼，最後用搜尋找回對話](docs/media/demo-zh-TW.webp)](docs/media/demo-zh-TW.mp4)
+
+一個在本機執行的群組聊天室，讓真正的 **Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 和 Muse Code** CLI，以及五個用你選的模型來源執行的開源 coding agent（**OpenCode、Goose、Cline、OpenHands 與 Pi**）組成團隊：替每個 agent 安排角色、決定輪流發言的方式，它們就會處理你的程式碼或任何問題，並且互相回應。
+
+每個問題都由首席 agent 從你的範本挑選團隊（或依範本調整、重新設計），你確認後團隊才開始回答：每個 agent 的定位（架構師、實作者、審查者、魔鬼代言人……）、模型與推理強度，以及對話模式（圓桌、平行或接力）。團隊設計放在範本裡。Harness Relay 會用你自己的登入與工具執行 `claude`、`codex`、`grok`、`cursor-agent`、`agy`、`copilot`、`muse`，用你的 API key 或你自己的模型伺服器執行開源 CLI，把每個 agent 還沒看過的訊息交給它，並把所有內容即時串流到同一個聊天畫面。
 
 ## 功能
 
