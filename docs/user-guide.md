@@ -6,7 +6,7 @@ This guide walks through installing Harness Relay, signing in to the agents (or 
 
 ## 1. Install and start
 
-You need Node.js 22.13 or newer and at least one of the agent CLIs installed: `claude`, `codex`, `grok`, `cursor-agent`, `agy` ([Antigravity](https://antigravity.google/download)), `copilot` ([GitHub Copilot CLI](https://github.com/features/copilot/cli), npm `@github/copilot`), `muse` ([Muse Code](https://dev.meta.ai/products/muse-code/)), or one of the five open-source agents (`opencode`, `goose`, `cline`, `openhands`, `pi`; how to install each, and the versions checked, are in the [README](../README.md#requirements)). Muse Code installs with `curl -fsSL https://dev.meta.ai/install.sh | bash` on macOS and Linux, or `irm https://dev.meta.ai/install.ps1 | iex` in Windows PowerShell; its installer puts a launcher on your `PATH` through your shell's profile, and the launcher keeps Muse up to date by itself (on Windows it is `muse.cmd`, from which Harness Relay starts the version it names). On Windows, Muse Code 1.4.18 runs no command below full access in Harness Relay, also after Muse's own sandbox setup (`muse sandbox windows setup`): the mode Harness Relay drives it in uses no sandbox there, so its commands fail instead of running unsandboxed; its file tools work, and full access runs commands. Edit and parallel modes also need [Git](https://git-scm.com/downloads), which Harness Relay uses for snapshots and worktrees.
+You need Node.js 22.13 or newer and at least one of the agent CLIs installed: `claude`, `codex`, `grok`, `cursor-agent` (Cursor), `agy` (Antigravity), `copilot` (GitHub Copilot), `muse` (Muse Code), or one of the five open-source agents (`opencode`, `goose`, `cline`, `openhands`, `pi`). [Installing the agent CLIs](#installing-the-agent-clis) below says where to get each one and which versions Harness Relay was checked with. Edit and parallel modes also need [Git](https://git-scm.com/downloads), which Harness Relay uses for snapshots and worktrees.
 
 ```bash
 npm install
@@ -21,6 +21,36 @@ Open the sign-in link `npm start` prints in the terminal (`http://127.0.0.1:8787
 The dots at the bottom of the sidebar show each agent's status: green = ready, orange = not signed in (for an open-source agent: no model backend yet), red = CLI not found. The open-source agents get a dot once their CLI is installed. The dots take one line, with how many agents are ready (*4/11 ready*); point at a dot for its agent's name and status, or click it to open that agent's settings. The arrow beside them shows their names too, and hides them again; this browser remembers the choice.
 
 To use Harness Relay from your phone, a tablet or another computer, share it with your tailnet through `tailscale serve` and add it to the phone's home screen: see [Use it from your phone (Tailscale)](remote-access.md). On the computer, Chrome and Edge can also install it as an app (the install button in the address bar), and Safari on macOS can add it to the Dock (**File → Add to Dock**).
+
+### Installing the agent CLIs
+
+You don't need them all: Harness Relay works with any of them. Install the ones you want so that they are on your `PATH`, then sign each in under **Settings & sign-in** ([2. Sign in to each agent](#2-sign-in-to-each-agent--settings--sign-in)); the open-source agents have no sign-in and run on a [model backend](#open-source-agents-and-model-backends) you set up there instead.
+
+The seven you sign in to:
+
+- [Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude`)
+- [Codex CLI](https://github.com/openai/codex) (`codex`)
+- [Grok CLI](https://github.com/xai-org/grok-build) (`grok`)
+- [Cursor CLI](https://cursor.com/cli) (`cursor-agent`)
+- [Antigravity CLI](https://antigravity.google/download) (`agy`; checked with 1.5.6 on macOS, Linux and Windows), signed in with your Google account or a Gemini API key
+- [GitHub Copilot CLI](https://github.com/features/copilot/cli) (`copilot`, npm `@github/copilot`; checked with 1.0.109 on macOS, Linux and Windows), signed in with your GitHub account or a GitHub token. Below full access on Linux its sandbox needs bubblewrap, slirp4netns and unprivileged user and network namespaces (see [OS sandboxes by platform → Linux](sandboxing.md#linux)).
+- [Muse Code](https://dev.meta.ai/products/muse-code/) (`muse`; checked with 1.4.18 on macOS and Linux, and on Windows), signed in with your Meta account or a Meta API key
+
+Muse Code installs with `curl -fsSL https://dev.meta.ai/install.sh | bash` on macOS and Linux, or `irm https://dev.meta.ai/install.ps1 | iex` in Windows PowerShell; its installer puts a launcher on your `PATH` through your shell's profile, and the launcher keeps Muse up to date by itself (on Windows it is `muse.cmd`, from which Harness Relay starts the version it names). On Windows, Muse Code 1.4.18 runs no command below full access in Harness Relay, also after Muse's own sandbox setup (`muse sandbox windows setup`): the mode Harness Relay drives it in uses no sandbox there, so its commands fail instead of running unsandboxed; its file tools work, and full access runs commands.
+
+The five open-source agents, with the versions Harness Relay was checked with (other versions may differ in what the adapters rely on):
+
+| Agent | Install | Checked with |
+| --- | --- | --- |
+| [OpenCode](https://www.npmjs.com/package/opencode-ai) (`opencode`) | `npm install -g opencode-ai@1.19.5` | 1.19.5 |
+| [Goose](https://formulae.brew.sh/formula/block-goose-cli) (`goose`) | `brew install block-goose-cli` | 1.58.1 |
+| [Cline](https://www.npmjs.com/package/cline) (`cline`) | `npm install -g cline@3.0.74` | 3.0.74 |
+| [OpenHands](https://pypi.org/project/openhands/) (`openhands`) | `uv tool install openhands==1.16.0` (needs [uv](https://docs.astral.sh/uv/)) | 1.16.0 |
+| [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) (`pi`) | `npm install -g @earendil-works/pi-coding-agent@1.5.1` (needs Node.js 22.19 or later) | 1.5.1 |
+
+Below full access they run in Harness Relay's own sandbox ([Open agents → The relay sandbox](open-agents.md#the-relay-sandbox)). It needs nothing extra on macOS (in the [desktop app](#desktop-app), Node.js 22.12 or later on your `PATH`); on Linux install `bubblewrap`, `socat` and `ripgrep` (`sudo apt-get install bubblewrap socat ripgrep`), and on Ubuntu 23.10 or later add the AppArmor profile for `/usr/bin/bwrap` from [OS sandboxes by platform → On Linux](sandboxing.md#on-linux). On native Windows they run only with full access (use WSL2 for a sandbox), and so does OpenCode on Linux (Harness Relay cannot watch its server there).
+
+Two features need a little more, only when you use them. [Voice input](#voice-input) installs itself when you turn it on: on macOS it needs [Homebrew](https://brew.sh); on Linux the prebuilt engine needs glibc 2.34 or later (Ubuntu 22.04, Debian 12 and newer). [Sharing a conversation](#sharing-a-conversation) as a link needs the [GitHub CLI](https://cli.github.com) (`gh`) 2.66.0 or later, signed in (from the share dialog, or with `gh auth login`), and `git` for the files that go along with the page.
 
 ### Desktop app
 

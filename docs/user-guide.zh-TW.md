@@ -6,7 +6,7 @@
 
 ## 1. 安裝與啟動
 
-需要 Node.js 22.13 以上，以及至少一個 agent CLI：`claude`、`codex`、`grok`、`cursor-agent`、`agy`（[Antigravity](https://antigravity.google/download)）、`copilot`（[GitHub Copilot CLI](https://github.com/features/copilot/cli)，npm `@github/copilot`）、`muse`（[Muse Code](https://dev.meta.ai/products/muse-code/)），或五個開源 agent 之一（`opencode`、`goose`、`cline`、`openhands`、`pi`；各自的安裝方式與驗證過的版本見 [README](../README.zh-TW.md#需求)）。Muse Code 在 macOS 與 Linux 上用 `curl -fsSL https://dev.meta.ai/install.sh | bash` 安裝，在 Windows PowerShell 用 `irm https://dev.meta.ai/install.ps1 | iex`；它的安裝程式會透過你 shell 的設定檔把一個啟動器放上 `PATH`，啟動器會自己把 Muse 保持在最新版（在 Windows 上是 `muse.cmd`，Harness Relay 會啟動它指名的版本）。在 Windows 上，Muse Code 1.4.18 在 Harness Relay 裡完全存取以外的權限不執行任何指令，完成 Muse 自己的沙箱設定（`muse sandbox windows setup`）後也一樣：Harness Relay 驅動它的那個模式在那裡不用沙箱，所以它的指令會失敗，而不會在沙箱外執行；它的檔案工具能用，完全存取時也能執行指令。編輯與平行模式還需要 [Git](https://git-scm.com/downloads)，Harness Relay 用它做快照與 worktree。
+需要 Node.js 22.13 以上，以及至少一個 agent CLI：`claude`、`codex`、`grok`、`cursor-agent`（Cursor）、`agy`（Antigravity）、`copilot`（GitHub Copilot）、`muse`（Muse Code），或五個開源 agent 之一（`opencode`、`goose`、`cline`、`openhands`、`pi`）。各自去哪裡取得、Harness Relay 以哪些版本驗證過，見下方的[安裝 agent 的 CLI](#安裝-agent-的-cli)。編輯與平行模式還需要 [Git](https://git-scm.com/downloads)，Harness Relay 用它做快照與 worktree。
 
 ```bash
 npm install
@@ -21,6 +21,36 @@ npm start
 側邊欄底部的圓點代表各 agent 的狀態：綠色＝可以使用、橘色＝尚未登入（開源 agent 則是還沒有模型來源）、紅色＝找不到 CLI。開源 agent 要等它的 CLI 安裝好才會出現圓點。這些圓點排成一行，後面是可用的數目（*4/11 可用*）；把滑鼠移到圓點上可以看到它的名稱與狀態，點它會打開那個 agent 的設定。旁邊的箭頭可以顯示名稱，再按一次就收起來；這個瀏覽器會記住你的選擇。
 
 要用手機、平板或另一台電腦使用 Harness Relay，用 `tailscale serve` 把它分享到你的 tailnet，也可以加到手機主畫面：詳見[用手機連線（Tailscale）](remote-access.zh-TW.md)。在電腦上，Chrome 與 Edge 也能把它安裝成 App（網址列的安裝按鈕），macOS 的 Safari 則能把它加到 Dock（**檔案 → 加入 Dock**）。
+
+### 安裝 agent 的 CLI
+
+不需要全部都裝，任何組合都能用。把想用的裝好、放上 `PATH`，再到「**設定與登入**」分別登入（[2. 分別登入各個 agent](#2-分別登入各個-agent設定與登入)）；開源 agent 沒有登入流程，改在那裡設定[模型來源](#開源-agent-與模型來源)。
+
+要登入的七個：
+
+- [Claude Code](https://docs.claude.com/en/docs/claude-code)（`claude`）
+- [Codex CLI](https://github.com/openai/codex)（`codex`）
+- [Grok CLI](https://github.com/xai-org/grok-build)（`grok`）
+- [Cursor CLI](https://cursor.com/cli)（`cursor-agent`）
+- [Antigravity CLI](https://antigravity.google/download)（`agy`；在 macOS、Linux 與 Windows 上以 1.5.6 驗證過），用你的 Google 帳號或 Gemini API key 登入
+- [GitHub Copilot CLI](https://github.com/features/copilot/cli)（`copilot`，npm `@github/copilot`；在 macOS、Linux 與 Windows 上以 1.0.109 驗證過），用你的 GitHub 帳號或 GitHub token 登入。在 Linux 上，完全存取以外它的沙箱需要 bubblewrap、slirp4netns，以及 unprivileged user namespace 與 network namespace（見[各平台的作業系統沙箱 → Linux](sandboxing.zh-TW.md#linux)）。
+- [Muse Code](https://dev.meta.ai/products/muse-code/)（`muse`；在 macOS 與 Linux 上以 1.4.18 驗證過，Windows 上也驗證過），用你的 Meta 帳號或 Meta API key 登入
+
+Muse Code 在 macOS 與 Linux 上用 `curl -fsSL https://dev.meta.ai/install.sh | bash` 安裝，在 Windows PowerShell 用 `irm https://dev.meta.ai/install.ps1 | iex`；它的安裝程式會透過你 shell 的設定檔把一個啟動器放上 `PATH`，啟動器會自己把 Muse 保持在最新版（在 Windows 上是 `muse.cmd`，Harness Relay 會啟動它指名的版本）。在 Windows 上，Muse Code 1.4.18 在 Harness Relay 裡完全存取以外的權限不執行任何指令，完成 Muse 自己的沙箱設定（`muse sandbox windows setup`）後也一樣：Harness Relay 驅動它的那個模式在那裡不用沙箱，所以它的指令會失敗，而不會在沙箱外執行；它的檔案工具能用，完全存取時也能執行指令。
+
+五個開源 agent，以及 Harness Relay 驗證過的版本（其他版本在轉接器依賴的地方可能不同）：
+
+| Agent | 安裝 | 驗證過的版本 |
+| --- | --- | --- |
+| [OpenCode](https://www.npmjs.com/package/opencode-ai)（`opencode`） | `npm install -g opencode-ai@1.19.5` | 1.19.5 |
+| [Goose](https://formulae.brew.sh/formula/block-goose-cli)（`goose`） | `brew install block-goose-cli` | 1.58.1 |
+| [Cline](https://www.npmjs.com/package/cline)（`cline`） | `npm install -g cline@3.0.74` | 3.0.74 |
+| [OpenHands](https://pypi.org/project/openhands/)（`openhands`） | `uv tool install openhands==1.16.0`（需要 [uv](https://docs.astral.sh/uv/)） | 1.16.0 |
+| [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)（`pi`） | `npm install -g @earendil-works/pi-coding-agent@1.5.1`（需要 Node.js 22.19 以上） | 1.5.1 |
+
+完全存取以外，它們在 Harness Relay 自己的沙箱中執行（[開源 agent → Harness Relay 的沙箱](open-agents.zh-TW.md#harness-relay-的沙箱)）。macOS 上不需要另外安裝（在[桌面 app](#桌面-app) 裡則需要 `PATH` 上有 Node.js 22.12 以上）；Linux 上請安裝 `bubblewrap`、`socat` 與 `ripgrep`（`sudo apt-get install bubblewrap socat ripgrep`），Ubuntu 23.10 以上還要加上[各平台的作業系統沙箱 → 在 Linux 上](sandboxing.zh-TW.md#在-linux-上)裡 `/usr/bin/bwrap` 的 AppArmor 設定檔。在原生 Windows 上它們只能以完全存取執行（要有沙箱請用 WSL2），Linux 上的 OpenCode 也一樣（Harness Relay 在那裡無法監看它的伺服器）。
+
+有兩個功能用到時才需要多裝一點。[語音輸入](#語音輸入)開啟時會自動安裝：macOS 需要 [Homebrew](https://brew.sh)；Linux 的預先編譯引擎需要 glibc 2.34 以上（Ubuntu 22.04、Debian 12 或更新）。把[對話分享](#分享對話)成連結需要 [GitHub CLI](https://cli.github.com)（`gh`）2.66.0 以上並登入（在分享對話框裡，或用 `gh auth login`），附上檔案時還需要 `git`。
 
 ### 桌面 app
 

@@ -126,6 +126,7 @@ The server can start agents with write access, so keep its defences intact (see 
 ### Documentation
 
 - Docs come in pairs: `README.md` / `README.zh-TW.md`, `CONTRIBUTING.md` / `CONTRIBUTING.zh-TW.md`, `CODE_OF_CONDUCT.md` / `CODE_OF_CONDUCT.zh-TW.md`, `SECURITY.md` / `SECURITY.zh-TW.md`, `docs/<name>.md` / `docs/<name>.zh-TW.md`, and the READMEs of `e2e/` and `desktop/` (`README.md` / `README.zh-TW.md` in each). When a change affects behaviour, the HTTP API, the schema, settings, environment variables or the test list, update both languages in the same commit.
+- The README is a short overview: each section sums up its topic in a few lines and links to the doc that has the details (the user guide, architecture, sandboxing, the developer guide…). Put the details in those docs, never only in the README; a new feature gets at most a line in its features list, with a link.
 - The developer guide lists the HTTP API and what each test file covers; keep those lists current.
 - `e2e/README.md` lists every end-to-end scenario. Whenever you add, change or remove an end-to-end test (a spec, a test in it, what it checks, or where it is skipped), update `e2e/README.md` and `e2e/README.zh-TW.md` in the same commit: the area's table, the test counts, "Each CLI at a glance", "Platforms and browsers" and "What they do not cover".
 - `desktop/README.md` is the desktop app's page for developers. When its files, commands or checks change, update it and `desktop/README.zh-TW.md` in the same commit.
