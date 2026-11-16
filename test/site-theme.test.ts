@@ -230,12 +230,16 @@ describe("the landing page's theme in its styles and pages", () => {
     /** A theme's tokens: the light ones, with the dark list over them for dark. */
     const tokens = (lines: string[]) =>
       new Map(lines.flatMap((l) => {
-        const m = l.match(/^(--[\w-]+): (#[0-9a-f]{6});$/);
+        const m = l.match(/^(--[\w-]+): (#[0-9a-f]{6});$/i);
         return m ? [[m[1], m[2]] as const] : [];
       }));
     const light = tokens(block(':root {'));
     const dark = new Map([...light, ...tokens(block(":root[data-theme='dark'] {"))]);
-    const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    const rgb = (colours: Map<string, string>, name: string) => {
+      const hex = colours.get(name);
+      expect(hex, `${name} as a #rrggbb colour`).toBeDefined();
+      return [1, 3, 5].map((i) => parseInt(hex!.slice(i, i + 2), 16));
+    };
     const luminance = (c: number[]) => {
       const [r, g, b] = c.map((v) => (v / 255 <= 0.04045 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4));
       return 0.2126 * r + 0.7152 * g + 0.0722 * b;
@@ -244,19 +248,37 @@ describe("the landing page's theme in its styles and pages", () => {
       const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
       return (hi + 0.05) / (lo + 0.05);
     };
-    // The pill is the agent's colour at this strength over the card under it (`.ui`, the page's background).
+    // Every pill on both pages is in a message's head, in the card of one of the three agents...
+    for (const page of PAGES) {
+      const html = read(page);
+      const placed = [
+        ...html.matchAll(/<div class="ui ui-msg t-(claude|codex|grok)">\s*<span class="av" aria-hidden="true">\w<\/span>\s*<div class="ui-head">[^<]*<span class="pill">/g),
+      ];
+      expect(placed.map((m) => m[1]).sort(), page).toEqual(['claude', 'codex', 'grok']);
+      expect(html.match(/class="pill[" ]/g), page).toHaveLength(placed.length);
+    }
+    // ...so its tint is over the card's background (`.ui`, the page's), with nothing in between.
+    expect(block('.ui {')).toContain('background: var(--bg);');
+    for (const rule of ['.ui-msg {', '.ui-head {']) expect(block(rule).filter((l) => l.startsWith('background')), rule).toEqual([]);
+    // The pill: the agent's -ink on the agent's colour at this strength.
     const pill = block('.pill {');
     expect(pill).toContain('color: var(--agent-ink, var(--muted));');
     const tint = pill.join('\n').match(/^background: color-mix\(in srgb, var\(--agent, var\(--muted\)\) (\d+)%, transparent\);$/m);
     expect(tint).not.toBeNull();
-    expect(block('.ui {')).toContain('background: var(--bg);');
     const share = Number(tint![1]) / 100;
-    for (const [theme, colours] of [['light', light], ['dark', dark]] as const) {
-      const page = rgb(colours.get('--bg')!);
-      for (const agent of ['claude', 'codex', 'grok']) {
-        const brand = rgb(colours.get(`--${agent}`)!);
-        const background = brand.map((c, i) => c * share + page[i] * (1 - share));
-        expect(ratio(rgb(colours.get(`--${agent}-ink`)!), background), `${agent} in ${theme}`).toBeGreaterThanOrEqual(4.5);
+    for (const agent of ['claude', 'codex', 'grok']) {
+      // Which tokens the agent's helper class gives the pill.
+      const helper = block(`.t-${agent} {`);
+      const token = (name: string) => {
+        const m = helper.map((l) => l.match(new RegExp(`^${name}: var\\((--[\\w-]+)\\);$`))).find(Boolean);
+        expect(m, `${name} in .t-${agent}`).toBeTruthy();
+        return m![1];
+      };
+      const [brand, ink] = [token('--agent'), token('--agent-ink')];
+      for (const [theme, colours] of [['light', light], ['dark', dark]] as const) {
+        const under = rgb(colours, '--bg');
+        const background = rgb(colours, brand).map((c, i) => c * share + under[i] * (1 - share));
+        expect(ratio(rgb(colours, ink), background), `${agent} in ${theme}`).toBeGreaterThanOrEqual(4.5);
       }
     }
   });

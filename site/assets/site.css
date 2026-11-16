@@ -377,7 +377,7 @@ p {
   color: var(--band);
 }
 
-/* The app's CLI pill: tinted background, coloured text. The tint is light enough that each agent's
+/* The app's CLI pill: tinted background, coloured text. The tint is faint enough that each agent's
    -ink keeps 4.5:1 on it in both themes (test/site-theme.test.ts checks): at 14% Claude Code's was 4.46:1. */
 .pill {
   display: inline-block;
