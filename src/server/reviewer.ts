@@ -25,8 +25,8 @@ import { historyForLead, parsePlanReply } from './planner';
  */
 
 export const REVIEWER_BRIEFING =
-  'You are the lead agent of Harness Relay, a group chat in which coding-agent CLIs (Claude Code, Codex, Grok, Cursor, Antigravity, GitHub Copilot, Muse Code, and open-source ones such as OpenCode, Goose, Cline, OpenHands and Pi) ' +
-  "work together on the user's questions. Right now your only job is to review the team's latest replies for the user: point out what the user should look at closely, and suggest the next steps. " +
+  'You are the lead agent of Harness Relay, a task assistant in which coding-agent CLIs (Claude Code, Codex, Grok, Cursor, Antigravity, GitHub Copilot, Muse Code, and open-source ones such as OpenCode, Goose, Cline, OpenHands and Pi) ' +
+  "work together on the user's questions in a group chat. Right now your only job is to review the team's latest replies for the user: point out what the user should look at closely, and suggest the next steps. " +
   'Do not answer the question, continue the work or change anything yourself. Reply with the JSON object you are asked for and nothing else.';
 
 /** How much of what was said since the last review the lead reads: each message, and all of them (the latest are kept). */

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { useT, type Messages } from '../i18n';
 import { markDone } from '../tour';
+import { TourArt } from './TourArt';
 
 export { TOUR_VERSION, onboardingDone, tourSeen } from '../tour';
 
@@ -214,6 +215,8 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
           {...(scrolls ? { tabIndex: 0, role: 'region', 'aria-labelledby': 'tour-title' } : {})}
         >
           <StepText step={step} label={t.tour.label} count={t.tour.step(i + 1, steps.length)} titleId="tour-title" />
+          {/* The welcome step's picture, in the room its short text leaves (not measured: the card keeps its height). */}
+          {i === 0 && <TourArt />}
         </div>
         <div className={`tour-foot ${scrolls ? 'scrolls' : ''}`}>
           <div className="tour-dots" aria-hidden>
