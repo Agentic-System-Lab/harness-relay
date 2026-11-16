@@ -6,8 +6,9 @@
  * named `npm`), where the server finds it first on its PATH. It never reaches a registry.
  *
  * It answers what cliInstall.ts asks of npm:
- * - `install --global --prefix <folder> … <package>`: installs the package's CLI as npm's global
- *   layout would, the fake of that CLI standing in for it: on macOS and Linux a link
+ * - `install --global --prefix <folder> [--cache <cache>] … <package>`: installs the package's CLI as
+ *   npm's global layout would (and writes in its cache, as npm keeps what it downloads there), the
+ *   fake of that CLI standing in for it: on macOS and Linux a link
  *   `<folder>/bin/<command>` to the fake beside this one; on Windows the fake as
  *   `<folder>\node_modules\<package>\bin\<command>.exe` and npm's shim for it, `<folder>\<command>.cmd`.
  *   It prints a line as npm does, then `added 1 package`.
@@ -80,7 +81,12 @@ function install() {
   const at = args.indexOf('--prefix');
   const prefix = at >= 0 ? args[at + 1] : undefined;
   if (!args.includes('--global') || !prefix) fail(`fake npm: only a global install into a prefix is faked: ${args.join(' ')}`);
-  const spec = args.filter((a, i) => !a.startsWith('-') && i > 0 && args[i - 1] !== '--prefix').pop() || '';
+  const spec = args.filter((a, i) => !a.startsWith('-') && i > 0 && !['--prefix', '--cache'].includes(args[i - 1])).pop() || '';
+  const cacheAt = args.indexOf('--cache');
+  if (cacheAt >= 0) {
+    fs.mkdirSync(path.join(args[cacheAt + 1], '_cacache'), { recursive: true });
+    fs.writeFileSync(path.join(args[cacheAt + 1], '_cacache', 'index'), `${spec}\n`);
+  }
   // `cline@3.0.74` → `cline`; `@scope/name@1.0.0` → `@scope/name`.
   const name = spec.replace(/(.)@[^@/]*$/, '$1');
   process.stdout.write(`npm http fetch GET 200 https://registry.npmjs.org/${name} 12ms\n`);

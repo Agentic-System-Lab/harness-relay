@@ -63,7 +63,10 @@ test.describe('installing a CLI from Settings', () => {
     await expect(card.locator('summary', { hasText: 'Executable' })).toContainText(program);
     await expect(page.locator('.provider-health .health.off[href="#/settings/copilot"]')).toHaveCount(0);
     const npmRuns = relay.fakeLog().filter((e) => e.cli === 'npm');
-    expect(npmRuns.map((e) => e.args)).toEqual([['install', '--global', '--prefix', dir, '--no-audit', '--no-fund', '--no-update-notifier', '@github/copilot']]);
+    const cache = join(dir, 'install-cache');
+    expect(npmRuns.map((e) => e.args)).toEqual([['install', '--global', '--prefix', dir, '--cache', join(cache, 'npm'), '--no-audit', '--no-fund', '--no-update-notifier', '@github/copilot']]);
+    // npm's cache was the install's own, and went with it.
+    expect(existsSync(cache)).toBe(false);
 
     // Removed: the folder goes, and the executable path is what it was before (here, a path that is not there).
     acceptNextDialog(page);

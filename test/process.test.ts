@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { CommandNotFoundError, FrameDecoder, capture, frame, killAll, runProcess, runShellScript, runSync, sleepSync, spawnDetached } from '../src/server/process';
+import { CommandNotFoundError, FrameDecoder, capture, frame, killAll, needsConsole, runProcess, runShellScript, runSync, sleepSync, spawnDetached } from '../src/server/process';
 
 const dir = mkdtempSync(join(tmpdir(), 'relay-proc-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -154,6 +154,34 @@ describe('runShellScript', () => {
     const missing = await runShellScript(join(dir, 'no-such-shell'), [], 'true', { env: process.env }).catch((e) => e);
     expect(missing).toBeInstanceOf(CommandNotFoundError);
   });
+});
+
+describe('PowerShell on Windows', () => {
+  it('gets a console of its own there, which a detached child has none of', () => {
+    expect(needsConsole('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', 'win32')).toBe(true);
+    expect(needsConsole('C:\\Program Files\\PowerShell\\7\\PWSH.EXE', 'win32')).toBe(true);
+    expect(needsConsole('powershell', 'win32')).toBe(true);
+    expect(needsConsole('C:\\tools\\node\\node.exe', 'win32')).toBe(false);
+    expect(needsConsole('C:\\tools\\powershell-helper.exe', 'win32')).toBe(false);
+    // Elsewhere every child is detached, in a process group of its own.
+    expect(needsConsole('/usr/local/bin/pwsh', 'linux')).toBe(false);
+  });
+
+  // Started detached, Windows PowerShell ran nothing and exited with 0: Settings' installers and the
+  // folder dialog did nothing.
+  it.skipIf(process.platform !== 'win32')('runs a script file and a command, with their output and exit code', async () => {
+    const powershell = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    const flags = ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass'];
+    const file = join(dir, 'script.ps1');
+    writeFileSync(file, "Write-Output 'from a file'\nexit 3\n");
+    const lines: string[] = [];
+    const ran = await runProcess({ bin: powershell, args: [...flags, '-File', file], env: process.env, onLine: (l) => lines.push(l), timeoutMs: 60_000 });
+    expect(ran.code).toBe(3);
+    expect(lines).toContain('from a file');
+    const script = await runShellScript(powershell, flags, "Write-Output $env:RELAY_TEST_VALUE; exit 4", { env: { ...process.env, RELAY_TEST_VALUE: 'from its env' }, timeoutMs: 60_000 });
+    expect(script.code).toBe(4);
+    expect(script.stdout.trim()).toBe('from its env');
+  }, 30_000);
 });
 
 describe('killAll', () => {

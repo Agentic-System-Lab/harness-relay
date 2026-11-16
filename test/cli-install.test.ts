@@ -7,6 +7,7 @@ import { createApp } from '../src/server/app';
 import {
   CLI_RECIPES,
   CliInstaller,
+  INSTALL_CACHE,
   INSTALL_NOTE,
   POWERSHELL_RUN_SCRIPT,
   USER_PATH_READ_SCRIPT,
@@ -122,6 +123,9 @@ function fakeHost(
     if (answer) return answer;
     const p = basename(s.cwd ?? '') as Provider;
     const tool = basename(s.bin.replace(/\\/g, '/')).replace(/\.exe$/i, '');
+    // npm and uv keep what they download in the cache they are given.
+    if (s.args.includes('--cache')) touch(join(s.args[s.args.indexOf('--cache') + 1]!, '_cacache', 'index'));
+    if (s.env.UV_CACHE_DIR) touch(join(s.env.UV_CACHE_DIR, 'wheels', 'index'));
     if (tool === 'curl') touch(s.args[s.args.indexOf('-o') + 1]!);
     // uv's own installer puts uv where it is told.
     else if (s.env.UV_UNMANAGED_INSTALL) touch(join(s.env.UV_UNMANAGED_INSTALL, win ? 'uv.exe' : 'uv'));
@@ -202,7 +206,9 @@ describe('the recipes', () => {
     expect(installCommand(CLI_RECIPES.openhands, 'linux')).toBe('uv tool install openhands==1.16.0');
     // Without uv, uv's own installer first.
     expect(installCommand(CLI_RECIPES.openhands, 'darwin', true)).toBe('curl -fsSL https://astral.sh/uv/install.sh | bash; uv tool install openhands==1.16.0');
-    expect(installCommand(CLI_RECIPES.openhands, 'win32', true)).toBe('irm https://astral.sh/uv/install.ps1 | iex; uv tool install openhands==1.16.0');
+    // On Windows, the x64 Python, which also Windows on Arm runs (its own lacks wheels for OpenHands' packages).
+    expect(installCommand(CLI_RECIPES.openhands, 'win32', true)).toBe('irm https://astral.sh/uv/install.ps1 | iex; uv tool install --python cpython-3.12-windows-x86_64-none openhands==1.16.0');
+    expect(installCommand(CLI_RECIPES.openhands, 'win32')).toBe('uv tool install --python cpython-3.12-windows-x86_64-none openhands==1.16.0');
     expect(installCommand(CLI_RECIPES.grok, 'linux')).toBe('curl -fsSL https://x.ai/cli/install.sh | bash');
     // On Windows, the makers' PowerShell installers; Goose's bash script under Git Bash.
     expect(installCommand(CLI_RECIPES.grok, 'win32')).toBe('irm https://x.ai/cli/install.ps1 | iex');
@@ -312,10 +318,11 @@ describe('the installers’ environment', () => {
     expect(env.PATH).toBeUndefined();
   });
 
-  it('keeps uv’s tools, their links and any Python it downloads in the folder', () => {
+  it('keeps uv’s tools, their links, any Python it downloads and its cache in the folder', () => {
     const d = join(root, 'oh');
     expect(uvEnv({ PATH: '/bin' }, d)).toEqual({
       PATH: '/bin',
+      UV_CACHE_DIR: join(d, INSTALL_CACHE, 'uv'),
       UV_TOOL_DIR: join(d, 'uv', 'tools'),
       UV_TOOL_BIN_DIR: join(d, 'bin'),
       UV_PYTHON_INSTALL_DIR: join(d, 'uv', 'python'),
@@ -355,7 +362,7 @@ describe('CliInstaller', () => {
     const win = installer({ platform: 'win32' }).clis;
     for (const p of PROVIDERS) expect(win.view(p).blocked, p).toBeUndefined();
     expect(win.view('grok').command).toBe('irm https://x.ai/cli/install.ps1 | iex');
-    expect(win.view('openhands').command).toBe('irm https://astral.sh/uv/install.ps1 | iex; uv tool install openhands==1.16.0');
+    expect(win.view('openhands').command).toBe('irm https://astral.sh/uv/install.ps1 | iex; uv tool install --python cpython-3.12-windows-x86_64-none openhands==1.16.0');
     // MinGit, or no Git: Goose's bash script has no bash to run in; the PowerShell ones still do.
     const noGitBash = installer({ platform: 'win32', tools: WIN_TOOLS.filter((t) => !/\\Git\\/.test(t)) }).clis;
     expect(noGitBash.view('goose').blocked).toBe('gitBash');
@@ -379,7 +386,10 @@ describe('CliInstaller', () => {
     expect(v.job?.log).toContain('npm done');
     expect(v.installed).toMatchObject({ bin, version: '1.2.3', inUse: true });
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({ bin: '/fake/bin/npm', cwd: dir, args: ['install', '--global', '--prefix', dir, '--no-audit', '--no-fund', '--no-update-notifier', '@openai/codex'] });
+    const cache = join(dir, INSTALL_CACHE, 'npm');
+    expect(calls[0]).toMatchObject({ bin: '/fake/bin/npm', cwd: dir, args: ['install', '--global', '--prefix', dir, '--cache', cache, '--no-audit', '--no-fund', '--no-update-notifier', '@openai/codex'] });
+    // npm's cache was the install's alone: not in the user's ~/.npm, and gone once it is done.
+    expect(existsSync(join(dir, INSTALL_CACHE))).toBe(false);
     // Not Claude Code's nesting markers, nor npm's own variables of `npm start`; the rest of the server's.
     expect(calls[0]!.env).toMatchObject({ KEEP: 'me', NO_COLOR: '1' });
     expect(calls[0]!.env.CLAUDECODE).toBeUndefined();
@@ -412,7 +422,8 @@ describe('CliInstaller', () => {
     const dir = clis.folder('openhands');
     expect(v.job?.state).toBe('success');
     expect(calls[0]).toMatchObject({ bin: '/fake/bin/uv', args: ['tool', 'install', 'openhands==1.16.0'] });
-    expect(calls[0]!.env).toMatchObject({ UV_TOOL_DIR: join(dir, 'uv', 'tools'), UV_TOOL_BIN_DIR: join(dir, 'bin') });
+    expect(calls[0]!.env).toMatchObject({ UV_TOOL_DIR: join(dir, 'uv', 'tools'), UV_TOOL_BIN_DIR: join(dir, 'bin'), UV_CACHE_DIR: join(dir, INSTALL_CACHE, 'uv') });
+    expect(existsSync(join(dir, INSTALL_CACHE))).toBe(false);
     expect(v.installed?.bin).toBe(join(dir, 'bin', 'openhands'));
   });
 
@@ -461,6 +472,19 @@ describe('CliInstaller', () => {
     expect(calls[1]!.env).toMatchObject({ UV_UNMANAGED_INSTALL: join(dir, 'uv', 'bin'), HOME: join(dir, 'home') });
     expect(calls[2]).toMatchObject({ bin: uv, args: ['tool', 'install', 'openhands==1.16.0'] });
     expect(v.job?.log).toContain('$ uv tool install openhands==1.16.0');
+  });
+
+  it('on Windows, installs uv with its PowerShell installer, then OpenHands on the x64 Python', async () => {
+    const { clis, calls } = installer({ platform: 'win32' });
+    clis.install('openhands');
+    const v = await ended(clis, 'openhands');
+    const dir = clis.folder('openhands');
+    expect(v.job?.state).toBe('success');
+    expect(calls.map((c) => basename(c.bin.replace(/\\/g, '/')).toLowerCase())).toEqual(['curl.exe', 'powershell.exe', 'uv.exe']);
+    const args = ['tool', 'install', '--python', 'cpython-3.12-windows-x86_64-none', 'openhands==1.16.0'];
+    expect(calls[2]).toMatchObject({ bin: join(dir, 'uv', 'bin', 'uv.exe'), args });
+    expect(v.job?.log).toContain(`$ uv ${args.join(' ')}`);
+    expect(v.installed?.bin).toBe(join(dir, 'bin', 'openhands.exe'));
   });
 
   it('on Windows, runs a maker’s PowerShell installer as a script block, with the folder as its home', async () => {

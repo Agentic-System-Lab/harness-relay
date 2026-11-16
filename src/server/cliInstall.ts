@@ -32,17 +32,18 @@ import { BREW_DIRS, findOnPath } from './voice';
  * user's: not a CLI installed some other way, nor the CLI's sign-in, settings and sessions, which stay
  * in its home. Three ways, by what the CLI's maker offers:
  * - npm, as a global install into that folder (`npm install -g --prefix <folder> <package>`, as the
- *   user guide's `npm install -g` and the codespace install them): Claude Code, Codex, Copilot,
- *   OpenCode, Cline, Pi;
+ *   user guide's `npm install -g` and the codespace install them), with its cache in the folder while
+ *   it installs (`INSTALL_CACHE`): Claude Code, Codex, Copilot, OpenCode, Cline, Pi;
  * - the maker's own installer script, downloaded with curl and run with the folder as its home (HOME,
  *   the XDG folders, and on Windows USERPROFILE, LOCALAPPDATA and APPDATA), the program's folder put
  *   on its PATH so that it adds nothing to the user's, and its own variable or flag for where the
  *   program goes: Grok, Cursor, Antigravity, Muse Code, Goose. On macOS and Linux each runs its bash
  *   script; on Windows Grok, Cursor, Antigravity and Muse Code their PowerShell one, and Goose its bash
  *   script under Git for Windows' bash, which it supports;
- * - uv (`uv tool install`), with its tools, the links to their programs and any Python it downloads
- *   in the folder: OpenHands. Without uv on the PATH, uv's own installer puts one in the folder first
- *   (`UV_UNMANAGED_INSTALL`: no PATH change, no updater), removed with OpenHands.
+ * - uv (`uv tool install`), with its tools, the links to their programs, any Python it downloads and,
+ *   while it installs, its cache in the folder: OpenHands. Without uv on the PATH, uv's own installer
+ *   puts one in the folder first (`UV_UNMANAGED_INSTALL`: no PATH change, no updater), removed with
+ *   OpenHands.
  * The open agents get the versions the user guide says they were checked with; the others their
  * newest, as their makers' installers give them.
  *
@@ -65,6 +66,13 @@ import { BREW_DIRS, findOnPath } from './voice';
 
 /** What an install leaves in the CLI's folder once it is done and its program runs: what was installed. */
 export const INSTALL_NOTE = 'harness-relay-install.json';
+
+/**
+ * npm's and uv's download caches while a CLI installs, in its folder, deleted when the install ends:
+ * in the user's own caches (`~/.npm`, `~/.cache/uv`) they would stay after the CLI is removed, with
+ * hundreds of megabytes of it (and with no uv to clean them, when uv was Harness Relay's).
+ */
+export const INSTALL_CACHE = 'install-cache';
 
 /** How long an install may take (a slow network, a large download). */
 const INSTALL_TIMEOUT_MS = 20 * 60_000;
@@ -97,8 +105,11 @@ export interface ScriptInstaller {
 export type CliRecipe =
   /** `command`: the program the package links in the prefix's `bin` folder (on Windows, its `.cmd` in the prefix). */
   | { method: 'npm'; package: string; command: string }
-  /** `command`: the program `uv tool install` links in its bin folder. */
-  | { method: 'uv'; package: string; command: string }
+  /**
+   * `command`: the program `uv tool install` links in its bin folder; `windowsPython`: the Python it
+   * runs on, on Windows (`uvInstallArgs`).
+   */
+  | { method: 'uv'; package: string; command: string; windowsPython?: string }
   /** Its maker's script on macOS and Linux (`posix`) and on Windows (`windows`). */
   | { method: 'script'; posix: ScriptInstaller; windows: ScriptInstaller };
 
@@ -165,7 +176,10 @@ export const CLI_RECIPES: Record<Provider, CliRecipe> = {
     windows: { url: GOOSE_SCRIPT, shell: 'bash', bin: ['bin', 'goose.exe'], env: gooseEnv },
   },
   cline: { method: 'npm', package: 'cline@3.0.74', command: 'cline' },
-  openhands: { method: 'uv', package: 'openhands==1.16.0', command: 'openhands' },
+  // On Windows on the x64 Python 3.12 (the only one it runs on), also on Arm: some of its packages
+  // (tiktoken) have no wheels for Windows on Arm, and building them takes Rust. Windows runs it
+  // emulated there; on an x64 computer it is the Python uv would pick anyway.
+  openhands: { method: 'uv', package: 'openhands==1.16.0', command: 'openhands', windowsPython: 'cpython-3.12-windows-x86_64-none' },
   pi: { method: 'npm', package: '@earendil-works/pi-coding-agent@1.5.1', command: 'pi' },
 };
 
@@ -181,6 +195,11 @@ export function uvInstallerFor(platform: NodeJS.Platform): ScriptInstaller | und
   return platform === 'darwin' || platform === 'linux' ? UV_INSTALLERS.posix : undefined;
 }
 
+/** `uv`'s arguments for installing a uv recipe on `platform`. */
+export function uvInstallArgs(r: Extract<CliRecipe, { method: 'uv' }>, platform: NodeJS.Platform): string[] {
+  return ['tool', 'install', ...(platform === 'win32' && r.windowsPython ? ['--python', r.windowsPython] : []), r.package];
+}
+
 /** A script as one would run it from its address. */
 const scriptCommand = (s: ScriptInstaller) => (s.shell === 'powershell' ? `irm ${s.url} | iex` : `curl -fsSL ${s.url} | bash`);
 
@@ -192,7 +211,7 @@ export function installCommand(r: CliRecipe, platform: NodeJS.Platform = process
   if (r.method === 'npm') return `npm install -g ${r.package}`;
   if (r.method === 'uv') {
     const uv = withUv ? uvInstallerFor(platform) : undefined;
-    return `${uv ? `${scriptCommand(uv)}; ` : ''}uv tool install ${r.package}`;
+    return `${uv ? `${scriptCommand(uv)}; ` : ''}uv ${uvInstallArgs(r, platform).join(' ')}`;
   }
   const script = scriptFor(r, platform);
   return script ? scriptCommand(script) : `curl -fsSL ${r.posix.url} | bash`;
@@ -313,10 +332,11 @@ export function scriptEnv(base: NodeJS.ProcessEnv, dir: string, script: ScriptIn
   };
 }
 
-/** `uv tool install`'s environment: its tools, their programs' links and any Python it downloads, all in `dir`. */
+/** `uv tool install`'s environment: its tools, their programs' links, any Python it downloads and its cache, all in `dir`. */
 export function uvEnv(base: NodeJS.ProcessEnv, dir: string): NodeJS.ProcessEnv {
   return {
     ...base,
+    UV_CACHE_DIR: join(dir, INSTALL_CACHE, 'uv'),
     UV_TOOL_DIR: join(dir, 'uv', 'tools'),
     UV_TOOL_BIN_DIR: join(dir, 'bin'),
     UV_PYTHON_INSTALL_DIR: join(dir, 'uv', 'python'),
@@ -765,6 +785,8 @@ export class CliInstaller {
       } finally {
         // What it put outside the folder that leads into it, whether it finished or not.
         this.dropOutside(dir, job);
+        // The downloads it kept to install from (removed with the folder, should this fail).
+        await rm(join(dir, INSTALL_CACHE), { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }).catch(() => undefined);
       }
       if (job.abort.signal.aborted) throw new Error('aborted');
       const bin = installedProgram(recipe, dir, this.host.platform);
@@ -824,7 +846,9 @@ export class CliInstaller {
     if (recipe.method === 'npm') {
       const npm = npmLaunch(this.host.env, this.host.platform, this.host.isFile);
       if (!npm) throw new InstallError(() => t().cliInstallBlocked(label, 'npm'));
-      const args = [...npm.args, 'install', '--global', '--prefix', dir, '--no-audit', '--no-fund', '--no-update-notifier', recipe.package];
+      // Its cache (and the logs it writes there) in the folder, not the user's `~/.npm`.
+      const cache = join(dir, INSTALL_CACHE, 'npm');
+      const args = [...npm.args, 'install', '--global', '--prefix', dir, '--cache', cache, '--no-audit', '--no-fund', '--no-update-notifier', recipe.package];
       // npm's folder first on the PATH: the Node beside it runs npm's script (`#!/usr/bin/env node`),
       // and the packages' install scripts, also when that folder is not on the PATH (Homebrew's).
       const env = pathFirst(base, (this.host.platform === 'win32' ? win32 : posix).dirname(npm.bin), this.host.platform);
@@ -842,7 +866,8 @@ export class CliInstaller {
         uv = join(dir, ...installer.bin);
         if (!this.host.isFile(uv)) throw new InstallError(() => t().cliInstallNoProgram(uv!));
       }
-      await this.step(job, `uv tool install ${recipe.package}`, { bin: uv, args: ['tool', 'install', recipe.package], env: uvEnv(base, dir), cwd: dir });
+      const args = uvInstallArgs(recipe, platform);
+      await this.step(job, `uv ${args.join(' ')}`, { bin: uv, args, env: uvEnv(base, dir), cwd: dir });
       return;
     }
     const script = scriptFor(recipe, platform);
