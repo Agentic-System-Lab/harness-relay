@@ -163,6 +163,7 @@ The origin of each raster is also embedded in the file (PNG text chunk) or in a 
 - Visible focus ring (2px, Grok ink) on every interactive element.
 - Mode tabs follow the tabs pattern (arrow keys, Home, End). Diagrams have a text alternative.
 - Decorative avatars and discs are hidden from assistive technology; the names next to them carry the meaning.
+- The mark's links, in the header and the footer, have the name as their label (`aria-label`, "Harness Relay, home" / "Harness Relay 首頁"): at 500px and below the name is hidden in both (`test/site-header.test.ts`).
 - Check both colour schemes and widths from 360px to 1600px after a change: the system's light and dark modes, and each theme chosen with the theme button against the other system mode.
 
 ## Previewing locally
