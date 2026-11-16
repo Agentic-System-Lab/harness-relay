@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -84,6 +84,22 @@ describe('runProcess', () => {
     // CI's Linux runners): it is gone a moment later.
     await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 2000, interval: 20 });
   }, 8000);
+
+  posixIt('starts a Node script with the node beside it when the PATH has none (a CLI installed with Node.js in its folder)', async () => {
+    const bin = join(dir, 'with-node', 'bin');
+    mkdirSync(bin, { recursive: true });
+    // A stand-in node that says how it was started, and npm's link to a package's Node script.
+    writeFileSync(join(bin, 'node'), '#!/bin/sh\necho "node $*"\n');
+    chmodSync(join(bin, 'node'), 0o755);
+    writeFileSync(join(dir, 'with-node', 'cli.js'), '#!/usr/bin/env node\nconsole.log("never")\n');
+    chmodSync(join(dir, 'with-node', 'cli.js'), 0o755);
+    symlinkSync('../cli.js', join(bin, 'tool'));
+    const empty = join(dir, 'with-node', 'empty');
+    mkdirSync(empty);
+    const res = await runProcess({ bin: join(bin, 'tool'), args: ['--version'], env: { PATH: empty } });
+    expect(res.code).toBe(0);
+    expect(res.stdout.trim()).toBe(`node ${join(bin, 'tool')} --version`);
+  });
 
   it('keeps stdout byte for byte', async () => {
     const bytes = [...Buffer.from('a\r\nb\rc'), 0xa4, 0xa4, 0x0a];

@@ -21,12 +21,13 @@ import { openSecretStore, openSystemKeyring, type SecretStore } from './secrets'
 import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
 import { clearRunTmp, dataDirInTemp, makeCodespaceGhDir, relayTmpDir, voiceDirProblem } from './protect';
 import { CONFIG_PROBLEMS } from './config';
-import { OPEN_PROVIDERS } from '../shared/types';
+import { OPEN_PROVIDERS, type Lang } from '../shared/types';
 import { RUN_TMP_DIR, clearOpenRunLeftovers } from './agents/open';
 import { clearRelaySandboxLeftovers, noteListeningPort, relaySandboxHostRoot, relaySandboxRoot } from './relaySandbox';
 import { Store } from './store';
 import { VoiceService } from './voice';
 import { CliInstaller } from './cliInstall';
+import { SandboxSetup } from './sandboxSetup';
 import { serveWebApp, webAppDir } from './web';
 import { NativeSetupService } from './native';
 import { plannerContext } from './planner';
@@ -131,25 +132,10 @@ const updates = new Updates(parent, relayVersion);
 const clis = new CliInstaller(settings, { changed: (p) => providers.invalidate(p), busy: () => orchestrator.anyRunning() });
 // On Windows: the user's PATH put back, as it was before an install this server's last run did not see end.
 void clis.recover();
-const app = createApp({
-  auth,
-  store,
-  settings,
-  hub,
-  orchestrator,
-  providers,
-  voice,
-  clis,
-  agentsView,
-  native,
-  extraHosts,
-  desktopApp: Boolean(parent),
-  updates,
-  // The language the chat in the app's window shows: the app's menus follow it.
-  desktopLang: parent ? (lang) => parent.send({ type: 'lang', lang }) : undefined,
-  push,
-  alerts,
-});
+const sandboxSetup = new SandboxSetup({ changed: () => providers.invalidate() });
+// The language the chat in the desktop app's window shows: the app's menus follow it.
+const desktopLang = parent ? (lang: Lang) => parent.send({ type: 'lang', lang }) : undefined;
+const app = createApp({ auth, store, settings, hub, orchestrator, providers, voice, clis, sandboxSetup, agentsView, native, extraHosts, desktopApp: Boolean(parent), updates, desktopLang, push, alerts });
 
 // --- Static web app (production build) ------------------------------------------
 
@@ -241,7 +227,7 @@ async function shutdown(code = 0): Promise<void> {
   providers.shutdown();
   voice.shutdown();
   // Installs under way stop; each cleans up after itself (on Windows, the user's PATH put back).
-  const installsStopped = clis.shutdown();
+  const installsStopped = Promise.all([clis.shutdown(), sandboxSetup.shutdown()]);
   // Let stopped runs write their final state while the database is still open.
   await Promise.all([orchestrator.settled(5000), Promise.race([installsStopped, new Promise((r) => setTimeout(r, 5000))])]);
   // And give AgentsView the last turns (each request times out on its own).
@@ -256,5 +242,5 @@ process.on('SIGINT', () => void shutdown());
 process.on('SIGTERM', () => void shutdown());
 // The desktop app asks over its port: on Windows it has no signal to send.
 parent?.onShutdown(() => void shutdown());
-// Before it updates, the app waits until no conversation has agents at work, and no CLI is being installed.
-parent?.onBusy(() => orchestrator.busy() + clis.running());
+// Before it updates, the app waits until no conversation has agents at work, and no CLI (nor what the sandboxes need) is being installed.
+parent?.onBusy(() => orchestrator.busy() + clis.running() + sandboxSetup.running());

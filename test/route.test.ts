@@ -32,6 +32,8 @@ describe('client routes', () => {
       'language',
       'appearance',
       'notifications',
+      // What the agents' sandboxes lack here, before the CLIs that run in them.
+      'sandboxes',
       'backends',
       'claude',
       'codex',

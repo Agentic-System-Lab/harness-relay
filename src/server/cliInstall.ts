@@ -1,4 +1,5 @@
-import { lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { createReadStream, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, win32 } from 'node:path';
@@ -33,7 +34,14 @@ import { BREW_DIRS, findOnPath } from './voice';
  * in its home. Three ways, by what the CLI's maker offers:
  * - npm, as a global install into that folder (`npm install -g --prefix <folder> <package>`, as the
  *   user guide's `npm install -g` and the codespace install them), with its cache in the folder while
- *   it installs (`INSTALL_CACHE`): Claude Code, Codex, Copilot, OpenCode, Cline, Pi;
+ *   it installs (`INSTALL_CACHE`): Claude Code, Codex, Copilot, OpenCode, Cline, Pi. Without npm on
+ *   the PATH (the desktop app needs no Node.js), Node.js's own build goes into the folder first for
+ *   Claude Code, Codex and Copilot (`NODE_VERSION`, `nodeBuildFor`, its checksum checked), laid out as npm's global
+ *   folder is beside its Node, and stays there: its npm installs the CLI, and Codex's and Copilot's
+ *   programs, Node scripts npm links, run on that Node (`posixLaunch` in `process.ts`, and on Windows
+ *   `windowsLaunch`, start a Node script with the Node beside it). The open agents' still take an npm
+ *   on the PATH: Cline's and Pi's programs are Node scripts too, which Harness Relay's own sandbox
+ *   starts as they are, on the PATH's Node;
  * - the maker's own installer script, downloaded with curl and run with the folder as its home (HOME,
  *   the XDG folders, and on Windows USERPROFILE, LOCALAPPDATA and APPDATA), the program's folder put
  *   on its PATH so that it adds nothing to the user's, and its own variable or flag for where the
@@ -103,8 +111,12 @@ export interface ScriptInstaller {
 
 /** How one CLI is installed. */
 export type CliRecipe =
-  /** `command`: the program the package links in the prefix's `bin` folder (on Windows, its `.cmd` in the prefix). */
-  | { method: 'npm'; package: string; command: string }
+  /**
+   * `command`: the program the package links in the prefix's `bin` folder (on Windows, its `.cmd` in
+   * the prefix); `withNode`: without npm on the PATH, Node.js's own build goes into the folder first
+   * (`nodeBuildFor`), and its npm installs the package.
+   */
+  | { method: 'npm'; package: string; command: string; withNode?: true }
   /**
    * `command`: the program `uv tool install` links in its bin folder; `windowsPython`: the Python it
    * runs on, on Windows (`uvInstallArgs`).
@@ -139,8 +151,8 @@ export const UV_INSTALLERS: Record<'posix' | 'windows', ScriptInstaller> = {
 
 /** How each CLI is installed (see the top of this file). */
 export const CLI_RECIPES: Record<Provider, CliRecipe> = {
-  claude: { method: 'npm', package: '@anthropic-ai/claude-code', command: 'claude' },
-  codex: { method: 'npm', package: '@openai/codex', command: 'codex' },
+  claude: { method: 'npm', package: '@anthropic-ai/claude-code', command: 'claude', withNode: true },
+  codex: { method: 'npm', package: '@openai/codex', command: 'codex', withNode: true },
   // Its program in ~/.grok/downloads, linked (on Windows copied) into GROK_BIN_DIR.
   grok: {
     method: 'script',
@@ -159,7 +171,7 @@ export const CLI_RECIPES: Record<Provider, CliRecipe> = {
     posix: { url: 'https://antigravity.google/cli/install.sh', shell: 'bash', bin: ['bin', 'agy'], args: (dir) => ['--dir', join(dir, 'bin')] },
     windows: { url: 'https://antigravity.google/cli/install.ps1', shell: 'powershell', bin: ['bin', 'agy.exe'], args: (dir) => ['--dir', join(dir, 'bin')] },
   },
-  copilot: { method: 'npm', package: '@github/copilot', command: 'copilot' },
+  copilot: { method: 'npm', package: '@github/copilot', command: 'copilot', withNode: true },
   // A launcher, which fetches Muse Code's binary beside itself (and keeps it up to date there); on
   // Windows `muse.cmd`, which `winLaunch.ts` reads for the binary it names.
   muse: {
@@ -200,15 +212,88 @@ export function uvInstallArgs(r: Extract<CliRecipe, { method: 'uv' }>, platform:
   return ['tool', 'install', ...(platform === 'win32' && r.windowsPython ? ['--python', r.windowsPython] : []), r.package];
 }
 
+/**
+ * The Node.js `withNode` recipes install with when npm is not on the PATH: a release of its current
+ * long-term support line, from nodejs.org, checked against these SHA-256 checksums (its release's
+ * `SHASUMS256.txt`, whose signature by a Node.js releaser was checked). To move to a newer release,
+ * change both, from that release's `SHASUMS256.txt` once its signature checks. Its npm (11.20) runs a
+ * package's install scripts, warning only that `allowScripts` does not cover them yet: Claude Code's
+ * postinstall puts its native binary in place of a stub that only says it is missing, so check that
+ * a newer npm still does before moving to it.
+ */
+export const NODE_VERSION = '26.13.1';
+const NODE_SHA256: Readonly<Record<string, string>> = {
+  'darwin-arm64.tar.gz': 'aec2514ea1ceb2ba52455e9ec65986f6749a06dd759e5db2a72e6889668c9735',
+  'darwin-x64.tar.gz': '82bb96078a24ca50b9c9a38f2379e6be6d87171fcd400fc14c8934b3bce96e2f',
+  'linux-arm64.tar.gz': '80a330b35415382878df18d41afbd106ea89bfb3be0087d6608e289a14c5cc7d',
+  'linux-x64.tar.gz': '518674de2b621728a5e4486f5fb3b7d2900bb3cc4aa97969edaa463db99f9778',
+  'win-arm64.zip': '181ebe431b90787113a9e4fc80d38ce86d37888a353a0386de44d2872e48cb97',
+  'win-x64.zip': 'e2edda75bfb089654705cf65a13b58933bfd5f57148e8ebda916f58a2474f1f7',
+};
+
+/** Node.js's build for one system: its archive, its checksum, and what of it goes into a CLI's folder. */
+export interface NodeBuild {
+  version: string;
+  url: string;
+  /** The archive's file name. */
+  file: string;
+  sha256: string;
+  /** The archive's entries taken out of it (its top folder stripped): Node itself and npm, nothing else. */
+  members: string[];
+}
+
+/** musl's dynamic loaders (Alpine's): Node.js's own Linux builds are for glibc. */
+const MUSL_LOADERS = ['/lib/ld-musl-x86_64.so.1', '/lib/ld-musl-aarch64.so.1'];
+
+/**
+ * Node.js's own build for `platform` on `arch` (`NODE_VERSION`): on macOS and Linux its `.tar.gz`,
+ * on Windows its `.zip`; none for another system or processor, nor for a Linux with musl.
+ */
+export function nodeBuildFor(platform: NodeJS.Platform, arch: string, isFile: (path: string) => boolean = fileExists): NodeBuild | undefined {
+  const os = platform === 'darwin' ? 'darwin' : platform === 'linux' ? 'linux' : platform === 'win32' ? 'win' : undefined;
+  if (!os || (arch !== 'x64' && arch !== 'arm64')) return undefined;
+  if (os === 'linux' && MUSL_LOADERS.some((p) => isFile(p))) return undefined;
+  const kind = `${os}-${arch}${os === 'win' ? '.zip' : '.tar.gz'}`;
+  const sha256 = NODE_SHA256[kind];
+  if (!sha256) return undefined;
+  const top = `node-v${NODE_VERSION}-${os}-${arch}`;
+  return {
+    version: NODE_VERSION,
+    url: `https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-${kind}`,
+    file: `node-v${NODE_VERSION}-${kind}`,
+    sha256,
+    // As its archive has them: on Windows `node.exe` and `node_modules\npm` at the top, elsewhere `bin/node` and `lib/node_modules/npm`.
+    members: os === 'win' ? [`${top}/node.exe`, `${top}/node_modules/npm`] : [`${top}/bin/node`, `${top}/lib/node_modules/npm`],
+  };
+}
+
+/**
+ * How to start the npm of Node.js's build in a CLI's folder `dir`, laid out as npm's global folder is
+ * beside its Node (the CLI's packages go in beside npm, their programs beside Node): Node with npm's
+ * script, as `npmLaunch` starts it on Windows.
+ */
+export function folderNpm(dir: string, platform: NodeJS.Platform): { bin: string; args: string[] } {
+  return platform === 'win32'
+    ? { bin: join(dir, 'node.exe'), args: [join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js')] }
+    : { bin: join(dir, 'bin', 'node'), args: [join(dir, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js')] };
+}
+
+/** A file's SHA-256 checksum, in hex. */
+async function sha256Of(path: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
+  return hash.digest('hex');
+}
+
 /** A script as one would run it from its address. */
 const scriptCommand = (s: ScriptInstaller) => (s.shell === 'powershell' ? `irm ${s.url} | iex` : `curl -fsSL ${s.url} | bash`);
 
 /**
  * What an install runs on `platform`, as one would type it; `withUv`: uv's own installer first (uv is
- * not on the PATH).
+ * not on the PATH); `node`: Node.js's build first, for its npm (npm is not on the PATH).
  */
-export function installCommand(r: CliRecipe, platform: NodeJS.Platform = process.platform, withUv = false): string {
-  if (r.method === 'npm') return `npm install -g ${r.package}`;
+export function installCommand(r: CliRecipe, platform: NodeJS.Platform = process.platform, withUv = false, node?: NodeBuild): string {
+  if (r.method === 'npm') return `${node ? `curl -fsSLO ${node.url}; tar -xf ${node.file}; ` : ''}npm install -g ${r.package}`;
   if (r.method === 'uv') {
     const uv = withUv ? uvInstallerFor(platform) : undefined;
     return `${uv ? `${scriptCommand(uv)}; ` : ''}uv ${uvInstallArgs(r, platform).join(' ')}`;
@@ -500,13 +585,18 @@ interface InstallNote {
 }
 
 /** An error whose message is rendered when it is shown, in the language of whoever looks. */
-class InstallError extends Error {
-  constructor(readonly render: () => string) {
+export class InstallError extends Error {
+  /** `code`: the exit code of the command that failed, when one did. */
+  constructor(
+    readonly render: () => string,
+    readonly code?: number | null,
+  ) {
     super(render());
   }
 }
 
-class InstallJob {
+/** An install under way or ended: its output, how it ended (also the sandboxes' setup, `sandboxSetup.ts`). */
+export class InstallJob {
   readonly abort = new AbortController();
   readonly startedAt = Date.now();
   /** Settles once the job has ended and cleaned up after itself. */
@@ -541,6 +631,10 @@ class InstallJob {
 /** What the installs need from the computer; tests swap in fakes. */
 export interface CliInstallHost {
   platform: NodeJS.Platform;
+  /** The processor Node.js's build is for (`process.arch`). */
+  arch: string;
+  /** Node.js's build for this computer, which a `withNode` recipe installs with when npm is not on the PATH (`nodeBuildFor`). */
+  nodeBuild: () => NodeBuild | undefined;
   /** The server's environment (`installerEnv` takes what an installer is not given out of it). */
   env: NodeJS.ProcessEnv;
   home: string;
@@ -556,6 +650,100 @@ export interface CliInstallHost {
   readUserPath: () => Promise<string>;
   /** On Windows, puts the user's PATH back as `readUserPath` gave it (`USER_PATH_RESTORE_SCRIPT`); whether it had changed. */
   restoreUserPath: (saved: string) => Promise<boolean>;
+}
+
+/**
+ * Runs one command of an install (`script`: fixed text for the shell `o.bin`, given `o.args`), its
+ * output into the job's log; throws when it fails (an `InstallError` saying how), or `aborted`.
+ */
+export async function runStep(
+  host: Pick<CliInstallHost, 'run' | 'runScript'>,
+  job: InstallJob,
+  shown: string,
+  o: Pick<SpawnOptions, 'bin' | 'args' | 'env' | 'cwd'>,
+  script?: string,
+): Promise<SpawnResult> {
+  job.append(`$ ${shown}\n`);
+  const run: RunOptions = {
+    env: o.env,
+    cwd: o.cwd,
+    signal: job.abort.signal,
+    timeoutMs: INSTALL_TIMEOUT_MS,
+    onLine: (line) => job.append(`${line}\n`),
+    onSpawn: (child) => child.stderr?.on('data', (b: Buffer) => job.append(b.toString('utf8'))),
+  };
+  const r = await (script === undefined ? host.run({ ...run, bin: o.bin, args: o.args }) : host.runScript(o.bin, o.args, script, run));
+  if (r.aborted || job.abort.signal.aborted) throw new Error('aborted');
+  if (r.timedOut) throw new InstallError(() => t().cliInstallTimedOut(shown));
+  if (r.code !== 0) throw new InstallError(() => t().cliInstallFailed(shown, r.code), r.code);
+  return r;
+}
+
+/** Windows' System32 folder, as `env` names the system's. */
+const system32Of = (env: NodeJS.ProcessEnv) => win32.join(env.SystemRoot || env.SYSTEMROOT || env.windir || 'C:\\Windows', 'System32');
+
+/** curl: on the PATH, else where the system keeps it (on Windows, System32). */
+export function findCurl(host: Pick<CliInstallHost, 'env' | 'platform' | 'isFile'>): string | undefined {
+  const { env, platform, isFile } = host;
+  return findOnPath('curl', env, platform, platform === 'win32' ? [system32Of(env)] : SYSTEM_DIRS, isFile);
+}
+
+/**
+ * What puts Node.js's build into a folder here: the build for this computer, curl to download it and
+ * tar to take Node and npm out of it (on Windows the bsdtar in System32, which reads a `.zip`; not
+ * another `tar` on the PATH, such as Git for Windows' GNU tar, which reads none); else what is missing
+ * (`npm` when Node.js has no build for this computer).
+ */
+export function nodeTools(host: Pick<CliInstallHost, 'env' | 'platform' | 'isFile' | 'nodeBuild'>): { build: NodeBuild; curl: string; tar: string } | CliInstallBlock {
+  const { env, platform, isFile } = host;
+  const build = host.nodeBuild();
+  if (!build) return 'npm';
+  const curl = findCurl(host);
+  if (!curl) return 'curl';
+  const system32tar = win32.join(system32Of(env), 'tar.exe');
+  const tar = platform === 'win32' ? (isFile(system32tar) ? system32tar : undefined) : findOnPath('tar', env, platform, SYSTEM_DIRS, isFile);
+  return tar ? { build, curl, tar } : 'tar';
+}
+
+/**
+ * Puts Node.js's build into the folder `dir` (`folderNpm` says where its Node and npm are then): its
+ * archive downloaded whole into `dir`'s install cache (the caller deletes it), checked against the
+ * checksum Harness Relay has for it, and only Node and npm taken out of it, into the places npm's
+ * global folder has them beside its Node, then checked to run (`--version`). `intro`: the log's first
+ * line, saying why. Throws an `InstallError` that says what went wrong.
+ */
+export async function putNode(
+  host: Pick<CliInstallHost, 'env' | 'platform' | 'isFile' | 'nodeBuild' | 'run' | 'runScript'>,
+  job: InstallJob,
+  dir: string,
+  base: NodeJS.ProcessEnv,
+  label: string,
+  intro: (version: string) => string,
+): Promise<{ bin: string; args: string[] }> {
+  const tools = nodeTools(host);
+  if (typeof tools === 'string') throw new InstallError(() => t().cliInstallBlocked(label, tools));
+  const { build, curl, tar } = tools;
+  const cache = join(dir, INSTALL_CACHE, 'node');
+  mkdirSync(cache, { recursive: true });
+  const archive = join(cache, build.file);
+  job.append(`${intro(build.version)}\n`);
+  await runStep(host, job, `curl -fsSL ${build.url}`, { bin: curl, args: ['-fsSL', '--retry', '3', '-o', archive, build.url], env: base, cwd: dir });
+  const sum = await sha256Of(archive);
+  if (sum !== build.sha256) throw new InstallError(() => t().cliNodeChecksum(build.url, build.sha256, sum));
+  job.append(`SHA-256 ${sum}: as Node.js published it\n`);
+  await runStep(host, job, `tar -xf ${build.file}`, { bin: tar, args: ['-xf', archive, '-C', dir, '--strip-components', '1', ...build.members], env: base, cwd: dir });
+  const npm = folderNpm(dir, host.platform);
+  for (const file of [npm.bin, ...npm.args]) if (!host.isFile(file)) throw new InstallError(() => t().cliInstallNoProgram(file));
+  // That it runs here, before anything runs on it: Node.js's Linux builds need libatomic, which a
+  // minimal system may lack (a desktop one has it), and that is said as such.
+  try {
+    await runStep(host, job, `${npm.bin} --version`, { bin: npm.bin, args: ['--version'], env: base, cwd: dir });
+  } catch (err) {
+    if (job.abort.signal.aborted || !(err instanceof InstallError)) throw err;
+    const linux = host.platform === 'linux';
+    throw new InstallError(() => t().cliNodeDoesNotRun(linux));
+  }
+  return npm;
 }
 
 export class CliInstaller {
@@ -579,6 +767,8 @@ export class CliInstaller {
   ) {
     this.host = {
       platform: process.platform,
+      arch: process.arch,
+      nodeBuild: () => nodeBuildFor(this.host.platform, this.host.arch, this.host.isFile),
       env: process.env,
       home: homedir(),
       dir: cliFolder(),
@@ -612,11 +802,13 @@ export class CliInstaller {
     const job = this.jobs.get(p);
     const blocked = this.blocked(p);
     const installed = job?.state === 'running' ? undefined : this.installed(p);
+    const node = blocked ? undefined : this.nodeFirst(recipe);
     return {
       provider: p,
       method: recipe.method,
-      command: installCommand(recipe, this.host.platform, recipe.method === 'uv' && !this.uv()),
+      command: installCommand(recipe, this.host.platform, recipe.method === 'uv' && !this.uv(), node),
       ...(blocked ? { blocked } : {}),
+      ...(node ? { node: node.version } : {}),
       dir: this.folder(p),
       ...(installed
         ? {
@@ -636,7 +828,13 @@ export class CliInstaller {
   private blocked(p: Provider): CliInstallBlock | undefined {
     const recipe = CLI_RECIPES[p];
     const { env, platform, isFile } = this.host;
-    if (recipe.method === 'npm') return npmLaunch(env, platform, isFile) ? undefined : 'npm';
+    if (recipe.method === 'npm') {
+      if (npmLaunch(env, platform, isFile)) return undefined;
+      // Without npm, Node.js's build goes first for the recipes that take it: what that needs.
+      if (!recipe.withNode) return 'npm';
+      const tools = this.nodeTools();
+      return typeof tools === 'string' ? tools : undefined;
+    }
     // Without uv, uv's own installer goes first: what it needs.
     const script = recipe.method === 'uv' ? (this.uv() ? undefined : uvInstallerFor(platform) ?? 'system') : scriptFor(recipe, platform) ?? 'system';
     if (script === undefined || typeof script === 'string') return script;
@@ -651,17 +849,33 @@ export class CliInstaller {
   private scriptRunner(script: ScriptInstaller): { curl: string; shell: string } | CliInstallBlock {
     const { env, platform, isFile } = this.host;
     if (platform === 'win32') {
-      const system32 = win32.join(env.SystemRoot || env.SYSTEMROOT || env.windir || 'C:\\Windows', 'System32');
-      const curl = findOnPath('curl', env, platform, [system32], isFile);
+      const curl = this.curl();
       if (!curl) return 'curl';
       const shell = script.shell === 'powershell' ? windowsPowerShell(env, isFile) : gitBash(env, isFile);
       return shell ? { curl, shell } : script.shell === 'powershell' ? 'powershell' : 'gitBash';
     }
     if (platform !== 'darwin' && platform !== 'linux') return 'system';
-    const curl = findOnPath('curl', env, platform, SYSTEM_DIRS, isFile);
+    const curl = this.curl();
     if (!curl) return 'curl';
     const bash = findOnPath('bash', env, platform, SYSTEM_DIRS, isFile);
     return bash ? { curl, shell: bash } : 'bash';
+  }
+
+  private curl(): string | undefined {
+    return findCurl(this.host);
+  }
+
+  private nodeTools(): { build: NodeBuild; curl: string; tar: string } | CliInstallBlock {
+    return nodeTools(this.host);
+  }
+
+  /** Node.js's build, when the recipe's install puts it into the folder first (npm is not on the PATH). */
+  private nodeFirst(recipe: CliRecipe): NodeBuild | undefined {
+    if (recipe.method !== 'npm' || !recipe.withNode) return undefined;
+    const { env, platform, isFile } = this.host;
+    if (npmLaunch(env, platform, isFile)) return undefined;
+    const tools = this.nodeTools();
+    return typeof tools === 'string' ? undefined : tools.build;
   }
 
   private uv(): string | undefined {
@@ -844,14 +1058,20 @@ export class CliInstaller {
     const base = installerEnv(this.host.env);
     const label = PROVIDER_LABEL[p];
     if (recipe.method === 'npm') {
-      const npm = npmLaunch(this.host.env, this.host.platform, this.host.isFile);
-      if (!npm) throw new InstallError(() => t().cliInstallBlocked(label, 'npm'));
+      let npm = npmLaunch(this.host.env, this.host.platform, this.host.isFile);
+      // The folder of the Node npm runs on: the PATH's (the system's paths), or the one in the CLI's own folder (this computer's).
+      let nodeDir = npm && (this.host.platform === 'win32' ? win32 : posix).dirname(npm.bin);
+      if (!npm) {
+        if (!recipe.withNode) throw new InstallError(() => t().cliInstallBlocked(label, 'npm'));
+        npm = await this.installNode(job, dir, base, label);
+        nodeDir = dirname(npm.bin);
+      }
       // Its cache (and the logs it writes there) in the folder, not the user's `~/.npm`.
       const cache = join(dir, INSTALL_CACHE, 'npm');
       const args = [...npm.args, 'install', '--global', '--prefix', dir, '--cache', cache, '--no-audit', '--no-fund', '--no-update-notifier', recipe.package];
       // npm's folder first on the PATH: the Node beside it runs npm's script (`#!/usr/bin/env node`),
       // and the packages' install scripts, also when that folder is not on the PATH (Homebrew's).
-      const env = pathFirst(base, (this.host.platform === 'win32' ? win32 : posix).dirname(npm.bin), this.host.platform);
+      const env = pathFirst(base, nodeDir!, this.host.platform);
       await this.step(job, `npm install -g --prefix ${dir} ${recipe.package}`, { bin: npm.bin, args, env, cwd: dir });
       return;
     }
@@ -873,6 +1093,14 @@ export class CliInstaller {
     const script = scriptFor(recipe, platform);
     if (!script) throw new InstallError(() => t().cliInstallBlocked(label, 'system'));
     await this.runScript(job, dir, script, base, label);
+  }
+
+  /**
+   * Puts Node.js's build into the CLI's folder `dir` for its npm (`putNode`). It stays, removed with
+   * the CLI: Codex's and Copilot's programs run on that Node.
+   */
+  private installNode(job: InstallJob, dir: string, base: NodeJS.ProcessEnv, label: string): Promise<{ bin: string; args: string[] }> {
+    return putNode(this.host, job, dir, base, label, (version) => `npm is not on the PATH: Node.js ${version}, with its npm, goes into ${dir} first`);
   }
 
   /**
@@ -1021,21 +1249,8 @@ export class CliInstaller {
     return (await this.powershellScript(USER_PATH_RESTORE_SCRIPT, { HARNESS_RELAY_USER_PATH: saved })).trim() === 'changed';
   }
 
-  /** Runs one command of an install (`script`: fixed text for the shell `o.bin`, given `o.args`), its output into the job's log; throws when it fails. */
   private async step(job: InstallJob, shown: string, o: Pick<SpawnOptions, 'bin' | 'args' | 'env' | 'cwd'>, script?: string): Promise<void> {
-    job.append(`$ ${shown}\n`);
-    const run: RunOptions = {
-      env: o.env,
-      cwd: o.cwd,
-      signal: job.abort.signal,
-      timeoutMs: INSTALL_TIMEOUT_MS,
-      onLine: (line) => job.append(`${line}\n`),
-      onSpawn: (child) => child.stderr?.on('data', (b: Buffer) => job.append(b.toString('utf8'))),
-    };
-    const r = await (script === undefined ? this.host.run({ ...run, bin: o.bin, args: o.args }) : this.host.runScript(o.bin, o.args, script, run));
-    if (r.aborted || job.abort.signal.aborted) throw new Error('aborted');
-    if (r.timedOut) throw new InstallError(() => t().cliInstallTimedOut(shown));
-    if (r.code !== 0) throw new InstallError(() => t().cliInstallFailed(shown, r.code));
+    await runStep(this.host, job, shown, o, script);
   }
 
   /** `<bin> --version` in the CLI's own environment, as its status asks it; stopped with the install. */

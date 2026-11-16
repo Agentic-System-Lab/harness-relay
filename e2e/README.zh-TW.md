@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 34 個 spec 檔、438 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 35 個 spec 檔、444 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -25,7 +25,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **自己的伺服器**：使用空閒的 port，資料、家目錄與各 CLI 的家目錄（那個家目錄裡的 `.claude`、`.codex`、`.grok`、`.gemini`、`.copilot`、`.config/cursor`，以及 Muse Code 的 `.config/muse` 與 `.local/share/muse`，開源 agent 的則在資料資料夾裡）都在暫存資料夾裡，並關閉作業系統的鑰匙圈：不會讀取或更動你自己的 Harness Relay、CLI 或鑰匙圈，你的憑證（Cursor、Antigravity 與 Google 的也一樣）不會留在它的環境變數裡，git 找 repository 時也不會超出測試的資料夾（[`support/relay.ts`](support/relay.ts)）。在 macOS 與 Linux 上，它的資料夾放在 `/tmp`（或 `E2E_TMP_DIR`），路徑短到放得下 Harness Relay 自己的沙箱的 socket。
 - **自己的假模型端點**：一個小 HTTP 伺服器，設成模型來源 `e2e`（**設定 → 模型來源**，Settings → Model backends），有 `e2e-model` 與 `e2e-model-mini` 兩個模型，每個開源 agent 的預設模型都設成 `e2e/e2e-model`，所以測試安裝的開源 agent 都可使用（OpenHands 的終端機開關也已打開）。那裡沒有模型會回答：它只列出自己的模型，並收下在 Harness Relay 自己的沙箱裡執行的假 CLI 送來的紀錄。測試可以不要它（`openBackend: false`）、關掉 OpenHands 的開關（`sandboxTerminal: false`），或讓某些 CLI 未安裝（`missingClis`）。
 - **一個工作目錄**，裡面是一個小專案：`README.md`、`src/hello.ts` 與 `src/lib/math.ts`（`seedProject()`）。需要其他資料夾的測試會在它旁邊新增（`relay.addProject()`）。
-- **已登入的瀏覽器頁面**：用一組新的一次性代碼登入，使用導覽已完成，介面為英文（[`fixtures.ts`](fixtures.ts)）。測試可用 `test.use()` 改變這些：`lang: 'zh-TW'`、`signIn: false`、`tour: true`，或給伺服器更多環境變數（`serverEnv`）。
+- **已登入的瀏覽器頁面**：用一組新的一次性代碼登入，使用導覽已完成，沙箱元件的詢問已回答過（所以不論這台電腦缺什麼，新對話都不會詢問），介面為英文（[`fixtures.ts`](fixtures.ts)）。測試可用 `test.use()` 改變這些：`lang: 'zh-TW'`、`signIn: false`、`tour: true`、`sandboxAsk: true`，或給伺服器更多環境變數（`serverEnv`）。
 - **假的 CLI**（[`fake-cli/`](fake-cli/)），十二個 CLI 各一個。測試的伺服器裝了 Claude Code、Codex 與 Grok，以及測試要用的 CLI（每個 CLI 各一的測試裝它自己，兩個團隊的測試裝它那一隊的，其他的用 [`support/clis.ts`](support/clis.ts) 的 `withClis()`）：其餘的在那裡都未安裝，因為每次開啟頁面時，伺服器會向每個已安裝的 CLI 詢問版本、登入、模型與它自己會載入的東西，每個大約啟動六次。它們說各 CLI 的協定，回答 `Hello from <名稱> (<CLI>). You said: “<使用者最新的訊息>”.`。測試用訊息中的 `e2e:` 指令操控它們（`e2e:write=notes.md`、`e2e:approve`、`e2e:slow`…）。假 CLI 總是會嘗試指令要求的事，成不成功只取決於 Harness Relay 給了 CLI 什麼（權限、參數與設定、沙箱、資料夾，以及它的核准請求得到的回答），所以在不該寫的地方寫檔的測試，能看出轉接器有沒有把 CLI 設定對。Claude Code、Codex、Grok、Copilot 與 Muse Code 的假 CLI 自己推算它們 CLI 的沙箱會允許什麼；沒有沙箱的 Cursor 與 Antigravity，假 CLI 像真正的一樣先詢問；開源 agent 的假 CLI 則真的寫檔、真的連線，所以在完全存取以外，不屬於它們的事由 Harness Relay 自己的沙箱本身拒絕（在 macOS 與 Linux 上）。在沙箱裡的假 CLI 無法寫入假 CLI 的紀錄檔，所以把紀錄送到假模型端點。
 - **假的 `gh`**（[`fake-cli/fake-gh.cjs`](fake-cli/fake-gh.cjs)），用於分享與問題回報的截圖：它把 gist 存在測試自己的資料夾（`fake-github/`），從不送到 GitHub；`E2E_FAKE_SIGNED_OUT=gh` 會讓它處於未登入狀態，直到測試核准它自己的登入（`auth login --web`）。Linux 上還有假的選擇資料夾視窗（`zenity`）。AgentsView 則是 [`specs/sessions.spec.ts`](specs/sessions.spec.ts) 裡的一個小 HTTP 伺服器，因為 Harness Relay 只會送請求給它。
 
@@ -57,6 +57,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [排程](#排程) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 1 | [使用者說明 → 排程](../docs/user-guide.zh-TW.md#排程)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
 | [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 13 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席-agent)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
 | [安裝 CLI](#安裝-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [使用者說明 → 從設定頁安裝 CLI](../docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[架構 → 從設定頁安裝 CLI](../docs/architecture.zh-TW.md#從設定頁安裝-cli) |
+| [沙箱需要的元件](#沙箱需要的元件) | [`sandbox-setup.spec.ts`](specs/sandbox-setup.spec.ts) | 6 | [使用者說明 → 安裝沙箱需要的元件](../docs/user-guide.zh-TW.md#安裝沙箱需要的元件)、[各平台的 OS 沙箱 → 由 Harness Relay 安裝它們需要的東西](../docs/sandboxing.zh-TW.md#由-harness-relay-安裝它們需要的東西) |
 | [在 Windows 上是腳本的 CLI](#在-windows-上是腳本的-cli) | [`windows.spec.ts`](specs/windows.spec.ts) | 5 | [架構 → CLI 轉接器](../docs/architecture.zh-TW.md#cli-轉接器) |
 | [帳號](#帳號) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 35 | [使用者說明 → 多個帳號](../docs/user-guide.zh-TW.md#多個帳號)、[API key](../docs/user-guide.zh-TW.md#api-key選用)、[架構 → 帳號](../docs/architecture.zh-TW.md#帳號) |
 | [方案用量](#方案用量) | [`usage.spec.ts`](specs/usage.spec.ts) | 9 | [使用者說明 → 方案用量](../docs/user-guide.zh-TW.md#方案用量)、[架構 → Provider](../docs/architecture.zh-TW.md#provider狀態登入與模型) |
@@ -366,6 +367,19 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 安裝失敗會說明原因且不留下任何東西；安裝中可以取消 | Cline | `fake-npm/fail`：**Install failed**、「npm install -g --prefix … cline@3.0.74 failed (exit 1)」、安裝程式的輸出裡有 npm 自己的 404，而且沒有資料夾。用 `fake-npm/hold` 按 **Try again**，再按 **Cancel install**：「Install cancelled; nothing was left behind.」、**Try again**，且沒有資料夾。 |
 | 提供官方安裝程式：macOS 與 Linux 上是 bash 腳本，Windows 上是 PowerShell 版，但不顯示它的指令 | Grok | **Install Grok** 與安裝程式會以那個資料夾當家目錄的說明（不按：那是官方在網路上的腳本），不顯示它的指令；`GET /api/clis` 說那是 `curl -fsSL https://x.ai/cli/install.sh \| bash`（Windows 上是 `irm https://x.ai/cli/install.ps1 \| iex`），沒有「找不到」那一行，也沒有官網連結。 |
 
+## 沙箱需要的元件
+
+[`sandbox-setup.spec.ts`](specs/sandbox-setup.spec.ts)：agent 的沙箱在這台電腦上缺東西時，新對話跳出的對話框，以及**設定 → 沙箱**（`sandboxAsk: true`）。每台電腦缺的東西不同，所以伺服器的回答（`GET /api/sandbox-setup` 與安裝）由測試提供（`page.route`）；伺服器那一端由 `test/sandbox-setup.test.ts` 涵蓋。
+
+| 情境 | CLI | 檢查的內容 |
+| --- | --- | --- |
+| 新對話詢問是否安裝、強烈建議；按「先不要」就留給設定頁 | — | 對話框 **Installing what the sandboxes need is strongly recommended**：寫著「installing it now is strongly recommended」、給 Claude Code 與開源 agent 的沙箱用的「Linux packages: bubblewrap, socat」、會跳出 pkexec 的密碼視窗、**Install (strongly recommended)**，以及之後可在**設定 → 沙箱**安裝。按 **Not now** 會在新對話頁上關掉它；再按新對話、或重新整理，都不再詢問。**Sandboxes** 卡片列出這些套件，附 **Install**。 |
+| 從對話框安裝會顯示輸出，接著說沙箱需要的都有了 | — | 按 **Install (strongly recommended)** 會送出 `POST /api/sandbox-setup/install`；對話框接著說「Installed: the sandboxes have everything they need.」，不再列出缺少的東西、也不再說之後可在設定頁安裝，按 **Close** 關掉，重新整理後不再詢問。 |
+| 這裡無法安裝的，附上要在終端機執行的指令，沒有安裝按鈕 | — | 沒辦法取得系統管理員權限（`blocked: 'admin'`）：說明這件事，並附「To install it yourself, run this in a terminal:」與 `sudo apt-get install -y bubblewrap socat`，沒有 **Install**。按 Escape 只在這個頁面關掉：重新整理後會再詢問。 |
+| 安裝裝好這裡能裝的之後，說剩下的要使用者自己裝 | — | 在**設定 → 沙箱**，Node.js 能裝、套件不能（`blocked: 'admin'`）：按 **Install** 送出 `POST /api/sandbox-setup/install`；成功後卡片說「Installed what Harness Relay can install here; the rest, listed here, is yours to install.」，列出套件與它們的指令，不再列出 Node.js，也沒有 **Install**。 |
+| 什麼都不缺時，新對話不詢問 | — | 沒有對話框；**Sandboxes** 卡片寫著「The sandboxes have everything they need on this computer.」 |
+| 在開發版 build 中也一樣 | — | 在介面的開發版 build（React 的 StrictMode 會把每個 effect 執行兩次）中，新對話仍會詢問，**設定 → 沙箱**也仍列出這些套件並附 **Install**。 |
+
 ## 在 Windows 上是腳本的 CLI
 
 [`windows.spec.ts`](specs/windows.spec.ts)：只在 Windows 上執行。在其他地方，以及 Windows 上預設的情況，假 CLI 都是在 PATH 上找到的程式。這裡則像使用者一樣在設定中，把每個 CLI 的執行檔路徑設成它在 Windows 上安裝後的那種啟動器；Harness Relay 會把它當成它所執行的程式來啟動（`src/server/winLaunch.ts`），從不透過 `cmd.exe`。
@@ -612,7 +626,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **OpenCode 與 Goose 的 token 和費用。** Harness Relay 從這兩個 CLI 自己的 SQLite 資料庫（`opencode.db`、`sessions.db`）讀取，它們的假 CLI 不保存這些資料庫，所以在這裡它們的回覆不顯示用量；轉接器的測試（`test/opencode.test.ts`、`test/goose.test.ts`）會對照真正 CLI 寫法寫成的資料庫跑完整的回合。
 - **真正的首席 agent 會指出什麼。** 假首席 agent 的審閱總是標出第一則回覆開頭的幾個字；真正的模型給的 highlight 與下一步值不值得讀，這裡沒有測。它的 prompt，以及怎麼檢查它的回答（回覆裡沒有的引用會被拿掉、不認得的類型、上限），在單元測試中（`test/reviewer.test.ts`、`test/orchestrator-review.test.ts`）。
 - **真正手機上的滑動。**[在手機上](#在手機上)大部分的滑動觸控事件是從頁面本身送出的，所以瀏覽器不會跟著捲動；有一個測試送出 Chromium 自己的觸控，瀏覽器會判斷點到哪裡並跟著捲動，但沒有測試有手機自己的手勢或觸控處理：從螢幕最邊緣開始的滑動（手機可能留給「返回」用），以及 Android 的 Chrome 從手指移動多遠開始送出移動事件（約 8dp；手指底下可捲動的區塊在它第一次移動時量），都沒有測試。
-- **從設定頁真正的安裝。**[安裝 CLI](#安裝-cli) 用的是假的 npm，不會連到 npm 套件庫、官方腳本或 uv。`test/cli-install.test.ts` 用假的電腦涵蓋 Harness Relay 交給它們的東西（參數、環境變數、資料夾，Windows 上的也有），每個 CLI 真正的安裝則在 Linux 上手動試過（Windows 的安裝程式還沒在 Windows 電腦上試過）。
+- **真正安裝沙箱需要的元件。**[沙箱需要的元件](#沙箱需要的元件)由測試代替伺服器回答：不會執行任何套件管理工具、sudo、pkexec 或 AppArmor。`test/sandbox-setup.test.ts` 涵蓋 Harness Relay 執行的東西（固定的腳本、它的環境變數、取得系統管理員權限的方式），並用 apt-get 與 apparmor_parser 的替身真的執行那個腳本；套件與桌面 app 的 Node.js 則在 Linux 與 macOS 上，透過打包好的桌面 app 與 `npm start` 的對話框真的裝過（[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md#由-harness-relay-安裝它們需要的東西)）。
+- **從設定頁真正的安裝。**[安裝 CLI](#安裝-cli) 用的是假的 npm，不會連到 npm 套件庫、官方腳本或 uv，也不會連到 nodejs.org：PATH 上沒有 npm 時把 Node.js 官方版本放進 CLI 資料夾、再安裝 Claude Code、Codex 或 Copilot，由 `test/cli-install.test.ts` 涵蓋，它們的程式用那份 Node 啟動，由 `test/winLaunch.test.ts` 與 `test/process.test.ts` 涵蓋，並在 macOS、Linux 與 Windows 上手動試過。`test/cli-install.test.ts` 用假的電腦涵蓋 Harness Relay 交給它們的東西（參數、環境變數、資料夾，Windows 上的也有），每個 CLI 真正的安裝則在 Linux 上手動試過（Windows 的安裝程式還沒在 Windows 電腦上試過）。
 - **桌面 app 自己的選單。**[語言](#語言)檢查 app 視窗裡的頁面（user agent 裡有 Electron）會把它的語言告訴伺服器；app 本身（Electron）不在這裡執行。伺服器轉送什麼、app 記住什麼，由 `test/app.test.ts`、`test/desktop-supervisor.test.ts` 與 `test/desktop-app.test.ts` 測試，選單換語言則在 app 裡手動確認過。
 - **還沒有 spec 走過的功能**：語音輸入本身的錄音與轉寫（它會下載引擎與模型，也需要麥克風；只測了安裝的面板）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 加密存在資料庫）；從設定登入 Codex、Grok、Cursor、Antigravity、Copilot 與 Muse Code（它們自己的登入流程；Copilot 的裝置登入由 `test/providers.test.ts` 測試），以及真正的 Codex 拿到 `codex login --with-api-key` 的 key 之後做了什麼；Copilot 沙箱的政策和這次執行設定的不一樣時，完全存取以外拒絕啟動（由 `test/copilot.test.ts` 測試）；Muse Code 詢問指令要不要連網（它的假 CLI 在沙箱中會為 `e2e:approve=publish` 詢問，但沒有 spec 送出這個指令），以及對話的權限改變或伺服器重新啟動後，Muse Code 的成員開新的 session（由 `test/muse.test.ts` 測試）；AgentsView 中首席 agent 與分類對話的 session 連結、設定網址後才送出的對話，以及 Harness Relay 為開源 agent 記下的成員 session（由 `test/agentsview.test.ts` 測試，Cursor 的也是，另有 spec 試過）；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
 

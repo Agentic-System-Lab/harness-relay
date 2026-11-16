@@ -116,6 +116,7 @@ export function CliInstall({
       <p className="muted small">
         {i.into(view.dir)}
         {view.method === 'script' && i.scriptHome}
+        {view.node && i.withNode(view.node)}
       </p>
       {note.text && <p className={note.error ? 'error-line' : 'muted small'}>{note.text}</p>}
     </div>

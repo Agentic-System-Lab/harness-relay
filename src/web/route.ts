@@ -21,6 +21,7 @@ export const SETTINGS_SECTIONS = [
   'language',
   'appearance',
   'notifications',
+  'sandboxes',
   'backends',
   ...PROVIDERS.filter((p) => !isOpenProvider(p)),
   ...OPEN_PROVIDERS,

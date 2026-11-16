@@ -22,6 +22,7 @@ import type {
   GrokFolderTrust,
   CliInstallView,
   Lang,
+  SandboxSetupView,
   CliLoginView,
   LoginMethod,
   LoginSessionView,
@@ -453,6 +454,9 @@ export const api = {
   installCli: (p: Provider) => request<CliInstallView>('POST', `/api/clis/${p}/install`),
   cancelCliInstall: (p: Provider) => request<CliInstallView>('DELETE', `/api/clis/${p}/install`),
   removeCli: (p: Provider) => request<CliInstallView>('DELETE', `/api/clis/${p}`),
+  sandboxSetup: () => request<SandboxSetupView>('GET', '/api/sandbox-setup'),
+  installSandboxSetup: () => request<SandboxSetupView>('POST', '/api/sandbox-setup/install'),
+  cancelSandboxSetup: () => request<SandboxSetupView>('DELETE', '/api/sandbox-setup/install'),
   // voice input
   voice: () => request<VoiceStatus>('GET', '/api/voice'),
   updateVoice: (b: VoiceSettingsUpdate) => request<VoiceStatus>('PUT', '/api/voice/settings', b),

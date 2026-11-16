@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions as ChildOptions, type SpawnSyncReturns } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { isAbsolute, resolve, win32 } from 'node:path';
+import { accessSync, closeSync, constants as fsConstants, existsSync, openSync, readSync, statSync } from 'node:fs';
+import { isAbsolute, posix, resolve, win32 } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Duplex } from 'node:stream';
 import { t } from './i18n';
@@ -149,11 +149,66 @@ export function resolveBin(bin: string): string {
 /**
  * What to start for a CLI: on Windows, the program its `.cmd` runs when the CLI is one (npm's
  * cmd-shim, Cursor's launcher; `winLaunch.ts`), since a script would need a shell; elsewhere the CLI
- * itself. Throws when it is a script whose program cannot be told.
+ * itself, or the Node beside it for a Node script (`posixLaunch`). Throws when it is a script whose
+ * program cannot be told.
  */
 export function launchOf(bin: string, args: readonly string[], env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): WindowsLaunch {
   const resolved = resolveBin(bin);
-  return platform === 'win32' ? windowsLaunch(resolved, args, env) : { file: resolved, args: [...args] };
+  return platform === 'win32' ? windowsLaunch(resolved, args, env) : posixLaunch(resolved, args, env);
+}
+
+/** What `posixLaunch` reads of the disk. */
+export interface PosixLaunchFs {
+  /** Whether the path is a file that may be run. */
+  isProgram(path: string): boolean;
+  /** The file's first bytes, as text (through a link), or undefined when it cannot be read. */
+  head(path: string): string | undefined;
+}
+
+const realPosixFs: PosixLaunchFs = {
+  isProgram: (p) => {
+    try {
+      if (!statSync(p).isFile()) return false;
+      accessSync(p, fsConstants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  head: (p) => {
+    let fd: number | undefined;
+    try {
+      fd = openSync(p, 'r');
+      const buf = Buffer.alloc(128);
+      return buf.toString('utf8', 0, readSync(fd, buf, 0, buf.length, 0));
+    } catch {
+      return undefined;
+    } finally {
+      if (fd !== undefined) closeSync(fd);
+    }
+  },
+};
+
+/** A Node script's first line as npm's packages write it, which has `env` look for `node` on the PATH. */
+const NODE_SCRIPT = /^#!\/usr\/bin\/env node[ \t]*\r?\n/;
+
+/**
+ * What to start for `bin` (a path, or a name the PATH finds) on macOS and Linux: the CLI itself, but
+ * for a Node script (`#!/usr/bin/env node`, as npm links a package's program) at a path whose folder
+ * holds a `node` while the PATH it would run with has none, for which `env` would find no Node: that
+ * runs on the `node` beside it, as npm's own shims run one, and as `windowsLaunch` does on Windows.
+ * So does a CLI that Harness Relay installed with Node.js's own build in its folder (npm not being on
+ * the PATH): Codex's and Copilot's programs are such scripts, in the folder's `bin` beside its Node.
+ * With a `node` on the PATH, everything starts as it is.
+ */
+export function posixLaunch(bin: string, args: readonly string[], env: NodeJS.ProcessEnv, fs: PosixLaunchFs = realPosixFs): WindowsLaunch {
+  const as = { file: bin, args: [...args] };
+  if (!posix.isAbsolute(bin)) return as;
+  const beside = posix.join(posix.dirname(bin), 'node');
+  if (!fs.isProgram(beside)) return as;
+  const onPath = (env.PATH ?? '').split(':').some((dir) => posix.isAbsolute(dir) && fs.isProgram(posix.join(dir, 'node')));
+  if (onPath || !NODE_SCRIPT.test(fs.head(bin) ?? '')) return as;
+  return { file: beside, args: [bin, ...args] };
 }
 
 /** The CLI's environment with what its launch needs besides. */

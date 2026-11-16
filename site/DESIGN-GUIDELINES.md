@@ -144,9 +144,10 @@ Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numb
 | `assets/media/og-en.png`, `og-zh-TW.png` | Social preview cards (1200×630) rendered from the page's own styles |
 | `assets/fonts/bricolage-grotesque-latin.woff2` | Google Fonts, SIL Open Font License (`assets/fonts/OFL.txt`) |
 | `favicon.svg` | Same drawing as the app's favicon |
-| `sitemap.xml` | The pages for search engines, with their `hreflang` alternates; a new page goes in it (developer guide, "Website") |
+| `sitemap.xml` | The pages for search engines, with their `hreflang` alternates; a new page goes in it, without a `<lastmod>`: the Pages workflow dates each page (developer guide, "Website") |
 | `llms.txt` | The app summed up for the coding agents and tools that read [llms.txt](https://llmstxt.org), with links to the docs as Markdown; its facts are the page's (developer guide, "Website", "Answer engines") |
-| `google7b263ecdf9adc06e.html` | Google Search Console's verification file: keep it as it is, never delete it |
+| `google7b263ecdf9adc06e.html` | Google Search Console's verification file, which also keeps the site verified in Bing Webmaster Tools: keep it as it is, never delete it |
+| `8de13cb3ba2dccfb84c9d81d70aab5b9.txt` | IndexNow's key, which the Pages workflow names as `INDEXNOW_KEY`: never delete it; a new key renames it, in the same commit (developer guide, "Website", "Search engines") |
 
 The origin of each raster is also embedded in the file (PNG text chunk) or in a `*.webp.json` sidecar next to it.
 

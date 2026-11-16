@@ -74,7 +74,7 @@ import {
   type UpdateSource,
 } from '../desktop/src/updateSource';
 import { spawnDetached } from '../src/server/process';
-import { releaseStep } from './release-steps';
+import { releaseStep } from './workflow-steps';
 import { slow } from './timeouts';
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-update-')));

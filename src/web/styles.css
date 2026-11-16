@@ -7509,6 +7509,53 @@ a.share-action {
   margin-left: auto;
 }
 
+/* What the agents' sandboxes lack here (Settings → Sandboxes, and New chat's dialog: SandboxSetup.tsx) */
+.sandbox-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sandbox-setup p {
+  margin: 0;
+}
+
+.sandbox-needs {
+  margin: 0;
+  padding-left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+
+.sandbox-needs .block {
+  display: block;
+}
+
+.sandbox-by-hand {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.sandbox-by-hand pre {
+  align-self: stretch;
+}
+
+.modal.sandbox-dialog {
+  width: min(560px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+
+/* On a phone, Install goes under Not now rather than past the dialog's edge. */
+.sandbox-dialog .update-buttons {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 /* A new version of the desktop app, offered once (the tray menu offers it too) */
 .modal.update-dialog {
   width: min(460px, 100%);
