@@ -1626,6 +1626,7 @@ export const zhTW = {
       curl: '下載 Node.js 需要 curl，但找不到。',
       tar: '解開 Node.js 的下載檔需要 tar，但找不到。',
       node: 'Node.js 沒有給這個系統或處理器的官方版本：請自行安裝 Node.js 22.12 以上，放上登入 shell 的 PATH。',
+      libatomic: 'Node.js 的 Linux 版本要有 libatomic 才能執行，而它還沒安裝：先安裝上面的套件。',
     },
     byHand: '要自己安裝的話，在終端機執行：',
     packagesToInstall: '要安裝的套件：',
@@ -1633,6 +1634,8 @@ export const zhTW = {
     installing: '正在安裝沙箱需要的東西…',
     cancel: '取消安裝',
     done: '裝好了，沙箱需要的東西都有了。',
+    /** An install that put in all it could, while something it cannot install here is left. */
+    partlyDone: 'Harness Relay 能在這裡安裝的都裝好了；這裡列出的其餘部分要你自己安裝。',
     failed: '安裝失敗',
     cancelled: '已取消安裝。',
     output: '安裝的輸出',

@@ -27,7 +27,9 @@ function result(code: number | null, stdout = '', o: Partial<SpawnResult> = {}):
 
 /** Every program the Linux sandboxes need, where a Debian or Ubuntu has them. */
 const ALL_LINUX = ['/usr/bin/bwrap', '/usr/bin/socat', '/usr/bin/rg', '/usr/bin/slirp4netns', '/usr/sbin/ip', '/usr/sbin/iptables', '/usr/sbin/ip6tables', '/usr/sbin/iptables-restore', '/usr/sbin/ip6tables-restore', '/usr/bin/unshare', '/usr/bin/nsenter'];
-const BASE = ['/bin/sh', '/usr/bin/env', '/usr/bin/curl', '/usr/bin/tar'];
+/** Where an x64 Debian or Ubuntu has libatomic, which Node.js's Linux builds run with. */
+const LIBATOMIC = '/usr/lib/x86_64-linux-gnu/libatomic.so.1';
+const BASE = ['/bin/sh', '/usr/bin/env', '/usr/bin/curl', '/usr/bin/tar', LIBATOMIC];
 
 /** Claude Code's docs' profile for `/usr/bin/bwrap`, as homelab has it. */
 const CLAUDE_PROFILE = 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n  include if exists <local/bwrap>\n}\n';
@@ -45,6 +47,8 @@ function setup(
     electron?: boolean;
     uid?: number;
     programs?: string[];
+    /** The programs every computer here has (sh, env, curl, tar, libatomic), unless given. */
+    base?: string[];
     files?: Record<string, string>;
     env?: NodeJS.ProcessEnv;
     sudo?: boolean;
@@ -53,7 +57,7 @@ function setup(
     onRun?: (s: Run, programs: Set<string>) => SpawnResult | Promise<SpawnResult> | undefined;
   } = {},
 ) {
-  const programs = new Set([...BASE, ...(o.programs ?? ['/usr/bin/apt-get', '/usr/bin/sudo'])]);
+  const programs = new Set([...(o.base ?? BASE), ...(o.programs ?? ['/usr/bin/apt-get', '/usr/bin/sudo'])]);
   const files = { ...o.files };
   const calls: Run[] = [];
   const dataDir = join(root, `data-${++n}`);
@@ -75,8 +79,8 @@ function setup(
         chmodSync(f, 0o755);
       }
     } else if (tool !== 'node') {
-      // The administrator's script: the packages are there afterwards, and the profile.
-      for (const p of ALL_LINUX) programs.add(p);
+      // The administrator's script: the packages are there afterwards (curl and libatomic too), and the profile.
+      for (const p of [...ALL_LINUX, '/usr/bin/curl', LIBATOMIC]) programs.add(p);
       if (s.script !== undefined || s.args.includes('-c')) files[APPARMOR_FILE] = APPARMOR_PROFILE;
     }
     return result(0, `${tool} done`);
@@ -110,6 +114,8 @@ async function ended(s: SandboxSetup) {
 }
 
 const EMPTY_SHA256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+/** The fake build for Linux, whose download (empty here) checks. */
+const linuxBuild = (): NodeBuild => ({ ...fakeBuild(), url: 'https://nodejs.org/x/node-v26.0.0-linux-x64.tar.gz', file: 'node-v26.0.0-linux-x64.tar.gz' });
 const fakeBuild = (): NodeBuild => ({
   version: '26.0.0',
   url: 'https://nodejs.org/dist/v26.0.0/node-v26.0.0-darwin-arm64.tar.gz',
@@ -214,9 +220,50 @@ describe('what the sandboxes need', () => {
     expect(setup({ platform: 'darwin', electron: false }).s.view().needs).toEqual([]);
     // Linux: first, before the packages.
     expect(setup({ electron: true }).s.view().needs.map((n) => n.kind)).toEqual(['node', 'packages']);
-    // No build of Node.js's own for this processor, or no curl: said so.
+    // No build of Node.js's own for this processor, or no curl and no way to install it: said so.
     expect(setup({ platform: 'darwin', arch: 'ia32', electron: true }).s.view().needs[0]).toMatchObject({ kind: 'node', blocked: 'node', items: [] });
     expect(setup({ platform: 'darwin', arch: 'arm64', electron: true, programs: [], env: { PATH: '/nowhere' }, nodeBuild: () => fakeBuild() }).s.view().needs[0]!.blocked).toBeUndefined();
+  });
+
+  it('on Linux without curl (as Ubuntu’s desktop), installs it with the packages, then downloads Node.js', () => {
+    const noCurl = ['/bin/sh', '/usr/bin/env', '/usr/bin/tar', LIBATOMIC];
+    const { s, nodeDir } = setup({ electron: true, base: noCurl });
+    const needs = s.view().needs;
+    expect(needs.map((n) => n.kind)).toEqual(['packages', 'node']);
+    expect(needs[0]).toMatchObject({ items: ['curl', 'bubblewrap', 'socat', 'ripgrep', 'slirp4netns', 'iproute2', 'iptables', 'util-linux'], command: expect.stringMatching(/^sudo apt-get install -y curl bubblewrap /) });
+    expect(needs[0]!.for).toContain('open');
+    expect(needs[1]).toEqual({ kind: 'node', items: [NODE_VERSION], for: ['open'], command: expect.stringContaining(`mkdir -p "${nodeDir}"`) });
+    // No administrator rights here: curl is among the packages to install by hand, and Node.js waits for it.
+    const by = setup({ electron: true, base: noCurl, sudo: false }).s.view().needs;
+    expect(by.map((n) => [n.kind, n.blocked])).toEqual([
+      ['packages', 'admin'],
+      ['node', 'curl'],
+    ]);
+    expect(by[0]!.command).toMatch(/^sudo apt-get install -y curl /);
+    // curl there: not among the packages.
+    expect(setup({ electron: true }).s.view().needs[1]!.items).not.toContain('curl');
+  });
+
+  it('on Linux without libatomic, which Node.js’s builds run with, installs it with the packages, by each package manager’s name', () => {
+    const noAtomic = ['/bin/sh', '/usr/bin/env', '/usr/bin/curl', '/usr/bin/tar'];
+    const apt = setup({ electron: true, base: noAtomic }).s.view().needs;
+    expect(apt.map((n) => [n.kind, n.blocked])).toEqual([
+      ['packages', undefined],
+      ['node', undefined],
+    ]);
+    expect(apt[0]!.items[0]).toBe('libatomic1');
+    const dnf = setup({ electron: true, base: noAtomic, programs: ['/usr/bin/dnf', '/usr/bin/sudo'] }).s.view().needs;
+    expect(dnf[0]!.items[0]).toBe('libatomic');
+    // Found where an arm64 Debian keeps it, or in /usr/lib64 (Fedora's).
+    expect(setup({ electron: true, arch: 'arm64', base: [...noAtomic, '/usr/lib/aarch64-linux-gnu/libatomic.so.1'] }).s.view().needs[0]!.kind).toBe('node');
+    expect(setup({ electron: true, base: [...noAtomic, '/usr/lib64/libatomic.so.1'] }).s.view().needs[0]!.kind).toBe('node');
+    // No administrator rights: Node.js waits for it, said so.
+    expect(setup({ electron: true, base: noAtomic, sudo: false }).s.view().needs.map((n) => [n.kind, n.blocked])).toEqual([
+      ['packages', 'admin'],
+      ['node', 'libatomic'],
+    ]);
+    // Not asked for without the desktop app's Node.js.
+    expect(setup({ base: noAtomic }).s.view().needs[0]!.items).not.toContain('libatomic1');
   });
 
   it('has nothing to install on Windows, nor on macOS from the source', () => {
@@ -303,6 +350,31 @@ describe('installing what the sandboxes need', () => {
     // The download does not stay.
     expect(existsSync(join(nodeDir, 'install-cache'))).toBe(false);
     expect(v.needs).toEqual([]);
+  });
+
+  it('without curl, runs the packages first (curl among them), then puts Node.js in with it', async () => {
+    const { s, calls, nodeDir } = setup({ electron: true, base: ['/bin/sh', '/usr/bin/env', '/usr/bin/tar', LIBATOMIC], nodeBuild: linuxBuild });
+    s.install();
+    const v = await ended(s);
+    expect(v.job?.state).toBe('success');
+    expect(calls.map((c) => basename(c.bin))).toEqual(['sudo', 'curl', 'tar', 'node']);
+    expect(calls[0]!.args).toContain('HARNESS_RELAY_PACKAGES=curl bubblewrap socat ripgrep slirp4netns iproute2 iptables util-linux');
+    expect(calls[1]!.bin).toBe('/usr/bin/curl');
+    expect(existsSync(join(nodeDir, 'bin', 'node'))).toBe(true);
+    expect(v.needs).toEqual([]);
+  });
+
+  it('succeeds with what it can install, leaving what it cannot to be installed by hand', async () => {
+    // Node.js goes in; the packages take administrator rights there is no way to get here.
+    const { s } = setup({ electron: true, sudo: false, nodeBuild: linuxBuild });
+    expect(s.view().needs.map((n) => [n.kind, n.blocked])).toEqual([
+      ['node', undefined],
+      ['packages', 'admin'],
+    ]);
+    s.install();
+    const v = await ended(s);
+    expect(v.job?.state).toBe('success');
+    expect(v.needs.map((n) => [n.kind, n.blocked])).toEqual([['packages', 'admin']]);
   });
 
   it('leaves no Node.js behind when its download does not check, and installs nothing it cannot here', async () => {

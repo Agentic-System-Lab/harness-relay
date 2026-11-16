@@ -21,7 +21,8 @@ import { pathHostNode, sandboxNode, sandboxNodeFolder } from './relaySandbox';
  *   Harness Relay's own; slirp4netns, iproute2, iptables and util-linux for Copilot's), with the
  *   system's package manager (apt, dnf, pacman, zypper); on Ubuntu 23.10 or later, which keeps
  *   programs from making user namespaces, the AppArmor profile Claude Code's docs give for
- *   `/usr/bin/bwrap`; and in the desktop app the Node.js above. The packages and the profile take
+ *   `/usr/bin/bwrap`; and in the desktop app the Node.js above, after the packages when they bring the
+ *   curl that downloads it (Ubuntu's desktop has none) or the libatomic it runs with. The packages and the profile take
  *   administrator rights: as root, through sudo when it asks no password, or through pkexec, whose
  *   prompt the desktop shows (`adminWay`). Both go in one run of a fixed script (`ADMIN_SCRIPT`), so
  *   that the password is asked once; what it installs is in its environment. Without a way to get
@@ -39,9 +40,10 @@ const PACKAGE_MANAGERS: readonly { pm: PackageManager; program: string }[] = [
   { pm: 'zypper', program: 'zypper' },
 ];
 
-/** One Linux package the sandboxes need: the programs that tell it is there, its name for each package manager, and whose sandboxes run it. */
+/** One Linux package the sandboxes need: the programs (or libraries) that tell it is there, its name for each package manager, and whose sandboxes run it. */
 export interface LinuxNeed {
   programs: readonly string[];
+  libs?: readonly string[];
   pkg: string | Readonly<Record<PackageManager, string>>;
   for: readonly SandboxUser[];
 }
@@ -60,6 +62,20 @@ export const LINUX_NEEDS: readonly LinuxNeed[] = [
   },
   { programs: ['unshare', 'nsenter'], pkg: 'util-linux', for: ['copilot'] },
 ];
+
+/**
+ * What the desktop app's Node.js takes on Linux that a desktop may lack: curl, which downloads it
+ * (Ubuntu's desktop has none by default), and libatomic, which Node.js's Linux builds run with (not
+ * always on Fedora). With the packages when missing, the Node.js then put in after them.
+ */
+export const CURL_NEED: LinuxNeed = { programs: ['curl'], pkg: 'curl', for: ['open'] };
+export const LIBATOMIC_NEED: LinuxNeed = { programs: [], libs: ['libatomic.so.1'], pkg: { apt: 'libatomic1', dnf: 'libatomic', pacman: 'gcc-libs', zypper: 'libatomic1' }, for: ['open'] };
+
+/** Where Linux keeps shared libraries, by processor (Debian's multiarch folders, then the others). */
+const libDirs = (arch: string) => {
+  const triplet = arch === 'arm64' ? 'aarch64-linux-gnu' : 'x86_64-linux-gnu';
+  return [`/usr/lib/${triplet}`, `/lib/${triplet}`, '/usr/lib64', '/lib64', '/usr/lib', '/lib'];
+};
 
 /** A package's name for `pm` (Debian's when there is no package manager Harness Relay knows). */
 const packageName = (n: LinuxNeed, pm: PackageManager | undefined) => (typeof n.pkg === 'string' ? n.pkg : n.pkg[pm ?? 'apt']);
@@ -294,6 +310,15 @@ export class SandboxSetup {
     return undefined;
   }
 
+  private hasLib(name: string): boolean {
+    return libDirs(this.host.arch).some((dir) => this.host.isFile(posix.join(dir, name)));
+  }
+
+  /** Whether a package's programs or libraries are missing here. */
+  private lacks(n: LinuxNeed): boolean {
+    return n.programs.some((p) => !this.find(p)) || (n.libs ?? []).some((l) => !this.hasLib(l));
+  }
+
   private packageManager(): PackageManager | undefined {
     return PACKAGE_MANAGERS.find((m) => this.find(m.program))?.pm;
   }
@@ -323,28 +348,36 @@ export class SandboxSetup {
     return !this.host.list(APPARMOR_DIR).some((name) => letsBwrap(this.host.read(posix.join(APPARMOR_DIR, name)) ?? ''));
   }
 
-  /** What the sandboxes need that is missing here, in the order an install puts them in. */
+  /**
+   * What the sandboxes need that is missing here, in the order an install puts them in: the desktop
+   * app's Node.js first (no administrator rights), unless its download waits for the curl that the
+   * packages bring, then last.
+   */
   needs(): SandboxNeedView[] {
     const { platform } = this.host;
-    const needs: SandboxNeedView[] = [];
-    // The desktop app's Node.js for Harness Relay's own sandbox (no root: first).
+    let node: SandboxNeedView | undefined;
+    // The desktop app's Node.js for Harness Relay's own sandbox.
     if (this.host.electron && (platform === 'darwin' || platform === 'linux') && !this.host.pathNode() && !this.host.installedNode()) {
       const tools = nodeTools(this.host);
-      const build = typeof tools === 'string' ? undefined : tools.build;
+      const build = this.host.nodeBuild();
       const blocked: SandboxSetupBlock | undefined = typeof tools === 'string' ? (tools === 'curl' || tools === 'tar' ? tools : 'node') : undefined;
-      needs.push({
+      node = {
         kind: 'node',
         items: build ? [build.version] : [],
         for: ['open'],
         command: build ? nodeCommand(build, this.host.nodeDir, platform) : '',
         ...(blocked ? { blocked } : {}),
-      });
+      };
     }
-    if (platform !== 'linux') return needs;
+    if (platform !== 'linux') return node ? [node] : [];
     const pm = this.packageManager();
-    const missing = LINUX_NEEDS.filter((n) => n.programs.some((p) => !this.find(p)));
+    // What Node.js waits for, with the packages: curl when its download lacks only it, libatomic when
+    // its build would not run without it.
+    const nodeWaits = node && (!node.blocked || node.blocked === 'curl') ? [CURL_NEED, LIBATOMIC_NEED].filter((n) => this.lacks(n)) : [];
+    const missing = [...nodeWaits, ...LINUX_NEEDS.filter((n) => this.lacks(n))];
     const admin = this.adminWay();
     const adminBlock: SandboxSetupBlock | undefined = admin ? undefined : 'admin';
+    const needs: SandboxNeedView[] = [];
     if (missing.length) {
       const packages = [...new Set(missing.map((n) => packageName(n, pm)))];
       const command = pm
@@ -352,25 +385,38 @@ export class SandboxSetup {
         : packages.join(' ');
       const blocked = pm ? adminBlock : 'packageManager';
       needs.push({ kind: 'packages', items: packages, for: users(missing.flatMap((n) => n.for)), command, ...(blocked ? { blocked } : {}) });
+      // The packages bring them: Node.js is put in after them; else it waits for them by hand.
+      if (node && nodeWaits.length) {
+        if (!blocked) delete node.blocked;
+        else node.blocked ??= 'libatomic';
+      }
     }
     if (this.apparmorNeeded()) {
       const command = `sudo tee ${APPARMOR_FILE} > /dev/null <<'EOF'\n${APPARMOR_PROFILE}\nEOF\nsudo apparmor_parser -r ${APPARMOR_FILE}`;
       needs.push({ kind: 'apparmor', items: [APPARMOR_FILE], for: ['claude', 'codex', 'grok', 'copilot', 'open'], command, ...(adminBlock ? { blocked: adminBlock } : {}) });
     }
-    return needs;
+    if (!node) return needs;
+    return nodeWaits.length ? [...needs, node] : [node, ...needs];
   }
 
   private async runJob(job: InstallJob, needs: SandboxNeedView[]): Promise<void> {
     const base = installerEnv(this.host.env);
     try {
-      if (needs.some((n) => n.kind === 'node')) {
+      // In the order `needs()` gives: Node.js first, unless it waits for the packages' curl.
+      const node = needs.findIndex((n) => n.kind === 'node');
+      const admin = needs.filter((n) => n.kind === 'packages' || n.kind === 'apparmor');
+      const nodeFirst = node >= 0 && (!admin.length || node < needs.indexOf(admin[0]!));
+      if (nodeFirst) {
         this.stage = 'node';
         await this.installNode(job, base);
       }
-      const admin = needs.filter((n) => n.kind === 'packages' || n.kind === 'apparmor');
       if (admin.length && !job.abort.signal.aborted) {
         this.stage = 'admin';
         await this.runAdmin(job, admin, base);
+      }
+      if (node >= 0 && !nodeFirst && !job.abort.signal.aborted) {
+        this.stage = 'node';
+        await this.installNode(job, base);
       }
       if (job.abort.signal.aborted) throw new Error('aborted');
       // What it was to install, checked again.

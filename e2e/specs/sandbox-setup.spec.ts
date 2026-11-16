@@ -73,6 +73,9 @@ test.describe('what the sandboxes need', () => {
     const d = dialog(page);
     await d.getByRole('button', { name: 'Install (strongly recommended)' }).click();
     await expect(d).toContainText('Installed: the sandboxes have everything they need.');
+    // Done: no longer why to install it, nor that Settings still offers it.
+    await expect(d).not.toContainText('still lack');
+    await expect(d).not.toContainText('You can install it any time');
     expect(asked).toContain('POST /api/sandbox-setup/install');
     await d.locator('footer').getByRole('button', { name: 'Close' }).click();
     await expect(d).toHaveCount(0);
@@ -95,6 +98,21 @@ test.describe('what the sandboxes need', () => {
     await expect(d).toHaveCount(0);
     await page.reload();
     await expect(dialog(page)).toBeVisible();
+  });
+
+  test('an install that puts in what it can here says the rest, listed, is the user’s to install', async ({ page }) => {
+    const node = { kind: 'node' as const, items: ['26.13.1'], for: ['open' as const], command: '' };
+    const blocked = { ...PACKAGES, blocked: 'admin' as const };
+    const asked = await answer(page, [{ platform: 'linux', needs: [node, blocked] }], { platform: 'linux', needs: [blocked], job: { state: 'success', startedAt: 1, finishedAt: 2, log: '$ curl -fsSL https://nodejs.org/…\n' } });
+    await page.goto(page.url().replace(/#.*$/, '#/settings/sandboxes'));
+    const card = page.locator('#settings-sandboxes');
+    await card.getByRole('button', { name: 'Install', exact: true }).click();
+    await expect(card).toContainText('Installed what Harness Relay can install here; the rest, listed here, is yours to install.');
+    expect(asked).toContain('POST /api/sandbox-setup/install');
+    await expect(card).toContainText('Linux packages: bubblewrap, socat');
+    await expect(card.locator('pre')).toHaveText('sudo apt-get install -y bubblewrap socat');
+    await expect(card).not.toContainText('Node.js 26.13.1');
+    await expect(card.getByRole('button', { name: 'Install', exact: true })).toHaveCount(0);
   });
 
   test('with nothing missing, New chat asks nothing, and Settings says the sandboxes have everything', async ({ page }) => {

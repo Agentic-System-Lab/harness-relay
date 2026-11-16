@@ -1529,9 +1529,9 @@ export type SandboxNeedKind = 'packages' | 'apparmor' | 'node';
  * Why Harness Relay cannot install a need here: no way to get administrator rights (`admin`: not root,
  * no sudo without a password, no desktop session for pkexec's prompt), no package manager it knows
  * (`packageManager`: apt, dnf, pacman, zypper), or what Node.js's build takes (curl, tar, a build for
- * this computer: `node`).
+ * this computer: `node`; on Linux the libatomic it runs with: `libatomic`).
  */
-export type SandboxSetupBlock = 'admin' | 'packageManager' | 'curl' | 'tar' | 'node';
+export type SandboxSetupBlock = 'admin' | 'packageManager' | 'curl' | 'tar' | 'node' | 'libatomic';
 
 /** Who a need is for: a CLI's sandbox, or Harness Relay's own (`open`, the open agents'). */
 export type SandboxUser = Provider | 'open';

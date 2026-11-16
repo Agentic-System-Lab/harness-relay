@@ -86,6 +86,7 @@ export function SandboxSetupBody({ view, onView }: { view: SandboxSetupView | un
         </div>
       )}
       {job?.state === 'cancelled' && <p className="muted small">{s.cancelled}</p>}
+      {job?.state === 'success' && view.needs.length > 0 && <p className="small">{s.partlyDone}</p>}
       {!running &&
         manual.map((n) => (
           <div key={n.kind} className="sandbox-by-hand">

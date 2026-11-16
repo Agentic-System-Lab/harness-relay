@@ -34,6 +34,8 @@ export function SandboxSetupDialog({ view, onView, onAnswered, onClose }: Props)
     setError(await startSandboxSetup(onView));
   };
   const ended = started && !setupRunning(view);
+  // Nothing missing any more (the install put everything in): the dialog says so, not why to install.
+  const done = !view.needs.length;
 
   return createPortal(
     <div className="modal-scrim" onClick={onClose}>
@@ -52,8 +54,14 @@ export function SandboxSetupDialog({ view, onView, onAnswered, onClose }: Props)
             ×
           </button>
         </header>
-        <p>{d.body}</p>
-        <SandboxSetupBody view={view} onView={onView} />
+        {done ? (
+          <p role="status">{view.job?.state === 'success' ? t.sandboxSetup.done : t.sandboxSetup.allSet}</p>
+        ) : (
+          <>
+            <p>{d.body}</p>
+            <SandboxSetupBody view={view} onView={onView} />
+          </>
+        )}
         {error && (
           <p className="small warn-text" role="alert">
             {error}
@@ -86,7 +94,7 @@ export function SandboxSetupDialog({ view, onView, onAnswered, onClose }: Props)
             )}
           </span>
         </footer>
-        <p className="muted small">{d.laterHint}</p>
+        {!done && <p className="muted small">{d.laterHint}</p>}
       </div>
     </div>,
     document.body,
