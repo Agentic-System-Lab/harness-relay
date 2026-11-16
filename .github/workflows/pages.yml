@@ -21,6 +21,20 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+# bash with -o pipefail, as the tests run the steps (test/site-indexnow.test.ts); without it, a step
+# would run in bash without pipefail.
+defaults:
+  run:
+    shell: bash
+
+env:
+  # The landing page's address, where each page's canonical address starts.
+  SITE: https://agentic-system-lab.github.io/harness-relay/
+  # IndexNow's key, which proves the pages ours to the search engines told of their changes. Not a
+  # secret: site/<key>.txt serves it, and a new key needs that file renamed with it
+  # (docs/developer-guide.md, "Website" → "Search engines").
+  INDEXNOW_KEY: 8de13cb3ba2dccfb84c9d81d70aab5b9
+
 jobs:
   deploy:
     name: Build and deploy
@@ -30,7 +44,11 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # The whole history, for the sitemap's dates, without the files' old contents (the demo videos').
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          filter: blob:none
 
       # The page plays the demo videos from docs/media, so they are copied in rather than stored twice.
       # Markdown (the design guidelines), image provenance sidecars and type declarations (for the
@@ -43,6 +61,71 @@ jobs:
           find _site \( -name '*.md' -o -name '*.webp.json' -o -name '*.d.ts' \) -delete
           find _site -type f | sort
 
+      # Each page's <lastmod> in the sitemap, which tells Google (which takes no part in IndexNow) and
+      # Bing when a page last changed: the time, in UTC, of the last commit that changed its HTML. A
+      # shallow checkout would date every page at its one commit, so the sitemap then goes out without
+      # dates, as does a page no commit has; either only warns.
+      - name: Date the pages in the sitemap
+        run: |
+          warn() {
+            echo "::warning::$1"
+            echo "$1" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          }
+          if [ "$(git rev-parse --is-shallow-repository)" != false ]; then
+            warn "The checkout has only part of the history: the sitemap goes out without the pages' <lastmod>."
+            exit 0
+          fi
+          dates=$(mktemp)
+          while read -r url; do
+            file="site/${url#"$SITE"}"
+            case "$file" in */) file="${file}index.html" ;; esac
+            date=$(TZ=UTC git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd -- "$file")
+            if [ -n "$date" ]; then
+              echo "$url $date" | tee -a "$dates"
+            else
+              warn "No commit has $file, the page at $url: the sitemap lists it without its <lastmod>."
+            fi
+          done < <(sed -n 's#.*<loc>\([^<]*\)</loc>.*#\1#p' _site/sitemap.xml)
+          awk 'NR == FNR { date[$1] = $2; next }
+            { print }
+            match($0, /<loc>[^<]*<\/loc>/) {
+              url = substr($0, RSTART + 5, RLENGTH - 11)
+              if (url in date) {
+                indent = $0
+                sub(/<.*/, "", indent)
+                print indent "<lastmod>" date[url] "</lastmod>"
+              }
+            }' "$dates" _site/sitemap.xml > "$dates.xml"
+          mv "$dates.xml" _site/sitemap.xml
+
+      # IndexNow is told only of the pages a deployment adds, changes or removes, as its protocol asks:
+      # each page of the new sitemap whose HTML is not the one live now (or that cannot be read there: a
+      # new page, or the site unreachable), and each page the live sitemap lists and the new one does not.
+      # Read before the deployment replaces them.
+      - name: Find the pages the deployment changes
+        run: |
+          live=$(mktemp -d)
+          changed="$RUNNER_TEMP/changed-pages"
+          : > "$changed"
+          locs() { sed -n 's#.*<loc>\([^<]*\)</loc>.*#\1#p' "$1"; }
+          locs _site/sitemap.xml > "$live/new-pages"
+          while read -r url; do
+            file="_site/${url#"$SITE"}"
+            case "$file" in */) file="${file}index.html" ;; esac
+            if ! curl -fsS --max-time 30 -o "$live/page" "$url" || ! cmp -s "$live/page" "$file"; then
+              echo "$url" >> "$changed"
+            fi
+          done < "$live/new-pages"
+          if curl -fsS --max-time 30 -o "$live/sitemap.xml" "${SITE}sitemap.xml"; then
+            locs "$live/sitemap.xml" | grep -vxF -f "$live/new-pages" >> "$changed" || true
+          fi
+          if [ -s "$changed" ]; then
+            echo "The deployment changes:"
+            cat "$changed"
+          else
+            echo "The deployment changes no page."
+          fi
+
       - uses: actions/configure-pages@v6
 
       - uses: actions/upload-pages-artifact@v5
@@ -51,3 +134,38 @@ jobs:
 
       - id: deployment
         uses: actions/deploy-pages@v5
+
+      # api.indexnow.org passes the pages on to every search engine that takes part (Bing among them;
+      # Google takes no part). The key file is at the top of the site, below the domain's root, which
+      # makes the key good for the pages under it: all of the site's. The site is out by now, so a
+      # failure only warns: the engines find the change when they next read the sitemap, which dates it. 202 is
+      # IndexNow's answer while it has yet to check the key file, as at first.
+      - name: Tell IndexNow which pages changed
+        run: |
+          changed="$RUNNER_TEMP/changed-pages"
+          if [ ! -s "$changed" ]; then
+            echo "No page changed: IndexNow is not told."
+            exit 0
+          fi
+          host=${SITE#https://}
+          host=${host%%/*}
+          key_file="${SITE}${INDEXNOW_KEY}.txt"
+          urls=$(sed 's/.*/"&"/' "$changed" | paste -sd , -)
+          body="$RUNNER_TEMP/indexnow.json"
+          printf '{"host":"%s","key":"%s","keyLocation":"%s","urlList":[%s]}' "$host" "$INDEXNOW_KEY" "$key_file" "$urls" > "$body"
+          err=$(mktemp)
+          code=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json; charset=utf-8' --data-binary "@$body" https://api.indexnow.org/indexnow 2>"$err") || true
+          case "$code" in
+            200|202)
+              echo "IndexNow was told of $(grep -c . "$changed") changed page(s) (HTTP $code)."
+              exit 0 ;;
+            400) why='HTTP 400: the request is not as the protocol has it' ;;
+            403) why="HTTP 403: the key is not the one $key_file serves" ;;
+            422) why="HTTP 422: a page is not under $SITE, or the key is not as the protocol has it" ;;
+            429) why='HTTP 429: too many requests' ;;
+            ''|000) why="no answer: $(tail -n 1 "$err")" ;;
+            *) why="HTTP $code" ;;
+          esac
+          message="IndexNow was not told of the changed pages ($why): the search engines find them when they next read the sitemap, which dates them."
+          echo "::warning::$message"
+          echo "$message" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"

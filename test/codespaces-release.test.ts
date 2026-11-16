@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { REPO } from '../site/assets/downloads.js';
-import { releaseStep, releaseWorkflow } from './release-steps';
+import { releaseStep, releaseWorkflow } from './workflow-steps';
 import { slow } from './timeouts';
 
 // GitHub Codespaces opens the newest release (docs/codespaces.md): every Codespaces link opens the
