@@ -1,11 +1,27 @@
 /**
- * The desktop app's own words (its menu and dialogs), in the two languages of the web app. The
- * language follows the system's, the way the web app follows the browser's: any Chinese is zh-TW.
+ * The desktop app's own words (its menus and dialogs), in the two languages of the web app. They are
+ * in the language the chat in the app's window shows: the page tells the app (through the server,
+ * `PUT /api/desktop/lang`) as it opens and when the user picks another language there, and the app
+ * remembers it (desktop.json). Until the window has told it, the language follows the system's, the
+ * way the web app follows the browser's: any Chinese is zh-TW.
  */
+import { LANGS, type Lang } from '../../src/shared/types';
 import type { ManualReason, UpdateFailure } from './update';
 
-export type DesktopLang = 'zh-TW' | 'en';
+/** The chat's languages: a language added there needs the app's messages in it too (`DESKTOP_MESSAGES`). */
+export type DesktopLang = Lang;
 
+/** `value` when it is one of the app's languages (named as the chat names them), else undefined. */
+export function asDesktopLang(value: unknown): DesktopLang | undefined {
+  return (LANGS as unknown[]).includes(value) ? (value as DesktopLang) : undefined;
+}
+
+/** The app's language: the one the chat in its window last showed (`chosen`), else the system's (`preferred`). */
+export function appLang(chosen: DesktopLang | undefined, preferred: readonly string[]): DesktopLang {
+  return chosen ?? pickLang(preferred);
+}
+
+/** The system's preferred languages, in order, as ours: any Chinese → zh-TW, otherwise English. */
 export function pickLang(preferred: readonly string[]): DesktopLang {
   for (const tag of preferred) {
     const t = tag.toLowerCase();

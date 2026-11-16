@@ -21,6 +21,7 @@ import type {
   FilePreview,
   GrokFolderTrust,
   CliInstallView,
+  Lang,
   SandboxSetupView,
   CliLoginView,
   LoginMethod,
@@ -401,6 +402,8 @@ export const api = {
   checkUpdate: () => request<UpdateStatus>('POST', '/api/update/check'),
   /** Has the desktop app update to the newer version: it asks the user first, in its own dialog. */
   installUpdate: () => request<{ ok: true }>('POST', '/api/update/install'),
+  /** Tells the desktop app the language its window's chat shows: its menus and dialogs follow it. */
+  desktopLang: (lang: Lang) => request<{ ok: true }>('PUT', '/api/desktop/lang', { lang }),
   /** A problem report's screenshots (each base64) up to GitHub, as a secret gist through the user's gh. */
   uploadScreenshots: (images: string[]) =>
     request<ReportScreenshots>('POST', '/api/report/screenshots', { files: images.map((data) => ({ data })) }),

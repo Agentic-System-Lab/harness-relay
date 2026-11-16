@@ -271,6 +271,7 @@ flowchart LR
 - **前端**：第一次開啟時依 `navigator.languages` 決定語言（任何 `zh*` → zh-TW，否則英文），並存在 `localStorage`（`relay:lang`）；可在設定頁更改。`<html lang>` 會跟著改變。
 - **伺服器**：每個 API 請求都帶有 `X-Relay-Lang`（沒有時改看 `Accept-Language`，再沒有就用 zh-TW）。`/api/*` 中介層會在 `withLang()`（AsyncLocalStorage）中處理請求，所以底下任何地方的 `t()` 都會回傳正確語言的訊息：驗證錯誤、轉接器錯誤、系統訊息，以及這個請求啟動的整個團隊執行（回應送出後仍會繼續）。
 - **內建範本**有兩種語言版本（`builtinPresets(lang)`）；首席 agent 看到的是介面語言的版本，自訂角色則用使用者提問的語言撰寫。
+- **桌面 app**：它自己的文字（系統匣選單、視窗的選單列、對話框：`desktop/src/i18n.ts`）使用它視窗裡對話介面顯示的語言。那個頁面（Electron 會在 user agent 裡寫出自己）在打開時與每次選擇語言時送出它（`PUT /api/desktop/lang`），伺服器透過 port 轉給 app（`lang` 訊息），app 重建它的選單，並記在 `desktop.json` 供下次啟動使用。在那之前，app 跟著系統的語言，就像前端跟著瀏覽器的語言。登入它的其他瀏覽器不會改變它：只有 app 的視窗會送出它，伺服器也只接受來自這台電腦自己位址（`localhost`、`127.0.0.1`）的請求，從不經由 tailnet。
 - 給 agent 的 prompt（簡報、回合 prompt、規劃用的 prompt）維持英文；agent 會用使用者的語言回答。
 
 ## CLI 轉接器
@@ -726,7 +727,7 @@ sequenceDiagram
 
 桌面 app（`desktop/`）是啟動同一個伺服器的另一種方式，給不想用終端機的人。它在自己的視窗裡顯示對話，跟瀏覽器裡是同一個網頁 app；關掉視窗後伺服器會繼續執行，所以手機跟以前一樣透過 `tailscale serve` 連到同一個伺服器。
 
-- **程序。** Electron 的主程序顯示對話視窗與系統匣選單，並在 Electron 的 utility process 裡啟動打包成單一檔案的伺服器。Electron 45 的 Node 24 有 `node:sqlite`，所以不需要安裝 Node.js。兩者透過 utility process 的 port 溝通：伺服器說它已開始接收連線或為什麼無法接收（`src/server/parent.ts`），app 則要求它關閉，這會執行伺服器平常的關閉流程（停止執行中的回合、結束 agent 的 process group、關閉資料庫）。App 會等這些完成才結束，20 秒後仍未結束就強制結束伺服器。伺服器還在啟動時（例如在等鑰匙圈）結束 app，會立刻結束伺服器：它還沒開始接收連線，所以沒有執行任何 agent。
+- **程序。** Electron 的主程序顯示對話視窗與系統匣選單，並在 Electron 的 utility process 裡啟動打包成單一檔案的伺服器。Electron 45 的 Node 24 有 `node:sqlite`，所以不需要安裝 Node.js。兩者透過 utility process 的 port 溝通：伺服器說它已開始接收連線或為什麼無法接收（`src/server/parent.ts`），並轉告視窗裡對話介面顯示的語言（[語言](#語言)），app 則要求它關閉，這會執行伺服器平常的關閉流程（停止執行中的回合、結束 agent 的 process group、關閉資料庫）。App 會等這些完成才結束，20 秒後仍未結束就強制結束伺服器。伺服器還在啟動時（例如在等鑰匙圈）結束 app，會立刻結束伺服器：它還沒開始接收連線，所以沒有執行任何 agent。
 - **登入。** App 每次打開對話時（它的視窗，或用「在瀏覽器打開」時的瀏覽器），都會透過同一個 port 向伺服器要一個登入連結：新的一次性代碼，一分鐘內有效。它載入這個連結，讓視窗（或瀏覽器）登入，如果原本已登入，就取代原本的 session。伺服器也會讓登入頁知道它是由 app 啟動的（`GET /api/auth` 的 `desktop`），所以尚未登入的頁面會指向 app 的選單，而不是終端機：在 app 的視窗裡指向 **打開 Harness Relay**（它會在顯示登入頁的視窗載入新的連結），在瀏覽器裡指向 **在瀏覽器打開**。由 app 啟動的伺服器不會印出代碼，因為它的輸出會寫進 app 的記錄檔，而 agent 可能讀得到。手機則跟用 `npm start` 時一樣，從已登入的瀏覽器登入。
 - **環境變數。** 從 Finder 或啟動器打開的 app 拿不到使用者的 shell 環境，CLI 會找不到。在 macOS 與 Linux 上，app 會在啟動時，以及 **重新啟動伺服器…** 與 **啟動伺服器** 時，從登入 shell 讀取環境（`$SHELL -i -l -c`，在標記之間印出 `/usr/bin/env -0`），失敗時改用 PATH 加上常見的安裝資料夾。在 Windows 上，app 啟動時就有系統的環境，重新啟動或啟動伺服器時會用 PowerShell 重新讀取 PATH 與使用者變數。它會設定資料夾（app 的使用者資料夾，除非已設定 `RELAY_DATA_DIR`）、金鑰儲存區的名稱（使用自己的資料夾時是 `harness-relay-desktop`，讓 key 跟著它的資料庫，不跟 `npm start` 的混在一起）、預設工作目錄（家目錄）、介面的資料夾、視窗的瀏覽器資料夾（`RELAY_APP_BROWSER_DIR`）、`HOST=127.0.0.1`、它自己的 port（取自 `desktop.json`，絕不採用設定檔匯出的 `PORT`），並在 Tailscale 已連線時把這台電腦的 tailnet 名稱加進 `RELAY_ALLOWED_HOSTS`。
 - **Tailnet。** 「分享到手機」會執行 `tailscale serve --bg <port>`（沒有指令時改用 Mac App 自己的執行檔），用 HTTPS 443，除非那個 port 已被其他服務或 Funnel 使用（那就用 8443 或 10000，絕不取代原本的），再從 `tailscale serve status --json` 讀出分享的網址（讀不到時什麼都不分享，以免搶走某個 port）；需要開啟 Serve 或 HTTPS 時打開 Tailscale 的頁面；如果 tailnet 名稱還不被接受，則（經使用者同意）重新啟動伺服器。

@@ -83,6 +83,64 @@ test.describe("the page's words", () => {
 
 });
 
+test.describe("the desktop app's menus", () => {
+  /** What the page tells the desktop app of its language (`PUT /api/desktop/lang`), and the server's answers. */
+  const toldLanguages = (page: Page) => {
+    const told: { lang: unknown; status: number }[] = [];
+    page.on('response', (r) => {
+      if (r.request().method() === 'PUT' && new URL(r.url()).pathname === '/api/desktop/lang') {
+        told.push({ lang: (r.request().postDataJSON() as { lang?: unknown }).lang, status: r.status() });
+      }
+    });
+    return told;
+  };
+  const languages = (page: Page, name: string) => page.getByRole('radiogroup', { name, exact: true });
+
+  test.describe("in the app's own window", () => {
+    // Electron names itself in the user agent, as in the app's window (src/web/update.ts, isAppWindow).
+    // Signed in here, so that the page's first load is the one heard.
+    test.use({
+      signIn: false,
+      userAgent:
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HarnessRelay/2026.11.17 Chrome/142.0.0.0 Electron/39.2.0 Safari/537.36',
+    });
+
+    test('the page tells the app the language it shows, as it opens and at each pick', async ({ page, relay }) => {
+      const told = toldLanguages(page);
+      await page.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);
+      await expect(homePage(page)).toBeVisible();
+      await expect.poll(() => told).toEqual([{ lang: 'en', status: 200 }]);
+
+      await page.evaluate(() => (location.hash = '#/settings'));
+      await languages(page, 'Language').getByRole('radio', { name: '繁體中文' }).click();
+      await expect(page.getByRole('heading', { name: '設定與登入' })).toBeVisible();
+      await expect.poll(() => told).toEqual([
+        { lang: 'en', status: 200 },
+        { lang: 'zh-TW', status: 200 },
+      ]);
+      await languages(page, '介面語言').getByRole('radio', { name: 'English' }).click();
+      await expect.poll(() => told.map((t) => t.lang)).toEqual(['en', 'zh-TW', 'en']);
+    });
+  });
+
+  test('another browser, such as a phone’s, never tells the app', async ({ page }) => {
+    // Requests as they are sent, not their answers: one still on its way counts too.
+    const told: unknown[] = [];
+    page.on('request', (r) => {
+      if (new URL(r.url()).pathname === '/api/desktop/lang') told.push(r.postDataJSON());
+    });
+    await page.reload();
+    await expect(homePage(page)).toBeVisible();
+    await page.evaluate(() => (location.hash = '#/settings'));
+    await languages(page, 'Language').getByRole('radio', { name: '繁體中文' }).click();
+    await expect(page.getByRole('heading', { name: '設定與登入' })).toBeVisible();
+    // The page's next poll for the conversations (every 3 s) is sent after the pick's effect ran: a
+    // request telling the app would have been sent before it.
+    await page.waitForRequest((r) => new URL(r.url()).pathname === '/api/conversations');
+    expect(told).toEqual([]);
+  });
+});
+
 test.describe("the page's own words, missing from its first load", () => {
   // The tab's first page: one that had them before could take them from its memory cache, which
   // Playwright's WebKit does not route, and get them after all.

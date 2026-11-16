@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { inflateSync } from 'node:zlib';
 import { afterAll, describe, expect, it } from 'vitest';
 import { autostartFile, desktopEntry, execArg, execLine, isAutostartOn, setAutostart } from '../desktop/src/autostart';
-import { DESKTOP_MESSAGES, pickLang } from '../desktop/src/i18n';
+import { DESKTOP_MESSAGES, appLang, asDesktopLang, pickLang } from '../desktop/src/i18n';
 import type { ManualReason, UpdateFailure } from '../desktop/src/update';
 import { DESKTOP_ICONS, encodePngRgba, rasterizeIcon } from '../desktop/src/icons';
 import {
@@ -25,7 +25,7 @@ import {
 import { packagedApps } from '../desktop/scripts/packaged';
 import { appManifest } from '../desktop/src/manifest';
 import { ServerLog } from '../desktop/src/log';
-import { DEFAULT_PREFS, loadPrefs, parsePrefs, savePrefs } from '../desktop/src/prefs';
+import { DEFAULT_PREFS, loadPrefs, parsePrefs, savePrefs, withLang } from '../desktop/src/prefs';
 import { browserDir, LEGACY_SIGN_IN, prepareBrowserDir } from '../desktop/src/profile';
 
 const dir = mkdtempSync(join(tmpdir(), 'relay-desktop-'));
@@ -94,11 +94,33 @@ describe("the desktop app's settings", () => {
     }
   });
 
+  it('keeps the language the chat in the window last showed, when it is one of ours', () => {
+    expect(parsePrefs('{"lang": "zh-TW"}').lang).toBe('zh-TW');
+    expect(parsePrefs('{"lang": "en"}').lang).toBe('en');
+    for (const bad of ['"fr"', '"zh-tw"', '"EN"', '1', 'null', '["en"]']) {
+      expect(parsePrefs(`{"lang": ${bad}}`).lang, bad).toBeUndefined();
+    }
+    expect(parsePrefs('{"lang": "fr"}')).toEqual(DEFAULT_PREFS);
+  });
+
+  it("takes the language the chat in the window shows only when it is one of ours and a new one", () => {
+    const prefs = { ...DEFAULT_PREFS, tailnetName: 'my-mac.tail1234.ts.net' };
+    expect(withLang(prefs, 'zh-TW')).toEqual({ ...prefs, lang: 'zh-TW' });
+    expect(withLang({ ...prefs, lang: 'zh-TW' }, 'en')).toEqual({ ...prefs, lang: 'en' });
+    // The one kept already: nothing to save or rebuild.
+    expect(withLang({ ...prefs, lang: 'en' }, 'en')).toBeUndefined();
+    for (const bad of ['fr', 'zh-tw', '', undefined, null, 1, { lang: 'en' }]) expect(withLang(prefs, bad), String(bad)).toBeUndefined();
+    // The settings it was given stay as they were.
+    expect(prefs).toEqual({ ...DEFAULT_PREFS, tailnetName: 'my-mac.tail1234.ts.net' });
+  });
+
   it('saves and loads them', () => {
     const file = join(dir, 'prefs', 'desktop.json');
     expect(loadPrefs(file)).toEqual(DEFAULT_PREFS);
     savePrefs(file, { keepAwake: true, port: 8799 });
     expect(loadPrefs(file)).toEqual({ keepAwake: true, port: 8799 });
+    savePrefs(file, { keepAwake: true, port: 8799, lang: 'zh-TW' });
+    expect(loadPrefs(file)).toEqual({ keepAwake: true, port: 8799, lang: 'zh-TW' });
     expect(existsSync(`${file}.tmp`)).toBe(false);
     writeFileSync(file, 'garbage');
     expect(loadPrefs(file)).toEqual(DEFAULT_PREFS);
@@ -113,6 +135,17 @@ describe("the desktop app's language", () => {
     expect(pickLang(['fr-FR', 'zh-TW'])).toBe('zh-TW');
     expect(pickLang(['fr-FR'])).toBe('en');
     expect(pickLang([])).toBe('en');
+  });
+
+  it("follows the chat in the app's window once it has told the app, whatever the system's", () => {
+    expect(appLang(undefined, ['zh-Hant-TW'])).toBe('zh-TW');
+    expect(appLang(undefined, ['en-US'])).toBe('en');
+    expect(appLang('en', ['zh-Hant-TW'])).toBe('en');
+    expect(appLang('zh-TW', ['en-US'])).toBe('zh-TW');
+    // Named as the chat names them: anything else is no language of ours.
+    expect(asDesktopLang('zh-TW')).toBe('zh-TW');
+    expect(asDesktopLang('en')).toBe('en');
+    for (const bad of ['zh', 'zh-tw', 'en-US', '', undefined, null, 1, {}]) expect(asDesktopLang(bad), String(bad)).toBeUndefined();
   });
 
   it('has the same messages in both languages', () => {

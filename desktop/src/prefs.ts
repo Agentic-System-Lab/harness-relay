@@ -5,6 +5,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DEFAULT_PORT } from '../../src/server/ports';
+import { asDesktopLang, type DesktopLang } from './i18n';
 
 export interface DesktopPrefs {
   /** Keep the computer from going to sleep while the app runs (so the phone can reach it). */
@@ -18,6 +19,11 @@ export interface DesktopPrefs {
   tailnetName?: string;
   /** The size the chat's window had when it was last closed. */
   window?: { width: number; height: number };
+  /**
+   * The language the chat in the app's window last showed: the app's menus and dialogs follow it, also
+   * at the next start, before the window opens (none until it has told the app: the system's then).
+   */
+  lang?: DesktopLang;
 }
 
 export const DEFAULT_PREFS: DesktopPrefs = { keepAwake: false, port: DEFAULT_PORT };
@@ -40,12 +46,23 @@ export function parsePrefs(text: string | undefined): DesktopPrefs {
   const side = (v: unknown, min: number) => (typeof v === 'number' && Number.isInteger(v) && v >= min && v <= 10_000 ? v : undefined);
   const width = side(win?.width, 360);
   const height = side(win?.height, 400);
+  const lang = asDesktopLang(raw.lang);
   return {
     keepAwake: typeof raw.keepAwake === 'boolean' ? raw.keepAwake : DEFAULT_PREFS.keepAwake,
     port: typeof port === 'number' && Number.isInteger(port) && port >= 1 && port <= 65535 ? port : DEFAULT_PREFS.port,
     ...(HOST_NAME.test(name) ? { tailnetName: name } : {}),
     ...(width && height ? { window: { width, height } } : {}),
+    ...(lang ? { lang } : {}),
   };
+}
+
+/**
+ * The settings with the language the chat in the window shows (`value`, as the server passed it on),
+ * or undefined when it is no language of ours or the one kept already: nothing to save or rebuild.
+ */
+export function withLang(prefs: DesktopPrefs, value: unknown): DesktopPrefs | undefined {
+  const lang = asDesktopLang(value);
+  return lang && lang !== prefs.lang ? { ...prefs, lang } : undefined;
 }
 
 export function loadPrefs(file: string): DesktopPrefs {

@@ -21,7 +21,7 @@ import { openSecretStore, openSystemKeyring, type SecretStore } from './secrets'
 import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
 import { clearRunTmp, dataDirInTemp, makeCodespaceGhDir, relayTmpDir, voiceDirProblem } from './protect';
 import { CONFIG_PROBLEMS } from './config';
-import { OPEN_PROVIDERS } from '../shared/types';
+import { OPEN_PROVIDERS, type Lang } from '../shared/types';
 import { RUN_TMP_DIR, clearOpenRunLeftovers } from './agents/open';
 import { clearRelaySandboxLeftovers, noteListeningPort, relaySandboxHostRoot, relaySandboxRoot } from './relaySandbox';
 import { Store } from './store';
@@ -133,7 +133,9 @@ const clis = new CliInstaller(settings, { changed: (p) => providers.invalidate(p
 // On Windows: the user's PATH put back, as it was before an install this server's last run did not see end.
 void clis.recover();
 const sandboxSetup = new SandboxSetup({ changed: () => providers.invalidate() });
-const app = createApp({ auth, store, settings, hub, orchestrator, providers, voice, clis, sandboxSetup, agentsView, native, extraHosts, desktopApp: Boolean(parent), updates, push, alerts });
+// The language the chat in the desktop app's window shows: the app's menus follow it.
+const desktopLang = parent ? (lang: Lang) => parent.send({ type: 'lang', lang }) : undefined;
+const app = createApp({ auth, store, settings, hub, orchestrator, providers, voice, clis, sandboxSetup, agentsView, native, extraHosts, desktopApp: Boolean(parent), updates, desktopLang, push, alerts });
 
 // --- Static web app (production build) ------------------------------------------
 

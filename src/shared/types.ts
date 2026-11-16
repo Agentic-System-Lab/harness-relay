@@ -2155,4 +2155,9 @@ export type ServerToDesktop =
   /** The user asks from the chat: check GitHub for a new release now (Settings' "Check again"); answered by its id. */
   | { type: 'update-check'; id: number }
   /** The user asks from the chat: update to the newer release (the app asks first, as from its menu). */
-  | { type: 'update-install' };
+  | { type: 'update-install' }
+  /**
+   * The language the chat in the app's own window shows, as it opens and when the user picks another
+   * there: the app's menus and dialogs follow it.
+   */
+  | { type: 'lang'; lang: Lang };

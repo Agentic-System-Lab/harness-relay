@@ -54,9 +54,12 @@ interface Request {
   done: (answer: ServerToDesktop | undefined) => void;
 }
 
-/** What the server asks the app for, on the user's behalf (from the chat): its message. */
-export type ServerRequest = Extract<ServerToDesktop, { type: 'update-check' | 'update-install' }>;
-const REQUESTS: ServerRequest['type'][] = ['update-check', 'update-install'];
+/**
+ * What the server asks the app for, on the user's behalf (from the chat), or tells it of the chat in
+ * its window (the language it shows): its message.
+ */
+export type ServerRequest = Extract<ServerToDesktop, { type: 'update-check' | 'update-install' | 'lang' }>;
+const REQUESTS: ServerRequest['type'][] = ['update-check', 'update-install', 'lang'];
 
 export class Supervisor extends EventEmitter<{ state: [ServerState]; output: [string]; request: [ServerRequest] }> {
   state: ServerState = { kind: 'stopped' };

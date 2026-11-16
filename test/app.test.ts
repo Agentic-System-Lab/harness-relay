@@ -1573,6 +1573,50 @@ describe('/api/update', () => {
   });
 });
 
+describe('/api/desktop/lang', () => {
+  it("tells the desktop app the language its window's chat shows, and nothing that is not one", async () => {
+    const s = new SettingsStore(openDatabase(':memory:'));
+    const told: string[] = [];
+    const own = createApp({ auth: null, store, settings: s, hub: new Hub(), orchestrator, providers: new ProviderService(s), desktopLang: (lang) => told.push(lang) });
+    expect((await own.request('/api/desktop/lang', json('PUT', { lang: 'zh-TW' }))).status).toBe(200);
+    expect((await own.request('/api/desktop/lang', json('PUT', { lang: 'en' }))).status).toBe(200);
+    for (const bad of [{ lang: 'fr' }, { lang: 'EN' }, { lang: 1 }, {}]) {
+      const res = await own.request('/api/desktop/lang', json('PUT', bad, { 'x-relay-lang': 'en' }));
+      expect(res.status, JSON.stringify(bad)).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toBe('Invalid value for "lang"');
+    }
+    expect(told).toEqual(['zh-TW', 'en']);
+  });
+
+  it("is taken only from this computer, where the app's window is: never from a phone through the tailnet", async () => {
+    const s = new SettingsStore(openDatabase(':memory:'));
+    const told: string[] = [];
+    const own = createApp({
+      auth: null,
+      store,
+      settings: s,
+      hub: new Hub(),
+      orchestrator,
+      providers: new ProviderService(s),
+      extraHosts: ['my-computer.tail1234.ts.net'],
+      desktopLang: (lang) => told.push(lang),
+    });
+    const phone = await own.request('/api/desktop/lang', json('PUT', { lang: 'zh-TW' }, { host: 'my-computer.tail1234.ts.net', 'x-relay-lang': 'en' }));
+    expect(phone.status).toBe(403);
+    expect(((await phone.json()) as { error: string }).error).toMatch(/desktop app's own window/);
+    expect((await own.request('/api/desktop/lang', json('PUT', { lang: 'zh-TW' }, { host: 'localhost:8787' }))).status).toBe(200);
+    expect(told).toEqual(['zh-TW']);
+  });
+
+  it('answers without a desktop app too (npm start): there is no one to tell', async () => {
+    const s = new SettingsStore(openDatabase(':memory:'));
+    const own = createApp({ auth: null, store, settings: s, hub: new Hub(), orchestrator, providers: new ProviderService(s) });
+    const res = await own.request('/api/desktop/lang', json('PUT', { lang: 'en' }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+  });
+});
+
 describe('/api/report/screenshots', () => {
   const ID = 'f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff';
   // A PNG whole enough to be read through: signature, then IEND (length, type, CRC).

@@ -125,6 +125,7 @@ describe('the server, run as the desktop app runs it', () => {
       'claude answers it',
       'codex answers it',
       'grok answers it',
+      "passes the language of the chat in the app's window on to the app",
       'prints no sign-in code',
       'says no conversation has agents at work',
       'exits with code 0 when asked to shut down (got 0)',
