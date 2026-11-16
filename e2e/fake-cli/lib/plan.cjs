@@ -25,7 +25,7 @@ const DIRECTIVES = {
   writeother: 'write the file named in the first other working directory the CLI was given (none: it says so)',
   ask: 'end the reply with a question for the user ([ASK_USER])',
   handoff: 'mention the member named, to hand the floor to it (not when that member is speaking)',
-  slow: 'stream the reply slowly, about ten seconds (`=<seconds>` for another time), to be stopped or waited for',
+  slow: 'stream the reply slowly, about ten seconds (`=<seconds>` for another time), to be stopped or waited for; a reply of several paragraphs (`e2e:long`) one paragraph after another',
   fail: 'exit with an error on stderr',
   error: "fail the turn inside the CLI's protocol (Claude's error result, a failed Codex turn, a JSON-RPC error over ACP)",
   flaky: 'fail the first time this message is answered, answer the next time (a retry)',
@@ -293,11 +293,17 @@ function slowMs(value) {
   return Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds * 1000) : 10_000;
 }
 
-/** Pieces of `text` to stream: a few words each, or many small ones for a slow reply (`slow`, its milliseconds). */
+/**
+ * Pieces of `text` to stream: a few words each, or for a slow reply (`slow`, its milliseconds) as many
+ * as spread it over its time: its first paragraph at once, then each further one in turn (a reply of
+ * several grows as it streams; the first holds those there is no piece for), then small ones.
+ */
 function pieces(text, slow) {
   if (slow) {
-    const out = [];
-    for (let i = 0; i < SLOW_PIECES; i++) out.push(i === 0 ? text : ' …');
+    const paragraphs = text.split(/(?=\n\n)/);
+    const extra = Math.max(0, paragraphs.length - SLOW_PIECES);
+    const out = [paragraphs.slice(0, extra + 1).join(''), ...paragraphs.slice(extra + 1)];
+    while (out.length < SLOW_PIECES) out.push(' …');
     return out;
   }
   const words = text.split(/(?<=\s)/);

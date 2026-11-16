@@ -68,6 +68,15 @@ export function followsAfterScroll(following: boolean, previous: ScrollSpot, scr
 }
 
 /**
+ * Whether the button that takes the messages to their end shows (above the message box): while they do
+ * not follow new output and there is more below than a fraction of a pixel, because the reader scrolled
+ * up, or opened part of a message and more came in under it. While they follow, they are at the end.
+ */
+export function showsToEnd(following: boolean, spot: ScrollSpot): boolean {
+  return !following && spot.distance > BOTTOM_SLACK;
+}
+
+/**
  * Which results can be applied: each agent's latest worktree result, but only while it belongs to the
  * agent's current worktrees. After a result is applied or the chat is rewound, the worktrees are
  * recreated from new snapshots (`base`) under the same branch name; the first result made in one starts

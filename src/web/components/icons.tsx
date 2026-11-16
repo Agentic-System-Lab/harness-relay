@@ -64,6 +64,15 @@ export function DownloadIcon({ size }: { size?: number }) {
   );
 }
 
+/** An arrow pointing down: to the end of the messages. */
+export function ArrowDownIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <path d="M12 5v14M5 12l7 7 7-7" />
+    </Svg>
+  );
+}
+
 export function PaperclipIcon({ size }: { size?: number }) {
   return (
     <Svg size={size}>

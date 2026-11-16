@@ -3398,7 +3398,41 @@ video.chat-media {
 
 /* Above the home indicator on phones (index.html sets viewport-fit=cover). */
 .composer-dock {
+  position: relative;
   padding: 0 20px max(10px, env(safe-area-inset-bottom));
+}
+
+/* To the end of the messages, while they are scrolled up from it (ChatView): a round button in the
+   middle above the message box and whatever is over it (the queue, an approval waiting), over the
+   messages' last lines. Under the @mention list (10), the phone header's menu and the drawers. */
+.to-end {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  translate: -50% 0;
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  animation: to-end-in 0.15s ease-out;
+}
+
+.to-end:hover {
+  background: var(--surface);
+}
+
+@keyframes to-end-in {
+  from {
+    opacity: 0;
+    translate: -50% 6px;
+  }
 }
 
 .composer-dock > .error-line {

@@ -332,6 +332,7 @@ export const en: Messages = {
     more: 'More',
     autoTeam: 'Auto team',
     reconnecting: 'Connection lost, reconnecting…',
+    toEnd: 'Scroll to the latest message',
     placeholder: 'Message the team…',
     placeholderRelay: (name) => `Message the team (@${name} answers first by default)`,
     placeholderAuto: 'Ask your question; the lead agent builds a team for it first…',

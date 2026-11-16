@@ -355,6 +355,8 @@ export const zhTW = {
     more: '更多',
     autoTeam: '自動組隊',
     reconnecting: '連線中斷，重新連線中…',
+    // The button above the message box while the messages are scrolled up from their end.
+    toEnd: '捲到最新的訊息',
     placeholder: '傳訊息給團隊…',
     placeholderRelay: (name: string) => `傳訊息給團隊（預設由 @${name} 先接）`,
     placeholderAuto: '提出你的問題，首席 agent 會先為它組隊…',

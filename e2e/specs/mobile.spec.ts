@@ -388,6 +388,31 @@ test.describe('on a phone', () => {
     expect(overflow).toBeLessThanOrEqual(1);
   });
 
+  test('scrolled up, the arrow to the end sits in the middle above the message box, and a tap takes the chat there', async ({ page, relay }) => {
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    await tapSend(page, 'Tell me everything e2e:long');
+    await finishedReply(page, 'Claude');
+    const list = page.locator('.messages');
+    const fromEnd = () => list.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
+    const toEnd = page.getByRole('button', { name: 'Scroll to the latest message' });
+    await expect.poll(fromEnd).toBeLessThanOrEqual(1);
+    await expect(toEnd).toHaveCount(0);
+
+    // As a finger's scroll up does (Playwright's touchscreen only taps).
+    await list.evaluate((el) => el.scrollBy(0, -800));
+    await expect(toEnd).toBeVisible();
+    const [arrow, box] = [(await toEnd.boundingBox())!, (await page.locator('.composer').boundingBox())!];
+    expect(Math.abs(arrow.x + arrow.width / 2 - (box.x + box.width / 2))).toBeLessThanOrEqual(1);
+    expect(arrow.y + arrow.height).toBeLessThan(box.y);
+    expect(arrow.width).toBeGreaterThanOrEqual(36);
+    await composer(page).blur();
+    await toEnd.tap();
+    await expect.poll(fromEnd).toBeLessThanOrEqual(1);
+    await expect(toEnd).toHaveCount(0);
+    // A tap leaves the keyboard shut: the message box does not take the focus.
+    await expect(composer(page)).not.toBeFocused();
+  });
+
   test("on a narrow phone, a template's editor and the team settings do not scroll sideways, and the add card lists every CLI", async ({ page, relay }) => {
     /** How far a scrolling box scrolls sideways. */
     const sideways = (box: string) => page.locator(box).evaluate((el) => el.scrollWidth - el.clientWidth);
