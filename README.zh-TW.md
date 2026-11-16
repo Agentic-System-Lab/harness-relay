@@ -35,7 +35,7 @@
 ## 需求
 
 - Node.js **22.13 以上**（使用內建的 `node:sqlite`）。
-- 任何一個 agent CLI，已安裝且在 `PATH` 中，或在設定頁[一鍵安裝](docs/user-guide.zh-TW.md#從設定頁安裝-cli)；不需要全部都裝。[安裝 agent 的 CLI](docs/user-guide.zh-TW.md#安裝-agent-的-cli) 列出每一個、怎麼安裝、驗證過的版本，以及沙箱需要的套件（在 Linux 上，開源 agent 需要 `bubblewrap`、`socat` 與 `ripgrep`）。
+- 任何一個 agent CLI，已安裝且在 `PATH` 中，或在設定頁[一鍵安裝](docs/user-guide.zh-TW.md#從設定頁安裝-cli)；不需要全部都裝。[安裝 agent 的 CLI](docs/user-guide.zh-TW.md#安裝-agent-的-cli) 列出每一個、怎麼安裝、驗證過的版本，以及沙箱需要的套件（在 Linux 上，開源 agent 需要 `bubblewrap`、`socat` 與 `ripgrep`），這些可以[由設定頁安裝](docs/user-guide.zh-TW.md#安裝沙箱需要的元件)。
 - [Git](https://git-scm.com/downloads)，編輯與平行模式需要。
 
 ## 快速開始

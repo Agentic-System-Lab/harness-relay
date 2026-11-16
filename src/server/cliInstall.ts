@@ -585,13 +585,18 @@ interface InstallNote {
 }
 
 /** An error whose message is rendered when it is shown, in the language of whoever looks. */
-class InstallError extends Error {
-  constructor(readonly render: () => string) {
+export class InstallError extends Error {
+  /** `code`: the exit code of the command that failed, when one did. */
+  constructor(
+    readonly render: () => string,
+    readonly code?: number | null,
+  ) {
     super(render());
   }
 }
 
-class InstallJob {
+/** An install under way or ended: its output, how it ended (also the sandboxes' setup, `sandboxSetup.ts`). */
+export class InstallJob {
   readonly abort = new AbortController();
   readonly startedAt = Date.now();
   /** Settles once the job has ended and cleaned up after itself. */
@@ -645,6 +650,100 @@ export interface CliInstallHost {
   readUserPath: () => Promise<string>;
   /** On Windows, puts the user's PATH back as `readUserPath` gave it (`USER_PATH_RESTORE_SCRIPT`); whether it had changed. */
   restoreUserPath: (saved: string) => Promise<boolean>;
+}
+
+/**
+ * Runs one command of an install (`script`: fixed text for the shell `o.bin`, given `o.args`), its
+ * output into the job's log; throws when it fails (an `InstallError` saying how), or `aborted`.
+ */
+export async function runStep(
+  host: Pick<CliInstallHost, 'run' | 'runScript'>,
+  job: InstallJob,
+  shown: string,
+  o: Pick<SpawnOptions, 'bin' | 'args' | 'env' | 'cwd'>,
+  script?: string,
+): Promise<SpawnResult> {
+  job.append(`$ ${shown}\n`);
+  const run: RunOptions = {
+    env: o.env,
+    cwd: o.cwd,
+    signal: job.abort.signal,
+    timeoutMs: INSTALL_TIMEOUT_MS,
+    onLine: (line) => job.append(`${line}\n`),
+    onSpawn: (child) => child.stderr?.on('data', (b: Buffer) => job.append(b.toString('utf8'))),
+  };
+  const r = await (script === undefined ? host.run({ ...run, bin: o.bin, args: o.args }) : host.runScript(o.bin, o.args, script, run));
+  if (r.aborted || job.abort.signal.aborted) throw new Error('aborted');
+  if (r.timedOut) throw new InstallError(() => t().cliInstallTimedOut(shown));
+  if (r.code !== 0) throw new InstallError(() => t().cliInstallFailed(shown, r.code), r.code);
+  return r;
+}
+
+/** Windows' System32 folder, as `env` names the system's. */
+const system32Of = (env: NodeJS.ProcessEnv) => win32.join(env.SystemRoot || env.SYSTEMROOT || env.windir || 'C:\\Windows', 'System32');
+
+/** curl: on the PATH, else where the system keeps it (on Windows, System32). */
+export function findCurl(host: Pick<CliInstallHost, 'env' | 'platform' | 'isFile'>): string | undefined {
+  const { env, platform, isFile } = host;
+  return findOnPath('curl', env, platform, platform === 'win32' ? [system32Of(env)] : SYSTEM_DIRS, isFile);
+}
+
+/**
+ * What puts Node.js's build into a folder here: the build for this computer, curl to download it and
+ * tar to take Node and npm out of it (on Windows the bsdtar in System32, which reads a `.zip`; not
+ * another `tar` on the PATH, such as Git for Windows' GNU tar, which reads none); else what is missing
+ * (`npm` when Node.js has no build for this computer).
+ */
+export function nodeTools(host: Pick<CliInstallHost, 'env' | 'platform' | 'isFile' | 'nodeBuild'>): { build: NodeBuild; curl: string; tar: string } | CliInstallBlock {
+  const { env, platform, isFile } = host;
+  const build = host.nodeBuild();
+  if (!build) return 'npm';
+  const curl = findCurl(host);
+  if (!curl) return 'curl';
+  const system32tar = win32.join(system32Of(env), 'tar.exe');
+  const tar = platform === 'win32' ? (isFile(system32tar) ? system32tar : undefined) : findOnPath('tar', env, platform, SYSTEM_DIRS, isFile);
+  return tar ? { build, curl, tar } : 'tar';
+}
+
+/**
+ * Puts Node.js's build into the folder `dir` (`folderNpm` says where its Node and npm are then): its
+ * archive downloaded whole into `dir`'s install cache (the caller deletes it), checked against the
+ * checksum Harness Relay has for it, and only Node and npm taken out of it, into the places npm's
+ * global folder has them beside its Node, then checked to run (`--version`). `intro`: the log's first
+ * line, saying why. Throws an `InstallError` that says what went wrong.
+ */
+export async function putNode(
+  host: Pick<CliInstallHost, 'env' | 'platform' | 'isFile' | 'nodeBuild' | 'run' | 'runScript'>,
+  job: InstallJob,
+  dir: string,
+  base: NodeJS.ProcessEnv,
+  label: string,
+  intro: (version: string) => string,
+): Promise<{ bin: string; args: string[] }> {
+  const tools = nodeTools(host);
+  if (typeof tools === 'string') throw new InstallError(() => t().cliInstallBlocked(label, tools));
+  const { build, curl, tar } = tools;
+  const cache = join(dir, INSTALL_CACHE, 'node');
+  mkdirSync(cache, { recursive: true });
+  const archive = join(cache, build.file);
+  job.append(`${intro(build.version)}\n`);
+  await runStep(host, job, `curl -fsSL ${build.url}`, { bin: curl, args: ['-fsSL', '--retry', '3', '-o', archive, build.url], env: base, cwd: dir });
+  const sum = await sha256Of(archive);
+  if (sum !== build.sha256) throw new InstallError(() => t().cliNodeChecksum(build.url, build.sha256, sum));
+  job.append(`SHA-256 ${sum}: as Node.js published it\n`);
+  await runStep(host, job, `tar -xf ${build.file}`, { bin: tar, args: ['-xf', archive, '-C', dir, '--strip-components', '1', ...build.members], env: base, cwd: dir });
+  const npm = folderNpm(dir, host.platform);
+  for (const file of [npm.bin, ...npm.args]) if (!host.isFile(file)) throw new InstallError(() => t().cliInstallNoProgram(file));
+  // That it runs here, before anything runs on it: Node.js's Linux builds need libatomic, which a
+  // minimal system may lack (a desktop one has it), and that is said as such.
+  try {
+    await runStep(host, job, `${npm.bin} --version`, { bin: npm.bin, args: ['--version'], env: base, cwd: dir });
+  } catch (err) {
+    if (job.abort.signal.aborted || !(err instanceof InstallError)) throw err;
+    const linux = host.platform === 'linux';
+    throw new InstallError(() => t().cliNodeDoesNotRun(linux));
+  }
+  return npm;
 }
 
 export class CliInstaller {
@@ -762,33 +861,12 @@ export class CliInstaller {
     return bash ? { curl, shell: bash } : 'bash';
   }
 
-  /** Windows' System32 folder. */
-  private system32(): string {
-    const { env } = this.host;
-    return win32.join(env.SystemRoot || env.SYSTEMROOT || env.windir || 'C:\\Windows', 'System32');
-  }
-
-  /** curl: on the PATH, else where the system keeps it (on Windows, System32). */
   private curl(): string | undefined {
-    const { env, platform, isFile } = this.host;
-    return findOnPath('curl', env, platform, platform === 'win32' ? [this.system32()] : SYSTEM_DIRS, isFile);
+    return findCurl(this.host);
   }
 
-  /**
-   * What puts Node.js's build into a CLI's folder here: the build for this computer, curl to download
-   * it and tar to take Node and npm out of it (on Windows the bsdtar in System32, which reads a `.zip`;
-   * not another `tar` on the PATH, such as Git for Windows' GNU tar, which reads none); else what is
-   * missing (`npm` when Node.js has no build for this computer).
-   */
   private nodeTools(): { build: NodeBuild; curl: string; tar: string } | CliInstallBlock {
-    const { env, platform, isFile } = this.host;
-    const build = this.host.nodeBuild();
-    if (!build) return 'npm';
-    const curl = this.curl();
-    if (!curl) return 'curl';
-    const system32tar = win32.join(this.system32(), 'tar.exe');
-    const tar = platform === 'win32' ? (isFile(system32tar) ? system32tar : undefined) : findOnPath('tar', env, platform, SYSTEM_DIRS, isFile);
-    return tar ? { build, curl, tar } : 'tar';
+    return nodeTools(this.host);
   }
 
   /** Node.js's build, when the recipe's install puts it into the folder first (npm is not on the PATH). */
@@ -1015,37 +1093,11 @@ export class CliInstaller {
   }
 
   /**
-   * Puts Node.js's build into the CLI's folder `dir` for its npm (`folderNpm`): its archive downloaded
-   * whole into the install's cache (deleted with it), checked against the checksum Harness Relay has
-   * for it, and only Node and npm taken out of it, into the places npm's global folder has them beside
-   * its Node, then checked to run (`--version`). They stay, removed with the CLI: Codex's and Copilot's
-   * programs run on that Node.
+   * Puts Node.js's build into the CLI's folder `dir` for its npm (`putNode`). It stays, removed with
+   * the CLI: Codex's and Copilot's programs run on that Node.
    */
-  private async installNode(job: InstallJob, dir: string, base: NodeJS.ProcessEnv, label: string): Promise<{ bin: string; args: string[] }> {
-    const tools = this.nodeTools();
-    if (typeof tools === 'string') throw new InstallError(() => t().cliInstallBlocked(label, tools));
-    const { build, curl, tar } = tools;
-    const cache = join(dir, INSTALL_CACHE, 'node');
-    mkdirSync(cache, { recursive: true });
-    const archive = join(cache, build.file);
-    job.append(`npm is not on the PATH: Node.js ${build.version}, with its npm, goes into ${dir} first\n`);
-    await this.step(job, `curl -fsSL ${build.url}`, { bin: curl, args: ['-fsSL', '--retry', '3', '-o', archive, build.url], env: base, cwd: dir });
-    const sum = await sha256Of(archive);
-    if (sum !== build.sha256) throw new InstallError(() => t().cliNodeChecksum(build.url, build.sha256, sum));
-    job.append(`SHA-256 ${sum}: as Node.js published it\n`);
-    await this.step(job, `tar -xf ${build.file}`, { bin: tar, args: ['-xf', archive, '-C', dir, '--strip-components', '1', ...build.members], env: base, cwd: dir });
-    const npm = folderNpm(dir, this.host.platform);
-    for (const file of [npm.bin, ...npm.args]) if (!this.host.isFile(file)) throw new InstallError(() => t().cliInstallNoProgram(file));
-    // That it runs here, before npm runs on it: Node.js's Linux builds need libatomic, which a minimal
-    // system may lack (a desktop one has it), and that is said as such rather than as npm failing.
-    try {
-      await this.step(job, `${npm.bin} --version`, { bin: npm.bin, args: ['--version'], env: base, cwd: dir });
-    } catch (err) {
-      if (job.abort.signal.aborted || !(err instanceof InstallError)) throw err;
-      const linux = this.host.platform === 'linux';
-      throw new InstallError(() => t().cliNodeDoesNotRun(linux));
-    }
-    return npm;
+  private installNode(job: InstallJob, dir: string, base: NodeJS.ProcessEnv, label: string): Promise<{ bin: string; args: string[] }> {
+    return putNode(this.host, job, dir, base, label, (version) => `npm is not on the PATH: Node.js ${version}, with its npm, goes into ${dir} first`);
   }
 
   /**
@@ -1194,21 +1246,8 @@ export class CliInstaller {
     return (await this.powershellScript(USER_PATH_RESTORE_SCRIPT, { HARNESS_RELAY_USER_PATH: saved })).trim() === 'changed';
   }
 
-  /** Runs one command of an install (`script`: fixed text for the shell `o.bin`, given `o.args`), its output into the job's log; throws when it fails. */
   private async step(job: InstallJob, shown: string, o: Pick<SpawnOptions, 'bin' | 'args' | 'env' | 'cwd'>, script?: string): Promise<void> {
-    job.append(`$ ${shown}\n`);
-    const run: RunOptions = {
-      env: o.env,
-      cwd: o.cwd,
-      signal: job.abort.signal,
-      timeoutMs: INSTALL_TIMEOUT_MS,
-      onLine: (line) => job.append(`${line}\n`),
-      onSpawn: (child) => child.stderr?.on('data', (b: Buffer) => job.append(b.toString('utf8'))),
-    };
-    const r = await (script === undefined ? this.host.run({ ...run, bin: o.bin, args: o.args }) : this.host.runScript(o.bin, o.args, script, run));
-    if (r.aborted || job.abort.signal.aborted) throw new Error('aborted');
-    if (r.timedOut) throw new InstallError(() => t().cliInstallTimedOut(shown));
-    if (r.code !== 0) throw new InstallError(() => t().cliInstallFailed(shown, r.code));
+    await runStep(this.host, job, shown, o, script);
   }
 
   /** `<bin> --version` in the CLI's own environment, as its status asks it; stopped with the install. */

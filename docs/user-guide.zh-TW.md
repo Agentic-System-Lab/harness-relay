@@ -58,13 +58,23 @@ Muse Code 在 macOS 與 Linux 上用 `curl -fsSL https://dev.meta.ai/install.sh 
 
 找不到安裝需要的程式（開源 agent 需要的、隨 Node.js 一起安裝的 npm；`curl`；解開 Node.js 下載檔用的 `tar`（在 Windows 上是 System32 裡的那個）；`bash`，或在 Windows 上的 Git for Windows bash 或 Windows PowerShell）時，卡片會說明缺了什麼，而不顯示按鈕。安裝失敗或取消都不會留下任何檔案；失敗的原因與輸出會留在卡片上，直到你再試一次。要等沒有 agent 在工作時才能移除，桌面 app 的更新也會等到沒有 CLI 正在安裝。會自行更新的 CLI（Claude Code、Cursor、Muse Code 的啟動器、Grok）照它官方更新程式的方式更新，可能寫到那個更新程式會寫的地方；在 Windows 上，Grok 會到你自己的 `%LOCALAPPDATA%` 找它安裝程式下載的那份 Git，而不是到資料夾裡找，所以請讓你的 `PATH` 上有 Git for Windows 給它用。[GitHub codespace](codespaces.zh-TW.md) 裡已經裝好七個非開源的 CLI；開源的那幾個在那裡也一樣從設定頁安裝。Node.js 不會替你裝到 `PATH` 上：從原始碼執行時你已經有了（`npm start` 就是用它跑的），[桌面 app](#桌面-app) 則從你登入 shell 的 `PATH` 找它；沒有的話，只有上面說的、放在 CLI 資料夾裡的那一份。
 
-完全存取以外，它們在 Harness Relay 自己的沙箱中執行（[開源 agent → Harness Relay 的沙箱](open-agents.zh-TW.md#harness-relay-的沙箱)）。macOS 上不需要另外安裝（在[桌面 app](#桌面-app) 裡則需要 `PATH` 上有 Node.js 22.12 以上）；Linux 上請安裝 `bubblewrap`、`socat` 與 `ripgrep`（`sudo apt-get install bubblewrap socat ripgrep`），Ubuntu 23.10 以上還要加上[各平台的作業系統沙箱 → 在 Linux 上](sandboxing.zh-TW.md#在-linux-上)裡 `/usr/bin/bwrap` 的 AppArmor 設定檔。在原生 Windows 上它們只能以完全存取執行（要有沙箱請用 WSL2），Linux 上的 OpenCode 也一樣（Harness Relay 在那裡無法監看它的伺服器）。
+完全存取以外，它們在 Harness Relay 自己的沙箱中執行（[開源 agent → Harness Relay 的沙箱](open-agents.zh-TW.md#harness-relay-的沙箱)）。macOS 上不需要另外安裝（在[桌面 app](#桌面-app) 裡則需要 `PATH` 上有 Node.js 22.12 以上）；Linux 上請安裝 `bubblewrap`、`socat` 與 `ripgrep`（`sudo apt-get install bubblewrap socat ripgrep`），Ubuntu 23.10 以上還要加上[各平台的作業系統沙箱 → 在 Linux 上](sandboxing.zh-TW.md#在-linux-上)裡 `/usr/bin/bwrap` 的 AppArmor 設定檔。這些 Harness Relay 都能替你安裝：見[安裝沙箱需要的元件](#安裝沙箱需要的元件)。在原生 Windows 上它們只能以完全存取執行（要有沙箱請用 WSL2），Linux 上的 OpenCode 也一樣（Harness Relay 在那裡無法監看它的伺服器）。
+
+#### 安裝沙箱需要的元件
+
+在完全存取以外，agent 執行的指令都在系統的沙箱裡跑；沙箱缺少需要的東西時，Harness Relay 不會讓指令在沙箱外執行，那些 agent 的指令就會直接失敗。所以 Harness Relay 會檢查這台電腦上沙箱需要的東西，能裝的就替你裝。有東西缺少時，按**新對話**會先跳出一個對話框，列出缺少的東西、哪些 agent 的沙箱需要，並強烈建議安裝：按**安裝（強烈建議）**就在那裡安裝，邊裝邊顯示輸出；按**先不要**會關掉它，這個瀏覽器之後不再詢問（按 Escape 或 × 則只關到下次開啟頁面）。**設定與登入 → 沙箱**一直列著同樣的清單，附**安裝**按鈕，什麼都不缺時也會說明。依系統，它涵蓋：
+
+- **Linux**：沙箱要用的套件，用你的套件管理工具（apt、dnf、pacman 或 zypper）安裝：`bubblewrap`（Claude Code、Codex、Grok、Copilot 與開源 agent）、`socat`（Claude Code 與開源 agent）、`ripgrep`（開源 agent），以及 Copilot 的沙箱需要的 `slirp4netns`、`iproute2`、`iptables` 與 `util-linux`；在 Ubuntu 23.10 以上（預設不讓程式建立 user namespace），再加上讓 `/usr/bin/bwrap` 能建立它的 AppArmor 設定檔（`/etc/apparmor.d/harness-relay-bwrap`，就是 Claude Code 文件給的那份；你已經有一份時就不加）。這些需要系統管理員權限，只問一次：以 root 執行、`sudo` 不需要密碼時用 `sudo`，或用 `pkexec`，由你的桌面環境跳出密碼視窗。這些方法都不行的地方（例如透過 SSH），清單會附上要在終端機執行的指令，以及**複製**按鈕。
+- **macOS 與 Linux 上的桌面 app**，登入 shell 的 `PATH` 上沒有 Node.js 22.12 以上時：給 Harness Relay 自己的沙箱（開源 agent 的）用的 Node.js 26.13.1 官方版本，跟[安裝 CLI](#從設定頁安裝-cli) 時一樣核對檢查碼，放進 app 資料夾裡的 `clis/sandbox-node`，不需要系統管理員權限。在 Linux 上它需要 libatomic（桌面系統都有）。
+- **Windows**：沒有要裝的。Codex 與 Copilot 的沙箱不需要另外安裝，其他 CLI 在那裡沒有沙箱（見[各平台的作業系統沙箱](sandboxing.zh-TW.md#windows)）。
+
+替所有程式解除 user namespace 的限制（`kernel.apparmor_restrict_unprivileged_userns=0`）——Ubuntu 上 Copilot 的沙箱可能仍然需要——則留給你自己決定：這會削弱整個系統的保護（[各平台的作業系統沙箱 → 在 Linux 上](sandboxing.zh-TW.md#在-linux-上)）。
 
 有兩個功能用到時才需要多裝一點。[語音輸入](#語音輸入)開啟時會自動安裝：macOS 需要 [Homebrew](https://brew.sh)；Linux 的預先編譯引擎需要 glibc 2.34 以上（Ubuntu 22.04、Debian 12 或更新）。把[對話分享](#分享對話)成連結需要 [GitHub CLI](https://cli.github.com)（`gh`）2.66.0 以上並登入（在分享對話框裡，或用 `gh auth login`），附上檔案時還需要 `git`。
 
 ### 桌面 app
 
-除了在終端機執行 `npm start`，也可以把 Harness Relay 安裝成桌面 app，支援 macOS（13 Ventura 以上，Apple Silicon）、Windows 10 以上（x64 或 Arm64），以及有桌面環境的 Linux（x64 或 Arm64）。它在背景執行同一個伺服器，並在它自己的視窗裡顯示已登入的對話，沒有網址列。關掉視窗後，伺服器會繼續執行，選單列或系統匣留著一個圖示，所以手機照常能用。跟 `npm start` 一樣，它需要 agent 的 CLI（可以[從設定頁安裝](#從設定頁安裝-cli)，Claude Code、Codex 與 Copilot 不需要 Node.js 也能裝），編輯與平行模式也需要 Git；但不需要 Node.js，只有開源 agent 在完全存取以外執行時例外：它們所在的 Harness Relay 自己的沙箱，需要登入 shell 的 `PATH` 上有 Node.js 22.12 以上（沒有的話，它們只能以完全存取執行）。
+除了在終端機執行 `npm start`，也可以把 Harness Relay 安裝成桌面 app，支援 macOS（13 Ventura 以上，Apple Silicon）、Windows 10 以上（x64 或 Arm64），以及有桌面環境的 Linux（x64 或 Arm64）。它在背景執行同一個伺服器，並在它自己的視窗裡顯示已登入的對話，沒有網址列。關掉視窗後，伺服器會繼續執行，選單列或系統匣留著一個圖示，所以手機照常能用。跟 `npm start` 一樣，它需要 agent 的 CLI（可以[從設定頁安裝](#從設定頁安裝-cli)，Claude Code、Codex 與 Copilot 不需要 Node.js 也能裝），編輯與平行模式也需要 Git；但不需要 Node.js，只有開源 agent 在完全存取以外執行時例外：它們所在的 Harness Relay 自己的沙箱，需要登入 shell 的 `PATH` 上有 Node.js 22.12 以上，或[設定 → 沙箱](#安裝沙箱需要的元件)裝進 app 資料夾的那一份（兩者都沒有的話，它們只能以完全存取執行）。
 
 **安裝。** 從[網站](https://agentic-system-lab.github.io/harness-relay/zh-TW/)（提供最新的正式版本，不提供候選版本：版本結尾是 `-rc` 的，見[版本](#版本)）或 [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases)（也有候選版本）下載你系統的安裝檔。安裝之後，app 會自己更新：正式版本只更新到下一個正式版本，候選版本則會更新到之後的候選版本或正式版本（見下方 **更新**）。
 

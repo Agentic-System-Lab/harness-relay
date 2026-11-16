@@ -330,8 +330,28 @@ export function relaySandboxTools(platform: NodeJS.Platform = process.platform, 
     sh: find('sh') ?? '/bin/sh',
     bash: find('bash') ?? '/bin/bash',
     ...(platform === 'linux' ? { bwrap: find('bwrap'), socat: find('socat'), rg: find('rg') } : {}),
-    ...(process.versions.electron ? { node: hostNodeOnPath(find) } : {}),
+    ...(process.versions.electron ? { node: hostNodeOnPath(find) ?? sandboxNode() } : {}),
   };
+}
+
+/**
+ * Where Harness Relay puts a Node.js for its own sandbox's host when the desktop app, whose runtime is
+ * not plain Node, finds none on the PATH (Settings → Sandboxes, `sandboxSetup.ts`): beside the CLIs it
+ * installed, a folder agents may not write (`agentFolders`), as the host runs it outside the sandbox.
+ */
+export function sandboxNodeFolder(dataDir = DATA_DIR): string {
+  return join(cliFolder(dataDir), 'sandbox-node');
+}
+
+/** The Node.js Harness Relay put in `sandboxNodeFolder` (Node.js's own build, as npm's global folder lays it out), or null. */
+export function sandboxNode(dataDir = DATA_DIR): string | null {
+  return findProgram('node', [join(sandboxNodeFolder(dataDir), 'bin')]) ?? null;
+}
+
+/** A Node.js on `path` (or in the system's folders) new enough for the host, or null: what the desktop app runs the host on. */
+export function pathHostNode(path = process.env.PATH ?? ''): string | null {
+  const dirs = [...SYSTEM_PATH, ...path.split(delimiter).filter((d) => isAbsolute(d))];
+  return hostNodeOnPath((name) => findProgram(name, dirs));
 }
 
 /** sandbox-runtime's lowest Node (its `engines`). */

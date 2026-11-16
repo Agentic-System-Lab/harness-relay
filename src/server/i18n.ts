@@ -69,7 +69,7 @@ const zhTW = {
     'Harness Relay 自己的沙箱無法在原生 Windows 上使用（它用的 sandbox-runtime 在 Windows 上還是 alpha 版），所以這個 agent 在「唯讀」與「可編輯」下不會在這裡執行。請在 WSL2 裡執行 Harness Relay，或把權限改成「完全存取」（不使用沙箱）。',
   relaySandboxPathTooLong: (dataDir: string, max: number) =>
     `Harness Relay 的資料資料夾路徑（${dataDir}）太長，沙箱放不下它要建立的 socket，所以沒有執行：請把 RELAY_DATA_DIR 設成路徑不超過 ${max} 個位元組的資料夾（UTF-8：中文字每個佔 3 個），再重新啟動 Harness Relay；或改用完全存取。`,
-  relaySandboxNoNode: 'Harness Relay 的沙箱需要 Node.js 22.12 或更新版本才能執行它的沙箱程式，而桌面 app 自己的執行環境不能當成 Node 使用：請安裝 Node.js，讓它出現在登入 shell 的 PATH 上，再重新開啟 app；或改用完全存取。',
+  relaySandboxNoNode: 'Harness Relay 的沙箱需要 Node.js 22.12 或更新版本才能執行它的沙箱程式，而桌面 app 自己的執行環境不能當成 Node 使用：請到「設定 → 沙箱」安裝（放進 Harness Relay 的資料夾），或自行安裝 Node.js，讓它出現在登入 shell 的 PATH 上，再重新開啟 app；或改用完全存取。',
   relaySandboxPlatform: (platform: string) =>
     `Harness Relay 自己的沙箱只能在 macOS 與 Linux 上使用（這裡是 ${platform}），所以這個 agent 在「唯讀」與「可編輯」下不會執行。請把權限改成「完全存取」，或在 macOS 或 Linux 上執行。`,
   relaySandboxMissing: (what: string, packages: string) =>
@@ -586,6 +586,12 @@ const zhTW = {
   cliInstallTimedOut: (command: string) => `${command} 執行太久，已經停止。`,
   cliInstallNoProgram: (path: string) => `安裝程式跑完了，卻沒有留下它的程式 ${path}。`,
   cliInstallDoesNotRun: (detail: string) => `裝好的程式無法執行（--version）：${detail}`,
+  sandboxSetupRunning: '沙箱需要的東西正在安裝中，請等它完成或先取消。',
+  sandboxSetupNone: '目前沒有進行中的沙箱安裝',
+  sandboxSetupNothing: '這台電腦上沒有缺少、而且 Harness Relay 能安裝的沙箱元件。',
+  sandboxSetupNoAdmin: '這裡沒辦法取得系統管理員權限（不是 root、sudo 需要密碼、也沒有桌面環境能顯示 pkexec 的密碼視窗），所以沒有安裝套件：請在終端機執行下方的指令。',
+  sandboxSetupAdminRefused: '沒有輸入系統管理員密碼（或不允許、或無法顯示密碼視窗），所以什麼都沒安裝。可以再試一次，或在終端機執行下方的指令。',
+  sandboxSetupStillMissing: (items: string) => `安裝跑完了，但還是缺少：${items}。輸出在下方。`,
   cliNodeDoesNotRun: (linux: boolean): string =>
     linux
       ? '放進資料夾的 Node.js 在這台電腦上無法執行（輸出在下方）。Node.js 的 Linux 版本需要 libatomic（Debian 與 Ubuntu 的 libatomic1 套件，Fedora 的 libatomic）：請安裝它，或自行安裝附 npm 的 Node.js，再試一次。'
@@ -674,7 +680,7 @@ const en: ServerMessages = {
     "Harness Relay's own sandbox does not work on native Windows (the sandbox-runtime it uses is alpha there), so this agent does not run here in read-only or edit mode. Run Harness Relay in WSL2, or set the permission to full access (no sandbox).",
   relaySandboxPathTooLong: (dataDir, max) =>
     `The path of Harness Relay's data folder (${dataDir}) is too long for the sockets its sandbox makes there, so this did not run: set RELAY_DATA_DIR to a folder whose path is at most ${max} bytes (UTF-8: a character outside ASCII takes 2 to 4) and restart Harness Relay; or switch to full access.`,
-  relaySandboxNoNode: "Harness Relay's sandbox needs Node.js 22.12 or later to run its sandbox helper, and the desktop app's own runtime cannot be used as Node: install Node.js so that it is on your login shell's PATH, then reopen the app; or switch to full access.",
+  relaySandboxNoNode: "Harness Relay's sandbox needs Node.js 22.12 or later to run its sandbox helper, and the desktop app's own runtime cannot be used as Node: install one from Settings → Sandboxes (into Harness Relay's folder), or install Node.js yourself so that it is on your login shell's PATH, then reopen the app; or switch to full access.",
   relaySandboxPlatform: (platform) =>
     `Harness Relay's own sandbox works on macOS and Linux only (this is ${platform}), so this agent does not run in read-only or edit mode. Set the permission to full access, or run it on macOS or Linux.`,
   relaySandboxMissing: (what, packages) =>
@@ -1175,6 +1181,12 @@ const en: ServerMessages = {
   cliInstallTimedOut: (command) => `${command} took too long and was stopped.`,
   cliInstallNoProgram: (path) => `The installer finished, but its program ${path} is not there.`,
   cliInstallDoesNotRun: (detail) => `The program installed does not run (--version): ${detail}`,
+  sandboxSetupRunning: "What the sandboxes need is being installed. Wait for it to finish, or cancel it first.",
+  sandboxSetupNone: 'No install of what the sandboxes need is running',
+  sandboxSetupNothing: 'Nothing the sandboxes need is missing here that Harness Relay can install.',
+  sandboxSetupNoAdmin: "There is no way to get administrator rights here (not root, sudo asks for a password, and no desktop session to show pkexec's password prompt), so no package was installed: run the command below in a terminal.",
+  sandboxSetupAdminRefused: 'The administrator password was not given (or not allowed, or no prompt could be shown), so nothing was installed. Try again, or run the command below in a terminal.',
+  sandboxSetupStillMissing: (items) => `The install ran, but this is still missing: ${items}. Its output is below.`,
   cliNodeDoesNotRun: (linux) =>
     linux
       ? "The Node.js put into the folder does not run on this computer (its output is below). Node.js's Linux builds need libatomic (the libatomic1 package on Debian and Ubuntu, libatomic on Fedora): install it, or Node.js with npm, then try again."

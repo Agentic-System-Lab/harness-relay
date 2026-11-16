@@ -74,7 +74,7 @@ Harness Relay 啟動真正的 `claude`、`codex`、`grok`、`cursor-agent`、`ag
 
 **每次執行一個沙箱。** 每次執行有自己的主控行程（host，`relaySandboxHost.ts`），和其他 CLI 一樣透過 `src/server/process.ts` 啟動（會被追蹤，關機時連同整個行程樹一起結束），並有一條在它的檔案描述符 3 上的私有控制通道。主控行程只為那一次執行跑一個 sandbox-runtime，所以同時進行的不同對話的執行——不同的工作目錄、權限與主機——彼此看不到對方的規則：每個有自己的代理，只有它自己的沙箱連得到（macOS 上 Seatbelt 只允許連到那個代理的連接埠；Linux 上沙箱沒有自己的網路，只有那個代理的 socket），而且要帶只有它自己的沙箱才有的 token。沒有規則決定的主機會透過那次執行的通道來詢問，所以核准會送到正確那一次執行的「詢問我」，不會被別的執行回答；規則與指令都不經過命令列，也不放在沙箱中的行程能改的共用檔案裡。在沙箱裡，agent 透過一段固定的 `/bin/sh` script（`SANDBOX_EXEC_SCRIPT`）啟動，程式、它的參數與這次執行自己的變數都從環境變數取得（`HARNESS_RELAY_SBX_*`，在 agent 啟動前移除），所以任何值都不會成為 shell 文字的一部分。
 
-**主控行程用的 Node。** 主控行程是 Node.js 程式。用 `npm start` 時，它用伺服器自己的 Node 執行。桌面 app 的 Electron 不能當成 Node 執行（它的 fuses 關掉了這個功能），所以在那裡它用登入 shell 的 `PATH` 上找到的 Node.js 22.12 以上執行（`hostNode()`），打包成 `relaySandboxHost.mjs`，沙箱 runtime 的套件放在它旁邊；沒有這樣的 Node 時，開源 agent 在完全存取以外會被拒絕，並附上說明。
+**主控行程用的 Node。** 主控行程是 Node.js 程式。用 `npm start` 時，它用伺服器自己的 Node 執行。桌面 app 的 Electron 不能當成 Node 執行（它的 fuses 關掉了這個功能），所以在那裡它用登入 shell 的 `PATH` 上找到的 Node.js 22.12 以上執行（`hostNode()`），找不到時用 **設定 → 沙箱** 放進資料資料夾的那一份（`clis/sandbox-node`，`sandboxNode()`；見[由 Harness Relay 安裝它們需要的東西](#由-harness-relay-安裝它們需要的東西)），打包成 `relaySandboxHost.mjs`，沙箱 runtime 的套件放在它旁邊；兩者都沒有時，開源 agent 在完全存取以外會被拒絕，並附上說明。
 
 **檔案系統。**
 
@@ -214,6 +214,19 @@ Harness Relay 本身在這三種平台上都能執行。在原生 Windows 上只
 
 - **WSL2**：Codex 與 Claude Code 使用它們的 Linux 沙箱，前提相同（bubblewrap；Claude Code 還需要 `socat`）。Grok 的 Landlock 能不能用，要看 WSL2 的 kernel（未驗證）。Cursor 與 Antigravity 在這裡也沒有沙箱。Copilot 的 Linux 沙箱沒有在 WSL2 中試過。Muse Code 在這裡沒有試過。
 - **WSL1** 無法建立 user namespace。Claude Code 的沙箱需要 WSL2；Codex（從 0.115 起）會拒絕執行需要 bubblewrap 的沙箱指令。
+
+## 由 Harness Relay 安裝它們需要的東西
+
+Harness Relay 會檢查上面這些沙箱在這台電腦上需要的東西，能裝的就替你裝（`src/server/sandboxSetup.ts`；**設定與登入 → 沙箱**，以及有東西缺少時，**新對話**跳出的對話框，每個瀏覽器只問一次：見[使用者說明 → 安裝沙箱需要的元件](user-guide.zh-TW.md#安裝沙箱需要的元件)）：
+
+| | 檢查什麼 | 怎麼安裝 |
+| --- | --- | --- |
+| Linux | `bubblewrap`、`socat`、`ripgrep`、`slirp4netns`、`iproute2`（`ip`）、`iptables`（`iptables`、`ip6tables`、`iptables-restore`、`ip6tables-restore`）與 `util-linux`（`unshare`、`nsenter`）的程式，在系統資料夾與 PATH 上找 | 用 apt（找不到套件時才更新套件清單）、dnf（`iproute`、`iptables-nft`）、pacman 或 zypper，以 root、透過 `sudo -n`，或在桌面環境中透過 `pkexec`（只跳出一次密碼視窗）；都不行時，給出要在終端機執行的指令 |
+| Ubuntu 23.10 以上 | `kernel.apparmor_restrict_unprivileged_userns` 為 `1`、有 `apparmor_parser`，而且 `/etc/apparmor.d` 裡沒有寫著 `/usr/bin/bwrap` 與 `userns` 的設定檔 | 在同一次執行中：寫入 `/etc/apparmor.d/harness-relay-bwrap`（就是[在 Linux 上](#在-linux-上)那份設定檔，換個自己的名字），用 `apparmor_parser -r` 載入；屆時已經有這樣的設定檔就不寫 |
+| macOS 與 Linux 上的桌面 app | 登入 shell 的 PATH 上，沒有給 [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱)主程序用的 Node.js 22.12 以上 | Node.js 官方版本，核對過檢查碼，放進資料資料夾的 `clis/sandbox-node`（agent 不能寫入的地方），主程序就用它執行；不需要系統管理員權限 |
+| Windows | 沒有 | — |
+
+套件與設定檔在同一次、以系統管理員權限執行的固定腳本中安裝，要裝的東西放在它的環境變數裡。它不會替所有程式解除 user namespace 的限制（`kernel.apparmor_restrict_unprivileged_userns=0`），而 Ubuntu 上 Copilot 的沙箱可能仍然需要這樣做（見[在 Linux 上](#在-linux-上)）。已在 Linux 的容器中以 root 與透過 `sudo` 試過（套件，Ubuntu 24.04），也在 macOS 上試過桌面 app 的 Node.js；pkexec 的密碼視窗與 AppArmor 設定檔沒有在桌面環境中試過。
 
 ## 開啟各個沙箱
 

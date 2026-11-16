@@ -1513,6 +1513,50 @@ export interface CliInstallView {
   job?: CliInstallJobView;
 }
 
+/**
+ * What the agents' OS sandboxes need that this computer lacks (Settings → Sandboxes, and the dialog New
+ * chat opens while something is missing; `src/server/sandboxSetup.ts`):
+ * - `packages`: the Linux packages the sandboxes run (bubblewrap, socat, ripgrep; slirp4netns,
+ *   iproute2, iptables and util-linux for Copilot's), installed with the system's package manager;
+ * - `apparmor`: on Ubuntu 23.10 or later, which keeps programs from making user namespaces, the
+ *   AppArmor profile that lets `/usr/bin/bwrap` make them;
+ * - `node`: in the desktop app, a Node.js for Harness Relay's own sandbox (the open agents'), which
+ *   finds none on the PATH: Node.js's own build in Harness Relay's data folder.
+ */
+export type SandboxNeedKind = 'packages' | 'apparmor' | 'node';
+
+/**
+ * Why Harness Relay cannot install a need here: no way to get administrator rights (`admin`: not root,
+ * no sudo without a password, no desktop session for pkexec's prompt), no package manager it knows
+ * (`packageManager`: apt, dnf, pacman, zypper), or what Node.js's build takes (curl, tar, a build for
+ * this computer: `node`).
+ */
+export type SandboxSetupBlock = 'admin' | 'packageManager' | 'curl' | 'tar' | 'node';
+
+/** Who a need is for: a CLI's sandbox, or Harness Relay's own (`open`, the open agents'). */
+export type SandboxUser = Provider | 'open';
+
+export interface SandboxNeedView {
+  kind: SandboxNeedKind;
+  /** `packages`: the packages; `apparmor`: the profile's file; `node`: Node.js's version. */
+  items: string[];
+  /** Whose sandboxes need it. */
+  for: SandboxUser[];
+  /** What installing it runs, as one would type it in a terminal (to do it by hand). */
+  command: string;
+  /** Why Harness Relay cannot install it here; absent when it can. */
+  blocked?: SandboxSetupBlock;
+}
+
+export interface SandboxSetupView {
+  /** What is missing; empty when the sandboxes have everything they need here (always on Windows). */
+  needs: SandboxNeedView[];
+  /** How an install gets administrator rights for `packages` and `apparmor`: as root, sudo without a password, or pkexec (the desktop's password prompt). */
+  admin?: 'root' | 'sudo' | 'pkexec';
+  /** The latest install since the server started, while it runs and after it ended. */
+  job?: CliInstallJobView;
+}
+
 /** How long one of a plan's limits runs before it starts over, when it is one of the usual spans. */
 export type UsageSpan = 'fiveHour' | 'day' | 'week' | 'month';
 

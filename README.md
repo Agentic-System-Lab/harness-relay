@@ -35,7 +35,7 @@ Every feature, step by step, is in the [user guide](docs/user-guide.md).
 ## Requirements
 
 - Node.js **22.13+** (it uses the built-in `node:sqlite`).
-- Any of the agent CLIs, installed and on your `PATH`, or [installed from Settings](docs/user-guide.md#installing-a-cli-from-settings) with one click; you don't need them all. [Installing the agent CLIs](docs/user-guide.md#installing-the-agent-clis) lists each one, how to install it, the versions checked, and what the sandboxes need (on Linux, `bubblewrap`, `socat` and `ripgrep` for the open-source agents).
+- Any of the agent CLIs, installed and on your `PATH`, or [installed from Settings](docs/user-guide.md#installing-a-cli-from-settings) with one click; you don't need them all. [Installing the agent CLIs](docs/user-guide.md#installing-the-agent-clis) lists each one, how to install it, the versions checked, and what the sandboxes need (on Linux, `bubblewrap`, `socat` and `ripgrep` for the open-source agents), which [Settings can install](docs/user-guide.md#setting-up-the-sandboxes).
 - [Git](https://git-scm.com/downloads), for edit and parallel modes.
 
 ## Quick start

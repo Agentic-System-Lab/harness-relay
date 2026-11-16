@@ -55,6 +55,7 @@ import { LoginLinks, LoginOutput } from './LoginLinks';
 import { CliPicker } from './CliPicker';
 import { ModelPicker } from './ModelPicker';
 import { NotificationsCard } from './NotificationsSettings';
+import { SandboxSetupCard } from './SandboxSetup';
 import { NativeSetupPanel } from './NativeSetupPanel';
 import { UsagePanel } from './UsagePanel';
 import { SectionTitle } from './SectionTitle';
@@ -222,6 +223,8 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
         </section>
 
         <NotificationsCard />
+
+        <SandboxSetupCard />
 
         {/* The model backends first: the open agents run on them, and the other CLIs on their endpoints too. */}
         <BackendsCard onChanged={() => void refreshProviders(true)} />
@@ -1297,6 +1300,7 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
     language: short.language,
     appearance: short.appearance,
     notifications: short.notifications,
+    sandboxes: short.sandboxes,
     claude: PROVIDER_LABEL.claude,
     codex: PROVIDER_LABEL.codex,
     grok: PROVIDER_LABEL.grok,
