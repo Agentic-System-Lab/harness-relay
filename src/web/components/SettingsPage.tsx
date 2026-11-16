@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import {
   LANGS,
   MAX_ACCOUNT_LABEL,
@@ -33,9 +33,14 @@ import { LANG_NAMES, useI18n, useT, type Messages } from '../i18n';
 import { useLimits } from '../limits';
 import { setThemeChoice, THEMES, useThemeChoice } from '../theme';
 import {
+  AGENT_SECTIONS,
+  SETTINGS_NAV,
   SETTINGS_SECTIONS,
   currentSection,
+  isAgentSection,
   makeRoomForCorner,
+  menuMove,
+  navEntryOf,
   readingLine,
   revealLink,
   scrollToSection,
@@ -65,6 +70,7 @@ import { SharesCard } from './SharesSettings';
 import { ToolsCard } from './ToolsSettings';
 import { VersionCard } from './VersionSettings';
 import { VoiceCard } from './VoiceSettings';
+import { CheckIcon, ChevronIcon } from './icons';
 
 interface Props {
   /** The card to scroll to (#/settings/<section>). */
@@ -1288,11 +1294,101 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
   // into view when it is not, and otherwise leave the row where it is, so it does not slide as the page scrolls.
   useEffect(() => {
     const links = row.current;
-    const chip = active && links?.querySelector<HTMLElement>(`[data-section="${active}"]`);
+    // An agent's card is reached through the agents' menu: its button is what shows.
+    const chip = active && links?.querySelector<HTMLElement>(`[data-section="${navEntryOf(active)}"]`);
     if (!links || !chip) return;
     const left = revealLink(links, { left: chip.offsetLeft, width: chip.offsetWidth });
     if (left !== undefined) links.scrollTo({ left, behavior: 'smooth' });
-  }, [active]);
+    // Again when the row narrows or widens as it makes room for the corner's button (`stuck`).
+  }, [active, stuck]);
+  // The agents' menu: one entry in the row for every agent's card (`SETTINGS_NAV`), which shows the
+  // agent being read. A menu button: arrows, Home and End move in it, Escape closes it back to its
+  // button, Tab closes it and goes on from its button; a tap or focus elsewhere closes it. It follows
+  // its button as the row scrolls sideways (bringing the button into view as it is clicked, say) or
+  // the window changes size.
+  const activeAgent = active !== undefined && isAgentSection(active) ? active : undefined;
+  const [menuOpen, setMenuOpen] = useState(false);
+  /** Where the menu opens: under its button, inside the window (in the nav's own coordinates). */
+  const [menuAt, setMenuAt] = useState<{ left: number; top: number }>();
+  /** Which item takes the focus once the menu shows. */
+  const focusOnOpen = useRef<'active' | 'first' | 'last'>('active');
+  const menuId = useId();
+  const agentsButton = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const items = () => [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+  const openMenu = (focus: 'active' | 'first' | 'last') => {
+    focusOnOpen.current = focus;
+    setMenuOpen(true);
+  };
+  const closeMenu = useCallback((refocus: boolean) => {
+    setMenuOpen(false);
+    if (refocus) agentsButton.current?.focus({ preventScroll: true });
+  }, []);
+  useLayoutEffect(() => {
+    if (!menuOpen) return setMenuAt(undefined);
+    const place = () => {
+      const button = agentsButton.current?.getBoundingClientRect();
+      const box = nav.current?.getBoundingClientRect();
+      const width = menu.current?.offsetWidth ?? 0;
+      if (!button || !box) return;
+      // Under the button, its left edge with the button's, moved left as far as it must to stay in the window.
+      const left = Math.max(8, Math.min(button.left, window.innerWidth - width - 8)) - box.left;
+      setMenuAt({ left, top: button.bottom - box.top + 6 });
+    };
+    place();
+    const links = row.current;
+    links?.addEventListener('scroll', place, { passive: true });
+    window.addEventListener('resize', place);
+    return () => {
+      links?.removeEventListener('scroll', place);
+      window.removeEventListener('resize', place);
+    };
+  }, [menuOpen]);
+  useEffect(() => {
+    if (!menuOpen || !menuAt) return;
+    const all = items();
+    const at = focusOnOpen.current === 'first' ? 0 : focusOnOpen.current === 'last' ? all.length - 1 : Math.max(0, all.findIndex((el) => el.dataset.section === active));
+    all[at]?.focus({ preventScroll: true });
+    // Only once, as it opens: the focus is the reader's from then on.
+    focusOnOpen.current = 'active';
+  }, [menuOpen, menuAt !== undefined]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    // As the chat's ⋯ menu: a tap or focus elsewhere closes it, and the focus stays where it went;
+    // focus outside the app (copy.ts's textarea) is left alone.
+    const app = document.getElementById('root');
+    const outside = (e: Event) => {
+      const target = e.target as Node;
+      if (e.type === 'focusin' && !app?.contains(target)) return;
+      if (!agentsButton.current?.contains(target) && !menu.current?.contains(target)) closeMenu(false);
+    };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('focusin', outside);
+    return () => {
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('focusin', outside);
+    };
+  }, [menuOpen, closeMenu]);
+  const onMenuKey = (e: ReactKeyboardEvent) => {
+    const all = items();
+    const at = all.indexOf(document.activeElement as HTMLElement);
+    const next = menuMove(e.key, at, all.length);
+    if (next !== undefined) {
+      e.preventDefault();
+      all[next]?.focus({ preventScroll: true });
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      closeMenu(true);
+    } else if (e.key === 'Tab') {
+      // On from the button in the row, as if the menu were there: back to it, or the next entry.
+      e.preventDefault();
+      closeMenu(!e.shiftKey);
+      if (e.shiftKey) agentsButton.current?.focus({ preventScroll: true });
+      else (agentsButton.current?.nextElementSibling as HTMLElement | null)?.focus({ preventScroll: true });
+    }
+  };
+
   // Short labels, so the links fit on one line in every language (the cards keep their full titles).
   const short = t.settings.nav;
   const label: Record<SettingsSection, string> = {
@@ -1329,22 +1425,84 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
       {/* The links scroll inside their own row, so nothing scrolls under the menu button beside it. */}
       <nav ref={nav} className={`settings-nav ${stuck ? 'stuck' : ''}`} aria-label={t.settings.sections}>
         <div ref={row} className="settings-nav-links">
-          {SETTINGS_SECTIONS.map((s) => (
-            <a
-              key={s}
-              href={settingsHref(s)}
-              data-section={s}
-              className={active === s ? 'active' : undefined}
-              aria-current={active === s ? 'location' : undefined}
-              onClick={() => {
-                pick(s);
-                scrollToSection(s);
-              }}
-            >
-              {label[s]}
-            </a>
-          ))}
+          {SETTINGS_NAV.map((s) =>
+            s === 'agents' ? (
+              <button
+                key={s}
+                ref={agentsButton}
+                type="button"
+                data-section={s}
+                className={`settings-nav-agents ${activeAgent ? 'active' : ''}`}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                aria-controls={menuId}
+                onClick={() => (menuOpen ? closeMenu(false) : openMenu('active'))}
+                onKeyDown={(e) => {
+                  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+                  e.preventDefault();
+                  openMenu(e.key === 'ArrowDown' ? 'first' : 'last');
+                }}
+              >
+                {activeAgent ? short.agentsAt(PROVIDER_LABEL[activeAgent]) : short.agents}
+                <ChevronIcon size={14} />
+              </button>
+            ) : (
+              <a
+                key={s}
+                href={settingsHref(s)}
+                data-section={s}
+                className={active === s ? 'active' : undefined}
+                aria-current={active === s ? 'location' : undefined}
+                onClick={() => {
+                  pick(s);
+                  scrollToSection(s);
+                }}
+              >
+                {label[s]}
+              </a>
+            ),
+          )}
         </div>
+        {/* Beside the row, not in it: the row scrolls sideways and fades its ends, which would cut the menu off. */}
+        {menuOpen && (
+          <div
+            ref={menu}
+            id={menuId}
+            className="settings-agents-menu"
+            role="menu"
+            aria-label={short.agents}
+            style={menuAt}
+            onKeyDown={onMenuKey}
+          >
+            {AGENT_SECTIONS.map((p, i) => (
+              <Fragment key={p}>
+                {/* The open-source agents after the others, under a heading, as on the page. */}
+                {isOpenProvider(p) && !isOpenProvider(AGENT_SECTIONS[i - 1] ?? p) && (
+                  <div className="settings-agents-group" role="presentation">
+                    {short.openAgents}
+                  </div>
+                )}
+                <a
+                  href={settingsHref(p)}
+                  role="menuitem"
+                  tabIndex={-1}
+                  data-section={p}
+                  className={active === p ? 'active' : undefined}
+                  aria-current={active === p ? 'location' : undefined}
+                  onClick={() => {
+                    closeMenu(true);
+                    pick(p);
+                    scrollToSection(p);
+                  }}
+                >
+                  <i style={{ background: PROVIDER_COLOR[p] }} aria-hidden="true" />
+                  <span>{PROVIDER_LABEL[p]}</span>
+                  {active === p && <CheckIcon size={14} />}
+                </a>
+              </Fragment>
+            ))}
+          </div>
+        )}
       </nav>
     </>
   );

@@ -130,6 +130,104 @@ test.describe('settings', () => {
     await expect(card.locator('.provider-head')).toContainText('v1.0.999');
   });
 
+  test("the links row gathers the agents in one menu, which leads to each agent's card and names the one being read", async ({ page }) => {
+    await page.getByRole('link', { name: /Settings & sign-in/ }).click();
+    const nav = page.getByRole('navigation', { name: 'Sections of this page' });
+    const agents = nav.getByRole('button', { name: /^Agents/ });
+    const menu = page.getByRole('menu', { name: 'Agents' });
+    // One entry for the twelve agents' cards, where their links were; the other links as they were.
+    await expect(nav.getByRole('link')).toHaveText(['Version', 'Language', 'Appearance', 'Notifications', 'Sandboxes', 'Model backends', 'Lead agent', 'Tools', 'Voice', 'Default folder', 'Agent sessions', 'Shares', 'Browsers', 'Tour']);
+    await expect(agents).toHaveText('Agents');
+    await expect(agents).toHaveAttribute('aria-expanded', 'false');
+    await expect(menu).toHaveCount(0);
+
+    // Opened: every agent, the open-source ones under their heading, the focus on the first.
+    await agents.click();
+    await expect(agents).toHaveAttribute('aria-expanded', 'true');
+    const items = menu.getByRole('menuitem');
+    await expect(items).toHaveText(['Claude Code', 'Codex', 'Grok', 'Cursor', 'Antigravity', 'Copilot', 'Muse Code', 'OpenCode', 'Goose', 'Cline', 'OpenHands', 'Pi']);
+    await expect(menu.getByText('Open-source agents')).toBeVisible();
+    await expect(items.first()).toBeFocused();
+    // The keys move in it, round the ends; Escape closes it back to its button.
+    await page.keyboard.press('ArrowDown');
+    await expect(items.nth(1)).toBeFocused();
+    await page.keyboard.press('End');
+    await expect(items.last()).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(items.first()).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await expect(agents).toBeFocused();
+    // ArrowUp on the button opens it at the last one; Tab closes it and goes on to the next link.
+    await page.keyboard.press('ArrowUp');
+    await expect(items.last()).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(menu).toHaveCount(0);
+    await expect(nav.getByRole('link', { name: 'Lead agent' })).toBeFocused();
+
+    // An agent chosen: its card, its address, and the button naming it, highlighted.
+    await agents.click();
+    await items.filter({ hasText: 'Codex' }).click();
+    await expect(menu).toHaveCount(0);
+    await expect(page).toHaveURL(/#\/settings\/codex$/);
+    await expect(page.locator('#settings-codex')).toBeInViewport();
+    await expect(agents).toHaveText('Agents: Codex');
+    await expect(agents).toHaveClass(/active/);
+    // Reopened, the agent being read is marked and has the focus.
+    await agents.click();
+    await expect(items.filter({ hasText: 'Codex' })).toHaveAttribute('aria-current', 'location');
+    await expect(items.filter({ hasText: 'Codex' })).toBeFocused();
+    // A click elsewhere (here the screen's bottom right, clear of the menu) closes it.
+    const view = page.viewportSize()!;
+    await page.mouse.click(view.width - 20, view.height - 20);
+    await expect(menu).toHaveCount(0);
+
+    // Another card's link: the button no longer names an agent.
+    await nav.getByRole('link', { name: 'Lead agent' }).click();
+    await expect(nav.getByRole('link', { name: 'Lead agent' })).toHaveAttribute('aria-current', 'location');
+    await expect(agents).toHaveText('Agents');
+    await expect(agents).not.toHaveClass(/active/);
+
+    // An address of an agent's card, as the sidebar's dots link to: the card, and the button naming it.
+    await page.goto(page.url().replace(/#.*$/, '#/settings/opencode'));
+    await expect(page.locator('#settings-opencode')).toBeInViewport();
+    await expect(agents).toHaveText('Agents: OpenCode');
+  });
+
+  test("on a phone, the agents' button shows whole, its menu opens inside the screen, also while the row scrolls to it, and leads to the card", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    // Reached by an agent's address: once the links make room for the menu button (the row narrows), the button naming it shows whole.
+    await page.goto(page.url().replace(/#.*$/, '#/settings/codex'));
+    const nav = page.getByRole('navigation', { name: 'Sections of this page' });
+    const row = nav.locator('.settings-nav-links');
+    const agents = nav.getByRole('button', { name: /^Agents/ });
+    await expect(agents).toHaveText('Agents: Codex');
+    await expect(nav).toHaveClass(/stuck/);
+    const whole = async () => {
+      const r = (await row.boundingBox())!;
+      const b = (await agents.boundingBox())!;
+      return b.x >= r.x && b.x + b.width <= r.x + r.width;
+    };
+    await expect.poll(whole).toBe(true);
+
+    // Clicked while scrolled out of view: the row brings it in, and the menu stays open, under it, inside the screen.
+    await row.evaluate((el) => (el.scrollLeft = 0));
+    expect(await whole()).toBe(false);
+    await agents.click();
+    const menu = page.getByRole('menu', { name: 'Agents' });
+    await expect(menu).toBeVisible();
+    await page.waitForTimeout(500);
+    await expect(menu).toBeVisible();
+    const box = (await menu.boundingBox())!;
+    const button = (await agents.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
+    expect(box.y).toBeGreaterThan(button.y + button.height);
+    await menu.getByRole('menuitem', { name: 'Pi', exact: true }).click();
+    await expect(page.locator('#settings-pi')).toBeInViewport();
+    await expect(agents).toHaveText('Agents: Pi');
+  });
+
   test('the language can be switched, and the choice is kept', async ({ page }) => {
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
     const languages = page.locator('#settings-language');

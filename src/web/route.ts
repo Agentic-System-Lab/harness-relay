@@ -36,6 +36,35 @@ export const SETTINGS_SECTIONS = [
 ] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
+/** Whether a settings card is an agent's (one per CLI). */
+export const isAgentSection = (section: SettingsSection): section is Provider => (PROVIDERS as readonly string[]).includes(section);
+
+/** The agents' cards, in page order: the links row lists them in one menu, "Agents". */
+export const AGENT_SECTIONS: Provider[] = SETTINGS_SECTIONS.filter(isAgentSection);
+
+/** An entry of the settings page's links row: a card's own link, or the agents' menu. */
+export type SettingsNavEntry = Exclude<SettingsSection, Provider> | 'agents';
+
+/** The entry of the links row that leads to a card: the agents' menu for an agent's card. */
+export const navEntryOf = (section: SettingsSection): SettingsNavEntry => (isAgentSection(section) ? 'agents' : section);
+
+/** The links row, in page order: every card's link, the agents' gathered into one menu where the first of them is. */
+export const SETTINGS_NAV: SettingsNavEntry[] = SETTINGS_SECTIONS.map(navEntryOf).filter((e, i, all) => all.indexOf(e) === i);
+
+/**
+ * Which item of a menu of `count` a key moves the focus to from item `index` (-1: none yet): the
+ * arrows to the next or previous one, round the ends; Home and End to the first or last. Undefined
+ * for any other key.
+ */
+export function menuMove(key: string, index: number, count: number): number | undefined {
+  if (count <= 0) return undefined;
+  if (key === 'ArrowDown') return index < 0 ? 0 : (index + 1) % count;
+  if (key === 'ArrowUp') return index < 0 ? count - 1 : (index - 1 + count) % count;
+  if (key === 'Home') return 0;
+  if (key === 'End') return count - 1;
+  return undefined;
+}
+
 export function routeFromHash(hash: string): Route {
   const h = hash.replace(/^#\/?/, '');
   if (h.startsWith('c/')) return { page: 'chat', id: h.slice(2) };

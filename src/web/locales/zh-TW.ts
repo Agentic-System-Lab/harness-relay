@@ -1384,7 +1384,13 @@ export const zhTW = {
     goSignIn: (p: string) => `前往 ${p} 登入 →`,
     sections: '設定頁的區塊',
     /** The links at the top of the page: short, so they stay on one line. */
-    nav: { version: '版本', language: '介面語言', appearance: '外觀', notifications: '通知', sandboxes: '沙箱', backends: '模型來源', lead: '首席 agent', tools: '工具庫', voice: '語音輸入', cwd: '預設工作目錄', sessions: 'Agent 的 session', shares: '分享', browsers: '已登入的瀏覽器', tour: '使用導覽' },
+    nav: { version: '版本', language: '介面語言', appearance: '外觀', notifications: '通知', sandboxes: '沙箱', backends: '模型來源', lead: '首席 agent', tools: '工具庫', voice: '語音輸入', cwd: '預設工作目錄', sessions: 'Agent 的 session', shares: '分享', browsers: '已登入的瀏覽器', tour: '使用導覽',
+      /** One entry for every agent's card: a menu of them; while one is read, its name too. */
+      agents: 'Agent',
+      agentsAt: (name: string) => `Agent：${name}`,
+      /** The open-source agents' heading in that menu. */
+      openAgents: '開源 agent',
+    },
     tour: '使用導覽',
     tourHint: '一步一步介紹主要功能。',
     replayTour: '重新觀看導覽',

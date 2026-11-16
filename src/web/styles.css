@@ -6814,28 +6814,119 @@ details.sub summary {
   display: none;
 }
 
-.settings-nav a {
+.settings-nav-links > a,
+.settings-nav-agents {
   flex: none;
   padding: 4px 12px;
   border: 1px solid var(--border);
   border-radius: 999px;
+  font: inherit;
   font-size: 13px;
+  line-height: inherit;
   color: var(--muted);
+  background: none;
   text-decoration: none;
   white-space: nowrap;
 }
 
-.settings-nav a:hover {
+.settings-nav-links > a:hover,
+.settings-nav-agents:hover,
+.settings-nav-agents[aria-expanded='true'] {
   color: var(--text);
   background: var(--surface);
 }
 
-/* The card being read. */
-.settings-nav a.active {
+/* The card being read (for an agent's card, the agents' menu, which names it). */
+.settings-nav-links > a.active,
+.settings-nav-agents.active {
   color: var(--text);
   font-weight: 600;
   background: var(--surface-2);
   border-color: color-mix(in srgb, var(--text) 35%, var(--border));
+}
+
+/* One entry for every agent's card: it opens the menu of them. */
+.settings-nav-agents {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 9px;
+  cursor: pointer;
+}
+
+.settings-nav-agents svg {
+  transform: rotate(90deg);
+  transition: transform 0.15s ease;
+}
+
+.settings-nav-agents[aria-expanded='true'] svg {
+  transform: rotate(-90deg);
+}
+
+/* The agents' menu, under its button (placed by SettingsNav, in the nav's coordinates). */
+.settings-agents-menu {
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 220px;
+  max-height: min(520px, calc(100dvh - 120px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+
+.settings-agents-menu a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 9px;
+  font-size: 14px;
+  color: var(--text);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.settings-agents-menu a:hover,
+.settings-agents-menu a:focus-visible {
+  background: var(--surface);
+  outline: none;
+}
+
+.settings-agents-menu a:focus-visible {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--text) 40%, transparent);
+}
+
+.settings-agents-menu a.active {
+  font-weight: 600;
+}
+
+/* Each agent's own colour, as in the sidebar. */
+.settings-agents-menu a i {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.settings-agents-menu a svg {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.settings-agents-group {
+  margin-top: 4px;
+  padding: 8px 10px 4px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .card[id^='settings-'] {
