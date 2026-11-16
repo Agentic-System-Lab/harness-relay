@@ -158,7 +158,7 @@ The origin of each raster is also embedded in the file (PNG text chunk) or in a 
 2. Re-cut both posters from a frame that shows the three agents (the team design card works well), and the two screenshots from the same frames: `docs/media/screenshot-en.png` and `docs/media/screenshot-zh-TW.png`, full-size PNGs with their origin in a PNG text chunk. The org's homepage (https://agentic-system-lab.github.io/) and its GitHub profile show them from `main`, so they change there as soon as you push.
 3. Re-time the chapters: each chapter's `data-t` (seconds) and its `<time>` label, in both pages. The English and Chinese recordings have different timings and different teams.
 4. Update the member initials and names in the chapter rail if the team changed.
-5. Bring the demo's structured data up to date in both pages: the `VideoObject`'s `uploadDate` (when the new video is published) and `duration` (its length, `PT2M6S`).
+5. Bring the demo's structured data up to date in both pages: the `VideoObject`'s `uploadDate` (when the new video is published; the same video published again keeps its date) and `duration` (its length as an ISO 8601 duration, such as `PT2M6S`).
 
 ## Accessibility
 

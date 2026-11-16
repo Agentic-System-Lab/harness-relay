@@ -47,9 +47,9 @@
     <script src="../assets/site.js" defer></script>
     <script type="module" src="../assets/downloads.js"></script>
     <script type="module" src="../assets/theme.js"></script>
-    <!-- What search and answer engines read about the page, the app and the demo: facts the page states
-         (test/site-structured-data.test.ts keeps them in step with it and with the English page). No
-         version, star count or rating; the demo's uploadDate and duration are written by npm run demo. -->
+    <!-- What search and answer engines read about the page, the app and the demo: what the page says, and what
+         its links lead to (test/site-structured-data.test.ts keeps it in step with the page and the English page).
+         No version, price, star count or rating; the demo's uploadDate and duration are written by npm run demo. -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -91,8 +91,6 @@
             "operatingSystem": "macOS, Windows, Linux",
             "inLanguage": ["en", "zh-TW"],
             "downloadUrl": "https://github.com/Agentic-System-Lab/harness-relay/releases/latest",
-            "isAccessibleForFree": true,
-            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
             "license": "https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE",
             "image": "https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png",
             "screenshot": "https://agentic-system-lab.github.io/harness-relay/assets/media/poster-zh-TW.webp",
@@ -104,8 +102,6 @@
             "@id": "https://agentic-system-lab.github.io/harness-relay/#source",
             "name": "Harness Relay",
             "codeRepository": "https://github.com/Agentic-System-Lab/harness-relay",
-            "programmingLanguage": "TypeScript",
-            "runtimePlatform": "Node.js",
             "license": "https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE",
             "targetProduct": { "@id": "https://agentic-system-lab.github.io/harness-relay/#app" }
           },
@@ -494,7 +490,7 @@
               </div>
             </dl>
             <p class="agents-foot">
-              完全存取以外，它們每一個和它啟動的一切，都在 Harness Relay 自己的作業系統沙箱中執行：只能寫入它自己的暫存資料夾與它自己的 session（其他對話的 agent 都讀不到也改不了），可編輯模式再加上工作目錄與對話的附件。不必詢問就能連到這次執行的模型來源；其他主機會先問你，但這台電腦自己的位址、agent 自己會連的少數主機，以及一次執行中第 30 個之後的主機，會直接拒絕。核准一樣是對話裡的卡片。
+              完全存取以外，它們每一個和它啟動的一切，都在 Harness Relay 自己的作業系統沙箱中執行（在原生 Windows 上，以及 Linux 上的 OpenCode，只能以完全存取執行）：只能寫入它自己的暫存資料夾與它自己的 session（其他對話的 agent 都讀不到也改不了），可編輯模式再加上工作目錄與對話的附件。不必詢問就能連到這次執行的模型來源；其他主機會先問你，但這台電腦自己的位址、agent 自己會連的少數主機，以及一次執行中第 30 個之後的主機，會直接拒絕。核准一樣是對話裡的卡片。
             </p>
           </div>
           <article class="excerpt">
@@ -887,7 +883,7 @@
             <ul class="facts">
               <li><svg aria-hidden="true"><use href="#i-lock" /></svg><span>只綁定 <code>127.0.0.1</code>，只接受你登入過的瀏覽器，並拒絕跨站請求。</span></li>
               <li><svg aria-hidden="true"><use href="#i-shield" /></svg><span>完全存取以外，Claude Code、Codex、Grok、Copilot 和 Muse Code 的指令都在它們各自的作業系統沙箱中執行：只能寫入工作目錄，讀不到你瀏覽器的資料夾與 Harness Relay 的資料。Cursor 沒有沙箱，所以每個指令都會先問你（對話設為自動拒絕時則直接拒絕），你的 Cursor 團隊允許清單上的除外。Antigravity 也沒有沙箱：每個指令都會先問你，而只要被拒絕一次，它就會結束這一輪。Copilot 被拒絕時也會結束這一輪。</span></li>
-              <li><svg aria-hidden="true"><use href="#i-box" /></svg><span>五個開源 agent 和它們啟動的一切，都在 Harness Relay 自己的沙箱中執行（sandbox-runtime：macOS 上用 Seatbelt、Linux 上用 bubblewrap，網路經過會過濾的 proxy）：同樣碰不到那些資料夾，每位成員的 session 都是它自己的，不必詢問就能連到的只有這次執行的模型來源。沙箱無法啟動就不執行；在原生 Windows 上只能以完全存取執行。</span></li>
+              <li><svg aria-hidden="true"><use href="#i-box" /></svg><span>五個開源 agent 和它們啟動的一切，都在 Harness Relay 自己的沙箱中執行（sandbox-runtime：macOS 上用 Seatbelt、Linux 上用 bubblewrap，網路經過會過濾的 proxy）：同樣碰不到那些資料夾，每位成員的 session 都是它自己的，不必詢問就能連到的只有這次執行的模型來源。沙箱無法啟動就不執行；在原生 Windows 上只能以完全存取執行，Linux 上的 OpenCode 也是。</span></li>
               <li><svg aria-hidden="true"><use href="#i-branch" /></svg><span>每個改檔的回合都有 git 快照；平行模式的 agent 在各自的 worktree 工作。</span></li>
               <li><svg aria-hidden="true"><use href="#i-key" /></svg><span>API key 與 MCP 伺服器的 token 存在作業系統的憑證儲存區：macOS 鑰匙圈、Windows 認證管理員或 Secret Service；沒有這些時（例如在 codespace 裡）則加密後存在資料庫。</span></li>
               <li><svg aria-hidden="true"><use href="#i-db" /></svg><span>所有對話都存在一個 SQLite 檔案裡；只有在你把對話分享成連結時，Harness Relay 才會把它發布出去。</span></li>

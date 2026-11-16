@@ -6,7 +6,7 @@
     <title>Harness Relay: any mix of Claude Code, Codex, Grok and nine more coding agents</title>
     <meta
       name="description"
-      content="Harness Relay is a local app where the coding agents you already have, any of twelve such as Claude Code, Codex and Grok, work with you and with each other."
+      content="Harness Relay is a local app where the coding agents you already have, any mix of twelve, such as Claude Code, Codex and Grok, work with you and each other."
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/" />
@@ -50,9 +50,9 @@
     <script src="assets/site.js" defer></script>
     <script type="module" src="assets/downloads.js"></script>
     <script type="module" src="assets/theme.js"></script>
-    <!-- What search and answer engines read about the page, the app and the demo: facts the page states
-         (test/site-structured-data.test.ts keeps them in step with it and with the Chinese page). No
-         version, star count or rating; the demo's uploadDate and duration are written by npm run demo. -->
+    <!-- What search and answer engines read about the page, the app and the demo: what the page says, and what
+         its links lead to (test/site-structured-data.test.ts keeps it in step with the page and the Chinese page).
+         No version, price, star count or rating; the demo's uploadDate and duration are written by npm run demo. -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -62,7 +62,7 @@
             "@id": "https://agentic-system-lab.github.io/harness-relay/#webpage",
             "url": "https://agentic-system-lab.github.io/harness-relay/",
             "name": "Harness Relay: any mix of Claude Code, Codex, Grok and nine more coding agents",
-            "description": "Harness Relay is a local app where the coding agents you already have, any of twelve such as Claude Code, Codex and Grok, work with you and with each other.",
+            "description": "Harness Relay is a local app where the coding agents you already have, any mix of twelve, such as Claude Code, Codex and Grok, work with you and each other.",
             "inLanguage": "en",
             "isPartOf": { "@id": "https://agentic-system-lab.github.io/harness-relay/#website" },
             "about": { "@id": "https://agentic-system-lab.github.io/harness-relay/#app" },
@@ -94,8 +94,6 @@
             "operatingSystem": "macOS, Windows, Linux",
             "inLanguage": ["en", "zh-TW"],
             "downloadUrl": "https://github.com/Agentic-System-Lab/harness-relay/releases/latest",
-            "isAccessibleForFree": true,
-            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
             "license": "https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE",
             "image": "https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png",
             "screenshot": "https://agentic-system-lab.github.io/harness-relay/assets/media/poster-en.webp",
@@ -107,8 +105,6 @@
             "@id": "https://agentic-system-lab.github.io/harness-relay/#source",
             "name": "Harness Relay",
             "codeRepository": "https://github.com/Agentic-System-Lab/harness-relay",
-            "programmingLanguage": "TypeScript",
-            "runtimePlatform": "Node.js",
             "license": "https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE",
             "targetProduct": { "@id": "https://agentic-system-lab.github.io/harness-relay/#app" }
           },
@@ -502,7 +498,8 @@
               </div>
             </dl>
             <p class="agents-foot">
-              Below full access, each of them, with everything it starts, runs in Harness Relay’s own OS sandbox. It writes
+              Below full access, each of them, with everything it starts, runs in Harness Relay’s own OS sandbox (on native
+              Windows, and for OpenCode on Linux, they run only with full access). It writes
               only its own temp folder and its own sessions, which no other conversation’s agent can read or change, and in
               edit mode the working directory and the conversation’s attachments too. It reaches the run’s model backend without
               asking; other hosts are asked about, except this computer’s own addresses, a few the agent contacts by itself
@@ -930,7 +927,7 @@
             <ul class="facts">
               <li><svg aria-hidden="true"><use href="#i-lock" /></svg><span>Bound to <code>127.0.0.1</code> and takes only browsers you signed in; cross-site requests are rejected.</span></li>
               <li><svg aria-hidden="true"><use href="#i-shield" /></svg><span>Below full access, Claude Code’s, Codex’s, Grok’s, Copilot and Muse Code’s commands run in their own OS sandbox: they write only in the working directory, and can’t read your browsers’ folders or Harness Relay’s data. Cursor has no sandbox, so it asks you before every command (or refuses it, if the conversation refuses automatically), except those on your Cursor team’s allowlist. Antigravity has none either: it asks you before every command, and a refusal ends its turn. A refusal ends Copilot’s turn too.</span></li>
-              <li><svg aria-hidden="true"><use href="#i-box" /></svg><span>The five open-source agents, and everything they start, run in Harness Relay’s own sandbox (sandbox-runtime: Seatbelt on macOS, bubblewrap on Linux, a filtering proxy for the network): the same folders are out of reach, each member’s sessions are its own, and only the run’s model backend is reachable without asking. If it can’t start, they don’t run; on native Windows they run only with full access.</span></li>
+              <li><svg aria-hidden="true"><use href="#i-box" /></svg><span>The five open-source agents, and everything they start, run in Harness Relay’s own sandbox (sandbox-runtime: Seatbelt on macOS, bubblewrap on Linux, a filtering proxy for the network): the same folders are out of reach, each member’s sessions are its own, and only the run’s model backend is reachable without asking. If it can’t start, they don’t run; on native Windows they run only with full access, and so does OpenCode on Linux.</span></li>
               <li><svg aria-hidden="true"><use href="#i-branch" /></svg><span>Git snapshots for every turn that edits; parallel agents in their own worktrees.</span></li>
               <li><svg aria-hidden="true"><use href="#i-key" /></svg><span>API keys and MCP server tokens in your OS credential store: macOS Keychain, Windows Credential Manager or Secret Service; where there is none, as in a codespace, encrypted in the database.</span></li>
               <li><svg aria-hidden="true"><use href="#i-db" /></svg><span>Your conversations live in one SQLite file; Harness Relay publishes one only when you share it as a link.</span></li>

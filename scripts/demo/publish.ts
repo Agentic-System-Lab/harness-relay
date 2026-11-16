@@ -5,7 +5,7 @@
  * `review.md` next to the recording: the chapters as written and what the agents did, to check the
  * chapter sentences (scripts/demo/chapters.ts) against.
  */
-import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PROVIDER_LABEL, type Conversation, type Provider } from '../../src/shared/types';
 import { buildChapters, clock, RAILS, replaceRail } from './chapters';
@@ -22,7 +22,8 @@ export function retimeGuidelines(md: string, lang: DemoLang, at: number): string
 
 /** Seconds as an ISO 8601 duration, to the second (`PT2M6S`), as structured data writes a video's length. */
 export function isoDuration(seconds: number): string {
-  const s = Math.max(0, Math.round(seconds));
+  if (!Number.isFinite(seconds) || seconds < 0) throw new Error(`Not a video's length: ${seconds}`);
+  const s = Math.round(seconds);
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   return `PT${h ? `${h}H` : ''}${h || m ? `${m}M` : ''}${s % 60}S`;
@@ -30,13 +31,14 @@ export function isoDuration(seconds: number): string {
 
 /**
  * The page with its demo's structured data (the VideoObject in its JSON-LD) brought up to date: when the
- * video was published and how long it is. Pure; the page has each of the two fields once.
+ * video was published (left as it is without one: the same video again) and how long it is. Pure; the
+ * page has each of the two fields once, or it is refused.
  */
-export function retimeVideoData(html: string, video: { uploadDate: string; seconds: number }): string {
-  const set = (text: string, key: string, value: string) => {
+export function retimeVideoData(html: string, video: { uploadDate?: string; seconds: number }): string {
+  const set = (text: string, key: string, value: string | undefined) => {
     const re = new RegExp(`("${key}": )"[^"]*"`, 'g');
     if ((text.match(re) ?? []).length !== 1) throw new Error(`The page's structured data should have "${key}" once`);
-    return text.replace(re, `$1${JSON.stringify(value)}`);
+    return value === undefined ? text : text.replace(re, (_whole, field: string) => `${field}${JSON.stringify(value)}`);
   };
   return set(set(html, 'uploadDate', video.uploadDate), 'duration', isoDuration(video.seconds));
 }
@@ -45,24 +47,31 @@ export function publish(dir: string, lang: DemoLang, log: (...a: unknown[]) => v
   const timeline = JSON.parse(readFileSync(join(dir, 'timeline.json'), 'utf8')) as Timeline;
   const conversation = JSON.parse(readFileSync(join(dir, 'conversation.json'), 'utf8')) as Conversation;
 
-  copyFileSync(join(dir, 'video.mp4'), join(ROOT, `docs/media/demo-${lang}.mp4`));
-  copyFileSync(join(dir, 'animation.webp'), join(ROOT, `docs/media/demo-${lang}.webp`));
-  log(`docs/media/demo-${lang}.mp4 and .webp replaced`);
-
+  // Everything that can refuse the recording first, so that a refusal leaves nothing half published.
   const poster = timeline.marks.find((m) => m.name === 'poster')?.video ?? timeline.marks.find((m) => m.name === 'q1-plan')?.video;
   if (poster === undefined) throw new Error('No poster mark in the timeline');
   const at = Math.round(poster * 10) / 10;
+  const spec = RAILS[lang];
+  const { chapters, missing } = buildChapters(lang, spec, timeline);
+  const page = join(ROOT, spec.page);
+  // A new video is published now; the same video again (publish run once more, after fixing the
+  // chapter sentences) keeps the date it was first published on.
+  const video = join(ROOT, `docs/media/demo-${lang}.mp4`);
+  const same = existsSync(video) && readFileSync(video).equals(readFileSync(join(dir, 'video.mp4')));
+  const uploadDate = same ? undefined : new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+  const html = retimeVideoData(replaceRail(readFileSync(page, 'utf8'), chapters), { uploadDate, seconds: timeline.length });
+
+  copyFileSync(join(dir, 'video.mp4'), video);
+  copyFileSync(join(dir, 'animation.webp'), join(ROOT, `docs/media/demo-${lang}.webp`));
+  log(`docs/media/demo-${lang}.mp4 and .webp ${same ? 'unchanged' : 'replaced'}`);
+
   cutStills(lang, at, dir, log);
   const guidelines = join(ROOT, GUIDELINES);
   writeFileSync(guidelines, retimeGuidelines(readFileSync(guidelines, 'utf8'), lang, at));
 
-  const spec = RAILS[lang];
-  const { chapters, missing } = buildChapters(lang, spec, timeline);
-  const page = join(ROOT, spec.page);
-  // The video is published now: its structured data says so, and how long it is.
-  const uploadDate = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
-  writeFileSync(page, retimeVideoData(replaceRail(readFileSync(page, 'utf8'), chapters), { uploadDate, seconds: timeline.length }));
-  log(`${spec.page}: ${chapters.length} chapters${missing.length ? ` (left out, no mark: ${missing.join(', ')})` : ''}, video data ${uploadDate}, ${isoDuration(timeline.length)}`);
+  writeFileSync(page, html);
+  const published = uploadDate ? `published ${uploadDate}` : 'publication date kept';
+  log(`${spec.page}: ${chapters.length} chapters${missing.length ? ` (left out, no mark: ${missing.join(', ')})` : ''}; video ${isoDuration(timeline.length)}, ${published}`);
 
   const review = reviewNotes(lang, timeline, conversation, chapters.map((c) => `- ${clock(c.t)} **${c.who}**${c.via ? ` (${c.via})` : ''}: ${c.say}`), at);
   writeFileSync(join(dir, 'review.md'), review);

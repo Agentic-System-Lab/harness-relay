@@ -223,6 +223,9 @@ describe('demo scenario and site', () => {
     expect(isoDuration(42)).toBe('PT42S');
     expect(isoDuration(3725)).toBe('PT1H2M5S');
     expect(isoDuration(3600)).toBe('PT1H0M0S');
+    expect(isoDuration(0)).toBe('PT0S');
+    // A timeline without a length is refused, not written as PTNaNS.
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, -1]) expect(() => isoDuration(bad), String(bad)).toThrow(/length/);
   });
 
   it("brings the page's video structured data up to date, and only its two fields", () => {
@@ -234,9 +237,16 @@ describe('demo scenario and site', () => {
       // Nothing else changed: put the old values back and it is the page again.
       const before = (key: string) => html.match(new RegExp(`"${key}": "[^"]*"`))![0];
       expect(out.replace(/"uploadDate": "[^"]*"/, before('uploadDate')).replace(/"duration": "[^"]*"/, before('duration')), page).toBe(html);
+      // The same video published again keeps the date it was first published on; only its length is written.
+      const again = retimeVideoData(html, { seconds: 131.2 });
+      expect(again, page).toContain(before('uploadDate'));
+      expect(again.replace(/"duration": "[^"]*"/, before('duration')), page).toBe(html);
+      // The values are written as they are, never read as a replacement pattern.
+      expect(retimeVideoData(html, { uploadDate: '$&$1', seconds: 1 }), page).toContain('"uploadDate": "$&$1"');
     }
     // A page without them (or with two videos) is refused, not left as it was.
     expect(() => retimeVideoData('<html></html>', { uploadDate: '2027-01-02T03:04:05Z', seconds: 1 })).toThrow(/uploadDate/);
+    expect(() => retimeVideoData('<html></html>', { seconds: 1 })).toThrow(/uploadDate/);
   });
 });
 

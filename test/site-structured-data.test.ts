@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { INSTALLERS } from '../site/assets/downloads.js';
+import { opencodeSandboxUnsupported } from '../src/server/agents/opencode';
+import { DEFAULT_HOST } from '../src/server/ports';
 import { PROVIDER_LABEL } from '../src/shared/types';
 
 // What search and answer engines (Google, Bing, ChatGPT search, Perplexity, the coding agents that read
@@ -74,6 +76,22 @@ const published = (url: string) => {
   return `site/${path === '' || path.endsWith('/') ? `${path}index.html` : path}`;
 };
 
+/** The systems with an installer, as words: "macOS (Apple Silicon), Windows (x64 and Arm64) and Linux (x64 and Arm64)". */
+const systemsInWords = () => {
+  const names: Record<string, string> = { mac: 'macOS', win: 'Windows', linux: 'Linux' };
+  const systems = new Map<string, string[]>();
+  for (const [key, ending] of Object.entries(INSTALLERS)) {
+    const name = names[key.split('-')[0]];
+    const processor = key === 'mac' ? 'Apple Silicon' : ending.includes('arm64') ? 'Arm64' : 'x64';
+    systems.set(name, [...(systems.get(name) ?? []), processor]);
+  }
+  const each = [...systems].map(([name, processors]) => `${name} (${processors.join(' and ')})`);
+  return `${each.slice(0, -1).join(', ')} and ${each.at(-1)}`;
+};
+
+/** A whole word or name in text, not a part of a longer one ("Pi", not "Pipeline"). */
+const word = (s: string) => new RegExp(`(?<![\\w-])${s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`);
+
 /** Columns a line takes in a search result, a CJK or fullwidth character as two. */
 const columns = (s: string) => [...s].reduce((n, c) => n + (/[\u2E80-\u9FFF\u3000-\u303F\uFF00-\uFFEF]/.test(c) ? 2 : 1), 0);
 
@@ -102,7 +120,49 @@ describe("the landing page's structured data", () => {
           expect(ids.has((value as { '@id': string })['@id']), `${file} ${key}`).toBe(true);
         }
       }
+      // And the nodes are tied together: the page is part of the site, about the app, with the demo; the site
+      // and the app are the organisation's; the source code is the app's.
+      const ref = (type: string) => ({ '@id': node(data, type)['@id'] });
+      const web = node(data, 'WebPage');
+      expect(web.isPartOf, file).toEqual(ref('WebSite'));
+      expect(web.about, file).toEqual(ref('SoftwareApplication'));
+      expect(web.video, file).toEqual(ref('VideoObject'));
+      expect(node(data, 'WebSite').publisher, file).toEqual(ref('Organization'));
+      expect(node(data, 'SoftwareApplication').publisher, file).toEqual(ref('Organization'));
+      expect(node(data, 'SoftwareSourceCode').targetProduct, file).toEqual(ref('SoftwareApplication'));
     }
+  });
+
+  it('has only the properties checked here: a new one is a new fact to check against the page', () => {
+    const properties: Record<string, string[]> = {
+      WebPage: ['@id', '@type', 'about', 'description', 'inLanguage', 'isPartOf', 'name', 'primaryImageOfPage', 'url', 'video'],
+      WebSite: ['@id', '@type', 'inLanguage', 'name', 'publisher', 'url'],
+      Organization: ['@id', '@type', 'name', 'sameAs', 'url'],
+      SoftwareApplication: [
+        '@id', '@type', 'applicationCategory', 'description', 'downloadUrl', 'image', 'inLanguage', 'license', 'name',
+        'operatingSystem', 'publisher', 'sameAs', 'screenshot', 'url',
+      ],
+      SoftwareSourceCode: ['@id', '@type', 'codeRepository', 'license', 'name', 'targetProduct'],
+      VideoObject: ['@id', '@type', 'contentUrl', 'description', 'duration', 'inLanguage', 'name', 'thumbnailUrl', 'uploadDate'],
+    };
+    for (const { file } of PAGES) {
+      for (const n of page(file).data['@graph']) expect(Object.keys(n).sort(), `${file} ${n['@type']}`).toEqual([...properties[n['@type']]].sort());
+    }
+  });
+
+  it('names its publisher by the GitHub account the page’s repository is under, and the app’s languages as the app has them', () => {
+    const { data, html } = page('site/index.html');
+    const org = node(data, 'Organization');
+    expect(org.url).toBe('https://agentic-system-lab.github.io/');
+    expect(org.sameAs).toEqual(['https://github.com/Agentic-System-Lab']);
+    expect(html).toContain(`href="${(org.sameAs as string[])[0]}/harness-relay"`);
+    expect(REPO.startsWith(`${(org.sameAs as string[])[0]}/`)).toBe(true);
+    // As the org's homepage (its url) names itself in its <title>.
+    expect(org.name).toBe('Agentic System Lab');
+    // The UI's two locales (src/web/locales/), as the page's language switch has them.
+    expect(node(data, 'SoftwareApplication').inLanguage).toEqual(PAGES.map((p) => p.lang));
+    expect(node(data, 'WebSite').inLanguage).toEqual(PAGES.map((p) => p.lang));
+    for (const lang of ['en', 'zh-TW']) expect(exists(`src/web/locales/${lang}.ts`), lang).toBe(true);
   });
 
   it("says of the page what its <head> says: address, title, description, language and picture", () => {
@@ -133,8 +193,12 @@ describe("the landing page's structured data", () => {
       expect(video.description, file).toBe(p.videoLabel);
       expect(String(video.name).toLowerCase(), file).toContain(p.demoTitle.toLowerCase());
       expect(video.inLanguage, file).toBe(lang);
-      // Written by npm run demo (scripts/demo/publish.ts, retimeVideoData()) when the video is replaced.
-      expect(String(video.uploadDate), file).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})$/);
+      // Written by npm run demo (scripts/demo/publish.ts, retimeVideoData()) when the video is replaced: a real
+      // time in UTC to the second, as toISOString() writes it, and not one still to come.
+      const uploaded = String(video.uploadDate);
+      expect(uploaded, file).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+      expect(new Date(uploaded).toISOString(), file).toBe(uploaded.replace('Z', '.000Z'));
+      expect(Date.parse(uploaded), file).toBeLessThanOrEqual(Date.now());
       const duration = String(video.duration).match(/^PT(?:(\d+)H)?(?:(\d+)M)?(\d+)S$/);
       expect(duration, file).not.toBeNull();
       const seconds = Number(duration![1] ?? 0) * 3600 + Number(duration![2] ?? 0) * 60 + Number(duration![3]);
@@ -182,9 +246,13 @@ describe("the landing page's structured data", () => {
     }
   });
 
-  it('claims nothing the page may not: no version, star or download count, rating or review', () => {
-    // The page reads the version and the stars from GitHub as it loads, and has no ratings (DESIGN-GUIDELINES.md, "Facts only").
-    const never = ['softwareVersion', 'version', 'aggregateRating', 'review', 'ratingValue', 'interactionStatistic', 'userInteractionCount', 'downloadCount'];
+  it('claims nothing the page may not: no version, size, price, star or download count, rating or review', () => {
+    // The page reads the version and the stars from GitHub as it loads, shows no installer sizes, has no ratings
+    // (DESIGN-GUIDELINES.md, "Facts only") and names no price: it says nothing of one.
+    const never = [
+      'softwareVersion', 'version', 'fileSize', 'offers', 'price', 'isAccessibleForFree', 'aggregateRating', 'review',
+      'ratingValue', 'ratingCount', 'reviewCount', 'interactionStatistic', 'userInteractionCount', 'downloadCount',
+    ];
     for (const { file } of PAGES) {
       const keys = [...entries(page(file).data)].map(([key]) => key);
       for (const key of never) expect(keys, `${file} ${key}`).not.toContain(key);
@@ -224,7 +292,27 @@ describe('site/llms.txt', () => {
 
   it('names every agent Harness Relay runs', () => {
     const summary = text.slice(0, text.indexOf('\n## '));
-    for (const label of Object.values(PROVIDER_LABEL)) expect(summary, label).toContain(label);
+    for (const label of Object.values(PROVIDER_LABEL)) expect(summary, label).toMatch(word(label));
+  });
+
+  it('states what the code does: the systems with an installer, the Node.js it needs, where it listens', () => {
+    expect(text).toContain(`a desktop app for ${systemsInWords()}`);
+    const node = (JSON.parse(read('package.json')) as { engines: { node: string } }).engines.node;
+    expect(node).toMatch(/^>=\d+\.\d+$/);
+    expect(text).toContain(`Node.js ${node.slice(2)} or later`);
+    expect(text).toContain(`The server listens on ${DEFAULT_HOST} `);
+  });
+
+  it('says where Harness Relay’s own sandbox does not run, as the code has it, and so do both pages', () => {
+    // OpenCode on Linux runs only with full access (its server cannot be watched from outside the sandbox).
+    expect(opencodeSandboxUnsupported('linux')).toBeTruthy();
+    expect(opencodeSandboxUnsupported('darwin')).toBeUndefined();
+    expect(text).toContain('on native Windows they run only with full access, and so does OpenCode on Linux.');
+    const [en, zh] = PAGES.map(({ file }) => read(file));
+    expect(en).toContain('on native Windows they run only with full access, and so does OpenCode on Linux.');
+    expect(en).toContain('(on native\n              Windows, and for OpenCode on Linux, they run only with full access)');
+    expect(zh).toContain('在原生 Windows 上只能以完全存取執行，Linux 上的 OpenCode 也是。');
+    expect(zh).toContain('（在原生 Windows 上，以及 Linux 上的 OpenCode，只能以完全存取執行）');
   });
 
   it('links to the two pages at their canonical addresses, and to files that are in the repository', () => {
@@ -256,9 +344,17 @@ describe('site/llms.txt', () => {
     expect(text).toContain('License: the Sustainable Use License 1.0, a source-available license, not an OSI-approved open-source one.');
   });
 
-  it('is published with the pages: the Pages workflow drops only Markdown, provenance sidecars and type declarations', () => {
+  it('is published with the pages: the Pages workflow copies site/ and deletes nothing it is', () => {
     const workflow = read('.github/workflows/pages.yml');
-    expect(workflow).toContain('cp -R site/. _site/');
-    expect(workflow).toContain("find _site \\( -name '*.md' -o -name '*.webp.json' -o -name '*.d.ts' \\) -delete");
+    expect(workflow).toMatch(/cp -R site\/\. _site\//);
+    // Every file the workflow deletes from the site again is matched by a -name pattern of its find … -delete.
+    const deletes = workflow.split('\n').filter((line) => /\bfind _site\b/.test(line) && /-delete\b/.test(line));
+    expect(deletes).toHaveLength(1);
+    const patterns = [...deletes[0].matchAll(/-name '([^']+)'/g)].map((m) => m[1]);
+    expect(patterns.length).toBeGreaterThan(0);
+    const glob = (p: string) => new RegExp(`^${p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*').replaceAll('?', '.')}$`);
+    for (const pattern of patterns) expect(glob(pattern).test('llms.txt'), pattern).toBe(false);
+    // The patterns are read right: the design guidelines, which are deleted, match one.
+    expect(patterns.some((p) => glob(p).test('DESIGN-GUIDELINES.md'))).toBe(true);
   });
 });
