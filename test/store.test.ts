@@ -164,7 +164,7 @@ describe('Store (SQLite)', () => {
     db.exec(`ALTER TABLE conversations DROP COLUMN auto_confirm;
              ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
              DROP TABLE shares; ALTER TABLE conversations DROP COLUMN branch;
-             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; DROP TABLE auth_sessions; DROP TABLE auth_codes;
+             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE auth_sessions; DROP TABLE auth_codes;
              DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label;
              ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
              ALTER TABLE agent_sessions DROP COLUMN account;
@@ -474,7 +474,7 @@ describe('Store (SQLite)', () => {
              INSERT INTO agent_worktrees VALUES ('conv-1', 'a1', '/tmp', '/wt/a1', 'relay/c/Architect', 'b0', 1);
              ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
              DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
-             DROP TABLE deleted_endpoints; DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE agent_sessions DROP COLUMN backend;
+             DROP TABLE deleted_endpoints; DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; ALTER TABLE agent_sessions DROP COLUMN backend;
              PRAGMA user_version = 20;`);
     const migrated = new Store(reopen()).get(conv.id)!;
     expect(migrated.worktrees).toEqual({ a1: [{ root: '/tmp', path: '/wt/a1', branch: 'relay/c/Architect', base: 'b0', needsReset: true }] });
@@ -497,7 +497,7 @@ describe('Store (SQLite)', () => {
                  PRIMARY KEY (conversation_id, agent_id));
                INSERT INTO agent_worktrees VALUES ('${conv.id}', 'a1', '/tmp', '/wt/a1', 'relay/c/Architect', 'b0', 0);
                ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
-               DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review;
+               DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at;
                ${upTo}
                PRAGMA user_version = ${version};`);
     const version = () => (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
@@ -505,13 +505,13 @@ describe('Store (SQLite)', () => {
     db.prepare("INSERT INTO deleted_endpoints (id, deleted_at) VALUES ('oldlab', 1)").run();
     early(25, '');
     reopen();
-    expect(version()).toBe(29);
+    expect(version()).toBe(30);
     expect(has("SELECT 1 FROM pragma_table_info('conversations') WHERE name = 'extra_cwds'")).toBe(true);
     expect(db.prepare('SELECT id FROM deleted_endpoints').all()).toEqual([{ id: 'oldlab' }]);
     expect(new Store(db).get(conv.id)!.worktrees).toEqual({ a1: [{ root: '/tmp', path: '/wt/a1', branch: 'relay/c/Architect', base: 'b0', needsReset: false }] });
     early(22, 'ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;');
     reopen();
-    expect(version()).toBe(29);
+    expect(version()).toBe(30);
     expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'by_cli'")).toBe(true);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'deleted_endpoints'")).toBe(true);
     // Builds from before the accounts numbered the model backends 19–22: without the accounts or several
@@ -524,7 +524,7 @@ describe('Store (SQLite)', () => {
       );
     beforeAccounts(22, '');
     reopen();
-    expect(version()).toBe(29);
+    expect(version()).toBe(30);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'provider_accounts'")).toBe(true);
     expect(has("SELECT 1 FROM pragma_table_info('provider_accounts') WHERE name = 'native_items'")).toBe(true);
     expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'account'")).toBe(true);
@@ -532,16 +532,16 @@ describe('Store (SQLite)', () => {
     expect(new Store(db).get(conv.id)!.worktrees).toEqual({ a1: [{ root: '/tmp', path: '/wt/a1', branch: 'relay/c/Architect', base: 'b0', needsReset: false }] });
     beforeAccounts(19, 'ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;');
     reopen();
-    expect(version()).toBe(29);
+    expect(version()).toBe(30);
     expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'permission'")).toBe(true);
     expect(has("SELECT 1 FROM pragma_table_info('provider_settings') WHERE name = 'sandbox_terminal'")).toBe(true);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'provider_accounts'")).toBe(true);
     // A database of main's own at 21 (several working directories, no model backends) is left as it is.
     db.exec(`DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli;
              ALTER TABLE provider_settings DROP COLUMN sandbox_terminal; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;
-             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; PRAGMA user_version = 21;`);
+             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; PRAGMA user_version = 21;`);
     reopen();
-    expect(version()).toBe(29);
+    expect(version()).toBe(30);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'model_backends'")).toBe(true);
   });
 
@@ -693,6 +693,32 @@ describe('Store groups', () => {
     expect(again.groupOf('c1')).toBeNull(); // Other
     expect(again.groupOf('missing')).toBeNull();
     expect(again.isSorted('c1')).toBe(true); // the user sorted it: it is not sorted automatically again
+  });
+
+  it('pins a conversation and unpins it, keeping when it was pinned and its activity', () => {
+    const store = new Store(db);
+    store.create({ ...sampleConversation(), id: 'c1' });
+    store.create({ ...sampleConversation(), id: 'c2' });
+    const pinned = (s: Store) => Object.fromEntries(s.list(() => false).map((c) => [c.id, c.pinnedAt]));
+    expect(pinned(store)).toEqual({ c1: undefined, c2: undefined });
+
+    expect(store.setPinned('c1', true, 5000)).toBe(true);
+    // Pinned again: it keeps its place among the pinned ones.
+    expect(store.setPinned('c1', true, 9000)).toBe(true);
+    expect(pinned(store)).toEqual({ c1: 5000, c2: undefined });
+    // Not activity: the conversation keeps its updatedAt, also once saved again and reopened.
+    expect(store.list(() => false).find((c) => c.id === 'c1')!.updatedAt).toBe(2000);
+    store.saveMeta({ ...store.get('c1')!, title: 'Renamed' });
+    const again = new Store(reopen());
+    expect(pinned(again)).toEqual({ c1: 5000, c2: undefined });
+    expect(again.list(() => false).find((c) => c.id === 'c1')!.updatedAt).toBe(2000);
+
+    expect(again.setPinned('c1', false)).toBe(true);
+    expect(again.setPinned('c1', false)).toBe(true);
+    expect(pinned(again)).toEqual({ c1: undefined, c2: undefined });
+    expect(again.setPinned('missing', true)).toBe(false);
+    again.delete('c2');
+    expect(again.setPinned('c2', true)).toBe(false);
   });
 
   it('sorts a conversation automatically only once, never over the user, and never into a deleted group', () => {
@@ -899,7 +925,7 @@ describe('Store shares', () => {
     // Shares from before schema version 16 took no files along.
     db.exec(`ALTER TABLE shares DROP COLUMN files; ALTER TABLE shares DROP COLUMN files_gist; ALTER TABLE shares DROP COLUMN unfinished;
              ALTER TABLE conversations DROP COLUMN branch;
-             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; DROP TABLE auth_sessions; DROP TABLE auth_codes;
+             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE auth_sessions; DROP TABLE auth_codes;
              DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label;
              ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
              ALTER TABLE agent_sessions DROP COLUMN account;
@@ -1436,7 +1462,7 @@ describe('SettingsStore accounts', () => {
              ALTER TABLE provider_accounts DROP COLUMN native_off; ALTER TABLE provider_accounts DROP COLUMN native_items;
              ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
              DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
-             DROP TABLE deleted_endpoints; DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE agent_sessions DROP COLUMN backend;
+             DROP TABLE deleted_endpoints; DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; ALTER TABLE agent_sessions DROP COLUMN backend;
              PRAGMA user_version = 19;`);
     const migrated = new SettingsStore(reopen());
     // They run as before: as the CLI did, for every account.
@@ -1609,7 +1635,7 @@ describe('Store schedules', () => {
     // Schedules from before schema version 14 send in their own conversation.
     db.exec(`ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
              DROP TABLE shares; ALTER TABLE conversations DROP COLUMN branch;
-             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; DROP TABLE auth_sessions; DROP TABLE auth_codes;
+             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE auth_sessions; DROP TABLE auth_codes;
              DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label;
              ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
              ALTER TABLE agent_sessions DROP COLUMN account;

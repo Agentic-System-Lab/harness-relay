@@ -255,6 +255,8 @@ export const api = {
   /** `groupId: null` puts it in the default group ("Other"). */
   moveToGroup: (id: string, groupId: string | null) =>
     request<{ ok: true }>('PUT', `/api/conversations/${id}/group`, { groupId }),
+  /** Pin it to the top of the sidebar, or unpin it. */
+  pinConversation: (id: string, pinned: boolean) => request<{ ok: true }>('PUT', `/api/conversations/${id}/pin`, { pinned }),
   /** Set the conversation's schedule (it replaces the one there was). */
   saveSchedule: (id: string, b: ScheduleUpdate) => request<ConversationSchedule>('PUT', `/api/conversations/${id}/schedule`, b),
   deleteSchedule: (id: string) => request<{ ok: true }>('DELETE', `/api/conversations/${id}/schedule`),

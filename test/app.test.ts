@@ -1474,6 +1474,31 @@ describe('sidebar groups', () => {
     expect(await listed()).toBeUndefined();
   });
 
+  it('pins a conversation to the top of the sidebar and unpins it', async () => {
+    const conv = await createConversation();
+    const pin = (b: unknown, id = conv.id) => app.request(`/api/conversations/${id}/pin`, json('PUT', b));
+    const listed = async () =>
+      ((await (await get('/api/conversations')).json()) as ConversationSummary[]).find((c) => c.id === conv.id)!;
+    const before = await listed();
+    expect(before.pinnedAt).toBeUndefined();
+
+    expect((await pin({ pinned: true })).status).toBe(200);
+    const at = (await listed()).pinnedAt;
+    expect(at).toBeGreaterThan(0);
+    // Pinning it again keeps its place; neither is activity.
+    expect((await pin({ pinned: true })).status).toBe(200);
+    expect((await listed()).pinnedAt).toBe(at);
+    expect((await listed()).updatedAt).toBe(before.updatedAt);
+
+    expect((await pin({ pinned: 'yes' })).status).toBe(400);
+    expect((await pin({})).status).toBe(400);
+    expect((await pin({ pinned: true }, 'nope')).status).toBe(404);
+    expect((await listed()).pinnedAt).toBe(at);
+
+    expect((await pin({ pinned: false })).status).toBe(200);
+    expect((await listed()).pinnedAt).toBeUndefined();
+  });
+
   it('moves a branched conversation with its family, and lists where each was branched from', async () => {
     const original = await createConversation();
     const branch = await createConversation();

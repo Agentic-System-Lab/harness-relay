@@ -88,6 +88,10 @@ export const en: Messages = {
     hideBranches: (n) => (n === 1 ? 'Hide 1 branched conversation' : `Hide ${n} branched conversations`),
     deletedChat: 'Deleted conversation',
     moveFailed: (message) => `Could not move the conversation: ${message}`,
+    pinned: 'Pinned',
+    pin: (title) => `Pin "${title}"`,
+    unpin: (title) => `Unpin "${title}"`,
+    pinFailed: (message) => `Could not change the pin: ${message}`,
     sorting: 'Sorting…',
     search: 'Search',
     searchPlaceholder: 'Search conversations',
@@ -1670,10 +1674,11 @@ export const en: Messages = {
         ],
       },
       {
-        title: 'Groups and search',
+        title: 'Groups, pins and search',
         body: 'When the list grows, sort it into groups:',
         points: [
           '"New group" makes a group; drag conversations onto it (or use the folder button)',
+          'The pin in a conversation\'s top-left corner (hover it) keeps it under "Pinned", above the groups',
           "Once you have groups, the lead agent reads a new conversation's first message and puts it in the group it fits",
           '"Search" looks through titles and everything you and the agents wrote',
         ],

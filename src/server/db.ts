@@ -425,6 +425,11 @@ const MIGRATIONS: string[] = [
   ALTER TABLE conversations ADD COLUMN lead_review INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE messages ADD COLUMN review TEXT;
   `,
+  // 30: pinned conversations (conversations.pinned_at: when the user pinned it; NULL: not pinned),
+  // listed above the groups in the sidebar, the one pinned last first.
+  `
+  ALTER TABLE conversations ADD COLUMN pinned_at INTEGER;
+  `,
 ];
 
 /**

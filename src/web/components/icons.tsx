@@ -99,6 +99,23 @@ export function FolderIcon({ size }: { size?: number }) {
   );
 }
 
+/**
+ * A pushpin: tilted, its point to the bottom right, to pin a conversation to the top of the sidebar;
+ * upright once it is pinned (filled by CSS). Each is moved so that it looks centred, the head being
+ * heavier than the point.
+ */
+export function PinIcon({ size, upright = false }: { size?: number; upright?: boolean }) {
+  return (
+    <Svg size={size}>
+      <g transform={upright ? 'translate(0 0.75)' : 'translate(1.2 0.6) rotate(-45 12 12)'}>
+        <path d="M8.5 3h7" />
+        <path d="M10 3v6.2L6.5 13h11L14 9.2V3" />
+        <path d="M12 13v8" />
+      </g>
+    </Svg>
+  );
+}
+
 export function FolderPlusIcon({ size }: { size?: number }) {
   return (
     <Svg size={size}>

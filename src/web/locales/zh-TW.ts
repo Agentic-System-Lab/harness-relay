@@ -100,6 +100,10 @@ export const zhTW = {
     hideBranches: (n: number) => `收合 ${n} 個分支對話`,
     deletedChat: '已刪除的對話',
     moveFailed: (message: string) => `無法移動對話：${message}`,
+    pinned: '已釘選',
+    pin: (title: string) => `釘選「${title}」`,
+    unpin: (title: string) => `取消釘選「${title}」`,
+    pinFailed: (message: string) => `無法變更釘選：${message}`,
     sorting: '分類中…',
     search: '搜尋',
     searchPlaceholder: '搜尋對話內容',
@@ -1705,10 +1709,11 @@ export const zhTW = {
         ],
       },
       {
-        title: '群組與搜尋',
+        title: '群組、釘選與搜尋',
         body: '對話多了，可以分組整理：',
         points: [
           '「新群組」建立群組，再把對話拖進去（或用資料夾按鈕移動）',
+          '對話左上角的圖釘（滑過對話才出現）會把它釘在群組上方的「已釘選」',
           '有群組時，首席 agent 會讀新對話的第一則訊息，自動放進合適的群組',
           '「搜尋」會找標題，以及你和 agent 寫過的所有內容',
         ],
