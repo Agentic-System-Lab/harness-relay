@@ -20,6 +20,7 @@ import type {
   FileListing,
   FilePreview,
   GrokFolderTrust,
+  CliInstallView,
   CliLoginView,
   LoginMethod,
   LoginSessionView,
@@ -444,6 +445,11 @@ export const api = {
   logout: (p: Provider, account = '') =>
     request<{ ok: true; output: string }>('POST', `/api/providers/${p}/logout${accountQuery(account)}`),
 
+  // installing the CLIs from Settings
+  clis: () => request<CliInstallView[]>('GET', '/api/clis'),
+  installCli: (p: Provider) => request<CliInstallView>('POST', `/api/clis/${p}/install`),
+  cancelCliInstall: (p: Provider) => request<CliInstallView>('DELETE', `/api/clis/${p}/install`),
+  removeCli: (p: Provider) => request<CliInstallView>('DELETE', `/api/clis/${p}`),
   // voice input
   voice: () => request<VoiceStatus>('GET', '/api/voice'),
   updateVoice: (b: VoiceSettingsUpdate) => request<VoiceStatus>('PUT', '/api/voice/settings', b),

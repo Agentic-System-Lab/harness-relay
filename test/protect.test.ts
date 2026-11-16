@@ -7,6 +7,7 @@ import {
   appBrowserDirs,
   browserDataDirs,
   clearRunTmp,
+  cliFolder,
   CODESPACE_SHARED_DIR,
   codespaceSecretDirs,
   makeCodespaceGhDir,
@@ -260,6 +261,14 @@ describe('what decides how the agents run, as a working directory', () => {
     expect(agentFolderOverlap(join(home, '.local'), o)).toBe(join(home, '.local/share/muse'));
     expect(agentFolderOverlap(join(home, '.local/share/muse/sessions'), o)).toBe(join(home, '.local/share/muse'));
     expect(agentFolderOverlap(join(home, '.config/other'), o)).toBeUndefined();
+    // The CLIs Harness Relay installed from Settings, each in a folder of its own in the data folder.
+    expect(cliFolder(join(root, 'data'))).toBe(join(root, 'data', 'clis'));
+    const clis = { ...o, clis: join(root, 'data', 'clis') };
+    expect(agentFolderOverlap(join(root, 'data', 'clis', 'codex', 'lib'), clis)).toBe(join(root, 'data', 'clis'));
+    expect(agentFolderOverlap(join(root, 'data'), clis)).toBe(join(root, 'data', 'clis'));
+    expect(agentFolderOverlap(join(root, 'data', 'worktrees', 'x'), clis)).toBeUndefined();
+    // By default, the data folder's.
+    expect(agentFolderOverlap(join(cliFolder(), 'grok'), o)).toBe(cliFolder());
     const xdgMuse = { ...o, env: { XDG_CONFIG_HOME: join(root, 'xdg'), XDG_DATA_HOME: join(root, 'xdg-data') } };
     expect(agentFolderOverlap(join(root, 'xdg/muse/skills'), xdgMuse)).toBe(join(root, 'xdg/muse'));
     expect(agentFolderOverlap(join(root, 'xdg-data/muse'), xdgMuse)).toBe(join(root, 'xdg-data/muse'));

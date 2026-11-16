@@ -26,6 +26,7 @@ import { RUN_TMP_DIR, clearOpenRunLeftovers } from './agents/open';
 import { clearRelaySandboxLeftovers, noteListeningPort, relaySandboxHostRoot, relaySandboxRoot } from './relaySandbox';
 import { Store } from './store';
 import { VoiceService } from './voice';
+import { CliInstaller } from './cliInstall';
 import { serveWebApp, webAppDir } from './web';
 import { NativeSetupService } from './native';
 import { plannerContext } from './planner';
@@ -127,7 +128,10 @@ const parent = desktopParent();
 const extraHosts = (process.env.RELAY_ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim()).filter(Boolean);
 // What the desktop app says of its updates, for the chat to show (only the version otherwise).
 const updates = new Updates(parent, relayVersion);
-const app = createApp({ auth, store, settings, hub, orchestrator, providers, voice, agentsView, native, extraHosts, desktopApp: Boolean(parent), updates, push, alerts });
+const clis = new CliInstaller(settings, { changed: (p) => providers.invalidate(p), busy: () => orchestrator.anyRunning() });
+// On Windows: the user's PATH put back, as it was before an install this server's last run did not see end.
+void clis.recover();
+const app = createApp({ auth, store, settings, hub, orchestrator, providers, voice, clis, agentsView, native, extraHosts, desktopApp: Boolean(parent), updates, push, alerts });
 
 // --- Static web app (production build) ------------------------------------------
 
@@ -218,8 +222,10 @@ async function shutdown(code = 0): Promise<void> {
   orchestrator.stopAll();
   providers.shutdown();
   voice.shutdown();
+  // Installs under way stop; each cleans up after itself (on Windows, the user's PATH put back).
+  const installsStopped = clis.shutdown();
   // Let stopped runs write their final state while the database is still open.
-  await orchestrator.settled(5000);
+  await Promise.all([orchestrator.settled(5000), Promise.race([installsStopped, new Promise((r) => setTimeout(r, 5000))])]);
   // And give AgentsView the last turns (each request times out on its own).
   await Promise.race([agentsView.idle(), new Promise((r) => setTimeout(r, 3000))]);
   // SIGTERM, then SIGKILL every agent process group that is still around (including subprocesses).
@@ -232,5 +238,5 @@ process.on('SIGINT', () => void shutdown());
 process.on('SIGTERM', () => void shutdown());
 // The desktop app asks over its port: on Windows it has no signal to send.
 parent?.onShutdown(() => void shutdown());
-// Before it updates, the app waits until no conversation has agents at work.
-parent?.onBusy(() => orchestrator.busy());
+// Before it updates, the app waits until no conversation has agents at work, and no CLI is being installed.
+parent?.onBusy(() => orchestrator.busy() + clis.running());

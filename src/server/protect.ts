@@ -270,6 +270,15 @@ export function voiceFolder(dataDir = DATA_DIR): string {
 }
 
 /**
+ * Where the CLIs Harness Relay installs from Settings go (`cliInstall.ts`), each in a folder of its
+ * own: `clis/<provider>` in the data folder. It holds their programs, so it is one of the folders that
+ * decide how the agents run (`agentFolders`).
+ */
+export function cliFolder(dataDir = DATA_DIR): string {
+  return join(dataDir, 'clis');
+}
+
+/**
  * Why agents below full access may not work in `cwd`, or undefined when they may: it holds Harness
  * Relay's folder or its data folder (an agent could then change its code or its database), or it is
  * inside Harness Relay's folder, outside its data folder (its code). A folder inside the data folder,
@@ -319,6 +328,8 @@ export interface AgentFolderOptions {
   /** The folder of the CLIs' homes of the accounts besides each one's default (`SettingsStore.accountsDir`). */
   accountsDir?: string;
   bins?: string[];
+  /** The folder of the CLIs Harness Relay installed (`cliFolder`, the data folder's by default). */
+  clis?: string;
 }
 
 /**
@@ -328,7 +339,8 @@ export interface AgentFolderOptions {
  * Code its XDG config and data folders), Claude
  * Code's `~/.claude.json`,
  * the CLIs' own folder Harness Relay gives them (`agentHome`), the folder of the other accounts' homes
- * (`accountsDir`), and the folders their programs are in (`bins`, from `commandPaths`).
+ * (`accountsDir`), the folder of the CLIs Harness Relay installed (`clis`), and the folders their
+ * programs are in (`bins`, from `commandPaths`).
  */
 export function agentFolders(o: AgentFolderOptions = {}): string[] {
   const home = o.home ?? homedir();
@@ -362,6 +374,7 @@ export function agentFolders(o: AgentFolderOptions = {}): string[] {
     ]),
     ...(o.agentHome ? [o.agentHome] : []),
     ...(o.accountsDir && o.accountsDir !== o.agentHome ? [o.accountsDir] : []),
+    o.clis ?? cliFolder(),
     ...(o.bins ?? []).map((bin) => dirname(bin)),
   ];
 }

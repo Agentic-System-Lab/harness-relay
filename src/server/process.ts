@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions as ChildOptions, type SpawnSyncReturns } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { isAbsolute, resolve, win32 } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Duplex } from 'node:stream';
 import { t } from './i18n';
@@ -186,6 +186,17 @@ export function runShellScript(shell: string, flags: readonly string[], script: 
   return supervise(shell, o, (options) => spawn(shell, [...flags, '-c', script], options));
 }
 
+/**
+ * Whether `bin` must start with a console of its own: on Windows, Windows PowerShell and PowerShell 7,
+ * which without one run nothing and exit at once with code 0 (seen with Windows PowerShell 5.1 on
+ * Windows 11, for `-File` and `-Command` alike). A detached child gets none there (Node starts it
+ * `DETACHED_PROCESS`); started attached, hidden and with its stdio piped, it gets a hidden console of
+ * its own (`CREATE_NO_WINDOW`), not the server's.
+ */
+export function needsConsole(bin: string, platform: NodeJS.Platform = process.platform): boolean {
+  return platform === 'win32' && /^(powershell|pwsh)(\.exe)?$/i.test(win32.basename(bin));
+}
+
 /** Starts the child with `start`, follows it to its end, and stops it when asked; `name` is what a missing command is reported as. */
 function supervise(name: string, o: RunOptions, start: (options: ChildOptions) => ChildProcess): Promise<SpawnResult> {
   return new Promise((done, reject) => {
@@ -212,8 +223,10 @@ function supervise(name: string, o: RunOptions, start: (options: ChildOptions) =
     const child = start({
       cwd: o.cwd,
       env: o.env,
-      detached: true,
-      // On Windows a detached child would get a console window of its own.
+      // Its own process group, which killTree signals; on Windows that also means no console, which
+      // PowerShell cannot run without (`needsConsole`).
+      detached: !needsConsole(name),
+      // On Windows, no window: a console given to the child is hidden.
       windowsHide: true,
       stdio: [o.stdin === undefined && !o.keepStdinOpen ? 'ignore' : 'pipe', 'pipe', 'pipe', ...(channel ? ['pipe' as const] : [])],
     });

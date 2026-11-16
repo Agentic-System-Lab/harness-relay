@@ -84,22 +84,6 @@ export const PROVIDER_LABEL: Record<Provider, string> = {
   pi: 'Pi',
 };
 
-/** Where each CLI is installed from: Settings links to it when the CLI is not found. */
-export const PROVIDER_INSTALL_URL: Record<Provider, string> = {
-  claude: 'https://claude.com/product/claude-code',
-  codex: 'https://openai.com/codex/',
-  grok: 'https://x.ai/build',
-  cursor: 'https://cursor.com/cli',
-  antigravity: 'https://antigravity.google/download',
-  copilot: 'https://github.com/features/copilot/cli',
-  muse: 'https://dev.meta.ai/products/muse-code/',
-  opencode: 'https://www.npmjs.com/package/opencode-ai',
-  goose: 'https://formulae.brew.sh/formula/block-goose-cli',
-  cline: 'https://www.npmjs.com/package/cline',
-  openhands: 'https://pypi.org/project/openhands/',
-  pi: 'https://www.npmjs.com/package/@earendil-works/pi-coding-agent',
-};
-
 /** UI languages. The server localizes its messages from the `X-Relay-Lang` request header. */
 export type Lang = 'zh-TW' | 'en';
 export const LANGS: Lang[] = ['zh-TW', 'en'];
@@ -1477,6 +1461,52 @@ export interface AccountStatus {
 /** Whether agents can run as this account: signed in (or it could not be told), or with an API key. */
 export function accountUsable(a: Pick<AccountStatus, 'auth' | 'usingStoredApiKey'>): boolean {
   return a.auth.loggedIn !== false || a.usingStoredApiKey;
+}
+
+// --- Installing a CLI from Settings (src/server/cliInstall.ts) ---------------------------------
+
+/**
+ * How Harness Relay installs a CLI, always into a folder of its own in the data folder: with npm
+ * (`npm install -g --prefix`), with its maker's installer script (run with that folder as its home), or
+ * with uv (`uv tool install`, its tools and Python in that folder).
+ */
+export type CliInstallMethod = 'npm' | 'script' | 'uv';
+
+/**
+ * Why Harness Relay cannot install a CLI here: a program its install needs is not found (npm, which
+ * comes with Node.js; curl, and bash or on Windows Git for Windows' bash (`gitBash`) or Windows
+ * PowerShell, for a maker's script, uv's own installer included), or Harness Relay runs no installer
+ * of it on this system (`system`: neither macOS, Linux nor Windows).
+ */
+export type CliInstallBlock = 'npm' | 'curl' | 'bash' | 'gitBash' | 'powershell' | 'system';
+
+/** An install under way or done: what its installer printed (the end of it), and how it ended. */
+export interface CliInstallJobView {
+  state: LoginState;
+  startedAt: number;
+  finishedAt?: number;
+  /** The installer's output, its last lines (colours and progress bars taken out). */
+  log: string;
+  error?: string;
+}
+
+/** How Harness Relay can install one CLI on this computer, and what it installed of it. */
+export interface CliInstallView {
+  provider: Provider;
+  method: CliInstallMethod;
+  /** What the install runs, as one would type it (`npm install -g @openai/codex`); it goes into `dir`. */
+  command: string;
+  /** Why it cannot be installed here; absent when it can. */
+  blocked?: CliInstallBlock;
+  /** The folder of its own it is installed in (removing it deletes this folder). */
+  dir: string;
+  /**
+   * Installed by Harness Relay: its program, its version, when, and whether the CLI's executable path
+   * is that program (an install sets it so; the user may set another one since).
+   */
+  installed?: { bin: string; version?: string; at: number; inUse: boolean };
+  /** The latest install since the server started, while it runs and after it ended. */
+  job?: CliInstallJobView;
 }
 
 /** How long one of a plan's limits runs before it starts over, when it is one of the usual spans. */

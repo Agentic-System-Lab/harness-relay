@@ -31,7 +31,7 @@ import { WindowsScriptError } from './winLaunch';
 // ---------------------------------------------------------------------------
 // Status
 
-function parseVersion(out: string): string | undefined {
+export function parseVersion(out: string): string | undefined {
   const m = stripAnsi(out).match(/\d+\.\d+\.\d+[\w.-]*/);
   // Not the sentence's full stop: Copilot prints "GitHub Copilot CLI 1.0.109."
   return m?.[0].replace(/[.-]+$/, '');
