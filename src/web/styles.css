@@ -6854,6 +6854,22 @@ details.sub summary {
   cursor: pointer;
 }
 
+/* Its label as wide as the widest it can show: each one laid over the others in one cell, unseen. */
+.settings-nav-agents-label {
+  display: grid;
+  justify-items: center;
+}
+
+.settings-nav-agents-label > * {
+  grid-area: 1 / 1;
+}
+
+/* Bold, as when highlighted: the same width either way. */
+.settings-nav-agents-label > .sizer {
+  visibility: hidden;
+  font-weight: 600;
+}
+
 .settings-nav-agents svg {
   transform: rotate(90deg);
   transition: transform 0.15s ease;
@@ -6863,7 +6879,8 @@ details.sub summary {
   transform: rotate(-90deg);
 }
 
-/* The agents' menu, under its button (placed by SettingsNav, in the nav's coordinates). */
+/* The agents' menu, under its button (placed by SettingsNav, in the nav's coordinates, with the
+   height the room below the button leaves it). */
 .settings-agents-menu {
   position: absolute;
   z-index: 30;
@@ -6921,10 +6938,17 @@ details.sub summary {
   color: var(--muted);
 }
 
+/* The open-source agents: a group of their own, under their heading. */
 .settings-agents-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   margin-top: 4px;
-  padding: 8px 10px 4px;
   border-top: 1px solid var(--border);
+}
+
+.settings-agents-heading {
+  padding: 8px 10px 4px;
   font-size: 12px;
   color: var(--muted);
 }
