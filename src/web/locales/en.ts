@@ -1487,7 +1487,7 @@ export const en: Messages = {
       cancel: 'Cancel install',
       installing: (p) => `Installing ${p}…`,
       into: (dir) => `Into a folder of Harness Relay's own, ${dir}; you can remove it here later.`,
-      scriptHome: 'The installer gets that folder as its home, so what it writes to shell profiles or caches stays in it too.',
+      scriptHome: ' The installer gets that folder as its home, so what it writes to shell profiles or caches stays in it too.',
       blocked: {
         npm: (p) => `Installing ${p} here takes npm, which comes with Node.js, and it is not on the PATH. Install Node.js, then reload this page.`,
         uv: (p) => `Installing ${p} here takes uv, which is not on the PATH. Install uv (docs.astral.sh/uv), then reload this page.`,
