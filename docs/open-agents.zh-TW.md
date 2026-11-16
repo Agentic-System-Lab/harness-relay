@@ -37,7 +37,7 @@ orchestrator 把模型來源傳給每次 開源 agent 的執行（`RunOptions.ba
 
 **模型選單**列出 CLI 自己模型清單中、模型來源已設定的模型（轉接器的 `models` hook，CLI 有清單時），再加上每個端點輸入的模型；也隨時可以自己輸入 id。成員留在「預設」時，就用選單顯示為預設的模型執行，和其他 CLI 一樣：先用「設定」裡這個 CLI 的預設，否則用它的清單預設（該模型的來源已設定時；`Orchestrator.modelFor`，取自 `ProviderService.models`）。兩者都沒有時，選單會說需要選一個模型，執行時也會請你選一個。
 
-**狀態。** CLI 已安裝（`--version`）、轉接器已完成，且至少設定了一個模型來源時，開源 agent 就可使用。它沒有登入流程：登入相關的路由對它回應 400。Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI（Anthropic 不允許在第三方 agent 中使用它的訂閱）；「設定」會說明這點，Claude Code 與 Grok 本身的模型照常使用它們自己的登入。
+**狀態。** CLI 已安裝（`--version`）、轉接器已完成，且至少設定了一個模型來源時，開源 agent 就可使用。找不到的 CLI 可以在設定頁從它的卡片安裝，裝進專屬的資料夾，版本就是驗證過的那個（[使用者說明 → 從設定頁安裝 CLI](user-guide.zh-TW.md#從設定頁安裝-cli)）。它沒有登入流程：登入相關的路由對它回應 400。Claude 訂閱帳號與 Grok 的登入不能用在這些 CLI（Anthropic 不允許在第三方 agent 中使用它的訂閱）；「設定」會說明這點，Claude Code 與 Grok 本身的模型照常使用它們自己的登入。
 
 ### Claude Code、Codex、Grok 與 Copilot 在端點上執行
 

@@ -740,6 +740,11 @@ export class SettingsStore {
     return this.providers[p].bin.trim() || DEFAULT_BIN[p];
   }
 
+  /** The executable path set for the CLI (by the user, or by an install from Settings); empty = none, its name on the PATH. */
+  customBin(p: Provider): string {
+    return this.providers[p].bin.trim();
+  }
+
   /**
    * How a run as `account` goes (empty or one the CLI does not have, such as one removed since: the
    * default account, as `env()` does).

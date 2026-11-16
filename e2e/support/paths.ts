@@ -11,6 +11,8 @@ export const FAKE_CLI_SCRIPT = join(FAKE_CLI_DIR, 'fake-cli.cjs');
 export const FAKE_DIALOG_SCRIPT = join(FAKE_CLI_DIR, 'fake-dialog.cjs');
 /** The fake GitHub CLI (`gh`), which shares conversations as gists. */
 export const FAKE_GH_SCRIPT = join(FAKE_CLI_DIR, 'fake-gh.cjs');
+/** The fake npm (`npm`), which Settings installs some of the CLIs with. */
+export const FAKE_NPM_SCRIPT = join(FAKE_CLI_DIR, 'fake-npm.cjs');
 /** The built UI the servers under test serve (`npm run build`). */
 export const WEB_DIR = join(ROOT, 'dist', 'web');
 /**

@@ -4246,6 +4246,45 @@ video.chat-media {
   margin: 8px 0 0;
 }
 
+/* Installing a CLI from its card in Settings (CliInstall.tsx). */
+.cli-install {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cli-install.ours {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.cli-install.ours > .muted {
+  overflow-wrap: anywhere;
+}
+
+.cli-install .button-row {
+  margin: 0;
+}
+
+.cli-install code {
+  overflow-wrap: anywhere;
+}
+
+.cli-install-log {
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 180px;
+  overflow: auto;
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 10px;
+  margin: 0;
+}
+
 details.sub summary {
   cursor: pointer;
   font-size: 13.5px;

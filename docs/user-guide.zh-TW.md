@@ -48,6 +48,16 @@ Muse Code 在 macOS 與 Linux 上用 `curl -fsSL https://dev.meta.ai/install.sh 
 | [OpenHands](https://pypi.org/project/openhands/)（`openhands`） | `uv tool install openhands==1.16.0`（需要 [uv](https://docs.astral.sh/uv/)） | 1.16.0 |
 | [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)（`pi`） | `npm install -g @earendil-works/pi-coding-agent@1.5.1`（需要 Node.js 22.19 以上） | 1.5.1 |
 
+#### 從設定頁安裝 CLI
+
+也可以在「**設定與登入**」裡，從每個 CLI 自己的卡片分別安裝它。Harness Relay 找不到某個 CLI 時，它的卡片會顯示「**安裝 <CLI>**」按鈕，以及會執行的指令。按一下就會在背景把它裝進一個專屬的資料夾 `data/clis/<cli>`（在[桌面 app](#桌面-app) 裡是它資料夾中的 `clis/`），一邊安裝一邊顯示安裝程式的輸出（可以「**取消安裝**」），確認程式能執行，再把這個 CLI 的「**執行檔**」設成它。其他地方都不會動到：不會放上你的 `PATH`，也不會改你 shell 的設定檔，所以這樣裝的 CLI 只給 Harness Relay 用。之後卡片會顯示「**由 Harness Relay 安裝在 …**」與「**移除**」按鈕：移除會刪掉那個資料夾，並把執行檔設定改回安裝前的樣子；CLI 的登入、設定與對話紀錄都留在它自己的家目錄。用其他方式安裝的 CLI 不會出現移除按鈕。各 CLI 的安裝方式：
+
+- 用 npm（隨 Node.js 一起安裝），以全域安裝的方式裝進那個資料夾（`npm install -g`）：Claude Code、Codex 與 Copilot（最新版），以及 OpenCode、Cline 與 Pi（下表的版本）。
+- 用它官方的安裝腳本，以 `curl` 下載、`bash` 執行，並把那個資料夾當作它的家目錄，所以它在程式旁邊寫的東西（shell 設定檔、快取）也都留在裡面：Grok、Cursor、Antigravity 與 Muse Code（最新版），以及 Goose（1.58.1）。限 macOS 與 Linux；在 Windows 上請照它們官網的說明安裝。
+- 用 [uv](https://docs.astral.sh/uv/)（`uv tool install`），它替這個工具下載的 Python 也放在那個資料夾裡：OpenHands。
+
+找不到安裝需要的程式（npm、uv、curl 或 bash）時，卡片會說明缺了什麼，而不顯示按鈕。安裝失敗或取消都不會留下任何檔案；失敗的原因與輸出會留在卡片上，直到你再試一次。要等沒有 agent 在工作時才能移除。[GitHub codespace](codespaces.zh-TW.md) 裡已經裝好七個非開源的 CLI；開源的那幾個在那裡也一樣從設定頁安裝。
+
 完全存取以外，它們在 Harness Relay 自己的沙箱中執行（[開源 agent → Harness Relay 的沙箱](open-agents.zh-TW.md#harness-relay-的沙箱)）。macOS 上不需要另外安裝（在[桌面 app](#桌面-app) 裡則需要 `PATH` 上有 Node.js 22.12 以上）；Linux 上請安裝 `bubblewrap`、`socat` 與 `ripgrep`（`sudo apt-get install bubblewrap socat ripgrep`），Ubuntu 23.10 以上還要加上[各平台的作業系統沙箱 → 在 Linux 上](sandboxing.zh-TW.md#在-linux-上)裡 `/usr/bin/bwrap` 的 AppArmor 設定檔。在原生 Windows 上它們只能以完全存取執行（要有沙箱請用 WSL2），Linux 上的 OpenCode 也一樣（Harness Relay 在那裡無法監看它的伺服器）。
 
 有兩個功能用到時才需要多裝一點。[語音輸入](#語音輸入)開啟時會自動安裝：macOS 需要 [Homebrew](https://brew.sh)；Linux 的預先編譯引擎需要 glibc 2.34 以上（Ubuntu 22.04、Debian 12 或更新）。把[對話分享](#分享對話)成連結需要 [GitHub CLI](https://cli.github.com)（`gh`）2.66.0 以上並登入（在分享對話框裡，或用 `gh auth login`），附上檔案時還需要 `git`。
@@ -146,7 +156,7 @@ Harness Relay 更新時開著的聊天頁面，會在一分鐘內（或你回到
 
 ## 2. 分別登入各個 agent：設定與登入
 
-點側邊欄的 **⚙ 設定與登入**。**模型來源** 排在最前面，在所有 CLI 之前：五個開源 agent 用它執行，Claude Code、Codex、Grok 與 Copilot 也能用它的自訂端點執行（見[開源 agent 與模型來源](#開源-agent-與模型來源)）。每個 CLI 有一張卡片，顯示版本，並把它的每個帳號放在自己的框裡（只有預設帳號時也一樣），顯示帳號名稱、登入狀態，以及 CLI 回報的 email。帳號框裡的一切都屬於那個帳號：登入、API key、[預設模型與推理強度](#預設模型與推理強度)，以及 CLI 在那裡[自己載入的內容](#各-cli-自己載入的內容)。只有 CLI 的 **執行檔** 是所有帳號共用一個設定。五個開源 agent 沒有登入流程，所以也沒有其他帳號。
+點側邊欄的 **⚙ 設定與登入**。**模型來源** 排在最前面，在所有 CLI 之前：五個開源 agent 用它執行，Claude Code、Codex、Grok 與 Copilot 也能用它的自訂端點執行（見[開源 agent 與模型來源](#開源-agent-與模型來源)）。每個 CLI 有一張卡片，顯示版本（找不到它時則顯示[安裝它](#從設定頁安裝-cli)的按鈕），並把它的每個帳號放在自己的框裡（只有預設帳號時也一樣），顯示帳號名稱、登入狀態，以及 CLI 回報的 email。帳號框裡的一切都屬於那個帳號：登入、API key、[預設模型與推理強度](#預設模型與推理強度)，以及 CLI 在那裡[自己載入的內容](#各-cli-自己載入的內容)。只有 CLI 的 **執行檔** 是所有帳號共用一個設定。五個開源 agent 沒有登入流程，所以也沒有其他帳號。
 
 ### 登入
 
@@ -686,13 +696,14 @@ agent 修改檔案時，回覆最後會有一張卡片，列出改了哪些檔�
 
 ## 6. 資料存在哪裡
 
-所有對話、範本與設定都存在專案資料夾的 `data/relay.db`（SQLite），只有你的帳號能讀取。你分享的連結也記在那裡；頁面本身（連同附上的檔案）是 GitHub 上的 secret gist。API key 例外：它們放在系統的金鑰儲存區（見上方「API key（選用）」），模型來源的金鑰也一樣（端點本身則存在 `data/relay.db`）；在沒有金鑰儲存區的系統上，它們加密存在 `data/relay.db`，金鑰在 `data/secrets.key`。瀏覽器的推播訂閱與伺服器用來簽署推播通知的金鑰則存在 `data/relay.db`（瀏覽器登出時移除它的訂閱）。附加的檔案存在 `data/attachments/<對話>/`，只有你的帳號能讀取，刪除對話時（或編輯較早的訊息而刪掉它們所屬的訊息時）會一併刪除。平行模式的 worktree 放在 `data/worktrees/`（對應你 repository 中的 `relay/…` 分支），刪除對話時會一併移除。各 CLI 也會在它們平常的位置（`~/.claude…`、`~/.codex`、`~/.grok`、`~/.cursor`、`~/.gemini`、`~/.copilot`、`~/.local/share/muse`）保存自己的 session 紀錄；設定了[各 CLI 自己的資料夾](#agent-的-session各-cli-自己的資料夾與-agentsview)時則放在那個資料夾；[其他帳號](#多個帳號)放在各自的資料夾，沒有設定各 CLI 自己的資料夾時位於 `data/accounts/`。開源 agent 把它們的紀錄放在那個資料夾裡它們的家目錄，或 `data/agent-homes/`，在每位對話成員自己的資料夾（`private/<key>`）裡；它們每次執行另有自己的暫存資料夾，執行結束就刪除（完全存取以外在 `data/relay-sandbox/`，完全存取時在 `data/run-tmp/`）；伺服器在執行中停止時，則在下次啟動時刪除。刪除對話時，會移除這些 agent 為它保存的東西。Muse Code 每一輪自己的設定資料夾（這次執行的設定）放在 `data/muse-runs/`，這一輪結束就刪除；伺服器在這一輪中停止時，則由之後的某一輪刪除。語音輸入的模型（以及 Linux 與 Windows 上的引擎）放在 `data/voice/`；**設定 → 語音輸入 → 移除語音輸入** 會把它們刪除。[工具庫](#工具庫mcp-伺服器skill-與記憶)也存在 `data/relay.db`，但 MCP 伺服器變數和標頭的值例外，它們跟 API key 一樣放在金鑰儲存區。介面語言、外觀與看完的導覽版本則記在瀏覽器中。要備份時，先停止程式再複製 `data/`（連同 `secrets.key`：少了它，加密存在資料庫裡的金鑰就讀不回來）。[桌面 app](#桌面-app) 則把同樣的檔案存在它自己的資料夾，而不是 `data/`。
+所有對話、範本與設定都存在專案資料夾的 `data/relay.db`（SQLite），只有你的帳號能讀取。你分享的連結也記在那裡；頁面本身（連同附上的檔案）是 GitHub 上的 secret gist。API key 例外：它們放在系統的金鑰儲存區（見上方「API key（選用）」），模型來源的金鑰也一樣（端點本身則存在 `data/relay.db`）；在沒有金鑰儲存區的系統上，它們加密存在 `data/relay.db`，金鑰在 `data/secrets.key`。瀏覽器的推播訂閱與伺服器用來簽署推播通知的金鑰則存在 `data/relay.db`（瀏覽器登出時移除它的訂閱）。附加的檔案存在 `data/attachments/<對話>/`，只有你的帳號能讀取，刪除對話時（或編輯較早的訊息而刪掉它們所屬的訊息時）會一併刪除。平行模式的 worktree 放在 `data/worktrees/`（對應你 repository 中的 `relay/…` 分支），刪除對話時會一併移除。各 CLI 也會在它們平常的位置（`~/.claude…`、`~/.codex`、`~/.grok`、`~/.cursor`、`~/.gemini`、`~/.copilot`、`~/.local/share/muse`）保存自己的 session 紀錄；設定了[各 CLI 自己的資料夾](#agent-的-session各-cli-自己的資料夾與-agentsview)時則放在那個資料夾；[其他帳號](#多個帳號)放在各自的資料夾，沒有設定各 CLI 自己的資料夾時位於 `data/accounts/`。開源 agent 把它們的紀錄放在那個資料夾裡它們的家目錄，或 `data/agent-homes/`，在每位對話成員自己的資料夾（`private/<key>`）裡；它們每次執行另有自己的暫存資料夾，執行結束就刪除（完全存取以外在 `data/relay-sandbox/`，完全存取時在 `data/run-tmp/`）；伺服器在執行中停止時，則在下次啟動時刪除。刪除對話時，會移除這些 agent 為它保存的東西。Muse Code 每一輪自己的設定資料夾（這次執行的設定）放在 `data/muse-runs/`，這一輪結束就刪除；伺服器在這一輪中停止時，則由之後的某一輪刪除。[從設定頁安裝](#從設定頁安裝-cli)的 CLI 放在 `data/clis/`，一個 CLI 一個資料夾；CLI 卡片上的 **移除** 會刪掉它的資料夾。語音輸入的模型（以及 Linux 與 Windows 上的引擎）放在 `data/voice/`；**設定 → 語音輸入 → 移除語音輸入** 會把它們刪除。[工具庫](#工具庫mcp-伺服器skill-與記憶)也存在 `data/relay.db`，但 MCP 伺服器變數和標頭的值例外，它們跟 API key 一樣放在金鑰儲存區。介面語言、外觀與看完的導覽版本則記在瀏覽器中。要備份時，先停止程式再複製 `data/`（連同 `secrets.key`：少了它，加密存在資料庫裡的金鑰就讀不回來）。[桌面 app](#桌面-app) 則把同樣的檔案存在它自己的資料夾，而不是 `data/`。
 
 ## 7. 疑難排解
 
 | 狀況 | 處理方式 |
 | --- | --- |
 | agent 顯示「未登入」 | 到設定與登入頁登入，或設定 API key，然後按 **重新檢查狀態**。 |
+| CLI 卡片上的 **安裝** 失敗 | 打開卡片上的「安裝程式的輸出」：那裡是 npm、uv 或官方安裝腳本印出的內容（例如網路擋住了套件庫或官網，或磁碟滿了）。按 **再試一次**，或照它官網的說明自己安裝，再設定它的 **執行檔**。 |
 | 開源 agent 顯示「尚未就緒」或「尚未設定模型來源」 | 在 **設定 → 模型來源** 設定 API key 或端點，並確認它的 CLI 已安裝。 |
 | 「…沒有指定模型」 | 在團隊設定裡給這位成員一個「模型來源/模型」，或在設定頁該 agent 的卡片設定預設模型。 |
 | 「…還沒有設定 OpenAI / Anthropic / xAI 的 API key」、「沒有 id 為…的自訂端點」或「它的自訂端點…已在『設定 → 模型來源』刪除」 | 在 **設定 → 模型來源** 加上那把金鑰或那個端點，或改選你已有的模型來源的模型。如果那個模型是 CLI 自己的、只是開頭和已刪除的端點一樣，在 **已刪除的端點** 為那個端點按 **忘掉**。 |

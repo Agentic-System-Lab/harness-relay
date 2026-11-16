@@ -10,6 +10,7 @@ import { streamSSE } from 'hono/streaming';
 import { AUTH_KEY_HEADER, RELAY_FOLDER, SIGNED_OUT, browserLabel } from '../shared/auth';
 import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from './auth';
 import { aboutInfo, relayVersion } from './about';
+import { CliInstaller } from './cliInstall';
 import { CONFIG, limitsOf } from './config';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import {
@@ -122,6 +123,8 @@ export interface AppDeps {
   providers: ProviderService;
   /** Voice input; created on demand when not given (it does nothing until used). */
   voice?: VoiceService;
+  /** Installs and removes the CLIs from Settings; created when not given (it does nothing until asked). */
+  clis?: CliInstaller;
   /** Asks each CLI what it loads by itself; created when not given. */
   native?: NativeSetupService;
   /** Sends conversations to AgentsView; its last failure is shown with the settings. */
@@ -202,6 +205,7 @@ export function createApp({
   orchestrator,
   providers,
   voice = new VoiceService(settings),
+  clis = new CliInstaller(settings, { changed: (p) => providers.invalidate(p), busy: () => orchestrator.anyRunning() }),
   native = new NativeSetupService(settings),
   agentsView,
   extraHosts = [],
@@ -731,6 +735,21 @@ export function createApp({
     const output = await providers.logout(p, account(c, p));
     return c.json({ ok: true, output });
   });
+
+  // --- Installing the CLIs ------------------------------------------------------------
+
+  // How each CLI can be installed here, and what Harness Relay installed of it (with its install under
+  // way, or the last one); Settings polls it while one runs.
+  app.get('/api/clis', (c) => c.json(clis.views()));
+
+  // Install a CLI in the background into a folder of its own (`cliInstall.ts`); poll GET /api/clis.
+  app.post('/api/clis/:provider/install', (c) => c.json(clis.install(provider(c))));
+
+  // Stop the install under way.
+  app.delete('/api/clis/:provider/install', (c) => c.json(clis.cancel(provider(c))));
+
+  // Delete what Harness Relay installed of a CLI (only that: never a CLI installed another way).
+  app.delete('/api/clis/:provider', async (c) => c.json(await clis.remove(provider(c))));
 
   // --- Voice input -------------------------------------------------------------------
 

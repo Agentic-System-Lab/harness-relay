@@ -29,7 +29,7 @@ For each question, a lead agent picks the team from your templates (or adapts on
 - **Schedules**: send the team a message at set times, such as a review of yesterday's commits every weekday at 9:00. ([Schedules](docs/user-guide.md#schedules))
 - **Files, voice and sharing**: attach files and screenshots, browse the working directory, dictate with voice input that stays on your computer, and share a chat as Markdown or a link. ([Browsing files](docs/user-guide.md#browsing-files), [voice input](docs/user-guide.md#voice-input), [sharing](docs/user-guide.md#sharing-a-conversation))
 - **Organised**: groups, pinned chats at the top, search, each chat's status in the sidebar, and notifications and sound, as push notifications on a phone. ([Groups](docs/user-guide.md#groups), [pinned chats](docs/user-guide.md#pinned-conversations), [search](docs/user-guide.md#search), [notifications](docs/user-guide.md#notifications-and-sound))
-- **Set up once for every CLI**: a tool library of MCP servers, skills and memory, several accounts per CLI, each account's plan usage, what each CLI loads by itself, and the agents' sessions in [AgentsView](https://www.agentsview.io). ([Tool library](docs/user-guide.md#tool-library-mcp-servers-skills-and-memory), [accounts](docs/user-guide.md#more-than-one-account), [plan usage](docs/user-guide.md#plan-usage), [AgentsView](docs/user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview))
+- **Set up once for every CLI**: a CLI not found installs from its card in one click (and removes again), a tool library of MCP servers, skills and memory, several accounts per CLI, each account's plan usage, what each CLI loads by itself, and the agents' sessions in [AgentsView](https://www.agentsview.io). ([Installing a CLI](docs/user-guide.md#installing-a-cli-from-settings), [tool library](docs/user-guide.md#tool-library-mcp-servers-skills-and-memory), [accounts](docs/user-guide.md#more-than-one-account), [plan usage](docs/user-guide.md#plan-usage), [AgentsView](docs/user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview))
 - **Local-first, on your devices**: one SQLite file and a server on `127.0.0.1`; your phone through Tailscale; an optional desktop app; English and 繁體中文. ([Use it from your phone](docs/remote-access.md#1-share-the-server-with-your-tailnet), [desktop app](#desktop-app))
 
 Every feature, step by step, is in the [user guide](docs/user-guide.md).
@@ -37,7 +37,7 @@ Every feature, step by step, is in the [user guide](docs/user-guide.md).
 ## Requirements
 
 - Node.js **22.13+** (it uses the built-in `node:sqlite`).
-- Any of the agent CLIs, installed and on your `PATH`; you don't need them all. [Installing the agent CLIs](docs/user-guide.md#installing-the-agent-clis) lists each one, how to install it, the versions checked, and what the sandboxes need (on Linux, `bubblewrap`, `socat` and `ripgrep` for the open-source agents).
+- Any of the agent CLIs, installed and on your `PATH`, or [installed from Settings](docs/user-guide.md#installing-a-cli-from-settings) with one click; you don't need them all. [Installing the agent CLIs](docs/user-guide.md#installing-the-agent-clis) lists each one, how to install it, the versions checked, and what the sandboxes need (on Linux, `bubblewrap`, `socat` and `ripgrep` for the open-source agents).
 - [Git](https://git-scm.com/downloads), for edit and parallel modes.
 
 ## Quick start

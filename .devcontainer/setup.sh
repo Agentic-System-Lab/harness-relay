@@ -3,8 +3,8 @@
 # updateContentCommand in devcontainer.json: a prebuild runs onCreateCommand only once, when it is first
 # made), so that a prebuild has the CLIs' newest versions and this script as it is: what the sandboxes
 # need on Linux, and the seven agent CLIs that are not open source. It can run over an earlier run of
-# itself. The open-source agents (OpenCode, Goose, Cline, OpenHands, Pi) install as the README says, in
-# the codespace's terminal.
+# itself. The open-source agents (OpenCode, Goose, Cline, OpenHands, Pi) install from their cards in
+# Settings (docs/user-guide.md, "Installing a CLI from Settings"), or in the codespace's terminal.
 set -euo pipefail
 
 # Claude Code, Codex and Copilot, from npm, while the rest installs: npm writes only its own folders

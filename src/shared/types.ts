@@ -1479,6 +1479,51 @@ export function accountUsable(a: Pick<AccountStatus, 'auth' | 'usingStoredApiKey
   return a.auth.loggedIn !== false || a.usingStoredApiKey;
 }
 
+// --- Installing a CLI from Settings (src/server/cliInstall.ts) ---------------------------------
+
+/**
+ * How Harness Relay installs a CLI, always into a folder of its own in the data folder: with npm
+ * (`npm install -g --prefix`), with its maker's installer script (run with that folder as its home), or
+ * with uv (`uv tool install`, its tools and Python in that folder).
+ */
+export type CliInstallMethod = 'npm' | 'script' | 'uv';
+
+/**
+ * Why Harness Relay cannot install a CLI here: a program its install needs is not on the PATH
+ * (npm, which comes with Node.js; uv; curl and bash for a maker's script), or the CLI's maker has no
+ * installer for this system that Harness Relay runs (`system`: the scripts on Windows).
+ */
+export type CliInstallBlock = 'npm' | 'uv' | 'curl' | 'bash' | 'system';
+
+/** An install under way or done: what its installer printed (the end of it), and how it ended. */
+export interface CliInstallJobView {
+  state: LoginState;
+  startedAt: number;
+  finishedAt?: number;
+  /** The installer's output, its last lines (colours and progress bars taken out). */
+  log: string;
+  error?: string;
+}
+
+/** How Harness Relay can install one CLI on this computer, and what it installed of it. */
+export interface CliInstallView {
+  provider: Provider;
+  method: CliInstallMethod;
+  /** What the install runs, as one would type it (`npm install -g @openai/codex`); it goes into `dir`. */
+  command: string;
+  /** Why it cannot be installed here; absent when it can. */
+  blocked?: CliInstallBlock;
+  /** The folder of its own it is installed in (removing it deletes this folder). */
+  dir: string;
+  /**
+   * Installed by Harness Relay: its program, its version, when, and whether the CLI's executable path
+   * is that program (an install sets it so; the user may set another one since).
+   */
+  installed?: { bin: string; version?: string; at: number; inUse: boolean };
+  /** The latest install since the server started, while it runs and after it ended. */
+  job?: CliInstallJobView;
+}
+
 /** How long one of a plan's limits runs before it starts over, when it is one of the usual spans. */
 export type UsageSpan = 'fiveHour' | 'day' | 'week' | 'month';
 
