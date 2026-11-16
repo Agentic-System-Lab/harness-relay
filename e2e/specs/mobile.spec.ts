@@ -404,13 +404,24 @@ test.describe('on a phone', () => {
     const [arrow, box] = [(await toEnd.boundingBox())!, (await page.locator('.composer').boundingBox())!];
     expect(Math.abs(arrow.x + arrow.width / 2 - (box.x + box.width / 2))).toBeLessThanOrEqual(1);
     expect(arrow.y + arrow.height).toBeLessThan(box.y);
+    // A finger's target of 48px around the 36px circle: 5px outside it is still the button.
     expect(arrow.width).toBeGreaterThanOrEqual(36);
+    expect(await toEnd.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return el === document.elementFromPoint(r.left - 5, r.top + r.height / 2) && el === document.elementFromPoint(r.left + r.width / 2, r.bottom + 5);
+    })).toBe(true);
+    // A tap leaves the keyboard as it was: shut, the message box does not take the focus…
     await composer(page).blur();
     await toEnd.tap();
     await expect.poll(fromEnd).toBeLessThanOrEqual(1);
     await expect(toEnd).toHaveCount(0);
-    // A tap leaves the keyboard shut: the message box does not take the focus.
     await expect(composer(page)).not.toBeFocused();
+    // …and open, the message box keeps it.
+    await composer(page).focus();
+    await list.evaluate((el) => el.scrollBy(0, -800));
+    await toEnd.tap();
+    await expect.poll(fromEnd).toBeLessThanOrEqual(1);
+    await expect(composer(page)).toBeFocused();
   });
 
   test("on a narrow phone, a template's editor and the team settings do not scroll sideways, and the add card lists every CLI", async ({ page, relay }) => {

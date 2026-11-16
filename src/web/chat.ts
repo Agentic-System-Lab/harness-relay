@@ -70,7 +70,8 @@ export function followsAfterScroll(following: boolean, previous: ScrollSpot, scr
 /**
  * Whether the button that takes the messages to their end shows (above the message box): while they do
  * not follow new output and there is more below than a fraction of a pixel, because the reader scrolled
- * up, or opened part of a message and more came in under it. While they follow, they are at the end.
+ * up, or opened part of a message and more came in under it. While they follow, they are at the end, or
+ * within `FOLLOW_AGAIN` of it after a scroll down, where new output takes them the rest of the way.
  */
 export function showsToEnd(following: boolean, spot: ScrollSpot): boolean {
   return !following && spot.distance > BOTTOM_SLACK;

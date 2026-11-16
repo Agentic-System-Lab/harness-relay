@@ -3404,7 +3404,8 @@ video.chat-media {
 
 /* To the end of the messages, while they are scrolled up from it (ChatView): a round button in the
    middle above the message box and whatever is over it (the queue, an approval waiting), over the
-   messages' last lines. Under the @mention list (10), the phone header's menu and the drawers. */
+   messages' last lines. Under the phone header's menu and the drawers; hidden while the @mention list
+   is open, which it would stand just above when something is over the box. */
 .to-end {
   position: absolute;
   bottom: calc(100% + 12px);
@@ -3424,8 +3425,20 @@ video.chat-media {
   animation: to-end-in 0.15s ease-out;
 }
 
+/* A finger's target of 48px around the 36px circle. */
+.to-end::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+}
+
 .to-end:hover {
   background: var(--surface);
+}
+
+.composer-dock:has(.mention-menu) .to-end {
+  display: none;
 }
 
 @keyframes to-end-in {

@@ -280,8 +280,10 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   };
   /**
    * The button above the message box: to the end of the messages, following new output again from now
-   * (a scroll down never stops it). Clicked from the keyboard, focus goes on to the message box, as the
-   * button is gone once the messages follow.
+   * (a scroll down never stops it). A mouse or a finger never focuses it (its `onMouseDown`), so what
+   * was being typed keeps the focus, and a phone's keyboard stays as it was. Focused, it was reached
+   * from the keyboard or a screen reader: focus goes on to the message box, as the button is gone once
+   * the messages follow.
    */
   const toEnd = (e: MouseEvent<HTMLButtonElement>) => {
     const el = scroller.current;
@@ -290,7 +292,9 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
     const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     el.scrollTo({ top: el.scrollHeight, behavior: still ? 'auto' : 'smooth' });
     settle(el);
-    if (e.detail === 0) chatRef.current?.querySelector<HTMLTextAreaElement>('.composer-row textarea')?.focus({ preventScroll: true });
+    if (document.activeElement === e.currentTarget) {
+      chatRef.current?.querySelector<HTMLTextAreaElement>('.composer-row textarea')?.focus({ preventScroll: true });
+    }
   };
 
   // Follow the stream unless the user scrolled up to read. It follows when the messages change size (a
@@ -737,7 +741,14 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
       <div className="composer-dock">
         {/* In the middle above the message box, over the messages' last lines (styles.css). */}
         {behind && (
-          <button type="button" className="to-end" onClick={toEnd} aria-label={t.chat.toEnd} title={t.chat.toEnd}>
+          <button
+            type="button"
+            className="to-end"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={toEnd}
+            aria-label={t.chat.toEnd}
+            title={t.chat.toEnd}
+          >
             <ArrowDownIcon size={18} />
           </button>
         )}
