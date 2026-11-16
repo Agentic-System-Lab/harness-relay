@@ -50,13 +50,13 @@ Muse Code 在 macOS 與 Linux 上用 `curl -fsSL https://dev.meta.ai/install.sh 
 
 #### 從設定頁安裝 CLI
 
-也可以在「**設定與登入**」裡，從每個 CLI 自己的卡片分別安裝它。Harness Relay 找不到某個 CLI 時，它的卡片會顯示「**安裝 <CLI>**」按鈕，以及會執行的指令。按一下就會在背景把它裝進一個專屬的資料夾 `data/clis/<cli>`（在[桌面 app](#桌面-app) 裡是它資料夾中的 `clis/`），一邊安裝一邊顯示安裝程式的輸出（可以「**取消安裝**」），確認程式能執行，再把這個 CLI 的「**執行檔**」設成它。其他地方都不會動到：不會放上你的 `PATH`，也不會改你 shell 的設定檔，所以這樣裝的 CLI 只給 Harness Relay 用。之後卡片會顯示「**由 Harness Relay 安裝在 …**」與「**移除**」按鈕：移除會刪掉那個資料夾，並把執行檔設定改回安裝前的樣子；CLI 的登入、設定與對話紀錄都留在它自己的家目錄。用其他方式安裝的 CLI 不會出現移除按鈕。各 CLI 的安裝方式：
+也可以在「**設定與登入**」裡，從每個 CLI 自己的卡片分別安裝它。Harness Relay 找不到某個 CLI 時，它的卡片會顯示「**安裝 <CLI>**」按鈕，以及會執行的指令。按一下就會在背景把它裝進一個專屬的資料夾 `data/clis/<cli>`（在[桌面 app](#桌面-app) 裡是它資料夾中的 `clis/`），一邊安裝一邊顯示安裝程式的輸出（可以「**取消安裝**」），確認程式能執行，再把這個 CLI 的「**執行檔**」設成它。其他地方都不會動到：不會放上你的 `PATH`，也不會改你 shell 的設定檔，所以這樣裝的 CLI 只給 Harness Relay 用（安裝程式若仍在你 `PATH` 上的資料夾放了指向它程式的連結，或在 Windows 上把它的資料夾加進你使用者的 `PATH`，裝完就會拿掉）。之後卡片會顯示「**由 Harness Relay 安裝在 …**」與「**移除**」按鈕：移除會刪掉那個資料夾，並把執行檔設定改回安裝前的樣子；CLI 的登入、設定與對話紀錄都留在它自己的家目錄。用其他方式安裝的 CLI 不會出現移除按鈕。各 CLI 的安裝方式：
 
 - 用 npm（隨 Node.js 一起安裝），以全域安裝的方式裝進那個資料夾（`npm install -g`）：Claude Code、Codex 與 Copilot（最新版），以及 OpenCode、Cline 與 Pi（下表的版本）。
-- 用它官方的安裝腳本，以 `curl` 下載、`bash` 執行，並把那個資料夾當作它的家目錄，所以它在程式旁邊寫的東西（shell 設定檔、快取）也都留在裡面：Grok、Cursor、Antigravity 與 Muse Code（最新版），以及 Goose（1.58.1）。限 macOS 與 Linux；在 Windows 上請照它們官網的說明安裝。
-- 用 [uv](https://docs.astral.sh/uv/)（`uv tool install`），它替這個工具下載的 Python 也放在那個資料夾裡：OpenHands。
+- 用它官方的安裝腳本，以 `curl` 下載，並把那個資料夾當作它的家目錄執行，所以它在程式旁邊寫的東西（shell 設定檔、快取）也都留在裡面：Grok、Cursor、Antigravity 與 Muse Code（最新版），以及 Goose（1.58.1）。在 macOS 與 Linux 上執行各自的 `bash` 腳本；在 Windows 上 Grok、Cursor、Antigravity 與 Muse Code 執行它們的 PowerShell 安裝程式（`irm … | iex`），Goose 則在 Git for Windows 附的 bash（Git Bash）裡執行它的 `bash` 腳本，它本來就支援。
+- 用 [uv](https://docs.astral.sh/uv/)（`uv tool install`），它替這個工具下載的 Python 也放在那個資料夾裡：OpenHands。你的 `PATH` 上沒有 uv 時，會先用 uv 自己的安裝程式把 uv 裝進那個資料夾，移除 OpenHands 時一起刪掉。
 
-找不到安裝需要的程式（npm、uv、curl 或 bash）時，卡片會說明缺了什麼，而不顯示按鈕。安裝失敗或取消都不會留下任何檔案；失敗的原因與輸出會留在卡片上，直到你再試一次。要等沒有 agent 在工作時才能移除。[GitHub codespace](codespaces.zh-TW.md) 裡已經裝好七個非開源的 CLI；開源的那幾個在那裡也一樣從設定頁安裝。
+找不到安裝需要的程式（隨 Node.js 一起安裝的 npm；`curl`；`bash`，或在 Windows 上的 Git for Windows bash 或 Windows PowerShell）時，卡片會說明缺了什麼，而不顯示按鈕。安裝失敗或取消都不會留下任何檔案；失敗的原因與輸出會留在卡片上，直到你再試一次。要等沒有 agent 在工作時才能移除。[GitHub codespace](codespaces.zh-TW.md) 裡已經裝好七個非開源的 CLI；開源的那幾個在那裡也一樣從設定頁安裝。Node.js 不會替你安裝：從原始碼執行時你已經有了（`npm start` 就是用它跑的），[桌面 app](#桌面-app) 則從你登入 shell 的 `PATH` 找它。
 
 完全存取以外，它們在 Harness Relay 自己的沙箱中執行（[開源 agent → Harness Relay 的沙箱](open-agents.zh-TW.md#harness-relay-的沙箱)）。macOS 上不需要另外安裝（在[桌面 app](#桌面-app) 裡則需要 `PATH` 上有 Node.js 22.12 以上）；Linux 上請安裝 `bubblewrap`、`socat` 與 `ripgrep`（`sudo apt-get install bubblewrap socat ripgrep`），Ubuntu 23.10 以上還要加上[各平台的作業系統沙箱 → 在 Linux 上](sandboxing.zh-TW.md#在-linux-上)裡 `/usr/bin/bwrap` 的 AppArmor 設定檔。在原生 Windows 上它們只能以完全存取執行（要有沙箱請用 WSL2），Linux 上的 OpenCode 也一樣（Harness Relay 在那裡無法監看它的伺服器）。
 

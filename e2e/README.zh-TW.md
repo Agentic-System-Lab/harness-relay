@@ -353,7 +353,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | --- | --- | --- |
 | 找不到的 CLI 裝進專屬的資料夾，再移除 | Copilot | 卡片顯示**未安裝**（Not installed），有 **Install Copilot**、`npm install -g @github/copilot` 與資料夾（`<data>/clis/copilot`）。安裝中（`fake-npm/hold`）：**Installing Copilot…**、目前為止 npm 的輸出，以及 **Cancel install**。完成：「Installed by Harness Relay in …」、標題顯示版本且沒有狀態標籤、**執行檔**是裝好的程式、側邊欄的圓點不再是紅色，而 npm 收到的是 `install --global --prefix <資料夾> … @github/copilot`。**Remove**（確認後）刪掉資料夾，卡片又提供安裝，顯示**未安裝**（執行檔設定改回安裝前的）。 |
 | 安裝失敗會說明原因且不留下任何東西；安裝中可以取消 | Cline | `fake-npm/fail`：**Install failed**、「npm install -g --prefix … cline@3.0.74 failed (exit 1)」、安裝程式的輸出裡有 npm 自己的 404，而且沒有資料夾。用 `fake-npm/hold` 按 **Try again**，再按 **Cancel install**：「Install cancelled; nothing was left behind.」、**Try again**，且沒有資料夾。 |
-| 在能執行的地方提供官方安裝程式 | Grok | 在 macOS 與 Linux 上有 **Install Grok**、`curl -fsSL https://x.ai/cli/install.sh \| bash`，以及安裝程式會以那個資料夾當家目錄的說明（不按：那是官方在網路上的腳本）；在 Windows 上說明 Harness Relay 無法在那裡安裝，也沒有按鈕。兩種情況都有它官網的連結。 |
+| 提供官方安裝程式：macOS 與 Linux 上是 bash 腳本，Windows 上是 PowerShell 版 | Grok | **Install Grok**、`curl -fsSL https://x.ai/cli/install.sh \| bash`（Windows 上是 `irm https://x.ai/cli/install.ps1 \| iex`），以及安裝程式會以那個資料夾當家目錄的說明（不按：那是官方在網路上的腳本），還有它官網的連結。 |
 
 ## 在 Windows 上是腳本的 CLI
 
@@ -574,7 +574,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - 在 CI 上（`E2E_SYSTEM_CLIS=1`），每個 CLI 自己的測試在 Linux 上十二個都跑，在 macOS 與 Windows 上只跑 Harness Relay 在那裡的執行方式和 Linux 不同、而且它的假 CLI 看得出差別的 CLI（`support/clis/<cli>.ts` 的 `testedOn`，那裡寫了原因）；在其他系統上會跳過並說明在哪裡執行。**macOS**：五個開源 agent（Harness Relay 自己的沙箱在那裡由 Seatbelt 構成，OpenCode 只在那裡以完全存取以外的權限執行，還有 OpenHands 的終端機開關），以及代表有登入的七個 CLI 的 Claude Code，它們的假 CLI 在那裡做的事和在 Linux 上一樣。**Windows**：有登入的七個（Claude Code 沒有沙箱設定、Codex 沒有權限設定檔、Grok 的 `workspace` 設定檔、Cursor 的 session 以 junction 連進來、Antigravity 的家目錄以 `USERPROFILE` 傳給它、Copilot 的資料夾以 junction 連進來、Muse Code 的登入用複本，以及它的 PowerShell），OpenCode 與 Goose（用它們自己的 shell），以及 OpenHands（它的 PowerShell 終端機）；Cline 與 Pi 不在其中，它們在那裡只能以完全存取執行，和在 Linux 上以完全存取執行時一樣（[在 Windows 上是腳本的 CLI](#在-windows-上是腳本的-cli) 仍會在那裡啟動它們）。在本機沒有設定這個變數時，每個 CLI 的測試在每個系統上都跑；手動執行 workflow 並勾選 **every_cli**，macOS 與 Windows 上也會十二個都跑。
 - OpenHands 在 macOS 上要在完全存取以外執行，需要沙箱裡的終端機：測試的伺服器會打開它的開關，而關掉開關的測試只在 macOS 上執行。
 - [在 Windows 上是腳本的 CLI](#在-windows-上是腳本的-cli)只在 Windows 上執行。
-- 在[安裝 CLI](#安裝-cli)中，Grok 的卡片在 macOS 與 Linux 上提供官方腳本，在 Windows 上說明那裡無法安裝；假的 npm 在每個系統上都照 npm 的方式安裝（macOS 與 Linux 上是連結，Windows 上是 npm 給程式的 `.cmd` shim）。
+- 在[安裝 CLI](#安裝-cli)中，Grok 的卡片在 macOS 與 Linux 上提供官方 bash 腳本，在 Windows 上提供它的 PowerShell 安裝程式；假的 npm 在每個系統上都照 npm 的方式安裝（macOS 與 Linux 上是連結，Windows 上是 npm 給程式的 `.cmd` shim）。
 - 選擇資料夾視窗的測試只在 Linux 上執行：Linux 從 PATH 找它的視窗，假的視窗可以替代；macOS 與 Windows 以完整路徑開啟自己的視窗。
 - 「對話沒有的資料夾碰不到」在 Windows 上跳過 Grok，因為它在那裡沒有沙箱（[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md)）。
 - Copilot 在 macOS、Linux 與 Windows 上都以完全存取以外的權限執行，就像它自己的沙箱一樣：它的假 CLI 遵守這次執行的設定給的政策，所以它的測試不需要執行測試的電腦上有沙箱。
@@ -597,7 +597,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **OpenCode 與 Goose 的 token 和費用。** Harness Relay 從這兩個 CLI 自己的 SQLite 資料庫（`opencode.db`、`sessions.db`）讀取，它們的假 CLI 不保存這些資料庫，所以在這裡它們的回覆不顯示用量；轉接器的測試（`test/opencode.test.ts`、`test/goose.test.ts`）會對照真正 CLI 寫法寫成的資料庫跑完整的回合。
 - **真正的首席 agent 會指出什麼。** 假首席 agent 的審閱總是標出第一則回覆開頭的幾個字；真正的模型給的 highlight 與下一步值不值得讀，這裡沒有測。它的 prompt，以及怎麼檢查它的回答（回覆裡沒有的引用會被拿掉、不認得的類型、上限），在單元測試中（`test/reviewer.test.ts`、`test/orchestrator-review.test.ts`）。
 - **真正手機上的滑動。**[在手機上](#在手機上)大部分的滑動觸控事件是從頁面本身送出的，所以瀏覽器不會跟著捲動；有一個測試送出 Chromium 自己的觸控，瀏覽器會判斷點到哪裡並跟著捲動，但沒有測試有手機自己的手勢或觸控處理：從螢幕最邊緣開始的滑動（手機可能留給「返回」用），以及 Android 的 Chrome 從手指移動多遠開始送出移動事件（約 8dp；手指底下可捲動的區塊在它第一次移動時量），都沒有測試。
-- **從設定頁真正的安裝。**[安裝 CLI](#安裝-cli) 用的是假的 npm，不會連到 npm 套件庫、官方腳本或 uv。`test/cli-install.test.ts` 用假的電腦涵蓋 Harness Relay 交給它們的東西（參數、環境變數、資料夾），每個 CLI 真正的安裝則在 Linux 上手動試過。
+- **從設定頁真正的安裝。**[安裝 CLI](#安裝-cli) 用的是假的 npm，不會連到 npm 套件庫、官方腳本或 uv。`test/cli-install.test.ts` 用假的電腦涵蓋 Harness Relay 交給它們的東西（參數、環境變數、資料夾，Windows 上的也有），每個 CLI 真正的安裝則在 Linux 上手動試過（Windows 的安裝程式還沒在 Windows 電腦上試過）。
 - **還沒有 spec 走過的功能**：語音輸入本身的錄音與轉寫（它會下載引擎與模型，也需要麥克風；只測了安裝的面板）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 加密存在資料庫）；從設定登入 Codex、Grok、Cursor、Antigravity、Copilot 與 Muse Code（它們自己的登入流程；Copilot 的裝置登入由 `test/providers.test.ts` 測試），以及真正的 Codex 拿到 `codex login --with-api-key` 的 key 之後做了什麼；Copilot 沙箱的政策和這次執行設定的不一樣時，完全存取以外拒絕啟動（由 `test/copilot.test.ts` 測試）；Muse Code 詢問指令要不要連網（它的假 CLI 在沙箱中會為 `e2e:approve=publish` 詢問，但沒有 spec 送出這個指令），以及對話的權限改變或伺服器重新啟動後，Muse Code 的成員開新的 session（由 `test/muse.test.ts` 測試）；AgentsView 中首席 agent 與分類對話的 session 連結、設定網址後才送出的對話，以及 Harness Relay 為開源 agent 記下的成員 session（由 `test/agentsview.test.ts` 測試，Cursor 的也是，另有 spec 試過）；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
 
 ## 實機測試

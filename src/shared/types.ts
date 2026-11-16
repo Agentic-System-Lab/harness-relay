@@ -1489,11 +1489,12 @@ export function accountUsable(a: Pick<AccountStatus, 'auth' | 'usingStoredApiKey
 export type CliInstallMethod = 'npm' | 'script' | 'uv';
 
 /**
- * Why Harness Relay cannot install a CLI here: a program its install needs is not on the PATH
- * (npm, which comes with Node.js; uv; curl and bash for a maker's script), or the CLI's maker has no
- * installer for this system that Harness Relay runs (`system`: the scripts on Windows).
+ * Why Harness Relay cannot install a CLI here: a program its install needs is not found (npm, which
+ * comes with Node.js; curl, and bash or on Windows Git for Windows' bash (`gitBash`) or Windows
+ * PowerShell, for a maker's script, uv's own installer included), or Harness Relay runs no installer
+ * of it on this system (`system`: neither macOS, Linux nor Windows).
  */
-export type CliInstallBlock = 'npm' | 'uv' | 'curl' | 'bash' | 'system';
+export type CliInstallBlock = 'npm' | 'curl' | 'bash' | 'gitBash' | 'powershell' | 'system';
 
 /** An install under way or done: what its installer printed (the end of it), and how it ended. */
 export interface CliInstallJobView {

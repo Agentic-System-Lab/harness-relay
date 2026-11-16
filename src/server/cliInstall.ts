@@ -1,7 +1,7 @@
-import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { isAbsolute, join, relative, win32 } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, win32 } from 'node:path';
 import {
   PROVIDERS,
   PROVIDER_LABEL,
@@ -17,7 +17,7 @@ import { openAgents } from './agents/index';
 import { openHomeEnv } from './agents/open';
 import { HttpError } from './errors';
 import { t } from './i18n';
-import { capture, runProcess, stripAnsi, tail, type SpawnOptions, type SpawnResult } from './process';
+import { capture, runProcess, runShellScript, stripAnsi, tail, type SpawnOptions, type SpawnResult } from './process';
 import { cliFolder } from './protect';
 import { parseVersion } from './providers';
 import type { SettingsStore } from './settings';
@@ -34,14 +34,23 @@ import { BREW_DIRS, findOnPath } from './voice';
  * - npm, as a global install into that folder (`npm install -g --prefix <folder> <package>`, as the
  *   user guide's `npm install -g` and the codespace install them): Claude Code, Codex, Copilot,
  *   OpenCode, Cline, Pi;
- * - the maker's own installer script, downloaded with curl and run with bash, with the folder as its
- *   home (HOME and the XDG folders), so that what it writes beside the program (its shell profile
- *   lines, caches) stays there too, and its own variable or flag for where the program goes: Grok,
- *   Cursor, Antigravity, Muse Code, Goose (on macOS and Linux; on Windows they are installed by hand);
+ * - the maker's own installer script, downloaded with curl and run with the folder as its home (HOME,
+ *   the XDG folders, and on Windows USERPROFILE, LOCALAPPDATA and APPDATA), the program's folder put
+ *   on its PATH so that it adds nothing to the user's, and its own variable or flag for where the
+ *   program goes: Grok, Cursor, Antigravity, Muse Code, Goose. On macOS and Linux each runs its bash
+ *   script; on Windows Grok, Cursor, Antigravity and Muse Code their PowerShell one, and Goose its bash
+ *   script under Git for Windows' bash, which it supports;
  * - uv (`uv tool install`), with its tools, the links to their programs and any Python it downloads
- *   in the folder: OpenHands.
+ *   in the folder: OpenHands. Without uv on the PATH, uv's own installer puts one in the folder first
+ *   (`UV_UNMANAGED_INSTALL`: no PATH change, no updater), removed with OpenHands.
  * The open agents get the versions the user guide says they were checked with; the others their
  * newest, as their makers' installers give them.
+ *
+ * Some installers add to the user's PATH anyway: a link in a folder on the PATH that it may write in
+ * (Grok's bash script, into /usr/local/bin), or on Windows the user's PATH in the registry (Cursor's,
+ * Grok's and Antigravity's PowerShell ones). After every install, and when a CLI is removed, the links
+ * in the PATH's folders that lead into the CLI's folder are removed, and on Windows the user's PATH
+ * entries inside it (`dropUserPath`).
  *
  * An install is a background job (one at a time for each CLI), followed by a check that the program
  * it put there runs (`--version`, as the CLI's status asks it). Then the folder gets a note of what
@@ -61,58 +70,112 @@ const VERSION_TIMEOUT_MS = 2 * 60_000;
 /** How much of an installer's output is kept. */
 const MAX_LOG = 32_000;
 
+/** Goose's own installer (it moved to this repository; the old address redirects here). */
+const GOOSE_SCRIPT = 'https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh';
+/** Goose's: the version checked, into the folder's `bin`, without its interactive `goose configure`. */
+const gooseEnv = (dir: string) => ({ GOOSE_BIN_DIR: join(dir, 'bin'), GOOSE_VERSION: 'v1.58.1', CONFIGURE: 'false' });
+
+/** A maker's installer script: where it is, what runs it, and where its program ends up. */
+export interface ScriptInstaller {
+  url: string;
+  /** bash (on Windows, Git for Windows' bash), or Windows PowerShell. */
+  shell: 'bash' | 'powershell';
+  /** Where the program is once the script ran, in the CLI's folder. */
+  bin: readonly string[];
+  /** The script's own arguments, given the CLI's folder. */
+  args?: (dir: string) => string[];
+  /** The script's own variables besides the home's, given the CLI's folder. */
+  env?: (dir: string) => Record<string, string>;
+}
+
 /** How one CLI is installed. */
 export type CliRecipe =
   /** `command`: the program the package links in the prefix's `bin` folder (on Windows, its `.cmd` in the prefix). */
   | { method: 'npm'; package: string; command: string }
   /** `command`: the program `uv tool install` links in its bin folder. */
   | { method: 'uv'; package: string; command: string }
-  | {
-      method: 'script';
-      url: string;
-      /** Where the program is once the script ran, in the CLI's folder. */
-      bin: readonly string[];
-      /** The script's own arguments, given the CLI's folder. */
-      args?: (dir: string) => string[];
-      /** The script's own variables besides the home's, given the CLI's folder. */
-      env?: (dir: string) => Record<string, string>;
-    };
+  /** Its maker's script on macOS and Linux (`posix`) and on Windows (`windows`). */
+  | { method: 'script'; posix: ScriptInstaller; windows: ScriptInstaller };
+
+/** Where uv's own installer puts uv when Harness Relay installs it, in the folder of the CLI that needs it. */
+const UV_FOLDER = ['uv', 'bin'];
+
+/** uv's own installers, when uv is not on the PATH: into `UV_FOLDER`, changing no PATH and installing no updater. */
+export const UV_INSTALLERS: Record<'posix' | 'windows', ScriptInstaller> = {
+  posix: { url: 'https://astral.sh/uv/install.sh', shell: 'bash', bin: [...UV_FOLDER, 'uv'], env: (dir) => ({ UV_UNMANAGED_INSTALL: join(dir, ...UV_FOLDER) }) },
+  windows: { url: 'https://astral.sh/uv/install.ps1', shell: 'powershell', bin: [...UV_FOLDER, 'uv.exe'], env: (dir) => ({ UV_UNMANAGED_INSTALL: join(dir, ...UV_FOLDER) }) },
+};
 
 /** How each CLI is installed (see the top of this file). */
 export const CLI_RECIPES: Record<Provider, CliRecipe> = {
   claude: { method: 'npm', package: '@anthropic-ai/claude-code', command: 'claude' },
   codex: { method: 'npm', package: '@openai/codex', command: 'codex' },
-  // The installer puts the program in ~/.grok/downloads and links it from GROK_BIN_DIR.
-  grok: { method: 'script', url: 'https://x.ai/cli/install.sh', bin: ['bin', 'grok'], env: (dir) => ({ GROK_BIN_DIR: join(dir, 'bin') }) },
-  // No setting of its own: the versions in ~/.local/share/cursor-agent, linked from ~/.local/bin.
-  cursor: { method: 'script', url: 'https://cursor.com/install', bin: ['home', '.local', 'bin', 'cursor-agent'] },
-  antigravity: { method: 'script', url: 'https://antigravity.google/cli/install.sh', bin: ['bin', 'agy'], args: (dir) => ['--dir', join(dir, 'bin')] },
+  // Its program in ~/.grok/downloads, linked (on Windows copied) into GROK_BIN_DIR.
+  grok: {
+    method: 'script',
+    posix: { url: 'https://x.ai/cli/install.sh', shell: 'bash', bin: ['bin', 'grok'], env: (dir) => ({ GROK_BIN_DIR: join(dir, 'bin') }) },
+    windows: { url: 'https://x.ai/cli/install.ps1', shell: 'powershell', bin: ['bin', 'grok.exe'], env: (dir) => ({ GROK_BIN_DIR: join(dir, 'bin') }) },
+  },
+  // No setting of its own: its versions in ~/.local/share/cursor-agent linked from ~/.local/bin; on
+  // Windows in %LOCALAPPDATA%\cursor-agent, with its launcher (`winLaunch.ts` starts it).
+  cursor: {
+    method: 'script',
+    posix: { url: 'https://cursor.com/install', shell: 'bash', bin: ['home', '.local', 'bin', 'cursor-agent'] },
+    windows: { url: 'https://cursor.com/install?win32=true', shell: 'powershell', bin: ['home', 'AppData', 'Local', 'cursor-agent', 'cursor-agent.cmd'] },
+  },
+  antigravity: {
+    method: 'script',
+    posix: { url: 'https://antigravity.google/cli/install.sh', shell: 'bash', bin: ['bin', 'agy'], args: (dir) => ['--dir', join(dir, 'bin')] },
+    windows: { url: 'https://antigravity.google/cli/install.ps1', shell: 'powershell', bin: ['bin', 'agy.exe'], args: (dir) => ['--dir', join(dir, 'bin')] },
+  },
   copilot: { method: 'npm', package: '@github/copilot', command: 'copilot' },
-  // A launcher, which fetches Muse Code's binary beside itself (and keeps it up to date there).
+  // A launcher, which fetches Muse Code's binary beside itself (and keeps it up to date there); on
+  // Windows `muse.cmd`, which `winLaunch.ts` reads for the binary it names.
   muse: {
     method: 'script',
-    url: 'https://dev.meta.ai/install.sh',
-    bin: ['bin', 'muse'],
-    env: (dir) => ({ MUSE_INSTALL_DIR: join(dir, 'bin'), MUSE_NO_MODIFY_PATH: '1' }),
+    posix: { url: 'https://dev.meta.ai/install.sh', shell: 'bash', bin: ['bin', 'muse'], env: (dir) => ({ MUSE_INSTALL_DIR: join(dir, 'bin'), MUSE_NO_MODIFY_PATH: '1' }) },
+    windows: { url: 'https://dev.meta.ai/install.ps1', shell: 'powershell', bin: ['bin', 'muse.cmd'], env: (dir) => ({ MUSE_INSTALL_DIR: join(dir, 'bin'), MUSE_NO_MODIFY_PATH: '1' }) },
   },
   opencode: { method: 'npm', package: 'opencode-ai@1.19.5', command: 'opencode' },
-  // Goose's own installer, of the version checked (Homebrew's formula would go outside the folder).
+  // Goose's own installer, of the version checked (Homebrew's formula would go outside the folder);
+  // on Windows the same script, which supports Git for Windows' bash, makes `goose.exe`.
   goose: {
     method: 'script',
-    url: 'https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh',
-    bin: ['bin', 'goose'],
-    env: (dir) => ({ GOOSE_BIN_DIR: join(dir, 'bin'), GOOSE_VERSION: 'v1.58.1', CONFIGURE: 'false' }),
+    posix: { url: GOOSE_SCRIPT, shell: 'bash', bin: ['bin', 'goose'], env: gooseEnv },
+    windows: { url: GOOSE_SCRIPT, shell: 'bash', bin: ['bin', 'goose.exe'], env: gooseEnv },
   },
   cline: { method: 'npm', package: 'cline@3.0.74', command: 'cline' },
   openhands: { method: 'uv', package: 'openhands==1.16.0', command: 'openhands' },
   pi: { method: 'npm', package: '@earendil-works/pi-coding-agent@1.5.1', command: 'pi' },
 };
 
-/** What an install runs, as one would type it. */
-export function installCommand(r: CliRecipe): string {
+/** The script of a recipe's maker for `platform`: bash on macOS and Linux, its Windows one there, none elsewhere. */
+export function scriptFor(r: Extract<CliRecipe, { method: 'script' }>, platform: NodeJS.Platform): ScriptInstaller | undefined {
+  if (platform === 'win32') return r.windows;
+  return platform === 'darwin' || platform === 'linux' ? r.posix : undefined;
+}
+
+/** uv's own installer for `platform`. */
+export function uvInstallerFor(platform: NodeJS.Platform): ScriptInstaller | undefined {
+  if (platform === 'win32') return UV_INSTALLERS.windows;
+  return platform === 'darwin' || platform === 'linux' ? UV_INSTALLERS.posix : undefined;
+}
+
+/** A script as one would run it from its address. */
+const scriptCommand = (s: ScriptInstaller) => (s.shell === 'powershell' ? `irm ${s.url} | iex` : `curl -fsSL ${s.url} | bash`);
+
+/**
+ * What an install runs on `platform`, as one would type it; `withUv`: uv's own installer first (uv is
+ * not on the PATH).
+ */
+export function installCommand(r: CliRecipe, platform: NodeJS.Platform = process.platform, withUv = false): string {
   if (r.method === 'npm') return `npm install -g ${r.package}`;
-  if (r.method === 'uv') return `uv tool install ${r.package}`;
-  return `curl -fsSL ${r.url} | bash`;
+  if (r.method === 'uv') {
+    const uv = withUv ? uvInstallerFor(platform) : undefined;
+    return `${uv ? `${scriptCommand(uv)}; ` : ''}uv tool install ${r.package}`;
+  }
+  const script = scriptFor(r, platform);
+  return script ? scriptCommand(script) : `curl -fsSL ${r.posix.url} | bash`;
 }
 
 /** The program an install puts in the CLI's folder `dir`, on `platform`. */
@@ -121,7 +184,7 @@ export function installedProgram(r: CliRecipe, dir: string, platform: NodeJS.Pla
   // npm's global layout: `<prefix>/bin/<command>`, and on Windows `<prefix>\<command>.cmd`.
   if (r.method === 'npm') return win ? join(dir, `${r.command}.cmd`) : join(dir, 'bin', r.command);
   if (r.method === 'uv') return join(dir, 'bin', r.command + (win ? '.exe' : ''));
-  return join(dir, ...r.bin);
+  return join(dir, ...(scriptFor(r, platform) ?? r.posix).bin);
 }
 
 /**
@@ -148,6 +211,32 @@ export function npmLaunch(
   return isFile(node) && isFile(cli) ? { bin: node, args: [cli] } : undefined;
 }
 
+/**
+ * Git for Windows' bash, which a maker's bash script runs in on Windows: beside the `git` on the PATH
+ * (`<Git>\cmd\git.exe`, `<Git>\bin\git.exe` or `<Git>\mingw64\bin\git.exe`, with bash in `<Git>\bin`
+ * or `<Git>\usr\bin`), else where Git for Windows installs for all users or for one. Never the `bash`
+ * on the PATH, which may be WSL's (`System32\bash.exe`), a Linux one. MinGit has none.
+ */
+export function gitBash(env: NodeJS.ProcessEnv, isFile: (path: string) => boolean = fileExists): string | undefined {
+  const roots: string[] = [];
+  const git = findOnPath('git', env, 'win32', [], isFile);
+  if (git) {
+    const dir = win32.dirname(git);
+    roots.push(/\\mingw(32|64)\\bin$/i.test(dir) ? win32.dirname(win32.dirname(dir)) : win32.dirname(dir));
+  }
+  for (const base of [env.ProgramFiles, env.ProgramW6432, env.LOCALAPPDATA && win32.join(env.LOCALAPPDATA, 'Programs')]) {
+    if (base) roots.push(win32.join(base, 'Git'));
+  }
+  return [...new Set(roots)].flatMap((root) => [win32.join(root, 'bin', 'bash.exe'), win32.join(root, 'usr', 'bin', 'bash.exe')]).find(isFile);
+}
+
+/** Windows PowerShell, which every Windows 10 and 11 has in System32. */
+export function windowsPowerShell(env: NodeJS.ProcessEnv, isFile: (path: string) => boolean = fileExists): string | undefined {
+  const root = env.SystemRoot || env.SYSTEMROOT || env.windir || 'C:\\Windows';
+  const inbox = win32.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  return isFile(inbox) ? inbox : findOnPath('powershell', env, 'win32', [], isFile);
+}
+
 /** Where uv's own installer puts it, besides the PATH (a server started outside a terminal may not have them). */
 const uvDirs = (home: string, platform: NodeJS.Platform) => (platform === 'win32' ? [] : [join(home, '.local', 'bin'), join(home, '.cargo', 'bin')]);
 
@@ -168,22 +257,34 @@ export function installerEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return out;
 }
 
+/** The variable that holds the PATH in `env` (`Path` on Windows, as it is often spelled there). */
+const pathKey = (env: NodeJS.ProcessEnv) => Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
+
 /**
  * A maker's installer script's environment: the folder `dir` as its home (`dir/home`, with the XDG
- * folders in it), nothing that would move it elsewhere, and the recipe's own variables.
+ * folders in it, and on Windows USERPROFILE, LOCALAPPDATA and APPDATA), nothing that would move it
+ * elsewhere, the recipe's own variables, and the folder its program goes in first on its PATH, so that
+ * it finds its program there and puts no link to it, nor a line for it, anywhere else.
  */
-export function scriptEnv(base: NodeJS.ProcessEnv, dir: string, recipe: Extract<CliRecipe, { method: 'script' }>): NodeJS.ProcessEnv {
+export function scriptEnv(base: NodeJS.ProcessEnv, dir: string, script: ScriptInstaller, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
   const home = join(dir, 'home');
   const env: NodeJS.ProcessEnv = { ...base };
   for (const k of HOME_MOVERS) delete env[k];
+  const key = pathKey(env);
+  const delimiter = platform === 'win32' ? ';' : ':';
+  const program = dirname(join(dir, ...script.bin));
   return {
     ...env,
+    [key]: [program, env[key]].filter(Boolean).join(delimiter),
     HOME: home,
     XDG_CONFIG_HOME: join(home, '.config'),
     XDG_DATA_HOME: join(home, '.local', 'share'),
     XDG_CACHE_HOME: join(home, '.cache'),
     XDG_STATE_HOME: join(home, '.local', 'state'),
-    ...recipe.env?.(dir),
+    ...(platform === 'win32'
+      ? { USERPROFILE: home, LOCALAPPDATA: join(home, 'AppData', 'Local'), APPDATA: join(home, 'AppData', 'Roaming') }
+      : {}),
+    ...script.env?.(dir),
   };
 }
 
@@ -199,6 +300,26 @@ export function uvEnv(base: NodeJS.ProcessEnv, dir: string): NodeJS.ProcessEnv {
 }
 
 /**
+ * A PowerShell script that takes out of the user's PATH (in the registry: `HKCU\Environment`) every
+ * entry that is `HARNESS_RELAY_CLI_DIR` or inside it, keeping the rest as it is (its `%VARIABLES%` and
+ * the value's kind), then tells Windows the environment changed (deleting a variable that is not there
+ * through .NET sends that message), so that programs started after it get the PATH without them. Fixed
+ * text: the folder is in the environment.
+ */
+export const DROP_USER_PATH_SCRIPT = [
+  "$dir = $env:HARNESS_RELAY_CLI_DIR.TrimEnd('\\')",
+  "$key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)",
+  'if ($null -eq $key) { exit 0 }',
+  "$value = $key.GetValue('Path', $null, 'DoNotExpandEnvironmentNames')",
+  'if ($null -eq $value) { $key.Close(); exit 0 }',
+  "$kind = $key.GetValueKind('Path')",
+  "$parts = $value -split ';'",
+  "$kept = @($parts | Where-Object { $e = [Environment]::ExpandEnvironmentVariables($_).TrimEnd('\\'); -not ($e -ne '' -and ($e -ieq $dir -or $e.StartsWith($dir + '\\', [StringComparison]::OrdinalIgnoreCase))) })",
+  "if ($kept.Count -lt $parts.Count) { $key.SetValue('Path', ($kept -join ';'), $kind); [Environment]::SetEnvironmentVariable('HARNESS_RELAY_PATH_CHANGED', $null, 'User'); Write-Output ('Removed ' + ($parts.Count - $kept.Count) + ' entries from the user PATH') }",
+  '$key.Close()',
+].join('; ');
+
+/**
  * An installer's output as the user reads it: without colours and cursor moves, and of a line a
  * progress bar redrew (`\r`), what it showed last.
  */
@@ -210,6 +331,50 @@ export function cleanLog(text: string): string {
       return shown.slice(shown.lastIndexOf('\r') + 1);
     })
     .join('\n');
+}
+
+/**
+ * The folders an installer may have put a link to its program in on macOS and Linux: those on the
+ * PATH, and `~/.local/bin`, `/usr/local/bin` and `/opt/homebrew/bin`.
+ */
+export function linkFolders(env: NodeJS.ProcessEnv, home: string): string[] {
+  const path = (env[pathKey(env)] ?? '').split(':').filter((d) => isAbsolute(d));
+  return [...new Set([...path, join(home, '.local', 'bin'), '/usr/local/bin', '/opt/homebrew/bin'])];
+}
+
+/**
+ * Removes the links in `folders` (not in folders inside them) that lead to `dir` or anything in it,
+ * by what they name (also when that is gone), and returns them. Nothing else is touched: a file, or a
+ * link to anything outside `dir`, stays; a folder that cannot be read is passed over.
+ */
+export function dropLinksInto(dir: string, folders: readonly string[]): string[] {
+  const roots = [dir];
+  try {
+    roots.push(realpathSync(dir));
+  } catch {
+    /* removed already */
+  }
+  const into = (target: string) => roots.some((root) => target === root || inside(target, root));
+  const removed: string[] = [];
+  for (const folder of folders) {
+    let names: string[];
+    try {
+      names = readdirSync(folder);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      const link = join(folder, name);
+      try {
+        if (!lstatSync(link).isSymbolicLink() || !into(resolve(folder, readlinkSync(link)))) continue;
+        unlinkSync(link);
+        removed.push(link);
+      } catch {
+        /* gone meanwhile, or not ours to remove */
+      }
+    }
+  }
+  return removed;
 }
 
 function fileExists(p: string): boolean {
@@ -288,6 +453,8 @@ export interface CliInstallHost {
   isFile: (path: string) => boolean;
   /** The version the program installed for `p` says it is (`--version`); throws when it does not run. */
   version: (p: Provider, bin: string) => Promise<string | undefined>;
+  /** On Windows, takes the user's PATH entries inside `dir` out of the registry (`DROP_USER_PATH_SCRIPT`); what it did. */
+  dropUserPath: (dir: string) => Promise<string>;
 }
 
 export class CliInstaller {
@@ -312,6 +479,7 @@ export class CliInstaller {
       run: runProcess,
       isFile: fileExists,
       version: (p, bin) => this.askVersion(p, bin),
+      dropUserPath: (dir) => this.dropUserPathEntries(dir),
       ...host,
     };
   }
@@ -334,7 +502,7 @@ export class CliInstaller {
     return {
       provider: p,
       method: recipe.method,
-      command: installCommand(recipe),
+      command: installCommand(recipe, this.host.platform, recipe.method === 'uv' && !this.uv()),
       ...(blocked ? { blocked } : {}),
       dir: this.folder(p),
       ...(installed
@@ -356,11 +524,31 @@ export class CliInstaller {
     const recipe = CLI_RECIPES[p];
     const { env, platform, isFile } = this.host;
     if (recipe.method === 'npm') return npmLaunch(env, platform, isFile) ? undefined : 'npm';
-    if (recipe.method === 'uv') return this.uv() ? undefined : 'uv';
-    if (platform === 'win32') return 'system';
-    if (!findOnPath('curl', env, platform, SYSTEM_DIRS, isFile)) return 'curl';
-    if (!findOnPath('bash', env, platform, SYSTEM_DIRS, isFile)) return 'bash';
-    return undefined;
+    // Without uv, uv's own installer goes first: what it needs.
+    const script = recipe.method === 'uv' ? (this.uv() ? undefined : uvInstallerFor(platform) ?? 'system') : scriptFor(recipe, platform) ?? 'system';
+    if (script === undefined || typeof script === 'string') return script;
+    const runner = this.scriptRunner(script);
+    return typeof runner === 'string' ? runner : undefined;
+  }
+
+  /**
+   * What downloads and runs a maker's script here: curl (on Windows the one in System32), and bash (on
+   * Windows Git for Windows' bash) or Windows PowerShell; else what is missing.
+   */
+  private scriptRunner(script: ScriptInstaller): { curl: string; shell: string } | CliInstallBlock {
+    const { env, platform, isFile } = this.host;
+    if (platform === 'win32') {
+      const system32 = win32.join(env.SystemRoot || env.SYSTEMROOT || env.windir || 'C:\\Windows', 'System32');
+      const curl = findOnPath('curl', env, platform, [system32], isFile);
+      if (!curl) return 'curl';
+      const shell = script.shell === 'powershell' ? windowsPowerShell(env, isFile) : gitBash(env, isFile);
+      return shell ? { curl, shell } : script.shell === 'powershell' ? 'powershell' : 'gitBash';
+    }
+    if (platform !== 'darwin' && platform !== 'linux') return 'system';
+    const curl = findOnPath('curl', env, platform, SYSTEM_DIRS, isFile);
+    if (!curl) return 'curl';
+    const bash = findOnPath('bash', env, platform, SYSTEM_DIRS, isFile);
+    return bash ? { curl, shell: bash } : 'bash';
   }
 
   private uv(): string | undefined {
@@ -433,6 +621,8 @@ export class CliInstaller {
     try {
       // Links in it are removed, never followed.
       await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+      // And what an installer put outside it that leads into it (a link, the user's PATH on Windows).
+      await this.dropOutside(dir);
     } catch (err) {
       throw new Error(t().cliRemoveFailed(dir, (err as Error).message));
     } finally {
@@ -455,7 +645,12 @@ export class CliInstaller {
       // What an install the server was stopped during left, or a program removed by hand left beside its note.
       await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
       mkdirSync(dir, { recursive: true });
-      await this.runInstaller(p, recipe, dir, job);
+      try {
+        await this.runInstaller(p, recipe, dir, job);
+      } finally {
+        // What it put outside the folder that leads into it, whether it finished or not.
+        await this.dropOutside(dir, job);
+      }
       if (job.abort.signal.aborted) throw new Error('aborted');
       const bin = installedProgram(recipe, dir, this.host.platform);
       if (!this.host.isFile(bin)) throw new InstallError(() => t().cliInstallNoProgram(bin));
@@ -472,7 +667,7 @@ export class CliInstaller {
       const note: InstallNote = {
         provider: p,
         method: recipe.method,
-        source: recipe.method === 'script' ? recipe.url : recipe.package,
+        source: recipe.method === 'script' ? (scriptFor(recipe, this.host.platform) ?? recipe.posix).url : recipe.package,
         bin,
         ...(version ? { version } : {}),
         at: Date.now(),
@@ -517,23 +712,82 @@ export class CliInstaller {
       await this.step(job, `npm install -g --prefix ${dir} ${recipe.package}`, { bin: npm.bin, args, env: base, cwd: dir });
       return;
     }
+    const { platform } = this.host;
     if (recipe.method === 'uv') {
-      const uv = this.uv();
-      if (!uv) throw new InstallError(() => t().cliInstallBlocked(label, 'uv'));
+      let uv = this.uv();
+      if (!uv) {
+        // uv's own installer, into this folder (removed with it).
+        const installer = uvInstallerFor(platform);
+        if (!installer) throw new InstallError(() => t().cliInstallBlocked(label, 'system'));
+        await this.runScript(job, dir, installer, base, label);
+        uv = join(dir, ...installer.bin);
+        if (!this.host.isFile(uv)) throw new InstallError(() => t().cliInstallNoProgram(uv!));
+      }
       await this.step(job, `uv tool install ${recipe.package}`, { bin: uv, args: ['tool', 'install', recipe.package], env: uvEnv(base, dir), cwd: dir });
       return;
     }
-    const { env, platform, isFile } = this.host;
-    const curl = findOnPath('curl', env, platform, SYSTEM_DIRS, isFile);
-    const bash = findOnPath('bash', env, platform, SYSTEM_DIRS, isFile);
-    if (!curl || !bash) throw new InstallError(() => t().cliInstallBlocked(label, curl ? 'bash' : 'curl'));
-    const script = join(dir, 'install.sh');
+    const script = scriptFor(recipe, platform);
+    if (!script) throw new InstallError(() => t().cliInstallBlocked(label, 'system'));
+    await this.runScript(job, dir, script, base, label);
+  }
+
+  /**
+   * Downloads a maker's script whole into `dir` (a connection cut off halfway would run half a
+   * script), then runs it there with `dir` as its home (`scriptEnv`): bash on macOS and Linux, Git for
+   * Windows' bash or Windows PowerShell on Windows. The script itself does not stay.
+   */
+  private async runScript(job: InstallJob, dir: string, script: ScriptInstaller, base: NodeJS.ProcessEnv, label: string): Promise<void> {
+    const runner = this.scriptRunner(script);
+    if (typeof runner === 'string') throw new InstallError(() => t().cliInstallBlocked(label, runner));
+    const { platform } = this.host;
+    const powershell = script.shell === 'powershell';
+    const file = join(dir, powershell ? 'install.ps1' : 'install.sh');
     mkdirSync(join(dir, 'home'), { recursive: true });
-    // Fetched whole before it runs (a connection cut off halfway would run half a script).
-    await this.step(job, `curl -fsSL ${recipe.url}`, { bin: curl, args: ['-fsSL', '--retry', '3', '-o', script, recipe.url], env: base, cwd: dir });
-    const args = recipe.args?.(dir) ?? [];
-    await this.step(job, ['bash', 'install.sh', ...args].join(' '), { bin: bash, args: [script, ...args], env: scriptEnv(base, dir, recipe), cwd: dir });
-    rmSync(script, { force: true });
+    await this.step(job, `curl -fsSL ${script.url}`, { bin: runner.curl, args: ['-fsSL', '--retry', '3', '-o', file, script.url], env: base, cwd: dir });
+    const args = script.args?.(dir) ?? [];
+    const env = scriptEnv(base, dir, script, platform);
+    if (powershell) {
+      const flags = ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File'];
+      await this.step(job, ['powershell', ...flags, basename(file), ...args].join(' '), { bin: runner.shell, args: [...flags, file, ...args], env, cwd: dir });
+    } else {
+      // Git for Windows' bash takes Windows paths written with forward slashes (`C:/…`).
+      const forBash = platform === 'win32' ? (v: string) => v.replace(/\\/g, '/') : (v: string) => v;
+      const pathVars = ['HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME', ...Object.keys(script.env?.(dir) ?? {})];
+      const bashEnv = { ...env, ...Object.fromEntries(pathVars.filter((k) => env[k]).map((k) => [k, forBash(env[k]!)])) };
+      await this.step(job, ['bash', basename(file), ...args].join(' '), { bin: runner.shell, args: [forBash(file), ...args.map(forBash)], env: bashEnv, cwd: dir });
+    }
+    rmSync(file, { force: true });
+  }
+
+  /**
+   * Removes what an installer put outside the CLI's folder `dir` that leads into it: the links in the
+   * PATH's folders (and `~/.local/bin`, `/usr/local/bin`, `/opt/homebrew/bin`) to anything inside it,
+   * and on Windows the user's PATH entries inside it. Each is said in the job's log.
+   */
+  private async dropOutside(dir: string, job?: InstallJob): Promise<void> {
+    const { platform, env, home } = this.host;
+    if (platform === 'win32') {
+      try {
+        const done = (await this.host.dropUserPath(dir)).trim();
+        if (done) job?.append(`${done}\n`);
+      } catch (err) {
+        console.warn(`[clis] could not check the user PATH for ${dir}: ${(err as Error).message}`);
+      }
+      return;
+    }
+    for (const link of dropLinksInto(dir, linkFolders(env, home))) job?.append(`Removed ${link}, a link into ${dir}\n`);
+  }
+
+  /** Runs `DROP_USER_PATH_SCRIPT` in Windows PowerShell for `dir`. */
+  private async dropUserPathEntries(dir: string): Promise<string> {
+    const powershell = windowsPowerShell(this.host.env, this.host.isFile);
+    if (!powershell) return '';
+    const r = await runShellScript(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass'], DROP_USER_PATH_SCRIPT, {
+      env: { ...installerEnv(this.host.env), HARNESS_RELAY_CLI_DIR: dir },
+      timeoutMs: 60_000,
+    });
+    if (r.code !== 0) throw new Error(tail(r.stderr || r.stdout, 300) || `exit ${r.code}`);
+    return r.stdout;
   }
 
   /** Runs one command of an install, its output into the job's log; throws when it fails. */

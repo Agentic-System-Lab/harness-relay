@@ -94,20 +94,15 @@ test.describe('installing a CLI from Settings', () => {
     npm.clear('hold');
   });
 
-  test("offers a maker's own installer where it runs, and says where it does not", async ({ page, relay }) => {
+  test("offers a maker's own installer, its bash script on macOS and Linux and its PowerShell one on Windows", async ({ page, relay }) => {
     await page.goto(`${relay.base}/#/settings/grok`);
     const card = page.locator('#settings-grok');
     await expect(card.locator('.provider-head .pill')).toHaveText('Not installed');
-    if (process.platform === 'win32') {
-      // The makers' scripts are bash: Windows gets the CLI's own page instead.
-      await expect(card.locator('.cli-install')).toContainText('Harness Relay cannot install Grok for you on this system');
-      await expect(card.getByRole('button', { name: 'Install Grok' })).toHaveCount(0);
-    } else {
-      // Not clicked: the script is the maker's, on the network.
-      await expect(card.getByRole('button', { name: 'Install Grok' })).toBeVisible();
-      await expect(card.locator('.cli-install')).toContainText('curl -fsSL https://x.ai/cli/install.sh | bash');
-      await expect(card.locator('.cli-install')).toContainText('The installer gets that folder as its home');
-    }
+    // Not clicked: the script is the maker's, on the network.
+    await expect(card.getByRole('button', { name: 'Install Grok' })).toBeVisible();
+    const command = process.platform === 'win32' ? 'irm https://x.ai/cli/install.ps1 | iex' : 'curl -fsSL https://x.ai/cli/install.sh | bash';
+    await expect(card.locator('.cli-install')).toContainText(command);
+    await expect(card.locator('.cli-install')).toContainText('The installer gets that folder as its home');
     await expect(card.getByRole('link', { name: /Install Grok from its website/ })).toBeVisible();
   });
 });

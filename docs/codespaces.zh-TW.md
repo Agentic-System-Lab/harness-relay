@@ -23,7 +23,7 @@ codespace 算在你的 GitHub 帳號上。GitHub Free 個人帳號每月含 120 
 
 codespace 會停在建立時的那一版，之後再按按鈕，它會讓你回到同一個（「**Resume this codespace**」）。要用較新的版本，就在那裡選「**Create a new one**」（再到 [github.com/codespaces](https://github.com/codespaces) 刪掉舊的）：新的 codespace 也會裝上較新的 dev container 要裝的東西。或者在舊的那個的終端機裡停止伺服器，執行 `git pull && npm ci && npm run build`，再啟動它。
 
-已安裝：Claude Code、Codex 和 Copilot 由 npm 安裝，Grok、Cursor、Antigravity 和 Muse Code 則用各家自己的安裝程式，它們會自己保持在最新版。開源 agent（OpenCode、Goose、Cline、OpenHands、Pi）沒有預裝：想用哪個，就在「**設定與登入**」裡它的卡片上按 **安裝**（[從設定頁安裝 CLI](user-guide.zh-TW.md#從設定頁安裝-cli)），再到「**設定 → 模型來源**」給它[模型來源](open-agents.zh-TW.md)。OpenHands 用 [uv](https://docs.astral.sh/uv/) 安裝，而 codespace 沒有 uv：請先在 codespace 的終端機安裝 uv。也可以照[安裝 agent 的 CLI](user-guide.zh-TW.md#安裝-agent-的-cli) 在終端機安裝（那裡用 Homebrew 安裝 Goose，而 codespace 沒有 Homebrew）；這樣裝到 `~/.local/bin` 的 CLI，要從新開的終端機（它的 shell 會把那個資料夾放上 `PATH`）重新啟動伺服器後才找得到。
+已安裝：Claude Code、Codex 和 Copilot 由 npm 安裝，Grok、Cursor、Antigravity 和 Muse Code 則用各家自己的安裝程式，它們會自己保持在最新版。開源 agent（OpenCode、Goose、Cline、OpenHands、Pi）沒有預裝：想用哪個，就在「**設定與登入**」裡它的卡片上按 **安裝**（[從設定頁安裝 CLI](user-guide.zh-TW.md#從設定頁安裝-cli)），再到「**設定 → 模型來源**」給它[模型來源](open-agents.zh-TW.md)。OpenHands 用 [uv](https://docs.astral.sh/uv/) 安裝，而 codespace 沒有 uv：Harness Relay 會先把 uv 裝進 OpenHands 的資料夾。也可以照[安裝 agent 的 CLI](user-guide.zh-TW.md#安裝-agent-的-cli) 在終端機安裝（那裡用 Homebrew 安裝 Goose，而 codespace 沒有 Homebrew）；這樣裝到 `~/.local/bin` 的 CLI，要從新開的終端機（它的 shell 會把那個資料夾放上 `PATH`）重新啟動伺服器後才找得到。
 
 ## 在那裡有什麼不同
 

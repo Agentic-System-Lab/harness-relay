@@ -577,9 +577,11 @@ const zhTW = {
       ? `Harness Relay 無法在這個系統上安裝 ${cli}，請照它官方頁面的說明安裝。`
       : block === 'npm'
         ? `安裝 ${cli} 需要 npm（隨 Node.js 一起安裝），但在 PATH 上找不到 npm。請先安裝 Node.js（https://nodejs.org）。`
-        : block === 'uv'
-          ? `安裝 ${cli} 需要 uv，但在 PATH 上找不到。請先安裝 uv（https://docs.astral.sh/uv/）。`
-          : `安裝 ${cli} 需要 ${block}，但在 PATH 上找不到。`,
+        : block === 'gitBash'
+          ? `在 Windows 上安裝 ${cli} 需要 Git for Windows 附的 bash（Git Bash），但找不到。請安裝 Git for Windows（https://git-scm.com/download/win；MinGit 沒有附 bash）。`
+          : block === 'powershell'
+            ? `安裝 ${cli} 需要 Windows PowerShell，但找不到。`
+            : `安裝 ${cli} 需要 ${block}，但在 PATH 上找不到。`,
   cliInstallFailed: (command: string, code: number | null) => `${command} 失敗（exit ${code}）。它的輸出在下方。`,
   cliInstallTimedOut: (command: string) => `${command} 執行太久，已經停止。`,
   cliInstallNoProgram: (path: string) => `安裝程式跑完了，卻沒有留下它的程式 ${path}。`,
@@ -1155,9 +1157,11 @@ const en: ServerMessages = {
       ? `Harness Relay cannot install ${cli} on this system. Install it as its own page says.`
       : block === 'npm'
         ? `Installing ${cli} takes npm, which comes with Node.js, and npm is not on the PATH. Install Node.js (https://nodejs.org) first.`
-        : block === 'uv'
-          ? `Installing ${cli} takes uv, which is not on the PATH. Install uv (https://docs.astral.sh/uv/) first.`
-          : `Installing ${cli} takes ${block}, which is not on the PATH.`,
+        : block === 'gitBash'
+          ? `Installing ${cli} on Windows takes the bash that comes with Git for Windows (Git Bash), which was not found. Install Git for Windows (https://git-scm.com/download/win; MinGit has no bash).`
+          : block === 'powershell'
+            ? `Installing ${cli} takes Windows PowerShell, which was not found.`
+            : `Installing ${cli} takes ${block}, which is not on the PATH.`,
   cliInstallFailed: (command, code) => `${command} failed (exit ${code}). Its output is below.`,
   cliInstallTimedOut: (command) => `${command} took too long and was stopped.`,
   cliInstallNoProgram: (path) => `The installer finished, but its program ${path} is not there.`,
