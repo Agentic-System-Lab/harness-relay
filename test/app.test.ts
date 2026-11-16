@@ -1581,9 +1581,31 @@ describe('/api/desktop/lang', () => {
     expect((await own.request('/api/desktop/lang', json('PUT', { lang: 'zh-TW' }))).status).toBe(200);
     expect((await own.request('/api/desktop/lang', json('PUT', { lang: 'en' }))).status).toBe(200);
     for (const bad of [{ lang: 'fr' }, { lang: 'EN' }, { lang: 1 }, {}]) {
-      expect((await own.request('/api/desktop/lang', json('PUT', bad))).status, JSON.stringify(bad)).toBe(400);
+      const res = await own.request('/api/desktop/lang', json('PUT', bad, { 'x-relay-lang': 'en' }));
+      expect(res.status, JSON.stringify(bad)).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toBe('Invalid value for "lang"');
     }
     expect(told).toEqual(['zh-TW', 'en']);
+  });
+
+  it("is taken only from this computer, where the app's window is: never from a phone through the tailnet", async () => {
+    const s = new SettingsStore(openDatabase(':memory:'));
+    const told: string[] = [];
+    const own = createApp({
+      auth: null,
+      store,
+      settings: s,
+      hub: new Hub(),
+      orchestrator,
+      providers: new ProviderService(s),
+      extraHosts: ['my-computer.tail1234.ts.net'],
+      desktopLang: (lang) => told.push(lang),
+    });
+    const phone = await own.request('/api/desktop/lang', json('PUT', { lang: 'zh-TW' }, { host: 'my-computer.tail1234.ts.net', 'x-relay-lang': 'en' }));
+    expect(phone.status).toBe(403);
+    expect(((await phone.json()) as { error: string }).error).toMatch(/desktop app's own window/);
+    expect((await own.request('/api/desktop/lang', json('PUT', { lang: 'zh-TW' }, { host: 'localhost:8787' }))).status).toBe(200);
+    expect(told).toEqual(['zh-TW']);
   });
 
   it('answers without a desktop app too (npm start): there is no one to tell', async () => {

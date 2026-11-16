@@ -634,10 +634,12 @@ export function createApp({
   });
 
   // The language the chat in the desktop app's window shows, as it opens and when the user picks
-  // another: the app's menus and dialogs follow it. Nothing to tell without the app.
+  // another: the app's menus and dialogs follow it. Nothing to tell without the app. Only from this
+  // computer (the window loads 127.0.0.1): a phone's browser through the tailnet never changes them.
   app.put('/api/desktop/lang', async (c) => {
     const { lang } = await body<{ lang?: unknown }>(c);
-    if (typeof lang !== 'string' || !(LANGS as string[]).includes(lang)) throw new HttpError(400, 'Invalid language');
+    if (!LOCAL_HOST.test(c.req.header('host') ?? '')) throw new HttpError(403, t().desktopLangNotHere);
+    if (typeof lang !== 'string' || !(LANGS as string[]).includes(lang)) throw new HttpError(400, t().invalidField('lang'));
     desktopLang?.(lang as Lang);
     return c.json({ ok: true });
   });

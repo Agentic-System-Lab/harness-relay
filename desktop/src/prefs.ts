@@ -56,6 +56,15 @@ export function parsePrefs(text: string | undefined): DesktopPrefs {
   };
 }
 
+/**
+ * The settings with the language the chat in the window shows (`value`, as the server passed it on),
+ * or undefined when it is no language of ours or the one kept already: nothing to save or rebuild.
+ */
+export function withLang(prefs: DesktopPrefs, value: unknown): DesktopPrefs | undefined {
+  const lang = asDesktopLang(value);
+  return lang && lang !== prefs.lang ? { ...prefs, lang } : undefined;
+}
+
 export function loadPrefs(file: string): DesktopPrefs {
   let text: string | undefined;
   try {

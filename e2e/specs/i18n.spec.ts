@@ -124,13 +124,18 @@ test.describe("the desktop app's menus", () => {
   });
 
   test('another browser, such as a phone’s, never tells the app', async ({ page }) => {
-    const told = toldLanguages(page);
+    // Requests as they are sent, not their answers: one still on its way counts too.
+    const told: unknown[] = [];
+    page.on('request', (r) => {
+      if (new URL(r.url()).pathname === '/api/desktop/lang') told.push(r.postDataJSON());
+    });
     await page.reload();
     await expect(homePage(page)).toBeVisible();
     await page.evaluate(() => (location.hash = '#/settings'));
     await languages(page, 'Language').getByRole('radio', { name: '繁體中文' }).click();
     await expect(page.getByRole('heading', { name: '設定與登入' })).toBeVisible();
-    // The page asks for the conversations again after the pick: by then it would have told the app.
+    // The page's next poll for the conversations (every 3 s) is sent after the pick's effect ran: a
+    // request telling the app would have been sent before it.
     await page.waitForRequest((r) => new URL(r.url()).pathname === '/api/conversations');
     expect(told).toEqual([]);
   });

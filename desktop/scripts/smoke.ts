@@ -110,6 +110,17 @@ export async function smoke(o: SmokeOptions): Promise<string[]> {
     );
     if (fakes) await checkTurn(url, auth, check, { cwd: fakes.cwd, timeoutMs: o.turnTimeoutMs });
 
+    // The chat in the app's window tells the server its language: the server passes it on to the app.
+    const told = next('lang');
+    // Awaited below only when the server took it: otherwise its wait ends unheard.
+    told.catch(() => {});
+    const lang = await fetch(`${url}/api/desktop/lang`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: auth.cookie, 'x-relay-key': auth.key, Origin: url },
+      body: JSON.stringify({ lang: 'zh-TW' }),
+    });
+    check(lang.ok && (await told).lang === 'zh-TW', "passes the language of the chat in the app's window on to the app");
+
     check(printsNoCode(output), 'prints no sign-in code');
 
     send({ type: 'busy' });

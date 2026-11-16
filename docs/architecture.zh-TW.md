@@ -271,7 +271,7 @@ flowchart LR
 - **前端**：第一次開啟時依 `navigator.languages` 決定語言（任何 `zh*` → zh-TW，否則英文），並存在 `localStorage`（`relay:lang`）；可在設定頁更改。`<html lang>` 會跟著改變。
 - **伺服器**：每個 API 請求都帶有 `X-Relay-Lang`（沒有時改看 `Accept-Language`，再沒有就用 zh-TW）。`/api/*` 中介層會在 `withLang()`（AsyncLocalStorage）中處理請求，所以底下任何地方的 `t()` 都會回傳正確語言的訊息：驗證錯誤、轉接器錯誤、系統訊息，以及這個請求啟動的整個團隊執行（回應送出後仍會繼續）。
 - **內建範本**有兩種語言版本（`builtinPresets(lang)`）；首席 agent 看到的是介面語言的版本，自訂角色則用使用者提問的語言撰寫。
-- **桌面 app**：它自己的文字（系統匣選單、視窗的選單列、對話框：`desktop/src/i18n.ts`）使用它視窗裡對話介面顯示的語言。那個頁面（Electron 會在 user agent 裡寫出自己）在打開時與每次選擇語言時送出它（`PUT /api/desktop/lang`），伺服器透過 port 轉給 app（`lang` 訊息），app 重建它的選單，並記在 `desktop.json` 供下次啟動使用。在那之前，app 跟著系統的語言，就像前端跟著瀏覽器的語言；登入它的其他瀏覽器（例如手機）不會改變它。
+- **桌面 app**：它自己的文字（系統匣選單、視窗的選單列、對話框：`desktop/src/i18n.ts`）使用它視窗裡對話介面顯示的語言。那個頁面（Electron 會在 user agent 裡寫出自己）在打開時與每次選擇語言時送出它（`PUT /api/desktop/lang`），伺服器透過 port 轉給 app（`lang` 訊息），app 重建它的選單，並記在 `desktop.json` 供下次啟動使用。在那之前，app 跟著系統的語言，就像前端跟著瀏覽器的語言。登入它的其他瀏覽器不會改變它：只有 app 的視窗會送出它，伺服器也只接受來自這台電腦自己位址（`localhost`、`127.0.0.1`）的請求，從不經由 tailnet。
 - 給 agent 的 prompt（簡報、回合 prompt、規劃用的 prompt）維持英文；agent 會用使用者的語言回答。
 
 ## CLI 轉接器

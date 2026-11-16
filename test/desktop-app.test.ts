@@ -25,7 +25,7 @@ import {
 import { packagedApps } from '../desktop/scripts/packaged';
 import { appManifest } from '../desktop/src/manifest';
 import { ServerLog } from '../desktop/src/log';
-import { DEFAULT_PREFS, loadPrefs, parsePrefs, savePrefs } from '../desktop/src/prefs';
+import { DEFAULT_PREFS, loadPrefs, parsePrefs, savePrefs, withLang } from '../desktop/src/prefs';
 import { browserDir, LEGACY_SIGN_IN, prepareBrowserDir } from '../desktop/src/profile';
 
 const dir = mkdtempSync(join(tmpdir(), 'relay-desktop-'));
@@ -101,6 +101,17 @@ describe("the desktop app's settings", () => {
       expect(parsePrefs(`{"lang": ${bad}}`).lang, bad).toBeUndefined();
     }
     expect(parsePrefs('{"lang": "fr"}')).toEqual(DEFAULT_PREFS);
+  });
+
+  it("takes the language the chat in the window shows only when it is one of ours and a new one", () => {
+    const prefs = { ...DEFAULT_PREFS, tailnetName: 'my-mac.tail1234.ts.net' };
+    expect(withLang(prefs, 'zh-TW')).toEqual({ ...prefs, lang: 'zh-TW' });
+    expect(withLang({ ...prefs, lang: 'zh-TW' }, 'en')).toEqual({ ...prefs, lang: 'en' });
+    // The one kept already: nothing to save or rebuild.
+    expect(withLang({ ...prefs, lang: 'en' }, 'en')).toBeUndefined();
+    for (const bad of ['fr', 'zh-tw', '', undefined, null, 1, { lang: 'en' }]) expect(withLang(prefs, bad), String(bad)).toBeUndefined();
+    // The settings it was given stay as they were.
+    expect(prefs).toEqual({ ...DEFAULT_PREFS, tailnetName: 'my-mac.tail1234.ts.net' });
   });
 
   it('saves and loads them', () => {

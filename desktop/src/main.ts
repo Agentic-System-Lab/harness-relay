@@ -32,7 +32,7 @@ import {
 import { autostartFile, desktopEntry, isAutostartOn, setAutostart } from './autostart';
 import { allowedHostsOf, loginShell, loginShellEnv, mergeShellEnv, mergeWindowsEnv, serverEnv, windowsEnv, withCommonPaths } from './env';
 import { spawnDetached } from '../../src/server/process';
-import { appLang, asDesktopLang, messages } from './i18n';
+import { appLang, messages } from './i18n';
 import {
   chatAddress,
   crashNotice,
@@ -47,7 +47,7 @@ import {
   tailnetName,
 } from './lifecycle';
 import { ServerLog } from './log';
-import { loadPrefs, savePrefs, type DesktopPrefs } from './prefs';
+import { loadPrefs, savePrefs, withLang, type DesktopPrefs } from './prefs';
 import { prepareBrowserDir } from './profile';
 import { checkServer, checkTurn, printsNoCode, withFakeClis, withoutOwnSettings } from './selftest';
 import { portFree, Supervisor, type ServerChild, type ServerState, type StartError } from './supervisor';
@@ -344,11 +344,21 @@ function run(): void {
   // Asked from the chat (Settings' Version card, the dialog offering a new version), or told the
   // language the chat in the window shows.
   supervisor.on('request', (request) => {
-    if (request.type === 'lang') followLang(request.lang);
-    else if (request.type === 'update-check') {
-      checkAnswers.ask(request.id);
-      void checkForUpdate();
-    } else void installFromChat();
+    switch (request.type) {
+      case 'lang':
+        followLang(request.lang);
+        return;
+      case 'update-check':
+        checkAnswers.ask(request.id);
+        void checkForUpdate();
+        return;
+      case 'update-install':
+        void installFromChat();
+        return;
+      default:
+        // A request added to the supervisor's REQUESTS needs its own case here.
+        request satisfies never;
+    }
   });
   supervisor.on('state', (state) => {
     updateTray();
@@ -387,17 +397,19 @@ function run(): void {
    * menu bar and the dialogs from now on speak it, also at the next start (desktop.json).
    */
   function followLang(value: unknown): void {
-    const lang = asDesktopLang(value);
-    if (!lang || lang === prefs.lang) return;
-    prefs = { ...prefs, lang };
+    const next = withLang(prefs, value);
+    if (!next?.lang) return;
+    prefs = next;
     try {
       savePrefs(prefsFile, prefs);
     } catch {
       /* kept for this run */
     }
-    t = messages(lang);
+    t = messages(next.lang);
     updateTray();
     Menu.setApplicationMenu(appMenu());
+    // Linux: the autostart entry's comment, in it too.
+    refreshAutostart();
   }
 
   function openLog(): void {

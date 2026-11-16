@@ -5,13 +5,15 @@
  * remembers it (desktop.json). Until the window has told it, the language follows the system's, the
  * way the web app follows the browser's: any Chinese is zh-TW.
  */
+import { LANGS, type Lang } from '../../src/shared/types';
 import type { ManualReason, UpdateFailure } from './update';
 
-export type DesktopLang = 'zh-TW' | 'en';
+/** The chat's languages: a language added there needs the app's messages in it too (`DESKTOP_MESSAGES`). */
+export type DesktopLang = Lang;
 
 /** `value` when it is one of the app's languages (named as the chat names them), else undefined. */
 export function asDesktopLang(value: unknown): DesktopLang | undefined {
-  return value === 'zh-TW' || value === 'en' ? value : undefined;
+  return (LANGS as unknown[]).includes(value) ? (value as DesktopLang) : undefined;
 }
 
 /** The app's language: the one the chat in its window last showed (`chosen`), else the system's (`preferred`). */
