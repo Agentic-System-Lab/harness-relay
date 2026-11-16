@@ -218,7 +218,7 @@ test.describe('the guided tour', () => {
     await expect(art.locator('.mark circle')).toHaveCount(3);
     await expect(art.locator('.result .row.add')).toHaveCount(2);
     await expect(art.locator('.result .row.del')).toHaveCount(1);
-    await expect(art.locator('.result .badge')).toHaveCount(1);
+    await expect(art.locator('.result .tour-art-badge')).toHaveCount(1);
     // The request comes first, top left; the result last, bottom right.
     const request = (await art.locator('.request').boundingBox())!;
     const result = (await art.locator('.result').boundingBox())!;
@@ -243,6 +243,10 @@ test.describe('the guided tour', () => {
     const shown = async () => {
       for (const part of ['.request', '.mark', '.result', '.check']) await expect(art.locator(part)).toHaveCSS('opacity', '1');
       for (const edge of await art.locator('.edge').all()) await expect(edge).toHaveCSS('stroke-dashoffset', '0px');
+      // The arrowheads shown, the lines written out whole.
+      for (const tip of await art.locator('.tip').all()) await expect(tip).toHaveCSS('opacity', '1');
+      // (After its animation, an identity matrix: the same as none.)
+      for (const line of await art.locator('.line').all()) await expect(line).toHaveCSS('transform', /^(none|matrix\(1, 0, 0, 1, 0, 0\))$/);
       await expect(art.locator('.halo')).toHaveCSS('opacity', '0');
     };
     await shown();
@@ -260,7 +264,18 @@ test.describe('the guided tour', () => {
     await shown();
   });
 
-  test("the welcome step's picture is left out where the card leaves it too little room", async ({ page }) => {
+  test("the welcome step's picture takes the room the card leaves it, and is left out where that is too little", async ({ page }) => {
+    // A window whose card leaves the picture less than its largest size: it shrinks to the room, between the text and the dots.
+    await page.setViewportSize({ width: 1280, height: 520 });
+    await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
+    const svg = page.locator('.tour-card:not(.tour-measure) .tour-art svg');
+    await expect(svg).toBeVisible();
+    const text = (await page.locator('.tour-card:not(.tour-measure) .tour-body p').boundingBox())!;
+    const box = (await svg.boundingBox())!;
+    const dots = (await page.locator('.tour-card:not(.tour-measure) .tour-dots').boundingBox())!;
+    expect(box.y).toBeGreaterThanOrEqual(text.y + text.height);
+    expect(box.y + box.height).toBeLessThanOrEqual(dots.y);
+    expect(box.height).toBeLessThan(300);
     // A short window: the card is cut to the screen, and the step's text takes it all.
     await page.setViewportSize({ width: 1280, height: 380 });
     await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();

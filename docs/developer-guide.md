@@ -149,7 +149,7 @@ src/
                            Home (the animated logo and the tagline, where the app opens), NewChat, TemplateEditor (the template dialog), TeamEditor, TeamReviser (the team
                            drawer's "Ask the lead agent"), ModelPicker, CliPicker (a choice of CLI: one row that scrolls sideways), ChatView,
                            MessageItem (incl. plan card), ChangesCard, Composer, Markdown,
-                           SettingsPage, UsagePanel (an account's plan usage in Settings), CopyButton, Logo, Onboarding (guided tour),
+                           SettingsPage, UsagePanel (an account's plan usage in Settings), CopyButton, Logo, Onboarding (guided tour), TourArt (its welcome step's picture),
                            MemberDots, icons, VoiceInput (microphone, setup dialog, install progress),
                            VoiceSettings (Settings → Voice input), ToolsSettings (Settings → Tool library),
                            CliInstall (a CLI's install and removal on its card in Settings),

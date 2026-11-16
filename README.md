@@ -12,7 +12,7 @@
 
 [![Harness Relay demo: you create a group and ask a question, the lead agent sorts the chat into the group and designs a team for the question, you confirm it, Claude Code, Codex and Grok read the code and answer, a follow-up question gets a team of its own, you open the code they discussed in the file browser, and a search finds the chat again](docs/media/demo-en.webp)](docs/media/demo-en.mp4)
 
-A local task assistant for the real **Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and Muse Code** CLIs, and five open-source coding agents (**OpenCode, Goose, Cline, OpenHands and Pi**) on the model backends you choose: give each a role, choose how they take turns, and they work on your code, or any question, and answer each other.
+A local task assistant: the real **Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and Muse Code** CLIs, and five open-source coding agents (**OpenCode, Goose, Cline, OpenHands and Pi**) on the model backends you choose, make up your team. Give each a role, choose how they take turns, and they work on your code, or any question, and answer each other.
 
 For each question, a lead agent picks the team from your templates (or adapts one, or designs a new one), and you confirm it. Harness Relay then runs the CLIs with your own sign-ins and tools, passes each agent the messages it hasn't seen yet, and streams everything into one chat.
 

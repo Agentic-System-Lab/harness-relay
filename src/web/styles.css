@@ -5428,7 +5428,7 @@ details.sub summary {
 /*
  * The welcome step's picture (TourArt.tsx): your request goes into Harness Relay, a result comes
  * out. It takes the room the step's short text leaves in a centered card (as tall as the tallest
- * step), and is left out when that room is too small to read it. It plays once (about 3.5 s): the
+ * step), and is left out when that room is too small to read it. It plays once (about 4 s): the
  * request comes in and its lines write themselves, an arrow takes it to the logo's dots, which turn
  * once as the home page's do, and an arrow brings out the result, whose lines write themselves
  * before its check pops in and rings once. Transform, opacity and the arrows' dash only; filled both
@@ -5471,13 +5471,13 @@ details.sub summary {
   animation-fill-mode: both;
 }
 
-.tour-art .card {
+.tour-art .tour-art-card {
   fill: var(--bg);
   stroke: var(--border);
   stroke-width: 1.5;
 }
 
-.tour-art .request .card {
+.tour-art .request .tour-art-card {
   fill: var(--surface);
 }
 
@@ -5576,7 +5576,7 @@ details.sub summary {
   animation-timing-function: var(--art-ease);
 }
 
-.tour-art .badge {
+.tour-art .tour-art-badge {
   fill: var(--ok);
 }
 
