@@ -130,6 +130,194 @@ test.describe('settings', () => {
     await expect(card.locator('.provider-head')).toContainText('v1.0.999');
   });
 
+  test("the links row gathers the agents in one menu, which leads to each agent's card and names the one being read", async ({ page }) => {
+    await page.getByRole('link', { name: /Settings & sign-in/ }).click();
+    const nav = page.getByRole('navigation', { name: 'Sections of this page' });
+    const agents = nav.getByRole('button', { name: /^Agents/ });
+    const menu = page.getByRole('menu', { name: 'Agents' });
+    // One entry for the twelve agents' cards, where their links were; the other links as they were.
+    await expect(nav.getByRole('link')).toHaveText(['Version', 'Language', 'Appearance', 'Notifications', 'Sandboxes', 'Model backends', 'Lead agent', 'Tools', 'Voice', 'Default folder', 'Agent sessions', 'Shares', 'Browsers', 'Tour']);
+    await expect(agents).toHaveAccessibleName('Agents');
+    await expect(agents).toHaveAttribute('aria-expanded', 'false');
+    await expect(menu).toHaveCount(0);
+
+    // Opened: every agent, the open-source ones in a group under their heading, the focus on the first.
+    await agents.click();
+    await expect(agents).toHaveAttribute('aria-expanded', 'true');
+    const items = menu.getByRole('menuitem');
+    await expect(items).toHaveText(['Claude Code', 'Codex', 'Grok', 'Cursor', 'Antigravity', 'Copilot', 'Muse Code', 'OpenCode', 'Goose', 'Cline', 'OpenHands', 'Pi']);
+    await expect(menu.getByRole('group', { name: 'Open-source agents' }).getByRole('menuitem')).toHaveText(['OpenCode', 'Goose', 'Cline', 'OpenHands', 'Pi']);
+    await expect(items.first()).toBeFocused();
+    // The keys move in it, round the ends; Escape closes it back to its button.
+    await page.keyboard.press('ArrowDown');
+    await expect(items.nth(1)).toBeFocused();
+    await page.keyboard.press('End');
+    await expect(items.last()).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(items.first()).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await expect(items.last()).toBeFocused();
+    await page.keyboard.press('Home');
+    await expect(items.first()).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await expect(agents).toBeFocused();
+    // ArrowUp on the button opens it at the last one; Tab closes it and goes on to the next link, Shift+Tab back to the button.
+    await page.keyboard.press('ArrowUp');
+    await expect(items.last()).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(menu).toHaveCount(0);
+    await expect(nav.getByRole('link', { name: 'Lead agent' })).toBeFocused();
+    await agents.focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(items.first()).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(menu).toHaveCount(0);
+    await expect(agents).toBeFocused();
+
+    // A click on its heading leaves its keys working; the focus moving elsewhere closes it.
+    await agents.click();
+    await menu.getByText('Open-source agents').click();
+    await expect(menu).toBeVisible();
+    // The focus stays on the item that had it.
+    await expect(items.first()).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(items.nth(1)).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await agents.click();
+    await nav.getByRole('link', { name: 'Tools' }).focus();
+    await expect(menu).toHaveCount(0);
+
+    // An agent chosen: its card, its address, and the button naming it, highlighted.
+    await agents.click();
+    await items.filter({ hasText: 'Codex' }).click();
+    await expect(menu).toHaveCount(0);
+    await expect(page).toHaveURL(/#\/settings\/codex$/);
+    await expect(page.locator('#settings-codex')).toBeInViewport();
+    await expect(agents).toHaveAccessibleName('Agents: Codex');
+    await expect(agents).toHaveClass(/active/);
+    // Reopened, the agent being read is marked and has the focus.
+    await agents.click();
+    await expect(items.filter({ hasText: 'Codex' })).toHaveAttribute('aria-current', 'location');
+    await expect(items.filter({ hasText: 'Codex' })).toBeFocused();
+    // A click elsewhere (here the screen's bottom right, clear of the menu) closes it.
+    const view = page.viewportSize()!;
+    await page.mouse.click(view.width - 20, view.height - 20);
+    await expect(menu).toHaveCount(0);
+
+    // Another card's link: the button no longer names an agent, and keeps its width, so the links after it stay put.
+    const leadLink = nav.getByRole('link', { name: 'Lead agent' });
+    const leadAt = (await leadLink.boundingBox())!.x;
+    await leadLink.click();
+    await expect(leadLink).toHaveAttribute('aria-current', 'location');
+    await expect(agents).toHaveAccessibleName('Agents');
+    await expect(agents).not.toHaveClass(/active/);
+    expect(Math.abs((await leadLink.boundingBox())!.x - leadAt)).toBeLessThanOrEqual(1);
+
+    // An address of an agent's card, as the sidebar's dots link to: the card, and the button naming it.
+    await page.goto(page.url().replace(/#.*$/, '#/settings/opencode'));
+    await expect(page.locator('#settings-opencode')).toBeInViewport();
+    await expect(agents).toHaveAccessibleName('Agents: OpenCode');
+  });
+
+  test("in a short window the agents' menu stays inside it, and the keys show the item they reach", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 480 });
+    // At the top of the page, where the links sit lower than once stuck.
+    await page.goto(page.url().replace(/#.*$/, '#/settings'));
+    const agents = page.getByRole('navigation', { name: 'Sections of this page' }).getByRole('button', { name: /^Agents/ });
+    await agents.click();
+    const menu = page.getByRole('menu', { name: 'Agents' });
+    await expect(menu).toBeVisible();
+    const box = (await menu.boundingBox())!;
+    expect(box.y + box.height).toBeLessThanOrEqual(480);
+    // End reaches Pi: the menu scrolls to show it, inside the window.
+    await page.keyboard.press('End');
+    const pi = menu.getByRole('menuitem', { name: 'Pi', exact: true });
+    await expect(pi).toBeFocused();
+    const shown = (await pi.boundingBox())!;
+    expect(shown.y).toBeGreaterThanOrEqual(box.y);
+    expect(shown.y + shown.height).toBeLessThanOrEqual(box.y + box.height);
+    // Home back to the first, shown too.
+    await page.keyboard.press('Home');
+    const first = (await menu.getByRole('menuitem').first().boundingBox())!;
+    expect(first.y).toBeGreaterThanOrEqual(box.y);
+  });
+
+  test("on a phone, the agents' button shows whole, its menu stays inside the screen and with its button, and leads to the card", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    // Reached by an agent's address: once the links make room for the menu button (the row narrows), the button naming it shows whole.
+    await page.goto(page.url().replace(/#.*$/, '#/settings/codex'));
+    const nav = page.getByRole('navigation', { name: 'Sections of this page' });
+    const row = nav.locator('.settings-nav-links');
+    const agents = nav.getByRole('button', { name: /^Agents/ });
+    const menu = page.getByRole('menu', { name: 'Agents' });
+    await expect(agents).toHaveAccessibleName('Agents: Codex');
+    await expect(nav).toHaveClass(/stuck/);
+    const whole = async (el: typeof agents) => {
+      const r = (await row.boundingBox())!;
+      const b = (await el.boundingBox())!;
+      return b.x >= r.x - 1 && b.x + b.width <= r.x + r.width + 1;
+    };
+    await expect.poll(() => whole(agents)).toBe(true);
+
+    // Tab out of the menu: the next link, brought into view.
+    await agents.focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(menu.getByRole('menuitem').first()).toBeFocused();
+    await page.keyboard.press('Tab');
+    const lead = nav.getByRole('link', { name: 'Lead agent' });
+    await expect(lead).toBeFocused();
+    await expect.poll(() => whole(lead)).toBe(true);
+
+    // The button at the row's right end (partly out of it): the menu opens inside the screen.
+    await row.evaluate((el) => (el.scrollLeft = 0));
+    await agents.dispatchEvent('click');
+    await expect(menu).toBeVisible();
+    let box = (await menu.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
+    // The row scrolled while it is open: it stays open, and moves with its button.
+    await row.evaluate((el) => (el.scrollLeft = el.scrollWidth));
+    await expect(menu).toBeVisible();
+    await expect.poll(async () => {
+      const b = (await agents.boundingBox())!;
+      const m = (await menu.boundingBox())!;
+      return Math.round(m.x) === Math.round(Math.max(8, Math.min(b.x, 390 - m.width - 8)));
+    }).toBe(true);
+    box = (await menu.boundingBox())!;
+    expect(box.y).toBeGreaterThan((await agents.boundingBox())!.y);
+    await menu.getByRole('menuitem', { name: 'Pi', exact: true }).click();
+    await expect(page.locator('#settings-pi')).toBeInViewport();
+    await expect(agents).toHaveAccessibleName('Agents: Pi');
+  });
+
+  test("the agents' menu moves with its button as the links stick beside the collapsed sidebar's button", async ({ page }) => {
+    // A wide window with the sidebar collapsed: its button sits in the corner, and the links make room for it once they come up to it.
+    await page.setViewportSize({ width: 900, height: 900 });
+    await page.getByRole('button', { name: 'Collapse sidebar' }).click();
+    await page.goto(page.url().replace(/#.*$/, '#/settings'));
+    const nav = page.getByRole('navigation', { name: 'Sections of this page' });
+    const agents = nav.getByRole('button', { name: /^Agents/ });
+    await expect(nav).not.toHaveClass(/stuck/);
+    await agents.focus();
+    await page.keyboard.press('ArrowDown');
+    const menu = page.getByRole('menu', { name: 'Agents' });
+    await expect(menu).toBeVisible();
+    const before = (await agents.boundingBox())!.x;
+    // The page scrolled a little (the wheel leaves the focus in the menu): the links stick and shift right, without scrolling sideways.
+    await page.mouse.move(450, 800);
+    await page.mouse.wheel(0, 200);
+    await expect(nav).toHaveClass(/stuck/);
+    await expect.poll(async () => (await agents.boundingBox())!.x).toBeGreaterThan(before + 10);
+    await expect(menu).toBeVisible();
+    await expect.poll(async () => {
+      const b = (await agents.boundingBox())!;
+      const m = (await menu.boundingBox())!;
+      return Math.abs(m.x - Math.max(8, Math.min(b.x, 900 - m.width - 8))) <= 1;
+    }).toBe(true);
+  });
+
   test('the language can be switched, and the choice is kept', async ({ page }) => {
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
     const languages = page.locator('#settings-language');

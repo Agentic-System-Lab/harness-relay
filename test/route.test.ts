@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CORNER_GAP, SETTINGS_SECTIONS, currentSection, hashFor, makeRoomForCorner, readingLine, revealLink, routeFromHash, sectionId, settingsHref } from '../src/web/route';
+import { PROVIDERS } from '../src/shared/types';
+import { AGENT_SECTIONS, CORNER_GAP, SETTINGS_NAV, SETTINGS_SECTIONS, currentSection, hashFor, isAgentSection, makeRoomForCorner, menuMove, navEntryOf, readingLine, revealLink, routeFromHash, sectionId, settingsHref } from '../src/web/route';
 
 describe('client routes', () => {
   it('reads the hash', () => {
@@ -56,6 +57,39 @@ describe('client routes', () => {
       'browsers',
       'tour',
     ]);
+  });
+});
+
+describe("the settings links row's agents' menu", () => {
+  it('gathers every agent\'s card into one entry, where the first of them is, keeping the page order', () => {
+    expect([...AGENT_SECTIONS].sort()).toEqual([...PROVIDERS].sort());
+    // The agents' cards come one after another on the page, in that order.
+    const first = SETTINGS_SECTIONS.indexOf(AGENT_SECTIONS[0]!);
+    expect(SETTINGS_SECTIONS.slice(first, first + AGENT_SECTIONS.length)).toEqual(AGENT_SECTIONS);
+    expect(SETTINGS_NAV).toEqual(['version', 'language', 'appearance', 'notifications', 'sandboxes', 'backends', 'agents', 'lead', 'tools', 'voice', 'cwd', 'sessions', 'shares', 'browsers', 'tour']);
+  });
+
+  it('leads to an agent\'s card through the menu, and to every other card through its own link', () => {
+    for (const s of SETTINGS_SECTIONS) {
+      expect(navEntryOf(s)).toBe(isAgentSection(s) ? 'agents' : s);
+      expect(SETTINGS_NAV).toContain(navEntryOf(s));
+    }
+    expect(isAgentSection('codex')).toBe(true);
+    expect(isAgentSection('backends')).toBe(false);
+    // Every agent's card keeps its own address, which the menu's items and other links use.
+    for (const p of AGENT_SECTIONS) expect(routeFromHash(settingsHref(p))).toEqual({ page: 'settings', section: p });
+  });
+
+  it('moves the focus in the menu with the arrows (round the ends), Home and End', () => {
+    expect(menuMove('ArrowDown', -1, 12)).toBe(0);
+    expect(menuMove('ArrowUp', -1, 12)).toBe(11);
+    expect(menuMove('ArrowDown', 3, 12)).toBe(4);
+    expect(menuMove('ArrowDown', 11, 12)).toBe(0);
+    expect(menuMove('ArrowUp', 0, 12)).toBe(11);
+    expect(menuMove('Home', 7, 12)).toBe(0);
+    expect(menuMove('End', 2, 12)).toBe(11);
+    expect(menuMove('a', 2, 12)).toBeUndefined();
+    expect(menuMove('ArrowDown', -1, 0)).toBeUndefined();
   });
 });
 
