@@ -979,7 +979,7 @@ export const en: Messages = {
       included: (n) => `${n} ${n === 1 ? 'file is' : 'files are'} included: anyone with the link can download ${n === 1 ? 'it' : 'them'}.`,
     },
     page: {
-      tagline: 'A local task assistant for the real Claude Code, Codex, Grok, Cursor, Antigravity and Copilot CLIs and open-source coding agents',
+      tagline: 'A local task assistant in which the real Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and Muse Code CLIs and open-source coding agents work together',
       note: (date) => `Shared ${date}`,
       site: "Harness Relay's website",
       image: (name) => `(Image not included${name ? `: ${name}` : ''})`,

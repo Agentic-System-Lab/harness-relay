@@ -149,7 +149,7 @@ src/
                            Home（app 打開時有動畫的 logo 與標語）、NewChat、TemplateEditor（範本對話框）、TeamEditor、TeamReviser（團隊設定的
                            「請首席 agent 調整」）、ModelPicker、CliPicker（選 CLI：可水平捲動的一排）、ChatView、
                            MessageItem（含 plan 卡片）、ChangesCard、Composer、Markdown、
-                           SettingsPage、UsagePanel（設定頁中帳號的方案用量）、CopyButton、Logo、Onboarding（使用導覽）、
+                           SettingsPage、UsagePanel（設定頁中帳號的方案用量）、CopyButton、Logo、Onboarding（使用導覽）、TourArt（使用導覽歡迎那一步的圖）、
                            MemberDots、icons、VoiceInput（麥克風、安裝說明對話框、安裝進度）、
                            VoiceSettings（設定 → 語音輸入）、ToolsSettings（設定 → 工具庫）、
                            CliInstall（設定頁 CLI 卡片上的安裝與移除）、

@@ -1018,7 +1018,7 @@ export const zhTW = {
     },
     /** Text on the shared page itself. */
     page: {
-      tagline: '讓真正的 Claude Code、Codex、Grok、Cursor、Antigravity、Copilot CLI 與開源 coding agent 一起工作的本機任務助理',
+      tagline: '讓真正的 Claude Code、Codex、Grok、Cursor、Antigravity、Copilot、Muse Code CLI 與開源 coding agent 一起工作的本機任務助理',
       note: (date: string) => `分享於 ${date}`,
       /** The link icon beside the time: it links to Harness Relay's website. */
       site: 'Harness Relay 網站',
