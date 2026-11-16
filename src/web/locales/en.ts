@@ -979,7 +979,7 @@ export const en: Messages = {
       included: (n) => `${n} ${n === 1 ? 'file is' : 'files are'} included: anyone with the link can download ${n === 1 ? 'it' : 'them'}.`,
     },
     page: {
-      tagline: 'A local group chat for the real Claude Code, Codex, Grok, Cursor, Antigravity and Copilot CLIs and open-source coding agents',
+      tagline: 'A local task assistant for the real Claude Code, Codex, Grok, Cursor, Antigravity and Copilot CLIs and open-source coding agents',
       note: (date) => `Shared ${date}`,
       site: "Harness Relay's website",
       image: (name) => `(Image not included${name ? `: ${name}` : ''})`,
@@ -1628,7 +1628,7 @@ export const en: Messages = {
     steps: [
       {
         title: 'Welcome to Harness Relay',
-        body: 'A group chat where Claude Code, Codex, Grok, Cursor, Antigravity and Copilot, and five open-source agents (OpenCode, Goose, Cline, OpenHands and Pi), answer your questions and work on your code together, all on your own computer. The next few steps show you around.',
+        body: 'A task assistant: Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and Muse Code, and five open-source agents (OpenCode, Goose, Cline, OpenHands and Pi), answer your questions and work on your code together, all on your own computer. The next few steps show you around.',
       },
       {
         title: 'Check that each agent is ready',

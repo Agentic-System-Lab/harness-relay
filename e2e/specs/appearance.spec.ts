@@ -14,11 +14,15 @@ async function tourSteps(page: Page): Promise<number> {
 
 /**
  * The animations in the tour (none while it is closed): each one's name, state, start, duration,
- * the properties it changes and the value it starts from.
+ * the properties it changes and the value it starts from. Those of the welcome step's picture
+ * (`.tour-art`) are apart: `art` for them alone, else the card's and the backdrop's alone.
  */
-function tourAnimations(page: Page) {
-  return page.evaluate(() =>
-    (document.querySelector('.tour')?.getAnimations({ subtree: true }) ?? []).map((a) => {
+function tourAnimations(page: Page, art = false) {
+  return page.evaluate(
+    (art) =>
+      (document.querySelector('.tour')?.getAnimations({ subtree: true }) ?? [])
+        .filter((a) => Boolean(((a.effect as KeyframeEffect).target as Element | null)?.closest('.tour-art')) === art)
+        .map((a) => {
       const effect = a.effect as KeyframeEffect;
       const [first] = effect.getKeyframes();
       const changed = Object.keys(first ?? {}).filter((k) => !['offset', 'computedOffset', 'easing', 'composite'].includes(k));
@@ -30,7 +34,8 @@ function tourAnimations(page: Page) {
         changed,
         from: changed.length === 1 ? String(first![changed[0]!]) : undefined,
       };
-    }),
+        }),
+    art,
   );
 }
 
@@ -198,6 +203,71 @@ test.describe('the guided tour', () => {
       await next.click();
     }
     expect(places.size).toBe(1);
+  });
+
+  test("the welcome step's picture: a request going in and a result coming out, drawn once, then still; not on the next step, and still from the start with reduced motion", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
+    const art = page.locator('.tour-card:not(.tour-measure) .tour-art');
+    await expect(art.locator('svg')).toBeVisible();
+    // Decorative, and without words: the step's text says what Harness Relay is.
+    await expect(art).toHaveAttribute('aria-hidden', 'true');
+    await expect(art.locator('svg')).toHaveText('');
+    // Your request, Harness Relay's mark (the logo's three dots), and the result: two lines added, one removed, a check.
+    await expect(art.locator('.request .you')).toHaveCount(1);
+    await expect(art.locator('.mark circle')).toHaveCount(3);
+    await expect(art.locator('.result .row.add')).toHaveCount(2);
+    await expect(art.locator('.result .row.del')).toHaveCount(1);
+    await expect(art.locator('.result .badge')).toHaveCount(1);
+    // The request comes first, top left; the result last, bottom right.
+    const request = (await art.locator('.request').boundingBox())!;
+    const result = (await art.locator('.result').boundingBox())!;
+    expect(request.y + request.height).toBeLessThan(result.y);
+    expect(request.x).toBeLessThan(result.x);
+    // It fills the room the short text leaves: it starts below the text and ends above the dots.
+    const text = (await page.locator('.tour-card:not(.tour-measure) .tour-body p').boundingBox())!;
+    const box = (await art.locator('svg').boundingBox())!;
+    const dots = (await page.locator('.tour-card:not(.tour-measure) .tour-dots').boundingBox())!;
+    expect(box.y).toBeGreaterThanOrEqual(text.y + text.height);
+    expect(box.y + box.height).toBeLessThanOrEqual(dots.y);
+    expect(box.height).toBeGreaterThan(200);
+
+    // It plays once and comes to rest, with transform, opacity and the arrows' dash alone.
+    await expect.poll(() => tourAnimations(page, true).then((a) => a.length)).toBeGreaterThan(0);
+    await expect.poll(() => tourAnimations(page, true).then((a) => a.every((x) => x.state === 'finished')), { timeout: 10_000 }).toBe(true);
+    const played = await tourAnimations(page, true);
+    expect(played.every((a) => a.duration > 0 && Number.isFinite(a.duration))).toBe(true);
+    expect([...new Set(played.flatMap((a) => a.changed))].sort()).toEqual(['opacity', 'strokeDashoffset', 'transform']);
+    expect([...new Set(played.map((a) => a.name))].sort()).toEqual(['tour-art-draw', 'tour-art-in', 'tour-art-pop', 'tour-art-ring', 'tour-art-show', 'tour-art-turn', 'tour-art-write']);
+    // At rest: the request, the mark and the result there, the arrows drawn, the ring gone.
+    const shown = async () => {
+      for (const part of ['.request', '.mark', '.result', '.check']) await expect(art.locator(part)).toHaveCSS('opacity', '1');
+      for (const edge of await art.locator('.edge').all()) await expect(edge).toHaveCSS('stroke-dashoffset', '0px');
+      await expect(art.locator('.halo')).toHaveCSS('opacity', '0');
+    };
+    await shown();
+
+    // The next step has no picture.
+    await tour(page).getByRole('button', { name: 'Next' }).click();
+    await expect(page.getByRole('dialog', { name: en.tour.steps[1]!.title })).toBeVisible();
+    await expect(art).toHaveCount(0);
+
+    // With reduced motion: the still picture at once, nothing moving.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await tour(page).getByRole('button', { name: 'Back' }).click();
+    await expect(art.locator('svg')).toBeVisible();
+    expect(await tourAnimations(page, true)).toEqual([]);
+    await shown();
+  });
+
+  test("the welcome step's picture is left out where the card leaves it too little room", async ({ page }) => {
+    // A short window: the card is cut to the screen, and the step's text takes it all.
+    await page.setViewportSize({ width: 1280, height: 380 });
+    await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
+    await expect(page.locator('.tour-card:not(.tour-measure) .tour-art svg')).toBeHidden();
+    // On a phone, the sheet makes room for it.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator('.tour-card:not(.tour-measure) .tour-art svg')).toBeVisible();
   });
 });
 

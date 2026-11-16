@@ -1018,7 +1018,7 @@ export const zhTW = {
     },
     /** Text on the shared page itself. */
     page: {
-      tagline: '讓真正的 Claude Code、Codex、Grok、Cursor、Antigravity、Copilot CLI 與開源 coding agent 一起工作的本機群組聊天室',
+      tagline: '讓真正的 Claude Code、Codex、Grok、Cursor、Antigravity、Copilot CLI 與開源 coding agent 一起工作的本機任務助理',
       note: (date: string) => `分享於 ${date}`,
       /** The link icon beside the time: it links to Harness Relay's website. */
       site: 'Harness Relay 網站',
@@ -1669,7 +1669,7 @@ export const zhTW = {
     steps: [
       {
         title: '歡迎使用 Harness Relay',
-        body: '這是一個群組聊天室：Claude Code、Codex、Grok、Cursor、Antigravity 和 Copilot，以及 OpenCode、Goose、Cline、OpenHands、Pi 五個開源 agent，會一起回答你的問題、一起改你的程式，全都在你的電腦上執行。接下來幾個步驟帶你認識主要功能。',
+        body: '這是一個任務助理：Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 和 Muse Code，以及 OpenCode、Goose、Cline、OpenHands、Pi 五個開源 agent，會一起回答你的問題、一起改你的程式，全都在你的電腦上執行。接下來幾個步驟帶你認識主要功能。',
       },
       {
         title: '先確認各 agent 可以使用',
