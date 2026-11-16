@@ -36,15 +36,17 @@ test.describe('installing a CLI from Settings', () => {
     await expect(card.getByRole('link', { name: /from its website/ })).toHaveCount(0);
     const install = card.getByRole('button', { name: 'Install Copilot' });
     await expect(install).toBeVisible();
+    // Where it goes, but not the command it runs, which shows in its output once it starts.
     const offer = card.locator('.cli-install');
-    await expect(offer).toContainText('npm install -g @github/copilot');
     await expect(offer).toContainText(`Into a folder of Harness Relay's own, ${dir}; you can remove it here later.`);
+    await expect(offer).not.toContainText('npm install');
 
     // Under way: what npm printed so far, and Cancel.
     npm.set('hold');
     await install.click();
     const running = card.locator('.cli-install.running');
     await expect(running).toContainText('Installing Copilot…');
+    await expect(running.locator('.cli-install-log')).toContainText(`$ npm install -g --prefix ${dir} @github/copilot`);
     await expect(running.locator('.cli-install-log')).toContainText('npm http fetch GET 200 https://registry.npmjs.org/@github/copilot');
     await expect(running.getByRole('button', { name: 'Cancel install' })).toBeVisible();
 
@@ -107,15 +109,18 @@ test.describe('installing a CLI from Settings', () => {
     npm.clear('hold');
   });
 
-  test("offers a maker's own installer, its bash script on macOS and Linux and its PowerShell one on Windows", async ({ page, relay }) => {
+  test("offers a maker's own installer, its bash script on macOS and Linux and its PowerShell one on Windows, without showing its command", async ({ page, relay }) => {
     await page.goto(`${relay.base}/#/settings/grok`);
     const card = page.locator('#settings-grok');
     await expect(card.locator('.provider-head .pill')).toHaveText('Not installed');
     // Not clicked: the script is the maker's, on the network.
     await expect(card.getByRole('button', { name: 'Install Grok' })).toBeVisible();
-    const command = process.platform === 'win32' ? 'irm https://x.ai/cli/install.ps1 | iex' : 'curl -fsSL https://x.ai/cli/install.sh | bash';
-    await expect(card.locator('.cli-install')).toContainText(command);
     await expect(card.locator('.cli-install')).toContainText('The installer gets that folder as its home');
+    // What it would run, the maker's script for this system, is not shown on the card.
+    const command = process.platform === 'win32' ? 'irm https://x.ai/cli/install.ps1 | iex' : 'curl -fsSL https://x.ai/cli/install.sh | bash';
+    await expect(card.locator('.cli-install')).not.toContainText(command);
+    const views = await relay.api<{ provider: string; method: string; command: string }[]>('/api/clis');
+    expect(views.find((v) => v.provider === 'grok')).toMatchObject({ method: 'script', command });
     await expect(card).not.toContainText('grok not found');
     await expect(card.getByRole('link', { name: /from its website/ })).toHaveCount(0);
   });

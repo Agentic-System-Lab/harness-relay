@@ -50,7 +50,7 @@ Muse Code 在 macOS 與 Linux 上用 `curl -fsSL https://dev.meta.ai/install.sh 
 
 #### 從設定頁安裝 CLI
 
-也可以在「**設定與登入**」裡，從每個 CLI 自己的卡片分別安裝它。Harness Relay 找不到某個 CLI 時，它的卡片會顯示「**安裝 <CLI>**」按鈕，以及會執行的指令。按一下就會在背景把它裝進一個專屬的資料夾 `data/clis/<cli>`（在[桌面 app](#桌面-app) 裡是它資料夾中的 `clis/`），一邊安裝一邊顯示安裝程式的輸出（可以「**取消安裝**」），確認程式能執行，再把這個 CLI 的「**執行檔**」設成它。CLI 不會放到其他地方：不會放上你的 `PATH`，也不會改你 shell 的設定檔，所以這樣裝的 CLI 只給 Harness Relay 用（安裝程式若仍在你 `PATH` 上的資料夾放了指向它程式的連結，裝完就會拿掉；在 Windows 上，不論安裝程式對你使用者的 `PATH` 做了什麼，它跑完後都會還原成執行前的樣子，所以 Windows 上的安裝一次只跑一個）。npm 與 uv 下載的檔案也不會留在你自己的快取裡：每次安裝都把自己的快取放在那個資料夾，裝完就刪掉。之後卡片會顯示「**由 Harness Relay 安裝在 …**」與「**移除**」按鈕：移除會刪掉那個資料夾，並把執行檔設定改回安裝前的樣子；CLI 的登入、設定與對話紀錄都留在它自己的家目錄。用其他方式安裝的 CLI 不會出現移除按鈕。各 CLI 的安裝方式：
+也可以在「**設定與登入**」裡，從每個 CLI 自己的卡片分別安裝它。Harness Relay 找不到某個 CLI 時，它的卡片會顯示「**安裝 <CLI>**」按鈕，以及會裝進哪個資料夾。按一下就會在背景把它裝進那個專屬的資料夾 `data/clis/<cli>`（在[桌面 app](#桌面-app) 裡是它資料夾中的 `clis/`），一邊安裝一邊顯示安裝程式的輸出（最前面是它執行的指令）（可以「**取消安裝**」），確認程式能執行，再把這個 CLI 的「**執行檔**」設成它。CLI 不會放到其他地方：不會放上你的 `PATH`，也不會改你 shell 的設定檔，所以這樣裝的 CLI 只給 Harness Relay 用（安裝程式若仍在你 `PATH` 上的資料夾放了指向它程式的連結，裝完就會拿掉；在 Windows 上，不論安裝程式對你使用者的 `PATH` 做了什麼，它跑完後都會還原成執行前的樣子，所以 Windows 上的安裝一次只跑一個）。npm 與 uv 下載的檔案也不會留在你自己的快取裡：每次安裝都把自己的快取放在那個資料夾，裝完就刪掉。之後卡片會顯示「**由 Harness Relay 安裝在 …**」與「**移除**」按鈕：移除會刪掉那個資料夾，並把執行檔設定改回安裝前的樣子；CLI 的登入、設定與對話紀錄都留在它自己的家目錄。用其他方式安裝的 CLI 不會出現移除按鈕。各 CLI 的安裝方式：
 
 - 用 npm（隨 Node.js 一起安裝），以全域安裝的方式裝進那個資料夾（`npm install -g`）：Claude Code、Codex 與 Copilot（最新版），以及 OpenCode、Cline 與 Pi（下表的版本）。
 - 用它官方的安裝腳本，以 `curl` 下載，並把那個資料夾當作它的家目錄執行，所以它在程式旁邊寫的東西（shell 設定檔、快取）也都留在裡面：Grok、Cursor、Antigravity 與 Muse Code（最新版），以及 Goose（1.58.1）。在 macOS 與 Linux 上執行各自的 `bash` 腳本；在 Windows 上 Grok、Cursor、Antigravity 與 Muse Code 執行它們的 PowerShell 安裝程式（`irm … | iex`），Goose 則在 Git for Windows 附的 bash（Git Bash）裡執行它的 `bash` 腳本，它本來就支援。

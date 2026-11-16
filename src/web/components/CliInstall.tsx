@@ -90,7 +90,8 @@ export function CliInstall({
     );
   }
 
-  // Not found: offer to install it (again, after a failed or cancelled install).
+  // Not found: offer to install it (again, after a failed or cancelled install), and say where it
+  // goes; not the command it runs, which shows in its output once it starts.
   const ended = shown.kind === 'offer' && shown.retry ? job : undefined;
   return (
     <div className="cli-install">
@@ -112,7 +113,6 @@ export function CliInstall({
           {ended ? i.retry : i.install(label)}
         </button>
       </div>
-      <code className="small">{view.command}</code>
       <p className="muted small">
         {i.into(view.dir)}
         {view.method === 'script' && i.scriptHome}
