@@ -129,6 +129,7 @@ Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numb
 - Say *agent*, not *CLI*: "The agents you installed", "one kind of agent is enough", "the twelve agents" (中文「agent」，例如「一種 agent 就能組隊」). *CLI* stays only in a product's name (Codex CLI, Grok CLI, Cursor CLI, Antigravity CLI, GitHub Copilot CLI, GitHub CLI); a program itself is named as code (`claude`, `codex app-server`).
 - Use the app's own terms. English: Auto team, Roundtable, Parallel, Relay, Read-only, Edit, Full access, lead agent, model backends, custom endpoints. 繁體中文: 自動組隊、圓桌、平行、接力、唯讀、可編輯、完全存取、首席 agent、模型來源、自訂端點、開源 agent (see `src/web/locales/zh-TW.ts`).
 - English page: `site/index.html`. Chinese page: `site/zh-TW/index.html` (`lang="zh-Hant-TW"`). A change to one is a change to both.
+- The meta description is what a search result and an answer engine quote: it starts with the name, says what Harness Relay is, and fits in 160 columns (a Chinese character two). The longer pitch is `og:description`, for link previews. Each page's JSON-LD repeats both, and `site/llms.txt` the page's facts: change them with the copy (`test/site-structured-data.test.ts`).
 - The site remembers the visitor's language. Clicking the language switch in the header (`data-lang`) stores the choice in `localStorage` under `harness-relay.lang` (`en` or `zh-TW`). On every later visit the inline script in each page's `<head>` sends the visitor to the page in that language before anything renders, keeping the `#section` anchor. Until they choose, the English page follows the browser like the app does: a browser whose first language is Chinese gets `zh-TW/`; a Chinese page opened directly stays as it is.
 - Template names and descriptions come from `src/server/presets.ts`; keep them in sync.
 - CLI links: Claude Code https://docs.claude.com/en/docs/claude-code, Codex https://github.com/openai/codex, Grok https://github.com/xai-org/grok-build, Cursor https://cursor.com/cli, Antigravity https://antigravity.google/download, Copilot https://github.com/features/copilot/cli, Muse Code https://dev.meta.ai/products/muse-code/. The open agents link to their packages: OpenCode https://www.npmjs.com/package/opencode-ai, Goose https://formulae.brew.sh/formula/block-goose-cli, Cline https://www.npmjs.com/package/cline, OpenHands https://pypi.org/project/openhands/, Pi https://www.npmjs.com/package/@earendil-works/pi-coding-agent. Keep the tested versions in step with [docs/open-agents.md](../docs/open-agents.md).
@@ -144,18 +145,20 @@ Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numb
 | `assets/fonts/bricolage-grotesque-latin.woff2` | Google Fonts, SIL Open Font License (`assets/fonts/OFL.txt`) |
 | `favicon.svg` | Same drawing as the app's favicon |
 | `sitemap.xml` | The pages for search engines, with their `hreflang` alternates; a new page goes in it (developer guide, "Website") |
+| `llms.txt` | The app summed up for the coding agents and tools that read [llms.txt](https://llmstxt.org), with links to the docs as Markdown; its facts are the page's (developer guide, "Website", "Answer engines") |
 | `google7b263ecdf9adc06e.html` | Google Search Console's verification file: keep it as it is, never delete it |
 
 The origin of each raster is also embedded in the file (PNG text chunk) or in a `*.webp.json` sidecar next to it.
 
 ### When the demo is re-recorded
 
-`npm run demo` records the demo again and does all four steps below for both pages (see [Recording the demo](../docs/developer-guide.md#recording-the-demo)). Afterwards, check the chapter sentences against `data/demo/<lang>/review.md`, which lists what the agents did; the sentences are in `scripts/demo/chapters.ts`.
+`npm run demo` records the demo again and does all five steps below for both pages (see [Recording the demo](../docs/developer-guide.md#recording-the-demo)). Afterwards, check the chapter sentences against `data/demo/<lang>/review.md`, which lists what the agents did; the sentences are in `scripts/demo/chapters.ts`.
 
 1. Replace the videos in `docs/media/`.
 2. Re-cut both posters from a frame that shows the three agents (the team design card works well), and the two screenshots from the same frames: `docs/media/screenshot-en.png` and `docs/media/screenshot-zh-TW.png`, full-size PNGs with their origin in a PNG text chunk. The org's homepage (https://agentic-system-lab.github.io/) and its GitHub profile show them from `main`, so they change there as soon as you push.
 3. Re-time the chapters: each chapter's `data-t` (seconds) and its `<time>` label, in both pages. The English and Chinese recordings have different timings and different teams.
 4. Update the member initials and names in the chapter rail if the team changed.
+5. Bring the demo's structured data up to date in both pages: the `VideoObject`'s `uploadDate` (when the new video is published; the same video published again keeps its date) and `duration` (its length as an ISO 8601 duration, such as `PT2M6S`).
 
 ## Accessibility
 

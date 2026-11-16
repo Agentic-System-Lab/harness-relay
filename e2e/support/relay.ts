@@ -24,9 +24,9 @@ import { ROOT, SERVER_ENTRY, WEB_DIR } from './paths';
  */
 export interface FakeLogEntry {
   /** The CLI, by provider id (`cursor` for `cursor-agent`, `antigravity` for `agy`). */
-  cli: Provider | 'zenity' | 'gh';
+  cli: Provider | 'zenity' | 'gh' | 'npm';
   /**
-   * The fake CLI process that wrote the line, as no other in the test (not on `gh`'s or `zenity`'s,
+   * The fake CLI process that wrote the line, as no other in the test (not on `gh`'s, `npm`'s or `zenity`'s,
    * a line a process). Match a process's lines by this, never by `pid`: Windows soon gives an ended
    * process's pid to a new one.
    */
@@ -221,7 +221,7 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
   if (!o.live) {
     // Without its fakes, the server would find the real CLIs and gh on the PATH: refuse to start.
     const exe = process.platform === 'win32' ? '.exe' : '';
-    const wanted = [...PROVIDERS.filter((p) => !notInstalled.includes(p)).map(fakeBin), `gh${exe}`];
+    const wanted = [...PROVIDERS.filter((p) => !notInstalled.includes(p)).map(fakeBin), `gh${exe}`, `npm${exe}`];
     const missing = wanted.map((name) => join(o.fakeBinDir, name)).filter((bin) => !existsSync(bin));
     if (missing.length) throw new Error(`The fake CLIs are missing (${missing.join(', ')}): run the tests again to build them.`);
     // In use as long as servers start with it, so that a run of a changed script leaves it alone.

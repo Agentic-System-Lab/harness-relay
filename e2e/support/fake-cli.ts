@@ -27,6 +27,10 @@
  * too. The executable runs the fake GitHub CLI when it runs as `gh`, the fake CLIs otherwise: one
  * build instead of two, each of which takes over ten seconds on Windows.
  *
+ * The fake npm (`e2e/fake-cli/fake-npm.cjs`), which Settings installs CLIs with, goes with them as
+ * `npm` the same way: a script on macOS and Linux, the same executable under one more name on Windows
+ * (it runs the fake npm when it runs as `npm`). It installs a CLI's fake from this folder.
+ *
  * For `e2e/specs/windows.spec.ts`, `installFakeLaunchers()` also builds the fakes as some Windows
  * users' CLIs come: Cursor's own launcher (`cursor-agent.cmd`, which starts a Node and a script of its
  * own), Muse Code's (`muse.cmd`, which starts the binary its `.muse-version` names), and npm's shims
@@ -39,7 +43,7 @@ import { createRequire } from 'node:module';
 import { basename, dirname, join, relative } from 'node:path';
 import { PROVIDERS, type Provider } from '../../src/shared/types';
 import { FACTS } from './clis/all';
-import { FAKE_CLI_DIR, FAKE_DIALOG_SCRIPT, FAKE_GH_SCRIPT, ROOT } from './paths';
+import { FAKE_CLI_DIR, FAKE_DIALOG_SCRIPT, FAKE_GH_SCRIPT, FAKE_NPM_SCRIPT, ROOT } from './paths';
 
 /** The CLIs whose fake is written; the others' fakes say they are not and exit with code 2. */
 export const IMPLEMENTED_FAKES: readonly Provider[] = PROVIDERS.filter((p) => FACTS[p].implemented);
@@ -87,7 +91,7 @@ const OPENHANDS_VENV = {
 };
 
 /** The fakes that are standalone scripts of their own, not modules of the fake CLIs. */
-const STANDALONE = new Set([basename(FAKE_DIALOG_SCRIPT), basename(FAKE_GH_SCRIPT)]);
+const STANDALONE = new Set([basename(FAKE_DIALOG_SCRIPT), basename(FAKE_GH_SCRIPT), basename(FAKE_NPM_SCRIPT)]);
 
 /** The fake CLIs' modules: every `.cjs` under e2e/fake-cli/ but the standalone ones, by their path there without `.cjs` (`lib/rpc`). */
 function fakeModules(): [id: string, text: string][] {
@@ -149,12 +153,14 @@ export async function installFakeClis(): Promise<string> {
   const script = bundleFakeCli();
   const dialogScript = process.platform === 'win32' ? '' : readFileSync(FAKE_DIALOG_SCRIPT, 'utf8');
   const ghScript = readFileSync(FAKE_GH_SCRIPT, 'utf8');
+  const npmScript = readFileSync(FAKE_NPM_SCRIPT, 'utf8');
   const key = createHash('sha256')
     .update(LAYOUT)
     .update(PROVIDERS.map((p) => FACTS[p].bin).join(','))
     .update(script)
     .update(dialogScript)
     .update(ghScript)
+    .update(npmScript)
     .update(process.version)
     .update(process.execPath)
     .update(`${process.platform}-${process.arch}-${sea ? 'sea' : 'script'}`)
@@ -165,8 +171,9 @@ export async function installFakeClis(): Promise<string> {
   const bins = PROVIDERS.map((p) => join(folder, fakeBin(p)));
   const dialog = dialogScript ? join(folder, 'zenity') : undefined;
   const gh = join(folder, `gh${exe}`);
+  const npm = join(folder, `npm${exe}`);
   const litellm = sea ? [] : [join(folder, OPENHANDS_VENV.models)];
-  if ([...bins, ...(dialog ? [dialog] : []), gh, ...litellm].every((b) => existsSync(b))) {
+  if ([...bins, ...(dialog ? [dialog] : []), gh, npm, ...litellm].every((b) => existsSync(b))) {
     // Marked as in use, so that another run, of a changed module, leaves it to this one.
     const now = new Date();
     utimesSync(folder, now, now);
@@ -185,29 +192,35 @@ export async function installFakeClis(): Promise<string> {
     // Each fake that is written answers `--version` as its module says (a broken module fails here, not in each test).
     const load = createRequire(import.meta.url);
     const checks = IMPLEMENTED_FAKES.map((p): [string, RegExp] => [join(folder, fakeBin(p)), (load(join(FAKE_CLI_DIR, 'agents', `${p}.cjs`)) as { versionRe: RegExp }).versionRe]);
-    await buildExecutables(seaEntry(script, ghScript), folder, [...bins, gh], [...checks, [gh, /^gh version/]]);
+    await buildExecutables(seaEntry(script, ghScript, npmScript), folder, [...bins, gh, npm], [...checks, [gh, /^gh version/], [npm, /^10\.9\.9-e2e/]]);
   } else {
     for (const p of PROVIDERS) {
       if (p === 'openhands') installOpenhands(folder, script);
       else writeScript(join(folder, fakeBin(p)), script);
     }
     writeScript(gh, ghScript);
+    writeScript(npm, npmScript);
   }
   if (dialog) writeScript(dialog, dialogScript);
   return folder;
 }
 
 /**
- * The single executable's script: the fake GitHub CLI when it runs as `gh`, else the fake CLIs (which
- * tell the CLIs apart by the same name). Each runs in a function of its own, as it would in a module
- * of its own.
+ * The single executable's script: the fake GitHub CLI when it runs as `gh`, the fake npm as `npm`,
+ * else the fake CLIs (which tell the CLIs apart by the same name). Each runs in a function of its own,
+ * as it would in a module of its own.
  */
-function seaEntry(cliScript: string, ghScript: string): string {
+function seaEntry(cliScript: string, ghScript: string, npmScript: string): string {
   return [
     "'use strict';",
-    "if (require('node:path').basename(process.execPath).replace(/\\.exe$/i, '').toLowerCase() === 'gh') {",
+    "const __runName = require('node:path').basename(process.execPath).replace(/\\.exe$/i, '').toLowerCase();",
+    "if (__runName === 'gh') {",
     '(function () {',
     ghScript,
+    '})();',
+    "} else if (__runName === 'npm') {",
+    '(function () {',
+    npmScript,
     '})();',
     '} else {',
     '(function () {',

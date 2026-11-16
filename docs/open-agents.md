@@ -37,7 +37,7 @@ The orchestrator passes the backends to every open-agent run (`RunOptions.backen
 
 **Model menus** list the models of the CLI's own catalog whose backend is set up (the adapter's `models` hook, when its CLI has a catalog), then each endpoint's typed models; a custom id can always be typed. A member left on "default" runs on the model the menu shows as the default, as with the other CLIs: Settings' default for that CLI, else its catalog's default when that model's backend is set up (`Orchestrator.modelFor`, from `ProviderService.models`). With neither, the menu says a model is needed, and a run says to pick one.
 
-**Status.** An open agent is ready when its CLI is installed (`--version`), its adapter is done and at least one backend is set up. There is no sign-in: the login routes answer 400 for it. The Claude subscription and Grok's sign-in cannot be used by these CLIs (Anthropic does not allow its subscription in third-party agents); Settings says so, and Claude Code and Grok themselves keep using their own sign-ins for their own models.
+**Status.** An open agent is ready when its CLI is installed (`--version`), its adapter is done and at least one backend is set up. A CLI not found can be installed from its card in Settings, into a folder of its own, at the version checked ([User guide → Installing a CLI from Settings](user-guide.md#installing-a-cli-from-settings)). There is no sign-in: the login routes answer 400 for it. The Claude subscription and Grok's sign-in cannot be used by these CLIs (Anthropic does not allow its subscription in third-party agents); Settings says so, and Claude Code and Grok themselves keep using their own sign-ins for their own models.
 
 ### Claude Code, Codex, Grok and Copilot on the endpoints
 

@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { Permission } from '../shared/types';
+import type { CliInstallBlock, Permission } from '../shared/types';
 import { LANGS, type Lang } from '../shared/types';
 
 /*
@@ -566,6 +566,31 @@ const zhTW = {
   antigravityModelsFailed: 'agy models 沒有回傳模型',
   copilotModelsFailed: 'Copilot 沒有回傳模型',
   museSkillsFailed: 'muse skills list 沒有回傳技能清單',
+  // Installing a CLI from Settings
+  cliInstallRunning: (cli: string) => `${cli} 正在安裝中，請等它完成或先取消。`,
+  cliInstallNone: (cli: string) => `目前沒有進行中的 ${cli} 安裝`,
+  cliAlreadyInstalled: (cli: string) => `Harness Relay 已經安裝了 ${cli}。要重新安裝，請先移除它。`,
+  cliNotInstalledHere: (cli: string) => `${cli} 不是透過 Harness Relay 安裝的，這裡沒有可以移除的東西。`,
+  cliRemoveBusy: (cli: string) => `有對話正在執行，或首席 agent 正在替對話分群或調整團隊。請等它們結束（或停止對話）再移除 ${cli}。`,
+  cliInstallBlocked: (cli: string, block: CliInstallBlock) =>
+    block === 'system'
+      ? `Harness Relay 無法在這個系統上安裝 ${cli}，請照它官方頁面的說明安裝。`
+      : block === 'npm'
+        ? `安裝 ${cli} 需要 npm（隨 Node.js 一起安裝），但在 PATH 上找不到 npm。請先安裝 Node.js（https://nodejs.org）。`
+        : block === 'gitBash'
+          ? `在 Windows 上安裝 ${cli} 需要 Git for Windows 附的 bash（Git Bash），但找不到。請安裝 Git for Windows（https://git-scm.com/download/win；MinGit 沒有附 bash）。`
+          : block === 'powershell'
+            ? `安裝 ${cli} 需要 Windows PowerShell，但找不到。`
+            : `安裝 ${cli} 需要 ${block}，但在 PATH 上找不到。`,
+  cliInstallFailed: (command: string, code: number | null) => `${command} 失敗（exit ${code}）。它的輸出在下方。`,
+  cliInstallTimedOut: (command: string) => `${command} 執行太久，已經停止。`,
+  cliInstallNoProgram: (path: string) => `安裝程式跑完了，卻沒有留下它的程式 ${path}。`,
+  cliInstallDoesNotRun: (detail: string) => `裝好的程式無法執行（--version）：${detail}`,
+  cliInstallCancelled: '已取消安裝',
+  cliRemoveFailed: (dir: string, detail: string) => `無法刪除 ${dir}：${detail}`,
+  cliRemoving: (cli: string) => `正在移除 ${cli}，請等它移除完。`,
+  cliUserPathUnread: (detail: string) => `無法讀取你的使用者 PATH，所以沒有執行安裝程式（它跑完後，PATH 會還原成執行前的樣子）：${detail}`,
+  cliUserPathNotBack: (detail: string) => `無法把你的使用者 PATH 還原成安裝程式執行前的樣子：${detail}。Harness Relay 下次啟動時，或下次執行安裝程式之前，會再試一次。`,
   // Voice input
   voiceNotReady: '語音輸入還沒安裝完成，請到「設定 → 語音輸入」查看。',
   voiceBusy: '語音輸入正在安裝中，請等它完成或先取消。',
@@ -1125,6 +1150,30 @@ const en: ServerMessages = {
   antigravityModelsFailed: 'agy models returned no models',
   copilotModelsFailed: 'Copilot returned no models',
   museSkillsFailed: 'muse skills list returned no skills',
+  cliInstallRunning: (cli) => `${cli} is being installed. Wait for it to finish, or cancel it first.`,
+  cliInstallNone: (cli) => `No install of ${cli} is running`,
+  cliAlreadyInstalled: (cli) => `Harness Relay has installed ${cli} already. To install it again, remove it first.`,
+  cliNotInstalledHere: (cli) => `${cli} was not installed by Harness Relay: there is nothing here to remove.`,
+  cliRemoveBusy: (cli) => `A conversation is running, or the lead agent is sorting one into a group or changing a team. Wait until they finish (or stop the conversation) before removing ${cli}.`,
+  cliInstallBlocked: (cli, block) =>
+    block === 'system'
+      ? `Harness Relay cannot install ${cli} on this system. Install it as its own page says.`
+      : block === 'npm'
+        ? `Installing ${cli} takes npm, which comes with Node.js, and npm is not on the PATH. Install Node.js (https://nodejs.org) first.`
+        : block === 'gitBash'
+          ? `Installing ${cli} on Windows takes the bash that comes with Git for Windows (Git Bash), which was not found. Install Git for Windows (https://git-scm.com/download/win; MinGit has no bash).`
+          : block === 'powershell'
+            ? `Installing ${cli} takes Windows PowerShell, which was not found.`
+            : `Installing ${cli} takes ${block}, which is not on the PATH.`,
+  cliInstallFailed: (command, code) => `${command} failed (exit ${code}). Its output is below.`,
+  cliInstallTimedOut: (command) => `${command} took too long and was stopped.`,
+  cliInstallNoProgram: (path) => `The installer finished, but its program ${path} is not there.`,
+  cliInstallDoesNotRun: (detail) => `The program installed does not run (--version): ${detail}`,
+  cliInstallCancelled: 'Install cancelled',
+  cliRemoveFailed: (dir, detail) => `Could not delete ${dir}: ${detail}`,
+  cliRemoving: (cli) => `${cli} is being removed. Wait until it is removed.`,
+  cliUserPathUnread: (detail) => `Could not read your user PATH, which is put back as it was once the installer has run, so the installer was not run: ${detail}`,
+  cliUserPathNotBack: (detail) => `Could not put your user PATH back as it was before the installer ran: ${detail}. Harness Relay tries again when it starts next, or before it runs another installer.`,
   voiceNotReady: 'Voice input is not set up yet. See Settings → Voice input.',
   voiceBusy: 'Voice input is being installed. Wait for it to finish, or cancel it first.',
   voiceNoJob: 'No install is running',

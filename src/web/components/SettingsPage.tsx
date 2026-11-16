@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   LANGS,
   MAX_ACCOUNT_LABEL,
   OPEN_PROVIDERS,
   PROVIDERS,
-  PROVIDER_INSTALL_URL,
   PROVIDER_LABEL,
   SANDBOX_TERMINAL_SUPPORT,
   accountUsable,
@@ -15,6 +14,7 @@ import {
   isEndpointCli,
   isOpenProvider,
   type AccountStatus,
+  type CliInstallView,
   type Lang,
   type LeadAgentSettings,
   type LoginMethod,
@@ -44,9 +44,12 @@ import {
   type SettingsSection,
 } from '../route';
 import { hasNativePanel } from '../native';
+import { statusBeforeInstall } from '../clis';
+import { useCliInstalls } from '../useCliInstalls';
 import { PROVIDER_COLOR, accountName, accountOf, accountState, inheritModelLabel, switchProvider, type ModelChoice } from '../util';
 import { AccountPicker } from './AccountPicker';
 import { BackendsCard } from './BackendsSettings';
+import { CliInstall } from './CliInstall';
 import { CwdInput } from './CwdInput';
 import { LoginLinks, LoginOutput } from './LoginLinks';
 import { CliPicker } from './CliPicker';
@@ -124,6 +127,12 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
     );
     void refreshProviders(true);
   }, [refreshProviders]);
+
+  // A CLI installed or removed from its card: its status, its models and its executable path changed.
+  const cliChanged = useCallback(async () => {
+    await Promise.all([refreshProviders(true), api.getSettings().then(setSettings, () => {})]);
+  }, [refreshProviders]);
+  const installs = useCliInstalls(() => void cliChanged());
 
   // The CLIs' status, and whether there is a new version (the desktop app asks GitHub now).
   const refresh = async () => {
@@ -225,6 +234,9 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
               status={providers.find((x) => x.provider === p)}
               catalog={catalog.filter((x) => x.provider === p)}
               settings={settings?.providers.find((x) => x.provider === p)}
+              install={installs.views.find((x) => x.provider === p)}
+              onInstallView={installs.update}
+              onCliChanged={cliChanged}
               onSettings={setSettings}
               onRefresh={() => refreshProviders(true)}
               onDefaults={() => refreshProviders()}
@@ -240,6 +252,9 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
               status={providers.find((x) => x.provider === p)}
               catalog={catalog.find((x) => x.provider === p)}
               settings={settings?.providers.find((x) => x.provider === p)}
+              install={installs.views.find((x) => x.provider === p)}
+              onInstallView={installs.update}
+              onCliChanged={cliChanged}
               onSettings={setSettings}
               onRefresh={() => refreshProviders(true)}
             />
@@ -413,15 +428,25 @@ function statusPill(
   return { text: p.unknown, cls: '' };
 }
 
+/** What a CLI's card needs to install it, or remove what Harness Relay installed (`CliInstall`). */
+interface InstallProps {
+  install?: CliInstallView;
+  onInstallView: (view: CliInstallView) => void;
+  onCliChanged: () => Promise<void>;
+}
+
 function ProviderCard({
   provider,
   status,
   catalog,
   settings,
+  install,
+  onInstallView,
+  onCliChanged,
   onSettings,
   onRefresh,
   onDefaults,
-}: {
+}: InstallProps & {
   provider: Provider;
   status?: ProviderStatus;
   /** This CLI's models, one entry per account (`catalogFor`). */
@@ -442,7 +467,9 @@ function ProviderCard({
   const accounts = settings?.accounts ?? [];
   /** More than one account: each says that what it loads and leaves out is its own. */
   const multi = accounts.length > 1;
-  const pill = statusPill(status, t);
+  // Just installed from here, its status still being checked again: not "not installed".
+  const checking = statusBeforeInstall(status, install);
+  const pill = statusPill(checking ? undefined : status, t);
 
   // Method labels come from the server in the UI language.
   useEffect(() => {
@@ -500,18 +527,7 @@ function ProviderCard({
         {status?.installed && status.version && <span className="muted small">v{status.version}</span>}
       </header>
 
-      {status && !status.installed && (
-        <p className="warn-line">
-          <span>
-            {status.auth.detail ?? t.settings.cliMissing(status.bin)}
-            {t.settings.setBinBelow}
-          </span>
-          {/* The CLI's own page (the desktop app's window opens it in the default browser). */}
-          <a href={PROVIDER_INSTALL_URL[provider]} target="_blank" rel="noopener noreferrer">
-            {t.settings.installCli(PROVIDER_LABEL[provider])} ↗
-          </a>
-        </p>
-      )}
+      <CliInstall provider={provider} status={status} view={install} onView={onInstallView} onChanged={onCliChanged} />
 
       {/* Once for the CLI: every account's members can run on the user's own endpoints. */}
       {isEndpointCli(provider) && (
@@ -921,9 +937,12 @@ function OpenAgentCard({
   status,
   catalog,
   settings,
+  install,
+  onInstallView,
+  onCliChanged,
   onSettings,
   onRefresh,
-}: {
+}: InstallProps & {
   provider: OpenProvider;
   status?: ProviderStatus;
   catalog?: ProviderModels;
@@ -938,7 +957,9 @@ function OpenAgentCard({
   const [effort, setEffort] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
-  const pill = statusPill(status, t);
+  // Just installed from here, its status still being checked again: not "not installed".
+  const checking = statusBeforeInstall(status, install);
+  const pill = statusPill(checking ? undefined : status, t);
   const label = PROVIDER_LABEL[provider];
   // An open agent has its default account only (no sign-in): its defaults and what it leaves out are that account's.
   const account = settings?.accounts[0];
@@ -990,17 +1011,7 @@ function OpenAgentCard({
         </span>
       </header>
 
-      {status && !status.installed && (
-        <p className="warn-line">
-          <span>
-            {status.auth.detail ?? t.settings.cliMissing(status.bin)}
-            {t.settings.setBinBelow}
-          </span>
-          <a href={PROVIDER_INSTALL_URL[provider]} target="_blank" rel="noopener noreferrer">
-            {t.settings.installCli(PROVIDER_LABEL[provider])} ↗
-          </a>
-        </p>
-      )}
+      <CliInstall provider={provider} status={status} view={install} onView={onInstallView} onChanged={onCliChanged} />
 
       <p className="muted small">
         {o.intro(label)}{' '}

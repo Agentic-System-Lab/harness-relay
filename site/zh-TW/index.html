@@ -6,7 +6,7 @@
     <title>Harness Relay：Claude Code、Codex、Grok 等十二種 coding agent，任你搭配</title>
     <meta
       name="description"
-      content="在你電腦上執行的網頁 app：你手上的 coding agent，不論是 Claude Code、Codex、Grok、Cursor、Antigravity、Copilot、Muse Code，或用你自己的模型來源執行的五個開源 coding agent，任意搭配，和你一起工作，也彼此溝通。一種就能組隊。設計團隊、決定發言方式，並核准它們的動作。"
+      content="Harness Relay 是在你電腦上執行的 app：你手上的 coding agent，Claude Code、Codex、Grok 等十二種任你搭配，和你一起工作，也彼此溝通。"
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/" />
@@ -47,6 +47,78 @@
     <script src="../assets/site.js" defer></script>
     <script type="module" src="../assets/downloads.js"></script>
     <script type="module" src="../assets/theme.js"></script>
+    <!-- What search and answer engines read about the page, the app and the demo: what the page says, and what
+         its links lead to (test/site-structured-data.test.ts keeps it in step with the page and the English page).
+         No version, price, star count or rating; the demo's uploadDate and duration are written by npm run demo. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebPage",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/#webpage",
+            "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/",
+            "name": "Harness Relay：Claude Code、Codex、Grok 等十二種 coding agent，任你搭配",
+            "description": "Harness Relay 是在你電腦上執行的 app：你手上的 coding agent，Claude Code、Codex、Grok 等十二種任你搭配，和你一起工作，也彼此溝通。",
+            "inLanguage": "zh-TW",
+            "isPartOf": { "@id": "https://agentic-system-lab.github.io/harness-relay/#website" },
+            "about": { "@id": "https://agentic-system-lab.github.io/harness-relay/#app" },
+            "primaryImageOfPage": "https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png",
+            "video": { "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/#demo" }
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/#website",
+            "url": "https://agentic-system-lab.github.io/harness-relay/",
+            "name": "Harness Relay",
+            "inLanguage": ["en", "zh-TW"],
+            "publisher": { "@id": "https://agentic-system-lab.github.io/#organization" }
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://agentic-system-lab.github.io/#organization",
+            "name": "Agentic System Lab",
+            "url": "https://agentic-system-lab.github.io/",
+            "sameAs": ["https://github.com/Agentic-System-Lab"]
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/#app",
+            "name": "Harness Relay",
+            "description": "你手上的 coding agent，不論是 Claude Code、Codex、Grok、Cursor、Antigravity、Copilot、Muse Code，或用你的 API key 或自己的模型執行的五個開源 coding agent，任意搭配，和你一起工作，也彼此溝通。一種就能組隊。設計團隊、決定發言方式，並核准它們的動作。",
+            "url": "https://agentic-system-lab.github.io/harness-relay/",
+            "applicationCategory": "DeveloperApplication",
+            "operatingSystem": "macOS, Windows, Linux",
+            "inLanguage": ["en", "zh-TW"],
+            "downloadUrl": "https://github.com/Agentic-System-Lab/harness-relay/releases/latest",
+            "license": { "@type": "CreativeWork", "name": "Sustainable Use License", "url": "https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE" },
+            "image": "https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png",
+            "screenshot": "https://agentic-system-lab.github.io/harness-relay/assets/media/poster-zh-TW.webp",
+            "publisher": { "@id": "https://agentic-system-lab.github.io/#organization" },
+            "sameAs": ["https://github.com/Agentic-System-Lab/harness-relay"]
+          },
+          {
+            "@type": "SoftwareSourceCode",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/#source",
+            "name": "Harness Relay",
+            "codeRepository": "https://github.com/Agentic-System-Lab/harness-relay",
+            "license": { "@type": "CreativeWork", "name": "Sustainable Use License", "url": "https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE" },
+            "targetProduct": { "@id": "https://agentic-system-lab.github.io/harness-relay/#app" }
+          },
+          {
+            "@type": "VideoObject",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/#demo",
+            "name": "Harness Relay 示範：看一次完整流程",
+            "description": "示範錄影：新增群組，在 Harness Relay 的 repository 上問兩個問題，每個問題都由首席 agent 組隊，瀏覽對話的檔案，最後搜尋對話",
+            "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/poster-zh-TW.webp",
+            "contentUrl": "https://agentic-system-lab.github.io/harness-relay/media/demo-zh-TW.mp4",
+            "uploadDate": "2026-11-12T06:22:43Z",
+            "duration": "PT2M3S",
+            "inLanguage": "zh-TW"
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <svg width="0" height="0" style="position: absolute" aria-hidden="true">
@@ -418,7 +490,7 @@
               </div>
             </dl>
             <p class="agents-foot">
-              完全存取以外，它們每一個和它啟動的一切，都在 Harness Relay 自己的作業系統沙箱中執行：只能寫入它自己的暫存資料夾與它自己的 session（其他對話的 agent 都讀不到也改不了），可編輯模式再加上工作目錄與對話的附件。不必詢問就能連到這次執行的模型來源；其他主機會先問你，但這台電腦自己的位址、agent 自己會連的少數主機，以及一次執行中第 30 個之後的主機，會直接拒絕。核准一樣是對話裡的卡片。
+              完全存取以外，它們每一個和它啟動的一切，都在 Harness Relay 自己的作業系統沙箱中執行（在原生 Windows 上，以及 Linux 上的 OpenCode，只能以完全存取執行）：只能寫入它自己的暫存資料夾與它自己的 session（其他對話的 agent 都讀不到也改不了），可編輯模式再加上工作目錄與對話的附件。不必詢問就能連到這次執行的模型來源；其他主機會先問你，但這台電腦自己的位址、agent 自己會連的少數主機，以及一次執行中第 30 個之後的主機，會直接拒絕。核准一樣是對話裡的卡片。
             </p>
           </div>
           <article class="excerpt">
@@ -811,7 +883,7 @@
             <ul class="facts">
               <li><svg aria-hidden="true"><use href="#i-lock" /></svg><span>只綁定 <code>127.0.0.1</code>，只接受你登入過的瀏覽器，並拒絕跨站請求。</span></li>
               <li><svg aria-hidden="true"><use href="#i-shield" /></svg><span>完全存取以外，Claude Code、Codex、Grok、Copilot 和 Muse Code 的指令都在它們各自的作業系統沙箱中執行：只能寫入工作目錄，讀不到你瀏覽器的資料夾與 Harness Relay 的資料。Cursor 沒有沙箱，所以每個指令都會先問你（對話設為自動拒絕時則直接拒絕），你的 Cursor 團隊允許清單上的除外。Antigravity 也沒有沙箱：每個指令都會先問你，而只要被拒絕一次，它就會結束這一輪。Copilot 被拒絕時也會結束這一輪。</span></li>
-              <li><svg aria-hidden="true"><use href="#i-box" /></svg><span>五個開源 agent 和它們啟動的一切，都在 Harness Relay 自己的沙箱中執行（sandbox-runtime：macOS 上用 Seatbelt、Linux 上用 bubblewrap，網路經過會過濾的 proxy）：同樣碰不到那些資料夾，每位成員的 session 都是它自己的，不必詢問就能連到的只有這次執行的模型來源。沙箱無法啟動就不執行；在原生 Windows 上只能以完全存取執行。</span></li>
+              <li><svg aria-hidden="true"><use href="#i-box" /></svg><span>五個開源 agent 和它們啟動的一切，都在 Harness Relay 自己的沙箱中執行（sandbox-runtime：macOS 上用 Seatbelt、Linux 上用 bubblewrap，網路經過會過濾的 proxy）：同樣碰不到那些資料夾，每位成員的 session 都是它自己的，不必詢問就能連到的只有這次執行的模型來源。沙箱無法啟動就不執行；在原生 Windows 上只能以完全存取執行，Linux 上的 OpenCode 也是。</span></li>
               <li><svg aria-hidden="true"><use href="#i-branch" /></svg><span>每個改檔的回合都有 git 快照；平行模式的 agent 在各自的 worktree 工作。</span></li>
               <li><svg aria-hidden="true"><use href="#i-key" /></svg><span>API key 與 MCP 伺服器的 token 存在作業系統的憑證儲存區：macOS 鑰匙圈、Windows 認證管理員或 Secret Service；沒有這些時（例如在 codespace 裡）則加密後存在資料庫。</span></li>
               <li><svg aria-hidden="true"><use href="#i-db" /></svg><span>所有對話都存在一個 SQLite 檔案裡；只有在你把對話分享成連結時，Harness Relay 才會把它發布出去。</span></li>
