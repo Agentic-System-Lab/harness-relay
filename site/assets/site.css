@@ -2230,8 +2230,8 @@ html:not(.js) .theme-toggle {
 }
 
 /* The header's name, its language switch and its buttons, with the header's wider gaps, fit on one
-   line from some 481px: below 500px the name goes, the logo stays (the link keeps its label for screen
-   readers). */
+   line from some 481px: below 500px the name goes, the logo stays. The rule hides the name in the
+   footer's logo link too, so both links keep the name as their label for screen readers. */
 @media (max-width: 500px) {
   .brand span {
     display: none;
