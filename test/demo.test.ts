@@ -1,10 +1,11 @@
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { buildChapters, joinNames, planPhrase, RAILS, renderRail, replaceRail, rounds, teamWho } from '../scripts/demo/chapters';
 import type { FrameEntry, Mark, Timeline } from '../scripts/demo/common';
 import { ffconcat, MIN_FAST, planCut, TAIL } from '../scripts/demo/cut';
-import { retimeGuidelines } from '../scripts/demo/publish';
+import { isoDuration, retimeGuidelines, retimeVideoData } from '../scripts/demo/publish';
 import { DEMO_PROVIDERS, SCENARIOS } from '../scripts/demo/record';
 import { PROVIDER_LABEL } from '../src/shared/types';
 import { pngChunks, pngText, swapScreen, withPngText } from '../scripts/demo/stills';
@@ -213,6 +214,39 @@ describe('demo scenario and site', () => {
     const out = retimeGuidelines(md, 'zh-TW', 63.04);
     expect(out).toContain('Frame at 0:27.5 of `docs/media/demo-en.mp4`');
     expect(out).toContain('Frame at 1:03.0 of `docs/media/demo-zh-TW.mp4`');
+  });
+
+  it("writes the video's length as an ISO 8601 duration, to the second", () => {
+    expect(isoDuration(125.83)).toBe('PT2M6S');
+    expect(isoDuration(122.4)).toBe('PT2M2S');
+    expect(isoDuration(59.6)).toBe('PT1M0S');
+    expect(isoDuration(42)).toBe('PT42S');
+    expect(isoDuration(3725)).toBe('PT1H2M5S');
+    expect(isoDuration(3600)).toBe('PT1H0M0S');
+    expect(isoDuration(0)).toBe('PT0S');
+    // A timeline without a length is refused, not written as PTNaNS.
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, -1]) expect(() => isoDuration(bad), String(bad)).toThrow(/length/);
+  });
+
+  it("brings the page's video structured data up to date, and only its two fields", () => {
+    for (const page of ['site/index.html', 'site/zh-TW/index.html']) {
+      const html = readFileSync(new URL(`../${page}`, import.meta.url), 'utf8');
+      const out = retimeVideoData(html, { uploadDate: '2027-01-02T03:04:05Z', seconds: 131.2 });
+      expect(out, page).toContain('"uploadDate": "2027-01-02T03:04:05Z"');
+      expect(out, page).toContain('"duration": "PT2M11S"');
+      // Nothing else changed: put the old values back and it is the page again.
+      const before = (key: string) => html.match(new RegExp(`"${key}": "[^"]*"`))![0];
+      expect(out.replace(/"uploadDate": "[^"]*"/, before('uploadDate')).replace(/"duration": "[^"]*"/, before('duration')), page).toBe(html);
+      // The same video published again keeps the date it was first published on; only its length is written.
+      const again = retimeVideoData(html, { seconds: 131.2 });
+      expect(again, page).toContain(before('uploadDate'));
+      expect(again.replace(/"duration": "[^"]*"/, before('duration')), page).toBe(html);
+      // The values are written as they are, never read as a replacement pattern.
+      expect(retimeVideoData(html, { uploadDate: '$&$1', seconds: 1 }), page).toContain('"uploadDate": "$&$1"');
+    }
+    // A page without them (or with two videos) is refused, not left as it was.
+    expect(() => retimeVideoData('<html></html>', { uploadDate: '2027-01-02T03:04:05Z', seconds: 1 })).toThrow(/uploadDate/);
+    expect(() => retimeVideoData('<html></html>', { seconds: 1 })).toThrow(/uploadDate/);
   });
 });
 
