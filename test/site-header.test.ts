@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 // The landing page's header on a narrow screen: the name, the language switch and the buttons each stay on
 // one line (measured in Chromium at every width from 320px to 1300px, in both languages), and where the
-// name does not fit beside the rest it goes, the logo staying.
+// name does not fit beside the rest it goes, the logo staying (in the footer's logo link too, by the same rule).
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const css = read('site/assets/site.css');
@@ -26,16 +26,25 @@ describe("the landing page's header", () => {
     // The name, the switch and the buttons need some 481px: at 500px and below, the logo alone.
     expect(css).toMatch(/@media \(max-width: 500px\) \{\n {2}\.brand span \{\n {4}display: none;\n {2}\}/);
     expect(css.match(/\.brand span \{\s*display: none;/g)).toHaveLength(1);
-    // Screen readers still hear the name: the mark's links, the header's and the footer's, have it as their
-    // label, the same in each language (the rule hides the name in both).
+    // Screen readers still hear the name: the rule hides it in every one of the mark's links (the header's and
+    // the footer's), so each has a label, one per language, that starts with the name it shows (WCAG's label in name).
     for (const page of ['site/index.html', 'site/zh-TW/index.html']) {
       const html = read(page);
-      const header = html.match(/<header[\s\S]*?<\/header>/)![0];
-      const footer = html.match(/<footer[\s\S]*?<\/footer>/)![0];
-      const label = header.match(/<a class="brand" href="\.\/" aria-label="(Harness Relay[^"]*)">/);
-      expect(label, page).not.toBeNull();
-      expect(footer, page).toContain(`<a class="brand" href="./" aria-label="${label![1]}">`);
-      expect(html.match(/<a class="brand"/g), page).toHaveLength(2);
+      const links = [...html.matchAll(/<a\b([^>]*\bclass="(?:[^"]*\s)?brand(?:\s[^"]*)?"[^>]*)>([\s\S]*?)<\/a>/g)].map((m) => ({
+        label: m[1].match(/\baria-label="([^"]*)"/)?.[1],
+        name: m[2].match(/<span>([^<]+)<\/span>/)?.[1],
+        at: m.index,
+      }));
+      // One in the header, one in the footer.
+      expect(links, page).toHaveLength(2);
+      expect(links[0].at > html.indexOf('<header') && links[0].at < html.indexOf('</header>'), page).toBe(true);
+      expect(links[1].at > html.indexOf('<footer'), page).toBe(true);
+      for (const link of links) {
+        expect(link.name, page).toBe('Harness Relay');
+        expect(link.label, page).toBeDefined();
+        expect(link.label!.startsWith(link.name!), `${page}: "${link.label}"`).toBe(true);
+      }
+      expect(links[1].label, page).toBe(links[0].label);
     }
   });
 
