@@ -44,11 +44,11 @@ src/traymenu.ts      系統匣選單開著時的處理
 src/lifecycle.ts     不需要 Electron 的決定，以及視窗的防護
 src/tailscale.ts     分享到 tailnet（tailscale serve）
 src/autostart.ts     Linux 上的登入時開啟
-src/prefs.ts         desktop.json：port、視窗大小、tailnet 名稱
+src/prefs.ts         desktop.json：port、視窗大小、tailnet 名稱、語言
 src/profile.ts       視窗的瀏覽器資料夾，不讓 agent 讀取
 src/log.ts           伺服器的紀錄
 src/manifest.ts      app 資料夾的 package.json
-src/i18n.ts          選單與對話框的文字，兩種語言
+src/i18n.ts          選單與對話框的文字，兩種語言，用視窗裡對話介面的那一種
 src/icons.ts         系統匣圖示
 scripts/build.ts     把伺服器與 app 打包到 build/（發佈時用 RELAY_VERSION，否則是 -dev 建置；
                      下載更新的地方用 RELAY_UPDATES_REPO 與 RELAY_UPDATES_TOKEN；它會寫出

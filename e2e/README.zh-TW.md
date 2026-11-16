@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 34 個 spec 檔、436 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 34 個 spec 檔、438 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -67,7 +67,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [使用導覽與主題](#使用導覽與主題) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 7 | [使用者說明 → 介面語言與使用導覽](../docs/user-guide.zh-TW.md#介面語言與使用導覽) |
 | [通知與提示音](#通知與提示音) | [`notifications.spec.ts`](specs/notifications.spec.ts) | 4 | [使用者說明 → 通知與提示音](../docs/user-guide.zh-TW.md#通知與提示音)、[架構 → 通知](../docs/architecture.zh-TW.md#通知) |
 | [環境變數設定的上限](#環境變數設定的上限) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [開發者說明 → 環境變數](../docs/developer-guide.zh-TW.md#環境變數) |
-| [語言](#語言) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 5 | [架構 → 語言](../docs/architecture.zh-TW.md#語言) |
+| [語言](#語言) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 7 | [架構 → 語言](../docs/architecture.zh-TW.md#語言) |
 | [在手機上](#在手機上) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 12 | [用手機連線](../docs/remote-access.zh-TW.md) |
 
 測試以英文介面執行，所以下面括號裡附上測試實際操作的英文標籤。
@@ -498,6 +498,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 登入頁與伺服器自己的訊息跟著語言 | 登入頁與伺服器對錯誤代碼的訊息都是中文。 |
 | 只抓取顯示的語言，和頁面自己的檔案一起；另一種在選了之後才抓 | 頁面的 head 會要求記住的語言的檔案（`modulepreload` 連結），而且只抓取這種語言；在設定裡選繁體中文時才抓它，重新載入後 head 就改要求它。 |
 | 選了文字載入不了的語言：頁面為它重新載入一次，之後說明原因並維持原樣 | 中文的檔案不見時（404），選繁體中文會讓頁面重新載入一次；再選一次會說無法載入，而且仍選著 English；檔案回來後重新載入，頁面就會切換。 |
+| 在桌面 app 自己的視窗裡，頁面在打開時與每次選擇語言時告訴 app 它顯示的語言 | User agent 裡有 Electron（就像 app 的視窗）時，登入後送出一次 `PUT /api/desktop/lang`（`en`），在設定裡先選繁體中文再選 English，也各送出一次（沒有 app 時伺服器回答 200）。 |
+| 其他瀏覽器（例如手機）從不告訴 app | User agent 裡沒有 Electron 時，重新載入與選繁體中文都不會送出 `PUT /api/desktop/lang`。 |
 | 頁面自己的文字載入不了時重新載入一次，之後用兩種語言說明 | 分頁第一個頁面（登入連結）就沒有英文的檔案時（載入過這個檔案的頁面可能從 WebKit 的記憶體快取拿到它，測試攔不住），頁面重新載入一次，之後用中文與英文說無法載入，並有重新載入的按鈕；檔案回來後，按鈕會把頁面找回來，並完成登入。 |
 
 ## 在手機上
@@ -611,6 +613,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **真正的首席 agent 會指出什麼。** 假首席 agent 的審閱總是標出第一則回覆開頭的幾個字；真正的模型給的 highlight 與下一步值不值得讀，這裡沒有測。它的 prompt，以及怎麼檢查它的回答（回覆裡沒有的引用會被拿掉、不認得的類型、上限），在單元測試中（`test/reviewer.test.ts`、`test/orchestrator-review.test.ts`）。
 - **真正手機上的滑動。**[在手機上](#在手機上)大部分的滑動觸控事件是從頁面本身送出的，所以瀏覽器不會跟著捲動；有一個測試送出 Chromium 自己的觸控，瀏覽器會判斷點到哪裡並跟著捲動，但沒有測試有手機自己的手勢或觸控處理：從螢幕最邊緣開始的滑動（手機可能留給「返回」用），以及 Android 的 Chrome 從手指移動多遠開始送出移動事件（約 8dp；手指底下可捲動的區塊在它第一次移動時量），都沒有測試。
 - **從設定頁真正的安裝。**[安裝 CLI](#安裝-cli) 用的是假的 npm，不會連到 npm 套件庫、官方腳本或 uv。`test/cli-install.test.ts` 用假的電腦涵蓋 Harness Relay 交給它們的東西（參數、環境變數、資料夾，Windows 上的也有），每個 CLI 真正的安裝則在 Linux 上手動試過（Windows 的安裝程式還沒在 Windows 電腦上試過）。
+- **桌面 app 自己的選單。**[語言](#語言)檢查 app 視窗裡的頁面（user agent 裡有 Electron）會把它的語言告訴伺服器；app 本身（Electron）不在這裡執行。伺服器轉送什麼、app 記住什麼，由 `test/app.test.ts`、`test/desktop-supervisor.test.ts` 與 `test/desktop-app.test.ts` 測試，選單換語言則在 app 裡手動確認過。
 - **還沒有 spec 走過的功能**：語音輸入本身的錄音與轉寫（它會下載引擎與模型，也需要麥克風；只測了安裝的面板）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 加密存在資料庫）；從設定登入 Codex、Grok、Cursor、Antigravity、Copilot 與 Muse Code（它們自己的登入流程；Copilot 的裝置登入由 `test/providers.test.ts` 測試），以及真正的 Codex 拿到 `codex login --with-api-key` 的 key 之後做了什麼；Copilot 沙箱的政策和這次執行設定的不一樣時，完全存取以外拒絕啟動（由 `test/copilot.test.ts` 測試）；Muse Code 詢問指令要不要連網（它的假 CLI 在沙箱中會為 `e2e:approve=publish` 詢問，但沒有 spec 送出這個指令），以及對話的權限改變或伺服器重新啟動後，Muse Code 的成員開新的 session（由 `test/muse.test.ts` 測試）；AgentsView 中首席 agent 與分類對話的 session 連結、設定網址後才送出的對話，以及 Harness Relay 為開源 agent 記下的成員 session（由 `test/agentsview.test.ts` 測試，Cursor 的也是，另有 spec 試過）；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
 
 ## 實機測試

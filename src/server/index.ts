@@ -131,7 +131,25 @@ const updates = new Updates(parent, relayVersion);
 const clis = new CliInstaller(settings, { changed: (p) => providers.invalidate(p), busy: () => orchestrator.anyRunning() });
 // On Windows: the user's PATH put back, as it was before an install this server's last run did not see end.
 void clis.recover();
-const app = createApp({ auth, store, settings, hub, orchestrator, providers, voice, clis, agentsView, native, extraHosts, desktopApp: Boolean(parent), updates, push, alerts });
+const app = createApp({
+  auth,
+  store,
+  settings,
+  hub,
+  orchestrator,
+  providers,
+  voice,
+  clis,
+  agentsView,
+  native,
+  extraHosts,
+  desktopApp: Boolean(parent),
+  updates,
+  // The language the chat in the app's window shows: the app's menus follow it.
+  desktopLang: parent ? (lang) => parent.send({ type: 'lang', lang }) : undefined,
+  push,
+  alerts,
+});
 
 // --- Static web app (production build) ------------------------------------------
 

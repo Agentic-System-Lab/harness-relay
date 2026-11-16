@@ -46,11 +46,11 @@ src/traymenu.ts      the tray menu while it is open
 src/lifecycle.ts     its decisions without Electron, and the window's guards
 src/tailscale.ts     sharing with the tailnet (tailscale serve)
 src/autostart.ts     open at login on Linux
-src/prefs.ts         desktop.json: the port, the window's size, the tailnet name
+src/prefs.ts         desktop.json: the port, the window's size, the tailnet name, the language
 src/profile.ts       the window's browser folder, kept from agents
 src/log.ts           the server's log
 src/manifest.ts      the app folder's package.json
-src/i18n.ts          the menu's and dialogs' words, in both languages
+src/i18n.ts          the menus' and dialogs' words, in both languages, in the one the chat in the window shows
 src/icons.ts         the tray icons
 scripts/build.ts     bundles the server and the app into build/ (RELAY_VERSION for a release, else a -dev build;
                      RELAY_UPDATES_REPO and RELAY_UPDATES_TOKEN for where it downloads its updates; it writes

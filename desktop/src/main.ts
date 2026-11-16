@@ -32,7 +32,7 @@ import {
 import { autostartFile, desktopEntry, isAutostartOn, setAutostart } from './autostart';
 import { allowedHostsOf, loginShell, loginShellEnv, mergeShellEnv, mergeWindowsEnv, serverEnv, windowsEnv, withCommonPaths } from './env';
 import { spawnDetached } from '../../src/server/process';
-import { messages, pickLang } from './i18n';
+import { appLang, asDesktopLang, messages } from './i18n';
 import {
   chatAddress,
   crashNotice,
@@ -281,7 +281,6 @@ function smokeTest(report: string | undefined, clis: string | undefined): void {
 }
 
 function run(): void {
-  const t = messages(pickLang(app.getPreferredSystemLanguages()));
   const userData = app.getPath('userData');
   // The window's cookies and localStorage go in a folder of their own, kept from agents (profile.ts).
   const browser = prepareBrowserDir(userData);
@@ -291,6 +290,8 @@ function run(): void {
   const iconsDir = join(app.getAppPath(), 'icons');
 
   let prefs: DesktopPrefs = loadPrefs(prefsFile);
+  /** The app's words: in the language the chat in its window shows (i18n.ts), the system's until it has told. */
+  let t = messages(appLang(prefs.lang, app.getPreferredSystemLanguages()));
   let env: NodeJS.ProcessEnv = process.env;
   let envReady: Promise<void> | undefined;
   /** The environment the running server got (its data folder, the names it answers to). */
@@ -340,9 +341,11 @@ function run(): void {
   let previous: ServerState = supervisor.state;
   const log = new ServerLog(logFile);
   supervisor.on('output', (chunk) => log.write(chunk));
-  // Asked from the chat (Settings' Version card, the dialog offering a new version).
+  // Asked from the chat (Settings' Version card, the dialog offering a new version), or told the
+  // language the chat in the window shows.
   supervisor.on('request', (request) => {
-    if (request.type === 'update-check') {
+    if (request.type === 'lang') followLang(request.lang);
+    else if (request.type === 'update-check') {
       checkAnswers.ask(request.id);
       void checkForUpdate();
     } else void installFromChat();
@@ -377,6 +380,24 @@ function run(): void {
       env.SHELL ||= loginShell(process.env);
     })();
     return envReady;
+  }
+
+  /**
+   * The chat in the window shows `lang` (as it opens, or the user picked it there): the tray menu, the
+   * menu bar and the dialogs from now on speak it, also at the next start (desktop.json).
+   */
+  function followLang(value: unknown): void {
+    const lang = asDesktopLang(value);
+    if (!lang || lang === prefs.lang) return;
+    prefs = { ...prefs, lang };
+    try {
+      savePrefs(prefsFile, prefs);
+    } catch {
+      /* kept for this run */
+    }
+    t = messages(lang);
+    updateTray();
+    Menu.setApplicationMenu(appMenu());
   }
 
   function openLog(): void {

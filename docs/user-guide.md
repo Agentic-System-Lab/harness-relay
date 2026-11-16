@@ -93,7 +93,7 @@ The installers are not signed for distribution yet (on macOS they are signed ad 
 
 **The window.** Closing it leaves Harness Relay running in the menu bar or the system tray (on macOS its Dock icon goes away until the window opens again); **Quit** (⌘Q on macOS) stops it. Links to other sites open in your default browser, and files you download from the chat are saved through the usual save dialog. Voice input asks for the microphone the first time, and a video's own button shows it full screen. On Windows and Linux, Alt shows the window's menu bar, which has **Quit** too.
 
-**The menu.** The app's icon, Harness Relay's three dots, is in the menu bar on macOS and in the system tray on Windows and Linux. On Windows, a click opens the chat and the menu is on the right button. The menu has:
+**The menu.** The app's icon, Harness Relay's three dots, is in the menu bar on macOS and in the system tray on Windows and Linux. On Windows, a click opens the chat and the menu is on the right button. It is in the language the chat in the app's window shows, as are the window's menu bar and the app's dialogs: switch it under **Settings & sign-in → Language** in the window, and they follow at once, also at the next start (before the window has opened once, they follow the system's language; a language picked in another browser, such as a phone's, leaves them as they are). The menu has:
 
 | Item | What it does |
 | --- | --- |
@@ -148,7 +148,7 @@ A version is the date it was released, in Taiwan's time zone: `2026-11-10` is a 
 
 ### Language and the guided tour
 
-The UI is available in **English** and **繁體中文**. On your first visit it follows your browser's language (any Chinese → 繁體中文, otherwise English) and remembers the choice in this browser; switch any time under **Settings & sign-in → Language**. Error messages and system notes from the server follow the same language.
+The UI is available in **English** and **繁體中文**. On your first visit it follows your browser's language (any Chinese → 繁體中文, otherwise English) and remembers the choice in this browser; switch any time under **Settings & sign-in → Language**. Error messages and system notes from the server follow the same language. In the [desktop app](#desktop-app), the app's own menus and dialogs follow the language its window shows.
 
 The colours follow your computer's or phone's light or dark mode. To keep one of them whatever the system does, choose **Light** or **Dark** under **Settings & sign-in → Appearance** (**Follow system** goes back to the system's). The choice is remembered in this browser, so a computer and a phone can each have their own; it applies at once, to the other tabs of the browser too, and diagrams in replies are drawn again in it. A page you share follows its reader's own mode.
 

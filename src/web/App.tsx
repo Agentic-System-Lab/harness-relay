@@ -280,6 +280,11 @@ function RelayApp() {
   useEffect(() => {
     void syncPush(api, alertPrefs);
   }, [alertPrefs, lang]);
+  // In the desktop app's own window, the app's menus and dialogs speak the language the chat shows:
+  // told as the page opens (a language picked before the app knew to follow it) and at each pick.
+  useEffect(() => {
+    if (isAppWindow(navigator.userAgent)) api.desktopLang(lang).catch(() => {});
+  }, [lang]);
   useEffect(() => {
     // The server holds this browser's push notifications while the page is in front: going to the
     // background (a phone locking), it sends them; coming back, the page starts again from the next

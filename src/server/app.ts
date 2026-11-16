@@ -18,6 +18,7 @@ import {
   FILE_LIMITS,
   keyOnlyAccount,
   GROUP_LIMITS,
+  LANGS,
   PROVIDER_LABEL,
   isOpenProvider,
   PROVIDERS,
@@ -36,6 +37,7 @@ import {
   type Conversation,
   type ServerLimits,
   type ConversationSchedule,
+  type Lang,
   type PickedFolders,
   type Provider,
   type ServerEvent,
@@ -151,6 +153,11 @@ export interface AppDeps {
   };
   /** The desktop app's updates (`updates.ts`); none when it is not given. */
   updates?: Updates;
+  /**
+   * Tells the desktop app that started the server the language the chat in its window shows (its tray
+   * menu, menu bar and dialogs follow it); none for `npm start` and `npm run dev`.
+   */
+  desktopLang?: (lang: Lang) => void;
   /** Accounts per CLI, team size and the turn timeout, from the environment (`config.ts`; others in tests). */
   limits?: ServerLimits;
   /** Puts a problem report's screenshots on GitHub as a secret gist, and deletes it again (`gh`; fakes in tests). */
@@ -219,6 +226,7 @@ export function createApp({
   screenshotGists = { upload: (files) => uploadScreenshots(files), remove: unshareGist },
   ghLogin = new GhLogin(),
   updates = new Updates(undefined, version),
+  desktopLang,
   limits = limitsOf(CONFIG),
   push,
   alerts,
@@ -618,6 +626,15 @@ export function createApp({
   app.post('/api/update/install', (c) => {
     const asked = updates.install();
     if (asked !== 'asked') throw new HttpError(409, asked === 'under-way' ? t().updateUnderWay : t().updateNone);
+    return c.json({ ok: true });
+  });
+
+  // The language the chat in the desktop app's window shows, as it opens and when the user picks
+  // another: the app's menus and dialogs follow it. Nothing to tell without the app.
+  app.put('/api/desktop/lang', async (c) => {
+    const { lang } = await body<{ lang?: unknown }>(c);
+    if (typeof lang !== 'string' || !(LANGS as string[]).includes(lang)) throw new HttpError(400, 'Invalid language');
+    desktopLang?.(lang as Lang);
     return c.json({ ok: true });
   });
 

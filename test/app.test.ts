@@ -1573,6 +1573,28 @@ describe('/api/update', () => {
   });
 });
 
+describe('/api/desktop/lang', () => {
+  it("tells the desktop app the language its window's chat shows, and nothing that is not one", async () => {
+    const s = new SettingsStore(openDatabase(':memory:'));
+    const told: string[] = [];
+    const own = createApp({ auth: null, store, settings: s, hub: new Hub(), orchestrator, providers: new ProviderService(s), desktopLang: (lang) => told.push(lang) });
+    expect((await own.request('/api/desktop/lang', json('PUT', { lang: 'zh-TW' }))).status).toBe(200);
+    expect((await own.request('/api/desktop/lang', json('PUT', { lang: 'en' }))).status).toBe(200);
+    for (const bad of [{ lang: 'fr' }, { lang: 'EN' }, { lang: 1 }, {}]) {
+      expect((await own.request('/api/desktop/lang', json('PUT', bad))).status, JSON.stringify(bad)).toBe(400);
+    }
+    expect(told).toEqual(['zh-TW', 'en']);
+  });
+
+  it('answers without a desktop app too (npm start): there is no one to tell', async () => {
+    const s = new SettingsStore(openDatabase(':memory:'));
+    const own = createApp({ auth: null, store, settings: s, hub: new Hub(), orchestrator, providers: new ProviderService(s) });
+    const res = await own.request('/api/desktop/lang', json('PUT', { lang: 'en' }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+  });
+});
+
 describe('/api/report/screenshots', () => {
   const ID = 'f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff';
   // A PNG whole enough to be read through: signature, then IEND (length, type, CRC).

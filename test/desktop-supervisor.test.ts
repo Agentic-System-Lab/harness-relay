@@ -404,9 +404,10 @@ describe("the chat's asks about updates", () => {
     await started;
     servers[0]!.emit('message', { type: 'update-check', id: 2 });
     servers[0]!.emit('message', { type: 'update-install' });
+    servers[0]!.emit('message', { type: 'lang', lang: 'zh-TW' });
     servers[0]!.emit('message', { type: 'something-else' });
-    // With what they carry: a check's id, for the answer.
-    expect(asked).toEqual([{ type: 'update-check', id: 2 }, { type: 'update-install' }]);
+    // With what they carry: a check's id, for the answer; the language the chat in the window shows.
+    expect(asked).toEqual([{ type: 'update-check', id: 2 }, { type: 'update-install' }, { type: 'lang', lang: 'zh-TW' }]);
   });
 
   it("tells the running server the app's updates, and no server that does not run", async () => {
