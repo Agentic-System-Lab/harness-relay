@@ -226,6 +226,41 @@ describe("the landing page's theme in its styles and pages", () => {
     expect(block('.theme-changing *::after {')).toEqual(['transition: none !important;']);
   });
 
+  it("keeps each agent's pill text 4.5:1 on its tint, in the light theme and the dark one", () => {
+    /** A theme's tokens: the light ones, with the dark list over them for dark. */
+    const tokens = (lines: string[]) =>
+      new Map(lines.flatMap((l) => {
+        const m = l.match(/^(--[\w-]+): (#[0-9a-f]{6});$/);
+        return m ? [[m[1], m[2]] as const] : [];
+      }));
+    const light = tokens(block(':root {'));
+    const dark = new Map([...light, ...tokens(block(":root[data-theme='dark'] {"))]);
+    const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    const luminance = (c: number[]) => {
+      const [r, g, b] = c.map((v) => (v / 255 <= 0.04045 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const ratio = (a: number[], b: number[]) => {
+      const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+      return (hi + 0.05) / (lo + 0.05);
+    };
+    // The pill is the agent's colour at this strength over the card under it (`.ui`, the page's background).
+    const pill = block('.pill {');
+    expect(pill).toContain('color: var(--agent-ink, var(--muted));');
+    const tint = pill.join('\n').match(/^background: color-mix\(in srgb, var\(--agent, var\(--muted\)\) (\d+)%, transparent\);$/m);
+    expect(tint).not.toBeNull();
+    expect(block('.ui {')).toContain('background: var(--bg);');
+    const share = Number(tint![1]) / 100;
+    for (const [theme, colours] of [['light', light], ['dark', dark]] as const) {
+      const page = rgb(colours.get('--bg')!);
+      for (const agent of ['claude', 'codex', 'grok']) {
+        const brand = rgb(colours.get(`--${agent}`)!);
+        const background = brand.map((c, i) => c * share + page[i] * (1 - share));
+        expect(ratio(rgb(colours.get(`--${agent}-ink`)!), background), `${agent} in ${theme}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
   it("gives the browser's bar the page's background", () => {
     expect(block(':root {')).toContain(`--bg: ${BAR_COLOR.light};`);
     expect(block(":root[data-theme='dark'] {")).toContain(`--bg: ${BAR_COLOR.dark};`);

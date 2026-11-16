@@ -377,7 +377,8 @@ p {
   color: var(--band);
 }
 
-/* The app's CLI pill: tinted background, coloured text. */
+/* The app's CLI pill: tinted background, coloured text. The tint is light enough that each agent's
+   -ink keeps 4.5:1 on it in both themes (test/site-theme.test.ts checks): at 14% Claude Code's was 4.46:1. */
 .pill {
   display: inline-block;
   padding: 1px 8px;
@@ -387,7 +388,7 @@ p {
   line-height: 1.6;
   white-space: nowrap;
   color: var(--agent-ink, var(--muted));
-  background: color-mix(in srgb, var(--agent, var(--muted)) 14%, transparent);
+  background: color-mix(in srgb, var(--agent, var(--muted)) 12%, transparent);
 }
 
 .chip {
