@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CliInstallView, ProviderStatus } from '../src/shared/types';
-import { anyInstalling, cliInstallShown, installsEnded, logTail, statusBeforeInstall, withView } from '../src/web/clis';
+import { FOLLOW_MS, FOLLOW_TRIES, anyInstalling, cliInstallShown, followInstalls, installsEnded, logTail, statusBeforeInstall, withView } from '../src/web/clis';
 
 const status = (o: Partial<ProviderStatus> = {}): ProviderStatus => ({
   provider: 'codex',
@@ -86,6 +86,36 @@ describe('following the installs', () => {
       ['pi', 'running'],
     ]);
     expect(withView([], view()).map((v) => v.provider)).toEqual(['codex']);
+  });
+
+  it('follows the installs under way once Settings is closed, until they end', async () => {
+    const waits: number[] = [];
+    const wait = async (ms: number) => void waits.push(ms);
+    const answers: (CliInstallView[] | Error)[] = [
+      [view({ job: job('running') }), view({ provider: 'pi', job: job('running') })],
+      new Error('offline'),
+      [view({ job: job('success') }), view({ provider: 'pi', job: job('running') })],
+      [view({ job: job('success') }), view({ provider: 'pi', job: job('cancelled') })],
+    ];
+    const load = async () => {
+      const next = answers.shift()!;
+      if (next instanceof Error) throw next;
+      return next;
+    };
+    const ended: string[] = [];
+    await followInstalls([view({ job: job('running') }), view({ provider: 'pi', job: job('running') })], load, (p) => ended.push(p), wait);
+    expect(ended).toEqual(['codex', 'pi']);
+    expect(answers).toEqual([]);
+    expect(waits).toEqual([FOLLOW_MS, FOLLOW_MS, FOLLOW_MS, FOLLOW_MS]);
+
+    // Nothing under way: nothing asked.
+    let asked = 0;
+    await followInstalls([view()], async () => (asked++, []), () => {}, wait);
+    expect(asked).toBe(0);
+    // Never for longer than an install may take.
+    await followInstalls([view({ job: job('running') })], async () => (asked++, [view({ job: job('running') })]), () => {}, async () => {});
+    expect(asked).toBe(FOLLOW_TRIES);
+    expect(FOLLOW_MS * FOLLOW_TRIES).toBeGreaterThan(22 * 60_000);
   });
 
   it('shows the last lines of the installer’s output while it runs', () => {

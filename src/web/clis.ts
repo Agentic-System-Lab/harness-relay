@@ -56,3 +56,33 @@ export function logTail(log: string, lines = 12): string {
 export function withView(views: readonly CliInstallView[], view: CliInstallView): CliInstallView[] {
   return views.some((v) => v.provider === view.provider) ? views.map((v) => (v.provider === view.provider ? view : v)) : [...views, view];
 }
+
+/** How often installs still under way are asked about once Settings is closed. */
+export const FOLLOW_MS = 2000;
+/** For how long at most: longer than an install may take (20 minutes, and its program's check). */
+export const FOLLOW_TRIES = 750;
+
+/**
+ * Once Settings is closed with installs under way (`shown`): asks `load` every `FOLLOW_MS` until none
+ * is, telling `onEnded` of each CLI whose install ended, so that the sidebar's status follows. An
+ * answer that does not come is asked again on the next tick.
+ */
+export async function followInstalls(
+  shown: readonly CliInstallView[],
+  load: () => Promise<CliInstallView[]>,
+  onEnded: (p: Provider) => void,
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<void> {
+  let before = shown;
+  for (let tries = 0; anyInstalling(before) && tries < FOLLOW_TRIES; tries++) {
+    await wait(FOLLOW_MS);
+    let after: CliInstallView[];
+    try {
+      after = await load();
+    } catch {
+      continue;
+    }
+    for (const p of installsEnded(before, after)) onEnded(p);
+    before = after;
+  }
+}

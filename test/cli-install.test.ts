@@ -7,8 +7,11 @@ import { createApp } from '../src/server/app';
 import {
   CLI_RECIPES,
   CliInstaller,
-  DROP_USER_PATH_SCRIPT,
   INSTALL_NOTE,
+  POWERSHELL_RUN_SCRIPT,
+  USER_PATH_READ_SCRIPT,
+  USER_PATH_RESTORE_SCRIPT,
+  USER_PATH_SAVED,
   UV_INSTALLERS,
   cleanLog,
   dropLinksInto,
@@ -18,6 +21,7 @@ import {
   installerEnv,
   linkFolders,
   npmLaunch,
+  pathFirst,
   scriptEnv,
   scriptFor,
   uvEnv,
@@ -30,7 +34,7 @@ import { HttpError } from '../src/server/errors';
 import { Hub } from '../src/server/hub';
 import { withLang } from '../src/server/i18n';
 import { Orchestrator } from '../src/server/orchestrator';
-import type { SpawnOptions, SpawnResult } from '../src/server/process';
+import type { RunOptions, SpawnOptions, SpawnResult } from '../src/server/process';
 import { ProviderService } from '../src/server/providers';
 import { SettingsStore } from '../src/server/settings';
 import { Store } from '../src/server/store';
@@ -82,9 +86,17 @@ const WIN_TOOLS = [
 ];
 const WIN_ENV = { Path: 'C:\\nodejs;C:\\Program Files\\Git\\cmd;C:\\Windows\\System32', PATHEXT: '.EXE;.CMD', SystemRoot: 'C:\\Windows', ProgramFiles: 'C:\\Program Files', KEEP: 'me' };
 
+/** The user's PATH on a stock Windows, as `USER_PATH_READ_SCRIPT` writes it. */
+const b64 = (text: string) => Buffer.from(text, 'utf8').toString('base64');
+const STOCK_USER_PATH = `ExpandString:${b64('%USERPROFILE%\\AppData\\Local\\Microsoft\\WindowsApps;')}`;
+
+/** A run of an installer: a program, or (`script`) fixed text for a shell. */
+type Run = SpawnOptions & { script?: string };
+
 /**
  * A computer without network or real installers: each installer run is recorded and, unless `onRun`
- * answers it, puts the program where the real one would (`installedProgram`) and exits 0.
+ * answers it, puts the program where the real one would (`installedProgram`) and exits 0. On Windows
+ * its user PATH is `registry.path` (as `USER_PATH_READ_SCRIPT` writes it).
  */
 function fakeHost(
   dir: string,
@@ -92,16 +104,31 @@ function fakeHost(
     tools?: string[];
     platform?: NodeJS.Platform;
     env?: NodeJS.ProcessEnv;
-    onRun?: (s: SpawnOptions) => Promise<SpawnResult> | SpawnResult | undefined;
+    onRun?: (s: Run) => Promise<SpawnResult | undefined> | SpawnResult | undefined;
     version?: CliInstallHost['version'];
+    readUserPath?: CliInstallHost['readUserPath'];
+    restoreUserPath?: CliInstallHost['restoreUserPath'];
   } = {},
 ) {
-  const calls: SpawnOptions[] = [];
+  const calls: Run[] = [];
   const platform = o.platform ?? 'linux';
   const win = platform === 'win32';
   // Windows finds a file whatever the case of its name (PATHEXT gives `.EXE`).
   const tools = new Set((o.tools ?? (win ? WIN_TOOLS : TOOLS)).map((t) => (win ? t.toLowerCase() : t)));
-  const userPath = vi.fn(async (_dir: string) => '');
+  const registry = { path: STOCK_USER_PATH, reads: 0, restores: [] as string[] };
+  const answer = async (s: Run): Promise<SpawnResult> => {
+    calls.push(s);
+    const answer = await o.onRun?.(s);
+    if (answer) return answer;
+    const p = basename(s.cwd ?? '') as Provider;
+    const tool = basename(s.bin.replace(/\\/g, '/')).replace(/\.exe$/i, '');
+    if (tool === 'curl') touch(s.args[s.args.indexOf('-o') + 1]!);
+    // uv's own installer puts uv where it is told.
+    else if (s.env.UV_UNMANAGED_INSTALL) touch(join(s.env.UV_UNMANAGED_INSTALL, win ? 'uv.exe' : 'uv'));
+    else touch(installedProgram(CLI_RECIPES[p], s.cwd!, platform));
+    s.onLine?.(`${tool} done`);
+    return result(0, `${tool} done`);
+  };
   const host: Partial<CliInstallHost> = {
     platform,
     env: o.env ?? (win ? WIN_ENV : { PATH: '/fake/bin', CLAUDECODE: '1', npm_lifecycle_event: 'start', KEEP: 'me' }),
@@ -110,31 +137,33 @@ function fakeHost(
     // The fake PATH's programs, and what the installs wrote (never this computer's own /usr/bin).
     isFile: (p) => tools.has(win ? p.toLowerCase() : p) || (p.startsWith(root) && isRealFile(p)),
     version: o.version ?? (async () => '1.2.3'),
-    dropUserPath: userPath,
-    run: async (s) => {
-      calls.push(s);
-      const answer = await o.onRun?.(s);
-      if (answer) return answer;
-      const p = basename(s.cwd ?? '') as Provider;
-      const tool = basename(s.bin.replace(/\\/g, '/')).replace(/\.exe$/i, '');
-      if (tool === 'curl') touch(s.args[s.args.indexOf('-o') + 1]!);
-      // uv's own installer puts uv where it is told.
-      else if (s.env.UV_UNMANAGED_INSTALL) touch(join(s.env.UV_UNMANAGED_INSTALL, win ? 'uv.exe' : 'uv'));
-      else touch(installedProgram(CLI_RECIPES[p], s.cwd!, platform));
-      s.onLine?.(`${tool} done`);
-      return result(0, `${tool} done`);
-    },
+    readUserPath:
+      o.readUserPath ??
+      (async () => {
+        registry.reads++;
+        return registry.path;
+      }),
+    restoreUserPath:
+      o.restoreUserPath ??
+      (async (saved) => {
+        registry.restores.push(saved);
+        const changed = registry.path !== saved;
+        registry.path = saved;
+        return changed;
+      }),
+    run: answer,
+    runScript: (shell: string, flags: readonly string[], script: string, run: RunOptions) => answer({ ...run, bin: shell, args: [...flags], script }),
   };
-  return { host, calls, userPath };
+  return { host, calls, registry };
 }
 
 function installer(o: Parameters<typeof fakeHost>[1] & { busy?: () => boolean } = {}) {
   const dir = freshDir();
   const settings = new SettingsStore(openDatabase(':memory:'));
   const changed = vi.fn();
-  const { host, calls, userPath } = fakeHost(dir, o);
+  const { host, calls, registry } = fakeHost(dir, o);
   const clis = new CliInstaller(settings, { changed, busy: o.busy }, host);
-  return { clis, settings, changed, calls, dir, userPath };
+  return { clis, settings, changed, calls, dir, registry };
 }
 
 const script = (p: 'grok' | 'cursor' | 'antigravity' | 'muse' | 'goose') => CLI_RECIPES[p] as Extract<CliRecipe, { method: 'script' }>;
@@ -434,24 +463,198 @@ describe('CliInstaller', () => {
     expect(v.job?.log).toContain('$ uv tool install openhands==1.16.0');
   });
 
-  it('on Windows, runs a maker’s PowerShell installer with the folder as its home, then takes it out of the user’s PATH', async () => {
-    const { clis, calls, userPath } = installer({ platform: 'win32' });
-    clis.install('cursor');
-    const v = await ended(clis, 'cursor');
-    const dir = clis.folder('cursor');
+  it('on Windows, runs a maker’s PowerShell installer as a script block, with the folder as its home', async () => {
+    const { clis, calls } = installer({ platform: 'win32' });
+    clis.install('antigravity');
+    const v = await ended(clis, 'antigravity');
+    const dir = clis.folder('antigravity');
     expect(v.job?.state).toBe('success');
     expect(calls.map((c) => c.bin)).toEqual(['C:\\Windows\\System32\\curl.EXE', 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe']);
     const file = join(dir, 'install.ps1');
-    expect(calls[0]!.args).toEqual(['-fsSL', '--retry', '3', '-o', file, 'https://cursor.com/install?win32=true']);
-    expect(calls[1]!.args).toEqual(['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file]);
-    expect(calls[1]!.env).toMatchObject({ USERPROFILE: join(dir, 'home'), LOCALAPPDATA: join(dir, 'home', 'AppData', 'Local'), KEEP: 'me' });
+    expect(calls[0]!.args).toEqual(['-fsSL', '--retry', '3', '-o', file, 'https://antigravity.google/cli/install.ps1']);
+    // Fixed text (`POWERSHELL_RUN_SCRIPT`), never `-File`; the script and its arguments in its environment.
+    expect(calls[1]!.script).toBe(POWERSHELL_RUN_SCRIPT);
+    expect(calls[1]!.args).toEqual(['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass']);
+    expect(calls[1]!.env).toMatchObject({
+      HARNESS_RELAY_SCRIPT: file,
+      HARNESS_RELAY_SCRIPT_ARGS: `--dir\n${join(dir, 'bin')}`,
+      USERPROFILE: join(dir, 'home'),
+      LOCALAPPDATA: join(dir, 'home', 'AppData', 'Local'),
+      KEEP: 'me',
+    });
+    expect(v.job?.log).toContain(`$ powershell install.ps1 --dir ${join(dir, 'bin')}`);
     expect(existsSync(file)).toBe(false);
-    expect(userPath).toHaveBeenCalledWith(dir);
-    expect(v.installed?.bin).toBe(join(dir, 'home', 'AppData', 'Local', 'cursor-agent', 'cursor-agent.cmd'));
-    // And again when it is removed.
-    userPath.mockClear();
+    expect(v.installed?.bin).toBe(join(dir, 'bin', 'agy.exe'));
+  });
+
+  it('runs the PowerShell installers as their makers’ irm | iex would, by fixed text', () => {
+    // What it runs and with what come from its environment, never from its text.
+    expect(POWERSHELL_RUN_SCRIPT).toContain('[ScriptBlock]::Create([IO.File]::ReadAllText($env:HARNESS_RELAY_SCRIPT))');
+    // Its arguments passed as they are (`--dir` is not one of PowerShell's own parameters).
+    expect(POWERSHELL_RUN_SCRIPT).toContain('Invoke-Command -ScriptBlock $block -ArgumentList $list');
+    expect(POWERSHELL_RUN_SCRIPT).toContain('$env:HARNESS_RELAY_SCRIPT_ARGS.Split([char]10)');
+    // No double quotes, which Windows' command line would escape.
+    for (const text of [POWERSHELL_RUN_SCRIPT, USER_PATH_READ_SCRIPT, USER_PATH_RESTORE_SCRIPT]) expect(text).not.toContain('"');
+  });
+
+  it('on Windows, puts the user’s PATH back as it was before the installer, which turned its %USERPROFILE% entries into the folder’s', async () => {
+    const { clis, registry, dir } = installer({
+      platform: 'win32',
+      onRun: (s) => {
+        // Cursor's: reads the user PATH expanded with the folder as USERPROFILE, writes it back with its own.
+        if (s.script === POWERSHELL_RUN_SCRIPT) registry.path = `String:${b64(`${s.env.USERPROFILE}\\AppData\\Local\\Microsoft\\WindowsApps;${s.env.LOCALAPPDATA}\\cursor-agent`)}`;
+        return undefined;
+      },
+    });
+    clis.install('cursor');
+    const v = await ended(clis, 'cursor');
+    expect(v.job?.state).toBe('success');
+    expect(registry.path).toBe(STOCK_USER_PATH);
+    expect(v.job?.log).toContain('Put the user PATH back as it was before the installer ran');
+    // Kept until it is back, then gone.
+    expect(existsSync(join(dir, USER_PATH_SAVED))).toBe(false);
+    // Nothing touched when it is removed: nothing of it is left in the PATH.
+    registry.restores.length = 0;
     await clis.remove('cursor');
-    expect(userPath).toHaveBeenCalledWith(dir);
+    expect(registry.restores).toEqual([]);
+  });
+
+  it('on Windows, puts the user’s PATH back also when the installer fails or is stopped, and runs no installer without it', async () => {
+    const failing = installer({
+      platform: 'win32',
+      onRun: (s) => {
+        if (s.script !== POWERSHELL_RUN_SCRIPT) return undefined;
+        failing.registry.path = 'none';
+        return result(1);
+      },
+    });
+    failing.clis.install('grok');
+    expect((await ended(failing.clis, 'grok')).job?.state).toBe('failed');
+    expect(failing.registry.path).toBe(STOCK_USER_PATH);
+
+    const stopped = installer({
+      platform: 'win32',
+      onRun: (s) => {
+        if (s.script !== POWERSHELL_RUN_SCRIPT) return undefined;
+        stopped.registry.path = 'none';
+        return untilStopped(s);
+      },
+    });
+    stopped.clis.install('muse');
+    await vi.waitFor(() => expect(stopped.registry.path).toBe('none'));
+    stopped.clis.cancel('muse');
+    expect((await ended(stopped.clis, 'muse')).job?.state).toBe('cancelled');
+    expect(stopped.registry.path).toBe(STOCK_USER_PATH);
+
+    // And Goose's bash script, under Git for Windows' bash.
+    const bash = installer({ platform: 'win32' });
+    bash.clis.install('goose');
+    expect((await ended(bash.clis, 'goose')).job?.state).toBe('success');
+    expect(bash.registry.reads).toBe(1);
+
+    const unread = installer({ platform: 'win32', readUserPath: () => Promise.reject(new Error('Access denied')) });
+    unread.clis.install('cursor');
+    const u = await ended(unread.clis, 'cursor');
+    expect(u.job?.state).toBe('failed');
+    expect(withLang('en', () => unread.clis.view('cursor').job?.error)).toBe(
+      'Could not read your user PATH, which is put back as it was once the installer has run, so the installer was not run: Access denied',
+    );
+    expect(unread.calls.filter((c) => c.script === POWERSHELL_RUN_SCRIPT)).toEqual([]);
+  });
+
+  it('on Windows, tries again to put the user’s PATH back when it could not, before the next installer and at startup', async () => {
+    let broken = true;
+    let path = STOCK_USER_PATH;
+    const { clis, dir } = installer({
+      platform: 'win32',
+      readUserPath: async () => path,
+      restoreUserPath: async (saved) => {
+        if (broken) throw new Error('registry locked');
+        const changed = path !== saved;
+        path = saved;
+        return changed;
+      },
+      onRun: (s) => {
+        if (s.script === POWERSHELL_RUN_SCRIPT) path = 'none';
+        return undefined;
+      },
+    });
+    clis.install('cursor');
+    const v = await ended(clis, 'cursor');
+    expect(v.job?.state).toBe('failed');
+    expect(withLang('en', () => clis.view('cursor').job?.error)).toContain('Could not put your user PATH back as it was before the installer ran: registry locked');
+    expect(readFileSync(join(dir, USER_PATH_SAVED), 'utf8')).toBe(STOCK_USER_PATH);
+
+    // Before the next installer: the PATH kept, not the one the last installer left.
+    broken = false;
+    clis.install('grok');
+    expect((await ended(clis, 'grok')).job?.state).toBe('success');
+    expect(path).toBe(STOCK_USER_PATH);
+    expect(existsSync(join(dir, USER_PATH_SAVED))).toBe(false);
+
+    // At startup (the server did not live to put it back).
+    writeFileSync(join(dir, USER_PATH_SAVED), STOCK_USER_PATH);
+    path = 'none';
+    await clis.recover();
+    expect(path).toBe(STOCK_USER_PATH);
+    expect(existsSync(join(dir, USER_PATH_SAVED))).toBe(false);
+  });
+
+  it('on Windows, runs one installer that may change the user’s PATH at a time', async () => {
+    const order: string[] = [];
+    const { clis, registry } = installer({
+      platform: 'win32',
+      onRun: async (s) => {
+        if (s.script !== POWERSHELL_RUN_SCRIPT) return undefined;
+        const p = basename(s.cwd!);
+        order.push(`${p} starts`);
+        registry.path = `String:${b64(p)}`;
+        await new Promise((r) => setTimeout(r, 20));
+        order.push(`${p} ends`);
+        return undefined;
+      },
+    });
+    clis.install('cursor');
+    clis.install('grok');
+    const [c, g] = [await ended(clis, 'cursor'), await ended(clis, 'grok')];
+    expect([c.job?.state, g.job?.state]).toEqual(['success', 'success']);
+    expect(order).toEqual(['cursor starts', 'cursor ends', 'grok starts', 'grok ends']);
+    expect(g.job?.log).toContain('Waiting for another install to end');
+    // Each read the PATH as the user had it, and put that back.
+    expect(registry.restores).toEqual([STOCK_USER_PATH, STOCK_USER_PATH]);
+    expect(registry.path).toBe(STOCK_USER_PATH);
+  });
+
+  it('reads and puts back the user’s PATH by fixed scripts, with what they work on in their environment', async () => {
+    const scripts: { script: string; env: NodeJS.ProcessEnv }[] = [];
+    let answer = STOCK_USER_PATH;
+    const { host } = fakeHost(freshDir(), { platform: 'win32' });
+    delete host.readUserPath;
+    delete host.restoreUserPath;
+    const runScript = host.runScript!;
+    host.runScript = async (shell, flags, script, o) => {
+      if (script === POWERSHELL_RUN_SCRIPT) return runScript(shell, flags, script, o);
+      scripts.push({ script, env: o.env });
+      return result(0, script === USER_PATH_READ_SCRIPT ? `${answer}\r\n` : 'changed');
+    };
+    const clis = new CliInstaller(new SettingsStore(openDatabase(':memory:')), {}, host);
+    clis.install('cursor');
+    const v = await ended(clis, 'cursor');
+    expect(v.job?.state).toBe('success');
+    expect(scripts.map((s) => s.script)).toEqual([USER_PATH_READ_SCRIPT, USER_PATH_RESTORE_SCRIPT]);
+    expect(scripts[1]!.env.HARNESS_RELAY_USER_PATH).toBe(STOCK_USER_PATH);
+    expect(v.job?.log).toContain('Put the user PATH back');
+    // As stored: its %VARIABLES% not expanded, and the value's kind kept.
+    expect(USER_PATH_READ_SCRIPT).toContain("'DoNotExpandEnvironmentNames'");
+    expect(USER_PATH_RESTORE_SCRIPT).toContain('[Microsoft.Win32.RegistryValueKind]($saved.Substring(0, $at))');
+    expect(USER_PATH_RESTORE_SCRIPT).toContain('$env:HARNESS_RELAY_USER_PATH');
+
+    // An answer that is not one: no installer runs.
+    answer = 'Path=C:\\x';
+    await clis.remove('cursor');
+    clis.install('cursor');
+    expect((await ended(clis, 'cursor')).job?.state).toBe('failed');
+    expect(withLang('en', () => clis.view('cursor').job?.error)).toContain('Unexpected answer: Path=C:\\x');
   });
 
   it('on Windows, runs Goose’s bash script in Git for Windows’ bash, with its paths written for it', async () => {
@@ -465,15 +668,6 @@ describe('CliInstaller', () => {
     expect(calls[1]!.args).toEqual([slashed(join(dir, 'install.sh'))]);
     expect(calls[1]!.env).toMatchObject({ HOME: slashed(join(dir, 'home')), GOOSE_BIN_DIR: slashed(join(dir, 'bin')), GOOSE_VERSION: 'v1.58.1' });
     expect(v.installed?.bin).toBe(join(dir, 'bin', 'goose.exe'));
-  });
-
-  it('takes out of the user’s PATH only what is inside the folder, by a fixed script', () => {
-    // The folder goes in the environment, never in the script's text.
-    expect(DROP_USER_PATH_SCRIPT).toContain('$env:HARNESS_RELAY_CLI_DIR');
-    expect(DROP_USER_PATH_SCRIPT).not.toMatch(/clis/);
-    // The value's kind and its %VARIABLES% kept: read without expanding them, written back as it was.
-    expect(DROP_USER_PATH_SCRIPT).toContain("'DoNotExpandEnvironmentNames'");
-    expect(DROP_USER_PATH_SCRIPT).toContain('$key.SetValue(\'Path\', ($kept -join \';\'), $kind)');
   });
 
   it.skipIf(process.platform === 'win32')('removes the links an installer left outside the folder that lead into it, and nothing else', async () => {
@@ -514,6 +708,89 @@ describe('CliInstaller', () => {
     expect(dropLinksInto(dir, [folder, join(root, 'no-such-folder')])).toEqual([join(folder, 'dangling')]);
     expect(lstatSync(join(folder, 'relative-elsewhere')).isSymbolicLink()).toBe(true);
     expect(linkFolders({ PATH: '/a:relative:/b' }, '/home/me')).toEqual(['/a', '/b', '/home/me/.local/bin', '/usr/local/bin', '/opt/homebrew/bin']);
+  });
+
+  it.skipIf(process.platform === 'win32')('leaves the links in the CLI’s own folders, also when the user put one on the PATH', async () => {
+    // npm's own link to its program, in the folder's bin, which the user put on their PATH (to run it in a terminal).
+    const dir = freshDir();
+    const { host } = fakeHost(dir, {
+      onRun: (s) => {
+        const target = join(s.cwd!, 'lib', 'node_modules', '@openai', 'codex', 'bin', 'codex.js');
+        touch(target);
+        mkdirSync(join(s.cwd!, 'bin'), { recursive: true });
+        symlinkSync(join('..', 'lib', 'node_modules', '@openai', 'codex', 'bin', 'codex.js'), join(s.cwd!, 'bin', 'codex'));
+        return result(0);
+      },
+    });
+    const alias = join(root, `alias-${++n}`);
+    host.env = { PATH: `/fake/bin:${join(dir, 'codex', 'bin')}:${alias}` };
+    const clis = new CliInstaller(new SettingsStore(openDatabase(':memory:')), {}, host);
+    mkdirSync(join(dir, 'codex'), { recursive: true });
+    // Also under another name for it (a link to the folder).
+    symlinkSync(join(dir, 'codex', 'bin'), alias);
+    clis.install('codex');
+    const v = await ended(clis, 'codex');
+    expect(v.job?.state).toBe('success');
+    expect(v.job?.log).not.toContain('Removed');
+    expect(lstatSync(join(dir, 'codex', 'bin', 'codex')).isSymbolicLink()).toBe(true);
+    expect(dropLinksInto(join(dir, 'codex'), [join(dir, 'codex', 'bin'), alias])).toEqual([]);
+  });
+
+  it('gives uv’s installer none of the variables that would send uv outside the folder', async () => {
+    const { clis, calls } = installer({ tools: ['/fake/bin/curl', '/fake/bin/bash'], env: { PATH: '/fake/bin', UV_INSTALL_DIR: '/opt/uv', CARGO_DIST_FORCE_INSTALL_DIR: '/opt/cargo' } });
+    clis.install('openhands');
+    expect((await ended(clis, 'openhands')).job?.state).toBe('success');
+    expect(calls[1]!.env.UV_INSTALL_DIR).toBeUndefined();
+    expect(calls[1]!.env.CARGO_DIST_FORCE_INSTALL_DIR).toBeUndefined();
+    expect(calls[1]!.env.UV_UNMANAGED_INSTALL).toBe(join(clis.folder('openhands'), 'uv', 'bin'));
+    expect(scriptEnv({ UV_INSTALL_DIR: '/opt/uv' }, '/d', UV_INSTALLERS.windows, 'win32').UV_INSTALL_DIR).toBeUndefined();
+    // Other scripts are given them as the server has them.
+    expect(scriptEnv({ UV_INSTALL_DIR: '/opt/uv' }, '/d', script('grok').posix, 'linux').UV_INSTALL_DIR).toBe('/opt/uv');
+  });
+
+  it('starts npm with its own folder first on the PATH, as Homebrew’s may not be on it', async () => {
+    const { clis, calls } = installer({ platform: 'darwin', tools: ['/opt/homebrew/bin/npm'], env: { PATH: '/usr/bin:/bin' } });
+    clis.install('copilot');
+    expect((await ended(clis, 'copilot')).job?.state).toBe('success');
+    expect(calls[0]).toMatchObject({ bin: '/opt/homebrew/bin/npm', env: { PATH: '/opt/homebrew/bin:/usr/bin:/bin' } });
+    expect(pathFirst({ Path: 'C:\\Windows' }, 'C:\\nodejs', 'win32')).toEqual({ Path: 'C:\\nodejs;C:\\Windows' });
+    expect(pathFirst({}, '/a', 'linux')).toEqual({ PATH: '/a' });
+  });
+
+  it('stops the check that the program runs when the install is cancelled', async () => {
+    const { clis } = installer({
+      version: (_p, _bin, signal) => new Promise((_, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')))),
+    });
+    clis.install('pi');
+    await vi.waitFor(() => expect(clis.view('pi').job?.log).toContain('--version'));
+    clis.cancel('pi');
+    const v = await ended(clis, 'pi');
+    expect(v.job?.state).toBe('cancelled');
+    expect(existsSync(clis.folder('pi'))).toBe(false);
+  });
+
+  it('installs nothing into a folder being removed, and removes it once', async () => {
+    const { clis } = installer();
+    clis.install('codex');
+    await ended(clis, 'codex');
+    const removal = clis.remove('codex');
+    expect(() => withLang('en', () => clis.install('codex'))).toThrow(/Codex is being removed/);
+    await expect(clis.remove('codex')).rejects.toMatchObject({ status: 409 });
+    await removal;
+    clis.install('codex');
+    expect((await ended(clis, 'codex')).job?.state).toBe('success');
+  });
+
+  it('counts the installs under way, and waits for them to clean up when the server stops', async () => {
+    const { clis } = installer({ onRun: untilStopped });
+    expect(clis.running()).toBe(0);
+    clis.install('cline');
+    clis.install('pi');
+    expect(clis.running()).toBe(2);
+    await clis.shutdown();
+    expect(clis.running()).toBe(0);
+    expect(existsSync(clis.folder('cline'))).toBe(false);
+    expect(existsSync(clis.folder('pi'))).toBe(false);
   });
 
   it('stops an install when asked, and removes what it left', async () => {

@@ -44,7 +44,14 @@ test.describe('installing a CLI from Settings', () => {
     await expect(running).toContainText('Installing Copilot…');
     await expect(running.locator('.cli-install-log')).toContainText('npm http fetch GET 200 https://registry.npmjs.org/@github/copilot');
     await expect(running.getByRole('button', { name: 'Cancel install' })).toBeVisible();
+
+    // Settings closed while it installs: the sidebar's dot follows the install all the same.
+    await page.goto(`${relay.base}/#/`);
+    const dot = page.locator('.provider-health .health.off[href="#/settings/copilot"]');
+    await expect(dot).toBeVisible();
     npm.clear('hold');
+    await expect(dot).toHaveCount(0, { timeout: 15_000 });
+    await page.goto(`${relay.base}/#/settings/copilot`);
 
     // Installed: the CLI runs from that folder, its card and the sidebar say so, and it can be removed.
     const ours = card.locator('.cli-install.ours');

@@ -17,7 +17,7 @@ import { openAgents } from './agents/index';
 import { openHomeEnv } from './agents/open';
 import { HttpError } from './errors';
 import { t } from './i18n';
-import { capture, runProcess, runShellScript, stripAnsi, tail, type SpawnOptions, type SpawnResult } from './process';
+import { runProcess, runShellScript, stripAnsi, tail, type RunOptions, type SpawnOptions, type SpawnResult } from './process';
 import { cliFolder } from './protect';
 import { parseVersion } from './providers';
 import type { SettingsStore } from './settings';
@@ -48,9 +48,12 @@ import { BREW_DIRS, findOnPath } from './voice';
  *
  * Some installers add to the user's PATH anyway: a link in a folder on the PATH that it may write in
  * (Grok's bash script, into /usr/local/bin), or on Windows the user's PATH in the registry (Cursor's,
- * Grok's and Antigravity's PowerShell ones). After every install, and when a CLI is removed, the links
- * in the PATH's folders that lead into the CLI's folder are removed, and on Windows the user's PATH
- * entries inside it (`dropUserPath`).
+ * Grok's and Antigravity's PowerShell ones). On macOS and Linux, after every install and when a CLI is
+ * removed, the links in the PATH's folders that lead into the CLI's folder are removed. On Windows the
+ * user's PATH is read before each script runs and put back as it was once it ended, however it ended
+ * (`keepingUserPath`), one such script at a time: a script that reads the user's PATH with the folder
+ * as its home and writes it back would also have turned the user's own `%USERPROFILE%` entries into
+ * paths inside the folder.
  *
  * An install is a background job (one at a time for each CLI), followed by a check that the program
  * it put there runs (`--version`, as the CLI's status asks it). Then the folder gets a note of what
@@ -86,6 +89,8 @@ export interface ScriptInstaller {
   args?: (dir: string) => string[];
   /** The script's own variables besides the home's, given the CLI's folder. */
   env?: (dir: string) => Record<string, string>;
+  /** Variables of the server's environment the script is not given: they would send it outside the folder. */
+  clear?: readonly string[];
 }
 
 /** How one CLI is installed. */
@@ -100,10 +105,25 @@ export type CliRecipe =
 /** Where uv's own installer puts uv when Harness Relay installs it, in the folder of the CLI that needs it. */
 const UV_FOLDER = ['uv', 'bin'];
 
+/** What would send uv's installer elsewhere: both come before `UV_UNMANAGED_INSTALL` in its scripts. */
+const UV_INSTALL_DIRS = ['UV_INSTALL_DIR', 'CARGO_DIST_FORCE_INSTALL_DIR'];
+
 /** uv's own installers, when uv is not on the PATH: into `UV_FOLDER`, changing no PATH and installing no updater. */
 export const UV_INSTALLERS: Record<'posix' | 'windows', ScriptInstaller> = {
-  posix: { url: 'https://astral.sh/uv/install.sh', shell: 'bash', bin: [...UV_FOLDER, 'uv'], env: (dir) => ({ UV_UNMANAGED_INSTALL: join(dir, ...UV_FOLDER) }) },
-  windows: { url: 'https://astral.sh/uv/install.ps1', shell: 'powershell', bin: [...UV_FOLDER, 'uv.exe'], env: (dir) => ({ UV_UNMANAGED_INSTALL: join(dir, ...UV_FOLDER) }) },
+  posix: {
+    url: 'https://astral.sh/uv/install.sh',
+    shell: 'bash',
+    bin: [...UV_FOLDER, 'uv'],
+    env: (dir) => ({ UV_UNMANAGED_INSTALL: join(dir, ...UV_FOLDER) }),
+    clear: UV_INSTALL_DIRS,
+  },
+  windows: {
+    url: 'https://astral.sh/uv/install.ps1',
+    shell: 'powershell',
+    bin: [...UV_FOLDER, 'uv.exe'],
+    env: (dir) => ({ UV_UNMANAGED_INSTALL: join(dir, ...UV_FOLDER) }),
+    clear: UV_INSTALL_DIRS,
+  },
 };
 
 /** How each CLI is installed (see the top of this file). */
@@ -263,6 +283,12 @@ export function installerEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 /** The variable that holds the PATH in `env` (`Path` on Windows, as it is often spelled there). */
 const pathKey = (env: NodeJS.ProcessEnv) => Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
 
+/** `env` with `folder` first on its PATH. */
+export function pathFirst(env: NodeJS.ProcessEnv, folder: string, platform: NodeJS.Platform): NodeJS.ProcessEnv {
+  const key = pathKey(env);
+  return { ...env, [key]: [folder, env[key]].filter(Boolean).join(platform === 'win32' ? ';' : ':') };
+}
+
 /**
  * A maker's installer script's environment: the folder `dir` as its home (`dir/home`, with the XDG
  * folders in it, and on Windows USERPROFILE, LOCALAPPDATA and APPDATA), nothing that would move it
@@ -272,13 +298,9 @@ const pathKey = (env: NodeJS.ProcessEnv) => Object.keys(env).find((k) => k.toUpp
 export function scriptEnv(base: NodeJS.ProcessEnv, dir: string, script: ScriptInstaller, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
   const home = join(dir, 'home');
   const env: NodeJS.ProcessEnv = { ...base };
-  for (const k of HOME_MOVERS) delete env[k];
-  const key = pathKey(env);
-  const delimiter = platform === 'win32' ? ';' : ':';
-  const program = dirname(join(dir, ...script.bin));
+  for (const k of [...HOME_MOVERS, ...(script.clear ?? [])]) delete env[k];
   return {
-    ...env,
-    [key]: [program, env[key]].filter(Boolean).join(delimiter),
+    ...pathFirst(env, dirname(join(dir, ...script.bin)), platform),
     HOME: home,
     XDG_CONFIG_HOME: join(home, '.config'),
     XDG_DATA_HOME: join(home, '.local', 'share'),
@@ -302,25 +324,68 @@ export function uvEnv(base: NodeJS.ProcessEnv, dir: string): NodeJS.ProcessEnv {
   };
 }
 
-/**
- * A PowerShell script that takes out of the user's PATH (in the registry: `HKCU\Environment`) every
- * entry that is `HARNESS_RELAY_CLI_DIR` or inside it, keeping the rest as it is (its `%VARIABLES%` and
- * the value's kind), then tells Windows the environment changed (deleting a variable that is not there
- * through .NET sends that message), so that programs started after it get the PATH without them. Fixed
- * text: the folder is in the environment.
+/*
+ * Windows PowerShell scripts, each fixed text run with `-Command` (`runShellScript`): what they work
+ * on is in their environment. No double quotes in them, which Windows' command line would escape.
  */
-export const DROP_USER_PATH_SCRIPT = [
-  "$dir = $env:HARNESS_RELAY_CLI_DIR.TrimEnd('\\')",
-  "$key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)",
-  'if ($null -eq $key) { exit 0 }',
+
+/** The user's PATH as `USER_PATH_READ_SCRIPT` writes it: `none`, or its kind and its value in base64 (UTF-8). */
+const SAVED_USER_PATH = /^(none|(String|ExpandString):[A-Za-z0-9+/]*={0,2})$/;
+
+/**
+ * Writes the user's PATH (in the registry: `HKCU\Environment`) as it is stored: its `%VARIABLES%` not
+ * expanded, and the value's kind; `none` when there is none. A PATH that is not text stops it.
+ */
+export const USER_PATH_READ_SCRIPT = [
+  "$key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')",
+  "if ($null -eq $key) { [Console]::Out.Write('none'); exit 0 }",
   "$value = $key.GetValue('Path', $null, 'DoNotExpandEnvironmentNames')",
-  'if ($null -eq $value) { $key.Close(); exit 0 }',
+  "if ($null -eq $value) { $key.Close(); [Console]::Out.Write('none'); exit 0 }",
   "$kind = $key.GetValueKind('Path')",
-  "$parts = $value -split ';'",
-  "$kept = @($parts | Where-Object { $e = [Environment]::ExpandEnvironmentVariables($_).TrimEnd('\\'); -not ($e -ne '' -and ($e -ieq $dir -or $e.StartsWith($dir + '\\', [StringComparison]::OrdinalIgnoreCase))) })",
-  "if ($kept.Count -lt $parts.Count) { $key.SetValue('Path', ($kept -join ';'), $kind); [Environment]::SetEnvironmentVariable('HARNESS_RELAY_PATH_CHANGED', $null, 'User'); Write-Output ('Removed ' + ($parts.Count - $kept.Count) + ' entries from the user PATH') }",
   '$key.Close()',
+  "if ($kind -ne 'String' -and $kind -ne 'ExpandString') { [Console]::Error.Write('The user PATH is a ' + $kind + ' value, not text'); exit 3 }",
+  "[Console]::Out.Write($kind.ToString() + ':' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($value)))",
 ].join('; ');
+
+/**
+ * Puts the user's PATH back as `USER_PATH_READ_SCRIPT` wrote it (`HARNESS_RELAY_USER_PATH`), when it
+ * is not that now, then tells Windows the environment changed (deleting a variable that is not there
+ * through .NET sends that message), so that programs started after it get it; writes `changed` then.
+ */
+export const USER_PATH_RESTORE_SCRIPT = [
+  '$saved = $env:HARNESS_RELAY_USER_PATH',
+  "$key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')",
+  "$value = $key.GetValue('Path', $null, 'DoNotExpandEnvironmentNames')",
+  "$now = 'none'",
+  "if ($null -ne $value) { $now = $key.GetValueKind('Path').ToString() + ':' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$value)) }",
+  'if ($now -ceq $saved) { $key.Close(); exit 0 }',
+  "if ($saved -eq 'none') { $key.DeleteValue('Path', $false) } else { $at = $saved.IndexOf(':'); $key.SetValue('Path', [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($saved.Substring($at + 1))), [Microsoft.Win32.RegistryValueKind]($saved.Substring(0, $at))) }",
+  '$key.Close()',
+  "[Environment]::SetEnvironmentVariable('HARNESS_RELAY_PATH_CHANGED', $null, 'User')",
+  "[Console]::Out.Write('changed')",
+].join('; ');
+
+/**
+ * Runs a maker's PowerShell installer (`HARNESS_RELAY_SCRIPT`) as its makers' `irm … | iex` would,
+ * as a script block made from its text, which no execution policy refuses as it may a script file
+ * (Group Policy's wins over `-ExecutionPolicy Bypass`). Its arguments (`HARNESS_RELAY_SCRIPT_ARGS`,
+ * one a line) are passed as they are, never read as PowerShell's own parameters, as Grok's makers'
+ * `& ([scriptblock]::Create((irm …))) <arguments>` passes them. It ends as `-File` would: 0 unless the
+ * script exits with another code or fails.
+ */
+export const POWERSHELL_RUN_SCRIPT = [
+  '$list = @()',
+  'if ($env:HARNESS_RELAY_SCRIPT_ARGS) { $list = @($env:HARNESS_RELAY_SCRIPT_ARGS.Split([char]10)) }',
+  '$block = [ScriptBlock]::Create([IO.File]::ReadAllText($env:HARNESS_RELAY_SCRIPT))',
+  'try { if ($list.Count -gt 0) { Invoke-Command -ScriptBlock $block -ArgumentList $list } else { Invoke-Command -ScriptBlock $block } } catch { [Console]::Error.WriteLine([string]$_); exit 1 }',
+  'exit 0',
+].join('; ');
+
+/** How Harness Relay starts Windows PowerShell for these scripts. */
+const POWERSHELL_FLAGS = ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass'];
+
+/** Where the user's PATH is kept while a script runs on Windows, in the CLIs' folder, until it is put back. */
+export const USER_PATH_SAVED = '.user-path-before-install';
 
 /**
  * An installer's output as the user reads it: without colours and cursor moves, and of a line a
@@ -348,7 +413,8 @@ export function linkFolders(env: NodeJS.ProcessEnv, home: string): string[] {
 /**
  * Removes the links in `folders` (not in folders inside them) that lead to `dir` or anything in it,
  * by what they name (also when that is gone), and returns them. Nothing else is touched: a file, or a
- * link to anything outside `dir`, stays; a folder that cannot be read is passed over.
+ * link to anything outside `dir`, stays; a folder that cannot be read is passed over, and so is one
+ * that is `dir` or inside it (its `bin` on the user's PATH, say), whose links are the install's own.
  */
 export function dropLinksInto(dir: string, folders: readonly string[]): string[] {
   const roots = [dir];
@@ -362,6 +428,7 @@ export function dropLinksInto(dir: string, folders: readonly string[]): string[]
   for (const folder of folders) {
     let names: string[];
     try {
+      if (into(resolve(folder)) || into(realpathSync(folder))) continue;
       names = readdirSync(folder);
     } catch {
       continue;
@@ -378,6 +445,11 @@ export function dropLinksInto(dir: string, folders: readonly string[]): string[]
     }
   }
   return removed;
+}
+
+/** Settles once `signal` is aborted. */
+function untilAborted(signal: AbortSignal): Promise<void> {
+  return new Promise((done) => (signal.aborted ? done() : signal.addEventListener('abort', () => done(), { once: true })));
 }
 
 function fileExists(p: string): boolean {
@@ -417,6 +489,8 @@ class InstallError extends Error {
 class InstallJob {
   readonly abort = new AbortController();
   readonly startedAt = Date.now();
+  /** Settles once the job has ended and cleaned up after itself. */
+  ended: Promise<void> = Promise.resolve();
   state: LoginState = 'running';
   finishedAt?: number;
   private log = '';
@@ -453,16 +527,25 @@ export interface CliInstallHost {
   /** Where the CLIs go, each in a folder of its own (`cliFolder()`). */
   dir: string;
   run: (o: SpawnOptions) => Promise<SpawnResult>;
+  /** Runs fixed script text in a shell (`runShellScript`): Windows PowerShell's here. */
+  runScript: (shell: string, flags: readonly string[], script: string, o: RunOptions) => Promise<SpawnResult>;
   isFile: (path: string) => boolean;
   /** The version the program installed for `p` says it is (`--version`); throws when it does not run. */
-  version: (p: Provider, bin: string) => Promise<string | undefined>;
-  /** On Windows, takes the user's PATH entries inside `dir` out of the registry (`DROP_USER_PATH_SCRIPT`); what it did. */
-  dropUserPath: (dir: string) => Promise<string>;
+  version: (p: Provider, bin: string, signal: AbortSignal) => Promise<string | undefined>;
+  /** On Windows, the user's PATH as it is stored (`USER_PATH_READ_SCRIPT`); throws when it cannot be read. */
+  readUserPath: () => Promise<string>;
+  /** On Windows, puts the user's PATH back as `readUserPath` gave it (`USER_PATH_RESTORE_SCRIPT`); whether it had changed. */
+  restoreUserPath: (saved: string) => Promise<boolean>;
 }
 
 export class CliInstaller {
   private host: CliInstallHost;
   private jobs = new Map<Provider, InstallJob>();
+  /** The CLIs whose folder is being deleted: not installed again before that is done. */
+  private removing = new Set<Provider>();
+  /** On Windows, the scripts that may change the user's PATH, one after another (`keepingUserPath`). */
+  private userPathTurn: Promise<void> = Promise.resolve();
+  private userPathWaiting = 0;
 
   constructor(
     private settings: SettingsStore,
@@ -480,11 +563,18 @@ export class CliInstaller {
       home: homedir(),
       dir: cliFolder(),
       run: runProcess,
+      runScript: runShellScript,
       isFile: fileExists,
-      version: (p, bin) => this.askVersion(p, bin),
-      dropUserPath: (dir) => this.dropUserPathEntries(dir),
+      version: (p, bin, signal) => this.askVersion(p, bin, signal),
+      readUserPath: () => this.askUserPath(),
+      restoreUserPath: (saved) => this.writeUserPath(saved),
       ...host,
     };
+  }
+
+  /** How many installs are under way (the desktop app's update waits for them, as for agents at work). */
+  running(): number {
+    return [...this.jobs.values()].filter((j) => j.state === 'running').length;
   }
 
   /** The folder a CLI is installed in. */
@@ -590,12 +680,13 @@ export class CliInstaller {
   install(p: Provider): CliInstallView {
     const label = PROVIDER_LABEL[p];
     if (this.jobs.get(p)?.state === 'running') throw new HttpError(409, t().cliInstallRunning(label));
+    if (this.removing.has(p)) throw new HttpError(409, t().cliRemoving(label));
     if (this.installed(p)) throw new HttpError(409, t().cliAlreadyInstalled(label));
     const blocked = this.blocked(p);
     if (blocked) throw new HttpError(400, t().cliInstallBlocked(label, blocked));
     const job = new InstallJob();
     this.jobs.set(p, job);
-    void this.runJob(p, job);
+    job.ended = this.runJob(p, job);
     return this.view(p);
   }
 
@@ -615,28 +706,49 @@ export class CliInstaller {
   async remove(p: Provider): Promise<CliInstallView> {
     const label = PROVIDER_LABEL[p];
     if (this.jobs.get(p)?.state === 'running') throw new HttpError(409, t().cliInstallRunning(label));
+    if (this.removing.has(p)) throw new HttpError(409, t().cliRemoving(label));
     const note = this.note(p);
     if (!note) throw new HttpError(404, t().cliNotInstalledHere(label));
     if (this.hooks.busy?.()) throw new HttpError(409, t().cliRemoveBusy(label));
     const dir = this.folder(p);
     if (this.settings.customBin(p) === note.bin) this.settings.update(p, { bin: note.previousBin });
     this.jobs.delete(p);
+    this.removing.add(p);
     try {
       // Links in it are removed, never followed.
       await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
-      // And what an installer put outside it that leads into it (a link, the user's PATH on Windows).
-      await this.dropOutside(dir);
+      // And the links an installer put outside it that lead into it.
+      this.dropOutside(dir);
     } catch (err) {
       throw new Error(t().cliRemoveFailed(dir, (err as Error).message));
     } finally {
+      this.removing.delete(p);
       this.hooks.changed?.(p);
     }
     return this.view(p);
   }
 
-  /** Stops every install under way (the server is stopping); the next install removes what they left. */
-  shutdown(): void {
-    for (const job of this.jobs.values()) if (job.state === 'running') job.abort.abort();
+  /**
+   * Stops every install under way (the server is stopping); settles once they have cleaned up after
+   * themselves (on Windows, the user's PATH put back). The next install removes what they left.
+   */
+  shutdown(): Promise<void> {
+    const running = [...this.jobs.values()].filter((j) => j.state === 'running');
+    for (const job of running) job.abort.abort();
+    return Promise.all(running.map((j) => j.ended)).then(() => undefined);
+  }
+
+  /**
+   * On Windows, puts the user's PATH back as it was before a script that the server did not live to
+   * see end (it was killed, or the computer stopped), as kept in `USER_PATH_SAVED`. Run at startup.
+   */
+  async recover(): Promise<void> {
+    if (this.host.platform !== 'win32') return;
+    try {
+      await this.userPathQueue(() => this.restoreSaved());
+    } catch {
+      /* said by restoreSaved; tried again before the next script */
+    }
   }
 
   private async runJob(p: Provider, job: InstallJob): Promise<void> {
@@ -652,7 +764,7 @@ export class CliInstaller {
         await this.runInstaller(p, recipe, dir, job);
       } finally {
         // What it put outside the folder that leads into it, whether it finished or not.
-        await this.dropOutside(dir, job);
+        this.dropOutside(dir, job);
       }
       if (job.abort.signal.aborted) throw new Error('aborted');
       const bin = installedProgram(recipe, dir, this.host.platform);
@@ -660,8 +772,9 @@ export class CliInstaller {
       job.append(`\n$ ${bin} --version\n`);
       let version: string | undefined;
       try {
-        version = await this.host.version(p, bin);
+        version = await this.host.version(p, bin, job.abort.signal);
       } catch (err) {
+        if (job.abort.signal.aborted) throw err;
         const detail = (err as Error).message;
         throw new InstallError(() => t().cliInstallDoesNotRun(detail));
       }
@@ -712,7 +825,10 @@ export class CliInstaller {
       const npm = npmLaunch(this.host.env, this.host.platform, this.host.isFile);
       if (!npm) throw new InstallError(() => t().cliInstallBlocked(label, 'npm'));
       const args = [...npm.args, 'install', '--global', '--prefix', dir, '--no-audit', '--no-fund', '--no-update-notifier', recipe.package];
-      await this.step(job, `npm install -g --prefix ${dir} ${recipe.package}`, { bin: npm.bin, args, env: base, cwd: dir });
+      // npm's folder first on the PATH: the Node beside it runs npm's script (`#!/usr/bin/env node`),
+      // and the packages' install scripts, also when that folder is not on the PATH (Homebrew's).
+      const env = pathFirst(base, (this.host.platform === 'win32' ? win32 : posix).dirname(npm.bin), this.host.platform);
+      await this.step(job, `npm install -g --prefix ${dir} ${recipe.package}`, { bin: npm.bin, args, env, cwd: dir });
       return;
     }
     const { platform } = this.host;
@@ -737,7 +853,8 @@ export class CliInstaller {
   /**
    * Downloads a maker's script whole into `dir` (a connection cut off halfway would run half a
    * script), then runs it there with `dir` as its home (`scriptEnv`): bash on macOS and Linux, Git for
-   * Windows' bash or Windows PowerShell on Windows. The script itself does not stay.
+   * Windows' bash or Windows PowerShell on Windows, where the user's PATH is put back as it was before
+   * it once it ended (`keepingUserPath`). The script itself does not stay.
    */
   private async runScript(job: InstallJob, dir: string, script: ScriptInstaller, base: NodeJS.ProcessEnv, label: string): Promise<void> {
     const runner = this.scriptRunner(script);
@@ -749,70 +866,159 @@ export class CliInstaller {
     await this.step(job, `curl -fsSL ${script.url}`, { bin: runner.curl, args: ['-fsSL', '--retry', '3', '-o', file, script.url], env: base, cwd: dir });
     const args = script.args?.(dir) ?? [];
     const env = scriptEnv(base, dir, script, platform);
-    if (powershell) {
-      const flags = ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File'];
-      await this.step(job, ['powershell', ...flags, basename(file), ...args].join(' '), { bin: runner.shell, args: [...flags, file, ...args], env, cwd: dir });
-    } else {
+    const run = async () => {
+      if (powershell) {
+        // As a script block made from the file's text (`POWERSHELL_RUN_SCRIPT`), the file and its arguments in its environment.
+        const scriptVars = { HARNESS_RELAY_SCRIPT: file, HARNESS_RELAY_SCRIPT_ARGS: args.join('\n') };
+        await this.step(job, ['powershell', basename(file), ...args].join(' '), { bin: runner.shell, args: POWERSHELL_FLAGS, env: { ...env, ...scriptVars }, cwd: dir }, POWERSHELL_RUN_SCRIPT);
+        return;
+      }
       // Git for Windows' bash takes Windows paths written with forward slashes (`C:/…`).
       const forBash = platform === 'win32' ? (v: string) => v.replace(/\\/g, '/') : (v: string) => v;
       const pathVars = ['HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME', ...Object.keys(script.env?.(dir) ?? {})];
       const bashEnv = { ...env, ...Object.fromEntries(pathVars.filter((k) => env[k]).map((k) => [k, forBash(env[k]!)])) };
       await this.step(job, ['bash', basename(file), ...args].join(' '), { bin: runner.shell, args: [forBash(file), ...args.map(forBash)], env: bashEnv, cwd: dir });
+    };
+    await (platform === 'win32' ? this.keepingUserPath(job, run) : run());
+    rmSync(file, { force: true });
+  }
+
+  /**
+   * Runs `fn`, a script that may change the user's PATH on Windows, and puts the PATH back as it was
+   * before it once it ended, however it ended: a script given the CLI's folder as its home that reads
+   * the user's PATH and writes it back (Cursor's, Grok's) would have turned the user's own
+   * `%USERPROFILE%` entries into paths inside the folder, as it adds its own. One such script at a time
+   * (`userPathQueue`): another's would read this one's PATH, and put it back after this one's ended.
+   * What the PATH was is kept in `USER_PATH_SAVED` until it is back, for `recover`.
+   */
+  private async keepingUserPath(job: InstallJob, fn: () => Promise<void>): Promise<void> {
+    if (this.userPathWaiting > 0) job.append('Waiting for another install to end: one at a time may change the user PATH\n');
+    await this.userPathQueue(async () => {
+      // One that could not be put back earlier, first: it is what the user's PATH was.
+      await this.restoreSaved();
+      let saved: string;
+      try {
+        saved = await this.host.readUserPath();
+      } catch (err) {
+        const detail = (err as Error).message;
+        throw new InstallError(() => t().cliUserPathUnread(detail));
+      }
+      writeFileSync(join(this.host.dir, USER_PATH_SAVED), saved);
+      let failure: unknown;
+      try {
+        await fn();
+      } catch (err) {
+        failure = err;
+      }
+      try {
+        await this.restoreSaved(job);
+      } catch (err) {
+        failure ??= err;
+      }
+      if (failure !== undefined) throw failure;
+    }, job.abort.signal);
+  }
+
+  /**
+   * Puts the user's PATH back as `USER_PATH_SAVED` keeps it, when it is there, then removes it; says so
+   * in the job's log when the PATH had changed. Throws when it cannot (the file stays, for the next try).
+   */
+  private async restoreSaved(job?: InstallJob): Promise<void> {
+    const file = join(this.host.dir, USER_PATH_SAVED);
+    let saved: string;
+    try {
+      saved = readFileSync(file, 'utf8').trim();
+    } catch {
+      return;
+    }
+    if (!SAVED_USER_PATH.test(saved)) {
+      rmSync(file, { force: true });
+      return;
+    }
+    try {
+      if (await this.host.restoreUserPath(saved)) job?.append('Put the user PATH back as it was before the installer ran\n');
+    } catch (err) {
+      const detail = (err as Error).message;
+      console.warn(`[clis] could not put the user PATH back from ${file}: ${detail}`);
+      throw new InstallError(() => t().cliUserPathNotBack(detail));
     }
     rmSync(file, { force: true });
   }
 
   /**
-   * Removes what an installer put outside the CLI's folder `dir` that leads into it: the links in the
-   * PATH's folders (and `~/.local/bin`, `/usr/local/bin`, `/opt/homebrew/bin`) to anything inside it,
-   * and on Windows the user's PATH entries inside it. Each is said in the job's log.
+   * Runs `fn` once every earlier one has ended (or, with `signal`, sooner when it is stopped while it
+   * waits, without running `fn`): the scripts that may change the user's PATH on Windows.
    */
-  private async dropOutside(dir: string, job?: InstallJob): Promise<void> {
-    const { platform, env, home } = this.host;
-    if (platform === 'win32') {
-      try {
-        const done = (await this.host.dropUserPath(dir)).trim();
-        if (done) job?.append(`${done}\n`);
-      } catch (err) {
-        console.warn(`[clis] could not check the user PATH for ${dir}: ${(err as Error).message}`);
-      }
-      return;
+  private async userPathQueue(fn: () => Promise<void>, signal?: AbortSignal): Promise<void> {
+    const before = this.userPathTurn;
+    let done!: () => void;
+    const mine = new Promise<void>((r) => (done = r));
+    this.userPathTurn = before.then(() => mine);
+    this.userPathWaiting++;
+    try {
+      await (signal ? Promise.race([before, untilAborted(signal)]) : before);
+      if (signal?.aborted) throw new Error('aborted');
+      await fn();
+    } finally {
+      this.userPathWaiting--;
+      done();
     }
+  }
+
+  /**
+   * Removes what an installer put outside the CLI's folder `dir` that leads into it, on macOS and
+   * Linux: the links in the PATH's folders (and `~/.local/bin`, `/usr/local/bin`, `/opt/homebrew/bin`)
+   * to anything inside it, each said in the job's log. (On Windows, a script's changes to the user's
+   * PATH are put back once it ended: `keepingUserPath`.)
+   */
+  private dropOutside(dir: string, job?: InstallJob): void {
+    const { platform, env, home } = this.host;
+    if (platform === 'win32') return;
     for (const link of dropLinksInto(dir, linkFolders(env, home))) job?.append(`Removed ${link}, a link into ${dir}\n`);
   }
 
-  /** Runs `DROP_USER_PATH_SCRIPT` in Windows PowerShell for `dir`. */
-  private async dropUserPathEntries(dir: string): Promise<string> {
+  /** Runs one of the fixed PowerShell scripts above with `vars` in its environment; what it wrote. */
+  private async powershellScript(script: string, vars: Record<string, string>): Promise<string> {
     const powershell = windowsPowerShell(this.host.env, this.host.isFile);
-    if (!powershell) return '';
-    const r = await runShellScript(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass'], DROP_USER_PATH_SCRIPT, {
-      env: { ...installerEnv(this.host.env), HARNESS_RELAY_CLI_DIR: dir },
-      timeoutMs: 60_000,
-    });
-    if (r.code !== 0) throw new Error(tail(r.stderr || r.stdout, 300) || `exit ${r.code}`);
+    if (!powershell) throw new Error('Windows PowerShell is not there');
+    const r = await this.host.runScript(powershell, POWERSHELL_FLAGS, script, { env: { ...installerEnv(this.host.env), ...vars }, timeoutMs: 60_000 });
+    if (r.code !== 0) throw new Error(tail(r.stderr || r.stdout, 300) || (r.timedOut ? 'timed out' : `exit ${r.code}`));
     return r.stdout;
   }
 
-  /** Runs one command of an install, its output into the job's log; throws when it fails. */
-  private async step(job: InstallJob, shown: string, o: Pick<SpawnOptions, 'bin' | 'args' | 'env' | 'cwd'>): Promise<void> {
+  private async askUserPath(): Promise<string> {
+    const saved = (await this.powershellScript(USER_PATH_READ_SCRIPT, {})).trim();
+    if (!SAVED_USER_PATH.test(saved)) throw new Error(`Unexpected answer: ${saved.slice(0, 200)}`);
+    return saved;
+  }
+
+  private async writeUserPath(saved: string): Promise<boolean> {
+    return (await this.powershellScript(USER_PATH_RESTORE_SCRIPT, { HARNESS_RELAY_USER_PATH: saved })).trim() === 'changed';
+  }
+
+  /** Runs one command of an install (`script`: fixed text for the shell `o.bin`, given `o.args`), its output into the job's log; throws when it fails. */
+  private async step(job: InstallJob, shown: string, o: Pick<SpawnOptions, 'bin' | 'args' | 'env' | 'cwd'>, script?: string): Promise<void> {
     job.append(`$ ${shown}\n`);
-    const r = await this.host.run({
-      ...o,
+    const run: RunOptions = {
+      env: o.env,
+      cwd: o.cwd,
       signal: job.abort.signal,
       timeoutMs: INSTALL_TIMEOUT_MS,
       onLine: (line) => job.append(`${line}\n`),
       onSpawn: (child) => child.stderr?.on('data', (b: Buffer) => job.append(b.toString('utf8'))),
-    });
+    };
+    const r = await (script === undefined ? this.host.run({ ...run, bin: o.bin, args: o.args }) : this.host.runScript(o.bin, o.args, script, run));
     if (r.aborted || job.abort.signal.aborted) throw new Error('aborted');
     if (r.timedOut) throw new InstallError(() => t().cliInstallTimedOut(shown));
     if (r.code !== 0) throw new InstallError(() => t().cliInstallFailed(shown, r.code));
   }
 
-  /** `<bin> --version` in the CLI's own environment, as its status asks it. */
-  private async askVersion(p: Provider, bin: string): Promise<string | undefined> {
+  /** `<bin> --version` in the CLI's own environment, as its status asks it; stopped with the install. */
+  private async askVersion(p: Provider, bin: string, signal: AbortSignal): Promise<string | undefined> {
     const env = this.settings.env(p);
-    const r = await capture(bin, ['--version'], isOpenProvider(p) ? openHomeEnv(openAgents[p].process, env) : env, { timeoutMs: VERSION_TIMEOUT_MS });
-    if (r.code !== 0) throw new Error(tail(stripAnsi(r.stderr || r.stdout), 400) || `exit ${r.code}`);
+    const r = await runProcess({ bin, args: ['--version'], env: isOpenProvider(p) ? openHomeEnv(openAgents[p].process, env) : env, timeoutMs: VERSION_TIMEOUT_MS, signal });
+    if (r.aborted) throw new Error('aborted');
+    if (r.code !== 0) throw new Error(tail(stripAnsi(r.stderr || r.stdout), 400) || (r.timedOut ? 'timed out' : `exit ${r.code}`));
     return parseVersion(r.stdout || r.stderr);
   }
 }

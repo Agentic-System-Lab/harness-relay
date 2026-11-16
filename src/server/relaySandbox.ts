@@ -16,6 +16,7 @@ import { CONTROL_CHANNEL, CommandNotFoundError, type ControlChannel, runProcess,
 import {
   RELAY_ROOT,
   agentFolders,
+  cliFolder,
   commandPaths,
   patternPath,
   realPath,
@@ -743,7 +744,7 @@ export function relaySandboxRefusal(
   const writes = [...spec.writable, ...(spec.permission === 'edit' ? [...cwds, ...(spec.attachmentsDir ? [spec.attachmentsDir] : [])] : [])];
   const voice = ctx.voiceDir ?? voiceFolder(ctx.dataDir);
   const roots = { install: ctx.relayRoot, data: ctx.dataDir, voice };
-  const others = agentFolders({ home: ctx.home });
+  const others = agentFolders({ home: ctx.home, clis: cliFolder(ctx.dataDir) });
   for (const w of writes) {
     const overlap = relayFolderOverlap(w, roots);
     // Named for what it overlaps: voice input's folder, else Harness Relay's.

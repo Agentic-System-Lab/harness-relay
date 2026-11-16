@@ -8,7 +8,7 @@ import { approvalKeys } from '../src/server/approvals';
 import type { ApprovalRequest } from '../src/server/agents/types';
 import { withLang } from '../src/server/i18n';
 import { CONTROL_CHANNEL, runProcess } from '../src/server/process';
-import { RELAY_ROOT, agentFolders } from '../src/server/protect';
+import { RELAY_ROOT, agentFolders, cliFolder } from '../src/server/protect';
 import {
   DENY_REASONS,
   canonicalHost,
@@ -487,11 +487,13 @@ describe.skipIf(process.platform === 'win32')('relaySandboxRefusal', () => {
     expect(relaySandboxRefusal(spec({ writable: [join(dir, 'home')] }), ctx)).toContain(home);
     expect(relaySandboxRefusal(spec({ writable: [dir] }), ctx)).toBeDefined();
     expect(relaySandboxRefusal(spec({ writable: [join(ctx.relayRoot, 'node_modules')] }), ctx)).toBeDefined();
-    // Claude Code's, Codex's and Grok's own folders (where their variables put them).
-    for (const folder of agentFolders({ home })) {
+    // Claude Code's, Codex's and Grok's own folders (where their variables put them), and the CLIs
+    // installed from Settings, in this data folder.
+    for (const folder of agentFolders({ home, clis: cliFolder(data) })) {
       expect(relaySandboxRefusal(spec({ writable: [folder] }), ctx)).toBeDefined();
       expect(relaySandboxRefusal(spec({ writable: [join(folder, 'sessions')] }), ctx)).toBeDefined();
     }
+    expect(relaySandboxRefusal(spec({ writable: [join(data, 'clis', 'codex', 'bin')] }), ctx)).toBeDefined();
     // Inside the data folder (attachments, parallel worktrees) is fine; holding it is not.
     expect(relaySandboxRefusal(spec({ writable: [join(data, 'worktrees', 'x')] }), ctx)).toBeUndefined();
     expect(relaySandboxRefusal(spec({ writable: [data] }), ctx)).toBeDefined();

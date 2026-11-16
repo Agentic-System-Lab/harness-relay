@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CliInstallView, Provider } from '../shared/types';
 import { api } from './api';
-import { anyInstalling, installsEnded, withView } from './clis';
+import { anyInstalling, followInstalls, installsEnded, withView } from './clis';
 
 /**
  * How each CLI can be installed from Settings and what Harness Relay installed of it, asked again
  * every second while an install runs; `onEnded` is told of each CLI whose install ended (installed,
- * failed or cancelled), whose status and executable path changed.
+ * failed or cancelled), whose status and executable path changed, also once Settings is closed
+ * (`followInstalls`).
  */
 export function useCliInstalls(onEnded: (p: Provider) => void) {
   const [views, setViews] = useState<CliInstallView[]>([]);
@@ -32,6 +33,14 @@ export function useCliInstalls(onEnded: (p: Provider) => void) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Settings closed with installs under way: they are followed until they end, for the sidebar's status.
+  useEffect(
+    () => () => {
+      if (anyInstalling(shown.current)) void followInstalls(shown.current, () => api.clis(), (p) => ended.current(p));
+    },
+    [],
+  );
 
   const running = anyInstalling(views);
   useEffect(() => {
