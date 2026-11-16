@@ -26,17 +26,16 @@ describe("the landing page's header", () => {
     // The name, the switch and the buttons need some 481px: at 500px and below, the logo alone.
     expect(css).toMatch(/@media \(max-width: 500px\) \{\n {2}\.brand span \{\n {4}display: none;\n {2}\}/);
     expect(css.match(/\.brand span \{\s*display: none;/g)).toHaveLength(1);
-    // Screen readers still hear the name: the header's link and the footer's (the same .brand, so also
-    // without its name there) have it as their label, the same in both, in both languages.
+    // Screen readers still hear the name: the mark's links, the header's and the footer's, have it as their
+    // label, the same in each language (the rule hides the name in both).
     for (const page of ['site/index.html', 'site/zh-TW/index.html']) {
       const html = read(page);
-      const labels = [...html.matchAll(/<a class="brand"[^>]*>/g)].map((m) => m[0]);
-      expect(labels, page).toHaveLength(2);
       const header = html.match(/<header[\s\S]*?<\/header>/)![0];
       const footer = html.match(/<footer[\s\S]*?<\/footer>/)![0];
-      expect(header, page).toMatch(/<a class="brand" href="\.\/" aria-label="Harness Relay[^"]*">/);
-      expect(footer, page).toMatch(/<a class="brand" href="\.\/" aria-label="Harness Relay[^"]*">/);
-      expect(labels[1], page).toBe(labels[0]);
+      const label = header.match(/<a class="brand" href="\.\/" aria-label="(Harness Relay[^"]*)">/);
+      expect(label, page).not.toBeNull();
+      expect(footer, page).toContain(`<a class="brand" href="./" aria-label="${label![1]}">`);
+      expect(html.match(/<a class="brand"/g), page).toHaveLength(2);
     }
   });
 
