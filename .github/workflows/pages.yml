@@ -21,6 +21,12 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+# bash with -o pipefail, as the tests run the steps (test/site-indexnow.test.ts); without it, a step
+# would run in bash without pipefail.
+defaults:
+  run:
+    shell: bash
+
 env:
   # The landing page's address, where each page's canonical address starts.
   SITE: https://agentic-system-lab.github.io/harness-relay/
@@ -132,7 +138,7 @@ jobs:
       # api.indexnow.org passes the pages on to every search engine that takes part (Bing among them;
       # Google takes no part). The key file is at the top of the site, below the domain's root, which
       # makes the key good for the pages under it: all of the site's. The site is out by now, so a
-      # failure only warns: the engines find the change when they next read the sitemap. 202 is
+      # failure only warns: the engines find the change when they next read the sitemap, which dates it. 202 is
       # IndexNow's answer while it has yet to check the key file, as at first.
       - name: Tell IndexNow which pages changed
         run: |
@@ -160,6 +166,6 @@ jobs:
             ''|000) why="no answer: $(tail -n 1 "$err")" ;;
             *) why="HTTP $code" ;;
           esac
-          message="IndexNow was not told of the changed pages ($why): the search engines find them when they next read the sitemap."
+          message="IndexNow was not told of the changed pages ($why): the search engines find them when they next read the sitemap, which dates them."
           echo "::warning::$message"
           echo "$message" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"

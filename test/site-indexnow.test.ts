@@ -45,6 +45,11 @@ describe("IndexNow's key", () => {
 });
 
 describe("the Pages workflow's IndexNow steps", () => {
+  it('run in bash with -o pipefail, as the tests run them: the default shell, which no step changes', () => {
+    expect(workflow).toContain('\ndefaults:\n  run:\n    shell: bash\n');
+    expect(workflow.split('\n').filter((line) => /^\s*shell:/.test(line))).toEqual(['    shell: bash']);
+  });
+
   it('find the changed pages before the deployment replaces them, and tell IndexNow once it is out', () => {
     const at = (text: string) => {
       const i = workflow.indexOf(text);
@@ -235,7 +240,7 @@ describe.skipIf(process.platform === 'win32')('telling IndexNow', { timeout: slo
     ] as const) {
       const r = step(TELL, { changed: [EN], code });
       expect(r.status, code).toBe(0);
-      const message = `IndexNow was not told of the changed pages (${why}): the search engines find them when they next read the sitemap.`;
+      const message = `IndexNow was not told of the changed pages (${why}): the search engines find them when they next read the sitemap, which dates them.`;
       expect(r.out, code).toBe(`::warning::${message}\n`);
       expect(r.summary, code).toBe(`${message}\n`);
     }
