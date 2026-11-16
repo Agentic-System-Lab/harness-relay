@@ -714,7 +714,7 @@ agent 修改檔案時，回覆最後會有一張卡片，列出改了哪些檔�
 | 在 Windows 上，CLI 說它是 Harness Relay 無法啟動的腳本 | Harness Relay 只啟動程式，從不經過 shell。它會讀 npm 的 `.cmd` 包裝檔（包括 Copilot 的 `copilot.cmd`，試過）、Cursor 的啟動檔與 Muse Code 的啟動檔，找出它們執行的程式；其他 `.cmd` 或 `.bat`，請在「設定」中把這個 CLI 的路徑改成它執行的程式（`.exe`）。 |
 | 在 Windows 上，Pi 的指令失敗並顯示「No bash shell found」 | Pi 在 bash 中執行指令：請安裝 [Git for Windows](https://git-scm.com/download/win)（MinGit 沒有 bash），或把其他的 bash 放上 PATH（MSYS2、Cygwin），或在 Pi 的 `settings.json` 設定 `shellPath`。 |
 | 開源 agent 詢問要連到 github.com 之類的主機 | 它的沙箱會詢問模型來源以外的主機。例如 OpenCode 在沒有安裝 `rg` 時，會從 GitHub 下載 ripgrep：請安裝 ripgrep，或允許它。 |
-| 「找不到指令」 | 安裝該 CLI（設定頁的卡片附有官網連結），或在設定頁該 provider 卡片的 **執行檔** 區塊（在各帳號下方）指定路徑。 |
+| 「找不到指令」 | 安裝該 CLI（從設定頁它的卡片，或照上方表格的方式），或在設定頁該 provider 卡片的 **執行檔** 區塊（在各帳號下方）指定路徑。 |
 | 回覆最後出現錯誤框 | 閱讀訊息內容：那是 CLI 自己的錯誤（用量限制、登入、無效模型……）。修正後按 **繼續** 或重新送出。 |
 | 自動組隊總是沿用目前的團隊，或改用「一般問題智囊團」 | 卡片上會說明原因。確認首席 agent 的 CLI 已登入（設定與登入 → 首席 agent），或改選其他首席 agent。 |
 | agent 好像忘了之前的對話 | 若 CLI session 無法接續，Harness Relay 會自動開新 session 並提供完整紀錄；更換工作目錄或 agent 的 CLI 後、提高權限後（Muse Code 則是權限有任何改變後，以及 Harness Relay 重新啟動後），以及更新到會記錄每個 session 權限的版本後，可編輯或完全存取的對話第一次執行時，都屬於正常現象。 |

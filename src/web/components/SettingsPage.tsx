@@ -4,7 +4,6 @@ import {
   MAX_ACCOUNT_LABEL,
   OPEN_PROVIDERS,
   PROVIDERS,
-  PROVIDER_INSTALL_URL,
   PROVIDER_LABEL,
   SANDBOX_TERMINAL_SUPPORT,
   accountUsable,
@@ -528,18 +527,6 @@ function ProviderCard({
         {status?.installed && status.version && <span className="muted small">v{status.version}</span>}
       </header>
 
-      {status && !status.installed && !checking && (
-        <p className="warn-line">
-          <span>
-            {status.auth.detail ?? t.settings.cliMissing(status.bin)}
-            {t.settings.setBinBelow}
-          </span>
-          {/* The CLI's own page (the desktop app's window opens it in the default browser). */}
-          <a href={PROVIDER_INSTALL_URL[provider]} target="_blank" rel="noopener noreferrer">
-            {t.settings.installCli(PROVIDER_LABEL[provider])} ↗
-          </a>
-        </p>
-      )}
       <CliInstall provider={provider} status={status} view={install} onView={onInstallView} onChanged={onCliChanged} />
 
       {/* Once for the CLI: every account's members can run on the user's own endpoints. */}
@@ -1024,17 +1011,6 @@ function OpenAgentCard({
         </span>
       </header>
 
-      {status && !status.installed && !checking && (
-        <p className="warn-line">
-          <span>
-            {status.auth.detail ?? t.settings.cliMissing(status.bin)}
-            {t.settings.setBinBelow}
-          </span>
-          <a href={PROVIDER_INSTALL_URL[provider]} target="_blank" rel="noopener noreferrer">
-            {t.settings.installCli(PROVIDER_LABEL[provider])} ↗
-          </a>
-        </p>
-      )}
       <CliInstall provider={provider} status={status} view={install} onView={onInstallView} onChanged={onCliChanged} />
 
       <p className="muted small">

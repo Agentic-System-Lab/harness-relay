@@ -84,22 +84,6 @@ export const PROVIDER_LABEL: Record<Provider, string> = {
   pi: 'Pi',
 };
 
-/** Where each CLI is installed from: Settings links to it when the CLI is not found. */
-export const PROVIDER_INSTALL_URL: Record<Provider, string> = {
-  claude: 'https://claude.com/product/claude-code',
-  codex: 'https://openai.com/codex/',
-  grok: 'https://x.ai/build',
-  cursor: 'https://cursor.com/cli',
-  antigravity: 'https://antigravity.google/download',
-  copilot: 'https://github.com/features/copilot/cli',
-  muse: 'https://dev.meta.ai/products/muse-code/',
-  opencode: 'https://www.npmjs.com/package/opencode-ai',
-  goose: 'https://formulae.brew.sh/formula/block-goose-cli',
-  cline: 'https://www.npmjs.com/package/cline',
-  openhands: 'https://pypi.org/project/openhands/',
-  pi: 'https://www.npmjs.com/package/@earendil-works/pi-coding-agent',
-};
-
 /** UI languages. The server localizes its messages from the `X-Relay-Lang` request header. */
 export type Lang = 'zh-TW' | 'en';
 export const LANGS: Lang[] = ['zh-TW', 'en'];

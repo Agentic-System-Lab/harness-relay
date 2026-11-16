@@ -362,9 +362,9 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 找不到的 CLI 裝進專屬的資料夾，再移除 | Copilot | 卡片顯示**未安裝**（Not installed），有 **Install Copilot**、`npm install -g @github/copilot` 與資料夾（`<data>/clis/copilot`）。安裝中（`fake-npm/hold`）：**Installing Copilot…**、目前為止 npm 的輸出，以及 **Cancel install**；這時關掉設定頁，裝好後側欄的紅點一樣會消失。完成：「Installed by Harness Relay in …」、標題顯示版本且沒有狀態標籤、**執行檔**是裝好的程式、側邊欄的圓點不再是紅色，而 npm 收到的是 `install --global --prefix <資料夾> --cache <資料夾>/install-cache/npm … @github/copilot`，裝完後那個快取（假的 npm 會寫入它）已經不在。**Remove**（確認後）刪掉資料夾，卡片又提供安裝，顯示**未安裝**（執行檔設定改回安裝前的）。 |
+| 找不到的 CLI 裝進專屬的資料夾，再移除 | Copilot | 卡片顯示**未安裝**（Not installed，沒有「找不到」那一行，也沒有官網連結），有 **Install Copilot**、`npm install -g @github/copilot` 與資料夾（`<data>/clis/copilot`）。安裝中（`fake-npm/hold`）：**Installing Copilot…**、目前為止 npm 的輸出，以及 **Cancel install**；這時關掉設定頁，裝好後側欄的紅點一樣會消失。完成：「Installed by Harness Relay in …」、標題顯示版本且沒有狀態標籤、**執行檔**是裝好的程式、側邊欄的圓點不再是紅色，而 npm 收到的是 `install --global --prefix <資料夾> --cache <資料夾>/install-cache/npm … @github/copilot`，裝完後那個快取（假的 npm 會寫入它）已經不在。**Remove**（確認後）刪掉資料夾，卡片又提供安裝，顯示**未安裝**（執行檔設定改回安裝前的）。 |
 | 安裝失敗會說明原因且不留下任何東西；安裝中可以取消 | Cline | `fake-npm/fail`：**Install failed**、「npm install -g --prefix … cline@3.0.74 failed (exit 1)」、安裝程式的輸出裡有 npm 自己的 404，而且沒有資料夾。用 `fake-npm/hold` 按 **Try again**，再按 **Cancel install**：「Install cancelled; nothing was left behind.」、**Try again**，且沒有資料夾。 |
-| 提供官方安裝程式：macOS 與 Linux 上是 bash 腳本，Windows 上是 PowerShell 版 | Grok | **Install Grok**、`curl -fsSL https://x.ai/cli/install.sh \| bash`（Windows 上是 `irm https://x.ai/cli/install.ps1 \| iex`），以及安裝程式會以那個資料夾當家目錄的說明（不按：那是官方在網路上的腳本），還有它官網的連結。 |
+| 提供官方安裝程式：macOS 與 Linux 上是 bash 腳本，Windows 上是 PowerShell 版 | Grok | **Install Grok**、`curl -fsSL https://x.ai/cli/install.sh \| bash`（Windows 上是 `irm https://x.ai/cli/install.ps1 \| iex`），以及安裝程式會以那個資料夾當家目錄的說明（不按：那是官方在網路上的腳本），沒有「找不到」那一行，也沒有官網連結。 |
 
 ## 在 Windows 上是腳本的 CLI
 

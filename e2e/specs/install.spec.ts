@@ -31,6 +31,9 @@ test.describe('installing a CLI from Settings', () => {
     await page.goto(`${relay.base}/#/settings/copilot`);
     const card = page.locator('#settings-copilot');
     await expect(card.locator('.provider-head .pill')).toHaveText('Not installed');
+    // The pill says it once: no "not found" line, nor a link to its website, beside Install.
+    await expect(card).not.toContainText('copilot not found');
+    await expect(card.getByRole('link', { name: /from its website/ })).toHaveCount(0);
     const install = card.getByRole('button', { name: 'Install Copilot' });
     await expect(install).toBeVisible();
     const offer = card.locator('.cli-install');
@@ -113,6 +116,7 @@ test.describe('installing a CLI from Settings', () => {
     const command = process.platform === 'win32' ? 'irm https://x.ai/cli/install.ps1 | iex' : 'curl -fsSL https://x.ai/cli/install.sh | bash';
     await expect(card.locator('.cli-install')).toContainText(command);
     await expect(card.locator('.cli-install')).toContainText('The installer gets that folder as its home');
-    await expect(card.getByRole('link', { name: /Install Grok from its website/ })).toBeVisible();
+    await expect(card).not.toContainText('grok not found');
+    await expect(card.getByRole('link', { name: /from its website/ })).toHaveCount(0);
   });
 });

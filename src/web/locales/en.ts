@@ -1479,9 +1479,6 @@ export const en: Messages = {
         "Once saved, Harness Relay passes COPILOT_GITHUB_TOKEN when it starts Copilot (ahead of the GitHub sign-in it keeps). Use a fine-grained personal access token with the \"Copilot Requests\" permission; Copilot does not take classic tokens (ghp_).",
       muse: 'Once saved, Harness Relay passes META_API_KEY when it starts Muse Code, which then runs on that key (Meta API billing) instead of your Meta account sign-in.',
     },
-    cliMissing: (bin) => `${bin} not found`,
-    setBinBelow: ' (set its path under "Executable" below)',
-    installCli: (p) => `Install ${p} from its website`,
     cliInstall: {
       install: (p) => `Install ${p}`,
       retry: 'Try again',

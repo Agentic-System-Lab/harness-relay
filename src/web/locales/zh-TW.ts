@@ -1516,9 +1516,6 @@ export const zhTW = {
         '儲存後，Harness Relay 啟動 Copilot 時會帶入 COPILOT_GITHUB_TOKEN（優先於它保存的 GitHub 登入）。請用有「Copilot Requests」權限的 fine-grained personal access token；Copilot 不接受 classic token（ghp_）。',
       muse: '儲存後，Harness Relay 啟動 Muse Code 時會帶入 META_API_KEY，它就改用這把金鑰（Meta API 計費），而不是你的 Meta 帳號登入。',
     },
-    cliMissing: (bin: string) => `找不到 ${bin}`,
-    setBinBelow: '（可在下方「執行檔」指定路徑）',
-    installCli: (p: string) => `到官網安裝 ${p}`,
     /** Installing a CLI from its card: into a folder of Harness Relay's own, which removing it deletes. */
     cliInstall: {
       install: (p: string) => `安裝 ${p}`,
