@@ -1,7 +1,7 @@
 import { lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, dirname, isAbsolute, join, relative, resolve, win32 } from 'node:path';
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, win32 } from 'node:path';
 import {
   PROVIDERS,
   PROVIDER_LABEL,
@@ -237,8 +237,11 @@ export function windowsPowerShell(env: NodeJS.ProcessEnv, isFile: (path: string)
   return isFile(inbox) ? inbox : findOnPath('powershell', env, 'win32', [], isFile);
 }
 
-/** Where uv's own installer puts it, besides the PATH (a server started outside a terminal may not have them). */
-const uvDirs = (home: string, platform: NodeJS.Platform) => (platform === 'win32' ? [] : [join(home, '.local', 'bin'), join(home, '.cargo', 'bin')]);
+/**
+ * Where uv's own installer puts it on macOS and Linux, besides the PATH (a server started outside a
+ * terminal may not have them): POSIX paths, whichever system this runs on, as `findOnPath` takes them.
+ */
+const uvDirs = (home: string, platform: NodeJS.Platform) => (platform === 'win32' ? [] : [posix.join(home, '.local', 'bin'), posix.join(home, '.cargo', 'bin')]);
 
 /** Where a system keeps curl and bash, besides the PATH. */
 const SYSTEM_DIRS = ['/usr/bin', '/bin'];
@@ -338,8 +341,8 @@ export function cleanLog(text: string): string {
  * PATH, and `~/.local/bin`, `/usr/local/bin` and `/opt/homebrew/bin`.
  */
 export function linkFolders(env: NodeJS.ProcessEnv, home: string): string[] {
-  const path = (env[pathKey(env)] ?? '').split(':').filter((d) => isAbsolute(d));
-  return [...new Set([...path, join(home, '.local', 'bin'), '/usr/local/bin', '/opt/homebrew/bin'])];
+  const path = (env[pathKey(env)] ?? '').split(':').filter((d) => posix.isAbsolute(d));
+  return [...new Set([...path, posix.join(home, '.local', 'bin'), '/usr/local/bin', '/opt/homebrew/bin'])];
 }
 
 /**
