@@ -3,6 +3,7 @@ import { closeSync, ftruncateSync, mkdtempSync, openSync, rmSync, symlinkSync, w
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
+import { slow } from './timeouts';
 import { exitAfterRunDatabaseReads, exitOnUncaughtException, openRunDatabase, openSqliteFile, plainDatabaseFiles, readRunDatabase, runDatabaseReadsLeft } from '../src/server/db';
 
 /*
@@ -11,7 +12,12 @@ import { exitAfterRunDatabaseReads, exitOnUncaughtException, openRunDatabase, op
  */
 
 const dir = mkdtempSync(join(tmpdir(), 'relay-run-db-'));
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+afterAll(async () => {
+  // A read given up on goes on in its worker, its database open until it ends; Windows removes no
+  // open file (EPERM), so the folder goes once every read has ended, and its removal is retried.
+  await vi.waitFor(() => expect(runDatabaseReadsLeft()).toBe(0), { timeout: 60_000, interval: 100 });
+  rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+}, slow(90_000));
 let n = 0;
 
 function database(sql: string): string {
