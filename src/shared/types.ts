@@ -1474,11 +1474,13 @@ export type CliInstallMethod = 'npm' | 'script' | 'uv';
 
 /**
  * Why Harness Relay cannot install a CLI here: a program its install needs is not found (npm, which
- * comes with Node.js; curl, and bash or on Windows Git for Windows' bash (`gitBash`) or Windows
- * PowerShell, for a maker's script, uv's own installer included), or Harness Relay runs no installer
- * of it on this system (`system`: neither macOS, Linux nor Windows).
+ * comes with Node.js, where Node.js's own build cannot go into the folder instead (an open agent's
+ * install, or no build of it for this computer); curl, and bash or on Windows Git for Windows' bash
+ * (`gitBash`) or Windows PowerShell, for a maker's script, uv's own installer included; curl and tar
+ * for Node.js's build), or Harness Relay runs no installer of it on this system (`system`: neither
+ * macOS, Linux nor Windows).
  */
-export type CliInstallBlock = 'npm' | 'curl' | 'bash' | 'gitBash' | 'powershell' | 'system';
+export type CliInstallBlock = 'npm' | 'curl' | 'tar' | 'bash' | 'gitBash' | 'powershell' | 'system';
 
 /** An install under way or done: what its installer printed (the end of it), and how it ended. */
 export interface CliInstallJobView {
@@ -1498,6 +1500,8 @@ export interface CliInstallView {
   command: string;
   /** Why it cannot be installed here; absent when it can. */
   blocked?: CliInstallBlock;
+  /** npm is not on the PATH: the version of Node.js whose build its install puts into `dir` first, for its npm. */
+  node?: string;
   /** The folder of its own it is installed in (removing it deletes this folder). */
   dir: string;
   /**

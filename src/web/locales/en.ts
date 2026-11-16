@@ -1486,9 +1486,11 @@ export const en: Messages = {
       installing: (p) => `Installing ${p}…`,
       into: (dir) => `Into a folder of Harness Relay's own, ${dir}; you can remove it here later.`,
       scriptHome: ' The installer gets that folder as its home, so what it writes to shell profiles or caches stays in it too; a link or PATH entry it leaves leading here is taken out once it is done.',
+      withNode: (version) => ` npm is not on the PATH, so Node.js ${version}, with its npm, is downloaded into that folder first and used once its checksum checks; it stays there, and goes when you remove it.`,
       blocked: {
         npm: (p) => `Installing ${p} here takes npm, which comes with Node.js, and it is not on the PATH. Install Node.js, then reload this page.`,
         curl: (p) => `Installing ${p} here takes curl, which is not on the PATH.`,
+        tar: (p) => `Installing ${p} here takes tar (to unpack Node.js's download), which was not found.`,
         bash: (p) => `Installing ${p} here takes bash, which is not on the PATH.`,
         gitBash: (p) => `Installing ${p} on Windows takes the bash that comes with Git for Windows (Git Bash), which was not found. Install Git for Windows (MinGit has no bash), then reload this page.`,
         powershell: (p) => `Installing ${p} here takes Windows PowerShell, which was not found.`,

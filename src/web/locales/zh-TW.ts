@@ -1524,9 +1524,11 @@ export const zhTW = {
       installing: (p: string) => `正在安裝 ${p}…`,
       into: (dir: string) => `裝進 Harness Relay 自己的資料夾 ${dir}，之後也可以在這裡移除。`,
       scriptHome: '安裝程式會把這個資料夾當作家目錄，它寫進 shell 設定檔或快取的東西也都留在裡面；它若在 PATH 上留下指向這裡的連結或項目，裝完就會拿掉。',
+      withNode: (version: string) => `PATH 上沒有 npm，所以會先把 Node.js ${version}（附 npm）下載進這個資料夾，核對過檢查碼才使用，之後也留在裡面，移除時一起刪除。`,
       blocked: {
         npm: (p: string) => `要在這裡安裝 ${p} 需要 npm（隨 Node.js 一起安裝），但 PATH 上找不到。請先安裝 Node.js，再重新整理這頁。`,
         curl: (p: string) => `要在這裡安裝 ${p} 需要 curl，但 PATH 上找不到。`,
+        tar: (p: string) => `要在這裡安裝 ${p} 需要 tar（用來解開 Node.js 的下載檔），但找不到。`,
         bash: (p: string) => `要在這裡安裝 ${p} 需要 bash，但 PATH 上找不到。`,
         gitBash: (p: string) => `在 Windows 上安裝 ${p} 需要 Git for Windows 附的 bash（Git Bash），但找不到。請安裝 Git for Windows（MinGit 沒有附 bash），再重新整理這頁。`,
         powershell: (p: string) => `要在這裡安裝 ${p} 需要 Windows PowerShell，但找不到。`,

@@ -9,6 +9,7 @@ import {
   CliInstaller,
   INSTALL_CACHE,
   INSTALL_NOTE,
+  NODE_VERSION,
   POWERSHELL_RUN_SCRIPT,
   USER_PATH_READ_SCRIPT,
   USER_PATH_RESTORE_SCRIPT,
@@ -16,11 +17,13 @@ import {
   UV_INSTALLERS,
   cleanLog,
   dropLinksInto,
+  folderNpm,
   gitBash,
   installCommand,
   installedProgram,
   installerEnv,
   linkFolders,
+  nodeBuildFor,
   npmLaunch,
   pathFirst,
   scriptEnv,
@@ -29,6 +32,7 @@ import {
   windowsPowerShell,
   type CliInstallHost,
   type CliRecipe,
+  type NodeBuild,
 } from '../src/server/cliInstall';
 import { openDatabase } from '../src/server/db';
 import { HttpError } from '../src/server/errors';
@@ -107,6 +111,7 @@ function fakeHost(
     env?: NodeJS.ProcessEnv;
     onRun?: (s: Run) => Promise<SpawnResult | undefined> | SpawnResult | undefined;
     version?: CliInstallHost['version'];
+    nodeBuild?: CliInstallHost['nodeBuild'];
     readUserPath?: CliInstallHost['readUserPath'];
     restoreUserPath?: CliInstallHost['restoreUserPath'];
   } = {},
@@ -135,6 +140,8 @@ function fakeHost(
   };
   const host: Partial<CliInstallHost> = {
     platform,
+    arch: 'x64',
+    ...(o.nodeBuild ? { nodeBuild: o.nodeBuild } : {}),
     env: o.env ?? (win ? WIN_ENV : { PATH: '/fake/bin', CLAUDECODE: '1', npm_lifecycle_event: 'start', KEEP: 'me' }),
     home: win ? 'C:\\Users\\me' : '/fake/home',
     dir,
@@ -261,6 +268,50 @@ describe('npmLaunch', () => {
   });
 });
 
+describe('Node.js’s build, for npm when it is not on the PATH', () => {
+  it('is Node.js’s own archive for each system and processor, with only Node and npm taken out of it', () => {
+    const mac = nodeBuildFor('darwin', 'arm64', () => false)!;
+    expect(mac).toEqual({
+      version: NODE_VERSION,
+      url: `https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-darwin-arm64.tar.gz`,
+      file: `node-v${NODE_VERSION}-darwin-arm64.tar.gz`,
+      sha256: 'aec2514ea1ceb2ba52455e9ec65986f6749a06dd759e5db2a72e6889668c9735',
+      members: [`node-v${NODE_VERSION}-darwin-arm64/bin/node`, `node-v${NODE_VERSION}-darwin-arm64/lib/node_modules/npm`],
+    });
+    const win = nodeBuildFor('win32', 'arm64', () => false)!;
+    expect(win.url).toBe(`https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-win-arm64.zip`);
+    expect(win.members).toEqual([`node-v${NODE_VERSION}-win-arm64/node.exe`, `node-v${NODE_VERSION}-win-arm64/node_modules/npm`]);
+    // Every system the desktop app is made for, and Intel Macs, each with its own checksum.
+    const builds = (['darwin', 'linux', 'win32'] as const).flatMap((os) => (['x64', 'arm64'] as const).map((cpu) => nodeBuildFor(os, cpu, () => false)));
+    expect(builds.every((b) => b && /^[0-9a-f]{64}$/.test(b.sha256))).toBe(true);
+    expect(new Set(builds.map((b) => b!.sha256)).size).toBe(6);
+  });
+
+  it('has none for another system or processor, nor for a Linux with musl, whose Node.js builds are not Node.js’s own', () => {
+    expect(nodeBuildFor('freebsd', 'x64', () => false)).toBeUndefined();
+    expect(nodeBuildFor('linux', 'ia32', () => false)).toBeUndefined();
+    expect(nodeBuildFor('linux', 'x64', (p) => p === '/lib/ld-musl-x86_64.so.1')).toBeUndefined();
+    expect(nodeBuildFor('linux', 'arm64', (p) => p === '/lib/ld-musl-aarch64.so.1')).toBeUndefined();
+    expect(nodeBuildFor('linux', 'x64', () => false)?.file).toBe(`node-v${NODE_VERSION}-linux-x64.tar.gz`);
+  });
+
+  it('lays Node and npm out in the CLI’s folder as npm’s global folder has them beside its Node', () => {
+    const d = join(root, 'n');
+    expect(folderNpm(d, 'linux')).toEqual({ bin: join(d, 'bin', 'node'), args: [join(d, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js')] });
+    expect(folderNpm(d, 'win32')).toEqual({ bin: join(d, 'node.exe'), args: [join(d, 'node_modules', 'npm', 'bin', 'npm-cli.js')] });
+    // The CLI's program goes beside that Node (npm's link in `bin`, or on Windows its `.cmd`), where its launch finds it.
+    expect(dirname(installedProgram(CLI_RECIPES.codex, d, 'linux'))).toBe(dirname(folderNpm(d, 'linux').bin));
+    expect(dirname(installedProgram(CLI_RECIPES.copilot, d, 'win32'))).toBe(dirname(folderNpm(d, 'win32').bin));
+  });
+
+  it('is offered for Claude Code, Codex and Copilot only, and its version is the one the user guide names', () => {
+    const withNode = PROVIDERS.filter((p) => CLI_RECIPES[p].method === 'npm' && (CLI_RECIPES[p] as Extract<CliRecipe, { method: 'npm' }>).withNode);
+    expect(withNode).toEqual(['claude', 'codex', 'copilot']);
+    expect(readFileSync(join(__dirname, '..', 'docs', 'user-guide.md'), 'utf8')).toContain(`Node.js ${NODE_VERSION}`);
+    expect(readFileSync(join(__dirname, '..', 'docs', 'user-guide.zh-TW.md'), 'utf8')).toContain(`Node.js ${NODE_VERSION}`);
+  });
+});
+
 describe('the programs a Windows install runs', () => {
   const files = (...paths: string[]) => (p: string) => paths.some((f) => f.toLowerCase() === p.toLowerCase());
 
@@ -344,7 +395,9 @@ describe('CliInstaller', () => {
     expect(views.every((v) => !v.blocked && !v.installed && !v.job)).toBe(true);
 
     const none = installer({ tools: [] }).clis;
-    expect(none.view('codex').blocked).toBe('npm');
+    // Without npm: Claude Code, Codex and Copilot with Node.js's build, which takes curl; an open agent takes npm.
+    expect(none.view('codex').blocked).toBe('curl');
+    expect(none.view('opencode').blocked).toBe('npm');
     // Without uv, uv's own installer, which takes curl and bash.
     expect(none.view('openhands').blocked).toBe('curl');
     expect(none.view('grok').blocked).toBe('curl');
@@ -775,6 +828,122 @@ describe('CliInstaller', () => {
     expect(scriptEnv({ UV_INSTALL_DIR: '/opt/uv' }, '/d', script('grok').posix, 'linux').UV_INSTALL_DIR).toBe('/opt/uv');
   });
 
+  /** Node.js's build as a test downloads it: the fake curl writes an empty file, whose checksum this is. */
+  const EMPTY_SHA256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+  const fakeBuild = (o: Partial<NodeBuild> = {}): NodeBuild => ({
+    version: '26.0.0',
+    url: 'https://nodejs.org/dist/v26.0.0/node-v26.0.0-linux-x64.tar.gz',
+    file: 'node-v26.0.0-linux-x64.tar.gz',
+    sha256: EMPTY_SHA256,
+    members: ['node-v26.0.0-linux-x64/bin/node', 'node-v26.0.0-linux-x64/lib/node_modules/npm'],
+    ...o,
+  });
+  /** tar, as it takes Node and npm out of the archive into the folder it is given (`-C`). */
+  const fakeTar = (platform: NodeJS.Platform) => (s: Run) => {
+    if (!/^tar(\.exe)?$/i.test(basename(s.bin.replace(/\\/g, '/')))) return undefined;
+    const npm = folderNpm(s.args[s.args.indexOf('-C') + 1]!, platform);
+    for (const f of [npm.bin, ...npm.args]) touch(f);
+    return result(0);
+  };
+
+  it('without npm, puts Node.js’s build into the folder first, checked, then installs with its npm', async () => {
+    const { clis, calls, settings } = installer({ tools: ['/fake/bin/curl', '/fake/bin/tar'], nodeBuild: () => fakeBuild(), onRun: fakeTar('linux') });
+    const before = clis.view('codex');
+    expect(before).toMatchObject({ method: 'npm', node: '26.0.0' });
+    expect(before.blocked).toBeUndefined();
+    expect(before.command).toBe('curl -fsSLO https://nodejs.org/dist/v26.0.0/node-v26.0.0-linux-x64.tar.gz; tar -xf node-v26.0.0-linux-x64.tar.gz; npm install -g @openai/codex');
+    clis.install('codex');
+    const v = await ended(clis, 'codex');
+    const dir = clis.folder('codex');
+    const archive = join(dir, INSTALL_CACHE, 'node', 'node-v26.0.0-linux-x64.tar.gz');
+    expect(v.job?.state).toBe('success');
+    expect(calls.map((c) => basename(c.bin))).toEqual(['curl', 'tar', 'node', 'node']);
+    // The archive whole, then only Node and npm out of it, its top folder stripped.
+    expect(calls[0]!.args).toEqual(['-fsSL', '--retry', '3', '-o', archive, 'https://nodejs.org/dist/v26.0.0/node-v26.0.0-linux-x64.tar.gz']);
+    expect(calls[1]).toMatchObject({ bin: '/fake/bin/tar', cwd: dir, args: ['-xf', archive, '-C', dir, '--strip-components', '1', 'node-v26.0.0-linux-x64/bin/node', 'node-v26.0.0-linux-x64/lib/node_modules/npm'] });
+    // That Node checked to run; then its npm, on it, with that Node first on the PATH (for the packages' install scripts).
+    const npm = folderNpm(dir, 'linux');
+    expect(calls[2]).toMatchObject({ bin: npm.bin, args: ['--version'], cwd: dir });
+    expect(calls[3]).toMatchObject({ bin: npm.bin, cwd: dir, env: { PATH: `${join(dir, 'bin')}:/fake/bin` } });
+    expect(calls[3]!.args).toEqual([...npm.args, 'install', '--global', '--prefix', dir, '--cache', join(dir, INSTALL_CACHE, 'npm'), '--no-audit', '--no-fund', '--no-update-notifier', '@openai/codex']);
+    expect(v.job?.log).toContain(`npm is not on the PATH: Node.js 26.0.0, with its npm, goes into ${dir} first`);
+    expect(v.job?.log).toContain(`SHA-256 ${EMPTY_SHA256}: as Node.js published it`);
+    // Node and npm stay, beside the program (which runs on that Node); the download does not.
+    expect(isRealFile(npm.bin) && isRealFile(npm.args[0]!)).toBe(true);
+    expect(existsSync(join(dir, INSTALL_CACHE))).toBe(false);
+    expect(v.installed?.bin).toBe(join(dir, 'bin', 'codex'));
+    expect(settings.bin('codex')).toBe(join(dir, 'bin', 'codex'));
+    // With npm on the PATH again, it is that npm, and no Node.js goes in.
+    expect(installer({ nodeBuild: () => fakeBuild() }).clis.view('codex').node).toBeUndefined();
+  });
+
+  it('uses no Node.js whose download does not match its checksum, and leaves nothing behind', async () => {
+    const { clis, calls } = installer({ tools: ['/fake/bin/curl', '/fake/bin/tar'], nodeBuild: () => fakeBuild({ sha256: 'ab'.repeat(32) }), onRun: fakeTar('linux') });
+    clis.install('claude');
+    const v = await ended(clis, 'claude');
+    expect(v.job?.state).toBe('failed');
+    expect(calls.map((c) => basename(c.bin))).toEqual(['curl']);
+    expect(withLang('en', () => clis.view('claude').job?.error)).toBe(
+      `The Node.js downloaded (https://nodejs.org/dist/v26.0.0/node-v26.0.0-linux-x64.tar.gz) does not match the checksum Harness Relay has for it, so it was not used: SHA-256 ${'ab'.repeat(32)} expected, ${EMPTY_SHA256} downloaded.`,
+    );
+    expect(withLang('zh-TW', () => clis.view('claude').job?.error)).toContain('檢查碼不符');
+    expect(existsSync(clis.folder('claude'))).toBe(false);
+  });
+
+  it('says so when the Node.js put into the folder does not run there (on Linux, without libatomic), before npm runs on it', async () => {
+    const libatomic = (s: Run) => (s.args[0] === '--version' ? (s.onLine?.('node: error while loading shared libraries: libatomic.so.1'), result(127)) : fakeTar('linux')(s));
+    const { clis, calls } = installer({ tools: ['/fake/bin/curl', '/fake/bin/tar'], nodeBuild: () => fakeBuild(), onRun: libatomic });
+    clis.install('codex');
+    const v = await ended(clis, 'codex');
+    expect(v.job?.state).toBe('failed');
+    expect(calls).toHaveLength(3);
+    expect(v.job?.log).toContain('libatomic.so.1');
+    expect(withLang('en', () => clis.view('codex').job?.error)).toContain("Node.js's Linux builds need libatomic (the libatomic1 package on Debian and Ubuntu");
+    expect(withLang('zh-TW', () => clis.view('codex').job?.error)).toContain('需要 libatomic');
+    expect(existsSync(clis.folder('codex'))).toBe(false);
+    // Elsewhere, without the word about Linux.
+    const mac = installer({ platform: 'darwin', tools: ['/fake/bin/curl', '/fake/bin/tar'], env: { PATH: '/fake/bin' }, nodeBuild: () => fakeBuild(), onRun: (s) => (s.args[0] === '--version' ? result(1) : fakeTar('darwin')(s)) });
+    mac.clis.install('claude');
+    expect(withLang('en', () => mac.clis.view('claude').job?.error)).toBeUndefined();
+    const m = await ended(mac.clis, 'claude');
+    expect(withLang('en', () => mac.clis.view('claude').job?.error)).toBe('The Node.js put into the folder does not run on this computer (its output is below): install Node.js with npm, then try again.');
+    expect(m.job?.state).toBe('failed');
+  });
+
+  it('says what Node.js’s build needs that is missing, and offers none where Node.js has no build', () => {
+    const build = () => fakeBuild();
+    expect(installer({ tools: ['/fake/bin/curl'], nodeBuild: build }).clis.view('copilot').blocked).toBe('tar');
+    expect(installer({ tools: ['/fake/bin/tar'], nodeBuild: build }).clis.view('copilot').blocked).toBe('curl');
+    // No build for this computer: npm it is, as for the open agents.
+    const none = installer({ tools: ['/fake/bin/curl', '/fake/bin/tar'], nodeBuild: () => undefined }).clis;
+    expect(none.view('claude')).toMatchObject({ blocked: 'npm', command: 'npm install -g @anthropic-ai/claude-code' });
+    expect(none.view('claude').node).toBeUndefined();
+    expect(installer({ tools: ['/fake/bin/curl', '/fake/bin/tar'], nodeBuild: build }).clis.view('pi').blocked).toBe('npm');
+    // The default build follows the computer's system and processor.
+    const mac = installer({ platform: 'darwin', tools: ['/fake/bin/curl', '/fake/bin/tar'], env: { PATH: '/fake/bin' } }).clis.view('codex');
+    expect(mac.node).toBe(NODE_VERSION);
+    expect(mac.command).toContain(`node-v${NODE_VERSION}-darwin-x64.tar.gz`);
+  });
+
+  it('on Windows, takes Node.js’s zip apart with System32’s tar, never another tar on the PATH', async () => {
+    const winTools = [...WIN_TOOLS.filter((t) => !t.startsWith('C:\\nodejs')), 'C:\\Windows\\System32\\tar.exe'];
+    const build = () => fakeBuild({ url: 'https://nodejs.org/dist/v26.0.0/node-v26.0.0-win-x64.zip', file: 'node-v26.0.0-win-x64.zip', members: ['node-v26.0.0-win-x64/node.exe', 'node-v26.0.0-win-x64/node_modules/npm'] });
+    const { clis, calls } = installer({ platform: 'win32', tools: winTools, nodeBuild: build, onRun: fakeTar('win32') });
+    clis.install('copilot');
+    const v = await ended(clis, 'copilot');
+    const dir = clis.folder('copilot');
+    expect(v.job?.state).toBe('success');
+    // (curl found as PATHEXT spells it.)
+    expect(calls.map((c) => c.bin.toLowerCase())).toEqual(['c:\\windows\\system32\\curl.exe', 'c:\\windows\\system32\\tar.exe', join(dir, 'node.exe').toLowerCase(), join(dir, 'node.exe').toLowerCase()]);
+    expect(calls[1]!.args.slice(-2)).toEqual(['node-v26.0.0-win-x64/node.exe', 'node-v26.0.0-win-x64/node_modules/npm']);
+    // npm's `.cmd` for the CLI goes beside that node.exe, which its launch then starts it with.
+    expect(v.installed?.bin).toBe(join(dir, 'copilot.cmd'));
+    // Git for Windows' GNU tar on the PATH reads no zip: not taken.
+    const gnuTar = [...WIN_TOOLS.filter((t) => !t.startsWith('C:\\nodejs')), 'C:\\Program Files\\Git\\usr\\bin\\tar.exe'];
+    const env = { ...WIN_ENV, Path: 'C:\\Program Files\\Git\\usr\\bin;C:\\Windows\\System32' };
+    expect(installer({ platform: 'win32', tools: gnuTar, env, nodeBuild: build }).clis.view('codex').blocked).toBe('tar');
+  });
+
   it('starts npm with its own folder first on the PATH, as Homebrew’s may not be on it', async () => {
     const { clis, calls } = installer({ platform: 'darwin', tools: ['/opt/homebrew/bin/npm'], env: { PATH: '/usr/bin:/bin' } });
     clis.install('copilot');
@@ -852,8 +1021,9 @@ describe('CliInstaller', () => {
     await ended(clis, 'codex');
     expect(() => clis.install('codex')).toThrow(expect.objectContaining({ status: 409 }));
     const none = installer({ tools: [] }).clis;
-    expect(() => withLang('en', () => none.install('codex'))).toThrow(/takes npm/);
-    expect(() => none.install('codex')).toThrow(expect.objectContaining({ status: 400 }));
+    expect(() => withLang('en', () => none.install('pi'))).toThrow(/takes npm/);
+    expect(() => none.install('pi')).toThrow(expect.objectContaining({ status: 400 }));
+    expect(() => withLang('en', () => none.install('codex'))).toThrow(/takes curl/);
   });
 
   it('starts over in a folder an earlier install left (the server stopped during it, or its program was removed by hand)', async () => {

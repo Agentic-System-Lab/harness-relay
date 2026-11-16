@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { withLang } from '../src/server/i18n';
-import { launchOf } from '../src/server/process';
+import { launchOf, posixLaunch, type PosixLaunchFs } from '../src/server/process';
 import { findWindowsCommand, npmShimTarget, windowsLaunch, WindowsScriptError, type LaunchFs } from '../src/server/winLaunch';
 
 /** A disk of Windows paths: files with their text, and the folders they make. */
@@ -171,5 +171,44 @@ describe('starting a CLI on Windows', () => {
   it('is used on Windows only', () => {
     expect(launchOf('claude', ['-p'], { PATH: '/usr/bin' }, 'darwin')).toEqual({ file: 'claude', args: ['-p'] });
     expect(launchOf('codex', ['app-server'], { PATH: '/usr/bin' }, 'linux')).toEqual({ file: 'codex', args: ['app-server'] });
+  });
+});
+
+describe('posixLaunch', () => {
+  /** A disk of POSIX paths: programs, and files with their text (through links, as reading follows them). */
+  function posixDisk(programs: Record<string, string>): PosixLaunchFs {
+    return { isProgram: (p) => p in programs, head: (p) => programs[p] };
+  }
+  const NODE_SCRIPT = '#!/usr/bin/env node\nimport "./x.js";\n';
+  // Harness Relay's install of Codex with Node.js's own build in its folder (npm not on the PATH).
+  const fs = posixDisk({ '/clis/codex/bin/codex': NODE_SCRIPT, '/clis/codex/bin/node': '\u007fELF' });
+
+  it('starts a Node script with the node beside it when the PATH has none, as npm’s shims and Windows do', () => {
+    expect(posixLaunch('/clis/codex/bin/codex', ['app-server'], { PATH: '/usr/bin:/bin' }, fs)).toEqual({ file: '/clis/codex/bin/node', args: ['/clis/codex/bin/codex', 'app-server'] });
+    expect(posixLaunch('/clis/codex/bin/codex', [], {}, fs)).toEqual({ file: '/clis/codex/bin/node', args: ['/clis/codex/bin/codex'] });
+    const crlf = posixDisk({ '/n/bin/cli': '#!/usr/bin/env node \r\n', '/n/bin/node': '' });
+    expect(posixLaunch('/n/bin/cli', [], { PATH: '/usr/bin' }, crlf).file).toBe('/n/bin/node');
+  });
+
+  it('starts everything else as it is: with a node on the PATH, without one beside it, or another kind of program', () => {
+    const as = (bin: string, env: NodeJS.ProcessEnv, disk: PosixLaunchFs = fs) => expect(posixLaunch(bin, ['-v'], env, disk)).toEqual({ file: bin, args: ['-v'] });
+    // A node on the PATH: `env` finds it, as it always did.
+    as('/clis/codex/bin/codex', { PATH: '/usr/bin:/opt/node/bin' }, posixDisk({ '/clis/codex/bin/codex': NODE_SCRIPT, '/clis/codex/bin/node': '', '/opt/node/bin/node': '' }));
+    // No node beside it.
+    as('/usr/local/bin/codex', { PATH: '/usr/bin' }, posixDisk({ '/usr/local/bin/codex': NODE_SCRIPT }));
+    // A program, a shell script, or a Node script with flags of its own `env` would read (`-S`).
+    as('/clis/claude/bin/claude', { PATH: '/usr/bin' }, posixDisk({ '/clis/claude/bin/claude': '\u007fELF\u0002', '/clis/claude/bin/node': '' }));
+    as('/x/bin/cli', { PATH: '/usr/bin' }, posixDisk({ '/x/bin/cli': '#!/bin/sh\nexec node "$0.js"\n', '/x/bin/node': '' }));
+    as('/x/bin/cli', { PATH: '/usr/bin' }, posixDisk({ '/x/bin/cli': '#!/usr/bin/env -S node --no-warnings\n', '/x/bin/node': '' }));
+    // A name the PATH finds, or one that cannot be read.
+    as('codex', { PATH: '/usr/bin' });
+    as('/x/bin/gone', { PATH: '/usr/bin' }, posixDisk({ '/x/bin/node': '' }));
+    // A PATH entry that is not a folder's full path is not looked in, as Harness Relay never starts from one.
+    expect(posixLaunch('/clis/codex/bin/codex', [], { PATH: 'bin' }, fs).file).toBe('/clis/codex/bin/node');
+  });
+
+  it('is what launchOf starts on macOS and Linux', () => {
+    // On a real disk only in process.test.ts; here a path nothing is at starts as it is.
+    expect(launchOf('/nowhere/bin/codex', ['exec'], { PATH: '/usr/bin' }, 'linux')).toEqual({ file: '/nowhere/bin/codex', args: ['exec'] });
   });
 });

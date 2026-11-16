@@ -586,6 +586,12 @@ const zhTW = {
   cliInstallTimedOut: (command: string) => `${command} 執行太久，已經停止。`,
   cliInstallNoProgram: (path: string) => `安裝程式跑完了，卻沒有留下它的程式 ${path}。`,
   cliInstallDoesNotRun: (detail: string) => `裝好的程式無法執行（--version）：${detail}`,
+  cliNodeDoesNotRun: (linux: boolean): string =>
+    linux
+      ? '放進資料夾的 Node.js 在這台電腦上無法執行（輸出在下方）。Node.js 的 Linux 版本需要 libatomic（Debian 與 Ubuntu 的 libatomic1 套件，Fedora 的 libatomic）：請安裝它，或自行安裝附 npm 的 Node.js，再試一次。'
+      : '放進資料夾的 Node.js 在這台電腦上無法執行（輸出在下方）：請自行安裝附 npm 的 Node.js，再試一次。',
+  cliNodeChecksum: (url: string, expected: string, actual: string) =>
+    `下載的 Node.js（${url}）和 Harness Relay 記下的檢查碼不符，所以沒有使用它：應為 SHA-256 ${expected}，實際是 ${actual}。`,
   cliInstallCancelled: '已取消安裝',
   cliRemoveFailed: (dir: string, detail: string) => `無法刪除 ${dir}：${detail}`,
   cliRemoving: (cli: string) => `正在移除 ${cli}，請等它移除完。`,
@@ -1169,6 +1175,12 @@ const en: ServerMessages = {
   cliInstallTimedOut: (command) => `${command} took too long and was stopped.`,
   cliInstallNoProgram: (path) => `The installer finished, but its program ${path} is not there.`,
   cliInstallDoesNotRun: (detail) => `The program installed does not run (--version): ${detail}`,
+  cliNodeDoesNotRun: (linux) =>
+    linux
+      ? "The Node.js put into the folder does not run on this computer (its output is below). Node.js's Linux builds need libatomic (the libatomic1 package on Debian and Ubuntu, libatomic on Fedora): install it, or Node.js with npm, then try again."
+      : 'The Node.js put into the folder does not run on this computer (its output is below): install Node.js with npm, then try again.',
+  cliNodeChecksum: (url, expected, actual) =>
+    `The Node.js downloaded (${url}) does not match the checksum Harness Relay has for it, so it was not used: SHA-256 ${expected} expected, ${actual} downloaded.`,
   cliInstallCancelled: 'Install cancelled',
   cliRemoveFailed: (dir, detail) => `Could not delete ${dir}: ${detail}`,
   cliRemoving: (cli) => `${cli} is being removed. Wait until it is removed.`,
