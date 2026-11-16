@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { families, familyOf } from '../src/shared/family';
 import type { ConversationSummary } from '../src/shared/types';
-import { ancestorsOf, branchCount, descendants, familyIds, familySizes, foldedNow, groupSections, groupStatus, moveFamily, pinnedAt, pinnedConversations, revealIn, settleMoves, settlePins, undoMoves, undoPin, type ConvNode, HEALTH_NAMES_KEY, readHealthNames, readyCount, writeHealthNames } from '../src/web/sidebar';
+import { ancestorsOf, branchCount, descendants, familyIds, familySizes, foldedNow, groupSections, groupStatus, moveFamily, pendingPinTime, pinnedAt, pinnedConversations, revealIn, settleMoves, settlePins, undoMoves, undoPin, type ConvNode, HEALTH_NAMES_KEY, readHealthNames, readyCount, writeHealthNames } from '../src/web/sidebar';
 import { convStatus } from '../src/web/util';
 
 const conv = (extra: Partial<ConversationSummary>): ConversationSummary => ({
@@ -111,6 +111,16 @@ describe('pinned conversations in the sidebar', () => {
     const unpinned = after.map((c) => (c.id === 'a' ? { ...c, pinnedAt: undefined } : c));
     expect(settlePins(pins, unpinned)).toEqual({});
     expect(settlePins({ gone: 1 }, list)).toEqual({});
+  });
+
+  it("takes a pin not reported yet to be the latest, whatever this device's clock says", () => {
+    // A clock behind the server's: still after every pin known, pending ones too.
+    expect(pendingPinTime(list, {}, 5)).toBe(31);
+    expect(pendingPinTime(list, { b: 50 }, 5)).toBe(51);
+    expect(ids(pinnedConversations(list, { b: pendingPinTime(list, {}, 5) }))).toEqual(['b', 'c', 'd', 'a']);
+    // A clock ahead: its own time.
+    expect(pendingPinTime(list, {}, 1000)).toBe(1001);
+    expect(pendingPinTime([], {}, 7)).toBe(8);
   });
 
   it('undoes a pin that failed back to what was pending before it', () => {

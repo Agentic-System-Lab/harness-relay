@@ -1678,7 +1678,7 @@ export const en: Messages = {
         body: 'When the list grows, sort it into groups:',
         points: [
           '"New group" makes a group; drag conversations onto it (or use the folder button)',
-          'The pin in a conversation\'s top-left corner (hover it) keeps it under "Pinned", above the groups',
+          'The pin in a conversation\'s top-left corner keeps it under "Pinned", above the groups (on a computer, point at the conversation to see the pin)',
           "Once you have groups, the lead agent reads a new conversation's first message and puts it in the group it fits",
           '"Search" looks through titles and everything you and the agents wrote',
         ],

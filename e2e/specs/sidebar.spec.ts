@@ -139,6 +139,7 @@ test.describe('the sidebar', () => {
   });
 
   test('the pin in a conversation\'s top-left corner shows on hover, lists it under Pinned above the groups, the one pinned last first, and unpins it', async ({ page, relay }) => {
+    test.setTimeout(90_000);
     const older = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], {}, 'Older chat');
     const newer = await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Newer chat');
     const billing = await newGroup(page, 'Billing');
@@ -153,9 +154,18 @@ test.describe('the sidebar', () => {
     await expect(pin(other, 'Older chat')).toHaveCSS('opacity', '0');
     await row(page, other, 'Older chat').hover();
     await expect(pin(other, 'Older chat')).toHaveCSS('opacity', '1');
-    const [box, item] = await Promise.all([pin(other, 'Older chat').boundingBox(), row(page, other, 'Older chat').boundingBox()]);
+    const [box, item, title, icon] = await Promise.all([
+      pin(other, 'Older chat').boundingBox(),
+      row(page, other, 'Older chat').boundingBox(),
+      row(page, other, 'Older chat').locator('.conv-title-text').boundingBox(),
+      pin(other, 'Older chat').locator('svg').boundingBox(),
+    ]);
     expect(Math.abs(box!.x + box!.width / 2 - item!.x)).toBeLessThanOrEqual(6);
     expect(Math.abs(box!.y + box!.height / 2 - item!.y)).toBeLessThanOrEqual(6);
+    // Clear of the title, and its icon in the middle of the circle (a button's own padding would push it right).
+    expect(box!.x + box!.width).toBeLessThanOrEqual(title!.x + 0.5);
+    expect(Math.abs(icon!.x + icon!.width / 2 - (box!.x + box!.width / 2))).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(icon!.y + icon!.height / 2 - (box!.y + box!.height / 2))).toBeLessThanOrEqual(0.5);
     // Tilted, in the muted outline, until it is pinned.
     await expect(pin(other, 'Older chat').locator('g')).toHaveAttribute('transform', /rotate\(-45/);
     await expect(pin(other, 'Older chat').locator('svg')).toHaveCSS('fill', 'none');
@@ -175,20 +185,52 @@ test.describe('the sidebar', () => {
     const [pinnedBox, billingBox] = await Promise.all([pinnedRegion.boundingBox(), billing.boundingBox()]);
     expect(pinnedBox!.y).toBeLessThan(billingBox!.y);
 
-    // The one pinned last comes first, whatever was active last; kept by the server.
-    await row(page, other, 'Newer chat').hover();
-    await pin(other, 'Newer chat').click();
+    // From the keyboard: Tab from the conversation reaches its pin, which shows, and Enter pins it. The one
+    // pinned last comes first, whatever was active last; kept by the server.
+    await page.mouse.move(0, 0);
+    await row(page, other, 'Newer chat').locator('.conv-link').focus();
+    await page.keyboard.press('Tab');
+    await expect(pin(other, 'Newer chat')).toBeFocused();
+    await expect(pin(other, 'Newer chat')).toHaveCSS('opacity', '1');
+    await page.keyboard.press('Enter');
     await expect(pinnedRegion.locator('.conv-title-text')).toHaveText(['Newer chat', 'Older chat']);
     await expect.poll(() => pinnedAt(newer)).toBeGreaterThan(0);
+    // A pinned row's folder menu is its family's group: moved to Billing elsewhere, then back from Pinned.
+    await relay.api(`/api/conversations/${older}/group`, { method: 'PUT', body: { groupId: await groupId(relay, 'Billing') } });
     await page.reload();
     await expect(pinnedRegion.locator('.conv-title-text')).toHaveText(['Newer chat', 'Older chat']);
     expect(await pinnedAt(newer)).toBeGreaterThan((await pinnedAt(older))!);
+    await expect(row(page, billing, 'Older chat')).toBeVisible();
+    await row(page, pinnedRegion, 'Older chat').hover();
+    const move = row(page, pinnedRegion, 'Older chat').locator('.conv-move select');
+    await expect(move).toHaveValue(await groupId(relay, 'Billing'));
+    await move.selectOption('');
+    await expect(row(page, other, 'Older chat')).toBeVisible();
+    await expect.poll(() => groupOf(relay, older)).toBeNull();
+    await expect(row(page, pinnedRegion, 'Older chat')).toBeVisible();
 
-    // Collapsed, it shows how many; open again.
-    await pinnedRegion.getByRole('button', { name: /Pinned/ }).click();
+    // Collapsed from its chevron, also its lower-left corner next to the first row's pin, it shows how
+    // many; remembered after a reload; open again.
+    const toggle = pinnedRegion.getByRole('button', { name: /Pinned/ });
+    const chevron = (await toggle.locator('.group-chevron').boundingBox())!;
+    await page.mouse.click(chevron.x + 1, chevron.y + chevron.height - 1);
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
     await expect(pinnedRegion.locator('.conv-item')).toHaveCount(0);
     await expect(pinnedRegion.locator('.group-count')).toHaveText('2');
-    await pinnedRegion.getByRole('button', { name: /Pinned/ }).click();
+    expect(await pinnedAt(newer)).toBeGreaterThan(0);
+    await page.reload();
+    await expect(pinnedRegion.locator('.group-count')).toHaveText('2');
+    await expect(pinnedRegion.locator('.conv-item')).toHaveCount(0);
+    await toggle.click();
+    await expect(pinnedRegion.locator('.conv-item')).toHaveCount(2);
+
+    // A pin that fails says so, and the conversation stays as it was.
+    await page.route('**/api/conversations/*/pin', (route) => route.fulfill({ status: 500, json: { error: 'disk full' } }));
+    const said = new Promise<string>((done) => page.once('dialog', (d) => void d.accept().then(() => done(d.message()))));
+    await pinnedRegion.getByRole('button', { name: 'Unpin "Newer chat"' }).click();
+    expect(await said).toBe('Could not change the pin: disk full');
+    await expect(pinnedRegion.locator('.conv-title-text')).toHaveText(['Newer chat', 'Older chat']);
+    await page.unroute('**/api/conversations/*/pin');
 
     // Unpinned from the Pinned section, or from its group.
     await pinnedRegion.getByRole('button', { name: 'Unpin "Older chat"' }).click();
@@ -199,6 +241,16 @@ test.describe('the sidebar', () => {
     await expect(pinnedRegion).toHaveCount(0);
     await expect.poll(() => pinnedAt(newer)).toBeUndefined();
     await expect(other.locator('.conv-item')).toHaveCount(2);
+
+    // A pinned conversation deleted leaves Pinned too.
+    await row(page, other, 'Older chat').hover();
+    await pin(other, 'Older chat').click();
+    await expect(pinnedRegion.locator('.conv-title-text')).toHaveText(['Older chat']);
+    await row(page, pinnedRegion, 'Older chat').hover();
+    acceptNextDialog(page);
+    await pinnedRegion.getByRole('button', { name: 'Delete conversation' }).click();
+    await expect(pinnedRegion).toHaveCount(0);
+    await expect(row(page, other, 'Older chat')).toHaveCount(0);
   });
 
   test("every CLI's dot and the count fit on one line, the chevron ending at the report icon's edge", async ({ page }) => {

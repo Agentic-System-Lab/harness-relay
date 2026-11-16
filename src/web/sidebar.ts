@@ -273,6 +273,14 @@ export function pinnedConversations(conversations: ConversationSummary[], pins: 
     .map(({ c }) => c);
 }
 
+/**
+ * When a pin made now is taken to be, until the server reports its own time: after every pin the
+ * sidebar knows of, so that it is listed first whatever this device's clock says.
+ */
+export function pendingPinTime(conversations: ConversationSummary[], pins: PendingPins = {}, now = Date.now()): number {
+  return Math.max(now, ...conversations.map((c) => pinnedAt(c, pins) ?? 0)) + 1;
+}
+
 /** Pins the server now reports, or of conversations gone, are dropped (the same object when nothing changed). */
 export function settlePins(pins: PendingPins, conversations: ConversationSummary[]): PendingPins {
   const left = Object.entries(pins).filter(([id, at]) => {

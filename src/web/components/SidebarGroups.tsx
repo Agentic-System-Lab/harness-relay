@@ -16,6 +16,7 @@ import {
   groupSections,
   groupStatus,
   moveFamily,
+  pendingPinTime,
   pinnedAt,
   pinnedConversations,
   readCollapsedBranches,
@@ -256,7 +257,7 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
 
   const pin = async (c: ConversationSummary, pinned: boolean) => {
     const before = pins;
-    setPins((p) => ({ ...p, [c.id]: pinned ? Date.now() : null }));
+    setPins((p) => ({ ...p, [c.id]: pinned ? pendingPinTime(conversations, p) : null }));
     try {
       await api.pinConversation(c.id, pinned);
     } catch (e) {

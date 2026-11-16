@@ -770,13 +770,6 @@ p {
   transition: opacity 0.12s ease;
 }
 
-/* A little more to touch, outward, away from the title. */
-.conv-pin::before {
-  content: '';
-  position: absolute;
-  inset: -6px -2px -2px -6px;
-}
-
 .conv-item:hover .conv-pin,
 .conv-item:focus-within .conv-pin,
 .conv-item.pinned .conv-pin {
