@@ -1474,11 +1474,13 @@ export type CliInstallMethod = 'npm' | 'script' | 'uv';
 
 /**
  * Why Harness Relay cannot install a CLI here: a program its install needs is not found (npm, which
- * comes with Node.js; curl, and bash or on Windows Git for Windows' bash (`gitBash`) or Windows
- * PowerShell, for a maker's script, uv's own installer included), or Harness Relay runs no installer
- * of it on this system (`system`: neither macOS, Linux nor Windows).
+ * comes with Node.js, where Node.js's own build cannot go into the folder instead (an open agent's
+ * install, or no build of it for this computer); curl, and bash or on Windows Git for Windows' bash
+ * (`gitBash`) or Windows PowerShell, for a maker's script, uv's own installer included; curl and tar
+ * for Node.js's build), or Harness Relay runs no installer of it on this system (`system`: neither
+ * macOS, Linux nor Windows).
  */
-export type CliInstallBlock = 'npm' | 'curl' | 'bash' | 'gitBash' | 'powershell' | 'system';
+export type CliInstallBlock = 'npm' | 'curl' | 'tar' | 'bash' | 'gitBash' | 'powershell' | 'system';
 
 /** An install under way or done: what its installer printed (the end of it), and how it ended. */
 export interface CliInstallJobView {
@@ -1498,6 +1500,8 @@ export interface CliInstallView {
   command: string;
   /** Why it cannot be installed here; absent when it can. */
   blocked?: CliInstallBlock;
+  /** npm is not on the PATH: the version of Node.js whose build its install puts into `dir` first, for its npm. */
+  node?: string;
   /** The folder of its own it is installed in (removing it deletes this folder). */
   dir: string;
   /**
@@ -1507,6 +1511,54 @@ export interface CliInstallView {
   installed?: { bin: string; version?: string; at: number; inUse: boolean };
   /** The latest install since the server started, while it runs and after it ended. */
   job?: CliInstallJobView;
+}
+
+/**
+ * What the agents' OS sandboxes need that this computer lacks (Settings → Sandboxes, and the dialog New
+ * chat opens while something is missing; `src/server/sandboxSetup.ts`):
+ * - `packages`: the Linux packages the sandboxes run (bubblewrap, socat, ripgrep; slirp4netns,
+ *   iproute2, iptables and util-linux for Copilot's), installed with the system's package manager;
+ * - `apparmor`: on Ubuntu 23.10 or later, which keeps programs from making user namespaces, the
+ *   AppArmor profile that lets `/usr/bin/bwrap` make them;
+ * - `node`: in the desktop app, a Node.js for Harness Relay's own sandbox (the open agents'), which
+ *   finds none on the PATH: Node.js's own build in Harness Relay's data folder.
+ */
+export type SandboxNeedKind = 'packages' | 'apparmor' | 'node';
+
+/**
+ * Why Harness Relay cannot install a need here: no way to get administrator rights (`admin`: not root,
+ * no sudo without a password, no desktop session for pkexec's prompt), no package manager it knows
+ * (`packageManager`: apt, dnf, pacman, zypper), or what Node.js's build takes (curl, tar, a build for
+ * this computer: `node`; on Linux the libatomic it runs with: `libatomic`).
+ */
+export type SandboxSetupBlock = 'admin' | 'packageManager' | 'curl' | 'tar' | 'node' | 'libatomic';
+
+/** Who a need is for: a CLI's sandbox, or Harness Relay's own (`open`, the open agents'). */
+export type SandboxUser = Provider | 'open';
+
+export interface SandboxNeedView {
+  kind: SandboxNeedKind;
+  /** `packages`: the packages; `apparmor`: the profile's file; `node`: Node.js's version. */
+  items: string[];
+  /** Whose sandboxes need it. */
+  for: SandboxUser[];
+  /** What installing it runs, as one would type it in a terminal (to do it by hand). */
+  command: string;
+  /** Why Harness Relay cannot install it here; absent when it can. */
+  blocked?: SandboxSetupBlock;
+}
+
+export interface SandboxSetupView {
+  /** The server's system (`process.platform`): on Windows nothing is ever missing, as nothing Harness Relay installs helps there. */
+  platform: string;
+  /** What is missing; empty when the sandboxes have everything they need here (always on Windows). */
+  needs: SandboxNeedView[];
+  /** How an install gets administrator rights for `packages` and `apparmor`: as root, sudo without a password, or pkexec (the desktop's password prompt). */
+  admin?: 'root' | 'sudo' | 'pkexec';
+  /** The latest install since the server started, while it runs and after it ended. */
+  job?: CliInstallJobView;
+  /** While it runs: whether it can be stopped (not once the system's package manager runs as administrator). */
+  cancellable?: boolean;
 }
 
 /** How long one of a plan's limits runs before it starts over, when it is one of the usual spans. */

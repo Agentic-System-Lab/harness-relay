@@ -22,6 +22,8 @@ interface TestFixtures {
   lang: Lang;
   signIn: boolean;
   tour: boolean;
+  /** Whether New chat may ask to install what the sandboxes lack (`src/web/sandboxSetup.ts`); answered already otherwise. */
+  sandboxAsk: boolean;
   serverEnv: Record<string, string>;
   /** The real CLIs as the user signed them in, on real models (`e2e/live/`, `startRelay`'s `live`). */
   live: boolean;
@@ -41,6 +43,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   lang: ['en', { option: true }],
   signIn: [true, { option: true }],
   tour: [false, { option: true }],
+  sandboxAsk: [false, { option: true }],
   serverEnv: [{}, { option: true }],
   live: [false, { option: true }],
   missingClis: [notInstalledBut(), { option: true }],
@@ -62,19 +65,21 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     }
   },
 
-  page: async ({ page, relay, lang, signIn, tour }, use) => {
-    // Before the app's own scripts: the tour done (unless asked for), the language picked (once:
-    // a test may change it, and a reload must keep that).
+  page: async ({ page, relay, lang, signIn, tour, sandboxAsk }, use) => {
+    // Before the app's own scripts: the tour done (unless asked for), the sandboxes' setup answered
+    // (unless asked for: New chat would ask on a computer whose sandboxes lack something), the
+    // language picked (once: a test may change it, and a reload must keep that).
     await page.addInitScript(
-      ({ lang, tour }) => {
+      ({ lang, tour, sandboxAsk }) => {
         try {
           if (!tour) localStorage.setItem('relay:onboarded', '999');
+          if (!sandboxAsk) localStorage.setItem('relay:sandbox-setup-asked', '1');
           if (localStorage.getItem('relay:lang') === null) localStorage.setItem('relay:lang', lang);
         } catch {
           /* storage unavailable */
         }
       },
-      { lang, tour },
+      { lang, tour, sandboxAsk },
     );
     if (signIn) {
       await page.goto(`${relay.base}/#code=${await relay.newSignInCode()}`);

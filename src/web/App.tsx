@@ -25,6 +25,8 @@ import { useI18n, useT } from './i18n';
 import { PUSH_RESYNC_MS, PageAlerts, SOUND_UNLOCK_EVENTS, alertPrefsNow, listenForClicks, pushActive, syncPush, unlockSound, useAlertPrefs } from './alerts';
 import { refreshLimits } from './limits';
 import { latestLoader, newerStatuses } from './refresh';
+import { askOnNewChat, readAsked, writeAsked } from './sandboxSetup';
+import { useSandboxSetup } from './useSandboxSetup';
 import { AFTER_UPDATE_MS, TYPING_PAUSE_MS, isAppWindow, offerShows, pollDelay, readDismissed, shouldOffer, typesText, writeDismissed } from './update';
 import { useDialogsHeld, useDialogsOpen } from './components/useDialog';
 import { useSidebarDrawer } from './components/useSidebarDrawer';
@@ -33,6 +35,7 @@ import { onboardingDone } from './tour';
 // Loaded when first opened, not with the page: Settings and its panels, and the guided tour.
 const SettingsPage = lazyPart(() => import('./components/SettingsPage').then((m) => m.SettingsPage));
 const Onboarding = lazyPart(() => import('./components/Onboarding').then((m) => m.Onboarding));
+const SandboxSetupDialog = lazyPart(() => import('./components/SandboxSetupDialog').then((m) => m.SandboxSetupDialog));
 
 type SeenMap = Record<string, number>;
 const SEEN_KEY = 'relay:seen';
@@ -394,6 +397,17 @@ function RelayApp() {
     setOffer((showing) => offerShows(showing, { offerable, tourOpen, dialogsOpen: dialogs, typing, held }));
   }, [offerable, tourOpen, dialogs, typing, held]);
 
+  // What the sandboxes lack here, asked as New chat opens, once in this browser (src/web/sandboxSetup.ts):
+  // Not now or Install answers it for good, Escape or × for this page only; Settings → Sandboxes keeps it.
+  const [sandboxAsked, setSandboxAsked] = useState(readAsked);
+  const [sandboxClosed, setSandboxClosed] = useState(false);
+  const sandbox = useSandboxSetup(route.page === 'new' && !sandboxAsked && !sandboxClosed);
+  const [sandboxOpen, setSandboxOpen] = useState(false);
+  useEffect(() => {
+    // Not over the tour, another dialog, or what the user is typing or recording (it would take their keys).
+    if (route.page === 'new' && !sandboxOpen && !tourOpen && !offer && dialogs === 0 && !typing && !held && askOnNewChat(sandbox.view, sandboxAsked || sandboxClosed)) setSandboxOpen(true);
+  }, [route.page, sandbox.view, sandboxAsked, sandboxClosed, sandboxOpen, tourOpen, offer, dialogs, typing, held]);
+
   return (
     <div className={`app ${sidebarOpen ? 'sidebar-open' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <Sidebar
@@ -471,6 +485,27 @@ function RelayApp() {
       {tourOpen && (
         <Deferred onClose={() => setTourOpen(false)}>
           <Onboarding onClose={() => setTourOpen(false)} />
+        </Deferred>
+      )}
+      {sandboxOpen && sandbox.view && (
+        <Deferred
+          onClose={() => {
+            setSandboxClosed(true);
+            setSandboxOpen(false);
+          }}
+        >
+          <SandboxSetupDialog
+            view={sandbox.view}
+            onView={sandbox.setView}
+            onAnswered={() => {
+              writeAsked();
+              setSandboxAsked(true);
+            }}
+            onClose={() => {
+              setSandboxClosed(true);
+              setSandboxOpen(false);
+            }}
+          />
         </Deferred>
       )}
       {offer && update?.available && (

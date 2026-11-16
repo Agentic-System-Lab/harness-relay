@@ -1384,7 +1384,7 @@ export const zhTW = {
     goSignIn: (p: string) => `前往 ${p} 登入 →`,
     sections: '設定頁的區塊',
     /** The links at the top of the page: short, so they stay on one line. */
-    nav: { version: '版本', language: '介面語言', appearance: '外觀', notifications: '通知', backends: '模型來源', lead: '首席 agent', tools: '工具庫', voice: '語音輸入', cwd: '預設工作目錄', sessions: 'Agent 的 session', shares: '分享', browsers: '已登入的瀏覽器', tour: '使用導覽' },
+    nav: { version: '版本', language: '介面語言', appearance: '外觀', notifications: '通知', sandboxes: '沙箱', backends: '模型來源', lead: '首席 agent', tools: '工具庫', voice: '語音輸入', cwd: '預設工作目錄', sessions: 'Agent 的 session', shares: '分享', browsers: '已登入的瀏覽器', tour: '使用導覽' },
     tour: '使用導覽',
     tourHint: '一步一步介紹主要功能。',
     replayTour: '重新觀看導覽',
@@ -1524,9 +1524,11 @@ export const zhTW = {
       installing: (p: string) => `正在安裝 ${p}…`,
       into: (dir: string) => `裝進 Harness Relay 自己的資料夾 ${dir}，之後也可以在這裡移除。`,
       scriptHome: '安裝程式會把這個資料夾當作家目錄，它寫進 shell 設定檔或快取的東西也都留在裡面；它若在 PATH 上留下指向這裡的連結或項目，裝完就會拿掉。',
+      withNode: (version: string) => `PATH 上沒有 npm，所以會先把 Node.js ${version}（附 npm）下載進這個資料夾，核對過檢查碼才使用，之後也留在裡面，移除時一起刪除。`,
       blocked: {
         npm: (p: string) => `要在這裡安裝 ${p} 需要 npm（隨 Node.js 一起安裝），但 PATH 上找不到。請先安裝 Node.js，再重新整理這頁。`,
         curl: (p: string) => `要在這裡安裝 ${p} 需要 curl，但 PATH 上找不到。`,
+        tar: (p: string) => `要在這裡安裝 ${p} 需要 tar（用來解開 Node.js 的下載檔），但找不到。`,
         bash: (p: string) => `要在這裡安裝 ${p} 需要 bash，但 PATH 上找不到。`,
         gitBash: (p: string) => `在 Windows 上安裝 ${p} 需要 Git for Windows 附的 bash（Git Bash），但找不到。請安裝 Git for Windows（MinGit 沒有附 bash），再重新整理這頁。`,
         powershell: (p: string) => `要在這裡安裝 ${p} 需要 Windows PowerShell，但找不到。`,
@@ -1596,6 +1598,57 @@ export const zhTW = {
     thanks: '謝謝你的支持！',
   },
 
+  /** What the agents' sandboxes need: Settings → Sandboxes, and the dialog New chat opens while something is missing. */
+  sandboxSetup: {
+    title: '沙箱',
+    hint: '在完全存取以外，agent 執行的指令都在作業系統的沙箱裡跑：只能寫入工作目錄，也碰不到你的瀏覽器資料與 Harness Relay 的資料庫。沙箱少了需要的東西時，Harness Relay 不會讓指令在沙箱外執行，所以那些 agent 的指令就無法執行。',
+    allSet: '這台電腦上，沙箱需要的東西都有了。',
+    windows: '在 Windows 上沒有要替沙箱安裝的東西：Codex 與 Copilot 的沙箱不需要另外安裝，其他 agent 在這裡沒有沙箱（開源 agent 只能以完全存取執行；要有沙箱請用 WSL2）。',
+    checking: '正在檢查沙箱需要的東西…',
+    missing: '這台電腦上，沙箱還缺少：',
+    needs: {
+      packages: (items: string) => `Linux 套件：${items}`,
+      apparmor: (file: string) => `讓 bubblewrap 能建立 user namespace 的 AppArmor 設定檔（${file}）：Ubuntu 23.10 以後預設不允許，加了之後 Ubuntu 的這項限制就不再管 bubblewrap`,
+      node: (version: string) => `Harness Relay 自己的沙箱要用的 Node.js${version ? ` ${version}` : ''}，放進 Harness Relay 的資料夾，不需要系統管理員權限`,
+    },
+    for: (who: string) => `（給 ${who} 的沙箱用）`,
+    /** Between the items of a list (whose sandboxes, which packages). */
+    sep: '、',
+    open: '開源 agent',
+    admin: {
+      root: '以 root 身分安裝套件。',
+      sudo: '用 sudo 安裝套件（這台電腦的 sudo 不需要密碼）。',
+      pkexec: '安裝套件時，系統會跳出視窗，要你輸入系統管理員密碼（只問一次）。',
+    },
+    blocked: {
+      admin: '這裡沒辦法取得系統管理員權限（不是 root、sudo 需要密碼，也沒有桌面環境能顯示密碼視窗）。',
+      packageManager: '找不到 Harness Relay 認得的套件管理工具（apt、dnf、pacman、zypper），請用系統的套件管理工具安裝這些套件。',
+      curl: '下載 Node.js 需要 curl，但找不到。',
+      tar: '解開 Node.js 的下載檔需要 tar，但找不到。',
+      node: 'Node.js 沒有給這個系統或處理器的官方版本：請自行安裝 Node.js 22.12 以上，放上登入 shell 的 PATH。',
+      libatomic: 'Node.js 的 Linux 版本要有 libatomic 才能執行，而它還沒安裝：先安裝上面的套件。',
+    },
+    byHand: '要自己安裝的話，在終端機執行：',
+    packagesToInstall: '要安裝的套件：',
+    install: '安裝',
+    installing: '正在安裝沙箱需要的東西…',
+    cancel: '取消安裝',
+    done: '裝好了，沙箱需要的東西都有了。',
+    /** An install that put in all it could, while something it cannot install here is left. */
+    partlyDone: 'Harness Relay 能在這裡安裝的都裝好了；這裡列出的其餘部分要你自己安裝。',
+    failed: '安裝失敗',
+    cancelled: '已取消安裝。',
+    output: '安裝的輸出',
+    noOutput: '（沒有輸出）',
+    dialog: {
+      title: '強烈建議安裝沙箱需要的元件',
+      body: '這台電腦上，agent 的沙箱還缺少下面這些東西。少了它們，有些 agent 在完全存取以外無法執行任何指令（Harness Relay 不會讓指令在沙箱外執行），所以強烈建議現在就安裝。',
+      later: '先不要',
+      install: '安裝（強烈建議）',
+      close: '關閉',
+      laterHint: '之後隨時可以到「設定 → 沙箱」安裝。',
+    },
+  },
   update: {
     title: '有新版本可以更新',
     body: (version: string, current: string) => `Harness Relay ${version} 已經推出（你目前用的是 ${current}）。`,

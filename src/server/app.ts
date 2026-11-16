@@ -11,6 +11,7 @@ import { AUTH_KEY_HEADER, RELAY_FOLDER, SIGNED_OUT, browserLabel } from '../shar
 import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from './auth';
 import { aboutInfo, relayVersion } from './about';
 import { CliInstaller } from './cliInstall';
+import { SandboxSetup } from './sandboxSetup';
 import { CONFIG, limitsOf } from './config';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import {
@@ -125,6 +126,8 @@ export interface AppDeps {
   voice?: VoiceService;
   /** Installs and removes the CLIs from Settings; created when not given (it does nothing until asked). */
   clis?: CliInstaller;
+  /** What the agents' sandboxes need that is missing here, and installing it; created when not given. */
+  sandboxSetup?: SandboxSetup;
   /** Asks each CLI what it loads by itself; created when not given. */
   native?: NativeSetupService;
   /** Sends conversations to AgentsView; its last failure is shown with the settings. */
@@ -206,6 +209,7 @@ export function createApp({
   providers,
   voice = new VoiceService(settings),
   clis = new CliInstaller(settings, { changed: (p) => providers.invalidate(p), busy: () => orchestrator.anyRunning() }),
+  sandboxSetup = new SandboxSetup({ changed: () => providers.invalidate() }),
   native = new NativeSetupService(settings),
   agentsView,
   extraHosts = [],
@@ -750,6 +754,18 @@ export function createApp({
 
   // Delete what Harness Relay installed of a CLI (only that: never a CLI installed another way).
   app.delete('/api/clis/:provider', async (c) => c.json(await clis.remove(provider(c))));
+
+  // --- What the sandboxes need ---------------------------------------------------------
+
+  // What the agents' OS sandboxes need that is missing here, how each is installed, and the install
+  // under way or the last one (`sandboxSetup.ts`); Settings and New chat's dialog poll it while one runs.
+  app.get('/api/sandbox-setup', (c) => c.json(sandboxSetup.view()));
+
+  // Install everything missing that can be installed here, in the background (one password prompt at most).
+  app.post('/api/sandbox-setup/install', (c) => c.json(sandboxSetup.install()));
+
+  // Stop the install under way.
+  app.delete('/api/sandbox-setup/install', (c) => c.json(sandboxSetup.cancel()));
 
   // --- Voice input -------------------------------------------------------------------
 
