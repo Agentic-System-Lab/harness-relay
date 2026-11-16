@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-// What Google is told about the landing page: the sitemap (named by the robots.txt at the domain's root, which
-// the org's homepage repository publishes, and submitted in Search Console) lists each page at its canonical
-// address with the same language alternates as the page's own <head>, and the file that proves the site ours
-// there is served as Google wrote it.
+// What search engines are told about the landing page: the sitemap (named by the robots.txt at the domain's root,
+// which the org's homepage repository publishes, submitted in Search Console and imported from there into Bing
+// Webmaster Tools) lists each page at its canonical address with the same language alternates as the page's own
+// <head>, and the file that proves the site ours in Search Console, and so in Bing, which checks through it, is
+// served as Google wrote it.
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const PAGES = ['site/index.html', 'site/zh-TW/index.html'];
@@ -41,7 +42,7 @@ describe("the landing page's sitemap", () => {
     expect(sitemap.trimEnd().endsWith('</urlset>')).toBe(true);
   });
 
-  it("keeps Search Console's verification file as Google wrote it (removing it unverifies the site)", () => {
+  it("keeps Search Console's verification file as Google wrote it (removing it unverifies the site, in Bing too)", () => {
     expect(read('site/google7b263ecdf9adc06e.html')).toBe('google-site-verification: google7b263ecdf9adc06e.html');
   });
 });
