@@ -38,7 +38,11 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # The whole history, for the sitemap's dates, without the files' old contents (the demo videos').
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          filter: blob:none
 
       # The page plays the demo videos from docs/media, so they are copied in rather than stored twice.
       # Markdown (the design guidelines), image provenance sidecars and type declarations (for the
@@ -50,6 +54,43 @@ jobs:
           cp docs/media/demo-en.mp4 docs/media/demo-zh-TW.mp4 _site/media/
           find _site \( -name '*.md' -o -name '*.webp.json' -o -name '*.d.ts' \) -delete
           find _site -type f | sort
+
+      # Each page's <lastmod> in the sitemap, which tells Google (which takes no part in IndexNow) and
+      # Bing when a page last changed: the time, in UTC, of the last commit that changed its HTML. A
+      # shallow checkout would date every page at its one commit, so the sitemap then goes out without
+      # dates, as does a page no commit has; either only warns.
+      - name: Date the pages in the sitemap
+        run: |
+          warn() {
+            echo "::warning::$1"
+            echo "$1" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          }
+          if [ "$(git rev-parse --is-shallow-repository)" != false ]; then
+            warn "The checkout has only part of the history: the sitemap goes out without the pages' <lastmod>."
+            exit 0
+          fi
+          dates=$(mktemp)
+          while read -r url; do
+            file="site/${url#"$SITE"}"
+            case "$file" in */) file="${file}index.html" ;; esac
+            date=$(TZ=UTC git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd -- "$file")
+            if [ -n "$date" ]; then
+              echo "$url $date" | tee -a "$dates"
+            else
+              warn "No commit has $file, the page at $url: the sitemap lists it without its <lastmod>."
+            fi
+          done < <(sed -n 's#.*<loc>\([^<]*\)</loc>.*#\1#p' _site/sitemap.xml)
+          awk 'NR == FNR { date[$1] = $2; next }
+            { print }
+            match($0, /<loc>[^<]*<\/loc>/) {
+              url = substr($0, RSTART + 5, RLENGTH - 11)
+              if (url in date) {
+                indent = $0
+                sub(/<.*/, "", indent)
+                print indent "<lastmod>" date[url] "</lastmod>"
+              }
+            }' "$dates" _site/sitemap.xml > "$dates.xml"
+          mv "$dates.xml" _site/sitemap.xml
 
       # IndexNow is told only of the pages a deployment adds, changes or removes, as its protocol asks:
       # each page of the new sitemap whose HTML is not the one live now (or that cannot be read there: a
