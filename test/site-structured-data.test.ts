@@ -159,10 +159,12 @@ describe("the landing page's structured data", () => {
     expect(REPO.startsWith(`${(org.sameAs as string[])[0]}/`)).toBe(true);
     // As the org's homepage (its url) names itself in its <title>.
     expect(org.name).toBe('Agentic System Lab');
-    // The UI's two locales (src/web/locales/), as the page's language switch has them.
+    // The UI's two locales (src/web/locales/), as each page's feature list says ("English and 繁體中文").
     expect(node(data, 'SoftwareApplication').inLanguage).toEqual(PAGES.map((p) => p.lang));
     expect(node(data, 'WebSite').inLanguage).toEqual(PAGES.map((p) => p.lang));
     for (const lang of ['en', 'zh-TW']) expect(exists(`src/web/locales/${lang}.ts`), lang).toBe(true);
+    expect(html).toContain('<li><b>English and 繁體中文</b>');
+    expect(read('site/zh-TW/index.html')).toContain('<li><b>English 與繁體中文</b>');
   });
 
   it("says of the page what its <head> says: address, title, description, language and picture", () => {
@@ -226,9 +228,12 @@ describe("the landing page's structured data", () => {
       const source = node(p.data, 'SoftwareSourceCode');
       // The newest release that is not a release candidate (the Release workflow marks those not latest).
       expect(app.downloadUrl, file).toBe(`${REPO}/releases/latest`);
-      const license = p.html.match(/<footer[\s\S]*?<a href="([^"]+\/LICENSE)"/)![1];
-      expect(app.license, file).toBe(license);
-      expect(source.license, file).toBe(license);
+      // The license by the name and address the footer's link gives it (the app says what it is, not only where).
+      const [, href, name] = p.html.match(/<footer[\s\S]*?<a href="([^"]+\/LICENSE)">([^<]+)<\/a>/)!;
+      const license = { '@type': 'CreativeWork', name, url: href };
+      expect(app.license, file).toEqual(license);
+      expect(source.license, file).toEqual(license);
+      expect(read('LICENSE'), file).toContain(`under the ${name}, Version 1.0`);
       expect(p.html, file).toContain(`href="${REPO}"`);
       expect(source.codeRepository, file).toBe(REPO);
       expect(app.sameAs, file).toEqual([REPO]);
