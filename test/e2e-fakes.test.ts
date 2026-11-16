@@ -120,6 +120,22 @@ describe('the fake CLIs', () => {
     expect(plan.pieceDelay(0)).toBe(15);
   });
 
+  it('stream a slow reply of several paragraphs one paragraph after another, over the same time', () => {
+    const plan = load(join(FAKE_CLI_DIR, 'lib', 'plan.cjs')) as { slowMs(v: unknown): number; pieces(text: string, slow: number): string[] };
+    const ms = plan.slowMs('5');
+    // One paragraph: all of it at once, then small pieces.
+    expect(plan.pieces('Hello', ms)[0]).toBe('Hello');
+    const three = plan.pieces('Hello\n\nSecond\n\nThird', ms);
+    expect(three.slice(0, 3)).toEqual(['Hello', '\n\nSecond', '\n\nThird']);
+    expect(three).toHaveLength(plan.pieces('Hello', ms).length);
+    // More paragraphs than pieces: the first piece holds those there is no piece for, and nothing is lost.
+    const paragraphs = Array.from({ length: 60 }, (_, i) => `${i ? '\n\n' : ''}Paragraph ${i + 1}`);
+    const many = plan.pieces(paragraphs.join(''), ms);
+    expect(many).toHaveLength(three.length);
+    expect(many.join('')).toBe(paragraphs.join(''));
+    expect(many.at(-1)).toBe('\n\nParagraph 60');
+  });
+
   it.each(IMPLEMENTED_FAKES.map((p) => [p]))('%s answers --version as its module says', (p) => {
     const r = run(FACTS[p].bin, ['--version']);
     expect(r.status, r.stderr).toBe(0);

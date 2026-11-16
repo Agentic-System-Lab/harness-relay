@@ -3398,7 +3398,58 @@ video.chat-media {
 
 /* Above the home indicator on phones (index.html sets viewport-fit=cover). */
 .composer-dock {
+  position: relative;
   padding: 0 20px max(10px, env(safe-area-inset-bottom));
+}
+
+/* To the end of the messages, while they are scrolled up from it (ChatView): a round button in the
+   middle above the message box and whatever is over it (the queue, an approval waiting), over the
+   messages' last lines. Under the phone header's menu and the drawers; hidden while the @mention list
+   is open, which it would stand just above when something is over the box. The button is a finger's
+   target of 48px, its own box (Chromium on macOS does not hit-test a pseudo-element beyond a button's
+   box), and draws the 36px circle inside it, 12px above the dock. */
+.to-end {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  translate: -50% 0;
+  z-index: 2;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text);
+  animation: to-end-in 0.15s ease-out;
+}
+
+.to-end::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  z-index: -1;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+}
+
+.to-end:hover::before {
+  background: var(--surface);
+}
+
+.composer-dock:has(.mention-menu) .to-end {
+  display: none;
+}
+
+@keyframes to-end-in {
+  from {
+    opacity: 0;
+    translate: -50% 6px;
+  }
 }
 
 .composer-dock > .error-line {

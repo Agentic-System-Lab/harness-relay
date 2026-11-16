@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent } from 'react';
 import {
   PROVIDER_LABEL,
   cwdsOf,
@@ -15,7 +15,17 @@ import {
 } from '../../shared/types';
 import { api, orCreateCwd, type AttachmentUpload } from '../api';
 import { highlightsByReply, nextReviewStart } from '../../shared/review';
-import { afterStreamError, applyStates as findApplyStates, branchSource, draftStatus, followsAfterScroll, savesLeadReviewAlone, scrollSpot, teamToEdit } from '../chat';
+import {
+  afterStreamError,
+  applyStates as findApplyStates,
+  branchSource,
+  draftStatus,
+  followsAfterScroll,
+  savesLeadReviewAlone,
+  scrollSpot,
+  showsToEnd,
+  teamToEdit,
+} from '../chat';
 import { useI18n, useT } from '../i18n';
 import { refreshLimits, useLimits } from '../limits';
 import { hashFor } from '../route';
@@ -24,7 +34,7 @@ import { PROVIDER_COLOR, initials, leadLabel, modelSummary } from '../util';
 import { DiffView } from './ChangesCard';
 import { Composer } from './Composer';
 import { Deferred, lazyPart } from './Deferred';
-import { BranchIcon, ClockIcon, FolderIcon, MoreIcon, ShareIcon, UsersIcon } from './icons';
+import { ArrowDownIcon, BranchIcon, ClockIcon, FolderIcon, MoreIcon, ShareIcon, UsersIcon } from './icons';
 import { MessageItem } from './MessageItem';
 import { QueueTray } from './QueueTray';
 import { RoleText } from './RoleText';
@@ -197,6 +207,8 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const stick = useRef(true);
   /** Where the messages stood last, to tell the reader scrolling up or down from more coming in. */
   const lastSpot = useRef({ top: 0, distance: 0 });
+  /** The button above the message box that takes the messages to their end shows (see `showsToEnd`). */
+  const [behind, setBehind] = useState(false);
   const onChangedRef = useRef(onChanged);
   onChangedRef.current = onChanged;
 
@@ -259,11 +271,30 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   const settle = (el: HTMLElement) => {
     lastSpot.current = scrollSpot(el);
     el.style.overflowAnchor = stick.current ? 'none' : '';
+    setBehind(showsToEnd(stick.current, lastSpot.current));
   };
   /** Stop following: the reader is about to look at something else in the messages. */
   const stopFollowing = () => {
     stick.current = false;
     if (scroller.current) settle(scroller.current);
+  };
+  /**
+   * The button above the message box: to the end of the messages, following new output again from now
+   * (a scroll down never stops it). A mouse or a finger never focuses it (its `onMouseDown`), so what
+   * was being typed keeps the focus, and a phone's keyboard stays as it was. Focused, it was reached
+   * from the keyboard or a screen reader: focus goes on to the message box, as the button is gone once
+   * the messages follow.
+   */
+  const toEnd = (e: MouseEvent<HTMLButtonElement>) => {
+    const el = scroller.current;
+    if (!el) return;
+    stick.current = true;
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    el.scrollTo({ top: el.scrollHeight, behavior: still ? 'auto' : 'smooth' });
+    settle(el);
+    if (document.activeElement === e.currentTarget) {
+      chatRef.current?.querySelector<HTMLTextAreaElement>('.composer-row textarea')?.focus({ preventScroll: true });
+    }
   };
 
   // Follow the stream unless the user scrolled up to read. It follows when the messages change size (a
@@ -708,6 +739,19 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
       </div>
 
       <div className="composer-dock">
+        {/* In the middle above the message box, over the messages' last lines (styles.css). */}
+        {behind && (
+          <button
+            type="button"
+            className="to-end"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={toEnd}
+            aria-label={t.chat.toEnd}
+            title={t.chat.toEnd}
+          >
+            <ArrowDownIcon size={18} />
+          </button>
+        )}
         {pending.length > 0 && (
           <button
             type="button"

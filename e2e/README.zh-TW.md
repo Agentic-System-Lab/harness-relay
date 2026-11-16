@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 33 個 spec 檔、432 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 34 個 spec 檔、436 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -44,6 +44,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [成員的模型與推理強度](#成員的模型與推理強度) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [使用者說明 → 預設模型與推理強度](../docs/user-guide.zh-TW.md#預設模型與推理強度)、[團隊成員](../docs/user-guide.zh-TW.md#團隊成員) |
 | [成員如何輪流發言](#成員如何輪流發言) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式)、[agent 之間如何共享上下文](../docs/architecture.zh-TW.md#agent-之間如何共享上下文) |
 | [agent 回答前做了什麼](#agent-回答前做了什麼) | [`activity.spec.ts`](specs/activity.spec.ts) | 13 | [架構 → agent 活動](../docs/architecture.zh-TW.md#agent-活動) |
+| [捲動對話](#捲動對話) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [使用手冊 → 對話](../docs/user-guide.zh-TW.md#4-對話) |
 | [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 39 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
 | [檔案與修改](#檔案與修改) | [`files.spec.ts`](specs/files.spec.ts) | 20 | [使用者說明 → 檢視與套用修改](../docs/user-guide.zh-TW.md#檢視與套用修改)、[瀏覽檔案](../docs/user-guide.zh-TW.md#瀏覽檔案)、[架構 → 工作區與檔案修改](../docs/architecture.zh-TW.md#工作區與檔案修改) |
 | [工作目錄與其他資料夾](#工作目錄與其他資料夾) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [架構 → 多個工作目錄](../docs/architecture.zh-TW.md#多個工作目錄)、[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md) |
@@ -67,7 +68,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [通知與提示音](#通知與提示音) | [`notifications.spec.ts`](specs/notifications.spec.ts) | 4 | [使用者說明 → 通知與提示音](../docs/user-guide.zh-TW.md#通知與提示音)、[架構 → 通知](../docs/architecture.zh-TW.md#通知) |
 | [環境變數設定的上限](#環境變數設定的上限) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [開發者說明 → 環境變數](../docs/developer-guide.zh-TW.md#環境變數) |
 | [語言](#語言) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 5 | [架構 → 語言](../docs/architecture.zh-TW.md#語言) |
-| [在手機上](#在手機上) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 11 | [用手機連線](../docs/remote-access.zh-TW.md) |
+| [在手機上](#在手機上) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 12 | [用手機連線](../docs/remote-access.zh-TW.md) |
 
 測試以英文介面執行，所以下面括號裡附上測試實際操作的英文標籤。
 
@@ -195,6 +196,16 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | --- | --- | --- |
 | 思考、工具呼叫與待辦清單和回答一起顯示 | 各一 | 這些步驟收合成列；展開後可看到思考、CLI 自己列出工作目錄的工具已完成與它的輸出（Claude 的 `Bash`、Codex 的 `Shell`、Grok 的 `list_dir`、Cursor、Antigravity 與 Copilot 的 `Read`、Muse Code 的 `Search`、OpenCode 的 `glob`、Goose 的 `tree`、Cline 的 `read_files`、OpenHands 的 `file_editor`、Pi 的 `List`，完全存取時是 `Bash`），以及三項中完成一項、進行中一項的待辦清單（Cline 與 Pi 沒有待辦清單可顯示）。 |
 | Markdown 回答會轉成格式 | Claude Code | 標題、清單、表格與上色的程式碼。 |
+
+## 捲動對話
+
+[`scroll.spec.ts`](specs/scroll.spec.ts)：訊息會跟著新的輸出，直到讀者往上捲；這時訊息框上方中間有個圓形箭頭，按下去就回到最後，並再次跟著新的輸出。多了四十段的回覆（`e2e:long`）比視窗還高。
+
+| 情境 | CLI | 檢查的內容 |
+| --- | --- | --- |
+| 往上捲之後，訊息框上方中間的箭頭把對話帶回最後，用鍵盤也可以 | Claude Code | 在最後時沒有箭頭。訊息打了一半時用滑鼠滾輪往上 600px，出現**捲到最新的訊息**（Scroll to the latest message，title 也一樣）：與訊息框置中對齊，誤差在一個像素內，在訊息框上方、離訊息區底部不超過 24px，圖示在正中央，沒有東西蓋住它。按一下對話就回到最後，箭頭消失，訊息框保有焦點與打到一半的文字。在它上面按 Enter 也一樣，焦點接著移到訊息框。自己捲回最後也會讓它消失。減少動態效果時，按一下對話立刻就在最後，原本沒有焦點的訊息框也不會取得焦點。 |
+| 箭頭在等待送出的訊息上方，@ 成員清單打開時隱藏 | Claude Code | 慢慢串流的長回覆進行中，送出的訊息停在等待區；往上捲後，箭頭在等待區上方，仍與訊息框置中對齊。輸入 `@` 打開成員清單時箭頭隱藏，清單關閉後再出現。 |
+| 回覆串流時，往上捲的讀者停在原處並看到箭頭，按下去就跟著回覆直到最後 | Claude Code | 一則慢慢串流的長回覆（`e2e:long e2e:slow=15`，一段接一段出現）：跟著它時沒有箭頭。往上 300px 後出現箭頭，下方又多了超過 100px 時，對話仍停在讀者的位置（誤差一個像素內）。回覆還在串流時按一下，對話回到最後，並一直停在最後、沒有箭頭，直到回覆結束。 |
 
 ## 核准
 
@@ -503,6 +514,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 導覽開著時滑動，側邊欄維持收起，跳過導覽後滑動就會打開 | — | 導覽開著（`tour: true`）時在它上面滑動沒有作用；按**跳過導覽**（Skip tour）後，在頁面上滑動會打開側邊欄。 |
 | 對話的釘選按鈕不用滑過就顯示，點一下就釘到群組上方 | Grok | 從別的頁面打開側邊欄時，對話的**釘選**（Pin）不用滑過就顯示（opacity 1）；點一下後它列在**已釘選**（Pinned），兩列都顯示**取消釘選**（Unpin）；點已釘選那一列的標題會打開對話並收起側邊欄，釘選按鈕只蓋住它的角落。 |
 | 很長的訊息不會讓頁面左右捲動 | Claude Code | 300 個字元的單字與 Markdown 回答都不會造成左右捲動。 |
+| 往上捲之後，回到最後的箭頭在訊息框上方中間，點一下就把對話帶到那裡 | Claude Code | 長回覆（`e2e:long`）往上捲 800px 後出現箭頭，與訊息框置中對齊（誤差一個像素內）、在它上方，顯示的圓形是 36px，手指可點的範圍是 48px（圓形四邊外 5px 仍是箭頭）。點一下對話回到最後、箭頭消失，手機的鍵盤維持原狀：沒有焦點的訊息框仍然沒有，有焦點的則保有焦點。 |
 | 很窄的手機上，範本編輯視窗和團隊設定不會左右捲動，新增成員卡列出所有 CLI | — | 在 320px（比 290px 的成員卡加上邊距還窄）和 280px（英文的 **hand-offs / message** 會自己換到下一行）下，內建接力範本的編輯視窗和接力對話的**團隊設定**左右捲動都不超過一個像素；只有一欄時，新增成員卡全部列出所有 CLI，不必自己捲動。 |
 | 很窄的手機上，任何一種新排程都不會左右捲動（兩種語言），對話的排程也不會 | — | 在新排程頁，每一種排程方式在 320px 和 280px 下、英文另外在 400px 和 430px、中文另外在 250px 下，都沒有東西會左右捲動。四種排程方式在英文 400px 以下排成兩列（欄寬小於 380px 就兩兩排列，留給較寬的字型），430px 時一列；中文只有 250px 時兩列。一週七天在英文 320px、280px 與中文 280px、250px 時排成兩列，其他時候一列。選**每隔幾小時**時，間隔的單位只有「小時」，說明另起一行，並且是小時數字框的無障礙說明。對話的**排程**抽屜選**每週**時，在 320px 和 280px 下也不會左右捲動。 |
 | 首頁的標語變小，每一行都不換行，點 logo 會收起側邊欄 | — | 標語小於 22px，英文兩行、中文一行，頁面不會左右捲動；在首頁點側邊欄的 **Harness Relay** 會收起側邊欄。 |
@@ -592,6 +604,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **gistpreview.github.io 上的分享頁。**測試開啟的是假 `gh` 存下的頁面，由測試自己的網址提供：gistpreview 自己那個把 gist 寫進自身的頁面沒有測。
 - **Cursor 在暫存資料夾中不詢問就做的事。**真正的 Cursor 在暫存資料夾（`/tmp`、macOS 的 `/private/var/folders`）中寫入不會詢問；它的假 CLI 不會這樣，因為測試的資料夾都在暫存資料夾裡，否則寫到工作區之外的每個檔案都會不經詢問就寫入。也沒有 spec 試用 Cursor 團隊的自動執行允許清單（假 CLI 有一份，`E2E_FAKE_CURSOR_TEAM_ALLOW`）。真正的 Muse Code 的沙箱也讓它的指令寫入暫存資料夾；它的假 CLI 因為同樣的原因不會這樣。
 - **CLI 真正的方案用量。**[方案用量](#方案用量)用替身的回答檢查 Harness Relay 這一邊；真正 CLI 的回答由 `test/usage.test.ts` 中從它們錄下的回答涵蓋（Antigravity 只照 agy 1.5.8 的型別：沒有看過真正 Google 帳號的回答），沒有 live 測試問真正的 CLI。未登入時替身 agy 會立刻以錯誤回答 `/usage`，真正的則會在 stderr 要求登入並等待（單元測試的替身會這樣做）。錯誤訊息與面板的 zh-TW 文字由 `test/usage-web.test.ts` 涵蓋，不在這裡。
+- **捲到對話最後的平滑捲動。**[捲動對話](#捲動對話)檢查箭頭把對話帶到哪裡，以及減少動態效果時立刻到達，不檢查平滑捲動途中的樣子。在最後展開訊息的某個部分、底下又多了內容時出現的箭頭，只有 `test/chat.test.ts` 測到；手機上的對話是用程式捲動，不是用手指。
 - **首頁 logo 動畫的流暢度。**[首頁](#首頁)檢查它只動 `transform` 與 `opacity`、只播一次；它由 Chrome 的 compositor 執行、頁面畫好之後不再重新排版或繪製，則是在 Chrome 的 trace 中手動確認的。
 - **推播通知與系統本身的通知。**[通知與提示音](#通知與提示音)用替身記錄它們；推播需要真正的推播服務（Google、Apple 的…），所以伺服器這一端（訂閱、加密、簽章、送出與保留什麼）由單元測試涵蓋（`test/push.test.ts`、`test/alerts.test.ts`、`test/push-api.test.ts`），頁面這一端由 `test/alerts-web.test.ts` 涵蓋，service worker 的處理程序則以替身的 `self` 由 `test/sw.test.ts` 涵蓋；瀏覽器向推播服務訂閱、真正的推播送到手機，則沒有任何測試走過。
 - **OpenCode 與 Goose 的 token 和費用。** Harness Relay 從這兩個 CLI 自己的 SQLite 資料庫（`opencode.db`、`sessions.db`）讀取，它們的假 CLI 不保存這些資料庫，所以在這裡它們的回覆不顯示用量；轉接器的測試（`test/opencode.test.ts`、`test/goose.test.ts`）會對照真正 CLI 寫法寫成的資料庫跑完整的回合。
