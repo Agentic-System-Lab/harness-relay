@@ -1,5 +1,3 @@
-[![CI](https://github.com/Agentic-System-Lab/harness-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/Agentic-System-Lab/harness-relay/actions/workflows/ci.yml)
-
 [English](README.md) | **繁體中文**
 
 # Harness Relay
