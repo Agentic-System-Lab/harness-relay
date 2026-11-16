@@ -409,6 +409,8 @@ p {
 }
 
 .conv-item {
+  /* Its pin sits over its top-left corner (.conv-pin). */
+  position: relative;
   display: flex;
   align-items: center;
   border-radius: 10px;
@@ -747,9 +749,57 @@ p {
   color: var(--info);
 }
 
+/* The pin, a small round button over the row's top-left corner, so it takes no room from the title:
+   shown like the folder and × buttons (on hover, or while the keyboard is on the conversation), tilted,
+   and always once the conversation is pinned. Touch screens have no hover: it always shows there,
+   muted until pinned. Hidden by opacity, not display, so the keyboard still reaches it. */
+.conv-pin {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  z-index: 1;
+  width: 16px;
+  height: 16px;
+  /* None of a button's own, which would leave the icon no room and push it right. */
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--sidebar);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.conv-item:hover .conv-pin,
+.conv-item:focus-within .conv-pin,
+.conv-item.pinned .conv-pin {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Pinned: upright (PinIcon's `upright`) and yellow, the star's colours, with the same deeper edge
+   that shows on light and dark alike. */
+.conv-item.pinned .conv-pin {
+  color: var(--star-edge);
+}
+
+.conv-item.pinned .conv-pin svg {
+  fill: var(--star);
+}
+
+.conv-pin:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--text) 35%, transparent);
+  outline-offset: 1px;
+}
+
 @media (hover: none) {
   .conv-move {
     display: inline-grid;
+  }
+
+  .conv-pin {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .group-action {

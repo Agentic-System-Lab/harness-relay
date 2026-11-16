@@ -1064,6 +1064,16 @@ export function createApp({
     return c.json({ ok: true });
   });
 
+  // Pin a conversation to the top of the sidebar (`pinned: true`), or unpin it. Pinning one that is
+  // pinned already keeps its place among the pinned ones.
+  app.put('/api/conversations/:id/pin', async (c) => {
+    const conv = getConv(c.req.param('id'));
+    const b = await body<{ pinned?: unknown }>(c);
+    if (typeof b.pinned !== 'boolean') throw new HttpError(400, t().invalidField('pinned'));
+    if (!store.setPinned(conv.id, b.pinned)) throw new HttpError(404, t().conversationNotFound);
+    return c.json({ ok: true });
+  });
+
   // Set the conversation's schedule: a message the team is sent at set times (it replaces the one
   // there was). Saving starts its times afresh; what happened last time is kept.
   app.put('/api/conversations/:id/schedule', async (c) => {

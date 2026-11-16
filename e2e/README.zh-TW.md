@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 32 個 spec 檔、427 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 32 個 spec 檔、429 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -52,7 +52,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 15 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 11 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
-| [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 9 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
+| [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 10 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
 | [排程](#排程) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 1 | [使用者說明 → 排程](../docs/user-guide.zh-TW.md#排程)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
 | [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 13 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席-agent)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
 | [在 Windows 上是腳本的 CLI](#在-windows-上是腳本的-cli) | [`windows.spec.ts`](specs/windows.spec.ts) | 5 | [架構 → CLI 轉接器](../docs/architecture.zh-TW.md#cli-轉接器) |
@@ -66,7 +66,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [通知與提示音](#通知與提示音) | [`notifications.spec.ts`](specs/notifications.spec.ts) | 4 | [使用者說明 → 通知與提示音](../docs/user-guide.zh-TW.md#通知與提示音)、[架構 → 通知](../docs/architecture.zh-TW.md#通知) |
 | [環境變數設定的上限](#環境變數設定的上限) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [開發者說明 → 環境變數](../docs/developer-guide.zh-TW.md#環境變數) |
 | [語言](#語言) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 5 | [架構 → 語言](../docs/architecture.zh-TW.md#語言) |
-| [在手機上](#在手機上) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 10 | [用手機連線](../docs/remote-access.zh-TW.md) |
+| [在手機上](#在手機上) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 11 | [用手機連線](../docs/remote-access.zh-TW.md) |
 
 測試以英文介面執行，所以下面括號裡附上測試實際操作的英文標籤。
 
@@ -317,6 +317,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在 UI 開始的對話保留一開始給的標題 | Claude Code | 第一個問題之後標題不變。 |
 | 拖進群組的對話會留在那裡，拖出來則回到「其他」 | — | 伺服器存下群組，重新載入後仍在；拖到「其他」後群組被清除，群組裡又顯示可以把對話拖到這裡。 |
 | 分支對話的家族在群組之間一起移動 | Codex | 拖動分支時，原本的對話跟著移動，分支仍在它底下；把原本的對話拖回來時兩個都回來。 |
+| 對話左上角的釘選按鈕在滑過時出現，把對話列在群組上方的「已釘選」，最後釘選的在最上面，也能取消釘選 | — | 游標移到對話上之前，釘選按鈕是隱藏的（opacity 0），之後出現，中心落在對話列的左上角，不碰到標題，圖示在圓圈正中央，圖釘是斜的（`rotate(-45…)`）、沒有填色；按下後對話列在群組上方的**已釘選**（Pinned），也仍在「其他」，游標移開後釘選按鈕仍顯示，圖釘立起來、變成黃色，名稱是**取消釘選**（Unpin）；伺服器回報 `pinnedAt`。第二個用鍵盤釘選的對話（從對話按 Tab 會到它的釘選按鈕，按鈕隨之出現；按 Enter）排在前面，重新載入後也一樣，它的 `pinnedAt` 較晚。已釘選那一列的資料夾選單顯示它的群組（在別處移到 Billing），也能把它移回「其他」。從箭頭收合**已釘選**（也包括箭頭左下角、第一列釘選按鈕旁邊）後只顯示數量，重新載入後仍收合，再打開。伺服器拒絕釘選（500）時顯示**無法變更釘選**，什麼都沒改。一個從「已釘選」取消、另一個從它的群組取消後，「已釘選」區消失，兩個都仍在「其他」；從「已釘選」刪除釘選的對話，它也會離開那裡。 |
 | 每個 CLI 的狀態點與可用數量排得進一行 | — | 十二個 CLI 都已安裝且可用時（在傳到頁面的途中改掉伺服器的回答，「12/12 ready」），這一行沒有超出邊界，第一個點在設定的 ⚙ 正下方，箭頭的尖端對齊下方回報問題圖示的右緣；顯示名稱、箭頭轉向下時也一樣。 |
 | 回報問題左邊的星星請使用者到 GitHub 給一顆星星、說明怎麼按，並在新分頁打開 repo | — | 星星在回報問題圖示左邊、同一行；對話框請使用者給星星並說明要按哪裡；示意圖寫出 repo 名稱，按下的動畫播三次，只用 `transform` 與 `opacity`；**到 GitHub 按星星**（Star it on GitHub）連到 repo（`REPO_URL`），在新分頁以 `noopener` 開啟，新分頁確實打開（GitHub 的頁面由測試代替，不會連上網路），對話框接著謝謝使用者；**稍後再說**（Later）關閉對話框；用鍵盤再打開時還沒有道謝，按 Escape 關閉後焦點回到星星；按 × 或點對話框外面也會關閉。側邊欄的星星與連結上的星星是黃色的（連結上的是實心；側邊欄的在滑鼠移上去時）。 |
 | 減少動態效果時，星星對話框的游標停在 Star 上，不播按下的動畫 | — | 示意圖裡沒有動畫在跑；看得到游標與 **Star**，看不到 **Starred** 與實心的星星。 |
@@ -489,6 +490,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在左右捲動過的程式碼區塊上滑動由程式碼區塊處理，在影片上滑動由影片處理 | Grok | 一則回答有比手機寬得多的程式碼區塊（`e2e:widecode`）和工作目錄中的影片（534 位元組的 WebM）：捲動了 120px 的程式碼區塊自己處理向右滑，捲回開頭後，滑動會打開側邊欄；在載入好的影片上、它的控制列所在處滑動（整個影片都自己處理這次移動），側邊欄維持收起。 |
 | 用瀏覽器自己的觸控，滑動與輕滑會打開、收起側邊欄，在左右捲動過的程式碼區塊上則是把它捲回去 | Grok | 只在 Chromium：觸控透過 Chromium 的 DevTools 協定（`Input.dispatchTouchEvent`）送出，瀏覽器會像對真正的手指一樣判斷點到哪裡、跟著捲動；事件的時間是指定的（相隔 8ms），所以速度不受電腦快慢影響：150px 的滑動會打開側邊欄，在它旁邊向左滑會收起；32ms 內 40px 的輕滑會打開它、向左輕滑會收起，400ms 內 40px 則維持收起；在捲動了 120px 的程式碼區塊上向右滑會把它捲回去，側邊欄維持收起，捲到開頭後滑動就會打開它。 |
 | 導覽開著時滑動，側邊欄維持收起，跳過導覽後滑動就會打開 | — | 導覽開著（`tour: true`）時在它上面滑動沒有作用；按**跳過導覽**（Skip tour）後，在頁面上滑動會打開側邊欄。 |
+| 對話的釘選按鈕不用滑過就顯示，點一下就釘到群組上方 | Grok | 從別的頁面打開側邊欄時，對話的**釘選**（Pin）不用滑過就顯示（opacity 1）；點一下後它列在**已釘選**（Pinned），兩列都顯示**取消釘選**（Unpin）；點已釘選那一列的標題會打開對話並收起側邊欄，釘選按鈕只蓋住它的角落。 |
 | 很長的訊息不會讓頁面左右捲動 | Claude Code | 300 個字元的單字與 Markdown 回答都不會造成左右捲動。 |
 | 很窄的手機上，範本編輯視窗和團隊設定不會左右捲動，新增成員卡列出所有 CLI | — | 在 320px（比 290px 的成員卡加上邊距還窄）和 280px（英文的 **hand-offs / message** 會自己換到下一行）下，內建接力範本的編輯視窗和接力對話的**團隊設定**左右捲動都不超過一個像素；只有一欄時，新增成員卡全部列出所有 CLI，不必自己捲動。 |
 | 很窄的手機上，任何一種新排程都不會左右捲動（兩種語言），對話的排程也不會 | — | 在新排程頁，每一種排程方式在 320px 和 280px 下、英文另外在 400px 和 430px、中文另外在 250px 下，都沒有東西會左右捲動。四種排程方式在英文 400px 以下排成兩列（欄寬小於 380px 就兩兩排列，留給較寬的字型），430px 時一列；中文只有 250px 時兩列。一週七天在英文 320px、280px 與中文 280px、250px 時排成兩列，其他時候一列。選**每隔幾小時**時，間隔的單位只有「小時」，說明另起一行，並且是小時數字框的無障礙說明。對話的**排程**抽屜選**每週**時，在 320px 和 280px 下也不會左右捲動。 |

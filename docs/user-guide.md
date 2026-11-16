@@ -616,7 +616,7 @@ In **Settings → Voice input** you can also install it from scratch, download a
 
 ### Conversation list
 
-The sidebar lists conversations in their [groups](#groups), newest first, each with its state:
+The sidebar lists conversations in their [groups](#groups), newest first, with the ones you [pinned](#pinned-conversations) above them, each with its state:
 
 | Badge | Meaning |
 | --- | --- |
@@ -626,7 +626,7 @@ The sidebar lists conversations in their [groups](#groups), newest first, each w
 | **New reply** (green, bold title) | It finished while you were looking at something else. |
 | **Error** (red) | The last reply ended with an error you haven't looked at yet. |
 
-A clock before the time means the conversation has a [schedule](#schedules) (point at it for the next time); it is amber when the last time was not sent. Conversations keep running when you switch to another one (or close the tab); the badges update by themselves. Click the title in the chat header to rename; hover a conversation and click × to delete it. A conversation's title uses the sidebar's whole width and ends in … only when it doesn't fit; the folder and × buttons appear on hover (always on a phone or tablet). A conversation with a large team shows its first few member dots and a **+N** count.
+A clock before the time means the conversation has a [schedule](#schedules) (point at it for the next time); it is amber when the last time was not sent. Conversations keep running when you switch to another one (or close the tab); the badges update by themselves. Click the title in the chat header to rename; hover a conversation and click × to delete it. A conversation's title uses the sidebar's whole width and ends in … only when it doesn't fit; the pin in its top-left corner and the folder and × buttons appear on hover (always on a phone or tablet). A conversation with a large team shows its first few member dots and a **+N** count.
 
 To make room, collapse the sidebar with the panel button next to *Harness Relay*. A button stays in the top-left corner to bring it back. The choice is remembered in this browser. (On a phone the sidebar is a drawer instead: ☰, or a swipe or quick flick right anywhere on the page, opens it, and a swipe or flick left, or a tap beside it, closes it. A swipe right on a code block or wide table you have scrolled sideways scrolls it back instead, and one in the message box or on a video leaves the sidebar alone, as does one over a dialog or while text is selected. The page does not zoom there: no pinch or double-tap zoom, and no zooming in on the message box. On a phone or tablet the header is a single row: the title with **Share**, **Files**, **Schedule** and **Team settings**. On a phone these four are under **⋯** at the right of the header, each with its icon (a box with an arrow, a folder, a clock, two people), and **⋯** has a blue dot while a schedule is on, as the clock is blue then. The team, its mode and its permission are under **Team settings**, except that a red **Full access** tag beside the title warns when the agents may run any command. The message box stays one line until you type, and its buttons move below the text when they would leave it too little room.)
 
@@ -644,6 +644,14 @@ Nothing is shown for the conversation you are looking at while its window is in 
 **On a phone, or with Harness Relay closed.** In a browser with push notifications (Chrome, Edge, Firefox and Safari on a computer; Chrome on Android; on an iPhone or iPad, Harness Relay [added to the Home Screen](remote-access.md#4-add-it-to-the-home-screen), iOS 16.4 or later), turning notifications on also subscribes that browser to them: the server sends each notification through the browser's push service (Google's, Apple's, Mozilla's or Microsoft's), encrypted so that only that browser can read it. So a locked phone gets them too, with the system's notification sound (none when **Play a sound** is off). The server sends none to a browser while its Harness Relay page is in front, since the page tells you itself. Push needs the page served over HTTPS (on a phone, the address `tailscale serve` gives: see [Use it from your phone](remote-access.md)), and the computer running Harness Relay must be on and reach the internet. Signing a browser out (**Settings & sign-in → Signed-in browsers**) also stops its notifications.
 
 **In the desktop app**, notifications show while its window is open (there is no push service in the app's window). To hear about replies with the window closed, open Harness Relay in your browser too and turn notifications on there; while the app's window is in front, that browser may then tell you of the same reply as well.
+
+### Pinned conversations
+
+To keep a conversation at hand, pin it: hover it and click the pin over its top-left corner (on a phone or tablet the pin is always shown: tap it). It is then listed under **Pinned**, above your groups, the one you pinned last first, and stays in its group too. The pin, tilted until then, stands upright and turns yellow, and stays shown in both places. Click the yellow pin, in either place, to unpin it.
+
+- **Order**: pinned conversations keep their order as they get new replies: the one you pinned last is first. A branch you pin is listed there on its own, without the conversations around it.
+- **Kept by the server**: pins are the same in every browser and on your phone, and pinning does not move a conversation to another group or change its place among the others.
+- **Collapse Pinned**: click its name, as with a group (remembered in this browser).
 
 ### Groups
 

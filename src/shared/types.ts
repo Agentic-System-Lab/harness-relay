@@ -1371,6 +1371,11 @@ export interface ConversationSummary {
    * conversations is in one group: its oldest conversation's (see `src/shared/family.ts`).
    */
   groupId?: string;
+  /**
+   * When the user pinned it (absent: not pinned). The sidebar lists the pinned conversations above
+   * the groups, the one pinned last first; each stays in its group too.
+   */
+  pinnedAt?: number;
   /** The lead agent is sorting it into one of the user's groups (by its first message). */
   sorting?: boolean;
   /**

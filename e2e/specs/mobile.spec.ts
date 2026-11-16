@@ -357,6 +357,28 @@ test.describe('on a phone', () => {
     });
   });
 
+  test("a conversation's pin shows without hovering, and a tap pins it above the groups", async ({ page, relay }) => {
+    await openTeamChat(page, relay, [{ name: 'Grok', provider: 'grok' }], {}, 'Pin me');
+    // Somewhere else, so that a tap on the conversation opens it.
+    await page.getByRole('button', { name: 'Open sidebar' }).tap();
+    await page.getByRole('button', { name: 'New chat' }).first().tap();
+    await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
+    await page.getByRole('button', { name: 'Open sidebar' }).tap();
+    const item = page.locator('.conv-item', { hasText: 'Pin me' });
+    await expect(item).toBeInViewport();
+    // No hover on a touch screen: shown all along, on every conversation.
+    const pin = item.getByRole('button', { name: 'Pin "Pin me"' });
+    await expect(pin).toHaveCSS('opacity', '1');
+    await pin.tap();
+    const pinned = page.getByRole('region', { name: 'Pinned', exact: true });
+    await expect(pinned.locator('.conv-title-text')).toHaveText(['Pin me']);
+    await expect(page.getByRole('button', { name: 'Unpin "Pin me"' })).toHaveCount(2);
+    // A tap on the conversation still opens it: the pin is over its corner only.
+    await pinned.locator('.conv-link').tap();
+    await expect(page.locator('.chat-title')).toHaveText('Pin me');
+    await expect(page.locator('.sidebar')).not.toBeInViewport();
+  });
+
   test('a long message keeps the page from scrolling sideways', async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
     await composer(page).fill(`A very long word: ${'x'.repeat(300)} e2e:markdown`);

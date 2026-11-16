@@ -87,7 +87,7 @@ flowchart LR
 | `src/shared/links.ts` | 沒有用 `<…>` 或 `[文字](…)` 包起來的網址在哪裡結束：GFM 只在空白處結束網址，所以直接接在後面的中文會被當成連結的一部分。`endBareUrls()` 也讓網址在中日韓或全形標點結束，以及在前面既不是另一個中日韓字、也不是 `/ ? # & = . - _ + (` 的中日韓字結束（所以 `/wiki/臺灣` 與 `?q=中文` 仍是連結），再像 GFM 一樣去掉結尾的標點；後面的文字中若還有網址，也會變成連結。介面的 Markdown 顯示與 `@` 規則都使用它，讓兩者對訊息的解讀一致 |
 | `src/shared/types.ts` | 伺服器與前端共用的型別 |
 | `src/shared/media.ts` | 哪些圖片與影片類型可以顯示，以及回覆中哪些圖片與連結網址是本機檔案（相對或絕對路徑、`file:` 網址、`檔案:行號`）而不是其他網站 |
-| `src/web/*` | React 介面：側邊欄、團隊設計、聊天畫面、設定頁、使用導覽；`i18n.tsx` 與 `locales/` 存放介面文字；`chat.ts` 存放聊天畫面的純邏輯（重新連線、能否套用、團隊設定草稿、把訊息的工具呼叫和思考歸成動作列）；`sidebar.ts` 存放側邊欄的純邏輯（各群組的對話、還沒確認的移動、收合群組的狀態）；`recorder.ts` 負責麥克風錄音，`voice.ts` 存放語音輸入的純邏輯（WAV 編碼、靜音判斷、插入辨識結果） |
+| `src/web/*` | React 介面：側邊欄、團隊設計、聊天畫面、設定頁、使用導覽；`i18n.tsx` 與 `locales/` 存放介面文字；`chat.ts` 存放聊天畫面的純邏輯（重新連線、能否套用、團隊設定草稿、把訊息的工具呼叫和思考歸成動作列）；`sidebar.ts` 存放側邊欄的純邏輯（各群組的對話、還沒確認的移動、釘選的對話與還沒確認的釘選、收合群組的狀態）；`recorder.ts` 負責麥克風錄音，`voice.ts` 存放語音輸入的純邏輯（WAV 編碼、靜音判斷、插入辨識結果） |
 
 ## 對話模型
 
@@ -246,6 +246,8 @@ flowchart LR
 ## 側邊欄群組與搜尋
 
 使用者在側邊欄建立群組（`conversation_groups`：id、名稱、順序），再把對話放進去（`conversations.group_id`）。不屬於任何群組的對話都在預設群組 **其他**：它一定存在、不會存進資料庫，任何群組都不能用它在兩種語言中的名稱（`validGroupName()`）。刪除群組時，外鍵的 `ON DELETE SET NULL` 會把裡面對話的 `group_id` 設成 NULL，讓它們回到「其他」。對話列表帶有每個對話的 `groupId`，前端會一起載入群組。
+
+**釘選的對話。** 使用者用對話列左上角的釘選按鈕釘選對話（`PUT /api/conversations/:id/pin`），資料庫記下釘選的時間（`conversations.pinned_at`；NULL 代表沒有釘選；再釘選一次會保留原本的時間）。對話列表以 `pinnedAt` 帶出這個時間，側邊欄把釘選的對話列在群組上方，最後釘選的在最上面（`src/web/sidebar.ts` 的 `pinnedConversations()`），每個對話各佔一列，分支也一樣；它們同時也留在原本群組裡的位置，讓一串分支仍在一起。釘選不算動態：不會動到 `updated_at`，也不會改變對話的群組。釘選與取消釘選會立刻顯示，直到列表回報為止（`settlePins()`）；還沒回報的釘選，時間視為比側邊欄知道的所有釘選都晚（`pendingPinTime()`），所以不管這台裝置的時鐘是幾點，它都排在最前面。
 
 **一串分支。** 一個對話、從它[分支](#分支對話)出來的對話、再從那些分支出來的對話……是同一串（`src/shared/family.ts`，伺服器與前端共用）。這一串的頂端是它們都不是從它分支出來的那個對話；它被刪除後，則是被刪除的對話的 id（`branch.fromId`），讓從它分支出來的對話仍然待在一起；分支不可能造成的循環，會在發現的地方切斷。一串分支中間的對話被刪除時，它仍保有自己的位置：`Store.delete()` 會在每個「往上追溯到它為止」的對話的 branch 裡，記下它原本是從哪裡分支來的（`ConversationBranch.via`：`fromId` 之上已刪除的對話，近的在前，各帶當時的標題；最後一個可能仍然存在；`earlier` 裡由它寫出的段落也一樣），和刪除在同一個 transaction 中寫入，記憶體中的也一起更新。所以 A → B → C 刪掉 B 之後，C 仍在 A 這一串裡，列在 B 原本的位置底下。一串分支在同一個群組：其中最早建立的對話所在的群組。`Store.moveToGroup()` 在同一個 transaction 裡移動每一個成員，新的分支會放進它這串的群組（`placeBranch()`），`sortIntoGroup()` 也會把其他成員一起帶過去（保留它們的 `group_source`），處理原本的對話還在分類時就做出的分支。對話列表帶有每個對話的 `createdAt` 與 `branchFrom`（原本對話的 id 與當時的標題；以記憶體中的為準，因為重試或編輯可能讓對話不再是分支）。前端（`src/web/sidebar.ts` 的 `groupSections()`）依每串分支中最早建立的對話所在的群組放置它（包含伺服器還沒回報的移動，這些移動會套用到整串），依整串最近的動態排序，並排成樹狀：每個對話列在它分支出來的對話底下，先建立的在上面；已刪除的對話是自己的一列，顯示它的標題（`deletedTitles()`：`via` 記下的刪除時的標題，否則是它最新的分支建立時的標題），依它底下最早建立的對話排序。開啟被收合的分支擋住的對話時，會把擋住它的展開（`revealIn()`，每個對話一次，在它出現在列表時）；使用者展開或收合任何分支時，不在側邊欄的節點的收合狀態會被忘掉（`foldedNow()`）。分支最多縮排三層（`MAX_INDENT`）。收合的分支記在 `localStorage`（`relay:collapsedBranches`），和收合的群組（`relay:collapsedGroups`）一樣。
 
@@ -562,7 +564,7 @@ Cursor 和 Grok 不同，任何一類都沒有開關，連它從其他 CLI 的�
 
 | 資料表 | 內容 |
 | --- | --- |
-| `conversations` | id、標題、時間、模式、輪數、接力上限、權限、工作目錄、`extra_cwds`（之後的工作目錄，JSON；NULL 代表沒有）、`auto_team`（首席 agent 為每個新問題設計團隊）、`auto_confirm`（直接採用它的團隊、不必確認）、`lead_review`（首席 agent 審閱團隊的回覆；schema 版本 29）、`approvals`（`deny` 代表自動拒絕）、`allow_rules`（JSON）、`group_id`（側邊欄群組；NULL 代表「其他」）、`group_source`（`user` 或 `auto`；NULL 代表尚未分類）與 `branch`（JSON：從哪個對話分支出來，以及最後一則複製的訊息；schema 版本 17） |
+| `conversations` | id、標題、時間、模式、輪數、接力上限、權限、工作目錄、`extra_cwds`（之後的工作目錄，JSON；NULL 代表沒有）、`auto_team`（首席 agent 為每個新問題設計團隊）、`auto_confirm`（直接採用它的團隊、不必確認）、`lead_review`（首席 agent 審閱團隊的回覆；schema 版本 29）、`approvals`（`deny` 代表自動拒絕）、`allow_rules`（JSON）、`group_id`（側邊欄群組；NULL 代表「其他」）、`pinned_at`（使用者把它釘選在側邊欄最上面的時間；NULL 代表沒有釘選；schema 版本 30）、`group_source`（`user` 或 `auto`；NULL 代表尚未分類）與 `branch`（JSON：從哪個對話分支出來，以及最後一則複製的訊息；schema 版本 17） |
 | `conversation_groups` | 使用者的側邊欄群組（名稱、順序） |
 | `conversation_agents` | 每個對話的團隊成員與順序（名稱、provider、角色、模型、推理強度、`tools`：成員對工具庫的例外設定，JSON；`account`：成員使用的 CLI 帳號，NULL 表示預設帳號，schema 版本 19） |
 | `messages` | 每則訊息一列（作者、狀態、是否 pass、錯誤、輪次、耗時、費用、token、該回合修改的 commit、存成 JSON 的團隊設計 `plan`、存成 JSON 的首席 agent 審閱 `review`（schema 版本 29），以及是否在佇列中等過、是否向使用者提問、是否由排程送出：`queued`、`asked`、`scheduled`），依 `seq` 排序 |

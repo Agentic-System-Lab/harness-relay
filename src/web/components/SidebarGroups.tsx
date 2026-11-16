@@ -8,6 +8,7 @@ import { scheduleTrouble, sidebarScheduleTitle } from '../schedule';
 import {
   DRAG_TYPE,
   MAX_INDENT,
+  PINNED_KEY,
   descendants,
   familyIds,
   familySizes,
@@ -15,19 +16,25 @@ import {
   groupSections,
   groupStatus,
   moveFamily,
+  pendingPinTime,
+  pinnedAt,
+  pinnedConversations,
   readCollapsedBranches,
   readCollapsedGroups,
   revealIn,
   sectionKey,
   settleMoves,
+  settlePins,
   undoMoves,
+  undoPin,
   writeCollapsedBranches,
   writeCollapsedGroups,
   type ConvNode,
   type GroupSection,
+  type PendingPins,
 } from '../sidebar';
 import { convStatus, relativeTime } from '../util';
-import { BranchIcon, ChevronIcon, ClockIcon, FolderIcon, FolderPlusIcon, PencilIcon } from './icons';
+import { BranchIcon, ChevronIcon, ClockIcon, FolderIcon, FolderPlusIcon, PencilIcon, PinIcon } from './icons';
 import { MemberDots } from './MemberDots';
 
 interface Props {
@@ -178,8 +185,9 @@ function GroupNameField({
 }
 
 /**
- * The conversations in their groups: the user's groups, then "Other". In a group, each conversation
- * branched from another is under it, and a family of them is dragged between groups as one.
+ * The conversations in their groups: the pinned ones first (each also in its group), then the user's
+ * groups, then "Other". In a group, each conversation branched from another is under it, and a family
+ * of them is dragged between groups as one.
  */
 export function SidebarGroups({ route, conversations, groups, seen, onChanged, onDelete }: Props) {
   const { t, lang } = useI18n();
@@ -191,8 +199,11 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
   /** The section a conversation is dragged over. */
   const [over, setOver] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
+  /** Pins and unpins not yet reported back by the server, so the conversation does not jump back meanwhile. */
+  const [pins, setPins] = useState<PendingPins>({});
 
   useEffect(() => setMoves((m) => settleMoves(m, conversations)), [conversations]);
+  useEffect(() => setPins((p) => settlePins(p, conversations)), [conversations]);
 
   // The conversation opened is in view: hidden branches that hold it open, once, when it is listed
   // (a new branch is listed a moment after it opens).
@@ -244,6 +255,18 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
     onChanged();
   };
 
+  const pin = async (c: ConversationSummary, pinned: boolean) => {
+    const before = pins;
+    setPins((p) => ({ ...p, [c.id]: pinned ? pendingPinTime(conversations, p) : null }));
+    try {
+      await api.pinConversation(c.id, pinned);
+    } catch (e) {
+      setPins((p) => undoPin(p, c.id, before));
+      alert(t.sidebar.pinFailed((e as Error).message));
+    }
+    onChanged();
+  };
+
   const rename = async (group: ConversationGroup, name: string) => {
     try {
       await api.renameGroup(group.id, name);
@@ -288,6 +311,7 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
   };
 
   const empty = !conversations.length && !groups.length;
+  const pinned = pinnedConversations(conversations, pins);
   /** The family being dragged: it moves as one. */
   const draggingFamily = new Set(dragging ? familyIds(conversations, dragging) : []);
   const sizes = familySizes(conversations);
@@ -317,14 +341,20 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
     );
   };
 
-  const conversationRow = (c: ConversationSummary, node: ConvNode, section: GroupSection, depth: number) => {
+  /**
+   * A conversation's row: in its group, under the one it was branched from (`node`, `depth`), or on its
+   * own among the pinned ones (no `node`).
+   */
+  const conversationRow = (c: ConversationSummary, node: ConvNode | undefined, depth: number) => {
     const active = route.page === 'chat' && route.id === c.id;
     const s = convStatus(c, seen[c.id]);
-    const current = section.group?.id ?? null;
+    const current = shownIn.get(c.id) ?? null;
     const moveLabel = (sizes.get(c.id) ?? 1) > 1 ? t.sidebar.moveFamilyTo(c.title) : t.sidebar.moveTo(c.title);
+    const isPinned = pinnedAt(c, pins) !== undefined;
+    const pinLabel = isPinned ? t.sidebar.unpin(c.title) : t.sidebar.pin(c.title);
     return (
       <div
-        className={`conv-item ${active ? 'active' : ''} ${draggingFamily.has(c.id) ? 'dragging' : ''}`}
+        className={`conv-item ${active ? 'active' : ''} ${isPinned ? 'pinned' : ''} ${draggingFamily.has(c.id) ? 'dragging' : ''}`}
         draggable
         onDragStart={(e) => {
           e.dataTransfer.setData(DRAG_TYPE, c.id);
@@ -365,7 +395,17 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
             {relativeTime(c.updatedAt, t)}
           </span>
         </a>
-        {foldButton(node)}
+        {/* In the row's top-left corner, over it: shown on hover (always on a touch screen, and once pinned). */}
+        <button
+          type="button"
+          className="icon-button conv-pin"
+          aria-label={pinLabel}
+          title={pinLabel}
+          onClick={() => void pin(c, !isPinned)}
+        >
+          <PinIcon size={10} upright={isPinned} />
+        </button>
+        {node && foldButton(node)}
         {groups.length > 0 && (
           // A native menu: works with the keyboard and on touch screens, where dragging does not.
           <span className="icon-button conv-move" title={moveLabel}>
@@ -399,12 +439,12 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
     </div>
   );
 
-  const renderNode = (node: ConvNode, section: GroupSection, depth = 0): ReactNode => (
+  const renderNode = (node: ConvNode, depth = 0): ReactNode => (
     <div key={node.id} className="conv-node">
-      {node.conv ? conversationRow(node.conv, node, section, depth) : deletedRow(node)}
+      {node.conv ? conversationRow(node.conv, node, depth) : deletedRow(node)}
       {node.children.length > 0 && !folded.has(node.id) && (
         <div className={`conv-children ${depth >= MAX_INDENT ? 'flat' : ''}`}>
-          {node.children.map((child) => renderNode(child, section, depth + 1))}
+          {node.children.map((child) => renderNode(child, depth + 1))}
         </div>
       )}
     </div>
@@ -413,6 +453,32 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
   return (
     <>
       {empty && <p className="muted small pad">{t.sidebar.empty}</p>}
+      {pinned.length > 0 &&
+        (() => {
+          // Not a drop target: a conversation is pinned with its pin.
+          const isCollapsed = collapsed.has(PINNED_KEY);
+          const status = isCollapsed ? groupStatus(pinned, seen) : undefined;
+          return (
+            <section className="conv-group conv-pinned" aria-label={t.sidebar.pinned}>
+              <div className="group-head">
+                <button type="button" className="group-toggle" aria-expanded={!isCollapsed} onClick={() => toggle(PINNED_KEY)}>
+                  <span className={`group-chevron ${isCollapsed ? '' : 'open'}`}>
+                    <ChevronIcon size={14} />
+                  </span>
+                  <span className="group-name">{t.sidebar.pinned}</span>
+                  <span className="group-count">{pinned.length}</span>
+                  {status && <span className={`status-dot ${status}`} title={t.sidebar.status[status]} />}
+                </button>
+              </div>
+              {!isCollapsed &&
+                pinned.map((c) => (
+                  <div key={c.id} className="conv-node">
+                    {conversationRow(c, undefined, 0)}
+                  </div>
+                ))}
+            </section>
+          );
+        })()}
       {!empty &&
         sections.map((section) => {
           const key = sectionKey(section);
@@ -460,7 +526,7 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
               )}
               {!isCollapsed &&
                 (section.trees.length ? (
-                  section.trees.map((tree) => renderNode(tree, section))
+                  section.trees.map((tree) => renderNode(tree))
                 ) : (
                   <p className="group-empty">{t.sidebar.dropHere}</p>
                 ))}

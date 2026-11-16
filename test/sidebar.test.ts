@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { families, familyOf } from '../src/shared/family';
 import type { ConversationSummary } from '../src/shared/types';
-import { ancestorsOf, branchCount, descendants, familyIds, familySizes, foldedNow, groupSections, groupStatus, moveFamily, revealIn, settleMoves, undoMoves, type ConvNode, HEALTH_NAMES_KEY, readHealthNames, readyCount, writeHealthNames } from '../src/web/sidebar';
+import { ancestorsOf, branchCount, descendants, familyIds, familySizes, foldedNow, groupSections, groupStatus, moveFamily, pendingPinTime, pinnedAt, pinnedConversations, revealIn, settleMoves, settlePins, undoMoves, undoPin, type ConvNode, HEALTH_NAMES_KEY, readHealthNames, readyCount, writeHealthNames } from '../src/web/sidebar';
 import { convStatus } from '../src/web/util';
 
 const conv = (extra: Partial<ConversationSummary>): ConversationSummary => ({
@@ -78,6 +78,55 @@ describe('sidebar groups', () => {
     expect(groupStatus([conv({ lastStatus: 'done' }), conv({ lastStatus: 'error' })], { c: 0 })).toBe('error');
     expect(groupStatus([conv({ lastStatus: 'done' })], { c: 100 })).toBeUndefined();
     expect(groupStatus([], {})).toBeUndefined();
+  });
+});
+
+describe('pinned conversations in the sidebar', () => {
+  const list = [
+    conv({ id: 'a', updatedAt: 500, pinnedAt: 10 }),
+    conv({ id: 'b', updatedAt: 400 }),
+    conv({ id: 'c', updatedAt: 300, pinnedAt: 30, groupId: 'g1' }),
+    conv({ id: 'd', updatedAt: 200, pinnedAt: 30, branchFrom: { id: 'c', title: 'c' } }),
+  ];
+  const ids = (cs: ConversationSummary[]) => cs.map((c) => c.id);
+
+  it('lists the pinned ones, the one pinned last first, whatever was active last, each on its own', () => {
+    // c and d pinned at the same time: by id. d is listed on its own, apart from c it was branched from.
+    expect(ids(pinnedConversations(list))).toEqual(['c', 'd', 'a']);
+    expect(pinnedConversations([conv({ id: 'x' })])).toEqual([]);
+    // Each also stays in its group.
+    expect(groupSections(list, [{ id: 'g1', name: 'G' }]).map((s) => s.conversations.map((c) => c.id))).toEqual([['c', 'd'], ['a', 'b']]);
+  });
+
+  it("shows pins and unpins the server has not reported yet, and forgets them once it has, or the conversation is gone", () => {
+    const pins = { b: 50, a: null };
+    expect(pinnedAt(list[0]!, pins)).toBeUndefined();
+    expect(pinnedAt(list[1]!, pins)).toBe(50);
+    expect(pinnedAt(list[2]!, pins)).toBe(30);
+    expect(ids(pinnedConversations(list, pins))).toEqual(['b', 'c', 'd']);
+
+    expect(settlePins(pins, list)).toBe(pins);
+    const after = list.map((c) => (c.id === 'b' ? { ...c, pinnedAt: 45 } : c));
+    expect(settlePins(pins, after)).toEqual({ a: null });
+    const unpinned = after.map((c) => (c.id === 'a' ? { ...c, pinnedAt: undefined } : c));
+    expect(settlePins(pins, unpinned)).toEqual({});
+    expect(settlePins({ gone: 1 }, list)).toEqual({});
+  });
+
+  it("takes a pin not reported yet to be the latest, whatever this device's clock says", () => {
+    // A clock behind the server's: still after every pin known, pending ones too.
+    expect(pendingPinTime(list, {}, 5)).toBe(31);
+    expect(pendingPinTime(list, { b: 50 }, 5)).toBe(51);
+    expect(ids(pinnedConversations(list, { b: pendingPinTime(list, {}, 5) }))).toEqual(['b', 'c', 'd', 'a']);
+    // A clock ahead: its own time.
+    expect(pendingPinTime(list, {}, 1000)).toBe(1001);
+    expect(pendingPinTime([], {}, 7)).toBe(8);
+  });
+
+  it('undoes a pin that failed back to what was pending before it', () => {
+    expect(undoPin({ a: null, b: 50 }, 'b', {})).toEqual({ a: null });
+    expect(undoPin({ b: null }, 'b', { b: 50 })).toEqual({ b: 50 });
+    expect(undoPin({ b: 50 }, 'b', { b: null })).toEqual({ b: null });
   });
 });
 

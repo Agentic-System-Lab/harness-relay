@@ -545,10 +545,11 @@ export class Store {
   ): ConversationSummary[] {
     const rows = this.db
       .prepare(
-        'SELECT id, title, created_at, updated_at, group_id, branch, pause IS NOT NULL AS asking FROM conversations ORDER BY updated_at DESC',
+        'SELECT id, title, created_at, updated_at, group_id, pinned_at, branch, pause IS NOT NULL AS asking FROM conversations ORDER BY updated_at DESC',
       )
       .all() as (Pick<ConversationRow, 'id' | 'title' | 'created_at' | 'updated_at' | 'branch'> & {
       group_id: string | null;
+      pinned_at: number | null;
       asking: number;
     })[];
     const agents = this.db
@@ -613,6 +614,7 @@ export class Store {
           ...((live ? live.pause : r.asking) ? { asking: true } : {}),
           ...statusOf(live, lastStatus.get(r.id)),
           ...(r.group_id ? { groupId: r.group_id } : {}),
+          ...(r.pinned_at !== null ? { pinnedAt: r.pinned_at } : {}),
           ...(sorting(r.id) ? { sorting: true } : {}),
           ...scheduleOf(live, schedules.get(r.id)),
           ...(branch
@@ -1270,6 +1272,19 @@ export class Store {
     transaction(this.db, () => {
       for (const id of ids.length ? ids : [convId]) update.run(groupId, id);
     });
+  }
+
+  /**
+   * The user pins a conversation to the top of the sidebar, or unpins it. Pinning one that is pinned
+   * already keeps when it was pinned, and so its place among the pinned ones. Neither is activity: the
+   * conversation keeps its `updatedAt`. Returns whether there was such a conversation.
+   */
+  setPinned(convId: string, pinned: boolean, now = Date.now()): boolean {
+    if (this.deleted.has(convId)) return false;
+    const update = pinned
+      ? this.db.prepare('UPDATE conversations SET pinned_at = COALESCE(pinned_at, ?) WHERE id = ?').run(now, convId)
+      : this.db.prepare('UPDATE conversations SET pinned_at = NULL WHERE id = ?').run(convId);
+    return update.changes > 0;
   }
 
   /** A new branch goes into its family's group, as the user's choice (so the lead agent does not sort it). */

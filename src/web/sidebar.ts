@@ -12,6 +12,9 @@ export const DRAG_TYPE = 'application/x-relay-conversation';
 /** The key of the default group ("Other") in the sidebar's state (collapsed groups, drop targets). */
 export const OTHER_KEY = 'other';
 
+/** The key of the pinned conversations' section in the sidebar's state (collapsed groups). */
+export const PINNED_KEY = 'pinned';
+
 /** How deep branches are indented; deeper ones are not indented further. */
 export const MAX_INDENT = 3;
 
@@ -242,6 +245,57 @@ export function settleMoves(
     return c !== undefined && (c.groupId ?? null) !== groupId;
   });
   return left.length === Object.keys(moves).length ? moves : Object.fromEntries(left);
+}
+
+/**
+ * Pins and unpins not yet reported back by the server, by conversation: when it was pinned, or `null`
+ * for unpinned. The sidebar shows them meanwhile.
+ */
+export type PendingPins = Record<string, number | null>;
+
+/** When the conversation was pinned, as the sidebar shows it (`pins` first); undefined: not pinned. */
+export function pinnedAt(c: ConversationSummary, pins: PendingPins = {}): number | undefined {
+  if (c.id in pins) return pins[c.id] ?? undefined;
+  return c.pinnedAt;
+}
+
+/**
+ * The pinned conversations, the one pinned last first (by id between those pinned at the same time),
+ * each on its own: a branch is listed without the conversations around it.
+ */
+export function pinnedConversations(conversations: ConversationSummary[], pins: PendingPins = {}): ConversationSummary[] {
+  return conversations
+    .flatMap((c) => {
+      const at = pinnedAt(c, pins);
+      return at === undefined ? [] : [{ c, at }];
+    })
+    .sort((a, b) => b.at - a.at || (a.c.id < b.c.id ? -1 : a.c.id > b.c.id ? 1 : 0))
+    .map(({ c }) => c);
+}
+
+/**
+ * When a pin made now is taken to be, until the server reports its own time: after every pin the
+ * sidebar knows of, so that it is listed first whatever this device's clock says.
+ */
+export function pendingPinTime(conversations: ConversationSummary[], pins: PendingPins = {}, now = Date.now()): number {
+  return Math.max(now, ...conversations.map((c) => pinnedAt(c, pins) ?? 0)) + 1;
+}
+
+/** Pins the server now reports, or of conversations gone, are dropped (the same object when nothing changed). */
+export function settlePins(pins: PendingPins, conversations: ConversationSummary[]): PendingPins {
+  const left = Object.entries(pins).filter(([id, at]) => {
+    const c = conversations.find((x) => x.id === id);
+    return c !== undefined && (c.pinnedAt !== undefined) !== (at !== null);
+  });
+  return left.length === Object.keys(pins).length ? pins : Object.fromEntries(left);
+}
+
+/** The pin or unpin of `id` failed: what `before` had for it comes back (nothing, where it had nothing). */
+export function undoPin(pins: PendingPins, id: string, before: PendingPins): PendingPins {
+  const next = { ...pins };
+  if (id in before) next[id] = before[id] ?? null;
+  else delete next[id];
+  return next;
 }
 
 /** Most urgent first. */
