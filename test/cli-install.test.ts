@@ -642,8 +642,11 @@ describe('CliInstaller', () => {
     clis.install('grok');
     const [c, g] = [await ended(clis, 'cursor'), await ended(clis, 'grok')];
     expect([c.job?.state, g.job?.state]).toEqual(['success', 'success']);
-    expect(order).toEqual(['cursor starts', 'cursor ends', 'grok starts', 'grok ends']);
-    expect(g.job?.log).toContain('Waiting for another install to end');
+    // Whichever reached the PATH's turn first (both start at once) ran alone, then the other.
+    const first = order[0]!.split(' ')[0]!;
+    const second = first === 'cursor' ? 'grok' : 'cursor';
+    expect(order).toEqual([`${first} starts`, `${first} ends`, `${second} starts`, `${second} ends`]);
+    expect((second === 'grok' ? g : c).job?.log).toContain('Waiting for another install to end');
     // Each read the PATH as the user had it, and put that back.
     expect(registry.restores).toEqual([STOCK_USER_PATH, STOCK_USER_PATH]);
     expect(registry.path).toBe(STOCK_USER_PATH);
