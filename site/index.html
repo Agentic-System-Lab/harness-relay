@@ -6,7 +6,7 @@
     <title>Harness Relay: any mix of Claude Code, Codex, Grok and nine more coding agents</title>
     <meta
       name="description"
-      content="A local web app where the coding agents you already have, any mix of Claude Code, Codex, Grok, Cursor, Antigravity, Copilot, Muse Code and five open-source coding agents on your own model backends, work with you and with each other. One kind is enough for a team. Design it, choose how they take turns, and approve what they do."
+      content="Harness Relay is a local app where the coding agents you already have, any of twelve such as Claude Code, Codex and Grok, work with you and with each other."
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/" />
@@ -50,6 +50,82 @@
     <script src="assets/site.js" defer></script>
     <script type="module" src="assets/downloads.js"></script>
     <script type="module" src="assets/theme.js"></script>
+    <!-- What search and answer engines read about the page, the app and the demo: facts the page states
+         (test/site-structured-data.test.ts keeps them in step with it and with the Chinese page). No
+         version, star count or rating; the demo's uploadDate and duration are written by npm run demo. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebPage",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/#webpage",
+            "url": "https://agentic-system-lab.github.io/harness-relay/",
+            "name": "Harness Relay: any mix of Claude Code, Codex, Grok and nine more coding agents",
+            "description": "Harness Relay is a local app where the coding agents you already have, any of twelve such as Claude Code, Codex and Grok, work with you and with each other.",
+            "inLanguage": "en",
+            "isPartOf": { "@id": "https://agentic-system-lab.github.io/harness-relay/#website" },
+            "about": { "@id": "https://agentic-system-lab.github.io/harness-relay/#app" },
+            "primaryImageOfPage": "https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png",
+            "video": { "@id": "https://agentic-system-lab.github.io/harness-relay/#demo" }
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/#website",
+            "url": "https://agentic-system-lab.github.io/harness-relay/",
+            "name": "Harness Relay",
+            "inLanguage": ["en", "zh-TW"],
+            "publisher": { "@id": "https://agentic-system-lab.github.io/#organization" }
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://agentic-system-lab.github.io/#organization",
+            "name": "Agentic System Lab",
+            "url": "https://agentic-system-lab.github.io/",
+            "sameAs": ["https://github.com/Agentic-System-Lab"]
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/#app",
+            "name": "Harness Relay",
+            "description": "The coding agents you already have, any mix of Claude Code, Codex, Grok, Cursor, Antigravity, Copilot, Muse Code and five open-source coding agents on your API keys or your own model, work with you and with each other. One kind is enough for a team. Design it, choose how they take turns, approve what they do.",
+            "url": "https://agentic-system-lab.github.io/harness-relay/",
+            "applicationCategory": "DeveloperApplication",
+            "operatingSystem": "macOS, Windows, Linux",
+            "inLanguage": ["en", "zh-TW"],
+            "downloadUrl": "https://github.com/Agentic-System-Lab/harness-relay/releases/latest",
+            "isAccessibleForFree": true,
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+            "license": "https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE",
+            "image": "https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png",
+            "screenshot": "https://agentic-system-lab.github.io/harness-relay/assets/media/poster-en.webp",
+            "publisher": { "@id": "https://agentic-system-lab.github.io/#organization" },
+            "sameAs": ["https://github.com/Agentic-System-Lab/harness-relay"]
+          },
+          {
+            "@type": "SoftwareSourceCode",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/#source",
+            "name": "Harness Relay",
+            "codeRepository": "https://github.com/Agentic-System-Lab/harness-relay",
+            "programmingLanguage": "TypeScript",
+            "runtimePlatform": "Node.js",
+            "license": "https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE",
+            "targetProduct": { "@id": "https://agentic-system-lab.github.io/harness-relay/#app" }
+          },
+          {
+            "@type": "VideoObject",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/#demo",
+            "name": "Harness Relay demo: watch one run",
+            "description": "Demo recording: a new group, two questions on the Harness Relay repository, each with a team the lead agent chose for it, the conversation's files, and a search",
+            "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/poster-en.webp",
+            "contentUrl": "https://agentic-system-lab.github.io/harness-relay/media/demo-en.mp4",
+            "uploadDate": "2026-11-12T06:22:43Z",
+            "duration": "PT2M6S",
+            "inLanguage": "en"
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <svg width="0" height="0" style="position: absolute" aria-hidden="true">
@@ -1016,7 +1092,7 @@
 
     <footer class="site-footer">
       <div class="wrap footer-row">
-        <a class="brand" href="./">
+        <a class="brand" href="./" aria-label="Harness Relay, home">
           <svg aria-hidden="true"><use href="#i-mark" /></svg>
           <span>Harness Relay</span>
         </a>

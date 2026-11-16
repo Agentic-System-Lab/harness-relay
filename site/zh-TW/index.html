@@ -6,7 +6,7 @@
     <title>Harness Relay：Claude Code、Codex、Grok 等十二種 coding agent，任你搭配</title>
     <meta
       name="description"
-      content="在你電腦上執行的網頁 app：你手上的 coding agent，不論是 Claude Code、Codex、Grok、Cursor、Antigravity、Copilot、Muse Code，或用你自己的模型來源執行的五個開源 coding agent，任意搭配，和你一起工作，也彼此溝通。一種就能組隊。設計團隊、決定發言方式，並核准它們的動作。"
+      content="Harness Relay 是在你電腦上執行的 app：你手上的 coding agent，Claude Code、Codex、Grok 等十二種任你搭配，和你一起工作，也彼此溝通。"
     />
     <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/" />
     <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/" />
@@ -47,6 +47,82 @@
     <script src="../assets/site.js" defer></script>
     <script type="module" src="../assets/downloads.js"></script>
     <script type="module" src="../assets/theme.js"></script>
+    <!-- What search and answer engines read about the page, the app and the demo: facts the page states
+         (test/site-structured-data.test.ts keeps them in step with it and with the English page). No
+         version, star count or rating; the demo's uploadDate and duration are written by npm run demo. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebPage",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/#webpage",
+            "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/",
+            "name": "Harness Relay：Claude Code、Codex、Grok 等十二種 coding agent，任你搭配",
+            "description": "Harness Relay 是在你電腦上執行的 app：你手上的 coding agent，Claude Code、Codex、Grok 等十二種任你搭配，和你一起工作，也彼此溝通。",
+            "inLanguage": "zh-TW",
+            "isPartOf": { "@id": "https://agentic-system-lab.github.io/harness-relay/#website" },
+            "about": { "@id": "https://agentic-system-lab.github.io/harness-relay/#app" },
+            "primaryImageOfPage": "https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png",
+            "video": { "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/#demo" }
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/#website",
+            "url": "https://agentic-system-lab.github.io/harness-relay/",
+            "name": "Harness Relay",
+            "inLanguage": ["en", "zh-TW"],
+            "publisher": { "@id": "https://agentic-system-lab.github.io/#organization" }
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://agentic-system-lab.github.io/#organization",
+            "name": "Agentic System Lab",
+            "url": "https://agentic-system-lab.github.io/",
+            "sameAs": ["https://github.com/Agentic-System-Lab"]
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/#app",
+            "name": "Harness Relay",
+            "description": "你手上的 coding agent，不論是 Claude Code、Codex、Grok、Cursor、Antigravity、Copilot、Muse Code，或用你的 API key 或自己的模型執行的五個開源 coding agent，任意搭配，和你一起工作，也彼此溝通。一種就能組隊。設計團隊、決定發言方式，並核准它們的動作。",
+            "url": "https://agentic-system-lab.github.io/harness-relay/",
+            "applicationCategory": "DeveloperApplication",
+            "operatingSystem": "macOS, Windows, Linux",
+            "inLanguage": ["en", "zh-TW"],
+            "downloadUrl": "https://github.com/Agentic-System-Lab/harness-relay/releases/latest",
+            "isAccessibleForFree": true,
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+            "license": "https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE",
+            "image": "https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png",
+            "screenshot": "https://agentic-system-lab.github.io/harness-relay/assets/media/poster-zh-TW.webp",
+            "publisher": { "@id": "https://agentic-system-lab.github.io/#organization" },
+            "sameAs": ["https://github.com/Agentic-System-Lab/harness-relay"]
+          },
+          {
+            "@type": "SoftwareSourceCode",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/#source",
+            "name": "Harness Relay",
+            "codeRepository": "https://github.com/Agentic-System-Lab/harness-relay",
+            "programmingLanguage": "TypeScript",
+            "runtimePlatform": "Node.js",
+            "license": "https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE",
+            "targetProduct": { "@id": "https://agentic-system-lab.github.io/harness-relay/#app" }
+          },
+          {
+            "@type": "VideoObject",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/#demo",
+            "name": "Harness Relay 示範：看一次完整流程",
+            "description": "示範錄影：新增群組，在 Harness Relay 的 repository 上問兩個問題，每個問題都由首席 agent 組隊，瀏覽對話的檔案，最後搜尋對話",
+            "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/poster-zh-TW.webp",
+            "contentUrl": "https://agentic-system-lab.github.io/harness-relay/media/demo-zh-TW.mp4",
+            "uploadDate": "2026-11-12T06:22:43Z",
+            "duration": "PT2M3S",
+            "inLanguage": "zh-TW"
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <svg width="0" height="0" style="position: absolute" aria-hidden="true">
@@ -944,7 +1020,7 @@
 
     <footer class="site-footer">
       <div class="wrap footer-row">
-        <a class="brand" href="./">
+        <a class="brand" href="./" aria-label="Harness Relay 首頁">
           <svg aria-hidden="true"><use href="#i-mark" /></svg>
           <span>Harness Relay</span>
         </a>

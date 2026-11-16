@@ -1,8 +1,9 @@
 /**
  * Puts a cut recording where the project shows it: the video and the README animation in
- * docs/media/, the stills from the `poster` mark, the landing page's chapter rail and the design
- * guidelines' frame times. Then writes `review.md` next to the recording: the chapters as written
- * and what the agents did, to check the chapter sentences (scripts/demo/chapters.ts) against.
+ * docs/media/, the stills from the `poster` mark, the landing page's chapter rail and its video's
+ * structured data (published when, how long), and the design guidelines' frame times. Then writes
+ * `review.md` next to the recording: the chapters as written and what the agents did, to check the
+ * chapter sentences (scripts/demo/chapters.ts) against.
  */
 import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -17,6 +18,27 @@ const GUIDELINES = 'site/DESIGN-GUIDELINES.md';
 export function retimeGuidelines(md: string, lang: DemoLang, at: number): string {
   const re = new RegExp(`(Frame at )\\d+:\\d+(?:\\.\\d+)?( of \`docs/media/demo-${lang.replace('-', '\\-')}\\.mp4\`)`, 'g');
   return md.replace(re, `$1${stamp(at)}$2`);
+}
+
+/** Seconds as an ISO 8601 duration, to the second (`PT2M6S`), as structured data writes a video's length. */
+export function isoDuration(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return `PT${h ? `${h}H` : ''}${h || m ? `${m}M` : ''}${s % 60}S`;
+}
+
+/**
+ * The page with its demo's structured data (the VideoObject in its JSON-LD) brought up to date: when the
+ * video was published and how long it is. Pure; the page has each of the two fields once.
+ */
+export function retimeVideoData(html: string, video: { uploadDate: string; seconds: number }): string {
+  const set = (text: string, key: string, value: string) => {
+    const re = new RegExp(`("${key}": )"[^"]*"`, 'g');
+    if ((text.match(re) ?? []).length !== 1) throw new Error(`The page's structured data should have "${key}" once`);
+    return text.replace(re, `$1${JSON.stringify(value)}`);
+  };
+  return set(set(html, 'uploadDate', video.uploadDate), 'duration', isoDuration(video.seconds));
 }
 
 export function publish(dir: string, lang: DemoLang, log: (...a: unknown[]) => void): void {
@@ -37,8 +59,10 @@ export function publish(dir: string, lang: DemoLang, log: (...a: unknown[]) => v
   const spec = RAILS[lang];
   const { chapters, missing } = buildChapters(lang, spec, timeline);
   const page = join(ROOT, spec.page);
-  writeFileSync(page, replaceRail(readFileSync(page, 'utf8'), chapters));
-  log(`${spec.page}: ${chapters.length} chapters${missing.length ? ` (left out, no mark: ${missing.join(', ')})` : ''}`);
+  // The video is published now: its structured data says so, and how long it is.
+  const uploadDate = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+  writeFileSync(page, retimeVideoData(replaceRail(readFileSync(page, 'utf8'), chapters), { uploadDate, seconds: timeline.length }));
+  log(`${spec.page}: ${chapters.length} chapters${missing.length ? ` (left out, no mark: ${missing.join(', ')})` : ''}, video data ${uploadDate}, ${isoDuration(timeline.length)}`);
 
   const review = reviewNotes(lang, timeline, conversation, chapters.map((c) => `- ${clock(c.t)} **${c.who}**${c.via ? ` (${c.via})` : ''}: ${c.say}`), at);
   writeFileSync(join(dir, 'review.md'), review);
