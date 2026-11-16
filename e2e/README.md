@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 440 tests in 35 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 441 tests in 35 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -57,7 +57,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Schedules](#schedules) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 1 | [User guide → Schedules](../docs/user-guide.md#schedules), [Architecture → Schedules](../docs/architecture.md#schedules) |
 | [Settings](#settings) | [`settings.spec.ts`](specs/settings.spec.ts) | 13 | [User guide → Signing in](../docs/user-guide.md#signing-in), [Lead agent](../docs/user-guide.md#lead-agent), [Open agents → Model backends](../docs/open-agents.md#model-backends) |
 | [Installing a CLI](#installing-a-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [User guide → Installing a CLI from Settings](../docs/user-guide.md#installing-a-cli-from-settings), [Architecture → Installing a CLI from Settings](../docs/architecture.md#installing-a-cli-from-settings) |
-| [What the sandboxes need](#what-the-sandboxes-need) | [`sandbox-setup.spec.ts`](specs/sandbox-setup.spec.ts) | 4 | [User guide → Setting up the sandboxes](../docs/user-guide.md#setting-up-the-sandboxes), [OS sandboxes by platform → Installing what they need from Harness Relay](../docs/sandboxing.md#installing-what-they-need-from-harness-relay) |
+| [What the sandboxes need](#what-the-sandboxes-need) | [`sandbox-setup.spec.ts`](specs/sandbox-setup.spec.ts) | 5 | [User guide → Setting up the sandboxes](../docs/user-guide.md#setting-up-the-sandboxes), [OS sandboxes by platform → Installing what they need from Harness Relay](../docs/sandboxing.md#installing-what-they-need-from-harness-relay) |
 | [CLIs that are scripts on Windows](#clis-that-are-scripts-on-windows) | [`windows.spec.ts`](specs/windows.spec.ts) | 5 | [Architecture → CLI adapters](../docs/architecture.md#cli-adapters) |
 | [Accounts](#accounts) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 35 | [User guide → More than one account](../docs/user-guide.md#more-than-one-account), [API keys](../docs/user-guide.md#api-keys-optional), [Architecture → Accounts](../docs/architecture.md#accounts) |
 | [Plan usage](#plan-usage) | [`usage.spec.ts`](specs/usage.spec.ts) | 9 | [User guide → Plan usage](../docs/user-guide.md#plan-usage), [Architecture → Providers](../docs/architecture.md#providers-status-login-and-models) |
@@ -375,6 +375,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | Installing from the dialog shows its output, then that the sandboxes have everything | — | **Install (strongly recommended)** asks `POST /api/sandbox-setup/install`; the dialog then says "Installed: the sandboxes have everything they need.", **Close** closes it, and a reload asks nothing. |
 | What cannot be installed here comes with the command to run in a terminal, and no Install | — | No way to get administrator rights (`blocked: 'admin'`): that said, "To install it yourself, run this in a terminal:" with `sudo apt-get install -y bubblewrap socat`, and no **Install**. Escape closes it for this page only: after a reload it asks again. |
 | With nothing missing, New chat asks nothing | — | No dialog; the **Sandboxes** card says "The sandboxes have everything they need on this computer." |
+| The same in a development build | — | In the development build of the UI (React's StrictMode runs each effect twice), New chat still asks and **Settings → Sandboxes** still lists the packages with **Install**. |
 
 ## CLIs that are scripts on Windows
 

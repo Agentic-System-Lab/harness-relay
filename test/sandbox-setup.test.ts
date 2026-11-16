@@ -10,8 +10,8 @@ import { withLang } from '../src/server/i18n';
 import { Orchestrator } from '../src/server/orchestrator';
 import { runShellScript, type RunOptions, type SpawnOptions, type SpawnResult } from '../src/server/process';
 import { ProviderService } from '../src/server/providers';
-import { sandboxNode, sandboxNodeFolder } from '../src/server/relaySandbox';
-import { ADMIN_SCRIPT, APPARMOR_FILE, APPARMOR_PROFILE, LINUX_NEEDS, SandboxSetup, USERNS_RESTRICTION, letsBwrap, type SandboxSetupHost } from '../src/server/sandboxSetup';
+import { hostNode, relaySandboxTools, sandboxNode, sandboxNodeFolder } from '../src/server/relaySandbox';
+import { ADMIN_SCRIPT, SCRIPT_CANNOT_RUN, APPARMOR_FILE, APPARMOR_PROFILE, LINUX_NEEDS, SandboxSetup, USERNS_RESTRICTION, letsBwrap, type SandboxSetupHost } from '../src/server/sandboxSetup';
 import { SettingsStore } from '../src/server/settings';
 import { Store } from '../src/server/store';
 import { slow } from './timeouts';
@@ -56,7 +56,8 @@ function setup(
   const programs = new Set([...BASE, ...(o.programs ?? ['/usr/bin/apt-get', '/usr/bin/sudo'])]);
   const files = { ...o.files };
   const calls: Run[] = [];
-  const nodeDir = join(root, `node-${++n}`);
+  const dataDir = join(root, `data-${++n}`);
+  const nodeDir = sandboxNodeFolder(dataDir);
   const answer = async (s: Run): Promise<SpawnResult> => {
     calls.push(s);
     const r = await o.onRun?.(s, programs);
@@ -98,7 +99,7 @@ function setup(
     runScript: (shell: string, flags: readonly string[], script: string, run: RunOptions) => answer({ ...run, bin: shell, args: [...flags], script }),
   };
   // The Node.js put into `nodeDir`, as the relay sandbox finds it there.
-  host.installedNode = () => (existsSync(join(nodeDir, 'bin', 'node')) ? join(nodeDir, 'bin', 'node') : null);
+  host.installedNode = () => sandboxNode(dataDir);
   const changed = vi.fn();
   return { s: new SandboxSetup({ changed }, host), host, calls, programs, files, nodeDir, changed };
 }
@@ -189,16 +190,25 @@ describe('what the sandboxes need', () => {
 
   it('in the desktop app with no Node.js on the PATH, asks for one for Harness Relay’s own sandbox, on macOS and Linux', () => {
     const mac = setup({ platform: 'darwin', arch: 'arm64', electron: true, programs: [] });
+    const file = `node-v${NODE_VERSION}-darwin-arm64.tar.gz`;
     expect(mac.s.view()).toEqual({
+      platform: 'darwin',
       needs: [
         {
           kind: 'node',
           items: [NODE_VERSION],
           for: ['open'],
-          command: `curl -fsSLO https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-darwin-arm64.tar.gz; mkdir -p ${mac.nodeDir}; tar -xf node-v${NODE_VERSION}-darwin-arm64.tar.gz -C ${mac.nodeDir} --strip-components 1`,
+          // Checked as the setup checks it, into the folder quoted (the desktop app's has a space in it).
+          command: [
+            `curl -fsSLO https://nodejs.org/dist/v${NODE_VERSION}/${file}`,
+            `echo "aec2514ea1ceb2ba52455e9ec65986f6749a06dd759e5db2a72e6889668c9735  ${file}" | shasum -a 256 -c -`,
+            `mkdir -p "${mac.nodeDir}"`,
+            `tar -xf ${file} -C "${mac.nodeDir}" --strip-components 1 node-v${NODE_VERSION}-darwin-arm64/bin/node node-v${NODE_VERSION}-darwin-arm64/lib/node_modules/npm`,
+          ].join(' && '),
         },
       ],
     });
+    expect(setup({ arch: 'x64', electron: true }).s.view().needs[0]!.command).toContain('| sha256sum -c -');
     // A Node.js on the PATH, or run from the source (on Node itself): nothing.
     expect(setup({ platform: 'darwin', electron: true, pathNode: '/opt/homebrew/bin/node' }).s.view().needs).toEqual([]);
     expect(setup({ platform: 'darwin', electron: false }).s.view().needs).toEqual([]);
@@ -210,8 +220,8 @@ describe('what the sandboxes need', () => {
   });
 
   it('has nothing to install on Windows, nor on macOS from the source', () => {
-    expect(setup({ platform: 'win32', electron: true }).s.view()).toEqual({ needs: [] });
-    expect(setup({ platform: 'darwin' }).s.view()).toEqual({ needs: [] });
+    expect(setup({ platform: 'win32', electron: true }).s.view()).toEqual({ platform: 'win32', needs: [] });
+    expect(setup({ platform: 'darwin' }).s.view()).toEqual({ platform: 'darwin', needs: [] });
   });
 
   it('keeps Harness Relay’s Node.js beside the CLIs it installed, where agents may not write', () => {
@@ -308,26 +318,67 @@ describe('installing what the sandboxes need', () => {
     expect(() => setup({ programs: ['/usr/bin/apt-get', '/usr/bin/sudo', ...ALL_LINUX] }).s.install()).toThrow(expect.objectContaining({ status: 400 }));
   });
 
-  it('runs one install at a time, stops it when asked or when the server stops, and counts it while it runs', async () => {
+  it('runs one install at a time, stops it when asked while Node.js downloads or when the server stops, and counts it while it runs', async () => {
     const hold = (s: Run) =>
       new Promise<SpawnResult>((resolve) => {
         const stop = () => resolve(result(null, '', { aborted: true }));
         if (s.signal!.aborted) stop();
         else s.signal!.addEventListener('abort', stop);
       });
-    const { s } = setup({ onRun: hold });
+    const { s, calls } = setup({ electron: true, onRun: hold });
     expect(() => s.cancel()).toThrow(expect.objectContaining({ status: 409 }));
     s.install();
     expect(s.running()).toBe(1);
+    expect(s.view().cancellable).toBe(true);
     expect(() => s.install()).toThrow(expect.objectContaining({ status: 409 }));
-    await vi.waitFor(() => expect(s.view().job?.log).toContain('$ sudo'));
+    await vi.waitFor(() => expect(s.view().job?.log).toContain('$ curl'));
     s.cancel();
     expect((await ended(s)).job?.state).toBe('cancelled');
+    // Stopped there: the packages were not started.
+    expect(calls.map((c) => basename(c.bin))).toEqual(['curl']);
     expect(s.running()).toBe(0);
+    expect(s.view().cancellable).toBeUndefined();
     const other = setup({ onRun: hold });
     other.s.install();
     await other.s.shutdown();
     expect(other.s.view().job?.state).toBe('cancelled');
+  });
+
+  it('cannot be stopped once the package manager runs as administrator: stopping it halfway could break its database', async () => {
+    let finish!: () => void;
+    const { s } = setup({ onRun: () => new Promise<SpawnResult>((resolve) => (finish = () => resolve(result(0)))) });
+    s.install();
+    await vi.waitFor(() => expect(s.view().job?.log).toContain('$ sudo'));
+    expect(s.view().cancellable).toBe(false);
+    expect(() => withLang('en', () => s.cancel())).toThrow(/cannot be cancelled/);
+    expect(s.view().job?.state).toBe('running');
+    finish();
+    expect((await ended(s)).job?.state).toBe('failed');
+  });
+
+  it('in the desktop app, has the relay sandbox run its host on the Node.js it put in, unless one is on the PATH', () => {
+    if (process.platform === 'win32') return;
+    const data = join(root, `tools-${++n}`);
+    const o = { electron: true, dataDir: data, systemDirs: [] };
+    expect(relaySandboxTools('darwin', '', o).node).toBeNull();
+    const node = join(sandboxNodeFolder(data), 'bin', 'node');
+    const program = (path: string, version: string) => {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, `#!/bin/sh\necho ${version}\n`);
+      chmodSync(path, 0o755);
+    };
+    program(node, 'v26.13.1');
+    expect(relaySandboxTools('darwin', '', o).node).toBe(node);
+    expect(hostNode({ tools: relaySandboxTools('linux', '', o) })).toBe(node);
+    // A Node.js 22.12 or later on the PATH comes first; an older one does not count.
+    const onPath = join(root, `path-${n}`, 'node');
+    program(onPath, 'v22.12.0');
+    expect(relaySandboxTools('darwin', dirname(onPath), o).node).toBe(onPath);
+    const old = join(root, `old-${n}`, 'node');
+    program(old, 'v20.1.0');
+    expect(relaySandboxTools('darwin', dirname(old), o).node).toBe(node);
+    // Not the desktop app: the server's own Node runs the host.
+    expect(relaySandboxTools('darwin', '', { ...o, electron: false }).node).toBeUndefined();
   });
 });
 
@@ -353,7 +404,7 @@ describe('the administrator’s script', () => {
         writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`);
         chmodSync(join(bin, name), 0o755);
       };
-      tool('apt-get', `echo "apt-get $*" >> "$LOG"\nif [ "$1" = update ]; then : > "$UPDATED"; exit 0; fi\n[ -f "$UPDATED" ] || exit 100`);
+      tool('apt-get', `echo "apt-get $*" >> "$LOG"\nfor a in "$@"; do if [ "$a" = update ]; then : > "$UPDATED"; exit 0; fi; done\n[ -f "$UPDATED" ] || exit 100`);
       tool('apparmor_parser', 'echo "apparmor_parser $*" >> "$LOG"');
       const profiles = join(dir, 'apparmor.d');
       mkdirSync(profiles);
@@ -370,11 +421,13 @@ describe('the administrator’s script', () => {
       };
       const r = await runShellScript('/bin/sh', [], ADMIN_SCRIPT, { env, timeoutMs: 20_000 });
       expect(r.code).toBe(0);
+      expect(tool).toBeDefined();
       const lines = readFileSync(log, 'utf8').trim().split('\n');
+      // apt waits for its lock (unattended upgrades may hold it).
       expect(lines.slice(0, 3)).toEqual([
-        'apt-get install -y --no-install-recommends bubblewrap socat',
-        'apt-get update',
-        'apt-get install -y --no-install-recommends bubblewrap socat',
+        'apt-get -o DPkg::Lock::Timeout=120 install -y --no-install-recommends bubblewrap socat',
+        'apt-get -o DPkg::Lock::Timeout=120 update',
+        'apt-get -o DPkg::Lock::Timeout=120 install -y --no-install-recommends bubblewrap socat',
       ]);
       // A computer whose own /etc/apparmor.d already lets /usr/bin/bwrap make user namespaces skips it.
       if (lines.length > 3) {
@@ -384,6 +437,18 @@ describe('the administrator’s script', () => {
       // Nothing to install: nothing runs.
       const none = await runShellScript('/bin/sh', [], ADMIN_SCRIPT, { env: { ...env, HARNESS_RELAY_PACKAGES: '', HARNESS_RELAY_APPARMOR: '' }, timeoutMs: 20_000 });
       expect(none.code).toBe(0);
+      // A command it runs that is not there (127): not taken for pkexec's own 127, a password not given.
+      const missing = await runShellScript('/bin/sh', [], ADMIN_SCRIPT, { env: { ...env, PATH: bin, HARNESS_RELAY_PM: 'zypper', HARNESS_RELAY_APPARMOR: '' }, timeoutMs: 20_000 });
+      expect(missing.code).toBe(SCRIPT_CANNOT_RUN);
+      // A package manager's own failure keeps its code, and stops the script there: no profile after it.
+      tool('apt-get', `echo "apt-get $*" >> "$LOG"\nexit 100`);
+      writeFileSync(log, '');
+      const failed = await runShellScript('/bin/sh', [], ADMIN_SCRIPT, { env, timeoutMs: 20_000 });
+      expect(failed.code).toBe(100);
+      expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([
+        'apt-get -o DPkg::Lock::Timeout=120 install -y --no-install-recommends bubblewrap socat',
+        'apt-get -o DPkg::Lock::Timeout=120 update',
+      ]);
     },
     slow(30_000),
   );

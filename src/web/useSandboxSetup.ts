@@ -9,13 +9,14 @@ import { setupRunning } from './sandboxSetup';
  */
 export function useSandboxSetup(enabled = true) {
   const [view, setView] = useState<SandboxSetupView>();
+  // Set on each mount: StrictMode mounts twice, and an answer after the last unmount is dropped.
   const alive = useRef(true);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    alive.current = true;
+    return () => {
       alive.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   const refresh = useCallback(async () => {
     try {

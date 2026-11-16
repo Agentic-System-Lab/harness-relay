@@ -223,7 +223,7 @@ Harness Relay 會檢查上面這些沙箱在這台電腦上需要的東西，能
 | --- | --- | --- |
 | Linux | `bubblewrap`、`socat`、`ripgrep`、`slirp4netns`、`iproute2`（`ip`）、`iptables`（`iptables`、`ip6tables`、`iptables-restore`、`ip6tables-restore`）與 `util-linux`（`unshare`、`nsenter`）的程式，在系統資料夾與 PATH 上找 | 用 apt（找不到套件時才更新套件清單）、dnf（`iproute`、`iptables-nft`）、pacman 或 zypper，以 root、透過 `sudo -n`，或在桌面環境中透過 `pkexec`（只跳出一次密碼視窗）；都不行時，給出要在終端機執行的指令 |
 | Ubuntu 23.10 以上 | `kernel.apparmor_restrict_unprivileged_userns` 為 `1`、有 `apparmor_parser`，而且 `/etc/apparmor.d` 裡沒有寫著 `/usr/bin/bwrap` 與 `userns` 的設定檔 | 在同一次執行中：寫入 `/etc/apparmor.d/harness-relay-bwrap`（就是[在 Linux 上](#在-linux-上)那份設定檔，換個自己的名字），用 `apparmor_parser -r` 載入；屆時已經有這樣的設定檔就不寫 |
-| macOS 與 Linux 上的桌面 app | 登入 shell 的 PATH 上，沒有給 [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱)主程序用的 Node.js 22.12 以上 | Node.js 官方版本，核對過檢查碼，放進資料資料夾的 `clis/sandbox-node`（agent 不能寫入的地方），主程序就用它執行；不需要系統管理員權限 |
+| macOS 與 Linux 上的桌面 app | 登入 shell 的 PATH 上，沒有給 [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱)主控行程用的 Node.js 22.12 以上 | Node.js 官方版本，核對過檢查碼，放進資料資料夾的 `clis/sandbox-node`（agent 不能寫入的地方），主控行程就用它執行；不需要系統管理員權限 |
 | Windows | 沒有 | — |
 
 套件與設定檔在同一次、以系統管理員權限執行的固定腳本中安裝，要裝的東西放在它的環境變數裡。它不會替所有程式解除 user namespace 的限制（`kernel.apparmor_restrict_unprivileged_userns=0`），而 Ubuntu 上 Copilot 的沙箱可能仍然需要這樣做（見[在 Linux 上](#在-linux-上)）。已在 Linux 的容器中以 root 與透過 `sudo` 試過（套件，Ubuntu 24.04），也在 macOS 上試過桌面 app 的 Node.js；pkexec 的密碼視窗與 AppArmor 設定檔沒有在桌面環境中試過。

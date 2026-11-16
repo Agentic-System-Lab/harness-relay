@@ -321,16 +321,22 @@ export function findProgram(name: string, dirs: readonly string[]): string | und
 
 /**
  * The programs sandbox-runtime needs, as this server finds them: in the system's folders first, then
- * on the server's own PATH (the absolute folders on it). Never on the agent's PATH.
+ * on the server's own PATH (the absolute folders on it). Never on the agent's PATH. In the desktop app
+ * (`electron`), whose runtime cannot run the host, a Node.js for it found there, else the one Settings
+ * put in the data folder (`sandboxNode`), else none (null).
  */
-export function relaySandboxTools(platform: NodeJS.Platform = process.platform, path = process.env.PATH ?? ''): RelaySandboxTools {
-  const dirs = [...SYSTEM_PATH, ...path.split(delimiter).filter((d) => isAbsolute(d))];
+export function relaySandboxTools(
+  platform: NodeJS.Platform = process.platform,
+  path = process.env.PATH ?? '',
+  o: { electron?: boolean; dataDir?: string; systemDirs?: readonly string[] } = {},
+): RelaySandboxTools {
+  const dirs = [...(o.systemDirs ?? SYSTEM_PATH), ...path.split(delimiter).filter((d) => isAbsolute(d))];
   const find = (name: string) => findProgram(name, dirs);
   return {
     sh: find('sh') ?? '/bin/sh',
     bash: find('bash') ?? '/bin/bash',
     ...(platform === 'linux' ? { bwrap: find('bwrap'), socat: find('socat'), rg: find('rg') } : {}),
-    ...(process.versions.electron ? { node: hostNodeOnPath(find) ?? sandboxNode() } : {}),
+    ...((o.electron ?? Boolean(process.versions.electron)) ? { node: hostNodeOnPath(find) ?? sandboxNode(o.dataDir) } : {}),
   };
 }
 

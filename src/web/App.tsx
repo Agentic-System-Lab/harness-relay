@@ -404,8 +404,9 @@ function RelayApp() {
   const sandbox = useSandboxSetup(route.page === 'new' && !sandboxAsked && !sandboxClosed);
   const [sandboxOpen, setSandboxOpen] = useState(false);
   useEffect(() => {
-    if (route.page === 'new' && !sandboxOpen && !tourOpen && !offer && dialogs === 0 && askOnNewChat(sandbox.view, sandboxAsked || sandboxClosed)) setSandboxOpen(true);
-  }, [route.page, sandbox.view, sandboxAsked, sandboxClosed, sandboxOpen, tourOpen, offer, dialogs]);
+    // Not over the tour, another dialog, or what the user is typing or recording (it would take their keys).
+    if (route.page === 'new' && !sandboxOpen && !tourOpen && !offer && dialogs === 0 && !typing && !held && askOnNewChat(sandbox.view, sandboxAsked || sandboxClosed)) setSandboxOpen(true);
+  }, [route.page, sandbox.view, sandboxAsked, sandboxClosed, sandboxOpen, tourOpen, offer, dialogs, typing, held]);
 
   return (
     <div className={`app ${sidebarOpen ? 'sidebar-open' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}>
@@ -487,7 +488,12 @@ function RelayApp() {
         </Deferred>
       )}
       {sandboxOpen && sandbox.view && (
-        <Deferred onClose={() => setSandboxOpen(false)}>
+        <Deferred
+          onClose={() => {
+            setSandboxClosed(true);
+            setSandboxOpen(false);
+          }}
+        >
           <SandboxSetupDialog
             view={sandbox.view}
             onView={sandbox.setView}

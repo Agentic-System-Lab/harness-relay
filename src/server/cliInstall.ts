@@ -40,8 +40,8 @@ import { BREW_DIRS, findOnPath } from './voice';
  *   folder is beside its Node, and stays there: its npm installs the CLI, and Codex's and Copilot's
  *   programs, Node scripts npm links, run on that Node (`posixLaunch` in `process.ts`, and on Windows
  *   `windowsLaunch`, start a Node script with the Node beside it). The open agents' still take an npm
- *   on the PATH: below full access they run in Harness Relay's own sandbox, which needs a Node.js
- *   there anyway;
+ *   on the PATH: Cline's and Pi's programs are Node scripts too, which Harness Relay's own sandbox
+ *   starts as they are, on the PATH's Node;
  * - the maker's own installer script, downloaded with curl and run with the folder as its home (HOME,
  *   the XDG folders, and on Windows USERPROFILE, LOCALAPPDATA and APPDATA), the program's folder put
  *   on its PATH so that it adds nothing to the user's, and its own variable or flag for where the
@@ -1059,16 +1059,19 @@ export class CliInstaller {
     const label = PROVIDER_LABEL[p];
     if (recipe.method === 'npm') {
       let npm = npmLaunch(this.host.env, this.host.platform, this.host.isFile);
+      // The folder of the Node npm runs on: the PATH's (the system's paths), or the one in the CLI's own folder (this computer's).
+      let nodeDir = npm && (this.host.platform === 'win32' ? win32 : posix).dirname(npm.bin);
       if (!npm) {
         if (!recipe.withNode) throw new InstallError(() => t().cliInstallBlocked(label, 'npm'));
         npm = await this.installNode(job, dir, base, label);
+        nodeDir = dirname(npm.bin);
       }
       // Its cache (and the logs it writes there) in the folder, not the user's `~/.npm`.
       const cache = join(dir, INSTALL_CACHE, 'npm');
       const args = [...npm.args, 'install', '--global', '--prefix', dir, '--cache', cache, '--no-audit', '--no-fund', '--no-update-notifier', recipe.package];
       // npm's folder first on the PATH: the Node beside it runs npm's script (`#!/usr/bin/env node`),
       // and the packages' install scripts, also when that folder is not on the PATH (Homebrew's).
-      const env = pathFirst(base, (this.host.platform === 'win32' ? win32 : posix).dirname(npm.bin), this.host.platform);
+      const env = pathFirst(base, nodeDir!, this.host.platform);
       await this.step(job, `npm install -g --prefix ${dir} ${recipe.package}`, { bin: npm.bin, args, env, cwd: dir });
       return;
     }

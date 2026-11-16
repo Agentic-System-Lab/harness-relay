@@ -1549,12 +1549,16 @@ export interface SandboxNeedView {
 }
 
 export interface SandboxSetupView {
+  /** The server's system (`process.platform`): on Windows nothing is ever missing, as nothing Harness Relay installs helps there. */
+  platform: string;
   /** What is missing; empty when the sandboxes have everything they need here (always on Windows). */
   needs: SandboxNeedView[];
   /** How an install gets administrator rights for `packages` and `apparmor`: as root, sudo without a password, or pkexec (the desktop's password prompt). */
   admin?: 'root' | 'sudo' | 'pkexec';
   /** The latest install since the server started, while it runs and after it ended. */
   job?: CliInstallJobView;
+  /** While it runs: whether it can be stopped (not once the system's package manager runs as administrator). */
+  cancellable?: boolean;
 }
 
 /** How long one of a plan's limits runs before it starts over, when it is one of the usual spans. */

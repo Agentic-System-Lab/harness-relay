@@ -898,8 +898,8 @@ describe('CliInstaller', () => {
     expect(v.job?.state).toBe('failed');
     expect(calls).toHaveLength(3);
     expect(v.job?.log).toContain('libatomic.so.1');
-    expect(withLang('en', () => clis.view('codex').job?.error)).toContain("Node.js's Linux builds need libatomic (the libatomic1 package on Debian and Ubuntu");
-    expect(withLang('zh-TW', () => clis.view('codex').job?.error)).toContain('需要 libatomic');
+    expect(withLang('en', () => clis.view('codex').job?.error)).toContain("Node.js's Linux builds need glibc 2.28 or later and libatomic (the libatomic1 package on Debian and Ubuntu");
+    expect(withLang('zh-TW', () => clis.view('codex').job?.error)).toContain('需要 glibc 2.28 以上與 libatomic');
     expect(existsSync(clis.folder('codex'))).toBe(false);
     // Elsewhere, without the word about Linux.
     const mac = installer({ platform: 'darwin', tools: ['/fake/bin/curl', '/fake/bin/tar'], env: { PATH: '/fake/bin' }, nodeBuild: () => fakeBuild(), onRun: (s) => (s.args[0] === '--version' ? result(1) : fakeTar('darwin')(s)) });

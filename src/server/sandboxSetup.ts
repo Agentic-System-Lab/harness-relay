@@ -2,7 +2,7 @@ import { accessSync, constants, mkdirSync, readdirSync, readFileSync, rmSync, st
 import { rm } from 'node:fs/promises';
 import { join, posix } from 'node:path';
 import type { SandboxNeedView, SandboxSetupBlock, SandboxSetupView, SandboxUser } from '../shared/types';
-import { INSTALL_CACHE, InstallError, InstallJob, installerEnv, nodeBuildFor, nodeTools, putNode, runStep, type CliInstallHost } from './cliInstall';
+import { INSTALL_CACHE, InstallError, InstallJob, installerEnv, nodeBuildFor, nodeTools, putNode, runStep, type CliInstallHost, type NodeBuild } from './cliInstall';
 import { HttpError } from './errors';
 import { t } from './i18n';
 import { runProcess, runShellScript, runSync } from './process';
@@ -90,37 +90,52 @@ export const APPARMOR_PROFILE = [
 /** Whether an AppArmor profile's text lets `/usr/bin/bwrap` make user namespaces (Claude Code's docs' `bwrap`, or Harness Relay's). */
 export const letsBwrap = (text: string) => /\/usr\/bin\/bwrap\b/.test(text) && /^\s*userns\b/m.test(text);
 
+/** The exit code `ADMIN_SCRIPT` gives for its own 126 or 127 (a command it runs that cannot run, or is not there), which pkexec keeps for its prompt. */
+export const SCRIPT_CANNOT_RUN = 125;
+
 /**
  * What runs with administrator rights, fixed text: the packages (`HARNESS_RELAY_PACKAGES`, with the
- * package manager `HARNESS_RELAY_PM`; apt's lists updated only when a package cannot be found), then
- * the AppArmor profile (`HARNESS_RELAY_APPARMOR` into `HARNESS_RELAY_APPARMOR_FILE`, loaded with
- * `apparmor_parser`) unless a profile for `/usr/bin/bwrap` that allows user namespaces is there by
- * then. Each command it runs is printed (`set -x`).
+ * package manager `HARNESS_RELAY_PM`; apt waits up to two minutes for its lock, which unattended
+ * upgrades may hold, and updates its lists only when a package cannot be found), then the AppArmor
+ * profile (`HARNESS_RELAY_APPARMOR` into `HARNESS_RELAY_APPARMOR_FILE`, loaded with `apparmor_parser`)
+ * unless a profile for `/usr/bin/bwrap` that allows user namespaces is there by then. Each command it
+ * runs is printed (`set -x`). It ends with its body's exit code, but `SCRIPT_CANNOT_RUN` for 126 and
+ * 127, which pkexec gives when its prompt was dismissed or not allowed.
  */
 export const ADMIN_SCRIPT = [
-  'set -eu',
-  'set -x',
-  'if [ -n "$HARNESS_RELAY_PACKAGES" ]; then',
-  '  case "$HARNESS_RELAY_PM" in',
-  '    apt)',
-  '      export DEBIAN_FRONTEND=noninteractive',
-  '      apt-get install -y --no-install-recommends $HARNESS_RELAY_PACKAGES || { apt-get update && apt-get install -y --no-install-recommends $HARNESS_RELAY_PACKAGES; } ;;',
-  '    dnf) dnf install -y $HARNESS_RELAY_PACKAGES ;;',
-  '    pacman) pacman -S --needed --noconfirm $HARNESS_RELAY_PACKAGES ;;',
-  '    zypper) zypper --non-interactive install $HARNESS_RELAY_PACKAGES ;;',
-  '    *) echo "No package manager Harness Relay knows" >&2; exit 2 ;;',
-  '  esac',
-  'fi',
-  'if [ -n "$HARNESS_RELAY_APPARMOR" ]; then',
-  '  found=',
-  '  for f in /etc/apparmor.d/*; do',
-  '    if [ -f "$f" ] && grep -q /usr/bin/bwrap "$f" && grep -Eq "^[[:space:]]*userns" "$f"; then found=1; fi',
-  '  done',
-  '  if [ -z "$found" ]; then',
-  '    printf "%s\\n" "$HARNESS_RELAY_APPARMOR" > "$HARNESS_RELAY_APPARMOR_FILE"',
-  '    apparmor_parser -r "$HARNESS_RELAY_APPARMOR_FILE"',
+  'install() {',
+  '  set -eu',
+  '  set -x',
+  '  if [ -n "$HARNESS_RELAY_PACKAGES" ]; then',
+  '    case "$HARNESS_RELAY_PM" in',
+  '      apt)',
+  '        export DEBIAN_FRONTEND=noninteractive',
+  // An `if`, not `a || { b && c; }`, in which a failing `b` would not stop the script (`-e` is ignored there).
+  '        if ! apt-get -o DPkg::Lock::Timeout=120 install -y --no-install-recommends $HARNESS_RELAY_PACKAGES; then',
+  '          apt-get -o DPkg::Lock::Timeout=120 update',
+  '          apt-get -o DPkg::Lock::Timeout=120 install -y --no-install-recommends $HARNESS_RELAY_PACKAGES',
+  '        fi ;;',
+  '      dnf) dnf install -y $HARNESS_RELAY_PACKAGES ;;',
+  '      pacman) pacman -S --needed --noconfirm $HARNESS_RELAY_PACKAGES ;;',
+  '      zypper) zypper --non-interactive install $HARNESS_RELAY_PACKAGES ;;',
+  '      *) echo "No package manager Harness Relay knows" >&2; exit 2 ;;',
+  '    esac',
   '  fi',
-  'fi',
+  '  if [ -n "$HARNESS_RELAY_APPARMOR" ]; then',
+  '    found=',
+  '    for f in /etc/apparmor.d/*; do',
+  '      if [ -f "$f" ] && grep -q /usr/bin/bwrap "$f" && grep -Eq "^[[:space:]]*userns" "$f"; then found=1; fi',
+  '    done',
+  '    if [ -z "$found" ]; then',
+  '      printf "%s\\n" "$HARNESS_RELAY_APPARMOR" > "$HARNESS_RELAY_APPARMOR_FILE"',
+  '      apparmor_parser -r "$HARNESS_RELAY_APPARMOR_FILE"',
+  '    fi',
+  '  fi',
+  '}',
+  '( install )',
+  'code=$?',
+  'case "$code" in 126|127) exit 125 ;; esac',
+  'exit "$code"',
 ].join('\n');
 
 /** Package names as package managers spell them: nothing a shell would read otherwise (the script splits the list on spaces). */
@@ -182,6 +197,8 @@ const SUDO_CHECK_MS = 60_000;
 export class SandboxSetup {
   private host: SandboxSetupHost;
   private job?: InstallJob;
+  /** What the setup under way does: the administrator's step cannot be stopped safely (`cancel`). */
+  private stage?: 'node' | 'admin';
   private sudoChecked?: { sudo: string; at: number; ok: boolean };
 
   constructor(
@@ -222,7 +239,14 @@ export class SandboxSetup {
   view(): SandboxSetupView {
     const needs = this.needs();
     const admin = needs.some((n) => n.kind !== 'node') ? this.adminWay() : undefined;
-    return { needs, ...(admin ? { admin } : {}), ...(this.job ? { job: this.job.view() } : {}) };
+    const running = this.job?.state === 'running';
+    return {
+      platform: this.host.platform,
+      needs,
+      ...(admin ? { admin } : {}),
+      ...(this.job ? { job: this.job.view() } : {}),
+      ...(running ? { cancellable: this.stage !== 'admin' } : {}),
+    };
   }
 
   /** Whether the setup is under way (the desktop app's update waits for it, as for the CLIs' installs). */
@@ -241,9 +265,14 @@ export class SandboxSetup {
     return this.view();
   }
 
-  /** Stops the setup under way (a password prompt waiting included). */
+  /**
+   * Stops the setup under way, while it downloads Node.js. Not once the administrator's step runs: a
+   * package manager stopped halfway leaves its database to repair (dpkg "was interrupted"), and
+   * through pkexec it runs as root, out of reach of a signal; pkexec's own prompt has its Cancel.
+   */
   cancel(): SandboxSetupView {
     if (this.job?.state !== 'running') throw new HttpError(409, t().sandboxSetupNone);
+    if (this.stage === 'admin') throw new HttpError(409, t().sandboxSetupCannotStop);
     this.job.abort.abort();
     return this.view();
   }
@@ -307,7 +336,7 @@ export class SandboxSetup {
         kind: 'node',
         items: build ? [build.version] : [],
         for: ['open'],
-        command: build ? `curl -fsSLO ${build.url}; mkdir -p ${this.host.nodeDir}; tar -xf ${build.file} -C ${this.host.nodeDir} --strip-components 1` : '',
+        command: build ? nodeCommand(build, this.host.nodeDir, platform) : '',
         ...(blocked ? { blocked } : {}),
       });
     }
@@ -334,9 +363,15 @@ export class SandboxSetup {
   private async runJob(job: InstallJob, needs: SandboxNeedView[]): Promise<void> {
     const base = installerEnv(this.host.env);
     try {
-      if (needs.some((n) => n.kind === 'node')) await this.installNode(job, base);
+      if (needs.some((n) => n.kind === 'node')) {
+        this.stage = 'node';
+        await this.installNode(job, base);
+      }
       const admin = needs.filter((n) => n.kind === 'packages' || n.kind === 'apparmor');
-      if (admin.length) await this.runAdmin(job, admin, base);
+      if (admin.length && !job.abort.signal.aborted) {
+        this.stage = 'admin';
+        await this.runAdmin(job, admin, base);
+      }
       if (job.abort.signal.aborted) throw new Error('aborted');
       // What it was to install, checked again.
       const left = this.needs().filter((n) => needs.some((m) => m.kind === n.kind));
@@ -349,6 +384,7 @@ export class SandboxSetup {
       if (job.abort.signal.aborted) job.finish('cancelled', () => t().cliInstallCancelled);
       else job.finish('failed', err instanceof InstallError ? err.render : () => (err as Error).message);
     } finally {
+      this.stage = undefined;
       this.hooks.changed?.();
     }
   }
@@ -404,6 +440,21 @@ export class SandboxSetup {
       throw err;
     }
   }
+}
+
+/**
+ * Putting Node.js's build into `dir` by hand, as the setup does: downloaded, its checksum checked
+ * (`shasum` on macOS, `sha256sum` on Linux), Node and npm taken out of it. The folder quoted: the
+ * desktop app's data folder has a space in it.
+ */
+export function nodeCommand(build: NodeBuild, dir: string, platform: NodeJS.Platform): string {
+  const check = platform === 'darwin' ? 'shasum -a 256 -c -' : 'sha256sum -c -';
+  return [
+    `curl -fsSLO ${build.url}`,
+    `echo "${build.sha256}  ${build.file}" | ${check}`,
+    `mkdir -p "${dir}"`,
+    `tar -xf ${build.file} -C "${dir}" --strip-components 1 ${build.members.join(' ')}`,
+  ].join(' && ');
 }
 
 /** The users of what is missing, each once, in a fixed order. */

@@ -581,20 +581,23 @@ const zhTW = {
           ? `在 Windows 上安裝 ${cli} 需要 Git for Windows 附的 bash（Git Bash），但找不到。請安裝 Git for Windows（https://git-scm.com/download/win；MinGit 沒有附 bash）。`
           : block === 'powershell'
             ? `安裝 ${cli} 需要 Windows PowerShell，但找不到。`
-            : `安裝 ${cli} 需要 ${block}，但在 PATH 上找不到。`,
+            : block === 'tar'
+              ? `安裝 ${cli} 需要 tar 來解開 Node.js 的下載檔（在 Windows 上是 System32 裡的那個），但找不到。`
+              : `安裝 ${cli} 需要 ${block}，但在 PATH 上找不到。`,
   cliInstallFailed: (command: string, code: number | null) => `${command} 失敗（exit ${code}）。它的輸出在下方。`,
   cliInstallTimedOut: (command: string) => `${command} 執行太久，已經停止。`,
   cliInstallNoProgram: (path: string) => `安裝程式跑完了，卻沒有留下它的程式 ${path}。`,
   cliInstallDoesNotRun: (detail: string) => `裝好的程式無法執行（--version）：${detail}`,
   sandboxSetupRunning: '沙箱需要的東西正在安裝中，請等它完成或先取消。',
   sandboxSetupNone: '目前沒有進行中的沙箱安裝',
+  sandboxSetupCannotStop: '系統的套件管理工具正以系統管理員身分安裝中，中途停止可能讓它的資料庫需要修復，所以無法取消；請等它完成。',
   sandboxSetupNothing: '這台電腦上沒有缺少、而且 Harness Relay 能安裝的沙箱元件。',
   sandboxSetupNoAdmin: '這裡沒辦法取得系統管理員權限（不是 root、sudo 需要密碼、也沒有桌面環境能顯示 pkexec 的密碼視窗），所以沒有安裝套件：請在終端機執行下方的指令。',
   sandboxSetupAdminRefused: '沒有輸入系統管理員密碼（或不允許、或無法顯示密碼視窗），所以什麼都沒安裝。可以再試一次，或在終端機執行下方的指令。',
   sandboxSetupStillMissing: (items: string) => `安裝跑完了，但還是缺少：${items}。輸出在下方。`,
   cliNodeDoesNotRun: (linux: boolean): string =>
     linux
-      ? '放進資料夾的 Node.js 在這台電腦上無法執行（輸出在下方）。Node.js 的 Linux 版本需要 libatomic（Debian 與 Ubuntu 的 libatomic1 套件，Fedora 的 libatomic）：請安裝它，或自行安裝附 npm 的 Node.js，再試一次。'
+      ? '放進資料夾的 Node.js 在這台電腦上無法執行（輸出在下方）。Node.js 的 Linux 版本需要 glibc 2.28 以上與 libatomic（Debian 與 Ubuntu 的 libatomic1 套件，Fedora 的 libatomic）：缺 libatomic 的話請安裝它，或自行安裝附 npm 的 Node.js，再試一次。'
       : '放進資料夾的 Node.js 在這台電腦上無法執行（輸出在下方）：請自行安裝附 npm 的 Node.js，再試一次。',
   cliNodeChecksum: (url: string, expected: string, actual: string) =>
     `下載的 Node.js（${url}）和 Harness Relay 記下的檢查碼不符，所以沒有使用它：應為 SHA-256 ${expected}，實際是 ${actual}。`,
@@ -1176,20 +1179,23 @@ const en: ServerMessages = {
           ? `Installing ${cli} on Windows takes the bash that comes with Git for Windows (Git Bash), which was not found. Install Git for Windows (https://git-scm.com/download/win; MinGit has no bash).`
           : block === 'powershell'
             ? `Installing ${cli} takes Windows PowerShell, which was not found.`
-            : `Installing ${cli} takes ${block}, which is not on the PATH.`,
+            : block === 'tar'
+              ? `Installing ${cli} takes tar to unpack Node.js's download (on Windows, the one in System32), which was not found.`
+              : `Installing ${cli} takes ${block}, which is not on the PATH.`,
   cliInstallFailed: (command, code) => `${command} failed (exit ${code}). Its output is below.`,
   cliInstallTimedOut: (command) => `${command} took too long and was stopped.`,
   cliInstallNoProgram: (path) => `The installer finished, but its program ${path} is not there.`,
   cliInstallDoesNotRun: (detail) => `The program installed does not run (--version): ${detail}`,
   sandboxSetupRunning: "What the sandboxes need is being installed. Wait for it to finish, or cancel it first.",
   sandboxSetupNone: 'No install of what the sandboxes need is running',
+  sandboxSetupCannotStop: "The system's package manager is installing as administrator, and stopping it halfway could leave its database to repair, so it cannot be cancelled: wait for it to finish.",
   sandboxSetupNothing: 'Nothing the sandboxes need is missing here that Harness Relay can install.',
   sandboxSetupNoAdmin: "There is no way to get administrator rights here (not root, sudo asks for a password, and no desktop session to show pkexec's password prompt), so no package was installed: run the command below in a terminal.",
   sandboxSetupAdminRefused: 'The administrator password was not given (or not allowed, or no prompt could be shown), so nothing was installed. Try again, or run the command below in a terminal.',
   sandboxSetupStillMissing: (items) => `The install ran, but this is still missing: ${items}. Its output is below.`,
   cliNodeDoesNotRun: (linux) =>
     linux
-      ? "The Node.js put into the folder does not run on this computer (its output is below). Node.js's Linux builds need libatomic (the libatomic1 package on Debian and Ubuntu, libatomic on Fedora): install it, or Node.js with npm, then try again."
+      ? "The Node.js put into the folder does not run on this computer (its output is below). Node.js's Linux builds need glibc 2.28 or later and libatomic (the libatomic1 package on Debian and Ubuntu, libatomic on Fedora): install libatomic if that is what is missing, or Node.js with npm, then try again."
       : 'The Node.js put into the folder does not run on this computer (its output is below): install Node.js with npm, then try again.',
   cliNodeChecksum: (url, expected, actual) =>
     `The Node.js downloaded (${url}) does not match the checksum Harness Relay has for it, so it was not used: SHA-256 ${expected} expected, ${actual} downloaded.`,

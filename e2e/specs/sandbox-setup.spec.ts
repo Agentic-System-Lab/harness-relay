@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test';
 import type { SandboxSetupView } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { homePage } from '../support/app';
+import { DEV_WEB_DIR } from '../support/paths';
 
 /*
  * What the agents' sandboxes lack, asked as New chat opens, and Settings → Sandboxes. What a computer
@@ -21,7 +22,7 @@ async function answer(page: Page, views: SandboxSetupView[], installed: SandboxS
     asked.push(`${req.method()} ${new URL(req.url()).pathname}`);
     if (req.method() === 'POST') {
       after = installed;
-      return route.fulfill({ json: { needs: views[0]!.needs, job: { state: 'running', startedAt: Date.now(), log: '$ sudo apt-get install bubblewrap socat\n' } } });
+      return route.fulfill({ json: { platform: 'linux', needs: views[0]!.needs, job: { state: 'running', startedAt: Date.now(), log: '$ sudo apt-get install bubblewrap socat\n' } } });
     }
     const view = after ?? views[Math.min(i++, views.length - 1)]!;
     return route.fulfill({ json: view });
@@ -36,7 +37,7 @@ test.describe('what the sandboxes need', () => {
   test.use({ sandboxAsk: true });
 
   test('New chat asks to install it, strongly recommended; Not now leaves it to Settings → Sandboxes', async ({ page }) => {
-    await answer(page, [{ needs: [PACKAGES], admin: 'pkexec' }]);
+    await answer(page, [{ platform: 'linux', needs: [PACKAGES], admin: 'pkexec' }]);
     await newChat(page);
     const d = dialog(page);
     await expect(d).toBeVisible();
@@ -67,7 +68,7 @@ test.describe('what the sandboxes need', () => {
   });
 
   test('installing from the dialog shows its output, then that the sandboxes have everything', async ({ page }) => {
-    const asked = await answer(page, [{ needs: [PACKAGES], admin: 'sudo' }], { needs: [], job: { state: 'success', startedAt: 1, finishedAt: 2, log: '$ sudo apt-get install bubblewrap socat\nok\n' } });
+    const asked = await answer(page, [{ platform: 'linux', needs: [PACKAGES], admin: 'sudo' }], { platform: 'linux', needs: [], job: { state: 'success', startedAt: 1, finishedAt: 2, log: '$ sudo apt-get install bubblewrap socat\nok\n' } });
     await newChat(page);
     const d = dialog(page);
     await d.getByRole('button', { name: 'Install (strongly recommended)' }).click();
@@ -82,7 +83,7 @@ test.describe('what the sandboxes need', () => {
   });
 
   test('what cannot be installed here comes with the command to run in a terminal, and no Install', async ({ page }) => {
-    await answer(page, [{ needs: [{ ...PACKAGES, blocked: 'admin' }] }]);
+    await answer(page, [{ platform: 'linux', needs: [{ ...PACKAGES, blocked: 'admin' }] }]);
     await newChat(page);
     const d = dialog(page);
     await expect(d).toContainText('There is no way to get administrator rights here');
@@ -97,11 +98,28 @@ test.describe('what the sandboxes need', () => {
   });
 
   test('with nothing missing, New chat asks nothing, and Settings says the sandboxes have everything', async ({ page }) => {
-    await answer(page, [{ needs: [] }]);
+    await answer(page, [{ platform: 'linux', needs: [] }]);
     await newChat(page);
     await expect(page.getByRole('heading', { name: 'New chat' })).toBeVisible();
     await expect(dialog(page)).toHaveCount(0);
     await page.goto(page.url().replace(/#.*$/, '#/settings/sandboxes'));
     await expect(page.locator('#settings-sandboxes')).toContainText('The sandboxes have everything they need on this computer.');
+  });
+});
+
+test.describe('what the sandboxes need, in a development build', () => {
+  // React's StrictMode runs each effect twice there: the view must still arrive.
+  test.use({ sandboxAsk: true, serverEnv: { RELAY_WEB_DIR: DEV_WEB_DIR } });
+
+  test('New chat still asks, and Settings → Sandboxes still lists it', async ({ page }) => {
+    await answer(page, [{ platform: 'linux', needs: [PACKAGES], admin: 'sudo' }]);
+    await newChat(page);
+    const d = dialog(page);
+    await expect(d).toContainText('Linux packages: bubblewrap, socat');
+    await d.getByRole('button', { name: 'Not now' }).click();
+    await page.goto(page.url().replace(/#.*$/, '#/settings/sandboxes'));
+    const card = page.locator('#settings-sandboxes');
+    await expect(card).toContainText('Linux packages: bubblewrap, socat');
+    await expect(card.getByRole('button', { name: 'Install', exact: true })).toBeVisible();
   });
 });

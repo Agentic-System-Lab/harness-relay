@@ -57,16 +57,18 @@ export function SandboxSetupBody({ view, onView }: { view: SandboxSetupView | un
           {view.admin && view.needs.some((n) => n.kind !== 'node' && !n.blocked) && !running && <p className="muted small">{s.admin[view.admin]}</p>}
         </>
       ) : (
-        <p className="muted small">{job?.state === 'success' ? s.done : s.allSet}</p>
+        <p className="muted small">{job?.state === 'success' ? s.done : view.platform === 'win32' ? s.windows : s.allSet}</p>
       )}
       {running && job && (
         <div className="login-panel running" aria-live="polite">
           <div className="login-state">
             <span className="pulse" />
             <strong>{s.installing}</strong>
-            <button className="ghost small-button" onClick={() => void cancel()}>
-              {s.cancel}
-            </button>
+            {view.cancellable && (
+              <button className="ghost small-button" onClick={() => void cancel()}>
+                {s.cancel}
+              </button>
+            )}
           </div>
           <pre className="cli-install-log">{logTail(job.log) || s.noOutput}</pre>
         </div>
@@ -87,7 +89,7 @@ export function SandboxSetupBody({ view, onView }: { view: SandboxSetupView | un
       {!running &&
         manual.map((n) => (
           <div key={n.kind} className="sandbox-by-hand">
-            <p className="muted small">{s.byHand}</p>
+            <p className="muted small">{n.blocked === 'packageManager' ? s.packagesToInstall : s.byHand}</p>
             <pre className="cli-install-log">{n.command}</pre>
             <CopyButton text={() => n.command} className="ghost small-button" />
           </div>
