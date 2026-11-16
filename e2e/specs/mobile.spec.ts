@@ -388,6 +388,49 @@ test.describe('on a phone', () => {
     expect(overflow).toBeLessThanOrEqual(1);
   });
 
+  test('scrolled up, the arrow to the end sits in the middle above the message box, and a tap takes the chat there', async ({ page, relay }) => {
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    await tapSend(page, 'Tell me everything e2e:long');
+    await finishedReply(page, 'Claude');
+    const list = page.locator('.messages');
+    const fromEnd = () => list.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
+    const toEnd = page.getByRole('button', { name: 'Scroll to the latest message' });
+    await expect.poll(fromEnd).toBeLessThanOrEqual(1);
+    await expect(toEnd).toHaveCount(0);
+
+    // As a finger's scroll up does (Playwright's touchscreen only taps).
+    await list.evaluate((el) => el.scrollBy(0, -800));
+    await expect(toEnd).toBeVisible();
+    // At rest: it fades in from 6px lower.
+    await toEnd.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+    const [arrow, box] = [(await toEnd.boundingBox())!, (await page.locator('.composer').boundingBox())!];
+    expect(Math.abs(arrow.x + arrow.width / 2 - (box.x + box.width / 2))).toBeLessThanOrEqual(1);
+    expect(arrow.y + arrow.height).toBeLessThan(box.y);
+    // A finger's target of 48px around the 36px circle it shows: 5px outside the circle is still the button.
+    expect(arrow.width).toBeGreaterThanOrEqual(48);
+    expect(await toEnd.evaluate((el) => {
+      const circle = getComputedStyle(el, '::before');
+      return parseFloat(circle.width) + parseFloat(circle.borderLeftWidth) + parseFloat(circle.borderRightWidth);
+    })).toBe(36);
+    expect(await toEnd.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const [x, y] = [r.left + r.width / 2, r.top + r.height / 2];
+      return [[x - 23, y], [x + 23, y], [x, y - 23], [x, y + 23]].every(([px, py]) => el.contains(document.elementFromPoint(px!, py!)));
+    })).toBe(true);
+    // A tap leaves the keyboard as it was: shut, the message box does not take the focus…
+    await composer(page).blur();
+    await toEnd.tap();
+    await expect.poll(fromEnd).toBeLessThanOrEqual(1);
+    await expect(toEnd).toHaveCount(0);
+    await expect(composer(page)).not.toBeFocused();
+    // …and open, the message box keeps it.
+    await composer(page).focus();
+    await list.evaluate((el) => el.scrollBy(0, -800));
+    await toEnd.tap();
+    await expect.poll(fromEnd).toBeLessThanOrEqual(1);
+    await expect(composer(page)).toBeFocused();
+  });
+
   test("on a narrow phone, a template's editor and the team settings do not scroll sideways, and the add card lists every CLI", async ({ page, relay }) => {
     /** How far a scrolling box scrolls sideways. */
     const sideways = (box: string) => page.locator(box).evaluate((el) => el.scrollWidth - el.clientWidth);

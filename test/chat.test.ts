@@ -20,6 +20,7 @@ import {
   revisionOutcome,
   scrollSpot,
   segments,
+  showsToEnd,
   teamChanges,
   teamToEdit,
   teamTurns,
@@ -109,6 +110,41 @@ describe('following new output in the messages', () => {
   it('keeps following when shorter messages leave it at the new bottom', () => {
     // A reply folded away: the browser moved the list up to its new bottom.
     expect(followsAfterScroll(true, was(1400), at(1200, 1800))).toBe(true);
+  });
+
+  it('shows the button to the end once the reader scrolled up, however little', () => {
+    expect(showsToEnd(false, was(1000))).toBe(true);
+    expect(showsToEnd(false, was(1400 - BOTTOM_SLACK - 1))).toBe(true);
+    // Scrolled up, and more came in below while the reader reads.
+    expect(showsToEnd(false, was(1000, 2400))).toBe(true);
+  });
+
+  it('shows it when more came in under what the reader opened at the end', () => {
+    // Opening an activity row at the end stops following there; the row grew by 300px.
+    expect(showsToEnd(false, was(1400))).toBe(false);
+    expect(showsToEnd(false, was(1400, 2300))).toBe(true);
+  });
+
+  it('hides it at the end, and while the messages follow new output', () => {
+    expect(showsToEnd(false, was(1400 - BOTTOM_SLACK))).toBe(false);
+    expect(showsToEnd(false, was(1399.5))).toBe(false);
+    // A short conversation: nothing to scroll.
+    expect(showsToEnd(false, scrollSpot({ scrollTop: 0, scrollHeight: 600, clientHeight: 600 }))).toBe(false);
+    // Following, between more coming in and the list moving down to it.
+    expect(showsToEnd(true, was(1400, 2200))).toBe(false);
+    expect(showsToEnd(true, was(1400))).toBe(false);
+  });
+
+  it('hides it as soon as the reader scrolls down to the end, or near it while more comes in', () => {
+    // As ChatView decides on each scroll: whether it follows now, then whether the button shows.
+    const after = (following: boolean, from: number, to: ReturnType<typeof at>) =>
+      showsToEnd(followsAfterScroll(following, was(from), to), scrollSpot(to));
+    expect(after(false, 1000, at(1400))).toBe(false);
+    expect(after(false, 1000, at(1400, 2030))).toBe(false);
+    // Short of that, still scrolled up.
+    expect(after(false, 1000, at(1300))).toBe(true);
+    // A scroll up while following stops it, and the button shows.
+    expect(after(true, 1400, at(1380))).toBe(true);
   });
 });
 
