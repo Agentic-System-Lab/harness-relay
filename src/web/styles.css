@@ -3405,35 +3405,39 @@ video.chat-media {
 /* To the end of the messages, while they are scrolled up from it (ChatView): a round button in the
    middle above the message box and whatever is over it (the queue, an approval waiting), over the
    messages' last lines. Under the phone header's menu and the drawers; hidden while the @mention list
-   is open, which it would stand just above when something is over the box. */
+   is open, which it would stand just above when something is over the box. The button is a finger's
+   target of 48px, its own box (Chromium on macOS does not hit-test a pseudo-element beyond a button's
+   box), and draws the 36px circle inside it, 12px above the dock. */
 .to-end {
   position: absolute;
-  bottom: calc(100% + 12px);
+  bottom: calc(100% + 6px);
   left: 50%;
   translate: -50% 0;
   z-index: 2;
-  width: 36px;
-  height: 36px;
+  width: 48px;
+  height: 48px;
   padding: 0;
   display: grid;
   place-items: center;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: 50%;
-  background: var(--bg);
+  background: none;
   color: var(--text);
-  box-shadow: var(--shadow);
   animation: to-end-in 0.15s ease-out;
 }
 
-/* A finger's target of 48px around the 36px circle. */
 .to-end::before {
   content: '';
   position: absolute;
-  inset: -6px;
+  inset: 6px;
+  z-index: -1;
+  border: 1px solid var(--border);
   border-radius: 50%;
+  background: var(--bg);
+  box-shadow: var(--shadow);
 }
 
-.to-end:hover {
+.to-end:hover::before {
   background: var(--surface);
 }
 

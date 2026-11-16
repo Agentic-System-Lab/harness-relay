@@ -10,6 +10,9 @@ import { composer, finishedReply, openTeamChat, send } from '../support/app';
 const messages = (page: Page) => page.locator('.messages');
 const toEnd = (page: Page) => page.getByRole('button', { name: 'Scroll to the latest message' });
 
+/** Waits for the arrow to come to rest: it fades in from 6px lower. */
+const atRest = (page: Page) => toEnd(page).evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+
 /** How far the messages are from their end, in pixels. */
 const fromEnd = (page: Page) => messages(page).evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
 
@@ -41,6 +44,7 @@ test.describe('scrolling the chat', () => {
     await wheelUp(page, 600);
     await expect(toEnd(page)).toBeVisible();
     await expect(toEnd(page)).toHaveAttribute('title', 'Scroll to the latest message');
+    await atRest(page);
     // In the middle of the message box, above it, over the messages' last lines, its arrow in its middle.
     const [arrow, box, list, icon] = await Promise.all([
       toEnd(page).boundingBox(),
@@ -108,6 +112,7 @@ test.describe('scrolling the chat', () => {
 
     await wheelUp(page, 300);
     await expect(toEnd(page)).toBeVisible();
+    await atRest(page);
     const [arrow, above, box] = [(await toEnd(page).boundingBox())!, (await tray.boundingBox())!, (await page.locator('.composer').boundingBox())!];
     expect(arrow.y + arrow.height).toBeLessThan(above.y);
     expect(Math.abs(arrow.x + arrow.width / 2 - (box.x + box.width / 2))).toBeLessThanOrEqual(1);

@@ -401,14 +401,21 @@ test.describe('on a phone', () => {
     // As a finger's scroll up does (Playwright's touchscreen only taps).
     await list.evaluate((el) => el.scrollBy(0, -800));
     await expect(toEnd).toBeVisible();
+    // At rest: it fades in from 6px lower.
+    await toEnd.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
     const [arrow, box] = [(await toEnd.boundingBox())!, (await page.locator('.composer').boundingBox())!];
     expect(Math.abs(arrow.x + arrow.width / 2 - (box.x + box.width / 2))).toBeLessThanOrEqual(1);
     expect(arrow.y + arrow.height).toBeLessThan(box.y);
-    // A finger's target of 48px around the 36px circle: 5px outside it is still the button.
-    expect(arrow.width).toBeGreaterThanOrEqual(36);
+    // A finger's target of 48px around the 36px circle it shows: 5px outside the circle is still the button.
+    expect(arrow.width).toBeGreaterThanOrEqual(48);
+    expect(await toEnd.evaluate((el) => {
+      const circle = getComputedStyle(el, '::before');
+      return parseFloat(circle.width) + parseFloat(circle.borderLeftWidth) + parseFloat(circle.borderRightWidth);
+    })).toBe(36);
     expect(await toEnd.evaluate((el) => {
       const r = el.getBoundingClientRect();
-      return el === document.elementFromPoint(r.left - 5, r.top + r.height / 2) && el === document.elementFromPoint(r.left + r.width / 2, r.bottom + 5);
+      const [x, y] = [r.left + r.width / 2, r.top + r.height / 2];
+      return [[x - 23, y], [x + 23, y], [x, y - 23], [x, y + 23]].every(([px, py]) => el.contains(document.elementFromPoint(px!, py!)));
     })).toBe(true);
     // A tap leaves the keyboard as it was: shut, the message box does not take the focus…
     await composer(page).blur();
