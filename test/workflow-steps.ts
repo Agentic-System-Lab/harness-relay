@@ -31,3 +31,15 @@ export const releaseStep = (name: string): string => stepIn(releaseWorkflow(), n
 
 /** A step's `run:` script in the Pages workflow. */
 export const pagesStep = (name: string): string => stepIn(pagesWorkflow(), name);
+
+/** A workflow's jobs by their ids, in order, each as written: from its id to the next job's. */
+export function jobsIn(text: string): Map<string, string> {
+  const at = text.indexOf('\njobs:\n');
+  if (at < 0) throw new Error('no jobs');
+  const body = text.slice(at + '\njobs:\n'.length);
+  const starts = [...body.matchAll(/^ {2}([A-Za-z_][\w-]*):\n/gm)];
+  return new Map(starts.map((m, i) => [m[1]!, body.slice(m.index, starts[i + 1]?.index ?? body.length)]));
+}
+
+/** A job's steps, in order, each as written (its comments before it belong to the step before). */
+export const stepsOf = (job: string): string[] => job.split(/^ {6}- /m).slice(1);

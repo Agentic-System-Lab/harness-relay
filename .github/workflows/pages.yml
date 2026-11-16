@@ -35,14 +35,17 @@ env:
   # (docs/developer-guide.md, "Website" → "Search engines").
   INDEXNOW_KEY: 8de13cb3ba2dccfb84c9d81d70aab5b9
 
+# Two jobs, as GitHub's own Pages workflows have them, so that a deployment that failed can run again
+# on its own (Re-run failed jobs), with the site the build job uploaded. In one job, a run again would
+# upload the site a second time, and deploy-pages refuses a run with two artifacts of it.
 jobs:
-  deploy:
-    name: Build and deploy
+  build:
+    name: Build
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      # The pages the deployment changes, one address to a line, for IndexNow.
+      changed: ${{ steps.changed.outputs.pages }}
     steps:
       # The whole history, for the sitemap's dates, without the files' old contents (the demo videos').
       - uses: actions/checkout@v7
@@ -101,8 +104,9 @@ jobs:
       # IndexNow is told only of the pages a deployment adds, changes or removes, as its protocol asks:
       # each page of the new sitemap whose HTML is not the one live now (or that cannot be read there: a
       # new page, or the site unreachable), and each page the live sitemap lists and the new one does not.
-      # Read before the deployment replaces them.
+      # Read before the deployment replaces them, and handed to the deploy job as the build job's output.
       - name: Find the pages the deployment changes
+        id: changed
         run: |
           live=$(mktemp -d)
           changed="$RUNNER_TEMP/changed-pages"
@@ -125,6 +129,12 @@ jobs:
           else
             echo "The deployment changes no page."
           fi
+          delimiter=$(openssl rand -hex 16)
+          {
+            echo "pages<<$delimiter"
+            cat "$changed"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
 
       - uses: actions/configure-pages@v6
 
@@ -132,7 +142,30 @@ jobs:
         with:
           path: _site
 
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment-again.outputs.page_url }}
+    steps:
+      # deploy-pages looks for the build job's artifact once, and GitHub may list an artifact only a
+      # while after its upload (on 2026-11-16 deploy-pages found none, twice, half a second after it).
+      # A first try that fails is tried again a minute later, before the job fails.
       - id: deployment
+        uses: actions/deploy-pages@v5
+        continue-on-error: true
+
+      - name: Wait to deploy again
+        if: steps.deployment.outcome == 'failure'
+        run: |
+          echo "::warning::The deployment failed: it is tried again in a minute."
+          sleep 60
+
+      - id: deployment-again
+        if: steps.deployment.outcome == 'failure'
         uses: actions/deploy-pages@v5
 
       # api.indexnow.org passes the pages on to every search engine that takes part (Bing among them;
@@ -141,8 +174,11 @@ jobs:
       # failure only warns: the engines find the change when they next read the sitemap, which dates it. 202 is
       # IndexNow's answer while it has yet to check the key file, as at first.
       - name: Tell IndexNow which pages changed
+        env:
+          CHANGED_PAGES: ${{ needs.build.outputs.changed }}
         run: |
-          changed="$RUNNER_TEMP/changed-pages"
+          changed=$(mktemp)
+          grep . <<< "$CHANGED_PAGES" > "$changed" || true
           if [ ! -s "$changed" ]; then
             echo "No page changed: IndexNow is not told."
             exit 0

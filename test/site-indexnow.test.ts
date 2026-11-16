@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { slow } from './timeouts';
-import { pagesStep, pagesWorkflow } from './workflow-steps';
+import { jobsIn, pagesStep, pagesWorkflow, stepsOf } from './workflow-steps';
 
 // IndexNow (docs/developer-guide.md, "Website" → "Search engines"): after each deployment the Pages workflow tells
 // it which pages the deployment added, changed or removed, with the key the site serves, and only warns when it
@@ -64,7 +64,44 @@ describe("the Pages workflow's IndexNow steps", () => {
     expect(tell.indexOf('\n      - ')).toBe(-1);
     expect(tell).not.toMatch(/\n {8}if:/);
   });
+
+  it('hand the changed pages from the build job to the deploy job, through an output and the environment', () => {
+    const jobs = jobsIn(workflow);
+    const build = jobs.get('build')!;
+    const deploy = jobs.get('deploy')!;
+    const find = stepsOf(build).find((s) => s.startsWith(`name: ${FIND}\n`));
+    expect(find).toMatch(/^name: .+\n {8}id: changed\n {8}run: \|\n/);
+    expect(build).toContain('\n    outputs:\n');
+    expect(build).toMatch(/\n {6}changed: \$\{\{ steps\.changed\.outputs\.pages \}\}\n/);
+    expect(deploy).toContain('\n    needs: build\n');
+    const tell = stepsOf(deploy).find((s) => s.startsWith(`name: ${TELL}\n`));
+    // In the environment, never in the script's text, where the runner would put it as it is.
+    expect(tell).toMatch(/^name: .+\n {8}env:\n {10}CHANGED_PAGES: \$\{\{ needs\.build\.outputs\.changed \}\}\n {8}run: \|\n/);
+    expect(pagesStep(TELL)).not.toContain('${{');
+  });
 });
+
+/** A step's outputs, read as the runner reads `$GITHUB_OUTPUT`: `name=value` lines and `name<<delimiter` blocks. */
+function outputsOf(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (!line) continue;
+    const heredoc = line.indexOf('<<');
+    const equals = line.indexOf('=');
+    if (heredoc >= 0 && (equals < 0 || heredoc < equals)) {
+      const delimiter = line.slice(heredoc + 2);
+      const end = lines.indexOf(delimiter, i + 1);
+      if (end < 0) throw new Error(`no end to the output ${line.slice(0, heredoc)}`);
+      out[line.slice(0, heredoc)] = lines.slice(i + 1, end).join('\n');
+      i = end;
+    } else {
+      out[line.slice(0, equals)] = line.slice(equals + 1);
+    }
+  }
+  return out;
+}
 
 const tmp = mkdtempSync(join(tmpdir(), 'relay-indexnow-'));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
@@ -110,14 +147,21 @@ interface Run {
   out: string;
   calls: string[];
   summary: string;
+  /** What the step wrote to `$GITHUB_OUTPUT`, as it is and as the runner reads it. */
+  output: string;
+  outputs: Record<string, string>;
+  /** The changed pages the step handed on in its output. */
   changed: string[];
   body: unknown;
 }
 
-/** One of the steps, run as the runner runs it, in a job folder with the site assembled (`_site`) and the stand-in. */
+/**
+ * One of the steps, run as the runner runs it, in a job folder with the site assembled (`_site`) and the stand-in.
+ * `changed` is the build job's output the deploy job's step gets (`CHANGED_PAGES`): addresses, or the value as it is.
+ */
 function step(
   name: string,
-  { live, changed, code = '200', down = false }: { live?: (dir: string) => void; changed?: string[]; code?: string; down?: boolean } = {},
+  { live, changed, code = '200', down = false }: { live?: (dir: string) => void; changed?: string[] | string; code?: string; down?: boolean } = {},
 ): Run {
   const run = mkdtempSync(join(tmp, 'run-'));
   const temp = join(run, 'runner-temp');
@@ -126,12 +170,13 @@ function step(
   const liveDir = join(run, 'live');
   cpSync(new URL('../site', import.meta.url), liveDir, { recursive: true });
   live?.(liveDir);
-  if (changed) writeFileSync(join(temp, 'changed-pages'), changed.map((url) => `${url}\n`).join(''));
   const calls = join(run, 'calls');
   const summary = join(run, 'summary.md');
+  const output = join(run, 'output');
   const body = join(run, 'body.json');
   writeFileSync(calls, '');
   writeFileSync(summary, '');
+  writeFileSync(output, '');
   const r = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', pagesStep(name)], {
     cwd: run,
     encoding: 'utf8',
@@ -140,6 +185,7 @@ function step(
       PATH: `${bin}${delimiter}${process.env.PATH}`,
       RUNNER_TEMP: temp,
       GITHUB_STEP_SUMMARY: summary,
+      GITHUB_OUTPUT: output,
       SITE: SITE!,
       INDEXNOW_KEY: KEY!,
       LIVE: liveDir,
@@ -147,15 +193,19 @@ function step(
       CURL_BODY: body,
       CURL_CODE: code,
       ...(down ? { CURL_DOWN: '1' } : {}),
+      ...(changed === undefined ? {} : { CHANGED_PAGES: typeof changed === 'string' ? changed : changed.join('\n') }),
     },
   });
-  const pages = join(temp, 'changed-pages');
+  const written = readFileSync(output, 'utf8');
+  const outputs = outputsOf(written);
   return {
     status: r.status,
     out: r.stdout + r.stderr,
     calls: readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean),
     summary: readFileSync(summary, 'utf8'),
-    changed: existsSync(pages) ? readFileSync(pages, 'utf8').trim().split('\n').filter(Boolean) : [],
+    output: written,
+    outputs,
+    changed: (outputs.pages ?? '').split('\n').filter(Boolean),
     body: existsSync(body) ? JSON.parse(readFileSync(body, 'utf8')) : undefined,
   };
 }
@@ -168,7 +218,7 @@ describe.skipIf(process.platform === 'win32')('finding the pages the deployment 
   it('finds none when every page is the one live, reading each page and the live sitemap', () => {
     const r = step(FIND);
     expect(r.status, r.out).toBe(0);
-    expect(r.changed).toEqual([]);
+    expect(r.outputs).toEqual({ pages: '' });
     expect(r.out).toBe('The deployment changes no page.\n');
     // Each read as a failure when the server answers one (-f), within its time.
     expect(r.calls.map((call) => call.split(' ').at(-1))).toEqual([EN, ZH, `${SITE}sitemap.xml`]);
@@ -178,8 +228,19 @@ describe.skipIf(process.platform === 'win32')('finding the pages the deployment 
   it('finds a page whose HTML is not the live one, and only it', () => {
     const r = step(FIND, { live: (dir) => edit(dir, 'zh-TW/index.html', (html) => html.replace('</body>', '<p>old</p></body>')) });
     expect(r.status, r.out).toBe(0);
-    expect(r.changed).toEqual([ZH]);
+    expect(r.outputs).toEqual({ pages: ZH });
     expect(r.out).toBe(`The deployment changes:\n${ZH}\n`);
+  });
+
+  it('hands on every changed page, one address to a line, under a delimiter of its own each run', () => {
+    const delimiters = [step(FIND, { down: true }), step(FIND, { down: true })].map((r) => {
+      expect(r.status, r.out).toBe(0);
+      expect(r.outputs).toEqual({ pages: `${EN}\n${ZH}` });
+      const delimiter = /^pages<<([0-9a-f]{32})\n/.exec(r.output)?.[1];
+      expect(r.output).toBe(`pages<<${delimiter}\n${EN}\n${ZH}\n${delimiter}\n`);
+      return delimiter;
+    });
+    expect(delimiters[0]).not.toBe(delimiters[1]);
   });
 
   it('finds a page the site does not have yet', () => {
@@ -205,11 +266,24 @@ describe.skipIf(process.platform === 'win32')('finding the pages the deployment 
 describe.skipIf(process.platform === 'win32')('telling IndexNow', { timeout: slow(20_000) }, () => {
   const POST = `-sS --max-time 30 -o /dev/null -w %{http_code} -X POST -H Content-Type: application/json; charset=utf-8 --data-binary @`;
 
-  it('tells it nothing when no page changed', () => {
-    const r = step(TELL, { changed: [] });
+  it('tells it nothing when no page changed (the build job handed on none, or only empty lines)', () => {
+    for (const changed of [[], '\n', '\n\n']) {
+      const r = step(TELL, { changed });
+      expect(r.status, r.out).toBe(0);
+      expect(r.calls).toEqual([]);
+      expect(r.out).toBe('No page changed: IndexNow is not told.\n');
+    }
+  });
+
+  it('sends the pages the build job found, as its output hands them on, and no empty line as a page', () => {
+    const found = step(FIND, { live: (dir) => rmSync(join(dir, 'zh-TW'), { recursive: true }) });
+    expect(found.status, found.out).toBe(0);
+    const r = step(TELL, { changed: found.outputs.pages });
     expect(r.status, r.out).toBe(0);
-    expect(r.calls).toEqual([]);
-    expect(r.out).toBe('No page changed: IndexNow is not told.\n');
+    expect(r.body).toMatchObject({ urlList: [ZH] });
+    const blank = step(TELL, { changed: `\n${EN}\n\n${ZH}\n` });
+    expect(blank.body).toMatchObject({ urlList: [EN, ZH] });
+    expect(blank.out).toBe('IndexNow was told of 2 changed page(s) (HTTP 200).\n');
   });
 
   it('sends the changed pages with the host, the key and where the site serves it, as the protocol has it', () => {
