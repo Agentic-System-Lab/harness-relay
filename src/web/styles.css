@@ -375,27 +375,31 @@ p {
   background: var(--surface);
 }
 
-/* New chat, and beside it New schedule as a square icon button. */
+/* New chat and New automation, half the row each, as New group and Search below them; a label too long for a
+   wider font ends in an ellipsis rather than spilling out. */
 .new-row {
   display: flex;
   gap: 6px;
 }
 
 .new-row .new-chat {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
-}
-
-.new-row .new-schedule {
-  flex: none;
-  width: 42px;
-  padding: 0;
   justify-content: center;
-  color: var(--muted);
+  gap: 6px;
+  padding: 9px 8px;
+  font-size: 14px;
 }
 
-.new-row .new-schedule:hover {
-  color: var(--text);
+.new-row .new-chat svg {
+  flex: none;
+}
+
+.new-row .new-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .conv-list {

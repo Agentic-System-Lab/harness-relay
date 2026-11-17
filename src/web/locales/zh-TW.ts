@@ -81,6 +81,8 @@ export const zhTW = {
   sidebar: {
     newChat: '新對話',
     newSchedule: '新自動任務',
+    /** The button's own text, where the whole name does not fit half the sidebar's row: a word of the name. */
+    newScheduleLabel: '新自動任務',
     conversations: '對話列表',
     empty: '還沒有對話',
     replying: '回覆中',
@@ -1942,7 +1944,7 @@ export const zhTW = {
       },
       {
         title: '自動任務',
-        body: '側邊欄左上角「新對話」旁的月曆按鈕是「新自動任務」：在有東西啟動它時，把訊息傳給團隊，就像你自己送出的一樣；啟動它的可以是你、設定的時間，或一個程式。寫好訊息、選好啟動方式，首席 agent 會為它組隊。現有的對話也可以用上方的「自動任務」（手機上在 ⋯ 裡）設定：',
+        body: '側邊欄左上角「新對話」旁、有閃電圖示的按鈕是「新自動任務」：在有東西啟動它時，把訊息傳給團隊，就像你自己送出的一樣；啟動它的可以是你、設定的時間，或一個程式。寫好訊息、選好啟動方式，首席 agent 會為它組隊。現有的對話也可以用上方的「自動任務」（手機上在 ⋯ 裡）設定：',
         points: [
           '你按「立即執行一次」、到了設定的時間（一次、每天、每週選定的星期幾，或每隔幾小時），或程式呼叫它的 webhook 時啟動；新的自動任務預設不定時',
           '勾選「每次開新對話」，每次都在新對話中從乾淨的上下文開始，沿用同樣的團隊與設定',

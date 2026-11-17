@@ -23,7 +23,7 @@ export const TOUR_TARGETS: (string | undefined)[] = [
   undefined, // file permission
   undefined, // browsing files (the button is in a chat's header)
   undefined, // sharing a conversation (in a chat's header, and under each reply)
-  'new-schedule', // schedules (New schedule, beside New chat)
+  'new-schedule', // automations (New automation, beside New chat)
   'organize', // groups, pins and search
   'settings', // tool library
   'settings', // agent sessions and AgentsView

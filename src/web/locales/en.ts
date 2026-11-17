@@ -67,6 +67,8 @@ export const en: Messages = {
   sidebar: {
     newChat: 'New chat',
     newSchedule: 'New automation',
+    /** The button's own text, where "New automation" does not fit half the sidebar's row: a word of the name. */
+    newScheduleLabel: 'Automation',
     conversations: 'Conversations',
     empty: 'No conversations yet',
     replying: 'Replying',
@@ -1941,7 +1943,7 @@ export const en: Messages = {
       },
       {
         title: 'Automations',
-        body: 'New automation, the calendar button beside New chat at the top left of the sidebar, sends a team a message as if you had sent it, whenever something starts it: you, set times, or a program. Write the message, pick how it starts, and the lead agent designs its team. For a chat you already have, use Automation in its header (under ⋯ on a phone):',
+        body: 'New automation, the button with a lightning bolt beside New chat at the top left of the sidebar, sends a team a message as if you had sent it, whenever something starts it: you, set times, or a program. Write the message, pick how it starts, and the lead agent designs its team. For a chat you already have, use Automation in its header (under ⋯ on a phone):',
         points: [
           'It starts when you click "Run once now", at set times (once, every day, every week on the days you pick, or every few hours), or when a program calls its webhook; a new one has no set times',
           'Tick "Start a new chat each time" to begin every run in a fresh chat with the same team and settings',

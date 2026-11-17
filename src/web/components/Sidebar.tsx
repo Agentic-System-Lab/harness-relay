@@ -14,7 +14,7 @@ import { hashFor, settingsHref } from '../route';
 import { useT, type Messages } from '../i18n';
 import { branchCount, readHealthNames, readyCount, writeHealthNames } from '../sidebar';
 import { Deferred, lazyPart } from './Deferred';
-import { CalendarPlusIcon, ChevronIcon, FolderPlusIcon, PanelIcon, ReportIcon, SearchIcon, StarIcon } from './icons';
+import { ChevronIcon, FolderPlusIcon, PanelIcon, PlusIcon, ReportIcon, SearchIcon, StarIcon, ZapIcon } from './icons';
 import { Logo } from './Logo';
 import { NewGroupBox, SidebarGroups } from './SidebarGroups';
 import { SearchBox, SearchResults } from './SidebarSearch';
@@ -104,10 +104,13 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
           </button>
         </div>
         <div className="new-row">
+          {/* Two halves, as New group and Search below them. */}
           <button className="new-chat" data-tour="new-chat" onClick={() => navigate({ page: 'new' })}>
-            <span aria-hidden>＋</span> {t.sidebar.newChat}
+            <PlusIcon size={15} />
+            <span className="new-label">{t.sidebar.newChat}</span>
           </button>
-          {/* An icon only, so New chat keeps the row: a calendar with a plus, unlike Search's magnifier. */}
+          {/* Its label is short where "New automation" does not fit half the row (English); its name says it whole,
+              and holds the label's words. */}
           <button
             className="new-chat new-schedule"
             data-tour="new-schedule"
@@ -115,7 +118,8 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
             aria-label={t.sidebar.newSchedule}
             title={t.sidebar.newSchedule}
           >
-            <CalendarPlusIcon size={18} />
+            <ZapIcon size={15} />
+            <span className="new-label">{t.sidebar.newScheduleLabel}</span>
           </button>
         </div>
         {searching ? (
