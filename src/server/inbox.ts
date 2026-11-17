@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { AlertTracker, alertDetail } from '../shared/notify';
-import type { Conversation, ConversationSummary, InboxItem } from '../shared/types';
+import type { AlertKind, Conversation, ConversationSummary, InboxItem } from '../shared/types';
 import type { Store } from './store';
 
 /*
@@ -18,6 +18,16 @@ import type { Store } from './store';
 
 /** How often the conversations' states are read while something may have changed. */
 export const INBOX_CHECK_MS = 1500;
+
+/**
+ * What a conversation made since the last read tells (the alert rule takes one it has not seen as no
+ * news by its replies): a reply that ended, since it cannot be older than the conversation. Not a
+ * branch's (its replies were copied), nor while it runs (the rule follows that run from now on).
+ */
+export function newConversationNews(c: Pick<ConversationSummary, 'running' | 'branchFrom' | 'lastReplyId' | 'lastStatus'>): AlertKind | undefined {
+  if (c.running || c.branchFrom || !c.lastReplyId) return undefined;
+  return c.lastStatus === 'done' || c.lastStatus === 'error' ? c.lastStatus : undefined;
+}
 
 export interface InboxDeps {
   /** The conversations as the sidebar gets them. */
@@ -37,8 +47,8 @@ export interface InboxDeps {
 
 export class Inbox {
   private tracker = new AlertTracker();
-  /** It has read the states once (its starting point). */
-  private started = false;
+  /** The conversations at the last read; none before the first (its starting point). */
+  private known?: Set<string>;
   /** A conversation event came since the last read. */
   private dirty = true;
   private timer?: ReturnType<typeof setInterval>;
@@ -70,11 +80,21 @@ export class Inbox {
 
   /** Reads the conversations' states and keeps a notification for each alert since the last read; returns those kept. */
   check(): InboxItem[] {
-    if (this.started && !this.dirty && this.deps.busy !== undefined && !this.deps.busy()) return [];
+    if (this.known && !this.dirty && this.deps.busy !== undefined && !this.deps.busy()) return [];
     this.dirty = false;
-    this.started = true;
+    const list = this.deps.list();
+    const news = this.tracker.next(list);
+    // A conversation made and answered between two reads (a quick reply in a new chat).
+    if (this.known) {
+      for (const conv of list) {
+        if (this.known.has(conv.id) || news.some((n) => n.conv.id === conv.id)) continue;
+        const kind = newConversationNews(conv);
+        if (kind) news.push({ conv, kind });
+      }
+    }
+    this.known = new Set(list.map((c) => c.id));
     const kept: InboxItem[] = [];
-    for (const { conv, kind } of this.tracker.next(this.deps.list())) {
+    for (const { conv, kind } of news) {
       const full = this.deps.get(conv.id);
       const detail = full ? alertDetail(full, kind) : {};
       const item = this.deps.store.addNotification({ id: this.newId(), conversationId: conv.id, kind, ...detail, createdAt: this.now() });

@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 35 個 spec 檔、451 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 35 個 spec 檔、453 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -66,7 +66,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [語音輸入的安裝](#語音輸入的安裝) | [`voice.spec.ts`](specs/voice.spec.ts) | 2 | [使用者說明 → 語音輸入](../docs/user-guide.zh-TW.md#語音輸入)、[架構 → 語音輸入](../docs/architecture.zh-TW.md#語音輸入) |
 | [回報問題](#回報問題) | [`report.spec.ts`](specs/report.spec.ts) | 7 | [使用者說明 → 回報問題](../docs/user-guide.zh-TW.md#回報問題)、[架構 → 回報問題](../docs/architecture.zh-TW.md#回報問題) |
 | [使用導覽與主題](#使用導覽與主題) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 9 | [使用者說明 → 介面語言與使用導覽](../docs/user-guide.zh-TW.md#介面語言與使用導覽) |
-| [通知與提示音](#通知與提示音) | [`notifications.spec.ts`](specs/notifications.spec.ts) | 4 | [使用者說明 → 通知與提示音](../docs/user-guide.zh-TW.md#通知與提示音)、[架構 → 通知](../docs/architecture.zh-TW.md#通知) |
+| [通知與提示音](#通知與提示音) | [`notifications.spec.ts`](specs/notifications.spec.ts) | 6 | [使用者說明 → 通知與提示音](../docs/user-guide.zh-TW.md#通知與提示音)、[通知收件匣](../docs/user-guide.zh-TW.md#通知收件匣)、[架構 → 通知](../docs/architecture.zh-TW.md#通知) |
 | [環境變數設定的上限](#環境變數設定的上限) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [開發者說明 → 環境變數](../docs/developer-guide.zh-TW.md#環境變數) |
 | [語言](#語言) | [`i18n.spec.ts`](specs/i18n.spec.ts) | 7 | [架構 → 語言](../docs/architecture.zh-TW.md#語言) |
 | [在手機上](#在手機上) | [`mobile.spec.ts`](specs/mobile.spec.ts) | 12 | [用手機連線](../docs/remote-access.zh-TW.md) |
@@ -489,7 +489,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 通知與提示音
 
-[`notifications.spec.ts`](specs/notifications.spec.ts)：**設定 → 通知與提示音**，以及團隊回覆完或需要使用者時頁面怎麼做。瀏覽器的通知與提示音由替身記錄（`Notification`、`AudioContext`，以及模擬視窗被擋住的 `document.hasFocus()`），在 app 的程式之前就設定好；這個瀏覽器也沒有推播服務（拿掉 `PushManager`），所以由頁面自己告訴使用者，就像桌面 app 的視窗。團隊是一個 Claude 成員。
+[`notifications.spec.ts`](specs/notifications.spec.ts)：**設定 → 通知與提示音**、團隊回覆完或需要使用者時頁面怎麼做，以及伺服器保存、在側邊欄鈴鐺後面的通知收件匣。瀏覽器的通知與提示音由替身記錄（`Notification`、`AudioContext`，以及模擬視窗被擋住的 `document.hasFocus()`），在 app 的程式之前就設定好；這個瀏覽器也沒有推播服務（拿掉 `PushManager`），所以由頁面自己告訴使用者，就像桌面 app 的視窗。團隊是一個 Claude 成員。
 
 | 情境 | 檢查的內容 |
 | --- | --- |
@@ -497,6 +497,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 視窗被擋住時，等待確認的團隊與回覆完成都會跳出通知，點一下會打開對話 | 首席 agent 的團隊等待確認（「…等你確認」）與回覆（「Claude finished replying」加上回覆的開頭），標題都是對話標題、tag 都是那個對話、都是靜音，並分別播放三個音與兩個音；在首頁點其中一則會打開對話。 |
 | agent 的提問會跳出通知，附上它問的內容 | `e2e:ask`：「Claude asked you something」與問題；提示音關掉時不播放。 |
 | 正在看的對話不通知，其他對話只播放提示音 | 視窗有焦點、正在看的對話回覆完：什麼都沒有。顯示首頁時才結束的慢回覆（`e2e:slow=5`）：只有提示音，沒有通知。在設定裡兩者都關掉：什麼都沒有。 |
+| 鈴鐺收著團隊說的話：有幾則未讀、列表、點一則打開它的對話並標為已讀，以及清除全部 | 通知與提示音都關掉、視窗被擋住時，鈴鐺在 **收合側邊欄**（Collapse sidebar）左邊，名稱是 **Notifications**（通知）；伺服器查看過之後（它每 1.5 秒讀一次狀態），等待確認的團隊讓它變成 **Notifications (1 unread)**，回覆讓它變成 **Notifications (2 unread)**、紅色數字是 **2**，而且沒有跳出任何系統通知。在首頁打開它的對話框，寫著 **2 unread**，兩則都以粗體列出、最新的在前：先是附上對話標題、「Claude finished replying」與回覆內容的回覆，再來是「The lead agent's team is ready for you to confirm」。點那則回覆會打開它的對話並關掉對話框；紅色數字消失，伺服器上兩則都已讀。再打開時兩則都沒有未讀標記，**全部標為已讀**（Mark all as read）不能按；**清除全部**（Clear all，確認後）留下「No notifications yet.」，伺服器上也沒有了；按 Escape 關掉，焦點回到鈴鐺。 |
+| 畫面上的對話來的消息立刻標為已讀；全部標為已讀把其餘的標為已讀；側邊欄收合時，鈴鐺在展開按鈕的左邊 | 視窗有焦點時畫面上對話的回覆，記下時就是已讀，鈴鐺仍是 **Notifications**。顯示首頁時才結束的慢回覆（`e2e:slow=5`）維持未讀（**Notifications (1 unread)**）。側邊欄收合時，左上角的鈴鐺帶著紅色數字 **1**，在 **展開側邊欄**（Expand sidebar）左邊；對話框的 **全部標為已讀** 讓未讀的一則都不剩，鈴鐺的名稱回到 **Notifications**；**關閉**（Close）關掉它，展開後側邊欄裡的鈴鐺也是 **Notifications**。 |
 
 ## 環境變數設定的上限
 
@@ -637,7 +639,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **真正安裝沙箱需要的元件。**[沙箱需要的元件](#沙箱需要的元件)由測試代替伺服器回答：不會執行任何套件管理工具、sudo、pkexec 或 AppArmor。`test/sandbox-setup.test.ts` 涵蓋 Harness Relay 執行的東西（固定的腳本、它的環境變數、取得系統管理員權限的方式），並用 apt-get 與 apparmor_parser 的替身真的執行那個腳本；套件與桌面 app 的 Node.js 則在 Linux 與 macOS 上，透過打包好的桌面 app 與 `npm start` 的對話框真的裝過（[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md#由-harness-relay-安裝它們需要的東西)）。
 - **從設定頁真正的安裝。**[安裝 CLI](#安裝-cli) 用的是假的 npm，不會連到 npm 套件庫、官方腳本或 uv，也不會連到 nodejs.org：PATH 上沒有 npm 時把 Node.js 官方版本放進 CLI 資料夾、再安裝 Claude Code、Codex 或 Copilot，由 `test/cli-install.test.ts` 涵蓋，它們的程式用那份 Node 啟動，由 `test/winLaunch.test.ts` 與 `test/process.test.ts` 涵蓋，並在 macOS、Linux 與 Windows 上手動試過。`test/cli-install.test.ts` 用假的電腦涵蓋 Harness Relay 交給它們的東西（參數、環境變數、資料夾，Windows 上的也有），每個 CLI 真正的安裝則在 Linux 上手動試過（Windows 的安裝程式還沒在 Windows 電腦上試過）。
 - **桌面 app 自己的選單。**[語言](#語言)檢查 app 視窗裡的頁面（user agent 裡有 Electron）會把它的語言告訴伺服器；app 本身（Electron）不在這裡執行。伺服器轉送什麼、app 記住什麼，由 `test/app.test.ts`、`test/desktop-supervisor.test.ts` 與 `test/desktop-app.test.ts` 測試，選單換語言則在 app 裡手動確認過。
-- **還沒有 spec 走過的功能**：語音輸入本身的錄音與轉寫（它會下載引擎與模型，也需要麥克風；只測了安裝的面板）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 加密存在資料庫）；從設定登入 Codex、Grok、Cursor、Antigravity、Copilot 與 Muse Code（它們自己的登入流程；Copilot 的裝置登入由 `test/providers.test.ts` 測試），以及真正的 Codex 拿到 `codex login --with-api-key` 的 key 之後做了什麼；Copilot 沙箱的政策和這次執行設定的不一樣時，完全存取以外拒絕啟動（由 `test/copilot.test.ts` 測試）；Muse Code 詢問指令要不要連網（它的假 CLI 在沙箱中會為 `e2e:approve=publish` 詢問，但沒有 spec 送出這個指令），以及對話的權限改變或伺服器重新啟動後，Muse Code 的成員開新的 session（由 `test/muse.test.ts` 測試）；AgentsView 中首席 agent 與分類對話的 session 連結、設定網址後才送出的對話，以及 Harness Relay 為開源 agent 記下的成員 session（由 `test/agentsview.test.ts` 測試，Cursor 的也是，另有 spec 試過）；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
+- **還沒有 spec 走過的功能**：手機上的通知收件匣（抽屜裡的鈴鐺、選單按鈕上的小圓點），以及同時在第二個瀏覽器裡看（伺服器這一端由 `test/inbox.test.ts` 與 `test/inbox-api.test.ts` 測試，頁面這一端由 `test/inbox-web.test.ts` 測試）；語音輸入本身的錄音與轉寫（它會下載引擎與模型，也需要麥克風；只測了安裝的面板）；分享的回答所連結的檔案，以及上傳回報的截圖（兩者都用 git 推送到 gist，假的 `gh` 沒有代替這部分）；作業系統金鑰儲存區中的 API key（測試會關掉它，所以 key 加密存在資料庫）；從設定登入 Codex、Grok、Cursor、Antigravity、Copilot 與 Muse Code（它們自己的登入流程；Copilot 的裝置登入由 `test/providers.test.ts` 測試），以及真正的 Codex 拿到 `codex login --with-api-key` 的 key 之後做了什麼；Copilot 沙箱的政策和這次執行設定的不一樣時，完全存取以外拒絕啟動（由 `test/copilot.test.ts` 測試）；Muse Code 詢問指令要不要連網（它的假 CLI 在沙箱中會為 `e2e:approve=publish` 詢問，但沒有 spec 送出這個指令），以及對話的權限改變或伺服器重新啟動後，Muse Code 的成員開新的 session（由 `test/muse.test.ts` 測試）；AgentsView 中首席 agent 與分類對話的 session 連結、設定網址後才送出的對話，以及 Harness Relay 為開源 agent 記下的成員 session（由 `test/agentsview.test.ts` 測試，Cursor 的也是，另有 spec 試過）；連不含 git 忽略的檔案都太大的 ZIP；以及桌面 app 視窗裡登入之後的部分（它自己的檢查 `desktop/scripts/smoke.ts` 與 `desktop/scripts/check-package.ts` 會開一個這些假 claude、codex 與 grok 的唯讀對話，讓每一個回答一個問題，在打包好的伺服器上與打包好的 app 裡都會跑：CI 在 Linux 與 Windows 上，發佈前則在每個系統上）。其中有些有單元測試，在 [`test/`](../test/) 裡，列在開發者說明的[測試](../docs/developer-guide.zh-TW.md#測試)。
 
 ## 實機測試
 

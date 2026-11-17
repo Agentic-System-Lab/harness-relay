@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openDatabase, type Database } from '../src/server/db';
-import { Inbox } from '../src/server/inbox';
+import { Inbox, newConversationNews } from '../src/server/inbox';
 import { INBOX_KEPT, Store } from '../src/server/store';
 import type { ChatMessage, Conversation, ConversationSummary } from '../src/shared/types';
 
@@ -216,6 +216,27 @@ describe('Inbox (the recorder)', () => {
     busy = true;
     inbox.check();
     expect(reads).toBe(3);
+  });
+
+  it('keeps the reply of a conversation made and answered between two reads, not a branch\'s nor one still running', () => {
+    inbox.check();
+    store.create(conversation('c3', 'Third', [reply('r1', 'a1', 'Quick answer.')]));
+    store.create(conversation('c4', 'Branch', [reply('r2', 'a1', 'Copied.')]));
+    store.create(conversation('c5', 'Busy', [reply('r3', 'a1', 'First.')]));
+    list = [
+      summary('c1', { lastReplyId: 'm1' }),
+      summary('c2'),
+      summary('c3', { lastReplyId: 'r1' }),
+      summary('c4', { lastReplyId: 'r2', branchFrom: { id: 'c1', title: 'First' } }),
+      summary('c5', { running: true, lastReplyId: 'r3' }),
+    ];
+    expect(inbox.check().map((x) => [x.conversationId, x.kind, x.text])).toEqual([['c3', 'done', 'Quick answer.']]);
+    // Seen now: the same state again is no news.
+    inbox.touch();
+    expect(inbox.check()).toEqual([]);
+    expect(newConversationNews({ running: false, lastReplyId: 'x', lastStatus: 'error' })).toBe('error');
+    expect(newConversationNews({ running: false, lastReplyId: 'x', lastStatus: 'aborted' })).toBeUndefined();
+    expect(newConversationNews({ running: false, lastStatus: 'done' })).toBeUndefined();
   });
 
   it('keeps nothing for a conversation deleted meanwhile', () => {
