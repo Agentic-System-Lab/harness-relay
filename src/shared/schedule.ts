@@ -167,6 +167,9 @@ export function filePattern(v: string): string | undefined {
     .replace(/\\/g, '/')
     .replace(/^(?:\.\/)+/, '');
   if (!pattern || pattern === '.' || pattern.startsWith('/') || /^[A-Za-z]:/.test(pattern)) return undefined;
-  if (pattern.split('/').some((p) => p === '..')) return undefined;
+  const parts = pattern.split('/');
+  if (parts.some((p) => p === '..')) return undefined;
+  // A folder alone (`reports/`) names no file, and `.git` is never looked in: neither could ever match.
+  if (pattern.endsWith('/') || parts.some((p) => p.toLowerCase() === '.git')) return undefined;
   return pattern;
 }

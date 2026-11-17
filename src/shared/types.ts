@@ -1491,6 +1491,12 @@ export interface ScheduleWatch {
    * what changed there is the team's own, so the next check with the folder free only records too.
    */
   teamWrote?: boolean;
+  /**
+   * `file`: when the folder was last seen free of the team's runs (a check while none wrote there,
+   * and not the first right after one): what a check that only records keeps from before it is no
+   * run's, and is still listed later.
+   */
+  freeAt?: number;
   /** The last check failed: why, and how many checks failed in a row (they come slower). */
   error?: string;
   failures?: number;

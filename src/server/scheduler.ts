@@ -164,14 +164,24 @@ export class Scheduler {
     // Something found earlier still waits for a team that cannot take it: the source is not asked
     // again (nor the same mail downloaded) until the team can. The user's own check always asks it.
     const hold = prev?.held && !force ? withLang(s.lang, () => this.orchestrator.scheduledHold(convId)) : undefined;
-    if (prev && hold) return this.keepWatch(conv, s, { ...prev, checkedAt: started, nextCheckAt: nextCheckAt(started), held: hold });
     // The team writes in the folder now, or did since the last check: only recorded.
     const files = trigger.source === 'file';
     const writing = files && this.orchestrator.folderInUse(convId);
+    /** A file check with the folder free of the team: when it was last seen so (`freeAt`). */
+    const free = (w: ScheduleWatch | undefined) => (files && !writing && !w?.teamWrote ? { freeAt: started } : {});
+    if (prev && hold)
+      return this.keepWatch(conv, s, { ...prev, checkedAt: started, nextCheckAt: nextCheckAt(started), held: hold, ...free(prev) });
     const recordOnly = files && (writing || Boolean(prev?.teamWrote));
     let found: WatchCheck;
     try {
-      found = await withLang(s.lang, () => this.checkTrigger!(trigger, prev, { cwd: conv.settings.cwd, now: started, recordOnly }));
+      found = await withLang(s.lang, () =>
+        this.checkTrigger!(trigger, prev, {
+          cwd: conv.settings.cwd,
+          now: started,
+          recordOnly,
+          ...(prev?.freeAt !== undefined ? { keepBefore: prev.freeAt } : {}),
+        }),
+      );
     } catch (err) {
       if (this.stopped || conv.schedule !== s) return;
       const failures = (prev?.failures ?? 0) + 1;
@@ -196,8 +206,12 @@ export class Scheduler {
       seenAt: started,
       nextCheckAt: nextCheckAt(this.now()),
       ...(busy ? { teamWrote: true } : {}),
+      // Free of the team now (also right after a run: what it wrote was just recorded); else as it was.
+      ...(files && !busy ? { freeAt: started } : files && prev?.freeAt !== undefined ? { freeAt: prev.freeAt } : {}),
     };
-    if (!found.event || recordOnly || busy) return this.keepWatch(conv, s, seen);
+    // A run that began during this look did not write what was found (every file listed had not
+    // changed for a while): sent all the same, queued for the team.
+    if (!found.event || recordOnly) return this.keepWatch(conv, s, seen);
     const now = this.now();
     await withLang(s.lang, async () => {
       const sent = await this.orchestrator.sendScheduled(convId, now, { event: found.event, eventSource: trigger.source });
@@ -212,6 +226,7 @@ export class Scheduler {
           checkedAt: started,
           nextCheckAt: seen.nextCheckAt,
           held: sent.reason ?? t().scheduleBusy,
+          ...(files && !busy ? { freeAt: started } : {}),
         });
       }
       // The message went (or could not start): what it was about counts as seen, also when the
