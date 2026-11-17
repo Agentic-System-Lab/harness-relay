@@ -24,6 +24,7 @@ Run them from the repository's root.
 | `npm run desktop` | Build the UI and the app (`desktop/build/`) and run it without installing it |
 | `npm run desktop:dist` | The same, then make the installer for this system in `desktop/release/` (`.dmg`, `.exe`, `.AppImage`; not signed for distribution); `-- --output <folder>` puts it elsewhere |
 | `npm run desktop:typecheck` | Typecheck the app (`desktop/tsconfig.json`) |
+| `npm --prefix desktop run format` | Format the app's code with Prettier, with the repository's settings (`.prettierrc.json`; `desktop/.prettierignore`: what it leaves alone); `format:check` checks it. The root's `npm run format` formats it too |
 | `npx tsx desktop/scripts/smoke.ts` | Run the bundled server the way the app does, with plain Node standing in for Electron, and check what the app needs of it, a question answered by the e2e fake CLIs included |
 | `npx tsx desktop/scripts/check-package.ts` | Check the packaged app in `desktop/release/` as a release is checked: its fuses, its resources, no `github_pat_` token in the server's files nor as text in the app's, the repository and the token (encoded) that `RELAY_UPDATES_REPO` and `RELAY_UPDATES_TOKEN` name in its own environment (give it the build's), and its own `--smoke-test`, in which the e2e fake CLIs answer a question (on Linux, under `xvfb-run`) |
 

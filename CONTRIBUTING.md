@@ -55,6 +55,7 @@ Fork the repository (or create a branch if you have write access), branch off `m
 ### Code
 
 - Strict TypeScript with ES modules. Shared types live only in `src/shared/types.ts`.
+- [Prettier](https://prettier.io) formats the code: run `npm run format` before you commit (your editor's Prettier extension uses the same settings, `.prettierrc.json`). It leaves the docs alone (`.prettierignore`). Don't change its settings in a pull request about something else: that reformats the whole repository.
 - Start child processes only through `src/server/process.ts`, so they are tracked and stopped on shutdown; a quick probe the server waits for (`lsof`, `ps`, `chflags`) goes through its `runSync()`, which kills it after its timeout. The relay sandbox's host (`relaySandboxHost.ts`) is a program of its own and starts the agent itself. Start programs directly, never through a shell; a shell script (`runShellScript()`, or `sh -c` given to `spawnDetached()`) is fixed text, and the values it needs (paths, names, settings) go in its environment, never in its text or its arguments. A program that gives what it runs an environment of its own (`sudo`, `pkexec`) runs `env NAME=value … /bin/sh -c <fixed text>`, the values Harness Relay's own (`sandboxSetup.ts`). On Windows a CLI found as a `.cmd` (npm's shims, Cursor's and Muse Code's launchers) is started as the program it runs (`src/server/winLaunch.ts`), never through `cmd.exe`.
 - Keep CLI output parsers pure (lines in, `AgentEvent`s out) so they can be tested with recorded output.
 - Tests run in Node without a DOM. Put client logic you want to test in plain modules (like `src/web/chat.ts`), not inside components.
@@ -111,6 +112,7 @@ Tests also have to pass on Windows, where CI runs them too: build paths with `jo
 Run the same checks as CI:
 
 ```bash
+npm run format:check   # npm run format fixes what it finds
 npm run typecheck
 npm test
 npm run build
@@ -122,7 +124,7 @@ If you changed the desktop app, also run `npm run desktop:typecheck`, and try it
 
 Releases are made by maintainers with the Release workflow only (**Actions → Release**, from `main`, today's date as the version): never tag a version by hand. See [Releasing](docs/developer-guide.md#releasing) in the developer guide.
 
-[CI](.github/workflows/ci.yml) runs the typecheck, the tests and the build on Node 22 and 24 for every pull request and every push to `main`, and on Windows with Node 24. It also typechecks and builds the desktop app, runs its bundled server as the app does, and packages it for Linux to check it as a release is checked. [Another workflow](.github/workflows/e2e.yml) runs the end-to-end tests on Linux, macOS and Windows. On a pull request, the tests on Windows, the packaged app and the end-to-end tests run only when it touches a file they depend on ([`scripts/ci-scope.ts`](scripts/ci-scope.ts)): the run's summary says which ran and why. A push to `main` runs them all. If you make one of them read, import or ship a file its `IGNORES` list names, take the file off the list. Each workflow's last check (**CI passed**, **End-to-end passed**) stands for all its jobs.
+[CI](.github/workflows/ci.yml) checks the formatting, and runs the typecheck, the tests and the build on Node 22 and 24 for every pull request and every push to `main`, and on Windows with Node 24. It also typechecks and builds the desktop app, runs its bundled server as the app does, and packages it for Linux to check it as a release is checked. [Another workflow](.github/workflows/e2e.yml) runs the end-to-end tests on Linux, macOS and Windows. On a pull request, the tests on Windows, the packaged app and the end-to-end tests run only when it touches a file they depend on ([`scripts/ci-scope.ts`](scripts/ci-scope.ts)): the run's summary says which ran and why. A push to `main` runs them all. If you make one of them read, import or ship a file its `IGNORES` list names, take the file off the list. Each workflow's last check (**CI passed**, **End-to-end passed**) stands for all its jobs.
 
 If your change affects what agents see or do, also try it in the app with at least one real CLI, and say which ones you used.
 

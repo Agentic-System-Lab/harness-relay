@@ -25,7 +25,7 @@ Thanks for the pull request! CONTRIBUTING.md says what a change needs. Write in 
 
 ## Checklist · 檢查清單
 
-- [ ] `npm run typecheck`, `npm test` and `npm run build` pass · 都通過
+- [ ] `npm run format:check`, `npm run typecheck`, `npm test` and `npm run build` pass · 都通過
 - [ ] `npm run test:e2e` passes, if I changed the UI, the HTTP API, the orchestrator or an adapter · 修改了介面、HTTP API、協調器或轉接器時，端對端測試通過
 - [ ] `npm run desktop:typecheck` passes and I tried `npm run desktop`, if I changed `desktop/` · 修改了 `desktop/` 時，型別檢查通過，也用 `npm run desktop` 試過
 - [ ] User-facing text and docs come in both English and 繁體中文, or I said which one I need help with · 給使用者看的文字與文件都有中英文，或我已說明需要協助的語言

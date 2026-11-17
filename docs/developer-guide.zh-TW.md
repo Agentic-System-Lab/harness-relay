@@ -247,6 +247,8 @@ desktop/                   桌面 app（Electron），是獨立的套件：npm i
 ```bash
 npm install
 npm run dev        # tsx watch（API :8789）+ vite（介面 :5173，把 /api/ 代理到 API）；印出 :5173 的登入連結
+npm run format     # Prettier 排版，桌面 app 也在內（.prettierrc.json；.prettierignore：它不動的檔案）
+npm run format:check   # 和 CI 一樣的檢查：不改任何檔案，有 Prettier 會改的檔案就失敗
 npm run typecheck
 npm test
 npm run test:e2e   # 在瀏覽器中以假 CLI 執行端對端測試（先執行一次 npm run test:e2e:install）
@@ -842,7 +844,7 @@ npx playwright show-report playwright-report-live
 
 ## 持續整合（CI）
 
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) 會在每個 pull request 與每次推送到 `main` 時執行：`npm ci`、`npm run typecheck`、`npm test` 與 `npm run build`，在 Ubuntu 上以 Node 22（支援的最低版本）與 Node 24 各跑一次，也在 Windows（`windows-latest`）上以 Node 24 跑一次（pull request 只在碰到測試依賴的檔案時才跑，見下文），那裡測試的暫存資料夾放在與取出的程式碼同一個磁碟 `D:`（`runner.temp`），而不是 `C:`。在 Ubuntu 上它也會安裝桌面 app 的工具（不下載 Electron 執行檔）、型別檢查並建置桌面 app（`desktop/scripts/build.ts`），並像 app 一樣執行打包好的伺服器（`desktop/scripts/smoke.ts`）。第二個 job（`desktop-package`）會打包桌面 app（不建置安裝檔）：Linux（`electron-builder --linux dir`，x64 一份，也像發佈一樣在 GitHub 的 Arm runner 上打包 Arm64）與 Windows x64（`--win dir`；Windows on Arm 由發佈 workflow 檢查），並像檢查發佈一樣檢查它（`desktop/scripts/check-package.ts`：Linux 上在虛擬顯示器上，runner 缺 Electron 需要的函式庫時會先安裝），所以每個改到 app 組成部分的 pull request，都會在 Linux 與 Windows 上讓打包好的 app 的假 CLI 團隊回答一個問題。這個 job 建置 app 時用 shell 組出一個編造的 `RELAY_UPDATES_TOKEN`，檢查時它在 app 裡只能以編碼後的形式出現。發佈有自己的 workflow：見[發佈](#發佈)。對同一個 pull request 再次推送時會取消前一次的執行。推送前請先在本機跑過同樣的指令。
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) 會在每個 pull request 與每次推送到 `main` 時執行：`npm ci`、`npm run format:check`、`npm run typecheck`、`npm test` 與 `npm run build`，在 Ubuntu 上以 Node 22（支援的最低版本）與 Node 24 各跑一次，也在 Windows（`windows-latest`）上以 Node 24 跑一次（pull request 只在碰到測試依賴的檔案時才跑，見下文），那裡測試的暫存資料夾放在與取出的程式碼同一個磁碟 `D:`（`runner.temp`），而不是 `C:`。在 Ubuntu 上它也會安裝桌面 app 的工具（不下載 Electron 執行檔）、型別檢查並建置桌面 app（`desktop/scripts/build.ts`），並像 app 一樣執行打包好的伺服器（`desktop/scripts/smoke.ts`）。第二個 job（`desktop-package`）會打包桌面 app（不建置安裝檔）：Linux（`electron-builder --linux dir`，x64 一份，也像發佈一樣在 GitHub 的 Arm runner 上打包 Arm64）與 Windows x64（`--win dir`；Windows on Arm 由發佈 workflow 檢查），並像檢查發佈一樣檢查它（`desktop/scripts/check-package.ts`：Linux 上在虛擬顯示器上，runner 缺 Electron 需要的函式庫時會先安裝），所以每個改到 app 組成部分的 pull request，都會在 Linux 與 Windows 上讓打包好的 app 的假 CLI 團隊回答一個問題。這個 job 建置 app 時用 shell 組出一個編造的 `RELAY_UPDATES_TOKEN`，檢查時它在 app 裡只能以編碼後的形式出現。發佈有自己的 workflow：見[發佈](#發佈)。對同一個 pull request 再次推送時會取消前一次的執行。推送前請先在本機跑過同樣的指令。
 
 [`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml) 會在每次推送到 `main` 時，以及每個碰到它們依賴的檔案的 pull request 上（見下文），以 Node 24 於 Ubuntu、macOS 與 Windows 上，並以 Node 22 於 Ubuntu 上，執行[端對端測試](#端對端測試)（`npm run test:e2e`，Chromium；每一種都分成兩個 job，各跑一半的測試，`--shard=1/2` 與 `2/2`；每個 job 最多 45 分鐘）；手動執行（**Actions → End-to-end tests → Run workflow**）可以選擇其他瀏覽器。測試之前，它會設好開源 agent 的假 CLI 在完全存取以外執行時所在的 Harness Relay 自己的沙箱：在 Ubuntu 上，runner 沒有 bubblewrap、socat 與 ripgrep 時安裝它們，Ubuntu 限制非特權 user namespace 時再加上讓 `/usr/bin/bwrap` 能建立它們的 AppArmor 設定檔；接著在 Ubuntu 上執行沙箱自己的檢查（`npx tsx scripts/sandbox-check.ts`；macOS 上不執行：那裡 runner 的 curl 在 macOS 26.7 的沙箱裡無法驗證憑證，連到 example.com 的檢查會失敗），並在 Ubuntu 與 macOS 上以 `E2E_REQUIRE_RELAY_SANDBOX=1` 執行測試，讓需要沙箱的測試在那裡失敗而不是跳過。它以 `E2E_SYSTEM_CLIS=1` 執行測試：每個 CLI 自己的測試在 Ubuntu 上十二個都跑，在 macOS 與 Windows 上只跑 Harness Relay 在那裡執行方式不同的 CLI（[e2e/README.zh-TW.md 的平台與瀏覽器](../e2e/README.zh-TW.md#平台與瀏覽器)）；手動執行並勾選 **every_cli**，每個系統上都會十二個都跑。每個 job 都會上傳 HTML 報告，並附上每個失敗測試的 trace、截圖、影片與紀錄（`e2e-report-<os>-node<版本>-part<1 或 2>`）。
 

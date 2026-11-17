@@ -84,7 +84,7 @@ Agents can change your files and run commands, so Harness Relay keeps them withi
 | `npm start` | Serve the built UI and the API from one process on http://127.0.0.1:8787 |
 | `npm run login` | Print another one-time sign-in link, for when the one `npm start` printed is used or old |
 | `npm run dev` | For development: the API server (port 8789, auto-restart) and Vite (port 5173) |
-| `npm run typecheck`, `npm test`, `npm run build` | What CI runs for every pull request |
+| `npm run format:check`, `npm run typecheck`, `npm test`, `npm run build` | What CI runs for every pull request (`npm run format` formats the code with Prettier) |
 
 The other commands (end-to-end tests, the desktop app, the website, the demo) are in the [developer guide](docs/developer-guide.md#running), with what [CI](docs/developer-guide.md#continuous-integration) runs.
 

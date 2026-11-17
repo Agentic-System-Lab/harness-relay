@@ -24,6 +24,7 @@ npm install --prefix desktop     # Electron、electron-builder 與 esbuild，一
 | `npm run desktop` | 建置 UI 與 app（`desktop/build/`），不安裝直接執行 |
 | `npm run desktop:dist` | 同上，再於 `desktop/release/` 產生這個系統的安裝檔（`.dmg`、`.exe`、`.AppImage`；沒有為發佈簽署）；加上 `-- --output <資料夾>` 可放到別處 |
 | `npm run desktop:typecheck` | 檢查 app 的型別（`desktop/tsconfig.json`） |
+| `npm --prefix desktop run format` | 用 Prettier 排版 app 的程式碼，設定和 repository 相同（`.prettierrc.json`；`desktop/.prettierignore`：它不動的檔案）；`format:check` 只檢查。根目錄的 `npm run format` 也會排版它 |
 | `npx tsx desktop/scripts/smoke.ts` | 用 app 的方式執行打包好的伺服器（以一般的 Node 代替 Electron），檢查 app 需要它做到的事，包括由 e2e 的假 CLI 回答一個問題 |
 | `npx tsx desktop/scripts/check-package.ts` | 照發佈時的方式檢查 `desktop/release/` 裡打包好的 app：它的 fuse、資源、伺服器的檔案裡沒有 `github_pat_` token、app 的檔案裡也沒有 token 的文字、它自己的環境變數 `RELAY_UPDATES_REPO` 與 `RELAY_UPDATES_TOKEN` 指定的 repository 與（編碼後的）token（請給它建置時的值），以及它自己的 `--smoke-test`（其中 e2e 的假 CLI 會回答一個問題；Linux 上要在 `xvfb-run` 下執行） |
 
