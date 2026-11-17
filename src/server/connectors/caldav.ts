@@ -170,24 +170,31 @@ export function elementContents(xml: string, local: string): string[] {
   return out;
 }
 
+/** An element's text with XML's escapes undone, or what its CDATA section holds. */
+function xmlText(v: string): string {
+  const cdata = /^\s*<!\[CDATA\[([\s\S]*)\]\]>\s*$/.exec(v);
+  return cdata
+    ? cdata[1]!
+    : v
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'")
+        .replace(/&#13;|&#x0?[dD];/g, '\r')
+        .replace(/&amp;/g, '&');
+}
+
 /** `calendar-data` out of a multistatus answer, with XML's escapes undone (whatever prefix its namespace has). */
 export function calendarData(xml: string): string[] {
-  const out: string[] = [];
-  for (const data of elementContents(xml, 'calendar-data')) {
-    let v = data;
-    const cdata = /^\s*<!\[CDATA\[([\s\S]*)\]\]>\s*$/.exec(v);
-    v = cdata
-      ? cdata[1]!
-      : v
-          .replace(/&lt;/g, '<')
-          .replace(/&gt;/g, '>')
-          .replace(/&quot;/g, '"')
-          .replace(/&apos;/g, "'")
-          .replace(/&#13;|&#x0?[dD];/g, '\r')
-          .replace(/&amp;/g, '&');
-    out.push(v);
-  }
-  return out;
+  return elementContents(xml, 'calendar-data').map(xmlText);
+}
+
+/**
+ * An opening tag named `local` up to its `>` (or `/>`), whatever its namespace prefix and attributes:
+ * iCloud writes `<href xmlns="DAV:">` and `<calendar xmlns="urn:ietf:params:xml:ns:caldav"/>`.
+ */
+function openTag(local: string): string {
+  return `<(?:[A-Za-z0-9_-]+:)?${local}(?=[\\s/>])[^<>]*`;
 }
 
 /** A moment as iCalendar's UTC DATE-TIME. */
@@ -367,10 +374,10 @@ export function sameProvider(given: URL | string, next: URL | string): boolean {
   return hb.endsWith(`.${parent}`);
 }
 
-/** The first `href` inside an element named `name` (any namespace prefix), resolved against `base`. */
+/** The first `href` inside an element named `name` (any namespace prefix, any attributes), resolved against `base`. */
 function hrefIn(xml: string, name: string, base: string): string | undefined {
-  const m = new RegExp(`<(?:[A-Za-z0-9_-]+:)?${name}\\b[^<>]*>\\s*<(?:[A-Za-z0-9_-]+:)?href>([^<]+)</`, 'i').exec(xml);
-  return m ? new URL(m[1]!.trim(), base).href : undefined;
+  const m = new RegExp(`${openTag(name)}>\\s*${openTag('href')}>([^<]+)</`, 'i').exec(xml);
+  return m ? new URL(xmlText(m[1]!.trim()), base).href : undefined;
 }
 
 async function propfind(url: string, login: Login, depth: '0' | '1', props: string, timeoutMs: number): Promise<string> {
@@ -388,7 +395,9 @@ async function propfind(url: string, login: Login, depth: '0' | '1', props: stri
 /**
  * The calendars of an account, from its server's address (`https://caldav.icloud.com/`) or any
  * address on it: its principal, its calendar home, and the calendars there, each with its name and its
- * own address, which the calendar tools use. Only addresses of the same provider are asked.
+ * own address, which the calendar tools use. Only addresses of the same provider are asked. A calendar
+ * that says which kinds of items it holds, none of them events (iCloud's Reminders lists hold to-dos
+ * only), is left out: the calendar tools could not add an event to it.
  */
 export async function discoverCalendars(url: string, login: Login, timeoutMs = 20_000): Promise<{ name: string; url: string }[]> {
   const follow = (next: string | undefined) => {
@@ -407,14 +416,21 @@ export async function discoverCalendars(url: string, login: Login, timeoutMs = 2
     home = follow(hrefIn(await propfind(principal, login, '0', '<c:calendar-home-set/>', timeoutMs), 'calendar-home-set', principal));
     if (!home) throw new Error("The server did not say where the calendars are: give the calendar's own address");
   }
-  const list = await propfind(home, login, '1', '<d:displayname/><d:resourcetype/>', timeoutMs);
+  const list = await propfind(home, login, '1', '<d:displayname/><d:resourcetype/><c:supported-calendar-component-set/>', timeoutMs);
   const out: { name: string; url: string }[] = [];
+  const calendarType = new RegExp(openTag('calendar'), 'i');
+  const hrefTag = new RegExp(`${openTag('href')}>([^<]+)<`, 'i');
+  const nameTag = new RegExp(`${openTag('displayname')}>([^<]*)<`, 'i');
   for (const r of elementContents(list, 'response')) {
-    if (!/<(?:[A-Za-z0-9_-]+:)?calendar\s*\/>|<(?:[A-Za-z0-9_-]+:)?calendar>\s*<\//i.test(r)) continue;
-    const href = /<(?:[A-Za-z0-9_-]+:)?href>([^<]+)</i.exec(r)?.[1]?.trim();
+    if (!elementContents(r, 'resourcetype').some((t) => calendarType.test(t))) continue;
+    const kinds = elementContents(r, 'supported-calendar-component-set').flatMap((s) =>
+      [...s.matchAll(/\bname\s*=\s*["']([^"']*)["']/gi)].map((m) => m[1]!.trim().toUpperCase()),
+    );
+    if (kinds.length && !kinds.includes('VEVENT')) continue;
+    const href = hrefTag.exec(r)?.[1]?.trim();
     if (!href) continue;
-    const name = /<(?:[A-Za-z0-9_-]+:)?displayname>([^<]*)</i.exec(r)?.[1]?.trim();
-    const abs = new URL(href, home).href;
+    const name = xmlText(nameTag.exec(r)?.[1] ?? '').trim();
+    const abs = new URL(xmlText(href), home).href;
     if (!sameProvider(url, abs)) continue;
     out.push({ name: name || decodeURIComponent(abs.replace(/\/+$/, '').split('/').pop() ?? abs), url: abs });
   }

@@ -715,10 +715,21 @@ describe('the mail and calendar tools against servers on this computer', () => {
     withLang('en', async () => {
       const { cal } = await setup();
       const root = cal.url.replace('/cal/me/', '/');
+      // Its to-do list (VTODO only) is not among them; nor is a calendar on another host.
       expect(await discoverCalendars(root, { username: 'me@example.com', password: 'app-pass' })).toEqual([
         { name: 'Personal', url: cal.url },
       ]);
       await expect(discoverCalendars(root, { username: 'me@example.com', password: 'x' })).rejects.toThrow('did not accept');
+    }));
+
+  it('finds them in answers written as iCloud writes them, without its Reminders lists', () =>
+    withLang('en', async () => {
+      const cal = await fakeCalDav([], undefined, { icloud: true });
+      closers.push(cal.close);
+      const root = cal.url.replace('/cal/me/', '/');
+      expect(await discoverCalendars(root, { username: 'me@example.com', password: 'app-pass' })).toEqual([
+        { name: 'Family & friends', url: cal.url },
+      ]);
     }));
 
   it('refuses an answer to STARTTLS with more after it, which someone on the way may have added', async () => {

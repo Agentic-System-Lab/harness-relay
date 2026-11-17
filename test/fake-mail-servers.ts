@@ -224,8 +224,17 @@ export interface FakeCalDav {
   close(): Promise<void>;
 }
 
-/** A CalDAV calendar at `/cal/me/` with these iCalendar files, for this user and password. */
-export async function fakeCalDav(files: string[], login = { user: 'me@example.com', pass: 'app-pass' }): Promise<FakeCalDav> {
+/**
+ * A CalDAV calendar at `/cal/me/` with these iCalendar files, for this user and password, beside a
+ * to-do list (`/cal/tasks/`, VTODO only). `icloud`: its discovery answers written as iCloud writes
+ * them (DAV: as the default namespace, `xmlns` on each element, the home's absolute address, the
+ * components' names in single quotes), as recorded from caldav.icloud.com.
+ */
+export async function fakeCalDav(
+  files: string[],
+  login = { user: 'me@example.com', pass: 'app-pass' },
+  o: { icloud?: boolean } = {},
+): Promise<FakeCalDav> {
   const reports: FakeCalDav['reports'] = [];
   const puts: FakeCalDav['puts'] = [];
   const server: HttpServer = createHttp((req, res) => {
@@ -256,6 +265,47 @@ export async function fakeCalDav(files: string[], login = { user: 'me@example.co
       }
       if (req.method === 'PROPFIND') {
         res.writeHead(207, { 'content-type': 'application/xml; charset=utf-8' });
+        if (o.icloud) {
+          const ms = (body: string) =>
+            `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<multistatus xmlns="DAV:">\n${body}\n</multistatus>`;
+          const ok = (href: string, props: string) =>
+            `    <response xmlns="DAV:">\n        <href>${href}</href>\n            <propstat>\n                <prop>\n                    ${props}\n                </prop>\n                <status>HTTP/1.1 200 OK</status>\n            </propstat>\n    </response>`;
+          const comps = (...names: string[]) =>
+            `<supported-calendar-component-set xmlns="urn:ietf:params:xml:ns:caldav">${names.map((n) => `<comp name='${n}' xmlns='urn:ietf:params:xml:ns:caldav'/>`).join('')}</supported-calendar-component-set>`;
+          if (req.url === '/')
+            return res.end(
+              ms(ok('/', '<current-user-principal xmlns="DAV:"><href xmlns="DAV:">/principals/me/</href></current-user-principal>')),
+            );
+          if (req.url === '/principals/me/')
+            return res.end(
+              ms(
+                ok(
+                  '/principals/me/',
+                  `<calendar-home-set xmlns="urn:ietf:params:xml:ns:caldav"><href xmlns="DAV:">http://${req.headers.host}/cal/</href></calendar-home-set>`,
+                ),
+              ),
+            );
+          if (req.url === '/cal/')
+            return res.end(
+              ms(
+                [
+                  ok(
+                    '/cal/',
+                    `<displayname xmlns="DAV:">Me</displayname><resourcetype xmlns="DAV:"><collection/></resourcetype>${comps('VEVENT', 'VTODO')}`,
+                  ),
+                  ok(
+                    '/cal/tasks/',
+                    `<displayname xmlns="DAV:">Reminders</displayname><resourcetype xmlns="DAV:"><collection/><calendar xmlns="urn:ietf:params:xml:ns:caldav"/></resourcetype>${comps('VTODO')}`,
+                  ),
+                  ok(
+                    '/cal/me/',
+                    `<displayname xmlns="DAV:">Family &amp; friends</displayname><resourcetype xmlns="DAV:"><collection/><calendar xmlns="urn:ietf:params:xml:ns:caldav"/></resourcetype>${comps('VEVENT', 'VTODO')}`,
+                  ),
+                ].join('\n'),
+              ),
+            );
+          return res.end(ms(''));
+        }
         const ms = (body: string) =>
           `<?xml version="1.0"?><d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">${body}</d:multistatus>`;
         if (req.url === '/')
@@ -274,7 +324,8 @@ export async function fakeCalDav(files: string[], login = { user: 'me@example.co
           return res.end(
             ms(
               '<d:response><d:href>/cal/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response>' +
-                '<d:response><d:href>/cal/me/</d:href><d:propstat><d:prop><d:displayname>Personal</d:displayname><d:resourcetype><d:collection/><cal:calendar/></d:resourcetype></d:prop></d:propstat></d:response>' +
+                '<d:response><d:href>/cal/me/</d:href><d:propstat><d:prop><d:displayname>Personal</d:displayname><d:resourcetype><d:collection/><cal:calendar/></d:resourcetype></d:prop></d:propstat><d:propstat><d:prop><cal:supported-calendar-component-set/></d:prop><d:status>HTTP/1.1 404 Not Found</d:status></d:propstat></d:response>' +
+                '<d:response><d:href>/cal/tasks/</d:href><d:propstat><d:prop><d:displayname>Tasks</d:displayname><d:resourcetype><d:collection/><cal:calendar/></d:resourcetype><cal:supported-calendar-component-set><cal:comp name="VTODO"/></cal:supported-calendar-component-set></d:prop></d:propstat></d:response>' +
                 '<d:response><d:href>/cal/inbox/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/><cal:schedule-inbox/></d:resourcetype></d:prop></d:propstat></d:response>' +
                 '<d:response><d:href>https://elsewhere.example/cal/x/</d:href><d:propstat><d:prop><d:resourcetype><cal:calendar/></d:resourcetype></d:prop></d:propstat></d:response>',
             ),
