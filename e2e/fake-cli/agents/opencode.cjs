@@ -735,8 +735,8 @@ async function opencodeTurn(peer, server, p, s, c, next) {
         });
     }
     if (step.type === 'mcp') {
-      // A tool of an MCP server it was given (stdio), named `<server>_<tool>` as OpenCode names them;
-      // the permission rules decide, as for its own tools.
+      // A tool of an MCP server it was given (stdio or HTTP), named `<server>_<tool>` as OpenCode
+      // names them; the permission rules decide, as for its own tools.
       const id = next('call');
       const name = `${step.server}_${step.tool}`;
       const spec = s.mcpSpecs && s.mcpSpecs[step.server];
@@ -748,8 +748,14 @@ async function opencodeTurn(peer, server, p, s, c, next) {
         refuse(id, ok);
         prefix += spec ? '' : `No MCP server ${step.server}. `;
       } else {
-        const env = Object.fromEntries((spec.env || []).map((v) => [v.name, v.value]));
-        const r = await callMcpTool({ command: spec.command, args: spec.args, env }, step.tool, step.args);
+        const pairs = (list) => Object.fromEntries((list || []).map((v) => [v.name, v.value]));
+        const r = await callMcpTool(
+          spec.type === 'http'
+            ? { url: spec.url, headers: pairs(spec.headers) }
+            : { command: spec.command, args: spec.args, env: pairs(spec.env) },
+          step.tool,
+          step.args,
+        );
         u.update({
           sessionUpdate: 'tool_call_update',
           toolCallId: id,

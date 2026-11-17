@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { connect } from 'node:net';
-import { existsSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -345,6 +346,159 @@ describe('the gateway and the MCP server the CLIs start', () => {
     },
     slow(20_000),
   );
+
+  /** A POST to the HTTP endpoint, as an MCP client sends it (headers it may override). */
+  const post = (url: string, body: unknown, headers: Record<string, string> = {}) =>
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...headers },
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    });
+
+  it('serves a turn over loopback HTTP, its token only in the MCP server it gives: nothing written, the same tools and tiers', async () => {
+    const before = readdirSync(join(root, 'data', 'tmp')).length;
+    const grant = gateway.grant(ctx(), ['browser', 'mail'], { http: true })!;
+    const { spec } = grant;
+    expect(spec).toMatchObject({ name: 'relay', transport: 'http', command: '', args: [], env: {} });
+    expect(spec.url).toBe(`http://127.0.0.1:${gateway.httpPort()}/mcp`);
+    expect(spec.headers.Authorization).toMatch(/^Bearer [A-Za-z0-9_-]{43}$/);
+    expect(spec.fallback).toBeUndefined();
+    // No program, no token file: the token is only in what the CLI is given.
+    expect(readdirSync(join(root, 'data', 'tmp'))).toHaveLength(before);
+    const auth = { Authorization: spec.headers.Authorization! };
+
+    const init = (await (
+      await post(spec.url, { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } }, auth)
+    ).json()) as any;
+    expect(init.result).toMatchObject({ protocolVersion: '2025-06-18', serverInfo: { name: 'relay' }, capabilities: { tools: {} } });
+    // A notification is accepted, with nothing to answer.
+    const note = await post(spec.url, { jsonrpc: '2.0', method: 'notifications/initialized' }, auth);
+    expect(note.status).toBe(202);
+    expect(await note.text()).toBe('');
+    const list = (await (await post(spec.url, { jsonrpc: '2.0', id: 2, method: 'tools/list' }, auth)).json()) as any;
+    expect(list.result.tools.map((t: { name: string }) => t.name).sort()).toEqual([
+      'broken',
+      'later',
+      'mail_out',
+      'page_click',
+      'page_title',
+    ]);
+    const read = (await (
+      await post(
+        spec.url,
+        { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'page_title', arguments: { url: 'https://example.com' } } },
+        auth,
+      )
+    ).json()) as any;
+    expect(read.result.content[0]).toEqual({ type: 'text', text: 'Title of https://example.com' });
+    expect(read.result.content[1]).toEqual({ type: 'image', data: 'aGk=', mimeType: 'image/png' });
+    // The same tiers: an act is asked about, a send waits in the outbox.
+    await post(
+      spec.url,
+      { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'page_click', arguments: { target: 'Buy' } } },
+      auth,
+    );
+    expect(asked.at(-1)).toMatchObject({ tool: 'relay:page_click', detail: 'Click Buy' });
+    const sent = (await (
+      await post(
+        spec.url,
+        { jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'mail_out', arguments: { to: 'bob@x.com', body: 'hi' } } },
+        auth,
+      )
+    ).json()) as any;
+    expect(sent.result.content[0].text).toMatch(/^Not sent yet/);
+    expect(outboxed).toHaveLength(1);
+    // A batch is answered as one, its notifications left out.
+    const batch = (await (
+      await post(
+        spec.url,
+        [
+          { jsonrpc: '2.0', id: 6, method: 'ping' },
+          { jsonrpc: '2.0', method: 'notifications/x' },
+        ],
+        auth,
+      )
+    ).json()) as any;
+    expect(batch).toEqual([{ jsonrpc: '2.0', id: 6, result: {} }]);
+    const unknown = (await (await post(spec.url, { jsonrpc: '2.0', id: 7, method: 'resources/list' }, auth)).json()) as any;
+    expect(unknown.error.code).toBe(-32601);
+
+    // Once the turn is over, its token opens nothing.
+    grant.revoke();
+    const over = await post(spec.url, { jsonrpc: '2.0', id: 8, method: 'tools/list' }, auth);
+    expect(over.status).toBe(404);
+  });
+
+  it("answers only this computer's programs over HTTP: its own address as Host, no Origin, POST, JSON, a live token of its own kind", async () => {
+    const grant = gateway.grant(ctx(), ['browser'], { http: true })!;
+    const { url, headers } = grant.spec;
+    const auth = { Authorization: headers.Authorization! };
+    const list = { jsonrpc: '2.0', id: 1, method: 'tools/list' };
+    const port = gateway.httpPort()!;
+    const raw = (h: Record<string, string>, method = 'POST', body = JSON.stringify(list)) =>
+      new Promise<number>((resolve, reject) => {
+        const req = httpRequest(
+          { host: '127.0.0.1', port, path: '/mcp', method, headers: { 'Content-Type': 'application/json', ...h } },
+          (res) => {
+            res.resume();
+            resolve(res.statusCode!);
+          },
+        );
+        req.on('error', reject);
+        req.end(method === 'POST' ? body : undefined);
+      });
+    expect(await raw({ ...auth })).toBe(200);
+    expect(await raw({ ...auth, Host: `localhost:${port}` })).toBe(200);
+    // A name that rebinds to 127.0.0.1 is not its own address; a page in a browser sends an Origin.
+    expect(await raw({ ...auth, Host: `evil.example:${port}` })).toBe(403);
+    expect(await raw({ ...auth, Origin: 'https://evil.example' })).toBe(403);
+    expect(await raw({ ...auth }, 'GET')).toBe(405);
+    expect(await raw({ ...auth, 'Content-Type': 'text/plain' })).toBe(415);
+    expect(await raw({})).toBe(404);
+    expect(await raw({ Authorization: 'Bearer ' + 'x'.repeat(43) })).toBe(404);
+    expect((await post(url.replace('/mcp', '/other'), list, auth)).status).toBe(404);
+    expect((await post(url, '{not json', auth)).status).toBe(400);
+    // A stdio program's token is no good here, nor the HTTP one on the program's socket.
+    const stdio = gateway.grant(ctx(), ['browser'])!;
+    const fileToken = readFileSync(stdio.spec.env.RELAY_GATEWAY_TOKEN_FILE!, 'utf8').trim();
+    expect(await raw({ Authorization: `Bearer ${fileToken}` })).toBe(404);
+    const shim = client({ ...stdio.spec, env: { ...stdio.spec.env, RELAY_GATEWAY_TOKEN_FILE: join(root, 'http-token') } });
+    writeFileSync(join(root, 'http-token'), headers.Authorization!.slice('Bearer '.length));
+    await shim.request('initialize', { protocolVersion: '2025-06-18' });
+    expect((await shim.request('tools/list')).error.message).toMatch(/turn is over/);
+    stdio.revoke();
+    grant.revoke();
+  });
+
+  it('makes the stdio program only if the CLI takes no HTTP MCP server (its fallback), and ends both with the turn', async () => {
+    const tmp = join(root, 'data', 'tmp');
+    const before = readdirSync(tmp).length;
+    const grant = gateway.grant(ctx(), ['browser'], { http: true, fallback: true })!;
+    expect(grant.spec.transport).toBe('http');
+    expect(readdirSync(tmp)).toHaveLength(before);
+    const program = grant.spec.fallback!()!;
+    expect(program).toMatchObject({ name: 'relay', transport: 'stdio', command: process.execPath });
+    expect(existsSync(program.env.RELAY_GATEWAY_TOKEN_FILE!)).toBe(true);
+    grant.revoke();
+    expect(existsSync(program.env.RELAY_GATEWAY_TOKEN_FILE!)).toBe(false);
+    expect(readdirSync(tmp)).toHaveLength(before);
+    // Once the turn is over, no program is made.
+    expect(grant.spec.fallback!()).toBeUndefined();
+    // Without a Node.js the HTTP way still works, with no program to fall back on; the program's way does not.
+    const noNode = new ToolGateway(join(root, 'data7'), join(root, 'data7', 'tmp'), () => undefined);
+    await noNode.start();
+    try {
+      const http = noNode.grant(ctx(), ['browser'], { http: true, fallback: true })!;
+      expect(http.spec.transport).toBe('http');
+      expect(http.spec.fallback).toBeUndefined();
+      expect(noNode.grant(ctx(), ['browser'])).toBeUndefined();
+      expect(noNode.listening()).toBe(true);
+      http.revoke();
+    } finally {
+      await noNode.stop();
+    }
+    expect(noNode.httpPort()).toBeUndefined();
+  });
 
   it("lists the conversation's outbox with the outbox's own tool, given with any group", async () => {
     const tool = outboxTool(() => [

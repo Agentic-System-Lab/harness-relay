@@ -460,6 +460,25 @@ describe('grok and the tool library', () => {
         false,
       ).map((s) => s.name),
     ).toEqual(['gh']);
+    // Harness Relay's gateway: its stdio stand-in where it has one (full access), else left out too.
+    const relay = (
+      fallback?: () => undefined | { name: string; transport: 'stdio'; command: string; args: string[]; url: string; env: {}; headers: {} },
+    ) => ({
+      name: 'relay',
+      transport: 'http' as const,
+      command: '',
+      args: [],
+      url: 'http://127.0.0.1:4/mcp',
+      env: {},
+      headers: { Authorization: 'Bearer t' },
+      ...(fallback ? { fallback } : {}),
+    });
+    const program = { name: 'relay', transport: 'stdio' as const, command: 'node', args: ['g.mjs'], url: '', env: {}, headers: {} };
+    expect(grokMcpServers([relay(() => program)], false)).toEqual([{ name: 'relay', command: 'node', args: ['g.mjs'], env: [] }]);
+    expect(grokMcpServers([relay()], false)).toEqual([]);
+    expect(grokMcpServers([relay()], true)).toEqual([
+      { type: 'http', name: 'relay', url: 'http://127.0.0.1:4/mcp', headers: [{ name: 'Authorization', value: 'Bearer t' }] },
+    ]);
   });
 });
 

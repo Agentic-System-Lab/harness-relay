@@ -1162,7 +1162,7 @@ export const en: Messages = {
   tools: {
     relay: {
       title: "Harness Relay's tools",
-      hint: "Tools Harness Relay serves itself, through one MCP server it gives each member (relay): the same for every CLI, with their passwords kept here, never given to a CLI. What a call reads runs; what changes something somewhere (a click on a page, a mail draft) asks you below full access, like any action; what reaches other people (a mail, an invitation) never goes in the turn: it waits in the outbox, a card in the chat, until you click Send. Grok and the open-source agents get them in full access only: below it, the sandbox that holds their commands holds the MCP servers they start too, and it keeps them out of Harness Relay's folder, where each turn's token is.",
+      hint: "Tools Harness Relay serves itself, through one MCP server it gives each member (relay): the same for every CLI, with their passwords kept here, never given to a CLI. What a call reads runs; what changes something somewhere (a click on a page, a mail draft) asks you below full access, like any action; what reaches other people (a mail, an invitation) never goes in the turn: it waits in the outbox, a card in the chat, until you click Send. OpenCode and Codex connect to it on this computer with a token for the turn that only they hold; the other CLIs start a small program of Harness Relay's for it. Grok, Goose, Cline, OpenHands and Pi get them in full access only: below it, the sandbox that holds their commands would hold the token too.",
       groups: { browser: 'Browser', mail: 'Mail', calendar: 'Calendar' },
       groupHints: {
         browser:
@@ -1178,8 +1178,9 @@ export const en: Messages = {
       unavailable: {
         'not-started': 'Not available now: the server could not start them (its log says why).',
         'no-node':
-          'Not available in the desktop app without a Node.js 22.12 or later on your PATH, or the one Settings → Sandboxes installs.',
-        'no-node-path': 'Not available in the desktop app without a Node.js 22.12 or later on your PATH.',
+          "Only OpenCode and Codex can use them now: the other CLIs start a small program of Harness Relay's for them, which needs a Node.js 22.12 or later on your PATH, or the one Settings → Sandboxes installs.",
+        'no-node-path':
+          "Only OpenCode and Codex can use them now: the other CLIs start a small program of Harness Relay's for them, which needs a Node.js 22.12 or later on your PATH.",
       },
     },
     title: 'Tool library',

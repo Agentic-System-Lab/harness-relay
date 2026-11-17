@@ -23,6 +23,7 @@ import { freeLoopbackPort } from '../relaySandbox';
 import { RpcError, type JsonRpcConnection } from './acp';
 import { acpRunner, type AcpAgentSpec, type AcpCallInfo, type AcpSessionState, type AcpToolCall, type AcpTurnDeps } from './acpTurn';
 import {
+  localMcpPorts,
   openAgentHome,
   startStateOver,
   type OpenAgentDefinition,
@@ -94,14 +95,21 @@ export const OPENCODE_QUIET_HOSTS = ['models.opencode.ai'];
  *   `opencode acp` serves its API on 127.0.0.1 and its ACP side talks to it. Without it, it exits
  *   with `ServeError` before answering `initialize`. Only that port is opened: its commands reach no
  *   other local port, and Harness Relay's never. Its server wants the run's password.
+ * - `connectPorts`: the ports of the HTTP MCP servers on this computer it is given (Harness Relay's
+ *   gateway over HTTP, a library server's), its MCP client being in the sandbox too; those only.
  * - `quietlyDeniedHosts`: `OPENCODE_QUIET_HOSTS`.
  * - The proxy: Bun reads `HTTP_PROXY` / `HTTPS_PROXY` itself (`proxyEnv` is empty).
  * - No PTY, no Unix sockets, no macOS trustd (Bun's TLS goes through the proxy).
  * - Harmless inside the sandbox: "Error starting FSEvents stream" (its file watcher) on stderr.
  */
-export function opencodeSandbox(ctx: Pick<OpenRunContext, 'state'>): OpenSandboxNeeds {
+export function opencodeSandbox(ctx: Pick<OpenRunContext, 'state' | 'o'>): OpenSandboxNeeds {
   const port = (ctx.state as OpencodeState).port;
-  return { ...(port ? { localPorts: [port] } : {}), quietlyDeniedHosts: [...OPENCODE_QUIET_HOSTS] };
+  const mcp = localMcpPorts(ctx.o.mcpServers);
+  return {
+    ...(port ? { localPorts: [port] } : {}),
+    ...(mcp.length ? { connectPorts: mcp } : {}),
+    quietlyDeniedHosts: [...OPENCODE_QUIET_HOSTS],
+  };
 }
 
 // --- Its home -----------------------------------------------------------------------------------

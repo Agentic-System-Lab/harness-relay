@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 35 個 spec 檔、458 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 35 個 spec 檔、460 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -50,7 +50,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [工作目錄與其他資料夾](#工作目錄與其他資料夾) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [架構 → 多個工作目錄](../docs/architecture.zh-TW.md#多個工作目錄)、[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md) |
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
-| [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 19 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
+| [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 21 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 11 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 10 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
@@ -291,7 +291,9 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在頁面上移除的 skill 與記憶筆記不再給出去 | 兩個團隊 | 移除兩個 skill 之一與共享記憶後，下一份簡報與回答都沒有它們，另一個 skill 與每個 CLI 自己的筆記仍然送到。 |
 | 成員透過 MCP gateway 使用 Harness Relay 自己的工具，它寄出的郵件會在待送出匣等到使用者按送出 | Claude Code | 用 API 設定一個郵件帳號（SMTP 是這台電腦上的替身，因為是本機伺服器所以可以不加密），並把 **郵件** 給 Claude Code；假 CLI 啟動它拿到的 `relay` MCP server（伺服器寫出的真程式），呼叫 `mail_send`（`e2e:mcp`）：回覆說郵件還沒寄出，正在待送出匣等待；回覆中的卡片顯示收件人與內文、**等你決定**（Waiting for you），對話標為 **等你核准**（Needs you）；SMTP 伺服器沒有收到任何東西。按 **送出**（Send）只寄一次（卡片顯示 **已送出**（Sent），對話中有說明，替身收到寄給收件人、帶著主旨的郵件）。第二封郵件按 **捨棄**（Discard）：卡片顯示 **已捨棄**（Discarded），不再有送出按鈕，對話中有說明，伺服器沒有再收到任何東西。 |
 | 在設定中指定要啟動的瀏覽器：沒有檔案的路徑會被拒絕並說明原因，是檔案的會保存並使用，清空後重新自己找 | — | 在 **設定 → 工具庫** 的 **要啟動的瀏覽器**（Browser to start）：沒有檔案的路徑會被拒絕（卡片上說那裡沒有檔案）；測試自己的 Node.js（是檔案）會保存、顯示使用中，重新整理後還在；清空後，標題就不再顯示它。 |
-| 完全存取時，開源 agent（OpenCode）也能使用 Harness Relay 自己的工具，它的郵件在待送出匣等待 | OpenCode | 完全存取時，透過 API 設定一個郵件帳號（這裡不會真的連線），並把**郵件**給 OpenCode：假 OpenCode 從它 session 拿到的 MCP server（ACP 的 `mcpServers`）啟動 gateway 的程式並呼叫 `mail_send`，回覆說郵件在待送出匣等待，卡片寫出收件人並等使用者處理。完全存取以下開源 agent 拿不到這些工具（單元測試 `test/orchestrator-gateway.test.ts`）。 |
+| 完全存取時，開源 agent（OpenCode）也能使用 Harness Relay 自己的工具，它的郵件在待送出匣等待 | OpenCode | 完全存取時，透過 API 設定一個郵件帳號（這裡不會真的連線），並把**郵件**給 OpenCode：假 OpenCode 照它 session 拿到的 MCP server（ACP 的 `mcpServers`）連到 gateway 的本機 HTTP 端點，header 中帶著這一回合的權杖，並呼叫 `mail_send`，回覆說郵件在待送出匣等待，卡片寫出收件人並等使用者處理。完全存取以下 Goose、Cline、OpenHands 與 Pi 拿不到這些工具（單元測試 `test/orchestrator-gateway.test.ts`）。 |
+| 完全存取以下，在 Harness Relay 自己的沙箱中，OpenCode 連到 gateway 的本機連接埠（只對它開放），它的郵件在待送出匣等待 | OpenCode | 在可編輯模式下做同樣的事，經過 Harness Relay 自己的沙箱，沙箱只對 OpenCode 開放 gateway 的連接埠（`connectPorts`）。只在 OpenCode 能在完全存取以下執行的地方：macOS。 |
+| 完全存取以下，Codex 透過本機 HTTP 使用 Harness Relay 自己的工具，不啟動任何程式，它的郵件在待送出匣等待 | Codex | 在可編輯模式下，把**郵件**給 Codex：假 Codex 在 thread 設定中拿到 gateway，是 `127.0.0.1` 上的 HTTP server，這一回合的權杖放在 `http_headers`；它像 Codex 一樣詢問 `relay:mail_send`（由 Harness Relay 代為回答：沒有卡片），再連過去呼叫，回覆說郵件在待送出匣等待，並有它的卡片。權杖不在 Codex 啟動時的任何參數中。 |
 | 完全存取以下，CLI 自己對 Harness Relay 工具的詢問由 Harness Relay 代為回答，gateway 則對 act 呼叫說明它會做什麼並詢問 | Claude Code | 在可編輯模式下，這台電腦上有一個行事曆（收下放進來的活動的替身），並把 **行事曆** 給 Claude Code，假 CLI 呼叫 `calendar_create`：它自己對 `mcp__relay__calendar_create` 的詢問沒有卡片；gateway 的卡片（"wants to use a tool relay:calendar_create"）寫出要加的活動與時間，按 **允許**（Allow）之前什麼都不會加入；允許後替身收到活動，回覆說已經加入。 |
 
 ## 修改對話的歷史
@@ -565,7 +567,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 多個工作目錄：每個都寫一個檔案 | ✓ | ✓ | ✓ | ✓（第二個先詢問） | ✓ | ✓ | ✓ |
 | 工具庫的 MCP 伺服器，秘密不在命令列上 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | HTTP MCP 伺服器與它的標頭 | ✓ | ✓ | ✓ | ✓ | —（不提供） | ✓ | ✓ |
-| 透過 gateway 使用 Harness Relay 自己的工具：郵件在待送出匣等到使用者按送出；完全存取以下，CLI 自己的詢問被代為回答、gateway 對 act 的卡片 | ✓ | — | — | — | — | — | — |
+| 透過 gateway 使用 Harness Relay 自己的工具：郵件在待送出匣等到使用者按送出；完全存取以下，CLI 自己的詢問被代為回答、gateway 對 act 的卡片 | ✓ | ✓（透過本機 HTTP，完全存取以下） | — | — | — | — | — |
 | 附加的圖片 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 停止回答；協定之內的錯誤；失敗的回答與重試 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 下一回合接續自己的 session | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -599,7 +601,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 這次執行不能連的主機會先詢問，並被拒絕 | ✓ | ✓ | ✓ | ✓（編輯模式下） | ✓（編輯模式下） |
 | 多個工作目錄：每個都寫一個檔案 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 工具庫的 MCP 伺服器，秘密不在命令列上 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 透過 gateway 使用 Harness Relay 自己的工具（完全存取時）：郵件在待送出匣等待 | ✓ | — | — | — | — |
+| 透過 gateway 使用 Harness Relay 自己的工具，經由本機 HTTP：郵件在待送出匣等待 | ✓（macOS 上也在完全存取以下） | — | — | — | — |
 | HTTP MCP 伺服器與它的標頭 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 附加的圖片 | ✓ | ✓ | —（只有路徑） | ✓ | ✓ |
 | 停止回答；協定之內的錯誤；失敗的回答與重試 | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -617,6 +619,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - 開源 agent 只在 macOS 與 Linux 上（Linux 需要 bubblewrap、socat 與 ripgrep）以完全存取以外的權限執行：在 Harness Relay 自己的沙箱不支援的 Windows 上，它們只能以完全存取執行，Linux 上的 OpenCode 也是。在那裡，與權限有關的測試會跳過它們並說明原因，其他測試以完全存取執行它們，而 [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱)會檢查權限低於完全存取的對話不會啟動它們。在沒有這個沙箱的 Mac 或 Linux 電腦上，需要它的測試會跳過並說明原因（`E2E_RELAY_SANDBOX`，由 `global-setup.ts` 判斷一次）。
 - 在 CI 上（`E2E_SYSTEM_CLIS=1`），每個 CLI 自己的測試在 Linux 上十二個都跑，在 macOS 與 Windows 上只跑 Harness Relay 在那裡的執行方式和 Linux 不同、而且它的假 CLI 看得出差別的 CLI（`support/clis/<cli>.ts` 的 `testedOn`，那裡寫了原因）；在其他系統上會跳過並說明在哪裡執行。**macOS**：五個開源 agent（Harness Relay 自己的沙箱在那裡由 Seatbelt 構成，OpenCode 只在那裡以完全存取以外的權限執行，還有 OpenHands 的終端機開關），以及代表有登入的七個 CLI 的 Claude Code，它們的假 CLI 在那裡做的事和在 Linux 上一樣。**Windows**：有登入的七個（Claude Code 沒有沙箱設定、Codex 沒有權限設定檔、Grok 的 `workspace` 設定檔、Cursor 的 session 以 junction 連進來、Antigravity 的家目錄以 `USERPROFILE` 傳給它、Copilot 的資料夾以 junction 連進來、Muse Code 的登入用複本，以及它的 PowerShell），OpenCode 與 Goose（用它們自己的 shell），以及 OpenHands（它的 PowerShell 終端機）；Cline 與 Pi 不在其中，它們在那裡只能以完全存取執行，和在 Linux 上以完全存取執行時一樣（[在 Windows 上是腳本的 CLI](#在-windows-上是腳本的-cli) 仍會在那裡啟動它們）。在本機沒有設定這個變數時，每個 CLI 的測試在每個系統上都跑；手動執行 workflow 並勾選 **every_cli**，macOS 與 Windows 上也會十二個都跑。
 - OpenHands 在 macOS 上要在完全存取以外執行，需要沙箱裡的終端機：測試的伺服器會打開它的開關，而關掉開關的測試只在 macOS 上執行。
+- OpenCode 在完全存取以下、經由沙箱對 gateway 連接埠的開放使用 Harness Relay 自己的工具，這個測試只在 macOS 上執行，也就是 OpenCode 能在完全存取以下執行的地方。
 - [在 Windows 上是腳本的 CLI](#在-windows-上是腳本的-cli)只在 Windows 上執行。
 - 在[安裝 CLI](#安裝-cli)中，Grok 的卡片在 macOS 與 Linux 上提供官方 bash 腳本，在 Windows 上提供它的 PowerShell 安裝程式；假的 npm 在每個系統上都照 npm 的方式安裝（macOS 與 Linux 上是連結，Windows 上是 npm 給程式的 `.cmd` shim）。
 - 選擇資料夾視窗的測試只在 Linux 上執行：Linux 從 PATH 找它的視窗，假的視窗可以替代；macOS 與 Windows 以完整路徑開啟自己的視窗。
@@ -629,7 +632,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 沒有測到的部分
 
-- **CLI 本身。**假 CLI 檢查的是 Harness Relay 這一端的協定；[實機測試](#實機測試)會手動試用真正的 CLI。CLI 改變它的輸出時，由轉接器測試錄下來的訊息（`test/claude.test.ts`、`test/codex.test.ts`、`test/grok.test.ts`、`test/cursor.test.ts`、`test/antigravity.test.ts`、`test/copilot.test.ts`、`test/muse.test.ts` 與開源 agent 的測試，後面這些重播從真正的 CLI 錄下的訊息）以及在 app 中試用真正的 CLI 發現。
+- **CLI 本身。**假 CLI 檢查的是 Harness Relay 這一端的協定；[實機測試](#實機測試)會手動試用真正的 CLI。CLI 改變它的輸出時，由轉接器測試錄下來的訊息（`test/claude.test.ts`、`test/codex.test.ts`、`test/grok.test.ts`、`test/cursor.test.ts`、`test/antigravity.test.ts`、`test/copilot.test.ts`、`test/muse.test.ts` 與開源 agent 的測試，後面這些重播從真正的 CLI 錄下的訊息）以及在 app 中試用真正的 CLI 發現。真的 CLI 是否只把 gateway 的權杖（HTTP MCP server 的 header）留在記憶體中，要用 `scripts/mcp-headers-check.ts` 手動檢查，不在這裡：假 CLI 只顯示 Harness Relay 把它放在 header 裡、不在任何參數中。
 - **CLI 自己的沙箱。**Claude Code、Codex、Grok、Copilot 與 Muse Code 的假 CLI 是從 Harness Relay 給它們的設定，推算它們 CLI 的沙箱會允許什麼（Copilot 的從這次執行的設定推算，並且像 Copilot 那樣，用這些設定給的政策回答 `/sandbox policy`）；只有包住開源 agent 的 Harness Relay 自己的沙箱是真的。真正的 CLI 在完全存取以外不會寫到對話的資料夾之外，由實機測試（`live/sandbox.spec.ts`）試用。
 - **AgentsView 本身。**它是 [`sessions.spec.ts`](specs/sessions.spec.ts) 中的替身伺服器，只回應 Harness Relay 的請求，從不讀 session 檔。真正的 AgentsView 是否在 Harness Relay 的執行留下 session 的地方讀到各 CLI 自己的 session、用的是不是 Harness Relay 連結的 id（包括 Copilot 的 `session-state` 與 Muse Code 的資料資料夾，在各 CLI 平常的家目錄，以及透過使用者說明中專用 AgentsView 的 `config.toml`），並把它們放在討論串底下，是用 AgentsView 0.46.1 手動試過的（Copilot 與 Muse Code 也用 copilot 1.0.109 與 muse 1.4.18 透過它們的 adapter 在 Linux 與 Windows 上寫的 session 試過）。
 - **GitHub 對 gh 的真正登入。** 分享對話框的登入跑的是假的 `gh`，它印出一組代碼後等測試核准；gh 真正的裝置登入只用手動檢查過（沒有終端機時它會印出代碼與 `github.com/login/device`，不會開瀏覽器），沒有經過 GitHub 的核准。

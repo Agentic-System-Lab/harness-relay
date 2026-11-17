@@ -126,7 +126,8 @@ const browser = new BrowserService({
   dataDir: DATA_DIR,
   // The browser set in Settings, else RELAY_BROWSER's, else one found on this computer.
   executable: () => findBrowser({ configured: settings.tools.browserPath() ?? CONFIG.browser }),
-  relayPorts: () => relayPorts(),
+  // Harness Relay's own ports, and the gateway's HTTP endpoint: never opened by its browser.
+  relayPorts: () => [...relayPorts(), ...(gateway.httpPort() ? [gateway.httpPort()!] : [])],
   own: () => localAddresses(),
 });
 gateway.register([outboxTool((id) => outbox.list(id)), ...browserTools(browser), ...connectorTools(settings.connectors)]);
@@ -138,9 +139,12 @@ settings.tools.browserStatus = () => {
   const using = findBrowser({ configured: settings.tools.browserPath() ?? CONFIG.browser });
   return { ...(CONFIG.browser ? { env: CONFIG.browser } : {}), ...(using ? { using } : {}) };
 };
+// Available while it listens (over HTTP no Node.js is needed); without a Node.js, the CLIs that start its
+// program (Claude Code; Cline, OpenHands and Pi in full access) get none, which the reason says.
 settings.tools.gatewayStatus = () => {
+  if (!gateway.listening()) return { available: false, reason: 'not-started' };
   const why = gateway.unavailable();
-  return why ? { available: false, reason: why } : { available: true };
+  return { available: true, ...(why && why !== 'not-started' ? { reason: why } : {}) };
 };
 
 // Sends each conversation's scheduled message when it comes due.

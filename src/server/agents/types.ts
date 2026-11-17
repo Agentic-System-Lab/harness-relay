@@ -175,6 +175,11 @@ export interface McpServerSpec {
   url: string;
   env: Record<string, string>;
   headers: Record<string, string>;
+  /**
+   * An HTTP server's stdio stand-in, for a CLI that turns out to take no HTTP MCP server (its ACP
+   * `mcpCapabilities.http`): made only when called (Harness Relay's gateway, `GrantOptions.fallback`).
+   */
+  fallback?: () => McpServerSpec | undefined;
 }
 
 /**

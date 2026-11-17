@@ -48,6 +48,7 @@ import {
   type AcpUsageUpdate,
 } from './acpTurn';
 import {
+  localMcpPorts,
   openAgentHome,
   sealedFolder,
   startStateOver,
@@ -164,27 +165,8 @@ export const GOOSE_QUIET_HOSTS = [
   'us.i.posthog.com', // telemetry (off anyway)
 ];
 
-/** Loopback hosts, as a URL names them. */
-function isLoopbackName(host: string): boolean {
-  const h = host.replace(/^\[|\]$/g, '').toLowerCase();
-  return h === 'localhost' || h === '::1' || /^127\./.test(h) || h.endsWith('.localhost');
-}
-
-/** The ports of the tool library's HTTP MCP servers on this computer. */
-export function gooseLocalMcpPorts(servers: readonly McpServerSpec[] = []): number[] {
-  const ports = new Set<number>();
-  for (const s of servers) {
-    if (s.transport !== 'http') continue;
-    try {
-      const u = new URL(s.url);
-      const port = Number(u.port || (u.protocol === 'https:' ? 443 : 80));
-      if (isLoopbackName(u.hostname) && port >= 1 && port <= 65535) ports.add(port);
-    } catch {
-      // not a URL: Goose cannot reach it either
-    }
-  }
-  return [...ports];
-}
+/** The ports of the tool library's HTTP MCP servers on this computer (and the gateway's, over HTTP). */
+export const gooseLocalMcpPorts = localMcpPorts;
 
 /** Whether the run talks HTTPS: its backend, or one of the tool library's HTTP MCP servers. */
 export function gooseUsesHttps(run: Pick<BackendRun, 'kind' | 'endpoint'>, servers: readonly McpServerSpec[] = []): boolean {

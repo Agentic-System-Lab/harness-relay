@@ -1033,6 +1033,16 @@ describe('ACP pieces', () => {
       url: 'https://mcp.example',
       headers: [{ name: 'Authorization', value: 'Bearer x' }],
     });
+    // Harness Relay's gateway over HTTP: to an agent that takes none, its stdio program, made only then.
+    let made = 0;
+    const program = { name: 'relay', transport: 'stdio' as const, command: 'node', args: ['g.mjs'], url: '', env: { F: 'f' }, headers: {} };
+    const relay: McpServerSpec = { ...servers[1]!, name: 'relay', fallback: () => (made++, program) };
+    expect(acpMcpServers([relay], { mcpCapabilities: { http: true } })).toEqual([
+      { type: 'http', name: 'relay', url: 'https://mcp.example', headers: [{ name: 'Authorization', value: 'Bearer x' }] },
+    ]);
+    expect(made).toBe(0);
+    expect(acpMcpServers([relay], {})).toEqual([{ name: 'relay', command: 'node', args: ['g.mjs'], env: [{ name: 'F', value: 'f' }] }]);
+    expect(made).toBe(1);
   });
 
   it('reads usage from the answer and the cost from the last usage update, in USD only', () => {

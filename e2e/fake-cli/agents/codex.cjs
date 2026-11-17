@@ -19,6 +19,7 @@ const { exitAfterLog, record } = require('../lib/log.cjs');
 const { declined, noOther, pieceDelay, pieces, plan, recordMcpEnv, wrote } = require('../lib/plan.cjs');
 const { fail, rpcError, rpcPeer, track } = require('../lib/rpc.cjs');
 const { args, has, home, newId, sleep } = require('../lib/self.cjs');
+const { callMcpTool } = require('../lib/mcp.cjs');
 
 /** The verdict on the key `login --with-api-key` kept in its home, or null (signed in otherwise, or out). */
 function keptApiKey() {
@@ -137,6 +138,8 @@ function codexAppServer() {
             ...codexWrites(p),
           });
           const given = Object.entries(config.mcp_servers || {}).filter(([, s]) => s && s.enabled !== false && (s.command || s.url));
+          // Held in memory only, as Codex holds them: the servers it calls in an `e2e:mcp` step.
+          threads.get(id).servers = Object.fromEntries(given);
           recordMcpEnv(
             Object.fromEntries(given.map(([name, s]) => [name, s.env || s.http_headers || {}])),
             // A server with a URL (and no command) is a Streamable HTTP one.
@@ -309,6 +312,48 @@ async function codexTurn(peer, threadId, turnId, t, steps) {
           : { ...base, status: 'declined', aggregatedOutput: null, exitCode: null },
       });
       prefix += ran ? 'The command ran: e2e-approval. ' : declined('command');
+    }
+    if (step.type === 'mcp') {
+      // A tool of an MCP server its thread config gave it (a URL with `http_headers`, or a command).
+      // Codex asks before an MCP tool runs (an elicitation marked as a tool-call approval), unless the
+      // server approves its own tools; with the approval policy "never" it refuses the call instead.
+      const id = `mcp_${++n}`;
+      const spec = (t.servers || {})[step.server];
+      const base = { type: 'mcpToolCall', id, server: step.server, tool: step.tool, arguments: step.args };
+      note('item/started', { item: { ...base, status: 'inProgress', result: null, error: null } });
+      const allowed =
+        Boolean(spec) &&
+        (spec.default_tools_approval_mode === 'approve' ||
+          (t.approval !== 'never' &&
+            (
+              (await peer
+                .request('mcpServer/elicitation/request', {
+                  threadId,
+                  turnId,
+                  serverName: step.server,
+                  mode: 'form',
+                  message: `Allow the ${step.server} MCP server to run tool "${step.tool}"?`,
+                  requestedSchema: { type: 'object', properties: {} },
+                  _meta: { codex_approval_kind: 'mcp_tool_call', tool_name: step.tool, tool_params: step.args },
+                })
+                .catch(() => ({}))) || {}
+            ).action === 'accept'));
+      if (!allowed) {
+        note('item/completed', { item: { ...base, status: 'failed', result: null, error: { message: 'user cancelled MCP tool call' } } });
+        prefix += spec ? declined('tool') : `No MCP server ${step.server}. `;
+        continue;
+      }
+      const r = await callMcpTool(
+        spec.url ? { url: spec.url, headers: spec.http_headers } : { command: spec.command, args: spec.args, env: spec.env },
+        step.tool,
+        step.args,
+      );
+      note('item/completed', {
+        item: r.isError
+          ? { ...base, status: 'failed', result: null, error: { message: r.text } }
+          : { ...base, status: 'completed', result: { content: [{ type: 'text', text: r.text }] }, error: null },
+      });
+      prefix += `The ${step.tool} tool said: ${r.text} `;
     }
     if (step.type === 'write') {
       const file = targetOf(step, t.cwd, t.others);

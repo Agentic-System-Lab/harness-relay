@@ -7,8 +7,8 @@
  * The fake CLI, and what each test starts with, are in ./orchestrator-harness.ts.
  */
 import { describe, expect, it } from 'vitest';
-import type { OutboxItem, RelayToolGroup } from '../src/shared/types';
-import type { GatewayContext, GatewayTool, ToolGateway } from '../src/server/gateway';
+import type { OutboxItem, Permission, Provider, RelayToolGroup } from '../src/shared/types';
+import type { GatewayContext, GatewayTool, GrantOptions, ToolGateway } from '../src/server/gateway';
 import { Outbox } from '../src/server/outbox';
 import {
   agents,
@@ -28,7 +28,7 @@ import {
 describe("Harness Relay's own tools in a turn", () => {
   /** A stand-in gateway: it records each grant, and knows one tool that sends. */
   const fakeGateway = () => {
-    const grants: { ctx: GatewayContext; groups: readonly RelayToolGroup[]; revoked: boolean }[] = [];
+    const grants: { ctx: GatewayContext; groups: readonly RelayToolGroup[]; o?: GrantOptions; revoked: boolean }[] = [];
     const sent: Record<string, unknown>[] = [];
     const mailTool = {
       name: 'mail_send',
@@ -37,8 +37,8 @@ describe("Harness Relay's own tools in a turn", () => {
       send: async (args: Record<string, unknown>) => (sent.push(args), 'accepted by the server'),
     } as unknown as GatewayTool;
     const gateway = {
-      grant(ctx: GatewayContext, groups: readonly RelayToolGroup[]) {
-        const g = { ctx, groups, revoked: false };
+      grant(ctx: GatewayContext, groups: readonly RelayToolGroup[], o?: GrantOptions) {
+        const g = { ctx, groups, o, revoked: false };
         grants.push(g);
         return {
           spec: { name: 'relay', transport: 'stdio' as const, command: 'node', args: ['relay-mcp.mjs'], url: '', env: {}, headers: {} },
@@ -77,53 +77,39 @@ describe("Harness Relay's own tools in a turn", () => {
     expect(grants[0]!.ctx.messageId).toBe(conv.messages.at(-1)!.id);
     expect(grants[0]!.revoked).toBe(true);
 
-    // Grok gets them in full access only: below it, its sandbox keeps its MCP servers out of data/tmp.
-    const saved = runners.grok;
-    runners.grok = { ...runners.claude, provider: 'grok' };
-    try {
-      const grok = conversation({ mode: 'roundtable', permission: 'edit' });
-      grok.agents = [{ ...agents[0]!, provider: 'grok' }];
-      store.saveMeta(grok);
-      settings.tools.update({ relayTools: { browser: ['claude', 'grok'], mail: ['claude'] } });
-      const before = grants.length;
-      await orchestrator.send(grok.id, 'below full access');
-      await finish(grok.id);
-      expect(calls.at(-1)!.mcpServers).toBeUndefined();
-      expect(grants).toHaveLength(before);
-      grok.settings.permission = 'full';
-      store.saveMeta(grok);
-      await orchestrator.send(grok.id, 'in full access');
-      await finish(grok.id);
-      expect(calls.at(-1)!.mcpServers).toEqual(['relay']);
-      expect(grants.at(-1)!.groups).toEqual(['browser']);
-    } finally {
-      runners.grok = saved;
-    }
-
-    // So do the open agents: below it, Harness Relay's own sandbox holds their MCP servers with their commands.
-    const savedOpen = runners.opencode;
-    runners.opencode = { ...runners.claude, provider: 'opencode' };
-    try {
-      const open = conversation({ mode: 'roundtable', permission: 'edit' });
-      open.agents = [{ ...agents[0]!, provider: 'opencode' }];
-      store.saveMeta(open);
-      settings.tools.update({ relayTools: { browser: ['claude', 'opencode'], mail: ['claude'] } });
-      const before = grants.length;
-      await orchestrator.send(open.id, 'below full access');
-      await finish(open.id);
-      expect(grants).toHaveLength(before);
-      open.settings.permission = 'full';
-      store.saveMeta(open);
-      const ran = calls.length;
-      await orchestrator.send(open.id, 'in full access');
-      await finish(open.id);
-      expect(calls).toHaveLength(ran + 1);
-      expect(calls.at(-1)!.mcpServers).toEqual(['relay']);
-      expect(grants.at(-1)!.groups).toEqual(['browser']);
-      expect(grants.at(-1)!.ctx).toMatchObject({ convId: open.id, permission: 'full' });
-    } finally {
-      runners.opencode = savedOpen;
-    }
+    // How each CLI gets it: over HTTP where the token stays in its memory (OpenCode, Codex), with the stdio
+    // program as a stand-in only where it could run; Grok, Goose, Cline, OpenHands and Pi in full access
+    // only, over stdio; the rest over stdio.
+    const as = async (provider: Provider, permission: Permission) => {
+      const saved = runners[provider];
+      runners[provider] = { ...runners.claude, provider };
+      try {
+        const c = conversation({ mode: 'roundtable', permission });
+        c.agents = [{ ...agents[0]!, provider }];
+        store.saveMeta(c);
+        settings.tools.update({ relayTools: { browser: ['claude', provider], mail: ['claude'] } });
+        const before = grants.length;
+        await orchestrator.send(c.id, 'go');
+        await finish(c.id);
+        return grants.length > before ? grants.at(-1)!.o : 'none';
+      } finally {
+        runners[provider] = saved;
+      }
+    };
+    expect(grants[0]!.o).toEqual({ http: false, fallback: true });
+    expect(await as('opencode', 'edit')).toEqual({ http: true, fallback: false });
+    expect(await as('opencode', 'full')).toEqual({ http: true, fallback: true });
+    expect(await as('codex', 'edit')).toEqual({ http: true, fallback: true });
+    expect(await as('grok', 'edit')).toBe('none');
+    expect(await as('grok', 'full')).toEqual({ http: false, fallback: true });
+    expect(await as('goose', 'edit')).toBe('none');
+    expect(await as('goose', 'full')).toEqual({ http: false, fallback: true });
+    expect(await as('copilot', 'read-only')).toEqual({ http: false, fallback: true });
+    expect(await as('cline', 'edit')).toBe('none');
+    expect(await as('cline', 'full')).toEqual({ http: false, fallback: true });
+    expect(await as('openhands', 'edit')).toBe('none');
+    expect(await as('pi', 'full')).toEqual({ http: false, fallback: true });
+    expect(calls.at(-1)!.mcpServers).toEqual(['relay']);
 
     // A member turned off its groups gets none.
     conv.agents = [{ ...agents[0]!, tools: { 'relay:browser': false, 'relay:mail': false } }];

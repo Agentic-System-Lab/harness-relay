@@ -26,7 +26,7 @@ import {
   type RelaySandboxSpec,
 } from '../relaySandbox';
 import { DATA_DIR, OPEN_AGENT_HOME_ENV, OPEN_AGENT_ROOTS_ENV } from '../settings';
-import { AgentRunError, stateKeys, type AgentRunner, type RunOptions, type RunResult } from './types';
+import { AgentRunError, stateKeys, type AgentRunner, type McpServerSpec, type RunOptions, type RunResult } from './types';
 
 /*
  * What the five open agents (OpenCode, Goose, Cline, OpenHands, Pi) share around their CLI's process,
@@ -608,4 +608,30 @@ function makeRunTmp(provider: OpenProvider, dir = RUN_TMP_DIR): string {
   const path = join(dir, `${provider}-${randomBytes(6).toString('hex')}`);
   mkdirSync(path, { mode: 0o700 });
   return path;
+}
+
+/** Loopback hosts, as a URL names them. */
+function isLoopbackName(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, '').toLowerCase();
+  return h === 'localhost' || h === '::1' || /^127\./.test(h) || h.endsWith('.localhost');
+}
+
+/**
+ * The ports of the HTTP MCP servers on this computer a run is given (the tool library's, and Harness
+ * Relay's gateway over HTTP): what an open agent whose MCP client runs in the relay sandbox asks it to
+ * open (`connectPorts`), those ports only.
+ */
+export function localMcpPorts(servers: readonly McpServerSpec[] = []): number[] {
+  const ports = new Set<number>();
+  for (const s of servers) {
+    if (s.transport !== 'http') continue;
+    try {
+      const u = new URL(s.url);
+      const port = Number(u.port || (u.protocol === 'https:' ? 443 : 80));
+      if (isLoopbackName(u.hostname) && port >= 1 && port <= 65535) ports.add(port);
+    } catch {
+      // not a URL: the agent cannot reach it either
+    }
+  }
+  return [...ports];
 }

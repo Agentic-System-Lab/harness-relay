@@ -41,7 +41,7 @@ import {
 import { AgentRunError, runners, type AgentEvent, type RunResult } from './agents';
 import { emptyStateFolder, removeConversationState } from './agents/open';
 import { stateKeys, type ApprovalRequest, type RunOptions } from './agents/types';
-import { GATEWAY_FULL_ACCESS_ONLY, gatewayToolNamed, type ToolGateway } from './gateway';
+import { GATEWAY_FULL_ACCESS_ONLY, GATEWAY_OVER_HTTP, GATEWAY_SANDBOXED_MCP, gatewayToolNamed, type ToolGateway } from './gateway';
 import type { Outbox } from './outbox';
 import type { TraceSink } from './agentsview';
 import { approvalKeys, isAllowed } from './approvals';
@@ -2960,13 +2960,12 @@ export class Orchestrator {
       const freshState = emptyState;
       emptyState = false;
       const model = await this.modelFor(agent.provider, agent.model, account);
-      // Below full access, Grok's sandbox and the open agents' (Harness Relay's own) hold the MCP servers they
-      // start with their commands, kept from the program and its token: full access only (`GATEWAY_FULL_ACCESS_ONLY`).
+      // Over loopback HTTP for the CLIs that keep its token in memory (`GATEWAY_OVER_HTTP`), else the stdio
+      // program; below full access, a CLI whose sandbox holds its MCP servers gets no stdio stand-in
+      // (`GATEWAY_SANDBOXED_MCP`), and one with no HTTP way at all none (`GATEWAY_FULL_ACCESS_ONLY`).
+      const full = conv.settings.permission === 'full';
       const relay =
-        this.gateway &&
-        this.outbox &&
-        tools.relayGroups.length &&
-        (conv.settings.permission === 'full' || !GATEWAY_FULL_ACCESS_ONLY.includes(agent.provider))
+        this.gateway && this.outbox && tools.relayGroups.length && (full || !GATEWAY_FULL_ACCESS_ONLY.includes(agent.provider))
           ? this.gateway.grant(
               {
                 convId: conv.id,
@@ -2982,6 +2981,7 @@ export class Orchestrator {
                 signal: run.abort.signal,
               },
               tools.relayGroups,
+              { http: GATEWAY_OVER_HTTP.includes(agent.provider), fallback: full || !GATEWAY_SANDBOXED_MCP.includes(agent.provider) },
             )
           : undefined;
       try {

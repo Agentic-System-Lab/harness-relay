@@ -590,6 +590,50 @@ async function escapeChecks(want: (n: string) => boolean) {
     const changed = readText(configFile).includes('rewrite');
     check('escape: the agent cannot rewrite its own config path', !changed, r.out.trim().slice(-40));
   }
+  if (want('escape-agent-memory')) {
+    // A secret the agent holds in memory only (as the gateway's token over loopback HTTP is held, #88):
+    // a command it runs must not read it from the agent's process (`/proc/<pid>/mem`, `environ`). Linux
+    // only (macOS has no /proc; a command there would need the agent's task port).
+    if (process.platform !== 'linux' || !python) skipped.push("the agent's memory (Linux with python3 only)");
+    else {
+      const dir = join(cwdRo, `mem-${uniq()}`);
+      mkdirSync(dir);
+      writeFileSync(
+        join(dir, 'reader.py'),
+        [
+          'import re, sys',
+          'pid, want = int(sys.argv[1]), sys.argv[2].encode()',
+          'try:',
+          '    maps = open(f"/proc/{pid}/maps").read().splitlines()',
+          '    mem = open(f"/proc/{pid}/mem", "rb", 0)',
+          '    found = False',
+          '    for line in maps:',
+          '        m = re.match(r"([0-9a-f]+)-([0-9a-f]+) r", line)',
+          '        if not m: continue',
+          '        a, b = int(m.group(1), 16), int(m.group(2), 16)',
+          '        if b - a > 1 << 28: continue',
+          '        try:',
+          '            mem.seek(a); found = found or want in mem.read(b - a)',
+          '        except OSError: pass',
+          '    print("FOUND" if found else "NOT-FOUND")',
+          'except OSError as e:',
+          '    print("REFUSED", e.strerror)',
+        ].join('\n'),
+      );
+      writeFileSync(
+        join(dir, 'agent.cjs'),
+        [
+          "const { execFileSync } = require('child_process');",
+          "const token = ['MEM', 'SECRET', Math.random().toString(36).slice(2)].join('-');",
+          'globalThis.kept = Buffer.from(token);',
+          "process.stdout.write(execFileSync('python3', [process.argv[2], String(process.pid), token], { encoding: 'utf8' }));",
+        ].join('\n'),
+      );
+      const r = await run(`node ${join(dir, 'agent.cjs')} ${join(dir, 'reader.py')} 2>&1 || true`, baseSpec('read-only'));
+      const said = /REFUSED.*|NOT-FOUND|FOUND/.exec(r.out)?.[0] ?? r.out.trim().slice(-60);
+      check("escape: a command cannot read its agent's memory", said.startsWith('REFUSED') || said === 'NOT-FOUND', said);
+    }
+  }
 }
 
 /** Two runs with different rules stay apart, and a killed run leaves nothing behind. */

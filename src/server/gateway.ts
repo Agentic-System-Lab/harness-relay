@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer, type Server, type Socket } from 'node:net';
+import { createServer as createHttpServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http';
+import { createServer, type AddressInfo, type Server, type Socket } from 'node:net';
 import { join } from 'node:path';
 import {
   GATEWAY_SERVER_NAME,
@@ -16,13 +17,16 @@ import {
 } from '../shared/types';
 import { withLang } from './i18n';
 import type { ApprovalRequest, McpServerSpec } from './agents/types';
-import { GATEWAY_SHIM_SOURCE } from './gatewayShim';
+import { GATEWAY_PROTOCOLS, GATEWAY_SHIM_SOURCE } from './gatewayShim';
 
 /*
- * Harness Relay's own tools, for every CLI the same way: one MCP server (`GATEWAY_SERVER_NAME`) that
- * the CLI starts as it starts any library server, which passes each call to this server over a local
- * socket (`gatewayShim.ts`). A turn that may use them gets a grant (`ToolGateway.grant()`): a token
- * of its own, for that turn alone, with the tool groups the agent was given and how to ask the user.
+ * Harness Relay's own tools, for every CLI the same way: one MCP server (`GATEWAY_SERVER_NAME`), in one
+ * of two ways. Over loopback HTTP (`GATEWAY_OVER_HTTP`): the CLI connects to this server's endpoint on
+ * 127.0.0.1 itself, the turn's token in a header of the MCP server it was given in its session, so only
+ * in its memory, never in a file or a variable (#88). Or as a program the CLI starts as it starts any
+ * library server, which passes each call to this server over a local socket (`gatewayShim.ts`), its
+ * token in a file the sandboxes cannot read. A turn that may use them gets a grant (`ToolGateway.grant()`):
+ * a token of its own, for that turn alone, with the tool groups the agent was given and how to ask the user.
  * The tools' credentials (a mail account's password) stay in this server; the CLI sees only the
  * results. What a call may do without the user is its tier (`gatewayDecision()`): `read` runs, `act`
  * is asked about below full access, `send` waits in the outbox until the user sends it (`outbox.ts`).
@@ -127,10 +131,25 @@ export function dataAttr(text: string): string {
 interface Grant {
   ctx: GatewayContext;
   groups: Set<RelayToolGroup>;
-  tokenFile: string;
-  shimFile: string;
+  /** Over HTTP: the token is only in the CLI's memory; none of the files below. */
+  http?: boolean;
+  /** The stdio program's token file and its copy of the program. */
+  tokenFile?: string;
+  shimFile?: string;
   /** A connection showed its token already (`claimOnce`): no other may. */
   claimed?: boolean;
+}
+
+/** How a turn gets the gateway (`ToolGateway.grant()`). */
+export interface GrantOptions {
+  /** Over the loopback HTTP endpoint, the token only in the CLI's memory, instead of the stdio program. */
+  http?: boolean;
+  /**
+   * With `http`: the stdio program too, made only if the CLI turns out to take no HTTP MCP server
+   * (`McpServerSpec.fallback`). Not for a CLI whose sandbox holds the MCP servers it starts below full
+   * access, where the program could not run.
+   */
+  fallback?: boolean;
 }
 
 /** Why the gateway cannot be given now: it is not listening, or there is no Node.js to start its MCP program with. */
@@ -157,6 +176,9 @@ const MAX_PENDING = 256;
 /** Longest line the server reads from a socket (the shim refuses a call longer than `GATEWAY_MAX_CALL` itself). */
 const MAX_LINE = 4 * 1024 * 1024;
 
+/** The HTTP endpoint's path. */
+export const GATEWAY_HTTP_PATH = '/mcp';
+
 export class ToolGateway {
   private server?: Server;
   private readonly grants = new Map<string, Grant>();
@@ -174,6 +196,9 @@ export class ToolGateway {
   private readonly sockets = new Set<Socket>();
   /** Of `sockets`, those with no token of a turn going on (yet). */
   private readonly pending = new Set<Socket>();
+  /** The loopback HTTP endpoint (127.0.0.1, a port of its own). */
+  private http?: HttpServer;
+  private httpAt?: number;
 
   constructor(
     /** The data folder: the shim and the socket go in `gateway/` there. */
@@ -208,14 +233,25 @@ export class ToolGateway {
   }
 
   /**
-   * Why agents cannot get the gateway now, or undefined when they can: not started, or no Node.js to
-   * start the program with (`no-node-path` on Windows, where Settings → Sandboxes installs none).
+   * Why the stdio program cannot be given now, or undefined when it can: not started, or no Node.js to
+   * start it with (`no-node-path` on Windows, where Settings → Sandboxes installs none). The CLIs that
+   * connect over HTTP need no Node.js (`httpPort()`).
    */
   unavailable(): GatewayUnavailable | undefined {
     // No Node.js first: without one nothing could start the program, and that is what to fix.
     if (!this.node()) return this.platform === 'win32' ? 'no-node-path' : 'no-node';
     if (!this.server) return 'not-started';
     return undefined;
+  }
+
+  /** Whether it is listening (its socket and its HTTP endpoint). */
+  listening(): boolean {
+    return Boolean(this.server);
+  }
+
+  /** The HTTP endpoint's port, while it listens: Harness Relay's own, which its browser never opens. */
+  httpPort(): number | undefined {
+    return this.httpAt;
   }
 
   /** Listens on the socket, in a folder only the owner may enter. */
@@ -234,14 +270,34 @@ export class ToolGateway {
         resolve();
       });
     });
+    // The HTTP endpoint, on loopback only; a call may wait for the user's answer, so requests have no time limit.
+    const http = createHttpServer((req, res) => this.serveHttp(req, res));
+    http.requestTimeout = 0;
+    http.maxConnections = MAX_CONNECTIONS + MAX_PENDING;
+    await new Promise<void>((resolve, reject) => {
+      http.once('error', reject);
+      http.listen(0, '127.0.0.1', () => {
+        http.off('error', reject);
+        resolve();
+      });
+    });
+    this.http = http;
+    this.httpAt = (http.address() as AddressInfo).port;
     this.server = server;
   }
 
   async stop(): Promise<void> {
     const server = this.server;
+    const http = this.http;
     this.server = undefined;
+    this.http = undefined;
+    this.httpAt = undefined;
     for (const token of [...this.grants.keys()]) this.revoke(token);
     for (const sock of this.sockets) sock.destroy();
+    if (http) {
+      http.closeAllConnections();
+      await new Promise<void>((resolve) => http.close(() => resolve()));
+    }
     if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
     if (!this.socketPath.startsWith('\\\\')) rmSync(this.socketPath, { force: true });
   }
@@ -253,9 +309,52 @@ export class ToolGateway {
    * macOS and Linux), so no command can change what the CLI starts. Undefined when agents cannot get
    * the gateway now.
    */
-  grant(ctx: GatewayContext, groups: readonly RelayToolGroup[]): { spec: McpServerSpec; revoke: () => void } | undefined {
+  grant(
+    ctx: GatewayContext,
+    groups: readonly RelayToolGroup[],
+    o: GrantOptions = {},
+  ): { spec: McpServerSpec; revoke: () => void } | undefined {
+    if (!this.server || !groups.length) return undefined;
+    if (o.http && this.httpAt) {
+      // Over HTTP: nothing written anywhere; the token goes to the CLI in its session's MCP servers alone.
+      const token = randomBytes(32).toString('base64url');
+      this.grants.set(token, { ctx, groups: new Set(groups), http: true });
+      const tokens = [token];
+      let over = false;
+      const fallback =
+        o.fallback && this.node()
+          ? () => {
+              if (over) return undefined;
+              const g = this.stdioGrant(ctx, groups);
+              if (g) tokens.push(g.token);
+              return g?.spec;
+            }
+          : undefined;
+      return {
+        spec: {
+          name: GATEWAY_SERVER_NAME,
+          transport: 'http',
+          command: '',
+          args: [],
+          url: `http://127.0.0.1:${this.httpAt}${GATEWAY_HTTP_PATH}`,
+          env: {},
+          headers: { Authorization: `Bearer ${token}` },
+          ...(fallback ? { fallback } : {}),
+        },
+        revoke: () => {
+          over = true;
+          for (const t of tokens) this.revoke(t);
+        },
+      };
+    }
+    const g = this.stdioGrant(ctx, groups);
+    return g && { spec: g.spec, revoke: () => this.revoke(g.token) };
+  }
+
+  /** A grant for the stdio program: its copy and its token's file in `data/tmp`; none without Node.js. */
+  private stdioGrant(ctx: GatewayContext, groups: readonly RelayToolGroup[]): { token: string; spec: McpServerSpec } | undefined {
     const node = this.node();
-    if (!this.server || !node || !groups.length) return undefined;
+    if (!this.server || !node) return undefined;
     const token = randomBytes(32).toString('base64url');
     const name = `gateway-${randomBytes(8).toString('hex')}`;
     const tokenFile = join(this.tokenDir, `${name}.token`);
@@ -264,6 +363,7 @@ export class ToolGateway {
     writeFileSync(shimFile, GATEWAY_SHIM_SOURCE, { mode: 0o600 });
     this.grants.set(token, { ctx, groups: new Set(groups), tokenFile, shimFile });
     return {
+      token,
       spec: {
         name: GATEWAY_SERVER_NAME,
         transport: 'stdio',
@@ -273,7 +373,6 @@ export class ToolGateway {
         env: { RELAY_GATEWAY_SOCKET: this.socketPath, RELAY_GATEWAY_TOKEN_FILE: tokenFile },
         headers: {},
       },
-      revoke: () => this.revoke(token),
     };
   }
 
@@ -281,8 +380,8 @@ export class ToolGateway {
     const grant = this.grants.get(token);
     if (!grant) return;
     this.grants.delete(token);
-    rmSync(grant.tokenFile, { force: true });
-    rmSync(grant.shimFile, { force: true });
+    if (grant.tokenFile) rmSync(grant.tokenFile, { force: true });
+    if (grant.shimFile) rmSync(grant.shimFile, { force: true });
   }
 
   /** The tools a grant can call now. */
@@ -333,7 +432,9 @@ export class ToolGateway {
         }
         if (!authed) {
           const token = (msg as { token?: unknown })?.token;
+          // The program's tokens only: one given over HTTP never works here.
           grant = typeof token === 'string' ? this.grants.get(token) : undefined;
+          if (grant?.http) grant = undefined;
           authed = true;
           clearTimeout(hello);
           if (grant && this.claimOnce) {
@@ -343,7 +444,7 @@ export class ToolGateway {
               taken = true;
             } else {
               grant.claimed = true;
-              rmSync(grant.tokenFile, { force: true });
+              if (grant.tokenFile) rmSync(grant.tokenFile, { force: true });
             }
           }
           if (grant) {
@@ -396,6 +497,103 @@ export class ToolGateway {
       req.arguments && typeof req.arguments === 'object' && !Array.isArray(req.arguments) ? (req.arguments as Record<string, unknown>) : {};
     const ctx = grant.ctx;
     return toolResult(await (ctx.lang ? withLang(ctx.lang, () => this.call(tool, args, ctx)) : this.call(tool, args, ctx)));
+  }
+
+  /**
+   * One request to the HTTP endpoint (MCP's Streamable HTTP, answered with JSON, no event stream):
+   * only from this computer's programs (its own address as Host, so a name that rebinds to 127.0.0.1
+   * does not do; no Origin, so a page in a browser never does), only POST, only JSON, with the
+   * `Authorization: Bearer` token of a turn going on, given over HTTP. A token it does not know (its
+   * turn is over) gets a 404, as a path it does not serve does.
+   */
+  private serveHttp(req: IncomingMessage, res: ServerResponse): void {
+    const answer = (status: number, body?: unknown, headers: Record<string, string> = {}) => {
+      if (res.headersSent) return;
+      const text = body === undefined ? '' : JSON.stringify(body);
+      res.writeHead(status, { ...(text ? { 'Content-Type': 'application/json' } : {}), ...headers });
+      res.end(text);
+    };
+    const refuse = (status: number, message: string, headers: Record<string, string> = {}) => {
+      req.resume();
+      answer(status, { jsonrpc: '2.0', id: null, error: { code: -32000, message } }, headers);
+    };
+    const port = this.httpAt;
+    const host = req.headers.host;
+    if (!port || (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`)) return refuse(403, 'Forbidden');
+    if (req.headers.origin !== undefined) return refuse(403, 'Forbidden');
+    if ((req.url ?? '').split('?')[0] !== GATEWAY_HTTP_PATH) return refuse(404, 'Not found');
+    if (req.method !== 'POST') return refuse(405, 'Method not allowed', { Allow: 'POST' });
+    const bearer = /^Bearer ([A-Za-z0-9_-]{16,128})$/.exec(req.headers.authorization ?? '')?.[1];
+    const found = bearer ? this.grants.get(bearer) : undefined;
+    if (!found?.http) return refuse(404, 'This turn is over: Harness Relay has no tools for it any more');
+    const grant = found;
+    if (!/^application\/json\b/i.test(req.headers['content-type'] ?? '')) return refuse(415, 'Unsupported media type');
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_LINE) {
+        refuse(413, 'The request is too large');
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('error', () => undefined);
+    req.on('end', () => {
+      if (size > MAX_LINE) return;
+      let msg: unknown;
+      try {
+        msg = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      } catch {
+        return answer(400, { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } });
+      }
+      const batch = Array.isArray(msg);
+      const list = (batch ? msg : [msg]) as unknown[];
+      void Promise.all(list.map((m) => this.mcpAnswer(grant, m))).then(
+        (answers) => {
+          const out = answers.filter((a) => a !== undefined);
+          // Notifications and responses only: accepted, nothing to answer.
+          if (!out.length) return answer(202);
+          answer(200, batch ? out : out[0]);
+        },
+        () => answer(500, { jsonrpc: '2.0', id: null, error: { code: -32603, message: 'Internal error' } }),
+      );
+    });
+  }
+
+  /** One JSON-RPC message of an HTTP request, as the stdio program answers it; undefined for a notification. */
+  private async mcpAnswer(grant: Grant, raw: unknown): Promise<unknown> {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+      return { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid Request' } };
+    const { id, method, params } = raw as { id?: unknown; method?: unknown; params?: Record<string, unknown> };
+    // A notification, or the client's answer to something: nothing to say.
+    if (id === undefined || id === null || typeof method !== 'string') return undefined;
+    const ok = (result: unknown) => ({ jsonrpc: '2.0', id, result });
+    if (method === 'initialize') {
+      const asked = params?.protocolVersion;
+      return ok({
+        protocolVersion:
+          typeof asked === 'string' && GATEWAY_PROTOCOLS.includes(asked) ? asked : GATEWAY_PROTOCOLS[GATEWAY_PROTOCOLS.length - 1],
+        capabilities: { tools: { listChanged: false } },
+        serverInfo: { name: GATEWAY_SERVER_NAME, title: 'Harness Relay', version: '1' },
+      });
+    }
+    if (method === 'ping') return ok({});
+    // Looked up again for each request: a turn that ended takes its tools with it.
+    if (![...this.grants.values()].includes(grant)) {
+      return { jsonrpc: '2.0', id, error: { code: -32000, message: 'This turn is over: Harness Relay has no tools for it any more' } };
+    }
+    try {
+      if (method === 'tools/list') return ok(await this.handle(grant, { id: 0, method: 'list' }));
+      if (method === 'tools/call') {
+        const args = params?.arguments;
+        return ok(await this.handle(grant, { id: 0, method: 'call', name: params?.name, arguments: args ?? {} }));
+      }
+    } catch (err) {
+      return ok({ content: [{ type: 'text', text: (err as Error).message }], isError: true });
+    }
+    return { jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } };
   }
 
   /** A call, as its tier and the turn allow. */
@@ -463,14 +661,35 @@ function toolResult(r: GatewayResult): { content: unknown[]; isError: boolean } 
 }
 
 /**
- * The CLIs that get the gateway in full access only: below it one sandbox holds both the commands they
- * run and the MCP servers they start, and it denies them the protected paths, Harness Relay's `data/tmp`
- * among them, where each turn's copy of the program and its token are. There the program could not even
- * start, and opening `data/tmp` to it would open the token to every command too. Grok's own sandbox (its
- * kernel `deny`), and the open agents' (Harness Relay's own sandbox, around the whole process, which
- * does not open the gateway's socket either).
+ * The CLIs given the gateway over loopback HTTP, the turn's token only in their memory (#88): each
+ * passes it from its session's MCP servers (OpenCode's ACP `session/new` and `session/load`, Codex's
+ * thread config, both over its stdin) to its own MCP client, and writes it nowhere. Checked with the
+ * real CLIs (OpenCode 1.19.5, Codex 0.169; `scripts/mcp-headers-check.ts`): every request carried the
+ * header, and no file they wrote (sessions, rollouts, databases, logs) held it, after a new session, a
+ * turn and a resume. The others stay as they are until the same check passes for them:
+ * - Grok, Copilot, Cursor, Antigravity and Muse Code take HTTP MCP servers too, but need a sign-in to
+ *   open a session, so they could not be checked yet (Grok in full access only; the others start the
+ *   stdio program).
+ * - Goose keeps the extensions a session was given, to start them again when it is loaded, in its
+ *   session database: in its state folder, which its commands can read.
+ * - OpenHands writes its MCP servers to `mcp.json` when it resumes a session.
+ * - Cline and Pi take no HTTP MCP server Harness Relay could give them so (Pi's would put the token in
+ *   a variable).
+ * - Claude Code reads its MCP servers from a file, so it keeps the stdio program (on Windows its token
+ *   serves one connection and is deleted at once).
  */
-export const GATEWAY_FULL_ACCESS_ONLY: readonly Provider[] = ['grok', ...OPEN_PROVIDERS];
+export const GATEWAY_OVER_HTTP: readonly Provider[] = ['opencode', 'codex'];
+
+/**
+ * The CLIs whose sandbox holds the MCP servers they start below full access, with their commands (Grok's
+ * own, and Harness Relay's around the open agents): the stdio program could not run there (it denies them
+ * `data/tmp`, where the program and its token are, and opening it would open the token to every command
+ * too), so they get no stdio stand-in for HTTP (`GrantOptions.fallback`) below full access.
+ */
+export const GATEWAY_SANDBOXED_MCP: readonly Provider[] = ['grok', ...OPEN_PROVIDERS];
+
+/** The CLIs that get the gateway in full access only: sandboxed MCP servers (above), and no HTTP way to the gateway. */
+export const GATEWAY_FULL_ACCESS_ONLY: readonly Provider[] = GATEWAY_SANDBOXED_MCP.filter((p) => !GATEWAY_OVER_HTTP.includes(p));
 
 /** How the gateway's own approval names a tool (and keys "always allow" for it): `relay:<tool>`. */
 export const gatewayApprovalTool = (name: string) => `${GATEWAY_SERVER_NAME}:${name}`;

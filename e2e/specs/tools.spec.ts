@@ -8,7 +8,7 @@ import { en } from '../../src/web/locales/en';
 import { emptyLibraryText, noneForCliText, toolsHintText } from '../../src/web/tools';
 import { expect, test } from '../fixtures';
 import { acceptNextDialog, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
-import { chatOf, eachHalf, libraryEnv, logged, skillReadAsks, teamOf, withClis, type Cli } from '../support/clis';
+import { belowFull, chatOf, eachHalf, libraryEnv, logged, skillReadAsks, teamOf, withClis, type Cli } from '../support/clis';
 import type { RelayServer } from '../support/relay';
 
 /*
@@ -649,7 +649,8 @@ test.describe(() => {
     await openTeamChat(page, relay, [{ name: 'OpenCode', provider: 'opencode' }], { permission: 'full' }, 'Mail Dan');
     await send(page, 'Tell Dan it shipped: {"to": "dan@example.com", "subject": "Shipped", "body": "It is out."} e2e:mcp=mail_send');
 
-    // The fake OpenCode started the gateway's program from the MCP servers its session was given (ACP).
+    // The fake OpenCode connected to the gateway's loopback endpoint, as the MCP servers its session was
+    // given (ACP) say, with the turn's token in their header.
     const reply = await finishedReply(page, 'OpenCode');
     await expect(reply).toContainText(
       'The mail_send tool said: Not sent yet: "Mail to dan@example.com: "Shipped"" is waiting in the user\'s outbox',
@@ -658,6 +659,67 @@ test.describe(() => {
     await expect(card).toContainText('Waiting for you');
     await expect(card).toContainText('dan@example.com');
   });
+
+  test("below full access, in Harness Relay's own sandbox, OpenCode reaches the gateway's loopback port (opened to it alone), and its mail waits in the outbox", async ({
+    page,
+    relay,
+  }) => {
+    test.skip(!belowFull('opencode'), 'OpenCode runs below full access on macOS only, where Harness Relay’s own sandbox works');
+    await relay.api('/api/connectors/mail/work', {
+      method: 'PUT',
+      body: {
+        name: 'Work',
+        address: 'Me <me@example.com>',
+        username: 'me@example.com',
+        password: 'app-pass',
+        imap: { host: '127.0.0.1', port: 9, security: 'none' },
+        smtp: { host: '127.0.0.1', port: 9, security: 'none' },
+      },
+    });
+    await relay.api('/api/tools', { method: 'PUT', body: { relayTools: { mail: ['opencode'] } } });
+    await openTeamChat(page, relay, [{ name: 'OpenCode', provider: 'opencode' }], { permission: 'edit' }, 'Mail Fay');
+    await send(page, 'Tell Fay it shipped: {"to": "fay@example.com", "subject": "Shipped", "body": "It is out."} e2e:mcp=mail_send');
+    const reply = await finishedReply(page, 'OpenCode');
+    await expect(reply).toContainText(
+      'The mail_send tool said: Not sent yet: "Mail to fay@example.com: "Shipped"" is waiting in the user\'s outbox',
+    );
+    await expect(reply.getByRole('region', { name: 'What @OpenCode asked to send' })).toContainText('fay@example.com');
+  });
+});
+
+test("below full access, Codex reaches Harness Relay's own tools over loopback HTTP, with no program started, and its mail waits in the outbox", async ({
+  page,
+  relay,
+}) => {
+  await relay.api('/api/connectors/mail/work', {
+    method: 'PUT',
+    body: {
+      name: 'Work',
+      address: 'Me <me@example.com>',
+      username: 'me@example.com',
+      password: 'app-pass',
+      imap: { host: '127.0.0.1', port: 9, security: 'none' },
+      smtp: { host: '127.0.0.1', port: 9, security: 'none' },
+    },
+  });
+  await relay.api('/api/tools', { method: 'PUT', body: { relayTools: { mail: ['codex'] } } });
+  await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], { permission: 'edit' }, 'Mail Erin');
+  await send(page, 'Tell Erin it shipped: {"to": "erin@example.com", "subject": "Shipped", "body": "It is out."} e2e:mcp=mail_send');
+
+  // Codex asked about relay:mail_send (answered for the user, no card); the mail waits in the outbox.
+  const reply = await finishedReply(page, 'Codex');
+  await expect(reply).toContainText(
+    'The mail_send tool said: Not sent yet: "Mail to erin@example.com: "Shipped"" is waiting in the user\'s outbox',
+  );
+  await expect(reply.getByRole('region', { name: 'What @Codex asked to send' })).toContainText('erin@example.com');
+  await expect(page.locator('.approval-card')).toHaveCount(0);
+  // Given as an HTTP server on loopback, its token in the header only, and in no argument Codex was started with.
+  const given = await logged(relay, (e) => e.cli === 'codex' && e.mcpEnv?.relay);
+  expect(given[0]!.mcpHttp?.relay).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
+  const auth = String(given[0]!.mcpEnv!.relay!.Authorization);
+  expect(auth).toMatch(/^Bearer \S{20,}$/);
+  const token = auth.slice('Bearer '.length);
+  for (const e of relay.fakeLog().filter((x) => x.cli === 'codex' && x.args)) expect(JSON.stringify(e.args)).not.toContain(token);
 });
 
 test("below full access, the CLI's own question about Harness Relay's tool is answered for the user, and the gateway asks about an act with what it will do", async ({

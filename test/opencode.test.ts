@@ -993,9 +993,18 @@ describe('prepare', () => {
     expect(opencodeBriefing({ systemPrompt: 'Brief.', permission: 'full' })).toBe('Brief.');
   });
 
-  it('declares what it needs from the relay sandbox: its own port only, and the variables it empties', () => {
-    expect(opencodeSandbox({ state: { port: 4321 } })).toEqual({ localPorts: [4321], quietlyDeniedHosts: OPENCODE_QUIET_HOSTS });
-    expect(opencodeSandbox({ state: {} })).toEqual({ quietlyDeniedHosts: OPENCODE_QUIET_HOSTS });
+  it('declares what it needs from the relay sandbox: its own port, the local HTTP MCP servers it is given, and the variables it empties', () => {
+    const o = { mcpServers: [] } as unknown as RunOptions;
+    expect(opencodeSandbox({ state: { port: 4321 }, o })).toEqual({ localPorts: [4321], quietlyDeniedHosts: OPENCODE_QUIET_HOSTS });
+    expect(opencodeSandbox({ state: {}, o })).toEqual({ quietlyDeniedHosts: OPENCODE_QUIET_HOSTS });
+    // Harness Relay's gateway over HTTP (and a library server on this computer): its port to connect to, no other.
+    const http = (url: string) => ({ name: 'relay', transport: 'http' as const, command: '', args: [], url, env: {}, headers: {} });
+    const given = { mcpServers: [http('http://127.0.0.1:43210/mcp'), http('https://mcp.example.com/x')] } as unknown as RunOptions;
+    expect(opencodeSandbox({ state: { port: 4321 }, o: given })).toEqual({
+      localPorts: [4321],
+      connectPorts: [43210],
+      quietlyDeniedHosts: OPENCODE_QUIET_HOSTS,
+    });
     expect(opencodeAcp.sandbox).toBe(opencodeSandbox);
     expect(OPENCODE_EMPTY_ENV).toContain('OPENCODE_PERMISSION');
     expect(opencodeAcp.proxyEnv).toEqual({});

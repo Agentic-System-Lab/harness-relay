@@ -1181,7 +1181,7 @@ export const zhTW = {
   tools: {
     relay: {
       title: 'Harness Relay 的工具',
-      hint: '由 Harness Relay 自己提供的工具，透過它給每個成員的一個 MCP server（relay）使用：每個 CLI 都一樣，密碼留在這裡，不會交給任何 CLI。只讀取的呼叫直接執行；會改變外部東西的呼叫（在網頁上點擊、存郵件草稿）在完全存取以下會詢問你，和其他動作一樣；會送到別人那裡的呼叫（郵件、邀請）絕不在那一回合送出：它會在待送出匣等待，對話中顯示成一張卡片，直到你按「送出」。Grok 與開源 agent 只有在完全存取時才能使用：在那以下，裝著它們指令的沙箱也裝著它們啟動的 MCP server，讀不到 Harness Relay 放每一回合權杖的資料夾。',
+      hint: '由 Harness Relay 自己提供的工具，透過它給每個成員的一個 MCP server（relay）使用：每個 CLI 都一樣，密碼留在這裡，不會交給任何 CLI。只讀取的呼叫直接執行；會改變外部東西的呼叫（在網頁上點擊、存郵件草稿）在完全存取以下會詢問你，和其他動作一樣；會送到別人那裡的呼叫（郵件、邀請）絕不在那一回合送出：它會在待送出匣等待，對話中顯示成一張卡片，直到你按「送出」。OpenCode 與 Codex 會在這台電腦上直接連上它，用一個只有它們自己持有、只限這一回合的權杖；其他 CLI 則啟動 Harness Relay 的一個小程式來連。Grok、Goose、Cline、OpenHands 與 Pi 只有在完全存取時才能使用：在那以下，裝著它們指令的沙箱也會裝著權杖。',
       groups: { browser: '瀏覽器', mail: '郵件', calendar: '行事曆' } as Record<RelayToolGroup, string>,
       groupHints: {
         browser:
@@ -1196,8 +1196,10 @@ export const zhTW = {
       browserNone: '找不到瀏覽器：設定一個，或安裝 Chrome、Chromium 或 Edge 之前，瀏覽器工具無法啟動。',
       unavailable: {
         'not-started': '目前無法使用：伺服器沒能啟動它們（原因見伺服器的紀錄）。',
-        'no-node': '桌面 app 需要 PATH 上有 Node.js 22.12 以上，或 設定 → 沙箱 安裝的那一個，才能使用。',
-        'no-node-path': '桌面 app 需要 PATH 上有 Node.js 22.12 以上才能使用。',
+        'no-node':
+          '目前只有 OpenCode 與 Codex 能使用：其他 CLI 要啟動 Harness Relay 的一個小程式，需要 PATH 上有 Node.js 22.12 以上，或 設定 → 沙箱 安裝的那一個。',
+        'no-node-path':
+          '目前只有 OpenCode 與 Codex 能使用：其他 CLI 要啟動 Harness Relay 的一個小程式，需要 PATH 上有 Node.js 22.12 以上。',
       } as Record<'not-started' | 'no-node' | 'no-node-path', string>,
     },
     title: '工具庫',
