@@ -1,18 +1,18 @@
 name: Release
 
 # Run by hand: Actions → Release → Run workflow, from main, with today's version (see
-# docs/developer-guide.md, "Releasing"). It checks the version (scripts/release.ts) and the code,
-# builds the desktop app's installers on macOS, Windows and Linux (x64, and Arm64 on GitHub's Arm
-# runners), and publishes the five as one GitHub release, tagged with the version; first, a copy of
-# each for the app's updates (counted apart from new installs) under the same tag in a repository of
-# their own (the UPDATES_REPO variable, else UPDATES_REPO in site/assets/downloads.js), with the
-# UPDATES_TOKEN secret; the app downloads them with the UPDATES_READ_TOKEN secret, when that is set
-# (for a private one), which must not be the write token and is checked to read them before the
-# release is published. A release candidate is published as a pre-release. Its notes list every
-# commit that came into main since the version before (scripts/release.ts notes), pushed to main or
-# merged from a pull request. When the website has a download mirror (MIRROR in
-# site/assets/downloads.js), a release's installers go there too before it is published, with the
-# MIRROR_ACCESS_KEY_ID and MIRROR_SECRET_ACCESS_KEY secrets.
+# docs/developer-guide.md, "Releasing"). It checks the version (scripts/release.ts) and tags the
+# commit with it as it starts, checks the code, builds the desktop app's installers on macOS, Windows
+# and Linux (x64, and Arm64 on GitHub's Arm runners), and publishes the five as one GitHub release on
+# that tag; first, a copy of each for the app's updates (counted apart from new installs) under the
+# same tag in a repository of their own (the UPDATES_REPO variable, else UPDATES_REPO in
+# site/assets/downloads.js), with the UPDATES_TOKEN secret; the app downloads them with the
+# UPDATES_READ_TOKEN secret, when that is set (for a private one), which must not be the write token
+# and is checked to read them before the release is published. A release candidate is published as a
+# pre-release. Its notes list every commit that came into main since the version before
+# (scripts/release.ts notes), pushed to main or merged from a pull request. When the website has a
+# download mirror (MIRROR in site/assets/downloads.js), a release's installers go there too before it
+# is published, with the MIRROR_ACCESS_KEY_ID and MIRROR_SECRET_ACCESS_KEY secrets.
 on:
   workflow_dispatch:
     inputs:
@@ -107,11 +107,21 @@ jobs:
             echo "::warning::UPDATES_READ_TOKEN and UPDATES_TOKEN both belong to $reader. Anyone with the app can use up that account's requests with the read token, and publishing the copies with the write token is then held up too: make the read token with an account of its own (docs/developer-guide.md, \"Releasing\")."
           fi
 
-  check:
-    name: Check the version and the code
-    needs: tokens
+  # The version, and its tag on the commit this run checks and builds, made as the run starts, beside the
+  # tokens job. GitHub lets the workflow's token make a ref only on a commit whose .github/workflows are
+  # main's as they are (refused, 403, on one whose workflows differ: docs/developer-guide.md,
+  # "Releasing"), so a tag made once the installers were built was refused whenever main's workflow
+  # files changed while they were built (2026-11-17-rc: a push 13 seconds after the run started). Made
+  # here, it is refused only when they changed in the seconds before, and then nothing is built or
+  # published. A run that fails after this leaves the tag without a release: the checks take it as the
+  # workflow's own (--own-tag), so the run's failed jobs run again from it, and a new run of the
+  # version moves it to its own commit. This job may write to the repository: it installs nothing.
+  version:
+    name: Check the version and tag it
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
+    permissions:
+      contents: write
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       title: ${{ steps.version.outputs.title }}
@@ -123,15 +133,68 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: npm
 
       # First, so that a wrong version fails in seconds. The version reaches the script through the
       # environment, never inside the command line itself (no script injection).
       - name: Check the version
         id: version
         env:
+          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
-        run: node scripts/release.ts check "$VERSION" --remote
+        run: node scripts/release.ts check "$VERSION" --remote --own-tag
+
+      # Made on this run's commit, or moved there from the commit a run that failed left it on (the check
+      # above took it as the workflow's own: GitHub has no release of it); left as it is when it is there
+      # already. When GitHub refuses it because main's workflow files changed since the run started, the
+      # error names them. gh's own answer to a failed request (its JSON, on stdout) is not shown.
+      - name: Tag the commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          err=$(mktemp)
+          if at=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha 2>"$err"); then
+            if [ "$at" = "$GITHUB_SHA" ]; then
+              echo "$TAG is on $GITHUB_SHA already: an earlier run of this commit tagged it, and published no release."
+              exit 0
+            fi
+            request=(-X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" -f sha="$GITHUB_SHA" -F force=true)
+          elif grep -q '(HTTP 404)' "$err"; then
+            at=''
+            request=(-X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$GITHUB_SHA")
+          else
+            echo "::error::Could not ask GitHub for the tag $TAG ($(tail -n 1 "$err")): nothing was tagged, built or published."
+            exit 1
+          fi
+          made=$(gh api "${request[@]}" --jq .object.sha 2>"$err") || made=''
+          if [ "$made" = "$GITHUB_SHA" ]; then
+            echo "Tagged $GITHUB_SHA as $TAG${at:+ (moved from $at, where a run that failed left it)}."
+            exit 0
+          fi
+          why=$(tail -n 1 "$err")
+          changed=''
+          if grep -q '(HTTP 403)' "$err"; then
+            changed=$(gh api "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...main" --jq '[.files[]?.filename | select(startswith(".github/workflows/"))] | join(", ")' 2>/dev/null) || changed=''
+          fi
+          if [ -n "$changed" ]; then
+            echo "::error::GitHub refused this run's token the tag $TAG on $GITHUB_SHA (${why}): main's workflow files changed since the run started ($changed), and the token may make a tag only on a commit whose workflows are main's. Nothing was built or published: run the workflow again from main."
+          else
+            echo "::error::Could not tag $GITHUB_SHA as $TAG (${why:-no answer}): nothing was built or published."
+          fi
+          exit 1
+
+  check:
+    name: Check the code
+    needs: [tokens, version]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
 
       # The update source the builds will take, checked before anything is installed: a read token that
       # is not a fine-grained one, or a repository that is not owner/name (or is this one), stops the run
@@ -165,7 +228,7 @@ jobs:
 
   build:
     name: Build (${{ matrix.name }})
-    needs: check
+    needs: [version, check]
     strategy:
       fail-fast: true
       matrix:
@@ -195,7 +258,7 @@ jobs:
     timeout-minutes: 30
     env:
       # The version the app is built as (desktop/scripts/build.ts) and its installers are named after.
-      RELAY_VERSION: ${{ needs.check.outputs.tag }}
+      RELAY_VERSION: ${{ needs.version.outputs.tag }}
       # Where it is built: the checkout, or its copy on a Dev Drive.
       BUILD_DIR: ${{ matrix.devDrive && 'R:\harness-relay' || github.workspace }}
     # These replace the workflow's defaults, so bash is named again.
@@ -318,7 +381,7 @@ jobs:
 
   release:
     name: Publish the release
-    needs: [check, build]
+    needs: [version, check, build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -333,12 +396,20 @@ jobs:
           node-version: 24
 
       # Again, against the tags as they are now and the day the run started (a long build may end
-      # after midnight): another release may have taken the version meanwhile.
+      # after midnight): another release may have taken the version meanwhile. Its tag is the one the
+      # version job made, still without a release, and still on the commit that was checked and built.
       - name: Check the version again
         env:
-          VERSION: ${{ needs.check.outputs.tag }}
-          TODAY: ${{ needs.check.outputs.today }}
-        run: node scripts/release.ts check "$VERSION" --remote --today "$TODAY"
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.tag }}
+          TODAY: ${{ needs.version.outputs.today }}
+        run: |
+          node scripts/release.ts check "$VERSION" --remote --own-tag --today "$TODAY"
+          at=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" --jq .object.sha 2>/dev/null) || at=''
+          if [ "$at" != "$GITHUB_SHA" ]; then
+            echo "::error::GitHub does not show the tag $VERSION on this run's commit ($GITHUB_SHA), where the version job made it${at:+, but on $at}: nothing was published. Run the workflow again from main."
+            exit 1
+          fi
 
       # The notes' list of changes: every commit that came into main since the version the notes
       # start from (previousVersion() in scripts/release.ts, by the same tags), up to the commit that
@@ -348,7 +419,7 @@ jobs:
       - name: List the changes since the version before
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.check.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.tag }}
         run: node scripts/release.ts notes "$VERSION" --target "$GITHUB_SHA" --remote > "$RUNNER_TEMP/changes.md"
 
       - uses: actions/download-artifact@v8
@@ -431,9 +502,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.UPDATES_TOKEN }}
           RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}
-          TAG: ${{ needs.check.outputs.tag }}
-          TITLE: ${{ needs.check.outputs.title }}
-          PRERELEASE: ${{ needs.check.outputs.prerelease }}
+          TAG: ${{ needs.version.outputs.tag }}
+          TITLE: ${{ needs.version.outputs.title }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
         run: |
           if [ -z "$GH_TOKEN" ]; then
             echo "::error::The UPDATES_TOKEN secret is not set (docs/developer-guide.md, \"Releasing\")."
@@ -465,7 +536,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}
           RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}
-          TAG: ${{ needs.check.outputs.tag }}
+          TAG: ${{ needs.version.outputs.tag }}
         run: |
           node --input-type=module -e "
           import { readdirSync, statSync } from 'node:fs';
@@ -491,8 +562,8 @@ jobs:
       - name: Upload the installers to the download mirror
         id: mirror
         env:
-          TAG: ${{ needs.check.outputs.tag }}
-          PRERELEASE: ${{ needs.check.outputs.prerelease }}
+          TAG: ${{ needs.version.outputs.tag }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
           MIRROR_ENDPOINT: ${{ vars.MIRROR_ENDPOINT }}
           AWS_ACCESS_KEY_ID: ${{ secrets.MIRROR_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MIRROR_SECRET_ACCESS_KEY }}
@@ -528,7 +599,7 @@ jobs:
         if: steps.mirror.outputs.url != ''
         env:
           MIRROR: ${{ steps.mirror.outputs.url }}
-          TAG: ${{ needs.check.outputs.tag }}
+          TAG: ${{ needs.version.outputs.tag }}
         run: |
           for file in installers/*; do
             name=$(basename "$file")
@@ -549,9 +620,9 @@ jobs:
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.check.outputs.tag }}
-          TITLE: ${{ needs.check.outputs.title }}
-          PRERELEASE: ${{ needs.check.outputs.prerelease }}
+          TAG: ${{ needs.version.outputs.tag }}
+          TITLE: ${{ needs.version.outputs.title }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
         run: |
           if [ "$PRERELEASE" = true ]; then
             channel=(--prerelease --latest=false)
@@ -570,8 +641,10 @@ jobs:
           # release candidate), listed by the step above.
           printf '%s\n\n' "$notes" > "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/changes.md" >> "$RUNNER_TEMP/notes.md"
-          # The tag is made on the commit that was checked and built.
-          gh release create "$TAG" installers/* --target "$GITHUB_SHA" --title "$TITLE" --notes-file "$RUNNER_TEMP/notes.md" "${channel[@]}"
+          # On the tag the version job made on the commit that was checked and built, never one made here
+          # (--verify-tag): GitHub would refuse this job's token one whenever main's workflow files changed
+          # while the installers were built.
+          gh release create "$TAG" installers/* --verify-tag --title "$TITLE" --notes-file "$RUNNER_TEMP/notes.md" "${channel[@]}"
 
       # The README's and the website's Codespaces links open CODESPACES_BRANCH, so that a codespace runs
       # the newest release, not main as it is (docs/codespaces.md): the branch is moved to the commit the
@@ -586,8 +659,8 @@ jobs:
       - name: Point GitHub Codespaces at the release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.check.outputs.tag }}
-          PRERELEASE: ${{ needs.check.outputs.prerelease }}
+          TAG: ${{ needs.version.outputs.tag }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
         run: |
           if [ "$PRERELEASE" = true ]; then
             echo "A release candidate: GitHub Codespaces keeps opening the newest release."

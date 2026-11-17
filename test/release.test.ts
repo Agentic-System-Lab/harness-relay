@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
@@ -13,6 +13,7 @@ import {
   mapLimit,
   notFoundTarget,
   devVersion,
+  hasRelease,
   newContributors,
   nextVersion,
   parseVersion,
@@ -131,8 +132,9 @@ describe('today', () => {
 
 describe('checking a release', () => {
   const today = '2026-11-10';
-  const check = (version: string, tags: string[] = [], extra: { ref?: string; today?: string } = {}) => checkRelease({ version, today, tags, ...extra });
-  const errors = (version: string, tags: string[] = [], extra: { ref?: string; today?: string } = {}) => {
+  type Extra = { ref?: string; today?: string; ownTag?: boolean };
+  const check = (version: string, tags: string[] = [], extra: Extra = {}) => checkRelease({ version, today, tags, ...extra });
+  const errors = (version: string, tags: string[] = [], extra: Extra = {}) => {
     const r = check(version, tags, extra);
     if (r.ok) throw new Error(`${version} was accepted`);
     return r.errors.join('\n');
@@ -229,6 +231,35 @@ describe('checking a release', () => {
   it('reports every problem at once', () => {
     const r = check('2026-11-09', [], { ref: 'refs/heads/dev' });
     expect(r.ok === false && r.errors).toHaveLength(2);
+  });
+
+  it("takes the version's tag without a release as the Release workflow's own, and no other tag", () => {
+    // The tag a run made at its start (that run's, or one's that failed after it): the version is not out.
+    expect(check('2026-11-10-rc', ['2026-11-10-rc'], { ownTag: true })).toMatchObject({ ok: true, tag: '2026-11-10-rc', previous: undefined });
+    expect(check('2026-11-10-rc.1', ['2026-11-10-rc', '2026-11-10-rc.1'], { ownTag: true })).toMatchObject({ ok: true, previous: '2026-11-10-rc' });
+    // The versions before it still count, and its notes still start at the one before it.
+    expect(check('2026-11-10', ['2026-11-09', '2026-11-10-rc', '2026-11-10'], { ownTag: true })).toMatchObject({ ok: true, previous: '2026-11-09' });
+    expect(errors('2026-11-10-rc.2', ['2026-11-10-rc', '2026-11-10-rc.2'], { ownTag: true })).toMatch(/skips a number: .* the next is 2026-11-10-rc\.1/);
+    expect(errors('2026-11-10-rc', ['2026-11-10', '2026-11-10-rc'], { ownTag: true })).toMatch(/is out already/);
+    // Without it, the tag is a release that is out.
+    expect(errors('2026-11-10-rc', ['2026-11-10-rc'], { ownTag: false })).toMatch(/has already been released/);
+    // A version that breaks the rules takes no tag away.
+    expect(errors('v2026-11-10-rc', ['2026-11-10-rc'], { ownTag: true })).toMatch(/next release candidate is 2026-11-10-rc\.1/);
+  });
+
+  it('asks GitHub whether a tag has a release, and takes only its Not Found as none', async () => {
+    const asked: string[] = [];
+    const answer = (fail?: string): GitHubApi => (path) => {
+      asked.push(path);
+      if (fail) throw new Error(`gh api ${path}: ${fail}`);
+      return { tag_name: '2026-11-10-rc' };
+    };
+    expect(await hasRelease(answer(), 'o/r', '2026-11-10-rc')).toBe(true);
+    expect(asked).toEqual(['repos/o/r/releases/tags/2026-11-10-rc']);
+    expect(await hasRelease(answer('gh: Not Found (HTTP 404)'), 'o/r', '2026-11-10-rc')).toBe(false);
+    // A failure of GitHub's is never taken as no release: the tag of a release that is out would be moved.
+    await expect(hasRelease(answer('gh: Server Error (HTTP 502)'), 'o/r', '2026-11-10-rc')).rejects.toThrow('HTTP 502');
+    await expect(hasRelease(answer('gh: Bad credentials (HTTP 401)'), 'o/r', '2026-11-10-rc')).rejects.toThrow('HTTP 401');
   });
 });
 
@@ -760,6 +791,55 @@ describe('the release script', () => {
     expect(run(['check', '2026-11-10-rc.1', '--today', '2026-11-10', '--remote']).code).toBe(0);
   });
 
+  // The stand-in gh is a shell script started by its #! line, which Windows does not do.
+  it.skipIf(process.platform === 'win32')("with --own-tag, takes the version's tag without a release on GitHub as the workflow's own", () => {
+    // gh as the script calls it: GitHub's release of the tag there (out), not there (404), or no answer (502).
+    const bin = join(dir, 'gh-bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(
+      join(bin, 'gh'),
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$GH_CALLS"
+case "$GH_RELEASE" in
+  out) echo '{"tag_name":"2026-11-13-rc"}' ;;
+  none) echo '{"message":"Not Found","status":"404"}'; echo 'gh: Not Found (HTTP 404)' >&2; exit 1 ;;
+  *) echo 'gh: Server Error (HTTP 502)' >&2; exit 1 ;;
+esac
+`,
+    );
+    chmodSync(join(bin, 'gh'), 0o755);
+    const calls = join(dir, 'gh-calls');
+    const gh = (GH_RELEASE: 'out' | 'none' | 'unknown') => {
+      writeFileSync(calls, '');
+      return { PATH: `${bin}${delimiter}${process.env.PATH}`, GH_CALLS: calls, GH_RELEASE, GITHUB_REPOSITORY: 'o/r' };
+    };
+    const asked = () => readFileSync(calls, 'utf8');
+    const check = (version: string, ...flags: string[]) => ['check', version, '--today', '2026-11-13', '--remote', ...flags];
+    git(repo, 'tag', '2026-11-13-rc');
+    git(repo, 'push', '-q', 'origin', '2026-11-13-rc');
+    const own = run(check('2026-11-13-rc', '--own-tag'), gh('none'));
+    expect(own.code).toBe(0);
+    expect(own.out).toContain('2026-11-13-rc may be released');
+    expect(own.out).toContain("Its tag is on GitHub without a release: the Release workflow made it at a run's start.");
+    expect(asked()).toBe('api repos/o/r/releases/tags/2026-11-13-rc\n');
+    // With a release, it is out.
+    const out = run(check('2026-11-13-rc', '--own-tag'), gh('out'));
+    expect(out.code).toBe(1);
+    expect(out.err).toContain('2026-11-13-rc has already been released');
+    expect(out.out).not.toContain('Its tag is on GitHub');
+    // Without an answer, nothing is taken as the workflow's own.
+    const unknown = run(check('2026-11-13-rc', '--own-tag'), gh('unknown'));
+    expect(unknown.code).toBe(1);
+    expect(unknown.err).toContain('✗ Could not ask GitHub whether 2026-11-13-rc has a release: gh api repos/o/r/releases/tags/2026-11-13-rc: gh: Server Error (HTTP 502)');
+    // GitHub is asked only about the version's own tag, and only with --own-tag.
+    expect(run(check('2026-11-13-rc.1', '--own-tag'), gh('unknown')).code).toBe(0);
+    expect(asked()).toBe('');
+    expect(run(check('2026-11-13-rc'), gh('none')).code).toBe(1);
+    expect(asked()).toBe('');
+    git(repo, 'push', '-q', 'origin', ':refs/tags/2026-11-13-rc');
+    git(repo, 'tag', '-d', '2026-11-13-rc');
+  });
+
   it('accepts a release candidate of a patch once the release is out', () => {
     git(repo, 'tag', '2026-11-11');
     const r = run(['check', '2026-11-11.1-rc', '--today', '2026-11-11']);
@@ -902,12 +982,15 @@ describe('the release workflow', () => {
   });
 
   it('checks the version before anything else, and again just before publishing', () => {
+    // In a job of its own that needs none, which the code's check needs: a wrong version fails in seconds.
+    const version = job('version');
+    expect(version).not.toMatch(/^ {4}needs:/m);
+    expect(version).toContain('run: node scripts/release.ts check "$VERSION" --remote --own-tag');
     const check = job('check');
-    const steps = check.split('- name: ').map((s) => s.split('\n')[0]);
-    expect(steps.indexOf('Check the version')).toBeLessThan(steps.indexOf('Install'));
-    expect(check).toContain('run: node scripts/release.ts check "$VERSION" --remote');
+    expect(check).toMatch(/^ {4}needs: \[tokens, version\]$/m);
+    expect(check).not.toContain('release.ts check');
     const release = job('release');
-    expect(release).toContain('run: node scripts/release.ts check "$VERSION" --remote --today "$TODAY"');
+    expect(release).toContain('node scripts/release.ts check "$VERSION" --remote --own-tag --today "$TODAY"');
     expect(release.indexOf('Check the version again')).toBeLessThan(release.indexOf('- name: Publish'));
     // The tests run before a release too.
     expect(check).toContain('run: npm test');
@@ -937,11 +1020,11 @@ describe('the release workflow', () => {
     expect(packaged).toBeGreaterThan(build.indexOf('- name: Make the installer'));
     expect(packaged).toBeLessThan(build.indexOf('uses: actions/upload-artifact'));
     expect(build).toContain('xvfb-run -a npx tsx desktop/scripts/check-package.ts');
-    expect(build).toMatch(/needs: check/);
-    expect(job('release')).toMatch(/needs: \[check, build\]/);
+    expect(build).toMatch(/needs: \[version, check\]/);
+    expect(job('release')).toMatch(/needs: \[version, check, build\]/);
     // One installer of each kind goes up, named after the version.
     expect(build).toContain("-c.artifactName='Harness-Relay-${env.RELAY_VERSION}-${os}-${arch}.${ext}'");
-    expect(build).toContain('RELAY_VERSION: ${{ needs.check.outputs.tag }}');
+    expect(build).toContain('RELAY_VERSION: ${{ needs.version.outputs.tag }}');
     for (const ext of ['dmg', 'exe', 'AppImage']) expect(build).toContain(`desktop/release/Harness-Relay-*.${ext}`);
     // Exactly one installer for each end of name the website and the app's updates look for, and nothing else.
     const release = job('release');
@@ -1018,8 +1101,8 @@ describe('the release workflow', () => {
     expect(tokensJob).not.toMatch(/-H "Authorization/);
     expect(tokensJob.match(/READ_TOKEN: \$\{\{ secrets\.UPDATES_READ_TOKEN \}\}/g)).toHaveLength(2);
     expect(tokensJob).not.toMatch(/\buses:|\bnode\b|\bgh\b|\bnpm\b/);
-    expect(job('check')).toMatch(/^\s+needs: tokens$/m);
-    for (const name of ['check', 'build']) expect(job(name), name).not.toContain('secrets.UPDATES_TOKEN');
+    expect(job('check')).toMatch(/^\s+needs: \[tokens, version\]$/m);
+    for (const name of ['version', 'check', 'build']) expect(job(name), name).not.toContain('secrets.UPDATES_TOKEN');
     const checkJob = job('check');
     const source = checkJob.slice(checkJob.indexOf('- name: Check the update source'), checkJob.indexOf('- name: Install'));
     expect(source).toContain('RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
@@ -1093,9 +1176,14 @@ describe('the release workflow', () => {
     expect(release).not.toMatch(/\bnpm (ci|install)\b/);
   });
 
-  it('may write to the repository only in the job that publishes', () => {
+  it('may write to the repository only in the job that tags the commit and the one that publishes', () => {
     expect(block('permissions')).toBe('  contents: read');
-    expect(workflow.match(/contents: write/g)).toHaveLength(1);
+    expect(workflow.match(/contents: write/g)).toHaveLength(2);
+    expect(job('version')).toMatch(/permissions:\n\s+contents: write\n {4}outputs:/);
+    // The tag's job installs nothing and names no secret: only GitHub's own actions and the repository's code run there.
+    expect(job('version')).not.toMatch(/\bnpm\b|\bnpx\b|secrets\./);
+    expect(job('version').match(/uses: \S+/g)).toEqual(['uses: actions/checkout@v7', 'uses: actions/setup-node@v7']);
+    expect(job('version')).not.toContain('cache:');
     expect(job('release')).toMatch(/permissions:\n\s+contents: write/);
     // It reads the pull requests the notes' commits merged, and may change none.
     expect(job('release')).toMatch(/permissions:\n\s+contents: write\n(?:\s+#.*\n)?\s+pull-requests: read\n/);
@@ -1106,7 +1194,7 @@ describe('the release workflow', () => {
     expect(block('concurrency')).toBe('  group: release\n  cancel-in-progress: false');
   });
 
-  it('publishes a release candidate as a pre-release, on the commit it built', () => {
+  it('publishes a release candidate as a pre-release, on the tag the run made on the commit it built', () => {
     const publish = job('release').slice(job('release').indexOf('- name: Publish'));
     expect(publish).toContain('if [ "$PRERELEASE" = true ]; then');
     expect(publish).toContain('channel=(--prerelease --latest=false)');
@@ -1116,8 +1204,14 @@ describe('the release workflow', () => {
     // The notes say nothing of the copies, which are not on the release page.
     expect(publish).toContain('$offered See [Desktop app]');
     expect(publish).not.toContain('-update');
-    expect(publish).toContain('--target "$GITHUB_SHA"');
-    expect(publish).toContain('gh release create "$TAG"');
+    // On the tag made as the run started, never one made here, which GitHub may refuse the job's token.
+    expect(publish).toContain('gh release create "$TAG" installers/* --verify-tag ');
+    expect(publish).not.toContain('--target');
+    // Checked before anything is published: the tag is still on the commit that was checked and built.
+    const again = job('release').slice(job('release').indexOf('- name: Check the version again'), job('release').indexOf('- name: List the changes'));
+    expect(again).toContain('at=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" --jq .object.sha 2>/dev/null) || at=\'\'');
+    expect(again).toContain('if [ "$at" != "$GITHUB_SHA" ]; then');
+    expect(again).toContain('GH_TOKEN: ${{ github.token }}');
   });
 
   it('lists every commit into main since the version before in the notes, not only pull requests, before publishing anything', () => {
@@ -1127,7 +1221,7 @@ describe('the release workflow', () => {
     // After the last check, by the same tags (--remote), up to the commit that was checked and built.
     expect(step('List the changes since the version before')).toBeGreaterThan(step('Check the version again'));
     expect(changes).toContain('run: node scripts/release.ts notes "$VERSION" --target "$GITHUB_SHA" --remote > "$RUNNER_TEMP/changes.md"');
-    expect(changes).toContain('VERSION: ${{ needs.check.outputs.tag }}');
+    expect(changes).toContain('VERSION: ${{ needs.version.outputs.tag }}');
     // Read with this job's own token, never the copies' one.
     expect(changes).toContain('GH_TOKEN: ${{ github.token }}');
     // Before the copies for the app's updates and the release are published.

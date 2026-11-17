@@ -486,8 +486,11 @@ describe('the Release workflow’s check that an app can download the copies', (
     const refuse = at('Refuse a read token that is the write token');
     const built = at("Check that the installers were built with this run's update source");
     // The comparison: in the tokens job, which the check job needs, before anything is built or uploaded.
-    expect(workflow.indexOf('\n  tokens:')).toBeLessThan(refuse);
-    expect(refuse).toBeLessThan(workflow.indexOf('\n  check:'));
+    const tokens = workflow.indexOf('\n  tokens:\n');
+    const tokensEnd = workflow.slice(tokens + 1).search(/\n {2}[a-z]+:\n/) + tokens + 1;
+    expect(tokens).toBeLessThan(refuse);
+    expect(refuse).toBeLessThan(tokensEnd);
+    expect(tokensEnd).toBeLessThanOrEqual(workflow.indexOf('\n  check:'));
     const copiesAt = at("Publish the copies for the app's updates");
     const checked = at('Check that the app can download the copies');
     const published = workflow.indexOf('- name: Publish\n');
@@ -497,7 +500,7 @@ describe('the Release workflow’s check that an app can download the copies', (
     expect(copiesAt).toBeLessThan(checked);
     expect(checked).toBeLessThan(published);
     // The read token and the write token compared in the shell alone, trimmed as the build trims.
-    const refusing = workflow.slice(refuse, workflow.indexOf('\n  check:'));
+    const refusing = workflow.slice(refuse, tokensEnd);
     expect(refusing).toContain('WRITE_TOKEN: ${{ secrets.UPDATES_TOKEN }}');
     expect(refusing).toContain('READ_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
     expect(refusing).toContain('if [ -n "$read" ] && [ "$read" = "$write" ]; then');
