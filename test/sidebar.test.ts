@@ -43,6 +43,10 @@ describe('sidebar status', () => {
     expect(convStatus(conv({ confirmTeam: true, lastStatus: 'done' }), 100)).toBe('confirm');
     expect(convStatus(conv({ confirmTeam: true, waiting: true }), 0)).toBe('waiting');
     expect(convStatus(conv({ running: true, lastStatus: 'done' }), 100)).toBe('running');
+    // A tracked goal held up needs the user, after a question and before a new reply; not while it runs.
+    expect(convStatus(conv({ blocked: true, lastStatus: 'done' }), 100)).toBe('blocked');
+    expect(convStatus(conv({ blocked: true, asking: true, lastStatus: 'done' }), 100)).toBe('answer');
+    expect(convStatus(conv({ blocked: true, running: true }), 100)).toBe('running');
     expect(convStatus(conv({ asking: true, lastStatus: 'done' }), 100)).toBe('answer');
     expect(convStatus(conv({ asking: true, waiting: true }), 0)).toBe('waiting');
   });
@@ -94,6 +98,7 @@ describe('sidebar groups', () => {
   it('shows the most urgent state of a collapsed group', () => {
     expect(groupStatus([conv({ lastStatus: 'done' }), conv({ running: true }), conv({ waiting: true })], {})).toBe('waiting');
     expect(groupStatus([conv({ lastStatus: 'done' }), conv({ lastStatus: 'error' })], { c: 0 })).toBe('error');
+    expect(groupStatus([conv({ running: true }), conv({ blocked: true, lastStatus: 'done' })], {})).toBe('blocked');
     expect(groupStatus([conv({ lastStatus: 'done' })], { c: 100 })).toBeUndefined();
     expect(groupStatus([], {})).toBeUndefined();
   });

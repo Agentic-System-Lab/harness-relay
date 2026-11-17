@@ -24,7 +24,7 @@ import type { ReportKind } from '../report';
 import type { ThemeChoice } from '../theme';
 
 /** A conversation's state as the sidebar shows it. */
-export type ConvStatus = 'waiting' | 'confirm' | 'answer' | 'running' | 'error' | 'unread';
+export type ConvStatus = 'waiting' | 'confirm' | 'answer' | 'blocked' | 'running' | 'error' | 'unread';
 
 const EFFORT: Record<string, string> = {
   none: '無',
@@ -92,6 +92,7 @@ export const zhTW = {
       waiting: '等你核准',
       confirm: '等你確認團隊',
       answer: '等你回答',
+      blocked: '目標卡住了',
       running: '回覆中',
       error: '出錯了',
       unread: '新回覆',
@@ -975,6 +976,7 @@ export const zhTW = {
       approval: (agent?: string) => (agent ? `${agent} 等你核准` : '有 agent 等你核准'),
       confirm: (_agent?: string) => '首席 agent 設計好團隊了，等你確認',
       answer: (agent?: string) => (agent ? `${agent} 問了你一個問題` : '有 agent 問了你一個問題'),
+      blocked: (agent?: string) => (agent ? `${agent} 回報目標卡住了，需要你處理` : '自動任務的目標卡住了，需要你處理'),
     },
     testTitle: 'Harness Relay',
     testBody: '通知已開啟：agent 回覆完或需要你的時候，會在這裡通知你。',

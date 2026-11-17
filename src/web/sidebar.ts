@@ -294,7 +294,7 @@ export function undoPin(pins: PendingPins, id: string, before: PendingPins): Pen
 }
 
 /** Most urgent first. */
-const URGENCY: ConvStatus[] = ['waiting', 'confirm', 'answer', 'running', 'error', 'unread'];
+const URGENCY: ConvStatus[] = ['waiting', 'confirm', 'answer', 'blocked', 'running', 'error', 'unread'];
 
 /** What a collapsed group shows about its conversations: the most urgent of their states. */
 export function groupStatus(conversations: ConversationSummary[], seen: Record<string, number>): ConvStatus | undefined {

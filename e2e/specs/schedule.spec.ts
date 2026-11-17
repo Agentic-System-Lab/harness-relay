@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures';
-import { finishedReply, openTeamChat } from '../support/app';
+import { finishedReply, openTeamChat, send } from '../support/app';
 
 test.describe('schedules', () => {
   test("a chat's schedule is saved, and running it once sends its message to the team", async ({ page, relay }) => {
@@ -52,6 +52,36 @@ test.describe('schedules', () => {
     await expect(progress).toContainText('Done');
     await expect(progress.locator('.progress-note')).toHaveCount(1);
     await expect(drawer.getByRole('checkbox', { name: 'On' })).not.toBeChecked();
+  });
+
+  test('a run whose reply says its goal is held up marks the chat as needing the user, and keeps the automation on', async ({
+    page,
+    relay,
+  }) => {
+    await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Held up');
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Automation' });
+    await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('Check the build e2e:progress=blocked');
+    await drawer.getByRole('textbox', { name: 'Goal to track (optional)' }).fill('The build passes');
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drawer).toBeHidden();
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await drawer.getByRole('button', { name: 'Run once now' }).click();
+    await drawer.getByRole('button', { name: 'Close' }).click();
+
+    const reply = await finishedReply(page, 'Codex');
+    await expect(reply.getByRole('note', { name: 'Progress on the goal' })).toContainText('Blocked');
+    await expect(page.locator('.msg-system', { hasText: 'says the goal is held up and needs you' })).toBeVisible();
+    // The sidebar says so, and the tab's title counts it, until a later reply says otherwise.
+    await expect(page.locator('.conv-item.active .conv-status')).toHaveText('Goal held up');
+    await expect(page).toHaveTitle(/\(1\)/);
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await expect(drawer.getByRole('region', { name: 'Progress on the goal' })).toContainText('Blocked');
+    await drawer.getByRole('button', { name: 'Close' }).click();
+
+    await send(page, 'The key is in place now');
+    await finishedReply(page, 'Codex');
+    await expect(page.locator('.conv-item.active .conv-status', { hasText: 'Goal held up' })).toHaveCount(0);
   });
 
   test("a schedule's webhook shows its token once, and a program's call sends the message with what it posted", async ({ page, relay }) => {

@@ -197,6 +197,7 @@ const zhTW = {
     approval: (agent?: string) => (agent ? `${agent} 等你核准` : '有 agent 等你核准'),
     confirm: (_agent?: string) => '首席 agent 設計好團隊了，等你確認',
     answer: (agent?: string) => (agent ? `${agent} 問了你一個問題` : '有 agent 問了你一個問題'),
+    blocked: (agent?: string) => (agent ? `${agent} 回報目標卡住了，需要你處理` : '自動任務的目標卡住了，需要你處理'),
     testTitle: 'Harness Relay',
     testBody: '通知已開啟：agent 回覆完或需要你的時候，會在這裡通知你。',
   },
@@ -937,6 +938,8 @@ const en: ServerMessages = {
     approval: (agent?: string) => (agent ? `${agent} is waiting for your approval` : 'An agent is waiting for your approval'),
     confirm: (_agent?: string) => "The lead agent's team is ready for you to confirm",
     answer: (agent?: string) => (agent ? `${agent} asked you something` : 'An agent asked you something'),
+    blocked: (agent?: string) =>
+      agent ? `${agent} says the goal is held up and needs you` : "An automation's goal is held up and needs you",
     testTitle: 'Harness Relay',
     testBody: "Notifications are on: you'll be told here when an agent finishes or needs you.",
   },

@@ -6193,7 +6193,8 @@ details.sub summary {
 
 .conv-status.waiting,
 .conv-status.confirm,
-.conv-status.answer {
+.conv-status.answer,
+.conv-status.blocked {
   color: var(--warn);
   background: color-mix(in srgb, var(--warn) 14%, transparent);
 }

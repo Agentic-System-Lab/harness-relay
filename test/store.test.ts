@@ -1808,6 +1808,33 @@ describe('Store schedules', () => {
     expect(new Store(reopen()).get(conv.id)!.messages.find((m) => m.id === 'tracked-reply')!.tracked).toEqual(tracked);
   });
 
+  it('lists a conversation whose latest reply says its tracked goal is held up as needing the user, from memory and after a restart', () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    store.create(conv);
+    const held: ChatMessage = {
+      ...agentMsg,
+      id: 'held-reply',
+      parts: [
+        { type: 'text', text: 'CI is red.' },
+        { type: 'progress', status: 'blocked', text: 'Needs a deploy key' },
+      ],
+    };
+    conv.messages.push(held);
+    store.saveMessage(conv.id, held, true);
+    const listed = (s: Store) => s.list(() => false).find((c) => c.id === conv.id)!;
+    expect(listed(store).blocked).toBe(true);
+    expect(listed(new Store(reopen())).blocked).toBe(true);
+    // A later reply that says nothing of it (to the user's answer): no longer.
+    const later: ChatMessage = { ...agentMsg, id: 'later-reply', parts: [{ type: 'text', text: 'Done, thanks.' }] };
+    const again = new Store(db);
+    const live = again.get(conv.id)!;
+    live.messages.push(later);
+    again.saveMessage(conv.id, later, true);
+    expect(listed(again).blocked).toBeUndefined();
+    expect(listed(new Store(reopen())).blocked).toBeUndefined();
+  });
+
   it('finds the schedules that are on and due, and forgets one that is removed or whose conversation is deleted', () => {
     const store = new Store(db);
     const a = { ...sampleConversation(), id: 'a', schedule: { ...schedule, nextRunAt: 200 } };

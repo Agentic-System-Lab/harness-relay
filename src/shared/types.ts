@@ -719,7 +719,7 @@ export interface AuthSessionView {
  * an error (`error`); an agent asks to do something its permission does not cover (`approval`), the
  * lead agent's team waits to be confirmed (`confirm`), or an agent asked the user something (`answer`).
  */
-export type AlertKind = 'done' | 'error' | 'approval' | 'confirm' | 'answer';
+export type AlertKind = 'done' | 'error' | 'approval' | 'confirm' | 'answer' | 'blocked';
 
 /**
  * Which alerts a browser wants (Settings → Notifications): replies that ended (`done` and `error`),
@@ -1539,6 +1539,11 @@ export interface ConversationSummary {
   confirmTeam?: boolean;
   /** An agent asked the user something and the team waits for the answer. */
   asking?: boolean;
+  /**
+   * The latest agent reply says its tracked goal is held up (`<progress status="blocked">`): it needs the
+   * user until a later reply (to the user's answer, or the automation's next run) says otherwise.
+   */
+  blocked?: boolean;
   /** How the latest agent reply ended (absent before the first one). */
   lastStatus?: MessageStatus;
   /**

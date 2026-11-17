@@ -427,10 +427,14 @@ function scheduleSummary(
 /** The latest agent reply's id and status, from memory when the conversation is open (it may be streaming). */
 function statusOf(
   live: Conversation | undefined,
-  stored: { id: string; status: MessageStatus } | undefined,
-): Pick<ConversationSummary, 'lastStatus' | 'lastReplyId'> {
-  const last = live ? [...live.messages].reverse().find((m) => m.author.kind === 'agent') : stored;
-  return last ? { lastStatus: last.status, lastReplyId: last.id } : {};
+  stored: { id: string; status: MessageStatus; blocked?: boolean } | undefined,
+): Pick<ConversationSummary, 'lastStatus' | 'lastReplyId' | 'blocked'> {
+  const reply = live ? [...live.messages].reverse().find((m) => m.author.kind === 'agent') : undefined;
+  const last = reply ?? (live ? undefined : stored);
+  if (!last) return {};
+  // A finished reply whose tracked goal it says is held up needs the user (`blocked`).
+  const blocked = reply ? reply.parts.some((p) => p.type === 'progress' && p.status === 'blocked') : Boolean(stored?.blocked);
+  return { lastStatus: last.status, lastReplyId: last.id, ...(blocked && last.status !== 'streaming' ? { blocked: true } : {}) };
 }
 
 /**
@@ -610,17 +614,21 @@ export class Store {
     const agents = this.db
       .prepare('SELECT conversation_id, name, provider FROM conversation_agents ORDER BY conversation_id, position')
       .all() as { conversation_id: string; name: string; provider: Provider }[];
-    // Each conversation's latest agent reply: which, and how it ended.
+    // Each conversation's latest agent reply: which, how it ended, and whether its progress block says
+    // the tracked goal is held up (JSON.stringify writes the status this way).
     const lastStatus = new Map(
       (
         this.db
           .prepare(
-            `SELECT m.conversation_id, m.id, m.status FROM messages m
+            `SELECT m.conversation_id, m.id, m.status,
+                    EXISTS (SELECT 1 FROM message_parts p WHERE p.message_id = m.id AND p.type = 'progress'
+                            AND p.data LIKE '%"status":"blocked"%') AS blocked
+             FROM messages m
              JOIN (SELECT conversation_id, MAX(seq) AS seq FROM messages WHERE author_kind = 'agent' GROUP BY conversation_id) l
                ON l.conversation_id = m.conversation_id AND l.seq = m.seq`,
           )
-          .all() as { conversation_id: string; id: string; status: MessageStatus }[]
-      ).map((r) => [r.conversation_id, { id: r.id, status: r.status }]),
+          .all() as { conversation_id: string; id: string; status: MessageStatus; blocked: number }[]
+      ).map((r) => [r.conversation_id, { id: r.id, status: r.status, ...(r.blocked ? { blocked: true } : {}) }]),
     );
     // Team designs waiting for the user's confirmation (JSON.stringify writes the flag this way).
     const confirming = new Set(

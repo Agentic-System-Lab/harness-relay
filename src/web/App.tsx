@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { needsOf } from '../shared/notify';
 import type { ConversationGroup, ConversationSummary, ProviderModels, ProviderStatus, UpdateStatus } from '../shared/types';
 import { SIGNED_OUT_EVENT, api } from './api';
 import { keyArrived } from './auth';
@@ -278,8 +279,8 @@ function RelayApp() {
     }
   }, [loaded, conversations, route, seen]);
 
-  // The tab title tells you when a conversation needs you: an approval, or a team to confirm.
-  const waiting = conversations.filter((c) => c.waiting || c.confirmTeam || (c.asking && !c.running)).length;
+  // The tab title tells you when a conversation needs you: an approval, a team to confirm, a question, a goal held up.
+  const waiting = conversations.filter((c) => needsOf(c)).length;
   useEffect(() => {
     document.title = waiting ? t.approval.pageTitle(waiting) : 'Harness Relay';
   }, [waiting, t]);

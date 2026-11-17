@@ -48,6 +48,13 @@ describe('alertFor', () => {
     // An approval answered and the run going on: nothing; then it ends with its reply.
     expect(alertFor(seen({ running: true, waiting: true }, { reply: 'm1' }), { running: true })).toBeUndefined();
     expect(alertFor(seen({ running: true, waiting: true, lastReplyId: 'm2' }, { reply: 'm1' }), idle('m2'))).toBe('done');
+    // A run whose reply says its tracked goal is held up: that, not "done"; once only; a question comes first.
+    const held = { running: false, blocked: true, lastStatus: 'done' as const, lastReplyId: 'm2' };
+    expect(alertFor(running('m1'), held)).toBe('blocked');
+    expect(alertFor(seen(held), held)).toBeUndefined();
+    expect(alertFor(running('m1'), { ...held, asking: true })).toBe('answer');
+    // The next reply (to the user's answer, or the next run) no longer says so: its own end is the news.
+    expect(alertFor(seen({ running: true, blocked: true, lastReplyId: 'm2' }, { reply: 'm2' }), idle('m3'))).toBe('done');
   });
 
   it('remembers the reply a run began after, through the looks while it runs', () => {
@@ -81,6 +88,10 @@ describe('alertFor', () => {
 
   it('sorts kinds into what a browser asks for', () => {
     expect(needsOf({ running: true, waiting: true, confirmTeam: true })).toBe('approval');
+    expect(needsOf({ running: false, blocked: true })).toBe('blocked');
+    expect(needsOf({ running: true, blocked: true })).toBeUndefined();
+    expect(wanted('blocked', { done: false, needs: true })).toBe(true);
+    expect(wanted('blocked', { done: true, needs: false })).toBe(false);
     expect(wanted('done', { done: true, needs: false })).toBe(true);
     expect(wanted('error', { done: false, needs: true })).toBe(false);
     expect(wanted('answer', { done: false, needs: true })).toBe(true);
@@ -218,6 +229,16 @@ describe('alertDetail', () => {
       agent: 'Claude',
       text: 'Mail to bob@example.com: "Shipped"',
     });
+    // A reply that says its tracked goal is held up: what holds it up.
+    const held: ChatMessage = {
+      ...reply('a2', 'CI is red.'),
+      parts: [
+        { type: 'text', text: 'CI is red.' },
+        { type: 'progress', status: 'blocked', text: 'Needs a new deploy key from you' },
+      ],
+    };
+    expect(alertDetail({ agents, messages: [held] }, 'blocked')).toEqual({ agent: 'Codex', text: 'Needs a new deploy key from you' });
+    expect(alertDetail({ agents, messages: [reply('a1', 'fine')] }, 'blocked')).toEqual({});
     const sent: ChatMessage = { ...outbox, parts: outbox.parts.map((p) => (p.type === 'outbox' ? { ...p, status: 'sent' as const } : p)) };
     expect(alertDetail({ agents, messages: [sent] }, 'approval')).toEqual({});
     expect(alertDetail({ agents, messages: [] }, 'done')).toEqual({});

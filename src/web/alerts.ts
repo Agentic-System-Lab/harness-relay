@@ -15,7 +15,7 @@
  * the window is open. The DOM-free parts are tested in test/alerts-web.test.ts.
  */
 import { useSyncExternalStore } from 'react';
-import { AlertTracker, alertDetail, alertTag, alertUrl, wanted } from '../shared/notify';
+import { AlertTracker, NEEDS_KINDS, alertDetail, alertTag, alertUrl, wanted } from '../shared/notify';
 import {
   PUSH_GONE,
   PUSH_TAKEN,
@@ -477,7 +477,7 @@ export function playChime(kind: AlertKind | 'test'): void {
   // Not allowed yet (nothing done on the page since it loaded): no sound, rather than every sound
   // since then at once on the first click.
   if (!ctx || ctx.state !== 'running') return;
-  const notes = CHIMES[kind === 'approval' || kind === 'confirm' || kind === 'answer' ? 'needs' : 'done'];
+  const notes = CHIMES[kind !== 'test' && NEEDS_KINDS.includes(kind) ? 'needs' : 'done'];
   const start = ctx.currentTime + 0.02;
   for (const [freq, at] of notes) {
     const osc = ctx.createOscillator();
