@@ -4197,6 +4197,19 @@ video.chat-media {
   max-width: 240px;
 }
 
+/* What an automation that starts when something happens waits for: two fields a row where there is room. */
+.schedule-trigger {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px 14px;
+  margin-top: 4px;
+}
+
+.schedule-trigger > p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
 .day-picker {
   display: flex;
   /* The seven days need about 310px in English: on a narrower phone they go on two rows rather

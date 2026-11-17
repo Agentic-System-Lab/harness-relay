@@ -1,9 +1,10 @@
-import type { Conversation, ConversationSchedule, ScheduleResult } from '../shared/types';
+import type { Conversation, ConversationSchedule, ScheduleResult, ScheduleWatch } from '../shared/types';
 import { nextRun } from '../shared/schedule';
 import { HttpError } from './errors';
 import { t, withLang } from './i18n';
 import type { Orchestrator } from './orchestrator';
 import type { Store } from './store';
+import { nextCheckAt, triggerKey, type TriggerChecker, type WatchCheck } from './watch';
 
 /** A time missed by more than this (Harness Relay was not running, the computer slept) counts as missed. */
 export const MISSED_AFTER_MS = 10 * 60_000;
@@ -51,11 +52,16 @@ export class Scheduler {
   private stopped = false;
   /** Conversations whose due time was found busy: that time, and when it was first tried. Retried, not missed. */
   private retrying = new Map<string, { due: number; since: number }>();
+  /** The checks of what automations wait for, under way: one at a time for each. */
+  private checks = new Map<string, Promise<void>>();
+  private watching?: Promise<void>;
 
   constructor(
     private store: Store,
     private orchestrator: Orchestrator,
     private now: () => number = Date.now,
+    /** Checks what an automation that starts when something happens waits for (`watch.ts`); none: such automations wait. */
+    private checkTrigger?: TriggerChecker,
   ) {}
 
   /** Look for due schedules now and every `TICK_MS` (also right after the computer wakes up). */
@@ -74,8 +80,9 @@ export class Scheduler {
     this.timer = undefined;
   }
 
-  /** Send the schedules that are due, the most overdue first; one look at a time. */
+  /** Send the schedules that are due, the most overdue first; one look at a time. Then check what automations wait for. */
   tick(): Promise<void> {
+    void this.watchTick();
     this.ticking ??= (async () => {
       const now = this.now();
       for (const id of this.store.dueSchedules(now)) {
@@ -88,6 +95,113 @@ export class Scheduler {
       }
     })().finally(() => (this.ticking = undefined));
     return this.ticking;
+  }
+
+  /**
+   * Check what the automations that start when something happens wait for, those whose next check has
+   * come, one after another: a slow mail server holds up the others' checks, never a time coming due.
+   */
+  watchTick(): Promise<void> {
+    this.watching ??= (async () => {
+      for (const id of this.store.watchDue(this.now())) {
+        if (this.stopped) return;
+        try {
+          await this.check(id);
+        } catch (err) {
+          if (!(err instanceof HttpError && err.status === 404)) console.error('[scheduler] could not check an automation:', err);
+        }
+      }
+    })().finally(() => (this.watching = undefined));
+    return this.watching;
+  }
+
+  /**
+   * Check what the conversation's automation waits for (`force`: now, even while it is off: the user's
+   * Check now), and send its message, with what is new in an <event> block, when something is. The
+   * first check only records what is there. A team that cannot take it now (`busy`, `skipped`) leaves
+   * it to a later check, which finds it again with whatever came meanwhile; a message that was sent,
+   * queued or could not start counts it as seen. A check that fails is shown, and the next ones come
+   * slower. One check at a time per conversation: a second call waits for the one under way.
+   */
+  check(convId: string, force = false): Promise<void> {
+    const running = this.checks.get(convId);
+    if (running) return running;
+    const p = this.runCheck(convId, force).finally(() => this.checks.delete(convId));
+    this.checks.set(convId, p);
+    return p;
+  }
+
+  private async runCheck(convId: string, force: boolean): Promise<void> {
+    if (this.stopped || !this.checkTrigger) return;
+    const conv = this.store.get(convId);
+    const s = conv?.schedule;
+    if (!conv || !s || s.repeat.kind !== 'event' || (!s.enabled && !force)) return;
+    const trigger = s.repeat.trigger;
+    const key = triggerKey(trigger);
+    const prev = s.watch?.key === key ? s.watch : undefined;
+    const started = this.now();
+    let found: WatchCheck;
+    try {
+      found = await withLang(s.lang, () => this.checkTrigger!(trigger, prev));
+    } catch (err) {
+      if (this.stopped || conv.schedule !== s) return;
+      const failures = (prev?.failures ?? 0) + 1;
+      const { held: _held, ...kept } = prev ?? { key, nextCheckAt: started };
+      return this.keepWatch(conv, s, {
+        ...kept,
+        key,
+        checkedAt: started,
+        nextCheckAt: nextCheckAt(this.now(), failures),
+        error: (err as Error).message || String(err),
+        failures,
+      });
+    }
+    // Changed or removed while it was checked: the new one starts afresh.
+    if (this.stopped || conv.schedule !== s) return;
+    const { uidValidity, lastUid } = found.state;
+    const seen: ScheduleWatch = {
+      key,
+      ...(uidValidity !== undefined ? { uidValidity } : {}),
+      ...(lastUid !== undefined ? { lastUid } : {}),
+      checkedAt: started,
+      nextCheckAt: nextCheckAt(this.now()),
+    };
+    if (!found.event) return this.keepWatch(conv, s, seen);
+    const now = this.now();
+    await withLang(s.lang, async () => {
+      const sent = await this.orchestrator.sendScheduled(convId, now, { event: found.event, eventSource: trigger.source });
+      // Shutting down: nothing was recorded, so the next start finds the same mail.
+      if (this.stopped || conv.schedule !== s) return;
+      if (sent.result === 'busy' || sent.result === 'skipped') {
+        // Not seen yet: a later check finds it again, with what came meanwhile, in one run.
+        const { error: _e, failures: _f, ...kept } = prev ?? { key, nextCheckAt: seen.nextCheckAt };
+        return this.keepWatch(conv, s, {
+          ...kept,
+          checkedAt: started,
+          nextCheckAt: seen.nextCheckAt,
+          held: sent.reason ?? t().scheduleBusy,
+        });
+      }
+      const { lastError: _error, lastChatId: _chat, watch: _watch, ...rest } = s;
+      conv.schedule = {
+        ...rest,
+        watch: seen,
+        lastRunAt: now,
+        lastResult: sent.result,
+        ...('reason' in sent && sent.reason ? { lastError: sent.reason } : {}),
+        ...(sent.result === 'sent' && sent.chatId ? { lastChatId: sent.chatId } : {}),
+      };
+      this.store.saveSchedule(conv);
+      this.orchestrator.emitConversation(conv);
+      if (sent.result === 'failed') this.orchestrator.systemNote(conv, t().watchFailedNote(sent.reason.replace(/[.。]\s*$/, '')));
+    });
+  }
+
+  /** Keep what a check found of the automation's source (the rest of the schedule as it is). */
+  private keepWatch(conv: Conversation, s: ConversationSchedule, watch: ScheduleWatch): void {
+    conv.schedule = { ...s, watch };
+    this.store.saveSchedule(conv);
+    this.orchestrator.emitConversation(conv);
   }
 
   /**

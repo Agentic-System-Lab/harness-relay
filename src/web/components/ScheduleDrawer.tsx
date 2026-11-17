@@ -43,6 +43,7 @@ export function ScheduleDrawer({
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   /** The conversation "Run now" just opened (a schedule that opens a new one each time). */
@@ -129,6 +130,21 @@ export function ScheduleDrawer({
     }
   };
 
+  const checkNow = async () => {
+    setChecking(true);
+    setError('');
+    setInfo('');
+    setRanIn(undefined);
+    try {
+      await api.checkSchedule(conv.id);
+      setInfo(t.schedule.watch.done);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setChecking(false);
+    }
+  };
+
   return (
     <div className="drawer-scrim" onClick={onClose}>
       <aside
@@ -183,6 +199,17 @@ export function ScheduleDrawer({
               )}
             </div>
             <div className="schedule-status-actions">
+              {saved.repeat.kind === 'event' && (
+                <button
+                  type="button"
+                  className="ghost small-button"
+                  disabled={checking || changed}
+                  title={changed ? t.schedule.watch.checkSaveFirst : t.schedule.watch.checkNowTitle}
+                  onClick={checkNow}
+                >
+                  {t.schedule.watch.checkNow}
+                </button>
+              )}
               <button
                 type="button"
                 className="ghost small-button"

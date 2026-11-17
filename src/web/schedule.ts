@@ -4,7 +4,9 @@ import {
   type ConversationSummary,
   type NewScheduleHook,
   type ScheduleRepeat,
+  type ScheduleTrigger,
   type ScheduleUpdate,
+  type ScheduleWatch,
 } from '../shared/types';
 import { parseTime, upcomingRuns } from '../shared/schedule';
 import type { Messages } from './i18n';
@@ -28,6 +30,8 @@ export interface ScheduleDraft {
   newChat: boolean;
   /** The goal it tracks ('' for none). */
   goal: string;
+  /** `event`: what it waits for, every field a string as the inputs keep them ('' for a condition not given). */
+  trigger: { source: ScheduleTrigger['source']; account: string; folder: string; from: string; subject: string };
 }
 
 /** The time zone of this browser. */
@@ -74,6 +78,7 @@ export function draftFrom(s: ConversationSchedule | undefined, now: number, time
     missed: 'skip',
     newChat: false,
     goal: '',
+    trigger: { source: 'mail', account: '', folder: 'INBOX', from: '', subject: '' },
   };
   if (!s) return draft;
   const r = s.repeat;
@@ -85,6 +90,9 @@ export function draftFrom(s: ConversationSchedule | undefined, now: number, time
     ...(r.kind === 'daily' || r.kind === 'weekly' ? { time: r.time } : {}),
     ...(r.kind === 'weekly' ? { days: [...r.days] } : {}),
     ...(r.kind === 'interval' ? { hours: r.hours } : {}),
+    ...(r.kind === 'event'
+      ? { trigger: { ...draft.trigger, ...r.trigger, from: r.trigger.from ?? '', subject: r.trigger.subject ?? '' } }
+      : {}),
     timeZone: s.timeZone,
     enabled: s.enabled,
     approvals: s.approvals,
@@ -106,6 +114,19 @@ export function repeatOf(d: ScheduleDraft): ScheduleRepeat {
       return { kind: 'interval', hours: d.hours };
     case 'manual':
       return { kind: 'manual' };
+    case 'event': {
+      const { account, folder, from, subject } = d.trigger;
+      return {
+        kind: 'event',
+        trigger: {
+          source: 'mail',
+          account,
+          folder: folder.trim() || 'INBOX',
+          ...(from.trim() ? { from: from.trim() } : {}),
+          ...(subject.trim() ? { subject: subject.trim() } : {}),
+        },
+      };
+    }
   }
 }
 
@@ -156,6 +177,9 @@ export function draftProblems(d: ScheduleDraft, now: number, t: Messages): strin
     case 'interval':
       if (!Number.isInteger(d.hours) || d.hours < 1 || d.hours > SCHEDULE_LIMITS.maxHours) out.push(p.hours(SCHEDULE_LIMITS.maxHours));
       break;
+    case 'event':
+      if (!d.trigger.account) out.push(p.account);
+      break;
   }
   return out;
 }
@@ -202,8 +226,11 @@ export function formatWhen(ms: number, lang: string, timeZone?: string): string 
   }
 }
 
-/** When a schedule sends, in a few words: "Weekdays at 09:00", "每 6 小時". */
-export function describeRepeat(r: ScheduleRepeat, t: Messages, lang: string): string {
+/**
+ * When a schedule sends, in a few words: "Weekdays at 09:00", "每 6 小時", "When a new mail from … arrives".
+ * `accountName`: the name in Settings of a mail account, by its id (absent: none is named).
+ */
+export function describeRepeat(r: ScheduleRepeat, t: Messages, lang: string, accountName?: (id: string) => string | undefined): string {
   const s = t.schedule.summary;
   switch (r.kind) {
     case 'once':
@@ -222,17 +249,47 @@ export function describeRepeat(r: ScheduleRepeat, t: Messages, lang: string): st
       return s.interval(r.hours);
     case 'manual':
       return s.manual;
+    case 'event':
+      return describeTrigger(r.trigger, t, accountName?.(r.trigger.account));
   }
 }
 
-/** Whether a schedule needs a look: the last time it came due, it was not sent. */
-export function scheduleTrouble(s: Pick<ConversationSchedule, 'lastResult'> | undefined): boolean {
+/** What an automation that starts when something happens waits for, in a few words. */
+export function describeTrigger(trigger: ScheduleTrigger, t: Messages, account?: string): string {
+  return t.schedule.summary.mail({
+    ...(account ? { account } : {}),
+    ...(trigger.from ? { from: trigger.from } : {}),
+    ...(trigger.subject ? { subject: trigger.subject } : {}),
+  });
+}
+
+/**
+ * Whether a schedule needs a look: the last time it came due, it was not sent, or the last check of
+ * what it waits for failed.
+ */
+export function scheduleTrouble(
+  s: (Pick<ConversationSchedule, 'lastResult'> & { watch?: Pick<ScheduleWatch, 'error'>; watchError?: boolean }) | undefined,
+): boolean {
+  if (s?.watch?.error || s?.watchError) return true;
   return s?.lastResult === 'missed' || s?.lastResult === 'skipped' || s?.lastResult === 'failed';
+}
+
+/**
+ * How the checks of what an automation waits for are going: when it was last checked and is checked
+ * next, or why the last check failed, or that new mail waits for the team.
+ */
+export function watchState(w: ScheduleWatch | undefined, t: Messages, lang: string): string {
+  const m = t.schedule.watch;
+  if (!w?.checkedAt) return m.notYet;
+  if (w.error) return m.error(w.error);
+  const checked = `${m.checked(formatWhen(w.checkedAt, lang))} · ${m.nextCheck(formatWhen(w.nextCheckAt, lang))}`;
+  return w.held ? `${checked} · ${m.held(w.held)}` : checked;
 }
 
 /** The schedule's state in a few words: when it sends next, paused, or (a one-time schedule that came due) done. */
 export function scheduleState(s: ConversationSchedule, t: Messages, lang: string): string {
   if (s.repeat.kind === 'manual') return s.enabled ? t.schedule.manualState : t.schedule.paused;
+  if (s.repeat.kind === 'event') return s.enabled ? watchState(s.watch, t, lang) : t.schedule.paused;
   if (s.enabled && s.nextRunAt !== undefined) return t.schedule.next(formatWhen(s.nextRunAt, lang, shownZone(s)));
   const r = s.repeat;
   return r.kind === 'once' && s.lastRunAt !== undefined && s.lastRunAt >= r.at ? t.schedule.finished : t.schedule.paused;
@@ -240,8 +297,10 @@ export function scheduleState(s: ConversationSchedule, t: Messages, lang: string
 
 /** The sidebar's tooltip for a conversation's schedule. */
 export function sidebarScheduleTitle(s: NonNullable<ConversationSummary['schedule']>, t: Messages, lang: string): string {
-  if (scheduleTrouble(s)) return t.schedule.sidebar.problem(t.schedule.results[s.lastResult!]);
+  if (s.watchError && s.enabled) return t.schedule.sidebar.watchError;
+  if (scheduleTrouble(s) && s.lastResult) return t.schedule.sidebar.problem(t.schedule.results[s.lastResult]);
   if (s.enabled && s.manual) return t.schedule.sidebar.manual;
+  if (s.enabled && s.trigger) return t.schedule.sidebar.watch(describeTrigger(s.trigger, t));
   if (!s.enabled || s.nextRunAt === undefined) return t.schedule.sidebar.paused;
   return t.schedule.sidebar.next(formatWhen(s.nextRunAt, lang, s.timeZone));
 }

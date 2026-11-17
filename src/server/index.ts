@@ -17,6 +17,7 @@ import { killAll } from './process';
 import { ProviderService } from './providers';
 import { PushService } from './push';
 import { Scheduler } from './scheduler';
+import { checkTrigger } from './watch';
 import { ToolGateway, outboxTool } from './gateway';
 import { findBrowser } from './browser/find';
 import { BrowserService } from './browser/session';
@@ -149,7 +150,7 @@ settings.tools.gatewayStatus = () => {
 };
 
 // Sends each conversation's scheduled message when it comes due.
-const scheduler = new Scheduler(store, orchestrator);
+const scheduler = new Scheduler(store, orchestrator, Date.now, checkTrigger(settings.connectors));
 
 // Push notifications to the browsers that turned them on (a phone, say), when agents finish or need the user.
 const push = new PushService(db);
@@ -215,6 +216,7 @@ const app = createApp({
   desktopLang,
   push,
   alerts,
+  scheduler,
 });
 
 // --- Static web app (production build) ------------------------------------------

@@ -1,8 +1,17 @@
-import { useEffect, useId, useMemo, useRef } from 'react';
-import { SCHEDULE_KINDS, SCHEDULE_LIMITS, type ConversationSchedule, type ConversationSettings } from '../../shared/types';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import {
+  SCHEDULE_KINDS,
+  SCHEDULE_LIMITS,
+  WATCH_LIMITS,
+  type ConversationSchedule,
+  type ConversationSettings,
+  type MailAccountView,
+} from '../../shared/types';
+import { api } from '../api';
 import { mentionWarning } from '../copy';
 import { useI18n } from '../i18n';
 import { useLimits } from '../limits';
+import { hashFor } from '../route';
 import { revealChosen } from './CliPicker';
 import { browserTimeZone, draftProblems, formatWhen, localInput, previewRuns, shownZone, type ScheduleDraft } from '../schedule';
 
@@ -52,6 +61,26 @@ export function ScheduleForm({
 
   const toggleDay = (day: number) =>
     onEdit({ days: draft.days.includes(day) ? draft.days.filter((d) => d !== day) : [...draft.days, day] });
+
+  // The mail accounts from Settings, once the automation is to wait for a new mail.
+  const [mailAccounts, setMailAccounts] = useState<MailAccountView[]>();
+  const watching = draft.kind === 'event';
+  useEffect(() => {
+    if (!watching || mailAccounts) return;
+    let live = true;
+    api.connectors().then(
+      (v) => live && setMailAccounts(v.mail),
+      () => live && setMailAccounts([]),
+    );
+    return () => {
+      live = false;
+    };
+  }, [watching, mailAccounts]);
+  // The first account until another is picked.
+  useEffect(() => {
+    if (watching && mailAccounts?.length && !draft.trigger.account) onEdit({ trigger: { ...draft.trigger, account: mailAccounts[0]!.id } });
+  }, [watching, mailAccounts, draft.trigger, onEdit]);
+  const editTrigger = (patch: Partial<ScheduleDraft['trigger']>) => onEdit({ trigger: { ...draft.trigger, ...patch } });
 
   return (
     <section className="schedule-form">
@@ -160,14 +189,78 @@ export function ScheduleForm({
           </>
         )}
 
+        {watching && (
+          <div className="schedule-trigger">
+            <label className="field">
+              <span>{t.schedule.watch.source}</span>
+              <select value={draft.trigger.source} onChange={() => undefined}>
+                <option value="mail">{t.schedule.watch.sources.mail}</option>
+              </select>
+            </label>
+            {mailAccounts && !mailAccounts.length ? (
+              <p className="small warn-text">
+                {t.schedule.watch.noAccounts}{' '}
+                <a className="link-button" href={hashFor({ page: 'settings', section: 'tools' })}>
+                  {t.schedule.watch.openSettings}
+                </a>
+              </p>
+            ) : (
+              <label className="field">
+                <span>{t.schedule.watch.account}</span>
+                <select value={draft.trigger.account} onChange={(e) => editTrigger({ account: e.target.value })}>
+                  {!draft.trigger.account && <option value="">…</option>}
+                  {/* An account removed since: kept until another is picked, so saving says what is wrong. */}
+                  {draft.trigger.account && mailAccounts && !mailAccounts.some((m) => m.id === draft.trigger.account) && (
+                    <option value={draft.trigger.account}>{draft.trigger.account}</option>
+                  )}
+                  {(mailAccounts ?? []).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} · {m.address}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label className="field">
+              <span>{t.schedule.watch.folder}</span>
+              <input
+                value={draft.trigger.folder}
+                maxLength={WATCH_LIMITS.field}
+                placeholder="INBOX"
+                onChange={(e) => editTrigger({ folder: e.target.value })}
+              />
+            </label>
+            <label className="field">
+              <span>{t.schedule.watch.from}</span>
+              <input
+                value={draft.trigger.from}
+                maxLength={WATCH_LIMITS.field}
+                placeholder={t.schedule.watch.fromPlaceholder}
+                onChange={(e) => editTrigger({ from: e.target.value })}
+              />
+            </label>
+            <label className="field">
+              <span>{t.schedule.watch.subject}</span>
+              <input
+                value={draft.trigger.subject}
+                maxLength={WATCH_LIMITS.field}
+                placeholder={t.schedule.watch.subjectPlaceholder}
+                onChange={(e) => editTrigger({ subject: e.target.value })}
+              />
+            </label>
+          </div>
+        )}
+
         <span className="small muted schedule-preview">
           {problems.length
             ? problems[0]
-            : draft.kind === 'manual'
-              ? manualHint
-              : upcoming.length
-                ? `${t.schedule.upcoming} ${upcoming.map((at) => formatWhen(at, lang, draftZone)).join(t.common.listSeparator)}`
-                : t.schedule.never}
+            : watching
+              ? t.schedule.watch.hint(WATCH_LIMITS.checkMinutes)
+              : draft.kind === 'manual'
+                ? manualHint
+                : upcoming.length
+                  ? `${t.schedule.upcoming} ${upcoming.map((at) => formatWhen(at, lang, draftZone)).join(t.common.listSeparator)}`
+                  : t.schedule.never}
           {draftZone && (
             <>
               {' · '}
@@ -242,8 +335,9 @@ export function ScheduleForm({
         </span>
       </div>
 
-      {/* No set times: nothing comes due while Harness Relay is closed, so nothing is missed. */}
-      {draft.kind !== 'manual' && (
+      {/* No set times: nothing comes due while Harness Relay is closed, so nothing is missed (new mail
+          that came meanwhile is found at the first check). */}
+      {draft.kind !== 'manual' && !watching && (
         <div className="field">
           <span>{t.schedule.missed}</span>
           <div className="segmented wide" role="radiogroup" aria-label={t.schedule.missed}>

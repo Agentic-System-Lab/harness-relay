@@ -29,6 +29,7 @@ import {
   type ChatMessage,
   type CliLoginView,
   type Conversation,
+  type ConversationSchedule,
   type ConversationSummary,
   type ProviderModels,
   type ServerLimits,
@@ -2866,6 +2867,90 @@ describe('schedules', () => {
     // Once it has a team, the current team takes the scheduled messages.
     store.get(auto.id)!.agents = [{ id: 'z', name: 'Zed', provider: 'claude', role: '' }];
     expect((await put(auto.id, valid)).status).toBe(200);
+  });
+
+  it('saves an automation that starts when new mail comes, for a mail account there is, and checks it on Check now', async () => {
+    const db = openDatabase(':memory:');
+    const settings = new SettingsStore(db);
+    const localStore = new Store(db);
+    const orch = new Orchestrator(localStore, hub, settings);
+    const checked: [string, boolean | undefined][] = [];
+    const scheduler = {
+      check: async (id: string, force?: boolean) => {
+        checked.push([id, force]);
+        const conv = localStore.get(id)!;
+        conv.schedule = { ...conv.schedule!, watch: { key: 'k', nextCheckAt: 1, checkedAt: 1, lastUid: 4 } };
+        localStore.saveSchedule(conv);
+      },
+    };
+    const local = createApp({
+      auth: null,
+      store: localStore,
+      settings,
+      hub,
+      orchestrator: orch,
+      providers: new ProviderService(settings),
+      scheduler,
+    });
+    const req = (path: string, method: string, b: unknown) => local.request(path, json(method, b, { 'x-relay-lang': 'en' }));
+    const conv = (await (
+      await req('/api/conversations', 'POST', {
+        agents: [{ id: 'a', name: 'Alice', provider: 'claude', role: '' }],
+        settings: { mode: 'roundtable', permission: 'read-only', cwd: project },
+      })
+    ).json()) as Conversation;
+    const watch = (account: string, extra: Record<string, unknown> = {}) => ({
+      text: 'triage it',
+      repeat: { kind: 'event', trigger: { source: 'mail', account, ...extra } },
+      timeZone: 'UTC',
+    });
+    // No such account: refused.
+    const none = await req(`/api/conversations/${conv.id}/schedule`, 'PUT', watch('work'));
+    expect(none.status).toBe(400);
+    expect(((await none.json()) as { error: string }).error).toMatch(/mail account this automation checks is gone/);
+    settings.connectors.saveMail('work', {
+      name: 'Work',
+      address: 'me@example.com',
+      username: 'me@example.com',
+      password: 'app-pass',
+      imap: { host: '127.0.0.1', port: 1, security: 'none' },
+      smtp: { host: '127.0.0.1', port: 2, security: 'none' },
+    });
+    const saved = (await (await req(`/api/conversations/${conv.id}/schedule`, 'PUT', watch('work'))).json()) as ConversationSchedule;
+    expect(saved).toMatchObject({
+      repeat: { kind: 'event', trigger: { source: 'mail', account: 'work', folder: 'INBOX' } },
+      enabled: true,
+    });
+    expect(saved.nextRunAt).toBeUndefined();
+
+    // Check now: the scheduler checks it (even off), and the answer is the schedule as it is then.
+    const res = await req(`/api/conversations/${conv.id}/schedule/check`, 'POST', {});
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as ConversationSchedule).watch).toMatchObject({ lastUid: 4 });
+    expect(checked).toEqual([[conv.id, true]]);
+    const list = (await (await local.request('/api/conversations', { headers: HOST })).json()) as { id: string; schedule?: unknown }[];
+    expect(list.find((c) => c.id === conv.id)!.schedule).toEqual({
+      enabled: true,
+      trigger: { source: 'mail', account: 'work', folder: 'INBOX' },
+    });
+
+    // Saved again with other conditions, it keeps its place; another folder, or turned on again, starts afresh.
+    const same = (await (
+      await req(`/api/conversations/${conv.id}/schedule`, 'PUT', watch('work', { from: 'bob' }))
+    ).json()) as ConversationSchedule;
+    expect(same.watch).toMatchObject({ lastUid: 4 });
+    const other = (await (
+      await req(`/api/conversations/${conv.id}/schedule`, 'PUT', watch('work', { folder: 'Alerts' }))
+    ).json()) as ConversationSchedule;
+    expect(other.watch).toBeUndefined();
+    await req(`/api/conversations/${conv.id}/schedule/check`, 'POST', {});
+    await req(`/api/conversations/${conv.id}/schedule`, 'PUT', { ...watch('work'), enabled: false });
+    const back = (await (await req(`/api/conversations/${conv.id}/schedule`, 'PUT', watch('work'))).json()) as ConversationSchedule;
+    expect(back.watch).toBeUndefined();
+
+    // An automation with times has nothing to check.
+    await req(`/api/conversations/${conv.id}/schedule`, 'PUT', valid);
+    expect((await req(`/api/conversations/${conv.id}/schedule/check`, 'POST', {})).status).toBe(409);
   });
 
   it('runs the schedule now: sent, then waiting while the team replies, then held back', async () => {

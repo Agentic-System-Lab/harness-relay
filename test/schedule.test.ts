@@ -192,6 +192,25 @@ describe('validateSchedule', () => {
     expect(message({ ...valid, timeZone: 'Mars/Olympus' })).toMatch(/Unknown time zone/);
   });
 
+  it('takes what an automation waits for: a new mail in a folder of an account, with conditions', () => {
+    const repeat = (trigger: unknown) =>
+      withLang('en', () => validateSchedule({ ...valid, repeat: { kind: 'event', trigger } }, MON).repeat);
+    expect(repeat({ source: 'mail', account: 'work' })).toEqual({
+      kind: 'event',
+      trigger: { source: 'mail', account: 'work', folder: 'INBOX' },
+    });
+    expect(repeat({ source: 'mail', account: 'work', folder: ' Alerts ', from: ' bob ', subject: '' })).toEqual({
+      kind: 'event',
+      trigger: { source: 'mail', account: 'work', folder: 'Alerts', from: 'bob' },
+    });
+    expect(message({ ...valid, repeat: { kind: 'event', trigger: { source: 'mail' } } })).toMatch(/pick a mail account/);
+    expect(message({ ...valid, repeat: { kind: 'event', trigger: { source: 'rss', account: 'work' } } })).toMatch(/pick a mail account/);
+    expect(message({ ...valid, repeat: { kind: 'event', trigger: { source: 'mail', account: 'work', from: 'a\r\nb' } } })).toMatch(/from/);
+    expect(
+      message({ ...valid, repeat: { kind: 'event', trigger: { source: 'mail', account: 'work', subject: 'x'.repeat(201) } } }),
+    ).toMatch(/subject/);
+  });
+
   it('keeps a past one-time schedule that is switched off', () => {
     expect(message({ ...valid, enabled: false, repeat: { kind: 'once', at: MON - 1 } })).toBe('ok');
   });
@@ -286,6 +305,46 @@ describe('the schedule form', () => {
     expect(scheduleState(manualOff, en, 'en')).toBe('paused');
     expect(sidebarScheduleTitle({ enabled: true, manual: true }, en, 'en')).toBe('Automation: no set times (Run once now or its webhook)');
     expect(sidebarScheduleTitle({ enabled: true, manual: true }, zhTW, 'zh-TW')).toBe('自動任務：不定時（立即執行一次或 webhook）');
+  });
+
+  it('waits for something to happen: never due, its trigger saved trimmed, said in a few words everywhere', () => {
+    const event: ScheduleRepeat = { kind: 'event', trigger: { source: 'mail', account: 'work', folder: 'INBOX', from: 'github.com' } };
+    expect(nextRun(at(event), MON)).toBeUndefined();
+    expect(upcomingRuns(at(event), MON, 3)).toEqual([]);
+    // The form: an account to pick first; the inbox when no folder is given; conditions trimmed, empty ones left out.
+    const draft = { ...draftFrom(undefined, MON, 'UTC'), text: 'triage it', kind: 'event' as const };
+    expect(draftProblems(draft, MON, en)).toEqual(['Pick the mail account to check']);
+    const filled = { ...draft, trigger: { source: 'mail' as const, account: 'work', folder: ' ', from: ' github.com ', subject: '  ' } };
+    expect(draftProblems(filled, MON, en)).toEqual([]);
+    expect(toUpdate(filled).repeat).toEqual(event);
+    const saved2: ConversationSchedule = { ...saved, repeat: event, nextRunAt: undefined };
+    expect(draftFrom(saved2, MON).trigger).toEqual({ source: 'mail', account: 'work', folder: 'INBOX', from: 'github.com', subject: '' });
+    expect(draftChanged(draftFrom(saved2, MON), saved2)).toBe(false);
+    expect(describeRepeat(event, en, 'en')).toBe('When a new mail from github.com arrives');
+    expect(describeRepeat(event, en, 'en', () => 'Work')).toBe('When a new mail from github.com arrives (Work)');
+    expect(
+      describeRepeat({ kind: 'event', trigger: { source: 'mail', account: 'w', folder: 'INBOX', subject: 'CI' } }, zhTW, 'zh-TW'),
+    ).toBe('收到、主旨含「CI」的新郵件時');
+    expect(describeRepeat(event, zhTW, 'zh-TW')).toBe('收到 github.com 寄來的新郵件時');
+    // Its state: how its checks go.
+    expect(scheduleState(saved2, en, 'en')).toMatch(/^Not checked yet/);
+    const checked = { ...saved2, watch: { key: 'k', checkedAt: MON, nextCheckAt: MON + 120_000 } };
+    expect(scheduleState(checked, en, 'en')).toBe(`Checked ${formatWhen(MON, 'en')} · next check ${formatWhen(MON + 120_000, 'en')}`);
+    const failing = { ...checked, watch: { ...checked.watch, error: 'Connection refused' } };
+    expect(scheduleState(failing, en, 'en')).toBe('The check failed: Connection refused');
+    expect(scheduleTrouble(failing)).toBe(true);
+    expect(scheduleState({ ...checked, watch: { ...checked.watch, held: 'the team is busy' } }, en, 'en')).toMatch(
+      /New mail is waiting until the team can take it \(the team is busy\)$/,
+    );
+    expect(scheduleState({ ...checked, enabled: false }, en, 'en')).toBe('paused');
+    // The sidebar says what it waits for, or that its last check failed.
+    expect(sidebarScheduleTitle({ enabled: true, trigger: event.trigger }, en, 'en')).toBe(
+      'Automation: when a new mail from github.com arrives',
+    );
+    expect(sidebarScheduleTitle({ enabled: true, trigger: event.trigger }, zhTW, 'zh-TW')).toBe('自動任務：收到 github.com 寄來的新郵件時');
+    expect(sidebarScheduleTitle({ enabled: true, trigger: event.trigger, watchError: true }, en, 'en')).toBe(
+      'Automation: its last check failed',
+    );
   });
 
   it("writes a command that calls the schedule's webhook", () => {

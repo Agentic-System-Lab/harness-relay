@@ -90,6 +90,8 @@ export function nextRun(s: Pick<ConversationSchedule, 'repeat' | 'timeZone' | 'u
   switch (r.kind) {
     case 'manual':
       return undefined; // only Run once now and the webhook send it
+    case 'event':
+      return undefined; // sent when its checks find something new (`Scheduler`)
     case 'once':
       return r.at > after ? r.at : undefined;
     case 'interval': {

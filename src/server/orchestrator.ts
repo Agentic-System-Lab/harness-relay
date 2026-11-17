@@ -12,6 +12,7 @@ import type {
   Conversation,
   ConversationBranch,
   ConversationSchedule,
+  EventSource,
   FileChange,
   LeadReview,
   MessageChanges,
@@ -214,6 +215,8 @@ interface StartOptions {
   scheduled?: boolean;
   /** The body a program sent through the schedule's webhook, kept with the scheduled message (`ChatMessage.event`). */
   event?: string;
+  /** Where `event` came from when it was not the webhook: what an automation's trigger found (`ChatMessage.eventSource`). */
+  eventSource?: EventSource;
   /** A schedule that tracks a goal starts the run. */
   tracking?: TrackedRun;
   /** The lead agent designs the team for the conversation's schedule, and nobody answers (`designForSchedule`). */
@@ -235,6 +238,9 @@ export type ScheduledSend =
   | { result: 'queued' }
   | { result: 'busy'; reason?: string }
   | { result: 'skipped' | 'failed'; reason: string };
+
+/** What a scheduled message carries of the event that sent it: its body, and where it came from when not the webhook. */
+type ScheduledEvent = Pick<ChatMessage, 'event' | 'eventSource'>;
 
 /** A run that could not start: another conversation is writing in the same folder (409) or the server is stopping (503), or else it failed. */
 function sendFailure(err: unknown): ScheduledSend {
@@ -881,7 +887,7 @@ export class Orchestrator {
   async sendScheduled(
     convId: string,
     at = Date.now(),
-    opts: { event?: string; attempt?: number; retries?: boolean } = {},
+    opts: { event?: string; eventSource?: EventSource; attempt?: number; retries?: boolean } = {},
   ): Promise<ScheduledSend> {
     const conv = this.store.get(convId);
     if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
@@ -901,7 +907,8 @@ export class Orchestrator {
     const tracking = s.goal
       ? { sourceId: convId, due: at, attempt: opts.attempt ?? 0, retries: Boolean(opts.retries) && opts.event === undefined }
       : undefined;
-    if (s.newChat) return this.sendInNewChat(conv, s, at, opts.event, tracking);
+    const event = opts.event !== undefined ? { event: opts.event, ...(opts.eventSource ? { eventSource: opts.eventSource } : {}) } : {};
+    if (s.newChat) return this.sendInNewChat(conv, s, at, event, tracking);
     const replying = this.runs.has(convId) || this.starting.has(convId);
     // A run being set up may be the user's answer: the message then waits for its next turn instead.
     if (conv.pause && !replying) return { result: 'skipped', reason: t().scheduleWaitsForAnswer };
@@ -914,7 +921,7 @@ export class Orchestrator {
     if (replying && (conv.queue?.length ?? 0) >= MAX_QUEUE) return { result: 'skipped', reason: t().scheduleQueueFull };
     try {
       if (replying) {
-        this.enqueue(conv, s.text, undefined, true, opts.event, tracking);
+        this.enqueue(conv, s.text, undefined, true, event, tracking);
         return { result: 'queued' };
       }
       // A settings change or an apply holds the conversation for a moment.
@@ -929,7 +936,7 @@ export class Orchestrator {
         queue: true,
         keepTeam: true,
         scheduled: own,
-        ...(own && opts.event !== undefined ? { event: opts.event } : {}),
+        ...(own ? event : {}),
         refuseApprovals: s.approvals !== 'ask',
         ...(tracking ? { tracking } : {}),
       });
@@ -953,7 +960,7 @@ export class Orchestrator {
     conv: Conversation,
     s: ConversationSchedule,
     at: number,
-    event?: string,
+    event: ScheduledEvent,
     tracking?: TrackedRun,
   ): Promise<ScheduledSend> {
     const id = randomUUID();
@@ -984,7 +991,7 @@ export class Orchestrator {
       await this.start(chat, s.text, {
         keepTeam: true,
         scheduled: true,
-        ...(event !== undefined ? { event } : {}),
+        ...event,
         refuseApprovals: s.approvals !== 'ask',
         ...(tracking ? { tracking } : {}),
       });
@@ -1172,7 +1179,7 @@ export class Orchestrator {
     text: string,
     uploads?: AttachmentUpload[],
     scheduled = false,
-    event?: string,
+    event: ScheduledEvent = {},
     tracked?: TrackedRun,
   ): void {
     const queue = (conv.queue ??= []);
@@ -1189,7 +1196,7 @@ export class Orchestrator {
       status: 'done',
       ...(midReply ? { queued: true } : {}),
       ...(scheduled ? { scheduled: true } : {}),
-      ...(scheduled && event !== undefined ? { event } : {}),
+      ...(scheduled ? event : {}),
       // A tracking schedule's message: the run that sends it is that time's run (`carriedTracking`).
       ...(scheduled && tracked ? { tracked } : {}),
     });
@@ -1539,7 +1546,10 @@ export class Orchestrator {
       if (lockRoots) this.lockDirs(lockRoots, conv);
       beforePost?.();
       if (ahead) posted = this.deliverQueued(conv, { ids: ahead });
-      const own = this.postUserMessage(conv, text, files, opts.scheduled, opts.event);
+      const own = this.postUserMessage(conv, text, files, opts.scheduled, {
+        ...(opts.event !== undefined ? { event: opts.event } : {}),
+        ...(opts.event !== undefined && opts.eventSource ? { eventSource: opts.eventSource } : {}),
+      });
       if (own) posted.push(own);
       const pausedTracked = conv.pause?.tracked;
       resume = this.takePause(conv, posted, only, planning);
@@ -1638,7 +1648,7 @@ export class Orchestrator {
     text: string,
     files: AttachmentPart[],
     scheduled = false,
-    event?: string,
+    event: ScheduledEvent = {},
   ): ChatMessage | undefined {
     let msg: ChatMessage | undefined;
     if (text || files.length) {
@@ -1649,7 +1659,7 @@ export class Orchestrator {
         parts: [...(text ? [{ type: 'text' as const, text }] : []), ...files],
         status: 'done',
         ...(scheduled ? { scheduled: true } : {}),
-        ...(scheduled && event !== undefined ? { event } : {}),
+        ...(scheduled ? event : {}),
       };
       conv.messages.push(msg);
       this.store.saveMessage(conv.id, msg, true);

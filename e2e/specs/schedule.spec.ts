@@ -1,3 +1,4 @@
+import { createServer } from 'node:net';
 import { expect, test } from '../fixtures';
 import { confirmTeam, finishedReply, openTeamChat, send } from '../support/app';
 
@@ -183,4 +184,128 @@ test.describe('schedules', () => {
     await expect(page.locator('.msg-user', { hasText: 'Deploy finished' })).toContainText('Automation');
     await expect(await finishedReply(page, 'Claude')).toContainText('You said: “Deploy finished');
   });
+
+  test('an automation that starts when new mail comes checks the inbox itself: the first check only notes what is there, and a mail that arrives after it reaches the team, its sender and subject in the message', async ({
+    page,
+    relay,
+  }) => {
+    const imap = await imapServer([mailFrom(1, 'Old <old@example.com>', 'Already here')]);
+    try {
+      await relay.api('/api/connectors/mail/work', {
+        method: 'PUT',
+        body: {
+          name: 'Work',
+          address: 'me@example.com',
+          username: 'me@example.com',
+          password: 'app-pass',
+          imap: { host: '127.0.0.1', port: imap.port, security: 'none' },
+          smtp: { host: '127.0.0.1', port: imap.port, security: 'none' },
+        },
+      });
+      await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Mail watch');
+      await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+      const drawer = page.getByRole('dialog', { name: 'Automation' });
+      await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('Triage the new mail');
+      await drawer.getByRole('radio', { name: 'When something happens' }).click();
+      // The account from Settings, picked as the only one; no times, so no missed times.
+      await expect(drawer.getByRole('combobox', { name: 'Mail account' })).toHaveValue('work');
+      await expect(drawer.getByRole('radiogroup', { name: 'Missed times' })).toHaveCount(0);
+      await expect(drawer).toContainText('The first check only notes the mail already there');
+      await drawer.getByRole('textbox', { name: 'The sender contains (optional)' }).fill('carol');
+      await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+      await expect(drawer).toBeHidden();
+      await expect(page.locator('.conv-item.active .conv-schedule')).toHaveAccessibleName('Automation: when a new mail from carol arrives');
+
+      // Check now: the first check notes the mail already there, and sends nothing.
+      await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+      await drawer.getByRole('button', { name: 'Check now' }).click();
+      await expect(drawer.locator('.schedule-status')).toContainText('When a new mail from carol arrives · Checked');
+      expect(imap.logins()).toBeGreaterThan(0);
+
+      // Two mails arrive: only Carol's matches.
+      imap.messages.push(mailFrom(2, 'Bob <bob@example.com>', 'Lunch?'), mailFrom(3, 'Carol <carol@example.com>', 'Invoice 42'));
+      await drawer.getByRole('button', { name: 'Check now' }).click();
+      await expect(drawer.locator('.schedule-status')).toContainText('sent');
+      await drawer.getByRole('button', { name: 'Close' }).click();
+
+      const sent = page.locator('.msg-user', { hasText: 'Triage the new mail' });
+      await expect(sent).toHaveCount(1);
+      await expect(sent).toContainText('Automation');
+      await sent.getByText('The new mail', { exact: true }).click();
+      const block = sent.locator('.event-block pre');
+      await expect(block).toContainText('"subject": "Invoice 42"');
+      await expect(block).not.toContainText('Lunch?');
+      await expect(block).not.toContainText('Already here');
+      // The agent gets it as data, said to come from mail.
+      const reply = await finishedReply(page, 'Codex');
+      await expect(reply).toContainText('<event source="mail">');
+      await expect(reply).toContainText('Invoice 42');
+    } finally {
+      await imap.close();
+    }
+  });
 });
+
+/** A mail in the stand-in IMAP server: its UID, sender and subject, and a line of text. */
+function mailFrom(uid: number, from: string, subject: string): { uid: number; raw: string } {
+  return {
+    uid,
+    raw: `From: ${from}\r\nTo: me@example.com\r\nSubject: ${subject}\r\nDate: Mon, 05 Jan 2026 09:00:00 +0000\r\nMessage-ID: <m${uid}@example.com>\r\n\r\nHello from ${from}.\r\n`,
+  };
+}
+
+/**
+ * A mail server's IMAP on this computer, enough for an automation's checks: sign-in with this user and
+ * password, INBOX with its UIDVALIDITY and UIDNEXT, `UID SEARCH UID n:*`, and `UID FETCH` of headers or
+ * whole mails. Push to `messages` for mail that arrives.
+ */
+async function imapServer(
+  messages: { uid: number; raw: string }[],
+): Promise<{ port: number; messages: { uid: number; raw: string }[]; logins: () => number; close: () => Promise<void> }> {
+  let logins = 0;
+  const server = createServer((sock) => {
+    let buf = '';
+    sock.write('* OK e2e IMAP\r\n');
+    sock.on('data', (chunk: Buffer) => {
+      buf += chunk.toString('latin1');
+      for (;;) {
+        const eol = buf.indexOf('\r\n');
+        if (eol < 0) return;
+        const line = buf.slice(0, eol);
+        buf = buf.slice(eol + 2);
+        const [tag, ...rest] = line.split(' ');
+        const cmd = rest.join(' ');
+        const top = Math.max(0, ...messages.map((m) => m.uid));
+        if (/^LOGIN "me@example.com" "app-pass"$/i.test(cmd)) (logins++, sock.write(`${tag} OK signed in\r\n`));
+        else if (/^LOGIN/i.test(cmd)) sock.write(`${tag} NO wrong password\r\n`);
+        else if (/^CAPABILITY/i.test(cmd)) sock.write(`* CAPABILITY IMAP4rev1\r\n${tag} OK\r\n`);
+        else if (/^EXAMINE "INBOX"/i.test(cmd))
+          sock.write(
+            `* ${messages.length} EXISTS\r\n* OK [UIDVALIDITY 1] ok\r\n* OK [UIDNEXT ${top + 1}] ok\r\n${tag} OK [READ-ONLY] done\r\n`,
+          );
+        else if (/^UID SEARCH UID (\d+):\*/i.test(cmd)) {
+          const from = Number(/UID (\d+):/i.exec(cmd)![1]);
+          const uids = messages.map((m) => m.uid).filter((u) => u >= Math.min(from, top));
+          sock.write(`* SEARCH ${uids.join(' ')}\r\n${tag} OK\r\n`);
+        } else if (/^UID FETCH ([\d,]+)/i.test(cmd)) {
+          const wanted = /^UID FETCH ([\d,]+)/i.exec(cmd)![1]!.split(',').map(Number);
+          const headers = /HEADER\.FIELDS/i.test(cmd);
+          for (const m of messages.filter((x) => wanted.includes(x.uid))) {
+            const data = headers ? `${m.raw.split('\r\n\r\n')[0]}\r\n\r\n` : m.raw;
+            sock.write(`* ${m.uid} FETCH (UID ${m.uid} BODY[] {${Buffer.byteLength(data, 'latin1')}}\r\n${data})\r\n`);
+          }
+          sock.write(`${tag} OK fetched\r\n`);
+        } else if (/^LOGOUT/i.test(cmd)) (sock.write(`* BYE\r\n${tag} OK\r\n`), sock.end());
+        else sock.write(`${tag} BAD unknown\r\n`);
+      }
+    });
+    sock.on('error', () => undefined);
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  return {
+    port: (server.address() as { port: number }).port,
+    messages,
+    logins: () => logins,
+    close: () => new Promise((r) => server.close(() => r())),
+  };
+}

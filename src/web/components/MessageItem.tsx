@@ -6,6 +6,7 @@ import {
   type AgentConfig,
   type ApprovalAnswer,
   type ChatMessage,
+  type EventSource,
   type MessageMeta,
   type PlanEntry,
   type ProgressStatus,
@@ -230,11 +231,11 @@ function ProgressCard({ status, text }: { status: ProgressStatus; text: string }
 }
 
 /** The body a program sent through the schedule's webhook with this message: data, shown as it came. */
-function EventBlock({ event }: { event: string }) {
+function EventBlock({ event, source }: { event: string; source?: EventSource }) {
   const t = useT();
   return (
     <details className="event-block">
-      <summary>{t.schedule.hook.eventTag}</summary>
+      <summary>{source === 'mail' ? t.schedule.watch.eventTag : t.schedule.hook.eventTag}</summary>
       <pre>{event}</pre>
     </details>
   );
@@ -868,7 +869,7 @@ function UserMessage({
       <div className="msg-user">
         <Attachments msg={msg} convId={convId} />
         {text && <UserBubble text={text} mentions={mentionNames} />}
-        {msg.event !== undefined && <EventBlock event={msg.event} />}
+        {msg.event !== undefined && <EventBlock event={msg.event} source={msg.eventSource} />}
         <div className="msg-actions">
           <CopyButton className="msg-action icon-action" iconOnly icon={<CopyIcon size={16} />} text={() => text} />
           {canEdit && (

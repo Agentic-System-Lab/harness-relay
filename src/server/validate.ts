@@ -22,6 +22,7 @@ import {
   PROVIDERS,
   SCHEDULE_KINDS,
   SCHEDULE_LIMITS,
+  WATCH_LIMITS,
   TOOL_LIMITS,
   VOICE_LANGUAGES,
   cwdSettings,
@@ -47,6 +48,7 @@ import {
   type ProviderSettingsUpdate,
   type PushSubscriptionJson,
   type ScheduleRepeat,
+  type ScheduleTrigger,
   type ScheduleUpdate,
   type ToolLibraryUpdate,
   type VoiceLanguage,
@@ -611,7 +613,30 @@ function validRepeat(input: unknown, enabled: boolean, now: number): ScheduleRep
       if (!Number.isInteger(hours) || hours < 1 || hours > SCHEDULE_LIMITS.maxHours) bad(t().scheduleBadHours(SCHEDULE_LIMITS.maxHours));
       return { kind, hours };
     }
+    case 'event':
+      return { kind, trigger: validTrigger(r.trigger) };
   }
+}
+
+/**
+ * What an automation that starts when something happens waits for: a new mail in a folder (the inbox when
+ * none is given) of a mail account, by its id (that it exists is checked where the accounts are), with
+ * the words its sender and subject contain, when given. Each a line of at most `WATCH_LIMITS.field`.
+ */
+function validTrigger(input: unknown): ScheduleTrigger {
+  const r = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+  if (r.source !== 'mail') bad(t().watchBadTrigger);
+  const line = (v: unknown, field: string): string => {
+    if (v === undefined || v === null) return '';
+    if (typeof v !== 'string' || v.length > WATCH_LIMITS.field || /[\r\n\0]/.test(v)) bad(t().invalidField(field));
+    return v.trim();
+  };
+  const account = line(r.account, 'account');
+  if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(account)) bad(t().watchBadTrigger);
+  const folder = line(r.folder, 'folder') || 'INBOX';
+  const from = line(r.from, 'from');
+  const subject = line(r.subject, 'subject');
+  return { source: 'mail', account, folder, ...(from ? { from } : {}), ...(subject ? { subject } : {}) };
 }
 
 /** A schedule to save. Missing choices take their defaults: on, refuse approvals, skip missed times. */

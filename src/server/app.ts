@@ -40,6 +40,7 @@ import {
   type ServerLimits,
   type ConversationSchedule,
   type NewScheduleHook,
+  type ScheduleUpdate,
   type Lang,
   type PickedFolders,
   type Provider,
@@ -57,6 +58,8 @@ import { servingPort } from './relaySandbox';
 import { discoverCalendars, listEvents } from './connectors/caldav';
 import { keptPasswordFits } from './connectors/accounts';
 import { testMail } from './connectors/test';
+import type { Scheduler } from './scheduler';
+import { triggerKey } from './watch';
 import { attachmentPath, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
 import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, readPreview, zipPlan, type ZipPlan } from './files';
 import { zipStream } from './zip';
@@ -185,6 +188,8 @@ export interface AppDeps {
   push?: PushService;
   /** Tells subscribed browsers when agents finish or need the user, unless their page is in front (`alerts.ts`). */
   alerts?: AlertWatcher;
+  /** Checks what an automation that starts when something happens waits for, on the user's Check now (`scheduler.ts`). */
+  scheduler?: Pick<Scheduler, 'check'>;
 }
 
 /** A recording of the longest allowed length (16 kHz, 16-bit mono WAV) in base64, with room to spare. */
@@ -221,6 +226,18 @@ function realDir(dir: string): string {
 /** The SHA-256 (hex) of a webhook's token: all the database keeps of it. */
 export function hookHash(token: string): string {
   return createHash('sha256').update(token).digest('hex');
+}
+
+/**
+ * What a saved automation keeps of what it waits for when it is saved again: all of it while it watches
+ * the same source and stays on (its conditions may change); nothing when the source changes, or when it
+ * is turned on again, so that what came while it was off does not start it.
+ */
+function keptWatch(prev: ConversationSchedule | undefined, update: ScheduleUpdate): Pick<ConversationSchedule, 'watch'> {
+  if (!prev?.watch || prev.repeat.kind !== 'event' || update.repeat.kind !== 'event') return {};
+  if (triggerKey(prev.repeat.trigger) !== triggerKey(update.repeat.trigger)) return {};
+  if (!prev.enabled && update.enabled) return {};
+  return { watch: prev.watch };
 }
 
 /** A request's body as text, or undefined once it is longer than `max` bytes (reading stops there). */
@@ -276,6 +293,7 @@ export function createApp({
   limits = limitsOf(CONFIG),
   push,
   alerts,
+  scheduler,
 }: AppDeps): Hono {
   const app = new Hono();
   /** The gists of report screenshots uploaded since the server started: only these can be deleted here. */
@@ -1177,6 +1195,7 @@ export function createApp({
     const now = Date.now();
     // The schedule first: creating a missing working directory is a side effect.
     const update = validateSchedule(b.schedule, now);
+    refuseMissingTrigger(update);
     refuseRelayFolderFirst(b.settings, defaultCwds());
     const s = validateSettings({ ...(b.settings ?? {}), autoTeam: true }, defaultCwds(), b.createCwd === true);
     const conv: Conversation = {
@@ -1286,6 +1305,7 @@ export function createApp({
     const conv = getConv(c.req.param('id'));
     const now = Date.now();
     const update = validateSchedule(await body<unknown>(c), now);
+    refuseMissingTrigger(update);
     // Scheduled messages go to the current team: there must be one, and not one waiting for confirmation.
     if (update.enabled && (conv.agents.length === 0 || pendingPlan(conv.messages))) {
       throw new HttpError(409, t().scheduleNeedsTeam);
@@ -1302,6 +1322,7 @@ export function createApp({
       ...(prev?.lastError ? { lastError: prev.lastError } : {}),
       ...(prev?.lastChatId ? { lastChatId: prev.lastChatId } : {}),
       ...(prev?.hook ? { hook: prev.hook } : {}),
+      ...keptWatch(prev, update),
     };
     // The same goal keeps what the agents said of it (and a run still in flight); a reached goal is worked on
     // again once the schedule is on. A new goal starts afresh, and none drops the notes.
@@ -1321,6 +1342,22 @@ export function createApp({
     store.saveSchedule(conv);
     orchestrator.emitConversation(conv);
     return c.json(schedule);
+  });
+
+  /** An automation that starts when something happens waits for something that is there: a mail account from Settings. */
+  const refuseMissingTrigger = (update: ScheduleUpdate) => {
+    if (update.repeat.kind === 'event' && !settings.connectors.mailById(update.repeat.trigger.account))
+      throw new HttpError(400, t().watchNoAccount);
+  };
+
+  // Check what the automation waits for now (Check now), as its next check would, even while it is off;
+  // answers the schedule as it is then. The first check only records what is there.
+  app.post('/api/conversations/:id/schedule/check', async (c) => {
+    const conv = getConv(c.req.param('id'));
+    if (conv.schedule?.repeat.kind !== 'event') throw new HttpError(409, t().watchNotEvent);
+    if (!scheduler) throw new HttpError(503, t().watchNotEvent);
+    await scheduler.check(conv.id, true);
+    return c.json(store.get(conv.id)?.schedule ?? null);
   });
 
   // A webhook for the schedule: a new token (replacing the one it had), shown this once; only its hash is kept.

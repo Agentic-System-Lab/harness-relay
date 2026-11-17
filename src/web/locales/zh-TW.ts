@@ -14,6 +14,7 @@ import type {
   RelayToolGroup,
   ScheduleRepeat,
   ScheduleResult,
+  ScheduleTrigger,
   ToolStatus,
   VoiceEngineInfo,
   VoiceEngineSource,
@@ -457,10 +458,10 @@ export const zhTW = {
 
   schedule: {
     button: '自動任務',
-    buttonTitle: '在你執行它、到了設定的時間，或程式呼叫它的 webhook 時，傳訊息給團隊',
+    buttonTitle: '在你執行它、到了設定的時間、某件事發生（例如收到新郵件），或程式呼叫它的 webhook 時，傳訊息給團隊',
     title: '自動任務',
     intro:
-      '在你按「立即執行一次」、到了設定的時間，或程式呼叫它的 webhook 時，把這則訊息傳給這個對話的團隊（在這裡，或依設定每次開新對話），就像你自己送出的一樣。Harness Relay 要開著才會執行。',
+      '在你按「立即執行一次」、到了設定的時間、某件事發生（例如收到新郵件），或程式呼叫它的 webhook 時，把這則訊息傳給這個對話的團隊（在這裡，或依設定每次開新對話），就像你自己送出的一樣。Harness Relay 要開著才會執行。',
     message: '要傳給團隊的訊息',
     messagePlaceholder: '例如：@Reviewer 看一下昨天合併的 PR，列出可能的風險。',
     messageHint: '用 @ 指定成員時，只有被 @ 的成員回答，和平常一樣。',
@@ -474,7 +475,7 @@ export const zhTW = {
       adjust: '可以按「調整團隊」為成員改名。',
     },
     repeat: '時間',
-    kinds: { once: '一次', daily: '每天', weekly: '每週', interval: '每隔幾小時', manual: '不定時' } as Record<
+    kinds: { once: '一次', daily: '每天', weekly: '每週', interval: '每隔幾小時', manual: '不定時', event: '當某件事發生時' } as Record<
       ScheduleRepeat['kind'],
       string
     >,
@@ -544,6 +545,9 @@ export const zhTW = {
       everyDay: (time: string) => `每天 ${time}`,
       interval: (hours: number) => `每 ${hours} 小時`,
       manual: '不定時',
+      /** An automation that starts when a new mail comes: from whom, with what in its subject, in which account. */
+      mail: (o: { account?: string; from?: string; subject?: string }) =>
+        `${o.from ? `收到 ${o.from} 寄來` : '收到'}${o.subject ? `、主旨含「${o.subject}」` : ''}的新郵件時${o.account ? `（${o.account}）` : ''}`,
     },
     daySeparator: '、',
     next: (when: string) => `下次 ${when}`,
@@ -565,6 +569,7 @@ export const zhTW = {
       hours: (max: number) => `間隔為 1 到 ${max} 小時的整數`,
       moment: '請選擇日期與時間',
       past: '這個時間已經過了，請選擇之後的時間',
+      account: '請選擇要檢查的郵件帳號',
     },
     teamNote: (summary: string) => `這個對話有自動任務（${summary}），這裡的修改會套用到它之後的執行。`,
     fullWarning: '自動任務執行時可能沒人看著，完全存取的成員可以不經詢問執行任何指令。',
@@ -579,6 +584,33 @@ export const zhTW = {
       paused: '自動任務已暫停',
       manual: '自動任務：不定時（立即執行一次或 webhook）',
       problem: (result: string) => `自動任務上次${result}`,
+      watch: (what: string) => `自動任務：${what}`,
+      watchError: '自動任務：上次檢查失敗',
+    },
+    /** An automation that starts when something happens (When something happens): what it waits for, and its checks. */
+    watch: {
+      source: '要等的事',
+      sources: { mail: '收到新郵件' } as Record<ScheduleTrigger['source'], string>,
+      account: '郵件帳號',
+      noAccounts: '還沒有郵件帳號：請先到「設定 → 工具庫 → 郵件與行事曆」新增一個（用 app 密碼）。',
+      openSettings: '前往設定',
+      folder: '資料夾',
+      from: '寄件者包含（選填）',
+      fromPlaceholder: '例如：alerts@github.com',
+      subject: '主旨包含（選填）',
+      subjectPlaceholder: '例如：發票',
+      hint: (minutes: number) =>
+        `Harness Relay 自己每 ${minutes} 分鐘檢查一次，不需要網址或權杖。第一次檢查只記下已經在的郵件，之後收到的才會啟動它；同一次檢查找到幾封，都只送一次訊息，列出寄件者、主旨和開頭幾行。Harness Relay 沒開著時收到的郵件，開啟後的第一次檢查會找到。`,
+      checked: (when: string) => `上次檢查 ${when}`,
+      notYet: '還沒檢查過：馬上會第一次檢查，只記下已經在的郵件',
+      nextCheck: (when: string) => `下次檢查 ${when}`,
+      error: (why: string) => `檢查失敗：${why}`,
+      held: (why: string) => `有新郵件，等團隊能接手時再送（${why}）`,
+      checkNow: '立即檢查',
+      checkNowTitle: '現在就檢查一次（第一次只記下已經在的郵件）',
+      checkSaveFirst: '先儲存修改，才能立即檢查',
+      done: '已檢查',
+      eventTag: '新郵件',
     },
     goal: '追蹤的目標（選填）',
     goalPlaceholder: '例如：main 分支的 CI 全部通過，而且 issue #42 已關閉。',

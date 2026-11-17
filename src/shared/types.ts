@@ -1300,6 +1300,11 @@ export interface ChatMessage {
    */
   event?: string;
   /**
+   * Where `event` came from when it was not the schedule's webhook: an automation that starts when
+   * something happens found it (`ScheduleTrigger`), such as new mail. Absent: the webhook.
+   */
+  eventSource?: EventSource;
+  /**
    * The run of a schedule that tracks a goal this message belongs to (`TrackedRun`): a scheduled message
    * that waited in the queue carries it to the run that sends it; a reply written in such a run keeps it,
    * so a Retry or Continue after it goes on with the goal.
@@ -1331,10 +1336,49 @@ export type ScheduleRepeat =
   | { kind: 'weekly'; time: string; days: number[] }
   | { kind: 'interval'; hours: number }
   /** No set times: sent only when the user clicks Run once now, or a program calls the schedule's webhook. */
-  | { kind: 'manual' };
+  | { kind: 'manual' }
+  /** When something happens: Harness Relay checks the trigger's source itself and sends the message when it finds something new. */
+  | { kind: 'event'; trigger: ScheduleTrigger };
 
-/** In the order the schedule form offers them: no set times first. */
-export const SCHEDULE_KINDS: ScheduleRepeat['kind'][] = ['manual', 'once', 'daily', 'weekly', 'interval'];
+/** In the order the schedule form offers them: no set times first, something happening last. */
+export const SCHEDULE_KINDS: ScheduleRepeat['kind'][] = ['manual', 'once', 'daily', 'weekly', 'interval', 'event'];
+
+/**
+ * What an automation that starts when something happens watches (`ScheduleRepeat` `event`), checked by
+ * Harness Relay itself: no address, no token, and the server still listens on 127.0.0.1 only.
+ * `mail`: a new mail in a folder of an account from Settings (by its id), whose sender and subject
+ * contain the words given (any case), when given.
+ */
+export type ScheduleTrigger = { source: 'mail'; account: string; folder: string; from?: string; subject?: string };
+
+/** Where a scheduled message's `<event>` block came from: the schedule's webhook, or what a trigger found. */
+export type EventSource = 'webhook' | ScheduleTrigger['source'];
+
+/**
+ * What an automation that starts when something happens keeps of its source between checks, with the
+ * schedule (so a restart never fires twice): for which trigger (`key`, another trigger starts afresh),
+ * the mail folder's UIDVALIDITY and the highest UID seen, when it was checked and is checked next, and
+ * the last check's error. The first check only records what is there.
+ */
+export interface ScheduleWatch {
+  key: string;
+  nextCheckAt: number;
+  checkedAt?: number;
+  uidValidity?: number;
+  lastUid?: number;
+  /** The last check failed: why, and how many checks failed in a row (they come slower). */
+  error?: string;
+  failures?: number;
+  /** Something new was found but the team could not take it: why. Sent at a later check, with what came since. */
+  held?: string;
+}
+
+/**
+ * The checks of an automation that starts when something happens: every `checkMinutes`, slower after
+ * errors (`backoffMinutes`, one more step for each in a row), at most `items` new items listed in the
+ * run's message (the newest; how many more came is said), and `excerptChars` of each mail's text.
+ */
+export const WATCH_LIMITS = { checkMinutes: 2, backoffMinutes: [5, 15, 30, 60], items: 10, excerptChars: 500, field: 200 };
 
 /**
  * How the last time a schedule came due went: its message started a run (`sent`), waited in the queue
@@ -1453,6 +1497,8 @@ export interface ConversationSchedule {
   tracking?: ScheduleTracking;
   /** The schedule's webhook, when it has one: a program on this computer can send its message now. */
   hook?: ScheduleHook;
+  /** An automation that starts when something happens: what it keeps of its source between checks. */
+  watch?: ScheduleWatch;
 }
 
 /** A moment's wall-clock date and time in a time zone (`zonedParts()`). */
@@ -1632,6 +1678,10 @@ export interface ConversationSummary {
     timeZone?: string;
     /** No set times: only Run once now and the webhook send it (`ScheduleRepeat` `manual`). */
     manual?: boolean;
+    /** It starts when something happens: what it waits for (`ScheduleRepeat` `event`). */
+    trigger?: ScheduleTrigger;
+    /** Its last check of what it waits for failed. */
+    watchError?: boolean;
   };
 }
 

@@ -666,8 +666,10 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
               >
                 <ClockIcon size={12} />
                 {describeRepeat(conv.schedule.repeat, t, lang)}
-                {/* The next time is in the title: the header has little room. */}
-                {!(conv.schedule.enabled && conv.schedule.nextRunAt !== undefined) && ` · ${scheduleState(conv.schedule, t, lang)}`}
+                {/* The next time, and how the checks of what it waits for go, are in the title: the header has little room. */}
+                {conv.schedule.repeat.kind === 'event'
+                  ? !conv.schedule.enabled && ` · ${t.schedule.paused}`
+                  : !(conv.schedule.enabled && conv.schedule.nextRunAt !== undefined) && ` · ${scheduleState(conv.schedule, t, lang)}`}
               </button>
             )}
           </div>

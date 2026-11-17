@@ -19,14 +19,21 @@ export interface FakeImap {
   commands: string[];
   literals: string[];
   appended: { folder: string; flags: string; raw: string }[];
+  /** INBOX's UIDVALIDITY, which EXAMINE answers (change it to stand for a rebuilt folder). */
+  uidValidity: number;
   close(): Promise<void>;
 }
 
-/** An IMAP server with one INBOX, a Drafts folder (`\Drafts`), and these messages in INBOX. */
+/**
+ * An IMAP server with one INBOX, a Drafts folder (`\Drafts`), and these messages in INBOX (push more to
+ * the array for mail that arrives). EXAMINE answers INBOX's UIDVALIDITY and UIDNEXT; `UID SEARCH` takes
+ * a UID range (`n:*`, as RFC 3501 reads it).
+ */
 export async function fakeImap(messages: FakeMessage[], login = { user: 'me@example.com', pass: 'app-pass' }): Promise<FakeImap> {
   const commands: string[] = [];
   const literals: string[] = [];
   const appended: FakeImap['appended'] = [];
+  const fake = { uidValidity: 7 };
   const server: Server = createServer((sock: Socket) => {
     let buf = Buffer.alloc(0);
     let line = '';
@@ -56,17 +63,28 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
         );
       if (cmd.startsWith('EXAMINE') || cmd.startsWith('SELECT')) {
         if (!/"INBOX"/i.test(rest)) return send(`${tag} NO no such folder\r\n`);
-        return send(`* ${messages.length} EXISTS\r\n${tag} OK [READ-ONLY] done\r\n`);
+        const next = Math.max(0, ...messages.map((x) => x.uid)) + 1;
+        return send(
+          `* ${messages.length} EXISTS\r\n* OK [UIDVALIDITY ${fake.uidValidity}] UIDs valid\r\n* OK [UIDNEXT ${next}] Predicted next UID\r\n${tag} OK [READ-ONLY] done\r\n`,
+        );
       }
       if (cmd.startsWith('UID SEARCH')) {
         // Text criteria: a quoted string or the literal that came with it.
         const wanted = [...rest.matchAll(/(TEXT|FROM) "([^"]*)"/gi)]
           .map((x) => x[2]!.toLowerCase())
           .concat(lits.map((l) => l.toLowerCase()));
-        const found = messages.filter((msg) =>
-          wanted.every(
-            (w) => Buffer.from(msg.raw, 'latin1').toString('utf8').toLowerCase().includes(w) || msg.raw.toLowerCase().includes(w),
-          ),
+        // A UID range: `*` is the highest UID, and its two ends may come in either order.
+        const range = /\bUID (\d+|\*)(?::(\d+|\*))?/i.exec(rest.replace(/^UID SEARCH /i, ''));
+        const top = Math.max(0, ...messages.map((x) => x.uid));
+        const end = (v: string) => (v === '*' ? top : Number(v));
+        const [lo, hi] = range ? [end(range[1]!), end(range[2] ?? range[1]!)].sort((a, b) => a - b) : [0, Infinity];
+        const found = messages.filter(
+          (msg) =>
+            msg.uid >= lo! &&
+            msg.uid <= hi! &&
+            wanted.every(
+              (w) => Buffer.from(msg.raw, 'latin1').toString('utf8').toLowerCase().includes(w) || msg.raw.toLowerCase().includes(w),
+            ),
         );
         return send(`* SEARCH ${found.map((x) => x.uid).join(' ')}\r\n${tag} OK\r\n`);
       }
@@ -133,6 +151,12 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
     commands,
     literals,
     appended,
+    get uidValidity() {
+      return fake.uidValidity;
+    },
+    set uidValidity(v: number) {
+      fake.uidValidity = v;
+    },
     close: () => new Promise((r) => server.close(() => r())),
   };
 }
