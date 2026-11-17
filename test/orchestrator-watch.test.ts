@@ -421,6 +421,7 @@ describe('automations that start when something happens', () => {
       files: { 'a.csv': '1:2' },
       filesIn: conv.settings.cwd,
       checkedAt: T0,
+      seenAt: T0,
       nextCheckAt: T0 + WATCH_LIMITS.checkMinutes * MIN,
     });
     // What it saw of each file and event stays in the server: browsers get the rest.

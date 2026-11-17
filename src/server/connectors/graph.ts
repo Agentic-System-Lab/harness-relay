@@ -138,7 +138,8 @@ function utc(ms: number): string {
 
 /** The events of a calendar (its Graph address) between two moments, each time of a recurring one on its own. */
 export async function graphEvents(fetch: AuthorizedFetch, calendar: string, from: number, to: number): Promise<CalendarEvent[]> {
-  const select = 'id,iCalUId,subject,isAllDay,start,end,originalStartTimeZone,originalEndTimeZone,location,bodyPreview,attendees,isCancelled';
+  const select =
+    'id,iCalUId,subject,isAllDay,start,end,originalStartTimeZone,originalEndTimeZone,location,bodyPreview,attendees,isCancelled';
   let next: string | undefined =
     `${calendar.replace(/\/+$/, '')}/calendarView?startDateTime=${encodeURIComponent(`${utc(from)}Z`)}` +
     `&endDateTime=${encodeURIComponent(`${utc(to)}Z`)}&$top=200&$orderby=start/dateTime&$select=${select}`;
