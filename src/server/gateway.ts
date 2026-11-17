@@ -707,8 +707,11 @@ function toolResult(r: GatewayResult): { content: unknown[]; isError: boolean } 
  * rollouts, databases, logs) held it, after a new session, a turn and a resume. Copilot has no other
  * way: it takes only HTTP and SSE MCP servers over ACP ("Rejecting non-http/sse MCP server" in its log),
  * so the stdio program never reached it. The others stay as they are until the same check passes for them:
- * - Grok and Cursor pass it too, signed in (Grok in full access only, see `GATEWAY_SANDBOXED_MCP`);
- *   they, Antigravity and Muse Code take HTTP MCP servers but start the stdio program for now.
+ * - Grok and Cursor pass it too, signed in (Grok in full access only, see `GATEWAY_SANDBOXED_MCP`), but
+ *   start the stdio program for now. Antigravity (1.5.10) fails it: it writes an HTTP server's headers to
+ *   its conversation database (`~/.gemini/antigravity-cli/conversations/<id>.db`), so it keeps the
+ *   program, which is given the token file's path, never the token. Muse Code's is inconclusive: it
+ *   opened no connection to the server without a prompt.
  * - Goose keeps the extensions a session was given, to start them again when it is loaded, in its
  *   session database: in its state folder, which its commands can read.
  * - OpenHands writes its MCP servers to `mcp.json` when it resumes a session.
