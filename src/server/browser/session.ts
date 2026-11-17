@@ -330,8 +330,6 @@ class BrowserSession {
   mainFrame = '';
   /** The page the main frame did not open during the current call, and why. */
   denied?: Refusal;
-  /** A page the main frame is about to open, waiting for the user's answer: a call waits for it too. */
-  gating?: Promise<void>;
   /** The sessions whose requests are gated: the tab's own, and its frames and workers in processes of their own. */
   readonly gated = new Set<string>();
   /** The windows the page opened, being closed: every request of theirs is refused. */
@@ -635,10 +633,7 @@ export class BrowserService {
         if (sid && session.refused.has(sid))
           return void cdp.send('Fetch.failRequest', { requestId: p.requestId, errorReason: 'BlockedByClient' }, sid).catch(() => undefined);
         if (!sid || !session.gated.has(sid)) return;
-        const gating = this.gate(session, p, sid).finally(() => {
-          if (session.gating === gating) session.gating = undefined;
-        });
-        if (isMainDocument(session, p, sid)) session.gating = gating;
+        void this.gate(session, p, sid).catch(() => undefined);
       });
       // The proxy asks each browser to prove itself: only this one's own password, never a site's.
       cdp.on('Fetch.authRequired', (p: Record<string, unknown>, sid?: string) => {
@@ -872,6 +867,56 @@ export class BrowserService {
     await new Promise((r) => setTimeout(r, 300));
   }
 
+  /**
+   * Runs `input` (a click, Enter) and waits for the page it opens, if it opens one. A page starts
+   * loading at once (within `startMs`), but its server may answer much later, and the user may be
+   * asked about its host first: so it waits, for as long as the turn lasts, until the new page is
+   * there (then until it has loaded, at most 15 s) or the main frame stops loading without one (a
+   * download, an answer with no page, a page refused). Watching only for the new page to be there,
+   * as before, read a page whose server took longer than that to answer before it had come.
+   * Resolves with whether a new page is there.
+   */
+  private async afterInput(s: BrowserSession, startMs: number, signal: AbortSignal, input: () => Promise<void>): Promise<boolean> {
+    const seen = { started: false, navigated: false, stopped: false, loaded: false };
+    const waiting: (() => void)[] = [];
+    const main = (id: unknown) => id === s.mainFrame;
+    const mark = (k: keyof typeof seen, matches: (p: Record<string, unknown>) => boolean) => (p: Record<string, unknown>, sid?: string) => {
+      if (sid !== s.sessionId || !matches(p)) return;
+      seen[k] = true;
+      for (const w of waiting.splice(0)) w();
+    };
+    const handlers: [string, (p: Record<string, unknown>, sid?: string) => void][] = [
+      ['Page.frameStartedLoading', mark('started', (p) => main(p.frameId))],
+      ['Page.frameNavigated', mark('navigated', (p) => main((p.frame as { id?: string } | undefined)?.id))],
+      ['Page.frameStoppedLoading', mark('stopped', (p) => main(p.frameId))],
+      ['Page.loadEventFired', mark('loaded', () => true)],
+    ];
+    const until = async (done: () => boolean, ms: number): Promise<boolean> => {
+      const end = Date.now() + ms;
+      while (!done()) {
+        const left = end - Date.now();
+        if (left <= 0 || signal.aborted || s.cdp.isClosed) return done();
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, Math.min(left, 1000));
+          waiting.push(() => (clearTimeout(timer), resolve()));
+        });
+      }
+      return true;
+    };
+    for (const [event, on] of handlers) s.cdp.on(event, on);
+    try {
+      await input();
+      if (!(await until(() => seen.started || seen.navigated, startMs))) return false;
+      await until(() => seen.navigated || seen.stopped, CONFIG.turnTimeoutMs);
+      if (!seen.navigated) return false;
+      await until(() => seen.loaded || seen.stopped, 15_000);
+      await new Promise((r) => setTimeout(r, 300));
+      return true;
+    } finally {
+      for (const [event, on] of handlers) s.cdp.off(event, on);
+    }
+  }
+
   async open(ctx: GatewayContext, url: string): Promise<PageSnapshot> {
     const verdict = navigationVerdict(url, {
       relayPorts: this.ownPorts(),
@@ -945,20 +990,12 @@ export class BrowserService {
       if (!box.w && !box.h) throw new Error(`Element ${ref} is not visible`);
       // A click there would reach what lies over it, not what the user was asked about.
       if (box.covered) throw new Error(`Element ${ref} is covered by another element of the page: not clicked`);
-      const nav = s.cdp.waitFor(
-        'Page.frameNavigated',
-        1500,
-        s.sessionId,
-        (p) => (p.frame as { id?: string } | undefined)?.id === s.mainFrame,
-      );
-      for (const type of ['mousePressed', 'mouseReleased']) {
-        await s.send('Input.dispatchMouseEvent', { type, x: box.x, y: box.y, button: 'left', clickCount: 1 });
-      }
-      // A page the click opens may wait for the user's answer first.
-      const navigated =
-        (await nav) || (s.gating ? (await s.gating, Boolean(await s.cdp.waitFor('Page.frameNavigated', 1500, s.sessionId))) : false);
-      if (navigated) await this.settle(s, 15_000);
-      else await new Promise((r) => setTimeout(r, 400));
+      const navigated = await this.afterInput(s, 1500, ctx.signal, async () => {
+        for (const type of ['mousePressed', 'mouseReleased']) {
+          await s.send('Input.dispatchMouseEvent', { type, x: box.x, y: box.y, button: 'left', clickCount: 1 });
+        }
+      });
+      if (!navigated) await new Promise((r) => setTimeout(r, 400));
       await this.backFromRefused(s);
       return this.withNotes(s, await this.read(s));
     });
@@ -972,16 +1009,11 @@ export class BrowserService {
       if (focused !== 'ok') throw new Error(`Element ${ref} cannot be typed into`);
       await s.send('Input.insertText', { text });
       if (submit) {
-        const nav = s.cdp.waitFor(
-          'Page.frameNavigated',
-          2000,
-          s.sessionId,
-          (p) => (p.frame as { id?: string } | undefined)?.id === s.mainFrame,
-        );
         const key = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 };
-        await s.send('Input.dispatchKeyEvent', { type: 'keyDown', ...key, text: '\r' });
-        await s.send('Input.dispatchKeyEvent', { type: 'keyUp', ...key });
-        if ((await nav) || (s.gating && (await s.gating, true))) await this.settle(s, 15_000);
+        await this.afterInput(s, 2000, ctx.signal, async () => {
+          await s.send('Input.dispatchKeyEvent', { type: 'keyDown', ...key, text: '\r' });
+          await s.send('Input.dispatchKeyEvent', { type: 'keyUp', ...key });
+        });
       }
       await new Promise((r) => setTimeout(r, 200));
       await this.backFromRefused(s);

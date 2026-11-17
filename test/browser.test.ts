@@ -375,6 +375,15 @@ describe.skipIf(!chromium)('the browser itself', () => {
         );
       }
       if (url.pathname === '/slow') return void setTimeout(() => res.end('<title>Slow</title><p>At last</p>'), 800);
+      if (url.pathname === '/late-links')
+        return res.end('<title>Late links</title><a href="/late">Late page</a><form action="/late"><input name="q"></form>');
+      if (url.pathname === '/late') {
+        // A server that answers well after a click (a slow site, a first visit's lookups), in two parts.
+        return void setTimeout(() => {
+          res.write(`<!doctype html><title>Late</title>${' '.repeat(2048)}<p>The first part</p>`);
+          setTimeout(() => res.end('<p>The rest of the late page</p>'), 1000);
+        }, 2500);
+      }
       if (url.pathname === '/long-password') return res.end(`<title>Sign in</title><input type="password" value="${'s3cret'.repeat(30)}">`);
       if (url.pathname === '/speculation') {
         // Prefetch and prerender rules, which Chromium follows in its browser process, outside the page.
@@ -482,6 +491,28 @@ describe.skipIf(!chromium)('the browser itself', () => {
       expect(shot.images![0]!.mimeType).toBe('image/png');
       const path = /Saved the screenshot as (.+?)\. /.exec(shot.text)![1]!;
       expect(readFileSync(path).subarray(1, 4).toString()).toBe('PNG');
+    },
+    slow(60_000),
+  );
+
+  it(
+    'waits for the page a click or Enter opens however late its server answers, and reads all of it',
+    async () => {
+      const full = ctx({ permission: 'full', convId: 'late-1' });
+      const links = await browser.open(full, `http://127.0.0.1:${port}/late-links`);
+      const clicked = await browser.click(full, refIn(links.text, 'link "Late page"'));
+      expect(clicked).toMatchObject({ title: 'Late', url: `http://127.0.0.1:${port}/late` });
+      expect(clicked.text).toContain('The rest of the late page');
+      const again = await browser.open(full, `http://127.0.0.1:${port}/late-links`);
+      const typed = await browser.type(full, refIn(again.text, 'field text name=q'), 'x', true);
+      expect(typed).toMatchObject({ title: 'Late', url: `http://127.0.0.1:${port}/late?q=x` });
+      expect(typed.text).toContain('The rest of the late page');
+      // A click that opens no page is not kept waiting.
+      const third = await browser.open(full, `http://127.0.0.1:${port}/late-links`);
+      const start = Date.now();
+      expect((await browser.click(full, refIn(third.text, 'field text name=q'))).title).toBe('Late links');
+      expect(Date.now() - start).toBeLessThan(2500);
+      await browser.close('late-1', true);
     },
     slow(60_000),
   );
