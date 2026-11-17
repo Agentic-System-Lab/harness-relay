@@ -1287,7 +1287,8 @@ export type ScheduleRepeat =
   /** No set times: sent only when the user clicks Run once now, or a program calls the schedule's webhook. */
   | { kind: 'manual' };
 
-export const SCHEDULE_KINDS: ScheduleRepeat['kind'][] = ['once', 'daily', 'weekly', 'interval', 'manual'];
+/** In the order the schedule form offers them: no set times first. */
+export const SCHEDULE_KINDS: ScheduleRepeat['kind'][] = ['manual', 'once', 'daily', 'weekly', 'interval'];
 
 /**
  * How the last time a schedule came due went: its message started a run (`sent`), waited in the queue

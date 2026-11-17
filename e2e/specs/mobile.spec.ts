@@ -539,12 +539,13 @@ test.describe('on a phone', () => {
     page,
     relay,
   }) => {
-    /** The boxes that scroll sideways, and how far. */
+    /** The boxes that scroll sideways, and how far: not the row of kinds, which does so where it must. */
     const sideways = () =>
       page.evaluate(() =>
         [document.documentElement, ...document.querySelectorAll<HTMLElement>('*')]
           .filter(
             (el) =>
+              !el.matches('.schedule-kinds') &&
               el.scrollWidth > el.clientWidth + 1 &&
               (el === document.documentElement || ['auto', 'scroll'].includes(getComputedStyle(el).overflowX)),
           )
@@ -555,13 +556,18 @@ test.describe('on a phone', () => {
       page
         .locator(box)
         .evaluate((g) => new Set([...g.querySelectorAll('button')].map((b) => Math.round(b.getBoundingClientRect().top))).size);
-    // The five kinds of schedule go three over two in English at any width (they need about 440px on one
-    // row, more than the row has). In Chinese they need about 280px: below a 310px column they go three
-    // over two, at 320px (a 288px column) too, not at 360px (328px). The week's seven days need about
-    // 310px in English and 276px in Chinese: below that they go onto two rows.
+    /** Whether the chosen kind is wholly in the row's view. */
+    const chosenInView = () =>
+      page.locator('.schedule-kinds').evaluate((row) => {
+        const box = row.getBoundingClientRect();
+        const on = row.querySelector('button.on')!.getBoundingClientRect();
+        return on.left >= box.left - 1 && on.right <= box.right + 1;
+      });
+    // The five kinds of schedule stay on one row, which scrolls sideways where they do not fit (they need
+    // about 440px in English and 280px in Chinese). The week's seven days need about 310px in English
+    // and 276px in Chinese: below that they go onto two rows.
     const widths = [320, 280];
     const widthsOf = { en: [...widths, 400, 430], 'zh-TW': [...widths, 250, 360] };
-    const kindRows = (lang: 'en' | 'zh-TW', width: number) => (lang === 'en' || width <= 320 ? 2 : 1);
     const dayRows = (lang: 'en' | 'zh-TW', width: number) => (lang === 'en' ? (width <= 320 ? 2 : 1) : width <= 280 ? 2 : 1);
     for (const [lang, messages] of [
       ['en', en],
@@ -584,7 +590,7 @@ test.describe('on a phone', () => {
         for (const width of widthsOf[lang]) {
           await page.setViewportSize({ width, height: 640 });
           expect(await sideways(), `${lang}, ${kind}, ${width}px`).toEqual([]);
-          expect(await rows('.schedule-repeat [role="radiogroup"]'), `the kinds, ${lang}, ${width}px`).toBe(kindRows(lang, width));
+          expect(await rows('.schedule-kinds'), `the kinds, ${lang}, ${width}px`).toBe(1);
           if (kind === 'weekly') expect(await rows('.day-picker'), `the days, ${lang}, ${width}px`).toBe(dayRows(lang, width));
         }
       }
@@ -605,6 +611,16 @@ test.describe('on a phone', () => {
       await page.setViewportSize({ width, height: 640 });
       expect(await sideways(), `the drawer, ${width}px`).toEqual([]);
     }
+    // Saved as the last kind, the drawer opens again with it in the row's view, though the row scrolls.
+    await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('Check the build');
+    await drawer.getByRole('radiogroup', { name: 'When' }).getByRole('radio', { name: 'Every few hours', exact: true }).tap();
+    await drawer.getByRole('button', { name: 'Save', exact: true }).tap();
+    await expect(drawer).toBeHidden();
+    await page.getByRole('button', { name: 'More' }).tap();
+    await page.locator('.chat-head').getByRole('button', { name: 'Schedule' }).tap();
+    await expect(drawer.getByRole('radio', { name: 'Every few hours', exact: true })).toHaveAttribute('aria-checked', 'true');
+    expect(await page.locator('.schedule-kinds').evaluate((row) => row.scrollWidth > row.clientWidth)).toBe(true);
+    expect(await chosenInView()).toBe(true);
   });
 
   test("the home page's tagline is smaller, each of its lines on one line, and the logo closes the sidebar", async ({ page }) => {

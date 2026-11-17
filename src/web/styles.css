@@ -1621,9 +1621,10 @@ p {
   color: var(--danger);
 }
 
-/* A choice of CLI (nine of them, `CliPicker`): one row, each name whole, that scrolls sideways where
-   it does not fit its card; the chosen one is scrolled into view. */
-.segmented.cli-picker {
+/* A choice of CLI (nine of them, `CliPicker`), or of a schedule's kind (five, `.schedule-kinds`): one
+   row, each name whole, that scrolls sideways where it does not fit; the chosen one is scrolled into view. */
+.segmented.cli-picker,
+.segmented.schedule-kinds {
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scroll-snap-type: x proximity;
@@ -1631,7 +1632,8 @@ p {
 }
 
 /* Spread over the row where they fit, never narrower than their names. */
-.segmented.cli-picker button {
+.segmented.cli-picker button,
+.segmented.schedule-kinds button {
   flex: 1 0 auto;
   scroll-snap-align: start;
 }
@@ -4119,44 +4121,6 @@ video.chat-media {
   display: flex;
   flex-direction: column;
   gap: 18px;
-}
-
-/* The five kinds of schedule need about 280px on one row in Chinese and 440px in English (about 300px
-   and 470px with a wider font, such as Linux's DejaVu Sans), more than the 434px the row has at most
-   (`.segmented.wide`). So in English, and in Chinese below 310px (a phone), they go three over two,
-   and a label may wrap. */
-.schedule-repeat {
-  container: schedule-repeat / inline-size;
-}
-
-:lang(en) .schedule-repeat .segmented {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-}
-
-:lang(en) .schedule-repeat .segmented button {
-  grid-column: span 2;
-  white-space: normal;
-}
-
-:lang(en) .schedule-repeat .segmented button:nth-child(n + 4) {
-  grid-column: span 3;
-}
-
-@container schedule-repeat (width < 310px) {
-  .schedule-repeat .segmented {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
-
-  .schedule-repeat .segmented button {
-    grid-column: span 2;
-    white-space: normal;
-  }
-
-  .schedule-repeat .segmented button:nth-child(n + 4) {
-    grid-column: span 3;
-  }
 }
 
 .schedule-sub {

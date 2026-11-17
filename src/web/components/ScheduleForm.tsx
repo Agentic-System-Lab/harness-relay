@@ -1,8 +1,9 @@
-import { useId, useMemo } from 'react';
+import { useEffect, useId, useMemo, useRef } from 'react';
 import { SCHEDULE_KINDS, SCHEDULE_LIMITS, type ConversationSchedule, type ConversationSettings } from '../../shared/types';
 import { mentionWarning } from '../copy';
 import { useI18n } from '../i18n';
 import { useLimits } from '../limits';
+import { revealChosen } from './CliPicker';
 import { browserTimeZone, draftProblems, formatWhen, localInput, previewRuns, shownZone, type ScheduleDraft } from '../schedule';
 
 /** Monday first, as a week is read. */
@@ -31,6 +32,8 @@ export function ScheduleForm({
   const { t, lang } = useI18n();
   const { turnTimeoutMinutes } = useLimits();
   const intervalHintId = useId();
+  const kindsRow = useRef<HTMLDivElement>(null);
+  useEffect(() => revealChosen(kindsRow.current), [draft.kind]);
   // @mentions that reach nobody on the team.
   const warning = useMemo(() => (team ? mentionWarning(draft.text, team, t, 'form') : undefined), [draft.text, team, t]);
   const now = Date.now();
@@ -72,9 +75,10 @@ export function ScheduleForm({
         <span className="small muted">{t.schedule.goalHint}</span>
       </label>
 
-      <div className="field schedule-repeat">
+      <div className="field">
         <span>{t.schedule.repeat}</span>
-        <div className="segmented wide" role="radiogroup" aria-label={t.schedule.repeat}>
+        {/* One row, scrolled sideways where it does not fit (a phone), the chosen kind in view. */}
+        <div ref={kindsRow} className="segmented schedule-kinds" role="radiogroup" aria-label={t.schedule.repeat}>
           {SCHEDULE_KINDS.map((k) => (
             <button
               key={k}
