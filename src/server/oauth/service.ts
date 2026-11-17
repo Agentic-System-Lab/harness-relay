@@ -1,12 +1,13 @@
-import type {
-  ConnectorsView,
-  OAuthAccountView,
-  OAuthCalendar,
-  OAuthClientUpdate,
-  OAuthProviderId,
-  OAuthSignInView,
-  OAuthUse,
-  OAuthView,
+import {
+  OAUTH_USES,
+  type ConnectorsView,
+  type OAuthAccountView,
+  type OAuthCalendar,
+  type OAuthClientUpdate,
+  type OAuthProviderId,
+  type OAuthSignInView,
+  type OAuthUse,
+  type OAuthView,
 } from '../../shared/types';
 import type { ConnectorStore } from '../connectors/accounts';
 import type { CalendarOAuth } from '../connectors/calendar';
@@ -90,37 +91,58 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
   /**
    * A sign-in for these uses. Another use than the account has asks for its scopes at a sign-in of its
    * own (incremental consent), which updates the same account, found by its id at the provider.
+   * `account`: the account signing in again, or for another use: its own uses are asked for too (a
+   * sign-in for one of them alone would leave the others without their grant), and its address is
+   * the provider's page's `login_hint`.
    */
   async startSignIn(o: {
     provider: OAuthProviderId;
     uses: OAuthUse[];
+    account?: string;
     session?: string;
     origin?: string;
     port: number;
     device?: boolean;
   }): Promise<OAuthSignInView> {
-    return this.signIns.start({ ...o, provider: this.provider(o.provider) });
+    const provider = this.provider(o.provider);
+    const { account: accountId, ...rest } = o;
+    if (!accountId) return this.signIns.start({ ...rest, provider });
+    const a = this.account(accountId);
+    if (a.provider !== o.provider) throw new HttpError(400, t().invalidField('account'));
+    const uses = OAUTH_USES.filter((u) => o.uses.includes(u) || a.uses.includes(u));
+    return this.signIns.start({ ...rest, provider, uses, loginHint: a.email });
   }
 
   /**
-   * Keeps a sign-in that worked: who it is, its refresh token, its access tokens, and for the calendar
-   * tools its own calendar, for the mail tools its mail account.
+   * Keeps a sign-in that worked: who it is, its refresh token, its access tokens, and, at its first
+   * sign-in for the calendar tools, its own calendar, at its first for the mail tools, its mail account
+   * (one the user removed since is not added again: a sign-in again or for another use adds nothing).
    */
   private async keep(s: SignedIn): Promise<OAuthAccountView> {
     const who = await s.whoami(signInFetch(s));
     // Cancelled, or its app changed, while who signed in was asked: nothing is kept.
     if (!s.live()) throw new Error(t().oauthSignInCancelled);
-    // The account signed in before, for other uses: where one token covers every scope granted (Google,
-    // with include_granted_scopes), it must still have theirs, or they would fail with the new token.
+    // The account signed in before, for other uses: each of them must still work with the new refresh
+    // token, or it would fail at its next request, and mark the whole account as needing a new sign-in.
+    // Where a token is for one resource (Microsoft), each earlier use not named gets its own token now,
+    // its access checked (consent taken away, another app); where one token covers every scope granted
+    // (Google, with include_granted_scopes), that token must still have theirs. Else nothing is kept:
+    // the account stays as it was.
     const before = this.store.bySubject(s.provider, who.subject);
     const provider = this.provider(s.provider);
-    if (before && !provider.tokenScopes && s.granted !== undefined) {
+    if (before && provider.tokenScopes) {
+      for (const use of before.uses) if (!s.uses.includes(use)) await s.tokenFor(use);
+      if (!s.live()) throw new Error(t().oauthSignInCancelled);
+    } else if (before && s.granted !== undefined) {
       const lost = missingUse(provider, before.uses, s.granted);
       if (lost) throw new Error(noAccess(provider.label, lost));
     }
+    // The uses it had (the store updates the same account), for its first sign-in for one: what that use reaches is added by itself.
+    const had = new Set(before?.uses ?? []);
+    const first = (use: OAuthUse) => s.uses.includes(use) && !had.has(use);
     const account = this.store.signedIn(s.provider, who, s.uses, s.scopes, s.refreshToken, (this.opts.now ?? Date.now)());
     this.broker.signedIn(account.id, s.access);
-    if (s.uses.includes('mail') && !this.connectors.oauthMail(account.id).length) {
+    if (first('mail') && !this.connectors.oauthMail(account.id).length) {
       try {
         this.addMail(account.id);
       } catch (err) {
@@ -128,7 +150,7 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
         console.warn('[oauth] could not add the mail account of a new sign-in:', (err as Error).message);
       }
     }
-    if (s.uses.includes('calendar') && !this.connectors.oauthCalendars(account.id).length) {
+    if (first('calendar') && !this.connectors.oauthCalendars(account.id).length) {
       const own = this.provider(s.provider).defaultCalendar(who.email);
       try {
         this.addCalendar(account.id, {
@@ -192,8 +214,8 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
 
   /**
    * Adds the account's mail account to the mail tools (once: it is there already, it stays): its
-   * provider's own IMAP and SMTP servers, its address as the sender and user name, under a name not
-   * taken. Only for an account signed in for mail.
+   * provider's own IMAP and SMTP servers, its address as the sender and user name, under an id and a
+   * name not taken. Only for an account signed in for mail.
    */
   addMail(accountId: string): ConnectorsView {
     const a = this.account(accountId);
@@ -204,7 +226,10 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
     const taken = this.connectors.mailIds();
     let id = accountId;
     for (let n = 2; taken.includes(id); n++) id = `${accountId.slice(0, 36)}-${n}`;
-    const name = `${a.provider === 'microsoft' ? 'Outlook' : 'Gmail'} · ${a.email}`.slice(0, 60);
+    const names = new Set(this.connectors.mailAccounts().map((m) => m.name.toLowerCase()));
+    const base = `${a.provider === 'microsoft' ? 'Outlook' : 'Gmail'} · ${a.email}`;
+    let name = base.slice(0, 60);
+    for (let n = 2; names.has(name.toLowerCase()); n++) name = `${base.slice(0, 60 - ` (${n})`.length)} (${n})`;
     return this.connectors.saveOAuthMail(id, { name, oauth: accountId, email: a.email, imap: mail.imap, smtp: mail.smtp });
   }
 

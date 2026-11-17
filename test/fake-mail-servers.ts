@@ -4,7 +4,9 @@
  * SMTP server (EHLO, AUTH, the envelope, DATA), and a CalDAV calendar (REPORT and PUT). Plain TCP and
  * HTTP on 127.0.0.1: what Harness Relay allows only for a server on this computer. With `bearer`, the
  * IMAP and SMTP servers take SASL XOAUTH2 too, with the tokens it accepts, and refuse another as
- * Gmail does (its reason in a continuation, then NO or 535) or as Microsoft does (NO or 535 at once).
+ * Gmail does (its reason in a continuation, then NO or 535) or as Microsoft does (NO or 535 at once);
+ * or, for the clients' other paths, ask again after the reason, chat in untagged responses, ask for
+ * the SMTP response in an empty 334, or answer AUTH with another reply (a 4xx, a 504).
  */
 import { createServer as createHttp, type Server as HttpServer } from 'node:http';
 import { createServer, type Server, type Socket } from 'node:net';
@@ -13,6 +15,12 @@ import { createServer, type Server, type Socket } from 'node:net';
 export interface FakeBearer {
   bearer?: (user: string, token: string) => boolean;
   refusal?: 'gmail' | 'microsoft';
+  /** What Gmail's refusal says first, in base64 (`GMAIL_XOAUTH2_ERROR` when not given). */
+  challenge?: string;
+  /** IMAP: after the empty line that answers the refusal's reason, it asks again (`+`), never saying NO. */
+  askAgain?: boolean;
+  /** IMAP: untagged responses before its go-ahead and before its answer to AUTHENTICATE. */
+  chatty?: boolean;
 }
 
 /** The base64 JSON Gmail sends before it refuses a token (`{"status":"400","schemes":"Bearer","scope":"https://mail.google.com/"}`). */
@@ -52,8 +60,8 @@ export interface FakeImap {
   /** How it answers IDLE (`no`: refuses it, although it lists it), and DONE (`no`, or `none`: never). */
   idleAnswer: 'ok' | 'no' | 'end';
   doneAnswer: 'ok' | 'no' | 'none';
-  /** Says BYE to every connection waiting in IDLE (a server shutting down), and closes them. */
-  bye(): void;
+  /** Says BYE to every connection waiting in IDLE (a server shutting down; `text`: what it says after BYE), and closes them. */
+  bye(text?: string): void;
   /** The connections waiting in IDLE now. */
   readonly idling: number;
   /** Tells every connection waiting in IDLE that the inbox has this many messages (`* n EXISTS`). */
@@ -111,6 +119,7 @@ export async function fakeImap(
       if (sasl) {
         const { tag } = sasl;
         if (sasl.step === 'refused') {
+          if (o.askAgain) return send(`+ ${o.challenge ?? GMAIL_XOAUTH2_ERROR}\r\n`);
           sasl = undefined;
           return send(`${tag} NO [AUTHENTICATIONFAILED] Invalid credentials (Failure)\r\n`);
         }
@@ -119,14 +128,14 @@ export async function fakeImap(
         if (given) xoauth2.push({ ...given, ok });
         if (ok) {
           sasl = undefined;
-          return send(`${tag} OK AUTHENTICATE completed.\r\n`);
+          return send(`${o.chatty ? '* CAPABILITY IMAP4rev1 IDLE\r\n' : ''}${tag} OK AUTHENTICATE completed.\r\n`);
         }
         if (o.refusal === 'microsoft') {
           sasl = undefined;
           return send(`${tag} NO AUTHENTICATE failed.\r\n`);
         }
         sasl.step = 'refused';
-        return send(`+ ${GMAIL_XOAUTH2_ERROR}\r\n`);
+        return send(`+ ${o.challenge ?? GMAIL_XOAUTH2_ERROR}\r\n`);
       }
       if (full === 'DONE' && idling.has(sock)) {
         const tag = idling.get(sock)!;
@@ -141,7 +150,7 @@ export async function fakeImap(
       if (cmd === 'AUTHENTICATE XOAUTH2') {
         if (!o.bearer) return send(`${tag} NO [CANNOT] Unsupported authentication mechanism\r\n`);
         sasl = { tag, step: 'response' };
-        return send('+ \r\n');
+        return send(`${o.chatty ? '* OK [ALERT] Mind the gap\r\n' : ''}+ \r\n`);
       }
       if (cmd.startsWith('LOGIN')) {
         const q = [...rest.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((x) => x[1]!.replace(/\\(.)/g, '$1'));
@@ -287,9 +296,9 @@ export async function fakeImap(
     set doneAnswer(v: 'ok' | 'no' | 'none') {
       fake.doneAnswer = v;
     },
-    bye: () => {
+    bye: (text = 'shutting down') => {
       for (const sock of [...idling.keys()]) {
-        sock.write('* BYE shutting down\r\n');
+        sock.write(`* BYE ${text}\r\n`);
         sock.end();
       }
     },
@@ -321,7 +330,14 @@ export interface FakeSmtp {
 
 export async function fakeSmtp(
   login = { user: 'me@example.com', pass: 'app-pass' },
-  o: { authLoginOnly?: boolean; refuse?: string } & FakeBearer = {},
+  o: {
+    authLoginOnly?: boolean;
+    refuse?: string;
+    /** Answers AUTH XOAUTH2 with an empty 334 first (a request for the response), then reads the response on its own line. */
+    asksResponse?: boolean;
+    /** Answers AUTH XOAUTH2 with this reply instead of checking the token (`454 4.7.0 …`, `504 5.7.4 …`). */
+    authAnswer?: string;
+  } & FakeBearer = {},
 ): Promise<FakeSmtp> {
   const sent: FakeSmtp['sent'] = [];
   const lines: string[] = [];
@@ -334,6 +350,19 @@ export async function fakeSmtp(
     let loginStep = 0;
     /** A refused XOAUTH2 waits for the client's empty line, then says 535 (as Gmail does). */
     let refusedToken = false;
+    /** The response to an AUTH XOAUTH2 answered with an empty 334 comes next, on its own line. */
+    let responseNext = false;
+    const checkToken = (b64: string) => {
+      const given = readXoauth2(b64);
+      const ok = Boolean(o.bearer && given && o.bearer(given.user, given.token));
+      if (given) xoauth2.push({ ...given, ok });
+      if (ok) sock.write('235 2.7.0 Accepted\r\n');
+      else if (o.refusal === 'microsoft') sock.write('535 5.7.3 Authentication unsuccessful [FAKE.prod.outlook.com]\r\n');
+      else {
+        refusedToken = true;
+        sock.write(`334 ${o.challenge ?? GMAIL_XOAUTH2_ERROR}\r\n`);
+      }
+    };
     sock.write('220 fake SMTP ready\r\n');
     sock.on('data', (chunk: Buffer) => {
       buf += chunk.toString('utf8');
@@ -358,17 +387,16 @@ export async function fakeSmtp(
           sock.write(
             '535-5.7.8 Username and Password not accepted. For more information, go to\r\n535 5.7.8  https://support.google.com/mail/?p=BadCredentials fake\r\n',
           );
-        } else if (/^AUTH XOAUTH2 /i.test(line)) {
-          const given = readXoauth2(line.slice('AUTH XOAUTH2 '.length));
-          const ok = Boolean(o.bearer && given && o.bearer(given.user, given.token));
-          if (given) xoauth2.push({ ...given, ok });
+        } else if (responseNext) {
+          responseNext = false;
+          checkToken(line);
+        } else if (/^AUTH XOAUTH2( |$)/i.test(line)) {
           if (!o.bearer) sock.write('504 5.7.4 Unrecognized authentication type\r\n');
-          else if (ok) sock.write('235 2.7.0 Accepted\r\n');
-          else if (o.refusal === 'microsoft') sock.write('535 5.7.3 Authentication unsuccessful [FAKE.prod.outlook.com]\r\n');
-          else {
-            refusedToken = true;
-            sock.write(`334 ${GMAIL_XOAUTH2_ERROR}\r\n`);
-          }
+          else if (o.authAnswer) sock.write(`${o.authAnswer}\r\n`);
+          else if (o.asksResponse) {
+            responseNext = true;
+            sock.write('334 \r\n');
+          } else checkToken(line.slice('AUTH XOAUTH2 '.length));
         } else if (loginStep === 1) {
           loginStep = Buffer.from(line, 'base64').toString() === login.user ? 2 : -1;
           sock.write('334 UGFzc3dvcmQ6\r\n');

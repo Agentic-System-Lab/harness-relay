@@ -45,9 +45,9 @@ OAuth 本身是一個介面，各個 API 則留在使用它的工具群組裡。
 
 ## 設定與環境變數
 
-- **「設定 → 工具庫 → 郵件與行事曆 → 登入的帳號」：** 每個服務要用的 app（以及 Microsoft 的 app 必須允許的重新導向網址）、新的登入用於什麼（**行事曆**、**郵件**，或兩者）、「用 … 登入」、「在另一台裝置上登入」（Microsoft）、各帳號與它的狀態和用途、它可以加入的行事曆、**用於行事曆**與**用於郵件**（還沒有給予該用途時是一次為它的登入；郵件已經給予之後，就直接加入郵件帳號），以及「移除」。
+- **「設定 → 工具庫 → 郵件與行事曆 → 登入的帳號」：** 每個服務要用的 app（以及 Microsoft 的 app 必須允許的重新導向網址）、新的登入用於什麼（**行事曆**、**郵件**，或兩者）、「用 … 登入」、「在另一台裝置上登入」（Microsoft）、各帳號與它的狀態和用途、它可以加入的行事曆、**用於行事曆**與**用於郵件**（還沒有給予該用途時是一次為它的登入，也要求帳號的其他用途，並以它的地址作為 `login_hint`；郵件已經給予之後，就直接加入郵件帳號）、帳號需要重新登入時只有**重新登入**，以及「移除」。登入只在帳號第一次為某種用途登入時，自動加入它的行事曆或郵件帳號。
 - **`RELAY_MICROSOFT_LOGIN_URL` 與 `RELAY_MICROSOFT_GRAPH_URL`** 把 Microsoft 的登入與 Graph 指向全球雲以外的雲（例如國家雲 `https://login.microsoftonline.us` 與 `https://graph.microsoft.us`），或端對端測試中這台電腦上的替身：必須是 https，純 http 只限這台電腦。
-- **`RELAY_MICROSOFT_IMAP` 與 `RELAY_MICROSOFT_SMTP`**（`host:port`）把 Microsoft 帳號的郵件指向 `outlook.office365.com:993` 與 `smtp.office365.com:587` 以外的伺服器，或端對端測試中這台電腦上的替身：TLS，或在 IMAP 的 143 埠與 SMTP 的 587、25 埠用 STARTTLS；純 TCP 只限這台電腦。Exchange Online 的權限範圍仍是全球雲的（`https://outlook.office.com/…`）。
+- **`RELAY_MICROSOFT_IMAP` 與 `RELAY_MICROSOFT_SMTP`**（`host:port`）把 Microsoft 帳號的郵件指向端對端測試中這台電腦上的替身，而不是 `outlook.office365.com:993` 與 `smtp.office365.com:587`：TLS，或在 IMAP 的 143 埠與 SMTP 的 587、25 埠用 STARTTLS；純 TCP 只限這台電腦。它們不是給國家雲用的：國家雲的郵件還不支援，因為 Exchange Online 的權限範圍仍是全球雲的（`https://outlook.office.com/…`）。
 
 ## HTTP API
 
@@ -75,7 +75,7 @@ OAuth 本身是一個介面，各個 API 則留在使用它的工具群組裡。
 2. **Harness Relay 自己的 app**（`BUILT_IN_CLIENTS`），等有人負責這些註冊與 Google 的驗證之後（Gmail 的權限範圍是受限的，另外還需要安全評估）。
 3. **其他適合的用途**，例如 Google Drive 或 OneDrive 的檔案、待辦事項，各自有自己的工具群組與層級。
 
-透過 OAuth 收發郵件走的是郵件工具原本就有的 IMAP 與 SMTP 用戶端，加上 SASL XOAUTH2，而不是 Graph 與 Gmail API：工具、郵件觸發與 IDLE 對每個服務都是同一條程式路徑。那裡仍待處理的：Microsoft 國家雲的郵件權限範圍（Exchange Online 的是全球雲的），以及為信箱關掉 SMTP AUTH 的 Microsoft 365 租用戶（這時「送出」會被拒絕；Graph 的 `sendMail` 則不會）。
+透過 OAuth 收發郵件走的是郵件工具原本就有的 IMAP 與 SMTP 用戶端，加上 SASL XOAUTH2，而不是 Graph 與 Gmail API：工具、郵件觸發與 IDLE 對每個服務都是同一條程式路徑。那裡仍待處理的：Microsoft 國家雲的郵件，還不支援（Exchange Online 的權限範圍是全球雲的；得由設定指名每個雲的資源），以及為信箱關掉 SMTP AUTH 的 Microsoft 365 租用戶（這時「送出」會被拒絕；Graph 的 `sendMail` 則不會）。
 
 CLI 自己的登入（`login.ts`）不在範圍內；每個 CLI 保留自己的登入。
 
@@ -92,6 +92,6 @@ CLI 自己的登入（`login.ts`）不在範圍內；每個 CLI 保留自己的�
 - `test/fake-oauth-server.ts`：Microsoft 登入與 Graph 的替身（授權、以驗證碼交換授權碼、輪換更新權杖、`invalid_grant` 與其他拒絕、給予的權限範圍、依請求的權限範圍只屬於一個資源的權杖、拒絕同時指名兩個資源的請求以及要求從未同意的權限範圍的更新、裝置代碼與它的放慢和錯誤、`/me`、`/me/calendars`、分頁的 `calendarView`、`POST …/events`），以及 Google 的替身（檢查用戶端密碼的權杖端點、帶 `include_granted_scopes` 時之前給予的權限範圍、撤銷、userinfo，以及只接受 Bearer 權杖的 CalDAV）；它可以扣住一個回答或丟掉一個請求，代表很慢或斷掉的網路。
 - `test/fake-mail-servers.ts`：IMAP 與 SMTP 的替身接受測試指定的 XOAUTH2 權杖，並像 Gmail（原因先放在接續回應，再回 NO 或 535）或 Microsoft 那樣拒絕其他權杖。
 - `test/oauth.test.ts`：登入（PKCE、重新導向網址、state 只能用一次且只屬於自己的登入、拒絕、到期、貼上網址、裝置代碼與它的重試、給予的權限範圍、app 改了或在任何一步取消時結束登入）、權杖代理（提早且只更新一次、輪換、需要重新登入的拒絕與不需要的錯誤、更新期間帳號被移除或重新登入、主機與 https 規則、不跟隨重新導向、被拒的權杖更新一次）、透過 Graph 與用權杖透過 Google CalDAV 的行事曆工具、Google 的撤銷，以及開啟登入時的 HTTP API（只有回呼不需要登入；它的 429；每個路由的上限與拒絕）。
-- `test/oauth-mail.test.ts`：透過 OAuth 收發郵件：兩個用戶端的 XOAUTH2 與伺服器的拒絕、Microsoft 從同一個更新權杖為每種用途取得的權杖（共用輪換、一次更新一個）、為郵件登入與它的權限範圍（立刻取得 Microsoft 的郵件權杖、取消勾選 Gmail、Google 的漸進式同意保留行事曆的，或在失去它時拒絕）、不為沒有登入的用途要權杖、用權杖的郵件工具、郵件觸發與 IDLE（被拒的權杖更新一次；需要重新登入的帳號是錯誤，IDLE 則以登入的退讓等到重新登入）、權杖只有送到這台電腦時才不加密、固定的伺服器，以及 HTTP API。
+- `test/oauth-mail.test.ts`：透過 OAuth 收發郵件：兩個用戶端的 XOAUTH2 與伺服器的拒絕、Microsoft 從同一個更新權杖為每種用途取得的權杖（共用輪換、一次更新一個）、為郵件登入與它的權限範圍（立刻取得 Microsoft 的郵件權杖、取消勾選 Gmail、Google 的漸進式同意保留行事曆的，或在失去它時拒絕；用新的更新權杖取得 Microsoft 其他用途的權杖）、不為沒有登入的用途要權杖、只在第一次為郵件登入時加入郵件帳號、用權杖的郵件工具、郵件觸發與 IDLE（被拒的權杖更新一次；需要重新登入的帳號是錯誤，IDLE 則以登入的退讓等到重新登入）、權杖只有送到這台電腦時才不加密、固定的伺服器，以及 HTTP API。
 - `test/oauth-web.test.ts`：頁面自己的邏輯（重新導向網址、回呼收到的內容與何時清掉網址、桌面 app 中的彈出視窗訊息、每個帳號為行事曆與郵件提供什麼）。
 - `e2e/specs/oauth.spec.ts`：在新分頁對替身的 Microsoft 頁面登入、回到 `/oauth/callback`、加入它的行事曆、更新被拒（需要重新登入、重新登入），然後移除帳號；只為郵件登入、加入它的郵件帳號並透過 XOAUTH2 對這台電腦上的 IMAP 與 SMTP 替身測試、移除再重新加入，然後連同帳號一起移除。

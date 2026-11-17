@@ -13,6 +13,13 @@ import { t } from '../i18n';
 /** The server refused the sign-in (the user name and password, or the token): nothing was sent. */
 export class SmtpLoginError extends Error {}
 
+/**
+ * The answers to AUTH XOAUTH2 that refuse the token itself (RFC 4954: 530 authentication required,
+ * 534 the mechanism is too weak, 535 the credentials are not valid), which a new token may mend. A 4xx
+ * (454, 421: try later) or another 5xx (504: not offered) is no refusal of the token: it is not renewed.
+ */
+const TOKEN_REFUSED = [530, 534, 535];
+
 /** The server answered with another reply than the one wanted. */
 class SmtpReplyError extends Error {}
 
@@ -114,8 +121,8 @@ export type SmtpSession<T> = (
 
 /**
  * Connects, says EHLO, starts TLS when asked, signs in (AUTH PLAIN, or LOGIN when only that is
- * offered; AUTH XOAUTH2 with a token), then runs `fn`, and says QUIT. A refused sign-in is a
- * `SmtpLoginError`, before anything is sent.
+ * offered; AUTH XOAUTH2 with a token, only when EHLO lists it), then runs `fn`, and says QUIT. A
+ * refused sign-in is a `SmtpLoginError`, before anything is sent.
  */
 export async function withSmtp<T>(addr: ServerAddress, login: Login, fn: SmtpSession<T>, timeoutMs = 30_000): Promise<T> {
   let sock: Socket | TLSSocket = await openSocket(addr, timeoutMs);
@@ -153,18 +160,35 @@ export async function withSmtp<T>(addr: ServerAddress, login: Login, fn: SmtpSes
     }
     const auth = ehlo.lines.find((l) => /^AUTH\b/i.test(l))?.toUpperCase() ?? '';
     if ('token' in login) {
-      // RFC 4954 with XOAUTH2's initial response; a refusal says why in a 334 first (base64 JSON),
-      // answered with an empty line, and then its 5xx.
-      sock.write(`AUTH XOAUTH2 ${xoauth2(login.username, login.token)}\r\n`);
+      // XOAUTH2 among the mechanisms EHLO offers (`AUTH PLAIN XOAUTH2`, or the older `AUTH=…`), or the token is not tried.
+      if (!ehlo.lines.some((l) => /^AUTH[\s=](?:.*\s)?XOAUTH2(?:\s|$)/i.test(l))) throw new Error(t().conn.mailNoXoauth2(addr.host));
+      // RFC 4954 with XOAUTH2's initial response. An empty 334 asks for the response (a server that did
+      // not take it with the command): it is sent then, once. A refusal says why in a 334 of its own
+      // (base64 JSON), answered with an empty line, and then its 5xx.
+      const response = xoauth2(login.username, login.token);
+      sock.write(`AUTH XOAUTH2 ${response}\r\n`);
       let r = await timed(reader.next());
-      let detail = '';
-      if (r.code === 334) {
-        detail = xoauth2Detail(r.lines.join(''));
-        sock.write('\r\n');
+      let resent = false;
+      let detail: string | undefined;
+      while (r.code === 334) {
+        const challenge = r.lines.join('').trim();
+        if (!challenge && !resent && detail === undefined) {
+          resent = true;
+          sock.write(`${response}\r\n`);
+        } else if (detail === undefined) {
+          detail = xoauth2Detail(challenge);
+          sock.write('\r\n');
+        }
+        // Once: a server that keeps asking is not one that takes the token.
+        else throw new Error(t().conn.mailTokenFailed(detail || `334 ${challenge}`.trim()));
         r = await timed(reader.next());
       }
-      if (r.code !== 235)
-        throw new SmtpLoginError(t().conn.mailTokenRefused(`${r.code} ${r.lines.join(' ')}${detail ? ` (${detail})` : ''}`.trim()));
+      if (r.code !== 235) {
+        const said = `${r.code} ${r.lines.join(' ')}${detail ? ` (${detail})` : ''}`.trim();
+        throw TOKEN_REFUSED.includes(r.code)
+          ? new SmtpLoginError(t().conn.mailTokenRefused(said))
+          : new Error(t().conn.mailTokenFailed(said));
+      }
     } else {
       const password = login.password;
       const signIn = async () => {

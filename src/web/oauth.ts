@@ -85,18 +85,22 @@ export function calendarName(account: Pick<OAuthAccountView, 'email'>, calendar:
 }
 
 /**
- * What an account offers in Settings: its calendars to list and add (signed in for calendars), or a
- * sign-in for them; for mail, a sign-in for it when not yet granted, its mail account to add once
- * granted (it was removed, or the sign-in could not add it), nothing more once it is there.
+ * What an account offers in Settings: its calendars to list and add (signed in for calendars); a
+ * sign-in for each use not granted yet, which asks for the uses it has too (a sign-in for the new one
+ * alone could leave them without their grant); for mail, its mail account to add once granted (it was
+ * removed, or the sign-in could not add it), nothing more once it is there. While it needs a new
+ * sign-in, only that: **Sign in again**, for the uses it has.
  */
 export function accountActions(
-  account: Pick<OAuthAccountView, 'uses'>,
+  account: Pick<OAuthAccountView, 'uses' | 'status'>,
   hasMailAccount: boolean,
-): { calendars: boolean; signInFor: OAuthUse[]; addMail: boolean } {
+): { calendars: boolean; signInAgain?: OAuthUse[]; signInFor: { use: OAuthUse; uses: OAuthUse[] }[]; addMail: boolean } {
   const has = (u: OAuthUse) => account.uses.includes(u);
+  if (account.status === 'reauth')
+    return { calendars: has('calendar'), signInAgain: OAUTH_USES.filter(has), signInFor: [], addMail: false };
   return {
     calendars: has('calendar'),
-    signInFor: OAUTH_USES.filter((u) => !has(u)),
+    signInFor: OAUTH_USES.filter((u) => !has(u)).map((use) => ({ use, uses: OAUTH_USES.filter((u) => u === use || has(u)) })),
     addMail: has('mail') && !hasMailAccount,
   };
 }

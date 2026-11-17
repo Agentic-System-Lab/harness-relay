@@ -254,6 +254,15 @@ export class ImapStatusError extends Error {
 /** The server refused IDLE although it may list it: waiting for mail that way will not work there. */
 export class IdleRefusedError extends Error {}
 
+/**
+ * The server said BYE while the connection waited in IDLE: it ended the session (shutting down, or,
+ * Exchange Online's `AccessTokenExpired`, the token it signed in with ran out).
+ */
+export class IdleByeError extends Error {}
+
+/** The server answered AUTHENTICATE XOAUTH2 with NO or BAD before the token was sent: it does not take one, so none is tried again. */
+class NoXoauth2Error extends Error {}
+
 /** A string to send as a literal (non-ASCII text, a message): `{n}`, then the bytes once the server says to go on. */
 export class Literal {
   constructor(readonly bytes: Buffer) {}
@@ -288,7 +297,8 @@ export class ImapClient {
       // dropped connection is no refusal.
       const refused = (err: Error) => err instanceof ImapStatusError && /^NO\b/i.test(err.status) && !/\[UNAVAILABLE\]/i.test(err.status);
       if ('token' in login)
-        await c.authenticate(login.username, login.token).catch((err: Error) => {
+        await c.authenticate(addr.host, login.username, login.token).catch((err: Error) => {
+          if (err instanceof NoXoauth2Error) throw err;
           const msg = t().conn.mailTokenRefused(err.message);
           throw refused(err) ? new ImapLoginError(msg) : new Error(msg);
         });
@@ -310,21 +320,20 @@ export class ImapClient {
   }
 
   /**
-   * Signs in with SASL XOAUTH2 (RFC 3501 AUTHENTICATE): the command, the server's go-ahead (`+`), then
-   * the user and token in one base64 line. A server that refuses the token says why in a `+` line of
-   * its own first (base64 JSON), answered with an empty line, and then its tagged NO.
+   * Signs in with SASL XOAUTH2 (RFC 3501 AUTHENTICATE): the command, the server's go-ahead (`+`, with
+   * nothing: a request for the response), then the user and token in one base64 line. A server that
+   * refuses the token says why in a `+` line of its own first (base64 JSON), answered with an empty
+   * line, and then its tagged NO. A NO or BAD before the token was sent is no refusal of it: the
+   * server does not take XOAUTH2.
    */
-  private async authenticate(username: string, token: string): Promise<void> {
+  private async authenticate(host: string, username: string, token: string): Promise<void> {
     const initial = xoauth2(username, token);
     const tag = `R${++this.tag}`;
     this.sock.write(`${tag} AUTHENTICATE XOAUTH2\r\n`);
     for (;;) {
       const r = await this.timed(this.reader.next());
       if (r.text.startsWith('+')) break;
-      if (r.text.startsWith(`${tag} `)) {
-        const status = r.text.slice(tag.length + 1);
-        throw new ImapStatusError(status.replace(/^(NO|BAD)\s*/i, ''), status);
-      }
+      if (r.text.startsWith(`${tag} `)) throw new NoXoauth2Error(t().conn.mailNoXoauth2(host, r.text.slice(tag.length + 1)));
     }
     this.sock.write(`${initial}\r\n`);
     let detail = '';
@@ -430,7 +439,7 @@ export class ImapClient {
         if (/^OK/i.test(r.text.slice(tag.length + 1))) return;
         throw new Error(t().conn.mailIdleEnded(r.text));
       }
-      if (/^\* BYE\b/i.test(r.text)) throw new Error(t().conn.mailIdleEnded(r.text));
+      if (/^\* BYE\b/i.test(r.text)) throw new IdleByeError(t().conn.mailIdleEnded(r.text));
       onResponse(r);
       next = this.reader.next();
     }

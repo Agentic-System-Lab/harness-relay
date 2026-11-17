@@ -1,6 +1,6 @@
 import { WATCH_LIMITS, type ScheduleTrigger } from '../shared/types';
 import type { ConnectorStore } from './connectors/accounts';
-import { IdleRefusedError, ImapClient, ImapLoginError, quote, type ImapResponse } from './connectors/imap';
+import { IdleByeError, IdleRefusedError, ImapClient, ImapLoginError, quote, type ImapResponse } from './connectors/imap';
 import { MailSignInError, mailLogin, openImap, type MailOAuth } from './connectors/mailLogin';
 import { HttpError } from './errors';
 
@@ -19,7 +19,9 @@ import { HttpError } from './errors';
  * that died without a word. The passwords stay in the server, read when it connects; a mail account
  * reached through an account that signs in with OAuth gets a token for mail each time it connects
  * (`mailLogin`), renewed when it has run out, and one that needs a new sign-in backs off as a refused
- * password does, until it is signed in again.
+ * password does, until it is signed in again. A server that ends such a connection with BYE after it
+ * listened a while (Exchange Online does once the token it signed in with runs out:
+ * `AccessTokenExpired`) is renewing it, no failure: it connects again at once, with a fresh token.
  */
 
 type MailTrigger = Extract<ScheduleTrigger, { source: 'mail' }>;
@@ -162,17 +164,22 @@ class Listener {
     let refused = 0;
     /** A round shorter than this (a server ending IDLE at once) is no healthy round, and waits before the next. */
     const healthyMs = Math.min(60_000, this.deps.renewMs / 2);
+    /** The server ended the session of a token that ran out: the next connection signs in with a fresh one. */
+    let freshNext = false;
     while (!this.stopped) {
+      /** When this connection began to listen, and whether it signs in with a token. */
+      let listening: number | undefined;
+      let withToken = false;
       try {
         const found = this.deps.connectors.mailById(this.account);
         if (!found) throw new Error('no such mail account');
+        const signIn = mailLogin(found.account, found.password, this.deps.oauth);
+        withToken = signIn.oauth;
         this.connection = new AbortController();
-        // Its password, or a token for mail (a new one when the kept one has run out).
-        const c: ImapClient = await openImap(
-          mailLogin(found.account, found.password, this.deps.oauth),
-          this.deps.timeoutMs,
-          this.connection.signal,
-        );
+        const fresh = freshNext;
+        freshNext = false;
+        // Its password, or a token for mail (a new one when the kept one has run out, or the server ended its session).
+        const c: ImapClient = await openImap(signIn, this.deps.timeoutMs, this.connection.signal, fresh);
         this.client = c;
         if (this.stopped) return c.close();
         if (!c.capabilities.has('IDLE')) {
@@ -187,6 +194,7 @@ class Listener {
         };
         const onIdling = () => {
           this.live = true;
+          listening ??= this.deps.now();
           // Mail that came while it was not listening (a dropped connection, a sleep) says nothing now: checked once.
           if (this.catchUp) {
             this.catchUp = false;
@@ -220,6 +228,14 @@ class Listener {
         if (err instanceof IdleRefusedError) {
           this.client?.close();
           await this.notNow();
+          continue;
+        }
+        // BYE after it listened a while, with a token: its session ended with the token (Exchange Online's
+        // `AccessTokenExpired`). A renewal, as IDLE's own is: no failure, no warning, no wait; connected
+        // again at once with a fresh token, and checked once listening, for mail that came meanwhile.
+        if (err instanceof IdleByeError && withToken && listening !== undefined && this.deps.now() - listening >= healthyMs) {
+          freshNext = true;
+          this.catchUp = true;
           continue;
         }
         // A refused sign-in, or an account that needs a new one: as slowly as the checks back off.

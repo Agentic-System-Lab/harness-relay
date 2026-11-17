@@ -10,8 +10,18 @@
  * asked for a use not signed in for; the mail tools, the mail trigger and IDLE with a token, a refused
  * one renewed once, an account that needs a new sign-in an error before any server is asked; the token
  * never in the clear but to this computer; the mail account's fixed servers (409); and the HTTP API.
+ * Also: what is a refused token and what is not (SMTP's 530, 534 and 535 only; a 4xx, a 504, no
+ * XOAUTH2 in EHLO, IMAP's NO before the token: not renewed), an empty 334 answered with the response,
+ * a server that keeps asking, untagged responses, a reason that is not JSON, the token never before
+ * STARTTLS's TLS, a password never tried twice; a sign-in for one use checking the account's others
+ * (Microsoft: their tokens with the new refresh token), `login_hint`, the mail account added only at
+ * the first sign-in for mail and under a free name; the device code; a restart; the outbox's Send
+ * through its route; IDLE's BYE after a healthy round as a renewal, and its backoff while the account
+ * needs a new sign-in; and a refresh queued behind another one asking nothing once the account was
+ * signed in again or removed.
  */
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -19,6 +29,7 @@ import { AUTH_KEY_HEADER } from '../src/shared/auth';
 import type { ConnectorsView, OAuthProviderId, OAuthSignInView, OAuthUse, OAuthView, OutboxItem } from '../src/shared/types';
 import { fakeImap, fakeSmtp, type FakeImap, type FakeMessage, type FakeSmtp } from './fake-mail-servers';
 import { fakeOAuth, type FakeOAuth } from './fake-oauth-server';
+import { slow } from './timeouts';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-oauth-mail-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
@@ -27,8 +38,8 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 const { AuthStore, CODE_TTL_MS } = await import('../src/server/auth');
 const { createApp } = await import('../src/server/app');
 const { ConnectorStore } = await import('../src/server/connectors/accounts');
-const { ImapClient, ImapLoginError, xoauth2 } = await import('../src/server/connectors/imap');
-const { MailSignInError, mailLogin } = await import('../src/server/connectors/mailLogin');
+const { ImapClient, ImapLoginError, xoauth2, xoauth2Detail } = await import('../src/server/connectors/imap');
+const { MailSignInError, mailLogin, openImap, sendMailAs, withSmtpLogin } = await import('../src/server/connectors/mailLogin');
 const { SmtpLoginError, sendMail } = await import('../src/server/connectors/smtp');
 const { testMail } = await import('../src/server/connectors/test');
 const { connectorTools } = await import('../src/server/connectors/tools');
@@ -41,12 +52,14 @@ const { OAuthService } = await import('../src/server/oauth/service');
 const { callbackParams } = await import('../src/server/oauth/signin');
 const { OAuthStore } = await import('../src/server/oauth/store');
 const { Orchestrator } = await import('../src/server/orchestrator');
+const { Outbox } = await import('../src/server/outbox');
 const { ProviderService } = await import('../src/server/providers');
 const { SettingsStore } = await import('../src/server/settings');
 const { Store } = await import('../src/server/store');
 const { checkMail, checkTrigger, triggerKey } = await import('../src/server/watch');
 type GatewayContext = import('../src/server/gateway').GatewayContext;
 type GatewayTool = import('../src/server/gateway').GatewayTool;
+type MailOAuth = import('../src/server/connectors/mailLogin').MailOAuth;
 
 /** A fake credential store, as the tests of the other secrets use. */
 function fakeKeyring() {
@@ -76,6 +89,12 @@ const ctx = {
   signal: new AbortController().signal,
 } as GatewayContext;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** A promise the test resolves itself, and the resolving. */
+function gate(): { until: Promise<void>; open: () => void } {
+  let open!: () => void;
+  const until = new Promise<void>((r) => (open = r));
+  return { until, open };
+}
 const local = (port: number) => ({ host: '127.0.0.1', port, security: 'none' as const });
 const message = (uid: number, from: string, subject: string): FakeMessage => ({
   uid,
@@ -169,7 +188,7 @@ describe('XOAUTH2 in the IMAP and SMTP clients', () => {
       closers.push(asGmail.close, asMicrosoft.close, gmailSend.close, microsoftSend.close);
       const user = 'me@example.com';
 
-      const c = await ImapClient.open(local(asGmail.port), { username: user, token: 'good-token' }, 2000);
+      const c = await ImapClient.open(local(asGmail.port), { username: user, token: 'good-token' }, slow(2000));
       const at = asGmail.commands.indexOf('R1 AUTHENTICATE XOAUTH2');
       expect(at).toBeGreaterThanOrEqual(0);
       expect(Buffer.from(asGmail.commands[at + 1]!, 'base64').toString()).toBe('user=me@example.com\x01auth=Bearer good-token\x01\x01');
@@ -178,13 +197,13 @@ describe('XOAUTH2 in the IMAP and SMTP clients', () => {
       await c.logout();
 
       // Gmail says why in a continuation first, answered with an empty line, then NO; Microsoft says NO at once.
-      const refused = ImapClient.open(local(asGmail.port), { username: user, token: 'stale' }, 2000);
+      const refused = ImapClient.open(local(asGmail.port), { username: user, token: 'stale' }, slow(2000));
       await expect(refused).rejects.toBeInstanceOf(ImapLoginError);
       await expect(refused).rejects.toThrow(
         "The mail server did not accept the sign-in's token: [AUTHENTICATIONFAILED] Invalid credentials (Failure) (status 400)",
       );
       expect(asGmail.commands.at(-1)).toBe('');
-      await expect(ImapClient.open(local(asMicrosoft.port), { username: user, token: 'stale' }, 2000)).rejects.toThrow(
+      await expect(ImapClient.open(local(asMicrosoft.port), { username: user, token: 'stale' }, slow(2000))).rejects.toThrow(
         "The mail server did not accept the sign-in's token: AUTHENTICATE failed.",
       );
 
@@ -216,6 +235,178 @@ describe('XOAUTH2 in the IMAP and SMTP clients', () => {
         ['me@example.com', 'a b'],
       ])
         expect(() => xoauth2(u!, tok!)).toThrow('A line break cannot be sent');
+    }));
+
+  it('tells a refused token from a server that does not take one or cannot now: only those are renewed, once', () =>
+    withLang('en', async () => {
+      const good = (user: string, token: string) => user === 'me@example.com' && token === 'good-token';
+      const user = 'me@example.com';
+      const login = { username: user, token: 'good-token' };
+      const envelope = { from: user, recipients: ['bob@example.com'] };
+      const servers = async <T extends { close: () => Promise<unknown> }>(open: Promise<T>) => {
+        const server = await open;
+        closers.push(server.close);
+        return server;
+      };
+      /** A sign-in with a token, and each token it asked for (`fresh` or not). */
+      const asked: boolean[] = [];
+      const withToken = (imapPort: number, smtpPort: number) => ({
+        imap: local(imapPort),
+        smtp: local(smtpPort),
+        oauth: true,
+        login: async (fresh = false) => (asked.push(fresh), login),
+      });
+
+      // SMTP: an EHLO without XOAUTH2 is not tried, and says so; nothing goes to the server.
+      const plain = await servers(fakeSmtp());
+      const notOffered = sendMail(local(plain.port), login, envelope, 'x', slow(2000));
+      await expect(notOffered).rejects.toThrow('The mail server 127.0.0.1 does not take a sign-in with a token (XOAUTH2)');
+      expect(await notOffered.catch((e: unknown) => e)).not.toBeInstanceOf(SmtpLoginError);
+      expect(plain.lines.some((l) => /^AUTH\b/i.test(l))).toBe(false);
+      // A 4xx (try later) and another 5xx (504: not offered after all) are no refusal of the token; 530, 534 and 535 are.
+      for (const [answer, refused] of [
+        ['454 4.7.0 Temporary authentication failure', false],
+        ['421 4.7.0 Try again later, closing connection', false],
+        ['504 5.7.4 Unrecognized authentication type', false],
+        ['530 5.7.0 Authentication required', true],
+        ['534 5.7.9 Authentication mechanism is too weak', true],
+        ['535 5.7.8 Authentication credentials invalid', true],
+      ] as const) {
+        const server = await servers(fakeSmtp(undefined, { bearer: good, authAnswer: answer }));
+        asked.length = 0;
+        const sent = sendMailAs(withToken(1, server.port), envelope, 'x', slow(2000));
+        await expect(sent).rejects.toThrow(answer);
+        expect((await sent.catch((e: unknown) => e)) instanceof SmtpLoginError).toBe(refused);
+        // Renewed once only after a refusal of the token itself.
+        expect(asked).toEqual(refused ? [false, true] : [false]);
+        expect(server.sent).toEqual([]);
+      }
+      // A refusal of the new token too: said, after one renewal, and nothing sent.
+      const refusing = await servers(fakeSmtp(undefined, { bearer: () => false, refusal: 'microsoft' }));
+      asked.length = 0;
+      await expect(sendMailAs(withToken(1, refusing.port), envelope, 'x', slow(2000))).rejects.toBeInstanceOf(SmtpLoginError);
+      expect(asked).toEqual([false, true]);
+      expect(refusing.xoauth2).toHaveLength(2);
+      expect(refusing.sent).toEqual([]);
+      // An empty 334 asks for the response (a server that does not take it with the command): sent then, on its own line.
+      const asks = await servers(fakeSmtp(undefined, { bearer: good, asksResponse: true }));
+      expect(await sendMail(local(asks.port), login, envelope, 'Subject: hi\r\n\r\nHello', slow(2000))).toBe('OK queued as FAKE123');
+      expect(asks.lines.slice(1, 3)).toEqual([`AUTH XOAUTH2 ${xoauth2(user, 'good-token')}`, xoauth2(user, 'good-token')]);
+      expect(asks.sent).toHaveLength(1);
+
+      // IMAP: a NO before the token was sent is a server that does not take one: said, and not renewed.
+      const noXoauth2 = await servers(fakeImap([]));
+      asked.length = 0;
+      const notTaken = openImap(withToken(noXoauth2.port, 1), slow(2000));
+      await expect(notTaken).rejects.toThrow(
+        /^The mail server 127\.0\.0\.1 does not take a sign-in with a token \(XOAUTH2\): NO \[CANNOT\] Unsupported authentication mechanism$/,
+      );
+      expect(await notTaken.catch((e: unknown) => e)).not.toBeInstanceOf(ImapLoginError);
+      expect(asked).toEqual([false]);
+      expect(noXoauth2.commands).toEqual(['R1 AUTHENTICATE XOAUTH2']);
+      // A server that asks again after the empty line that answered its reason is not one that takes the token: no refusal, not renewed.
+      const again = await servers(fakeImap([], undefined, { bearer: () => false, askAgain: true }));
+      asked.length = 0;
+      const looping = openImap(withToken(again.port, 1), slow(2000));
+      await expect(looping).rejects.toThrow("The mail server did not accept the sign-in's token: status 400");
+      expect(await looping.catch((e: unknown) => e)).not.toBeInstanceOf(ImapLoginError);
+      expect(asked).toEqual([false]);
+      expect(again.commands.filter((c) => c === '')).toHaveLength(1);
+      // Untagged responses before the go-ahead and before the answer are read past.
+      const chatty = await servers(fakeImap([], undefined, { bearer: good, chatty: true }));
+      const c = await ImapClient.open(local(chatty.port), login, slow(2000));
+      expect(c.capabilities.has('IMAP4REV1')).toBe(true);
+      await c.logout();
+      // A reason that is not JSON (nor JSON with a status) is said as its text, its control characters as spaces.
+      const textual = await servers(
+        fakeImap([], undefined, { bearer: () => false, challenge: Buffer.from('Token expired\r\nsign in again').toString('base64') }),
+      );
+      await expect(ImapClient.open(local(textual.port), { username: user, token: 'stale' }, slow(2000))).rejects.toThrow(
+        "The mail server did not accept the sign-in's token: [AUTHENTICATIONFAILED] Invalid credentials (Failure) (Token expired sign in again)",
+      );
+      expect(xoauth2Detail(Buffer.from('{"schemes":"bearer"}').toString('base64'))).toBe('{"schemes":"bearer"}');
+      expect(xoauth2Detail(Buffer.from('{"status":401}').toString('base64'))).toBe('status 401');
+    }));
+
+  it('tries a refused password once: only a sign-in with a token is renewed and tried again', () =>
+    withLang('en', async () => {
+      const passwordImap = await fakeImap([]);
+      const passwordSmtp = await fakeSmtp();
+      closers.push(passwordImap.close, passwordSmtp.close);
+      const m = mailLogin(
+        {
+          id: 'work',
+          name: 'Work',
+          address: 'me@example.com',
+          username: 'me@example.com',
+          imap: local(passwordImap.port),
+          smtp: local(passwordSmtp.port),
+        },
+        'wrong',
+      );
+      expect(m.oauth).toBe(false);
+      await expect(openImap(m, slow(2000))).rejects.toBeInstanceOf(ImapLoginError);
+      expect(passwordImap.commands.filter((c) => / LOGIN /.test(c))).toHaveLength(1);
+      await expect(withSmtpLogin(m, async () => undefined, slow(2000))).rejects.toBeInstanceOf(SmtpLoginError);
+      expect(passwordSmtp.lines.filter((l) => /^AUTH /.test(l))).toHaveLength(1);
+    }));
+
+  it('sends a token over STARTTLS only once TLS started: a server that cannot start it gets nothing of it, and it is not renewed', () =>
+    withLang('en', async () => {
+      const token = 'secret-token';
+      const user = 'me@example.com';
+      // Stand-ins that answer STARTTLS's go-ahead, then speak no TLS: everything each was sent.
+      const got = { imap: '', smtp: '' };
+      const listen = async (kind: 'imap' | 'smtp') => {
+        const server = createServer((sock) => {
+          let started = false;
+          sock.on('error', () => undefined);
+          sock.write(kind === 'imap' ? '* OK [CAPABILITY IMAP4rev1 STARTTLS AUTH=XOAUTH2] ready\r\n' : '220 fake ready\r\n');
+          sock.on('data', (chunk: Buffer) => {
+            got[kind] += chunk.toString('latin1');
+            if (started) return void sock.end('this is no TLS\r\n');
+            const line = chunk.toString('utf8');
+            if (kind === 'imap' && /^\S+ STARTTLS\r\n$/.test(line)) {
+              started = true;
+              sock.write(`${line.split(' ')[0]} OK Begin TLS negotiation now\r\n`);
+            } else if (kind === 'smtp' && /^EHLO/.test(line)) sock.write('250-fake\r\n250-STARTTLS\r\n250 AUTH XOAUTH2\r\n');
+            else if (kind === 'smtp' && /^STARTTLS/.test(line)) {
+              started = true;
+              sock.write('220 2.0.0 Ready to start TLS\r\n');
+            }
+          });
+        });
+        await new Promise<void>((r) => server.listen(0, 'localhost', () => r()));
+        closers.push(() => new Promise((r) => server.close(r)));
+        return (server.address() as { port: number }).port;
+      };
+      const [imapPort, smtpPort] = [await listen('imap'), await listen('smtp')];
+      const asked: boolean[] = [];
+      const oauth: MailOAuth = {
+        mailVia: () => ({
+          imap: { host: 'localhost', port: imapPort, security: 'starttls' },
+          smtp: { host: 'localhost', port: smtpPort, security: 'starttls' },
+          username: user,
+        }),
+        mailToken: async (_id, fresh) => (asked.push(Boolean(fresh)), token),
+        problem: () => undefined,
+        signInState: () => 'connected 1',
+      };
+      const m = mailLogin(
+        { id: 'work', name: 'Work', address: user, username: user, imap: local(1), smtp: local(1), oauth: 'microsoft-me-abc123' },
+        '',
+        oauth,
+      );
+      await expect(openImap(m, slow(5000))).rejects.toThrow(/TLS with localhost (failed|did not start)/);
+      await expect(withSmtpLogin(m, async () => undefined, slow(5000))).rejects.toThrow(/TLS with localhost (failed|did not start)/);
+      for (const sent of Object.values(got)) {
+        expect(sent).toMatch(/STARTTLS\r\n/);
+        expect(sent).not.toMatch(/AUTH/);
+        expect(sent).not.toContain(token);
+        expect(sent).not.toContain(xoauth2(user, token));
+      }
+      // A TLS that failed is no refused token: one token asked for each, none renewed.
+      expect(asked).toEqual([false, false]);
     }));
 });
 
@@ -339,6 +530,168 @@ describe('a Microsoft sign-in for mail', () => {
       expect(service.view().accounts[0]!.status).toBe('connected');
       expect(connectors.view().calendar).toEqual([]);
     }));
+
+  it("checks at a sign-in for one use that the account's other uses still get their tokens, refusing one that lost its consent and keeping the account as it was", () =>
+    withLang('en', async () => {
+      const id = (await signIn(['calendar'])).account!.id;
+      const kept = keyring.values.get(`oauth-${id}`);
+      // The calendar's consent taken away at Microsoft meanwhile: a sign-in for mail alone would leave the
+      // calendar without it, and the next calendar refresh would mark the whole account (mail too).
+      fake.consented.delete(`${fake.url}/Calendars.ReadWrite`);
+      expect(await signIn(['mail'])).toMatchObject({
+        status: 'failed',
+        error: expect.stringMatching(
+          /^Microsoft did not give access to the calendar: sign in again, and allow access to your calendar on the sign-in page \(invalid_grant: AADSTS65001: .*Calendars\.ReadWrite/,
+        ),
+      });
+      expect(service.view().accounts).toEqual([expect.objectContaining({ id, uses: ['calendar'], status: 'connected' })]);
+      expect(keyring.values.get(`oauth-${id}`)).toBe(kept);
+      expect(connectors.view().mail).toEqual([]);
+
+      // Use for mail, as Settings asks it: the account's uses with the new one, its address as the page's hint.
+      const started = await service.startSignIn({
+        provider: 'microsoft',
+        uses: ['mail'],
+        account: id,
+        session: 's1',
+        origin: 'http://127.0.0.1:8787',
+        port: 8787,
+      });
+      const q = new URL(started.authorizeUrl!).searchParams;
+      expect(q.get('login_hint')).toBe('ming@contoso.com');
+      expect(q.get('scope')!.split(' ')).toEqual(
+        expect.arrayContaining([`${fake.url}/Calendars.ReadWrite`, `${OUTLOOK}/IMAP.AccessAsUser.All`, `${OUTLOOK}/SMTP.Send`]),
+      );
+      const done = await service.signIns.callback(callbackParams(fake.allow(started.authorizeUrl!)));
+      expect(done.account).toMatchObject({ id, uses: ['calendar', 'mail'], status: 'connected' });
+      expect(connectors.view().mail).toHaveLength(1);
+
+      // A sign-in for mail alone with the calendar's consent there: the calendar's token asked for at once
+      // with the new refresh token (after mail's, which rotated it), and kept.
+      const before = grants('refresh_token').length;
+      expect((await signIn(['mail'])).status).toBe('done');
+      const asked = grants('refresh_token')
+        .slice(before)
+        .map((r) => new URLSearchParams(r.body));
+      expect(asked.map((f) => f.get('scope'))).toEqual([
+        `openid email profile offline_access ${OUTLOOK}/IMAP.AccessAsUser.All ${OUTLOOK}/SMTP.Send`,
+        `openid email profile offline_access ${fake.url}/User.Read ${fake.url}/Calendars.ReadWrite`,
+      ]);
+      expect(asked[1]!.get('refresh_token')).not.toBe(asked[0]!.get('refresh_token'));
+      const requests = fake.requests.length;
+      expect(fake.resources.get(await service.broker.accessToken(id, 'calendar'))).toBe('graph');
+      expect(fake.requests).toHaveLength(requests);
+      expect(fake.refreshTokens.get(keyring.values.get(`oauth-${id}`)!)).toBe(true);
+
+      // Only an account of the provider asked for, and one that is there.
+      service.saveClient('google', { clientId: fake.google.clientId, secret: fake.google.secret });
+      await expect(service.startSignIn({ provider: 'google', uses: ['mail'], account: id, port: 8787 })).rejects.toMatchObject({
+        status: 400,
+        message: 'Invalid value for "account"',
+      });
+      await expect(service.startSignIn({ provider: 'microsoft', uses: ['mail'], account: 'nobody', port: 8787 })).rejects.toMatchObject({
+        status: 404,
+      });
+    }));
+
+  it('adds the mail account and the calendar only at the first sign-in for them: one removed since stays removed, and is added by hand under a free name', async () => {
+    const id = (await signIn(['mail'])).account!.id;
+    expect(connectors.view().mail.map((m) => m.oauth)).toEqual([id]);
+    connectors.delete('mail', id);
+    // Signed in again for mail, then for the calendar as well (its first): only the calendar is added.
+    await signIn(['mail']);
+    expect(connectors.view().mail).toEqual([]);
+    await signIn(['calendar', 'mail']);
+    expect(connectors.view().mail).toEqual([]);
+    expect(connectors.view().calendar.map((c) => c.oauth)).toEqual([id]);
+    connectors.delete('calendar', connectors.view().calendar[0]!.id);
+    await signIn(['calendar', 'mail']);
+    expect(connectors.view().calendar).toEqual([]);
+    expect(service.view().accounts[0]).toMatchObject({ uses: ['calendar', 'mail'], status: 'connected' });
+
+    // Added by hand (Use for mail): its name taken meanwhile by another mail account, it gets a free one.
+    connectors.saveMail('outlook', {
+      name: 'Outlook · ming@contoso.com',
+      address: 'ming@contoso.com',
+      username: 'ming@contoso.com',
+      password: 'app-pass',
+      imap: { host: 'outlook.office365.com', port: 993, security: 'tls' },
+      smtp: { host: 'smtp.office365.com', port: 587, security: 'starttls' },
+    });
+    const added = service.addMail(id).mail.find((m) => m.oauth === id);
+    expect(added).toMatchObject({ id, name: 'Outlook · ming@contoso.com (2)' });
+    // Once: added again, it stays as it is.
+    expect(service.addMail(id).mail.filter((m) => m.oauth === id)).toHaveLength(1);
+  });
+
+  it('signs in for mail on another device, with a code, and gets the token for mail at once', async () => {
+    const started = await service.startSignIn({ provider: 'microsoft', uses: ['mail'], session: 's1', port: 8787, device: true });
+    expect(started.device).toBeDefined();
+    fake.typeCode(started.device!.userCode);
+    await vi.waitFor(() => expect(service.signIn(started.id, 's1').status).toBe('done'), { interval: 20 });
+    const account = service.view().accounts[0]!;
+    expect(account).toMatchObject({ email: 'ming@contoso.com', uses: ['mail'], status: 'connected' });
+    expect(connectors.view().mail.map((m) => m.oauth)).toEqual([account.id]);
+    // The device code's token is Graph's (who signed in); mail's came at once from the refresh token.
+    expect(grants('refresh_token').map((r) => new URLSearchParams(r.body).get('scope'))).toEqual([
+      `openid email profile offline_access ${OUTLOOK}/IMAP.AccessAsUser.All ${OUTLOOK}/SMTP.Send`,
+    ]);
+    const requests = fake.requests.length;
+    expect((await tools().mail_search!.run!({}, ctx)).text).toContain('Lunch?');
+    expect(fake.requests).toHaveLength(requests);
+    expect(imap.xoauth2).toEqual([{ user: 'ming@contoso.com', token: expect.stringMatching(/^access-/), ok: true }]);
+  });
+
+  it('lets a refresh queued behind another ask nothing once the account was signed in again or removed meanwhile', () =>
+    withLang('en', async () => {
+      const id = (await signIn(['calendar', 'mail'])).account!.id;
+      // Both tokens about to run out: the calendar's refresh held at Microsoft, mail's queued behind it.
+      now += 59 * MIN;
+      let held = gate();
+      fake.hold = { grant: 'refresh_token', until: held.until };
+      let before = grants('refresh_token').length;
+      let calendar = service.broker.accessToken(id, 'calendar');
+      await vi.waitFor(() => expect(grants('refresh_token')).toHaveLength(before + 1), { interval: 10 });
+      let mail = service.mailToken(id);
+      // Signed in again meanwhile (its own refresh for mail's token goes through).
+      fake.hold = undefined;
+      expect((await signIn(['calendar', 'mail'])).account!.id).toBe(id);
+      const kept = keyring.values.get(`oauth-${id}`)!;
+      const asked = grants('refresh_token').length;
+      held.open();
+      const [c, m] = await Promise.all([calendar, mail]);
+      // The queued refresh never sent the refresh token (it would have rotated the new sign-in's away,
+      // unkept); nothing the held one brought back was written; each caller got the new sign-in's token.
+      expect(grants('refresh_token')).toHaveLength(asked);
+      expect(keyring.values.get(`oauth-${id}`)).toBe(kept);
+      expect(fake.refreshTokens.get(kept)).toBe(true);
+      expect([fake.resources.get(c), fake.resources.get(m)]).toEqual(['graph', 'outlook']);
+      expect([fake.accessTokens.get(c), fake.accessTokens.get(m)]).toEqual([true, true]);
+      expect(service.view().accounts[0]!.status).toBe('connected');
+
+      // Removed meanwhile, its refresh token still readable (the credential store refused to delete it):
+      // the queued refresh does not send it either.
+      now += 59 * MIN;
+      held = gate();
+      fake.hold = { grant: 'refresh_token', until: held.until };
+      before = grants('refresh_token').length;
+      calendar = service.broker.accessToken(id, 'calendar');
+      await vi.waitFor(() => expect(grants('refresh_token')).toHaveLength(before + 1), { interval: 10 });
+      mail = service.mailToken(id);
+      vi.spyOn(keyring, 'delete').mockImplementation(() => {
+        throw new Error('The keychain is locked');
+      });
+      await service.removeAccount(id);
+      expect(keyring.values.get(`oauth-${id}`)).toBe(kept);
+      fake.hold = undefined;
+      held.open();
+      await expect(calendar).rejects.toThrow('The account that signed in is not there any more');
+      await expect(mail).rejects.toThrow('The account that signed in is not there any more');
+      // The held one alone was sent; what it brought back (a rotated refresh token) was not written.
+      expect(grants('refresh_token')).toHaveLength(before + 1);
+      expect(keyring.values.get(`oauth-${id}`)).toBe(kept);
+      expect(service.view().accounts).toEqual([]);
+    }));
 });
 
 describe('the mail tools through a sign-in', () => {
@@ -398,6 +751,15 @@ describe('the mail tools through a sign-in', () => {
       );
       expect(grants('refresh_token')).toHaveLength(before + 1);
       expect(service.view().accounts[0]!.status).toBe('connected');
+      // The same at Send (SMTP AUTH turned off for the mailbox): renewed once, said, and nothing sent.
+      before = grants('refresh_token').length;
+      const smtpLogins = smtp.xoauth2.length;
+      await expect(t.mail_send!.send!({ to: 'bob@example.com', subject: 'x', body: 'y', accountId: id }, {} as OutboxItem)).rejects.toThrow(
+        "The mail server did not accept the sign-in's token: 535 5.7.3 Authentication unsuccessful",
+      );
+      expect(smtp.xoauth2.slice(smtpLogins).map((x) => x.ok)).toEqual([false, false]);
+      expect(grants('refresh_token')).toHaveLength(before + 1);
+      expect(smtp.sent).toHaveLength(1);
       refuseAll = false;
 
       // Its refresh refused for good: it needs a new sign-in, said before any mail server is asked.
@@ -474,7 +836,35 @@ describe('the mail tools through a sign-in', () => {
     }));
 });
 
+describe('a mail account that signs in, across a restart', () => {
+  it('is read back with its account: the refresh token from the credential store, a new token for mail asked at its first use', () =>
+    withLang('en', async () => {
+      const id = (await signIn(['mail'])).account!.id;
+      const before = grants('refresh_token').length;
+      // Started again: the stores read back from the database and the credential store, no access token in memory.
+      connectors = new ConnectorStore(db, keyring);
+      service = newService(new OAuthStore(db, keyring), connectors);
+      expect(connectors.view().mail).toEqual([expect.objectContaining({ id, oauth: id, address: 'ming@contoso.com', password: '' })]);
+      expect(service.view().accounts).toEqual([expect.objectContaining({ id, uses: ['mail'], status: 'connected' })]);
+      expect((await tools().mail_search!.run!({}, ctx)).text).toContain('Lunch?');
+      expect(grants('refresh_token')).toHaveLength(before + 1);
+      expect(new URLSearchParams(grants('refresh_token').at(-1)!.body).get('scope')).toContain(`${OUTLOOK}/IMAP.AccessAsUser.All`);
+      expect(imap.xoauth2.at(-1)).toMatchObject({ user: 'ming@contoso.com', ok: true });
+    }));
+});
+
 describe("Google's incremental consent for mail", () => {
+  it('never hands the token kept for the calendar to mail before the account was signed in for mail, although it is one token for all', () =>
+    withLang('en', async () => {
+      const id = (await signIn(['calendar'], 'google')).account!.id;
+      const requests = fake.requests.length;
+      await expect(service.mailToken(id)).rejects.toThrow(
+        'ming@gmail.com was not signed in for mail: click Use for mail for it in Settings → Tool library first',
+      );
+      expect(fake.requests).toHaveLength(requests);
+      expect(await service.broker.accessToken(id, 'calendar')).toMatch(/^access-/);
+    }));
+
   it("asks for Gmail's scope alone, keeping the calendar's granted before, and fails a sign-in that lost it or was not given Gmail's", () =>
     withLang('en', async () => {
       const calendarOnly = (await signIn(['calendar'], 'google')).account!;
@@ -519,17 +909,19 @@ describe('the mail trigger and IMAP IDLE through a sign-in', () => {
       expect(first).toEqual({ state: { uidValidity: 7, lastUid: 2 }, total: 0 });
       messages.push(message(3, 'Dan <dan@example.com>', 'Invoice 43'));
       const prev = { key: triggerKey(trigger), nextCheckAt: 0, ...first.state };
-      const found = await checkMail(trigger, prev, connectors, 2000, service);
+      const found = await checkMail(trigger, prev, connectors, slow(2000), service);
       expect(found.total).toBe(1);
       expect(JSON.parse(found.event!)).toMatchObject({ account: 'Outlook · ming@contoso.com', mails: [{ subject: 'Invoice 43' }] });
       expect(imap.xoauth2.every((x) => x.ok && x.user === 'ming@contoso.com')).toBe(true);
 
       now += 61 * MIN;
       fake.refreshAnswer = invalidGrant;
-      await expect(checkMail(trigger, prev, connectors, 2000, service)).rejects.toThrow('The sign-in of ming@contoso.com no longer works');
+      await expect(checkMail(trigger, prev, connectors, slow(2000), service)).rejects.toThrow(
+        'The sign-in of ming@contoso.com no longer works',
+      );
       // Said again, from the account itself, without asking Microsoft.
       const asked = fake.requests.length;
-      await expect(checkMail(trigger, prev, connectors, 2000, service)).rejects.toBeInstanceOf(MailSignInError);
+      await expect(checkMail(trigger, prev, connectors, slow(2000), service)).rejects.toBeInstanceOf(MailSignInError);
       expect(fake.requests).toHaveLength(asked);
       fake.refreshAnswer = undefined;
     }));
@@ -547,7 +939,7 @@ describe('the mail trigger and IMAP IDLE through a sign-in', () => {
       backoffMs: [20],
       loginBackoffMs: [60_000],
       renewMs: 60_000,
-      timeoutMs: 2000,
+      timeoutMs: slow(2000),
     });
     closers.push(() => watcher.stop());
     watcher.sync();
@@ -562,15 +954,26 @@ describe('the mail trigger and IMAP IDLE through a sign-in', () => {
     expect(imap.xoauth2[1]!.ok).toBe(true);
     expect(imap.xoauth2[1]!.token).not.toBe(imap.xoauth2[0]!.token);
 
-    // Its refresh refused for good: the connection that drops is not opened again for as long as a refused password waits.
+    // Its refresh refused for good: the connection that drops is not opened again for as long as a refused
+    // password waits (60 s here), not at the 20 ms a dropped connection waits: the account is not even
+    // asked again meanwhile, nor a token.
     now += 61 * MIN;
     fake.refreshAnswer = invalidGrant;
     imap.drop();
     await vi.waitFor(() => expect(service.view().accounts[0]!.status).toBe('reauth'));
+    const problem = vi.spyOn(service, 'problem');
+    const token = vi.spyOn(service, 'mailToken');
+    // Its sign-in's state changed: a new connection, which finds at once that the account needs a new sign-in.
     watcher.sync();
-    await sleep(200);
+    const asked = problem.mock.calls.length;
+    expect(asked).toBeGreaterThan(0);
+    await sleep(slow(300));
+    expect(problem.mock.calls.length).toBe(asked);
+    expect(token).not.toHaveBeenCalled();
     expect(imap.xoauth2).toHaveLength(2);
     expect(imap.idling).toBe(0);
+    problem.mockRestore();
+    token.mockRestore();
 
     // Signed in again: the next sync connects at once.
     fake.refreshAnswer = undefined;
@@ -580,6 +983,51 @@ describe('the mail trigger and IMAP IDLE through a sign-in', () => {
     await vi.waitFor(() => expect(imap.idling).toBe(1));
     expect(imap.xoauth2).toHaveLength(3);
     expect(imap.xoauth2[2]!.ok).toBe(true);
+  });
+
+  it("connects again at once with a fresh token when the server ends a session that listened a while (Exchange Online's AccessTokenExpired), without a warning", async () => {
+    imap.idle = true;
+    const id = (await signIn(['mail'])).account!.id;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    let clock = T0;
+    const checked: string[] = [];
+    const watcher = new IdleWatcher({
+      connectors,
+      oauth: service,
+      watching: () => [{ conversationId: 'c1', trigger: { source: 'mail', account: id, folder: 'INBOX' } }],
+      check: async (c) => void checked.push(c),
+      settleMs: 20,
+      // A failure would wait a minute: a connection that comes at once is no failure.
+      backoffMs: [60_000],
+      loginBackoffMs: [60_000],
+      renewMs: 60_000,
+      timeoutMs: slow(2000),
+      now: () => clock,
+    });
+    closers.push(() => watcher.stop());
+    watcher.sync();
+    await vi.waitFor(() => expect(imap.idling).toBe(1));
+    // It listened a whole round's while (30 s here), then the server ended the session of its token.
+    clock += 31_000;
+    const before = grants('refresh_token').length;
+    imap.bye('Session invalidated - AccessTokenExpired');
+    await vi.waitFor(() => expect(imap.xoauth2).toHaveLength(2));
+    await vi.waitFor(() => expect(imap.idling).toBe(1));
+    // A fresh token (asked although the kept one had not run out by the clock here), taken; no warning;
+    // and a check, for mail that came while it was not listening.
+    expect(grants('refresh_token')).toHaveLength(before + 1);
+    expect(imap.xoauth2[1]).toMatchObject({ ok: true });
+    expect(imap.xoauth2[1]!.token).not.toBe(imap.xoauth2[0]!.token);
+    expect(warn).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(checked).toEqual(['c1']));
+
+    // A BYE soon after it began to listen is a failure: said, and waited for.
+    imap.bye('Session invalidated - AccessTokenExpired');
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1));
+    expect(String(warn.mock.calls[0]![0])).toContain('AccessTokenExpired');
+    await sleep(slow(200));
+    expect(imap.xoauth2).toHaveLength(2);
+    expect(imap.idling).toBe(0);
   });
 });
 
@@ -591,12 +1039,13 @@ describe('/api: mail accounts that sign in', () => {
     const store = new Store(db);
     const hub = new Hub();
     const auth = new AuthStore(db);
+    const orchestrator = new Orchestrator(store, hub, settings);
     const app = createApp({
       auth,
       store,
       settings,
       hub,
-      orchestrator: new Orchestrator(store, hub, settings),
+      orchestrator,
       providers: new ProviderService(settings),
       oauth: service,
     });
@@ -614,7 +1063,7 @@ describe('/api: mail accounts that sign in', () => {
         headers: { ...headers, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       });
-    return { call, HOST };
+    return { call, HOST, orchestrator };
   }
   const error = async (res: Response) => ((await res.json()) as { error: string }).error;
 
@@ -625,6 +1074,12 @@ describe('/api: mail accounts that sign in', () => {
       expect(bad.status).toBe(400);
       expect(await error(bad)).toContain('uses');
     }
+    for (const account of [42, '', 'x'.repeat(65)]) {
+      const bad = await call('POST', '/api/oauth/signins', { provider: 'microsoft', uses: ['mail'], account });
+      expect(bad.status).toBe(400);
+      expect(await error(bad)).toContain('account');
+    }
+    expect((await call('POST', '/api/oauth/signins', { provider: 'microsoft', uses: ['mail'], account: 'nobody' })).status).toBe(404);
     const started = (await (
       await call('POST', '/api/oauth/signins', { provider: 'microsoft', uses: ['mail'], origin: 'http://localhost:5173' })
     ).json()) as OAuthSignInView;
@@ -679,6 +1134,52 @@ describe('/api: mail accounts that sign in', () => {
     const removed = (await (await call('DELETE', `/api/oauth/accounts/${id}`, {})).json()) as OAuthView & { connectors: ConnectorsView };
     expect(removed.connectors.mail).toEqual([]);
     expect(removed.accounts.map((a) => a.provider)).toEqual(['google']);
+  });
+
+  it('signs an account in again for its uses with its address as the hint, and sends an outbox item through its route over XOAUTH2', async () => {
+    const { call, orchestrator } = await signedInApp();
+    const id = (await signIn(['calendar'])).account!.id;
+    // Use for mail: the account's uses with mail, its address as the sign-in page's hint.
+    const started = (await (
+      await call('POST', '/api/oauth/signins', { provider: 'microsoft', uses: ['mail'], account: id, origin: 'http://localhost:5173' })
+    ).json()) as OAuthSignInView;
+    const q = new URL(started.authorizeUrl!).searchParams;
+    expect(q.get('login_hint')).toBe('ming@contoso.com');
+    expect(q.get('scope')).toContain('Calendars.ReadWrite');
+    expect(q.get('scope')).toContain(`${OUTLOOK}/SMTP.Send`);
+    await call('POST', '/api/oauth/callback', callbackParams(fake.allow(started.authorizeUrl!)));
+    expect(((await (await call('GET', '/api/oauth')).json()) as OAuthView).accounts[0]).toMatchObject({ id, uses: ['calendar', 'mail'] });
+
+    // An agent's mail waits in the outbox; the user's Send, through its route, sends it from the account
+    // its card showed, signed in with a token (the one kept refused: renewed once).
+    const project = join(root, 'project');
+    mkdirSync(project, { recursive: true });
+    const conv = (await (
+      await call('POST', '/api/conversations', {
+        agents: [{ name: 'Alice', provider: 'claude', role: '' }],
+        settings: { mode: 'roundtable', permission: 'edit', cwd: project },
+      })
+    ).json()) as { id: string };
+    orchestrator.outbox = new Outbox(db);
+    orchestrator.gateway = { tool: (name: string) => tools()[name] } as never;
+    const args = tools().mail_send!.bind!({ to: 'bob@example.com', subject: 'Paid', body: 'Done.' });
+    const { item } = orchestrator.outbox.add(
+      { convId: conv.id, messageId: 'm', agentId: 'a', agentName: 'Alice', tool: 'mail_send', title: 'Paid', preview: { fields: [] } },
+      args,
+    );
+    fake.accessTokens.set(await service.mailToken(id), false);
+    expect(smtp.sent).toEqual([]);
+    const sent = await call('POST', `/api/conversations/${conv.id}/outbox/${item.id}`, { action: 'send' });
+    expect(sent.status).toBe(200);
+    expect(await sent.json()).toMatchObject({ id: item.id, status: 'sent', result: expect.stringContaining('127.0.0.1') });
+    expect(smtp.sent).toEqual([expect.objectContaining({ from: 'ming@contoso.com', to: ['bob@example.com'] })]);
+    expect(smtp.xoauth2.map((x) => [x.user, x.ok])).toEqual([
+      ['ming@contoso.com', false],
+      ['ming@contoso.com', true],
+    ]);
+    // Once: a second Send is refused, and nothing goes twice.
+    expect((await call('POST', `/api/conversations/${conv.id}/outbox/${item.id}`, { action: 'send' })).status).toBe(409);
+    expect(smtp.sent).toHaveLength(1);
   });
 
   it('says in Test that the account needs a new sign-in, without a 5xx', async () => {
