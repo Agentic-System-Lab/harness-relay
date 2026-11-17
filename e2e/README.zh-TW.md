@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 35 個 spec 檔、467 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 36 個 spec 檔、468 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -51,6 +51,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 22 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
+| [用 OAuth 登入的帳號](#用-oauth-登入的帳號) | [`oauth.spec.ts`](specs/oauth.spec.ts) | 1 | [使用者說明 → Harness Relay 的工具](../docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)、[提案 → OAuth](../docs/proposals/oauth.zh-TW.md) |
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 11 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 11 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
@@ -296,6 +297,14 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 完全存取以下，Codex 透過本機 HTTP 使用 Harness Relay 自己的工具，不啟動任何程式，它的郵件在待送出匣等待 | Codex | 在可編輯模式下，把**郵件**給 Codex：假 Codex 在 thread 設定中拿到 gateway，是 `127.0.0.1` 上的 HTTP server，這一回合的權杖放在 `http_headers`；它像 Codex 一樣詢問 `relay:mail_send`（由 Harness Relay 代為回答：沒有卡片），再連過去呼叫，回覆說郵件在待送出匣等待，並有它的卡片。權杖不在 Codex 啟動時的任何參數中。 |
 | 完全存取以下，Copilot 透過本機 HTTP 使用 Harness Relay 自己的工具，權杖只在 header 裡，它的郵件在待送出匣等待 | Copilot | 在可編輯模式下，把**郵件**給 Copilot：假 Copilot（和真的一樣只接受 HTTP 與 SSE 的 MCP server）在 `session/new` 拿到 gateway，是 `127.0.0.1` 上的 HTTP server，這一回合的權杖放在 `Authorization` header；它在那裡呼叫 `mail_send`，沒有卡片：回覆說郵件在待送出匣等待，並附上它的卡片。啟動 Copilot 的參數中都沒有這個權杖。 |
 | 完全存取以下，CLI 自己對 Harness Relay 工具的詢問由 Harness Relay 代為回答，gateway 則對 act 呼叫說明它會做什麼並詢問 | Claude Code | 在可編輯模式下，這台電腦上有一個行事曆（收下放進來的活動的替身），並把 **行事曆** 給 Claude Code，假 CLI 呼叫 `calendar_create`：它自己對 `mcp__relay__calendar_create` 的詢問沒有卡片；gateway 的卡片（"wants to use a tool relay:calendar_create"）寫出要加的活動與時間，按 **允許**（Allow）之前什麼都不會加入；允許後替身收到活動，回覆說已經加入。 |
+
+## 用 OAuth 登入的帳號
+
+[`oauth.spec.ts`](specs/oauth.spec.ts)：**設定 → 工具庫 → 登入的帳號**（Accounts you sign in to），對這台電腦上 Microsoft 登入頁面與 Graph 的替身測試，測試的伺服器指向它（`RELAY_MICROSOFT_LOGIN_URL`、`RELAY_MICROSOFT_GRAPH_URL`）。
+
+| 情境 | CLI | 檢查的內容 |
+| --- | --- | --- |
+| 帳號在新分頁用 Microsoft 登入，回到 web app 自己的回呼頁面，它的行事曆加入行事曆工具 | — | 還沒有 app 時，這一區說明要先註冊一個；**設定 app**（Set up the app）顯示要允許的重新導向網址（`http://127.0.0.1/oauth/callback`），並填入用戶端 ID。**用 … 登入**（Sign in with …）在新分頁打開替身的頁面，「設定」顯示正在等待；它的 **Allow** 把那個分頁帶到 `/oauth/callback`，頁面顯示 **已登入 …**（Signed in as …），並把授權碼與 state 從網址拿掉；替身只看到一次用 PKCE 驗證碼交換授權碼。接著「設定」顯示帳號 **已連線**（Connected），它自己的行事曆出現在行事曆清單中，沒有 **編輯**（Edit）；**行事曆**（Calendars）列出它的其他行事曆，**加入**（Add）可以加入一個。**移除**（Remove，確認後）會說明要到 Microsoft 哪裡移除 app 的存取權，並移除帳號與它的行事曆。 |
 
 ## 修改對話的歷史
 
@@ -645,6 +654,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **GitHub 對 gh 的真正登入。** 分享對話框的登入跑的是假的 `gh`，它印出一組代碼後等測試核准；gh 真正的裝置登入只用手動檢查過（沒有終端機時它會印出代碼與 `github.com/login/device`，不會開瀏覽器），沒有經過 GitHub 的核准。
 - **gistpreview.github.io 上的分享頁。**測試開啟的是假 `gh` 存下的頁面，由測試自己的網址提供：gistpreview 自己那個把 gist 寫進自身的頁面沒有測。
 - **長時間追蹤的目標。**執行失敗後的重試（5、30、120 分鐘）、被重新啟動中斷的執行，以及排程本身的時間，是在單元測試中用假時鐘測的（`test/orchestrator-tracking.test.ts`）；端對端測試只用**立即執行一次**跑一次追蹤目標的排程。
+- **真的 OAuth 服務。** 登入只對 Microsoft 頁面與 Graph 的替身測試（[用 OAuth 登入的帳號](#用-oauth-登入的帳號)）；裝置代碼、貼上網址、被拒或過期的登入、權杖代理的更新，以及透過 Graph 的行事曆工具，在 `test/oauth.test.ts` 中測試。沒有登入過真的 Microsoft 或 Google 帳號，而用權杖使用 Google 日曆的 CalDAV 在任何地方都沒有測過。
 - **郵件觸發的檢查頻率。** [自動任務](#自動任務)用**立即檢查**來檢查；每 2 分鐘一次、失敗後放慢，以及重新啟動後保留的狀態，在 `test/orchestrator-watch.test.ts` 中用假時鐘測試，IMAP 的部分（UIDVALIDITY、條件、一次很多封）在 `test/watch.test.ts`。
 - **真的郵件與行事曆伺服器、TLS，以及其他 gateway 工具。** 郵件與行事曆工具是在單元測試中，對這台電腦上不加密的 IMAP、SMTP 與 CalDAV 替身伺服器測的（`test/connectors.test.ts`：後面還跟著其他內容的 STARTTLS 回應會在 TLS 開始前被拒絕），瀏覽器工具則在找得到 Chromium 時用真的 Chromium 測（`test/browser.test.ts`：包括檢查請求、彈出視窗與同時的呼叫）；端對端測試呼叫兩個 gateway 工具：`mail_send` 透過 Claude Code（經由 stdio 程式）、Codex 與 OpenCode（經由本機 HTTP）的假 CLI，`calendar_create` 透過 Claude Code 的；其他 CLI 的假 CLI 一個都不呼叫。沒有用任何真的服務（Gmail、iCloud、Fastmail）測過。
 - **Cursor 在暫存資料夾中不詢問就做的事。**真正的 Cursor 在暫存資料夾（`/tmp`、macOS 的 `/private/var/folders`）中寫入不會詢問；它的假 CLI 不會這樣，因為測試的資料夾都在暫存資料夾裡，否則寫到工作區之外的每個檔案都會不經詢問就寫入。也沒有 spec 試用 Cursor 團隊的自動執行允許清單（假 CLI 有一份，`E2E_FAKE_CURSOR_TEAM_ALLOW`）。真正的 Muse Code 的沙箱也讓它的指令寫入暫存資料夾；它的假 CLI 因為同樣的原因不會這樣。

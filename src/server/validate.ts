@@ -23,6 +23,7 @@ import {
   SCHEDULE_KINDS,
   SCHEDULE_LIMITS,
   WATCH_LIMITS,
+  OAUTH_PROVIDERS,
   TOOL_LIMITS,
   VOICE_LANGUAGES,
   cwdSettings,
@@ -49,6 +50,8 @@ import {
   type PushSubscriptionJson,
   type ScheduleRepeat,
   type ScheduleTrigger,
+  type OAuthClientUpdate,
+  type OAuthProviderId,
   type ScheduleUpdate,
   type ToolLibraryUpdate,
   type VoiceLanguage,
@@ -784,6 +787,46 @@ export function validatePushSubscription(input: unknown): { subscription: PushSu
 }
 
 // --- Mail accounts and calendars (the mail and calendar tools) ------------------------------------
+
+/** A provider of accounts that sign in with OAuth; any other is a 404. */
+export function validOAuthProvider(input: string): OAuthProviderId {
+  if (!(OAUTH_PROVIDERS as readonly string[]).includes(input)) throw new HttpError(404, t().invalidField('provider'));
+  return input as OAuthProviderId;
+}
+
+/**
+ * A provider's OAuth app: its client id (empty: none of the user's own), Microsoft's tenant (`common`,
+ * `organizations`, `consumers`, a tenant's id or domain), and a client secret (none: the kept one stays;
+ * empty: none).
+ */
+export function validateOAuthClient(input: unknown): OAuthClientUpdate {
+  const b = (input ?? {}) as Record<string, unknown>;
+  const clientId = typeof b.clientId === 'string' ? b.clientId.trim() : '';
+  if (clientId && !/^[A-Za-z0-9._:-]{1,200}$/.test(clientId)) bad(t().invalidField('clientId'));
+  const tenant = typeof b.tenant === 'string' ? b.tenant.trim() : '';
+  if (tenant && !/^[A-Za-z0-9.-]{1,100}$/.test(tenant)) bad(t().invalidField('tenant'));
+  if (b.secret !== undefined && b.secret !== null && (typeof b.secret !== 'string' || b.secret.length > 500 || /[\r\n\0]/.test(b.secret)))
+    bad(t().invalidField('secret'));
+  return {
+    clientId,
+    ...(tenant ? { tenant } : {}),
+    ...(typeof b.secret === 'string' ? { secret: b.secret.trim() } : {}),
+  };
+}
+
+/** One of an OAuth account's calendars to add to the calendar tools: a name, and its address (https). */
+export function validateOAuthCalendar(input: unknown): { name: string; url: string } {
+  const b = (input ?? {}) as Record<string, unknown>;
+  const raw = typeof b.url === 'string' ? b.url.trim() : '';
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    bad(t().connectorBadUrl);
+  }
+  if (url.username || url.password || url.hash || !['https:', 'http:'].includes(url.protocol)) bad(t().connectorBadUrl);
+  return { name: connectorName(b.name), url: url.href };
+}
 
 /** An account's id: a short slug the UI makes. */
 export function validConnectorId(input: string): string {

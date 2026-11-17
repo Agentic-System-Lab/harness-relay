@@ -4210,6 +4210,49 @@ video.chat-media {
   margin: 0;
 }
 
+/* Settings → Tool library → Accounts you sign in to (OAuth). */
+.oauth-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.oauth-accounts .ok-text {
+  color: var(--ok, var(--text));
+}
+
+.oauth-waiting {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.oauth-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.oauth-calendars {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.oauth-calendars li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .day-picker {
   display: flex;
   /* The seven days need about 310px in English: on a narrower phone they go on two rows rather

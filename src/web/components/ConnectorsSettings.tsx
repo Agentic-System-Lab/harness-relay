@@ -14,6 +14,7 @@ import {
   type MailForm,
 } from '../connectors';
 import { useT } from '../i18n';
+import { OAuthAccounts } from './OAuthAccounts';
 
 /**
  * Settings → Tool library → Mail and calendar: the accounts Harness Relay's mail and calendar tools
@@ -61,9 +62,12 @@ export function ConnectorsSettings() {
         <button type="button" className="ghost small-button" onClick={() => test(kind, a.id)}>
           {t.connectors.test}
         </button>
-        <button type="button" className="ghost small-button" onClick={() => setEditing({ kind, id: a.id })}>
-          {t.tools.edit}
-        </button>
+        {/* A calendar reached through a sign-in has no password to edit: removed and added again from its account. */}
+        {!('oauth' in a && a.oauth) && (
+          <button type="button" className="ghost small-button" onClick={() => setEditing({ kind, id: a.id })}>
+            {t.tools.edit}
+          </button>
+        )}
         <button
           type="button"
           className="icon-button danger"
@@ -113,7 +117,7 @@ export function ConnectorsSettings() {
               <CalendarEditor account={c} taken={view.calendar.map((x) => x.id)} change={change} onDone={() => setEditing(null)} />
             </li>
           ) : (
-            row('calendar', c, c.url)
+            row('calendar', c, c.oauth ? `${c.address ?? c.username} · ${c.oauth}` : c.url)
           ),
         )}
       </ul>
@@ -124,6 +128,8 @@ export function ConnectorsSettings() {
           {t.connectors.addCalendar}
         </button>
       )}
+
+      <OAuthAccounts onConnectors={setView} />
     </div>
   );
 }

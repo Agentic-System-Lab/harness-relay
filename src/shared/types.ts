@@ -194,7 +194,93 @@ export interface CalendarAccountView {
   /** The address invitations are sent from (the calendar's owner). */
   address?: string;
   password: string;
+  /**
+   * The account that signs in with OAuth this calendar is reached through (its id, `OAuthAccountView`),
+   * instead of a password: Microsoft's calendars over Graph, Google's over CalDAV with its token.
+   */
+  oauth?: string;
 }
+
+/** The providers whose accounts sign in with OAuth (`src/server/oauth/`). */
+export const OAUTH_PROVIDERS = ['microsoft', 'google'] as const;
+export type OAuthProviderId = (typeof OAUTH_PROVIDERS)[number];
+
+/** What an account that signs in with OAuth is used for: each use asks for its own scopes. */
+export type OAuthUse = 'calendar';
+
+/**
+ * The OAuth app (client) Harness Relay signs in to a provider with, as the UI sees it: its id, the
+ * user's own or Harness Relay's (`builtIn`), the tenant for Microsoft, whether a client secret is kept
+ * (Google's "secret" for desktop apps, masked), and the redirect addresses the app must allow.
+ */
+export interface OAuthClientView {
+  provider: OAuthProviderId;
+  clientId: string;
+  builtIn: boolean;
+  /** Microsoft: `common` (work, school and personal accounts), `organizations`, `consumers`, or a tenant's id. */
+  tenant?: string;
+  /** The client secret, masked ('' when none is kept). */
+  secret: string;
+  /** Microsoft's device code sign-in (on another device) can be used: its sign-in page, set in the environment, is not changed. */
+  device: boolean;
+}
+
+/** Saving a provider's OAuth app: an empty client id goes back to Harness Relay's own (none yet); without `secret`, the kept one stays. */
+export interface OAuthClientUpdate {
+  clientId: string;
+  tenant?: string;
+  secret?: string;
+}
+
+/** An account that signs in with OAuth, as the UI sees it: never a token. */
+export interface OAuthAccountView {
+  id: string;
+  provider: OAuthProviderId;
+  email: string;
+  /** Its name, when the provider says it. */
+  name?: string;
+  uses: OAuthUse[];
+  /** `reauth`: its sign-in no longer works (revoked, expired, its password changed): sign in again. */
+  status: 'connected' | 'reauth';
+  connectedAt: number;
+  /** Why it needs signing in again. */
+  error?: string;
+}
+
+export interface OAuthView {
+  clients: OAuthClientView[];
+  accounts: OAuthAccountView[];
+  /** Where the sign-ins' refresh tokens are kept. */
+  secretStorage: KeyStorage;
+}
+
+/**
+ * A sign-in under way, as the page that started it sees it: the provider's page to open (or, on
+ * another device, a code to type at an address), the redirect address that page goes back to, and
+ * how it went. `done` brings the account it signed in.
+ */
+export interface OAuthSignInView {
+  id: string;
+  provider: OAuthProviderId;
+  status: 'waiting' | 'done' | 'failed';
+  expiresAt: number;
+  authorizeUrl?: string;
+  redirectUri?: string;
+  device?: { userCode: string; verificationUri: string };
+  account?: OAuthAccountView;
+  error?: string;
+}
+
+/** A calendar an account that signs in with OAuth has, to add to the calendar tools. */
+export interface OAuthCalendar {
+  name: string;
+  url: string;
+  /** The calendar tools use it already: as this calendar (its id in Settings). */
+  addedAs?: string;
+}
+
+/** The longest a sign-in waits for the provider's page to send the browser back, and how many may wait at once. */
+export const OAUTH_LIMITS = { signInMinutes: 10, pending: 10 };
 
 export interface ConnectorsView {
   mail: MailAccountView[];

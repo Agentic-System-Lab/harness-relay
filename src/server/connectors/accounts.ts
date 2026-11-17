@@ -121,6 +121,8 @@ export class ConnectorStore {
   saveCalendar(id: string, u: CalendarAccountUpdate): ConnectorsView {
     const list = this.data.calendar;
     const i = list.findIndex((c) => c.id === id);
+    // A calendar reached through a sign-in never turns into one with a password: it is removed and added again.
+    if (i >= 0 && list[i]!.oauth) throw new HttpError(409, t().oauthCalendarFixed);
     if (i < 0 && list.length >= CONNECTOR_LIMITS.accounts) throw new HttpError(400, t().connectorTooMany(CONNECTOR_LIMITS.accounts));
     if (list.some((c) => c.id !== id && c.name.toLowerCase() === u.name.toLowerCase()))
       throw new HttpError(409, t().connectorNameTaken(u.name));
@@ -133,6 +135,47 @@ export class ConnectorStore {
     else list[i] = account;
     this.save();
     return this.view();
+  }
+
+  /**
+   * A calendar reached through an account that signs in with OAuth (`oauth`, its id): its name and its
+   * address at the provider, with no password; the account's address as its user name. Added, or
+   * renamed when it is there already.
+   */
+  saveOAuthCalendar(id: string, c: { name: string; url: string; oauth: string; email: string }): ConnectorsView {
+    const list = this.data.calendar;
+    const i = list.findIndex((x) => x.id === id);
+    if (i >= 0 && list[i]!.oauth !== c.oauth) throw new HttpError(409, t().connectorNameTaken(id));
+    if (i < 0 && list.length >= CONNECTOR_LIMITS.accounts) throw new HttpError(400, t().connectorTooMany(CONNECTOR_LIMITS.accounts));
+    if (list.some((x) => x.id !== id && x.name.toLowerCase() === c.name.toLowerCase()))
+      throw new HttpError(409, t().connectorNameTaken(c.name));
+    const account: StoredCalendar = { id, name: c.name, url: c.url, username: c.email, address: c.email, oauth: c.oauth };
+    if (i < 0) list.push(account);
+    else list[i] = account;
+    this.save();
+    return this.view();
+  }
+
+  /** The calendars reached through an account that signs in with OAuth (its id). */
+  oauthCalendars(oauth: string): StoredCalendar[] {
+    return this.data.calendar.filter((c) => c.oauth === oauth);
+  }
+
+  /** The account is gone: so are the calendars reached through it. */
+  removeOAuthCalendars(oauth: string): void {
+    const before = this.data.calendar.length;
+    this.data.calendar = this.data.calendar.filter((c) => c.oauth !== oauth);
+    if (this.data.calendar.length !== before) this.save();
+  }
+
+  /** Every calendar, without its password. */
+  calendarAccounts(): StoredCalendar[] {
+    return [...this.data.calendar];
+  }
+
+  /** The calendar ids taken (a new one's is not one of them). */
+  calendarIds(): string[] {
+    return this.data.calendar.map((c) => c.id);
   }
 
   delete(kind: 'mail' | 'calendar', id: string): ConnectorsView {

@@ -2,13 +2,16 @@ import { randomUUID } from 'node:crypto';
 import { validTimeZone, zonedTime } from '../../shared/schedule';
 import type { Login } from './imap';
 import { t } from '../i18n';
+import type { AuthorizedFetch } from '../oauth/providers';
 
 /*
  * A calendar over CalDAV (RFC 4791), enough for the calendar tools: the events in a time range
  * (`REPORT calendar-query`) and a new event (`PUT` of an iCalendar file, never over one that is
  * there). The calendar's address is its collection's own (iCloud, Fastmail, Nextcloud and most others
  * show it); redirects are not followed, so the password goes nowhere else. Times are written in UTC,
- * from a wall-clock time in a time zone, so no VTIMEZONE is needed.
+ * from a wall-clock time in a time zone, so no VTIMEZONE is needed. A calendar is reached with its
+ * password (Basic), or with an OAuth account's token (Google's), through that account's fetch, which
+ * sends it only to its provider's hosts (`CalDavAuth`).
  */
 
 export interface CalendarEvent {
@@ -306,9 +309,17 @@ export async function answerText(res: Response, max = CALDAV_MAX_ANSWER): Promis
   return Buffer.concat(chunks).toString('utf8');
 }
 
-/** The headers of a request to the calendar: its password as Basic authentication. */
-function auth(login: Login): Record<string, string> {
-  return { authorization: `Basic ${Buffer.from(`${login.username}:${login.password}`).toString('base64')}` };
+/**
+ * How the requests to a calendar are signed: its user name and password (Basic authentication), or an
+ * OAuth account's token, by that account's fetch (`TokenBroker.fetch`: only to its provider's hosts).
+ */
+export type CalDavAuth = Login | { fetch: AuthorizedFetch };
+
+/** A request to the calendar, signed as `auth` says; never following a redirect, so the password or token goes nowhere else. */
+function send(auth: CalDavAuth, url: string, init: RequestInit & { headers: Record<string, string> }): Promise<Response> {
+  if ('fetch' in auth) return auth.fetch(url, init);
+  const basic = `Basic ${Buffer.from(`${auth.username}:${auth.password}`).toString('base64')}`;
+  return fetch(url, { ...init, headers: { ...init.headers, authorization: basic }, redirect: 'manual' });
 }
 
 /** A calendar's answer that is not what was asked: why, in a line. */
@@ -319,17 +330,16 @@ async function failure(res: Response, what: string): Promise<Error> {
 }
 
 /** The events between two moments. */
-export async function listEvents(url: string, login: Login, from: number, to: number, timeoutMs = 30_000): Promise<CalendarEvent[]> {
+export async function listEvents(url: string, login: CalDavAuth, from: number, to: number, timeoutMs = 30_000): Promise<CalendarEvent[]> {
   const body = `<?xml version="1.0" encoding="utf-8"?>
 <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
   <d:prop><d:getetag/><c:calendar-data/></d:prop>
   <c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT"><c:time-range start="${utc(from)}" end="${utc(to)}"/></c:comp-filter></c:comp-filter></c:filter>
 </c:calendar-query>`;
-  const res = await fetch(url, {
+  const res = await send(login, url, {
     method: 'REPORT',
-    headers: { ...auth(login), depth: '1', 'content-type': 'application/xml; charset=utf-8' },
+    headers: { depth: '1', 'content-type': 'application/xml; charset=utf-8' },
     body,
-    redirect: 'manual',
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (res.status !== 207 && res.status !== 200) throw await failure(res, t().conn.calListFailed);
@@ -338,13 +348,12 @@ export async function listEvents(url: string, login: Login, from: number, to: nu
 }
 
 /** Adds an event, never over one that is there; resolves with its address. */
-export async function putEvent(url: string, login: Login, ics: string, uid: string, timeoutMs = 30_000): Promise<string> {
+export async function putEvent(url: string, login: CalDavAuth, ics: string, uid: string, timeoutMs = 30_000): Promise<string> {
   const target = `${url.replace(/\/+$/, '')}/${encodeURIComponent(uid.replace(/@.*$/, ''))}.ics`;
-  const res = await fetch(target, {
+  const res = await send(login, target, {
     method: 'PUT',
-    headers: { ...auth(login), 'content-type': 'text/calendar; charset=utf-8', 'if-none-match': '*' },
+    headers: { 'content-type': 'text/calendar; charset=utf-8', 'if-none-match': '*' },
     body: ics,
-    redirect: 'manual',
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (res.status !== 201 && res.status !== 204 && res.status !== 200) throw await failure(res, t().conn.calAddFailed);
@@ -380,12 +389,11 @@ function hrefIn(xml: string, name: string, base: string): string | undefined {
   return m ? new URL(xmlText(m[1]!.trim()), base).href : undefined;
 }
 
-async function propfind(url: string, login: Login, depth: '0' | '1', props: string, timeoutMs: number): Promise<string> {
-  const res = await fetch(url, {
+async function propfind(url: string, login: CalDavAuth, depth: '0' | '1', props: string, timeoutMs: number): Promise<string> {
+  const res = await send(login, url, {
     method: 'PROPFIND',
-    headers: { ...auth(login), depth, 'content-type': 'application/xml; charset=utf-8' },
+    headers: { depth, 'content-type': 'application/xml; charset=utf-8' },
     body: `<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop>${props}</d:prop></d:propfind>`,
-    redirect: 'manual',
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (res.status !== 207) throw await failure(res, t().conn.calFindFailed);
@@ -399,7 +407,7 @@ async function propfind(url: string, login: Login, depth: '0' | '1', props: stri
  * that says which kinds of items it holds, none of them events (iCloud's Reminders lists hold to-dos
  * only), is left out: the calendar tools could not add an event to it.
  */
-export async function discoverCalendars(url: string, login: Login, timeoutMs = 20_000): Promise<{ name: string; url: string }[]> {
+export async function discoverCalendars(url: string, login: CalDavAuth, timeoutMs = 20_000): Promise<{ name: string; url: string }[]> {
   const follow = (next: string | undefined) => {
     if (!next) return undefined;
     if (!sameProvider(url, next))

@@ -28,6 +28,26 @@ describe('server configuration from the environment', () => {
     expect(blank).toEqual({ config, problems: [] });
   });
 
+  it("takes another cloud's Microsoft sign-in and Graph over https, or a stand-in's over http on this computer only", () => {
+    const national = readConfig({
+      RELAY_MICROSOFT_LOGIN_URL: 'https://login.microsoftonline.us/',
+      RELAY_MICROSOFT_GRAPH_URL: ' https://graph.microsoft.us ',
+    });
+    expect(national.problems).toEqual([]);
+    expect(national.config).toMatchObject({
+      microsoftLoginUrl: 'https://login.microsoftonline.us',
+      microsoftGraphUrl: 'https://graph.microsoft.us',
+    });
+    expect(readConfig({ RELAY_MICROSOFT_LOGIN_URL: 'http://127.0.0.1:9000' }).config.microsoftLoginUrl).toBe('http://127.0.0.1:9000');
+    const plain = readConfig({ RELAY_MICROSOFT_LOGIN_URL: 'http://login.example.com', RELAY_MICROSOFT_GRAPH_URL: 'graph' });
+    expect(plain.config.microsoftLoginUrl).toBeUndefined();
+    expect(plain.config.microsoftGraphUrl).toBeUndefined();
+    expect(plain.problems).toEqual([
+      'RELAY_MICROSOFT_LOGIN_URL must be an https URL (plain http only to this computer).',
+      'RELAY_MICROSOFT_GRAPH_URL is not a URL.',
+    ]);
+  });
+
   it('reads the limits and the turn timeout as whole numbers in their ranges', () => {
     const { config, problems } = readConfig({ RELAY_MAX_ACCOUNTS: '20', RELAY_MAX_TEAM_AGENTS: ' 16 ', RELAY_TURN_TIMEOUT_MIN: '90' });
     expect(problems).toEqual([]);

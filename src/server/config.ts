@@ -22,6 +22,15 @@ export interface ServerConfig extends ServerLimits {
    * the first one found (`browser/find.ts`).
    */
   browser?: string;
+  /**
+   * Where accounts that sign in with Microsoft do (`RELAY_MICROSOFT_LOGIN_URL`) and their calendars are
+   * reached (`RELAY_MICROSOFT_GRAPH_URL`): another cloud than Microsoft's global one (a national one,
+   * `https://login.microsoftonline.us` and `https://graph.microsoft.us`, say), or a stand-in on this
+   * computer in the end-to-end tests. undefined = `https://login.microsoftonline.com` and
+   * `https://graph.microsoft.com`.
+   */
+  microsoftLoginUrl?: string;
+  microsoftGraphUrl?: string;
 }
 
 /** The whole numbers each limit may be set to: from one, and below a value no setup needs, to catch a typo. */
@@ -85,6 +94,16 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     return undefined;
   };
 
+  // Tokens go there: https, or plain http to this computer only (a stand-in).
+  const secure = (name: string): string | undefined => {
+    const url = base(name);
+    if (!url) return undefined;
+    const { protocol, hostname } = new URL(url);
+    if (protocol === 'https:' || /^(127\.0\.0\.1|localhost|\[::1\])$/.test(hostname)) return url;
+    problems.push(`${name} must be an https URL (plain http only to this computer).`);
+    return undefined;
+  };
+
   const turnTimeoutMinutes = whole('RELAY_TURN_TIMEOUT_MIN', DEFAULT_LIMITS.turnTimeoutMinutes);
   const config: ServerConfig = {
     maxAccounts: whole('RELAY_MAX_ACCOUNTS', DEFAULT_LIMITS.maxAccounts),
@@ -95,6 +114,8 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     voiceEngineBaseUrl: base('RELAY_VOICE_ENGINE_BASE_URL'),
     voiceDir: folder('RELAY_VOICE_DIR'),
     browser: folder('RELAY_BROWSER'),
+    microsoftLoginUrl: secure('RELAY_MICROSOFT_LOGIN_URL'),
+    microsoftGraphUrl: secure('RELAY_MICROSOFT_GRAPH_URL'),
   };
   return { config, problems };
 }

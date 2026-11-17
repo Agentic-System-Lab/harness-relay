@@ -683,9 +683,17 @@ export const en: Messages = {
     status: { running: 'Running', done: 'Done', error: 'Failed' },
   },
 
+  oauthCallback: {
+    title: 'Signing in',
+    working: 'Finishing the sign-in…',
+    done: (email) => `Signed in as ${email}.`,
+    failed: (why) => `The sign-in did not finish: ${why}`,
+    close: 'You can close this tab.',
+    back: "Back to Harness Relay's Settings",
+  },
   connectors: {
     title: 'Mail and calendar accounts',
-    hint: "The accounts the Mail and Calendar tools use, over IMAP, SMTP and CalDAV with an app password (most providers offer one in their security settings; Gmail's needs 2-Step Verification). Google Calendar and Microsoft 365 need a sign-in Harness Relay does not have yet.",
+    hint: "The accounts the Mail and Calendar tools use, over IMAP, SMTP and CalDAV with an app password (most providers offer one in their security settings; Gmail's needs 2-Step Verification). Microsoft 365, Outlook.com and Google Calendar take no app password: use Accounts you sign in to below.",
     // Follows the hint directly: its own space first.
     passwordsIn: (where) => ` Passwords are kept in ${where}, and never shown, not even in part.`,
     mail: 'Mail',
@@ -719,6 +727,49 @@ export const en: Messages = {
     testing: 'Trying…',
     testOk: 'Connected.',
     confirmRemove: (name) => `Remove the account "${name}"? Its password is deleted too.`,
+    oauth: {
+      title: 'Accounts you sign in to',
+      hint: (where) =>
+        `Microsoft 365, Outlook.com and Google Calendar sign in in the browser instead of with a password. Harness Relay runs the sign-in itself; the tokens are kept in ${where}, go only to the account's own service, and agents never get them.`,
+      providers: { microsoft: 'Microsoft 365 / Outlook.com', google: 'Google Calendar' },
+      signIn: (provider) => `Sign in with ${provider}`,
+      onAnotherDevice: 'Sign in on another device',
+      signInAgain: 'Sign in again',
+      connected: 'Connected',
+      reauth: 'Needs a new sign-in',
+      calendars: 'Calendars',
+      add: 'Add',
+      added: 'Added',
+      loadingCalendars: 'Reading the calendars…',
+      remove: 'Remove',
+      confirmRemove: (email) => `Remove ${email}? Its tokens and the calendars reached through it are removed too.`,
+      removedMicrosoft: (pages) =>
+        `Removed. Microsoft cannot revoke one token: to take Harness Relay's access away entirely, remove it at ${pages}.`,
+      app: 'The app to sign in with',
+      setUp: 'Set up the app',
+      needsApp: (provider) =>
+        `Signing in with ${provider} needs an app registered with ${provider} first (Harness Relay has none of its own yet): give its client ID here.`,
+      clientId: 'Client ID',
+      tenant: 'Tenant',
+      tenantHint: 'common (work, school and personal accounts), organizations, consumers, or your tenant’s ID or domain.',
+      secret: 'Client secret',
+      secretHint: 'The "secret" Google gives a desktop app is not one, but it is needed; it is kept in the credential store.',
+      redirects: 'Allow these redirect addresses in the app’s settings:',
+      microsoftApp:
+        'Register an app in the Microsoft Entra admin center: accounts in any organizational directory and personal Microsoft accounts, the platform "Mobile and desktop applications", "Allow public client flows" on (to sign in on another device), and the API permissions Calendars.ReadWrite and offline_access.',
+      googleApp:
+        'Create an OAuth client of the type "Desktop app" in the Google Cloud console, enable the Google Calendar API and the CalDAV API, and add the …/auth/calendar scope to the OAuth consent screen. While the app is in Testing, its sign-ins stop working every 7 days.',
+      waiting: (provider) => `Waiting for ${provider}'s sign-in page…`,
+      openAgain: 'Open the sign-in page again',
+      pasteHint:
+        'Not back here? If the browser says the page cannot be reached (Harness Relay runs on another computer, say), paste that page’s whole address here:',
+      pastePlaceholder: 'http://localhost:8787/oauth/callback?code=…',
+      finish: 'Finish signing in',
+      device: (address, code) => `On any device, open ${address} and type the code ${code}.`,
+      done: (email) => `Signed in as ${email}.`,
+      cancel: 'Cancel',
+      popupBlocked: 'The browser blocked the sign-in page: click Open the sign-in page again.',
+    },
   },
   outbox: {
     label: (agent) => `What @${agent} asked to send`,

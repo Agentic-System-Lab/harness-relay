@@ -132,7 +132,7 @@ const browser = new BrowserService({
   relayPorts: () => [...relayPorts(), ...(gateway.httpPort() ? [gateway.httpPort()!] : [])],
   own: () => localAddresses(),
 });
-gateway.register([outboxTool((id) => outbox.list(id)), ...browserTools(browser), ...connectorTools(settings.connectors)]);
+gateway.register([outboxTool((id) => outbox.list(id)), ...browserTools(browser), ...connectorTools(settings.connectors, settings.oauth)]);
 orchestrator.onDelete = (id) => void browser.close(id, true);
 orchestrator.gateway = gateway;
 orchestrator.outbox = outbox;

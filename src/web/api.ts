@@ -43,6 +43,11 @@ import type {
   OutboxItem,
   CalendarAccountUpdate,
   ConnectorsView,
+  OAuthCalendar,
+  OAuthClientUpdate,
+  OAuthProviderId,
+  OAuthSignInView,
+  OAuthView,
   MailAccountUpdate,
   NewScheduleHook,
   ScheduleUpdate,
@@ -337,6 +342,27 @@ export const api = {
     request<{ ok: boolean; message?: string; error?: string }>('POST', `/api/connectors/${kind}/${id}/test`, {}),
   discoverCalendars: (b: { url: string; username: string; password?: string; id?: string }) =>
     request<{ ok: boolean; calendars?: { name: string; url: string }[]; error?: string }>('POST', '/api/connectors/calendar/discover', b),
+  /** Accounts that sign in with OAuth, and the apps they sign in with: never a token. */
+  oauth: () => request<OAuthView>('GET', '/api/oauth'),
+  saveOAuthClient: (provider: OAuthProviderId, b: OAuthClientUpdate) => request<OAuthView>('PUT', `/api/oauth/clients/${provider}`, b),
+  /** A sign-in: the provider's page sends the browser back to this page's own origin when it is on this computer. */
+  startOAuthSignIn: (provider: OAuthProviderId, device = false) =>
+    request<OAuthSignInView>('POST', '/api/oauth/signins', { provider, origin: location.origin, device }),
+  oauthSignIn: (id: string) => request<OAuthSignInView>('GET', `/api/oauth/signins/${id}`),
+  pasteOAuthAddress: (id: string, address: string) => request<OAuthSignInView>('POST', `/api/oauth/signins/${id}/address`, { address }),
+  cancelOAuthSignIn: (id: string) => request<{ ok: true }>('DELETE', `/api/oauth/signins/${id}`),
+  /** The page the provider sent the browser back to posts what it got: its state is the proof (no sign-in needed). */
+  oauthCallback: (b: { state?: string; code?: string; error?: string }) =>
+    request<{ status: OAuthSignInView['status']; provider: OAuthProviderId; email?: string; error?: string }>(
+      'POST',
+      '/api/oauth/callback',
+      b,
+    ),
+  oauthCalendars: (id: string) => request<OAuthCalendar[]>('GET', `/api/oauth/accounts/${id}/calendars`),
+  addOAuthCalendar: (id: string, b: { name: string; url: string }) =>
+    request<ConnectorsView>('POST', `/api/oauth/accounts/${id}/calendars`, b),
+  removeOAuthAccount: (id: string) =>
+    request<OAuthView & { connectors: ConnectorsView; permissionsPages?: string[] }>('DELETE', `/api/oauth/accounts/${id}`),
   /** Send or discard what an agent asked to send (an outbox item); only Send sends it. */
   answerOutbox: (id: string, itemId: string, action: 'send' | 'discard') =>
     request<OutboxItem>('POST', `/api/conversations/${id}/outbox/${itemId}`, { action }),

@@ -1,4 +1,5 @@
 import type {
+  OAuthProviderId,
   ApprovalKind,
   CliInstallBlock,
   KeyStorage,
@@ -694,9 +695,18 @@ export const zhTW = {
     status: { running: '執行中', done: '完成', error: '失敗' } as Record<ToolStatus, string>,
   },
 
+  /** The page an OAuth provider's sign-in sends the browser back to. */
+  oauthCallback: {
+    title: '登入',
+    working: '完成登入中…',
+    done: (email: string) => `已登入 ${email}。`,
+    failed: (why: string) => `沒有完成登入：${why}`,
+    close: '可以關閉這個分頁了。',
+    back: '回到 Harness Relay 的設定',
+  },
   connectors: {
     title: '郵件與行事曆帳號',
-    hint: '「郵件」與「行事曆」工具用的帳號，透過 IMAP、SMTP 與 CalDAV，搭配應用程式專用密碼（大多數服務在安全性設定中提供；Gmail 需要先開啟兩步驟驗證）。Google 日曆與 Microsoft 365 需要 Harness Relay 目前還沒有的登入方式。',
+    hint: '「郵件」與「行事曆」工具用的帳號，透過 IMAP、SMTP 與 CalDAV，搭配應用程式專用密碼（大多數服務在安全性設定中提供；Gmail 需要先開啟兩步驟驗證）。Microsoft 365、Outlook.com 與 Google 日曆不接受應用程式專用密碼：請用下方的「登入的帳號」。',
     // 直接接在說明後面（句號之後不加空格）；英文開頭的名稱前留一個空格。
     passwordsIn: (where: string) => `密碼存放於${/^[A-Za-z]/.test(where) ? ' ' : ''}${where}，畫面上不會顯示，連一部分也不會。`,
     mail: '郵件',
@@ -728,6 +738,49 @@ export const zhTW = {
     testing: '嘗試中…',
     testOk: '連線成功。',
     confirmRemove: (name: string) => `移除帳號「${name}」？它的密碼也會一起刪除。`,
+    /** Accounts that sign in with OAuth (Microsoft, Google), instead of an app password. */
+    oauth: {
+      title: '登入的帳號',
+      hint: (where: string) =>
+        `Microsoft 365、Outlook.com 與 Google 日曆要在瀏覽器裡登入，而不是用密碼。登入由 Harness Relay 自己進行，權杖存放於${/^[A-Za-z]/.test(where) ? ' ' : ''}${where}，只送到該帳號的服務，agent 永遠拿不到。`,
+      providers: { microsoft: 'Microsoft 365 / Outlook.com', google: 'Google 日曆' } as Record<OAuthProviderId, string>,
+      signIn: (provider: string) => `用 ${provider} 登入`,
+      onAnotherDevice: '在另一台裝置上登入',
+      signInAgain: '重新登入',
+      connected: '已連線',
+      reauth: '需要重新登入',
+      calendars: '行事曆',
+      add: '加入',
+      added: '已加入',
+      loadingCalendars: '讀取行事曆中…',
+      remove: '移除',
+      confirmRemove: (email: string) => `移除 ${email}？它的權杖與透過它使用的行事曆都會一起移除。`,
+      removedMicrosoft: (pages: string) =>
+        `已移除。Microsoft 不能撤銷單一個權杖：要讓 Harness Relay 完全失去存取權，請到 ${pages} 移除它。`,
+      app: '要用的 app',
+      setUp: '設定 app',
+      needsApp: (provider: string) =>
+        `要用 ${provider} 登入，需要先在 ${provider} 註冊一個 app（Harness Relay 目前還沒有自己的），再把它的用戶端 ID 填在這裡。`,
+      clientId: '用戶端 ID（Client ID）',
+      tenant: '租用戶（Tenant）',
+      tenantHint: 'common（公司、學校與個人帳號）、organizations、consumers，或你的租用戶 ID 或網域。',
+      secret: '用戶端密碼（Client secret）',
+      secretHint: 'Google 給桌面 app 的「密碼」其實不是秘密，但仍需要；它存放在憑證儲存區。',
+      redirects: '在 app 的設定裡允許這些重新導向網址：',
+      microsoftApp:
+        '在 Microsoft Entra 系統管理中心註冊一個 app：支援「任何組織目錄中的帳戶及個人 Microsoft 帳戶」，平台選「行動與桌面應用程式」，開啟「允許公用用戶端流程」（要在另一台裝置上登入時），API 權限加上 Calendars.ReadWrite 與 offline_access。',
+      googleApp:
+        '在 Google Cloud Console 建立一個「電腦版應用程式」類型的 OAuth 用戶端，啟用 Google Calendar API 與 CalDAV API，並在 OAuth 同意畫面加入 …/auth/calendar 範圍。還在「測試」階段的 app，登入每 7 天會失效一次。',
+      waiting: (provider: string) => `等待 ${provider} 的登入頁面…`,
+      openAgain: '再開一次登入頁面',
+      pasteHint: '沒有回到這裡？如果瀏覽器說網頁打不開（例如 Harness Relay 在另一台電腦上），把那個網頁的完整網址貼在這裡：',
+      pastePlaceholder: 'http://localhost:8787/oauth/callback?code=…',
+      finish: '完成登入',
+      device: (address: string, code: string) => `在任何裝置上打開 ${address}，輸入代碼 ${code}。`,
+      done: (email: string) => `已登入 ${email}。`,
+      cancel: '取消',
+      popupBlocked: '瀏覽器擋下了登入頁面：請按「再開一次登入頁面」。',
+    },
   },
   outbox: {
     label: (agent: string) => `@${agent} 要送出的內容`,

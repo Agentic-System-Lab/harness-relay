@@ -31,6 +31,8 @@ import { t } from './i18n';
 import { maskSecret, type SecretStore } from './secrets';
 import { ToolLibrary } from './tools';
 import { ConnectorStore } from './connectors/accounts';
+import { OAuthService } from './oauth/service';
+import { OAuthStore } from './oauth/store';
 
 export const DATA_DIR = resolve(process.env.RELAY_DATA_DIR ?? join(process.cwd(), 'data'));
 export const DB_FILE = join(DATA_DIR, 'relay.db');
@@ -273,6 +275,8 @@ export class SettingsStore {
   readonly tools: ToolLibrary;
   /** The mail accounts and calendars Harness Relay's mail and calendar tools use. */
   readonly connectors: ConnectorStore;
+  /** Accounts that sign in with OAuth (Microsoft, Google), for the calendar tools so far. */
+  readonly oauth: OAuthService;
   /** The open agents' model backends (API keys and the user's own endpoints). */
   readonly backends: ModelBackendStore;
 
@@ -392,6 +396,7 @@ export class SettingsStore {
     if (keyring) this.loadKeys(keyring);
     this.tools = new ToolLibrary(db, keyring);
     this.connectors = new ConnectorStore(db, keyring);
+    this.oauth = new OAuthService(new OAuthStore(db, keyring), this.connectors);
     this.backends = new ModelBackendStore(db, keyring);
   }
 

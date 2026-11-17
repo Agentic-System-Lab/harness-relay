@@ -55,7 +55,9 @@ import {
 import type { AgentsViewSync } from './agentsview';
 import { freshTracking } from '../shared/tracking';
 import { servingPort } from './relaySandbox';
-import { discoverCalendars, listEvents } from './connectors/caldav';
+import { discoverCalendars } from './connectors/caldav';
+import { calendarBackend } from './connectors/calendar';
+import type { OAuthService } from './oauth/service';
 import { keptPasswordFits } from './connectors/accounts';
 import { testMail } from './connectors/test';
 import type { Scheduler } from './scheduler';
@@ -115,6 +117,9 @@ import {
   validateSettings,
   validateToolLibraryUpdate,
   validConnectorId,
+  validOAuthProvider,
+  validateOAuthCalendar,
+  validateOAuthClient,
   validateMailAccount,
   validateCalendarAccount,
   validateVoiceUpdate,
@@ -190,6 +195,8 @@ export interface AppDeps {
   alerts?: AlertWatcher;
   /** Checks what an automation that starts when something happens waits for, on the user's Check now (`scheduler.ts`). */
   scheduler?: Pick<Scheduler, 'check'>;
+  /** Accounts that sign in with OAuth (`oauth/service.ts`); Settings' own when not given (stand-in providers in tests). */
+  oauth?: OAuthService;
 }
 
 /** A recording of the longest allowed length (16 kHz, 16-bit mono WAV) in base64, with room to spare. */
@@ -294,6 +301,7 @@ export function createApp({
   push,
   alerts,
   scheduler,
+  oauth = settings.oauth,
 }: AppDeps): Hono {
   const app = new Hono();
   /** The gists of report screenshots uploaded since the server started: only these can be deleted here. */
@@ -351,8 +359,14 @@ export function createApp({
     });
   });
 
-  /** What a request takes without a signed-in browser: asking whether it is one, and signing in. */
-  const OPEN = new Set(['GET /api/auth', 'POST /api/auth/login']);
+  /**
+   * What a request takes without a signed-in browser: asking whether it is one, signing in, and the page
+   * an OAuth provider sent the browser back to posting what it got (its state is the proof: the
+   * redirect brings no key, and in the desktop app it comes to the system browser, never signed in).
+   */
+  const OPEN = new Set(['GET /api/auth', 'POST /api/auth/login', 'POST /api/oauth/callback']);
+  /** The OAuth callbacks that named no sign-in lately: after too many, a while of refusals. */
+  const callbackMisses: number[] = [];
   /** A schedule's webhook (`POST /api/hooks/:id`): its route checks the token it was given. */
   const HOOK_PATH = /^\/api\/hooks\/[^/]+$/;
   /** When each webhook was last called, by conversation: at most one call per `TRACKING_LIMITS.hookIntervalMs`. */
@@ -624,13 +638,91 @@ export function createApp({
         const cal = settings.connectors.calendar(id);
         if (!cal || cal.account.id !== id) throw new HttpError(404, t().connectorNotFound(id));
         const now = Date.now();
-        await listEvents(cal.account.url, { username: cal.account.username, password: cal.password }, now, now + 86_400_000);
+        await calendarBackend(cal.account, cal.password, oauth).events(now, now + 86_400_000);
       } else throw new HttpError(404, t().connectorNotFound(id));
     } catch (err) {
       if (err instanceof HttpError) throw err;
       return c.json({ ok: false, error: t().connectorTestFailed((err as Error).message) });
     }
     return c.json({ ok: true, message: t().connectorTestOk });
+  });
+
+  // --- Accounts that sign in with OAuth (Microsoft, Google), for the calendar tools so far ---------
+  // The server runs each sign-in; the page starts it and shows how it went. Tokens never leave the
+  // server: the page sees an account's address and state only.
+
+  app.get('/api/oauth', (c) => c.json(oauth.view()));
+  app.put('/api/oauth/clients/:provider', async (c) =>
+    c.json(oauth.saveClient(validOAuthProvider(c.req.param('provider')), validateOAuthClient(await body<unknown>(c)))),
+  );
+  // A sign-in: the provider's page to open, which sends the browser back to this page's own web app
+  // when it is on this computer (`origin`), or a code to type on another device (`device`).
+  app.post('/api/oauth/signins', async (c) => {
+    const b = await body<{ provider?: unknown; origin?: unknown; device?: unknown }>(c);
+    const provider = validOAuthProvider(String(b.provider ?? ''));
+    const session = sessions.get(c.req.raw);
+    return c.json(
+      await oauth.startSignIn({
+        provider,
+        uses: ['calendar'],
+        ...(session ? { session } : {}),
+        ...(typeof b.origin === 'string' ? { origin: b.origin } : {}),
+        port: servingPort(),
+        device: b.device === true,
+      }),
+    );
+  });
+  app.get('/api/oauth/signins/:id', (c) => c.json(oauth.signIn(c.req.param('id'), sessions.get(c.req.raw))));
+  // The address the provider's page sent the browser to, pasted (a browser on another computer).
+  app.post('/api/oauth/signins/:id/address', async (c) => {
+    const b = await body<{ address?: unknown }>(c);
+    if (typeof b.address !== 'string' || b.address.length > 8000) throw new HttpError(400, t().oauthBadAddress);
+    return c.json(await oauth.signIns.pasted(c.req.param('id'), b.address, sessions.get(c.req.raw)));
+  });
+  app.delete('/api/oauth/signins/:id', (c) => {
+    oauth.signIns.cancel(c.req.param('id'), sessions.get(c.req.raw));
+    return c.json({ ok: true });
+  });
+  // The page the provider sent the browser back to (`/oauth/callback`) posts the code and state it got:
+  // the state is the proof (OPEN above). It answers how that sign-in went, and whose account it is.
+  app.post('/api/oauth/callback', async (c) => {
+    const now = Date.now();
+    while (callbackMisses.length && callbackMisses[0]! < now - 10 * 60_000) callbackMisses.shift();
+    if (callbackMisses.length >= 20) throw new HttpError(429, t().oauthCallbackTooOften);
+    const b = await body<{ state?: unknown; code?: unknown; error?: unknown }>(c);
+    const field = (v: unknown) => (typeof v === 'string' && v.length <= 4096 ? v : undefined);
+    try {
+      const state = field(b.state);
+      const code = field(b.code);
+      const error = field(b.error);
+      const v = await oauth.signIns.callback({ ...(state ? { state } : {}), ...(code ? { code } : {}), ...(error ? { error } : {}) });
+      return c.json({
+        status: v.status,
+        provider: v.provider,
+        ...(v.account ? { email: v.account.email } : {}),
+        ...(v.error ? { error: v.error } : {}),
+      });
+    } catch (err) {
+      if (err instanceof HttpError && err.status === 404) callbackMisses.push(now);
+      throw err;
+    }
+  });
+  // An account's calendars, to add to the calendar tools.
+  app.get('/api/oauth/accounts/:id/calendars', async (c) => {
+    try {
+      return c.json(await oauth.calendars(c.req.param('id')));
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      throw new HttpError(502, t().connectorDiscoverFailed((err as Error).message));
+    }
+  });
+  app.post('/api/oauth/accounts/:id/calendars', async (c) =>
+    c.json(oauth.addCalendar(c.req.param('id'), validateOAuthCalendar(await body<unknown>(c)))),
+  );
+  // Removes the account, its tokens (Google's revoked) and its calendars; Microsoft's pages to take the app's access away come back.
+  app.delete('/api/oauth/accounts/:id', async (c) => {
+    const removed = await oauth.removeAccount(c.req.param('id'));
+    return c.json({ ...oauth.view(), connectors: settings.connectors.view(), ...removed });
   });
 
   app.get('/api/tools', (c) => c.json(settings.tools.view()));
