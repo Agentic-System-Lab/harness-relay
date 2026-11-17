@@ -26,7 +26,6 @@ import type {
   TrackedRun,
   ScheduleHook,
   ScheduleRepeat,
-  ScheduleTrigger,
   ScheduleResult,
   ScheduleTracking,
   ScheduleWatch,
