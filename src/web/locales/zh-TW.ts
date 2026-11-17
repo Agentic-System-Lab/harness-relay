@@ -594,9 +594,9 @@ export const zhTW = {
       openChat: '開啟',
     },
     hook: {
-      title: 'Webhook',
+      title: '讓其他程式啟動它（Webhook）',
       intro:
-        '讓這台電腦上的程式（git hook、在這台電腦上執行的 CI、腳本）帶著權杖呼叫這個網址，立刻送出自動任務的訊息，請求的 JSON 內容會附在訊息後面，當作資料交給 agent。自動任務的時間關閉時也能用。',
+        '這台電腦上的程式可以帶著權杖呼叫一個網址來啟動這個自動任務，例如 git hook、在這台電腦上執行的 CI 或腳本。它送來的 JSON 會附在訊息後面，當作資料交給 agent。自動任務的時間關閉時也能用。',
       create: '建立 webhook',
       replace: '換一個新的權杖',
       remove: '移除 webhook',

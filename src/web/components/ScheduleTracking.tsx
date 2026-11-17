@@ -95,33 +95,38 @@ export function ScheduleHookPanel({
   };
 
   const example = shown ? hookExample(shown.url, shown.token, shown.platform) : '';
+  // Folded away at first: most people never need it. Open while there is a webhook, or a token to show.
   return (
     <section className="schedule-hook" aria-label={t.schedule.hook.title}>
-      <h3 className="schedule-sub">{t.schedule.hook.title}</h3>
-      <p className="small muted">{t.schedule.hook.intro}</p>
-      {hook && (
-        <p className="small">
-          {t.schedule.hook.created(formatWhen(hook.createdAt, lang))} ·{' '}
-          {hook.lastAt !== undefined ? t.schedule.hook.lastCalled(formatWhen(hook.lastAt, lang)) : t.schedule.hook.never}
-        </p>
-      )}
-      {shown && (
-        <div className="hook-token">
-          <span className="small">{t.schedule.hook.once}</span>
-          <code className="hook-example">{example}</code>
-          <CopyButton className="ghost small-button" text={() => example} />
+      <details className="sub" open={Boolean(hook) || Boolean(shown)}>
+        <summary>{t.schedule.hook.title}</summary>
+        <div className="sub-body">
+          <p className="small muted">{t.schedule.hook.intro}</p>
+          {hook && (
+            <p className="small">
+              {t.schedule.hook.created(formatWhen(hook.createdAt, lang))} ·{' '}
+              {hook.lastAt !== undefined ? t.schedule.hook.lastCalled(formatWhen(hook.lastAt, lang)) : t.schedule.hook.never}
+            </p>
+          )}
+          {shown && (
+            <div className="hook-token">
+              <span className="small">{t.schedule.hook.once}</span>
+              <code className="hook-example">{example}</code>
+              <CopyButton className="ghost small-button" text={() => example} />
+            </div>
+          )}
+          <div className="schedule-status-actions">
+            <button type="button" className="ghost small-button" disabled={busy} onClick={create}>
+              {hook ? t.schedule.hook.replace : t.schedule.hook.create}
+            </button>
+            {hook && (
+              <button type="button" className="ghost small-button danger" disabled={busy} onClick={remove}>
+                {t.schedule.hook.remove}
+              </button>
+            )}
+          </div>
         </div>
-      )}
-      <div className="schedule-status-actions">
-        <button type="button" className="ghost small-button" disabled={busy} onClick={create}>
-          {hook ? t.schedule.hook.replace : t.schedule.hook.create}
-        </button>
-        {hook && (
-          <button type="button" className="ghost small-button danger" disabled={busy} onClick={remove}>
-            {t.schedule.hook.remove}
-          </button>
-        )}
-      </div>
+      </details>
     </section>
   );
 }

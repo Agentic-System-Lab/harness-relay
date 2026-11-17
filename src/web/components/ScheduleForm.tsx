@@ -29,7 +29,7 @@ export function ScheduleForm({
   settings: Pick<ConversationSettings, 'mode' | 'permission' | 'approvals'>;
   /** The team's names; absent while there is no team yet (the lead agent names its members after the @mentions). */
   team?: string[];
-  /** New automation only: Create a webhook too, under When (the drawer adds one to a saved automation). */
+  /** New automation only: Create a webhook too, folded away under When (the drawer adds one to a saved automation). */
   hook?: { checked: boolean; onChange: (on: boolean) => void };
 }) {
   const { t, lang } = useI18n();
@@ -40,6 +40,8 @@ export function ScheduleForm({
   // @mentions that reach nobody on the team.
   const warning = useMemo(() => (team ? mentionWarning(draft.text, team, t, 'form') : undefined), [draft.text, team, t]);
   const now = Date.now();
+  // "Add one once it is saved" only where the automation is not saved yet and no webhook can be made on the page.
+  const manualHint = hook || saved ? t.schedule.manualHintNew : t.schedule.manualHint;
   // The preview under the times is about the times: a message still to be typed is said elsewhere.
   const problems = draftProblems({ ...draft, text: draft.text.trim() || '-' }, now, t);
   const upcoming = problems.length ? [] : previewRuns(draft, now, saved);
@@ -162,9 +164,7 @@ export function ScheduleForm({
           {problems.length
             ? problems[0]
             : draft.kind === 'manual'
-              ? hook
-                ? t.schedule.manualHintNew
-                : t.schedule.manualHint
+              ? manualHint
               : upcoming.length
                 ? `${t.schedule.upcoming} ${upcoming.map((at) => formatWhen(at, lang, draftZone)).join(t.common.listSeparator)}`
                 : t.schedule.never}
@@ -185,14 +185,21 @@ export function ScheduleForm({
         </span>
       </div>
 
+      {/* Folded away at first, under words anyone can read: most people never need a webhook. */}
       {hook && (
-        <div className="field">
-          <label className="check-row">
-            <input type="checkbox" checked={hook.checked} onChange={(e) => hook.onChange(e.target.checked)} />
-            {t.newSchedule.withHook}
-          </label>
-          <span className="small muted">{t.newSchedule.withHookHint}</span>
-        </div>
+        <details className="sub">
+          <summary>{t.schedule.hook.title}</summary>
+          <div className="sub-body">
+            <p className="small muted">{t.schedule.hook.intro}</p>
+            <div className="field">
+              <label className="check-row">
+                <input type="checkbox" checked={hook.checked} onChange={(e) => hook.onChange(e.target.checked)} />
+                {t.newSchedule.withHook}
+              </label>
+              <span className="small muted">{t.newSchedule.withHookHint}</span>
+            </div>
+          </div>
+        </details>
       )}
 
       <div className="field">

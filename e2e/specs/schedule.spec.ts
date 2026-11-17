@@ -103,7 +103,10 @@ test.describe('schedules', () => {
 
     await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
     await expect(drawer.locator('.schedule-status')).toContainText('No set times · sent by Run once now or its webhook');
-    const hook = drawer.getByRole('region', { name: 'Webhook' });
+    // Folded away under words anyone can read until there is a webhook.
+    const hook = drawer.getByRole('region', { name: 'Let another program start it (webhook)' });
+    await expect(hook.getByRole('button', { name: 'Add a webhook' })).toBeHidden();
+    await hook.getByText('Let another program start it (webhook)').click();
     await hook.getByRole('button', { name: 'Add a webhook' }).click();
     const example = hook.locator('.hook-example');
     // curl, or on a server on Windows PowerShell's own Invoke-RestMethod (cmd.exe takes no single quotes).
@@ -143,7 +146,10 @@ test.describe('schedules', () => {
     await page.getByRole('button', { name: 'New automation' }).click();
     await page.getByRole('textbox', { name: 'Message to send the team' }).fill('Deploy finished');
     await page.getByRole('radio', { name: 'No set times' }).click();
+    // Folded away at first, under words anyone can read.
     const withHook = page.getByRole('checkbox', { name: 'Create a webhook too' });
+    await expect(withHook).toBeHidden();
+    await page.getByText('Let another program start it (webhook)').click();
     await expect(withHook).not.toBeChecked();
     await withHook.check();
     await expect(page.getByText("the automation's drawer opens with the webhook's address and token")).toBeVisible();
@@ -152,7 +158,7 @@ test.describe('schedules', () => {
 
     // Its drawer opens by itself, the token shown there.
     const drawer = page.getByRole('dialog', { name: 'Automation' });
-    const hook = drawer.getByRole('region', { name: 'Webhook' });
+    const hook = drawer.getByRole('region', { name: 'Let another program start it (webhook)' });
     await expect(hook).toContainText('The token is shown only this once');
     const line = (await hook.locator('.hook-example').textContent())!;
     const token = /Bearer ([A-Za-z0-9_-]+)/.exec(line)![1]!;

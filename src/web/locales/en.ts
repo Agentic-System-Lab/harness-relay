@@ -577,9 +577,9 @@ export const en: Messages = {
       openChat: 'Open',
     },
     hook: {
-      title: 'Webhook',
+      title: 'Let another program start it (webhook)',
       intro:
-        "A program on this computer (a git hook, a CI runner on this computer, a script) can call this address with the token to send the automation's message now; the JSON it posts goes after the message, as data for the agents. It works while the automation's times are off too.",
+        "A program on this computer can start this automation by calling an address with a token: a git hook, a CI runner on this computer or a script, say. The JSON it posts goes after the message, as data for the agents. It works while the automation's times are off too.",
       create: 'Add a webhook',
       replace: 'New token',
       remove: 'Remove webhook',
