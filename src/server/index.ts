@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { serve } from '@hono/node-server';
 import { AgentsViewSync } from './agentsview';
 import { AlertWatcher } from './alerts';
+import { Inbox } from './inbox';
 import { createApp } from './app';
 import { AuthStore, CODE_TTL_MS } from './auth';
 import { signInLink } from './signin';
@@ -163,8 +164,23 @@ const alerts = new AlertWatcher({
   push,
   busy: () => orchestrator.busy() > 0,
 });
-// A conversation's event (a run starting or ending, a message): the watcher reads the states again.
-hub.subscribeAll(() => alerts.touch());
+// The notification inbox (the sidebar's bell): every alert the team gives, kept whether or not a browser is open.
+const inbox = new Inbox({
+  list: () =>
+    store.list(
+      (id) => orchestrator.isRunning(id),
+      (id) => orchestrator.isWaiting(id),
+      (id) => orchestrator.isSorting(id),
+    ),
+  get: (id) => store.get(id),
+  store,
+  busy: () => orchestrator.busy() > 0,
+});
+// A conversation's event (a run starting or ending, a message): the watcher and the inbox read the states again.
+hub.subscribeAll(() => {
+  alerts.touch();
+  inbox.touch();
+});
 
 // The desktop app, when it started this server (desktop/); undefined for `npm start` and `npm run dev`.
 const parent = desktopParent();
@@ -274,6 +290,7 @@ const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
   // Times missed while the server was not running are handled now, by each schedule's choice.
   scheduler.start();
   alerts.start();
+  inbox.start();
 });
 // Without a listener, a port already in use would end the process with a stack trace.
 server.on('error', (err: NodeJS.ErrnoException) => {
@@ -295,6 +312,7 @@ async function shutdown(code = 0): Promise<void> {
   server.close();
   scheduler.stop();
   alerts.stop();
+  inbox.stop();
   orchestrator.stopAll();
   void gateway.stop();
   browser.closeAll();

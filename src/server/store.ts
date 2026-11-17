@@ -11,6 +11,10 @@ import type {
   ConversationGroup,
   ConversationSchedule,
   ConversationSummary,
+  AlertKind,
+  InboxItem,
+  InboxReadRequest,
+  InboxSummary,
   Lang,
   LeadReview,
   MessagePart,
@@ -54,6 +58,22 @@ interface ShareRow {
   unfinished: number;
   /** How many conversations have its conversation's id: 0 once it was deleted. */
   live: number;
+}
+
+/** How many notifications the inbox keeps: past them, the oldest go. */
+export const INBOX_KEPT = 200;
+
+const ALERT_KINDS: readonly AlertKind[] = ['done', 'error', 'approval', 'confirm', 'answer'];
+
+interface NotificationRow {
+  id: string;
+  conversation_id: string;
+  title: string;
+  kind: string;
+  agent: string | null;
+  text: string | null;
+  created_at: number;
+  read_at: number | null;
 }
 
 /** A share with whether its conversation is still there. */
@@ -1573,5 +1593,95 @@ export class Store {
 
   deletePreset(id: string): void {
     this.db.prepare('DELETE FROM presets WHERE id = ?').run(id);
+  }
+
+  // Notification inbox (the sidebar's bell; recorded by src/server/inbox.ts) -------------------
+
+  /**
+   * Keeps a notification about a conversation, unread; past `INBOX_KEPT`, the oldest go. Returns it,
+   * or undefined when the conversation is gone (deleted while its run wound down).
+   */
+  addNotification(n: {
+    id: string;
+    conversationId: string;
+    kind: AlertKind;
+    agent?: string;
+    text?: string;
+    createdAt: number;
+  }): InboxItem | undefined {
+    if (this.deleted.has(n.conversationId)) return undefined;
+    try {
+      transaction(this.db, () => {
+        this.db
+          .prepare('INSERT INTO notifications (id, conversation_id, kind, agent, text, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(n.id, n.conversationId, n.kind, nul(n.agent), nul(n.text), n.createdAt);
+        this.db
+          .prepare('DELETE FROM notifications WHERE id NOT IN (SELECT id FROM notifications ORDER BY created_at DESC, rowid DESC LIMIT ?)')
+          .run(INBOX_KEPT);
+      });
+    } catch {
+      // Its conversation is no longer in the database.
+      return undefined;
+    }
+    return this.notifications().find((x) => x.id === n.id);
+  }
+
+  /** Every notification kept, the newest first, with its conversation's title now. */
+  notifications(): InboxItem[] {
+    const rows = this.db
+      .prepare(
+        `SELECT n.id, n.conversation_id, c.title, n.kind, n.agent, n.text, n.created_at, n.read_at
+         FROM notifications n JOIN conversations c ON c.id = n.conversation_id
+         ORDER BY n.created_at DESC, n.rowid DESC`,
+      )
+      .all() as unknown as NotificationRow[];
+    return rows
+      .filter((r) => (ALERT_KINDS as string[]).includes(r.kind))
+      .map((r) => ({
+        id: r.id,
+        conversationId: r.conversation_id,
+        title: this.cache.get(r.conversation_id)?.title ?? r.title,
+        kind: r.kind as AlertKind,
+        ...(r.agent ? { agent: r.agent } : {}),
+        ...(r.text ? { text: r.text } : {}),
+        createdAt: r.created_at,
+        read: r.read_at !== null,
+      }));
+  }
+
+  /** How many are unread, in which conversations, and the newest one's id. */
+  notificationSummary(): InboxSummary {
+    const unread = this.db
+      .prepare(
+        'SELECT conversation_id, COUNT(*) AS n FROM notifications WHERE read_at IS NULL GROUP BY conversation_id ORDER BY MAX(created_at) DESC',
+      )
+      .all() as { conversation_id: string; n: number }[];
+    const newest = this.db.prepare('SELECT id FROM notifications ORDER BY created_at DESC, rowid DESC LIMIT 1').get() as
+      { id: string } | undefined;
+    return {
+      unread: unread.reduce((sum, r) => sum + r.n, 0),
+      unreadIn: unread.map((r) => r.conversation_id),
+      ...(newest ? { newest: newest.id } : {}),
+    };
+  }
+
+  /** Marks notifications read (those named, those of one conversation, or all); returns how many were unread. */
+  readNotifications(which: InboxReadRequest, now = Date.now()): number {
+    if ('all' in which) return Number(this.db.prepare('UPDATE notifications SET read_at = ? WHERE read_at IS NULL').run(now).changes);
+    if ('conversationId' in which) {
+      return Number(
+        this.db.prepare('UPDATE notifications SET read_at = ? WHERE read_at IS NULL AND conversation_id = ?').run(now, which.conversationId)
+          .changes,
+      );
+    }
+    return transaction(this.db, () => {
+      const mark = this.db.prepare('UPDATE notifications SET read_at = ? WHERE read_at IS NULL AND id = ?');
+      return which.ids.reduce((n, id) => n + Number(mark.run(now, id).changes), 0);
+    });
+  }
+
+  /** Removes every notification. */
+  clearNotifications(): void {
+    this.db.prepare('DELETE FROM notifications').run();
   }
 }

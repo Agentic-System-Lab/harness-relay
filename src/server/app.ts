@@ -105,6 +105,7 @@ import {
   validateLead,
   validateMcpServer,
   validateProviderUpdate,
+  validateInboxRead,
   validatePushSubscription,
   validateSchedule,
   validateSettings,
@@ -1020,6 +1021,27 @@ export function createApp({
     const sub = push && typeof endpoint === 'string' ? push.subscription(sessions.get(c.req.raw), endpoint) : undefined;
     if (!push || !sub) throw new HttpError(404, t().pushNotSubscribed);
     if ((await push.push(sub, testPayload(sub), { urgency: 'high', ttl: 60 })) !== 'sent') throw new HttpError(502, t().pushTestFailed);
+    return c.json({ ok: true });
+  });
+
+  // The inbox (the sidebar's bell): every alert the team gave, kept by the server (`inbox.ts`), the
+  // same for every signed-in browser.
+
+  /** Every notification kept, the newest first. */
+  app.get('/api/notifications', (c) => c.json(store.notifications()));
+
+  /** How many are unread and where, and the newest one's id: asked with each poll of the conversations. */
+  app.get('/api/notifications/summary', (c) => c.json(store.notificationSummary()));
+
+  /** Marks notifications read: `{ ids }`, `{ conversationId }` (its chat was opened) or `{ all: true }`. */
+  app.post('/api/notifications/read', async (c) => {
+    const read = store.readNotifications(validateInboxRead(await body<unknown>(c)));
+    return c.json({ read });
+  });
+
+  /** Removes every notification. */
+  app.delete('/api/notifications', (c) => {
+    store.clearNotifications();
     return c.json({ ok: true });
   });
 

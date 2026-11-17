@@ -20,6 +20,7 @@ export const TOUR_TARGETS: (string | undefined)[] = [
   undefined, // while the team replies
   undefined, // when the team needs you
   'settings', // notifications and sound
+  'inbox', // the notification inbox (the bell beside the sidebar's collapse button)
   undefined, // file permission
   undefined, // browsing files (the button is in a chat's header)
   undefined, // sharing a conversation (in a chat's header, and under each reply)
@@ -37,12 +38,15 @@ interface Box {
   height: number;
 }
 
-/** The target's box when it is actually on screen (the sidebar is off-canvas on small screens). */
+/**
+ * The target's box when it is actually on screen (the sidebar is off-canvas on small screens): the first
+ * one that is, when there are several (the bell is in the sidebar, and in the corner while it is collapsed).
+ */
 function targetBox(name: string | undefined): Box | null {
   if (!name) return null;
-  const el = document.querySelector<HTMLElement>(`[data-tour="${name}"]`);
-  const r = el?.getBoundingClientRect();
-  if (!r || r.width === 0 || r.right <= 0 || r.left >= window.innerWidth) return null;
+  const onScreen = (r: DOMRect) => r.width > 0 && r.right > 0 && r.left < window.innerWidth;
+  const r = [...document.querySelectorAll<HTMLElement>(`[data-tour="${name}"]`)].map((el) => el.getBoundingClientRect()).find(onScreen);
+  if (!r) return null;
   const pad = 6;
   return { top: r.top - pad, left: r.left - pad, width: r.width + pad * 2, height: r.height + pad * 2 };
 }

@@ -20,6 +20,9 @@ import type {
   FileListing,
   FilePreview,
   GrokFolderTrust,
+  InboxItem,
+  InboxReadRequest,
+  InboxSummary,
   CliInstallView,
   Lang,
   SandboxSetupView,
@@ -222,6 +225,14 @@ export const api = {
     if (current) clearKey();
   },
   // notifications
+  /** The notification inbox (the sidebar's bell): every notification kept, the newest first. */
+  notifications: () => request<InboxItem[]>('GET', '/api/notifications'),
+  /** How many are unread and where, and the newest one's id. */
+  notificationSummary: () => request<InboxSummary>('GET', '/api/notifications/summary'),
+  /** Marks notifications read: these, those of one conversation, or all. */
+  readNotifications: (which: InboxReadRequest) => request<{ read: number }>('POST', '/api/notifications/read', which),
+  /** Removes every notification. */
+  clearNotifications: () => request<{ ok: true }>('DELETE', '/api/notifications'),
   /** Whether the server sends push notifications: the key to subscribe with, or why not. */
   pushStatus: () => request<PushStatus>('GET', '/api/push'),
   /** Keeps this browser's push subscription and which alerts it wants. */

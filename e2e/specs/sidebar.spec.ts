@@ -65,6 +65,35 @@ test.describe('the sidebar', () => {
     await expect.poll(async () => (await relay.api<{ id: string }[]>('/api/conversations')).some((c) => c.id === id)).toBe(false);
   });
 
+  test('Search comes first under New chat, and New group, an icon only beside it, still opens the box for a new group', async ({
+    page,
+  }) => {
+    const row = page.locator('.sidebar-actions');
+    const buttons = row.getByRole('button');
+    await expect(buttons).toHaveCount(2);
+    await expect(buttons.nth(0)).toHaveAccessibleName('Search');
+    await expect(buttons.nth(1)).toHaveAccessibleName('New group');
+    const [search, newGroup] = [buttons.nth(0), buttons.nth(1)];
+    await expect(search).toHaveText('Search');
+    // No words: its name and tooltip say it, a folder with a plus shows it.
+    await expect(newGroup).toHaveText('');
+    await expect(newGroup).toHaveAttribute('title', 'New group');
+    await expect(newGroup.locator('svg')).toBeVisible();
+    // Search takes the row but for New group's narrow column, at its right; both the same height.
+    const [s, g] = [(await search.boundingBox())!, (await newGroup.boundingBox())!];
+    expect(s.x + s.width).toBeLessThan(g.x);
+    expect(g.width).toBeLessThan(s.width / 3);
+    expect(Math.abs(s.height - g.height)).toBeLessThan(1);
+
+    await newGroup.click();
+    const name = page.getByRole('textbox', { name: 'Group name' });
+    await expect(name).toBeFocused();
+    await name.press('Escape');
+    await expect(row).toBeVisible();
+    await search.click();
+    await expect(page.getByLabel('Search conversations')).toBeFocused();
+  });
+
   test('search finds a conversation by what an agent wrote in it', async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'About pelicans');
     await send(page, 'Tell me about pelicans');

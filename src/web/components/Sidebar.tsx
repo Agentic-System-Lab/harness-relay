@@ -6,6 +6,7 @@ import {
   isOpenProvider,
   type ConversationGroup,
   type ConversationSummary,
+  type InboxSummary,
   type ProviderStatus,
 } from '../../shared/types';
 import { api } from '../api';
@@ -14,6 +15,7 @@ import { hashFor, settingsHref } from '../route';
 import { useT, type Messages } from '../i18n';
 import { branchCount, readHealthNames, readyCount, writeHealthNames } from '../sidebar';
 import { Deferred, lazyPart } from './Deferred';
+import { InboxButton } from './InboxButton';
 import { ChevronIcon, FolderPlusIcon, PanelIcon, PlusIcon, ReportIcon, SearchIcon, StarIcon, ZapIcon } from './icons';
 import { Logo } from './Logo';
 import { NewGroupBox, SidebarGroups } from './SidebarGroups';
@@ -35,6 +37,10 @@ interface Props {
   onChanged: () => void;
   /** Hide the sidebar (wide screens). */
   onCollapse: () => void;
+  /** The notification inbox's summary: the bell's unread count. */
+  inbox: InboxSummary;
+  /** The bell was clicked: open the notification inbox. */
+  onOpenInbox: () => void;
   /** The logo and name were clicked: on a phone the sidebar closes, also when the home page is open already. */
   onHome: () => void;
 }
@@ -45,7 +51,19 @@ export function providerState(p?: ProviderStatus): 'ok' | 'warn' | 'off' {
   return 'ok';
 }
 
-export function Sidebar({ route, conversations, groups, seen, providers, onDeleted, onChanged, onCollapse, onHome }: Props) {
+export function Sidebar({
+  route,
+  conversations,
+  groups,
+  seen,
+  providers,
+  onDeleted,
+  onChanged,
+  onCollapse,
+  inbox,
+  onOpenInbox,
+  onHome,
+}: Props) {
   const t = useT();
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
@@ -94,6 +112,8 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
             <Logo />
             Harness Relay
           </a>
+          {/* The notification inbox, left of the collapse button (alone at the row's end on a phone). */}
+          <InboxButton unread={inbox.unread} onOpen={onOpenInbox} />
           <button
             className="icon-button collapse-sidebar"
             onClick={onCollapse}
@@ -104,7 +124,7 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
           </button>
         </div>
         <div className="new-row">
-          {/* Two halves, as New group and Search below them. */}
+          {/* Two halves. */}
           <button className="new-chat" data-tour="new-chat" onClick={() => navigate({ page: 'new' })}>
             <PlusIcon size={15} />
             <span className="new-label">{t.sidebar.newChat}</span>
@@ -128,11 +148,18 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
           <NewGroupBox onClose={() => setCreating(false)} onCreated={onChanged} />
         ) : (
           <div className="sidebar-actions" data-tour="organize">
-            <button type="button" className="sidebar-action" onClick={() => setCreating(true)}>
-              <FolderPlusIcon size={16} /> {t.sidebar.newGroup}
-            </button>
             <button type="button" className="sidebar-action" onClick={openSearch}>
               <SearchIcon size={16} /> {t.sidebar.search}
+            </button>
+            {/* An icon only, so Search keeps the row. */}
+            <button
+              type="button"
+              className="sidebar-action new-group"
+              onClick={() => setCreating(true)}
+              aria-label={t.sidebar.newGroup}
+              title={t.sidebar.newGroup}
+            >
+              <FolderPlusIcon size={16} />
             </button>
           </div>
         )}

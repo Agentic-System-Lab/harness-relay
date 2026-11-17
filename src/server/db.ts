@@ -430,7 +430,23 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE conversations ADD COLUMN pinned_at INTEGER;
   `,
-  // 31: a schedule that tracks a goal (schedules.goal; schedules.tracking, JSON: ScheduleTracking) and its
+  // 31: the notification inbox (notifications), what the sidebar's bell lists: each alert the team
+  // gave (kind: done, error, approval, confirm, answer, blocked; src/shared/notify.ts), the agent it is about and
+  // what it said as one short line, when, and when it was read (read_at; NULL: unread). Removed with
+  // its conversation; only the newest INBOX_KEPT are kept (src/server/store.ts).
+  `
+  CREATE TABLE notifications (
+    id              TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    kind            TEXT NOT NULL,
+    agent           TEXT,
+    text            TEXT,
+    created_at      INTEGER NOT NULL,
+    read_at         INTEGER
+  );
+  CREATE INDEX notifications_by_conversation ON notifications(conversation_id);
+  `,
+  // 32: a schedule that tracks a goal (schedules.goal; schedules.tracking, JSON: ScheduleTracking) and its
   // webhook (schedules.hook, JSON: ScheduleHook; schedules.hook_hash: the SHA-256 of its token, never the
   // token), and the body a webhook call sent with a scheduled message (messages.event).
   `
@@ -440,7 +456,7 @@ const MIGRATIONS: string[] = [
   ALTER TABLE schedules ADD COLUMN hook_hash TEXT;
   ALTER TABLE messages ADD COLUMN event TEXT;
   `,
-  // 32: the outbox — what agents asked Harness Relay's tools to send to other people, waiting for the
+  // 33: the outbox — what agents asked Harness Relay's tools to send to other people, waiting for the
   // user's Send (args: the call's arguments, JSON; preview: OutboxPreview, JSON).
   `
   CREATE TABLE outbox (
@@ -460,7 +476,7 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX outbox_conversation ON outbox(conversation_id, status);
   `,
-  // 33: the run of a schedule that tracks a goal a reply belongs to (`ChatMessage.tracked`, JSON), so a
+  // 34: the run of a schedule that tracks a goal a reply belongs to (`ChatMessage.tracked`, JSON), so a
   // Retry or Continue of it goes on with the goal, also after a restart.
   `
   ALTER TABLE messages ADD COLUMN tracked TEXT;

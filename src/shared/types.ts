@@ -730,6 +730,42 @@ export interface AuthSessionView {
 export type AlertKind = 'done' | 'error' | 'approval' | 'confirm' | 'answer' | 'blocked';
 
 /**
+ * A notification in the inbox (the bell beside the sidebar's collapse button): an alert the team gave
+ * (`src/shared/notify.ts`), kept by the server (`src/server/inbox.ts`) whether or not a browser was
+ * open, for every signed-in browser alike. The newest first; removed with its conversation.
+ */
+export interface InboxItem {
+  id: string;
+  conversationId: string;
+  /** The conversation's title now. */
+  title: string;
+  kind: AlertKind;
+  /** The agent it is about (`alertDetail`), when the conversation tells. */
+  agent?: string;
+  /** What the agent said (a reply, its error, a question) or asks to do (a command, a file), as one short line. */
+  text?: string;
+  createdAt: number;
+  /** Seen: its chat was opened since, or it was marked read. */
+  read: boolean;
+}
+
+/** What the bell shows without the list (`GET /api/notifications/summary`). */
+export interface InboxSummary {
+  /** How many are unread. */
+  unread: number;
+  /** The conversations with unread notifications: opening one's chat marks them read. */
+  unreadIn: string[];
+  /** The newest notification's id: an open list loads again when it changes. */
+  newest?: string;
+}
+
+/**
+ * Which notifications `POST /api/notifications/read` marks read: these, those of one conversation,
+ * or all of them.
+ */
+export type InboxReadRequest = { ids: string[] } | { conversationId: string } | { all: true };
+
+/**
  * Which alerts a browser wants (Settings → Notifications): replies that ended (`done` and `error`),
  * what needs the user (`approval`, `confirm`, `answer`), and with a sound or without.
  */
