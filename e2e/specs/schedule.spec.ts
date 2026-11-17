@@ -59,11 +59,20 @@ test.describe('schedules', () => {
     await page.locator('.chat-head').getByRole('button', { name: 'Schedule' }).click();
     const drawer = page.getByRole('dialog', { name: 'Schedule' });
     await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('CI reported');
-    await drawer.getByRole('radio', { name: 'Every day' }).click();
+    // No set times: only Run once now and the webhook send it, so there is nothing to switch on or off,
+    // and no missed times.
+    await drawer.getByRole('radio', { name: 'No set times' }).click();
+    await expect(drawer).toContainText('Sent only when you click Run once now, or a program calls its webhook');
+    await expect(drawer.getByRole('checkbox', { name: 'On' })).toHaveCount(0);
+    await expect(drawer.getByRole('radiogroup', { name: 'Missed times' })).toHaveCount(0);
     await drawer.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(drawer).toBeHidden();
+    await expect(page.locator('.conv-item.active .conv-schedule')).toHaveAccessibleName(
+      'Schedule: no set times (Run once now or its webhook)',
+    );
 
     await page.locator('.chat-head').getByRole('button', { name: 'Schedule' }).click();
+    await expect(drawer.locator('.schedule-status')).toContainText('No set times · sent by Run once now or its webhook');
     const hook = drawer.getByRole('region', { name: 'Webhook' });
     await hook.getByRole('button', { name: 'Add a webhook' }).click();
     const example = hook.locator('.hook-example');

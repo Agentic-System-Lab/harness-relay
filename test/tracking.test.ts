@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { freshTracking, retryDelayMs, splitProgress, withNote, withoutProgressTail } from '../src/shared/tracking';
 import { TRACKING_LIMITS, type ProgressNote } from '../src/shared/types';
+import { slow } from './timeouts';
 
 describe("a reply's <progress> block", () => {
   it('is taken off the end of the reply, with its status and text', () => {
@@ -15,6 +16,19 @@ describe("a reply's <progress> block", () => {
     expect(splitProgress('<PROGRESS status=BLOCKED>needs a token</PROGRESS>')).toEqual({
       text: '',
       progress: { status: 'blocked', text: 'needs a token' },
+    });
+  });
+
+  it('reads a reply in time in proportion to its size, whatever it holds (opening tags never ended, never closed)', () => {
+    for (const text of ['\n<progress status="'.repeat(20_000), '\n<progress>'.repeat(30_000), `${'x\n'.repeat(100_000)}<progress>`]) {
+      const started = Date.now();
+      expect(splitProgress(text).progress).toBeUndefined();
+      expect(Date.now() - started).toBeLessThan(slow(500));
+    }
+    // The last block counts, after earlier ones the agent quoted, and after a <progressbar> it wrote about.
+    expect(splitProgress('<progress>old</progress> was the old one\n<progressbar> too\n<progress status="done">new</progress>')).toEqual({
+      text: '<progress>old</progress> was the old one\n<progressbar> too',
+      progress: { status: 'done', text: 'new' },
     });
   });
 

@@ -1,6 +1,7 @@
 import type { Socket } from 'node:net';
 import type { TLSSocket } from 'node:tls';
 import { openSocket, STARTTLS_EXTRA, upgrade, type Login, type ServerAddress } from './imap';
+import { t } from '../i18n';
 
 /*
  * A small SMTP client for the outbox's mail: EHLO, STARTTLS (port 587) or TLS from the start (465),
@@ -22,12 +23,12 @@ class ReplyReader {
     // A reply is a few lines: a server that sends far more is cut off.
     if (this.buf.length > SMTP_MAX_REPLY) {
       this.sock?.destroy();
-      this.ended ??= new Error('The mail server sent more than a reply may hold');
+      this.ended ??= new Error(t().conn.mailReplyTooMuch);
     }
     this.wake();
   };
   private readonly onEnd = () => {
-    this.ended ??= new Error('The mail server closed the connection');
+    this.ended ??= new Error(t().conn.mailClosed);
     this.wake();
   };
 
@@ -75,7 +76,7 @@ class ReplyReader {
       size += eol + 2;
       if (size > SMTP_MAX_REPLY) {
         this.sock?.destroy();
-        throw new Error('The mail server sent more than a reply may hold');
+        throw new Error(t().conn.mailReplyTooMuch);
       }
       lines.push(line.slice(4));
       if (line[3] !== '-') return { code: Number(line.slice(0, 3)), lines };
@@ -113,7 +114,7 @@ export async function withSmtp<T>(
     new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         sock.destroy();
-        reject(new Error(`The mail server did not answer in ${Math.round(timeoutMs / 1000)} seconds`));
+        reject(new Error(t().conn.mailNoAnswer(Math.round(timeoutMs / 1000))));
       }, timeoutMs);
       p.then(
         (v) => (clearTimeout(timer), resolve(v)),

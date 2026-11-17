@@ -88,6 +88,8 @@ export function zonedTime(year: number, month: number, day: number, hour: number
 export function nextRun(s: Pick<ConversationSchedule, 'repeat' | 'timeZone' | 'updatedAt'>, after: number): number | undefined {
   const r = s.repeat;
   switch (r.kind) {
+    case 'manual':
+      return undefined; // only Run once now and the webhook send it
     case 'once':
       return r.at > after ? r.at : undefined;
     case 'interval': {

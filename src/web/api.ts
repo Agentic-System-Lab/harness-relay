@@ -280,7 +280,7 @@ export const api = {
   runSchedule: (id: string) => request<{ ok: true; queued: boolean; chatId?: string }>('POST', `/api/conversations/${id}/schedule/run`),
   /** A webhook for the schedule (a new token replaces the one it had): the token, shown this once, and the address to call. */
   createScheduleHook: (id: string) =>
-    request<{ token: string; url: string; hook: ScheduleHook }>('POST', `/api/conversations/${id}/schedule/hook`, {}),
+    request<{ token: string; url: string; hook: ScheduleHook; platform: string }>('POST', `/api/conversations/${id}/schedule/hook`, {}),
   deleteScheduleHook: (id: string) => request<{ ok: true }>('DELETE', `/api/conversations/${id}/schedule/hook`),
   /** Conversations whose title or messages contain every word of `q`. */
   search: (q: string) => request<SearchResult[]>('GET', `/api/search?q=${encodeURIComponent(q)}`),

@@ -49,7 +49,7 @@ export function ScheduleProgress({ schedule }: { schedule: ConversationSchedule 
 }
 
 /**
- * The schedule's webhook: add one (its token shown this once, with a `curl` line to call it), make a
+ * The schedule's webhook: add one (its token shown this once, with a command to call it: curl, or PowerShell's on Windows), make a
  * new token, or remove it.
  */
 export function ScheduleHookPanel({
@@ -62,7 +62,7 @@ export function ScheduleHookPanel({
   onError: (message: string) => void;
 }) {
   const { t, lang } = useI18n();
-  const [shown, setShown] = useState<{ token: string; url: string }>();
+  const [shown, setShown] = useState<{ token: string; url: string; platform: string }>();
   const [busy, setBusy] = useState(false);
   const hook = schedule.hook;
 
@@ -71,7 +71,7 @@ export function ScheduleHookPanel({
     setBusy(true);
     try {
       const made = await api.createScheduleHook(convId);
-      setShown({ token: made.token, url: made.url });
+      setShown({ token: made.token, url: made.url, platform: made.platform });
     } catch (e) {
       onError((e as Error).message);
     } finally {
@@ -92,7 +92,7 @@ export function ScheduleHookPanel({
     }
   };
 
-  const example = shown ? hookExample(shown.url, shown.token) : '';
+  const example = shown ? hookExample(shown.url, shown.token, shown.platform) : '';
   return (
     <section className="schedule-hook" aria-label={t.schedule.hook.title}>
       <h3 className="schedule-sub">{t.schedule.hook.title}</h3>

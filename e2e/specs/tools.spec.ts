@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { createServer as createHttpServer } from 'node:http';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import type { Locator, Page } from '@playwright/test';
@@ -596,5 +597,47 @@ test("a member reaches Harness Relay's own tools through its MCP gateway, and a 
     expect(smtp.sent).toHaveLength(1);
   } finally {
     await smtp.close();
+  }
+});
+
+test("below full access, the CLI's own question about Harness Relay's tool is answered for the user, and the gateway asks about an act with what it will do", async ({
+  page,
+  relay,
+}) => {
+  // A calendar on this computer that takes the events put to it.
+  const puts: string[] = [];
+  const cal = createHttpServer((req, res) => {
+    let body = '';
+    req.on('data', (c: Buffer) => (body += c.toString()));
+    req.on('end', () => {
+      if (req.method === 'PUT') puts.push(body);
+      res.writeHead(req.method === 'PUT' ? 201 : 404).end();
+    });
+  });
+  await new Promise<void>((r) => cal.listen(0, '127.0.0.1', () => r()));
+  try {
+    const port = (cal.address() as { port: number }).port;
+    await relay.api('/api/connectors/calendar/home', {
+      method: 'PUT',
+      body: { name: 'Home', url: `http://127.0.0.1:${port}/cal/me/`, username: 'me', password: 'app-pass' },
+    });
+    await relay.api('/api/tools', { method: 'PUT', body: { relayTools: { calendar: ['claude'] } } });
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' }, 'Standup');
+    await send(page, 'Add it: {"summary": "Standup", "start": "2026-03-02T09:00", "end": "2026-03-02T09:15"} e2e:mcp=calendar_create');
+
+    // Claude Code asked about mcp__relay__calendar_create: answered without a card. The gateway's own card
+    // says what the call will do, and nothing is added before Allow.
+    const card = page.getByRole('region', { name: '@Claude wants to use a tool relay:calendar_create' });
+    await expect(card).toContainText('Add "Standup" (2026-03-02T09:00 – 2026-03-02T09:15) to the calendar');
+    await expect(page.getByRole('region', { name: /wants to use a tool mcp__relay__calendar_create/ })).toHaveCount(0);
+    await expect(page.locator('.approval-card')).toHaveCount(1);
+    expect(puts).toEqual([]);
+    await card.getByRole('button', { name: 'Allow', exact: true }).click();
+    const reply = await finishedReply(page, 'Claude');
+    await expect(reply).toContainText('The calendar_create tool said: Added "Standup" to Home.');
+    expect(puts).toHaveLength(1);
+    expect(puts[0]).toContain('SUMMARY:Standup');
+  } finally {
+    await new Promise((r) => cal.close(r));
   }
 });

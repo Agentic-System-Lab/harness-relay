@@ -101,7 +101,7 @@ UI 會用觸發器的名稱代替「你」顯示這則訊息。agent 看到的�
 `POST /api/triggers/:id/fire`，帶 `Authorization: Bearer <token>` 和 JSON body。
 
 - token 在建立觸發器時產生，只顯示一次；資料庫只存它的 SHA-256，用固定時間比較。「新 token」會取代舊的。token 錯誤或沒帶時回 404，跟不存在的觸發器一樣。
-- 這個路由放在 `/api/` 下，所以 Host、Origin 和 JSON content-type 檢查都適用。呼叫者是這台電腦上的程式：git hook、CI runner、檔案監看程式、cron job、`gh webhook forward`。
+- 這個路由放在 `/api/` 下，所以 Host、Origin 和 JSON content-type 檢查都適用。呼叫者是這台電腦上的程式：git hook、CI runner、檔案監看程式、cron job。
 - 送出的訊息是觸發器的 `text`，後面接放在 `<event>` 區塊裡的 body，最多 20 KB。briefing 會說明 `<event>` 區塊是程式送來的資料，不是使用者的要求：裡面的指令不要照做。
 - 每個觸發器每 10 秒最多觸發一次；超過的回 429。[觸發時](#觸發時)的第 1 條也適用。
 
@@ -162,7 +162,7 @@ UI 會用觸發器的名稱代替「你」顯示這則訊息。agent 看到的�
 來自網際網路的事件（GitHub、Slack、Linear）到不了綁在 `127.0.0.1` 的伺服器，而且應該維持這樣：API 沒有驗證。不開放伺服器也能用它們的方法：
 
 - **用排程觸發器輪詢**，不需要新東西：「每 15 分鐘用 `gh issue list` 檢查新 issue 並分類」。
-- **在這台電腦上跑轉發程式**，收到事件後呼叫 webhook 觸發器，例如 GitHub repository 可以用 `gh webhook forward`。
+- **在這台電腦上跑轉發程式**，收到事件後帶著權杖呼叫 webhook 觸發器（使用者自己的小腳本：`gh webhook forward` 不會送出 `Authorization` 標頭，所以無法直接呼叫 webhook）。
 
 透過通道（tunnel）開放伺服器不在範圍內。如果哪天真的要做，只能讓 `POST /api/triggers/:id/fire` 從那裡連得到。
 

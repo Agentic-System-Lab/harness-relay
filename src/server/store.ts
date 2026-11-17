@@ -19,6 +19,7 @@ import type {
   ProgressStatus,
   Provider,
   RunPause,
+  TrackedRun,
   ScheduleHook,
   ScheduleRepeat,
   ScheduleResult,
@@ -132,6 +133,7 @@ interface MessageRow {
   queued: number | null;
   asked: number | null;
   scheduled: number | null;
+  tracked: string | null;
   event: string | null;
 }
 
@@ -366,6 +368,7 @@ function toMessage(r: MessageRow, parts: MessagePart[], files: FileChange[]): Ch
     asked: r.asked ? true : undefined,
     scheduled: r.scheduled ? true : undefined,
     ...(r.event ? { event: r.event } : {}),
+    ...trackedOf(r.tracked),
   };
 }
 
@@ -417,6 +420,7 @@ function scheduleSummary(
     ...(s.nextRunAt !== undefined ? { nextRunAt: s.nextRunAt } : {}),
     ...(s.lastResult ? { lastResult: s.lastResult } : {}),
     ...(ofDay ? { timeZone: s.timeZone } : {}),
+    ...(s.repeat?.kind === 'manual' ? { manual: true } : {}),
   };
 }
 
@@ -444,6 +448,14 @@ function queueOf(json: string | null, messages: ChatMessage[]): Pick<Conversatio
 function scheduleOf(live: Conversation | undefined, stored: ConversationSummary['schedule']): Pick<ConversationSummary, 'schedule'> {
   const schedule = live ? live.schedule && scheduleSummary(live.schedule) : stored;
   return schedule ? { schedule } : {};
+}
+
+/** A message's `tracked` run (JSON), when it has a sound one. */
+function trackedOf(json: string | null): Pick<ChatMessage, 'tracked'> {
+  const t = parseJson<Partial<TrackedRun> | null>(json, null);
+  return t && typeof t.sourceId === 'string' && typeof t.due === 'number' && typeof t.attempt === 'number'
+    ? { tracked: { sourceId: t.sourceId, due: t.due, attempt: t.attempt, retries: Boolean(t.retries) } }
+    : {};
 }
 
 function pauseOf(json: string | null): Pick<Conversation, 'pause'> {
@@ -523,8 +535,8 @@ function parseReview(json: string | null): LeadReview | undefined {
 const UPSERT_MESSAGE = `INSERT INTO messages (id, conversation_id, seq, author_kind, agent_id, agent_name, provider, created_at,
                        status, passed, error, round, duration_ms, cost_usd, input_tokens, output_tokens,
                        change_root, change_base, change_head, change_isolated, change_branch, more_changes, plan, review, queued,
-                       asked, scheduled, event)
- VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       asked, scheduled, event, tracked)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
  ON CONFLICT(id) DO UPDATE SET
    seq = excluded.seq, status = excluded.status, passed = excluded.passed, error = excluded.error,
    round = excluded.round, duration_ms = excluded.duration_ms, cost_usd = excluded.cost_usd,
@@ -532,7 +544,8 @@ const UPSERT_MESSAGE = `INSERT INTO messages (id, conversation_id, seq, author_k
    change_root = excluded.change_root, change_base = excluded.change_base, change_head = excluded.change_head,
    change_isolated = excluded.change_isolated, change_branch = excluded.change_branch,
    more_changes = excluded.more_changes, plan = excluded.plan, review = excluded.review,
-   queued = excluded.queued, asked = excluded.asked, scheduled = excluded.scheduled, event = excluded.event`;
+   queued = excluded.queued, asked = excluded.asked, scheduled = excluded.scheduled, event = excluded.event,
+   tracked = excluded.tracked`;
 
 const INSERT_PART = `INSERT INTO message_parts (message_id, idx, type, text, tool_id, tool_name, tool_detail, tool_status, tool_error,
                             tool_output, data)
@@ -1096,6 +1109,7 @@ export class Store {
         m.asked ? 1 : null,
         m.scheduled ? 1 : null,
         nul(m.event),
+        m.tracked ? JSON.stringify(m.tracked) : null,
       );
       clearChanges.run(m.id);
       first?.files.forEach((f, idx) => insertChange.run(m.id, idx, f.path, f.status, f.added, f.deleted));

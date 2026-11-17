@@ -56,6 +56,8 @@ describe('the gateway and the MCP server the CLIs start', () => {
   let answer: ApprovalAnswer = { allow: true };
   const children: ChildProcess[] = [];
 
+  /** What the act tool's `asking` hook and its run did, in order. */
+  const holding: string[] = [];
   const tools: GatewayTool[] = [
     {
       name: 'page_title',
@@ -73,7 +75,9 @@ describe('the gateway and the MCP server the CLIs start', () => {
       description: 'Click',
       inputSchema: { type: 'object' },
       describe: (a) => ({ title: `Click ${String(a.target)}`, detail: 'on example.com' }),
-      run: async (a) => ({ text: `Clicked ${String(a.target)}` }),
+      // What it keeps while the user is asked (the browser, so the page is still there for the click).
+      asking: () => (holding.push('held'), () => holding.push('let go')),
+      run: async (a) => (holding.push('ran'), { text: `Clicked ${String(a.target)}` }),
     },
     {
       name: 'mail_out',
@@ -239,9 +243,11 @@ describe('the gateway and the MCP server the CLIs start', () => {
     slow(20_000),
   );
 
-  it('asks before acting (and not again right after the CLI asked about the same tool), refuses when nobody can be asked, and puts sends in the outbox', async () => {
+  it('asks before acting, holding what the call needs meanwhile, refuses when nobody can be asked, and puts sends in the outbox', async () => {
     const call = (name: string, args: Record<string, unknown>, c: GatewayContext) => gateway.call(gateway.tool(name)!, args, c);
+    holding.length = 0;
     expect(await call('page_click', { target: 'Buy' }, ctx())).toEqual({ text: 'Clicked Buy' });
+    expect(holding).toEqual(['held', 'let go', 'ran']);
     expect(asked).toEqual([{ kind: 'other', tool: 'relay:page_click', detail: 'Click Buy', reason: 'on example.com', noLock: true }]);
     answer = { allow: false, note: 'not that one' };
     expect(await call('page_click', { target: 'Buy' }, ctx())).toEqual({
@@ -284,6 +290,8 @@ describe('the gateway and the MCP server the CLIs start', () => {
       expect(noNode.unavailable()).toBe('no-node');
       expect(noNode.grant(ctx(), ['browser'])).toBeUndefined();
       await noNode.stop();
+      // On Windows, where Settings installs no Node.js, the hint names the PATH alone.
+      expect(new ToolGateway(join(root, 'data5'), join(root, 'data5', 'tmp'), () => undefined, 'win32').unavailable()).toBe('no-node-path');
       expect(new ToolGateway(join(root, 'data3'), join(root, 'tmp3'), () => process.execPath).unavailable()).toBe('not-started');
     },
     slow(20_000),

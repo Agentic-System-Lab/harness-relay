@@ -22,12 +22,30 @@ const FENCED = new RegExp(`(?:^|\\n)[ \\t]*\`\`\`[^\\n]*\\n[ \\t]*${BLOCK}[ \\t]
  * fence with more than the block in it is code, and stays.
  */
 export function splitProgress(text: string): { text: string; progress?: { status: ProgressStatus; text: string } } {
-  const m = FENCED.exec(text) ?? PLAIN.exec(text);
+  // The block is the last one (none may hold another): read from the line before it, so that a reply
+  // full of opening tags takes time in proportion to its size, not to its square.
+  const at = lastBlockStart(text);
+  if (at < 0) return { text };
+  const lineStart = text.lastIndexOf('\n', at - 1) + 1;
+  const from = lineStart > 0 ? text.lastIndexOf('\n', lineStart - 2) : -1;
+  const offset = Math.max(0, from);
+  const tail = text.slice(offset);
+  const found = FENCED.exec(tail) ?? PLAIN.exec(tail);
+  const m = found && Object.assign(found, { index: found.index + offset });
   if (!m) return { text };
   const said = (/\bstatus\s*=\s*["']?([a-z]+)/i.exec(m[1] ?? '')?.[1] ?? 'working').toLowerCase();
   const status = (PROGRESS_STATUSES as readonly string[]).includes(said) ? (said as ProgressStatus) : 'working';
   const note = m[2]!.trim().slice(0, TRACKING_LIMITS.noteChars);
   return { text: text.slice(0, m.index).trimEnd(), progress: { status, text: note } };
+}
+
+/** Where the last `<progress` tag (not `<progressbar`, say) begins, or -1. */
+function lastBlockStart(text: string): number {
+  const lower = text.toLowerCase();
+  for (let i = lower.lastIndexOf('<progress'); i >= 0; i = i > 0 ? lower.lastIndexOf('<progress', i - 1) : -1) {
+    if (!/[a-z0-9_]/.test(lower[i + 9] ?? '')) return i;
+  }
+  return -1;
 }
 
 /** A new tracking state: nothing said yet. */

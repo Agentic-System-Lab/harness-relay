@@ -87,6 +87,7 @@ export function browserTools(browser: BrowserService): GatewayTool[] {
         'Click a link, button or other element of the open page, by its number in the latest snapshot; returns the page afterwards. Asked about first below full access (the user is shown the element as the page names it).',
       inputSchema: { type: 'object', properties: { ref }, required: ['ref'], additionalProperties: false },
       describe: (a, ctx) => ({ title: t().gw.click(refWords(ctx && browser.refInfo(ctx.convId, refOf(a)), refOf(a))) }),
+      asking: (ctx) => browser.hold(ctx.convId),
       unavailable,
       run: async (a, ctx) => snapshot(browser.click(ctx, refOf(a))),
     },
@@ -110,6 +111,7 @@ export function browserTools(browser: BrowserService): GatewayTool[] {
           detail: t().gw.typed(text.slice(0, TYPED_SHOWN), text.length),
         };
       },
+      asking: (ctx) => browser.hold(ctx.convId),
       unavailable,
       run: async (a, ctx) => snapshot(browser.type(ctx, refOf(a), String(a.text ?? ''), a.submit === true)),
     },

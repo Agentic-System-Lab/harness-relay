@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { validTimeZone, zonedTime } from '../../shared/schedule';
 import type { Login } from './imap';
+import { t } from '../i18n';
 
 /*
  * A calendar over CalDAV (RFC 4791), enough for the calendar tools: the events in a time range
@@ -279,7 +280,7 @@ export const CALDAV_MAX_ANSWER = 16 * 1024 * 1024;
 export async function answerText(res: Response, max = CALDAV_MAX_ANSWER): Promise<string> {
   if (Number(res.headers.get('content-length') ?? 0) > max) {
     await res.body?.cancel().catch(() => undefined);
-    throw new Error('The calendar answered with more than an answer may hold');
+    throw new Error(t().conn.calTooMuch);
   }
   const reader = res.body?.getReader();
   if (!reader) return '';
@@ -291,7 +292,7 @@ export async function answerText(res: Response, max = CALDAV_MAX_ANSWER): Promis
     size += value.byteLength;
     if (size > max) {
       await reader.cancel().catch(() => undefined);
-      throw new Error('The calendar answered with more than an answer may hold');
+      throw new Error(t().conn.calTooMuch);
     }
     chunks.push(value);
   }
@@ -305,11 +306,9 @@ function auth(login: Login): Record<string, string> {
 
 /** A calendar's answer that is not what was asked: why, in a line. */
 async function failure(res: Response, what: string): Promise<Error> {
-  if (res.status === 401 || res.status === 403)
-    return new Error(`${what}: the calendar did not accept the user name and password (${res.status})`);
-  if (res.status >= 300 && res.status < 400)
-    return new Error(`${what}: the calendar is at another address (${res.headers.get('location') ?? res.status}); use that one`);
-  return new Error(`${what}: the calendar answered ${res.status} ${res.statusText}`.trim());
+  if (res.status === 401 || res.status === 403) return new Error(t().conn.calLogin(what, res.status));
+  if (res.status >= 300 && res.status < 400) return new Error(t().conn.calMoved(what, res.headers.get('location') ?? String(res.status)));
+  return new Error(t().conn.calStatus(what, `${res.status} ${res.statusText}`.trim()));
 }
 
 /** The events between two moments. */
@@ -326,7 +325,7 @@ export async function listEvents(url: string, login: Login, from: number, to: nu
     redirect: 'manual',
     signal: AbortSignal.timeout(timeoutMs),
   });
-  if (res.status !== 207 && res.status !== 200) throw await failure(res, 'Listing the events failed');
+  if (res.status !== 207 && res.status !== 200) throw await failure(res, t().conn.calListFailed);
   const xml = await answerText(res);
   return calendarData(xml).flatMap(parseEvents);
 }
@@ -341,7 +340,7 @@ export async function putEvent(url: string, login: Login, ics: string, uid: stri
     redirect: 'manual',
     signal: AbortSignal.timeout(timeoutMs),
   });
-  if (res.status !== 201 && res.status !== 204 && res.status !== 200) throw await failure(res, 'Adding the event failed');
+  if (res.status !== 201 && res.status !== 204 && res.status !== 200) throw await failure(res, t().conn.calAddFailed);
   return target;
 }
 
@@ -382,7 +381,7 @@ async function propfind(url: string, login: Login, depth: '0' | '1', props: stri
     redirect: 'manual',
     signal: AbortSignal.timeout(timeoutMs),
   });
-  if (res.status !== 207) throw await failure(res, 'Finding the calendars failed');
+  if (res.status !== 207) throw await failure(res, t().conn.calFindFailed);
   return answerText(res);
 }
 

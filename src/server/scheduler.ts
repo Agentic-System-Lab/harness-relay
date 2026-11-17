@@ -126,6 +126,9 @@ export class Scheduler {
       let outcome: Outcome;
       if (late && since === undefined && s.missed === 'skip') {
         outcome = { result: 'missed' };
+      } else if (retry && s.tracking?.notes.some((n) => n.at >= retry.due)) {
+        // A report on the goal came after that time's run failed (the user's Retry of it, say): not tried again.
+        outcome = { result: 'skipped', reason: t().trackingRetryNotNeeded };
       } else {
         const sent = await this.orchestrator.sendScheduled(convId, retry?.due ?? due, { attempt: retry?.attempt ?? 0, retries: true });
         if (this.stopped) return; // shutting down: the time is still due when the server is back

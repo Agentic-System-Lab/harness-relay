@@ -460,6 +460,11 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX outbox_conversation ON outbox(conversation_id, status);
   `,
+  // 33: the run of a schedule that tracks a goal a reply belongs to (`ChatMessage.tracked`, JSON), so a
+  // Retry or Continue of it goes on with the goal, also after a restart.
+  `
+  ALTER TABLE messages ADD COLUMN tracked TEXT;
+  `,
 ];
 
 /**

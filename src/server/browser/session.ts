@@ -360,10 +360,27 @@ class BrowserSession {
     readonly exited: Promise<unknown>,
   ) {}
 
+  /** Calls going on and questions waiting on this browser: it is not idle while there are any. */
+  private holds = 0;
+
+  /** Starts counting the idle time again (`idleMs`), unless something holds the browser. */
   touch(): void {
     clearTimeout(this.timer);
+    if (this.holds > 0) return;
     this.timer = setTimeout(() => this.stop(), this.idleMs);
     this.timer.unref();
+  }
+
+  /** A call goes on, or waits for the user's answer: the browser does not close meanwhile, however long it takes. */
+  hold(): void {
+    this.holds++;
+    clearTimeout(this.timer);
+  }
+
+  /** What `hold()` held is over: the idle time counts from now. */
+  release(): void {
+    this.holds = Math.max(0, this.holds - 1);
+    this.touch();
   }
 
   send<T = Record<string, unknown>>(method: string, params: Record<string, unknown> = {}, timeoutMs?: number): Promise<T> {
@@ -489,6 +506,30 @@ export class BrowserService {
     this.idleMs = o.idleMs ?? 10 * 60_000;
     // Its profiles' folder, a protected path from the first turn on (`relayBrowserDir`).
     mkdirSync(relayBrowserDir(o.dataDir), { recursive: true, mode: 0o700 });
+  }
+
+  /**
+   * Keeps the conversation's browser open while the user is asked about a click or a key (before the
+   * call runs): returns what ends it. A browser not started yet has nothing to keep.
+   */
+  hold(convId: string): () => void {
+    const started = this.sessions.get(convId);
+    if (!started) return () => undefined;
+    let over = false;
+    let held: BrowserSession | undefined;
+    void started.then(
+      (s) => {
+        if (over) return;
+        held = s;
+        s.hold();
+      },
+      () => undefined,
+    );
+    return () => {
+      over = true;
+      held?.release();
+      held = undefined;
+    };
   }
 
   /** Why the browser tools cannot be used now, or undefined. */
@@ -774,12 +815,13 @@ export class BrowserService {
       s.denied = undefined;
       s.popups = [];
       s.callGranted.clear();
-      s.touch();
+      // Held for the whole call, also while the user is asked about a host (as long as the turn lasts).
+      s.hold();
       try {
         return await fn(s);
       } finally {
         s.current = undefined;
-        s.touch();
+        s.release();
       }
     });
     s.queue = turn.catch(() => undefined);

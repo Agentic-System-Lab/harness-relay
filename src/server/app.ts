@@ -1303,7 +1303,13 @@ export function createApp({
     const token = randomBytes(32).toString('base64url');
     store.setHook(conv, hookHash(token), Date.now());
     orchestrator.emitConversation(conv);
-    return c.json({ token, url: `http://127.0.0.1:${servingPort()}/api/hooks/${conv.id}`, hook: conv.schedule.hook });
+    // The server's system: the example to call it is written for that computer's shell.
+    return c.json({
+      token,
+      url: `http://127.0.0.1:${servingPort()}/api/hooks/${conv.id}`,
+      hook: conv.schedule.hook,
+      platform: process.platform,
+    });
   });
 
   app.delete('/api/conversations/:id/schedule/hook', (c) => {

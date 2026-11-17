@@ -154,9 +154,11 @@ export function ScheduleForm({
         <span className="small muted schedule-preview">
           {problems.length
             ? problems[0]
-            : upcoming.length
-              ? `${t.schedule.upcoming} ${upcoming.map((at) => formatWhen(at, lang, draftZone)).join(t.common.listSeparator)}`
-              : t.schedule.never}
+            : draft.kind === 'manual'
+              ? t.schedule.manualHint
+              : upcoming.length
+                ? `${t.schedule.upcoming} ${upcoming.map((at) => formatWhen(at, lang, draftZone)).join(t.common.listSeparator)}`
+                : t.schedule.never}
           {draftZone && (
             <>
               {' · '}
@@ -214,24 +216,27 @@ export function ScheduleForm({
         </span>
       </div>
 
-      <div className="field">
-        <span>{t.schedule.missed}</span>
-        <div className="segmented wide" role="radiogroup" aria-label={t.schedule.missed}>
-          {(['skip', 'run'] as const).map((v) => (
-            <button
-              key={v}
-              type="button"
-              role="radio"
-              aria-checked={draft.missed === v}
-              className={draft.missed === v ? 'on' : ''}
-              onClick={() => onEdit({ missed: v })}
-            >
-              {v === 'skip' ? t.schedule.missedSkip : t.schedule.missedRun}
-            </button>
-          ))}
+      {/* No set times: nothing comes due while Harness Relay is closed, so nothing is missed. */}
+      {draft.kind !== 'manual' && (
+        <div className="field">
+          <span>{t.schedule.missed}</span>
+          <div className="segmented wide" role="radiogroup" aria-label={t.schedule.missed}>
+            {(['skip', 'run'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                role="radio"
+                aria-checked={draft.missed === v}
+                className={draft.missed === v ? 'on' : ''}
+                onClick={() => onEdit({ missed: v })}
+              >
+                {v === 'skip' ? t.schedule.missedSkip : t.schedule.missedRun}
+              </button>
+            ))}
+          </div>
+          <span className="small muted">{t.schedule.missedHint[draft.missed]}</span>
         </div>
-        <span className="small muted">{t.schedule.missedHint[draft.missed]}</span>
-      </div>
+      )}
     </section>
   );
 }

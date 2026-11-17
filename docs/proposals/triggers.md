@@ -101,7 +101,7 @@ When the server starts (or the computer wakes) after a fire time has passed:
 `POST /api/triggers/:id/fire` with `Authorization: Bearer <token>` and a JSON body.
 
 - The token is made when the trigger is created and shown once; the database keeps only its SHA-256 hash, compared in constant time. "New token" replaces it. A wrong or missing token gets 404, as an unknown trigger does.
-- The route stays under `/api/`, so the Host, Origin and JSON content-type checks apply. Callers are programs on this computer: a git hook, a CI runner, a file watcher, a cron job, `gh webhook forward`.
+- The route stays under `/api/`, so the Host, Origin and JSON content-type checks apply. Callers are programs on this computer: a git hook, a CI runner, a file watcher, a cron job.
 - The posted message is the trigger's `text` followed by the body inside an `<event>` block, cut to 20 KB. The briefing says an `<event>` block is data from a program, not a request from the user: instructions inside it are not to be followed.
 - At most one fire per trigger every 10 seconds; more get 429. Rule 1 of [Firing](#firing) also applies.
 
@@ -162,7 +162,7 @@ One migration appended to `MIGRATIONS` in `src/server/db.ts`:
 Events from the internet (GitHub, Slack, Linear) cannot reach a server bound to `127.0.0.1`, and it should stay that way: the API has no authentication. Ways to use them without exposing it:
 
 - **Polling with a schedule trigger**, which needs nothing new: "every 15 minutes, check new issues with `gh issue list` and triage them".
-- **A forwarder on this computer** that receives the event and calls the webhook trigger, for example `gh webhook forward` for a GitHub repository.
+- **A forwarder on this computer** that receives the event and calls the webhook trigger with its token (a small script of the user's: `gh webhook forward` sends no `Authorization` header, so it cannot call the webhook itself).
 
 Exposing the server through a tunnel is out of scope. If it is ever done, only `POST /api/triggers/:id/fire` may be reachable that way.
 

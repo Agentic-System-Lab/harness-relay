@@ -20,6 +20,7 @@ import type {
   ProgressStatus,
   Provider,
   RunPause,
+  TrackedRun,
   TeamPreset,
   TeamRevision,
 } from '../shared/types';
@@ -185,18 +186,6 @@ interface Run {
   tracking?: TrackedRun & { from: number };
 }
 
-/**
- * A run started by a schedule that tracks a goal: the schedule's conversation (`sourceId`, this one or
- * the one whose schedule opened this chat), the time it came due, which try this is (0 = the first),
- * and whether a run that fails is tried again (not for a webhook's call, whose body would be lost).
- */
-interface TrackedRun {
-  sourceId: string;
-  due: number;
-  attempt: number;
-  retries: boolean;
-}
-
 interface StartOptions {
   /** Runs once the workspace is ready and locked, just before the message is posted. */
   beforePost?: () => void;
@@ -261,6 +250,8 @@ function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
   const copies = messages.map((m) => {
     const copy = { ...structuredClone(m), id: randomUUID() };
     copy.parts = copy.parts.filter((p) => p.type !== 'outbox' || p.status !== 'pending');
+    // A branch is no run of the schedule: its replies carry no goal on.
+    delete copy.tracked;
     return copy;
   });
   const ids = new Map(messages.map((m, i) => [m.id, copies[i]!.id]));
@@ -280,6 +271,11 @@ function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
     if (!m.review.highlights) delete m.review.highlights;
   }
   return copies;
+}
+
+/** A tracked run as a message or a pause keeps it: without the run's own place in the chat. */
+function runOf(r: TrackedRun & { from?: number }): TrackedRun {
+  return { sourceId: r.sourceId, due: r.due, attempt: r.attempt, retries: r.retries };
 }
 
 /** Longest name of a template saved from a plan. */
@@ -434,7 +430,11 @@ export function branchAfterCut(
 export function branchPause(conv: Conversation, index: number): RunPause | undefined {
   const reply = conv.messages[index];
   if (reply?.author.kind !== 'agent' || !reply.asked) return undefined;
-  if (conv.pause && conv.messages.slice(index + 1).every((m) => m.author.kind === 'system')) return structuredClone(conv.pause);
+  if (conv.pause && conv.messages.slice(index + 1).every((m) => m.author.kind === 'system')) {
+    // The same wait, but no run of the schedule: the branch's answer carries no goal on.
+    const { tracked: _schedules, ...pause } = structuredClone(conv.pause);
+    return pause;
+  }
   const { mode, rounds, maxHops } = conv.settings;
   const askerId = reply.author.agentId;
   if (mode === 'relay') return { mode, askers: [askerId], rest: [], participants: [], round: 1, rounds: 1, hopsLeft: maxHops };
@@ -907,7 +907,7 @@ export class Orchestrator {
     if (replying && (conv.queue?.length ?? 0) >= MAX_QUEUE) return { result: 'skipped', reason: t().scheduleQueueFull };
     try {
       if (replying) {
-        this.enqueue(conv, s.text, undefined, true, opts.event);
+        this.enqueue(conv, s.text, undefined, true, opts.event, tracking);
         return { result: 'queued' };
       }
       // A settings change or an apply holds the conversation for a moment.
@@ -998,6 +998,28 @@ export class Orchestrator {
   private trackingSource(run: Pick<Run, 'tracking'>): Conversation | undefined {
     const source = run.tracking ? this.store.get(run.tracking.sourceId) : undefined;
     return source?.schedule?.goal ? source : undefined;
+  }
+
+  /**
+   * The tracking schedule's run a run carries on, when it was not started as one: the schedule's message
+   * that waited in the queue (its own time's run, `ChatMessage.tracked`); the user's answer to a question
+   * such a run asked (`RunPause.tracked`); Continue after its replies (nothing posted, nobody picked). The
+   * user is there for the last two, so they are not tried again; a team design carries nothing on.
+   */
+  private carriedTracking(
+    conv: Conversation,
+    posted: ChatMessage[],
+    opts: StartOptions,
+    paused: TrackedRun | undefined,
+    planning: boolean,
+  ): TrackedRun | undefined {
+    if (planning) return undefined;
+    const queued = posted.find((m) => m.scheduled && m.tracked)?.tracked;
+    if (queued) return queued;
+    const again = (r: TrackedRun | undefined) => r && { ...r, due: this.clock(), attempt: 0, retries: false };
+    if (paused) return again(paused);
+    if (!posted.length && !opts.only) return again(conv.messages.findLast((m) => m.author.kind === 'agent')?.tracked);
+    return undefined;
   }
 
   /** Remember that the run a tracking schedule just started has not ended yet: a restart tries it again. */
@@ -1138,7 +1160,14 @@ export class Orchestrator {
     return this.runs.has(conv.id) || this.starting.has(conv.id) || Boolean(pendingPlan(conv.messages));
   }
 
-  private enqueue(conv: Conversation, text: string, uploads?: AttachmentUpload[], scheduled = false, event?: string): void {
+  private enqueue(
+    conv: Conversation,
+    text: string,
+    uploads?: AttachmentUpload[],
+    scheduled = false,
+    event?: string,
+    tracked?: TrackedRun,
+  ): void {
     const queue = (conv.queue ??= []);
     if (queue.length >= MAX_QUEUE) throw new HttpError(409, t().queueFull(MAX_QUEUE));
     const files = saveAttachments(conv.id, uploads);
@@ -1154,6 +1183,8 @@ export class Orchestrator {
       ...(midReply ? { queued: true } : {}),
       ...(scheduled ? { scheduled: true } : {}),
       ...(scheduled && event !== undefined ? { event } : {}),
+      // A tracking schedule's message: the run that sends it is that time's run (`carriedTracking`).
+      ...(scheduled && tracked ? { tracked } : {}),
     });
     try {
       this.saveQueue(conv);
@@ -1288,7 +1319,9 @@ export class Orchestrator {
         if (a && m.meta?.round === target.meta?.round && !again.includes(a)) again.push(a);
       }
     }
-    await this.start(conv, '', { beforePost: () => this.truncateFrom(conv, messageId), only: again });
+    // A reply of a tracking schedule's run: answered again, it reports on the goal too.
+    const tracking = target.tracked && { ...target.tracked, due: this.clock(), attempt: 0, retries: false };
+    await this.start(conv, '', { beforePost: () => this.truncateFrom(conv, messageId), only: again, ...(tracking ? { tracking } : {}) });
   }
 
   /**
@@ -1487,6 +1520,7 @@ export class Orchestrator {
     let run: Run;
     let posted: ChatMessage[] = [];
     let resume: Schedule | undefined;
+    let tracking: TrackedRun | undefined;
     try {
       const ws = await this.prepareWorkspace(conv);
       // Deleted meanwhile (the delete may even have finished already), or the server is stopping.
@@ -1500,7 +1534,9 @@ export class Orchestrator {
       if (ahead) posted = this.deliverQueued(conv, { ids: ahead });
       const own = this.postUserMessage(conv, text, files, opts.scheduled, opts.event);
       if (own) posted.push(own);
+      const pausedTracked = conv.pause?.tracked;
       resume = this.takePause(conv, posted, only, planning);
+      tracking = opts.tracking ?? this.carriedTracking(conv, posted, opts, pausedTracked, planning);
       run = {
         abort: new AbortController(),
         active: new Set(),
@@ -1511,10 +1547,12 @@ export class Orchestrator {
         ...(opts.refuseApprovals && posted.every((m) => m.scheduled) ? { refuseApprovals: true } : {}),
         ...(planning ? { designs: true } : {}),
         ...(planning && opts.designSchedule && conv.schedule ? { designFor: conv.schedule.text } : {}),
-        ...(opts.tracking ? { tracking: { ...opts.tracking, from: conv.messages.length } } : {}),
+        ...(tracking ? { tracking: { ...tracking, from: conv.messages.length } } : {}),
         done: Promise.resolve(),
       };
       this.runs.set(convId, run);
+      // A tracking schedule's message that waited in the queue goes out now: its time is in flight.
+      if (tracking && !opts.tracking) this.markInFlight(this.store.get(tracking.sourceId) ?? conv, tracking, convId);
     } catch (err) {
       if (lockRoots && !this.runs.has(convId)) this.unlockDirs(lockRoots, convId);
       this.designing.delete(convId);
@@ -2433,7 +2471,7 @@ export class Orchestrator {
         const msg = await this.turn(conv, agent, run, { mode, round: 1, rounds: 1, handedBy, hopsLeft, answered: answered(agent) });
         if (msg.asked) {
           const rest = queue.map((q) => ({ agentId: q.agent.id, handedBy: q.handedBy }));
-          this.pauseFor(conv, { mode, askers: [agent.id], rest, participants: [], round: 1, rounds: 1, hopsLeft });
+          this.pauseFor(conv, { mode, askers: [agent.id], rest, participants: [], round: 1, rounds: 1, hopsLeft }, run);
           return;
         }
         if (!spoke(msg)) continue;
@@ -2450,14 +2488,18 @@ export class Orchestrator {
       const speakers = round === s.round ? s.first.map((f) => f.agent) : s.participants;
       const info = (a: AgentConfig): TurnInfo => ({ mode, round, rounds: s.rounds, answered: answered(a) });
       const pause = (askers: AgentConfig[], rest: AgentConfig[]) =>
-        this.pauseFor(conv, {
-          mode,
-          askers: ids(askers),
-          rest: rest.map((a) => ({ agentId: a.id })),
-          participants: ids(s.participants),
-          round,
-          rounds: s.rounds,
-        });
+        this.pauseFor(
+          conv,
+          {
+            mode,
+            askers: ids(askers),
+            rest: rest.map((a) => ({ agentId: a.id })),
+            participants: ids(s.participants),
+            round,
+            rounds: s.rounds,
+          },
+          run,
+        );
       const msgs: ChatMessage[] = [];
       if (mode === 'parallel') {
         if (!speakers.length) continue; // the user let the team go on without answering
@@ -2510,8 +2552,9 @@ export class Orchestrator {
   }
 
   /** An agent asked the user something: the run stops here, and the team waits for the answer. */
-  private pauseFor(conv: Conversation, pause: RunPause): void {
-    conv.pause = pause;
+  private pauseFor(conv: Conversation, pause: RunPause, run: Run): void {
+    // A tracking schedule's run asked: the answer's run goes on with the goal (`carriedTracking`).
+    conv.pause = run.tracking ? { ...pause, tracked: runOf(run.tracking) } : pause;
     this.store.saveMeta(conv);
     this.emitConversation(conv);
   }
@@ -2637,6 +2680,8 @@ export class Orchestrator {
       parts: [],
       status: 'streaming',
       meta: info.mode === 'relay' ? {} : { round: info.round },
+      // A tracking schedule's run: kept with the reply (also one that fails), so a Retry or Continue of it goes on with the goal.
+      ...(run.tracking && this.trackingSource(run) ? { tracked: runOf(run.tracking) } : {}),
     };
     conv.messages.push(msg);
     this.store.saveMessage(conv.id, msg, true);

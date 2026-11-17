@@ -446,7 +446,10 @@ export const en: Messages = {
       adjust: ' "Adjust team" lets you rename a member.',
     },
     repeat: 'When',
-    kinds: { once: 'Once', daily: 'Every day', weekly: 'Every week', interval: 'Every few hours' },
+    kinds: { once: 'Once', daily: 'Every day', weekly: 'Every week', interval: 'Every few hours', manual: 'No set times' },
+    manualHint: 'Sent only when you click Run once now, or a program calls its webhook (add one once it is saved).',
+    manualState: 'sent by Run once now or its webhook',
+    manualOff: 'Off: Save turns it on again.',
     at: 'Date and time',
     time: 'Time',
     days: 'Days',
@@ -511,6 +514,7 @@ export const en: Messages = {
       weekdays: (time) => `Weekdays at ${time}`,
       everyDay: (time) => `Every day at ${time}`,
       interval: (hours) => (hours === 1 ? 'Every hour' : `Every ${hours} hours`),
+      manual: 'No set times',
     },
     daySeparator: ', ',
     next: (when) => `next ${when}`,
@@ -544,6 +548,7 @@ export const en: Messages = {
     sidebar: {
       next: (when) => `Schedule: next ${when}`,
       paused: 'Schedule paused',
+      manual: 'Schedule: no set times (Run once now or its webhook)',
       problem: (result) => `Schedule last time: ${result}`,
     },
     goal: 'Goal to track (optional)',
@@ -562,7 +567,7 @@ export const en: Messages = {
     hook: {
       title: 'Webhook',
       intro:
-        "A program on this computer (a git hook, a CI runner, `gh webhook forward`) can call this address to send the schedule's message now; the JSON it posts goes after the message, as data for the agents. It works while the schedule's times are off too.",
+        "A program on this computer (a git hook, a CI runner on this computer, a script) can call this address with the token to send the schedule's message now; the JSON it posts goes after the message, as data for the agents. It works while the schedule's times are off too.",
       create: 'Add a webhook',
       replace: 'New token',
       remove: 'Remove webhook',
@@ -1165,6 +1170,7 @@ export const en: Messages = {
         'not-started': 'Not available now: the server could not start them (its log says why).',
         'no-node':
           'Not available in the desktop app without a Node.js 22.12 or later on your PATH, or the one Settings → Sandboxes installs.',
+        'no-node-path': 'Not available in the desktop app without a Node.js 22.12 or later on your PATH.',
       },
     },
     title: 'Tool library',
@@ -1937,7 +1943,7 @@ export const en: Messages = {
         title: 'Messages on a schedule',
         body: 'New schedule, the calendar button beside New chat at the top left of the sidebar, sends a team a message at set times, as if you had sent it: write the message, pick the times, and the lead agent designs its team. For a chat you already have, use Schedule in its header (under ⋯ on a phone):',
         points: [
-          'Once, every day, every week on the days you pick, or every few hours; once saved, "Run once now" tries it out',
+          'Once, every day, every week on the days you pick, every few hours, or no set times (only "Run once now" and the webhook send it); once saved, "Run once now" tries it out',
           'Tick "Start a new chat each time" to begin every run in a fresh chat with the same team and settings',
           'Nobody may be watching: by default anything beyond the file permission is refused (unless you always allow it in this chat) and the agent works around it; or choose "Ask me"',
           'It sends only while Harness Relay runs: a missed time is skipped, or sent once when it starts if you choose',

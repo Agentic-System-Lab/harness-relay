@@ -555,13 +555,13 @@ test.describe('on a phone', () => {
       page
         .locator(box)
         .evaluate((g) => new Set([...g.querySelectorAll('button')].map((b) => Math.round(b.getBoundingClientRect().top))).size);
-    // The four kinds of schedule go two by two in English below a 380px column (they need about 340px
-    // on one row, more with a wider font): at 400px (368px) too, not at 430px (398px). In Chinese they
-    // need about 222px: at 250px (a 218px column) they go two by two. The week's seven days need about
+    // The five kinds of schedule go three over two in English at any width (they need about 440px on one
+    // row, more than the row has). In Chinese they need about 280px: below a 310px column they go three
+    // over two, at 320px (a 288px column) too, not at 360px (328px). The week's seven days need about
     // 310px in English and 276px in Chinese: below that they go onto two rows.
     const widths = [320, 280];
-    const widthsOf = { en: [...widths, 400, 430], 'zh-TW': [...widths, 250] };
-    const kindRows = (lang: 'en' | 'zh-TW', width: number) => (lang === 'en' ? (width <= 400 ? 2 : 1) : width <= 250 ? 2 : 1);
+    const widthsOf = { en: [...widths, 400, 430], 'zh-TW': [...widths, 250, 360] };
+    const kindRows = (lang: 'en' | 'zh-TW', width: number) => (lang === 'en' || width <= 320 ? 2 : 1);
     const dayRows = (lang: 'en' | 'zh-TW', width: number) => (lang === 'en' ? (width <= 320 ? 2 : 1) : width <= 280 ? 2 : 1);
     for (const [lang, messages] of [
       ['en', en],

@@ -327,7 +327,7 @@ export interface ToolLibraryView {
    * Whether this server can give agents its own tools: it needs a Node.js to run the gateway's MCP
    * server with (the desktop app's runtime is not one), and the open agents do not get them yet.
    */
-  gateway: { available: boolean; reason?: 'not-started' | 'no-node' };
+  gateway: { available: boolean; reason?: 'not-started' | 'no-node' | 'no-node-path' };
   /**
    * Notes agents get in their briefing, in every conversation: `all` for every agent, and a part for
    * each CLI's agents. Empty = none.
@@ -1253,20 +1253,41 @@ export interface ChatMessage {
    * `TRACKING_LIMITS.eventBytes`), which the agents get as data in an `<event>` block, never as instructions.
    */
   event?: string;
+  /**
+   * The run of a schedule that tracks a goal this message belongs to (`TrackedRun`): a scheduled message
+   * that waited in the queue carries it to the run that sends it; a reply written in such a run keeps it,
+   * so a Retry or Continue after it goes on with the goal.
+   */
+  tracked?: TrackedRun;
+}
+
+/**
+ * A run a schedule that tracks a goal started: the schedule's conversation (`sourceId`, the same one or
+ * the one whose schedule opened this chat), the time it came due, which try that is (0 = the first), and
+ * whether a run that fails is tried again (not for a webhook's call, whose body would be lost, nor for a
+ * run the user carries on: they are there).
+ */
+export interface TrackedRun {
+  sourceId: string;
+  due: number;
+  attempt: number;
+  retries: boolean;
 }
 
 /**
  * When a schedule sends its message. `daily` and `weekly` times are wall-clock times ("HH:MM") in the
  * schedule's time zone; `days` are weekdays, 0 = Sunday. `interval` repeats every so many hours from
- * when the schedule was saved; `once` is a moment (epoch ms).
+ * when the schedule was saved; `once` is a moment (epoch ms); `manual` has no times of its own.
  */
 export type ScheduleRepeat =
   | { kind: 'once'; at: number }
   | { kind: 'daily'; time: string }
   | { kind: 'weekly'; time: string; days: number[] }
-  | { kind: 'interval'; hours: number };
+  | { kind: 'interval'; hours: number }
+  /** No set times: sent only when the user clicks Run once now, or a program calls the schedule's webhook. */
+  | { kind: 'manual' };
 
-export const SCHEDULE_KINDS: ScheduleRepeat['kind'][] = ['once', 'daily', 'weekly', 'interval'];
+export const SCHEDULE_KINDS: ScheduleRepeat['kind'][] = ['once', 'daily', 'weekly', 'interval', 'manual'];
 
 /**
  * How the last time a schedule came due went: its message started a run (`sent`), waited in the queue
@@ -1414,6 +1435,8 @@ export interface RunPause {
   rounds: number;
   /** Relay: handoffs left. */
   hopsLeft?: number;
+  /** The run that asked was one a schedule that tracks a goal started: the answer's run goes on with the goal. */
+  tracked?: TrackedRun;
 }
 
 export interface AgentSessionState {
@@ -1541,10 +1564,15 @@ export interface ConversationSummary {
    */
   branchFrom?: { id: string; title: string; via?: ConversationBranch['via'] };
   /**
-   * It has a schedule: whether it is on, when it sends next, how the last time went, and the time zone
-   * its times are shown in (a daily or weekly schedule's own; absent: the browser's).
+   * It has a schedule: whether it is on, when it sends next, how the last time went, the time zone its
+   * times are shown in (a daily or weekly schedule's own; absent: the browser's), and whether it has
+   * no set times.
    */
-  schedule?: Pick<ConversationSchedule, 'enabled' | 'nextRunAt' | 'lastResult'> & { timeZone?: string };
+  schedule?: Pick<ConversationSchedule, 'enabled' | 'nextRunAt' | 'lastResult'> & {
+    timeZone?: string;
+    /** No set times: only Run once now and the webhook send it (`ScheduleRepeat` `manual`). */
+    manual?: boolean;
+  };
 }
 
 /**

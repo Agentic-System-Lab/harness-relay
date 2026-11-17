@@ -87,12 +87,12 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
   const noCalendar = () => (store.hasCalendar() ? undefined : 'no calendar is set up (Settings → Tool library → Mail and calendar)');
   const mailbox = (which: unknown) => {
     const m = store.mail(typeof which === 'string' ? which : undefined);
-    if (!m) throw new Error(`No mail account ${typeof which === 'string' ? `"${which}"` : 'is set up'}`);
+    if (!m) throw new Error(t().conn.noMail(typeof which === 'string' ? which : undefined));
     return m;
   };
   const calendar = (which: unknown) => {
     const c = store.calendar(typeof which === 'string' ? which : undefined);
-    if (!c) throw new Error(`No calendar ${typeof which === 'string' ? `"${which}"` : 'is set up'}`);
+    if (!c) throw new Error(t().conn.noCalendar(typeof which === 'string' ? which : undefined));
     return c;
   };
   const withImap = async <T>(which: unknown, fn: (c: ImapClient) => Promise<T>): Promise<T> => {
@@ -137,7 +137,7 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
   const sendsFrom = <T>(a: Record<string, unknown>, byId: (id: string) => T | undefined, byName: (which: unknown) => T): T => {
     if (typeof a.accountId !== 'string') return byName(a.account);
     const found = byId(a.accountId);
-    if (!found) throw new Error('The account the card showed is gone: nothing was sent');
+    if (!found) throw new Error(t().conn.accountGone);
     return found;
   };
 

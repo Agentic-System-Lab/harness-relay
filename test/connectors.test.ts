@@ -662,62 +662,64 @@ describe('the mail and calendar tools against servers on this computer', () => {
       expect(cal.puts[1]!.ics.replace(/\r\n /g, '')).toContain('mailto:bob@example.com');
     }));
 
-  it('says what went wrong: a wrong password, a refused recipient, a calendar that moved, no account', async () => {
-    const { tools, store, smtp, cal } = await setup();
-    store.saveMail('work', { ...store.view().mail[0]!, password: 'wrong' });
-    await expect(tools.mail_search!.run!({}, ctx)).rejects.toThrow('did not accept the user name and password');
-    await expect(testMail(store.mail()!.account, 'wrong')).rejects.toThrow('did not accept');
-    await expect(testMail(store.mail()!.account, 'app-pass')).resolves.toBeUndefined();
-    await expect(
-      sendMail(
-        { host: '127.0.0.1', port: smtp.port, security: 'none' },
-        { username: 'me@example.com', password: 'nope' },
-        { from: 'me@example.com', recipients: ['a@example.com'] },
-        'x',
-      ),
-    ).rejects.toThrow('did not accept the user name and password');
-    const login = { username: 'me@example.com', password: 'app-pass' };
-    await expect(listEvents(cal.url, { ...login, password: 'nope' }, 0, 1)).rejects.toThrow(
-      'did not accept the user name and password (401)',
-    );
-    await expect(listEvents(cal.url.replace('/cal/me/', '/moved/'), login, 0, 1)).rejects.toThrow(
-      'the calendar is at another address (https://elsewhere.example/cal/)',
-    );
+  it('says what went wrong: a wrong password, a refused recipient, a calendar that moved, no account', () =>
+    withLang('en', async () => {
+      const { tools, store, smtp, cal } = await setup();
+      store.saveMail('work', { ...store.view().mail[0]!, password: 'wrong' });
+      await expect(tools.mail_search!.run!({}, ctx)).rejects.toThrow('did not accept the user name and password');
+      await expect(testMail(store.mail()!.account, 'wrong')).rejects.toThrow('did not accept');
+      await expect(testMail(store.mail()!.account, 'app-pass')).resolves.toBeUndefined();
+      await expect(
+        sendMail(
+          { host: '127.0.0.1', port: smtp.port, security: 'none' },
+          { username: 'me@example.com', password: 'nope' },
+          { from: 'me@example.com', recipients: ['a@example.com'] },
+          'x',
+        ),
+      ).rejects.toThrow('did not accept the user name and password');
+      const login = { username: 'me@example.com', password: 'app-pass' };
+      await expect(listEvents(cal.url, { ...login, password: 'nope' }, 0, 1)).rejects.toThrow(
+        'did not accept the user name and password (401)',
+      );
+      await expect(listEvents(cal.url.replace('/cal/me/', '/moved/'), login, 0, 1)).rejects.toThrow(
+        'the calendar is at another address (https://elsewhere.example/cal/)',
+      );
 
-    const refusing = await fakeSmtp(undefined, { refuse: 'nobody@example.com' });
-    closers.push(refusing.close);
-    await expect(
-      sendMail(
-        { host: '127.0.0.1', port: refusing.port, security: 'none' },
+      const refusing = await fakeSmtp(undefined, { refuse: 'nobody@example.com' });
+      closers.push(refusing.close);
+      await expect(
+        sendMail(
+          { host: '127.0.0.1', port: refusing.port, security: 'none' },
+          login,
+          { from: 'me@example.com', recipients: ['nobody@example.com'] },
+          'x',
+        ),
+      ).rejects.toThrow('refused nobody@example.com');
+      const loginOnly = await fakeSmtp(undefined, { authLoginOnly: true });
+      closers.push(loginOnly.close);
+      await sendMail(
+        { host: '127.0.0.1', port: loginOnly.port, security: 'none' },
         login,
-        { from: 'me@example.com', recipients: ['nobody@example.com'] },
-        'x',
-      ),
-    ).rejects.toThrow('refused nobody@example.com');
-    const loginOnly = await fakeSmtp(undefined, { authLoginOnly: true });
-    closers.push(loginOnly.close);
-    await sendMail(
-      { host: '127.0.0.1', port: loginOnly.port, security: 'none' },
-      login,
-      { from: 'me@example.com', recipients: ['a@example.com'] },
-      'Subject: x\r\n\r\nhi',
-    );
-    expect(loginOnly.lines).toContain('AUTH LOGIN');
-    expect(loginOnly.sent).toHaveLength(1);
+        { from: 'me@example.com', recipients: ['a@example.com'] },
+        'Subject: x\r\n\r\nhi',
+      );
+      expect(loginOnly.lines).toContain('AUTH LOGIN');
+      expect(loginOnly.sent).toHaveLength(1);
 
-    const empty = connectorTools(new ConnectorStore(openDatabase(':memory:')));
-    expect(empty.find((t) => t.name === 'mail_search')!.unavailable!()).toMatch(/no mail account/);
-    expect(empty.find((t) => t.name === 'calendar_events')!.unavailable!()).toMatch(/no calendar/);
-  });
+      const empty = connectorTools(new ConnectorStore(openDatabase(':memory:')));
+      expect(empty.find((t) => t.name === 'mail_search')!.unavailable!()).toMatch(/no mail account/);
+      expect(empty.find((t) => t.name === 'calendar_events')!.unavailable!()).toMatch(/no calendar/);
+    }));
 
-  it("finds an account's calendars from its server's address, and only on that provider", async () => {
-    const { cal } = await setup();
-    const root = cal.url.replace('/cal/me/', '/');
-    expect(await discoverCalendars(root, { username: 'me@example.com', password: 'app-pass' })).toEqual([
-      { name: 'Personal', url: cal.url },
-    ]);
-    await expect(discoverCalendars(root, { username: 'me@example.com', password: 'x' })).rejects.toThrow('did not accept');
-  });
+  it("finds an account's calendars from its server's address, and only on that provider", () =>
+    withLang('en', async () => {
+      const { cal } = await setup();
+      const root = cal.url.replace('/cal/me/', '/');
+      expect(await discoverCalendars(root, { username: 'me@example.com', password: 'app-pass' })).toEqual([
+        { name: 'Personal', url: cal.url },
+      ]);
+      await expect(discoverCalendars(root, { username: 'me@example.com', password: 'x' })).rejects.toThrow('did not accept');
+    }));
 
   it('refuses an answer to STARTTLS with more after it, which someone on the way may have added', async () => {
     // A server (or someone between) that answers STARTTLS and, in the same breath, the next command.
@@ -793,74 +795,75 @@ describe('the mail and calendar tools against servers on this computer', () => {
 
   it(
     'refuses a server that sends (or announces) more than an answer may hold, instead of filling the memory',
-    async () => {
-      const sockets: Socket[] = [];
-      // An IMAP server whose answer to CAPABILITY announces a huge literal, or floods without a line end.
-      const imap = (mode: 'announce' | 'flood' | 'lines') =>
-        createServer((sock) => {
+    () =>
+      withLang('en', async () => {
+        const sockets: Socket[] = [];
+        // An IMAP server whose answer to CAPABILITY announces a huge literal, or floods without a line end.
+        const imap = (mode: 'announce' | 'flood' | 'lines') =>
+          createServer((sock) => {
+            sockets.push(sock);
+            sock.on('error', () => undefined);
+            sock.write('* OK ready\r\n');
+            let input = '';
+            sock.on('data', (d) => {
+              input += d.toString();
+              for (let i = input.indexOf('\r\n'); i >= 0; i = input.indexOf('\r\n')) {
+                const [tag, cmd] = input.slice(0, i).split(' ');
+                input = input.slice(i + 2);
+                if (cmd === 'LOGIN') sock.write(`${tag} OK signed in\r\n`);
+                else if (cmd === 'CAPABILITY' && mode === 'announce') sock.write(`* CAPABILITY {${IMAP_MAX_RESPONSE + 1}}\r\n`);
+                else if (cmd === 'CAPABILITY' && mode === 'lines') {
+                  // Untagged responses, each short, that never end.
+                  const chunk = `* OK ${'x'.repeat(1000)}\r\n`.repeat(1024);
+                  for (let n = 0; n < 18 && !sock.destroyed; n++) sock.write(chunk);
+                } else if (cmd === 'CAPABILITY') {
+                  const chunk = Buffer.alloc(1024 * 1024, 'x');
+                  for (let n = 0; n < 18 && !sock.destroyed; n++) sock.write(chunk);
+                }
+              }
+            });
+          });
+        const listen = async (server: ReturnType<typeof createServer>) => {
+          await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+          closers.push(async () => {
+            for (const sock of sockets) sock.destroy();
+            await new Promise((r) => server.close(r));
+          });
+          return (server.address() as { port: number }).port;
+        };
+        const login = { username: 'me@example.com', password: 'app-pass' };
+        for (const mode of ['announce', 'flood', 'lines'] as const) {
+          const port = await listen(imap(mode));
+          await expect(ImapClient.open({ host: '127.0.0.1', port, security: 'none' }, login, 10_000)).rejects.toThrow(
+            /more than a response may hold/,
+          );
+        }
+        // An SMTP server whose EHLO reply never ends.
+        const smtp = createServer((sock) => {
           sockets.push(sock);
           sock.on('error', () => undefined);
-          sock.write('* OK ready\r\n');
-          let input = '';
-          sock.on('data', (d) => {
-            input += d.toString();
-            for (let i = input.indexOf('\r\n'); i >= 0; i = input.indexOf('\r\n')) {
-              const [tag, cmd] = input.slice(0, i).split(' ');
-              input = input.slice(i + 2);
-              if (cmd === 'LOGIN') sock.write(`${tag} OK signed in\r\n`);
-              else if (cmd === 'CAPABILITY' && mode === 'announce') sock.write(`* CAPABILITY {${IMAP_MAX_RESPONSE + 1}}\r\n`);
-              else if (cmd === 'CAPABILITY' && mode === 'lines') {
-                // Untagged responses, each short, that never end.
-                const chunk = `* OK ${'x'.repeat(1000)}\r\n`.repeat(1024);
-                for (let n = 0; n < 18 && !sock.destroyed; n++) sock.write(chunk);
-              } else if (cmd === 'CAPABILITY') {
-                const chunk = Buffer.alloc(1024 * 1024, 'x');
-                for (let n = 0; n < 18 && !sock.destroyed; n++) sock.write(chunk);
-              }
-            }
+          sock.write('220 ready\r\n');
+          sock.once('data', () => {
+            for (let i = 0; i < 400 && !sock.destroyed; i++) sock.write(`250-${'x'.repeat(1000)}\r\n`);
           });
         });
-      const listen = async (server: ReturnType<typeof createServer>) => {
-        await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
-        closers.push(async () => {
-          for (const sock of sockets) sock.destroy();
-          await new Promise((r) => server.close(r));
-        });
-        return (server.address() as { port: number }).port;
-      };
-      const login = { username: 'me@example.com', password: 'app-pass' };
-      for (const mode of ['announce', 'flood', 'lines'] as const) {
-        const port = await listen(imap(mode));
-        await expect(ImapClient.open({ host: '127.0.0.1', port, security: 'none' }, login, 10_000)).rejects.toThrow(
-          /more than a response may hold/,
+        const smtpPort = await listen(smtp);
+        await expect(
+          sendMail(
+            { host: '127.0.0.1', port: smtpPort, security: 'none' },
+            login,
+            { from: 'me@example.com', recipients: ['a@example.com'] },
+            'x',
+            10_000,
+          ),
+        ).rejects.toThrow(/more than a reply may hold/);
+        // A calendar's answer: refused by its length, or once it grows past it.
+        await expect(answerText(new Response('x'.repeat(100), { headers: { 'content-length': '100' } }), 50)).rejects.toThrow(
+          /more than an answer may hold/,
         );
-      }
-      // An SMTP server whose EHLO reply never ends.
-      const smtp = createServer((sock) => {
-        sockets.push(sock);
-        sock.on('error', () => undefined);
-        sock.write('220 ready\r\n');
-        sock.once('data', () => {
-          for (let i = 0; i < 400 && !sock.destroyed; i++) sock.write(`250-${'x'.repeat(1000)}\r\n`);
-        });
-      });
-      const smtpPort = await listen(smtp);
-      await expect(
-        sendMail(
-          { host: '127.0.0.1', port: smtpPort, security: 'none' },
-          login,
-          { from: 'me@example.com', recipients: ['a@example.com'] },
-          'x',
-          10_000,
-        ),
-      ).rejects.toThrow(/more than a reply may hold/);
-      // A calendar's answer: refused by its length, or once it grows past it.
-      await expect(answerText(new Response('x'.repeat(100), { headers: { 'content-length': '100' } }), 50)).rejects.toThrow(
-        /more than an answer may hold/,
-      );
-      await expect(answerText(new Response(new Blob(['y'.repeat(100)]).stream()), 50)).rejects.toThrow(/more than an answer may hold/);
-      expect(await answerText(new Response('<ok/>'), 50)).toBe('<ok/>');
-    },
+        await expect(answerText(new Response(new Blob(['y'.repeat(100)]).stream()), 50)).rejects.toThrow(/more than an answer may hold/);
+        expect(await answerText(new Response('<ok/>'), 50)).toBe('<ok/>');
+      }),
     slow(20_000),
   );
 

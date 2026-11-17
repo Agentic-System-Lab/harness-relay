@@ -2080,7 +2080,7 @@ describe('mail accounts and calendars', () => {
       });
       // In the user's language, the server's own words after it.
       const zh = await app.request('/api/connectors/mail/work/test', json('POST', {}, { 'x-relay-lang': 'zh-TW' }));
-      expect(await zh.json()).toMatchObject({ ok: false, error: expect.stringMatching(/^連不上：/) });
+      expect(await zh.json()).toMatchObject({ ok: false, error: expect.stringMatching(/^連不上：郵件伺服器不接受這組使用者名稱與密碼：/) });
       expect((await test('mail', 'missing')).status).toBe(404);
 
       const root = cal.url.replace('/cal/me/', '/');

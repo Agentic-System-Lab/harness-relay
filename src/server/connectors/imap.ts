@@ -1,5 +1,6 @@
 import { connect as connectTcp, type Socket } from 'node:net';
 import { connect as connectTls, type TLSSocket } from 'node:tls';
+import { t } from '../i18n';
 
 /*
  * A small IMAP4rev1 client, enough for the mail tools: sign in (LOGIN), list the folders (to find the
@@ -36,7 +37,7 @@ export async function openSocket(addr: ServerAddress, timeoutMs: number): Promis
         : connectTcp({ host: addr.host, port: addr.port });
     const timer = setTimeout(() => {
       sock.destroy();
-      reject(new Error(`${addr.host}:${addr.port} did not answer in ${Math.round(timeoutMs / 1000)} seconds`));
+      reject(new Error(t().conn.timedOut(addr.host, addr.port, Math.round(timeoutMs / 1000))));
     }, timeoutMs);
     sock.once(addr.security === 'tls' ? 'secureConnect' : 'connect', () => {
       clearTimeout(timer);
@@ -44,7 +45,7 @@ export async function openSocket(addr: ServerAddress, timeoutMs: number): Promis
     });
     sock.once('error', (err) => {
       clearTimeout(timer);
-      reject(new Error(`Could not connect to ${addr.host}:${addr.port}: ${err.message}`));
+      reject(new Error(t().conn.connectFailed(addr.host, addr.port, err.message)));
     });
   });
 }
@@ -55,7 +56,7 @@ export function upgrade(sock: Socket, host: string, timeoutMs: number): Promise<
     const tls = connectTls({ socket: sock, servername: host });
     const timer = setTimeout(() => {
       tls.destroy();
-      reject(new Error(`TLS with ${host} did not start in time`));
+      reject(new Error(t().conn.tlsSlow(host)));
     }, timeoutMs);
     tls.once('secureConnect', () => {
       clearTimeout(timer);
@@ -63,7 +64,7 @@ export function upgrade(sock: Socket, host: string, timeoutMs: number): Promise<
     });
     tls.once('error', (err) => {
       clearTimeout(timer);
-      reject(new Error(`TLS with ${host} failed: ${err.message}`));
+      reject(new Error(t().conn.tlsFailed(host, err.message)));
     });
   });
 }
@@ -99,7 +100,7 @@ class ResponseReader {
     this.pendingSize += chunk.length;
     if (this.buf.length + this.pendingSize > IMAP_MAX_RESPONSE + 64 * 1024) {
       this.sock?.destroy();
-      return this.end(new Error('The mail server sent more than a response may hold'));
+      return this.end(new Error(t().conn.mailTooMuch));
     }
     this.wake();
   };
@@ -137,7 +138,7 @@ class ResponseReader {
   }
 
   private end(err?: Error): void {
-    this.ended ??= err ?? new Error('The mail server closed the connection');
+    this.ended ??= err ?? new Error(t().conn.mailClosed);
     this.wake();
   }
 
@@ -185,7 +186,7 @@ class ResponseReader {
       }
       const size = Number(lit[1]);
       held += eol + 2 + size;
-      if (held > IMAP_MAX_RESPONSE) throw new Error('The mail server announced more than a response may hold');
+      if (held > IMAP_MAX_RESPONSE) throw new Error(t().conn.mailAnnouncedTooMuch);
       while (this.buf.length < eol + 2 + size) await this.more();
       literals.push(Buffer.from(this.buf.subarray(eol + 2, eol + 2 + size)));
       text += line;
@@ -214,7 +215,7 @@ export class ImapClient {
     c.reader = new ResponseReader(c.sock);
     try {
       const greeting = await c.timed(c.reader.next());
-      if (!/^\* (OK|PREAUTH)/i.test(greeting.text)) throw new Error(`The mail server refused the connection: ${greeting.text}`);
+      if (!/^\* (OK|PREAUTH)/i.test(greeting.text)) throw new Error(t().conn.mailRefused(greeting.text));
       if (addr.security === 'starttls') {
         await c.command('STARTTLS');
         // The plain socket's bytes are TLS's own from now on. An answer already there came before
@@ -224,7 +225,7 @@ export class ImapClient {
         c.reader.attach(c.sock);
       }
       await c.command(`LOGIN ${quote(login.username)} ${quote(login.password)}`).catch((err: Error) => {
-        throw new Error(`The mail server did not accept the user name and password: ${err.message}`);
+        throw new Error(t().conn.mailLogin(err.message));
       });
       const caps = await c.command('CAPABILITY');
       for (const r of caps.untagged) {
@@ -242,7 +243,7 @@ export class ImapClient {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.sock.destroy();
-        reject(new Error(`The mail server did not answer in ${Math.round(this.timeoutMs / 1000)} seconds`));
+        reject(new Error(t().conn.mailNoAnswer(Math.round(this.timeoutMs / 1000))));
       }, this.timeoutMs);
       p.then(
         (v) => (clearTimeout(timer), resolve(v)),
@@ -285,7 +286,7 @@ export class ImapClient {
       size += r.text.length + r.literals.reduce((n, l) => n + l.length, 0);
       if (size > IMAP_MAX_RESPONSE) {
         this.sock.destroy();
-        throw new Error('The mail server sent more than a response may hold');
+        throw new Error(t().conn.mailTooMuch);
       }
       if (!r.text.startsWith(`${tag} `)) {
         untagged.push(r);

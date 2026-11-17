@@ -569,6 +569,8 @@ function validRepeat(input: unknown, enabled: boolean, now: number): ScheduleRep
     return v;
   };
   switch (kind) {
+    case 'manual':
+      return { kind };
     case 'once': {
       const at = Number(r.at);
       if (!Number.isSafeInteger(at) || at <= 0) bad(t().scheduleBadMoment);

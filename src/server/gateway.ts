@@ -80,6 +80,12 @@ export interface GatewayTool {
   bind?(args: Record<string, unknown>): Record<string, unknown>;
   /** Why it cannot be used now (no account set up), or undefined when it can. */
   unavailable?(): string | undefined;
+  /**
+   * `act`: called while the user is asked about a call; returns what to call once they answered (the
+   * browser keeps the conversation's browser open meanwhile, so the page they approved a click on is
+   * still there).
+   */
+  asking?(ctx: GatewayContext): () => void;
 }
 
 /** What a call of `tier` does in a turn with `permission`, given whether the turn can ask the user. */
@@ -127,7 +133,7 @@ interface Grant {
 }
 
 /** Why the gateway cannot be given now: it is not listening, or there is no Node.js to start its MCP program with. */
-export type GatewayUnavailable = 'not-started' | 'no-node';
+export type GatewayUnavailable = 'not-started' | 'no-node' | 'no-node-path';
 
 /** A line the server and the shim exchange, after the token. */
 type Request = { id: number; method: 'list' } | { id: number; method: 'call'; name?: unknown; arguments?: unknown };
@@ -175,7 +181,7 @@ export class ToolGateway {
     private tokenDir: string,
     /** The Node.js the CLIs start the shim with, or undefined when there is none (the desktop app without one). */
     private node: () => string | undefined,
-    platform: NodeJS.Platform = process.platform,
+    private platform: NodeJS.Platform = process.platform,
     o: { claimOnce?: boolean; tokenWaitMs?: number } = {},
   ) {
     this.claimOnce = o.claimOnce ?? platform === 'win32';
@@ -200,10 +206,14 @@ export class ToolGateway {
     return [...this.tools.keys()];
   }
 
-  /** Why agents cannot get the gateway now (`not-started`, `no-node`), or undefined when they can. */
+  /**
+   * Why agents cannot get the gateway now, or undefined when they can: not started, or no Node.js to
+   * start the program with (`no-node-path` on Windows, where Settings → Sandboxes installs none).
+   */
   unavailable(): GatewayUnavailable | undefined {
+    // No Node.js first: without one nothing could start the program, and that is what to fix.
+    if (!this.node()) return this.platform === 'win32' ? 'no-node-path' : 'no-node';
     if (!this.server) return 'not-started';
-    if (!this.node()) return 'no-node';
     return undefined;
   }
 
@@ -424,13 +434,14 @@ export class ToolGateway {
       }
       // Keyed as the gateway's own (`relay:<tool>`), so "always allow" is never another server's tool of that name;
       // no folder lock either: the call writes nothing in the working directory.
+      const answered = tool.asking?.(ctx);
       const answer = await ctx.ask!({
         kind: 'other',
         tool: gatewayApprovalTool(tool.name),
         detail: described.title,
         ...(described.detail ? { reason: described.detail } : {}),
         noLock: true,
-      });
+      }).finally(() => answered?.());
       if (!answer.allow) return { text: `The user declined ${tool.name}${answer.note ? `: ${answer.note}` : ''}.`, isError: true };
     }
     if (ctx.signal.aborted) return { text: 'The turn was stopped.', isError: true };

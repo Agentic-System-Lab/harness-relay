@@ -117,6 +117,67 @@ describe('a schedule that tracks a goal', () => {
     expect(notes(conv).some((n) => n.includes('goal is reached'))).toBe(false);
   });
 
+  it("carries the goal on through the schedule's message that waited in the queue, and through the user's answer to its question", async () => {
+    const conv = tracked();
+    // The user is chatting when the time comes: the schedule's message waits for the team.
+    let release!: () => void;
+    fake.gates = { Alice: new Promise((r) => (release = r)) };
+    await orchestrator.send(conv.id, 'quick question');
+    now = T0 + HOUR;
+    await scheduler().tick();
+    expect(conv.queue?.map(textOf)).toEqual(['check CI']);
+    fake.gates = {};
+    release();
+    await finish(conv.id);
+    // Its run is that time's run: told the goal, its report kept.
+    fake.reply = () => 'Looked.\n<progress status="working">2 of 5 jobs pass</progress>';
+    const queuedRun = calls.find((c) => c.prompt.includes('check CI'));
+    expect(queuedRun?.systemPrompt).toContain('<tracked_goal');
+    await finish(conv.id);
+
+    // A run of the schedule asks the user; their answer's run goes on with the goal and reports on it.
+    const asking = tracked();
+    fake.asking = new Set(['Alice']);
+    fake.reply = (_name, prompt) => (prompt.includes('ANSWER:') ? 'Fixed.\n<progress status="done">CI passes</progress>' : 'Alice done');
+    await fireAt(asking, T0 + HOUR);
+    expect(asking.pause?.tracked).toMatchObject({ sourceId: asking.id });
+    await orchestrator.send(asking.id, 'ANSWER: B');
+    await finish(asking.id);
+    expect(asking.schedule).toMatchObject({ enabled: false, tracking: { status: 'done' } });
+    expect(textOf(asking.messages.findLast((m) => m.author.kind === 'agent')!)).toBe('Fixed.');
+  });
+
+  it("goes on with the goal when the user retries a reply of the schedule's run, or continues after it, and then tries nothing again", async () => {
+    const conv = tracked();
+    fake.fail = () => new Error('rate limited');
+    await fireAt(conv, T0 + HOUR);
+    expect(conv.schedule!.tracking!.retry).toMatchObject({ attempt: 1, at: T0 + HOUR + 5 * MIN });
+    const failed = conv.messages.findLast((m) => m.author.kind === 'agent')!;
+    expect(failed.tracked).toMatchObject({ sourceId: conv.id });
+    // Kept with the reply in the database, for a Retry after a restart.
+    expect(new Store(db).get(conv.id)!.messages.find((m) => m.id === failed.id)!.tracked).toMatchObject({ sourceId: conv.id });
+
+    // The user retries it at once: it reports, so the retry 5 minutes later is not needed.
+    fake.fail = undefined;
+    fake.reply = () => 'Green now.\n<progress status="working">4 of 5 jobs pass</progress>';
+    now = T0 + HOUR + MIN;
+    await orchestrator.retry(conv.id, failed.id);
+    await finish(conv.id);
+    expect(conv.schedule!.tracking!.notes.at(-1)).toMatchObject({ status: 'working', text: '4 of 5 jobs pass' });
+    calls.length = 0;
+    await fireAt(conv, T0 + HOUR + 5 * MIN);
+    expect(calls).toEqual([]);
+    expect(notes(conv).at(-1)).toMatch(/progress was reported since, so it is not tried again/);
+    expect(conv.schedule!.tracking!.retry).toBeUndefined();
+    expect(conv.schedule!.nextRunAt).toBe(T0 + 25 * HOUR);
+
+    // Continue after its replies goes on with the goal too.
+    fake.reply = () => 'All of them now.\n<progress status="done">CI passes</progress>';
+    await orchestrator.send(conv.id, '');
+    await finish(conv.id);
+    expect(conv.schedule).toMatchObject({ enabled: false, tracking: { status: 'done' } });
+  });
+
   it('says when an agent is held up, and keeps the schedule on', async () => {
     const conv = tracked();
     fake.reply = () => 'Cannot read the CI logs.\n<progress status="blocked">needs a CI token</progress>';

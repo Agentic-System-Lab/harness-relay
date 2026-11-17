@@ -1,7 +1,8 @@
 /*
  * The MCP server every CLI starts for Harness Relay's own tools (`gateway.ts`): a small program the
- * server writes into its data folder at startup (`gateway/relay-mcp.mjs`), so the same file works in
- * `npm start`, `npm run dev` and the desktop app. It speaks MCP over stdio (newline-delimited JSON-RPC)
+ * server writes for each turn into its own temporary folder (`data/tmp`, beside the turn's token, where
+ * sandboxed commands can neither read nor change it), so the same file works in `npm start`,
+ * `npm run dev` and the desktop app. It speaks MCP over stdio (newline-delimited JSON-RPC)
  * to the CLI and passes `tools/list` and `tools/call` to the server over a local socket (a Unix socket,
  * a named pipe on Windows), named by `RELAY_GATEWAY_SOCKET`, after showing the token of its turn,
  * read from the file `RELAY_GATEWAY_TOKEN_FILE` names (in the server's own temporary folder, which

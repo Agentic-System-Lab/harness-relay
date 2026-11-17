@@ -4121,32 +4121,41 @@ video.chat-media {
   gap: 18px;
 }
 
-/* The four kinds of schedule need about 220px on one row in Chinese and 340px in English (about 366px
-   with a wider font, such as Linux's DejaVu Sans); narrower than that (a phone), they go two by two,
-   as the voice input's languages do, and a label may wrap. */
+/* The five kinds of schedule need about 280px on one row in Chinese and 440px in English (about 300px
+   and 470px with a wider font, such as Linux's DejaVu Sans), more than the 434px the row has at most
+   (`.segmented.wide`). So in English, and in Chinese below 310px (a phone), they go three over two,
+   and a label may wrap. */
 .schedule-repeat {
   container: schedule-repeat / inline-size;
 }
 
-@container schedule-repeat (width < 230px) {
+:lang(en) .schedule-repeat .segmented {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+:lang(en) .schedule-repeat .segmented button {
+  grid-column: span 2;
+  white-space: normal;
+}
+
+:lang(en) .schedule-repeat .segmented button:nth-child(n + 4) {
+  grid-column: span 3;
+}
+
+@container schedule-repeat (width < 310px) {
   .schedule-repeat .segmented {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
   .schedule-repeat .segmented button {
+    grid-column: span 2;
     white-space: normal;
   }
-}
 
-@container schedule-repeat (width < 380px) {
-  :lang(en) .schedule-repeat .segmented {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  :lang(en) .schedule-repeat .segmented button {
-    white-space: normal;
+  .schedule-repeat .segmented button:nth-child(n + 4) {
+    grid-column: span 3;
   }
 }
 

@@ -100,6 +100,8 @@ export function repeatOf(d: ScheduleDraft): ScheduleRepeat {
       return { kind: 'weekly', time: d.time, days: [...new Set(d.days)].sort((a, b) => a - b) };
     case 'interval':
       return { kind: 'interval', hours: d.hours };
+    case 'manual':
+      return { kind: 'manual' };
   }
 }
 
@@ -109,7 +111,8 @@ export function toUpdate(d: ScheduleDraft): ScheduleUpdate {
     text: d.text.trim(),
     repeat: repeatOf(d),
     timeZone: d.timeZone,
-    enabled: d.enabled,
+    // No set times is never off: only Run once now and the webhook send it.
+    enabled: d.kind === 'manual' || d.enabled,
     approvals: d.approvals,
     missed: d.missed,
     newChat: d.newChat,
@@ -120,7 +123,9 @@ export function toUpdate(d: ScheduleDraft): ScheduleUpdate {
 /** Whether the form says something other than the saved schedule. */
 export function draftChanged(d: ScheduleDraft, s: ConversationSchedule | undefined): boolean {
   if (!s) return true;
-  const saved = toUpdate(draftFrom(s, 0));
+  // As it is saved, on or off: a schedule with no set times that its reached goal switched off is
+  // turned on again by saving it.
+  const saved = { ...toUpdate(draftFrom(s, 0)), enabled: s.enabled };
   return JSON.stringify(toUpdate(d)) !== JSON.stringify(saved);
 }
 
@@ -211,6 +216,8 @@ export function describeRepeat(r: ScheduleRepeat, t: Messages, lang: string): st
     }
     case 'interval':
       return s.interval(r.hours);
+    case 'manual':
+      return s.manual;
   }
 }
 
@@ -221,6 +228,7 @@ export function scheduleTrouble(s: Pick<ConversationSchedule, 'lastResult'> | un
 
 /** The schedule's state in a few words: when it sends next, paused, or (a one-time schedule that came due) done. */
 export function scheduleState(s: ConversationSchedule, t: Messages, lang: string): string {
+  if (s.repeat.kind === 'manual') return s.enabled ? t.schedule.manualState : t.schedule.paused;
   if (s.enabled && s.nextRunAt !== undefined) return t.schedule.next(formatWhen(s.nextRunAt, lang, shownZone(s)));
   const r = s.repeat;
   return r.kind === 'once' && s.lastRunAt !== undefined && s.lastRunAt >= r.at ? t.schedule.finished : t.schedule.paused;
@@ -229,14 +237,20 @@ export function scheduleState(s: ConversationSchedule, t: Messages, lang: string
 /** The sidebar's tooltip for a conversation's schedule. */
 export function sidebarScheduleTitle(s: NonNullable<ConversationSummary['schedule']>, t: Messages, lang: string): string {
   if (scheduleTrouble(s)) return t.schedule.sidebar.problem(t.schedule.results[s.lastResult!]);
+  if (s.enabled && s.manual) return t.schedule.sidebar.manual;
   if (!s.enabled || s.nextRunAt === undefined) return t.schedule.sidebar.paused;
   return t.schedule.sidebar.next(formatWhen(s.nextRunAt, lang, s.timeZone));
 }
 
 /**
- * A command that calls a schedule's webhook from this computer, with an example body. The token and the
- * address are single-quoted for a POSIX shell (a token is base64url, which needs no escaping).
+ * A command that calls a schedule's webhook on the server's computer, with an example body: curl in a
+ * POSIX shell, or on Windows PowerShell's own `Invoke-RestMethod` (its `curl` is another command, and
+ * cmd.exe takes no single quotes). Single-quoted either way: a token is base64url, which needs no escaping.
  */
-export function hookExample(url: string, token: string): string {
-  return `curl -X POST -H 'Authorization: Bearer ${token}' -H 'Content-Type: application/json' -d '{"event":"ci-failed","branch":"main"}' '${url}'`;
+export function hookExample(url: string, token: string, platform = ''): string {
+  const body = '{"event":"ci-failed","branch":"main"}';
+  if (platform === 'win32') {
+    return `Invoke-RestMethod -Method Post -Uri '${url}' -Headers @{ Authorization = 'Bearer ${token}' } -ContentType 'application/json' -Body '${body}'`;
+  }
+  return `curl -X POST -H 'Authorization: Bearer ${token}' -H 'Content-Type: application/json' -d '${body}' '${url}'`;
 }

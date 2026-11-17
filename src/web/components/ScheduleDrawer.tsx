@@ -248,10 +248,15 @@ export function ScheduleDrawer({
           ) : (
             touched && problems[0] && <span className="error-line">{problems[0]}</span>
           )}
-          <label className="check-row schedule-enabled">
-            <input type="checkbox" checked={draft.enabled} onChange={(e) => edit({ enabled: e.target.checked })} />
-            {t.schedule.enabled}
-          </label>
+          {/* No set times: nothing to switch on or off, Run once now and the webhook send it; one its
+              reached goal switched off is turned on again by saving it. */}
+          {draft.kind === 'manual' && saved && !saved.enabled && <span className="small muted">{t.schedule.manualOff}</span>}
+          {draft.kind !== 'manual' && (
+            <label className="check-row schedule-enabled">
+              <input type="checkbox" checked={draft.enabled} onChange={(e) => edit({ enabled: e.target.checked })} />
+              {t.schedule.enabled}
+            </label>
+          )}
           <button className="ghost" onClick={onClose}>
             {t.common.cancel}
           </button>

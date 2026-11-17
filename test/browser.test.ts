@@ -674,6 +674,31 @@ describe.skipIf(!chromium)('the browser itself', () => {
   );
 
   it(
+    'stays open while a call waits for the user, however long they take, and closes once it has been idle as long as it may',
+    async () => {
+      const quick = new BrowserService({ dataDir: join(root, 'data'), executable: () => chromium, relayPorts: () => [9], idleMs: 1500 });
+      const sessions = (quick as unknown as { sessions: Map<string, unknown> }).sessions;
+      try {
+        // The user answers about the host after twice the idle time: the call goes on.
+        const slowAnswer = ctx({ convId: 'idle-1', ask: async () => (await new Promise((r) => setTimeout(r, 3500)), { allow: true }) });
+        const page = await quick.open(slowAnswer, `http://127.0.0.1:${port}/next`);
+        expect(page.title).toBe('Next');
+        // Asked about a click: held until the answer, so the page it was asked about is still there.
+        const release = quick.hold('idle-1');
+        await new Promise((r) => setTimeout(r, 3000));
+        expect(sessions.has('idle-1')).toBe(true);
+        release();
+        // Then idle: closed.
+        await new Promise((r) => setTimeout(r, 2500));
+        expect(sessions.has('idle-1')).toBe(false);
+      } finally {
+        quick.closeAll();
+      }
+    },
+    slow(60_000),
+  );
+
+  it(
     "writes nothing in the user's own browser folders: Chromium's crash reports on Linux stay in the profile",
     async () => {
       await browser.open(ctx({ convId: 'conv-5', permission: 'full' }), `http://127.0.0.1:${port}/next`);

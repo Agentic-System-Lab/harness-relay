@@ -250,9 +250,36 @@ describe('the schedule form', () => {
     expect(draftProblems({ ...draft, goal: 'x'.repeat(2001) }, MON, en)).toContain('A goal can be at most 2000 characters');
   });
 
+  it('has no set times when the user only wants Run once now and the webhook: never due, never off, said so everywhere', () => {
+    const manual: ScheduleRepeat = { kind: 'manual' };
+    expect(nextRun(at(manual), MON)).toBeUndefined();
+    expect(upcomingRuns(at(manual), MON, 3)).toEqual([]);
+    // Saved as it is, with nothing else asked for: no time, no day, and on whatever the box said.
+    expect(withLang('en', () => validateSchedule({ text: 'check CI', repeat: manual, enabled: true }, MON).repeat)).toEqual(manual);
+    const draft = { ...draftFrom(undefined, MON, 'UTC'), text: 'check CI', kind: 'manual' as const, time: '', days: [], enabled: false };
+    expect(draftProblems(draft, MON, en)).toEqual([]);
+    expect(toUpdate(draft)).toMatchObject({ repeat: manual, enabled: true });
+    expect(describeRepeat(manual, en, 'en')).toBe('No set times');
+    expect(describeRepeat(manual, zhTW, 'zh-TW')).toBe('不定時');
+    const manualSaved: ConversationSchedule = { ...saved, repeat: manual, enabled: true, nextRunAt: undefined };
+    expect(scheduleState(manualSaved, en, 'en')).toBe('sent by Run once now or its webhook');
+    // Switched off by its reached goal, saving it as it is turns it on again.
+    expect(draftChanged(draftFrom(manualSaved, MON), manualSaved)).toBe(false);
+    const manualOff = { ...manualSaved, enabled: false };
+    expect(draftChanged(draftFrom(manualOff, MON), manualOff)).toBe(true);
+    expect(toUpdate(draftFrom(manualOff, MON)).enabled).toBe(true);
+    expect(scheduleState(manualOff, en, 'en')).toBe('paused');
+    expect(sidebarScheduleTitle({ enabled: true, manual: true }, en, 'en')).toBe('Schedule: no set times (Run once now or its webhook)');
+    expect(sidebarScheduleTitle({ enabled: true, manual: true }, zhTW, 'zh-TW')).toBe('排程：不定時（立即執行一次或 webhook）');
+  });
+
   it("writes a command that calls the schedule's webhook", () => {
     expect(hookExample('http://127.0.0.1:8787/api/hooks/c1', 'tok_en-1')).toBe(
       `curl -X POST -H 'Authorization: Bearer tok_en-1' -H 'Content-Type: application/json' -d '{"event":"ci-failed","branch":"main"}' 'http://127.0.0.1:8787/api/hooks/c1'`,
+    );
+    // A server on Windows: PowerShell's own command, whose `curl` is another one and whose cmd.exe takes no single quotes.
+    expect(hookExample('http://127.0.0.1:8787/api/hooks/c1', 'tok_en-1', 'win32')).toBe(
+      `Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8787/api/hooks/c1' -Headers @{ Authorization = 'Bearer tok_en-1' } -ContentType 'application/json' -Body '{"event":"ci-failed","branch":"main"}'`,
     );
   });
 

@@ -463,7 +463,13 @@ export const zhTW = {
       adjust: '可以按「調整團隊」為成員改名。',
     },
     repeat: '時間',
-    kinds: { once: '一次', daily: '每天', weekly: '每週', interval: '每隔幾小時' } as Record<ScheduleRepeat['kind'], string>,
+    kinds: { once: '一次', daily: '每天', weekly: '每週', interval: '每隔幾小時', manual: '不定時' } as Record<
+      ScheduleRepeat['kind'],
+      string
+    >,
+    manualHint: '只在你按「立即執行一次」，或程式呼叫它的 webhook 時送出（儲存後就能建立 webhook）。',
+    manualState: '由「立即執行一次」或 webhook 送出',
+    manualOff: '已關閉：按「儲存」重新啟用。',
     at: '日期與時間',
     time: '時間',
     days: '星期',
@@ -525,6 +531,7 @@ export const zhTW = {
       weekdays: (time: string) => `平日 ${time}`,
       everyDay: (time: string) => `每天 ${time}`,
       interval: (hours: number) => `每 ${hours} 小時`,
+      manual: '不定時',
     },
     daySeparator: '、',
     next: (when: string) => `下次 ${when}`,
@@ -558,6 +565,7 @@ export const zhTW = {
     sidebar: {
       next: (when: string) => `排程：下次 ${when}`,
       paused: '排程已暫停',
+      manual: '排程：不定時（立即執行一次或 webhook）',
       problem: (result: string) => `排程上次${result}`,
     },
     goal: '追蹤的目標（選填）',
@@ -576,7 +584,7 @@ export const zhTW = {
     hook: {
       title: 'Webhook',
       intro:
-        '讓這台電腦上的程式（git hook、CI、`gh webhook forward`）呼叫這個網址，立刻送出排程的訊息，請求的 JSON 內容會附在訊息後面，當作資料交給 agent。排程的時間關閉時也能用。',
+        '讓這台電腦上的程式（git hook、在這台電腦上執行的 CI、腳本）帶著權杖呼叫這個網址，立刻送出排程的訊息，請求的 JSON 內容會附在訊息後面，當作資料交給 agent。排程的時間關閉時也能用。',
       create: '建立 webhook',
       replace: '換一個新的權杖',
       remove: '移除 webhook',
@@ -1180,7 +1188,8 @@ export const zhTW = {
       unavailable: {
         'not-started': '目前無法使用：伺服器沒能啟動它們（原因見伺服器的紀錄）。',
         'no-node': '桌面 app 需要 PATH 上有 Node.js 22.12 以上，或 設定 → 沙箱 安裝的那一個，才能使用。',
-      } as Record<'not-started' | 'no-node', string>,
+        'no-node-path': '桌面 app 需要 PATH 上有 Node.js 22.12 以上才能使用。',
+      } as Record<'not-started' | 'no-node' | 'no-node-path', string>,
     },
     title: '工具庫',
     hint: '這裡的 MCP 伺服器、skill 和記憶會提供給成員，每種 CLI 都能用（Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 與開源 agent），而且加在各 CLI 自己的設定之外。每一項可以給所有成員，或只給某幾種 CLI 的成員；要針對單一成員調整，在「新對話」或對話上方的「團隊設定」裡，用該成員卡片的「工具」欄位。變更從成員的下一回合開始生效。',
@@ -1935,7 +1944,7 @@ export const zhTW = {
         title: '排程傳訊息',
         body: '側邊欄左上角「新對話」旁的月曆按鈕是「新排程」：寫好訊息、選好時間，首席 agent 會為它組隊，之後在設定的時間把訊息傳給團隊，就像你自己送出的一樣。現有的對話也可以用上方的「排程」（手機上在 ⋯ 裡）設定：',
         points: [
-          '一次、每天、每週選定的星期幾，或每隔幾小時；儲存後可以按「立即執行一次」先試試看',
+          '一次、每天、每週選定的星期幾、每隔幾小時，或不定時（只由「立即執行一次」和 webhook 送出）；儲存後可以按「立即執行一次」先試試看',
           '勾選「每次開新對話」，每次都在新對話中從乾淨的上下文開始，沿用同樣的團隊與設定',
           '排程執行時可能沒人看著：預設會拒絕檔案權限以外的動作（已設為「本對話都允許」的除外），agent 會改用其他方式；也可以選「詢問我」',
           'Harness Relay 開著才會送出：錯過的時間會略過，也可以選擇在開啟後補送一次',
