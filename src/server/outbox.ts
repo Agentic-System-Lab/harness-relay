@@ -57,15 +57,19 @@ function toItem(r: OutboxRow): OutboxItem {
 export class Outbox {
   /** Waiting items by conversation, for the sidebar's "needs you" without a query per conversation. */
   private readonly pending = new Map<string, number>();
+  /** Items a stop of the server cut off while they were being sent: their cards are brought up to date at startup. */
+  readonly interrupted: OutboxItem[];
 
   constructor(
     private db: Database,
     private now: () => number = Date.now,
   ) {
     // Sent while the server stopped: whether it went out is not known, so it is not sent again.
+    const cut = (this.db.prepare("SELECT id FROM outbox WHERE status = 'sending'").all() as { id: string }[]).map((r) => r.id);
     this.db
       .prepare("UPDATE outbox SET status = 'failed', result = ?, decided_at = ? WHERE status = 'sending'")
       .run(t().outboxInterrupted, this.now());
+    this.interrupted = cut.map((id) => this.get(id)!).filter(Boolean);
     for (const r of this.db.prepare("SELECT conversation_id, COUNT(*) AS n FROM outbox WHERE status = 'pending' GROUP BY conversation_id").all() as {
       conversation_id: string;
       n: number;
@@ -145,6 +149,20 @@ export class Outbox {
   private finish(id: string, status: OutboxStatus, result?: string): OutboxItem {
     this.db.prepare('UPDATE outbox SET status = ?, result = ?, decided_at = ? WHERE id = ?').run(status, nul(result), this.now(), id);
     return this.get(id)!;
+  }
+
+  /**
+   * The replies that asked for these items were taken back (Retry, an edited message): what still
+   * waits is discarded, so no item waits without a card, and the reply that comes again asks anew.
+   */
+  discardFor(convId: string, messageIds: readonly string[]): void {
+    if (!messageIds.length) return;
+    const ids = new Set(messageIds);
+    for (const item of this.list(convId)) {
+      if (item.status !== 'pending' || !ids.has(item.messageId)) continue;
+      this.finish(item.id, 'discarded', t().outboxTakenBack);
+      this.pending.set(convId, Math.max(0, this.waiting(convId) - 1));
+    }
   }
 
   /** A conversation was deleted: its items went with it (`ON DELETE CASCADE`). */

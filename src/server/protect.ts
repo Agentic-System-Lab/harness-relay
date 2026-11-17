@@ -185,7 +185,7 @@ export function relayTmpDir(dataDir = DATA_DIR): string {
  * MCP config the servers' secret values), a Cursor turn's config folder, and a Copilot turn's home
  * (its settings, which decide its sandbox, and a copy of the account's sign-in state).
  */
-export const RUN_TMP_PREFIXES = { claude: 'claude-', cursor: 'cursor-', copilot: 'copilot-' } as const;
+export const RUN_TMP_PREFIXES = { claude: 'claude-', cursor: 'cursor-', copilot: 'copilot-', gateway: 'gateway-' } as const;
 
 /**
  * Removes the folders of turns the server was stopped during (`RUN_TMP_PREFIXES`; a turn removes its

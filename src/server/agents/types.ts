@@ -43,6 +43,8 @@ export interface ApprovalRequest {
   readOnlySandbox?: boolean;
   /** Nothing tells this request from another (a call the agent names in no way): no rule keys, no "always allow". */
   noRule?: boolean;
+  /** Allowing it writes nothing in the working directory (a call of Harness Relay's own tools): it takes no folder lock. */
+  noLock?: boolean;
 }
 
 export interface RunOptions {

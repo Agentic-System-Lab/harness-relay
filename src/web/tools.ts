@@ -42,9 +42,12 @@ export function toolItems(lib: ToolLibraryView): ToolItem[] {
       name: scope,
       providers: scope === 'all' ? [...PROVIDERS] : [scope],
     })),
-    // Harness Relay's own tools, while this server can give them (a member can be given one off by default).
+    // Harness Relay's own tools, while this server can give them, once a group is given to some CLI: one
+    // given to none is not in the library yet (an empty library still says so).
     ...(lib.gateway.available
-      ? lib.relayTools.map<ToolItem>((g) => ({ key: toolKey('relay', g.group), kind: 'relay', name: g.group, providers: g.providers }))
+      ? lib.relayTools
+          .filter((g) => g.providers.length)
+          .map<ToolItem>((g) => ({ key: toolKey('relay', g.group), kind: 'relay', name: g.group, providers: g.providers }))
       : []),
   ];
 }

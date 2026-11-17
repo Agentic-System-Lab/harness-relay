@@ -1,4 +1,5 @@
-import type { GatewayTool } from '../gateway';
+import { dataAttr, dataBody, dataLine, type GatewayTool } from '../gateway';
+import { t } from '../i18n';
 import type { ConnectorStore } from './accounts';
 import { composeEvent, eventTime, listEvents, putEvent, rangeTime, type CalendarEvent } from './caldav';
 import { ImapClient, Literal, imapDate, parseFetch, quote } from './imap';
@@ -59,14 +60,23 @@ function mailArgs(a: Record<string, unknown>, withBcc: boolean): MailArgs {
 const recipientsSchema = { anyOf: [{ type: 'array', items: { type: 'string' } }, { type: 'string' }] };
 const accountSchema = { type: 'string', description: 'The account to use, by its name in Settings (the first one when left out).' };
 
+/** The data blocks' tags, which nothing inside one can close. */
+const DATA_TAGS = ['mail', 'mail_list', 'calendar'];
+
+/** An event's lines in `calendar_events`: each field on its own line, whatever line breaks it holds. */
 function eventLine(e: CalendarEvent): string {
-  return [
-    `- ${e.start}${e.end ? ` – ${e.end}` : ''}: ${e.summary || '(no title)'}`,
-    ...(e.location ? [`  at ${e.location}`] : []),
-    ...(e.repeats ? [`  repeats: ${e.repeats}`] : []),
-    ...(e.attendees.length ? [`  with ${e.attendees.join(', ')}`] : []),
-    ...(e.description ? [`  ${e.description.replace(/\n/g, ' ').slice(0, 300)}`] : []),
-  ].join('\n');
+  // A one-day all-day event ends on the day it starts.
+  const end = e.end && e.end !== e.start ? ` – ${e.end}` : '';
+  return dataBody(
+    [
+      `- ${dataLine(e.start)}${dataLine(end)}: ${dataLine(e.summary) || '(no title)'}`,
+      ...(e.location ? [`  at ${dataLine(e.location)}`] : []),
+      ...(e.repeats ? [`  repeats: ${dataLine(e.repeats)}`] : []),
+      ...(e.attendees.length ? [`  with ${dataLine(e.attendees.join(', '))}`] : []),
+      ...(e.description ? [`  ${dataLine(e.description).slice(0, 300)}`] : []),
+    ].join('\n'),
+    DATA_TAGS,
+  );
 }
 
 export function connectorTools(store: ConnectorStore): GatewayTool[] {
@@ -92,16 +102,24 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
     }
   };
   const folderOf = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : 'INBOX');
-  const mailPreview = (m: MailArgs, from: string) => ({
-    fields: [
-      { label: 'From', value: from },
-      { label: 'To', value: m.to.join(', ') },
-      ...(m.cc.length ? [{ label: 'Cc', value: m.cc.join(', ') }] : []),
-      ...(m.bcc.length ? [{ label: 'Bcc', value: m.bcc.join(', ') }] : []),
-      { label: 'Subject', value: m.subject || '(no subject)' },
-    ],
-    body: m.body,
-  });
+  const mailPreview = (m: MailArgs, from: string) => {
+    const f = t().gw.fields;
+    return {
+      fields: [
+        { label: f.from, value: from },
+        { label: f.to, value: m.to.join(', ') },
+        ...(m.cc.length ? [{ label: f.cc, value: m.cc.join(', ') }] : []),
+        ...(m.bcc.length ? [{ label: f.bcc, value: m.bcc.join(', ') }] : []),
+        { label: f.subject, value: m.subject || t().gw.noSubject },
+      ],
+      body: m.body,
+    };
+  };
+  /** The arguments kept with an outbox item, the account pinned to the one the card shows. */
+  const pinned = (kind: 'mail' | 'calendar') => (a: Record<string, unknown>) => {
+    const found = kind === 'mail' ? store.mail(typeof a.account === 'string' ? a.account : undefined) : store.calendar(typeof a.account === 'string' ? a.account : undefined);
+    return found ? { ...a, account: found.account.id } : a;
+  };
 
   const eventArgs = (a: Record<string, unknown>) => ({
     summary: String(a.summary ?? '').trim().slice(0, 300) || '(no title)',
@@ -165,9 +183,10 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
             .sort((x, y) => y.uid! - x.uid!)
             .map((f) => {
               const h = parseHeaders(f.data?.toString('latin1') ?? '');
-              return `- uid ${f.uid} · ${h.date ?? f.date ?? ''} · ${h.from ?? ''} · ${h.subject ?? '(no subject)'}${f.flags.some((x) => /\\Seen/i.test(x)) ? '' : ' (unread)'}${h['message-id'] ? ` · ${h['message-id']}` : ''}`;
+              const row = `- uid ${f.uid} · ${h.date ?? f.date ?? ''} · ${h.from ?? ''} · ${h.subject ?? '(no subject)'}${f.flags.some((x) => /\\Seen/i.test(x)) ? '' : ' (unread)'}${h['message-id'] ? ` · ${h['message-id']}` : ''}`;
+              return dataBody(dataLine(row), DATA_TAGS);
             });
-          return { text: [`<mail_list folder="${folder}" matches="${uids.length}">`, DATA_NOTE, '', ...rows, '</mail_list>'].join('\n') };
+          return { text: [`<mail_list folder="${dataAttr(folder)}" matches="${uids.length}">`, DATA_NOTE, '', ...rows, '</mail_list>'].join('\n') };
         });
       },
     },
@@ -198,13 +217,15 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
           const text = mail.text.length > READ_MAX ? `${mail.text.slice(0, READ_MAX)}\n…(cut)` : mail.text;
           return {
             text: [
-              `<mail uid="${uid}" folder="${folder}">`,
+              `<mail uid="${uid}" folder="${dataAttr(folder)}">`,
               DATA_NOTE,
               '',
-              ...['from', 'to', 'cc', 'date', 'subject', 'message-id'].filter((k) => h[k]).map((k) => `${k[0]!.toUpperCase()}${k.slice(1)}: ${h[k]}`),
-              ...(mail.attachments.length ? [`Attachments: ${mail.attachments.join(', ')}`] : []),
+              ...['from', 'to', 'cc', 'date', 'subject', 'message-id']
+                .filter((k) => h[k])
+                .map((k) => dataBody(dataLine(`${k[0]!.toUpperCase()}${k.slice(1)}: ${h[k]}`), DATA_TAGS)),
+              ...(mail.attachments.length ? [dataBody(dataLine(`Attachments: ${mail.attachments.join(', ')}`), DATA_TAGS)] : []),
               '',
-              text || '(no text)',
+              dataBody(text, DATA_TAGS) || '(no text)',
               '</mail>',
             ].join('\n'),
           };
@@ -224,7 +245,7 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
       },
       describe: (a) => {
         const m = mailArgs(a, false);
-        return { title: `Save a draft to ${m.to.join(', ')}: "${m.subject}"`, detail: m.body.slice(0, 500) };
+        return { title: t().gw.draft(m.to.join(', '), m.subject || t().gw.noSubject), detail: m.body.slice(0, 500) };
       },
       unavailable: noMail,
       run: async (a) => {
@@ -253,8 +274,9 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
       describe: (a) => {
         const m = mailArgs(a, true);
         const { account } = mailbox(a.account);
-        return { title: `Mail to ${m.to.join(', ')}: "${m.subject || '(no subject)'}"`, preview: mailPreview(m, account.address) };
+        return { title: t().gw.mail(m.to.join(', '), m.subject || t().gw.noSubject), preview: mailPreview(m, account.address) };
       },
+      bind: pinned('mail'),
       unavailable: noMail,
       send: async (a) => {
         const m = mailArgs(a, true);
@@ -291,7 +313,7 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
         const { account, password } = calendar(a.account);
         const events = await listEvents(account.url, { username: account.username, password }, from, end);
         if (!events.length) return { text: 'No events in that time.' };
-        return { text: [`<calendar name="${account.name}">`, CAL_NOTE, '', ...events.slice(0, 200).map(eventLine), '</calendar>'].join('\n') };
+        return { text: [`<calendar name="${dataAttr(account.name)}">`, CAL_NOTE, '', ...events.slice(0, 200).map(eventLine), '</calendar>'].join('\n') };
       },
     },
     {
@@ -302,7 +324,7 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
       inputSchema: { type: 'object', properties: eventProps, required: ['summary', 'start', 'end'], additionalProperties: false },
       describe: (a) => {
         const e = eventArgs(a);
-        return { title: `Add "${e.summary}" (${e.start} – ${e.end}${e.timeZone !== 'UTC' ? `, ${e.timeZone}` : ''}) to the calendar` };
+        return { title: t().gw.addEvent(e.summary, `${e.start} – ${e.end}${e.timeZone !== 'UTC' ? `, ${e.timeZone}` : ''}`) };
       },
       unavailable: noCalendar,
       run: async (a) => {
@@ -328,19 +350,21 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
         const e = eventArgs(a);
         const attendees = recipients(a.attendees, 'attendees', true);
         eventTime(e.start, e.timeZone);
+        const f = t().gw.fields;
         return {
-          title: `Invite ${attendees.join(', ')} to "${e.summary}"`,
+          title: t().gw.invite(attendees.join(', '), e.summary),
           preview: {
             fields: [
-              { label: 'Event', value: e.summary },
-              { label: 'When', value: `${e.start} – ${e.end}${e.timeZone !== 'UTC' ? ` (${e.timeZone})` : ' (UTC)'}` },
-              ...(e.location ? [{ label: 'Where', value: e.location }] : []),
-              { label: 'Invites', value: attendees.join(', ') },
+              { label: f.event, value: e.summary },
+              { label: f.when, value: `${e.start} – ${e.end}${e.timeZone !== 'UTC' ? ` (${e.timeZone})` : ' (UTC)'}` },
+              ...(e.location ? [{ label: f.where, value: e.location }] : []),
+              { label: f.invites, value: attendees.join(', ') },
             ],
             ...(e.description ? { body: e.description } : {}),
           },
         };
       },
+      bind: pinned('calendar'),
       unavailable: noCalendar,
       send: async (a) => {
         const e = eventArgs(a);

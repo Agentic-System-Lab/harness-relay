@@ -1152,7 +1152,10 @@ export const zhTW = {
         mail: '搜尋與閱讀郵件、存草稿，透過待送出匣寄信：需要在下方設定郵件帳號。',
         calendar: '列出與新增活動（有邀請對象時透過待送出匣）：需要在下方設定行事曆。',
       } as Record<RelayToolGroup, string>,
-      unavailable: (why: string) => `這個伺服器目前無法使用：${why}。`,
+      unavailable: {
+        'not-started': '目前無法使用：伺服器沒能啟動它們（原因見伺服器的紀錄）。',
+        'no-node': '桌面 app 需要 PATH 上有 Node.js 22.12 以上，或 設定 → 沙箱 安裝的那一個，才能使用。',
+      } as Record<'not-started' | 'no-node', string>,
     },
     title: '工具庫',
     hint: '這裡的 MCP 伺服器、skill 和記憶會提供給成員，每種 CLI 都能用（Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 與開源 agent），而且加在各 CLI 自己的設定之外。每一項可以給所有成員，或只給某幾種 CLI 的成員；要針對單一成員調整，在「新對話」或對話上方的「團隊設定」裡，用該成員卡片的「工具」欄位。變更從成員的下一回合開始生效。',

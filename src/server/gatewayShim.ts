@@ -12,6 +12,9 @@
 /** MCP versions it answers in; a client asking for another gets the newest. */
 export const GATEWAY_PROTOCOLS = ['2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25'];
 
+/** The longest call the shim passes on (its arguments as JSON): a mail's body fits many times over. */
+export const GATEWAY_MAX_CALL = 1024 * 1024;
+
 export const GATEWAY_SHIM_SOURCE = `// Harness Relay's MCP gateway (written by the server; do not edit).
 import { readFileSync } from 'node:fs';
 import { connect } from 'node:net';
@@ -69,14 +72,16 @@ function ask(method, params) {
   return new Promise((resolve) => {
     if (sock.destroyed) return resolve({ error: 'Harness Relay is not reachable' });
     const id = next++;
-    waiting.set(id, resolve);
     const line = JSON.stringify({ id, method, ...params }) + '\\n';
+    if (line.length > ${GATEWAY_MAX_CALL}) return resolve({ error: 'The call is too large' });
+    waiting.set(id, resolve);
     if (open) sock.write(line);
     else queued.push(line);
   });
 }
 
 async function handle(msg) {
+  if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return fail(null, -32600, 'Invalid Request');
   const { id, method, params } = msg;
   if (id === undefined || id === null) return; // a notification: nothing to answer
   if (method === 'initialize') {
@@ -119,7 +124,7 @@ process.stdin.on('data', (chunk) => {
       fail(null, -32700, 'Parse error');
       continue;
     }
-    handle(msg).catch((err) => fail(msg.id, -32603, String((err && err.message) || err)));
+    handle(msg).catch((err) => fail(msg && msg.id !== undefined ? msg.id : null, -32603, String((err && err.message) || err)));
   }
 });
 process.stdin.on('end', () => {

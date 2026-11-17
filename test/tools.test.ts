@@ -317,7 +317,7 @@ describe('ToolLibrary', () => {
       { group: 'mail', providers: [] },
       { group: 'calendar', providers: [] },
     ]);
-    expect(lib.view().gateway).toEqual({ available: false, reason: 'not started' });
+    expect(lib.view().gateway).toEqual({ available: false, reason: 'not-started' });
     expect(lib.forAgent(agent('claude')).relayGroups).toEqual([]);
 
     lib.update({ relayTools: { browser: ['codex', 'claude'], mail: ['claude'] } });

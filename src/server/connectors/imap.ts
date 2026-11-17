@@ -68,6 +68,9 @@ export function upgrade(sock: Socket, host: string, timeoutMs: number): Promise<
   });
 }
 
+/** The server's answer to STARTTLS came with more after it, before TLS started. */
+export const STARTTLS_EXTRA = 'The mail server sent more than its answer to STARTTLS before TLS started: the connection was closed, as someone on the way may have added it';
+
 /** An IMAP quoted string. */
 export function quote(s: string): string {
   if (/[\r\n\0]/.test(s)) throw new Error('A line break cannot be sent to the mail server');
@@ -91,14 +94,20 @@ class ResponseReader {
     this.attach(sock);
   }
 
-  /** Stop reading the socket (STARTTLS: TLS reads it from now on). */
-  detach(): void {
-    if (!this.sock) return;
+  /**
+   * Stop reading the socket (STARTTLS: TLS reads it from now on). What was read but not yet taken is
+   * dropped, as it came before TLS, from anyone on the way: returns whether there was any.
+   */
+  detach(): boolean {
+    const leftover = this.buf.length > 0;
+    this.buf = Buffer.alloc(0);
+    if (!this.sock) return leftover;
     this.sock.off('data', this.onData);
     this.sock.off('end', this.onEnd);
     this.sock.off('close', this.onEnd);
     this.sock.off('error', this.onError);
     this.sock = undefined;
+    return leftover;
   }
 
   private end(err?: Error): void {
@@ -176,8 +185,9 @@ export class ImapClient {
       if (!/^\* (OK|PREAUTH)/i.test(greeting.text)) throw new Error(`The mail server refused the connection: ${greeting.text}`);
       if (addr.security === 'starttls') {
         await c.command('STARTTLS');
-        // The plain socket's bytes are TLS's own from now on.
-        c.reader.detach();
+        // The plain socket's bytes are TLS's own from now on. An answer already there came before
+        // TLS, from anyone on the way (one injected to be read as the server's, say): refused.
+        if (c.reader.detach()) throw new Error(STARTTLS_EXTRA);
         c.sock = await upgrade(c.sock as Socket, addr.host, timeoutMs);
         c.reader.attach(c.sock);
       }

@@ -27,16 +27,89 @@ function unescapeText(v: string): string {
   return v.replace(/\\([nN,;\\])/g, (_m, c: string) => (c === 'n' || c === 'N' ? '\n' : c));
 }
 
-/** iCalendar text escaped. */
+/**
+ * iCalendar text escaped. Every line break (a bare CR too, which some parsers end a line at) becomes
+ * `\n`, and other control characters go, so a value can never start a property of its own (an
+ * ATTENDEE, which would invite someone without the outbox).
+ */
 export function escapeText(v: string): string {
-  return v.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+  return v
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\r\n|\r|\n|\u2028|\u2029|\u0085/g, '\\n')
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
 }
 
-/** A DATE or DATE-TIME as the tools show it: `2026-01-05 09:00 UTC`, `… (Asia/Taipei)`, `2026-01-05 (all day)`. */
-function showTime(value: string, params: Record<string, string>): string {
+/** A content line folded at 75 octets (RFC 5545 §3.1), between characters, never inside one. */
+export function foldLine(line: string): string {
+  const out: string[] = [];
+  let cur = '';
+  let bytes = 0;
+  // A continuation line starts with a space, which counts.
+  let room = 75;
+  for (const ch of line) {
+    const n = Buffer.byteLength(ch);
+    if (bytes + n > room) {
+      out.push(cur);
+      cur = '';
+      bytes = 0;
+      room = 74;
+    }
+    cur += ch;
+    bytes += n;
+  }
+  out.push(cur);
+  return out.join('\r\n ');
+}
+
+/**
+ * A content line's name, parameters and value. A parameter's value may be quoted, and a quoted one
+ * may hold `:`, `;` and `,` (a CN, say); a parameter with several values keeps them joined by commas.
+ */
+export function contentLine(line: string): { name: string; params: Record<string, string>; value: string } | undefined {
+  const m = /^[A-Za-z0-9-]+/.exec(line);
+  if (!m) return undefined;
+  let i = m[0].length;
+  const params: Record<string, string> = {};
+  while (line[i] === ';') {
+    const eq = line.indexOf('=', i + 1);
+    if (eq < 0) return undefined;
+    const key = line.slice(i + 1, eq).toUpperCase();
+    i = eq + 1;
+    const values: string[] = [];
+    for (;;) {
+      if (line[i] === '"') {
+        const close = line.indexOf('"', i + 1);
+        if (close < 0) return undefined;
+        values.push(line.slice(i + 1, close));
+        i = close + 1;
+      } else {
+        const rest = line.slice(i);
+        const stop = rest.search(/[;:,]/);
+        if (stop < 0) return undefined;
+        values.push(rest.slice(0, stop));
+        i += stop;
+      }
+      if (line[i] !== ',') break;
+      i++;
+    }
+    params[key] = values.join(',');
+  }
+  if (line[i] !== ':') return undefined;
+  return { name: m[0].toUpperCase(), params, value: line.slice(i + 1) };
+}
+
+/**
+ * A DATE or DATE-TIME as the tools show it: `2026-01-05 09:00 UTC`, `… (Asia/Taipei)`, `2026-01-05
+ * (all day)`. `end`: an all-day event's end, which iCalendar gives as the day after its last: shown as
+ * its last day, as `calendar_create` takes it.
+ */
+function showTime(value: string, params: Record<string, string>, end = false): string {
   const m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?$/.exec(value);
   if (!m) return value;
-  const date = `${m[1]}-${m[2]}-${m[3]}`;
+  let date = `${m[1]}-${m[2]}-${m[3]}`;
+  if (!m[4] && end) date = new Date(Date.UTC(+m[1]!, +m[2]! - 1, +m[3]! - 1)).toISOString().slice(0, 10);
   if (!m[4]) return `${date} (all day)`;
   return `${date} ${m[4]}:${m[5]}${m[7] ? ' UTC' : params.TZID ? ` (${params.TZID})` : ''}`;
 }
@@ -61,23 +134,13 @@ export function parseEvents(ics: string): CalendarEvent[] {
       continue;
     } else if (/^END:/i.test(line)) depth--;
     if (depth > 0) continue; // inside a VALARM
-    const m = /^([A-Za-z-]+)((?:;[^:]*)?):(.*)$/.exec(line);
-    if (!m) continue;
-    const name = m[1]!.toUpperCase();
-    const params = Object.fromEntries(
-      m[2]!
-        .split(';')
-        .filter(Boolean)
-        .map((p) => {
-          const [k, ...v] = p.split('=');
-          return [k!.toUpperCase(), v.join('=').replace(/^"|"$/g, '')];
-        }),
-    ) as Record<string, string>;
-    const value = m[3]!;
+    const cl = contentLine(line);
+    if (!cl) continue;
+    const { name, params, value } = cl;
     if (name === 'UID') ev.uid = value;
     else if (name === 'SUMMARY') ev.summary = unescapeText(value);
     else if (name === 'DTSTART') ev.start = showTime(value, params);
-    else if (name === 'DTEND') ev.end = showTime(value, params);
+    else if (name === 'DTEND') ev.end = showTime(value, params, true);
     else if (name === 'LOCATION') ev.location = unescapeText(value);
     else if (name === 'DESCRIPTION') ev.description = unescapeText(value).slice(0, 2000);
     else if (name === 'RRULE') ev.repeats = value;
@@ -165,7 +228,6 @@ export function composeEvent(e: NewEvent, now = Date.now()): { uid: string; ics:
   // An all-day event's end is its last day, given; iCalendar's is the day after it.
   const endIcs = start.allDay ? `;VALUE=DATE:${utc(end.ms + 86_400_000).slice(0, 8)}` : end.ics;
   const uid = `${randomUUID()}@harness-relay`;
-  const fold = (line: string) => line.replace(/(.{73})(?=.)/g, '$1\r\n ');
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -183,7 +245,7 @@ export function composeEvent(e: NewEvent, now = Date.now()): { uid: string; ics:
     'END:VEVENT',
     'END:VCALENDAR',
   ];
-  return { uid, ics: lines.map(fold).join('\r\n') + '\r\n' };
+  return { uid, ics: lines.map(foldLine).join('\r\n') + '\r\n' };
 }
 
 /** The headers of a request to the calendar: its password as Basic authentication. */
@@ -231,10 +293,27 @@ export async function putEvent(url: string, login: Login, ics: string, uid: stri
   return target;
 }
 
-/** Two hosts of the same provider: the same last two labels (`p42-caldav.icloud.com` and `caldav.icloud.com`). */
-function sameProvider(a: string, b: string): boolean {
-  const tail = (h: string) => h.toLowerCase().split('.').slice(-2).join('.');
-  return tail(a) === tail(b);
+/**
+ * Whether the password given for `given` may go to `next` too: the same provider's address. The same
+ * host, or one under the domain `given`'s host is in (`p42-caldav.icloud.com` for `caldav.icloud.com`),
+ * unless that domain looks like a country's public one (`co.uk`), where only the same host is; an
+ * address only as itself; never from https to http.
+ */
+export function sameProvider(given: URL | string, next: URL | string): boolean {
+  const a = typeof given === 'string' ? new URL(given) : given;
+  const b = typeof next === 'string' ? new URL(next) : next;
+  if (a.protocol === 'https:' && b.protocol !== 'https:') return false;
+  if (b.protocol !== 'https:' && b.protocol !== 'http:') return false;
+  const ha = a.hostname.toLowerCase().replace(/\.$/, '');
+  const hb = b.hostname.toLowerCase().replace(/\.$/, '');
+  if (ha === hb) return true;
+  const ip = (h: string) => h.startsWith('[') || /^\d+(\.\d+){3}$/.test(h);
+  if (ip(ha) || ip(hb)) return false;
+  const labels = ha.split('.');
+  if (labels.length < 3) return false;
+  const parent = labels.slice(1).join('.');
+  if (/^[a-z]{2,3}\.[a-z]{2}$/.test(parent)) return false;
+  return hb.endsWith(`.${parent}`);
 }
 
 /** The first `href` inside an element named `name` (any namespace prefix), resolved against `base`. */
@@ -261,10 +340,9 @@ async function propfind(url: string, login: Login, depth: '0' | '1', props: stri
  * own address, which the calendar tools use. Only addresses of the same provider are asked.
  */
 export async function discoverCalendars(url: string, login: Login, timeoutMs = 20_000): Promise<{ name: string; url: string }[]> {
-  const host = new URL(url).hostname;
   const follow = (next: string | undefined) => {
     if (!next) return undefined;
-    if (!sameProvider(new URL(next).hostname, host)) throw new Error(`The calendar points at another provider (${new URL(next).hostname}); give its address instead`);
+    if (!sameProvider(url, next)) throw new Error(`The calendar points at another address (${new URL(next).origin}), which the password does not go to; give that one instead`);
     return next;
   };
   const root = await propfind(url, login, '0', '<d:current-user-principal/><c:calendar-home-set/>', timeoutMs);
@@ -284,7 +362,7 @@ export async function discoverCalendars(url: string, login: Login, timeoutMs = 2
     if (!href) continue;
     const name = /<(?:[A-Za-z0-9_-]+:)?displayname>([^<]*)</i.exec(r)?.[1]?.trim();
     const abs = new URL(href, home).href;
-    if (!sameProvider(new URL(abs).hostname, host)) continue;
+    if (!sameProvider(url, abs)) continue;
     out.push({ name: name || decodeURIComponent(abs.replace(/\/+$/, '').split('/').pop() ?? abs), url: abs });
   }
   return out;

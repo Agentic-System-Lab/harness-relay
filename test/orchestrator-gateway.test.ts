@@ -111,4 +111,57 @@ describe("Harness Relay's own tools in a turn", () => {
       await expect(orchestrator.answerOutbox(conv.id, items[0]!.id, 'send')).rejects.toMatchObject({ status: 409 });
       await expect(orchestrator.answerOutbox('missing', items[0]!.id, 'send')).rejects.toMatchObject({ status: 404 });
     }));
+
+  /** A conversation whose reply left a mail waiting in the outbox. */
+  const waitingMail = async () => {
+    const { grants, sent } = fakeGateway();
+    settings.tools.update({ relayTools: { mail: ['claude'] } });
+    const conv = solo();
+    const items: OutboxItem[] = [];
+    fake.inTurn = async () => {
+      const preview = { fields: [{ label: 'To', value: 'bob@example.com' }] };
+      items.push(grants.at(-1)!.ctx.toOutbox!({ tool: 'mail_send', title: 'Mail to Bob', preview, args: { to: 'bob@example.com' } }));
+    };
+    await orchestrator.send(conv.id, 'mail Bob');
+    await finish(conv.id);
+    return { conv, items, sent, reply: conv.messages.find((m) => m.author.kind === 'agent')! };
+  };
+
+  it('discards what a reply had waiting when the reply is taken back, so the reply that comes again asks anew', () =>
+    withLang('en', async () => {
+      const { conv, items, reply } = await waitingMail();
+      expect(orchestrator.outbox!.waiting(conv.id)).toBe(1);
+      await orchestrator.retry(conv.id, reply.id);
+      await finish(conv.id);
+      expect(orchestrator.outbox!.get(items[0]!.id)).toMatchObject({ status: 'discarded', result: 'The reply that asked for it was taken back, so it was not sent.' });
+      // The same call from the reply that came again: a new item, with its card.
+      expect(items[1]!.id).not.toBe(items[0]!.id);
+      const again = conv.messages.find((m) => m.author.kind === 'agent')!;
+      expect(again.id).not.toBe(reply.id);
+      expect(again.parts.filter((p) => p.type === 'outbox')).toMatchObject([{ id: items[1]!.id, status: 'pending' }]);
+      expect(orchestrator.outbox!.waiting(conv.id)).toBe(1);
+    }));
+
+  it("copies no waiting card into a branch, whose item stays with the conversation it came from", async () => {
+    const { conv, items, reply } = await waitingMail();
+    const branch = await orchestrator.branch(conv.id, reply.id);
+    const copied = branch.messages.find((m) => m.author.kind === 'agent')!;
+    expect(copied.parts.some((p) => p.type === 'outbox')).toBe(false);
+    expect(orchestrator.isWaiting(branch.id)).toBe(false);
+    expect(reply.parts.find((p) => p.type === 'outbox')).toMatchObject({ id: items[0]!.id, status: 'pending' });
+    expect(orchestrator.isWaiting(conv.id)).toBe(true);
+  });
+
+  it('brings the card of an item a stop of the server cut off while sending up to date at the next start', () =>
+    withLang('en', async () => {
+      const { conv, items, reply, sent } = await waitingMail();
+      db.prepare("UPDATE outbox SET status = 'sending' WHERE id = ?").run(items[0]!.id);
+      // The next start: the item is marked failed, and its card says so.
+      orchestrator.outbox = new Outbox(db);
+      orchestrator.reconcileOutbox();
+      expect(reply.parts.find((p) => p.type === 'outbox')).toMatchObject({ status: 'failed', result: expect.stringMatching(/not known/) });
+      expect(store.get(conv.id)!.messages.find((m) => m.id === reply.id)!.parts.find((p) => p.type === 'outbox')).toMatchObject({ status: 'failed' });
+      await expect(orchestrator.answerOutbox(conv.id, items[0]!.id, 'send')).rejects.toMatchObject({ status: 409 });
+      expect(sent).toEqual([]);
+    }));
 });

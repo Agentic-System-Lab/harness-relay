@@ -11,6 +11,7 @@ import type { Database } from '../db';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
 import { maskSecret, type SecretStore } from '../secrets';
+import { sameProvider } from './caldav';
 
 /*
  * The mail accounts and calendars the mail and calendar tools use (Settings → Tool library), kept
@@ -101,6 +102,8 @@ export class ConnectorStore {
     if (i < 0 && list.length >= CONNECTOR_LIMITS.accounts) throw new HttpError(400, t().connectorTooMany(CONNECTOR_LIMITS.accounts));
     if (list.some((m) => m.id !== id && m.name.toLowerCase() === u.name.toLowerCase())) throw new HttpError(409, t().connectorNameTaken(u.name));
     if (i < 0 && !u.password) throw new HttpError(400, t().connectorPasswordRequired);
+    // The kept password goes only to the servers it was given for.
+    if (i >= 0 && !u.password && !sameMailServers(list[i]!, u)) throw new HttpError(400, t().connectorPasswordAgain);
     this.setPassword(`mail-${id}`, u.password);
     const { password: _p, ...rest } = u;
     const account: StoredMail = { id, ...rest };
@@ -116,6 +119,7 @@ export class ConnectorStore {
     if (i < 0 && list.length >= CONNECTOR_LIMITS.accounts) throw new HttpError(400, t().connectorTooMany(CONNECTOR_LIMITS.accounts));
     if (list.some((c) => c.id !== id && c.name.toLowerCase() === u.name.toLowerCase())) throw new HttpError(409, t().connectorNameTaken(u.name));
     if (i < 0 && !u.password) throw new HttpError(400, t().connectorPasswordRequired);
+    if (i >= 0 && !u.password && !keptPasswordFits(list[i]!.url, u.url)) throw new HttpError(400, t().connectorPasswordAgain);
     this.setPassword(`calendar-${id}`, u.password);
     const { password: _p, ...rest } = u;
     const account: StoredCalendar = { id, ...rest };
@@ -161,6 +165,22 @@ export class ConnectorStore {
   /** The accounts' names, for the tools' descriptions. */
   names(kind: 'mail' | 'calendar'): string[] {
     return this.data[kind].map((a) => a.name);
+  }
+}
+
+/** The same mail servers as before: the kept password may go on to them (no weaker security either). */
+function sameMailServers(before: StoredMail, after: MailAccountUpdate): boolean {
+  const same = (a: StoredMail['imap'], b: StoredMail['imap']) =>
+    a.host.toLowerCase() === b.host.toLowerCase() && (b.security !== 'none' || a.security === 'none');
+  return same(before.imap, after.imap) && same(before.smtp, after.smtp);
+}
+
+/** Whether a calendar's kept password may go to `next`: an address of the same provider as the one it was given for. */
+export function keptPasswordFits(given: string, next: string): boolean {
+  try {
+    return sameProvider(given, next);
+  } catch {
+    return false;
   }
 }
 

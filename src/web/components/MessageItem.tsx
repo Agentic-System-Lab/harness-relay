@@ -161,7 +161,6 @@ function ActivityGroup({ items, live, last }: { items: ActivityItem[]; live: boo
   );
 }
 
-/** The agent's plan / to-do list. */
 /**
  * Something the agent asked to send (an outbox item): what goes where, as it will go out, with Send
  * and Discard while it waits; then what became of it. Only Send sends it.
@@ -243,6 +242,7 @@ function EventBlock({ event }: { event: string }) {
   );
 }
 
+/** The agent's plan / to-do list. */
 function TodoList({ entries }: { entries: PlanEntry[] }) {
   const t = useT();
   const done = entries.filter((e) => e.status === 'completed').length;

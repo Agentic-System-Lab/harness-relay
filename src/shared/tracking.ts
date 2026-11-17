@@ -10,14 +10,21 @@ import { PROGRESS_STATUSES, TRACKING_LIMITS, type ProgressNote, type ProgressSta
  * kept with the schedule as a note. Pure, shared by the server and the UI.
  */
 
-/** The block at the end of a reply, also when wrapped in a code fence or followed by space. */
-const PROGRESS_AT_END = /(?:^|\n)[ \t]*(?:```[^\n]*\n)?[ \t]*<progress(?:\s+status\s*=\s*["']?([a-z]+)["']?)?\s*>((?:(?!<progress)[\s\S])*?)<\/progress>[ \t]*(?:\n[ \t]*```)?\s*$/i;
+/** The block itself: its attributes (a `status` among them) and its text, with no other block inside it. */
+const BLOCK = '<progress\\b([^>]*)>((?:(?!<progress\\b)[\\s\\S])*?)<\\/progress>';
+/** The block at the end of a reply, on lines of its own. */
+const PLAIN = new RegExp(`(?:^|\\n)[ \\t]*${BLOCK}\\s*$`, 'i');
+/** The block alone in a code fence the agent wrapped it in, at the end of a reply. */
+const FENCED = new RegExp(`(?:^|\\n)[ \\t]*\`\`\`[^\\n]*\\n[ \\t]*${BLOCK}[ \\t]*\\n[ \\t]*\`\`\`\\s*$`, 'i');
 
-/** What a reply's text says about the goal, and its text without the block. */
+/**
+ * What a reply's text says about the goal, and its text without the block. A block inside a code
+ * fence with more than the block in it is code, and stays.
+ */
 export function splitProgress(text: string): { text: string; progress?: { status: ProgressStatus; text: string } } {
-  const m = PROGRESS_AT_END.exec(text);
+  const m = FENCED.exec(text) ?? PLAIN.exec(text);
   if (!m) return { text };
-  const said = (m[1] ?? 'working').toLowerCase();
+  const said = (/\bstatus\s*=\s*["']?([a-z]+)/i.exec(m[1] ?? '')?.[1] ?? 'working').toLowerCase();
   const status = (PROGRESS_STATUSES as readonly string[]).includes(said) ? (said as ProgressStatus) : 'working';
   const note = m[2]!.trim().slice(0, TRACKING_LIMITS.noteChars);
   return { text: text.slice(0, m.index).trimEnd(), progress: { status, text: note } };
@@ -48,7 +55,9 @@ export function retryDelayMs(attempt: number): number | undefined {
  * (finished or not), which is taken out once the reply ends.
  */
 export function withoutProgressTail(text: string): string {
-  const start = /(?:^|\n)[ \t]*(?:```[^\n]*\n[ \t]*)?<progress\b/gi;
+  // A progress block as agents write it (`<progress>`, `<progress status=…>`, or still being typed),
+  // not HTML's own <progress value=…> in a code block.
+  const start = /(?:^|\n)[ \t]*(?:```[^\n]*\n[ \t]*)?<progress(?=\s*$|\s*>|\s+status\b|\s+[a-z-]*$)/gi;
   let last = -1;
   for (let m = start.exec(text); m; m = start.exec(text)) last = m.index;
   return last < 0 ? text : text.slice(0, last).trimEnd();

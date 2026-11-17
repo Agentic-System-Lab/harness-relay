@@ -40,7 +40,7 @@ import {
 import { AgentRunError, runners, type AgentEvent, type RunResult } from './agents';
 import { emptyStateFolder, removeConversationState } from './agents/open';
 import { stateKeys, type ApprovalRequest } from './agents/types';
-import { gatewayToolIn, type ToolGateway } from './gateway';
+import { gatewayToolNamed, type ToolGateway } from './gateway';
 import type { Outbox } from './outbox';
 import type { TraceSink } from './agentsview';
 import { approvalKeys, isAllowed } from './approvals';
@@ -106,7 +106,7 @@ import {
   worktreeCwd,
   worktreeHead,
 } from './workspace';
-import { isBranchTitle, isDefaultTitle, t } from './i18n';
+import { currentLang, isBranchTitle, isDefaultTitle, t } from './i18n';
 import { sameFolder, validateAgents } from './validate';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import { scheduleTime } from './scheduler';
@@ -264,7 +264,12 @@ export function titleFrom(text: string): string {
  * it read or points out, where it started reading) points at its copy, and of one not copied, at nothing.
  */
 function copyMessages(messages: readonly ChatMessage[]): ChatMessage[] {
-  const copies = messages.map((m) => ({ ...structuredClone(m), id: randomUUID() }));
+  // An outbox card still waiting belongs to its own conversation, which alone can send it: a copy keeps only answered ones.
+  const copies = messages.map((m) => {
+    const copy = { ...structuredClone(m), id: randomUUID() };
+    copy.parts = copy.parts.filter((p) => p.type !== 'outbox' || p.status !== 'pending');
+    return copy;
+  });
   const ids = new Map(messages.map((m, i) => [m.id, copies[i]!.id]));
   for (const m of copies) {
     if (!m.review) continue;
@@ -738,6 +743,23 @@ export class Orchestrator {
     return (this.outbox?.waiting(id) ?? 0) > 0;
   }
 
+  /** At startup: the cards of items a stop of the server cut off while sending say so (`Outbox.interrupted`). */
+  reconcileOutbox(): void {
+    for (const item of this.outbox?.interrupted ?? []) this.updateOutboxCard(item);
+  }
+
+  /** The card of an outbox item in its reply, as the item now is. */
+  private updateOutboxCard(item: OutboxItem): void {
+    const conv = this.store.get(item.convId);
+    const msg = conv?.messages.find((m) => m.id === item.messageId);
+    const part = msg?.parts.find((p): p is Extract<MessagePart, { type: 'outbox' }> => p.type === 'outbox' && p.id === item.id);
+    if (!conv || !msg || !part) return;
+    part.status = item.status;
+    if (item.result !== undefined) part.result = item.result;
+    this.store.saveMessage(conv.id, msg, true);
+    this.hub.emit(conv.id, { type: 'message', message: msg });
+  }
+
   /**
    * The user's Send or Discard on an outbox item: sent by its tool, in this server, with the
    * credentials it holds; its card then says what happened, and so does a note in the chat.
@@ -746,14 +768,7 @@ export class Orchestrator {
     const conv = this.store.get(convId);
     if (!conv || !this.outbox) throw new HttpError(404, t().conversationNotFound);
     const item = await this.outbox.answer(convId, itemId, action, (name) => this.gateway?.tool(name));
-    const msg = conv.messages.find((m) => m.id === item.messageId);
-    const part = msg?.parts.find((p): p is Extract<MessagePart, { type: 'outbox' }> => p.type === 'outbox' && p.id === item.id);
-    if (msg && part) {
-      part.status = item.status;
-      if (item.result !== undefined) part.result = item.result;
-      this.store.saveMessage(conv.id, msg, true);
-      this.hub.emit(conv.id, { type: 'message', message: msg });
-    }
+    this.updateOutboxCard(item);
     this.systemNote(
       conv,
       item.status === 'sent'
@@ -855,7 +870,7 @@ export class Orchestrator {
    * refuses approval requests unless the schedule asks. A schedule that opens a new conversation each
    * time sends it there (`sendInNewChat`); `at` is the time it came due, which names that conversation.
    */
-  async sendScheduled(convId: string, at = Date.now(), opts: { event?: string; attempt?: number } = {}): Promise<ScheduledSend> {
+  async sendScheduled(convId: string, at = Date.now(), opts: { event?: string; attempt?: number; retries?: boolean } = {}): Promise<ScheduledSend> {
     const conv = this.store.get(convId);
     if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
     const s = conv.schedule;
@@ -869,8 +884,9 @@ export class Orchestrator {
       const coming = conv.agents.length === 0 && (this.designing.has(convId) || Boolean(pendingPlan(conv.messages)));
       return { result: coming ? 'busy' : 'skipped', reason: t().scheduleNoTeam };
     }
-    // A schedule that tracks a goal: its runs are followed (`TrackedRun`), and a webhook's call is not tried again.
-    const tracking = s.goal ? { sourceId: convId, due: at, attempt: opts.attempt ?? 0, retries: opts.event === undefined } : undefined;
+    // A schedule that tracks a goal: its runs are followed (`TrackedRun`). Only a time the scheduler sends
+    // (`retries`) is tried again: not Run now, nor a webhook's call, whose body a retry would not have.
+    const tracking = s.goal ? { sourceId: convId, due: at, attempt: opts.attempt ?? 0, retries: Boolean(opts.retries) && opts.event === undefined } : undefined;
     if (s.newChat) return this.sendInNewChat(conv, s, at, opts.event, tracking);
     const replying = this.runs.has(convId) || this.starting.has(convId);
     // A run being set up may be the user's answer: the message then waits for its next turn instead.
@@ -1021,13 +1037,18 @@ export class Orchestrator {
     const source = this.store.get(tracked.sourceId);
     const s = source?.schedule;
     if (!source || !s?.goal || this.deleting.has(source.id)) return;
+    // Stopped by the server shutting down: it stays in flight, so the next start tries it again.
+    if (this.closing) return;
     const flight = s.tracking?.inFlight;
-    if (flight && flight.due === tracked.due && flight.chatId === conv.id) {
+    const ours = Boolean(flight && flight.due === tracked.due && flight.chatId === conv.id);
+    if (ours) {
       const { inFlight: _done, ...rest } = s.tracking!;
       s.tracking = rest;
       this.store.saveSchedule(source);
     }
-    if (!tracked.retries || run.abort.signal.aborted || s.tracking?.status === 'done') return;
+    // Only the schedule's own run in flight is tried again: switching the schedule off (or giving it
+    // another goal) meanwhile takes it out of flight (`PUT …/schedule`), and so does the user's Stop.
+    if (!ours || !tracked.retries || run.abort.signal.aborted || s.tracking?.status === 'done') return;
     const replies = conv.messages.slice(tracked.from).filter((m) => m.author.kind === 'agent');
     if (replies.length && replies.every((m) => m.status === 'error')) this.retryTracked(source, tracked.due, tracked.attempt + 1);
   }
@@ -1352,6 +1373,8 @@ export class Orchestrator {
     if (index < 0) throw new HttpError(404, t().messageNotFound);
     const dropped = conv.messages.splice(index);
     this.store.deleteMessages(conv.id, dropped.map((m) => m.id));
+    // What those replies asked to send goes with them.
+    this.outbox?.discardFor(conv.id, dropped.map((m) => m.id));
     const kept = new Set(keep.map((p) => p.id));
     removeAttachments(
       conv.id,
@@ -2755,7 +2778,7 @@ export class Orchestrator {
             textOpen = false;
             msg.parts.push(part);
             if (isAllowed(conv.allowRules, req.kind, keys)) {
-              const busy = this.lockForApproval(conv, run);
+              const busy = req.noLock ? undefined : this.lockForApproval(conv, run);
               Object.assign(part, busy ? { status: 'denied', note: busy } : { status: 'allowed', always: true, auto: true });
               this.hub.emit(conv.id, { type: 'message', message: msg });
               this.store.saveMessage(conv.id, msg, true);
@@ -2786,7 +2809,7 @@ export class Orchestrator {
             });
             waiting.delete(part.id);
             this.approvals.delete(part.id);
-            const busy = answer.allow ? this.lockForApproval(conv, run) : undefined;
+            const busy = answer.allow && !req.noLock ? this.lockForApproval(conv, run) : undefined;
             if (busy) answer = { allow: false, note: busy };
             part.status = answer.expired ? 'expired' : answer.allow ? 'allowed' : 'denied';
             if (answer.allow && answer.always) {
@@ -2811,7 +2834,7 @@ export class Orchestrator {
       requestApproval &&
       (async (req: ApprovalRequest): Promise<ApprovalAnswer> => {
         const answer = await requestApproval(req);
-        const name = answer.allow ? gatewayToolIn(gatewayNames, req.tool ?? req.detail) : undefined;
+        const name = answer.allow ? gatewayToolNamed(gatewayNames, req) : undefined;
         if (name) cliAllowed.set(name, Date.now());
         return answer;
       });
@@ -2867,6 +2890,7 @@ export class Orchestrator {
                 messageId: msg.id,
                 cwd,
                 permission: conv.settings.permission,
+                lang: currentLang(),
                 unattended: Boolean(run.refuseApprovals),
                 ...(requestApproval ? { ask: requestApproval } : {}),
                 justAllowed: (name) => {
@@ -2948,7 +2972,8 @@ export class Orchestrator {
       if (tracked) progress ??= takeProgress(msg);
       if (tracked && progress) this.recordProgress(tracked, conv, msg, progress);
       const text = textOf(msg);
-      msg.passed = isPass(text) || (!text && !msg.parts.some((p) => p.type === 'tool'));
+      // A reply that only reported on the goal, or only asked to send something, said something.
+      msg.passed = isPass(text) || (!text && !msg.parts.some((p) => p.type === 'tool' || p.type === 'progress' || p.type === 'outbox'));
       msg.status = 'done';
       msg.meta = {
         ...msg.meta,

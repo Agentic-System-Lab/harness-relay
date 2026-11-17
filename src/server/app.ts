@@ -54,6 +54,7 @@ import type { AgentsViewSync } from './agentsview';
 import { freshTracking } from '../shared/tracking';
 import { servingPort } from './relaySandbox';
 import { discoverCalendars, listEvents } from './connectors/caldav';
+import { keptPasswordFits } from './connectors/accounts';
 import { testMail } from './connectors/test';
 import { attachmentPath, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
 import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, readPreview, zipPlan, type ZipPlan } from './files';
@@ -218,6 +219,25 @@ function realDir(dir: string): string {
 /** The SHA-256 (hex) of a webhook's token: all the database keeps of it. */
 export function hookHash(token: string): string {
   return createHash('sha256').update(token).digest('hex');
+}
+
+/** A request's body as text, or undefined once it is longer than `max` bytes (reading stops there). */
+async function readLimited(req: Request, max: number): Promise<string | undefined> {
+  const reader = req.body?.getReader();
+  if (!reader) return '';
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel().catch(() => undefined);
+      return undefined;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
 }
 
 /** Two hashes compared in constant time. */
@@ -556,10 +576,12 @@ export function createApp({
   app.post('/api/connectors/calendar/discover', async (c) => {
     const b = await body<Record<string, unknown>>(c);
     const v = validateCalendarAccount({ ...b, name: 'x' });
-    // The password typed in the form, or the one kept for the account being edited.
+    // The password typed in the form, or the one kept for the account being edited, when the address
+    // is its provider's (the kept one never goes to another server).
     const kept = typeof b.id === 'string' ? settings.connectors.calendar(b.id) : undefined;
-    const password = v.password ?? (kept?.account.id === b.id ? kept?.password : undefined);
-    if (!password) throw new HttpError(400, t().connectorPasswordRequired);
+    const keptFits = kept?.account.id === b.id && kept && keptPasswordFits(kept.account.url, v.url);
+    const password = v.password ?? (keptFits ? kept.password : undefined);
+    if (!password) throw new HttpError(400, kept && !keptFits ? t().connectorPasswordAgain : t().connectorPasswordRequired);
     try {
       return c.json({ ok: true, calendars: await discoverCalendars(v.url, { username: v.username, password }) });
     } catch (err) {
@@ -1231,8 +1253,13 @@ export function createApp({
     // again once the schedule is on. A new goal starts afresh, and none drops the notes.
     if (update.goal) {
       const kept = prev?.goal === update.goal ? prev.tracking : undefined;
-      const { retry: _retry, ...tracking } = kept ?? freshTracking();
-      schedule.tracking = update.enabled && tracking.status === 'done' ? { ...tracking, status: 'working' } : tracking;
+      const { retry: _retry, inFlight, ...tracking } = kept ?? freshTracking();
+      // A run still going stays the schedule's to try again while the schedule stays on.
+      schedule.tracking = {
+        ...tracking,
+        ...(update.enabled && tracking.status === 'done' ? { status: 'working' as const } : {}),
+        ...(inFlight && update.enabled ? { inFlight } : {}),
+      };
     }
     const next = update.enabled ? nextRun(schedule, now) : undefined;
     if (next !== undefined) schedule.nextRunAt = next;
@@ -1271,11 +1298,15 @@ export function createApp({
     if (!given || !stored || !sameHash(hookHash(given), stored)) throw new HttpError(404, t().hookNotFound);
     const conv = getConv(id);
     if (!conv.schedule) throw new HttpError(404, t().hookNotFound);
-    const raw = await c.req.text();
-    if (Buffer.byteLength(raw) > TRACKING_LIMITS.eventBytes) throw new HttpError(413, t().hookBodyTooLarge(TRACKING_LIMITS.eventBytes / 1000));
+    // Refused before it is read when it says it is larger, and read no further than the limit when it does not say.
+    const tooLarge = () => new HttpError(413, t().hookBodyTooLarge(TRACKING_LIMITS.eventBytes / 1000));
+    if (Number(c.req.header('content-length') ?? 0) > TRACKING_LIMITS.eventBytes) throw tooLarge();
+    const raw = await readLimited(c.req.raw, TRACKING_LIMITS.eventBytes);
+    if (raw === undefined) throw tooLarge();
     let event: string;
     try {
-      event = raw.trim() ? JSON.stringify(JSON.parse(raw), null, 2) : '{}';
+      // `<` written as JSON's \u003c, the same data: a body cannot close the <event> block it goes in.
+      event = (raw.trim() ? JSON.stringify(JSON.parse(raw), null, 2) : '{}').replace(/</g, '\\u003c');
     } catch {
       throw new HttpError(400, 'Invalid JSON body');
     }

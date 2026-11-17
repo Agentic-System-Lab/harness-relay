@@ -113,7 +113,7 @@ function RelaySection({ lib, change }: { lib: ToolLibraryView; change: Change })
     <section className="tools-section" aria-label={t.tools.relay.title}>
       <h4>{t.tools.relay.title}</h4>
       <p className="muted small">{t.tools.relay.hint}</p>
-      {!lib.gateway.available && <p className="warn-line small">{t.tools.relay.unavailable(lib.gateway.reason ?? '')}</p>}
+      {!lib.gateway.available && <p className="warn-line small">{t.tools.relay.unavailable[lib.gateway.reason ?? 'not-started']}</p>}
       <ul className="lib-list">
         {lib.relayTools.map((g) => (
           <li key={g.group} className="lib-row relay-group">

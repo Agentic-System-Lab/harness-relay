@@ -33,6 +33,8 @@ export const SHARE_DROP = [
   '.todo',
   '.approval-card',
   '.approval-done',
+  '.outbox-card',
+  '.event-block',
   '.changes-card',
   '.ask-card',
   '.typing',

@@ -1,11 +1,11 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ApprovalAnswer, OutboxItem } from '../src/shared/types';
 import { removeTree } from '../src/server/fsRemove';
-import { ToolGateway, gatewayDecision, gatewayToolIn, outboxTool, type GatewayContext, type GatewayTool } from '../src/server/gateway';
+import { ToolGateway, gatewayDecision, gatewayToolNamed, outboxTool, type GatewayContext, type GatewayTool } from '../src/server/gateway';
 import { GATEWAY_PROTOCOLS } from '../src/server/gatewayShim';
 import type { ApprovalRequest } from '../src/server/agents/types';
 import { slow } from './timeouts';
@@ -22,16 +22,18 @@ describe('what a call of each tier does', () => {
     expect(gatewayDecision('send', 'full', true)).toBe('outbox');
   });
 
-  it("tells the gateway's tools in a CLI's request only with the gateway's name before them", () => {
+  it("tells a CLI's request about one of the gateway's tools only by the tool's exact name, never by a command, path or URL", () => {
     const names = ['browser_open', 'mail_send'];
-    expect(gatewayToolIn(names, 'mcp__relay__browser_open')).toBe('browser_open');
-    expect(gatewayToolIn(names, 'relay/mail_send')).toBe('mail_send');
-    expect(gatewayToolIn(names, 'relay: mail_send')).toBe('mail_send');
-    expect(gatewayToolIn(names, 'mcp__evil__browser_open')).toBeUndefined();
-    expect(gatewayToolIn(names, 'browser_open')).toBeUndefined();
-    expect(gatewayToolIn(names, 'mcp__relay__browser_opener')).toBeUndefined();
-    expect(gatewayToolIn(names, 'mcp__nonrelay__mail_send')).toBeUndefined();
-    expect(gatewayToolIn(names, undefined)).toBeUndefined();
+    const other = (tool?: string) => ({ kind: 'other' as const, tool });
+    expect(gatewayToolNamed(names, other('mcp__relay__browser_open'))).toBe('browser_open');
+    expect(gatewayToolNamed(names, other('relay/mail_send'))).toBe('mail_send');
+    expect(gatewayToolNamed(names, other('relay__mail_send'))).toBe('mail_send');
+    for (const tool of ['mcp__evil__browser_open', 'browser_open', 'mcp__relay__browser_opener', 'mcp__x-relay__browser_open', 'mcp__nonrelay__mail_send', 'https://h/relay/mail_send', undefined]) {
+      expect(gatewayToolNamed(names, other(tool))).toBeUndefined();
+    }
+    // A command, a file or a URL that mentions one is not about it.
+    expect(gatewayToolNamed(names, { kind: 'command', tool: 'mcp__relay__browser_open' })).toBeUndefined();
+    expect(gatewayToolNamed(names, { kind: 'fetch' })).toBeUndefined();
   });
 });
 
@@ -136,7 +138,11 @@ describe('the gateway and the MCP server the CLIs start', () => {
     'speaks MCP on stdio: initialize, the granted groups\' tools, and calls passed to the server',
     async () => {
       const grant = gateway.grant(ctx(), ['browser'])!;
-      expect(grant.spec).toMatchObject({ name: 'relay', transport: 'stdio', command: process.execPath, args: [gateway.shimPath] });
+      expect(grant.spec).toMatchObject({ name: 'relay', transport: 'stdio', command: process.execPath });
+      // Its own copy of the program, beside its token, in the folder sandboxed commands cannot reach.
+      const shim = grant.spec.args[0]!;
+      expect(shim.startsWith(join(root, 'data', 'tmp', 'gateway-'))).toBe(true);
+      expect(readFileSync(shim, 'utf8')).toContain("Harness Relay's MCP gateway");
       // The token is in a file of its own, never in the environment or on the command line.
       const tokenFile = grant.spec.env.RELAY_GATEWAY_TOKEN_FILE!;
       expect(Object.values(grant.spec.env).join(' ')).not.toContain(readFileSync(tokenFile, 'utf8'));
@@ -169,8 +175,13 @@ describe('the gateway and the MCP server the CLIs start', () => {
       expect((await mcp.request('unknown/method')).error).toMatchObject({ code: -32601 });
 
       // Once the turn is over, its token is gone, and so are its tools.
+      // Bad lines do not stop it.
+      mcp.child.stdin!.write('null\n[1]\n');
+      expect((await mcp.request('ping')).result).toEqual({});
+
       grant.revoke();
       expect(existsSync(tokenFile)).toBe(false);
+      expect(existsSync(shim)).toBe(false);
       const after = await mcp.request('tools/call', { name: 'page_title', arguments: { url: 'x' } });
       expect(after.result).toMatchObject({ isError: true });
       expect(after.result.content[0].text).toMatch(/turn is over/);
@@ -183,7 +194,7 @@ describe('the gateway and the MCP server the CLIs start', () => {
     async () => {
       const call = (name: string, args: Record<string, unknown>, c: GatewayContext) => gateway.call(gateway.tool(name)!, args, c);
       expect(await call('page_click', { target: 'Buy' }, ctx())).toEqual({ text: 'Clicked Buy' });
-      expect(asked).toEqual([{ kind: 'other', tool: 'page_click', detail: 'Click Buy', reason: 'on example.com' }]);
+      expect(asked).toEqual([{ kind: 'other', tool: 'relay:page_click', detail: 'Click Buy', reason: 'on example.com', noLock: true }]);
       answer = { allow: false, note: 'not that one' };
       expect(await call('page_click', { target: 'Buy' }, ctx())).toEqual({ text: 'The user declined page_click: not that one.', isError: true });
       asked.length = 0;
@@ -202,16 +213,20 @@ describe('the gateway and the MCP server the CLIs start', () => {
   it(
     'answers a shim with a token it does not know with errors, and gives no grant without a Node.js or a group',
     async () => {
-      const mcp = client({ command: process.execPath, args: [gateway.shimPath], env: { RELAY_GATEWAY_SOCKET: gateway.socketPath, RELAY_GATEWAY_TOKEN_FILE: join(root, 'nope') } });
+      const g = gateway.grant(ctx(), ['browser'])!;
+      const shim = join(root, 'shim-copy.mjs');
+      writeFileSync(shim, readFileSync(g.spec.args[0]!));
+      g.revoke();
+      const mcp = client({ command: process.execPath, args: [shim], env: { RELAY_GATEWAY_SOCKET: gateway.socketPath, RELAY_GATEWAY_TOKEN_FILE: join(root, 'nope') } });
       await mcp.request('initialize', { protocolVersion: '2025-06-18' });
       expect((await mcp.request('tools/list')).error.message).toMatch(/turn is over/);
       expect(gateway.grant(ctx(), [])).toBeUndefined();
       const noNode = new ToolGateway(join(root, 'data2'), join(root, 'data2', 'tmp'), () => undefined);
       await noNode.start();
-      expect(noNode.unavailable()).toBe('no Node.js');
+      expect(noNode.unavailable()).toBe('no-node');
       expect(noNode.grant(ctx(), ['browser'])).toBeUndefined();
       await noNode.stop();
-      expect(new ToolGateway(join(root, 'data3'), join(root, 'tmp3'), () => process.execPath).unavailable()).toBe('not started');
+      expect(new ToolGateway(join(root, 'data3'), join(root, 'tmp3'), () => process.execPath).unavailable()).toBe('not-started');
     },
     slow(20_000),
   );

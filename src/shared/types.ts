@@ -327,7 +327,7 @@ export interface ToolLibraryView {
    * Whether this server can give agents its own tools: it needs a Node.js to run the gateway's MCP
    * server with (the desktop app's runtime is not one), and the open agents do not get them yet.
    */
-  gateway: { available: boolean; reason?: string };
+  gateway: { available: boolean; reason?: 'not-started' | 'no-node' };
   /**
    * Notes agents get in their briefing, in every conversation: `all` for every agent, and a part for
    * each CLI's agents. Empty = none.

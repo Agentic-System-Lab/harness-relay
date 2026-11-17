@@ -31,7 +31,9 @@ describe('tool picker', () => {
     expect(hasTool({ provider: 'codex' }, withRelay.at(-1)!)).toBe(false);
     expect(itemsFor(withRelay, 'codex').map((i) => i.key)).toContain('relay:browser');
     expect(itemsFor(withRelay, OPEN_PROVIDERS[0]!).map((i) => i.key)).not.toContain('relay:browser');
-    expect(toolItems({ ...lib, relayTools: [{ group: 'browser', providers: [] }], gateway: { available: false, reason: 'no Node.js' } }).map((i) => i.kind)).not.toContain('relay');
+    expect(toolItems({ ...lib, relayTools: [{ group: 'browser', providers: ['claude'] }], gateway: { available: false, reason: 'no-node' } }).map((i) => i.kind)).not.toContain('relay');
+    // A group given to no CLI is not in the library yet.
+    expect(toolItems({ ...lib, relayTools: [{ group: 'mail', providers: [] }] }).map((i) => i.kind)).not.toContain('relay');
   });
 
   it("shows an agent only its own CLI's memory part", () => {

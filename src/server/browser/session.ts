@@ -1,8 +1,11 @@
+import { lookup } from 'node:dns/promises';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { isIP } from 'node:net';
 import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
 import { approvalKeys } from '../approvals';
 import { CONFIG } from '../config';
+import { t, withLang } from '../i18n';
 import { attachmentsDir } from '../attachments';
 import type { GatewayContext } from '../gateway';
 import { runProcess } from '../process';
@@ -17,18 +20,33 @@ import { CdpConnection } from './cdp';
  * never the user's. It is driven over its debugging pipe (`cdp.ts`): no port is opened.
  *
  * What it may open: only http and https (and the blank page), never Harness Relay's own ports on this
- * computer nor the link-local and cloud metadata addresses. A page on a host this conversation's
- * browser has not opened yet is asked about (below full access), as a web fetch is (kind `fetch`,
- * keyed by host, so "always allow" holds), also when a click leads there; in a run that refuses
- * approvals only hosts always allowed open. Frames inside a page load without asking. Downloads,
- * file choosers and dialogs are refused. It closes after `idleMs` without a call.
+ * computer nor the link-local and cloud metadata addresses, also by a host name that leads to one (its
+ * addresses are looked up first). A page on a host this conversation's browser has not opened yet is
+ * asked about (below full access), as a web fetch is (kind `fetch`, keyed by host, so "always allow"
+ * holds), also when a click leads there; in a scheduled run only hosts always allowed open, and in a
+ * conversation that refuses every request none it has not opened. Every other request (frames,
+ * images, scripts, what a page or its workers fetch, in its own process or another) pauses too, and
+ * goes unless it is one of those never opened. It keeps to one tab: a window the page opens is closed
+ * before it loads anything, and the agent told. Downloads, file choosers and dialogs are refused.
+ * Calls run one at a time, in the order they came. It closes after `idleMs` without a call.
+ *
+ * The addresses checked are those looked up when the request paused; Chromium looks the name up
+ * again itself, so a name made to change its address in between (DNS rebinding) is not caught, nor a
+ * WebSocket, which pauses nowhere. Harness Relay's own API refuses both, by its Host and Origin checks.
  */
 
 /** What a page may do: open without asking, be asked about, or never open. */
 export type NavigationVerdict = 'allow' | 'ask' | 'block';
 
-/** Whether the browser may open `raw` in the main frame, given the hosts this conversation's browser opened already. */
-export function navigationVerdict(raw: string, o: { relayPorts: readonly number[]; own?: readonly string[]; allowed: ReadonlySet<string> }): NavigationVerdict {
+/**
+ * Whether the browser may open `raw` in the main frame, given the hosts this conversation's browser
+ * opened already and the addresses its host name has (`addresses`): a name is checked as each of its
+ * addresses is, so one leading to a metadata address or to Harness Relay is never opened either.
+ */
+export function navigationVerdict(
+  raw: string,
+  o: { relayPorts: readonly number[]; own?: readonly string[]; allowed: ReadonlySet<string>; addresses?: readonly string[] },
+): NavigationVerdict {
   if (raw === 'about:blank') return 'allow';
   let url: URL;
   try {
@@ -40,13 +58,48 @@ export function navigationVerdict(raw: string, o: { relayPorts: readonly number[
   if (url.username || url.password) return 'block';
   const host = url.hostname.replace(/^\[|\]$/g, '');
   const own = o.own ?? [];
-  const onThisComputer = isLoopbackHost(host) || own.some((a) => a.toLowerCase() === host.toLowerCase());
-  // Link-local, multicast, the unspecified address, the clouds' metadata services: never.
-  if (isLocalHost(host, own) && !onThisComputer) return 'block';
   const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80));
-  if (onThisComputer && o.relayPorts.includes(port)) return 'block';
+  for (const h of [host, ...(o.addresses ?? [])]) {
+    const onThisComputer = isLoopbackHost(h) || own.some((a) => a.toLowerCase() === h.toLowerCase());
+    // Link-local, multicast, the unspecified address, the clouds' metadata services: never.
+    if (isLocalHost(h, own) && !onThisComputer) return 'block';
+    if (onThisComputer && o.relayPorts.includes(port)) return 'block';
+  }
   const key = approvalKeys('fetch', raw)[0];
   return key && o.allowed.has(key) ? 'allow' : 'ask';
+}
+
+/**
+ * Whether a request other than opening a page in the main frame (a frame, an image, a script, a
+ * fetch) may go: all but what is never opened (by `navigationVerdict()`), and only by http and https
+ * (data and blob addresses never reach the network).
+ */
+export function requestVerdict(raw: string, o: Parameters<typeof navigationVerdict>[1]): 'allow' | 'block' {
+  if (/^(data|blob):/i.test(raw) || raw === 'about:blank' || raw === 'about:srcdoc') return 'allow';
+  return navigationVerdict(raw, o) === 'block' ? 'block' : 'allow';
+}
+
+/** Why the main frame did not open a page: the user declined, it is never opened, or nobody could be asked. */
+export type Refusal = { url: string; why: 'declined' | 'blocked' | 'unasked' };
+
+/** What the agent is told about a refused page. */
+export function refusalText(r: Refusal): string {
+  if (r.why === 'declined') return `The user did not allow opening ${r.url}`;
+  if (r.why === 'blocked') return `${r.url} cannot be opened: only http and https pages, not this computer's own Harness Relay or its metadata addresses`;
+  return `${r.url} is on a host this conversation's browser has not opened, and nobody can be asked now (a scheduled run, or a conversation that refuses requests)`;
+}
+
+/** The addresses of a host name (none when it has none, or the lookup takes over 5 seconds). */
+async function lookUp(host: string): Promise<string[]> {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<string[]>((r) => (timer = setTimeout(() => r([]), 5000)));
+  try {
+    return await Promise.race([lookup(host, { all: true, verbatim: true }).then((list) => list.map((a) => a.address)), late]);
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** The page as the agent reads it: its address, title and text, with numbered links, buttons and fields. */
@@ -73,7 +126,7 @@ const SNAPSHOT_SCRIPT = `(() => {
   for (const e of document.querySelectorAll('[data-relay-ref]')) e.removeAttribute('data-relay-ref');
   const out = [];
   const clean = (s) => String(s || '').replace(/\\s+/g, ' ').trim();
-  const label = (el) => clean(el.getAttribute('aria-label') || el.innerText || el.getAttribute('title') || el.getAttribute('alt') || el.getAttribute('placeholder') || el.value).slice(0, 120);
+  const label = (el) => clean(el.getAttribute('aria-label') || el.innerText || el.getAttribute('title') || el.getAttribute('alt') || el.getAttribute('placeholder') || (el.type === 'password' ? '' : el.value)).slice(0, 120);
   const visible = (el) => {
     const s = getComputedStyle(el);
     if (s.display === 'none' || s.visibility === 'hidden') return false;
@@ -148,6 +201,8 @@ export interface BrowserServiceOptions {
   /** This computer's own addresses. */
   own?: () => readonly string[];
   idleMs?: number;
+  /** A host name's addresses (tests give their own; else the system's lookup). */
+  lookUp?: (host: string) => Promise<string[]>;
 }
 
 /** One conversation's browser. */
@@ -157,13 +212,24 @@ class BrowserSession {
   current?: GatewayContext;
   private timer?: NodeJS.Timeout;
   mainFrame = '';
-  denied?: string;
+  /** The page the main frame did not open during the current call, and why. */
+  denied?: Refusal;
   /** A page the main frame is about to open, waiting for the user's answer: a call waits for it too. */
   gating?: Promise<void>;
+  /** The sessions whose requests are gated: the tab's own, and its frames and workers in processes of their own. */
+  readonly gated = new Set<string>();
+  /** The windows the page opened, being closed: every request of theirs is refused. */
+  readonly refused = new Set<string>();
+  /** Windows the page opened during the current call, closed: their addresses, when known. */
+  popups: string[] = [];
+  /** The calls in turn: each starts once the one before it ended. */
+  queue: Promise<unknown> = Promise.resolve();
 
   constructor(
     readonly cdp: CdpConnection,
     readonly sessionId: string,
+    /** The tab's own target, which the browser's own auto-attach also reports. */
+    readonly targetId: string,
     readonly stop: () => void,
     private idleMs: number,
     /** Settles once the browser's process has ended. */
@@ -187,9 +253,16 @@ class BrowserSession {
   }
 }
 
+/** Whether a paused request opens a page in the tab's main frame: the one kind that is asked about. */
+function isMainDocument(s: BrowserSession, p: Record<string, unknown>, sid: string): boolean {
+  return sid === s.sessionId && p.resourceType === 'Document' && p.frameId === s.mainFrame;
+}
+
 export class BrowserService {
   private readonly sessions = new Map<string, Promise<BrowserSession>>();
   private readonly idleMs: number;
+  /** Host names' addresses, looked up again after a minute. */
+  private readonly addressCache = new Map<string, { at: number; addresses: Promise<string[]> }>();
 
   constructor(private o: BrowserServiceOptions) {
     this.idleMs = o.idleMs ?? 10 * 60_000;
@@ -262,7 +335,21 @@ export class BrowserService {
       let targetId = targetInfos.find((t) => t.type === 'page')?.targetId;
       targetId ??= (await cdp.send<{ targetId: string }>('Target.createTarget', { url: 'about:blank' })).targetId;
       const { sessionId } = await cdp.send<{ sessionId: string }>('Target.attachToTarget', { targetId, flatten: true });
-      const session = new BrowserSession(cdp, sessionId, stop, this.idleMs, exited.catch(() => undefined));
+      const session = new BrowserSession(cdp, sessionId, targetId, stop, this.idleMs, exited.catch(() => undefined));
+      session.gated.add(sessionId);
+      cdp.on('Fetch.requestPaused', (p: Record<string, unknown>, sid?: string) => {
+        if (sid && session.refused.has(sid)) return void cdp.send('Fetch.failRequest', { requestId: p.requestId, errorReason: 'BlockedByClient' }, sid).catch(() => undefined);
+        if (!sid || !session.gated.has(sid)) return;
+        const gating = this.gate(session, p, sid).finally(() => {
+          if (session.gating === gating) session.gating = undefined;
+        });
+        if (isMainDocument(session, p, sid)) session.gating = gating;
+      });
+      cdp.on('Target.attachedToTarget', (p: Record<string, unknown>) => void this.adopt(session, p));
+      cdp.on('Target.detachedFromTarget', (p: Record<string, unknown>) => {
+        session.gated.delete(String(p.sessionId));
+        session.refused.delete(String(p.sessionId));
+      });
       await session.send('Page.enable');
       await session.send('Runtime.enable');
       await session.send('Page.setInterceptFileChooserDialog', { enabled: true }).catch(() => undefined);
@@ -271,14 +358,11 @@ export class BrowserService {
       cdp.on('Page.javascriptDialogOpening', (_p, sid) => {
         if (sid === sessionId) void session.send('Page.handleJavaScriptDialog', { accept: false }).catch(() => undefined);
       });
-      await session.send('Fetch.enable', { patterns: [{ urlPattern: '*', resourceType: 'Document', requestStage: 'Request' }] });
-      cdp.on('Fetch.requestPaused', (p: Record<string, unknown>, sid?: string) => {
-        if (sid !== sessionId) return;
-        const gating = this.gate(session, p).finally(() => {
-          if (session.gating === gating) session.gating = undefined;
-        });
-        if (p.frameId === session.mainFrame) session.gating = gating;
-      });
+      await session.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] });
+      // The tab's frames in processes of their own and its workers: each held before it starts, gated, then let go.
+      await session.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
+      // The browser's other targets: a window the page opens (closed), a service or shared worker (gated).
+      await cdp.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
       session.touch();
       return session;
     } catch (err) {
@@ -287,42 +371,132 @@ export class BrowserService {
     }
   }
 
-  /** A document the page is about to load: let it, ask the user, or refuse it. */
-  private async gate(s: BrowserSession, p: Record<string, unknown>): Promise<void> {
+  /** A host name's addresses, for `navigationVerdict()` (none for an address or a name on this computer). */
+  private addresses(raw: string): Promise<string[]> {
+    let host: string;
+    try {
+      const u = new URL(raw);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return Promise.resolve([]);
+      host = u.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    } catch {
+      return Promise.resolve([]);
+    }
+    if (!host || isIP(host) || isLoopbackHost(host)) return Promise.resolve([]);
+    const now = Date.now();
+    const hit = this.addressCache.get(host);
+    if (hit && now - hit.at < 60_000) return hit.addresses;
+    const addresses = (this.o.lookUp ?? lookUp)(host).catch(() => []);
+    this.addressCache.delete(host);
+    this.addressCache.set(host, { at: now, addresses });
+    if (this.addressCache.size > 500) this.addressCache.delete(this.addressCache.keys().next().value!);
+    return addresses;
+  }
+
+  /** What `navigationVerdict()` needs to know of a request in this conversation's browser. */
+  private async rules(s: BrowserSession, url: string): Promise<Parameters<typeof navigationVerdict>[1]> {
+    return { relayPorts: this.o.relayPorts(), own: this.o.own?.() ?? [], allowed: s.allowed, addresses: await this.addresses(url) };
+  }
+
+  /**
+   * A request a page is about to make: opening a page in the tab is let through, asked about or
+   * refused; any other goes unless it is never opened.
+   */
+  private async gate(s: BrowserSession, p: Record<string, unknown>, sid: string): Promise<void> {
     const requestId = String(p.requestId);
     const url = String((p.request as { url?: unknown } | undefined)?.url ?? '');
-    const main = p.frameId === s.mainFrame;
-    const verdict = navigationVerdict(url, { relayPorts: this.o.relayPorts(), own: this.o.own?.() ?? [], allowed: s.allowed });
-    let allow = verdict === 'allow' || (verdict === 'ask' && !main);
-    if (verdict === 'ask' && main) {
+    const go = (allow: boolean) =>
+      (allow ? s.cdp.send('Fetch.continueRequest', { requestId }, sid) : s.cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' }, sid)).catch(() => undefined);
+    const rules = await this.rules(s, url);
+    if (!isMainDocument(s, p, sid)) return void (await go(requestVerdict(url, rules) === 'allow'));
+    const verdict = navigationVerdict(url, rules);
+    let allow = verdict === 'allow';
+    if (verdict === 'block') s.denied = { url, why: 'blocked' };
+    if (verdict === 'ask') {
       const ctx = s.current;
       if (ctx?.permission === 'full') allow = true;
       else if (ctx?.ask) {
-        const answer = await ctx.ask({ kind: 'fetch', detail: url, reason: 'Open this page in its own browser' }).catch(() => ({ allow: false }));
+        const ask = () => ctx.ask!({ kind: 'fetch', detail: url, reason: t().gw.openReason, noLock: true });
+        const answer = await (ctx.lang ? withLang(ctx.lang, ask) : ask()).catch(() => ({ allow: false }));
         allow = answer.allow;
-        if (!allow) s.denied = url;
-      } else s.denied = url;
+        if (!allow) s.denied = { url, why: 'declined' };
+      } else s.denied = { url, why: 'unasked' };
     }
-    if (allow && main) {
+    if (allow) {
       const key = approvalKeys('fetch', url)[0];
       if (key) s.allowed.add(key);
     }
-    if (!allow && verdict === 'block') s.denied = url;
-    await (allow ? s.send('Fetch.continueRequest', { requestId }) : s.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' })).catch(() => undefined);
+    await go(allow);
   }
 
-  /** Runs `fn` on the conversation's browser, as the call `ctx` (whom to ask about a new host). */
+  /**
+   * A target the browser attached, held before it starts: the tab itself (seen by the browser's own
+   * auto-attach) and the browser's own parts (its UI, its built-in extensions) are left alone; a
+   * window the page opened is closed, every request it makes refused; a frame in a process of its own
+   * or a worker is gated as the tab is, then let go.
+   */
+  private async adopt(s: BrowserSession, p: Record<string, unknown>): Promise<void> {
+    const sid = String(p.sessionId ?? '');
+    const info = (p.targetInfo ?? {}) as { targetId?: string; type?: string; url?: string };
+    const send = (method: string, params: Record<string, unknown> = {}) => s.cdp.send(method, params, sid).catch(() => undefined);
+    const waiting = p.waitingForDebugger === true;
+    if (!sid) return;
+    if (info.targetId === s.targetId || info.type === 'browser_ui' || /^(chrome|chrome-extension|chrome-untrusted|devtools):/i.test(info.url ?? '')) {
+      if (waiting) await send('Runtime.runIfWaitingForDebugger');
+      void s.cdp.send('Target.detachFromTarget', { sessionId: sid }).catch(() => undefined);
+      return;
+    }
+    if (info.type === 'page' || info.type === 'tab' || info.type === 'background_page') {
+      s.popups.push(info.url && info.url !== 'about:blank' ? info.url : '');
+      // A script's window.open() waits for its window to start: it starts, refusing whatever it asks
+      // for, and is closed then.
+      s.refused.add(sid);
+      await send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] });
+      if (waiting) await send('Runtime.runIfWaitingForDebugger');
+      await s.cdp.send('Target.closeTarget', { targetId: info.targetId }).catch(() => undefined);
+      return;
+    }
+    s.gated.add(sid);
+    await send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] });
+    await send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
+    if (waiting) await send('Runtime.runIfWaitingForDebugger');
+  }
+
+  /**
+   * Runs `fn` on the conversation's browser, as the call `ctx` (whom to ask about a new host), once
+   * the calls before it ended: the agents of a conversation share its one tab.
+   */
   private async with<T>(ctx: GatewayContext, fn: (s: BrowserSession) => Promise<T>): Promise<T> {
     const s = await this.session(ctx.convId);
-    s.current = ctx;
-    s.denied = undefined;
-    s.touch();
-    try {
-      return await fn(s);
-    } finally {
-      s.current = undefined;
+    const turn = s.queue.then(async () => {
+      if (ctx.signal.aborted) throw new Error('The turn ended');
+      s.current = ctx;
+      s.denied = undefined;
+      s.popups = [];
       s.touch();
+      try {
+        return await fn(s);
+      } finally {
+        s.current = undefined;
+        s.touch();
+      }
+    });
+    s.queue = turn.catch(() => undefined);
+    return turn;
+  }
+
+  /** What a click or a key did besides the page: a page refused, a window closed. */
+  private notes(s: BrowserSession): string[] {
+    const out: string[] = [];
+    if (s.denied) out.push(`(The page tried to open ${s.denied.url}, which was not allowed: ${refusalText(s.denied)}.)`);
+    for (const url of s.popups) {
+      out.push(`(The page tried to open ${url ? `${url} in ` : ''}a new window, which was closed: this browser keeps to one tab. Open it with browser_open${url ? '' : ' if you need it'}.)`);
     }
+    return out;
+  }
+
+  private withNotes(s: BrowserSession, snap: PageSnapshot): PageSnapshot {
+    const notes = this.notes(s);
+    return notes.length ? { ...snap, text: `${notes.join('\n')}\n\n${snap.text}` } : snap;
   }
 
   /**
@@ -334,7 +508,7 @@ export class BrowserService {
     const h = await s.send<{ currentIndex: number; entries: { id: number; url: string }[] }>('Page.getNavigationHistory').catch(() => undefined);
     const here = h?.entries[h.currentIndex];
     const before = h && h.currentIndex > 0 ? h.entries[h.currentIndex - 1] : undefined;
-    if (!here || !before || !(here.url.startsWith('chrome-error:') || here.url === s.denied)) return;
+    if (!here || !before || !(here.url.startsWith('chrome-error:') || here.url === s.denied.url)) return;
     // A page restored from the back-forward cache fires no load event: stopped loading says it is there.
     const loaded = Promise.race([s.cdp.waitFor('Page.loadEventFired', 5000, s.sessionId), s.cdp.waitFor('Page.frameStoppedLoading', 5000, s.sessionId)]);
     await s.send('Page.navigateToHistoryEntry', { entryId: before.id }).catch(() => undefined);
@@ -348,18 +522,20 @@ export class BrowserService {
   }
 
   async open(ctx: GatewayContext, url: string): Promise<PageSnapshot> {
-    const verdict = navigationVerdict(url, { relayPorts: this.o.relayPorts(), own: this.o.own?.() ?? [], allowed: new Set() });
-    if (verdict === 'block') throw new Error(`${url} cannot be opened: only http and https pages, not this computer's own Harness Relay or its metadata addresses`);
+    const verdict = navigationVerdict(url, { relayPorts: this.o.relayPorts(), own: this.o.own?.() ?? [], allowed: new Set(), addresses: await this.addresses(url) });
+    if (verdict === 'block') throw new Error(refusalText({ url, why: 'blocked' }));
     return this.with(ctx, async (s) => {
       // The answer comes once the page is let through, which may wait for the user's answer.
-      const r = await s.send<{ errorText?: string }>('Page.navigate', { url }, CONFIG.turnTimeoutMs);
+      const r = await s.send<{ errorText?: string; loaderId?: string }>('Page.navigate', { url }, CONFIG.turnTimeoutMs);
       if (r.errorText) {
         const denied = s.denied;
         await this.backFromRefused(s);
-        throw new Error(denied ? `The user did not allow opening ${denied}` : `${url} did not open: ${r.errorText}`);
+        throw new Error(denied ? refusalText(denied) : `${url} did not open: ${r.errorText}`);
       }
-      await this.settle(s, 20_000);
-      return this.read(s);
+      // No loader: the same page, at another anchor, which loads nothing.
+      if (r.loaderId) await this.settle(s, 20_000);
+      else await new Promise((done) => setTimeout(done, 200));
+      return this.withNotes(s, await this.read(s));
     });
   }
 
@@ -385,8 +561,7 @@ export class BrowserService {
       if (navigated) await this.settle(s, 15_000);
       else await new Promise((r) => setTimeout(r, 400));
       await this.backFromRefused(s);
-      const snap = await this.read(s);
-      return s.denied ? { ...snap, text: `(The page tried to open ${s.denied}, which was not allowed.)\n\n${snap.text}` } : snap;
+      return this.withNotes(s, await this.read(s));
     });
   }
 
@@ -405,8 +580,7 @@ export class BrowserService {
       }
       await new Promise((r) => setTimeout(r, 200));
       await this.backFromRefused(s);
-      const snap = await this.read(s);
-      return s.denied ? { ...snap, text: `(The page tried to open ${s.denied}, which was not allowed.)\n\n${snap.text}` } : snap;
+      return this.withNotes(s, await this.read(s));
     });
   }
 

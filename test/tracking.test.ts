@@ -33,6 +33,12 @@ describe("a reply's <progress> block", () => {
     expect(two).toEqual({ text: '<progress status="done">old</progress>\nMore.', progress: { status: 'working', text: 'new' } });
   });
 
+  it('reads the status among other attributes, and leaves a block inside a code fence with more in it as code', () => {
+    expect(splitProgress('ok\n<progress percent="50" status="done">half</progress>').progress).toEqual({ status: 'done', text: 'half' });
+    const fenced = 'Log:\n```\nline\n<progress status="done">x</progress>\n```';
+    expect(splitProgress(fenced)).toEqual({ text: fenced });
+  });
+
   it('cuts a long note to its limit', () => {
     const long = 'a'.repeat(TRACKING_LIMITS.noteChars + 50);
     expect(splitProgress(`<progress>${long}</progress>`).progress!.text).toHaveLength(TRACKING_LIMITS.noteChars);
@@ -43,6 +49,10 @@ describe("a reply's <progress> block", () => {
     expect(withoutProgressTail('Done.\n<progress status="done">ok</progress>')).toBe('Done.');
     expect(withoutProgressTail('No block here, <progress> mid-line.')).toBe('No block here, <progress> mid-line.');
     expect(withoutProgressTail('a\n```\n<progress>')).toBe('a');
+    // HTML's own progress element in a code block is not a block of ours.
+    const html = 'A bar:\n```html\n<progress value="50" max="100"></progress>\n```\nMore text.';
+    expect(withoutProgressTail(html)).toBe(html);
+    expect(withoutProgressTail('x\n<progress status="done">')).toBe('x');
   });
 });
 

@@ -353,7 +353,7 @@ export class ToolLibrary {
   }
 
   /** Whether the gateway can give agents Harness Relay's tools now (set by the server once it runs one). */
-  gatewayStatus: () => { available: boolean; reason?: string } = () => ({ available: false, reason: 'not started' });
+  gatewayStatus: () => ToolLibraryView['gateway'] = () => ({ available: false, reason: 'not-started' });
 
   /** Adds an MCP server (no `previousName`) or replaces one (renaming it when the names differ). */
   saveServer(name: string, u: McpServerUpdate): ToolLibraryView {

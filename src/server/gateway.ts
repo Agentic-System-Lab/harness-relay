@@ -8,9 +8,11 @@ import {
   type GatewayTier,
   type OutboxItem,
   type OutboxPreview,
+  type Lang,
   type Permission,
   type RelayToolGroup,
 } from '../shared/types';
+import { withLang } from './i18n';
 import type { ApprovalRequest, McpServerSpec } from './agents/types';
 import { GATEWAY_SHIM_SOURCE } from './gatewayShim';
 
@@ -40,6 +42,8 @@ export interface GatewayContext {
   /** The conversation's working directory, where a tool may write what the chat shows (a screenshot). */
   cwd: string;
   permission: Permission;
+  /** The turn's language: what a call shows the user (approval and outbox cards) is written in it. */
+  lang?: Lang;
   /** Nobody may be watching: approvals are refused unless always allowed (`ask` says so itself). */
   unattended: boolean;
   /**
@@ -70,6 +74,11 @@ export interface GatewayTool {
   run?(args: Record<string, unknown>, ctx: GatewayContext): Promise<GatewayResult>;
   /** `send`: what the user's Send does, outside any turn; returns what happened, in a line. */
   send?(args: Record<string, unknown>, item: OutboxItem): Promise<string>;
+  /**
+   * `send`: the arguments kept with the outbox item, with what the card showed pinned (the account
+   * it is sent from), so that Send does what the card said even if the settings change meanwhile.
+   */
+  bind?(args: Record<string, unknown>): Record<string, unknown>;
   /** Why it cannot be used now (no account set up), or undefined when it can. */
   unavailable?(): string | undefined;
 }
@@ -81,24 +90,50 @@ export function gatewayDecision(tier: GatewayTier, permission: Permission, canAs
   return canAsk ? 'ask' : 'refuse';
 }
 
+/*
+ * What a tool returns from elsewhere (a page, a mail, a calendar) goes to the agent inside a block
+ * that says it is data (`<web_page …>`, `<mail …>`): these keep that text from ending the block early
+ * or making rows of its own, whatever it holds.
+ */
+
+/** Text for inside a data block: a closing tag of one of `tags` in it (`</mail>`) is written `<\/mail>`, so it ends nothing. */
+export function dataBody(text: string, tags: readonly string[]): string {
+  if (!tags.length) return text;
+  const names = tags.map((t) => t.replace(/[^A-Za-z0-9_-]/g, '')).join('|');
+  return text.replace(new RegExp(`<(\\s*)/(\\s*)(${names})(?![A-Za-z0-9_-])`, 'gi'), '<$1\\/$2$3');
+}
+
+/** One row or header line of a data block: its line breaks become spaces. */
+export function dataLine(text: string): string {
+  return text.replace(/[\r\n\u2028\u2029\u0085]+/g, ' ');
+}
+
+/** A value for an attribute of a data block's opening tag: on one line, with no double quote. */
+export function dataAttr(text: string): string {
+  return dataLine(text).replace(/"/g, "'").replace(/[<>]/g, '');
+}
+
 /** A grant: what one turn may call. */
 interface Grant {
   ctx: GatewayContext;
   groups: Set<RelayToolGroup>;
   tokenFile: string;
+  shimFile: string;
 }
+
+/** Why the gateway cannot be given now: it is not listening, or there is no Node.js to start its MCP program with. */
+export type GatewayUnavailable = 'not-started' | 'no-node';
 
 /** A line the server and the shim exchange, after the token. */
 type Request = { id: number; method: 'list' } | { id: number; method: 'call'; name?: unknown; arguments?: unknown };
 
-/** Longest line the server reads from a socket: a call's arguments (a mail's body) fit easily. */
-const MAX_LINE = 1024 * 1024;
+/** Longest line the server reads from a socket (the shim refuses a call longer than `GATEWAY_MAX_CALL` itself). */
+const MAX_LINE = 4 * 1024 * 1024;
 
 export class ToolGateway {
   private server?: Server;
   private readonly grants = new Map<string, Grant>();
   private readonly tools = new Map<string, GatewayTool>();
-  readonly shimPath: string;
   readonly socketPath: string;
 
   constructor(
@@ -110,7 +145,6 @@ export class ToolGateway {
     private node: () => string | undefined,
     platform: NodeJS.Platform = process.platform,
   ) {
-    this.shimPath = join(dataDir, 'gateway', 'relay-mcp.mjs');
     this.socketPath =
       platform === 'win32' ? `\\\\.\\pipe\\harness-relay-gateway-${process.pid}-${randomBytes(6).toString('hex')}` : join(dataDir, 'gateway', 'relay.sock');
   }
@@ -129,20 +163,19 @@ export class ToolGateway {
     return [...this.tools.keys()];
   }
 
-  /** Why agents cannot get the gateway now, or undefined when they can. */
-  unavailable(): string | undefined {
-    if (!this.server) return 'not started';
-    if (!this.node()) return 'no Node.js';
+  /** Why agents cannot get the gateway now (`not-started`, `no-node`), or undefined when they can. */
+  unavailable(): GatewayUnavailable | undefined {
+    if (!this.server) return 'not-started';
+    if (!this.node()) return 'no-node';
     return undefined;
   }
 
-  /** Writes the shim and listens on the socket. */
+  /** Listens on the socket, in a folder only the owner may enter. */
   async start(): Promise<void> {
     if (this.server) return;
     const dir = join(this.dataDir, 'gateway');
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     if (process.platform !== 'win32') chmodSync(dir, 0o700);
-    writeFileSync(this.shimPath, GATEWAY_SHIM_SOURCE, { mode: 0o600 });
     mkdirSync(this.tokenDir, { recursive: true, mode: 0o700 });
     if (!this.socketPath.startsWith('\\\\') && existsSync(this.socketPath)) rmSync(this.socketPath, { force: true });
     const server = createServer((sock) => this.serve(sock));
@@ -165,23 +198,28 @@ export class ToolGateway {
   }
 
   /**
-   * A grant for one turn: the MCP server to give the CLI (the shim, with the socket and the token's
-   * file in its environment), and a way to end it once the turn is over. Undefined when agents cannot
-   * get the gateway now.
+   * A grant for one turn: the MCP server to give the CLI (a copy of the shim, with the socket and the
+   * token's file in its environment), and a way to end it once the turn is over. The shim and the token
+   * go in Harness Relay's own temporary folder, which sandboxed commands can neither read nor write (on
+   * macOS and Linux), so no command can change what the CLI starts. Undefined when agents cannot get
+   * the gateway now.
    */
   grant(ctx: GatewayContext, groups: readonly RelayToolGroup[]): { spec: McpServerSpec; revoke: () => void } | undefined {
     const node = this.node();
     if (!this.server || !node || !groups.length) return undefined;
     const token = randomBytes(32).toString('base64url');
-    const tokenFile = join(this.tokenDir, `gateway-${randomBytes(8).toString('hex')}.token`);
+    const name = `gateway-${randomBytes(8).toString('hex')}`;
+    const tokenFile = join(this.tokenDir, `${name}.token`);
+    const shimFile = join(this.tokenDir, `${name}.mjs`);
     writeFileSync(tokenFile, token, { mode: 0o600 });
-    this.grants.set(token, { ctx, groups: new Set(groups), tokenFile });
+    writeFileSync(shimFile, GATEWAY_SHIM_SOURCE, { mode: 0o600 });
+    this.grants.set(token, { ctx, groups: new Set(groups), tokenFile, shimFile });
     return {
       spec: {
         name: GATEWAY_SERVER_NAME,
         transport: 'stdio',
         command: node,
-        args: [this.shimPath],
+        args: [shimFile],
         url: '',
         env: { RELAY_GATEWAY_SOCKET: this.socketPath, RELAY_GATEWAY_TOKEN_FILE: tokenFile },
         headers: {},
@@ -195,6 +233,7 @@ export class ToolGateway {
     if (!grant) return;
     this.grants.delete(token);
     rmSync(grant.tokenFile, { force: true });
+    rmSync(grant.shimFile, { force: true });
   }
 
   /** The tools a grant can call now. */
@@ -264,7 +303,8 @@ export class ToolGateway {
     const tool = typeof req.name === 'string' ? this.tools.get(req.name) : undefined;
     if (!tool || (tool.group && !grant.groups.has(tool.group))) return toolResult({ text: `No such tool: ${String(req.name)}`, isError: true });
     const args = req.arguments && typeof req.arguments === 'object' && !Array.isArray(req.arguments) ? (req.arguments as Record<string, unknown>) : {};
-    return toolResult(await this.call(tool, args, grant.ctx));
+    const ctx = grant.ctx;
+    return toolResult(await (ctx.lang ? withLang(ctx.lang, () => this.call(tool, args, ctx)) : this.call(tool, args, ctx)));
   }
 
   /** A call, as its tier and the turn allow. */
@@ -281,7 +321,7 @@ export class ToolGateway {
       } catch (err) {
         return { text: (err as Error).message, isError: true };
       }
-      const item = ctx.toOutbox({ tool: tool.name, title: described.title, preview: described.preview ?? { fields: [] }, args });
+      const item = ctx.toOutbox({ tool: tool.name, title: described.title, preview: described.preview ?? { fields: [] }, args: tool.bind ? tool.bind(args) : args });
       return {
         text: `Not sent yet: "${item.title}" is waiting in the user's outbox (item ${item.id}). Only the user can send it, with its Send button in the chat; it may happen later. Do not try to send it another way. Tell the user it is waiting for them.`,
       };
@@ -293,7 +333,9 @@ export class ToolGateway {
       } catch (err) {
         return { text: (err as Error).message, isError: true };
       }
-      const answer = await ctx.ask!({ kind: 'other', tool: tool.name, detail: described.title, ...(described.detail ? { reason: described.detail } : {}) });
+      // Keyed as the gateway's own (`relay:<tool>`), so "always allow" is never another server's tool of that name;
+      // no folder lock either: the call writes nothing in the working directory.
+      const answer = await ctx.ask!({ kind: 'other', tool: gatewayApprovalTool(tool.name), detail: described.title, ...(described.detail ? { reason: described.detail } : {}), noLock: true });
       if (!answer.allow) return { text: `The user declined ${tool.name}${answer.note ? `: ${answer.note}` : ''}.`, isError: true };
     }
     if (ctx.signal.aborted) return { text: 'The turn was stopped.', isError: true };
@@ -313,14 +355,19 @@ function toolResult(r: GatewayResult): { content: unknown[]; isError: boolean } 
   };
 }
 
+/** How the gateway's own approval names a tool (and keys "always allow" for it): `relay:<tool>`. */
+export const gatewayApprovalTool = (name: string) => `${GATEWAY_SERVER_NAME}:${name}`;
+
 /**
- * The gateway's tool a CLI's request names with the gateway's own name before it
- * (`mcp__relay__browser_open`, `relay/browser_open`, `relay: browser_open`), if any: a bare
- * `browser_open` could be another server's.
+ * The gateway's tool a CLI's own approval request is about, if it is one: a request for a tool (kind
+ * `other`) named exactly as the CLI names the gateway's (`mcp__relay__browser_open` in Claude Code,
+ * `relay/browser_open`, `relay__browser_open`, `relay.browser_open`), never a command, a path or a URL
+ * with such words in it, nor another server's tool of the same name.
  */
-export function gatewayToolIn(names: readonly string[], text: string | undefined): string | undefined {
-  if (!text) return undefined;
-  return names.find((name) => new RegExp(`(?:^|[^A-Za-z0-9])${GATEWAY_SERVER_NAME}(?:__|[/.]|\\s*:\\s*)${name}(?:$|[^A-Za-z0-9_])`).test(text));
+export function gatewayToolNamed(names: readonly string[], req: Pick<ApprovalRequest, 'kind' | 'tool'>): string | undefined {
+  if (req.kind !== 'other' || !req.tool) return undefined;
+  const s = GATEWAY_SERVER_NAME;
+  return names.find((n) => [`mcp__${s}__${n}`, `${s}__${n}`, `${s}/${n}`, `${s}.${n}`].includes(req.tool!));
 }
 
 /** The outbox's own tool, given with any group: what this conversation's outbox holds and what became of it. */

@@ -24,21 +24,25 @@ export function bareAddress(addr: string): string {
   return /<([^>]+)>/.exec(addr)?.[1] ?? addr.trim();
 }
 
-/** A header value, as RFC 2047 words when it is not printable ASCII. */
+/**
+ * A header value, as RFC 2047 words when it is not printable ASCII. The words are folded, one to a
+ * line (each well under 78 characters), so a long subject never makes a line longer than mail allows.
+ */
 export function encodeWords(value: string): string {
   if (/^[\x20-\x7e]*$/.test(value)) return value;
-  // Base64 words of at most 45 bytes each, cut between characters.
+  // Base64 words of at most 39 bytes each (52 characters of base64), cut between characters: with
+  // the header's name before the first, each line stays under 78 characters.
   const words: string[] = [];
   let chunk = '';
   for (const ch of value) {
-    if (Buffer.byteLength(chunk + ch) > 45) {
+    if (Buffer.byteLength(chunk + ch) > 39) {
       words.push(chunk);
       chunk = '';
     }
     chunk += ch;
   }
   if (chunk) words.push(chunk);
-  return words.map((w) => `=?UTF-8?B?${Buffer.from(w).toString('base64')}?=`).join(' ');
+  return words.map((w) => `=?UTF-8?B?${Buffer.from(w).toString('base64')}?=`).join('\r\n ');
 }
 
 /** An address header's value with its display names encoded. */
@@ -47,6 +51,12 @@ function encodeAddress(addr: string): string {
   if (!m) return addr;
   const name = m[1]!.trim();
   return name ? `${/^[\x20-\x7e]*$/.test(name) ? `"${name.replace(/["\\]/g, '')}"` : encodeWords(name)} <${m[2]}>` : `<${m[2]}>`;
+}
+
+/** Addresses for a header, folded one to a line when they would make a long line. */
+function addressList(list: string[]): string {
+  const encoded = list.map(encodeAddress);
+  return encoded.join(', ').length > 900 ? encoded.join(',\r\n ') : encoded.join(', ');
 }
 
 export interface OutgoingMail {
@@ -67,8 +77,8 @@ export function composeMail(m: OutgoingMail, domain = bareAddress(m.from).split(
   const date = (m.date ?? new Date()).toUTCString().replace('GMT', '+0000');
   const headers = [
     `From: ${encodeAddress(m.from)}`,
-    `To: ${m.to.map(encodeAddress).join(', ')}`,
-    ...(m.cc?.length ? [`Cc: ${m.cc.map(encodeAddress).join(', ')}`] : []),
+    `To: ${addressList(m.to)}`,
+    ...(m.cc?.length ? [`Cc: ${addressList(m.cc)}`] : []),
     `Subject: ${encodeWords(m.subject.replace(/[\r\n]+/g, ' '))}`,
     `Date: ${date}`,
     `Message-ID: ${messageId}`,
@@ -160,6 +170,11 @@ function bodyText(headers: Record<string, string>, body: string): string {
   return decodeCharset(bytes, charset);
 }
 
+/** A numeric character reference's character; one that is none (past U+10FFFF, a surrogate, NUL) is U+FFFD. */
+function codePoint(n: number): string {
+  return n > 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff) ? String.fromCodePoint(n) : '\ufffd';
+}
+
 /** HTML as plain text: no scripts or styles, block ends as line breaks, entities decoded. */
 export function htmlText(html: string): string {
   return html
@@ -171,7 +186,8 @@ export function htmlText(html: string): string {
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
-    .replace(/&#(\d+);/g, (_m, n: string) => String.fromCodePoint(Number(n)))
+    .replace(/&#(\d{1,8});/g, (_m, n: string) => codePoint(Number(n)))
+    .replace(/&#[xX]([0-9a-fA-F]{1,7});/g, (_m, n: string) => codePoint(parseInt(n, 16)))
     .replace(/&amp;/g, '&')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')

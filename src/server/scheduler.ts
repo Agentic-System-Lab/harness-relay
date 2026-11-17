@@ -127,7 +127,7 @@ export class Scheduler {
       if (late && since === undefined && s.missed === 'skip') {
         outcome = { result: 'missed' };
       } else {
-        const sent = await this.orchestrator.sendScheduled(convId, retry?.due ?? due, { attempt: retry?.attempt ?? 0 });
+        const sent = await this.orchestrator.sendScheduled(convId, retry?.due ?? due, { attempt: retry?.attempt ?? 0, retries: true });
         if (this.stopped) return; // shutting down: the time is still due when the server is back
         if (sent.result === 'busy') {
           // Tried again at the next look; after a while, given up.

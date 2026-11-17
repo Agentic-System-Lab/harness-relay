@@ -7,7 +7,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { Conversation, ConversationSchedule } from '../src/shared/types';
-import { agents, calls, conversation, db, fake, finish, orchestrator, Scheduler, scheduleTime, store, Store, textOf } from './orchestrator-harness';
+import { agents, calls, conversation, db, fake, finish, Hub, Orchestrator, orchestrator, Scheduler, scheduleTime, settings, store, Store, textOf } from './orchestrator-harness';
 
 describe('a schedule that tracks a goal', () => {
   const HOUR = 3_600_000;
@@ -189,6 +189,60 @@ describe('a schedule that tracks a goal', () => {
     await finish(conv.id);
     expect(conv.messages.filter((m) => m.author.kind === 'agent')).toHaveLength(1);
     expect(conv.schedule!.nextRunAt).toBe(T0 + 25 * HOUR);
+  });
+
+  it('keeps a run the server stopped while shutting down in flight, and tries it at the next start', async () => {
+    const conv = tracked();
+    let release!: () => void;
+    fake.gate = new Promise((r) => (release = r));
+    now = T0 + HOUR;
+    await scheduler().tick();
+    expect(conv.schedule!.tracking!.inFlight).toEqual({ due: T0 + HOUR, attempt: 0, chatId: conv.id });
+    orchestrator.stopAll();
+    release();
+    await finish(conv.id);
+    expect(conv.schedule!.tracking!.inFlight).toEqual({ due: T0 + HOUR, attempt: 0, chatId: conv.id });
+    expect(new Store(db).get(conv.id)!.schedule!.tracking!.inFlight).toEqual({ due: T0 + HOUR, attempt: 0, chatId: conv.id });
+    // The next start: another orchestrator on the same store.
+    const next = new Orchestrator(store, new Hub(), settings);
+    next.clock = () => now;
+    now = T0 + 2 * HOUR;
+    new Scheduler(store, next, () => now).recover();
+    expect(conv.schedule!.tracking!.retry).toEqual({ due: T0 + HOUR, attempt: 1, at: T0 + 2 * HOUR });
+  });
+
+  it('tries nothing again for a run the schedule no longer has in flight (switched off meanwhile), nor for Run now', async () => {
+    const once = tracked({ repeat: { kind: 'once', at: T0 + HOUR } });
+    fake.fail = () => new Error('rate limited');
+    let release!: () => void;
+    fake.gate = new Promise((r) => (release = r));
+    now = T0 + HOUR;
+    await scheduler().tick();
+    // What saving the schedule switched off does (`PUT …/schedule`): the run is no longer its own.
+    once.schedule = { ...once.schedule!, enabled: false, tracking: { status: 'working', notes: [] } };
+    store.saveSchedule(once);
+    release();
+    await finish(once.id);
+    expect(once.schedule).toMatchObject({ enabled: false });
+    expect(once.schedule!.tracking!.retry).toBeUndefined();
+
+    fake.gate = Promise.resolve();
+    const later = tracked({ repeat: { kind: 'once', at: T0 + 25 * HOUR }, nextRunAt: T0 + 25 * HOUR });
+    orchestrator.clock = () => now;
+    expect(await orchestrator.sendScheduled(later.id)).toEqual({ result: 'sent' });
+    await finish(later.id);
+    expect(later.schedule!.tracking?.retry).toBeUndefined();
+    expect(later.schedule!.tracking?.inFlight).toBeUndefined();
+    expect(later.schedule).toMatchObject({ enabled: true, nextRunAt: T0 + 25 * HOUR });
+  });
+
+  it('counts a reply that only reports on the goal as said, not as a pass', async () => {
+    const conv = tracked();
+    fake.reply = () => '<progress status="working">still red</progress>';
+    await fireAt(conv, T0 + HOUR);
+    const reply = conv.messages.find((m) => m.author.kind === 'agent')!;
+    expect(reply.passed).toBeFalsy();
+    expect(reply.parts).toEqual([{ type: 'progress', status: 'working', text: 'still red' }]);
   });
 
   it('tries a time whose run could not start again', async () => {

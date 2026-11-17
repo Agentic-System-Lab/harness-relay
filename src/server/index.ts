@@ -124,6 +124,7 @@ gateway.register([outboxTool((id) => outbox.list(id)), ...browserTools(browser),
 orchestrator.onDelete = (id) => void browser.close(id, true);
 orchestrator.gateway = gateway;
 orchestrator.outbox = outbox;
+orchestrator.reconcileOutbox();
 settings.tools.gatewayStatus = () => {
   const why = gateway.unavailable();
   return why ? { available: false, reason: why } : { available: true };

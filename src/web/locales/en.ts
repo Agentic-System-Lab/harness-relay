@@ -1107,7 +1107,10 @@ export const en: Messages = {
         mail: 'Search and read mail, save drafts, and send through the outbox: needs a mail account below.',
         calendar: 'List events and add them (with attendees, through the outbox): needs a calendar below.',
       },
-      unavailable: (why) => `Not available on this server: ${why}.`,
+      unavailable: {
+        'not-started': 'Not available now: the server could not start them (its log says why).',
+        'no-node': 'Not available in the desktop app without a Node.js 22.12 or later on your PATH, or the one Settings → Sandboxes installs.',
+      },
     },
     title: 'Tool library',
     hint: 'MCP servers, skills and memory here are given to members, the same way for every CLI (Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and the open-source agents), in addition to each CLI\'s own setup. Give each one to every member, or only to the members of some CLIs; to change it for a single member, use the Tools field on that member\'s card under New chat, or Team settings in a chat\'s header. Changes take effect from a member\'s next turn.',

@@ -1,6 +1,6 @@
 import type { Socket } from 'node:net';
 import type { TLSSocket } from 'node:tls';
-import { openSocket, upgrade, type Login, type ServerAddress } from './imap';
+import { openSocket, STARTTLS_EXTRA, upgrade, type Login, type ServerAddress } from './imap';
 
 /*
  * A small SMTP client for the outbox's mail: EHLO, STARTTLS (port 587) or TLS from the start (465),
@@ -35,12 +35,16 @@ class ReplyReader {
     sock.on('error', this.onEnd);
   }
 
-  detach(): void {
-    if (!this.sock) return;
+  /** Stop reading the socket (STARTTLS); what was read but not taken is dropped: returns whether there was any. */
+  detach(): boolean {
+    const leftover = this.buf.length > 0;
+    this.buf = '';
+    if (!this.sock) return leftover;
     this.sock.off('data', this.onData);
     this.sock.off('close', this.onEnd);
     this.sock.off('error', this.onEnd);
     this.sock = undefined;
+    return leftover;
   }
 
   private wake(): void {
@@ -110,7 +114,8 @@ export async function withSmtp<T>(addr: ServerAddress, login: Login, fn: (say: S
     let ehlo = await say('EHLO harness-relay.local', [250], 'EHLO');
     if (addr.security === 'starttls') {
       await say('STARTTLS', [220], 'STARTTLS');
-      reader.detach();
+      // More after the answer came before TLS, from anyone on the way: refused (as for IMAP).
+      if (reader.detach()) throw new Error(STARTTLS_EXTRA);
       sock = await upgrade(sock as Socket, addr.host, timeoutMs);
       reader.attach(sock);
       ehlo = await say('EHLO harness-relay.local', [250], 'EHLO');

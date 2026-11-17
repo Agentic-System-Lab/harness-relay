@@ -80,9 +80,32 @@ describe('the outbox', () => {
     // A server starting while it was still sending.
     const restarted = new Outbox(db);
     expect(restarted.get(item.id)).toMatchObject({ status: 'failed', result: expect.stringMatching(/stopped while sending/) });
+    // Its card is brought up to date from these (`Orchestrator.reconcileOutbox()`); a later start has none.
+    expect(restarted.interrupted.map((i) => [i.id, i.status])).toEqual([[item.id, 'failed']]);
+    expect(new Outbox(db).interrupted).toEqual([]);
     release();
     await first;
   }));
+
+  it('discards what waits for replies taken back, and only that', () =>
+    withLang('en', () => {
+      const { db } = setup();
+      const outbox = new Outbox(db);
+      const taken = outbox.add(base, { to: 'a@example.com' }).item;
+      const other = outbox.add({ ...base, messageId: 'm2' }, { to: 'b@example.com' }).item;
+      const answered = outbox.add(base, { to: 'c@example.com' }).item;
+      void outbox.answer('c1', answered.id, 'discard', () => undefined);
+      expect(outbox.waiting('c1')).toBe(2);
+      outbox.discardFor('c1', []);
+      outbox.discardFor('c1', ['m1']);
+      expect(outbox.get(taken.id)).toMatchObject({ status: 'discarded', result: 'The reply that asked for it was taken back, so it was not sent.' });
+      expect(outbox.get(other.id)!.status).toBe('pending');
+      expect(outbox.get(answered.id)).toMatchObject({ status: 'discarded' });
+      expect(outbox.get(answered.id)!.result).toBeUndefined();
+      expect(outbox.waiting('c1')).toBe(1);
+      // An equal call now makes a new item.
+      expect(outbox.add(base, { to: 'a@example.com' }).existing).toBe(false);
+    }));
 
   it('goes with its conversation', () => {
     const { db, store } = setup();
