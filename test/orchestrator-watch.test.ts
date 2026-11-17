@@ -632,6 +632,9 @@ describe('automations that start when something happens', () => {
     const inUse = vi.spyOn(orchestrator, 'folderInUse').mockReturnValue(true);
     now = Date.now() + 120_000;
     await s().check(conv.id);
+    // Only recorded, but why the files wait is still said.
+    expect(conv.schedule!.watch!.held).toBe('waits for your answer');
+    expect(Object.keys(conv.schedule!.watch!.heldFiles!).sort()).toEqual(['a.pdf', 'b.pdf']);
     inUse.mockRestore();
     now = Date.now() + 180_000;
     await s().check(conv.id);
@@ -687,5 +690,43 @@ describe('automations that start when something happens', () => {
     await s().check(conv.id);
     expect(scheduled(conv)).toHaveLength(1);
     expect(Object.keys(conv.schedule!.watch!.files!)).toContain('team.md');
+  });
+
+  it("takes what a run that begins during a check writes, still settling, for the team's, but keeps what already waited", async () => {
+    reset();
+    now = Date.now();
+    const conv = conversation({ mode: 'roundtable', permission: 'edit' });
+    watching(conv, { repeat: { kind: 'event', trigger: { source: 'file', pattern: '*.txt' } } });
+    /** Each look: a run that begins and ends during it writes `fresh` (the folder's write count goes up), then it looks. */
+    let fresh: string[] = [];
+    let count = 0;
+    const checker = (t: Parameters<typeof checkFiles>[0], prev: ScheduleWatch | undefined, ctx: WatchContext) => {
+      for (const name of fresh) writeFileSync(join(project, name), name);
+      if (fresh.length) count++;
+      return checkFiles(t, prev, ctx.cwd, ctx.now, ctx.recordOnly, ctx.held);
+    };
+    const s = () => new Scheduler(store, orchestrator, () => now, checker as never);
+    const writes = vi.spyOn(orchestrator, 'folderWrites').mockImplementation(() => `run:${count}`);
+    await s().check(conv.id);
+    // The user's upload is still being written at a free check: kept pending.
+    writeFileSync(join(project, 'upload.txt'), 'part');
+    await s().check(conv.id);
+    expect(Object.keys(conv.schedule!.watch!.heldFiles!)).toEqual(['upload.txt']);
+    // At the next one a run begins during the look and writes team.txt: only the upload stays kept.
+    fresh = ['team.txt'];
+    await s().check(conv.id);
+    fresh = [];
+    expect(conv.schedule!.watch!.teamWrote).toBe(true);
+    expect(Object.keys(conv.schedule!.watch!.heldFiles!)).toEqual(['upload.txt']);
+    // Once all is settled and free: the upload is sent, team.txt never.
+    for (let i = 0; i < 3; i++) {
+      now += 120_000;
+      await s().check(conv.id);
+    }
+    await finish(conv.id);
+    writes.mockRestore();
+    const sent = scheduled(conv);
+    expect(sent).toHaveLength(1);
+    expect(JSON.parse(sent[0]!.event!).files.map((f: { path: string }) => f.path)).toEqual(['upload.txt']);
   });
 });
