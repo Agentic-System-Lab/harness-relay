@@ -1604,8 +1604,8 @@ export const zhTW = {
   /** The notification inbox: the bell beside the sidebar's collapse button, and the dialog it opens. */
   inbox: {
     /** The bell's name (and tooltip), with how many are unread. */
-    open: (unread: number) => (unread ? `通知（${unread} 則未讀）` : '通知'),
-    title: '通知',
+    open: (unread: number) => (unread ? `通知收件匣（${unread} 則未讀）` : '通知收件匣'),
+    title: '通知收件匣',
     hint: '團隊回覆完成、出錯，或需要你核准、確認團隊、回答問題時，都會記在這裡，每個登入的瀏覽器都看得到同一份。開啟該對話就會標為已讀。',
     empty: '還沒有通知。團隊回覆完成或需要你時，會出現在這裡。',
     unread: (n: number) => `${n} 則未讀`,
@@ -1777,10 +1777,10 @@ export const zhTW = {
         ],
       },
       {
-        title: '團隊的通知',
-        body: '側邊欄頂端、收合按鈕左邊的鈴鐺，收著團隊給你的每一則通知，連沒開著頁面時來的也在：回覆完成或出錯、等你核准、等你確認團隊、問你問題。紅色數字是還沒讀的則數：',
+        title: '通知收件匣',
+        body: '側邊欄頂端、收合按鈕左邊的鈴鐺是通知收件匣，收著團隊給你的每一則通知，連沒開著頁面時來的也在：回覆完成或出錯、等你核准、等你確認團隊、問你問題。紅色數字是還沒讀的則數：',
         points: [
-          '按鈴鐺看通知，最新的在最上面；按一則就開啟那個對話',
+          '按鈴鐺打開通知收件匣，最新的在最上面；按一則就開啟那個對話',
           '開啟對話就會把它的通知標為已讀；下方有「全部標為已讀」和「清除全部」',
           '每個登入的瀏覽器看到的都是同一份；側邊欄收合時，鈴鐺在左上角、展開按鈕的左邊；手機上，選單按鈕的小紅點表示有未讀通知',
         ],
