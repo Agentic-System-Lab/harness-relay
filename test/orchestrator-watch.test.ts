@@ -8,9 +8,12 @@
  *
  * The fake CLI, and what each test starts with, are in ./orchestrator-harness.ts.
  */
+import { utimesSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { WATCH_LIMITS, type Conversation, type ConversationSchedule, type ScheduleWatch } from '../src/shared/types';
-import { mailEvent, triggerKey, type WatchCheck } from '../src/server/watch';
+import { forClient } from '../src/server/orchestrator';
+import { checkFiles, mailEvent, triggerKey, type WatchCheck, type WatchContext } from '../src/server/watch';
 import {
   agentMessages,
   calls,
@@ -21,6 +24,7 @@ import {
   Hub,
   orchestrator,
   Orchestrator,
+  project,
   Scheduler,
   setOrchestrator,
   setStore,
@@ -394,19 +398,99 @@ describe('automations that start when something happens', () => {
     const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
     watching(conv, { repeat: { kind: 'event', trigger: { source: 'file', pattern: '*.csv' } } });
     answer = async () => ({
-      state: { files: { 'a.csv': '1:2' }, uidValidity: 3, seen: ['x@1'], lastId: 9, extra: 'no' } as never,
+      state: {
+        files: { 'a.csv': '1:2' },
+        filesIn: conv.settings.cwd,
+        uidValidity: 3,
+        seen: ['x@1'],
+        lookedAt: 5,
+        lastId: 9,
+        extra: 'no',
+      } as never,
       total: 0,
     });
     await scheduler().watchTick();
-    expect(contexts).toEqual([{ cwd: conv.settings.cwd }]);
+    // The check's own time (the scheduler's clock); nothing writes in the folder.
+    expect(contexts).toEqual([{ cwd: conv.settings.cwd, now: T0, recordOnly: false }]);
     expect(conv.schedule!.watch).toEqual({
       key: triggerKey({ source: 'file', pattern: '*.csv' }),
       uidValidity: 3,
       lastId: 9,
       seen: ['x@1'],
+      lookedAt: 5,
       files: { 'a.csv': '1:2' },
+      filesIn: conv.settings.cwd,
       checkedAt: T0,
       nextCheckAt: T0 + WATCH_LIMITS.checkMinutes * MIN,
     });
+    // What it saw of each file and event stays in the server: browsers get the rest.
+    const shown = forClient(store.get(conv.id)!).schedule!.watch!;
+    expect(shown).not.toHaveProperty('files');
+    expect(shown).not.toHaveProperty('seen');
+    expect(shown).toMatchObject({ checkedAt: T0, lastId: 9 });
+  });
+
+  it('never starts again for what the team writes in the folder: while a run writes there, and at the first check after it, files are only recorded', async () => {
+    reset();
+    // The real file source, on the scheduler's clock, with the real time (files are written now).
+    now = Date.now();
+    const conv = conversation({ mode: 'roundtable', permission: 'edit' });
+    const fileTrigger = { source: 'file' as const, pattern: '*.txt' };
+    watching(conv, { repeat: { kind: 'event', trigger: fileTrigger } });
+    const checker = (t: Parameters<typeof checkFiles>[0], prev: ScheduleWatch | undefined, ctx: WatchContext) =>
+      checkFiles(t, prev, ctx.cwd, ctx.now, ctx.recordOnly);
+    const s = () => new Scheduler(store, orchestrator, () => now, checker as never);
+    const scheduledCount = () => scheduled(store.get(conv.id)!).length;
+    await s().watchTick();
+    expect(conv.schedule!.watch!.files).toEqual({ 'shared.txt': expect.any(String) });
+
+    // A report from outside: the automation runs, and its run writes Alice.txt, Bob.txt and shared.txt,
+    // then (held) one more file after the check that comes while it writes.
+    const old = (now - 60_000) / 1000;
+    writeFileSync(join(project, 'report.txt'), 'from outside\n');
+    utimesSync(join(project, 'report.txt'), old, old);
+    let finishWriting!: () => void;
+    const writing = new Promise<void>((r) => (finishWriting = r));
+    fake.inTurn = async (name, o) => {
+      if (name !== 'Alice') return;
+      await writing;
+      writeFileSync(join(o.cwd, 'late.txt'), 'written at the end of the run\n');
+    };
+    now += WATCH_LIMITS.checkMinutes * MIN;
+    await s().watchTick();
+    expect(scheduledCount()).toBe(1);
+    expect(JSON.parse(scheduled(store.get(conv.id)!)[0]!.event!).files.map((f: { path: string }) => f.path)).toEqual(['report.txt']);
+    expect(conv.schedule!.watch!.teamWrote).toBe(true);
+    expect(orchestrator.folderInUse(conv.id)).toBe(true);
+    await vi.waitFor(() => expect(calls.map((c) => c.name)).toContain('Alice'));
+
+    // While it writes: recorded, nothing sent.
+    now += WATCH_LIMITS.checkMinutes * MIN;
+    await s().watchTick();
+    expect(scheduledCount()).toBe(1);
+    expect(Object.keys(conv.schedule!.watch!.files!).sort()).toEqual(['Alice.txt', 'report.txt', 'shared.txt']);
+    expect(conv.schedule!.watch!.teamWrote).toBe(true);
+
+    // The run ends having written late.txt: the first check with the folder free records it, and lets the flag go.
+    finishWriting();
+    await finish(conv.id);
+    expect(orchestrator.folderInUse(conv.id)).toBe(false);
+    now += WATCH_LIMITS.checkMinutes * MIN;
+    await s().watchTick();
+    expect(scheduledCount()).toBe(1);
+    expect(Object.keys(conv.schedule!.watch!.files!)).toContain('late.txt');
+    expect(conv.schedule!.watch!.teamWrote).toBeUndefined();
+    now += WATCH_LIMITS.checkMinutes * MIN;
+    await s().watchTick();
+    expect(scheduledCount()).toBe(1);
+
+    // Something from outside again starts it, once.
+    writeFileSync(join(project, 'next.txt'), 'from outside again\n');
+    utimesSync(join(project, 'next.txt'), (now - 60_000) / 1000, (now - 60_000) / 1000);
+    fake.inTurn = undefined;
+    now += WATCH_LIMITS.checkMinutes * MIN;
+    await s().watchTick();
+    await finish(conv.id);
+    expect(scheduledCount()).toBe(2);
   });
 });

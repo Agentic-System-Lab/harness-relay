@@ -37,7 +37,17 @@ import type {
   SearchResult,
   SharedPage,
 } from '../shared/types';
-import { ALERT_KINDS, PERMISSION_ORDER, PROGRESS_STATUSES, PROVIDERS, TOOL_CALL_KINDS, cwdSettings, pendingPlan } from '../shared/types';
+import {
+  ALERT_KINDS,
+  PERMISSION_ORDER,
+  PROGRESS_STATUSES,
+  PROVIDERS,
+  TOOL_CALL_KINDS,
+  TRIGGER_SOURCES,
+  cwdSettings,
+  pendingPlan,
+  type ScheduleTrigger,
+} from '../shared/types';
 import { byAge, familyOf, type FamilyMember } from '../shared/family';
 import { searchTerms, snippetAround, termsIn } from '../shared/search';
 import { nul, transaction, type Database } from './db';
@@ -362,6 +372,11 @@ function extraCwdsOf(json: string | null): string[] {
   return Array.isArray(list) ? list.filter((d): d is string => typeof d === 'string' && d.length > 0) : [];
 }
 
+/** Whether a message's `event_source` names what a trigger found (absent, or anything else: the webhook). */
+function isTriggerSource(v: string | null): v is ScheduleTrigger['source'] {
+  return (TRIGGER_SOURCES as (string | null)[]).includes(v);
+}
+
 function toMessage(r: MessageRow, parts: MessagePart[], files: FileChange[]): ChatMessage {
   const meta = {
     round: opt(r.round),
@@ -389,7 +404,7 @@ function toMessage(r: MessageRow, parts: MessagePart[], files: FileChange[]): Ch
     asked: r.asked ? true : undefined,
     scheduled: r.scheduled ? true : undefined,
     ...(r.event ? { event: r.event } : {}),
-    ...(r.event && r.event_source === 'mail' ? { eventSource: 'mail' as const } : {}),
+    ...(r.event && isTriggerSource(r.event_source) ? { eventSource: r.event_source } : {}),
     ...trackedOf(r.tracked),
   };
 }

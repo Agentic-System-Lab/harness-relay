@@ -426,7 +426,7 @@ export const en: Messages = {
   newSchedule: {
     title: 'New automation',
     intro: (lead) =>
-      `An automation sends the team a message when you run it, when a program calls its webhook, or at set times. Once you create it, the lead agent (${lead}) designs a team for the message; after you confirm the team, the automation can run. Nothing runs when you create it.`,
+      `An automation sends the team a message when you run it, at set times, when something happens (a new mail, an event about to begin, something new on GitHub, a file that changes), or when a program calls its webhook. Once you create it, the lead agent (${lead}) designs a team for the message; after you confirm the team, the automation can run. Nothing runs when you create it.`,
     schedule: 'Automation',
     titlePlaceholder: 'Chat name (optional; the first line of the message by default)',
     create: 'Create automation',
@@ -537,7 +537,8 @@ export const en: Messages = {
       manual: 'No set times',
       mail: (o) =>
         `When a new mail${o.from ? ` from ${o.from}` : ''}${o.subject ? ` with "${o.subject}" in its subject` : ''} arrives${o.folder ? ` in ${o.folder}` : ''}`,
-      calendar: (minutes, title) => `${minutes} minutes before ${title ? `each event with "${title}" in its title` : 'each event'} begins`,
+      calendar: (minutes, title) =>
+        `${minutes === 1 ? '1 minute' : `${minutes} minutes`} before ${title ? `each event with "${title}" in its title` : 'each event'} begins`,
       pullRequest: (repo) => `When a pull request is opened in ${repo}`,
       failedRun: (repo, branch) => `When a CI run fails in ${repo}${branch ? ` on ${branch}` : ''}`,
       file: (pattern) => `When a file matching ${pattern} appears or changes in the working directory`,
@@ -565,7 +566,8 @@ export const en: Messages = {
       account: 'Pick the mail account to check',
       calendar: 'Pick the calendar to check',
       minutes: (max) => `The minutes before an event begins are a whole number from 1 to ${max}`,
-      repo: 'Give the GitHub repository as owner/name',
+      repo: 'Give the GitHub repository as owner/name (an owner of at most 39 characters, a name of at most 100)',
+      branch: 'The branch is not a name git allows: no spaces, none of ~^:?*[\\, no .., and not starting with -',
       pattern: 'Give a pattern for files in the working directory (not a full path, and without ..)',
     },
     teamNote: (summary) => `This conversation has an automation (${summary}); changes here apply to its later runs.`,
@@ -623,7 +625,7 @@ export const en: Messages = {
       title: 'The title contains (optional)',
       titlePlaceholder: 'For example: standup',
       calendarHint: (minutes) =>
-        `Harness Relay checks the calendar every ${minutes} minutes itself. Each event (each time of a recurring one on its own) starts the automation once, this many minutes before it begins, with its title, times, place and attendees; all-day events are left out. The first check only notes the events about to begin then.`,
+        `Harness Relay checks the calendar every ${minutes} minutes itself. Each event (each time of a recurring one on its own) starts the automation once, this many minutes before it begins, with its title, times, place and attendees; all-day events, cancelled ones and those in a time zone this computer does not know are left out. One that began while checks failed or were held (within an hour) is still sent, marked as begun. A CalDAV server that does not expand recurring events gives their first time only, so their later times do not start it. The first check only notes the events about to begin then.`,
       repo: 'GitHub repository',
       repoPlaceholder: 'owner/name, for example octocat/hello-world',
       on: { pr: 'A pull request is opened', ci: 'A CI run fails' },
@@ -631,11 +633,11 @@ export const en: Messages = {
       branch: 'Branch (optional)',
       branchPlaceholder: 'For example: main',
       githubHint: (minutes) =>
-        `Harness Relay checks every ${minutes} minutes itself with your own GitHub CLI (gh, signed in with gh auth login): no webhook needed. The first check only notes what is there; a pull request opened (or a CI run that fails) after it starts the automation, once for each check however many came.`,
+        `Harness Relay checks every ${minutes} minutes itself with your own GitHub CLI (gh, signed in with gh auth login): no webhook needed. The first check only notes what is there; a pull request opened (or a CI run that fails, times out or cannot start, also one that fails again when re-run) after it starts the automation, once for each check however many came.`,
       pattern: 'File pattern',
       patternPlaceholder: 'For example: reports/*.csv, **/*.log',
-      fileHint: (minutes) =>
-        `Every ${minutes} minutes, Harness Relay looks at the files matching the pattern in this conversation's working directory (* is anything within a folder, ** any folders, ? one character; any case; .git and node_modules are left out). The first look only notes what is there; a file that appears after it, or whose size or time changes, starts the automation, with its name, size and time, never its contents.`,
+      fileHint: (minutes, seconds) =>
+        `Every ${minutes} minutes, Harness Relay looks at the files matching the pattern in this conversation's working directory (* is anything within a folder, ** any folders, ? one character; any case; .git is left out, and so are package and build folders such as node_modules unless the pattern names them). The first look only notes what is there; a file that appears after it, or whose size or time changes, starts the automation once it has not changed for ${seconds} seconds, with its name, size and time, never its contents. Files changed while the team works in the folder count as the team's own, and do not start it again.`,
     },
     goal: 'Goal to track (optional)',
     goalPlaceholder: 'For example: CI on main passes and issue #42 is closed.',

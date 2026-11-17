@@ -59,7 +59,7 @@ import {
   type VoiceSettingsUpdate,
   type InboxReadRequest,
 } from '../shared/types';
-import { parseTime, validTimeZone } from '../shared/schedule';
+import { filePattern, parseTime, repoName, validBranch, validRepo, validTimeZone } from '../shared/schedule';
 import { CONFIG } from './config';
 import { HttpError } from './errors';
 import { isOtherGroupName, t } from './i18n';
@@ -629,8 +629,9 @@ function validRepeat(input: unknown, enabled: boolean, now: number): ScheduleRep
  * - an event of a calendar, by its id, about to begin: 1 to `WATCH_LIMITS.maxMinutes` minutes before,
  *   with the words its title contains, when given;
  * - in a GitHub repository (`owner/name`): a pull request opened, or a CI run that failed (on a branch,
- *   when given);
- * - a file in the working directory matching a pattern: relative, inside it (no `..`).
+ *   when given, one git allows);
+ * - a file in the working directory matching a pattern: relative, inside it (no `..`), not empty.
+ * The browser's form checks the same (`src/shared/schedule.ts`).
  */
 function validTrigger(input: unknown): ScheduleTrigger {
   const r = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
@@ -661,19 +662,16 @@ function validTrigger(input: unknown): ScheduleTrigger {
       return { source: 'calendar', account, minutes, ...(title ? { title } : {}) };
     }
     case 'github': {
-      const repo = line(r.repo, 'repo')
-        .replace(/^https:\/\/github\.com\//i, '')
-        .replace(/(\.git)?\/?$/, '');
-      if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9_.][A-Za-z0-9_.-]{0,99}$/.test(repo)) bad(t().watchBadRepo);
+      const repo = repoName(line(r.repo, 'repo'));
+      if (!validRepo(repo)) bad(t().watchBadRepo);
       if (r.on !== 'pr' && r.on !== 'ci') bad(t().invalidField('on'));
       const branch = r.on === 'ci' ? line(r.branch, 'branch') : '';
-      if (branch && (!/^[A-Za-z0-9._/-]+$/.test(branch) || branch.startsWith('-'))) bad(t().invalidField('branch'));
+      if (branch && !validBranch(branch)) bad(t().watchBadBranch);
       return { source: 'github', repo, on: r.on, ...(branch ? { branch } : {}) };
     }
     case 'file': {
-      const pattern = line(r.pattern, 'pattern').replace(/\\/g, '/').replace(/^\.\//, '');
-      if (!pattern || pattern.startsWith('/') || /^[A-Za-z]:/.test(pattern) || pattern.split('/').some((p) => p === '..'))
-        bad(t().watchBadPattern);
+      const pattern = filePattern(line(r.pattern, 'pattern'));
+      if (!pattern) bad(t().watchBadPattern);
       return { source: 'file', pattern };
     }
     default:

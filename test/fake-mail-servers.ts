@@ -262,16 +262,58 @@ export interface FakeCalDav {
   close(): Promise<void>;
 }
 
+/** A moment as iCalendar's UTC DATE-TIME, and back. */
+const icsUtc = (ms: number) =>
+  new Date(ms)
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d{3}/, '');
+const fromIcsUtc = (v: string): number | undefined => {
+  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(v);
+  return m ? Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!, +m[6]!) : undefined;
+};
+
+/**
+ * An iCalendar file as a server that expands recurring events answers a REPORT asking it to (RFC 4791
+ * `expand`, between `from` and `to`): each time of a recurring event (here a DAILY one, with its COUNT,
+ * starting at a time in UTC) a VEVENT of its own, with its RECURRENCE-ID, its times in UTC and no
+ * RRULE. Other events are as they are.
+ */
+export function expandIcs(ics: string, from: number, to: number): string {
+  const unfolded = ics.replace(/\r?\n[ \t]/g, '');
+  return unfolded.replace(/BEGIN:VEVENT\r?\n([\s\S]*?)END:VEVENT\r?\n/g, (whole, inner: string) => {
+    const lines = inner.split(/\r?\n/).filter(Boolean);
+    const rule = lines.find((l) => l.startsWith('RRULE:'));
+    const start = fromIcsUtc(lines.find((l) => l.startsWith('DTSTART:'))?.slice('DTSTART:'.length) ?? '');
+    if (!rule || start === undefined || !/FREQ=DAILY/.test(rule)) return whole;
+    const count = Number(/COUNT=(\d+)/.exec(rule)?.[1] ?? 366);
+    const end = fromIcsUtc(lines.find((l) => l.startsWith('DTEND:'))?.slice('DTEND:'.length) ?? '');
+    const rest = lines.filter((l) => !/^(RRULE|DTSTART|DTEND)[:;]/.test(l));
+    let out = '';
+    for (let i = 0; i < count; i++) {
+      const at = start + i * 86_400_000;
+      if (at < from - 86_400_000 || at > to) continue;
+      out +=
+        `BEGIN:VEVENT\r\n${rest.join('\r\n')}\r\nRECURRENCE-ID:${icsUtc(at)}\r\nDTSTART:${icsUtc(at)}\r\n` +
+        `${end !== undefined ? `DTEND:${icsUtc(at + end - start)}\r\n` : ''}END:VEVENT\r\n`;
+    }
+    return out;
+  });
+}
+
 /**
  * A CalDAV calendar at `/cal/me/` with these iCalendar files, for this user and password, beside a
  * to-do list (`/cal/tasks/`, VTODO only). `icloud`: its discovery answers written as iCloud writes
  * them (DAV: as the default namespace, `xmlns` on each element, the home's absolute address, the
- * components' names in single quotes), as recorded from caldav.icloud.com.
+ * components' names in single quotes), as recorded from caldav.icloud.com. `expand`: it expands
+ * recurring events when a REPORT asks it to (`expandIcs()`); `refuseExpand`: it answers a REPORT that
+ * asks to expand with this status instead (a server that cannot). `bearer`: it takes this OAuth token
+ * (`Bearer`) instead of the password.
  */
 export async function fakeCalDav(
   files: string[],
   login = { user: 'me@example.com', pass: 'app-pass' },
-  o: { icloud?: boolean } = {},
+  o: { icloud?: boolean; expand?: boolean; refuseExpand?: number; bearer?: string } = {},
 ): Promise<FakeCalDav> {
   const reports: FakeCalDav['reports'] = [];
   const puts: FakeCalDav['puts'] = [];
@@ -279,9 +321,9 @@ export async function fakeCalDav(
     let body = '';
     req.on('data', (d: Buffer) => (body += d.toString('utf8')));
     req.on('end', () => {
-      const expected = `Basic ${Buffer.from(`${login.user}:${login.pass}`).toString('base64')}`;
+      const expected = o.bearer ? `Bearer ${o.bearer}` : `Basic ${Buffer.from(`${login.user}:${login.pass}`).toString('base64')}`;
       if (req.headers.authorization !== expected) {
-        res.writeHead(401, { 'www-authenticate': 'Basic realm="cal"' });
+        res.writeHead(401, { 'www-authenticate': o.bearer ? 'Bearer realm="cal"' : 'Basic realm="cal"' });
         return res.end();
       }
       if (req.url === '/moved/') {
@@ -290,10 +332,17 @@ export async function fakeCalDav(
       }
       if (req.method === 'REPORT') {
         reports.push({ depth: req.headers.depth as string | undefined, body });
+        const expanding = /<c:expand start="(\w+)" end="(\w+)"\/>/.exec(body);
+        if (expanding && o.refuseExpand) {
+          res.writeHead(o.refuseExpand);
+          return res.end();
+        }
+        const answered =
+          expanding && o.expand ? files.map((f) => expandIcs(f, fromIcsUtc(expanding[1]!)!, fromIcsUtc(expanding[2]!)!)) : files;
         const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r/g, '&#13;');
         res.writeHead(207, { 'content-type': 'application/xml; charset=utf-8' });
         return res.end(
-          `<?xml version="1.0"?><D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">${files
+          `<?xml version="1.0"?><D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">${answered
             .map(
               (f, i) =>
                 `<D:response><D:href>/cal/me/${i}.ics</D:href><D:propstat><D:prop><D:getetag>"${i}"</D:getetag><C:calendar-data>${i % 2 ? `<![CDATA[${f}]]>` : escape(f)}</C:calendar-data></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>`,

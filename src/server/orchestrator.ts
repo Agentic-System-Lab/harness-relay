@@ -117,7 +117,19 @@ export { HttpError };
 
 /** A conversation as sent to the browser: without the agents' CLI session bookkeeping (it grows with the chat). */
 export function forClient(conv: Conversation): Conversation {
-  return { ...conv, agentState: {} };
+  const { schedule, ...rest } = conv;
+  return { ...rest, agentState: {}, ...(schedule ? { schedule: scheduleForClient(schedule) } : {}) };
+}
+
+/**
+ * A schedule as browsers get it (in a conversation, its `conversation` event, the schedule routes'
+ * answers): what an automation's checks keep of every event and file they saw (`watch.seen`,
+ * `watch.files`) stays in the server, where only the checks read it.
+ */
+export function scheduleForClient(s: ConversationSchedule): ConversationSchedule {
+  if (!s.watch) return s;
+  const { seen: _seen, files: _files, ...watch } = s.watch;
+  return { ...s, watch };
 }
 
 /** Where agents of one run write. */
@@ -1729,7 +1741,7 @@ export class Orchestrator {
       settings: conv.settings,
       worktrees: conv.worktrees,
       pause: conv.pause,
-      schedule: conv.schedule,
+      schedule: conv.schedule && scheduleForClient(conv.schedule),
     });
   }
 
@@ -1777,6 +1789,25 @@ export class Orchestrator {
    */
   private folderLockedBy(conv: Conversation): string | undefined {
     if (conv.settings.permission === 'read-only' || conv.settings.mode === 'parallel') return undefined;
+    return this.lockedFolder(conv);
+  }
+
+  /**
+   * Whether a run may be writing in the conversation's working directories now: one of its own
+   * (replying, being set up, or a change being made to it, such as a reply applied), or another
+   * conversation's that holds a lock on a folder around or inside one of them, whatever this one's mode.
+   * Nothing is started or changed: an automation that waits for files there asks, so that what the team
+   * writes never starts it again (`Scheduler.check()`).
+   */
+  folderInUse(convId: string): boolean {
+    const conv = this.store.get(convId);
+    if (!conv) return false;
+    if (this.runs.has(convId) || this.starting.has(convId) || this.reserved.has(convId)) return true;
+    return this.lockedFolder(conv) !== undefined;
+  }
+
+  /** Why another conversation's lock covers one of this one's working directories (around it or inside it), or undefined. */
+  private lockedFolder(conv: Conversation): string | undefined {
     const within = (a: string, b: string) => a === b || a.startsWith(b.endsWith(sep) ? b : b + sep);
     for (const dir of cwdsOf(conv.settings)) {
       let cwd: string;

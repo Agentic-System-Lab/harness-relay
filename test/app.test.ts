@@ -2879,7 +2879,10 @@ describe('schedules', () => {
       check: async (id: string, force?: boolean) => {
         checked.push([id, force]);
         const conv = localStore.get(id)!;
-        conv.schedule = { ...conv.schedule!, watch: { key: 'k', nextCheckAt: 1, checkedAt: 1, lastUid: 4 } };
+        conv.schedule = {
+          ...conv.schedule!,
+          watch: { key: 'k', nextCheckAt: 1, checkedAt: 1, lastUid: 4, seen: ['standup@1'], files: { 'a.csv': '1:2' } },
+        };
         localStore.saveSchedule(conv);
       },
     };
@@ -2942,8 +2945,22 @@ describe('schedules', () => {
     // Check now: the scheduler checks it (even off), and the answer is the schedule as it is then.
     const res = await req(`/api/conversations/${conv.id}/schedule/check`, 'POST', {});
     expect(res.status).toBe(200);
-    expect(((await res.json()) as ConversationSchedule).watch).toMatchObject({ lastUid: 4 });
+    const answered = ((await res.json()) as ConversationSchedule).watch!;
+    expect(answered).toMatchObject({ lastUid: 4 });
     expect(checked).toEqual([[conv.id, true]]);
+    // What it saw of each event and file stays in the server: not in the answer, the conversation,
+    // its `conversation` event, nor the schedule a save answers, though it is kept.
+    expect(answered).not.toHaveProperty('seen');
+    expect(answered).not.toHaveProperty('files');
+    const got = (await (await local.request(`/api/conversations/${conv.id}`, { headers: HOST })).json()) as Conversation;
+    expect(got.schedule!.watch).toEqual({ key: 'k', nextCheckAt: 1, checkedAt: 1, lastUid: 4 });
+    const events: { type: string; schedule?: ConversationSchedule }[] = [];
+    const unsubscribe = hub.subscribe(conv.id, (e) => events.push(e as (typeof events)[number]));
+    const resaved = (await (await req(`/api/conversations/${conv.id}/schedule`, 'PUT', watch('work'))).json()) as ConversationSchedule;
+    unsubscribe();
+    expect(resaved.watch).toEqual({ key: 'k', nextCheckAt: 1, checkedAt: 1, lastUid: 4 });
+    expect(events.find((e) => e.type === 'conversation')!.schedule!.watch).toEqual({ key: 'k', nextCheckAt: 1, checkedAt: 1, lastUid: 4 });
+    expect(localStore.get(conv.id)!.schedule!.watch).toMatchObject({ seen: ['standup@1'], files: { 'a.csv': '1:2' } });
     const list = (await (await local.request('/api/conversations', { headers: HOST })).json()) as { id: string; schedule?: unknown }[];
     expect(list.find((c) => c.id === conv.id)!.schedule).toEqual({
       enabled: true,

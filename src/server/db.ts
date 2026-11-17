@@ -483,7 +483,7 @@ const MIGRATIONS: string[] = [
   `,
   // 35: an automation that starts when something happens (a schedule whose repeat is `event`): what it
   // keeps of its source between checks (schedules.watch, JSON: ScheduleWatch), and where a scheduled
-  // message's <event> block came from when it was not the webhook (messages.event_source: 'mail').
+  // message's <event> block came from when it was not the webhook (messages.event_source: a trigger's source).
   `
   ALTER TABLE schedules ADD COLUMN watch TEXT;
   ALTER TABLE messages ADD COLUMN event_source TEXT;

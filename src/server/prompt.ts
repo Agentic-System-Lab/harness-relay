@@ -169,11 +169,13 @@ function scheduleRules(conv: Conversation, unattended: boolean): string {
         ]
       : []),
     ...(from('calendar')
-      ? ['the calendar events about to begin that started the run (source="calendar": each one\'s title, start, end, place, attendees)']
+      ? [
+          'the calendar events about to begin that started the run (source="calendar": each one\'s title, start, end, place, attendees and the start of its description; begun and minutesAgo when it began before the check came)',
+        ]
       : []),
     ...(from('github')
       ? [
-          'the pull requests opened, or CI runs that failed, in a GitHub repository, that started the run (source="github"; look closer with gh when you can run it)',
+          'the pull requests opened, or CI runs that failed, in a GitHub repository, that started the run (source="github": each pull request\'s number, title, author, branches and address, or each run\'s id, attempt, workflow, title, conclusion, branch and address; look closer with gh when you can run it)',
         ]
       : []),
     ...(from('file')

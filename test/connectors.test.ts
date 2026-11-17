@@ -262,6 +262,11 @@ describe('calendars', () => {
     const ics =
       'BEGIN:VEVENT\r\nUID:q\r\nSUMMARY:Sync\r\nDTSTART:20260105T010000Z\r\nATTENDEE;CN="Lee: Ann";PARTSTAT=ACCEPTED:mailto:ann@example.com\r\nEND:VEVENT';
     expect(parseEvents(ics)[0]!.attendees).toEqual(['ann@example.com']);
+    // A cancelled meeting says so (an automation leaves it out); a VALARM's STATUS is not the event's.
+    expect(parseEvents('BEGIN:VEVENT\r\nUID:c\r\nSTATUS:CANCELLED\r\nDTSTART:20260105T010000Z\r\nEND:VEVENT')[0]!.cancelled).toBe(true);
+    expect(
+      parseEvents('BEGIN:VEVENT\r\nUID:d\r\nSTATUS:CONFIRMED\r\nBEGIN:VALARM\r\nSTATUS:CANCELLED\r\nEND:VALARM\r\nEND:VEVENT')[0],
+    ).not.toHaveProperty('cancelled');
   });
 
   it('escapes every line break in text, a bare CR too, so nothing an agent writes becomes a property of its own', () => {

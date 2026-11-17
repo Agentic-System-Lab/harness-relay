@@ -98,7 +98,7 @@ export function ScheduleForm({
     calendar: w.calendarHint,
     github: w.githubHint,
     file: w.fileHint,
-  }[source](WATCH_LIMITS.checkMinutes);
+  }[source](WATCH_LIMITS.checkMinutes, WATCH_LIMITS.settleSeconds);
 
   return (
     <section className="schedule-form">

@@ -8,13 +8,15 @@ import { nextCheckAt, triggerKey, type TriggerChecker, type WatchCheck } from '.
 
 /** What a check found of its source, to keep: only what each source keeps (`WatchState`), never anything else it said. */
 function keptState(state: WatchState): WatchState {
-  const { uidValidity, lastUid, lastId, seen, files } = state;
+  const { uidValidity, lastUid, lastId, seen, lookedAt, files, filesIn } = state;
   return {
     ...(uidValidity !== undefined ? { uidValidity } : {}),
     ...(lastUid !== undefined ? { lastUid } : {}),
     ...(lastId !== undefined ? { lastId } : {}),
     ...(seen ? { seen } : {}),
+    ...(lookedAt !== undefined ? { lookedAt } : {}),
     ...(files ? { files } : {}),
+    ...(filesIn !== undefined ? { filesIn } : {}),
   };
 }
 
@@ -134,6 +136,11 @@ export class Scheduler {
    * it to a later check, which finds it again with whatever came meanwhile; a message that was sent,
    * queued or could not start counts it as seen. A check that fails is shown, and the next ones come
    * slower. One check at a time per conversation: a second call waits for the one under way.
+   *
+   * Files in the working directory: what a run writes there is the team's own, never something new to
+   * start it. While a run writes there (this conversation's, or another's holding the folder:
+   * `Orchestrator.folderInUse()`), and at the first check once the folder is free again (`teamWrote`,
+   * also set by a check whose message started a run), a check only records the files as they are.
    */
   check(convId: string, force = false): Promise<void> {
     const running = this.checks.get(convId);
@@ -158,9 +165,13 @@ export class Scheduler {
     // again (nor the same mail downloaded) until the team can. The user's own check always asks it.
     const hold = prev?.held && !force ? withLang(s.lang, () => this.orchestrator.scheduledHold(convId)) : undefined;
     if (prev && hold) return this.keepWatch(conv, s, { ...prev, checkedAt: started, nextCheckAt: nextCheckAt(started), held: hold });
+    // The team writes in the folder now, or did since the last check: only recorded.
+    const files = trigger.source === 'file';
+    const writing = files && this.orchestrator.folderInUse(convId);
+    const recordOnly = files && (writing || Boolean(prev?.teamWrote));
     let found: WatchCheck;
     try {
-      found = await withLang(s.lang, () => this.checkTrigger!(trigger, prev, { cwd: conv.settings.cwd }));
+      found = await withLang(s.lang, () => this.checkTrigger!(trigger, prev, { cwd: conv.settings.cwd, now: started, recordOnly }));
     } catch (err) {
       if (this.stopped || conv.schedule !== s) return;
       const failures = (prev?.failures ?? 0) + 1;
@@ -176,14 +187,17 @@ export class Scheduler {
     }
     // Changed or removed while it was checked: the new one starts afresh.
     if (this.stopped || conv.schedule !== s) return;
+    // A run that began while the files were looked at writes there too.
+    const busy = writing || (files && this.orchestrator.folderInUse(convId));
     const seen: ScheduleWatch = {
       key,
       ...keptState(found.state),
       checkedAt: started,
       seenAt: started,
       nextCheckAt: nextCheckAt(this.now()),
+      ...(busy ? { teamWrote: true } : {}),
     };
-    if (!found.event) return this.keepWatch(conv, s, seen);
+    if (!found.event || recordOnly || busy) return this.keepWatch(conv, s, seen);
     const now = this.now();
     await withLang(s.lang, async () => {
       const sent = await this.orchestrator.sendScheduled(convId, now, { event: found.event, eventSource: trigger.source });
@@ -205,9 +219,11 @@ export class Scheduler {
       const current = conv.schedule;
       if (!current || current.repeat.kind !== 'event' || triggerKey(current.repeat.trigger) !== key) return;
       const { lastError: _error, lastChatId: _chat, watch: _watch, ...rest } = current;
+      // The run it started writes in the folder: what it writes is the team's own.
+      const runs = files && (sent.result === 'sent' || sent.result === 'queued');
       conv.schedule = {
         ...rest,
-        watch: seen,
+        watch: runs ? { ...seen, teamWrote: true } : seen,
         lastRunAt: now,
         lastResult: sent.result,
         ...('reason' in sent && sent.reason ? { lastError: sent.reason } : {}),

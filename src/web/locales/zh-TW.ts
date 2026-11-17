@@ -448,7 +448,7 @@ export const zhTW = {
   newSchedule: {
     title: '新自動任務',
     intro: (lead: string) =>
-      `自動任務會在你執行它、程式呼叫它的 webhook，或到了設定的時間時，把一則訊息傳給團隊。建立後，首席 agent（${lead}）會為這則訊息組隊；你確認團隊後，自動任務就可以執行。建立時不會先執行。`,
+      `自動任務會在你執行它、到了設定的時間、某件事發生（收到新郵件、行程即將開始、GitHub 上的新動態、檔案變動），或程式呼叫它的 webhook 時，把一則訊息傳給團隊。建立後，首席 agent（${lead}）會為這則訊息組隊；你確認團隊後，自動任務就可以執行。建立時不會先執行。`,
     schedule: '自動任務',
     titlePlaceholder: '對話名稱（選填，預設用訊息的第一行）',
     create: '建立自動任務',
@@ -579,7 +579,8 @@ export const zhTW = {
       account: '請選擇要檢查的郵件帳號',
       calendar: '請選擇要檢查的行事曆',
       minutes: (max: number) => `行程開始前的分鐘數要是 1 到 ${max} 的整數`,
-      repo: '請填 GitHub 儲存庫，格式是「擁有者/名稱」',
+      repo: '請填 GitHub 儲存庫，格式是「擁有者/名稱」（擁有者最多 39 個字元，名稱最多 100 個）',
+      branch: '分支名稱不是 git 接受的名稱：不能有空白或 ~^:?*[\\，不能有 ..，也不能以 - 開頭',
       pattern: '請填工作目錄中的檔案樣式（不能是絕對路徑，也不能有 ..）',
     },
     teamNote: (summary: string) => `這個對話有自動任務（${summary}），這裡的修改會套用到它之後的執行。`,
@@ -638,7 +639,7 @@ export const zhTW = {
       title: '標題包含（選填）',
       titlePlaceholder: '例如：站會',
       calendarHint: (minutes: number) =>
-        `Harness Relay 自己每 ${minutes} 分鐘檢查一次行事曆。每個行程（重複的行程每一次各算一個）在開始前這麼多分鐘時啟動一次，訊息裡有它的標題、時間、地點與參加者；全天的行程不算。第一次檢查只記下已經快開始的行程。`,
+        `Harness Relay 自己每 ${minutes} 分鐘檢查一次行事曆。每個行程（重複的行程每一次各算一個）在開始前這麼多分鐘時啟動一次，訊息裡有它的標題、時間、地點與參加者；全天的行程、取消的行程，以及時區這台電腦不認得的行程都不算。檢查失敗或延後時，期間開始的行程（最多一小時內）之後仍會送出，並註明已經開始。不會展開重複行程的 CalDAV 伺服器只給第一次的時間，之後幾次不會啟動它。第一次檢查只記下已經快開始的行程。`,
       repo: 'GitHub 儲存庫',
       repoPlaceholder: '擁有者/名稱，例如 octocat/hello-world',
       on: { pr: '有人開了 pull request', ci: '有 CI 執行失敗' },
@@ -646,11 +647,11 @@ export const zhTW = {
       branch: '分支（選填）',
       branchPlaceholder: '例如：main',
       githubHint: (minutes: number) =>
-        `Harness Relay 自己每 ${minutes} 分鐘用你自己的 GitHub CLI（gh，用 gh auth login 登入）檢查一次，不需要 webhook。第一次檢查只記下現有的；之後新開的 pull request（或失敗的 CI 執行）才會啟動它，一次檢查不管找到幾個都只送一次訊息。`,
+        `Harness Relay 自己每 ${minutes} 分鐘用你自己的 GitHub CLI（gh，用 gh auth login 登入）檢查一次，不需要 webhook。第一次檢查只記下現有的；之後新開的 pull request（或失敗、逾時、無法開始的 CI 執行，重新執行後又失敗的也算）才會啟動它，一次檢查不管找到幾個都只送一次訊息。`,
       pattern: '檔案樣式',
       patternPlaceholder: '例如：reports/*.csv、**/*.log',
-      fileHint: (minutes: number) =>
-        `在這個對話的工作目錄中，每 ${minutes} 分鐘看一次符合樣式的檔案（* 是一層資料夾裡的任何字，** 是任何幾層資料夾，? 是一個字元；不分大小寫；不看 .git 與 node_modules）。第一次只記下現有的；之後新出現或大小、修改時間變了的檔案才會啟動它，訊息裡只有檔名、大小與時間，沒有內容。`,
+      fileHint: (minutes: number, seconds: number) =>
+        `在這個對話的工作目錄中，每 ${minutes} 分鐘看一次符合樣式的檔案（* 是一層資料夾裡的任何字，** 是任何幾層資料夾，? 是一個字元；不分大小寫；不看 .git，樣式沒寫出來時也不看 node_modules 這類套件與建置資料夾）。第一次只記下現有的；之後新出現或大小、修改時間變了的檔案，停止變動 ${seconds} 秒後才會啟動它，訊息裡只有檔名、大小與時間，沒有內容。團隊在這個資料夾工作時變動的檔案算是團隊自己的，不會再啟動它。`,
     },
     goal: '追蹤的目標（選填）',
     goalPlaceholder: '例如：main 分支的 CI 全部通過，而且 issue #42 已關閉。',

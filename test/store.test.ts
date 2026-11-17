@@ -1894,11 +1894,25 @@ describe('Store schedules', () => {
         event: '{}',
       },
     );
+    // What each other source found, read back as that source (never as the webhook's).
+    for (const source of ['calendar', 'github', 'file'] as const)
+      conv.messages.push({
+        id: `m-${source}`,
+        author: { kind: 'user' },
+        createdAt: 3,
+        parts: [{ type: 'text', text: source }],
+        status: 'done',
+        scheduled: true,
+        event: `{"source":"${source}"}`,
+        eventSource: source,
+      });
     for (const m of conv.messages) store.saveMessage(conv.id, m, true);
+    // A source this version does not know (written by a newer one) reads as the webhook's.
+    db.prepare("UPDATE messages SET event_source = 'rss' WHERE id = 'm2'").run();
     const reopened = new Store(reopen());
     const back = reopened.get(conv.id)!;
     expect(back.schedule).toEqual(conv.schedule);
-    expect(back.messages.map((m) => m.eventSource)).toEqual(['mail', undefined]);
+    expect(back.messages.map((m) => m.eventSource)).toEqual(['mail', undefined, 'calendar', 'github', 'file']);
     // Only an automation that watches something keeps a watch.
     back.schedule = { ...back.schedule!, repeat: { kind: 'daily', time: '09:00' } };
     reopened.saveSchedule(back);

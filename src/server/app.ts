@@ -69,7 +69,7 @@ import { copyGrokTrust, restoreGrokTrustAll, trustGrokFolderAll } from './grokTr
 import { NativeSetupService, listedFile, nativeForClient } from './native';
 import type { Hub } from './hub';
 import { byteRange, contentDisposition, mediaRoots, mediaType, resolveDownload, resolveMedia } from './media';
-import { HttpError, forClient, titleFrom, type Orchestrator } from './orchestrator';
+import { HttpError, forClient, scheduleForClient, titleFrom, type Orchestrator } from './orchestrator';
 import { KeyOnlyAccountError, type ProviderService } from './providers';
 import type { SettingsStore } from './settings';
 import { fileLinkCount, fileLinksIn, replaceFileLinks, shareFileHref, shareSize } from '../shared/share';
@@ -1435,7 +1435,7 @@ export function createApp({
     conv.schedule = schedule;
     store.saveSchedule(conv);
     orchestrator.emitConversation(conv);
-    return c.json(schedule);
+    return c.json(scheduleForClient(schedule));
   });
 
   /** An automation that starts when something happens, when it is on, waits for something that is there: a mail account or calendar from Settings. */
@@ -1454,7 +1454,8 @@ export function createApp({
     if (conv.schedule?.repeat.kind !== 'event') throw new HttpError(409, t().watchNotEvent);
     if (!scheduler) throw new HttpError(503, t().watchNoScheduler);
     await scheduler.check(conv.id, true);
-    return c.json(store.get(conv.id)?.schedule ?? null);
+    const s = store.get(conv.id)?.schedule;
+    return c.json(s ? scheduleForClient(s) : null);
   });
 
   // A webhook for the schedule: a new token (replacing the one it had), shown this once; only its hash is kept.

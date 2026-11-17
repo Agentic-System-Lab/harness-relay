@@ -126,3 +126,47 @@ export function upcomingRuns(s: Pick<ConversationSchedule, 'repeat' | 'timeZone'
   for (let at = nextRun(s, after); at !== undefined && out.length < count; at = nextRun(s, at)) out.push(at);
   return out;
 }
+
+/*
+ * What an automation that starts when something happens waits for, as the form and the server both
+ * check it (`draftProblems()` in the browser, `validTrigger()` on the server), so that they agree.
+ */
+
+/** A GitHub repository as it is kept: `owner/name`, from that or its address on github.com. */
+export function repoName(v: string): string {
+  return v
+    .trim()
+    .replace(/^https:\/\/github\.com\//i, '')
+    .replace(/(\.git)?\/?$/, '');
+}
+
+/** Whether `owner/name` can be a GitHub repository: an owner of at most 39 characters, a name of at most 100 (never `.` or `..`). */
+export function validRepo(repo: string): boolean {
+  const m = /^([A-Za-z0-9][A-Za-z0-9-]{0,38})\/([A-Za-z0-9_.][A-Za-z0-9_.-]{0,99})$/.exec(repo);
+  return Boolean(m) && m![2] !== '.' && m![2] !== '..';
+}
+
+/**
+ * Whether git allows a branch's name, as far as `gh run list --branch` needs: no spaces or control
+ * characters, none of `~^:?*[\`, no `..` or `@{`, and not starting with `-` (it would read as an option)
+ * or `/`, nor ending with `/`, `.` or `.lock`.
+ */
+export function validBranch(branch: string): boolean {
+  if (!branch || branch.startsWith('-') || branch.startsWith('/') || branch.endsWith('/') || branch.endsWith('.')) return false;
+  if (branch.endsWith('.lock') || branch.includes('..') || branch.includes('@{') || branch.includes('//')) return false;
+  return !/[\s~^:?*[\\\u0000-\u001f\u007f]/.test(branch);
+}
+
+/**
+ * A file pattern as it is kept: `/` between folders, without the `./` it may start with; undefined when
+ * it does not stay inside the working directory (a full path, a drive, `..`) or is empty (`./` too).
+ */
+export function filePattern(v: string): string | undefined {
+  const pattern = v
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^(?:\.\/)+/, '');
+  if (!pattern || pattern === '.' || pattern.startsWith('/') || /^[A-Za-z]:/.test(pattern)) return undefined;
+  if (pattern.split('/').some((p) => p === '..')) return undefined;
+  return pattern;
+}

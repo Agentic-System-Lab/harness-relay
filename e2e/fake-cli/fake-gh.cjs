@@ -10,6 +10,12 @@
  *   own (secret unless `--public`), and prints its address, `https://gist.github.com/relay-e2e/<id>`;
  * - `gist delete <id> --yes`: deletes it (HTTP 404 for a gist it does not have);
  * - `api gists/<id> --silent`: whether it has that gist (HTTP 404 when it does not);
+ * - `pr list --repo <owner/name> … --limit <n> --json <fields>` and `run list --repo <owner/name>
+ *   [--branch <name>] … --limit <n> --json <fields>`, which an automation that waits for GitHub runs
+ *   (`src/server/watch.ts`): the repository's pull requests, or its runs (those on the branch), as the
+ *   test wrote them in `fake-github/repos/<owner>/<name>/pulls.json` and `runs.json` (none when not
+ *   there), the newest first as gh lists them, at most `--limit`; a repository without a folder there
+ *   fails as gh does for one it cannot find;
  * - `--version`.
  * Anything else fails ("not faked"): the files that go along with a page take `gh api` and a git push
  * to GitHub, so a share with files fails before git is started.
@@ -71,6 +77,7 @@ async function main() {
   const [cmd, sub, ...rest] = args;
   if (cmd === 'gist' && sub === 'create') return create(rest);
   if (cmd === 'gist' && sub === 'delete') return remove(rest);
+  if ((cmd === 'pr' || cmd === 'run') && sub === 'list') return list(github, cmd, rest);
   if (cmd === 'api' && rest.length === 1 && rest[0] === '--silent' && /^gists\/[^/?]+$/.test(sub || '')) {
     const id = sub.slice('gists/'.length);
     if (!validId(id) || !fs.existsSync(gistDir(id))) notFound(id);
@@ -122,6 +129,25 @@ async function create(rest) {
   fs.writeFileSync(path.join(gistDir(id), 'gist.json'), JSON.stringify({ id, description, public: isPublic, files: [file] }, null, 2));
   process.stderr.write(`- Creating gist ${file}\n✓ Created ${isPublic ? 'public' : 'secret'} gist ${file}\n`);
   process.stdout.write(`https://gist.github.com/relay-e2e/${id}\n`);
+}
+
+/** `pr list` or `run list` of a repository the test set up: what its file says, as gh prints it with `--json`. */
+function list(github, cmd, rest) {
+  const flag = (name) => {
+    const i = rest.indexOf(name);
+    return i >= 0 ? rest[i + 1] : undefined;
+  };
+  const repo = flag('--repo') || '';
+  const limit = Number(flag('--limit') || 30);
+  if (!flag('--json')) fail(`fake gh: not faked: gh ${cmd} list without --json`);
+  if (!/^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/.test(repo) || !fs.existsSync(path.join(github, 'repos', ...repo.split('/')))) {
+    fail(`GraphQL: Could not resolve to a Repository with the name '${repo}'. (repository)`);
+  }
+  const file = path.join(github, 'repos', ...repo.split('/'), cmd === 'pr' ? 'pulls.json' : 'runs.json');
+  let items = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : [];
+  const branch = flag('--branch');
+  if (cmd === 'run' && branch) items = items.filter((r) => r.headBranch === branch);
+  process.stdout.write(`${JSON.stringify(items.slice(0, limit))}\n`);
 }
 
 /** `gist delete <id> --yes` (without --yes gh would ask, which it cannot here). */

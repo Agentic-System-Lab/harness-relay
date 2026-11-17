@@ -75,6 +75,7 @@ function eventLine(e: CalendarEvent): string {
   return dataBody(
     [
       `- ${dataLine(e.start)}${dataLine(end)}: ${dataLine(e.summary) || '(no title)'}`,
+      ...(e.cancelled ? ['  cancelled'] : []),
       ...(e.location ? [`  at ${dataLine(e.location)}`] : []),
       ...(e.repeats ? [`  repeats: ${dataLine(e.repeats)}`] : []),
       ...(e.attendees.length ? [`  with ${dataLine(e.attendees.join(', '))}`] : []),

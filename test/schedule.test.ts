@@ -389,14 +389,47 @@ describe('the schedule form', () => {
     expect(calRepeat).toEqual({ kind: 'event', trigger: { source: 'calendar', account: 'home', minutes: 15, title: 'standup' } });
     expect(describeRepeat(calRepeat, en, 'en')).toBe('15 minutes before each event with "standup" in its title begins');
     expect(describeRepeat(calRepeat, zhTW, 'zh-TW')).toBe('標題含「standup」的行程開始前 15 分鐘');
+    // One minute is a minute.
+    expect(describeRepeat({ kind: 'event', trigger: { source: 'calendar', account: 'home', minutes: 1 } }, en, 'en')).toBe(
+      '1 minute before each event begins',
+    );
+    expect(describeRepeat({ kind: 'event', trigger: { source: 'calendar', account: 'home', minutes: 1 } }, zhTW, 'zh-TW')).toBe(
+      '每個行程開始前 1 分鐘',
+    );
     const savedCal: ConversationSchedule = { ...saved, repeat: calRepeat, nextRunAt: undefined };
     expect(draftFrom(savedCal, MON).trigger).toMatchObject({ source: 'calendar', calendar: 'home', minutes: 15, title: 'standup' });
     expect(draftChanged(draftFrom(savedCal, MON), savedCal)).toBe(false);
 
-    // GitHub: owner/name (or its address), a branch for CI runs only.
-    expect(draftProblems(withTrigger({ source: 'github', repo: 'not a repo' }), MON, en)).toEqual([
-      'Give the GitHub repository as owner/name',
-    ]);
+    // GitHub: owner/name (or its address), as the server takes it (an owner of at most 39 characters, a
+    // name of at most 100), and a branch git allows for CI runs only.
+    const badRepo = ['Give the GitHub repository as owner/name (an owner of at most 39 characters, a name of at most 100)'];
+    for (const repo of ['not a repo', `${'o'.repeat(40)}/app`, `octo/${'a'.repeat(101)}`, 'octo/..', '-octo/app'])
+      expect(draftProblems(withTrigger({ source: 'github', repo }), MON, en)).toEqual(badRepo);
+    expect(draftProblems(withTrigger({ source: 'github', repo: `${'o'.repeat(39)}/${'a'.repeat(100)}` }), MON, en)).toEqual([]);
+    const badBranch = ['The branch is not a name git allows: no spaces, none of ~^:?*[\\, no .., and not starting with -'];
+    for (const branch of ['my branch', 'a~1', 'a^', 'a:b', 'a?', 'a*', 'a[b', 'a\\b', 'a..b', '-x'])
+      expect(draftProblems(withTrigger({ source: 'github', repo: 'octo/app', on: 'ci', branch }), MON, en)).toEqual(badBranch);
+    // What git allows beyond letters and digits: slashes, plus signs, @, other scripts.
+    for (const branch of ['feature/x+y', 'release@2026', '修正-1', 'v1.2'])
+      expect(draftProblems(withTrigger({ source: 'github', repo: 'octo/app', on: 'ci', branch }), MON, en)).toEqual([]);
+    // The server agrees with the form, either way.
+    const serverTakes = (trigger: Record<string, unknown>) => {
+      try {
+        withLang('en', () => validateSchedule({ text: 'go', repeat: { kind: 'event', trigger } }, MON));
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    for (const repo of ['not a repo', `${'o'.repeat(40)}/app`, `octo/${'a'.repeat(101)}`, 'octo/..', '-octo/app'])
+      expect(serverTakes({ source: 'github', repo, on: 'pr' })).toBe(false);
+    expect(serverTakes({ source: 'github', repo: `${'o'.repeat(39)}/${'a'.repeat(100)}`, on: 'pr' })).toBe(true);
+    for (const branch of ['my branch', 'a~1', 'a..b', '-x'])
+      expect(serverTakes({ source: 'github', repo: 'o/a', on: 'ci', branch })).toBe(false);
+    for (const branch of ['feature/x+y', 'release@2026', '修正-1'])
+      expect(serverTakes({ source: 'github', repo: 'o/a', on: 'ci', branch })).toBe(true);
+    for (const pattern of ['./', '././', '../x']) expect(serverTakes({ source: 'file', pattern })).toBe(false);
+    expect(serverTakes({ source: 'file', pattern: '././reports/*.csv' })).toBe(true);
     const pr = withTrigger({ source: 'github', repo: 'https://github.com/octo/app', on: 'pr', branch: 'main' });
     expect(draftProblems(pr, MON, en)).toEqual([]);
     expect(toUpdate(pr).repeat).toEqual({ kind: 'event', trigger: { source: 'github', repo: 'octo/app', on: 'pr' } });
@@ -407,8 +440,8 @@ describe('the schedule form', () => {
     expect(describeRepeat(ci, en, 'en')).toBe('When a CI run fails in octo/app on main');
     expect(describeRepeat(ci, zhTW, 'zh-TW')).toBe('octo/app 的 main 分支有 CI 執行失敗時');
 
-    // A file: a pattern inside the working directory.
-    for (const pattern of ['', '/etc/x', 'C:\\x', '../x', 'a/../b']) {
+    // A file: a pattern inside the working directory (`./` alone is none).
+    for (const pattern of ['', './', '/etc/x', 'C:\\x', '../x', 'a/../b']) {
       expect(draftProblems(withTrigger({ source: 'file', pattern }), MON, en)).toEqual([
         'Give a pattern for files in the working directory (not a full path, and without ..)',
       ]);

@@ -21,6 +21,7 @@ export interface FakeEvent {
   end: { dateTime: string; timeZone: string };
   location?: { displayName: string };
   attendees?: { emailAddress: { address: string } }[];
+  isCancelled?: boolean;
 }
 
 /** An answer of the token endpoint: its status and JSON body. */

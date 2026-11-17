@@ -1437,9 +1437,10 @@ export const SCHEDULE_KINDS: ScheduleRepeat['kind'][] = ['manual', 'once', 'dail
  * - `calendar`: an event of a calendar from Settings (by its id) about to begin, `minutes` before it
  *   does, whose title contains the words given, when given; all-day events are left out.
  * - `github`: in a repository (`owner/name`), through the user's own `gh`: a pull request opened
- *   (`pr`), or a CI run that failed (`ci`, on `branch` when given).
+ *   (`pr`), or a CI run that failed, timed out or could not start (`ci`, on `branch` when given).
  * - `file`: a file in the conversation's working directory, whose path there matches `pattern` (`*`
- *   within a folder, `**` across folders, `?` one character), appearing or changing.
+ *   within a folder, `**` across folders, `?` one character), appearing or changing; not while a run
+ *   writes in that folder (what the team writes is its own).
  */
 export type ScheduleTrigger =
   | { source: 'mail'; account: string; folder: string; from?: string; subject?: string }
@@ -1472,12 +1473,24 @@ export interface ScheduleWatch {
   /** `mail`: the folder's UIDVALIDITY, and the highest UID seen. */
   uidValidity?: number;
   lastUid?: number;
-  /** `github`: the highest pull request number, or CI run id, seen. */
+  /** `github` pull requests: the highest number seen. */
   lastId?: number;
-  /** `calendar`: the events already seen about to begin (`<uid>@<start>`), those not long past. */
+  /**
+   * `calendar`: the events already seen about to begin (`<uid>@<start>`), those not long past.
+   * `github` CI runs: the failed runs seen (`<run id>:<attempt>`), those still among the newest first.
+   */
   seen?: string[];
+  /** `calendar`: when its last check that worked was (its window starts there, an hour back at most). */
+  lookedAt?: number;
   /** `file`: each matching file's path in the working directory, with its size and when it changed (`<mtime>:<size>`). */
   files?: Record<string, string>;
+  /** `file`: the working directory those files were found in (another one starts afresh). */
+  filesIn?: string;
+  /**
+   * `file`: a run was writing in the working directory at a check, or the check's message started one:
+   * what changed there is the team's own, so the next check with the folder free only records too.
+   */
+  teamWrote?: boolean;
   /** The last check failed: why, and how many checks failed in a row (they come slower). */
   error?: string;
   failures?: number;
@@ -1486,14 +1499,15 @@ export interface ScheduleWatch {
 }
 
 /** What a check keeps of an automation's source (`ScheduleWatch`), apart from when and how it went. */
-export type WatchState = Pick<ScheduleWatch, 'uidValidity' | 'lastUid' | 'lastId' | 'seen' | 'files'>;
+export type WatchState = Pick<ScheduleWatch, 'uidValidity' | 'lastUid' | 'lastId' | 'seen' | 'lookedAt' | 'files' | 'filesIn'>;
 
 /**
  * The checks of an automation that starts when something happens: every `checkMinutes`, slower after
  * errors (`backoffMinutes`, one more step for each in a row), at most `items` new items listed in the
  * run's message (the newest; how many more came is said), `excerptChars` of each mail's text, a
  * condition or other text field of at most `field` characters, an event's `minutes` before it begins
- * from 1 to `maxMinutes`, and at most `files` files matching a file trigger's pattern.
+ * from 1 to `maxMinutes`, at most `files` files matching a file trigger's pattern, and a file listed
+ * once it has not changed for `settleSeconds` (it may still be being written).
  */
 export const WATCH_LIMITS = {
   checkMinutes: 2,
@@ -1503,6 +1517,7 @@ export const WATCH_LIMITS = {
   field: 200,
   maxMinutes: 1440,
   files: 2000,
+  settleSeconds: 30,
 };
 
 /**

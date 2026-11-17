@@ -69,6 +69,7 @@ interface GraphEvent {
   location?: { displayName?: string };
   bodyPreview?: string;
   attendees?: { emailAddress?: { address?: string; name?: string } }[];
+  isCancelled?: boolean;
 }
 
 const DAY_MS = 86_400_000;
@@ -119,6 +120,7 @@ export function graphEvent(e: GraphEvent): CalendarEvent {
     // No `repeats`: `calendarView` lists each time of a recurring event apart, as an event of its own.
     attendees: (e.attendees ?? []).flatMap((a) => (a.emailAddress?.address ? [a.emailAddress.address] : [])),
     ...(allDay ? {} : moment(e.start)),
+    ...(e.isCancelled ? { cancelled: true } : {}),
   };
 }
 
@@ -136,7 +138,7 @@ function utc(ms: number): string {
 
 /** The events of a calendar (its Graph address) between two moments, each time of a recurring one on its own. */
 export async function graphEvents(fetch: AuthorizedFetch, calendar: string, from: number, to: number): Promise<CalendarEvent[]> {
-  const select = 'id,iCalUId,subject,isAllDay,start,end,originalStartTimeZone,originalEndTimeZone,location,bodyPreview,attendees';
+  const select = 'id,iCalUId,subject,isAllDay,start,end,originalStartTimeZone,originalEndTimeZone,location,bodyPreview,attendees,isCancelled';
   let next: string | undefined =
     `${calendar.replace(/\/+$/, '')}/calendarView?startDateTime=${encodeURIComponent(`${utc(from)}Z`)}` +
     `&endDateTime=${encodeURIComponent(`${utc(to)}Z`)}&$top=200&$orderby=start/dateTime&$select=${select}`;

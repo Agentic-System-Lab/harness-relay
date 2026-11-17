@@ -30,6 +30,8 @@ export interface CalendarEvent {
    * before an event (`watch.ts`); the tools show `start`.
    */
   at?: number;
+  /** It was cancelled (iCalendar's `STATUS:CANCELLED`, Graph's `isCancelled`): an automation leaves it out. */
+  cancelled?: boolean;
 }
 
 /** The moment a DTSTART at a time starts (`at`), or undefined for a date, or a time zone not known here. */
@@ -168,6 +170,7 @@ export function parseEvents(ics: string): CalendarEvent[] {
     else if (name === 'LOCATION') ev.location = unescapeText(value);
     else if (name === 'DESCRIPTION') ev.description = unescapeText(value).slice(0, 2000);
     else if (name === 'RRULE') ev.repeats = value;
+    else if (name === 'STATUS' && value.trim().toUpperCase() === 'CANCELLED') ev.cancelled = true;
     else if (name === 'ATTENDEE') ev.attendees.push(value.replace(/^mailto:/i, ''));
   }
   return out;
@@ -349,9 +352,13 @@ async function failure(res: Response, what: string): Promise<Error> {
   return new Error(t().conn.calStatus(what, `${res.status} ${res.statusText}`.trim()));
 }
 
+/** The answers a server that cannot expand recurring events gives a REPORT asking it to: asked again without. */
+const NO_EXPAND = new Set([400, 403, 415, 501]);
+
 /**
  * The events between two moments. `expand`: each time of a recurring event on its own, as the server
- * expands it (RFC 4791's `expand`, in UTC); a server that does not gives a recurring event's first time.
+ * expands it (RFC 4791's `expand`, in UTC); a server that refuses that (`NO_EXPAND`) is asked once more
+ * without it, and one that does not expand gives a recurring event's first time only.
  */
 export async function listEvents(
   url: string,
@@ -361,18 +368,25 @@ export async function listEvents(
   timeoutMs = 30_000,
   expand = false,
 ): Promise<CalendarEvent[]> {
-  const data = expand ? `<c:calendar-data><c:expand start="${utc(from)}" end="${utc(to)}"/></c:calendar-data>` : '<c:calendar-data/>';
-  const body = `<?xml version="1.0" encoding="utf-8"?>
+  const report = (expanded: boolean) => {
+    const data = expanded ? `<c:calendar-data><c:expand start="${utc(from)}" end="${utc(to)}"/></c:calendar-data>` : '<c:calendar-data/>';
+    const body = `<?xml version="1.0" encoding="utf-8"?>
 <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
   <d:prop><d:getetag/>${data}</d:prop>
   <c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT"><c:time-range start="${utc(from)}" end="${utc(to)}"/></c:comp-filter></c:comp-filter></c:filter>
 </c:calendar-query>`;
-  const res = await send(login, url, {
-    method: 'REPORT',
-    headers: { depth: '1', 'content-type': 'application/xml; charset=utf-8' },
-    body,
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+    return send(login, url, {
+      method: 'REPORT',
+      headers: { depth: '1', 'content-type': 'application/xml; charset=utf-8' },
+      body,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  };
+  let res = await report(expand);
+  if (expand && NO_EXPAND.has(res.status)) {
+    await res.body?.cancel().catch(() => undefined);
+    res = await report(false);
+  }
   if (res.status !== 207 && res.status !== 200) throw await failure(res, t().conn.calListFailed);
   const xml = await answerText(res);
   return calendarData(xml).flatMap(parseEvents);

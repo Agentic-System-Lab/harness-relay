@@ -10,7 +10,7 @@ import {
   type ScheduleUpdate,
   type ScheduleWatch,
 } from '../shared/types';
-import { parseTime, upcomingRuns } from '../shared/schedule';
+import { filePattern, parseTime, repoName, upcomingRuns, validBranch, validRepo } from '../shared/schedule';
 import type { Messages } from './i18n';
 
 /** The schedule drawer's form: every kind's fields are kept, so switching kinds and back loses nothing. */
@@ -105,14 +105,6 @@ export function triggerOf(d: TriggerDraft): ScheduleTrigger {
     case 'file':
       return { source: 'file', pattern: d.pattern.trim() };
   }
-}
-
-/** A GitHub repository as the form takes it: `owner/name`, or its address on github.com. */
-export function repoName(v: string): string {
-  return v
-    .trim()
-    .replace(/^https:\/\/github\.com\//i, '')
-    .replace(/(\.git)?\/?$/, '');
 }
 
 /** The time zone of this browser. */
@@ -251,12 +243,9 @@ export function draftProblems(d: ScheduleDraft, now: number, t: Messages): strin
       if (tr.source === 'calendar' && !tr.calendar) out.push(p.calendar);
       if (tr.source === 'calendar' && (!Number.isInteger(tr.minutes) || tr.minutes < 1 || tr.minutes > WATCH_LIMITS.maxMinutes))
         out.push(p.minutes(WATCH_LIMITS.maxMinutes));
-      if (tr.source === 'github' && !/^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9_.][A-Za-z0-9_.-]*$/.test(repoName(tr.repo))) out.push(p.repo);
-      if (
-        tr.source === 'file' &&
-        (!tr.pattern.trim() || /^([/\\]|[A-Za-z]:)/.test(tr.pattern.trim()) || /(^|[/\\])\.\.([/\\]|$)/.test(tr.pattern))
-      )
-        out.push(p.pattern);
+      if (tr.source === 'github' && !validRepo(repoName(tr.repo))) out.push(p.repo);
+      if (tr.source === 'github' && tr.on === 'ci' && tr.branch.trim() && !validBranch(tr.branch.trim())) out.push(p.branch);
+      if (tr.source === 'file' && !filePattern(tr.pattern)) out.push(p.pattern);
       break;
     }
   }
@@ -376,7 +365,7 @@ export function scheduleBadgeTitle(s: ConversationSchedule, t: Messages, lang: s
 
 /**
  * How the checks of what an automation waits for are going: when it was last checked and is checked
- * next, or why the last check failed, or that new mail waits for the team.
+ * next, or why the last check failed, or that something new it found waits for the team.
  */
 export function watchState(w: ScheduleWatch | undefined, t: Messages, lang: string): string {
   const m = t.schedule.watch;

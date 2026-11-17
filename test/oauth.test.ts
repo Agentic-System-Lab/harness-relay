@@ -787,6 +787,25 @@ describe('calendars through a sign-in', () => {
         start: { dateTime: '2026-01-05T09:30:00', timeZone: 'Asia/Taipei' },
       }),
     ).toEqual({ uid: 'ical-x', summary: 'S', start: '2026-01-05 09:30 (Asia/Taipei)', attendees: [] });
+    // In UTC, as Graph gives it when asked to (seven digits after the second): the moment it starts,
+    // for an automation that starts before it; a cancelled one says so.
+    expect(
+      graphEvent({
+        id: 'u',
+        subject: 'Standup',
+        start: { dateTime: '2026-01-05T09:30:15.0000000', timeZone: 'UTC' },
+        isCancelled: true,
+      }),
+    ).toEqual({
+      uid: 'u',
+      summary: 'Standup',
+      start: '2026-01-05 09:30 UTC',
+      attendees: [],
+      at: Date.UTC(2026, 0, 5, 9, 30, 15),
+      cancelled: true,
+    });
+    // An all-day one has no moment.
+    expect(graphEvent({ id: 'd', isAllDay: true, start: { dateTime: '2026-01-06T00:00:00.0000000', timeZone: 'UTC' } }).at).toBeUndefined();
     const allDay = (start: string, end: string) => {
       const e = graphEvent({
         id: 'd',
