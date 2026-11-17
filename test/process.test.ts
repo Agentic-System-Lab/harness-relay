@@ -138,6 +138,25 @@ describe('runProcess', () => {
   });
 });
 
+describe('two pipes on fds 3 and 4 (a browser\'s debugging pipe)', () => {
+  it.skipIf(process.platform === 'win32')('gives the end to write to (fd 3) and the end to read from (fd 4)', async () => {
+    const script = "const fs = require('fs'); const r = fs.createReadStream(null, { fd: 3 }); const w = fs.createWriteStream(null, { fd: 4 }); r.on('data', (d) => w.write(String(d).toUpperCase() + '\\0')); r.on('end', () => w.end());";
+    let got = '';
+    const done = runProcess({
+      bin: process.execPath,
+      args: ['-e', script],
+      env: process.env,
+      pipes: (write, read) => {
+        read.on('data', (d: Buffer) => (got += d.toString()));
+        write.end('hello');
+      },
+    });
+    const result = await done;
+    expect(result.code).toBe(0);
+    await vi.waitFor(() => expect(got).toBe('HELLO\0'));
+  });
+});
+
 describe('runSync', () => {
   it('runs a quick probe directly, with its input, and kills one that outlives its timeout even if it ignores SIGTERM', () => {
     const r = runSync(process.execPath, ['-e', 'process.stdin.pipe(process.stdout)'], { timeoutMs: 10_000, input: 'a; $(echo b)' });

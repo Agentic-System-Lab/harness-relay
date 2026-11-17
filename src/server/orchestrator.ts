@@ -554,6 +554,8 @@ export class Orchestrator {
   /** Harness Relay's own tools (`gateway.ts`), when the server runs them, and their outbox. */
   gateway?: ToolGateway;
   outbox?: Outbox;
+  /** Told when a conversation is deleted (its browser closes, and its profile goes). */
+  onDelete?: (convId: string) => void;
 
   constructor(
     private store: Store,
@@ -708,6 +710,7 @@ export class Orchestrator {
       }
       this.traces?.forget?.(convId);
       this.outbox?.forget(convId);
+      this.onDelete?.(convId);
     } finally {
       this.deleting.delete(convId);
     }

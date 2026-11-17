@@ -48,6 +48,11 @@ export interface SpawnOptions {
   keepStart?: boolean;
   /** A control channel for the process, on its fd 3 (see `ControlChannel`; also taken from `env`). */
   channel?: ControlChannel;
+  /**
+   * Two pipes on its fds 3 and 4, as Chromium's `--remote-debugging-pipe` reads its commands from fd 3
+   * and writes its answers to fd 4: given the end to write to and the end to read from. Not with `channel`.
+   */
+  pipes?: (write: Duplex, read: Duplex, child: ChildProcess) => void;
 }
 
 export interface SpawnResult {
@@ -283,9 +288,24 @@ function supervise(name: string, o: RunOptions, start: (options: ChildOptions) =
       detached: !needsConsole(name),
       // On Windows, no window: a console given to the child is hidden.
       windowsHide: true,
-      stdio: [o.stdin === undefined && !o.keepStdinOpen ? 'ignore' : 'pipe', 'pipe', 'pipe', ...(channel ? ['pipe' as const] : [])],
+      stdio: [o.stdin === undefined && !o.keepStdinOpen ? 'ignore' : 'pipe', 'pipe', 'pipe', ...(channel ? ['pipe' as const] : o.pipes ? ['pipe' as const, 'pipe' as const] : [])],
     });
     live.add(child);
+    if (o.pipes && !channel) {
+      const [write, read] = [child.stdio[3] as Duplex | null | undefined, child.stdio[4] as Duplex | null | undefined];
+      if (write && read) {
+        for (const end of [write, read]) {
+          end.on('error', () => {
+            /* the process may exit while the server still writes */
+          });
+        }
+        try {
+          o.pipes(write, read, child);
+        } catch (err) {
+          console.error('[process] pipes failed:', err);
+        }
+      }
+    }
     if (channel) {
       const end = child.stdio[3] as Duplex | null | undefined;
       if (end) {

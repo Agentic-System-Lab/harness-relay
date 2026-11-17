@@ -17,15 +17,18 @@ import { ProviderService } from './providers';
 import { PushService } from './push';
 import { Scheduler } from './scheduler';
 import { ToolGateway, outboxTool } from './gateway';
+import { findBrowser } from './browser/find';
+import { BrowserService } from './browser/session';
+import { browserTools } from './browser/tools';
 import { Outbox } from './outbox';
 import { clearShareTmp } from './share';
 import { openSecretStore, openSystemKeyring, type SecretStore } from './secrets';
 import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
 import { clearRunTmp, dataDirInTemp, makeCodespaceGhDir, relayTmpDir, voiceDirProblem } from './protect';
-import { CONFIG_PROBLEMS } from './config';
+import { CONFIG, CONFIG_PROBLEMS } from './config';
 import { OPEN_PROVIDERS, type Lang } from '../shared/types';
 import { RUN_TMP_DIR, clearOpenRunLeftovers } from './agents/open';
-import { clearRelaySandboxLeftovers, gatewayNode, noteListeningPort, relaySandboxHostRoot, relaySandboxRoot } from './relaySandbox';
+import { clearRelaySandboxLeftovers, gatewayNode, localAddresses, noteListeningPort, relayPorts, relaySandboxHostRoot, relaySandboxRoot } from './relaySandbox';
 import { Store } from './store';
 import { VoiceService } from './voice';
 import { CliInstaller } from './cliInstall';
@@ -110,7 +113,14 @@ const orchestrator = new Orchestrator(
 // one MCP server of Harness Relay's (the gateway), and the outbox of what they asked to send.
 const outbox = new Outbox(db);
 const gateway = new ToolGateway(DATA_DIR, relayTmpDir(), () => gatewayNode());
-gateway.register([outboxTool((id) => outbox.list(id))]);
+const browser = new BrowserService({
+  dataDir: DATA_DIR,
+  executable: () => findBrowser({ configured: CONFIG.browser }),
+  relayPorts: () => relayPorts(),
+  own: () => localAddresses(),
+});
+gateway.register([outboxTool((id) => outbox.list(id)), ...browserTools(browser)]);
+orchestrator.onDelete = (id) => void browser.close(id, true);
 orchestrator.gateway = gateway;
 orchestrator.outbox = outbox;
 settings.tools.gatewayStatus = () => {
@@ -241,6 +251,7 @@ async function shutdown(code = 0): Promise<void> {
   alerts.stop();
   orchestrator.stopAll();
   void gateway.stop();
+  browser.closeAll();
   providers.shutdown();
   voice.shutdown();
   // Installs under way stop; each cleans up after itself (on Windows, the user's PATH put back).

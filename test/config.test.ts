@@ -88,6 +88,10 @@ describe('server configuration from the environment', () => {
   it("takes voice input's folder as an absolute path, or one from the home folder", () => {
     expect(readConfig({ RELAY_VOICE_DIR: '/srv/relay-voice/' })).toMatchObject({ config: { voiceDir: resolve('/srv/relay-voice') }, problems: [] });
     expect(readConfig({ RELAY_VOICE_DIR: '~/models/voice' }).config.voiceDir).toBe(join(homedir(), 'models/voice'));
+    // The browser the browser tools start, the same way.
+    expect(readConfig({ RELAY_BROWSER: '/opt/chromium/chrome' })).toMatchObject({ config: { browser: resolve('/opt/chromium/chrome') }, problems: [] });
+    expect(readConfig({}).config.browser).toBeUndefined();
+    expect(readConfig({ RELAY_BROWSER: 'chrome' }).problems).toEqual(['RELAY_BROWSER=chrome is not an absolute path (or one starting with ~/).']);
     expect(readConfig({ RELAY_VOICE_DIR: '~' }).config.voiceDir).toBe(homedir());
     // A relative one would depend on the folder the server starts in (the desktop app's own).
     const relative = readConfig({ RELAY_VOICE_DIR: 'voice-models' });
