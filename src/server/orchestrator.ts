@@ -2960,13 +2960,12 @@ export class Orchestrator {
       const freshState = emptyState;
       emptyState = false;
       const model = await this.modelFor(agent.provider, agent.model, account);
-      // The open agents run their MCP servers in Harness Relay's own sandbox, which does not open the gateway's socket;
-      // Grok's own sandbox covers its MCP servers too below full access (`GATEWAY_FULL_ACCESS_ONLY`).
+      // Below full access, Grok's sandbox and the open agents' (Harness Relay's own) hold the MCP servers they
+      // start with their commands, kept from the program and its token: full access only (`GATEWAY_FULL_ACCESS_ONLY`).
       const relay =
         this.gateway &&
         this.outbox &&
         tools.relayGroups.length &&
-        !isOpenProvider(agent.provider) &&
         (conv.settings.permission === 'full' || !GATEWAY_FULL_ACCESS_ONLY.includes(agent.provider))
           ? this.gateway.grant(
               {

@@ -8,7 +8,7 @@ import { en } from '../../src/web/locales/en';
 import { emptyLibraryText, noneForCliText, toolsHintText } from '../../src/web/tools';
 import { expect, test } from '../fixtures';
 import { acceptNextDialog, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
-import { chatOf, eachHalf, libraryEnv, logged, skillReadAsks, teamOf, type Cli } from '../support/clis';
+import { chatOf, eachHalf, libraryEnv, logged, skillReadAsks, teamOf, withClis, type Cli } from '../support/clis';
 import type { RelayServer } from '../support/relay';
 
 /*
@@ -598,6 +598,41 @@ test("a member reaches Harness Relay's own tools through its MCP gateway, and a 
   } finally {
     await smtp.close();
   }
+});
+
+// OpenCode's fake installed for it, besides Claude Code, Codex and Grok.
+test.describe(() => {
+  withClis('opencode');
+
+  test("in full access, an open agent (OpenCode) reaches Harness Relay's own tools too, and its mail waits in the outbox", async ({
+    page,
+    relay,
+  }) => {
+    // A mail account that is never reached: the mail only waits in the outbox here.
+    await relay.api('/api/connectors/mail/work', {
+      method: 'PUT',
+      body: {
+        name: 'Work',
+        address: 'Me <me@example.com>',
+        username: 'me@example.com',
+        password: 'app-pass',
+        imap: { host: '127.0.0.1', port: 9, security: 'none' },
+        smtp: { host: '127.0.0.1', port: 9, security: 'none' },
+      },
+    });
+    await relay.api('/api/tools', { method: 'PUT', body: { relayTools: { mail: ['opencode'] } } });
+    await openTeamChat(page, relay, [{ name: 'OpenCode', provider: 'opencode' }], { permission: 'full' }, 'Mail Dan');
+    await send(page, 'Tell Dan it shipped: {"to": "dan@example.com", "subject": "Shipped", "body": "It is out."} e2e:mcp=mail_send');
+
+    // The fake OpenCode started the gateway's program from the MCP servers its session was given (ACP).
+    const reply = await finishedReply(page, 'OpenCode');
+    await expect(reply).toContainText(
+      'The mail_send tool said: Not sent yet: "Mail to dan@example.com: "Shipped"" is waiting in the user\'s outbox',
+    );
+    const card = reply.getByRole('region', { name: 'What @OpenCode asked to send' });
+    await expect(card).toContainText('Waiting for you');
+    await expect(card).toContainText('dan@example.com');
+  });
 });
 
 test("below full access, the CLI's own question about Harness Relay's tool is answered for the user, and the gateway asks about an act with what it will do", async ({

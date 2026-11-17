@@ -10,7 +10,6 @@ import {
   type Provider,
   type SkillCandidate,
   type ToolLibraryView,
-  isOpenProvider,
 } from '../../shared/types';
 import { api } from '../api';
 import { useT, type Messages } from '../i18n';
@@ -103,9 +102,6 @@ function ProviderPicks({
   );
 }
 
-/** The CLIs whose agents can get Harness Relay's own tools: all but the open agents. */
-const RELAY_CLIS = PROVIDERS.filter((p) => !isOpenProvider(p));
-
 /** Harness Relay's own tool groups (through the gateway), and which CLIs' members get each. */
 function RelaySection({ lib, change }: { lib: ToolLibraryView; change: Change }) {
   const t = useT();
@@ -119,12 +115,11 @@ function RelaySection({ lib, change }: { lib: ToolLibraryView; change: Change })
           <li key={g.group} className="lib-row relay-group">
             <div className="lib-row-main">
               <span className="lib-name">{t.tools.relay.groups[g.group]}</span>
-              <span className={`tool-scope ${g.providers.length ? '' : 'off'}`}>{givenTo(g.providers, t, RELAY_CLIS)}</span>
+              <span className={`tool-scope ${g.providers.length ? '' : 'off'}`}>{givenTo(g.providers, t)}</span>
             </div>
             <p className="muted small">{t.tools.relay.groupHints[g.group]}</p>
             <ProviderPicks
               value={g.providers}
-              choices={RELAY_CLIS}
               label={`${t.tools.relay.groups[g.group]} · ${t.tools.givenTo}`}
               onChange={(providers) => change(() => api.updateTools({ relayTools: { [g.group]: providers } }))}
             />

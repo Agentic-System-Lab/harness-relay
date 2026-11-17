@@ -50,13 +50,13 @@ describe('tool picker', () => {
     expect(items.find((i) => i.key === 'skill:/s/broken')!.problem).toBe('SKILL.md not found');
   });
 
-  it("lists Harness Relay's tool groups while the server can give them, and not to an open agent", () => {
+  it("lists Harness Relay's tool groups while the server can give them, for every CLI (an open agent's in full access)", () => {
     const withRelay = toolItems({ ...lib, relayTools: [{ group: 'browser', providers: ['claude'] }] });
     expect(withRelay.at(-1)).toEqual({ key: 'relay:browser', kind: 'relay', name: 'browser', providers: ['claude'] });
     expect(hasTool({ provider: 'claude' }, withRelay.at(-1)!)).toBe(true);
     expect(hasTool({ provider: 'codex' }, withRelay.at(-1)!)).toBe(false);
     expect(itemsFor(withRelay, 'codex').map((i) => i.key)).toContain('relay:browser');
-    expect(itemsFor(withRelay, OPEN_PROVIDERS[0]!).map((i) => i.key)).not.toContain('relay:browser');
+    expect(itemsFor(withRelay, OPEN_PROVIDERS[0]!).map((i) => i.key)).toContain('relay:browser');
     expect(
       toolItems({
         ...lib,

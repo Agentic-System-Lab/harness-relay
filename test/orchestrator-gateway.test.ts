@@ -100,6 +100,31 @@ describe("Harness Relay's own tools in a turn", () => {
       runners.grok = saved;
     }
 
+    // So do the open agents: below it, Harness Relay's own sandbox holds their MCP servers with their commands.
+    const savedOpen = runners.opencode;
+    runners.opencode = { ...runners.claude, provider: 'opencode' };
+    try {
+      const open = conversation({ mode: 'roundtable', permission: 'edit' });
+      open.agents = [{ ...agents[0]!, provider: 'opencode' }];
+      store.saveMeta(open);
+      settings.tools.update({ relayTools: { browser: ['claude', 'opencode'], mail: ['claude'] } });
+      const before = grants.length;
+      await orchestrator.send(open.id, 'below full access');
+      await finish(open.id);
+      expect(grants).toHaveLength(before);
+      open.settings.permission = 'full';
+      store.saveMeta(open);
+      const ran = calls.length;
+      await orchestrator.send(open.id, 'in full access');
+      await finish(open.id);
+      expect(calls).toHaveLength(ran + 1);
+      expect(calls.at(-1)!.mcpServers).toEqual(['relay']);
+      expect(grants.at(-1)!.groups).toEqual(['browser']);
+      expect(grants.at(-1)!.ctx).toMatchObject({ convId: open.id, permission: 'full' });
+    } finally {
+      runners.opencode = savedOpen;
+    }
+
     // A member turned off its groups gets none.
     conv.agents = [{ ...agents[0]!, tools: { 'relay:browser': false, 'relay:mail': false } }];
     store.saveMeta(conv);

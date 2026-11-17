@@ -1158,7 +1158,7 @@ export const en: Messages = {
   tools: {
     relay: {
       title: "Harness Relay's tools",
-      hint: "Tools Harness Relay serves itself, through one MCP server it gives each member (relay): the same for every CLI, with their passwords kept here, never given to a CLI. What a call reads runs; what changes something somewhere (a click on a page, a mail draft) asks you below full access, like any action; what reaches other people (a mail, an invitation) never goes in the turn: it waits in the outbox, a card in the chat, until you click Send. The open-source agents do not get them yet, and Grok gets them in full access only: below it, its sandbox keeps the MCP servers it starts out of Harness Relay's folder too.",
+      hint: "Tools Harness Relay serves itself, through one MCP server it gives each member (relay): the same for every CLI, with their passwords kept here, never given to a CLI. What a call reads runs; what changes something somewhere (a click on a page, a mail draft) asks you below full access, like any action; what reaches other people (a mail, an invitation) never goes in the turn: it waits in the outbox, a card in the chat, until you click Send. Grok and the open-source agents get them in full access only: below it, the sandbox that holds their commands holds the MCP servers they start too, and it keeps them out of Harness Relay's folder, where each turn's token is.",
       groups: { browser: 'Browser', mail: 'Mail', calendar: 'Calendar' },
       groupHints: {
         browser:

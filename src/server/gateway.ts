@@ -4,6 +4,7 @@ import { createServer, type Server, type Socket } from 'node:net';
 import { join } from 'node:path';
 import {
   GATEWAY_SERVER_NAME,
+  OPEN_PROVIDERS,
   type ApprovalAnswer,
   type GatewayTier,
   type OutboxItem,
@@ -462,12 +463,14 @@ function toolResult(r: GatewayResult): { content: unknown[]; isError: boolean } 
 }
 
 /**
- * The CLIs that get the gateway in full access only: below it their own sandbox covers the MCP servers
- * they start too, and it denies them the protected paths, Harness Relay's `data/tmp` among them, where
- * each turn's copy of the program and its token are (Grok's kernel `deny`). There the program could
- * not even start.
+ * The CLIs that get the gateway in full access only: below it one sandbox holds both the commands they
+ * run and the MCP servers they start, and it denies them the protected paths, Harness Relay's `data/tmp`
+ * among them, where each turn's copy of the program and its token are. There the program could not even
+ * start, and opening `data/tmp` to it would open the token to every command too. Grok's own sandbox (its
+ * kernel `deny`), and the open agents' (Harness Relay's own sandbox, around the whole process, which
+ * does not open the gateway's socket either).
  */
-export const GATEWAY_FULL_ACCESS_ONLY: readonly Provider[] = ['grok'];
+export const GATEWAY_FULL_ACCESS_ONLY: readonly Provider[] = ['grok', ...OPEN_PROVIDERS];
 
 /** How the gateway's own approval names a tool (and keys "always allow" for it): `relay:<tool>`. */
 export const gatewayApprovalTool = (name: string) => `${GATEWAY_SERVER_NAME}:${name}`;

@@ -28,6 +28,7 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const { acpAgent, requestPermission, sessionUpdates } = require('../lib/acp.cjs');
+const { callMcpTool } = require('../lib/mcp.cjs');
 const { ownSkills, safeList, targetOf } = require('../lib/files.cjs');
 const { keyVerdict, sessions } = require('../lib/home.cjs');
 const { exitAfterLog, record, tryWrite } = require('../lib/log.cjs');
@@ -489,6 +490,8 @@ function opencodeAgent(server) {
       turns: kept.turns || [],
       cancelled: false,
       mcp: (p.mcpServers || []).map((m) => m.name),
+      // As given for this run (Harness Relay's `relay` gets a new token each turn): never saved.
+      mcpSpecs: Object.fromEntries((p.mcpServers || []).map((m) => [m.name, m])),
     };
     agent.sessions.set(id, s);
     recordMcpEnv(
@@ -730,6 +733,31 @@ async function opencodeTurn(peer, server, p, s, c, next) {
           title: s.cwd,
           content: [{ type: 'content', content: { type: 'text', text: safeList(s.cwd) } }],
         });
+    }
+    if (step.type === 'mcp') {
+      // A tool of an MCP server it was given (stdio), named `<server>_<tool>` as OpenCode names them;
+      // the permission rules decide, as for its own tools.
+      const id = next('call');
+      const name = `${step.server}_${step.tool}`;
+      const spec = s.mcpSpecs && s.mcpSpecs[step.server];
+      const call = { toolCallId: id, title: name, kind: 'other', status: 'pending', locations: [], rawInput: step.args };
+      u.toolCall(call);
+      const ok = spec ? await permit(name, '*', call) : { ok: false, denied: true };
+      if (s.cancelled) return cancelled;
+      if (!ok.ok) {
+        refuse(id, ok);
+        prefix += spec ? '' : `No MCP server ${step.server}. `;
+      } else {
+        const env = Object.fromEntries((spec.env || []).map((v) => [v.name, v.value]));
+        const r = await callMcpTool({ command: spec.command, args: spec.args, env }, step.tool, step.args);
+        u.update({
+          sessionUpdate: 'tool_call_update',
+          toolCallId: id,
+          status: r.isError ? 'failed' : 'completed',
+          content: [{ type: 'content', content: { type: 'text', text: r.text } }],
+        });
+        prefix += `The ${step.tool} tool said: ${r.text} `;
+      }
     }
     if (step.type === 'approve') {
       const id = next('call');

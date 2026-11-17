@@ -76,13 +76,11 @@ export const noneForCliText = (t: Messages, provider: Provider): string => t.tea
 export const toolsHintText = (t: Messages, provider: Provider): string => t.team.toolsHint(ownSetupText(t, provider));
 
 /**
- * The items that apply to an agent of `provider`: all but the memory parts for other CLIs, and but
- * Harness Relay's own tools for an open agent, whose sandbox does not reach the gateway yet.
+ * The items that apply to an agent of `provider`: all but the memory parts for other CLIs. Harness
+ * Relay's own tools apply to every CLI (Grok's and the open agents' in full access only).
  */
 export function itemsFor(items: ToolItem[], provider: Provider): ToolItem[] {
-  return items.filter(
-    (i) => (i.kind !== 'memory' || i.name === 'all' || i.name === provider) && !(i.kind === 'relay' && isOpenProvider(provider)),
-  );
+  return items.filter((i) => i.kind !== 'memory' || i.name === 'all' || i.name === provider);
 }
 
 /** On for an agent of `provider` unless it turns it off. */
