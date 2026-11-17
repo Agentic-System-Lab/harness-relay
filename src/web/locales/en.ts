@@ -691,7 +691,7 @@ export const en: Messages = {
     close: 'You can close this tab.',
     back: "Back to Harness Relay's Settings",
     elsewhere:
-      'No sign-in started here has this address. If Harness Relay on another computer started it (in a codespace, say), copy this whole address and paste it into the box that Harness Relay’s Settings shows:',
+      'No sign-in waiting here has this address. It may be over: finished a while ago (this page was opened again), cancelled, expired, or lost when Harness Relay restarted; then start it again in Settings. Or Harness Relay on another computer started it (in a codespace, say): then copy this whole address and paste it into the box that Harness Relay’s Settings shows:',
   },
   connectors: {
     title: 'Mail and calendar accounts',

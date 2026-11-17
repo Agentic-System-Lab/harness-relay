@@ -2,11 +2,12 @@
  * Accounts that sign in with OAuth (`src/server/oauth/`), against a stand-in for Microsoft's and
  * Google's sign-ins, Graph and Google's CalDAV (`fake-oauth-server.ts`): the authorization code with
  * PKCE and the loopback redirect, the state (once, for its own sign-in, expiring), a pasted address,
- * the device code flow and its answers, the token broker (refreshing early and once, rotation,
- * `invalid_grant` and the other refusals, a refresh coming back after its account was removed or
- * signed in again, the host rule, no redirects), an app that changed, the credential store refusing a
- * token, the calendar tools over Graph and over Google's CalDAV with the token, and the HTTP API with
- * sign-in on (the callback is the one route here that takes no sign-in).
+ * the scopes granted, a sign-in cancelled or its app changed before it finished, the device code flow
+ * and its answers, the token broker (refreshing early and once, rotation, `invalid_grant` and the
+ * other refusals, a refresh coming back after its account was removed or signed in again, the host
+ * rule, no redirects), an app that changed, the credential store refusing a token or a client secret,
+ * the calendar tools over Graph and over Google's CalDAV with the token, and the HTTP API with sign-in
+ * on (the callback is the one route here that takes no sign-in).
  */
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -263,6 +264,90 @@ describe('signing in', () => {
     expect(connectors.view().calendar).toEqual([]);
   });
 
+  it("fails a sign-in whose answer grants no calendar access, and takes Graph's scopes named without their resource", async () => {
+    const microsoftKeys = () => [...keyring.values.keys()].filter((k) => k.startsWith('oauth-microsoft'));
+    await withLang('en', async () => {
+      fake.grantScope = () => 'openid profile email offline_access https://graph.microsoft.com/User.Read';
+      expect(await signIn()).toMatchObject({
+        status: 'failed',
+        error: 'Microsoft did not give access to the calendar: sign in again, and allow access to your calendar on the sign-in page',
+      });
+      expect(service.view().accounts).toEqual([]);
+      expect(microsoftKeys()).toEqual([]);
+      expect(connectors.view().calendar).toEqual([]);
+      // Microsoft names Graph's scopes in its answer with or without their resource, in any case.
+      for (const granted of [
+        'openid profile email offline_access User.Read calendars.readwrite',
+        'https://graph.microsoft.com/User.Read https://graph.microsoft.com/Calendars.ReadWrite offline_access',
+      ]) {
+        fake.grantScope = () => granted;
+        expect((await signIn()).status).toBe('done');
+      }
+      // No scope in the answer: taken as asked, as before.
+      fake.grantScope = () => undefined;
+      expect((await signIn()).status).toBe('done');
+    });
+    expect(service.view().accounts).toHaveLength(1);
+    expect(microsoftKeys()).toHaveLength(1);
+  });
+
+  it('keeps no account when the sign-in is cancelled while who signed in is asked', async () => {
+    await withLang('en', async () => {
+      const started = await service.startSignIn({
+        provider: 'microsoft',
+        uses: ['calendar'],
+        session: 's1',
+        origin: 'http://127.0.0.1:8787',
+        port: 8787,
+      });
+      const held = gate();
+      fake.holdWhoami = held.until;
+      const finishing = service.signIns.callback(callbackParams(fake.allow(started.authorizeUrl!)));
+      await vi.waitFor(() => expect(fake.requests.some((r) => r.path.startsWith('/v1.0/me?'))).toBe(true), { timeout: 5000, interval: 10 });
+      service.signIns.cancel(started.id, 's1');
+      held.open();
+      fake.holdWhoami = undefined;
+      expect(await finishing).toMatchObject({
+        status: 'failed',
+        error: 'The sign-in was cancelled, or the app it signed in with was changed in Settings',
+      });
+    });
+    expect(service.view().accounts).toEqual([]);
+    expect([...keyring.values.keys()].filter((k) => k.startsWith('oauth-microsoft'))).toEqual([]);
+    expect(connectors.view().calendar).toEqual([]);
+  });
+
+  it('ends the sign-ins of an app that changed, so that none finishes with the app before', async () => {
+    const start = () =>
+      service.startSignIn({ provider: 'microsoft', uses: ['calendar'], session: 's1', origin: 'http://127.0.0.1:8787', port: 8787 });
+    const waitingOne = await start();
+    const exchanging = await start();
+    service.saveClient('google', { clientId: fake.google.clientId, secret: fake.google.secret });
+    const google = await service.startSignIn({ provider: 'google', uses: ['calendar'], session: 's1', port: 8787 });
+    // The same app saved again (its tenant blank or `common`, in any case) ends nothing.
+    service.saveClient('microsoft', { clientId: fake.clientId, tenant: 'Common' });
+    expect(service.signIn(waitingOne.id, 's1').status).toBe('waiting');
+    await withLang('en', async () => {
+      // One's code is being exchanged when the app changes.
+      const held = gate();
+      fake.hold = { grant: 'authorization_code', until: held.until };
+      const finishing = service.signIns.callback(callbackParams(fake.allow(exchanging.authorizeUrl!)));
+      await vi.waitFor(() => expect(grants('authorization_code')).toHaveLength(1), { timeout: 5000, interval: 10 });
+      service.saveClient('microsoft', { clientId: fake.clientId, tenant: 'organizations' });
+      held.open();
+      fake.hold = undefined;
+      expect(await finishing).toMatchObject({ status: 'failed', error: expect.stringContaining('was changed in Settings') });
+      // The other is gone for the page following it, and its address no longer finishes it.
+      expect(() => service.signIn(waitingOne.id, 's1')).toThrow('No such sign-in');
+      await expect(service.signIns.callback(callbackParams(fake.allow(waitingOne.authorizeUrl!)))).rejects.toMatchObject({ status: 404 });
+    });
+    expect(grants('authorization_code')).toHaveLength(1);
+    expect(service.view().accounts).toEqual([]);
+    expect([...keyring.values.keys()].filter((k) => k.startsWith('oauth-microsoft'))).toEqual([]);
+    // Another provider's sign-in goes on.
+    expect(service.signIn(google.id, 's1').status).toBe('waiting');
+  });
+
   it('needs an app for the provider first, and keeps a client secret masked', async () => {
     await withLang('en', async () => {
       await expect(service.startSignIn({ provider: 'google', uses: ['calendar'], port: 8787 })).rejects.toThrow(
@@ -296,9 +381,11 @@ describe('signing in', () => {
 
   it('marks the accounts of an app that changed as needing a new sign-in, until they sign in with the new one', async () => {
     const id = (await signIn()).account!.id;
-    // The same app saved again: nothing to sign in again for.
-    service.saveClient('microsoft', { clientId: fake.clientId });
-    expect(service.view().accounts[0]!.status).toBe('connected');
+    // The same app saved again: nothing to sign in again for; nor for its tenant blank, `common`, or in another case.
+    for (const tenant of [undefined, 'common', ' COMMON ']) {
+      service.saveClient('microsoft', { clientId: fake.clientId, ...(tenant ? { tenant } : {}) });
+      expect(service.view().accounts[0]!.status).toBe('connected');
+    }
     await withLang('en', async () => {
       // Another tenant: the tokens were the app's before, under the tenant before.
       service.saveClient('microsoft', { clientId: fake.clientId, tenant: 'contoso.onmicrosoft.com' });
@@ -312,6 +399,8 @@ describe('signing in', () => {
     const again = await signIn();
     expect(again.account).toMatchObject({ id, status: 'connected' });
     expect(new URL(tokenRequests().at(-1)!.path, fake.url).pathname).toBe('/contoso.onmicrosoft.com/oauth2/v2.0/token');
+    service.saveClient('microsoft', { clientId: fake.clientId, tenant: 'Contoso.OnMicrosoft.com' });
+    expect(service.view().accounts[0]!.status).toBe('connected');
     // Another client id too.
     service.saveClient('microsoft', { clientId: 'client-2' });
     expect(service.view().accounts[0]!.status).toBe('reauth');
@@ -356,6 +445,17 @@ describe('signing in on another device', () => {
     // An interval of 0 is one second; slow_down adds five.
     expect(waits[0]).toBe(1);
     expect(waits).toContain(6);
+  });
+
+  it('asks again at the next interval when the network fails', async () => {
+    fake.drop.push('urn:ietf:params:oauth:grant-type:device_code');
+    const started = await device();
+    await vi.waitFor(() => expect(fake.drop).toEqual([]), { timeout: 5000, interval: 20 });
+    expect(status(started.id).status).toBe('waiting');
+    fake.typeCode('UC1');
+    await vi.waitFor(() => expect(status(started.id).status).toBe('done'), { timeout: 5000, interval: 20 });
+    expect(grants('urn:ietf:params:oauth:grant-type:device_code').length).toBeGreaterThanOrEqual(2);
+    expect(service.view().accounts[0]!.email).toBe('ming@contoso.com');
   });
 
   it('ends a sign-in refused on the other device, or whose code expired', async () => {
@@ -521,6 +621,34 @@ describe('the token broker', () => {
     expect(keyring.values.get(`oauth-${id}`)).toBe(kept);
   });
 
+  it('gives a refresh of the sign-in before that fails on the network the new sign-in’s token', async () => {
+    const id = (await signIn()).account!.id;
+    now += 59 * MIN;
+    const held = gate();
+    fake.hold = { grant: 'refresh_token', until: held.until };
+    const before = grants('refresh_token').length;
+    const refreshing = service.broker.accessToken(id);
+    await vi.waitFor(() => expect(grants('refresh_token')).toHaveLength(before + 1), { timeout: 5000, interval: 10 });
+    await signIn();
+    const kept = keyring.values.get(`oauth-${id}`)!;
+    // The refresh of the sign-in before gets no answer: its connection closes.
+    fake.drop.push('refresh_token');
+    held.open();
+    fake.hold = undefined;
+    const token = await refreshing;
+    expect(fake.drop).toEqual([]);
+    expect(fake.accessTokens.get(token)).toBe(true);
+    expect(service.view().accounts[0]!.status).toBe('connected');
+    expect(keyring.values.get(`oauth-${id}`)).toBe(kept);
+    // Not signed in again, the network failing is said, and the account stays connected.
+    now += 59 * MIN;
+    fake.drop.push('refresh_token');
+    await withLang('en', async () => {
+      await expect(service.broker.accessToken(id)).rejects.toThrow('The sign-in of ming@contoso.com could not be renewed');
+    });
+    expect(service.view().accounts[0]!.status).toBe('connected');
+  });
+
   it("sends the token only to its provider's hosts, follows no redirect, and refreshes once when the token is refused", async () => {
     const id = (await signIn()).account!.id;
     const fetch = service.broker.fetch(id);
@@ -615,6 +743,7 @@ describe('calendars through a sign-in', () => {
     expect(listed.text).toContain('- 2026-01-06 (all day) – 2026-01-07 (all day): Offsite');
     const view = fake.requests.find((r) => r.path.includes('/calendarView'))!;
     expect(view.path).toContain('startDateTime=2026-01-05T00%3A00%3A00Z');
+    expect(decodeURIComponent(view.path)).toContain(',originalStartTimeZone,originalEndTimeZone,');
 
     await tools.calendar_create!.run!(
       { summary: 'Focus', start: '2026-01-07T09:00', end: '2026-01-07T10:30', timeZone: 'Asia/Taipei' },
@@ -664,6 +793,30 @@ describe('calendars through a sign-in', () => {
     expect(allDay('2026-01-05T16:00:00.0000000', '2026-01-07T16:00:00.0000000')).toEqual(['2026-01-06 (all day)', '2026-01-07 (all day)']);
     // Midnight in New York: 05:00 the same day.
     expect(allDay('2026-01-06T05:00:00', '2026-01-07T05:00:00')).toEqual(['2026-01-06 (all day)', '2026-01-06 (all day)']);
+    // 6 January in New Zealand's summer time (UTC+13), given in UTC: 11:00 the day before. Its own time
+    // zone, by its IANA name, places it; by Windows' name (Outlook's), or none, it is rounded, a day early.
+    const auckland = (zone?: string) => {
+      const e = graphEvent({
+        id: 'nz',
+        isAllDay: true,
+        start: { dateTime: '2026-01-05T11:00:00.0000000', timeZone: 'UTC' },
+        end: { dateTime: '2026-01-06T11:00:00.0000000', timeZone: 'UTC' },
+        ...(zone ? { originalStartTimeZone: zone, originalEndTimeZone: zone } : {}),
+      });
+      return [e.start, e.end];
+    };
+    expect(auckland('Pacific/Auckland')).toEqual(['2026-01-06 (all day)', '2026-01-06 (all day)']);
+    expect(auckland('New Zealand Standard Time')).toEqual(['2026-01-05 (all day)', '2026-01-05 (all day)']);
+    expect(auckland()).toEqual(['2026-01-05 (all day)', '2026-01-05 (all day)']);
+    // Taipei's, by its IANA name: the same day as rounding gives.
+    const taipei = graphEvent({
+      id: 't',
+      isAllDay: true,
+      start: { dateTime: '2026-01-05T16:00:00', timeZone: 'UTC' },
+      end: { dateTime: '2026-01-06T16:00:00', timeZone: 'UTC' },
+      originalStartTimeZone: 'Asia/Taipei',
+    });
+    expect([taipei.start, taipei.end]).toEqual(['2026-01-06 (all day)', '2026-01-06 (all day)']);
     expect(() => graphNewEvent({ summary: 's', start: '2026-01-05', end: '2026-01-05T10:00', timeZone: 'UTC' })).toThrow(
       'must both be dates',
     );
@@ -725,6 +878,42 @@ describe('Google Calendar through a sign-in', () => {
     const dav = fake.requests.filter((r) => r.path.startsWith('/caldav/'));
     expect(dav.length).toBeGreaterThan(0);
     expect(dav.every((r) => r.bearer && fake.accessTokens.get(r.bearer))).toBe(true);
+  });
+
+  it('fails a sign-in whose calendar access was unticked on Google’s page, and keeps no account', async () => {
+    const googleKeys = () => [...keyring.values.keys()].filter((k) => k.startsWith('oauth-google'));
+    // What Google answers when only the sign-in's own scopes were allowed.
+    fake.grantScope = () => 'https://www.googleapis.com/auth/userinfo.email openid https://www.googleapis.com/auth/userinfo.profile';
+    await withLang('en', async () => {
+      expect(await googleSignIn()).toMatchObject({
+        status: 'failed',
+        error: 'Google did not give access to the calendar: sign in again, and allow access to your calendar on the sign-in page',
+      });
+    });
+    expect(service.view().accounts).toEqual([]);
+    expect(connectors.view().calendar).toEqual([]);
+    expect(googleKeys()).toEqual([]);
+    fake.grantScope = () =>
+      'https://www.googleapis.com/auth/userinfo.email openid https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.profile';
+    expect((await googleSignIn()).status).toBe('done');
+    expect(googleKeys()).toHaveLength(1);
+  });
+
+  it("changes nothing when the credential store refuses an app's new client secret", async () => {
+    const id = (await googleSignIn()).account!.id;
+    keyring.set = () => {
+      throw new Error('The keychain is locked');
+    };
+    await withLang('en', async () => {
+      expect(() => service.saveClient('google', { clientId: 'other.apps.googleusercontent.com', secret: 'GOCSPX-other' })).toThrow(
+        "The app's client secret could not be saved in the credential store: The keychain is locked",
+      );
+    });
+    // The app before, its secret, and its account as they were.
+    expect(service.view().clients.find((c) => c.provider === 'google')).toMatchObject({ clientId: fake.google.clientId, secret: '••••' });
+    expect(keyring.values.get('oauth-client-google')).toBe(fake.google.secret);
+    expect(new OAuthStore(db, keyring).client('google')).toMatchObject({ clientId: fake.google.clientId });
+    expect(service.view().accounts[0]).toMatchObject({ id, status: 'connected' });
   });
 
   it('gives the calendar tools its events and adds one over CalDAV with the token', async () => {
@@ -891,6 +1080,29 @@ describe('/api/oauth', () => {
     const calendars = await call('GET', `/api/oauth/accounts/${id}/calendars`);
     expect(calendars.status).toBe(409);
     expect(await error(calendars)).toContain('no longer works');
+  });
+
+  it('answers 409 when listing the calendars finds the sign-in refused, which the account then says; 502 when the provider is down', async () => {
+    const { call } = await signedInApp();
+    const id = (await signIn()).account!.id;
+    now += 61 * MIN;
+    fake.refreshAnswer = { status: 400, body: { error: 'invalid_grant', error_description: 'AADSTS50173: The grant was revoked' } };
+    const refused = await call('GET', `/api/oauth/accounts/${id}/calendars`);
+    expect(refused.status).toBe(409);
+    expect(await error(refused)).toBe(
+      'The sign-in of ming@contoso.com no longer works: sign in again in Settings → Tool library (invalid_grant: AADSTS50173: The grant was revoked)',
+    );
+    expect(((await (await call('GET', '/api/oauth')).json()) as OAuthView).accounts[0]).toMatchObject({ id, status: 'reauth' });
+
+    fake.refreshAnswer = undefined;
+    await signIn();
+    now += 61 * MIN;
+    fake.refreshAnswer = { status: 500, body: {} };
+    const down = await call('GET', `/api/oauth/accounts/${id}/calendars`);
+    expect(down.status).toBe(502);
+    expect(await error(down)).toContain('The sign-in of ming@contoso.com could not be renewed: HTTP 500');
+    expect(((await (await call('GET', '/api/oauth')).json()) as OAuthView).accounts[0]).toMatchObject({ id, status: 'connected' });
+    fake.refreshAnswer = undefined;
   });
 
   it("checks what it is given: its limits, a calendar's host, a calendar that signs in, a sign-in cancelled", async () => {

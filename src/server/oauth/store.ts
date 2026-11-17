@@ -84,7 +84,8 @@ export class OAuthStore {
     }
   }
 
-  private setSecret(name: string, value: string): void {
+  /** Writes a secret (none: deletes it); a credential store that refuses is a 503 that says what was not saved. */
+  private setSecret(name: string, value: string, notSaved: (why: string) => string = t().oauthTokenNotSaved): void {
     if (!this.keyring) {
       if (value) this.secrets.set(name, value);
       else this.secrets.delete(name);
@@ -94,7 +95,7 @@ export class OAuthStore {
       if (value) this.keyring.set(name, value);
       else this.keyring.delete(name);
     } catch (err) {
-      throw new HttpError(503, t().oauthTokenNotSaved((err as Error).message));
+      throw new HttpError(503, notSaved((err as Error).message));
     }
   }
 
@@ -110,18 +111,21 @@ export class OAuthStore {
 
   /**
    * Saves the app a provider is signed in to with; true when it is another app than before (another
-   * client id or tenant, or none): the accounts that signed in with the one before then need a new sign-in.
+   * client id or tenant, or none): the accounts that signed in with the one before then need a new
+   * sign-in. A tenant is compared without case, none being `common`. The secret is written first: when
+   * the credential store refuses it, nothing changes.
    */
   saveClient(provider: OAuthProviderId, u: OAuthClientUpdate): boolean {
     const before = this.client(provider);
+    // A secret belongs to the app it was given with: another app (or none) takes it away unless a new one comes.
+    const secret = u.secret !== undefined ? u.secret : !u.clientId || u.clientId !== before?.clientId ? '' : undefined;
+    if (secret !== undefined) this.setSecret(`oauth-client-${provider}`, secret, t().oauthSecretNotSaved);
     if (u.clientId) this.data.clients[provider] = { clientId: u.clientId, ...(u.tenant ? { tenant: u.tenant } : {}) };
     else delete this.data.clients[provider];
-    // A secret belongs to the app it was given with: another app (or none) takes it away unless a new one comes.
-    if (u.secret !== undefined) this.setSecret(`oauth-client-${provider}`, u.secret);
-    else if (!u.clientId || u.clientId !== before?.clientId) this.setSecret(`oauth-client-${provider}`, '');
     this.save();
     const after = this.client(provider);
-    return before?.clientId !== after?.clientId || (before?.tenant ?? '') !== (after?.tenant ?? '');
+    const tenant = (c: OAuthClient | undefined) => c?.tenant?.trim().toLowerCase() || 'common';
+    return before?.clientId !== after?.clientId || tenant(before) !== tenant(after);
   }
 
   clientsView(device: (provider: OAuthProviderId) => boolean): OAuthClientView[] {

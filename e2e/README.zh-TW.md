@@ -304,7 +304,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 帳號在新分頁用 Microsoft 登入，回到 web app 自己的回呼頁面，它的行事曆加入行事曆工具 | — | 還沒有 app 時，這一區說明要先註冊一個；**設定 app**（Set up the app）顯示要允許的重新導向網址（`http://127.0.0.1/oauth/callback`），並填入用戶端 ID。**用 … 登入**（Sign in with …）在新分頁打開替身的頁面，「設定」顯示正在等待；它的 **Allow** 把那個分頁帶到 `/oauth/callback`，頁面顯示 **已登入 …**（Signed in as …），並把授權碼與 state 從網址拿掉；替身只看到一次用 PKCE 驗證碼交換授權碼。接著「設定」顯示帳號 **已連線**（Connected），它自己的行事曆出現在行事曆清單中，沒有 **編輯**（Edit）；**行事曆**（Calendars）列出的那一個已經是 **已加入**（Added），**加入**（Add）可以再加入另一個。然後替身拒絕這個帳號的權杖與它的更新（`invalid_grant`，就像在 Microsoft 撤銷了登入）：它的行事曆的 **測試**（Test）說登入已經失效，帳號接著顯示 **需要重新登入**（Needs a new sign-in）與原因，以及 **重新登入**（Sign in again）。**移除**（Remove，確認後）會說明要到 Microsoft 哪裡移除 app 的存取權，並移除帳號與它的行事曆。 |
+| 帳號在新分頁用 Microsoft 登入，回到 web app 自己的回呼頁面，它的行事曆加入行事曆工具 | — | 還沒有 app 時，這一區說明要先註冊一個；**設定 app**（Set up the app）顯示要允許的重新導向網址（`http://127.0.0.1/oauth/callback`），並填入用戶端 ID。**用 … 登入**（Sign in with …）在新分頁打開替身的頁面，「設定」顯示正在等待；它的 **Allow** 把那個分頁帶到 `/oauth/callback`，頁面顯示 **已登入 …**（Signed in as …），並把授權碼與 state 從網址拿掉；替身只看到一次用 PKCE 驗證碼交換授權碼。接著「設定」顯示帳號 **已連線**（Connected），它自己的行事曆出現在行事曆清單中，沒有 **編輯**（Edit）；**行事曆**（Calendars）列出的那一個已經是 **已加入**（Added），**加入**（Add）可以再加入另一個。然後替身拒絕這個帳號的權杖與它的更新（`invalid_grant`，就像在 Microsoft 撤銷了登入）：它的行事曆的 **測試**（Test）說登入已經失效，帳號接著顯示 **需要重新登入**（Needs a new sign-in）與原因，以及 **重新登入**（Sign in again）。**重新登入** 再次打開替身的頁面，它的 **Allow** 讓帳號重新連線（第二次交換）；再被拒絕一次後，重新打開的 **行事曆**（Calendars）說登入已經失效，帳號不用 **測試** 就又顯示 **需要重新登入**。**移除**（Remove，確認後）會說明要到 Microsoft 哪裡移除 app 的存取權，並移除帳號與它的行事曆。 |
 
 ## 修改對話的歷史
 

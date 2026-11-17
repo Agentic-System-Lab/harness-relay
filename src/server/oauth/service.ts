@@ -72,12 +72,15 @@ export class OAuthService implements CalendarOAuth {
   saveClient(provider: OAuthProviderId, u: OAuthClientUpdate): OAuthView {
     // Another app: its accounts' tokens were given to the one before, which this one cannot refresh.
     // They need a new sign-in, and say so, rather than look connected until their next request fails.
-    if (this.store.saveClient(provider, u))
+    // The sign-ins still waiting would finish with the app before: they end.
+    if (this.store.saveClient(provider, u)) {
+      this.signIns.cancelProvider(provider);
       for (const a of this.store.accounts())
         if (a.provider === provider) {
           this.broker.forget(a.id);
           this.store.needsSignIn(a.id, t().oauthAppChanged);
         }
+    }
     return this.view();
   }
 
@@ -95,6 +98,8 @@ export class OAuthService implements CalendarOAuth {
   /** Keeps a sign-in that worked: who it is, its refresh token, and for the calendar tools its own calendar. */
   private async keep(s: SignedIn): Promise<OAuthAccountView> {
     const who = await s.whoami(signInFetch(s));
+    // Cancelled, or its app changed, while who signed in was asked: nothing is kept.
+    if (!s.live()) throw new Error(t().oauthSignInCancelled);
     const account = this.store.signedIn(s.provider, who, s.uses, s.scopes, s.tokens.refresh_token, (this.opts.now ?? Date.now)());
     this.broker.signedIn(account.id, s.tokens.access_token, s.tokens.expires_in);
     if (s.uses.includes('calendar') && !this.connectors.oauthCalendars(account.id).length) {
@@ -114,14 +119,22 @@ export class OAuthService implements CalendarOAuth {
 
   /**
    * The account's calendars, each with the calendar it was added as, when it was. An account that needs
-   * a new sign-in says so (a 409), rather than list what its provider can no longer be asked about.
+   * a new sign-in says so (a 409), rather than list what its provider can no longer be asked about; so
+   * does one found so now, its refresh refused while they were asked for.
    */
   async calendars(accountId: string): Promise<OAuthCalendar[]> {
     const a = this.account(accountId);
     const problem = this.problem(accountId);
     if (problem) throw new HttpError(409, problem);
     const added = this.connectors.oauthCalendars(accountId);
-    const found = await this.provider(a.provider).calendars(this.broker.fetch(accountId), a.email);
+    let found: { name: string; url: string }[];
+    try {
+      found = await this.provider(a.provider).calendars(this.broker.fetch(accountId), a.email);
+    } catch (err) {
+      const refused = this.problem(accountId);
+      if (refused) throw new HttpError(409, refused);
+      throw err;
+    }
     return found.map((c) => {
       const as = added.find((x) => x.url === c.url);
       return { ...c, ...(as ? { addedAs: as.id } : {}) };

@@ -510,6 +510,9 @@ const zhTW = {
   oauthCalendarFixed: '這個行事曆是透過登入的帳號使用的，不能改成用密碼：請移除它，再重新加入',
   oauthCallbackTooOften: '登入的回呼太多次失敗了：請稍後再試',
   oauthAppChanged: '登入時用的 app 在「設定」裡換掉了',
+  oauthNoCalendarAccess: (provider: string) => `${provider} 沒有給行事曆的存取權限：請重新登入，並在登入頁面上允許存取你的行事曆`,
+  oauthSignInCancelled: '這次登入已經取消，或是它用的 app 在「設定」裡換掉了',
+  oauthSecretNotSaved: (why: string) => `無法把 app 的用戶端密碼存進憑證儲存區：${why}`,
   watchNoAccount: '找不到這個自動任務要檢查的郵件帳號：請到「設定 → 工具庫 → 郵件與行事曆」新增，或重新選一個',
   watchNoPassword: (name: string) => `讀不到郵件帳號「${name}」的密碼：請到「設定 → 工具庫」重新輸入`,
   watchNoFolder: (folder: string, why: string) => `打不開資料夾「${folder}」：${why}`,
@@ -1287,6 +1290,10 @@ const en: ServerMessages = {
   oauthCalendarFixed: 'This calendar is reached through an account that signed in, not a password: remove it and add it again',
   oauthCallbackTooOften: 'Too many sign-in callbacks failed: try again in a while',
   oauthAppChanged: 'the app it signed in with was changed in Settings',
+  oauthNoCalendarAccess: (provider) =>
+    `${provider} did not give access to the calendar: sign in again, and allow access to your calendar on the sign-in page`,
+  oauthSignInCancelled: 'The sign-in was cancelled, or the app it signed in with was changed in Settings',
+  oauthSecretNotSaved: (why) => `The app's client secret could not be saved in the credential store: ${why}`,
   watchNoAccount:
     'The mail account this automation checks is gone: add one in Settings → Tool library → Mail and calendar, or pick another',
   watchNoPassword: (name) => `The password of the mail account "${name}" cannot be read: type it again in Settings → Tool library`,

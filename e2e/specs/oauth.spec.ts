@@ -8,7 +8,9 @@ import { expect, test as base } from '../fixtures';
  * (`RELAY_MICROSOFT_LOGIN_URL`, `RELAY_MICROSOFT_GRAPH_URL`): the app set up, the sign-in page opened
  * in a new tab, its Allow sending the browser back to the web app's /oauth/callback, the account and
  * its own calendar shown, another calendar added, the sign-in revoked at Microsoft (a calendar's Test
- * then finds it needs a new one, which the account says), and the account removed with its calendars.
+ * then finds it needs a new one, which the account says), signed in again and revoked once more (the
+ * list of its calendars then finds it, and the account says so again), and the account removed with
+ * its calendars.
  */
 
 interface FakeMicrosoft {
@@ -153,6 +155,22 @@ test("an account signs in with Microsoft in a new tab, comes back to the web app
   await expect(row).toContainText('Needs a new sign-in');
   await expect(row).toContainText('invalid_grant');
   await expect(row.getByRole('button', { name: 'Sign in again' })).toBeEnabled();
+
+  // Signed in again, it is connected again. Revoked once more, the list of its calendars, read anew,
+  // finds it (a 409), and the account says so without a Test.
+  microsoft.revoked = false;
+  const [again] = await Promise.all([page.waitForEvent('popup'), row.getByRole('button', { name: 'Sign in again' }).click()]);
+  await again.getByRole('link', { name: 'Allow' }).click();
+  await expect(again.getByRole('status')).toHaveText('Signed in as ming@contoso.com.');
+  await again.close();
+  await expect(row).toContainText('Connected');
+  expect(microsoft.exchanges).toBe(2);
+  microsoft.revoked = true;
+  await row.getByRole('button', { name: 'Calendars' }).click();
+  await expect(found).toHaveCount(0);
+  await row.getByRole('button', { name: 'Calendars' }).click();
+  await expect(row.locator('.error-line')).toContainText('The sign-in of ming@contoso.com no longer works');
+  await expect(row).toContainText('Needs a new sign-in');
 
   // Removed: its calendars go with it, and where to take the app's access away at Microsoft is said.
   page.once('dialog', (d) => void d.accept());

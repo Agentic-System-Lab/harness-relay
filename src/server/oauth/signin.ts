@@ -3,7 +3,7 @@ import { OAUTH_LIMITS, type OAuthAccountView, type OAuthProviderId, type OAuthSi
 import { HttpError } from '../errors';
 import { t } from '../i18n';
 import { hostOnlyFetch, tokenError, tokenRequest, type TokenAnswer } from './broker';
-import type { OAuthProvider } from './providers';
+import { missingScopes, useScopes, type OAuthProvider } from './providers';
 
 /*
  * Signing an account in with OAuth. The server runs the sign-in; the page only starts it and shows how
@@ -31,6 +31,8 @@ export interface SignedIn {
   scopes: string[];
   whoami: OAuthProvider['whoami'];
   hosts: string[];
+  /** Whether it is still wanted: not cancelled, nor its app changed, while who signed in is asked. */
+  live: () => boolean;
 }
 
 interface Pending {
@@ -199,6 +201,19 @@ export class SignIns {
     this.pending.delete(id);
   }
 
+  /**
+   * Ends the provider's sign-ins still waiting: its app changed, and they would finish with the one
+   * before. The pages following them then find them gone; one whose code is being exchanged keeps nothing.
+   */
+  cancelProvider(provider: OAuthProviderId): void {
+    for (const [id, p] of this.pending) if (p.provider.id === provider && p.status === 'waiting') this.pending.delete(id);
+  }
+
+  /** Whether a sign-in is still wanted: still here (not cancelled, nor its app changed), and waiting. */
+  private live(p: Pending): boolean {
+    return this.pending.get(p.id) === p && p.status === 'waiting';
+  }
+
   private own(id: string, session?: string): Pending {
     const p = this.pending.get(id);
     if (!p || p.session !== session) throw new HttpError(404, t().oauthSignInNotFound);
@@ -265,6 +280,8 @@ export class SignIns {
         redirect_uri: p.redirectUri!,
         code_verifier: p.verifier!,
       });
+      // Cancelled, or its app changed, while the code was exchanged: nothing it brought is kept.
+      if (!this.live(p)) throw new Error(t().oauthSignInCancelled);
       await this.signedIn(p, status, body, scopes);
     } catch (err) {
       this.failed(p, err);
@@ -279,7 +296,7 @@ export class SignIns {
    */
   private async poll(p: Pending, scopes: string[]): Promise<void> {
     let wait = p.device!.interval;
-    const live = () => this.pending.get(p.id) === p && p.status === 'waiting';
+    const live = () => this.live(p);
     for (;;) {
       await new Promise((r) => setTimeout(r, this.pollMs(wait)).unref());
       if (!live()) return;
@@ -312,6 +329,10 @@ export class SignIns {
 
   private async signedIn(p: Pending, status: number, body: TokenAnswer, scopes: string[]): Promise<void> {
     if (!body.access_token) throw new Error(t().oauthRefused(p.provider.label, tokenError(status, body)));
+    // What was granted, when the answer says (Google lets the user untick Calendar on its page): a sign-in
+    // without its use's own scopes would look connected, and fail at its first request.
+    if (typeof body.scope === 'string' && missingScopes(useScopes(p.provider, p.uses), body.scope).length)
+      throw new Error(t().oauthNoCalendarAccess(p.provider.label));
     // No refresh token: the account could be used for an hour only (Google gives one only with access_type=offline).
     if (!body.refresh_token) throw new Error(t().oauthNoRefresh(p.provider.label));
     const tokens = body as SignedIn['tokens'];
@@ -322,6 +343,7 @@ export class SignIns {
       scopes: body.scope ? body.scope.split(/\s+/).filter(Boolean) : scopes,
       whoami: p.provider.whoami,
       hosts: p.provider.hosts,
+      live: () => this.live(p),
     });
     p.status = 'done';
     p.expiresAt = this.now() + KEPT_MS;

@@ -17,8 +17,8 @@ let posting: Promise<CallbackAnswer> | undefined;
  * sign-in of its own (the state is the proof): in the desktop app it opens in the system browser, and
  * a browser that started the sign-in elsewhere sees the account in Settings. Posted once for both runs
  * of the effect in development. The address loses its code and state once a sign-in here answered;
- * when none here has them (another computer's Harness Relay started it), the page shows the address
- * to copy and paste there.
+ * when none here has them (it is over: ended a while ago, or lost when the server restarted; or another
+ * computer's Harness Relay started it), the page says so and shows the address to copy and paste there.
  */
 export function OAuthCallback() {
   const t = useT();

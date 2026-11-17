@@ -146,18 +146,25 @@ export class TokenBroker {
     if (!refreshToken) throw new OAuthSignInError(t().oauthNoToken(account.email));
     const provider = this.providerOf(accountId);
     const generation = this.generation(accountId);
-    const { status, body } = await tokenRequest(provider, {
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken,
-      ...(provider.refreshWithScopes ? { scope: provider.scopes(account.uses).join(' ') } : {}),
-    }).catch((err: Error) => {
-      throw new OAuthSignInError(t().oauthRefreshFailed(account.email, err.message));
-    });
-    // Removed, or signed in again, while the provider was asked: nothing of this answer is written.
-    if (this.generation(accountId) !== generation) {
+    // Removed, or signed in again, while the provider was asked: nothing of its answer (or its failure)
+    // is written or told; the caller gets the new sign-in's token, or the account being gone.
+    const superseded = () => {
       if (!this.store.account(accountId)) throw new OAuthSignInError(t().oauthAccountGone);
       return this.accessToken(accountId);
+    };
+    let answer: { status: number; body: TokenAnswer };
+    try {
+      answer = await tokenRequest(provider, {
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        ...(provider.refreshWithScopes ? { scope: provider.scopes(account.uses).join(' ') } : {}),
+      });
+    } catch (err) {
+      if (this.generation(accountId) !== generation) return superseded();
+      throw new OAuthSignInError(t().oauthRefreshFailed(account.email, (err as Error).message));
     }
+    if (this.generation(accountId) !== generation) return superseded();
+    const { status, body } = answer;
     if (!body.access_token) {
       const why = tokenError(status, body);
       // Refused for good: only a new sign-in mends it. Anything else (the network, the provider down) may pass.

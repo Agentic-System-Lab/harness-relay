@@ -704,7 +704,7 @@ export const zhTW = {
     close: '可以關閉這個分頁了。',
     back: '回到 Harness Relay 的設定',
     elsewhere:
-      '這裡沒有用這個網址的登入。如果登入是從另一台電腦上的 Harness Relay 開始的（例如在 codespace 裡），請複製這個完整網址，貼到那個 Harness Relay 的「設定」顯示的欄位：',
+      '這裡沒有等待中的登入用這個網址。它可能已經結束了：之前就完成了（這個頁面是再次打開的）、取消了、過期了，或是在 Harness Relay 重新啟動時遺失了；這樣的話，請到「設定」重新登入。也可能是另一台電腦上的 Harness Relay 開始的（例如在 codespace 裡）：這樣的話，請複製這個完整網址，貼到那個 Harness Relay 的「設定」顯示的欄位：',
   },
   connectors: {
     title: '郵件與行事曆帳號',

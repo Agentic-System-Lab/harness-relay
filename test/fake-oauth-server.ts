@@ -6,8 +6,9 @@
  * (`/me`, `/me/calendars`, `calendarView` in pages, `POST …/events`). Google's (under `/google/` and
  * `/caldav/v2/`): its token endpoint (the client secret checked, no rotation), revoke, userinfo, and
  * CalDAV that takes only a Bearer token (discovery from the principal, `REPORT`, `PUT`). The token
- * endpoints can be held (a request in flight). Plain HTTP on 127.0.0.1, which Harness Relay allows for
- * a stand-in only.
+ * endpoints can be held (a request in flight), or drop a request (the network failing), and the code
+ * exchange can grant other scopes than asked; who signed in can be held too. Plain HTTP on 127.0.0.1,
+ * which Harness Relay allows for a stand-in only.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage } from 'node:http';
@@ -75,7 +76,13 @@ export interface FakeOAuth {
   /** The device endpoint fails: a 500, with no code. */
   deviceDown: boolean;
   /** While set, the token endpoints wait for `until` before they answer a request of this grant: one in flight. */
-  hold?: { grant: 'refresh_token' | 'authorization_code' | 'urn:ietf:params:oauth:grant-type:device_code'; until: Promise<void> };
+  hold?: { grant: Grant; until: Promise<void> };
+  /** The next token request of each grant listed gets no answer: its connection is closed (the network failing), once each. */
+  drop: Grant[];
+  /** While set, what the code exchange says it granted (`scope`), from what was asked; undefined: no `scope` in the answer. */
+  grantScope?: (asked: string) => string | undefined;
+  /** While set, who signed in (Graph's `/me`, Google's userinfo) waits for it before it answers. */
+  holdWhoami?: Promise<void>;
   /** The Microsoft account that signs in. */
   me: { id: string; displayName: string; mail: string };
   events: FakeEvent[];
@@ -83,6 +90,8 @@ export interface FakeOAuth {
   google: FakeGoogle;
   close(): Promise<void>;
 }
+
+type Grant = 'refresh_token' | 'authorization_code' | 'urn:ietf:params:oauth:grant-type:device_code';
 
 const b64url = (b: Buffer) => b.toString('base64url');
 
@@ -109,6 +118,7 @@ export async function fakeOAuth(clientId = 'client-1'): Promise<FakeOAuth> {
     rotate: true,
     expiresIn: 3600,
     deviceAnswers: [],
+    drop: [],
     deviceInterval: 1,
     deviceDown: false,
     me: { id: 'subject-ming', displayName: 'Ming', mail: 'ming@contoso.com' },
@@ -176,9 +186,16 @@ export async function fakeOAuth(clientId = 'client-1'): Promise<FakeOAuth> {
       if (!c || c.redirectUri !== form.get('redirect_uri') || c.challenge !== b64url(createHash('sha256').update(verifier).digest()))
         return { status: 400, body: { error: 'invalid_grant', error_description: 'AADSTS70000: The code is not valid' } };
       const t = tokens();
+      const scope = self.grantScope ? self.grantScope(c.scope) : c.scope;
       return {
         status: 200,
-        body: { access_token: t.access, refresh_token: t.refresh, expires_in: self.expiresIn, scope: c.scope, token_type: 'Bearer' },
+        body: {
+          access_token: t.access,
+          refresh_token: t.refresh,
+          expires_in: self.expiresIn,
+          ...(scope !== undefined ? { scope } : {}),
+          token_type: 'Bearer',
+        },
       };
     }
     if (grant === 'refresh_token') {
@@ -222,9 +239,15 @@ export async function fakeOAuth(clientId = 'client-1'): Promise<FakeOAuth> {
     const form = new URLSearchParams(body);
     const url = new URL(path, self.url);
     const goodToken = Boolean(bearer && self.accessTokens.get(bearer));
+    if (self.holdWhoami && (url.pathname === '/v1.0/me' || url.pathname === '/google/userinfo')) await self.holdWhoami;
 
     if (req.method === 'POST' && (/\/oauth2\/v2\.0\/token$/.test(url.pathname) || url.pathname === '/google/token')) {
       if (self.hold && form.get('grant_type') === self.hold.grant) await self.hold.until;
+      const dropped = self.drop.indexOf(form.get('grant_type') as Grant);
+      if (dropped >= 0) {
+        self.drop.splice(dropped, 1);
+        return req.socket.destroy();
+      }
       const a = token(form, url.pathname === '/google/token' ? 'google' : 'microsoft');
       return json(a.status, a.body);
     }

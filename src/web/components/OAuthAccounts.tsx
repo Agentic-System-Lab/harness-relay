@@ -89,6 +89,9 @@ export function OAuthAccounts({ onConnectors, refresh = 0 }: { onConnectors: (v:
     }
   };
 
+  // The accounts read again: a calendar list that failed may have found a sign-in no longer works, which its account then says.
+  const reread = () => void api.oauth().then(setView, () => undefined);
+
   const remove = async (a: OAuthAccountView) => {
     if (!confirm(o.confirmRemove(a.email))) return;
     try {
@@ -137,7 +140,7 @@ export function OAuthAccounts({ onConnectors, refresh = 0 }: { onConnectors: (v:
                 ×
               </button>
             </div>
-            {calendarsOf === a.id && <AccountCalendars account={a} onConnectors={onConnectors} />}
+            {calendarsOf === a.id && <AccountCalendars account={a} onConnectors={onConnectors} onFailed={reread} />}
           </li>
         ))}
       </ul>
@@ -343,12 +346,24 @@ function ClientForm({
   );
 }
 
-/** An account's calendars, each to add to the calendar tools. */
-function AccountCalendars({ account, onConnectors }: { account: OAuthAccountView; onConnectors: (v: ConnectorsView) => void }) {
+/** An account's calendars, each to add to the calendar tools. `onFailed`: they could not be listed. */
+function AccountCalendars({
+  account,
+  onConnectors,
+  onFailed,
+}: {
+  account: OAuthAccountView;
+  onConnectors: (v: ConnectorsView) => void;
+  onFailed: () => void;
+}) {
   const o = useT().connectors.oauth;
   const [list, setList] = useState<OAuthCalendar[]>();
   const [error, setError] = useState('');
-  const load = () => api.oauthCalendars(account.id).then(setList, (e: Error) => setError(e.message));
+  const load = () =>
+    api.oauthCalendars(account.id).then(setList, (e: Error) => {
+      setError(e.message);
+      onFailed();
+    });
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps

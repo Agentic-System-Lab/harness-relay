@@ -78,6 +78,23 @@ export function tokenHost(url: string): string {
   return new URL(url).host.toLowerCase();
 }
 
+/** The scopes the uses ask for besides signing in (Calendar's, for the calendar tools). */
+export function useScopes(provider: OAuthProvider, uses: readonly OAuthUse[]): string[] {
+  const signIn = new Set(provider.scopes([]));
+  return provider.scopes(uses).filter((s) => !signIn.has(s));
+}
+
+/**
+ * Those of `needed` a token answer's `scope` (space-separated) does not grant. Compared by name,
+ * without case, on the last part of the path: Microsoft names Graph's scopes there with or without
+ * their resource (`https://graph.microsoft.com/Calendars.ReadWrite`, `Calendars.ReadWrite`).
+ */
+export function missingScopes(needed: readonly string[], granted: string): string[] {
+  const name = (s: string) => s.toLowerCase().split('/').pop() ?? '';
+  const have = new Set(granted.split(/\s+/).filter(Boolean).map(name));
+  return needed.filter((s) => !have.has(name(s)));
+}
+
 const GLOBAL_GRAPH = 'https://graph.microsoft.com';
 
 /** Microsoft's sign-in and Graph: the global cloud's, or those the environment sets (`config.ts`). */
