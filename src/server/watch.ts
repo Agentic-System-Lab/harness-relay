@@ -58,6 +58,11 @@ export interface WatchContext {
    * directory, or was, and what it writes is the team's own.
    */
   recordOnly?: boolean;
+  /**
+   * With `recordOnly`: when the folder was last seen free of the team (`ScheduleWatch.freeAt`). A file
+   * that changed by then is no run's: it is kept as it was, so a later check lists it.
+   */
+  keepBefore?: number;
 }
 
 /** Checks a trigger's source (`checkTrigger`, or a stand-in in tests). */
@@ -662,6 +667,8 @@ interface PatternWalk {
   deep: boolean;
   /** The fixed leading folders, in lower case: the walk goes straight down them. */
   lead: string[];
+  /** Every folder name the pattern writes out, in lower case: a bulky one it names is looked in. */
+  named: Set<string>;
 }
 
 export function patternWalk(pattern: string): PatternWalk {
@@ -672,7 +679,8 @@ export function patternWalk(pattern: string): PatternWalk {
   const folders = deepAt < 0 ? parts.slice(0, -1) : parts.slice(0, deepAt);
   const firstWild = folders.findIndex((p) => /[*?]/.test(p));
   const lead = (firstWild < 0 ? folders : folders.slice(0, firstWild)).map((p) => p.toLowerCase());
-  return { re: patternRegex(pattern), segments, deep: deepAt >= 0, lead };
+  const named = new Set(parts.filter((p) => !/[*?]/.test(p)).map((p) => p.toLowerCase()));
+  return { re: patternRegex(pattern), segments, deep: deepAt >= 0, lead, named };
 }
 
 /**
@@ -729,7 +737,7 @@ async function matchingFiles(root: string, pattern: string): Promise<FoundFile[]
         const lower = d.name.toLowerCase();
         if (depth >= MAX_DEPTH || lower === '.git') continue;
         const m = folderMatch(w, depth, d.name);
-        if (m === 'no' || (m === 'wild' && BULKY.has(lower))) continue;
+        if (m === 'no' || (m === 'wild' && BULKY.has(lower) && !w.named.has(lower))) continue;
         await walk(join(dir, d.name), path, depth + 1);
       } else if (d.isFile() && w.re.test(path)) {
         try {
@@ -764,6 +772,7 @@ export async function checkFiles(
   cwd: string,
   now = Date.now(),
   recordOnly = false,
+  keepBefore?: number,
 ): Promise<WatchCheck> {
   const files = await matchingFiles(cwd, trigger.pattern).catch((err: NodeJS.ErrnoException) => {
     if (err.code === 'ENOENT' || err.code === 'ENOTDIR') throw new Error(t().watchNoCwd(cwd));
@@ -772,7 +781,18 @@ export async function checkFiles(
     throw err;
   });
   const current = Object.fromEntries(files.map((f) => [f.path, `${f.mtimeMs}:${f.size}`]));
-  if (!prev?.files || prev.filesIn !== cwd || recordOnly) return { state: { files: current, filesIn: cwd }, total: 0 };
+  if (!prev?.files || prev.filesIn !== cwd) return { state: { files: current, filesIn: cwd }, total: 0 };
+  if (recordOnly) {
+    // The team's own: recorded. A file that changed before the team started (one held for it, say) is
+    // kept as it was, so the next check with the folder free lists it.
+    const kept: Record<string, string> = {};
+    for (const f of files) {
+      const was = prev.files[f.path];
+      if (was === current[f.path] || keepBefore === undefined || f.mtimeMs > keepBefore) kept[f.path] = current[f.path]!;
+      else if (was !== undefined) kept[f.path] = was;
+    }
+    return { state: { files: kept, filesIn: cwd }, total: 0 };
+  }
   const before = prev.files;
   const settled = (f: FoundFile) => f.mtimeMs <= now - SETTLE_MS;
   const state: Record<string, string> = {};
@@ -818,7 +838,7 @@ export function checkTrigger(connectors: ConnectorStore, oauth?: CalendarOAuth, 
       case 'github':
         return checkGithub(trigger, prev, gh);
       case 'file':
-        return checkFiles(trigger, prev, ctx.cwd, ctx.now, ctx.recordOnly);
+        return checkFiles(trigger, prev, ctx.cwd, ctx.now, ctx.recordOnly, ctx.keepBefore);
     }
   };
 }

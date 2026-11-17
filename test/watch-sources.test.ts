@@ -684,6 +684,9 @@ describe('a file appearing or changing in the working directory', () => {
       // Named, a bulky folder is looked in; `.git` never is.
       const named = await checkFiles({ source: 'file', pattern: 'node_modules/**/*.log' }, undefined, dir, LATER);
       expect(Object.keys(named.state.files!)).toEqual(['node_modules/pkg/d.log']);
+      // Named after `**` too.
+      const deep = await checkFiles({ source: 'file', pattern: '**/node_modules/*/*.log' }, undefined, dir, LATER);
+      expect(Object.keys(deep.state.files!)).toEqual(['node_modules/pkg/d.log']);
       expect((await checkFiles({ source: 'file', pattern: '.git/*.log' }, undefined, dir, LATER)).state.files).toEqual({});
       // Through a link: nothing.
       expect((await checkFiles({ source: 'file', pattern: 'link/*.log' }, undefined, dir, LATER)).state.files).toEqual({});
@@ -746,6 +749,19 @@ describe('a file appearing or changing in the working directory', () => {
     expect(slashed('C:\\Users\\me\\project', '\\')).toBe('C:/Users/me/project');
     expect(slashed('/home/me/project', '/')).toBe('/home/me/project');
     expect(slashed(['a', 'b'].join(sep))).toBe('a/b');
+  });
+
+  it('records only what changed after the folder was last free of the team, keeping what came before it', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'relay-watch-'));
+    file('held.pdf', 'from outside', NOW - 10 * MIN);
+    const trigger: Extract<ScheduleTrigger, { source: 'file' }> = { source: 'file', pattern: '*.pdf' };
+    const prev = kept(trigger, { files: {}, filesIn: dir });
+    file('team.pdf', 'the team wrote it', NOW);
+    const only = await checkFiles(trigger, prev, dir, NOW + MIN, true, NOW - 5 * MIN);
+    // The team's file recorded; the one from before the team started not, so it is listed later.
+    expect(only).toEqual({ state: { files: { 'team.pdf': `${NOW}:17` }, filesIn: dir }, total: 0 });
+    const later = await checkFiles(trigger, kept(trigger, only.state), dir, NOW + 2 * MIN);
+    expect(JSON.parse(later.event!).files.map((f: { path: string }) => f.path)).toEqual(['held.pdf']);
   });
 
   it('turns a pattern into a match of paths with /, in any case', () => {
@@ -820,7 +836,7 @@ describe('what the sources are keyed by, and how they are checked when saved', (
       kind: 'event',
       trigger: { source: 'file', pattern: 'reports/*.csv' },
     });
-    for (const pattern of ['', './', '/etc/passwd', 'C:\\x', '../up/*.txt', 'a/../../b'])
+    for (const pattern of ['', './', '/etc/passwd', 'C:\\x', '../up/*.txt', 'a/../../b', 'reports/', '.git/*.log', 'a/.GIT/x'])
       expect(() => save({ source: 'file', pattern })).toThrow();
     expect(() => save({ source: 'rss', url: 'x' })).toThrow('What to wait for is not complete');
   });
