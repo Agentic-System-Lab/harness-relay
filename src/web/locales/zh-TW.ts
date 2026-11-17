@@ -656,7 +656,8 @@ export const zhTW = {
   connectors: {
     title: '郵件與行事曆帳號',
     hint: '「郵件」與「行事曆」工具用的帳號，透過 IMAP、SMTP 與 CalDAV，搭配應用程式專用密碼（大多數服務在安全性設定中提供；Gmail 需要先開啟兩步驟驗證）。Google 日曆與 Microsoft 365 需要 Harness Relay 目前還沒有的登入方式。',
-    passwordsIn: (where: string) => `密碼存放於${where}，畫面上不會顯示，連一部分也不會。`,
+    // 直接接在說明後面（句號之後不加空格）；英文開頭的名稱前留一個空格。
+    passwordsIn: (where: string) => `密碼存放於${/^[A-Za-z]/.test(where) ? ' ' : ''}${where}，畫面上不會顯示，連一部分也不會。`,
     mail: '郵件',
     calendar: '行事曆',
     addMail: '新增郵件帳號',
