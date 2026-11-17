@@ -63,9 +63,21 @@ export class Inbox {
   /** Reads the states now (where it starts), then now and then. */
   start(): void {
     if (this.timer) return;
-    this.check();
-    this.timer = setInterval(() => this.check(), INBOX_CHECK_MS);
+    this.checkSafely();
+    this.timer = setInterval(() => this.checkSafely(), INBOX_CHECK_MS);
     this.timer.unref?.();
+  }
+
+  /**
+   * A check in the background: a failure (the database busy, say) is logged and the next check tries
+   * again, rather than taking the server, and every conversation, down with it.
+   */
+  private checkSafely(): void {
+    try {
+      this.check();
+    } catch (err) {
+      console.error('[inbox] could not read the conversations:', err);
+    }
   }
 
   stop(): void {

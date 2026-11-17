@@ -220,7 +220,6 @@ export const api = {
     if (current) clearKey();
   },
   // notifications
-  /** Whether the server sends push notifications: the key to subscribe with, or why not. */
   /** The notification inbox (the sidebar's bell): every notification kept, the newest first. */
   notifications: () => request<InboxItem[]>('GET', '/api/notifications'),
   /** How many are unread and where, and the newest one's id. */
@@ -229,6 +228,7 @@ export const api = {
   readNotifications: (which: InboxReadRequest) => request<{ read: number }>('POST', '/api/notifications/read', which),
   /** Removes every notification. */
   clearNotifications: () => request<{ ok: true }>('DELETE', '/api/notifications'),
+  /** Whether the server sends push notifications: the key to subscribe with, or why not. */
   pushStatus: () => request<PushStatus>('GET', '/api/push'),
   /** Keeps this browser's push subscription and which alerts it wants. */
   pushSubscribe: (subscription: PushSubscriptionJson, prefs: AlertPrefs) => request<{ ok: true }>('PUT', '/api/push/subscription', { subscription, prefs }),

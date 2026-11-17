@@ -983,7 +983,8 @@ p {
   height: 16px;
   padding: 0 4px;
   border-radius: 999px;
-  background: var(--danger);
+  /* The light theme's red in both: white on it reads well (the dark theme's lighter red would not). */
+  background: #dc2626;
   color: #fff;
   font-size: 10px;
   font-weight: 700;
@@ -1039,6 +1040,14 @@ p {
 /* Clear of the corner's two buttons (the bell and expand: 74px wide, 10px from the edge). */
 .sidebar-collapsed .chat-head {
   padding-left: 96px;
+}
+
+/* A page's heading starts below the corner's buttons (48px down) while the page reaches under them:
+   up to a window of about 1140px, past which the centred page starts right of them. */
+@media (min-width: 821px) and (max-width: 1140px) {
+  .sidebar-collapsed .page-inner {
+    padding-top: 60px;
+  }
 }
 
 .sidebar-scrim {

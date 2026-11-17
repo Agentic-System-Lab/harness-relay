@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDatabase, type Database } from '../src/server/db';
-import { Inbox, newConversationNews } from '../src/server/inbox';
+import { INBOX_CHECK_MS, Inbox, newConversationNews } from '../src/server/inbox';
 import { INBOX_KEPT, Store } from '../src/server/store';
 import type { ChatMessage, Conversation, ConversationSummary } from '../src/shared/types';
 
@@ -237,6 +237,37 @@ describe('Inbox (the recorder)', () => {
     expect(newConversationNews({ running: false, lastReplyId: 'x', lastStatus: 'error' })).toBe('error');
     expect(newConversationNews({ running: false, lastReplyId: 'x', lastStatus: 'aborted' })).toBeUndefined();
     expect(newConversationNews({ running: false, lastStatus: 'done' })).toBeUndefined();
+  });
+
+  describe('in the background', () => {
+    afterEach(() => {
+      inbox.stop();
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    it('reads at start, then every 1.5 s; a failed read is logged, never thrown, and the next one tries again', () => {
+      vi.useFakeTimers();
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const failing = new Inbox({
+        list: () => {
+          reads++;
+          throw new Error('database is locked');
+        },
+        get: () => undefined,
+        store,
+      });
+      inbox = failing;
+      expect(() => failing.start()).not.toThrow();
+      expect(reads).toBe(1);
+      vi.advanceTimersByTime(INBOX_CHECK_MS);
+      expect(reads).toBe(2);
+      expect(logged).toHaveBeenCalledTimes(2);
+      expect(String(logged.mock.calls[0]![1])).toContain('database is locked');
+      failing.stop();
+      vi.advanceTimersByTime(INBOX_CHECK_MS * 3);
+      expect(reads).toBe(2);
+    });
   });
 
   it('keeps nothing for a conversation deleted meanwhile', () => {

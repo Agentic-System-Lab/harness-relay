@@ -522,7 +522,7 @@ function RelayApp() {
       </main>
       {inboxOpen && (
         <Deferred onClose={() => setInboxOpen(false)}>
-          <InboxDialog summary={inbox} onClose={() => setInboxOpen(false)} onChanged={refreshConversations} />
+          <InboxDialog summary={inbox} onClose={() => setInboxOpen(false)} onChanged={refreshConversations} onOpened={() => setSidebarOpen(false)} />
         </Deferred>
       )}
       {tourOpen && (

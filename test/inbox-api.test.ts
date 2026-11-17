@@ -98,7 +98,7 @@ describe('/api/notifications', () => {
   });
 
   it('refuses a request that names nothing, or too much', async () => {
-    for (const body of [{}, { all: false }, { ids: 'n1' }, { ids: [1] }, { ids: [''] }, { conversationId: '' }, { ids: Array(INBOX_READ_MAX + 1).fill('n1') }]) {
+    for (const body of [{}, { all: false }, { ids: 'n1' }, { ids: [1] }, { ids: [''] }, { conversationId: '' }, { conversationId: 'c'.repeat(65) }, { ids: ['n'.repeat(65)] }, { ids: Array(INBOX_READ_MAX + 1).fill('n1') }]) {
       expect((await send('POST', '/api/notifications/read', body)).status, JSON.stringify(body).slice(0, 40)).toBe(400);
     }
     expect(store.notificationSummary().unread).toBe(3);

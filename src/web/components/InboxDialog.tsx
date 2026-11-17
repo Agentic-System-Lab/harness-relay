@@ -14,6 +14,8 @@ interface Props {
   onClose: () => void;
   /** Notifications were read or cleared: the page asks for the summary again. */
   onChanged: () => void;
+  /** One was opened: on a phone the sidebar's drawer closes too (also for the chat already shown). */
+  onOpened: () => void;
 }
 
 /**
@@ -23,7 +25,7 @@ interface Props {
  * clears them. Rendered on the page's body, as the sidebar is moved on a phone (a transform), which
  * would carry a fixed dialog with it.
  */
-export function InboxDialog({ summary, onClose, onChanged }: Props) {
+export function InboxDialog({ summary, onClose, onChanged, onOpened }: Props) {
   const t = useT();
   const m = t.inbox;
   const dialog = useRef<HTMLDivElement>(null);
@@ -87,6 +89,7 @@ export function InboxDialog({ summary, onClose, onChanged }: Props) {
       .catch(() => undefined)
       .finally(onChanged);
     onClose();
+    onOpened();
   };
 
   return createPortal(
