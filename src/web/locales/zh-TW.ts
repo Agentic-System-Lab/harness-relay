@@ -1213,7 +1213,7 @@ export const zhTW = {
       } as Record<'not-started' | 'no-node' | 'no-node-path', string>,
     },
     title: '工具庫',
-    hint: '這裡的 MCP 伺服器、skill 和記憶會提供給成員，每種 CLI 都能用（Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 與開源 agent），而且加在各 CLI 自己的設定之外。每一項可以給所有成員，或只給某幾種 CLI 的成員；要針對單一成員調整，在「新對話」或對話上方的「團隊設定」裡，用該成員卡片的「工具」欄位。變更從成員的下一回合開始生效。',
+    hint: '這裡的 MCP 伺服器、skill 和記憶會提供給成員，每種 CLI 都能用（Claude Code、Codex、Grok、Cursor、Antigravity、Copilot、Muse Code 與開源 agent），而且加在各 CLI 自己的設定之外。每一項可以給所有成員，或只給某幾種 CLI 的成員；要針對單一成員調整，在「新對話」或對話上方的「團隊設定」裡，用該成員卡片的「工具」欄位。變更從成員的下一回合開始生效。',
     mcp: 'MCP 伺服器',
     mcpHint: '工具呼叫一樣受對話的權限限制：權限範圍以外的會詢問你，或依設定自動拒絕。',
     addMcp: '新增 MCP 伺服器',
