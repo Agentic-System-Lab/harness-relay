@@ -259,10 +259,11 @@ export class Scheduler {
     const listening = this.listening?.(convId, trigger) ?? false;
     // What still settled while such a run began may be its own: only what already waited before it stays kept.
     const pending = busy && found.pending ? only(found.pending, prev?.heldFiles) : found.pending;
-    // Files still waiting through a check that only records: why they wait stays said (asked again, nothing started).
+    // Files still waiting through a check that only records: why they wait stays said (asked again, nothing
+    // started); with nothing else holding them, it is that the team writes there, or just did.
     const stillHeld =
       recordOnly && prev?.held && prev.heldFiles
-        ? { held: withLang(s.lang, () => this.orchestrator.scheduledHold(convId)) ?? prev.held }
+        ? { held: withLang(s.lang, () => this.orchestrator.scheduledHold(convId) ?? t().scheduleFolderWritten) }
         : {};
     const seen: ScheduleWatch = {
       key,
