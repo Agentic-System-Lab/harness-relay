@@ -299,6 +299,83 @@ test.describe('schedules', () => {
     await expect(reply).toContainText('reports/feb.csv');
   });
 
+  test('an automation that waits for two things starts when either happens: each is checked on its own, shown on a line of its own, and sends its own message', async ({
+    page,
+    relay,
+  }) => {
+    mkdirSync(join(relay.workDir, 'reports'), { recursive: true });
+    mkdirSync(join(relay.workDir, 'invoices'), { recursive: true });
+    writeFileSync(join(relay.workDir, 'reports', 'jan.csv'), 'month,total\njan,1\n');
+    writeFileSync(join(relay.workDir, 'invoices', 'old.pdf'), 'an old invoice');
+    await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Two watches');
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Automation' });
+    await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('File what came in');
+    await drawer.getByRole('radio', { name: 'When something happens' }).click();
+    await drawer
+      .getByRole('combobox', { name: 'What to wait for' })
+      .selectOption({ label: 'A file appears or changes in the working directory' });
+    await drawer.getByRole('textbox', { name: 'File pattern' }).fill('reports/*.csv');
+    // One thing alone has nothing to remove.
+    await expect(drawer.getByRole('button', { name: /^Remove thing/ })).toHaveCount(0);
+    await drawer.getByRole('button', { name: 'Add another' }).click();
+    const second = drawer.getByRole('group', { name: 'Thing 2 to wait for' });
+    // Another of the same kind, still to fill in; the same pattern twice is one thing.
+    await expect(second.getByRole('combobox', { name: 'What to wait for' })).toHaveValue('file');
+    await second.getByRole('textbox', { name: 'File pattern' }).fill('./reports/*.csv');
+    await expect(drawer.locator('.drawer-foot .error-line')).toHaveText(/^Two of the things to wait for are the same/);
+    await expect(drawer.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+    await second.getByRole('textbox', { name: 'File pattern' }).fill('invoices/*.pdf');
+    await expect(drawer).toContainText('Each is checked on its own');
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drawer).toBeHidden();
+    await expect(page.locator('.conv-item.active .conv-schedule')).toHaveAccessibleName(
+      'Automation: when a file matching reports/*.csv appears or changes in the working directory, or when a file matching invoices/*.pdf appears or changes in the working directory',
+    );
+
+    // Check now: each notes the files already there, on a line of its own, and nothing is sent.
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await expect(drawer.getByRole('group', { name: 'Thing 1 to wait for' }).getByRole('textbox', { name: 'File pattern' })).toHaveValue(
+      'reports/*.csv',
+    );
+    await expect(drawer.getByRole('button', { name: 'Remove thing 2 to wait for' })).toBeVisible();
+    await drawer.getByRole('button', { name: 'Check now' }).click();
+    const states = drawer.locator('.schedule-trigger-state');
+    await expect(states).toHaveCount(2);
+    await expect(states.nth(0)).toContainText('When a file matching reports/*.csv appears or changes in the working directory · Checked');
+    await expect(states.nth(1)).toContainText('When a file matching invoices/*.pdf appears or changes in the working directory · Checked');
+    const sent = page.locator('.msg-user', { hasText: 'File what came in' });
+    await expect(sent).toHaveCount(0);
+
+    // A new report, done being written a minute ago: its trigger sends the message, with the report alone.
+    const minuteAgo = () => (Date.now() - 60_000) / 1000;
+    writeFileSync(join(relay.workDir, 'reports', 'feb.csv'), 'month,total\nfeb,2\n');
+    utimesSync(join(relay.workDir, 'reports', 'feb.csv'), minuteAgo(), minuteAgo());
+    await drawer.getByRole('button', { name: 'Check now' }).click();
+    await expect(sent).toHaveCount(1);
+    await drawer.getByRole('button', { name: 'Close' }).click();
+    await sent.getByText('The files that appeared or changed', { exact: true }).click();
+    await expect(sent.locator('.event-block pre')).toContainText('"pattern": "reports/*.csv"');
+    await expect(sent.locator('.event-block pre')).toContainText('"path": "reports/feb.csv"');
+    await expect(await finishedReply(page, 'Codex')).toContainText('reports/feb.csv');
+
+    // A new invoice: the other trigger sends the message again, in a message of its own.
+    writeFileSync(join(relay.workDir, 'invoices', 'inv-7.pdf'), 'invoice 7');
+    utimesSync(join(relay.workDir, 'invoices', 'inv-7.pdf'), minuteAgo(), minuteAgo());
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await drawer.getByRole('button', { name: 'Check now' }).click();
+    await expect(sent).toHaveCount(2);
+    await drawer.getByRole('button', { name: 'Close' }).click();
+    const invoice = sent.nth(1);
+    await invoice.getByText('The files that appeared or changed', { exact: true }).click();
+    await expect(invoice.locator('.event-block pre')).toContainText('"path": "invoices/inv-7.pdf"');
+    await expect(invoice.locator('.event-block pre')).not.toContainText('feb.csv');
+    await expect(invoice.locator('.event-block pre')).not.toContainText('old.pdf');
+    const reply = await finishedReply(page, 'Codex');
+    await expect(reply).toContainText('<event source="file">');
+    await expect(reply).toContainText('invoices/inv-7.pdf');
+  });
+
   test('an automation that starts when a pull request opens on GitHub: checked through gh, the first check notes those there, and a new one reaches the team as data', async ({
     page,
     relay,

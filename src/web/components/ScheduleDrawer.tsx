@@ -4,6 +4,7 @@ import { api } from '../api';
 import { useI18n } from '../i18n';
 import { hashFor } from '../route';
 import {
+  combinedWatch,
   describeRepeat,
   draftChanged,
   draftFrom,
@@ -13,8 +14,8 @@ import {
   scheduleTrouble,
   shownZone,
   toUpdate,
+  triggerStates,
   type ScheduleDraft,
-  watchState,
 } from '../schedule';
 import { MemberDots } from './MemberDots';
 import { ScheduleForm } from './ScheduleForm';
@@ -66,6 +67,7 @@ export function ScheduleDrawer({
   };
 
   const problems = draftProblems(draft, Date.now(), t);
+  const severalTriggers = saved?.repeat.kind === 'event' && saved.repeat.triggers.length > 1;
   const changed = draftChanged(draft, saved);
   // Scheduled messages go to the current team (the lead agent designs none when one comes due).
   const waitingPlan = Boolean(pendingPlan(conv.messages));
@@ -139,7 +141,8 @@ export function ScheduleDrawer({
     try {
       // What the check found shows, also while the automation is off (its state then says paused only).
       const after = await api.checkSchedule(conv.id);
-      const w = after?.watch;
+      // Every trigger was checked: as one (the first error, the last check).
+      const w = after ? combinedWatch(after) : undefined;
       // On, the status line above says how it went (its error too); off, it says only paused.
       if (after?.enabled) setInfo(t.schedule.watch.done);
       else if (w?.error) setError(t.schedule.watch.error(w.error));
@@ -174,9 +177,25 @@ export function ScheduleDrawer({
         {saved && (
           <div className={`schedule-status ${scheduleTrouble(saved) ? 'warn' : ''}`}>
             <div className="schedule-status-text">
-              <strong>
-                {describeRepeat(saved.repeat, t, lang)} · {scheduleState(saved, t, lang)}
-              </strong>
+              {/* Several things to wait for: how each one's checks go, one line each. */}
+              {severalTriggers ? (
+                <>
+                  <strong>
+                    {describeRepeat(saved.repeat, t, lang)}
+                    {!saved.enabled && ` · ${t.schedule.paused}`}
+                  </strong>
+                  {saved.enabled &&
+                    triggerStates(saved, t, lang).map((line, i) => (
+                      <span key={i} className="small schedule-trigger-state">
+                        {line}
+                      </span>
+                    ))}
+                </>
+              ) : (
+                <strong>
+                  {describeRepeat(saved.repeat, t, lang)} · {scheduleState(saved, t, lang)}
+                </strong>
+              )}
               {saved.lastResult && saved.lastRunAt !== undefined && (
                 <span className="small">
                   {t.schedule.last(formatWhen(saved.lastRunAt, lang, shownZone(saved)), t.schedule.results[saved.lastResult])}

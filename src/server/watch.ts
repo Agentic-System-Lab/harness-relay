@@ -1,5 +1,6 @@
 import { lstat, readdir } from 'node:fs/promises';
 import { join, sep } from 'node:path';
+import { triggerKey } from '../shared/schedule';
 import { TRACKING_LIMITS, WATCH_LIMITS, type ScheduleTrigger, type ScheduleWatch, type WatchState } from '../shared/types';
 import type { ConnectorStore } from './connectors/accounts';
 import { calendarBackend, type CalendarOAuth } from './connectors/calendar';
@@ -71,29 +72,8 @@ export interface WatchContext {
 /** Checks a trigger's source (`checkTrigger`, or a stand-in in tests). */
 export type TriggerChecker = (trigger: ScheduleTrigger, prev: ScheduleWatch | undefined, ctx: WatchContext) => Promise<WatchCheck>;
 
-/**
- * For which source a watch's state was recorded: another one (account and folder, calendar, repository
- * and what to watch there, the branch of CI runs, pattern) starts afresh. Changing a trigger's
- * conditions (sender, subject, title, minutes) keeps its place: what comes next is matched against the
- * new ones. (Another branch lists other runs, among them failures that are not new: so it starts afresh.)
- */
-export function triggerKey(trigger: ScheduleTrigger): string {
-  switch (trigger.source) {
-    case 'mail':
-      return JSON.stringify([trigger.source, trigger.account, trigger.folder]);
-    case 'calendar':
-      return JSON.stringify([trigger.source, trigger.account]);
-    case 'github':
-      return JSON.stringify([
-        trigger.source,
-        trigger.repo.toLowerCase(),
-        trigger.on,
-        ...(trigger.on === 'ci' ? [trigger.branch ?? ''] : []),
-      ]);
-    case 'file':
-      return JSON.stringify([trigger.source, trigger.pattern]);
-  }
-}
+/** For which source a trigger's state was recorded (`src/shared/schedule.ts`). */
+export { triggerKey };
 
 /**
  * When the next check is, after `failures` failed checks in a row (0: the last one worked); more

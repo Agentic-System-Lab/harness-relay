@@ -1,8 +1,8 @@
 /*
  * IMAP IDLE for the automations that start when a new mail arrives (`src/server/idle.ts`, and
  * `ImapClient.idle()`), against the stand-in IMAP server: one connection for each mail account and
- * folder, waiting there; the server saying mail arrived (`* n EXISTS`) checks every automation on it,
- * once for mail that arrives together and again for mail during the checks; IDLE renewed, its DONE
+ * folder, waiting there; the server saying mail arrived (`* n EXISTS`) checks every automation on it
+ * (only its trigger on that folder), once for mail that arrives together and again for mail during the checks; IDLE renewed, its DONE
  * answered or not; a dropped connection opened again, more slowly after each failure in a row, and a
  * refused sign-in as slowly as the checks back off; a server that does not take IDLE left to the
  * checks; an automation turned off, another folder, a saved account or a computer that slept
@@ -16,7 +16,7 @@ import { openDatabase } from '../src/server/db';
 import { HttpError } from '../src/server/errors';
 import { IdleWatcher, IDLE_SYNC_MS, type IdleDeps } from '../src/server/idle';
 import { validateMailAccount } from '../src/server/validate';
-import { nextCheckAt } from '../src/server/watch';
+import { nextCheckAt, triggerKey } from '../src/server/watch';
 import { WATCH_LIMITS, type ScheduleTrigger } from '../src/shared/types';
 import { fakeImap, type FakeImap, type FakeMessage } from './fake-mail-servers';
 
@@ -181,6 +181,37 @@ describe('the IDLE connections of automations that wait for new mail', () => {
     expect(checks).toHaveLength(3);
     release!();
     await vi.waitFor(() => expect(checks).toHaveLength(6));
+  });
+
+  it("checks only an automation's trigger on the folder where mail arrived, and says it listens for each folder apart", async () => {
+    const messages = [mail(1)];
+    server = await fakeImap(messages);
+    server.idle = true;
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    // One automation waits for mail in two accounts' inboxes; the second one's password is refused.
+    const connectors = accounts(server.port);
+    connectors.saveMail('home', { ...account(server.port, 'wrong'), name: 'Home' });
+    const home = { ...inbox, account: 'home' };
+    const checks: [string, string][] = [];
+    const w = start(
+      {
+        watching: () => [
+          { conversationId: 'c1', trigger: inbox },
+          { conversationId: 'c1', trigger: home },
+        ],
+        check: async (id, key) => void checks.push([id, key]),
+      },
+      connectors,
+    );
+    await vi.waitFor(() => expect(w.live('c1', inbox) && server!.idling === 1).toBe(true));
+    expect(w.connections).toBe(2);
+    expect(w.live('c1', home)).toBe(false);
+    expect(w.live('c1')).toBe(true);
+    messages.push(mail(2));
+    server.notify();
+    await vi.waitFor(() => expect(checks).toEqual([['c1', triggerKey(inbox)]]));
+    await sleep(60);
+    expect(checks).toEqual([['c1', triggerKey(inbox)]]);
   });
 
   it('does not log a conversation deleted meanwhile', async () => {

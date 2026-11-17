@@ -1,10 +1,10 @@
 import type { Conversation, ConversationSchedule, ScheduleResult, ScheduleTrigger, ScheduleWatch, WatchState } from '../shared/types';
-import { nextRun } from '../shared/schedule';
+import { nextRun, triggerKey, watchOf } from '../shared/schedule';
 import { HttpError } from './errors';
 import { t, withLang } from './i18n';
 import type { Orchestrator } from './orchestrator';
 import type { Store } from './store';
-import { nextCheckAt, triggerKey, type TriggerChecker, type WatchCheck } from './watch';
+import { nextCheckAt, type TriggerChecker, type WatchCheck } from './watch';
 
 /** What a check found of its source, to keep: only what each source keeps (`WatchState`), never anything else it said. */
 function keptState(state: WatchState): WatchState {
@@ -18,6 +18,28 @@ function keptState(state: WatchState): WatchState {
     ...(files ? { files } : {}),
     ...(filesIn !== undefined ? { filesIn } : {}),
   };
+}
+
+/** What each trigger's checks keep, with one trigger's replaced by `watch` (by its key), in the triggers' order. */
+function withWatch(s: ConversationSchedule, watch: ScheduleWatch): ScheduleWatch[] {
+  if (s.repeat.kind !== 'event') return [watch];
+  return s.repeat.triggers.flatMap((t) => (triggerKey(t) === watch.key ? [watch] : (watchOf(s, t) ?? [])));
+}
+
+/**
+ * One round of checks of an automation's triggers: whether its folder was in use before the round
+ * (`inUse`), and whether a message one of them sent started or queued a run (`started`).
+ */
+interface Round {
+  inUse: boolean;
+  started?: boolean;
+}
+
+/** One more check asked for after the one under way: the user's own (`force`), and of which triggers (none: every one). */
+interface FollowUp {
+  force: boolean;
+  keys?: Set<string>;
+  done: Promise<void>;
 }
 
 /** A time missed by more than this (Harness Relay was not running, the computer slept) counts as missed. */
@@ -66,10 +88,10 @@ export class Scheduler {
   private stopped = false;
   /** Conversations whose due time was found busy: that time, and when it was first tried. Retried, not missed. */
   private retrying = new Map<string, { due: number; since: number }>();
-  /** The checks of what automations wait for, under way: one at a time for each. */
-  private checks = new Map<string, Promise<void>>();
+  /** The checks of what automations wait for, under way: one at a time for each (whether it is the user's own). */
+  private checks = new Map<string, { done: Promise<void>; force: boolean }>();
   /** The one more check asked for after the one under way (`check(…, again)`). */
-  private followUps = new Map<string, Promise<void>>();
+  private followUps = new Map<string, FollowUp>();
   private watching?: Promise<void>;
   /**
    * Whether the mail server tells Harness Relay when mail arrives for this automation (IMAP IDLE,
@@ -119,15 +141,16 @@ export class Scheduler {
   }
 
   /**
-   * Check what the automations that start when something happens wait for, those whose next check has
-   * come, one after another: a slow mail server holds up the others' checks, never a time coming due.
+   * Check what the automations that start when something happens wait for, those one of whose triggers'
+   * next check has come (those triggers), one after another: a slow mail server holds up the others'
+   * checks, never a time coming due.
    */
   watchTick(): Promise<void> {
     this.watching ??= (async () => {
       for (const id of this.store.watchDue(this.now())) {
         if (this.stopped) return;
         try {
-          await this.check(id);
+          await this.check(id, false, false, 'due');
         } catch (err) {
           if (!(err instanceof HttpError && err.status === 404)) console.error('[scheduler] could not check an automation:', err);
         }
@@ -137,59 +160,98 @@ export class Scheduler {
   }
 
   /**
-   * Check what the conversation's automation waits for (`force`: now, even while it is off: the user's
-   * Check now), and send its message, with what is new in an <event> block, when something is. The
-   * first check only records what is there. A team that cannot take it now (`busy`, `skipped`) leaves
-   * it to a later check, which finds it again with whatever came meanwhile; a message that was sent,
-   * queued or could not start counts it as seen. A check that fails is shown, and the next ones come
-   * slower. One check at a time per conversation: a second call waits for the one under way.
+   * Check what the conversation's automation waits for, and send its message, with what is new in an
+   * <event> block, when something is: each trigger on its own (its own state, next check and errors),
+   * one after another, and each that found something sends a message of its own. Which triggers:
+   * `keys` (IMAP IDLE: those on the folder where mail arrived; `due`: those whose next check has come,
+   * at the scheduler's own look), else every one. `force`: the user's Check now, even while it is off.
+   * The first check of a trigger only records what is there. A team that cannot take it now (`busy`,
+   * `skipped`) leaves it to a later check, which finds it again with whatever came meanwhile; a message
+   * that was sent, queued or could not start counts it as seen. A check that fails is shown, and that
+   * trigger's next ones come slower. One check at a time per conversation: a second call waits for the
+   * one under way, or (`again`, or the user's check after one that was not) comes once after it.
    *
    * Files in the working directory: what a run writes there is the team's own, never something new to
    * start it. While a run writes there (this conversation's, or another's holding the folder:
    * `Orchestrator.folderInUse()`), and at the first check once the folder is free again (`teamWrote`,
    * also set by a check whose message started a run), a check only records the files as they are.
    */
-  check(convId: string, force = false, again = false): Promise<void> {
+  check(convId: string, force = false, again = false, keys?: string[] | 'due'): Promise<void> {
     const running = this.checks.get(convId);
     if (running) {
-      if (!again) return running;
+      if (!again && (!force || running.force)) return running.done;
       // Asked for something that may have come after the check under way looked (the mail server
-      // said mail arrived): one more check after it, shared by every such ask meanwhile.
-      let next = this.followUps.get(convId);
-      if (!next) {
-        // After the one under way, however it went (a deleted conversation's 404 too): never left behind.
-        next = running
-          .catch(() => undefined)
-          .then(() => {
-            this.followUps.delete(convId);
-            return this.check(convId, force);
-          });
-        this.followUps.set(convId, next);
+      // said mail arrived), or the user's check after one of the triggers whose time had come: one
+      // more check after it, shared by every such ask meanwhile (what each asked for, together).
+      const asked = Array.isArray(keys) ? keys : undefined;
+      const next = this.followUps.get(convId);
+      if (next) {
+        next.force ||= force;
+        next.keys = next.keys && asked ? new Set([...next.keys, ...asked]) : undefined;
+        return next.done;
       }
-      return next;
+      const follow: FollowUp = { force, keys: asked ? new Set(asked) : undefined, done: Promise.resolve() };
+      // After the one under way, however it went (a deleted conversation's 404 too): never left behind.
+      follow.done = running.done
+        .catch(() => undefined)
+        .then(() => {
+          this.followUps.delete(convId);
+          return this.check(convId, follow.force, false, follow.keys && [...follow.keys]);
+        });
+      this.followUps.set(convId, follow);
+      return follow.done;
     }
-    const p = this.runCheck(convId, force).finally(() => this.checks.delete(convId));
-    this.checks.set(convId, p);
-    return p;
+    const which = keys === 'due' ? 'due' : keys ? new Set(keys) : 'all';
+    const done = this.runCheck(convId, force, which).finally(() => this.checks.delete(convId));
+    this.checks.set(convId, { done, force });
+    return done;
   }
 
-  private async runCheck(convId: string, force: boolean): Promise<void> {
+  private async runCheck(convId: string, force: boolean, which: Set<string> | 'all' | 'due'): Promise<void> {
     if (this.stopped || !this.checkTrigger) return;
     const conv = this.store.get(convId);
     const s = conv?.schedule;
     if (!conv || !s || s.repeat.kind !== 'event' || (!s.enabled && !force)) return;
-    const trigger = s.repeat.trigger;
-    const key = triggerKey(trigger);
+    const now = this.now();
+    const picked = s.repeat.triggers.filter((t) =>
+      which === 'all' ? true : which === 'due' ? (watchOf(s, t)?.nextCheckAt ?? 0) <= now : which.has(triggerKey(t)),
+    );
+    // Whether the folder was in use before any of these checks sent a message: a run one of them
+    // started writes there now, but what the next ones find was there before it.
+    const round: Round = { inUse: picked.some((t) => t.source === 'file') && this.orchestrator.folderInUse(convId) };
+    let failed: unknown;
+    for (const key of picked.map(triggerKey)) {
+      if (this.stopped) return;
+      try {
+        await this.checkOne(conv, key, force, round);
+      } catch (err) {
+        // Deleted meanwhile: nothing more to check. Anything else is the other triggers' business still.
+        if (err instanceof HttpError && err.status === 404) throw err;
+        failed ??= err;
+      }
+    }
+    if (failed) throw failed;
+  }
+
+  /** Check one trigger of the conversation's automation (by its key), and send what it found. */
+  private async checkOne(conv: Conversation, key: string, force: boolean, round: Round): Promise<void> {
+    const s = conv.schedule;
+    if (!s || s.repeat.kind !== 'event' || (!s.enabled && !force)) return;
+    const trigger = s.repeat.triggers.find((t) => triggerKey(t) === key);
+    // Removed since the check began.
+    if (!trigger) return;
+    const convId = conv.id;
     // Checked while it is off (Check now): what came meanwhile is only recorded, as turning it on
     // again would, so that trying the connection never starts a run.
-    const prev = s.watch?.key === key && s.enabled ? s.watch : undefined;
+    const prev = s.enabled ? watchOf(s, trigger) : undefined;
     const started = this.now();
     // Something found earlier still waits for a team that cannot take it: the source is not asked
     // again (nor the same mail downloaded) until the team can. The user's own check always asks it.
     const hold = prev?.held && !force ? withLang(s.lang, () => this.orchestrator.scheduledHold(convId)) : undefined;
-    // The team writes in the folder now, or did since the last check: only recorded.
+    // The team writes in the folder now, or did since the last check: only recorded. (A run another
+    // trigger's message just started writes there too, but what was there before it is not its own.)
     const files = trigger.source === 'file';
-    const writing = files && this.orchestrator.folderInUse(convId);
+    const writing = files && (round.started ? round.inUse : this.orchestrator.folderInUse(convId));
     /** Someone writes in the folder while nothing is recorded (held, a failed check): what is written is the team's. */
     const wrote = writing ? { teamWrote: true } : {};
     if (prev && hold) {
@@ -253,6 +315,7 @@ export class Scheduler {
       const sent = await this.orchestrator.sendScheduled(convId, now, { event: found.event, eventSource: trigger.source });
       // Shutting down: nothing was recorded, so the next start finds the same mail.
       if (this.stopped) return;
+      if (sent.result === 'sent' || sent.result === 'queued') round.started = true;
       if (sent.result === 'busy' || sent.result === 'skipped') {
         if (conv.schedule !== s) return;
         // Not seen yet: a later check finds it again, with what came meanwhile, in one run.
@@ -272,13 +335,13 @@ export class Scheduler {
       // The message went (or could not start): what it was about counts as seen, also when the
       // automation was saved meanwhile and still waits for the same source.
       const current = conv.schedule;
-      if (!current || current.repeat.kind !== 'event' || triggerKey(current.repeat.trigger) !== key) return;
-      const { lastError: _error, lastChatId: _chat, watch: _watch, ...rest } = current;
+      if (!current || current.repeat.kind !== 'event' || !current.repeat.triggers.some((tr) => triggerKey(tr) === key)) return;
+      const { lastError: _error, lastChatId: _chat, ...rest } = current;
       // The run it started writes in the folder: what it writes is the team's own.
       const runs = files && (sent.result === 'sent' || sent.result === 'queued');
       conv.schedule = {
         ...rest,
-        watch: runs ? { ...seen, teamWrote: true } : seen,
+        watches: withWatch(current, runs ? { ...seen, teamWrote: true } : seen),
         lastRunAt: now,
         lastResult: sent.result,
         ...('reason' in sent && sent.reason ? { lastError: sent.reason } : {}),
@@ -290,9 +353,9 @@ export class Scheduler {
     });
   }
 
-  /** Keep what a check found of the automation's source (the rest of the schedule as it is). */
+  /** Keep what a check found of one trigger's source (the other triggers', and the rest of the schedule, as they are). */
   private keepWatch(conv: Conversation, s: ConversationSchedule, watch: ScheduleWatch): void {
-    conv.schedule = { ...s, watch };
+    conv.schedule = { ...s, watches: withWatch(s, watch) };
     this.store.saveSchedule(conv);
     this.orchestrator.emitConversation(conv);
   }

@@ -833,31 +833,31 @@ describe('what the sources are keyed by, and how they are checked when saved', (
 
   it('validates each source: minutes, repository, branch, pattern', () => {
     const save = (trigger: unknown) =>
-      withLang('en', () => validateSchedule({ text: 'go', repeat: { kind: 'event', trigger } }, NOW).repeat);
+      withLang('en', () => validateSchedule({ text: 'go', repeat: { kind: 'event', triggers: [trigger] } }, NOW).repeat);
     expect(save({ source: 'calendar', account: 'home', minutes: 15, title: ' standup ' })).toEqual({
       kind: 'event',
-      trigger: { source: 'calendar', account: 'home', minutes: 15, title: 'standup' },
+      triggers: [{ source: 'calendar', account: 'home', minutes: 15, title: 'standup' }],
     });
     expect(() => save({ source: 'calendar', account: 'home', minutes: 0 })).toThrow('whole number from 1 to 1440');
     expect(() => save({ source: 'calendar', account: 'home', minutes: 2.5 })).toThrow('whole number');
     expect(save({ source: 'github', repo: 'https://github.com/octo/app.git', on: 'ci', branch: 'main' })).toEqual({
       kind: 'event',
-      trigger: { source: 'github', repo: 'octo/app', on: 'ci', branch: 'main' },
+      triggers: [{ source: 'github', repo: 'octo/app', on: 'ci', branch: 'main' }],
     });
     // A branch only for CI runs.
     expect(save({ source: 'github', repo: 'octo/app', on: 'pr', branch: 'main' })).toEqual({
       kind: 'event',
-      trigger: { source: 'github', repo: 'octo/app', on: 'pr' },
+      triggers: [{ source: 'github', repo: 'octo/app', on: 'pr' }],
     });
     expect(() => save({ source: 'github', repo: '--help', on: 'pr' })).toThrow('owner/name');
     expect(() => save({ source: 'github', repo: 'octo/app', on: 'issues' })).toThrow();
     expect(() => save({ source: 'github', repo: 'octo/app', on: 'ci', branch: '--all' })).toThrow('not a name git allows');
     expect(save({ source: 'github', repo: 'octo/app', on: 'ci', branch: 'feature/x+y' })).toMatchObject({
-      trigger: { branch: 'feature/x+y' },
+      triggers: [{ branch: 'feature/x+y' }],
     });
     expect(save({ source: 'file', pattern: './reports\\*.csv' })).toEqual({
       kind: 'event',
-      trigger: { source: 'file', pattern: 'reports/*.csv' },
+      triggers: [{ source: 'file', pattern: 'reports/*.csv' }],
     });
     for (const pattern of ['', './', '/etc/passwd', 'C:\\x', '../up/*.txt', 'a/../../b', 'reports/', '.git/*.log', 'a/.GIT/x'])
       expect(() => save({ source: 'file', pattern })).toThrow();

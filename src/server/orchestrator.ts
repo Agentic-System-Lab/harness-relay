@@ -123,13 +123,12 @@ export function forClient(conv: Conversation): Conversation {
 
 /**
  * A schedule as browsers get it (in a conversation, its `conversation` event, the schedule routes'
- * answers): what an automation's checks keep of every event and file they saw (`watch.seen`,
- * `watch.files`) stays in the server, where only the checks read it.
+ * answers): what an automation's checks keep of every event and file they saw (each trigger's
+ * `seen`, `files`) stays in the server, where only the checks read it.
  */
 export function scheduleForClient(s: ConversationSchedule): ConversationSchedule {
-  if (!s.watch) return s;
-  const { seen: _seen, files: _files, ...watch } = s.watch;
-  return { ...s, watch };
+  if (!s.watches) return s;
+  return { ...s, watches: s.watches.map(({ seen: _seen, files: _files, ...watch }) => watch) };
 }
 
 /** Where agents of one run write. */

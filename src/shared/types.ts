@@ -1433,8 +1433,12 @@ export type ScheduleRepeat =
   | { kind: 'interval'; hours: number }
   /** No set times: sent only when the user clicks Run once now, or a program calls the schedule's webhook. */
   | { kind: 'manual' }
-  /** When something happens: Harness Relay checks the trigger's source itself and sends the message when it finds something new. */
-  | { kind: 'event'; trigger: ScheduleTrigger };
+  /**
+   * When something happens: Harness Relay checks each trigger's source itself, apart from the others,
+   * and sends the message when one finds something new (1 to `WATCH_LIMITS.triggers`, no two with the
+   * same `triggerKey()`: any of them starts it).
+   */
+  | { kind: 'event'; triggers: ScheduleTrigger[] };
 
 /** In the order the schedule form offers them: no set times first, something happening last. */
 export const SCHEDULE_KINDS: ScheduleRepeat['kind'][] = ['manual', 'once', 'daily', 'weekly', 'interval', 'event'];
@@ -1465,10 +1469,11 @@ export const TRIGGER_SOURCES: ScheduleTrigger['source'][] = ['mail', 'calendar',
 export type EventSource = 'webhook' | ScheduleTrigger['source'];
 
 /**
- * What an automation that starts when something happens keeps of its source between checks, with the
- * schedule (so a restart never fires twice): for which trigger (`key`, another trigger starts afresh),
- * what it has seen of the source, when it was checked and is checked next, and the last check's error.
- * The first check only records what is there.
+ * What an automation that starts when something happens keeps of one trigger's source between checks,
+ * with the schedule (so a restart never fires twice): for which trigger (`key`, `triggerKey()`; another
+ * trigger starts afresh), what it has seen of the source, when it was checked and is checked next, and
+ * the last check's error. Each trigger of an automation has its own (`ConversationSchedule.watches`),
+ * checked on its own schedule. The first check only records what is there.
  */
 export interface ScheduleWatch {
   key: string;
@@ -1529,6 +1534,8 @@ export type WatchState = Pick<ScheduleWatch, 'uidValidity' | 'lastUid' | 'lastId
  * once it has not changed for `settleSeconds` (it may still be being written).
  */
 export const WATCH_LIMITS = {
+  /** The most things one automation waits for (`ScheduleRepeat` `event`'s `triggers`). */
+  triggers: 5,
   checkMinutes: 2,
   /** While the mail server tells Harness Relay when mail arrives (IMAP IDLE), checks come this often all the same. */
   idleCheckMinutes: 15,
@@ -1658,8 +1665,11 @@ export interface ConversationSchedule {
   tracking?: ScheduleTracking;
   /** The schedule's webhook, when it has one: a program on this computer can send its message now. */
   hook?: ScheduleHook;
-  /** An automation that starts when something happens: what it keeps of its source between checks. */
-  watch?: ScheduleWatch;
+  /**
+   * An automation that starts when something happens: what it keeps of each trigger's source between
+   * checks, one for each trigger by its key (in the triggers' order; a trigger not checked yet has none).
+   */
+  watches?: ScheduleWatch[];
 }
 
 /** A moment's wall-clock date and time in a time zone (`zonedParts()`). */
@@ -1839,9 +1849,9 @@ export interface ConversationSummary {
     timeZone?: string;
     /** No set times: only Run once now and the webhook send it (`ScheduleRepeat` `manual`). */
     manual?: boolean;
-    /** It starts when something happens: what it waits for (`ScheduleRepeat` `event`). */
-    trigger?: ScheduleTrigger;
-    /** Its last check of what it waits for failed. */
+    /** It starts when something happens: what it waits for (`ScheduleRepeat` `event`), any of them. */
+    triggers?: ScheduleTrigger[];
+    /** The last check of something it waits for failed. */
     watchError?: boolean;
   };
 }

@@ -16,6 +16,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { removeTree } from '../src/server/fsRemove';
+import { triggerKey } from '../src/shared/schedule';
 import {
   FILE_LIMITS,
   OPEN_PROVIDERS,
@@ -2875,13 +2876,16 @@ describe('schedules', () => {
     const localStore = new Store(db);
     const orch = new Orchestrator(localStore, hub, settings);
     const checked: [string, boolean | undefined][] = [];
+    // The stand-in check records the first thing it waits for.
     const scheduler = {
       check: async (id: string, force?: boolean) => {
         checked.push([id, force]);
         const conv = localStore.get(id)!;
+        const s = conv.schedule!;
+        const key = s.repeat.kind === 'event' ? triggerKey(s.repeat.triggers[0]!) : 'k';
         conv.schedule = {
-          ...conv.schedule!,
-          watch: { key: 'k', nextCheckAt: 1, checkedAt: 1, lastUid: 4, seen: ['standup@1'], files: { 'a.csv': '1:2' } },
+          ...s,
+          watches: [{ key, nextCheckAt: 1, checkedAt: 1, lastUid: 4, seen: ['standup@1'], files: { 'a.csv': '1:2' } }],
         };
         localStore.saveSchedule(conv);
       },
@@ -2904,13 +2908,15 @@ describe('schedules', () => {
     ).json()) as Conversation;
     const watch = (account: string, extra: Record<string, unknown> = {}) => ({
       text: 'triage it',
-      repeat: { kind: 'event', trigger: { source: 'mail', account, ...extra } },
+      repeat: { kind: 'event', triggers: [{ source: 'mail', account, ...extra }] },
       timeZone: 'UTC',
     });
+    const inboxKey = triggerKey({ source: 'mail', account: 'work', folder: 'INBOX' });
+    const kept = { key: inboxKey, nextCheckAt: 1, checkedAt: 1, lastUid: 4 };
     // No such calendar: refused too; GitHub and files need nothing from Settings.
     const calendar = await req(`/api/conversations/${conv.id}/schedule`, 'PUT', {
       text: 'prepare',
-      repeat: { kind: 'event', trigger: { source: 'calendar', account: 'home', minutes: 10 } },
+      repeat: { kind: 'event', triggers: [{ source: 'calendar', account: 'home', minutes: 10 }] },
       timeZone: 'UTC',
     });
     expect(calendar.status).toBe(400);
@@ -2920,8 +2926,13 @@ describe('schedules', () => {
       { source: 'file', pattern: 'reports/*.csv' },
     ])
       expect(
-        (await req(`/api/conversations/${conv.id}/schedule`, 'PUT', { text: 'go', repeat: { kind: 'event', trigger }, timeZone: 'UTC' }))
-          .status,
+        (
+          await req(`/api/conversations/${conv.id}/schedule`, 'PUT', {
+            text: 'go',
+            repeat: { kind: 'event', triggers: [trigger] },
+            timeZone: 'UTC',
+          })
+        ).status,
       ).toBe(200);
     // No such account: refused.
     const none = await req(`/api/conversations/${conv.id}/schedule`, 'PUT', watch('work'));
@@ -2935,17 +2946,24 @@ describe('schedules', () => {
       imap: { host: '127.0.0.1', port: 1, security: 'none' },
       smtp: { host: '127.0.0.1', port: 2, security: 'none' },
     });
-    const saved = (await (await req(`/api/conversations/${conv.id}/schedule`, 'PUT', watch('work'))).json()) as ConversationSchedule;
+    // As a browser that knew only one thing to wait for sends it: answered with the list.
+    const saved = (await (
+      await req(`/api/conversations/${conv.id}/schedule`, 'PUT', {
+        ...watch('work'),
+        repeat: { kind: 'event', trigger: { source: 'mail', account: 'work' } },
+      })
+    ).json()) as ConversationSchedule;
     expect(saved).toMatchObject({
-      repeat: { kind: 'event', trigger: { source: 'mail', account: 'work', folder: 'INBOX' } },
+      repeat: { kind: 'event', triggers: [{ source: 'mail', account: 'work', folder: 'INBOX' }] },
       enabled: true,
     });
+    expect(saved.repeat).not.toHaveProperty('trigger');
     expect(saved.nextRunAt).toBeUndefined();
 
     // Check now: the scheduler checks it (even off), and the answer is the schedule as it is then.
     const res = await req(`/api/conversations/${conv.id}/schedule/check`, 'POST', {});
     expect(res.status).toBe(200);
-    const answered = ((await res.json()) as ConversationSchedule).watch!;
+    const answered = ((await res.json()) as ConversationSchedule).watches![0]!;
     expect(answered).toMatchObject({ lastUid: 4 });
     expect(checked).toEqual([[conv.id, true]]);
     // What it saw of each event and file stays in the server: not in the answer, the conversation,
@@ -2953,39 +2971,101 @@ describe('schedules', () => {
     expect(answered).not.toHaveProperty('seen');
     expect(answered).not.toHaveProperty('files');
     const got = (await (await local.request(`/api/conversations/${conv.id}`, { headers: HOST })).json()) as Conversation;
-    expect(got.schedule!.watch).toEqual({ key: 'k', nextCheckAt: 1, checkedAt: 1, lastUid: 4 });
+    expect(got.schedule!.watches).toEqual([kept]);
     const events: { type: string; schedule?: ConversationSchedule }[] = [];
     const unsubscribe = hub.subscribe(conv.id, (e) => events.push(e as (typeof events)[number]));
     const resaved = (await (await req(`/api/conversations/${conv.id}/schedule`, 'PUT', watch('work'))).json()) as ConversationSchedule;
     unsubscribe();
-    expect(resaved.watch).toEqual({ key: 'k', nextCheckAt: 1, checkedAt: 1, lastUid: 4 });
-    expect(events.find((e) => e.type === 'conversation')!.schedule!.watch).toEqual({ key: 'k', nextCheckAt: 1, checkedAt: 1, lastUid: 4 });
-    expect(localStore.get(conv.id)!.schedule!.watch).toMatchObject({ seen: ['standup@1'], files: { 'a.csv': '1:2' } });
+    expect(resaved.watches).toEqual([kept]);
+    expect(events.find((e) => e.type === 'conversation')!.schedule!.watches).toEqual([kept]);
+    expect(localStore.get(conv.id)!.schedule!.watches![0]).toMatchObject({ seen: ['standup@1'], files: { 'a.csv': '1:2' } });
     const list = (await (await local.request('/api/conversations', { headers: HOST })).json()) as { id: string; schedule?: unknown }[];
     expect(list.find((c) => c.id === conv.id)!.schedule).toEqual({
       enabled: true,
-      trigger: { source: 'mail', account: 'work', folder: 'INBOX' },
+      triggers: [{ source: 'mail', account: 'work', folder: 'INBOX' }],
     });
 
     // Saved again with other conditions, it keeps its place; another folder, or turned on again, starts afresh.
     const same = (await (
       await req(`/api/conversations/${conv.id}/schedule`, 'PUT', watch('work', { from: 'bob' }))
     ).json()) as ConversationSchedule;
-    expect(same.watch).toMatchObject({ lastUid: 4 });
+    expect(same.watches).toEqual([kept]);
+
+    // Several things: each keeps its own while it stays (in any order), one added starts afresh, one removed goes.
+    const csv = { source: 'file', pattern: 'reports/*.csv' };
+    const several = (triggers: unknown[], extra: Record<string, unknown> = {}) =>
+      req(`/api/conversations/${conv.id}/schedule`, 'PUT', {
+        text: 'triage it',
+        repeat: { kind: 'event', triggers },
+        timeZone: 'UTC',
+        ...extra,
+      });
+    const both = (await (await several([csv, { source: 'mail', account: 'work', from: 'bob' }])).json()) as ConversationSchedule;
+    expect(both.repeat).toEqual({
+      kind: 'event',
+      triggers: [csv, { source: 'mail', account: 'work', folder: 'INBOX', from: 'bob' }],
+    });
+    expect(both.watches).toEqual([kept]);
+    expect((await (await several([csv])).json()) as ConversationSchedule).not.toHaveProperty('watches');
+    // Each mail account and calendar named is there, the same thing never twice, at most 5.
+    const calendarToo = await several([
+      { source: 'mail', account: 'work' },
+      { source: 'calendar', account: 'home', minutes: 10 },
+    ]);
+    expect(calendarToo.status).toBe(400);
+    expect(((await calendarToo.json()) as { error: string }).error).toMatch(/calendar this automation checks is gone/);
+    expect(
+      (
+        await several([
+          { source: 'mail', account: 'work' },
+          { source: 'mail', account: 'gone', folder: 'Alerts' },
+        ])
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await several(
+          [
+            { source: 'mail', account: 'work' },
+            { source: 'mail', account: 'gone' },
+          ],
+          { enabled: false },
+        )
+      ).status,
+    ).toBe(200);
+    const twice = await several([csv, { ...csv, pattern: './reports/*.csv' }]);
+    expect(twice.status).toBe(400);
+    expect(((await twice.json()) as { error: string }).error).toMatch(/^Two of the things to wait for are the same/);
+    const six = await several(Array.from({ length: 6 }, (_, i) => ({ source: 'file', pattern: `${i}/*.csv` })));
+    expect(((await six.json()) as { error: string }).error).toBe('An automation waits for 1 to 5 things');
+    const listed = (await (await local.request('/api/conversations', { headers: HOST })).json()) as { id: string; schedule?: unknown }[];
+    expect(listed.find((c) => c.id === conv.id)!.schedule).toMatchObject({
+      triggers: [
+        { source: 'mail', account: 'work', folder: 'INBOX' },
+        { source: 'mail', account: 'gone', folder: 'INBOX' },
+      ],
+    });
+    // Check now checks every one (the scheduler is asked once, with force).
+    checked.length = 0;
+    await req(`/api/conversations/${conv.id}/schedule/check`, 'POST', {});
+    expect(checked).toEqual([[conv.id, true]]);
+
+    await req(`/api/conversations/${conv.id}/schedule`, 'PUT', watch('work'));
+    await req(`/api/conversations/${conv.id}/schedule/check`, 'POST', {});
     const other = (await (
       await req(`/api/conversations/${conv.id}/schedule`, 'PUT', watch('work', { folder: 'Alerts' }))
     ).json()) as ConversationSchedule;
-    expect(other.watch).toBeUndefined();
+    expect(other.watches).toBeUndefined();
     // Turned off, it keeps its place (the same folder); turned on again, it starts afresh.
     await req(`/api/conversations/${conv.id}/schedule/check`, 'POST', {});
     const off = (await (
       await req(`/api/conversations/${conv.id}/schedule`, 'PUT', { ...watch('work', { folder: 'Alerts' }), enabled: false })
     ).json()) as ConversationSchedule;
-    expect(off.watch).toMatchObject({ lastUid: 4 });
+    expect(off.watches).toEqual([{ ...kept, key: triggerKey({ source: 'mail', account: 'work', folder: 'Alerts' }) }]);
     const back = (await (
       await req(`/api/conversations/${conv.id}/schedule`, 'PUT', watch('work', { folder: 'Alerts' }))
     ).json()) as ConversationSchedule;
-    expect(back.watch).toBeUndefined();
+    expect(back.watches).toBeUndefined();
 
     // Its account removed in Settings: it can still be turned off, not on.
     expect((await req(`/api/conversations/${conv.id}/schedule`, 'PUT', { ...watch('gone'), enabled: false })).status).toBe(200);

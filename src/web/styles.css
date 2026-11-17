@@ -4200,14 +4200,55 @@ video.chat-media {
 /* What an automation that starts when something happens waits for: two fields a row where there is room. */
 .schedule-trigger {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
   gap: 10px 14px;
   margin-top: 4px;
+  min-width: 0;
 }
 
 .schedule-trigger > p {
   grid-column: 1 / -1;
   margin: 0;
+}
+
+/* Its source, a field like the others while it is the only thing it waits for. */
+.schedule-trigger-head {
+  display: contents;
+}
+
+/* Several things to wait for: each in a box of its own, its source and its Remove on one row. */
+.schedule-trigger.several {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.schedule-trigger.several .schedule-trigger-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.schedule-trigger.several .schedule-trigger-head > .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.schedule-trigger.several select {
+  max-width: 100%;
+}
+
+/* "or" between two of them: any of them starts it. */
+.schedule-trigger-or {
+  align-self: center;
+  margin-top: 4px;
+}
+
+.schedule-trigger-add {
+  align-self: flex-start;
+  margin-top: 6px;
 }
 
 /* Settings → Tool library → Accounts you sign in to (OAuth). */

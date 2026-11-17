@@ -542,6 +542,7 @@ export const en: Messages = {
       pullRequest: (repo) => `When a pull request is opened in ${repo}`,
       failedRun: (repo, branch) => `When a CI run fails in ${repo}${branch ? ` on ${branch}` : ''}`,
       file: (pattern) => `When a file matching ${pattern} appears or changes in the working directory`,
+      any: (parts) => parts.map((p, i) => (i ? `${p.charAt(0).toLowerCase()}${p.slice(1)}` : p)).join(', or '),
     },
     daySeparator: ', ',
     next: (when) => `next ${when}`,
@@ -569,6 +570,10 @@ export const en: Messages = {
       repo: 'Give the GitHub repository as owner/name (an owner of at most 39 characters, a name of at most 100)',
       branch: 'The branch is not a name git allows: no spaces, none of ~^:?*[\\, no .., and not starting with -',
       pattern: 'Give a pattern for files in the working directory (not a full path, and without ..)',
+      ofTrigger: (n, problem) => `Thing ${n} to wait for: ${problem.charAt(0).toLowerCase()}${problem.slice(1)}`,
+      triggers: (max) => `An automation waits for 1 to ${max} things`,
+      sameTrigger:
+        'Two of the things to wait for are the same (the same source, such as the same mail account and folder, or the same file pattern): change or remove one',
     },
     teamNote: (summary) => `This conversation has an automation (${summary}); changes here apply to its later runs.`,
     fullWarning: 'Nobody may be watching when the automation runs: with full access, members can run any command without asking.',
@@ -588,6 +593,13 @@ export const en: Messages = {
     },
     watch: {
       source: 'What to wait for',
+      group: (n) => `Thing ${n} to wait for`,
+      or: 'or',
+      add: 'Add another',
+      addTitle: (max) => `Wait for something else too: any of them starts it (up to ${max})`,
+      remove: 'Remove',
+      removeLabel: (n) => `Remove thing ${n} to wait for`,
+      severalHint: 'Each is checked on its own; each that finds something new sends the message once, with what it found.',
       sources: {
         mail: 'A new mail arrives',
         calendar: 'An event is about to begin',

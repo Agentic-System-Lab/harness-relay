@@ -61,7 +61,6 @@ import type { OAuthService } from './oauth/service';
 import { keptPasswordFits } from './connectors/accounts';
 import { testMail } from './connectors/test';
 import type { Scheduler } from './scheduler';
-import { triggerKey } from './watch';
 import { attachmentPath, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
 import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, readPreview, zipPlan, type ZipPlan } from './files';
 import { zipStream } from './zip';
@@ -128,7 +127,7 @@ import {
 } from './validate';
 import { VoiceService } from './voice';
 import { existingFolder, systemFolderPicker, type FolderPicker } from './folderPicker';
-import { nextRun } from '../shared/schedule';
+import { nextRun, watchOf } from '../shared/schedule';
 import { currentLang, parseLang, t, withLang } from './i18n';
 import { testPayload, type AlertWatcher } from './alerts';
 import type { PushService } from './push';
@@ -237,15 +236,16 @@ export function hookHash(token: string): string {
 }
 
 /**
- * What a saved automation keeps of what it waits for when it is saved again: all of it while it watches
- * the same source and stays on (its conditions may change); nothing when the source changes, or when it
- * is turned on again, so that what came while it was off does not start it.
+ * What a saved automation keeps of what it waits for when it is saved again: each trigger's, all of
+ * it, while it stays (the same source, by its key: its conditions may change) and the automation stays
+ * on; nothing of a trigger removed or whose source changed (a new one starts afresh), nor of any when
+ * it is turned on again, so that what came while it was off does not start it.
  */
-function keptWatch(prev: ConversationSchedule | undefined, update: ScheduleUpdate): Pick<ConversationSchedule, 'watch'> {
-  if (!prev?.watch || prev.repeat.kind !== 'event' || update.repeat.kind !== 'event') return {};
-  if (triggerKey(prev.repeat.trigger) !== triggerKey(update.repeat.trigger)) return {};
+function keptWatches(prev: ConversationSchedule | undefined, update: ScheduleUpdate): Pick<ConversationSchedule, 'watches'> {
+  if (!prev?.watches || prev.repeat.kind !== 'event' || update.repeat.kind !== 'event') return {};
   if (!prev.enabled && update.enabled) return {};
-  return { watch: prev.watch };
+  const watches = update.repeat.triggers.flatMap((t) => watchOf(prev, t) ?? []);
+  return watches.length ? { watches } : {};
 }
 
 /** A request's body as text, or undefined once it is longer than `max` bytes (reading stops there). */
@@ -1424,7 +1424,7 @@ export function createApp({
       ...(prev?.lastError ? { lastError: prev.lastError } : {}),
       ...(prev?.lastChatId ? { lastChatId: prev.lastChatId } : {}),
       ...(prev?.hook ? { hook: prev.hook } : {}),
-      ...keptWatch(prev, update),
+      ...keptWatches(prev, update),
     };
     // The same goal keeps what the agents said of it (and a run still in flight); a reached goal is worked on
     // again once the schedule is on. A new goal starts afresh, and none drops the notes.
@@ -1446,13 +1446,18 @@ export function createApp({
     return c.json(scheduleForClient(schedule));
   });
 
-  /** An automation that starts when something happens, when it is on, waits for something that is there: a mail account or calendar from Settings. */
+  /**
+   * An automation that starts when something happens, when it is on, waits for things that are there:
+   * each mail account or calendar from Settings that one of its triggers names.
+   */
   const refuseMissingTrigger = (update: ScheduleUpdate, always = false) => {
     // Turned off, it checks nothing: an automation whose account went can still be paused.
     if ((!update.enabled && !always) || update.repeat.kind !== 'event') return;
-    const trigger = update.repeat.trigger;
-    if (trigger.source === 'mail' && !settings.connectors.mailById(trigger.account)) throw new HttpError(400, t().watchNoAccount);
-    if (trigger.source === 'calendar' && !settings.connectors.calendarById(trigger.account)) throw new HttpError(400, t().watchNoCalendar);
+    for (const trigger of update.repeat.triggers) {
+      if (trigger.source === 'mail' && !settings.connectors.mailById(trigger.account)) throw new HttpError(400, t().watchNoAccount);
+      if (trigger.source === 'calendar' && !settings.connectors.calendarById(trigger.account))
+        throw new HttpError(400, t().watchNoCalendar);
+    }
   };
 
   // Check what the automation waits for now (Check now), as its next check would, even while it is off;

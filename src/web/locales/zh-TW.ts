@@ -556,6 +556,8 @@ export const zhTW = {
       pullRequest: (repo: string) => `${repo} 有新的 pull request 時`,
       failedRun: (repo: string, branch?: string) => `${repo}${branch ? ` 的 ${branch} 分支` : ' '}有 CI 執行失敗時`,
       file: (pattern: string) => `工作目錄中符合 ${pattern} 的檔案出現或變動時`,
+      /** An automation that waits for several things: any of them starts it. */
+      any: (parts: string[]) => parts.join('，或'),
     },
     daySeparator: '、',
     next: (when: string) => `下次 ${when}`,
@@ -583,6 +585,10 @@ export const zhTW = {
       repo: '請填 GitHub 儲存庫，格式是「擁有者/名稱」（擁有者最多 39 個字元，名稱最多 100 個）',
       branch: '分支名稱不是 git 接受的名稱：不能有空白或 ~^:?*[\\，不能有 ..，也不能以 - 開頭',
       pattern: '請填工作目錄中的檔案樣式（不能是絕對路徑，也不能有 ..）',
+      /** A problem of one of the several things an automation waits for. */
+      ofTrigger: (n: number, problem: string) => `要等的第 ${n} 件事：${problem}`,
+      triggers: (max: number) => `一個自動任務可以等 1 到 ${max} 件事`,
+      sameTrigger: '有兩件要等的事一樣（同一個來源，例如同一個郵件帳號和資料夾、同一個檔案樣式）：請修改或移除其中一件',
     },
     teamNote: (summary: string) => `這個對話有自動任務（${summary}），這裡的修改會套用到它之後的執行。`,
     fullWarning: '自動任務執行時可能沒人看著，完全存取的成員可以不經詢問執行任何指令。',
@@ -603,6 +609,15 @@ export const zhTW = {
     /** An automation that starts when something happens (When something happens): what it waits for, and its checks. */
     watch: {
       source: '要等的事',
+      /** One of the things an automation waits for, when it waits for several (the group's name). */
+      group: (n: number) => `要等的第 ${n} 件事`,
+      /** Between two of them: any of them starts it. */
+      or: '或',
+      add: '再等一件事',
+      addTitle: (max: number) => `也等另一件事：任何一件發生時都會啟動它（最多 ${max} 件）`,
+      remove: '移除',
+      removeLabel: (n: number) => `移除要等的第 ${n} 件事`,
+      severalHint: '每件事各自檢查；哪一件找到新的東西，就送一次訊息，附上它找到的。',
       sources: {
         mail: '收到新郵件',
         calendar: '行程即將開始',

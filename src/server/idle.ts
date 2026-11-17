@@ -1,3 +1,4 @@
+import { triggerKey } from '../shared/schedule';
 import { WATCH_LIMITS, type ScheduleTrigger } from '../shared/types';
 import type { ConnectorStore } from './connectors/accounts';
 import { IdleRefusedError, ImapClient, ImapLoginError, quote, type ImapResponse } from './connectors/imap';
@@ -8,8 +9,9 @@ import { HttpError } from './errors';
  * IMAP IDLE (RFC 2177) for the automations that start when a new mail arrives: one connection for
  * each mail account and folder that automations which are on wait for, waiting there, so that the
  * mail server says at once when mail arrives and each of those automations is checked then
- * (`Scheduler.check()`), within seconds instead of minutes. The checks every few minutes stay, slower
- * while it listens, and do all the work: IDLE only says when to check.
+ * (`Scheduler.check()`), only its trigger on that folder (an automation may wait for other things
+ * too, each checked on its own), within seconds instead of minutes. The checks every few minutes
+ * stay, slower while it listens, and do all the work: IDLE only says when to check.
  *
  * A server that does not take IDLE (it does not list it, or refuses it) is left to the checks. A
  * connection that drops is opened again, more slowly after each failure in a row (a refused sign-in as
@@ -28,10 +30,13 @@ export interface IdleDeps {
   connectors: ConnectorStore;
   /** How the mail accounts reached through an account that signs in with OAuth sign in (`OAuthService`). */
   oauth?: MailOAuth;
-  /** The automations that are on and wait for new mail (`Store.mailWatches()`). */
+  /** The new-mail triggers of the automations that are on, each with its automation (`Store.mailWatches()`). */
   watching(): { conversationId: string; trigger: MailTrigger }[];
-  /** Check this automation now: the server said mail arrived (once more after a check under way). */
-  check(conversationId: string): Promise<void>;
+  /**
+   * Check this automation's trigger (by its key, `triggerKey()`) now: the server said mail arrived in
+   * its folder (once more after a check under way).
+   */
+  check(conversationId: string, triggerKey: string): Promise<void>;
   /** IDLE is ended and started again after this long: a dead connection is found then at the latest. */
   renewMs?: number;
   /** The waits before opening a dropped connection again, one more step for each failure in a row. */
@@ -62,6 +67,10 @@ class Listener {
   /** Its account and folder, whatever else changed. */
   get folderKey(): string {
     return JSON.stringify([this.account, this.folder]);
+  }
+  /** The key of each automation's trigger on this folder (an automation waits for each folder once). */
+  get triggerKey(): string {
+    return triggerKey({ source: 'mail', account: this.account, folder: this.folder });
   }
   /** The server accepted IDLE and waits in it now. */
   live = false;
@@ -124,7 +133,7 @@ class Listener {
     this.settle.unref?.();
   }
 
-  /** Each automation on this folder, one after another (one connection to the server at a time). */
+  /** Each automation on this folder, its trigger on it, one after another (one connection to the server at a time). */
   private async checkAll(): Promise<void> {
     if (this.checking) {
       this.again = true;
@@ -135,7 +144,7 @@ class Listener {
       for (const id of [...this.subscribers]) {
         if (this.stopped) return;
         try {
-          await this.deps.check(id);
+          await this.deps.check(id, this.triggerKey);
         } catch (err) {
           // A conversation deleted meanwhile: the next sync lets it go.
           if (!(err instanceof HttpError && err.status === 404)) console.error('[idle] could not check an automation:', err);
@@ -311,26 +320,26 @@ export class IdleWatcher {
     }
   }
 
-  private listenerOf(conversationId: string): Listener | undefined {
-    for (const l of this.listeners.values()) if (l.subscribers.has(conversationId)) return l;
-    return undefined;
+  /** The connections an automation is checked from (one for each folder of its new-mail triggers). */
+  private listenersOf(conversationId: string): Listener[] {
+    return [...this.listeners.values()].filter((l) => l.subscribers.has(conversationId));
   }
 
   /**
-   * Whether the server waits in IDLE for this automation's folder now: its checks can come more slowly.
-   * `trigger`: what the automation waits for now, which the connections learn only at the next sync:
-   * another source, account or folder is no reason to check more slowly.
+   * Whether the server waits in IDLE for this automation's folder now (`trigger`'s, of those it waits
+   * for; none given: any of them): that trigger's checks can come more slowly. `trigger` is what the
+   * automation waits for now, which the connections learn only at the next sync: another source,
+   * account or folder is no reason to check more slowly.
    */
   live(conversationId: string, trigger?: ScheduleTrigger): boolean {
-    const l = this.listenerOf(conversationId);
-    if (!l?.live) return false;
-    if (!trigger) return true;
-    return trigger.source === 'mail' && l.folderKey === JSON.stringify([trigger.account, trigger.folder]);
+    if (trigger && trigger.source !== 'mail') return false;
+    const folder = trigger && JSON.stringify([trigger.account, trigger.folder]);
+    return this.listenersOf(conversationId).some((l) => l.live && (!folder || l.folderKey === folder));
   }
 
-  /** Whether the automation's server does not take IDLE. */
+  /** Whether the server of one of the automation's folders does not take IDLE. */
   unsupported(conversationId: string): boolean {
-    return this.listenerOf(conversationId)?.unsupported ?? false;
+    return this.listenersOf(conversationId).some((l) => l.unsupported);
   }
 
   /** How many connections are kept (one for each account and folder). */

@@ -533,6 +533,8 @@ const zhTW = {
   watchGhSignedOut: 'GitHub CLI（gh）還沒有登入：請在終端機執行 gh auth login',
   watchGhFailed: (repo: string, why: string) => `無法讀取 GitHub 儲存庫 ${repo}：${why}`,
   watchBadBranch: '分支名稱不是 git 接受的名稱：不能有空白或 ~^:?*[\\，不能有 ..，也不能以 - 開頭',
+  watchTriggerCount: (max: number) => `一個自動任務可以等 1 到 ${max} 件事`,
+  watchSameTrigger: '有兩件要等的事一樣（同一個來源，例如同一個郵件帳號和資料夾）：請修改或移除其中一件',
   watchGhTimedOut: (repo: string) => `GitHub CLI（gh）一分鐘內沒有回答 ${repo} 的情況：下次檢查會再試`,
   watchGhNoJson: (repo: string) => `GitHub CLI（gh）對 ${repo} 的回答不是 JSON：請更新 gh`,
   watchNoCwd: (cwd: string) => `工作目錄「${cwd}」不存在`,
@@ -1341,6 +1343,9 @@ const en: ServerMessages = {
   watchGhSignedOut: 'The GitHub CLI (gh) is not signed in: run gh auth login in a terminal',
   watchGhFailed: (repo, why) => `The GitHub repository ${repo} cannot be read: ${why}`,
   watchBadBranch: 'The branch is not a name git allows: no spaces, none of ~^:?*[\\, no .., and not starting with -',
+  watchTriggerCount: (max) => `An automation waits for 1 to ${max} things`,
+  watchSameTrigger:
+    'Two of the things to wait for are the same (the same source, such as the same mail account and folder): change or remove one',
   watchGhTimedOut: (repo) => `The GitHub CLI (gh) did not answer about ${repo} within a minute: the next check tries again`,
   watchGhNoJson: (repo) => `The GitHub CLI (gh) did not answer about ${repo} in JSON: update gh`,
   watchNoCwd: (cwd) => `The working directory "${cwd}" is not there`,

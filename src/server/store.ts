@@ -49,6 +49,7 @@ import {
   type ScheduleTrigger,
 } from '../shared/types';
 import { byAge, familyOf, type FamilyMember } from '../shared/family';
+import { watchOf } from '../shared/schedule';
 import { searchTerms, snippetAround, termsIn } from '../shared/search';
 import { nul, transaction, type Database } from './db';
 import { reviewText } from '../shared/review';
@@ -410,11 +411,11 @@ function toMessage(r: MessageRow, parts: MessagePart[], files: FileChange[]): Ch
 }
 
 function toSchedule(r: ScheduleRow): ConversationSchedule | undefined {
-  const repeat = parseJson<ScheduleRepeat | null>(r.repeat, null);
+  const repeat = parseRepeat(r.repeat);
   if (!repeat) return undefined;
   const tracking = parseTracking(r.tracking);
   const hook = parseHook(r.hook);
-  const watch = repeat.kind === 'event' ? parseWatch(r.watch) : undefined;
+  const watches = repeat.kind === 'event' ? parseWatches(r.watch, repeat.triggers) : undefined;
   return {
     text: r.text,
     repeat,
@@ -433,14 +434,43 @@ function toSchedule(r: ScheduleRow): ConversationSchedule | undefined {
     ...(r.goal ? { goal: r.goal } : {}),
     ...(r.goal && tracking ? { tracking } : {}),
     ...(hook ? { hook } : {}),
-    ...(watch ? { watch } : {}),
+    ...(watches ? { watches } : {}),
   };
 }
 
-/** What an automation that starts when something happens kept of its source, when it can be read. */
-function parseWatch(json: string | null): ScheduleWatch | undefined {
-  const w = parseJson<ScheduleWatch | null>(json, null);
-  return w && typeof w === 'object' && typeof w.key === 'string' && typeof w.nextCheckAt === 'number' ? w : undefined;
+/**
+ * A schedule's times as stored, when they can be read. An automation saved before it could wait for
+ * several things kept its one trigger as `trigger`: it is read as the only one of `triggers` (and
+ * written so when it is saved next). One that waits for nothing it can read cannot be read.
+ */
+function parseRepeat(json: string | null): ScheduleRepeat | undefined {
+  const r = parseJson<(ScheduleRepeat & { trigger?: unknown; triggers?: unknown }) | null>(json, null);
+  if (!r || typeof r !== 'object') return undefined;
+  if (r.kind !== 'event') return r;
+  const listed: unknown[] = Array.isArray(r.triggers) ? r.triggers : r.trigger ? [r.trigger] : [];
+  const triggers = listed.filter(
+    (t): t is ScheduleTrigger =>
+      Boolean(t) && typeof t === 'object' && (TRIGGER_SOURCES as unknown[]).includes((t as { source?: unknown }).source),
+  );
+  return triggers.length ? { kind: 'event', triggers } : undefined;
+}
+
+/**
+ * What an automation that starts when something happens kept of each trigger's source, when it can be
+ * read: one for each of its triggers that has one, in their order. One kept before an automation could
+ * wait for several things (a single object) is its one trigger's.
+ */
+function parseWatches(json: string | null, triggers: ScheduleTrigger[]): ScheduleWatch[] | undefined {
+  const v = parseJson<unknown>(json, null);
+  const kept = (Array.isArray(v) ? v : v ? [v] : []).filter(
+    (w): w is ScheduleWatch =>
+      Boolean(w) &&
+      typeof w === 'object' &&
+      typeof (w as ScheduleWatch).key === 'string' &&
+      typeof (w as ScheduleWatch).nextCheckAt === 'number',
+  );
+  const watches = triggers.flatMap((t) => watchOf({ watches: kept }, t) ?? []);
+  return watches.length ? watches : undefined;
 }
 
 /** A schedule's tracking state as stored, when it can be read. */
@@ -457,7 +487,7 @@ function parseHook(json: string | null): ScheduleHook | undefined {
 
 /** What the sidebar shows of a schedule; times of day are shown in the schedule's time zone. */
 function scheduleSummary(
-  s: Pick<ConversationSchedule, 'enabled' | 'nextRunAt' | 'lastResult' | 'timeZone' | 'watch'> & { repeat?: ScheduleRepeat },
+  s: Pick<ConversationSchedule, 'enabled' | 'nextRunAt' | 'lastResult' | 'timeZone' | 'watches'> & { repeat?: ScheduleRepeat },
 ): ConversationSummary['schedule'] {
   const ofDay = s.repeat?.kind === 'daily' || s.repeat?.kind === 'weekly';
   return {
@@ -466,8 +496,8 @@ function scheduleSummary(
     ...(s.lastResult ? { lastResult: s.lastResult } : {}),
     ...(ofDay ? { timeZone: s.timeZone } : {}),
     ...(s.repeat?.kind === 'manual' ? { manual: true } : {}),
-    ...(s.repeat?.kind === 'event' ? { trigger: s.repeat.trigger } : {}),
-    ...(s.repeat?.kind === 'event' && s.enabled && s.watch?.error ? { watchError: true } : {}),
+    ...(s.repeat?.kind === 'event' ? { triggers: s.repeat.triggers } : {}),
+    ...(s.repeat?.kind === 'event' && s.enabled && s.watches?.some((w) => w.error) ? { watchError: true } : {}),
   };
 }
 
@@ -691,17 +721,20 @@ export class Store {
           ScheduleRow,
           'conversation_id' | 'enabled' | 'next_run_at' | 'last_result' | 'time_zone' | 'repeat' | 'watch'
         >[]
-      ).map((r) => [
-        r.conversation_id,
-        scheduleSummary({
-          enabled: Boolean(r.enabled),
-          nextRunAt: opt(r.next_run_at),
-          lastResult: opt(r.last_result),
-          timeZone: r.time_zone,
-          repeat: parseJson<ScheduleRepeat | undefined>(r.repeat, undefined),
-          watch: parseWatch(r.watch),
-        }),
-      ]),
+      ).map((r) => {
+        const repeat = parseRepeat(r.repeat);
+        return [
+          r.conversation_id,
+          scheduleSummary({
+            enabled: Boolean(r.enabled),
+            nextRunAt: opt(r.next_run_at),
+            lastResult: opt(r.last_result),
+            timeZone: r.time_zone,
+            repeat,
+            watches: repeat?.kind === 'event' ? parseWatches(r.watch, repeat.triggers) : undefined,
+          }),
+        ] as const;
+      }),
     );
     const byConv = new Map<string, ConversationSummary['agents']>();
     for (const a of agents) {
@@ -1023,7 +1056,7 @@ export class Store {
         nul(s.goal),
         s.goal && s.tracking ? JSON.stringify(s.tracking) : null,
         s.hook ? JSON.stringify(s.hook) : null,
-        s.repeat.kind === 'event' && s.watch ? JSON.stringify(s.watch) : null,
+        s.repeat.kind === 'event' && s.watches?.length ? JSON.stringify(s.watches) : null,
       );
     // A schedule without a webhook has no token either.
     if (!s.hook) this.db.prepare('UPDATE schedules SET hook_hash = NULL WHERE conversation_id = ?').run(conv.id);
@@ -1059,38 +1092,46 @@ export class Store {
     ).map((r) => r.conversation_id);
   }
 
-  /** The automations that are on and wait for new mail, with what they wait for: those IMAP IDLE listens for (`idle.ts`). */
+  /**
+   * The new-mail triggers of the automations that are on, each with its automation (one automation may
+   * wait for mail in several folders): those IMAP IDLE listens for (`idle.ts`).
+   */
   mailWatches(): { conversationId: string; trigger: Extract<ScheduleTrigger, { source: 'mail' }> }[] {
-    const rows = this.db.prepare(`SELECT conversation_id, repeat FROM schedules WHERE enabled = 1`).all() as {
-      conversation_id: string;
-      repeat: string;
-    }[];
-    return rows.flatMap((r) => {
-      const repeat = parseJson<ScheduleRepeat | null>(r.repeat, null);
-      return repeat?.kind === 'event' && repeat.trigger?.source === 'mail'
-        ? [{ conversationId: r.conversation_id, trigger: repeat.trigger }]
-        : [];
-    });
+    return this.eventSchedules().flatMap((r) =>
+      r.repeat.triggers.flatMap((trigger) => (trigger.source === 'mail' ? [{ conversationId: r.conversation_id, trigger }] : [])),
+    );
   }
 
   /**
-   * Conversations whose automation is on and starts when something happens, and whose next check of what
-   * it waits for has come by `now` (or that was never checked), the longest waiting first.
+   * Conversations whose automation is on and starts when something happens, and the next check of one
+   * of whose triggers has come by `now` (or that was never checked), the longest waiting first.
    */
   watchDue(now: number): string[] {
-    return (
-      this.db
-        .prepare(
-          // A row that cannot be read (JSON that is not) is left out, not an error for every other one.
-          `SELECT conversation_id FROM (
-             SELECT conversation_id,
-                    CASE WHEN json_valid(repeat) THEN json_extract(repeat, '$.kind') END AS kind,
-                    IFNULL(CASE WHEN json_valid(watch) THEN json_extract(watch, '$.nextCheckAt') END, 0) AS next_check
-             FROM schedules WHERE enabled = 1
-           ) WHERE kind = 'event' AND next_check <= ? ORDER BY next_check`,
-        )
-        .all(now) as { conversation_id: string }[]
-    ).map((r) => r.conversation_id);
+    return this.eventSchedules(true)
+      .map((r) => {
+        const watches = parseWatches(r.watch, r.repeat.triggers);
+        return { id: r.conversation_id, next: Math.min(...r.repeat.triggers.map((t) => watchOf({ watches }, t)?.nextCheckAt ?? 0)) };
+      })
+      .filter((r) => r.next <= now)
+      .sort((a, b) => a.next - b.next)
+      .map((r) => r.id);
+  }
+
+  /** The automations that are on and start when something happens, their times read (and what their checks keep, with `watch`). */
+  private eventSchedules(
+    watch = false,
+  ): { conversation_id: string; repeat: Extract<ScheduleRepeat, { kind: 'event' }>; watch: string | null }[] {
+    const rows = this.db
+      .prepare(
+        // A row that cannot be read (JSON that is not) is left out, not an error for every other one.
+        `SELECT conversation_id, repeat${watch ? ', watch' : ''} FROM schedules
+         WHERE enabled = 1 AND (CASE WHEN json_valid(repeat) THEN json_extract(repeat, '$.kind') END) = 'event'`,
+      )
+      .all() as { conversation_id: string; repeat: string; watch?: string | null }[];
+    return rows.flatMap((r) => {
+      const repeat = parseRepeat(r.repeat);
+      return repeat?.kind === 'event' ? [{ conversation_id: r.conversation_id, repeat, watch: r.watch ?? null }] : [];
+    });
   }
 
   /** Conversations whose schedule is on and due by `now`, the most overdue first. */

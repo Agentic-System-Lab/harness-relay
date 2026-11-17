@@ -61,7 +61,7 @@ import {
   type VoiceSettingsUpdate,
   type InboxReadRequest,
 } from '../shared/types';
-import { filePattern, parseTime, repoName, validBranch, validRepo, validTimeZone } from '../shared/schedule';
+import { filePattern, parseTime, repoName, sameTriggers, validBranch, validRepo, validTimeZone } from '../shared/schedule';
 import { CONFIG } from './config';
 import { HttpError } from './errors';
 import { isOtherGroupName, t } from './i18n';
@@ -618,13 +618,21 @@ function validRepeat(input: unknown, enabled: boolean, now: number): ScheduleRep
       if (!Number.isInteger(hours) || hours < 1 || hours > SCHEDULE_LIMITS.maxHours) bad(t().scheduleBadHours(SCHEDULE_LIMITS.maxHours));
       return { kind, hours };
     }
-    case 'event':
-      return { kind, trigger: validTrigger(r.trigger) };
+    case 'event': {
+      // One trigger alone, as automations were saved before they could wait for several things.
+      const listed = Array.isArray(r.triggers) ? r.triggers : r.triggers === undefined && r.trigger !== undefined ? [r.trigger] : undefined;
+      if (!listed) bad(t().watchBadTrigger);
+      if (!listed.length || listed.length > WATCH_LIMITS.triggers) bad(t().watchTriggerCount(WATCH_LIMITS.triggers));
+      const triggers = listed.map(validTrigger);
+      if (sameTriggers(triggers)) bad(t().watchSameTrigger);
+      return { kind, triggers };
+    }
   }
 }
 
 /**
- * What an automation that starts when something happens waits for (`ScheduleTrigger`), each text a line
+ * One of the things an automation that starts when something happens waits for (`ScheduleTrigger`;
+ * 1 to `WATCH_LIMITS.triggers` of them, no two for the same source: `sameTriggers()`), each text a line
  * of at most `WATCH_LIMITS.field`:
  * - a new mail in a folder (the inbox when none is given) of a mail account, by its id (that it exists
  *   is checked where the accounts are), with the words its sender and subject contain, when given;

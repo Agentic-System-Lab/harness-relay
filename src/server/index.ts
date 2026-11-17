@@ -152,12 +152,13 @@ settings.tools.gatewayStatus = () => {
 
 // Sends each conversation's scheduled message when it comes due.
 const scheduler = new Scheduler(store, orchestrator, Date.now, checkTrigger(settings.connectors, settings.oauth));
-// IMAP IDLE for the automations that wait for new mail: their mail servers say at once when mail arrives.
+// IMAP IDLE for the automations that wait for new mail: their mail servers say at once when mail arrives,
+// and only the trigger on that folder is checked then.
 const idle = new IdleWatcher({
   connectors: settings.connectors,
   oauth: settings.oauth,
   watching: () => store.mailWatches(),
-  check: (id) => scheduler.check(id, false, true),
+  check: (id, key) => scheduler.check(id, false, true, [key]),
 });
 scheduler.listening = (id, trigger) => idle.live(id, trigger);
 

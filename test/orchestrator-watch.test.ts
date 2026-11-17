@@ -11,7 +11,7 @@
 import { utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { WATCH_LIMITS, type Conversation, type ConversationSchedule, type ScheduleWatch } from '../src/shared/types';
+import { WATCH_LIMITS, type Conversation, type ConversationSchedule, type ScheduleTrigger, type ScheduleWatch } from '../src/shared/types';
 import { forClient } from '../src/server/orchestrator';
 import { checkFiles, mailEvent, triggerKey, type WatchCheck, type WatchContext } from '../src/server/watch';
 import {
@@ -78,7 +78,7 @@ describe('automations that start when something happens', () => {
   const watching = (conv: Conversation, s: Partial<ConversationSchedule> = {}) => {
     conv.schedule = {
       text: 'triage the new mail',
-      repeat: { kind: 'event', trigger },
+      repeat: { kind: 'event', triggers: [trigger] },
       timeZone: 'UTC',
       lang: 'en',
       enabled: true,
@@ -91,6 +91,8 @@ describe('automations that start when something happens', () => {
     store.saveSchedule(conv);
   };
   const scheduled = (conv: Conversation) => conv.messages.filter((m) => m.scheduled);
+  /** What the checks keep of the automation's first (here, only) trigger. */
+  const w = (conv: Conversation) => conv.schedule!.watches?.[0];
   const reset = () => {
     now = T0;
     given.length = 0;
@@ -105,11 +107,11 @@ describe('automations that start when something happens', () => {
     expect(store.watchDue(now)).toEqual([conv.id]);
     // The scheduler's own look checks it, beside the times (no Check now, no watchTick of the test's).
     await scheduler().tick();
-    await vi.waitFor(() => expect(conv.schedule!.watch?.checkedAt).toBe(T0));
+    await vi.waitFor(() => expect(w(conv)?.checkedAt).toBe(T0));
     // The first check only recorded.
     expect(given).toEqual([undefined]);
     expect(scheduled(conv)).toEqual([]);
-    expect(conv.schedule!.watch).toEqual({
+    expect(w(conv)).toEqual({
       key: triggerKey(trigger),
       uidValidity: 1,
       lastUid: 5,
@@ -131,7 +133,7 @@ describe('automations that start when something happens', () => {
     // The agents get it as data, said to come from mail.
     expect(calls[0]!.prompt).toContain('<event source="mail">');
     expect(calls[0]!.prompt).not.toContain('source="webhook"');
-    expect(conv.schedule).toMatchObject({ lastResult: 'sent', lastRunAt: now, watch: { lastUid: 7 } });
+    expect(conv.schedule).toMatchObject({ lastResult: 'sent', lastRunAt: now, watches: [{ lastUid: 7 }] });
     // Kept with the message, its source too.
     expect(new Store(db).get(conv.id)!.messages.find((m) => m.scheduled)!.eventSource).toBe('mail');
 
@@ -139,7 +141,7 @@ describe('automations that start when something happens', () => {
     setStore(new Store(db));
     setOrchestrator(new Orchestrator(store, new Hub(), settings));
     const again = store.get(conv.id)!;
-    expect(again.schedule!.watch!.lastUid).toBe(7);
+    expect(w(again)!.lastUid).toBe(7);
     now += WATCH_LIMITS.checkMinutes * MIN;
     await scheduler().watchTick();
     await finish(conv.id);
@@ -156,7 +158,7 @@ describe('automations that start when something happens', () => {
     };
     now = T0 + WATCH_LIMITS.checkMinutes * MIN;
     await scheduler().watchTick();
-    expect(conv.schedule!.watch).toMatchObject({
+    expect(w(conv)).toMatchObject({
       lastUid: 5,
       error: 'mail server unreachable',
       failures: 1,
@@ -164,17 +166,17 @@ describe('automations that start when something happens', () => {
     });
     now += WATCH_LIMITS.backoffMinutes[0]! * MIN;
     await scheduler().watchTick();
-    expect(conv.schedule!.watch).toMatchObject({ failures: 2, nextCheckAt: now + WATCH_LIMITS.backoffMinutes[1]! * MIN });
+    expect(w(conv)).toMatchObject({ failures: 2, nextCheckAt: now + WATCH_LIMITS.backoffMinutes[1]! * MIN });
     // Mail that arrives while checks fail is still new later: when mail was last seen stays.
-    expect(conv.schedule!.watch!.seenAt).toBe(T0);
+    expect(w(conv)!.seenAt).toBe(T0);
     // The sidebar shows it.
-    expect(store.list(() => false).find((c) => c.id === conv.id)!.schedule).toMatchObject({ trigger, watchError: true });
+    expect(store.list(() => false).find((c) => c.id === conv.id)!.schedule).toMatchObject({ triggers: [trigger], watchError: true });
 
     newMail(5);
     now += WATCH_LIMITS.backoffMinutes[1]! * MIN;
     await scheduler().watchTick();
-    expect(conv.schedule!.watch!.error).toBeUndefined();
-    expect(conv.schedule!.watch!.failures).toBeUndefined();
+    expect(w(conv)!.error).toBeUndefined();
+    expect(w(conv)!.failures).toBeUndefined();
     expect(scheduled(conv)).toEqual([]);
   });
 
@@ -190,7 +192,7 @@ describe('automations that start when something happens', () => {
     await scheduler().watchTick();
     expect(scheduled(conv)).toEqual([]);
     // Not seen yet: still at 5, and why it waits is shown.
-    expect(conv.schedule!.watch).toMatchObject({ lastUid: 5, held: expect.any(String) });
+    expect(w(conv)).toMatchObject({ lastUid: 5, held: expect.any(String) });
     expect(conv.schedule!.lastResult).toBeUndefined();
     release();
     await held;
@@ -202,8 +204,8 @@ describe('automations that start when something happens', () => {
     const sent = scheduled(conv);
     expect(sent).toHaveLength(1);
     expect(JSON.parse(sent[0]!.event!).mails.map((m: { uid: number }) => m.uid)).toEqual([6, 8]);
-    expect(conv.schedule!.watch!.held).toBeUndefined();
-    expect(conv.schedule!.watch!.lastUid).toBe(8);
+    expect(w(conv)!.held).toBeUndefined();
+    expect(w(conv)!.lastUid).toBe(8);
   });
 
   it('checks an automation that is off only when the user asks (Check now), and one check at a time', async () => {
@@ -225,7 +227,7 @@ describe('automations that start when something happens', () => {
     open();
     await Promise.all([one, two]);
     expect(given).toHaveLength(1);
-    expect(conv.schedule!.watch!.lastUid).toBe(2);
+    expect(w(conv)!.lastUid).toBe(2);
   });
 
   it('leaves an automation changed while it was checked to its new settings', async () => {
@@ -239,12 +241,12 @@ describe('automations that start when something happens', () => {
       return { state: { uidValidity: 1, lastUid: 9 }, total: 0 };
     };
     const checking = scheduler().watchTick();
-    const replaced = { ...conv.schedule!, repeat: { kind: 'event' as const, trigger: { ...trigger, folder: 'Alerts' } } };
+    const replaced = { ...conv.schedule!, repeat: { kind: 'event' as const, triggers: [{ ...trigger, folder: 'Alerts' }] } };
     conv.schedule = replaced;
     open();
     await checking;
     expect(conv.schedule).toBe(replaced);
-    expect(conv.schedule.watch).toBeUndefined();
+    expect(conv.schedule.watches).toBeUndefined();
   });
 
   it('queues what it found while the team replies, its source kept to the message that delivers it', async () => {
@@ -259,7 +261,7 @@ describe('automations that start when something happens', () => {
     await vi.waitFor(() => expect(calls.map((c) => c.name)).toEqual(['Alice']));
     now = T0 + WATCH_LIMITS.checkMinutes * MIN;
     await scheduler().watchTick();
-    expect(conv.schedule).toMatchObject({ lastResult: 'queued', watch: { lastUid: 6 } });
+    expect(conv.schedule).toMatchObject({ lastResult: 'queued', watches: [{ lastUid: 6 }] });
     expect(conv.queue).toEqual([expect.objectContaining({ scheduled: true, eventSource: 'mail' })]);
     release();
     await finish(conv.id);
@@ -297,7 +299,7 @@ describe('automations that start when something happens', () => {
     now = T0 + WATCH_LIMITS.checkMinutes * MIN;
     await scheduler().watchTick();
     spy.mockRestore();
-    expect(conv.schedule).toMatchObject({ lastResult: 'failed', lastError: 'the folder is gone.', watch: { lastUid: 6 } });
+    expect(conv.schedule).toMatchObject({ lastResult: 'failed', lastError: 'the folder is gone.', watches: [{ lastUid: 6 }] });
     expect(textOf(conv.messages.at(-1)!)).toBe(
       'What the automation waits for happened, but its message could not be sent: the folder is gone',
     );
@@ -313,13 +315,13 @@ describe('automations that start when something happens', () => {
     const held = orchestrator.exclusive(conv.id, 'busy', () => new Promise<void>((r) => (release = r)));
     now = T0 + WATCH_LIMITS.checkMinutes * MIN;
     await scheduler().watchTick();
-    expect(conv.schedule!.watch).toMatchObject({ lastUid: 5, held: expect.any(String) });
+    expect(w(conv)).toMatchObject({ lastUid: 5, held: expect.any(String) });
     expect(given).toHaveLength(2);
     // Still busy: the next check keeps it held without reading the mail again.
     now += WATCH_LIMITS.checkMinutes * MIN;
     await scheduler().watchTick();
     expect(given).toHaveLength(2);
-    expect(conv.schedule!.watch).toMatchObject({ lastUid: 5, held: expect.any(String), checkedAt: now });
+    expect(w(conv)).toMatchObject({ lastUid: 5, held: expect.any(String), checkedAt: now });
     release();
     await held;
     now += WATCH_LIMITS.checkMinutes * MIN;
@@ -341,7 +343,7 @@ describe('automations that start when something happens', () => {
     await scheduler().check(conv.id, true);
     expect(given.at(-1)).toBeUndefined();
     expect(scheduled(conv)).toEqual([]);
-    expect(conv.schedule!.watch).toMatchObject({ lastUid: 7, checkedAt: now });
+    expect(w(conv)).toMatchObject({ lastUid: 7, checkedAt: now });
   });
 
   it('counts what it sent as seen when the automation was saved meanwhile, waiting for the same folder', async () => {
@@ -360,7 +362,7 @@ describe('automations that start when something happens', () => {
     await scheduler().watchTick();
     spy.mockRestore();
     await finish(conv.id);
-    expect(conv.schedule).toMatchObject({ text: 'triage it again', lastResult: 'sent', watch: { lastUid: 6 } });
+    expect(conv.schedule).toMatchObject({ text: 'triage it again', lastResult: 'sent', watches: [{ lastUid: 6 }] });
     now += WATCH_LIMITS.checkMinutes * MIN;
     await scheduler().watchTick();
     await finish(conv.id);
@@ -373,7 +375,7 @@ describe('automations that start when something happens', () => {
     watching(conv, { lang: 'en' });
     newMail(5, 6);
     await scheduler().watchTick();
-    expect(conv.schedule!.watch!.seenAt).toBe(T0);
+    expect(w(conv)!.seenAt).toBe(T0);
     let release!: () => void;
     const held = orchestrator.exclusive(conv.id, 'busy', () => new Promise<void>((r) => (release = r)));
     now = T0 + WATCH_LIMITS.checkMinutes * MIN;
@@ -383,8 +385,8 @@ describe('automations that start when something happens', () => {
     now += WATCH_LIMITS.checkMinutes * MIN;
     await scheduler().watchTick();
     expect(given).toHaveLength(2);
-    expect(conv.schedule!.watch!.held).toMatch(/^[\x00-\x7F]+$/);
-    expect(conv.schedule!.watch!.seenAt).toBe(T0);
+    expect(w(conv)!.held).toMatch(/^[\x00-\x7F]+$/);
+    expect(w(conv)!.seenAt).toBe(T0);
     // Check now asks the source all the same.
     await scheduler().check(conv.id, true);
     expect(given).toHaveLength(3);
@@ -396,7 +398,7 @@ describe('automations that start when something happens', () => {
     reset();
     contexts.length = 0;
     const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
-    watching(conv, { repeat: { kind: 'event', trigger: { source: 'file', pattern: '*.csv' } } });
+    watching(conv, { repeat: { kind: 'event', triggers: [{ source: 'file', pattern: '*.csv' }] } });
     answer = async () => ({
       state: {
         files: { 'a.csv': '1:2' },
@@ -412,7 +414,7 @@ describe('automations that start when something happens', () => {
     await scheduler().watchTick();
     // The check's own time (the scheduler's clock); nothing writes in the folder.
     expect(contexts).toEqual([{ cwd: conv.settings.cwd, now: T0, recordOnly: false }]);
-    expect(conv.schedule!.watch).toEqual({
+    expect(w(conv)).toEqual({
       key: triggerKey({ source: 'file', pattern: '*.csv' }),
       uidValidity: 3,
       lastId: 9,
@@ -425,7 +427,7 @@ describe('automations that start when something happens', () => {
       nextCheckAt: T0 + WATCH_LIMITS.checkMinutes * MIN,
     });
     // What it saw of each file and event stays in the server: browsers get the rest.
-    const shown = forClient(store.get(conv.id)!).schedule!.watch!;
+    const shown = forClient(store.get(conv.id)!).schedule!.watches![0]!;
     expect(shown).not.toHaveProperty('files');
     expect(shown).not.toHaveProperty('seen');
     expect(shown).toMatchObject({ checkedAt: T0, lastId: 9 });
@@ -437,13 +439,13 @@ describe('automations that start when something happens', () => {
     now = Date.now();
     const conv = conversation({ mode: 'roundtable', permission: 'edit' });
     const fileTrigger = { source: 'file' as const, pattern: '*.txt' };
-    watching(conv, { repeat: { kind: 'event', trigger: fileTrigger } });
+    watching(conv, { repeat: { kind: 'event', triggers: [fileTrigger] } });
     const checker = (t: Parameters<typeof checkFiles>[0], prev: ScheduleWatch | undefined, ctx: WatchContext) =>
       checkFiles(t, prev, ctx.cwd, ctx.now, ctx.recordOnly, ctx.held);
     const s = () => new Scheduler(store, orchestrator, () => now, checker as never);
     const scheduledCount = () => scheduled(store.get(conv.id)!).length;
     await s().watchTick();
-    expect(conv.schedule!.watch!.files).toEqual({ 'shared.txt': expect.any(String) });
+    expect(w(conv)!.files).toEqual({ 'shared.txt': expect.any(String) });
 
     // A report from outside: the automation runs, and its run writes Alice.txt, Bob.txt and shared.txt,
     // then (held) one more file after the check that comes while it writes.
@@ -461,7 +463,7 @@ describe('automations that start when something happens', () => {
     await s().check(conv.id);
     expect(scheduledCount()).toBe(1);
     expect(JSON.parse(scheduled(store.get(conv.id)!)[0]!.event!).files.map((f: { path: string }) => f.path)).toEqual(['report.txt']);
-    expect(conv.schedule!.watch!.teamWrote).toBe(true);
+    expect(w(conv)!.teamWrote).toBe(true);
     expect(orchestrator.folderInUse(conv.id)).toBe(true);
     await vi.waitFor(() => expect(calls.map((c) => c.name)).toContain('Alice'));
 
@@ -469,8 +471,8 @@ describe('automations that start when something happens', () => {
     now = Date.now();
     await s().check(conv.id);
     expect(scheduledCount()).toBe(1);
-    expect(Object.keys(conv.schedule!.watch!.files!).sort()).toEqual(['Alice.txt', 'report.txt', 'shared.txt']);
-    expect(conv.schedule!.watch!.teamWrote).toBe(true);
+    expect(Object.keys(w(conv)!.files!).sort()).toEqual(['Alice.txt', 'report.txt', 'shared.txt']);
+    expect(w(conv)!.teamWrote).toBe(true);
 
     // The run ends having written late.txt: the first check with the folder free records it, and lets the flag go.
     finishWriting();
@@ -479,8 +481,8 @@ describe('automations that start when something happens', () => {
     now = Date.now();
     await s().check(conv.id);
     expect(scheduledCount()).toBe(1);
-    expect(Object.keys(conv.schedule!.watch!.files!)).toContain('late.txt');
-    expect(conv.schedule!.watch!.teamWrote).toBeUndefined();
+    expect(Object.keys(w(conv)!.files!)).toContain('late.txt');
+    expect(w(conv)!.teamWrote).toBeUndefined();
     now = Date.now();
     await s().check(conv.id);
     expect(scheduledCount()).toBe(1);
@@ -502,17 +504,17 @@ describe('automations that start when something happens', () => {
     const off = conversation({ mode: 'roundtable', permission: 'read-only' });
     watching(off, { enabled: false });
     const files = conversation({ mode: 'roundtable', permission: 'read-only' });
-    watching(files, { repeat: { kind: 'event', trigger: { source: 'file', pattern: '*.csv' } } });
+    watching(files, { repeat: { kind: 'event', triggers: [{ source: 'file', pattern: '*.csv' }] } });
     expect(store.mailWatches()).toEqual([{ conversationId: conv.id, trigger }]);
     const s = scheduler();
     s.listening = (id) => id === conv.id;
     await s.check(conv.id);
-    expect(conv.schedule!.watch).toMatchObject({ listening: true, nextCheckAt: T0 + WATCH_LIMITS.idleCheckMinutes * MIN });
+    expect(w(conv)).toMatchObject({ listening: true, nextCheckAt: T0 + WATCH_LIMITS.idleCheckMinutes * MIN });
     s.listening = () => false;
     now += MIN;
     await s.check(conv.id);
-    expect(conv.schedule!.watch!.listening).toBeUndefined();
-    expect(conv.schedule!.watch!.nextCheckAt).toBe(now + WATCH_LIMITS.checkMinutes * MIN);
+    expect(w(conv)!.listening).toBeUndefined();
+    expect(w(conv)!.nextCheckAt).toBe(now + WATCH_LIMITS.checkMinutes * MIN);
   });
 
   it('checks once more after the check under way when the mail server says mail arrived meanwhile', async () => {
@@ -544,12 +546,12 @@ describe('automations that start when something happens', () => {
     const s = scheduler();
     s.listening = () => true;
     await s.check(conv.id);
-    expect(conv.schedule!.watch).toMatchObject({ listening: true, nextCheckAt: T0 + WATCH_LIMITS.idleCheckMinutes * MIN });
+    expect(w(conv)).toMatchObject({ listening: true, nextCheckAt: T0 + WATCH_LIMITS.idleCheckMinutes * MIN });
     let release!: () => void;
     const held = orchestrator.exclusive(conv.id, 'busy', () => new Promise<void>((r) => (release = r)));
     now = T0 + WATCH_LIMITS.idleCheckMinutes * MIN;
     await s.check(conv.id);
-    expect(conv.schedule!.watch).toMatchObject({
+    expect(w(conv)).toMatchObject({
       held: expect.any(String),
       nextCheckAt: now + WATCH_LIMITS.checkMinutes * MIN,
       listening: true,
@@ -558,7 +560,7 @@ describe('automations that start when something happens', () => {
     s.listening = () => false;
     now += WATCH_LIMITS.checkMinutes * MIN;
     await s.check(conv.id);
-    expect(conv.schedule!.watch!.listening).toBeUndefined();
+    expect(w(conv)!.listening).toBeUndefined();
     release();
     await held;
   });
@@ -588,7 +590,7 @@ describe('automations that start when something happens', () => {
     reset();
     const conv = conversation({ mode: 'roundtable', permission: 'edit' });
     const fileTrigger = { source: 'file' as const, pattern: '*.pdf' };
-    watching(conv, { repeat: { kind: 'event', trigger: fileTrigger } });
+    watching(conv, { repeat: { kind: 'event', triggers: [fileTrigger] } });
     const checker = (t: Parameters<typeof checkFiles>[0], prev: ScheduleWatch | undefined, ctx: WatchContext) =>
       checkFiles(t, prev, ctx.cwd, ctx.now, ctx.recordOnly, ctx.held);
     const s = () => new Scheduler(store, orchestrator, () => now, checker as never);
@@ -601,7 +603,7 @@ describe('automations that start when something happens', () => {
     now = Date.now();
     await s().check(conv.id);
     skip.mockRestore();
-    expect(conv.schedule!.watch!.held).toBe('waits for your answer');
+    expect(w(conv)!.held).toBe('waits for your answer');
     // The user answers: a run starts and writes in the folder; checks then only record, but keep the invoice unseen.
     const inUse = vi.spyOn(orchestrator, 'folderInUse').mockReturnValue(true);
     writeFileSync(join(project, 'draft.pdf'), 'the team wrote this');
@@ -609,12 +611,12 @@ describe('automations that start when something happens', () => {
     utimesSync(join(project, 'draft.pdf'), (now - 60_000) / 1000, (now - 60_000) / 1000);
     now = Date.now() + 1000;
     await s().check(conv.id);
-    expect(conv.schedule!.watch!.teamWrote).toBe(true);
+    expect(w(conv)!.teamWrote).toBe(true);
     inUse.mockReturnValue(false);
     now = Date.now() + 2000;
     await s().check(conv.id);
     inUse.mockRestore();
-    expect(conv.schedule!.watch!.teamWrote).toBeUndefined();
+    expect(w(conv)!.teamWrote).toBeUndefined();
     expect(scheduled(conv)).toHaveLength(0);
     // The next check lists the invoice, not what the team wrote.
     now = Date.now() + 60_000;
@@ -628,7 +630,7 @@ describe('automations that start when something happens', () => {
   it("takes what is written while nothing is recorded (held, a failed check) as the team's, and a read-only run as no writer", async () => {
     reset();
     const conv = conversation({ mode: 'roundtable', permission: 'edit' });
-    watching(conv, { repeat: { kind: 'event', trigger: { source: 'file', pattern: '*.pdf' } } });
+    watching(conv, { repeat: { kind: 'event', triggers: [{ source: 'file', pattern: '*.pdf' }] } });
     const s = scheduler();
     await s.check(conv.id);
     const inUse = vi.spyOn(orchestrator, 'folderInUse').mockReturnValue(true);
@@ -637,7 +639,7 @@ describe('automations that start when something happens', () => {
     };
     now += WATCH_LIMITS.checkMinutes * MIN;
     await s.check(conv.id);
-    expect(conv.schedule!.watch).toMatchObject({ error: 'disk gone', teamWrote: true });
+    expect(w(conv)).toMatchObject({ error: 'disk gone', teamWrote: true });
     inUse.mockRestore();
     // A read-only conversation's own run never writes in its folder.
     const ro = conversation({ mode: 'roundtable', permission: 'read-only' });
@@ -648,5 +650,255 @@ describe('automations that start when something happens', () => {
     expect(orchestrator.folderInUse(ro.id)).toBe(false);
     release();
     await finish(ro.id);
+  });
+
+  describe('several things to wait for', () => {
+    const alerts = { ...trigger, folder: 'Alerts' };
+    /** Which folders (or patterns) were checked, in order. */
+    const checked: string[] = [];
+    /** A stand-in source for each trigger, by its key. */
+    let sources: Record<string, (prev: ScheduleWatch | undefined) => Promise<WatchCheck>> = {};
+    const several = () =>
+      new Scheduler(
+        store,
+        orchestrator,
+        () => now,
+        (t, prev, ctx) => {
+          checked.push(t.source === 'mail' ? t.folder : t.source === 'file' ? t.pattern : t.source);
+          contexts.push(ctx);
+          return sources[triggerKey(t)]!(prev);
+        },
+      );
+    /** A folder's mail: the first check records `lastUid`, later ones find `uids` above what was seen. */
+    const mail =
+      (folder: string, lastUid: number, ...uids: number[]) =>
+      async (prev: ScheduleWatch | undefined): Promise<WatchCheck> => {
+        if (prev?.lastUid === undefined) return { state: { uidValidity: 1, lastUid }, total: 0 };
+        const fresh = uids.filter((u) => u > prev.lastUid!);
+        if (!fresh.length) return { state: prev, total: 0 };
+        const listed = fresh.map((uid) => ({ uid, from: 'Bob <bob@example.com>', subject: `${folder} ${uid}`, date: 'd', excerpt: 'Hi' }));
+        return {
+          state: { uidValidity: 1, lastUid: Math.max(...uids) },
+          total: fresh.length,
+          event: mailEvent('Work', folder, listed, fresh.length),
+        };
+      };
+    const failing = (why: string) => async (): Promise<WatchCheck> => {
+      throw new Error(why);
+    };
+    const watchFor = (conv: Conversation, t: ScheduleTrigger) => conv.schedule!.watches?.find((x) => x.key === triggerKey(t));
+    const resetSeveral = () => {
+      reset();
+      checked.length = 0;
+      contexts.length = 0;
+      sources = {};
+    };
+
+    it('checks each apart, with its own state, next check and slower checks after errors, and sends a message for each that finds something', async () => {
+      resetSeveral();
+      const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+      watching(conv, { repeat: { kind: 'event', triggers: [trigger, alerts] } });
+      sources = { [triggerKey(trigger)]: mail('INBOX', 5), [triggerKey(alerts)]: mail('Alerts', 20) };
+      expect(store.watchDue(now)).toEqual([conv.id]);
+      await several().watchTick();
+      // Both recorded at their first check, nothing sent.
+      expect(checked).toEqual(['INBOX', 'Alerts']);
+      expect(conv.schedule!.watches).toEqual([
+        expect.objectContaining({ key: triggerKey(trigger), lastUid: 5, nextCheckAt: T0 + WATCH_LIMITS.checkMinutes * MIN }),
+        expect.objectContaining({ key: triggerKey(alerts), lastUid: 20, nextCheckAt: T0 + WATCH_LIMITS.checkMinutes * MIN }),
+      ]);
+      expect(scheduled(conv)).toEqual([]);
+
+      // New mail in the inbox while the alerts' server is down: the inbox's message goes, the alerts back off.
+      sources = { [triggerKey(trigger)]: mail('INBOX', 5, 6), [triggerKey(alerts)]: failing('alerts server down') };
+      now = T0 + WATCH_LIMITS.checkMinutes * MIN;
+      await several().watchTick();
+      await finish(conv.id);
+      expect(scheduled(conv)).toHaveLength(1);
+      expect(JSON.parse(scheduled(conv)[0]!.event!)).toMatchObject({ folder: 'INBOX', mails: [{ uid: 6 }] });
+      expect(watchFor(conv, trigger)).toMatchObject({ lastUid: 6, nextCheckAt: now + WATCH_LIMITS.checkMinutes * MIN });
+      expect(watchFor(conv, trigger)!.error).toBeUndefined();
+      expect(watchFor(conv, alerts)).toMatchObject({
+        lastUid: 20,
+        error: 'alerts server down',
+        failures: 1,
+        nextCheckAt: now + WATCH_LIMITS.backoffMinutes[0]! * MIN,
+      });
+      // The sidebar says a check failed, and what it waits for, both.
+      expect(store.list(() => false).find((c) => c.id === conv.id)!.schedule).toMatchObject({
+        triggers: [trigger, alerts],
+        watchError: true,
+      });
+
+      // Only the inbox's next check has come: the alerts wait for theirs.
+      checked.length = 0;
+      now += WATCH_LIMITS.checkMinutes * MIN;
+      await several().watchTick();
+      expect(checked).toEqual(['INBOX']);
+      // Due again when the first of them is: the inbox, 2 minutes on.
+      expect(store.watchDue(now)).toEqual([]);
+      expect(store.watchDue(now + WATCH_LIMITS.checkMinutes * MIN)).toEqual([conv.id]);
+
+      // Both find something in the same check: two messages, each with what its own trigger found (the second queued).
+      let release!: () => void;
+      fake.gates.Alice = new Promise((r) => (release = r));
+      sources = { [triggerKey(trigger)]: mail('INBOX', 5, 6, 7), [triggerKey(alerts)]: mail('Alerts', 20, 21) };
+      checked.length = 0;
+      now = T0 + 10 * MIN;
+      await several().watchTick();
+      expect(checked).toEqual(['INBOX', 'Alerts']);
+      expect(conv.queue).toEqual([expect.objectContaining({ scheduled: true, eventSource: 'mail' })]);
+      expect(conv.schedule!.lastResult).toBe('queued');
+      release();
+      await finish(conv.id);
+      const sent = scheduled(conv);
+      expect(sent).toHaveLength(3);
+      expect(sent.slice(1).map((m) => JSON.parse(m.event!).folder)).toEqual(['INBOX', 'Alerts']);
+      expect(watchFor(conv, alerts)).toMatchObject({ lastUid: 21 });
+      expect(watchFor(conv, alerts)!.error).toBeUndefined();
+
+      // A restart reads each back: nothing is sent again.
+      setStore(new Store(db));
+      setOrchestrator(new Orchestrator(store, new Hub(), settings));
+      const again = store.get(conv.id)!;
+      expect(again.schedule!.watches!.map((x) => x.lastUid)).toEqual([7, 21]);
+      now += 10 * MIN;
+      await several().watchTick();
+      await finish(conv.id);
+      expect(scheduled(again)).toHaveLength(3);
+    });
+
+    it('checks only the trigger the mail server spoke of (IMAP IDLE), lists each mail trigger for IDLE, and keeps each listening apart', async () => {
+      resetSeveral();
+      const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+      const csv = { source: 'file' as const, pattern: '*.csv' };
+      watching(conv, { repeat: { kind: 'event', triggers: [trigger, csv, alerts] } });
+      sources = {
+        [triggerKey(trigger)]: mail('INBOX', 5),
+        [triggerKey(alerts)]: mail('Alerts', 20),
+        [triggerKey(csv)]: async () => ({ state: { files: {} }, total: 0 }),
+      };
+      expect(store.mailWatches()).toEqual([
+        { conversationId: conv.id, trigger },
+        { conversationId: conv.id, trigger: alerts },
+      ]);
+      const s = several();
+      // The inbox's server listens; the Alerts folder's does not.
+      s.listening = (_id, t) => t.source === 'mail' && t.folder === 'INBOX';
+      await s.check(conv.id);
+      expect(checked).toEqual(['INBOX', '*.csv', 'Alerts']);
+      expect(watchFor(conv, trigger)).toMatchObject({ listening: true, nextCheckAt: T0 + WATCH_LIMITS.idleCheckMinutes * MIN });
+      expect(watchFor(conv, alerts)!.listening).toBeUndefined();
+      expect(watchFor(conv, alerts)!.nextCheckAt).toBe(T0 + WATCH_LIMITS.checkMinutes * MIN);
+
+      // Mail arrived in Alerts: only that trigger is checked, also during a check under way (once more after it).
+      checked.length = 0;
+      now += MIN;
+      await s.check(conv.id, false, true, [triggerKey(alerts)]);
+      expect(checked).toEqual(['Alerts']);
+      let open!: () => void;
+      const gate = new Promise<void>((r) => (open = r));
+      sources[triggerKey(trigger)] = async (prev) => (await gate, { state: prev!, total: 0 });
+      checked.length = 0;
+      const first = s.check(conv.id, false, true, [triggerKey(trigger)]);
+      const asks = [s.check(conv.id, false, true, [triggerKey(alerts)]), s.check(conv.id, false, true, [triggerKey(trigger)])];
+      open();
+      await Promise.all([first, ...asks]);
+      // The one under way, then one more for both folders asked for meanwhile, in the triggers' order.
+      expect(checked).toEqual(['INBOX', 'INBOX', 'Alerts']);
+      // Check now checks every one, also after a check of one under way.
+      checked.length = 0;
+      const one = s.check(conv.id, false, true, [triggerKey(alerts)]);
+      const all = s.check(conv.id, true);
+      await Promise.all([one, all]);
+      expect(checked).toEqual(['Alerts', 'INBOX', '*.csv', 'Alerts']);
+    });
+
+    it('drops what it kept of a trigger removed meanwhile, starts one added afresh, and never writes a removed one back', async () => {
+      resetSeveral();
+      const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+      watching(conv, { repeat: { kind: 'event', triggers: [trigger, alerts] } });
+      sources = { [triggerKey(trigger)]: mail('INBOX', 5), [triggerKey(alerts)]: mail('Alerts', 20) };
+      await several().watchTick();
+      expect(conv.schedule!.watches).toHaveLength(2);
+      // Alerts removed while the inbox is checked: its state is not written back.
+      let open!: () => void;
+      const gate = new Promise<void>((r) => (open = r));
+      sources[triggerKey(trigger)] = async (prev) => (await gate, { state: { ...prev!, lastUid: 9 }, total: 0 });
+      checked.length = 0;
+      now += WATCH_LIMITS.checkMinutes * MIN;
+      const checking = several().watchTick();
+      await vi.waitFor(() => expect(checked).toEqual(['INBOX']));
+      const kept = watchFor(conv, trigger)!;
+      conv.schedule = { ...conv.schedule!, repeat: { kind: 'event', triggers: [trigger] }, watches: [kept] };
+      store.saveSchedule(conv);
+      open();
+      await checking;
+      // Saved meanwhile: the inbox's result belongs to the automation as it was, and Alerts is not checked.
+      expect(checked).toEqual(['INBOX']);
+      expect(conv.schedule.watches).toEqual([kept]);
+      // A trigger added: checked at once, from its first check, beside the one kept (the inbox, whose
+      // result was dropped, is still due too).
+      const csv = { source: 'file' as const, pattern: '*.csv' };
+      sources[triggerKey(csv)] = async () => ({ state: { files: { 'a.csv': '1:2' } }, total: 0 });
+      sources[triggerKey(trigger)] = mail('INBOX', 5);
+      conv.schedule = { ...conv.schedule, repeat: { kind: 'event', triggers: [trigger, csv] } };
+      store.saveSchedule(conv);
+      checked.length = 0;
+      given.length = 0;
+      await several().watchTick();
+      expect(checked).toEqual(['INBOX', '*.csv']);
+      expect(conv.schedule.watches!.map((x) => x.key)).toEqual([triggerKey(trigger), triggerKey(csv)]);
+      expect(watchFor(conv, trigger)!.lastUid).toBe(5);
+      // What a row keeps of a trigger it no longer waits for is not read back either.
+      conv.schedule = { ...conv.schedule, repeat: { kind: 'event', triggers: [csv] } };
+      store.saveSchedule(conv);
+      expect(new Store(db).get(conv.id)!.schedule!.watches!.map((x) => x.key)).toEqual([triggerKey(csv)]);
+    });
+
+    it("still sends a second file trigger's file in the same check after the first one's message started a run that writes there", async () => {
+      resetSeveral();
+      const conv = conversation({ mode: 'roundtable', permission: 'edit' });
+      const csv = { source: 'file' as const, pattern: '*.csv' };
+      const pdf = { source: 'file' as const, pattern: '*.pdf' };
+      watching(conv, { repeat: { kind: 'event', triggers: [csv, pdf] } });
+      const found =
+        (path: string) =>
+        async (prev: ScheduleWatch | undefined): Promise<WatchCheck> =>
+          prev
+            ? {
+                state: { files: { [path]: '1:2' } },
+                total: 1,
+                found: { [path]: '1:2' },
+                event: JSON.stringify({ source: 'file', files: [{ path }] }),
+              }
+            : { state: { files: {} }, total: 0 };
+      sources = { [triggerKey(csv)]: found('a.csv'), [triggerKey(pdf)]: found('b.pdf') };
+      await several().watchTick();
+      // The first message's run holds the folder from then on.
+      let running = false;
+      const send = orchestrator.sendScheduled.bind(orchestrator);
+      const spy = vi.spyOn(orchestrator, 'sendScheduled').mockImplementation(async (...a) => {
+        const sent = await send(...a);
+        running = true;
+        return sent;
+      });
+      const inUse = vi.spyOn(orchestrator, 'folderInUse').mockImplementation(() => running);
+      let release!: () => void;
+      fake.gates.Alice = new Promise((r) => (release = r));
+      contexts.length = 0;
+      now += WATCH_LIMITS.checkMinutes * MIN;
+      await several().watchTick();
+      // The pdf was there before that run: listed, not taken for the team's.
+      expect(contexts.map((c) => (c as WatchContext).recordOnly)).toEqual([false, false]);
+      expect(watchFor(conv, csv)!.teamWrote).toBe(true);
+      expect(watchFor(conv, pdf)!.teamWrote).toBe(true);
+      release();
+      await finish(conv.id);
+      running = false;
+      spy.mockRestore();
+      inUse.mockRestore();
+      expect(scheduled(conv).map((m) => JSON.parse(m.event!).files[0].path)).toEqual(['a.csv', 'b.pdf']);
+    });
   });
 });

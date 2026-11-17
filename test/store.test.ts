@@ -1864,9 +1864,9 @@ describe('Store schedules', () => {
       ...sampleConversation(),
       schedule: {
         ...schedule,
-        repeat: { kind: 'event' as const, trigger: { source: 'mail' as const, account: 'work', folder: 'INBOX', from: 'carol' } },
+        repeat: { kind: 'event' as const, triggers: [{ source: 'mail' as const, account: 'work', folder: 'INBOX', from: 'carol' }] },
         nextRunAt: undefined,
-        watch,
+        watches: [watch],
       },
     };
     delete (conv.schedule as { nextRunAt?: number }).nextRunAt;
@@ -1916,7 +1916,69 @@ describe('Store schedules', () => {
     // Only an automation that watches something keeps a watch.
     back.schedule = { ...back.schedule!, repeat: { kind: 'daily', time: '09:00' } };
     reopened.saveSchedule(back);
-    expect(new Store(reopen()).get(conv.id)!.schedule!.watch).toBeUndefined();
+    expect(new Store(reopen()).get(conv.id)!.schedule!.watches).toBeUndefined();
+  });
+
+  it('reads an automation saved when it waited for one thing as waiting for that one, and writes each trigger and what its checks keep', () => {
+    const store = new Store(db);
+    const inbox = { source: 'mail' as const, account: 'work', folder: 'INBOX' };
+    const alerts = { ...inbox, folder: 'Alerts' };
+    const csv = { source: 'file' as const, pattern: '*.csv' };
+    const conv = { ...sampleConversation(), schedule: { ...schedule, repeat: { kind: 'event' as const, triggers: [inbox] } } };
+    delete (conv.schedule as { nextRunAt?: number }).nextRunAt;
+    store.create(conv);
+    store.saveSchedule(conv);
+    // As a version that waited for one thing wrote it: its trigger alone, and one watch.
+    const one = { key: '["mail","work","INBOX"]', nextCheckAt: 200, lastUid: 42 };
+    db.prepare('UPDATE schedules SET repeat = ?, watch = ? WHERE conversation_id = ?').run(
+      JSON.stringify({ kind: 'event', trigger: inbox }),
+      JSON.stringify(one),
+      conv.id,
+    );
+    const old = new Store(reopen());
+    const back = old.get(conv.id)!;
+    expect(back.schedule).toMatchObject({ repeat: { kind: 'event', triggers: [inbox] }, watches: [one] });
+    expect(old.list(() => false).find((c) => c.id === conv.id)!.schedule!.triggers).toEqual([inbox]);
+    expect(old.mailWatches()).toEqual([{ conversationId: conv.id, trigger: inbox }]);
+    expect(old.watchDue(199)).toEqual([]);
+    expect(old.watchDue(200)).toEqual([conv.id]);
+    // Saved again with more to wait for: written as a list, each trigger's state by its key.
+    const two = { key: '["mail","work","Alerts"]', nextCheckAt: 500, lastUid: 7, error: 'down' };
+    back.schedule = { ...back.schedule!, repeat: { kind: 'event', triggers: [inbox, csv, alerts] }, watches: [one, two] };
+    old.saveSchedule(back);
+    const row = db.prepare('SELECT repeat, watch FROM schedules WHERE conversation_id = ?').get(conv.id) as {
+      repeat: string;
+      watch: string;
+    };
+    expect(JSON.parse(row.repeat)).toEqual({ kind: 'event', triggers: [inbox, csv, alerts] });
+    expect(JSON.parse(row.watch)).toEqual([one, two]);
+    const again = new Store(reopen());
+    expect(again.get(conv.id)!.schedule!.watches).toEqual([one, two]);
+    // Each mail trigger for IDLE; due when any trigger is (the file one, never checked, at once); a check failed.
+    expect(again.mailWatches()).toEqual([
+      { conversationId: conv.id, trigger: inbox },
+      { conversationId: conv.id, trigger: alerts },
+    ]);
+    expect(again.watchDue(0)).toEqual([conv.id]);
+    expect(again.list(() => false).find((c) => c.id === conv.id)!.schedule).toMatchObject({
+      triggers: [inbox, csv, alerts],
+      watchError: true,
+    });
+    // What it keeps of a trigger it no longer waits for (or of one twice) is not read back.
+    db.prepare('UPDATE schedules SET watch = ? WHERE conversation_id = ?').run(
+      JSON.stringify([one, { ...one, lastUid: 1 }, { key: '["file","*.txt"]', nextCheckAt: 0 }, 'junk']),
+      conv.id,
+    );
+    expect(new Store(reopen()).get(conv.id)!.schedule!.watches).toEqual([one]);
+    // Waiting for nothing it can read: no schedule there, and never due nor listened for.
+    db.prepare('UPDATE schedules SET repeat = ? WHERE conversation_id = ?').run(
+      JSON.stringify({ kind: 'event', triggers: [{ source: 'rss' }] }),
+      conv.id,
+    );
+    const unread = new Store(reopen());
+    expect(unread.get(conv.id)!.schedule).toBeUndefined();
+    expect(unread.watchDue(Number.MAX_SAFE_INTEGER)).toEqual([]);
+    expect(unread.mailWatches()).toEqual([]);
   });
 
   it('keeps whether a schedule opens a new chat each time, and the chat it last opened', () => {

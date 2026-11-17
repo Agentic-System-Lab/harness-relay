@@ -1,4 +1,4 @@
-import type { ConversationSchedule, ZonedParts } from './types';
+import type { ConversationSchedule, ScheduleTrigger, ScheduleWatch, ZonedParts } from './types';
 
 /*
  * When a conversation's schedule sends its message. Pure functions, used by the server (to decide when
@@ -131,6 +131,43 @@ export function upcomingRuns(s: Pick<ConversationSchedule, 'repeat' | 'timeZone'
  * What an automation that starts when something happens waits for, as the form and the server both
  * check it (`draftProblems()` in the browser, `validTrigger()` on the server), so that they agree.
  */
+
+/**
+ * For which source a trigger's checks keep what they saw (`ScheduleWatch.key`): another one (account
+ * and folder, calendar, repository and what to watch there, the branch of CI runs, pattern) starts
+ * afresh. Changing a trigger's conditions (sender, subject, title, minutes) keeps its place: what comes
+ * next is matched against the new ones. (Another branch lists other runs, among them failures that are
+ * not new: so it starts afresh.) Two triggers of one automation never have the same key.
+ */
+export function triggerKey(trigger: ScheduleTrigger): string {
+  switch (trigger.source) {
+    case 'mail':
+      return JSON.stringify([trigger.source, trigger.account, trigger.folder]);
+    case 'calendar':
+      return JSON.stringify([trigger.source, trigger.account]);
+    case 'github':
+      return JSON.stringify([
+        trigger.source,
+        trigger.repo.toLowerCase(),
+        trigger.on,
+        ...(trigger.on === 'ci' ? [trigger.branch ?? ''] : []),
+      ]);
+    case 'file':
+      return JSON.stringify([trigger.source, trigger.pattern]);
+  }
+}
+
+/** What an automation's checks keep of one of its triggers (by its key), if it was checked. */
+export function watchOf<W extends Pick<ScheduleWatch, 'key'>>(s: { watches?: W[] }, trigger: ScheduleTrigger): W | undefined {
+  const key = triggerKey(trigger);
+  return s.watches?.find((w) => w.key === key);
+}
+
+/** Whether two of the triggers wait for the same source (`triggerKey()`): an automation waits for each thing once. */
+export function sameTriggers(triggers: ScheduleTrigger[]): boolean {
+  const keys = triggers.map(triggerKey);
+  return new Set(keys).size !== keys.length;
+}
 
 /** A GitHub repository as it is kept: `owner/name`, from that or its address on github.com. */
 export function repoName(v: string): string {

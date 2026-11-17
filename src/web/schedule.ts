@@ -10,7 +10,7 @@ import {
   type ScheduleUpdate,
   type ScheduleWatch,
 } from '../shared/types';
-import { filePattern, parseTime, repoName, upcomingRuns, validBranch, validRepo } from '../shared/schedule';
+import { filePattern, parseTime, repoName, sameTriggers, upcomingRuns, validBranch, validRepo, watchOf } from '../shared/schedule';
 import type { Messages } from './i18n';
 
 /** The schedule drawer's form: every kind's fields are kept, so switching kinds and back loses nothing. */
@@ -33,12 +33,13 @@ export interface ScheduleDraft {
   /** The goal it tracks ('' for none). */
   goal: string;
   /**
-   * `event`: what it waits for, every source's fields as the inputs keep them ('' for a condition not
-   * given), so that switching sources keeps what was typed: a mail account (`account`), its folder,
-   * sender and subject; a calendar (`calendar`), the minutes before an event and its title; a GitHub
-   * repository, what to watch there and the branch of CI runs; a file pattern.
+   * `event`: what it waits for, any of them (at least one, at most `WATCH_LIMITS.triggers`), each with
+   * every source's fields as the inputs keep them ('' for a condition not given), so that switching
+   * sources keeps what was typed: a mail account (`account`), its folder, sender and subject; a
+   * calendar (`calendar`), the minutes before an event and its title; a GitHub repository, what to
+   * watch there and the branch of CI runs; a file pattern.
    */
-  trigger: TriggerDraft;
+  triggers: TriggerDraft[];
 }
 
 export interface TriggerDraft {
@@ -107,6 +108,12 @@ export function triggerOf(d: TriggerDraft): ScheduleTrigger {
   }
 }
 
+/** A trigger as the server keeps it (a file pattern as `filePattern()` writes it): two that are the same there are the same here. */
+function keptTrigger(d: TriggerDraft): ScheduleTrigger {
+  const tr = triggerOf(d);
+  return tr.source === 'file' ? { ...tr, pattern: filePattern(tr.pattern) ?? tr.pattern } : tr;
+}
+
 /** The time zone of this browser. */
 export function browserTimeZone(): string {
   try {
@@ -151,7 +158,7 @@ export function draftFrom(s: ConversationSchedule | undefined, now: number, time
     missed: 'skip',
     newChat: false,
     goal: '',
-    trigger: EMPTY_TRIGGER,
+    triggers: [EMPTY_TRIGGER],
   };
   if (!s) return draft;
   const r = s.repeat;
@@ -163,7 +170,7 @@ export function draftFrom(s: ConversationSchedule | undefined, now: number, time
     ...(r.kind === 'daily' || r.kind === 'weekly' ? { time: r.time } : {}),
     ...(r.kind === 'weekly' ? { days: [...r.days] } : {}),
     ...(r.kind === 'interval' ? { hours: r.hours } : {}),
-    ...(r.kind === 'event' ? { trigger: triggerDraft(r.trigger) } : {}),
+    ...(r.kind === 'event' ? { triggers: r.triggers.map(triggerDraft) } : {}),
     timeZone: s.timeZone,
     enabled: s.enabled,
     approvals: s.approvals,
@@ -186,8 +193,27 @@ export function repeatOf(d: ScheduleDraft): ScheduleRepeat {
     case 'manual':
       return { kind: 'manual' };
     case 'event':
-      return { kind: 'event', trigger: triggerOf(d.trigger) };
+      return { kind: 'event', triggers: d.triggers.map(triggerOf) };
   }
+}
+
+/**
+ * The form's triggers with one more (`add`: the last one's source, its fields as an empty trigger's,
+ * its account and calendar the first trigger's), or without the one at `remove` (never the last one).
+ */
+export function editTriggers(d: Pick<ScheduleDraft, 'triggers'>, change: { add: true } | { remove: number }): TriggerDraft[] {
+  if ('add' in change) {
+    if (d.triggers.length >= WATCH_LIMITS.triggers) return d.triggers;
+    // Most often another of the same kind (another folder, another pattern): the last one's source, its fields empty.
+    const first = d.triggers[0];
+    const last = d.triggers.at(-1);
+    return [
+      ...d.triggers,
+      { ...EMPTY_TRIGGER, source: last?.source ?? EMPTY_TRIGGER.source, account: first?.account ?? '', calendar: first?.calendar ?? '' },
+    ];
+  }
+  if (d.triggers.length <= 1) return d.triggers;
+  return d.triggers.filter((_, i) => i !== change.remove);
 }
 
 /** What the form saves. */
@@ -238,14 +264,20 @@ export function draftProblems(d: ScheduleDraft, now: number, t: Messages): strin
       if (!Number.isInteger(d.hours) || d.hours < 1 || d.hours > SCHEDULE_LIMITS.maxHours) out.push(p.hours(SCHEDULE_LIMITS.maxHours));
       break;
     case 'event': {
-      const tr = d.trigger;
-      if (tr.source === 'mail' && !tr.account) out.push(p.account);
-      if (tr.source === 'calendar' && !tr.calendar) out.push(p.calendar);
-      if (tr.source === 'calendar' && (!Number.isInteger(tr.minutes) || tr.minutes < 1 || tr.minutes > WATCH_LIMITS.maxMinutes))
-        out.push(p.minutes(WATCH_LIMITS.maxMinutes));
-      if (tr.source === 'github' && !validRepo(repoName(tr.repo))) out.push(p.repo);
-      if (tr.source === 'github' && tr.on === 'ci' && tr.branch.trim() && !validBranch(tr.branch.trim())) out.push(p.branch);
-      if (tr.source === 'file' && !filePattern(tr.pattern)) out.push(p.pattern);
+      // With several, each problem says which thing to wait for it is about.
+      const several = d.triggers.length > 1;
+      d.triggers.forEach((tr, i) => {
+        const push = (problem: string) => out.push(several ? p.ofTrigger(i + 1, problem) : problem);
+        if (tr.source === 'mail' && !tr.account) push(p.account);
+        if (tr.source === 'calendar' && !tr.calendar) push(p.calendar);
+        if (tr.source === 'calendar' && (!Number.isInteger(tr.minutes) || tr.minutes < 1 || tr.minutes > WATCH_LIMITS.maxMinutes))
+          push(p.minutes(WATCH_LIMITS.maxMinutes));
+        if (tr.source === 'github' && !validRepo(repoName(tr.repo))) push(p.repo);
+        if (tr.source === 'github' && tr.on === 'ci' && tr.branch.trim() && !validBranch(tr.branch.trim())) push(p.branch);
+        if (tr.source === 'file' && !filePattern(tr.pattern)) push(p.pattern);
+      });
+      if (!d.triggers.length || d.triggers.length > WATCH_LIMITS.triggers) out.push(p.triggers(WATCH_LIMITS.triggers));
+      else if (sameTriggers(d.triggers.map(keptTrigger))) out.push(p.sameTrigger);
       break;
     }
   }
@@ -315,8 +347,13 @@ export function describeRepeat(r: ScheduleRepeat, t: Messages, lang: string): st
     case 'manual':
       return s.manual;
     case 'event':
-      return describeTrigger(r.trigger, t);
+      return describeTriggers(r.triggers, t);
   }
+}
+
+/** What an automation that starts when something happens waits for, in a few words: any of them, joined with "or". */
+export function describeTriggers(triggers: ScheduleTrigger[], t: Messages): string {
+  return t.schedule.summary.any(triggers.map((tr) => describeTrigger(tr, t)));
 }
 
 /** What an automation that starts when something happens waits for, in a few words (a mail folder other than the inbox named). */
@@ -344,10 +381,14 @@ export function describeTrigger(trigger: ScheduleTrigger, t: Messages): string {
  */
 export function scheduleTrouble(
   s:
-    | (Pick<ConversationSchedule, 'lastResult'> & { enabled?: boolean; watch?: Pick<ScheduleWatch, 'error'>; watchError?: boolean })
+    | (Pick<ConversationSchedule, 'lastResult'> & {
+        enabled?: boolean;
+        watches?: Pick<ScheduleWatch, 'key' | 'error'>[];
+        watchError?: boolean;
+      })
     | undefined,
 ): boolean {
-  if ((s?.watch?.error && s.enabled !== false) || s?.watchError) return true;
+  if ((s?.watches?.some((w) => w.error) && s.enabled !== false) || s?.watchError) return true;
   return s?.lastResult === 'missed' || s?.lastResult === 'skipped' || s?.lastResult === 'failed';
 }
 
@@ -357,7 +398,8 @@ export function scheduleTrouble(
  */
 export function scheduleBadgeTitle(s: ConversationSchedule, t: Messages, lang: string): string {
   const what = describeRepeat(s.repeat, t, lang);
-  if (s.repeat.kind === 'event' && s.enabled && s.watch?.error) return `${what} · ${t.schedule.watch.error(s.watch.error)}`;
+  const failing = s.repeat.kind === 'event' && s.enabled ? combinedWatch(s)?.error : undefined;
+  if (failing) return `${what} · ${t.schedule.watch.error(failing)}`;
   if (scheduleTrouble(s) && s.lastResult && s.lastResult !== 'sent' && s.lastResult !== 'queued')
     return `${what} · ${t.schedule.sidebar.problem(t.schedule.results[s.lastResult])}`;
   return `${what} · ${scheduleState(s, t, lang)}`;
@@ -376,10 +418,42 @@ export function watchState(w: ScheduleWatch | undefined, t: Messages, lang: stri
   return w.held ? `${listening} · ${m.held(w.held)}` : listening;
 }
 
+/**
+ * How the checks of everything an automation waits for are going, as one (`watchState()` shows it): the
+ * first error or held item of any of its triggers, the last check of any, the next check of any, and
+ * whether a mail server says when mail arrives; none while a trigger has not been checked yet.
+ */
+export function combinedWatch(s: Pick<ConversationSchedule, 'repeat' | 'watches'>): ScheduleWatch | undefined {
+  if (s.repeat.kind !== 'event') return undefined;
+  const watches = s.repeat.triggers.map((tr) => watchOf(s, tr));
+  if (watches.length === 1) return watches[0];
+  if (!watches.length || watches.some((w) => !w?.checkedAt)) return undefined;
+  const all = watches as ScheduleWatch[];
+  const error = all.find((w) => w.error)?.error;
+  const held = all.find((w) => w.held)?.held;
+  return {
+    key: '',
+    checkedAt: Math.max(...all.map((w) => w.checkedAt!)),
+    nextCheckAt: Math.min(...all.map((w) => w.nextCheckAt)),
+    ...(error ? { error } : {}),
+    ...(held ? { held } : {}),
+    ...(all.some((w) => w.listening) ? { listening: true } : {}),
+  };
+}
+
+/**
+ * Each thing an automation waits for, with how its checks are going (`watchState()`): what the
+ * automation window lists, one line each, when it waits for several.
+ */
+export function triggerStates(s: Pick<ConversationSchedule, 'repeat' | 'watches'>, t: Messages, lang: string): string[] {
+  if (s.repeat.kind !== 'event') return [];
+  return s.repeat.triggers.map((tr) => `${describeTrigger(tr, t)} · ${watchState(watchOf(s, tr), t, lang)}`);
+}
+
 /** The schedule's state in a few words: when it sends next, paused, or (a one-time schedule that came due) done. */
 export function scheduleState(s: ConversationSchedule, t: Messages, lang: string): string {
   if (s.repeat.kind === 'manual') return s.enabled ? t.schedule.manualState : t.schedule.paused;
-  if (s.repeat.kind === 'event') return s.enabled ? watchState(s.watch, t, lang) : t.schedule.paused;
+  if (s.repeat.kind === 'event') return s.enabled ? watchState(combinedWatch(s), t, lang) : t.schedule.paused;
   if (s.enabled && s.nextRunAt !== undefined) return t.schedule.next(formatWhen(s.nextRunAt, lang, shownZone(s)));
   const r = s.repeat;
   return r.kind === 'once' && s.lastRunAt !== undefined && s.lastRunAt >= r.at ? t.schedule.finished : t.schedule.paused;
@@ -391,7 +465,7 @@ export function sidebarScheduleTitle(s: NonNullable<ConversationSummary['schedul
   if (scheduleTrouble(s) && s.lastResult && s.lastResult !== 'sent' && s.lastResult !== 'queued')
     return t.schedule.sidebar.problem(t.schedule.results[s.lastResult]);
   if (s.enabled && s.manual) return t.schedule.sidebar.manual;
-  if (s.enabled && s.trigger) return t.schedule.sidebar.watch(describeTrigger(s.trigger, t));
+  if (s.enabled && s.triggers?.length) return t.schedule.sidebar.watch(describeTriggers(s.triggers, t));
   if (!s.enabled || s.nextRunAt === undefined) return t.schedule.sidebar.paused;
   return t.schedule.sidebar.next(formatWhen(s.nextRunAt, lang, s.timeZone));
 }
