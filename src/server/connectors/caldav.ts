@@ -248,6 +248,32 @@ export function composeEvent(e: NewEvent, now = Date.now()): { uid: string; ics:
   return { uid, ics: lines.map(foldLine).join('\r\n') + '\r\n' };
 }
 
+/** The most a calendar's answer may hold: a month or two of events many times over. */
+export const CALDAV_MAX_ANSWER = 16 * 1024 * 1024;
+
+/** A calendar's answer as text, refused once it is longer than `max` (read no further). */
+export async function answerText(res: Response, max = CALDAV_MAX_ANSWER): Promise<string> {
+  if (Number(res.headers.get('content-length') ?? 0) > max) {
+    await res.body?.cancel().catch(() => undefined);
+    throw new Error('The calendar answered with more than an answer may hold');
+  }
+  const reader = res.body?.getReader();
+  if (!reader) return '';
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error('The calendar answered with more than an answer may hold');
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 /** The headers of a request to the calendar: its password as Basic authentication. */
 function auth(login: Login): Record<string, string> {
   return { authorization: `Basic ${Buffer.from(`${login.username}:${login.password}`).toString('base64')}` };
@@ -275,7 +301,7 @@ export async function listEvents(url: string, login: Login, from: number, to: nu
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (res.status !== 207 && res.status !== 200) throw await failure(res, 'Listing the events failed');
-  const xml = await res.text();
+  const xml = await answerText(res);
   return calendarData(xml).flatMap(parseEvents);
 }
 
@@ -331,7 +357,7 @@ async function propfind(url: string, login: Login, depth: '0' | '1', props: stri
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (res.status !== 207) throw await failure(res, 'Finding the calendars failed');
-  return res.text();
+  return answerText(res);
 }
 
 /**

@@ -1,8 +1,9 @@
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PassThrough } from 'node:stream';
+import { PassThrough, type Duplex } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ApprovalRequest } from '../src/server/agents/types';
 import type { GatewayContext } from '../src/server/gateway';
@@ -13,9 +14,17 @@ process.env.RELAY_DATA_DIR = join(root, 'data');
 
 const { CdpConnection, NulDecoder } = await import('../src/server/browser/cdp');
 const { browserCandidates, findBrowser } = await import('../src/server/browser/find');
-const { BrowserService, navigationVerdict, refusalText, requestVerdict } = await import('../src/server/browser/session');
+const { BrowserService, browserEnv, leadsNearby, navigationVerdict, refusalText, requestVerdict } = await import('../src/server/browser/session');
 const { browserTools, pageText } = await import('../src/server/browser/tools');
 const { removeTree } = await import('../src/server/fsRemove');
+const { withLang } = await import('../src/server/i18n');
+
+/** The number a snapshot gives the element its line starts with (`link "Next"`, `button "Go"`): numbers go on from one snapshot to the next. */
+function refIn(text: string, line: string): number {
+  const i = text.indexOf(`: ${line}`);
+  if (i < 0) throw new Error(`no ${line} in ${text}`);
+  return Number(/\[(\d+)$/.exec(text.slice(0, i))![1]);
+}
 const { killAll } = await import('../src/server/process');
 
 afterAll(async () => {
@@ -73,13 +82,16 @@ describe("the debugging pipe's messages", () => {
 describe('finding a browser', () => {
   const fs = (files: string[], dirs: Record<string, string[]> = {}) => ({ isFile: (p: string) => files.includes(p), list: (d: string) => dirs[d] ?? [] });
 
-  it("takes the one configured, else Playwright's newest Chromium, else the system's Chrome, Chromium or Edge", () => {
+  it("takes the one configured, else the system's Chrome, Chromium or Edge (kept up to date), else Playwright's newest Chromium", () => {
     const cache = join('/home/u', '.cache', 'ms-playwright');
     const list = browserCandidates({ platform: 'linux', env: {}, home: '/home/u', configured: '/opt/my-chrome', fs: fs([], { [cache]: ['chromium-1200', 'ffmpeg-1', 'chromium-1254'] }) });
-    expect(list.slice(0, 3)).toEqual(['/opt/my-chrome', join(cache, 'chromium-1254', 'chrome-linux64', 'chrome'), join(cache, 'chromium-1254', 'chrome-linux', 'chrome')]);
-    expect(list).toContain('/usr/bin/google-chrome');
+    expect(list.slice(0, 2)).toEqual(['/opt/my-chrome', '/usr/bin/google-chrome']);
+    const newest = list.indexOf(join(cache, 'chromium-1254', 'chrome-linux64', 'chrome'));
+    expect(newest).toBeGreaterThan(list.indexOf('/usr/bin/microsoft-edge'));
+    expect(list.indexOf(join(cache, 'chromium-1200', 'chrome-linux64', 'chrome'))).toBeGreaterThan(newest);
     const pw = join(cache, 'chromium-1200', 'chrome-linux64', 'chrome');
-    expect(findBrowser({ platform: 'linux', env: {}, home: '/home/u', fs: fs([pw, '/usr/bin/chromium'], { [cache]: ['chromium-1200'] }) })).toBe(pw);
+    expect(findBrowser({ platform: 'linux', env: {}, home: '/home/u', fs: fs([pw, '/usr/bin/chromium'], { [cache]: ['chromium-1200'] }) })).toBe('/usr/bin/chromium');
+    expect(findBrowser({ platform: 'linux', env: {}, home: '/home/u', fs: fs([pw], { [cache]: ['chromium-1200'] }) })).toBe(pw);
     expect(findBrowser({ platform: 'linux', env: {}, home: '/home/u', fs: fs(['/usr/bin/chromium']) })).toBe('/usr/bin/chromium');
     expect(findBrowser({ platform: 'linux', env: {}, home: '/home/u', fs: fs([]) })).toBeUndefined();
   });
@@ -91,7 +103,7 @@ describe('finding a browser', () => {
     expect(win).toContain(join('C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'));
     expect(win).toContain(join('C:\\Program Files', 'Microsoft', 'Edge', 'Application', 'msedge.exe'));
     const custom = browserCandidates({ platform: 'linux', env: { PLAYWRIGHT_BROWSERS_PATH: '/pw' }, home: '/h', fs: fs([], { '/pw': ['chromium-7'] }) });
-    expect(custom[0]).toBe(join('/pw', 'chromium-7', 'chrome-linux64', 'chrome'));
+    expect(custom).toContain(join('/pw', 'chromium-7', 'chrome-linux64', 'chrome'));
   });
 });
 
@@ -129,7 +141,6 @@ describe('what the browser may open', () => {
 
   it("lets a page's other requests go unless they are never opened, and says why a page was refused", () => {
     expect(requestVerdict('https://cdn.example.net/app.js', o)).toBe('allow');
-    expect(requestVerdict('http://127.0.0.1:3000/api', o)).toBe('allow');
     expect(requestVerdict('data:image/png;base64,AA==', o)).toBe('allow');
     expect(requestVerdict('blob:https://example.com/1', o)).toBe('allow');
     expect(requestVerdict('http://127.0.0.1:8787/api/conversations', o)).toBe('block');
@@ -139,6 +150,41 @@ describe('what the browser may open', () => {
     expect(refusalText({ url: 'https://a.example/', why: 'declined' })).toBe('The user did not allow opening https://a.example/');
     expect(refusalText({ url: 'http://127.0.0.1:8787/', why: 'blocked' })).toMatch(/cannot be opened/);
     expect(refusalText({ url: 'https://a.example/', why: 'unasked' })).toMatch(/nobody can be asked now/);
+    expect(refusalText({ url: 'https://a.example/', why: 'moved' })).toMatch(/now leads to this computer or the local network/);
+  });
+
+  it("lets a page reach this computer or the local network only on a host the chat's browser opened while it led there", () => {
+    const near = { ...o, allowed: new Set(['example.com', '127.0.0.1:3000', 'nas.lan', '10.0.0.5']), nearby: new Set(['127.0.0.1:3000', 'nas.lan', '10.0.0.5']) };
+    // A page's own local service, and one it was never opened on.
+    expect(requestVerdict('http://127.0.0.1:3000/api', near)).toBe('allow');
+    expect(requestVerdict('http://127.0.0.1:3001/api', near)).toBe('block');
+    expect(requestVerdict('http://localhost:2375/containers/create', near)).toBe('block');
+    expect(requestVerdict('http://192.168.1.1/admin', near)).toBe('block');
+    expect(requestVerdict('http://[fd00::1]/', near)).toBe('block');
+    expect(requestVerdict('http://100.101.102.103/', near)).toBe('block');
+    expect(requestVerdict('http://10.0.0.5/x', near)).toBe('allow');
+    expect(requestVerdict('http://nas.lan/x', { ...near, addresses: ['192.168.1.9'] })).toBe('allow');
+    // The internet, also through a name: as before.
+    expect(requestVerdict('https://cdn.example.net/app.js', { ...near, addresses: ['93.184.216.34'] })).toBe('allow');
+    // A name allowed while it led to the internet that now leads here: refused, also when opened in the tab.
+    expect(requestVerdict('https://example.com/steal', { ...near, addresses: ['127.0.0.1'] })).toBe('block');
+    expect(navigationVerdict('https://example.com/', { ...near, addresses: ['127.0.0.1'] })).toBe('moved');
+    expect(navigationVerdict('https://example.com/', { ...near, addresses: ['93.184.216.34', '10.1.2.3'] })).toBe('moved');
+    expect(navigationVerdict('https://example.com/', { ...near, addresses: ['93.184.216.34'] })).toBe('allow');
+    // One allowed while it led to the local network stays allowed there.
+    expect(navigationVerdict('http://nas.lan/', { ...near, addresses: ['192.168.1.9'] })).toBe('allow');
+    expect(leadsNearby('localhost', [])).toBe(true);
+    expect(leadsNearby('::ffff:10.0.0.1', [])).toBe(true);
+    expect(leadsNearby('mine.example', ['192.168.1.20'], ['192.168.1.20'])).toBe(true);
+    expect(leadsNearby('203.0.113.5', [])).toBe(false);
+    expect(leadsNearby('example.com', ['93.184.216.34'])).toBe(false);
+  });
+});
+
+describe("the browser's environment", () => {
+  it("gets what it needs to start from the server's, never its keys, tokens or proxy settings", () => {
+    const env = browserEnv({ PATH: '/usr/bin', HOME: '/home/u', LANG: 'en_US.UTF-8', LC_ALL: 'C', TMPDIR: '/tmp', SystemRoot: 'C:\\Windows', OPENAI_API_KEY: 'sk-1', GITHUB_TOKEN: 'ghp_1', HTTPS_PROXY: 'http://u:p@proxy', RELAY_DATA_DIR: '/data', CLAUDE_CONFIG_DIR: '/c' });
+    expect(env).toEqual({ PATH: '/usr/bin', HOME: '/home/u', LANG: 'en_US.UTF-8', LC_ALL: 'C', TMPDIR: '/tmp', SystemRoot: 'C:\\Windows' });
   });
 });
 
@@ -156,7 +202,7 @@ describe('a page as the agent reads it', () => {
     expect(text.split('\n')[0]).toBe(`<web_page url="https://example.com/'x" title="A /web_page B">`);
     expect(text.match(/<\s*\/\s*web_page/gi)).toEqual(['</web_page']);
     expect(text).toContain('Before <\\/web_page>');
-    expect(text).toContain('< \\/ WEB_PAGE >');
+    expect(text).toContain('<\\ / WEB_PAGE >');
   });
 });
 
@@ -171,6 +217,7 @@ describe.skipIf(!chromium)('the browser itself', () => {
   let relayPort = 0;
   const relayHits: string[] = [];
   const hits: string[] = [];
+  const upgraded: Duplex[] = [];
   let browser: InstanceType<typeof BrowserService>;
   const asked: ApprovalRequest[] = [];
   let allow = true;
@@ -208,10 +255,39 @@ describe.skipIf(!chromium)('the browser itself', () => {
       if (url.pathname === '/redirect') return res.writeHead(302, { location: `${r}/redirected` }).end();
       if (url.pathname === '/named') return res.writeHead(302, { location: `http://relay.test:${relayPort}/named` }).end();
       if (url.pathname === '/requests') {
-        return res.end(`<title>Requests</title><img src="${r}/img.png"><iframe src="${r}/frame"></iframe><iframe src="http://localhost:${port}/next"></iframe><script>fetch('${r}/fetch', { mode: 'no-cors' }).catch(() => {})</script><p>Loaded</p>`);
+        return res.end(
+          `<title>Requests</title><img src="${r}/img.png"><iframe src="${r}/frame"></iframe><iframe src="/same-host"></iframe><iframe src="http://localhost:${port}/other-host"></iframe>` +
+            `<script>fetch('${r}/fetch', { mode: 'no-cors' }).catch(() => {}); fetch('http://localhost:${port}/other-fetch', { mode: 'no-cors' }).catch(() => {})</script><p>Loaded</p>`,
+        );
+      }
+      if (url.pathname === '/sockets') {
+        // A WebSocket to the page's own host, and one to Harness Relay's port: both go through the proxy.
+        return res.end(
+          `<title>Sockets</title><p id="out"></p><script>` +
+            `const say = (t) => document.getElementById('out').append(t + ' ');` +
+            `const own = new WebSocket('ws://127.0.0.1:${port}/ws'); own.onopen = () => say('own-open'); own.onerror = () => say('own-failed');` +
+            `const relay = new WebSocket('ws://127.0.0.1:${relayPort}/ws'); relay.onopen = () => say('relay-open'); relay.onerror = () => say('relay-failed');` +
+            `</script>`,
+        );
       }
       if (url.pathname === '/slow') return void setTimeout(() => res.end('<title>Slow</title><p>At last</p>'), 800);
       if (url.pathname === '/long-password') return res.end(`<title>Sign in</title><input type="password" value="${'s3cret'.repeat(30)}">`);
+      if (url.pathname === '/speculation') {
+        // Prefetch and prerender rules, which Chromium follows in its browser process, outside the page.
+        const rules = JSON.stringify({ prefetch: [{ source: 'list', urls: [`${r}/spec-prefetch`, '/spec-own-prefetch'] }], prerender: [{ source: 'list', urls: [`${r}/spec-prerender`] }] });
+        return res.end(`<title>Speculation</title><script type="speculationrules">${rules}</script><link rel="prefetch" href="${r}/link-prefetch"><a href="${r}/spec-prerender">Next</a>`);
+      }
+      if (url.pathname === '/hostile') {
+        // A page whose script changes the functions a snapshot in its own world would use, and lays a
+        // see-through element over one of its buttons.
+        return res.end(
+          `<title>Hostile</title><a href="/next">Go on</a><button id="under" style="position:absolute;top:200px;left:20px">Cancel</button>` +
+            `<div style="position:absolute;top:190px;left:0;width:400px;height:60px;opacity:0" onclick="location='/bought'"></div>` +
+            `<script>Array.prototype.join = () => 'hacked'; String.prototype.replace = function () { return 'hacked'; }; Map.prototype.get = () => document.getElementById('under'); Element.prototype.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1, height: 1 });</script>`,
+        );
+      }
+      if (url.pathname === '/bought') return res.end('<title>Bought</title>');
+      if (url.pathname === '/host') return res.end(`<title>Host</title><p>Asked for ${req.headers.host}</p>`);
       if (url.pathname === '/next') return res.end('<title>Next</title><h1>The next page</h1>');
       if (url.pathname === '/search') return res.end(`<title>Results</title><p>You searched for ${url.searchParams.get('q')}</p>`);
       if (url.pathname === '/other') return res.end('<title>Other</title><a href="http://localhost:' + port + '/next">Elsewhere</a>');
@@ -223,17 +299,29 @@ describe.skipIf(!chromium)('the browser itself', () => {
     });
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
     port = (server.address() as { port: number }).port;
+    // WebSockets: the site's own answers; Harness Relay's port must never see one.
+    server.on('upgrade', (req, sock) => {
+      upgraded.push(sock);
+      hits.push(`upgrade ${req.url} ${req.headers.host}`);
+      const accept = createHash('sha1').update(`${String(req.headers['sec-websocket-key'])}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64');
+      sock.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
+    });
+    relay.on('upgrade', (req, sock) => {
+      relayHits.push(`upgrade ${req.url}`);
+      sock.destroy();
+    });
     browser = new BrowserService({
       dataDir: join(root, 'data'),
       executable: () => chromium,
       relayPorts: () => [9, relayPort],
       idleMs: 60_000,
       // A name that leads to this computer, as one made for it would (`127.0.0.1.nip.io`, say).
-      lookUp: async (host) => (host === 'relay.test' ? ['127.0.0.1'] : []),
+      lookUp: async (host) => (host === 'relay.test' || host === 'site.test' ? ['127.0.0.1'] : []),
     });
   });
   afterAll(async () => {
     browser?.closeAll();
+    for (const sock of upgraded) sock.destroy();
     await new Promise((r) => server?.close(r));
     await new Promise((r) => relay?.close(r));
   });
@@ -257,8 +345,11 @@ describe.skipIf(!chromium)('the browser itself', () => {
       const next = await browser.click(ctx(), 1);
       expect(next.title).toBe('Next');
       expect(asked).toHaveLength(1);
-      await browser.open(ctx(), `http://127.0.0.1:${port}/`);
-      const results = await browser.type(ctx(), 2, 'harness relay', true);
+      const again = await browser.open(ctx(), `http://127.0.0.1:${port}/`);
+      // Numbers go on: the field is another number now, and the old one names nothing.
+      expect(refIn(again.text, 'field text name=q')).toBeGreaterThan(4);
+      await expect(browser.type(ctx(), 2, 'x', false)).rejects.toThrow('There is no element 2 in the latest snapshot');
+      const results = await browser.type(ctx(), refIn(again.text, 'field text name=q'), 'harness relay', true);
       expect(results.text).toContain('You searched for harness relay');
       await expect(browser.click(ctx(), 99)).rejects.toThrow('There is no element 99');
 
@@ -274,9 +365,9 @@ describe.skipIf(!chromium)('the browser itself', () => {
     "asks about another host a click leads to, and stays when the user declines; never opens a file or Harness Relay's own port",
     async () => {
       asked.length = 0;
-      await browser.open(ctx({ permission: 'full' }), `http://127.0.0.1:${port}/other`);
+      const other = await browser.open(ctx({ permission: 'full' }), `http://127.0.0.1:${port}/other`);
       allow = false;
-      const stayed = await browser.click(ctx(), 1);
+      const stayed = await browser.click(ctx(), refIn(other.text, 'link "Elsewhere"'));
       expect(asked.map((a) => a.detail)).toEqual([`http://localhost:${port}/next`]);
       expect(stayed.title).toBe('Other');
       expect(stayed.text).toMatch(/^\(The page tried to open http:\/\/localhost:\d+\/next, which was not allowed: The user did not allow opening http:\/\/localhost:\d+\/next\.\)/);
@@ -311,8 +402,10 @@ describe.skipIf(!chromium)('the browser itself', () => {
       expect(page.text).toContain('Loaded');
       await new Promise((r) => setTimeout(r, 500));
       expect(relayHits).toEqual([]);
-      // The frame on another host loaded without asking.
-      expect(hits).toContain('/next');
+      // A frame on the page's own host loads; another of this computer's, never opened, does not, nor a fetch there.
+      expect(hits).toContain('/same-host');
+      expect(hits).not.toContain('/other-host');
+      expect(hits).not.toContain('/other-fetch');
       expect(asked).toEqual([]);
       await browser.close('conv-2', true);
     },
@@ -324,16 +417,98 @@ describe.skipIf(!chromium)('the browser itself', () => {
     async () => {
       hits.length = 0;
       const full = ctx({ convId: 'conv-3', permission: 'full' });
-      await browser.open(full, `http://127.0.0.1:${port}/popup`);
-      const link = await browser.click(full, 1);
+      const popup = await browser.open(full, `http://127.0.0.1:${port}/popup`);
+      const link = await browser.click(full, refIn(popup.text, 'link "New window"'));
       expect(link.title).toBe('Popup');
       expect(link.text).toMatch(/^\(The page tried to open (http:\/\/127\.0\.0\.1:\d+\/popup-target in )?a new window, which was closed: this browser keeps to one tab/);
-      const script = await browser.click(full, 2);
+      const script = await browser.click(full, refIn(link.text, 'button "Script"'));
       expect(script.text).toContain('a new window, which was closed');
       await new Promise((r) => setTimeout(r, 500));
       expect(hits).not.toContain('/popup-target');
       expect(hits).not.toContain('/popup-script');
       await browser.close('conv-3', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    'connects only through its own proxy: a WebSocket is checked as it connects, and a name goes to the address checked for it',
+    async () => {
+      relayHits.length = 0;
+      hits.length = 0;
+      const full = ctx({ convId: 'conv-5', permission: 'full' });
+      await browser.open(full, `http://127.0.0.1:${port}/sockets`);
+      let page = await browser.snapshot(full);
+      for (let i = 0; i < 20 && !/own-\w+ relay-\w+|relay-\w+ own-\w+/.test(page.text); i++) {
+        await new Promise((r) => setTimeout(r, 200));
+        page = await browser.snapshot(full);
+      }
+      // Its own host's socket opens (the proxy's password goes with it too); Harness Relay's port never sees one.
+      expect(page.text).toContain('own-open');
+      expect(page.text).toContain('relay-failed');
+      expect(hits).toContain(`upgrade /ws 127.0.0.1:${port}`);
+      expect(relayHits).toEqual([]);
+      // Speculation rules (prefetch, prerender) and <link rel=prefetch> reach nothing either.
+      await browser.open(full, `http://127.0.0.1:${port}/speculation`);
+      await new Promise((r) => setTimeout(r, 1500));
+      expect(relayHits).toEqual([]);
+      // No such name exists: Chromium never looks it up, the proxy connects to the address checked for it.
+      const named = await browser.open(full, `http://site.test:${port}/host`);
+      expect(named.text).toContain(`Asked for site.test:${port}`);
+      await browser.close('conv-5', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    "reads and clicks in a world the page's script cannot reach, never through what lies over an element, and asks with the page's own words",
+    async () => {
+      const full = ctx({ convId: 'conv-7', permission: 'full', lang: 'en' });
+      const page = await browser.open(full, `http://127.0.0.1:${port}/hostile`);
+      // The page's own functions changed nothing in the snapshot.
+      expect(page.text).toContain('[1: link "Go on" -> ');
+      expect(page.text).toContain('[2: button "Cancel"]');
+      expect(page.text).not.toContain('hacked');
+      // What the user is asked about is the element as the page names it, never the agent's words.
+      const tools = Object.fromEntries(browserTools(browser).map((t) => [t.name, t]));
+      withLang('en', () => {
+        expect(tools.browser_click!.describe({ ref: 1, what: 'Cancel the order' }, full).title).toBe(`Click link "Go on" (http://127.0.0.1:${port}/next) on the open page`);
+        expect(tools.browser_click!.describe({ ref: 9 }, full).title).toBe('Click element 9 (not in the latest snapshot) on the open page');
+        const long = 'a'.repeat(2500);
+        const typed = tools.browser_type!.describe({ ref: 2, text: long, submit: true }, full);
+        expect(typed.title).toBe('Type the text below into button "Cancel", then press Enter');
+        expect(typed.detail).toBe(`${'a'.repeat(2000)}… (2500 characters in all)`);
+        expect(tools.browser_type!.describe({ ref: 2, text: 'short' }, full).detail).toBe('short');
+      });
+      // A see-through element lies over Cancel: a click there would reach it instead, so none is made.
+      await expect(browser.click(full, 2)).rejects.toThrow('Element 2 is covered by another element of the page: not clicked');
+      expect(hits).not.toContain('/bought');
+      // The link is clicked where it really is, whatever the page says of its size.
+      expect((await browser.click(full, 1)).title).toBe('Next');
+      await browser.close('conv-7', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    'asks again below full access about a host full access opened without asking, and lets a scheduled run reuse none',
+    async () => {
+      asked.length = 0;
+      allow = true;
+      const id = 'conv-6';
+      await browser.open(ctx({ convId: id, permission: 'full' }), `http://127.0.0.1:${port}/next`);
+      expect(asked).toEqual([]);
+      // Below full access: asked, though the browser has the page open already.
+      await browser.open(ctx({ convId: id }), `http://127.0.0.1:${port}/next`);
+      expect(asked).toHaveLength(1);
+      // Allowed by the user now: not asked again in an attended call.
+      await browser.open(ctx({ convId: id }), `http://127.0.0.1:${port}/`);
+      expect(asked).toHaveLength(1);
+      // A scheduled run asks anew (where only what is always allowed goes through), and is refused here.
+      allow = false;
+      await expect(browser.open(ctx({ convId: id, unattended: true }), `http://127.0.0.1:${port}/next`)).rejects.toThrow('The user did not allow opening');
+      expect(asked).toHaveLength(2);
+      await browser.close(id, true);
     },
     slow(60_000),
   );

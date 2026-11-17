@@ -115,10 +115,20 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
       body: m.body,
     };
   };
-  /** The arguments kept with an outbox item, the account pinned to the one the card shows. */
+  /** The arguments kept with an outbox item, the account pinned (by its id) to the one the card shows. */
   const pinned = (kind: 'mail' | 'calendar') => (a: Record<string, unknown>) => {
     const found = kind === 'mail' ? store.mail(typeof a.account === 'string' ? a.account : undefined) : store.calendar(typeof a.account === 'string' ? a.account : undefined);
-    return found ? { ...a, account: found.account.id } : a;
+    return found ? { ...a, accountId: found.account.id } : a;
+  };
+  /**
+   * The account an outbox item goes out from: the one its card showed, by its id alone (never a
+   * name, which another account may have taken meanwhile); gone, the item is not sent.
+   */
+  const sendsFrom = <T>(a: Record<string, unknown>, byId: (id: string) => T | undefined, byName: (which: unknown) => T): T => {
+    if (typeof a.accountId !== 'string') return byName(a.account);
+    const found = byId(a.accountId);
+    if (!found) throw new Error('The account the card showed is gone: nothing was sent');
+    return found;
   };
 
   const eventArgs = (a: Record<string, unknown>) => ({
@@ -280,7 +290,7 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
       unavailable: noMail,
       send: async (a) => {
         const m = mailArgs(a, true);
-        const { account, password } = mailbox(a.account);
+        const { account, password } = sendsFrom(a, (id) => store.mailById(id), mailbox);
         const { raw, messageId } = composeMail({ from: account.address, ...m });
         const answer = await sendMail(
           account.smtp,
@@ -369,7 +379,7 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
       send: async (a) => {
         const e = eventArgs(a);
         const attendees = recipients(a.attendees, 'attendees', true).map(bareAddress);
-        const { account, password } = calendar(a.account);
+        const { account, password } = sendsFrom(a, (id) => store.calendarById(id), calendar);
         const { uid, ics } = composeEvent({ ...e, attendees, ...(account.address ? { organizer: bareAddress(account.address) } : { organizer: account.username }) });
         await putEvent(account.url, { username: account.username, password }, ics, uid);
         return `Added to ${account.name}; the calendar sends the invitations`;

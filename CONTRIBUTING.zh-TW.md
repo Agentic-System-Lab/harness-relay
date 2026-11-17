@@ -68,6 +68,7 @@ npm run dev        # API 在 :8789（檔案變更時重啟）+ 介面在 http://
 - 伺服器只綁定 `127.0.0.1`，而且 agent 的回覆不能讓瀏覽器載入遠端內容（圖片以連結顯示；本機媒體要經過媒體端點的路徑檢查）。
 - 開源 agent 的程序只能透過 `startOpenProcess()`（`src/server/agents/open.ts`）啟動：完全存取以外，它會把程序放進 Harness Relay 自己的沙箱，沙箱無法啟動就不執行。模型的金鑰以環境變數交給 CLI（只有這次執行的模型來源那一把），絕不寫進轉接器寫的設定檔；一次執行寫入的一切都放在對話成員自己的狀態資料夾（`home(root, state)`）。沙箱的開口只由一個轉接器為它自己的 CLI 申請，並寫在 [docs/open-agents.zh-TW.md](docs/open-agents.zh-TW.md) 與 [docs/sandboxing.zh-TW.md](docs/sandboxing.zh-TW.md)。
 - Harness Relay 自己的工具（`src/server/gateway.ts`）只能透過 gateway 的 socket 連到伺服器，用只給一回合、存在 `data/tmp` 底下檔案中的權杖，絕不經過 HTTP API。它們的憑證留在伺服器中，會送到別人那裡的呼叫絕不在那一回合執行：它會在待送出匣等到使用者按送出。排程的 webhook 是唯一用自己的權杖（只存雜湊）代替瀏覽器登入的路由。
+- 瀏覽器工具的 Chromium 只透過它自己的 proxy（`src/server/browser/proxy.ts`）連線，proxy 會檢查每個連線要去的位址：絕不能不帶那個 proxy 啟動它，也不能讓它載入的任何東西用別的方式連上網路。它在網頁中執行的腳本在 isolated world 中執行，它只拿到 `browserEnv()` 給的環境變數，絕不是伺服器的。
 
 ### 資料庫
 

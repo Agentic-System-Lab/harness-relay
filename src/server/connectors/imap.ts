@@ -77,16 +77,39 @@ export function quote(s: string): string {
   return `"${s.replace(/[\\"]/g, '\\$&')}"`;
 }
 
+/**
+ * The most a response may hold, literals included: far more than a message the mail tools fetch
+ * (400 KB at most), a folder list or a search's numbers, so a server that sends more (or announces a
+ * literal larger) is refused instead of filling the server's memory.
+ */
+export const IMAP_MAX_RESPONSE = 16 * 1024 * 1024;
+
 /** Reads responses off a socket: lines, with literals (`{n}`) read whole whatever pieces they come in. */
 class ResponseReader {
   private buf = Buffer.alloc(0);
+  /** Chunks come in faster than they are read: joined once, when read, not on each one. */
+  private pending: Buffer[] = [];
+  private pendingSize = 0;
   private waiters: (() => void)[] = [];
   private ended?: Error;
   private sock?: Socket;
   private readonly onData = (chunk: Buffer) => {
-    this.buf = Buffer.concat([this.buf, chunk]);
+    this.pending.push(chunk);
+    this.pendingSize += chunk.length;
+    if (this.buf.length + this.pendingSize > IMAP_MAX_RESPONSE + 64 * 1024) {
+      this.sock?.destroy();
+      return this.end(new Error('The mail server sent more than a response may hold'));
+    }
     this.wake();
   };
+
+  /** What came in since, joined to what is still to read. */
+  private take(): void {
+    if (!this.pending.length) return;
+    this.buf = Buffer.concat([this.buf, ...this.pending]);
+    this.pending = [];
+    this.pendingSize = 0;
+  }
   private readonly onEnd = () => this.end();
   private readonly onError = (err: Error) => this.end(err);
 
@@ -99,8 +122,10 @@ class ResponseReader {
    * dropped, as it came before TLS, from anyone on the way: returns whether there was any.
    */
   detach(): boolean {
-    const leftover = this.buf.length > 0;
+    const leftover = this.buf.length > 0 || this.pendingSize > 0;
     this.buf = Buffer.alloc(0);
+    this.pending = [];
+    this.pendingSize = 0;
     if (!this.sock) return leftover;
     this.sock.off('data', this.onData);
     this.sock.off('end', this.onEnd);
@@ -133,14 +158,18 @@ class ResponseReader {
   }
 
   private async more(): Promise<void> {
+    if (this.pending.length) return this.take();
     if (this.ended) throw this.ended;
     await new Promise<void>((r) => this.waiters.push(r));
+    this.take();
   }
 
   /** The next whole response. */
   async next(): Promise<ImapResponse> {
     let text = '';
     const literals: Buffer[] = [];
+    let held = 0;
+    this.take();
     for (;;) {
       const eol = this.buf.indexOf('\r\n');
       if (eol < 0) {
@@ -154,6 +183,8 @@ class ResponseReader {
         return { text: text + line, literals };
       }
       const size = Number(lit[1]);
+      held += eol + 2 + size;
+      if (held > IMAP_MAX_RESPONSE) throw new Error('The mail server announced more than a response may hold');
       while (this.buf.length < eol + 2 + size) await this.more();
       literals.push(Buffer.from(this.buf.subarray(eol + 2, eol + 2 + size)));
       text += line;
@@ -246,8 +277,15 @@ export class ImapClient {
       this.sock.write(piece.bytes);
     }
     this.sock.write(`${line}\r\n`);
+    // What a command's answer may hold in all, its untagged responses included.
+    let size = 0;
     for (;;) {
       const r = await this.timed(this.reader.next());
+      size += r.text.length + r.literals.reduce((n, l) => n + l.length, 0);
+      if (size > IMAP_MAX_RESPONSE) {
+        this.sock.destroy();
+        throw new Error('The mail server sent more than a response may hold');
+      }
       if (!r.text.startsWith(`${tag} `)) {
         untagged.push(r);
         continue;

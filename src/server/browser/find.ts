@@ -78,10 +78,13 @@ export function browserCandidates(
     .list(cache)
     .filter((d) => /^chromium-\d+$/.test(d))
     .sort((a, b) => Number(b.slice(9)) - Number(a.slice(9)));
+  // The system's own browser before Playwright's: it is kept up to date (by itself, or with the
+  // system's packages), where Playwright's stays the version it was downloaded as, and it opens pages
+  // from anywhere.
   return [
     ...(o.configured ? [o.configured] : []),
-    ...versions.flatMap((d) => playwrightExecutables(join(cache, d), platform)),
     ...systemBrowsers(platform, env, home),
+    ...versions.flatMap((d) => playwrightExecutables(join(cache, d), platform)),
   ];
 }
 

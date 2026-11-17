@@ -69,7 +69,7 @@ export interface GatewayTool {
   /** JSON Schema of its arguments. */
   inputSchema: Record<string, unknown>;
   /** What a call does, for the approval card or the outbox: a line, and what it will send. */
-  describe(args: Record<string, unknown>): { title: string; detail?: string; preview?: OutboxPreview };
+  describe(args: Record<string, unknown>, ctx?: GatewayContext): { title: string; detail?: string; preview?: OutboxPreview };
   /** `read` and `act`: what the call does now. */
   run?(args: Record<string, unknown>, ctx: GatewayContext): Promise<GatewayResult>;
   /** `send`: what the user's Send does, outside any turn; returns what happened, in a line. */
@@ -96,11 +96,15 @@ export function gatewayDecision(tier: GatewayTier, permission: Permission, canAs
  * or making rows of its own, whatever it holds.
  */
 
-/** Text for inside a data block: a closing tag of one of `tags` in it (`</mail>`) is written `<\/mail>`, so it ends nothing. */
+/**
+ * Text for inside a data block: a tag of one of `tags` in it, closing or opening (`</mail>`,
+ * `<tracked_goal>`), is written with a backslash after its `<` (`<\/mail>`, `<\tracked_goal>`), so it
+ * neither ends the block nor starts another.
+ */
 export function dataBody(text: string, tags: readonly string[]): string {
   if (!tags.length) return text;
   const names = tags.map((t) => t.replace(/[^A-Za-z0-9_-]/g, '')).join('|');
-  return text.replace(new RegExp(`<(\\s*)/(\\s*)(${names})(?![A-Za-z0-9_-])`, 'gi'), '<$1\\/$2$3');
+  return text.replace(new RegExp(`<(?=\\s*\\/?\\s*(?:${names})(?![A-Za-z0-9_-]))`, 'gi'), '<\\');
 }
 
 /** One row or header line of a data block: its line breaks become spaces. */
@@ -119,6 +123,8 @@ interface Grant {
   groups: Set<RelayToolGroup>;
   tokenFile: string;
   shimFile: string;
+  /** A connection showed its token already (`claimOnce`): no other may. */
+  claimed?: boolean;
 }
 
 /** Why the gateway cannot be given now: it is not listening, or there is no Node.js to start its MCP program with. */
@@ -126,6 +132,15 @@ export type GatewayUnavailable = 'not-started' | 'no-node';
 
 /** A line the server and the shim exchange, after the token. */
 type Request = { id: number; method: 'list' } | { id: number; method: 'call'; name?: unknown; arguments?: unknown };
+
+/** How long a connection may take to show its token. */
+const TOKEN_WAIT_MS = 10_000;
+
+/** The longest first line (the token's): what a connection may send before it is known. */
+const TOKEN_LINE_MAX = 512;
+
+/** The most connections at once: a few CLIs' shims, many times over. */
+const MAX_CONNECTIONS = 256;
 
 /** Longest line the server reads from a socket (the shim refuses a call longer than `GATEWAY_MAX_CALL` itself). */
 const MAX_LINE = 4 * 1024 * 1024;
@@ -135,6 +150,16 @@ export class ToolGateway {
   private readonly grants = new Map<string, Grant>();
   private readonly tools = new Map<string, GatewayTool>();
   readonly socketPath: string;
+  /**
+   * Each token serves one connection, its file removed once the shim showed it: on Windows, where
+   * Harness Relay gives the sandboxes no protected paths, a sandboxed command could read the file in
+   * `data/tmp`. The CLIs start their MCP servers when their session starts, before any command of the
+   * agent's runs, so the shim has taken the token by then and nothing is left to read.
+   */
+  private readonly claimOnce: boolean;
+  private readonly tokenWaitMs: number;
+  /** The shims' connections, ended when the gateway stops. */
+  private readonly sockets = new Set<Socket>();
 
   constructor(
     /** The data folder: the shim and the socket go in `gateway/` there. */
@@ -144,7 +169,10 @@ export class ToolGateway {
     /** The Node.js the CLIs start the shim with, or undefined when there is none (the desktop app without one). */
     private node: () => string | undefined,
     platform: NodeJS.Platform = process.platform,
+    o: { claimOnce?: boolean; tokenWaitMs?: number } = {},
   ) {
+    this.claimOnce = o.claimOnce ?? platform === 'win32';
+    this.tokenWaitMs = o.tokenWaitMs ?? TOKEN_WAIT_MS;
     this.socketPath =
       platform === 'win32' ? `\\\\.\\pipe\\harness-relay-gateway-${process.pid}-${randomBytes(6).toString('hex')}` : join(dataDir, 'gateway', 'relay.sock');
   }
@@ -193,6 +221,7 @@ export class ToolGateway {
     const server = this.server;
     this.server = undefined;
     for (const token of [...this.grants.keys()]) this.revoke(token);
+    for (const sock of this.sockets) sock.destroy();
     if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
     if (!this.socketPath.startsWith('\\\\')) rmSync(this.socketPath, { force: true });
   }
@@ -247,14 +276,25 @@ export class ToolGateway {
     let buffer = '';
     let grant: Grant | undefined;
     let authed = false;
+    let taken = false;
     const reply = (msg: unknown) => {
       if (!sock.destroyed) sock.write(JSON.stringify(msg) + '\n');
     };
+    if (this.sockets.size >= MAX_CONNECTIONS) return void sock.destroy();
+    this.sockets.add(sock);
+    sock.on('close', () => this.sockets.delete(sock));
     sock.on('error', () => {
       /* the shim went away */
     });
+    // The shim shows its token at once: a connection that does not is ended.
+    const hello = setTimeout(() => {
+      if (!authed) sock.destroy();
+    }, this.tokenWaitMs);
+    hello.unref();
     sock.on('data', (chunk: string) => {
       buffer += chunk;
+      // Before its token, a connection is nobody's: it may send no more than that line.
+      if (!authed && buffer.length > TOKEN_LINE_MAX && !buffer.slice(0, TOKEN_LINE_MAX).includes('\n')) return sock.destroy();
       if (buffer.length > MAX_LINE && !buffer.includes('\n')) return sock.destroy();
       for (let i = buffer.indexOf('\n'); i >= 0; i = buffer.indexOf('\n')) {
         const line = buffer.slice(0, i);
@@ -269,6 +309,17 @@ export class ToolGateway {
           const token = (msg as { token?: unknown })?.token;
           grant = typeof token === 'string' ? this.grants.get(token) : undefined;
           authed = true;
+          clearTimeout(hello);
+          if (grant && this.claimOnce) {
+            // Taken by the CLI's own shim already: another connection with it is refused.
+            if (grant.claimed) {
+              grant = undefined;
+              taken = true;
+            } else {
+              grant.claimed = true;
+              rmSync(grant.tokenFile, { force: true });
+            }
+          }
           // A token the server does not know (its turn is over) answers every request with an error.
           continue;
         }
@@ -277,7 +328,7 @@ export class ToolGateway {
         // Looked up again for each request: a turn that ended takes its tools with it.
         const live = grant && [...this.grants.values()].includes(grant) ? grant : undefined;
         if (!live) {
-          reply({ id: req.id, error: 'This turn is over: Harness Relay has no tools for it any more' });
+          reply({ id: req.id, error: taken ? "This turn's tools are in use by its own MCP server already" : 'This turn is over: Harness Relay has no tools for it any more' });
           continue;
         }
         void this.handle(live, req).then(
@@ -317,7 +368,7 @@ export class ToolGateway {
       if (!ctx.toOutbox) return { text: `${tool.name} cannot be used in this run.`, isError: true };
       let described: ReturnType<GatewayTool['describe']>;
       try {
-        described = tool.describe(args);
+        described = tool.describe(args, ctx);
       } catch (err) {
         return { text: (err as Error).message, isError: true };
       }
@@ -329,7 +380,7 @@ export class ToolGateway {
     if (decision === 'ask' && !ctx.justAllowed?.(tool.name)) {
       let described: ReturnType<GatewayTool['describe']>;
       try {
-        described = tool.describe(args);
+        described = tool.describe(args, ctx);
       } catch (err) {
         return { text: (err as Error).message, isError: true };
       }

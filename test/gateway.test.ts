@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { connect } from 'node:net';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -227,6 +228,45 @@ describe('the gateway and the MCP server the CLIs start', () => {
       expect(noNode.grant(ctx(), ['browser'])).toBeUndefined();
       await noNode.stop();
       expect(new ToolGateway(join(root, 'data3'), join(root, 'tmp3'), () => process.execPath).unavailable()).toBe('not-started');
+    },
+    slow(20_000),
+  );
+
+  it(
+    "serves each token to one connection where data/tmp cannot be protected (Windows): its file goes once the CLI's shim has shown it",
+    async () => {
+      const once = new ToolGateway(join(root, 'data4'), join(root, 'data4', 'tmp'), () => process.execPath, process.platform, { claimOnce: true, tokenWaitMs: 300 });
+      once.register(tools);
+      await once.start();
+      try {
+        const grant = once.grant(ctx(), ['browser'])!;
+        const tokenFile = grant.spec.env.RELAY_GATEWAY_TOKEN_FILE!;
+        // A command that read the token before the CLI started its shim, and copied it.
+        const stolen = join(root, 'stolen.token');
+        writeFileSync(stolen, readFileSync(tokenFile));
+        const mcp = client(grant.spec);
+        await mcp.request('initialize', { protocolVersion: '2025-06-18' });
+        expect((await mcp.request('tools/list')).result.tools.length).toBeGreaterThan(0);
+        expect(existsSync(tokenFile)).toBe(false);
+        // Another connection with the same token gets nothing.
+        const thief = client({ ...grant.spec, env: { ...grant.spec.env, RELAY_GATEWAY_TOKEN_FILE: stolen } });
+        await thief.request('initialize', { protocolVersion: '2025-06-18' });
+        expect((await thief.request('tools/list')).error.message).toMatch(/in use by its own MCP server already/);
+        const call = await thief.request('tools/call', { name: 'page_title', arguments: { url: 'x' } });
+        expect(call.result).toMatchObject({ isError: true });
+        // A connection that shows no token is ended, and so is one whose first line is longer than a token's.
+        const silent = connect(once.socketPath);
+        await new Promise<void>((resolve) => silent.on('close', () => resolve()).on('error', () => undefined));
+        const flood = connect(once.socketPath, () => flood.write('x'.repeat(4096)));
+        await new Promise<void>((resolve) => flood.on('close', () => resolve()).on('error', () => undefined));
+        // The CLI's own shim goes on working.
+        expect((await mcp.request('tools/call', { name: 'page_title', arguments: { url: 'https://example.com' } })).result.isError).toBe(false);
+        grant.revoke();
+      } finally {
+        // The shims' connections end first: a server closing waits for them.
+        for (const c of children.splice(0)) c.kill();
+        await once.stop();
+      }
     },
     slow(20_000),
   );

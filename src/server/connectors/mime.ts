@@ -7,21 +7,29 @@ import { randomBytes } from 'node:crypto';
  * charset. Pure, so it is tested with messages as servers send them.
  */
 
-/** An address as `Name <a@b>` or `a@b`, checked to be one: no line breaks, one `@`, no spaces in it. */
+/**
+ * An address as `Name <a@b>` or `a@b`, checked to be one: no line breaks, one `@`, no spaces in it.
+ * The name may hold no `<`, `>`, `"`, `@` or backslash, nor control or formatting characters (a
+ * right-to-left override), so it can never look like, or be taken for, another address: the card
+ * shows exactly who a mail goes to, and `bareAddress()` finds that one address.
+ */
 export function validAddress(raw: string): string | undefined {
   const s = raw.trim();
-  if (!s || s.length > 320 || /[\r\n]/.test(s)) return undefined;
-  const m = /^(?:(.*?)\s*<([^<>\s]+@[^<>\s@]+)>|([^<>\s]+@[^<>\s@]+))$/.exec(s);
+  if (!s || s.length > 320 || /[\p{Cc}\p{Cf}]/u.test(s)) return undefined;
+  const m = /^(?:([^<>]*?)\s*<([^<>\s]+@[^<>\s@]+)>|([^<>\s]+@[^<>\s@]+))$/.exec(s);
   if (!m) return undefined;
   const addr = (m[2] ?? m[3])!;
-  if (!/^[^@\s"(),:;<>[\]\\]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(addr) && !/^[^@\s]+@localhost$/.test(addr)) return undefined;
-  const name = (m[1] ?? '').replace(/^"|"$/g, '').trim();
+  if (!/^[^@\s"(),:;<>[\]\\]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(addr) && !/^[^@\s"<>\\]+@localhost$/.test(addr)) return undefined;
+  const quoted = /^"([^"]*)"$/.exec((m[1] ?? '').trim());
+  const name = (quoted ? quoted[1]! : (m[1] ?? '')).trim();
+  if (/["@\\<>]/.test(name)) return undefined;
   return name ? `${name} <${addr}>` : addr;
 }
 
-/** The bare address of `Name <a@b>`. */
+/** The bare address of an address `validAddress()` gave (`Name <a@b>` or `a@b`): the one it checked. */
 export function bareAddress(addr: string): string {
-  return /<([^>]+)>/.exec(addr)?.[1] ?? addr.trim();
+  const s = addr.trim();
+  return /<([^<>]+)>$/.exec(s)?.[1] ?? s;
 }
 
 /**
@@ -175,13 +183,37 @@ function codePoint(n: number): string {
   return n > 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff) ? String.fromCodePoint(n) : '\ufffd';
 }
 
-/** HTML as plain text: no scripts or styles, block ends as line breaks, entities decoded. */
+/**
+ * `html` without its script, style and head elements (what is in them is not text), in one pass: an
+ * element never closed takes the rest with it.
+ */
+function withoutBlocks(html: string): string {
+  const lower = html.toLowerCase();
+  const out: string[] = [];
+  const open = /<(script|style|head)\b/g;
+  let at = 0;
+  for (let m = open.exec(lower); m; m = open.exec(lower)) {
+    out.push(html.slice(at, m.index));
+    const close = lower.indexOf(`</${m[1]}`, open.lastIndex);
+    if (close < 0) return out.join('');
+    const end = lower.indexOf('>', close);
+    at = end < 0 ? html.length : end + 1;
+    open.lastIndex = at;
+  }
+  out.push(html.slice(at));
+  return out.join('');
+}
+
+/**
+ * HTML as plain text: no scripts or styles, block ends as line breaks, entities decoded. Every step
+ * takes time in proportion to the text, whatever it holds (a mail of 400 KB of `<` included), so no
+ * mail can hold the server up.
+ */
 export function htmlText(html: string): string {
-  return html
-    .replace(/<(script|style|head)[\s\S]*?<\/\1>/gi, '')
+  return withoutBlocks(html)
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(p|div|li|tr|h[1-6]|blockquote)>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
+    .replace(/<[^<>]*>/g, '')
     .replace(/&nbsp;/g, ' ')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
@@ -189,7 +221,9 @@ export function htmlText(html: string): string {
     .replace(/&#(\d{1,8});/g, (_m, n: string) => codePoint(Number(n)))
     .replace(/&#[xX]([0-9a-fA-F]{1,7});/g, (_m, n: string) => codePoint(parseInt(n, 16)))
     .replace(/&amp;/g, '&')
-    .replace(/[ \t]+\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }

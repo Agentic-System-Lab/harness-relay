@@ -10,7 +10,7 @@ import {
 import type { Database } from '../db';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
-import { maskSecret, type SecretStore } from '../secrets';
+import type { SecretStore } from '../secrets';
 import { sameProvider } from './caldav';
 
 /*
@@ -90,8 +90,8 @@ export class ConnectorStore {
 
   view(): ConnectorsView {
     return {
-      mail: this.data.mail.map((m) => ({ ...m, password: maskSecret(this.password(`mail-${m.id}`)) })),
-      calendar: this.data.calendar.map((c) => ({ ...c, password: maskSecret(this.password(`calendar-${c.id}`)) })),
+      mail: this.data.mail.map((m) => ({ ...m, password: maskPassword(this.password(`mail-${m.id}`)) })),
+      calendar: this.data.calendar.map((c) => ({ ...c, password: maskPassword(this.password(`calendar-${c.id}`)) })),
       secretStorage: this.storage,
     };
   }
@@ -154,6 +154,17 @@ export class ConnectorStore {
     return a && { account: a, password: this.password(`calendar-${a.id}`) };
   }
 
+  /** The mail account with this id (never by name), with its password. */
+  mailById(id: string): { account: StoredMail; password: string } | undefined {
+    const a = this.data.mail.find((m) => m.id === id);
+    return a && { account: a, password: this.password(`mail-${a.id}`) };
+  }
+
+  calendarById(id: string): { account: StoredCalendar; password: string } | undefined {
+    const a = this.data.calendar.find((c) => c.id === id);
+    return a && { account: a, password: this.password(`calendar-${a.id}`) };
+  }
+
   hasMail(): boolean {
     return this.data.mail.length > 0;
   }
@@ -184,8 +195,14 @@ export function keptPasswordFits(given: string, next: string): boolean {
   }
 }
 
+/** A password as the UI shows it: that there is one, never any of its characters (unlike an API key's last four). */
+function maskPassword(password: string): string {
+  return password ? '••••' : '';
+}
+
 function pick<T extends { id: string; name: string }>(list: T[], which?: string): T | undefined {
   if (!which?.trim()) return list[0];
   const w = which.trim().toLowerCase();
-  return list.find((a) => a.id === which || a.name.toLowerCase() === w);
+  // An id first: an account named like another's id never stands in for it.
+  return list.find((a) => a.id === which) ?? list.find((a) => a.name.toLowerCase() === w);
 }

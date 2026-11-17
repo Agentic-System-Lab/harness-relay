@@ -1,6 +1,6 @@
 import { dataAttr, dataBody, type GatewayResult, type GatewayTool } from '../gateway';
 import { t } from '../i18n';
-import type { BrowserService, PageSnapshot } from './session';
+import type { BrowserService, PageRef, PageSnapshot } from './session';
 
 /*
  * The browser group's tools on the gateway (`gateway.ts`): open and read pages (read), click and type
@@ -27,6 +27,21 @@ function refOf(args: Record<string, unknown>): number {
   const n = Number(args.ref);
   if (!Number.isInteger(n) || n < 1) throw new Error('ref must be the number of an element in the latest snapshot');
   return n;
+}
+
+/** The longest text shown in the question about typing it; the card says how long it is in all. */
+const TYPED_SHOWN = 2000;
+
+/**
+ * Element `ref` of the conversation's latest snapshot as the user is asked about it: what the page
+ * calls it, read by Harness Relay (never the agent's own words), and where a link goes.
+ */
+export function refWords(r: PageRef | undefined, ref: number): string {
+  if (!r) return t().gw.refGone(ref);
+  const label = r.label.slice(0, 120);
+  if (r.kind === 'link') return t().gw.refLink(label, r.href ?? '');
+  if (r.kind === 'button') return t().gw.refButton(label);
+  return t().gw.refField(r.name ?? '', label);
 }
 
 export function browserTools(browser: BrowserService): GatewayTool[] {
@@ -62,9 +77,10 @@ export function browserTools(browser: BrowserService): GatewayTool[] {
       name: 'browser_click',
       group: 'browser',
       tier: 'act',
-      description: 'Click a link, button or other element of the open page, by its number in the latest snapshot; returns the page afterwards. Asked about first below full access.',
-      inputSchema: { type: 'object', properties: { ref, what: { type: 'string', description: 'What it is, in a few words (shown to the user when they are asked).' } }, required: ['ref'], additionalProperties: false },
-      describe: (a) => ({ title: t().gw.click(a.what ? `"${String(a.what).slice(0, 80)}"` : t().gw.element(refOf(a))) }),
+      description:
+        'Click a link, button or other element of the open page, by its number in the latest snapshot; returns the page afterwards. Asked about first below full access (the user is shown the element as the page names it).',
+      inputSchema: { type: 'object', properties: { ref }, required: ['ref'], additionalProperties: false },
+      describe: (a, ctx) => ({ title: t().gw.click(refWords(ctx && browser.refInfo(ctx.convId, refOf(a)), refOf(a))) }),
       unavailable,
       run: async (a, ctx) => snapshot(browser.click(ctx, refOf(a))),
     },
@@ -80,7 +96,11 @@ export function browserTools(browser: BrowserService): GatewayTool[] {
         required: ['ref', 'text'],
         additionalProperties: false,
       },
-      describe: (a) => ({ title: t().gw.type(String(a.text ?? '').slice(0, 80), refOf(a), a.submit === true) }),
+      describe: (a, ctx) => {
+        // The whole text the field gets (up to a length, with how long it is): nothing typed is hidden.
+        const text = String(a.text ?? '');
+        return { title: t().gw.type(refWords(ctx && browser.refInfo(ctx.convId, refOf(a)), refOf(a)), a.submit === true), detail: t().gw.typed(text.slice(0, TYPED_SHOWN), text.length) };
+      },
       unavailable,
       run: async (a, ctx) => snapshot(browser.type(ctx, refOf(a), String(a.text ?? ''), a.submit === true)),
     },

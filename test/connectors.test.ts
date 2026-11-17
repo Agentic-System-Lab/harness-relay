@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase } from '../src/server/db';
 import { ConnectorStore } from '../src/server/connectors/accounts';
 import { createServer, type Socket } from 'node:net';
-import { calendarData, composeEvent, contentLine, discoverCalendars, escapeText, eventTime, foldLine, listEvents, parseEvents, rangeTime, sameProvider } from '../src/server/connectors/caldav';
-import { ImapClient, STARTTLS_EXTRA } from '../src/server/connectors/imap';
+import { answerText, calendarData, composeEvent, contentLine, discoverCalendars, escapeText, eventTime, foldLine, listEvents, parseEvents, rangeTime, sameProvider } from '../src/server/connectors/caldav';
+import { IMAP_MAX_RESPONSE, ImapClient, STARTTLS_EXTRA } from '../src/server/connectors/imap';
 import { bareAddress, composeMail, decodeQuotedPrintable, decodeWords, encodeWords, htmlText, readMail, validAddress } from '../src/server/connectors/mime';
 import { dotStuff, sendMail } from '../src/server/connectors/smtp';
 import { testMail } from '../src/server/connectors/test';
@@ -13,6 +13,7 @@ import { withLang } from '../src/server/i18n';
 import { validateCalendarAccount, validateMailAccount } from '../src/server/validate';
 import type { OutboxItem } from '../src/shared/types';
 import { fakeCalDav, fakeImap, fakeSmtp, type FakeMessage } from './fake-mail-servers';
+import { slow } from './timeouts';
 
 /** A fake credential store, as the tests of the other secrets use. */
 function fakeKeyring() {
@@ -27,8 +28,35 @@ describe('mail messages', () => {
     expect(validAddress('王小明 <ming@example.com.tw>')).toBe('王小明 <ming@example.com.tw>');
     for (const bad of ['bob', 'bob@', 'a b@example.com', 'x@example.com\r\nBcc: evil@example.com', '<>', '']) expect(validAddress(bad)).toBeUndefined();
     expect(bareAddress('Bob <bob@example.com>')).toBe('bob@example.com');
+    expect(validAddress('Smith, Ann <ann@example.com>')).toBe('Smith, Ann <ann@example.com>');
     expect(encodeWords('Hello')).toBe('Hello');
     expect(decodeWords(encodeWords('週報：第 3 週'))).toBe('週報：第 3 週');
+  });
+
+  it('refuses an address whose name could pass for another address, so the card shows exactly who a mail goes to', () => {
+    for (const spoof of [
+      'Alice Smith <attacker@evil.example> <alice@company.com>',
+      '"alice@company.com" <attacker@evil.example>',
+      'alice@company.com <attacker@evil.example>',
+      'Alice "Boss" <alice@company.com>',
+      'Alice\u202e <alice@company.com>',
+      'Alice\u0000 <alice@company.com>',
+      'x@evil.example NOTIFY=NEVER',
+      'Alice <alice@company.com',
+    ]) {
+      expect(validAddress(spoof), spoof).toBeUndefined();
+    }
+    // The address sent to is the one checked, also for a name with an angle bracket's look-alike.
+    expect(bareAddress(validAddress('Alice ‹boss› <alice@company.com>')!)).toBe('alice@company.com');
+  });
+
+  it("reads HTML in time in proportion to its size, whatever it holds", () => {
+    for (const html of ['<'.repeat(400_000), '<script '.repeat(50_000), `${' '.repeat(400_000)}x`, '<br '.repeat(100_000)]) {
+      const started = Date.now();
+      readMail(`Content-Type: text/html\r\n\r\n${html}`);
+      expect(Date.now() - started).toBeLessThan(slow(2000));
+    }
+    expect(htmlText('<head><title>x</title></head><p>Hi <b>there</b></p><script>alert(1)</script>tail <style>a{}')).toBe('Hi there\ntail');
   });
 
   it('folds a long subject that is not ASCII, and a long list of recipients, so no header line is too long', () => {
@@ -280,6 +308,28 @@ describe('mail accounts and calendars in Settings', () => {
       expect(() => store.delete('mail', 'work')).toThrow('No such account');
     }));
 
+  it("shows a password as there, never any of it, and sends an outbox item from the account its card showed, found by its id", () =>
+    withLang('en', async () => {
+      const store = new ConnectorStore(openDatabase(':memory:'), fakeKeyring());
+      // Another account named like the first one's id, before it in the list.
+      store.saveMail('imp', validateMailAccount({ ...mail, name: 'work', address: 'Imp <imp@example.com>', password: 'imp-pass' }, []));
+      store.saveMail('work', validateMailAccount({ ...mail, name: 'Office', password: 'a-very-long-app-password-1234' }, []));
+      expect(store.view().mail.map((m) => m.password)).toEqual(['••••', '••••']);
+      expect(store.mail('work')!.account.id).toBe('work');
+      const tools = Object.fromEntries(connectorTools(store).map((t) => [t.name, t])) as Record<string, GatewayTool>;
+      const bound = tools.mail_send!.bind!({ to: 'bob@example.com', subject: 's', body: 'b', account: 'Office' });
+      expect(bound).toMatchObject({ account: 'Office', accountId: 'work' });
+      // Renamed and gone meanwhile: nothing is sent, from this account or another.
+      store.delete('mail', 'work');
+      await expect(tools.mail_send!.send!(bound, {} as OutboxItem)).rejects.toThrow('The account the card showed is gone');
+      const cal = { name: 'Home', url: 'https://caldav.example.com/me/', username: 'me', password: 'p' };
+      store.saveCalendar('home', validateCalendarAccount(cal, []));
+      const invite = tools.calendar_invite!.bind!({ summary: 'x', start: '2026-01-05T09:00', end: '2026-01-05T10:00', attendees: ['bob@example.com'] });
+      expect(invite.accountId).toBe('home');
+      store.delete('calendar', 'home');
+      await expect(tools.calendar_invite!.send!(invite, {} as OutboxItem)).rejects.toThrow('The account the card showed is gone');
+    }));
+
   it('asks for the password again before sending the kept one to another server', () =>
     withLang('en', () => {
       const store = new ConnectorStore(openDatabase(':memory:'), fakeKeyring());
@@ -515,6 +565,64 @@ describe('the mail and calendar tools against servers on this computer', () => {
     expect(events.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(1);
     expect(events.match(/<\/calendar>/g)).toHaveLength(1);
   });
+
+  it('refuses a server that sends (or announces) more than an answer may hold, instead of filling the memory', async () => {
+    const sockets: Socket[] = [];
+    // An IMAP server whose answer to CAPABILITY announces a huge literal, or floods without a line end.
+    const imap = (mode: 'announce' | 'flood' | 'lines') =>
+      createServer((sock) => {
+        sockets.push(sock);
+        sock.on('error', () => undefined);
+        sock.write('* OK ready\r\n');
+        let input = '';
+        sock.on('data', (d) => {
+          input += d.toString();
+          for (let i = input.indexOf('\r\n'); i >= 0; i = input.indexOf('\r\n')) {
+            const [tag, cmd] = input.slice(0, i).split(' ');
+            input = input.slice(i + 2);
+            if (cmd === 'LOGIN') sock.write(`${tag} OK signed in\r\n`);
+            else if (cmd === 'CAPABILITY' && mode === 'announce') sock.write(`* CAPABILITY {${IMAP_MAX_RESPONSE + 1}}\r\n`);
+            else if (cmd === 'CAPABILITY' && mode === 'lines') {
+              // Untagged responses, each short, that never end.
+              const chunk = `* OK ${'x'.repeat(1000)}\r\n`.repeat(1024);
+              for (let n = 0; n < 18 && !sock.destroyed; n++) sock.write(chunk);
+            }
+            else if (cmd === 'CAPABILITY') {
+              const chunk = Buffer.alloc(1024 * 1024, 'x');
+              for (let n = 0; n < 18 && !sock.destroyed; n++) sock.write(chunk);
+            }
+          }
+        });
+      });
+    const listen = async (server: ReturnType<typeof createServer>) => {
+      await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+      closers.push(async () => {
+        for (const sock of sockets) sock.destroy();
+        await new Promise((r) => server.close(r));
+      });
+      return (server.address() as { port: number }).port;
+    };
+    const login = { username: 'me@example.com', password: 'app-pass' };
+    for (const mode of ['announce', 'flood', 'lines'] as const) {
+      const port = await listen(imap(mode));
+      await expect(ImapClient.open({ host: '127.0.0.1', port, security: 'none' }, login, 10_000)).rejects.toThrow(/more than a response may hold/);
+    }
+    // An SMTP server whose EHLO reply never ends.
+    const smtp = createServer((sock) => {
+      sockets.push(sock);
+      sock.on('error', () => undefined);
+      sock.write('220 ready\r\n');
+      sock.once('data', () => {
+        for (let i = 0; i < 400 && !sock.destroyed; i++) sock.write(`250-${'x'.repeat(1000)}\r\n`);
+      });
+    });
+    const smtpPort = await listen(smtp);
+    await expect(sendMail({ host: '127.0.0.1', port: smtpPort, security: 'none' }, login, { from: 'me@example.com', recipients: ['a@example.com'] }, 'x', 10_000)).rejects.toThrow(/more than a reply may hold/);
+    // A calendar's answer: refused by its length, or once it grows past it.
+    await expect(answerText(new Response('x'.repeat(100), { headers: { 'content-length': '100' } }), 50)).rejects.toThrow(/more than an answer may hold/);
+    await expect(answerText(new Response(new Blob(['y'.repeat(100)]).stream()), 50)).rejects.toThrow(/more than an answer may hold/);
+    expect(await answerText(new Response('<ok/>'), 50)).toBe('<ok/>');
+  }, slow(20_000));
 
   it('reads a folder name the server gives as a literal', async () => {
     const imap = await fakeImap([]);

@@ -1,6 +1,6 @@
 import { lookup } from 'node:dns/promises';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { isIP } from 'node:net';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { BlockList, isIP, isIPv6 } from 'node:net';
 import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
 import { approvalKeys } from '../approvals';
@@ -12,6 +12,7 @@ import { runProcess } from '../process';
 import { removeTree } from '../fsRemove';
 import { isLocalHost, isLoopbackHost } from '../relaySandbox';
 import { CdpConnection } from './cdp';
+import { BrowserProxy, PROXY_USER, type ProxyRoute } from './proxy';
 
 /*
  * The browser tools' browser: a Chromium (or Chrome, or Edge) of Harness Relay's own, one per
@@ -23,20 +24,58 @@ import { CdpConnection } from './cdp';
  * computer nor the link-local and cloud metadata addresses, also by a host name that leads to one (its
  * addresses are looked up first). A page on a host this conversation's browser has not opened yet is
  * asked about (below full access), as a web fetch is (kind `fetch`, keyed by host, so "always allow"
- * holds), also when a click leads there; in a scheduled run only hosts always allowed open, and in a
- * conversation that refuses every request none it has not opened. Every other request (frames,
+ * holds), also when a click leads there. A host opened in full access without asking is asked about
+ * again below full access; a scheduled run opens only hosts always allowed, whatever the browser opened
+ * before (`grantsFor()`); a conversation that refuses every request opens none it has not opened. Every other request (frames,
  * images, scripts, what a page or its workers fetch, in its own process or another) pauses too, and
  * goes unless it is one of those never opened. It keeps to one tab: a window the page opens is closed
  * before it loads anything, and the agent told. Downloads, file choosers and dialogs are refused.
  * Calls run one at a time, in the order they came. It closes after `idleMs` without a call.
  *
- * The addresses checked are those looked up when the request paused; Chromium looks the name up
- * again itself, so a name made to change its address in between (DNS rebinding) is not caught, nor a
- * WebSocket, which pauses nowhere. Harness Relay's own API refuses both, by its Host and Origin checks.
+ * Every connection it makes goes through its own proxy (`proxy.ts`), which connects only to
+ * addresses looked up and checked here, with the gate's rules and the same answers: so a name whose
+ * address changes after the check (DNS rebinding) reaches nothing it was not checked for, and a
+ * WebSocket, which pauses nowhere, is checked when it connects. An address on this computer or the
+ * local network is reached only on a host (and port) the conversation's browser opened while it led
+ * there: a page cannot reach the user's local services by itself, and a name allowed while it led to
+ * the internet that now leads here is refused. WebRTC keeps to the proxy too (no UDP of its own).
  */
 
-/** What a page may do: open without asking, be asked about, or never open. */
-export type NavigationVerdict = 'allow' | 'ask' | 'block';
+/**
+ * What a page may do: open without asking, be asked about, or never open (`moved`: a host allowed
+ * while it led to the internet that now leads to this computer or the local network).
+ */
+export type NavigationVerdict = 'allow' | 'ask' | 'block' | 'moved';
+
+/** The private networks (and the shared address space VPNs such as Tailscale use): the local network, to the browser. */
+const PRIVATE = new BlockList();
+PRIVATE.addSubnet('10.0.0.0', 8, 'ipv4');
+PRIVATE.addSubnet('172.16.0.0', 12, 'ipv4');
+PRIVATE.addSubnet('192.168.0.0', 16, 'ipv4');
+PRIVATE.addSubnet('100.64.0.0', 10, 'ipv4');
+PRIVATE.addSubnet('198.18.0.0', 15, 'ipv4');
+PRIVATE.addSubnet('fc00::', 7, 'ipv6');
+
+/** Whether an address is on a private network (an IPv4 one written as IPv6, `::ffff:10.0.0.1`, too). */
+function privateAddress(a: string): boolean {
+  const kind = isIP(a);
+  if (!kind) return false;
+  try {
+    return PRIVATE.check(a, kind === 6 ? 'ipv6' : 'ipv4');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether a host leads to this computer or the local network: a loopback name, one of this
+ * computer's addresses, a private one, or a name with one of those among its `addresses`.
+ */
+export function leadsNearby(host: string, addresses: readonly string[], own: readonly string[] = []): boolean {
+  const h = host.replace(/^\[|\]$/g, '');
+  const list = isIP(h) || isLoopbackHost(h) ? [h] : addresses;
+  return list.some((a) => isLoopbackHost(a) || own.some((o) => o.toLowerCase() === a.toLowerCase()) || privateAddress(a));
+}
 
 /**
  * Whether the browser may open `raw` in the main frame, given the hosts this conversation's browser
@@ -45,7 +84,14 @@ export type NavigationVerdict = 'allow' | 'ask' | 'block';
  */
 export function navigationVerdict(
   raw: string,
-  o: { relayPorts: readonly number[]; own?: readonly string[]; allowed: ReadonlySet<string>; addresses?: readonly string[] },
+  o: {
+    relayPorts: readonly number[];
+    own?: readonly string[];
+    allowed: ReadonlySet<string>;
+    /** Of `allowed`, the hosts allowed while they led to this computer or the local network. */
+    nearby?: ReadonlySet<string>;
+    addresses?: readonly string[];
+  },
 ): NavigationVerdict {
   if (raw === 'about:blank') return 'allow';
   let url: URL;
@@ -66,26 +112,42 @@ export function navigationVerdict(
     if (onThisComputer && o.relayPorts.includes(port)) return 'block';
   }
   const key = approvalKeys('fetch', raw)[0];
-  return key && o.allowed.has(key) ? 'allow' : 'ask';
+  if (!key || !o.allowed.has(key)) return 'ask';
+  // Allowed while it led to the internet, it now leads here: the user was never asked about that.
+  if (o.nearby && !o.nearby.has(key) && leadsNearby(host, o.addresses ?? [], own)) return 'moved';
+  return 'allow';
 }
 
 /**
- * Whether a request other than opening a page in the main frame (a frame, an image, a script, a
- * fetch) may go: all but what is never opened (by `navigationVerdict()`), and only by http and https
- * (data and blob addresses never reach the network).
+ * Whether a connection other than opening a page in the main frame may go (a frame, an image, a
+ * script, a fetch, a WebSocket; and every connection, at the proxy): to the internet, unless it is
+ * never opened (by `navigationVerdict()`); to this computer or the local network, only to a host the
+ * conversation's browser opened while it led there (`nearby`), so a page cannot reach the user's local
+ * services by itself. Data and blob addresses never reach the network.
  */
 export function requestVerdict(raw: string, o: Parameters<typeof navigationVerdict>[1]): 'allow' | 'block' {
   if (/^(data|blob):/i.test(raw) || raw === 'about:blank' || raw === 'about:srcdoc') return 'allow';
-  return navigationVerdict(raw, o) === 'block' ? 'block' : 'allow';
+  const verdict = navigationVerdict(raw, o);
+  if (verdict === 'block' || verdict === 'moved') return 'block';
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return 'block';
+  }
+  if (!leadsNearby(url.hostname, o.addresses ?? [], o.own ?? [])) return 'allow';
+  const key = approvalKeys('fetch', raw)[0];
+  return key && o.nearby?.has(key) ? 'allow' : 'block';
 }
 
-/** Why the main frame did not open a page: the user declined, it is never opened, or nobody could be asked. */
-export type Refusal = { url: string; why: 'declined' | 'blocked' | 'unasked' };
+/** Why the main frame did not open a page: the user declined, it is never opened, it moved here, or nobody could be asked. */
+export type Refusal = { url: string; why: 'declined' | 'blocked' | 'moved' | 'unasked' };
 
 /** What the agent is told about a refused page. */
 export function refusalText(r: Refusal): string {
   if (r.why === 'declined') return `The user did not allow opening ${r.url}`;
   if (r.why === 'blocked') return `${r.url} cannot be opened: only http and https pages, not this computer's own Harness Relay or its metadata addresses`;
+  if (r.why === 'moved') return `${r.url} now leads to this computer or the local network, not where it led when it was allowed, so it is not opened (a name that changes its address to reach local services)`;
   return `${r.url} is on a host this conversation's browser has not opened, and nobody can be asked now (a scheduled run, or a conversation that refuses requests)`;
 }
 
@@ -102,6 +164,15 @@ async function lookUp(host: string): Promise<string[]> {
   }
 }
 
+/** A link, button or field of a snapshot, as the user's question about clicking or typing names it. */
+export interface PageRef {
+  kind: 'link' | 'button' | 'field' | 'select';
+  label: string;
+  href?: string;
+  /** A field's name. */
+  name?: string;
+}
+
 /** The page as the agent reads it: its address, title and text, with numbered links, buttons and fields. */
 export interface PageSnapshot {
   url: string;
@@ -115,15 +186,20 @@ export interface PageSnapshot {
 export const SNAPSHOT_MAX = 20_000;
 
 /**
- * Runs in the page: the visible text, and each link, button and field numbered (`data-relay-ref`), in
- * reading order. Numbers start again at each snapshot. Passwords' values are never read.
+ * Runs in a world of its own beside the page's (`Page.createIsolatedWorld`), whose script can neither
+ * see it nor change the functions it uses: the visible text, and each link, button and field numbered
+ * from `start`, in reading order. The elements stay in that world (`__relayRefs`), never marked in the
+ * page, so a click or typing goes to the element the snapshot found, whatever the page's script does
+ * meanwhile. Numbers go on from one snapshot to the next, so an old one never names another element.
+ * Passwords' values are never read.
  */
-const SNAPSHOT_SCRIPT = `(() => {
+const SNAPSHOT_SCRIPT = (start: number) => `(() => {
   const MAX = ${SNAPSHOT_MAX};
   const LIMIT = 6000;
-  let ref = 0;
+  let ref = ${start} - 1;
   let seen = 0;
-  for (const e of document.querySelectorAll('[data-relay-ref]')) e.removeAttribute('data-relay-ref');
+  const refs = new Map();
+  const info = [];
   const out = [];
   const clean = (s) => String(s || '').replace(/\\s+/g, ' ').trim();
   const label = (el) => clean(el.getAttribute('aria-label') || el.innerText || el.getAttribute('title') || el.getAttribute('alt') || el.getAttribute('placeholder') || (el.type === 'password' ? '' : el.value)).slice(0, 120);
@@ -151,14 +227,22 @@ const SNAPSHOT_SCRIPT = `(() => {
     const clickable = (tag === 'A' && el.href) || tag === 'BUTTON' || role === 'button' || role === 'link' || role === 'checkbox' || role === 'tab' || role === 'menuitem';
     if (field || clickable) {
       const n = ++ref;
-      el.setAttribute('data-relay-ref', String(n));
-      if (tag === 'A') out.push('[' + n + ': link "' + label(el) + '" -> ' + el.href + ']');
-      else if (tag === 'SELECT') out.push('[' + n + ': select' + (el.name ? ' ' + el.name : '') + ' = "' + clean(el.selectedOptions[0] && el.selectedOptions[0].text) + '"; options: ' + Array.from(el.options).slice(0, 30).map((o) => clean(o.text)).join(' | ') + ']');
-      else if (field) {
+      refs.set(n, el);
+      if (tag === 'A') {
+        out.push('[' + n + ': link "' + label(el) + '" -> ' + el.href + ']');
+        info.push({ ref: n, kind: 'link', label: label(el), href: String(el.href).slice(0, 500) });
+      } else if (tag === 'SELECT') {
+        out.push('[' + n + ': select' + (el.name ? ' ' + el.name : '') + ' = "' + clean(el.selectedOptions[0] && el.selectedOptions[0].text) + '"; options: ' + Array.from(el.options).slice(0, 30).map((o) => clean(o.text)).join(' | ') + ']');
+        info.push({ ref: n, kind: 'select', label: label(el), name: String(el.name || '').slice(0, 100) });
+      } else if (field) {
         const type = tag === 'TEXTAREA' ? 'text area' : 'field ' + (el.type || 'text');
         const value = el.type === 'password' ? (el.value ? ' (filled)' : '') : el.type === 'checkbox' || el.type === 'radio' ? (el.checked ? ' checked' : ' not checked') : el.value ? ' value="' + clean(el.value).slice(0, 200) + '"' : '';
         out.push('[' + n + ': ' + type + (el.name ? ' name=' + el.name : '') + (label(el) && label(el) !== clean(el.value) ? ' "' + label(el) + '"' : '') + value + ']');
-      } else out.push('[' + n + ': button "' + label(el) + '"]');
+        info.push({ ref: n, kind: 'field', label: label(el) === clean(el.value) ? '' : label(el), name: String(el.name || '').slice(0, 100) });
+      } else {
+        out.push('[' + n + ': button "' + label(el) + '"]');
+        info.push({ ref: n, kind: 'button', label: label(el) });
+      }
       if (!field && tag !== 'DIV') return;
     }
     if (BLOCK.has(tag)) out.push('\\n');
@@ -169,22 +253,29 @@ const SNAPSHOT_SCRIPT = `(() => {
   let text = out.join(' ').replace(/[ \\t]*\\n[ \\t\\n]*/g, '\\n').replace(/\\n{3,}/g, '\\n\\n').trim();
   const cut = text.length > MAX;
   if (cut) text = text.slice(0, MAX);
-  return { url: location.href, title: document.title, text, cut };
+  globalThis.__relayRefs = refs;
+  return { url: location.href, title: document.title, text, cut, refs: info.slice(0, 3000) };
 })()`;
 
-/** Where the element numbered `ref` is (its middle, scrolled into view), or why it cannot be clicked. */
+/**
+ * Where the element numbered `ref` is (its middle, scrolled into view), or why it cannot be clicked:
+ * gone, or covered there by another element (one the page laid over it), which a click would reach instead.
+ */
 const BOX_SCRIPT = (ref: number) => `(() => {
-  const el = document.querySelector('[data-relay-ref="${ref}"]');
-  if (!el) return { missing: true };
+  const el = globalThis.__relayRefs && globalThis.__relayRefs.get(${ref});
+  if (!el || !el.isConnected) return { missing: true };
   el.scrollIntoView({ block: 'center', inline: 'center' });
   const r = el.getBoundingClientRect();
-  return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height };
+  const x = r.left + r.width / 2;
+  const y = r.top + r.height / 2;
+  const hit = document.elementFromPoint(x, y);
+  return { x, y, w: r.width, h: r.height, covered: !hit || !(hit === el || el.contains(hit)) };
 })()`;
 
 /** Focus the field numbered `ref` and empty it, or say it is missing. */
 const FOCUS_SCRIPT = (ref: number) => `(() => {
-  const el = document.querySelector('[data-relay-ref="${ref}"]');
-  if (!el) return 'missing';
+  const el = globalThis.__relayRefs && globalThis.__relayRefs.get(${ref});
+  if (!el || !el.isConnected) return 'missing';
   el.scrollIntoView({ block: 'center' });
   el.focus();
   if ('value' in el && el.type !== 'checkbox' && el.type !== 'radio') { el.value = ''; el.dispatchEvent(new Event('input', { bubbles: true })); }
@@ -207,7 +298,16 @@ export interface BrowserServiceOptions {
 
 /** One conversation's browser. */
 class BrowserSession {
-  readonly allowed = new Set<string>();
+  /**
+   * The hosts its tab opened, by key: whether the user allowed it (`asked`; or an "always allow" did),
+   * rather than full access without asking, and whether it led to this computer or the local network
+   * then (`nearby`). Which of them a call may use again depends on the call (`grantsFor()`).
+   */
+  readonly granted = new Map<string, { asked: boolean; nearby: boolean }>();
+  /** The hosts the current call opened: it may use them again, whoever it is. */
+  readonly callGranted = new Map<string, { nearby: boolean }>();
+  /** The password this browser gives the proxy. */
+  proxyPassword = '';
   /** The call that may open pages now: whom to ask about a new host. */
   current?: GatewayContext;
   private timer?: NodeJS.Timeout;
@@ -224,6 +324,14 @@ class BrowserSession {
   popups: string[] = [];
   /** The calls in turn: each starts once the one before it ended. */
   queue: Promise<unknown> = Promise.resolve();
+  /** The world the latest snapshot ran in, which holds its elements; gone once the page changes. */
+  refsWorld?: number;
+  /** The number the next snapshot's first element gets. */
+  nextRef = 1;
+  /** The latest snapshot's links, buttons and fields, by number. */
+  refs = new Map<number, PageRef>();
+  /** The conversation it is the browser of. */
+  convId = '';
 
   constructor(
     readonly cdp: CdpConnection,
@@ -246,12 +354,84 @@ class BrowserSession {
     return this.cdp.send<T>(method, params, this.sessionId, timeoutMs);
   }
 
-  async evaluate<T>(expression: string): Promise<T> {
-    const r = await this.send<{ result?: { value?: T }; exceptionDetails?: { text?: string } }>('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+  /** Runs `expression` in the world `contextId` (an isolated world of ours), for its value. */
+  async evaluateIn<T>(contextId: number, expression: string): Promise<T> {
+    const r = await this.send<{ result?: { value?: T }; exceptionDetails?: { text?: string } }>('Runtime.evaluate', { expression, contextId, returnByValue: true, awaitPromise: true });
     if (r.exceptionDetails) throw new Error(r.exceptionDetails.text ?? 'The page failed to run the script');
     return r.result?.value as T;
   }
+
+  /** Runs `expression` in the world the latest snapshot ran in, which holds its elements. */
+  async inRefsWorld<T>(expression: string): Promise<T> {
+    if (this.refsWorld === undefined) throw new Error('There is no snapshot of this page: take one first');
+    try {
+      return await this.evaluateIn<T>(this.refsWorld, expression);
+    } catch (err) {
+      // The page went elsewhere (or was reloaded): its world went with it.
+      if (/context|Execution context was destroyed/i.test((err as Error).message)) throw new Error('The page changed since the latest snapshot: take a new one');
+      throw err;
+    }
+  }
 }
+
+/**
+ * What a browser needs of the server's environment to start (where home and the temporary folder
+ * are, the language, the time zone, and on Windows the system's folders), and nothing else: no API
+ * key, token or proxy setting of the server's reaches it, nor anything a page could learn of them.
+ */
+const BROWSER_ENV = /^(PATH|HOME|USER|LOGNAME|TMPDIR|TMP|TEMP|LANG|LANGUAGE|LC_[A-Z]+|TZ|XDG_RUNTIME_DIR|FONTCONFIG_PATH|FONTCONFIG_FILE|__CF_USER_TEXT_ENCODING|SYSTEMROOT|SYSTEMDRIVE|WINDIR|USERPROFILE|USERNAME|USERDOMAIN|HOMEDRIVE|HOMEPATH|LOCALAPPDATA|APPDATA|PROGRAMDATA|ALLUSERSPROFILE|PUBLIC|PROGRAMFILES|PROGRAMFILES\(X86\)|PROGRAMW6432|COMMONPROGRAMFILES|COMMONPROGRAMFILES\(X86\)|COMMONPROGRAMW6432|COMSPEC|PATHEXT|OS|NUMBER_OF_PROCESSORS|PROCESSOR_ARCHITECTURE|COMPUTERNAME)$/i;
+
+export function browserEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([k, v]) => v !== undefined && BROWSER_ENV.test(k)));
+}
+
+/**
+ * The profile's preferences with Chromium's page preloading off (`network_prediction_options` 2,
+ * "never"): no prefetch or prerender, which speculation rules and `<link rel=prefetch>` ask of the
+ * browser itself, outside the page. They would go through the proxy all the same; this makes no
+ * request at all.
+ */
+function noPreloading(profile: string): void {
+  const file = join(profile, 'Default', 'Preferences');
+  let prefs: Record<string, unknown> = {};
+  try {
+    const read = JSON.parse(readFileSync(file, 'utf8')) as unknown;
+    if (read && typeof read === 'object' && !Array.isArray(read)) prefs = read as Record<string, unknown>;
+  } catch {
+    /* none yet */
+  }
+  const net = prefs.net && typeof prefs.net === 'object' ? (prefs.net as Record<string, unknown>) : {};
+  prefs.net = { ...net, network_prediction_options: 2 };
+  mkdirSync(join(profile, 'Default'), { recursive: true, mode: 0o700 });
+  writeFileSync(file, JSON.stringify(prefs), { mode: 0o600 });
+}
+
+/**
+ * The hosts a request in this browser may use again without asking, for the call going on (none
+ * between calls but those the user allowed): in full access, all it opened; below it, those the user
+ * allowed (or an "always allow" did), not those full access opened without asking; in a scheduled run
+ * (`unattended`), only those this call opened, through the same question, which lets only what is
+ * always allowed through. And those of them that led to this computer or the local network then.
+ */
+function grantsFor(s: BrowserSession): { allowed: Set<string>; nearby: Set<string> } {
+  const ctx = s.current;
+  const allowed = new Set<string>();
+  const nearby = new Set<string>();
+  for (const [key, g] of s.granted) {
+    if (ctx?.permission === 'full' || (g.asked && !ctx?.unattended)) {
+      allowed.add(key);
+      if (g.nearby) nearby.add(key);
+    }
+  }
+  for (const [key, g] of s.callGranted) {
+    allowed.add(key);
+    if (g.nearby) nearby.add(key);
+  }
+  return { allowed, nearby };
+}
+
+/** What every gated target pauses: all its requests, and the proxy's question who it is. */
+const FETCH_ALL = { patterns: [{ urlPattern: '*', requestStage: 'Request' }], handleAuthRequests: true };
 
 /** Whether a paused request opens a page in the tab's main frame: the one kind that is asked about. */
 function isMainDocument(s: BrowserSession, p: Record<string, unknown>, sid: string): boolean {
@@ -260,7 +440,12 @@ function isMainDocument(s: BrowserSession, p: Record<string, unknown>, sid: stri
 
 export class BrowserService {
   private readonly sessions = new Map<string, Promise<BrowserSession>>();
+  /** Each conversation's latest snapshot's elements, for the questions about clicking and typing (asked before the call runs). */
+  private readonly latestRefs = new Map<string, Map<number, PageRef>>();
+  /** The sessions by the password their browser gives the proxy. */
+  private readonly byPassword = new Map<string, BrowserSession>();
   private readonly idleMs: number;
+  private readonly proxy = new BrowserProxy((password, host, port, secure) => this.route(password, host, port, secure));
   /** Host names' addresses, looked up again after a minute. */
   private readonly addressCache = new Map<string, { at: number; addresses: Promise<string[]> }>();
 
@@ -293,6 +478,9 @@ export class BrowserService {
     if (!bin) throw new Error(this.unavailable());
     const profile = this.profile(convId);
     mkdirSync(profile, { recursive: true, mode: 0o700 });
+    noPreloading(profile);
+    await this.proxy.start();
+    const password = this.proxy.issue();
     const abort = new AbortController();
     let pipes: { write: Duplex; read: Duplex } | undefined;
     const args = [
@@ -310,11 +498,15 @@ export class BrowserService {
       '--password-store=basic',
       '--use-mock-keychain',
       '--window-size=1280,900',
+      // Everything through the proxy, this computer's addresses too, and no UDP of WebRTC's own around it.
+      `--proxy-server=http://127.0.0.1:${this.proxy.port}`,
+      '--proxy-bypass-list=<-loopback>',
+      '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
       // Chromium's own sandbox cannot start as root (a container, say).
       ...(process.platform === 'linux' && process.getuid?.() === 0 ? ['--no-sandbox'] : []),
       'about:blank',
     ];
-    const exited = runProcess({ bin, args, env: { ...process.env }, signal: abort.signal, pipes: (write, read) => (pipes = { write, read }) });
+    const exited = runProcess({ bin, args, env: browserEnv(process.env), signal: abort.signal, pipes: (write, read) => (pipes = { write, read }) });
     if (!pipes) {
       abort.abort();
       throw new Error('The browser could not be started');
@@ -322,13 +514,20 @@ export class BrowserService {
     const cdp = new CdpConnection(pipes.write, pipes.read);
     const stop = () => {
       this.sessions.delete(convId);
+      this.latestRefs.delete(convId);
+      this.byPassword.delete(password);
+      this.proxy.forget(password);
       cdp.close();
       abort.abort();
     };
-    void exited.then(
-      () => (this.sessions.delete(convId), cdp.close()),
-      () => (this.sessions.delete(convId), cdp.close()),
-    );
+    const gone = () => {
+      this.sessions.delete(convId);
+      this.latestRefs.delete(convId);
+      this.byPassword.delete(password);
+      this.proxy.forget(password);
+      cdp.close();
+    };
+    void exited.then(gone, gone);
     try {
       await cdp.send('Browser.setDownloadBehavior', { behavior: 'deny' }).catch(() => undefined);
       const { targetInfos } = await cdp.send<{ targetInfos: { targetId: string; type: string }[] }>('Target.getTargets');
@@ -336,6 +535,9 @@ export class BrowserService {
       targetId ??= (await cdp.send<{ targetId: string }>('Target.createTarget', { url: 'about:blank' })).targetId;
       const { sessionId } = await cdp.send<{ sessionId: string }>('Target.attachToTarget', { targetId, flatten: true });
       const session = new BrowserSession(cdp, sessionId, targetId, stop, this.idleMs, exited.catch(() => undefined));
+      session.proxyPassword = password;
+      session.convId = convId;
+      this.byPassword.set(password, session);
       session.gated.add(sessionId);
       cdp.on('Fetch.requestPaused', (p: Record<string, unknown>, sid?: string) => {
         if (sid && session.refused.has(sid)) return void cdp.send('Fetch.failRequest', { requestId: p.requestId, errorReason: 'BlockedByClient' }, sid).catch(() => undefined);
@@ -344,6 +546,13 @@ export class BrowserService {
           if (session.gating === gating) session.gating = undefined;
         });
         if (isMainDocument(session, p, sid)) session.gating = gating;
+      });
+      // The proxy asks each browser to prove itself: only this one's own password, never a site's.
+      cdp.on('Fetch.authRequired', (p: Record<string, unknown>, sid?: string) => {
+        if (!sid || (!session.gated.has(sid) && !session.refused.has(sid))) return;
+        const proxy = (p.authChallenge as { source?: string } | undefined)?.source === 'Proxy' && !session.refused.has(sid);
+        const authChallengeResponse = proxy ? { response: 'ProvideCredentials', username: PROXY_USER, password } : { response: 'CancelAuth' };
+        void cdp.send('Fetch.continueWithAuth', { requestId: p.requestId, authChallengeResponse }, sid).catch(() => undefined);
       });
       cdp.on('Target.attachedToTarget', (p: Record<string, unknown>) => void this.adopt(session, p));
       cdp.on('Target.detachedFromTarget', (p: Record<string, unknown>) => {
@@ -358,7 +567,7 @@ export class BrowserService {
       cdp.on('Page.javascriptDialogOpening', (_p, sid) => {
         if (sid === sessionId) void session.send('Page.handleJavaScriptDialog', { accept: false }).catch(() => undefined);
       });
-      await session.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] });
+      await session.send('Fetch.enable', FETCH_ALL);
       // The tab's frames in processes of their own and its workers: each held before it starts, gated, then let go.
       await session.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
       // The browser's other targets: a window the page opens (closed), a service or shared worker (gated).
@@ -392,9 +601,32 @@ export class BrowserService {
     return addresses;
   }
 
+  /** Harness Relay's own ports, and the browser proxy's: never opened on this computer. */
+  private ownPorts(): number[] {
+    return [...this.o.relayPorts(), ...(this.proxy.port ? [this.proxy.port] : [])];
+  }
+
+  /**
+   * Where the proxy may connect a browser's connection to `host`:`port`: refused unless
+   * `requestVerdict()` lets it go, else to the addresses it was checked with (this computer's for a
+   * loopback name), the same ones the gate's check used.
+   */
+  private async route(password: string, host: string, port: number, secure: boolean): Promise<ProxyRoute> {
+    const s = this.byPassword.get(password);
+    if (!s) return { refused: 'not a browser of this server' };
+    const name = host.replace(/^\[|\]$/g, '');
+    const bracketed = isIPv6(name) ? `[${name}]` : name;
+    // A tunnel on port 80 is a ws:// socket's; any other, https's or wss's: keyed as the page's own address is.
+    const url = `${secure && port !== 80 ? 'https' : 'http'}://${bracketed}:${port}/`;
+    const rules = await this.rules(s, url);
+    if (requestVerdict(url, rules) !== 'allow') return { refused: `${url} is not reached from Harness Relay's browser` };
+    const addresses = isIP(name) ? [name] : isLoopbackHost(name) ? ['127.0.0.1', '::1'] : [...(rules.addresses ?? [])];
+    return addresses.length ? { addresses } : { refused: `${name} has no address` };
+  }
+
   /** What `navigationVerdict()` needs to know of a request in this conversation's browser. */
   private async rules(s: BrowserSession, url: string): Promise<Parameters<typeof navigationVerdict>[1]> {
-    return { relayPorts: this.o.relayPorts(), own: this.o.own?.() ?? [], allowed: s.allowed, addresses: await this.addresses(url) };
+    return { relayPorts: this.ownPorts(), own: this.o.own?.() ?? [], ...grantsFor(s), addresses: await this.addresses(url) };
   }
 
   /**
@@ -410,7 +642,7 @@ export class BrowserService {
     if (!isMainDocument(s, p, sid)) return void (await go(requestVerdict(url, rules) === 'allow'));
     const verdict = navigationVerdict(url, rules);
     let allow = verdict === 'allow';
-    if (verdict === 'block') s.denied = { url, why: 'blocked' };
+    if (verdict === 'block' || verdict === 'moved') s.denied = { url, why: verdict === 'moved' ? 'moved' : 'blocked' };
     if (verdict === 'ask') {
       const ctx = s.current;
       if (ctx?.permission === 'full') allow = true;
@@ -421,9 +653,12 @@ export class BrowserService {
         if (!allow) s.denied = { url, why: 'declined' };
       } else s.denied = { url, why: 'unasked' };
     }
-    if (allow) {
-      const key = approvalKeys('fetch', url)[0];
-      if (key) s.allowed.add(key);
+    const key = approvalKeys('fetch', url)[0];
+    if (allow && key && verdict === 'ask') {
+      // Allowed while it leads here: its local service may be reached, also by its own pages and sockets.
+      const nearby = leadsNearby(new URL(url).hostname, rules.addresses ?? [], rules.own ?? []);
+      s.granted.set(key, { asked: s.current?.permission !== 'full' || Boolean(s.granted.get(key)?.asked), nearby });
+      s.callGranted.set(key, { nearby });
     }
     await go(allow);
   }
@@ -436,7 +671,7 @@ export class BrowserService {
    */
   private async adopt(s: BrowserSession, p: Record<string, unknown>): Promise<void> {
     const sid = String(p.sessionId ?? '');
-    const info = (p.targetInfo ?? {}) as { targetId?: string; type?: string; url?: string };
+    const info = (p.targetInfo ?? {}) as { targetId?: string; type?: string; subtype?: string; url?: string };
     const send = (method: string, params: Record<string, unknown> = {}) => s.cdp.send(method, params, sid).catch(() => undefined);
     const waiting = p.waitingForDebugger === true;
     if (!sid) return;
@@ -446,17 +681,18 @@ export class BrowserService {
       return;
     }
     if (info.type === 'page' || info.type === 'tab' || info.type === 'background_page') {
-      s.popups.push(info.url && info.url !== 'about:blank' ? info.url : '');
+      // A page prerendered for the tab is no window the page opened: closed all the same, unmentioned.
+      if (info.subtype !== 'prerender') s.popups.push(info.url && info.url !== 'about:blank' ? info.url : '');
       // A script's window.open() waits for its window to start: it starts, refusing whatever it asks
       // for, and is closed then.
       s.refused.add(sid);
-      await send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] });
+      await send('Fetch.enable', FETCH_ALL);
       if (waiting) await send('Runtime.runIfWaitingForDebugger');
       await s.cdp.send('Target.closeTarget', { targetId: info.targetId }).catch(() => undefined);
       return;
     }
     s.gated.add(sid);
-    await send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] });
+    await send('Fetch.enable', FETCH_ALL);
     await send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
     if (waiting) await send('Runtime.runIfWaitingForDebugger');
   }
@@ -472,6 +708,7 @@ export class BrowserService {
       s.current = ctx;
       s.denied = undefined;
       s.popups = [];
+      s.callGranted.clear();
       s.touch();
       try {
         return await fn(s);
@@ -522,7 +759,7 @@ export class BrowserService {
   }
 
   async open(ctx: GatewayContext, url: string): Promise<PageSnapshot> {
-    const verdict = navigationVerdict(url, { relayPorts: this.o.relayPorts(), own: this.o.own?.() ?? [], allowed: new Set(), addresses: await this.addresses(url) });
+    const verdict = navigationVerdict(url, { relayPorts: this.ownPorts(), own: this.o.own?.() ?? [], allowed: new Set(), addresses: await this.addresses(url) });
     if (verdict === 'block') throw new Error(refusalText({ url, why: 'blocked' }));
     return this.with(ctx, async (s) => {
       // The answer comes once the page is let through, which may wait for the user's answer.
@@ -543,15 +780,41 @@ export class BrowserService {
     return this.with(ctx, (s) => this.read(s));
   }
 
-  private read(s: BrowserSession): Promise<PageSnapshot> {
-    return s.evaluate<PageSnapshot>(SNAPSHOT_SCRIPT);
+  /**
+   * The page now, read in a new world of our own, whose elements the clicks and typing that follow
+   * use; checked to be what the script gives (the page cannot change it, but a page can be odd).
+   */
+  private async read(s: BrowserSession): Promise<PageSnapshot> {
+    const { executionContextId } = await s.send<{ executionContextId: number }>('Page.createIsolatedWorld', { frameId: s.mainFrame, worldName: 'harness-relay' });
+    const raw = await s.evaluateIn<Record<string, unknown> | undefined>(executionContextId, SNAPSHOT_SCRIPT(s.nextRef));
+    const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
+    const refs = new Map<number, PageRef>();
+    for (const r of Array.isArray(raw?.refs) ? (raw.refs as Record<string, unknown>[]) : []) {
+      const n = Number(r?.ref);
+      const kind = r?.kind;
+      if (!Number.isInteger(n) || n < s.nextRef || (kind !== 'link' && kind !== 'button' && kind !== 'field' && kind !== 'select')) continue;
+      refs.set(n, { kind, label: str(r.label, 120), ...(r.href ? { href: str(r.href, 500) } : {}), ...(r.name ? { name: str(r.name, 100) } : {}) });
+    }
+    s.refsWorld = executionContextId;
+    s.nextRef = Math.max(s.nextRef, ...refs.keys()) + 1;
+    s.refs = refs;
+    this.latestRefs.set(s.convId, refs);
+    return { url: str(raw?.url, 2000), title: str(raw?.title, 300), text: str(raw?.text, SNAPSHOT_MAX), cut: raw?.cut === true };
+  }
+
+  /** What element `ref` of the conversation's latest snapshot is, for the user's question about it; undefined when it is not there. */
+  refInfo(convId: string, ref: number): PageRef | undefined {
+    return this.latestRefs.get(convId)?.get(ref);
   }
 
   async click(ctx: GatewayContext, ref: number): Promise<PageSnapshot> {
     return this.with(ctx, async (s) => {
-      const box = await s.evaluate<{ missing?: boolean; x: number; y: number; w: number; h: number }>(BOX_SCRIPT(ref));
+      if (!s.refs.has(ref)) throw new Error(`There is no element ${ref} in the latest snapshot: take a new snapshot`);
+      const box = await s.inRefsWorld<{ missing?: boolean; covered?: boolean; x: number; y: number; w: number; h: number }>(BOX_SCRIPT(ref));
       if (box.missing) throw new Error(`There is no element ${ref} on the page now: take a new snapshot`);
       if (!box.w && !box.h) throw new Error(`Element ${ref} is not visible`);
+      // A click there would reach what lies over it, not what the user was asked about.
+      if (box.covered) throw new Error(`Element ${ref} is covered by another element of the page: not clicked`);
       const nav = s.cdp.waitFor('Page.frameNavigated', 1500, s.sessionId, (p) => (p.frame as { id?: string } | undefined)?.id === s.mainFrame);
       for (const type of ['mousePressed', 'mouseReleased']) {
         await s.send('Input.dispatchMouseEvent', { type, x: box.x, y: box.y, button: 'left', clickCount: 1 });
@@ -567,7 +830,8 @@ export class BrowserService {
 
   async type(ctx: GatewayContext, ref: number, text: string, submit: boolean): Promise<PageSnapshot> {
     return this.with(ctx, async (s) => {
-      const focused = await s.evaluate<string>(FOCUS_SCRIPT(ref));
+      if (!s.refs.has(ref)) throw new Error(`There is no element ${ref} in the latest snapshot: take a new snapshot`);
+      const focused = await s.inRefsWorld<string>(FOCUS_SCRIPT(ref));
       if (focused === 'missing') throw new Error(`There is no element ${ref} on the page now: take a new snapshot`);
       if (focused !== 'ok') throw new Error(`Element ${ref} cannot be typed into`);
       await s.send('Input.insertText', { text });
@@ -606,6 +870,7 @@ export class BrowserService {
   async close(convId: string, removeProfile = false): Promise<void> {
     const s = this.sessions.get(convId);
     this.sessions.delete(convId);
+    this.latestRefs.delete(convId);
     const session = s && (await s.catch(() => undefined));
     if (session) {
       session.stop();
@@ -617,5 +882,6 @@ export class BrowserService {
 
   closeAll(): void {
     for (const id of [...this.sessions.keys()]) void this.close(id);
+    this.proxy.stop();
   }
 }

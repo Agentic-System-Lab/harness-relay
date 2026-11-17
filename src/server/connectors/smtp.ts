@@ -8,6 +8,9 @@ import { openSocket, STARTTLS_EXTRA, upgrade, type Login, type ServerAddress } f
  * DATA with dot-stuffing, QUIT. Only the user's Send runs it (`outbox.ts`).
  */
 
+/** The most the replies waiting to be read may hold. */
+export const SMTP_MAX_REPLY = 256 * 1024;
+
 /** Reads SMTP replies: a code and its lines, a multi-line reply (`250-…`) read to its last line. */
 class ReplyReader {
   private buf = '';
@@ -16,6 +19,11 @@ class ReplyReader {
   private sock?: Socket;
   private readonly onData = (chunk: Buffer) => {
     this.buf += chunk.toString('utf8');
+    // A reply is a few lines: a server that sends far more is cut off.
+    if (this.buf.length > SMTP_MAX_REPLY) {
+      this.sock?.destroy();
+      this.ended ??= new Error('The mail server sent more than a reply may hold');
+    }
     this.wake();
   };
   private readonly onEnd = () => {
@@ -53,6 +61,7 @@ class ReplyReader {
 
   async next(): Promise<{ code: number; lines: string[] }> {
     const lines: string[] = [];
+    let size = 0;
     for (;;) {
       const eol = this.buf.indexOf('\r\n');
       if (eol < 0) {
@@ -62,6 +71,12 @@ class ReplyReader {
       }
       const line = this.buf.slice(0, eol);
       this.buf = this.buf.slice(eol + 2);
+      // A reply of many lines that never ends is refused once it is too long.
+      size += eol + 2;
+      if (size > SMTP_MAX_REPLY) {
+        this.sock?.destroy();
+        throw new Error('The mail server sent more than a reply may hold');
+      }
       lines.push(line.slice(4));
       if (line[3] !== '-') return { code: Number(line.slice(0, 3)), lines };
     }
