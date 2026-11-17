@@ -80,7 +80,7 @@ export function ConnectorsSettings() {
     <div className="tools-section connectors">
       <h4>{t.connectors.title}</h4>
       <p className="muted small">
-        {t.connectors.hint} {t.tools.secretsIn(t.settings.keyStorageName[view.secretStorage])}
+        {t.connectors.hint} {t.connectors.passwordsIn(t.settings.keyStorageName[view.secretStorage])}
       </p>
       {error && <p className="error-line">{error}</p>}
 

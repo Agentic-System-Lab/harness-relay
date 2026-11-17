@@ -600,6 +600,7 @@ export const en: Messages = {
   connectors: {
     title: 'Mail and calendar accounts',
     hint: "The accounts the Mail and Calendar tools use, over IMAP, SMTP and CalDAV with an app password (most providers offer one in their security settings; Gmail's needs 2-Step Verification). Google Calendar and Microsoft 365 need a sign-in Harness Relay does not have yet.",
+    passwordsIn: (where) => `Passwords are kept in ${where}, and never shown, not even in part.`,
     mail: 'Mail',
     calendar: 'Calendars',
     addMail: 'Add a mail account',
