@@ -472,6 +472,7 @@ const zhTW = {
   scheduleQueueFull: '等待送出的訊息已經滿了',
   scheduleRefused: '自動任務執行時可能沒人看著，已自動拒絕',
   scheduleConvBusy: '對話正在更新設定或套用結果',
+  scheduleFolderWritten: '團隊正在資料夾裡寫，或剛寫完；寫完後的下一次檢查會送出',
   scheduleMissedNote: (when: string) => `自動任務 ${when} 的訊息沒有送出：當時 Harness Relay 沒有在執行。`,
   scheduleSkippedNote: (when: string, why: string) => `自動任務 ${when} 的訊息沒有送出：${why}。`,
   scheduleFailedNote: (when: string, why: string) => `自動任務 ${when} 的訊息無法送出：${why}`,
@@ -516,6 +517,9 @@ const zhTW = {
     `${email} 登入時沒有允許${use === 'mail' ? '郵件' : '行事曆'}：請先在「設定 → 工具庫」為它按「${use === 'mail' ? '用於郵件' : '用於行事曆'}」`,
   oauthMailFixed: '這個郵件帳號是透過登入的帳號使用的，用的是該服務自己的伺服器，不能改成用密碼或其他伺服器：請移除它，再重新加入',
   oauthSignInCancelled: '這次登入已經取消，或是它用的 app 在「設定」裡換掉了',
+  oauthAccountRemoved: '這次登入要用的帳號在登入期間被移除了，所以什麼都沒有改變',
+  oauthOtherAccount: (signedIn: string, meant: string) =>
+    `你登入的是 ${signedIn}，不是 ${meant}：${meant} 沒有改變。要加入另一個帳號，請用「用 … 登入」`,
   oauthSecretNotSaved: (why: string) => `無法把 app 的用戶端密碼存進憑證儲存區：${why}`,
   oauthNotHere: (name: string) => `「${name}」是透過登入的帳號使用的，但這裡無法使用登入的帳號`,
   watchNoAccount: '找不到這個自動任務要檢查的郵件帳號：請到「設定 → 工具庫 → 郵件與行事曆」新增，或重新選一個',
@@ -1277,6 +1281,7 @@ const en: ServerMessages = {
   scheduleQueueFull: 'the queue of waiting messages is full',
   scheduleRefused: 'Refused automatically: nobody may be watching an automation run',
   scheduleConvBusy: 'the conversation is busy with a settings change or an apply',
+  scheduleFolderWritten: 'the team writes in the folder, or just did; sent at the check after it is done',
   scheduleMissedNote: (when) => `The automation's message of ${when} was not sent: Harness Relay was not running then.`,
   scheduleSkippedNote: (when, why) => `The automation's message of ${when} was not sent: ${why}.`,
   scheduleFailedNote: (when, why) => `The automation's message of ${when} could not be sent: ${why}`,
@@ -1328,6 +1333,9 @@ const en: ServerMessages = {
   oauthMailFixed:
     "This mail account is reached through an account that signed in, at its provider's own servers, not with a password or other servers: remove it and add it again",
   oauthSignInCancelled: 'The sign-in was cancelled, or the app it signed in with was changed in Settings',
+  oauthAccountRemoved: 'The account this sign-in was for was removed meanwhile, so nothing was changed',
+  oauthOtherAccount: (signedIn: string, meant: string) =>
+    `You signed in as ${signedIn}, not ${meant}: ${meant} was not changed. To add another account, use Sign in with …`,
   oauthSecretNotSaved: (why) => `The app's client secret could not be saved in the credential store: ${why}`,
   oauthNotHere: (name) => `"${name}" is reached through an account that signed in, which cannot be used here`,
   watchNoAccount:

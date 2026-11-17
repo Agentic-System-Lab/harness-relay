@@ -110,7 +110,7 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
     const a = this.account(accountId);
     if (a.provider !== o.provider) throw new HttpError(400, t().invalidField('account'));
     const uses = OAUTH_USES.filter((u) => o.uses.includes(u) || a.uses.includes(u));
-    return this.signIns.start({ ...rest, provider, uses, loginHint: a.email });
+    return this.signIns.start({ ...rest, provider, uses, loginHint: a.email, forAccount: { id: a.id, subject: a.subject } });
   }
 
   /**
@@ -122,6 +122,13 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
     const who = await s.whoami(signInFetch(s));
     // Cancelled, or its app changed, while who signed in was asked: nothing is kept.
     if (!s.live()) throw new Error(t().oauthSignInCancelled);
+    // Started for one account (Sign in again, Use for …): another one picked on the provider's page, or
+    // this one removed meanwhile, changes nothing (its uses would go to another account, or bring it back).
+    if (s.forAccount) {
+      const meant = this.store.account(s.forAccount.id);
+      if (!meant) throw new Error(t().oauthAccountRemoved);
+      if (who.subject !== s.forAccount.subject) throw new Error(t().oauthOtherAccount(who.email, meant.email));
+    }
     // The account signed in before, for other uses: each of them must still work with the new refresh
     // token, or it would fail at its next request, and mark the whole account as needing a new sign-in.
     // Where a token is for one resource (Microsoft), each earlier use not named gets its own token now,

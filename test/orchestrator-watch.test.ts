@@ -974,8 +974,8 @@ describe('automations that start when something happens', () => {
     const inUse = vi.spyOn(orchestrator, 'folderInUse').mockReturnValue(true);
     now = Date.now() + 120_000;
     await s().check(conv.id);
-    // Only recorded, but why the files wait is still said.
-    expect(w(conv)!.held).toBe('waits for your answer');
+    // Only recorded, but why the files wait is still said: no longer the answer it waited for, but the team's writing.
+    expect(w(conv)!.held).toBe('the team writes in the folder, or just did; sent at the check after it is done');
     expect(Object.keys(w(conv)!.heldFiles!).sort()).toEqual(['a.pdf', 'b.pdf']);
     inUse.mockRestore();
     now = Date.now() + 180_000;

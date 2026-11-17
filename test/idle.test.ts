@@ -19,6 +19,7 @@ import { validateMailAccount } from '../src/server/validate';
 import { nextCheckAt, triggerKey } from '../src/server/watch';
 import { WATCH_LIMITS, type ScheduleTrigger } from '../src/shared/types';
 import { fakeImap, type FakeImap, type FakeMessage } from './fake-mail-servers';
+import { slow } from './timeouts';
 
 const mail = (uid: number): FakeMessage => ({ uid, raw: `From: a@example.com\r\nSubject: ${uid}\r\n\r\nHi\r\n` });
 
@@ -422,5 +423,22 @@ describe('the IDLE connections of automations that wait for new mail', () => {
     } finally {
       silent.close();
     }
+  });
+
+  it("takes a password account's BYE after a whole round as a failure, said and waited for (only a token's session ends with its token)", async () => {
+    server = await fakeImap([mail(1)]);
+    server.idle = true;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    let clock = 0;
+    start({ watching: () => [{ conversationId: 'c1', trigger: inbox }], backoffMs: [60_000], now: () => clock });
+    await vi.waitFor(() => expect(server!.idling).toBe(1));
+    // A whole round's while (30 s here), then the server ends the session.
+    clock += 31_000;
+    server.bye('Session invalidated');
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1));
+    expect(String(warn.mock.calls[0]![0])).toContain('Session invalidated');
+    await sleep(slow(200));
+    expect(logins()).toBe(1);
+    expect(server.idling).toBe(0);
   });
 });

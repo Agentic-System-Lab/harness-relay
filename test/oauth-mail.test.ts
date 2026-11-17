@@ -293,6 +293,23 @@ describe('XOAUTH2 in the IMAP and SMTP clients', () => {
       expect(await sendMail(local(asks.port), login, envelope, 'Subject: hi\r\n\r\nHello', slow(2000))).toBe('OK queued as FAKE123');
       expect(asks.lines.slice(1, 3)).toEqual([`AUTH XOAUTH2 ${xoauth2(user, 'good-token')}`, xoauth2(user, 'good-token')]);
       expect(asks.sent).toHaveLength(1);
+      // A server that keeps asking with an empty 334 gets the token twice at most (with the command, and once
+      // more), then an empty line, and is given up on; one that said why first never gets it again after.
+      const token = xoauth2(user, 'good-token');
+      const sends = (lines: string[]) => lines.filter((l) => l.endsWith(token)).length;
+      for (const [keepsAsking, times, after] of [
+        ['empty', 2, [token, '']],
+        ['reason', 1, ['']],
+      ] as const) {
+        const asking = await servers(fakeSmtp(undefined, { bearer: good, keepsAsking }));
+        await expect(sendMail(local(asking.port), login, envelope, 'Subject: hi\r\n\r\nHello', slow(2000))).rejects.toThrow(
+          /^The mail server did not finish the sign-in with the token: /,
+        );
+        expect(sends(asking.lines)).toBe(times);
+        expect(asking.lines.slice(2, 2 + after.length)).toEqual(after);
+        expect(asking.lines).toHaveLength(2 + after.length);
+        expect(asking.sent).toEqual([]);
+      }
 
       // IMAP: a NO before the token was sent is a server that does not take one: said, and not renewed.
       const noXoauth2 = await servers(fakeImap([]));
@@ -592,6 +609,44 @@ describe('a Microsoft sign-in for mail', () => {
       await expect(service.startSignIn({ provider: 'microsoft', uses: ['mail'], account: 'nobody', port: 8787 })).rejects.toMatchObject({
         status: 404,
       });
+    }));
+
+  it('keeps a sign-in started for one account for it alone: another one picked on the page, or the account removed meanwhile, changes nothing', () =>
+    withLang('en', async () => {
+      const id = (await signIn(['calendar'])).account!.id;
+      const useForMail = () =>
+        service.startSignIn({
+          provider: 'microsoft',
+          uses: ['mail'],
+          account: id,
+          session: 's1',
+          origin: 'http://127.0.0.1:8787',
+          port: 8787,
+        });
+      // Use for mail, and another identity picked in Microsoft's account picker.
+      const started = await useForMail();
+      const me = fake.me;
+      fake.me = { id: 'subject-other', displayName: 'Other', mail: 'other@contoso.com' };
+      const other = await service.signIns.callback(callbackParams(fake.allow(started.authorizeUrl!)));
+      fake.me = me;
+      expect(other).toMatchObject({
+        status: 'failed',
+        error:
+          'You signed in as other@contoso.com, not ming@contoso.com: ming@contoso.com was not changed. To add another account, use Sign in with …',
+      });
+      expect(service.view().accounts).toEqual([expect.objectContaining({ id, email: 'ming@contoso.com', uses: ['calendar'] })]);
+      expect(connectors.view().mail).toEqual([]);
+
+      // Removed while its page was still open: not brought back.
+      const again = await useForMail();
+      await service.removeAccount(id);
+      const gone = await service.signIns.callback(callbackParams(fake.allow(again.authorizeUrl!)));
+      expect(gone).toMatchObject({
+        status: 'failed',
+        error: 'The account this sign-in was for was removed meanwhile, so nothing was changed',
+      });
+      expect(service.view().accounts).toEqual([]);
+      expect(connectors.view().mail).toEqual([]);
     }));
 
   it('adds the mail account and the calendar only at the first sign-in for them: one removed since stays removed, and is added by hand under a free name', async () => {
