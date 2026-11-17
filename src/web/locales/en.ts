@@ -2121,9 +2121,9 @@ export const en: Messages = {
       },
       {
         title: 'Automations',
-        body: 'New automation, the button with a lightning bolt beside New chat at the top left of the sidebar, sends a team a message as if you had sent it, whenever something starts it: you, set times, something that happens (a new mail, an event about to begin, a pull request, a file), or a program. Write the message, pick how it starts, and the lead agent designs its team. For a chat you already have, use Automation in its header (under ⋯ on a phone):',
+        body: 'New automation, the button with a lightning bolt beside New chat at the top left of the sidebar, sends a team a message as if you had sent it, whenever something starts it: you, set times, something that happens, or a program. Write the message, pick how it starts, and the lead agent designs its team. For a chat you already have, use Automation in its header (under ⋯ on a phone):',
         points: [
-          'It starts when you click "Run once now", at set times (once, every day, every week on the days you pick, or every few hours), when something happens (a new mail, an event about to begin, a pull request or a failed CI run on GitHub, a file in the working directory; Harness Relay checks it itself), or when a program calls its webhook; a new one has no set times',
+          'It starts when you click "Run once now", at set times (once, every day, every week on the days you pick, or every few hours), when something happens (a new mail, an event, a pull request or failed CI, a file), or when a program calls its webhook; a new one has no set times',
           'Tick "Start a new chat each time" to begin every run in a fresh chat with the same team and settings',
           'Nobody may be watching: by default anything beyond the file permission is refused (unless you always allow it in this chat) and the agent works around it; or choose "Ask me"',
           'It sends only while Harness Relay runs: a missed time is skipped, or sent once when it starts if you choose',

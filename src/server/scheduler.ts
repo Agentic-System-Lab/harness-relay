@@ -1,4 +1,4 @@
-import type { Conversation, ConversationSchedule, ScheduleResult, ScheduleWatch, WatchState } from '../shared/types';
+import type { Conversation, ConversationSchedule, ScheduleResult, ScheduleTrigger, ScheduleWatch, WatchState } from '../shared/types';
 import { nextRun } from '../shared/schedule';
 import { HttpError } from './errors';
 import { t, withLang } from './i18n';
@@ -75,7 +75,7 @@ export class Scheduler {
    * Whether the mail server tells Harness Relay when mail arrives for this automation (IMAP IDLE,
    * `idle.ts`): its checks then come more slowly, since one comes at once when mail arrives.
    */
-  listening?: (convId: string) => boolean;
+  listening?: (convId: string, trigger: ScheduleTrigger) => boolean;
 
   constructor(
     private store: Store,
@@ -187,24 +187,34 @@ export class Scheduler {
     // Something found earlier still waits for a team that cannot take it: the source is not asked
     // again (nor the same mail downloaded) until the team can. The user's own check always asks it.
     const hold = prev?.held && !force ? withLang(s.lang, () => this.orchestrator.scheduledHold(convId)) : undefined;
+    // The team writes in the folder now, or did since the last check: only recorded.
+    const files = trigger.source === 'file';
+    const writing = files && this.orchestrator.folderInUse(convId);
+    /** Someone writes in the folder while nothing is recorded (held, a failed check): what is written is the team's. */
+    const wrote = writing ? { teamWrote: true } : {};
     if (prev && hold) {
       const { listening: _l, ...rest } = prev;
-      const listening = this.listening?.(convId) ?? false;
+      const listening = this.listening?.(convId, trigger) ?? false;
       return this.keepWatch(conv, s, {
         ...rest,
         checkedAt: started,
         nextCheckAt: nextCheckAt(started),
         held: hold,
+        ...wrote,
         ...(listening ? { listening } : {}),
       });
     }
-    // The team writes in the folder now, or did since the last check: only recorded.
-    const files = trigger.source === 'file';
-    const writing = files && this.orchestrator.folderInUse(convId);
     const recordOnly = files && (writing || Boolean(prev?.teamWrote));
     let found: WatchCheck;
     try {
-      found = await withLang(s.lang, () => this.checkTrigger!(trigger, prev, { cwd: conv.settings.cwd, now: started, recordOnly }));
+      found = await withLang(s.lang, () =>
+        this.checkTrigger!(trigger, prev, {
+          cwd: conv.settings.cwd,
+          now: started,
+          recordOnly,
+          ...(prev?.heldFiles ? { held: prev.heldFiles } : {}),
+        }),
+      );
     } catch (err) {
       if (this.stopped || conv.schedule !== s) return;
       const failures = (prev?.failures ?? 0) + 1;
@@ -216,13 +226,14 @@ export class Scheduler {
         nextCheckAt: nextCheckAt(this.now(), failures),
         error: (err as Error).message || String(err),
         failures,
+        ...wrote,
       });
     }
     // Changed or removed while it was checked: the new one starts afresh.
     if (this.stopped || conv.schedule !== s) return;
     // A run that began while the files were looked at writes there too.
     const busy = writing || (files && this.orchestrator.folderInUse(convId));
-    const listening = this.listening?.(convId) ?? false;
+    const listening = this.listening?.(convId, trigger) ?? false;
     const seen: ScheduleWatch = {
       key,
       ...keptState(found.state),
@@ -231,8 +242,12 @@ export class Scheduler {
       nextCheckAt: nextCheckAt(this.now(), 0, listening),
       ...(listening ? { listening } : {}),
       ...(busy ? { teamWrote: true } : {}),
+      // What was held for the team stays held while only recorded: it is listed once the folder is free.
+      ...(recordOnly && prev?.heldFiles ? { heldFiles: prev.heldFiles } : {}),
     };
-    if (!found.event || recordOnly || busy) return this.keepWatch(conv, s, seen);
+    // A run that began during this look did not write what was found (every file listed had not
+    // changed for a while): sent all the same, queued for the team.
+    if (!found.event || recordOnly) return this.keepWatch(conv, s, seen);
     const now = this.now();
     await withLang(s.lang, async () => {
       const sent = await this.orchestrator.sendScheduled(convId, now, { event: found.event, eventSource: trigger.source });
@@ -249,6 +264,9 @@ export class Scheduler {
           nextCheckAt: nextCheckAt(this.now()),
           ...(listening ? { listening } : {}),
           held: sent.reason ?? t().scheduleBusy,
+          // The files it found, as they are now: kept unseen through what the team writes meanwhile.
+          ...(found.found ? { heldFiles: found.found } : {}),
+          ...(busy ? { teamWrote: true } : {}),
         });
       }
       // The message went (or could not start): what it was about counts as seen, also when the

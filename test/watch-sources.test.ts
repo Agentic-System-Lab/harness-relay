@@ -684,6 +684,9 @@ describe('a file appearing or changing in the working directory', () => {
       // Named, a bulky folder is looked in; `.git` never is.
       const named = await checkFiles({ source: 'file', pattern: 'node_modules/**/*.log' }, undefined, dir, LATER);
       expect(Object.keys(named.state.files!)).toEqual(['node_modules/pkg/d.log']);
+      // Named after `**` too.
+      const deep = await checkFiles({ source: 'file', pattern: '**/node_modules/*/*.log' }, undefined, dir, LATER);
+      expect(Object.keys(deep.state.files!)).toEqual(['node_modules/pkg/d.log']);
       expect((await checkFiles({ source: 'file', pattern: '.git/*.log' }, undefined, dir, LATER)).state.files).toEqual({});
       // Through a link: nothing.
       expect((await checkFiles({ source: 'file', pattern: 'link/*.log' }, undefined, dir, LATER)).state.files).toEqual({});
@@ -746,6 +749,42 @@ describe('a file appearing or changing in the working directory', () => {
     expect(slashed('C:\\Users\\me\\project', '\\')).toBe('C:/Users/me/project');
     expect(slashed('/home/me/project', '/')).toBe('/home/me/project');
     expect(slashed(['a', 'b'].join(sep))).toBe('a/b');
+  });
+
+  it('records what the team writes whatever its times, keeping a file held for it unseen while it is as it was', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'relay-watch-'));
+    file('inbox/held.pdf', 'from outside', NOW - 10 * MIN);
+    file('inbox/a.pdf', 'old one', NOW - 60 * MIN);
+    const trigger: Extract<ScheduleTrigger, { source: 'file' }> = { source: 'file', pattern: '**/*.pdf' };
+    const prev = kept(trigger, { files: { 'inbox/a.pdf': `${NOW - 60 * MIN}:7` }, filesIn: dir });
+    // A check found held.pdf and held it for the team: its stamp then.
+    const held = { 'inbox/held.pdf': `${NOW - 10 * MIN}:12` };
+    // The team moves a.pdf (an old time kept) and writes team.pdf with a time older than the hold.
+    rmSync(join(dir, 'inbox', 'a.pdf'));
+    file('done/a.pdf', 'old one', NOW - 60 * MIN);
+    file('team.pdf', 'the team wrote it', NOW - 20 * MIN);
+    const only = await checkFiles(trigger, prev, dir, NOW + MIN, true, held);
+    expect(only).toEqual({
+      state: { files: { 'done/a.pdf': `${NOW - 60 * MIN}:7`, 'team.pdf': `${NOW - 20 * MIN}:17` }, filesIn: dir },
+      total: 0,
+    });
+    // The next check with the folder free lists the held file only.
+    const later = await checkFiles(trigger, kept(trigger, only.state), dir, NOW + 2 * MIN);
+    expect(JSON.parse(later.event!).files.map((f: { path: string }) => f.path)).toEqual(['inbox/held.pdf']);
+    expect(later.found).toEqual(held);
+    // Changed since it was held: the team's now, recorded.
+    file('inbox/held.pdf', 'the team edited it', NOW + MIN);
+    const edited = await checkFiles(trigger, prev, dir, NOW + 2 * MIN, true, held);
+    expect(edited.state.files!['inbox/held.pdf']).toBe(`${NOW + MIN}:18`);
+  });
+
+  it("takes a file whose time is far ahead of this computer's clock as settled", async () => {
+    dir = mkdtempSync(join(tmpdir(), 'relay-watch-'));
+    const trigger: Extract<ScheduleTrigger, { source: 'file' }> = { source: 'file', pattern: '*.zip' };
+    const first = await checkFiles(trigger, undefined, dir, NOW);
+    file('future.zip', 'from a NAS ahead of us', NOW + 3 * 3_600_000);
+    const found = await checkFiles(trigger, kept(trigger, first.state), dir, NOW);
+    expect(found.total).toBe(1);
   });
 
   it('turns a pattern into a match of paths with /, in any case', () => {
@@ -820,7 +859,7 @@ describe('what the sources are keyed by, and how they are checked when saved', (
       kind: 'event',
       trigger: { source: 'file', pattern: 'reports/*.csv' },
     });
-    for (const pattern of ['', './', '/etc/passwd', 'C:\\x', '../up/*.txt', 'a/../../b'])
+    for (const pattern of ['', './', '/etc/passwd', 'C:\\x', '../up/*.txt', 'a/../../b', 'reports/', '.git/*.log', 'a/.GIT/x'])
       expect(() => save({ source: 'file', pattern })).toThrow();
     expect(() => save({ source: 'rss', url: 'x' })).toThrow('What to wait for is not complete');
   });

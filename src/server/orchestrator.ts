@@ -1802,7 +1802,9 @@ export class Orchestrator {
   folderInUse(convId: string): boolean {
     const conv = this.store.get(convId);
     if (!conv) return false;
-    if (this.runs.has(convId) || this.starting.has(convId) || this.reserved.has(convId)) return true;
+    // Its own run writes in the folder only in edit mode outside parallel (whose members work in worktrees); a change being applied does.
+    const writes = conv.settings.permission !== 'read-only' && conv.settings.mode !== 'parallel';
+    if ((writes && (this.runs.has(convId) || this.starting.has(convId))) || this.reserved.has(convId)) return true;
     return this.lockedFolder(conv) !== undefined;
   }
 

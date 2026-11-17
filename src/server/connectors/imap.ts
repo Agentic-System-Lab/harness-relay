@@ -241,6 +241,16 @@ class ResponseReader {
 /** The server refused the user name and password (LOGIN), or the token (XOAUTH2): trying again soon with the same will not help. */
 export class ImapLoginError extends Error {}
 
+/** A command answered NO or BAD: `status` is the whole answer after the tag. */
+export class ImapStatusError extends Error {
+  constructor(
+    message: string,
+    readonly status: string,
+  ) {
+    super(message);
+  }
+}
+
 /** The server refused IDLE although it may list it: waiting for mail that way will not work there. */
 export class IdleRefusedError extends Error {}
 
@@ -274,13 +284,18 @@ export class ImapClient {
         c.sock = await upgrade(c.sock as Socket, addr.host, timeoutMs);
         c.reader.attach(c.sock);
       }
+      // Refused (a tagged NO, but not "try later"): trying again soon will not help. A time-out or a
+      // dropped connection is no refusal.
+      const refused = (err: Error) => err instanceof ImapStatusError && /^NO\b/i.test(err.status) && !/\[UNAVAILABLE\]/i.test(err.status);
       if ('token' in login)
         await c.authenticate(login.username, login.token).catch((err: Error) => {
-          throw new ImapLoginError(t().conn.mailTokenRefused(err.message));
+          const msg = t().conn.mailTokenRefused(err.message);
+          throw refused(err) ? new ImapLoginError(msg) : new Error(msg);
         });
       else
         await c.command(`LOGIN ${quote(login.username)} ${quote(login.password)}`).catch((err: Error) => {
-          throw new ImapLoginError(t().conn.mailLogin(err.message));
+          const msg = t().conn.mailLogin(err.message);
+          throw refused(err) ? new ImapLoginError(msg) : new Error(msg);
         });
       const caps = await c.command('CAPABILITY');
       for (const r of caps.untagged) {
@@ -306,7 +321,10 @@ export class ImapClient {
     for (;;) {
       const r = await this.timed(this.reader.next());
       if (r.text.startsWith('+')) break;
-      if (r.text.startsWith(`${tag} `)) throw new Error(r.text.slice(tag.length + 1).replace(/^(NO|BAD)\s*/i, ''));
+      if (r.text.startsWith(`${tag} `)) {
+        const status = r.text.slice(tag.length + 1);
+        throw new ImapStatusError(status.replace(/^(NO|BAD)\s*/i, ''), status);
+      }
     }
     this.sock.write(`${initial}\r\n`);
     let detail = '';
@@ -323,7 +341,7 @@ export class ImapClient {
       if (!r.text.startsWith(`${tag} `)) continue;
       const status = r.text.slice(tag.length + 1);
       if (/^OK/i.test(status)) return;
-      throw new Error([status.replace(/^(NO|BAD)\s*/i, '') || status, detail && `(${detail})`].filter(Boolean).join(' '));
+      throw new ImapStatusError([status.replace(/^(NO|BAD)\s*/i, '') || status, detail && `(${detail})`].filter(Boolean).join(' '), status);
     }
   }
 
@@ -381,7 +399,7 @@ export class ImapClient {
         continue;
       }
       const status = r.text.slice(tag.length + 1);
-      if (!/^OK/i.test(status)) throw new Error(status.replace(/^(NO|BAD)\s*/i, '') || status);
+      if (!/^OK/i.test(status)) throw new ImapStatusError(status.replace(/^(NO|BAD)\s*/i, '') || status, status);
       return { untagged, status };
     }
   }

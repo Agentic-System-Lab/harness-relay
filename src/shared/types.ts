@@ -1501,6 +1501,13 @@ export interface ScheduleWatch {
    * what changed there is the team's own, so the next check with the folder free only records too.
    */
   teamWrote?: boolean;
+  /**
+   * `file`: the files a check found and held for the team (it could not take them), as they were
+   * then: while they stay so, a check that only records (the team writes) keeps them unseen, so that
+   * they are still listed once the folder is free. No clock is compared: what the team moves, renames
+   * or extracts keeps an old time, and is its own all the same.
+   */
+  heldFiles?: Record<string, string>;
   /** The last check failed: why, and how many checks failed in a row (they come slower). */
   error?: string;
   failures?: number;
