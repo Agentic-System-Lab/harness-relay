@@ -1558,8 +1558,8 @@ export const zhTW = {
       browsers: '已登入的瀏覽器',
       tour: '使用導覽',
       /** One entry for every agent's card: a menu of them; while one is read, its name too. */
-      agents: 'Agent',
-      agentsAt: (name: string) => `Agent：${name}`,
+      agents: 'Agents',
+      agentsAt: (name: string) => `Agents：${name}`,
       /** The open-source agents' heading in that menu. */
       openAgents: '開源 agent',
     },
