@@ -143,8 +143,8 @@ export class Scheduler {
     const prev = s.watch?.key === key && s.enabled ? s.watch : undefined;
     const started = this.now();
     // Something found earlier still waits for a team that cannot take it: the source is not asked
-    // again (nor the same mail downloaded) until the team can.
-    const hold = prev?.held ? this.orchestrator.scheduledHold(convId) : undefined;
+    // again (nor the same mail downloaded) until the team can. The user's own check always asks it.
+    const hold = prev?.held && !force ? withLang(s.lang, () => this.orchestrator.scheduledHold(convId)) : undefined;
     if (prev && hold) return this.keepWatch(conv, s, { ...prev, checkedAt: started, nextCheckAt: nextCheckAt(started), held: hold });
     let found: WatchCheck;
     try {
@@ -170,6 +170,7 @@ export class Scheduler {
       ...(uidValidity !== undefined ? { uidValidity } : {}),
       ...(lastUid !== undefined ? { lastUid } : {}),
       checkedAt: started,
+      seenAt: started,
       nextCheckAt: nextCheckAt(this.now()),
     };
     if (!found.event) return this.keepWatch(conv, s, seen);

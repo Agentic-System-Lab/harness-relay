@@ -108,6 +108,7 @@ describe('automations that start when something happens', () => {
       uidValidity: 1,
       lastUid: 5,
       checkedAt: T0,
+      seenAt: T0,
       nextCheckAt: T0 + WATCH_LIMITS.checkMinutes * MIN,
     });
     // Not yet due again.
@@ -354,5 +355,30 @@ describe('automations that start when something happens', () => {
     await scheduler().watchTick();
     await finish(conv.id);
     expect(scheduled(conv)).toHaveLength(1);
+  });
+
+  it("asks the source on the user's own check while mail is held, in the automation's language, and keeps when mail was last seen", async () => {
+    reset();
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    watching(conv, { lang: 'en' });
+    newMail(5, 6);
+    await scheduler().watchTick();
+    expect(conv.schedule!.watch!.seenAt).toBe(T0);
+    let release!: () => void;
+    const held = orchestrator.exclusive(conv.id, 'busy', () => new Promise<void>((r) => (release = r)));
+    now = T0 + WATCH_LIMITS.checkMinutes * MIN;
+    await scheduler().watchTick();
+    expect(given).toHaveLength(2);
+    // The shortcut's reason is in the automation's language (English here), and when mail was last seen stays.
+    now += WATCH_LIMITS.checkMinutes * MIN;
+    await scheduler().watchTick();
+    expect(given).toHaveLength(2);
+    expect(conv.schedule!.watch!.held).toMatch(/^[\x00-\x7F]+$/);
+    expect(conv.schedule!.watch!.seenAt).toBe(T0);
+    // Check now asks the source all the same.
+    await scheduler().check(conv.id, true);
+    expect(given).toHaveLength(3);
+    release();
+    await held;
   });
 });

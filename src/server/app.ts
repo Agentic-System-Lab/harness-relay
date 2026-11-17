@@ -1195,7 +1195,8 @@ export function createApp({
     const now = Date.now();
     // The schedule first: creating a missing working directory is a side effect.
     const update = validateSchedule(b.schedule, now);
-    refuseMissingTrigger(update);
+    // A new automation names an account that is there, on or off.
+    refuseMissingTrigger(update, true);
     refuseRelayFolderFirst(b.settings, defaultCwds());
     const s = validateSettings({ ...(b.settings ?? {}), autoTeam: true }, defaultCwds(), b.createCwd === true);
     const conv: Conversation = {
@@ -1345,9 +1346,9 @@ export function createApp({
   });
 
   /** An automation that starts when something happens, when it is on, waits for something that is there: a mail account from Settings. */
-  const refuseMissingTrigger = (update: ScheduleUpdate) => {
+  const refuseMissingTrigger = (update: ScheduleUpdate, always = false) => {
     // Turned off, it checks nothing: an automation whose account went can still be paused.
-    if (update.enabled && update.repeat.kind === 'event' && !settings.connectors.mailById(update.repeat.trigger.account))
+    if ((update.enabled || always) && update.repeat.kind === 'event' && !settings.connectors.mailById(update.repeat.trigger.account))
       throw new HttpError(400, t().watchNoAccount);
   };
 

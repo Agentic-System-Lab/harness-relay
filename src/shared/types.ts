@@ -1364,6 +1364,12 @@ export interface ScheduleWatch {
   key: string;
   nextCheckAt: number;
   checkedAt?: number;
+  /**
+   * When what it keeps of its source (`lastUid`) was last recorded as seen: a check that found nothing
+   * new, or whose message went. Held or failing checks leave it, so mail they could not send is still
+   * new mail later, however long it waited.
+   */
+  seenAt?: number;
   uidValidity?: number;
   lastUid?: number;
   /** The last check failed: why, and how many checks failed in a row (they come slower). */

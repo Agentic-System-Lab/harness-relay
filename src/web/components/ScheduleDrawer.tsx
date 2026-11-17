@@ -141,7 +141,9 @@ export function ScheduleDrawer({
       const after = await api.checkSchedule(conv.id);
       const w = after?.watch;
       if (w?.error) setError(t.schedule.watch.error(w.error));
-      else setInfo(w?.checkedAt ? `${t.schedule.watch.done} · ${watchState(w, t, lang)}` : t.schedule.watch.done);
+      // Off: no next check to name.
+      else if (w?.checkedAt) setInfo(after?.enabled ? watchState(w, t, lang) : t.schedule.watch.checked(formatWhen(w.checkedAt, lang)));
+      else setInfo(t.schedule.watch.done);
     } catch (e) {
       setError((e as Error).message);
     } finally {

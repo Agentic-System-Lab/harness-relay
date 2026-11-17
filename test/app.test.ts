@@ -2964,6 +2964,12 @@ describe('schedules', () => {
     });
     expect(fresh.status).toBe(400);
     expect(((await fresh.json()) as { error: string }).error).toMatch(/mail account this automation checks is gone/);
+    // Off, too: a new one names an account that is there.
+    const freshOff = await req('/api/schedules', 'POST', {
+      schedule: { ...watch('gone'), enabled: false },
+      settings: { mode: 'roundtable', permission: 'read-only', cwd: project },
+    });
+    expect(freshOff.status).toBe(400);
 
     // An automation with times has nothing to check.
     await req(`/api/conversations/${conv.id}/schedule`, 'PUT', valid);

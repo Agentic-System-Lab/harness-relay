@@ -875,16 +875,6 @@ export class Orchestrator {
   }
 
   /**
-   * The conversation's schedule came due (or the user ran it now): send its message to the team as if
-   * the user had, marked `scheduled`. While the team replies it waits in the queue like any message.
-   * It is held back (`skipped`) when the team cannot take it: no confirmed team, an agent's question
-   * waiting for the user's answer (the message would count as the answer), an earlier scheduled
-   * message still waiting for the team, or a full queue. An earlier one left waiting while nothing
-   * runs (the team was stopped, or the server restarted) is sent now instead, once. The run it starts
-   * refuses approval requests unless the schedule asks. A schedule that opens a new conversation each
-   * time sends it there (`sendInNewChat`); `at` is the time it came due, which names that conversation.
-   */
-  /**
    * Why the team could not take a scheduled message now (`sendScheduled` would answer busy or
    * skipped), or undefined when it could: asked before an automation that starts when something
    * happens reads again what it holds for the team, so that a team waiting for the user is not the
@@ -907,6 +897,16 @@ export class Orchestrator {
     return this.folderLockedBy(conv);
   }
 
+  /**
+   * The conversation's schedule came due (or the user ran it now): send its message to the team as if
+   * the user had, marked `scheduled`. While the team replies it waits in the queue like any message.
+   * It is held back (`skipped`) when the team cannot take it: no confirmed team, an agent's question
+   * waiting for the user's answer (the message would count as the answer), an earlier scheduled
+   * message still waiting for the team, or a full queue. An earlier one left waiting while nothing
+   * runs (the team was stopped, or the server restarted) is sent now instead, once. The run it starts
+   * refuses approval requests unless the schedule asks. A schedule that opens a new conversation each
+   * time sends it there (`sendInNewChat`); `at` is the time it came due, which names that conversation.
+   */
   async sendScheduled(
     convId: string,
     at = Date.now(),

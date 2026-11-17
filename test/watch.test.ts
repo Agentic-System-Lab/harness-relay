@@ -47,10 +47,11 @@ function accounts(port: number): ConnectorStore {
 
 const inbox: Extract<ScheduleTrigger, { source: 'mail' }> = { source: 'mail', account: 'work', folder: 'INBOX' };
 /** What a check found, kept as the scheduler keeps it. */
-const kept = (state: Pick<ScheduleWatch, 'uidValidity' | 'lastUid'>, checkedAt?: number): ScheduleWatch => ({
+const kept = (state: Pick<ScheduleWatch, 'uidValidity' | 'lastUid'>, seenAt?: number, checkedAt?: number): ScheduleWatch => ({
   key: triggerKey(inbox),
   nextCheckAt: 0,
   ...state,
+  ...(seenAt !== undefined ? { seenAt } : {}),
   ...(checkedAt !== undefined ? { checkedAt } : {}),
 });
 
@@ -244,5 +245,30 @@ describe('the new-mail source', () => {
     // The newest kept.
     expect(event.mails.at(-1).uid).toBe(WATCH_LIMITS.items);
     expect(event.listed).toBe(`the newest ${event.mails.length}`);
+  });
+
+  it('still finds mail that waited more than a day (held, or checks failing): old by when mail was last seen, not checked', async () => {
+    const messages = [mail(1, 'Old <old@example.com>', 'Old')];
+    server = await fakeImap(messages);
+    const connectors = accounts(server.port);
+    const first = await checkMail(inbox, undefined, connectors);
+    // Seen on Friday at 18:58; a mail at 19:00 held for the team, checked again (and again) until Monday.
+    const friday = Date.UTC(2026, 0, 9, 18, 58);
+    const monday = Date.UTC(2026, 0, 12, 9, 0);
+    messages.push({ ...mail(2, 'Bob <bob@example.com>', 'Friday evening'), internalDate: '09-Jan-2026 19:00:00 +0000' });
+    const found = await checkMail(inbox, kept(first.state, friday, monday), connectors);
+    expect(JSON.parse(found.event!).mails.map((m: { uid: number }) => m.uid)).toEqual([2]);
+  });
+
+  it("cuts a sender's long headers at 300 characters", async () => {
+    const messages = [mail(1, 'Old <old@example.com>', 'Old')];
+    server = await fakeImap(messages);
+    const connectors = accounts(server.port);
+    const first = await checkMail(inbox, undefined, connectors);
+    messages.push(mail(2, `${'B'.repeat(500)} <b@example.com>`, 'S'.repeat(400)));
+    const found = await checkMail(inbox, kept(first.state), connectors);
+    const listed = JSON.parse(found.event!).mails[0] as { from: string; subject: string };
+    expect(listed.from).toBe(`${'B'.repeat(300)}…`);
+    expect(listed.subject).toBe(`${'S'.repeat(300)}…`);
   });
 });

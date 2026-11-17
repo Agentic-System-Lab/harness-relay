@@ -409,7 +409,7 @@ web app manifest，以及手機放到主畫面（或瀏覽器為安裝的 App �
 | `DELETE /api/conversations/:id/schedule` | → `{ ok }`：刪除排程 |
 | `POST /api/conversations/:id/schedule/design` | → `202` `{ ok }`：請首席 agent 為排程的訊息組隊（再一次，例如組隊被停止之後），和 `POST /api/schedules` 一樣。沒有排程為 404；對話沒有自動組隊為 400；已經有團隊、執行中或有團隊設計在等確認時為 409 |
 | `POST /api/conversations/:id/schedule/run` | → `202` `{ ok, queued, chatId? }`：現在就送出排程的訊息，和到期時一樣（團隊回覆中會放進佇列；`chatId`：設了 `newChat` 的排程開的新對話）；排程的時間不變。沒有排程為 404；先不送（團隊在等回答、還沒確認團隊，或先前的排程訊息還在等待）、對話正忙（設定變更、套用、另一個對話正在修改同一個資料夾）或無法開始時為 409，並附上原因 |
-| `POST /api/conversations/:id/schedule/check` | `{}` → `ConversationSchedule`（期間被移除時是 `null`）：馬上檢查當某件事發生時才啟動的自動任務在等的事（關著時也可以），有新東西時送出它的訊息；第一次檢查只記下已經在的。其他種類的排程回 `409` |
+| `POST /api/conversations/:id/schedule/check` | `{}` → `ConversationSchedule`（期間被移除時是 `null`）：馬上檢查當某件事發生時才啟動的自動任務在等的事，有新東西時送出它的訊息（一定會詢問來源，新郵件在等團隊時也一樣）；自動任務關閉時只記下已經在的，和第一次檢查一樣。其他種類的排程回 `409`，沒有排程器的伺服器回 `503` |
 | `POST /api/conversations/:id/schedule/hook` | `{}` → `{ token, url, hook, platform }`（`platform`：伺服器的作業系統，決定範例用哪個 shell）：為排程建立 webhook（新的權杖會取代舊的）；權杖只回傳這一次，只保留它的 SHA-256。沒有排程時 `409` |
 | `DELETE /api/conversations/:id/schedule/hook` | → `{ ok }`：移除排程的 webhook |
 | `POST /api/hooks/:id` | `Authorization: Bearer <權杖>`，最多 20 KB 的 JSON 內容 → `202` `{ ok, queued, chatId? }`：這台電腦上的程式現在送出排程的訊息，內容存成 `event` 一起送。唯一不需要瀏覽器登入的路由：沒有權杖、權杖錯誤或沒有排程都是 `404`；內容更大是 `413`，距離上次呼叫不到 10 秒是 `429`，對話現在無法接收（附原因），或追蹤的目標已達成而排程已關閉是 `409` |

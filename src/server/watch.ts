@@ -93,8 +93,9 @@ const MAX_HEADERS = 200;
 /** The most characters of a sender, subject, date or Message-ID listed: the sender writes them. */
 const MAX_HEADER_CHARS = 300;
 /**
- * How much older than the last check a new UID's mail may have arrived (its INTERNALDATE) and still
- * count as new: old mail moved into the folder (from an archive, say) gets new UIDs, but keeps when it
+ * How much older than the last time mail was recorded as seen (`seenAt`, not the last check: held or
+ * failing checks do not record) a new UID's mail may have arrived (its INTERNALDATE) and still count
+ * as new: old mail moved into the folder (from an archive, say) gets new UIDs, but keeps when it
  * arrived; a day covers clocks that disagree, and mail a server takes in late.
  */
 const MOVED_MS = 86_400_000;
@@ -150,7 +151,7 @@ export async function checkMail(
     const state = { ...(uidValidity !== undefined ? { uidValidity } : {}), lastUid };
     const read = uids.slice(-MAX_HEADERS);
     const heads = await c.command(`UID FETCH ${read.join(',')} (UID INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)])`);
-    const movedBefore = prev.checkedAt !== undefined ? prev.checkedAt - MOVED_MS : undefined;
+    const movedBefore = prev.seenAt !== undefined ? prev.seenAt - MOVED_MS : undefined;
     const matching = heads.untagged
       .map(parseFetch)
       .filter((f) => f.uid !== undefined && f.uid > since)
