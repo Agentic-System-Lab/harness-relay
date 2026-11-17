@@ -19,6 +19,7 @@ export function ScheduleForm({
   saved,
   settings,
   team,
+  hook,
 }: {
   draft: ScheduleDraft;
   onEdit: (patch: Partial<ScheduleDraft>) => void;
@@ -28,6 +29,8 @@ export function ScheduleForm({
   settings: Pick<ConversationSettings, 'mode' | 'permission' | 'approvals'>;
   /** The team's names; absent while there is no team yet (the lead agent names its members after the @mentions). */
   team?: string[];
+  /** New automation only: Create a webhook too, under When (the drawer adds one to a saved automation). */
+  hook?: { checked: boolean; onChange: (on: boolean) => void };
 }) {
   const { t, lang } = useI18n();
   const { turnTimeoutMinutes } = useLimits();
@@ -159,7 +162,9 @@ export function ScheduleForm({
           {problems.length
             ? problems[0]
             : draft.kind === 'manual'
-              ? t.schedule.manualHint
+              ? hook
+                ? t.schedule.manualHintNew
+                : t.schedule.manualHint
               : upcoming.length
                 ? `${t.schedule.upcoming} ${upcoming.map((at) => formatWhen(at, lang, draftZone)).join(t.common.listSeparator)}`
                 : t.schedule.never}
@@ -179,6 +184,16 @@ export function ScheduleForm({
           )}
         </span>
       </div>
+
+      {hook && (
+        <div className="field">
+          <label className="check-row">
+            <input type="checkbox" checked={hook.checked} onChange={(e) => hook.onChange(e.target.checked)} />
+            {t.newSchedule.withHook}
+          </label>
+          <span className="small muted">{t.newSchedule.withHookHint}</span>
+        </div>
+      )}
 
       <div className="field">
         <label className="check-row">

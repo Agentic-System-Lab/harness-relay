@@ -29,7 +29,7 @@ import {
 import { useI18n, useT } from '../i18n';
 import { refreshLimits, useLimits } from '../limits';
 import { hashFor } from '../route';
-import { describeRepeat, scheduleState, scheduleTrouble } from '../schedule';
+import { describeRepeat, handedHook, scheduleState, scheduleTrouble } from '../schedule';
 import { PROVIDER_COLOR, initials, leadLabel, modelSummary } from '../util';
 import { DiffView } from './ChangesCard';
 import { Composer } from './Composer';
@@ -116,7 +116,8 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   /** The conversation is gone (deleted): stop reconnecting. */
   const [gone, setGone] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
-  const [scheduleOpen, setScheduleOpen] = useState(false);
+  // Open at once for a webhook New automation made with it: the drawer shows its token, once.
+  const [scheduleOpen, setScheduleOpen] = useState(() => handedHook(id) !== undefined);
   const [filesOpen, setFilesOpen] = useState(false);
   /** The share dialog is open: for the whole conversation, or up to and including one reply (`upTo`). */
   const [share, setShare] = useState<{ upTo?: string } | null>(null);

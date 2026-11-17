@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { TRACKING_LIMITS, type ConversationSchedule } from '../../shared/types';
 import { api } from '../api';
 import { useI18n } from '../i18n';
 import { hashFor } from '../route';
-import { formatWhen, hookExample } from '../schedule';
+import { forgetHandedHook, formatWhen, handedHook, hookExample } from '../schedule';
 import { CopyButton } from './CopyButton';
 
 /**
@@ -62,7 +62,9 @@ export function ScheduleHookPanel({
   onError: (message: string) => void;
 }) {
   const { t, lang } = useI18n();
-  const [shown, setShown] = useState<{ token: string; url: string; platform: string }>();
+  // A webhook New automation made with it is shown here first, once.
+  const [shown, setShown] = useState<{ token: string; url: string; platform: string } | undefined>(() => handedHook(convId));
+  useEffect(() => forgetHandedHook(convId), [convId]);
   const [busy, setBusy] = useState(false);
   const hook = schedule.hook;
 

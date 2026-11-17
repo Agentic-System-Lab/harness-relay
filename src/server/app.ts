@@ -39,6 +39,7 @@ import {
   type Conversation,
   type ServerLimits,
   type ConversationSchedule,
+  type NewScheduleHook,
   type Lang,
   type PickedFolders,
   type Provider,
@@ -1170,7 +1171,9 @@ export function createApp({
   // agent designs the team for the schedule's message now. Nothing runs until the schedule sends it;
   // until the team is confirmed, a time that comes due is skipped.
   app.post('/api/schedules', async (c) => {
-    const b = await body<{ title?: unknown; settings?: Record<string, unknown>; createCwd?: unknown; schedule?: unknown }>(c);
+    const b = await body<{ title?: unknown; settings?: Record<string, unknown>; createCwd?: unknown; schedule?: unknown; hook?: unknown }>(
+      c,
+    );
     const now = Date.now();
     // The schedule first: creating a missing working directory is a side effect.
     const update = validateSchedule(b.schedule, now);
@@ -1207,7 +1210,9 @@ export function createApp({
     }
     // Sorted into the user's sidebar groups by its message, as a new chat is by its first question.
     orchestrator.sortIntoGroup(conv, update.text);
-    return c.json(forClient(conv));
+    // Its webhook too, when asked for (New automation's "Create a webhook too"): the token goes back this once.
+    const newHook = b.hook === true ? makeHook(conv) : undefined;
+    return c.json({ ...forClient(conv), ...(newHook ? { newHook } : {}) });
   });
 
   app.get('/api/conversations/:id', (c) => c.json(forClient(getConv(c.req.param('id')))));
@@ -1319,20 +1324,20 @@ export function createApp({
   });
 
   // A webhook for the schedule: a new token (replacing the one it had), shown this once; only its hash is kept.
-  app.post('/api/conversations/:id/schedule/hook', (c) => {
-    const conv = getConv(c.req.param('id'));
+  const makeHook = (conv: Conversation): NewScheduleHook => {
     if (!conv.schedule) throw new HttpError(409, t().hookNeedsSchedule);
     const token = randomBytes(32).toString('base64url');
     store.setHook(conv, hookHash(token), Date.now());
     orchestrator.emitConversation(conv);
     // The server's system: the example to call it is written for that computer's shell.
-    return c.json({
+    return {
       token,
       url: `http://127.0.0.1:${servingPort()}/api/hooks/${conv.id}`,
-      hook: conv.schedule.hook,
+      hook: conv.schedule.hook!,
       platform: process.platform,
-    });
-  });
+    };
+  };
+  app.post('/api/conversations/:id/schedule/hook', (c) => c.json(makeHook(getConv(c.req.param('id')))));
 
   app.delete('/api/conversations/:id/schedule/hook', (c) => {
     const conv = getConv(c.req.param('id'));

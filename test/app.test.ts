@@ -3144,6 +3144,42 @@ describe('schedules', () => {
     await vi.waitFor(() => expect(orchestrator.isRunning(titled.id)).toBe(false));
   });
 
+  it('creates its webhook with it when asked (New automation\'s "Create a webhook too"), the token in the answer this once', async () => {
+    const create = (b: Record<string, unknown>) => app.request('/api/schedules', json('POST', b, { 'x-relay-lang': 'en' }));
+    const plain = (await (await create({ settings: { cwd: project }, schedule: valid })).json()) as Conversation & { newHook?: unknown };
+    expect(plain.newHook).toBeUndefined();
+    expect(plain.schedule!.hook).toBeUndefined();
+    const res = await create({ settings: { cwd: project }, schedule: { ...valid, manual: true }, hook: true });
+    expect(res.status).toBe(200);
+    const conv = (await res.json()) as Conversation & {
+      newHook?: { token: string; url: string; hook: { createdAt: number }; platform: string };
+    };
+    expect(conv.newHook!.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(conv.newHook!.url).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:\\d+/api/hooks/${conv.id}$`));
+    expect(conv.newHook!.platform).toBe(process.platform);
+    expect(conv.schedule!.hook).toEqual({ createdAt: conv.newHook!.hook.createdAt });
+    // Only its hash is kept; the conversation shown again has no token.
+    expect(store.hookHash(conv.id)).toBe(hookHash(conv.newHook!.token));
+    expect(JSON.stringify(await (await get(`/api/conversations/${conv.id}`)).json())).not.toContain(conv.newHook!.token);
+    for (const id of [plain.id, conv.id]) {
+      orchestrator.stop(id);
+      await vi.waitFor(() => expect(orchestrator.isRunning(id)).toBe(false));
+    }
+    // A program's call with that token is taken (a wrong one is a conversation that does not exist); it
+    // sends nothing before the team is confirmed.
+    const call = (token: string) =>
+      app.request(`/api/hooks/${conv.id}`, {
+        method: 'POST',
+        headers: { ...HOST, 'content-type': 'application/json', 'x-relay-lang': 'en', authorization: `Bearer ${token}` },
+        body: '{}',
+      });
+    expect((await call('wrong')).status).toBe(404);
+    const taken = await call(conv.newHook!.token);
+    expect(taken.status).toBe(409);
+    expect(((await taken.json()) as { error: string }).error).not.toMatch(/No such/i);
+    expect(store.get(conv.id)!.schedule!.hook!.lastAt).toBeGreaterThan(0);
+  });
+
   it("sorts a new schedule's chat into the user's groups by its message, and creates nothing while the server stops", async () => {
     const create = (b: Record<string, unknown>) => app.request('/api/schedules', json('POST', b, { 'x-relay-lang': 'en' }));
     await app.request('/api/groups', json('POST', { name: 'Reports' }));

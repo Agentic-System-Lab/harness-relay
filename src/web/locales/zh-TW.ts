@@ -451,6 +451,8 @@ export const zhTW = {
     titlePlaceholder: '對話名稱（選填，預設用訊息的第一行）',
     create: '建立自動任務',
     creating: '建立中…',
+    withHook: '同時建立 webhook',
+    withHookHint: '建立後，自動任務的抽屜會立刻打開，顯示 webhook 的網址與權杖（只顯示這一次），以及呼叫它的指令範例。',
   },
 
   schedule: {
@@ -477,6 +479,7 @@ export const zhTW = {
       string
     >,
     manualHint: '只在你按「立即執行一次」，或程式呼叫它的 webhook 時送出（儲存後就能建立 webhook）。',
+    manualHintNew: '只在你按「立即執行一次」，或程式呼叫它的 webhook 時送出。',
     manualState: '由「立即執行一次」或 webhook 送出',
     manualOff: '已關閉：按「儲存」重新啟用。',
     at: '日期與時間',

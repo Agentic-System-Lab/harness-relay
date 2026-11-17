@@ -44,7 +44,7 @@ import type {
   CalendarAccountUpdate,
   ConnectorsView,
   MailAccountUpdate,
-  ScheduleHook,
+  NewScheduleHook,
   ScheduleUpdate,
   SearchResult,
   ServerLimits,
@@ -283,15 +283,19 @@ export const api = {
   saveSchedule: (id: string, b: ScheduleUpdate) => request<ConversationSchedule>('PUT', `/api/conversations/${id}/schedule`, b),
   deleteSchedule: (id: string) => request<{ ok: true }>('DELETE', `/api/conversations/${id}/schedule`),
   /** A new schedule in a conversation of its own, whose lead agent designs the team for it now. */
-  createSchedule: (b: { title?: string; settings: Partial<ConversationSettings>; createCwd?: boolean; schedule: ScheduleUpdate }) =>
-    request<Conversation>('POST', '/api/schedules', b),
+  createSchedule: (b: {
+    title?: string;
+    settings: Partial<ConversationSettings>;
+    createCwd?: boolean;
+    schedule: ScheduleUpdate;
+    hook?: boolean;
+  }) => request<Conversation & { newHook?: NewScheduleHook }>('POST', '/api/schedules', b),
   /** Have the lead agent design the team for the schedule's message (again). */
   designSchedule: (id: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/schedule/design`),
   /** Send the schedule's message now; `queued` while the team replies, `chatId` when it opened a new conversation. */
   runSchedule: (id: string) => request<{ ok: true; queued: boolean; chatId?: string }>('POST', `/api/conversations/${id}/schedule/run`),
   /** A webhook for the schedule (a new token replaces the one it had): the token, shown this once, and the address to call. */
-  createScheduleHook: (id: string) =>
-    request<{ token: string; url: string; hook: ScheduleHook; platform: string }>('POST', `/api/conversations/${id}/schedule/hook`, {}),
+  createScheduleHook: (id: string) => request<NewScheduleHook>('POST', `/api/conversations/${id}/schedule/hook`, {}),
   deleteScheduleHook: (id: string) => request<{ ok: true }>('DELETE', `/api/conversations/${id}/schedule/hook`),
   /** Conversations whose title or messages contain every word of `q`. */
   search: (q: string) => request<SearchResult[]>('GET', `/api/search?q=${encodeURIComponent(q)}`),

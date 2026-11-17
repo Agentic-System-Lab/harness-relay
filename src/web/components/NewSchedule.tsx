@@ -11,7 +11,7 @@ import {
 import { api, orCreateCwd } from '../api';
 import { useI18n } from '../i18n';
 import { useLimits } from '../limits';
-import { draftFrom, draftProblems, toUpdate, type ScheduleDraft } from '../schedule';
+import { draftFrom, draftProblems, handOverHook, toUpdate, type ScheduleDraft } from '../schedule';
 import { leadLabel } from '../util';
 import { autoTeam, lastAutoConfirm, rememberAutoConfirm } from './NewChat';
 import { ScheduleForm } from './ScheduleForm';
@@ -37,6 +37,8 @@ export function NewSchedule({ providers, catalog, onCreated }: Props) {
   /** The user changed the form: its problems are shown from then on. */
   const [touched, setTouched] = useState(false);
   const [title, setTitle] = useState('');
+  /** Create a webhook too: its token is shown in the automation's drawer, once, as its chat opens. */
+  const [withHook, setWithHook] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -69,12 +71,19 @@ export function NewSchedule({ providers, catalog, onCreated }: Props) {
     setBusy(true);
     setError('');
     try {
-      const conv = await orCreateCwd(
+      const { newHook, ...conv } = await orCreateCwd(
         (createCwd) =>
-          api.createSchedule({ title: title.trim() || undefined, settings: team.settings, createCwd, schedule: toUpdate(draft) }),
+          api.createSchedule({
+            title: title.trim() || undefined,
+            settings: team.settings,
+            createCwd,
+            schedule: toUpdate(draft),
+            ...(withHook ? { hook: true } : {}),
+          }),
         (missing) => confirm(t.newChat.confirmCreateCwd(missing)),
       );
       rememberAutoConfirm(team.settings.autoConfirm);
+      if (newHook) handOverHook(conv.id, newHook);
       onCreated(conv);
     } catch (e) {
       setError((e as Error).message);
@@ -96,7 +105,7 @@ export function NewSchedule({ providers, catalog, onCreated }: Props) {
             <div className="section-head">
               <h3>{t.newSchedule.schedule}</h3>
             </div>
-            <ScheduleForm draft={draft} onEdit={edit} settings={team.settings} />
+            <ScheduleForm draft={draft} onEdit={edit} settings={team.settings} hook={{ checked: withHook, onChange: setWithHook }} />
           </section>
 
           <TeamEditor value={team} onChange={setTeam} providers={providers} catalog={catalog} leadLabel={leadText} schedule={schedule} />

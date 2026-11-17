@@ -431,6 +431,9 @@ export const en: Messages = {
     titlePlaceholder: 'Chat name (optional; the first line of the message by default)',
     create: 'Create automation',
     creating: 'Creating…',
+    withHook: 'Create a webhook too',
+    withHookHint:
+      "Once it is created, the automation's drawer opens with the webhook's address and token (shown only this once) and a command to call it.",
   },
 
   schedule: {
@@ -456,6 +459,7 @@ export const en: Messages = {
     repeat: 'When',
     kinds: { once: 'Once', daily: 'Every day', weekly: 'Every week', interval: 'Every few hours', manual: 'No set times' },
     manualHint: 'Sent only when you click Run once now, or a program calls its webhook (add one once it is saved).',
+    manualHintNew: 'Sent only when you click Run once now, or a program calls its webhook.',
     manualState: 'sent by Run once now or its webhook',
     manualOff: 'Off: Save turns it on again.',
     at: 'Date and time',

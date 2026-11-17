@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures';
-import { finishedReply, openTeamChat, send } from '../support/app';
+import { confirmTeam, finishedReply, openTeamChat, send } from '../support/app';
 
 test.describe('schedules', () => {
   test("a chat's schedule is saved, and running it once sends its message to the team", async ({ page, relay }) => {
@@ -135,5 +135,46 @@ test.describe('schedules', () => {
     await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
     await expect(hook.locator('.hook-example')).toHaveCount(0);
     await expect(hook.getByRole('button', { name: 'New token' })).toBeVisible();
+  });
+
+  test("New automation's Create a webhook too opens the automation's chat with its token shown once, which a program then calls", async ({
+    page,
+  }) => {
+    await page.getByRole('button', { name: 'New automation' }).click();
+    await page.getByRole('textbox', { name: 'Message to send the team' }).fill('Deploy finished');
+    await page.getByRole('radio', { name: 'No set times' }).click();
+    const withHook = page.getByRole('checkbox', { name: 'Create a webhook too' });
+    await expect(withHook).not.toBeChecked();
+    await withHook.check();
+    await expect(page.getByText("the automation's drawer opens with the webhook's address and token")).toBeVisible();
+    await page.getByRole('button', { name: 'Create automation' }).click();
+    await page.waitForURL(/#\/c\//);
+
+    // Its drawer opens by itself, the token shown there.
+    const drawer = page.getByRole('dialog', { name: 'Automation' });
+    const hook = drawer.getByRole('region', { name: 'Webhook' });
+    await expect(hook).toContainText('The token is shown only this once');
+    const line = (await hook.locator('.hook-example').textContent())!;
+    const token = /Bearer ([A-Za-z0-9_-]+)/.exec(line)![1]!;
+    const url = /'(http:\/\/127\.0\.0\.1:\d+\/api\/hooks\/[^']+)'/.exec(line)![1]!;
+    await expect(hook.getByRole('button', { name: 'New token' })).toBeVisible();
+    await drawer.getByRole('button', { name: 'Close' }).click();
+    await expect(drawer).toBeHidden();
+    // Shown once: opened again, no token.
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await expect(hook).toContainText('Not called yet');
+    await expect(hook.locator('.hook-example')).toHaveCount(0);
+    await drawer.getByRole('button', { name: 'Close' }).click();
+
+    // Once the team is confirmed, a program's call sends the message.
+    await confirmTeam(page);
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ event: 'deployed' }),
+    });
+    expect(res.status).toBe(202);
+    await expect(page.locator('.msg-user', { hasText: 'Deploy finished' })).toContainText('Automation');
+    await expect(await finishedReply(page, 'Claude')).toContainText('You said: “Deploy finished');
   });
 });

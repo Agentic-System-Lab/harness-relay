@@ -2,6 +2,7 @@ import {
   SCHEDULE_LIMITS,
   type ConversationSchedule,
   type ConversationSummary,
+  type NewScheduleHook,
   type ScheduleRepeat,
   type ScheduleUpdate,
 } from '../shared/types';
@@ -256,4 +257,26 @@ export function hookExample(url: string, token: string, platform = ''): string {
     return `Invoke-RestMethod -Method Post -Uri '${url}' -Headers @{ Authorization = 'Bearer ${token}' } -ContentType 'application/json' -Body '${body}'`;
   }
   return `curl -X POST -H 'Authorization: Bearer ${token}' -H 'Content-Type: application/json' -d '${body}' '${url}'`;
+}
+
+/*
+ * A webhook New automation made with the automation ("Create a webhook too"): its token goes from that
+ * page to the automation's chat, which opens its drawer to show it there, once. Held in this page's
+ * memory only (never in its address or the browser's storage), and forgotten once shown.
+ */
+const handedHooks = new Map<string, NewScheduleHook>();
+
+/** Hands the chat of `convId` the webhook just made with it. */
+export function handOverHook(convId: string, made: NewScheduleHook): void {
+  handedHooks.set(convId, made);
+}
+
+/** The webhook handed to the chat of `convId`, if any (still there: `forgetHandedHook()` drops it). */
+export function handedHook(convId: string): NewScheduleHook | undefined {
+  return handedHooks.get(convId);
+}
+
+/** Drops it once shown, so the drawer opened again shows no token. */
+export function forgetHandedHook(convId: string): void {
+  handedHooks.delete(convId);
 }

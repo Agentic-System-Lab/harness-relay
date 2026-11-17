@@ -10,7 +10,10 @@ import {
   draftChanged,
   draftFrom,
   draftProblems,
+  forgetHandedHook,
   formatWhen,
+  handOverHook,
+  handedHook,
   fromLocalInput,
   hookExample,
   localInput,
@@ -248,6 +251,18 @@ describe('the schedule form', () => {
     expect(draftChanged({ ...draft, goal: 'other' }, { ...saved, goal: 'CI passes' })).toBe(true);
     expect(draftChanged(draft, { ...saved, goal: 'CI passes' })).toBe(false);
     expect(draftProblems({ ...draft, goal: 'x'.repeat(2001) }, MON, en)).toContain('A goal can be at most 2000 characters');
+  });
+
+  it("hands the webhook New automation made to that automation's chat alone, until it was shown", () => {
+    const made = { token: 't0k', url: 'http://127.0.0.1:8787/api/hooks/c1', hook: { createdAt: 1 }, platform: 'darwin' };
+    expect(handedHook('c1')).toBeUndefined();
+    handOverHook('c1', made);
+    expect(handedHook('c2')).toBeUndefined();
+    // Read as often as the page renders, until the drawer showed it.
+    expect(handedHook('c1')).toBe(made);
+    expect(handedHook('c1')).toBe(made);
+    forgetHandedHook('c1');
+    expect(handedHook('c1')).toBeUndefined();
   });
 
   it('has no set times when the user only wants Run once now and the webhook: never due, never off, said so everywhere', () => {

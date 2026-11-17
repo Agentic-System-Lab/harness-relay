@@ -1397,6 +1397,14 @@ export interface ScheduleHook {
   lastAt?: number;
 }
 
+/** A webhook just made: its token (shown this once; only its hash is kept), the address to call, and the server's system (for the example). */
+export interface NewScheduleHook {
+  token: string;
+  url: string;
+  hook: ScheduleHook;
+  platform: string;
+}
+
 /**
  * A conversation's schedule: a message the team is sent at set times, as if the user had sent it (it
  * is marked `scheduled`): in this conversation, or (`newChat`) in a new one each time. One per
