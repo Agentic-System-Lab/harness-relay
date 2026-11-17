@@ -57,6 +57,7 @@ import { freshTracking } from '../shared/tracking';
 import { servingPort } from './relaySandbox';
 import { discoverCalendars } from './connectors/caldav';
 import { calendarBackend } from './connectors/calendar';
+import type { McpOAuth } from './oauth/mcp';
 import type { OAuthService } from './oauth/service';
 import { keptPasswordFits } from './connectors/accounts';
 import { testMail } from './connectors/test';
@@ -197,6 +198,8 @@ export interface AppDeps {
   scheduler?: Pick<Scheduler, 'check'>;
   /** Accounts that sign in with OAuth (`oauth/service.ts`); Settings' own when not given (stand-in providers in tests). */
   oauth?: OAuthService;
+  /** The tool library MCP servers' own sign-ins (`oauth/mcp.ts`), with `oauth`'s sign-ins; Settings' own when not given. */
+  mcpOAuth?: McpOAuth;
 }
 
 /** A recording of the longest allowed length (16 kHz, 16-bit mono WAV) in base64, with room to spare. */
@@ -302,6 +305,7 @@ export function createApp({
   alerts,
   scheduler,
   oauth = settings.oauth,
+  mcpOAuth = settings.mcpOAuth,
 }: AppDeps): Hono {
   const app = new Hono();
   /** The gists of report screenshots uploaded since the server started: only these can be deleted here. */
@@ -701,6 +705,7 @@ export function createApp({
         status: v.status,
         provider: v.provider,
         ...(v.account ? { email: v.account.email } : {}),
+        ...(v.server ? { server: v.server.name } : {}),
         ...(v.error ? { error: v.error } : {}),
       });
     } catch (err) {
@@ -737,6 +742,28 @@ export function createApp({
   });
 
   app.delete('/api/tools/mcp/:name', (c) => c.json(settings.tools.deleteServer(c.req.param('name'))));
+
+  // An HTTP server's own sign-in (MCP's authorization): discovery, a client registered at its
+  // authorization server, then that server's page to open, followed, finished from a pasted address and
+  // cancelled as an account's sign-in is (`/api/oauth/signins/:id`, `/api/oauth/callback`). Its tokens
+  // never come here: the library says whether it is signed in.
+  app.post('/api/tools/mcp/:name/signin', async (c) => {
+    const b = await body<{ origin?: unknown }>(c);
+    const session = sessions.get(c.req.raw);
+    return c.json(
+      await mcpOAuth.startSignIn({
+        name: c.req.param('name'),
+        ...(session ? { session } : {}),
+        ...(typeof b.origin === 'string' ? { origin: b.origin } : {}),
+        port: servingPort(),
+      }),
+    );
+  });
+  // Signs it out: its tokens are deleted, and revoked at its authorization server when it has a revocation endpoint.
+  app.delete('/api/tools/mcp/:name/signin', async (c) => {
+    await mcpOAuth.signOut(c.req.param('name'));
+    return c.json(settings.tools.view());
+  });
 
   // The skills under a folder, to pick from before adding them (nothing is saved).
   app.get('/api/tools/skills/scan', (c) => {

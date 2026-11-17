@@ -13,7 +13,8 @@ let posting: Promise<CallbackAnswer> | undefined;
 
 /**
  * The page an OAuth provider's sign-in sends the browser back to (`/oauth/callback`): it posts the code
- * and state it got to the server, which finishes the sign-in, and says how it went. It needs no
+ * and state it got to the server, which finishes the sign-in (an account's, or a tool library MCP
+ * server's own), and says how it went. It needs no
  * sign-in of its own (the state is the proof): in the desktop app it opens in the system browser, and
  * a browser that started the sign-in elsewhere sees the account in Settings. Posted once for both runs
  * of the effect in development. The address loses its code and state once a sign-in here answered;
@@ -45,7 +46,9 @@ export function OAuthCallback() {
   const text = !outcome
     ? c.working
     : outcome.kind === 'done'
-      ? c.done(outcome.email)
+      ? outcome.server
+        ? c.doneServer(outcome.server)
+        : c.done(outcome.email)
       : outcome.kind === 'failed'
         ? c.failed(outcome.error)
         : c.elsewhere;

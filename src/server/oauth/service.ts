@@ -11,8 +11,8 @@ import type { ConnectorStore } from '../connectors/accounts';
 import type { CalendarOAuth } from '../connectors/calendar';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
-import { TokenBroker } from './broker';
-import { oauthProvider, tokenHost, type OAuthClient, type OAuthProvider } from './providers';
+import { TokenBroker, type TokenGrants } from './broker';
+import { oauthProvider, tokenHost, type AccountProvider, type OAuthClient } from './providers';
 import { SignIns, signInFetch, type SignedIn } from './signin';
 import type { OAuthStore } from './store';
 
@@ -21,7 +21,8 @@ import type { OAuthStore } from './store';
  * (`providers.ts`), the accounts and their apps (`store.ts`), the token broker (`broker.ts`) and the
  * sign-ins (`signin.ts`). Its first use is the calendar tools: a sign-in for them adds the account's
  * own calendar, and others it has can be added; they are reached through the account
- * (`CalendarOAuth`), with its token, which never leaves the server.
+ * (`CalendarOAuth`), with its token, which never leaves the server. The sign-ins are shared with the
+ * tool library MCP servers' own (`mcp.ts`), which keep their tokens with the server.
  */
 export class OAuthService implements CalendarOAuth {
   readonly broker: TokenBroker;
@@ -32,24 +33,33 @@ export class OAuthService implements CalendarOAuth {
     private connectors: ConnectorStore,
     private opts: {
       /** A provider's description (stand-ins in tests). */
-      provider?: (id: OAuthProviderId, client: OAuthClient) => OAuthProvider;
+      provider?: (id: OAuthProviderId, client: OAuthClient) => AccountProvider;
       now?: () => number;
       pollMs?: (interval: number) => number;
     } = {},
   ) {
     const now = opts.now ?? Date.now;
-    this.broker = new TokenBroker(store, (id) => this.providerOfAccount(id), now);
-    this.signIns = new SignIns((s) => this.keep(s), now, opts.pollMs);
+    const grants: TokenGrants = {
+      grant: (id) => {
+        const a = store.account(id);
+        return a && { label: a.email, status: a.status, ...(a.error ? { error: a.error } : {}), uses: a.uses };
+      },
+      refreshToken: (id) => store.refreshToken(id),
+      setRefreshToken: (id, token) => store.setRefreshToken(id, token),
+      needsSignIn: (id, why) => store.needsSignIn(id, why),
+    };
+    this.broker = new TokenBroker(grants, (id) => this.providerOfAccount(id), now);
+    this.signIns = new SignIns(now, opts.pollMs);
   }
 
   /** A provider, with the app Settings has for it; none set up is a 400 that says so. */
-  provider(id: OAuthProviderId): OAuthProvider {
+  provider(id: OAuthProviderId): AccountProvider {
     const client = this.store.client(id);
     if (!client) throw new HttpError(400, t().oauthNoClient(id === 'microsoft' ? 'Microsoft' : 'Google'));
     return (this.opts.provider ?? oauthProvider)(id, client);
   }
 
-  private providerOfAccount(accountId: string): OAuthProvider {
+  private providerOfAccount(accountId: string): AccountProvider {
     const a = this.store.account(accountId);
     if (!a) throw new Error(t().oauthAccountGone);
     return this.provider(a.provider);
@@ -92,21 +102,23 @@ export class OAuthService implements CalendarOAuth {
     port: number;
     device?: boolean;
   }): Promise<OAuthSignInView> {
-    return this.signIns.start({ ...o, provider: this.provider(o.provider) });
+    const provider = this.provider(o.provider);
+    return this.signIns.start({ ...o, provider, keep: (s) => this.keep(provider, o.uses, s) });
   }
 
   /** Keeps a sign-in that worked: who it is, its refresh token, and for the calendar tools its own calendar. */
-  private async keep(s: SignedIn): Promise<OAuthAccountView> {
-    const who = await s.whoami(signInFetch(s));
+  private async keep(provider: AccountProvider, uses: OAuthUse[], s: SignedIn): Promise<OAuthAccountView> {
+    const who = await provider.whoami(signInFetch(s));
     // Cancelled, or its app changed, while who signed in was asked: nothing is kept.
     if (!s.live()) throw new Error(t().oauthSignInCancelled);
-    const account = this.store.signedIn(s.provider, who, s.uses, s.scopes, s.tokens.refresh_token, (this.opts.now ?? Date.now)());
+    // Always one here: a provider whose sign-in may bring none (`refreshOptional`) is an MCP server's.
+    const account = this.store.signedIn(provider.id, who, uses, s.scopes, s.tokens.refresh_token ?? '', (this.opts.now ?? Date.now)());
     this.broker.signedIn(account.id, s.tokens.access_token, s.tokens.expires_in);
-    if (s.uses.includes('calendar') && !this.connectors.oauthCalendars(account.id).length) {
-      const own = this.provider(s.provider).defaultCalendar(who.email);
+    if (uses.includes('calendar') && !this.connectors.oauthCalendars(account.id).length) {
+      const own = this.provider(provider.id).defaultCalendar(who.email);
       try {
         this.addCalendar(account.id, {
-          name: `${s.provider === 'microsoft' ? 'Outlook' : 'Google'} · ${who.email}`.slice(0, 60),
+          name: `${provider.id === 'microsoft' ? 'Outlook' : 'Google'} · ${who.email}`.slice(0, 60),
           url: own.url,
         });
       } catch (err) {
@@ -169,7 +181,7 @@ export class OAuthService implements CalendarOAuth {
    */
   async removeAccount(accountId: string): Promise<{ permissionsPages?: string[] }> {
     const a = this.account(accountId);
-    let provider: OAuthProvider | undefined;
+    let provider: AccountProvider | undefined;
     try {
       provider = this.provider(a.provider);
     } catch {

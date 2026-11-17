@@ -2996,8 +2996,15 @@ export class Orchestrator {
       const seenBefore = state.seen;
       committedSeen = seenBefore;
       state.seen = [...state.seen, ...delta.map((m) => m.id)];
-      // Read on every turn, so library changes reach agents at their next turn.
-      const tools = this.settings.tools.forAgent(agent);
+      // Read on every turn, so library changes reach agents at their next turn. Its MCP servers that
+      // signed in themselves get an access token each, good for a while yet; one whose sign-in needs
+      // renewing is left out, with a note the agent (its briefing) and the user (the reply) see.
+      const tools = await this.settings.mcpOAuth.forTurn(this.settings.tools.forAgent(agent));
+      if (tools.leftOut?.length) {
+        for (const l of tools.leftOut) msg.parts.push({ type: 'notice', text: l.note });
+        this.hub.emit(conv.id, { type: 'message', message: msg });
+        this.store.saveMessage(conv.id, msg, true);
+      }
       // The account's own: its home has its own skills, MCP servers and hooks.
       const nativeOff = this.settings.nativeOff(agent.provider, account);
       const nativeItems = this.settings.nativeItems(agent.provider, account);

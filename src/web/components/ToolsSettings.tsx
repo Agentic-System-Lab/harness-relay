@@ -16,6 +16,7 @@ import { useT, type Messages } from '../i18n';
 import { PROVIDER_COLOR } from '../util';
 import { sectionId } from '../route';
 import { ConnectorsSettings } from './ConnectorsSettings';
+import { McpSignIn } from './McpSignIn';
 import { SectionTitle } from './SectionTitle';
 import { useDialog } from './useDialog';
 
@@ -190,6 +191,7 @@ function McpSection({ lib, change }: { lib: ToolLibraryView; change: Change }) {
       <p className="muted small">
         {t.tools.mcpHint} {t.tools.secretsIn(t.settings.keyStorageName[lib.secretStorage])}
       </p>
+      <p className="muted small">{t.tools.signIn.hint}</p>
       {lib.mcpServers.length === 0 && editing === null && <p className="muted small">{t.tools.noMcp}</p>}
       <ul className="lib-list">
         {lib.mcpServers.map((s) =>
@@ -198,11 +200,16 @@ function McpSection({ lib, change }: { lib: ToolLibraryView; change: Change }) {
               <McpForm server={s} change={change} onDone={() => setEditing(null)} />
             </li>
           ) : (
-            <li key={s.name} className="lib-row">
+            <li key={s.name} className={`lib-row ${s.transport === 'http' ? 'mcp-http' : ''}`}>
               <div className="lib-row-main">
                 <span className="lib-name">{s.name}</span>
                 <code className="lib-detail">{s.transport === 'http' ? s.url : [s.command, ...s.args].join(' ')}</code>
                 <span className={`tool-scope ${s.providers.length ? '' : 'off'}`}>{givenTo(s.providers, t)}</span>
+                {s.oauth && (
+                  <span className={`badge ${s.oauth.status === 'reauth' ? 'warn' : ''}`}>
+                    {s.oauth.status === 'reauth' ? t.tools.signIn.reauth : t.tools.signIn.signedIn}
+                  </span>
+                )}
               </div>
               <div className="lib-row-actions">
                 <button className="ghost small-button" onClick={() => setEditing(s.name)}>
@@ -216,6 +223,7 @@ function McpSection({ lib, change }: { lib: ToolLibraryView; change: Change }) {
                   ×
                 </button>
               </div>
+              {s.transport === 'http' && <McpSignIn server={s} change={change} />}
             </li>
           ),
         )}

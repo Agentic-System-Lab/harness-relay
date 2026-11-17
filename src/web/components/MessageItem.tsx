@@ -1148,6 +1148,12 @@ function AgentMessage({
                 return <ProgressCard key={s.key} status={s.status} text={s.text} />;
               case 'outbox':
                 return <OutboxCard key={s.key} part={s.part} convId={convId} agentName={name} />;
+              case 'notice':
+                return (
+                  <p key={s.key} className="warn-line small msg-notice" role="note">
+                    {s.text}
+                  </p>
+                );
             }
           })
         )}

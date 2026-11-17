@@ -7,7 +7,7 @@ Harness Relay 還沒有的功能的設計。這個資料夾裡的東西都還沒
 | 提案 | 狀態 | 摘要 |
 | --- | --- | --- |
 | [排程與事件觸發的執行](triggers.zh-TW.md) | 第一步（排程）與第二步（webhook，屬於排程）已完成，第三步做成排程的選項；排程也可以追蹤目標，以及在收到新郵件時啟動（由 Harness Relay 自己檢查） | 對話自己開始一輪：依排程，或在本機程式回報事件時。 |
-| [用 OAuth 登入的帳號](oauth.zh-TW.md) | 核心已完成，含 Microsoft 365 與 Outlook.com 的行事曆（Graph）以及 Google 日曆（用權杖的 CalDAV）；透過 OAuth 收發郵件與 MCP 伺服器的登入尚未開始 | 給不接受應用程式專用密碼的服務一個共用的登入介面：權杖會自動更新並存在憑證儲存區，由行事曆工具使用。 |
+| [用 OAuth 登入的帳號](oauth.zh-TW.md) | 核心已完成，含 Microsoft 365 與 Outlook.com 的行事曆（Graph）、Google 日曆（用權杖的 CalDAV），以及工具庫中遠端 MCP 伺服器自己的登入；透過 OAuth 收發郵件尚未開始 | 給不接受應用程式專用密碼的服務，以及需要登入的 MCP 伺服器，一個共用的登入介面：權杖會自動更新並存在憑證儲存區，由行事曆工具使用，並交給每一回合的 MCP 伺服器。 |
 | [agent 之間共用的記憶](shared-memory.zh-TW.md) | 尚未開始 | agent 建議要記下的筆記，由使用者決定是否加進工具庫的記憶；依專案分的記憶；匯入各 CLI 自己記住的東西。 |
 | [網站預覽與 Generative UI](preview-and-generative-ui.zh-TW.md) | 尚未開始 | 在聊天旁的面板試用 agent 做的網站，並把錯誤交回給 agent；回覆裡可以有選項、表單、圖表和小型互動頁面。 |
 

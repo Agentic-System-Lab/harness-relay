@@ -329,7 +329,9 @@ export type Segment =
   | { kind: 'todo'; entries: PlanEntry[]; key: number }
   | { kind: 'approval'; part: ApprovalPart; key: number }
   | { kind: 'progress'; status: ProgressStatus; text: string; key: number }
-  | { kind: 'outbox'; part: OutboxPart; key: number };
+  | { kind: 'outbox'; part: OutboxPart; key: number }
+  /** What Harness Relay noted about the turn (an MCP server left out of it), not the agent's words. */
+  | { kind: 'notice'; text: string; key: number };
 
 export type OutboxPart = Extract<MessagePart, { type: 'outbox' }>;
 
@@ -377,6 +379,9 @@ export function segments(parts: MessagePart[]): Segment[] {
         break;
       case 'outbox':
         out.push({ kind: 'outbox', part: p, key: i });
+        break;
+      case 'notice':
+        out.push({ kind: 'notice', text: p.text, key: i });
         break;
     }
   });

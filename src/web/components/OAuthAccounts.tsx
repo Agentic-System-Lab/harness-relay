@@ -37,27 +37,7 @@ export function OAuthAccounts({ onConnectors, refresh = 0 }: { onConnectors: (v:
   }, [refresh]);
 
   // Follow a sign-in while it waits; once done, the account (and its calendar) are shown.
-  const following = signIn && waiting(signIn) ? signIn.id : undefined;
-  useEffect(() => {
-    if (!following) return;
-    let live = true;
-    const timer = setInterval(async () => {
-      try {
-        const v = await api.oauthSignIn(following);
-        if (!live) return;
-        setSignIn(v);
-      } catch (e) {
-        if (!live) return;
-        setError((e as Error).message);
-        // Gone (the server restarted, or it ended long ago): nothing more to follow. Anything else may pass.
-        if (e instanceof ApiError && e.status === 404) setSignIn(undefined);
-      }
-    }, 1500);
-    return () => {
-      live = false;
-      clearInterval(timer);
-    };
-  }, [following]);
+  useFollowSignIn(signIn, setSignIn, setError);
   const ended = signIn && !waiting(signIn) ? signIn : undefined;
   const shown = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -77,13 +57,7 @@ export function OAuthAccounts({ onConnectors, refresh = 0 }: { onConnectors: (v:
     try {
       const v = await api.startOAuthSignIn(provider, device);
       setSignIn(v);
-      if (v.authorizeUrl) {
-        // `noopener` would make open() answer null whether or not the tab opened: the opener is dropped by hand.
-        // The desktop app's window opens it in the system browser, and answers null too.
-        const tab = window.open(v.authorizeUrl, '_blank');
-        if (tab) tab.opener = null;
-        if (sayPopupBlocked(Boolean(tab), isAppWindow(navigator.userAgent))) setError(o.popupBlocked);
-      }
+      if (v.authorizeUrl && !openSignInPage(v.authorizeUrl)) setError(o.popupBlocked);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -145,7 +119,7 @@ export function OAuthAccounts({ onConnectors, refresh = 0 }: { onConnectors: (v:
         ))}
       </ul>
 
-      {signIn && waiting(signIn) && (
+      {signIn && waiting(signIn) && signIn.provider !== 'mcp' && (
         <SignInWaiting signIn={signIn} label={label(signIn.provider)} onChange={setSignIn} onError={setError} />
       )}
 
@@ -195,8 +169,57 @@ export function OAuthAccounts({ onConnectors, refresh = 0 }: { onConnectors: (v:
   );
 }
 
-/** A sign-in under way: the page to open again, the code for another device, or the address to paste. */
-function SignInWaiting({
+/**
+ * Opens a sign-in's page in a new tab (in the desktop app, the system browser); false when the browser
+ * blocked it, to say so.
+ */
+export function openSignInPage(url: string): boolean {
+  // `noopener` would make open() answer null whether or not the tab opened: the opener is dropped by hand.
+  // The desktop app's window opens it in the system browser, and answers null too.
+  const tab = window.open(url, '_blank');
+  if (tab) tab.opener = null;
+  return !sayPopupBlocked(Boolean(tab), isAppWindow(navigator.userAgent));
+}
+
+/**
+ * Follows a sign-in while it waits, asking the server how it goes every moment and handing each answer
+ * to `onChange`; one the server no longer has (it restarted, or it ended long ago) is over (`undefined`).
+ */
+export function useFollowSignIn(
+  signIn: OAuthSignInView | undefined,
+  onChange: (v: OAuthSignInView | undefined) => void,
+  onError: (e: string) => void,
+): void {
+  const following = signIn && waiting(signIn) ? signIn.id : undefined;
+  const handlers = useRef({ onChange, onError });
+  handlers.current = { onChange, onError };
+  useEffect(() => {
+    if (!following) return;
+    let live = true;
+    const timer = setInterval(async () => {
+      try {
+        const v = await api.oauthSignIn(following);
+        if (!live) return;
+        handlers.current.onChange(v);
+      } catch (e) {
+        if (!live) return;
+        handlers.current.onError((e as Error).message);
+        // Gone (the server restarted, or it ended long ago): nothing more to follow. Anything else may pass.
+        if (e instanceof ApiError && e.status === 404) handlers.current.onChange(undefined);
+      }
+    }, 1500);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [following]);
+}
+
+/**
+ * A sign-in under way: the page to open again, the code for another device, or the address to paste.
+ * Also a tool library MCP server's own sign-in (`McpSignIn`), `label` then naming the server.
+ */
+export function SignInWaiting({
   signIn,
   label,
   onChange,

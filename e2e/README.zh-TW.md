@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 36 個 spec 檔、468 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 37 個 spec 檔、469 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -52,6 +52,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 22 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [用 OAuth 登入的帳號](#用-oauth-登入的帳號) | [`oauth.spec.ts`](specs/oauth.spec.ts) | 1 | [使用者說明 → Harness Relay 的工具](../docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)、[提案 → OAuth](../docs/proposals/oauth.zh-TW.md) |
+| [需要登入的 MCP 伺服器](#需要登入的-mcp-伺服器) | [`mcp-oauth.spec.ts`](specs/mcp-oauth.spec.ts) | 1 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 自己登入的 MCP 伺服器](../docs/architecture.zh-TW.md#自己登入的-mcp-伺服器) |
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 11 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 11 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
@@ -305,6 +306,14 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 帳號在新分頁用 Microsoft 登入，回到 web app 自己的回呼頁面，它的行事曆加入行事曆工具 | — | 還沒有 app 時，這一區說明要先註冊一個；**設定 app**（Set up the app）顯示要允許的重新導向網址（`http://127.0.0.1/oauth/callback`），並填入用戶端 ID。**用 … 登入**（Sign in with …）在新分頁打開替身的頁面，「設定」顯示正在等待；它的 **Allow** 把那個分頁帶到 `/oauth/callback`，頁面顯示 **已登入 …**（Signed in as …），並把授權碼與 state 從網址拿掉；替身只看到一次用 PKCE 驗證碼交換授權碼。接著「設定」顯示帳號 **已連線**（Connected），它自己的行事曆出現在行事曆清單中，沒有 **編輯**（Edit）；**行事曆**（Calendars）列出的那一個已經是 **已加入**（Added），**加入**（Add）可以再加入另一個。然後替身拒絕這個帳號的權杖與它的更新（`invalid_grant`，就像在 Microsoft 撤銷了登入）：它的行事曆的 **測試**（Test）說登入已經失效，帳號接著顯示 **需要重新登入**（Needs a new sign-in）與原因，以及 **重新登入**（Sign in again）。**重新登入** 再次打開替身的頁面，它的 **Allow** 讓帳號重新連線（第二次交換）；再被拒絕一次後，重新打開的 **行事曆**（Calendars）說登入已經失效，帳號不用 **測試** 就又顯示 **需要重新登入**。**移除**（Remove，確認後）會說明要到 Microsoft 哪裡移除 app 的存取權，並移除帳號與它的行事曆。 |
+
+## 需要登入的 MCP 伺服器
+
+[`mcp-oauth.spec.ts`](specs/mcp-oauth.spec.ts)：**設定 → 工具庫 → MCP 伺服器**，HTTP 伺服器自己的登入（MCP 的授權），對這台電腦上的替身測試：一台回 401 並指出它受保護資源中繼資料的 MCP 伺服器，以及它的授權伺服器，發行者帶有路徑（RFC 8414 的中繼資料、註冊、有「Allow」連結的授權頁面、檢查 PKCE、重新導向網址與 `resource` 的權杖端點、撤銷）。
+
+| 情境 | CLI | 檢查的內容 |
+| --- | --- | --- |
+| 工具庫的 MCP 伺服器在新分頁登入，回到 web app 的回呼頁面，成員這一回合在伺服器的標頭拿到它的權杖 | Claude Code | 伺服器透過 API 加入。它那一列的 **登入**（Sign in）在授權伺服器註冊一個用戶端，用頁面自己的重新導向網址（`<origin>/oauth/callback`），並在新分頁打開授權頁面，那一列則顯示在等它；按 **Allow** 把分頁送到 /oauth/callback，頁面說已登入這台 MCP 伺服器，並把授權碼與 state 從網址拿掉。那一列接著顯示 **已登入**（Signed in）與時間；交換授權碼時以伺服器的網址為資源。Claude Code 成員的一回合：假的 Claude Code 拿到的伺服器帶著 `Authorization: Bearer <最新的存取權杖>`（為這一回合更新過，每個權杖請求都指名資源）。在授權伺服器撤銷登入後（更新被拒，`invalid_grant`）：下一則回覆有這一回合沒給這台伺服器的說明（它的登入已經失效），假的 CLI 也沒拿到它。設定頁那一列顯示 **需要重新登入**（Needs a new sign-in）與原因；**重新登入**（Sign in again）用保留的用戶端再登入一次（不再註冊）。**登出**（Sign out，確認後）：那一列說已登出、標籤消失、**登入** 又出現，授權伺服器收到撤銷。 |
 
 ## 修改對話的歷史
 
@@ -583,6 +592,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 多個工作目錄：每個都寫一個檔案 | ✓ | ✓ | ✓ | ✓（第二個先詢問） | ✓ | ✓ | ✓ |
 | 工具庫的 MCP 伺服器，秘密不在命令列上 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | HTTP MCP 伺服器與它的標頭 | ✓ | ✓ | ✓ | ✓ | —（不提供） | ✓ | ✓ |
+| 工具庫 HTTP MCP 伺服器自己的登入：存取權杖放在伺服器的 `Authorization` 標頭，登入失效後那一回合不給它 | ✓ | — | — | — | — | — | — |
 | 透過 gateway 使用 Harness Relay 自己的工具：郵件在待送出匣等到使用者按送出；完全存取以下，CLI 自己的詢問被代為回答、gateway 對 act 的卡片 | ✓ | ✓（透過本機 HTTP，完全存取以下） | — | — | — | ✓（透過本機 HTTP，完全存取以下） | — |
 | 附加的圖片 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 停止回答；協定之內的錯誤；失敗的回答與重試 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -655,6 +665,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **gistpreview.github.io 上的分享頁。**測試開啟的是假 `gh` 存下的頁面，由測試自己的網址提供：gistpreview 自己那個把 gist 寫進自身的頁面沒有測。
 - **長時間追蹤的目標。**執行失敗後的重試（5、30、120 分鐘）、被重新啟動中斷的執行，以及排程本身的時間，是在單元測試中用假時鐘測的（`test/orchestrator-tracking.test.ts`）；端對端測試只用**立即執行一次**跑一次追蹤目標的排程。
 - **真的 OAuth 服務，以及在瀏覽器裡的 Google 登入。** 瀏覽器裡的登入只對 Microsoft 頁面與 Graph 的替身測試（[用 OAuth 登入的帳號](#用-oauth-登入的帳號)）；裝置代碼、貼上網址、被拒或過期的登入、權杖代理的更新、帳號移除後才回來的更新，以及透過 Graph 和用權杖透過 Google 的 CalDAV 使用的行事曆工具（對 Google 登入與 CalDAV 的替身），在 `test/oauth.test.ts` 中測試。沒有登入過真的 Microsoft 或 Google 帳號。
+- **真正需要登入的 MCP 伺服器，以及它們登入的其他方式。** [需要登入的 MCP 伺服器](#需要登入的-mcp-伺服器)只對替身登入，而且只把權杖交給 Claude Code 的假 CLI（每個 CLI 怎麼拿 HTTP 伺服器的標頭，是[工具庫](#工具庫)測的）。探索的其他形式（well-known 網址、OpenID 的中繼資料、challenge 的權限範圍）、各種拒絕（沒有 S256 的 PKCE、沒有註冊、別的資源的中繼資料、連到別台電腦的純 http、不要求登入的伺服器）、為另一個重新導向網址重新註冊、用戶端密碼、貼上網址、沒有更新權杖的登入、其他原因的更新失敗、主機規則、移除伺服器或改網址，以及重新啟動，都在單元測試中測試（`test/mcp-oauth.test.ts`、`test/orchestrator-mcp-oauth.test.ts`）。
 - **郵件觸發的檢查頻率。** [自動任務](#自動任務)用**立即檢查**來檢查；每 2 分鐘一次、失敗後放慢，以及重新啟動後保留的狀態，在 `test/orchestrator-watch.test.ts` 中用假時鐘測試，IMAP 的部分（UIDVALIDITY、條件、一次很多封）在 `test/watch.test.ts`。
 - **真的郵件與行事曆伺服器、TLS，以及其他 gateway 工具。** 郵件與行事曆工具是在單元測試中，對這台電腦上不加密的 IMAP、SMTP 與 CalDAV 替身伺服器測的（`test/connectors.test.ts`：後面還跟著其他內容的 STARTTLS 回應會在 TLS 開始前被拒絕），瀏覽器工具則在找得到 Chromium 時用真的 Chromium 測（`test/browser.test.ts`：包括檢查請求、彈出視窗與同時的呼叫）；端對端測試呼叫兩個 gateway 工具：`mail_send` 透過 Claude Code（經由 stdio 程式）、Codex 與 OpenCode（經由本機 HTTP）的假 CLI，`calendar_create` 透過 Claude Code 的；其他 CLI 的假 CLI 一個都不呼叫。沒有用任何真的服務（Gmail、iCloud、Fastmail）測過。
 - **Cursor 在暫存資料夾中不詢問就做的事。**真正的 Cursor 在暫存資料夾（`/tmp`、macOS 的 `/private/var/folders`）中寫入不會詢問；它的假 CLI 不會這樣，因為測試的資料夾都在暫存資料夾裡，否則寫到工作區之外的每個檔案都會不經詢問就寫入。也沒有 spec 試用 Cursor 團隊的自動執行允許清單（假 CLI 有一份，`E2E_FAKE_CURSOR_TEAM_ALLOW`）。真正的 Muse Code 的沙箱也讓它的指令寫入暫存資料夾；它的假 CLI 因為同樣的原因不會這樣。

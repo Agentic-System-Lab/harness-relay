@@ -35,21 +35,41 @@ export interface OAuthIdentity {
   name?: string;
 }
 
+/**
+ * Where a sign-in signs in, and what its tokens are for: a provider's accounts (`AccountProvider`), or a
+ * tool library MCP server's own sign-in (`mcp`), whose description is built from what the server and its
+ * authorization server publish (`oauth/mcp.ts`). The sign-ins (`signin.ts`) and the token broker
+ * (`broker.ts`) take either.
+ */
 export interface OAuthProvider {
-  id: OAuthProviderId;
+  id: OAuthProviderId | 'mcp';
   label: string;
   endpoints: { authorize: string; token: string; revoke?: string; device?: string };
   clientId: string;
   /** Google's "secret" for a desktop app, which is not one (it ships with the app); none for Microsoft's public clients. */
   clientSecret?: string;
+  /** The client secret goes in an `Authorization: Basic` header (`client_secret_basic`) rather than in the form. */
+  clientSecretBasic?: boolean;
   flows: OAuthFlow[];
   scopes(uses: readonly OAuthUse[]): string[];
   /** The only hosts (with their port when not the usual one) the access token is sent to. */
   hosts: string[];
-  /** What the sign-in page is asked for besides the usual: Google's refresh token (`access_type=offline`). */
+  /** What the sign-in page is asked for besides the usual: Google's refresh token (`access_type=offline`), an MCP server's `resource`. */
   extraParams?: Record<string, string>;
+  /** What every token request sends besides the usual: an MCP server's `resource` (RFC 8707). */
+  tokenParams?: Record<string, string>;
   /** The refresh asks for the scopes again (Microsoft: a token for which resource). */
   refreshWithScopes?: boolean;
+  /**
+   * A sign-in that brings no refresh token is kept all the same (an MCP server's authorization server
+   * may give none): its access token works until it expires, and it then needs a new sign-in.
+   */
+  refreshOptional?: boolean;
+}
+
+/** A provider whose accounts sign in (Microsoft, Google): who signed in, and their calendars. */
+export interface AccountProvider extends OAuthProvider {
+  id: OAuthProviderId;
   whoami(fetch: AuthorizedFetch): Promise<OAuthIdentity>;
   /** Its calendars, by name, at the addresses the calendar tools use. */
   calendars(fetch: AuthorizedFetch, email: string): Promise<{ name: string; url: string }[]>;
@@ -103,7 +123,7 @@ function microsoftUrls(): { login: string; graph: string } {
 }
 
 /** Microsoft 365 and Outlook.com: Microsoft Entra's sign-in (`urls`: another cloud's, or a stand-in's), and Graph. */
-export function microsoftProvider(client: OAuthClient, urls = microsoftUrls()): OAuthProvider {
+export function microsoftProvider(client: OAuthClient, urls = microsoftUrls()): AccountProvider {
   const { login, graph } = urls;
   const tenant = encodeURIComponent(client.tenant?.trim() || 'common');
   // Graph's scopes by their short names in the global cloud; in another, by its own address.
@@ -162,7 +182,7 @@ const GOOGLE: GoogleUrls = {
 };
 
 /** Google Calendar: Google's sign-in, and its CalDAV with the token (`urls`: a stand-in's, in tests). */
-export function googleProvider(client: OAuthClient, urls: GoogleUrls = GOOGLE): OAuthProvider {
+export function googleProvider(client: OAuthClient, urls: GoogleUrls = GOOGLE): AccountProvider {
   const defaultCalendar = (email: string) => ({ name: email, url: `${urls.caldav}/${encodeURIComponent(email)}/events/` });
   return {
     id: 'google',
@@ -200,6 +220,6 @@ export function googleProvider(client: OAuthClient, urls: GoogleUrls = GOOGLE): 
 }
 
 /** A provider's description, with the app it signs in with. */
-export function oauthProvider(id: OAuthProviderId, client: OAuthClient): OAuthProvider {
+export function oauthProvider(id: OAuthProviderId, client: OAuthClient): AccountProvider {
   return id === 'microsoft' ? microsoftProvider(client) : googleProvider(client);
 }

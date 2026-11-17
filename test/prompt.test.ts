@@ -243,6 +243,27 @@ describe('buildBriefing', () => {
     expect(off).not.toContain(own);
   });
 
+  it('names the MCP servers left out of the turn, their sign-in needing renewal or not renewed now, in English', () => {
+    const briefing = buildBriefing(
+      conv,
+      team[0]!,
+      { kind: 'shared' },
+      {
+        skills: [],
+        leftOut: [
+          { name: 'linear', reason: 'reauth', note: '這一輪沒有給 MCP 伺服器「linear」' },
+          { name: 'notion', reason: 'failed', note: '…' },
+        ],
+      },
+    );
+    expect(briefing).toContain('# Tool library: left out of this turn');
+    expect(briefing).toContain('- linear: its sign-in no longer works; the user can sign in to it again in Settings → Tool library\n');
+    expect(briefing).toContain('- notion: its sign-in could not be renewed just now');
+    // The user's note, in their language, is the reply's; the briefing stays in English.
+    expect(briefing).not.toContain('這一輪');
+    expect(buildBriefing(conv, team[0]!)).not.toContain('left out of this turn');
+  });
+
   it('lists no skills to an agent left with no tool that reads a file, and keeps its memory', () => {
     const tools = {
       memory: 'Lead with the answer.',

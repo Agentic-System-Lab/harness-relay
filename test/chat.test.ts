@@ -492,6 +492,12 @@ describe("an agent's work between its words", () => {
     expect(segs.map((s) => (s.kind === 'activity' ? s.items.length : 0))).toEqual([2, 0, 1, 0, 1]);
   });
 
+  it("shows what Harness Relay noted about the turn (an MCP server left out of it) apart from the agent's words", () => {
+    const segs = segments([{ type: 'notice', text: 'The MCP server "linear" was left out of this turn' }, tool('a'), text('Done.')]);
+    expect(segs.map((s) => s.kind)).toEqual(['notice', 'activity', 'text']);
+    expect(segs[0]).toEqual({ kind: 'notice', text: 'The MCP server "linear" was left out of this turn', key: 0 });
+  });
+
   it('keeps its key while steps stream in, and marks the row that ends the message', () => {
     const first = segments([text('On it.'), tool('a', 'running')]);
     const later = segments([text('On it.'), tool('a'), think('Hmm.'), tool('b', 'running')]);

@@ -21,24 +21,32 @@ import { missingScopes, useScopes, type OAuthProvider } from './providers';
  *   (that same signed-in browser only).
  * - Where the provider allows it for the scopes (Microsoft), the device code flow: a code typed at the
  *   provider's address on any device, while the server asks the provider until it is done.
+ *
+ * A sign-in is an account's (Microsoft, Google: `service.ts`) or a tool library MCP server's own
+ * (`mcp.ts`), whose provider is a description built from what the server publishes; each brings what
+ * keeps the sign-in once it worked (`keep`), and every check here holds for both alike.
  */
 
-/** A sign-in that worked, for the service to keep: who signed in and the tokens. */
+/** A sign-in that worked, for what started it to keep: the tokens and the scopes granted. */
 export interface SignedIn {
-  provider: OAuthProviderId;
-  uses: OAuthUse[];
-  tokens: TokenAnswer & { access_token: string; refresh_token: string };
+  /** No refresh token only for a provider that allows it (`refreshOptional`). */
+  tokens: TokenAnswer & { access_token: string; refresh_token?: string };
   scopes: string[];
-  whoami: OAuthProvider['whoami'];
   hosts: string[];
   /** Whether it is still wanted: not cancelled, nor its app changed, while who signed in is asked. */
   live: () => boolean;
 }
 
+/** Keeps a sign-in that worked (the account it signed in, or an MCP server's tokens), and answers the account, if any. */
+export type KeepSignIn = (s: SignedIn) => Promise<OAuthAccountView | undefined>;
+
 interface Pending {
   id: string;
   provider: OAuthProvider;
   uses: OAuthUse[];
+  keep: KeepSignIn;
+  /** A tool library MCP server's own sign-in: the server, by its id and name. */
+  server?: { id: string; name: string };
   /** The signed-in browser's session that started it (none when signing in is off: tests). */
   session?: string;
   /** The SHA-256 of its state (the state itself only goes to the provider and back). */
@@ -60,6 +68,14 @@ const sha256 = (s: string) => createHash('sha256').update(s).digest();
 
 /** How long a sign-in that ended stays for the page that started it to see how it went. */
 const KEPT_MS = 5 * 60_000;
+
+/**
+ * The redirect address of a sign-in started from a page at `origin`: that page's own web app when it is
+ * on this computer, else this computer's port on localhost (the address it then shows is pasted back).
+ */
+export function redirectAddress(origin: string | undefined, port: number): string {
+  return `${loopbackOrigin(origin) ?? `http://localhost:${port}`}/oauth/callback`;
+}
 
 /** Whether an origin is this computer's own (`http://localhost:5173`, `http://127.0.0.1:8787`): its page can be a redirect address. */
 export function loopbackOrigin(origin: string | undefined): string | undefined {
@@ -94,8 +110,6 @@ export class SignIns {
   private pending = new Map<string, Pending>();
 
   constructor(
-    /** Keeps the account a sign-in signed in (the store, the calendar it adds), and answers it. */
-    private keep: (s: SignedIn) => Promise<OAuthAccountView>,
     private now: () => number = Date.now,
     /** How long to wait between two asks of a device code sign-in (the provider's interval; shorter in tests). */
     private pollMs: (interval: number) => number = (interval) => interval * 1000,
@@ -113,33 +127,50 @@ export class SignIns {
     }
   }
 
+  /** Refuses another sign-in while too many wait (429): checked again as one starts, and before an MCP server's registration. */
+  assertRoom(): void {
+    this.sweep();
+    if ([...this.pending.values()].filter((p) => p.status === 'waiting').length >= OAUTH_LIMITS.pending)
+      throw new HttpError(429, t().oauthTooMany);
+  }
+
   /**
    * Start a sign-in: the provider's page to open, with a redirect to `origin`'s own web app when the
    * page is on this computer (else to this computer's port on localhost: the address it then shows is
-   * pasted back), or, with `device`, a code to type at the provider's address.
+   * pasted back, `redirectAddress()`), or, with `device`, a code to type at the provider's address.
+   * `keep` keeps it once it worked; `server`, for an MCP server's own sign-in, names it.
    */
   async start(o: {
     provider: OAuthProvider;
     uses: OAuthUse[];
+    keep: KeepSignIn;
+    server?: { id: string; name: string };
     session?: string;
     origin?: string;
     port: number;
     device?: boolean;
   }): Promise<OAuthSignInView> {
-    this.sweep();
-    if ([...this.pending.values()].filter((p) => p.status === 'waiting').length >= OAUTH_LIMITS.pending)
-      throw new HttpError(429, t().oauthTooMany);
+    this.assertRoom();
     const { provider, uses } = o;
     const scopes = provider.scopes(uses);
     const id = randomUUID();
     const expiresAt = this.now() + OAUTH_LIMITS.signInMinutes * 60_000;
-    const base = { id, provider, uses, ...(o.session ? { session: o.session } : {}), expiresAt, status: 'waiting' as const };
+    const base = {
+      id,
+      provider,
+      uses,
+      keep: o.keep,
+      ...(o.server ? { server: o.server } : {}),
+      ...(o.session ? { session: o.session } : {}),
+      expiresAt,
+      status: 'waiting' as const,
+    };
     if (o.device) {
       if (!provider.flows.includes('device') || !provider.endpoints.device) throw new HttpError(400, t().oauthNoDevice(provider.label));
       const res = await fetch(provider.endpoints.device, {
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
-        body: new URLSearchParams({ client_id: provider.clientId, scope: scopes.join(' ') }).toString(),
+        body: new URLSearchParams({ client_id: provider.clientId, ...(scopes.length ? { scope: scopes.join(' ') } : {}) }).toString(),
         redirect: 'manual',
         signal: AbortSignal.timeout(30_000),
       });
@@ -171,13 +202,14 @@ export class SignIns {
     }
     const state = b64url(randomBytes(32));
     const verifier = b64url(randomBytes(48));
-    const redirectUri = `${loopbackOrigin(o.origin) ?? `http://localhost:${o.port}`}/oauth/callback`;
+    const redirectUri = redirectAddress(o.origin, o.port);
     const url = new URL(provider.endpoints.authorize);
     for (const [k, v] of Object.entries({
       client_id: provider.clientId,
       response_type: 'code',
       redirect_uri: redirectUri,
-      scope: scopes.join(' '),
+      // None asked (an MCP server whose metadata lists none): left out, not sent empty.
+      ...(scopes.length ? { scope: scopes.join(' ') } : {}),
       state,
       code_challenge: b64url(sha256(verifier)),
       code_challenge_method: 'S256',
@@ -209,6 +241,11 @@ export class SignIns {
     for (const [id, p] of this.pending) if (p.provider.id === provider && p.status === 'waiting') this.pending.delete(id);
   }
 
+  /** Ends an MCP server's sign-ins still waiting: it was removed, its address changed, or it signed out. */
+  cancelServer(serverId: string): void {
+    for (const [id, p] of this.pending) if (p.server?.id === serverId && p.status === 'waiting') this.pending.delete(id);
+  }
+
   /** Whether a sign-in is still wanted: still here (not cancelled, nor its app changed), and waiting. */
   private live(p: Pending): boolean {
     return this.pending.get(p.id) === p && p.status === 'waiting';
@@ -224,6 +261,7 @@ export class SignIns {
     return {
       id: p.id,
       provider: p.provider.id,
+      ...(p.server ? { server: { ...p.server } } : {}),
       status: p.status,
       expiresAt: p.expiresAt,
       ...(p.authorizeUrl && p.status === 'waiting' ? { authorizeUrl: p.authorizeUrl } : {}),
@@ -335,17 +373,16 @@ export class SignIns {
     if (typeof body.scope === 'string' && missingScopes(useScopes(p.provider, p.uses), body.scope).length)
       throw new Error(t().oauthNoCalendarAccess(p.provider.label));
     // No refresh token: the account could be used for an hour only (Google gives one only with access_type=offline).
-    if (!body.refresh_token) throw new Error(t().oauthNoRefresh(p.provider.label));
+    // An MCP server's authorization server may give none: its sign-in then lasts as long as its access token.
+    if (!body.refresh_token && !p.provider.refreshOptional) throw new Error(t().oauthNoRefresh(p.provider.label));
     const tokens = body as SignedIn['tokens'];
-    p.account = await this.keep({
-      provider: p.provider.id,
-      uses: p.uses,
+    const account = await p.keep({
       tokens,
       scopes: body.scope ? body.scope.split(/\s+/).filter(Boolean) : scopes,
-      whoami: p.provider.whoami,
       hosts: p.provider.hosts,
       live: () => this.live(p),
     });
+    if (account) p.account = account;
     p.status = 'done';
     p.expiresAt = this.now() + KEPT_MS;
     delete p.verifier;

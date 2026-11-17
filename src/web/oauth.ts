@@ -2,7 +2,8 @@
 // app must allow, what the provider's page sent back to /oauth/callback and what that page then does,
 // a sign-in's next step, and whether a sign-in page that did not open was blocked.
 
-import type { OAuthAccountView, OAuthProviderId, OAuthSignInView } from '../shared/types';
+import type { McpOAuthState, OAuthAccountView, OAuthProviderId, OAuthSignInView } from '../shared/types';
+import type { Messages } from './i18n';
 
 /** Where the provider's page sends the browser back: this web app's own page for it. */
 export const CALLBACK_PATH = '/oauth/callback';
@@ -37,16 +38,17 @@ export function callbackFrom(search: string): { state?: string; code?: string; e
   };
 }
 
-/** What the callback page shows once the server answered. */
+/** What the callback page shows once the server answered: an account signed in, or a tool library MCP server (`server`). */
 export type CallbackOutcome =
-  | { kind: 'done'; email: string }
+  | { kind: 'done'; email: string; server?: string }
   | { kind: 'failed'; error: string }
   /** No sign-in here has its state: another Harness Relay's (on another computer), or one long over. */
   | { kind: 'elsewhere' };
 
 /** The server's answer to the callback page's post: how the sign-in went, or the error and its HTTP status. */
 export type CallbackAnswer =
-  { ok: true; status: OAuthSignInView['status']; email?: string; error?: string } | { ok: false; httpStatus: number; error: string };
+  | { ok: true; status: OAuthSignInView['status']; email?: string; server?: string; error?: string }
+  | { ok: false; httpStatus: number; error: string };
 
 /**
  * What the callback page shows for the server's answer, and whether its address then loses its code
@@ -57,7 +59,10 @@ export type CallbackAnswer =
 export function callbackOutcome(answer: CallbackAnswer, hasState: boolean): { outcome: CallbackOutcome; clearAddress: boolean } {
   if (answer.ok)
     return {
-      outcome: answer.status === 'done' ? { kind: 'done', email: answer.email ?? '' } : { kind: 'failed', error: answer.error ?? '' },
+      outcome:
+        answer.status === 'done'
+          ? { kind: 'done', email: answer.email ?? '', ...(answer.server ? { server: answer.server } : {}) }
+          : { kind: 'failed', error: answer.error ?? '' },
       clearAddress: true,
     };
   if (answer.httpStatus === 404 && hasState) return { outcome: { kind: 'elsewhere' }, clearAddress: false };
@@ -81,4 +86,15 @@ export function waiting(v: OAuthSignInView | undefined): boolean {
 /** The name a calendar of an account gets in the calendar tools: its own, then whose it is. */
 export function calendarName(account: Pick<OAuthAccountView, 'email'>, calendar: string): string {
   return `${calendar} · ${account.email}`.slice(0, 60);
+}
+
+/**
+ * What an HTTP MCP server's row says of its own sign-in: signed in (since when, in the page's language),
+ * or needing a new one (and why); nothing when it has not signed in.
+ */
+export function mcpSignInLine(oauth: McpOAuthState | undefined, t: Messages, lang: string): { text: string; warn: boolean } | undefined {
+  if (!oauth) return undefined;
+  if (oauth.status === 'reauth') return { text: t.tools.signIn.needsAgain(oauth.error ?? ''), warn: true };
+  const at = new Date(oauth.signedInAt).toLocaleString(lang, { dateStyle: 'medium', timeStyle: 'short' });
+  return { text: t.tools.signIn.signedInAt(at), warn: false };
 }

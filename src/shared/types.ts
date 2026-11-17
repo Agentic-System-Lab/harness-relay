@@ -257,11 +257,14 @@ export interface OAuthView {
 /**
  * A sign-in under way, as the page that started it sees it: the provider's page to open (or, on
  * another device, a code to type at an address), the redirect address that page goes back to, and
- * how it went. `done` brings the account it signed in.
+ * how it went. `done` brings the account it signed in. A tool library MCP server's own sign-in
+ * (`provider` `mcp`) names the server instead, and brings no account.
  */
 export interface OAuthSignInView {
   id: string;
-  provider: OAuthProviderId;
+  provider: OAuthProviderId | 'mcp';
+  /** An MCP server's own sign-in: the server, by its id and name in the tool library. */
+  server?: { id: string; name: string };
   status: 'waiting' | 'done' | 'failed';
   expiresAt: number;
   authorizeUrl?: string;
@@ -368,6 +371,18 @@ export interface McpServerView {
    * (none = no agent by default).
    */
   providers: Provider[];
+  /**
+   * An HTTP server's own sign-in (MCP's authorization, OAuth), once it signed in: `signed-in` (since
+   * `signedInAt`), or `reauth`, its sign-in no longer works (`error`: why): sign in again. Never a token.
+   */
+  oauth?: McpOAuthState;
+}
+
+/** An HTTP MCP server's own sign-in, as the UI sees it (`McpServerView.oauth`). */
+export interface McpOAuthState {
+  status: 'signed-in' | 'reauth';
+  signedInAt: number;
+  error?: string;
 }
 
 export interface McpServerUpdate {
@@ -1278,7 +1293,12 @@ export type MessagePart =
   /** What the reply said about the goal its schedule tracks (its `<progress>` block, taken out of its text). */
   | { type: 'progress'; status: ProgressStatus; text: string }
   /** Something the agent asked to send (a `send` call of Harness Relay's tools): it waits in the outbox for the user. */
-  | { type: 'outbox'; id: string; tool: string; title: string; preview: OutboxPreview; status: OutboxStatus; result?: string };
+  | { type: 'outbox'; id: string; tool: string; title: string; preview: OutboxPreview; status: OutboxStatus; result?: string }
+  /**
+   * What Harness Relay noted about the turn, not the agent's words (never forwarded as them): a tool
+   * library MCP server left out of it, its sign-in needing renewal.
+   */
+  | { type: 'notice'; text: string };
 
 /** Limits for files attached to one message. */
 export const ATTACHMENT_LIMITS = { maxFiles: 10, maxBytes: 20 * 1024 * 1024 };
