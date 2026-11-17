@@ -1037,7 +1037,7 @@ p {
   height: 34px;
 }
 
-/* Clear of the corner's two buttons (the bell and expand: 74px wide, 10px from the edge). */
+/* Clear of the corner's two buttons (expand and the bell: 74px wide, 10px from the edge). */
 .sidebar-collapsed .chat-head {
   padding-left: 96px;
 }

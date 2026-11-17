@@ -1,5 +1,5 @@
 // The notification inbox in the page: the bell beside the sidebar's collapse button (and beside the
-// expand button while the sidebar is collapsed), its unread count, and the dialog it opens
+// expand button, on its right, while the sidebar is collapsed), its unread count, and the dialog it opens
 // (components/InboxDialog.tsx). The server keeps the notifications (src/server/inbox.ts); this module
 // holds the page's pure decisions, tested in test/inbox-web.test.ts.
 

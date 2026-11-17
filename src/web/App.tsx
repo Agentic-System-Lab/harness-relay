@@ -468,10 +468,11 @@ function RelayApp() {
         </button>
         {collapsed && (
           <div className="sidebar-tools">
-            <InboxButton unread={inbox.unread} onOpen={() => setInboxOpen(true)} />
+            {/* The expand button keeps the corner; the bell is beside it, on its inner side (as beside the collapse button). */}
             <button className="icon-button" onClick={() => setCollapsed(false)} aria-label={t.app.expandSidebar} title={t.app.expandSidebar}>
               <PanelIcon />
             </button>
+            <InboxButton unread={inbox.unread} onOpen={() => setInboxOpen(true)} />
           </div>
         )}
         {route.page === 'home' && <Home />}

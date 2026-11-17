@@ -253,7 +253,7 @@ test.describe('the notification inbox', () => {
     await expect(bell(page)).toBeFocused();
   });
 
-  test('reads at once what comes in the chat on screen; Mark all as read reads the rest; with the sidebar collapsed, the bell is left of the expand button', async ({ page, relay }) => {
+  test('reads at once what comes in the chat on screen; Mark all as read reads the rest; with the sidebar collapsed, the bell is right of the expand button, which keeps the corner', async ({ page, relay }) => {
     await startChat(page, { autoConfirm: true });
     const first = chatId(page);
     await send(page, 'First question');
@@ -270,7 +270,7 @@ test.describe('the notification inbox', () => {
     await settled(relay, first);
     await expect(bell(page)).toHaveAccessibleName('Notifications (1 unread)', { timeout: 15_000 });
 
-    // Collapsed: the bell and its count in the corner, left of the expand button.
+    // Collapsed: the expand button keeps the corner, the bell and its count right of it.
     await page.getByRole('button', { name: 'Collapse sidebar' }).click();
     const corner = page.locator('.sidebar-tools');
     const cornerBell = corner.getByRole('button', { name: 'Notifications (1 unread)' });
@@ -278,8 +278,9 @@ test.describe('the notification inbox', () => {
     await expect(cornerBell).toBeVisible();
     await expect(cornerBell.locator('.inbox-badge')).toHaveText('1');
     // Measured together: the sidebar may still be sliding away.
-    const [bellX, expandX] = await corner.evaluate((el) => [...el.querySelectorAll('button')].map((b) => b.getBoundingClientRect().x));
-    expect(bellX).toBeLessThan(expandX!);
+    const [expandX, bellX] = await corner.evaluate((el) => [...el.querySelectorAll('button')].map((b) => b.getBoundingClientRect().x));
+    expect(expandX).toBeLessThan(bellX!);
+    await expect(corner.getByRole('button').first()).toHaveAccessibleName('Expand sidebar');
     await cornerBell.click();
     const dialog = inbox(page);
     await expect(dialog.locator('.inbox-item.unread')).toHaveCount(1);

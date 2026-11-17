@@ -1736,7 +1736,7 @@ export const en: Messages = {
         points: [
           'Click the bell to see them, the newest first; click one to open its chat',
           'Opening a chat marks its notifications read; "Mark all as read" and "Clear all" are at the bottom',
-          'Every signed-in browser sees the same list; with the sidebar collapsed, the bell is in the top-left corner, left of the expand button; on a phone, a dot on the menu button says some are unread',
+          'Every signed-in browser sees the same list; with the sidebar collapsed, the bell is in the top-left corner, right of the expand button; on a phone, a dot on the menu button says some are unread',
         ],
       },
       {

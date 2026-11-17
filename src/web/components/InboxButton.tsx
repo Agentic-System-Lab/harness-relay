@@ -4,7 +4,7 @@ import { BellIcon } from './icons';
 
 /**
  * The bell that opens the notification inbox, with how many are unread: beside the sidebar's collapse
- * button, and beside the expand button while the sidebar is collapsed.
+ * button, and right of the expand button while the sidebar is collapsed (each toggle keeps its place, the bell on its inner side).
  */
 export function InboxButton({ unread, onOpen }: { unread: number; onOpen: () => void }) {
   const t = useT();
