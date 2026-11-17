@@ -1889,6 +1889,7 @@ export const en: Messages = {
         points: [
           "To do something the file permission doesn't cover (install a package, push code…), an agent asks in the chat: allow it once, always allow it in this chat, or decline and say what to do instead",
           'When a good answer depends on something only you know, an agent asks you first and the team waits for your answer; or skip the question and let the team go on',
+          'A mail or an invitation an agent wants to send waits in the outbox: a card in its reply, sent only when you click Send (or Discard it)',
           'The sidebar marks the conversations waiting for you: "Needs you" and "Answer needed"',
         ],
       },
@@ -1940,6 +1941,8 @@ export const en: Messages = {
           'Tick "Start a new chat each time" to begin every run in a fresh chat with the same team and settings',
           'Nobody may be watching: by default anything beyond the file permission is refused (unless you always allow it in this chat) and the agent works around it; or choose "Ask me"',
           'It sends only while Harness Relay runs: a missed time is skipped, or sent once when it starts if you choose',
+          'A goal to track: each run is told the goal and what earlier runs reported, and says where it stands; the schedule switches off once it is reached, and a run that fails is tried again',
+          'A webhook lets a program on your computer (a git hook, a CI runner) send the message now, with what it posted',
           'A clock in the sidebar marks the conversation, amber when the last time was not sent',
         ],
       },
@@ -1954,12 +1957,13 @@ export const en: Messages = {
         ],
       },
       {
-        title: 'Tool library: MCP, skills and memory',
+        title: "Tool library: MCP, skills, memory and Harness Relay's tools",
         body: "Set them up once in Settings → Tool library, and every member can use them, whichever CLI it runs on, in addition to each CLI's own setup:",
         points: [
           'MCP servers: a local command or a URL; tokens go to your system credential store',
           'Skills: pick the skills to add from a folder (such as ~/.claude/skills)',
           'Memory: one part for everyone, plus one for each CLI',
+          "Harness Relay's own tools: a browser of its own, and your mail and calendar (add the accounts there, with an app password)",
           'Give each item only to some CLIs; the team settings can change it for a single member',
         ],
       },

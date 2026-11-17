@@ -3,10 +3,10 @@ import { homedir } from 'node:os';
 import { posix, win32 } from 'node:path';
 
 /*
- * Which browser the browser tools start: the one `RELAY_BROWSER` names, else Playwright's own Chromium
- * (the newest it downloaded, in `PLAYWRIGHT_BROWSERS_PATH` or its usual cache), else Chrome, Chromium
- * or Edge where their installers put them. Each starts headless with a profile of its own
- * (`session.ts`), never the user's.
+ * Which browser the browser tools start: the one `RELAY_BROWSER` names, else Chrome, Chromium or Edge
+ * where their installers put them (kept up to date by themselves or the system), else Playwright's own
+ * Chromium (the newest it downloaded, in `PLAYWRIGHT_BROWSERS_PATH` or its usual cache). Each starts
+ * headless with a profile of its own (`session.ts`), never the user's.
  */
 
 export interface FindFs {

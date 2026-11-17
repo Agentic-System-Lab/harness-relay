@@ -584,6 +584,16 @@ test("a member reaches Harness Relay's own tools through its MCP gateway, and a 
     expect(smtp.sent).toHaveLength(1);
     expect(smtp.sent[0]!.to).toEqual(['bob@example.com']);
     expect(smtp.sent[0]!.data).toContain('Subject: Shipped');
+
+    // Another one, discarded: nothing goes out, and the card says so.
+    await send(page, 'Tell Carol too: {"to": "carol@example.com", "subject": "Shipped", "body": "It is out."} e2e:mcp=mail_send');
+    const second = (await finishedReply(page, 'Claude')).getByRole('region', { name: 'What @Claude asked to send' });
+    await expect(second).toContainText('carol@example.com');
+    await second.getByRole('button', { name: 'Discard', exact: true }).click();
+    await expect(second).toContainText('Discarded');
+    await expect(second.getByRole('button', { name: 'Send', exact: true })).toHaveCount(0);
+    await expect(page.locator('.msg-system', { hasText: 'Discarded "Mail to carol@example.com' })).toBeVisible();
+    expect(smtp.sent).toHaveLength(1);
   } finally {
     await smtp.close();
   }

@@ -454,6 +454,11 @@ describe('mail accounts and calendars in Settings', () => {
         attendees: ['bob@example.com'],
       });
       expect(invite.accountId).toBe('home');
+      // An id the agent gave is never kept: the card's calendar is found by Harness Relay.
+      expect(tools.calendar_invite!.bind!({ ...invite, accountId: 'elsewhere' }).accountId).toBe('home');
+      expect(
+        tools.mail_send!.bind!({ to: 'bob@example.com', subject: 's', body: 'b', accountId: 'imp', account: 'nobody' }),
+      ).not.toHaveProperty('accountId');
       store.delete('calendar', 'home');
       await expect(tools.calendar_invite!.send!(invite, {} as OutboxItem)).rejects.toThrow('The account the card showed is gone');
     }));
@@ -648,7 +653,10 @@ describe('the mail and calendar tools against servers on this computer', () => {
         timeZone: 'UTC',
         attendees: ['bob@example.com'],
       };
+      // The card says which calendar it goes out from; with none to go from, nothing waits in the outbox.
       expect(tools.calendar_invite!.describe(invite).preview!.fields).toContainEqual({ label: 'Invites', value: 'bob@example.com' });
+      expect(tools.calendar_invite!.describe(invite).preview!.fields[0]).toEqual({ label: 'Calendar', value: 'Home' });
+      expect(() => tools.calendar_invite!.describe({ ...invite, account: 'Work' })).toThrow('No calendar "Work"');
       expect(await tools.calendar_invite!.send!(invite, {} as OutboxItem)).toBe('Added to Home; the calendar sends the invitations');
       expect(cal.puts[1]!.ics).toContain('ORGANIZER:mailto:me@example.com');
       expect(cal.puts[1]!.ics.replace(/\r\n /g, '')).toContain('mailto:bob@example.com');

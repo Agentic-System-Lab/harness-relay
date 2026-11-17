@@ -29,8 +29,10 @@ import { BrowserProxy, PROXY_USER, type ProxyRoute } from './proxy';
  * again below full access; a scheduled run opens only hosts always allowed, whatever the browser opened
  * before (`grantsFor()`); a conversation that refuses every request opens none it has not opened. Every other request (frames,
  * images, scripts, what a page or its workers fetch, in its own process or another) pauses too, and
- * goes unless it is one of those never opened. It keeps to one tab: a window the page opens is closed
- * before it loads anything, and the agent told. Downloads, file choosers and dialogs are refused.
+ * goes unless it is one of those never opened. It keeps to one tab: a window the page opens is held
+ * before it starts where the browser holds it (Google Chrome sometimes lets a script's window make its
+ * first request first: like every connection, it goes through the proxy), refused every request, and
+ * closed, and the agent told. Downloads, file choosers and dialogs are refused.
  * Calls run one at a time, in the order they came. It closes after `idleMs` without a call.
  *
  * Every connection it makes goes through its own proxy (`proxy.ts`), which connects only to
