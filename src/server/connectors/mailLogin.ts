@@ -53,7 +53,7 @@ export function mailLogin(account: Account, password: string, oauth?: MailOAuth)
     return { imap: account.imap, smtp: account.smtp, login: async () => login, oauth: false };
   }
   const id = account.oauth;
-  if (!oauth) throw new MailSignInError(`The mail account "${account.name}" signs in with OAuth, which is not set up here`);
+  if (!oauth) throw new MailSignInError(t().oauthNotHere(account.name));
   const problem = oauth.problem(id);
   if (problem) throw new MailSignInError(problem);
   const via = oauth.mailVia(id);
@@ -75,10 +75,13 @@ export function mailLogin(account: Account, password: string, oauth?: MailOAuth)
   };
 }
 
-/** An IMAP connection, signed in; a token the server refuses is renewed and tried once more. */
-export async function openImap(m: MailLogin, timeoutMs = 30_000, signal?: AbortSignal): Promise<ImapClient> {
+/**
+ * An IMAP connection, signed in; a token the server refuses is renewed and tried once more. `fresh`: a
+ * new token from the start (the server ended the session the one before signed in, as it ran out).
+ */
+export async function openImap(m: MailLogin, timeoutMs = 30_000, signal?: AbortSignal, fresh = false): Promise<ImapClient> {
   try {
-    return await ImapClient.open(m.imap, await m.login(), timeoutMs, signal);
+    return await ImapClient.open(m.imap, await m.login(fresh), timeoutMs, signal);
   } catch (err) {
     if (!m.oauth || !(err instanceof ImapLoginError) || signal?.aborted) throw err;
     return ImapClient.open(m.imap, await m.login(true), timeoutMs, signal);

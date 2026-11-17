@@ -85,11 +85,12 @@ export function OAuthAccounts({
     setSignIn(undefined);
   }, [ended, o, onConnectors]);
 
-  const start = async (provider: OAuthProviderId, uses: OAuthUse[], device = false) => {
+  /** A sign-in for these uses; `account`: the account it signs in again, or for another use. */
+  const start = async (provider: OAuthProviderId, uses: OAuthUse[], device = false, account?: string) => {
     setError('');
     setInfo('');
     try {
-      const v = await api.startOAuthSignIn(provider, uses, device);
+      const v = await api.startOAuthSignIn(provider, uses, device, account);
       setSignIn(v);
       if (v.authorizeUrl) {
         // `noopener` would make open() answer null whether or not the tab opened: the opener is dropped by hand.
@@ -155,8 +156,13 @@ export function OAuthAccounts({
               <p className="small muted">{o.usedFor(a.uses.map((u) => o.uses[u]).join(t.common.listSeparator))}</p>
               {a.status === 'reauth' && a.error && <p className="small warn-text">{a.error}</p>}
               <div className="lib-row-actions">
-                {a.status === 'reauth' && (
-                  <button type="button" className="ghost small-button" disabled={waiting(signIn)} onClick={() => start(a.provider, a.uses)}>
+                {can.signInAgain && (
+                  <button
+                    type="button"
+                    className="ghost small-button"
+                    disabled={waiting(signIn)}
+                    onClick={() => start(a.provider, can.signInAgain!, false, a.id)}
+                  >
                     {o.signInAgain}
                   </button>
                 )}
@@ -170,16 +176,16 @@ export function OAuthAccounts({
                     {o.calendars}
                   </button>
                 )}
-                {/* A use not granted yet: a sign-in for it (incremental consent), which updates this account. */}
-                {can.signInFor.map((u) => (
+                {/* A use not granted yet: a sign-in for it with those it has (incremental consent), which updates this account. */}
+                {can.signInFor.map(({ use, uses }) => (
                   <button
-                    key={u}
+                    key={use}
                     type="button"
                     className="ghost small-button"
                     disabled={waiting(signIn)}
-                    onClick={() => start(a.provider, [u])}
+                    onClick={() => start(a.provider, uses, false, a.id)}
                   >
-                    {o.useFor[u]}
+                    {o.useFor[use]}
                   </button>
                 ))}
                 {can.addMail && (

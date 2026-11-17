@@ -49,6 +49,8 @@ export interface WatchCheck {
   event?: string;
   /** `file`: each new or changed file found, as it was then (`<mtime>:<size>`): what a hold keeps (`ScheduleWatch.heldFiles`). */
   found?: Record<string, string>;
+  /** `file`: each changed file still settling (or with a time ahead of the clock), as it is now: kept like a held one meanwhile. */
+  pending?: Record<string, string>;
 }
 
 /** What a check needs to know of the automation's conversation, and of the check itself. */
@@ -783,8 +785,10 @@ export async function checkFiles(
     return { state: { files: kept, filesIn: cwd }, total: 0 };
   }
   const before = prev.files;
-  // A time well ahead of this computer's clock (a NAS ahead of it, a zip's other time zone) never settles: taken as settled.
-  const settled = (f: FoundFile) => f.mtimeMs <= now - SETTLE_MS || f.mtimeMs > now + 60_000;
+  // A time well ahead of this computer's clock (a NAS ahead of it, a zip's other time zone) would never
+  // settle by the clock: settled once it is the same at two checks in a row (`pending` keeps it between them).
+  const ahead = (f: FoundFile) => f.mtimeMs > now + 60_000;
+  const settled = (f: FoundFile) => f.mtimeMs <= now - SETTLE_MS || (ahead(f) && prev.heldFiles?.[f.path] === current[f.path]);
   const state: Record<string, string> = {};
   for (const f of files) {
     const was = before[f.path];
@@ -792,7 +796,14 @@ export async function checkFiles(
     else if (was !== undefined) state[f.path] = was;
   }
   const changed = files.filter((f) => settled(f) && before[f.path] !== current[f.path]);
-  if (!changed.length) return { state: { files: state, filesIn: cwd }, total: 0 };
+  /** The changed files still settling: kept like held ones, so a run starting before the next check does not take them. */
+  const pendingOf = () => {
+    const p = Object.fromEntries(
+      files.filter((f) => !settled(f) && before[f.path] !== current[f.path]).map((f) => [f.path, current[f.path]!]),
+    );
+    return Object.keys(p).length ? { pending: p } : {};
+  };
+  if (!changed.length) return { state: { files: state, filesIn: cwd }, total: 0, ...pendingOf() };
   // The newest changes first, when more came than are listed.
   const listed = [...changed]
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
@@ -807,6 +818,7 @@ export async function checkFiles(
     state: { files: state, filesIn: cwd },
     total: changed.length,
     found: Object.fromEntries(changed.map((f) => [f.path, current[f.path]!])),
+    ...pendingOf(),
     event: fitEvent(listed.length, (n) => ({
       source: 'file',
       workingDirectory: slashed(cwd),

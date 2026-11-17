@@ -93,14 +93,16 @@ export function connectorTools(store: ConnectorStore, oauth?: ConnectorOAuth): G
   const noMail = () => {
     if (!store.hasMail()) return 'no mail account is set up (Settings → Tool library → Mail and calendar)';
     // Every mail account is reached through a sign-in that needs renewing: none can be used until the user signs in again.
-    const problems = store.mailAccounts().map((m) => (m.oauth ? (oauth ? oauth.problem(m.oauth) : 'no OAuth here') : undefined));
-    return problems.every(Boolean) ? `${problems[0]} (Settings → Tool library → Mail and calendar)` : undefined;
+    const problems = store.mailAccounts().map((m) => (m.oauth ? (oauth ? oauth.problem(m.oauth) : t().oauthNotHere(m.name)) : undefined));
+    return problems.every(Boolean) ? problems[0] : undefined;
   };
   const noCalendar = () => {
     if (!store.hasCalendar()) return 'no calendar is set up (Settings → Tool library → Mail and calendar)';
     // Every calendar is reached through a sign-in that needs renewing: none can be used until the user signs in again.
-    const problems = store.calendarAccounts().map((c) => (c.oauth ? (oauth ? oauth.problem(c.oauth) : 'no OAuth here') : undefined));
-    return problems.every(Boolean) ? `${problems[0]} (Settings → Tool library → Mail and calendar)` : undefined;
+    const problems = store
+      .calendarAccounts()
+      .map((c) => (c.oauth ? (oauth ? oauth.problem(c.oauth) : t().oauthNotHere(c.name)) : undefined));
+    return problems.every(Boolean) ? problems[0] : undefined;
   };
   const mailbox = (which: unknown) => {
     const m = store.mail(typeof which === 'string' ? which : undefined);

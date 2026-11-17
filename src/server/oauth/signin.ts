@@ -33,7 +33,8 @@ import { missingUse, type OAuthProvider } from './providers';
  * without its use's own scopes would look connected, and fail at its first request. Where a token is
  * for one resource (Microsoft), the code exchange asks for Graph's (who signed in, the calendar), and
  * each use on another resource (mail, on Exchange Online) gets its own token at once, with the refresh
- * token, its scopes checked in its own answer.
+ * token, its scopes checked in its own answer; so does each use the account had before that this
+ * sign-in did not name (`SignedIn.tokenFor()`, which the service asks once it knows who signed in).
  */
 
 /** A sign-in that worked, for the service to keep: who signed in and the tokens. */
@@ -46,6 +47,12 @@ export interface SignedIn {
   access: AccessToken[];
   /** The scopes granted (those asked for, when the answers did not say). */
   scopes: string[];
+  /**
+   * For a provider whose tokens are each for one resource (Microsoft): a use's own token, with the
+   * refresh token as it is now, its access checked in its answer (a use refused fails the sign-in),
+   * added to `access`, `scopes` and `refreshToken`. Nothing for a provider whose one token serves every use.
+   */
+  tokenFor: (use: OAuthUse) => Promise<void>;
   /** What the sign-in's own token was granted, as its answer said (`scope`); undefined when it did not say. */
   granted?: string;
   whoami: OAuthProvider['whoami'];
@@ -149,6 +156,8 @@ export class SignIns {
     origin?: string;
     port: number;
     device?: boolean;
+    /** The address of the account signing in again (or for another use): its provider's page starts with it. */
+    loginHint?: string;
   }): Promise<OAuthSignInView> {
     this.sweep();
     if ([...this.pending.values()].filter((p) => p.status === 'waiting').length >= OAUTH_LIMITS.pending)
@@ -206,6 +215,7 @@ export class SignIns {
       code_challenge: b64url(sha256(verifier)),
       code_challenge_method: 'S256',
       ...provider.extraParams,
+      ...(o.loginHint ? { login_hint: o.loginHint } : {}),
     }))
       url.searchParams.set(k, v);
     const p: Pending = { ...base, stateHash: sha256(state), verifier, redirectUri, authorizeUrl: url.href };
@@ -368,47 +378,45 @@ export class SignIns {
     }
     // No refresh token: the account could be used for an hour only (Google gives one only with access_type=offline).
     if (!body.refresh_token) throw new Error(t().oauthNoRefresh(provider.label));
-    let refreshToken = body.refresh_token;
-    const granted = new Set(body.scope ? body.scope.split(/\s+/).filter(Boolean) : scopes);
-    const access: AccessToken[] = [
-      { uses: own ? own.uses : OAUTH_USES, token: body.access_token, ...(body.expires_in ? { expiresIn: body.expires_in } : {}) },
-    ];
-    // Each use on another resource (Microsoft's mail): its own token now, its access checked in its answer.
-    for (const use of p.uses) {
-      if (!provider.tokenScopes || ownUses.includes(use)) continue;
-      if (!this.live(p)) throw new Error(t().oauthSignInCancelled);
-      const r = await tokenRequest(provider, {
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-        scope: provider.tokenScopes(use).join(' '),
-      });
-      if (!r.body.access_token) {
-        // Refused that resource's scopes: the sign-in did not give the use's access.
-        if (
-          r.body.error === 'invalid_grant' ||
-          r.body.error === 'consent_required' ||
-          r.body.error === 'interaction_required' ||
-          r.body.error === 'invalid_scope'
-        )
-          throw new Error(`${noAccess(provider.label, use)} (${tokenError(r.status, r.body)})`);
-        throw new Error(t().oauthRefused(provider.label, tokenError(r.status, r.body)));
-      }
-      if (typeof r.body.scope === 'string' && missingUse(provider, [use], r.body.scope)) throw new Error(noAccess(provider.label, use));
-      if (r.body.refresh_token) refreshToken = r.body.refresh_token;
-      for (const s of r.body.scope ? r.body.scope.split(/\s+/).filter(Boolean) : provider.tokenScopes(use)) granted.add(s);
-      access.push({ uses: [use], token: r.body.access_token, ...(r.body.expires_in ? { expiresIn: r.body.expires_in } : {}) });
-    }
-    p.account = await this.keep({
+    const s: SignedIn = {
       provider: provider.id,
       uses: p.uses,
-      refreshToken,
-      access,
-      scopes: [...granted],
+      refreshToken: body.refresh_token,
+      access: [{ uses: own ? own.uses : OAUTH_USES, token: body.access_token, ...(body.expires_in ? { expiresIn: body.expires_in } : {}) }],
+      scopes: [...new Set(body.scope ? body.scope.split(/\s+/).filter(Boolean) : scopes)],
       ...(typeof body.scope === 'string' ? { granted: body.scope } : {}),
       whoami: provider.whoami,
       hosts: provider.hosts,
       live: () => this.live(p),
-    });
+      tokenFor: async (use) => {
+        if (!provider.tokenScopes) return;
+        if (!this.live(p)) throw new Error(t().oauthSignInCancelled);
+        const r = await tokenRequest(provider, {
+          grant_type: 'refresh_token',
+          refresh_token: s.refreshToken,
+          scope: provider.tokenScopes(use).join(' '),
+        });
+        if (!r.body.access_token) {
+          // Refused that resource's scopes: the sign-in did not give the use's access.
+          if (
+            r.body.error === 'invalid_grant' ||
+            r.body.error === 'consent_required' ||
+            r.body.error === 'interaction_required' ||
+            r.body.error === 'invalid_scope'
+          )
+            throw new Error(`${noAccess(provider.label, use)} (${tokenError(r.status, r.body)})`);
+          throw new Error(t().oauthRefused(provider.label, tokenError(r.status, r.body)));
+        }
+        if (typeof r.body.scope === 'string' && missingUse(provider, [use], r.body.scope)) throw new Error(noAccess(provider.label, use));
+        if (r.body.refresh_token) s.refreshToken = r.body.refresh_token;
+        for (const scope of r.body.scope ? r.body.scope.split(/\s+/).filter(Boolean) : provider.tokenScopes(use))
+          if (!s.scopes.includes(scope)) s.scopes.push(scope);
+        s.access.push({ uses: [use], token: r.body.access_token, ...(r.body.expires_in ? { expiresIn: r.body.expires_in } : {}) });
+      },
+    };
+    // Each use on another resource (Microsoft's mail): its own token now, its access checked in its answer.
+    for (const use of p.uses) if (!ownUses.includes(use)) await s.tokenFor(use);
+    p.account = await this.keep(s);
     p.status = 'done';
     p.expiresAt = this.now() + KEPT_MS;
     delete p.verifier;

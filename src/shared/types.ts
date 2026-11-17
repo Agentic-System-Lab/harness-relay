@@ -1502,8 +1502,8 @@ export interface ScheduleWatch {
   /** `file`: the working directory those files were found in (another one starts afresh). */
   filesIn?: string;
   /**
-   * `file`: a run was writing in the working directory at a check, or the check's message started one:
-   * what changed there is the team's own, so the next check with the folder free only records too.
+   * `file`: a run was writing in the working directory at a check (or a check held or failed while one
+   * did): what changed there is the team's own, so the next check with the folder free only records too.
    */
   teamWrote?: boolean;
   /**
@@ -1513,6 +1513,11 @@ export interface ScheduleWatch {
    * or extracts keeps an old time, and is its own all the same.
    */
   heldFiles?: Record<string, string>;
+  /**
+   * `file`: how often its folder had been locked for writing at the last check (`Orchestrator.folderWrites()`):
+   * changed since, a run wrote there between the checks, and the next check only records.
+   */
+  writes?: string;
   /** The last check failed: why, and how many checks failed in a row (they come slower). */
   error?: string;
   failures?: number;

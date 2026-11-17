@@ -80,11 +80,41 @@ describe('signing in with OAuth, in the page', () => {
   });
 
   it('offers each account its calendars or a sign-in for them, and for mail a sign-in, its mail account to add, or nothing once there', () => {
-    expect(accountActions({ uses: ['calendar'] }, false)).toEqual({ calendars: true, signInFor: ['mail'], addMail: false });
-    expect(accountActions({ uses: ['mail'] }, true)).toEqual({ calendars: false, signInFor: ['calendar'], addMail: false });
+    // A sign-in for a use not granted asks for those it has too, so that none is left without its grant.
+    expect(accountActions({ uses: ['calendar'], status: 'connected' }, false)).toEqual({
+      calendars: true,
+      signInFor: [{ use: 'mail', uses: ['calendar', 'mail'] }],
+      addMail: false,
+    });
+    expect(accountActions({ uses: ['mail'], status: 'connected' }, true)).toEqual({
+      calendars: false,
+      signInFor: [{ use: 'calendar', uses: ['calendar', 'mail'] }],
+      addMail: false,
+    });
     // Signed in for mail, its mail account removed since (or not added): added again without a sign-in.
-    expect(accountActions({ uses: ['calendar', 'mail'] }, false)).toEqual({ calendars: true, signInFor: [], addMail: true });
-    expect(accountActions({ uses: ['calendar', 'mail'] }, true)).toEqual({ calendars: true, signInFor: [], addMail: false });
+    expect(accountActions({ uses: ['calendar', 'mail'], status: 'connected' }, false)).toEqual({
+      calendars: true,
+      signInFor: [],
+      addMail: true,
+    });
+    expect(accountActions({ uses: ['calendar', 'mail'], status: 'connected' }, true)).toEqual({
+      calendars: true,
+      signInFor: [],
+      addMail: false,
+    });
+    // Needing a new sign-in: only Sign in again, for the uses it has (no sign-in for another use, no mail account to add).
+    expect(accountActions({ uses: ['calendar'], status: 'reauth' }, false)).toEqual({
+      calendars: true,
+      signInAgain: ['calendar'],
+      signInFor: [],
+      addMail: false,
+    });
+    expect(accountActions({ uses: ['mail', 'calendar'], status: 'reauth' }, false)).toEqual({
+      calendars: true,
+      signInAgain: ['calendar', 'mail'],
+      signInFor: [],
+      addMail: false,
+    });
   });
 
   it('keeps the uses a new sign-in asks for in their usual order, each once', () => {

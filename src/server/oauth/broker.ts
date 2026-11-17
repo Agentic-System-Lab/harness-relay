@@ -156,9 +156,13 @@ export class TokenBroker {
   /**
    * The account's access token for a use: the one kept while it is good for more than a couple of
    * minutes, else a new one (`fresh`: a new one anyway, the server refused the one kept). One refresh at
-   * a time per token: callers meanwhile wait for the same one.
+   * a time per token: callers meanwhile wait for the same one. Never one for a use the account was not
+   * signed in for: not the one kept (Google's serves every use granted), nor a refresh, whose refusal
+   * would mark the whole account.
    */
   accessToken(accountId: string, use: OAuthUse, fresh = false): Promise<string> {
+    const account = this.store.account(accountId);
+    if (account && !account.uses.includes(use)) return Promise.reject(new OAuthSignInError(t().oauthNotFor(account.email, use)));
     const slot = this.slot(accountId, use);
     const kept = this.tokens.get(accountId)?.get(slot);
     if (!fresh && kept && kept.expiresAt - EARLY_MS > this.now()) return Promise.resolve(kept.token);
@@ -194,8 +198,6 @@ export class TokenBroker {
     const account = this.store.account(accountId);
     if (!account) throw new OAuthSignInError(t().oauthAccountGone);
     if (account.status === 'reauth') throw new OAuthSignInError(t().oauthSignInAgain(account.email, account.error ?? ''));
-    // Never asked for a use it was not signed in for: a refusal of that would mark the whole account.
-    if (!account.uses.includes(use)) throw new OAuthSignInError(t().oauthNotFor(account.email, use));
     const provider = this.providerOf(accountId);
     const generation = this.generation(accountId);
     // Removed, or signed in again, while the provider was asked: nothing of its answer (or its failure)

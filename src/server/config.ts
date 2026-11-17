@@ -33,8 +33,10 @@ export interface ServerConfig extends ServerLimits {
   microsoftGraphUrl?: string;
   /**
    * The mail servers an account that signs in with Microsoft is reached at for the mail tools
-   * (`RELAY_MICROSOFT_IMAP`, `RELAY_MICROSOFT_SMTP`, as `host:port`): another cloud's, or a stand-in
-   * on this computer in the end-to-end tests, the only place plain TCP goes to. undefined =
+   * (`RELAY_MICROSOFT_IMAP`, `RELAY_MICROSOFT_SMTP`, as `host:port`): a stand-in on this computer in
+   * the end-to-end tests, the only place plain TCP goes to. Not for a national cloud: its mail is not
+   * supported yet, as the token for mail is asked for the global cloud's Exchange Online
+   * (`https://outlook.office.com/…`), which another cloud's servers do not take. undefined =
    * `outlook.office365.com:993` (TLS) and `smtp.office365.com:587` (STARTTLS).
    */
   microsoftImap?: MailServer;

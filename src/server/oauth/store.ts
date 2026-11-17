@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import {
   CONNECTOR_LIMITS,
   OAUTH_PROVIDERS,
+  OAUTH_USES,
   type KeyStorage,
   type OAuthAccountView,
   type OAuthClientUpdate,
@@ -190,7 +191,9 @@ export class OAuthStore {
     account.email = who.email;
     if (who.name) account.name = who.name;
     else delete account.name;
-    account.uses = [...new Set([...account.uses, ...uses])];
+    // In their usual order, each once.
+    const had = account.uses;
+    account.uses = OAUTH_USES.filter((u) => had.includes(u) || uses.includes(u));
     account.scopes = [...new Set([...account.scopes, ...scopes])];
     account.status = 'connected';
     account.connectedAt = now;

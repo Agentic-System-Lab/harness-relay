@@ -662,15 +662,19 @@ export function createApp({
   );
   // A sign-in for its uses (the calendar, mail), its provider's page to open, which sends the browser back
   // to this page's own web app when it is on this computer (`origin`), or a code to type on another device (`device`).
+  // `account`: an account signing in again, or for another use: its uses are asked for too, and its address is the page's login hint.
   app.post('/api/oauth/signins', async (c) => {
-    const b = await body<{ provider?: unknown; uses?: unknown; origin?: unknown; device?: unknown }>(c);
+    const b = await body<{ provider?: unknown; uses?: unknown; account?: unknown; origin?: unknown; device?: unknown }>(c);
     const provider = validOAuthProvider(String(b.provider ?? ''));
     const uses = validOAuthUses(b.uses);
+    if (b.account !== undefined && (typeof b.account !== 'string' || !b.account || b.account.length > 64))
+      throw new HttpError(400, t().invalidField('account'));
     const session = sessions.get(c.req.raw);
     return c.json(
       await oauth.startSignIn({
         provider,
         uses,
+        ...(typeof b.account === 'string' ? { account: b.account } : {}),
         ...(session ? { session } : {}),
         ...(typeof b.origin === 'string' ? { origin: b.origin } : {}),
         port: servingPort(),

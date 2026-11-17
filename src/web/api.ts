@@ -347,8 +347,15 @@ export const api = {
   oauth: () => request<OAuthView>('GET', '/api/oauth'),
   saveOAuthClient: (provider: OAuthProviderId, b: OAuthClientUpdate) => request<OAuthView>('PUT', `/api/oauth/clients/${provider}`, b),
   /** A sign-in for its uses: the provider's page sends the browser back to this page's own origin when it is on this computer. */
-  startOAuthSignIn: (provider: OAuthProviderId, uses: OAuthUse[], device = false) =>
-    request<OAuthSignInView>('POST', '/api/oauth/signins', { provider, uses, origin: location.origin, device }),
+  /** `account`: the account signing in again, or for another use (its uses are asked for too, its address is the page's hint). */
+  startOAuthSignIn: (provider: OAuthProviderId, uses: OAuthUse[], device = false, account?: string) =>
+    request<OAuthSignInView>('POST', '/api/oauth/signins', {
+      provider,
+      uses,
+      origin: location.origin,
+      device,
+      ...(account ? { account } : {}),
+    }),
   oauthSignIn: (id: string) => request<OAuthSignInView>('GET', `/api/oauth/signins/${id}`),
   pasteOAuthAddress: (id: string, address: string) => request<OAuthSignInView>('POST', `/api/oauth/signins/${id}/address`, { address }),
   cancelOAuthSignIn: (id: string) => request<{ ok: true }>('DELETE', `/api/oauth/signins/${id}`),
