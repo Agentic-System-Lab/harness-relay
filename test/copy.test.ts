@@ -72,10 +72,10 @@ describe('a scheduled message that @mentions someone the team does not have', ()
       '@Zed in the message is not on this team, so it reaches nobody; only @Alice answers.',
     );
     expect(mentionWarning('@Alice, @Bob, @Zed and @Yan', ['Alice', 'Bob'], en, 'team')).toBe(
-      '@Zed, @Yan in the scheduled message are not on this team, so they reach nobody; only @Alice, @Bob answer.',
+      "@Zed, @Yan in the automation's message are not on this team, so they reach nobody; only @Alice, @Bob answer.",
     );
     expect(mentionWarning('@dddd 看一下', ['Reviewer'], zhTW, 'card')).toBe(
-      '排程訊息裡的 @dddd 不在這個團隊裡，不會傳給任何人；訊息沒有 @ 任何成員，所以由整個團隊回答。可以按「調整團隊」為成員改名。',
+      '自動任務的訊息裡的 @dddd 不在這個團隊裡，不會傳給任何人；訊息沒有 @ 任何成員，所以由整個團隊回答。可以按「調整團隊」為成員改名。',
     );
     expect(mentionWarning('@Reviewer 和 @dddd', ['Reviewer'], zhTW, 'form')).toBe(
       '訊息裡的 @dddd 不在這個團隊裡，不會傳給任何人；只有 @Reviewer 會回答。',
@@ -100,7 +100,7 @@ describe('naming the team the lead agent chose', () => {
     expect(question.aborted).toBe(en.plan.aborted);
     const schedule = planWording({ status: 'planning', lead, forSchedule: true }, zhTW, 'Claude Code');
     expect(schedule).toEqual({
-      planning: '首席 agent（Claude Code）正在為這個排程組隊…',
+      planning: '首席 agent（Claude Code）正在為這個自動任務組隊…',
       confirmHint: zhTW.plan.confirmHintSchedule,
       aborted: zhTW.plan.abortedSchedule,
     });

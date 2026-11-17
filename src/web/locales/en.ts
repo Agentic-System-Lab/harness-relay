@@ -66,7 +66,7 @@ export const en: Messages = {
 
   sidebar: {
     newChat: 'New chat',
-    newSchedule: 'New schedule',
+    newSchedule: 'New automation',
     conversations: 'Conversations',
     empty: 'No conversations yet',
     replying: 'Replying',
@@ -416,21 +416,21 @@ export const en: Messages = {
   },
 
   newSchedule: {
-    title: 'New schedule',
+    title: 'New automation',
     intro: (lead) =>
-      `Set a message the team is sent when you run it, its webhook is called, or at set times. Once you create it, the lead agent (${lead}) designs a team for the message; after you confirm the team, the schedule can run. Nothing runs when you create it.`,
-    schedule: 'Schedule',
+      `An automation sends the team a message when you run it, when a program calls its webhook, or at set times. Once you create it, the lead agent (${lead}) designs a team for the message; after you confirm the team, the automation can run. Nothing runs when you create it.`,
+    schedule: 'Automation',
     titlePlaceholder: 'Chat name (optional; the first line of the message by default)',
-    create: 'Create schedule',
+    create: 'Create automation',
     creating: 'Creating…',
   },
 
   schedule: {
-    button: 'Schedule',
-    buttonTitle: 'Send the team a message automatically at set times',
-    title: 'Schedule',
+    button: 'Automation',
+    buttonTitle: 'Send the team a message when you run it, at set times, or when a program calls its webhook',
+    title: 'Automation',
     intro:
-      'At the times you set, this message is sent to the team of this conversation (here, or in a new chat each time if you choose), as if you had sent it. Harness Relay must be running for it to send.',
+      'This message is sent to the team of this conversation (here, or in a new chat each time if you choose), as if you had sent it: when you click Run once now, at the times you set, or when a program calls its webhook. Harness Relay must be running for it to send.',
     message: 'Message to send the team',
     messagePlaceholder: 'For example: @Reviewer look at the pull requests merged yesterday and list the risks.',
     messageHint: 'As usual, when you @mention members, only they answer.',
@@ -440,7 +440,7 @@ export const en: Messages = {
       notOnTeam: (names, n) =>
         `${names} in the message ${n > 1 ? 'are' : 'is'} not on this team, so ${n > 1 ? 'they reach' : 'it reaches'} nobody`,
       notOnTeamScheduled: (names, n) =>
-        `${names} in the scheduled message ${n > 1 ? 'are' : 'is'} not on this team, so ${n > 1 ? 'they reach' : 'it reaches'} nobody`,
+        `${names} in the automation's message ${n > 1 ? 'are' : 'is'} not on this team, so ${n > 1 ? 'they reach' : 'it reaches'} nobody`,
       wholeTeam: '; with no member @mentioned, the whole team answers.',
       onlyThey: (names, n) => `; only ${names} ${n > 1 ? 'answer' : 'answers'}.`,
       adjust: ' "Adjust team" lets you rename a member.',
@@ -476,10 +476,10 @@ export const en: Messages = {
     approvalsDeny: 'Refuse automatically',
     approvalsAsk: 'Ask me',
     approvalsHint: {
-      deny: 'In a run the schedule starts, anything an agent wants to do outside its permission is refused; the agent is told and works around it.',
+      deny: 'In a run the automation starts, anything an agent wants to do outside its permission is refused; the agent is told and works around it.',
       ask: (minutes) => `Asked in the chat as usual; while you are away the agent waits (up to ${minutes} minutes per turn).`,
     },
-    approvalsTeamDeny: 'The team already refuses them automatically; so do the runs the schedule starts.',
+    approvalsTeamDeny: 'The team already refuses them automatically; so do the runs the automation starts.',
     approvalsFull: 'The team has full access and is never asked, so this has no effect.',
     missed: 'Missed times',
     missedSkip: 'Skip',
@@ -492,21 +492,21 @@ export const en: Messages = {
     editTeam: 'Edit team',
     enabled: 'On',
     runNow: 'Run once now',
-    runNowTitle: 'Send it now, as the schedule would (its times stay as they are)',
+    runNowTitle: 'Send it now (its times stay as they are)',
     runNowSaveFirst: 'Save your changes before running it now',
     sentNow: 'Sent',
     queuedNow: 'The team is replying; it waits in the queue',
-    remove: 'Delete schedule',
-    confirmRemove: 'Delete this schedule?',
+    remove: 'Delete automation',
+    confirmRemove: 'Delete this automation?',
     saving: 'Saving…',
     needsTeam:
-      'Confirm a team before you set a schedule: in a new chat, ask a question first, then confirm the team the lead agent chose for it; or start from New schedule in the sidebar.',
+      'Confirm a team before you set up an automation: in a new chat, ask a question first, then confirm the team the lead agent chose for it; or start from New automation in the sidebar.',
     confirmTeamFirst:
-      'The lead agent has designed a team for this schedule: confirm it in the chat. The schedule runs, and can be changed, once it is confirmed.',
-    designingTeam: 'The lead agent is designing a team for this schedule…',
-    noTeamYet: 'This schedule has no team yet: its times are skipped until it has one.',
+      'The lead agent has designed a team for this automation: confirm it in the chat. The automation runs, and can be changed, once it is confirmed.',
+    designingTeam: 'The lead agent is designing a team for this automation…',
+    noTeamYet: 'This automation has no team yet: it is not sent until it has one.',
     designTeam: 'Have the lead agent design the team',
-    currentTeam: 'Scheduled messages go to the current team; the lead agent does not choose a team for them.',
+    currentTeam: "The automation's messages go to the current team; the lead agent does not choose a team for them.",
     summary: {
       once: (when) => `${when} (once)`,
       daily: (time) => `Every day at ${time}`,
@@ -537,24 +537,24 @@ export const en: Messages = {
       moment: 'Pick a date and time',
       past: 'That time has passed; pick a later one',
     },
-    teamNote: (summary) => `This conversation has a schedule (${summary}); changes here apply to its later runs.`,
-    fullWarning: 'Nobody may be watching when the schedule runs: with full access, members can run any command without asking.',
+    teamNote: (summary) => `This conversation has an automation (${summary}); changes here apply to its later runs.`,
+    fullWarning: 'Nobody may be watching when the automation runs: with full access, members can run any command without asking.',
     approvalsOverride: {
-      deny: 'In runs the schedule starts: always refused automatically (the schedule says so).',
-      ask: 'In runs the schedule starts: asked too, waiting until you are back (the schedule says so).',
+      deny: 'In runs the automation starts: always refused automatically (the automation says so).',
+      ask: 'In runs the automation starts: asked too, waiting until you are back (the automation says so).',
     },
-    tag: 'Scheduled',
-    tagTitle: "Sent automatically by this conversation's schedule",
+    tag: 'Automation',
+    tagTitle: "Sent by this conversation's automation",
     sidebar: {
-      next: (when) => `Schedule: next ${when}`,
-      paused: 'Schedule paused',
-      manual: 'Schedule: no set times (Run once now or its webhook)',
-      problem: (result) => `Schedule last time: ${result}`,
+      next: (when) => `Automation: next ${when}`,
+      paused: 'Automation paused',
+      manual: 'Automation: no set times (Run once now or its webhook)',
+      problem: (result) => `Automation last time: ${result}`,
     },
     goal: 'Goal to track (optional)',
     goalPlaceholder: 'For example: CI on main passes and issue #42 is closed.',
     goalHint:
-      'Say what done means. Each run, the agents see the goal and what earlier runs reported (also in a new chat each time), and report where it stands; once one says it is done, the schedule switches off. A run whose replies all fail is tried again after 5, 30 and 120 minutes.',
+      'Say what done means. Each run, the agents see the goal and what earlier runs reported (also in a new chat each time), and report where it stands; once one says it is done, the automation switches off. A run whose replies all fail is tried again after 5, 30 and 120 minutes.',
     goalTooLong: (max) => `A goal can be at most ${max} characters`,
     progress: {
       label: 'Progress on the goal',
@@ -567,7 +567,7 @@ export const en: Messages = {
     hook: {
       title: 'Webhook',
       intro:
-        "A program on this computer (a git hook, a CI runner on this computer, a script) can call this address with the token to send the schedule's message now; the JSON it posts goes after the message, as data for the agents. It works while the schedule's times are off too.",
+        "A program on this computer (a git hook, a CI runner on this computer, a script) can call this address with the token to send the automation's message now; the JSON it posts goes after the message, as data for the agents. It works while the automation's times are off too.",
       create: 'Add a webhook',
       replace: 'New token',
       remove: 'Remove webhook',
@@ -727,9 +727,9 @@ export const en: Messages = {
     decline: 'No, keep the current team',
     declined: 'Not used; the current team answered',
     aborted: 'Team design was stopped; Continue or a new question chooses the team again.',
-    planningSchedule: (lead) => `The lead agent (${lead}) is designing a team for this schedule…`,
-    confirmHintSchedule: "Once you confirm this team, it gets the message at the schedule's times; nothing runs now.",
-    abortedSchedule: 'The team design was stopped; "Have the lead agent design the team" in the schedule window designs it again.',
+    planningSchedule: (lead) => `The lead agent (${lead}) is designing a team for this automation…`,
+    confirmHintSchedule: 'Once you confirm this team, it gets the message whenever the automation runs; nothing runs now.',
+    abortedSchedule: 'The team design was stopped; "Have the lead agent design the team" in the automation window designs it again.',
   },
 
   review: {
@@ -1940,14 +1940,14 @@ export const en: Messages = {
         ],
       },
       {
-        title: 'Messages on a schedule',
-        body: 'New schedule, the calendar button beside New chat at the top left of the sidebar, sends a team a message at set times, as if you had sent it: write the message, pick the times, and the lead agent designs its team. For a chat you already have, use Schedule in its header (under ⋯ on a phone):',
+        title: 'Automations',
+        body: 'New automation, the calendar button beside New chat at the top left of the sidebar, sends a team a message as if you had sent it, whenever something starts it: you, set times, or a program. Write the message, pick how it starts, and the lead agent designs its team. For a chat you already have, use Automation in its header (under ⋯ on a phone):',
         points: [
-          'Once, every day, every week on the days you pick, every few hours, or no set times (only "Run once now" and the webhook send it); once saved, "Run once now" tries it out',
+          'It starts when you click "Run once now", at set times (once, every day, every week on the days you pick, or every few hours), or when a program calls its webhook; a new one has no set times',
           'Tick "Start a new chat each time" to begin every run in a fresh chat with the same team and settings',
           'Nobody may be watching: by default anything beyond the file permission is refused (unless you always allow it in this chat) and the agent works around it; or choose "Ask me"',
           'It sends only while Harness Relay runs: a missed time is skipped, or sent once when it starts if you choose',
-          'A goal to track: each run is told the goal and what earlier runs reported, and says where it stands; the schedule switches off once it is reached, and a run that fails is tried again',
+          'A goal to track: each run is told the goal and what earlier runs reported, and says where it stands; the automation switches off once it is reached, and a run that fails is tried again',
           'A webhook lets a program on your computer (a git hook, a CI runner) send the message now, with what it posted',
           'A clock in the sidebar marks the conversation, amber when the last time was not sent',
         ],

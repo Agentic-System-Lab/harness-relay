@@ -535,7 +535,7 @@ test.describe('on a phone', () => {
     }
   });
 
-  test("on a narrow phone, a new schedule of any kind does not scroll sideways, in either language, nor does a chat's Schedule", async ({
+  test("on a narrow phone, a new schedule of any kind does not scroll sideways, in either language, nor does a chat's Automation", async ({
     page,
     relay,
   }) => {
@@ -596,7 +596,7 @@ test.describe('on a phone', () => {
       }
     }
 
-    // A chat's Schedule drawer, with the week's days.
+    // A chat's Automation drawer, with the week's days.
     await page.evaluate(() => localStorage.setItem('relay:lang', 'en'));
     await page.setViewportSize(viewport);
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
@@ -604,8 +604,8 @@ test.describe('on a phone', () => {
     await page.reload();
     await expect(composer(page)).toBeVisible();
     await page.getByRole('button', { name: 'More' }).tap();
-    await page.locator('.chat-head').getByRole('button', { name: 'Schedule' }).tap();
-    const drawer = page.getByRole('dialog', { name: 'Schedule' });
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).tap();
+    const drawer = page.getByRole('dialog', { name: 'Automation' });
     await drawer.getByRole('radiogroup', { name: 'When' }).getByRole('radio', { name: 'Every week', exact: true }).tap();
     for (const width of widths) {
       await page.setViewportSize({ width, height: 640 });
@@ -617,7 +617,7 @@ test.describe('on a phone', () => {
     await drawer.getByRole('button', { name: 'Save', exact: true }).tap();
     await expect(drawer).toBeHidden();
     await page.getByRole('button', { name: 'More' }).tap();
-    await page.locator('.chat-head').getByRole('button', { name: 'Schedule' }).tap();
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).tap();
     await expect(drawer.getByRole('radio', { name: 'Every few hours', exact: true })).toHaveAttribute('aria-checked', 'true');
     expect(await page.locator('.schedule-kinds').evaluate((row) => row.scrollWidth > row.clientWidth)).toBe(true);
     expect(await chosenInView()).toBe(true);

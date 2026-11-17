@@ -284,16 +284,16 @@ test.describe('lead review', () => {
     await expect(reviewCards(page)).toHaveCount(2);
   });
 
-  test("the New schedule page's box is ticked at first, and the schedule's chat has it as set there", async ({ page, relay }) => {
+  test("the New automation page's box is ticked at first, and the automation's chat has it as set there", async ({ page, relay }) => {
     const create = async (review: boolean) => {
-      await page.getByRole('button', { name: 'New schedule' }).click();
+      await page.getByRole('button', { name: 'New automation' }).click();
       await page.getByRole('textbox', { name: 'Message to send the team' }).fill('Check the build');
       const box = page.getByRole('checkbox', { name: LEAD_REVIEW });
       await expect(box).toBeChecked();
       await box.setChecked(review);
       // The new chats it opens each time copy its setting, as they copy its other settings.
       await page.getByRole('checkbox', { name: 'Start a new chat each time' }).check();
-      await page.getByRole('button', { name: 'Create schedule' }).click();
+      await page.getByRole('button', { name: 'Create automation' }).click();
       await page.waitForURL(/#\/c\//);
       const id = /#\/c\/([^/?]+)/.exec(page.url())![1]!;
       return (await relay.api<{ settings: { leadReview?: boolean } }>(`/api/conversations/${id}`)).settings.leadReview;
@@ -303,7 +303,7 @@ test.describe('lead review', () => {
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     await expect(drawer.getByRole('checkbox', { name: LEAD_REVIEW })).toBeChecked();
     await drawer.getByRole('button', { name: 'Cancel' }).click();
-    // Unticked there: off (and ticked again on the next New schedule page).
+    // Unticked there: off (and ticked again on the next New automation page).
     expect(await create(false)).toBeUndefined();
   });
 

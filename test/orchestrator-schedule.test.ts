@@ -116,7 +116,7 @@ describe('schedules', () => {
     expect(textOf(agentMessages(conv).at(-1)!)).toMatch(/^Alice skipped \(This run was started by a schedule and nobody may be watching/);
     expect(approvalParts(conv)[0]).toMatchObject({
       status: 'denied',
-      note: 'Refused automatically: nobody may be watching a scheduled run',
+      note: 'Refused automatically: nobody may be watching an automation run',
     });
 
     // What the user always allows in this chat goes through.
@@ -163,7 +163,7 @@ describe('schedules', () => {
     await scheduler().tick();
     expect(conv.schedule).toMatchObject({
       lastResult: 'skipped',
-      lastError: 'the previous scheduled message is still waiting to be delivered',
+      lastError: "the automation's previous message is still waiting to be delivered",
     });
     expect(conv.queue).toHaveLength(1);
 
@@ -176,7 +176,7 @@ describe('schedules', () => {
       'scheduled check',
       '@Bob',
     ]);
-    expect(notes(conv)[0]).toMatch(/^The scheduled message of .* was not sent: the previous scheduled message is still waiting/);
+    expect(notes(conv)[0]).toMatch(/^The automation's message of .* was not sent: the automation's previous message is still waiting/);
   });
 
   it('is held back when the queue is full', async () => {
@@ -769,7 +769,7 @@ describe('schedules', () => {
       await expect(orchestrator.designForSchedule(conv.id)).rejects.toThrow(/已經有團隊/); // and then it has a team
 
       const none = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true });
-      await expect(orchestrator.designForSchedule(none.id)).rejects.toThrow(/沒有排程/);
+      await expect(orchestrator.designForSchedule(none.id)).rejects.toThrow(/沒有自動任務/);
       const fixed = conversation({ mode: 'roundtable', permission: 'read-only' });
       schedule(fixed);
       await expect(orchestrator.designForSchedule(fixed.id)).rejects.toThrow(/首席 agent/);
@@ -805,7 +805,7 @@ describe('schedules', () => {
       expect(chat!.allowRules).toEqual(conv.allowRules);
       expect(chat!.schedule).toBeUndefined();
       expect(said(chat!)).toEqual(['note', 'scheduled check', '@Alice', '@Bob']);
-      expect(notes(chat!)[0]).toBe('The schedule of "test" opened this conversation to send its message here.');
+      expect(notes(chat!)[0]).toBe('The automation of "test" opened this conversation to send its message here.');
       expect(chat!.messages[1]!.scheduled).toBe(true);
       // In the group of the schedule's chat, as the user put it: the lead agent does not sort it.
       expect(store.groupOf(chat!.id)).toBe('g1');
@@ -838,7 +838,7 @@ describe('schedules', () => {
       expect(textOf(agentMessages(chat).at(-1)!)).toMatch(/^Alice skipped \(This run was started by a schedule and nobody may be watching/);
       expect(approvalParts(chat)[0]).toMatchObject({
         status: 'denied',
-        note: 'Refused automatically: nobody may be watching a scheduled run',
+        note: 'Refused automatically: nobody may be watching an automation run',
       });
       expect(calls[0]!.systemPrompt).toContain('refused automatically');
 

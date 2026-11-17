@@ -2864,7 +2864,7 @@ describe('schedules', () => {
     expect(await (await run()).json()).toEqual({ ok: true, queued: true });
     const third = await run();
     expect(third.status).toBe(409);
-    expect(((await third.json()) as { error: string }).error).toBe('The previous scheduled message is still waiting to be delivered');
+    expect(((await third.json()) as { error: string }).error).toBe("The automation's previous message is still waiting to be delivered");
 
     const live = store.get(conv.id)!;
     expect(live.messages[0]).toMatchObject({ scheduled: true });
@@ -3013,7 +3013,7 @@ describe('schedules', () => {
       store.saveSchedule(live);
       const res = await call(conv.id, token, '{}');
       expect(res.status).toBe(409);
-      expect(((await res.json()) as { error: string }).error).toMatch(/goal this schedule tracks is reached/);
+      expect(((await res.json()) as { error: string }).error).toMatch(/goal this automation tracks is reached/);
     });
   });
 
@@ -3103,7 +3103,7 @@ describe('schedules', () => {
     const live = store.get(conv.id)!;
     expect(orchestrator.isRunning(conv.id)).toBe(true); // the lead agent designs the team
     expect(live.messages.map((m) => m.author.kind)).toEqual(['system', 'system']);
-    expect(live.messages[0]!.parts).toEqual([{ type: 'text', text: expect.stringMatching(/^Schedule created\./) }]);
+    expect(live.messages[0]!.parts).toEqual([{ type: 'text', text: expect.stringMatching(/^Automation created\./) }]);
     expect(live.messages[1]!.plan).toMatchObject({ status: 'planning' });
     expect(live.messages.some((m) => m.author.kind === 'user')).toBe(false);
 

@@ -101,7 +101,7 @@ describe('a schedule that tracks a goal', () => {
     await fireAt(conv, T0 + HOUR);
     expect(conv.schedule).toMatchObject({ enabled: false, tracking: { status: 'done' } });
     expect(conv.schedule!.nextRunAt).toBeUndefined();
-    expect(notes(conv)).toContain('@Alice says the goal is reached; the schedule is off now: CI passes');
+    expect(notes(conv)).toContain('@Alice says the goal is reached; the automation is off now: CI passes');
     expect(store.dueSchedules(T0 + 48 * HOUR)).toEqual([]);
   });
 
@@ -227,7 +227,7 @@ describe('a schedule that tracks a goal', () => {
     const when = scheduleTime(T0 + HOUR, conv.schedule!);
     expect(conv.schedule!.tracking!.retry).toEqual({ due: T0 + HOUR, attempt: 1, at: T0 + HOUR + 5 * MIN });
     expect(conv.schedule!.nextRunAt).toBe(T0 + HOUR + 5 * MIN);
-    expect(notes(conv).at(-1)).toBe(`The scheduled run of ${when} failed; trying again in 5 minutes (retry 1).`);
+    expect(notes(conv).at(-1)).toBe(`The automation run of ${when} failed; trying again in 5 minutes (retry 1).`);
 
     await fireAt(conv, T0 + HOUR + 5 * MIN);
     expect(conv.schedule!.tracking!.retry).toEqual({ due: T0 + HOUR, attempt: 2, at: T0 + HOUR + 35 * MIN });
@@ -235,7 +235,9 @@ describe('a schedule that tracks a goal', () => {
     expect(conv.schedule!.tracking!.retry).toMatchObject({ attempt: 3, at: T0 + HOUR + 155 * MIN });
     await fireAt(conv, T0 + HOUR + 155 * MIN);
     expect(conv.schedule!.tracking!.retry).toBeUndefined();
-    expect(notes(conv).at(-1)).toBe(`The scheduled run of ${when} failed, also after 3 more tries; the schedule waits for its next time.`);
+    expect(notes(conv).at(-1)).toBe(
+      `The automation run of ${when} failed, also after 3 more tries; the automation waits for its next time.`,
+    );
     expect(conv.schedule!.nextRunAt).toBe(T0 + 25 * HOUR);
     // Each retry sent the message again, as the time it came due for.
     expect(conv.messages.filter((m) => m.author.kind === 'user').map(textOf)).toEqual(['check CI', 'check CI', 'check CI', 'check CI']);
@@ -282,7 +284,7 @@ describe('a schedule that tracks a goal', () => {
     expect(conv.schedule!.tracking).toEqual({ status: 'working', notes: [], retry: { due: T0 + HOUR, attempt: 1, at: now } });
     expect(conv.schedule!.nextRunAt).toBe(now);
     expect(notes(conv).at(-1)).toBe(
-      `The scheduled run of ${scheduleTime(T0 + HOUR, conv.schedule!)} was cut off when Harness Relay stopped; trying again now.`,
+      `The automation run of ${scheduleTime(T0 + HOUR, conv.schedule!)} was cut off when Harness Relay stopped; trying again now.`,
     );
     await s.tick();
     await finish(conv.id);
@@ -357,8 +359,8 @@ describe('a schedule that tracks a goal', () => {
       tracking: { retry: { attempt: 1, at: T0 + HOUR + 5 * MIN } },
     });
     expect(notes(conv).slice(-2)).toEqual([
-      `The scheduled message of ${scheduleTime(T0 + HOUR, conv.schedule!)} could not be sent: disk full`,
-      `The scheduled run of ${scheduleTime(T0 + HOUR, conv.schedule!)} failed; trying again in 5 minutes (retry 1).`,
+      `The automation's message of ${scheduleTime(T0 + HOUR, conv.schedule!)} could not be sent: disk full`,
+      `The automation run of ${scheduleTime(T0 + HOUR, conv.schedule!)} failed; trying again in 5 minutes (retry 1).`,
     ]);
   });
 

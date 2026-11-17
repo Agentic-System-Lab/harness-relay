@@ -54,7 +54,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 11 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 10 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
-| [排程](#排程) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 3 | [使用者說明 → 排程](../docs/user-guide.zh-TW.md#排程)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
+| [自動任務](#自動任務) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 3 | [使用者說明 → 自動任務](../docs/user-guide.zh-TW.md#自動任務)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
 | [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 17 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席-agent)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
 | [安裝 CLI](#安裝-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [使用者說明 → 從設定頁安裝 CLI](../docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[架構 → 從設定頁安裝 CLI](../docs/architecture.zh-TW.md#從設定頁安裝-cli) |
 | [沙箱需要的元件](#沙箱需要的元件) | [`sandbox-setup.spec.ts`](specs/sandbox-setup.spec.ts) | 6 | [使用者說明 → 安裝沙箱需要的元件](../docs/user-guide.zh-TW.md#安裝沙箱需要的元件)、[各平台的 OS 沙箱 → 由 Harness Relay 安裝它們需要的東西](../docs/sandboxing.zh-TW.md#由-harness-relay-安裝它們需要的東西) |
@@ -153,7 +153,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 審閱期間送出的訊息會停止審閱並立刻送出，下一次審閱從被停止的那次開始讀的地方讀起，團隊設定也能在審閱途中關閉它 | Claude Code | 審閱很慢時，輸入框的提示說明按 Enter 會停止審閱並立刻送出（Enter to stop the review and send it now），提示文字也說明送出訊息會停止審閱。這時按 Enter 送出的訊息讓卡片顯示已中斷，並立刻送出：佇列區從頭到尾都不會出現。它的回答有第二次審閱，同樣很慢，因為它從被停止的那次開始讀的地方讀起（prompt 中有第一個問題和新的訊息）。這段期間 **團隊設定** 會說明只改首席 agent 審閱的話現在就能儲存（lead review alone can be saved now）：**儲存**（Save）在取消勾選之前是停用的，之後就能儲存，那次審閱也隨之停止。之後兩張被停止的卡片都說明 *審閱已中斷。首席 agent 審閱目前已關閉…*（The review was stopped. Lead review is off now…），對話的審閱是關閉的、沒有等待中的訊息，也沒有多出 *已停止*（Stopped.）的說明。 |
 | 審閱期間到期的排程訊息會在佇列區等審閱，「略過審閱並立即送出」會立刻送出它 | Claude Code | 對話裡有排程（透過 API 設定），審閱很慢時執行排程（`POST …/schedule/run`，和到期時一樣）：佇列區顯示 **1 則等待送出**（1 waiting）與 *首席 agent 審閱完回覆後送出*（Sent once the lead agent has reviewed the replies）。**略過審閱並立即送出**（Skip the review and send now）讓卡片顯示已中斷，佇列區消失，由團隊回答排程訊息。 |
 | 團隊設計卡片上有勾選框，首席 agent 不會去動它：在卡片上勾選後，正在回答的問題與之後的問題都會被審閱 | Claude Code | 在以未勾選開始的新對話中，設計卡片顯示未勾選的勾選框與說明，首席 agent 組隊的 prompt 完全不提它。在卡片上勾選後對話就開啟審閱；確認團隊後，回答會被審閱。下一個問題的設計卡片上勾選框仍是勾選的（第一張卡片已經沒有勾選框），它的回答也會被審閱；在最新的卡片上取消勾選後，下一個回答就不審閱。 |
-| 新排程頁的勾選框一開始是勾選的，排程的對話照那裡的設定 | — | 在**新排程**，勾選框一開始是勾選的。保持勾選並勾選**每次開新對話**（Start a new chat each time；它開的新對話會像複製其他設定一樣複製這個設定）後，**建立排程**（Create schedule）開的對話有開啟審閱，它的**團隊設定**中勾選框是勾選的；再建立一次、把（一開始又是勾選的）勾選框取消，對話就是關閉的。 |
+| 新自動任務頁的勾選框一開始是勾選的，排程的對話照那裡的設定 | — | 在**新自動任務**，勾選框一開始是勾選的。保持勾選並勾選**每次開新對話**（Start a new chat each time；它開的新對話會像複製其他設定一樣複製這個設定）後，**建立自動任務**（Create schedule）開的對話有開啟審閱，它的**團隊設定**中勾選框是勾選的；再建立一次、把（一開始又是勾選的）勾選框取消，對話就是關閉的。 |
 | 重點上的 @名稱 把它引用的文字帶到對話中間，即使在比視窗還高的回覆開頭 | Claude Code | 用 `e2e:long`（回覆多了四十段），卡片引用回覆開頭的幾個字，在畫面中的卡片上方很遠處；按它的 **@Claude** 會捲動對話，直到那段標記離中間不到 30px，並在標記上加強顯示（`review-focus`），對話停在那裡。 |
 | 分享的對話保留審閱與它的標記，每個重點的 @名稱 連到它引用的文字，但不含 app 的按鈕與設計卡片的勾選框 | Claude Code | 分享頁面（假 `gh` 的 gist）有審閱的摘要、那一點與下一步；引用的文字在回覆中是 `<mark class="review-quote-mark risk">`，那一點的 **@Claude** 變成連結（`#quote-…`），指向它的 id。以網頁開啟（離線攔截）並捲到底後，點連結會把標記帶進畫面，成為頁面的 `:target` 並加上底線。沒有設計卡片的勾選框、**交給團隊**（Ask the team）、回覆的標籤，也沒有任何按鈕。 |
 | 標出回覆中跨越清單項目的引用，用它類型的顏色 | Claude Code | 用 `e2e:markdown`、`e2e:reviewquote=list` 與 `e2e:reviewkind=decision`，卡片以**待你決定**（Your call）引用「first point second point」，`CSS.highlights` 中（`review-decision`）有一個範圍從第一個項目延伸到第二個（聊天畫面在區塊之間視為有空白）。在分享頁上它們是兩個標記，每個項目各一個、項目之間沒有，那一點的 **@Claude** 連到第一個。 |
@@ -338,15 +338,15 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 回報問題左邊的星星請使用者到 GitHub 給一顆星星、說明怎麼按，並在新分頁打開 repo | — | 星星在回報問題圖示左邊、同一行；對話框請使用者給星星並說明要按哪裡；示意圖寫出 repo 名稱，按下的動畫播三次，只用 `transform` 與 `opacity`；**到 GitHub 按星星**（Star it on GitHub）連到 repo（`REPO_URL`），在新分頁以 `noopener` 開啟，新分頁確實打開（GitHub 的頁面由測試代替，不會連上網路），對話框接著謝謝使用者；**稍後再說**（Later）關閉對話框；用鍵盤再打開時還沒有道謝，按 Escape 關閉後焦點回到星星；按 × 或點對話框外面也會關閉。側邊欄的星星與連結上的星星是黃色的（連結上的是實心；側邊欄的在滑鼠移上去時）。 |
 | 減少動態效果時，星星對話框的游標停在 Star 上，不播按下的動畫 | — | 示意圖裡沒有動畫在跑；看得到游標與 **Star**，看不到 **Starred** 與實心的星星。 |
 
-## 排程
+## 自動任務
 
-[`schedule.spec.ts`](specs/schedule.spec.ts)
+[`schedule.spec.ts`](specs/schedule.spec.ts)：自動任務（程式碼中稱為 schedule）。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 儲存對話的排程，立即執行一次會把訊息送給團隊 | Codex | 存成「每天」（Every day）後，側邊欄標出這個對話；按**立即執行一次**（Run once now）送出標為排程的訊息，成員回答。 |
-| 追蹤目標的排程會顯示回覆回報的進度，目標達成時自動關閉 | Codex | 加上目標儲存後，視窗的**進度**（Progress）說還沒有紀錄；按**立即執行一次**（假 CLI 用 `e2e:progress` 在回覆最後加上 `<progress status="done">` 區塊，寫出 briefing 給它的目標）：回覆顯示**已達成**（Done）卡片而不是區塊的文字，一則說明寫著目標已達成、排程已關閉，視窗列出這一則紀錄、**已達成**，**啟用**（On）也取消了勾選。 |
-| 排程的 webhook 只顯示一次權杖，程式呼叫時會連同送來的內容送出訊息 | Codex | 選**不定時**（No set times）時，抽屜說明只有**立即執行一次**（Run once now）和 webhook 會送出，沒有**啟用**（On）也沒有**錯過的時間**（Missed times）；儲存後側邊欄的時鐘也這麼說，狀態顯示**不定時**。**建立 webhook**（Add a webhook）會顯示帶權杖與網址的 `curl` 指令，以及**還沒有被呼叫過**（Not called yet）；從瀏覽器以外呼叫時，權杖錯誤是 404，正確是 202，視窗會顯示上次呼叫的時間。訊息標為排程，顯示**Webhook 傳來的內容**（What the webhook sent）與送來的 JSON，成員回答它。再次打開時，視窗不再顯示權杖，只有**換一個新的權杖**（New token）。 |
+| 儲存對話的排程，立即執行一次會把訊息送給團隊 | Codex | 存成「每天」（Every day）後，側邊欄標出這個對話；按**立即執行一次**（Run once now）送出標為自動任務的訊息，成員回答。 |
+| 追蹤目標的排程會顯示回覆回報的進度，目標達成時自動關閉 | Codex | 加上目標儲存後，視窗的**進度**（Progress）說還沒有紀錄；按**立即執行一次**（假 CLI 用 `e2e:progress` 在回覆最後加上 `<progress status="done">` 區塊，寫出 briefing 給它的目標）：回覆顯示**已達成**（Done）卡片而不是區塊的文字，一則說明寫著目標已達成、自動任務已關閉，視窗列出這一則紀錄、**已達成**，**啟用**（On）也取消了勾選。 |
+| 排程的 webhook 只顯示一次權杖，程式呼叫時會連同送來的內容送出訊息 | Codex | 選**不定時**（No set times）時，抽屜說明只有**立即執行一次**（Run once now）和 webhook 會送出，沒有**啟用**（On）也沒有**錯過的時間**（Missed times）；儲存後側邊欄的時鐘也這麼說，狀態顯示**不定時**。**建立 webhook**（Add a webhook）會顯示帶權杖與網址的 `curl` 指令，以及**還沒有被呼叫過**（Not called yet）；從瀏覽器以外呼叫時，權杖錯誤是 404，正確是 202，視窗會顯示上次呼叫的時間。訊息標為自動任務，顯示**Webhook 傳來的內容**（What the webhook sent）與送來的 JSON，成員回答它。再次打開時，視窗不再顯示權杖，只有**換一個新的權杖**（New token）。 |
 
 ## 設定
 
@@ -511,7 +511,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | --- | --- |
 | 團隊編輯器到上限就不能再加成員，伺服器也拒絕更多 | `GET /api/limits` 回傳這三個值；第二位成員之後 **＋** 按鈕都停用；三位成員的範本以 400 拒絕。 |
 | 人數超過上限的範本說明它為何不能用，首席 agent 也不會選它 | 「三方辯論」說明一個團隊最多兩位成員；首席 agent 選它時，卡片說明原因，改用截成兩位的「一般問題智囊團」（Analyst 與 Critic）。 |
-| 排程的說明顯示回合逾時 | 選**詢問我**（Ask me）時，新排程頁說明 agent 每回合最多等 90 分鐘。 |
+| 排程的說明顯示回合逾時 | 選**詢問我**（Ask me）時，新自動任務頁說明 agent 每回合最多等 90 分鐘。 |
 | 設定到上限就不能再加帳號 | 第二個帳號之後，**新增帳號**（Add an account）停用並說明原因。 |
 
 ## 語言
@@ -544,7 +544,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 很長的訊息不會讓頁面左右捲動 | Claude Code | 300 個字元的單字與 Markdown 回答都不會造成左右捲動。 |
 | 往上捲之後，回到最後的箭頭在訊息框上方中間，點一下就把對話帶到那裡 | Claude Code | 長回覆（`e2e:long`）往上捲 800px 後出現箭頭，與訊息框置中對齊（誤差一個像素內）、在它上方，顯示的圓形是 36px，手指可點的範圍是 48px（圓形四邊外 5px 仍是箭頭）。點一下對話回到最後、箭頭消失，手機的鍵盤維持原狀：沒有焦點的訊息框仍然沒有，有焦點的則保有焦點。 |
 | 很窄的手機上，範本編輯視窗和團隊設定不會左右捲動，新增成員卡列出所有 CLI | — | 在 320px（比 290px 的成員卡加上邊距還窄）和 280px（英文的 **hand-offs / message** 會自己換到下一行）下，內建接力範本的編輯視窗和接力對話的**團隊設定**左右捲動都不超過一個像素；只有一欄時，新增成員卡全部列出所有 CLI，不必自己捲動。 |
-| 很窄的手機上，任何一種新排程都不會左右捲動（兩種語言），對話的排程也不會 | — | 在新排程頁，每一種排程方式在 320px 和 280px 下、英文另外在 400px 和 430px、中文另外在 250px 和 360px 下，都沒有東西會左右捲動。五種排程方式維持一列，只有這一列可以左右捲動（英文約需 440px，中文約 280px）。一週七天在英文 320px、280px 與中文 280px、250px 時排成兩列，其他時候一列。選**每隔幾小時**時，間隔的單位只有「小時」，說明另起一行，並且是小時數字框的無障礙說明。對話的**排程**抽屜選**每週**時，在 320px 和 280px 下也不會左右捲動；儲存為這一列最後的**每隔幾小時**後，在 280px 再打開時，它在這一列的可見範圍內。 |
+| 很窄的手機上，任何一種新排程都不會左右捲動（兩種語言），對話的排程也不會 | — | 在新自動任務頁，每一種排程方式在 320px 和 280px 下、英文另外在 400px 和 430px、中文另外在 250px 和 360px 下，都沒有東西會左右捲動。五種排程方式維持一列，只有這一列可以左右捲動（英文約需 440px，中文約 280px）。一週七天在英文 320px、280px 與中文 280px、250px 時排成兩列，其他時候一列。選**每隔幾小時**時，間隔的單位只有「小時」，說明另起一行，並且是小時數字框的無障礙說明。對話的**自動任務**抽屜選**每週**時，在 320px 和 280px 下也不會左右捲動；儲存為這一列最後的**每隔幾小時**後，在 280px 再打開時，它在這一列的可見範圍內。 |
 | 首頁的標語變小，每一行都不換行，點 logo 會收起側邊欄 | — | 標語小於 22px，英文兩行、中文一行，頁面不會左右捲動；在首頁點側邊欄的 **Harness Relay** 會收起側邊欄。 |
 
 ## 各 CLI 一覽

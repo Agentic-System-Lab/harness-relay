@@ -269,8 +269,8 @@ describe('the schedule form', () => {
     expect(draftChanged(draftFrom(manualOff, MON), manualOff)).toBe(true);
     expect(toUpdate(draftFrom(manualOff, MON)).enabled).toBe(true);
     expect(scheduleState(manualOff, en, 'en')).toBe('paused');
-    expect(sidebarScheduleTitle({ enabled: true, manual: true }, en, 'en')).toBe('Schedule: no set times (Run once now or its webhook)');
-    expect(sidebarScheduleTitle({ enabled: true, manual: true }, zhTW, 'zh-TW')).toBe('排程：不定時（立即執行一次或 webhook）');
+    expect(sidebarScheduleTitle({ enabled: true, manual: true }, en, 'en')).toBe('Automation: no set times (Run once now or its webhook)');
+    expect(sidebarScheduleTitle({ enabled: true, manual: true }, zhTW, 'zh-TW')).toBe('自動任務：不定時（立即執行一次或 webhook）');
   });
 
   it("writes a command that calls the schedule's webhook", () => {
@@ -349,13 +349,13 @@ describe('the schedule form', () => {
     ).toBe('paused');
     expect(scheduleState(saved, en, 'en')).toMatch(/^next /);
     expect(sidebarScheduleTitle({ enabled: true, nextRunAt: MON, lastResult: 'failed' }, en, 'en')).toBe(
-      'Schedule last time: could not be sent',
+      'Automation last time: could not be sent',
     );
-    expect(sidebarScheduleTitle({ enabled: false }, en, 'en')).toBe('Schedule paused');
+    expect(sidebarScheduleTitle({ enabled: false }, en, 'en')).toBe('Automation paused');
     // The next time in the schedule's own time zone when it has one, else the browser's.
     const next = Date.UTC(2026, 0, 5, 1, 0);
     expect(sidebarScheduleTitle({ enabled: true, nextRunAt: next, timeZone: 'Asia/Taipei' }, en, 'en')).toMatch(/09:00/);
     expect(sidebarScheduleTitle({ enabled: true, nextRunAt: next, timeZone: 'UTC' }, en, 'en')).toMatch(/01:00/);
-    expect(sidebarScheduleTitle({ enabled: true, nextRunAt: next }, en, 'en')).toBe(`Schedule: next ${formatWhen(next, 'en')}`);
+    expect(sidebarScheduleTitle({ enabled: true, nextRunAt: next }, en, 'en')).toBe(`Automation: next ${formatWhen(next, 'en')}`);
   });
 });
