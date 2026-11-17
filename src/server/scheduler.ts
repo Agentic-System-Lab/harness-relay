@@ -6,6 +6,18 @@ import type { Orchestrator } from './orchestrator';
 import type { Store } from './store';
 import { nextCheckAt, triggerKey, type TriggerChecker, type WatchCheck } from './watch';
 
+/** The entries of `map` whose path is also in `within` (none there: nothing). */
+function only(map: Record<string, string>, within: Record<string, string> | undefined): Record<string, string> | undefined {
+  const kept = Object.fromEntries(Object.entries(map).filter(([path]) => within?.[path] !== undefined));
+  return Object.keys(kept).length ? kept : undefined;
+}
+
+/** Files held for the team or still settling, together (none: nothing). */
+function heldOf(...maps: (Record<string, string> | undefined)[]): Pick<ScheduleWatch, 'heldFiles'> {
+  const all = Object.assign({}, ...maps.filter(Boolean)) as Record<string, string>;
+  return Object.keys(all).length ? { heldFiles: all } : {};
+}
+
 /** What a check found of its source, to keep: only what each source keeps (`WatchState`), never anything else it said. */
 function keptState(state: WatchState): WatchState {
   const { uidValidity, lastUid, lastId, seen, lookedAt, files, filesIn } = state;
@@ -146,8 +158,9 @@ export class Scheduler {
    *
    * Files in the working directory: what a run writes there is the team's own, never something new to
    * start it. While a run writes there (this conversation's, or another's holding the folder:
-   * `Orchestrator.folderInUse()`), and at the first check once the folder is free again (`teamWrote`,
-   * also set by a check whose message started a run), a check only records the files as they are.
+   * `Orchestrator.folderInUse()`), at the first check once the folder is free again (`teamWrote`), and
+   * at a check after a run wrote there since the last one (the folder's write count, `writes`), a check
+   * only records the files as they are, but for those held for the team or still settling.
    */
   check(convId: string, force = false, again = false): Promise<void> {
     const running = this.checks.get(convId);
@@ -186,7 +199,10 @@ export class Scheduler {
     const started = this.now();
     // Something found earlier still waits for a team that cannot take it: the source is not asked
     // again (nor the same mail downloaded) until the team can. The user's own check always asks it.
-    const hold = prev?.held && !force ? withLang(s.lang, () => this.orchestrator.scheduledHold(convId)) : undefined;
+    // Not for files: the folder is looked at all the same (it is on this computer), so that a file that
+    // arrives while one waits for the team is held with it, never taken for the team's later.
+    const hold =
+      prev?.held && !force && trigger.source !== 'file' ? withLang(s.lang, () => this.orchestrator.scheduledHold(convId)) : undefined;
     // The team writes in the folder now, or did since the last check: only recorded.
     const files = trigger.source === 'file';
     const writing = files && this.orchestrator.folderInUse(convId);
@@ -204,7 +220,14 @@ export class Scheduler {
         ...(listening ? { listening } : {}),
       });
     }
-    const recordOnly = files && (writing || Boolean(prev?.teamWrote));
+    // A run that wrote there since the last check (began and ended between them): the next check only records too.
+    const writes = files ? this.orchestrator.folderWrites(convId) : undefined;
+    const sameServer = (a: string, b: string) => a.split(':')[0] === b.split(':')[0];
+    // Kept by another start of the server: any write counted since this one started is new.
+    const wroteSince = Boolean(
+      writes && prev?.writes && (sameServer(prev.writes, writes) ? prev.writes !== writes : !writes.endsWith(':0')),
+    );
+    const recordOnly = files && (writing || Boolean(prev?.teamWrote) || wroteSince);
     let found: WatchCheck;
     try {
       found = await withLang(s.lang, () =>
@@ -231,9 +254,16 @@ export class Scheduler {
     }
     // Changed or removed while it was checked: the new one starts afresh.
     if (this.stopped || conv.schedule !== s) return;
-    // A run that began while the files were looked at writes there too.
-    const busy = writing || (files && this.orchestrator.folderInUse(convId));
+    // A run that began while the files were looked at writes there too (or began and ended meanwhile).
+    const busy = writing || (files && (this.orchestrator.folderInUse(convId) || this.orchestrator.folderWrites(convId) !== writes));
     const listening = this.listening?.(convId, trigger) ?? false;
+    // What still settled while such a run began may be its own: only what already waited before it stays kept.
+    const pending = busy && found.pending ? only(found.pending, prev?.heldFiles) : found.pending;
+    // Files still waiting through a check that only records: why they wait stays said (asked again, nothing started).
+    const stillHeld =
+      recordOnly && prev?.held && prev.heldFiles
+        ? { held: withLang(s.lang, () => this.orchestrator.scheduledHold(convId)) ?? prev.held }
+        : {};
     const seen: ScheduleWatch = {
       key,
       ...keptState(found.state),
@@ -242,8 +272,11 @@ export class Scheduler {
       nextCheckAt: nextCheckAt(this.now(), 0, listening),
       ...(listening ? { listening } : {}),
       ...(busy ? { teamWrote: true } : {}),
-      // What was held for the team stays held while only recorded: it is listed once the folder is free.
-      ...(recordOnly && prev?.heldFiles ? { heldFiles: prev.heldFiles } : {}),
+      // What was held for the team stays held while only recorded, and what still settles is kept like it:
+      // listed once the folder is free.
+      ...heldOf(recordOnly ? prev?.heldFiles : undefined, pending),
+      ...(writes ? { writes } : {}),
+      ...stillHeld,
     };
     // A run that began during this look did not write what was found (every file listed had not
     // changed for a while): sent all the same, queued for the team.
@@ -265,7 +298,8 @@ export class Scheduler {
           ...(listening ? { listening } : {}),
           held: sent.reason ?? t().scheduleBusy,
           // The files it found, as they are now: kept unseen through what the team writes meanwhile.
-          ...(found.found ? { heldFiles: found.found } : {}),
+          ...heldOf(found.found, pending),
+          ...(writes ? { writes } : {}),
           ...(busy ? { teamWrote: true } : {}),
         });
       }
@@ -274,11 +308,10 @@ export class Scheduler {
       const current = conv.schedule;
       if (!current || current.repeat.kind !== 'event' || triggerKey(current.repeat.trigger) !== key) return;
       const { lastError: _error, lastChatId: _chat, watch: _watch, ...rest } = current;
-      // The run it started writes in the folder: what it writes is the team's own.
-      const runs = files && (sent.result === 'sent' || sent.result === 'queued');
+      // The run it started, when it writes in the folder, locks it: the next check sees the count change.
       conv.schedule = {
         ...rest,
-        watch: runs ? { ...seen, teamWrote: true } : seen,
+        watch: seen,
         lastRunAt: now,
         lastResult: sent.result,
         ...('reason' in sent && sent.reason ? { lastError: sent.reason } : {}),

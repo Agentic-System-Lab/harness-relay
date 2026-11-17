@@ -8,7 +8,8 @@
  *
  * The fake CLI, and what each test starts with, are in ./orchestrator-harness.ts.
  */
-import { utimesSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { WATCH_LIMITS, type Conversation, type ConversationSchedule, type ScheduleWatch } from '../src/shared/types';
@@ -422,12 +423,14 @@ describe('automations that start when something happens', () => {
       filesIn: conv.settings.cwd,
       checkedAt: T0,
       seenAt: T0,
+      writes: expect.any(String),
       nextCheckAt: T0 + WATCH_LIMITS.checkMinutes * MIN,
     });
     // What it saw of each file and event stays in the server: browsers get the rest.
     const shown = forClient(store.get(conv.id)!).schedule!.watch!;
     expect(shown).not.toHaveProperty('files');
     expect(shown).not.toHaveProperty('seen');
+    expect(shown).not.toHaveProperty('heldFiles');
     expect(shown).toMatchObject({ checkedAt: T0, lastId: 9 });
   });
 
@@ -461,8 +464,9 @@ describe('automations that start when something happens', () => {
     await s().check(conv.id);
     expect(scheduledCount()).toBe(1);
     expect(JSON.parse(scheduled(store.get(conv.id)!)[0]!.event!).files.map((f: { path: string }) => f.path)).toEqual(['report.txt']);
-    expect(conv.schedule!.watch!.teamWrote).toBe(true);
+    // The run it started locks the folder: the count the check kept is behind already.
     expect(orchestrator.folderInUse(conv.id)).toBe(true);
+    expect(orchestrator.folderWrites(conv.id)).not.toBe(conv.schedule!.watch!.writes);
     await vi.waitFor(() => expect(calls.map((c) => c.name)).toContain('Alice'));
 
     // While it writes: recorded, nothing sent.
@@ -648,5 +652,170 @@ describe('automations that start when something happens', () => {
     expect(orchestrator.folderInUse(ro.id)).toBe(false);
     release();
     await finish(ro.id);
+  });
+
+  it("counts a run that began and ended between two checks as the team's, and a read-only run's allowed action as writing", async () => {
+    reset();
+    now = Date.now();
+    const conv = conversation({ mode: 'roundtable', permission: 'edit' });
+    watching(conv, { repeat: { kind: 'event', trigger: { source: 'file', pattern: '*.md' } } });
+    const checker = (t: Parameters<typeof checkFiles>[0], prev: ScheduleWatch | undefined, ctx: WatchContext) =>
+      checkFiles(t, prev, ctx.cwd, ctx.now, ctx.recordOnly, ctx.held);
+    const s = () => new Scheduler(store, orchestrator, () => now, checker as never);
+    await s().check(conv.id);
+    // A run the user starts writes notes.md, and ends, between two checks.
+    fake.inTurn = async (name, o) => {
+      if (name === 'Alice') writeFileSync(join(o.cwd, 'notes.md'), 'by the team');
+    };
+    await orchestrator.send(conv.id, 'write notes');
+    await finish(conv.id);
+    fake.inTurn = undefined;
+    utimesSync(join(project, 'notes.md'), (now - 120_000) / 1000, (now - 120_000) / 1000);
+    now = Date.now() + 60_000;
+    await s().check(conv.id);
+    expect(scheduled(conv)).toHaveLength(0);
+    expect(Object.keys(conv.schedule!.watch!.files!)).toContain('notes.md');
+    now += 120_000;
+    await s().check(conv.id);
+    expect(scheduled(conv)).toHaveLength(0);
+
+    // Read-only, its own run writes only once an action is allowed, which locks the folder: counted.
+    const ro = conversation({ mode: 'roundtable', permission: 'read-only' });
+    ro.agents = [ro.agents[0]!];
+    const before = orchestrator.folderWrites(ro.id);
+    await orchestrator.send(ro.id, 'please install');
+    const pending = () =>
+      ro.messages.flatMap((m) => m.parts).find((p) => p.type === 'approval' && p.status === 'pending') as { id: string } | undefined;
+    await vi.waitFor(() => expect(pending()).toBeDefined());
+    expect(orchestrator.folderWrites(ro.id)).toBe(before);
+    orchestrator.answerApproval(ro.id, pending()!.id, { allow: true });
+    await finish(ro.id);
+    expect(orchestrator.folderWrites(ro.id)).not.toBe(before);
+  });
+
+  it('holds a file that arrives while another waits for the team with it, and counts only the watched folder and writes since another start', async () => {
+    reset();
+    now = Date.now();
+    const conv = conversation({ mode: 'roundtable', permission: 'edit' });
+    watching(conv, { repeat: { kind: 'event', trigger: { source: 'file', pattern: '*.pdf' } } });
+    const checker = (t: Parameters<typeof checkFiles>[0], prev: ScheduleWatch | undefined, ctx: WatchContext) =>
+      checkFiles(t, prev, ctx.cwd, ctx.now, ctx.recordOnly, ctx.held);
+    const s = () => new Scheduler(store, orchestrator, () => now, checker as never);
+    await s().check(conv.id);
+    const old = (now - 120_000) / 1000;
+    writeFileSync(join(project, 'a.pdf'), 'first');
+    utimesSync(join(project, 'a.pdf'), old, old);
+    const skip = vi.spyOn(orchestrator, 'sendScheduled').mockResolvedValue({ result: 'skipped', reason: 'waits for your answer' });
+    const hold = vi.spyOn(orchestrator, 'scheduledHold').mockReturnValue('waits for your answer');
+    now = Date.now();
+    await s().check(conv.id);
+    // Hours later, while a.pdf still waits: b.pdf arrives, and is held with it.
+    writeFileSync(join(project, 'b.pdf'), 'second');
+    utimesSync(join(project, 'b.pdf'), old, old);
+    now = Date.now() + 60_000;
+    await s().check(conv.id);
+    expect(Object.keys(conv.schedule!.watch!.heldFiles!).sort()).toEqual(['a.pdf', 'b.pdf']);
+    skip.mockRestore();
+    hold.mockRestore();
+    // The user answers, and a run writes in the folder: both kept unseen, then sent.
+    const inUse = vi.spyOn(orchestrator, 'folderInUse').mockReturnValue(true);
+    now = Date.now() + 120_000;
+    await s().check(conv.id);
+    // Only recorded, but why the files wait is still said.
+    expect(conv.schedule!.watch!.held).toBe('waits for your answer');
+    expect(Object.keys(conv.schedule!.watch!.heldFiles!).sort()).toEqual(['a.pdf', 'b.pdf']);
+    inUse.mockRestore();
+    now = Date.now() + 180_000;
+    await s().check(conv.id);
+    now = Date.now() + 240_000;
+    await s().check(conv.id);
+    await finish(conv.id);
+    const sent = scheduled(conv);
+    expect(sent).toHaveLength(1);
+    expect(
+      JSON.parse(sent[0]!.event!)
+        .files.map((f: { path: string }) => f.path)
+        .sort(),
+    ).toEqual(['a.pdf', 'b.pdf']);
+  });
+
+  it('counts writes kept by another start of the server, and only those in the folder the source watches', async () => {
+    reset();
+    now = Date.now();
+    const other = mkdtempSync(join(tmpdir(), 'relay-other-'));
+    const conv = conversation({ mode: 'roundtable', permission: 'edit', extraCwds: [other] });
+    watching(conv, { repeat: { kind: 'event', trigger: { source: 'file', pattern: '*.md' } } });
+    const checker = (t: Parameters<typeof checkFiles>[0], prev: ScheduleWatch | undefined, ctx: WatchContext) =>
+      checkFiles(t, prev, ctx.cwd, ctx.now, ctx.recordOnly, ctx.held);
+    const s = () => new Scheduler(store, orchestrator, () => now, checker as never);
+    const old = (now - 120_000) / 1000;
+    const settled = (name: string) => {
+      writeFileSync(join(project, name), name);
+      utimesSync(join(project, name), old, old);
+    };
+
+    // Another chat writing only in one of the conversation's other working directories: not the watched one.
+    const before = orchestrator.folderWrites(conv.id);
+    const elsewhere = conversation({ mode: 'roundtable', permission: 'edit', cwd: other });
+    await orchestrator.send(elsewhere.id, 'write there');
+    await finish(elsewhere.id);
+    expect(orchestrator.folderWrites(conv.id)).toBe(before);
+
+    // Nothing counted since this start: what was kept by another start is no reason to only record.
+    expect(before.endsWith(':0')).toBe(true);
+    await s().check(conv.id);
+    conv.schedule!.watch!.writes = 'another-start:4';
+    settled('yours.md');
+    now += 120_000;
+    await s().check(conv.id);
+    await finish(conv.id);
+    expect(scheduled(conv)).toHaveLength(1);
+
+    // A run since this start, against a count kept by another one: only recorded.
+    expect(orchestrator.folderWrites(conv.id).endsWith(':0')).toBe(false);
+    conv.schedule!.watch!.writes = 'another-start:4';
+    settled('team.md');
+    now += 120_000;
+    await s().check(conv.id);
+    expect(scheduled(conv)).toHaveLength(1);
+    expect(Object.keys(conv.schedule!.watch!.files!)).toContain('team.md');
+  });
+
+  it("takes what a run that begins during a check writes, still settling, for the team's, but keeps what already waited", async () => {
+    reset();
+    now = Date.now();
+    const conv = conversation({ mode: 'roundtable', permission: 'edit' });
+    watching(conv, { repeat: { kind: 'event', trigger: { source: 'file', pattern: '*.txt' } } });
+    /** Each look: a run that begins and ends during it writes `fresh` (the folder's write count goes up), then it looks. */
+    let fresh: string[] = [];
+    let count = 0;
+    const checker = (t: Parameters<typeof checkFiles>[0], prev: ScheduleWatch | undefined, ctx: WatchContext) => {
+      for (const name of fresh) writeFileSync(join(project, name), name);
+      if (fresh.length) count++;
+      return checkFiles(t, prev, ctx.cwd, ctx.now, ctx.recordOnly, ctx.held);
+    };
+    const s = () => new Scheduler(store, orchestrator, () => now, checker as never);
+    const writes = vi.spyOn(orchestrator, 'folderWrites').mockImplementation(() => `run:${count}`);
+    await s().check(conv.id);
+    // The user's upload is still being written at a free check: kept pending.
+    writeFileSync(join(project, 'upload.txt'), 'part');
+    await s().check(conv.id);
+    expect(Object.keys(conv.schedule!.watch!.heldFiles!)).toEqual(['upload.txt']);
+    // At the next one a run begins during the look and writes team.txt: only the upload stays kept.
+    fresh = ['team.txt'];
+    await s().check(conv.id);
+    fresh = [];
+    expect(conv.schedule!.watch!.teamWrote).toBe(true);
+    expect(Object.keys(conv.schedule!.watch!.heldFiles!)).toEqual(['upload.txt']);
+    // Once all is settled and free: the upload is sent, team.txt never.
+    for (let i = 0; i < 3; i++) {
+      now += 120_000;
+      await s().check(conv.id);
+    }
+    await finish(conv.id);
+    writes.mockRestore();
+    const sent = scheduled(conv);
+    expect(sent).toHaveLength(1);
+    expect(JSON.parse(sent[0]!.event!).files.map((f: { path: string }) => f.path)).toEqual(['upload.txt']);
   });
 });

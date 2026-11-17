@@ -632,7 +632,12 @@ describe('a file appearing or changing in the working directory', () => {
     file('out/a.log', 'old and more', LATER - 10_000);
     file('out/b.log', 'start', LATER - 5_000);
     const writing = await checkFiles(trigger, kept(trigger, first.state), dir, LATER);
-    expect(writing).toEqual({ state: { files: { 'out/a.log': `${NOW}:3` }, filesIn: dir }, total: 0 });
+    expect(writing).toEqual({
+      state: { files: { 'out/a.log': `${NOW}:3` }, filesIn: dir },
+      total: 0,
+      // Still settling: kept like held files, so a run starting before the next check does not take them.
+      pending: { 'out/a.log': `${LATER - 10_000}:12`, 'out/b.log': `${LATER - 5_000}:5` },
+    });
     // Still being written at the next check.
     file('out/b.log', 'start and the rest', LATER + 2 * MIN - 1000);
     const still = await checkFiles(trigger, kept(trigger, writing.state), dir, LATER + 2 * MIN);
@@ -778,13 +783,37 @@ describe('a file appearing or changing in the working directory', () => {
     expect(edited.state.files!['inbox/held.pdf']).toBe(`${NOW + MIN}:18`);
   });
 
-  it("takes a file whose time is far ahead of this computer's clock as settled", async () => {
+  it('keeps a file still settling at a free check unseen through a run that starts before the next one', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'relay-watch-'));
+    const trigger: Extract<ScheduleTrigger, { source: 'file' }> = { source: 'file', pattern: '*.pdf' };
+    const first = await checkFiles(trigger, undefined, dir, NOW);
+    file('invoice.pdf', 'from outside', NOW - 10_000);
+    const settling = await checkFiles(trigger, kept(trigger, first.state), dir, NOW);
+    expect(settling.total).toBe(0);
+    // The team's run starts before the next check: only recorded, but the invoice kept unseen.
+    file('team.pdf', 'the team wrote it', NOW + MIN);
+    const only = await checkFiles(trigger, kept(trigger, settling.state), dir, NOW + 2 * MIN, true, settling.pending);
+    expect(Object.keys(only.state.files!)).toEqual(['team.pdf']);
+    const later = await checkFiles(trigger, kept(trigger, only.state), dir, NOW + 4 * MIN);
+    expect(JSON.parse(later.event!).files.map((f: { path: string }) => f.path)).toEqual(['invoice.pdf']);
+  });
+
+  it("lists a file whose time is far ahead of this computer's clock once it is the same at two checks", async () => {
     dir = mkdtempSync(join(tmpdir(), 'relay-watch-'));
     const trigger: Extract<ScheduleTrigger, { source: 'file' }> = { source: 'file', pattern: '*.zip' };
     const first = await checkFiles(trigger, undefined, dir, NOW);
     file('future.zip', 'from a NAS ahead of us', NOW + 3 * 3_600_000);
-    const found = await checkFiles(trigger, kept(trigger, first.state), dir, NOW);
-    expect(found.total).toBe(1);
+    // The first check sees it still being written, perhaps: kept pending.
+    const once = await checkFiles(trigger, kept(trigger, first.state), dir, NOW);
+    expect(once.total).toBe(0);
+    expect(once.pending).toEqual({ 'future.zip': `${NOW + 3 * 3_600_000}:22` });
+    // The same at the next check: listed, once.
+    const twice = await checkFiles(trigger, kept(trigger, { ...once.state, heldFiles: once.pending }), dir, NOW + 2 * MIN);
+    expect(twice.total).toBe(1);
+    // Grown meanwhile instead: still pending.
+    file('future.zip', 'from a NAS ahead of us, and more', NOW + 3 * 3_600_000);
+    const grown = await checkFiles(trigger, kept(trigger, { ...once.state, heldFiles: once.pending }), dir, NOW + 2 * MIN);
+    expect(grown.total).toBe(0);
   });
 
   it('turns a pattern into a match of paths with /, in any case', () => {
