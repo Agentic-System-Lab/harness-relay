@@ -248,7 +248,11 @@ export function protectedReads(
   if (platform === 'win32') return [];
   const relay = [...relayDatabaseFiles(o.dataDir, o.env), relayTmpDir(o.dataDir)];
   const codespace = platform === 'linux' ? codespaceSecretDirs(o.env, o.home, o.codespaceDir) : [];
-  const paths = [...browserDataDirs(platform, o.home), ...appBrowserDirs(o.env), ...relay, ...codespace].filter((p) => existsSync(p));
+  // Where $XDG_CONFIG_HOME is, from the environment given ('' when it names none: undefined would be the server's).
+  const xdgConfig = (o.env ?? process.env).XDG_CONFIG_HOME ?? '';
+  const paths = [...browserDataDirs(platform, o.home, xdgConfig), ...appBrowserDirs(o.env), ...relay, ...codespace].filter((p) =>
+    existsSync(p),
+  );
   return [...new Set(paths.flatMap((p) => [p, real(p)]))];
 }
 

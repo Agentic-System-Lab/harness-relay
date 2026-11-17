@@ -80,12 +80,23 @@ describe('mail messages', () => {
   });
 
   it('reads HTML in time in proportion to its size, whatever it holds', () => {
-    for (const html of ['<'.repeat(400_000), '<script '.repeat(50_000), `${' '.repeat(400_000)}x`, '<br '.repeat(100_000)]) {
+    for (const html of [
+      '<'.repeat(400_000),
+      '<script '.repeat(50_000),
+      `${' '.repeat(400_000)}x`,
+      '<br '.repeat(100_000),
+      '<a<b>'.repeat(80_000),
+    ]) {
       const started = Date.now();
       readMail(`Content-Type: text/html\r\n\r\n${html}`);
       expect(Date.now() - started).toBeLessThan(slow(2000));
     }
     expect(htmlText('<head><title>x</title></head><p>Hi <b>there</b></p><script>alert(1)</script>tail <style>a{}')).toBe('Hi there\ntail');
+    // Pieces of a tag never join into one once the tags are gone; a `<` that starts no tag is text.
+    expect(htmlText('<p>a<scr<b>ipt>alert(1)</scr</b>ipt>b</p>')).toBe('aalert(1)b');
+    expect(htmlText('<p>x < 5 and 3<4, &lt;b&gt; as written</p>')).toBe('x < 5 and 3<4, <b> as written');
+    // A tag never ended takes the rest with it, as in a browser.
+    expect(htmlText('<p>kept</p><img src="x" alt="never ended')).toBe('kept');
   });
 
   it('folds a long subject that is not ASCII, and a long list of recipients, so no header line is too long', () => {

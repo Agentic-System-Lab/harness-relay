@@ -395,6 +395,19 @@ export function browserEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 /**
+ * The environment a conversation's browser starts with: `browserEnv()`'s, and on Linux its config and
+ * cache folders inside its profile. There Chromium keeps its crash reports under
+ * `$XDG_CONFIG_HOME/<browser>` (`~/.config/google-chrome`, say) whatever `--user-data-dir` says: the
+ * folder of the user's own browser, which Harness Relay's must never write in. On macOS and Windows
+ * they go in the profile already.
+ */
+export function launchEnv(env: NodeJS.ProcessEnv, profile: string, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
+  const out = browserEnv(env);
+  if (platform === 'win32' || platform === 'darwin') return out;
+  return { ...out, XDG_CONFIG_HOME: join(profile, 'config'), XDG_CACHE_HOME: join(profile, 'cache') };
+}
+
+/**
  * The profile's preferences with Chromium's page preloading off (`network_prediction_options` 2,
  * "never"): no prefetch or prerender, which speculation rules and `<link rel=prefetch>` ask of the
  * browser itself, outside the page. They would go through the proxy all the same; this makes no
@@ -518,7 +531,7 @@ export class BrowserService {
     const exited = runProcess({
       bin,
       args,
-      env: browserEnv(process.env),
+      env: launchEnv(process.env, profile),
       signal: abort.signal,
       pipes: (write, read) => (pipes = { write, read }),
     });

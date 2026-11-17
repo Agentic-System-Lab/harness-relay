@@ -104,6 +104,29 @@ describe('what agents may not read', () => {
     ).toEqual([]);
   });
 
+  it.skipIf(process.platform === 'win32')(
+    "reads $XDG_CONFIG_HOME from the environment it is given, never the server's when given one",
+    () => {
+      const home = join(root, 'home-xdg');
+      const xdg = join(root, 'xdg-config');
+      mkdirSync(home, { recursive: true });
+      mkdirSync(join(xdg, 'google-chrome'), { recursive: true });
+      const saved = process.env.XDG_CONFIG_HOME;
+      // The server's own, as on GitHub's Linux runners: an environment that names none leaves it out.
+      process.env.XDG_CONFIG_HOME = xdg;
+      try {
+        const at = (env?: NodeJS.ProcessEnv) => protectedReads({ platform: 'linux', home, dataDir: join(root, 'no-data'), env });
+        expect(at({})).toEqual([]);
+        expect(at({ XDG_CONFIG_HOME: xdg })).toEqual([join(xdg, 'google-chrome')]);
+        // None given: the server's environment.
+        expect(at()).toContain(join(xdg, 'google-chrome'));
+      } finally {
+        if (saved === undefined) delete process.env.XDG_CONFIG_HOME;
+        else process.env.XDG_CONFIG_HOME = saved;
+      }
+    },
+  );
+
   it("takes a GitHub codespace's token files and gh's sign-in there, and nothing of them anywhere else", () => {
     const home = join(root, 'home-codespace');
     const shared = join(root, 'workspaces', '.codespaces');

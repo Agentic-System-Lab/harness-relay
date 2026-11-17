@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, posix, win32 } from 'node:path';
 import { PassThrough, type Duplex } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ApprovalRequest } from '../src/server/agents/types';
@@ -11,14 +11,20 @@ import { slow } from './timeouts';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-browser-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
+// The user's home while the browser runs (set in the real browser's tests, after the browser is
+// found): Chromium on Linux would keep its crash reports in its .config, the user's own browser's.
+const userHome = join(root, 'user-home');
 
 const { CdpConnection, NulDecoder } = await import('../src/server/browser/cdp');
 const { browserCandidates, findBrowser } = await import('../src/server/browser/find');
-const { BrowserService, browserEnv, leadsNearby, navigationVerdict, refusalText, requestVerdict } =
+const { BrowserService, browserEnv, launchEnv, leadsNearby, navigationVerdict, refusalText, requestVerdict } =
   await import('../src/server/browser/session');
 const { browserTools, pageText } = await import('../src/server/browser/tools');
 const { removeTree } = await import('../src/server/fsRemove');
 const { withLang } = await import('../src/server/i18n');
+
+/** Text for the test pages' HTML: what a request sent is shown, never run. */
+const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 /** The number a snapshot gives the element its line starts with (`link "Next"`, `button "Go"`): numbers go on from one snapshot to the next. */
 function refIn(text: string, line: string): number {
@@ -91,7 +97,7 @@ describe('finding a browser', () => {
   });
 
   it("takes the one configured, else the system's Chrome, Chromium or Edge (kept up to date), else Playwright's newest Chromium", () => {
-    const cache = join('/home/u', '.cache', 'ms-playwright');
+    const cache = posix.join('/home/u', '.cache', 'ms-playwright');
     const list = browserCandidates({
       platform: 'linux',
       env: {},
@@ -100,10 +106,10 @@ describe('finding a browser', () => {
       fs: fs([], { [cache]: ['chromium-1200', 'ffmpeg-1', 'chromium-1254'] }),
     });
     expect(list.slice(0, 2)).toEqual(['/opt/my-chrome', '/usr/bin/google-chrome']);
-    const newest = list.indexOf(join(cache, 'chromium-1254', 'chrome-linux64', 'chrome'));
+    const newest = list.indexOf(posix.join(cache, 'chromium-1254', 'chrome-linux64', 'chrome'));
     expect(newest).toBeGreaterThan(list.indexOf('/usr/bin/microsoft-edge'));
-    expect(list.indexOf(join(cache, 'chromium-1200', 'chrome-linux64', 'chrome'))).toBeGreaterThan(newest);
-    const pw = join(cache, 'chromium-1200', 'chrome-linux64', 'chrome');
+    expect(list.indexOf(posix.join(cache, 'chromium-1200', 'chrome-linux64', 'chrome'))).toBeGreaterThan(newest);
+    const pw = posix.join(cache, 'chromium-1200', 'chrome-linux64', 'chrome');
     expect(
       findBrowser({ platform: 'linux', env: {}, home: '/home/u', fs: fs([pw, '/usr/bin/chromium'], { [cache]: ['chromium-1200'] }) }),
     ).toBe('/usr/bin/chromium');
@@ -121,15 +127,15 @@ describe('finding a browser', () => {
       home: 'C:\\Users\\u',
       fs: fs([]),
     });
-    expect(win).toContain(join('C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'));
-    expect(win).toContain(join('C:\\Program Files', 'Microsoft', 'Edge', 'Application', 'msedge.exe'));
+    expect(win).toContain(win32.join('C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'));
+    expect(win).toContain(win32.join('C:\\Program Files', 'Microsoft', 'Edge', 'Application', 'msedge.exe'));
     const custom = browserCandidates({
       platform: 'linux',
       env: { PLAYWRIGHT_BROWSERS_PATH: '/pw' },
       home: '/h',
       fs: fs([], { '/pw': ['chromium-7'] }),
     });
-    expect(custom).toContain(join('/pw', 'chromium-7', 'chrome-linux64', 'chrome'));
+    expect(custom).toContain(posix.join('/pw', 'chromium-7', 'chrome-linux64', 'chrome'));
   });
 });
 
@@ -241,6 +247,20 @@ describe("the browser's environment", () => {
     });
     expect(env).toEqual({ PATH: '/usr/bin', HOME: '/home/u', LANG: 'en_US.UTF-8', LC_ALL: 'C', TMPDIR: '/tmp', SystemRoot: 'C:\\Windows' });
   });
+
+  it("keeps its config and cache folders in its profile on Linux, never the user's own browser's", () => {
+    const server = { PATH: '/usr/bin', HOME: '/home/u', XDG_CONFIG_HOME: '/home/u/.config', XDG_CACHE_HOME: '/home/u/.cache' };
+    // Chromium on Linux keeps its crash reports under $XDG_CONFIG_HOME/<browser> whatever its profile.
+    expect(launchEnv(server, '/data/browser/c1', 'linux')).toEqual({
+      PATH: '/usr/bin',
+      HOME: '/home/u',
+      XDG_CONFIG_HOME: join('/data/browser/c1', 'config'),
+      XDG_CACHE_HOME: join('/data/browser/c1', 'cache'),
+    });
+    // macOS and Windows keep them in the profile already: nothing to change.
+    expect(launchEnv(server, '/data/browser/c1', 'darwin')).toEqual({ PATH: '/usr/bin', HOME: '/home/u' });
+    expect(launchEnv(server, '/data/browser/c1', 'win32')).toEqual({ PATH: '/usr/bin', HOME: '/home/u' });
+  });
 });
 
 describe('a page as the agent reads it', () => {
@@ -307,7 +327,11 @@ describe.skipIf(!chromium)('the browser itself', () => {
     ...o,
   });
 
+  let savedHome: string | undefined;
   beforeAll(async () => {
+    savedHome = process.env.HOME;
+    mkdirSync(userHome, { recursive: true });
+    process.env.HOME = userHome;
     relay = createServer((req, res) => {
       relayHits.push(req.url ?? '');
       res.end('<title>Relay</title>');
@@ -364,9 +388,10 @@ describe.skipIf(!chromium)('the browser itself', () => {
         );
       }
       if (url.pathname === '/bought') return res.end('<title>Bought</title>');
-      if (url.pathname === '/host') return res.end(`<title>Host</title><p>Asked for ${req.headers.host}</p>`);
+      if (url.pathname === '/host') return res.end(`<title>Host</title><p>Asked for ${escapeHtml(req.headers.host ?? '')}</p>`);
       if (url.pathname === '/next') return res.end('<title>Next</title><h1>The next page</h1>');
-      if (url.pathname === '/search') return res.end(`<title>Results</title><p>You searched for ${url.searchParams.get('q')}</p>`);
+      if (url.pathname === '/search')
+        return res.end(`<title>Results</title><p>You searched for ${escapeHtml(url.searchParams.get('q') ?? '')}</p>`);
       if (url.pathname === '/other') return res.end('<title>Other</title><a href="http://localhost:' + port + '/next">Elsewhere</a>');
       res.end(
         '<title>Start</title><h1>Welcome</h1><p>Some text.</p><a href="/next">Next page</a>' +
@@ -401,6 +426,8 @@ describe.skipIf(!chromium)('the browser itself', () => {
     });
   });
   afterAll(async () => {
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
     browser?.closeAll();
     for (const sock of upgraded) sock.destroy();
     await new Promise((r) => server?.close(r));
@@ -625,6 +652,16 @@ describe.skipIf(!chromium)('the browser itself', () => {
       expect(anchor.url).toBe(`http://127.0.0.1:${port}/long-password#top`);
       expect(Date.now() - started).toBeLessThan(5000);
       await browser.close('conv-4', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    "writes nothing in the user's own browser folders: Chromium's crash reports on Linux stay in the profile",
+    async () => {
+      await browser.open(ctx({ convId: 'conv-5', permission: 'full' }), `http://127.0.0.1:${port}/next`);
+      expect(existsSync(join(userHome, '.config'))).toBe(false);
+      await browser.close('conv-5', true);
     },
     slow(60_000),
   );

@@ -212,16 +212,43 @@ function withoutBlocks(html: string): string {
   return out.join('');
 }
 
+/** Whether the character after a `<` starts a tag, as a browser reads it: a letter, `/`, `!` or `?` (`x < 5` is text). */
+const TAG_START = /[A-Za-z/!?]/;
+
+/**
+ * `html` without its tags, in one pass: from a `<` that starts one to the `>` that ends it, a tag
+ * started inside it needing a `>` of its own, so pieces of a tag never join into one (removing tags
+ * once would make `<script>` of `<scr<b>ipt>`). A `<` that starts no tag stays as text; a tag never
+ * ended takes the rest with it, as in a browser.
+ */
+function withoutTags(html: string): string {
+  const out: string[] = [];
+  let depth = 0;
+  let from = 0;
+  for (let i = 0; i < html.length; i++) {
+    const c = html[i];
+    if (c === '<' && TAG_START.test(html[i + 1] ?? '')) {
+      if (depth === 0) out.push(html.slice(from, i));
+      depth++;
+    } else if (c === '>' && depth > 0 && --depth === 0) {
+      from = i + 1;
+    }
+  }
+  if (depth === 0) out.push(html.slice(from));
+  return out.join('');
+}
+
 /**
  * HTML as plain text: no scripts or styles, block ends as line breaks, entities decoded. Every step
  * takes time in proportion to the text, whatever it holds (a mail of 400 KB of `<` included), so no
  * mail can hold the server up.
  */
 export function htmlText(html: string): string {
-  return withoutBlocks(html)
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|li|tr|h[1-6]|blockquote)>/gi, '\n')
-    .replace(/<[^<>]*>/g, '')
+  return withoutTags(
+    withoutBlocks(html)
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|li|tr|h[1-6]|blockquote)>/gi, '\n'),
+  )
     .replace(/&nbsp;/g, ' ')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')

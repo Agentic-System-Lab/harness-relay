@@ -26,6 +26,8 @@ describe("the browser's own proxy", () => {
     site = createHttpServer((req, res) => {
       seen.push({ url: req.url, host: req.headers.host, auth: req.headers['proxy-authorization'] as string | undefined });
       res.setHeader('x-site', 'yes');
+      // Plain text: the request's own path is echoed back, and never read as HTML.
+      res.setHeader('content-type', 'text/plain; charset=utf-8');
       res.end(`hello ${req.url}`);
     });
     await new Promise<void>((r) => site.listen(0, '127.0.0.1', () => r()));

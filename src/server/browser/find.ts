@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { posix, win32 } from 'node:path';
 
 /*
  * Which browser the browser tools start: the one `RELAY_BROWSER` names, else Playwright's own Chromium
@@ -31,8 +31,14 @@ const realFs: FindFs = {
   },
 };
 
+/** Paths as the system they are for writes them, whichever system this runs on (the tests ask for each). */
+function pathFor(platform: NodeJS.Platform): typeof posix {
+  return platform === 'win32' ? win32 : posix;
+}
+
 /** Where Playwright keeps the browsers it downloads, on each system. */
 function playwrightCache(platform: NodeJS.Platform, env: NodeJS.ProcessEnv, home: string): string {
+  const { join } = pathFor(platform);
   if (env.PLAYWRIGHT_BROWSERS_PATH && env.PLAYWRIGHT_BROWSERS_PATH !== '0') return env.PLAYWRIGHT_BROWSERS_PATH;
   if (platform === 'darwin') return join(home, 'Library', 'Caches', 'ms-playwright');
   if (platform === 'win32') return join(env.LOCALAPPDATA ?? join(home, 'AppData', 'Local'), 'ms-playwright');
@@ -41,6 +47,7 @@ function playwrightCache(platform: NodeJS.Platform, env: NodeJS.ProcessEnv, home
 
 /** The executable inside one of Playwright's `chromium-<n>` folders, as each system lays it out. */
 function playwrightExecutables(dir: string, platform: NodeJS.Platform): string[] {
+  const { join } = pathFor(platform);
   if (platform === 'darwin') {
     return ['chrome-mac-arm64', 'chrome-mac-x64', 'chrome-mac'].flatMap((d) => [
       join(dir, d, 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
@@ -53,6 +60,7 @@ function playwrightExecutables(dir: string, platform: NodeJS.Platform): string[]
 
 /** Where the browsers' installers put them. */
 function systemBrowsers(platform: NodeJS.Platform, env: NodeJS.ProcessEnv, home: string): string[] {
+  const { join } = pathFor(platform);
   if (platform === 'darwin') {
     const apps = [
       'Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -99,7 +107,7 @@ export function browserCandidates(
   return [
     ...(o.configured ? [o.configured] : []),
     ...systemBrowsers(platform, env, home),
-    ...versions.flatMap((d) => playwrightExecutables(join(cache, d), platform)),
+    ...versions.flatMap((d) => playwrightExecutables(pathFor(platform).join(cache, d), platform)),
   ];
 }
 
