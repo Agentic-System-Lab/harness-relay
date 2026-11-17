@@ -8,6 +8,7 @@ import {
   type NativePart,
   type Permission,
   type PlanEntry,
+  GATEWAY_SERVER_NAME,
 } from '../../shared/types';
 import { endpointKeyEnv, endpointRunModel, ENDPOINT_KEY_ENV, type EndpointModel } from '../backends';
 import { unwrapShell } from '../commands';
@@ -243,6 +244,9 @@ export function codexMcpConfig(
             ? { url: s.url, ...(has(s.headers) ? { http_headers: s.headers } : {}) }
             : { command: s.command, args: s.args, ...(has(s.env) ? { env: s.env } : {}) }),
           ...(approveTools ? { default_tools_approval_mode: 'approve' } : {}),
+          // Harness Relay's own tools may wait for the user's answer about an act (or a page's host): as long
+          // as a turn may last, not Codex's 5 minutes, after which it would tell the model the call failed.
+          ...(s.name === GATEWAY_SERVER_NAME ? { tool_timeout_sec: Math.ceil(TURN_TIMEOUT_MS / 1000) } : {}),
         },
       ]),
     ),

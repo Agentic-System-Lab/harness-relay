@@ -62,9 +62,12 @@ describe("Harness Relay's own tools in a turn", () => {
   it('gives a member the gateway for the groups its CLI was given, for its turn alone, and none without a group', async () => {
     const { grants } = fakeGateway();
     const conv = solo();
+    // A library server saved before `relay_` was reserved (validation refuses it now): with the gateway
+    // it is left out, since OpenCode would name its tools as the gateway's (`relay_mail` + `send`).
+    settings.tools.saveServer('relay_mail', { transport: 'stdio', command: 'x', args: [], env: [], providers: ['claude'] });
     await orchestrator.send(conv.id, 'hello');
     await finish(conv.id);
-    expect(calls[0]!.mcpServers).toBeUndefined();
+    expect(calls[0]!.mcpServers).toEqual(['relay_mail']);
     expect(grants).toEqual([]);
 
     settings.tools.update({ relayTools: { browser: ['claude'], mail: ['claude'] } });
@@ -111,12 +114,12 @@ describe("Harness Relay's own tools in a turn", () => {
     expect(await as('pi', 'full')).toEqual({ http: false, fallback: true });
     expect(calls.at(-1)!.mcpServers).toEqual(['relay']);
 
-    // A member turned off its groups gets none.
+    // A member turned off its groups gets none, and the library's server again.
     conv.agents = [{ ...agents[0]!, tools: { 'relay:browser': false, 'relay:mail': false } }];
     store.saveMeta(conv);
     await orchestrator.send(conv.id, 'third');
     await finish(conv.id);
-    expect(calls.at(-1)!.mcpServers).toBeUndefined();
+    expect(calls.at(-1)!.mcpServers).toEqual(['relay_mail']);
   });
 
   it("answers a CLI's own question about one of its tools yes, with no card, and leaves every other question as it was", async () => {
@@ -146,6 +149,8 @@ describe("Harness Relay's own tools in a turn", () => {
     fake.inTurn = async (_name, o) => {
       if (!o.requestApproval) return void seen.push(undefined);
       seen.push((await o.requestApproval({ kind: 'other', tool: 'mcp__relay__mail_send' })).allow);
+      // OpenCode's name for it (`<server>_<tool>`), as a read-only or unattended OpenCode run asks.
+      seen.push((await o.requestApproval({ kind: 'other', tool: 'relay_mail_send' })).allow);
       seen.push((await o.requestApproval({ kind: 'other', tool: 'mcp__evil__mail_send' })).allow);
       seen.push((await o.requestApproval({ kind: 'command', command: 'npm publish', tool: 'mcp__relay__mail_send' })).allow);
     };
@@ -155,7 +160,7 @@ describe("Harness Relay's own tools in a turn", () => {
     settings.tools.update({ relayTools: { mail: ['claude'] } });
     await orchestrator.send(conv.id, 'second');
     await finish(conv.id);
-    expect(seen).toEqual([undefined, true, false, false]);
+    expect(seen).toEqual([undefined, true, true, false, false]);
     expect(conv.messages.some((m) => m.parts.some((p) => p.type === 'approval'))).toBe(false);
   });
 

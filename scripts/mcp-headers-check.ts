@@ -12,7 +12,9 @@
  * in Codex's thread config (`thread/start`, a turn, which may fail without a model, then
  * `thread/resume`). Then it reads every file written while it ran, in the home folder, the system's
  * temporary folder and the project, and lists those that hold the marker. It passes when the CLI sent
- * the header and no file holds it. It sends no prompt to a model but Codex's one turn ("hi").
+ * the header and no file holds it. It sends no prompt to a model but Codex's one turn ("hi"). It runs the
+ * CLI as you do, in its own home: Harness Relay's runs move those folders (to the member's own), not what
+ * the CLI writes in them.
  */
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -159,7 +161,8 @@ await exited;
 server.close();
 
 // Every file written while it ran.
-const SKIP = new Set(['node_modules', '.git', 'Library', '.Trash', '.cache', 'proc']);
+// Every folder of the home but these (a CLI's caches and macOS's Library included: a header there is a header on disk).
+const SKIP = new Set(['node_modules', '.git', '.Trash', 'proc']);
 const holding: string[] = [];
 let read = 0;
 const walk = (dir: string, depth = 0) => {

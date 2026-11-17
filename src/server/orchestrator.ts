@@ -41,7 +41,14 @@ import {
 import { AgentRunError, runners, type AgentEvent, type RunResult } from './agents';
 import { emptyStateFolder, removeConversationState } from './agents/open';
 import { stateKeys, type ApprovalRequest, type RunOptions } from './agents/types';
-import { GATEWAY_FULL_ACCESS_ONLY, GATEWAY_OVER_HTTP, GATEWAY_SANDBOXED_MCP, gatewayToolNamed, type ToolGateway } from './gateway';
+import {
+  GATEWAY_FULL_ACCESS_ONLY,
+  GATEWAY_OVER_HTTP,
+  GATEWAY_SANDBOXED_MCP,
+  gatewayToolNamed,
+  reservedMcpName,
+  type ToolGateway,
+} from './gateway';
 import type { Outbox } from './outbox';
 import type { TraceSink } from './agentsview';
 import { approvalKeys, isAllowed } from './approvals';
@@ -3016,7 +3023,7 @@ export class Orchestrator {
           requestApproval: cliApproval(Boolean(relay)),
           images: imageInputs(conv.id, files),
           attachmentsDir: files.length ? attachmentsDir(conv.id) : undefined,
-          mcpServers: relay ? [...tools.mcpServers.filter((s) => s.name !== relay.spec.name), relay.spec] : tools.mcpServers,
+          mcpServers: relay ? [...tools.mcpServers.filter((s) => !reservedMcpName(s.name)), relay.spec] : tools.mcpServers,
           readDirs: tools.skills.map((s) => s.dir),
         });
         if (result.sessionId) state.sessionId = result.sessionId;

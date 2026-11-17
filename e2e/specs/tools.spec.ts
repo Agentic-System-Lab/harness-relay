@@ -660,7 +660,7 @@ test.describe(() => {
     await expect(card).toContainText('dan@example.com');
   });
 
-  test("below full access, in Harness Relay's own sandbox, OpenCode reaches the gateway's loopback port (opened to it alone), and its mail waits in the outbox", async ({
+  test("below full access, in Harness Relay's own sandbox, OpenCode reaches the gateway's loopback port (opened to it alone), its question about the tool answered for the user, and its mail waits in the outbox", async ({
     page,
     relay,
   }) => {
@@ -677,13 +677,15 @@ test.describe(() => {
       },
     });
     await relay.api('/api/tools', { method: 'PUT', body: { relayTools: { mail: ['opencode'] } } });
-    await openTeamChat(page, relay, [{ name: 'OpenCode', provider: 'opencode' }], { permission: 'edit' }, 'Mail Fay');
+    // Read-only: OpenCode asks about every MCP call there, naming it `relay_mail_send`; answered for the user, with no card.
+    await openTeamChat(page, relay, [{ name: 'OpenCode', provider: 'opencode' }], { permission: 'read-only' }, 'Mail Fay');
     await send(page, 'Tell Fay it shipped: {"to": "fay@example.com", "subject": "Shipped", "body": "It is out."} e2e:mcp=mail_send');
     const reply = await finishedReply(page, 'OpenCode');
     await expect(reply).toContainText(
       'The mail_send tool said: Not sent yet: "Mail to fay@example.com: "Shipped"" is waiting in the user\'s outbox',
     );
     await expect(reply.getByRole('region', { name: 'What @OpenCode asked to send' })).toContainText('fay@example.com');
+    await expect(page.locator('.approval-card')).toHaveCount(0);
   });
 });
 

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { reservedMcpName } from './gateway';
 import {
   ACCOUNT_ID_RE,
   API_BACKENDS,
@@ -12,7 +13,6 @@ import {
   MAX_CWDS,
   MAX_ACCOUNT_LABEL,
   MCP_NAME_RE,
-  GATEWAY_SERVER_NAME,
   MAX_NATIVE_ITEM_ID,
   MAX_NATIVE_ITEMS,
   MEMORY_SCOPES,
@@ -438,8 +438,9 @@ function validVars(input: unknown, field: string): { name: string; value?: strin
 export function validateMcpServer(nameInput: unknown, input: unknown): { name: string; update: McpServerUpdate } {
   const name = String(nameInput ?? '').trim();
   if (!MCP_NAME_RE.test(name)) bad(t().badMcpName(name));
-  // The gateway's own name: a library server called so would be left out of every turn that has the gateway.
-  if (name.toLowerCase() === GATEWAY_SERVER_NAME) bad(t().mcpNameReserved(name));
+  // The gateway's own name, or one its tools' names start with (`relay_…`, as OpenCode joins a server's
+  // name and its tool's): a library server called so would be left out of every turn that has the gateway.
+  if (reservedMcpName(name)) bad(t().mcpNameReserved(name));
   const b = (input ?? {}) as Partial<Record<keyof McpServerUpdate, unknown>>;
   const transport = b.transport === 'http' ? 'http' : b.transport === 'stdio' ? 'stdio' : bad(t().invalidField('transport'));
   const update: McpServerUpdate = { transport, providers: validProviders(b.providers, 'providers') };

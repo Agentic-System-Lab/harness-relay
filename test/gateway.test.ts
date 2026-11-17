@@ -7,7 +7,15 @@ import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ApprovalAnswer, OutboxItem } from '../src/shared/types';
 import { removeTree } from '../src/server/fsRemove';
-import { ToolGateway, gatewayDecision, gatewayToolNamed, outboxTool, type GatewayContext, type GatewayTool } from '../src/server/gateway';
+import {
+  ToolGateway,
+  gatewayDecision,
+  gatewayToolNamed,
+  outboxTool,
+  reservedMcpName,
+  type GatewayContext,
+  type GatewayTool,
+} from '../src/server/gateway';
 import { GATEWAY_PROTOCOLS } from '../src/server/gatewayShim';
 import type { ApprovalRequest } from '../src/server/agents/types';
 import { slow } from './timeouts';
@@ -31,6 +39,8 @@ describe('what a call of each tier does', () => {
     expect(gatewayToolNamed(names, other('relay:mail_send'))).toBe('mail_send');
     expect(gatewayToolNamed(names, other('relay/mail_send'))).toBe('mail_send');
     expect(gatewayToolNamed(names, other('relay__mail_send'))).toBe('mail_send');
+    // OpenCode's `<server>_<tool>`, as the real `opencode acp` titles an MCP call.
+    expect(gatewayToolNamed(names, other('relay_mail_send'))).toBe('mail_send');
     for (const tool of [
       'mcp__evil__browser_open',
       'browser_open',
@@ -39,6 +49,8 @@ describe('what a call of each tier does', () => {
       'mcp__nonrelay__mail_send',
       'evil:mail_send',
       'relay:mail_sender',
+      'relay_mail_sender',
+      'relay_x_mail_send',
       'https://h/relay/mail_send',
       undefined,
     ]) {
@@ -46,6 +58,9 @@ describe('what a call of each tier does', () => {
     }
     // A command, a file or a URL that mentions one is not about it.
     expect(gatewayToolNamed(names, { kind: 'command', tool: 'mcp__relay__browser_open' })).toBeUndefined();
+    // So no library server may take a name that OpenCode would join with its tool into one of these.
+    for (const name of ['relay', 'Relay', 'relay_mail', 'RELAY__x', 'relay_']) expect(reservedMcpName(name)).toBe(true);
+    for (const name of ['relayx', 'my-relay', 'relay-mail', 'gh']) expect(reservedMcpName(name)).toBe(false);
     expect(gatewayToolNamed(names, { kind: 'fetch' })).toBeUndefined();
   });
 });
@@ -468,6 +483,64 @@ describe('the gateway and the MCP server the CLIs start', () => {
     expect((await shim.request('tools/list')).error.message).toMatch(/turn is over/);
     stdio.revoke();
     grant.revoke();
+  });
+
+  it('does not do an act the user allows after its HTTP caller stopped waiting (its own time limit), and says why', async () => {
+    let allow!: (a: ApprovalAnswer) => void;
+    let started!: () => void;
+    const waiting = new Promise<void>((r) => (started = r));
+    const grant = gateway.grant(
+      ctx({ ask: (req) => (asked.push(req), started(), new Promise<ApprovalAnswer>((r) => (allow = r))) }),
+      ['browser'],
+      { http: true },
+    )!;
+    const stop = new AbortController();
+    void fetch(grant.spec.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: grant.spec.headers.Authorization! },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'page_click', arguments: { target: 'Buy' } } }),
+      signal: stop.signal,
+    }).catch(() => undefined);
+    // The client gives up while the user is asked.
+    await waiting;
+    stop.abort();
+    await new Promise((r) => setTimeout(r, 200));
+    const before = holding.length;
+    allow({ allow: true });
+    await new Promise((r) => setTimeout(r, 200));
+    expect(asked.at(-1)).toMatchObject({ tool: 'relay:page_click' });
+    expect(holding.slice(before)).not.toContain('ran');
+    // Through call() itself: the same answer, said to whoever still listens.
+    const tool = { ...tools.find((t) => t.name === 'page_click')!, run: async () => ({ text: 'ran' }) };
+    expect(await gateway.call(tool, { target: 'Buy' }, ctx(), () => true)).toMatchObject({
+      isError: true,
+      text: expect.stringMatching(/was not done: its caller stopped waiting/),
+    });
+    expect((await gateway.call(tool, { target: 'Buy' }, ctx(), () => false)).text).toBe('ran');
+  });
+
+  it('answers a request too large with 413 before it ends the connection, and connections that never show a token keep no CLI out', async () => {
+    const grant = gateway.grant(ctx(), ['browser'], { http: true })!;
+    const auth = { Authorization: grant.spec.headers.Authorization! };
+    const big = await post(grant.spec.url, `{"jsonrpc":"2.0","id":1,"method":"ping","x":"${'a'.repeat(4 * 1024 * 1024 + 10)}"}`, auth);
+    expect(big.status).toBe(413);
+    // Many connections that send part of their headers and wait (a command trying to fill the endpoint):
+    // more than the endpoint keeps for them, so the oldest give way, and a CLI's request still goes through.
+    const port = gateway.httpPort()!;
+    const stalled = Array.from({ length: 300 }, () => {
+      const c = connect(port, '127.0.0.1', () => c.write('POST /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\n'));
+      c.on('error', () => undefined);
+      return c;
+    });
+    try {
+      await new Promise((r) => setTimeout(r, 500));
+      const list = await post(grant.spec.url, { jsonrpc: '2.0', id: 2, method: 'tools/list' }, auth);
+      expect(list.status).toBe(200);
+      expect(stalled.filter((c) => c.destroyed).length).toBeGreaterThanOrEqual(300 - 256);
+    } finally {
+      for (const c of stalled) c.destroy();
+      grant.revoke();
+    }
   });
 
   it('makes the stdio program only if the CLI takes no HTTP MCP server (its fallback), and ends both with the turn', async () => {

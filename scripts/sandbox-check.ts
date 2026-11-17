@@ -631,7 +631,16 @@ async function escapeChecks(want: (n: string) => boolean) {
       );
       const r = await run(`node ${join(dir, 'agent.cjs')} ${join(dir, 'reader.py')} 2>&1 || true`, baseSpec('read-only'));
       const said = /REFUSED.*|NOT-FOUND|FOUND/.exec(r.out)?.[0] ?? r.out.trim().slice(-60);
-      check("escape: a command cannot read its agent's memory", said.startsWith('REFUSED') || said === 'NOT-FOUND', said);
+      // The same outside the sandbox, so the note says whether the sandbox refused it or the system does
+      // anyway (Yama's ptrace_scope 1 or more lets a process read only its descendants' memory).
+      const outside = spawnSync(node, [join(dir, 'agent.cjs'), join(dir, 'reader.py')], { encoding: 'utf8' }).stdout ?? '';
+      const control = /REFUSED.*|NOT-FOUND|FOUND/.exec(outside)?.[0] ?? '?';
+      const scope = existsSync('/proc/sys/kernel/yama/ptrace_scope') ? readText('/proc/sys/kernel/yama/ptrace_scope').trim() : 'none';
+      check(
+        "escape: a command cannot read its agent's memory",
+        said.startsWith('REFUSED') || said === 'NOT-FOUND',
+        `${said}; outside the sandbox ${control} (Yama ptrace_scope ${scope})`,
+      );
     }
   }
 }

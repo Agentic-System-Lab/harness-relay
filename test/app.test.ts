@@ -2180,6 +2180,12 @@ describe('tool library', () => {
     expect(JSON.stringify(await (await get('/api/tools')).json())).not.toContain('ghp_secret_value_123');
 
     expect((await save('bad.name', { transport: 'stdio', command: 'x' })).status).toBe(400);
+    // Harness Relay's own tools' name, and names OpenCode would join with a tool into theirs (`relay_mail` + `send`).
+    for (const name of ['relay', 'Relay', 'relay_mail']) {
+      const r = await save(name, { transport: 'stdio', command: 'x' });
+      expect(r.status).toBe(400);
+      expect((await r.json()).error).toContain("is taken by Harness Relay's own tools");
+    }
     expect((await save('x', { transport: 'stdio', command: '' })).status).toBe(400);
     expect((await save('x', { transport: 'http', url: 'file:///etc/passwd' })).status).toBe(400);
     expect((await save('x', { transport: 'stdio', command: 'x', providers: ['gemini'] })).status).toBe(400);

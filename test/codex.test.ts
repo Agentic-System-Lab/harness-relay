@@ -30,7 +30,7 @@ import {
   sharedFolder,
 } from '../src/server/agents/codex';
 import { RpcError } from '../src/server/agents/acp';
-import { AgentRunError, type AgentEvent } from '../src/server/agents/types';
+import { AgentRunError, TURN_TIMEOUT_MS, type AgentEvent } from '../src/server/agents/types';
 import { withLang } from '../src/server/i18n';
 
 // Shapes trimmed from real `codex app-server` traffic (codex-cli 0.167.0).
@@ -328,6 +328,14 @@ describe('codex thread config', () => {
         docs: { url: 'https://x.test/mcp', http_headers: { Authorization: 'Bearer b' } },
       },
     });
+  });
+
+  it("gives Harness Relay's own tools a turn's time per call, as they may wait for the user, not Codex's 5 minutes", () => {
+    const relay = { name: 'relay', transport: 'http' as const, command: '', args: [], url: 'http://127.0.0.1:4/mcp', env: {}, headers: {} };
+    const gh = { name: 'gh', transport: 'stdio' as const, command: 'gh-mcp', args: [], url: '', env: {}, headers: {} };
+    const table = codexConfig('edit', undefined, [relay, gh]).mcp_servers as Record<string, Record<string, unknown>>;
+    expect(table.relay!.tool_timeout_sec).toBe(Math.ceil(TURN_TIMEOUT_MS / 1000));
+    expect(table.gh).not.toHaveProperty('tool_timeout_sec');
   });
 
   it("lets the library's servers approve their own tools in full access, where Codex would refuse every MCP call", () => {

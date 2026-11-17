@@ -196,6 +196,9 @@ export class ToolGateway {
   private readonly sockets = new Set<Socket>();
   /** Of `sockets`, those with no token of a turn going on (yet). */
   private readonly pending = new Set<Socket>();
+  /** The HTTP endpoint's connections that have shown a turn's token, and those that have not yet (`MAX_PENDING`, `tokenWaitMs`). */
+  private readonly httpKnown = new Set<Socket>();
+  private readonly httpUnknown = new Set<Socket>();
   /** The loopback HTTP endpoint (127.0.0.1, a port of its own). */
   private http?: HttpServer;
   private httpAt?: number;
@@ -270,10 +273,27 @@ export class ToolGateway {
         resolve();
       });
     });
-    // The HTTP endpoint, on loopback only; a call may wait for the user's answer, so requests have no time limit.
+    // The HTTP endpoint, on loopback only. A request must come at once, as an MCP client sends it (its
+    // answer may wait for the user as long as it takes: these limits are for receiving it only), and a
+    // connection that has shown no turn's token counts apart, as on the socket, so such connections
+    // cannot keep the CLIs out (`httpUnknown`, `MAX_PENDING`), and ends after the token's wait.
     const http = createHttpServer((req, res) => this.serveHttp(req, res));
-    http.requestTimeout = 0;
+    http.headersTimeout = this.tokenWaitMs;
+    http.requestTimeout = Math.max(this.tokenWaitMs, 30_000);
     http.maxConnections = MAX_CONNECTIONS + MAX_PENDING;
+    http.on('connection', (sock: Socket) => {
+      // Full: the oldest gives way. A CLI sends its request as it connects, so it is known within moments,
+      // while connections that never show a token cannot hold every place and turn new ones away.
+      if (this.httpUnknown.size >= MAX_PENDING) this.httpUnknown.values().next().value?.destroy();
+      this.httpUnknown.add(sock);
+      const timer = setTimeout(() => this.httpUnknown.has(sock) && sock.destroy(), this.tokenWaitMs);
+      timer.unref();
+      sock.on('close', () => {
+        clearTimeout(timer);
+        this.httpUnknown.delete(sock);
+        this.httpKnown.delete(sock);
+      });
+    });
     await new Promise<void>((resolve, reject) => {
       http.once('error', reject);
       http.listen(0, '127.0.0.1', () => {
@@ -470,7 +490,7 @@ export class ToolGateway {
           });
           return void sock.end();
         }
-        void this.handle(live, req).then(
+        void this.handle(live, req, () => sock.destroyed).then(
           (result) => reply({ id: req.id, result }),
           (err: Error) => reply({ id: req.id, error: err.message }),
         );
@@ -478,7 +498,7 @@ export class ToolGateway {
     });
   }
 
-  private async handle(grant: Grant, req: Request): Promise<unknown> {
+  private async handle(grant: Grant, req: Request, gone?: () => boolean): Promise<unknown> {
     if (req.method === 'list') {
       return {
         tools: this.toolsFor(grant).map((t) => ({
@@ -496,7 +516,8 @@ export class ToolGateway {
     const args =
       req.arguments && typeof req.arguments === 'object' && !Array.isArray(req.arguments) ? (req.arguments as Record<string, unknown>) : {};
     const ctx = grant.ctx;
-    return toolResult(await (ctx.lang ? withLang(ctx.lang, () => this.call(tool, args, ctx)) : this.call(tool, args, ctx)));
+    const run = () => this.call(tool, args, ctx, gone);
+    return toolResult(await (ctx.lang ? withLang(ctx.lang, run) : run()));
   }
 
   /**
@@ -513,9 +534,10 @@ export class ToolGateway {
       res.writeHead(status, { ...(text ? { 'Content-Type': 'application/json' } : {}), ...headers });
       res.end(text);
     };
+    // A refused request ends its connection (what is left of its body is read and dropped meanwhile).
     const refuse = (status: number, message: string, headers: Record<string, string> = {}) => {
       req.resume();
-      answer(status, { jsonrpc: '2.0', id: null, error: { code: -32000, message } }, headers);
+      answer(status, { jsonrpc: '2.0', id: null, error: { code: -32000, message } }, { ...headers, Connection: 'close' });
     };
     const port = this.httpAt;
     const host = req.headers.host;
@@ -527,14 +549,23 @@ export class ToolGateway {
     const found = bearer ? this.grants.get(bearer) : undefined;
     if (!found?.http) return refuse(404, 'This turn is over: Harness Relay has no tools for it any more');
     const grant = found;
+    // Known from now on: it counts with the CLIs' own connections.
+    const sock = req.socket;
+    if (this.httpUnknown.delete(sock)) {
+      if (this.httpKnown.size >= MAX_CONNECTIONS) return refuse(503, 'Too many connections');
+      this.httpKnown.add(sock);
+    }
     if (!/^application\/json\b/i.test(req.headers['content-type'] ?? '')) return refuse(415, 'Unsupported media type');
     const chunks: Buffer[] = [];
     let size = 0;
     req.on('data', (chunk: Buffer) => {
+      if (size > MAX_LINE) return;
       size += chunk.length;
       if (size > MAX_LINE) {
+        chunks.length = 0;
+        // Said before the connection ends, rather than cut off with the rest of the body unread.
         refuse(413, 'The request is too large');
-        req.destroy();
+        res.once('finish', () => setTimeout(() => sock.destroy(), 1000).unref());
         return;
       }
       chunks.push(chunk);
@@ -550,7 +581,10 @@ export class ToolGateway {
       }
       const batch = Array.isArray(msg);
       const list = (batch ? msg : [msg]) as unknown[];
-      void Promise.all(list.map((m) => this.mcpAnswer(grant, m))).then(
+      // A client that gives up waiting (its own time limit) closes the request: an act the user allows
+      // after that is not done, since the agent was told it failed and may try it again.
+      const gone = () => !res.writableFinished && (res.destroyed || sock.destroyed);
+      void Promise.all(list.map((m) => this.mcpAnswer(grant, m, gone))).then(
         (answers) => {
           const out = answers.filter((a) => a !== undefined);
           // Notifications and responses only: accepted, nothing to answer.
@@ -563,7 +597,7 @@ export class ToolGateway {
   }
 
   /** One JSON-RPC message of an HTTP request, as the stdio program answers it; undefined for a notification. */
-  private async mcpAnswer(grant: Grant, raw: unknown): Promise<unknown> {
+  private async mcpAnswer(grant: Grant, raw: unknown, gone?: () => boolean): Promise<unknown> {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw))
       return { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid Request' } };
     const { id, method, params } = raw as { id?: unknown; method?: unknown; params?: Record<string, unknown> };
@@ -588,7 +622,7 @@ export class ToolGateway {
       if (method === 'tools/list') return ok(await this.handle(grant, { id: 0, method: 'list' }));
       if (method === 'tools/call') {
         const args = params?.arguments;
-        return ok(await this.handle(grant, { id: 0, method: 'call', name: params?.name, arguments: args ?? {} }));
+        return ok(await this.handle(grant, { id: 0, method: 'call', name: params?.name, arguments: args ?? {} }, gone));
       }
     } catch (err) {
       return ok({ content: [{ type: 'text', text: (err as Error).message }], isError: true });
@@ -596,8 +630,11 @@ export class ToolGateway {
     return { jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } };
   }
 
-  /** A call, as its tier and the turn allow. */
-  async call(tool: GatewayTool, args: Record<string, unknown>, ctx: GatewayContext): Promise<GatewayResult> {
+  /**
+   * A call, as its tier and the turn allow. `gone`: whether the client stopped waiting for it (its
+   * connection closed), checked once the user has answered about an act.
+   */
+  async call(tool: GatewayTool, args: Record<string, unknown>, ctx: GatewayContext, gone?: () => boolean): Promise<GatewayResult> {
     const missing = tool.unavailable?.();
     if (missing) return { text: `${tool.name} cannot be used now: ${missing}`, isError: true };
     const decision = gatewayDecision(tool.tier, ctx.permission, Boolean(ctx.ask));
@@ -642,6 +679,7 @@ export class ToolGateway {
         noLock: true,
       }).finally(() => answered?.());
       if (!answer.allow) return { text: `The user declined ${tool.name}${answer.note ? `: ${answer.note}` : ''}.`, isError: true };
+      if (gone?.()) return { text: `${tool.name} was not done: its caller stopped waiting before the user answered.`, isError: true };
     }
     if (ctx.signal.aborted) return { text: 'The turn was stopped.', isError: true };
     try {
@@ -697,15 +735,24 @@ export const gatewayApprovalTool = (name: string) => `${GATEWAY_SERVER_NAME}:${n
 /**
  * The gateway's tool a CLI's own approval request is about, if it is one: a request for a tool (kind
  * `other`) named exactly as the CLI names the gateway's (`mcp__relay__browser_open` in Claude Code,
- * `relay:browser_open` in Codex, `relay/browser_open`, `relay__browser_open`, `relay.browser_open`),
- * never a command, a path or a URL with such words in it, nor another server's tool of the same name.
- * The turn answers such a request yes, and the gateway decides by the tool's tier (`Orchestrator`).
+ * `relay:browser_open` in Codex, `relay_browser_open` in OpenCode, `relay/browser_open`,
+ * `relay__browser_open`, `relay.browser_open`), never a command, a path or a URL with such words in it,
+ * nor another server's tool of the same name. OpenCode's one underscore could join a library server's
+ * name and its tool into the same words (`relay_mail` and `search`), so no library server may be named
+ * so (`reservedMcpName()`), and a run that has the gateway is given none that is. The turn answers such
+ * a request yes, and the gateway decides by the tool's tier (`Orchestrator`).
  */
 export function gatewayToolNamed(names: readonly string[], req: Pick<ApprovalRequest, 'kind' | 'tool'>): string | undefined {
   if (req.kind !== 'other' || !req.tool) return undefined;
   const s = GATEWAY_SERVER_NAME;
-  return names.find((n) => [`mcp__${s}__${n}`, `${s}:${n}`, `${s}__${n}`, `${s}/${n}`, `${s}.${n}`].includes(req.tool!));
+  return names.find((n) => [`mcp__${s}__${n}`, `${s}:${n}`, `${s}_${n}`, `${s}__${n}`, `${s}/${n}`, `${s}.${n}`].includes(req.tool!));
 }
+
+/** Whether a library MCP server's name is the gateway's (`relay`), or starts as its tools' names do in a CLI that joins them with `_` (`relay_…`). */
+export const reservedMcpName = (name: string): boolean => {
+  const n = name.toLowerCase();
+  return n === GATEWAY_SERVER_NAME || n.startsWith(`${GATEWAY_SERVER_NAME}_`);
+};
 
 /** The outbox's own tool, given with any group: what this conversation's outbox holds and what became of it. */
 export function outboxTool(list: (convId: string) => OutboxItem[]): GatewayTool {
