@@ -80,7 +80,10 @@ export interface OutgoingMail {
 }
 
 /** A plain-text message, ready for SMTP's DATA or IMAP's APPEND (CRLF lines, base64 body). Bcc is never written. */
-export function composeMail(m: OutgoingMail, domain = bareAddress(m.from).split('@')[1] ?? 'localhost'): { raw: string; messageId: string } {
+export function composeMail(
+  m: OutgoingMail,
+  domain = bareAddress(m.from).split('@')[1] ?? 'localhost',
+): { raw: string; messageId: string } {
   const messageId = `<${randomBytes(12).toString('hex')}@${domain}>`;
   const date = (m.date ?? new Date()).toUTCString().replace('GMT', '+0000');
   const headers = [
@@ -174,7 +177,12 @@ function splitEntity(raw: string): { headers: Record<string, string>; body: stri
 function bodyText(headers: Record<string, string>, body: string): string {
   const enc = (headers['content-transfer-encoding'] ?? '').toLowerCase();
   const charset = param(headers['content-type'], 'charset');
-  const bytes = enc === 'base64' ? Buffer.from(body.replace(/\s+/g, ''), 'base64') : enc === 'quoted-printable' ? decodeQuotedPrintable(body) : Buffer.from(body, 'latin1');
+  const bytes =
+    enc === 'base64'
+      ? Buffer.from(body.replace(/\s+/g, ''), 'base64')
+      : enc === 'quoted-printable'
+        ? decodeQuotedPrintable(body)
+        : Buffer.from(body, 'latin1');
   return decodeCharset(bytes, charset);
 }
 
@@ -234,11 +242,15 @@ function entityText(raw: string, depth = 0): { text: string; html?: string; atta
   const type = (headers['content-type'] ?? 'text/plain').toLowerCase();
   const disposition = headers['content-disposition'] ?? '';
   const filename = param(disposition, 'filename') ?? param(headers['content-type'], 'name');
-  if (/^attachment/i.test(disposition) || (filename && !type.startsWith('text/'))) return { text: '', attachments: [filename ? decodeWords(filename) : 'attachment'] };
+  if (/^attachment/i.test(disposition) || (filename && !type.startsWith('text/')))
+    return { text: '', attachments: [filename ? decodeWords(filename) : 'attachment'] };
   if (type.startsWith('multipart/') && depth < 8) {
     const boundary = param(headers['content-type'], 'boundary');
     if (!boundary) return { text: '', attachments: [] };
-    const parts = body.split(new RegExp(`\\r?\\n?--${boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:--)?[ \\t]*\\r?\\n?`)).slice(1).filter((p) => p.trim());
+    const parts = body
+      .split(new RegExp(`\\r?\\n?--${boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:--)?[ \\t]*\\r?\\n?`))
+      .slice(1)
+      .filter((p) => p.trim());
     let text = '';
     let html: string | undefined;
     const attachments: string[] = [];

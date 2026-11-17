@@ -8,7 +8,12 @@ import { zhTW } from '../src/web/locales/zh-TW';
 /** Same keys and same list lengths, recursively (types only check the keys). */
 function shape(v: unknown): unknown {
   if (Array.isArray(v)) return v.map(shape);
-  if (v && typeof v === 'object') return Object.fromEntries(Object.keys(v).sort().map((k) => [k, shape((v as any)[k])]));
+  if (v && typeof v === 'object')
+    return Object.fromEntries(
+      Object.keys(v)
+        .sort()
+        .map((k) => [k, shape((v as any)[k])]),
+    );
   return typeof v;
 }
 
@@ -107,4 +112,3 @@ describe('web language', () => {
     expect(zhTW.effortLabel('high')).toBe('高（high）');
   });
 });
-

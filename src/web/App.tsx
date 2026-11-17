@@ -10,24 +10,36 @@ import { NewSchedule } from './components/NewSchedule';
 import { SignIn } from './components/SignIn';
 import { UpdateDialog } from './components/UpdateDialog';
 import { hashFor, routeFromHash, type Route } from './route';
-import {
-  askSignedIn,
-  runFirstCheck,
-  signInWhere,
-  signInWithLink,
-  type LinkDeps,
-  type LinkResult,
-  type PageStart,
-} from './signin';
+import { askSignedIn, runFirstCheck, signInWhere, signInWithLink, type LinkDeps, type LinkResult, type PageStart } from './signin';
 import { Sidebar } from './components/Sidebar';
 import { MenuIcon, PanelIcon } from './components/icons';
 import { useI18n, useT } from './i18n';
-import { PUSH_RESYNC_MS, PageAlerts, SOUND_UNLOCK_EVENTS, alertPrefsNow, listenForClicks, pushActive, syncPush, unlockSound, useAlertPrefs } from './alerts';
+import {
+  PUSH_RESYNC_MS,
+  PageAlerts,
+  SOUND_UNLOCK_EVENTS,
+  alertPrefsNow,
+  listenForClicks,
+  pushActive,
+  syncPush,
+  unlockSound,
+  useAlertPrefs,
+} from './alerts';
 import { refreshLimits } from './limits';
 import { latestLoader, newerStatuses } from './refresh';
 import { askOnNewChat, readAsked, writeAsked } from './sandboxSetup';
 import { useSandboxSetup } from './useSandboxSetup';
-import { AFTER_UPDATE_MS, TYPING_PAUSE_MS, isAppWindow, offerShows, pollDelay, readDismissed, shouldOffer, typesText, writeDismissed } from './update';
+import {
+  AFTER_UPDATE_MS,
+  TYPING_PAUSE_MS,
+  isAppWindow,
+  offerShows,
+  pollDelay,
+  readDismissed,
+  shouldOffer,
+  typesText,
+  writeDismissed,
+} from './update';
 import { useDialogsHeld, useDialogsOpen } from './components/useDialog';
 import { useSidebarDrawer } from './components/useSidebarDrawer';
 import { onboardingDone } from './tour';
@@ -112,8 +124,7 @@ export function App() {
       show(s);
     });
     // A link opened in a tab that shows the app already: only its fragment changes.
-    const onHash = () =>
-      void signInWithLink(LINK, () => state.current === 'in' || askSignedIn(LINK)).then((r) => r && show(r));
+    const onHash = () => void signInWithLink(LINK, () => state.current === 'in' || askSignedIn(LINK)).then((r) => r && show(r));
     const out = () => setAuth('out');
     // Another tab kept a new key: it signed this browser in (the tabs share the cookie and the key).
     // The server is asked whatever this tab shows, as one just signed out may not show the sign-in page
@@ -410,7 +421,17 @@ function RelayApp() {
   const [sandboxOpen, setSandboxOpen] = useState(false);
   useEffect(() => {
     // Not over the tour, another dialog, or what the user is typing or recording (it would take their keys).
-    if (route.page === 'new' && !sandboxOpen && !tourOpen && !offer && dialogs === 0 && !typing && !held && askOnNewChat(sandbox.view, sandboxAsked || sandboxClosed)) setSandboxOpen(true);
+    if (
+      route.page === 'new' &&
+      !sandboxOpen &&
+      !tourOpen &&
+      !offer &&
+      dialogs === 0 &&
+      !typing &&
+      !held &&
+      askOnNewChat(sandbox.view, sandboxAsked || sandboxClosed)
+    )
+      setSandboxOpen(true);
   }, [route.page, sandbox.view, sandboxAsked, sandboxClosed, sandboxOpen, tourOpen, offer, dialogs, typing, held]);
 
   return (
@@ -436,7 +457,12 @@ function RelayApp() {
         </button>
         {collapsed && (
           <div className="sidebar-tools">
-            <button className="icon-button" onClick={() => setCollapsed(false)} aria-label={t.app.expandSidebar} title={t.app.expandSidebar}>
+            <button
+              className="icon-button"
+              onClick={() => setCollapsed(false)}
+              aria-label={t.app.expandSidebar}
+              title={t.app.expandSidebar}
+            >
               <PanelIcon />
             </button>
           </div>

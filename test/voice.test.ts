@@ -46,7 +46,17 @@ const wav = (seconds: number) => Buffer.from(encodeWav(new Float32Array(Math.rou
 
 function result(code: number | null, stdout = '', stderr = ''): SpawnResult {
   const bytes = Buffer.from(stdout);
-  return { code, signal: null, stdout, stdoutBytes: bytes, stdoutTruncated: false, stdoutSize: bytes.length, stderr, aborted: false, timedOut: false };
+  return {
+    code,
+    signal: null,
+    stdout,
+    stdoutBytes: bytes,
+    stdoutTruncated: false,
+    stdoutSize: bytes.length,
+    stderr,
+    aborted: false,
+    timedOut: false,
+  };
 }
 
 interface FakeOptions {
@@ -159,7 +169,13 @@ afterEach(() => {
 
 describe('voice helpers', () => {
   it('pins every download to a version and a SHA-256', () => {
-    for (const m of [REAL_SMALL, MODEL_FILES.base, MODEL_FILES['large-v3-turbo-q5_0'], MODEL_FILES['large-v3-turbo'], MODEL_FILES['large-v3-q5_0']]) {
+    for (const m of [
+      REAL_SMALL,
+      MODEL_FILES.base,
+      MODEL_FILES['large-v3-turbo-q5_0'],
+      MODEL_FILES['large-v3-turbo'],
+      MODEL_FILES['large-v3-q5_0'],
+    ]) {
       expect(m.sha256).toMatch(/^[0-9a-f]{64}$/);
       expect(m.size).toBeGreaterThan(1e8);
     }
@@ -387,14 +403,21 @@ describe('VoiceService', () => {
     // A mirror that serves other bytes is caught by the pinned SHA-256.
     svc.uninstall();
     const other = fakeHost(dir, {}, { modelBody: () => Buffer.alloc(MODEL_BYTES.length, 1) });
-    const bad = service({ ...other.host, ...mirror, fetch: ((input: RequestInfo | URL, init?: RequestInit) =>
-      other.host.fetch!(String(input).replace(mirror.modelBaseUrl, MODEL_BASE_URL).replace(mirror.engineBaseUrl, ENGINE_BASE_URL), init)) as typeof fetch });
+    const bad = service({
+      ...other.host,
+      ...mirror,
+      fetch: ((input: RequestInfo | URL, init?: RequestInit) =>
+        other.host.fetch!(
+          String(input).replace(mirror.modelBaseUrl, MODEL_BASE_URL).replace(mirror.engineBaseUrl, ENGINE_BASE_URL),
+          init,
+        )) as typeof fetch,
+    });
     bad.install('small');
     expect((await settle(bad)).state).toBe('failed');
     expect(bad.status().models.find((m) => m.id === 'small')?.downloaded).toBe(false);
   });
 
-  it('removes only what it put in a folder RELAY_VOICE_DIR names, and serves no folder of the user\'s', async () => {
+  it("removes only what it put in a folder RELAY_VOICE_DIR names, and serves no folder of the user's", async () => {
     // The user's own files in the folder, a public one among them.
     mkdirSync(join(dir, 'public'));
     writeFileSync(join(dir, 'public', 'index.html'), 'mine');
@@ -450,7 +473,15 @@ describe('voice HTTP API', () => {
     const store = new Store(db);
     const hub = new Hub();
     const voice = service(fakeHost(dir).host);
-    return createApp({ auth: null, store, settings, hub, orchestrator: new Orchestrator(store, hub, settings), providers: new ProviderService(settings), voice });
+    return createApp({
+      auth: null,
+      store,
+      settings,
+      hub,
+      orchestrator: new Orchestrator(store, hub, settings),
+      providers: new ProviderService(settings),
+      voice,
+    });
   }
 
   it('reports the status and validates settings', async () => {
@@ -470,7 +501,11 @@ describe('voice HTTP API', () => {
     const a = app();
     const audio = wav(1).toString('base64');
     expect((await a.request('/api/voice/transcribe', json('POST', { audio }))).status).toBe(409);
-    const plain = await a.request('/api/voice/transcribe', { method: 'POST', headers: { ...HOST, 'content-type': 'text/plain' }, body: audio });
+    const plain = await a.request('/api/voice/transcribe', {
+      method: 'POST',
+      headers: { ...HOST, 'content-type': 'text/plain' },
+      body: audio,
+    });
     expect(plain.status).toBe(415);
     expect((await a.request('/api/voice/transcribe', json('POST', { audio: 42 }))).status).toBe(400);
 

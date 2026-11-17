@@ -58,7 +58,11 @@ export function countsAsSent(sent: Sent | undefined): boolean {
  * Whether the note after a report went says its mail links to the screenshots: only when the upload
  * there is now (`uploadId`) is the one the sent mail links to (`linkedId`), not one made after it went.
  */
-export function sentLinks(sent: Sent | undefined, uploadId: string | undefined, linkedId: string | undefined): sent is 'mail' | 'gmail' | 'copied' {
+export function sentLinks(
+  sent: Sent | undefined,
+  uploadId: string | undefined,
+  linkedId: string | undefined,
+): sent is 'mail' | 'gmail' | 'copied' {
   return !!uploadId && uploadId === linkedId && (sent === 'mail' || sent === 'gmail' || sent === 'copied');
 }
 
@@ -100,7 +104,10 @@ export function reportState(o: { draft: ReportDraft; shots: number; uploaded: bo
  * user, their accounts or their files. `about`: undefined while it loads (left out), null when the
  * server could not say (said so).
  */
-export function infoLines(o: { about?: AboutInfo | null; providers: ProviderStatus[]; userAgent: string; lang: string }, t: Messages): string[] {
+export function infoLines(
+  o: { about?: AboutInfo | null; providers: ProviderStatus[]; userAgent: string; lang: string },
+  t: Messages,
+): string[] {
   const { info: i, line } = t.report;
   const lines: string[] = [];
   if (o.about) {
@@ -147,7 +154,10 @@ export function reportBody(d: ReportDraft, info: string[], t: Messages, screensh
  * not a PNG, JPEG or WebP image (by its type, and its name when it has one with an ending: a JPEG saved
  * as .jfif is not taken; the server checks its bytes), or too large.
  */
-export function screenshotProblem(file: { type: string; size: number; name?: string }, count: number): 'tooMany' | 'notImage' | 'tooLarge' | undefined {
+export function screenshotProblem(
+  file: { type: string; size: number; name?: string },
+  count: number,
+): 'tooMany' | 'notImage' | 'tooLarge' | undefined {
   if (count >= REPORT_SCREENSHOT_LIMITS.maxFiles) return 'tooMany';
   if (!REPORT_SCREENSHOT_TYPES.includes(file.type)) return 'notImage';
   const ending = /\.[^./\\]+$/.exec(file.name ?? '')?.[0]?.toLowerCase();
@@ -185,7 +195,13 @@ export interface MailLink {
  * The link `make` makes of the mail, when it is `max` characters at most. A longer one carries
  * `pasteHere` for its text instead (and, should even that be too long, its subject shortened).
  */
-export function fitLink(make: (subject: string, body: string) => string, subject: string, body: string, pasteHere: string, max: number): MailLink {
+export function fitLink(
+  make: (subject: string, body: string) => string,
+  subject: string,
+  body: string,
+  pasteHere: string,
+  max: number,
+): MailLink {
   const url = make(subject, body);
   if (url.length <= max) return { url, cut: false };
   const chars = [...subject];
@@ -317,7 +333,8 @@ export class ShotUploads {
    */
   forget(): void {
     const done = this.done;
-    if (done && done.id !== this.linked && done.id !== this.removingId) void Promise.resolve(this.api.remove(done.id)).catch(() => undefined);
+    if (done && done.id !== this.linked && done.id !== this.removingId)
+      void Promise.resolve(this.api.remove(done.id)).catch(() => undefined);
     this.linked = undefined;
     this.report++;
     this.done = undefined;

@@ -25,7 +25,7 @@ function chunk(type: string, data: Buffer): Buffer {
 export function pngChunks(png: Buffer): { type: string; data: Buffer }[] {
   if (!png.subarray(0, 8).equals(PNG_SIGNATURE)) throw new Error('Not a PNG');
   const out: { type: string; data: Buffer }[] = [];
-  for (let at = 8; at < png.length; ) {
+  for (let at = 8; at < png.length;) {
     const length = png.readUInt32BE(at);
     out.push({ type: png.toString('latin1', at + 4, at + 8), data: png.subarray(at + 8, at + 8 + length) });
     at += 12 + length;
@@ -41,7 +41,7 @@ export function withPngText(png: Buffer, keyword: string, text: string): Buffer 
   const parts: Buffer[] = [PNG_SIGNATURE];
   let added = false;
   for (const c of kept) {
-    if (c.type === 'IDAT' && !added) parts.push(textChunk), (added = true);
+    if (c.type === 'IDAT' && !added) (parts.push(textChunk), (added = true));
     parts.push(chunk(c.type, c.data));
   }
   return Buffer.concat(parts);
@@ -57,8 +57,7 @@ export function pngText(png: Buffer, keyword: string): string | undefined {
   return undefined;
 }
 
-const ffmpeg = (args: string[], input?: Buffer) =>
-  execFileSync('ffmpeg', ['-v', 'error', '-y', ...args], { input, maxBuffer: 1 << 28 });
+const ffmpeg = (args: string[], input?: Buffer) => execFileSync('ffmpeg', ['-v', 'error', '-y', ...args], { input, maxBuffer: 1 << 28 });
 
 /** An image's pixels as RGB bytes, scaled to `w`×`h` (Lanczos). */
 function rgb(file: string, w: number, h: number): Buffer {
@@ -67,7 +66,26 @@ function rgb(file: string, w: number, h: number): Buffer {
 
 /** RGB bytes as a PNG. */
 function encodePng(pixels: Buffer, w: number, h: number): Buffer {
-  return ffmpeg(['-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', `${w}x${h}`, '-i', 'pipe:0', '-pred', 'mixed', '-f', 'image2pipe', '-c:v', 'png', 'pipe:1'], pixels);
+  return ffmpeg(
+    [
+      '-f',
+      'rawvideo',
+      '-pix_fmt',
+      'rgb24',
+      '-s',
+      `${w}x${h}`,
+      '-i',
+      'pipe:0',
+      '-pred',
+      'mixed',
+      '-f',
+      'image2pipe',
+      '-c:v',
+      'png',
+      'pipe:1',
+    ],
+    pixels,
+  );
 }
 
 /** Whether pixel (x, y) of a w×h screen lies outside its rounded corners (radius r), its centre beyond the arc. */

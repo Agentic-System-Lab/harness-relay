@@ -12,7 +12,10 @@ describe("a reply's <progress> block", () => {
       text: 'All green.',
       progress: { status: 'done', text: 'CI passes and #42 is closed.' },
     });
-    expect(splitProgress('<PROGRESS status=BLOCKED>needs a token</PROGRESS>')).toEqual({ text: '', progress: { status: 'blocked', text: 'needs a token' } });
+    expect(splitProgress('<PROGRESS status=BLOCKED>needs a token</PROGRESS>')).toEqual({
+      text: '',
+      progress: { status: 'blocked', text: 'needs a token' },
+    });
   });
 
   it('reads a block without a status, or with one it does not know, as working', () => {
@@ -21,7 +24,10 @@ describe("a reply's <progress> block", () => {
   });
 
   it('is found inside a code fence the agent wrapped it in', () => {
-    expect(splitProgress('Report.\n```\n<progress status="done">ok</progress>\n```')).toEqual({ text: 'Report.', progress: { status: 'done', text: 'ok' } });
+    expect(splitProgress('Report.\n```\n<progress status="done">ok</progress>\n```')).toEqual({
+      text: 'Report.',
+      progress: { status: 'done', text: 'ok' },
+    });
   });
 
   it('is only the last block, at the end and at the start of a line', () => {
@@ -69,7 +75,11 @@ describe('the tracking state', () => {
     expect(t.notes[0]!.at).toBe(6);
     expect(t.status).toBe('working');
     // What else it holds stays.
-    expect(withNote({ ...t, inFlight: { due: 1, attempt: 0, chatId: 'c' } }, note(99, 'done')).inFlight).toEqual({ due: 1, attempt: 0, chatId: 'c' });
+    expect(withNote({ ...t, inFlight: { due: 1, attempt: 0, chatId: 'c' } }, note(99, 'done')).inFlight).toEqual({
+      due: 1,
+      attempt: 0,
+      chatId: 'c',
+    });
   });
 
   it('waits 5, 30 and 120 minutes before the retries of a failed time, and has no fourth', () => {

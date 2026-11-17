@@ -115,7 +115,14 @@ export function pickerCommand(kind: PickerKind, bin: string, title: string, star
       // rather than beside it.
       return {
         bin,
-        args: ['--file-selection', '--directory', '--multiple', '--separator=\n', `--title=${title}`, `--filename=${start.replace(/\/*$/, '/')}`],
+        args: [
+          '--file-selection',
+          '--directory',
+          '--multiple',
+          '--separator=\n',
+          `--title=${title}`,
+          `--filename=${start.replace(/\/*$/, '/')}`,
+        ],
         env: withUtf8(env),
       };
     case 'kdialog':
@@ -137,7 +144,10 @@ export function pickedFolders(kind: PickerKind, r: Pick<SpawnResult, 'code' | 's
   if (r.aborted || r.timedOut || r.code === null) return [];
   if (r.code === 1 && (kind === 'zenity' || kind === 'kdialog')) return [];
   if (r.code !== 0) throw new Error(tail(r.stderr.trim(), 300) || `exit code ${r.code}`);
-  const lines = r.stdout.replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean);
+  const lines = r.stdout
+    .replace(/^\uFEFF/, '')
+    .split(/\r?\n/)
+    .filter(Boolean);
   return kind === 'osascript' ? lines.map((p) => (p.length > 1 ? p.replace(/\/$/, '') : p)) : lines;
 }
 
@@ -177,7 +187,10 @@ export function systemFolderPicker(
       if (!found) throw new Error('No folder dialog on this computer');
       const cmd = pickerCommand(found.kind, found.bin, title, start, { ...env });
       const opts: RunOptions = { env: cmd.env, signal, timeoutMs: PICK_TIMEOUT_MS };
-      const r = 'shell' in cmd ? await run.script(cmd.shell, cmd.flags, cmd.script, opts) : await run.process({ ...opts, bin: cmd.bin, args: cmd.args });
+      const r =
+        'shell' in cmd
+          ? await run.script(cmd.shell, cmd.flags, cmd.script, opts)
+          : await run.process({ ...opts, bin: cmd.bin, args: cmd.args });
       return pickedFolders(found.kind, r);
     },
   };

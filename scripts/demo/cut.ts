@@ -82,7 +82,10 @@ export function planCut(allFrames: FrameEntry[], allMarks: Mark[], target: numbe
   };
 
   const length = videoTime(end);
-  const shown = frames.map((f, i) => ({ file: f.file, duration: (i + 1 < frames.length ? videoTime(frames[i + 1].ts) : length) - videoTime(f.ts) }));
+  const shown = frames.map((f, i) => ({
+    file: f.file,
+    duration: (i + 1 < frames.length ? videoTime(frames[i + 1].ts) : length) - videoTime(f.ts),
+  }));
   const round = (x: number) => Math.round(x * 100) / 100;
   return {
     frames: shown.filter((f) => f.duration > 0),
@@ -117,7 +120,9 @@ export function cutRecording(dir: string, target: number, log: (...a: unknown[])
   const marks = JSON.parse(readFileSync(join(dir, 'marks.json'), 'utf8')) as Mark[];
   const plan = planCut(frames, marks, target);
   writeFileSync(join(dir, 'timeline.json'), JSON.stringify(plan.timeline, null, 1) + '\n');
-  log(`speed ×${plan.timeline.speed}, ${plan.timeline.length.toFixed(1)} s (recorded ${plan.real.toFixed(0)} s, ${plan.realFast.toFixed(0)} s of it sped up)`);
+  log(
+    `speed ×${plan.timeline.speed}, ${plan.timeline.length.toFixed(1)} s (recorded ${plan.real.toFixed(0)} s, ${plan.realFast.toFixed(0)} s of it sped up)`,
+  );
   for (const m of plan.timeline.marks) {
     if (!m.name.startsWith('fast-')) log(`  ${Math.floor(m.video / 60)}:${(m.video % 60).toFixed(1).padStart(4, '0')}  ${m.name}`);
   }
@@ -137,7 +142,9 @@ export function cutRecording(dir: string, target: number, log: (...a: unknown[])
   mkdirSync(pngs);
   execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', mp4, '-vf', 'fps=8,scale=880:550:flags=lanczos', join(pngs, '%05d.png')]);
   const webp = join(dir, 'animation.webp');
-  const files = readdirSync(pngs).sort().map((f) => join(pngs, f));
+  const files = readdirSync(pngs)
+    .sort()
+    .map((f) => join(pngs, f));
   execFileSync('img2webp', ['-loop', '0', '-lossy', '-q', '62', '-m', '4', '-d', '125', ...files, '-o', webp], { stdio: 'ignore' });
   rmSync(pngs, { recursive: true, force: true });
   log(`video.mp4 ${mb(mp4)}, animation.webp ${mb(webp)}`);

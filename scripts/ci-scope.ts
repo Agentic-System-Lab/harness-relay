@@ -171,8 +171,7 @@ export function everything(reason: string): Needs {
   return Object.fromEntries(SCOPES.map((s) => [s, { run: true, reason }])) as Needs;
 }
 
-const listed = (files: readonly string[]) =>
-  files.length === 1 ? `\`${files[0]}\`` : `\`${files[0]}\` and ${files.length - 1} more`;
+const listed = (files: readonly string[]) => (files.length === 1 ? `\`${files[0]}\`` : `\`${files[0]}\` and ${files.length - 1} more`);
 
 /** What a change of these files needs. */
 export function needsOf(files: readonly string[]): Needs {
@@ -210,7 +209,14 @@ export function outputs(needs: Needs): string {
 export function summary(files: readonly string[], needs: Needs): string {
   const rows = SCOPES.map((s) => `| ${SCOPE_JOBS[s]} | ${needs[s].run ? 'runs' : 'skipped'} | ${needs[s].reason} |`);
   const list = files.length
-    ? ['', `<details><summary>${files.length} changed file${files.length === 1 ? '' : 's'}</summary>`, '', ...files.map((f) => `- \`${f}\``), '', '</details>']
+    ? [
+        '',
+        `<details><summary>${files.length} changed file${files.length === 1 ? '' : 's'}</summary>`,
+        '',
+        ...files.map((f) => `- \`${f}\``),
+        '',
+        '</details>',
+      ]
     : [];
   return ['### What this change needs', '', '| Jobs | | Why |', '| --- | --- | --- |', ...rows, ...list, ''].join('\n');
 }
@@ -227,7 +233,9 @@ function main(args: string[]): number {
       changed = changedFiles(process.env.GITHUB_EVENT_NAME ?? '', run);
     } else {
       const base = args[0] ?? 'origin/main';
-      changed = run(['diff', '--name-only', '--no-renames', '-z', `${base}...HEAD`]).split('\0').filter(Boolean);
+      changed = run(['diff', '--name-only', '--no-renames', '-z', `${base}...HEAD`])
+        .split('\0')
+        .filter(Boolean);
     }
     if (typeof changed === 'string') needs = everything(changed);
     else {

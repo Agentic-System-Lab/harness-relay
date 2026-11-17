@@ -29,7 +29,15 @@ describe('what a call of each tier does', () => {
     expect(gatewayToolNamed(names, other('mcp__relay__browser_open'))).toBe('browser_open');
     expect(gatewayToolNamed(names, other('relay/mail_send'))).toBe('mail_send');
     expect(gatewayToolNamed(names, other('relay__mail_send'))).toBe('mail_send');
-    for (const tool of ['mcp__evil__browser_open', 'browser_open', 'mcp__relay__browser_opener', 'mcp__x-relay__browser_open', 'mcp__nonrelay__mail_send', 'https://h/relay/mail_send', undefined]) {
+    for (const tool of [
+      'mcp__evil__browser_open',
+      'browser_open',
+      'mcp__relay__browser_opener',
+      'mcp__x-relay__browser_open',
+      'mcp__nonrelay__mail_send',
+      'https://h/relay/mail_send',
+      undefined,
+    ]) {
       expect(gatewayToolNamed(names, other(tool))).toBeUndefined();
     }
     // A command, a file or a URL that mentions one is not about it.
@@ -70,11 +78,31 @@ describe('the gateway and the MCP server the CLIs start', () => {
       tier: 'send',
       description: 'Send a mail',
       inputSchema: { type: 'object' },
-      describe: (a) => ({ title: `Mail to ${String(a.to)}`, preview: { fields: [{ label: 'To', value: String(a.to) }], body: String(a.body) } }),
+      describe: (a) => ({
+        title: `Mail to ${String(a.to)}`,
+        preview: { fields: [{ label: 'To', value: String(a.to) }], body: String(a.body) },
+      }),
       send: async () => 'sent',
     },
-    { name: 'broken', group: 'browser', tier: 'read', description: 'x', inputSchema: {}, describe: () => ({ title: 'x' }), run: async () => Promise.reject(new Error('kaput')) },
-    { name: 'later', group: 'mail', tier: 'read', description: 'Needs an account', inputSchema: {}, describe: () => ({ title: 'x' }), unavailable: () => 'no mail account', run: async () => ({ text: '' }) },
+    {
+      name: 'broken',
+      group: 'browser',
+      tier: 'read',
+      description: 'x',
+      inputSchema: {},
+      describe: () => ({ title: 'x' }),
+      run: async () => Promise.reject(new Error('kaput')),
+    },
+    {
+      name: 'later',
+      group: 'mail',
+      tier: 'read',
+      description: 'Needs an account',
+      inputSchema: {},
+      describe: () => ({ title: 'x' }),
+      unavailable: () => 'no mail account',
+      run: async () => ({ text: '' }),
+    },
   ];
 
   const ctx = (o: Partial<GatewayContext> = {}): GatewayContext => ({
@@ -91,7 +119,18 @@ describe('the gateway and the MCP server the CLIs start', () => {
     },
     toOutbox: (o2) => {
       outboxed.push(o2);
-      return { id: 'ob1', convId: 'c1', messageId: 'm1', agentId: 'a', agentName: 'Alice', tool: o2.tool, title: o2.title, preview: o2.preview, status: 'pending', createdAt: 1 } as OutboxItem;
+      return {
+        id: 'ob1',
+        convId: 'c1',
+        messageId: 'm1',
+        agentId: 'a',
+        agentName: 'Alice',
+        tool: o2.tool,
+        title: o2.title,
+        preview: o2.preview,
+        status: 'pending',
+        createdAt: 1,
+      } as OutboxItem;
     },
     signal: new AbortController().signal,
     ...o,
@@ -136,7 +175,7 @@ describe('the gateway and the MCP server the CLIs start', () => {
   }
 
   it(
-    'speaks MCP on stdio: initialize, the granted groups\' tools, and calls passed to the server',
+    "speaks MCP on stdio: initialize, the granted groups' tools, and calls passed to the server",
     async () => {
       const grant = gateway.grant(ctx(), ['browser'])!;
       expect(grant.spec).toMatchObject({ name: 'relay', transport: 'stdio', command: process.execPath });
@@ -150,7 +189,11 @@ describe('the gateway and the MCP server the CLIs start', () => {
       if (process.platform !== 'win32') expect(statSync(tokenFile).mode & 0o777).toBe(0o600);
 
       const mcp = client(grant.spec);
-      const init = await mcp.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } });
+      const init = await mcp.request('initialize', {
+        protocolVersion: '2025-06-18',
+        capabilities: {},
+        clientInfo: { name: 'test', version: '1' },
+      });
       expect(init.result).toMatchObject({ protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'relay' } });
       mcp.notify('notifications/initialized');
       expect((await mcp.request('initialize', { protocolVersion: '1999-01-01' })).result.protocolVersion).toBe(GATEWAY_PROTOCOLS.at(-1));
@@ -172,7 +215,10 @@ describe('the gateway and the MCP server the CLIs start', () => {
       const failed = await mcp.request('tools/call', { name: 'broken', arguments: {} });
       expect(failed.result).toMatchObject({ isError: true, content: [{ text: 'broken failed: kaput' }] });
       // A group it was not given is not there.
-      expect((await mcp.request('tools/call', { name: 'mail_out', arguments: {} })).result).toMatchObject({ isError: true, content: [{ text: 'No such tool: mail_out' }] });
+      expect((await mcp.request('tools/call', { name: 'mail_out', arguments: {} })).result).toMatchObject({
+        isError: true,
+        content: [{ text: 'No such tool: mail_out' }],
+      });
       expect((await mcp.request('unknown/method')).error).toMatchObject({ code: -32601 });
 
       // Once the turn is over, its token is gone, and so are its tools.
@@ -190,26 +236,33 @@ describe('the gateway and the MCP server the CLIs start', () => {
     slow(20_000),
   );
 
-  it(
-    'asks before acting (and not again right after the CLI asked about the same tool), refuses when nobody can be asked, and puts sends in the outbox',
-    async () => {
-      const call = (name: string, args: Record<string, unknown>, c: GatewayContext) => gateway.call(gateway.tool(name)!, args, c);
-      expect(await call('page_click', { target: 'Buy' }, ctx())).toEqual({ text: 'Clicked Buy' });
-      expect(asked).toEqual([{ kind: 'other', tool: 'relay:page_click', detail: 'Click Buy', reason: 'on example.com', noLock: true }]);
-      answer = { allow: false, note: 'not that one' };
-      expect(await call('page_click', { target: 'Buy' }, ctx())).toEqual({ text: 'The user declined page_click: not that one.', isError: true });
-      asked.length = 0;
-      expect(await call('page_click', { target: 'Buy' }, ctx({ justAllowed: (n) => n === 'page_click' }))).toEqual({ text: 'Clicked Buy' });
-      expect(asked).toEqual([]);
-      expect(await call('page_click', { target: 'Buy' }, ctx({ permission: 'full' }))).toEqual({ text: 'Clicked Buy' });
-      expect((await call('page_click', { target: 'Buy' }, ctx({ ask: undefined }))).isError).toBe(true);
+  it('asks before acting (and not again right after the CLI asked about the same tool), refuses when nobody can be asked, and puts sends in the outbox', async () => {
+    const call = (name: string, args: Record<string, unknown>, c: GatewayContext) => gateway.call(gateway.tool(name)!, args, c);
+    expect(await call('page_click', { target: 'Buy' }, ctx())).toEqual({ text: 'Clicked Buy' });
+    expect(asked).toEqual([{ kind: 'other', tool: 'relay:page_click', detail: 'Click Buy', reason: 'on example.com', noLock: true }]);
+    answer = { allow: false, note: 'not that one' };
+    expect(await call('page_click', { target: 'Buy' }, ctx())).toEqual({
+      text: 'The user declined page_click: not that one.',
+      isError: true,
+    });
+    asked.length = 0;
+    expect(await call('page_click', { target: 'Buy' }, ctx({ justAllowed: (n) => n === 'page_click' }))).toEqual({ text: 'Clicked Buy' });
+    expect(asked).toEqual([]);
+    expect(await call('page_click', { target: 'Buy' }, ctx({ permission: 'full' }))).toEqual({ text: 'Clicked Buy' });
+    expect((await call('page_click', { target: 'Buy' }, ctx({ ask: undefined }))).isError).toBe(true);
 
-      const sent = await call('mail_out', { to: 'bob@example.com', body: 'Hi' }, ctx({ permission: 'full' }));
-      expect(sent.text).toMatch(/^Not sent yet: "Mail to bob@example.com" is waiting in the user's outbox \(item ob1\)/);
-      expect(outboxed).toEqual([{ tool: 'mail_out', title: 'Mail to bob@example.com', preview: { fields: [{ label: 'To', value: 'bob@example.com' }], body: 'Hi' }, args: { to: 'bob@example.com', body: 'Hi' } }]);
-      expect(await call('later', {}, ctx())).toEqual({ text: 'later cannot be used now: no mail account', isError: true });
-    },
-  );
+    const sent = await call('mail_out', { to: 'bob@example.com', body: 'Hi' }, ctx({ permission: 'full' }));
+    expect(sent.text).toMatch(/^Not sent yet: "Mail to bob@example.com" is waiting in the user's outbox \(item ob1\)/);
+    expect(outboxed).toEqual([
+      {
+        tool: 'mail_out',
+        title: 'Mail to bob@example.com',
+        preview: { fields: [{ label: 'To', value: 'bob@example.com' }], body: 'Hi' },
+        args: { to: 'bob@example.com', body: 'Hi' },
+      },
+    ]);
+    expect(await call('later', {}, ctx())).toEqual({ text: 'later cannot be used now: no mail account', isError: true });
+  });
 
   it(
     'answers a shim with a token it does not know with errors, and gives no grant without a Node.js or a group',
@@ -218,7 +271,11 @@ describe('the gateway and the MCP server the CLIs start', () => {
       const shim = join(root, 'shim-copy.mjs');
       writeFileSync(shim, readFileSync(g.spec.args[0]!));
       g.revoke();
-      const mcp = client({ command: process.execPath, args: [shim], env: { RELAY_GATEWAY_SOCKET: gateway.socketPath, RELAY_GATEWAY_TOKEN_FILE: join(root, 'nope') } });
+      const mcp = client({
+        command: process.execPath,
+        args: [shim],
+        env: { RELAY_GATEWAY_SOCKET: gateway.socketPath, RELAY_GATEWAY_TOKEN_FILE: join(root, 'nope') },
+      });
       await mcp.request('initialize', { protocolVersion: '2025-06-18' });
       expect((await mcp.request('tools/list')).error.message).toMatch(/turn is over/);
       expect(gateway.grant(ctx(), [])).toBeUndefined();
@@ -235,7 +292,10 @@ describe('the gateway and the MCP server the CLIs start', () => {
   it(
     "serves each token to one connection where data/tmp cannot be protected (Windows): its file goes once the CLI's shim has shown it",
     async () => {
-      const once = new ToolGateway(join(root, 'data4'), join(root, 'data4', 'tmp'), () => process.execPath, process.platform, { claimOnce: true, tokenWaitMs: 300 });
+      const once = new ToolGateway(join(root, 'data4'), join(root, 'data4', 'tmp'), () => process.execPath, process.platform, {
+        claimOnce: true,
+        tokenWaitMs: 300,
+      });
       once.register(tools);
       await once.start();
       try {
@@ -260,7 +320,9 @@ describe('the gateway and the MCP server the CLIs start', () => {
         const flood = connect(once.socketPath, () => flood.write('x'.repeat(4096)));
         await new Promise<void>((resolve) => flood.on('close', () => resolve()).on('error', () => undefined));
         // The CLI's own shim goes on working.
-        expect((await mcp.request('tools/call', { name: 'page_title', arguments: { url: 'https://example.com' } })).result.isError).toBe(false);
+        expect((await mcp.request('tools/call', { name: 'page_title', arguments: { url: 'https://example.com' } })).result.isError).toBe(
+          false,
+        );
         grant.revoke();
       } finally {
         // The shims' connections end first: a server closing waits for them.
@@ -273,7 +335,19 @@ describe('the gateway and the MCP server the CLIs start', () => {
 
   it("lists the conversation's outbox with the outbox's own tool, given with any group", async () => {
     const tool = outboxTool(() => [
-      { id: 'o1', convId: 'c1', messageId: 'm', agentId: 'a', agentName: 'Alice', tool: 'mail_out', title: 'Mail to Bob', preview: { fields: [] }, status: 'sent', result: 'accepted', createdAt: 1 },
+      {
+        id: 'o1',
+        convId: 'c1',
+        messageId: 'm',
+        agentId: 'a',
+        agentName: 'Alice',
+        tool: 'mail_out',
+        title: 'Mail to Bob',
+        preview: { fields: [] },
+        status: 'sent',
+        result: 'accepted',
+        createdAt: 1,
+      },
     ]);
     expect(tool.group).toBeUndefined();
     expect(await tool.run!({}, ctx())).toEqual({ text: '- o1: Mail to Bob — sent (accepted), asked by @Alice' });

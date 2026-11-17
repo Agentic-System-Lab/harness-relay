@@ -286,7 +286,10 @@ export function createApp({
 
   app.onError((err, c) => {
     if (err instanceof HttpError) {
-      return c.json({ error: err.message, ...(err.code ? { code: err.code } : {}), ...(err.paths ? { paths: err.paths } : {}) }, err.status);
+      return c.json(
+        { error: err.message, ...(err.code ? { code: err.code } : {}), ...(err.paths ? { paths: err.paths } : {}) },
+        err.status,
+      );
     }
     console.error('[server]', err);
     return c.json({ error: err.message || 'Internal error' }, 500);
@@ -429,7 +432,6 @@ export function createApp({
       }
     });
 
-
   /** The request's JSON body, which must be an object. */
   async function body<T>(c: Context): Promise<T> {
     let value: unknown;
@@ -494,8 +496,7 @@ export function createApp({
     const cwds =
       b.defaultCwd !== undefined ? validDirectories(b.defaultCwd, b.defaultExtraCwds, b.createCwd === true, 'defaultCwd') : undefined;
     // Not inside Harness Relay's folder or a default working directory (the new ones, when they change too).
-    const home =
-      b.agentHome !== undefined ? validAgentHome(b.agentHome, [process.cwd(), ...cwdsOf(cwds ?? defaultCwds())]) : undefined;
+    const home = b.agentHome !== undefined ? validAgentHome(b.agentHome, [process.cwd(), ...cwdsOf(cwds ?? defaultCwds())]) : undefined;
     // A turn that starts in the new home would find its CLI signed out, and its session elsewhere.
     if (home !== undefined && home !== settings.agentHome && orchestrator.anyRunning()) throw new HttpError(409, t().agentHomeBusy);
     // Created only now that nothing refuses the request.
@@ -650,7 +651,8 @@ export function createApp({
     if (isOpenProvider(p)) throw new HttpError(400, t().openNoLogin(PROVIDER_LABEL[p]));
     const b = await body<{ label?: unknown }>(c);
     const label = validAccountLabel(b.label ?? '');
-    if (settings.accountIds(p).length + 1 >= limits.maxAccounts) throw new HttpError(409, t().tooManyAccounts(PROVIDER_LABEL[p], limits.maxAccounts));
+    if (settings.accountIds(p).length + 1 >= limits.maxAccounts)
+      throw new HttpError(409, t().tooManyAccounts(PROVIDER_LABEL[p], limits.maxAccounts));
     const id = settings.addAccount(p, label);
     if (p === 'grok') {
       // The folders the default account trusts (which Settings shows) are trusted for this one too.
@@ -698,7 +700,10 @@ export function createApp({
     const env = settings.env(p, id);
     const home = settings.removeAccount(p, id);
     await providers.logoutIn(p, env, 15_000, keyOnlyAccount(p, id)).catch(() => {});
-    if (home) await rm(home, { recursive: true, force: true }).catch((err: Error) => console.warn(`[settings] could not delete ${home}: ${err.message}`));
+    if (home)
+      await rm(home, { recursive: true, force: true }).catch((err: Error) =>
+        console.warn(`[settings] could not delete ${home}: ${err.message}`),
+      );
     providers.invalidate(p);
     return c.json(settingsView());
   });
@@ -922,7 +927,9 @@ export function createApp({
 
   app.post('/api/presets', async (c) => {
     const b = await body<Partial<TeamPreset>>(c);
-    const name = String(b.name ?? '').trim().slice(0, 100);
+    const name = String(b.name ?? '')
+      .trim()
+      .slice(0, 100);
     if (!name) throw new HttpError(400, t().presetNameRequired);
     // A template has no working directories: only the default one is checked, as it always was.
     const s = validateSettings({ ...b.settings, cwd: settings.defaultCwd, extraCwds: [] }, defaultCwds());
@@ -930,7 +937,10 @@ export function createApp({
       // Only ids of user templates can be reused (to update one); never a built-in template's.
       id: typeof b.id === 'string' && /^user-[\w-]{1,80}$/.test(b.id) ? b.id : `user-${randomUUID()}`,
       name,
-      description: String(b.description ?? '').trim().slice(0, 2000) || undefined,
+      description:
+        String(b.description ?? '')
+          .trim()
+          .slice(0, 2000) || undefined,
       agents: validateAgents(b.agents, limits.maxTeamAgents),
       settings: { mode: s.mode, rounds: s.rounds, maxHops: s.maxHops, permission: s.permission },
     };
@@ -1052,7 +1062,14 @@ export function createApp({
       seen.add(key);
       return true;
     });
-    const isDir = await Promise.all(paths.map((p) => stat(p).then((s) => s.isDirectory(), () => false)));
+    const isDir = await Promise.all(
+      paths.map((p) =>
+        stat(p).then(
+          (s) => s.isDirectory(),
+          () => false,
+        ),
+      ),
+    );
     const dirs = paths.filter((_, i) => isDir[i]).map((path) => (defaults.includes(path) ? { path, default: true as const } : { path }));
     return c.json({ home: homedir(), dirs, ...(canPick(c) ? { pick: true as const } : {}) } satisfies WorkingDirectories);
   });
@@ -1078,7 +1095,11 @@ export function createApp({
     const from = typeof start === 'string' && start.trim() ? start : settings.defaultCwd;
     picking = true;
     try {
-      const paths = await folderPicker.pick({ title: t().pickFolderTitle, start: existingFolder(expandPath(from)), signal: c.req.raw.signal });
+      const paths = await folderPicker.pick({
+        title: t().pickFolderTitle,
+        start: existingFolder(expandPath(from)),
+        signal: c.req.raw.signal,
+      });
       return c.json({ paths } satisfies PickedFolders);
     } catch (err) {
       throw new HttpError(502, t().pickFolderFailed((err as Error).message));
@@ -1134,7 +1155,12 @@ export function createApp({
     const s = validateSettings({ ...(b.settings ?? {}), autoTeam: true }, defaultCwds(), b.createCwd === true);
     const conv: Conversation = {
       id: randomUUID(),
-      title: String(b.title ?? '').trim().slice(0, 200) || titleFrom(update.text) || t().defaultTitle,
+      title:
+        String(b.title ?? '')
+          .trim()
+          .slice(0, 200) ||
+        titleFrom(update.text) ||
+        t().defaultTitle,
       createdAt: now,
       updatedAt: now,
       agents: [],
@@ -1311,11 +1337,14 @@ export function createApp({
       throw new HttpError(400, 'Invalid JSON body');
     }
     // Pretty-printed it may be longer than it came: cut to the limit, as it is only data.
-    if (Buffer.byteLength(event) > TRACKING_LIMITS.eventBytes) event = Buffer.from(event).subarray(0, TRACKING_LIMITS.eventBytes).toString('utf8') + '\n…';
+    if (Buffer.byteLength(event) > TRACKING_LIMITS.eventBytes)
+      event = Buffer.from(event).subarray(0, TRACKING_LIMITS.eventBytes).toString('utf8') + '\n…';
     const now = Date.now();
     const last = hookCalls.get(id);
-    if (last !== undefined && now - last < TRACKING_LIMITS.hookIntervalMs) throw new HttpError(429, t().hookTooOften(TRACKING_LIMITS.hookIntervalMs / 1000));
-    if (conv.schedule.goal && conv.schedule.tracking?.status === 'done' && !conv.schedule.enabled) throw new HttpError(409, t().hookGoalReached);
+    if (last !== undefined && now - last < TRACKING_LIMITS.hookIntervalMs)
+      throw new HttpError(429, t().hookTooOften(TRACKING_LIMITS.hookIntervalMs / 1000));
+    if (conv.schedule.goal && conv.schedule.tracking?.status === 'done' && !conv.schedule.enabled)
+      throw new HttpError(409, t().hookGoalReached);
     hookCalls.set(id, now);
     const sent = await withLang(conv.schedule.lang, () => orchestrator.sendScheduled(id, now, { event }));
     const s = store.get(id)?.schedule;
@@ -1385,7 +1414,12 @@ export function createApp({
     const upTo = typeof b.upTo === 'string' ? b.upTo : undefined;
     // Measured first, and read only when they can all go along; checked again as read (one may have
     // changed since), never more than the limits in all.
-    const found = await findShareFiles(conv, linked.map((n) => refs[n]!), upTo, (id) => store.get(id));
+    const found = await findShareFiles(
+      conv,
+      linked.map((n) => refs[n]!),
+      upTo,
+      (id) => store.get(id),
+    );
     refuseShareFiles(found);
     await readShareFiles(found);
     refuseShareFiles(found);
@@ -1506,9 +1540,7 @@ export function createApp({
   });
 
   // Take back a message still waiting in the queue; it is returned so the user can edit it.
-  app.delete('/api/conversations/:id/queue/:messageId', (c) =>
-    c.json(orchestrator.withdraw(c.req.param('id'), c.req.param('messageId'))),
-  );
+  app.delete('/api/conversations/:id/queue/:messageId', (c) => c.json(orchestrator.withdraw(c.req.param('id'), c.req.param('messageId'))));
 
   // A file attached to a user message. Only common image types are shown inline; anything else
   // is a download, so an attached HTML or SVG file can never run in this origin.
@@ -1541,7 +1573,12 @@ export function createApp({
   app.get('/api/conversations/:id/messages/:messageId/media', async (c) => {
     const conv = getConv(c.req.param('id'));
     const msg = conv.messages.find((m) => m.id === c.req.param('messageId'));
-    const file = msg && resolveMedia(c.req.query('path') ?? '', mediaRoots(conv, msg, (id) => store.get(id)));
+    const file =
+      msg &&
+      resolveMedia(
+        c.req.query('path') ?? '',
+        mediaRoots(conv, msg, (id) => store.get(id)),
+      );
     if (!file) throw new HttpError(404, t().mediaNotFound);
     return sendFile(c, file);
   });
@@ -1551,7 +1588,12 @@ export function createApp({
   app.get('/api/conversations/:id/messages/:messageId/download', async (c) => {
     const conv = getConv(c.req.param('id'));
     const msg = conv.messages.find((m) => m.id === c.req.param('messageId'));
-    const file = msg && resolveDownload(c.req.query('path') ?? '', mediaRoots(conv, msg, (id) => store.get(id)));
+    const file =
+      msg &&
+      resolveDownload(
+        c.req.query('path') ?? '',
+        mediaRoots(conv, msg, (id) => store.get(id)),
+      );
     if (!file) throw new HttpError(404, t().downloadNotFound);
     return sendFile(c, file, true);
   });

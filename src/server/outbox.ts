@@ -70,7 +70,9 @@ export class Outbox {
       .prepare("UPDATE outbox SET status = 'failed', result = ?, decided_at = ? WHERE status = 'sending'")
       .run(t().outboxInterrupted, this.now());
     this.interrupted = cut.map((id) => this.get(id)!).filter(Boolean);
-    for (const r of this.db.prepare("SELECT conversation_id, COUNT(*) AS n FROM outbox WHERE status = 'pending' GROUP BY conversation_id").all() as {
+    for (const r of this.db
+      .prepare("SELECT conversation_id, COUNT(*) AS n FROM outbox WHERE status = 'pending' GROUP BY conversation_id")
+      .all() as {
       conversation_id: string;
       n: number;
     }[]) {
@@ -89,7 +91,9 @@ export class Outbox {
   }
 
   list(convId: string): OutboxItem[] {
-    return (this.db.prepare('SELECT * FROM outbox WHERE conversation_id = ? ORDER BY created_at').all(convId) as unknown as OutboxRow[]).map(toItem);
+    return (
+      this.db.prepare('SELECT * FROM outbox WHERE conversation_id = ? ORDER BY created_at').all(convId) as unknown as OutboxRow[]
+    ).map(toItem);
   }
 
   /**
@@ -97,16 +101,21 @@ export class Outbox {
    * conversation) is still waiting: that one is returned (`existing`), so a run tried again does not
    * ask twice.
    */
-  add(item: Pick<OutboxItem, 'convId' | 'messageId' | 'agentId' | 'agentName' | 'tool' | 'title' | 'preview'>, args: Record<string, unknown>): { item: OutboxItem; existing: boolean } {
-    const same = (this.db.prepare("SELECT * FROM outbox WHERE conversation_id = ? AND tool = ? AND status = 'pending'").all(item.convId, item.tool) as unknown as OutboxRow[]).find(
-      (r) => {
-        try {
-          return isDeepStrictEqual(JSON.parse(r.args), args);
-        } catch {
-          return false;
-        }
-      },
-    );
+  add(
+    item: Pick<OutboxItem, 'convId' | 'messageId' | 'agentId' | 'agentName' | 'tool' | 'title' | 'preview'>,
+    args: Record<string, unknown>,
+  ): { item: OutboxItem; existing: boolean } {
+    const same = (
+      this.db
+        .prepare("SELECT * FROM outbox WHERE conversation_id = ? AND tool = ? AND status = 'pending'")
+        .all(item.convId, item.tool) as unknown as OutboxRow[]
+    ).find((r) => {
+      try {
+        return isDeepStrictEqual(JSON.parse(r.args), args);
+      } catch {
+        return false;
+      }
+    });
     if (same) return { item: toItem(same), existing: true };
     const full: OutboxItem = { ...item, id: randomUUID(), status: 'pending', createdAt: this.now() };
     this.db
@@ -114,7 +123,18 @@ export class Outbox {
         `INSERT INTO outbox (id, conversation_id, message_id, agent_id, agent_name, tool, args, title, preview, status, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
       )
-      .run(full.id, full.convId, full.messageId, full.agentId, full.agentName, full.tool, JSON.stringify(args), full.title, JSON.stringify(full.preview), full.createdAt);
+      .run(
+        full.id,
+        full.convId,
+        full.messageId,
+        full.agentId,
+        full.agentName,
+        full.tool,
+        JSON.stringify(args),
+        full.title,
+        JSON.stringify(full.preview),
+        full.createdAt,
+      );
     this.pending.set(item.convId, this.waiting(item.convId) + 1);
     return { item: full, existing: false };
   }
@@ -124,7 +144,12 @@ export class Outbox {
    * arguments the agent gave, once (the item is `sending` meanwhile, so a second click is refused),
    * and keeps what happened. Returns the item as it ends.
    */
-  async answer(convId: string, id: string, action: 'send' | 'discard', tool: (name: string) => GatewayTool | undefined): Promise<OutboxItem> {
+  async answer(
+    convId: string,
+    id: string,
+    action: 'send' | 'discard',
+    tool: (name: string) => GatewayTool | undefined,
+  ): Promise<OutboxItem> {
     const row = this.db.prepare('SELECT * FROM outbox WHERE id = ? AND conversation_id = ?').get(id, convId) as OutboxRow | undefined;
     if (!row) throw new HttpError(404, t().outboxNotFound);
     if (row.status !== 'pending') throw new HttpError(409, t().outboxDecided);

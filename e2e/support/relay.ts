@@ -8,7 +8,20 @@
  * `notInstalledBut()`). Nothing of the user's own Harness Relay, CLIs or keychain is read or changed.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -236,8 +249,22 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
   const home = join(root, 'home');
   const workDir = join(root, 'work');
   const fakeLog = join(root, 'fake-cli.jsonl');
-  const xdg = { config: join(home, '.config'), data: join(home, '.local', 'share'), state: join(home, '.local', 'state'), cache: join(home, '.cache') };
-  for (const d of [dataDir, home, join(home, '.claude'), join(home, '.codex'), join(home, '.grok'), join(home, '.gemini'), ...Object.values(xdg)]) mkdirSync(d, { recursive: true });
+  const xdg = {
+    config: join(home, '.config'),
+    data: join(home, '.local', 'share'),
+    state: join(home, '.local', 'state'),
+    cache: join(home, '.cache'),
+  };
+  for (const d of [
+    dataDir,
+    home,
+    join(home, '.claude'),
+    join(home, '.codex'),
+    join(home, '.grok'),
+    join(home, '.gemini'),
+    ...Object.values(xdg),
+  ])
+    mkdirSync(d, { recursive: true });
   seedProject(workDir);
   const fake = await startFakeEndpoint(fakeLog);
 
@@ -253,11 +280,19 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
   // Nor the user's own Cursor or Antigravity sign-in by key or Google's credentials, Cursor's folder,
   // credential store or launcher name, Copilot's own variables (its home, model, BYOK endpoint, allow-all),
   // or the user's own XDG folders (set to the test's below); live runs sign in as the user does.
-  const OWN = /^(CURSOR_API_KEY|CURSOR_AUTH_TOKEN|CURSOR_CONFIG_DIR|CURSOR_INVOKED_AS|AGENT_CLI_CREDENTIAL_STORE|NO_OPEN_BROWSER|GEMINI_API_KEY|AGY_ADC_AUTH|GOOGLE_APPLICATION_CREDENTIALS|GOOGLE_CLOUD_PROJECT|ANTIGRAVITY_.*|COPILOT_.*|XDG_DATA_HOME|XDG_STATE_HOME|XDG_CACHE_HOME)$/;
+  const OWN =
+    /^(CURSOR_API_KEY|CURSOR_AUTH_TOKEN|CURSOR_CONFIG_DIR|CURSOR_INVOKED_AS|AGENT_CLI_CREDENTIAL_STORE|NO_OPEN_BROWSER|GEMINI_API_KEY|AGY_ADC_AUTH|GOOGLE_APPLICATION_CREDENTIALS|GOOGLE_CLOUD_PROJECT|ANTIGRAVITY_.*|COPILOT_.*|XDG_DATA_HOME|XDG_STATE_HOME|XDG_CACHE_HOME)$/;
   if (!o.live) for (const k of Object.keys(env)) if (OWN.test(k)) delete env[k];
   // Nor, outside live runs, the developer's credentials: should a real CLI or gh ever be found
   // instead of a fake (a fake build removed under a run), it finds no key or token to reach a service with.
-  if (!o.live) for (const k of Object.keys(env)) if (/^(ANTHROPIC_|OPENAI_|XAI_|GROK_|CODEX_|GH_|GITHUB_TOKEN$|GITHUB_ENTERPRISE_TOKEN$)|_(API_KEY|TOKEN|SECRET|SECRET_ACCESS_KEY|ACCESS_KEY_ID)$/i.test(k)) delete env[k];
+  if (!o.live)
+    for (const k of Object.keys(env))
+      if (
+        /^(ANTHROPIC_|OPENAI_|XAI_|GROK_|CODEX_|GH_|GITHUB_TOKEN$|GITHUB_ENTERPRISE_TOKEN$)|_(API_KEY|TOKEN|SECRET|SECRET_ACCESS_KEY|ACCESS_KEY_ID)$/i.test(
+          k,
+        )
+      )
+        delete env[k];
   const homes = o.live
     ? {}
     : {
@@ -401,11 +436,13 @@ export async function startRelay(o: StartOptions): Promise<RelayServer> {
     // that they are ready to run, and OpenHands may use a terminal in Harness Relay's own sandbox.
     // Live runs start the real CLIs, from the PATH or where E2E_LIVE_BIN_<PROVIDER> says.
     if (!o.live) {
-      for (const p of notInstalled) await api(`/api/settings/providers/${p}`, { method: 'PUT', body: { bin: join(root, 'not-installed', p) } });
+      for (const p of notInstalled)
+        await api(`/api/settings/providers/${p}`, { method: 'PUT', body: { bin: join(root, 'not-installed', p) } });
       if (o.openBackend !== false) {
         const e = fake.endpoint;
         await api(`/api/backends/endpoints/${e.id}`, { method: 'PUT', body: { name: 'E2E', baseUrl: e.url, models: e.models } });
-        for (const p of OPEN_PROVIDERS) await api(`/api/settings/providers/${p}/accounts/default`, { method: 'PUT', body: { defaultModel: `${e.id}/${e.models[0]}` } });
+        for (const p of OPEN_PROVIDERS)
+          await api(`/api/settings/providers/${p}/accounts/default`, { method: 'PUT', body: { defaultModel: `${e.id}/${e.models[0]}` } });
       }
       if (o.sandboxTerminal !== false) await api('/api/settings/providers/openhands', { method: 'PUT', body: { sandboxTerminal: true } });
     }
@@ -462,6 +499,6 @@ function makeWritable(dir: string): void {
 export function seedProject(dir: string): void {
   mkdirSync(join(dir, 'src', 'lib'), { recursive: true });
   writeFileSync(join(dir, 'README.md'), '# Sample project\n\nA project the end-to-end tests work in.\n');
-  writeFileSync(join(dir, 'src', 'hello.ts'), "export function hello(name: string): string {\n  return `Hello, ${name}!`;\n}\n");
+  writeFileSync(join(dir, 'src', 'hello.ts'), 'export function hello(name: string): string {\n  return `Hello, ${name}!`;\n}\n');
   writeFileSync(join(dir, 'src', 'lib', 'math.ts'), 'export const add = (a: number, b: number) => a + b;\n');
 }

@@ -146,8 +146,10 @@ export type Refusal = { url: string; why: 'declined' | 'blocked' | 'moved' | 'un
 /** What the agent is told about a refused page. */
 export function refusalText(r: Refusal): string {
   if (r.why === 'declined') return `The user did not allow opening ${r.url}`;
-  if (r.why === 'blocked') return `${r.url} cannot be opened: only http and https pages, not this computer's own Harness Relay or its metadata addresses`;
-  if (r.why === 'moved') return `${r.url} now leads to this computer or the local network, not where it led when it was allowed, so it is not opened (a name that changes its address to reach local services)`;
+  if (r.why === 'blocked')
+    return `${r.url} cannot be opened: only http and https pages, not this computer's own Harness Relay or its metadata addresses`;
+  if (r.why === 'moved')
+    return `${r.url} now leads to this computer or the local network, not where it led when it was allowed, so it is not opened (a name that changes its address to reach local services)`;
   return `${r.url} is on a host this conversation's browser has not opened, and nobody can be asked now (a scheduled run, or a conversation that refuses requests)`;
 }
 
@@ -356,7 +358,12 @@ class BrowserSession {
 
   /** Runs `expression` in the world `contextId` (an isolated world of ours), for its value. */
   async evaluateIn<T>(contextId: number, expression: string): Promise<T> {
-    const r = await this.send<{ result?: { value?: T }; exceptionDetails?: { text?: string } }>('Runtime.evaluate', { expression, contextId, returnByValue: true, awaitPromise: true });
+    const r = await this.send<{ result?: { value?: T }; exceptionDetails?: { text?: string } }>('Runtime.evaluate', {
+      expression,
+      contextId,
+      returnByValue: true,
+      awaitPromise: true,
+    });
     if (r.exceptionDetails) throw new Error(r.exceptionDetails.text ?? 'The page failed to run the script');
     return r.result?.value as T;
   }
@@ -368,7 +375,8 @@ class BrowserSession {
       return await this.evaluateIn<T>(this.refsWorld, expression);
     } catch (err) {
       // The page went elsewhere (or was reloaded): its world went with it.
-      if (/context|Execution context was destroyed/i.test((err as Error).message)) throw new Error('The page changed since the latest snapshot: take a new one');
+      if (/context|Execution context was destroyed/i.test((err as Error).message))
+        throw new Error('The page changed since the latest snapshot: take a new one');
       throw err;
     }
   }
@@ -379,7 +387,8 @@ class BrowserSession {
  * are, the language, the time zone, and on Windows the system's folders), and nothing else: no API
  * key, token or proxy setting of the server's reaches it, nor anything a page could learn of them.
  */
-const BROWSER_ENV = /^(PATH|HOME|USER|LOGNAME|TMPDIR|TMP|TEMP|LANG|LANGUAGE|LC_[A-Z]+|TZ|XDG_RUNTIME_DIR|FONTCONFIG_PATH|FONTCONFIG_FILE|__CF_USER_TEXT_ENCODING|SYSTEMROOT|SYSTEMDRIVE|WINDIR|USERPROFILE|USERNAME|USERDOMAIN|HOMEDRIVE|HOMEPATH|LOCALAPPDATA|APPDATA|PROGRAMDATA|ALLUSERSPROFILE|PUBLIC|PROGRAMFILES|PROGRAMFILES\(X86\)|PROGRAMW6432|COMMONPROGRAMFILES|COMMONPROGRAMFILES\(X86\)|COMMONPROGRAMW6432|COMSPEC|PATHEXT|OS|NUMBER_OF_PROCESSORS|PROCESSOR_ARCHITECTURE|COMPUTERNAME)$/i;
+const BROWSER_ENV =
+  /^(PATH|HOME|USER|LOGNAME|TMPDIR|TMP|TEMP|LANG|LANGUAGE|LC_[A-Z]+|TZ|XDG_RUNTIME_DIR|FONTCONFIG_PATH|FONTCONFIG_FILE|__CF_USER_TEXT_ENCODING|SYSTEMROOT|SYSTEMDRIVE|WINDIR|USERPROFILE|USERNAME|USERDOMAIN|HOMEDRIVE|HOMEPATH|LOCALAPPDATA|APPDATA|PROGRAMDATA|ALLUSERSPROFILE|PUBLIC|PROGRAMFILES|PROGRAMFILES\(X86\)|PROGRAMW6432|COMMONPROGRAMFILES|COMMONPROGRAMFILES\(X86\)|COMMONPROGRAMW6432|COMSPEC|PATHEXT|OS|NUMBER_OF_PROCESSORS|PROCESSOR_ARCHITECTURE|COMPUTERNAME)$/i;
 
 export function browserEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.fromEntries(Object.entries(env).filter(([k, v]) => v !== undefined && BROWSER_ENV.test(k)));
@@ -506,7 +515,13 @@ export class BrowserService {
       ...(process.platform === 'linux' && process.getuid?.() === 0 ? ['--no-sandbox'] : []),
       'about:blank',
     ];
-    const exited = runProcess({ bin, args, env: browserEnv(process.env), signal: abort.signal, pipes: (write, read) => (pipes = { write, read }) });
+    const exited = runProcess({
+      bin,
+      args,
+      env: browserEnv(process.env),
+      signal: abort.signal,
+      pipes: (write, read) => (pipes = { write, read }),
+    });
     if (!pipes) {
       abort.abort();
       throw new Error('The browser could not be started');
@@ -534,13 +549,21 @@ export class BrowserService {
       let targetId = targetInfos.find((t) => t.type === 'page')?.targetId;
       targetId ??= (await cdp.send<{ targetId: string }>('Target.createTarget', { url: 'about:blank' })).targetId;
       const { sessionId } = await cdp.send<{ sessionId: string }>('Target.attachToTarget', { targetId, flatten: true });
-      const session = new BrowserSession(cdp, sessionId, targetId, stop, this.idleMs, exited.catch(() => undefined));
+      const session = new BrowserSession(
+        cdp,
+        sessionId,
+        targetId,
+        stop,
+        this.idleMs,
+        exited.catch(() => undefined),
+      );
       session.proxyPassword = password;
       session.convId = convId;
       this.byPassword.set(password, session);
       session.gated.add(sessionId);
       cdp.on('Fetch.requestPaused', (p: Record<string, unknown>, sid?: string) => {
-        if (sid && session.refused.has(sid)) return void cdp.send('Fetch.failRequest', { requestId: p.requestId, errorReason: 'BlockedByClient' }, sid).catch(() => undefined);
+        if (sid && session.refused.has(sid))
+          return void cdp.send('Fetch.failRequest', { requestId: p.requestId, errorReason: 'BlockedByClient' }, sid).catch(() => undefined);
         if (!sid || !session.gated.has(sid)) return;
         const gating = this.gate(session, p, sid).finally(() => {
           if (session.gating === gating) session.gating = undefined;
@@ -551,7 +574,9 @@ export class BrowserService {
       cdp.on('Fetch.authRequired', (p: Record<string, unknown>, sid?: string) => {
         if (!sid || (!session.gated.has(sid) && !session.refused.has(sid))) return;
         const proxy = (p.authChallenge as { source?: string } | undefined)?.source === 'Proxy' && !session.refused.has(sid);
-        const authChallengeResponse = proxy ? { response: 'ProvideCredentials', username: PROXY_USER, password } : { response: 'CancelAuth' };
+        const authChallengeResponse = proxy
+          ? { response: 'ProvideCredentials', username: PROXY_USER, password }
+          : { response: 'CancelAuth' };
         void cdp.send('Fetch.continueWithAuth', { requestId: p.requestId, authChallengeResponse }, sid).catch(() => undefined);
       });
       cdp.on('Target.attachedToTarget', (p: Record<string, unknown>) => void this.adopt(session, p));
@@ -637,7 +662,10 @@ export class BrowserService {
     const requestId = String(p.requestId);
     const url = String((p.request as { url?: unknown } | undefined)?.url ?? '');
     const go = (allow: boolean) =>
-      (allow ? s.cdp.send('Fetch.continueRequest', { requestId }, sid) : s.cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' }, sid)).catch(() => undefined);
+      (allow
+        ? s.cdp.send('Fetch.continueRequest', { requestId }, sid)
+        : s.cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' }, sid)
+      ).catch(() => undefined);
     const rules = await this.rules(s, url);
     if (!isMainDocument(s, p, sid)) return void (await go(requestVerdict(url, rules) === 'allow'));
     const verdict = navigationVerdict(url, rules);
@@ -675,7 +703,11 @@ export class BrowserService {
     const send = (method: string, params: Record<string, unknown> = {}) => s.cdp.send(method, params, sid).catch(() => undefined);
     const waiting = p.waitingForDebugger === true;
     if (!sid) return;
-    if (info.targetId === s.targetId || info.type === 'browser_ui' || /^(chrome|chrome-extension|chrome-untrusted|devtools):/i.test(info.url ?? '')) {
+    if (
+      info.targetId === s.targetId ||
+      info.type === 'browser_ui' ||
+      /^(chrome|chrome-extension|chrome-untrusted|devtools):/i.test(info.url ?? '')
+    ) {
       if (waiting) await send('Runtime.runIfWaitingForDebugger');
       void s.cdp.send('Target.detachFromTarget', { sessionId: sid }).catch(() => undefined);
       return;
@@ -726,7 +758,9 @@ export class BrowserService {
     const out: string[] = [];
     if (s.denied) out.push(`(The page tried to open ${s.denied.url}, which was not allowed: ${refusalText(s.denied)}.)`);
     for (const url of s.popups) {
-      out.push(`(The page tried to open ${url ? `${url} in ` : ''}a new window, which was closed: this browser keeps to one tab. Open it with browser_open${url ? '' : ' if you need it'}.)`);
+      out.push(
+        `(The page tried to open ${url ? `${url} in ` : ''}a new window, which was closed: this browser keeps to one tab. Open it with browser_open${url ? '' : ' if you need it'}.)`,
+      );
     }
     return out;
   }
@@ -742,12 +776,17 @@ export class BrowserService {
    */
   private async backFromRefused(s: BrowserSession): Promise<void> {
     if (!s.denied) return;
-    const h = await s.send<{ currentIndex: number; entries: { id: number; url: string }[] }>('Page.getNavigationHistory').catch(() => undefined);
+    const h = await s
+      .send<{ currentIndex: number; entries: { id: number; url: string }[] }>('Page.getNavigationHistory')
+      .catch(() => undefined);
     const here = h?.entries[h.currentIndex];
     const before = h && h.currentIndex > 0 ? h.entries[h.currentIndex - 1] : undefined;
     if (!here || !before || !(here.url.startsWith('chrome-error:') || here.url === s.denied.url)) return;
     // A page restored from the back-forward cache fires no load event: stopped loading says it is there.
-    const loaded = Promise.race([s.cdp.waitFor('Page.loadEventFired', 5000, s.sessionId), s.cdp.waitFor('Page.frameStoppedLoading', 5000, s.sessionId)]);
+    const loaded = Promise.race([
+      s.cdp.waitFor('Page.loadEventFired', 5000, s.sessionId),
+      s.cdp.waitFor('Page.frameStoppedLoading', 5000, s.sessionId),
+    ]);
     await s.send('Page.navigateToHistoryEntry', { entryId: before.id }).catch(() => undefined);
     await loaded;
   }
@@ -759,7 +798,12 @@ export class BrowserService {
   }
 
   async open(ctx: GatewayContext, url: string): Promise<PageSnapshot> {
-    const verdict = navigationVerdict(url, { relayPorts: this.ownPorts(), own: this.o.own?.() ?? [], allowed: new Set(), addresses: await this.addresses(url) });
+    const verdict = navigationVerdict(url, {
+      relayPorts: this.ownPorts(),
+      own: this.o.own?.() ?? [],
+      allowed: new Set(),
+      addresses: await this.addresses(url),
+    });
     if (verdict === 'block') throw new Error(refusalText({ url, why: 'blocked' }));
     return this.with(ctx, async (s) => {
       // The answer comes once the page is let through, which may wait for the user's answer.
@@ -785,15 +829,24 @@ export class BrowserService {
    * use; checked to be what the script gives (the page cannot change it, but a page can be odd).
    */
   private async read(s: BrowserSession): Promise<PageSnapshot> {
-    const { executionContextId } = await s.send<{ executionContextId: number }>('Page.createIsolatedWorld', { frameId: s.mainFrame, worldName: 'harness-relay' });
+    const { executionContextId } = await s.send<{ executionContextId: number }>('Page.createIsolatedWorld', {
+      frameId: s.mainFrame,
+      worldName: 'harness-relay',
+    });
     const raw = await s.evaluateIn<Record<string, unknown> | undefined>(executionContextId, SNAPSHOT_SCRIPT(s.nextRef));
     const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
     const refs = new Map<number, PageRef>();
     for (const r of Array.isArray(raw?.refs) ? (raw.refs as Record<string, unknown>[]) : []) {
       const n = Number(r?.ref);
       const kind = r?.kind;
-      if (!Number.isInteger(n) || n < s.nextRef || (kind !== 'link' && kind !== 'button' && kind !== 'field' && kind !== 'select')) continue;
-      refs.set(n, { kind, label: str(r.label, 120), ...(r.href ? { href: str(r.href, 500) } : {}), ...(r.name ? { name: str(r.name, 100) } : {}) });
+      if (!Number.isInteger(n) || n < s.nextRef || (kind !== 'link' && kind !== 'button' && kind !== 'field' && kind !== 'select'))
+        continue;
+      refs.set(n, {
+        kind,
+        label: str(r.label, 120),
+        ...(r.href ? { href: str(r.href, 500) } : {}),
+        ...(r.name ? { name: str(r.name, 100) } : {}),
+      });
     }
     s.refsWorld = executionContextId;
     s.nextRef = Math.max(s.nextRef, ...refs.keys()) + 1;
@@ -810,17 +863,25 @@ export class BrowserService {
   async click(ctx: GatewayContext, ref: number): Promise<PageSnapshot> {
     return this.with(ctx, async (s) => {
       if (!s.refs.has(ref)) throw new Error(`There is no element ${ref} in the latest snapshot: take a new snapshot`);
-      const box = await s.inRefsWorld<{ missing?: boolean; covered?: boolean; x: number; y: number; w: number; h: number }>(BOX_SCRIPT(ref));
+      const box = await s.inRefsWorld<{ missing?: boolean; covered?: boolean; x: number; y: number; w: number; h: number }>(
+        BOX_SCRIPT(ref),
+      );
       if (box.missing) throw new Error(`There is no element ${ref} on the page now: take a new snapshot`);
       if (!box.w && !box.h) throw new Error(`Element ${ref} is not visible`);
       // A click there would reach what lies over it, not what the user was asked about.
       if (box.covered) throw new Error(`Element ${ref} is covered by another element of the page: not clicked`);
-      const nav = s.cdp.waitFor('Page.frameNavigated', 1500, s.sessionId, (p) => (p.frame as { id?: string } | undefined)?.id === s.mainFrame);
+      const nav = s.cdp.waitFor(
+        'Page.frameNavigated',
+        1500,
+        s.sessionId,
+        (p) => (p.frame as { id?: string } | undefined)?.id === s.mainFrame,
+      );
       for (const type of ['mousePressed', 'mouseReleased']) {
         await s.send('Input.dispatchMouseEvent', { type, x: box.x, y: box.y, button: 'left', clickCount: 1 });
       }
       // A page the click opens may wait for the user's answer first.
-      const navigated = (await nav) || (s.gating ? (await s.gating, Boolean(await s.cdp.waitFor('Page.frameNavigated', 1500, s.sessionId))) : false);
+      const navigated =
+        (await nav) || (s.gating ? (await s.gating, Boolean(await s.cdp.waitFor('Page.frameNavigated', 1500, s.sessionId))) : false);
       if (navigated) await this.settle(s, 15_000);
       else await new Promise((r) => setTimeout(r, 400));
       await this.backFromRefused(s);
@@ -836,7 +897,12 @@ export class BrowserService {
       if (focused !== 'ok') throw new Error(`Element ${ref} cannot be typed into`);
       await s.send('Input.insertText', { text });
       if (submit) {
-        const nav = s.cdp.waitFor('Page.frameNavigated', 2000, s.sessionId, (p) => (p.frame as { id?: string } | undefined)?.id === s.mainFrame);
+        const nav = s.cdp.waitFor(
+          'Page.frameNavigated',
+          2000,
+          s.sessionId,
+          (p) => (p.frame as { id?: string } | undefined)?.id === s.mainFrame,
+        );
         const key = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 };
         await s.send('Input.dispatchKeyEvent', { type: 'keyDown', ...key, text: '\r' });
         await s.send('Input.dispatchKeyEvent', { type: 'keyUp', ...key });
@@ -857,7 +923,10 @@ export class BrowserService {
         const size = m.cssContentSize;
         if (size) clip = { x: 0, y: 0, width: Math.min(size.width, 1600), height: Math.min(size.height, 6000), scale: 1 };
       }
-      const { data } = await s.send<{ data: string }>('Page.captureScreenshot', { format: 'png', ...(clip ? { clip, captureBeyondViewport: true } : {}) });
+      const { data } = await s.send<{ data: string }>('Page.captureScreenshot', {
+        format: 'png',
+        ...(clip ? { clip, captureBeyondViewport: true } : {}),
+      });
       const dir = attachmentsDir(ctx.convId);
       mkdirSync(dir, { recursive: true });
       const path = join(dir, `browser-${new Date().toISOString().replace(/[:.]/g, '-')}.png`);

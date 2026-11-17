@@ -138,7 +138,10 @@ test.describe('how members take turns', () => {
     await send(page, 'And this');
     await expect(replies(page, 'Claude')).toHaveCount(2);
     await expect(await finishedReply(page, 'Claude')).toContainText('You said: “And this”.');
-    const last = relay.fakeLog().filter((e) => e.cli === 'claude' && e.prompt).pop()!;
+    const last = relay
+      .fakeLog()
+      .filter((e) => e.cli === 'claude' && e.prompt)
+      .pop()!;
     // The new session got the whole chat, the first message too.
     expect(last.prompt).toContain('Here is the group chat so far:');
     expect(last.prompt).toContain('Remember this');
@@ -169,7 +172,9 @@ test.describe('how members take turns', () => {
 
     await composer(page).fill('Also look at the tests');
     await composer(page).press('Enter');
-    await expect(page.getByRole('region', { name: 'Messages waiting to be delivered' }).or(page.locator('.queue-tray'))).toContainText('Also look at the tests');
+    await expect(page.getByRole('region', { name: 'Messages waiting to be delivered' }).or(page.locator('.queue-tray'))).toContainText(
+      'Also look at the tests',
+    );
 
     // Delivered before Grok's turn: Grok answers it.
     await expect(await finishedReply(page, 'Grok')).toContainText('You said: “Also look at the tests”.', { timeout: 30_000 });

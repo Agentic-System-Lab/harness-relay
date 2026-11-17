@@ -162,7 +162,9 @@ export class ModelBackendStore {
     private db: Database,
     private keyring?: SecretStore,
   ) {
-    const rows = db.prepare('SELECT id, name, base_url, models, api_key, created_at FROM model_backends ORDER BY created_at, id').all() as unknown as Row[];
+    const rows = db
+      .prepare('SELECT id, name, base_url, models, api_key, created_at FROM model_backends ORDER BY created_at, id')
+      .all() as unknown as Row[];
     for (const r of rows) {
       if (isApiBackend(r.id)) {
         if (r.api_key) this.apis[r.id] = r.api_key;
@@ -298,7 +300,8 @@ export class ModelBackendStore {
     // save leaves it deleted, not neither).
     const readded = this.deleted.has(id);
     const added = !e;
-    if (!e && this.endpoints.length >= BACKEND_LIMITS.maxEndpoints) throw new HttpError(400, t().tooManyEndpoints(BACKEND_LIMITS.maxEndpoints));
+    if (!e && this.endpoints.length >= BACKEND_LIMITS.maxEndpoints)
+      throw new HttpError(400, t().tooManyEndpoints(BACKEND_LIMITS.maxEndpoints));
     // What to put back when the save fails: nothing of the change is kept, in memory or in the
     // keyring (a key left there would come back for this id at the next start, `loadKeys`).
     const before = e ? { name: e.name, baseUrl: e.baseUrl, models: [...e.models], apiKey: e.apiKey } : undefined;
@@ -399,7 +402,9 @@ export class ModelBackendStore {
     transaction(this.db, () => {
       this.db.prepare('DELETE FROM model_backends WHERE id = ?').run(id);
       this.db
-        .prepare('INSERT INTO deleted_endpoints (id, deleted_at) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET deleted_at = excluded.deleted_at')
+        .prepare(
+          'INSERT INTO deleted_endpoints (id, deleted_at) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET deleted_at = excluded.deleted_at',
+        )
         .run(id, Date.now());
     });
   }
@@ -566,12 +571,24 @@ export function backendRun(
   /** The backends with the keys this run may hold: its own, or (`allKeys`) every one. */
   const own = (backend: string): RunBackends => ({
     apis: allKeys ? { ...b.apis } : isApiBackend(backend) && b.apis[backend] ? { [backend]: b.apis[backend] } : {},
-    endpoints: b.endpoints.map(({ apiKey, ...e }) => ({ ...e, models: [...e.models], ...(apiKey && (allKeys || e.id === backend) ? { apiKey } : {}) })),
+    endpoints: b.endpoints.map(({ apiKey, ...e }) => ({
+      ...e,
+      models: [...e.models],
+      ...(apiKey && (allKeys || e.id === backend) ? { apiKey } : {}),
+    })),
   });
   if (isApiBackend(parsed.backend)) {
     if (!b.apis[parsed.backend]) throw new AgentRunError(t().openBackendMissing(cli, API_BACKEND_LABEL[parsed.backend], id));
     const keys = own(parsed.backend);
-    return { id, backend: parsed.backend, kind: parsed.backend, model: parsed.model, env: backendEnv(keys), hosts: [API_BACKEND_HOST[parsed.backend]], backends: keys };
+    return {
+      id,
+      backend: parsed.backend,
+      kind: parsed.backend,
+      model: parsed.model,
+      env: backendEnv(keys),
+      hosts: [API_BACKEND_HOST[parsed.backend]],
+      backends: keys,
+    };
   }
   const endpoint = b.endpoints.find((e) => e.id === parsed.backend);
   if (!endpoint) throw new AgentRunError(t().openEndpointMissing(cli, parsed.backend, id));

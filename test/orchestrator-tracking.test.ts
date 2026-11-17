@@ -7,7 +7,23 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { Conversation, ConversationSchedule } from '../src/shared/types';
-import { agents, calls, conversation, db, fake, finish, Hub, Orchestrator, orchestrator, Scheduler, scheduleTime, settings, store, Store, textOf } from './orchestrator-harness';
+import {
+  agents,
+  calls,
+  conversation,
+  db,
+  fake,
+  finish,
+  Hub,
+  Orchestrator,
+  orchestrator,
+  Scheduler,
+  scheduleTime,
+  settings,
+  store,
+  Store,
+  textOf,
+} from './orchestrator-harness';
 
 describe('a schedule that tracks a goal', () => {
   const HOUR = 3_600_000;
@@ -61,7 +77,10 @@ describe('a schedule that tracks a goal', () => {
       { type: 'text', text: 'Alice checked.' },
       { type: 'progress', status: 'working', text: '2 of 5 jobs pass' },
     ]);
-    expect(conv.schedule!.tracking).toEqual({ status: 'working', notes: [{ at: T0 + HOUR, status: 'working', text: '2 of 5 jobs pass', agent: 'Alice' }] });
+    expect(conv.schedule!.tracking).toEqual({
+      status: 'working',
+      notes: [{ at: T0 + HOUR, status: 'working', text: '2 of 5 jobs pass', agent: 'Alice' }],
+    });
 
     // The next day's run is told what this one found; both are kept, as is the reply's progress part.
     await fireAt(conv, T0 + 25 * HOUR);
@@ -69,7 +88,11 @@ describe('a schedule that tracks a goal', () => {
     const reloaded = new Store(db).get(conv.id)!;
     expect(reloaded.schedule!.tracking!.notes).toHaveLength(2);
     expect(reloaded.schedule!.tracking!.inFlight).toBeUndefined();
-    expect(reloaded.messages.find((m) => m.author.kind === 'agent')!.parts[1]).toEqual({ type: 'progress', status: 'working', text: '2 of 5 jobs pass' });
+    expect(reloaded.messages.find((m) => m.author.kind === 'agent')!.parts[1]).toEqual({
+      type: 'progress',
+      status: 'working',
+      text: '2 of 5 jobs pass',
+    });
   });
 
   it('switches the schedule off once an agent says the goal is reached, and says so', async () => {
@@ -104,7 +127,8 @@ describe('a schedule that tracks a goal', () => {
 
   it('carries the notes into the chat it opens each time, and the done note into both', async () => {
     const conv = tracked({ newChat: true });
-    fake.reply = (_name, prompt) => (prompt.includes('second') ? 'ok\n<progress status="done">fixed</progress>' : 'ok\n<progress>first look</progress>');
+    fake.reply = (_name, prompt) =>
+      prompt.includes('second') ? 'ok\n<progress status="done">fixed</progress>' : 'ok\n<progress>first look</progress>';
     await fireAt(conv, T0 + HOUR);
     const first = store.get(conv.schedule!.lastChatId!)!;
     expect(conv.schedule!.tracking!.notes[0]).toMatchObject({ text: 'first look', chatId: first.id });
@@ -184,7 +208,9 @@ describe('a schedule that tracks a goal', () => {
     s.recover();
     expect(conv.schedule!.tracking).toEqual({ status: 'working', notes: [], retry: { due: T0 + HOUR, attempt: 1, at: now } });
     expect(conv.schedule!.nextRunAt).toBe(now);
-    expect(notes(conv).at(-1)).toBe(`The scheduled run of ${scheduleTime(T0 + HOUR, conv.schedule!)} was cut off when Harness Relay stopped; trying again now.`);
+    expect(notes(conv).at(-1)).toBe(
+      `The scheduled run of ${scheduleTime(T0 + HOUR, conv.schedule!)} was cut off when Harness Relay stopped; trying again now.`,
+    );
     await s.tick();
     await finish(conv.id);
     expect(conv.messages.filter((m) => m.author.kind === 'agent')).toHaveLength(1);
@@ -247,10 +273,16 @@ describe('a schedule that tracks a goal', () => {
 
   it('tries a time whose run could not start again', async () => {
     const conv = tracked();
-    vi.spyOn(orchestrator as unknown as { prepareWorkspace: () => Promise<never> }, 'prepareWorkspace').mockRejectedValueOnce(new Error('disk full'));
+    vi.spyOn(orchestrator as unknown as { prepareWorkspace: () => Promise<never> }, 'prepareWorkspace').mockRejectedValueOnce(
+      new Error('disk full'),
+    );
     now = T0 + HOUR;
     await scheduler().tick();
-    expect(conv.schedule).toMatchObject({ lastResult: 'failed', lastError: 'disk full', tracking: { retry: { attempt: 1, at: T0 + HOUR + 5 * MIN } } });
+    expect(conv.schedule).toMatchObject({
+      lastResult: 'failed',
+      lastError: 'disk full',
+      tracking: { retry: { attempt: 1, at: T0 + HOUR + 5 * MIN } },
+    });
     expect(notes(conv).slice(-2)).toEqual([
       `The scheduled message of ${scheduleTime(T0 + HOUR, conv.schedule!)} could not be sent: disk full`,
       `The scheduled run of ${scheduleTime(T0 + HOUR, conv.schedule!)} failed; trying again in 5 minutes (retry 1).`,

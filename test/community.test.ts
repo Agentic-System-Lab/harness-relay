@@ -27,7 +27,7 @@ describe('the bug report form', () => {
     expect(cli).toHaveLength(PROVIDERS.length + 1);
   });
 
-  it("names each mode and permission as the UI does, in both languages", () => {
+  it('names each mode and permission as the UI does, in both languages', () => {
     const modes = (['roundtable', 'parallel', 'relay'] as const).map((m) => `${en.modes[m].label} · ${zhTW.modes[m].label}`);
     expect(options(form, 'mode').slice(0, -1)).toEqual(modes);
     const permissions = (['read-only', 'edit', 'full'] as const).map((p) => `${en.permissions[p].label} · ${zhTW.permissions[p].label}`);

@@ -38,7 +38,13 @@ export const SYSTEM_LABEL: Record<System, string> = {
 };
 
 /** Its column in the table of releases. */
-const SYSTEM_COLUMN: Record<System, string> = { mac: 'macOS', win: 'Win x64', 'win-arm64': 'Win Arm64', linux: 'Linux x64', 'linux-arm64': 'Linux Arm64' };
+const SYSTEM_COLUMN: Record<System, string> = {
+  mac: 'macOS',
+  win: 'Win x64',
+  'win-arm64': 'Win Arm64',
+  linux: 'Linux x64',
+  'linux-arm64': 'Linux Arm64',
+};
 
 /**
  * Installers' names the releases had before INSTALLERS, and their system: 2026-11-11's Mac installer was
@@ -148,7 +154,13 @@ function sortKey(tag: string): string | undefined {
  * updates, by system, newest release first; the totals, and the totals halved. `copies` undefined: the
  * copies' repository could not be read (`updatesError`).
  */
-export function downloadsOf(releases: readonly Release[], copies: readonly Release[] | undefined, repo = REPO, updatesRepo = UPDATES_REPO, updatesError?: string): Downloads {
+export function downloadsOf(
+  releases: readonly Release[],
+  copies: readonly Release[] | undefined,
+  repo = REPO,
+  updatesRepo = UPDATES_REPO,
+  updatesError?: string,
+): Downloads {
   const copiesOf = new Map((copies ?? []).filter((r) => !r.draft).map((r) => [r.tag, r]));
   const out: (ReleaseDownloads & { key: string })[] = [];
   const other: Downloads['other'] = [];
@@ -254,13 +266,19 @@ export function wranglerReason(e: unknown): string {
 function lastLines(e: unknown): string {
   const err = e as { stderr?: string; stdout?: string; message?: string };
   const text = [err.stderr, err.stdout, err.message].find((t) => t && t.trim()) ?? String(e);
-  return text.trim().split('\n').filter((l) => l.trim()).slice(-2).join(' ');
+  return text
+    .trim()
+    .split('\n')
+    .filter((l) => l.trim())
+    .slice(-2)
+    .join(' ');
 }
 
 /** Why gh could not read `repo`, and what to do. */
 function ghFailure(e: unknown, repo: string): string {
   const reason = lastLines(e);
-  if (/auth login|HTTP 401|not logged in|authentication/i.test(reason)) return `could not read ${repo} through gh (${reason}). Sign gh in: gh auth login`;
+  if (/auth login|HTTP 401|not logged in|authentication/i.test(reason))
+    return `could not read ${repo} through gh (${reason}). Sign gh in: gh auth login`;
   if (/HTTP 404/.test(reason)) return `${repo} was not found, or gh's account cannot read it (${reason})`;
   return `could not read ${repo} through gh (${reason})`;
 }
@@ -291,7 +309,8 @@ async function updatesRepoOf(sources: Sources): Promise<{ repo: string; error?: 
     variable = (await sources.gh(['variable', 'get', 'UPDATES_REPO', '--repo', REPO])).trim();
   } catch (e) {
     // Not set (gh says it was not found), or not readable by this account: the website's, as the build does without it.
-    if (!/not found/i.test(lastLines(e))) return { repo: UPDATES_REPO, error: `could not read the workflow's UPDATES_REPO variable (${lastLines(e)}); read ${UPDATES_REPO}` };
+    if (!/not found/i.test(lastLines(e)))
+      return { repo: UPDATES_REPO, error: `could not read the workflow's UPDATES_REPO variable (${lastLines(e)}); read ${UPDATES_REPO}` };
   }
   const source = updateSourceFrom({ RELAY_UPDATES_REPO: variable });
   return source.ok ? { repo: source.value.repo } : { repo: UPDATES_REPO, error: `${source.error}; read ${UPDATES_REPO}` };
@@ -320,13 +339,25 @@ export async function collect(sources: Sources, now: Date = new Date()): Promise
   const codespaces = (async (): Promise<Stats['codespaces']> => {
     const days = lastDays(todayIn(RELEASE_TIME_ZONE, now));
     try {
-      const out = await sources.wrangler(['d1', 'execute', COUNTS_DATABASE, '--remote', '--config', WRANGLER_CONFIG, '--json', '--command', countsQuery(days[0]!)]);
+      const out = await sources.wrangler([
+        'd1',
+        'execute',
+        COUNTS_DATABASE,
+        '--remote',
+        '--config',
+        WRANGLER_CONFIG,
+        '--json',
+        '--command',
+        countsQuery(days[0]!),
+      ]);
       return codespacesOf(out, days);
     } catch (e) {
       const reason = wranglerReason(e);
       // No codespace counted yet: the Worker makes the table at the first count.
       if (/no such table: codespaces\b/.test(reason)) return { total: 0, days: days.map((day) => ({ day, created: 0 })) };
-      const signIn = /login|authenticat|non-interactive|API token/i.test(reason) ? '. Sign wrangler in to the account with the mirror: npx wrangler login' : '';
+      const signIn = /login|authenticat|non-interactive|API token/i.test(reason)
+        ? '. Sign wrangler in to the account with the mirror: npx wrangler login'
+        : '';
       return { error: `could not read the count through wrangler (${reason})${signIn}` };
     }
   })();
@@ -337,7 +368,16 @@ export async function collect(sources: Sources, now: Date = new Date()): Promise
 function table(rows: string[][], indent = '  '): string {
   if (rows.length === 0) return '';
   const widths = rows[0]!.map((_, i) => Math.max(...rows.map((r) => r[i]!.length)));
-  return rows.map((r) => indent + r.map((cell, i) => (i === 0 ? cell.padEnd(widths[i]!) : cell.padStart(widths[i]!))).join('  ').trimEnd()).join('\n');
+  return rows
+    .map(
+      (r) =>
+        indent +
+        r
+          .map((cell, i) => (i === 0 ? cell.padEnd(widths[i]!) : cell.padStart(widths[i]!)))
+          .join('  ')
+          .trimEnd(),
+    )
+    .join('\n');
 }
 
 const cell = (n: number | null) => (n === null ? '—' : String(n));
@@ -351,24 +391,45 @@ export function report(stats: Stats): string {
     lines.push(`  ✗ ${d.error}`);
   } else {
     const known = !d.updatesError;
-    lines.push(`  New installs: the installers on ${d.repo}.`, `  Updates: the app's copies on ${d.updatesRepo}, an installed app updating.`);
+    lines.push(
+      `  New installs: the installers on ${d.repo}.`,
+      `  Updates: the app's copies on ${d.updatesRepo}, an installed app updating.`,
+    );
     if (d.updatesError) lines.push(`  ✗ Updates unknown: ${d.updatesError}`);
     // Each number from GitHub's counts (all systems' too, not added up from the systems' estimates).
     const totals = (title: string, installs: (n: number) => number, updates: (n: number) => number, mark: string) => {
       const rows = [[title, 'New installs', 'Updates', 'Total']];
       const row = (label: string, i: number, u: number) =>
-        rows.push([label, `${mark}${installs(i)}`, known ? `${mark}${updates(u)}` : '?', known ? `${mark}${installs(i) + updates(u)}` : '?']);
+        rows.push([
+          label,
+          `${mark}${installs(i)}`,
+          known ? `${mark}${updates(u)}` : '?',
+          known ? `${mark}${installs(i) + updates(u)}` : '?',
+        ]);
       for (const s of SYSTEMS) row(SYSTEM_LABEL[s], d.installs[s], d.updates[s]);
       row('All systems', sum(d.installs), sum(d.updates));
       return table(rows);
     };
     const same = (n: number) => n;
-    lines.push('', totals('About how many downloads', (n) => estimate(n, REQUESTS_PER_INSTALL), (n) => estimate(n, REQUESTS_PER_UPDATE), '≈ '), '');
+    lines.push(
+      '',
+      totals(
+        'About how many downloads',
+        (n) => estimate(n, REQUESTS_PER_INSTALL),
+        (n) => estimate(n, REQUESTS_PER_UPDATE),
+        '≈ ',
+      ),
+      '',
+    );
     lines.push(totals("GitHub's counts", same, same, ''), '');
     lines.push("  By release, GitHub's counts (new installs / updates; — where the release had no such file):", '');
     const byRelease = [['Release', ...SYSTEMS.map((s) => SYSTEM_COLUMN[s]), 'All']];
     for (const r of d.releases) {
-      byRelease.push([r.tag, ...SYSTEMS.map((s) => `${cell(r.installs[s])} / ${known ? cell(r.updates[s]) : '?'}`), `${sum(r.installs)} / ${known ? sum(r.updates) : '?'}`]);
+      byRelease.push([
+        r.tag,
+        ...SYSTEMS.map((s) => `${cell(r.installs[s])} / ${known ? cell(r.updates[s]) : '?'}`),
+        `${sum(r.installs)} / ${known ? sum(r.updates) : '?'}`,
+      ]);
     }
     if (d.releases.length === 0) byRelease.push(['(no release yet)', ...SYSTEMS.map(() => ''), '']);
     lines.push(table(byRelease));
@@ -383,15 +444,20 @@ export function report(stats: Stats): string {
     lines.push(`  ✗ ${c.error}`);
   } else {
     lines.push(`  In all: ${c.total}`, `  The last ${c.days.length} days (days in Taiwan):`, '');
-    lines.push(table(c.days.map((x, i) => [x.day + (i === c.days.length - 1 ? ' (today)' : ''), String(x.created)]), '    '));
+    lines.push(
+      table(
+        c.days.map((x, i) => [x.day + (i === c.days.length - 1 ? ' (today)' : ''), String(x.created)]),
+        '    ',
+      ),
+    );
   }
   lines.push(
     '',
-    'How to read the downloads: GitHub counts requests, not downloads. A new install\'s download from',
-    'GitHub is two requests it counts, its address on github.com and then GitHub\'s CDN it redirects to',
-    '(the website\'s mirror has GitHub count its downloads the same way); an installed app\'s update,',
+    "How to read the downloads: GitHub counts requests, not downloads. A new install's download from",
+    "GitHub is two requests it counts, its address on github.com and then GitHub's CDN it redirects to",
+    "(the website's mirror has GitHub count its downloads the same way); an installed app's update,",
     'asked for through GitHub\'s API, is one. So "about how many downloads" is the new installs halved and',
-    'the updates as they are. Still an estimate: a download tried again counts again, the maintainers\'',
+    "the updates as they are. Still an estimate: a download tried again counts again, the maintainers'",
     'own downloads count too, and a lone request (a HEAD, a redirect not followed) counts as one.',
     'An app that cannot have its copy (one from before 2026-11-12, release candidates included, or one',
     'whose read token stopped working) updates from the installer: that update counts as a new install.',
@@ -414,7 +480,8 @@ async function run(file: string, args: string[]): Promise<string> {
  * (npm exec itself runs wrangler as npx does); else `npx`.
  */
 export function wranglerCommand(args: string[], npmExecpath = process.env.npm_execpath, node = process.execPath): [string, string[]] {
-  if (npmExecpath && /npm-cli\.[cm]?js$/.test(npmExecpath)) return [node, [npmExecpath, 'exec', '--yes', `--package=${WRANGLER}`, '--', 'wrangler', ...args]];
+  if (npmExecpath && /npm-cli\.[cm]?js$/.test(npmExecpath))
+    return [node, [npmExecpath, 'exec', '--yes', `--package=${WRANGLER}`, '--', 'wrangler', ...args]];
   return ['npx', ['--yes', WRANGLER, ...args]];
 }
 
@@ -424,7 +491,12 @@ export const realSources: Sources = {
 };
 
 /** The report, or `--json` the same as JSON; 1 when a part could not be read, 2 for an option it does not take. */
-export async function main(argv: string[], sources: Sources = realSources, now: Date = new Date(), write: (text: string) => void = (t) => process.stdout.write(t)): Promise<number> {
+export async function main(
+  argv: string[],
+  sources: Sources = realSources,
+  now: Date = new Date(),
+  write: (text: string) => void = (t) => process.stdout.write(t),
+): Promise<number> {
   const unknown = argv.filter((a) => a !== '--json');
   if (unknown.length) {
     console.error(`Usage: npm run stats [-- --json]; "${unknown[0]}" is not an option of it.`);

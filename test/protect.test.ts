@@ -82,7 +82,9 @@ describe('what agents may not read', () => {
     mkdirSync(join(root, 'keys'));
     writeFileSync(keyFile, '');
     expect(relayDatabaseFiles('/d', { RELAY_SECRETS_KEY_FILE: keyFile })).toContain(keyFile);
-    expect(protectedReads({ platform: 'linux', home, dataDir: data, env: { RELAY_SECRETS_KEY_FILE: keyFile } }).map((p) => resolve(p))).toContain(keyFile);
+    expect(
+      protectedReads({ platform: 'linux', home, dataDir: data, env: { RELAY_SECRETS_KEY_FILE: keyFile } }).map((p) => resolve(p)),
+    ).toContain(keyFile);
     expect(protectedReads({ platform: 'win32', home, dataDir: data })).toEqual([]);
   });
 
@@ -97,7 +99,9 @@ describe('what agents may not read', () => {
     // Started any other way, or with a relative or missing folder, there is none.
     expect(appBrowserDirs({})).toEqual([]);
     expect(appBrowserDirs({ RELAY_APP_BROWSER_DIR: 'browser' })).toEqual([]);
-    expect(protectedReads({ platform: 'linux', home, dataDir: join(root, 'no-data'), env: { RELAY_APP_BROWSER_DIR: join(root, 'missing') } })).toEqual([]);
+    expect(
+      protectedReads({ platform: 'linux', home, dataDir: join(root, 'no-data'), env: { RELAY_APP_BROWSER_DIR: join(root, 'missing') } }),
+    ).toEqual([]);
   });
 
   it("takes a GitHub codespace's token files and gh's sign-in there, and nothing of them anywhere else", () => {
@@ -116,7 +120,10 @@ describe('what agents may not read', () => {
     const h = resolve('/h');
     expect(codespaceSecretDirs({ CODESPACES: 'true', GH_CONFIG_DIR: resolve('/g') }, h, '/s')).toEqual(['/s', resolve('/g')]);
     expect(codespaceSecretDirs({ CODESPACES: 'true', XDG_CONFIG_HOME: resolve('/x') }, h, '/s')).toEqual(['/s', join(resolve('/x'), 'gh')]);
-    expect(codespaceSecretDirs({ CODESPACES: 'true', GH_CONFIG_DIR: 'gh', XDG_CONFIG_HOME: 'cfg' }, h, '/s')).toEqual(['/s', join(h, '.config', 'gh')]);
+    expect(codespaceSecretDirs({ CODESPACES: 'true', GH_CONFIG_DIR: 'gh', XDG_CONFIG_HOME: 'cfg' }, h, '/s')).toEqual([
+      '/s',
+      join(h, '.config', 'gh'),
+    ]);
     expect(CODESPACE_SHARED_DIR).toBe('/workspaces/.codespaces');
   });
 
@@ -130,7 +137,15 @@ describe('what agents may not read', () => {
     makeCodespaceGhDir({ CODESPACES: 'true' }, home);
     expect(existsSync(gh)).toBe(true);
     // Made there, it is a protected path from the first turn.
-    expect(protectedReads({ platform: 'linux', home, dataDir: join(root, 'no-data'), env: { CODESPACES: 'true' }, codespaceDir: join(root, 'missing') }).map((p) => resolve(p))).toEqual([gh]);
+    expect(
+      protectedReads({
+        platform: 'linux',
+        home,
+        dataDir: join(root, 'no-data'),
+        env: { CODESPACES: 'true' },
+        codespaceDir: join(root, 'missing'),
+      }).map((p) => resolve(p)),
+    ).toEqual([gh]);
     // Already there (signed in before): left as it is.
     writeFileSync(join(gh, 'hosts.yml'), 'github.com: {}\n');
     makeCodespaceGhDir({ CODESPACES: 'true' }, home);
@@ -157,13 +172,13 @@ describe("Harness Relay's own folder as a working directory", () => {
     expect(relayFolderOverlap(join(root, 'link'), roots)).toBe('data');
   });
 
-  it("is fine for the worktrees in its data folder and any other folder", () => {
+  it('is fine for the worktrees in its data folder and any other folder', () => {
     expect(relayFolderOverlap(join(data, 'worktrees/conv/alice'), roots)).toBeUndefined();
     mkdirSync(join(root, 'project'));
     expect(relayFolderOverlap(join(root, 'project'), roots)).toBeUndefined();
   });
 
-  it('is refused when it holds voice input\'s folder that RELAY_VOICE_DIR puts elsewhere, or is inside it', () => {
+  it("is refused when it holds voice input's folder that RELAY_VOICE_DIR puts elsewhere, or is inside it", () => {
     const voice = join(root, 'models/voice');
     mkdirSync(join(voice, 'engine'), { recursive: true });
     mkdirSync(join(root, 'models/other'), { recursive: true });
@@ -180,7 +195,7 @@ describe("Harness Relay's own folder as a working directory", () => {
     expect(voiceFolder(data)).toBe(join(data, 'voice'));
   });
 
-  it('says why when the working directory holds voice input\'s folder', () => {
+  it("says why when the working directory holds voice input's folder", () => {
     const own = join(DATA_DIR, 'voice', 'engine');
     const why = withLang('en', () => relayFolderRefusal({ permission: 'edit', cwd: own }));
     expect(why).toContain(`holds voice input's folder ${join(DATA_DIR, 'voice')}, or is inside it.`);
@@ -229,11 +244,15 @@ describe('what decides how the agents run, as a working directory', () => {
     expect(agentFolderOverlap(join(home, '.codex'), o)).toBe(join(home, '.codex'));
     expect(agentFolderOverlap(join(home, '.codex/packages/bin'), o)).toBe(join(home, '.codex'));
     // ~/.local holds a program's folder (and Muse Code's data folder, moved away here).
-    expect(agentFolderOverlap(join(home, '.local'), { ...o, env: { XDG_DATA_HOME: join(root, 'xdg-data') } })).toBe(join(home, '.local/bin'));
+    expect(agentFolderOverlap(join(home, '.local'), { ...o, env: { XDG_DATA_HOME: join(root, 'xdg-data') } })).toBe(
+      join(home, '.local/bin'),
+    );
     expect(agentFolderOverlap(join(home, '.local/bin/x'), o)).toBe(join(home, '.local/bin'));
     expect(agentFolderOverlap(join(home, 'relay-agents/grok'), o)).toBe(join(home, 'relay-agents'));
     // A CLI home moved by its variable.
-    expect(agentFolderOverlap(join(root, 'elsewhere'), { ...o, env: { CODEX_HOME: join(root, 'elsewhere/codex') } })).toBe(join(root, 'elsewhere/codex'));
+    expect(agentFolderOverlap(join(root, 'elsewhere'), { ...o, env: { CODEX_HOME: join(root, 'elsewhere/codex') } })).toBe(
+      join(root, 'elsewhere/codex'),
+    );
     // Cursor's: its config folder, and ~/.cursor, where its hooks and MCP servers stay when that moves.
     expect(agentFolderOverlap(join(home, '.cursor/rules'), o)).toBe(join(home, '.cursor'));
     const moved = { ...o, env: { CURSOR_CONFIG_DIR: join(root, 'elsewhere/cursor') } };
@@ -244,11 +263,15 @@ describe('what decides how the agents run, as a working directory', () => {
     // Where it keeps its sign-in on Linux, also with its config folder moved.
     expect(agentFolderOverlap(join(home, '.config/cursor'), moved)).toBe(join(home, '.config/cursor'));
     // And on Windows, in %APPDATA%.
-    expect(agentFolderOverlap(join(root, 'appdata/Cursor/x'), { ...o, env: { APPDATA: join(root, 'appdata') } })).toBe(join(root, 'appdata/Cursor'));
+    expect(agentFolderOverlap(join(root, 'appdata/Cursor/x'), { ...o, env: { APPDATA: join(root, 'appdata') } })).toBe(
+      join(root, 'appdata/Cursor'),
+    );
     // Antigravity's .gemini folder (its hooks, MCP servers, plugins), the user's own and the account's.
     expect(agentFolderOverlap(join(home, '.gemini/config'), o)).toBe(join(home, '.gemini'));
     const account = { ...o, env: { HARNESS_RELAY_ANTIGRAVITY_HOME: join(root, 'accounts/antigravity-a1') } };
-    expect(agentFolderOverlap(join(root, 'accounts/antigravity-a1/.gemini/antigravity-cli'), account)).toBe(join(root, 'accounts/antigravity-a1/.gemini'));
+    expect(agentFolderOverlap(join(root, 'accounts/antigravity-a1/.gemini/antigravity-cli'), account)).toBe(
+      join(root, 'accounts/antigravity-a1/.gemini'),
+    );
     expect(agentFolderOverlap(join(home, '.gemini'), account)).toBe(join(home, '.gemini'));
     // Copilot's home (its settings, sign-in state, sessions, hooks), the user's own and the account's.
     expect(agentFolderOverlap(join(home, '.copilot/session-state'), o)).toBe(join(home, '.copilot'));
@@ -274,7 +297,9 @@ describe('what decides how the agents run, as a working directory', () => {
     expect(agentFolderOverlap(join(root, 'xdg-data/muse'), xdgMuse)).toBe(join(root, 'xdg-data/muse'));
     const museAccount = { ...o, env: { HARNESS_RELAY_MUSE_HOME: join(root, 'accounts/muse-a1') } };
     expect(agentFolderOverlap(join(root, 'accounts/muse-a1/config/muse'), museAccount)).toBe(join(root, 'accounts/muse-a1/config/muse'));
-    expect(agentFolderOverlap(join(root, 'accounts/muse-a1/data/muse/sessions'), museAccount)).toBe(join(root, 'accounts/muse-a1/data/muse'));
+    expect(agentFolderOverlap(join(root, 'accounts/muse-a1/data/muse/sessions'), museAccount)).toBe(
+      join(root, 'accounts/muse-a1/data/muse'),
+    );
     // The account's own folders are refused besides the user's.
     expect(agentFolderOverlap(join(home, '.config/muse'), museAccount)).toBe(join(home, '.config/muse'));
   });
@@ -286,17 +311,23 @@ describe('what decides how the agents run, as a working directory', () => {
     expect(agentFolderOverlap(join(accountsDir, 'codex-ab12cd34/project'), withAccounts)).toBe(accountsDir);
     expect(agentFolderOverlap(join(home, 'projects/app'), withAccounts)).toBeUndefined();
     // With the CLIs' own folder set, the other accounts are in it.
-    expect(agentFolderOverlap(join(home, 'relay-agents/claude-ab12cd34'), { ...o, accountsDir: o.agentHome })).toBe(join(home, 'relay-agents'));
+    expect(agentFolderOverlap(join(home, 'relay-agents/claude-ab12cd34'), { ...o, accountsDir: o.agentHome })).toBe(
+      join(home, 'relay-agents'),
+    );
   });
 
   it('sees a folder still to be made through the links and letter case on its way', () => {
     // A link to a CLI's folder, and the folder to be made in it: refused before it exists.
     symlinkSync(join(home, '.codex'), join(home, 'projects/codex-link'));
     expect(agentFolderOverlap(join(home, 'projects/codex-link/new/app'), o)).toBe(join(home, '.codex'));
-    expect(relayFolderOverlap(join(root, 'relay-link/new'), { install: join(root, 'relay'), data: join(root, 'relay/data') })).toBeUndefined();
+    expect(
+      relayFolderOverlap(join(root, 'relay-link/new'), { install: join(root, 'relay'), data: join(root, 'relay/data') }),
+    ).toBeUndefined();
     mkdirSync(join(root, 'relay/data'), { recursive: true });
     symlinkSync(join(root, 'relay'), join(root, 'relay-link'));
-    expect(relayFolderOverlap(join(root, 'relay-link/new'), { install: join(root, 'relay'), data: join(root, 'relay/data') })).toBe('install');
+    expect(relayFolderOverlap(join(root, 'relay-link/new'), { install: join(root, 'relay'), data: join(root, 'relay/data') })).toBe(
+      'install',
+    );
     expect(overlaps(join(root, 'relay-link/data/new'), join(root, 'relay/data'))).toBe(true);
   });
 

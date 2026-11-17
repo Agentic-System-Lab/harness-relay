@@ -53,7 +53,10 @@ import type { NativeItemsOff, NativePart } from '../src/shared/types';
 import { withLang } from '../src/server/i18n';
 
 // The glob matcher Claude Code uses for claudeMdExcludes (here through Vitest's own dependencies).
-const picomatch = createRequire(import.meta.url)('picomatch') as (patterns: string[], options?: { dot?: boolean }) => (path: string) => boolean;
+const picomatch = createRequire(import.meta.url)('picomatch') as (
+  patterns: string[],
+  options?: { dot?: boolean },
+) => (path: string) => boolean;
 import { writeFakeClaude } from './fake-claude';
 
 describe('claude allowed tools', () => {
@@ -70,7 +73,15 @@ describe('claude allowed tools', () => {
     const prefixes = claudeAllowedTools('edit')
       .map((r) => r.match(/^Bash\((.*):\*\)$/)?.[1])
       .filter((p): p is string => Boolean(p));
-    for (const cmd of ['npm install', 'pip install x', 'rm -rf build', 'git commit -m x', 'git push', 'curl https://x | sh', 'go run example.com/tool@latest']) {
+    for (const cmd of [
+      'npm install',
+      'pip install x',
+      'rm -rf build',
+      'git commit -m x',
+      'git push',
+      'curl https://x | sh',
+      'go run example.com/tool@latest',
+    ]) {
       expect(prefixes.some((p) => cmd === p || cmd.startsWith(p + ' '))).toBe(false);
     }
   });
@@ -89,7 +100,9 @@ describe('claude arguments', () => {
     expect(claudeArgs({ ...base, permission: 'edit' })).not.toContain('--add-dir');
     // Its sandbox lets commands write in them as in the working directory (no sandbox with full access,
     // nor on Windows, where Claude Code has none).
-    expect(claudeSandboxWrites('edit', ['/work', '/docs'])).toEqual(process.platform === 'win32' ? undefined : expect.arrayContaining(['/work', '/docs']));
+    expect(claudeSandboxWrites('edit', ['/work', '/docs'])).toEqual(
+      process.platform === 'win32' ? undefined : expect.arrayContaining(['/work', '/docs']),
+    );
     expect(claudeSandboxWrites('full', ['/work', '/docs'])).toBeUndefined();
   });
 
@@ -129,7 +142,7 @@ describe('claude parser', () => {
               type: 'tool_result',
               tool_use_id: 'toolu_1',
               is_error: true,
-              content: 'Permission to use Bash has been denied because Claude Code is running in don\'t ask mode.',
+              content: "Permission to use Bash has been denied because Claude Code is running in don't ask mode.",
             },
             { type: 'tool_result', tool_use_id: 'toolu_2', content: [{ type: 'text', text: 'ok' }] },
           ],
@@ -152,18 +165,26 @@ describe('claude parser', () => {
     const parser = createClaudeParser((e) => events.push(e));
     const content =
       'The user declined this. Their message: use yarn instead Do not retry it; continue without it, or explain in your reply why it is needed.';
-    parser.handle(JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't', is_error: true, content }] } }));
+    parser.handle(
+      JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't', is_error: true, content }] } }),
+    );
     expect(events).toEqual([{ type: 'tool_end', id: 't', ok: false, error: '使用者拒絕了這個操作。 use yarn instead' }]);
   });
 
   it('streams thinking, turns TodoWrite into a plan, and hands control requests over', () => {
     const events: AgentEvent[] = [];
     const controls: ClaudeControlRequest[] = [];
-    const parser = createClaudeParser((e) => events.push(e), (c) => controls.push(c));
+    const parser = createClaudeParser(
+      (e) => events.push(e),
+      (c) => controls.push(c),
+    );
     const line = (o: unknown) => parser.handle(JSON.stringify(o));
     line({ type: 'stream_event', event: { type: 'message_start', message: { id: 'm1' } } });
     line({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } } });
-    line({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'Compare logs.' } } });
+    line({
+      type: 'stream_event',
+      event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'Compare logs.' } },
+    });
     line({ type: 'stream_event', event: { type: 'content_block_stop', index: 0 } });
     line({
       type: 'assistant',
@@ -171,28 +192,60 @@ describe('claude parser', () => {
         id: 'm1',
         content: [
           { type: 'thinking', thinking: 'Compare logs.' },
-          { type: 'tool_use', id: 'todo1', name: 'TodoWrite', input: { todos: [{ content: 'Check', status: 'in_progress' }, { content: 'Answer', status: 'pending' }] } },
+          {
+            type: 'tool_use',
+            id: 'todo1',
+            name: 'TodoWrite',
+            input: {
+              todos: [
+                { content: 'Check', status: 'in_progress' },
+                { content: 'Answer', status: 'pending' },
+              ],
+            },
+          },
           { type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'npm install' } },
         ],
       },
     });
     line({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'todo1', content: 'ok' }] } });
-    line({ type: 'control_request', request_id: 'r1', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'npm install' } } });
+    line({
+      type: 'control_request',
+      request_id: 'r1',
+      request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'npm install' } },
+    });
 
     expect(events).toEqual([
       { type: 'thinking', text: 'Compare logs.' },
-      { type: 'plan', entries: [{ text: 'Check', status: 'in_progress' }, { text: 'Answer', status: 'pending' }] },
+      {
+        type: 'plan',
+        entries: [
+          { text: 'Check', status: 'in_progress' },
+          { text: 'Answer', status: 'pending' },
+        ],
+      },
       { type: 'tool_start', id: 'b1', name: 'Bash', detail: 'npm install' },
     ]);
     expect(controls).toEqual([
-      { requestId: 'r1', subtype: 'can_use_tool', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'npm install' } } },
+      {
+        requestId: 'r1',
+        subtype: 'can_use_tool',
+        request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'npm install' } },
+      },
     ]);
   });
 
   it('describes approval requests by tool', () => {
-    expect(claudeApprovalRequest('Bash', { command: 'git push', description: 'Push' })).toEqual({ kind: 'command', detail: 'git push', reason: 'Push' });
+    expect(claudeApprovalRequest('Bash', { command: 'git push', description: 'Push' })).toEqual({
+      kind: 'command',
+      detail: 'git push',
+      reason: 'Push',
+    });
     // On Windows its commands come through its PowerShell tool: a command too.
-    expect(claudeApprovalRequest('PowerShell', { command: 'echo hi > hello.txt', description: 'Write' })).toEqual({ kind: 'command', detail: 'echo hi > hello.txt', reason: 'Write' });
+    expect(claudeApprovalRequest('PowerShell', { command: 'echo hi > hello.txt', description: 'Write' })).toEqual({
+      kind: 'command',
+      detail: 'echo hi > hello.txt',
+      reason: 'Write',
+    });
     expect(claudeApprovalRequest('Write', { file_path: '/a.txt' })).toMatchObject({ kind: 'edit', detail: '/a.txt' });
     expect(claudeApprovalRequest('WebFetch', { url: 'https://x.dev' })).toMatchObject({ kind: 'fetch', detail: 'https://x.dev' });
     expect(claudeApprovalRequest('mcp__linear__create', { title: 'Bug' })).toMatchObject({ kind: 'other', tool: 'mcp__linear__create' });
@@ -207,12 +260,18 @@ describe('claude parser', () => {
   });
 
   it('keeps the file name of a long path in a tool row, and the start of anything else', () => {
-    const dir = '/private/tmp/claude-501/' + Array.from({ length: 8 }, (_, i) => `folder-${i}-with-a-long-name`).join('/') + '/scratchpad/review';
+    const dir =
+      '/private/tmp/claude-501/' + Array.from({ length: 8 }, (_, i) => `folder-${i}-with-a-long-name`).join('/') + '/scratchpad/review';
     const file = `${dir}/grok-survey.mts`;
     expect(file.length).toBeGreaterThan(160);
     const events: AgentEvent[] = [];
     const parser = createClaudeParser((e) => events.push(e));
-    parser.handle(JSON.stringify({ type: 'assistant', message: { id: 'm', content: [{ type: 'tool_use', id: 'r', name: 'Read', input: { file_path: file } }] } }));
+    parser.handle(
+      JSON.stringify({
+        type: 'assistant',
+        message: { id: 'm', content: [{ type: 'tool_use', id: 'r', name: 'Read', input: { file_path: file } }] },
+      }),
+    );
     const detail = (events[0] as Extract<AgentEvent, { type: 'tool_start' }>).detail!;
     expect(detail).toBe('…' + file.slice(file.indexOf('/', file.length - 159)));
     expect(detail.length).toBeLessThanOrEqual(160);
@@ -263,14 +322,19 @@ describe('leaving out what Claude Code loads by itself', () => {
   });
 
   it('turns off its instruction files and auto memory with variables', () => {
-    expect(claudeNativeEnv(['instructions', 'memory'])).toEqual({ CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
+    expect(claudeNativeEnv(['instructions', 'memory'])).toEqual({
+      CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1',
+      CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
+    });
     expect(claudeNativeEnv(['skills', 'mcp'])).toEqual({});
     expect(claudeNativeEnv()).toEqual({});
   });
 
   it('turns off its hooks, and each installed plugin by its id, with --settings', () => {
     expect(claudeNativeSettings(['hooks'])).toEqual({ disableAllHooks: true });
-    expect(claudeNativeSettings(['plugins'], ['deck@market', 'lsp@market'])).toEqual({ enabledPlugins: { 'deck@market': false, 'lsp@market': false } });
+    expect(claudeNativeSettings(['plugins'], ['deck@market', 'lsp@market'])).toEqual({
+      enabledPlugins: { 'deck@market': false, 'lsp@market': false },
+    });
     expect(claudeNativeSettings(['plugins'], [])).toBeUndefined();
     expect(claudeNativeSettings(['skills', 'agents'], ['deck@market'])).toBeUndefined();
     const args = claudeArgs({ ...base, nativeOff: ['hooks', 'plugins'], pluginIds: ['deck@market'] });
@@ -325,7 +389,13 @@ describe('leaving out what Claude Code loads by itself', () => {
     expect(claudeExcludePattern('C:\\repo\\CLAUDE.md')).toBe('C:/repo/CLAUDE.md');
     // Matched as Claude Code 2.1.319 matches them: every \\ in a pattern turned into / first, then picomatch.
     const matches = (pattern: string, path: string) => picomatch([pattern.replaceAll('\\', '/')], { dot: true })(path);
-    for (const path of ['/x/proj [old]/CLAUDE.md', '/app/[slug]/CLAUDE.md', '/a/(y)/c{1,2}/*?.md', '/a/b]c/CLAUDE.md', '/a/!(z)/+(q)/@(r).md']) {
+    for (const path of [
+      '/x/proj [old]/CLAUDE.md',
+      '/app/[slug]/CLAUDE.md',
+      '/a/(y)/c{1,2}/*?.md',
+      '/a/b]c/CLAUDE.md',
+      '/a/!(z)/+(q)/@(r).md',
+    ]) {
       expect(matches(claudeExcludePattern(path), path)).toBe(true);
       expect(matches(claudeExcludePattern(path), '/x/proj o/CLAUDE.md')).toBe(false);
     }
@@ -334,15 +404,34 @@ describe('leaving out what Claude Code loads by itself', () => {
   });
 
   it("leaves a tool library server's tools alone when a server of its name is ticked", () => {
-    const items = { mcp: ['mcp__local', 'mcp__other'], mcpTools: ['mcp__local__fetch', 'mcp__other__x', 'mcp__localx__y'], skills: ['commit'] };
-    expect(claudeItemsBesideLibrary(items, [{ name: 'local' }])).toEqual({ skills: ['commit'], mcp: ['mcp__other'], mcpTools: ['mcp__other__x', 'mcp__localx__y'] });
-    expect(claudeItemsBesideLibrary(items, [{ name: 'claude.ai Gmail' }, { name: 'local' }, { name: 'other' }])).toEqual({ skills: ['commit'], mcpTools: ['mcp__localx__y'] });
+    const items = {
+      mcp: ['mcp__local', 'mcp__other'],
+      mcpTools: ['mcp__local__fetch', 'mcp__other__x', 'mcp__localx__y'],
+      skills: ['commit'],
+    };
+    expect(claudeItemsBesideLibrary(items, [{ name: 'local' }])).toEqual({
+      skills: ['commit'],
+      mcp: ['mcp__other'],
+      mcpTools: ['mcp__other__x', 'mcp__localx__y'],
+    });
+    expect(claudeItemsBesideLibrary(items, [{ name: 'claude.ai Gmail' }, { name: 'local' }, { name: 'other' }])).toEqual({
+      skills: ['commit'],
+      mcpTools: ['mcp__localx__y'],
+    });
     expect(claudeItemsBesideLibrary(items, [])).toBe(items);
   });
 
   it('reads its plugin list and subagent names, and denies only the subagents that are not built in', () => {
-    const list = [{ id: 'deck@market', enabled: true, scope: 'user', installPath: '/p' }, { id: 'deck@market' }, { id: 'lsp@market', enabled: false }, { name: 'no id' }];
-    expect(parseClaudePluginList(JSON.stringify(list))).toEqual([{ id: 'deck@market', enabled: true, scope: 'user' }, { id: 'lsp@market', enabled: false }]);
+    const list = [
+      { id: 'deck@market', enabled: true, scope: 'user', installPath: '/p' },
+      { id: 'deck@market' },
+      { id: 'lsp@market', enabled: false },
+      { name: 'no id' },
+    ];
+    expect(parseClaudePluginList(JSON.stringify(list))).toEqual([
+      { id: 'deck@market', enabled: true, scope: 'user' },
+      { id: 'lsp@market', enabled: false },
+    ]);
     expect(parseClaudePluginList('[]')).toEqual([]);
     expect(parseClaudePluginList('{}')).toBeUndefined();
     expect(parseClaudePluginList('error: unknown command')).toBeUndefined();
@@ -367,10 +456,14 @@ describe('leaving out what Claude Code loads by itself', () => {
   });
 });
 
-describe('leaving out Claude Code\'s own subagents before the prompt', () => {
+describe("leaving out Claude Code's own subagents before the prompt", () => {
   const init = (agents: string[], version = '9.9.9') => ({
     type: 'control_response',
-    response: { subtype: 'success', request_id: 'init-1', response: { claude_code_version: version, agents: agents.map((name) => ({ name, description: `The ${name}` })) } },
+    response: {
+      subtype: 'success',
+      request_id: 'init-1',
+      response: { claude_code_version: version, agents: agents.map((name) => ({ name, description: `The ${name}` })) },
+    },
   });
   const known = (...names: string[]) => new Map(names.map((n) => [n, `The ${n}`]));
   function gate(builtins: (version?: string) => Promise<ReadonlyMap<string, string>>) {
@@ -421,7 +514,10 @@ describe('leaving out Claude Code\'s own subagents before the prompt', () => {
     const refused = gate(async () => known());
     refused.handle(init(['reviewer']));
     await vi.waitFor(() => expect(refused.sent).toHaveLength(1));
-    refused.handle({ type: 'control_response', response: { subtype: 'error', request_id: 'init-1-agents', error: 'Unsupported control request subtype' } });
+    refused.handle({
+      type: 'control_response',
+      response: { subtype: 'error', request_id: 'init-1-agents', error: 'Unsupported control request subtype' },
+    });
     expect(refused.calls).toEqual({ started: 0, failed: ['Unsupported control request subtype'] });
 
     const noInit = gate(async () => known());
@@ -430,7 +526,10 @@ describe('leaving out Claude Code\'s own subagents before the prompt', () => {
 
     // An answer without its subagents: nothing to deny them by, so the run must not go on.
     const unlisted = gate(async () => known());
-    unlisted.handle({ type: 'control_response', response: { subtype: 'success', request_id: 'init-1', response: { claude_code_version: '9.9.9' } } });
+    unlisted.handle({
+      type: 'control_response',
+      response: { subtype: 'success', request_id: 'init-1', response: { claude_code_version: '9.9.9' } },
+    });
     expect(unlisted.calls).toEqual({ started: 0, failed: ['it did not list its subagents'] });
     expect(unlisted.sent).toEqual([]);
   });
@@ -458,7 +557,10 @@ describe.skipIf(process.platform === 'win32')('a Claude Code run that leaves out
     });
     const lines = () => {
       try {
-        return readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, any>);
+        return readFileSync(log, 'utf8')
+          .trim()
+          .split('\n')
+          .map((l) => JSON.parse(l) as Record<string, any>);
       } catch {
         return [];
       }
@@ -484,7 +586,11 @@ describe.skipIf(process.platform === 'win32')('a Claude Code run that leaves out
   });
 
   it('leaves out single items through --settings in a private file, and sends the prompt at once', async () => {
-    const r = run([], {}, { skills: ['commit'], agents: ['reviewer'], plugins: ['deck@market'], tools: ['WebSearch'], mcpTools: ['mcp__local__fetch'] });
+    const r = run(
+      [],
+      {},
+      { skills: ['commit'], agents: ['reviewer'], plugins: ['deck@market'], tools: ['WebSearch'], mcpTools: ['mcp__local__fetch'] },
+    );
     await expect(r.result).resolves.toMatchObject({ sessionId: 'fake-session' });
     const start = turn(r.lines())!;
     // A file, not the command line, and gone once the run is over.
@@ -525,13 +631,23 @@ describe.skipIf(process.platform === 'win32')('a Claude Code run that leaves out
     });
     // Claude Code would price the model as one of its own.
     expect(result).toMatchObject({ sessionId: 'fake-session', costUsd: undefined });
-    const start = turn(readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, any>))!;
+    const start = turn(
+      readFileSync(log, 'utf8')
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l) as Record<string, any>),
+    )!;
     expect(start.args[start.args.indexOf('--model') + 1]).toBe('gemma4:e4b');
     // An effort the endpoint may not take is not sent.
     expect(start.args).not.toContain('--effort');
     // In the private settings file (the flag layer, over the user's own settings files).
     expect(start.args[start.args.indexOf('--settings') + 1]).toMatch(/settings\.json$/);
-    expect(start.settings.env).toMatchObject({ ANTHROPIC_BASE_URL: 'http://10.0.0.5:11434', ANTHROPIC_AUTH_TOKEN: 'lab-key', ANTHROPIC_API_KEY: '', ANTHROPIC_MODEL: 'gemma4:e4b' });
+    expect(start.settings.env).toMatchObject({
+      ANTHROPIC_BASE_URL: 'http://10.0.0.5:11434',
+      ANTHROPIC_AUTH_TOKEN: 'lab-key',
+      ANTHROPIC_API_KEY: '',
+      ANTHROPIC_MODEL: 'gemma4:e4b',
+    });
     expect(start.env).toEqual({
       CLAUDE_CODE_DISABLE_CLAUDE_MDS: null,
       ANTHROPIC_BASE_URL: 'http://10.0.0.5:11434',
@@ -554,8 +670,18 @@ describe.skipIf(process.platform === 'win32')('a Claude Code run that leaves out
       signal: new AbortController().signal,
       onEvent: () => undefined,
     });
-    const ownStart = turn(readFileSync(own, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, any>))!;
-    expect(ownStart.args.slice(ownStart.args.indexOf('--model'), ownStart.args.indexOf('--model') + 4)).toEqual(['--model', 'opus', '--effort', 'xhigh']);
+    const ownStart = turn(
+      readFileSync(own, 'utf8')
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l) as Record<string, any>),
+    )!;
+    expect(ownStart.args.slice(ownStart.args.indexOf('--model'), ownStart.args.indexOf('--model') + 4)).toEqual([
+      '--model',
+      'opus',
+      '--effort',
+      'xhigh',
+    ]);
     expect(ownStart.args).not.toContain('--settings');
     expect(ownStart.env.ANTHROPIC_API_KEY).toBe('sk-ant-from-settings');
     // A model of an endpoint deleted in Settings fails before Claude Code starts: its id would go to Anthropic.
@@ -596,22 +722,31 @@ describe.skipIf(process.platform === 'win32')('a Claude Code run that leaves out
     const old = withLang('en', () => run(['agents'], { FAKE_CLAUDE_NO_APPLY: '1' }));
     const failure = old.result;
     await expect(failure).rejects.toBeInstanceOf(AgentRunError);
-    await expect(failure).rejects.toThrow(/^Claude Code's own subagents could not be left out of this run \(Unsupported control request subtype: apply_flag_settings\)/);
+    await expect(failure).rejects.toThrow(
+      /^Claude Code's own subagents could not be left out of this run \(Unsupported control request subtype: apply_flag_settings\)/,
+    );
     expect(old.lines().some((l) => 'prompt' in l)).toBe(false);
 
     const noList = withLang('en', () => run(['plugins'], { FAKE_CLAUDE_NO_PLUGINS: '1' }));
-    await expect(noList.result).rejects.toThrow(/^Claude Code could not list its plugins, so they could not be left out of this run \(unknown command plugin\)/);
+    await expect(noList.result).rejects.toThrow(
+      /^Claude Code could not list its plugins, so they could not be left out of this run \(unknown command plugin\)/,
+    );
     expect(turn(noList.lines())).toBeUndefined();
 
     const unlisted = withLang('en', () => run(['agents'], { FAKE_CLAUDE_NO_AGENTS: '1' }));
-    await expect(unlisted.result).rejects.toThrow(/^Claude Code's own subagents could not be left out of this run \(it did not list its subagents\)/);
+    await expect(unlisted.result).rejects.toThrow(
+      /^Claude Code's own subagents could not be left out of this run \(it did not list its subagents\)/,
+    );
     expect(unlisted.lines().some((l) => 'prompt' in l)).toBe(false);
   });
 
   it('denies a subagent of its own that replaces a built-in one by name', async () => {
     const r = run(['agents'], { FAKE_CLAUDE_OWN_EXPLORE: '1' });
     await r.result;
-    expect(r.lines().find((l) => 'prompt' in l)).toEqual({ prompt: 'hello', denied: ['Agent(Explore)', 'Agent(reviewer)', 'Agent(deck:designer)'] });
+    expect(r.lines().find((l) => 'prompt' in l)).toEqual({
+      prompt: 'hello',
+      denied: ['Agent(Explore)', 'Agent(reviewer)', 'Agent(deck:designer)'],
+    });
   });
 
   it('stops plainly while the prompt waits for its subagents to be denied', async () => {
@@ -699,7 +834,11 @@ describe("Claude Code's sandbox below full access", () => {
   });
 
   it("sets the user's own endpoint's variables over what the user's settings files set, with any sandbox", () => {
-    const run = { id: 'lab/qwen3', model: 'qwen3', endpoint: { id: 'lab', name: 'Lab', baseUrl: 'https://lab.example/v1/', models: ['qwen3'] } };
+    const run = {
+      id: 'lab/qwen3',
+      model: 'qwen3',
+      endpoint: { id: 'lab', name: 'Lab', baseUrl: 'https://lab.example/v1/', models: ['qwen3'] },
+    };
     const env = claudeEndpointEnv(run);
     expect(env).toEqual({
       ANTHROPIC_BASE_URL: 'https://lab.example',
@@ -730,7 +869,15 @@ describe("Claude Code's sandbox below full access", () => {
     expect(claudeEndpointProcessEnv({ ANTHROPIC_API_KEY: 'sk' }, env)).not.toHaveProperty('ANTHROPIC_API_KEY');
     expect(claudeRunSettings('full', [], [], {}, 'linux', [], env)).toEqual({ env });
     expect(claudeRunSettings('edit', ['hooks'], [], {}, 'linux', [], env)).toEqual({ disableAllHooks: true, ...sandbox, env });
-    const args = claudeArgs({ systemPrompt: 'b', ask: false, newSessionId: 'id', permission: 'full', platform: 'linux', endpointEnv: env, settingsFile: '/tmp/s.json' });
+    const args = claudeArgs({
+      systemPrompt: 'b',
+      ask: false,
+      newSessionId: 'id',
+      permission: 'full',
+      platform: 'linux',
+      endpointEnv: env,
+      settingsFile: '/tmp/s.json',
+    });
     expect(args.slice(args.indexOf('--settings'), args.indexOf('--settings') + 2)).toEqual(['--settings', '/tmp/s.json']);
   });
 
@@ -743,7 +890,10 @@ describe("Claude Code's sandbox below full access", () => {
     expect(claudeRunSettings('full', ['hooks'], [], {}, 'linux')).toEqual({ disableAllHooks: true });
     // What a turn leaves out and the protected paths are both denied.
     expect(claudeRunSettings('edit', [], [], { tools: ['WebSearch'] }, 'linux', ['/home/me/.mozilla'])).toMatchObject({
-      permissions: { deny: ['WebSearch', 'Read(//home/me/.mozilla)', 'Read(//home/me/.mozilla/**)'], ask: ['Bash(dangerouslyDisableSandbox:true)'] },
+      permissions: {
+        deny: ['WebSearch', 'Read(//home/me/.mozilla)', 'Read(//home/me/.mozilla/**)'],
+        ask: ['Bash(dangerouslyDisableSandbox:true)'],
+      },
     });
     expect(claudeRunSettings('full', [], [], {}, 'linux', ['/home/me/.mozilla'])).toBeUndefined();
     expect(claudeRunSettings('edit', [], [], {}, 'win32')).toBeUndefined();
@@ -755,7 +905,9 @@ describe("Claude Code's sandbox below full access", () => {
   });
 
   it('asks about the hosts its commands reach, and says when allowing runs a command outside it', () => {
-    const host = withLang('en', () => claudeApprovalRequest('SandboxNetworkAccess', { host: 'registry.npmjs.org' }, 'Allow network connection to registry.npmjs.org?'));
+    const host = withLang('en', () =>
+      claudeApprovalRequest('SandboxNetworkAccess', { host: 'registry.npmjs.org' }, 'Allow network connection to registry.npmjs.org?'),
+    );
     expect(host).toEqual({
       kind: 'fetch',
       detail: 'registry.npmjs.org',
@@ -830,16 +982,25 @@ describe("Claude Code's sandbox below full access", () => {
       expect(r.start()!.settings).toEqual({
         sandbox: {
           ...sandbox.sandbox,
-          filesystem: { disabled: false, denyRead: ['/home/me/.mozilla', '/srv/relay/data/relay.db'], denyWrite: ['/home/me/.mozilla', '/srv/relay/data/relay.db'] },
+          filesystem: {
+            disabled: false,
+            denyRead: ['/home/me/.mozilla', '/srv/relay/data/relay.db'],
+            denyWrite: ['/home/me/.mozilla', '/srv/relay/data/relay.db'],
+          },
         },
         permissions: {
-          deny: ['Read(//home/me/.mozilla)', 'Read(//home/me/.mozilla/**)', 'Read(//srv/relay/data/relay.db)', 'Read(//srv/relay/data/relay.db/**)'],
+          deny: [
+            'Read(//home/me/.mozilla)',
+            'Read(//home/me/.mozilla/**)',
+            'Read(//srv/relay/data/relay.db)',
+            'Read(//srv/relay/data/relay.db/**)',
+          ],
           ask: sandbox.permissions.ask,
         },
       });
     });
 
-    it('does not start when a protected path would be read as a pattern, or the user\'s settings open one again', async () => {
+    it("does not start when a protected path would be read as a pattern, or the user's settings open one again", async () => {
       const pattern = withLang('en', () => run('edit', {}, ['/home/me [1]/data/relay.db']));
       await expect(pattern.result).rejects.toThrow(/cannot protect \/home\/me \[1\]\/data\/relay\.db/);
       const home = join(dir, 'claude-home');
@@ -853,7 +1014,9 @@ describe("Claude Code's sandbox below full access", () => {
 
     it('says how to fix it when the sandbox cannot run, instead of running without it', async () => {
       const r = withLang('en', () => run('edit', { FAKE_CLAUDE_NO_SANDBOX: '1' }));
-      await expect(r.result).rejects.toThrow(/could not start its sandbox.*bubblewrap \(bwrap\) is not installed.*install bubblewrap and socat/s);
+      await expect(r.result).rejects.toThrow(
+        /could not start its sandbox.*bubblewrap \(bwrap\) is not installed.*install bubblewrap and socat/s,
+      );
     });
   });
 });
@@ -935,7 +1098,7 @@ describe("a turn's cost and tokens", () => {
     expect(claudeSessionFile({ CLAUDE_CONFIG_DIR: join(dir, 'no-home') }, cwd, 'aaaa-1')).toBeUndefined();
   });
 
-  it("reads what a session used so far from its last cost-state record, however large the file", async () => {
+  it('reads what a session used so far from its last cost-state record, however large the file', async () => {
     const file = join(dir, 'session.jsonl');
     // A line longer than a block, with characters of several bytes across the blocks' edges.
     const long = JSON.stringify({ type: 'assistant', message: { content: '說明'.repeat(70_000) + ' "cost-state" ' + 'é'.repeat(50_000) } });
@@ -969,7 +1132,10 @@ describe("a turn's cost and tokens", () => {
     writeFileSync(file, '');
     expect(await claudeSessionTally(file, 's')).toEqual({ costUsd: 0, inputTokens: 0, outputTokens: 0 });
     // A record that is not one, and a file that cannot be read.
-    writeFileSync(file, [costState(3), '{"type":"cost-state","sessionId":"s","totalCostUSD":"4"}', '{"type":"cost-state", broken'].join('\n'));
+    writeFileSync(
+      file,
+      [costState(3), '{"type":"cost-state","sessionId":"s","totalCostUSD":"4"}', '{"type":"cost-state", broken'].join('\n'),
+    );
     expect(await claudeSessionTally(file, 's')).toEqual({ costUsd: 3, inputTokens: 0, outputTokens: 0 });
     expect(await claudeSessionTally(join(dir, 'missing.jsonl'), 's')).toBeUndefined();
   });
@@ -987,13 +1153,19 @@ describe("a turn's cost and tokens", () => {
   });
 
   it('counts every model of a modelUsage, with the cached input', () => {
-    expect(claudeModelTokens({ a: usage(10, 1000, 200, 50), b: { inputTokens: 5, outputTokens: 1, costUSD: 0.1 } })).toEqual({ inputTokens: 1215, outputTokens: 51 });
-    expect(claudeModelTokens({ a: { inputTokens: -1, outputTokens: Number.NaN, cacheReadInputTokens: '3' } })).toEqual({ inputTokens: 0, outputTokens: 0 });
+    expect(claudeModelTokens({ a: usage(10, 1000, 200, 50), b: { inputTokens: 5, outputTokens: 1, costUSD: 0.1 } })).toEqual({
+      inputTokens: 1215,
+      outputTokens: 51,
+    });
+    expect(claudeModelTokens({ a: { inputTokens: -1, outputTokens: Number.NaN, cacheReadInputTokens: '3' } })).toEqual({
+      inputTokens: 0,
+      outputTokens: 0,
+    });
     expect(claudeModelTokens(undefined)).toBeUndefined();
     expect(claudeModelTokens([])).toBeUndefined();
   });
 
-  it("takes what the session used before the turn off the totals Claude Code reports", () => {
+  it('takes what the session used before the turn off the totals Claude Code reports', () => {
     const r = {
       total_cost_usd: 1.75,
       modelUsage: { a: usage(15, 2200, 230, 70), b: usage(300, 0, 0, 7) },
@@ -1007,13 +1179,23 @@ describe("a turn's cost and tokens", () => {
       outputTokens: 27,
     });
     // A new session: everything is the turn's.
-    expect(claudeTurnUsage(r, { costUsd: 0, inputTokens: 0, outputTokens: 0 })).toEqual({ costUsd: 1.75, inputTokens: 2745, outputTokens: 77 });
+    expect(claudeTurnUsage(r, { costUsd: 0, inputTokens: 0, outputTokens: 0 })).toEqual({
+      costUsd: 1.75,
+      inputTokens: 2745,
+      outputTokens: 77,
+    });
     // Not known what the session used before: no cost, the main conversation's tokens.
     expect(claudeTurnUsage(r, undefined)).toEqual({ costUsd: undefined, inputTokens: 1235, outputTokens: 20 });
     // Totals below what it had used (not the session's, then): the same.
-    expect(claudeTurnUsage(r, { costUsd: 5, inputTokens: 9999, outputTokens: 999 })).toEqual({ costUsd: undefined, inputTokens: 1235, outputTokens: 20 });
+    expect(claudeTurnUsage(r, { costUsd: 5, inputTokens: 9999, outputTokens: 999 })).toEqual({
+      costUsd: undefined,
+      inputTokens: 1235,
+      outputTokens: 20,
+    });
     // No modelUsage: the main conversation's tokens; float noise is rounded off.
-    expect(claudeTurnUsage({ total_cost_usd: 0.00508843, usage: r.usage }, { costUsd: 0.00483632, inputTokens: 0, outputTokens: 0 })).toEqual({
+    expect(
+      claudeTurnUsage({ total_cost_usd: 0.00508843, usage: r.usage }, { costUsd: 0.00483632, inputTokens: 0, outputTokens: 0 }),
+    ).toEqual({
       costUsd: 0.00025211,
       inputTokens: 1235,
       outputTokens: 20,
@@ -1037,19 +1219,38 @@ describe("a turn's cost and tokens", () => {
     expect(claudeTurnUsage(r, undefined)).toEqual(expected);
     expect(claudeTurnUsage(r, { costUsd: 9, inputTokens: 1e6, outputTokens: 1e6 })).toEqual(expected);
     // A run that called no model; a model without a cost.
-    expect(claudeTurnUsage({ ...r, model_usage_since_last_result: {} }, undefined)).toEqual({ costUsd: 0, inputTokens: 0, outputTokens: 0 });
-    expect(claudeTurnUsage({ ...r, model_usage_since_last_result: { m: usage(1, 2, 3, 4) } }, undefined)).toEqual({ costUsd: undefined, inputTokens: 6, outputTokens: 4 });
+    expect(claudeTurnUsage({ ...r, model_usage_since_last_result: {} }, undefined)).toEqual({
+      costUsd: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+    expect(claudeTurnUsage({ ...r, model_usage_since_last_result: { m: usage(1, 2, 3, 4) } }, undefined)).toEqual({
+      costUsd: undefined,
+      inputTokens: 6,
+      outputTokens: 4,
+    });
   });
 
   it("adds up the run's own usage over every result of the run (a call that ended after one is on the next)", () => {
     const events: AgentEvent[] = [];
     const parser = createClaudeParser((e) => events.push(e));
-    const result = (since: unknown) => JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'ok', session_id: 's', total_cost_usd: 1, model_usage_since_last_result: since });
+    const result = (since: unknown) =>
+      JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        result: 'ok',
+        session_id: 's',
+        total_cost_usd: 1,
+        model_usage_since_last_result: since,
+      });
     parser.handle(result({ a: { ...usage(1, 10, 0, 2), costUSD: 0.5 } }));
     parser.handle(result({ a: { ...usage(1, 0, 5, 1), costUSD: 0.25 }, b: { ...usage(3, 0, 0, 4), costUSD: 0.125 } }));
     expect(claudeTurnUsage(parser.result!, undefined)).toEqual({ costUsd: 0.875, inputTokens: 20, outputTokens: 7 });
     // A cost only one of them has: the model's cost is not known (the turn's then neither).
-    expect(addModelUsage({ a: { inputTokens: 1, costUSD: 0.5 } }, { a: { inputTokens: 2 } })).toEqual({ a: { inputTokens: 3, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 } });
+    expect(addModelUsage({ a: { inputTokens: 1, costUSD: 0.5 } }, { a: { inputTokens: 2 } })).toEqual({
+      a: { inputTokens: 3, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
+    });
     expect(addModelUsage(undefined, { a: { inputTokens: 1 } })).toEqual({ a: { inputTokens: 1 } });
     expect(addModelUsage({ a: { inputTokens: 1 } }, 'x')).toEqual({ a: { inputTokens: 1 } });
     expect(addModelUsage(undefined, [])).toBeUndefined();
@@ -1063,7 +1264,12 @@ describe("a turn's cost and tokens", () => {
       const home = join(dir, `claude-home-${n}`);
       const cwd = join(dir, `project-${n}`);
       mkdirSync(cwd, { recursive: true });
-      const run = (u: Record<string, unknown>, sessionId?: string, more: Partial<Parameters<typeof claudeRunner.run>[0]> = {}, env: Record<string, string> = {}) =>
+      const run = (
+        u: Record<string, unknown>,
+        sessionId?: string,
+        more: Partial<Parameters<typeof claudeRunner.run>[0]> = {},
+        env: Record<string, string> = {},
+      ) =>
         claudeRunner.run({
           bin,
           env: { ...process.env, CLAUDE_CONFIG_DIR: home, FAKE_CLAUDE_RUN_USAGE: JSON.stringify(u), ...env },
@@ -1083,10 +1289,15 @@ describe("a turn's cost and tokens", () => {
       const { run } = setup();
       const first = await run({ cost: 0.5, input: 10, cacheRead: 1000, cacheWrite: 200, output: 50 });
       expect(first).toEqual({ sessionId: expect.any(String), costUsd: 0.5, inputTokens: 1210, outputTokens: 50 });
-      const second = await run({ cost: 0.25, input: 5, cacheRead: 1200, cacheWrite: 30, output: 20, subagent: { input: 300, output: 7 } }, first.sessionId);
+      const second = await run(
+        { cost: 0.25, input: 5, cacheRead: 1200, cacheWrite: 30, output: 20, subagent: { input: 300, output: 7 } },
+        first.sessionId,
+      );
       expect(second).toEqual({ sessionId: first.sessionId, costUsd: 0.25, inputTokens: 1535, outputTokens: 27 });
       // A turn that failed: Claude Code still counted what it used, and the next turn does not show it.
-      await expect(run({ cost: 1, input: 1, cacheRead: 5000, cacheWrite: 0, output: 1, fail: true }, first.sessionId)).rejects.toThrow('the model failed');
+      await expect(run({ cost: 1, input: 1, cacheRead: 5000, cacheWrite: 0, output: 1, fail: true }, first.sessionId)).rejects.toThrow(
+        'the model failed',
+      );
       const fourth = await run({ cost: 0.125, input: 1, cacheRead: 1300, cacheWrite: 0, output: 3 }, first.sessionId);
       expect(fourth).toEqual({ sessionId: first.sessionId, costUsd: 0.125, inputTokens: 1301, outputTokens: 3 });
     });
@@ -1094,10 +1305,21 @@ describe("a turn's cost and tokens", () => {
     it("shows its own when run again without a flag an older Claude Code rejects, and on the user's own endpoint (no cost)", async () => {
       const { run } = setup();
       const first = await run({ cost: 0.5, input: 10, cacheRead: 1000, cacheWrite: 0, output: 50 });
-      const again = await run({ cost: 0.25, input: 5, cacheRead: 1100, cacheWrite: 0, output: 20 }, first.sessionId, {}, { FAKE_CLAUDE_REJECT: '--system-prompt-snapshot' });
+      const again = await run(
+        { cost: 0.25, input: 5, cacheRead: 1100, cacheWrite: 0, output: 20 },
+        first.sessionId,
+        {},
+        { FAKE_CLAUDE_REJECT: '--system-prompt-snapshot' },
+      );
       expect(again).toEqual({ sessionId: first.sessionId, costUsd: 0.25, inputTokens: 1105, outputTokens: 20 });
-      const backends = { apis: {}, endpoints: [{ id: 'homelab', name: 'Homelab', baseUrl: 'http://10.0.0.5:11434/v1', models: ['gemma4:e4b'] }] };
-      const onEndpoint = await run({ cost: 0.75, input: 7, cacheRead: 1200, cacheWrite: 0, output: 9 }, first.sessionId, { backends, model: 'homelab/gemma4:e4b' });
+      const backends = {
+        apis: {},
+        endpoints: [{ id: 'homelab', name: 'Homelab', baseUrl: 'http://10.0.0.5:11434/v1', models: ['gemma4:e4b'] }],
+      };
+      const onEndpoint = await run({ cost: 0.75, input: 7, cacheRead: 1200, cacheWrite: 0, output: 9 }, first.sessionId, {
+        backends,
+        model: 'homelab/gemma4:e4b',
+      });
       expect(onEndpoint).toEqual({ sessionId: first.sessionId, costUsd: undefined, inputTokens: 1207, outputTokens: 9 });
     });
 
@@ -1107,8 +1329,22 @@ describe("a turn's cost and tokens", () => {
       expect(first).toEqual({ sessionId: expect.any(String), costUsd: 0.5, inputTokens: 1210, outputTokens: 50 });
       // A record the stand-in counts on from but Harness Relay does not take (another session's).
       const file = join(home, 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'), `${first.sessionId}.jsonl`);
-      writeFileSync(file, readFileSync(file, 'utf8') + JSON.stringify({ type: 'cost-state', sessionId: 'other', totalCostUSD: 100 }) + '\n');
-      const second = await run({ cost: 0.25, input: 5, cacheRead: 1200, cacheWrite: 30, output: 20, subagent: { input: 300, output: 7, cost: 0.05 }, perRun: true }, first.sessionId);
+      writeFileSync(
+        file,
+        readFileSync(file, 'utf8') + JSON.stringify({ type: 'cost-state', sessionId: 'other', totalCostUSD: 100 }) + '\n',
+      );
+      const second = await run(
+        {
+          cost: 0.25,
+          input: 5,
+          cacheRead: 1200,
+          cacheWrite: 30,
+          output: 20,
+          subagent: { input: 300, output: 7, cost: 0.05 },
+          perRun: true,
+        },
+        first.sessionId,
+      );
       expect(second).toEqual({ sessionId: first.sessionId, costUsd: 0.25, inputTokens: 1535, outputTokens: 27 });
     });
   });

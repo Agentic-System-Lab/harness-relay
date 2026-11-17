@@ -85,7 +85,9 @@ function need(data: Buffer, end: number): void {
 // --- JPEG ---------------------------------------------------------------------------------
 
 /** Markers a JPEG needs to be shown: frames, tables, restart interval, scan; nothing else. */
-const JPEG_KEPT = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf, 0xdb, 0xdc, 0xdd, 0xdf]);
+const JPEG_KEPT = new Set([
+  0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf, 0xdb, 0xdc, 0xdd, 0xdf,
+]);
 
 /** Whether an APPn segment is one showing the image needs: JFIF (APP0), its ICC profile (APP2), Adobe's colour transform (APP14). */
 function jpegAppKept(marker: number, payload: Buffer): boolean {
@@ -235,7 +237,26 @@ function jpegWithout(data: Buffer): Buffer {
 // --- PNG ----------------------------------------------------------------------------------
 
 /** Chunks a PNG needs to be shown (critical, colour, transparency, animation, HDR): nothing else. */
-const PNG_KEPT = new Set(['IHDR', 'PLTE', 'IDAT', 'IEND', 'tRNS', 'gAMA', 'cHRM', 'sRGB', 'iCCP', 'sBIT', 'bKGD', 'pHYs', 'acTL', 'fcTL', 'fdAT', 'cICP', 'mDCV', 'cLLI']);
+const PNG_KEPT = new Set([
+  'IHDR',
+  'PLTE',
+  'IDAT',
+  'IEND',
+  'tRNS',
+  'gAMA',
+  'cHRM',
+  'sRGB',
+  'iCCP',
+  'sBIT',
+  'bKGD',
+  'pHYs',
+  'acTL',
+  'fcTL',
+  'fdAT',
+  'cICP',
+  'mDCV',
+  'cLLI',
+]);
 
 /** A PNG chunk of `type` and `data`, with its CRC. */
 function pngChunk(type: string, data: Buffer): Buffer {
@@ -295,7 +316,14 @@ const WEBP_FRAME_KEPT = new Set(['VP8 ', 'VP8L', 'ALPH']);
  * Keeps in `out` the chunks from `at` to `end` that `kept` names, padded as they are (or as `change`
  * makes them); `end` must fall on a chunk's end.
  */
-function webpChunks(data: Buffer, at: number, end: number, kept: Set<string>, out: Kept, change?: (type: string, chunk: Buffer) => Buffer | undefined): void {
+function webpChunks(
+  data: Buffer,
+  at: number,
+  end: number,
+  kept: Set<string>,
+  out: Kept,
+  change?: (type: string, chunk: Buffer) => Buffer | undefined,
+): void {
   while (at < end) {
     need(data, at + 8);
     const type = data.subarray(at, at + 4).toString('latin1');

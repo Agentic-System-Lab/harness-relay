@@ -132,14 +132,27 @@ function date(cwd: string) {
     cwd,
     encoding: 'utf8',
     timeout: slow(20_000),
-    env: { ...process.env, GIT_CONFIG_GLOBAL: join(tmp, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1', SITE: SITE!, GITHUB_STEP_SUMMARY: summary },
+    env: {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: join(tmp, 'no-gitconfig'),
+      GIT_CONFIG_NOSYSTEM: '1',
+      SITE: SITE!,
+      GITHUB_STEP_SUMMARY: summary,
+    },
   });
-  return { status: r.status, out: r.stdout + r.stderr, summary: readFileSync(summary, 'utf8'), sitemap: readFileSync(join(cwd, '_site/sitemap.xml'), 'utf8') };
+  return {
+    status: r.status,
+    out: r.stdout + r.stderr,
+    summary: readFileSync(summary, 'utf8'),
+    sitemap: readFileSync(join(cwd, '_site/sitemap.xml'), 'utf8'),
+  };
 }
 
 /** The repository's sitemap with these dates after the pages' addresses, as the workflow writes them. */
 const dated = (dates: Record<string, string>) =>
-  sitemap.replace(/^( *)<loc>([^<]+)<\/loc>\n/gm, (line, indent: string, loc: string) => (dates[loc] ? `${line}${indent}<lastmod>${dates[loc]}</lastmod>\n` : line));
+  sitemap.replace(/^( *)<loc>([^<]+)<\/loc>\n/gm, (line, indent: string, loc: string) =>
+    dates[loc] ? `${line}${indent}<lastmod>${dates[loc]}</lastmod>\n` : line,
+  );
 
 // The step's script runs in bash, which the Windows runners do not have as Linux's.
 describe.skipIf(process.platform === 'win32')('dating the pages in the sitemap', { timeout: slow(20_000) }, () => {
@@ -157,7 +170,10 @@ describe.skipIf(process.platform === 'win32')('dating the pages in the sitemap',
   it('leaves a page no commit has without a date, and only warns', () => {
     const repo = checkout();
     const MISSING = `${EN}missing/`;
-    const xml = readFileSync(join(repo, '_site/sitemap.xml'), 'utf8').replace('</urlset>', `  <url>\n    <loc>${MISSING}</loc>\n  </url>\n</urlset>`);
+    const xml = readFileSync(join(repo, '_site/sitemap.xml'), 'utf8').replace(
+      '</urlset>',
+      `  <url>\n    <loc>${MISSING}</loc>\n  </url>\n</urlset>`,
+    );
     writeFileSync(join(repo, '_site/sitemap.xml'), xml);
     const r = date(repo);
     expect(r.status, r.out).toBe(0);

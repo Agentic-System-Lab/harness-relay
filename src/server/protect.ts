@@ -144,7 +144,8 @@ export function codespaceSecretDirs(env: NodeJS.ProcessEnv = process.env, home =
   if (env.CODESPACES !== 'true') return [];
   const ghConfig = env.GH_CONFIG_DIR?.trim();
   const xdgConfig = env.XDG_CONFIG_HOME?.trim();
-  const gh = ghConfig && isAbsolute(ghConfig) ? ghConfig : join(xdgConfig && isAbsolute(xdgConfig) ? xdgConfig : join(home, '.config'), 'gh');
+  const gh =
+    ghConfig && isAbsolute(ghConfig) ? ghConfig : join(xdgConfig && isAbsolute(xdgConfig) ? xdgConfig : join(home, '.config'), 'gh');
   return [shared, gh];
 }
 
@@ -305,16 +306,17 @@ export function relayFolderOverlap(
  * A command as the CLI is started: where it was found (as given, or the first match on the PATH) and
  * its real path, when it exists.
  */
-export function commandPaths(
-  bin: string,
-  env: NodeJS.ProcessEnv = process.env,
-  platform: NodeJS.Platform = process.platform,
-): string[] {
+export function commandPaths(bin: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string[] {
   // On Windows a command is found by its extensions too (`claude.exe`, `codex.cmd`).
   const exts = platform === 'win32' ? ['', ...(env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)] : [''];
-  const found = (/[\\/]/.test(bin) ? [bin] : (env.PATH ?? '').split(delimiter).filter(Boolean).map((dir) => join(dir, bin))).flatMap(
-    (p) => exts.map((ext) => p + ext),
-  );
+  const found = (
+    /[\\/]/.test(bin)
+      ? [bin]
+      : (env.PATH ?? '')
+          .split(delimiter)
+          .filter(Boolean)
+          .map((dir) => join(dir, bin))
+  ).flatMap((p) => exts.map((ext) => p + ext));
   const at = found.find((p) => existsSync(p) && statSync(p).isFile());
   return at ? [...new Set([resolve(at), real(at)])] : [];
 }

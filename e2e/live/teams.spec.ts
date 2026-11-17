@@ -1,7 +1,23 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
-import { CLOUD, CLOUD_CLIS, ENDPOINTS, ENDPOINT_CLIS, OPEN, askPermission, editPermission, folder, has, homeFolder, liveTurn, modelId, ownModel, setUpEndpoints, type LiveMember } from './live';
+import {
+  CLOUD,
+  CLOUD_CLIS,
+  ENDPOINTS,
+  ENDPOINT_CLIS,
+  OPEN,
+  askPermission,
+  editPermission,
+  folder,
+  has,
+  homeFolder,
+  liveTurn,
+  modelId,
+  ownModel,
+  setUpEndpoints,
+  type LiveMember,
+} from './live';
 
 test.use({ live: true });
 
@@ -34,7 +50,9 @@ test.describe('a team on cloud and local models together', () => {
       ['Spain', /madrid/i],
       ['Kenya', /nairobi/i],
     ] as const;
-    const text = members.map((m, i) => `@${m.name} what is the capital of ${questions[i]![0]}?`).join(' ') + ' Each of you, answer only your own question, in one word.';
+    const text =
+      members.map((m, i) => `@${m.name} what is the capital of ${questions[i]![0]}?`).join(' ') +
+      ' Each of you, answer only your own question, in one word.';
     const r = await liveTurn(relay, members, text, { cwd: folder(relay, 'mixed'), permission, approvals: 'deny' });
     r.replies.forEach((reply, i) => {
       expect(reply.error, `${reply.name} failed`).toBeUndefined();
@@ -50,7 +68,9 @@ test.describe("writing in each of a chat's working directories", () => {
     ...[...ENDPOINT_CLIS, ...OPEN].filter(has).flatMap((provider) => (first ? [{ provider, model: modelId(first) }] : [])),
     // On their own models: Claude Code, Codex and Grok in their own sandboxes; Cursor and Antigravity, which
     // have none, asking before each command (allowed: `echo hi >`).
-    ...(CLOUD ? CLOUD_CLIS.filter(has).map((provider) => ({ provider, ...(ownModel(provider) ? { model: ownModel(provider) } : {}) })) : []),
+    ...(CLOUD
+      ? CLOUD_CLIS.filter(has).map((provider) => ({ provider, ...(ownModel(provider) ? { model: ownModel(provider) } : {}) }))
+      : []),
   ];
   test.skip(!writers.length, 'needs an endpoint, or E2E_LIVE_CLOUD=1');
 
@@ -91,7 +111,10 @@ test.describe("writing in each of a chat's working directories", () => {
       expect(existsSync(join(dirs[0]!, 'notes.md')), `the first folder; ${calls}`).toBe(true);
       expect(existsSync(second), `the second folder; ${calls}`).toBe(true);
       // The write in the second folder was asked, the card saying where it is.
-      expect(r.approvals.map((a) => a.reason ?? ''), calls).toContainEqual(expect.stringMatching(/another of the chat's working directories/));
+      expect(
+        r.approvals.map((a) => a.reason ?? ''),
+        calls,
+      ).toContainEqual(expect.stringMatching(/another of the chat's working directories/));
     } finally {
       home.remove();
     }
@@ -112,7 +135,10 @@ test.describe('Antigravity', () => {
       { cwd: dir, permission: 'edit', approvals: 'ask' },
     );
     const calls = `tools: ${r.tools.join('; ') || 'none'}; approvals: ${r.approvals.map((a) => `${a.kind} ${a.detail ?? ''}`).join('; ') || 'none'}`;
-    expect(r.approvals.some((a) => a.kind === 'command' && !a.allowed), `the command was asked about; ${calls}`).toBe(true);
+    expect(
+      r.approvals.some((a) => a.kind === 'command' && !a.allowed),
+      `the command was asked about; ${calls}`,
+    ).toBe(true);
     expect(existsSync(join(dir, 'refused.txt')), calls).toBe(false);
     // agy ends its turn at a refusal, telling the model nothing: the call says so, and nothing follows it.
     expect(r.tools.join('\n'), calls).toContain('Antigravity ends its turn after a refusal');
@@ -127,9 +153,15 @@ test.describe('Antigravity', () => {
     mkdirSync(join(dir, '.agents'), { recursive: true });
     writeFileSync(
       join(dir, '.agents', 'mcp_config.json'),
-      JSON.stringify({ mcpServers: { marker: { command: process.execPath, args: ['-e', `require('fs').writeFileSync(${JSON.stringify(marker)}, '')`] } } }),
+      JSON.stringify({
+        mcpServers: { marker: { command: process.execPath, args: ['-e', `require('fs').writeFileSync(${JSON.stringify(marker)}, '')`] } },
+      }),
     );
-    const r = await liveTurn(relay, [{ provider: 'antigravity', name: 'Ada' }], 'Say hello.', { cwd: dir, permission: 'read-only', approvals: 'ask' });
+    const r = await liveTurn(relay, [{ provider: 'antigravity', name: 'Ada' }], 'Say hello.', {
+      cwd: dir,
+      permission: 'read-only',
+      approvals: 'ask',
+    });
     expect(r.approvals.map((a) => `${a.kind} ${a.detail ?? ''}`)).toContainEqual(expect.stringMatching(/^other .*mcp_config\.json/));
     expect(r.replies[0]?.error ?? '').toMatch(/The turn did not start: this project has setup Antigravity would run by itself/);
     expect(existsSync(marker)).toBe(false);
@@ -139,21 +171,32 @@ test.describe('Antigravity', () => {
 test.describe('Copilot', () => {
   const first = ENDPOINTS[0];
   /** On the user's own endpoint when there is one, else on its own service (E2E_LIVE_CLOUD=1). */
-  const member = (): LiveMember => (first ? { provider: 'copilot', name: 'Ada', model: modelId(first) } : { provider: 'copilot', name: 'Ada', ...(ownModel('copilot') ? { model: ownModel('copilot') } : {}) });
+  const member = (): LiveMember =>
+    first
+      ? { provider: 'copilot', name: 'Ada', model: modelId(first) }
+      : { provider: 'copilot', name: 'Ada', ...(ownModel('copilot') ? { model: ownModel('copilot') } : {}) };
   test.skip(!has('copilot') || (!first && !CLOUD), 'needs Copilot, and an endpoint or E2E_LIVE_CLOUD=1');
 
   test('copilot: a refused command ends its turn, and the chat says so', async ({ relay }) => {
     await setUpEndpoints(relay);
     const dir = folder(relay, 'refused');
     // In read-only it asks before a command that writes, which the live tests refuse (liveAllows).
-    const r = await liveTurn(relay, [member()], 'Use your shell tool to run exactly this command: echo no > refused.txt\nThen reply with the word DONE.', {
-      cwd: dir,
-      permission: 'read-only',
-      approvals: 'ask',
-    });
+    const r = await liveTurn(
+      relay,
+      [member()],
+      'Use your shell tool to run exactly this command: echo no > refused.txt\nThen reply with the word DONE.',
+      {
+        cwd: dir,
+        permission: 'read-only',
+        approvals: 'ask',
+      },
+    );
     const calls = `tools: ${r.tools.join('; ') || 'none'}; approvals: ${r.approvals.map((a) => `${a.kind} ${a.detail ?? ''}`).join('; ') || 'none'}`;
     test.skip(!r.tools.length && !r.approvals.length, `the model did not try the command; ${calls}`);
-    expect(r.approvals.some((a) => a.kind === 'command' && !a.allowed), `the command was asked about; ${calls}`).toBe(true);
+    expect(
+      r.approvals.some((a) => a.kind === 'command' && !a.allowed),
+      `the command was asked about; ${calls}`,
+    ).toBe(true);
     expect(existsSync(join(dir, 'refused.txt')), calls).toBe(false);
     // Copilot ends its turn at a refusal: the call says so, and nothing follows it.
     expect(r.tools.join('\n'), calls).toContain('Copilot ends its turn after a refusal');
@@ -168,7 +211,10 @@ test.describe('Copilot', () => {
     // A project hook Copilot would run as its session opens, without asking: it leaves a marker.
     mkdirSync(join(dir, '.github', 'hooks'), { recursive: true });
     const run = `${JSON.stringify(process.execPath)} -e ${JSON.stringify(`require('fs').writeFileSync(${JSON.stringify(marker)}, '')`)}`;
-    writeFileSync(join(dir, '.github', 'hooks', 'marker.json'), JSON.stringify({ version: 1, hooks: { sessionStart: [{ type: 'command', bash: run, powershell: `& ${run}`, timeoutSec: 30 }] } }));
+    writeFileSync(
+      join(dir, '.github', 'hooks', 'marker.json'),
+      JSON.stringify({ version: 1, hooks: { sessionStart: [{ type: 'command', bash: run, powershell: `& ${run}`, timeoutSec: 30 }] } }),
+    );
     const r = await liveTurn(relay, [member()], 'Say hello.', { cwd: dir, permission: 'read-only', approvals: 'ask' });
     expect(r.approvals.map((a) => `${a.kind} ${a.detail ?? ''}`)).toContainEqual(expect.stringMatching(/^other .*marker\.json/));
     expect(r.replies[0]?.error ?? '').toMatch(/The turn did not start: this project has hooks Copilot would run by itself/);

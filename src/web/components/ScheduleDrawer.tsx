@@ -255,11 +255,7 @@ export function ScheduleDrawer({
           <button className="ghost" onClick={onClose}>
             {t.common.cancel}
           </button>
-          <button
-            className="primary"
-            disabled={saving || problems.length > 0 || !changed || (draft.enabled && !teamReady)}
-            onClick={save}
-          >
+          <button className="primary" disabled={saving || problems.length > 0 || !changed || (draft.enabled && !teamReady)} onClick={save}>
             {saving ? t.schedule.saving : t.common.save}
           </button>
         </footer>

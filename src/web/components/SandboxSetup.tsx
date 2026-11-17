@@ -13,7 +13,12 @@ import { SectionTitle } from './SectionTitle';
 function NeedItem({ need }: { need: SandboxNeedView }) {
   const t = useT();
   const s = t.sandboxSetup;
-  const what = need.kind === 'packages' ? s.needs.packages(need.items.join(s.sep)) : need.kind === 'apparmor' ? s.needs.apparmor(need.items[0] ?? '') : s.needs.node(need.items[0] ?? '');
+  const what =
+    need.kind === 'packages'
+      ? s.needs.packages(need.items.join(s.sep))
+      : need.kind === 'apparmor'
+        ? s.needs.apparmor(need.items[0] ?? '')
+        : s.needs.node(need.items[0] ?? '');
   return (
     <li>
       <span>{what}</span>
@@ -54,7 +59,9 @@ export function SandboxSetupBody({ view, onView }: { view: SandboxSetupView | un
               <NeedItem key={n.kind} need={n} />
             ))}
           </ul>
-          {view.admin && view.needs.some((n) => n.kind !== 'node' && !n.blocked) && !running && <p className="muted small">{s.admin[view.admin]}</p>}
+          {view.admin && view.needs.some((n) => n.kind !== 'node' && !n.blocked) && !running && (
+            <p className="muted small">{s.admin[view.admin]}</p>
+          )}
         </>
       ) : (
         <p className="muted small">{job?.state === 'success' ? s.done : view.platform === 'win32' ? s.windows : s.allSet}</p>

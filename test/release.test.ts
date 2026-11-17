@@ -112,7 +112,23 @@ describe('the version rules', () => {
   });
 
   it('refuses anything else', () => {
-    for (const v of ['26-11-10', '2026/11/10', '20261110', '2026-11-10-beta', '2026-11-10-rc.', '2026-11-10.', '2026-11-10.1.2', '2026-11-10-rc.1.1', '2026-11-10.1-rc.1.1', '2026-11-10-rc.1-rc', '2026-11-10-rc-rc', '2026-11-10.1-rc.', '2026-11-10rc', 'latest', '2026-11-10-rc.a']) {
+    for (const v of [
+      '26-11-10',
+      '2026/11/10',
+      '20261110',
+      '2026-11-10-beta',
+      '2026-11-10-rc.',
+      '2026-11-10.',
+      '2026-11-10.1.2',
+      '2026-11-10-rc.1.1',
+      '2026-11-10.1-rc.1.1',
+      '2026-11-10-rc.1-rc',
+      '2026-11-10-rc-rc',
+      '2026-11-10.1-rc.',
+      '2026-11-10rc',
+      'latest',
+      '2026-11-10-rc.a',
+    ]) {
       expect(parseVersion(v).ok, v).toBe(false);
     }
   });
@@ -160,7 +176,9 @@ describe('checking a release', () => {
     expect(errors('2026-11-09-rc')).toMatch(/2026-11-09 is not today: today is 2026-11-10 \(Asia\/Taipei\)/);
     expect(errors('2026-11-11-rc')).toMatch(/is not today/);
     expect(errors('2025-11-10')).toMatch(/is not today/);
-    expect(errors('2026-11-09-rc', ['2026-11-10-rc'])).toMatch(/next release candidate is 2026-11-10-rc\.1, and its next release 2026-11-10\./);
+    expect(errors('2026-11-09-rc', ['2026-11-10-rc'])).toMatch(
+      /next release candidate is 2026-11-10-rc\.1, and its next release 2026-11-10\./,
+    );
   });
 
   it('refuses a version that breaks the rules, with the reason and the versions today takes', () => {
@@ -170,7 +188,9 @@ describe('checking a release', () => {
   });
 
   it('refuses what has been released already', () => {
-    expect(errors('2026-11-10-rc', ['2026-11-10-rc'])).toMatch(/2026-11-10-rc has already been released\. The next one is 2026-11-10-rc\.1/);
+    expect(errors('2026-11-10-rc', ['2026-11-10-rc'])).toMatch(
+      /2026-11-10-rc has already been released\. The next one is 2026-11-10-rc\.1/,
+    );
     expect(errors('2026-11-10-rc.1', ['2026-11-10-rc', '2026-11-10-rc.1'])).toMatch(/already been released.*rc\.2/);
   });
 
@@ -178,7 +198,9 @@ describe('checking a release', () => {
     const tags = ['2026-11-10-rc', '2026-11-10-rc.1'];
     expect(check('2026-11-10-rc.2', tags).ok).toBe(true);
     expect(errors('2026-11-10-rc.3', tags)).toMatch(/skips a number: .* the next is 2026-11-10-rc\.2/);
-    expect(errors('2026-11-10-rc.1')).toMatch(/is a patch, but there is no release candidate of 2026-11-10 to patch yet: release 2026-11-10-rc first/);
+    expect(errors('2026-11-10-rc.1')).toMatch(
+      /is a patch, but there is no release candidate of 2026-11-10 to patch yet: release 2026-11-10-rc first/,
+    );
     expect(errors('2026-11-10.1')).toMatch(/no release today to patch yet: release 2026-11-10 first/);
   });
 
@@ -199,7 +221,9 @@ describe('checking a release', () => {
     const more = [...tags, '2026-11-10.2-rc', '2026-11-10.2-rc.1'];
     expect(check('2026-11-10.2-rc.2', more)).toMatchObject({ ok: true, semver: '2026.1110.2-rc.2' });
     expect(errors('2026-11-10.2-rc.3', more)).toMatch(/skips a number: .* the next is 2026-11-10\.2-rc\.2/);
-    expect(errors('2026-11-10.2-rc.1', tags)).toMatch(/is a patch, but there is no release candidate of 2026-11-10\.2 to patch yet: release 2026-11-10\.2-rc first/);
+    expect(errors('2026-11-10.2-rc.1', tags)).toMatch(
+      /is a patch, but there is no release candidate of 2026-11-10\.2 to patch yet: release 2026-11-10\.2-rc first/,
+    );
     expect(check('2026-11-10.2', more).ok).toBe(true);
     // A release candidate of a release that is out would sort before it, and before the newest release.
     expect(errors('2026-11-10-rc.2', tags)).toMatch(
@@ -208,8 +232,12 @@ describe('checking a release', () => {
     expect(errors('2026-11-10.1-rc', tags)).toMatch(/release candidate of 2026-11-10\.1, which is out already/);
     expect(errors('2026-11-10-rc', ['2026-11-10'])).toMatch(/is out already: today's next release candidate is 2026-11-10\.1-rc/);
     // Nor one of a later patch than the next.
-    expect(errors('2026-11-10.3-rc', tags)).toMatch(/release candidate of 2026-11-10\.3, but today's next release is 2026-11-10\.2: its next release candidate is 2026-11-10\.2-rc\./);
-    expect(errors('2026-11-10.1-rc', ['2026-11-10-rc'])).toMatch(/today's next release is 2026-11-10: its next release candidate is 2026-11-10-rc\.1\./);
+    expect(errors('2026-11-10.3-rc', tags)).toMatch(
+      /release candidate of 2026-11-10\.3, but today's next release is 2026-11-10\.2: its next release candidate is 2026-11-10\.2-rc\./,
+    );
+    expect(errors('2026-11-10.1-rc', ['2026-11-10-rc'])).toMatch(
+      /today's next release is 2026-11-10: its next release candidate is 2026-11-10-rc\.1\./,
+    );
     // Another day's error names today's next ones.
     expect(errors('2026-11-09', tags)).toMatch(/Today's next release candidate is 2026-11-10\.2-rc, and its next release 2026-11-10\.2\./);
   });
@@ -219,7 +247,13 @@ describe('checking a release', () => {
     expect(check('2026-11-10-rc', tags).ok).toBe(true);
     expect(nextVersion(tags, '2026-11-09', true)).toBe('2026-11-09.1-rc');
     expect(nextVersion(tags, '2026-11-09', false)).toBe('2026-11-09.1');
-    expect(nextVersion(tags.filter((t) => t !== '2026-11-09'), '2026-11-09', true)).toBe('2026-11-09-rc.2');
+    expect(
+      nextVersion(
+        tags.filter((t) => t !== '2026-11-09'),
+        '2026-11-09',
+        true,
+      ),
+    ).toBe('2026-11-09-rc.2');
   });
 
   it('is made from main only', () => {
@@ -235,11 +269,23 @@ describe('checking a release', () => {
 
   it("takes the version's tag without a release as the Release workflow's own, and no other tag", () => {
     // The tag a run made at its start (that run's, or one's that failed after it): the version is not out.
-    expect(check('2026-11-10-rc', ['2026-11-10-rc'], { ownTag: true })).toMatchObject({ ok: true, tag: '2026-11-10-rc', previous: undefined });
-    expect(check('2026-11-10-rc.1', ['2026-11-10-rc', '2026-11-10-rc.1'], { ownTag: true })).toMatchObject({ ok: true, previous: '2026-11-10-rc' });
+    expect(check('2026-11-10-rc', ['2026-11-10-rc'], { ownTag: true })).toMatchObject({
+      ok: true,
+      tag: '2026-11-10-rc',
+      previous: undefined,
+    });
+    expect(check('2026-11-10-rc.1', ['2026-11-10-rc', '2026-11-10-rc.1'], { ownTag: true })).toMatchObject({
+      ok: true,
+      previous: '2026-11-10-rc',
+    });
     // The versions before it still count, and its notes still start at the one before it.
-    expect(check('2026-11-10', ['2026-11-09', '2026-11-10-rc', '2026-11-10'], { ownTag: true })).toMatchObject({ ok: true, previous: '2026-11-09' });
-    expect(errors('2026-11-10-rc.2', ['2026-11-10-rc', '2026-11-10-rc.2'], { ownTag: true })).toMatch(/skips a number: .* the next is 2026-11-10-rc\.1/);
+    expect(check('2026-11-10', ['2026-11-09', '2026-11-10-rc', '2026-11-10'], { ownTag: true })).toMatchObject({
+      ok: true,
+      previous: '2026-11-09',
+    });
+    expect(errors('2026-11-10-rc.2', ['2026-11-10-rc', '2026-11-10-rc.2'], { ownTag: true })).toMatch(
+      /skips a number: .* the next is 2026-11-10-rc\.1/,
+    );
     expect(errors('2026-11-10-rc', ['2026-11-10', '2026-11-10-rc'], { ownTag: true })).toMatch(/is out already/);
     // Without it, the tag is a release that is out.
     expect(errors('2026-11-10-rc', ['2026-11-10-rc'], { ownTag: false })).toMatch(/has already been released/);
@@ -249,11 +295,13 @@ describe('checking a release', () => {
 
   it('asks GitHub whether a tag has a release, and takes only its Not Found as none', async () => {
     const asked: string[] = [];
-    const answer = (fail?: string): GitHubApi => (path) => {
-      asked.push(path);
-      if (fail) throw new Error(`gh api ${path}: ${fail}`);
-      return { tag_name: '2026-11-10-rc' };
-    };
+    const answer =
+      (fail?: string): GitHubApi =>
+      (path) => {
+        asked.push(path);
+        if (fail) throw new Error(`gh api ${path}: ${fail}`);
+        return { tag_name: '2026-11-10-rc' };
+      };
     expect(await hasRelease(answer(), 'o/r', '2026-11-10-rc')).toBe(true);
     expect(asked).toEqual(['repos/o/r/releases/tags/2026-11-10-rc']);
     expect(await hasRelease(answer('gh: Not Found (HTTP 404)'), 'o/r', '2026-11-10-rc')).toBe(false);
@@ -287,7 +335,16 @@ describe("where a release's notes start", () => {
   });
 
   it('goes by version, not by the order the tags are listed in, and ignores tags that are not versions', () => {
-    const shuffled = ['v1.0', '2026-11-11.1', 'latest', '2026-11-12-rc.1', '2026-11-11', '2026-11-12-rc', '2026-11-11.1-rc', '2026-11-11-rc'];
+    const shuffled = [
+      'v1.0',
+      '2026-11-11.1',
+      'latest',
+      '2026-11-12-rc.1',
+      '2026-11-11',
+      '2026-11-12-rc',
+      '2026-11-11.1-rc',
+      '2026-11-11-rc',
+    ];
     expect(since('2026-11-12', shuffled)).toBe('2026-11-11.1');
     expect(since('2026-11-12-rc.2', shuffled)).toBe('2026-11-12-rc.1');
     // Patches by number, not as text: .10 comes after .9.
@@ -304,17 +361,32 @@ describe("where a release's notes start", () => {
   });
 
   it('comes with an accepted version', () => {
-    expect(checkRelease({ version: '2026-11-12', today: '2026-11-12', tags: made.slice(0, 6) })).toMatchObject({ ok: true, previous: '2026-11-11.1' });
-    expect(checkRelease({ version: '2026-11-12-rc.1', today: '2026-11-12', tags: made.slice(0, 5) })).toMatchObject({ ok: true, previous: '2026-11-12-rc' });
+    expect(checkRelease({ version: '2026-11-12', today: '2026-11-12', tags: made.slice(0, 6) })).toMatchObject({
+      ok: true,
+      previous: '2026-11-11.1',
+    });
+    expect(checkRelease({ version: '2026-11-12-rc.1', today: '2026-11-12', tags: made.slice(0, 5) })).toMatchObject({
+      ok: true,
+      previous: '2026-11-12-rc',
+    });
     expect(checkRelease({ version: '2026-11-11-rc', today: '2026-11-11', tags: [] })).toMatchObject({ ok: true, previous: undefined });
   });
 });
 
 describe('the app version (semver)', () => {
-  const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?$/;
+  const SEMVER =
+    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?$/;
 
   it('is valid semver, below Windows’ limit of 65535 per number', () => {
-    for (const v of ['2026-01-01', '2026-01-01-rc', '2026-01-01-rc.1', '2026-12-31.9', '2099-12-31-rc.40', '2026-12-31.9-rc', '2099-12-31.40-rc.40']) {
+    for (const v of [
+      '2026-01-01',
+      '2026-01-01-rc',
+      '2026-01-01-rc.1',
+      '2026-12-31.9',
+      '2099-12-31-rc.40',
+      '2026-12-31.9-rc',
+      '2099-12-31.40-rc.40',
+    ]) {
       const s = semverOf(ok(v));
       expect(s, v).toMatch(SEMVER);
       for (const n of s.split('-')[0]!.split('.')) expect(Number(n)).toBeLessThan(65536);
@@ -378,7 +450,8 @@ describe('messages to GitHub Actions', () => {
 
   it('take --today only as a day of the calendar', () => {
     expect(validDay('2026-11-10')).toBe(true);
-    for (const day of [undefined, '', '2026-13-45', '2026-02-30', '11/10/2026', '2026-11-10x']) expect(validDay(day), String(day)).toBe(false);
+    for (const day of [undefined, '', '2026-13-45', '2026-02-30', '11/10/2026', '2026-11-10x'])
+      expect(validDay(day), String(day)).toBe(false);
   });
 });
 
@@ -395,7 +468,11 @@ describe("a release's list of changes", () => {
   const site = 'https://github.com/owner/name';
   const sha = (n: number) => n.toString(16).padStart(40, '0');
   /** A commit as GitHub's API gives it. */
-  const commit = (n: number, message: string, o: { parents?: number[]; login?: string | null; name?: string; email?: string } = {}): ApiCommit => ({
+  const commit = (
+    n: number,
+    message: string,
+    o: { parents?: number[]; login?: string | null; name?: string; email?: string } = {},
+  ): ApiCommit => ({
     sha: sha(n),
     parents: (o.parents ?? [n - 1]).map((p) => ({ sha: sha(p) })),
     author: o.login === null ? null : { login: o.login ?? 'dev' },
@@ -405,7 +482,10 @@ describe("a release's list of changes", () => {
   const lines = (changes: Change[]) => changes.map((c) => `${c.title} | ${c.login ?? c.name} | ${c.url.replace(site, '')}`);
 
   it('lists every commit that came into main, oldest first: a pull request it merged by its number, any other commit by itself', () => {
-    const pulls: Record<string, Pull> = { [sha(2)]: { number: 25, title: 'Faster tests', author: 'opener' }, [sha(4)]: { number: 2, title: 'Fix the review findings' } };
+    const pulls: Record<string, Pull> = {
+      [sha(2)]: { number: 25, title: 'Faster tests', author: 'opener' },
+      [sha(4)]: { number: 2, title: 'Fix the review findings' },
+    };
     const changes = changesOf(
       [
         commit(1, 'Let visitors pick a theme\n'),
@@ -443,7 +523,10 @@ describe("a release's list of changes", () => {
       [
         commit(10, 'Work on the branch\n', { parents: [1], login: 'contributor' }),
         commit(11, 'Merge main into the-branch\n', { parents: [10, 2], login: 'contributor' }),
-        commit(12, 'Merge pull request #7 from contributor/the-branch\n\nKeep the chat where the reader left it\n', { parents: [3, 11], login: 'maintainer' }),
+        commit(12, 'Merge pull request #7 from contributor/the-branch\n\nKeep the chat where the reader left it\n', {
+          parents: [3, 11],
+          login: 'maintainer',
+        }),
         commit(13, "Merge branch 'main' into worktree-schedules\n", { parents: [12, 4] }),
         // A merge in words of its own says what it brought in.
         commit(14, 'Run Harness Relay as a desktop app\n', { parents: [13, 5] }),
@@ -451,7 +534,12 @@ describe("a release's list of changes", () => {
         commit(15, 'Merge main into feature\n', { parents: [14, 6] }),
       ],
       repo,
-      (s) => (s === sha(15) ? { number: 9, title: 'Several accounts for each CLI ', author: 'opener' } : s === sha(12) ? { number: 7, title: 'Keep the chat where the reader left it', author: 'contributor' } : undefined),
+      (s) =>
+        s === sha(15)
+          ? { number: 9, title: 'Several accounts for each CLI ', author: 'opener' }
+          : s === sha(12)
+            ? { number: 7, title: 'Keep the chat where the reader left it', author: 'contributor' }
+            : undefined,
     );
     expect(lines(changes)).toEqual([
       `Work on the branch | contributor | /commit/${sha(10)}`,
@@ -461,14 +549,25 @@ describe("a release's list of changes", () => {
       'Several accounts for each CLI | opener | /pull/9',
     ]);
     // Without GitHub's record of who opened it, the author of the branch it merged.
-    const merged = [commit(30, 'Work\n', { login: 'contributor' }), commit(31, 'Merge pull request #12 from contributor/work\n\nWork\n', { parents: [29, 30], login: 'maintainer' })];
-    expect(lines(changesOf(merged, repo, (s) => (s === sha(31) ? { number: 12, title: 'Work' } : undefined)))[1]).toBe('Work | contributor | /pull/12');
+    const merged = [
+      commit(30, 'Work\n', { login: 'contributor' }),
+      commit(31, 'Merge pull request #12 from contributor/work\n\nWork\n', { parents: [29, 30], login: 'maintainer' }),
+    ];
+    expect(lines(changesOf(merged, repo, (s) => (s === sha(31) ? { number: 12, title: 'Work' } : undefined)))[1]).toBe(
+      'Work | contributor | /pull/12',
+    );
     // GitHub's own words for a pull request merged with a merge commit, if GitHub's record of it is missing.
-    expect(lines(changesOf([commit(20, 'Merge pull request #8 from a/b\n', { parents: [1, 2] })], repo, noPulls))).toEqual(['Merge pull request #8 from a/b | dev | /pull/8']);
+    expect(lines(changesOf([commit(20, 'Merge pull request #8 from a/b\n', { parents: [1, 2] })], repo, noPulls))).toEqual([
+      'Merge pull request #8 from a/b | dev | /pull/8',
+    ]);
   });
 
   it('names an author without a GitHub account by their name in git', () => {
-    const changes = changesOf([commit(1, 'Fix it\n', { login: null, name: ' Someone ' }), commit(2, '\n', { login: null, name: '' })], repo, noPulls);
+    const changes = changesOf(
+      [commit(1, 'Fix it\n', { login: null, name: ' Someone ' }), commit(2, '\n', { login: null, name: '' })],
+      repo,
+      noPulls,
+    );
     expect(changes.map((c) => [c.login, c.name, c.title])).toEqual([
       [undefined, 'Someone', 'Fix it'],
       [undefined, sha(2).slice(0, 7), sha(2).slice(0, 7)],
@@ -486,7 +585,9 @@ describe("a release's list of changes", () => {
     expect((await commitsSince(api, repo, '2026-11-12', 'abc')).map((c) => c.sha)).toEqual(all.map((c) => c.sha));
     expect(asked).toEqual([1, 2, 3].map((p) => `repos/owner/name/compare/2026-11-12...abc?per_page=100&page=${p}`));
     const short: GitHubApi = (path) => ({ total_commits: 150, commits: path.endsWith('&page=1') ? all.slice(0, 100) : [] });
-    await expect(commitsSince(short, repo, '2026-11-12', 'abc')).rejects.toThrow('GitHub listed 100 of the 150 commits from 2026-11-12 to abc.');
+    await expect(commitsSince(short, repo, '2026-11-12', 'abc')).rejects.toThrow(
+      'GitHub listed 100 of the 150 commits from 2026-11-12 to abc.',
+    );
     // Nothing since: the same commit.
     expect(await commitsSince(() => ({ total_commits: 0, commits: [] }), repo, '2026-11-13-rc', '2026-11-13')).toEqual([]);
   });
@@ -499,8 +600,13 @@ describe("a release's list of changes", () => {
       const page = Number(/[?&]page=(\d+)/.exec(path)![1]);
       return newest.slice((page - 1) * 100, page * 100);
     };
-    expect((await commitsSince(api, repo, undefined, '2026-11-11-rc')).map((c) => c.commit.message)).toEqual(newest.map((c) => c.commit.message).reverse());
-    expect(asked).toEqual(['repos/owner/name/commits?sha=2026-11-11-rc&per_page=100&page=1', 'repos/owner/name/commits?sha=2026-11-11-rc&per_page=100&page=2']);
+    expect((await commitsSince(api, repo, undefined, '2026-11-11-rc')).map((c) => c.commit.message)).toEqual(
+      newest.map((c) => c.commit.message).reverse(),
+    );
+    expect(asked).toEqual([
+      'repos/owner/name/commits?sha=2026-11-11-rc&per_page=100&page=1',
+      'repos/owner/name/commits?sha=2026-11-11-rc&per_page=100&page=2',
+    ]);
   });
 
   it('takes the pull request GitHub records a commit as the merge commit of, not one the commit is only part of, with who opened it', async () => {
@@ -512,7 +618,9 @@ describe("a release's list of changes", () => {
         { number: 29, title: 'Other work', merged_at: '2026-11-12T00:00:00Z', merge_commit_sha: sha(8) },
         { number: 28, title: 'This work', merged_at: '2026-11-12T00:00:00Z', merge_commit_sha: sha(1), user: { login: 'opener' } },
       ],
-      [`repos/owner/name/commits/${sha(4)}/pulls?per_page=100`]: [{ number: 27, title: 'Ghost', merged_at: '2026-11-12T00:00:00Z', merge_commit_sha: sha(4), user: null }],
+      [`repos/owner/name/commits/${sha(4)}/pulls?per_page=100`]: [
+        { number: 27, title: 'Ghost', merged_at: '2026-11-12T00:00:00Z', merge_commit_sha: sha(4), user: null },
+      ],
       [`repos/owner/name/commits/${sha(2)}/pulls?per_page=100`]: [{ number: 31, title: 'Open', merged_at: null, merge_commit_sha: sha(2) }],
       [`repos/owner/name/commits/${sha(3)}/pulls?per_page=100`]: [],
     };
@@ -547,9 +655,22 @@ describe("a release's list of changes", () => {
     expect((await newContributors(api, repo, '2026-11-12', changes)).map((c) => [c.login, c.title])).toEqual([['new', 'Two']]);
     const q = (author: string) => `repos/owner/name/commits?sha=2026-11-12&author=${encodeURIComponent(author)}&per_page=1`;
     // Each account, then each of its addresses here, until one has a commit before.
-    expect(asked.sort()).toEqual([q('old'), q('new'), q('new@example.com'), q('new@other.example'), q('dependabot[bot]'), q('49699333+dependabot[bot]@users.noreply.github.com')].sort());
+    expect(asked.sort()).toEqual(
+      [
+        q('old'),
+        q('new'),
+        q('new@example.com'),
+        q('new@other.example'),
+        q('dependabot[bot]'),
+        q('49699333+dependabot[bot]@users.noreply.github.com'),
+      ].sort(),
+    );
     // From the first commit on, every author with a GitHub account is new.
-    expect((await newContributors(() => [{ sha: sha(0) }], repo, undefined, changes)).map((c) => c.login)).toEqual(['old', 'new', 'dependabot[bot]']);
+    expect((await newContributors(() => [{ sha: sha(0) }], repo, undefined, changes)).map((c) => c.login)).toEqual([
+      'old',
+      'new',
+      'dependabot[bot]',
+    ]);
     // Named with their first pull request, as GitHub's notes do, though a commit of its branch comes first;
     // in the order they first appear.
     const branch = changesOf(
@@ -570,12 +691,16 @@ describe("a release's list of changes", () => {
   it('asks GitHub a few things at once, never more than eight', async () => {
     let now = 0;
     let most = 0;
-    const done = await mapLimit(Array.from({ length: 30 }, (_, i) => i), 8, async (i) => {
-      most = Math.max(most, ++now);
-      await new Promise((r) => setTimeout(r, 1 + (i % 3)));
-      now--;
-      return i * 2;
-    });
+    const done = await mapLimit(
+      Array.from({ length: 30 }, (_, i) => i),
+      8,
+      async (i) => {
+        most = Math.max(most, ++now);
+        await new Promise((r) => setTimeout(r, 1 + (i % 3)));
+        now--;
+        return i * 2;
+      },
+    );
     expect(done).toEqual(Array.from({ length: 30 }, (_, i) => i * 2));
     expect(most).toBe(8);
     expect(await mapLimit([], 8, (i: number) => i)).toEqual([]);
@@ -602,8 +727,12 @@ describe("a release's list of changes", () => {
       ].join('\n'),
     );
     // Nothing since the version before: the link alone, as GitHub writes it; none before: the history up to it.
-    expect(changesMarkdown({ repo, tag: '2026-11-13-rc.1', since: '2026-11-13-rc', changes: [], newContributors: [] })).toBe(`**Full Changelog**: ${site}/compare/2026-11-13-rc...2026-11-13-rc.1\n`);
-    expect(changesMarkdown({ repo, tag: '2026-11-11-rc', since: undefined, changes: [], newContributors: [] })).toBe(`**Full Changelog**: ${site}/commits/2026-11-11-rc\n`);
+    expect(changesMarkdown({ repo, tag: '2026-11-13-rc.1', since: '2026-11-13-rc', changes: [], newContributors: [] })).toBe(
+      `**Full Changelog**: ${site}/compare/2026-11-13-rc...2026-11-13-rc.1\n`,
+    );
+    expect(changesMarkdown({ repo, tag: '2026-11-11-rc', since: undefined, changes: [], newContributors: [] })).toBe(
+      `**Full Changelog**: ${site}/commits/2026-11-11-rc\n`,
+    );
     // A bot as GitHub's notes name it.
     const bot: Change = { title: 'Bump a dependency', login: 'dependabot[bot]', name: 'dependabot[bot]', url: `${site}/pull/40` };
     expect(changesMarkdown({ repo, tag: 't', since: 's', changes: [bot], newContributors: [bot] })).toContain(
@@ -645,11 +774,18 @@ describe("a release's list of changes", () => {
     expect(subjectMarkdown('Mail dev_@example.com')).toBe('Mail dev_@example.com');
     // An author's name in git, too.
     const named: Change = { title: 'Fix it', name: '@someone', url: `${site}/commit/${sha(1)}` };
-    expect(changesMarkdown({ repo, tag: 't', since: 's', changes: [named], newContributors: [] })).toContain(`* Fix it by \`@someone\` in ${site}/commit/${sha(1)}`);
+    expect(changesMarkdown({ repo, tag: 't', since: 's', changes: [named], newContributors: [] })).toContain(
+      `* Fix it by \`@someone\` in ${site}/commit/${sha(1)}`,
+    );
   });
 
   it('ends a list too long for GitHub with how many more changes there are', () => {
-    const changes: Change[] = Array.from({ length: 50 }, (_, i) => ({ title: `Change number ${i + 1}`, login: 'dev', name: 'Dev', url: `${site}/commit/${sha(i + 1)}` }));
+    const changes: Change[] = Array.from({ length: 50 }, (_, i) => ({
+      title: `Change number ${i + 1}`,
+      login: 'dev',
+      name: 'Dev',
+      url: `${site}/commit/${sha(i + 1)}`,
+    }));
     const full = changesMarkdown({ repo, tag: 't', since: 's', changes, newContributors: [] });
     expect(full).not.toContain('more change');
     const cut = changesMarkdown({ repo, tag: 't', since: 's', changes, newContributors: [changes[0]!], limit: 2000 });
@@ -658,11 +794,15 @@ describe("a release's list of changes", () => {
     expect(shown.length).toBeGreaterThan(5);
     expect(shown).toEqual(changes.slice(0, shown.length).map((c) => `* ${c.title} by @dev in ${c.url}`));
     // GitHub's comparison page shows 250 commits at most: the history up to the tag holds them all.
-    expect(cut).toContain(`\n* … and ${50 - shown.length} more changes, in the history up to t: ${site}/commits/t\n\n## New Contributors\n`);
+    expect(cut).toContain(
+      `\n* … and ${50 - shown.length} more changes, in the history up to t: ${site}/commits/t\n\n## New Contributors\n`,
+    );
     expect(cut.endsWith(`**Full Changelog**: ${site}/compare/s...t\n`)).toBe(true);
     // As long as it fits, every change.
     expect(changesMarkdown({ repo, tag: 't', since: 's', changes, newContributors: [], limit: full.length })).toBe(full);
-    expect(changesMarkdown({ repo, tag: 't', since: 's', changes, newContributors: [], limit: full.length - 1 }).length).toBeLessThanOrEqual(full.length - 1);
+    expect(
+      changesMarkdown({ repo, tag: 't', since: 's', changes, newContributors: [], limit: full.length - 1 }).length,
+    ).toBeLessThanOrEqual(full.length - 1);
   });
 
   it("lists this repository's 2026-11-12.1 with the commits pushed to main between its pull requests", async () => {
@@ -676,7 +816,8 @@ describe("a release's list of changes", () => {
       before: Record<string, unknown>;
     };
     const api: GitHubApi = (path) => {
-      if (path.startsWith(`repos/${f.repo}/compare/${f.since}...${f.target}?`)) return path.endsWith('page=1') ? f.compare : { total_commits: 5, commits: [] };
+      if (path.startsWith(`repos/${f.repo}/compare/${f.since}...${f.target}?`))
+        return path.endsWith('page=1') ? f.compare : { total_commits: 5, commits: [] };
       const pulls = /\/commits\/([0-9a-f]{40})\/pulls\?/.exec(path);
       if (pulls) return f.pulls[pulls[1]!];
       const before = /\/commits\?sha=[^&]+&author=([^&]+)&/.exec(path);
@@ -703,7 +844,9 @@ describe("a release's list of changes", () => {
   it('tells when GitHub does not know where the list ends, from other failures', () => {
     expect(notFoundTarget('gh api repos/o/n/compare/2026-11-13...2026-11-14?per_page=100&page=1: gh: Not Found (HTTP 404)')).toBe(true);
     expect(notFoundTarget('gh api repos/o/n/commits?sha=abc&per_page=100&page=1: gh: Not Found (HTTP 404)')).toBe(true);
-    expect(notFoundTarget('gh api repos/o/n/compare/2026-11-11.1...2026-11-12?per_page=100&page=1: gh: Bad credentials (HTTP 401)')).toBe(false);
+    expect(notFoundTarget('gh api repos/o/n/compare/2026-11-11.1...2026-11-12?per_page=100&page=1: gh: Bad credentials (HTTP 401)')).toBe(
+      false,
+    );
     expect(notFoundTarget('gh api repos/o/n/commits/abc/pulls?per_page=100: gh: Not Found (HTTP 404)')).toBe(false);
     expect(notFoundTarget('GitHub listed 100 of the 150 commits from a to b.')).toBe(false);
   });
@@ -756,7 +899,7 @@ describe('the release script', () => {
     return { code: r.status, out: r.stdout, err: r.stderr };
   };
 
-  it("checks a version against today in Taiwan when no day is given", () => {
+  it('checks a version against today in Taiwan when no day is given', () => {
     const today = todayIn('Asia/Taipei');
     const r = run(['check', `${today}-rc`]);
     // The script finds today by itself: right at midnight in Taiwan, it may be the next day already.
@@ -792,13 +935,15 @@ describe('the release script', () => {
   });
 
   // The stand-in gh is a shell script started by its #! line, which Windows does not do.
-  it.skipIf(process.platform === 'win32')("with --own-tag, takes the version's tag without a release on GitHub as the workflow's own", () => {
-    // gh as the script calls it: GitHub's release of the tag there (out), not there (404), or no answer (502).
-    const bin = join(dir, 'gh-bin');
-    mkdirSync(bin, { recursive: true });
-    writeFileSync(
-      join(bin, 'gh'),
-      `#!/bin/sh
+  it.skipIf(process.platform === 'win32')(
+    "with --own-tag, takes the version's tag without a release on GitHub as the workflow's own",
+    () => {
+      // gh as the script calls it: GitHub's release of the tag there (out), not there (404), or no answer (502).
+      const bin = join(dir, 'gh-bin');
+      mkdirSync(bin, { recursive: true });
+      writeFileSync(
+        join(bin, 'gh'),
+        `#!/bin/sh
 printf '%s\\n' "$*" >> "$GH_CALLS"
 case "$GH_RELEASE" in
   out) echo '{"tag_name":"2026-11-13-rc"}' ;;
@@ -806,44 +951,49 @@ case "$GH_RELEASE" in
   *) echo 'gh: Server Error (HTTP 502)' >&2; exit 1 ;;
 esac
 `,
-    );
-    chmodSync(join(bin, 'gh'), 0o755);
-    const calls = join(dir, 'gh-calls');
-    const gh = (GH_RELEASE: 'out' | 'none' | 'unknown') => {
-      writeFileSync(calls, '');
-      return { PATH: `${bin}${delimiter}${process.env.PATH}`, GH_CALLS: calls, GH_RELEASE, GITHUB_REPOSITORY: 'o/r' };
-    };
-    const asked = () => readFileSync(calls, 'utf8');
-    const check = (version: string, ...flags: string[]) => ['check', version, '--today', '2026-11-13', '--remote', ...flags];
-    git(repo, 'tag', '2026-11-13-rc');
-    git(repo, 'push', '-q', 'origin', '2026-11-13-rc');
-    const own = run(check('2026-11-13-rc', '--own-tag'), gh('none'));
-    expect(own.code).toBe(0);
-    expect(own.out).toContain('2026-11-13-rc may be released');
-    expect(own.out).toContain("Its tag is on GitHub without a release: the Release workflow made it at a run's start.");
-    expect(asked()).toBe('api repos/o/r/releases/tags/2026-11-13-rc\n');
-    // With a release, it is out.
-    const out = run(check('2026-11-13-rc', '--own-tag'), gh('out'));
-    expect(out.code).toBe(1);
-    expect(out.err).toContain('2026-11-13-rc has already been released');
-    expect(out.out).not.toContain('Its tag is on GitHub');
-    // Without an answer, nothing is taken as the workflow's own.
-    const unknown = run(check('2026-11-13-rc', '--own-tag'), gh('unknown'));
-    expect(unknown.code).toBe(1);
-    expect(unknown.err).toContain('✗ Could not ask GitHub whether 2026-11-13-rc has a release: gh api repos/o/r/releases/tags/2026-11-13-rc: gh: Server Error (HTTP 502)');
-    // GitHub is asked only about the version's own tag, and only with --own-tag.
-    expect(run(check('2026-11-13-rc.1', '--own-tag'), gh('unknown')).code).toBe(0);
-    expect(asked()).toBe('');
-    expect(run(check('2026-11-13-rc'), gh('none')).code).toBe(1);
-    expect(asked()).toBe('');
-    git(repo, 'push', '-q', 'origin', ':refs/tags/2026-11-13-rc');
-    git(repo, 'tag', '-d', '2026-11-13-rc');
-  });
+      );
+      chmodSync(join(bin, 'gh'), 0o755);
+      const calls = join(dir, 'gh-calls');
+      const gh = (GH_RELEASE: 'out' | 'none' | 'unknown') => {
+        writeFileSync(calls, '');
+        return { PATH: `${bin}${delimiter}${process.env.PATH}`, GH_CALLS: calls, GH_RELEASE, GITHUB_REPOSITORY: 'o/r' };
+      };
+      const asked = () => readFileSync(calls, 'utf8');
+      const check = (version: string, ...flags: string[]) => ['check', version, '--today', '2026-11-13', '--remote', ...flags];
+      git(repo, 'tag', '2026-11-13-rc');
+      git(repo, 'push', '-q', 'origin', '2026-11-13-rc');
+      const own = run(check('2026-11-13-rc', '--own-tag'), gh('none'));
+      expect(own.code).toBe(0);
+      expect(own.out).toContain('2026-11-13-rc may be released');
+      expect(own.out).toContain("Its tag is on GitHub without a release: the Release workflow made it at a run's start.");
+      expect(asked()).toBe('api repos/o/r/releases/tags/2026-11-13-rc\n');
+      // With a release, it is out.
+      const out = run(check('2026-11-13-rc', '--own-tag'), gh('out'));
+      expect(out.code).toBe(1);
+      expect(out.err).toContain('2026-11-13-rc has already been released');
+      expect(out.out).not.toContain('Its tag is on GitHub');
+      // Without an answer, nothing is taken as the workflow's own.
+      const unknown = run(check('2026-11-13-rc', '--own-tag'), gh('unknown'));
+      expect(unknown.code).toBe(1);
+      expect(unknown.err).toContain(
+        '✗ Could not ask GitHub whether 2026-11-13-rc has a release: gh api repos/o/r/releases/tags/2026-11-13-rc: gh: Server Error (HTTP 502)',
+      );
+      // GitHub is asked only about the version's own tag, and only with --own-tag.
+      expect(run(check('2026-11-13-rc.1', '--own-tag'), gh('unknown')).code).toBe(0);
+      expect(asked()).toBe('');
+      expect(run(check('2026-11-13-rc'), gh('none')).code).toBe(1);
+      expect(asked()).toBe('');
+      git(repo, 'push', '-q', 'origin', ':refs/tags/2026-11-13-rc');
+      git(repo, 'tag', '-d', '2026-11-13-rc');
+    },
+  );
 
   it('accepts a release candidate of a patch once the release is out', () => {
     git(repo, 'tag', '2026-11-11');
     const r = run(['check', '2026-11-11.1-rc', '--today', '2026-11-11']);
-    expect(r.out).toContain('2026-11-11.1-rc may be released (a release candidate, published as a pre-release; app version 2026.1111.1-rc)');
+    expect(r.out).toContain(
+      '2026-11-11.1-rc may be released (a release candidate, published as a pre-release; app version 2026.1111.1-rc)',
+    );
     expect(r.out).toContain('Its notes list the changes since 2026-11-11.\n');
     expect(r.code).toBe(0);
     git(repo, 'tag', '-d', '2026-11-11');
@@ -922,7 +1072,9 @@ esac
     const before = todayIn('Pacific/Kiritimati');
     const r = run(['next'], { RELEASE_TIME_ZONE: 'Pacific/Kiritimati' });
     const after = todayIn('Pacific/Kiritimati'); // midnight there may pass while it runs
-    expect([`Today (${before}, Pacific/Kiritimati)`, `Today (${after}, Pacific/Kiritimati)`].some((line) => r.out.includes(line))).toBe(true);
+    expect([`Today (${before}, Pacific/Kiritimati)`, `Today (${after}, Pacific/Kiritimati)`].some((line) => r.out.includes(line))).toBe(
+      true,
+    );
   });
 });
 
@@ -950,7 +1102,10 @@ describe('the release workflow', () => {
     const start = lines.indexOf(`${key}:`);
     expect(start, key).toBeGreaterThanOrEqual(0);
     const end = lines.findIndex((l, i) => i > start && /^\S/.test(l));
-    return lines.slice(start + 1, end < 0 ? undefined : end).join('\n').trimEnd();
+    return lines
+      .slice(start + 1, end < 0 ? undefined : end)
+      .join('\n')
+      .trimEnd();
   };
   /** A job's block. */
   const job = (name: string) => {
@@ -1097,7 +1252,7 @@ describe('the release workflow', () => {
     expect(tokensJob).toContain("- name: Warn when the read token's account also owns the write token");
     expect(tokensJob.match(/WRITE_TOKEN: \$\{\{ secrets\.UPDATES_TOKEN \}\}/g)).toHaveLength(3);
     // Each token goes to curl on its standard input, never among its arguments.
-    expect(tokensJob).toContain("printf 'Authorization: Bearer %s\\n' \"$1\" | curl -fsS --max-time 30 -H @- ");
+    expect(tokensJob).toContain('printf \'Authorization: Bearer %s\\n\' "$1" | curl -fsS --max-time 30 -H @- ');
     expect(tokensJob).not.toMatch(/-H "Authorization/);
     expect(tokensJob.match(/READ_TOKEN: \$\{\{ secrets\.UPDATES_READ_TOKEN \}\}/g)).toHaveLength(2);
     expect(tokensJob).not.toMatch(/\buses:|\bnode\b|\bgh\b|\bnpm\b/);
@@ -1111,7 +1266,10 @@ describe('the release workflow', () => {
     expect(source).not.toContain('secrets.UPDATES_TOKEN');
     expect(checkJob.indexOf('- name: Check the update source')).toBeLessThan(checkJob.indexOf('- name: Install'));
     expect(release).not.toContain('Refuse a read token');
-    for (const name of ["Check that the installers were built with this run's update source", 'Check that the app can download the copies']) {
+    for (const name of [
+      "Check that the installers were built with this run's update source",
+      'Check that the app can download the copies',
+    ]) {
       const check = step(name);
       expect(check, name).toContain('RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}');
       expect(check, name).toContain('RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
@@ -1119,7 +1277,10 @@ describe('the release workflow', () => {
     }
     // The app's build, given where it downloads its updates from (the same variable the copies follow) and the token it downloads them with.
     const build = job('build');
-    const built = build.slice(build.indexOf('- name: Build the desktop app'), build.indexOf('- name: Run the bundled server as the desktop app does'));
+    const built = build.slice(
+      build.indexOf('- name: Build the desktop app'),
+      build.indexOf('- name: Run the bundled server as the desktop app does'),
+    );
     expect(built).toContain('RELAY_UPDATES_REPO: ${{ vars.UPDATES_REPO }}');
     expect(built).toContain('RELAY_UPDATES_TOKEN: ${{ secrets.UPDATES_READ_TOKEN }}');
     expect(built).toContain('run: npm --prefix desktop run build');
@@ -1163,10 +1324,15 @@ describe('the release workflow', () => {
     expect(check).toContain('expected="bytes $((size - 1))-$((size - 1))/$size"');
     const prune = step('Remove older releases from the download mirror');
     expect(prune).toContain("if: steps.mirror.outputs.url != ''");
-    expect(prune).toContain("sort -V | head -n -2");
+    expect(prune).toContain('sort -V | head -n -2');
     expect(prune).not.toMatch(/exit 1/);
     // The mirror's secrets go to its two steps that use the bucket, in the job that installs no npm package.
-    expect(workflow.match(/secrets\.MIRROR_[A-Z_]+/g)).toEqual(['secrets.MIRROR_ACCESS_KEY_ID', 'secrets.MIRROR_SECRET_ACCESS_KEY', 'secrets.MIRROR_ACCESS_KEY_ID', 'secrets.MIRROR_SECRET_ACCESS_KEY']);
+    expect(workflow.match(/secrets\.MIRROR_[A-Z_]+/g)).toEqual([
+      'secrets.MIRROR_ACCESS_KEY_ID',
+      'secrets.MIRROR_SECRET_ACCESS_KEY',
+      'secrets.MIRROR_ACCESS_KEY_ID',
+      'secrets.MIRROR_SECRET_ACCESS_KEY',
+    ]);
     for (const s of [upload, prune]) {
       expect(s).toContain('AWS_ACCESS_KEY_ID: ${{ secrets.MIRROR_ACCESS_KEY_ID }}');
       expect(s).toContain('AWS_SECRET_ACCESS_KEY: ${{ secrets.MIRROR_SECRET_ACCESS_KEY }}');
@@ -1208,7 +1374,10 @@ describe('the release workflow', () => {
     expect(publish).toContain('gh release create "$TAG" installers/* --verify-tag ');
     expect(publish).not.toContain('--target');
     // Checked before anything is published: the tag is still on the commit that was checked and built.
-    const again = job('release').slice(job('release').indexOf('- name: Check the version again'), job('release').indexOf('- name: List the changes'));
+    const again = job('release').slice(
+      job('release').indexOf('- name: Check the version again'),
+      job('release').indexOf('- name: List the changes'),
+    );
     expect(again).toContain('at=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" --jq .object.sha 2>/dev/null) || at=\'\'');
     expect(again).toContain('if [ "$at" != "$GITHUB_SHA" ]; then');
     expect(again).toContain('GH_TOKEN: ${{ github.token }}');

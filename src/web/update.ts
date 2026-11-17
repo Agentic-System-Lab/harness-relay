@@ -47,7 +47,10 @@ export function shouldOffer(status: UpdateStatus | undefined, dismissed: string 
  * is open, the user is not typing, and nothing holds dialogs back (`held`: a voice recording), so it
  * never takes keys meant for something else; once it shows it stays while the version is on offer.
  */
-export function offerShows(showing: boolean, o: { offerable: boolean; tourOpen: boolean; dialogsOpen: number; typing: boolean; held?: boolean }): boolean {
+export function offerShows(
+  showing: boolean,
+  o: { offerable: boolean; tourOpen: boolean; dialogsOpen: number; typing: boolean; held?: boolean },
+): boolean {
   return showing ? o.offerable : o.offerable && !o.tourOpen && o.dialogsOpen === 0 && !o.typing && !o.held;
 }
 
@@ -60,7 +63,10 @@ export function typesText(target: { tagName?: string; isContentEditable?: boolea
   if (target.isContentEditable) return true;
   const tag = target.tagName?.toLowerCase();
   if (tag === 'textarea') return true;
-  return tag === 'input' && !['button', 'checkbox', 'radio', 'submit', 'reset', 'file', 'range', 'color', 'image'].includes((target.type ?? 'text').toLowerCase());
+  return (
+    tag === 'input' &&
+    !['button', 'checkbox', 'radio', 'submit', 'reset', 'file', 'range', 'color', 'image'].includes((target.type ?? 'text').toLowerCase())
+  );
 }
 
 /** How soon to ask the server again after an Update (the app's own dialog may start one any time now). */
@@ -81,7 +87,8 @@ export function updateLine(s: UpdateStatus, t: Messages, lang: string): { text: 
   const v = t.settings.version;
   if (!s.updates) return { text: v.noUpdates, tone: 'muted' };
   const p = s.progress;
-  if (p) return { text: p.kind === 'downloading' ? v.downloading(p.percent) : p.kind === 'waiting' ? v.waiting : v.installing, tone: 'news' };
+  if (p)
+    return { text: p.kind === 'downloading' ? v.downloading(p.percent) : p.kind === 'waiting' ? v.waiting : v.installing, tone: 'news' };
   if (s.checking) return { text: v.checking, tone: 'muted' };
   if (s.available) return { text: v.available(s.available.version), tone: 'news' };
   if (s.checkFailed) return { text: v.checkFailed, tone: 'warn' };

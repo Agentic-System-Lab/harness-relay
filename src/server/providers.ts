@@ -13,7 +13,13 @@ import {
   type ProviderModels,
   type ProviderStatus,
 } from '../shared/types';
-import { antigravityKeyOnly, antigravityLogout, antigravityProbeEnv, antigravityProbeSettings, ANTIGRAVITY_NO_BROWSER } from './agents/antigravity';
+import {
+  antigravityKeyOnly,
+  antigravityLogout,
+  antigravityProbeEnv,
+  antigravityProbeSettings,
+  ANTIGRAVITY_NO_BROWSER,
+} from './agents/antigravity';
 import { askCopilotModels, copilotHome, copilotLogout, copilotSignedInAs, copilotSignedOut } from './agents/copilot';
 import { openAgents } from './agents/index';
 import { museKeyOnly, museProbeEnv } from './agents/muse';
@@ -235,7 +241,12 @@ export class ProviderService {
       return { ...base, ...(await this.ask(p, this.settings.bin(p), env, signal)), checkedAt: Date.now() };
     } catch (err) {
       // Kept a while and given to every browser: no translated text (the UI words `problem`).
-      return { ...base, limits: [], ...(err instanceof CommandNotFoundError ? { problem: 'cliMissing' as const } : { error: (err as Error).message }), checkedAt: Date.now() };
+      return {
+        ...base,
+        limits: [],
+        ...(err instanceof CommandNotFoundError ? { problem: 'cliMissing' as const } : { error: (err as Error).message }),
+        checkedAt: Date.now(),
+      };
     }
   }
 
@@ -298,7 +309,16 @@ export class ProviderService {
         }),
       );
       const first = accounts[0]!;
-      status = { provider: p, installed: true, bin, version, auth: first.auth, usingStoredApiKey: first.usingStoredApiKey, accounts, checkedAt };
+      status = {
+        provider: p,
+        installed: true,
+        bin,
+        version,
+        auth: first.auth,
+        usingStoredApiKey: first.usingStoredApiKey,
+        accounts,
+        checkedAt,
+      };
       // Signed in as someone else (in a terminal, say), or on another key: its plan's usage is asked again.
       for (const a of accounts) {
         const now = JSON.stringify([a.auth.loggedIn, a.auth.account ?? '', a.auth.method ?? '', a.usingStoredApiKey]);
@@ -323,7 +343,8 @@ export class ProviderService {
    * (and its adapter is done).
    */
   private openAuth(p: Provider): ProviderAuth {
-    if (isOpenProvider(p) && !openAgents[p].process.implemented) return { loggedIn: false, detail: t().openNotImplemented(PROVIDER_LABEL[p]) };
+    if (isOpenProvider(p) && !openAgents[p].process.implemented)
+      return { loggedIn: false, detail: t().openNotImplemented(PROVIDER_LABEL[p]) };
     const view = this.settings.backends.view();
     const configured = this.settings.backends.configured();
     if (!configured.length) return { loggedIn: false, detail: t().openNoBackend };

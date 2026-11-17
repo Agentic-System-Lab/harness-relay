@@ -1,6 +1,14 @@
 import type { ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { endpointEffort, ENDPOINT_CLI, PROVIDER_LABEL, type NativeItemsOff, type NativePart, type Permission, type PlanEntry } from '../../shared/types';
+import {
+  endpointEffort,
+  ENDPOINT_CLI,
+  PROVIDER_LABEL,
+  type NativeItemsOff,
+  type NativePart,
+  type Permission,
+  type PlanEntry,
+} from '../../shared/types';
 import { endpointKeyEnv, endpointRunModel, ENDPOINT_KEY_ENV, type EndpointModel } from '../backends';
 import { unwrapShell } from '../commands';
 import { t } from '../i18n';
@@ -167,7 +175,11 @@ export function codexUserMcpConfig(read: unknown): CodexUserMcp {
  * tools the user already turned off: a list in an override replaces the user's). Only servers in
  * the user's config: an entry for any other would be a server without a command.
  */
-export function codexMcpOff(off: readonly NativePart[], items: NativeItemsOff, user: CodexUserMcp): { turnOff: string[]; toolsOff: Record<string, string[]> } {
+export function codexMcpOff(
+  off: readonly NativePart[],
+  items: NativeItemsOff,
+  user: CodexUserMcp,
+): { turnOff: string[]; toolsOff: Record<string, string[]> } {
   if (off.includes('mcp')) return { turnOff: user.names, toolsOff: {} };
   const turnOff = (items.mcp ?? []).filter((name) => user.names.includes(name));
   const toolsOff: Record<string, string[]> = {};
@@ -409,9 +421,7 @@ export function codexThreadRequest(
     ...(provider ? { modelProvider: provider } : {}),
     config: profile ? { ...config, permissions: { [profileId]: profile } } : config,
   };
-  return o.sessionId
-    ? { method: 'thread/resume', params: { threadId: o.sessionId, ...params } }
-    : { method: 'thread/start', params };
+  return o.sessionId ? { method: 'thread/resume', params: { threadId: o.sessionId, ...params } } : { method: 'thread/start', params };
 }
 
 /**
@@ -494,7 +504,10 @@ function itemOutcome(item: Record<string, any>): { ok: boolean; output?: string;
     case 'mcpToolCall': {
       if (item.error) return { ok: false, error: clip(String(item.error.message ?? item.error), 240) };
       const content = Array.isArray(item.result?.content) ? item.result.content : [];
-      const text = content.map((c: any) => (typeof c?.text === 'string' ? c.text : '')).join('\n').trim();
+      const text = content
+        .map((c: any) => (typeof c?.text === 'string' ? c.text : ''))
+        .join('\n')
+        .trim();
       return { ok: item.status !== 'failed', output: text ? tailText(text) : undefined };
     }
     default:
@@ -559,7 +572,14 @@ export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
         // A web search only says what it searched for now.
         const detail = d.detail && d.detail !== started.get(item.id) ? d.detail : undefined;
         const { ok, output, error } = itemOutcome(item);
-        emit({ type: 'tool_end', id: item.id, ok, ...(output ? { output } : {}), ...(error ? { error } : {}), ...(detail ? { detail } : {}) });
+        emit({
+          type: 'tool_end',
+          id: item.id,
+          ok,
+          ...(output ? { output } : {}),
+          ...(error ? { error } : {}),
+          ...(detail ? { detail } : {}),
+        });
         break;
       }
       case 'turn/plan/updated': {
@@ -631,7 +651,8 @@ export function codexApprovalRequest(
 export function codexMcpToolApproval(p: Record<string, any>): ApprovalRequest | null {
   const meta = p?._meta;
   if (meta?.codex_approval_kind !== 'mcp_tool_call' || typeof meta.tool_name !== 'string') return null;
-  const params = meta.tool_params && typeof meta.tool_params === 'object' && Object.keys(meta.tool_params).length ? meta.tool_params : undefined;
+  const params =
+    meta.tool_params && typeof meta.tool_params === 'object' && Object.keys(meta.tool_params).length ? meta.tool_params : undefined;
   return {
     kind: 'other',
     tool: p.serverName ? `${p.serverName}:${meta.tool_name}` : meta.tool_name,
@@ -649,7 +670,10 @@ export function codexApprovalResponse(method: string, p: Record<string, any>, al
   switch (method) {
     case 'item/permissions/requestApproval':
       return allow
-        ? { permissions: { network: p.permissions?.network ?? undefined, fileSystem: p.permissions?.fileSystem ?? undefined }, scope: 'turn' }
+        ? {
+            permissions: { network: p.permissions?.network ?? undefined, fileSystem: p.permissions?.fileSystem ?? undefined },
+            scope: 'turn',
+          }
         : { permissions: {}, scope: 'turn' };
     case 'execCommandApproval':
     case 'applyPatchApproval':
@@ -760,7 +784,13 @@ const codexTurnRunner: AgentRunner = {
       });
       conn.notify('initialized');
       const effort = endpoint ? await codexEndpointEffort(o.effort, conn, o.cwd) : o.effort;
-      const { method, params } = codexThreadRequest({ ...o, effort }, await codexUserMcp(conn, o), process.platform, codexProfileId(), endpoint);
+      const { method, params } = codexThreadRequest(
+        { ...o, effort },
+        await codexUserMcp(conn, o),
+        process.platform,
+        codexProfileId(),
+        endpoint,
+      );
       const thread = await conn.request(method, params);
       codexCheckProfile(params, thread);
       threadId = String(thread?.thread?.id ?? o.sessionId ?? '');
@@ -834,4 +864,3 @@ export const codexRunner: AgentRunner = {
 export function resetCodexProfiles(): void {
   profilesUnavailable = false;
 }
-

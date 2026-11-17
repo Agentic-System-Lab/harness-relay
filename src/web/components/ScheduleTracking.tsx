@@ -52,7 +52,15 @@ export function ScheduleProgress({ schedule }: { schedule: ConversationSchedule 
  * The schedule's webhook: add one (its token shown this once, with a `curl` line to call it), make a
  * new token, or remove it.
  */
-export function ScheduleHookPanel({ convId, schedule, onError }: { convId: string; schedule: ConversationSchedule; onError: (message: string) => void }) {
+export function ScheduleHookPanel({
+  convId,
+  schedule,
+  onError,
+}: {
+  convId: string;
+  schedule: ConversationSchedule;
+  onError: (message: string) => void;
+}) {
   const { t, lang } = useI18n();
   const [shown, setShown] = useState<{ token: string; url: string }>();
   const [busy, setBusy] = useState(false);

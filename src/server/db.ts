@@ -516,11 +516,15 @@ export function openSqliteFile(file: string): Database {
  */
 export function openRunDatabase(file: string): Database {
   // A hot journal is played back on opening, and can name another file SQLite then opens.
-  if (!plainDatabaseFiles(file, true)) throw new Error(`${file}: not a plain file (a link, a named pipe…), or a journal beside it is not, is left over or is too large`);
+  if (!plainDatabaseFiles(file, true))
+    throw new Error(`${file}: not a plain file (a link, a named pipe…), or a journal beside it is not, is left over or is too large`);
   const db = new DatabaseSync(file);
   try {
     db.exec('PRAGMA busy_timeout = 3000; PRAGMA trusted_schema = OFF;');
-    const planted = db.prepare("SELECT type, name FROM sqlite_master WHERE type IN ('trigger', 'view')").all() as { type: string; name: string }[];
+    const planted = db.prepare("SELECT type, name FROM sqlite_master WHERE type IN ('trigger', 'view')").all() as {
+      type: string;
+      name: string;
+    }[];
     for (const { type, name } of planted) db.exec(`DROP ${type === 'view' ? 'VIEW' : 'TRIGGER'} IF EXISTS "${name.replaceAll('"', '""')}"`);
     // What a command could add for the server's own writes to run as slowly as it likes: a generated
     // column (run on every read of its row) and an index on an expression or with a condition (run on
@@ -533,7 +537,8 @@ export function openRunDatabase(file: string): Database {
          LIMIT 1`,
       )
       .get();
-    if (slow) throw new Error(`${file}: a table has a generated column or an index on an expression or a condition, which neither CLI makes`);
+    if (slow)
+      throw new Error(`${file}: a table has a generated column or an index on an expression or a condition, which neither CLI makes`);
     db.exec('PRAGMA ignore_check_constraints = ON');
     return db;
   } catch (err) {
@@ -651,7 +656,12 @@ const runDatabaseReads = new Map<string, Worker>();
  * Undefined when the read fails, does not end in time (the worker is asked to stop, and may not), or
  * an earlier read of the same database has not ended.
  */
-export function readRunDatabase(file: string, tables: readonly string[], queries: RunDatabaseQuery[], timeoutMs = RUN_DATABASE_TIMEOUT_MS): Promise<RunDatabaseRead | undefined> {
+export function readRunDatabase(
+  file: string,
+  tables: readonly string[],
+  queries: RunDatabaseQuery[],
+  timeoutMs = RUN_DATABASE_TIMEOUT_MS,
+): Promise<RunDatabaseRead | undefined> {
   return new Promise((resolve) => {
     if (runDatabaseReads.has(file)) return resolve(undefined);
     let worker: Worker;

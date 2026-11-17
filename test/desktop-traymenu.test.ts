@@ -12,7 +12,9 @@ describe('what the tray menu shows', () => {
     const text = menuText(items);
     expect(text.split('\n')).toEqual(['status\tRunning\t0\t0', 'separator\t\t1\t0', 'login\tOpen at login\t1\t1']);
     expect(menuText([...items.slice(0, 3), { id: 'switch', label: 'Switch now', visible: true }])).not.toBe(text);
-    expect(menuText([{ id: 'status', label: 'Running', enabled: false, visible: true }])).toBe(menuText([{ id: 'status', label: 'Running', enabled: false }]));
+    expect(menuText([{ id: 'status', label: 'Running', enabled: false, visible: true }])).toBe(
+      menuText([{ id: 'status', label: 'Running', enabled: false }]),
+    );
   });
 
   it('is changed in place in the open menu, item by item, and not at all when an item is missing', () => {
@@ -33,7 +35,12 @@ describe('what the tray menu shows', () => {
     expect(menu.get('switch')).toMatchObject({ visible: true, enabled: true });
     expect(menu.get('login')).toMatchObject({ checked: true });
 
-    expect(patchMenu(find, [{ id: 'update', label: 'Downloading… (50%)' }, { id: 'quit', label: 'Quit' }])).toBe(false);
+    expect(
+      patchMenu(find, [
+        { id: 'update', label: 'Downloading… (50%)' },
+        { id: 'quit', label: 'Quit' },
+      ]),
+    ).toBe(false);
     expect(menu.get('update')!.label).toBe('Update ready');
   });
 
@@ -146,7 +153,7 @@ describe('an open tray menu that shows what changed', () => {
     expect(byUser).toBe(false);
   });
 
-  it("stays open when the old menu says it closed only after the new one opened, and closes when the user closes it", async () => {
+  it('stays open when the old menu says it closed only after the new one opened, and closes when the user closes it', async () => {
     const { live, events, advance, change } = setup({ lateClose: true });
     live.opened('A');
     await advance(REOPEN_EVERY_MS);

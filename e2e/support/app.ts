@@ -74,10 +74,20 @@ export async function send(page: Page, text: string): Promise<void> {
   const box = composer(page);
   await box.fill(text);
   await box.press('Enter');
-  await expect(page.locator('.msg-user').filter({ hasText: firstLine(text) }).last()).toBeVisible();
+  await expect(
+    page
+      .locator('.msg-user')
+      .filter({ hasText: firstLine(text) })
+      .last(),
+  ).toBeVisible();
 }
 
-const firstLine = (text: string) => text.split('\n')[0]!.replace(/\be2e:\S+/g, '').trim().slice(0, 40) || text.slice(0, 40);
+const firstLine = (text: string) =>
+  text
+    .split('\n')[0]!
+    .replace(/\be2e:\S+/g, '')
+    .trim()
+    .slice(0, 40) || text.slice(0, 40);
 
 /** The checkbox that has the lead agent review the team's replies (New chat, Team settings). */
 export const LEAD_REVIEW = "Have the lead agent review the team's replies";

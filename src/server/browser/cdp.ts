@@ -66,7 +66,14 @@ export class CdpConnection extends EventEmitter {
   }
 
   private receive(text: string): void {
-    let msg: { id?: number; result?: Record<string, unknown>; error?: { message?: string }; method?: string; params?: unknown; sessionId?: string };
+    let msg: {
+      id?: number;
+      result?: Record<string, unknown>;
+      error?: { message?: string };
+      method?: string;
+      params?: unknown;
+      sessionId?: string;
+    };
     try {
       msg = JSON.parse(text);
     } catch {
@@ -83,7 +90,12 @@ export class CdpConnection extends EventEmitter {
     if (typeof msg.method === 'string') this.emit(msg.method, msg.params ?? {}, msg.sessionId);
   }
 
-  send<T = Record<string, unknown>>(method: string, params: Record<string, unknown> = {}, sessionId?: string, timeoutMs = this.timeoutMs): Promise<T> {
+  send<T = Record<string, unknown>>(
+    method: string,
+    params: Record<string, unknown> = {},
+    sessionId?: string,
+    timeoutMs = this.timeoutMs,
+  ): Promise<T> {
     if (this.closed) return Promise.reject(new CdpError('The browser closed'));
     const id = this.next++;
     return new Promise<T>((resolve, reject) => {
@@ -108,7 +120,12 @@ export class CdpConnection extends EventEmitter {
   }
 
   /** Resolves with the next event of `method` (for `sessionId`, when given) that `match` accepts, or undefined after `timeoutMs`. */
-  waitFor(method: string, timeoutMs: number, sessionId?: string, match: (params: Record<string, unknown>) => boolean = () => true): Promise<Record<string, unknown> | undefined> {
+  waitFor(
+    method: string,
+    timeoutMs: number,
+    sessionId?: string,
+    match: (params: Record<string, unknown>) => boolean = () => true,
+  ): Promise<Record<string, unknown> | undefined> {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.off(method, on);

@@ -13,7 +13,7 @@ import type { Store } from './store';
  */
 
 export const GROUPER_BRIEFING =
-  'You sort the conversations of Harness Relay, a task assistant in which coding-agent CLIs work on the user\'s questions in group chats, ' +
+  "You sort the conversations of Harness Relay, a task assistant in which coding-agent CLIs work on the user's questions in group chats, " +
   'into the groups the user made in its sidebar. Do not answer or work on the conversation, and do not use tools. ' +
   'Reply with the JSON object you are asked for and nothing else.';
 

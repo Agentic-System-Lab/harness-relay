@@ -37,7 +37,12 @@ export function useCliInstalls(onEnded: (p: Provider) => void) {
   // Settings closed with installs under way: they are followed until they end, for the sidebar's status.
   useEffect(
     () => () => {
-      if (anyInstalling(shown.current)) void followInstalls(shown.current, () => api.clis(), (p) => ended.current(p));
+      if (anyInstalling(shown.current))
+        void followInstalls(
+          shown.current,
+          () => api.clis(),
+          (p) => ended.current(p),
+        );
     },
     [],
   );

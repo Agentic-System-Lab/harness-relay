@@ -22,7 +22,15 @@ const conversation = (id: string): Conversation =>
   ({
     id,
     agents: [{ id: 'a1', name: 'Claude' }],
-    messages: [{ id: 'm1', author: { kind: 'agent', agentId: 'a1' }, createdAt: 0, parts: [{ type: 'text', text: 'All tests pass.' }], status: 'done' }],
+    messages: [
+      {
+        id: 'm1',
+        author: { kind: 'agent', agentId: 'a1' },
+        createdAt: 0,
+        parts: [{ type: 'text', text: 'All tests pass.' }],
+        status: 'done',
+      },
+    ],
   }) as unknown as Conversation;
 
 /** A push service that records what was sent (as the payloads it carried, not encrypted). */
@@ -37,7 +45,10 @@ class RecordingPush extends PushService {
   }
 }
 
-const key = (n: number) => ({ p256dh: Buffer.concat([Buffer.from([4]), Buffer.alloc(64, n)]).toString('base64url'), auth: Buffer.alloc(16, n).toString('base64url') });
+const key = (n: number) => ({
+  p256dh: Buffer.concat([Buffer.from([4]), Buffer.alloc(64, n)]).toString('base64url'),
+  auth: Buffer.alloc(16, n).toString('base64url'),
+});
 const prefs: AlertPrefs = { done: true, needs: true, sound: true };
 const PHONE = 'https://web.push.apple.com/phone';
 
@@ -59,7 +70,9 @@ describe('AlertWatcher', () => {
   beforeEach(() => {
     const db = openDatabase(':memory:');
     const at = Date.now();
-    db.exec(`INSERT INTO auth_sessions (id, cookie_hash, key_hash, created_at, last_used_at) VALUES ('phone', '', '', ${at}, ${at}), ('laptop', '', '', ${at}, ${at})`);
+    db.exec(
+      `INSERT INTO auth_sessions (id, cookie_hash, key_hash, created_at, last_used_at) VALUES ('phone', '', '', ${at}, ${at}), ('laptop', '', '', ${at}, ${at})`,
+    );
     push = new RecordingPush(db, async (_req: PushRequest) => ({ status: 201, text: '' }));
     clock = 1_000_000;
     reads = 0;
@@ -96,7 +109,12 @@ describe('AlertWatcher', () => {
 
   it('tells each browser what it asked for, in its language and with its sound, urgently when it is needed', async () => {
     push.subscribe('phone', { endpoint: PHONE, keys: key(1) }, { done: false, needs: true, sound: false }, 'zh-TW');
-    push.subscribe('laptop', { endpoint: 'https://fcm.googleapis.com/laptop', keys: key(2) }, { done: true, needs: false, sound: true }, 'en');
+    push.subscribe(
+      'laptop',
+      { endpoint: 'https://fcm.googleapis.com/laptop', keys: key(2) },
+      { done: true, needs: false, sound: true },
+      'en',
+    );
     list = [busy('c1', 'm0'), done('c2', 'x')];
     await watcher.check();
     list = [done('c1', 'm1'), summary('c2', { confirmTeam: true, lastReplyId: 'x' })];
@@ -138,7 +156,7 @@ describe('AlertWatcher', () => {
     expect(sent()).toEqual([]);
   });
 
-  it("does not drop what was held at the first poll of a page that came after it: that page starts from it", async () => {
+  it('does not drop what was held at the first poll of a page that came after it: that page starts from it', async () => {
     push.subscribe('phone', { endpoint: PHONE, keys: key(1) }, prefs, 'en');
     await watcher.check();
     watcher.seen('phone', 'p1', true);
@@ -273,6 +291,10 @@ describe('AlertWatcher', () => {
       title: 'Harness Relay',
       body: 'An agent is waiting for your approval',
     });
-    expect(testPayload({ lang: 'zh-TW', prefs: { ...prefs, sound: false } })).toMatchObject({ kind: 'test', silent: true, url: '/#/settings/notifications' });
+    expect(testPayload({ lang: 'zh-TW', prefs: { ...prefs, sound: false } })).toMatchObject({
+      kind: 'test',
+      silent: true,
+      url: '/#/settings/notifications',
+    });
   });
 });

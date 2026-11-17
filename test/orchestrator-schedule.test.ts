@@ -8,7 +8,29 @@
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { Conversation, ConversationSchedule, ConversationSettings } from '../src/shared/types';
-import { agentMessages, agents, BUSY_RETRY_MS, calls, conversation, db, fake, finish, Hub, MISSED_AFTER_MS, orchestrator, Orchestrator, project, Scheduler, scheduleTime, setOrchestrator, setStore, settings, store, Store, textOf } from './orchestrator-harness';
+import {
+  agentMessages,
+  agents,
+  BUSY_RETRY_MS,
+  calls,
+  conversation,
+  db,
+  fake,
+  finish,
+  Hub,
+  MISSED_AFTER_MS,
+  orchestrator,
+  Orchestrator,
+  project,
+  Scheduler,
+  scheduleTime,
+  setOrchestrator,
+  setStore,
+  settings,
+  store,
+  Store,
+  textOf,
+} from './orchestrator-harness';
 
 describe('schedules', () => {
   const HOUR = 3_600_000;
@@ -92,7 +114,10 @@ describe('schedules', () => {
     await finish(conv.id);
     // The agent is told in English; the card shows it in the schedule's language.
     expect(textOf(agentMessages(conv).at(-1)!)).toMatch(/^Alice skipped \(This run was started by a schedule and nobody may be watching/);
-    expect(approvalParts(conv)[0]).toMatchObject({ status: 'denied', note: 'Refused automatically: nobody may be watching a scheduled run' });
+    expect(approvalParts(conv)[0]).toMatchObject({
+      status: 'denied',
+      note: 'Refused automatically: nobody may be watching a scheduled run',
+    });
 
     // What the user always allows in this chat goes through.
     conv.allowRules = [{ kind: 'command', key: 'npm install' }];
@@ -136,7 +161,10 @@ describe('schedules', () => {
 
     now = T0 + 2 * HOUR;
     await scheduler().tick();
-    expect(conv.schedule).toMatchObject({ lastResult: 'skipped', lastError: 'the previous scheduled message is still waiting to be delivered' });
+    expect(conv.schedule).toMatchObject({
+      lastResult: 'skipped',
+      lastError: 'the previous scheduled message is still waiting to be delivered',
+    });
     expect(conv.queue).toHaveLength(1);
 
     alice();
@@ -282,7 +310,7 @@ describe('schedules', () => {
     expect(told('Alice')).toEqual([false, true]); // told that the user replied
   });
 
-  it("lets Continue skip the agent that asked, though a scheduled message goes out with it", async () => {
+  it('lets Continue skip the agent that asked, though a scheduled message goes out with it', async () => {
     const conv = await questionWithScheduledWaiting('daily report');
     await orchestrator.send(conv.id, '');
     await finish(conv.id);
@@ -686,7 +714,9 @@ describe('schedules', () => {
       const events: { type: string; schedule?: unknown }[] = [];
       hub.subscribe(conv.id, (e) => events.push(e as never));
       await orchestrator.deleteConversation(chatId);
-      expect(events).toEqual([expect.objectContaining({ type: 'conversation', schedule: expect.not.objectContaining({ lastChatId: chatId }) })]);
+      expect(events).toEqual([
+        expect.objectContaining({ type: 'conversation', schedule: expect.not.objectContaining({ lastChatId: chatId }) }),
+      ]);
     });
 
     it('runs nothing either when the user sets the team by hand instead', async () => {
@@ -806,7 +836,10 @@ describe('schedules', () => {
       const chat = store.get(conv.schedule!.lastChatId!)!;
       await finish(chat.id);
       expect(textOf(agentMessages(chat).at(-1)!)).toMatch(/^Alice skipped \(This run was started by a schedule and nobody may be watching/);
-      expect(approvalParts(chat)[0]).toMatchObject({ status: 'denied', note: 'Refused automatically: nobody may be watching a scheduled run' });
+      expect(approvalParts(chat)[0]).toMatchObject({
+        status: 'denied',
+        note: 'Refused automatically: nobody may be watching a scheduled run',
+      });
       expect(calls[0]!.systemPrompt).toContain('refused automatically');
 
       // The user writes in the new chat: they are here, so the run asks.
@@ -904,11 +937,15 @@ describe('schedules', () => {
       expect(store.isSorted(chat.id)).toBe(true);
       expect(calls.map((c) => c.name).sort()).toEqual(['Alice', 'Bob']); // no sorter
       expect(Object.keys(chat.worktrees).sort()).toEqual(['a', 'b']);
-      expect(Object.values(chat.worktrees).flat().every((w) => w.branch.startsWith(`relay/${chat.id.slice(0, 8)}/`))).toBe(true);
+      expect(
+        Object.values(chat.worktrees)
+          .flat()
+          .every((w) => w.branch.startsWith(`relay/${chat.id.slice(0, 8)}/`)),
+      ).toBe(true);
       expect(conv.worktrees).toEqual({});
     });
 
-    it('names the chats after the message while the schedule\'s conversation has no name, and forgets a chat that is deleted', async () => {
+    it("names the chats after the message while the schedule's conversation has no name, and forgets a chat that is deleted", async () => {
       const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
       conv.title = 'New chat';
       store.saveMeta(conv);
@@ -940,7 +977,12 @@ describe('schedules', () => {
       expect(gone.schedule).toMatchObject({ lastResult: 'failed', nextRunAt: T0 + 2 * HOUR });
       expect(gone.schedule!.lastChatId).toBeUndefined();
       expect(notes(gone).at(-1)).toMatch(/could not be sent/);
-      expect(store.list(() => false).map((c) => c.id).sort()).toEqual([auto.id, gone.id].sort());
+      expect(
+        store
+          .list(() => false)
+          .map((c) => c.id)
+          .sort(),
+      ).toEqual([auto.id, gone.id].sort());
       expect(calls).toEqual([]);
     });
 

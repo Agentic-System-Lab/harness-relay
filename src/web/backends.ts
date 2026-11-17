@@ -34,7 +34,14 @@ export function parseModelList(text: string): string[] {
 
 /** The form for an endpoint (empty for a new one). */
 export function endpointDraft(e?: ModelEndpointView): EndpointDraft {
-  return { id: e?.id ?? '', name: e?.name ?? '', baseUrl: e?.baseUrl ?? '', models: (e?.models ?? []).join('\n'), apiKey: '', removeKey: false };
+  return {
+    id: e?.id ?? '',
+    name: e?.name ?? '',
+    baseUrl: e?.baseUrl ?? '',
+    models: (e?.models ?? []).join('\n'),
+    apiKey: '',
+    removeKey: false,
+  };
 }
 
 /** Whether the base URL is one the server takes: http(s), with no user name, password, query or fragment. */

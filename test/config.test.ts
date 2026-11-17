@@ -18,7 +18,13 @@ describe('server configuration from the environment', () => {
       voiceDir: undefined,
     });
     expect(limitsOf(config)).toEqual(DEFAULT_LIMITS);
-    const blank = readConfig({ RELAY_MAX_ACCOUNTS: ' ', RELAY_MAX_TEAM_AGENTS: '', RELAY_TURN_TIMEOUT_MIN: '', RELAY_VOICE_DIR: '  ', RELAY_VOICE_MODEL_BASE_URL: '' });
+    const blank = readConfig({
+      RELAY_MAX_ACCOUNTS: ' ',
+      RELAY_MAX_TEAM_AGENTS: '',
+      RELAY_TURN_TIMEOUT_MIN: '',
+      RELAY_VOICE_DIR: '  ',
+      RELAY_VOICE_MODEL_BASE_URL: '',
+    });
     expect(blank).toEqual({ config, problems: [] });
   });
 
@@ -46,7 +52,9 @@ describe('server configuration from the environment', () => {
       ['RELAY_TURN_TIMEOUT_MIN', '1e3'],
     ] as const) {
       const { config, problems } = readConfig({ [name]: value });
-      expect(problems, `${name}=${value}`).toEqual([expect.stringMatching(new RegExp(`^${name}=${value.replace('.', '\\.')} is not a whole number from 1 to \\d+\\.$`))]);
+      expect(problems, `${name}=${value}`).toEqual([
+        expect.stringMatching(new RegExp(`^${name}=${value.replace('.', '\\.')} is not a whole number from 1 to \\d+\\.$`)),
+      ]);
       expect(limitsOf(config)).toEqual(DEFAULT_LIMITS);
     }
     // Each one is reported.
@@ -86,12 +94,20 @@ describe('server configuration from the environment', () => {
   });
 
   it("takes voice input's folder as an absolute path, or one from the home folder", () => {
-    expect(readConfig({ RELAY_VOICE_DIR: '/srv/relay-voice/' })).toMatchObject({ config: { voiceDir: resolve('/srv/relay-voice') }, problems: [] });
+    expect(readConfig({ RELAY_VOICE_DIR: '/srv/relay-voice/' })).toMatchObject({
+      config: { voiceDir: resolve('/srv/relay-voice') },
+      problems: [],
+    });
     expect(readConfig({ RELAY_VOICE_DIR: '~/models/voice' }).config.voiceDir).toBe(join(homedir(), 'models/voice'));
     // The browser the browser tools start, the same way.
-    expect(readConfig({ RELAY_BROWSER: '/opt/chromium/chrome' })).toMatchObject({ config: { browser: resolve('/opt/chromium/chrome') }, problems: [] });
+    expect(readConfig({ RELAY_BROWSER: '/opt/chromium/chrome' })).toMatchObject({
+      config: { browser: resolve('/opt/chromium/chrome') },
+      problems: [],
+    });
     expect(readConfig({}).config.browser).toBeUndefined();
-    expect(readConfig({ RELAY_BROWSER: 'chrome' }).problems).toEqual(['RELAY_BROWSER=chrome is not an absolute path (or one starting with ~/).']);
+    expect(readConfig({ RELAY_BROWSER: 'chrome' }).problems).toEqual([
+      'RELAY_BROWSER=chrome is not an absolute path (or one starting with ~/).',
+    ]);
     expect(readConfig({ RELAY_VOICE_DIR: '~' }).config.voiceDir).toBe(homedir());
     // A relative one would depend on the folder the server starts in (the desktop app's own).
     const relative = readConfig({ RELAY_VOICE_DIR: 'voice-models' });

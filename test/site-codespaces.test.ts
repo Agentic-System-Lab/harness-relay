@@ -37,13 +37,26 @@ describe('the Codespaces dialog on the landing page', () => {
     const count = (html: string, pattern: RegExp) => html.match(pattern)?.length ?? 0;
     for (const pattern of [/<li>/g, /<code>/g, /<h[23]\b/g, /<a /g]) expect(count(zh!, pattern), String(pattern)).toBe(count(en!, pattern));
     // The facts that are the same words in both: the agents it installs (the seven that are not open source), the folder, the commands.
-    for (const fact of ['Claude Code', 'Codex', 'Copilot', 'Grok', 'Cursor', 'Antigravity', 'Muse Code', 'OpenCode', '120 core-hours', '/workspaces/playground', 'bash .devcontainer/start.sh', '8787']) {
+    for (const fact of [
+      'Claude Code',
+      'Codex',
+      'Copilot',
+      'Grok',
+      'Cursor',
+      'Antigravity',
+      'Muse Code',
+      'OpenCode',
+      '120 core-hours',
+      '/workspaces/playground',
+      'bash .devcontainer/start.sh',
+      '8787',
+    ]) {
       expect(en, fact).toContain(fact);
       expect(zh, fact).toContain(fact);
     }
   });
 
-  it("shows the terminal as start.sh and the server print it, the same on both pages", () => {
+  it('shows the terminal as start.sh and the server print it, the same on both pages', () => {
     // Compared as written, markup and all: only the chip saying how to click is in the page's language.
     const terminalOf = (page: string) => {
       const pre = dialogOf(read(page)).match(/<pre>[\s\S]*?<\/pre>/)![0];
@@ -57,7 +70,9 @@ describe('the Codespaces dialog on the landing page', () => {
     const server = read('src/server/index.ts');
     expect(en).toContain('Starting Harness Relay. Stop it with Ctrl+C; start it again with: bash .devcontainer/start.sh');
     expect(start).toContain('echo "Starting Harness Relay. Stop it with Ctrl+C; start it again with: bash .devcontainer/start.sh"');
-    expect(en).toContain('Sign this browser in (once, within an hour): <span class="cs-link">https://your-codespace-8787.app.github.dev/#code=');
+    expect(en).toContain(
+      'Sign this browser in (once, within an hour): <span class="cs-link">https://your-codespace-8787.app.github.dev/#code=',
+    );
     expect(server).toContain('Sign this browser in (once, within an hour): ${');
     expect(en).toContain('\n  (or type this code on the sign-in page: ');
     expect(start).toContain('"  (or type this code on the sign-in page: ${BASH_REMATCH[2]})"');
@@ -95,7 +110,11 @@ describe('the Codespaces dialog on the landing page', () => {
     expect(narrow(295)).toContain('--cs-pad: 10px;');
     // The last thing in the dialog, so nothing is hidden below it.
     const dialog = dialogOf(read('site/index.html'));
-    expect(dialog.slice(dialog.indexOf('<div class="cs-actions">')).replace(/<div class="cs-actions">|<a [\s\S]*?<\/a>|<\/(div|dialog)>|\s+/g, '')).toBe('');
+    expect(
+      dialog
+        .slice(dialog.indexOf('<div class="cs-actions">'))
+        .replace(/<div class="cs-actions">|<a [\s\S]*?<\/a>|<\/(div|dialog)>|\s+/g, ''),
+    ).toBe('');
   });
 
   it('is opened by site.js only where the browser has modal dialogs, and a modified click goes to GitHub', () => {

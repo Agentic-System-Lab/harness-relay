@@ -49,7 +49,18 @@ const { pathToFileURL } = require('node:url');
 const { targetOf } = require('../lib/files.cjs');
 const { keyVerdict } = require('../lib/home.cjs');
 const { exitAfterLog, record, refused } = require('../lib/log.cjs');
-const { declined, directivesIn, lastUserMessage, noOther, noteIn, pieceDelay, pieces, plan, recordMcpEnv, wrote } = require('../lib/plan.cjs');
+const {
+  declined,
+  directivesIn,
+  lastUserMessage,
+  noOther,
+  noteIn,
+  pieceDelay,
+  pieces,
+  plan,
+  recordMcpEnv,
+  wrote,
+} = require('../lib/plan.cjs');
 const { fail, out } = require('../lib/rpc.cjs');
 const { args, flag, has, sleep } = require('../lib/self.cjs');
 
@@ -226,7 +237,13 @@ async function loadExtension(abs) {
   const commands = [];
   const handlers = [];
   const api = {
-    registerCommand: (name, o = {}) => commands.push({ name, description: o.description || '', source: 'extension', sourceInfo: { path: abs, source: 'cli', scope: 'temporary', origin: 'top-level' } }),
+    registerCommand: (name, o = {}) =>
+      commands.push({
+        name,
+        description: o.description || '',
+        source: 'extension',
+        sourceInfo: { path: abs, source: 'cli', scope: 'temporary', origin: 'top-level' },
+      }),
     on: (event, handler) => handlers.push([event, handler]),
     registerTool: () => undefined,
     registerShortcut: () => undefined,
@@ -242,11 +259,17 @@ async function loadExtension(abs) {
     try {
       mod = require('node:module').createRequire(abs)(abs);
     } catch {
-      return void out({ type: 'extension_error', extensionPath: abs, event: 'load', error: first && first.message ? first.message : String(first) });
+      return void out({
+        type: 'extension_error',
+        extensionPath: abs,
+        event: 'load',
+        error: first && first.message ? first.message : String(first),
+      });
     }
   }
   const factory = mod && typeof mod.default === 'function' ? mod.default : typeof mod === 'function' ? mod : undefined;
-  if (!factory) return void out({ type: 'extension_error', extensionPath: abs, event: 'load', error: 'Extension does not export a default function' });
+  if (!factory)
+    return void out({ type: 'extension_error', extensionPath: abs, event: 'load', error: 'Extension does not export a default function' });
   try {
     await factory(api);
   } catch (err) {
@@ -272,10 +295,17 @@ function loadMcp() {
     sourceInfo: { path: 'builtin:mcp', source: 'builtin', scope: 'temporary', origin: 'top-level' },
   });
   const servers = (readJson(path.join(agentDir(), 'mcp.json')) || {}).mcpServers || {};
-  const fill = (values) => Object.fromEntries(Object.entries(values || {}).map(([k, v]) => [k, String(v).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, name) => env[name] || '')]));
+  const fill = (values) =>
+    Object.fromEntries(
+      Object.entries(values || {}).map(([k, v]) => [k, String(v).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, name) => env[name] || '')]),
+    );
   recordMcpEnv(
     Object.fromEntries(Object.entries(servers).map(([name, s]) => [name, fill(s.url ? s.headers : s.env)])),
-    Object.fromEntries(Object.entries(servers).filter(([, s]) => s.url).map(([name, s]) => [name, s.url])),
+    Object.fromEntries(
+      Object.entries(servers)
+        .filter(([, s]) => s.url)
+        .map(([name, s]) => [name, s.url]),
+    ),
   );
   return Object.keys(servers);
 }
@@ -449,7 +479,12 @@ function rpcMain() {
   async function start() {
     for (const e of extensionArgs()) if (!e.startsWith('builtin:')) await loadExtension(path.resolve(e));
     if (extensionArgs().includes('builtin:mcp') && !has('--no-mcp')) mcp = loadMcp();
-    tools = flag('--tools') ? flag('--tools').split(',').map((t) => t.trim()).filter(Boolean) : [...DEFAULT_TOOLS, ...mcp.map((s) => `mcp__${s}__*`)];
+    tools = flag('--tools')
+      ? flag('--tools')
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean)
+      : [...DEFAULT_TOOLS, ...mcp.map((s) => `mcp__${s}__*`)];
     session = openSession();
     // A resumed session keeps its own model and level (`--thinking` over its level).
     model = (session.model && registry().find((m) => `${m.provider}/${m.id}` === session.model)) || resolveModel(flag('--model'));
@@ -489,7 +524,11 @@ function rpcMain() {
         if (current) return respond(cmd, undefined, 'Agent is already processing. Specify streamingBehavior to queue the message.');
         if (!model) return respond(cmd, undefined, 'No model selected.\n\nUse /login or set an API key, then select a model with /model.');
         if (keyFor(model.provider) === undefined) {
-          return respond(cmd, undefined, `No API key found for ${model.provider}.\n\nUse /login to log into a provider via OAuth or API key.`);
+          return respond(
+            cmd,
+            undefined,
+            `No API key found for ${model.provider}.\n\nUse /login to log into a provider via OAuth or API key.`,
+          );
         }
         respond(cmd, { disposition: 'started' });
         const ac = new AbortController();
@@ -553,18 +592,31 @@ function rpcMain() {
     out({ type: 'agent_start' });
     out({ type: 'turn_start' });
     if (!session.messages) {
-      const system = { role: 'system', content: '', sections: { preamble: 'You are a coding assistant running inside pi (a fake for the end-to-end tests).' } };
+      const system = {
+        role: 'system',
+        content: '',
+        sections: { preamble: 'You are a coding assistant running inside pi (a fake for the end-to-end tests).' },
+      };
       out({ type: 'message_start', message: system });
       out({ type: 'message_end', message: system });
       append(session, { type: 'message', message: system });
     }
-    const user = { role: 'user', content: [{ type: 'text', text: prompt }, ...images.map((i) => ({ type: 'image', data: i.data, mimeType: i.mimeType }))], timestamp: Date.now() };
+    const user = {
+      role: 'user',
+      content: [{ type: 'text', text: prompt }, ...images.map((i) => ({ type: 'image', data: i.data, mimeType: i.mimeType }))],
+      timestamp: Date.now(),
+    };
     out({ type: 'message_start', message: user });
     out({ type: 'message_end', message: user });
     append(session, { type: 'message', message: user });
 
     /** The assistant message being written. */
-    let msg = { ...base(), usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { ...zeroCost, total: 0 } }, stopReason: 'pending', timestamp: Date.now() };
+    let msg = {
+      ...base(),
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { ...zeroCost, total: 0 } },
+      stopReason: 'pending',
+      timestamp: Date.now(),
+    };
     out({ type: 'message_start', message: msg });
     const update = (e) => out({ type: 'message_update', assistantMessageEvent: e });
     const endMessage = (stopReason, extra = {}) => {
@@ -574,7 +626,12 @@ function rpcMain() {
       return msg;
     };
     const nextMessage = () => {
-      msg = { ...base(), usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { ...zeroCost, total: 0 } }, stopReason: 'pending', timestamp: Date.now() };
+      msg = {
+        ...base(),
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { ...zeroCost, total: 0 } },
+        stopReason: 'pending',
+        timestamp: Date.now(),
+      };
       out({ type: 'turn_start' });
       out({ type: 'message_start', message: msg });
     };
@@ -640,8 +697,22 @@ function rpcMain() {
         // Stopped while it ran (a request the sandbox's proxy asks about, say): Pi's own words.
         if (signal.aborted) result = { ok: false, aborted: true, text: 'Command aborted', details: {} };
       }
-      out({ type: 'tool_execution_end', toolCallId, toolName, result: { content: [{ type: 'text', text: result.text }], details: result.details || {} }, isError: !result.ok });
-      const toolResult = { role: 'toolResult', toolCallId, toolName, content: [{ type: 'text', text: result.text }], details: result.details || {}, isError: !result.ok, timestamp: Date.now() };
+      out({
+        type: 'tool_execution_end',
+        toolCallId,
+        toolName,
+        result: { content: [{ type: 'text', text: result.text }], details: result.details || {} },
+        isError: !result.ok,
+      });
+      const toolResult = {
+        role: 'toolResult',
+        toolCallId,
+        toolName,
+        content: [{ type: 'text', text: result.text }],
+        details: result.details || {},
+        isError: !result.ok,
+        timestamp: Date.now(),
+      };
       out({ type: 'message_start', message: toolResult });
       out({ type: 'message_end', message: toolResult });
       out({ type: 'turn_end', message: asked, toolResults: [toolResult] });
@@ -651,7 +722,15 @@ function rpcMain() {
 
     /** The `bash` tool: never runs anything; what the commands the fake asks about would print. */
     const bash = (command) => () => {
-      if (command === 'ls') return { ok: true, text: fs.readdirSync(cwd).filter((e) => !e.startsWith('.')).sort().join('\n') };
+      if (command === 'ls')
+        return {
+          ok: true,
+          text: fs
+            .readdirSync(cwd)
+            .filter((e) => !e.startsWith('.'))
+            .sort()
+            .join('\n'),
+        };
       return { ok: true, text: /\be2e-approval\b/.test(command) ? 'e2e-approval' : '(no output)' };
     };
     /**
@@ -663,7 +742,9 @@ function rpcMain() {
       try {
         const res = await fetch(url, { signal: AbortSignal.any([signal, AbortSignal.timeout(120_000)]) });
         const body = await res.text();
-        return res.ok ? { ok: true, text: body.slice(0, 2000) || '(no output)' } : { ok: false, text: `curl: (22) The requested URL returned error: ${res.status}` };
+        return res.ok
+          ? { ok: true, text: body.slice(0, 2000) || '(no output)' }
+          : { ok: false, text: `curl: (22) The requested URL returned error: ${res.status}` };
       } catch (err) {
         return { ok: false, text: `curl: ${(err && err.cause && err.cause.message) || (err && err.message) || err}` };
       }
@@ -687,13 +768,20 @@ function rpcMain() {
       if (signal.aborted) return stopped();
       if (step.type === 'error') {
         const errorMessage =
-          { key: '401 "Unauthorized"', model: '404: {"message":"The model `fake` does not exist."}', connection: 'Connection error.: connect ECONNREFUSED 127.0.0.1:9' }[d.error] ||
-          step.text;
+          {
+            key: '401 "Unauthorized"',
+            model: '404: {"message":"The model `fake` does not exist."}',
+            connection: 'Connection error.: connect ECONNREFUSED 127.0.0.1:9',
+          }[d.error] || step.text;
         endMessage('error', { errorMessage });
         return settle(false);
       }
       if (step.type === 'tool') {
-        const r = isActive('ls') ? await call('ls', { path: cwd }, () => ({ ok: true, text: lsOutput(cwd) })) : isActive('bash') ? await call('bash', { command: 'ls' }, bash('ls')) : undefined;
+        const r = isActive('ls')
+          ? await call('ls', { path: cwd }, () => ({ ok: true, text: lsOutput(cwd) }))
+          : isActive('bash')
+            ? await call('bash', { command: 'ls' }, bash('ls'))
+            : undefined;
         if (r && r.aborted) return stopped();
       }
       if (step.type === 'approve') {
@@ -757,7 +845,14 @@ function rpcMain() {
     if (!cmd || typeof cmd !== 'object') return;
     // `abort` and dialog answers arrive while a prompt runs: never queued behind it.
     if (cmd.type === 'abort' || cmd.type === 'extension_ui_response') return void ready.then(() => handle(cmd));
-    queue = queue.then(() => ready).then(() => handle(cmd).then(() => undefined, (err) => process.stderr.write(`fake pi: ${err && err.stack ? err.stack : err}\n`)));
+    queue = queue
+      .then(() => ready)
+      .then(() =>
+        handle(cmd).then(
+          () => undefined,
+          (err) => process.stderr.write(`fake pi: ${err && err.stack ? err.stack : err}\n`),
+        ),
+      );
   };
   process.stdin.on('data', (chunk) => {
     buf = Buffer.concat([buf, chunk]);

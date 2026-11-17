@@ -62,7 +62,9 @@ test.describe("the page's words", () => {
     expect(fetched).toEqual(['en', 'zh-TW', 'zh-TW']);
   });
 
-  test('a language chosen whose words cannot be loaded: the page reloads once for them, then says so and stays as it was', async ({ page }) => {
+  test('a language chosen whose words cannot be loaded: the page reloads once for them, then says so and stays as it was', async ({
+    page,
+  }) => {
     await page.route('**/assets/zh-TW-*.js', (route) => route.fulfill({ status: 404, body: '' }));
     await openSettings(page);
     const pages = await countPages(page);
@@ -80,7 +82,6 @@ test.describe("the page's words", () => {
     await chinese.click();
     await expect(languages(page, '介面語言').getByRole('radio', { name: '繁體中文' })).toHaveAttribute('aria-checked', 'true');
   });
-
 });
 
 test.describe("the desktop app's menus", () => {
@@ -114,10 +115,12 @@ test.describe("the desktop app's menus", () => {
       await page.evaluate(() => (location.hash = '#/settings'));
       await languages(page, 'Language').getByRole('radio', { name: '繁體中文' }).click();
       await expect(page.getByRole('heading', { name: '設定與登入' })).toBeVisible();
-      await expect.poll(() => told).toEqual([
-        { lang: 'en', status: 200 },
-        { lang: 'zh-TW', status: 200 },
-      ]);
+      await expect
+        .poll(() => told)
+        .toEqual([
+          { lang: 'en', status: 200 },
+          { lang: 'zh-TW', status: 200 },
+        ]);
       await languages(page, '介面語言').getByRole('radio', { name: 'English' }).click();
       await expect.poll(() => told.map((t) => t.lang)).toEqual(['en', 'zh-TW', 'en']);
     });

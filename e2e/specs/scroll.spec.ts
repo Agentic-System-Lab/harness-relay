@@ -31,7 +31,10 @@ async function wheelUp(page: Page, dy: number): Promise<number> {
 }
 
 test.describe('scrolling the chat', () => {
-  test('scrolled up, the arrow in the middle above the message box takes the chat to its end, also from the keyboard', async ({ page, relay }) => {
+  test('scrolled up, the arrow in the middle above the message box takes the chat to its end, also from the keyboard', async ({
+    page,
+    relay,
+  }) => {
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
     await send(page, 'Tell me everything e2e:long');
     await finishedReply(page, 'Claude');
@@ -113,7 +116,11 @@ test.describe('scrolling the chat', () => {
     await wheelUp(page, 300);
     await expect(toEnd(page)).toBeVisible();
     await atRest(page);
-    const [arrow, above, box] = [(await toEnd(page).boundingBox())!, (await tray.boundingBox())!, (await page.locator('.composer').boundingBox())!];
+    const [arrow, above, box] = [
+      (await toEnd(page).boundingBox())!,
+      (await tray.boundingBox())!,
+      (await page.locator('.composer').boundingBox())!,
+    ];
     expect(arrow.y + arrow.height).toBeLessThan(above.y);
     expect(Math.abs(arrow.x + arrow.width / 2 - (box.x + box.width / 2))).toBeLessThanOrEqual(1);
 
@@ -126,7 +133,10 @@ test.describe('scrolling the chat', () => {
     await expect(toEnd(page)).toBeVisible();
   });
 
-  test('while a reply streams, a reader who scrolls up stays there with the arrow, which then follows the reply to its end', async ({ page, relay }) => {
+  test('while a reply streams, a reader who scrolls up stays there with the arrow, which then follows the reply to its end', async ({
+    page,
+    relay,
+  }) => {
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
     // Its paragraphs come one after another over fifteen seconds.
     await send(page, 'Tell me everything e2e:long e2e:slow=15');

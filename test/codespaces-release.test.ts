@@ -133,7 +133,7 @@ describe.skipIf(process.platform === 'win32')("the Release workflow's Codespaces
     expect(r.out).toContain(`latest-release is at ${SHA}.`);
   });
 
-  it('says so as an error when GitHub refuses it, without failing the run, with what to run by hand and not gh\'s JSON', () => {
+  it("says so as an error when GitHub refuses it, without failing the run, with what to run by hand and not gh's JSON", () => {
     for (const [GH_BRANCH, how] of [
       ['there', BY_PATCH],
       ['missing', BY_POST],

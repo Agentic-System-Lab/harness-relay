@@ -42,7 +42,6 @@ import {
 } from './types';
 import { t } from '../i18n';
 
-
 /*
  * Grok runs as an ACP agent (`grok agent stdio`: JSON-RPC over stdin/stdout), not headless `grok -p`.
  *
@@ -93,7 +92,10 @@ export function grokSandboxProfile(
   if (permission === 'full') return undefined;
   if (platform === 'win32') return 'workspace';
   if (!readWrite.length) return GROK_PROFILE;
-  return `${GROK_PROFILE}-${createHash('sha256').update(JSON.stringify([...readWrite].sort())).digest('hex').slice(0, 12)}`;
+  return `${GROK_PROFILE}-${createHash('sha256')
+    .update(JSON.stringify([...readWrite].sort()))
+    .digest('hex')
+    .slice(0, 12)}`;
 }
 
 /** A profile Harness Relay writes into `sandbox.toml` (`GROK_PROFILE`, or one of a run's own folders). */
@@ -561,7 +563,10 @@ function writeGrokOwn(home: string, write: (wrote: GrokOwnWrite) => void): void 
     // A link to a file stays one: that file was written. A link that led nowhere was replaced by a
     // file (the writers follow a link only to a file that is there).
     const toFile = was?.kind === 'link' && was.content !== null;
-    guard.snapshot.entries.set(name, toFile ? { ...was, content } : { kind: 'file', content, mode: was?.kind === 'file' ? was.mode : 0o600 });
+    guard.snapshot.entries.set(
+      name,
+      toFile ? { ...was, content } : { kind: 'file', content, mode: was?.kind === 'file' ? was.mode : 0o600 },
+    );
   });
 }
 
@@ -676,7 +681,6 @@ export function writeGrokProfile(
   renameSync(temp, file);
   return next;
 }
-
 
 /**
  * The id Harness Relay gives a model of the user's own endpoint in Grok's config:
@@ -862,7 +866,6 @@ function declined(call: GrokToolCall, note?: string): GrokDecision {
     label: note ? `${t().approvalDeclined} ${note}` : t().approvalDeclined,
   };
 }
-
 
 const DONE = new Set(['completed', 'failed', 'cancelled', 'rejected']);
 
@@ -1078,7 +1081,9 @@ export const grokRunner: AgentRunner = {
     // On the user's own endpoint: its model as Grok's config names it (`writeGrokModels`), no effort
     // (Grok takes none for a model it does not know), and its key in the variable that model names.
     const endpoint = endpointRunModel(given.backends, given.model, PROVIDER_LABEL.grok);
-    const o = endpoint ? { ...given, model: grokEndpointModelId(endpoint.endpoint.id, endpoint.model), effort: endpointEffort('grok', given.effort) } : given;
+    const o = endpoint
+      ? { ...given, model: grokEndpointModelId(endpoint.endpoint.id, endpoint.model), effort: endpointEffort('grok', given.effort) }
+      : given;
     // Model and effort are set per session below: `grok agent --reasoning-effort` does not reach ACP sessions.
     const args = ['agent', '--no-leader', 'stdio'];
     const readWrite = grokReadWrite(o.addDirs);
@@ -1117,7 +1122,10 @@ export const grokRunner: AgentRunner = {
         try {
           settle = guardGrokSettings(home, (wrote) => {
             try {
-              wrote('sandbox.toml', writeGrokProfile(home, [...deny, ...grokPrograms(home, bins)], readWrite, sandbox, grokProfilesInUse()));
+              wrote(
+                'sandbox.toml',
+                writeGrokProfile(home, [...deny, ...grokPrograms(home, bins)], readWrite, sandbox, grokProfilesInUse()),
+              );
             } catch (err) {
               throw new AgentRunError(t().grokSandbox((err as Error).message));
             }
@@ -1157,7 +1165,6 @@ export const grokRunner: AgentRunner = {
 
 /** One Grok turn over ACP, in its sandbox for the permission (`sandbox`, set in `env`). */
 async function grokTurn(o: RunOptions, args: string[], sandbox: string | undefined, env: NodeJS.ProcessEnv): Promise<RunResult> {
-
   let child: ChildProcess | undefined;
   let sessionId: string | undefined;
   let userAborted = false;
@@ -1204,9 +1211,7 @@ async function grokTurn(o: RunOptions, args: string[], sandbox: string | undefin
     onLine: conn.handleLine,
   }).then(
     (res) => {
-      const why = res.timedOut
-        ? t().timedOut
-        : tail(res.stderr) || t().exitedWithoutTurn('grok', res.code);
+      const why = res.timedOut ? t().timedOut : tail(res.stderr) || t().exitedWithoutTurn('grok', res.code);
       conn.close(new AgentRunError(sandbox && /sandbox/i.test(res.stderr) ? t().grokSandbox(why) : why));
       return res;
     },
@@ -1244,11 +1249,9 @@ async function grokTurn(o: RunOptions, args: string[], sandbox: string | undefin
     ] as const) {
       const current = configOptions?.find((c: any) => c?.id === configId)?.currentValue;
       if (!value || value === current) continue;
-      await conn
-        .request('session/set_config_option', { sessionId, configId, value })
-        .catch((err: Error) => {
-          throw new AgentRunError(rejected(value, err.message));
-        });
+      await conn.request('session/set_config_option', { sessionId, configId, value }).catch((err: Error) => {
+        throw new AgentRunError(rejected(value, err.message));
+      });
     }
 
     const result = await conn.request('session/prompt', { sessionId, prompt: acpPrompt(o.prompt, o.images) });
@@ -1274,4 +1277,3 @@ async function grokTurn(o: RunOptions, args: string[], sandbox: string | undefin
     await exited.catch(() => undefined);
   }
 }
-

@@ -164,7 +164,9 @@ describe('ToolLibrary', () => {
     lib.saveServer('github', { transport: 'stdio', command: 'x', env: [{ name: 'TOKEN', value: 'ghp_secret' }] });
     lib.saveServer('GitHub', { transport: 'stdio', command: 'x', env: [{ name: 'TOKEN' }], previousName: 'github' });
     // After a restart, the values are read back from the store.
-    expect(new ToolLibrary(db, caseless).forAgent(agent('claude')).mcpServers).toMatchObject([{ name: 'GitHub', env: { TOKEN: 'ghp_secret' } }]);
+    expect(new ToolLibrary(db, caseless).forAgent(agent('claude')).mcpServers).toMatchObject([
+      { name: 'GitHub', env: { TOKEN: 'ghp_secret' } },
+    ]);
   });
 
   it("keeps agents' exceptions when a server or a skill is renamed", () => {
@@ -192,7 +194,12 @@ describe('ToolLibrary', () => {
     expect(en(() => lib.saveServer('two', { transport: 'stdio', command: 'y', previousName: 'nope' }))).toThrow(/No MCP server/);
     expect(en(() => lib.deleteServer('nope'))).toThrow(/No MCP server/);
 
-    const broken: SecretStore = { ...fakeKeyring(), set: () => { throw new Error('locked'); } };
+    const broken: SecretStore = {
+      ...fakeKeyring(),
+      set: () => {
+        throw new Error('locked');
+      },
+    };
     const failing = new ToolLibrary(openDatabase(':memory:'), broken);
     expect(() => failing.saveServer('s', { transport: 'stdio', command: 'x', env: [{ name: 'K', value: 'v' }] })).toThrow(/locked/);
     expect(failing.view().mcpServers).toEqual([]);
@@ -240,7 +247,12 @@ describe('ToolLibrary', () => {
     const first = new ToolLibrary(db, keyring);
     first.saveServer('s', { transport: 'stdio', command: 'x', env: [{ name: 'K', value: 'real' }] });
     const name = entry(first, 's');
-    const locked: SecretStore = { ...keyring, get: () => { throw new Error('locked'); } };
+    const locked: SecretStore = {
+      ...keyring,
+      get: () => {
+        throw new Error('locked');
+      },
+    };
     const lib = new ToolLibrary(db, locked);
     expect(en(() => lib.saveServer('s', { transport: 'stdio', command: 'y', env: [{ name: 'K' }], previousName: 's' }))).toThrow(
       /could not be read/,
@@ -374,6 +386,20 @@ describe('ToolLibrary', () => {
     const view = new ToolLibrary(db).view();
     expect(view.mcpServers[0]!.providers).toEqual([]);
     expect(view.skills[0]!.providers).toEqual(PROVIDERS);
-    expect(view.memory).toEqual({ all: 'old notes', claude: '', codex: '', grok: '', cursor: '', antigravity: '', copilot: '', muse: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' });
+    expect(view.memory).toEqual({
+      all: 'old notes',
+      claude: '',
+      codex: '',
+      grok: '',
+      cursor: '',
+      antigravity: '',
+      copilot: '',
+      muse: '',
+      opencode: '',
+      goose: '',
+      cline: '',
+      openhands: '',
+      pi: '',
+    });
   });
 });

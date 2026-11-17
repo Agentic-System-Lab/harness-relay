@@ -21,11 +21,7 @@ import {
 
 const list: WorkingDirectories = {
   home: '/Users/me',
-  dirs: [
-    { path: '/Users/me/Projects/harness-relay', default: true },
-    { path: '/Users/me/Projects/Site' },
-    { path: '/srv/My Notes' },
-  ],
+  dirs: [{ path: '/Users/me/Projects/harness-relay', default: true }, { path: '/Users/me/Projects/Site' }, { path: '/srv/My Notes' }],
 };
 const all = list.dirs.map((d) => d.path);
 const paths = (query: string | null, l = list) => matchCwds(l, query).map((d) => d.path);

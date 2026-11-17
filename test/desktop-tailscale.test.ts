@@ -2,7 +2,16 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { findTailscale, freeHttpsPort, parseStatus, servedUrl, shareOutcome, sharePlan, Tailscale, tailscaleLink } from '../desktop/src/tailscale';
+import {
+  findTailscale,
+  freeHttpsPort,
+  parseStatus,
+  servedUrl,
+  shareOutcome,
+  sharePlan,
+  Tailscale,
+  tailscaleLink,
+} from '../desktop/src/tailscale';
 
 const dir = mkdtempSync(join(tmpdir(), 'relay-tailscale-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -20,10 +29,12 @@ describe('finding tailscale', () => {
   });
 
   it('finds tailscale.exe on Windows, on PATH or in Program Files', () => {
-    expect(findTailscale({ PATH: 'C:\\Windows;C:\\Tools\\' }, 'win32', (p) => p === 'C:\\Tools\\tailscale.exe')).toBe('C:\\Tools\\tailscale.exe');
-    expect(findTailscale({ PATH: 'C:\\Windows', ProgramFiles: 'D:\\Programs' }, 'win32', (p) => p === 'D:\\Programs\\Tailscale\\tailscale.exe')).toBe(
-      'D:\\Programs\\Tailscale\\tailscale.exe',
+    expect(findTailscale({ PATH: 'C:\\Windows;C:\\Tools\\' }, 'win32', (p) => p === 'C:\\Tools\\tailscale.exe')).toBe(
+      'C:\\Tools\\tailscale.exe',
     );
+    expect(
+      findTailscale({ PATH: 'C:\\Windows', ProgramFiles: 'D:\\Programs' }, 'win32', (p) => p === 'D:\\Programs\\Tailscale\\tailscale.exe'),
+    ).toBe('D:\\Programs\\Tailscale\\tailscale.exe');
   });
 
   it('is undefined when there is none', () => {
@@ -38,13 +49,17 @@ describe('tailscale status', () => {
   });
 
   it('is not running when signed out, or on output that is not JSON', () => {
-    expect(parseStatus(JSON.stringify({ BackendState: 'NeedsLogin', Self: { DNSName: '' } }))).toEqual({ running: false, dnsName: undefined });
+    expect(parseStatus(JSON.stringify({ BackendState: 'NeedsLogin', Self: { DNSName: '' } }))).toEqual({
+      running: false,
+      dnsName: undefined,
+    });
     expect(parseStatus('failed to connect to local tailscaled')).toEqual({ running: false });
   });
 });
 
 describe('the shared address', () => {
-  const config = (hostPort: string, proxy: string) => JSON.stringify({ TCP: { '443': { HTTPS: true } }, Web: { [hostPort]: { Handlers: { '/': { Proxy: proxy } } } } });
+  const config = (hostPort: string, proxy: string) =>
+    JSON.stringify({ TCP: { '443': { HTTPS: true } }, Web: { [hostPort]: { Handlers: { '/': { Proxy: proxy } } } } });
 
   it('is the HTTPS name when the port is shared on 443', () => {
     expect(servedUrl(config('my-mac.tail1234.ts.net:443', 'http://127.0.0.1:8787'), 8787)).toBe('https://my-mac.tail1234.ts.net');
@@ -72,7 +87,10 @@ describe('sharing with the tailnet', () => {
 
   it("opens Tailscale's page when Serve has to be turned on first", () => {
     const stdout = 'Serve is not enabled on your tailnet.\nTo enable, visit:\n\n         https://login.tailscale.com/f/serve?node=abc123\n';
-    expect(run({ code: null, timedOut: true, stdout })).toEqual({ kind: 'needs-approval', link: 'https://login.tailscale.com/f/serve?node=abc123' });
+    expect(run({ code: null, timedOut: true, stdout })).toEqual({
+      kind: 'needs-approval',
+      link: 'https://login.tailscale.com/f/serve?node=abc123',
+    });
   });
 
   it('opens only pages of Tailscale', () => {
@@ -92,7 +110,9 @@ describe('sharing with the tailnet', () => {
 
 describe('where to share without taking over what is shared', () => {
   const web = (entries: Record<string, string>) =>
-    JSON.stringify({ Web: Object.fromEntries(Object.entries(entries).map(([hostPort, proxy]) => [hostPort, { Handlers: { '/': { Proxy: proxy } } }])) });
+    JSON.stringify({
+      Web: Object.fromEntries(Object.entries(entries).map(([hostPort, proxy]) => [hostPort, { Handlers: { '/': { Proxy: proxy } } }])),
+    });
 
   it('shares nothing when what is shared cannot be read, since it could take over a port or Funnel', () => {
     // The command failed or timed out…
@@ -107,8 +127,15 @@ describe('where to share without taking over what is shared', () => {
     expect(sharePlan('{}', 8787)).toEqual({ kind: 'share', https: 443 });
     expect(sharePlan('null', 8787)).toEqual({ kind: 'share', https: 443 });
     expect(sharePlan(web({ 'my-mac.ts.net:443': 'http://127.0.0.1:3000' }), 8787)).toEqual({ kind: 'share', https: 8443 });
-    expect(sharePlan(web({ 'my-mac.ts.net:8443': 'http://127.0.0.1:8787' }), 8787)).toEqual({ kind: 'shared', url: 'https://my-mac.ts.net:8443' });
-    const full = web({ 'a.ts.net:443': 'http://127.0.0.1:1', 'a.ts.net:8443': 'http://127.0.0.1:2', 'a.ts.net:10000': 'http://127.0.0.1:3' });
+    expect(sharePlan(web({ 'my-mac.ts.net:8443': 'http://127.0.0.1:8787' }), 8787)).toEqual({
+      kind: 'shared',
+      url: 'https://my-mac.ts.net:8443',
+    });
+    const full = web({
+      'a.ts.net:443': 'http://127.0.0.1:1',
+      'a.ts.net:8443': 'http://127.0.0.1:2',
+      'a.ts.net:10000': 'http://127.0.0.1:3',
+    });
     expect(sharePlan(full, 8787)).toEqual({ kind: 'ports-taken' });
   });
 
@@ -120,7 +147,9 @@ describe('where to share without taking over what is shared', () => {
 
   it('moves to 8443, then 10000, when another service has 443', () => {
     expect(freeHttpsPort(web({ 'my-mac.ts.net:443': 'http://127.0.0.1:3000' }), 8787)).toBe(8443);
-    expect(freeHttpsPort(web({ 'my-mac.ts.net:443': 'http://127.0.0.1:3000', 'my-mac.ts.net:8443': 'http://127.0.0.1:9999' }), 8787)).toBe(10000);
+    expect(freeHttpsPort(web({ 'my-mac.ts.net:443': 'http://127.0.0.1:3000', 'my-mac.ts.net:8443': 'http://127.0.0.1:9999' }), 8787)).toBe(
+      10000,
+    );
   });
 
   it('counts a port forwarded as plain TCP, or a / that serves files or text, as taken', () => {
@@ -145,7 +174,12 @@ describe('where to share without taking over what is shared', () => {
   });
 
   it('is undefined when every usual port is taken', () => {
-    expect(freeHttpsPort(web({ 'a.ts.net:443': 'http://127.0.0.1:1', 'a.ts.net:8443': 'http://127.0.0.1:2', 'a.ts.net:10000': 'http://127.0.0.1:3' }), 8787)).toBeUndefined();
+    expect(
+      freeHttpsPort(
+        web({ 'a.ts.net:443': 'http://127.0.0.1:1', 'a.ts.net:8443': 'http://127.0.0.1:2', 'a.ts.net:10000': 'http://127.0.0.1:3' }),
+        8787,
+      ),
+    ).toBeUndefined();
   });
 });
 
@@ -181,7 +215,9 @@ esac`);
   });
 
   posixIt("stops a share that waits for Serve to be turned on, and gives Tailscale's page", async () => {
-    const t = fake(`echo "Serve is not enabled on your tailnet."; echo "To enable, visit:"; echo "  https://login.tailscale.com/f/serve?node=abc"; sleep 30`);
+    const t = fake(
+      `echo "Serve is not enabled on your tailnet."; echo "To enable, visit:"; echo "  https://login.tailscale.com/f/serve?node=abc"; sleep 30`,
+    );
     const started = Date.now();
     // Enough time for the link to be printed on a busy machine, far less than the 30 s it waits.
     const result = await new Tailscale(t.bin, env, { share: 3000 }).share(8787);

@@ -260,7 +260,11 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   // Who designs the team, for auto-team conversations.
   const autoTeam = Boolean(state.conv?.settings.autoTeam);
   useEffect(() => {
-    if (autoTeam) api.getSettings().then((s) => setLead(s.lead), () => {});
+    if (autoTeam)
+      api.getSettings().then(
+        (s) => setLead(s.lead),
+        () => {},
+      );
   }, [autoTeam]);
 
   /**
@@ -683,7 +687,8 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
           // Opening or folding part of a message (an activity row, Show more) leaves it where the reader
           // is looking: following would scroll what just opened out of view.
           // So does jumping between a reply and the lead agent's review of it.
-          if ((e.target as Element).closest('summary, [aria-expanded], [aria-pressed], .review-reply-link, .review-mark-tag')) stopFollowing();
+          if ((e.target as Element).closest('summary, [aria-expanded], [aria-pressed], .review-reply-link, .review-mark-tag'))
+            stopFollowing();
         }}
       >
         <div className="messages-inner">
@@ -802,20 +807,20 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
             designing
               ? t.chat.placeholderDesigning
               : awaitingConfirm
-              ? t.chat.placeholderConfirm
-              : questions.length > 0
-                ? t.chat.placeholderAnswer(askers)
-                : reviewing
-                ? t.chat.placeholderReviewing
-                : running
-                ? t.chat.placeholderBusy
-                : waitingForTeam
-                  ? t.chat.placeholderAuto
-                  : autoTeam
-                    ? t.chat.placeholderNext
-                    : conv.settings.mode === 'relay' && conv.agents[0]
-                    ? t.chat.placeholderRelay(conv.agents[0].name)
-                    : t.chat.placeholder
+                ? t.chat.placeholderConfirm
+                : questions.length > 0
+                  ? t.chat.placeholderAnswer(askers)
+                  : reviewing
+                    ? t.chat.placeholderReviewing
+                    : running
+                      ? t.chat.placeholderBusy
+                      : waitingForTeam
+                        ? t.chat.placeholderAuto
+                        : autoTeam
+                          ? t.chat.placeholderNext
+                          : conv.settings.mode === 'relay' && conv.agents[0]
+                            ? t.chat.placeholderRelay(conv.agents[0].name)
+                            : t.chat.placeholder
           }
           onSend={send}
           onStop={() => api.stop(conv.id).catch((e: Error) => setError(e.message))}
@@ -971,11 +976,7 @@ function TeamIntro({ conv, leadText }: { conv: Conversation; leadText: string })
                 </div>
               </div>
             </div>
-            {a.role.trim() ? (
-              <RoleText text={a.role.trim()} lines={6} />
-            ) : (
-              <p className="intro-role">{t.chat.noRole}</p>
-            )}
+            {a.role.trim() ? <RoleText text={a.role.trim()} lines={6} /> : <p className="intro-role">{t.chat.noRole}</p>}
           </div>
         ))}
       </div>

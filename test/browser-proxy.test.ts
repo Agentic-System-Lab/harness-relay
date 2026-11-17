@@ -47,12 +47,20 @@ describe("the browser's own proxy", () => {
   /** A GET through the proxy, as a browser sends one. */
   function get(url: string, auth?: string): Promise<{ status: number; body: string; headers: Record<string, unknown> }> {
     return new Promise((resolve, reject) => {
-      const req = request({ host: '127.0.0.1', port: proxy.port, path: url, headers: { host: new URL(url).host, ...(auth ? { 'proxy-authorization': auth } : {}) } }, (res) => {
-        let body = '';
-        res.setEncoding('utf8');
-        res.on('data', (c: string) => (body += c));
-        res.on('end', () => resolve({ status: res.statusCode ?? 0, body, headers: res.headers }));
-      });
+      const req = request(
+        {
+          host: '127.0.0.1',
+          port: proxy.port,
+          path: url,
+          headers: { host: new URL(url).host, ...(auth ? { 'proxy-authorization': auth } : {}) },
+        },
+        (res) => {
+          let body = '';
+          res.setEncoding('utf8');
+          res.on('data', (c: string) => (body += c));
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body, headers: res.headers }));
+        },
+      );
       req.on('error', reject);
       req.end();
     });
@@ -61,7 +69,9 @@ describe("the browser's own proxy", () => {
   /** A CONNECT through the proxy: its answer's first line, and the socket when it was let through. */
   function tunnel(target: string, auth?: string): Promise<{ line: string; sock: Socket }> {
     return new Promise((resolve, reject) => {
-      const sock = connect(proxy.port, '127.0.0.1', () => sock.write(`CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\n${auth ? `Proxy-Authorization: ${auth}\r\n` : ''}\r\n`));
+      const sock = connect(proxy.port, '127.0.0.1', () =>
+        sock.write(`CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\n${auth ? `Proxy-Authorization: ${auth}\r\n` : ''}\r\n`),
+      );
       let got = '';
       sock.on('data', function first(chunk: Buffer) {
         got += chunk.toString('latin1');
@@ -77,10 +87,11 @@ describe("the browser's own proxy", () => {
   it('reads a CONNECT target, also an IPv6 one, and nothing else', () => {
     expect(connectTarget('example.com:443')).toEqual({ host: 'example.com', port: 443 });
     expect(connectTarget('[::1]:8080')).toEqual({ host: '::1', port: 8080 });
-    for (const bad of ['example.com', 'example.com:0', 'example.com:70000', 'a:b:1', '', undefined]) expect(connectTarget(bad)).toBeUndefined();
+    for (const bad of ['example.com', 'example.com:0', 'example.com:70000', 'a:b:1', '', undefined])
+      expect(connectTarget(bad)).toBeUndefined();
   });
 
-  it("serves only a browser with a password it issued, and asks the others who they are", async () => {
+  it('serves only a browser with a password it issued, and asks the others who they are', async () => {
     expect((await get(`http://127.0.0.1:${sitePort}/`)).status).toBe(407);
     expect((await get(`http://127.0.0.1:${sitePort}/`, basic('wrong'))).status).toBe(407);
     expect((await get(`http://127.0.0.1:${sitePort}/`, `Basic ${Buffer.from(`other:${password}`).toString('base64')}`)).status).toBe(407);

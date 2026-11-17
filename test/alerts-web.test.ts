@@ -34,9 +34,11 @@ function memoryStorage() {
 }
 
 const CHROME_MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36';
-const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+const IPHONE =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 const IPAD_AS_MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15';
-const ELECTRON = 'Mozilla/5.0 (Macintosh) AppleWebKit/537.36 (KHTML, like Gecko) harness-relay/2026.11.1 Chrome/140.0 Electron/39.0.0 Safari/537.36';
+const ELECTRON =
+  'Mozilla/5.0 (Macintosh) AppleWebKit/537.36 (KHTML, like Gecko) harness-relay/2026.11.1 Chrome/140.0 Electron/39.0.0 Safari/537.36';
 
 const env = (o: Partial<NotifyEnv> = {}): NotifyEnv => ({
   userAgent: CHROME_MAC,
@@ -70,7 +72,10 @@ describe('notifySupport', () => {
 
   it('gives none to a page that is not HTTPS, nor to Safari on an iPhone or iPad until opened from the home screen', () => {
     expect(notifySupport(env({ secure: false }))).toEqual({ support: 'insecure', push: false });
-    expect(notifySupport(env({ userAgent: IPHONE, hasNotification: false, hasPushManager: false }))).toEqual({ support: 'install', push: false });
+    expect(notifySupport(env({ userAgent: IPHONE, hasNotification: false, hasPushManager: false }))).toEqual({
+      support: 'install',
+      push: false,
+    });
     expect(notifySupport(env({ userAgent: IPAD_AS_MAC, maxTouchPoints: 5 }))).toEqual({ support: 'install', push: false });
     expect(notifySupport(env({ userAgent: IPHONE, standalone: true }))).toEqual({ support: 'ok', push: true });
     expect(notifySupport(env({ hasNotification: false }))).toEqual({ support: 'unsupported', push: false });
@@ -84,7 +89,13 @@ describe('notifySupport', () => {
 
 describe('alertActions', () => {
   const on = { notify: true, sound: true };
-  const where = (o: Partial<Parameters<typeof alertActions>[1]>) => ({ visible: true, focused: true, viewing: false, pushActive: false, ...o });
+  const where = (o: Partial<Parameters<typeof alertActions>[1]>) => ({
+    visible: true,
+    focused: true,
+    viewing: false,
+    pushActive: false,
+    ...o,
+  });
 
   it('does nothing about the conversation the user is looking at', () => {
     expect(alertActions(on, where({ viewing: true }))).toEqual({ sound: false, notify: false });
@@ -134,11 +145,22 @@ describe('PageAlerts', () => {
   });
   const full = {
     agents: [{ id: 'a1', name: 'Claude' }],
-    messages: [{ id: 'm2', author: { kind: 'agent', agentId: 'a1' }, createdAt: 0, parts: [{ type: 'text', text: 'All done.' }], status: 'done' }],
+    messages: [
+      { id: 'm2', author: { kind: 'agent', agentId: 'a1' }, createdAt: 0, parts: [{ type: 'text', text: 'All done.' }], status: 'done' },
+    ],
   } as unknown as Conversation;
 
   /** A page: where it is, what it plays and shows, and what it put off. */
-  function page(o: { visible?: boolean; focused?: boolean; push?: boolean; viewing?: string; prefs?: Partial<BrowserAlertPrefs>; storage?: ReturnType<typeof memoryStorage> } = {}) {
+  function page(
+    o: {
+      visible?: boolean;
+      focused?: boolean;
+      push?: boolean;
+      viewing?: string;
+      prefs?: Partial<BrowserAlertPrefs>;
+      storage?: ReturnType<typeof memoryStorage>;
+    } = {},
+  ) {
     const state = { visible: o.visible ?? true, focused: o.focused ?? true, push: o.push ?? false, viewing: o.viewing };
     const played: string[] = [];
     const shown: { title: string; body: string; tag: string; url: string }[] = [];
@@ -231,13 +253,28 @@ describe('PageAlerts', () => {
 describe('alertText', () => {
   const full = {
     agents: [{ id: 'a1', name: 'Claude' }],
-    messages: [{ id: 'm', author: { kind: 'agent', agentId: 'a1' }, createdAt: 0, parts: [{ type: 'text', text: 'Shall I deploy? [ASK_USER]' }], status: 'done', asked: true }],
+    messages: [
+      {
+        id: 'm',
+        author: { kind: 'agent', agentId: 'a1' },
+        createdAt: 0,
+        parts: [{ type: 'text', text: 'Shall I deploy? [ASK_USER]' }],
+        status: 'done',
+        asked: true,
+      },
+    ],
   } as unknown as Conversation;
 
   it("names the conversation, what happened and what the agent said, in the UI's language", () => {
-    expect(alertText({ title: 'Release' }, 'answer', full, en.notifications)).toEqual({ title: 'Release', body: 'Claude asked you something\nShall I deploy?' });
+    expect(alertText({ title: 'Release' }, 'answer', full, en.notifications)).toEqual({
+      title: 'Release',
+      body: 'Claude asked you something\nShall I deploy?',
+    });
     expect(alertText({ title: 'Release' }, 'done', full, zhTW.notifications).body).toBe('Claude 回覆完了\nShall I deploy?');
-    expect(alertText({ title: '' }, 'confirm', undefined, en.notifications)).toEqual({ title: 'Harness Relay', body: "The lead agent's team is ready for you to confirm" });
+    expect(alertText({ title: '' }, 'confirm', undefined, en.notifications)).toEqual({
+      title: 'Harness Relay',
+      body: "The lead agent's team is ready for you to confirm",
+    });
   });
 });
 
@@ -259,7 +296,15 @@ describe('push keys', () => {
 });
 
 describe('PageAlerts, where it starts', () => {
-  const summary = (id: string, s: Partial<ConversationSummary> = {}): ConversationSummary => ({ id, title: id, createdAt: 0, updatedAt: 0, agents: [], running: false, ...s });
+  const summary = (id: string, s: Partial<ConversationSummary> = {}): ConversationSummary => ({
+    id,
+    title: id,
+    createdAt: 0,
+    updatedAt: 0,
+    agents: [],
+    running: false,
+    ...s,
+  });
 
   function page(push: boolean) {
     let now = 1000;
@@ -276,7 +321,12 @@ describe('PageAlerts, where it starts', () => {
       play: (kind) => void played.push(kind),
       show: async () => undefined,
     };
-    const alerts = new PageAlerts({ viewing: () => undefined, conversation: async () => ({ agents: [], messages: [] }) as unknown as Conversation, messages: () => en.notifications, env });
+    const alerts = new PageAlerts({
+      viewing: () => undefined,
+      conversation: async () => ({ agents: [], messages: [] }) as unknown as Conversation,
+      messages: () => en.notifications,
+      env,
+    });
     return { alerts, played, tick: (ms: number) => (now += ms), at: () => now };
   }
 
@@ -310,7 +360,14 @@ describe('PageAlerts, where it starts', () => {
 
 describe('notifyNoteFor', () => {
   const n = en.notifications;
-  const base = { support: 'ok' as const, canPush: true, app: false, permission: 'granted' as const, notifying: true, push: { active: true } };
+  const base = {
+    support: 'ok' as const,
+    canPush: true,
+    app: false,
+    permission: 'granted' as const,
+    notifying: true,
+    push: { active: true },
+  };
 
   it('says what turning notifications on gives here', () => {
     expect(notifyNoteFor(base, n)).toEqual({ text: n.notifyPush });
@@ -324,8 +381,14 @@ describe('notifyNoteFor', () => {
   it('says why it cannot be, the most basic first', () => {
     expect(notifyNoteFor({ ...base, support: 'install', permission: 'unsupported' }, n)).toEqual({ text: n.support.install, warn: true });
     expect(notifyNoteFor({ ...base, permission: 'denied', notifying: false }, n)).toEqual({ text: n.denied, warn: true });
-    expect(notifyNoteFor({ ...base, push: { active: false, failure: 'no push service' } }, n)).toEqual({ text: n.pushFailed('no push service'), warn: true });
-    expect(notifyNoteFor({ ...base, push: { active: false, error: 'The server cannot.' } }, n)).toEqual({ text: 'The server cannot.', warn: true });
+    expect(notifyNoteFor({ ...base, push: { active: false, failure: 'no push service' } }, n)).toEqual({
+      text: n.pushFailed('no push service'),
+      warn: true,
+    });
+    expect(notifyNoteFor({ ...base, push: { active: false, error: 'The server cannot.' } }, n)).toEqual({
+      text: 'The server cannot.',
+      warn: true,
+    });
   });
 });
 
@@ -379,7 +442,10 @@ describe('syncPush', () => {
         getRegistration: async () => (registered ? reg : undefined),
       },
     });
-    vi.stubGlobal('Notification', Object.assign(function Notification() {}, { permission: 'granted' }));
+    vi.stubGlobal(
+      'Notification',
+      Object.assign(function Notification() {}, { permission: 'granted' }),
+    );
     vi.stubGlobal('PushManager', function PushManager() {});
     vi.stubGlobal('isSecureContext', true);
     vi.stubGlobal('matchMedia', () => ({ matches: false }));

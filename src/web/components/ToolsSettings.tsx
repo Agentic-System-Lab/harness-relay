@@ -234,7 +234,14 @@ function McpForm({ server, change, onDone }: { server?: McpServerView; change: C
         transport,
         ...(http
           ? { url: url.trim(), headers: vars(headers) }
-          : { command: command.trim(), args: args.split('\n').map((a) => a.trim()).filter(Boolean), env: vars(env) }),
+          : {
+              command: command.trim(),
+              args: args
+                .split('\n')
+                .map((a) => a.trim())
+                .filter(Boolean),
+              env: vars(env),
+            }),
         providers,
         ...(server ? { previousName: server.name } : {}),
       }),
@@ -254,7 +261,13 @@ function McpForm({ server, change, onDone }: { server?: McpServerView; change: C
           <span>{t.tools.transport}</span>
           <div className="segmented" role="radiogroup" aria-label={t.tools.transport}>
             {(['stdio', 'http'] as const).map((tr) => (
-              <button key={tr} role="radio" aria-checked={transport === tr} className={transport === tr ? 'on' : ''} onClick={() => setTransport(tr)}>
+              <button
+                key={tr}
+                role="radio"
+                aria-checked={transport === tr}
+                className={transport === tr ? 'on' : ''}
+                onClick={() => setTransport(tr)}
+              >
                 {t.tools[tr]}
               </button>
             ))}
@@ -326,7 +339,11 @@ function McpForm({ server, change, onDone }: { server?: McpServerView; change: C
         <button className="ghost" onClick={onDone}>
           {t.common.cancel}
         </button>
-        {renamed.length > 0 && <span className="warn-line small">{t.tools.renamedNeedsValue(renamed.map((r) => r.name.trim()).join(t.common.listSeparator))}</span>}
+        {renamed.length > 0 && (
+          <span className="warn-line small">
+            {t.tools.renamedNeedsValue(renamed.map((r) => r.name.trim()).join(t.common.listSeparator))}
+          </span>
+        )}
         <button className="primary" disabled={saving || !name.trim() || renamed.length > 0} onClick={save}>
           {t.common.save}
         </button>
@@ -384,7 +401,9 @@ function SkillsSection({ lib, change }: { lib: ToolLibraryView; change: Change }
                 <ProviderPicks
                   value={s.providers}
                   label={`${s.name}: ${t.tools.givenTo}`}
-                  onChange={(providers) => change(() => api.updateTools({ skills: list.map((x, j) => (j === i ? { ...x, providers } : x)) }))}
+                  onChange={(providers) =>
+                    change(() => api.updateTools({ skills: list.map((x, j) => (j === i ? { ...x, providers } : x)) }))
+                  }
                 />
               </div>
             </div>
@@ -477,11 +496,20 @@ function SkillPicker({
         </header>
         <p className="muted small">{t.tools.pickHint(found.skills.length, found.path)}</p>
         <div className="skill-picker-tools">
-          <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t.tools.filterSkills} aria-label={t.tools.filterSkills} />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t.tools.filterSkills}
+            aria-label={t.tools.filterSkills}
+          />
           <button className="link-button" onClick={() => setChosen(new Set([...chosen, ...selectable.map((s) => s.path)]))}>
             {t.tools.selectAll}
           </button>
-          <button className="link-button" onClick={() => setChosen(new Set([...chosen].filter((p) => !selectable.some((s) => s.path === p))))}>
+          <button
+            className="link-button"
+            onClick={() => setChosen(new Set([...chosen].filter((p) => !selectable.some((s) => s.path === p))))}
+          >
             {t.tools.selectNone}
           </button>
         </div>
@@ -489,7 +517,12 @@ function SkillPicker({
           {shown.map((s) => (
             <li key={s.path}>
               <label className={`skill-option ${s.added ? 'added' : ''}`}>
-                <input type="checkbox" disabled={s.added} checked={s.added || chosen.has(s.path)} onChange={(e) => toggle(s.path, e.target.checked)} />
+                <input
+                  type="checkbox"
+                  disabled={s.added}
+                  checked={s.added || chosen.has(s.path)}
+                  onChange={(e) => toggle(s.path, e.target.checked)}
+                />
                 <span className="skill-option-text">
                   <span className="skill-option-head">
                     <strong>{s.name}</strong>

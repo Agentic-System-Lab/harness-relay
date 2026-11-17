@@ -37,8 +37,7 @@
   --pi: #64748b;
 
   --radius: 14px;
-  --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Noto Sans TC',
-    'Microsoft JhengHei', sans-serif;
+  --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   color-scheme: light;
 }
@@ -149,8 +148,7 @@ select {
   min-width: 0;
   width: 100%;
   appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
-    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
   background-position:
     calc(100% - 16px) 55%,
     calc(100% - 11px) 55%;
@@ -556,7 +554,9 @@ p {
 .conv-group {
   border-radius: 10px;
   padding-bottom: 4px;
-  transition: background-color 0.12s ease, box-shadow 0.12s ease;
+  transition:
+    background-color 0.12s ease,
+    box-shadow 0.12s ease;
 }
 
 .conv-group.drop-over {

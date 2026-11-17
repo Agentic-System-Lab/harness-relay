@@ -34,14 +34,7 @@ import {
   type ClaudeBuiltinAgents,
   type ClaudePlugin,
 } from './agents/claude';
-import {
-  codexMcpConfig,
-  codexMcpOff,
-  codexMcpToolId,
-  codexNativeConfig,
-  codexOverrideArgs,
-  codexUserMcpConfig,
-} from './agents/codex';
+import { codexMcpConfig, codexMcpOff, codexMcpToolId, codexNativeConfig, codexOverrideArgs, codexUserMcpConfig } from './agents/codex';
 import { antigravityGeminiDir, antigravityProbeEnv, antigravityProbeSettings } from './agents/antigravity';
 import { copilotHome, copilotProbeEnv, copilotProjectHooks, readCopilotJson } from './agents/copilot';
 import { museConfigBase, museEnv, prepareMuseRun } from './agents/muse';
@@ -108,7 +101,11 @@ export type NativeLists = Pick<NativeSetup, 'skills' | 'mcpServers' | 'memory'> 
   Pick<Partial<NativeSetup>, 'hooks' | 'agents' | 'plugins' | 'builtinTools'>;
 
 /** What a probe that ended without some answers reports: a timeout, the CLI's own words, or the parts missing. */
-function missing(parts: ('skills' | 'mcp' | 'tools' | 'hooks' | 'plugins')[], all: boolean, res: { stderr: string; timedOut: boolean }): NativeProblem[] {
+function missing(
+  parts: ('skills' | 'mcp' | 'tools' | 'hooks' | 'plugins')[],
+  all: boolean,
+  res: { stderr: string; timedOut: boolean },
+): NativeProblem[] {
   if (res.timedOut) return [{ kind: 'timeout' }];
   if (all) return short(res.stderr) ? [{ kind: 'failed', detail: short(res.stderr) }] : [{ kind: 'no-answer', part: 'all' }];
   return parts.map((part) => ({ kind: 'no-answer', part }));
@@ -132,12 +129,24 @@ const loads = (item: object) => (item as { enabled?: boolean }).enabled !== fals
 
 /** A picked item the second answer still loads. */
 const still = <T extends object>(item: T, picked: ReadonlySet<string> | undefined): T =>
-  picked?.has((item as { id?: string }).id ?? '') && loads(item) && !(item as { leftOut?: boolean }).leftOut ? { ...item, stillLoaded: true } : item;
+  picked?.has((item as { id?: string }).id ?? '') && loads(item) && !(item as { leftOut?: boolean }).leftOut
+    ? { ...item, stillLoaded: true }
+    : item;
 
 /** Marks `leftOut`, and `stillLoaded` on the items `picked` (by id) that the second answer still loads. */
 function mark<T extends object>(list: T[], again: T[] | undefined, key: (item: T) => string, picked?: ReadonlySet<string>): T[];
-function mark<T extends object>(list: T[] | undefined, again: T[] | undefined, key: (item: T) => string, picked?: ReadonlySet<string>): T[] | undefined;
-function mark<T extends object>(list: T[] | undefined, again: T[] | undefined, key: (item: T) => string, picked?: ReadonlySet<string>): T[] | undefined {
+function mark<T extends object>(
+  list: T[] | undefined,
+  again: T[] | undefined,
+  key: (item: T) => string,
+  picked?: ReadonlySet<string>,
+): T[] | undefined;
+function mark<T extends object>(
+  list: T[] | undefined,
+  again: T[] | undefined,
+  key: (item: T) => string,
+  picked?: ReadonlySet<string>,
+): T[] | undefined {
   if (!list || !again) return list;
   const loaded = new Set(again.filter(loads).map(key));
   return list.map((item) => still(loads(item) && !loaded.has(key(item)) ? { ...item, leftOut: true } : item, picked));
@@ -175,7 +184,12 @@ function markServers(
  * answer still loads are marked `stillLoaded`, in the lists it gave (`serversByTools`: see
  * `markServers`).
  */
-export function markLeftOut(own: NativeLists, asRun: Partial<NativeLists>, items: NativeItemsOff = {}, serversByTools = false): NativeLists {
+export function markLeftOut(
+  own: NativeLists,
+  asRun: Partial<NativeLists>,
+  items: NativeItemsOff = {},
+  serversByTools = false,
+): NativeLists {
   const ids = (kind: NativeItemKind) => (items[kind]?.length ? new Set(items[kind]) : undefined);
   return {
     skills: mark(own.skills, asRun.skills, KEYS.skills, ids('skills')),
@@ -193,11 +207,23 @@ const given = <T>(answered: unknown, list: T[] | undefined): T[] | undefined => 
 
 /** The parts and kinds of single items that change each list: a list nothing left out touches needs no second look. */
 const TOUCHED_BY: Record<'skills' | 'mcp' | 'tools' | 'hooks' | 'agents' | 'plugins', [NativePart[], NativeItemKind[]]> = {
-  skills: [['skills', 'plugins'], ['skills', 'plugins']],
-  mcp: [['mcp', 'plugins'], ['mcp', 'mcpTools', 'plugins']],
+  skills: [
+    ['skills', 'plugins'],
+    ['skills', 'plugins'],
+  ],
+  mcp: [
+    ['mcp', 'plugins'],
+    ['mcp', 'mcpTools', 'plugins'],
+  ],
   tools: [['tools'], ['tools']],
-  hooks: [['hooks', 'plugins'], ['hooks', 'plugins']],
-  agents: [['agents', 'plugins'], ['agents', 'plugins']],
+  hooks: [
+    ['hooks', 'plugins'],
+    ['hooks', 'plugins'],
+  ],
+  agents: [
+    ['agents', 'plugins'],
+    ['agents', 'plugins'],
+  ],
   plugins: [['plugins'], ['plugins']],
 };
 
@@ -245,7 +271,9 @@ function claudeMcpServers(a: ClaudeAnswers): NativeMcpServer[] {
       ...(typeof s.status === 'string' ? { status: s.status } : {}),
       ...(typeof (s.scope ?? s.source) === 'string' ? { source: String(s.scope ?? s.source) } : {}),
       ...(typeof (s.transport ?? s.config?.type) === 'string' ? { transport: String(s.transport ?? s.config?.type) } : {}),
-      ...(Array.isArray(s.tools) ? { tools: s.tools.filter((t: Json) => typeof t?.name === 'string').map((t: Json) => tool(s.name, t.name)) } : {}),
+      ...(Array.isArray(s.tools)
+        ? { tools: s.tools.filter((t: Json) => typeof t?.name === 'string').map((t: Json) => tool(s.name, t.name)) }
+        : {}),
     });
   }
   for (const s of list(a.session?.mcp_servers).filter((s) => typeof s.name === 'string')) {
@@ -258,7 +286,9 @@ function claudeMcpServers(a: ClaudeAnswers): NativeMcpServer[] {
   }
   if (!Array.isArray(a.session?.tools)) return [...servers.values()];
   const names = (a.session!.tools as unknown[]).filter((t): t is string => typeof t === 'string' && t.startsWith('mcp__'));
-  const prefixes = [...servers.keys()].map((name) => [name, `${claudeServerId(name)}__`] as const).sort((x, y) => y[1].length - x[1].length);
+  const prefixes = [...servers.keys()]
+    .map((name) => [name, `${claudeServerId(name)}__`] as const)
+    .sort((x, y) => y[1].length - x[1].length);
   const tools = new Map<string, NativeTool[]>();
   for (const full of names) {
     let server = prefixes.find(([, prefix]) => full.startsWith(prefix))?.[0];
@@ -277,7 +307,9 @@ function claudeMcpServers(a: ClaudeAnswers): NativeMcpServer[] {
 /** The subagents a permission rule denies (`Agent(name)`, or `Task(name)` from older versions). */
 function deniedAgents(settings: Json | undefined): Set<string> {
   const deny: unknown = settings?.effective?.permissions?.deny;
-  const names = (Array.isArray(deny) ? deny : []).map((r) => (typeof r === 'string' ? r.match(/^(?:Agent|Task)\((.+)\)$/)?.[1] : undefined));
+  const names = (Array.isArray(deny) ? deny : []).map((r) =>
+    typeof r === 'string' ? r.match(/^(?:Agent|Task)\((.+)\)$/)?.[1] : undefined,
+  );
   return new Set(names.filter((n): n is string => Boolean(n)));
 }
 
@@ -316,7 +348,11 @@ export function parseClaudeProbe(
             .map((h) => ({
               event: h.event,
               ...(typeof h.matcher === 'string' && h.matcher ? { matcher: h.matcher } : {}),
-              ...(typeof h.pluginName === 'string' ? { source: `plugin: ${h.pluginName}` } : typeof h.source === 'string' ? { source: h.source } : {}),
+              ...(typeof h.pluginName === 'string'
+                ? { source: `plugin: ${h.pluginName}` }
+                : typeof h.source === 'string'
+                  ? { source: h.source }
+                  : {}),
               ...(h.disabled === true ? { enabled: false } : {}),
             })),
         }
@@ -330,7 +366,9 @@ export function parseClaudeProbe(
               description: String(g.description ?? ''),
               id: g.name,
               // A subagent of the same name that replaces a built-in one has its own description.
-              ...(builtins && isBuiltinAgent({ name: g.name, description: String(g.description ?? '') }, builtins) ? { source: 'built-in' } : {}),
+              ...(builtins && isBuiltinAgent({ name: g.name, description: String(g.description ?? '') }, builtins)
+                ? { source: 'built-in' }
+                : {}),
               ...(denied.has(g.name) ? { enabled: false } : {}),
             })),
         }
@@ -543,7 +581,11 @@ async function probeClaude(
   const unanswered = (i: number) => !answers[i] && errors[i] === undefined;
   problems.push(
     ...missing(
-      [...(unanswered(0) ? ['skills' as const] : []), ...(unanswered(1) ? ['mcp' as const] : []), ...(unanswered(2) ? ['hooks' as const] : [])],
+      [
+        ...(unanswered(0) ? ['skills' as const] : []),
+        ...(unanswered(1) ? ['mcp' as const] : []),
+        ...(unanswered(2) ? ['hooks' as const] : []),
+      ],
       !init && !mcp && !hooks,
       res,
     ),
@@ -621,14 +663,18 @@ async function probeClaude(
           ? { kind: 'timeout' }
           : (refused(again.errors)[0] ?? missing([], true, again.res)[0])
         : off.includes('agents') && !claudeAgents(init2)
-            ? { kind: 'no-answer', part: 'agents' }
-            : again.errors[1] !== undefined
-              ? { kind: 'failed', detail: again.errors[1] }
-              : undefined;
+          ? { kind: 'no-answer', part: 'agents' }
+          : again.errors[1] !== undefined
+            ? { kind: 'failed', detail: again.errors[1] }
+            : undefined;
       if (cause) {
         problems.push({ kind: 'as-run', cause });
       } else {
-        const parsed = parseClaudeProbe({ init: init2, mcp: mcp2, hooks: hooks2, settings: settings2, session: again.session }, plugins, builtins);
+        const parsed = parseClaudeProbe(
+          { init: init2, mcp: mcp2, hooks: hooks2, settings: settings2, session: again.session },
+          plugins,
+          builtins,
+        );
         lists = markLeftOut(
           lists,
           {
@@ -719,7 +765,8 @@ export function parseCodexProbe(a: CodexAnswers): Pick<NativeLists, 'skills' | '
     // so a Codex that ignored `disabled_tools` shows them still there.
     const found = list(a.mcpStatus?.[name]?.data).find((d) => d?.name === name);
     // One that failed to start lists none: its tools are not known, rather than none.
-    if (!found || !found.tools || typeof found.tools !== 'object' || (found.toolsError && !Object.keys(found.tools).length)) return undefined;
+    if (!found || !found.tools || typeof found.tools !== 'object' || (found.toolsError && !Object.keys(found.tools).length))
+      return undefined;
     return Object.keys(found.tools as Json).map((tool) => ({ name: tool, id: codexMcpToolId(name, tool) }));
   };
   // Once each: an answer has an entry per folder asked about.
@@ -745,13 +792,17 @@ export function parseCodexProbe(a: CodexAnswers): Pick<NativeLists, 'skills' | '
     ...(a.hooks
       ? {
           hooks: [...hooks.values()].map((h) => ({
-              event: h.eventName,
-              ...(typeof h.key === 'string' ? { id: h.key } : {}),
-              ...(typeof h.matcher === 'string' && h.matcher ? { matcher: h.matcher } : {}),
-              ...(typeof h.pluginId === 'string' ? { source: `plugin: ${h.pluginId}` } : typeof h.source === 'string' ? { source: h.source } : {}),
-              ...(typeof h.sourcePath === 'string' ? { file: h.sourcePath } : {}),
-              ...(h.enabled === false ? { enabled: false } : {}),
-            })),
+            event: h.eventName,
+            ...(typeof h.key === 'string' ? { id: h.key } : {}),
+            ...(typeof h.matcher === 'string' && h.matcher ? { matcher: h.matcher } : {}),
+            ...(typeof h.pluginId === 'string'
+              ? { source: `plugin: ${h.pluginId}` }
+              : typeof h.source === 'string'
+                ? { source: h.source }
+                : {}),
+            ...(typeof h.sourcePath === 'string' ? { file: h.sourcePath } : {}),
+            ...(h.enabled === false ? { enabled: false } : {}),
+          })),
         }
       : {}),
     ...(a.plugins
@@ -778,7 +829,9 @@ export function parseCodexProbe(a: CodexAnswers): Pick<NativeLists, 'skills' | '
 export function codexMemoryFiles(cwd: string, codexHome: string): NativeMemoryFile[] {
   const pick = (dir: string) => [join(dir, 'AGENTS.override.md'), join(dir, 'AGENTS.md')].find(isFile);
   const root = gitRoot(cwd) ?? resolve(cwd);
-  const dirs = upFrom(cwd).filter((d) => d.startsWith(root)).reverse();
+  const dirs = upFrom(cwd)
+    .filter((d) => d.startsWith(root))
+    .reverse();
   const instructions = [pick(codexHome), ...dirs.map(pick)].filter((p): p is string => Boolean(p));
   return [
     ...instructions.map((path) => ({ path, kind: 'instructions' as const })),
@@ -794,7 +847,9 @@ export function codexMemoryFiles(cwd: string, codexHome: string): NativeMemoryFi
 export function codexMemoryState(files: NativeMemoryFile[], codexHome: string, read: Json | undefined): NativeMemoryFile[] {
   const config: Json = read?.config ?? {};
   const off = (f: NativeMemoryFile) =>
-    f.kind === 'memory' ? config.features?.memories === false : config.project_doc_max_bytes === 0 && dirname(f.path) !== resolve(codexHome);
+    f.kind === 'memory'
+      ? config.features?.memories === false
+      : config.project_doc_max_bytes === 0 && dirname(f.path) !== resolve(codexHome);
   return files.map((f) => (off(f) ? { ...f, enabled: false } : f));
 }
 
@@ -828,7 +883,12 @@ async function askCodex(
     env,
     timeoutMs,
     open: (write) =>
-      write({ jsonrpc: '2.0', id: 0, method: 'initialize', params: { clientInfo: { name: 'harness_relay', title: 'Harness Relay', version: '0.1.0' }, capabilities: null } }),
+      write({
+        jsonrpc: '2.0',
+        id: 0,
+        method: 'initialize',
+        params: { clientInfo: { name: 'harness_relay', title: 'Harness Relay', version: '0.1.0' }, capabilities: null },
+      }),
     onMessage: (m, write, finish) => {
       if (m.id === undefined || m.method) return;
       if (m.id === 0) {
@@ -846,9 +906,17 @@ async function askCodex(
       else answers[key as Exclude<keyof CodexAnswers, 'mcpStatus'>] = m.result ?? {};
       if (key === 'config' && m.result) {
         const servers = (m.result?.config?.mcp_servers ?? {}) as Record<string, Json>;
-        const on = Object.entries(servers).filter(([, c]) => c?.enabled !== false).map(([name]) => name);
+        const on = Object.entries(servers)
+          .filter(([, c]) => c?.enabled !== false)
+          .map(([name]) => name);
         const from = asks.length;
-        asks.push(...on.map((name): [string, string, unknown] => [`mcp:${name}`, 'mcpServerStatus/list', { serverName: name, detail: 'toolsAndAuthOnly' }]));
+        asks.push(
+          ...on.map((name): [string, string, unknown] => [
+            `mcp:${name}`,
+            'mcpServerStatus/list',
+            { serverName: name, detail: 'toolsAndAuthOnly' },
+          ]),
+        );
         pending += on.length;
         send(write, from);
       }
@@ -899,7 +967,11 @@ async function probeCodex(
       const a = again.answers;
       // A question it refused leaves that list unmarked; no answer at all (overrides it would not start with, say) marks nothing.
       const cause: NativeProblem | undefined =
-        a.skills || a.config ? undefined : again.res.timedOut ? { kind: 'timeout' } : (refused(again.errors)[0] ?? missing([], true, again.res)[0]);
+        a.skills || a.config
+          ? undefined
+          : again.res.timedOut
+            ? { kind: 'timeout' }
+            : (refused(again.errors)[0] ?? missing([], true, again.res)[0]);
       if (cause) {
         problems.push({ kind: 'as-run', cause });
       } else {
@@ -963,7 +1035,10 @@ function grokTrustFolder(dir: unknown): string | undefined {
  */
 export function parseGrokInspect(
   d: Json | undefined,
-): Pick<NativeSetup, 'skills' | 'mcpServers' | 'memory' | 'hooks' | 'agents' | 'plugins' | 'folderTrusted' | 'trustFolder' | 'trustFolderAbove'> {
+): Pick<
+  NativeSetup,
+  'skills' | 'mcpServers' | 'memory' | 'hooks' | 'agents' | 'plugins' | 'folderTrusted' | 'trustFolder' | 'trustFolderAbove'
+> {
   const trustFolder = grokTrustFolder(d?.projectRoot) ?? grokTrustFolder(d?.cwd);
   const ranIn = grokTrustFolder(d?.cwd);
   const list = (v: unknown): Json[] => (Array.isArray(v) ? v : []);
@@ -1005,7 +1080,12 @@ export function parseGrokInspect(
             })),
           agents: list(d.agents)
             .filter((g) => typeof g.name === 'string')
-            .map((g) => ({ name: g.name, description: String(g.description ?? ''), ...(source(g.source) ? { source: source(g.source) } : {}), ...state(g) })),
+            .map((g) => ({
+              name: g.name,
+              description: String(g.description ?? ''),
+              ...(source(g.source) ? { source: source(g.source) } : {}),
+              ...state(g),
+            })),
           plugins: list(d.plugins)
             .filter((p) => typeof p.name === 'string')
             .map((p) => ({ name: p.name, ...(typeof p.scope === 'string' ? { source: p.scope } : {}), ...state(p) })),
@@ -1017,7 +1097,12 @@ export function parseGrokInspect(
   };
 }
 
-async function inspectGrok(bin: string, env: NodeJS.ProcessEnv, cwd: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<{ data?: Json; problems: NativeProblem[] }> {
+async function inspectGrok(
+  bin: string,
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+  timeoutMs = PROBE_TIMEOUT_MS,
+): Promise<{ data?: Json; problems: NativeProblem[] }> {
   const res = await runProcess({ bin, args: ['inspect', '--json'], cwd, env, timeoutMs, maxCapture: 20 * 1024 * 1024 });
   try {
     return { data: JSON.parse(res.stdout) as Json, problems: [] };
@@ -1047,7 +1132,18 @@ async function probeGrok(
       asRun = true;
     }
   }
-  return { provider: 'grok', cwd, ...own, ...lists, memoryFromFiles: false, nativeOff: [...off], nativeItems: items, asRun, problems, checkedAt: Date.now() };
+  return {
+    provider: 'grok',
+    cwd,
+    ...own,
+    ...lists,
+    memoryFromFiles: false,
+    nativeOff: [...off],
+    nativeItems: items,
+    asRun,
+    problems,
+    checkedAt: Date.now(),
+  };
 }
 
 /**
@@ -1056,9 +1152,21 @@ async function probeGrok(
  * (NATIVE_OFF_SUPPORT is empty for it), so it is asked once.
  */
 function probeOpen(provider: OpenProvider) {
-  return async (bin: string, env: NodeJS.ProcessEnv, cwd: string, off: readonly NativePart[], items: NativeItemsOff, timeoutMs = PROBE_TIMEOUT_MS): Promise<NativeProbe> => {
+  return async (
+    bin: string,
+    env: NodeJS.ProcessEnv,
+    cwd: string,
+    off: readonly NativePart[],
+    items: NativeItemsOff,
+    timeoutMs = PROBE_TIMEOUT_MS,
+  ): Promise<NativeProbe> => {
     const agent = openAgents[provider];
-    if (agent.native) return { ...(await agent.native(bin, openHomeEnv(agent.process, env), cwd, timeoutMs, off, items)), nativeOff: [...off], nativeItems: items };
+    if (agent.native)
+      return {
+        ...(await agent.native(bin, openHomeEnv(agent.process, env), cwd, timeoutMs, off, items)),
+        nativeOff: [...off],
+        nativeItems: items,
+      };
     return {
       provider,
       cwd,
@@ -1341,12 +1449,21 @@ export interface AntigravityAnswers {
 }
 
 /** What Antigravity loads by itself, from its answers (`AntigravityAnswers`). Hooks keep their event, matcher and file, never their commands. */
-export function parseAntigravityProbe(a: AntigravityAnswers, cwd: string, geminiDir: string): Pick<NativeLists, 'skills' | 'hooks' | 'agents' | 'plugins'> {
+export function parseAntigravityProbe(
+  a: AntigravityAnswers,
+  cwd: string,
+  geminiDir: string,
+): Pick<NativeLists, 'skills' | 'hooks' | 'agents' | 'plugins'> {
   const list = (v: unknown): Json[] => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []);
   const skills: NativeSkill[] = list(a.skills?.skills).map((s) => {
     const path = typeof s.path === 'string' ? s.path : undefined;
     const source = antigravitySource(path, cwd, geminiDir, s.builtin === true);
-    return { name: String(s.name ?? ''), description: String(s.description ?? ''), ...(source ? { source } : {}), ...(path ? { path } : {}) };
+    return {
+      name: String(s.name ?? ''),
+      description: String(s.description ?? ''),
+      ...(source ? { source } : {}),
+      ...(path ? { path } : {}),
+    };
   });
   const hooks: NativeHook[] | undefined = a.hooks
     ? list(a.hooks.hooks).flatMap((h) =>
@@ -1361,7 +1478,11 @@ export function parseAntigravityProbe(a: AntigravityAnswers, cwd: string, gemini
     : undefined;
   const agents: NativeAgent[] | undefined = a.agents
     ? (Array.isArray(a.agents.agents) ? a.agents.agents : []).flatMap((x: unknown) =>
-        typeof x === 'string' ? [{ name: x, description: '' }] : x && typeof x === 'object' && typeof (x as Json).name === 'string' ? [{ name: (x as Json).name, description: String((x as Json).description ?? '') }] : [],
+        typeof x === 'string'
+          ? [{ name: x, description: '' }]
+          : x && typeof x === 'object' && typeof (x as Json).name === 'string'
+            ? [{ name: (x as Json).name, description: String((x as Json).description ?? '') }]
+            : [],
       )
     : undefined;
   const plugins: NativePlugin[] | undefined = Array.isArray(a.plugins)
@@ -1380,9 +1501,22 @@ export function parseAntigravityProbe(a: AntigravityAnswers, cwd: string, gemini
  * Asks Antigravity one of the commands it answers in print mode without a model or a conversation
  * (`agy -p /skills --output-format json`): its `command.data`, or what went wrong.
  */
-async function askAntigravity(bin: string, env: NodeJS.ProcessEnv, cwd: string, command: string, timeoutMs: number): Promise<{ data?: Json; problem?: NativeProblem }> {
+async function askAntigravity(
+  bin: string,
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+  command: string,
+  timeoutMs: number,
+): Promise<{ data?: Json; problem?: NativeProblem }> {
   // With a Gemini API key it needs `modelProvider: "gemini"` for this one command, or it answers as if signed out.
-  const res = await runProcess({ bin, args: ['-p', command, '--output-format', 'json', ...antigravityProbeSettings(env)], cwd, env: antigravityProbeEnv(env), timeoutMs, maxCapture: 8 * 1024 * 1024 });
+  const res = await runProcess({
+    bin,
+    args: ['-p', command, '--output-format', 'json', ...antigravityProbeSettings(env)],
+    cwd,
+    env: antigravityProbeEnv(env),
+    timeoutMs,
+    maxCapture: 8 * 1024 * 1024,
+  });
   try {
     const j = JSON.parse(res.stdout.trim()) as Json;
     if (j.status === 'SUCCESS' && j.command?.data && typeof j.command.data === 'object') return { data: j.command.data as Json };
@@ -1393,8 +1527,20 @@ async function askAntigravity(bin: string, env: NodeJS.ProcessEnv, cwd: string, 
 }
 
 /** Antigravity's installed plugins (`agy plugin list --json`), or what went wrong. */
-async function antigravityPlugins(bin: string, env: NodeJS.ProcessEnv, cwd: string, timeoutMs: number): Promise<{ data?: unknown; problem?: NativeProblem }> {
-  const res = await runProcess({ bin, args: ['plugin', 'list', '--json'], cwd, env: antigravityProbeEnv(env), timeoutMs, maxCapture: 4 * 1024 * 1024 });
+async function antigravityPlugins(
+  bin: string,
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+  timeoutMs: number,
+): Promise<{ data?: unknown; problem?: NativeProblem }> {
+  const res = await runProcess({
+    bin,
+    args: ['plugin', 'list', '--json'],
+    cwd,
+    env: antigravityProbeEnv(env),
+    timeoutMs,
+    maxCapture: 4 * 1024 * 1024,
+  });
   try {
     const v = JSON.parse(res.stdout.trim());
     return Array.isArray(v) ? { data: v } : { problem: { kind: 'no-answer', part: 'plugins' } };
@@ -1425,7 +1571,11 @@ async function probeAntigravity(
     antigravityPlugins(bin, env, cwd, timeoutMs),
   ]);
   const problems = [skills, hooks, agents, plugins].flatMap((r) => (r.problem ? [r.problem] : []));
-  const lists = parseAntigravityProbe({ skills: skills.data, hooks: hooks.data, agents: agents.data, plugins: plugins.data }, cwd, geminiDir);
+  const lists = parseAntigravityProbe(
+    { skills: skills.data, hooks: hooks.data, agents: agents.data, plugins: plugins.data },
+    cwd,
+    geminiDir,
+  );
   return {
     provider: 'antigravity',
     cwd,
@@ -1453,13 +1603,32 @@ export interface CopilotAnswers {
 }
 
 /** One of Copilot's `list --json` answers, or what went wrong. */
-async function askCopilot(bin: string, env: NodeJS.ProcessEnv, cwd: string, what: 'mcp' | 'skill' | 'instruction' | 'plugin', timeoutMs: number): Promise<{ data?: unknown; problem?: NativeProblem }> {
-  const res = await runProcess({ bin, args: [what, 'list', '--json'], cwd, env: copilotProbeEnv(env), timeoutMs, maxCapture: 8 * 1024 * 1024 });
+async function askCopilot(
+  bin: string,
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+  what: 'mcp' | 'skill' | 'instruction' | 'plugin',
+  timeoutMs: number,
+): Promise<{ data?: unknown; problem?: NativeProblem }> {
+  const res = await runProcess({
+    bin,
+    args: [what, 'list', '--json'],
+    cwd,
+    env: copilotProbeEnv(env),
+    timeoutMs,
+    maxCapture: 8 * 1024 * 1024,
+  });
   try {
     return { data: JSON.parse(res.stdout.trim()) };
   } catch {
     const part = what === 'mcp' ? 'mcp' : what === 'skill' ? 'skills' : what === 'plugin' ? 'plugins' : 'all';
-    return { problem: res.timedOut ? { kind: 'timeout' } : short(res.stderr) ? { kind: 'failed', detail: short(res.stderr), refused: true } : { kind: 'no-answer', part } };
+    return {
+      problem: res.timedOut
+        ? { kind: 'timeout' }
+        : short(res.stderr)
+          ? { kind: 'failed', detail: short(res.stderr), refused: true }
+          : { kind: 'no-answer', part },
+    };
   }
 }
 
@@ -1525,7 +1694,16 @@ export function copilotAgents(cwd: string, home: string): NativeAgent[] {
 export function parseCopilotProbe(a: CopilotAnswers, cwd: string): Pick<NativeLists, 'skills' | 'mcpServers' | 'memory' | 'plugins'> {
   const skills: NativeSkill[] = (Array.isArray(a.skills) ? a.skills : []).flatMap((s: Json) =>
     typeof s?.name === 'string' && s.name
-      ? [{ name: s.name, description: typeof s.description === 'string' ? s.description : '', ...(typeof s.source === 'string' ? { source: s.source } : {}), ...(typeof s.path === 'string' ? { path: s.path } : {}), ...(s.enabled === false ? { enabled: false } : {}), id: s.name }]
+      ? [
+          {
+            name: s.name,
+            description: typeof s.description === 'string' ? s.description : '',
+            ...(typeof s.source === 'string' ? { source: s.source } : {}),
+            ...(typeof s.path === 'string' ? { path: s.path } : {}),
+            ...(s.enabled === false ? { enabled: false } : {}),
+            id: s.name,
+          },
+        ]
       : [],
   );
   const servers = (a.mcp as Json | undefined)?.mcpServers;
@@ -1543,11 +1721,23 @@ export function parseCopilotProbe(a: CopilotAnswers, cwd: string): Pick<NativeLi
   const memory: NativeMemoryFile[] = (Array.isArray(a.instructions) ? a.instructions : []).flatMap((i: Json) => {
     const path = typeof i?.sourcePath === 'string' ? i.sourcePath : '';
     if (!path) return [];
-    return [{ path: isAbsolute(path) ? path : join(root, path), kind: 'instructions' as const, ...(i.defaultDisabled === true ? { enabled: false } : {}) }];
+    return [
+      {
+        path: isAbsolute(path) ? path : join(root, path),
+        kind: 'instructions' as const,
+        ...(i.defaultDisabled === true ? { enabled: false } : {}),
+      },
+    ];
   });
   const plugins: NativePlugin[] = (Array.isArray(a.plugins) ? a.plugins : []).flatMap((p: Json) =>
     typeof p?.name === 'string' && p.name
-      ? [{ name: p.marketplace ? `${p.name}@${p.marketplace}` : p.name, ...(typeof p.source === 'string' ? { source: p.source } : {}), ...(p.enabled === false ? { enabled: false } : {}) }]
+      ? [
+          {
+            name: p.marketplace ? `${p.name}@${p.marketplace}` : p.name,
+            ...(typeof p.source === 'string' ? { source: p.source } : {}),
+            ...(p.enabled === false ? { enabled: false } : {}),
+          },
+        ]
       : [],
   );
   return { skills, mcpServers, memory, plugins };
@@ -1702,7 +1892,14 @@ async function probeMuse(
   }
   if (run) {
     try {
-      const res = await runProcess({ bin, args: ['skills', 'list', '--json'], cwd, env: museEnv(env, run.dir), timeoutMs, maxCapture: 8 * 1024 * 1024 });
+      const res = await runProcess({
+        bin,
+        args: ['skills', 'list', '--json'],
+        cwd,
+        env: museEnv(env, run.dir),
+        timeoutMs,
+        maxCapture: 8 * 1024 * 1024,
+      });
       try {
         skills = parseMuseSkills(JSON.parse(res.stdout.trim()));
       } catch {
@@ -1827,9 +2024,10 @@ export class NativeSetupService {
     const items = this.settings.nativeItems?.(provider, account) ?? {};
     const key = this.key(provider, cwd, account, addDirs);
     const hit = this.cache.get(key);
-    if (hit && !refresh && Date.now() - hit.at < CACHE_MS && sameParts(hit.off, off) && sameNativeItems(hit.items, items)) return hit.result;
-    const result = PROBES[provider](bin, this.settings.env(provider, account), cwd, off, items, this.timeoutMs, addDirs).catch((err: Error) =>
-      failedProbe(provider, cwd, off, items, err),
+    if (hit && !refresh && Date.now() - hit.at < CACHE_MS && sameParts(hit.off, off) && sameNativeItems(hit.items, items))
+      return hit.result;
+    const result = PROBES[provider](bin, this.settings.env(provider, account), cwd, off, items, this.timeoutMs, addDirs).catch(
+      (err: Error) => failedProbe(provider, cwd, off, items, err),
     );
     this.cache.set(key, { at: Date.now(), off, items, result });
     void result.then((probe) => this.answered.set(key, { off, items, probe }));

@@ -69,8 +69,8 @@ describe('chips and the server agree on Markdown structure', () => {
   const names = agents.map((a) => a.name);
   /** Names of the chips the UI renders, first appearance first. */
   const chips = (text: string) =>
-    [...new Set([...html(text, names).matchAll(/<span class="mention">@([^<]+)<\/span>/g)].map((m) => m[1]!.toLowerCase()))].map(
-      (n) => names.find((x) => x.toLowerCase() === n)!,
+    [...new Set([...html(text, names).matchAll(/<span class="mention">@([^<]+)<\/span>/g)].map((m) => m[1]!.toLowerCase()))].map((n) =>
+      names.find((x) => x.toLowerCase() === n)!,
     );
 
   it('in links, URLs, code of every kind, quotes, lists and emphasis', () => {
@@ -108,7 +108,9 @@ describe('images in agent output', () => {
   it('are links, never loaded', () => {
     const out = html('![tracker](https://evil.example/beacon.png?d=secret) and ![](https://evil.example/2.png)');
     expect(out).not.toContain('<img');
-    expect(out).toContain('<a href="https://evil.example/beacon.png?d=secret" class="image-link" target="_blank" rel="noreferrer">tracker</a>');
+    expect(out).toContain(
+      '<a href="https://evil.example/beacon.png?d=secret" class="image-link" target="_blank" rel="noreferrer">tracker</a>',
+    );
     expect(out).toContain('>https://evil.example/2.png</a>');
     // Unsafe targets are still dropped.
     expect(html('[x](javascript:alert(1)) ![y](javascript:alert(2))')).not.toContain('javascript:');
@@ -140,7 +142,9 @@ describe('mermaid blocks', () => {
 
   it('show their source until the diagram is drawn, and leave other code blocks alone', () => {
     const out = html(['```mermaid', 'flowchart TD', '  A["a <b>b</b>"] --> B', '```', '', '```ts', 'const a = 1', '```'].join('\n'));
-    expect(out).toContain('<div class="mermaid-block"><pre><code class="language-mermaid">flowchart TD\n  A[&quot;a &lt;b&gt;b&lt;/b&gt;&quot;] --&gt; B\n</code></pre></div>');
+    expect(out).toContain(
+      '<div class="mermaid-block"><pre><code class="language-mermaid">flowchart TD\n  A[&quot;a &lt;b&gt;b&lt;/b&gt;&quot;] --&gt; B\n</code></pre></div>',
+    );
     expect(out).toContain('<pre><code class="hljs language-ts">');
   });
 });
@@ -154,13 +158,19 @@ describe('tables', () => {
   });
 
   it('keep short cells on one line and let long ones wrap at a readable width', () => {
-    for (const text of ['Roundtable', 'OK', '模式', '結束條件', '`Promise.allSettled`', ' 小表格 ']) expect(tableCellClass(text), text).toBe('one-line');
-    for (const text of ['依隊伍順序一個接一個發言，後面的人看得到前面的發言', 'Speakers take turns in team order, each seeing earlier replies'])
+    for (const text of ['Roundtable', 'OK', '模式', '結束條件', '`Promise.allSettled`', ' 小表格 '])
+      expect(tableCellClass(text), text).toBe('one-line');
+    for (const text of [
+      '依隊伍順序一個接一個發言，後面的人看得到前面的發言',
+      'Speakers take turns in team order, each seeing earlier replies',
+    ])
       expect(tableCellClass(text), text).toBe('wrap');
   });
 
   it('mark each cell, and keep its alignment', () => {
-    const out = html(['| 模式 | 排程 | OK |', '| --- | --- | :-: |', '| Roundtable | 依隊伍順序一個接一個發言，後面的人看得到前面的發言 | ✓ |'].join('\n'));
+    const out = html(
+      ['| 模式 | 排程 | OK |', '| --- | --- | :-: |', '| Roundtable | 依隊伍順序一個接一個發言，後面的人看得到前面的發言 | ✓ |'].join('\n'),
+    );
     expect(out).toContain('<th class="one-line">模式</th>');
     expect(out).toContain('<td class="one-line">Roundtable</td>');
     expect(out).toContain('<td class="wrap">依隊伍順序');
@@ -189,7 +199,9 @@ describe("the user's own messages", () => {
 
 describe('images and videos from this computer', () => {
   const media = (text: string) =>
-    renderToStaticMarkup(createElement(I18nProvider, null, createElement(Markdown, { text, mediaBase: '/api/conversations/c/messages/m/media' })));
+    renderToStaticMarkup(
+      createElement(I18nProvider, null, createElement(Markdown, { text, mediaBase: '/api/conversations/c/messages/m/media' })),
+    );
 
   it('are shown through the app, while other sites stay links', () => {
     const out = media('Here: ![Sales](charts/sales.png) and ![remote](https://evil.example/x.png)');
@@ -218,12 +230,18 @@ describe('files a reply links to', () => {
   const base = '/api/conversations/c/messages/m/download';
   const reply = (text: string) =>
     renderToStaticMarkup(
-      createElement(I18nProvider, null, createElement(Markdown, { text, mediaBase: '/api/conversations/c/messages/m/media', downloadBase: base })),
+      createElement(
+        I18nProvider,
+        null,
+        createElement(Markdown, { text, mediaBase: '/api/conversations/c/messages/m/media', downloadBase: base }),
+      ),
     );
 
   it('are downloaded through the app, also from another device', () => {
     const out = reply('Here is [the deck](out/deck.pptx) and [the report](</Users/me/p/Q3 report.pdf>).');
-    expect(out).toContain(`<a href="${base}?path=out%2Fdeck.pptx" class="file-link" download="deck.pptx" title="Download deck.pptx">the deck<svg`);
+    expect(out).toContain(
+      `<a href="${base}?path=out%2Fdeck.pptx" class="file-link" download="deck.pptx" title="Download deck.pptx">the deck<svg`,
+    );
     expect(out).toContain(`href="${base}?path=%2FUsers%2Fme%2Fp%2FQ3%20report.pdf"`);
     expect(out).toContain('download="Q3 report.pdf"');
     expect(out).not.toContain('target="_blank"');
@@ -264,11 +282,19 @@ describe('files a reply links to', () => {
   it('keep the link and its text when the file is not there, and say why', () => {
     const link = (initial?: 'missing' | 'ok') =>
       renderToStaticMarkup(
-        createElement(I18nProvider, null, createElement(FileLink, { href: `${base}?path=out%2Freport.pdf`, path: 'out/report.pdf', initial, children: 'the report' })),
+        createElement(
+          I18nProvider,
+          null,
+          createElement(FileLink, { href: `${base}?path=out%2Freport.pdf`, path: 'out/report.pdf', initial, children: 'the report' }),
+        ),
       );
     const missing = link('missing');
-    expect(missing).toContain(`<a href="${base}?path=out%2Freport.pdf" class="file-link" download="report.pdf" title="Download report.pdf">the report<svg`);
-    expect(missing).toContain('</a><span class="media-missing file-missing" title="out/report.pdf"> ⚠ Cannot download: not a file in the working directory');
+    expect(missing).toContain(
+      `<a href="${base}?path=out%2Freport.pdf" class="file-link" download="report.pdf" title="Download report.pdf">the report<svg`,
+    );
+    expect(missing).toContain(
+      '</a><span class="media-missing file-missing" title="out/report.pdf"> ⚠ Cannot download: not a file in the working directory',
+    );
     expect(link('ok')).not.toContain('file-missing');
     expect(link()).not.toContain('file-missing');
   });

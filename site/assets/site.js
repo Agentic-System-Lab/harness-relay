@@ -71,8 +71,7 @@ if (starSlots.length && 'fetch' in window) {
   // English page; 999, 1,234, 1.2萬, 12.3萬, 123萬 on the Chinese one. The decimal goes once three
   // digits come before it.
   const lang = document.documentElement.lang || 'en';
-  const compact = (digits) =>
-    new Intl.NumberFormat(lang, { notation: 'compact', useGrouping: true, maximumFractionDigits: digits });
+  const compact = (digits) => new Intl.NumberFormat(lang, { notation: 'compact', useGrouping: true, maximumFractionDigits: digits });
   const oneDecimal = compact(1);
   const noDecimal = compact(0);
   const format = (count) => {
@@ -133,8 +132,7 @@ if (video && chapters.length && list) {
   // Dragging the scrollbar: the press lands on the list itself, not on a chapter.
   list.addEventListener('pointerdown', (e) => e.target === list && byHand());
 
-  const scrollList = (top) =>
-    list.scrollTo({ top: Math.max(0, top), behavior: reduceMotion.matches ? 'auto' : 'smooth' });
+  const scrollList = (top) => list.scrollTo({ top: Math.max(0, top), behavior: reduceMotion.matches ? 'auto' : 'smooth' });
 
   const follow = (i) => {
     if (list.scrollHeight <= list.clientHeight + 1) return;

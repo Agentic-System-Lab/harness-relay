@@ -1,5 +1,13 @@
 import { useState } from 'react';
-import { PROVIDERS, PROVIDER_LABEL, accountUsable, isOpenProvider, type ConversationGroup, type ConversationSummary, type ProviderStatus } from '../../shared/types';
+import {
+  PROVIDERS,
+  PROVIDER_LABEL,
+  accountUsable,
+  isOpenProvider,
+  type ConversationGroup,
+  type ConversationSummary,
+  type ProviderStatus,
+} from '../../shared/types';
 import { api } from '../api';
 import { navigate, type Route } from '../App';
 import { hashFor, settingsHref } from '../route';
@@ -77,11 +85,21 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
       <div className="sidebar-top">
         <div className="brand">
           {/* The logo and the name lead back to the home page. */}
-          <a className="brand-home" href={hashFor({ page: 'home' })} onClick={onHome} aria-current={route.page === 'home' ? 'page' : undefined}>
+          <a
+            className="brand-home"
+            href={hashFor({ page: 'home' })}
+            onClick={onHome}
+            aria-current={route.page === 'home' ? 'page' : undefined}
+          >
             <Logo />
             Harness Relay
           </a>
-          <button className="icon-button collapse-sidebar" onClick={onCollapse} aria-label={t.app.collapseSidebar} title={t.app.collapseSidebar}>
+          <button
+            className="icon-button collapse-sidebar"
+            onClick={onCollapse}
+            aria-label={t.app.collapseSidebar}
+            title={t.app.collapseSidebar}
+          >
             <PanelIcon />
           </button>
         </div>
@@ -120,24 +138,19 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
         {searching && query.trim() ? (
           <SearchResults query={query} route={route} groups={groups} />
         ) : (
-          <SidebarGroups
-            route={route}
-            conversations={conversations}
-            groups={groups}
-            seen={seen}
-            onChanged={onChanged}
-            onDelete={remove}
-          />
+          <SidebarGroups route={route} conversations={conversations} groups={groups} seen={seen} onChanged={onChanged} onDelete={remove} />
         )}
       </nav>
 
       <div className="sidebar-bottom" data-tour="settings">
         {(() => {
           // The open agents only once installed: most people have only some of them.
-          const shown = PROVIDERS.filter((id) => !isOpenProvider(id) || providers.some((x) => x.provider === id && x.installed)).map((id) => {
-            const p = providers.find((x) => x.provider === id);
-            return { id, p, state: providerState(p) };
-          });
+          const shown = PROVIDERS.filter((id) => !isOpenProvider(id) || providers.some((x) => x.provider === id && x.installed)).map(
+            (id) => {
+              const p = providers.find((x) => x.provider === id);
+              return { id, p, state: providerState(p) };
+            },
+          );
           const { ready, total } = readyCount(shown.map((x) => x.state));
           const toggle = () => {
             writeHealthNames(!healthNames);

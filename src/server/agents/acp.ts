@@ -111,12 +111,15 @@ export function acpPrompt(prompt: string, images: RunOptions['images']): unknown
 export function acpMcpServers(servers: McpServerSpec[], http = true, cli = 'acp'): Record<string, unknown>[] {
   const list = (vars: Record<string, string>) => Object.entries(vars).map(([name, value]) => ({ name, value }));
   const skipped = http ? [] : servers.filter((s) => s.transport === 'http');
-  if (skipped.length) console.warn(`[${cli}] this ${cli} does not take HTTP MCP servers; left out: ${skipped.map((s) => s.name).join(', ')}`);
-  return servers.filter((s) => http || s.transport !== 'http').map((s) =>
-    s.transport === 'http'
-      ? { type: 'http', name: s.name, url: s.url, headers: list(s.headers) }
-      : { name: s.name, command: s.command, args: s.args, env: list(s.env) },
-  );
+  if (skipped.length)
+    console.warn(`[${cli}] this ${cli} does not take HTTP MCP servers; left out: ${skipped.map((s) => s.name).join(', ')}`);
+  return servers
+    .filter((s) => http || s.transport !== 'http')
+    .map((s) =>
+      s.transport === 'http'
+        ? { type: 'http', name: s.name, url: s.url, headers: list(s.headers) }
+        : { name: s.name, command: s.command, args: s.args, env: list(s.env) },
+    );
 }
 
 /** A decision on a `session/request_permission`: `reason` goes back to the model when it is refused. */

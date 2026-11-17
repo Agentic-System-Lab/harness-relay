@@ -28,9 +28,7 @@ export function fileRoots(conv: Conversation): FileRoot[] {
   for (const a of conv.agents) {
     cwds.forEach((cwd, i) => {
       // The worktree of the repository the folder is in: the innermost, when one is inside another.
-      const wt = (conv.worktrees[a.id] ?? [])
-        .filter((w) => inRepo(w.root, cwd))
-        .sort((x, y) => y.root.length - x.root.length)[0];
+      const wt = (conv.worktrees[a.id] ?? []).filter((w) => inRepo(w.root, cwd)).sort((x, y) => y.root.length - x.root.length)[0];
       if (!wt) return;
       try {
         const dir = worktreeDir(wt.root, cwd, wt.path);

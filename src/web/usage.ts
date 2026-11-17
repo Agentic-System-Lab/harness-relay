@@ -63,7 +63,8 @@ export function usageCredits(u: Pick<AccountUsage, 'credits'>, t: Messages, lang
 /** Why an account shows no limits, in the UI's words; empty when it has some (or an error says why). */
 export function usageNoneText(u: Pick<AccountUsage, 'provider' | 'none' | 'limits' | 'error' | 'problem'>, t: Messages): string {
   if (u.error || u.problem || !u.none) return '';
-  if (u.none === 'notReported') return t.usage.notReported[u.provider as keyof Messages['usage']['notReported']] ?? t.usage.notReported.other;
+  if (u.none === 'notReported')
+    return t.usage.notReported[u.provider as keyof Messages['usage']['notReported']] ?? t.usage.notReported.other;
   return t.usage.none[u.none];
 }
 

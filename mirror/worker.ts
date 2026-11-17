@@ -160,7 +160,12 @@ const CODESPACES_PATH = '/codespaces';
 
 /** The day `now` is in Taiwan, as YYYY-MM-DD: the day a release's version is (scripts/release.ts). */
 export function dayOf(now: Date): string {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
   const part = (type: string) => parts.find((p) => p.type === type)!.value;
   return `${part('year')}-${part('month')}-${part('day')}`;
 }
@@ -199,8 +204,14 @@ export async function handle(request: Request, env: Env, ctx: Context, fetcher: 
   // installer. An app's update says so instead, and downloads it from GitHub as it would without a mirror.
   const elsewhere = (failed: boolean) =>
     installer.update
-      ? new Response(failed ? 'Unavailable\n' : 'Not found\n', { status: failed ? 503 : 404, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } })
-      : new Response(null, { status: 302, headers: { Location: githubUrl(installer), 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' } });
+      ? new Response(failed ? 'Unavailable\n' : 'Not found\n', {
+          status: failed ? 503 : 404,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
+        })
+      : new Response(null, {
+          status: 302,
+          headers: { Location: githubUrl(installer), 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' },
+        });
 
   let failed = false;
   const object = await env.BUCKET.head(key).catch(() => ((failed = true), null));
@@ -225,7 +236,8 @@ export async function handle(request: Request, env: Env, ctx: Context, fetcher: 
   // Removed since the HEAD above (a release pruned from the bucket), or the bucket failing: GitHub has it.
   if (!body) return elsewhere(failed);
   // An app's update is counted by the app, on GitHub, against its copy.
-  if (!installer.update && (!part || part.offset === 0)) ctx.waitUntil(countOnGitHub(githubUrl(installer), request.headers.get('User-Agent'), fetcher));
+  if (!installer.update && (!part || part.offset === 0))
+    ctx.waitUntil(countOnGitHub(githubUrl(installer), request.headers.get('User-Agent'), fetcher));
   if (!part) return new Response(body.body, { status: 200, headers });
   headers.set('Content-Range', `bytes ${part.offset}-${part.offset + part.length - 1}/${object.size}`);
   return new Response(body.body, { status: 206, headers });

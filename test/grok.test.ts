@@ -1,4 +1,16 @@
-import { appendFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -151,7 +163,13 @@ describe('grok session updates', () => {
         rawInput: { variant: 'WebSearch', backend: true },
         _meta: { backend: true },
       });
-      h.handle({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'completed', title: 'Web search:', rawOutput: { id, status: 'completed', action } });
+      h.handle({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: id,
+        status: 'completed',
+        title: 'Web search:',
+        rawOutput: { id, status: 'completed', action },
+      });
     };
     search('ws-1', { type: 'search', query: 'PTSD treatment guidelines 2024', sources: [{ type: 'url', url: 'https://example.org/a' }] });
     search('ws-2', { type: 'open_page', url: 'https://example.org/docs' });
@@ -196,7 +214,13 @@ describe('grok session updates', () => {
     const events: AgentEvent[] = [];
     const h = createGrokUpdateHandler((e) => events.push(e));
     const start = (id: string) =>
-      h.handle({ sessionUpdate: 'tool_call', toolCallId: id, title: 'Web search:', rawInput: { variant: 'WebSearch', backend: true }, _meta: { backend: true } });
+      h.handle({
+        sessionUpdate: 'tool_call',
+        toolCallId: id,
+        title: 'Web search:',
+        rawInput: { variant: 'WebSearch', backend: true },
+        _meta: { backend: true },
+      });
     start('f');
     h.handle({
       sessionUpdate: 'tool_call_update',
@@ -206,9 +230,19 @@ describe('grok session updates', () => {
       rawOutput: { id: 'f', status: 'failed', action: { type: 'search', query: 'vitest' } },
     });
     start('o');
-    h.handle({ sessionUpdate: 'tool_call_update', toolCallId: 'o', status: 'completed', rawOutput: { id: 'o', status: 'completed', action: { type: 'other' } } });
+    h.handle({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'o',
+      status: 'completed',
+      rawOutput: { id: 'o', status: 'completed', action: { type: 'other' } },
+    });
     start('x');
-    h.handle({ sessionUpdate: 'tool_call_update', toolCallId: 'x', status: 'completed', rawOutput: { input: 'not json', name: 'x_keyword_search' } });
+    h.handle({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'x',
+      status: 'completed',
+      rawOutput: { input: 'not json', name: 'x_keyword_search' },
+    });
     expect(events.filter((e) => e.type === 'tool_end')).toEqual([
       { type: 'tool_end', id: 'f', ok: false, error: 'Web search failed', detail: 'vitest' },
       { type: 'tool_end', id: 'o', ok: true },
@@ -229,7 +263,13 @@ describe('grok session updates', () => {
       rawInput: { target_file: '/repo/src/server/orchestrator.ts', offset: 180, limit: 120 },
       _meta: tool('read_file', 'read'),
     });
-    h.handle({ sessionUpdate: 'tool_call', toolCallId: 'l', title: 'list_dir', rawInput: { target_directory: '/repo/test' }, _meta: tool('list_dir', 'list') });
+    h.handle({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'l',
+      title: 'list_dir',
+      rawInput: { target_directory: '/repo/test' },
+      _meta: tool('list_dir', 'list'),
+    });
     expect(events).toEqual([
       { type: 'tool_start', id: 'r', name: 'read_file', detail: '/repo/src/server/orchestrator.ts' },
       { type: 'tool_start', id: 'l', name: 'list_dir', detail: '/repo/test' },
@@ -260,7 +300,13 @@ describe('grok activity and approvals', () => {
     h.handle({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Let me check.' } });
     h.handle({ sessionUpdate: 'tool_call', toolCallId: 'td', title: 'todo_write', _meta: { 'x.ai/tool': { name: 'todo_write' } } });
     h.handle({ sessionUpdate: 'tool_call_update', toolCallId: 'td', status: 'completed' });
-    h.handle({ sessionUpdate: 'plan', entries: [{ content: 'Run tests', status: 'in_progress', priority: 'high' }, { content: 'Report', status: 'pending' }] });
+    h.handle({
+      sessionUpdate: 'plan',
+      entries: [
+        { content: 'Run tests', status: 'in_progress', priority: 'high' },
+        { content: 'Report', status: 'pending' },
+      ],
+    });
     h.handle({ sessionUpdate: 'tool_call', toolCallId: 'c1', title: 'run_terminal_command', rawInput: { command: 'npm test' } });
     h.handle({
       sessionUpdate: 'tool_call_update',
@@ -270,7 +316,13 @@ describe('grok activity and approvals', () => {
     });
     expect(events).toEqual([
       { type: 'thinking', text: 'Let me check.' },
-      { type: 'plan', entries: [{ text: 'Run tests', status: 'in_progress' }, { text: 'Report', status: 'pending' }] },
+      {
+        type: 'plan',
+        entries: [
+          { text: 'Run tests', status: 'in_progress' },
+          { text: 'Report', status: 'pending' },
+        ],
+      },
       { type: 'tool_start', id: 'c1', name: 'run_terminal_command', detail: 'npm test' },
       { type: 'tool_end', id: 'c1', ok: true, output: 'ALL-TESTS-PASSED' },
     ]);
@@ -285,9 +337,19 @@ describe('grok activity and approvals', () => {
       tool: 'linear__create',
     });
     // Reading a file or listing a folder: the card says which one.
-    const read = { title: 'read_file', kind: 'read', rawInput: { target_file: '/repo/a.ts', limit: 80 }, _meta: { 'x.ai/tool': { name: 'read_file' } } };
+    const read = {
+      title: 'read_file',
+      kind: 'read',
+      rawInput: { target_file: '/repo/a.ts', limit: 80 },
+      _meta: { 'x.ai/tool': { name: 'read_file' } },
+    };
     expect(grokApprovalRequest(read)).toMatchObject({ kind: 'other', tool: 'read_file', detail: '/repo/a.ts' });
-    const list = { title: 'list_dir', kind: 'other', rawInput: { target_directory: '/repo/test' }, _meta: { 'x.ai/tool': { name: 'list_dir' } } };
+    const list = {
+      title: 'list_dir',
+      kind: 'other',
+      rawInput: { target_directory: '/repo/test' },
+      _meta: { 'x.ai/tool': { name: 'list_dir' } },
+    };
     expect(grokApprovalRequest(list)).toMatchObject({ kind: 'other', tool: 'list_dir', detail: '/repo/test' });
     // Whole, however long: where it starts tells whether it is inside the project.
     const long = '/private/tmp/' + 'folder-with-a-long-name/'.repeat(8) + 'secrets.env';
@@ -373,7 +435,15 @@ describe('grok and the tool library', () => {
     expect(
       grokMcpServers([
         { name: 'gh', transport: 'stdio', command: 'npx', args: ['gh'], url: '', env: { TOKEN: 't' }, headers: {} },
-        { name: 'docs', transport: 'http', command: '', args: [], url: 'https://x.test/mcp', env: {}, headers: { Authorization: 'Bearer b' } },
+        {
+          name: 'docs',
+          transport: 'http',
+          command: '',
+          args: [],
+          url: 'https://x.test/mcp',
+          env: {},
+          headers: { Authorization: 'Bearer b' },
+        },
       ]),
     ).toEqual([
       { name: 'gh', command: 'npx', args: ['gh'], env: [{ name: 'TOKEN', value: 't' }] },
@@ -403,7 +473,7 @@ describe("Grok's sandbox profile", () => {
     expect(grokHome({})).toMatch(/\.grok$/);
   });
 
-  it('is written into sandbox.toml beside the user\'s own profiles, and replaced in place', () => {
+  it("is written into sandbox.toml beside the user's own profiles, and replaced in place", () => {
     const block = grokProfileBlock(['/home/me/.mozilla', '/srv/a "b"/relay.db']);
     expect(block).toContain('[profiles.harness-relay]\nextends = "workspace"\ndeny = ["/home/me/.mozilla", "/srv/a \\"b\\"/relay.db"]');
     // Control characters are escaped as TOML takes them, DEL included (JSON leaves it as it is).
@@ -483,7 +553,7 @@ describe("Grok on the user's own endpoints", () => {
     expect(withGrokModels('', block)).toBe(`${block}\n`);
   });
 
-  it('takes out the tables Grok kept when it wrote its config again without the block\'s markers, so none is defined twice', () => {
+  it("takes out the tables Grok kept when it wrote its config again without the block's markers, so none is defined twice", () => {
     // As grok 1.0.77 left it on Windows after `grok login`: its own settings written again, the comments
     // (the markers) dropped, the table kept among its own.
     const rewritten = [
@@ -532,36 +602,39 @@ describe("Grok on the user's own endpoints", () => {
   });
 
   // POSIX paths, file modes or programs: tried on macOS and Linux.
-  it.skipIf(process.platform === 'win32')('is written only once a turn uses it, then kept up to date, with the file’s mode and through a link', () => {
-    const home = mkdtempSync(join(tmpdir(), 'relay-grok-models-'));
-    const file = join(home, 'config.toml');
-    try {
-      writeGrokModels(home, [lab], false);
-      expect(existsSync(file)).toBe(false);
-      writeFileSync(file, '[models]\ndefault = "grok-4.7"\n', { mode: 0o644 });
-      writeGrokModels(home, [lab], false);
-      expect(readFileSync(file, 'utf8')).not.toContain('harness-relay');
-      writeGrokModels(home, [lab], true);
-      expect(readFileSync(file, 'utf8')).toContain('[model."harness-relay/homelab/gemma4:e4b"]');
-      expect(statSync(file).mode & 0o777).toBe(0o644);
-      // Without `add`, a block that is there follows the endpoints, and goes with the last one.
-      writeGrokModels(home, [{ ...lab, models: ['gemma4:26b'] }], false);
-      expect(readFileSync(file, 'utf8')).toContain('harness-relay/homelab/gemma4:26b');
-      expect(readFileSync(file, 'utf8')).not.toContain('harness-relay/homelab/gemma4:e4b');
-      writeGrokModels(home, [], false);
-      expect(readFileSync(file, 'utf8')).toBe('[models]\ndefault = "grok-4.7"\n');
-      // A link to the user's own file stays a link; the file it leads to gets the models.
-      const dotfile = join(home, 'dotfiles-config.toml');
-      writeFileSync(dotfile, '[ui]\n');
-      rmSync(file);
-      symlinkSync(dotfile, file);
-      writeGrokModels(home, [lab], true);
-      expect(lstatSync(file).isSymbolicLink()).toBe(true);
-      expect(readFileSync(dotfile, 'utf8')).toContain('harness-relay/homelab/gemma4:e4b');
-    } finally {
-      rmSync(home, { recursive: true, force: true });
-    }
-  });
+  it.skipIf(process.platform === 'win32')(
+    'is written only once a turn uses it, then kept up to date, with the file’s mode and through a link',
+    () => {
+      const home = mkdtempSync(join(tmpdir(), 'relay-grok-models-'));
+      const file = join(home, 'config.toml');
+      try {
+        writeGrokModels(home, [lab], false);
+        expect(existsSync(file)).toBe(false);
+        writeFileSync(file, '[models]\ndefault = "grok-4.7"\n', { mode: 0o644 });
+        writeGrokModels(home, [lab], false);
+        expect(readFileSync(file, 'utf8')).not.toContain('harness-relay');
+        writeGrokModels(home, [lab], true);
+        expect(readFileSync(file, 'utf8')).toContain('[model."harness-relay/homelab/gemma4:e4b"]');
+        expect(statSync(file).mode & 0o777).toBe(0o644);
+        // Without `add`, a block that is there follows the endpoints, and goes with the last one.
+        writeGrokModels(home, [{ ...lab, models: ['gemma4:26b'] }], false);
+        expect(readFileSync(file, 'utf8')).toContain('harness-relay/homelab/gemma4:26b');
+        expect(readFileSync(file, 'utf8')).not.toContain('harness-relay/homelab/gemma4:e4b');
+        writeGrokModels(home, [], false);
+        expect(readFileSync(file, 'utf8')).toBe('[models]\ndefault = "grok-4.7"\n');
+        // A link to the user's own file stays a link; the file it leads to gets the models.
+        const dotfile = join(home, 'dotfiles-config.toml');
+        writeFileSync(dotfile, '[ui]\n');
+        rmSync(file);
+        symlinkSync(dotfile, file);
+        writeGrokModels(home, [lab], true);
+        expect(lstatSync(file).isSymbolicLink()).toBe(true);
+        expect(readFileSync(dotfile, 'utf8')).toContain('harness-relay/homelab/gemma4:e4b');
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+  );
 
   it('is taken as it is by the turns running when a new turn writes it after the endpoints changed', () => {
     const home = mkdtempSync(join(tmpdir(), 'relay-grok-models-guard-'));
@@ -569,7 +642,9 @@ describe("Grok on the user's own endpoints", () => {
     try {
       writeFileSync(file, '[ui]\n');
       const first = guardGrokSettings(home, (wrote) => wrote('config.toml', writeGrokModels(home, [lab], true)));
-      const second = guardGrokSettings(home, (wrote) => wrote('config.toml', writeGrokModels(home, [{ ...lab, models: ['gemma4:26b'] }], true)));
+      const second = guardGrokSettings(home, (wrote) =>
+        wrote('config.toml', writeGrokModels(home, [{ ...lab, models: ['gemma4:26b'] }], true)),
+      );
       expect(second()).toEqual([]);
       expect(first()).toEqual([]);
       expect(readFileSync(file, 'utf8')).toContain('harness-relay/homelab/gemma4:26b');
@@ -583,22 +658,25 @@ describe("Grok on the user's own endpoints", () => {
     }
   });
 
-  it.skipIf(process.platform === 'win32')("takes a config.toml that was a link leading nowhere as the file a new turn wrote in its place", () => {
-    const home = mkdtempSync(join(tmpdir(), 'relay-grok-models-dangling-'));
-    const file = join(home, 'config.toml');
-    try {
-      symlinkSync(join(home, 'gone.toml'), file);
-      const first = guardGrokSettings(home, (wrote) => wrote('config.toml', writeGrokModels(home, [lab], false)));
-      // The second turn's write replaces the link with a file of the models' block: Harness Relay's, not a command's.
-      const second = guardGrokSettings(home, (wrote) => wrote('config.toml', writeGrokModels(home, [lab], true)));
-      expect(lstatSync(file).isSymbolicLink()).toBe(false);
-      expect(second()).toEqual([]);
-      expect(first()).toEqual([]);
-      expect(readFileSync(file, 'utf8')).toContain('harness-relay/homelab/gemma4:e4b');
-    } finally {
-      rmSync(home, { recursive: true, force: true });
-    }
-  });
+  it.skipIf(process.platform === 'win32')(
+    'takes a config.toml that was a link leading nowhere as the file a new turn wrote in its place',
+    () => {
+      const home = mkdtempSync(join(tmpdir(), 'relay-grok-models-dangling-'));
+      const file = join(home, 'config.toml');
+      try {
+        symlinkSync(join(home, 'gone.toml'), file);
+        const first = guardGrokSettings(home, (wrote) => wrote('config.toml', writeGrokModels(home, [lab], false)));
+        // The second turn's write replaces the link with a file of the models' block: Harness Relay's, not a command's.
+        const second = guardGrokSettings(home, (wrote) => wrote('config.toml', writeGrokModels(home, [lab], true)));
+        expect(lstatSync(file).isSymbolicLink()).toBe(false);
+        expect(second()).toEqual([]);
+        expect(first()).toEqual([]);
+        expect(readFileSync(file, 'utf8')).toContain('harness-relay/homelab/gemma4:e4b');
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("still names a command's change made while a new turn writes Harness Relay's own settings", () => {
     const home = mkdtempSync(join(tmpdir(), 'relay-grok-models-race-'));
@@ -653,14 +731,16 @@ describe("Grok on the user's own endpoints", () => {
   });
 
   // POSIX paths, file modes or programs: tried on macOS and Linux.
-  it.skipIf(process.platform === 'win32')("runs the turn on that model: chosen by Grok's id for it, with no effort and the endpoint's key", async () => {
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-grok-run-')));
-    // A stand-in for `grok agent stdio` (grok 1.0.77's ACP answers, trimmed): each request and the
-    // variables it was started with go to the log.
-    const bin = join(dir, 'grok');
-    writeFileSync(
-      bin,
-      `#!/usr/bin/env node
+  it.skipIf(process.platform === 'win32')(
+    "runs the turn on that model: chosen by Grok's id for it, with no effort and the endpoint's key",
+    async () => {
+      const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-grok-run-')));
+      // A stand-in for `grok agent stdio` (grok 1.0.77's ACP answers, trimmed): each request and the
+      // variables it was started with go to the log.
+      const bin = join(dir, 'grok');
+      writeFileSync(
+        bin,
+        `#!/usr/bin/env node
 const fs = require('node:fs');
 const log = (o) => fs.appendFileSync(process.env.FAKE_GROK_LOG, JSON.stringify(o) + '\\n');
 log({ key: process.env.HARNESS_RELAY_ENDPOINT_API_KEY ?? null, config: fs.readFileSync(process.env.GROK_HOME + '/config.toml', 'utf8') });
@@ -678,86 +758,95 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
   }
 });
 `,
-      { mode: 0o755 },
-    );
-    const home = join(dir, 'home');
-    mkdirSync(home);
-    writeFileSync(join(home, 'config.toml'), '[models]\ndefault = "grok-4.7"\n');
-    const log = join(dir, 'log.jsonl');
-    try {
-      const text: string[] = [];
-      const result = await grokRunner.run({
-        bin,
-        env: { ...process.env, GROK_HOME: home, FAKE_GROK_LOG: log, HARNESS_RELAY_ENDPOINT_API_KEY: 'from-the-shell' },
-        prompt: 'hello',
-        systemPrompt: 'briefing',
-        cwd: dir,
-        permission: 'full',
-        model: 'homelab/gemma4:e4b',
-        effort: 'xhigh',
-        backends: { apis: {}, endpoints: [{ ...lab, apiKey: 'lab-key' }] },
-        signal: new AbortController().signal,
-        onEvent: (e) => void (e.type === 'text' && text.push(e.text)),
-      });
-      expect(result).toMatchObject({ sessionId: 's-1', inputTokens: 3, outputTokens: 1 });
-      expect(text.join('')).toBe('pong');
-      const lines = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, any>);
-      expect(lines[0]!.key).toBe('lab-key');
-      expect(lines[0]!.config).toContain('[model."harness-relay/homelab/gemma4:e4b"]');
-      // The model by Grok's id for it, and no effort: Grok takes none for a model it does not know.
-      expect(lines.filter((l) => l.method === 'session/set_config_option').map((l) => l.params)).toEqual([
-        { sessionId: 's-1', configId: 'model', value: 'harness-relay/homelab/gemma4:e4b' },
-      ]);
+        { mode: 0o755 },
+      );
+      const home = join(dir, 'home');
+      mkdirSync(home);
+      writeFileSync(join(home, 'config.toml'), '[models]\ndefault = "grok-4.7"\n');
+      const log = join(dir, 'log.jsonl');
+      try {
+        const text: string[] = [];
+        const result = await grokRunner.run({
+          bin,
+          env: { ...process.env, GROK_HOME: home, FAKE_GROK_LOG: log, HARNESS_RELAY_ENDPOINT_API_KEY: 'from-the-shell' },
+          prompt: 'hello',
+          systemPrompt: 'briefing',
+          cwd: dir,
+          permission: 'full',
+          model: 'homelab/gemma4:e4b',
+          effort: 'xhigh',
+          backends: { apis: {}, endpoints: [{ ...lab, apiKey: 'lab-key' }] },
+          signal: new AbortController().signal,
+          onEvent: (e) => void (e.type === 'text' && text.push(e.text)),
+        });
+        expect(result).toMatchObject({ sessionId: 's-1', inputTokens: 3, outputTokens: 1 });
+        expect(text.join('')).toBe('pong');
+        const lines = readFileSync(log, 'utf8')
+          .trim()
+          .split('\n')
+          .map((l) => JSON.parse(l) as Record<string, any>);
+        expect(lines[0]!.key).toBe('lab-key');
+        expect(lines[0]!.config).toContain('[model."harness-relay/homelab/gemma4:e4b"]');
+        // The model by Grok's id for it, and no effort: Grok takes none for a model it does not know.
+        expect(lines.filter((l) => l.method === 'session/set_config_option').map((l) => l.params)).toEqual([
+          { sessionId: 's-1', configId: 'model', value: 'harness-relay/homelab/gemma4:e4b' },
+        ]);
 
-      // A model typed for the endpoint (Custom…) that its list leaves out gets a table too, for its run,
-      // and every write of the block in that home keeps it until the turn is over (here with full
-      // access, where Harness Relay's own write is not inside a settings guard).
-      const typedLog = join(dir, 'typed.jsonl');
-      const during: string[][] = [];
-      await grokRunner.run({
-        bin,
-        env: { ...process.env, GROK_HOME: home, FAKE_GROK_LOG: typedLog },
-        prompt: 'hello',
-        systemPrompt: 'briefing',
-        cwd: dir,
-        permission: 'full',
-        model: 'homelab/qwen3:32b',
-        backends: { apis: {}, endpoints: [{ ...lab, apiKey: 'lab-key' }] },
-        signal: new AbortController().signal,
-        // What another run in this home would write while this turn streams its reply.
-        onEvent: (e) => void (e.type === 'text' && during.push(grokBlockEndpoints(home, [lab])[0]!.models)),
-      });
-      expect(during.length).toBeGreaterThan(0);
-      for (const models of during) expect(models).toContain('qwen3:32b');
-      expect(grokBlockEndpoints(home, [lab])[0]!.models).not.toContain('qwen3:32b');
-      const typed = readFileSync(typedLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, any>);
-      expect(typed[0]!.config).toContain('[model."harness-relay/homelab/qwen3:32b"]');
-      expect(typed[0]!.config).toContain('[model."harness-relay/homelab/gemma4:e4b"]');
-      expect(typed.filter((l) => l.method === 'session/set_config_option').map((l) => l.params.value)).toEqual(['harness-relay/homelab/qwen3:32b']);
+        // A model typed for the endpoint (Custom…) that its list leaves out gets a table too, for its run,
+        // and every write of the block in that home keeps it until the turn is over (here with full
+        // access, where Harness Relay's own write is not inside a settings guard).
+        const typedLog = join(dir, 'typed.jsonl');
+        const during: string[][] = [];
+        await grokRunner.run({
+          bin,
+          env: { ...process.env, GROK_HOME: home, FAKE_GROK_LOG: typedLog },
+          prompt: 'hello',
+          systemPrompt: 'briefing',
+          cwd: dir,
+          permission: 'full',
+          model: 'homelab/qwen3:32b',
+          backends: { apis: {}, endpoints: [{ ...lab, apiKey: 'lab-key' }] },
+          signal: new AbortController().signal,
+          // What another run in this home would write while this turn streams its reply.
+          onEvent: (e) => void (e.type === 'text' && during.push(grokBlockEndpoints(home, [lab])[0]!.models)),
+        });
+        expect(during.length).toBeGreaterThan(0);
+        for (const models of during) expect(models).toContain('qwen3:32b');
+        expect(grokBlockEndpoints(home, [lab])[0]!.models).not.toContain('qwen3:32b');
+        const typed = readFileSync(typedLog, 'utf8')
+          .trim()
+          .split('\n')
+          .map((l) => JSON.parse(l) as Record<string, any>);
+        expect(typed[0]!.config).toContain('[model."harness-relay/homelab/qwen3:32b"]');
+        expect(typed[0]!.config).toContain('[model."harness-relay/homelab/gemma4:e4b"]');
+        expect(typed.filter((l) => l.method === 'session/set_config_option').map((l) => l.params.value)).toEqual([
+          'harness-relay/homelab/qwen3:32b',
+        ]);
 
-      // A model of an endpoint deleted in Settings fails before Grok starts: its id would go to xAI.
-      const goneLog = join(dir, 'gone.jsonl');
-      await expect(
-        withLang('en', () =>
-          grokRunner.run({
-            bin,
-            env: { ...process.env, GROK_HOME: home, FAKE_GROK_LOG: goneLog },
-            prompt: 'hello',
-            systemPrompt: 'briefing',
-            cwd: dir,
-            permission: 'full',
-            model: 'oldlab/qwen3:32b',
-            backends: { apis: {}, endpoints: [{ ...lab, apiKey: 'lab-key' }], deletedEndpoints: ['oldlab'] },
-            signal: new AbortController().signal,
-            onEvent: () => undefined,
-          }),
-        ),
-      ).rejects.toThrow(/its custom endpoint "oldlab" was deleted/);
-      expect(existsSync(goneLog)).toBe(false);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+        // A model of an endpoint deleted in Settings fails before Grok starts: its id would go to xAI.
+        const goneLog = join(dir, 'gone.jsonl');
+        await expect(
+          withLang('en', () =>
+            grokRunner.run({
+              bin,
+              env: { ...process.env, GROK_HOME: home, FAKE_GROK_LOG: goneLog },
+              prompt: 'hello',
+              systemPrompt: 'briefing',
+              cwd: dir,
+              permission: 'full',
+              model: 'oldlab/qwen3:32b',
+              backends: { apis: {}, endpoints: [{ ...lab, apiKey: 'lab-key' }], deletedEndpoints: ['oldlab'] },
+              signal: new AbortController().signal,
+              onEvent: () => undefined,
+            }),
+          ),
+        ).rejects.toThrow(/its custom endpoint "oldlab" was deleted/);
+        expect(existsSync(goneLog)).toBe(false);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe("Grok's own folder in its sandbox", () => {
@@ -858,12 +947,13 @@ describe("Grok's own folder in its sandbox", () => {
     }
   });
 
-  it('takes an empty file for none, as Grok\'s sandbox makes its settings files empty when they are not there', () => {
+  it("takes an empty file for none, as Grok's sandbox makes its settings files empty when they are not there", () => {
     const home = mkdtempSync(join(tmpdir(), 'relay-grok-empty-'));
     try {
       writeFileSync(join(home, 'config.toml'), '[mine]\n');
       const before = snapshotGrokSettings(home);
-      for (const name of ['managed_config.toml', 'requirements.toml', 'trusted_folders.toml', 'hooks-paths']) writeFileSync(join(home, name), '');
+      for (const name of ['managed_config.toml', 'requirements.toml', 'trusted_folders.toml', 'hooks-paths'])
+        writeFileSync(join(home, name), '');
       expect(restoreGrokSettings(before, home)).toEqual([]);
       expect(existsSync(join(home, 'hooks-paths'))).toBe(true);
       // Emptying one that held settings is a change.
@@ -921,7 +1011,9 @@ describe("Grok's own folder in its sandbox", () => {
       // working directory, starts meanwhile: the change is put back, and its own profile written.
       appendFileSync(join(home, 'sandbox.toml'), '\n# a command changed this\n');
       const other = grokSandboxProfile('edit', 'darwin', ['/other'])!;
-      const second = guardGrokSettings(home, (wrote) => wrote('sandbox.toml', writeGrokProfile(home, ['/deny'], ['/other'], other, new Set([other]))));
+      const second = guardGrokSettings(home, (wrote) =>
+        wrote('sandbox.toml', writeGrokProfile(home, ['/deny'], ['/other'], other, new Set([other]))),
+      );
       expect(readFileSync(join(home, 'sandbox.toml'), 'utf8')).toContain(other);
       // The first turn's change is named; the second turn's profile is Harness Relay's, not a change.
       expect(first()).toEqual(['sandbox.toml']);
@@ -975,7 +1067,7 @@ describe("Grok's own folder in its sandbox", () => {
     expect(again).not.toContain('"/x"');
   });
 
-  it('keeps only the latest profiles of runs\' own folders', () => {
+  it("keeps only the latest profiles of runs' own folders", () => {
     const names = Array.from({ length: MAX_FOLDER_PROFILES + 3 }, (_, i) => grokSandboxProfile('edit', 'linux', [`/f${i}`])!);
     let file = '[profiles.mine]\nextends = "strict"\n';
     for (const [i, name] of names.entries()) file = withGrokProfile(file, grokProfileBlock(['/x'], [`/f${i}`], name), name);
@@ -1025,7 +1117,7 @@ describe("Grok's own folder in its sandbox", () => {
   });
 
   it.skipIf(process.platform === 'win32')(
-    'starts Grok in the profile of the run\'s own folders, written into its home first, and lets it go after the turn',
+    "starts Grok in the profile of the run's own folders, written into its home first, and lets it go after the turn",
     async () => {
       const dir = mkdtempSync(join(tmpdir(), 'relay-grok-run-'));
       try {
@@ -1057,7 +1149,11 @@ describe("Grok's own folder in its sandbox", () => {
         expect(JSON.parse(readFileSync(join(dir, 'started.json'), 'utf8'))).toEqual({ sandbox: name });
         const written = readFileSync(join(home, 'sandbox.toml'), 'utf8');
         expect(written).toContain(`[profiles.${name}]`);
-        expect(written).toContain(`read_write = [${grokReadWrite([extra]).map((d) => JSON.stringify(d)).join(', ')}]`);
+        expect(written).toContain(
+          `read_write = [${grokReadWrite([extra])
+            .map((d) => JSON.stringify(d))
+            .join(', ')}]`,
+        );
         expect(grokProfilesInUse().has(name)).toBe(false);
       } finally {
         rmSync(dir, { recursive: true, force: true });
@@ -1087,7 +1183,7 @@ describe("Harness Relay's own changes to Grok's settings", () => {
     }
   });
 
-  it("start from the settings as the running turns found them, and keep only what Harness Relay wrote", () => {
+  it('start from the settings as the running turns found them, and keep only what Harness Relay wrote', () => {
     const home = mkdtempSync(join(tmpdir(), 'relay-grok-trust-race-'));
     const file = join(home, 'trusted_folders.toml');
     try {

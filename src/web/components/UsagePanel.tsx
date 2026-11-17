@@ -12,7 +12,13 @@ import { relativeTime } from '../util';
  * (`usable`), again when its sign-in or key changes (`signIn`), and when the user presses Check again;
  * the server keeps an answer for a while. Only the latest ask's answer is shown.
  */
-export function UsagePanel({ provider, account, name, usable, signIn }: {
+export function UsagePanel({
+  provider,
+  account,
+  name,
+  usable,
+  signIn,
+}: {
   provider: Provider;
   /** Empty for the default account. */
   account: string;

@@ -16,7 +16,15 @@ describe('switching an agent to another CLI', () => {
   });
 
   it("starts a CLI never picked with its defaults, and keeps the agent's other fields", () => {
-    const agent = { id: 'a', name: 'Ann', role: 'Reviews', provider: 'claude' as const, model: 'opus', effort: 'max', tools: { memory: false } };
+    const agent = {
+      id: 'a',
+      name: 'Ann',
+      role: 'Reviews',
+      provider: 'claude' as const,
+      model: 'opus',
+      effort: 'max',
+      tools: { memory: false },
+    };
     const { value } = switchProvider(agent, 'grok', {});
     expect(value).toEqual({ id: 'a', name: 'Ann', role: 'Reviews', provider: 'grok', model: '', effort: '', tools: { memory: false } });
   });
@@ -31,7 +39,13 @@ describe('switching an agent to another CLI', () => {
 
 describe("the model picker's default", () => {
   const t = en;
-  const pm = (over: Partial<ProviderModels> = {}): ProviderModels => ({ provider: 'opencode', models: [], efforts: [], source: 'cli', ...over });
+  const pm = (over: Partial<ProviderModels> = {}): ProviderModels => ({
+    provider: 'opencode',
+    models: [],
+    efforts: [],
+    source: 'cli',
+    ...over,
+  });
 
   it('names the model an open agent then runs on, and says it needs one when there is none', () => {
     expect(inheritModelLabel(pm({ defaultModel: 'openai/gpt-5.4-nano' }), 'opencode', t)).toBe(t.team.defaultModel('openai/gpt-5.4-nano'));
@@ -68,7 +82,11 @@ describe("an agent's account", () => {
   });
 
   it('is the one it names while the CLI has it, else the default one, and says whether it can run', () => {
-    const s = status([account('', false), account('work0001', true, { label: 'Work' }), account('key00001', false, { usingStoredApiKey: true })]);
+    const s = status([
+      account('', false),
+      account('work0001', true, { label: 'Work' }),
+      account('key00001', false, { usingStoredApiKey: true }),
+    ]);
     expect(accountOf(s, 'work0001')!.label).toBe('Work');
     expect(accountOf(s, 'removed1')!.id).toBe('');
     expect(accountOf(s, undefined)!.id).toBe('');
@@ -81,7 +99,7 @@ describe("an agent's account", () => {
     expect(accountState(undefined, undefined)).toBe('off');
   });
 
-  it("gives a new member the default account when it is ready, else the first that is", () => {
+  it('gives a new member the default account when it is ready, else the first that is', () => {
     expect(readyAccount(status([account('', true), account('work0001', true)]))).toBeUndefined();
     expect(readyAccount(status([account('', false), account('work0001', false), account('alt00001', true)]))).toBe('alt00001');
     expect(readyAccount(status([account('', false), account('work0001', false)]))).toBeUndefined();

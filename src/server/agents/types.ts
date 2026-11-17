@@ -1,5 +1,16 @@
 import { readFileSync, statSync } from 'node:fs';
-import { TOOL_CALL_KINDS, type ApiBackend, type ApprovalAnswer, type ApprovalKind, type NativeItemsOff, type NativePart, type Permission, type PlanEntry, type Provider, type ToolCallKind } from '../../shared/types';
+import {
+  TOOL_CALL_KINDS,
+  type ApiBackend,
+  type ApprovalAnswer,
+  type ApprovalKind,
+  type NativeItemsOff,
+  type NativePart,
+  type Permission,
+  type PlanEntry,
+  type Provider,
+  type ToolCallKind,
+} from '../../shared/types';
 import { CONFIG } from '../config';
 
 /** Normalised events every CLI adapter emits while an agent is working. */
@@ -221,7 +232,20 @@ export function toolCallKind(kind: unknown): ToolCallKind | undefined {
 }
 
 // `target_file` / `target_directory`: Grok's read_file and list_dir.
-const DETAIL_KEYS = ['command', 'cmd', 'file_path', 'filePath', 'target_file', 'path', 'target_directory', 'pattern', 'url', 'query', 'description', 'prompt'];
+const DETAIL_KEYS = [
+  'command',
+  'cmd',
+  'file_path',
+  'filePath',
+  'target_file',
+  'path',
+  'target_directory',
+  'pattern',
+  'url',
+  'query',
+  'description',
+  'prompt',
+];
 /** Keys whose value is a file or folder path: too long, it loses its start, not its file name. */
 const PATH_KEYS = new Set(['file_path', 'filePath', 'target_file', 'path', 'target_directory']);
 

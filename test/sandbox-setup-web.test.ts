@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { SandboxSetupView } from '../src/shared/types';
 import { askOnNewChat, byHand, canInstall, readAsked, setupRunning, usersText, writeAsked } from '../src/web/sandboxSetup';
 
-const packages = { kind: 'packages' as const, items: ['bubblewrap', 'socat'], for: ['claude' as const, 'open' as const], command: 'sudo apt-get install -y bubblewrap socat' };
+const packages = {
+  kind: 'packages' as const,
+  items: ['bubblewrap', 'socat'],
+  for: ['claude' as const, 'open' as const],
+  command: 'sudo apt-get install -y bubblewrap socat',
+};
 const job = (state: 'running' | 'success' | 'failed' | 'cancelled') => ({ state, startedAt: 1, log: '' });
 
 describe('the sandboxes’ setup on the page', () => {
@@ -33,7 +38,9 @@ describe('the sandboxes’ setup on the page', () => {
   });
 
   it('names whose sandboxes need it', () => {
-    expect(usersText(['claude', 'copilot', 'open'], (p) => p.toUpperCase(), 'the open-source agents')).toBe('CLAUDE, COPILOT, the open-source agents');
+    expect(usersText(['claude', 'copilot', 'open'], (p) => p.toUpperCase(), 'the open-source agents')).toBe(
+      'CLAUDE, COPILOT, the open-source agents',
+    );
     // Chinese lists with 、.
     expect(usersText(['claude', 'open'], (p) => p, '開源 agent', '、')).toBe('claude、開源 agent');
   });

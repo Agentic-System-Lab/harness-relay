@@ -16,12 +16,20 @@ describe("Harness Relay's own tools in a turn", () => {
   const fakeGateway = () => {
     const grants: { ctx: GatewayContext; groups: readonly RelayToolGroup[]; revoked: boolean }[] = [];
     const sent: Record<string, unknown>[] = [];
-    const mailTool = { name: 'mail_send', group: 'mail', tier: 'send', send: async (args: Record<string, unknown>) => (sent.push(args), 'accepted by the server') } as unknown as GatewayTool;
+    const mailTool = {
+      name: 'mail_send',
+      group: 'mail',
+      tier: 'send',
+      send: async (args: Record<string, unknown>) => (sent.push(args), 'accepted by the server'),
+    } as unknown as GatewayTool;
     const gateway = {
       grant(ctx: GatewayContext, groups: readonly RelayToolGroup[]) {
         const g = { ctx, groups, revoked: false };
         grants.push(g);
-        return { spec: { name: 'relay', transport: 'stdio' as const, command: 'node', args: ['relay-mcp.mjs'], url: '', env: {}, headers: {} }, revoke: () => (g.revoked = true) };
+        return {
+          spec: { name: 'relay', transport: 'stdio' as const, command: 'node', args: ['relay-mcp.mjs'], url: '', env: {}, headers: {} },
+          revoke: () => (g.revoked = true),
+        };
       },
       toolNames: () => ['browser_click', 'mail_send'],
       tool: (name: string) => (name === 'mail_send' ? mailTool : undefined),
@@ -37,7 +45,7 @@ describe("Harness Relay's own tools in a turn", () => {
     return conv;
   };
 
-  it("gives a member the gateway for the groups its CLI was given, for its turn alone, and none without a group", async () => {
+  it('gives a member the gateway for the groups its CLI was given, for its turn alone, and none without a group', async () => {
     const { grants } = fakeGateway();
     const conv = solo();
     await orchestrator.send(conv.id, 'hello');
@@ -72,7 +80,11 @@ describe("Harness Relay's own tools in a turn", () => {
     const seen: boolean[] = [];
     fake.inTurn = async (_name, o) => {
       await o.requestApproval!({ kind: 'other', tool: 'mcp__relay__browser_click', detail: '{"ref":3}' });
-      seen.push(grants[0]!.ctx.justAllowed!('browser_click'), grants[0]!.ctx.justAllowed!('browser_click'), grants[0]!.ctx.justAllowed!('mail_send'));
+      seen.push(
+        grants[0]!.ctx.justAllowed!('browser_click'),
+        grants[0]!.ctx.justAllowed!('browser_click'),
+        grants[0]!.ctx.justAllowed!('mail_send'),
+      );
     };
     await orchestrator.send(conv.id, 'click it');
     await finish(conv.id);
@@ -88,16 +100,27 @@ describe("Harness Relay's own tools in a turn", () => {
       fake.inTurn = async () => {
         const ctx = grants.at(-1)!.ctx;
         const preview = { fields: [{ label: 'To', value: 'bob@example.com' }], body: 'Hi Bob' };
-        items.push(ctx.toOutbox!({ tool: 'mail_send', title: 'Mail to bob@example.com', preview, args: { to: 'bob@example.com', body: 'Hi Bob' } }));
+        items.push(
+          ctx.toOutbox!({ tool: 'mail_send', title: 'Mail to bob@example.com', preview, args: { to: 'bob@example.com', body: 'Hi Bob' } }),
+        );
         // The same call again (a run tried again, say) is the item already waiting, with no second card.
-        items.push(ctx.toOutbox!({ tool: 'mail_send', title: 'Mail to bob@example.com', preview, args: { body: 'Hi Bob', to: 'bob@example.com' } }));
+        items.push(
+          ctx.toOutbox!({ tool: 'mail_send', title: 'Mail to bob@example.com', preview, args: { body: 'Hi Bob', to: 'bob@example.com' } }),
+        );
       };
       await orchestrator.send(conv.id, 'mail Bob');
       await finish(conv.id);
       expect(items[0]!.id).toBe(items[1]!.id);
       const reply = conv.messages.find((m) => m.author.kind === 'agent')!;
       expect(reply.parts.filter((p) => p.type === 'outbox')).toEqual([
-        { type: 'outbox', id: items[0]!.id, tool: 'mail_send', title: 'Mail to bob@example.com', preview: { fields: [{ label: 'To', value: 'bob@example.com' }], body: 'Hi Bob' }, status: 'pending' },
+        {
+          type: 'outbox',
+          id: items[0]!.id,
+          tool: 'mail_send',
+          title: 'Mail to bob@example.com',
+          preview: { fields: [{ label: 'To', value: 'bob@example.com' }], body: 'Hi Bob' },
+          status: 'pending',
+        },
       ]);
       expect(orchestrator.isWaiting(conv.id)).toBe(true);
       expect(sent).toEqual([]);
@@ -133,7 +156,10 @@ describe("Harness Relay's own tools in a turn", () => {
       expect(orchestrator.outbox!.waiting(conv.id)).toBe(1);
       await orchestrator.retry(conv.id, reply.id);
       await finish(conv.id);
-      expect(orchestrator.outbox!.get(items[0]!.id)).toMatchObject({ status: 'discarded', result: 'The reply that asked for it was taken back, so it was not sent.' });
+      expect(orchestrator.outbox!.get(items[0]!.id)).toMatchObject({
+        status: 'discarded',
+        result: 'The reply that asked for it was taken back, so it was not sent.',
+      });
       // The same call from the reply that came again: a new item, with its card.
       expect(items[1]!.id).not.toBe(items[0]!.id);
       const again = conv.messages.find((m) => m.author.kind === 'agent')!;
@@ -142,7 +168,7 @@ describe("Harness Relay's own tools in a turn", () => {
       expect(orchestrator.outbox!.waiting(conv.id)).toBe(1);
     }));
 
-  it("copies no waiting card into a branch, whose item stays with the conversation it came from", async () => {
+  it('copies no waiting card into a branch, whose item stays with the conversation it came from', async () => {
     const { conv, items, reply } = await waitingMail();
     const branch = await orchestrator.branch(conv.id, reply.id);
     const copied = branch.messages.find((m) => m.author.kind === 'agent')!;
@@ -160,7 +186,12 @@ describe("Harness Relay's own tools in a turn", () => {
       orchestrator.outbox = new Outbox(db);
       orchestrator.reconcileOutbox();
       expect(reply.parts.find((p) => p.type === 'outbox')).toMatchObject({ status: 'failed', result: expect.stringMatching(/not known/) });
-      expect(store.get(conv.id)!.messages.find((m) => m.id === reply.id)!.parts.find((p) => p.type === 'outbox')).toMatchObject({ status: 'failed' });
+      expect(
+        store
+          .get(conv.id)!
+          .messages.find((m) => m.id === reply.id)!
+          .parts.find((p) => p.type === 'outbox'),
+      ).toMatchObject({ status: 'failed' });
       await expect(orchestrator.answerOutbox(conv.id, items[0]!.id, 'send')).rejects.toMatchObject({ status: 409 });
       expect(sent).toEqual([]);
     }));

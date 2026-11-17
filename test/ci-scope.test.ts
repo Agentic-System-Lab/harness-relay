@@ -60,7 +60,17 @@ describe('needsOf', () => {
   });
 
   it('runs everything for the app itself, its packages and its config', () => {
-    for (const file of ['src/server/app.ts', 'src/web/App.tsx', 'src/shared/types.ts', 'src/web/public/sw.js', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', '.gitattributes']) {
+    for (const file of [
+      'src/server/app.ts',
+      'src/web/App.tsx',
+      'src/shared/types.ts',
+      'src/web/public/sw.js',
+      'package.json',
+      'package-lock.json',
+      'tsconfig.json',
+      'vite.config.ts',
+      '.gitattributes',
+    ]) {
       expect(runs(file), file).toEqual(['windows', 'desktop', 'e2e']);
     }
   });
@@ -130,7 +140,10 @@ const fakeGit = (answers: Record<string, string | Error>): Git & { calls: string
 
 describe('changedFiles', () => {
   it("compares a pull request's merge commit with the base it merges into, renames as two files", () => {
-    const git = fakeGit({ 'rev-list --parents -n 1 HEAD': 'merge base head\n', 'diff --name-only --no-renames -z base HEAD': 'src/old.ts\0docs/new.md\0' });
+    const git = fakeGit({
+      'rev-list --parents -n 1 HEAD': 'merge base head\n',
+      'diff --name-only --no-renames -z base HEAD': 'src/old.ts\0docs/new.md\0',
+    });
     expect(changedFiles('pull_request', git)).toEqual(['src/old.ts', 'docs/new.md']);
   });
 
@@ -171,7 +184,8 @@ function repoFiles(): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (skip.has(entry.name) || (dir !== ROOT && ['build', 'release'].includes(entry.name) && relative(ROOT, dir) === 'desktop')) continue;
+      if (skip.has(entry.name) || (dir !== ROOT && ['build', 'release'].includes(entry.name) && relative(ROOT, dir) === 'desktop'))
+        continue;
       const path = join(dir, entry.name);
       if (entry.isDirectory()) walk(path);
       else out.push(relative(ROOT, path).split(sep).join('/'));
@@ -188,7 +202,12 @@ function importedBy(entries: string[]): Set<string> {
   const seen = new Set<string>();
   const resolveFrom = (from: string, spec: string): string | undefined => {
     const base = resolve(ROOT, dirname(from), spec);
-    const tries = [base, ...['.ts', '.tsx', '.js', '.cjs', '.mjs', '.json'].map((x) => base + x), base.replace(/\.js$/, '.ts'), join(base, 'index.ts')];
+    const tries = [
+      base,
+      ...['.ts', '.tsx', '.js', '.cjs', '.mjs', '.json'].map((x) => base + x),
+      base.replace(/\.js$/, '.ts'),
+      join(base, 'index.ts'),
+    ];
     const found = tries.find((p) => existsSync(p) && statSync(p).isFile());
     return found && relative(ROOT, found).split(sep).join('/');
   };
@@ -244,7 +263,10 @@ describe('the rules and the repository', () => {
     for (const scope of SCOPES) {
       for (const pattern of IGNORES[scope]) {
         const re = globRegExp(pattern.replace(/^!/, ''));
-        expect(files.some((f) => re.test(f)), `${scope}: ${pattern}`).toBe(true);
+        expect(
+          files.some((f) => re.test(f)),
+          `${scope}: ${pattern}`,
+        ).toBe(true);
       }
     }
   });
@@ -255,21 +277,47 @@ describe('the rules and the repository', () => {
     expect(started('e2e')).toContain('scripts/sandbox-check.ts');
     expect(started('desktop')).toContain('desktop/scripts/check-package.ts');
     const entries: Partial<Record<Scope, string[]>> = {
-      e2e: [...under('e2e/specs/', 'e2e/support/', 'e2e/fake-cli/'), 'e2e/global-setup.ts', 'e2e/fixtures.ts', 'playwright.config.ts', 'vite.config.ts', 'src/server/index.ts', 'src/web/main.tsx', ...started('e2e')],
-      desktop: [...under('desktop/src/', 'desktop/scripts/'), 'vite.config.ts', 'src/server/index.ts', 'src/web/main.tsx', ...started('desktop')],
+      e2e: [
+        ...under('e2e/specs/', 'e2e/support/', 'e2e/fake-cli/'),
+        'e2e/global-setup.ts',
+        'e2e/fixtures.ts',
+        'playwright.config.ts',
+        'vite.config.ts',
+        'src/server/index.ts',
+        'src/web/main.tsx',
+        ...started('e2e'),
+      ],
+      desktop: [
+        ...under('desktop/src/', 'desktop/scripts/'),
+        'vite.config.ts',
+        'src/server/index.ts',
+        'src/web/main.tsx',
+        ...started('desktop'),
+      ],
     };
     for (const [scope, list] of Object.entries(entries) as [Scope, string[]][]) {
       for (const entry of list) expect(existsSync(join(ROOT, entry)), entry).toBe(true);
       const imported = [...importedBy(list)];
       // The walk reaches far: the server, the UI and the fakes.
       expect(imported.length, scope).toBeGreaterThan(100);
-      expect(imported.filter((f) => ignoredBy(IGNORES[scope], f)), scope).toEqual([]);
+      expect(
+        imported.filter((f) => ignoredBy(IGNORES[scope], f)),
+        scope,
+      ).toEqual([]);
     }
   });
 
   it('never ignores what the end-to-end tests or the packaged app copy, start or are configured by', () => {
     // Read, copied or started at run time, so no import walk finds them.
-    const shared = ['package.json', 'package-lock.json', 'tsconfig.json', '.gitattributes', 'src/web/index.html', 'src/server/agents/piGate.js', 'src/server/relaySandboxHost.ts'];
+    const shared = [
+      'package.json',
+      'package-lock.json',
+      'tsconfig.json',
+      '.gitattributes',
+      'src/web/index.html',
+      'src/server/agents/piGate.js',
+      'src/server/relaySandboxHost.ts',
+    ];
     const inputs: Partial<Record<Scope, string[]>> = {
       e2e: shared,
       desktop: [
@@ -286,7 +334,10 @@ describe('the rules and the repository', () => {
     };
     for (const [scope, list] of Object.entries(inputs) as [Scope, string[]][]) {
       for (const file of list) expect(existsSync(join(ROOT, file)), file).toBe(true);
-      expect(list.filter((f) => ignoredBy(IGNORES[scope], f)), scope).toEqual([]);
+      expect(
+        list.filter((f) => ignoredBy(IGNORES[scope], f)),
+        scope,
+      ).toEqual([]);
     }
   });
 
@@ -312,7 +363,10 @@ describe('the rules and the repository', () => {
         }
       }
       // The one check needs every job, so that a job added later is in it too.
-      const needs = list.get('passed')?.match(/^ {4}needs: \[([^\]]+)\]$/m)?.[1].split(/,\s*/);
+      const needs = list
+        .get('passed')
+        ?.match(/^ {4}needs: \[([^\]]+)\]$/m)?.[1]
+        .split(/,\s*/);
       expect(needs, workflow).toEqual([...list.keys()].filter((id) => id !== 'passed'));
     }
   });
@@ -326,7 +380,8 @@ describe('the rules and the repository', () => {
         if (line !== '' && !line.startsWith('          ')) break;
         script.push(line.slice(10));
       }
-      const status = (results: string) => spawnSync('bash', ['-c', script.join('\n')], { env: { ...process.env, RESULTS: results }, encoding: 'utf8' }).status;
+      const status = (results: string) =>
+        spawnSync('bash', ['-c', script.join('\n')], { env: { ...process.env, RESULTS: results }, encoding: 'utf8' }).status;
       expect(status('success success skipped success'), workflow).toBe(0);
       expect(status('skipped skipped'), workflow).toBe(0);
       expect(status('success failure skipped'), workflow).toBe(1);

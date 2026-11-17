@@ -246,7 +246,10 @@ function smokeTest(report: string | undefined, clis: string | undefined): void {
       await win.loadURL(chatAddress(url, await supervisor.signInLink()));
       let signedIn = false;
       for (let i = 0; i < 150 && !signedIn; i++) {
-        signedIn = (await win.webContents.executeJavaScript('!document.querySelector("[data-signin]") && (document.getElementById("root")?.childElementCount ?? 0) > 0')) === true;
+        signedIn =
+          (await win.webContents.executeJavaScript(
+            '!document.querySelector("[data-signin]") && (document.getElementById("root")?.childElementCount ?? 0) > 0',
+          )) === true;
         if (!signedIn) await new Promise((r) => setTimeout(r, 100));
       }
       check(signedIn, 'signs a sandboxed window in with a link and shows the chat');
@@ -665,7 +668,12 @@ function run(): void {
         return;
       }
       if (result.kind === 'failed') {
-        await dialog.showMessageBox({ type: 'error', message: t.tailscaleFailed, detail: t.tailscaleFailedDetail(result.output.slice(-800)), buttons: [t.ok] });
+        await dialog.showMessageBox({
+          type: 'error',
+          message: t.tailscaleFailed,
+          detail: t.tailscaleFailedDetail(result.output.slice(-800)),
+          buttons: [t.ok],
+        });
         return;
       }
       url = (await net.tailscale.servedUrl(prefs.port)) ?? result.url ?? `https://${net.dnsName}${https === 443 ? '' : `:${https}`}`;
@@ -853,7 +861,14 @@ function run(): void {
 
   /** Offers the release's page instead, when this copy cannot update itself (`why`), or the update failed. */
   async function offerReleasePage(release: UpdateRelease, message: string, detail: string): Promise<void> {
-    const { response } = await dialog.showMessageBox({ type: 'info', message, detail, buttons: [t.openDownloadPage, t.cancel], defaultId: 0, cancelId: 1 });
+    const { response } = await dialog.showMessageBox({
+      type: 'info',
+      message,
+      detail,
+      buttons: [t.openDownloadPage, t.cancel],
+      defaultId: 0,
+      cancelId: 1,
+    });
     if (response === 0) void shell.openExternal(release.page);
   }
 
@@ -873,7 +888,13 @@ function run(): void {
     if (!release || updating) return;
     const system = updateSystem(process.platform, process.arch);
     const asset = system ? release.assets[system] : undefined;
-    const plan = installPlan({ platform: process.platform, packaged: app.isPackaged, execPath: process.execPath, appImage: process.env.APPIMAGE, asset });
+    const plan = installPlan({
+      platform: process.platform,
+      packaged: app.isPackaged,
+      execPath: process.execPath,
+      appImage: process.env.APPIMAGE,
+      asset,
+    });
     if (plan.kind === 'manual' || !asset) {
       await offerReleasePage(release, t.updateManual, t.updateManualDetail(plan.kind === 'manual' ? plan.why : 'no-installer'));
       return;
@@ -922,7 +943,8 @@ function run(): void {
         setUpdating({ kind: 'installing' });
         if (!(await waitForConversations())) return;
         placeAppImage(downloaded, target, plan.appImage);
-        if (process.platform === 'linux' && isAutostartOn(autostartFile(process.env, homedir()))) writeAutostart([target, ...relaunchArgs()]);
+        if (process.platform === 'linux' && isAutostartOn(autostartFile(process.env, homedir())))
+          writeAutostart([target, ...relaunchArgs()]);
         await finishUpdate(relaunchCommand('linux', process.pid, target, relaunchEnv(process.env), relaunchArgs()));
         return;
       }
@@ -982,7 +1004,12 @@ function run(): void {
   // --- Open at login ------------------------------------------------------------------------
 
   function appCommand(): string[] {
-    const command = launchCommand({ execPath: process.execPath, appImage: process.env.APPIMAGE, packaged: app.isPackaged, appPath: app.getAppPath() });
+    const command = launchCommand({
+      execPath: process.execPath,
+      appImage: process.env.APPIMAGE,
+      packaged: app.isPackaged,
+      appPath: app.getAppPath(),
+    });
     // An AppImage that only starts without Chromium's sandbox (Ubuntu 24.04) must start so at login too.
     return process.argv.includes('--no-sandbox') ? [...command, '--no-sandbox'] : command;
   }
@@ -1092,7 +1119,12 @@ function run(): void {
       { type: 'separator' },
       { id: 'version', label: `${t.version} ${__RELAY_VERSION__}`, enabled: false },
       { id: 'update-status', label: updating ? updatingLabel(updating) : '', enabled: false, visible: !!updating },
-      { id: 'update-offer', label: update ? t.updateTo(update.version) : '', visible: !updating && !!update, click: () => void installUpdate() },
+      {
+        id: 'update-offer',
+        label: update ? t.updateTo(update.version) : '',
+        visible: !updating && !!update,
+        click: () => void installUpdate(),
+      },
       { id: 'update-switch', label: t.updateSwitchNow, visible: updating?.kind === 'waiting', click: () => void confirmSwitchNow() },
       { id: 'quit', label: t.quit, click: () => app.quit() },
     ];
@@ -1277,7 +1309,11 @@ function run(): void {
     refreshAutostart();
     createTray();
     setKeepAwake(prefs.keepAwake);
-    const atLogin = startedAtLogin(process.argv, process.platform, process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin);
+    const atLogin = startedAtLogin(
+      process.argv,
+      process.platform,
+      process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin,
+    );
     // Before the start, whose dialogs (a port in use, say) wait for the user.
     scheduleUpdateChecks();
     await startServer({ openWindow: !atLogin });

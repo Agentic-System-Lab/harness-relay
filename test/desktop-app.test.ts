@@ -47,7 +47,11 @@ describe('open at login on Linux', () => {
   });
 
   it('writes an entry that starts the app hidden', () => {
-    const entry = desktopEntry({ name: 'Harness Relay', comment: 'Open\nHarness Relay', exec: ['/opt/Harness Relay/harness-relay', '--hidden'] });
+    const entry = desktopEntry({
+      name: 'Harness Relay',
+      comment: 'Open\nHarness Relay',
+      exec: ['/opt/Harness Relay/harness-relay', '--hidden'],
+    });
     expect(entry).toContain('[Desktop Entry]\nType=Application\nName=Harness Relay\nComment=Open Harness Relay\n');
     expect(entry).toContain('Exec="/opt/Harness Relay/harness-relay" --hidden\n');
     expect(entry).toContain('X-GNOME-Autostart-enabled=true');
@@ -103,7 +107,7 @@ describe("the desktop app's settings", () => {
     expect(parsePrefs('{"lang": "fr"}')).toEqual(DEFAULT_PREFS);
   });
 
-  it("takes the language the chat in the window shows only when it is one of ours and a new one", () => {
+  it('takes the language the chat in the window shows only when it is one of ours and a new one', () => {
     const prefs = { ...DEFAULT_PREFS, tailnetName: 'my-mac.tail1234.ts.net' };
     expect(withLang(prefs, 'zh-TW')).toEqual({ ...prefs, lang: 'zh-TW' });
     expect(withLang({ ...prefs, lang: 'zh-TW' }, 'en')).toEqual({ ...prefs, lang: 'en' });
@@ -149,7 +153,10 @@ describe("the desktop app's language", () => {
   });
 
   it('has the same messages in both languages', () => {
-    const shape = (m: object) => Object.entries(m).map(([k, v]) => `${k}:${typeof v}:${typeof v === 'function' ? v.length : ''}`).sort();
+    const shape = (m: object) =>
+      Object.entries(m)
+        .map(([k, v]) => `${k}:${typeof v}:${typeof v === 'function' ? v.length : ''}`)
+        .sort();
     expect(shape(DESKTOP_MESSAGES.en)).toEqual(shape(DESKTOP_MESSAGES['zh-TW']));
     // Messages that take one of a few reasons say each of them.
     const reasons: Record<string, readonly string[]> = {
@@ -278,7 +285,7 @@ describe("the chat window's browser folder", () => {
   });
 });
 
-describe("the packaged apps electron-builder leaves (desktop/scripts/check-package.ts)", () => {
+describe('the packaged apps electron-builder leaves (desktop/scripts/check-package.ts)', () => {
   it('finds the Mac, Windows and Linux apps, and of a universal Mac app only the result', () => {
     const out = join(dir, 'release');
     const make = (path: string) => mkdirSync(join(out, path), { recursive: true });
@@ -293,7 +300,11 @@ describe("the packaged apps electron-builder leaves (desktop/scripts/check-packa
     writeFileSync(join(out, 'Harness-Relay-2026-11-10-mac-universal.dmg'), '');
     const apps = packagedApps(out);
     expect(apps.map((a) => a.fuses).sort()).toEqual(
-      [join(out, 'linux-unpacked', 'harness-relay'), join(out, 'mac-universal', 'Harness Relay.app'), join(out, 'win-unpacked', 'Harness Relay.exe')].sort(),
+      [
+        join(out, 'linux-unpacked', 'harness-relay'),
+        join(out, 'mac-universal', 'Harness Relay.app'),
+        join(out, 'win-unpacked', 'Harness Relay.exe'),
+      ].sort(),
     );
     const mac = apps.find((a) => a.universal)!;
     expect(mac.exe).toBe(join(out, 'mac-universal', 'Harness Relay.app', 'Contents', 'MacOS', 'Harness Relay'));
@@ -305,7 +316,13 @@ describe("the packaged apps electron-builder leaves (desktop/scripts/check-packa
 describe("the app folder's package.json", () => {
   it('names the app, so its folders are called Harness Relay, and runs main.cjs', () => {
     const m = appManifest({ version: '1.2.3', description: 'd', license: 'SUL-1.0' });
-    expect(m).toMatchObject({ name: 'harness-relay', productName: 'Harness Relay', version: '1.2.3', main: 'main.cjs', license: 'SUL-1.0' });
+    expect(m).toMatchObject({
+      name: 'harness-relay',
+      productName: 'Harness Relay',
+      version: '1.2.3',
+      main: 'main.cjs',
+      license: 'SUL-1.0',
+    });
   });
 });
 
@@ -399,7 +416,11 @@ describe("the desktop app's decisions", () => {
       const server = running ? 'http://127.0.0.1:8787' : undefined;
       const opened: string[] = [];
       const contents = fakeContents();
-      const o = { serverUrl: () => server, openExternal: (url: string) => void opened.push(url), windowOptions: () => ({ title: 'Harness Relay' }) };
+      const o = {
+        serverUrl: () => server,
+        openExternal: (url: string) => void opened.push(url),
+        windowOptions: () => ({ title: 'Harness Relay' }),
+      };
       guardContents(contents, o);
       return { contents, opened };
     }
@@ -451,14 +472,15 @@ describe("the desktop app's decisions", () => {
   it('starts the installed app at login, the AppImage by its own file, and an unpackaged one with its folder', () => {
     const base = { execPath: '/opt/Harness Relay/harness-relay', packaged: true, appPath: '/opt/Harness Relay/resources/app.asar' };
     expect(launchCommand(base)).toEqual(['/opt/Harness Relay/harness-relay']);
-    expect(launchCommand({ ...base, execPath: '/tmp/.mount_x/harness-relay', appImage: '/home/me/Harness-Relay.AppImage' })).toEqual(['/home/me/Harness-Relay.AppImage']);
-    expect(launchCommand({ execPath: '/repo/desktop/node_modules/electron/dist/electron', packaged: false, appPath: '/repo/desktop/build/app' })).toEqual([
-      '/repo/desktop/node_modules/electron/dist/electron',
-      '/repo/desktop/build/app',
+    expect(launchCommand({ ...base, execPath: '/tmp/.mount_x/harness-relay', appImage: '/home/me/Harness-Relay.AppImage' })).toEqual([
+      '/home/me/Harness-Relay.AppImage',
     ]);
+    expect(
+      launchCommand({ execPath: '/repo/desktop/node_modules/electron/dist/electron', packaged: false, appPath: '/repo/desktop/build/app' }),
+    ).toEqual(['/repo/desktop/node_modules/electron/dist/electron', '/repo/desktop/build/app']);
   });
 
-  it("answers to the tailnet name Tailscale reports, else the last one seen (Tailscale not connected yet at login)", () => {
+  it('answers to the tailnet name Tailscale reports, else the last one seen (Tailscale not connected yet at login)', () => {
     expect(tailnetName('now.ts.net', 'before.ts.net')).toBe('now.ts.net');
     expect(tailnetName(undefined, 'before.ts.net')).toBe('before.ts.net');
     expect(tailnetName(undefined, undefined)).toBeUndefined();

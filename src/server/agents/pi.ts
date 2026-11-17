@@ -379,7 +379,10 @@ export function piSessionCwd(file: string, id: string): string | undefined {
  * as this session's on its first line, or it names another working directory.
  */
 export function piSessionFile(sessionsDir: string, id: string, cwd: string): string {
-  const name = /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) && existsSync(sessionsDir) ? readdirSync(sessionsDir).find((n) => n.endsWith(`_${id}.jsonl`)) : undefined;
+  const name =
+    /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) && existsSync(sessionsDir)
+      ? readdirSync(sessionsDir).find((n) => n.endsWith(`_${id}.jsonl`))
+      : undefined;
   if (!name) throw new AgentRunError(t().openResumeFailed(CLI, t().piSessionMissing(id)));
   const file = join(sessionsDir, name);
   const then = piSessionCwd(file, id);
@@ -407,8 +410,13 @@ export async function preparePi(ctx: OpenRunContext): Promise<void> {
   mkdirSync(sessions, { recursive: true, mode: 0o700 });
 
   // The gate must stay out of reach of the run: never inside a folder it may write.
-  const writable = [...ctx.home.statePaths, ctx.tmpDir, ...(o.permission === 'edit' ? [o.cwd, ...(o.addDirs ?? []), ...(o.attachmentsDir ? [o.attachmentsDir] : [])] : [])];
-  if (o.permission !== 'full' && writable.some((dir) => overlaps(PI_GATE_PATH, dir))) throw new AgentRunError(t().piGateWritable(PI_GATE_PATH));
+  const writable = [
+    ...ctx.home.statePaths,
+    ctx.tmpDir,
+    ...(o.permission === 'edit' ? [o.cwd, ...(o.addDirs ?? []), ...(o.attachmentsDir ? [o.attachmentsDir] : [])] : []),
+  ];
+  if (o.permission !== 'full' && writable.some((dir) => overlaps(PI_GATE_PATH, dir)))
+    throw new AgentRunError(t().piGateWritable(PI_GATE_PATH));
 
   const state: PiRunState = { agentDir, mcp: false };
   if (o.sessionId) state.sessionFile = piSessionFile(sessions, o.sessionId, o.cwd);
@@ -594,9 +602,25 @@ export function piGateRequest(msg: Record<string, any>): PiGateRequest | null | 
 }
 
 /** Pi's built-in tools as rows in the chat. */
-const TOOL_LABEL: Record<string, string> = { read: 'Read', bash: 'Bash', edit: 'Edit', write: 'Write', grep: 'Grep', find: 'Find', ls: 'List' };
+const TOOL_LABEL: Record<string, string> = {
+  read: 'Read',
+  bash: 'Bash',
+  edit: 'Edit',
+  write: 'Write',
+  grep: 'Grep',
+  find: 'Find',
+  ls: 'List',
+};
 /** What Pi's built-in tools do (an MCP tool's is not known). */
-const TOOL_KIND: Record<string, ToolCallKind> = { read: 'read', bash: 'execute', edit: 'edit', write: 'edit', grep: 'search', find: 'search', ls: 'read' };
+const TOOL_KIND: Record<string, ToolCallKind> = {
+  read: 'read',
+  bash: 'execute',
+  edit: 'edit',
+  write: 'edit',
+  grep: 'search',
+  find: 'search',
+  ls: 'read',
+};
 
 /** What a Pi tool does: its built-in ones' kind, undefined for an MCP tool. */
 export function piToolKind(name: string): ToolCallKind | undefined {
@@ -660,7 +684,13 @@ export function piApprovalRequest(req: PiGateRequest, info: AcpCallInfo, permiss
   const reason = piToolName(req.toolName);
   if (info.kind !== 'other') return { ...acpApprovalRequest(info, permission), reason };
   const detail = piCallDetail(req);
-  return { kind: 'other', tool: req.toolName, ...(detail ? { detail } : {}), reason, ...(permission === 'read-only' ? { readOnlySandbox: true } : {}) };
+  return {
+    kind: 'other',
+    tool: req.toolName,
+    ...(detail ? { detail } : {}),
+    reason,
+    ...(permission === 'read-only' ? { readOnlySandbox: true } : {}),
+  };
 }
 
 /** The gate's answer: `{"allow":true}`, or a refusal with the reason the model gets. */
@@ -837,9 +867,20 @@ export function piRunUsage(u: PiUsage, run: Pick<BackendRun, 'kind'>): Pick<RunR
 export function piErrorKind(message: string): 'key' | 'model' | 'connection' | 'other' {
   // Through the relay sandbox an unreachable host is the proxy's answer (502, 403…): never a key's.
   if (PROXY_FAILURE.test(message)) return 'connection';
-  if (/\b40[13]\b|invalid[ _-]?(x-)?api[ _-]?key|incorrect api key|authentication[_ ]error|unauthori[sz]ed|permission[_ ]denied/i.test(message)) return 'key';
-  if (/\b404\b|model[_ ]not[_ ]found|not_found_error|does not exist|unknown model|no such model|model .* not found/i.test(message)) return 'model';
-  if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|EPERM|fetch failed|connection error|socket hang up|getaddrinfo/i.test(message)) return 'connection';
+  if (
+    /\b40[13]\b|invalid[ _-]?(x-)?api[ _-]?key|incorrect api key|authentication[_ ]error|unauthori[sz]ed|permission[_ ]denied/i.test(
+      message,
+    )
+  )
+    return 'key';
+  if (/\b404\b|model[_ ]not[_ ]found|not_found_error|does not exist|unknown model|no such model|model .* not found/i.test(message))
+    return 'model';
+  if (
+    /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|EPERM|fetch failed|connection error|socket hang up|getaddrinfo/i.test(
+      message,
+    )
+  )
+    return 'connection';
   return 'other';
 }
 
@@ -863,7 +904,9 @@ export function piErrorText(message: string | undefined, run: BackendRun): strin
     case 'model':
       return t().piModelRejected(run.model, label, e);
     case 'connection':
-      return run.endpoint ? t().piEndpointUnreachable(label, run.endpoint.baseUrl, piConnectionDetail(e)) : t().piUnreachable(label, piConnectionDetail(e));
+      return run.endpoint
+        ? t().piEndpointUnreachable(label, run.endpoint.baseUrl, piConnectionDetail(e))
+        : t().piUnreachable(label, piConnectionDetail(e));
     default:
       return t().piModelError(e);
   }
@@ -872,7 +915,9 @@ export function piErrorText(message: string | undefined, run: BackendRun): strin
 /** The gate is among Pi's commands, from Harness Relay's own file. */
 export function piGateLoaded(data: any): boolean {
   const commands: any[] = Array.isArray(data?.commands) ? data.commands : [];
-  return commands.some((c) => c?.name === PI_GATE_COMMAND && c?.source === 'extension' && samePath(String(c?.sourceInfo?.path ?? ''), PI_GATE_PATH));
+  return commands.some(
+    (c) => c?.name === PI_GATE_COMMAND && c?.source === 'extension' && samePath(String(c?.sourceInfo?.path ?? ''), PI_GATE_PATH),
+  );
 }
 
 /** The prompt command: the text (a leading `/` gets a word before it, or Pi would run it as a command) and the images. */
@@ -937,7 +982,8 @@ async function piSession(
     const req = piGateRequest(msg);
     if (req === undefined) {
       // Another dialog (none of Harness Relay's): dismissed. Notifications and status need no answer.
-      if (['select', 'confirm', 'input', 'editor'].includes(msg.method)) write({ type: 'extension_ui_response', id: msg.id, cancelled: true });
+      if (['select', 'confirm', 'input', 'editor'].includes(msg.method))
+        write({ type: 'extension_ui_response', id: msg.id, cancelled: true });
       return;
     }
     const answer = (decision: AcpDecision, toolCallId?: string) => {
@@ -1002,7 +1048,9 @@ async function piSession(
   }).then(
     (res) => {
       // The relay sandbox's reason (it could not start, or refused) comes first: stderr then says little.
-      const err = new AgentRunError(res.timedOut ? t().timedOut : proc.failure() || tail(res.stderr) || t().exitedWithoutTurn(CLI, res.code));
+      const err = new AgentRunError(
+        res.timedOut ? t().timedOut : proc.failure() || tail(res.stderr) || t().exitedWithoutTurn(CLI, res.code),
+      );
       rpc.close(err);
       fail(err);
       return res;
@@ -1024,7 +1072,8 @@ async function piSession(
     stopped();
     const sessionId = typeof state?.sessionId === 'string' ? state.sessionId : '';
     if (!sessionId) throw new AgentRunError(t().openNoSession(CLI));
-    if (o.sessionId && sessionId !== o.sessionId) throw new AgentRunError(t().openResumeFailed(CLI, t().piSessionMismatch(o.sessionId, sessionId)));
+    if (o.sessionId && sessionId !== o.sessionId)
+      throw new AgentRunError(t().openResumeFailed(CLI, t().piSessionMismatch(o.sessionId, sessionId)));
 
     // The model: a resumed session may keep its own, and Pi matches `--model` loosely.
     const provider = piProvider(run);
@@ -1044,9 +1093,12 @@ async function piSession(
     }
 
     if (o.effort) {
-      const levels: string[] = (ok(await rpc.request({ type: 'get_available_thinking_levels' }))?.levels ?? []).filter((l: unknown) => typeof l === 'string');
+      const levels: string[] = (ok(await rpc.request({ type: 'get_available_thinking_levels' }))?.levels ?? []).filter(
+        (l: unknown) => typeof l === 'string',
+      );
       stopped();
-      if (!levels.includes(o.effort)) throw new AgentRunError(t().openRejectedEffort(CLI, o.effort, t().piEffortLevels(levels.join(', ') || '—')));
+      if (!levels.includes(o.effort))
+        throw new AgentRunError(t().openRejectedEffort(CLI, o.effort, t().piEffortLevels(levels.join(', ') || '—')));
       const now = ok(await rpc.request({ type: 'get_state' }))?.thinkingLevel;
       stopped();
       if (now !== o.effort) ok(await rpc.request({ type: 'set_thinking_level', level: o.effort }));
@@ -1103,13 +1155,21 @@ export function piCatalog(models: unknown): OpenCatalog {
   const out: ModelOption[] = [];
   for (const m of list) {
     if (!m || typeof m.id !== 'string' || !(API_BACKENDS as readonly string[]).includes(m.provider)) continue;
-    out.push({ id: `${m.provider}/${m.id}`, ...(typeof m.name === 'string' && m.name !== m.id ? { label: m.name } : {}), efforts: piModelLevels(m) });
+    out.push({
+      id: `${m.provider}/${m.id}`,
+      ...(typeof m.name === 'string' && m.name !== m.id ? { label: m.name } : {}),
+      efforts: piModelLevels(m),
+    });
   }
   return { models: out, efforts: [...PI_LEVELS] };
 }
 
 /** Keys that make Pi list a backend's models (it lists only providers with credentials); never sent anywhere. */
-const CATALOG_KEYS = { OPENAI_API_KEY: 'harness-relay-catalog', ANTHROPIC_API_KEY: 'harness-relay-catalog', XAI_API_KEY: 'harness-relay-catalog' };
+const CATALOG_KEYS = {
+  OPENAI_API_KEY: 'harness-relay-catalog',
+  ANTHROPIC_API_KEY: 'harness-relay-catalog',
+  XAI_API_KEY: 'harness-relay-catalog',
+};
 
 /** Asks Pi for its model catalog, offline, in an agent folder of its own (removed after). */
 export async function piModels(bin: string, env: NodeJS.ProcessEnv, timeoutMs = 20_000): Promise<OpenCatalog> {
@@ -1132,7 +1192,12 @@ export async function piModels(bin: string, env: NodeJS.ProcessEnv, timeoutMs = 
         }
       },
     });
-    if (!answer?.success) return { models: [], efforts: [...PI_LEVELS], error: answer?.error || (res.timedOut ? t().timedOut : tail(res.stderr) || 'pi: no answer') };
+    if (!answer?.success)
+      return {
+        models: [],
+        efforts: [...PI_LEVELS],
+        error: answer?.error || (res.timedOut ? t().timedOut : tail(res.stderr) || 'pi: no answer'),
+      };
     return piCatalog(answer.data?.models);
   } finally {
     rmSync(dir, { recursive: true, force: true });

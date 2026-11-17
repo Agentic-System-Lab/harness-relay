@@ -75,7 +75,17 @@ function cardPosition(box: Box, cardHeight: number): { top: number; left: number
 }
 
 /** A step's text: the tour's name and where it is, the title, the text and its points. */
-function StepText({ step, label, count, titleId }: { step: Messages['tour']['steps'][number]; label: string; count: string; titleId?: string }) {
+function StepText({
+  step,
+  label,
+  count,
+  titleId,
+}: {
+  step: Messages['tour']['steps'][number];
+  label: string;
+  count: string;
+  titleId?: string;
+}) {
   return (
     <>
       <div className="tour-top">
@@ -235,12 +245,7 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
                 {t.tour.back}
               </button>
             )}
-            <button
-              ref={primary}
-              type="button"
-              className="primary small-button"
-              onClick={() => (last ? finish() : setI(i + 1))}
-            >
+            <button ref={primary} type="button" className="primary small-button" onClick={() => (last ? finish() : setI(i + 1))}>
               {last ? t.tour.done : t.tour.next}
             </button>
           </div>

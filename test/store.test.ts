@@ -42,7 +42,15 @@ function sampleConversation(): Conversation {
     createdAt: 1000,
     updatedAt: 2000,
     agents: [
-      { id: 'a1', name: 'Architect', provider: 'claude', role: '規劃', model: 'opus', effort: 'high', tools: { 'mcp:github': false, memory: true } },
+      {
+        id: 'a1',
+        name: 'Architect',
+        provider: 'claude',
+        role: '規劃',
+        model: 'opus',
+        effort: 'high',
+        tools: { 'mcp:github': false, memory: true },
+      },
       { id: 'a2', name: 'Builder', provider: 'codex', role: '實作' },
     ],
     settings: { mode: 'relay', rounds: 1, maxHops: 6, permission: 'edit', cwd: '/tmp' },
@@ -95,7 +103,12 @@ describe('Store (SQLite)', () => {
 
     // The endpoint a session was made on (schema version 26); none: the CLI's own service.
     new Store(db).saveAgentState(conv.id, 'a1', { provider: 'claude', sessionId: 'sess-2', backend: 'homelab', seen: [] });
-    expect(new Store(reopen()).get(conv.id)!.agentState.a1).toEqual({ provider: 'claude', sessionId: 'sess-2', backend: 'homelab', seen: [] });
+    expect(new Store(reopen()).get(conv.id)!.agentState.a1).toEqual({
+      provider: 'claude',
+      sessionId: 'sess-2',
+      backend: 'homelab',
+      seen: [],
+    });
     new Store(db).saveAgentState(conv.id, 'a1', { provider: 'claude', sessionId: 'sess-3', seen: [] });
     expect(new Store(reopen()).get(conv.id)!.agentState.a1).toEqual({ provider: 'claude', sessionId: 'sess-3', seen: [] });
   });
@@ -104,7 +117,14 @@ describe('Store (SQLite)', () => {
     const store = new Store(db);
     const conv = { ...sampleConversation(), messages: [agentMsg] };
     store.create(conv);
-    expect(new Store(reopen()).get(conv.id)!.messages[0]!.parts[1]).toEqual({ type: 'tool', id: 't1', name: 'Read', detail: 'src/a.ts', kind: 'read', status: 'done' });
+    expect(new Store(reopen()).get(conv.id)!.messages[0]!.parts[1]).toEqual({
+      type: 'tool',
+      id: 't1',
+      name: 'Read',
+      detail: 'src/a.ts',
+      kind: 'read',
+      status: 'done',
+    });
     // A kind a newer server wrote, and data that is not an object: the call without a kind.
     const setData = db.prepare(`UPDATE message_parts SET data = ? WHERE message_id = 'm2' AND idx = ?`);
     setData.run('{"kind":"teleport"}', 1);
@@ -211,7 +231,7 @@ describe('Store (SQLite)', () => {
     expect(new Store(reopen()).get(conv.id)!.settings.leadReview).toBeUndefined();
   });
 
-  it("finds what a ready review says (its summary, notes, quotes and steps), not its JSON", () => {
+  it('finds what a ready review says (its summary, notes, quotes and steps), not its JSON', () => {
     const store = new Store(db);
     const conv = sampleConversation();
     store.create(conv);
@@ -237,7 +257,11 @@ describe('Store (SQLite)', () => {
     }
     expect(store.search('rollback')[0]!.snippet).toContain('ollback');
     // Words with quotes or backslashes, which its JSON escapes, are found too.
-    const quoted: ChatMessage = { ...review, id: 'review-q', review: { status: 'ready', lead: { provider: 'claude' }, summary: 'Run "npm test" in C:\\Users\\me first.' } };
+    const quoted: ChatMessage = {
+      ...review,
+      id: 'review-q',
+      review: { status: 'ready', lead: { provider: 'claude' }, summary: 'Run "npm test" in C:\\Users\\me first.' },
+    };
     conv.messages.push(quoted);
     store.saveMessage(conv.id, quoted, true);
     for (const words of ['test"', '"npm test"', 'C:\\Users', 'Users\\me']) expect(store.search(words), words).toHaveLength(1);
@@ -245,7 +269,11 @@ describe('Store (SQLite)', () => {
     expect(store.search('highlights')).toEqual([]);
     expect(store.search('nextSteps')).toEqual([]);
     // A review that failed says nothing to find.
-    const failed: ChatMessage = { ...review, id: 'review-f', review: { status: 'failed', lead: { provider: 'claude' }, error: 'quota exhausted' } };
+    const failed: ChatMessage = {
+      ...review,
+      id: 'review-f',
+      review: { status: 'failed', lead: { provider: 'claude' }, error: 'quota exhausted' },
+    };
     conv.messages.push(failed);
     store.saveMessage(conv.id, failed, true);
     expect(store.search('quota exhausted')).toEqual([]);
@@ -323,8 +351,19 @@ describe('Store (SQLite)', () => {
     const store = new Store(db);
     const conv = sampleConversation();
     store.create(conv);
-    const approval = (id: string, status: 'pending' | 'allowed') => ({ type: 'approval' as const, id, kind: 'command' as const, detail: 'npm test', status });
-    const live: ChatMessage = { ...agentMsg, id: 'm5', status: 'streaming', parts: [{ type: 'text', text: 'working' }, approval('p1', 'pending'), approval('p2', 'allowed')] };
+    const approval = (id: string, status: 'pending' | 'allowed') => ({
+      type: 'approval' as const,
+      id,
+      kind: 'command' as const,
+      detail: 'npm test',
+      status,
+    });
+    const live: ChatMessage = {
+      ...agentMsg,
+      id: 'm5',
+      status: 'streaming',
+      parts: [{ type: 'text', text: 'working' }, approval('p1', 'pending'), approval('p2', 'allowed')],
+    };
     const done: ChatMessage = { ...agentMsg, id: 'm6', status: 'done', parts: [approval('p3', 'pending')] };
     conv.messages.push(live, done);
     store.saveMessage(conv.id, live, true);
@@ -417,7 +456,12 @@ describe('Store (SQLite)', () => {
   it('lists every working directory of each conversation, once each, the most recently used first', () => {
     const store = new Store(db);
     const at = (id: string, cwd: string, extraCwds: string[] | undefined, updatedAt: number) =>
-      store.create({ ...sampleConversation(), id, updatedAt, settings: { ...sampleConversation().settings, cwd, ...(extraCwds ? { extraCwds } : {}) } });
+      store.create({
+        ...sampleConversation(),
+        id,
+        updatedAt,
+        settings: { ...sampleConversation().settings, cwd, ...(extraCwds ? { extraCwds } : {}) },
+      });
     at('a', '/work/a', ['/work/docs', '/work/b'], 1);
     at('b', '/work/b', undefined, 2);
     at('c', '/work/c', ['/work/docs'], 0);
@@ -477,12 +521,14 @@ describe('Store (SQLite)', () => {
              DROP TABLE deleted_endpoints; DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; DROP TABLE outbox; ALTER TABLE agent_sessions DROP COLUMN backend;
              PRAGMA user_version = 20;`);
     const migrated = new Store(reopen()).get(conv.id)!;
-    expect(migrated.worktrees).toEqual({ a1: [{ root: '/tmp', path: '/wt/a1', branch: 'relay/c/Architect', base: 'b0', needsReset: true }] });
+    expect(migrated.worktrees).toEqual({
+      a1: [{ root: '/tmp', path: '/wt/a1', branch: 'relay/c/Architect', base: 'b0', needsReset: true }],
+    });
     expect(migrated.settings).not.toHaveProperty('extraCwds');
     expect(migrated.messages[0]!.changes).toEqual(turn.changes);
   });
 
-  it('brings a database the model backends migrated as 21–25 or 19–22 (unreleased builds) to today\'s numbering, keeping what it holds', () => {
+  it("brings a database the model backends migrated as 21–25 or 19–22 (unreleased builds) to today's numbering, keeping what it holds", () => {
     const store = new Store(db);
     const conv = sampleConversation();
     store.create(conv);
@@ -508,8 +554,13 @@ describe('Store (SQLite)', () => {
     expect(version()).toBe(32);
     expect(has("SELECT 1 FROM pragma_table_info('conversations') WHERE name = 'extra_cwds'")).toBe(true);
     expect(db.prepare('SELECT id FROM deleted_endpoints').all()).toEqual([{ id: 'oldlab' }]);
-    expect(new Store(db).get(conv.id)!.worktrees).toEqual({ a1: [{ root: '/tmp', path: '/wt/a1', branch: 'relay/c/Architect', base: 'b0', needsReset: false }] });
-    early(22, 'ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;');
+    expect(new Store(db).get(conv.id)!.worktrees).toEqual({
+      a1: [{ root: '/tmp', path: '/wt/a1', branch: 'relay/c/Architect', base: 'b0', needsReset: false }],
+    });
+    early(
+      22,
+      'ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;',
+    );
     reopen();
     expect(version()).toBe(32);
     expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'by_cli'")).toBe(true);
@@ -529,8 +580,13 @@ describe('Store (SQLite)', () => {
     expect(has("SELECT 1 FROM pragma_table_info('provider_accounts') WHERE name = 'native_items'")).toBe(true);
     expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'account'")).toBe(true);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'deleted_endpoints'")).toBe(true);
-    expect(new Store(db).get(conv.id)!.worktrees).toEqual({ a1: [{ root: '/tmp', path: '/wt/a1', branch: 'relay/c/Architect', base: 'b0', needsReset: false }] });
-    beforeAccounts(19, 'ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;');
+    expect(new Store(db).get(conv.id)!.worktrees).toEqual({
+      a1: [{ root: '/tmp', path: '/wt/a1', branch: 'relay/c/Architect', base: 'b0', needsReset: false }],
+    });
+    beforeAccounts(
+      19,
+      'ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;',
+    );
     reopen();
     expect(version()).toBe(32);
     expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'permission'")).toBe(true);
@@ -561,12 +617,31 @@ describe('Store (SQLite)', () => {
       updatedAt: 1,
       nextRunAt: 2,
       goal: 'CI passes',
-      tracking: { status: 'blocked', notes: [{ at: 3, status: 'blocked', text: 'needs a token', agent: 'Alice', chatId: 'c2' }], inFlight: { due: 2, attempt: 1, chatId: conv.id } },
+      tracking: {
+        status: 'blocked',
+        notes: [{ at: 3, status: 'blocked', text: 'needs a token', agent: 'Alice', chatId: 'c2' }],
+        inFlight: { due: 2, attempt: 1, chatId: conv.id },
+      },
     };
     store.saveSchedule(conv);
     store.setHook(conv, 'abc123', 5);
-    const msg: ChatMessage = { id: 'u1', author: { kind: 'user' }, createdAt: 4, parts: [{ type: 'text', text: 'check CI' }], status: 'done', scheduled: true, event: '{"a":1}' };
-    const reply: ChatMessage = { ...agentMsg, id: 'r1', parts: [{ type: 'text', text: 'ok' }, { type: 'progress', status: 'done', text: 'green' }] };
+    const msg: ChatMessage = {
+      id: 'u1',
+      author: { kind: 'user' },
+      createdAt: 4,
+      parts: [{ type: 'text', text: 'check CI' }],
+      status: 'done',
+      scheduled: true,
+      event: '{"a":1}',
+    };
+    const reply: ChatMessage = {
+      ...agentMsg,
+      id: 'r1',
+      parts: [
+        { type: 'text', text: 'ok' },
+        { type: 'progress', status: 'done', text: 'green' },
+      ],
+    };
     conv.messages.push(msg, reply);
     store.saveMessage(conv.id, msg, true);
     store.saveMessage(conv.id, reply, true);
@@ -589,7 +664,7 @@ describe('Store (SQLite)', () => {
     expect(new Store(db).hookHash(conv.id)).toBeUndefined();
     expect(new Store(db).trackingSchedules()).toEqual([]);
     // A state that cannot be read is no state.
-    db.prepare("UPDATE schedules SET goal = 'g', tracking = '{\"status\":\"x\"}'").run();
+    db.prepare('UPDATE schedules SET goal = \'g\', tracking = \'{"status":"x"}\'').run();
     expect(new Store(reopen()).get(conv.id)!.schedule).toMatchObject({ goal: 'g' });
     expect(new Store(db).get(conv.id)!.schedule!.tracking).toBeUndefined();
   });
@@ -699,7 +774,9 @@ describe('the data folder lock', () => {
       process.stdout.write('collected\\n');
       setInterval(() => {}, 1000);
     `;
-    const child = spawn(process.execPath, ['--expose-gc', '--no-warnings', '--import', 'tsx', '--input-type=module', '-e', script, data], { stdio: ['ignore', 'pipe', 'inherit'] });
+    const child = spawn(process.execPath, ['--expose-gc', '--no-warnings', '--import', 'tsx', '--input-type=module', '-e', script, data], {
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
     const exited = new Promise((r) => child.once('exit', r));
     try {
       await new Promise<void>((resolve, reject) => {
@@ -891,7 +968,10 @@ describe('Store groups', () => {
     store.create(member('Z', 1));
     store.create(member('A', 2, 'Z'));
     store.create(member('B', 3, 'A'));
-    const earlier = [{ fromId: 'A', fromTitle: 'A then', afterId: 'm1' }, { fromId: 'Z', fromTitle: 'Z then', afterId: 'm0' }];
+    const earlier = [
+      { fromId: 'A', fromTitle: 'A then', afterId: 'm1' },
+      { fromId: 'Z', fromTitle: 'Z then', afterId: 'm0' },
+    ];
     store.create({ ...member('C', 4, 'B'), branch: { fromId: 'B', fromTitle: 'B then', afterId: 'm2', earlier } });
     store.get('B'); // one in memory, one only in the database
     store.get('B')!.title = 'B now';
@@ -901,7 +981,12 @@ describe('Store groups', () => {
 
     // A is deleted: the part it wrote learns where A came from; the others stay.
     store.delete('A');
-    const after = { fromId: 'B', fromTitle: 'B then', afterId: 'm2', earlier: [{ ...earlier[0], via: [{ id: 'Z', title: 'Z then' }] }, earlier[1]] };
+    const after = {
+      fromId: 'B',
+      fromTitle: 'B then',
+      afterId: 'm2',
+      earlier: [{ ...earlier[0], via: [{ id: 'Z', title: 'Z then' }] }, earlier[1]],
+    };
     expect(store.get('C')!.branch).toEqual(after);
     expect(store.get('B')!.branch?.via).toEqual([{ id: 'Z', title: 'Z then' }]);
     // A deleted conversation's title is the one the sidebar shows for it: its title when the newest
@@ -1175,7 +1260,7 @@ describe('SettingsStore (SQLite)', () => {
     }
   });
 
-  it("still points the CLI at its home when the folder cannot be created, and says so", () => {
+  it('still points the CLI at its home when the folder cannot be created, and says so', () => {
     const blocker = join(dir, 'a-file');
     writeFileSync(blocker, '');
     const s = new SettingsStore(db);
@@ -1213,7 +1298,7 @@ describe('SettingsStore (SQLite)', () => {
     expect(later.nativeOff('grok')).toEqual(['skills', 'hooks']);
   });
 
-  it("keeps whether OpenHands may use a terminal in the sandbox: off until turned on, only for OpenHands", () => {
+  it('keeps whether OpenHands may use a terminal in the sandbox: off until turned on, only for OpenHands', () => {
     const s = new SettingsStore(db);
     expect(s.sandboxTerminal('openhands')).toBe(false);
     expect(s.view().providers.find((p) => p.provider === 'openhands')!.sandboxTerminal).toBe(false);
@@ -1243,7 +1328,10 @@ describe('SettingsStore (SQLite)', () => {
     expect(again.nativeItems('claude')).toEqual({ skills: ['commit'], tools: ['WebSearch'] });
     expect(again.nativeItems('codex')).toEqual({ mcpTools: ['["node","js"]'], hooks: ['h1'] });
     expect(again.nativeItems('grok')).toEqual({});
-    expect(again.view().providers.find((p) => p.provider === 'claude')!.accounts[0]!.nativeItems).toEqual({ skills: ['commit'], tools: ['WebSearch'] });
+    expect(again.view().providers.find((p) => p.provider === 'claude')!.accounts[0]!.nativeItems).toEqual({
+      skills: ['commit'],
+      tools: ['WebSearch'],
+    });
     // A copy: changing it changes nothing stored.
     again.nativeItems('claude').skills!.push('other');
     expect(again.nativeItems('claude').skills).toEqual(['commit']);
@@ -1266,7 +1354,15 @@ describe('SettingsStore (SQLite)', () => {
     expect(storedKeys()).toEqual(['', '']);
     expect(s.env('claude').ANTHROPIC_API_KEY).toBe('sk-ant-secret-1234');
     const view = (v: SettingsStore) => Object.fromEntries(v.view().providers.map((p) => [p.provider, p.apiKeyStorage]));
-    expect(view(s)).toEqual({ claude: 'keychain', codex: undefined, grok: 'keychain', cursor: 'keychain', antigravity: 'keychain', copilot: 'keychain', muse: 'keychain' });
+    expect(view(s)).toEqual({
+      claude: 'keychain',
+      codex: undefined,
+      grok: 'keychain',
+      cursor: 'keychain',
+      antigravity: 'keychain',
+      copilot: 'keychain',
+      muse: 'keychain',
+    });
 
     const again = new SettingsStore(reopen(), keyring);
     expect(again.env('claude').ANTHROPIC_API_KEY).toBe('sk-ant-secret-1234');
@@ -1359,7 +1455,12 @@ describe('SettingsStore accounts', () => {
         { id: work, label: 'Work', apiKeyMasked: '••••', apiKeyStorage: 'database', home: join(home, `claude-${work}`), ...run },
         { id: alt, label: 'Alt', apiKeyMasked: '', apiKeyStorage: 'database', home: join(home, `claude-${alt}`), ...run },
       ]);
-      expect(again.view().providers.find((p) => p.provider === 'codex')!.accounts.map((a) => a.apiKeyStorage)).toEqual([undefined, undefined]);
+      expect(
+        again
+          .view()
+          .providers.find((p) => p.provider === 'codex')!
+          .accounts.map((a) => a.apiKeyStorage),
+      ).toEqual([undefined, undefined]);
     } finally {
       vi.unstubAllEnvs();
     }
@@ -1380,15 +1481,32 @@ describe('SettingsStore accounts', () => {
       s.setAgentHome(join(dir, 'agents'));
       const ids = { claude: s.addAccount('claude', 'Work'), codex: s.addAccount('codex', 'Work'), grok: s.addAccount('grok', 'Work') };
       s.updateAccount('grok', ids.grok, { apiKey: 'xai-own-key' });
-      const pick = (env: NodeJS.ProcessEnv) => Object.fromEntries(Object.keys(inherited).map((k) => [k, env[k]]).filter(([, v]) => v !== undefined));
+      const pick = (env: NodeJS.ProcessEnv) =>
+        Object.fromEntries(
+          Object.keys(inherited)
+            .map((k) => [k, env[k]])
+            .filter(([, v]) => v !== undefined),
+        );
       // The default accounts keep what the server was started with.
       expect(pick(s.env('claude'))).toEqual(inherited);
       // The others: nothing that would sign them in as someone else, only their own key.
       const others = (['claude', 'codex', 'grok'] as const).map((p) => [p, pick(s.env(p, ids[p]))]);
       expect(Object.fromEntries(others)).toEqual({
         claude: { CODEX_API_KEY: 'codex-shell', OPENAI_API_KEY: 'sk-openai-shell', XAI_API_KEY: 'xai-shell' },
-        codex: { ANTHROPIC_API_KEY: 'sk-ant-shell', ANTHROPIC_AUTH_TOKEN: 'shell-bearer', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-shell', XAI_API_KEY: 'xai-shell' },
-        grok: { ANTHROPIC_API_KEY: 'sk-ant-shell', ANTHROPIC_AUTH_TOKEN: 'shell-bearer', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-shell', CODEX_API_KEY: 'codex-shell', OPENAI_API_KEY: 'sk-openai-shell', XAI_API_KEY: 'xai-own-key' },
+        codex: {
+          ANTHROPIC_API_KEY: 'sk-ant-shell',
+          ANTHROPIC_AUTH_TOKEN: 'shell-bearer',
+          CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-shell',
+          XAI_API_KEY: 'xai-shell',
+        },
+        grok: {
+          ANTHROPIC_API_KEY: 'sk-ant-shell',
+          ANTHROPIC_AUTH_TOKEN: 'shell-bearer',
+          CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-shell',
+          CODEX_API_KEY: 'codex-shell',
+          OPENAI_API_KEY: 'sk-openai-shell',
+          XAI_API_KEY: 'xai-own-key',
+        },
       });
     } finally {
       vi.unstubAllEnvs();
@@ -1425,7 +1543,7 @@ describe('SettingsStore accounts', () => {
     }
   });
 
-  it("gives a Muse Code account besides the default one a home of its own and its own Meta API key only", () => {
+  it('gives a Muse Code account besides the default one a home of its own and its own Meta API key only', () => {
     vi.stubEnv('META_API_KEY', 'meta-shell');
     try {
       const s = new SettingsStore(db, fakeKeyring());
@@ -1446,7 +1564,12 @@ describe('SettingsStore accounts', () => {
 
   it('gives each account its own default model, effort and what its runs leave out, and keeps them', () => {
     const s = new SettingsStore(db);
-    s.updateAccount('claude', '', { defaultModel: 'opus', defaultEffort: 'high', nativeOff: ['hooks'], nativeItems: { skills: ['commit'] } });
+    s.updateAccount('claude', '', {
+      defaultModel: 'opus',
+      defaultEffort: 'high',
+      nativeOff: ['hooks'],
+      nativeItems: { skills: ['commit'] },
+    });
     const work = s.addAccount('claude', 'Work');
     // A new account's home is empty: it starts with the CLI's own defaults and leaves nothing out.
     expect(s.defaultModel('claude', work)).toBe('');
@@ -1468,12 +1591,12 @@ describe('SettingsStore accounts', () => {
       ['hooks'],
       { skills: ['commit'] },
     ]);
-    expect([again.defaultModel('claude', work), again.defaultEffort('claude', work), again.nativeOff('claude', work), again.nativeItems('claude', work)]).toEqual([
-      'sonnet',
-      'low',
-      ['skills', 'mcp'],
-      { tools: ['WebSearch'] },
-    ]);
+    expect([
+      again.defaultModel('claude', work),
+      again.defaultEffort('claude', work),
+      again.nativeOff('claude', work),
+      again.nativeItems('claude', work),
+    ]).toEqual(['sonnet', 'low', ['skills', 'mcp'], { tools: ['WebSearch'] }]);
     expect(again.view().providers.find((p) => p.provider === 'claude')!.accounts).toMatchObject([
       { id: '', defaultModel: 'opus', defaultEffort: 'high', nativeOff: ['hooks'], nativeItems: { skills: ['commit'] } },
       { id: work, defaultModel: 'sonnet', defaultEffort: 'low', nativeOff: ['skills', 'mcp'], nativeItems: { tools: ['WebSearch'] } },
@@ -1504,7 +1627,12 @@ describe('SettingsStore accounts', () => {
 
   it("gives the accounts there were before schema version 20 their CLI's defaults and what it left out", () => {
     const s = new SettingsStore(db);
-    s.updateAccount('claude', '', { defaultModel: 'opus', defaultEffort: 'max', nativeOff: ['plugins'], nativeItems: { tools: ['WebFetch'] } });
+    s.updateAccount('claude', '', {
+      defaultModel: 'opus',
+      defaultEffort: 'max',
+      nativeOff: ['plugins'],
+      nativeItems: { tools: ['WebFetch'] },
+    });
     const work = s.addAccount('claude', 'Work');
     const grok = s.addAccount('grok', 'Team');
     db.exec(`ALTER TABLE provider_accounts DROP COLUMN default_model; ALTER TABLE provider_accounts DROP COLUMN default_effort;
@@ -1519,7 +1647,11 @@ describe('SettingsStore accounts', () => {
     expect(migrated.nativeOff('claude', work)).toEqual(['plugins']);
     expect(migrated.nativeItems('claude', work)).toEqual({ tools: ['WebFetch'] });
     // A CLI with no settings saved: the defaults, nothing left out.
-    expect([migrated.defaultModel('grok', grok), migrated.nativeOff('grok', grok), migrated.nativeItems('grok', grok)]).toEqual(['', [], {}]);
+    expect([migrated.defaultModel('grok', grok), migrated.nativeOff('grok', grok), migrated.nativeItems('grok', grok)]).toEqual([
+      '',
+      [],
+      {},
+    ]);
   });
 
   it("keeps the other accounts' homes in the data folder when the CLIs have no folder of their own", async () => {
@@ -1581,7 +1713,10 @@ describe('Store accounts', () => {
     const preset: TeamPreset = {
       id: 'p-acc',
       name: 'Two accounts',
-      agents: [{ id: 'x', name: 'Rev', provider: 'grok', role: '', account: '0011aabb' }, { id: 'y', name: 'Dev', provider: 'grok', role: '' }],
+      agents: [
+        { id: 'x', name: 'Rev', provider: 'grok', role: '', account: '0011aabb' },
+        { id: 'y', name: 'Dev', provider: 'grok', role: '' },
+      ],
       settings: { mode: 'roundtable', rounds: 1, maxHops: 3, permission: 'read-only' },
     };
     store.savePreset(preset);
@@ -1594,7 +1729,12 @@ describe('Store accounts', () => {
       a1: { provider: 'claude', sessionId: 's-1', seen: [] },
       a2: { provider: 'codex', account: 'ab12cd34', sessionId: 's-2', seen: [] },
     });
-    expect(again.listPresets().find((p) => p.id === 'p-acc')!.agents.map((a) => a.account)).toEqual(['0011aabb', undefined]);
+    expect(
+      again
+        .listPresets()
+        .find((p) => p.id === 'p-acc')!
+        .agents.map((a) => a.account),
+    ).toEqual(['0011aabb', undefined]);
   });
 });
 

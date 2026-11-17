@@ -24,7 +24,15 @@ function setup() {
   return { db, store };
 }
 
-const base = { convId: 'c1', messageId: 'm1', agentId: 'a', agentName: 'Alice', tool: 'mail_send', title: 'Mail to Bob', preview: { fields: [{ label: 'To', value: 'bob@example.com' }] } };
+const base = {
+  convId: 'c1',
+  messageId: 'm1',
+  agentId: 'a',
+  agentName: 'Alice',
+  tool: 'mail_send',
+  title: 'Mail to Bob',
+  preview: { fields: [{ label: 'To', value: 'bob@example.com' }] },
+};
 
 describe('the outbox', () => {
   it('keeps what an agent asked to send, returns the waiting one for an equal call, and counts what waits', () => {
@@ -42,50 +50,58 @@ describe('the outbox', () => {
     expect(new Outbox(db).waiting('c1')).toBe(2);
   });
 
-  it("sends only on the user's Send, once, with the arguments the agent gave, and keeps what happened", () => withLang('en', async () => {
-    const { db } = setup();
-    const outbox = new Outbox(db, () => 9);
-    const sent: Record<string, unknown>[] = [];
-    let fail = false;
-    const tool = { name: 'mail_send', send: async (args: Record<string, unknown>) => (fail ? Promise.reject(new Error('550 refused')) : (sent.push(args), 'accepted')) } as unknown as GatewayTool;
-    const find = (name: string) => (name === 'mail_send' ? tool : undefined);
-    const { item } = outbox.add(base, { to: 'bob@example.com' });
+  it("sends only on the user's Send, once, with the arguments the agent gave, and keeps what happened", () =>
+    withLang('en', async () => {
+      const { db } = setup();
+      const outbox = new Outbox(db, () => 9);
+      const sent: Record<string, unknown>[] = [];
+      let fail = false;
+      const tool = {
+        name: 'mail_send',
+        send: async (args: Record<string, unknown>) => (fail ? Promise.reject(new Error('550 refused')) : (sent.push(args), 'accepted')),
+      } as unknown as GatewayTool;
+      const find = (name: string) => (name === 'mail_send' ? tool : undefined);
+      const { item } = outbox.add(base, { to: 'bob@example.com' });
 
-    const done = await outbox.answer('c1', item.id, 'send', find);
-    expect(done).toMatchObject({ status: 'sent', result: 'accepted', decidedAt: 9 });
-    expect(sent).toEqual([{ to: 'bob@example.com' }]);
-    expect(outbox.waiting('c1')).toBe(0);
-    await expect(outbox.answer('c1', item.id, 'send', find)).rejects.toMatchObject({ status: 409 });
-    await expect(outbox.answer('other', item.id, 'send', find)).rejects.toMatchObject({ status: 404 });
+      const done = await outbox.answer('c1', item.id, 'send', find);
+      expect(done).toMatchObject({ status: 'sent', result: 'accepted', decidedAt: 9 });
+      expect(sent).toEqual([{ to: 'bob@example.com' }]);
+      expect(outbox.waiting('c1')).toBe(0);
+      await expect(outbox.answer('c1', item.id, 'send', find)).rejects.toMatchObject({ status: 409 });
+      await expect(outbox.answer('other', item.id, 'send', find)).rejects.toMatchObject({ status: 404 });
 
-    const second = outbox.add(base, { to: 'carol@example.com' }).item;
-    fail = true;
-    expect(await outbox.answer('c1', second.id, 'send', find)).toMatchObject({ status: 'failed', result: '550 refused' });
-    const third = outbox.add(base, { to: 'dan@example.com' }).item;
-    expect(await outbox.answer('c1', third.id, 'discard', find)).toMatchObject({ status: 'discarded' });
-    const fourth = outbox.add({ ...base, tool: 'gone' }, {}).item;
-    expect(await outbox.answer('c1', fourth.id, 'send', find)).toMatchObject({ status: 'failed', result: 'No tool can send this item (gone)' });
-    expect(sent).toHaveLength(1);
-  }));
+      const second = outbox.add(base, { to: 'carol@example.com' }).item;
+      fail = true;
+      expect(await outbox.answer('c1', second.id, 'send', find)).toMatchObject({ status: 'failed', result: '550 refused' });
+      const third = outbox.add(base, { to: 'dan@example.com' }).item;
+      expect(await outbox.answer('c1', third.id, 'discard', find)).toMatchObject({ status: 'discarded' });
+      const fourth = outbox.add({ ...base, tool: 'gone' }, {}).item;
+      expect(await outbox.answer('c1', fourth.id, 'send', find)).toMatchObject({
+        status: 'failed',
+        result: 'No tool can send this item (gone)',
+      });
+      expect(sent).toHaveLength(1);
+    }));
 
-  it('refuses a second Send while the first is sending, and marks one a restart cut off as not known, never sent again', () => withLang('en', async () => {
-    const { db } = setup();
-    const outbox = new Outbox(db);
-    let release!: () => void;
-    const tool = { send: () => new Promise<string>((r) => (release = () => r('ok'))) } as unknown as GatewayTool;
-    const { item } = outbox.add(base, {});
-    const first = outbox.answer('c1', item.id, 'send', () => tool);
-    await expect(outbox.answer('c1', item.id, 'send', () => tool)).rejects.toMatchObject({ status: 409 });
-    expect(outbox.get(item.id)!.status).toBe('sending');
-    // A server starting while it was still sending.
-    const restarted = new Outbox(db);
-    expect(restarted.get(item.id)).toMatchObject({ status: 'failed', result: expect.stringMatching(/stopped while sending/) });
-    // Its card is brought up to date from these (`Orchestrator.reconcileOutbox()`); a later start has none.
-    expect(restarted.interrupted.map((i) => [i.id, i.status])).toEqual([[item.id, 'failed']]);
-    expect(new Outbox(db).interrupted).toEqual([]);
-    release();
-    await first;
-  }));
+  it('refuses a second Send while the first is sending, and marks one a restart cut off as not known, never sent again', () =>
+    withLang('en', async () => {
+      const { db } = setup();
+      const outbox = new Outbox(db);
+      let release!: () => void;
+      const tool = { send: () => new Promise<string>((r) => (release = () => r('ok'))) } as unknown as GatewayTool;
+      const { item } = outbox.add(base, {});
+      const first = outbox.answer('c1', item.id, 'send', () => tool);
+      await expect(outbox.answer('c1', item.id, 'send', () => tool)).rejects.toMatchObject({ status: 409 });
+      expect(outbox.get(item.id)!.status).toBe('sending');
+      // A server starting while it was still sending.
+      const restarted = new Outbox(db);
+      expect(restarted.get(item.id)).toMatchObject({ status: 'failed', result: expect.stringMatching(/stopped while sending/) });
+      // Its card is brought up to date from these (`Orchestrator.reconcileOutbox()`); a later start has none.
+      expect(restarted.interrupted.map((i) => [i.id, i.status])).toEqual([[item.id, 'failed']]);
+      expect(new Outbox(db).interrupted).toEqual([]);
+      release();
+      await first;
+    }));
 
   it('discards what waits for replies taken back, and only that', () =>
     withLang('en', () => {
@@ -98,7 +114,10 @@ describe('the outbox', () => {
       expect(outbox.waiting('c1')).toBe(2);
       outbox.discardFor('c1', []);
       outbox.discardFor('c1', ['m1']);
-      expect(outbox.get(taken.id)).toMatchObject({ status: 'discarded', result: 'The reply that asked for it was taken back, so it was not sent.' });
+      expect(outbox.get(taken.id)).toMatchObject({
+        status: 'discarded',
+        result: 'The reply that asked for it was taken back, so it was not sent.',
+      });
       expect(outbox.get(other.id)!.status).toBe('pending');
       expect(outbox.get(answered.id)).toMatchObject({ status: 'discarded' });
       expect(outbox.get(answered.id)!.result).toBeUndefined();

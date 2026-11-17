@@ -102,12 +102,25 @@ describe('a box that scrolls sideways', () => {
 describe('a swipe', () => {
   it('opens the drawer once the finger has gone far enough right', () => {
     const swipe = new SidebarSwipe('open', 100, 300, 0);
-    expect(steps(swipe, [[105, 301, 10], [100 + SWIPE_SLOP, 302, 20], [140, 305, 40], [100 + SWIPE_DISTANCE, 310, 60]])).toEqual(['wait', 'wait', 'wait', 'open']);
+    expect(
+      steps(swipe, [
+        [105, 301, 10],
+        [100 + SWIPE_SLOP, 302, 20],
+        [140, 305, 40],
+        [100 + SWIPE_DISTANCE, 310, 60],
+      ]),
+    ).toEqual(['wait', 'wait', 'wait', 'open']);
   });
 
   it('closes the drawer once the finger has gone far enough left', () => {
     const swipe = new SidebarSwipe('close', 300, 300, 0);
-    expect(steps(swipe, [[285, 298, 15], [300 - SWIPE_DISTANCE + 1, 296, 40], [300 - SWIPE_DISTANCE, 296, 50]])).toEqual(['wait', 'wait', 'close']);
+    expect(
+      steps(swipe, [
+        [285, 298, 15],
+        [300 - SWIPE_DISTANCE + 1, 296, 40],
+        [300 - SWIPE_DISTANCE, 296, 50],
+      ]),
+    ).toEqual(['wait', 'wait', 'close']);
   });
 
   it('tells its direction once the finger has gone SWIPE_SLOP pixels, not before', () => {
@@ -145,13 +158,27 @@ describe('a swipe', () => {
 
   it('goes on sideways once its direction is told, whatever the finger does then', () => {
     const swipe = new SidebarSwipe('open', 100, 300, 0);
-    expect(steps(swipe, [[115, 300, 20], [125, 330, 40], [105, 340, 2000], [160, 360, 2100]])).toEqual(['wait', 'wait', 'wait', 'open']);
+    expect(
+      steps(swipe, [
+        [115, 300, 20],
+        [125, 330, 40],
+        [105, 340, 2000],
+        [160, 360, 2100],
+      ]),
+    ).toEqual(['wait', 'wait', 'wait', 'open']);
   });
 
   it('waits while the finger turns back, and opens only once it is far enough from where it touched', () => {
     const swipe = new SidebarSwipe('open', 100, 300, 0);
     // Back past where it touched, then right again: the distance counts from the touch, not the turn.
-    expect(steps(swipe, [[115, 300, 20], [40, 300, 60], [120, 300, 100], [100 + SWIPE_DISTANCE, 300, 140]])).toEqual(['wait', 'wait', 'wait', 'open']);
+    expect(
+      steps(swipe, [
+        [115, 300, 20],
+        [40, 300, 60],
+        [120, 300, 100],
+        [100 + SWIPE_DISTANCE, 300, 140],
+      ]),
+    ).toEqual(['wait', 'wait', 'wait', 'open']);
   });
 
   it('asks whether a box takes the move once, when the move turns out sideways', () => {
@@ -165,7 +192,13 @@ describe('a swipe', () => {
     new SidebarSwipe('open', 100, 300, 0, takes(false)).move(100, 260, 20);
     expect(asked).toBe(0);
     const swipe = new SidebarSwipe('open', 100, 300, 0, takes(false));
-    expect(steps(swipe, [[115, 300, 20], [130, 300, 40], [100 + SWIPE_DISTANCE, 300, 60]])).toEqual(['wait', 'wait', 'open']);
+    expect(
+      steps(swipe, [
+        [115, 300, 20],
+        [130, 300, 40],
+        [100 + SWIPE_DISTANCE, 300, 60],
+      ]),
+    ).toEqual(['wait', 'wait', 'open']);
     expect(asked).toBe(1);
     // A box that takes it: the swipe is the box's.
     expect(new SidebarSwipe('open', 100, 300, 0, takes(true)).move(115, 300, 20)).toBe('drop');
@@ -195,21 +228,41 @@ describe('where the finger lifts', () => {
     expect(short.end(100 + FLICK_DISTANCE - 1, 300, 20)).toBe('drop');
     // 30px over 300ms: 0.1px/ms.
     const slow = new SidebarSwipe('open', 100, 300, 0);
-    expect(steps(slow, [[110, 300, 100], [120, 300, 200]])).toEqual(['wait', 'wait']);
+    expect(
+      steps(slow, [
+        [110, 300, 100],
+        [120, 300, 200],
+      ]),
+    ).toEqual(['wait', 'wait']);
     expect(slow.end(130, 300, 300)).toBe('drop');
   });
 
   it('counts only the last FLICK_MS: a slow drag that ends in a flick opens, one that stops before lifting does not', () => {
     const flicked = new SidebarSwipe('open', 100, 300, 0);
-    expect(steps(flicked, [[112, 300, 100], [115, 300, 260], [120, 300, 300]])).toEqual(['wait', 'wait', 'wait']);
+    expect(
+      steps(flicked, [
+        [112, 300, 100],
+        [115, 300, 260],
+        [120, 300, 300],
+      ]),
+    ).toEqual(['wait', 'wait', 'wait']);
     // 33px over the last 70ms (from 115 at 260ms): 0.47px/ms, though 48px over 330ms in all.
     expect(flicked.end(148, 300, 330)).toBe('open');
     // The same drag lifted later: from 120 at 300ms, 27px over 70ms is 0.39px/ms, short of a flick.
     const later = new SidebarSwipe('open', 100, 300, 0);
-    steps(later, [[112, 300, 100], [115, 300, 260], [120, 300, 300]]);
+    steps(later, [
+      [112, 300, 100],
+      [115, 300, 260],
+      [120, 300, 300],
+    ]);
     expect(later.end(147, 300, 370)).toBe('drop');
     const stopped = new SidebarSwipe('open', 100, 300, 0);
-    expect(steps(stopped, [[112, 300, 10], [140, 300, 30]])).toEqual(['wait', 'wait']);
+    expect(
+      steps(stopped, [
+        [112, 300, 10],
+        [140, 300, 30],
+      ]),
+    ).toEqual(['wait', 'wait']);
     // Lifted where it stopped, FLICK_MS later.
     expect(stopped.end(140, 300, 30 + FLICK_MS + 1)).toBe('drop');
   });
@@ -217,22 +270,40 @@ describe('where the finger lifts', () => {
   it('counts a point exactly FLICK_MS old, a speed of exactly FLICK_SPEED, and the distance from where it touched', () => {
     // From 101 at 100ms (exactly 100ms before the lift) 45px: 0.45px/ms; from 144 at 190ms only 0.2.
     const edge = new SidebarSwipe('open', 100, 300, 0);
-    expect(steps(edge, [[101, 300, 100], [144, 300, 190]])).toEqual(['wait', 'wait']);
+    expect(
+      steps(edge, [
+        [101, 300, 100],
+        [144, 300, 190],
+      ]),
+    ).toEqual(['wait', 'wait']);
     expect(edge.end(146, 300, 200)).toBe('open');
     // 40px over the last 100ms: exactly 0.4px/ms.
     const exact = new SidebarSwipe('open', 100, 300, 0);
-    expect(steps(exact, [[101, 300, 100], [130, 300, 190]])).toEqual(['wait', 'wait']);
+    expect(
+      steps(exact, [
+        [101, 300, 100],
+        [130, 300, 190],
+      ]),
+    ).toEqual(['wait', 'wait']);
     expect(exact.end(141, 300, 200)).toBe('open');
     // 15px slowly, then 10px quickly: 25px from the touch, though only 10px over the last 100ms.
     const late = new SidebarSwipe('open', 100, 300, 0);
-    expect(steps(late, [[112, 300, 150], [115, 300, 300]])).toEqual(['wait', 'wait']);
+    expect(
+      steps(late, [
+        [112, 300, 150],
+        [115, 300, 300],
+      ]),
+    ).toEqual(['wait', 'wait']);
     expect(late.end(125, 300, 320)).toBe('open');
   });
 
   it("does not let a lifting finger's wobble back undo a flick, only a turn back of more than FLICK_WOBBLE", () => {
     const flick = (back: number) => {
       const swipe = new SidebarSwipe('open', 100, 300, 0);
-      steps(swipe, [[115, 300, 10], [140, 300, 20]]);
+      steps(swipe, [
+        [115, 300, 10],
+        [140, 300, 20],
+      ]);
       return swipe.end(140 - back, 300, 30);
     };
     expect(flick(0.5)).toBe('open');
@@ -242,11 +313,21 @@ describe('where the finger lifts', () => {
     expect(flick(5)).toBe('drop');
     // The same closing.
     const close = new SidebarSwipe('close', 300, 300, 0);
-    steps(close, [[285, 300, 10], [260, 300, 20]]);
+    steps(close, [
+      [285, 300, 10],
+      [260, 300, 20],
+    ]);
     expect(close.end(261, 300, 30)).toBe('close');
     // Back a pixel at a time, more than FLICK_WOBBLE in all.
     const creep = new SidebarSwipe('open', 100, 300, 0);
-    steps(creep, [[115, 300, 10], [140, 300, 20], [139, 300, 25], [138, 300, 30], [137, 300, 35], [136, 300, 40]]);
+    steps(creep, [
+      [115, 300, 10],
+      [140, 300, 20],
+      [139, 300, 25],
+      [138, 300, 30],
+      [137, 300, 35],
+      [136, 300, 40],
+    ]);
     expect(creep.end(135, 300, 45)).toBe('drop');
   });
 
@@ -256,7 +337,12 @@ describe('where the finger lifts', () => {
     // Told at the lift: down, so no swipe.
     expect(new SidebarSwipe('open', 100, 300, 0).end(105, 340, 20)).toBe('drop');
     const back = new SidebarSwipe('open', 100, 300, 0);
-    expect(steps(back, [[115, 300, 10], [140, 300, 20]])).toEqual(['wait', 'wait']);
+    expect(
+      steps(back, [
+        [115, 300, 10],
+        [140, 300, 20],
+      ]),
+    ).toEqual(['wait', 'wait']);
     // Flicked back left: still 25px right of the touch, but going the other way.
     expect(back.end(125, 300, 30)).toBe('drop');
   });

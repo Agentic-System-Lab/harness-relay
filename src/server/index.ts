@@ -29,7 +29,15 @@ import { clearRunTmp, dataDirInTemp, makeCodespaceGhDir, relayTmpDir, voiceDirPr
 import { CONFIG, CONFIG_PROBLEMS } from './config';
 import { OPEN_PROVIDERS, type Lang } from '../shared/types';
 import { RUN_TMP_DIR, clearOpenRunLeftovers } from './agents/open';
-import { clearRelaySandboxLeftovers, gatewayNode, localAddresses, noteListeningPort, relayPorts, relaySandboxHostRoot, relaySandboxRoot } from './relaySandbox';
+import {
+  clearRelaySandboxLeftovers,
+  gatewayNode,
+  localAddresses,
+  noteListeningPort,
+  relayPorts,
+  relaySandboxHostRoot,
+  relaySandboxRoot,
+} from './relaySandbox';
 import { Store } from './store';
 import { VoiceService } from './voice';
 import { CliInstaller } from './cliInstall';
@@ -152,7 +160,10 @@ hub.subscribeAll(() => alerts.touch());
 // The desktop app, when it started this server (desktop/); undefined for `npm start` and `npm run dev`.
 const parent = desktopParent();
 
-const extraHosts = (process.env.RELAY_ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim()).filter(Boolean);
+const extraHosts = (process.env.RELAY_ALLOWED_HOSTS ?? '')
+  .split(',')
+  .map((h) => h.trim())
+  .filter(Boolean);
 // What the desktop app says of its updates, for the chat to show (only the version otherwise).
 const updates = new Updates(parent, relayVersion);
 const clis = new CliInstaller(settings, { changed: (p) => providers.invalidate(p), busy: () => orchestrator.anyRunning() });
@@ -161,7 +172,25 @@ void clis.recover();
 const sandboxSetup = new SandboxSetup({ changed: () => providers.invalidate() });
 // The language the chat in the desktop app's window shows: the app's menus follow it.
 const desktopLang = parent ? (lang: Lang) => parent.send({ type: 'lang', lang }) : undefined;
-const app = createApp({ auth, store, settings, hub, orchestrator, providers, voice, clis, sandboxSetup, agentsView, native, extraHosts, desktopApp: Boolean(parent), updates, desktopLang, push, alerts });
+const app = createApp({
+  auth,
+  store,
+  settings,
+  hub,
+  orchestrator,
+  providers,
+  voice,
+  clis,
+  sandboxSetup,
+  agentsView,
+  native,
+  extraHosts,
+  desktopApp: Boolean(parent),
+  updates,
+  desktopLang,
+  push,
+  alerts,
+});
 
 // --- Static web app (production build) ------------------------------------------
 
@@ -187,7 +216,7 @@ try {
 try {
   clearRunTmp();
 } catch (err) {
-  console.error('[server] could not clear the turns\' temporary folders:', err);
+  console.error("[server] could not clear the turns' temporary folders:", err);
 }
 // The temporary folders of relay-sandbox runs the server was stopped during (none is running yet).
 // Whether nothing of them still runs: only then may permissions be given back to remove what is locked.
@@ -201,7 +230,11 @@ try {
 // is kept from reading other runs' folders in them from the first turn (`privateRoots`).
 // What open agents' runs a stopped server was running left: their temp folders, and the state folders of
 // runs without a key.
-clearOpenRunLeftovers(OPEN_PROVIDERS.flatMap((p) => settings.openAgentHomes(p)), undefined, { restore: swept });
+clearOpenRunLeftovers(
+  OPEN_PROVIDERS.flatMap((p) => settings.openAgentHomes(p)),
+  undefined,
+  { restore: swept },
+);
 for (const dir of [relaySandboxRoot(), relaySandboxHostRoot(), RUN_TMP_DIR]) mkdirSync(dir, { recursive: true, mode: 0o700 });
 // The gateway's socket: agents get Harness Relay's own tools only once it listens.
 await gateway.start().catch((err: unknown) => console.error("[server] could not start the gateway for Harness Relay's own tools:", err));
@@ -213,7 +246,9 @@ const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
   noteListeningPort(info.port);
   console.log(`Harness Relay API listening on http://${host}:${info.port}`);
   if (dataDirInTemp()) {
-    console.warn(`[server] The data folder ${DATA_DIR} is in a temp folder, which agents' sandboxes may write in: set RELAY_DATA_DIR to a folder elsewhere.`);
+    console.warn(
+      `[server] The data folder ${DATA_DIR} is in a temp folder, which agents' sandboxes may write in: set RELAY_DATA_DIR to a folder elsewhere.`,
+    );
   }
   if (parent) {
     // The desktop app asks for a link each time it opens the chat (over its port: none goes to the

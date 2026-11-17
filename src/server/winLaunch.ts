@@ -102,7 +102,12 @@ const LAUNCHABLE = ['.com', '.exe', '.bat', '.cmd'];
  * has none of them), else the first match on the PATH, each folder tried in PATHEXT's order, only
  * programs and `.cmd`/`.bat` scripts. `only` keeps the extensions to those (a program, not a script).
  */
-export function findWindowsCommand(bin: string, env: NodeJS.ProcessEnv, fs: LaunchFs = realFs, only?: readonly string[]): string | undefined {
+export function findWindowsCommand(
+  bin: string,
+  env: NodeJS.ProcessEnv,
+  fs: LaunchFs = realFs,
+  only?: readonly string[],
+): string | undefined {
   const pathext = (envValue(env, 'PATHEXT') || '.COM;.EXE;.BAT;.CMD')
     .split(';')
     .map((e) => e.trim().toLowerCase())
@@ -263,7 +268,10 @@ export function windowsLaunch(
     return {
       file: cursor.node,
       args: [cursor.index, ...args],
-      env: { CURSOR_INVOKED_AS: win32.basename(found), ...(cache ? { NODE_COMPILE_CACHE: win32.join(cache, 'cursor-compile-cache') } : {}) },
+      env: {
+        CURSOR_INVOKED_AS: win32.basename(found),
+        ...(cache ? { NODE_COMPILE_CACHE: win32.join(cache, 'cursor-compile-cache') } : {}),
+      },
     };
   }
   if (isMuseLauncher(text)) {

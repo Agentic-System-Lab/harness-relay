@@ -60,7 +60,7 @@ describe('the desktop app, seen from the server', () => {
     ]);
   });
 
-  it("hears what the app says of its updates, and nothing that is not that", () => {
+  it('hears what the app says of its updates, and nothing that is not that', () => {
     const fake = fakePort();
     const parent = desktopParent({ parentPort: fake.port })!;
     const heard: unknown[] = [];
@@ -97,45 +97,55 @@ describe('the server, run as the desktop app runs it', () => {
     fakeClis = await installFakeClis();
   }, slow(120_000));
 
-  it('listens, signs a browser in with a link it gives the app, has a team of the fake CLIs answer a question, prints no code, and shuts down when asked', async () => {
-    // A stand-in for the built UI (npm run build is not run before the tests).
-    const web = join(dir, 'web');
-    mkdirSync(join(web, 'assets'), { recursive: true });
-    writeFileSync(join(web, 'index.html'), '<!doctype html><title>Harness Relay</title>');
-    const passed = await smoke({
-      entry: resolve('src/server/index.ts'),
-      execArgv: ['--import', pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href],
-      webDir: web,
-      fakeClis,
-      timeoutMs: slow(30_000),
-      // Shorter than the test's own limit, so that a slow run fails with the check's own message.
-      turnTimeoutMs: slow(30_000),
-    });
-    expect(passed).toEqual([
-      'loads the keyring module',
-      expect.stringMatching(/^listens on http:\/\/127\.0\.0\.1:\d+$/),
-      'serves the web app',
-      'refuses the API to a browser that is not signed in',
-      'gives a sign-in link for its own address',
-      "signs a browser in with the link's code",
-      'answers the signed-in browser',
-      'starts a read-only chat with claude, codex and grok',
-      'sends them a question',
-      expect.stringMatching(/^the team's run ends within \d+ s$/),
-      'claude answers it',
-      'codex answers it',
-      'grok answers it',
-      "passes the language of the chat in the app's window on to the app",
-      'prints no sign-in code',
-      'says no conversation has agents at work',
-      'exits with code 0 when asked to shut down (got 0)',
-    ]);
-  }, slow(60_000));
+  it(
+    'listens, signs a browser in with a link it gives the app, has a team of the fake CLIs answer a question, prints no code, and shuts down when asked',
+    async () => {
+      // A stand-in for the built UI (npm run build is not run before the tests).
+      const web = join(dir, 'web');
+      mkdirSync(join(web, 'assets'), { recursive: true });
+      writeFileSync(join(web, 'index.html'), '<!doctype html><title>Harness Relay</title>');
+      const passed = await smoke({
+        entry: resolve('src/server/index.ts'),
+        execArgv: ['--import', pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href],
+        webDir: web,
+        fakeClis,
+        timeoutMs: slow(30_000),
+        // Shorter than the test's own limit, so that a slow run fails with the check's own message.
+        turnTimeoutMs: slow(30_000),
+      });
+      expect(passed).toEqual([
+        'loads the keyring module',
+        expect.stringMatching(/^listens on http:\/\/127\.0\.0\.1:\d+$/),
+        'serves the web app',
+        'refuses the API to a browser that is not signed in',
+        'gives a sign-in link for its own address',
+        "signs a browser in with the link's code",
+        'answers the signed-in browser',
+        'starts a read-only chat with claude, codex and grok',
+        'sends them a question',
+        expect.stringMatching(/^the team's run ends within \d+ s$/),
+        'claude answers it',
+        'codex answers it',
+        'grok answers it',
+        "passes the language of the chat in the app's window on to the app",
+        'prints no sign-in code',
+        'says no conversation has agents at work',
+        'exits with code 0 when asked to shut down (got 0)',
+      ]);
+    },
+    slow(60_000),
+  );
 });
 
 describe("the desktop checks' environment", () => {
   it("leaves out the developer's own Harness Relay and end-to-end settings", () => {
-    const env = withoutOwnSettings({ PATH: '/bin', HOME: '/home/me', RELAY_DATA_DIR: '/home/me/relay', RELAY_MAX_TEAM_AGENTS: '2', E2E_BUILD: 'never' });
+    const env = withoutOwnSettings({
+      PATH: '/bin',
+      HOME: '/home/me',
+      RELAY_DATA_DIR: '/home/me/relay',
+      RELAY_MAX_TEAM_AGENTS: '2',
+      E2E_BUILD: 'never',
+    });
     expect(env).toEqual({ PATH: '/bin', HOME: '/home/me' });
   });
 
@@ -143,7 +153,16 @@ describe("the desktop checks' environment", () => {
     const root = mkdtempSync(join(tmpdir(), 'relay-fakes-env-'));
     try {
       const { env, cwd } = withFakeClis(
-        { PATH: 'bin', ANTHROPIC_API_KEY: 'sk-ant', OPENAI_API_KEY: 'sk-oa', XAI_API_KEY: 'xai', GH_TOKEN: 'gho', GITHUB_TOKEN: 'ghp', NPM_TOKEN: 'npm', LANG: 'C.UTF-8' },
+        {
+          PATH: 'bin',
+          ANTHROPIC_API_KEY: 'sk-ant',
+          OPENAI_API_KEY: 'sk-oa',
+          XAI_API_KEY: 'xai',
+          GH_TOKEN: 'gho',
+          GITHUB_TOKEN: 'ghp',
+          NPM_TOKEN: 'npm',
+          LANG: 'C.UTF-8',
+        },
         join(root, 'fakes'),
         root,
       );
@@ -165,7 +184,14 @@ describe('a server whose port is taken', () => {
     try {
       // HOST as well: a shell may export one, and the server must try the taken address.
       const child = spawn(process.execPath, ['--import', 'tsx', 'src/server/index.ts'], {
-        env: { ...process.env, HOST: '127.0.0.1', PORT: String(port), RELAY_DATA_DIR: join(dir, 'data'), RELAY_KEYRING: 'off', RELAY_WEB_DIR: join(dir, 'no-web') },
+        env: {
+          ...process.env,
+          HOST: '127.0.0.1',
+          PORT: String(port),
+          RELAY_DATA_DIR: join(dir, 'data'),
+          RELAY_KEYRING: 'off',
+          RELAY_WEB_DIR: join(dir, 'no-web'),
+        },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       const exited = new Promise<number | null>((r) => child.on('exit', r));
@@ -191,8 +217,20 @@ describe('a server whose port is taken', () => {
     const port = (taken.address() as { port: number }).port;
     try {
       const child = fork(resolve('src/server/index.ts'), [], {
-        execArgv: ['--import', pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href, '--import', pathToFileURL(resolve('desktop/scripts/parent-port.mjs')).href],
-        env: { ...process.env, HOST: '127.0.0.1', PORT: String(port), RELAY_DATA_DIR: join(dir, 'data-busy'), RELAY_KEYRING: 'off', RELAY_WEB_DIR: join(dir, 'no-web') },
+        execArgv: [
+          '--import',
+          pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href,
+          '--import',
+          pathToFileURL(resolve('desktop/scripts/parent-port.mjs')).href,
+        ],
+        env: {
+          ...process.env,
+          HOST: '127.0.0.1',
+          PORT: String(port),
+          RELAY_DATA_DIR: join(dir, 'data-busy'),
+          RELAY_KEYRING: 'off',
+          RELAY_WEB_DIR: join(dir, 'no-web'),
+        },
         stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       });
       const messages: unknown[] = [];
@@ -217,7 +255,15 @@ describe('a server without the key its secrets are encrypted with', () => {
     const data = join(dir, 'data-no-key');
     const keyFile = join(dir, 'no such folder', 'relay.key');
     const child = spawn(process.execPath, ['--import', 'tsx', 'src/server/index.ts'], {
-      env: { ...process.env, HOST: '127.0.0.1', PORT: '0', RELAY_DATA_DIR: data, RELAY_KEYRING: 'off', RELAY_SECRETS_KEY_FILE: keyFile, RELAY_WEB_DIR: join(dir, 'no-web') },
+      env: {
+        ...process.env,
+        HOST: '127.0.0.1',
+        PORT: '0',
+        RELAY_DATA_DIR: data,
+        RELAY_KEYRING: 'off',
+        RELAY_SECRETS_KEY_FILE: keyFile,
+        RELAY_WEB_DIR: join(dir, 'no-web'),
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const exited = new Promise<number | null>((r) => child.on('exit', r));

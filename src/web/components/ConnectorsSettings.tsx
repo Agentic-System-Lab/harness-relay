@@ -46,7 +46,7 @@ export function ConnectorsSettings() {
   const test = async (kind: 'mail' | 'calendar', id: string) => {
     setTested((x) => ({ ...x, [`${kind}:${id}`]: t.connectors.testing }));
     const r = await api.testConnector(kind, id).catch((e: Error) => ({ ok: false, error: e.message }));
-    setTested((x) => ({ ...x, [`${kind}:${id}`]: r.ok ? (('message' in r && r.message) || t.connectors.testOk) : `✗ ${r.error ?? ''}` }));
+    setTested((x) => ({ ...x, [`${kind}:${id}`]: r.ok ? ('message' in r && r.message) || t.connectors.testOk : `✗ ${r.error ?? ''}` }));
   };
 
   if (!view) return error ? <p className="error-line">{error}</p> : null;
@@ -85,7 +85,17 @@ export function ConnectorsSettings() {
       {error && <p className="error-line">{error}</p>}
 
       <h5>{t.connectors.mail}</h5>
-      <ul className="lib-list">{view.mail.map((m) => (editing?.kind === 'mail' && editing.id === m.id ? <li key={m.id}><MailEditor account={m} taken={view.mail.map((x) => x.id)} change={change} onDone={() => setEditing(null)} /></li> : row('mail', m, `${m.address} · ${m.imap.host}`)))}</ul>
+      <ul className="lib-list">
+        {view.mail.map((m) =>
+          editing?.kind === 'mail' && editing.id === m.id ? (
+            <li key={m.id}>
+              <MailEditor account={m} taken={view.mail.map((x) => x.id)} change={change} onDone={() => setEditing(null)} />
+            </li>
+          ) : (
+            row('mail', m, `${m.address} · ${m.imap.host}`)
+          ),
+        )}
+      </ul>
       {editing?.kind === 'mail' && editing.id === '' ? (
         <MailEditor taken={view.mail.map((x) => x.id)} change={change} onDone={() => setEditing(null)} />
       ) : (
@@ -130,7 +140,17 @@ function SecuritySelect({ value, onChange, label }: { value: MailSecurity; onCha
   );
 }
 
-function MailEditor({ account, taken, change, onDone }: { account?: MailAccountView; taken: string[]; change: Change; onDone: () => void }) {
+function MailEditor({
+  account,
+  taken,
+  change,
+  onDone,
+}: {
+  account?: MailAccountView;
+  taken: string[];
+  change: Change;
+  onDone: () => void;
+}) {
   const t = useT();
   const [f, setF] = useState<MailForm>(() => mailForm(account));
   const [saving, setSaving] = useState(false);
@@ -144,7 +164,13 @@ function MailEditor({ account, taken, change, onDone }: { account?: MailAccountV
   const field = (key: keyof MailForm, label: string, type = 'text', placeholder = '') => (
     <label className="field">
       <span>{label}</span>
-      <input type={type} value={f[key]} placeholder={placeholder} autoComplete={type === 'password' ? 'new-password' : 'off'} onChange={(e) => edit({ [key]: e.target.value })} />
+      <input
+        type={type}
+        value={f[key]}
+        placeholder={placeholder}
+        autoComplete={type === 'password' ? 'new-password' : 'off'}
+        onChange={(e) => edit({ [key]: e.target.value })}
+      />
     </label>
   );
   return (
@@ -159,7 +185,18 @@ function MailEditor({ account, taken, change, onDone }: { account?: MailAccountV
       {!account && (
         <label className="field">
           <span>{t.connectors.provider}</span>
-          <select defaultValue="" onChange={(e) => e.target.value && edit(withPreset(f, MAIL_PRESETS.find((p) => p.id === e.target.value)!))}>
+          <select
+            defaultValue=""
+            onChange={(e) =>
+              e.target.value &&
+              edit(
+                withPreset(
+                  f,
+                  MAIL_PRESETS.find((p) => p.id === e.target.value)!,
+                ),
+              )
+            }
+          >
             <option value="">{t.connectors.otherProvider}</option>
             {MAIL_PRESETS.map((p) => (
               <option key={p.id} value={p.id}>
@@ -172,15 +209,40 @@ function MailEditor({ account, taken, change, onDone }: { account?: MailAccountV
       {field('name', t.tools.name)}
       {field('address', t.connectors.address, 'text', 'Me <me@example.com>')}
       {field('username', t.connectors.username, 'text', t.connectors.usernamePlaceholder)}
-      {field('password', t.connectors.password, 'password', account?.password ? t.tools.keepValue(account.password) : t.connectors.appPassword)}
+      {field(
+        'password',
+        t.connectors.password,
+        'password',
+        account?.password ? t.tools.keepValue(account.password) : t.connectors.appPassword,
+      )}
       <div className="connector-servers">
         <span>IMAP</span>
-        <input aria-label={`IMAP ${t.connectors.host}`} value={f.imapHost} placeholder="imap.example.com" onChange={(e) => edit({ imapHost: e.target.value })} />
-        <input aria-label={`IMAP ${t.connectors.port}`} value={f.imapPort} inputMode="numeric" onChange={(e) => edit({ imapPort: e.target.value })} />
+        <input
+          aria-label={`IMAP ${t.connectors.host}`}
+          value={f.imapHost}
+          placeholder="imap.example.com"
+          onChange={(e) => edit({ imapHost: e.target.value })}
+        />
+        <input
+          aria-label={`IMAP ${t.connectors.port}`}
+          value={f.imapPort}
+          inputMode="numeric"
+          onChange={(e) => edit({ imapPort: e.target.value })}
+        />
         <SecuritySelect label={`IMAP ${t.connectors.securityLabel}`} value={f.imapSecurity} onChange={(v) => edit({ imapSecurity: v })} />
         <span>SMTP</span>
-        <input aria-label={`SMTP ${t.connectors.host}`} value={f.smtpHost} placeholder="smtp.example.com" onChange={(e) => edit({ smtpHost: e.target.value })} />
-        <input aria-label={`SMTP ${t.connectors.port}`} value={f.smtpPort} inputMode="numeric" onChange={(e) => edit({ smtpPort: e.target.value })} />
+        <input
+          aria-label={`SMTP ${t.connectors.host}`}
+          value={f.smtpHost}
+          placeholder="smtp.example.com"
+          onChange={(e) => edit({ smtpHost: e.target.value })}
+        />
+        <input
+          aria-label={`SMTP ${t.connectors.port}`}
+          value={f.smtpPort}
+          inputMode="numeric"
+          onChange={(e) => edit({ smtpPort: e.target.value })}
+        />
         <SecuritySelect label={`SMTP ${t.connectors.securityLabel}`} value={f.smtpSecurity} onChange={(v) => edit({ smtpSecurity: v })} />
       </div>
       <p className="muted small">{t.connectors.mailHint}</p>
@@ -196,7 +258,17 @@ function MailEditor({ account, taken, change, onDone }: { account?: MailAccountV
   );
 }
 
-function CalendarEditor({ account, taken, change, onDone }: { account?: CalendarAccountView; taken: string[]; change: Change; onDone: () => void }) {
+function CalendarEditor({
+  account,
+  taken,
+  change,
+  onDone,
+}: {
+  account?: CalendarAccountView;
+  taken: string[];
+  change: Change;
+  onDone: () => void;
+}) {
   const t = useT();
   const [f, setF] = useState<CalendarForm>(() => calendarForm(account));
   const [saving, setSaving] = useState(false);
@@ -207,7 +279,12 @@ function CalendarEditor({ account, taken, change, onDone }: { account?: Calendar
     setFinding(t.connectors.finding);
     setFound(null);
     const r = await api
-      .discoverCalendars({ url: f.url, username: f.username, ...(f.password ? { password: f.password } : {}), ...(account ? { id: account.id } : {}) })
+      .discoverCalendars({
+        url: f.url,
+        username: f.username,
+        ...(f.password ? { password: f.password } : {}),
+        ...(account ? { id: account.id } : {}),
+      })
       .catch((e: Error) => ({ ok: false, error: e.message, calendars: undefined }));
     if (!r.ok) setFinding(`✗ ${r.error ?? ''}`);
     else {
@@ -224,7 +301,13 @@ function CalendarEditor({ account, taken, change, onDone }: { account?: Calendar
   const field = (key: keyof CalendarForm, label: string, type = 'text', placeholder = '') => (
     <label className="field">
       <span>{label}</span>
-      <input type={type} value={f[key]} placeholder={placeholder} autoComplete={type === 'password' ? 'new-password' : 'off'} onChange={(e) => edit({ [key]: e.target.value })} />
+      <input
+        type={type}
+        value={f[key]}
+        placeholder={placeholder}
+        autoComplete={type === 'password' ? 'new-password' : 'off'}
+        onChange={(e) => edit({ [key]: e.target.value })}
+      />
     </label>
   );
   return (
@@ -239,10 +322,13 @@ function CalendarEditor({ account, taken, change, onDone }: { account?: Calendar
       {!account && (
         <label className="field">
           <span>{t.connectors.provider}</span>
-          <select defaultValue="" onChange={(e) => {
-            const p = CALENDAR_PRESETS.find((x) => x.id === e.target.value);
-            if (p) edit({ url: p.url, name: f.name || p.label });
-          }}>
+          <select
+            defaultValue=""
+            onChange={(e) => {
+              const p = CALENDAR_PRESETS.find((x) => x.id === e.target.value);
+              if (p) edit({ url: p.url, name: f.name || p.label });
+            }}
+          >
             <option value="">{t.connectors.otherProvider}</option>
             {CALENDAR_PRESETS.map((p) => (
               <option key={p.id} value={p.id}>
@@ -255,7 +341,12 @@ function CalendarEditor({ account, taken, change, onDone }: { account?: Calendar
       {field('name', t.tools.name)}
       {field('url', t.connectors.calendarUrl, 'url', 'https://caldav.example.com/')}
       {field('username', t.connectors.username)}
-      {field('password', t.connectors.password, 'password', account?.password ? t.tools.keepValue(account.password) : t.connectors.appPassword)}
+      {field(
+        'password',
+        t.connectors.password,
+        'password',
+        account?.password ? t.tools.keepValue(account.password) : t.connectors.appPassword,
+      )}
       {field('address', t.connectors.inviteFrom, 'text', 'me@example.com')}
       <div className="form-actions">
         <button type="button" className="ghost small-button" disabled={!f.url.trim() || !f.username.trim()} onClick={find}>
@@ -267,7 +358,12 @@ function CalendarEditor({ account, taken, change, onDone }: { account?: Calendar
         <div className="field" role="radiogroup" aria-label={t.connectors.foundLabel}>
           {found.map((c) => (
             <label key={c.url} className="check-row">
-              <input type="radio" name="calendar-found" checked={f.url === c.url} onChange={() => edit({ url: c.url, name: f.name || c.name })} />
+              <input
+                type="radio"
+                name="calendar-found"
+                checked={f.url === c.url}
+                onChange={() => edit({ url: c.url, name: f.name || c.name })}
+              />
               {c.name} <code className="small">{c.url}</code>
             </label>
           ))}

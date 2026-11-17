@@ -75,11 +75,21 @@ describe('the service worker', () => {
 
   it('shows every push as the server wrote it, with its tag, sound and link', async () => {
     const w = worker();
-    await w.fire('push', pushEvent({ title: 'Fix login', body: 'Claude finished replying', tag: 'relay-c1', url: '/#/c/c1', silent: true }));
+    await w.fire(
+      'push',
+      pushEvent({ title: 'Fix login', body: 'Claude finished replying', tag: 'relay-c1', url: '/#/c/c1', silent: true }),
+    );
     expect(w.shown).toEqual([
       {
         title: 'Fix login',
-        options: { body: 'Claude finished replying', tag: 'relay-c1', renotify: true, silent: true, icon: '/icons/icon-192.png', data: { url: `${ORIGIN}/#/c/c1` } },
+        options: {
+          body: 'Claude finished replying',
+          tag: 'relay-c1',
+          renotify: true,
+          silent: true,
+          icon: '/icons/icon-192.png',
+          data: { url: `${ORIGIN}/#/c/c1` },
+        },
       },
     ]);
   });

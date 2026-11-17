@@ -52,7 +52,12 @@ export function linkAction(url: string, serverUrl: string): 'in-app' | 'external
  * only the microphone (voice input, no camera), writing to the clipboard (the copy buttons), full
  * screen (a video's own button) and notifications (Settings → Notifications: agents finished or need you).
  */
-export function permissionAllowed(permission: string, requestingUrl: string | undefined, serverUrl: string, mediaTypes: readonly string[] = []): boolean {
+export function permissionAllowed(
+  permission: string,
+  requestingUrl: string | undefined,
+  serverUrl: string,
+  mediaTypes: readonly string[] = [],
+): boolean {
   if (!requestingUrl || linkAction(requestingUrl, serverUrl) !== 'in-app') return false;
   if (permission === 'media') return mediaTypes.length > 0 && mediaTypes.every((type) => type === 'audio');
   return permission === 'clipboard-sanitized-write' || permission === 'fullscreen' || permission === 'notifications';
@@ -62,13 +67,20 @@ export function permissionAllowed(permission: string, requestingUrl: string | un
  * Electron's permission check (asked without a request, such as before listing the microphones): a
  * check for media that names no kind counts as one for the microphone, the only kind ever allowed.
  */
-export function permissionChecked(permission: string, origin: string | undefined, serverUrl: string | undefined, mediaType?: string): boolean {
+export function permissionChecked(
+  permission: string,
+  origin: string | undefined,
+  serverUrl: string | undefined,
+  mediaType?: string,
+): boolean {
   return !!serverUrl && permissionAllowed(permission, origin, serverUrl, mediaType ? [mediaType] : ['audio']);
 }
 
 /** What a window's page may open: the parts of Electron's WebContents that `guardContents` uses. */
 export interface GuardedContents {
-  setWindowOpenHandler(handler: (details: { url: string }) => { action: 'allow'; overrideBrowserWindowOptions?: object } | { action: 'deny' }): void;
+  setWindowOpenHandler(
+    handler: (details: { url: string }) => { action: 'allow'; overrideBrowserWindowOptions?: object } | { action: 'deny' },
+  ): void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   on(event: string, listener: (...args: any[]) => void): unknown;
 }

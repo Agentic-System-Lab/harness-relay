@@ -80,7 +80,9 @@ export const toolsHintText = (t: Messages, provider: Provider): string => t.team
  * Harness Relay's own tools for an open agent, whose sandbox does not reach the gateway yet.
  */
 export function itemsFor(items: ToolItem[], provider: Provider): ToolItem[] {
-  return items.filter((i) => (i.kind !== 'memory' || i.name === 'all' || i.name === provider) && !(i.kind === 'relay' && isOpenProvider(provider)));
+  return items.filter(
+    (i) => (i.kind !== 'memory' || i.name === 'all' || i.name === provider) && !(i.kind === 'relay' && isOpenProvider(provider)),
+  );
 }
 
 /** On for an agent of `provider` unless it turns it off. */

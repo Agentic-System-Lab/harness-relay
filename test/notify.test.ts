@@ -5,7 +5,8 @@ import type { AgentConfig, ChatMessage, ConversationSummary } from '../src/share
 const idle = (reply?: string): AlertState => ({ running: false, lastStatus: 'done', ...(reply ? { lastReplyId: reply } : {}) });
 const seen = (state: AlertState, runFrom?: Seen['runFrom']): Seen => (runFrom ? { state, runFrom } : { state });
 /** A run seen beginning after `from` (the latest reply then). */
-const running = (from?: string, reply = from): Seen => seen({ running: true, lastStatus: 'done', ...(reply ? { lastReplyId: reply } : {}) }, from ? { reply: from } : {});
+const running = (from?: string, reply = from): Seen =>
+  seen({ running: true, lastStatus: 'done', ...(reply ? { lastReplyId: reply } : {}) }, from ? { reply: from } : {});
 
 describe('alertFor', () => {
   it('tells of a run that ended with a reply it did not have when it began, by how that reply ended', () => {
@@ -70,7 +71,9 @@ describe('alertFor', () => {
     expect(alertFor(answering, asking)).toBeUndefined();
     // It went on, and an agent asked again, in a reply of its own; or waited for an approval.
     expect(alertFor(answering, { ...idle('q2'), asking: true })).toBe('answer');
-    expect(alertFor(seenAfter(answering, { running: true, lastReplyId: 'q1' }), { running: true, waiting: true, lastReplyId: 'q1' })).toBe('approval');
+    expect(alertFor(seenAfter(answering, { running: true, lastReplyId: 'q1' }), { running: true, waiting: true, lastReplyId: 'q1' })).toBe(
+      'approval',
+    );
     // A run that began with nothing needed, then left a question: news.
     expect(seenAfter(seen(idle('m1')), { running: true, lastReplyId: 'm1' }).runFrom).toEqual({ reply: 'm1' });
     expect(alertFor(running('m1', 'm1'), { ...idle('m1'), asking: true })).toBe('answer');
@@ -95,7 +98,9 @@ describe('AlertTracker', () => {
       ['a', 'done'],
       ['c', 'confirm'],
     ]);
-    expect(kinds(t, [summary('a', idle('a2')), summary('b', idle('b2')), summary('c', { running: false, confirmTeam: true })])).toEqual([['b', 'done']]);
+    expect(kinds(t, [summary('a', idle('a2')), summary('b', idle('b2')), summary('c', { running: false, confirmTeam: true })])).toEqual([
+      ['b', 'done'],
+    ]);
   });
 
   it("tells of nothing for a lead agent that designed a team and the run that ended without a reply, then of the team's reply", () => {
@@ -108,7 +113,7 @@ describe('AlertTracker', () => {
     expect(kinds(t, [summary('a', idle('a2'))])).toEqual([['a', 'done']]);
   });
 
-  it("tells once of a question, also when the run that takes the answer was seen being set up and could not start", () => {
+  it('tells once of a question, also when the run that takes the answer was seen being set up and could not start', () => {
     const t = new AlertTracker();
     t.next([summary('a', idle('a1'))]);
     const asking = summary('a', { ...idle('a2'), asking: true });
@@ -122,14 +127,23 @@ describe('AlertTracker', () => {
 
   it('tells of nothing for a run first seen going that ends without a reply of its own, and of one whose reply was being written', () => {
     const t = new AlertTracker();
-    t.next([summary('a', { running: true, lastStatus: 'done', lastReplyId: 'a1' }), summary('b', { running: true, lastStatus: 'streaming', lastReplyId: 'b1' })]);
+    t.next([
+      summary('a', { running: true, lastStatus: 'done', lastReplyId: 'a1' }),
+      summary('b', { running: true, lastStatus: 'streaming', lastReplyId: 'b1' }),
+    ]);
     expect(kinds(t, [summary('a', idle('a1')), summary('b', idle('b1'))])).toEqual([['b', 'done']]);
   });
 
   it('tells of nothing for a branch just made, also one that waits for the answer to the question it was branched at', () => {
     const t = new AlertTracker();
     t.next([summary('a', idle('a1'))]);
-    const branch = summary('b', { running: false, asking: true, lastStatus: 'done', lastReplyId: 'a1', branchFrom: { id: 'a', title: 'a' } });
+    const branch = summary('b', {
+      running: false,
+      asking: true,
+      lastStatus: 'done',
+      lastReplyId: 'a1',
+      branchFrom: { id: 'a', title: 'a' },
+    });
     expect(kinds(t, [summary('a', idle('a1')), branch])).toEqual([]);
     // From then on it is one like any other.
     expect(kinds(t, [summary('a', idle('a1')), { ...branch, asking: false, running: true }])).toEqual([]);
@@ -146,7 +160,10 @@ describe('AlertTracker', () => {
 });
 
 describe('alertDetail', () => {
-  const agents = [{ id: 'a1', name: 'Claude' }, { id: 'a2', name: 'Codex' }] as AgentConfig[];
+  const agents = [
+    { id: 'a1', name: 'Claude' },
+    { id: 'a2', name: 'Codex' },
+  ] as AgentConfig[];
   const reply = (agentId: string, text: string, more: Partial<ChatMessage> = {}): ChatMessage => ({
     id: `${agentId}-${text.length}`,
     author: { kind: 'agent', agentId },
@@ -157,7 +174,10 @@ describe('alertDetail', () => {
   });
 
   it('names the agent that replied last and what it said, as one short line', () => {
-    const messages = [reply('a1', 'First'), reply('a2', '## Done\n\nI fixed **the login** page.\n\n```ts\ncode()\n```\nSee [the diff](x).')];
+    const messages = [
+      reply('a1', 'First'),
+      reply('a2', '## Done\n\nI fixed **the login** page.\n\n```ts\ncode()\n```\nSee [the diff](x).'),
+    ];
     expect(alertDetail({ agents, messages }, 'done')).toEqual({ agent: 'Codex', text: 'Done I fixed the login page. See the diff.' });
     expect(alertDetail({ agents, messages: [reply('a1', 'x', { status: 'error', error: 'Claude Code exited (1)' })] }, 'error')).toEqual({
       agent: 'Claude',
@@ -167,7 +187,10 @@ describe('alertDetail', () => {
 
   it('gives the question asked, without its marker, and the command an approval waits on', () => {
     const asked = reply('a1', 'Which database should I use? [ASK_USER]', { asked: true });
-    expect(alertDetail({ agents, messages: [asked, reply('a2', 'later')] }, 'answer')).toEqual({ agent: 'Claude', text: 'Which database should I use?' });
+    expect(alertDetail({ agents, messages: [asked, reply('a2', 'later')] }, 'answer')).toEqual({
+      agent: 'Claude',
+      text: 'Which database should I use?',
+    });
     const approval: ChatMessage = {
       ...reply('a2', ''),
       agentName: 'Codex (old name)',

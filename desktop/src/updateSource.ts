@@ -37,21 +37,30 @@ const TOKEN = /^github_pat_[A-Za-z0-9_]{20,244}$/;
  * The update source an environment names (RELAY_UPDATES_REPO, RELAY_UPDATES_TOKEN, each trimmed; an
  * empty one is not set), or why it cannot be used. The token never appears in an error.
  */
-export function updateSourceFrom(env: Record<string, string | undefined>): { ok: true; value: UpdateSource } | { ok: false; error: string } {
+export function updateSourceFrom(
+  env: Record<string, string | undefined>,
+): { ok: true; value: UpdateSource } | { ok: false; error: string } {
   const repo = env.RELAY_UPDATES_REPO?.trim() || DEFAULT_UPDATE_SOURCE.repo;
   const token = env.RELAY_UPDATES_TOKEN?.trim() || undefined;
   const parts = REPO.exec(repo);
   if (!parts || /^\.+$/.test(parts[2]!) || parts[2]!.endsWith('.git')) {
-    return { ok: false, error: `RELAY_UPDATES_REPO: "${repo}" is not a GitHub repository as owner/name (Agentic-System-Lab/harness-relay-updates, say)` };
+    return {
+      ok: false,
+      error: `RELAY_UPDATES_REPO: "${repo}" is not a GitHub repository as owner/name (Agentic-System-Lab/harness-relay-updates, say)`,
+    };
   }
   // GitHub's names are the same in any letter case.
   if (repo.toLowerCase() === MAIN_REPO.toLowerCase()) {
-    return { ok: false, error: `RELAY_UPDATES_REPO: the copies go in a repository of their own, not in ${MAIN_REPO}, whose releases hold the installers alone` };
+    return {
+      ok: false,
+      error: `RELAY_UPDATES_REPO: the copies go in a repository of their own, not in ${MAIN_REPO}, whose releases hold the installers alone`,
+    };
   }
   if (token !== undefined && !TOKEN.test(token)) {
     return {
       ok: false,
-      error: 'RELAY_UPDATES_TOKEN: not a fine-grained personal access token (github_pat_…): any other kind cannot be kept to one repository, and it goes into every copy of the app',
+      error:
+        'RELAY_UPDATES_TOKEN: not a fine-grained personal access token (github_pat_…): any other kind cannot be kept to one repository, and it goes into every copy of the app',
     };
   }
   return { ok: true, value: token ? { repo, token } : { repo } };
@@ -87,7 +96,9 @@ export function decodeUpdateSource(built: BuiltUpdateSource): UpdateSource {
  * this run's (`sameUpdateSource`). The repository in any letter case, as GitHub takes it.
  */
 export function updateSourceFingerprint(source: UpdateSource): string {
-  return createHash('sha256').update(JSON.stringify([source.repo.toLowerCase(), source.token ?? ''])).digest('hex');
+  return createHash('sha256')
+    .update(JSON.stringify([source.repo.toLowerCase(), source.token ?? '']))
+    .digest('hex');
 }
 
 /**
@@ -106,7 +117,10 @@ export function sameUpdateSource(built: string[], source: UpdateSource, installe
 }
 
 /** What fetching `copiesReadable` needs: the global fetch, or a stand-in for it. */
-export type CopiesFetch = (url: string, init: { headers: Record<string, string>; redirect: 'manual'; signal: AbortSignal }) => Promise<Response>;
+export type CopiesFetch = (
+  url: string,
+  init: { headers: Record<string, string>; redirect: 'manual'; signal: AbortSignal },
+) => Promise<Response>;
 
 /**
  * Why an app built with `source` could not download the copies (`copies`: each file's name and size)
@@ -143,7 +157,12 @@ export async function copiesReadable(
   const { repo } = o.source;
   const at = `the release ${o.tag} in ${repo}`;
   // A 404 asked once more: the release just made may not be found at once.
-  const asked = await askGitHub(fetch, `https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(o.tag)}`, o.source.token ?? o.token, { ...o, notFoundAgain: true });
+  const asked = await askGitHub(
+    fetch,
+    `https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(o.tag)}`,
+    o.source.token ?? o.token,
+    { ...o, notFoundAgain: true },
+  );
   if ('limited' in asked) {
     return {
       warning:
@@ -152,7 +171,9 @@ export async function copiesReadable(
     };
   }
   if ('failure' in asked) {
-    return { error: `GitHub could not be asked for ${at} (${asked.failure}), ${COPIES_TRIES} times: run the failed job again (Re-run failed jobs); nothing needs building again` };
+    return {
+      error: `GitHub could not be asked for ${at} (${asked.failure}), ${COPIES_TRIES} times: run the failed job again (Re-run failed jobs); nothing needs building again`,
+    };
   }
   const { res } = asked;
   if (res.status >= 300 && res.status < 400) {
@@ -163,7 +184,8 @@ export async function copiesReadable(
     };
   }
   if (!res.ok) {
-    const again = ', then run the whole workflow again (Re-run all jobs, not only the failed ones), so that the installers are built with it';
+    const again =
+      ', then run the whole workflow again (Re-run all jobs, not only the failed ones), so that the installers are built with it';
     const slow = res.status === 404 ? ' If the release was only slow to appear, Re-run failed jobs is enough.' : '';
     return {
       error: o.source.token
@@ -172,8 +194,12 @@ export async function copiesReadable(
         : `${at[0]!.toUpperCase()}${at.slice(1)} cannot be read without a token of its own (GitHub answered ${res.status}): for a private repository, set the UPDATES_READ_TOKEN secret${again}.${slow}`,
     };
   }
-  const warning = o.source.token ? expiryWarning(res.headers.get('github-authentication-token-expiration'), o.now ?? new Date()) : undefined;
-  const release = (await res.json().catch(() => null)) as { assets?: { id?: unknown; name?: unknown; state?: unknown; size?: unknown }[] } | null;
+  const warning = o.source.token
+    ? expiryWarning(res.headers.get('github-authentication-token-expiration'), o.now ?? new Date())
+    : undefined;
+  const release = (await res.json().catch(() => null)) as {
+    assets?: { id?: unknown; name?: unknown; state?: unknown; size?: unknown }[];
+  } | null;
   const listed = new Map((Array.isArray(release?.assets) ? release.assets : []).map((a) => [a?.name, a]));
   const missing = o.copies.filter(({ name, size }) => {
     const a = listed.get(name);
@@ -208,8 +234,11 @@ export async function repositoryReadable(
 ): Promise<{ error?: string; warning?: string }> {
   const { repo } = o.source;
   const asked = await askGitHub(fetch, `https://api.github.com/repos/${repo}/releases?per_page=1`, o.source.token ?? o.token, o);
-  const later = 'the copies\' check after the builds will ask again';
-  if ('limited' in asked) return { warning: `GitHub's limit on requests (answered ${asked.limited}) kept the copies' repository ${repo} from being checked now: ${later}` };
+  const later = "the copies' check after the builds will ask again";
+  if ('limited' in asked)
+    return {
+      warning: `GitHub's limit on requests (answered ${asked.limited}) kept the copies' repository ${repo} from being checked now: ${later}`,
+    };
   if ('failure' in asked) return { warning: `GitHub could not be asked for the copies' repository ${repo} (${asked.failure}): ${later}` };
   const { res } = asked;
   if (res.status >= 300 && res.status < 400) {
@@ -250,7 +279,11 @@ async function askGitHub(
     let res: Response | undefined;
     try {
       res = await fetch(url, {
-        headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         // Not followed, so that the token goes nowhere else: a repository renamed or moved answers 301.
         redirect: 'manual',
         signal: AbortSignal.timeout(o.timeoutMs ?? COPIES_REQUEST_TIMEOUT_MS),
@@ -303,8 +336,15 @@ export const COPIES_LIMIT_WAIT_MS = 5 * 60_000;
 async function limitedFor(res: Response, now: number): Promise<number | undefined> {
   const retryAfter = Number(res.headers.get('retry-after'));
   const reset = Number(res.headers.get('x-ratelimit-reset'));
-  let limited = res.status === 429 || (res.status === 403 && (res.headers.get('x-ratelimit-remaining') === '0' || res.headers.has('retry-after')));
-  if (!limited && res.status === 403) limited = /secondary rate limit/i.test(await res.clone().text().catch(() => ''));
+  let limited =
+    res.status === 429 || (res.status === 403 && (res.headers.get('x-ratelimit-remaining') === '0' || res.headers.has('retry-after')));
+  if (!limited && res.status === 403)
+    limited = /secondary rate limit/i.test(
+      await res
+        .clone()
+        .text()
+        .catch(() => ''),
+    );
   if (!limited) return undefined;
   if (Number.isFinite(retryAfter) && retryAfter > 0) return retryAfter * 1000;
   if (Number.isFinite(reset) && reset > 0) return Math.max(0, reset * 1000 - now) + 1000;

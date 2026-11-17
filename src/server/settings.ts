@@ -320,7 +320,10 @@ export class SettingsStore {
       };
     }
     // The open agents have no sign-in, so no accounts: none is ever added for them.
-    this.accountList = Object.fromEntries(PROVIDERS.map((p): [Provider, AccountSettings[]] => [p, []])) as Record<Provider, AccountSettings[]>;
+    this.accountList = Object.fromEntries(PROVIDERS.map((p): [Provider, AccountSettings[]] => [p, []])) as Record<
+      Provider,
+      AccountSettings[]
+    >;
     const accounts = db
       .prepare(
         `SELECT id, provider, label, api_key, default_model, default_effort, native_off, native_items
@@ -473,7 +476,8 @@ export class SettingsStore {
   /** Keeps an agent-home folder the open agents' homes are in now among those they have been in. */
   private rememberOpenAgentRoot(): void {
     const used = this.agentRootsUsed();
-    if (this.agentHomeDir && !used.includes(this.agentHomeDir)) this.saveAppSetting('open_agent_roots', JSON.stringify([...used, this.agentHomeDir]));
+    if (this.agentHomeDir && !used.includes(this.agentHomeDir))
+      this.saveAppSetting('open_agent_roots', JSON.stringify([...used, this.agentHomeDir]));
   }
 
   /**
@@ -631,7 +635,9 @@ export class SettingsStore {
       try {
         this.keyring.delete(keyName(p, account));
       } catch (err) {
-        console.warn(`[settings] could not remove the ${p} API key of account ${account} from the credential store: ${(err as Error).message}`);
+        console.warn(
+          `[settings] could not remove the ${p} API key of account ${account} from the credential store: ${(err as Error).message}`,
+        );
       }
     }
     this.keysLeftInDb.delete(slot(p, account));
@@ -693,9 +699,7 @@ export class SettingsStore {
       account: lead.account && this.hasAccount(lead.provider, lead.account) ? lead.account : undefined,
     };
     this.db
-      .prepare(
-        "INSERT INTO app_settings (key, value) VALUES ('lead_agent', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      )
+      .prepare("INSERT INTO app_settings (key, value) VALUES ('lead_agent', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
       .run(JSON.stringify(this.leadAgent));
   }
 
@@ -808,9 +812,7 @@ export class SettingsStore {
     this.extraCwds = [...extraCwds];
     transaction(this.db, () => {
       this.db
-        .prepare(
-          "INSERT INTO app_settings (key, value) VALUES ('default_cwd', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        )
+        .prepare("INSERT INTO app_settings (key, value) VALUES ('default_cwd', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
         .run(cwd);
       this.saveAppSetting('default_extra_cwds', JSON.stringify(this.extraCwds));
     });

@@ -1,5 +1,13 @@
 import { useEffect, useState } from 'react';
-import { PROVIDER_LABEL, cwdsOf, type Conversation, type ConversationSchedule, type LeadAgentSettings, type ProviderModels, type ProviderStatus } from '../../shared/types';
+import {
+  PROVIDER_LABEL,
+  cwdsOf,
+  type Conversation,
+  type ConversationSchedule,
+  type LeadAgentSettings,
+  type ProviderModels,
+  type ProviderStatus,
+} from '../../shared/types';
 import { api, orCreateCwd } from '../api';
 import { useI18n } from '../i18n';
 import { useLimits } from '../limits';
@@ -38,7 +46,9 @@ export function NewSchedule({ providers, catalog, onCreated }: Props) {
       .then((settings) => {
         setLead(settings.lead);
         // The default working directory from Settings; asking first unless the last chat did not.
-        setTeam((current) => current ?? autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm()));
+        setTeam(
+          (current) => current ?? autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm()),
+        );
       })
       .catch((e) => setError(String(e.message ?? e)));
   }, [lang]);
@@ -60,7 +70,8 @@ export function NewSchedule({ providers, catalog, onCreated }: Props) {
     setError('');
     try {
       const conv = await orCreateCwd(
-        (createCwd) => api.createSchedule({ title: title.trim() || undefined, settings: team.settings, createCwd, schedule: toUpdate(draft) }),
+        (createCwd) =>
+          api.createSchedule({ title: title.trim() || undefined, settings: team.settings, createCwd, schedule: toUpdate(draft) }),
         (missing) => confirm(t.newChat.confirmCreateCwd(missing)),
       );
       rememberAutoConfirm(team.settings.autoConfirm);
@@ -95,7 +106,12 @@ export function NewSchedule({ providers, catalog, onCreated }: Props) {
       {/* Outside the scrolling area, so it stays at the bottom of the window. */}
       <footer className="start-dock">
         <div className="start-bar">
-          <input className="title-input" value={title} placeholder={t.newSchedule.titlePlaceholder} onChange={(e) => setTitle(e.target.value)} />
+          <input
+            className="title-input"
+            value={title}
+            placeholder={t.newSchedule.titlePlaceholder}
+            onChange={(e) => setTitle(e.target.value)}
+          />
           <button className="primary" onClick={create} disabled={busy || problems.length > 0}>
             {busy ? t.newSchedule.creating : t.newSchedule.create}
           </button>

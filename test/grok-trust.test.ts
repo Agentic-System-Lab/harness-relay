@@ -68,7 +68,7 @@ describe("Grok's folder trust", () => {
     if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 
-  it("reads whether a folder is trusted from grok inspect", () => {
+  it('reads whether a folder is trusted from grok inspect', () => {
     expect(parseGrokInspect({ projectTrusted: false }).folderTrusted).toBe(false);
     expect(parseGrokInspect({ projectTrusted: true }).folderTrusted).toBe(true);
     expect(parseGrokInspect({}).folderTrusted).toBeUndefined();

@@ -16,7 +16,9 @@ import type { RelayServer } from '../support/relay';
 
 /** An account's box in a CLI's card in Settings, by the name it shows. */
 const accountBlock = (page: Page, provider: Provider, name: string) =>
-  page.locator(`#settings-${provider} .account-block`).filter({ has: page.locator('.account-head strong', { hasText: new RegExp(`^${name}$`) }) });
+  page
+    .locator(`#settings-${provider} .account-block`)
+    .filter({ has: page.locator('.account-head strong', { hasText: new RegExp(`^${name}$`) }) });
 
 /** The plan usage of an account's box. */
 const usagePanel = (page: Page, provider: Provider, name: string) => accountBlock(page, provider, name).locator('.usage-panel');
@@ -36,7 +38,10 @@ const usageAsked = (relay: RelayServer, provider: Provider) =>
 
 test.describe('plan usage in Settings', () => {
   eachCli(SIGNED_IN, (cli) => {
-    test(`${cli.provider}: the default account shows how much of its plan is left, or why its CLI does not say`, async ({ page, relay }) => {
+    test(`${cli.provider}: the default account shows how much of its plan is left, or why its CLI does not say`, async ({
+      page,
+      relay,
+    }) => {
       await page.goto(`${relay.base}/#/settings/${cli.provider}`);
       const panel = usagePanel(page, cli.provider, 'Default account');
       expect(cli.usage, `e2e/support/clis/${cli.provider}.ts needs its usage fact`).toBeDefined();
@@ -86,7 +91,10 @@ test.describe('plan usage in Settings', () => {
 
     test('an account on an API key says it has no plan limits, and one signed out shows no usage', async ({ page, relay }) => {
       const work = await apiAccount(relay, 'claude');
-      await relay.api(`/api/settings/providers/claude/accounts/${work.id}`, { method: 'PUT', body: { apiKey: 'sk-ant-e2e-usage-key-5678' } });
+      await relay.api(`/api/settings/providers/claude/accounts/${work.id}`, {
+        method: 'PUT',
+        body: { apiKey: 'sk-ant-e2e-usage-key-5678' },
+      });
       const out = await apiAccount(relay, 'claude', 'Old');
       mkdirSync(out.home, { recursive: true });
       writeFileSync(join(out.home, 'e2e-signed-out'), '');

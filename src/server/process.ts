@@ -157,7 +157,12 @@ export function resolveBin(bin: string): string {
  * itself, or the Node beside it for a Node script (`posixLaunch`). Throws when it is a script whose
  * program cannot be told.
  */
-export function launchOf(bin: string, args: readonly string[], env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): WindowsLaunch {
+export function launchOf(
+  bin: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+): WindowsLaunch {
   const resolved = resolveBin(bin);
   return platform === 'win32' ? windowsLaunch(resolved, args, env) : posixLaunch(resolved, args, env);
 }
@@ -288,7 +293,12 @@ function supervise(name: string, o: RunOptions, start: (options: ChildOptions) =
       detached: !needsConsole(name),
       // On Windows, no window: a console given to the child is hidden.
       windowsHide: true,
-      stdio: [o.stdin === undefined && !o.keepStdinOpen ? 'ignore' : 'pipe', 'pipe', 'pipe', ...(channel ? ['pipe' as const] : o.pipes ? ['pipe' as const, 'pipe' as const] : [])],
+      stdio: [
+        o.stdin === undefined && !o.keepStdinOpen ? 'ignore' : 'pipe',
+        'pipe',
+        'pipe',
+        ...(channel ? ['pipe' as const] : o.pipes ? ['pipe' as const, 'pipe' as const] : []),
+      ],
     });
     live.add(child);
     if (o.pipes && !channel) {
@@ -559,7 +569,12 @@ export async function converseFramed(o: {
 /** Spawn a long-lived interactive process (used for login flows). */
 export function spawnInteractive(bin: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess {
   const launch = launchOf(bin, args, env);
-  const child = spawn(launch.file, launch.args, { env: withLaunchEnv(env, launch), detached: true, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(launch.file, launch.args, {
+    env: withLaunchEnv(env, launch),
+    detached: true,
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
   live.add(child);
   child.on('close', () => live.delete(child));
   child.on('error', () => live.delete(child));

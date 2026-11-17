@@ -42,9 +42,7 @@ export interface GroupSection {
 const memberOf = (c: ConversationSummary): FamilyMember => ({
   id: c.id,
   createdAt: c.createdAt,
-  ...(c.branchFrom
-    ? { fromId: c.branchFrom.id, ...(c.branchFrom.via ? { via: c.branchFrom.via.map((v) => v.id) } : {}) }
-    : {}),
+  ...(c.branchFrom ? { fromId: c.branchFrom.id, ...(c.branchFrom.via ? { via: c.branchFrom.via.map((v) => v.id) } : {}) } : {}),
 });
 
 const familiesOf = (conversations: ConversationSummary[]) => families(conversations.map(memberOf));
@@ -236,10 +234,7 @@ export function undoMoves(
 }
 
 /** Moves the server now reports are dropped from `moves` (returns the same object when nothing changed). */
-export function settleMoves(
-  moves: Record<string, string | null>,
-  conversations: ConversationSummary[],
-): Record<string, string | null> {
+export function settleMoves(moves: Record<string, string | null>, conversations: ConversationSummary[]): Record<string, string | null> {
   const left = Object.entries(moves).filter(([id, groupId]) => {
     const c = conversations.find((x) => x.id === id);
     return c !== undefined && (c.groupId ?? null) !== groupId;

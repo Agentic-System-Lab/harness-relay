@@ -106,7 +106,12 @@ test.describe('notifications and sound', () => {
     await expect(card).toContainText('Test notification shown.');
     const { notes, tones } = await recorded(page);
     expect(notes).toEqual([
-      { title: 'Harness Relay', body: "Notifications are on: you'll be told here when an agent finishes or needs you.", tag: 'relay-test', silent: true },
+      {
+        title: 'Harness Relay',
+        body: "Notifications are on: you'll be told here when an agent finishes or needs you.",
+        tag: 'relay-test',
+        silent: true,
+      },
     ]);
     expect(tones).toBe(4);
 
@@ -116,7 +121,10 @@ test.describe('notifications and sound', () => {
     await expect(card.getByRole('checkbox', { name: 'A reply is done (or ended with an error)' })).toBeChecked();
   });
 
-  test('with its window behind another, a team to confirm and a finished reply each show a notification, and a click opens the chat', async ({ page, relay }) => {
+  test('with its window behind another, a team to confirm and a finished reply each show a notification, and a click opens the chat', async ({
+    page,
+    relay,
+  }) => {
     await recordAlerts(page, { prefs: ON, allowed: true });
     await startChat(page);
     const id = chatId(page);
@@ -185,4 +193,3 @@ test.describe('notifications and sound', () => {
     expect(await recorded(page)).toMatchObject({ notes: [], tones: 2 });
   });
 });
-

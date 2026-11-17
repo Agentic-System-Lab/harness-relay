@@ -42,13 +42,26 @@ export const RAILS: Record<DemoLang, RailSpec> = {
       { at: 'start', kind: 'you', say: 'Create a group, “{group}”, and open a template: teams are designed in templates.' },
       { at: 'chat-open', kind: 'you', say: 'Start a new chat and ask straight away: “Is relay mode a good design?”' },
       { at: 'q1-plan', kind: 'lead', team: 'q1', say: 'Sorts the chat into {group}, {plan}, and says why.' },
-      { at: 'q1-confirmed', kind: 'team', team: 'q1', say: 'Once you confirm, {rounds}: each reads the code on its own, then they check each other’s findings.' },
-      { at: 'approval', kind: 'agent', say: 'Wants to run a shell command over the relay code, which read-only asks about first: it waits in the chat, and you decline.' },
+      {
+        at: 'q1-confirmed',
+        kind: 'team',
+        team: 'q1',
+        say: 'Once you confirm, {rounds}: each reads the code on its own, then they check each other’s findings.',
+      },
+      {
+        at: 'approval',
+        kind: 'agent',
+        say: 'Wants to run a shell command over the relay code, which read-only asks about first: it waits in the chat, and you decline.',
+      },
       { at: 'q1-answered', kind: 'team', team: 'q1', say: 'The answers, down to a ranked list of what to change first.' },
       { at: 'q1-read', kind: 'you', say: 'Ask a new question: a short README note on relay mode.' },
       { at: 'q2-plan', kind: 'lead', team: 'q2', say: 'Picks a team for it: {names}, {rounds}. The review team stays until you confirm.' },
       { at: 'q2-confirmed', kind: 'team', team: 'q2', say: 'Draft the note and check it against the code.' },
-      { at: 'files', kind: 'you', say: 'Open Files and read relay mode’s hand-off in orchestrator.ts, right in the chat’s working directory.' },
+      {
+        at: 'files',
+        kind: 'you',
+        say: 'Open Files and read relay mode’s hand-off in orchestrator.ts, right in the chat’s working directory.',
+      },
       { at: 'search', kind: 'you', say: 'Search for “{term}” and find the chat by what the agents wrote.' },
     ],
   },
@@ -61,7 +74,11 @@ export const RAILS: Record<DemoLang, RailSpec> = {
       { at: 'chat-open', kind: 'you', say: '開新對話，直接提問：「接力模式的設計好嗎？」' },
       { at: 'q1-plan', kind: 'lead', team: 'q1', say: '依你的第一則訊息把對話歸進「{group}」，{plan}，並說明原因。' },
       { at: 'q1-confirmed', kind: 'team', team: 'q1', say: '確認後{rounds}圓桌：依序讀程式碼，每位都接續並挑戰前面的說法。' },
-      { at: 'approval', kind: 'agent', say: '想執行一小段腳本，實際測試交棒用的 @mention 解析，唯讀模式會先問你：它在聊天裡等你決定，你選擇拒絕。' },
+      {
+        at: 'approval',
+        kind: 'agent',
+        say: '想執行一小段腳本，實際測試交棒用的 @mention 解析，唯讀模式會先問你：它在聊天裡等你決定，你選擇拒絕。',
+      },
       { at: 'q1-answered', kind: 'team', team: 'q1', say: '結論：排好優先順序的修改建議，從最先該改的開始。' },
       { at: 'q1-read', kind: 'you', say: '問新的問題：寫一段放在 README 的接力模式說明。' },
       { at: 'q2-plan', kind: 'lead', team: 'q2', say: '為它挑新團隊：{names}，{rounds}。確認之前，對話仍是原本的審查團隊。' },
@@ -173,7 +190,15 @@ export function buildChapters(lang: DemoLang, spec: RailSpec, timeline: Timeline
     if (c.kind === 'you') chapters.push({ t, kind: 'you', who: c.who ?? spec.you, say });
     else if (c.kind === 'lead') {
       const lead = (team?.lead as Provider | undefined) ?? 'claude';
-      chapters.push({ t, kind: 'lead', who: c.who ?? spec.lead, say, av: initial(PROVIDER_LABEL[lead]), tone: lead, via: PROVIDER_LABEL[lead] });
+      chapters.push({
+        t,
+        kind: 'lead',
+        who: c.who ?? spec.lead,
+        say,
+        av: initial(PROVIDER_LABEL[lead]),
+        tone: lead,
+        via: PROVIDER_LABEL[lead],
+      });
     } else if (c.kind === 'agent') {
       const name = String(at.agent ?? '');
       const provider = (at.provider as Provider | undefined) ?? 'claude';
@@ -192,7 +217,8 @@ export const clock = (t: number) => `${Math.floor(t / 60)}:${String(t % 60).padS
 export function renderRail(chapters: Chapter[]): string {
   const I = ' '.repeat(14);
   const actor = (c: Chapter) => {
-    if (c.kind === 'you') return `<span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">${esc(c.who)}</span></span>`;
+    if (c.kind === 'you')
+      return `<span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">${esc(c.who)}</span></span>`;
     if (c.kind === 'team') {
       const stack = (c.members ?? []).map(([av, tone]) => `<span class="av t-${tone}">${esc(av)}</span>`).join('');
       return (

@@ -30,14 +30,26 @@ export interface LiveEndpoint {
 
 const env = process.env;
 export const ENDPOINTS: LiveEndpoint[] = [
-  ...(env.E2E_LIVE_OLLAMA ? [{ id: 'ollama' as const, name: 'Ollama', baseUrl: env.E2E_LIVE_OLLAMA, model: env.E2E_LIVE_OLLAMA_MODEL || 'gemma4:e4b' }] : []),
+  ...(env.E2E_LIVE_OLLAMA
+    ? [{ id: 'ollama' as const, name: 'Ollama', baseUrl: env.E2E_LIVE_OLLAMA, model: env.E2E_LIVE_OLLAMA_MODEL || 'gemma4:e4b' }]
+    : []),
   ...(env.E2E_LIVE_VLLM
-    ? [{ id: 'vllm' as const, name: 'vLLM', baseUrl: env.E2E_LIVE_VLLM, model: env.E2E_LIVE_VLLM_MODEL || 'default', ...(env.E2E_LIVE_VLLM_KEY ? { apiKey: env.E2E_LIVE_VLLM_KEY } : {}) }]
+    ? [
+        {
+          id: 'vllm' as const,
+          name: 'vLLM',
+          baseUrl: env.E2E_LIVE_VLLM,
+          model: env.E2E_LIVE_VLLM_MODEL || 'default',
+          ...(env.E2E_LIVE_VLLM_KEY ? { apiKey: env.E2E_LIVE_VLLM_KEY } : {}),
+        },
+      ]
     : []),
 ];
 export const TYPED_MODEL = env.E2E_LIVE_OLLAMA_TYPED;
 export const CLOUD = env.E2E_LIVE_CLOUD === '1';
-export const CLIS = (env.E2E_LIVE_CLIS || 'claude,codex,grok,cursor,antigravity,copilot,muse,opencode,goose,cline,openhands,pi').split(',').map((c) => c.trim()) as Provider[];
+export const CLIS = (env.E2E_LIVE_CLIS || 'claude,codex,grok,cursor,antigravity,copilot,muse,opencode,goose,cline,openhands,pi')
+  .split(',')
+  .map((c) => c.trim()) as Provider[];
 export const OPEN = ['opencode', 'goose', 'cline', 'openhands', 'pi'] as const;
 export const ENDPOINT_CLIS = ['claude', 'codex', 'grok', 'copilot'] as const;
 /** The CLIs with models of their own service (Cursor, Antigravity and Muse Code have nothing else: no endpoints). */
@@ -48,7 +60,8 @@ export const ownModel = (p: Provider): string | undefined => env[`E2E_LIVE_MODEL
  * Who runs only with full access: the open agents on native Windows (Harness Relay's own sandbox is not
  * there), and OpenCode on Linux (Harness Relay cannot watch its server in the sandbox's own network).
  */
-const fullOnly = (p: Provider) => (process.platform === 'win32' && (OPEN as readonly string[]).includes(p)) || (process.platform === 'linux' && p === 'opencode');
+const fullOnly = (p: Provider) =>
+  (process.platform === 'win32' && (OPEN as readonly string[]).includes(p)) || (process.platform === 'linux' && p === 'opencode');
 /** The permission a member that only answers runs with. */
 export const askPermission = (p: Provider): ConversationSettings['permission'] => (fullOnly(p) ? 'full' : 'read-only');
 /** The permission a member that writes runs with. */
@@ -66,7 +79,8 @@ export const endpointOf = (model: string | undefined): string | undefined => END
 export function sessionBackend(relay: RelayServer, conversationId: string, agentId: string): string | undefined {
   const db = new DatabaseSync(join(relay.dataDir, 'relay.db'), { readOnly: true });
   try {
-    const row = db.prepare('SELECT backend FROM agent_sessions WHERE conversation_id = ? AND agent_id = ?').get(conversationId, agentId) as { backend: string | null } | undefined;
+    const row = db.prepare('SELECT backend FROM agent_sessions WHERE conversation_id = ? AND agent_id = ?').get(conversationId, agentId) as
+      { backend: string | null } | undefined;
     return row?.backend ?? undefined;
   } finally {
     db.close();
@@ -79,7 +93,10 @@ export function sessionBackend(relay: RelayServer, conversationId: string, agent
  */
 export async function setUpEndpoints(relay: RelayServer): Promise<void> {
   for (const e of ENDPOINTS) {
-    await relay.api(`/api/backends/endpoints/${e.id}`, { method: 'PUT', body: { name: e.name, baseUrl: e.baseUrl, models: [e.model], apiKey: e.apiKey ?? null } });
+    await relay.api(`/api/backends/endpoints/${e.id}`, {
+      method: 'PUT',
+      body: { name: e.name, baseUrl: e.baseUrl, models: [e.model], apiKey: e.apiKey ?? null },
+    });
   }
   if (has('openhands')) await relay.api('/api/settings/providers/openhands', { method: 'PUT', body: { sandboxTerminal: true } });
 }
@@ -144,7 +161,13 @@ export async function liveTurn(
   const conv = await relay.api<Conversation>('/api/conversations', {
     body: {
       title: text.slice(0, 40),
-      agents: members.map((m, i) => ({ id: `m${i + 1}`, name: m.name ?? `Member${i + 1}`, provider: m.provider, role: '', ...(m.model ? { model: m.model } : {}) })),
+      agents: members.map((m, i) => ({
+        id: `m${i + 1}`,
+        name: m.name ?? `Member${i + 1}`,
+        provider: m.provider,
+        role: '',
+        ...(m.model ? { model: m.model } : {}),
+      })),
       settings: { mode: 'roundtable', rounds: 1, maxHops: 2, permission: 'read-only', approvals: 'ask', ...settings },
     },
   });
@@ -178,6 +201,14 @@ export async function liveTurn(
     const text = (m?.parts ?? []).flatMap((p) => (p.type === 'text' ? [p.text] : [])).join('');
     return { name: a.name, status: m?.status ?? 'none', ...(m?.error ? { error: m.error } : {}), text };
   });
-  const tools = current.messages.flatMap((m) => m.parts.flatMap((p) => (p.type === 'tool' ? [`${p.name} ${p.detail ?? ''} (${p.status}${p.error || p.output ? `: ${(p.error || p.output || '').replace(/\s+/g, ' ').slice(-200)}` : ''})`] : [])));
+  const tools = current.messages.flatMap((m) =>
+    m.parts.flatMap((p) =>
+      p.type === 'tool'
+        ? [
+            `${p.name} ${p.detail ?? ''} (${p.status}${p.error || p.output ? `: ${(p.error || p.output || '').replace(/\s+/g, ' ').slice(-200)}` : ''})`,
+          ]
+        : [],
+    ),
+  );
   return { conv: current, replies, approvals, tools };
 }

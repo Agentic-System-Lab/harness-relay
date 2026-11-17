@@ -75,7 +75,11 @@ test.describe('schedules', () => {
 
     // A program on this computer: no browser's sign-in, only the token.
     const call = (bearer: string) =>
-      fetch(url, { method: 'POST', headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' }, body: JSON.stringify({ event: 'ci-failed', branch: 'main' }) });
+      fetch(url, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ event: 'ci-failed', branch: 'main' }),
+      });
     expect((await call('wrong')).status).toBe(404);
     expect((await call(token)).status).toBe(202);
     await expect(hook).toContainText('Last called');

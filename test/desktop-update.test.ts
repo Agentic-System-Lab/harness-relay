@@ -99,7 +99,12 @@ const newest = (json: unknown, candidates?: boolean) => newestRelease(json, SOUR
 function githubRelease(tag: string, o: { prerelease?: boolean; draft?: boolean; digest?: boolean; copies?: boolean } = {}) {
   const asset = (end: string) => {
     const name = `Harness-Relay-${tag}${end}`;
-    return { name, browser_download_url: `${DOWNLOAD}/${tag}/${name}`, size: 1000, ...(o.digest === false ? {} : { digest: `sha256:${sha(name)}` }) };
+    return {
+      name,
+      browser_download_url: `${DOWNLOAD}/${tag}/${name}`,
+      size: 1000,
+      ...(o.digest === false ? {} : { digest: `sha256:${sha(name)}` }),
+    };
   };
   return {
     tag_name: tag,
@@ -113,7 +118,15 @@ function githubRelease(tag: string, o: { prerelease?: boolean; draft?: boolean; 
       asset('-linux-x86_64.AppImage'),
       asset('-linux-arm64.AppImage'),
       // The same installers again for the app's updates, in the release itself, as in 2026-11-12-rc.
-      ...(o.copies ? ['-mac-arm64-update.dmg', '-win-x64-update.exe', '-win-arm64-update.exe', '-linux-x86_64-update.AppImage', '-linux-arm64-update.AppImage'].map(asset) : []),
+      ...(o.copies
+        ? [
+            '-mac-arm64-update.dmg',
+            '-win-x64-update.exe',
+            '-win-arm64-update.exe',
+            '-linux-x86_64-update.AppImage',
+            '-linux-arm64-update.AppImage',
+          ].map(asset)
+        : []),
       { name: 'notes.txt', browser_download_url: `${DOWNLOAD}/${tag}/notes.txt` },
     ],
   };
@@ -133,12 +146,35 @@ describe('where the app downloads its updates from', () => {
   });
 
   it('refuses a repository that is not owner/name, and a token that is not one, never saying the token', () => {
-    for (const repo of ['acme', 'acme/', '/u', 'acme/u/x', 'https://github.com/acme/u', 'acme/u.git', 'acme/..', 'acme/.', '-acme/u', 'acme-/u', 'ac--me/u', 'acme/u?x', 'a b/u', 'acme/u#x']) {
+    for (const repo of [
+      'acme',
+      'acme/',
+      '/u',
+      'acme/u/x',
+      'https://github.com/acme/u',
+      'acme/u.git',
+      'acme/..',
+      'acme/.',
+      '-acme/u',
+      'acme-/u',
+      'ac--me/u',
+      'acme/u?x',
+      'a b/u',
+      'acme/u#x',
+    ]) {
       const r = updateSourceFrom({ RELAY_UPDATES_REPO: repo });
       expect(r.ok, repo).toBe(false);
       expect(!r.ok && r.error, repo).toMatch(/^RELAY_UPDATES_REPO: /);
     }
-    for (const token of ['short', `${TOKEN}\r\nX-Other: 1`, `Bearer ${TOKEN}`, `${TOKEN}é`, `${TOKEN} ${TOKEN}`, 'github_pat_', `github_pat_${'a'.repeat(19)}`]) {
+    for (const token of [
+      'short',
+      `${TOKEN}\r\nX-Other: 1`,
+      `Bearer ${TOKEN}`,
+      `${TOKEN}é`,
+      `${TOKEN} ${TOKEN}`,
+      'github_pat_',
+      `github_pat_${'a'.repeat(19)}`,
+    ]) {
       const r = updateSourceFrom({ RELAY_UPDATES_TOKEN: token });
       expect(r.ok, token).toBe(false);
       expect(!r.ok && r.error).toMatch(/^RELAY_UPDATES_TOKEN: /);
@@ -147,7 +183,13 @@ describe('where the app downloads its updates from', () => {
   });
 
   it('takes a fine-grained token only: any other kind cannot be kept to one repository, and it goes into every copy of the app', () => {
-    for (const token of [`ghp_${'a'.repeat(36)}`, `gho_${'a'.repeat(36)}`, `ghs_${'a'.repeat(36)}`, `ghu_${'a'.repeat(36)}`, 'a'.repeat(40)]) {
+    for (const token of [
+      `ghp_${'a'.repeat(36)}`,
+      `gho_${'a'.repeat(36)}`,
+      `ghs_${'a'.repeat(36)}`,
+      `ghu_${'a'.repeat(36)}`,
+      'a'.repeat(40),
+    ]) {
       const r = updateSourceFrom({ RELAY_UPDATES_TOKEN: token });
       expect(r.ok, token).toBe(false);
       expect(!r.ok && r.error).toMatch(/^RELAY_UPDATES_TOKEN: not a fine-grained personal access token \(github_pat_…\)/);
@@ -189,7 +231,11 @@ describe('where the app downloads its updates from', () => {
 
   it('downloads with the token, asking for the file itself, only from a private repository', () => {
     expect(downloadHeaders(SOURCE)).toBeUndefined();
-    expect(downloadHeaders(PRIVATE)).toEqual({ Accept: 'application/octet-stream', 'X-GitHub-Api-Version': '2022-11-28', Authorization: `Bearer ${TOKEN}` });
+    expect(downloadHeaders(PRIVATE)).toEqual({
+      Accept: 'application/octet-stream',
+      'X-GitHub-Api-Version': '2022-11-28',
+      Authorization: `Bearer ${TOKEN}`,
+    });
   });
 });
 
@@ -226,7 +272,11 @@ describe('the Release workflow’s check that an app can download the copies', (
     const now = updateSourceFingerprint(PRIVATE);
     expect(sameUpdateSource([now, `${now}\n`, now, now, now], PRIVATE, 5)).toBeUndefined();
     // Built before the secret was set (no token), or with the old token, or for another repository.
-    for (const before of [{ repo: 'acme/relay-updates' }, { repo: 'acme/relay-updates', token: `${TOKEN}old` }, { repo: 'acme/other', token: TOKEN }]) {
+    for (const before of [
+      { repo: 'acme/relay-updates' },
+      { repo: 'acme/relay-updates', token: `${TOKEN}old` },
+      { repo: 'acme/other', token: TOKEN },
+    ]) {
       const error = sameUpdateSource([now, updateSourceFingerprint(before), now, now, now], PRIVATE, 5);
       expect(error).toMatch(/^4 of the 5 installers were built/);
       expect(error).toMatch(/run the whole workflow again \(Re-run all jobs\), not only its failed jobs$/);
@@ -243,7 +293,11 @@ describe('the Release workflow’s check that an app can download the copies', (
     expect(own.asked).toEqual([
       {
         url: 'https://api.github.com/repos/acme/relay-updates/releases/tags/2026-11-13',
-        init: { headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', Authorization: `Bearer ${TOKEN}` }, redirect: 'manual', signal: expect.any(AbortSignal) },
+        init: {
+          headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', Authorization: `Bearer ${TOKEN}` },
+          redirect: 'manual',
+          signal: expect.any(AbortSignal),
+        },
       },
     ]);
     const open = api(both);
@@ -262,14 +316,20 @@ describe('the Release workflow’s check that an app can download the copies', (
       (await copiesReadable(api(answer).fetch, { source, tag: '2026-11-13', copies, token, sleep })).error;
     for (const status of [401, 403, 404, 410]) {
       const error = await errorOf(refused(status), PRIVATE, WORKFLOW);
-      expect(error, String(status)).toMatch(new RegExp(`^The app's token \\(UPDATES_READ_TOKEN\\) cannot read the release 2026-11-13 in acme/relay-updates \\(GitHub answered ${status}\\)`));
+      expect(error, String(status)).toMatch(
+        new RegExp(
+          `^The app's token \\(UPDATES_READ_TOKEN\\) cannot read the release 2026-11-13 in acme/relay-updates \\(GitHub answered ${status}\\)`,
+        ),
+      );
       // A secret to change: the installers must be built again with it.
       expect(error).toMatch(/run the whole workflow again \(Re-run all jobs, not only the failed ones\)/);
       expect(error).not.toContain(TOKEN);
       expect(error).not.toContain(WORKFLOW);
     }
     // Waiting only for the organization's approval: the installers already hold the token.
-    expect(await errorOf(refused(404), PRIVATE)).toMatch(/If it only waited for the organization's approval and has it now, Re-run failed jobs is enough/);
+    expect(await errorOf(refused(404), PRIVATE)).toMatch(
+      /If it only waited for the organization's approval and has it now, Re-run failed jobs is enough/,
+    );
     expect(await errorOf(refused(404), { repo: 'acme/relay-updates' }, WORKFLOW)).toMatch(
       /^The release 2026-11-13 in acme\/relay-updates cannot be read without a token of its own \(GitHub answered 404\): for a private repository, set the UPDATES_READ_TOKEN secret, then run the whole workflow again/,
     );
@@ -283,7 +343,9 @@ describe('the Release workflow’s check that an app can download the copies', (
       { ...uploaded(42, copies[1]!), state: 'starter' },
     ]);
     expect(await errorOf(halves)).toMatch(new RegExp(`does not list ${copies[0]!.name}, ${copies[1]!.name}, whole: `));
-    expect(await errorOf(listing([uploaded(41, copies[0]!), { ...uploaded(42, copies[1]!), size: 1999 }]))).toMatch(/does not list Harness-Relay-2026-11-13-win-x64-update.exe, whole: /);
+    expect(await errorOf(listing([uploaded(41, copies[0]!), { ...uploaded(42, copies[1]!), size: 1999 }]))).toMatch(
+      /does not list Harness-Relay-2026-11-13-win-x64-update.exe, whole: /,
+    );
     expect(await errorOf(() => new Response('not json'))).toMatch(/does not list/);
   });
 
@@ -292,7 +354,9 @@ describe('the Release workflow’s check that an app can download the copies', (
     const sleep = async (ms: number) => void waits.push(ms);
     // Two failures, then the answer.
     let n = 0;
-    const flaky = api(() => (++n <= 2 ? (n === 1 ? new Response('busy', { status: 502 }) : Promise.reject(new Error('socket hang up'))) : both()));
+    const flaky = api(() =>
+      ++n <= 2 ? (n === 1 ? new Response('busy', { status: 502 }) : Promise.reject(new Error('socket hang up'))) : both(),
+    );
     expect(await copiesReadable(flaky.fetch, { source: PRIVATE, tag: '2026-11-13', copies, sleep })).toEqual({});
     expect(flaky.asked).toHaveLength(3);
     expect(waits).toEqual([COPIES_RETRY_MS, 2 * COPIES_RETRY_MS]);
@@ -303,7 +367,10 @@ describe('the Release workflow’s check that an app can download the copies', (
       `GitHub could not be asked for the release 2026-11-13 in acme/relay-updates (offline), ${COPIES_TRIES} times: run the failed job again (Re-run failed jobs); nothing needs building again`,
     );
     expect(down.asked).toHaveLength(COPIES_TRIES);
-    expect((await copiesReadable(api(() => new Response('', { status: 503 })).fetch, { source: PRIVATE, tag: '2026-11-13', copies, sleep })).error).toMatch(/\(GitHub answered 503\), 3 times/);
+    expect(
+      (await copiesReadable(api(() => new Response('', { status: 503 })).fetch, { source: PRIVATE, tag: '2026-11-13', copies, sleep }))
+        .error,
+    ).toMatch(/\(GitHub answered 503\), 3 times/);
     expect(COPIES_TRIES).toBe(3);
   });
 
@@ -320,9 +387,13 @@ describe('the Release workflow’s check that an app can download the copies', (
     expect((await copiesReadable(gone.fetch, { source: PRIVATE, tag: '2026-11-13', copies, sleep })).error).toMatch(/GitHub answered 404/);
     expect(gone.asked).toHaveLength(2);
     // Renamed or moved: GitHub's 301, not followed, so that the token goes nowhere else.
-    const moved = api(() => new Response('', { status: 301, headers: { location: 'https://api.github.com/repositories/42/releases/tags/2026-11-13' } }));
+    const moved = api(
+      () => new Response('', { status: 301, headers: { location: 'https://api.github.com/repositories/42/releases/tags/2026-11-13' } }),
+    );
     const error = (await copiesReadable(moved.fetch, { source: PRIVATE, tag: '2026-11-13', copies, sleep })).error;
-    expect(error).toMatch(/^The copies' repository acme\/relay-updates has moved \(GitHub answered 301 for https:\/\/api\.github\.com\/repositories\/42\/releases\/tags\/2026-11-13\): set the UPDATES_REPO variable to its new name/);
+    expect(error).toMatch(
+      /^The copies' repository acme\/relay-updates has moved \(GitHub answered 301 for https:\/\/api\.github\.com\/repositories\/42\/releases\/tags\/2026-11-13\): set the UPDATES_REPO variable to its new name/,
+    );
     expect(moved.asked).toHaveLength(1);
     expect(moved.asked[0]!.init.redirect).toBe('manual');
   });
@@ -331,7 +402,8 @@ describe('the Release workflow’s check that an app can download the copies', (
     const now = new Date('2026-11-13T00:00:00Z');
     const waits: number[] = [];
     const sleep = async (ms: number) => void waits.push(ms);
-    const limited = (headers: Record<string, string>, status = 403) => new Response('{"message":"API rate limit exceeded"}', { status, headers });
+    const limited = (headers: Record<string, string>, status = 403) =>
+      new Response('{"message":"API rate limit exceeded"}', { status, headers });
     const reset = (s: number) => String(now.getTime() / 1000 + s);
     // The read token's requests used up, back in two minutes: waited out, then asked again.
     let n = 0;
@@ -346,9 +418,17 @@ describe('the Release workflow’s check that an app can download the copies', (
     expect(waits).toEqual([30_000]);
     // Back only in an hour: not waited for; a warning, not an error, since the apps then only update from the installers.
     waits.length = 0;
-    const later = await copiesReadable(api(() => limited({ 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': reset(3600) })).fetch, { source: PRIVATE, tag: '2026-11-13', copies, now, sleep });
+    const later = await copiesReadable(api(() => limited({ 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': reset(3600) })).fetch, {
+      source: PRIVATE,
+      tag: '2026-11-13',
+      copies,
+      now,
+      sleep,
+    });
     expect(later.error).toBeUndefined();
-    expect(later.warning).toMatch(/^GitHub's limit on requests \(answered 403\) kept the release 2026-11-13 in acme\/relay-updates from being checked: /);
+    expect(later.warning).toMatch(
+      /^GitHub's limit on requests \(answered 403\) kept the release 2026-11-13 in acme\/relay-updates from being checked: /,
+    );
     expect(waits).toEqual([]);
     expect(COPIES_LIMIT_WAIT_MS).toBe(5 * 60_000);
     // Still limited each time it asks: warned about after COPIES_TRIES.
@@ -366,12 +446,27 @@ describe('the Release workflow’s check that an app can download the copies', (
     waits.length = 0;
     n = 0;
     const secondary = api(() =>
-      ++n === 1 ? new Response('{"message":"You have exceeded a secondary rate limit."}', { status: 403, headers: { 'x-ratelimit-remaining': '4000' } }) : both(),
+      ++n === 1
+        ? new Response('{"message":"You have exceeded a secondary rate limit."}', {
+            status: 403,
+            headers: { 'x-ratelimit-remaining': '4000' },
+          })
+        : both(),
     );
     expect(await copiesReadable(secondary.fetch, { source: PRIVATE, tag: '2026-11-13', copies, now, sleep })).toEqual({});
     expect(waits).toEqual([60_000]);
     // A plain 403, with requests left: the token's, not the limit's.
-    expect((await copiesReadable(api(() => limited({ 'x-ratelimit-remaining': '4999' })).fetch, { source: PRIVATE, tag: '2026-11-13', copies, now, sleep })).error).toMatch(/cannot read/);
+    expect(
+      (
+        await copiesReadable(api(() => limited({ 'x-ratelimit-remaining': '4999' })).fetch, {
+          source: PRIVATE,
+          tag: '2026-11-13',
+          copies,
+          now,
+          sleep,
+        })
+      ).error,
+    ).toMatch(/cannot read/);
   });
 
   it("asks GitHub for the repository's releases before anything is built, failing on a token that cannot read them and warning when GitHub does not say", async () => {
@@ -382,7 +477,11 @@ describe('the Release workflow’s check that an app can download the copies', (
     expect(ok.asked).toEqual([
       {
         url: 'https://api.github.com/repos/acme/relay-updates/releases?per_page=1',
-        init: { headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', Authorization: `Bearer ${TOKEN}` }, redirect: 'manual', signal: expect.any(AbortSignal) },
+        init: {
+          headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', Authorization: `Bearer ${TOKEN}` },
+          redirect: 'manual',
+          signal: expect.any(AbortSignal),
+        },
       },
     ]);
     const open = api(() => new Response('{}'));
@@ -390,67 +489,132 @@ describe('the Release workflow’s check that an app can download the copies', (
     expect(open.asked[0]!.init.headers.Authorization).toBe(`Bearer ${WORKFLOW}`);
     for (const status of [401, 403, 404]) {
       const r = await repositoryReadable(api(() => new Response('{"message":"no"}', { status })).fetch, { source: PRIVATE, sleep });
-      expect(r.error, String(status)).toMatch(new RegExp(`^The app's token \\(UPDATES_READ_TOKEN\\) cannot read the releases of the copies' repository acme/relay-updates \\(GitHub answered ${status}\\)`));
+      expect(r.error, String(status)).toMatch(
+        new RegExp(
+          `^The app's token \\(UPDATES_READ_TOKEN\\) cannot read the releases of the copies' repository acme/relay-updates \\(GitHub answered ${status}\\)`,
+        ),
+      );
       expect(r.error).not.toContain(TOKEN);
     }
     // A token that may see the repository but not read its contents (Contents left at No access): GitHub
     // answers for the repository itself, never for its releases, so the run stops here all the same.
     const metadataOnly = api((url) =>
       url.endsWith('/releases?per_page=1')
-        ? new Response('{"message":"Resource not accessible by personal access token"}', { status: 403, headers: { 'x-ratelimit-remaining': '4999' } })
+        ? new Response('{"message":"Resource not accessible by personal access token"}', {
+            status: 403,
+            headers: { 'x-ratelimit-remaining': '4999' },
+          })
         : new Response(JSON.stringify({ full_name: PRIVATE.repo, private: true })),
     );
-    expect((await repositoryReadable(metadataOnly.fetch, { source: PRIVATE, sleep })).error).toMatch(/may not read its contents \(Contents: Read-only\)/);
+    expect((await repositoryReadable(metadataOnly.fetch, { source: PRIVATE, sleep })).error).toMatch(
+      /may not read its contents \(Contents: Read-only\)/,
+    );
     // A 404 is not asked again here: no release is being made.
     const missing = api(() => new Response('{"message":"Not Found"}', { status: 404 }));
     await repositoryReadable(missing.fetch, { source: PRIVATE, sleep });
     expect(missing.asked).toHaveLength(1);
-    expect((await repositoryReadable(api(() => new Response('', { status: 404 })).fetch, { source: { repo: PRIVATE.repo }, token: WORKFLOW, sleep })).error).toMatch(
+    expect(
+      (
+        await repositoryReadable(api(() => new Response('', { status: 404 })).fetch, {
+          source: { repo: PRIVATE.repo },
+          token: WORKFLOW,
+          sleep,
+        })
+      ).error,
+    ).toMatch(
       /cannot be read without a token of its own \(GitHub answered 404\): for a private repository, set the UPDATES_READ_TOKEN secret/,
     );
-    expect((await repositoryReadable(api(() => new Response('', { status: 301, headers: { location: 'https://api.github.com/repositories/42' } })).fetch, { source: PRIVATE, sleep })).error).toMatch(/has moved/);
+    expect(
+      (
+        await repositoryReadable(
+          api(() => new Response('', { status: 301, headers: { location: 'https://api.github.com/repositories/42' } })).fetch,
+          { source: PRIVATE, sleep },
+        )
+      ).error,
+    ).toMatch(/has moved/);
     // GitHub failing, or limiting requests: a warning, the copies' check asking again after the builds.
     const down = await repositoryReadable(api(() => Promise.reject(new Error('offline'))).fetch, { source: PRIVATE, sleep });
-    expect(down).toEqual({ warning: "GitHub could not be asked for the copies' repository acme/relay-updates (offline): the copies' check after the builds will ask again" });
-    const limited = await repositoryReadable(api(() => new Response('', { status: 429, headers: { 'retry-after': '600' } })).fetch, { source: PRIVATE, sleep });
-    expect(limited.warning).toMatch(/^GitHub's limit on requests \(answered 429\) kept the copies' repository acme\/relay-updates from being checked now/);
+    expect(down).toEqual({
+      warning:
+        "GitHub could not be asked for the copies' repository acme/relay-updates (offline): the copies' check after the builds will ask again",
+    });
+    const limited = await repositoryReadable(api(() => new Response('', { status: 429, headers: { 'retry-after': '600' } })).fetch, {
+      source: PRIVATE,
+      sleep,
+    });
+    expect(limited.warning).toMatch(
+      /^GitHub's limit on requests \(answered 429\) kept the copies' repository acme\/relay-updates from being checked now/,
+    );
   });
 
   it('gives each question to GitHub a time limit, so that one that hangs is asked again', async () => {
     const waits: number[] = [];
     let n = 0;
     const hangs: CopiesFetch = (_url, init) =>
-      ++n === 1 ? new Promise((_, fail) => init.signal.addEventListener('abort', () => fail(init.signal.reason), { once: true })) : Promise.resolve(both());
+      ++n === 1
+        ? new Promise((_, fail) => init.signal.addEventListener('abort', () => fail(init.signal.reason), { once: true }))
+        : Promise.resolve(both());
     expect(COPIES_REQUEST_TIMEOUT_MS).toBe(30_000);
-    expect(await copiesReadable(hangs, { source: PRIVATE, tag: '2026-11-13', copies, sleep: async (ms) => void waits.push(ms), timeoutMs: 50 })).toEqual({});
+    expect(
+      await copiesReadable(hangs, { source: PRIVATE, tag: '2026-11-13', copies, sleep: async (ms) => void waits.push(ms), timeoutMs: 50 }),
+    ).toEqual({});
     expect(n).toBe(2);
     expect(waits).toEqual([COPIES_RETRY_MS]);
   });
 
   it('says a 404 that stays may only be a release slow to appear, for which the failed job is enough', async () => {
-    const r = await copiesReadable(api(() => new Response('', { status: 404 })).fetch, { source: PRIVATE, tag: '2026-11-13', copies, sleep: async () => undefined });
+    const r = await copiesReadable(api(() => new Response('', { status: 404 })).fetch, {
+      source: PRIVATE,
+      tag: '2026-11-13',
+      copies,
+      sleep: async () => undefined,
+    });
     expect(r.error).toMatch(/If the release was only slow to appear, Re-run failed jobs is enough\.$/);
-    const denied = await copiesReadable(api(() => new Response('', { status: 401 })).fetch, { source: PRIVATE, tag: '2026-11-13', copies, sleep: async () => undefined });
+    const denied = await copiesReadable(api(() => new Response('', { status: 401 })).fetch, {
+      source: PRIVATE,
+      tag: '2026-11-13',
+      copies,
+      sleep: async () => undefined,
+    });
     expect(denied.error).not.toMatch(/slow to appear/);
   });
 
   it('warns when the read token expires soon, as GitHub says with its answer, and never for the workflow’s own', async () => {
     const now = new Date('2026-11-13T00:00:00Z');
     const expiring = (header: string) => () =>
-      new Response(JSON.stringify({ assets: [uploaded(41, copies[0]!), uploaded(42, copies[1]!)] }), { headers: { 'github-authentication-token-expiration': header } });
+      new Response(JSON.stringify({ assets: [uploaded(41, copies[0]!), uploaded(42, copies[1]!)] }), {
+        headers: { 'github-authentication-token-expiration': header },
+      });
     const soon = await copiesReadable(api(expiring('2027-01-01 00:00:00 UTC')).fetch, { source: PRIVATE, tag: '2026-11-13', copies, now });
     expect(soon.error).toBeUndefined();
     expect(soon.warning).toMatch(/^The app's token \(UPDATES_READ_TOKEN\) expires on 2027-01-01, in 49 days: /);
     expect(soon.warning).toMatch(/Set a new one and release with it before then, and revoke the old one later$/);
     expect(soon.warning).not.toContain(TOKEN);
     // Far enough, never, or another kind of answer: no warning.
-    expect((await copiesReadable(api(expiring('2028-01-01 00:00:00 UTC')).fetch, { source: PRIVATE, tag: '2026-11-13', copies, now })).warning).toBeUndefined();
+    expect(
+      (await copiesReadable(api(expiring('2028-01-01 00:00:00 UTC')).fetch, { source: PRIVATE, tag: '2026-11-13', copies, now })).warning,
+    ).toBeUndefined();
     expect((await copiesReadable(api(both).fetch, { source: PRIVATE, tag: '2026-11-13', copies, now })).warning).toBeUndefined();
     // The workflow's own token, asked with in place of none, is not the app's.
-    expect((await copiesReadable(api(expiring('2026-11-20 00:00:00 UTC')).fetch, { source: SOURCE, tag: '2026-11-13', copies, token: WORKFLOW, now })).warning).toBeUndefined();
+    expect(
+      (
+        await copiesReadable(api(expiring('2026-11-20 00:00:00 UTC')).fetch, {
+          source: SOURCE,
+          tag: '2026-11-13',
+          copies,
+          token: WORKFLOW,
+          now,
+        })
+      ).warning,
+    ).toBeUndefined();
     // A copy missing, and the token expiring: both said.
     const both2 = await copiesReadable(
-      api(() => new Response(JSON.stringify({ assets: [uploaded(41, copies[0]!)] }), { headers: { 'github-authentication-token-expiration': '2026-12-01 00:00:00 UTC' } })).fetch,
+      api(
+        () =>
+          new Response(JSON.stringify({ assets: [uploaded(41, copies[0]!)] }), {
+            headers: { 'github-authentication-token-expiration': '2026-12-01 00:00:00 UTC' },
+          }),
+      ).fetch,
       { source: PRIVATE, tag: '2026-11-13', copies, now },
     );
     expect(both2.error).toMatch(/does not list/);
@@ -467,7 +631,8 @@ describe('the Release workflow’s check that an app can download the copies', (
     expect(expiryWarning('2027-02-10 00:00:00 UTC', now)).toMatch(/in 89 days/);
     expect(expiryWarning('2027-02-11 00:00:00 UTC', now)).toBeUndefined();
     expect(expiryWarning('2027-03-01 00:00:00 UTC', now)).toBeUndefined();
-    for (const header of [null, '', 'never', '2026-12-13', '2026-13-45 00:00:00 UTC', '2026-12-13T00:00:00Z']) expect(expiryWarning(header, now), String(header)).toBeUndefined();
+    for (const header of [null, '', 'never', '2026-12-13', '2026-13-45 00:00:00 UTC', '2026-12-13T00:00:00Z'])
+      expect(expiryWarning(header, now), String(header)).toBeUndefined();
   });
 
   it('puts the token into the app encoded, so that no token’s text stands in it, and reads it back', () => {
@@ -532,7 +697,12 @@ describe('the Release workflow’s check that an app can download the copies', (
 describe.skipIf(process.platform === 'win32')("the Release workflow's update steps, run", () => {
   const root = join(__dirname, '..');
   const run = (script: string, cwd: string, env: Record<string, string>) =>
-    spawnSync('bash', ['-e', '-o', 'pipefail', '-c', script], { cwd, encoding: 'utf8', timeout: slow(20_000), env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '', ...env } });
+    spawnSync('bash', ['-e', '-o', 'pipefail', '-c', script], {
+      cwd,
+      encoding: 'utf8',
+      timeout: slow(20_000),
+      env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '', ...env },
+    });
   /** A folder as the release job has it: the update source's module, the builds' fingerprints, the installers and the copies. */
   function job(fingerprints: string[], copies: Record<string, number> = {}) {
     const at = mkdtempSync(join(dir, 'job-'));
@@ -559,7 +729,7 @@ describe.skipIf(process.platform === 'win32')("the Release workflow's update ste
     "import { appendFileSync, readFileSync } from 'node:fs';",
     "const answer = JSON.parse(readFileSync(new URL('github-answer.json', import.meta.url), 'utf8'));",
     'globalThis.fetch = async (url, init) => {',
-    "  const asked = { url: String(url), authorization: init?.headers?.Authorization ?? null };",
+    '  const asked = { url: String(url), authorization: init?.headers?.Authorization ?? null };',
     "  appendFileSync(new URL('github-asked.jsonl', import.meta.url), JSON.stringify(asked) + '\\n');",
     '  return new Response(JSON.stringify(answer.release), { status: answer.status });',
     '};',
@@ -576,7 +746,10 @@ describe.skipIf(process.platform === 'win32')("the Release workflow's update ste
   function githubAsked(at: string): { url: string; authorization: string | null }[] {
     const log = join(at, 'github-asked.jsonl');
     if (!existsSync(log)) return [];
-    const asked = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { url: string; authorization: string | null });
+    const asked = readFileSync(log, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { url: string; authorization: string | null });
     rmSync(log);
     return asked;
   }
@@ -658,23 +831,40 @@ describe.skipIf(process.platform === 'win32')("the Release workflow's update ste
     expect(ok.stderr).toBe('');
     expect(ok.stdout).toContain('The app will download its updates from acme/relay-updates, with the read token.');
     // Asked with the read token, as the app asks, not with the workflow's.
-    expect(githubAsked(at)).toEqual([{ url: 'https://api.github.com/repos/acme/relay-updates/releases?per_page=1', authorization: `Bearer ${TOKEN}` }]);
+    expect(githubAsked(at)).toEqual([
+      { url: 'https://api.github.com/repos/acme/relay-updates/releases?per_page=1', authorization: `Bearer ${TOKEN}` },
+    ]);
     // Neither the variable nor the secret set (the runner passes them empty): the default repository, asked with the workflow's token.
     const open = run(script, at, { ...env, RELAY_UPDATES_REPO: '', RELAY_UPDATES_TOKEN: '' });
     expect(open.stderr).toBe('');
     expect(open.stdout).toContain('from Agentic-System-Lab/harness-relay-updates, without a token.');
-    expect(githubAsked(at)).toEqual([{ url: `https://api.github.com/repos/${UPDATES_REPO}/releases?per_page=1`, authorization: 'Bearer ghs_workflow' }]);
+    expect(githubAsked(at)).toEqual([
+      { url: `https://api.github.com/repos/${UPDATES_REPO}/releases?per_page=1`, authorization: 'Bearer ghs_workflow' },
+    ]);
     // A read token GitHub refuses: the run stops here, before anything is built.
     const refusedAt = job([]);
-    const refused = run(script, refusedAt, { NODE_OPTIONS: stubbed(refusedAt, { status: 401 }), GH_TOKEN: 'ghs_workflow', RELAY_UPDATES_REPO: PRIVATE.repo, RELAY_UPDATES_TOKEN: TOKEN });
+    const refused = run(script, refusedAt, {
+      NODE_OPTIONS: stubbed(refusedAt, { status: 401 }),
+      GH_TOKEN: 'ghs_workflow',
+      RELAY_UPDATES_REPO: PRIVATE.repo,
+      RELAY_UPDATES_TOKEN: TOKEN,
+    });
     expect(refused.status).toBe(1);
-    expect(refused.stderr).toMatch(/^::error::The app's token \(UPDATES_READ_TOKEN\) cannot read the releases of the copies' repository acme\/relay-updates \(GitHub answered 401\)/);
+    expect(refused.stderr).toMatch(
+      /^::error::The app's token \(UPDATES_READ_TOKEN\) cannot read the releases of the copies' repository acme\/relay-updates \(GitHub answered 401\)/,
+    );
     expect(refused.stderr + refused.stdout).not.toContain(TOKEN);
-    expect(githubAsked(refusedAt)).toEqual([{ url: 'https://api.github.com/repos/acme/relay-updates/releases?per_page=1', authorization: `Bearer ${TOKEN}` }]);
+    expect(githubAsked(refusedAt)).toEqual([
+      { url: 'https://api.github.com/repos/acme/relay-updates/releases?per_page=1', authorization: `Bearer ${TOKEN}` },
+    ]);
     // An update source that is not valid: stopped before GitHub is asked.
     for (const [name, value, error] of [
       ['RELAY_UPDATES_TOKEN', `ghp_${'a'.repeat(36)}`, /^::error::RELAY_UPDATES_TOKEN: not a fine-grained/],
-      ['RELAY_UPDATES_REPO', 'Agentic-System-Lab/harness-relay', /^::error::RELAY_UPDATES_REPO: the copies go in a repository of their own/],
+      [
+        'RELAY_UPDATES_REPO',
+        'Agentic-System-Lab/harness-relay',
+        /^::error::RELAY_UPDATES_REPO: the copies go in a repository of their own/,
+      ],
       ['RELAY_UPDATES_REPO', 'not a repo', /^::error::RELAY_UPDATES_REPO: /],
     ] as const) {
       const r = run(script, at, { ...env, [name]: value });
@@ -690,7 +880,10 @@ describe.skipIf(process.platform === 'win32')("the Release workflow's update ste
     const bin = join(at, 'bin');
     mkdirSync(bin);
     // gh says what it was asked (and with which token), and has a release under the tag when GH_HAS says so.
-    writeFileSync(join(bin, 'gh'), '#!/bin/sh\necho "$GH_TOKEN $*" >> "$GH_LOG"\nif [ "$1 $2" = "release view" ]; then [ "$GH_HAS" = yes ]; fi\n');
+    writeFileSync(
+      join(bin, 'gh'),
+      '#!/bin/sh\necho "$GH_TOKEN $*" >> "$GH_LOG"\nif [ "$1 $2" = "release view" ]; then [ "$GH_HAS" = yes ]; fi\n',
+    );
     chmodSync(join(bin, 'gh'), 0o755);
     const log = join(at, 'gh.log');
     const publish = (env: Record<string, string>) => {
@@ -728,7 +921,10 @@ describe.skipIf(process.platform === 'win32')("the Release workflow's update ste
     // No write token, this repository, or no repository at all: nothing asked of GitHub.
     for (const [env, error] of [
       [{ GH_TOKEN: '' }, /^::error::The UPDATES_TOKEN secret is not set/m],
-      [{ RELAY_UPDATES_REPO: 'Agentic-System-Lab/Harness-Relay' }, /^::error::RELAY_UPDATES_REPO: the copies go in a repository of their own/m],
+      [
+        { RELAY_UPDATES_REPO: 'Agentic-System-Lab/Harness-Relay' },
+        /^::error::RELAY_UPDATES_REPO: the copies go in a repository of their own/m,
+      ],
       [{ RELAY_UPDATES_REPO: 'acme/..' }, /^::error::RELAY_UPDATES_REPO: /m],
     ] as const) {
       const r = publish(env);
@@ -768,14 +964,23 @@ describe.skipIf(process.platform === 'win32')("the Release workflow's update ste
     const tagged = { url: 'https://api.github.com/repos/acme/relay-updates/releases/tags/2026-11-13', authorization: `Bearer ${TOKEN}` };
     expect(githubAsked(ok)).toEqual([tagged]);
     // Neither the variable nor the secret set (the runner passes them empty): the default repository, asked with the workflow's token.
-    const open = run(script, ok, { ...env, RELAY_UPDATES_REPO: '', RELAY_UPDATES_TOKEN: '', NODE_OPTIONS: stubbed(ok, { release: listed }) });
+    const open = run(script, ok, {
+      ...env,
+      RELAY_UPDATES_REPO: '',
+      RELAY_UPDATES_TOKEN: '',
+      NODE_OPTIONS: stubbed(ok, { release: listed }),
+    });
     expect(open.stderr).toBe('');
     expect(open.stdout).toContain(`An app built with no token can download the 2 copies from ${UPDATES_REPO}.`);
-    expect(githubAsked(ok)).toEqual([{ url: `https://api.github.com/repos/${UPDATES_REPO}/releases/tags/2026-11-13`, authorization: 'Bearer ghs_workflow' }]);
+    expect(githubAsked(ok)).toEqual([
+      { url: `https://api.github.com/repos/${UPDATES_REPO}/releases/tags/2026-11-13`, authorization: 'Bearer ghs_workflow' },
+    ]);
     const short = job([], { ...copies, 'Harness-Relay-2026-11-13-win-x64-update.exe': 4 });
     const failed = run(script, short, { ...env, NODE_OPTIONS: stubbed(short, { release: listed }) });
     expect(failed.status).toBe(1);
-    expect(failed.stderr).toMatch(/^::error::The release 2026-11-13 in acme\/relay-updates does not list Harness-Relay-2026-11-13-win-x64-update.exe, whole/);
+    expect(failed.stderr).toMatch(
+      /^::error::The release 2026-11-13 in acme\/relay-updates does not list Harness-Relay-2026-11-13-win-x64-update.exe, whole/,
+    );
     expect(githubAsked(short)).toEqual([tagged]);
     const refused = job([], copies);
     const denied = run(script, refused, { ...env, NODE_OPTIONS: stubbed(refused, { status: 401 }) });
@@ -866,7 +1071,9 @@ describe("GitHub's newest release", () => {
     expect(newest(tags('2026-11-12.1-rc', '2026-11-12.1-rc.1', '2026-11-12'))?.version).toBe('2026-11-12.1-rc.1');
     expect(newest(tags('2026-11-12.1', '2026-11-12.1-rc.1', '2026-11-12'))?.version).toBe('2026-11-12.1');
     // Drafts and tags that are not versions of ours are left out.
-    expect(newest([githubRelease('2026-11-13-rc', { draft: true }), githubRelease('v9.0.0'), githubRelease('2026-11-12')])?.version).toBe('2026-11-12');
+    expect(newest([githubRelease('2026-11-13-rc', { draft: true }), githubRelease('v9.0.0'), githubRelease('2026-11-12')])?.version).toBe(
+      '2026-11-12',
+    );
     expect(newest([])).toBeUndefined();
     expect(newest([githubRelease('2026-11-13', { draft: true })])).toBeUndefined();
     expect(newest({ message: 'Not Found' })).toBeUndefined();
@@ -906,7 +1113,9 @@ describe("GitHub's newest release", () => {
     expect(parsed.assets.win).toBeUndefined();
     expect(parsed.assets.linux?.sha256).toBeUndefined();
     // A page elsewhere is replaced by the releases page.
-    expect(parse({ ...githubRelease('2026-11-12'), html_url: 'https://evil.example/' })!.page).toBe('https://github.com/Agentic-System-Lab/harness-relay/releases');
+    expect(parse({ ...githubRelease('2026-11-12'), html_url: 'https://evil.example/' })!.page).toBe(
+      'https://github.com/Agentic-System-Lab/harness-relay/releases',
+    );
   });
 
   it('is newer than a build of an earlier day, an earlier patch, a release candidate of its day, or a dev build', () => {
@@ -937,12 +1146,15 @@ describe("GitHub's newest release", () => {
 
   it('is asked for at GitHub; none yet is no update, any other failure an error', async () => {
     const asked: string[] = [];
-    const answer = (status: number, body: unknown): Fetch =>
+    const answer =
+      (status: number, body: unknown): Fetch =>
       async (url) => {
         asked.push(url);
         return new Response(JSON.stringify(body), { status });
       };
-    expect((await checkLatest(answer(200, [githubRelease('2026-11-13-rc'), githubRelease('2026-11-12')]), { source: SOURCE }))?.version).toBe('2026-11-13-rc');
+    expect(
+      (await checkLatest(answer(200, [githubRelease('2026-11-13-rc'), githubRelease('2026-11-12')]), { source: SOURCE }))?.version,
+    ).toBe('2026-11-13-rc');
     expect(asked[0]).toBe(RELEASES_API);
     expect(RELEASES_API).toBe('https://api.github.com/repos/Agentic-System-Lab/harness-relay/releases?per_page=20');
     expect(await checkLatest(answer(200, []), { source: SOURCE })).toBeUndefined();
@@ -954,7 +1166,9 @@ describe("GitHub's newest release", () => {
     expect(await checkLatest(answer(404, { message: 'Not Found' }), { source: SOURCE })).toBeUndefined();
     // A release asks for GitHub's latest release alone: found however many release candidates came out since.
     asked.length = 0;
-    expect((await checkLatest(answer(200, githubRelease('2026-11-12.1')), { source: SOURCE, candidates: false }))?.version).toBe('2026-11-12.1');
+    expect((await checkLatest(answer(200, githubRelease('2026-11-12.1')), { source: SOURCE, candidates: false }))?.version).toBe(
+      '2026-11-12.1',
+    );
     expect(asked).toEqual([LATEST_RELEASE_API]);
     expect(LATEST_RELEASE_API).toBe('https://api.github.com/repos/Agentic-System-Lab/harness-relay/releases/latest');
     // Never a release candidate, should GitHub ever answer with one; none yet is no update.
@@ -970,8 +1184,12 @@ describe("GitHub's newest release", () => {
       return new Response(JSON.stringify([githubRelease('2026-11-12')]));
     };
     const latest = await checkLatest(fetch, { source: PRIVATE });
-    expect(latest?.assets.mac?.url).toBe('https://github.com/acme/relay-updates/releases/download/2026-11-12/Harness-Relay-2026-11-12-mac-arm64-update.dmg');
-    expect(asked).toEqual([{ url: RELEASES_API, headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' } }]);
+    expect(latest?.assets.mac?.url).toBe(
+      'https://github.com/acme/relay-updates/releases/download/2026-11-12/Harness-Relay-2026-11-12-mac-arm64-update.dmg',
+    );
+    expect(asked).toEqual([
+      { url: RELEASES_API, headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' } },
+    ]);
     await checkLatest(fetch, { source: PRIVATE, candidates: false });
     expect(asked[1]).toEqual({ url: LATEST_RELEASE_API, headers: asked[0]!.headers });
   });
@@ -991,7 +1209,10 @@ describe("GitHub's newest release", () => {
   it("reads each processor's installer from a release, and the Arm ones' checksums", () => {
     const release = parse(githubRelease('2026-11-12'))!;
     expect(Object.keys(release.assets).sort()).toEqual(['linux', 'linux-arm64', 'mac', 'win', 'win-arm64']);
-    expect(release.assets['win-arm64']).toMatchObject({ name: 'Harness-Relay-2026-11-12-win-arm64.exe', sha256: sha('Harness-Relay-2026-11-12-win-arm64.exe') });
+    expect(release.assets['win-arm64']).toMatchObject({
+      name: 'Harness-Relay-2026-11-12-win-arm64.exe',
+      sha256: sha('Harness-Relay-2026-11-12-win-arm64.exe'),
+    });
     expect(release.assets['linux-arm64']?.name).toBe('Harness-Relay-2026-11-12-linux-arm64.AppImage');
     expect(release.assets.win?.name).toBe('Harness-Relay-2026-11-12-win-x64.exe');
   });
@@ -1060,15 +1281,41 @@ describe('how often GitHub is asked', () => {
 });
 
 describe('what the chat is told of updates', () => {
-  const release = { version: '2026-11-12', semver: '2026.1112.0', page: 'https://github.com/x/y/releases/tag/2026-11-12', candidate: false, assets: {} };
+  const release = {
+    version: '2026-11-12',
+    semver: '2026.1112.0',
+    page: 'https://github.com/x/y/releases/tag/2026-11-12',
+    candidate: false,
+    assets: {},
+  };
 
   it('is nothing more for a copy that does not update itself', () => {
-    expect(chatUpdate({ updates: false, current: '2026-11-11', update: release, updating: { kind: 'installing' }, checking: true, checkedAt: 1, checkFailed: true })).toEqual({ updates: false });
+    expect(
+      chatUpdate({
+        updates: false,
+        current: '2026-11-11',
+        update: release,
+        updating: { kind: 'installing' },
+        checking: true,
+        checkedAt: 1,
+        checkFailed: true,
+      }),
+    ).toEqual({ updates: false });
   });
 
   it('is the newer version and where its changes since this one are read, the update under way in whole percent, a check, when it last answered and whether the last one failed', () => {
     expect(chatUpdate({ updates: true, current: '2026-11-11', checking: false, checkFailed: false })).toEqual({ updates: true });
-    expect(chatUpdate({ updates: true, current: '2026-11-11', update: release, updating: { kind: 'downloading', done: 0.429 }, checking: true, checkedAt: 5, checkFailed: true })).toEqual({
+    expect(
+      chatUpdate({
+        updates: true,
+        current: '2026-11-11',
+        update: release,
+        updating: { kind: 'downloading', done: 0.429 },
+        checking: true,
+        checkedAt: 5,
+        checkFailed: true,
+      }),
+    ).toEqual({
       updates: true,
       available: { version: '2026-11-12', changes: `${COMPARE_PAGE}/2026-11-11...2026-11-12` },
       progress: { kind: 'downloading', percent: 42 },
@@ -1076,9 +1323,13 @@ describe('what the chat is told of updates', () => {
       checkedAt: 5,
       checkFailed: true,
     });
-    expect(chatUpdate({ updates: true, current: '2026-11-11', updating: { kind: 'waiting' }, checking: false, checkFailed: false }).progress).toEqual({ kind: 'waiting' });
+    expect(
+      chatUpdate({ updates: true, current: '2026-11-11', updating: { kind: 'waiting' }, checking: false, checkFailed: false }).progress,
+    ).toEqual({ kind: 'waiting' });
     // A build of your own has no tag to compare from: the release's page.
-    expect(chatUpdate({ updates: true, current: '2026-11-11-dev (30f3d4f)', update: release, checking: false, checkFailed: false }).available).toEqual({ version: '2026-11-12', changes: release.page });
+    expect(
+      chatUpdate({ updates: true, current: '2026-11-11-dev (30f3d4f)', update: release, checking: false, checkFailed: false }).available,
+    ).toEqual({ version: '2026-11-12', changes: release.page });
   });
 });
 
@@ -1121,28 +1372,70 @@ describe('how this copy of the app updates', () => {
 
   it('replaces the Mac app where it is, when it may write there', () => {
     expect(macAppOf(mac)).toBe('/Applications/Harness Relay.app');
-    expect(installPlan({ platform: 'darwin', packaged: true, execPath: mac, asset, writable: can })).toEqual({ kind: 'mac', app: '/Applications/Harness Relay.app' });
-    expect(installPlan({ platform: 'darwin', packaged: true, execPath: mac, asset, writable: cannot })).toEqual({ kind: 'manual', why: 'read-only' });
+    expect(installPlan({ platform: 'darwin', packaged: true, execPath: mac, asset, writable: can })).toEqual({
+      kind: 'mac',
+      app: '/Applications/Harness Relay.app',
+    });
+    expect(installPlan({ platform: 'darwin', packaged: true, execPath: mac, asset, writable: cannot })).toEqual({
+      kind: 'manual',
+      why: 'read-only',
+    });
     // Run from the disk image, or a translocated copy.
-    for (const execPath of ['/Volumes/Harness Relay/Harness Relay.app/Contents/MacOS/Harness Relay', '/private/var/folders/x/T/AppTranslocation/ABC/d/Harness Relay.app/Contents/MacOS/Harness Relay']) {
-      expect(installPlan({ platform: 'darwin', packaged: true, execPath, asset, writable: can }), execPath).toEqual({ kind: 'manual', why: 'read-only' });
+    for (const execPath of [
+      '/Volumes/Harness Relay/Harness Relay.app/Contents/MacOS/Harness Relay',
+      '/private/var/folders/x/T/AppTranslocation/ABC/d/Harness Relay.app/Contents/MacOS/Harness Relay',
+    ]) {
+      expect(installPlan({ platform: 'darwin', packaged: true, execPath, asset, writable: can }), execPath).toEqual({
+        kind: 'manual',
+        why: 'read-only',
+      });
     }
   });
 
   it('runs the installer on Windows, and replaces the AppImage on Linux', () => {
-    expect(installPlan({ platform: 'win32', packaged: true, execPath: 'C:\\Users\\me\\AppData\\Local\\Programs\\harness-relay\\Harness Relay.exe', asset })).toEqual({ kind: 'win' });
-    expect(installPlan({ platform: 'linux', packaged: true, execPath: '/tmp/.mount_x/harness-relay', appImage: '/home/me/Apps/Harness.AppImage', asset, writable: can })).toEqual({
+    expect(
+      installPlan({
+        platform: 'win32',
+        packaged: true,
+        execPath: 'C:\\Users\\me\\AppData\\Local\\Programs\\harness-relay\\Harness Relay.exe',
+        asset,
+      }),
+    ).toEqual({ kind: 'win' });
+    expect(
+      installPlan({
+        platform: 'linux',
+        packaged: true,
+        execPath: '/tmp/.mount_x/harness-relay',
+        appImage: '/home/me/Apps/Harness.AppImage',
+        asset,
+        writable: can,
+      }),
+    ).toEqual({
       kind: 'linux',
       appImage: '/home/me/Apps/Harness.AppImage',
     });
-    expect(installPlan({ platform: 'linux', packaged: true, execPath: '/opt/Harness Relay/harness-relay', asset, writable: can })).toEqual({ kind: 'manual', why: 'not-appimage' });
-    expect(installPlan({ platform: 'linux', packaged: true, execPath: '/x', appImage: '/opt/H.AppImage', asset, writable: cannot })).toEqual({ kind: 'manual', why: 'read-only' });
+    expect(installPlan({ platform: 'linux', packaged: true, execPath: '/opt/Harness Relay/harness-relay', asset, writable: can })).toEqual({
+      kind: 'manual',
+      why: 'not-appimage',
+    });
+    expect(
+      installPlan({ platform: 'linux', packaged: true, execPath: '/x', appImage: '/opt/H.AppImage', asset, writable: cannot }),
+    ).toEqual({ kind: 'manual', why: 'read-only' });
   });
 
   it('sends anything else to the release page: a build from source, no installer, no checksum', () => {
-    expect(installPlan({ platform: 'darwin', packaged: false, execPath: mac, asset, writable: can })).toEqual({ kind: 'manual', why: 'not-packaged' });
-    expect(installPlan({ platform: 'darwin', packaged: true, execPath: mac, writable: can })).toEqual({ kind: 'manual', why: 'no-installer' });
-    expect(installPlan({ platform: 'win32', packaged: true, execPath: 'x', asset: { ...asset, sha256: undefined } })).toEqual({ kind: 'manual', why: 'no-checksum' });
+    expect(installPlan({ platform: 'darwin', packaged: false, execPath: mac, asset, writable: can })).toEqual({
+      kind: 'manual',
+      why: 'not-packaged',
+    });
+    expect(installPlan({ platform: 'darwin', packaged: true, execPath: mac, writable: can })).toEqual({
+      kind: 'manual',
+      why: 'no-installer',
+    });
+    expect(installPlan({ platform: 'win32', packaged: true, execPath: 'x', asset: { ...asset, sha256: undefined } })).toEqual({
+      kind: 'manual',
+      why: 'no-checksum',
+    });
   });
 
   it('runs the Windows installer silently, as an update, starting the new version', () => {
@@ -1174,12 +1467,21 @@ describe('finding a copy in a private repository', () => {
   });
 
   it("asks GitHub's API for the release with the token, and downloads the copy from its address there, the installer itself to fall back on", async () => {
-    const gh = api(() => copies([{ id: 7, name: 'notes.txt' }, { id: 41, name: 'Harness-Relay-2026-11-12-mac-arm64-update.dmg' }]));
+    const gh = api(() =>
+      copies([
+        { id: 7, name: 'notes.txt' },
+        { id: 41, name: 'Harness-Relay-2026-11-12-mac-arm64-update.dmg' },
+      ]),
+    );
     const found = await copyToDownload(gh.fetch, PRIVATE, '2026-11-12', asset);
     expect(gh.asked).toEqual([
       {
         url: 'https://api.github.com/repos/acme/relay-updates/releases/tags/2026-11-12',
-        init: { headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', Authorization: `Bearer ${TOKEN}` }, signal: undefined, redirect: 'error' },
+        init: {
+          headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', Authorization: `Bearer ${TOKEN}` },
+          signal: undefined,
+          redirect: 'error',
+        },
       },
     ]);
     expect(found).toEqual({
@@ -1204,9 +1506,11 @@ describe('finding a copy in a private repository', () => {
       // GitHub cannot be reached.
       () => Promise.reject(new Error('offline')),
     ];
-    for (const [i, answer] of answers.entries()) expect(await copyToDownload(api(answer).fetch, PRIVATE, '2026-11-12', asset), String(i)).toEqual(plain);
+    for (const [i, answer] of answers.entries())
+      expect(await copyToDownload(api(answer).fetch, PRIVATE, '2026-11-12', asset), String(i)).toEqual(plain);
     // A question that stalls is given up on (main.ts passes AbortSignal.timeout(CHECK_TIMEOUT_MS)): the installer itself.
-    const stalled: Fetch = (_url, init) => new Promise((_, fail) => init?.signal?.addEventListener('abort', () => fail(init.signal!.reason), { once: true }));
+    const stalled: Fetch = (_url, init) =>
+      new Promise((_, fail) => init?.signal?.addEventListener('abort', () => fail(init.signal!.reason), { once: true }));
     expect(await copyToDownload(stalled, PRIVATE, '2026-11-12', asset, AbortSignal.timeout(20))).toEqual(plain);
   });
 });
@@ -1214,16 +1518,21 @@ describe('finding a copy in a private repository', () => {
 describe('downloading an update', () => {
   const body = Buffer.from('the new installer '.repeat(1000));
   const asset: UpdateAsset = { name: 'H.dmg', url: `${DOWNLOAD}/v/H.dmg`, size: body.length, sha256: sha(body) };
-  const serve = (data: Buffer, status = 200): Fetch => async () => new Response(new Uint8Array(data), { status, headers: { 'content-length': String(data.length) } });
+  const serve =
+    (data: Buffer, status = 200): Fetch =>
+    async () =>
+      new Response(new Uint8Array(data), { status, headers: { 'content-length': String(data.length) } });
 
   it('fetches the installer itself when its copy for updates is not there, and only then', async () => {
     const copy: UpdateAsset = { ...asset, url: `${COPIES}/v/H-update.dmg`, fallback: `${DOWNLOAD}/v/H.dmg` };
     const asked: string[] = [];
-    const answer = (status: (url: string) => number): Fetch => async (url) => {
-      asked.push(url);
-      const s = status(url);
-      return new Response(s === 200 ? new Uint8Array(body) : 'Not Found', { status: s });
-    };
+    const answer =
+      (status: (url: string) => number): Fetch =>
+      async (url) => {
+        asked.push(url);
+        const s = status(url);
+        return new Response(s === 200 ? new Uint8Array(body) : 'Not Found', { status: s });
+      };
     const to = join(dir, 'fallback.dmg');
     await download({ fetch: answer((url) => (url === copy.url ? 404 : 200)), asset: copy, to });
     expect(asked).toEqual([copy.url, copy.fallback]);
@@ -1244,7 +1553,11 @@ describe('downloading an update', () => {
   });
 
   it("sends a copy's token to GitHub's API alone, and fetches the installer itself without it when the token no longer works", async () => {
-    const api: UpdateAsset = { ...asset, url: 'https://api.github.com/repos/acme/relay-updates/releases/assets/7', fallback: `${DOWNLOAD}/v/H.dmg` };
+    const api: UpdateAsset = {
+      ...asset,
+      url: 'https://api.github.com/repos/acme/relay-updates/releases/assets/7',
+      fallback: `${DOWNLOAD}/v/H.dmg`,
+    };
     const headers = downloadHeaders(PRIVATE)!;
     const CDN = 'https://release-assets.githubusercontent.com/github-production-release-asset/7/h?sig=1';
     const asked: { url: string; init?: Parameters<Fetch>[1] }[] = [];
@@ -1260,7 +1573,11 @@ describe('downloading an update', () => {
         return answer;
       };
     const signal = expect.any(AbortSignal);
-    const failed = (p: Promise<void>) => p.then(() => undefined, (e: unknown) => e as UpdateError);
+    const failed = (p: Promise<void>) =>
+      p.then(
+        () => undefined,
+        (e: unknown) => e as UpdateError,
+      );
     const to = join(dir, 'private.dmg');
     // Asked where the file is with the token, and fetched from there without it.
     await download({ fetch, locate: answers({ status: 302, location: CDN }), asset: api, to, headers });
@@ -1300,7 +1617,10 @@ describe('downloading an update', () => {
         return url === api.url ? new Response('no', { status }) : new Response(new Uint8Array(body));
       };
       await download({ fetch: refusing, locate: answers({ status: 200 }), asset: api, to, headers });
-      expect(asked.map((a) => a.url), String(status)).toEqual([api.url, api.fallback]);
+      expect(
+        asked.map((a) => a.url),
+        String(status),
+      ).toEqual([api.url, api.fallback]);
       expect(asked[1]!.init).toEqual({ signal });
     }
     // Without the token, a 429 or a 5xx is no reason to go elsewhere.
@@ -1317,9 +1637,14 @@ describe('downloading an update', () => {
     expect(asked).toEqual([{ url: api.fallback, init: { signal } }]);
     // Sent anywhere but to HTTPS, or nowhere to fall back on: nothing fetched.
     asked.length = 0;
-    expect((await failed(download({ fetch, locate: answers({ status: 302, location: 'http://example.com/h' }), asset: api, to, headers })))?.failure).toBe('download');
+    expect(
+      (await failed(download({ fetch, locate: answers({ status: 302, location: 'http://example.com/h' }), asset: api, to, headers })))
+        ?.failure,
+    ).toBe('download');
     expect((await failed(download({ fetch, asset: { ...api, fallback: undefined }, to, headers })))?.failure).toBe('download');
-    expect((await failed(download({ fetch, locate: answers({ status: 401 }), asset: { ...api, fallback: undefined }, to, headers })))?.message).toBe('HTTP 401');
+    expect(
+      (await failed(download({ fetch, locate: answers({ status: 401 }), asset: { ...api, fallback: undefined }, to, headers })))?.message,
+    ).toBe('HTTP 401');
     expect(asked).toEqual([]);
   });
 
@@ -1335,8 +1660,19 @@ describe('downloading an update', () => {
       located.push(url);
       return { status: 200 };
     };
-    for (const url of [asset.url, 'https://api.github.com.example.com/repos/a/b/releases/assets/7', 'http://api.github.com/repos/a/b/releases/assets/7', 'not a url']) {
-      const err = (await download({ fetch, locate, asset: { ...asset, url, fallback: `${DOWNLOAD}/v/H.dmg` }, to: join(dir, 'elsewhere.dmg'), headers }).catch((e: unknown) => e)) as UpdateError;
+    for (const url of [
+      asset.url,
+      'https://api.github.com.example.com/repos/a/b/releases/assets/7',
+      'http://api.github.com/repos/a/b/releases/assets/7',
+      'not a url',
+    ]) {
+      const err = (await download({
+        fetch,
+        locate,
+        asset: { ...asset, url, fallback: `${DOWNLOAD}/v/H.dmg` },
+        to: join(dir, 'elsewhere.dmg'),
+        headers,
+      }).catch((e: unknown) => e)) as UpdateError;
       expect(err, url).toBeInstanceOf(UpdateError);
       expect(err.message).toBe("headers are sent to GitHub's API alone");
     }
@@ -1345,11 +1681,16 @@ describe('downloading an update', () => {
   });
 
   it("fetches the installer itself when GitHub's API does not answer with the token in time, rather than failing the update", async () => {
-    const api: UpdateAsset = { ...asset, url: 'https://api.github.com/repos/acme/relay-updates/releases/assets/7', fallback: `${DOWNLOAD}/v/H.dmg` };
+    const api: UpdateAsset = {
+      ...asset,
+      url: 'https://api.github.com/repos/acme/relay-updates/releases/assets/7',
+      fallback: `${DOWNLOAD}/v/H.dmg`,
+    };
     const headers = downloadHeaders(PRIVATE)!;
     const asked: string[] = [];
     /** Answers nothing until it is given up on. */
-    const hangs = (signal?: AbortSignal) => new Promise<never>((_, fail) => signal?.addEventListener('abort', () => fail(signal.reason), { once: true }));
+    const hangs = (signal?: AbortSignal) =>
+      new Promise<never>((_, fail) => signal?.addEventListener('abort', () => fail(signal.reason), { once: true }));
     const fetch: Fetch = async (url, init) => {
       asked.push(url);
       if (url === api.url) return hangs(init?.signal);
@@ -1394,7 +1735,11 @@ describe('downloading an update', () => {
   });
 
   it('fetches the installer itself, once and without the token, when the copy does not match its checksum', async () => {
-    const api: UpdateAsset = { ...asset, url: 'https://api.github.com/repos/acme/relay-updates/releases/assets/7', fallback: `${DOWNLOAD}/v/H.dmg` };
+    const api: UpdateAsset = {
+      ...asset,
+      url: 'https://api.github.com/repos/acme/relay-updates/releases/assets/7',
+      fallback: `${DOWNLOAD}/v/H.dmg`,
+    };
     const headers = downloadHeaders(PRIVATE)!;
     const asked: { url: string; init?: Parameters<Fetch>[1] }[] = [];
     // The copy was replaced in its repository (anyone with a write token could): other bytes there.
@@ -1403,14 +1748,22 @@ describe('downloading an update', () => {
       return new Response(new Uint8Array(url === api.fallback ? body : Buffer.from('something else')));
     };
     const to = join(dir, 'replaced.dmg');
-    await download({ fetch: replaced, locate: async () => ({ status: 302, location: 'https://release-assets.githubusercontent.com/x?sig=1' }), asset: api, to, headers });
+    await download({
+      fetch: replaced,
+      locate: async () => ({ status: 302, location: 'https://release-assets.githubusercontent.com/x?sig=1' }),
+      asset: api,
+      to,
+      headers,
+    });
     expect(readFileSync(to)).toEqual(body);
     expect(asked.map((a) => a.url)).toEqual(['https://release-assets.githubusercontent.com/x?sig=1', api.fallback]);
     expect(asked[1]!.init).toEqual({ signal: expect.any(AbortSignal) });
     // The installer itself does not match either: given up on, keeping nothing.
     const wrong = (async () => new Response(new Uint8Array(Buffer.from('something else')))) as Fetch;
     const bad = join(dir, 'replaced-both.dmg');
-    const err = (await download({ fetch: wrong, asset: { ...asset, fallback: `${DOWNLOAD}/v/H2.dmg` }, to: bad }).catch((e: unknown) => e)) as UpdateError;
+    const err = (await download({ fetch: wrong, asset: { ...asset, fallback: `${DOWNLOAD}/v/H2.dmg` }, to: bad }).catch(
+      (e: unknown) => e,
+    )) as UpdateError;
     expect(err.failure).toBe('checksum');
     expect(existsSync(bad)).toBe(false);
     expect(existsSync(`${bad}.part`)).toBe(false);
@@ -1420,7 +1773,9 @@ describe('downloading an update', () => {
       asked.push({ url, init });
       return url === api.url ? new Response('Not Found', { status: 404 }) : new Response(new Uint8Array(Buffer.from('something else')));
     };
-    const once = (await download({ fetch: missing, asset: { ...asset, url: api.url, fallback: api.fallback }, to: bad }).catch((e: unknown) => e)) as UpdateError;
+    const once = (await download({ fetch: missing, asset: { ...asset, url: api.url, fallback: api.fallback }, to: bad }).catch(
+      (e: unknown) => e,
+    )) as UpdateError;
     expect(once.failure).toBe('checksum');
     expect(asked.map((a) => a.url)).toEqual([api.url, api.fallback]);
     // Nothing to fall back on, or already the installer: once only.
@@ -1442,7 +1797,8 @@ describe('downloading an update', () => {
     const asked: { url: string; init?: Parameters<Fetch>[1] }[] = [];
     const fetch: Fetch = async (url, init) => {
       asked.push({ url, init });
-      if (url.endsWith('/releases/tags/2026-11-12')) return new Response(JSON.stringify({ assets: [{ id: 77, name: 'Harness-Relay-2026-11-12-mac-arm64-update.dmg' }] }));
+      if (url.endsWith('/releases/tags/2026-11-12'))
+        return new Response(JSON.stringify({ assets: [{ id: 77, name: 'Harness-Relay-2026-11-12-mac-arm64-update.dmg' }] }));
       return new Response(new Uint8Array(body));
     };
     const located: { url: string; headers?: Record<string, string> }[] = [];
@@ -1453,8 +1809,13 @@ describe('downloading an update', () => {
     const to = join(dir, 'update-private.dmg');
     await downloadUpdate({ fetch, locate, source: PRIVATE, tag: '2026-11-12', asset: copy, to });
     expect(readFileSync(to)).toEqual(body);
-    expect(asked.map((a) => a.url)).toEqual(['https://api.github.com/repos/acme/relay-updates/releases/tags/2026-11-12', 'https://release-assets.githubusercontent.com/x?sig=1']);
-    expect(located).toEqual([{ url: 'https://api.github.com/repos/acme/relay-updates/releases/assets/77', headers: downloadHeaders(PRIVATE) }]);
+    expect(asked.map((a) => a.url)).toEqual([
+      'https://api.github.com/repos/acme/relay-updates/releases/tags/2026-11-12',
+      'https://release-assets.githubusercontent.com/x?sig=1',
+    ]);
+    expect(located).toEqual([
+      { url: 'https://api.github.com/repos/acme/relay-updates/releases/assets/77', headers: downloadHeaders(PRIVATE) },
+    ]);
     expect(asked[1]!.init?.headers).toBeUndefined();
     // A public repository: no question, the copy on github.com, with no headers anywhere.
     asked.length = 0;
@@ -1520,7 +1881,8 @@ describe('downloading an update', () => {
     expect(err.message).toMatch(/no data/);
     expect(existsSync(`${to}.part`)).toBe(false);
     // Also when no answer comes at all.
-    const silent: Fetch = (_url, init) => new Promise((_, fail) => init?.signal?.addEventListener('abort', () => fail(init.signal!.reason), { once: true }));
+    const silent: Fetch = (_url, init) =>
+      new Promise((_, fail) => init?.signal?.addEventListener('abort', () => fail(init.signal!.reason), { once: true }));
     const none = (await download({ fetch: silent, asset, to, stallMs: 50 }).catch((e: unknown) => e)) as UpdateError;
     expect(none.message).toMatch(/no data/);
     expect(DOWNLOAD_STALL_MS).toBe(60_000);
@@ -1551,7 +1913,13 @@ describe('downloading an update in parts', () => {
   const body = Buffer.from(Array.from({ length: 64 * 1024 }, (_, i) => (i * 31 + (i >> 10)) & 0xff));
   const minPart = 4 * 1024;
   const quarter = body.length / 4;
-  const copy: UpdateAsset = { name: 'H.dmg', url: `${COPIES}/v/H-update.dmg`, fallback: `${DOWNLOAD}/v/H.dmg`, size: body.length, sha256: sha(body) };
+  const copy: UpdateAsset = {
+    name: 'H.dmg',
+    url: `${COPIES}/v/H-update.dmg`,
+    fallback: `${DOWNLOAD}/v/H.dmg`,
+    size: body.length,
+    sha256: sha(body),
+  };
   /** Where GitHub sends a download: its CDN, signed (a new signature each time it is asked). */
   const CDN = 'https://release-assets.githubusercontent.com/github-production-release-asset/1/h?sig=';
 
@@ -1595,54 +1963,54 @@ describe('downloading an update in parts', () => {
    * last; `answer(asked)` is its status (200 sends the whole file), and the connection drops after
    * `cut(asked)` bytes. It stops when aborted, as fetch does.
    */
-  function cdn(data: Buffer, n: number, how: { pause?: (a: Asked) => number; answer?: (a: Asked) => number; cut?: (a: Asked) => number | undefined } = {}) {
+  function cdn(
+    data: Buffer,
+    n: number,
+    how: { pause?: (a: Asked) => number; answer?: (a: Asked) => number; cut?: (a: Asked) => number | undefined } = {},
+  ) {
     const asked: Asked[] = [];
-    const connections = Array.from(
-      { length: n },
-      (_, conn): Fetch =>
-        async (url, init) => {
-          const range = /^bytes=(\d+)-(\d+)$/.exec(init?.headers?.Range ?? '');
-          const a: Asked = {
-            conn,
-            url,
-            from: range ? Number(range[1]) : 0,
-            to: range ? Number(range[2]) + 1 : data.length,
-            sent: 0,
-            cancelled: false,
-            authorization: init?.headers?.Authorization,
-            redirect: init?.redirect,
-          };
-          asked.push(a);
-          const status = how.answer?.(a) ?? (range ? 206 : 200);
-          if (status !== 200 && status !== 206) return new Response('no', { status });
-          const bytes = status === 206 ? data.subarray(a.from, a.to) : data;
-          const cut = how.cut?.(a);
-          const signal = init?.signal;
-          const stream = new ReadableStream<Uint8Array>(
-            {
-              start(controller) {
-                signal?.addEventListener('abort', () => controller.error(signal.reason), { once: true });
-              },
-              async pull(controller) {
-                await pause(how.pause?.(a) ?? 0, signal);
-                if (signal?.aborted || a.cancelled) return;
-                if (cut !== undefined && a.sent >= cut) return controller.error(new Error('connection reset'));
-                if (a.sent >= bytes.length) return controller.close();
-                const chunk = bytes.subarray(a.sent, a.sent + 1024);
-                a.sent += chunk.length;
-                controller.enqueue(new Uint8Array(chunk));
-              },
-              cancel() {
-                a.cancelled = true;
-              },
-            },
-            { highWaterMark: 0 },
-          );
-          const headers: Record<string, string> =
-            status === 206 ? { 'content-range': `bytes ${a.from}-${a.to - 1}/${data.length}` } : { 'content-length': String(data.length) };
-          return new Response(stream, { status, headers });
+    const connections = Array.from({ length: n }, (_, conn): Fetch => async (url, init) => {
+      const range = /^bytes=(\d+)-(\d+)$/.exec(init?.headers?.Range ?? '');
+      const a: Asked = {
+        conn,
+        url,
+        from: range ? Number(range[1]) : 0,
+        to: range ? Number(range[2]) + 1 : data.length,
+        sent: 0,
+        cancelled: false,
+        authorization: init?.headers?.Authorization,
+        redirect: init?.redirect,
+      };
+      asked.push(a);
+      const status = how.answer?.(a) ?? (range ? 206 : 200);
+      if (status !== 200 && status !== 206) return new Response('no', { status });
+      const bytes = status === 206 ? data.subarray(a.from, a.to) : data;
+      const cut = how.cut?.(a);
+      const signal = init?.signal;
+      const stream = new ReadableStream<Uint8Array>(
+        {
+          start(controller) {
+            signal?.addEventListener('abort', () => controller.error(signal.reason), { once: true });
+          },
+          async pull(controller) {
+            await pause(how.pause?.(a) ?? 0, signal);
+            if (signal?.aborted || a.cancelled) return;
+            if (cut !== undefined && a.sent >= cut) return controller.error(new Error('connection reset'));
+            if (a.sent >= bytes.length) return controller.close();
+            const chunk = bytes.subarray(a.sent, a.sent + 1024);
+            a.sent += chunk.length;
+            controller.enqueue(new Uint8Array(chunk));
+          },
+          cancel() {
+            a.cancelled = true;
+          },
         },
-    );
+        { highWaterMark: 0 },
+      );
+      const headers: Record<string, string> =
+        status === 206 ? { 'content-range': `bytes ${a.from}-${a.to - 1}/${data.length}` } : { 'content-length': String(data.length) };
+      return new Response(stream, { status, headers });
+    });
     return { connections, asked };
   }
 
@@ -1656,7 +2024,11 @@ describe('downloading an update in parts', () => {
     return { asked, fetch };
   }
 
-  const failure = (p: Promise<void>) => p.then(() => undefined, (e: unknown) => e as UpdateError);
+  const failure = (p: Promise<void>) =>
+    p.then(
+      () => undefined,
+      (e: unknown) => e as UpdateError,
+    );
 
   it('asks GitHub once where the file is, and fetches it from there, a part on each connection', async () => {
     const gh = github();
@@ -1664,11 +2036,21 @@ describe('downloading an update in parts', () => {
     const whole = single(body);
     const to = join(dir, 'parts.dmg');
     const progress: number[] = [];
-    await download({ fetch: whole.fetch, connections: served.connections, locate: gh.locate, asset: copy, to, minPart, onProgress: (d) => progress.push(d) });
+    await download({
+      fetch: whole.fetch,
+      connections: served.connections,
+      locate: gh.locate,
+      asset: copy,
+      to,
+      minPart,
+      onProgress: (d) => progress.push(d),
+    });
     expect(readFileSync(to)).toEqual(body);
     expect(gh.located).toEqual([copy.url]);
     expect(whole.asked).toEqual([]);
-    expect(served.asked.slice(0, 4).map((a) => [a.conn, a.from, a.to])).toEqual([0, 1, 2, 3].map((i) => [i, i * quarter, (i + 1) * quarter]));
+    expect(served.asked.slice(0, 4).map((a) => [a.conn, a.from, a.to])).toEqual(
+      [0, 1, 2, 3].map((i) => [i, i * quarter, (i + 1) * quarter]),
+    );
     expect(served.asked.every((a) => a.url === `${CDN}1`)).toBe(true);
     expect(progress.at(-1)).toBe(1);
     expect(progress.every((p, i) => i === 0 || p >= progress[i - 1]!)).toBe(true);
@@ -1677,7 +2059,14 @@ describe('downloading an update in parts', () => {
 
   it('uses only as many connections as the file has parts of `minPart`, and one request for a file under two', async () => {
     const six = cdn(body, 6);
-    await download({ fetch: single(body).fetch, connections: six.connections, locate: github().locate, asset: copy, to: join(dir, 'parts-four.dmg'), minPart: quarter });
+    await download({
+      fetch: single(body).fetch,
+      connections: six.connections,
+      locate: github().locate,
+      asset: copy,
+      to: join(dir, 'parts-four.dmg'),
+      minPart: quarter,
+    });
     expect(new Set(six.asked.map((a) => a.conn))).toEqual(new Set([0, 1, 2, 3]));
     // A small file: from GitHub's address itself, as without connections.
     const small = Buffer.from('a small file');
@@ -1685,7 +2074,14 @@ describe('downloading an update in parts', () => {
     const unused = cdn(small, 4);
     const gh = github();
     const to = join(dir, 'parts-small.dmg');
-    await download({ fetch: whole.fetch, connections: unused.connections, locate: gh.locate, asset: { ...copy, size: small.length, sha256: sha(small) }, to, minPart });
+    await download({
+      fetch: whole.fetch,
+      connections: unused.connections,
+      locate: gh.locate,
+      asset: { ...copy, size: small.length, sha256: sha(small) },
+      to,
+      minPart,
+    });
     expect(readFileSync(to)).toEqual(small);
     expect(whole.asked).toEqual([copy.url]);
     expect(unused.asked).toEqual([]);
@@ -1700,7 +2096,16 @@ describe('downloading an update in parts', () => {
     expect(readFileSync(to)).toEqual(body);
     const failed = join(dir, 'parts-none.dmg');
     const answers = (answer: { status: number; location?: string }) =>
-      failure(download({ fetch: single(body).fetch, connections: cdn(body, 4).connections, locate: async () => answer, asset: copy, to: failed, minPart }));
+      failure(
+        download({
+          fetch: single(body).fetch,
+          connections: cdn(body, 4).connections,
+          locate: async () => answer,
+          asset: copy,
+          to: failed,
+          minPart,
+        }),
+      );
     expect((await answers({ status: 503 }))?.message).toBe('HTTP 503');
     expect((await answers({ status: 404 }))?.message).toBe('HTTP 404');
     // Sent anywhere but to HTTPS.
@@ -1716,7 +2121,10 @@ describe('downloading an update in parts', () => {
     const api: UpdateAsset = { ...copy, url: 'https://api.github.com/repos/acme/relay-updates/releases/assets/7' };
     // The parts taken from the slow connection are refused at the first address, which has expired since.
     const gh = github();
-    const served = cdn(body, 4, { pause: (a) => (a.conn === 0 ? 40 : 0), answer: (a) => (a.url === `${CDN}1` && a.from % quarter !== 0 ? 403 : 206) });
+    const served = cdn(body, 4, {
+      pause: (a) => (a.conn === 0 ? 40 : 0),
+      answer: (a) => (a.url === `${CDN}1` && a.from % quarter !== 0 ? 403 : 206),
+    });
     const to = join(dir, 'parts-private.dmg');
     await download({ fetch: single(body).fetch, connections: served.connections, locate: gh.locate, asset: api, to, minPart, headers });
     expect(readFileSync(to)).toEqual(body);
@@ -1725,7 +2133,15 @@ describe('downloading an update in parts', () => {
     expect(served.asked.every((a) => a.url.startsWith(CDN) && a.authorization === undefined)).toBe(true);
     // Answered with the file itself: the parts asked there, with the token, following no redirect.
     const direct = cdn(body, 4);
-    await download({ fetch: single(body).fetch, connections: direct.connections, locate: async () => ({ status: 200 }), asset: api, to: join(dir, 'parts-direct.dmg'), minPart, headers });
+    await download({
+      fetch: single(body).fetch,
+      connections: direct.connections,
+      locate: async () => ({ status: 200 }),
+      asset: api,
+      to: join(dir, 'parts-direct.dmg'),
+      minPart,
+      headers,
+    });
     expect(direct.asked.length).toBeGreaterThanOrEqual(4);
     expect(direct.asked.every((a) => a.url === api.url && a.authorization === `Bearer ${TOKEN}` && a.redirect === 'error')).toBe(true);
     // The token no longer works, the requests ran out, GitHub's API fails, or the copy is not there: the
@@ -1733,14 +2149,31 @@ describe('downloading an update in parts', () => {
     for (const status of [401, 403, 404, 429, 500, 503]) {
       const refused = github([api.url], status);
       const parts = cdn(body, 4);
-      await download({ fetch: single(body).fetch, connections: parts.connections, locate: refused.locate, asset: api, to: join(dir, `parts-refused-${status}.dmg`), minPart, headers });
+      await download({
+        fetch: single(body).fetch,
+        connections: parts.connections,
+        locate: refused.locate,
+        asset: api,
+        to: join(dir, `parts-refused-${status}.dmg`),
+        minPart,
+        headers,
+      });
       expect(refused.located, String(status)).toEqual([api.url, api.fallback]);
       expect(refused.headers).toEqual([headers, undefined]);
       expect(parts.asked.every((a) => a.authorization === undefined && a.redirect === undefined)).toBe(true);
     }
     // A public repository's copy: no headers anywhere; a 403 there is no reason to go elsewhere.
     const open = github([copy.url], 403);
-    const err = await failure(download({ fetch: single(body).fetch, connections: cdn(body, 4).connections, locate: open.locate, asset: copy, to: join(dir, 'parts-public.dmg'), minPart }));
+    const err = await failure(
+      download({
+        fetch: single(body).fetch,
+        connections: cdn(body, 4).connections,
+        locate: open.locate,
+        asset: copy,
+        to: join(dir, 'parts-public.dmg'),
+        minPart,
+      }),
+    );
     expect(err?.message).toBe('HTTP 403');
     expect(open.located).toEqual([copy.url]);
     expect(open.headers).toEqual([undefined]);
@@ -1757,7 +2190,10 @@ describe('downloading an update in parts', () => {
         if (url === api.url && located.length > 1) return { status };
         return { status: 302, location: url === api.url ? `${CDN}copy` : `${CDN}installer` };
       };
-      const served = cdn(body, 4, { pause: (a) => (a.conn === 0 ? 40 : 0), answer: (a) => (a.url === `${CDN}copy` && a.from % quarter !== 0 ? 403 : 206) });
+      const served = cdn(body, 4, {
+        pause: (a) => (a.conn === 0 ? 40 : 0),
+        answer: (a) => (a.url === `${CDN}copy` && a.from % quarter !== 0 ? 403 : 206),
+      });
       const to = join(dir, `parts-relocated-${status}.dmg`);
       await download({ fetch: single(body).fetch, connections: served.connections, locate, asset: api, to, minPart, headers });
       expect(readFileSync(to), String(status)).toEqual(body);
@@ -1794,7 +2230,9 @@ describe('downloading an update in parts', () => {
       await download({ fetch: single(body).fetch, connections: served.connections, locate, asset: api, to, minPart, headers });
       expect(readFileSync(to), String(status)).toEqual(body);
       expect(located).toEqual([headers, headers, undefined]);
-      expect(served.asked.filter((a) => a.url !== api.url).every((a) => a.url === `${CDN}installer` && a.authorization === undefined)).toBe(true);
+      expect(served.asked.filter((a) => a.url !== api.url).every((a) => a.url === `${CDN}installer` && a.authorization === undefined)).toBe(
+        true,
+      );
     }
   });
 
@@ -1826,7 +2264,9 @@ describe('downloading an update in parts', () => {
     await download({ fetch: single(body).fetch, connections: served.connections, locate, asset: api, to, minPart, headers });
     expect(readFileSync(to)).toEqual(body);
     expect(located).toEqual([headers, headers, undefined]);
-    expect(served.asked.filter((a) => a.url === api.url).every((a) => a.authorization === `Bearer ${TOKEN}` && a.redirect === 'error')).toBe(true);
+    expect(
+      served.asked.filter((a) => a.url === api.url).every((a) => a.authorization === `Bearer ${TOKEN}` && a.redirect === 'error'),
+    ).toBe(true);
     expect(served.asked.some((a) => a.url === `${CDN}installer`)).toBe(true);
   });
 
@@ -1849,7 +2289,9 @@ describe('downloading an update in parts', () => {
     const hanging: Fetch[] = parts.connections.map(
       (served): Fetch =>
         (url, init) =>
-          url === api.url ? new Promise((_, fail) => init?.signal?.addEventListener('abort', () => fail(init.signal!.reason), { once: true })) : served(url, init),
+          url === api.url
+            ? new Promise((_, fail) => init?.signal?.addEventListener('abort', () => fail(init.signal!.reason), { once: true }))
+            : served(url, init),
     );
     const to = join(dir, 'parts-api-hangs.dmg');
     await download({ fetch: single(body).fetch, connections: hanging, locate, asset: api, to, minPart, headers, answerMs: 50 });
@@ -1868,7 +2310,17 @@ describe('downloading an update in parts', () => {
         return { status: 200 };
       };
       const served = cdn(body, 4, { answer: () => status });
-      const err = await failure(download({ fetch: single(body).fetch, connections: served.connections, locate, asset: api, to: join(dir, `parts-api-${status}.dmg`), minPart, headers }));
+      const err = await failure(
+        download({
+          fetch: single(body).fetch,
+          connections: served.connections,
+          locate,
+          asset: api,
+          to: join(dir, `parts-api-${status}.dmg`),
+          minPart,
+          headers,
+        }),
+      );
       expect(err?.failure, String(status)).toBe('download');
       expect(err?.message).toBe(`HTTP ${status}`);
       // Asked again each time, up to PART_FAILURES, and never anywhere but the API with the token.
@@ -1888,9 +2340,14 @@ describe('downloading an update in parts', () => {
       if (url === api.url) return located.length === 1 ? { status: 302, location: `${CDN}copy` } : { status: 401 };
       return { status: 404 };
     };
-    const served = cdn(body, 4, { pause: (a) => (a.conn === 0 ? 40 : 0), answer: (a) => (a.url === `${CDN}copy` && a.from % quarter !== 0 ? 403 : 206) });
+    const served = cdn(body, 4, {
+      pause: (a) => (a.conn === 0 ? 40 : 0),
+      answer: (a) => (a.url === `${CDN}copy` && a.from % quarter !== 0 ? 403 : 206),
+    });
     const to = join(dir, 'parts-nowhere.dmg');
-    const err = await failure(download({ fetch: single(body).fetch, connections: served.connections, locate, asset: api, to, minPart, headers }));
+    const err = await failure(
+      download({ fetch: single(body).fetch, connections: served.connections, locate, asset: api, to, minPart, headers }),
+    );
     expect(err?.failure).toBe('download');
     expect(err?.message).toBe('HTTP 404');
     expect(located.map((l) => [l.url, l.headers])).toEqual([
@@ -1903,7 +2360,17 @@ describe('downloading an update in parts', () => {
     expect(existsSync(`${to}.part`)).toBe(false);
     // Refused from the start, with no installer to fall back on.
     const alone: UpdateAsset = { ...api, fallback: undefined };
-    const refusedAlone = await failure(download({ fetch: single(body).fetch, connections: cdn(body, 4).connections, locate: async () => ({ status: 401 }), asset: alone, to, minPart, headers }));
+    const refusedAlone = await failure(
+      download({
+        fetch: single(body).fetch,
+        connections: cdn(body, 4).connections,
+        locate: async () => ({ status: 401 }),
+        asset: alone,
+        to,
+        minPart,
+        headers,
+      }),
+    );
     expect(refusedAlone?.message).toBe('HTTP 401');
     expect(existsSync(`${to}.part`)).toBe(false);
   });
@@ -1920,9 +2387,16 @@ describe('downloading an update in parts', () => {
       if (url === api.url) return ++askedForCopy === 1 ? { status: 302, location: `${CDN}copy` } : { status: 401 };
       return { status: 302, location: `${CDN}installer` };
     };
-    const replaced = cdn(Buffer.alloc(body.length, 7), 4, { pause: (a) => (a.conn === 0 ? 40 : 0), answer: (a) => (a.from % quarter !== 0 ? 403 : 206) });
+    const replaced = cdn(Buffer.alloc(body.length, 7), 4, {
+      pause: (a) => (a.conn === 0 ? 40 : 0),
+      answer: (a) => (a.from % quarter !== 0 ? 403 : 206),
+    });
     const installer = cdn(body, 4);
-    const connections = replaced.connections.map((fromCopy, i): Fetch => (url, init) => (url.startsWith(`${CDN}copy`) ? fromCopy(url, init) : installer.connections[i]!(url, init)));
+    const connections = replaced.connections.map(
+      (fromCopy, i): Fetch =>
+        (url, init) =>
+          url.startsWith(`${CDN}copy`) ? fromCopy(url, init) : installer.connections[i]!(url, init),
+    );
     const to = join(dir, 'parts-mixed.dmg');
     await download({ fetch: single(body).fetch, connections, locate, asset: api, to, minPart, headers });
     expect(readFileSync(to)).toEqual(body);
@@ -1949,7 +2423,15 @@ describe('downloading an update in parts', () => {
     // From the CDN: without the token.
     const fromCdn = recorded();
     const gh = github();
-    await download({ fetch: fromCdn.fetch, connections: cdn(body, 4, { answer: () => 200 }).connections, locate: gh.locate, asset: api, to: join(dir, 'parts-whole-cdn.dmg'), minPart, headers });
+    await download({
+      fetch: fromCdn.fetch,
+      connections: cdn(body, 4, { answer: () => 200 }).connections,
+      locate: gh.locate,
+      asset: api,
+      to: join(dir, 'parts-whole-cdn.dmg'),
+      minPart,
+      headers,
+    });
     expect(gh.headers).toEqual([headers]);
     expect(fromCdn.asked).toEqual([{ url: `${CDN}1`, init: { signal: expect.any(AbortSignal) } }]);
     // From GitHub's API itself: asked where it leads again with the token, then fetched there with it, following no redirect.
@@ -1960,7 +2442,15 @@ describe('downloading an update in parts', () => {
       return { status: 200 };
     };
     const to = join(dir, 'parts-whole-api.dmg');
-    await download({ fetch: fromApi.fetch, connections: cdn(body, 4, { answer: () => 200 }).connections, locate: direct, asset: api, to, minPart, headers });
+    await download({
+      fetch: fromApi.fetch,
+      connections: cdn(body, 4, { answer: () => 200 }).connections,
+      locate: direct,
+      asset: api,
+      to,
+      minPart,
+      headers,
+    });
     expect(readFileSync(to)).toEqual(body);
     expect(located).toEqual([headers, headers]);
     expect(fromApi.asked).toEqual([{ url: api.url, init: { headers, signal: expect.any(AbortSignal), redirect: 'error' } }]);
@@ -1968,7 +2458,15 @@ describe('downloading an update in parts', () => {
     const refusedNow = recorded();
     let asks = 0;
     const thenRefused: Locate = async () => (++asks === 1 ? { status: 200 } : { status: 401 });
-    await download({ fetch: refusedNow.fetch, connections: cdn(body, 4, { answer: () => 200 }).connections, locate: thenRefused, asset: api, to, minPart, headers });
+    await download({
+      fetch: refusedNow.fetch,
+      connections: cdn(body, 4, { answer: () => 200 }).connections,
+      locate: thenRefused,
+      asset: api,
+      to,
+      minPart,
+      headers,
+    });
     expect(refusedNow.asked).toEqual([{ url: api.fallback, init: { signal: expect.any(AbortSignal) } }]);
   });
 
@@ -1997,7 +2495,9 @@ describe('downloading an update in parts', () => {
     // Every connection drops after 2 KB: one more drop than PART_FAILURES fails it.
     const drops = cdn(body, 4, { cut: () => 2048 });
     const failed = join(dir, 'parts-drops.dmg');
-    const err = await failure(download({ fetch: single(body).fetch, connections: drops.connections, locate: github().locate, asset: copy, to: failed, minPart }));
+    const err = await failure(
+      download({ fetch: single(body).fetch, connections: drops.connections, locate: github().locate, asset: copy, to: failed, minPart }),
+    );
     expect(err).toBeInstanceOf(UpdateError);
     expect(err?.failure).toBe('download');
     expect(err?.message).toBe('connection reset');
@@ -2009,7 +2509,10 @@ describe('downloading an update in parts', () => {
   it('finds the file again when its signed address has expired, once however many parts find it, and gives up on one that keeps expiring', async () => {
     // The parts taken from the slow connection are refused at the first address, which has expired since.
     const gh = github();
-    const served = cdn(body, 4, { pause: (a) => (a.conn === 0 ? 40 : 0), answer: (a) => (a.url === `${CDN}1` && a.from % quarter !== 0 ? 403 : 206) });
+    const served = cdn(body, 4, {
+      pause: (a) => (a.conn === 0 ? 40 : 0),
+      answer: (a) => (a.url === `${CDN}1` && a.from % quarter !== 0 ? 403 : 206),
+    });
     const to = join(dir, 'parts-expired.dmg');
     await download({ fetch: single(body).fetch, connections: served.connections, locate: gh.locate, asset: copy, to, minPart });
     expect(readFileSync(to)).toEqual(body);
@@ -2018,7 +2521,16 @@ describe('downloading an update in parts', () => {
     // Every address refusing them: located again PART_FAILURES times, then given up on.
     const again = github();
     const refused = cdn(body, 4, { pause: (a) => (a.conn === 0 ? 40 : 0), answer: (a) => (a.from % quarter !== 0 ? 403 : 206) });
-    const err = await failure(download({ fetch: single(body).fetch, connections: refused.connections, locate: again.locate, asset: copy, to: join(dir, 'parts-refused.dmg'), minPart }));
+    const err = await failure(
+      download({
+        fetch: single(body).fetch,
+        connections: refused.connections,
+        locate: again.locate,
+        asset: copy,
+        to: join(dir, 'parts-refused.dmg'),
+        minPart,
+      }),
+    );
     expect(err?.failure).toBe('download');
     expect(err?.message).toBe('HTTP 403');
     expect(again.located).toHaveLength(1 + PART_FAILURES);
@@ -2028,7 +2540,14 @@ describe('downloading an update in parts', () => {
     const whole = single(body);
     const gh = github();
     const to = join(dir, 'parts-whole.dmg');
-    await download({ fetch: whole.fetch, connections: cdn(body, 4, { answer: () => 200 }).connections, locate: gh.locate, asset: copy, to, minPart });
+    await download({
+      fetch: whole.fetch,
+      connections: cdn(body, 4, { answer: () => 200 }).connections,
+      locate: gh.locate,
+      asset: copy,
+      to,
+      minPart,
+    });
     expect(readFileSync(to)).toEqual(body);
     expect(gh.located).toEqual([copy.url]);
     expect(whole.asked).toEqual([`${CDN}1`]);
@@ -2045,23 +2564,61 @@ describe('downloading an update in parts', () => {
       },
     });
     const to = join(dir, 'parts-stalled.dmg');
-    await download({ fetch: single(body).fetch, connections: served.connections, locate: github().locate, asset: copy, to, minPart, stallMs: 300 });
+    await download({
+      fetch: single(body).fetch,
+      connections: served.connections,
+      locate: github().locate,
+      asset: copy,
+      to,
+      minPart,
+      stallMs: 300,
+    });
     expect(readFileSync(to)).toEqual(body);
     expect(served.asked.filter((a) => a.from === quarter)).toHaveLength(2);
     // None sends a byte, or GitHub never answers.
     const failed = join(dir, 'parts-silent.dmg');
-    const silent = await failure(download({ fetch: single(body).fetch, connections: cdn(body, 4, { pause: () => 60_000 }).connections, locate: github().locate, asset: copy, to: failed, minPart, stallMs: 100 }));
+    const silent = await failure(
+      download({
+        fetch: single(body).fetch,
+        connections: cdn(body, 4, { pause: () => 60_000 }).connections,
+        locate: github().locate,
+        asset: copy,
+        to: failed,
+        minPart,
+        stallMs: 100,
+      }),
+    );
     expect(silent?.failure).toBe('download');
     expect(silent?.message).toMatch(/no data/);
-    const never: Locate = (_url, signal) => new Promise((_, fail) => signal.addEventListener('abort', () => fail(signal.reason), { once: true }));
-    const unanswered = await failure(download({ fetch: single(body).fetch, connections: cdn(body, 4).connections, locate: never, asset: copy, to: failed, minPart, stallMs: 100 }));
+    const never: Locate = (_url, signal) =>
+      new Promise((_, fail) => signal.addEventListener('abort', () => fail(signal.reason), { once: true }));
+    const unanswered = await failure(
+      download({
+        fetch: single(body).fetch,
+        connections: cdn(body, 4).connections,
+        locate: never,
+        asset: copy,
+        to: failed,
+        minPart,
+        stallMs: 100,
+      }),
+    );
     expect(unanswered?.message).toMatch(/no data/);
     expect(existsSync(`${failed}.part`)).toBe(false);
   });
 
   it('deletes parts that do not add up to the checksum', async () => {
     const to = join(dir, 'parts-bad.dmg');
-    const err = await failure(download({ fetch: single(body).fetch, connections: cdn(Buffer.alloc(body.length), 4).connections, locate: github().locate, asset: copy, to, minPart }));
+    const err = await failure(
+      download({
+        fetch: single(body).fetch,
+        connections: cdn(Buffer.alloc(body.length), 4).connections,
+        locate: github().locate,
+        asset: copy,
+        to,
+        minPart,
+      }),
+    );
     expect(err?.failure).toBe('checksum');
     expect(existsSync(to)).toBe(false);
     expect(existsSync(`${to}.part`)).toBe(false);
@@ -2076,11 +2633,17 @@ describe('downloading an update in parts', () => {
 
 describe('putting the new version in place', () => {
   it('names a new AppImage after its version when the running one was named after its own', () => {
-    expect(appImageTarget('/home/me/Apps/Harness-Relay-2026-11-10-linux-x86_64.AppImage', 'Harness-Relay-2026-11-12-linux-x86_64.AppImage', '2026-11-10')).toBe(
-      join('/home/me/Apps', 'Harness-Relay-2026-11-12-linux-x86_64.AppImage'),
-    );
+    expect(
+      appImageTarget(
+        '/home/me/Apps/Harness-Relay-2026-11-10-linux-x86_64.AppImage',
+        'Harness-Relay-2026-11-12-linux-x86_64.AppImage',
+        '2026-11-10',
+      ),
+    ).toBe(join('/home/me/Apps', 'Harness-Relay-2026-11-12-linux-x86_64.AppImage'));
     // A name the user gave it (a launcher may use it) stays.
-    expect(appImageTarget('/home/me/bin/harness-relay.AppImage', 'Harness-Relay-2026-11-12-linux-x86_64.AppImage', '2026-11-10')).toBe('/home/me/bin/harness-relay.AppImage');
+    expect(appImageTarget('/home/me/bin/harness-relay.AppImage', 'Harness-Relay-2026-11-12-linux-x86_64.AppImage', '2026-11-10')).toBe(
+      '/home/me/bin/harness-relay.AppImage',
+    );
   });
 
   posixIt('puts the AppImage in place, runnable, and removes the old one when it was renamed', () => {
@@ -2147,7 +2710,13 @@ describe('putting the new version in place', () => {
 
       const app = join(dir, 'Apps', 'Harness Relay.app');
       mkdirSync(app, { recursive: true });
-      const staged = await stageMacApp({ dmg, app, bundleId: 'io.github.agentic-system-lab.harness-relay', semver: '2026.1112.0', env: process.env });
+      const staged = await stageMacApp({
+        dmg,
+        app,
+        bundleId: 'io.github.agentic-system-lab.harness-relay',
+        semver: '2026.1112.0',
+        env: process.env,
+      });
       expect(staged).toBe(macStaging(app).staged);
       expect(existsSync(join(staged, 'Contents', 'MacOS', 'Harness Relay'))).toBe(true);
 
@@ -2162,7 +2731,9 @@ describe('putting the new version in place', () => {
       }
       // A disk image that is not one.
       writeFileSync(join(dir, 'broken.dmg'), 'not a disk image');
-      const broken = await stageMacApp({ dmg: join(dir, 'broken.dmg'), app, bundleId: 'x', semver: 'y', env: process.env }).catch((e: unknown) => e);
+      const broken = await stageMacApp({ dmg: join(dir, 'broken.dmg'), app, bundleId: 'x', semver: 'y', env: process.env }).catch(
+        (e: unknown) => e,
+      );
       expect((broken as UpdateError).failure).toBe('unpack');
     },
     120_000,
@@ -2215,7 +2786,8 @@ describe('waiting for the conversations', () => {
     expect(at('starting')).toBeUndefined();
     expect(at('stopped', { starting: true })).toBeUndefined(); // the app reads the shell's environment before it starts the server
     // Quitting (also as the system shuts down) never switches, whatever the server does.
-    for (const server of ['running', 'stopped', 'starting', 'stopping'] as const) expect(at(server, { quitting: true }), server).toBeUndefined();
+    for (const server of ['running', 'stopped', 'starting', 'stopping'] as const)
+      expect(at(server, { quitting: true }), server).toBeUndefined();
   });
 
   it('does not switch while the number is unknown, however long that lasts', async () => {
@@ -2251,16 +2823,21 @@ describe('waiting for the conversations', () => {
 
 describe('what an update leaves next to the AppImage', () => {
   it('downloads the new AppImage hidden next to the running one', () => {
-    expect(appImageDownload('/home/me/Apps/Harness-Relay-2026-11-10-linux-arm64.AppImage', 'Harness-Relay-2026-11-12-linux-arm64.AppImage')).toBe(
-      join('/home/me/Apps', '.Harness-Relay-2026-11-12-linux-arm64.AppImage.download'),
-    );
+    expect(
+      appImageDownload('/home/me/Apps/Harness-Relay-2026-11-10-linux-arm64.AppImage', 'Harness-Relay-2026-11-12-linux-arm64.AppImage'),
+    ).toBe(join('/home/me/Apps', '.Harness-Relay-2026-11-12-linux-arm64.AppImage.download'));
   });
 
   it('removes a download never put in place, and its part, but nothing else', () => {
     const apps = join(dir, 'leftovers');
     mkdirSync(apps);
     const running = join(apps, 'Harness-Relay-2026-11-10-linux-x86_64.AppImage');
-    const kept = [running, join(apps, 'notes.download'), join(apps, '.other.AppImage.download'), join(apps, 'Harness-Relay-2026-11-12-linux-x86_64.AppImage')];
+    const kept = [
+      running,
+      join(apps, 'notes.download'),
+      join(apps, '.other.AppImage.download'),
+      join(apps, 'Harness-Relay-2026-11-12-linux-x86_64.AppImage'),
+    ];
     const left = [
       appImageDownload(running, 'Harness-Relay-2026-11-12-linux-x86_64.AppImage'),
       `${appImageDownload(running, 'Harness-Relay-2026-11-13-rc-linux-x86_64.AppImage')}.part`,
@@ -2343,7 +2920,13 @@ describe('downloading an update from the download mirror', () => {
   const atMirror = (url: string) => URL.canParse(url) && new URL(url).origin === MIRROR_AT;
   const CDN = 'https://release-assets.githubusercontent.com/github-production-release-asset/9/h?sig=';
   /** As parseRelease finds it: the copy on github.com, the installer as its fallback. */
-  const asset: UpdateAsset = { name: NAME, url: `${COPIES}/${TAG}/Harness-Relay-${TAG}-mac-arm64-update.dmg`, fallback: `${DOWNLOAD}/${TAG}/${NAME}`, size: body.length, sha256: sha(body) };
+  const asset: UpdateAsset = {
+    name: NAME,
+    url: `${COPIES}/${TAG}/Harness-Relay-${TAG}-mac-arm64-update.dmg`,
+    fallback: `${DOWNLOAD}/${TAG}/${NAME}`,
+    size: body.length,
+    sha256: sha(body),
+  };
 
   /**
    * The mirror and GitHub as the app sees them. `mirror` is how the mirror answers ('ok', 'down': no
@@ -2358,7 +2941,8 @@ describe('downloading an update from the download mirror', () => {
       located.push({ url, headers });
       if (atMirror(url)) {
         if (mirror === 'down') throw new Error('getaddrinfo ENOTFOUND');
-        if (mirror === 'stalls') return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+        if (mirror === 'stalls')
+          return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
         return { status: mirror === 'missing' ? 404 : 200 };
       }
       if (url === asset.url && github.copy) return { status: github.copy };
@@ -2366,12 +2950,16 @@ describe('downloading an update from the download mirror', () => {
     };
     const one: Fetch = async (url, init) => {
       fetched.push({ url, range: init?.headers?.Range, authorization: init?.headers?.Authorization });
-      if (url.endsWith(`/releases/tags/${TAG}`)) return new Response(JSON.stringify({ assets: [{ id: 91, name: `Harness-Relay-${TAG}-mac-arm64-update.dmg` }] }));
+      if (url.endsWith(`/releases/tags/${TAG}`))
+        return new Response(JSON.stringify({ assets: [{ id: 91, name: `Harness-Relay-${TAG}-mac-arm64-update.dmg` }] }));
       const data = served(url);
       const m = /^bytes=(\d+)-(\d+)$/.exec(init?.headers?.Range ?? '');
       if (!m) return new Response(new Uint8Array(data), { headers: { 'content-length': String(data.length) } });
       const [from, to] = [Number(m[1]), Number(m[2])];
-      return new Response(new Uint8Array(data.subarray(from, to + 1)), { status: 206, headers: { 'content-range': `bytes ${from}-${to}/${data.length}` } });
+      return new Response(new Uint8Array(data.subarray(from, to + 1)), {
+        status: 206,
+        headers: { 'content-range': `bytes ${from}-${to}/${data.length}` },
+      });
     };
     return { located, fetched, locate, fetch: one, connections: [one, one, one, one] };
   }
@@ -2381,7 +2969,8 @@ describe('downloading an update from the download mirror', () => {
   it("is asked for an installer under its copy's name, with the same checksum and nothing to fall back to", () => {
     expect(mirrorCopyUrl(TAG, NAME, MIRROR_AT)).toBe(AT_MIRROR);
     expect(mirrorAsset(MIRROR_AT, TAG, asset)).toEqual({ name: NAME, url: AT_MIRROR, size: body.length, sha256: sha(body) });
-    for (const none of [undefined, '', 'http://downloads.example', `${MIRROR_AT}/dl`]) expect(mirrorAsset(none, TAG, asset), String(none)).toBeUndefined();
+    for (const none of [undefined, '', 'http://downloads.example', `${MIRROR_AT}/dl`])
+      expect(mirrorAsset(none, TAG, asset), String(none)).toBeUndefined();
     expect(mirrorAsset(MIRROR_AT, TAG, { ...asset, name: 'notes.txt' })).toBeUndefined();
     expect(mirrorAsset(MIRROR_AT, '../x', asset)).toBeUndefined();
     expect(mirrorCopyUrl(TAG, `Harness-Relay-${TAG}-mac-arm64-update.dmg`, MIRROR_AT)).toBeUndefined();
@@ -2390,7 +2979,17 @@ describe('downloading an update from the download mirror', () => {
   it('downloads the file from the mirror in parts, then has GitHub count the update against the copy, as a download from it would', async () => {
     const w = world();
     const to = join(dir, 'mirror-ok.dmg');
-    await downloadUpdate({ fetch: w.fetch, connections: w.connections, locate: w.locate, source: SOURCE, tag: TAG, asset, to, minPart, mirror: MIRROR_AT });
+    await downloadUpdate({
+      fetch: w.fetch,
+      connections: w.connections,
+      locate: w.locate,
+      source: SOURCE,
+      tag: TAG,
+      asset,
+      to,
+      minPart,
+      mirror: MIRROR_AT,
+    });
     expect(readFileSync(to)).toEqual(body);
     // Every byte from the mirror, a part on each connection.
     const bytes = w.fetched.filter(fromMirror);
@@ -2405,20 +3004,42 @@ describe('downloading an update from the download mirror', () => {
   it('counts the update against the copy in a private repository, with the token at GitHub’s API alone', async () => {
     const w = world();
     const to = join(dir, 'mirror-private.dmg');
-    await downloadUpdate({ fetch: w.fetch, connections: w.connections, locate: w.locate, source: PRIVATE, tag: TAG, asset, to, minPart, mirror: MIRROR_AT });
+    await downloadUpdate({
+      fetch: w.fetch,
+      connections: w.connections,
+      locate: w.locate,
+      source: PRIVATE,
+      tag: TAG,
+      asset,
+      to,
+      minPart,
+      mirror: MIRROR_AT,
+    });
     expect(readFileSync(to)).toEqual(body);
     expect(w.located).toEqual([
       { url: AT_MIRROR, headers: undefined },
       { url: 'https://api.github.com/repos/acme/relay-updates/releases/assets/91', headers: downloadHeaders(PRIVATE) },
     ]);
     // The token to the API alone: never to the mirror, nor to the CDN.
-    expect(w.fetched.filter((f) => f.authorization).map((f) => f.url)).toEqual(['https://api.github.com/repos/acme/relay-updates/releases/tags/2026-11-14']);
+    expect(w.fetched.filter((f) => f.authorization).map((f) => f.url)).toEqual([
+      'https://api.github.com/repos/acme/relay-updates/releases/tags/2026-11-14',
+    ]);
     expect(w.fetched.filter(fromCdn).map((f) => f.range)).toEqual(['bytes=0-0']);
   });
 
   it('counts the update against the installer when the copy is not on GitHub, as a download from GitHub falls back to it', async () => {
     const w = world('ok', { copy: 404 });
-    await downloadUpdate({ fetch: w.fetch, connections: w.connections, locate: w.locate, source: SOURCE, tag: TAG, asset, to: join(dir, 'mirror-nocopy.dmg'), minPart, mirror: MIRROR_AT });
+    await downloadUpdate({
+      fetch: w.fetch,
+      connections: w.connections,
+      locate: w.locate,
+      source: SOURCE,
+      tag: TAG,
+      asset,
+      to: join(dir, 'mirror-nocopy.dmg'),
+      minPart,
+      mirror: MIRROR_AT,
+    });
     expect(w.located.map((l) => l.url)).toEqual([AT_MIRROR, asset.url, asset.fallback]);
     expect(w.fetched.filter(fromCdn).map((f) => f.range)).toEqual(['bytes=0-0']);
   });
@@ -2427,15 +3048,32 @@ describe('downloading an update from the download mirror', () => {
     for (const how of ['down', 'missing', 'other', 'stalls'] as const) {
       const w = world(how);
       const to = join(dir, `mirror-${how}.dmg`);
-      await downloadUpdate({ fetch: w.fetch, connections: w.connections, locate: w.locate, source: SOURCE, tag: TAG, asset, to, minPart, mirror: MIRROR_AT, stallMs: 100 });
+      await downloadUpdate({
+        fetch: w.fetch,
+        connections: w.connections,
+        locate: w.locate,
+        source: SOURCE,
+        tag: TAG,
+        asset,
+        to,
+        minPart,
+        mirror: MIRROR_AT,
+        stallMs: 100,
+      });
       expect(readFileSync(to), how).toEqual(body);
       expect(existsSync(`${to}.part`)).toBe(false);
       // GitHub asked once where the copy is, by the download itself: the update counted once.
-      expect(w.located.filter((l) => !atMirror(l.url)).map((l) => l.url), how).toEqual([asset.url]);
+      expect(
+        w.located.filter((l) => !atMirror(l.url)).map((l) => l.url),
+        how,
+      ).toEqual([asset.url]);
       // Its parts from the CDN, none of them the counting byte alone.
       const parts = w.fetched.filter(fromCdn);
       expect(parts.length, how).toBe(4);
-      expect(parts.some((f) => f.range === 'bytes=0-0'), how).toBe(false);
+      expect(
+        parts.some((f) => f.range === 'bytes=0-0'),
+        how,
+      ).toBe(false);
     }
   });
 
@@ -2443,17 +3081,38 @@ describe('downloading an update from the download mirror', () => {
     const w = world();
     const offline: Locate = async (url, signal, h) => (atMirror(url) ? w.locate(url, signal, h) : Promise.reject(new Error('offline')));
     const to = join(dir, 'mirror-uncounted.dmg');
-    await downloadUpdate({ fetch: w.fetch, connections: w.connections, locate: offline, source: SOURCE, tag: TAG, asset, to, minPart, mirror: MIRROR_AT });
+    await downloadUpdate({
+      fetch: w.fetch,
+      connections: w.connections,
+      locate: offline,
+      source: SOURCE,
+      tag: TAG,
+      asset,
+      to,
+      minPart,
+      mirror: MIRROR_AT,
+    });
     expect(readFileSync(to)).toEqual(body);
     // And gives up on a GitHub that does not answer.
-    const silent: Locate = (_url, signal) => new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    const silent: Locate = (_url, signal) =>
+      new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
     await countUpdate({ fetch: w.fetch, locate: silent, asset, answerMs: 50 });
   });
 
   it('never asks a mirror the app was built without, nor one it cannot locate on', async () => {
     for (const mirror of [undefined, '']) {
       const w = world();
-      await downloadUpdate({ fetch: w.fetch, connections: w.connections, locate: w.locate, source: SOURCE, tag: TAG, asset, to: join(dir, 'mirror-none.dmg'), minPart, mirror });
+      await downloadUpdate({
+        fetch: w.fetch,
+        connections: w.connections,
+        locate: w.locate,
+        source: SOURCE,
+        tag: TAG,
+        asset,
+        to: join(dir, 'mirror-none.dmg'),
+        minPart,
+        mirror,
+      });
       expect(w.located.map((l) => l.url)).toEqual([asset.url]);
       expect(w.fetched.some(fromMirror)).toBe(false);
     }

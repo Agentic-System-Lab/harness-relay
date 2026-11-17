@@ -22,7 +22,18 @@ import { useT, type Messages } from '../i18n';
 import { useLimits } from '../limits';
 import { settingsHref } from '../route';
 import { defaultOn, emptyLibraryText, hasTool, itemsFor, noneForCliText, setTool, toolItems, toolsHintText, type ToolItem } from '../tools';
-import { PROVIDER_COLOR, accountName, accountOf, accountState, inheritModelLabel, initials, newAgent, readyAccount, switchProvider, type ModelChoice } from '../util';
+import {
+  PROVIDER_COLOR,
+  accountName,
+  accountOf,
+  accountState,
+  inheritModelLabel,
+  initials,
+  newAgent,
+  readyAccount,
+  switchProvider,
+  type ModelChoice,
+} from '../util';
 import { AccountPicker } from './AccountPicker';
 import { CwdInput } from './CwdInput';
 import { GrokTrustNote } from './GrokTrust';
@@ -62,11 +73,7 @@ const PERMISSIONS: Permission[] = ['read-only', 'edit', 'full'];
  * What keeps the team from being saved; `members` and `template` as for `TeamEditor`, `maxAgents` the
  * server's team limit (`useLimits()`).
  */
-export function teamProblems(
-  team: Team,
-  t: Messages,
-  opts: { members?: boolean; template?: boolean; maxAgents?: number } = {},
-): string[] {
+export function teamProblems(team: Team, t: Messages, opts: { members?: boolean; template?: boolean; maxAgents?: number } = {}): string[] {
   const p = t.team.problems;
   const out: string[] = [];
   if (opts.members ?? !team.settings.autoTeam) {
@@ -84,7 +91,17 @@ export function teamProblems(
   return out;
 }
 
-export function TeamEditor({ value, onChange, providers, catalog, members, template = false, proposed = false, leadLabel, schedule }: Props) {
+export function TeamEditor({
+  value,
+  onChange,
+  providers,
+  catalog,
+  members,
+  template = false,
+  proposed = false,
+  leadLabel,
+  schedule,
+}: Props) {
   const t = useT();
   const { maxTeamAgents } = useLimits();
   const { agents, settings } = value;
@@ -114,8 +131,7 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
   );
   const setAgents = (next: AgentConfig[]) => onChange({ ...value, agents: next });
   const setSettings = (patch: Partial<ConversationSettings>) => onChange({ ...value, settings: { ...settings, ...patch } });
-  const updateAgent = (id: string, patch: Partial<AgentConfig>) =>
-    setAgents(agents.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+  const updateAgent = (id: string, patch: Partial<AgentConfig>) => setAgents(agents.map((a) => (a.id === id ? { ...a, ...patch } : a)));
   const move = (i: number, d: -1 | 1) => {
     const next = [...agents];
     const j = i + d;
@@ -215,7 +231,7 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
                           ? t.team.noBackend(PROVIDER_LABEL[a.provider])
                           : multi && account
                             ? t.accounts.notLoggedIn(PROVIDER_LABEL[a.provider], accountName(account, t))
-                          : t.team.notLoggedIn(PROVIDER_LABEL[a.provider])}
+                            : t.team.notLoggedIn(PROVIDER_LABEL[a.provider])}
                       <a href={settingsHref(a.provider)}>{t.team.goSettings}</a>
                     </p>
                   )}
@@ -237,7 +253,10 @@ export function TeamEditor({ value, onChange, providers, catalog, members, templ
                     style={{ ['--accent' as string]: PROVIDER_COLOR[p] }}
                     disabled={agents.length >= maxTeamAgents}
                     onClick={() => {
-                      const agent = newAgent(p, agents.map((a) => a.name));
+                      const agent = newAgent(
+                        p,
+                        agents.map((a) => a.name),
+                      );
                       const account = readyAccount(providers.find((s) => s.provider === p));
                       setAgents([...agents, account ? { ...agent, account } : agent]);
                     }}

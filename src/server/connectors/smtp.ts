@@ -101,7 +101,12 @@ type Say = (line: string, codes: number[], what: string) => Promise<{ code: numb
  * Connects, says EHLO, starts TLS when asked, signs in (AUTH PLAIN, or LOGIN when only that is
  * offered), then runs `fn`, and says QUIT.
  */
-export async function withSmtp<T>(addr: ServerAddress, login: Login, fn: (say: Say, write: (raw: string) => void, expect: (codes: number[], what: string) => Promise<unknown>) => Promise<T>, timeoutMs = 30_000): Promise<T> {
+export async function withSmtp<T>(
+  addr: ServerAddress,
+  login: Login,
+  fn: (say: Say, write: (raw: string) => void, expect: (codes: number[], what: string) => Promise<unknown>) => Promise<T>,
+  timeoutMs = 30_000,
+): Promise<T> {
   let sock: Socket | TLSSocket = await openSocket(addr, timeoutMs);
   const reader = new ReplyReader(sock);
   const timed = <V>(p: Promise<V>): Promise<V> =>

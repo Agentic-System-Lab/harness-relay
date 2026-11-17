@@ -56,12 +56,19 @@ function browser(endpoint = 'https://fcm.googleapis.com/fcm/send/abc123') {
   };
 }
 
-const payload: AlertPayload = { title: 'Fix the login page', body: 'Claude finished replying', tag: 'relay-c1', url: '/#/c/c1', silent: false, kind: 'done' };
+const payload: AlertPayload = {
+  title: 'Fix the login page',
+  body: 'Claude finished replying',
+  tag: 'relay-c1',
+  url: '/#/c/c1',
+  silent: false,
+  kind: 'done',
+};
 const prefs = { done: true, needs: true, sound: true };
 
 describe('push message encryption (RFC 8291)', () => {
   // Section 5's message (the ciphertext in the RFC's appendix A does not go with its own inputs).
-  it('gives the RFC\'s own example, byte for byte', () => {
+  it("gives the RFC's own example, byte for byte", () => {
     const body = encryptPush(
       b('V2hlbiBJIGdyb3cgdXAsIEkgd2FudCB0byBiZSBhIHdhdGVybWVsb24'),
       b('BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcx aOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4'),
@@ -94,9 +101,16 @@ describe('VAPID (RFC 8292)', () => {
     expect(m).toBeTruthy();
     expect(m[4]).toBe(keys.publicKey);
     expect(JSON.parse(b(m[1]!).toString())).toEqual({ typ: 'JWT', alg: 'ES256' });
-    expect(JSON.parse(b(m[2]!).toString())).toEqual({ aud: 'https://fcm.googleapis.com', exp: 1_700_000_000 + 12 * 3600, sub: VAPID_SUBJECT });
+    expect(JSON.parse(b(m[2]!).toString())).toEqual({
+      aud: 'https://fcm.googleapis.com',
+      exp: 1_700_000_000 + 12 * 3600,
+      sub: VAPID_SUBJECT,
+    });
     const pub = b(keys.publicKey);
-    const key = createPublicKey({ key: { kty: 'EC', crv: 'P-256', x: pub.subarray(1, 33).toString('base64url'), y: pub.subarray(33).toString('base64url') }, format: 'jwk' });
+    const key = createPublicKey({
+      key: { kty: 'EC', crv: 'P-256', x: pub.subarray(1, 33).toString('base64url'), y: pub.subarray(33).toString('base64url') },
+      format: 'jwk',
+    });
     expect(verify('sha256', Buffer.from(`${m[1]}.${m[2]}`), { key, dsaEncoding: 'ieee-p1363' }, b(m[3]!))).toBe(true);
     expect(b(keys.privateKey)).toHaveLength(32);
     expect(pub).toHaveLength(65);
@@ -134,7 +148,9 @@ describe('push subscriptions', () => {
     expect(subscriptionKeys({ p256dh: ua.sub.keys.p256dh, auth: 'AAAA' })).toBeUndefined();
     expect(subscriptionKeys({ p256dh: 'not base64!', auth: ua.sub.keys.auth })).toBeUndefined();
     // 65 bytes from 0x04, but no point of the curve.
-    expect(subscriptionKeys({ p256dh: Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 7)]).toString('base64url'), auth: ua.sub.keys.auth })).toBeUndefined();
+    expect(
+      subscriptionKeys({ p256dh: Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 7)]).toString('base64url'), auth: ua.sub.keys.auth }),
+    ).toBeUndefined();
   });
 
   it('reads saved preferences, each on unless saved off', () => {
@@ -175,7 +191,8 @@ describe('PushService', () => {
     const push = new PushService(db, sender);
     const { publicKey } = push.status();
     expect(publicKey && b(publicKey)).toHaveLength(65);
-    const row = () => JSON.parse((db.prepare("SELECT value FROM app_settings WHERE key = 'push_vapid'").get() as { value: string }).value) as VapidKeys;
+    const row = () =>
+      JSON.parse((db.prepare("SELECT value FROM app_settings WHERE key = 'push_vapid'").get() as { value: string }).value) as VapidKeys;
     expect(row().publicKey).toBe(publicKey);
     expect(b(row().privateKey)).toHaveLength(32);
     // The same pair at the next start.
@@ -185,7 +202,7 @@ describe('PushService', () => {
     expect(header.endsWith(`k=${publicKey}`)).toBe(true);
   });
 
-  it('makes new keys when the private one is missing or not the public one\'s, dropping the subscriptions made with the old', () => {
+  it("makes new keys when the private one is missing or not the public one's, dropping the subscriptions made with the old", () => {
     const push = new PushService(db, sender);
     const { publicKey } = push.status();
     push.subscribe(undefined, browser().sub, prefs, 'en');
@@ -199,7 +216,9 @@ describe('PushService', () => {
     // A private key of another pair.
     const other = generateVapidKeys();
     again.subscribe(undefined, browser().sub, prefs, 'en');
-    db.prepare("UPDATE app_settings SET value = ? WHERE key = 'push_vapid'").run(JSON.stringify({ publicKey: fresh, privateKey: other.privateKey }));
+    db.prepare("UPDATE app_settings SET value = ? WHERE key = 'push_vapid'").run(
+      JSON.stringify({ publicKey: fresh, privateKey: other.privateKey }),
+    );
     const third = new PushService(db, sender);
     expect(third.status().publicKey).not.toBe(fresh);
     expect(third.hasSubscriptions()).toBe(false);

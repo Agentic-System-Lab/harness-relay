@@ -371,7 +371,9 @@ export function validateAgents(input: unknown, max = CONFIG.maxTeamAgents): Agen
   const ids = new Set<string>();
   return input.map((raw, i) => {
     const a = (raw ?? {}) as Partial<AgentConfig>;
-    const name = String(a.name ?? '').trim().replace(/^@/, '');
+    const name = String(a.name ?? '')
+      .trim()
+      .replace(/^@/, '');
     if (!NAME_RE.test(name)) bad(t().badName(i + 1, name));
     if (name.toLowerCase() === 'user' || name.toLowerCase() === 'system') bad(t().reservedName(name));
     if (names.has(name.toLowerCase())) bad(t().duplicateName(name));
@@ -542,7 +544,9 @@ export function validateSettings(
  * is the one being renamed) or of the default group in any language, ignoring case.
  */
 export function validGroupName(input: unknown, groups: ConversationGroup[], except?: string): string {
-  const name = String(input ?? '').replace(/\s+/g, ' ').trim();
+  const name = String(input ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!name) bad(t().groupNameRequired);
   if ([...name].length > GROUP_LIMITS.maxName) bad(t().groupNameTooLong(GROUP_LIMITS.maxName));
   const key = name.toLowerCase();
@@ -652,7 +656,16 @@ export function validEndpointUrl(input: unknown, relayPort = apiPort(), own: rea
   } catch {
     bad(t().endpointUrlInvalid(raw));
   }
-  if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.search || url.hash || raw.includes('#') || raw.includes('?')) {
+  if (
+    !['http:', 'https:'].includes(url.protocol) ||
+    !url.hostname ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    raw.includes('#') ||
+    raw.includes('?')
+  ) {
     bad(t().endpointUrlInvalid(raw));
   }
   const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80));
@@ -771,7 +784,14 @@ export function validateCalendarAccount(input: unknown, own: readonly string[] =
     bad(t().connectorBadUrl);
   }
   const host = url.hostname.replace(/^\[|\]$/g, '');
-  if (url.username || url.password || url.hash || !['https:', 'http:'].includes(url.protocol) || (url.protocol === 'http:' && !isLoopbackHost(host))) bad(t().connectorBadUrl);
+  if (
+    url.username ||
+    url.password ||
+    url.hash ||
+    !['https:', 'http:'].includes(url.protocol) ||
+    (url.protocol === 'http:' && !isLoopbackHost(host))
+  )
+    bad(t().connectorBadUrl);
   const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80));
   if (isLocalHost(host, own) && relayPorts().includes(port)) bad(t().connectorRelayPort('URL'));
   const address = typeof b.address === 'string' && b.address.trim() ? validAddress(b.address) : '';

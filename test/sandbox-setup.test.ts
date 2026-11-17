@@ -11,7 +11,17 @@ import { Orchestrator } from '../src/server/orchestrator';
 import { runShellScript, type RunOptions, type SpawnOptions, type SpawnResult } from '../src/server/process';
 import { ProviderService } from '../src/server/providers';
 import { hostNode, relaySandboxTools, sandboxNode, sandboxNodeFolder } from '../src/server/relaySandbox';
-import { ADMIN_SCRIPT, SCRIPT_CANNOT_RUN, APPARMOR_FILE, APPARMOR_PROFILE, LINUX_NEEDS, SandboxSetup, USERNS_RESTRICTION, letsBwrap, type SandboxSetupHost } from '../src/server/sandboxSetup';
+import {
+  ADMIN_SCRIPT,
+  SCRIPT_CANNOT_RUN,
+  APPARMOR_FILE,
+  APPARMOR_PROFILE,
+  LINUX_NEEDS,
+  SandboxSetup,
+  USERNS_RESTRICTION,
+  letsBwrap,
+  type SandboxSetupHost,
+} from '../src/server/sandboxSetup';
 import { SettingsStore } from '../src/server/settings';
 import { Store } from '../src/server/store';
 import { slow } from './timeouts';
@@ -22,17 +32,41 @@ let n = 0;
 
 function result(code: number | null, stdout = '', o: Partial<SpawnResult> = {}): SpawnResult {
   const bytes = Buffer.from(stdout);
-  return { code, signal: null, stdout, stdoutBytes: bytes, stdoutTruncated: false, stdoutSize: bytes.length, stderr: '', aborted: false, timedOut: false, ...o };
+  return {
+    code,
+    signal: null,
+    stdout,
+    stdoutBytes: bytes,
+    stdoutTruncated: false,
+    stdoutSize: bytes.length,
+    stderr: '',
+    aborted: false,
+    timedOut: false,
+    ...o,
+  };
 }
 
 /** Every program the Linux sandboxes need, where a Debian or Ubuntu has them. */
-const ALL_LINUX = ['/usr/bin/bwrap', '/usr/bin/socat', '/usr/bin/rg', '/usr/bin/slirp4netns', '/usr/sbin/ip', '/usr/sbin/iptables', '/usr/sbin/ip6tables', '/usr/sbin/iptables-restore', '/usr/sbin/ip6tables-restore', '/usr/bin/unshare', '/usr/bin/nsenter'];
+const ALL_LINUX = [
+  '/usr/bin/bwrap',
+  '/usr/bin/socat',
+  '/usr/bin/rg',
+  '/usr/bin/slirp4netns',
+  '/usr/sbin/ip',
+  '/usr/sbin/iptables',
+  '/usr/sbin/ip6tables',
+  '/usr/sbin/iptables-restore',
+  '/usr/sbin/ip6tables-restore',
+  '/usr/bin/unshare',
+  '/usr/bin/nsenter',
+];
 /** Where an x64 Debian or Ubuntu has libatomic, which Node.js's Linux builds run with. */
 const LIBATOMIC = '/usr/lib/x86_64-linux-gnu/libatomic.so.1';
 const BASE = ['/bin/sh', '/usr/bin/env', '/usr/bin/curl', '/usr/bin/tar', LIBATOMIC];
 
 /** Claude Code's docs' profile for `/usr/bin/bwrap`, as homelab has it. */
-const CLAUDE_PROFILE = 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n  include if exists <local/bwrap>\n}\n';
+const CLAUDE_PROFILE =
+  'abi <abi/4.0>,\ninclude <tunables/global>\nprofile bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n  include if exists <local/bwrap>\n}\n';
 
 type Run = SpawnOptions & { script?: string };
 
@@ -94,13 +128,17 @@ function setup(
     isProgram: (p) => programs.has(p),
     isFile: (p) => programs.has(p) || (p.startsWith(root) && existsSync(p) && statSync(p).isFile()),
     read: (p) => files[p],
-    list: (d) => Object.keys(files).filter((f) => dirname(f) === d).map((f) => basename(f)),
+    list: (d) =>
+      Object.keys(files)
+        .filter((f) => dirname(f) === d)
+        .map((f) => basename(f)),
     sudoWorks: () => o.sudo ?? true,
     pathNode: () => (o.pathNode === undefined ? null : o.pathNode),
     nodeDir,
     ...(o.nodeBuild ? { nodeBuild: o.nodeBuild } : {}),
     run: (s) => answer(s),
-    runScript: (shell: string, flags: readonly string[], script: string, run: RunOptions) => answer({ ...run, bin: shell, args: [...flags], script }),
+    runScript: (shell: string, flags: readonly string[], script: string, run: RunOptions) =>
+      answer({ ...run, bin: shell, args: [...flags], script }),
   };
   // The Node.js put into `nodeDir`, as the relay sandbox finds it there.
   host.installedNode = () => sandboxNode(dataDir);
@@ -115,7 +153,11 @@ async function ended(s: SandboxSetup) {
 
 const EMPTY_SHA256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 /** The fake build for Linux, whose download (empty here) checks. */
-const linuxBuild = (): NodeBuild => ({ ...fakeBuild(), url: 'https://nodejs.org/x/node-v26.0.0-linux-x64.tar.gz', file: 'node-v26.0.0-linux-x64.tar.gz' });
+const linuxBuild = (): NodeBuild => ({
+  ...fakeBuild(),
+  url: 'https://nodejs.org/x/node-v26.0.0-linux-x64.tar.gz',
+  file: 'node-v26.0.0-linux-x64.tar.gz',
+});
 const fakeBuild = (): NodeBuild => ({
   version: '26.0.0',
   url: 'https://nodejs.org/dist/v26.0.0/node-v26.0.0-darwin-arm64.tar.gz',
@@ -138,33 +180,79 @@ describe('what the sandboxes need', () => {
       },
     ]);
     // Only what is missing: here Copilot's, ip6tables alone bringing iptables.
-    const some = setup({ programs: ['/usr/bin/apt-get', '/usr/bin/sudo', ...ALL_LINUX.filter((p) => !/slirp4netns|ip6tables$/.test(p))] }).s.view();
+    const some = setup({
+      programs: ['/usr/bin/apt-get', '/usr/bin/sudo', ...ALL_LINUX.filter((p) => !/slirp4netns|ip6tables$/.test(p))],
+    }).s.view();
     expect(some.needs).toMatchObject([{ kind: 'packages', items: ['slirp4netns', 'iptables'], for: ['copilot'] }]);
     // dnf's names for iproute2 and iptables.
-    const fedora = setup({ programs: ['/usr/bin/dnf', '/usr/bin/sudo', '/usr/bin/bwrap', '/usr/bin/socat', '/usr/bin/rg', '/usr/bin/slirp4netns', '/usr/bin/unshare', '/usr/bin/nsenter'] }).s.view();
+    const fedora = setup({
+      programs: [
+        '/usr/bin/dnf',
+        '/usr/bin/sudo',
+        '/usr/bin/bwrap',
+        '/usr/bin/socat',
+        '/usr/bin/rg',
+        '/usr/bin/slirp4netns',
+        '/usr/bin/unshare',
+        '/usr/bin/nsenter',
+      ],
+    }).s.view();
     expect(fedora.needs[0]).toMatchObject({ items: ['iproute', 'iptables-nft'], command: 'sudo dnf install -y iproute iptables-nft' });
-    expect(setup({ programs: ['/usr/bin/pacman', '/usr/bin/sudo'] }).s.view().needs[0]!.command).toMatch(/^sudo pacman -S --needed bubblewrap /);
-    expect(setup({ programs: ['/usr/sbin/zypper', '/usr/bin/sudo'] }).s.view().needs[0]!.command).toMatch(/^sudo zypper install bubblewrap /);
+    expect(setup({ programs: ['/usr/bin/pacman', '/usr/bin/sudo'] }).s.view().needs[0]!.command).toMatch(
+      /^sudo pacman -S --needed bubblewrap /,
+    );
+    expect(setup({ programs: ['/usr/sbin/zypper', '/usr/bin/sudo'] }).s.view().needs[0]!.command).toMatch(
+      /^sudo zypper install bubblewrap /,
+    );
     // Found on the PATH too.
-    expect(setup({ programs: ['/usr/bin/apt-get', '/usr/bin/sudo', ...ALL_LINUX.filter((p) => !p.endsWith('/rg')), '/opt/rg/rg'], env: { PATH: '/opt/rg' } }).s.view().needs).toEqual([]);
+    expect(
+      setup({
+        programs: ['/usr/bin/apt-get', '/usr/bin/sudo', ...ALL_LINUX.filter((p) => !p.endsWith('/rg')), '/opt/rg/rg'],
+        env: { PATH: '/opt/rg' },
+      }).s.view().needs,
+    ).toEqual([]);
   });
 
   it('says when it cannot install the packages here: no package manager it knows, or no way to get administrator rights', () => {
     const none = setup({ programs: ['/usr/bin/sudo'] }).s.view();
-    expect(none.needs[0]).toMatchObject({ blocked: 'packageManager', command: 'bubblewrap socat ripgrep slirp4netns iproute2 iptables util-linux' });
+    expect(none.needs[0]).toMatchObject({
+      blocked: 'packageManager',
+      command: 'bubblewrap socat ripgrep slirp4netns iproute2 iptables util-linux',
+    });
     // sudo asks for a password, and no desktop session for pkexec's prompt.
     const noAdmin = setup({ sudo: false, programs: ['/usr/bin/apt-get', '/usr/bin/sudo', '/usr/bin/pkexec'] }).s.view();
     expect(noAdmin.admin).toBeUndefined();
     expect(noAdmin.needs[0]).toMatchObject({ blocked: 'admin', command: expect.stringMatching(/^sudo apt-get install -y /) });
     // In a desktop session, pkexec shows its prompt; as root, nothing is asked.
-    expect(setup({ sudo: false, programs: ['/usr/bin/apt-get', '/usr/bin/sudo', '/usr/bin/pkexec'], env: { PATH: '/usr/bin', WAYLAND_DISPLAY: 'wayland-0' } }).s.view().admin).toBe('pkexec');
-    expect(setup({ sudo: false, programs: ['/usr/bin/apt-get', '/usr/bin/pkexec'], env: { PATH: '/usr/bin', XDG_SESSION_TYPE: 'x11' } }).s.view().admin).toBe('pkexec');
+    expect(
+      setup({
+        sudo: false,
+        programs: ['/usr/bin/apt-get', '/usr/bin/sudo', '/usr/bin/pkexec'],
+        env: { PATH: '/usr/bin', WAYLAND_DISPLAY: 'wayland-0' },
+      }).s.view().admin,
+    ).toBe('pkexec');
+    expect(
+      setup({ sudo: false, programs: ['/usr/bin/apt-get', '/usr/bin/pkexec'], env: { PATH: '/usr/bin', XDG_SESSION_TYPE: 'x11' } }).s.view()
+        .admin,
+    ).toBe('pkexec');
     expect(setup({ uid: 0, programs: ['/usr/bin/apt-get'] }).s.view().admin).toBe('root');
   });
 
   it('asks sudo whether it needs a password once a minute at most', () => {
     const sudoWorks = vi.fn(() => true);
-    const s = new SandboxSetup({}, { platform: 'linux', env: { PATH: '/usr/bin' }, uid: 1000, electron: false, isProgram: (p) => ['/usr/bin/sudo', '/usr/bin/apt-get'].includes(p), read: () => undefined, list: () => [], sudoWorks });
+    const s = new SandboxSetup(
+      {},
+      {
+        platform: 'linux',
+        env: { PATH: '/usr/bin' },
+        uid: 1000,
+        electron: false,
+        isProgram: (p) => ['/usr/bin/sudo', '/usr/bin/apt-get'].includes(p),
+        read: () => undefined,
+        list: () => [],
+        sudoWorks,
+      },
+    );
     s.view();
     s.view();
     expect(sudoWorks).toHaveBeenCalledTimes(1);
@@ -219,10 +307,27 @@ describe('what the sandboxes need', () => {
     expect(setup({ platform: 'darwin', electron: true, pathNode: '/opt/homebrew/bin/node' }).s.view().needs).toEqual([]);
     expect(setup({ platform: 'darwin', electron: false }).s.view().needs).toEqual([]);
     // Linux: first, before the packages.
-    expect(setup({ electron: true }).s.view().needs.map((n) => n.kind)).toEqual(['node', 'packages']);
+    expect(
+      setup({ electron: true })
+        .s.view()
+        .needs.map((n) => n.kind),
+    ).toEqual(['node', 'packages']);
     // No build of Node.js's own for this processor, or no curl and no way to install it: said so.
-    expect(setup({ platform: 'darwin', arch: 'ia32', electron: true }).s.view().needs[0]).toMatchObject({ kind: 'node', blocked: 'node', items: [] });
-    expect(setup({ platform: 'darwin', arch: 'arm64', electron: true, programs: [], env: { PATH: '/nowhere' }, nodeBuild: () => fakeBuild() }).s.view().needs[0]!.blocked).toBeUndefined();
+    expect(setup({ platform: 'darwin', arch: 'ia32', electron: true }).s.view().needs[0]).toMatchObject({
+      kind: 'node',
+      blocked: 'node',
+      items: [],
+    });
+    expect(
+      setup({
+        platform: 'darwin',
+        arch: 'arm64',
+        electron: true,
+        programs: [],
+        env: { PATH: '/nowhere' },
+        nodeBuild: () => fakeBuild(),
+      }).s.view().needs[0]!.blocked,
+    ).toBeUndefined();
   });
 
   it('on Linux without curl (as Ubuntu’s desktop), installs it with the packages, then downloads Node.js', () => {
@@ -230,9 +335,17 @@ describe('what the sandboxes need', () => {
     const { s, nodeDir } = setup({ electron: true, base: noCurl });
     const needs = s.view().needs;
     expect(needs.map((n) => n.kind)).toEqual(['packages', 'node']);
-    expect(needs[0]).toMatchObject({ items: ['curl', 'bubblewrap', 'socat', 'ripgrep', 'slirp4netns', 'iproute2', 'iptables', 'util-linux'], command: expect.stringMatching(/^sudo apt-get install -y curl bubblewrap /) });
+    expect(needs[0]).toMatchObject({
+      items: ['curl', 'bubblewrap', 'socat', 'ripgrep', 'slirp4netns', 'iproute2', 'iptables', 'util-linux'],
+      command: expect.stringMatching(/^sudo apt-get install -y curl bubblewrap /),
+    });
     expect(needs[0]!.for).toContain('open');
-    expect(needs[1]).toEqual({ kind: 'node', items: [NODE_VERSION], for: ['open'], command: expect.stringContaining(`mkdir -p "${nodeDir}"`) });
+    expect(needs[1]).toEqual({
+      kind: 'node',
+      items: [NODE_VERSION],
+      for: ['open'],
+      command: expect.stringContaining(`mkdir -p "${nodeDir}"`),
+    });
     // No administrator rights here: curl is among the packages to install by hand, and Node.js waits for it.
     const by = setup({ electron: true, base: noCurl, sudo: false }).s.view().needs;
     expect(by.map((n) => [n.kind, n.blocked])).toEqual([
@@ -255,10 +368,16 @@ describe('what the sandboxes need', () => {
     const dnf = setup({ electron: true, base: noAtomic, programs: ['/usr/bin/dnf', '/usr/bin/sudo'] }).s.view().needs;
     expect(dnf[0]!.items[0]).toBe('libatomic');
     // Found where an arm64 Debian keeps it, or in /usr/lib64 (Fedora's).
-    expect(setup({ electron: true, arch: 'arm64', base: [...noAtomic, '/usr/lib/aarch64-linux-gnu/libatomic.so.1'] }).s.view().needs[0]!.kind).toBe('node');
+    expect(
+      setup({ electron: true, arch: 'arm64', base: [...noAtomic, '/usr/lib/aarch64-linux-gnu/libatomic.so.1'] }).s.view().needs[0]!.kind,
+    ).toBe('node');
     expect(setup({ electron: true, base: [...noAtomic, '/usr/lib64/libatomic.so.1'] }).s.view().needs[0]!.kind).toBe('node');
     // No administrator rights: Node.js waits for it, said so.
-    expect(setup({ electron: true, base: noAtomic, sudo: false }).s.view().needs.map((n) => [n.kind, n.blocked])).toEqual([
+    expect(
+      setup({ electron: true, base: noAtomic, sudo: false })
+        .s.view()
+        .needs.map((n) => [n.kind, n.blocked]),
+    ).toEqual([
       ['packages', 'admin'],
       ['node', 'libatomic'],
     ]);
@@ -310,7 +429,11 @@ describe('installing what the sandboxes need', () => {
     root0.s.install();
     expect((await ended(root0.s)).job?.state).toBe('success');
     expect(root0.calls).toHaveLength(1);
-    expect(root0.calls[0]).toMatchObject({ bin: '/bin/sh', script: ADMIN_SCRIPT, env: { HARNESS_RELAY_PM: 'apt', HARNESS_RELAY_APPARMOR: APPARMOR_PROFILE, HARNESS_RELAY_APPARMOR_FILE: APPARMOR_FILE } });
+    expect(root0.calls[0]).toMatchObject({
+      bin: '/bin/sh',
+      script: ADMIN_SCRIPT,
+      env: { HARNESS_RELAY_PM: 'apt', HARNESS_RELAY_APPARMOR: APPARMOR_PROFILE, HARNESS_RELAY_APPARMOR_FILE: APPARMOR_FILE },
+    });
     expect(root0.calls[0]!.env.HARNESS_RELAY_PACKAGES).toContain('bubblewrap');
 
     const env = { PATH: '/usr/bin', DISPLAY: ':0' };
@@ -336,11 +459,20 @@ describe('installing what the sandboxes need', () => {
     s.install();
     const v = await ended(s);
     expect(v.job?.state).toBe('failed');
-    expect(withLang('en', () => s.view().job?.error)).toBe('The install ran, but this is still missing: socat, ripgrep, slirp4netns, iproute2, iptables, util-linux. Its output is below.');
+    expect(withLang('en', () => s.view().job?.error)).toBe(
+      'The install ran, but this is still missing: socat, ripgrep, slirp4netns, iproute2, iptables, util-linux. Its output is below.',
+    );
   });
 
   it('in the desktop app, puts Node.js’s build into its folder first, checked, then the packages', async () => {
-    const { s, calls, nodeDir } = setup({ electron: true, nodeBuild: () => ({ ...fakeBuild(), url: 'https://nodejs.org/x/node-v26.0.0-linux-x64.tar.gz', file: 'node-v26.0.0-linux-x64.tar.gz' }) });
+    const { s, calls, nodeDir } = setup({
+      electron: true,
+      nodeBuild: () => ({
+        ...fakeBuild(),
+        url: 'https://nodejs.org/x/node-v26.0.0-linux-x64.tar.gz',
+        file: 'node-v26.0.0-linux-x64.tar.gz',
+      }),
+    });
     s.install();
     const v = await ended(s);
     expect(v.job?.state).toBe('success');
@@ -353,7 +485,11 @@ describe('installing what the sandboxes need', () => {
   });
 
   it('without curl, runs the packages first (curl among them), then puts Node.js in with it', async () => {
-    const { s, calls, nodeDir } = setup({ electron: true, base: ['/bin/sh', '/usr/bin/env', '/usr/bin/tar', LIBATOMIC], nodeBuild: linuxBuild });
+    const { s, calls, nodeDir } = setup({
+      electron: true,
+      base: ['/bin/sh', '/usr/bin/env', '/usr/bin/tar', LIBATOMIC],
+      nodeBuild: linuxBuild,
+    });
     s.install();
     const v = await ended(s);
     expect(v.job?.state).toBe('success');
@@ -387,7 +523,9 @@ describe('installing what the sandboxes need', () => {
     // Only the packages are missing, and they cannot be installed here.
     const noAdmin = setup({ sudo: false });
     expect(() => noAdmin.s.install()).toThrow(expect.objectContaining({ status: 400 }));
-    expect(() => setup({ programs: ['/usr/bin/apt-get', '/usr/bin/sudo', ...ALL_LINUX] }).s.install()).toThrow(expect.objectContaining({ status: 400 }));
+    expect(() => setup({ programs: ['/usr/bin/apt-get', '/usr/bin/sudo', ...ALL_LINUX] }).s.install()).toThrow(
+      expect.objectContaining({ status: 400 }),
+    );
   });
 
   it('runs one install at a time, stops it when asked while Node.js downloads or when the server stops, and counts it while it runs', async () => {
@@ -456,12 +594,14 @@ describe('installing what the sandboxes need', () => {
 
 describe('the administrator’s script', () => {
   it('is fixed text that reads what it installs from its environment, as the shell parses it', () => {
-    for (const k of ['HARNESS_RELAY_PM', 'HARNESS_RELAY_PACKAGES', 'HARNESS_RELAY_APPARMOR', 'HARNESS_RELAY_APPARMOR_FILE']) expect(ADMIN_SCRIPT).toContain(`$${k}`);
+    for (const k of ['HARNESS_RELAY_PM', 'HARNESS_RELAY_PACKAGES', 'HARNESS_RELAY_APPARMOR', 'HARNESS_RELAY_APPARMOR_FILE'])
+      expect(ADMIN_SCRIPT).toContain(`$${k}`);
     // No package name in its text, and every name a package manager spells without shell syntax.
-    for (const need of LINUX_NEEDS) for (const name of typeof need.pkg === 'string' ? [need.pkg] : Object.values(need.pkg)) {
-      expect(ADMIN_SCRIPT).not.toContain(` ${name} `);
-      expect(name).toMatch(/^[a-z0-9][a-z0-9.+-]*$/);
-    }
+    for (const need of LINUX_NEEDS)
+      for (const name of typeof need.pkg === 'string' ? [need.pkg] : Object.values(need.pkg)) {
+        expect(ADMIN_SCRIPT).not.toContain(` ${name} `);
+        expect(name).toMatch(/^[a-z0-9][a-z0-9.+-]*$/);
+      }
   });
 
   it.skipIf(process.platform === 'win32')(
@@ -476,7 +616,10 @@ describe('the administrator’s script', () => {
         writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`);
         chmodSync(join(bin, name), 0o755);
       };
-      tool('apt-get', `echo "apt-get $*" >> "$LOG"\nfor a in "$@"; do if [ "$a" = update ]; then : > "$UPDATED"; exit 0; fi; done\n[ -f "$UPDATED" ] || exit 100`);
+      tool(
+        'apt-get',
+        `echo "apt-get $*" >> "$LOG"\nfor a in "$@"; do if [ "$a" = update ]; then : > "$UPDATED"; exit 0; fi; done\n[ -f "$UPDATED" ] || exit 100`,
+      );
       tool('apparmor_parser', 'echo "apparmor_parser $*" >> "$LOG"');
       const profiles = join(dir, 'apparmor.d');
       mkdirSync(profiles);
@@ -507,10 +650,16 @@ describe('the administrator’s script', () => {
         expect(readFileSync(file, 'utf8')).toBe(`${APPARMOR_PROFILE}\n`);
       }
       // Nothing to install: nothing runs.
-      const none = await runShellScript('/bin/sh', [], ADMIN_SCRIPT, { env: { ...env, HARNESS_RELAY_PACKAGES: '', HARNESS_RELAY_APPARMOR: '' }, timeoutMs: 20_000 });
+      const none = await runShellScript('/bin/sh', [], ADMIN_SCRIPT, {
+        env: { ...env, HARNESS_RELAY_PACKAGES: '', HARNESS_RELAY_APPARMOR: '' },
+        timeoutMs: 20_000,
+      });
       expect(none.code).toBe(0);
       // A command it runs that is not there (127): not taken for pkexec's own 127, a password not given.
-      const missing = await runShellScript('/bin/sh', [], ADMIN_SCRIPT, { env: { ...env, PATH: bin, HARNESS_RELAY_PM: 'zypper', HARNESS_RELAY_APPARMOR: '' }, timeoutMs: 20_000 });
+      const missing = await runShellScript('/bin/sh', [], ADMIN_SCRIPT, {
+        env: { ...env, PATH: bin, HARNESS_RELAY_PM: 'zypper', HARNESS_RELAY_APPARMOR: '' },
+        timeoutMs: 20_000,
+      });
       expect(missing.code).toBe(SCRIPT_CANNOT_RUN);
       // A package manager's own failure keeps its code, and stops the script there: no profile after it.
       tool('apt-get', `echo "apt-get $*" >> "$LOG"\nexit 100`);
@@ -539,7 +688,15 @@ describe('sandbox setup HTTP API', () => {
     const orchestrator = new Orchestrator(store, hub, settings);
     const invalidate = vi.spyOn(providers, 'invalidate');
     const { host } = setup();
-    const a = createApp({ auth: null, store, settings, hub, orchestrator, providers, sandboxSetup: new SandboxSetup({ changed: () => providers.invalidate() }, host) });
+    const a = createApp({
+      auth: null,
+      store,
+      settings,
+      hub,
+      orchestrator,
+      providers,
+      sandboxSetup: new SandboxSetup({ changed: () => providers.invalidate() }, host),
+    });
     const view = await a.request('/api/sandbox-setup', { headers: HOST });
     expect(view.status).toBe(200);
     expect(await view.json()).toMatchObject({ needs: [{ kind: 'packages' }], admin: 'sudo' });
@@ -548,7 +705,11 @@ describe('sandbox setup HTTP API', () => {
     const started = await a.request('/api/sandbox-setup/install', json('POST'));
     expect(started.status).toBe(200);
     expect(await started.json()).toMatchObject({ job: { state: 'running' } });
-    await vi.waitFor(async () => expect(((await (await a.request('/api/sandbox-setup', { headers: HOST })).json()) as { job?: { state: string } }).job?.state).toBe('success'));
+    await vi.waitFor(async () =>
+      expect(((await (await a.request('/api/sandbox-setup', { headers: HOST })).json()) as { job?: { state: string } }).job?.state).toBe(
+        'success',
+      ),
+    );
     expect(invalidate).toHaveBeenCalledWith();
     expect((await a.request('/api/sandbox-setup/install', json('POST'))).status).toBe(400);
   });

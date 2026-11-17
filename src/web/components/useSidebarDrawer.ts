@@ -14,7 +14,13 @@ function sideScrolls(el: Element | null): SideScroll[] {
   for (; el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
     if (el.scrollWidth <= el.clientWidth + 1) continue;
     const style = getComputedStyle(el);
-    boxes.push({ overflowX: style.overflowX, direction: style.direction, scrollLeft: el.scrollLeft, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth });
+    boxes.push({
+      overflowX: style.overflowX,
+      direction: style.direction,
+      scrollLeft: el.scrollLeft,
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+    });
   }
   return boxes;
 }

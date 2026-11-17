@@ -1,5 +1,17 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -15,9 +27,18 @@ import { OPEN_PROVIDERS, type OpenProvider } from '../src/shared/types';
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-open-state-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 
-const { startOpenProcess, stateFolder, stateFolderName, emptyStateFolder, PRIVATE_DIR, PROBE_STATE, privateRoots, removeConversationState, clearOpenRunLeftovers, sealedFolder } = await import(
-  '../src/server/agents/open'
-);
+const {
+  startOpenProcess,
+  stateFolder,
+  stateFolderName,
+  emptyStateFolder,
+  PRIVATE_DIR,
+  PROBE_STATE,
+  privateRoots,
+  removeConversationState,
+  clearOpenRunLeftovers,
+  sealedFolder,
+} = await import('../src/server/agents/open');
 const { stateKeys } = await import('../src/server/agents/types');
 const { acpApprovalRequest, acpCallInfo, inputDetail } = await import('../src/server/agents/acpTurn');
 const { relaySandboxPaths } = await import('../src/server/relaySandbox');
@@ -59,7 +80,10 @@ function options(over: Partial<Options> = {}): Options {
     model: 'openai/gpt-5.4-nano',
     signal: new AbortController().signal,
     onEvent: () => undefined,
-    backends: { apis: { openai: 'sk-test-openai-0000', anthropic: 'sk-ant-test-0000' }, endpoints: [{ id: 'homelab', name: 'Homelab', baseUrl: 'http://10.0.0.5:8000/v1', models: ['m'], apiKey: 'lab-key-0000' }] },
+    backends: {
+      apis: { openai: 'sk-test-openai-0000', anthropic: 'sk-ant-test-0000' },
+      endpoints: [{ id: 'homelab', name: 'Homelab', baseUrl: 'http://10.0.0.5:8000/v1', models: ['m'], apiKey: 'lab-key-0000' }],
+    },
     ...over,
   };
 }
@@ -77,7 +101,17 @@ function sandbox(specs: Spec[]) {
     },
     sandboxCommand: async (bin: string, args: string[], env: NodeJS.ProcessEnv, spec: Spec) => {
       specs.push(spec);
-      return { bin, args, env, channel: () => undefined, failure: () => undefined, run: {} as never, dispose: async () => { for (const d of [spec.dirs?.tmp, spec.dirs?.hostTmp]) if (d) rmSync(d, { recursive: true, force: true }); } };
+      return {
+        bin,
+        args,
+        env,
+        channel: () => undefined,
+        failure: () => undefined,
+        run: {} as never,
+        dispose: async () => {
+          for (const d of [spec.dirs?.tmp, spec.dirs?.hostTmp]) if (d) rmSync(d, { recursive: true, force: true });
+        },
+      };
     },
     runTmpDir: join(root, 'full-tmp'),
   };
@@ -147,7 +181,9 @@ describe("a conversation member's own state", () => {
 
   it('does not run sandboxed when an adapter would write outside the state folder (shared with other runs)', async () => {
     const shared = agent({ home: (home) => ({ env: {}, statePaths: [join(home, 'sessions')], configPaths: [] }) });
-    await expect(withLang('en', () => startOpenProcess(shared, options({ stateKey: 'conv.c4.a1' }), () => [], sandbox([])))).rejects.toThrow(/not in this member's own folder/);
+    await expect(
+      withLang('en', () => startOpenProcess(shared, options({ stateKey: 'conv.c4.a1' }), () => [], sandbox([]))),
+    ).rejects.toThrow(/not in this member's own folder/);
     // With full access there is no sandbox to keep: it runs.
     const full = await startOpenProcess(shared, options({ stateKey: 'conv.c4.a1', permission: 'full' }), () => [], sandbox([]));
     await full.dispose();
@@ -174,7 +210,7 @@ describe("a conversation member's own state", () => {
     expect(privateRoots(home, [join(data, 'relay-sandbox'), join(data, 'run-tmp')])).toContain(join(data, 'run-tmp'));
   });
 
-  it("keeps a run from reading what runs kept in the folders the homes were in before, and makes none there", async () => {
+  it('keeps a run from reading what runs kept in the folders the homes were in before, and makes none there', async () => {
     const before = join(root, 'homes-before');
     mkdirSync(join(before, 'goose', PRIVATE_DIR), { recursive: true });
     const roots = privateRoots(join(root, 'homes3', 'opencode'), [], [before, join(root, 'homes-gone')]);
@@ -184,7 +220,15 @@ describe("a conversation member's own state", () => {
     expect(existsSync(join(root, 'homes-gone'))).toBe(false);
     // A run learns them from its environment (SettingsStore.env).
     const specs: Spec[] = [];
-    await startOpenProcess(agent(), options({ stateKey: 'conv.c9.a1', env: { PATH: process.env.PATH, [OPEN_AGENT_HOME_ENV]: join(base, 'opencode'), [OPEN_AGENT_ROOTS_ENV]: JSON.stringify([before]) } }), () => [], sandbox(specs));
+    await startOpenProcess(
+      agent(),
+      options({
+        stateKey: 'conv.c9.a1',
+        env: { PATH: process.env.PATH, [OPEN_AGENT_HOME_ENV]: join(base, 'opencode'), [OPEN_AGENT_ROOTS_ENV]: JSON.stringify([before]) },
+      }),
+      () => [],
+      sandbox(specs),
+    );
     expect(specs[0]!.privateRoots).toContain(join(before, 'goose', PRIVATE_DIR));
   });
 });
@@ -231,9 +275,22 @@ describe('the keys in a run’s environment', () => {
       AWS_BEARER_TOKEN_BEDROCK: 'b',
       CLAUDE_CODE_OAUTH_TOKEN: 'c',
     };
-    o.env = { ...o.env, ...others, XAI_API_KEY: 'xai-from-the-shell', OPENAI_BASE_URL: 'https://elsewhere.example', ANTHROPIC_API_KEY: 'sk-ant-from-settings-env', GITHUB_TOKEN: 'gh', AWS_PROFILE: 'dev' };
+    o.env = {
+      ...o.env,
+      ...others,
+      XAI_API_KEY: 'xai-from-the-shell',
+      OPENAI_BASE_URL: 'https://elsewhere.example',
+      ANTHROPIC_API_KEY: 'sk-ant-from-settings-env',
+      GITHUB_TOKEN: 'gh',
+      AWS_PROFILE: 'dev',
+    };
     const own = await startOpenProcess(agent(), o, () => [], sandbox([]));
-    expect([own.env.OPENAI_API_KEY, own.env.ANTHROPIC_API_KEY, own.env.XAI_API_KEY, own.env.OPENAI_BASE_URL]).toEqual(['sk-test-openai-0000', undefined, undefined, undefined]);
+    expect([own.env.OPENAI_API_KEY, own.env.ANTHROPIC_API_KEY, own.env.XAI_API_KEY, own.env.OPENAI_BASE_URL]).toEqual([
+      'sk-test-openai-0000',
+      undefined,
+      undefined,
+      undefined,
+    ]);
     for (const name of Object.keys(others)) expect(own.env[name], name).toBeUndefined();
     // What is not a model backend's still passes (a CLI's own tools may use it).
     expect([own.env.GITHUB_TOKEN, own.env.AWS_PROFILE]).toEqual(['gh', 'dev']);
@@ -275,41 +332,44 @@ describe('what a deleted conversation and a stopped server leave', () => {
   });
 
   // POSIX paths, file modes or programs: tried on macOS and Linux.
-  it.skipIf(process.platform === 'win32')('empties a state folder whatever the run did to it, and never touches what a link in it points to', () => {
-    const home = homes[0]!;
-    const dir = leave(home, stateKeys.member('c4', 'a'));
-    // A folder the run made unreadable, one with a read-only file, and links to a folder and a file outside.
-    mkdirSync(join(dir, 'locked', 'deeper'), { recursive: true });
-    writeFileSync(join(dir, 'locked', 'deeper', 'f'), 'x');
-    chmodSync(join(dir, 'locked'), 0o000);
-    mkdirSync(join(dir, 'ro'));
-    writeFileSync(join(dir, 'ro', 'file'), 'x', { mode: 0o444 });
-    chmodSync(join(dir, 'ro'), 0o555);
-    const outside = join(root, 'outside-state');
-    mkdirSync(join(outside, 'sub'), { recursive: true });
-    writeFileSync(join(outside, 'keep'), 'keep');
-    chmodSync(join(outside, 'sub'), 0o500);
-    symlinkSync(outside, join(dir, 'to-outside'));
-    symlinkSync(join(outside, 'keep'), join(dir, 'to-file'));
-    chmodSync(dir, 0o000); // the state folder itself too
-    try {
-      emptyStateFolder(home, stateKeys.member('c4', 'a'));
-      // Gone: the next run starts with a new folder. While the server runs, permissions are not
-      // changed (a surviving process could swap a folder for a link), so what the run locked stays
-      // set aside, and the next start removes it, giving the owner's permissions back first.
-      expect(existsSync(dir)).toBe(false);
-      expect(readdirSync(join(home, PRIVATE_DIR)).filter((n) => n.startsWith('.gone-')).length).toBeLessThanOrEqual(1);
-      clearOpenRunLeftovers([home], join(root, 'no-run-tmp'));
-      expect(readdirSync(join(home, PRIVATE_DIR)).filter((n) => n.startsWith('.gone-'))).toEqual([]);
-      // What the links pointed to is untouched, its permissions too.
-      expect(readFileSync(join(outside, 'keep'), 'utf8')).toBe('keep');
-      expect(statSync(join(outside, 'sub')).mode & 0o777).toBe(0o500);
-      // A folder that is not there is nothing to empty.
-      expect(() => emptyStateFolder(home, stateKeys.member('c4', 'none'))).not.toThrow();
-    } finally {
-      chmodSync(join(outside, 'sub'), 0o700);
-    }
-  });
+  it.skipIf(process.platform === 'win32')(
+    'empties a state folder whatever the run did to it, and never touches what a link in it points to',
+    () => {
+      const home = homes[0]!;
+      const dir = leave(home, stateKeys.member('c4', 'a'));
+      // A folder the run made unreadable, one with a read-only file, and links to a folder and a file outside.
+      mkdirSync(join(dir, 'locked', 'deeper'), { recursive: true });
+      writeFileSync(join(dir, 'locked', 'deeper', 'f'), 'x');
+      chmodSync(join(dir, 'locked'), 0o000);
+      mkdirSync(join(dir, 'ro'));
+      writeFileSync(join(dir, 'ro', 'file'), 'x', { mode: 0o444 });
+      chmodSync(join(dir, 'ro'), 0o555);
+      const outside = join(root, 'outside-state');
+      mkdirSync(join(outside, 'sub'), { recursive: true });
+      writeFileSync(join(outside, 'keep'), 'keep');
+      chmodSync(join(outside, 'sub'), 0o500);
+      symlinkSync(outside, join(dir, 'to-outside'));
+      symlinkSync(join(outside, 'keep'), join(dir, 'to-file'));
+      chmodSync(dir, 0o000); // the state folder itself too
+      try {
+        emptyStateFolder(home, stateKeys.member('c4', 'a'));
+        // Gone: the next run starts with a new folder. While the server runs, permissions are not
+        // changed (a surviving process could swap a folder for a link), so what the run locked stays
+        // set aside, and the next start removes it, giving the owner's permissions back first.
+        expect(existsSync(dir)).toBe(false);
+        expect(readdirSync(join(home, PRIVATE_DIR)).filter((n) => n.startsWith('.gone-')).length).toBeLessThanOrEqual(1);
+        clearOpenRunLeftovers([home], join(root, 'no-run-tmp'));
+        expect(readdirSync(join(home, PRIVATE_DIR)).filter((n) => n.startsWith('.gone-'))).toEqual([]);
+        // What the links pointed to is untouched, its permissions too.
+        expect(readFileSync(join(outside, 'keep'), 'utf8')).toBe('keep');
+        expect(statSync(join(outside, 'sub')).mode & 0o777).toBe(0o500);
+        // A folder that is not there is nothing to empty.
+        expect(() => emptyStateFolder(home, stateKeys.member('c4', 'none'))).not.toThrow();
+      } finally {
+        chmodSync(join(outside, 'sub'), 0o700);
+      }
+    },
+  );
 
   it.runIf(process.platform === 'darwin')('empties a state folder a run made immutable (chflags uchg), now and at the next start', () => {
     const home = homes[0]!;
@@ -330,37 +390,47 @@ describe('what a deleted conversation and a stopped server leave', () => {
   });
 
   // POSIX paths, file modes or programs: tried on macOS and Linux.
-  it.skipIf(process.platform === 'win32')("clears at start what runs of a stopped server left: run temp folders and keyless runs' state, not a key's", () => {
-    const runTmp = join(root, 'left-run-tmp');
-    mkdirSync(join(runTmp, 'opencode-1a2b'), { recursive: true });
-    const keyless = join(homes[1]!, PRIVATE_DIR, 'run-0123abcd');
-    mkdirSync(keyless, { recursive: true });
-    const keyed = leave(homes[1]!, stateKeys.member('c3', 'a'));
-    const probe = join(homes[1]!, PRIVATE_DIR, PROBE_STATE);
-    mkdirSync(probe, { recursive: true });
-    // A folder set aside to be removed that could not be (its run had locked a folder in it).
-    const aside = join(homes[1]!, PRIVATE_DIR, '.gone-0123abcd');
-    mkdirSync(join(aside, 'locked'), { recursive: true });
-    writeFileSync(join(aside, 'locked', 'f'), 'x');
-    chmodSync(join(aside, 'locked'), 0o000);
-    // While something a stopped run left may still be running, no permission is given back: what it
-    // locked stays for a later start, and the rest goes.
-    clearOpenRunLeftovers([...homes, join(root, 'no-such-home')], runTmp, { restore: false });
-    expect(readdirSync(runTmp)).toEqual([]);
-    expect(existsSync(keyless)).toBe(false);
-    expect(statSync(join(aside, 'locked')).mode & 0o777).toBe(0o000);
-    mkdirSync(join(runTmp, 'opencode-1a2b'), { recursive: true });
-    clearOpenRunLeftovers([...homes, join(root, 'no-such-home')], runTmp);
-    expect(readdirSync(runTmp)).toEqual([]);
-    expect(existsSync(keyless)).toBe(false);
-    expect(existsSync(aside)).toBe(false);
-    expect([existsSync(keyed), existsSync(probe)]).toEqual([true, true]);
-  });
+  it.skipIf(process.platform === 'win32')(
+    "clears at start what runs of a stopped server left: run temp folders and keyless runs' state, not a key's",
+    () => {
+      const runTmp = join(root, 'left-run-tmp');
+      mkdirSync(join(runTmp, 'opencode-1a2b'), { recursive: true });
+      const keyless = join(homes[1]!, PRIVATE_DIR, 'run-0123abcd');
+      mkdirSync(keyless, { recursive: true });
+      const keyed = leave(homes[1]!, stateKeys.member('c3', 'a'));
+      const probe = join(homes[1]!, PRIVATE_DIR, PROBE_STATE);
+      mkdirSync(probe, { recursive: true });
+      // A folder set aside to be removed that could not be (its run had locked a folder in it).
+      const aside = join(homes[1]!, PRIVATE_DIR, '.gone-0123abcd');
+      mkdirSync(join(aside, 'locked'), { recursive: true });
+      writeFileSync(join(aside, 'locked', 'f'), 'x');
+      chmodSync(join(aside, 'locked'), 0o000);
+      // While something a stopped run left may still be running, no permission is given back: what it
+      // locked stays for a later start, and the rest goes.
+      clearOpenRunLeftovers([...homes, join(root, 'no-such-home')], runTmp, { restore: false });
+      expect(readdirSync(runTmp)).toEqual([]);
+      expect(existsSync(keyless)).toBe(false);
+      expect(statSync(join(aside, 'locked')).mode & 0o777).toBe(0o000);
+      mkdirSync(join(runTmp, 'opencode-1a2b'), { recursive: true });
+      clearOpenRunLeftovers([...homes, join(root, 'no-such-home')], runTmp);
+      expect(readdirSync(runTmp)).toEqual([]);
+      expect(existsSync(keyless)).toBe(false);
+      expect(existsSync(aside)).toBe(false);
+      expect([existsSync(keyed), existsSync(probe)]).toEqual([true, true]);
+    },
+  );
 });
 
 describe('a tool library exception for an open agent’s memory', () => {
   it('is kept for every CLI, and dropped for an unknown one', () => {
-    const [member] = validateAgents([{ name: 'Pia', provider: 'pi', role: '', tools: { 'memory:pi': true, 'memory:opencode': false, 'memory:gemini': true, memory: false } }]);
+    const [member] = validateAgents([
+      {
+        name: 'Pia',
+        provider: 'pi',
+        role: '',
+        tools: { 'memory:pi': true, 'memory:opencode': false, 'memory:gemini': true, memory: false },
+      },
+    ]);
     expect(member!.tools).toEqual({ 'memory:pi': true, 'memory:opencode': false, memory: false });
   });
 });
@@ -370,9 +440,16 @@ describe('the approval card of a tool with no command, file or URL (an MCP tool)
     const card = (rawInput: Record<string, unknown>, permission: 'read-only' | 'edit' = 'edit') =>
       acpApprovalRequest(acpCallInfo({ kind: 'other', title: 'github__create_issue', rawInput }), permission);
     // Its usual fields first, a path whole.
-    expect(card({ query: 'is:open label:bug' })).toEqual({ kind: 'other', tool: 'github__create_issue', detail: 'is:open label:bug', reason: 'github__create_issue' });
+    expect(card({ query: 'is:open label:bug' })).toEqual({
+      kind: 'other',
+      tool: 'github__create_issue',
+      detail: 'is:open label:bug',
+      reason: 'github__create_issue',
+    });
     // Else its input as JSON, shortened.
-    expect(card({ repo: 'acme/web', title: 'Crash on start', labels: ['bug'] }).detail).toBe('{"repo":"acme/web","title":"Crash on start","labels":["bug"]}');
+    expect(card({ repo: 'acme/web', title: 'Crash on start', labels: ['bug'] }).detail).toBe(
+      '{"repo":"acme/web","title":"Crash on start","labels":["bug"]}',
+    );
     expect(inputDetail({ body: 'x'.repeat(1000) })!.length).toBeLessThanOrEqual(300);
     // Nothing given: nothing shown.
     expect(card({})).not.toHaveProperty('detail');

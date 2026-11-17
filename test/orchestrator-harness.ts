@@ -170,7 +170,16 @@ beforeAll(() => {
     provider: 'claude',
     async run(o) {
       if (o.systemPrompt === GROUPER_BRIEFING) {
-        calls.push({ name: 'sorter', prompt: o.prompt, nativeOff: o.nativeOff, nativeItems: o.nativeItems, sandboxTerminal: o.sandboxTerminal, stateKey: o.stateKey, model: o.model, effort: o.effort });
+        calls.push({
+          name: 'sorter',
+          prompt: o.prompt,
+          nativeOff: o.nativeOff,
+          nativeItems: o.nativeItems,
+          sandboxTerminal: o.sandboxTerminal,
+          stateKey: o.stateKey,
+          model: o.model,
+          effort: o.effort,
+        });
         if (fake.sorterGate && !o.signal?.aborted) {
           await Promise.race([fake.sorterGate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
         }
@@ -201,7 +210,16 @@ beforeAll(() => {
         return { costUsd: 0.03, sessionId: 'reviewer-session' };
       }
       if (o.systemPrompt === REVISER_BRIEFING) {
-        calls.push({ name: 'reviser', prompt: o.prompt, cwd: o.cwd, stateKey: o.stateKey, model: o.model, effort: o.effort, nativeOff: o.nativeOff, home: o.env?.CLAUDE_CONFIG_DIR });
+        calls.push({
+          name: 'reviser',
+          prompt: o.prompt,
+          cwd: o.cwd,
+          stateKey: o.stateKey,
+          model: o.model,
+          effort: o.effort,
+          nativeOff: o.nativeOff,
+          home: o.env?.CLAUDE_CONFIG_DIR,
+        });
         // Only the run that starts while it is set lingers.
         const linger = fake.reviseLinger;
         fake.reviseLinger = undefined;

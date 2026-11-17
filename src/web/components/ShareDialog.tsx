@@ -198,12 +198,7 @@ export function ShareDialog({ conv, upTo, chat, onClose }: Props) {
             <span className="muted small">{t.share.linkHint}</span>
           </div>
           {phase !== 'done' && (
-            <button
-              type="button"
-              className="primary small-button share-action"
-              disabled={!canCreate}
-              onClick={create}
-            >
+            <button type="button" className="primary small-button share-action" disabled={!canCreate} onClick={create}>
               <ShareIcon size={15} />
               <span>{phase === 'preparing' ? t.share.preparing : phase === 'uploading' ? t.share.uploading : t.share.create}</span>
             </button>
@@ -253,7 +248,7 @@ export function ShareDialog({ conv, upTo, chat, onClose }: Props) {
                   {files.checking
                     ? t.share.files.checking
                     : selection.over === 'count'
-                    ? t.share.files.overCount(SHARE_FILES_MAX)
+                      ? t.share.files.overCount(SHARE_FILES_MAX)
                       : selection.over === 'bytes'
                         ? t.share.files.overBytes(shareSize(SHARE_FILES_MAX_BYTES))
                         : selection.count
@@ -269,7 +264,12 @@ export function ShareDialog({ conv, upTo, chat, onClose }: Props) {
           <div className="share-result">
             <div className="share-link-row">
               <input readOnly value={link.url} aria-label={t.share.linkHeading} onFocus={(e) => e.currentTarget.select()} />
-              <CopyButton className="ghost small-button share-action" label={t.share.copyLink} icon={<CopyIcon size={15} />} text={() => link.url} />
+              <CopyButton
+                className="ghost small-button share-action"
+                label={t.share.copyLink}
+                icon={<CopyIcon size={15} />}
+                text={() => link.url}
+              />
               <a className="ghost small-button share-action" href={link.url} target="_blank" rel="noreferrer">
                 {t.share.open}
               </a>

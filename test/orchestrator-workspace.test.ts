@@ -8,7 +8,21 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { agentMessages, agents, conversation, fake, finish, Hub, orchestrator, Orchestrator, project, setOrchestrator, settings, store, withLang } from './orchestrator-harness';
+import {
+  agentMessages,
+  agents,
+  conversation,
+  fake,
+  finish,
+  Hub,
+  orchestrator,
+  Orchestrator,
+  project,
+  setOrchestrator,
+  settings,
+  store,
+  withLang,
+} from './orchestrator-harness';
 
 describe("Harness Relay's own folder", () => {
   it('refuses an edit-mode turn there, also for a conversation saved before the check', async () => {
@@ -45,23 +59,28 @@ describe('parallel mode with edit permission', () => {
     for (const m of agentMessages(conv)) {
       expect(m.status).toBe('done');
       expect(m.changes?.[0]?.isolated).toBe(true);
-      expect(m.changes?.[0]?.files.map((f) => `${f.status} ${f.path}`).sort()).toEqual([
-        `A ${m.agentName}.txt`,
-        'M shared.txt',
-      ]);
+      expect(m.changes?.[0]?.files.map((f) => `${f.status} ${f.path}`).sort()).toEqual([`A ${m.agentName}.txt`, 'M shared.txt']);
     }
 
     // Apply Bob's result; Alice's is now out of date.
     await orchestrator.applyAgentWork(conv.id, 'b');
     expect(readFileSync(join(project, 'shared.txt'), 'utf8')).toBe('written by Bob\n');
     expect(readFileSync(join(project, 'Bob.txt'), 'utf8')).toBe('Bob\n');
-    expect(Object.values(conv.worktrees).flat().every((w) => w.needsReset)).toBe(true);
+    expect(
+      Object.values(conv.worktrees)
+        .flat()
+        .every((w) => w.needsReset),
+    ).toBe(true);
     await expect(orchestrator.applyAgentWork(conv.id, 'a')).rejects.toThrow(/過期/);
 
     // The next parallel run starts both agents from the new state of the directory.
     await orchestrator.send(conv.id, 'again');
     await finish(conv.id);
-    expect(Object.values(conv.worktrees).flat().some((w) => w.needsReset)).toBe(false);
+    expect(
+      Object.values(conv.worktrees)
+        .flat()
+        .some((w) => w.needsReset),
+    ).toBe(false);
     const aliceWt = conv.worktrees.a![0]!.path;
     expect(readFileSync(join(aliceWt, 'Bob.txt'), 'utf8')).toBe('Bob\n');
 

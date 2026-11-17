@@ -23,7 +23,16 @@ export type ProxyRoute = { addresses: string[] } | { refused: string };
 export const PROXY_USER = 'relay';
 
 /** Headers that belong to one hop, never passed on. */
-const HOP = new Set(['connection', 'keep-alive', 'proxy-authorization', 'proxy-authenticate', 'proxy-connection', 'te', 'trailer', 'upgrade']);
+const HOP = new Set([
+  'connection',
+  'keep-alive',
+  'proxy-authorization',
+  'proxy-authenticate',
+  'proxy-connection',
+  'te',
+  'trailer',
+  'upgrade',
+]);
 
 const CHALLENGE = 'Basic realm="Harness Relay browser"';
 
@@ -138,7 +147,9 @@ export class BrowserProxy {
     }
     if (url.protocol !== 'http:') return void res.writeHead(400).end();
     const port = Number(url.port || 80);
-    const route = await this.route(who, url.hostname.replace(/^\[|\]$/g, ''), port, false).catch((err: Error) => ({ refused: err.message }));
+    const route = await this.route(who, url.hostname.replace(/^\[|\]$/g, ''), port, false).catch((err: Error) => ({
+      refused: err.message,
+    }));
     if ('refused' in route) return void res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }).end(route.refused);
     let sock: Socket;
     try {
@@ -148,12 +159,15 @@ export class BrowserProxy {
     }
     const headers: Record<string, string | string[]> = {};
     for (const [k, v] of Object.entries(req.headers)) if (v !== undefined && !HOP.has(k)) headers[k] = v;
-    const up = httpRequest({ method: req.method, path: `${url.pathname}${url.search}`, headers, setHost: false, createConnection: () => sock }, (answer) => {
-      const back: Record<string, string | string[]> = {};
-      for (const [k, v] of Object.entries(answer.headers)) if (v !== undefined && !HOP.has(k)) back[k] = v;
-      res.writeHead(answer.statusCode ?? 502, answer.statusMessage, back);
-      answer.pipe(res);
-    });
+    const up = httpRequest(
+      { method: req.method, path: `${url.pathname}${url.search}`, headers, setHost: false, createConnection: () => sock },
+      (answer) => {
+        const back: Record<string, string | string[]> = {};
+        for (const [k, v] of Object.entries(answer.headers)) if (v !== undefined && !HOP.has(k)) back[k] = v;
+        res.writeHead(answer.statusCode ?? 502, answer.statusMessage, back);
+        answer.pipe(res);
+      },
+    );
     up.on('error', () => (res.headersSent ? res.destroy() : res.writeHead(502).end()));
     res.on('close', () => up.destroy());
     req.pipe(up);
@@ -163,11 +177,15 @@ export class BrowserProxy {
   private async tunnel(req: IncomingMessage, client: Socket, head: Buffer): Promise<void> {
     client.on('error', () => undefined);
     const who = this.who(req);
-    if (!who) return void client.end(`HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: ${CHALLENGE}\r\nContent-Length: 0\r\n\r\n`);
+    if (!who)
+      return void client.end(`HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: ${CHALLENGE}\r\nContent-Length: 0\r\n\r\n`);
     const target = connectTarget(req.url);
     if (!target) return void client.end('HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n');
     const route = await this.route(who, target.host, target.port, true).catch((err: Error) => ({ refused: err.message }));
-    if ('refused' in route) return void client.end(`HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nX-Refused: ${route.refused.replace(/[\r\n]/g, ' ').slice(0, 300)}\r\n\r\n`);
+    if ('refused' in route)
+      return void client.end(
+        `HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nX-Refused: ${route.refused.replace(/[\r\n]/g, ' ').slice(0, 300)}\r\n\r\n`,
+      );
     let up: Socket;
     try {
       up = await connectFirst(route.addresses, target.port);
@@ -189,7 +207,8 @@ export class BrowserProxy {
   private async upgrade(req: IncomingMessage, client: Socket, head: Buffer): Promise<void> {
     client.on('error', () => undefined);
     const who = this.who(req);
-    if (!who) return void client.end(`HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: ${CHALLENGE}\r\nContent-Length: 0\r\n\r\n`);
+    if (!who)
+      return void client.end(`HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: ${CHALLENGE}\r\nContent-Length: 0\r\n\r\n`);
     let url: URL;
     try {
       url = new URL(req.url ?? '');
@@ -198,7 +217,9 @@ export class BrowserProxy {
     }
     if (url.protocol !== 'http:' && url.protocol !== 'ws:') return void client.end('HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n');
     const port = Number(url.port || 80);
-    const route = await this.route(who, url.hostname.replace(/^\[|\]$/g, ''), port, false).catch((err: Error) => ({ refused: err.message }));
+    const route = await this.route(who, url.hostname.replace(/^\[|\]$/g, ''), port, false).catch((err: Error) => ({
+      refused: err.message,
+    }));
     if ('refused' in route) return void client.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n');
     let up: Socket;
     try {

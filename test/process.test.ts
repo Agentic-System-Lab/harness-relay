@@ -2,7 +2,19 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, sy
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { CommandNotFoundError, FrameDecoder, capture, frame, killAll, needsConsole, runProcess, runShellScript, runSync, sleepSync, spawnDetached } from '../src/server/process';
+import {
+  CommandNotFoundError,
+  FrameDecoder,
+  capture,
+  frame,
+  killAll,
+  needsConsole,
+  runProcess,
+  runShellScript,
+  runSync,
+  sleepSync,
+  spawnDetached,
+} from '../src/server/process';
 
 const dir = mkdtempSync(join(tmpdir(), 'relay-proc-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -68,22 +80,30 @@ async function stopAfterFirstLine(bin: string) {
 }
 
 describe('runProcess', () => {
-  posixIt('kills subprocesses that ignore SIGTERM after the CLI itself exited', async () => {
-    const { res, pid } = await stopAfterFirstLine(STUBBORN_DETACHED);
-    expect(res.aborted).toBe(true);
-    expect(alive(pid)).toBe(true); // the CLI is gone, its subprocess still runs…
-    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 6000, interval: 100 }); // …until SIGKILL
-  }, 8000);
+  posixIt(
+    'kills subprocesses that ignore SIGTERM after the CLI itself exited',
+    async () => {
+      const { res, pid } = await stopAfterFirstLine(STUBBORN_DETACHED);
+      expect(res.aborted).toBe(true);
+      expect(alive(pid)).toBe(true); // the CLI is gone, its subprocess still runs…
+      await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 6000, interval: 100 }); // …until SIGKILL
+    },
+    8000,
+  );
 
-  posixIt('ends a stopped run whose subprocess ignores SIGTERM and holds stdout open', async () => {
-    // Before, the run waited for stdout to close, which never happened.
-    const { res, pid } = await stopAfterFirstLine(STUBBORN);
-    expect(res.aborted).toBe(true);
-    // The run ends once SIGKILL closed the subprocess's stdout. A killed process closes its files
-    // before it becomes a zombie, so on a busy runner it can still be exiting at that moment (seen on
-    // CI's Linux runners): it is gone a moment later.
-    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 2000, interval: 20 });
-  }, 8000);
+  posixIt(
+    'ends a stopped run whose subprocess ignores SIGTERM and holds stdout open',
+    async () => {
+      // Before, the run waited for stdout to close, which never happened.
+      const { res, pid } = await stopAfterFirstLine(STUBBORN);
+      expect(res.aborted).toBe(true);
+      // The run ends once SIGKILL closed the subprocess's stdout. A killed process closes its files
+      // before it becomes a zombie, so on a busy runner it can still be exiting at that moment (seen on
+      // CI's Linux runners): it is gone a moment later.
+      await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 2000, interval: 20 });
+    },
+    8000,
+  );
 
   posixIt('starts a Node script with the node beside it when the PATH has none (a CLI installed with Node.js in its folder)', async () => {
     const bin = join(dir, 'with-node', 'bin');
@@ -115,21 +135,24 @@ describe('runProcess', () => {
     expect(missing).toBeInstanceOf(CommandNotFoundError);
   });
 
-  it.runIf(process.platform === 'win32')("starts an npm shim's script with Node on Windows, with its arguments as they are, and no shell", async () => {
-    // As npm writes a CLI's .cmd (cmd-shim), found on the PATH by its name.
-    const npm = join(dir, 'npm');
-    mkdirSync(join(npm, 'node_modules', 'fake', 'bin'), { recursive: true });
-    writeFileSync(join(npm, 'node_modules', 'fake', 'bin', 'cli.js'), 'process.stdout.write(JSON.stringify(process.argv.slice(2)))');
-    writeFileSync(
-      join(npm, 'fakecli.cmd'),
-      '@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\n\r\nIF EXIST "%dp0%\\node.exe" (\r\n  SET "_prog=%dp0%\\node.exe"\r\n) ELSE (\r\n  SET "_prog=node"\r\n)\r\n\r\n' +
-        'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\fake\\bin\\cli.js" %*\r\n',
-    );
-    const args = ['a b', '"quoted"', 'x&y|z', '%PATH%'];
-    const res = await runProcess({ bin: 'fakecli', args, env: { ...process.env, PATH: `${npm};${process.env.PATH ?? ''}` } });
-    expect(res.code).toBe(0);
-    expect(JSON.parse(res.stdout)).toEqual(args);
-  });
+  it.runIf(process.platform === 'win32')(
+    "starts an npm shim's script with Node on Windows, with its arguments as they are, and no shell",
+    async () => {
+      // As npm writes a CLI's .cmd (cmd-shim), found on the PATH by its name.
+      const npm = join(dir, 'npm');
+      mkdirSync(join(npm, 'node_modules', 'fake', 'bin'), { recursive: true });
+      writeFileSync(join(npm, 'node_modules', 'fake', 'bin', 'cli.js'), 'process.stdout.write(JSON.stringify(process.argv.slice(2)))');
+      writeFileSync(
+        join(npm, 'fakecli.cmd'),
+        '@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\n\r\nIF EXIST "%dp0%\\node.exe" (\r\n  SET "_prog=%dp0%\\node.exe"\r\n) ELSE (\r\n  SET "_prog=node"\r\n)\r\n\r\n' +
+          'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\fake\\bin\\cli.js" %*\r\n',
+      );
+      const args = ['a b', '"quoted"', 'x&y|z', '%PATH%'];
+      const res = await runProcess({ bin: 'fakecli', args, env: { ...process.env, PATH: `${npm};${process.env.PATH ?? ''}` } });
+      expect(res.code).toBe(0);
+      expect(JSON.parse(res.stdout)).toEqual(args);
+    },
+  );
 
   posixIt('resolves a relative executable path against the server directory, wherever the CLI runs', async () => {
     const script = cli('fake-cli.sh', 'echo ok');
@@ -138,9 +161,10 @@ describe('runProcess', () => {
   });
 });
 
-describe('two pipes on fds 3 and 4 (a browser\'s debugging pipe)', () => {
+describe("two pipes on fds 3 and 4 (a browser's debugging pipe)", () => {
   it.skipIf(process.platform === 'win32')('gives the end to write to (fd 3) and the end to read from (fd 4)', async () => {
-    const script = "const fs = require('fs'); const r = fs.createReadStream(null, { fd: 3 }); const w = fs.createWriteStream(null, { fd: 4 }); r.on('data', (d) => w.write(String(d).toUpperCase() + '\\0')); r.on('end', () => w.end());";
+    const script =
+      "const fs = require('fs'); const r = fs.createReadStream(null, { fd: 3 }); const w = fs.createWriteStream(null, { fd: 4 }); r.on('data', (d) => w.write(String(d).toUpperCase() + '\\0')); r.on('end', () => w.end());";
     let got = '';
     const done = runProcess({
       bin: process.execPath,
@@ -176,7 +200,9 @@ describe('runSync', () => {
 describe('runShellScript', () => {
   posixIt('runs fixed text in the shell, with its flags, and the values it needs from its environment', async () => {
     const value = `a "b" 'c' $(touch nothing) \`x\` ; d`;
-    const res = await runShellScript('/bin/sh', ['-e'], 'case $- in *e*) printf "%s|" "$VALUE";; esac', { env: { ...process.env, VALUE: value } });
+    const res = await runShellScript('/bin/sh', ['-e'], 'case $- in *e*) printf "%s|" "$VALUE";; esac', {
+      env: { ...process.env, VALUE: value },
+    });
     expect(res.code).toBe(0);
     expect(res.stdout).toBe(`${value}|`);
   });
@@ -204,19 +230,32 @@ describe('PowerShell on Windows', () => {
 
   // Started detached, Windows PowerShell ran nothing and exited with 0: Settings' installers and the
   // folder dialog did nothing.
-  it.skipIf(process.platform !== 'win32')('runs a script file and a command, with their output and exit code', async () => {
-    const powershell = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-    const flags = ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass'];
-    const file = join(dir, 'script.ps1');
-    writeFileSync(file, "Write-Output 'from a file'\nexit 3\n");
-    const lines: string[] = [];
-    const ran = await runProcess({ bin: powershell, args: [...flags, '-File', file], env: process.env, onLine: (l) => lines.push(l), timeoutMs: 60_000 });
-    expect(ran.code).toBe(3);
-    expect(lines).toContain('from a file');
-    const script = await runShellScript(powershell, flags, "Write-Output $env:RELAY_TEST_VALUE; exit 4", { env: { ...process.env, RELAY_TEST_VALUE: 'from its env' }, timeoutMs: 60_000 });
-    expect(script.code).toBe(4);
-    expect(script.stdout.trim()).toBe('from its env');
-  }, 30_000);
+  it.skipIf(process.platform !== 'win32')(
+    'runs a script file and a command, with their output and exit code',
+    async () => {
+      const powershell = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+      const flags = ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass'];
+      const file = join(dir, 'script.ps1');
+      writeFileSync(file, "Write-Output 'from a file'\nexit 3\n");
+      const lines: string[] = [];
+      const ran = await runProcess({
+        bin: powershell,
+        args: [...flags, '-File', file],
+        env: process.env,
+        onLine: (l) => lines.push(l),
+        timeoutMs: 60_000,
+      });
+      expect(ran.code).toBe(3);
+      expect(lines).toContain('from a file');
+      const script = await runShellScript(powershell, flags, 'Write-Output $env:RELAY_TEST_VALUE; exit 4', {
+        env: { ...process.env, RELAY_TEST_VALUE: 'from its env' },
+        timeoutMs: 60_000,
+      });
+      expect(script.code).toBe(4);
+      expect(script.stdout.trim()).toBe('from its env');
+    },
+    30_000,
+  );
 });
 
 describe('killAll', () => {
@@ -257,11 +296,11 @@ describe('spawnDetached', () => {
   });
 });
 
-describe('JSON-RPC framed as LSP frames it (Copilot\'s headless server)', () => {
+describe("JSON-RPC framed as LSP frames it (Copilot's headless server)", () => {
   const a = { jsonrpc: '2.0', id: 1, result: { ok: true, note: 'é ✓' } };
   const b = { jsonrpc: '2.0', id: 2, error: { code: -32603, message: 'Not authenticated' } };
 
-  it('reads back what it frames, a body\'s length counted in bytes (not characters)', () => {
+  it("reads back what it frames, a body's length counted in bytes (not characters)", () => {
     expect(new FrameDecoder().push(frame(a))).toEqual([a]);
   });
 

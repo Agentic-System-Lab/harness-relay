@@ -210,7 +210,15 @@ describe('the schedule form', () => {
 
   it('starts a new schedule on weekdays at 09:00, and reads a saved one back unchanged', () => {
     const fresh = draftFrom(undefined, MON, 'UTC');
-    expect(fresh).toMatchObject({ kind: 'weekly', time: '09:00', days: [1, 2, 3, 4, 5], enabled: true, approvals: 'deny', missed: 'skip', newChat: false });
+    expect(fresh).toMatchObject({
+      kind: 'weekly',
+      time: '09:00',
+      days: [1, 2, 3, 4, 5],
+      enabled: true,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+    });
     expect(draftChanged(fresh, undefined)).toBe(true);
 
     const draft = draftFrom(saved, MON);
@@ -248,7 +256,7 @@ describe('the schedule form', () => {
     );
   });
 
-  it('shows times of day in the schedule\'s time zone, and moments and intervals in the browser\'s', () => {
+  it("shows times of day in the schedule's time zone, and moments and intervals in the browser's", () => {
     expect(shownZone({ repeat: { kind: 'daily' }, timeZone: 'Asia/Taipei' })).toBe('Asia/Taipei');
     expect(shownZone({ repeat: { kind: 'weekly' }, timeZone: 'Asia/Taipei' })).toBe('Asia/Taipei');
     expect(shownZone({ repeat: { kind: 'once' }, timeZone: 'Asia/Taipei' })).toBeUndefined();
@@ -277,7 +285,11 @@ describe('the schedule form', () => {
     expect(draftProblems({ ...draft, text: 'go', kind: 'once', at: localInput(MON - HOUR) }, MON, en)).toEqual([p.past]);
     expect(draftProblems({ ...draft, text: 'go', kind: 'once', at: localInput(MON - HOUR), enabled: false }, MON, en)).toEqual([]);
     expect(draftProblems({ ...draft, text: 'go', kind: 'once', at: '' }, MON, en)).toEqual([p.moment]);
-    expect(previewRuns({ ...draft, text: 'go', kind: 'interval', hours: 2 }, MON)).toEqual([MON + 2 * HOUR, MON + 4 * HOUR, MON + 6 * HOUR]);
+    expect(previewRuns({ ...draft, text: 'go', kind: 'interval', hours: 2 }, MON)).toEqual([
+      MON + 2 * HOUR,
+      MON + 4 * HOUR,
+      MON + 6 * HOUR,
+    ]);
     // A saved interval whose times stay the same keeps its cadence, as the server does on saving.
     const every6: ConversationSchedule = { ...saved, repeat: { kind: 'interval', hours: 6 }, updatedAt: MON - 2 * HOUR };
     const editing = { ...draftFrom(every6, MON), text: 'another message' };
@@ -299,11 +311,17 @@ describe('the schedule form', () => {
     expect(scheduleTrouble({ lastResult: 'queued' })).toBe(false);
     for (const r of ['missed', 'skipped', 'failed'] as const) expect(scheduleTrouble({ lastResult: r })).toBe(true);
     expect(scheduleState({ ...saved, enabled: false }, en, 'en')).toBe('paused');
-    expect(scheduleState({ ...saved, repeat: { kind: 'once', at: MON }, enabled: false, nextRunAt: undefined, lastRunAt: MON }, en, 'en')).toBe('done');
+    expect(
+      scheduleState({ ...saved, repeat: { kind: 'once', at: MON }, enabled: false, nextRunAt: undefined, lastRunAt: MON }, en, 'en'),
+    ).toBe('done');
     // Changed to a one-time schedule, switched off: the earlier time it came due does not make it done.
-    expect(scheduleState({ ...saved, repeat: { kind: 'once', at: MON + DAY }, enabled: false, nextRunAt: undefined, lastRunAt: MON }, en, 'en')).toBe('paused');
+    expect(
+      scheduleState({ ...saved, repeat: { kind: 'once', at: MON + DAY }, enabled: false, nextRunAt: undefined, lastRunAt: MON }, en, 'en'),
+    ).toBe('paused');
     expect(scheduleState(saved, en, 'en')).toMatch(/^next /);
-    expect(sidebarScheduleTitle({ enabled: true, nextRunAt: MON, lastResult: 'failed' }, en, 'en')).toBe('Schedule last time: could not be sent');
+    expect(sidebarScheduleTitle({ enabled: true, nextRunAt: MON, lastResult: 'failed' }, en, 'en')).toBe(
+      'Schedule last time: could not be sent',
+    );
     expect(sidebarScheduleTitle({ enabled: false }, en, 'en')).toBe('Schedule paused');
     // The next time in the schedule's own time zone when it has one, else the browser's.
     const next = Date.UTC(2026, 0, 5, 1, 0);

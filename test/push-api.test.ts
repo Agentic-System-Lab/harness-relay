@@ -50,7 +50,16 @@ describe('/api/push', () => {
       return { status, text: '' };
     });
     alerts = new AlertWatcher({ list: () => [], get: () => undefined, push });
-    app = createApp({ auth, store, settings, hub, orchestrator: new Orchestrator(store, hub, settings), providers: new ProviderService(settings), push, alerts });
+    app = createApp({
+      auth,
+      store,
+      settings,
+      hub,
+      orchestrator: new Orchestrator(store, hub, settings),
+      providers: new ProviderService(settings),
+      push,
+      alerts,
+    });
   });
 
   /** A signed-in browser: its requests' headers. */
@@ -74,7 +83,8 @@ describe('/api/push', () => {
 
   it("keeps a browser's subscription in its language, and refuses addresses that are no push service's and wrong keys", async () => {
     const phone = await browser();
-    const subscribe = (subscription: unknown, p: unknown = prefs) => send({ ...phone, 'x-relay-lang': 'en' }, 'PUT', '/api/push/subscription', { subscription, prefs: p });
+    const subscribe = (subscription: unknown, p: unknown = prefs) =>
+      send({ ...phone, 'x-relay-lang': 'en' }, 'PUT', '/api/push/subscription', { subscription, prefs: p });
     expect((await subscribe({ endpoint: 'https://example.com/push', keys })).status).toBe(400);
     expect((await subscribe({ endpoint: 'http://10.0.0.2/push', keys })).status).toBe(400);
     expect((await subscribe({ endpoint: 'https://web.push.apple.com/x', keys: { ...keys, auth: 'AA' } })).status).toBe(400);
@@ -136,7 +146,14 @@ describe('/api/push', () => {
     const settings = new SettingsStore(db);
     const store = new Store(db);
     const hub = new Hub();
-    const bare = createApp({ auth: null, store, settings, hub, orchestrator: new Orchestrator(store, hub, settings), providers: new ProviderService(settings) });
+    const bare = createApp({
+      auth: null,
+      store,
+      settings,
+      hub,
+      orchestrator: new Orchestrator(store, hub, settings),
+      providers: new ProviderService(settings),
+    });
     expect(await (await bare.request('/api/push', { headers: HOST })).json()).toHaveProperty('error');
     const res = await bare.request('/api/push/subscription', {
       method: 'PUT',

@@ -4,7 +4,10 @@ import { applyTheme, BAR_COLOR, nextChoice, parseTheme, shownTheme, THEME_KEY, w
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const PAGES = ['site/index.html', 'site/zh-TW/index.html'];
-const WORDS = { 'site/index.html': ['Switch to dark theme', 'Switch to light theme'], 'site/zh-TW/index.html': ['切換成深色主題', '切換成淺色主題'] } as const;
+const WORDS = {
+  'site/index.html': ['Switch to dark theme', 'Switch to light theme'],
+  'site/zh-TW/index.html': ['切換成深色主題', '切換成淺色主題'],
+} as const;
 
 /** Just enough of a page for theme.js: <html>'s attributes, the theme-color metas and the theme button. */
 function fakePage() {
@@ -21,10 +24,19 @@ function fakePage() {
     };
   };
   const metas = [
-    element([['media', '(prefers-color-scheme: light)'], ['content', BAR_COLOR.light]]),
-    element([['media', '(prefers-color-scheme: dark)'], ['content', BAR_COLOR.dark]]),
+    element([
+      ['media', '(prefers-color-scheme: light)'],
+      ['content', BAR_COLOR.light],
+    ]),
+    element([
+      ['media', '(prefers-color-scheme: dark)'],
+      ['content', BAR_COLOR.dark],
+    ]),
   ];
-  const button = element([['data-to-dark', 'Switch to dark theme'], ['data-to-light', 'Switch to light theme']]);
+  const button = element([
+    ['data-to-dark', 'Switch to dark theme'],
+    ['data-to-light', 'Switch to light theme'],
+  ]);
   // The classes on <html>, and the ones it had each time the page was drawn (reading the layout).
   const classes = new Set<string>();
   const drawnWith: string[][] = [];
@@ -46,7 +58,15 @@ function fakePage() {
       throw new Error(`unexpected selector ${selector}`);
     },
   };
-  return { doc, html, button, classes, drawnWith, label: () => button.map.get('aria-label'), bars: () => metas.map((m) => m.map.get('content')) };
+  return {
+    doc,
+    html,
+    button,
+    classes,
+    drawnWith,
+    label: () => button.map.get('aria-label'),
+    bars: () => metas.map((m) => m.map.get('content')),
+  };
 }
 
 function memoryStorage() {
@@ -229,10 +249,12 @@ describe("the landing page's theme in its styles and pages", () => {
   it("keeps each agent's pill text 4.5:1 on its tint, in the light theme and the dark one", () => {
     /** A theme's tokens: the light ones, with the dark list over them for dark. */
     const tokens = (lines: string[]) =>
-      new Map(lines.flatMap((l) => {
-        const m = l.match(/^(--[\w-]+): (#[0-9a-f]{6});$/i);
-        return m ? [[m[1], m[2]] as const] : [];
-      }));
+      new Map(
+        lines.flatMap((l) => {
+          const m = l.match(/^(--[\w-]+): (#[0-9a-f]{6});$/i);
+          return m ? [[m[1], m[2]] as const] : [];
+        }),
+      );
     const light = tokens(block(':root {'));
     const dark = new Map([...light, ...tokens(block(":root[data-theme='dark'] {"))]);
     const rgb = (colours: Map<string, string>, name: string) => {
@@ -252,14 +274,20 @@ describe("the landing page's theme in its styles and pages", () => {
     for (const page of PAGES) {
       const html = read(page);
       const placed = [
-        ...html.matchAll(/<div class="ui ui-msg t-(claude|codex|grok)">\s*<span class="av" aria-hidden="true">\w<\/span>\s*<div class="ui-head">[^<]*<span class="pill">/g),
+        ...html.matchAll(
+          /<div class="ui ui-msg t-(claude|codex|grok)">\s*<span class="av" aria-hidden="true">\w<\/span>\s*<div class="ui-head">[^<]*<span class="pill">/g,
+        ),
       ];
       expect(placed.map((m) => m[1]).sort(), page).toEqual(['claude', 'codex', 'grok']);
       expect(html.match(/class="pill[" ]/g), page).toHaveLength(placed.length);
     }
     // ...so its tint is over the card's background (`.ui`, the page's), with nothing in between.
     expect(block('.ui {')).toContain('background: var(--bg);');
-    for (const rule of ['.ui-msg {', '.ui-head {']) expect(block(rule).filter((l) => l.startsWith('background')), rule).toEqual([]);
+    for (const rule of ['.ui-msg {', '.ui-head {'])
+      expect(
+        block(rule).filter((l) => l.startsWith('background')),
+        rule,
+      ).toEqual([]);
     // The pill: the agent's -ink on the agent's colour at this strength.
     const pill = block('.pill {');
     expect(pill).toContain('color: var(--agent-ink, var(--muted));');
@@ -275,7 +303,10 @@ describe("the landing page's theme in its styles and pages", () => {
         return m![1];
       };
       const [brand, ink] = [token('--agent'), token('--agent-ink')];
-      for (const [theme, colours] of [['light', light], ['dark', dark]] as const) {
+      for (const [theme, colours] of [
+        ['light', light],
+        ['dark', dark],
+      ] as const) {
         const under = rgb(colours, '--bg');
         const background = rgb(colours, brand).map((c, i) => c * share + under[i] * (1 - share));
         expect(ratio(rgb(colours, ink), background), `${agent} in ${theme}`).toBeGreaterThanOrEqual(4.5);
@@ -299,7 +330,9 @@ describe("the landing page's theme in its styles and pages", () => {
       const head = html.slice(0, html.indexOf('</head>'));
       const inline = head.slice(head.indexOf('<script>'), head.indexOf('</script>'));
       expect(inline, page).toContain(`localStorage.getItem('${THEME_KEY}')`);
-      expect(inline, page).toContain("if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);");
+      expect(inline, page).toContain(
+        "if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);",
+      );
       // In a try of its own: a browser that refuses site data throws there, and the page still shows.
       expect(inline, page).toMatch(/try \{\s*var theme = [^}]*\} catch \(e\) \{\}/);
       expect(head, page).toContain(`<script type="module" src="${page.includes('zh-TW') ? '../' : ''}assets/theme.js"></script>`);

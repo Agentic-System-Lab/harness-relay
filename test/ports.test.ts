@@ -16,7 +16,7 @@ describe("Harness Relay's ports", () => {
     expect(apiPort({ PORT: '9000', npm_lifecycle_event: 'dev' })).toBe(9000);
   });
 
-  it("keeps npm run dev off the port npm start and the desktop app use", () => {
+  it('keeps npm run dev off the port npm start and the desktop app use', () => {
     expect(DEFAULT_PREFS.port).toBe(DEFAULT_PORT);
     expect(new Set([DEFAULT_PORT, DEV_API_PORT, DEV_WEB_PORT]).size).toBe(3);
   });

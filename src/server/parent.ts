@@ -38,12 +38,14 @@ export function desktopParent(proc: { parentPort?: unknown } = process as { pare
     },
     onSignInLink(fn) {
       port.on('message', (event) => {
-        if ((event?.data as DesktopToServer | undefined)?.type === 'sign-in-link') port.postMessage({ type: 'sign-in-link', link: fn() } satisfies ServerToDesktop);
+        if ((event?.data as DesktopToServer | undefined)?.type === 'sign-in-link')
+          port.postMessage({ type: 'sign-in-link', link: fn() } satisfies ServerToDesktop);
       });
     },
     onBusy(fn) {
       port.on('message', (event) => {
-        if ((event?.data as DesktopToServer | undefined)?.type === 'busy') port.postMessage({ type: 'busy', conversations: fn() } satisfies ServerToDesktop);
+        if ((event?.data as DesktopToServer | undefined)?.type === 'busy')
+          port.postMessage({ type: 'busy', conversations: fn() } satisfies ServerToDesktop);
       });
     },
     onUpdate(fn) {

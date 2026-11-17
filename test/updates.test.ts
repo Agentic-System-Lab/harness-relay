@@ -89,7 +89,10 @@ describe("the desktop app's updates, as the server passes them on", () => {
     const updates = new Updates(app.parent, version);
     app.say({ updates: true });
     const both = Promise.all([updates.check(), updates.check()]);
-    expect(app.sent).toEqual([{ type: 'update-check', id: 1 }, { type: 'update-check', id: 2 }]);
+    expect(app.sent).toEqual([
+      { type: 'update-check', id: 1 },
+      { type: 'update-check', id: 2 },
+    ]);
     app.say({ updates: true, checkedAt: 3, answered: [1, 2] });
     expect((await both).map((s) => s.checkedAt)).toEqual([3, 3]);
   });
@@ -97,8 +100,10 @@ describe("the desktop app's updates, as the server passes them on", () => {
 
 describe('the update in the chat', () => {
   const status = (s: Partial<UpdateStatus> = {}): UpdateStatus => ({ updates: true, current: '2026-11-11', ...s });
-  const electron = 'Mozilla/5.0 (Macintosh) AppleWebKit/537.36 (KHTML, like Gecko) harness-relay/2026.1111.0 Chrome/138.0 Electron/37.2.0 Safari/537.36';
-  const phone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+  const electron =
+    'Mozilla/5.0 (Macintosh) AppleWebKit/537.36 (KHTML, like Gecko) harness-relay/2026.1111.0 Chrome/138.0 Electron/37.2.0 Safari/537.36';
+  const phone =
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 
   it("knows the desktop app's own window from another browser", () => {
     expect(isAppWindow(electron)).toBe(true);
@@ -167,7 +172,10 @@ describe('the update in the chat', () => {
   it('says what there is to know of updates, an update under way first', () => {
     const v = en.settings.version;
     expect(updateLine(status({ updates: false }), en, 'en')).toEqual({ text: v.noUpdates, tone: 'muted' });
-    expect(updateLine(status({ available, progress: { kind: 'downloading', percent: 42 } }), en, 'en')).toEqual({ text: v.downloading(42), tone: 'news' });
+    expect(updateLine(status({ available, progress: { kind: 'downloading', percent: 42 } }), en, 'en')).toEqual({
+      text: v.downloading(42),
+      tone: 'news',
+    });
     expect(updateLine(status({ progress: { kind: 'waiting' } }), en, 'en').text).toBe(v.waiting);
     expect(updateLine(status({ checking: true, available }), en, 'en').text).toBe(v.checking);
     expect(updateLine(status({ available }), en, 'en')).toEqual({ text: v.available('2026-11-12'), tone: 'news' });

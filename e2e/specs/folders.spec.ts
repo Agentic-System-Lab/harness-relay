@@ -24,25 +24,30 @@ test.describe('a folder the chat was not given', () => {
       await send(page, 'Write next door e2e:write=../other/x.txt');
       const reply = await finishedReply(page, cli.name);
       // A CLI that ends its turn after a refusal says nothing more of it.
-      await expect(reply).toContainText(cli.decline === 'ends-turn' && cli.outsideWrite.asks ? endsTurnNote(cli) : 'I may not write ../other/x.txt here.');
+      await expect(reply).toContainText(
+        cli.decline === 'ends-turn' && cli.outsideWrite.asks ? endsTurnNote(cli) : 'I may not write ../other/x.txt here.',
+      );
       expect(existsSync(join(other, 'x.txt'))).toBe(false);
     });
   });
 
   // The CLIs that ask about it (`outsideWrite`), and write once allowed: not Grok, whose sandbox
   // refuses it all the same, nor the open agents, whose sandbox nothing widens.
-  eachCli(CLIS.filter((c) => c.outsideWrite.asks && c.outsideWrite.writtenOnceAllowed), (cli) => {
-    test(`${cli.provider}: asks first, and writes there once the user allows it`, async ({ page, relay }) => {
-      needsBelowFull(cli.provider);
-      const other = relay.addProject('other');
-      await openTeamChat(page, relay, [member(cli)], { permission: 'edit' });
-      await send(page, 'Write next door e2e:write=../other/y.txt');
-      const card = page.getByRole('region', { name: `@${cli.name} wants to change files` });
-      await card.getByRole('button', { name: 'Allow', exact: true }).click();
-      await expect(await finishedReply(page, cli.name)).toContainText('I wrote ../other/y.txt.');
-      expect(existsSync(join(other, 'y.txt'))).toBe(true);
-    });
-  });
+  eachCli(
+    CLIS.filter((c) => c.outsideWrite.asks && c.outsideWrite.writtenOnceAllowed),
+    (cli) => {
+      test(`${cli.provider}: asks first, and writes there once the user allows it`, async ({ page, relay }) => {
+        needsBelowFull(cli.provider);
+        const other = relay.addProject('other');
+        await openTeamChat(page, relay, [member(cli)], { permission: 'edit' });
+        await send(page, 'Write next door e2e:write=../other/y.txt');
+        const card = page.getByRole('region', { name: `@${cli.name} wants to change files` });
+        await card.getByRole('button', { name: 'Allow', exact: true }).click();
+        await expect(await finishedReply(page, cli.name)).toContainText('I wrote ../other/y.txt.');
+        expect(existsSync(join(other, 'y.txt'))).toBe(true);
+      });
+    },
+  );
 });
 
 test.describe('several working directories', () => {
@@ -83,7 +88,11 @@ test.describe('several working directories', () => {
       await chatWith(page, relay, cli, { permission: 'edit', extraCwds: [second] });
       await send(page, 'Note it in both e2e:write=one.txt e2e:writeother=two.txt');
       // A CLI that asks before writing in the folders after its first (Cursor), allowed.
-      if (cli.otherCwdWriteAsks) await page.getByRole('region', { name: `@${cli.name} wants to change files` }).getByRole('button', { name: 'Allow', exact: true }).click();
+      if (cli.otherCwdWriteAsks)
+        await page
+          .getByRole('region', { name: `@${cli.name} wants to change files` })
+          .getByRole('button', { name: 'Allow', exact: true })
+          .click();
       const reply = await finishedReply(page, cli.name);
       await expect(reply).toContainText('I wrote one.txt. I wrote two.txt.');
       expect(read(join(relay.workDir, 'one.txt'))).toBe(writtenBy(cli));
@@ -184,7 +193,9 @@ test.describe('the folder dialog', () => {
       // Opened inside the last folder, with several folders allowed and the title in English.
       const opened = relay.fakeLog().filter((e) => e.cli === 'zenity');
       expect(opened).toHaveLength(1);
-      expect(opened[0]!.args).toEqual(expect.arrayContaining(['--directory', '--multiple', `--filename=${relay.workDir}/`, '--title=Choose a working directory']));
+      expect(opened[0]!.args).toEqual(
+        expect.arrayContaining(['--directory', '--multiple', `--filename=${relay.workDir}/`, '--title=Choose a working directory']),
+      );
 
       await page.getByRole('button', { name: 'Edit', exact: true }).click();
       await page.getByRole('checkbox', { name: "Use the lead agent's team without asking me" }).check();

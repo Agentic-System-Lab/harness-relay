@@ -136,14 +136,18 @@ function profileOf(settings) {
   if (BUILTIN.includes(id)) return { id, base: id, deny: [] };
   const p = perms.profiles && perms.profiles[id];
   if (!p || typeof p !== 'object') throw new Error(`Named permission profiles are unavailable: profile \`${id}\` is not defined`);
-  if (!BUILTIN.includes(p.extends)) throw new Error(`Named permission profiles are unavailable: profile \`${id}\` extends unknown profile \`${p.extends}\``);
+  if (!BUILTIN.includes(p.extends))
+    throw new Error(`Named permission profiles are unavailable: profile \`${id}\` extends unknown profile \`${p.extends}\``);
   const deny = [];
   for (const [file, rule] of Object.entries(p.filesystem || {})) {
     if (rule === 'deny') deny.push(file);
-    else if (rule !== 'read' && rule !== 'write') throw new Error(`Named permission profiles are unavailable: unknown filesystem access \`${rule}\` for ${file}`);
-    else if (!fs.existsSync(file)) throw new Error(`Named permission profiles are unavailable: \`${rule}\` on ${file} cannot be enforced (no live matcher)`);
+    else if (rule !== 'read' && rule !== 'write')
+      throw new Error(`Named permission profiles are unavailable: unknown filesystem access \`${rule}\` for ${file}`);
+    else if (!fs.existsSync(file))
+      throw new Error(`Named permission profiles are unavailable: \`${rule}\` on ${file} cannot be enforced (no live matcher)`);
   }
-  if (p.extends === ':read-only' && deny.length) throw new Error(`Named permission profiles are unavailable: deny cannot be enforced on top of :read-only (${deny[0]})`);
+  if (p.extends === ':read-only' && deny.length)
+    throw new Error(`Named permission profiles are unavailable: deny cannot be enforced on top of :read-only (${deny[0]})`);
   return { id, base: p.extends, deny };
 }
 
@@ -164,7 +168,9 @@ function trustOf(cwd) {
   if (has('--trust-workspace')) return 'trusted';
   const projects = (readJson(path.join(configDir(), 'trust.json')) || {}).projects || {};
   const at = new Set([realLocation(cwd), realLocation(projectRoot(cwd))]);
-  const hit = Object.entries(projects).find(([p, v]) => v && (v.decision === 'trusted' || v.decision === 'untrusted') && at.has(realLocation(p)));
+  const hit = Object.entries(projects).find(
+    ([p, v]) => v && (v.decision === 'trusted' || v.decision === 'untrusted') && at.has(realLocation(p)),
+  );
   return hit ? hit[1].decision : undefined;
 }
 const trusted = (cwd) => trustOf(cwd) === 'trusted';
@@ -200,7 +206,9 @@ function skillList(cwd) {
     provenance: null,
     context_cost: { startup_bytes: 120, startup_estimated_tokens: 30, invoke_bytes: null, invoke_estimated_tokens: null },
   });
-  const out = [entry('muse-guide', 'A guide to the fake Muse Code, built in.', 'bundled', 'bundled://muse-core/skills/muse-guide/SKILL.md')];
+  const out = [
+    entry('muse-guide', 'A guide to the fake Muse Code, built in.', 'bundled', 'bundled://muse-core/skills/muse-guide/SKILL.md'),
+  ];
   const add = (dir, scope) => {
     for (const s of ownSkills(dir)) if (!out.some((x) => x.name === s.name)) out.push(entry(s.name, s.description, scope, s.path));
   };
@@ -220,7 +228,9 @@ function museStatic() {
   if (command === 'skills' && sub === 'list' && has('--json')) {
     // A folder whose trust is not decided: the real one asks a terminal, which a probe has none of.
     if (!trustOf(process.cwd())) {
-      process.stderr.write(`muse skills list: decide whether to trust ${projectRoot(process.cwd())} first: run \`muse\` there in a terminal\n`);
+      process.stderr.write(
+        `muse skills list: decide whether to trust ${projectRoot(process.cwd())} first: run \`muse\` there in a terminal\n`,
+      );
       process.exitCode = 1;
       return;
     }
@@ -237,7 +247,8 @@ function museStatic() {
 /** `muse usage`: the subscription allowance, which needs no model turn. */
 function usage() {
   if (has('--json')) {
-    if (process.env.META_API_KEY) return void process.stdout.write(JSON.stringify({ schemaVersion: 1, allowance: null, reason: 'api_key', hint: null }) + '\n');
+    if (process.env.META_API_KEY)
+      return void process.stdout.write(JSON.stringify({ schemaVersion: 1, allowance: null, reason: 'api_key', hint: null }) + '\n');
     if (signedOut()) {
       process.stderr.write('not logged in: run `muse login` first\n');
       process.exitCode = 1;
@@ -261,7 +272,9 @@ function usage() {
  */
 function login() {
   const code = 'E2EF-AKE1';
-  process.stdout.write(`Open this page to sign in:\n  https://auth.example.invalid/oauth/device/?code=${code}\nconfirm this code matches:\n  ${code}\n\nWaiting for approval…\n`);
+  process.stdout.write(
+    `Open this page to sign in:\n  https://auth.example.invalid/oauth/device/?code=${code}\nconfirm this code matches:\n  ${code}\n\nWaiting for approval…\n`,
+  );
   let done = false;
   let timer;
   const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
@@ -288,7 +301,11 @@ function logout() {
 
 const MODES = [
   { id: 'allowAll', name: 'Allow all', description: 'Run every action without asking for approval' },
-  { id: 'promptUnmatched', name: 'Ask before unmatched actions', description: 'Ask for approval when no permission rule covers the action' },
+  {
+    id: 'promptUnmatched',
+    name: 'Ask before unmatched actions',
+    description: 'Ask for approval when no permission rule covers the action',
+  },
   { id: 'onRequest', name: 'Ask on request', description: 'Ask for approval only when the action requires it' },
   { id: 'denyUnmatched', name: 'Deny unmatched actions', description: 'Refuse any action no permission rule covers' },
 ];
@@ -331,8 +348,22 @@ const unwrap = (text) => (WRAPPED.exec(text) || [])[1] ?? text;
 
 function sessionOptions(s) {
   return [
-    { id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: s.mode, options: MODES.map((m) => ({ value: m.id, name: m.name, description: m.description })) },
-    { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: s.model || DEFAULT_MODEL, options: [{ value: s.model || DEFAULT_MODEL, name: s.model || DEFAULT_MODEL }] },
+    {
+      id: 'mode',
+      name: 'Mode',
+      category: 'mode',
+      type: 'select',
+      currentValue: s.mode,
+      options: MODES.map((m) => ({ value: m.id, name: m.name, description: m.description })),
+    },
+    {
+      id: 'model',
+      name: 'Model',
+      category: 'model',
+      type: 'select',
+      currentValue: s.model || DEFAULT_MODEL,
+      options: [{ value: s.model || DEFAULT_MODEL, name: s.model || DEFAULT_MODEL }],
+    },
   ];
 }
 const modesOf = (s) => ({ currentModeId: s.mode, availableModes: MODES });
@@ -345,7 +376,8 @@ function saveSession(id, s) {
 function museAcp() {
   const cfg = configArgs();
   const refused = Object.keys(cfg).find((k) => k === 'permissions' || k.startsWith('permissions.'));
-  if (refused) return void process.stderr.write(`error: -c ${refused}: permission-profile selection is wire surface\n`, () => exitAfterLog(2));
+  if (refused)
+    return void process.stderr.write(`error: -c ${refused}: permission-profile selection is wire surface\n`, () => exitAfterLog(2));
   const settingsFile = path.join(configDir(), 'settings.json');
   const settings = readJson(settingsFile);
   // The settings and trust it starts with: what decides what runs without asking, and what it loads.
@@ -365,7 +397,8 @@ function museAcp() {
     }
     const resuming = method === 'session/resume';
     const id = resuming ? String(p.sessionId || '') : crypto.randomUUID();
-    if (resuming && !sessions.resume(id)) throw rpcError(`session ${id} not found`, -32020, { kind: 'sessionNotFound', retryable: false, sessionId: id });
+    if (resuming && !sessions.resume(id))
+      throw rpcError(`session ${id} not found`, -32020, { kind: 'sessionNotFound', retryable: false, sessionId: id });
     if (!resuming) sessions.start(id);
     const kept = resuming ? readJson(sessions.file(id)) || {} : {};
     const cwd = p.cwd || process.cwd();
@@ -383,7 +416,8 @@ function museAcp() {
       // A resumed session keeps the profile and sandbox it was made with, not this start's.
       rules: {
         profile: resuming && kept.profile ? kept.profile : profile,
-        judge: (resuming && kept.profile ? kept.profile : profile).base === ':auto-review' && process.env.MUSE_DISABLE_APPROVAL_JUDGE !== '1',
+        judge:
+          (resuming && kept.profile ? kept.profile : profile).base === ':auto-review' && process.env.MUSE_DISABLE_APPROVAL_JUDGE !== '1',
         sandbox: resuming && typeof kept.sandbox === 'boolean' ? kept.sandbox : !has('--disable-sandbox'),
         writeTools: !has('--disable-write'),
       },
@@ -392,11 +426,21 @@ function museAcp() {
     agent.sessions.set(id, s);
     saveSession(id, s);
     recordMcpEnv(
-      Object.fromEntries((p.mcpServers || []).map((x) => [x.name, Object.fromEntries((x.env || x.headers || []).map((v) => [v.name, v.value]))])),
+      Object.fromEntries(
+        (p.mcpServers || []).map((x) => [x.name, Object.fromEntries((x.env || x.headers || []).map((v) => [v.name, v.value]))]),
+      ),
       Object.fromEntries((p.mcpServers || []).filter((x) => x.type === 'http').map((x) => [x.name, x.url])),
     );
     // Its slash commands, told once the session is open (Harness Relay ignores them).
-    setImmediate(() => agent.peer.notify('session/update', { sessionId: id, update: { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'compact', description: "Compact the conversation's context" }] } }));
+    setImmediate(() =>
+      agent.peer.notify('session/update', {
+        sessionId: id,
+        update: {
+          sessionUpdate: 'available_commands_update',
+          availableCommands: [{ name: 'compact', description: "Compact the conversation's context" }],
+        },
+      }),
+    );
     return { ...(resuming ? {} : { sessionId: id }), modes: modesOf(s), configOptions: sessionOptions(s) };
   };
 
@@ -406,7 +450,8 @@ function museAcp() {
     'session/resume': (p, agent) => open('session/resume', p, agent),
     'session/set_config_option': (p, { peer, sessions: live }) => {
       const s = live.get(p.sessionId);
-      if (!s) throw rpcError(`session ${p.sessionId} not found`, -32020, { kind: 'sessionNotFound', retryable: false, sessionId: p.sessionId });
+      if (!s)
+        throw rpcError(`session ${p.sessionId} not found`, -32020, { kind: 'sessionNotFound', retryable: false, sessionId: p.sessionId });
       record({ setOption: { configId: p.configId, value: p.value } });
       if (p.configId === 'mode') {
         if (!MODES.some((m) => m.id === p.value)) throw rpcError(`unknown mode ${p.value}`, -32602);
@@ -421,9 +466,13 @@ function museAcp() {
     },
     'session/prompt': (p, { peer, sessions: live }) => {
       const s = live.get(p.sessionId);
-      if (!s) throw rpcError(`session ${p.sessionId} not found`, -32020, { kind: 'sessionNotFound', retryable: false, sessionId: p.sessionId });
+      if (!s)
+        throw rpcError(`session ${p.sessionId} not found`, -32020, { kind: 'sessionNotFound', retryable: false, sessionId: p.sessionId });
       const blocks = p.prompt || [];
-      const text = blocks.filter((b) => b.type === 'text').map((b) => b.text || '').join('\n');
+      const text = blocks
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text || '')
+        .join('\n');
       const images = blocks.filter((b) => b.type === 'image' && b.data).length;
       const top = ON_TOP.exec(text);
       if (top) s.briefing = unwrap(top[1]);
@@ -552,8 +601,27 @@ async function museTurn(peer, sessionId, s, steps, skillFiles, denied) {
     const asking = asks(writes.length ? 'write-command' : 'command');
     const code = text(`\`\`\`\n${command}\n\`\`\``);
     const input = { command, description };
-    if (asking) u.toolCall({ toolCallId: id, title: `bash ${command}`, name: 'bash', kind: 'execute', status: 'pending', rawInput: input, _meta: meta() });
-    else u.toolCall({ toolCallId: id, title: description, name: 'bash', kind: 'execute', status: 'in_progress', content: [code], rawInput: input, _meta: meta() });
+    if (asking)
+      u.toolCall({
+        toolCallId: id,
+        title: `bash ${command}`,
+        name: 'bash',
+        kind: 'execute',
+        status: 'pending',
+        rawInput: input,
+        _meta: meta(),
+      });
+    else
+      u.toolCall({
+        toolCallId: id,
+        title: description,
+        name: 'bash',
+        kind: 'execute',
+        status: 'in_progress',
+        content: [code],
+        rawInput: input,
+        _meta: meta(),
+      });
     if (asking) {
       let ok = await permit(id);
       // A command that writes outside the workspace is asked about twice, as the real one asks.
@@ -590,7 +658,8 @@ async function museTurn(peer, sessionId, s, steps, skillFiles, denied) {
     }
     if (!exit) out = output;
     // Its sandbox: writes in the workspace only (not its `.git`, `.muse`, `.agents`, nor a denied path), none with `:read-only`.
-    const mayWrite = (file) => !denied(file) && (!r.sandbox || (r.profile.base !== ':read-only' && inside(file, s.workspace) && !configPath(file, s.workspace)));
+    const mayWrite = (file) =>
+      !denied(file) && (!r.sandbox || (r.profile.base !== ':read-only' && inside(file, s.workspace) && !configPath(file, s.workspace)));
     for (const file of exit ? [] : writes) {
       if (mayWrite(file) && tryWrite(file, content)) continue;
       out += `/bin/sh: ${file}: Operation not permitted\n`;
@@ -614,7 +683,12 @@ async function museTurn(peer, sessionId, s, steps, skillFiles, denied) {
       2,
     );
     if (out) update(id, { title: description, status: 'in_progress', content: [code, text(out)], rawOutput: out });
-    update(id, { title: description, status: exit ? 'failed' : 'completed', content: [code, text(exit ? `${out}exit code ${exit}` : out)], rawOutput: raw });
+    update(id, {
+      title: description,
+      status: exit ? 'failed' : 'completed',
+      content: [code, text(exit ? `${out}exit code ${exit}` : out)],
+      rawOutput: raw,
+    });
     return { allowed, ok: exit === 0 };
   };
 
@@ -622,12 +696,29 @@ async function museTurn(peer, sessionId, s, steps, skillFiles, denied) {
   const writeTool = async (file, shown, content) => {
     const id = callId();
     const input = { path: shown, content };
-    const call = { toolCallId: id, title: `write_file ${shown}`, name: 'write_file', kind: 'edit', locations: [{ path: file }], rawInput: input, _meta: meta() };
+    const call = {
+      toolCallId: id,
+      title: `write_file ${shown}`,
+      name: 'write_file',
+      kind: 'edit',
+      locations: [{ path: file }],
+      rawInput: input,
+      _meta: meta(),
+    };
     const failed = (why) => {
-      update(id, { status: 'failed', content: [text(`tool failed: ${why}`)], rawOutput: `tool failed: ${why}`, _meta: { 'dev.muse': { status: 'failed' } } });
+      update(id, {
+        status: 'failed',
+        content: [text(`tool failed: ${why}`)],
+        rawOutput: `tool failed: ${why}`,
+        _meta: { 'dev.muse': { status: 'failed' } },
+      });
       return { ok: false };
     };
-    const asking = inside(file, s.workspace) && !denied(file) && r.profile.base !== ':read-only' && (configPath(file, s.workspace) ? asks('config-write') : asks('file-write'));
+    const asking =
+      inside(file, s.workspace) &&
+      !denied(file) &&
+      r.profile.base !== ':read-only' &&
+      (configPath(file, s.workspace) ? asks('config-write') : asks('file-write'));
     u.toolCall({ ...call, status: asking ? 'pending' : 'in_progress' });
     await sleep(20);
     if (!inside(file, s.workspace)) {
@@ -660,20 +751,40 @@ async function museTurn(peer, sessionId, s, steps, skillFiles, denied) {
     if (step.type === 'tool') {
       // A listing of the working directory: its `search` tool with a glob, a read that asks nothing.
       const id = callId();
-      u.toolCall({ toolCallId: id, title: `search ${s.cwd}`, name: 'search', kind: 'search', status: 'in_progress', locations: [{ path: s.cwd }], rawInput: { glob: '*', path: s.cwd }, _meta: meta() });
+      u.toolCall({
+        toolCallId: id,
+        title: `search ${s.cwd}`,
+        name: 'search',
+        kind: 'search',
+        status: 'in_progress',
+        locations: [{ path: s.cwd }],
+        rawInput: { glob: '*', path: s.cwd },
+        _meta: meta(),
+      });
       await sleep(20);
       if (denied(s.cwd)) update(id, { status: 'failed', content: [text('tool failed: absolute path is outside the workspace')] });
       else update(id, { status: 'completed', content: [text(step.output)], rawOutput: step.output });
     }
     if (step.type === 'approve') {
       const publish = step.command.startsWith('npm publish');
-      const ran = await bash(step.command, 'Print a line (an e2e check)', { network: publish ? 'registry.npmjs.org:443' : '', output: 'e2e-approval\n' });
+      const ran = await bash(step.command, 'Print a line (an e2e check)', {
+        network: publish ? 'registry.npmjs.org:443' : '',
+        output: 'e2e-approval\n',
+      });
       prefix += !ran.allowed ? declined('command', '') : ran.ok ? 'The command ran: e2e-approval. ' : 'The command failed. ';
       if (s.cancelled) return ended('cancelled');
     }
     if (step.type === 'fetch') {
       const id = callId();
-      u.toolCall({ toolCallId: id, title: `web_fetch ${step.url}`, name: 'web_fetch', kind: 'fetch', status: 'in_progress', rawInput: { url: step.url }, _meta: meta() });
+      u.toolCall({
+        toolCallId: id,
+        title: `web_fetch ${step.url}`,
+        name: 'web_fetch',
+        kind: 'fetch',
+        status: 'in_progress',
+        rawInput: { url: step.url },
+        _meta: meta(),
+      });
       // Every host is asked about (its network is proxy-only); nothing is fetched.
       const ok = !asks('fetch') || (await permit(id, NETWORK_OPTIONS));
       if (ok) update(id, { status: 'completed', content: [text(`Fetched ${step.url}`)], rawOutput: `Fetched ${step.url}` });
@@ -705,7 +816,16 @@ async function museTurn(peer, sessionId, s, steps, skillFiles, denied) {
       // The tool library's skills it was asked to read: its `read_file` reads anywhere but a denied path.
       for (const skill of skillFiles) {
         const id = callId();
-        u.toolCall({ toolCallId: id, title: `read_file ${skill}`, name: 'read_file', kind: 'read', status: 'in_progress', locations: [{ path: skill }], rawInput: { path: skill }, _meta: meta() });
+        u.toolCall({
+          toolCallId: id,
+          title: `read_file ${skill}`,
+          name: 'read_file',
+          kind: 'read',
+          status: 'in_progress',
+          locations: [{ path: skill }],
+          rawInput: { path: skill },
+          _meta: meta(),
+        });
         if (denied(skill)) update(id, { status: 'failed', content: [text('tool failed: absolute path is outside the workspace')] });
         else update(id, { status: 'completed', content: [text(`read ${skill}`)], rawOutput: `read ${skill}` });
       }

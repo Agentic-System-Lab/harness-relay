@@ -29,7 +29,11 @@ function runCommand(shell, command, cwd) {
     return { stdout: m ? `${m[1]}\n` : '', stderr: '', code: 0 };
   }
   const r = spawnSync(shell, ['-c', command], { cwd, encoding: 'utf8', timeout: 30_000 });
-  return { stdout: r.stdout || '', stderr: r.stderr || (r.error ? String(r.error.message) : ''), code: typeof r.status === 'number' ? r.status : 1 };
+  return {
+    stdout: r.stdout || '',
+    stderr: r.stderr || (r.error ? String(r.error.message) : ''),
+    code: typeof r.status === 'number' ? r.status : 1,
+  };
 }
 
 /** How long a request may wait for its answer (the sandbox's proxy waits for the user's). */
@@ -50,7 +54,8 @@ function reach(url) {
       return resolve({ error: 'not a URL' });
     }
     const https = target.protocol === 'https:';
-    const proxyUrl = (https ? process.env.HTTPS_PROXY || process.env.https_proxy : undefined) || process.env.HTTP_PROXY || process.env.http_proxy;
+    const proxyUrl =
+      (https ? process.env.HTTPS_PROXY || process.env.https_proxy : undefined) || process.env.HTTP_PROXY || process.env.http_proxy;
     // An agent of its own: Node's own use of the proxy variables (NODE_USE_ENV_PROXY) is not wanted here.
     const agent = new http.Agent({ keepAlive: false });
     const done = (r) => {
@@ -61,10 +66,19 @@ function reach(url) {
     let req;
     if (proxyUrl) {
       const proxy = new URL(proxyUrl);
-      const headers = proxy.username ? { 'proxy-authorization': `Basic ${Buffer.from(`${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}`).toString('base64')}` } : {};
+      const headers = proxy.username
+        ? {
+            'proxy-authorization': `Basic ${Buffer.from(`${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}`).toString('base64')}`,
+          }
+        : {};
       const via = { host: proxy.hostname, port: proxy.port || 80, agent };
       req = https
-        ? http.request({ ...via, method: 'CONNECT', path: `${target.hostname}:${port}`, headers: { ...headers, host: `${target.hostname}:${port}` } })
+        ? http.request({
+            ...via,
+            method: 'CONNECT',
+            path: `${target.hostname}:${port}`,
+            headers: { ...headers, host: `${target.hostname}:${port}` },
+          })
         : http.request({ ...via, method: 'GET', path: url, headers: { ...headers, host: target.host } });
       req.on('connect', (res, socket) => {
         socket.destroy();

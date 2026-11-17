@@ -16,7 +16,9 @@ test.describe('limits the environment sets', () => {
     for (const label of ['Claude Code', 'Codex', 'Grok']) await expect(drawer.getByRole('button', { name: `＋ ${label}` })).toBeDisabled();
 
     const three = ['A', 'B', 'C'].map((name) => ({ name, provider: 'claude', role: '' }));
-    await expect(relay.api('/api/presets', { body: { name: 'Too big', agents: three } })).rejects.toThrow('400 {"error":"At most 2 agents"}');
+    await expect(relay.api('/api/presets', { body: { name: 'Too big', agents: three } })).rejects.toThrow(
+      '400 {"error":"At most 2 agents"}',
+    );
   });
 
   test('a template larger than the limit says why it cannot be used, and the lead agent does not pick one', async ({ page, relay }) => {

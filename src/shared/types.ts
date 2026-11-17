@@ -1084,10 +1084,7 @@ export interface TeamPreset {
   settings: Omit<ConversationSettings, 'cwd' | 'extraCwds'>;
 }
 
-export type Author =
-  | { kind: 'user' }
-  | { kind: 'agent'; agentId: string }
-  | { kind: 'system' };
+export type Author = { kind: 'user' } | { kind: 'agent'; agentId: string } | { kind: 'system' };
 
 export type ToolStatus = 'running' | 'done' | 'error';
 
@@ -1304,7 +1301,14 @@ export interface ProgressNote {
  * the agents in their briefing, `noteChars` of one note, `retryMinutes` between the tries of a time
  * whose run failed (one more try for each), and `eventBytes` of a webhook call's body in the message.
  */
-export const TRACKING_LIMITS = { notes: 30, shown: 12, noteChars: 1000, retryMinutes: [5, 30, 120], eventBytes: 20_000, hookIntervalMs: 10_000 };
+export const TRACKING_LIMITS = {
+  notes: 30,
+  shown: 12,
+  noteChars: 1000,
+  retryMinutes: [5, 30, 120],
+  eventBytes: 20_000,
+  hookIntervalMs: 10_000,
+};
 
 /**
  * How a schedule that tracks a goal (`ConversationSchedule.goal`) is getting on: what the agents said
@@ -1389,7 +1393,10 @@ export interface ZonedParts {
 }
 
 /** What the browser sends to save a schedule (`PUT /api/conversations/:id/schedule`). */
-export type ScheduleUpdate = Pick<ConversationSchedule, 'text' | 'repeat' | 'timeZone' | 'enabled' | 'approvals' | 'missed' | 'newChat' | 'goal'>;
+export type ScheduleUpdate = Pick<
+  ConversationSchedule,
+  'text' | 'repeat' | 'timeZone' | 'enabled' | 'approvals' | 'missed' | 'newChat' | 'goal'
+>;
 
 /**
  * Where the team stopped because an agent asked the user something. Once the user replies, the

@@ -154,9 +154,7 @@ function ActivityGroup({ items, live, last }: { items: ActivityItem[]; live: boo
         {busy && items.length > 1 && <span className="activity-count">{counts}</span>}
         {failed > 0 && <span className="tool-failed">{t.message.failed(failed)}</span>}
       </summary>
-      <ul>
-        {items.map((i) => (i.kind === 'tool' ? <ToolStep key={i.key} x={i.part} /> : <ThoughtStep key={i.key} text={i.text} />))}
-      </ul>
+      <ul>{items.map((i) => (i.kind === 'tool' ? <ToolStep key={i.key} x={i.part} /> : <ThoughtStep key={i.key} text={i.text} />))}</ul>
     </details>
   );
 }
@@ -1107,9 +1105,7 @@ function AgentMessage({
         <div className="msg-head">
           <strong>@{name}</strong>
           <span className="provider-tag">{PROVIDER_LABEL[provider]}</span>
-          {m?.round && showRound && (
-            <span className="round-tag">{t.message.round(m.round)}</span>
-          )}
+          {m?.round && showRound && <span className="round-tag">{t.message.round(m.round)}</span>}
           {live && <span className="live-tag">{t.message.live}</span>}
           {msg.asked && !waitingAnswer && <span className="round-tag">{t.message.askedTag}</span>}
           {marked > 0 && marks && (

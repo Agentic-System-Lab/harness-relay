@@ -53,7 +53,11 @@ export class ConnectorStore {
   }
 
   private save(): void {
-    const stored: Stored = { mail: this.data.mail, calendar: this.data.calendar, ...(this.keyring ? {} : { passwords: Object.fromEntries(this.passwords) }) };
+    const stored: Stored = {
+      mail: this.data.mail,
+      calendar: this.data.calendar,
+      ...(this.keyring ? {} : { passwords: Object.fromEntries(this.passwords) }),
+    };
     this.db
       .prepare('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
       .run(KEY, JSON.stringify(stored));
@@ -100,7 +104,8 @@ export class ConnectorStore {
     const list = this.data.mail;
     const i = list.findIndex((m) => m.id === id);
     if (i < 0 && list.length >= CONNECTOR_LIMITS.accounts) throw new HttpError(400, t().connectorTooMany(CONNECTOR_LIMITS.accounts));
-    if (list.some((m) => m.id !== id && m.name.toLowerCase() === u.name.toLowerCase())) throw new HttpError(409, t().connectorNameTaken(u.name));
+    if (list.some((m) => m.id !== id && m.name.toLowerCase() === u.name.toLowerCase()))
+      throw new HttpError(409, t().connectorNameTaken(u.name));
     if (i < 0 && !u.password) throw new HttpError(400, t().connectorPasswordRequired);
     // The kept password goes only to the servers it was given for.
     if (i >= 0 && !u.password && !sameMailServers(list[i]!, u)) throw new HttpError(400, t().connectorPasswordAgain);
@@ -117,7 +122,8 @@ export class ConnectorStore {
     const list = this.data.calendar;
     const i = list.findIndex((c) => c.id === id);
     if (i < 0 && list.length >= CONNECTOR_LIMITS.accounts) throw new HttpError(400, t().connectorTooMany(CONNECTOR_LIMITS.accounts));
-    if (list.some((c) => c.id !== id && c.name.toLowerCase() === u.name.toLowerCase())) throw new HttpError(409, t().connectorNameTaken(u.name));
+    if (list.some((c) => c.id !== id && c.name.toLowerCase() === u.name.toLowerCase()))
+      throw new HttpError(409, t().connectorNameTaken(u.name));
     if (i < 0 && !u.password) throw new HttpError(400, t().connectorPasswordRequired);
     if (i >= 0 && !u.password && !keptPasswordFits(list[i]!.url, u.url)) throw new HttpError(400, t().connectorPasswordAgain);
     this.setPassword(`calendar-${id}`, u.password);

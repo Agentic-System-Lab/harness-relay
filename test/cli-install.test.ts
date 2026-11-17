@@ -1,4 +1,15 @@
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -52,7 +63,18 @@ const freshDir = () => join(root, `clis-${++n}`);
 
 function result(code: number | null, stdout = '', stderr = '', o: Partial<SpawnResult> = {}): SpawnResult {
   const bytes = Buffer.from(stdout);
-  return { code, signal: null, stdout, stdoutBytes: bytes, stdoutTruncated: false, stdoutSize: bytes.length, stderr, aborted: false, timedOut: false, ...o };
+  return {
+    code,
+    signal: null,
+    stdout,
+    stdoutBytes: bytes,
+    stdoutTruncated: false,
+    stdoutSize: bytes.length,
+    stderr,
+    aborted: false,
+    timedOut: false,
+    ...o,
+  };
 }
 
 /** An installer that runs until it is stopped (`signal`), as runProcess ends one: `aborted`. */
@@ -89,7 +111,13 @@ const WIN_TOOLS = [
   'C:\\Program Files\\Git\\cmd\\git.exe',
   'C:\\Program Files\\Git\\bin\\bash.exe',
 ];
-const WIN_ENV = { Path: 'C:\\nodejs;C:\\Program Files\\Git\\cmd;C:\\Windows\\System32', PATHEXT: '.EXE;.CMD', SystemRoot: 'C:\\Windows', ProgramFiles: 'C:\\Program Files', KEEP: 'me' };
+const WIN_ENV = {
+  Path: 'C:\\nodejs;C:\\Program Files\\Git\\cmd;C:\\Windows\\System32',
+  PATHEXT: '.EXE;.CMD',
+  SystemRoot: 'C:\\Windows',
+  ProgramFiles: 'C:\\Program Files',
+  KEEP: 'me',
+};
 
 /** The user's PATH on a stock Windows, as `USER_PATH_READ_SCRIPT` writes it. */
 const b64 = (text: string) => Buffer.from(text, 'utf8').toString('base64');
@@ -163,7 +191,8 @@ function fakeHost(
         return changed;
       }),
     run: answer,
-    runScript: (shell: string, flags: readonly string[], script: string, run: RunOptions) => answer({ ...run, bin: shell, args: [...flags], script }),
+    runScript: (shell: string, flags: readonly string[], script: string, run: RunOptions) =>
+      answer({ ...run, bin: shell, args: [...flags], script }),
   };
   return { host, calls, registry };
 }
@@ -205,24 +234,33 @@ describe('the recipes', () => {
     expect(script('goose').posix.env!('/d').GOOSE_VERSION).toBe('v1.58.1');
     expect(script('goose').windows.env!('/d').GOOSE_VERSION).toBe('v1.58.1');
     expect(guide).toContain('1.58.1');
-    for (const p of ['claude', 'codex', 'copilot'] as const) expect((CLI_RECIPES[p] as Extract<CliRecipe, { package: string }>).package).not.toMatch(/@\d/);
+    for (const p of ['claude', 'codex', 'copilot'] as const)
+      expect((CLI_RECIPES[p] as Extract<CliRecipe, { package: string }>).package).not.toMatch(/@\d/);
   });
 
   it('says what each runs, as one would type it', () => {
     expect(installCommand(CLI_RECIPES.codex)).toBe('npm install -g @openai/codex');
     expect(installCommand(CLI_RECIPES.openhands, 'linux')).toBe('uv tool install openhands==1.16.0');
     // Without uv, uv's own installer first.
-    expect(installCommand(CLI_RECIPES.openhands, 'darwin', true)).toBe('curl -fsSL https://astral.sh/uv/install.sh | bash; uv tool install openhands==1.16.0');
+    expect(installCommand(CLI_RECIPES.openhands, 'darwin', true)).toBe(
+      'curl -fsSL https://astral.sh/uv/install.sh | bash; uv tool install openhands==1.16.0',
+    );
     // On Windows, the x64 Python, which also Windows on Arm runs (its own lacks wheels for OpenHands' packages).
-    expect(installCommand(CLI_RECIPES.openhands, 'win32', true)).toBe('irm https://astral.sh/uv/install.ps1 | iex; uv tool install --python cpython-3.12-windows-x86_64-none openhands==1.16.0');
-    expect(installCommand(CLI_RECIPES.openhands, 'win32')).toBe('uv tool install --python cpython-3.12-windows-x86_64-none openhands==1.16.0');
+    expect(installCommand(CLI_RECIPES.openhands, 'win32', true)).toBe(
+      'irm https://astral.sh/uv/install.ps1 | iex; uv tool install --python cpython-3.12-windows-x86_64-none openhands==1.16.0',
+    );
+    expect(installCommand(CLI_RECIPES.openhands, 'win32')).toBe(
+      'uv tool install --python cpython-3.12-windows-x86_64-none openhands==1.16.0',
+    );
     expect(installCommand(CLI_RECIPES.grok, 'linux')).toBe('curl -fsSL https://x.ai/cli/install.sh | bash');
     // On Windows, the makers' PowerShell installers; Goose's bash script under Git Bash.
     expect(installCommand(CLI_RECIPES.grok, 'win32')).toBe('irm https://x.ai/cli/install.ps1 | iex');
     expect(installCommand(CLI_RECIPES.cursor, 'win32')).toBe('irm https://cursor.com/install?win32=true | iex');
     expect(installCommand(CLI_RECIPES.antigravity, 'win32')).toBe('irm https://antigravity.google/cli/install.ps1 | iex');
     expect(installCommand(CLI_RECIPES.muse, 'win32')).toBe('irm https://dev.meta.ai/install.ps1 | iex');
-    expect(installCommand(CLI_RECIPES.goose, 'win32')).toMatch(/^curl -fsSL https:\/\/github\.com\/aaif-goose\/goose\/.*download_cli\.sh \| bash$/);
+    expect(installCommand(CLI_RECIPES.goose, 'win32')).toMatch(
+      /^curl -fsSL https:\/\/github\.com\/aaif-goose\/goose\/.*download_cli\.sh \| bash$/,
+    );
     expect(scriptFor(script('grok'), 'freebsd')).toBeUndefined();
   });
 
@@ -246,7 +284,10 @@ describe('the recipes', () => {
 
 describe('npmLaunch', () => {
   // Windows' file names are found whatever their case (PATHEXT gives `.CMD`).
-  const files = (...paths: string[]) => (p: string) => paths.some((f) => f.toLowerCase() === p.toLowerCase());
+  const files =
+    (...paths: string[]) =>
+    (p: string) =>
+      paths.some((f) => f.toLowerCase() === p.toLowerCase());
 
   it('starts npm from the PATH on macOS and Linux, and Homebrew’s on macOS', () => {
     expect(npmLaunch({ PATH: '/a:/b' }, 'linux', files('/b/npm'))).toEqual({ bin: '/b/npm', args: [] });
@@ -256,7 +297,9 @@ describe('npmLaunch', () => {
 
   it('runs npm’s script with the Node beside npm.cmd on Windows, never the script itself', () => {
     const env = { PATH: 'C:\\node;C:\\other', PATHEXT: '.exe;.cmd' };
-    expect(npmLaunch(env, 'win32', files('C:\\node\\npm.cmd', 'C:\\node\\node.exe', 'C:\\node\\node_modules\\npm\\bin\\npm-cli.js'))).toEqual({
+    expect(
+      npmLaunch(env, 'win32', files('C:\\node\\npm.cmd', 'C:\\node\\node.exe', 'C:\\node\\node_modules\\npm\\bin\\npm-cli.js')),
+    ).toEqual({
       bin: 'C:\\node\\node.exe',
       args: ['C:\\node\\node_modules\\npm\\bin\\npm-cli.js'],
     });
@@ -282,7 +325,9 @@ describe('Node.js’s build, for npm when it is not on the PATH', () => {
     expect(win.url).toBe(`https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-win-arm64.zip`);
     expect(win.members).toEqual([`node-v${NODE_VERSION}-win-arm64/node.exe`, `node-v${NODE_VERSION}-win-arm64/node_modules/npm`]);
     // Every system the desktop app is made for, and Intel Macs, each with its own checksum.
-    const builds = (['darwin', 'linux', 'win32'] as const).flatMap((os) => (['x64', 'arm64'] as const).map((cpu) => nodeBuildFor(os, cpu, () => false)));
+    const builds = (['darwin', 'linux', 'win32'] as const).flatMap((os) =>
+      (['x64', 'arm64'] as const).map((cpu) => nodeBuildFor(os, cpu, () => false)),
+    );
     expect(builds.every((b) => b && /^[0-9a-f]{64}$/.test(b.sha256))).toBe(true);
     expect(new Set(builds.map((b) => b!.sha256)).size).toBe(6);
   });
@@ -297,7 +342,10 @@ describe('Node.js’s build, for npm when it is not on the PATH', () => {
 
   it('lays Node and npm out in the CLI’s folder as npm’s global folder has them beside its Node', () => {
     const d = join(root, 'n');
-    expect(folderNpm(d, 'linux')).toEqual({ bin: join(d, 'bin', 'node'), args: [join(d, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js')] });
+    expect(folderNpm(d, 'linux')).toEqual({
+      bin: join(d, 'bin', 'node'),
+      args: [join(d, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js')],
+    });
     expect(folderNpm(d, 'win32')).toEqual({ bin: join(d, 'node.exe'), args: [join(d, 'node_modules', 'npm', 'bin', 'npm-cli.js')] });
     // The CLI's program goes beside that Node (npm's link in `bin`, or on Windows its `.cmd`), where its launch finds it.
     expect(dirname(installedProgram(CLI_RECIPES.codex, d, 'linux'))).toBe(dirname(folderNpm(d, 'linux').bin));
@@ -305,7 +353,9 @@ describe('Node.js’s build, for npm when it is not on the PATH', () => {
   });
 
   it('is offered for Claude Code, Codex and Copilot only, and its version is the one the user guide names', () => {
-    const withNode = PROVIDERS.filter((p) => CLI_RECIPES[p].method === 'npm' && (CLI_RECIPES[p] as Extract<CliRecipe, { method: 'npm' }>).withNode);
+    const withNode = PROVIDERS.filter(
+      (p) => CLI_RECIPES[p].method === 'npm' && (CLI_RECIPES[p] as Extract<CliRecipe, { method: 'npm' }>).withNode,
+    );
     expect(withNode).toEqual(['claude', 'codex', 'copilot']);
     expect(readFileSync(join(__dirname, '..', 'docs', 'user-guide.md'), 'utf8')).toContain(`Node.js ${NODE_VERSION}`);
     expect(readFileSync(join(__dirname, '..', 'docs', 'user-guide.zh-TW.md'), 'utf8')).toContain(`Node.js ${NODE_VERSION}`);
@@ -313,16 +363,25 @@ describe('Node.js’s build, for npm when it is not on the PATH', () => {
 });
 
 describe('the programs a Windows install runs', () => {
-  const files = (...paths: string[]) => (p: string) => paths.some((f) => f.toLowerCase() === p.toLowerCase());
+  const files =
+    (...paths: string[]) =>
+    (p: string) =>
+      paths.some((f) => f.toLowerCase() === p.toLowerCase());
 
   it('finds Git for Windows’ bash beside its git, or where Git for Windows installs, never WSL’s', () => {
     const env = { Path: 'C:\\Program Files\\Git\\cmd;C:\\Windows\\System32', PATHEXT: '.exe' };
-    expect(gitBash(env, files('C:\\Program Files\\Git\\cmd\\git.exe', 'C:\\Program Files\\Git\\bin\\bash.exe'))).toBe('C:\\Program Files\\Git\\bin\\bash.exe');
+    expect(gitBash(env, files('C:\\Program Files\\Git\\cmd\\git.exe', 'C:\\Program Files\\Git\\bin\\bash.exe'))).toBe(
+      'C:\\Program Files\\Git\\bin\\bash.exe',
+    );
     // git in mingw64\bin; bash only in usr\bin.
-    expect(gitBash({ Path: 'D:\\Git\\mingw64\\bin', PATHEXT: '.exe' }, files('D:\\Git\\mingw64\\bin\\git.exe', 'D:\\Git\\usr\\bin\\bash.exe'))).toBe('D:\\Git\\usr\\bin\\bash.exe');
+    expect(
+      gitBash({ Path: 'D:\\Git\\mingw64\\bin', PATHEXT: '.exe' }, files('D:\\Git\\mingw64\\bin\\git.exe', 'D:\\Git\\usr\\bin\\bash.exe')),
+    ).toBe('D:\\Git\\usr\\bin\\bash.exe');
     // Installed for one user, git not on the PATH.
     const local = { Path: 'C:\\Windows\\System32', PATHEXT: '.exe', LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local' };
-    expect(gitBash(local, files('C:\\Users\\me\\AppData\\Local\\Programs\\Git\\bin\\bash.exe'))).toBe('C:\\Users\\me\\AppData\\Local\\Programs\\Git\\bin\\bash.exe');
+    expect(gitBash(local, files('C:\\Users\\me\\AppData\\Local\\Programs\\Git\\bin\\bash.exe'))).toBe(
+      'C:\\Users\\me\\AppData\\Local\\Programs\\Git\\bin\\bash.exe',
+    );
     // WSL's bash on the PATH is not it; MinGit has git but no bash.
     expect(gitBash(env, files('C:\\Windows\\System32\\bash.exe', 'C:\\Program Files\\Git\\cmd\\git.exe'))).toBeUndefined();
   });
@@ -330,20 +389,43 @@ describe('the programs a Windows install runs', () => {
   it('finds Windows PowerShell in System32', () => {
     const exe = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
     expect(windowsPowerShell({ SystemRoot: 'C:\\Windows' }, files(exe))).toBe(exe);
-    expect(windowsPowerShell({ SystemRoot: 'C:\\Windows', Path: 'D:\\ps', PATHEXT: '.exe' }, files('D:\\ps\\powershell.exe'))).toBe('D:\\ps\\powershell.exe');
+    expect(windowsPowerShell({ SystemRoot: 'C:\\Windows', Path: 'D:\\ps', PATHEXT: '.exe' }, files('D:\\ps\\powershell.exe'))).toBe(
+      'D:\\ps\\powershell.exe',
+    );
     expect(windowsPowerShell({ SystemRoot: 'C:\\Windows' }, files())).toBeUndefined();
   });
 });
 
 describe('the installers’ environment', () => {
   it('leaves out Claude Code’s nesting markers and npm’s own variables of the run that started the server', () => {
-    const env = installerEnv({ CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'x', npm_lifecycle_event: 'start', npm_package_name: 'harness-relay', npm_config_local_prefix: '/repo', INIT_CWD: '/repo', npm_config_registry: 'https://r', PATH: '/bin' });
+    const env = installerEnv({
+      CLAUDECODE: '1',
+      CLAUDE_CODE_ENTRYPOINT: 'x',
+      npm_lifecycle_event: 'start',
+      npm_package_name: 'harness-relay',
+      npm_config_local_prefix: '/repo',
+      INIT_CWD: '/repo',
+      npm_config_registry: 'https://r',
+      PATH: '/bin',
+    });
     expect(env).toEqual({ npm_config_registry: 'https://r', PATH: '/bin', NO_COLOR: '1' });
   });
 
   it('gives a maker’s script the CLI’s folder as its home, with nothing that would move it out', () => {
     const d = join(root, 'grok');
-    const env = scriptEnv({ HOME: '/home/me', ZDOTDIR: '/home/me/zsh', GROK_HOME: '/home/me/.grok', CURSOR_CONFIG_DIR: '/c', XDG_CONFIG_HOME: '/home/me/.config', PATH: '/bin' }, d, script('grok').posix, 'linux');
+    const env = scriptEnv(
+      {
+        HOME: '/home/me',
+        ZDOTDIR: '/home/me/zsh',
+        GROK_HOME: '/home/me/.grok',
+        CURSOR_CONFIG_DIR: '/c',
+        XDG_CONFIG_HOME: '/home/me/.config',
+        PATH: '/bin',
+      },
+      d,
+      script('grok').posix,
+      'linux',
+    );
     expect(env).toMatchObject({
       HOME: join(d, 'home'),
       XDG_CONFIG_HOME: join(d, 'home', '.config'),
@@ -362,9 +444,24 @@ describe('the installers’ environment', () => {
 
   it('gives a script on Windows the folder as USERPROFILE, LOCALAPPDATA and APPDATA too, and its PATH as Windows spells it', () => {
     const d = join(root, 'cursor');
-    const env = scriptEnv({ Path: 'C:\\Windows\\System32', USERPROFILE: 'C:\\Users\\me', LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local', XDG_CONFIG_HOME: 'C:\\x' }, d, script('cursor').windows, 'win32');
+    const env = scriptEnv(
+      {
+        Path: 'C:\\Windows\\System32',
+        USERPROFILE: 'C:\\Users\\me',
+        LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local',
+        XDG_CONFIG_HOME: 'C:\\x',
+      },
+      d,
+      script('cursor').windows,
+      'win32',
+    );
     const home = join(d, 'home');
-    expect(env).toMatchObject({ USERPROFILE: home, LOCALAPPDATA: join(home, 'AppData', 'Local'), APPDATA: join(home, 'AppData', 'Roaming'), XDG_CONFIG_HOME: join(home, '.config') });
+    expect(env).toMatchObject({
+      USERPROFILE: home,
+      LOCALAPPDATA: join(home, 'AppData', 'Local'),
+      APPDATA: join(home, 'AppData', 'Roaming'),
+      XDG_CONFIG_HOME: join(home, '.config'),
+    });
     expect(env.Path).toBe(`${join(home, 'AppData', 'Local', 'cursor-agent')};C:\\Windows\\System32`);
     expect(env.PATH).toBeUndefined();
   });
@@ -391,7 +488,11 @@ describe('CliInstaller', () => {
     const { clis } = installer();
     const views = clis.views();
     expect(views.map((v) => v.provider)).toEqual(PROVIDERS);
-    expect(views.find((v) => v.provider === 'codex')).toMatchObject({ method: 'npm', command: 'npm install -g @openai/codex', dir: clis.folder('codex') });
+    expect(views.find((v) => v.provider === 'codex')).toMatchObject({
+      method: 'npm',
+      command: 'npm install -g @openai/codex',
+      dir: clis.folder('codex'),
+    });
     expect(views.every((v) => !v.blocked && !v.installed && !v.job)).toBe(true);
 
     const none = installer({ tools: [] }).clis;
@@ -415,7 +516,9 @@ describe('CliInstaller', () => {
     const win = installer({ platform: 'win32' }).clis;
     for (const p of PROVIDERS) expect(win.view(p).blocked, p).toBeUndefined();
     expect(win.view('grok').command).toBe('irm https://x.ai/cli/install.ps1 | iex');
-    expect(win.view('openhands').command).toBe('irm https://astral.sh/uv/install.ps1 | iex; uv tool install --python cpython-3.12-windows-x86_64-none openhands==1.16.0');
+    expect(win.view('openhands').command).toBe(
+      'irm https://astral.sh/uv/install.ps1 | iex; uv tool install --python cpython-3.12-windows-x86_64-none openhands==1.16.0',
+    );
     // MinGit, or no Git: Goose's bash script has no bash to run in; the PowerShell ones still do.
     const noGitBash = installer({ platform: 'win32', tools: WIN_TOOLS.filter((t) => !/\\Git\\/.test(t)) }).clis;
     expect(noGitBash.view('goose').blocked).toBe('gitBash');
@@ -440,14 +543,24 @@ describe('CliInstaller', () => {
     expect(v.installed).toMatchObject({ bin, version: '1.2.3', inUse: true });
     expect(calls).toHaveLength(1);
     const cache = join(dir, INSTALL_CACHE, 'npm');
-    expect(calls[0]).toMatchObject({ bin: '/fake/bin/npm', cwd: dir, args: ['install', '--global', '--prefix', dir, '--cache', cache, '--no-audit', '--no-fund', '--no-update-notifier', '@openai/codex'] });
+    expect(calls[0]).toMatchObject({
+      bin: '/fake/bin/npm',
+      cwd: dir,
+      args: ['install', '--global', '--prefix', dir, '--cache', cache, '--no-audit', '--no-fund', '--no-update-notifier', '@openai/codex'],
+    });
     // npm's cache was the install's alone: not in the user's ~/.npm, and gone once it is done.
     expect(existsSync(join(dir, INSTALL_CACHE))).toBe(false);
     // Not Claude Code's nesting markers, nor npm's own variables of `npm start`; the rest of the server's.
     expect(calls[0]!.env).toMatchObject({ KEEP: 'me', NO_COLOR: '1' });
     expect(calls[0]!.env.CLAUDECODE).toBeUndefined();
     expect(calls[0]!.env.npm_lifecycle_event).toBeUndefined();
-    expect(JSON.parse(readFileSync(join(dir, INSTALL_NOTE), 'utf8'))).toMatchObject({ provider: 'codex', method: 'npm', source: '@openai/codex', bin, version: '1.2.3' });
+    expect(JSON.parse(readFileSync(join(dir, INSTALL_NOTE), 'utf8'))).toMatchObject({
+      provider: 'codex',
+      method: 'npm',
+      source: '@openai/codex',
+      bin,
+      version: '1.2.3',
+    });
     expect(settings.bin('codex')).toBe(bin);
     expect(changed).toHaveBeenCalledWith('codex');
   });
@@ -475,13 +588,19 @@ describe('CliInstaller', () => {
     const dir = clis.folder('openhands');
     expect(v.job?.state).toBe('success');
     expect(calls[0]).toMatchObject({ bin: '/fake/bin/uv', args: ['tool', 'install', 'openhands==1.16.0'] });
-    expect(calls[0]!.env).toMatchObject({ UV_TOOL_DIR: join(dir, 'uv', 'tools'), UV_TOOL_BIN_DIR: join(dir, 'bin'), UV_CACHE_DIR: join(dir, INSTALL_CACHE, 'uv') });
+    expect(calls[0]!.env).toMatchObject({
+      UV_TOOL_DIR: join(dir, 'uv', 'tools'),
+      UV_TOOL_BIN_DIR: join(dir, 'bin'),
+      UV_CACHE_DIR: join(dir, INSTALL_CACHE, 'uv'),
+    });
     expect(existsSync(join(dir, INSTALL_CACHE))).toBe(false);
     expect(v.installed?.bin).toBe(join(dir, 'bin', 'openhands'));
   });
 
   it('removes what a failed install left, says why in the language of whoever looks, and keeps its output', async () => {
-    const { clis, settings, changed } = installer({ onRun: (s) => (s.onLine?.('npm error 404 Not Found'), result(1, 'npm error 404 Not Found')) });
+    const { clis, settings, changed } = installer({
+      onRun: (s) => (s.onLine?.('npm error 404 Not Found'), result(1, 'npm error 404 Not Found')),
+    });
     clis.install('cline');
     const v = await ended(clis, 'cline');
     expect(v.job?.state).toBe('failed');
@@ -546,7 +665,10 @@ describe('CliInstaller', () => {
     const v = await ended(clis, 'antigravity');
     const dir = clis.folder('antigravity');
     expect(v.job?.state).toBe('success');
-    expect(calls.map((c) => c.bin)).toEqual(['C:\\Windows\\System32\\curl.EXE', 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe']);
+    expect(calls.map((c) => c.bin)).toEqual([
+      'C:\\Windows\\System32\\curl.EXE',
+      'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    ]);
     const file = join(dir, 'install.ps1');
     expect(calls[0]!.args).toEqual(['-fsSL', '--retry', '3', '-o', file, 'https://antigravity.google/cli/install.ps1']);
     // Fixed text (`POWERSHELL_RUN_SCRIPT`), never `-File`; the script and its arguments in its environment.
@@ -579,7 +701,8 @@ describe('CliInstaller', () => {
       platform: 'win32',
       onRun: (s) => {
         // Cursor's: reads the user PATH expanded with the folder as USERPROFILE, writes it back with its own.
-        if (s.script === POWERSHELL_RUN_SCRIPT) registry.path = `String:${b64(`${s.env.USERPROFILE}\\AppData\\Local\\Microsoft\\WindowsApps;${s.env.LOCALAPPDATA}\\cursor-agent`)}`;
+        if (s.script === POWERSHELL_RUN_SCRIPT)
+          registry.path = `String:${b64(`${s.env.USERPROFILE}\\AppData\\Local\\Microsoft\\WindowsApps;${s.env.LOCALAPPDATA}\\cursor-agent`)}`;
         return undefined;
       },
     });
@@ -659,7 +782,9 @@ describe('CliInstaller', () => {
     clis.install('cursor');
     const v = await ended(clis, 'cursor');
     expect(v.job?.state).toBe('failed');
-    expect(withLang('en', () => clis.view('cursor').job?.error)).toContain('Could not put your user PATH back as it was before the installer ran: registry locked');
+    expect(withLang('en', () => clis.view('cursor').job?.error)).toContain(
+      'Could not put your user PATH back as it was before the installer ran: registry locked',
+    );
     expect(readFileSync(join(dir, USER_PATH_SAVED), 'utf8')).toBe(STOCK_USER_PATH);
 
     // Before the next installer: the PATH kept, not the one the last installer left.
@@ -746,38 +871,45 @@ describe('CliInstaller', () => {
     expect(calls[1]!.bin).toBe('C:\\Program Files\\Git\\bin\\bash.exe');
     const slashed = (p: string) => p.replace(/\\/g, '/');
     expect(calls[1]!.args).toEqual([slashed(join(dir, 'install.sh'))]);
-    expect(calls[1]!.env).toMatchObject({ HOME: slashed(join(dir, 'home')), GOOSE_BIN_DIR: slashed(join(dir, 'bin')), GOOSE_VERSION: 'v1.58.1' });
+    expect(calls[1]!.env).toMatchObject({
+      HOME: slashed(join(dir, 'home')),
+      GOOSE_BIN_DIR: slashed(join(dir, 'bin')),
+      GOOSE_VERSION: 'v1.58.1',
+    });
     expect(v.installed?.bin).toBe(join(dir, 'bin', 'goose.exe'));
   });
 
-  it.skipIf(process.platform === 'win32')('removes the links an installer left outside the folder that lead into it, and nothing else', async () => {
-    const outside = join(root, `path-${++n}`);
-    mkdirSync(outside, { recursive: true });
-    const elsewhere = join(root, `elsewhere-${n}`);
-    touch(join(elsewhere, 'tool'));
-    symlinkSync(join(elsewhere, 'tool'), join(outside, 'tool'));
-    touch(join(outside, 'plain'));
-    // An installer that links its program into a folder on the PATH (Grok's, into /usr/local/bin).
-    const { clis, settings } = installer({
-      env: { PATH: `/fake/bin:${outside}` },
-      onRun: (s) => {
-        if (basename(s.bin) !== 'bash') return undefined;
-        const program = join(s.cwd!, 'bin', 'grok');
-        touch(program);
-        symlinkSync(program, join(outside, 'grok'));
-        symlinkSync(join(s.cwd!, 'bin', 'agent'), join(outside, 'agent'));
-        return result(0);
-      },
-    });
-    clis.install('grok');
-    const v = await ended(clis, 'grok');
-    expect(v.job?.state).toBe('success');
-    expect(v.job?.log).toContain(`Removed ${join(outside, 'grok')}, a link into ${clis.folder('grok')}`);
-    for (const gone of ['grok', 'agent']) expect(() => lstatSync(join(outside, gone)), gone).toThrow();
-    expect(lstatSync(join(outside, 'tool')).isSymbolicLink()).toBe(true);
-    expect(existsSync(join(outside, 'plain'))).toBe(true);
-    expect(settings.bin('grok')).toBe(join(clis.folder('grok'), 'bin', 'grok'));
-  });
+  it.skipIf(process.platform === 'win32')(
+    'removes the links an installer left outside the folder that lead into it, and nothing else',
+    async () => {
+      const outside = join(root, `path-${++n}`);
+      mkdirSync(outside, { recursive: true });
+      const elsewhere = join(root, `elsewhere-${n}`);
+      touch(join(elsewhere, 'tool'));
+      symlinkSync(join(elsewhere, 'tool'), join(outside, 'tool'));
+      touch(join(outside, 'plain'));
+      // An installer that links its program into a folder on the PATH (Grok's, into /usr/local/bin).
+      const { clis, settings } = installer({
+        env: { PATH: `/fake/bin:${outside}` },
+        onRun: (s) => {
+          if (basename(s.bin) !== 'bash') return undefined;
+          const program = join(s.cwd!, 'bin', 'grok');
+          touch(program);
+          symlinkSync(program, join(outside, 'grok'));
+          symlinkSync(join(s.cwd!, 'bin', 'agent'), join(outside, 'agent'));
+          return result(0);
+        },
+      });
+      clis.install('grok');
+      const v = await ended(clis, 'grok');
+      expect(v.job?.state).toBe('success');
+      expect(v.job?.log).toContain(`Removed ${join(outside, 'grok')}, a link into ${clis.folder('grok')}`);
+      for (const gone of ['grok', 'agent']) expect(() => lstatSync(join(outside, gone)), gone).toThrow();
+      expect(lstatSync(join(outside, 'tool')).isSymbolicLink()).toBe(true);
+      expect(existsSync(join(outside, 'plain'))).toBe(true);
+      expect(settings.bin('grok')).toBe(join(clis.folder('grok'), 'bin', 'grok'));
+    },
+  );
 
   it.skipIf(process.platform === 'win32')('finds the links by what they name, also once that is gone', () => {
     const dir = join(root, `cli-${++n}`);
@@ -787,7 +919,13 @@ describe('CliInstaller', () => {
     symlinkSync('../not-it', join(folder, 'relative-elsewhere'));
     expect(dropLinksInto(dir, [folder, join(root, 'no-such-folder')])).toEqual([join(folder, 'dangling')]);
     expect(lstatSync(join(folder, 'relative-elsewhere')).isSymbolicLink()).toBe(true);
-    expect(linkFolders({ PATH: '/a:relative:/b' }, '/home/me')).toEqual(['/a', '/b', '/home/me/.local/bin', '/usr/local/bin', '/opt/homebrew/bin']);
+    expect(linkFolders({ PATH: '/a:relative:/b' }, '/home/me')).toEqual([
+      '/a',
+      '/b',
+      '/home/me/.local/bin',
+      '/usr/local/bin',
+      '/opt/homebrew/bin',
+    ]);
   });
 
   it.skipIf(process.platform === 'win32')('leaves the links in the CLI’s own folders, also when the user put one on the PATH', async () => {
@@ -817,7 +955,10 @@ describe('CliInstaller', () => {
   });
 
   it('gives uv’s installer none of the variables that would send uv outside the folder', async () => {
-    const { clis, calls } = installer({ tools: ['/fake/bin/curl', '/fake/bin/bash'], env: { PATH: '/fake/bin', UV_INSTALL_DIR: '/opt/uv', CARGO_DIST_FORCE_INSTALL_DIR: '/opt/cargo' } });
+    const { clis, calls } = installer({
+      tools: ['/fake/bin/curl', '/fake/bin/bash'],
+      env: { PATH: '/fake/bin', UV_INSTALL_DIR: '/opt/uv', CARGO_DIST_FORCE_INSTALL_DIR: '/opt/cargo' },
+    });
     clis.install('openhands');
     expect((await ended(clis, 'openhands')).job?.state).toBe('success');
     expect(calls[1]!.env.UV_INSTALL_DIR).toBeUndefined();
@@ -847,11 +988,17 @@ describe('CliInstaller', () => {
   };
 
   it('without npm, puts Node.js’s build into the folder first, checked, then installs with its npm', async () => {
-    const { clis, calls, settings } = installer({ tools: ['/fake/bin/curl', '/fake/bin/tar'], nodeBuild: () => fakeBuild(), onRun: fakeTar('linux') });
+    const { clis, calls, settings } = installer({
+      tools: ['/fake/bin/curl', '/fake/bin/tar'],
+      nodeBuild: () => fakeBuild(),
+      onRun: fakeTar('linux'),
+    });
     const before = clis.view('codex');
     expect(before).toMatchObject({ method: 'npm', node: '26.0.0' });
     expect(before.blocked).toBeUndefined();
-    expect(before.command).toBe('curl -fsSLO https://nodejs.org/dist/v26.0.0/node-v26.0.0-linux-x64.tar.gz; tar -xf node-v26.0.0-linux-x64.tar.gz; npm install -g @openai/codex');
+    expect(before.command).toBe(
+      'curl -fsSLO https://nodejs.org/dist/v26.0.0/node-v26.0.0-linux-x64.tar.gz; tar -xf node-v26.0.0-linux-x64.tar.gz; npm install -g @openai/codex',
+    );
     clis.install('codex');
     const v = await ended(clis, 'codex');
     const dir = clis.folder('codex');
@@ -859,13 +1006,45 @@ describe('CliInstaller', () => {
     expect(v.job?.state).toBe('success');
     expect(calls.map((c) => basename(c.bin))).toEqual(['curl', 'tar', 'node', 'node']);
     // The archive whole, then only Node and npm out of it, its top folder stripped.
-    expect(calls[0]!.args).toEqual(['-fsSL', '--retry', '3', '-o', archive, 'https://nodejs.org/dist/v26.0.0/node-v26.0.0-linux-x64.tar.gz']);
-    expect(calls[1]).toMatchObject({ bin: '/fake/bin/tar', cwd: dir, args: ['-xf', archive, '-C', dir, '--strip-components', '1', 'node-v26.0.0-linux-x64/bin/node', 'node-v26.0.0-linux-x64/lib/node_modules/npm'] });
+    expect(calls[0]!.args).toEqual([
+      '-fsSL',
+      '--retry',
+      '3',
+      '-o',
+      archive,
+      'https://nodejs.org/dist/v26.0.0/node-v26.0.0-linux-x64.tar.gz',
+    ]);
+    expect(calls[1]).toMatchObject({
+      bin: '/fake/bin/tar',
+      cwd: dir,
+      args: [
+        '-xf',
+        archive,
+        '-C',
+        dir,
+        '--strip-components',
+        '1',
+        'node-v26.0.0-linux-x64/bin/node',
+        'node-v26.0.0-linux-x64/lib/node_modules/npm',
+      ],
+    });
     // That Node checked to run; then its npm, on it, with that Node first on the PATH (for the packages' install scripts).
     const npm = folderNpm(dir, 'linux');
     expect(calls[2]).toMatchObject({ bin: npm.bin, args: ['--version'], cwd: dir });
     expect(calls[3]).toMatchObject({ bin: npm.bin, cwd: dir, env: { PATH: `${join(dir, 'bin')}:/fake/bin` } });
-    expect(calls[3]!.args).toEqual([...npm.args, 'install', '--global', '--prefix', dir, '--cache', join(dir, INSTALL_CACHE, 'npm'), '--no-audit', '--no-fund', '--no-update-notifier', '@openai/codex']);
+    expect(calls[3]!.args).toEqual([
+      ...npm.args,
+      'install',
+      '--global',
+      '--prefix',
+      dir,
+      '--cache',
+      join(dir, INSTALL_CACHE, 'npm'),
+      '--no-audit',
+      '--no-fund',
+      '--no-update-notifier',
+      '@openai/codex',
+    ]);
     expect(v.job?.log).toContain(`npm is not on the PATH: Node.js 26.0.0, with its npm, goes into ${dir} first`);
     expect(v.job?.log).toContain(`SHA-256 ${EMPTY_SHA256}: as Node.js published it`);
     // Node and npm stay, beside the program (which runs on that Node); the download does not.
@@ -878,7 +1057,11 @@ describe('CliInstaller', () => {
   });
 
   it('uses no Node.js whose download does not match its checksum, and leaves nothing behind', async () => {
-    const { clis, calls } = installer({ tools: ['/fake/bin/curl', '/fake/bin/tar'], nodeBuild: () => fakeBuild({ sha256: 'ab'.repeat(32) }), onRun: fakeTar('linux') });
+    const { clis, calls } = installer({
+      tools: ['/fake/bin/curl', '/fake/bin/tar'],
+      nodeBuild: () => fakeBuild({ sha256: 'ab'.repeat(32) }),
+      onRun: fakeTar('linux'),
+    });
     clis.install('claude');
     const v = await ended(clis, 'claude');
     expect(v.job?.state).toBe('failed');
@@ -891,22 +1074,35 @@ describe('CliInstaller', () => {
   });
 
   it('says so when the Node.js put into the folder does not run there (on Linux, without libatomic), before npm runs on it', async () => {
-    const libatomic = (s: Run) => (s.args[0] === '--version' ? (s.onLine?.('node: error while loading shared libraries: libatomic.so.1'), result(127)) : fakeTar('linux')(s));
+    const libatomic = (s: Run) =>
+      s.args[0] === '--version'
+        ? (s.onLine?.('node: error while loading shared libraries: libatomic.so.1'), result(127))
+        : fakeTar('linux')(s);
     const { clis, calls } = installer({ tools: ['/fake/bin/curl', '/fake/bin/tar'], nodeBuild: () => fakeBuild(), onRun: libatomic });
     clis.install('codex');
     const v = await ended(clis, 'codex');
     expect(v.job?.state).toBe('failed');
     expect(calls).toHaveLength(3);
     expect(v.job?.log).toContain('libatomic.so.1');
-    expect(withLang('en', () => clis.view('codex').job?.error)).toContain("Node.js's Linux builds need glibc 2.28 or later and libatomic (the libatomic1 package on Debian and Ubuntu");
+    expect(withLang('en', () => clis.view('codex').job?.error)).toContain(
+      "Node.js's Linux builds need glibc 2.28 or later and libatomic (the libatomic1 package on Debian and Ubuntu",
+    );
     expect(withLang('zh-TW', () => clis.view('codex').job?.error)).toContain('需要 glibc 2.28 以上與 libatomic');
     expect(existsSync(clis.folder('codex'))).toBe(false);
     // Elsewhere, without the word about Linux.
-    const mac = installer({ platform: 'darwin', tools: ['/fake/bin/curl', '/fake/bin/tar'], env: { PATH: '/fake/bin' }, nodeBuild: () => fakeBuild(), onRun: (s) => (s.args[0] === '--version' ? result(1) : fakeTar('darwin')(s)) });
+    const mac = installer({
+      platform: 'darwin',
+      tools: ['/fake/bin/curl', '/fake/bin/tar'],
+      env: { PATH: '/fake/bin' },
+      nodeBuild: () => fakeBuild(),
+      onRun: (s) => (s.args[0] === '--version' ? result(1) : fakeTar('darwin')(s)),
+    });
     mac.clis.install('claude');
     expect(withLang('en', () => mac.clis.view('claude').job?.error)).toBeUndefined();
     const m = await ended(mac.clis, 'claude');
-    expect(withLang('en', () => mac.clis.view('claude').job?.error)).toBe('The Node.js put into the folder does not run on this computer (its output is below): install Node.js with npm, then try again.');
+    expect(withLang('en', () => mac.clis.view('claude').job?.error)).toBe(
+      'The Node.js put into the folder does not run on this computer (its output is below): install Node.js with npm, then try again.',
+    );
     expect(m.job?.state).toBe('failed');
   });
 
@@ -920,21 +1116,33 @@ describe('CliInstaller', () => {
     expect(none.view('claude').node).toBeUndefined();
     expect(installer({ tools: ['/fake/bin/curl', '/fake/bin/tar'], nodeBuild: build }).clis.view('pi').blocked).toBe('npm');
     // The default build follows the computer's system and processor.
-    const mac = installer({ platform: 'darwin', tools: ['/fake/bin/curl', '/fake/bin/tar'], env: { PATH: '/fake/bin' } }).clis.view('codex');
+    const mac = installer({ platform: 'darwin', tools: ['/fake/bin/curl', '/fake/bin/tar'], env: { PATH: '/fake/bin' } }).clis.view(
+      'codex',
+    );
     expect(mac.node).toBe(NODE_VERSION);
     expect(mac.command).toContain(`node-v${NODE_VERSION}-darwin-x64.tar.gz`);
   });
 
   it('on Windows, takes Node.js’s zip apart with System32’s tar, never another tar on the PATH', async () => {
     const winTools = [...WIN_TOOLS.filter((t) => !t.startsWith('C:\\nodejs')), 'C:\\Windows\\System32\\tar.exe'];
-    const build = () => fakeBuild({ url: 'https://nodejs.org/dist/v26.0.0/node-v26.0.0-win-x64.zip', file: 'node-v26.0.0-win-x64.zip', members: ['node-v26.0.0-win-x64/node.exe', 'node-v26.0.0-win-x64/node_modules/npm'] });
+    const build = () =>
+      fakeBuild({
+        url: 'https://nodejs.org/dist/v26.0.0/node-v26.0.0-win-x64.zip',
+        file: 'node-v26.0.0-win-x64.zip',
+        members: ['node-v26.0.0-win-x64/node.exe', 'node-v26.0.0-win-x64/node_modules/npm'],
+      });
     const { clis, calls } = installer({ platform: 'win32', tools: winTools, nodeBuild: build, onRun: fakeTar('win32') });
     clis.install('copilot');
     const v = await ended(clis, 'copilot');
     const dir = clis.folder('copilot');
     expect(v.job?.state).toBe('success');
     // (curl found as PATHEXT spells it.)
-    expect(calls.map((c) => c.bin.toLowerCase())).toEqual(['c:\\windows\\system32\\curl.exe', 'c:\\windows\\system32\\tar.exe', join(dir, 'node.exe').toLowerCase(), join(dir, 'node.exe').toLowerCase()]);
+    expect(calls.map((c) => c.bin.toLowerCase())).toEqual([
+      'c:\\windows\\system32\\curl.exe',
+      'c:\\windows\\system32\\tar.exe',
+      join(dir, 'node.exe').toLowerCase(),
+      join(dir, 'node.exe').toLowerCase(),
+    ]);
     expect(calls[1]!.args.slice(-2)).toEqual(['node-v26.0.0-win-x64/node.exe', 'node-v26.0.0-win-x64/node_modules/npm']);
     // npm's `.cmd` for the CLI goes beside that node.exe, which its launch then starts it with.
     expect(v.installed?.bin).toBe(join(dir, 'copilot.cmd'));
@@ -1119,7 +1327,11 @@ describe('CliInstaller', () => {
 
 describe('CLI install HTTP API', () => {
   const HOST = { host: '127.0.0.1:8787' };
-  const json = (method: string, body: unknown = {}) => ({ method, headers: { ...HOST, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const json = (method: string, body: unknown = {}) => ({
+    method,
+    headers: { ...HOST, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 
   function app(onRun?: (s: SpawnOptions) => Promise<SpawnResult>) {
     const db = openDatabase(':memory:');

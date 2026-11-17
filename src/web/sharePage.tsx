@@ -160,13 +160,7 @@ function rolesTooLong(copies: Element[], css: string, lang: string): Map<Element
  * `long`: whether each role is too long for its lines on any screen (see shareRoleFolds).
  * Returns the room those links need for their addresses on GitHub.
  */
-function strip(
-  root: HTMLElement,
-  t: Messages,
-  convId = '',
-  files: ShareFileRef[] = [],
-  long = new Map<Element, boolean>(),
-): number {
+function strip(root: HTMLElement, t: Messages, convId = '', files: ShareFileRef[] = [], long = new Map<Element, boolean>()): number {
   root.querySelectorAll(SHARE_DROP.join(',')).forEach((el) => el.remove());
   // Roles are whole, and one too long for any screen keeps its "Show more" as a toggle that needs no script.
   const roles = Array.from(root.querySelectorAll(`.${SHARE_FOLD.box}`)).map((box) => ({ box, long: long.get(box) }));
@@ -210,7 +204,8 @@ function strip(
 }
 
 /** Elements that are blocks of a reply, or hold blocks. */
-const BLOCK_ELEMENTS = 'p, div, li, ul, ol, dl, dt, dd, table, thead, tbody, tfoot, tr, td, th, pre, blockquote, h1, h2, h3, h4, h5, h6, hr';
+const BLOCK_ELEMENTS =
+  'p, div, li, ul, ol, dl, dt, dd, table, thead, tbody, tfoot, tr, td, th, pre, blockquote, h1, h2, h3, h4, h5, h6, hr';
 
 /** Whether a text node is beside a block (the space between two list items, a paragraph and a list…). */
 const besideBlock = (text: Text) => [text.previousSibling, text.nextSibling].some((n) => n instanceof Element && n.matches(BLOCK_ELEMENTS));
@@ -409,7 +404,12 @@ export async function sharePage(o: {
     if (total <= limit) break;
   }
   step = Math.min(step, IMAGE_STEPS.length - 1);
-  const keep = keepImages(base, encoded.map((e) => e?.length), limit) ?? [];
+  const keep =
+    keepImages(
+      base,
+      encoded.map((e) => e?.length),
+      limit,
+    ) ?? [];
   let dropped = 0;
   images.forEach((img, i) => {
     const data = encoded[i];

@@ -68,7 +68,10 @@ export function museCatalog(env: NodeJS.ProcessEnv): { models: ModelOption[]; de
     return undefined;
   }
   if (!Array.isArray(rows)) return undefined;
-  const visible = rows.filter((r): r is Record<string, any> => r && typeof r === 'object' && typeof r.model_id === 'string' && r.model_id && r.visibility === 'visible');
+  const visible = rows.filter(
+    (r): r is Record<string, any> =>
+      r && typeof r === 'object' && typeof r.model_id === 'string' && r.model_id && r.visibility === 'visible',
+  );
   if (!visible.length) return undefined;
   const models = visible.map((r): ModelOption => {
     const tiers = Array.isArray(r.reasoning_effort_variants) ? r.reasoning_effort_variants.map((v: any) => v?.tier) : [];
@@ -152,7 +155,13 @@ async function discoverGrok(bin: string, env: NodeJS.ProcessEnv): Promise<Discov
 }
 
 /** A name as Cursor shows it, without the zero-width spaces and doubled spaces some have. */
-const cleanName = (name: unknown) => (typeof name === 'string' ? name.replace(/\u200b/g, '').replace(/\s+/g, ' ').trim() : '');
+const cleanName = (name: unknown) =>
+  typeof name === 'string'
+    ? name
+        .replace(/\u200b/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+    : '';
 
 /** An option's values. */
 export const cursorOptionValues = (option: any): string[] =>
@@ -218,7 +227,11 @@ async function discoverCursor(bin: string, env: NodeJS.ProcessEnv): Promise<Disc
         method: 'initialize',
         params: {
           protocolVersion: 1,
-          clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, _meta: { parameterizedModelPicker: true } },
+          clientCapabilities: {
+            fs: { readTextFile: false, writeTextFile: false },
+            terminal: false,
+            _meta: { parameterizedModelPicker: true },
+          },
         },
       }),
     onMessage: (msg, write, finish) => {
@@ -271,7 +284,8 @@ export function parseAntigravityModels(out: string): ModelOption[] {
       model = { id, ...(label && label !== id ? { label } : {}) };
       models.push(model);
     }
-    if (level) model.efforts = [...new Set([...(model.efforts ?? []), level])].sort((a, b) => AGY_LEVELS.indexOf(a) - AGY_LEVELS.indexOf(b));
+    if (level)
+      model.efforts = [...new Set([...(model.efforts ?? []), level])].sort((a, b) => AGY_LEVELS.indexOf(a) - AGY_LEVELS.indexOf(b));
   }
   return models;
 }
@@ -308,7 +322,9 @@ async function discoverAntigravity(bin: string, env: NodeJS.ProcessEnv): Promise
     ...(def.model ? { cliDefaultModel: def.model } : {}),
     ...(def.effort ? { cliDefaultEffort: def.effort } : {}),
     source: models.length ? 'cli' : 'builtin',
-    error: models.length ? undefined : tail(stripAnsi(`${r.stdout}\n${r.stderr}`).replace(/^Fetching available models\.\.\.\s*/m, ''), 200) || t().antigravityModelsFailed,
+    error: models.length
+      ? undefined
+      : tail(stripAnsi(`${r.stdout}\n${r.stderr}`).replace(/^Fetching available models\.\.\.\s*/m, ''), 200) || t().antigravityModelsFailed,
   };
 }
 
@@ -359,7 +375,12 @@ async function discoverCopilot(bin: string, env: NodeJS.ProcessEnv): Promise<Dis
   };
 }
 
-export async function discoverOpenModels(p: OpenProvider, bin: string, env: NodeJS.ProcessEnv, backends: ConfiguredBackends): Promise<DiscoveredModels> {
+export async function discoverOpenModels(
+  p: OpenProvider,
+  bin: string,
+  env: NodeJS.ProcessEnv,
+  backends: ConfiguredBackends,
+): Promise<DiscoveredModels> {
   const agent = openAgents[p];
   let catalog: OpenCatalog = { models: [] };
   if (agent.models) {
@@ -373,13 +394,17 @@ export async function discoverOpenModels(p: OpenProvider, bin: string, env: Node
   const fromCli = catalog.models.filter((m) => configured.has(parseBackendModel(m.id)?.backend ?? ''));
   const ids = new Set(fromCli.map((m) => m.id));
   const fromEndpoints = backends.endpoints.flatMap((e) =>
-    e.models.map((model): ModelOption => ({ id: backendModelId(e.id, model), label: `${model} · ${e.name || e.id}` })).filter((m) => !ids.has(m.id)),
+    e.models
+      .map((model): ModelOption => ({ id: backendModelId(e.id, model), label: `${model} · ${e.name || e.id}` }))
+      .filter((m) => !ids.has(m.id)),
   );
   return {
     provider: p,
     models: [...fromCli, ...fromEndpoints],
     efforts: catalog.efforts ?? agent.efforts,
-    ...(catalog.defaultModel && configured.has(parseBackendModel(catalog.defaultModel)?.backend ?? '') ? { cliDefaultModel: catalog.defaultModel } : {}),
+    ...(catalog.defaultModel && configured.has(parseBackendModel(catalog.defaultModel)?.backend ?? '')
+      ? { cliDefaultModel: catalog.defaultModel }
+      : {}),
     ...(catalog.defaultEffort ? { cliDefaultEffort: catalog.defaultEffort } : {}),
     source: agent.models ? 'cli' : 'builtin',
     ...(catalog.error ? { error: catalog.error } : {}),
@@ -396,15 +421,13 @@ export function withEndpointModels(p: EndpointCli, d: DiscoveredModels, endpoint
   const { efforts, fallbackEffort } = ENDPOINT_CLI[p];
   const fromEndpoints = endpoints.flatMap((e) =>
     e.models
-      .map(
-        (model): ModelOption => ({
-          id: backendModelId(e.id, model),
-          label: `${model} · ${e.name || e.id}`,
-          endpoint: e.id,
-          efforts: [...efforts],
-          ...(fallbackEffort ? { defaultEffort: fallbackEffort } : {}),
-        }),
-      )
+      .map((model): ModelOption => ({
+        id: backendModelId(e.id, model),
+        label: `${model} · ${e.name || e.id}`,
+        endpoint: e.id,
+        efforts: [...efforts],
+        ...(fallbackEffort ? { defaultEffort: fallbackEffort } : {}),
+      }))
       .filter((m) => !ids.has(m.id)),
   );
   return fromEndpoints.length ? { ...d, models: [...d.models, ...fromEndpoints] } : d;
@@ -423,12 +446,20 @@ export function discoverMuse(env: NodeJS.ProcessEnv): DiscoveredModels {
     // none yet: Muse's defaults
   }
   const model = typeof own.model === 'string' && own.model.trim() ? own.model.trim() : undefined;
-  const effort = typeof own.reasoning_effort === 'string' && MUSE_EFFORT_LIST.includes(own.reasoning_effort as never) ? own.reasoning_effort : 'high';
+  const effort =
+    typeof own.reasoning_effort === 'string' && MUSE_EFFORT_LIST.includes(own.reasoning_effort as never) ? own.reasoning_effort : 'high';
   const catalog = museCatalog(env);
   const listed = catalog?.models ?? MUSE_MODELS;
   const models = model && !listed.some((m) => m.id === model) ? [...listed, { id: model }] : listed;
   const def = model ?? catalog?.defaultModel;
-  return { provider: 'muse', models, efforts: MUSE_EFFORT_LIST, ...(def ? { cliDefaultModel: def } : {}), cliDefaultEffort: effort, source: catalog ? 'cli' : 'builtin' };
+  return {
+    provider: 'muse',
+    models,
+    efforts: MUSE_EFFORT_LIST,
+    ...(def ? { cliDefaultModel: def } : {}),
+    cliDefaultEffort: effort,
+    source: catalog ? 'cli' : 'builtin',
+  };
 }
 
 export async function discoverModels(
@@ -454,10 +485,23 @@ export async function discoverModels(
     else if (p === 'muse') own = discoverMuse(env);
     else own = await discoverGrok(bin, env);
   } catch (err) {
-    const efforts = { claude: CLAUDE_EFFORTS, codex: CODEX_EFFORTS, grok: GROK_EFFORTS, cursor: CURSOR_EFFORTS, antigravity: ANTIGRAVITY_EFFORTS, copilot: COPILOT_EFFORTS, muse: MUSE_EFFORT_LIST }[p];
-    own = { provider: p, models: p === 'claude' ? CLAUDE_MODELS : p === 'muse' ? MUSE_MODELS : [], efforts, source: 'builtin', error: (err as Error).message };
+    const efforts = {
+      claude: CLAUDE_EFFORTS,
+      codex: CODEX_EFFORTS,
+      grok: GROK_EFFORTS,
+      cursor: CURSOR_EFFORTS,
+      antigravity: ANTIGRAVITY_EFFORTS,
+      copilot: COPILOT_EFFORTS,
+      muse: MUSE_EFFORT_LIST,
+    }[p];
+    own = {
+      provider: p,
+      models: p === 'claude' ? CLAUDE_MODELS : p === 'muse' ? MUSE_MODELS : [],
+      efforts,
+      source: 'builtin',
+      error: (err as Error).message,
+    };
   }
   // Cursor's, Antigravity's and Muse Code's models run only through their own services, so the endpoints' models are not theirs.
   return isEndpointCli(p) ? withEndpointModels(p, own, backends.endpoints) : own;
 }
-

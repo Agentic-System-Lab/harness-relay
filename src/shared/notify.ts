@@ -22,7 +22,10 @@ export function needsOf(c: Pick<ConversationSummary, 'waiting' | 'confirmTeam' |
 }
 
 /** The parts of a summary the alerts read (`branchFrom`: only whether it is a branch). */
-export type AlertState = Pick<ConversationSummary, 'running' | 'waiting' | 'confirmTeam' | 'asking' | 'lastStatus' | 'lastReplyId' | 'branchFrom'>;
+export type AlertState = Pick<
+  ConversationSummary,
+  'running' | 'waiting' | 'confirmTeam' | 'asking' | 'lastStatus' | 'lastReplyId' | 'branchFrom'
+>;
 
 /**
  * A conversation as the alerts last saw it: its state and, while it runs, its latest agent reply when
@@ -145,7 +148,8 @@ const textOf = (m: ChatMessage) =>
     .join('\n');
 
 const agentName = (conv: Pick<Conversation, 'agents'>, m: ChatMessage) =>
-  m.agentName ?? (m.author.kind === 'agent' ? conv.agents.find((a) => a.id === (m.author as { agentId: string }).agentId)?.name : undefined);
+  m.agentName ??
+  (m.author.kind === 'agent' ? conv.agents.find((a) => a.id === (m.author as { agentId: string }).agentId)?.name : undefined);
 
 /**
  * The agent an alert is about and what it said: the latest agent reply (its error, for `error`); the

@@ -54,14 +54,29 @@ function playwrightExecutables(dir: string, platform: NodeJS.Platform): string[]
 /** Where the browsers' installers put them. */
 function systemBrowsers(platform: NodeJS.Platform, env: NodeJS.ProcessEnv, home: string): string[] {
   if (platform === 'darwin') {
-    const apps = ['Google Chrome.app/Contents/MacOS/Google Chrome', 'Chromium.app/Contents/MacOS/Chromium', 'Microsoft Edge.app/Contents/MacOS/Microsoft Edge'];
+    const apps = [
+      'Google Chrome.app/Contents/MacOS/Google Chrome',
+      'Chromium.app/Contents/MacOS/Chromium',
+      'Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    ];
     return [...apps.map((a) => join('/Applications', a)), ...apps.map((a) => join(home, 'Applications', a))];
   }
   if (platform === 'win32') {
     const roots = [env.PROGRAMFILES, env['PROGRAMFILES(X86)'], env.LOCALAPPDATA].filter((r): r is string => Boolean(r));
-    return roots.flatMap((r) => [join(r, 'Google', 'Chrome', 'Application', 'chrome.exe'), join(r, 'Microsoft', 'Edge', 'Application', 'msedge.exe'), join(r, 'Chromium', 'Application', 'chrome.exe')]);
+    return roots.flatMap((r) => [
+      join(r, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      join(r, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+      join(r, 'Chromium', 'Application', 'chrome.exe'),
+    ]);
   }
-  return ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/snap/bin/chromium', '/usr/bin/microsoft-edge'];
+  return [
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/snap/bin/chromium',
+    '/usr/bin/microsoft-edge',
+  ];
 }
 
 /** The browsers to try, in order. */

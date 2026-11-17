@@ -77,7 +77,9 @@ test.describe('files and changes', () => {
       }
       const reply = await finishedReply(page, cli.name);
       // A CLI that ends its turn after a refusal says nothing more of it.
-      await expect(reply).toContainText(cli.decline === 'ends-turn' && cli.readOnlyWriteAsks ? endsTurnNote(cli) : 'I may not write out.txt here.');
+      await expect(reply).toContainText(
+        cli.decline === 'ends-turn' && cli.readOnlyWriteAsks ? endsTurnNote(cli) : 'I may not write out.txt here.',
+      );
       await expect(reply.locator('.changes-card')).toHaveCount(0);
       if (!cli.readOnlyWriteAsks) await expect(reply.locator('.approval-done')).toHaveCount(0);
       expect(existsSync(join(relay.workDir, 'out.txt'))).toBe(false);
@@ -99,7 +101,12 @@ test.describe('files and changes', () => {
   eachHalf((half) => {
     test(half.title('every CLI writes in edit mode, and each turn records its own change'), async ({ page, relay }) => {
       for (const team of teams(teamOf(half.clis), 'edit')) {
-        await openTeamChat(page, relay, team.members.map((c) => member(c)), { permission: team.permission });
+        await openTeamChat(
+          page,
+          relay,
+          team.members.map((c) => member(c)),
+          { permission: team.permission },
+        );
         await send(page, `Each of you, write a file ${team.members.map((c) => `e2e:write=${c.provider}.txt@${c.provider}`).join(' ')}`);
         for (const c of team.members) {
           const reply = await finishedReply(page, c.name);
@@ -134,7 +141,7 @@ test.describe('files and changes', () => {
     expect(readFileSync(join(relay.workDir, 'result.txt'), 'utf8')).toBe('Written by Codex (Codex).\n');
   });
 
-  test("the file browser shows the working directory and previews a file", async ({ page, relay }) => {
+  test('the file browser shows the working directory and previews a file', async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
     await page.locator('.chat-head').getByRole('button', { name: 'Files' }).click();
     const browser = page.getByRole('dialog', { name: 'Files' });
@@ -214,6 +221,13 @@ test.describe('files and changes', () => {
     acceptNextDialog(page);
     const { download, entries } = await downloadZip(page, button);
     expect(download.suggestedFilename()).toBe('work.zip');
-    expect([...entries.keys()].sort()).toEqual(['work/', 'work/.gitignore', 'work/README.md', 'work/notes/plan.md', 'work/src/hello.ts', 'work/src/lib/math.ts']);
+    expect([...entries.keys()].sort()).toEqual([
+      'work/',
+      'work/.gitignore',
+      'work/README.md',
+      'work/notes/plan.md',
+      'work/src/hello.ts',
+      'work/src/lib/math.ts',
+    ]);
   });
 });

@@ -171,7 +171,10 @@ export function calendarData(xml: string): string[] {
 
 /** A moment as iCalendar's UTC DATE-TIME. */
 function utc(ms: number): string {
-  return new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  return new Date(ms)
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d{3}/, '');
 }
 
 /**
@@ -189,7 +192,8 @@ export function eventTime(raw: string, timeZone: string): { ics: string; ms: num
     return { ics: `:${utc(ms)}`, ms, allDay: false };
   }
   const ms = Date.parse(s);
-  if (!/[zZ]|[+-]\d{2}:?\d{2}$/.test(s) || Number.isNaN(ms)) throw new Error(`"${raw}" is not a date (YYYY-MM-DD) or a time (YYYY-MM-DDTHH:MM)`);
+  if (!/[zZ]|[+-]\d{2}:?\d{2}$/.test(s) || Number.isNaN(ms))
+    throw new Error(`"${raw}" is not a date (YYYY-MM-DD) or a time (YYYY-MM-DDTHH:MM)`);
   return { ics: `:${utc(ms)}`, ms, allDay: false };
 }
 
@@ -281,8 +285,10 @@ function auth(login: Login): Record<string, string> {
 
 /** A calendar's answer that is not what was asked: why, in a line. */
 async function failure(res: Response, what: string): Promise<Error> {
-  if (res.status === 401 || res.status === 403) return new Error(`${what}: the calendar did not accept the user name and password (${res.status})`);
-  if (res.status >= 300 && res.status < 400) return new Error(`${what}: the calendar is at another address (${res.headers.get('location') ?? res.status}); use that one`);
+  if (res.status === 401 || res.status === 403)
+    return new Error(`${what}: the calendar did not accept the user name and password (${res.status})`);
+  if (res.status >= 300 && res.status < 400)
+    return new Error(`${what}: the calendar is at another address (${res.headers.get('location') ?? res.status}); use that one`);
   return new Error(`${what}: the calendar answered ${res.status} ${res.statusText}`.trim());
 }
 
@@ -368,16 +374,19 @@ async function propfind(url: string, login: Login, depth: '0' | '1', props: stri
 export async function discoverCalendars(url: string, login: Login, timeoutMs = 20_000): Promise<{ name: string; url: string }[]> {
   const follow = (next: string | undefined) => {
     if (!next) return undefined;
-    if (!sameProvider(url, next)) throw new Error(`The calendar points at another address (${new URL(next).origin}), which the password does not go to; give that one instead`);
+    if (!sameProvider(url, next))
+      throw new Error(
+        `The calendar points at another address (${new URL(next).origin}), which the password does not go to; give that one instead`,
+      );
     return next;
   };
   const root = await propfind(url, login, '0', '<d:current-user-principal/><c:calendar-home-set/>', timeoutMs);
   let home = follow(hrefIn(root, 'calendar-home-set', url));
   if (!home) {
     const principal = follow(hrefIn(root, 'current-user-principal', url));
-    if (!principal) throw new Error('The server did not say where the calendars are: give the calendar\'s own address');
+    if (!principal) throw new Error("The server did not say where the calendars are: give the calendar's own address");
     home = follow(hrefIn(await propfind(principal, login, '0', '<c:calendar-home-set/>', timeoutMs), 'calendar-home-set', principal));
-    if (!home) throw new Error('The server did not say where the calendars are: give the calendar\'s own address');
+    if (!home) throw new Error("The server did not say where the calendars are: give the calendar's own address");
   }
   const list = await propfind(home, login, '1', '<d:displayname/><d:resourcetype/>', timeoutMs);
   const out: { name: string; url: string }[] = [];

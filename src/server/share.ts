@@ -243,7 +243,11 @@ export const FILES_PLACEHOLDER = 'harness-relay.txt';
 
 /** The body that creates the files gist: secret, holding only the placeholder (the files are pushed after). */
 export function createGistBody(description: string): string {
-  return JSON.stringify({ description, public: false, files: { [FILES_PLACEHOLDER]: { content: 'Files shared with a Harness Relay page.\n' } } });
+  return JSON.stringify({
+    description,
+    public: false,
+    files: { [FILES_PLACEHOLDER]: { content: 'Files shared with a Harness Relay page.\n' } },
+  });
 }
 
 /** `gh api` reading the gist back as CREATED_JQ prints it: each file's raw URL, once git has pushed them. */
@@ -393,7 +397,11 @@ async function dropLostFilesGist(
     if (d?.code !== 0) left ??= g;
   }
   if (left) {
-    throw new ShareError(words.leftover(reason.message, gistPage(left.id, left.url || undefined)), undefined, leftoverLink(left.id, left.url || undefined));
+    throw new ShareError(
+      words.leftover(reason.message, gistPage(left.id, left.url || undefined)),
+      undefined,
+      leftoverLink(left.id, left.url || undefined),
+    );
   }
   throw new ShareError(words.undone(reason.message), reason.code);
 }
@@ -432,7 +440,14 @@ export function gitConfig(gh: string): string[] {
 }
 
 /** What tells git which repository to use, from the server's own environment: never inherited. */
-const GIT_REPO_ENV = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR'];
+const GIT_REPO_ENV = [
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_INDEX_FILE',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_COMMON_DIR',
+];
 
 /**
  * git's environment: gh's (`ghEnv`: it signs git in), without a repository to fall back on, the commit by Harness Relay,
@@ -557,7 +572,10 @@ export async function pushToGist(
       tree += `100644 blob ${blob}\t${f.name}\0`;
     }
     const treeId = checked(await git(run, [...at, 'mktree', '-z'], { stdin: tree }), OBJECT_ID);
-    const commit = checked(await git(run, [...at, 'commit-tree', treeId, '-p', 'HEAD', '-m', 'Files shared with a Harness Relay page']), OBJECT_ID);
+    const commit = checked(
+      await git(run, [...at, 'commit-tree', treeId, '-p', 'HEAD', '-m', 'Files shared with a Harness Relay page']),
+      OBJECT_ID,
+    );
     await git(run, [...at, 'push', '--quiet', '--no-verify', gistGitUrl(id), `${commit}:${branch}`], { timeoutMs: PUSH_TIMEOUT_MS });
   } finally {
     await rm(dir, { recursive: true, force: true });

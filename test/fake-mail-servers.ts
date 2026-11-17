@@ -43,18 +43,31 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
       const cmd = rest.toUpperCase();
       if (cmd.startsWith('LOGIN')) {
         const q = [...rest.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((x) => x[1]!.replace(/\\(.)/g, '$1'));
-        return send(q[0] === login.user && q[1] === login.pass ? `${tag} OK signed in\r\n` : `${tag} NO [AUTHENTICATIONFAILED] Invalid credentials\r\n`);
+        return send(
+          q[0] === login.user && q[1] === login.pass
+            ? `${tag} OK signed in\r\n`
+            : `${tag} NO [AUTHENTICATIONFAILED] Invalid credentials\r\n`,
+        );
       }
       if (cmd.startsWith('CAPABILITY')) return send(`* CAPABILITY IMAP4rev1 LITERAL+ SPECIAL-USE\r\n${tag} OK\r\n`);
-      if (cmd.startsWith('LIST')) return send(`* LIST (\\HasNoChildren) "/" "INBOX"\r\n* LIST (\\HasNoChildren \\Drafts) "/" "Drafts"\r\n* LIST (\\HasNoChildren) "/" {7}\r\nArchive\r\n${tag} OK\r\n`);
+      if (cmd.startsWith('LIST'))
+        return send(
+          `* LIST (\\HasNoChildren) "/" "INBOX"\r\n* LIST (\\HasNoChildren \\Drafts) "/" "Drafts"\r\n* LIST (\\HasNoChildren) "/" {7}\r\nArchive\r\n${tag} OK\r\n`,
+        );
       if (cmd.startsWith('EXAMINE') || cmd.startsWith('SELECT')) {
         if (!/"INBOX"/i.test(rest)) return send(`${tag} NO no such folder\r\n`);
         return send(`* ${messages.length} EXISTS\r\n${tag} OK [READ-ONLY] done\r\n`);
       }
       if (cmd.startsWith('UID SEARCH')) {
         // Text criteria: a quoted string or the literal that came with it.
-        const wanted = [...rest.matchAll(/(TEXT|FROM) "([^"]*)"/gi)].map((x) => x[2]!.toLowerCase()).concat(lits.map((l) => l.toLowerCase()));
-        const found = messages.filter((msg) => wanted.every((w) => Buffer.from(msg.raw, 'latin1').toString('utf8').toLowerCase().includes(w) || msg.raw.toLowerCase().includes(w)));
+        const wanted = [...rest.matchAll(/(TEXT|FROM) "([^"]*)"/gi)]
+          .map((x) => x[2]!.toLowerCase())
+          .concat(lits.map((l) => l.toLowerCase()));
+        const found = messages.filter((msg) =>
+          wanted.every(
+            (w) => Buffer.from(msg.raw, 'latin1').toString('utf8').toLowerCase().includes(w) || msg.raw.toLowerCase().includes(w),
+          ),
+        );
         return send(`* SEARCH ${found.map((x) => x.uid).join(' ')}\r\n${tag} OK\r\n`);
       }
       if (cmd.startsWith('UID FETCH')) {
@@ -132,7 +145,10 @@ export interface FakeSmtp {
   close(): Promise<void>;
 }
 
-export async function fakeSmtp(login = { user: 'me@example.com', pass: 'app-pass' }, o: { authLoginOnly?: boolean; refuse?: string } = {}): Promise<FakeSmtp> {
+export async function fakeSmtp(
+  login = { user: 'me@example.com', pass: 'app-pass' },
+  o: { authLoginOnly?: boolean; refuse?: string } = {},
+): Promise<FakeSmtp> {
   const sent: FakeSmtp['sent'] = [];
   const lines: string[] = [];
   const server = createServer((sock) => {
@@ -167,7 +183,8 @@ export async function fakeSmtp(login = { user: 'me@example.com', pass: 'app-pass
           const ok = loginStep === 2 && Buffer.from(line, 'base64').toString() === login.pass;
           loginStep = 0;
           sock.write(ok ? '235 ok\r\n' : '535 bad credentials\r\n');
-        } else if (/^EHLO/i.test(line)) sock.write(`250-fake\r\n250-SIZE 1000000\r\n250 AUTH ${o.authLoginOnly ? 'LOGIN' : 'PLAIN LOGIN'}\r\n`);
+        } else if (/^EHLO/i.test(line))
+          sock.write(`250-fake\r\n250-SIZE 1000000\r\n250 AUTH ${o.authLoginOnly ? 'LOGIN' : 'PLAIN LOGIN'}\r\n`);
         else if (/^AUTH PLAIN /i.test(line)) {
           const ok = Buffer.from(line.slice(11), 'base64').toString() === `\0${login.user}\0${login.pass}`;
           sock.write(ok ? '235 2.7.0 Authentication successful\r\n' : '535 5.7.8 bad credentials\r\n');
@@ -230,15 +247,29 @@ export async function fakeCalDav(files: string[], login = { user: 'me@example.co
         res.writeHead(207, { 'content-type': 'application/xml; charset=utf-8' });
         return res.end(
           `<?xml version="1.0"?><D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">${files
-            .map((f, i) => `<D:response><D:href>/cal/me/${i}.ics</D:href><D:propstat><D:prop><D:getetag>"${i}"</D:getetag><C:calendar-data>${i % 2 ? `<![CDATA[${f}]]>` : escape(f)}</C:calendar-data></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>`)
+            .map(
+              (f, i) =>
+                `<D:response><D:href>/cal/me/${i}.ics</D:href><D:propstat><D:prop><D:getetag>"${i}"</D:getetag><C:calendar-data>${i % 2 ? `<![CDATA[${f}]]>` : escape(f)}</C:calendar-data></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>`,
+            )
             .join('')}</D:multistatus>`,
         );
       }
       if (req.method === 'PROPFIND') {
         res.writeHead(207, { 'content-type': 'application/xml; charset=utf-8' });
-        const ms = (body: string) => `<?xml version="1.0"?><d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">${body}</d:multistatus>`;
-        if (req.url === '/') return res.end(ms('<d:response><d:href>/</d:href><d:propstat><d:prop><d:current-user-principal><d:href>/principals/me/</d:href></d:current-user-principal></d:prop></d:propstat></d:response>'));
-        if (req.url === '/principals/me/') return res.end(ms('<d:response><d:href>/principals/me/</d:href><d:propstat><d:prop><cal:calendar-home-set><d:href>/cal/</d:href></cal:calendar-home-set></d:prop></d:propstat></d:response>'));
+        const ms = (body: string) =>
+          `<?xml version="1.0"?><d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">${body}</d:multistatus>`;
+        if (req.url === '/')
+          return res.end(
+            ms(
+              '<d:response><d:href>/</d:href><d:propstat><d:prop><d:current-user-principal><d:href>/principals/me/</d:href></d:current-user-principal></d:prop></d:propstat></d:response>',
+            ),
+          );
+        if (req.url === '/principals/me/')
+          return res.end(
+            ms(
+              '<d:response><d:href>/principals/me/</d:href><d:propstat><d:prop><cal:calendar-home-set><d:href>/cal/</d:href></cal:calendar-home-set></d:prop></d:propstat></d:response>',
+            ),
+          );
         if (req.url === '/cal/') {
           return res.end(
             ms(

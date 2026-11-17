@@ -121,7 +121,9 @@ test.describe('reporting a problem', () => {
 
       // Copied, the whole mail, to paste into any mail.
       await dialog.getByRole('button', { name: 'Copy report' }).click();
-      await expect.poll(async () => (await caught()).copied).toEqual([[`To: ${REPORT_EMAIL}`, `Subject: ${subject}`, '', ...body].join('\n')]);
+      await expect
+        .poll(async () => (await caught()).copied)
+        .toEqual([[`To: ${REPORT_EMAIL}`, `Subject: ${subject}`, '', ...body].join('\n')]);
 
       // Sent, it is forgotten once the dialog closes.
       await dialog.getByRole('button', { name: 'Close' }).click();
@@ -154,7 +156,9 @@ test.describe('reporting a problem', () => {
     expect(mail.body.split('\r\n').slice(0, 4)).toEqual(['Switch to dark at sunset.', '', '---', 'Type: Idea']);
   });
 
-  test('on a phone, the ways to send stay at the bottom of the dialog while the rest scrolls under them, with what sending did', async ({ page }) => {
+  test('on a phone, the ways to send stay at the bottom of the dialog while the rest scrolls under them, with what sending did', async ({
+    page,
+  }) => {
     const caught = await catchMail(page);
     await page.setViewportSize({ width: 390, height: 640 });
     await page.getByRole('button', { name: 'Open sidebar' }).click();
@@ -170,10 +174,12 @@ test.describe('reporting a problem', () => {
       const f = (await foot.boundingBox())!;
       expect(Math.abs(f.y + f.height - (d.y + d.height))).toBeLessThanOrEqual(1);
       await expect(send).toBeInViewport({ ratio: 1 });
-      expect(await foot.evaluate((el) => {
-        const r = el.getBoundingClientRect();
-        return el.contains(document.elementFromPoint(r.left + 4, r.top + 4));
-      })).toBe(true);
+      expect(
+        await foot.evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          return el.contains(document.elementFromPoint(r.left + 4, r.top + 4));
+        }),
+      ).toBe(true);
     };
     await atBottom();
 
@@ -271,7 +277,11 @@ test.describe('reporting a problem without GitHub', () => {
   });
 
   test("signs gh in from the report dialog with GitHub's code, then uploads the screenshots by itself", async ({ page, relay }) => {
-    const ghCalls = () => relay.fakeLog().filter((e) => e.cli === 'gh').map((e) => e.args ?? []);
+    const ghCalls = () =>
+      relay
+        .fakeLog()
+        .filter((e) => e.cli === 'gh')
+        .map((e) => e.args ?? []);
     await page.getByRole('button', { name: 'Report a problem' }).click();
     const dialog = page.getByRole('dialog', { name: 'Report a problem' });
     await dialog.getByRole('textbox', { name: 'Details' }).fill('The button is cut off.');
@@ -295,7 +305,4 @@ test.describe('reporting a problem without GitHub', () => {
 });
 
 /** A 1×1 PNG. */
-const PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-  'base64',
-);
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');

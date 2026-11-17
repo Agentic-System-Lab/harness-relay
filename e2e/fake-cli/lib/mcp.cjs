@@ -35,7 +35,11 @@ function callMcpTool(spec, tool, args, timeoutMs = 20000) {
         }
       }
     });
-    send({ id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fake-cli', version: '1' } } });
+    send({
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fake-cli', version: '1' } },
+    });
   });
 }
 

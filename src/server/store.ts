@@ -207,7 +207,14 @@ function parseJson<T>(json: string | null, fallback: T): T {
 const opt = <T>(v: T | null): T | undefined => (v === null ? undefined : v);
 
 function toAgent(r: AgentRow): AgentConfig {
-  const agent: AgentConfig = { id: r.agent_id, name: r.name, provider: r.provider, role: r.role, model: opt(r.model), effort: opt(r.effort) };
+  const agent: AgentConfig = {
+    id: r.agent_id,
+    name: r.name,
+    provider: r.provider,
+    role: r.role,
+    model: opt(r.model),
+    effort: opt(r.effort),
+  };
   const tools = parseTools(r.tools);
   if (tools) agent.tools = tools;
   if (r.account) agent.account = r.account;
@@ -266,7 +273,11 @@ function toPart(r: PartRow): MessagePart {
       };
     case 'progress': {
       const status = parseJson<{ status?: unknown }>(r.data, {}).status;
-      return { type: 'progress', status: PROGRESS_STATUSES.includes(status as never) ? (status as ProgressStatus) : 'working', text: r.text ?? '' };
+      return {
+        type: 'progress',
+        status: PROGRESS_STATUSES.includes(status as never) ? (status as ProgressStatus) : 'working',
+        text: r.text ?? '',
+      };
     }
     default:
       return { type: 'text', text: r.text ?? '' };
@@ -430,10 +441,7 @@ function queueOf(json: string | null, messages: ChatMessage[]): Pick<Conversatio
 }
 
 /** The sidebar's view of a conversation's schedule, from memory when the conversation is open. */
-function scheduleOf(
-  live: Conversation | undefined,
-  stored: ConversationSummary['schedule'],
-): Pick<ConversationSummary, 'schedule'> {
+function scheduleOf(live: Conversation | undefined, stored: ConversationSummary['schedule']): Pick<ConversationSummary, 'schedule'> {
   const schedule = live ? live.schedule && scheduleSummary(live.schedule) : stored;
   return schedule ? { schedule } : {};
 }
@@ -471,10 +479,7 @@ function branchOf(json: string | null): Pick<Conversation, 'branch'> {
  * where the deleted one came from goes after it (see `BranchPart.via`), so the family stays together.
  * Undefined when nothing changes.
  */
-function partPast<P extends BranchPart>(
-  part: P,
-  deleted: { id: string; title: string; branch?: ConversationBranch },
-): P | undefined {
+function partPast<P extends BranchPart>(part: P, deleted: { id: string; title: string; branch?: ConversationBranch }): P | undefined {
   const via = part.via ?? [];
   if ((via.at(-1)?.id ?? part.fromId) !== deleted.id) return undefined;
   const above = deleted.branch ? [{ id: deleted.branch.fromId, title: deleted.branch.fromTitle }, ...(deleted.branch.via ?? [])] : [];
@@ -607,9 +612,9 @@ export class Store {
     // Team designs waiting for the user's confirmation (JSON.stringify writes the flag this way).
     const confirming = new Set(
       (
-        this.db
-          .prepare(`SELECT DISTINCT conversation_id FROM messages WHERE plan LIKE '%"awaitingConfirmation":true%'`)
-          .all() as { conversation_id: string }[]
+        this.db.prepare(`SELECT DISTINCT conversation_id FROM messages WHERE plan LIKE '%"awaitingConfirmation":true%'`).all() as {
+          conversation_id: string;
+        }[]
       ).map((r) => r.conversation_id),
     );
     const schedules = new Map(
@@ -654,9 +659,7 @@ export class Store {
           ...(r.pinned_at !== null ? { pinnedAt: r.pinned_at } : {}),
           ...(sorting(r.id) ? { sorting: true } : {}),
           ...scheduleOf(live, schedules.get(r.id)),
-          ...(branch
-            ? { branchFrom: { id: branch.fromId, title: branch.fromTitle, ...(branch.via ? { via: branch.via } : {}) } }
-            : {}),
+          ...(branch ? { branchFrom: { id: branch.fromId, title: branch.fromTitle, ...(branch.via ? { via: branch.via } : {}) } } : {}),
         };
       })
       .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -707,9 +710,10 @@ export class Store {
       if (s.account) agentState[s.agent_id]!.account = s.account;
       if (s.backend) agentState[s.agent_id]!.backend = s.backend;
     }
-    const seen = this.db
-      .prepare('SELECT agent_id, message_id FROM agent_seen WHERE conversation_id = ?')
-      .all(id) as { agent_id: string; message_id: string }[];
+    const seen = this.db.prepare('SELECT agent_id, message_id FROM agent_seen WHERE conversation_id = ?').all(id) as {
+      agent_id: string;
+      message_id: string;
+    }[];
     for (const s of seen) agentState[s.agent_id]?.seen.push(s.message_id);
     for (const [agentId, state] of Object.entries(agentState)) this.savedSeen.set(seenKey(id, agentId), new Set(state.seen));
 
@@ -906,9 +910,7 @@ export class Store {
   /** Persist the messages waiting to be delivered. */
   saveQueue(conv: Conversation): void {
     if (this.deleted.has(conv.id)) return;
-    this.db
-      .prepare('UPDATE conversations SET queue = ? WHERE id = ?')
-      .run(conv.queue?.length ? JSON.stringify(conv.queue) : null, conv.id);
+    this.db.prepare('UPDATE conversations SET queue = ? WHERE id = ?').run(conv.queue?.length ? JSON.stringify(conv.queue) : null, conv.id);
   }
 
   // Schedules ----------------------------------------------------------------------
@@ -959,7 +961,8 @@ export class Store {
 
   /** The SHA-256 (hex) of the token of the conversation's schedule's webhook, if it has one. */
   hookHash(convId: string): string | undefined {
-    const row = this.db.prepare('SELECT hook_hash FROM schedules WHERE conversation_id = ?').get(convId) as { hook_hash: string | null } | undefined;
+    const row = this.db.prepare('SELECT hook_hash FROM schedules WHERE conversation_id = ?').get(convId) as
+      { hook_hash: string | null } | undefined;
     return row?.hook_hash ?? undefined;
   }
 
@@ -980,16 +983,18 @@ export class Store {
   /** Conversations whose schedule tracks a goal. */
   trackingSchedules(): string[] {
     return (
-      this.db.prepare('SELECT conversation_id FROM schedules WHERE goal IS NOT NULL AND tracking IS NOT NULL').all() as { conversation_id: string }[]
+      this.db.prepare('SELECT conversation_id FROM schedules WHERE goal IS NOT NULL AND tracking IS NOT NULL').all() as {
+        conversation_id: string;
+      }[]
     ).map((r) => r.conversation_id);
   }
 
   /** Conversations whose schedule is on and due by `now`, the most overdue first. */
   dueSchedules(now: number): string[] {
     return (
-      this.db
-        .prepare('SELECT conversation_id FROM schedules WHERE enabled = 1 AND next_run_at <= ? ORDER BY next_run_at')
-        .all(now) as { conversation_id: string }[]
+      this.db.prepare('SELECT conversation_id FROM schedules WHERE enabled = 1 AND next_run_at <= ? ORDER BY next_run_at').all(now) as {
+        conversation_id: string;
+      }[]
     ).map((r) => r.conversation_id);
   }
 
@@ -1219,7 +1224,9 @@ export class Store {
 
   /** The user's groups, in the order they were made. (The default group, "Other", is not stored.) */
   listGroups(): ConversationGroup[] {
-    return this.db.prepare('SELECT id, name FROM conversation_groups ORDER BY position, created_at').all() as unknown as ConversationGroup[];
+    return this.db
+      .prepare('SELECT id, name FROM conversation_groups ORDER BY position, created_at')
+      .all() as unknown as ConversationGroup[];
   }
 
   getGroup(id: string): ConversationGroup | undefined {
@@ -1285,8 +1292,7 @@ export class Store {
    */
   private branchesPast(id: string, live: Conversation | undefined): [string, ConversationBranch][] {
     const row = this.db.prepare('SELECT title, branch FROM conversations WHERE id = ?').get(id) as
-      | Pick<ConversationRow, 'title' | 'branch'>
-      | undefined;
+      Pick<ConversationRow, 'title' | 'branch'> | undefined;
     if (!row) return [];
     const deleted = { id, title: live?.title ?? row.title, branch: live ? live.branch : branchOf(row.branch).branch };
     const rows = this.db.prepare('SELECT id, branch FROM conversations WHERE branch IS NOT NULL AND id != ?').all(id) as Pick<
@@ -1360,9 +1366,7 @@ export class Store {
 
   /** A new branch goes into its family's group, as the user's choice (so the lead agent does not sort it). */
   placeBranch(convId: string): void {
-    this.db
-      .prepare("UPDATE conversations SET group_id = ?, group_source = 'user' WHERE id = ?")
-      .run(this.familyGroupOf(convId), convId);
+    this.db.prepare("UPDATE conversations SET group_id = ?, group_source = 'user' WHERE id = ?").run(this.familyGroupOf(convId), convId);
   }
 
   /**
@@ -1389,25 +1393,25 @@ export class Store {
   /** The conversation was put in a group already (or left in "Other" on purpose), by the user or the lead agent. */
   isSorted(convId: string): boolean {
     const row = this.db.prepare('SELECT group_source FROM conversations WHERE id = ?').get(convId) as
-      | { group_source: string | null }
-      | undefined;
+      { group_source: string | null } | undefined;
     return Boolean(row?.group_source);
   }
 
   /** Titles of a group's most recent conversations (shown to the lead agent as examples of what is in it). */
   groupTitles(groupId: string, limit: number): string[] {
     return (
-      this.db
-        .prepare('SELECT title FROM conversations WHERE group_id = ? ORDER BY updated_at DESC LIMIT ?')
-        .all(groupId, limit) as { title: string }[]
+      this.db.prepare('SELECT title FROM conversations WHERE group_id = ? ORDER BY updated_at DESC LIMIT ?').all(groupId, limit) as {
+        title: string;
+      }[]
     ).map((r) => r.title);
   }
 
   /** The conversations' working directories (all of each), each once, the most recently used first. */
   listCwds(): string[] {
-    const rows = this.db
-      .prepare('SELECT cwd, extra_cwds FROM conversations ORDER BY updated_at DESC, cwd')
-      .all() as { cwd: string; extra_cwds: string | null }[];
+    const rows = this.db.prepare('SELECT cwd, extra_cwds FROM conversations ORDER BY updated_at DESC, cwd').all() as {
+      cwd: string;
+      extra_cwds: string | null;
+    }[];
     return [...new Set(rows.flatMap((r) => [r.cwd, ...extraCwdsOf(r.extra_cwds)]))];
   }
 
@@ -1435,7 +1439,12 @@ export class Store {
       .all(...like) as { conversation_id: string; message_id: string; text: string }[];
     // The lead agent's reviews too (their text is in `review`, not in parts): what they say, not their JSON.
     // Their column holds JSON, which escapes quotes and backslashes: the words are looked for as it writes them.
-    const inJson = terms.map((t) => `%${JSON.stringify(t).slice(1, -1).replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+    const inJson = terms.map(
+      (t) =>
+        `%${JSON.stringify(t)
+          .slice(1, -1)
+          .replace(/[\\%_]/g, (c) => `\\${c}`)}%`,
+    );
     const reviews = this.db
       .prepare(
         `SELECT conversation_id, id AS message_id, review FROM messages

@@ -29,7 +29,8 @@ const UA = {
   mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
   win: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
   linux: 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0',
-  iphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+  iphone:
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
   android: 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36',
   chromeos: 'Mozilla/5.0 (X11; CrOS x86_64 16000.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
 };
@@ -48,20 +49,30 @@ describe("the visitor's system", () => {
     expect(systemOf({ userAgent: UA.mac, platform: 'MacIntel', maxTouchPoints: 5 })).toBe('mobile');
   });
 
-  it('is Linux on Arm when the user agent, the platform or Chromium\'s hints say a 64-bit Arm; another system on a 32-bit one', () => {
-    expect(systemOf({ userAgent: 'Mozilla/5.0 (X11; Linux aarch64; rv:140.0) Gecko/20100101 Firefox/140.0', platform: 'Linux aarch64' })).toBe('linux-arm64');
+  it("is Linux on Arm when the user agent, the platform or Chromium's hints say a 64-bit Arm; another system on a 32-bit one", () => {
+    expect(
+      systemOf({ userAgent: 'Mozilla/5.0 (X11; Linux aarch64; rv:140.0) Gecko/20100101 Firefox/140.0', platform: 'Linux aarch64' }),
+    ).toBe('linux-arm64');
     // Chromium says x86_64 in its user agent on any Linux, but not in navigator.platform, nor in its hints.
     const chromium = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
     expect(systemOf({ userAgent: chromium, platform: 'Linux aarch64', uaPlatform: 'Linux' })).toBe('linux-arm64');
-    expect(systemOf({ userAgent: chromium, platform: 'Linux x86_64', uaPlatform: 'Linux', architecture: 'arm', bitness: '64' })).toBe('linux-arm64');
-    expect(systemOf({ userAgent: chromium, platform: 'Linux x86_64', uaPlatform: 'Linux', architecture: 'x86', bitness: '64' })).toBe('linux');
-    expect(systemOf({ userAgent: 'Mozilla/5.0 (X11; Linux armv7l; rv:140.0) Gecko/20100101 Firefox/140.0', platform: 'Linux armv7l' })).toBe('other');
+    expect(systemOf({ userAgent: chromium, platform: 'Linux x86_64', uaPlatform: 'Linux', architecture: 'arm', bitness: '64' })).toBe(
+      'linux-arm64',
+    );
+    expect(systemOf({ userAgent: chromium, platform: 'Linux x86_64', uaPlatform: 'Linux', architecture: 'x86', bitness: '64' })).toBe(
+      'linux',
+    );
+    expect(
+      systemOf({ userAgent: 'Mozilla/5.0 (X11; Linux armv7l; rv:140.0) Gecko/20100101 Firefox/140.0', platform: 'Linux armv7l' }),
+    ).toBe('other');
     expect(systemOf({ userAgent: chromium, platform: 'Linux armv7l', architecture: 'arm', bitness: '32' })).toBe('other');
   });
 
   it("is Windows on Arm only when the browser says so: Chromium's hints, or ARM64 in the user agent; else x64, which Windows on Arm runs too", () => {
     const chromium = UA.win; // "Win64; x64" on any Windows
-    expect(systemOf({ userAgent: chromium, platform: 'Win32', uaPlatform: 'Windows', architecture: 'arm', bitness: '64' })).toBe('win-arm64');
+    expect(systemOf({ userAgent: chromium, platform: 'Win32', uaPlatform: 'Windows', architecture: 'arm', bitness: '64' })).toBe(
+      'win-arm64',
+    );
     expect(systemOf({ userAgent: chromium, platform: 'Win32', uaPlatform: 'Windows', architecture: 'x86', bitness: '64' })).toBe('win');
     expect(systemOf({ userAgent: chromium, platform: 'Win32', uaPlatform: 'Windows' })).toBe('win');
     const arm = 'Mozilla/5.0 (Windows NT 10.0; ARM64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
@@ -79,7 +90,7 @@ describe("the visitor's system", () => {
     expect(systemOf({ userAgent: chrome, platform: 'MacIntel', uaPlatform: 'macOS', architecture: 'x86', bitness: '64' })).toBe('other');
   });
 
-  it("asks Chromium for its hints about the processor, and does without them elsewhere or when it refuses", async () => {
+  it('asks Chromium for its hints about the processor, and does without them elsewhere or when it refuses', async () => {
     const asked: string[][] = [];
     const nav = {
       userAgentData: {
@@ -95,9 +106,22 @@ describe("the visitor's system", () => {
     expect(asked).toEqual([['architecture', 'bitness']]);
     expect(await processorHints({ userAgent: UA.linux })).toEqual({});
     expect(await processorHints(undefined)).toEqual({});
-    expect(await processorHints({ userAgentData: { getHighEntropyValues: () => Promise.reject(new Error('NotAllowedError')) } })).toEqual({});
-    expect(await processorHints({ userAgentData: { getHighEntropyValues: () => { throw new Error('nope'); } } })).toEqual({});
-    expect(await processorHints({ userAgentData: { getHighEntropyValues: async () => ({ architecture: 5 }) } })).toEqual({ architecture: '', bitness: '' });
+    expect(await processorHints({ userAgentData: { getHighEntropyValues: () => Promise.reject(new Error('NotAllowedError')) } })).toEqual(
+      {},
+    );
+    expect(
+      await processorHints({
+        userAgentData: {
+          getHighEntropyValues: () => {
+            throw new Error('nope');
+          },
+        },
+      }),
+    ).toEqual({});
+    expect(await processorHints({ userAgentData: { getHighEntropyValues: async () => ({ architecture: 5 }) } })).toEqual({
+      architecture: '',
+      bitness: '',
+    });
   });
 
   it("names each system's words as the page's data attributes do", () => {
@@ -156,7 +180,10 @@ describe('the newest release', () => {
     ];
     expect(newestRelease(list)?.tag).toBe('2026-11-10');
     // A draft or a release without installers newer than it is left out.
-    expect(newestRelease([release('2026-11-12', { draft: true }), release('2026-11-11', { files: ['notes.txt'] }), release('2026-11-10.1')])?.tag).toBe('2026-11-10.1');
+    expect(
+      newestRelease([release('2026-11-12', { draft: true }), release('2026-11-11', { files: ['notes.txt'] }), release('2026-11-10.1')])
+        ?.tag,
+    ).toBe('2026-11-10.1');
   });
 
   it('is none when there is no release yet, or the answer is not a list', () => {
@@ -167,7 +194,17 @@ describe('the newest release', () => {
 
   it('finds each system’s installer by the end of its name, and skips the others', () => {
     const found = installersOf(
-      release('2026-11-10-rc', { files: ['mac-universal.dmg', 'mac-x64.dmg', 'mac-arm64.dmg.blockmap', 'linux-x86_64.AppImage', 'linux-armv7l.AppImage', 'win-arm64.exe', 'win-ia32.exe'] }),
+      release('2026-11-10-rc', {
+        files: [
+          'mac-universal.dmg',
+          'mac-x64.dmg',
+          'mac-arm64.dmg.blockmap',
+          'linux-x86_64.AppImage',
+          'linux-armv7l.AppImage',
+          'win-arm64.exe',
+          'win-ia32.exe',
+        ],
+      }),
     );
     // The universal and Intel Mac apps of earlier builds are no installer of ours: Apple Silicon only.
     expect(Object.keys(found).sort()).toEqual(['linux', 'win-arm64']);
@@ -176,15 +213,20 @@ describe('the newest release', () => {
   });
 
   it("never offers the installers' copies for the app's updates, which downloads count apart", () => {
-    const found = installersOf(release('2026-11-10', { files: ['mac-arm64-update.dmg', 'win-x64-update.exe', 'linux-x86_64-update.AppImage'] }));
+    const found = installersOf(
+      release('2026-11-10', { files: ['mac-arm64-update.dmg', 'win-x64-update.exe', 'linux-x86_64-update.AppImage'] }),
+    );
     expect(found).toEqual({});
-    const both = installersOf(release('2026-11-10', { files: ['mac-arm64-update.dmg', 'mac-arm64.dmg', 'win-x64.exe', 'win-x64-update.exe'] }));
+    const both = installersOf(
+      release('2026-11-10', { files: ['mac-arm64-update.dmg', 'mac-arm64.dmg', 'win-x64.exe', 'win-x64-update.exe'] }),
+    );
     expect(both.mac?.name).toBe('Harness-Relay-2026-11-10-mac-arm64.dmg');
     expect(both.win?.name).toBe('Harness-Relay-2026-11-10-win-x64.exe');
   });
 
   it('shows no sizes: the cards name the system, processor and file type only', () => {
-    for (const page of ['site/index.html', 'site/zh-TW/index.html']) expect(readFileSync(page, 'utf8'), page).not.toMatch(/data-size|\d+ MB/);
+    for (const page of ['site/index.html', 'site/zh-TW/index.html'])
+      expect(readFileSync(page, 'utf8'), page).not.toMatch(/data-size|\d+ MB/);
     expect(readFileSync('site/assets/site.css', 'utf8')).not.toContain('data-size');
     const found = installersOf(release('2026-11-10'));
     expect(Object.values(found).every((i) => !('size' in i))).toBe(true);
@@ -204,10 +246,17 @@ describe('the download buttons and the Release workflow', () => {
       'linux-arm64': '-linux-arm64.AppImage',
     });
     // Each installer's copy for the app's updates: -update before the extension, so that no copy ends as an installer does.
-    expect(UPDATE_INSTALLERS).toEqual(Object.fromEntries(Object.entries(INSTALLERS).map(([system, end]) => [system, end.replace(/(\.[A-Za-z]+)$/, '-update$1')])));
+    expect(UPDATE_INSTALLERS).toEqual(
+      Object.fromEntries(Object.entries(INSTALLERS).map(([system, end]) => [system, end.replace(/(\.[A-Za-z]+)$/, '-update$1')])),
+    );
     for (const [system, end] of Object.entries(UPDATE_INSTALLERS)) {
-      expect(Object.values(INSTALLERS).some((e) => end.endsWith(e)), system).toBe(false);
-      expect(updateCopyName(`Harness-Relay-2026-11-12${INSTALLERS[system as keyof typeof INSTALLERS]}`)).toBe(`Harness-Relay-2026-11-12${end}`);
+      expect(
+        Object.values(INSTALLERS).some((e) => end.endsWith(e)),
+        system,
+      ).toBe(false);
+      expect(updateCopyName(`Harness-Relay-2026-11-12${INSTALLERS[system as keyof typeof INSTALLERS]}`)).toBe(
+        `Harness-Relay-2026-11-12${end}`,
+      );
     }
     expect(updateCopyName('Harness-Relay-2026-11-12-mac-arm64-update.dmg')).toBeUndefined();
     expect(updateCopyName('notes.txt')).toBeUndefined();
@@ -219,13 +268,15 @@ describe('the download buttons and the Release workflow', () => {
     );
     expect(updateCopyUrl('2026-11-12', 'notes.txt')).toBeUndefined();
     expect(updateCopyUrl('2026-11-12', 'Harness-Relay-2026-11-12-mac-arm64-update.dmg')).toBeUndefined();
-    for (const tag of ['..', '.', 'a/b', '', 'x?y', undefined]) expect(updateCopyUrl(tag, 'Harness-Relay-2026-11-12-mac-arm64.dmg'), String(tag)).toBeUndefined();
+    for (const tag of ['..', '.', 'a/b', '', 'x?y', undefined])
+      expect(updateCopyUrl(tag, 'Harness-Relay-2026-11-12-mac-arm64.dmg'), String(tag)).toBeUndefined();
     expect(updateCopyUrl('2026-11-12', '../Harness-Relay-2026-11-12-mac-arm64.dmg')).toBeUndefined();
     // In another repository, when the app was built to download its updates from one (RELAY_UPDATES_REPO).
     expect(updateCopyUrl('2026-11-12', 'Harness-Relay-2026-11-12-win-x64.exe', 'acme/relay-updates')).toBe(
       'https://github.com/acme/relay-updates/releases/download/2026-11-12/Harness-Relay-2026-11-12-win-x64-update.exe',
     );
-    for (const repo of ['acme', 'acme/u/x', '../u', 'acme/u?x', 'acme/..', 'acme/.', '', 42]) expect(updateCopyUrl('2026-11-12', 'Harness-Relay-2026-11-12-win-x64.exe', repo), String(repo)).toBeUndefined();
+    for (const repo of ['acme', 'acme/u/x', '../u', 'acme/u?x', 'acme/..', 'acme/.', '', 42])
+      expect(updateCopyUrl('2026-11-12', 'Harness-Relay-2026-11-12-win-x64.exe', repo), String(repo)).toBeUndefined();
     expect(workflow).toMatch(/target: --mac dmg --arm64/);
     expect(workflow).toMatch(/target: --win nsis --x64/);
     expect(workflow).toMatch(/target: --linux AppImage --x64/);
@@ -242,7 +293,15 @@ describe('the download buttons and the Release workflow', () => {
       }
       expect(html, page).toMatch(new RegExp(`<a [^>]*href="${RELEASES_PAGE}"[^>]*data-download-primary`));
       expect(html, page).toContain('<script type="module" src="');
-      for (const word of ['data-mac=', 'data-win=', 'data-win-arm64=', 'data-linux=', 'data-linux-arm64=', 'data-release=', 'data-mobile=']) {
+      for (const word of [
+        'data-mac=',
+        'data-win=',
+        'data-win-arm64=',
+        'data-linux=',
+        'data-linux-arm64=',
+        'data-release=',
+        'data-mobile=',
+      ]) {
         expect(html, `${page} ${word}`).toContain(word);
       }
       // No release candidate is offered, so there are no words for one.
@@ -254,7 +313,14 @@ describe('the download buttons and the Release workflow', () => {
 describe('the installers’ addresses', () => {
   it('are only GitHub release downloads of this repository', () => {
     expect(isInstallerUrl('https://github.com/Agentic-System-Lab/harness-relay/releases/download/2026-11-10-rc/x.dmg')).toBe(true);
-    for (const url of ['javascript:alert(1)', 'https://evil.example/x.dmg', 'https://github.com/someone/else/releases/download/x.dmg', 'https://github.com/Agentic-System-Lab/harness-relay/releases/download/a b', undefined, 42]) {
+    for (const url of [
+      'javascript:alert(1)',
+      'https://evil.example/x.dmg',
+      'https://github.com/someone/else/releases/download/x.dmg',
+      'https://github.com/Agentic-System-Lab/harness-relay/releases/download/a b',
+      undefined,
+      42,
+    ]) {
       expect(isInstallerUrl(url), String(url)).toBe(false);
     }
     const forged = release('2026-11-10-rc');
@@ -327,11 +393,17 @@ function page() {
     label,
     hero: new El({ 'data-release-meta': '', 'data-hero': '' }),
     line: new El({ 'data-release-meta': '' }),
-    cards: Object.fromEntries(Object.keys(INSTALLERS).map((s) => [s, new El({ 'data-download': s, href: RELEASES_PAGE })])) as Record<string, El>,
+    cards: Object.fromEntries(Object.keys(INSTALLERS).map((s) => [s, new El({ 'data-download': s, href: RELEASES_PAGE })])) as Record<
+      string,
+      El
+    >,
   };
   el.hero.hidden = true;
   const all = [el.root, el.primary, el.hero, el.line, ...Object.values(el.cards)];
-  const doc = { querySelector: (sel: string) => all.find((e) => e.matches(sel)) ?? null, querySelectorAll: (sel: string) => all.filter((e) => e.matches(sel)) };
+  const doc = {
+    querySelector: (sel: string) => all.find((e) => e.matches(sel)) ?? null,
+    querySelectorAll: (sel: string) => all.filter((e) => e.matches(sel)),
+  };
   return { el, doc };
 }
 
@@ -347,7 +419,13 @@ describe('the download buttons on the page', () => {
     const { el, doc } = page();
     const storage = memoryStorage();
     let calls = 0;
-    await wire({ doc, nav: MAC, storage, fetchJson: async () => (calls++, [release('2026-11-11'), release('2026-11-10-rc')]), now: () => 1000 });
+    await wire({
+      doc,
+      nav: MAC,
+      storage,
+      fetchJson: async () => (calls++, [release('2026-11-11'), release('2026-11-10-rc')]),
+      now: () => 1000,
+    });
     expect(calls).toBe(1);
     expect(el.label.textContent).toBe('Download for macOS');
     expect(el.primary.attrs.href).toMatch(/Harness-Relay-2026-11-11-mac-arm64\.dmg$/);
@@ -365,7 +443,10 @@ describe('the download buttons on the page', () => {
     const chromiumOn = (platform: string, userAgent: string, architecture: string) => ({
       userAgent,
       platform,
-      userAgentData: { platform: platform.startsWith('Win') ? 'Windows' : platform.startsWith('Mac') ? 'macOS' : 'Linux', getHighEntropyValues: async () => ({ architecture, bitness: '64' }) },
+      userAgentData: {
+        platform: platform.startsWith('Win') ? 'Windows' : platform.startsWith('Mac') ? 'macOS' : 'Linux',
+        getHighEntropyValues: async () => ({ architecture, bitness: '64' }),
+      },
     });
     const releases = async () => [release('2026-11-11')];
     const win = page();
@@ -378,15 +459,28 @@ describe('the download buttons on the page', () => {
 
     const linux = page();
     const chromium = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
-    await wire({ doc: linux.doc, nav: chromiumOn('Linux x86_64', chromium, 'arm'), storage: memoryStorage(), fetchJson: releases, now: () => 1000 });
+    await wire({
+      doc: linux.doc,
+      nav: chromiumOn('Linux x86_64', chromium, 'arm'),
+      storage: memoryStorage(),
+      fetchJson: releases,
+      now: () => 1000,
+    });
     expect(linux.el.label.textContent).toBe('Download for Linux on Arm');
     expect(linux.el.primary.attrs.href).toMatch(/-linux-arm64\.AppImage$/);
     expect(linux.el.cards['linux-arm64']!.classes.has('is-yours')).toBe(true);
 
     // An Intel Mac (Chromium says so) has no app: the button goes to the quick start, no card is its.
     const intel = page();
-    const chromeMac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
-    await wire({ doc: intel.doc, nav: chromiumOn('MacIntel', chromeMac, 'x86'), storage: memoryStorage(), fetchJson: releases, now: () => 1000 });
+    const chromeMac =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
+    await wire({
+      doc: intel.doc,
+      nav: chromiumOn('MacIntel', chromeMac, 'x86'),
+      storage: memoryStorage(),
+      fetchJson: releases,
+      now: () => 1000,
+    });
     expect(intel.el.primary.attrs.href).toBe('#start');
     expect(intel.el.label.textContent).toBe('Download Harness Relay');
     expect(Object.values(intel.el.cards).some((c) => c.classes.has('is-yours'))).toBe(false);
@@ -400,12 +494,24 @@ describe('the download buttons on the page', () => {
   it('send a computer on Arm to the releases page from a release without its installer (Windows 10 on Arm runs no x64 app)', async () => {
     const older = async () => [release('2026-11-10', { files: ['mac-arm64.dmg', 'win-x64.exe', 'linux-x86_64.AppImage'] })];
     const win = page();
-    await wire({ doc: win.doc, nav: { userAgent: 'Mozilla/5.0 (Windows NT 10.0; ARM64)', platform: 'Win32' }, storage: memoryStorage(), fetchJson: older, now: () => 1000 });
+    await wire({
+      doc: win.doc,
+      nav: { userAgent: 'Mozilla/5.0 (Windows NT 10.0; ARM64)', platform: 'Win32' },
+      storage: memoryStorage(),
+      fetchJson: older,
+      now: () => 1000,
+    });
     expect(win.el.primary.attrs.href).toBe(RELEASES_PAGE);
     expect(win.el.cards.win!.attrs.href).toMatch(/Harness-Relay-2026-11-10-win-x64\.exe$/);
     expect(win.el.cards['win-arm64']!.attrs.href).toBe(RELEASES_PAGE);
     const linux = page();
-    await wire({ doc: linux.doc, nav: { userAgent: UA.linux.replace('x86_64', 'aarch64'), platform: 'Linux aarch64' }, storage: memoryStorage(), fetchJson: older, now: () => 1000 });
+    await wire({
+      doc: linux.doc,
+      nav: { userAgent: UA.linux.replace('x86_64', 'aarch64'), platform: 'Linux aarch64' },
+      storage: memoryStorage(),
+      fetchJson: older,
+      now: () => 1000,
+    });
     expect(linux.el.primary.attrs.href).toBe(RELEASES_PAGE);
   });
 
@@ -426,7 +532,13 @@ describe('the download buttons on the page', () => {
 
   it('send a phone to the quick start, with the line saying it runs on a computer', async () => {
     const { el, doc } = page();
-    await wire({ doc, nav: { userAgent: UA.iphone, platform: 'iPhone', maxTouchPoints: 5 }, storage: memoryStorage(), fetchJson: async () => [release('2026-11-10')], now: () => 0 });
+    await wire({
+      doc,
+      nav: { userAgent: UA.iphone, platform: 'iPhone', maxTouchPoints: 5 },
+      storage: memoryStorage(),
+      fetchJson: async () => [release('2026-11-10')],
+      now: () => 0,
+    });
     expect(el.primary.attrs.href).toBe('#start');
     expect(el.label.textContent).toBe('Download Harness Relay');
     expect(el.hero.hidden).toBe(false);
@@ -512,14 +624,26 @@ describe('the download buttons on the page', () => {
   it('point at the newest release, never at a release candidate however new', async () => {
     const { el, doc } = page();
     const storage = memoryStorage();
-    await wire({ doc, nav: MAC, storage, fetchJson: async () => [release('2026-11-12-rc'), release('2026-11-11.1-rc'), release('2026-11-10')], now: () => 0 });
+    await wire({
+      doc,
+      nav: MAC,
+      storage,
+      fetchJson: async () => [release('2026-11-12-rc'), release('2026-11-11.1-rc'), release('2026-11-10')],
+      now: () => 0,
+    });
     expect(el.primary.attrs.href).toMatch(/Harness-Relay-2026-11-10-mac-arm64\.dmg$/);
     expect(el.cards.linux!.attrs.href).toMatch(/Harness-Relay-2026-11-10-linux-x86_64\.AppImage$/);
     expect(el.line.textContent).toBe('Release 2026-11-10');
     expect(JSON.parse(storage.data.get(STORAGE_KEY)!)).toMatchObject({ release: { tag: '2026-11-10' } });
     // Only release candidates so far: the releases page, and no version line.
     const only = page();
-    await wire({ doc: only.doc, nav: MAC, storage: memoryStorage(), fetchJson: async () => [release('2026-11-12-rc'), release('2026-11-11-rc.1')], now: () => 0 });
+    await wire({
+      doc: only.doc,
+      nav: MAC,
+      storage: memoryStorage(),
+      fetchJson: async () => [release('2026-11-12-rc'), release('2026-11-11-rc.1')],
+      now: () => 0,
+    });
     expect(only.el.primary.attrs.href).toBe(RELEASES_PAGE);
     for (const card of Object.values(only.el.cards)) expect(card.attrs.href).toBe(RELEASES_PAGE);
     expect(only.el.line.textContent).toBe('');
@@ -529,7 +653,12 @@ describe('the download buttons on the page', () => {
     const candidate = release('2026-11-12-rc');
     const installers = installersOf(candidate);
     // As the page kept them before: with whether it was one, without it, or marked as not one but ending in -rc.
-    for (const kept of [{ tag: '2026-11-12-rc', prerelease: true, installers }, { tag: '2026-11-12-rc', installers }, { tag: '2026-11-12-rc', prerelease: false, installers }, { tag: '2026-11-12', prerelease: true, installers }]) {
+    for (const kept of [
+      { tag: '2026-11-12-rc', prerelease: true, installers },
+      { tag: '2026-11-12-rc', installers },
+      { tag: '2026-11-12-rc', prerelease: false, installers },
+      { tag: '2026-11-12', prerelease: true, installers },
+    ]) {
       const storage = memoryStorage();
       storage.setItem(STORAGE_KEY, JSON.stringify({ release: kept, at: 0 }));
       let calls = 0;
@@ -551,7 +680,10 @@ describe('the download buttons on the page', () => {
 
   it('ignore a kept release whose links go elsewhere', async () => {
     const storage = memoryStorage();
-    storage.setItem(STORAGE_KEY, JSON.stringify({ release: { tag: 'x', prerelease: false, installers: { mac: { url: 'javascript:alert(1)' } } }, at: 0 }));
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ release: { tag: 'x', prerelease: false, installers: { mac: { url: 'javascript:alert(1)' } } }, at: 0 }),
+    );
     const { el, doc } = page();
     await wire({ doc, nav: MAC, storage, fetchJson: async () => Promise.reject(new Error('offline')), now: () => 60_000 });
     expect(el.primary.attrs.href).toBe(RELEASES_PAGE);
@@ -559,27 +691,55 @@ describe('the download buttons on the page', () => {
   });
 
   it('do nothing on a page without download buttons', async () => {
-    await wire({ doc: { querySelector: () => null, querySelectorAll: () => [] }, nav: MAC, storage: memoryStorage(), fetchJson: async () => [], now: () => 0 });
+    await wire({
+      doc: { querySelector: () => null, querySelectorAll: () => [] },
+      nav: MAC,
+      storage: memoryStorage(),
+      fetchJson: async () => [],
+      now: () => 0,
+    });
   });
 });
 
 const MIRROR_AT = 'https://downloads.example.workers.dev';
-const at = (tag: string, file: string) => `https://github.com/Agentic-System-Lab/harness-relay/releases/download/${tag}/Harness-Relay-${tag}-${file}`;
+const at = (tag: string, file: string) =>
+  `https://github.com/Agentic-System-Lab/harness-relay/releases/download/${tag}/Harness-Relay-${tag}-${file}`;
 
 describe('the download mirror', () => {
   it('is none, or an https origin as written', () => {
     expect(MIRROR === '' || isMirror(MIRROR)).toBe(true);
     expect(isMirror(MIRROR_AT)).toBe(true);
     expect(isMirror('https://dl.harness-relay.dev')).toBe(true);
-    for (const mirror of ['', 'http://downloads.example', `${MIRROR_AT}/`, `${MIRROR_AT}/dl`, `${MIRROR_AT}:8443`, 'https://user@downloads.example', `${MIRROR_AT}?x`, `${MIRROR_AT}#x`, 'https://DOWNLOADS.example', 'javascript:alert(1)', undefined, 42]) {
+    for (const mirror of [
+      '',
+      'http://downloads.example',
+      `${MIRROR_AT}/`,
+      `${MIRROR_AT}/dl`,
+      `${MIRROR_AT}:8443`,
+      'https://user@downloads.example',
+      `${MIRROR_AT}?x`,
+      `${MIRROR_AT}#x`,
+      'https://DOWNLOADS.example',
+      'javascript:alert(1)',
+      undefined,
+      42,
+    ]) {
       expect(isMirror(mirror), String(mirror)).toBe(false);
     }
   });
 
-  it("has each installer at the same tag and file as GitHub, and nothing else", () => {
+  it('has each installer at the same tag and file as GitHub, and nothing else', () => {
     expect(mirrorUrl(at('2026-11-13', 'mac-arm64.dmg'), MIRROR_AT)).toBe(`${MIRROR_AT}/2026-11-13/Harness-Relay-2026-11-13-mac-arm64.dmg`);
-    expect(mirrorUrl(at('2026-11-13.1', 'linux-arm64.AppImage'), MIRROR_AT)).toBe(`${MIRROR_AT}/2026-11-13.1/Harness-Relay-2026-11-13.1-linux-arm64.AppImage`);
-    for (const url of [RELEASES_PAGE, 'https://github.com/someone/else/releases/download/v/x.dmg', `${at('v', 'x.dmg')}?x`, 'javascript:alert(1)', undefined]) {
+    expect(mirrorUrl(at('2026-11-13.1', 'linux-arm64.AppImage'), MIRROR_AT)).toBe(
+      `${MIRROR_AT}/2026-11-13.1/Harness-Relay-2026-11-13.1-linux-arm64.AppImage`,
+    );
+    for (const url of [
+      RELEASES_PAGE,
+      'https://github.com/someone/else/releases/download/v/x.dmg',
+      `${at('v', 'x.dmg')}?x`,
+      'javascript:alert(1)',
+      undefined,
+    ]) {
       expect(mirrorUrl(url, MIRROR_AT), String(url)).toBeUndefined();
     }
     // Without a mirror (or with an address that is not one), none.
@@ -614,10 +774,19 @@ describe('the download buttons on the page, with a mirror', () => {
     const { el, doc } = page();
     const storage = memoryStorage();
     const mirror = mirrorThat(true);
-    await wire({ doc, nav: MAC, storage, fetchJson: async () => [release('2026-11-13')], now: () => 1000, mirror: MIRROR_AT, hasInstaller: mirror.hasInstaller });
+    await wire({
+      doc,
+      nav: MAC,
+      storage,
+      fetchJson: async () => [release('2026-11-13')],
+      now: () => 1000,
+      mirror: MIRROR_AT,
+      hasInstaller: mirror.hasInstaller,
+    });
     expect(mirror.asked).toEqual([`${MIRROR_AT}/2026-11-13/Harness-Relay-2026-11-13-mac-arm64.dmg`]);
     expect(el.primary.attrs.href).toBe(`${MIRROR_AT}/2026-11-13/Harness-Relay-2026-11-13-mac-arm64.dmg`);
-    for (const [system, end] of Object.entries(INSTALLERS)) expect(el.cards[system]!.attrs.href, system).toBe(`${MIRROR_AT}/2026-11-13/Harness-Relay-2026-11-13${end}`);
+    for (const [system, end] of Object.entries(INSTALLERS))
+      expect(el.cards[system]!.attrs.href, system).toBe(`${MIRROR_AT}/2026-11-13/Harness-Relay-2026-11-13${end}`);
     expect(el.line.textContent).toBe('Release 2026-11-13');
     const kept = JSON.parse(storage.data.get(STORAGE_KEY)!);
     expect(kept.release.installers.mac.url).toBe(at('2026-11-13', 'mac-arm64.dmg'));
@@ -628,7 +797,15 @@ describe('the download buttons on the page, with a mirror', () => {
     for (const has of [false, new Error('offline')]) {
       const { el, doc } = page();
       const mirror = mirrorThat(has);
-      await wire({ doc, nav: MAC, storage: memoryStorage(), fetchJson: async () => [release('2026-11-13')], now: () => 0, mirror: MIRROR_AT, hasInstaller: mirror.hasInstaller });
+      await wire({
+        doc,
+        nav: MAC,
+        storage: memoryStorage(),
+        fetchJson: async () => [release('2026-11-13')],
+        now: () => 0,
+        mirror: MIRROR_AT,
+        hasInstaller: mirror.hasInstaller,
+      });
       expect(mirror.asked, String(has)).toHaveLength(1);
       expect(el.primary.attrs.href).toBe(at('2026-11-13', 'mac-arm64.dmg'));
       expect(el.cards.win!.attrs.href).toBe(at('2026-11-13', 'win-x64.exe'));
@@ -636,7 +813,15 @@ describe('the download buttons on the page, with a mirror', () => {
     for (const none of ['', 'http://downloads.example', `${MIRROR_AT}/dl`]) {
       const { el, doc } = page();
       const mirror = mirrorThat(true);
-      await wire({ doc, nav: MAC, storage: memoryStorage(), fetchJson: async () => [release('2026-11-13')], now: () => 0, mirror: none, hasInstaller: mirror.hasInstaller });
+      await wire({
+        doc,
+        nav: MAC,
+        storage: memoryStorage(),
+        fetchJson: async () => [release('2026-11-13')],
+        now: () => 0,
+        mirror: none,
+        hasInstaller: mirror.hasInstaller,
+      });
       expect(mirror.asked, none).toEqual([]);
       expect(el.primary.attrs.href).toBe(at('2026-11-13', 'mac-arm64.dmg'));
     }
@@ -645,7 +830,15 @@ describe('the download buttons on the page, with a mirror', () => {
   it('ask the mirror nothing without a release, and keep the releases page where the release has no installer', async () => {
     const none = page();
     const nothing = mirrorThat(true);
-    await wire({ doc: none.doc, nav: MAC, storage: memoryStorage(), fetchJson: async () => [], now: () => 0, mirror: MIRROR_AT, hasInstaller: nothing.hasInstaller });
+    await wire({
+      doc: none.doc,
+      nav: MAC,
+      storage: memoryStorage(),
+      fetchJson: async () => [],
+      now: () => 0,
+      mirror: MIRROR_AT,
+      hasInstaller: nothing.hasInstaller,
+    });
     expect(nothing.asked).toEqual([]);
     expect(none.el.primary.attrs.href).toBe(RELEASES_PAGE);
     // Linux without an AppImage in this release: the mirror is asked for the first installer it has.
@@ -653,7 +846,15 @@ describe('the download buttons on the page, with a mirror', () => {
     newer.assets = newer.assets.filter((a) => !a.name.endsWith('.AppImage'));
     const { el, doc } = page();
     const mirror = mirrorThat(true);
-    await wire({ doc, nav: { userAgent: UA.linux, platform: 'Linux x86_64' }, storage: memoryStorage(), fetchJson: async () => [newer], now: () => 0, mirror: MIRROR_AT, hasInstaller: mirror.hasInstaller });
+    await wire({
+      doc,
+      nav: { userAgent: UA.linux, platform: 'Linux x86_64' },
+      storage: memoryStorage(),
+      fetchJson: async () => [newer],
+      now: () => 0,
+      mirror: MIRROR_AT,
+      hasInstaller: mirror.hasInstaller,
+    });
     expect(mirror.asked).toEqual([`${MIRROR_AT}/2026-11-13/Harness-Relay-2026-11-13-mac-arm64.dmg`]);
     expect(el.primary.attrs.href).toBe(RELEASES_PAGE);
     expect(el.cards.linux!.attrs.href).toBe(RELEASES_PAGE);
@@ -663,7 +864,15 @@ describe('the download buttons on the page, with a mirror', () => {
   it('give a phone the quick start, and the mirror’s installers on its cards', async () => {
     const { el, doc } = page();
     const mirror = mirrorThat(true);
-    await wire({ doc, nav: { userAgent: UA.iphone, platform: 'iPhone', maxTouchPoints: 5 }, storage: memoryStorage(), fetchJson: async () => [release('2026-11-13')], now: () => 0, mirror: MIRROR_AT, hasInstaller: mirror.hasInstaller });
+    await wire({
+      doc,
+      nav: { userAgent: UA.iphone, platform: 'iPhone', maxTouchPoints: 5 },
+      storage: memoryStorage(),
+      fetchJson: async () => [release('2026-11-13')],
+      now: () => 0,
+      mirror: MIRROR_AT,
+      hasInstaller: mirror.hasInstaller,
+    });
     expect(el.primary.attrs.href).toBe('#start');
     expect(el.cards.mac!.attrs.href).toBe(`${MIRROR_AT}/2026-11-13/Harness-Relay-2026-11-13-mac-arm64.dmg`);
   });
@@ -691,7 +900,15 @@ describe('the download buttons on the page, with a mirror', () => {
     storage.setItem(STORAGE_KEY, JSON.stringify({ release: newestRelease([release('2026-11-13')]), at: 0 }));
     const { el, doc } = page();
     const mirror = mirrorThat(true);
-    await wire({ doc, nav: MAC, storage, fetchJson: async () => [release('2026-11-14')], now: () => 60 * 60_000, mirror: MIRROR_AT, hasInstaller: mirror.hasInstaller });
+    await wire({
+      doc,
+      nav: MAC,
+      storage,
+      fetchJson: async () => [release('2026-11-14')],
+      now: () => 60 * 60_000,
+      mirror: MIRROR_AT,
+      hasInstaller: mirror.hasInstaller,
+    });
     expect(mirror.asked).toEqual([`${MIRROR_AT}/2026-11-14/Harness-Relay-2026-11-14-mac-arm64.dmg`]);
     expect(el.primary.attrs.href).toBe(`${MIRROR_AT}/2026-11-14/Harness-Relay-2026-11-14-mac-arm64.dmg`);
   });

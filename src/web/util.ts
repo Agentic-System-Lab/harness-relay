@@ -76,12 +76,22 @@ export function switchProvider<T extends { provider: Provider } & ModelChoice>(
   next: Provider,
   kept: Partial<Record<Provider, ModelChoice>>,
 ): { value: T; kept: Partial<Record<Provider, ModelChoice>> } {
-  const leaving: ModelChoice = { model: current.model ?? '', effort: current.effort ?? '', ...(current.account ? { account: current.account } : {}) };
+  const leaving: ModelChoice = {
+    model: current.model ?? '',
+    effort: current.effort ?? '',
+    ...(current.account ? { account: current.account } : {}),
+  };
   const remembered = { ...kept, [current.provider]: leaving };
   const back = remembered[next];
   // Accounts belong to a CLI too.
   const { account: _left, ...rest } = current;
-  const value = { ...rest, provider: next, model: back?.model ?? '', effort: back?.effort ?? '', ...(back?.account ? { account: back.account } : {}) };
+  const value = {
+    ...rest,
+    provider: next,
+    model: back?.model ?? '',
+    effort: back?.effort ?? '',
+    ...(back?.account ? { account: back.account } : {}),
+  };
   return { value: value as T, kept: remembered };
 }
 

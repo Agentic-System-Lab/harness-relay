@@ -55,11 +55,7 @@ export function SearchBox({
 
 /** Highlights the words of the search in `text`. */
 function Highlight({ text, terms }: { text: string; terms: string[] }) {
-  return (
-    <>
-      {highlightParts(text, terms).map((p, i) => (p.match ? <mark key={i}>{p.text}</mark> : <span key={i}>{p.text}</span>))}
-    </>
-  );
+  return <>{highlightParts(text, terms).map((p, i) => (p.match ? <mark key={i}>{p.text}</mark> : <span key={i}>{p.text}</span>))}</>;
 }
 
 /** Conversations that match the search, in place of the groups. */

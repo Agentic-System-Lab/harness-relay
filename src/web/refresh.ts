@@ -25,7 +25,11 @@ export function newerStatuses(shown: ProviderStatus[], incoming: ProviderStatus[
  *   forced look found, and with whatever changed meanwhile (an account's defaults saved, say).
  * Returns the load: `force` asks the server to look again.
  */
-export function latestLoader<T>(load: (force: boolean) => Promise<T>, show: (value: T) => void, onError: (err: unknown) => void): (force?: boolean) => Promise<void> {
+export function latestLoader<T>(
+  load: (force: boolean) => Promise<T>,
+  show: (value: T) => void,
+  onError: (err: unknown) => void,
+): (force?: boolean) => Promise<void> {
   let asked = 0;
   let shown = 0;
   let forced: Promise<void> | undefined;

@@ -113,10 +113,11 @@ const BUILTINS: Builtin[] = [
         name: 'Skeptic',
         provider: 'grok',
         role: {
-          'zh-TW': '你是魔鬼代言人。挑戰前面發言者的假設，找出風險、反例與被忽略的情境。\n批評要具體、有建設性；如果你真的被說服了，就直說。',
+          'zh-TW':
+            '你是魔鬼代言人。挑戰前面發言者的假設，找出風險、反例與被忽略的情境。\n批評要具體、有建設性；如果你真的被說服了，就直說。',
           en:
             "You are the devil's advocate. Challenge the earlier speakers' assumptions; find risks, counter-examples and overlooked cases.\n" +
-            "Keep criticism concrete and constructive; if you are genuinely convinced, say so.",
+            'Keep criticism concrete and constructive; if you are genuinely convinced, say so.',
         },
       },
     ],
@@ -154,7 +155,7 @@ const BUILTINS: Builtin[] = [
             '給出有條理、有根據的回答。問題不一定跟程式有關，用一般人看得懂的方式說明。',
           en:
             'You are the analyst. First work out what the user really wants to know (state your assumptions if needed), break the question into its key points,\n' +
-            "and give a structured, well-founded answer. The question may have nothing to do with code; explain it so anyone can follow.",
+            'and give a structured, well-founded answer. The question may have nothing to do with code; explain it so anyone can follow.',
         },
       },
       {

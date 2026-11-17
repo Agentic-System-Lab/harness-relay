@@ -37,7 +37,10 @@ export default function harnessRelayGate(pi) {
       return { block: true, reason: 'Not run: the turn was stopped before Harness Relay answered.' };
     }
     if (answer && answer.allow === true) return undefined;
-    const reason = answer && typeof answer.reason === 'string' && answer.reason.trim() ? answer.reason.trim() : 'Not run: Harness Relay refused this tool call.';
+    const reason =
+      answer && typeof answer.reason === 'string' && answer.reason.trim()
+        ? answer.reason.trim()
+        : 'Not run: Harness Relay refused this tool call.';
     return { block: true, reason };
   });
 }

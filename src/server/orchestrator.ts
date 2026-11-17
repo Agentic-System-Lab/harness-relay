@@ -76,15 +76,7 @@ import {
   type AttachmentPart,
   type AttachmentUpload,
 } from './attachments';
-import {
-  buildBriefing,
-  buildTurnPrompt,
-  isForwardable,
-  isPass,
-  parseMentions,
-  type BriefingWorkspace,
-  type TurnInfo,
-} from './prompt';
+import { buildBriefing, buildTurnPrompt, isForwardable, isPass, parseMentions, type BriefingWorkspace, type TurnInfo } from './prompt';
 import { endpointModel } from './backends';
 import { REVIEWER_BRIEFING, buildReviewPrompt, hasNewReplies, parseReviewReply, reviewMaterial } from './reviewer';
 import { DATA_DIR, OPEN_HOMES_DIR, type SettingsStore } from './settings';
@@ -706,7 +698,11 @@ export class Orchestrator {
         await this.cleanupWorktrees(conv);
         // What each open agent kept for its members, its lead agent and its group sorter.
         const members = new Set([...conv.agents.map((a) => a.id), ...Object.keys(conv.agentState)]);
-        removeConversationState(OPEN_PROVIDERS.flatMap((p) => this.settings.openAgentHomes(p)), convId, [...members]);
+        removeConversationState(
+          OPEN_PROVIDERS.flatMap((p) => this.settings.openAgentHomes(p)),
+          convId,
+          [...members],
+        );
       }
       // A schedule that opened it no longer links to it.
       for (const id of this.store.delete(convId)) {
@@ -785,7 +781,11 @@ export class Orchestrator {
   answerApproval(convId: string, approvalId: string, answer: ApprovalAnswer): void {
     const pending = this.approvals.get(approvalId);
     if (!pending || pending.convId !== convId) throw new HttpError(404, t().approvalNotFound);
-    pending.resolve({ allow: Boolean(answer.allow), always: Boolean(answer.always), note: answer.note ? String(answer.note).slice(0, 2000) : undefined });
+    pending.resolve({
+      allow: Boolean(answer.allow),
+      always: Boolean(answer.always),
+      note: answer.note ? String(answer.note).slice(0, 2000) : undefined,
+    });
   }
 
   /**
@@ -870,7 +870,11 @@ export class Orchestrator {
    * refuses approval requests unless the schedule asks. A schedule that opens a new conversation each
    * time sends it there (`sendInNewChat`); `at` is the time it came due, which names that conversation.
    */
-  async sendScheduled(convId: string, at = Date.now(), opts: { event?: string; attempt?: number; retries?: boolean } = {}): Promise<ScheduledSend> {
+  async sendScheduled(
+    convId: string,
+    at = Date.now(),
+    opts: { event?: string; attempt?: number; retries?: boolean } = {},
+  ): Promise<ScheduledSend> {
     const conv = this.store.get(convId);
     if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
     const s = conv.schedule;
@@ -886,7 +890,9 @@ export class Orchestrator {
     }
     // A schedule that tracks a goal: its runs are followed (`TrackedRun`). Only a time the scheduler sends
     // (`retries`) is tried again: not Run now, nor a webhook's call, whose body a retry would not have.
-    const tracking = s.goal ? { sourceId: convId, due: at, attempt: opts.attempt ?? 0, retries: Boolean(opts.retries) && opts.event === undefined } : undefined;
+    const tracking = s.goal
+      ? { sourceId: convId, due: at, attempt: opts.attempt ?? 0, retries: Boolean(opts.retries) && opts.event === undefined }
+      : undefined;
     if (s.newChat) return this.sendInNewChat(conv, s, at, opts.event, tracking);
     const replying = this.runs.has(convId) || this.starting.has(convId);
     // A run being set up may be the user's answer: the message then waits for its next turn instead.
@@ -935,7 +941,13 @@ export class Orchestrator {
    * writing in the same folder (this one included) makes it wait. A conversation whose run could not
    * start is removed again: nothing was sent in it.
    */
-  private async sendInNewChat(conv: Conversation, s: ConversationSchedule, at: number, event?: string, tracking?: TrackedRun): Promise<ScheduledSend> {
+  private async sendInNewChat(
+    conv: Conversation,
+    s: ConversationSchedule,
+    at: number,
+    event?: string,
+    tracking?: TrackedRun,
+  ): Promise<ScheduledSend> {
     const id = randomUUID();
     const locked = this.folderLockedBy({ ...conv, id });
     if (locked) return { result: 'busy', reason: locked };
@@ -998,7 +1010,12 @@ export class Orchestrator {
    * is done, the schedule switches off; one that is held up tells the user in the chat (an agent that
    * needs their answer also asks, which notifies them).
    */
-  private recordProgress(source: Conversation, conv: Conversation, msg: ChatMessage, progress: { status: ProgressStatus; text: string }): void {
+  private recordProgress(
+    source: Conversation,
+    conv: Conversation,
+    msg: ChatMessage,
+    progress: { status: ProgressStatus; text: string },
+  ): void {
     const s = source.schedule;
     if (!s?.goal) return;
     const agent = msg.agentName ?? 'agent';
@@ -1124,8 +1141,7 @@ export class Orchestrator {
     const files = saveAttachments(conv.id, uploads);
     // Marked only when it joins a team's discussion: not a question written while the lead agent
     // designs the team, its design waits for confirmation, or the lead reviews the team's replies.
-    const midReply =
-      (this.runs.has(conv.id) || this.starting.has(conv.id)) && !this.designing.has(conv.id) && !this.reviewing.has(conv.id);
+    const midReply = (this.runs.has(conv.id) || this.starting.has(conv.id)) && !this.designing.has(conv.id) && !this.reviewing.has(conv.id);
     queue.push({
       id: randomUUID(),
       author: { kind: 'user' },
@@ -1160,7 +1176,7 @@ export class Orchestrator {
   private deliverQueued(conv: Conversation, which: { recipients: AgentConfig[] } | { ids: Set<string> }): ChatMessage[] {
     const queue = conv.queue ?? [];
     const posted: ChatMessage[] = [];
-    for (let i = 0; i < queue.length; ) {
+    for (let i = 0; i < queue.length;) {
       const next = queue[i]!;
       if ('ids' in which) {
         if (!which.ids.has(next.id)) {
@@ -1372,9 +1388,15 @@ export class Orchestrator {
     const index = conv.messages.findIndex((m) => m.id === messageId);
     if (index < 0) throw new HttpError(404, t().messageNotFound);
     const dropped = conv.messages.splice(index);
-    this.store.deleteMessages(conv.id, dropped.map((m) => m.id));
+    this.store.deleteMessages(
+      conv.id,
+      dropped.map((m) => m.id),
+    );
     // What those replies asked to send goes with them.
-    this.outbox?.discardFor(conv.id, dropped.map((m) => m.id));
+    this.outbox?.discardFor(
+      conv.id,
+      dropped.map((m) => m.id),
+    );
     const kept = new Set(keep.map((p) => p.id));
     removeAttachments(
       conv.id,
@@ -1386,7 +1408,12 @@ export class Orchestrator {
     for (const agentId of new Set([...Object.keys(conv.agentState), ...conv.agents.map((a) => a.id)])) {
       const was = conv.agentState[agentId];
       // What each CLI's state folder was written with stays recorded: those folders are not emptied here.
-      const state: AgentSessionState = { provider: was?.provider, permission: was?.permission, ...(was?.byCli ? { byCli: was.byCli } : {}), seen: [] };
+      const state: AgentSessionState = {
+        provider: was?.provider,
+        permission: was?.permission,
+        ...(was?.byCli ? { byCli: was.byCli } : {}),
+        seen: [],
+      };
       conv.agentState[agentId] = state;
       this.store.saveAgentState(conv.id, agentId, state);
     }
@@ -1451,9 +1478,7 @@ export class Orchestrator {
     // Messages queued from now on were sent after this one: they wait for the first turn. When the
     // user answers an agent's question, scheduled messages stay queued too: the run picks up where
     // the team stopped, so they wait for a turn of an agent they are for, or for a run of their own.
-    const ahead = opts.queue
-      ? new Set((conv.queue ?? []).filter((m) => !(conv.pause && m.scheduled)).map((m) => m.id))
-      : undefined;
+    const ahead = opts.queue ? new Set((conv.queue ?? []).filter((m) => !(conv.pause && m.scheduled)).map((m) => m.id)) : undefined;
     let lockRoots: string[] | undefined;
     let run: Run;
     let posted: ChatMessage[] = [];
@@ -1519,8 +1544,7 @@ export class Orchestrator {
           // Otherwise, messages sent while the team replied that no turn took: the team answers them
           // now. After Stop they keep waiting, for the user to send or withdraw.
           const next =
-            !run.abort.signal.aborted &&
-            (run.answerNext ? this.startConfirmed(conv, run.refuseApprovals) : this.startQueued(conv));
+            !run.abort.signal.aborted && (run.answerNext ? this.startConfirmed(conv, run.refuseApprovals) : this.startQueued(conv));
           if (!next) this.emitStatus(conv.id);
           this.trace(conv);
         }
@@ -1560,7 +1584,13 @@ export class Orchestrator {
   }
 
   /** Post the user's message (none for Continue / retry) and name the conversation after it. */
-  private postUserMessage(conv: Conversation, text: string, files: AttachmentPart[], scheduled = false, event?: string): ChatMessage | undefined {
+  private postUserMessage(
+    conv: Conversation,
+    text: string,
+    files: AttachmentPart[],
+    scheduled = false,
+    event?: string,
+  ): ChatMessage | undefined {
     let msg: ChatMessage | undefined;
     if (text || files.length) {
       msg = {
@@ -1740,7 +1770,9 @@ export class Orchestrator {
         const wt: AgentWorktree = {
           root,
           // A folder of its own for each repository (an earlier one, of the agent's id alone, is kept).
-          path: cur ? cur.path : join(DATA_DIR, 'worktrees', conv.id, `${a.id}-${createHash('sha256').update(root).digest('hex').slice(0, 8)}`),
+          path: cur
+            ? cur.path
+            : join(DATA_DIR, 'worktrees', conv.id, `${a.id}-${createHash('sha256').update(root).digest('hex').slice(0, 8)}`),
           branch: cur ? cur.branch : `relay/${conv.id.slice(0, 8)}/${a.name}`,
           base,
           needsReset: false,
@@ -2183,7 +2215,11 @@ export class Orchestrator {
    * closed, or the user stopped it). A stopped one is still waited for (on delete and shutdown) until
    * its lead process has ended.
    */
-  async reviseTeam(convId: string, input: { request?: unknown; agents?: unknown; settings?: unknown }, signal?: AbortSignal): Promise<TeamRevision> {
+  async reviseTeam(
+    convId: string,
+    input: { request?: unknown; agents?: unknown; settings?: unknown },
+    signal?: AbortSignal,
+  ): Promise<TeamRevision> {
     const conv = this.store.get(convId);
     if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
     if (this.closing) throw new HttpError(503, t().shuttingDown);
@@ -2280,7 +2316,12 @@ export class Orchestrator {
       const revised = decideRevision(parsePlanReply(reply), draft, ctx, lead);
       return {
         ...revised,
-        meta: { durationMs: Date.now() - started, costUsd: result.costUsd, inputTokens: result.inputTokens, outputTokens: result.outputTokens },
+        meta: {
+          durationMs: Date.now() - started,
+          costUsd: result.costUsd,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+        },
       };
     } catch (err) {
       throw new HttpError(503, t().reviseFailed((err as Error).message));
@@ -2329,13 +2370,7 @@ export class Orchestrator {
    * A run: the lead agent's team design (auto team), or the team's turns followed, with lead review,
    * by the lead agent's review of what the team said (`reviewsNow`).
    */
-  private async execute(
-    conv: Conversation,
-    posted: ChatMessage[],
-    run: Run,
-    only?: AgentConfig[],
-    resume?: Schedule,
-  ): Promise<void> {
+  private async execute(conv: Conversation, posted: ChatMessage[], run: Run, only?: AgentConfig[], resume?: Schedule): Promise<void> {
     if (run.designs) {
       // The lead agent designs the team for the question, and that is all this run does. Once the
       // team is confirmed (or needs no confirmation), a run of its own answers the question.
@@ -2371,13 +2406,7 @@ export class Orchestrator {
    * it runs are delivered before the next turn of an agent they are for (`deliverQueued`). A reply that
    * asks the user something stops the run there (`pauseFor`); `resume` picks it up once they replied.
    */
-  private async teamTurns(
-    conv: Conversation,
-    posted: ChatMessage[],
-    run: Run,
-    only?: AgentConfig[],
-    resume?: Schedule,
-  ): Promise<void> {
+  private async teamTurns(conv: Conversation, posted: ChatMessage[], run: Run, only?: AgentConfig[], resume?: Schedule): Promise<void> {
     const { mode, maxHops } = conv.settings;
     const s = resume ?? this.schedule(conv, posted, only);
     const aborted = () => run.abort.signal.aborted;
@@ -2465,11 +2494,7 @@ export class Orchestrator {
     const participants = mentioned.length ? mentioned : conv.agents;
     // Relay: the mentioned agents start (a retry: just the one), or the leader.
     const first =
-      conv.settings.mode === 'relay'
-        ? mentioned.length
-          ? mentioned.slice(0, only ? 1 : undefined)
-          : [conv.agents[0]!]
-        : participants;
+      conv.settings.mode === 'relay' ? (mentioned.length ? mentioned.slice(0, only ? 1 : undefined) : [conv.agents[0]!]) : participants;
     return {
       participants,
       round: 1,
@@ -2733,7 +2758,14 @@ export class Orchestrator {
         }
         case 'tool_start':
           textOpen = false;
-          msg.parts.push({ type: 'tool', id: e.id, name: e.name, detail: e.detail, ...(e.kind ? { kind: e.kind } : {}), status: 'running' });
+          msg.parts.push({
+            type: 'tool',
+            id: e.id,
+            name: e.name,
+            detail: e.detail,
+            ...(e.kind ? { kind: e.kind } : {}),
+            status: 'running',
+          });
           this.hub.emit(conv.id, { type: 'message', message: msg });
           break;
         case 'tool_end': {
@@ -2913,7 +2945,16 @@ export class Orchestrator {
           nativeItems,
           sandboxTerminal: this.settings.sandboxTerminal(agent.provider),
           prompt,
-          systemPrompt: buildBriefing(conv, agent, workspace, tools, nativeOff, nativeItems, Boolean(run.refuseApprovals), this.trackingSource(conv, run)?.schedule),
+          systemPrompt: buildBriefing(
+            conv,
+            agent,
+            workspace,
+            tools,
+            nativeOff,
+            nativeItems,
+            Boolean(run.refuseApprovals),
+            this.trackingSource(conv, run)?.schedule,
+          ),
           sessionId: state.sessionId,
           cwd,
           ...(addDirs.length ? { addDirs } : {}),
@@ -3037,7 +3078,13 @@ export class Orchestrator {
     const out: MessageChanges[] = [];
     for (const [root, state] of before) {
       try {
-        const changes = await this.changesIn(convId, root, state, wts?.find((w) => w.root === root), agent);
+        const changes = await this.changesIn(
+          convId,
+          root,
+          state,
+          wts?.find((w) => w.root === root),
+          agent,
+        );
         if (changes) out.push(changes);
       } catch (err) {
         console.warn('[orchestrator] could not record changes:', (err as Error).message);

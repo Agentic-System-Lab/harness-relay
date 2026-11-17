@@ -123,9 +123,13 @@ describe('secrets encrypted in the database (no credential store)', () => {
     const store = open();
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith(
-      expect.stringMatching(/secrets\.key was missing, so a new key was made: the 2 secret\(s\) kept with the old one \(grok-api-key, mcp-github\) cannot be read/),
+      expect.stringMatching(
+        /secrets\.key was missing, so a new key was made: the 2 secret\(s\) kept with the old one \(grok-api-key, mcp-github\) cannot be read/,
+      ),
     );
-    expect(() => store.get('grok-api-key')).toThrow(/cannot be decrypted with the key in .*secrets\.key: it was encrypted with another key/);
+    expect(() => store.get('grok-api-key')).toThrow(
+      /cannot be decrypted with the key in .*secrets\.key: it was encrypted with another key/,
+    );
     // Set again, it can be read.
     store.set('grok-api-key', 'xai-new-key');
     expect(store.get('grok-api-key')).toBe('xai-new-key');
@@ -173,19 +177,22 @@ describe('secrets encrypted in the database (no credential store)', () => {
     expect(parseSecretsKey(readFileSync(join(dir, 'made by hint.key'), 'utf8'))).toHaveLength(32);
   });
 
-  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('refuses a key file of its own it cannot read, rather than make a new one', () => {
-    open().set('grok-api-key', 'xai-1234');
-    const own = join(data, SECRETS_KEY_NAME);
-    const before = readFileSync(own, 'utf8');
-    chmodSync(own, 0o000);
-    try {
-      expect(() => open()).toThrow(/cannot read the secrets key file .*secrets\.key: EACCES.*put the file back/);
-    } finally {
-      chmodSync(own, 0o600);
-    }
-    expect(readFileSync(own, 'utf8')).toBe(before);
-    expect(open().get('grok-api-key')).toBe('xai-1234');
-  });
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'refuses a key file of its own it cannot read, rather than make a new one',
+    () => {
+      open().set('grok-api-key', 'xai-1234');
+      const own = join(data, SECRETS_KEY_NAME);
+      const before = readFileSync(own, 'utf8');
+      chmodSync(own, 0o000);
+      try {
+        expect(() => open()).toThrow(/cannot read the secrets key file .*secrets\.key: EACCES.*put the file back/);
+      } finally {
+        chmodSync(own, 0o600);
+      }
+      expect(readFileSync(own, 'utf8')).toBe(before);
+      expect(open().get('grok-api-key')).toBe('xai-1234');
+    },
+  );
 
   it.skipIf(process.platform === 'win32')('keeps its own key file owner-only, and warns about one of the user’s that is not', () => {
     open();
@@ -208,8 +215,18 @@ describe('secrets encrypted in the database (no credential store)', () => {
     const before = new SettingsStore(db);
     before.update('grok', { apiKey: 'xai-plaintext-grok-key' });
     before.backends.setApiKey('openai', 'sk-plaintext-openai-key');
-    before.backends.putEndpoint('homelab', { name: 'Homelab', baseUrl: 'http://lab:8000/v1', models: ['qwen'], apiKey: 'lab-plaintext-key' });
-    before.tools.saveServer('github', { transport: 'stdio', command: 'npx', args: [], env: [{ name: 'GITHUB_TOKEN', value: 'ghp_plaintext_token' }] });
+    before.backends.putEndpoint('homelab', {
+      name: 'Homelab',
+      baseUrl: 'http://lab:8000/v1',
+      models: ['qwen'],
+      apiKey: 'lab-plaintext-key',
+    });
+    before.tools.saveServer('github', {
+      transport: 'stdio',
+      command: 'npx',
+      args: [],
+      env: [{ name: 'GITHUB_TOKEN', value: 'ghp_plaintext_token' }],
+    });
     const plain = ['xai-plaintext-grok-key', 'sk-plaintext-openai-key', 'lab-plaintext-key', 'ghp_plaintext_token'];
     expect(plain.every(onDisk)).toBe(true);
 
@@ -220,13 +237,18 @@ describe('secrets encrypted in the database (no credential store)', () => {
     expect(s.backends.view().endpoints[0]).toMatchObject({ id: 'homelab', keyStorage: 'encrypted' });
     expect(s.tools.view().secretStorage).toBe('encrypted');
     expect(s.tools.view().mcpServers[0]!.env).toEqual([{ name: 'GITHUB_TOKEN', masked: expect.any(String) }]);
-    expect(rows().map((r) => r.name)).toEqual(expect.arrayContaining(['grok-api-key', 'backend-openai-api-key', 'endpoint-homelab-api-key']));
+    expect(rows().map((r) => r.name)).toEqual(
+      expect.arrayContaining(['grok-api-key', 'backend-openai-api-key', 'endpoint-homelab-api-key']),
+    );
     for (const text of plain) expect(onDisk(text), text).toBe(false);
 
     // And the next start reads them all back from there.
     const again = new SettingsStore(db, open());
     expect(again.env('grok').XAI_API_KEY).toBe('xai-plaintext-grok-key');
-    expect(again.backends.forRun()).toMatchObject({ apis: { openai: 'sk-plaintext-openai-key' }, endpoints: [{ id: 'homelab', apiKey: 'lab-plaintext-key' }] });
+    expect(again.backends.forRun()).toMatchObject({
+      apis: { openai: 'sk-plaintext-openai-key' },
+      endpoints: [{ id: 'homelab', apiKey: 'lab-plaintext-key' }],
+    });
     expect(again.tools.view().mcpServers[0]!.env).toEqual(s.tools.view().mcpServers[0]!.env);
   });
 
@@ -235,7 +257,11 @@ describe('secrets encrypted in the database (no credential store)', () => {
   it.each([
     ['a CLI API key', (st: SettingsStore) => st.update('grok', { apiKey: 'plaintext-left-behind' })],
     ["a model backend's key", (st: SettingsStore) => st.backends.setApiKey('xai', 'plaintext-left-behind')],
-    ["an MCP server's value", (st: SettingsStore) => st.tools.saveServer('gh', { transport: 'stdio', command: 'x', args: [], env: [{ name: 'T', value: 'plaintext-left-behind' }] })],
+    [
+      "an MCP server's value",
+      (st: SettingsStore) =>
+        st.tools.saveServer('gh', { transport: 'stdio', command: 'x', args: [], env: [{ name: 'T', value: 'plaintext-left-behind' }] }),
+    ],
   ])('leaves no copy of %s as it was in the database files once it moved it', (_what, save) => {
     save(new SettingsStore(db));
     expect(inFiles('plaintext-left-behind')).toBe(true);
@@ -253,9 +279,15 @@ describe('secrets encrypted in the database (no credential store)', () => {
     expect(after.backends.view().apis.find((a) => a.id === 'openai')).toMatchObject({ keyUnreadable: true, keyStorage: 'encrypted' });
     expect(after.backends.forRun().apis).toEqual({});
     // Saved without its values, the server would lose them: refused; and agents do not get it.
-    expect(() => after.tools.saveServer('github', { transport: 'stdio', command: 'npx', args: ['-y'], env: [{ name: 'GITHUB_TOKEN' }], previousName: 'github' })).toThrow(
-      /讀不到 MCP 伺服器「github」.*加密它們的金鑰檔不見了/,
-    );
+    expect(() =>
+      after.tools.saveServer('github', {
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y'],
+        env: [{ name: 'GITHUB_TOKEN' }],
+        previousName: 'github',
+      }),
+    ).toThrow(/讀不到 MCP 伺服器「github」.*加密它們的金鑰檔不見了/);
     after.update('codex', { bin: '/opt/codex' });
     after.backends.putEndpoint('lab', { name: 'Lab', baseUrl: 'http://lab:8000/v1', models: ['m'] });
     expect(rows().map((r) => r.name)).toEqual(['backend-openai-api-key', expect.stringMatching(/^mcp-/)]);
@@ -308,7 +340,9 @@ describe('secrets encrypted in the database (no credential store)', () => {
     warn.mockClear();
     const without = open({}, keyring);
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('1 secret(s) kept encrypted in the database (cursor-api-key) cannot be read or moved'));
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('1 secret(s) kept encrypted in the database (cursor-api-key) cannot be read or moved'),
+    );
     expect(() => without.get('cursor-api-key')).toThrow(/cannot be read: cannot read the secrets key file/);
     expect(without.get('claude-api-key')).toBe('sk-ant-moved');
     expect(existsSync(join(data, SECRETS_KEY_NAME))).toBe(false);

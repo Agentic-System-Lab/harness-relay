@@ -27,7 +27,8 @@ export const en: Messages = {
     clickToCopy: 'Click to copy',
     listSeparator: ', ',
     partFailed: 'This part of the page could not be loaded (Harness Relay may have just been updated). Reload the page to try again.',
-    partBroken: 'This part of the page ran into a problem and could not be shown. Reload the page; if it happens again, please report the problem.',
+    partBroken:
+      'This part of the page ran into a problem and could not be shown. Reload the page; if it happens again, please report the problem.',
     reload: 'Reload',
   },
   modes: {
@@ -35,7 +36,10 @@ export const en: Messages = {
       label: 'Roundtable',
       hint: 'Members speak in turn and see what earlier speakers said; several rounds possible, ending early when everyone passes.',
     },
-    parallel: { label: 'Parallel', hint: "Everyone answers each round at the same time, independently; the next round sees each other's answers." },
+    parallel: {
+      label: 'Parallel',
+      hint: "Everyone answers each round at the same time, independently; the next round sees each other's answers.",
+    },
     relay: { label: 'Relay', hint: 'One member at a time; the teammate who is @mentioned takes over, or the floor comes back to you.' },
   },
   permissions: {
@@ -68,7 +72,14 @@ export const en: Messages = {
     replying: 'Replying',
     deleteConversation: 'Delete conversation',
     waiting: 'Needs your approval',
-    status: { waiting: 'Needs you', confirm: 'Confirm the team', answer: 'Answer needed', running: 'Replying', error: 'Error', unread: 'New reply' },
+    status: {
+      waiting: 'Needs you',
+      confirm: 'Confirm the team',
+      answer: 'Answer needed',
+      running: 'Replying',
+      error: 'Error',
+      unread: 'New reply',
+    },
     confirmDelete: (title) => `Delete the conversation "${title}"?`,
     confirmDeleteBranched: (title, n) =>
       `Delete the conversation "${title}"? ${n === 1 ? 'The conversation branched from it is' : `The ${n} conversations branched from it are`} kept.`,
@@ -146,7 +157,8 @@ export const en: Messages = {
     editTitle: (name) => `Edit the template "${name}"`,
     builtinTitle: (name) => `Built-in template "${name}"`,
     builtinNote: 'Built-in templates cannot be changed; adjust this one and save it as a template of your own.',
-    moved: (names) => `${names} used a CLI that cannot run on this computer yet (not installed, or not signed in), so they now use one that can; saving the template keeps them so.`,
+    moved: (names) =>
+      `${names} used a CLI that cannot run on this computer yet (not installed, or not signed in), so they now use one that can; saving the template keeps them so.`,
     name: 'Template name',
     namePlaceholder: 'e.g. Frontend and backend',
     description: 'Description',
@@ -164,7 +176,8 @@ export const en: Messages = {
   team: {
     members: 'Team members',
     currentMembers: 'Current team',
-    currentNote: 'The lead agent chooses the team again for each new question (it may keep this one). Changes here apply to the replies that follow.',
+    currentNote:
+      'The lead agent chooses the team again for each new question (it may keep this one). Changes here apply to the replies that follow.',
     proposedMembers: "The lead agent's proposed team",
     autoConfirm: "Use the lead agent's team without asking me",
     autoConfirmHint: {
@@ -183,7 +196,8 @@ export const en: Messages = {
     moveUp: 'Move up',
     moveDown: 'Move down',
     role: 'Position / role',
-    rolePlaceholder: 'e.g. You are a senior backend engineer responsible for API design and implementation.\nWhen done, ask @Reviewer for a review.',
+    rolePlaceholder:
+      'e.g. You are a senior backend engineer responsible for API design and implementation.\nWhen done, ask @Reviewer for a review.',
     notLoggedIn: (p) => `${p} is not signed in.`,
     noBackend: (p) => `${p} cannot run yet: it needs a model backend set up in Settings.`,
     cliMissing: (p) => `${p} CLI not found.`,
@@ -206,7 +220,7 @@ export const en: Messages = {
     cwdFull: (max) => `At most ${max} working directories`,
     permission: 'File permission (shared by all members)',
     parallelNote:
-      "Parallel mode: each member works in its own git worktree, so nobody overwrites anyone; review the diffs in the chat, then choose whose result to apply.",
+      'Parallel mode: each member works in its own git worktree, so nobody overwrites anyone; review the diffs in the chat, then choose whose result to apply.',
     sharedNote:
       'Members change files directly in the working directory and every turn records what changed; only one conversation at a time may change a directory.',
     gitInitNote: ' If the working directory is not a git repository yet, git init runs automatically.',
@@ -222,7 +236,8 @@ export const en: Messages = {
     noDefaultModel: 'No default model: pick one',
     tools: 'Tools',
     toolsOwnSetup: {
-      own: (cli) => `${cli} also loads its own setup, such as its skills and MCP servers: Settings → ${cli} lists what it loads in the default working directory.`,
+      own: (cli) =>
+        `${cli} also loads its own setup, such as its skills and MCP servers: Settings → ${cli} lists what it loads in the default working directory.`,
       open: (cli) =>
         `In Harness Relay, ${cli} runs with a config folder of Harness Relay's own instead of its own one in your home folder, so what you set up there (MCP servers, say) is not read; what it still loads by itself (the project's AGENTS.md, say) is listed in Settings → ${cli}, for the default working directory.`,
     },
@@ -271,12 +286,14 @@ export const en: Messages = {
     credits: (n) => `Credits left: ${n}`,
     creditsUnlimited: 'Credits: unlimited',
     none: {
-      apiKey: "This account runs on an API key: the provider bills it by use, so it has no plan limits, and a regular API key cannot read the balance left. See the provider's console.",
+      apiKey:
+        "This account runs on an API key: the provider bills it by use, so it has no plan limits, and a regular API key cannot read the balance left. See the provider's console.",
       signedOut: 'Not signed in: no plan usage.',
       noAllowance: "This account's plan has no subscription allowance (it is billed by use).",
       unlimited: "This account's plan has no usage limits.",
       noData: 'No usage yet in this window (the CLI may have none before its first use in a new window).',
-      unavailable: 'The CLI reports no plan limits for how this account signs in (such as a token from claude setup-token, Bedrock or Vertex).',
+      unavailable:
+        'The CLI reports no plan limits for how this account signs in (such as a token from claude setup-token, Bedrock or Vertex).',
     },
     problem: {
       timedOut: 'The CLI did not answer in time.',
@@ -284,7 +301,8 @@ export const en: Messages = {
       cliMissing: (cli) => `${cli}'s CLI was not found.`,
     },
     notReported: {
-      cursor: "Cursor's CLI shows usage only in its own terminal UI (/usage), with no way for another program to ask: see the dashboard on Cursor's website.",
+      cursor:
+        "Cursor's CLI shows usage only in its own terminal UI (/usage), with no way for another program to ask: see the dashboard on Cursor's website.",
       other: 'This CLI does not report plan usage.',
     },
   },
@@ -339,7 +357,8 @@ export const en: Messages = {
     placeholderNext: 'Ask a new question (the lead agent builds a team first), or @mention a member to ask them…',
     placeholderConfirm: 'The team answers once you confirm it; what you write now goes with it…',
     placeholderDesigning: 'The lead agent is choosing the team; what you write now goes to the team with your question…',
-    placeholderReviewing: 'The lead agent is reviewing the replies; sending a message stops the review and sends it now (the next review reads these replies too)…',
+    placeholderReviewing:
+      'The lead agent is reviewing the replies; sending a message stops the review and sends it now (the next review reads these replies too)…',
     placeholderBusy: 'Add to the discussion… (delivered before the next turn)',
     placeholderAnswer: (names) => `Answer ${names}…`,
     asking: (names) => `Waiting for your answer: ${names}`,
@@ -356,19 +375,23 @@ export const en: Messages = {
     autoIntroTitle: 'The lead agent builds the team first',
     autoIntro: (lead, asks) =>
       `Just ask your question. The lead agent (${lead}) picks a suitable template, adapts one, or designs a new team, and ${asks ? 'once you confirm it the team answers' : 'the team answers right away'}. Every new question gets its team the same way; a message that @mentions a member goes straight to them.`,
-    drawerNote: "Role changes apply from the next turn. Switching a member's coding agent makes it re-read the conversation from the start.",
+    drawerNote:
+      "Role changes apply from the next turn. Switching a member's coding agent makes it re-read the conversation from the start.",
     confirmCreateCwd: (dirs) => `These working directories do not exist:\n${dirs}\nCreate them and save the team settings?`,
     drawerBusy: 'The team is replying; stop it to save',
     drawerReviewing: "The lead agent is reviewing the team's replies; stop it to save",
     drawerBusyReview: ' (lead review alone can be saved now)',
-    drawerPending: "You are adjusting the team the lead agent proposed, which waits for your confirmation: saving uses this team, and it then answers your question.",
-    drawerChanged: 'The team changed while you were editing (for example, the lead agent designed it). Load it, then make your changes again.',
+    drawerPending:
+      'You are adjusting the team the lead agent proposed, which waits for your confirmation: saving uses this team, and it then answers your question.',
+    drawerChanged:
+      'The team changed while you were editing (for example, the lead agent designed it). Load it, then make your changes again.',
     drawerReload: 'Load the current team',
   },
 
   revise: {
     title: 'Ask the lead agent',
-    hint: (lead) => `Say how the team should change, and the lead agent (${lead}) changes the team below; it is used once you review it and press Save.`,
+    hint: (lead) =>
+      `Say how the team should change, and the lead agent (${lead}) changes the team below; it is used once you review it and press Save.`,
     placeholder: 'For example: add a tester on Codex, switch to relay, have the Reviewer focus on security',
     submit: 'Ask the lead agent',
     working: (lead) => `The lead agent (${lead}) is changing the team…`,
@@ -406,13 +429,16 @@ export const en: Messages = {
     button: 'Schedule',
     buttonTitle: 'Send the team a message automatically at set times',
     title: 'Schedule',
-    intro: 'At the times you set, this message is sent to the team of this conversation (here, or in a new chat each time if you choose), as if you had sent it. Harness Relay must be running for it to send.',
+    intro:
+      'At the times you set, this message is sent to the team of this conversation (here, or in a new chat each time if you choose), as if you had sent it. Harness Relay must be running for it to send.',
     message: 'Message to send the team',
     messagePlaceholder: 'For example: @Reviewer look at the pull requests merged yesterday and list the risks.',
     messageHint: 'As usual, when you @mention members, only they answer.',
-    messageHintNoTeam: 'No team yet: the names the message @mentions go to the lead agent, which names the members after them; then only the members @mentioned answer.',
+    messageHintNoTeam:
+      'No team yet: the names the message @mentions go to the lead agent, which names the members after them; then only the members @mentioned answer.',
     mentions: {
-      notOnTeam: (names, n) => `${names} in the message ${n > 1 ? 'are' : 'is'} not on this team, so ${n > 1 ? 'they reach' : 'it reaches'} nobody`,
+      notOnTeam: (names, n) =>
+        `${names} in the message ${n > 1 ? 'are' : 'is'} not on this team, so ${n > 1 ? 'they reach' : 'it reaches'} nobody`,
       notOnTeamScheduled: (names, n) =>
         `${names} in the scheduled message ${n > 1 ? 'are' : 'is'} not on this team, so ${n > 1 ? 'they reach' : 'it reaches'} nobody`,
       wholeTeam: '; with no member @mentioned, the whole team answers.',
@@ -438,7 +464,8 @@ export const en: Messages = {
       on: 'Each time, a new chat opens with the same team, settings, "always allow" answers and sidebar group, and the message is sent there. Every run starts with a clean context, but the agents do not remember earlier runs: have them keep what must carry over in a file in the working directory.',
       off: 'The message is sent in this chat: the agents continue their sessions and remember earlier runs, and the chat keeps growing.',
     },
-    newChatParallel: 'In parallel mode each new chat gets worktrees and relay/* branches of its own, removed only when you delete that chat.',
+    newChatParallel:
+      'In parallel mode each new chat gets worktrees and relay/* branches of its own, removed only when you delete that chat.',
     openChat: 'Open the chat',
     sentInNewChat: 'Sent in a new chat',
     unattended: 'When nobody is watching',
@@ -469,8 +496,10 @@ export const en: Messages = {
     remove: 'Delete schedule',
     confirmRemove: 'Delete this schedule?',
     saving: 'Saving…',
-    needsTeam: 'Confirm a team before you set a schedule: in a new chat, ask a question first, then confirm the team the lead agent chose for it; or start from New schedule in the sidebar.',
-    confirmTeamFirst: 'The lead agent has designed a team for this schedule: confirm it in the chat. The schedule runs, and can be changed, once it is confirmed.',
+    needsTeam:
+      'Confirm a team before you set a schedule: in a new chat, ask a question first, then confirm the team the lead agent chose for it; or start from New schedule in the sidebar.',
+    confirmTeamFirst:
+      'The lead agent has designed a team for this schedule: confirm it in the chat. The schedule runs, and can be changed, once it is confirmed.',
     designingTeam: 'The lead agent is designing a team for this schedule…',
     noTeamYet: 'This schedule has no team yet: its times are skipped until it has one.',
     designTeam: 'Have the lead agent design the team',
@@ -519,7 +548,8 @@ export const en: Messages = {
     },
     goal: 'Goal to track (optional)',
     goalPlaceholder: 'For example: CI on main passes and issue #42 is closed.',
-    goalHint: 'Say what done means. Each run, the agents see the goal and what earlier runs reported (also in a new chat each time), and report where it stands; once one says it is done, the schedule switches off. A run whose replies all fail is tried again after 5, 30 and 120 minutes.',
+    goalHint:
+      'Say what done means. Each run, the agents see the goal and what earlier runs reported (also in a new chat each time), and report where it stands; once one says it is done, the schedule switches off. A run whose replies all fail is tried again after 5, 30 and 120 minutes.',
     goalTooLong: (max) => `A goal can be at most ${max} characters`,
     progress: {
       label: 'Progress on the goal',
@@ -531,7 +561,8 @@ export const en: Messages = {
     },
     hook: {
       title: 'Webhook',
-      intro: 'A program on this computer (a git hook, a CI runner, `gh webhook forward`) can call this address to send the schedule\'s message now; the JSON it posts goes after the message, as data for the agents. It works while the schedule\'s times are off too.',
+      intro:
+        "A program on this computer (a git hook, a CI runner, `gh webhook forward`) can call this address to send the schedule's message now; the JSON it posts goes after the message, as data for the agents. It works while the schedule's times are off too.",
       create: 'Add a webhook',
       replace: 'New token',
       remove: 'Remove webhook',
@@ -584,7 +615,8 @@ export const en: Messages = {
     askWaiting: 'Waiting for your answer',
     askNote: (name) => `Reply below: @${name} gives its full answer with yours in hand, then the team goes on.`,
     askSkip: 'Skip, let the team go on',
-    queuedTitle: 'Sent while the team was replying and delivered before a later turn; whoever was speaking then sees it on their next turn.',
+    queuedTitle:
+      'Sent while the team was replying and delivered before a later turn; whoever was speaking then sees it on their next turn.',
     tokensIn: (n) => `${n} in`,
     tokensOut: (n) => `${n} out`,
   },
@@ -618,14 +650,16 @@ export const en: Messages = {
     port: 'port',
     securityLabel: 'security',
     security: { tls: 'TLS', starttls: 'STARTTLS', none: 'None (this computer only)' },
-    mailHint: 'IMAP reads mail and saves drafts; SMTP sends what you Send from the outbox. Encryption is required, but to a server on this computer (a local bridge).',
+    mailHint:
+      'IMAP reads mail and saves drafts; SMTP sends what you Send from the outbox. Encryption is required, but to a server on this computer (a local bridge).',
     calendarUrl: "The calendar's address, or its server's",
     inviteFrom: 'Invitations come from (your address)',
     find: 'Find calendars',
     finding: 'Looking…',
     noneFound: 'No calendars found there.',
     foundLabel: 'Calendars found',
-    calendarHint: "Give your calendar server's address and Find calendars to pick one, or the calendar's own address. Invitations go out from the calendar server, as it sends them.",
+    calendarHint:
+      "Give your calendar server's address and Find calendars to pick one, or the calendar's own address. Invitations go out from the calendar server, as it sends them.",
     test: 'Test',
     testing: 'Trying…',
     testOk: 'Connected.',
@@ -689,7 +723,7 @@ export const en: Messages = {
     declined: 'Not used; the current team answered',
     aborted: 'Team design was stopped; Continue or a new question chooses the team again.',
     planningSchedule: (lead) => `The lead agent (${lead}) is designing a team for this schedule…`,
-    confirmHintSchedule: 'Once you confirm this team, it gets the message at the schedule\'s times; nothing runs now.',
+    confirmHintSchedule: "Once you confirm this team, it gets the message at the schedule's times; nothing runs now.",
     abortedSchedule: 'The team design was stopped; "Have the lead agent design the team" in the schedule window designs it again.',
   },
 
@@ -728,7 +762,8 @@ export const en: Messages = {
 
   changes: {
     status: { A: 'Added', M: 'Modified', D: 'Deleted' },
-    confirmApply: (name) => `Apply @${name}'s changes to the working directory?\nThis changes the files in your working directory (nothing is committed).`,
+    confirmApply: (name) =>
+      `Apply @${name}'s changes to the working directory?\nThis changes the files in your working directory (nothing is committed).`,
     files: (n) => (n === 1 ? 'Changed 1 file' : `Changed ${n} files`),
     inWorktree: (branch) => `in worktree · ${branch}`,
     written: 'Written to the working directory',
@@ -753,7 +788,8 @@ export const en: Messages = {
     sendLabel: 'Send',
     queueLabel: 'Add to the discussion',
     hint: 'Enter to send · Shift+Enter for a new line · type @ to address members (only they reply) · paste or drop files to attach',
-    hintBusy: (mod) => `Enter to add it (delivered before the next turn) · ${mod}+Enter to stop and ask this instead · Shift+Enter for a new line`,
+    hintBusy: (mod) =>
+      `Enter to add it (delivered before the next turn) · ${mod}+Enter to stop and ask this instead · Shift+Enter for a new line`,
     hintConfirm: 'Enter to send (the team gets it once you confirm the team) · Shift+Enter for a new line',
     hintTouch: '↑ to send · Enter for a new line · type @ to address members (only they reply) · 📎 to attach files',
     hintBusyTouch: '↑ to add it (delivered before the next turn) · Enter for a new line',
@@ -804,7 +840,11 @@ export const en: Messages = {
     accel: { metal: 'Metal GPU', cpu: 'CPU', unknown: '' },
     engineMissingHomebrew: 'Not installed; installing runs brew install whisper-cpp.',
     engineMissingDownload: (size) => `Not installed; installing downloads the official whisper.cpp build from GitHub (${size}).`,
-    server: { stopped: 'Not running (starts on first use, stops after 10 idle minutes)', starting: 'Starting, loading the model…', running: 'Running' },
+    server: {
+      stopped: 'Not running (starts on first use, stops after 10 idle minutes)',
+      starting: 'Starting, loading the model…',
+      running: 'Running',
+    },
     models: 'Models',
     modelsHint: 'Larger models are more accurate but slower and bigger. Without a GPU, Small is the better choice.',
     model: {
@@ -863,16 +903,20 @@ export const en: Messages = {
 
   signIn: {
     title: 'Sign in to Harness Relay',
-    intro: 'This browser is not signed in yet. Harness Relay takes only browsers that signed in, so other programs on this computer, code an agent runs in its sandbox included, cannot drive it.',
+    intro:
+      'This browser is not signed in yet. Harness Relay takes only browsers that signed in, so other programs on this computer, code an agent runs in its sandbox included, cannot drive it.',
     codeLabel: 'Sign-in code',
     submit: 'Sign in',
     signingIn: 'Signing in…',
     noAnswer: 'Harness Relay did not answer. Check that it is still running, then try again.',
     whereTitle: 'Where the code comes from',
-    whereTerminal: 'The sign-in link Harness Relay printed in its terminal when it started: opening it signs you in (once, within an hour).',
+    whereTerminal:
+      'The sign-in link Harness Relay printed in its terminal when it started: opening it signs you in (once, within an hour).',
     whereLogin: 'Or run this in the Harness Relay folder:',
-    whereDesktop: "Choose Open in browser in the desktop app's menu (its icon in the menu bar or system tray): it opens the chat in your browser with a new sign-in link.",
-    whereDesktopWindow: "Choose Open Harness Relay in the app's menu (its icon in the menu bar or system tray): this window signs in again with a new link.",
+    whereDesktop:
+      "Choose Open in browser in the desktop app's menu (its icon in the menu bar or system tray): it opens the chat in your browser with a new sign-in link.",
+    whereDesktopWindow:
+      "Choose Open Harness Relay in the app's menu (its icon in the menu bar or system tray): this window signs in again with a new link.",
     whereOther: 'Or from a browser that is signed in: Settings → Signed-in browsers → Sign in another device (a phone, say).',
   },
 
@@ -885,17 +929,20 @@ export const en: Messages = {
     notifyPage: 'Tells you while Harness Relay is open in this browser (in a background tab, or with its window behind another one).',
     notifyApp: "Tells you while the desktop app's window is open; not once it is closed.",
     sound: 'Play a sound',
-    soundHint: "Played while the page is open: two notes when a reply is done, three when you are needed. A push notification on a locked phone makes the system's notification sound.",
+    soundHint:
+      "Played while the page is open: two notes when a reply is done, three when you are needed. A push notification on a locked phone makes the system's notification sound.",
     when: 'Tell me when',
     done: 'A reply is done (or ended with an error)',
     needs: 'I am needed: an approval, a team to confirm, a question',
     test: 'Send a test notification',
-    testSent: "Test notification sent: it may take a moment to arrive. If it never does, check that the browser and the system allow this site's notifications.",
+    testSent:
+      "Test notification sent: it may take a moment to arrive. If it never does, check that the browser and the system allow this site's notifications.",
     testLocal: 'Test notification shown.',
     support: {
       insecure:
         'This address is not HTTPS, so the browser allows no notifications. On a phone, open the https:// address tailscale serve gives (see "Use it from your phone" in the docs); on this computer, open it at localhost.',
-      install: 'On an iPhone or iPad, add Harness Relay to the Home Screen first (Share → Add to Home Screen) and open it from there to turn notifications on.',
+      install:
+        'On an iPhone or iPad, add Harness Relay to the Home Screen first (Share → Add to Home Screen) and open it from there to turn notifications on.',
       unsupported: 'This browser has no notifications.',
     },
     denied: "Notifications are blocked for this site: allow them in the browser's site settings, then come back to turn them on.",
@@ -920,7 +967,8 @@ export const en: Messages = {
     confirmCurrent: 'Sign this browser out? It will need a new code to sign in again.',
     confirm: (label) => `Sign out "${label}"?`,
     add: 'Sign in another device',
-    codeHint: (until) => `Type this code on the sign-in page of the other device (a phone through Tailscale, say), or open the link below. It works once, until ${until}.`,
+    codeHint: (until) =>
+      `Type this code on the sign-in page of the other device (a phone through Tailscale, say), or open the link below. It works once, until ${until}.`,
     link: 'Link:',
   },
 
@@ -953,7 +1001,8 @@ export const en: Messages = {
       removeUpload: 'Remove upload',
       removing: 'Removing…',
       uploadFirst: 'Upload the screenshots, or remove them, to send.',
-      notLinked: 'These screenshots were uploaded after the mail went, so it does not link to them: send again to include them. Closing the dialog deletes them.',
+      notLinked:
+        'These screenshots were uploaded after the mail went, so it does not link to them: send again to include them. Closing the dialog deletes them.',
       fallback: 'Or remove the screenshots, and drag them into the mail once it opens.',
       alt: (n) => `Screenshot ${n}`,
       remove: (n) => `Remove screenshot ${n}`,
@@ -1029,7 +1078,8 @@ export const en: Messages = {
     notOnScreen: 'Could not make the page from the chat on screen. Reload and try again.',
     files: {
       heading: 'Files the replies link to',
-      warning: 'The files you check go up with the page, into a second secret gist, and its links point at them: anyone with the link can download them.',
+      warning:
+        'The files you check go up with the page, into a second secret gist, and its links point at them: anyone with the link can download them.',
       hint: (file, total, max) =>
         `Any kind of file (text, PDF, slides, images…), up to ${file} each, and ${total} or ${max} files in all. Links to files left unchecked become plain text on the page, with nothing to download.`,
       checking: 'Checking the files the replies link to…',
@@ -1047,7 +1097,8 @@ export const en: Messages = {
       included: (n) => `${n} ${n === 1 ? 'file is' : 'files are'} included: anyone with the link can download ${n === 1 ? 'it' : 'them'}.`,
     },
     page: {
-      tagline: 'A local task assistant in which the real Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and Muse Code CLIs and open-source coding agents work together',
+      tagline:
+        'A local task assistant in which the real Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and Muse Code CLIs and open-source coding agents work together',
       note: (date) => `Shared ${date}`,
       site: "Harness Relay's website",
       image: (name) => `(Image not included${name ? `: ${name}` : ''})`,
@@ -1062,7 +1113,8 @@ export const en: Messages = {
       linuxGuide: 'install guide',
       login: 'Sign in to GitHub by running this command in a terminal (choose GitHub.com, then follow the steps in the browser): ',
       signInHere: 'Sign in here: GitHub gives you a code to enter on its page, no terminal needed.',
-      signInScope: "It signs in the GitHub CLI on that computer, with gh's usual access (repositories, organizations, gists), for every program there that uses gh, the agents included.",
+      signInScope:
+        "It signs in the GitHub CLI on that computer, with gh's usual access (repositories, organizations, gists), for every program there that uses gh, the agents included.",
       signIn: 'Sign in to GitHub',
       signedIn: 'Signed in to GitHub.',
       orTerminal: 'Or run this command in a terminal on that computer (choose GitHub.com, then follow the steps in the browser): ',
@@ -1104,19 +1156,22 @@ export const en: Messages = {
       hint: 'Tools Harness Relay serves itself, through one MCP server it gives each member (relay): the same for every CLI, with their passwords kept here, never given to a CLI. What a call reads runs; what changes something somewhere (a click on a page, a mail draft) asks you below full access, like any action; what reaches other people (a mail, an invitation) never goes in the turn: it waits in the outbox, a card in the chat, until you click Send. The open-source agents do not get them yet.',
       groups: { browser: 'Browser', mail: 'Mail', calendar: 'Calendar' },
       groupHints: {
-        browser: 'A browser of its own (Chromium, Chrome or Edge, headless, with a profile of its own per chat): open pages, read them, click and type, and screenshots shown in the chat.',
+        browser:
+          'A browser of its own (Chromium, Chrome or Edge, headless, with a profile of its own per chat): open pages, read them, click and type, and screenshots shown in the chat.',
         mail: 'Search and read mail, save drafts, and send through the outbox: needs a mail account below.',
         calendar: 'List events and add them (with attendees, through the outbox): needs a calendar below.',
       },
       unavailable: {
         'not-started': 'Not available now: the server could not start them (its log says why).',
-        'no-node': 'Not available in the desktop app without a Node.js 22.12 or later on your PATH, or the one Settings → Sandboxes installs.',
+        'no-node':
+          'Not available in the desktop app without a Node.js 22.12 or later on your PATH, or the one Settings → Sandboxes installs.',
       },
     },
     title: 'Tool library',
-    hint: 'MCP servers, skills and memory here are given to members, the same way for every CLI (Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and the open-source agents), in addition to each CLI\'s own setup. Give each one to every member, or only to the members of some CLIs; to change it for a single member, use the Tools field on that member\'s card under New chat, or Team settings in a chat\'s header. Changes take effect from a member\'s next turn.',
+    hint: "MCP servers, skills and memory here are given to members, the same way for every CLI (Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and the open-source agents), in addition to each CLI's own setup. Give each one to every member, or only to the members of some CLIs; to change it for a single member, use the Tools field on that member's card under New chat, or Team settings in a chat's header. Changes take effect from a member's next turn.",
     mcp: 'MCP servers',
-    mcpHint: "Their tool calls follow the conversation's permission like any other action: anything beyond it asks you, or is refused if you chose so.",
+    mcpHint:
+      "Their tool calls follow the conversation's permission like any other action: anything beyond it asks you, or is refused if you chose so.",
     addMcp: 'Add MCP server',
     noMcp: 'No MCP servers yet.',
     name: 'Name',
@@ -1142,7 +1197,8 @@ export const en: Messages = {
     confirmRemove: (name) => `Delete the MCP server "${name}"?`,
     secretsIn: (where) => `Variable and header values are kept in ${where}; only masked values are shown.`,
     skills: 'Skills',
-    skillsHint: "Add a folder with a SKILL.md, or a folder of skills (for example ~/.claude/skills: you pick from every skill in it). Members' briefings list each skill's name and purpose, and agents read its SKILL.md when they need it. These skills come in addition to each CLI's own: skills a CLI reads by itself (such as Claude Code from ~/.claude/skills) keep working even if they are not added here.",
+    skillsHint:
+      "Add a folder with a SKILL.md, or a folder of skills (for example ~/.claude/skills: you pick from every skill in it). Members' briefings list each skill's name and purpose, and agents read its SKILL.md when they need it. These skills come in addition to each CLI's own: skills a CLI reads by itself (such as Claude Code from ~/.claude/skills) keep working even if they are not added here.",
     skillPath: 'Skill folder path',
     addSkill: 'Add',
     noSkills: 'No skills yet.',
@@ -1156,7 +1212,8 @@ export const en: Messages = {
     alreadyAdded: 'added',
     addSelected: (n) => `Add ${n}`,
     memory: 'Memory',
-    memoryHint: "Notes for members, such as your preferences and project conventions, put in members' briefings in every conversation. Everyone gets \"All members\"; each CLI's tab goes only to that CLI's members, after the shared part.",
+    memoryHint:
+      "Notes for members, such as your preferences and project conventions, put in members' briefings in every conversation. Everyone gets \"All members\"; each CLI's tab goes only to that CLI's members, after the shared part.",
     memoryFor: (scope) => `Memory: ${scope}`,
     memoryPlaceholder: 'For example: Lead with the conclusion. Indent code with 2 spaces.',
     chars: (n, max) => `${n} / ${max} characters`,
@@ -1166,9 +1223,10 @@ export const en: Messages = {
     title: 'Skills, MCP servers, hooks, memory and more this CLI loads by itself',
     summary: (s, m, f) => `${s} skills · ${m} MCP · ${f} files`,
     hint: "This is the CLI's own setup, separate from the tool library, for the default working directory. Asking starts the CLI briefly, without calling a model; Claude Code and Codex start their MCP servers, and Claude Code runs your hooks. When something is left out, the CLI is asked again the way Harness Relay starts it, and what it then leaves out is marked. Answers are kept for a minute.",
-    perAccount: "Each account has a CLI folder of its own: this lists what this account loads, and what is left out here applies to this account only.",
+    perAccount:
+      'Each account has a CLI folder of its own: this lists what this account loads, and what is left out here applies to this account only.',
     offHint:
-      "\"Leave out\" applies only when Harness Relay starts this CLI: the CLI's own settings files are not changed, and using it in a terminal is not affected. The tool library's items are still provided. Each tab can leave out all of its kind, or, once the CLI has been asked, single items.",
+      '"Leave out" applies only when Harness Relay starts this CLI: the CLI\'s own settings files are not changed, and using it in a terminal is not affected. The tool library\'s items are still provided. Each tab can leave out all of its kind, or, once the CLI has been asked, single items.',
     load: 'Ask',
     reload: 'Ask again',
     loading: 'Asking…',
@@ -1187,7 +1245,7 @@ export const en: Messages = {
     tabPicked: (n) => `${n} left out`,
     filter: 'Filter',
     none: 'None.',
-    askFirst: "Ask the CLI to list what it loads, then tick single items to leave out.",
+    askFirst: 'Ask the CLI to list what it loads, then tick single items to leave out.',
     notListed: 'This CLI does not report this list.',
     off: 'off',
     leftOut: 'left out',
@@ -1212,16 +1270,18 @@ export const en: Messages = {
     claudeMcp:
       'Claude Code: a ticked MCP server still starts; only its tools are kept from the agents. To keep the servers from starting, use "Leave all out".',
     codexMcp:
-      "Codex: only the MCP servers in your config files are listed; plugins' servers are set on the Plugins tab, and ChatGPT apps go with \"Leave all out\".",
+      'Codex: only the MCP servers in your config files are listed; plugins\' servers are set on the Plugins tab, and ChatGPT apps go with "Leave all out".',
     claudeTools:
       "Claude Code's built-in tools. Agents cannot use a tool left out; tools Harness Relay turns off for the permission (Edit and Write when read-only, say) stay off whatever is set here.",
     source: (s) => `from ${s}`,
     tools: (n) => (n === 1 ? '1 tool' : `${n} tools`),
-    claudeSkills: 'Claude Code reports names and descriptions only: skills, plugin commands and custom commands are all listed here (built-in commands are not).',
+    claudeSkills:
+      'Claude Code reports names and descriptions only: skills, plugin commands and custom commands are all listed here (built-in commands are not).',
     claudeAgents:
       'Claude Code does not say where a subagent comes from. Those marked built-in are the ones it has with no settings files, plugins or project around it; "Leave all out" keeps them, but they can be ticked one by one.',
     hooksNote: "Only each hook's event and source are shown; its command may hold a token.",
-    fromFiles: 'This CLI gives no list, so these are the files it is documented to read that exist now; whether it reads them follows its settings.',
+    fromFiles:
+      'This CLI gives no list, so these are the files it is documented to read that exist now; whether it reads them follows its settings.',
     fromCli: 'As the CLI reports them.',
     grokMemory: "Grok's automatic memory (when it is on) is only known inside a conversation, so it is not listed here.",
     preview: 'Preview',
@@ -1255,61 +1315,76 @@ export const en: Messages = {
         memory: 'cross-session memory',
         hooks: "only the hooks it takes from Claude Code's and Cursor's settings files; plugins' hooks and Grok's own still run",
         agents: 'Grok has no setting that leaves out only its custom subagents',
-        plugins: "Grok's plugins (the Claude Code plugins it loads among them) can only be turned off in plugins.disabled in ~/.grok/config.toml (Grok's own global setting: it also applies when you use Grok in a terminal, and Harness Relay does not change it)",
+        plugins:
+          "Grok's plugins (the Claude Code plugins it loads among them) can only be turned off in plugins.disabled in ~/.grok/config.toml (Grok's own global setting: it also applies when you use Grok in a terminal, and Harness Relay does not change it)",
       },
       cursor: {
-        skills: 'Cursor has no setting to skip skills for one run (it loads the skills folders of .cursor, .claude, .codex, .grok and .agents in the working directory and in your home folder)',
+        skills:
+          'Cursor has no setting to skip skills for one run (it loads the skills folders of .cursor, .claude, .codex, .grok and .agents in the working directory and in your home folder)',
         mcp: "Cursor has no setting to skip MCP servers for one run: those in ~/.cursor/mcp.json load; a project's .cursor/mcp.json servers must be approved in Cursor first, which Harness Relay's runs never ask, so they do not load",
         tools: 'Cursor does not report its built-in tools',
-        instructions: 'Cursor has no setting to skip instruction files for one run (AGENTS.md, CLAUDE.md, CLAUDE.local.md and .cursor/rules in the working directory and every folder above it)',
+        instructions:
+          'Cursor has no setting to skip instruction files for one run (AGENTS.md, CLAUDE.md, CLAUDE.local.md and .cursor/rules in the working directory and every folder above it)',
         memory: 'Cursor keeps no memory files of its own',
-        hooks: "Cursor has no setting to skip hooks for one run: ~/.cursor/hooks.json, your organisation's hooks and Claude Code's in ~/.claude/settings.json (which Cursor loads too, whatever you leave out of Claude Code's runs) also run in Harness Relay's runs",
+        hooks:
+          "Cursor has no setting to skip hooks for one run: ~/.cursor/hooks.json, your organisation's hooks and Claude Code's in ~/.claude/settings.json (which Cursor loads too, whatever you leave out of Claude Code's runs) also run in Harness Relay's runs",
         agents: 'Cursor has no setting to skip subagents for one run',
         plugins: 'Cursor loads no plugins in ACP mode',
       },
       antigravity: {
-        skills: 'Antigravity has no setting to skip skills for one run (it loads its built-in ones, those in ~/.gemini/config/skills, and those in .agents/skills from the working directory up to the repository root)',
+        skills:
+          'Antigravity has no setting to skip skills for one run (it loads its built-in ones, those in ~/.gemini/config/skills, and those in .agents/skills from the working directory up to the repository root)',
         mcp: "Antigravity has no setting to skip MCP servers for one run: those in ~/.gemini/config/mcp_config.json and a project's .agents/mcp_config.json load, and run outside any sandbox",
         tools: 'Antigravity does not report its built-in tools',
-        instructions: 'Antigravity has no setting to skip instruction files for one run (GEMINI.md, AGENTS.md and .agents/rules from the working directory up to the repository root)',
+        instructions:
+          'Antigravity has no setting to skip instruction files for one run (GEMINI.md, AGENTS.md and .agents/rules from the working directory up to the repository root)',
         memory: 'Antigravity has no setting to skip its memory for one run',
-        hooks: "Antigravity has no setting to skip hooks for one run: those in ~/.gemini/config/hooks.json and a project's .agents/hooks.json run in Harness Relay's runs too, outside any sandbox",
+        hooks:
+          "Antigravity has no setting to skip hooks for one run: those in ~/.gemini/config/hooks.json and a project's .agents/hooks.json run in Harness Relay's runs too, outside any sandbox",
         agents: 'Antigravity has no setting to skip custom agents for one run',
-        plugins: "Antigravity has no setting to skip plugins for one run (their skills, rules, MCP servers and hooks load as usual)",
+        plugins: 'Antigravity has no setting to skip plugins for one run (their skills, rules, MCP servers and hooks load as usual)',
       },
       copilot: {
-        skills: 'Its skill tool and skill list (built-in ones, ~/.copilot/skills, a project\'s .github/skills…) are not given',
+        skills: "Its skill tool and skill list (built-in ones, ~/.copilot/skills, a project's .github/skills…) are not given",
         mcp: "None of its own MCP servers start (~/.copilot/mcp-config.json and the built-in GitHub MCP); only the tool library's, and a plugin's while plugins are not left out",
         tools: 'Copilot does not report its built-in tools',
-        instructions: 'Copilot does not apply --no-custom-instructions over ACP: AGENTS.md, CLAUDE.md, .github/copilot-instructions.md and the like load as usual',
+        instructions:
+          'Copilot does not apply --no-custom-instructions over ACP: AGENTS.md, CLAUDE.md, .github/copilot-instructions.md and the like load as usual',
         memory: 'Its memory (the memory setting off)',
-        hooks: "Your own hooks (~/.copilot's: disableAllHooks). A project's (.github/hooks, and those in its .github/copilot or .claude settings) still run, so below full access each run asks you before them",
+        hooks:
+          "Your own hooks (~/.copilot's: disableAllHooks). A project's (.github/hooks, and those in its .github/copilot or .claude settings) still run, so below full access each run asks you before them",
         agents: 'Copilot has no setting to skip custom agents for one run',
         plugins: 'Every installed plugin, with its skills and MCP servers',
       },
       muse: {
-        skills: "Muse Code has no setting to skip skills for one run (its bundled ones, those in ~/.config/muse/skills and ~/.agents/skills, and your Claude Code and Codex skills load; a project's only in full access, where the workspace is trusted)",
+        skills:
+          "Muse Code has no setting to skip skills for one run (its bundled ones, those in ~/.config/muse/skills and ~/.agents/skills, and your Claude Code and Codex skills load; a project's only in full access, where the workspace is trusted)",
         mcp: "Leaves the MCP servers of Muse Code's settings out of this run's own settings",
         tools: 'Muse Code does not report its built-in tools',
-        instructions: "Muse Code has no setting to skip instruction files for one run (its own rules, AGENTS.md in its config folder (~/.config/muse for the default account), load, or, without them, your ~/.claude/CLAUDE.md; a project's AGENTS.md and CLAUDE.md only in full access, where the workspace is trusted)",
+        instructions:
+          "Muse Code has no setting to skip instruction files for one run (its own rules, AGENTS.md in its config folder (~/.config/muse for the default account), load, or, without them, your ~/.claude/CLAUDE.md; a project's AGENTS.md and CLAUDE.md only in full access, where the workspace is trusted)",
         memory: 'Muse Code has no setting to skip its memory for one run',
-        hooks: "Leaves the hooks of Muse Code's settings out of this run's own settings (a project's .muse/hooks.json loads only in full access, where the workspace is trusted)",
+        hooks:
+          "Leaves the hooks of Muse Code's settings out of this run's own settings (a project's .muse/hooks.json loads only in full access, where the workspace is trusted)",
         agents: 'Muse Code has no setting to skip custom agents for one run',
         plugins: 'Muse Code has no setting to skip plugins for one run',
       },
       goose: {
-        skills: "Goose has no setting that turns skills off: those in the project's .goose/skills, .claude/skills and .agents/skills always load (its home is Harness Relay's own, so it does not read your ~/.claude/skills and the like)",
+        skills:
+          "Goose has no setting that turns skills off: those in the project's .goose/skills, .claude/skills and .agents/skills always load (its home is Harness Relay's own, so it does not read your ~/.claude/skills and the like)",
         mcp: "the MCP servers of the project's plugins do not start; only the tool library's do. From a new conversation on (a resumed session keeps the list it started with)",
         tools: 'Goose does not report its built-in tools',
         instructions: '.goosehints and AGENTS.md from the working directory up to the repository root (CONTEXT_FILE_NAMES)',
         memory: 'Goose has no memory of its own',
         hooks: 'hooks come only from plugins: they do not run when plugins are left out',
         agents: 'Goose has no setting that leaves out only its custom subagents',
-        plugins: "each plugin in the project's .agents/plugins, with its hooks, skills and MCP servers (the MCP servers from a new conversation on)",
+        plugins:
+          "each plugin in the project's .agents/plugins, with its hooks, skills and MCP servers (the MCP servers from a new conversation on)",
       },
       // The open agents: each adapter adds what its switches leave out, once its CLI has any.
       cline: {
-        skills: "Cline's skills tool is turned off: its model no longer sees or uses any skill (the tool library's skills are still listed in the briefing)",
+        skills:
+          "Cline's skills tool is turned off: its model no longer sees or uses any skill (the tool library's skills are still listed in the briefing)",
         mcp: "Cline only gets the tool library's MCP servers (Harness Relay writes its MCP settings for every run); those plugins bring still load",
         tools: 'Cline has no setting that turns off all its built-in tools; pick them one by one',
         instructions: 'Cline has no setting that leaves out instruction files (AGENTS.md, .clinerules, .cline/rules) for one run',
@@ -1319,7 +1394,8 @@ export const en: Messages = {
         plugins: 'Cline leaves out plugins only one by one, by path; pick them one by one',
       },
       opencode: {
-        skills: 'the skills it finds in .claude/skills and .agents/skills, and its built-in customize-opencode (its skill tool is turned off)',
+        skills:
+          'the skills it finds in .claude/skills and .agents/skills, and its built-in customize-opencode (its skill tool is turned off)',
         mcp: "OpenCode loads no MCP servers of its own in Harness Relay (the project's config is never read); only the tool library's",
         tools: 'OpenCode does not report its built-in tools',
         instructions: "the project's AGENTS.md or CLAUDE.md; an AGENTS.md in a subfolder is still added when it reads a file there",
@@ -1408,7 +1484,8 @@ export const en: Messages = {
       upToDate: (at) => `Up to date (checked ${at})`,
       notChecked: 'Not checked for a new version yet.',
       checkFailed: 'Could not reach GitHub to check for a new version: it tries again later.',
-      noUpdates: 'This Harness Relay does not update itself: only an installed desktop app checks for new versions (and not with RELAY_UPDATES=off).',
+      noUpdates:
+        'This Harness Relay does not update itself: only an installed desktop app checks for new versions (and not with RELAY_UPDATES=off).',
       downloading: (percent) => `Downloading the update… (${percent}%)`,
       installing: 'Installing the update…',
       waiting: 'Update ready: it switches once replies finish.',
@@ -1422,10 +1499,12 @@ export const en: Messages = {
     languageHint: 'Chosen from your browser language on the first visit, then remembered in this browser.',
     languageFailed: (name) => `Could not load ${name}. Reload the page to try again.`,
     appearance: 'Appearance',
-    appearanceHint: "A light or dark background for the interface. Remembered in this browser; Follow system switches with your computer's or phone's light or dark mode.",
+    appearanceHint:
+      "A light or dark background for the interface. Remembered in this browser; Follow system switches with your computer's or phone's light or dark mode.",
     themes: { system: 'Follow system', light: 'Light', dark: 'Dark' },
     lead: 'Lead agent',
-    leadHint: 'For each new question, this agent reads the question and the conversation so far, then keeps the current team, picks a template, adapts one, or designs a new team.',
+    leadHint:
+      'For each new question, this agent reads the question and the conversation so far, then keeps the current team, picks a template, adapts one, or designs a new team.',
     leadSaved: 'Lead agent saved',
     leadNotReady: (p) => `${p} is not available right now; sign in first or pick another agent.`,
     leadNoBackend: (p) => `${p} has no model backend yet: set one up, or pick another agent.`,
@@ -1433,7 +1512,21 @@ export const en: Messages = {
     goCard: (p) => `Go to ${p} →`,
     goSignIn: (p) => `Sign in to ${p} →`,
     sections: 'Sections of this page',
-    nav: { version: 'Version', language: 'Language', appearance: 'Appearance', notifications: 'Notifications', sandboxes: 'Sandboxes', backends: 'Model backends', lead: 'Lead agent', tools: 'Tools', voice: 'Voice', cwd: 'Default folder', sessions: 'Agent sessions', shares: 'Shares', browsers: 'Browsers', tour: 'Tour',
+    nav: {
+      version: 'Version',
+      language: 'Language',
+      appearance: 'Appearance',
+      notifications: 'Notifications',
+      sandboxes: 'Sandboxes',
+      backends: 'Model backends',
+      lead: 'Lead agent',
+      tools: 'Tools',
+      voice: 'Voice',
+      cwd: 'Default folder',
+      sessions: 'Agent sessions',
+      shares: 'Shares',
+      browsers: 'Browsers',
+      tour: 'Tour',
       agents: 'Agents',
       agentsAt: (name) => `Agents: ${name}`,
       openAgents: 'Open-source agents',
@@ -1442,7 +1535,8 @@ export const en: Messages = {
     tourHint: 'A step-by-step introduction to the main features.',
     replayTour: 'Replay the tour',
     cwd: 'Default working directories',
-    cwdHint: 'New conversations let agents work in these directories by default, starting in the first (each conversation can still change them).',
+    cwdHint:
+      'New conversations let agents work in these directories by default, starting in the first (each conversation can still change them).',
     cwdSaved: 'Default working directories saved',
     confirmCreateCwd: (dirs: string) => `These folders do not exist:\n${dirs}\nCreate them and make them the default working directories?`,
     cwdCreated: (dirs: string) => `Created ${dirs}; the default working directories are saved`,
@@ -1493,9 +1587,10 @@ export const en: Messages = {
       notes: {
         opencode:
           "OpenCode runs in a home of its own here: it never reads the project's opencode.json or .opencode/ (they could widen its permissions), but the project's AGENTS.md (or CLAUDE.md) still reaches it. When a call is declined, Harness Relay's reason and your note reach the model. Below full access its subagents are off.",
-        goose: 'Runs as goose acp. In read-only and edit, Goose asks Harness Relay about every tool call; it reads files with its shell, and in read-only plain reading commands (cat, ls, rg…) run without asking. Full access uses its auto mode.',
+        goose:
+          'Runs as goose acp. In read-only and edit, Goose asks Harness Relay about every tool call; it reads files with its shell, and in read-only plain reading commands (cat, ls, rg…) run without asking. Full access uses its auto mode.',
         cline:
-          'Cline runs over ACP (cline --acp) and asks Harness Relay about every tool call: reading and searching run as the permission allows, everything else follows the permission or asks you. When you decline a call, Cline\'s model only sees its own fixed "user rejected" text; your note is shown in the chat. It loads the project\'s AGENTS.md, .clinerules, .cline/rules, skills, hooks and plugins (hooks and plugins run code), and the skills in your home folder\'s ~/.agents. Usage is read from Cline\'s session record.',
+          "Cline runs over ACP (cline --acp) and asks Harness Relay about every tool call: reading and searching run as the permission allows, everything else follows the permission or asks you. When you decline a call, Cline's model only sees its own fixed \"user rejected\" text; your note is shown in the chat. It loads the project's AGENTS.md, .clinerules, .cline/rules, skills, hooks and plugins (hooks and plugins run code), and the skills in your home folder's ~/.agents. Usage is read from Cline's session record.",
         openhands:
           "Each OpenHands run gets settings of its own from Harness Relay (model, effort, role briefing) and never reads your ~/.openhands; its downloads of public skills from GitHub and of LiteLLM's price list are turned off. Below full access it asks about every action, and its subagents (the task tool), which run commands without asking, are not offered. The project's AGENTS.md, .agents/skills and .openhands/hooks.json always load and cannot be turned off.",
         pi: "Pi does not ask about permissions by itself: below full access, Harness Relay's gate extension asks before each of its tool calls (MCP tools too), and a refusal's reason, with your note, goes to the model. In read-only it has only reading tools (and the tool library's MCP tools). It loads every AGENTS.md / CLAUDE.md from the working directory up; its own skills, extensions and a project's .pi folder are never loaded.",
@@ -1506,13 +1601,16 @@ export const en: Messages = {
       hint: 'OpenCode, Goose, Cline, OpenHands and Pi run on the model backends here: API keys for OpenAI, Anthropic and xAI, or your own OpenAI-compatible endpoints (vLLM, Ollama, LM Studio, llama.cpp). Claude Code, Codex and Grok can run on the custom endpoints too (each card says which API the server must serve). Each run gets only the key it uses; Harness Relay never calls these APIs itself.',
       noSubscription:
         "The Claude subscription and Grok's sign-in cannot be used by the open-source agents (Anthropic does not allow its subscription in third-party agents). Claude Code and Grok themselves keep using their sign-ins for their own models.",
-      modelIds: "Give members a model as \"backend/model\": openai/…, anthropic/…, xai/…, or an endpoint's id and a model name, such as homelab/muse-glimmer-30b-nvfp4. Claude Code's, Codex's and Grok's model menus list the endpoints' models too.",
+      modelIds:
+        "Give members a model as \"backend/model\": openai/…, anthropic/…, xai/…, or an endpoint's id and a model name, such as homelab/muse-glimmer-30b-nvfp4. Claude Code's, Codex's and Grok's model menus list the endpoints' models too.",
       apiKeys: 'API keys',
       notSet: 'Not set',
       keySet: (masked) => `Set: ${masked}`,
-      keyUnreadable: 'Could not be read from the credential store (it may be locked, or the key it was encrypted with is gone); enter it again to replace it.',
+      keyUnreadable:
+        'Could not be read from the credential store (it may be locked, or the key it was encrypted with is gone); enter it again to replace it.',
       endpoints: 'Custom endpoints',
-      endpointsHint: 'Your own OpenAI-compatible servers. Harness Relay never asks them for their models: type the model names each one serves.',
+      endpointsHint:
+        'Your own OpenAI-compatible servers. Harness Relay never asks them for their models: type the model names each one serves.',
       noEndpoints: 'No custom endpoints yet.',
       addEndpoint: 'Add endpoint',
       editEndpoint: 'Edit',
@@ -1555,14 +1653,16 @@ export const en: Messages = {
         "Copilot can also run on your own endpoint (Model backends): give a member one of its models, such as homelab/gemma4:e4b, or pick one under Default model and reasoning effort below to make it the default for members without a model of their own. The server must serve Chat Completions (/v1/chat/completions); Harness Relay points Copilot at it with Copilot's own BYOK variables (COPILOT_PROVIDER_*), so Copilot then needs no GitHub sign-in, and yours is not sent there. It sends only an effort every endpoint takes (low, medium, high).",
     },
     apiKeyHelp: {
-      claude: 'Once saved, Harness Relay passes ANTHROPIC_API_KEY when it starts Claude Code (API billing, which takes precedence over a subscription sign-in).',
+      claude:
+        'Once saved, Harness Relay passes ANTHROPIC_API_KEY when it starts Claude Code (API billing, which takes precedence over a subscription sign-in).',
       codex: 'Runs codex login --with-api-key; Codex keeps the key itself (replacing the current ChatGPT sign-in).',
       grok: 'Once saved, Harness Relay passes XAI_API_KEY when it starts Grok.',
-      cursor: "Once saved, Harness Relay passes CURSOR_API_KEY when it starts Cursor, and has Cursor use it for that run only: it is not saved into Cursor's sign-in (so it does not replace your own Cursor sign-in).",
+      cursor:
+        "Once saved, Harness Relay passes CURSOR_API_KEY when it starts Cursor, and has Cursor use it for that run only: it is not saved into Cursor's sign-in (so it does not replace your own Cursor sign-in).",
       antigravity:
         'Once saved, Harness Relay passes GEMINI_API_KEY when it starts Antigravity, and adds modelProvider: "gemini" to that run\'s own settings, so it runs on the Gemini API (billed by usage) instead of your Google sign-in; your own settings file is not changed.',
       copilot:
-        "Once saved, Harness Relay passes COPILOT_GITHUB_TOKEN when it starts Copilot (ahead of the GitHub sign-in it keeps). Use a fine-grained personal access token with the \"Copilot Requests\" permission; Copilot does not take classic tokens (ghp_).",
+        'Once saved, Harness Relay passes COPILOT_GITHUB_TOKEN when it starts Copilot (ahead of the GitHub sign-in it keeps). Use a fine-grained personal access token with the "Copilot Requests" permission; Copilot does not take classic tokens (ghp_).',
       muse: 'Once saved, Harness Relay passes META_API_KEY when it starts Muse Code, which then runs on that key (Meta API billing) instead of your Meta account sign-in.',
     },
     cliInstall: {
@@ -1571,14 +1671,18 @@ export const en: Messages = {
       cancel: 'Cancel install',
       installing: (p) => `Installing ${p}…`,
       into: (dir) => `Into a folder of Harness Relay's own, ${dir}; you can remove it here later.`,
-      scriptHome: ' The installer gets that folder as its home, so what it writes to shell profiles or caches stays in it too; a link or PATH entry it leaves leading here is taken out once it is done.',
-      withNode: (version) => ` npm is not on the PATH, so Node.js ${version}, with its npm, is downloaded into that folder first and used once its checksum checks; it stays there, and goes when you remove it.`,
+      scriptHome:
+        ' The installer gets that folder as its home, so what it writes to shell profiles or caches stays in it too; a link or PATH entry it leaves leading here is taken out once it is done.',
+      withNode: (version) =>
+        ` npm is not on the PATH, so Node.js ${version}, with its npm, is downloaded into that folder first and used once its checksum checks; it stays there, and goes when you remove it.`,
       blocked: {
-        npm: (p) => `Installing ${p} here takes npm, which comes with Node.js, and it is not on the PATH. Install Node.js, then reload this page.`,
+        npm: (p) =>
+          `Installing ${p} here takes npm, which comes with Node.js, and it is not on the PATH. Install Node.js, then reload this page.`,
         curl: (p) => `Installing ${p} here takes curl, which is not on the PATH.`,
         tar: (p) => `Installing ${p} here takes tar (to unpack Node.js's download), which was not found.`,
         bash: (p) => `Installing ${p} here takes bash, which is not on the PATH.`,
-        gitBash: (p) => `Installing ${p} on Windows takes the bash that comes with Git for Windows (Git Bash), which was not found. Install Git for Windows (MinGit has no bash), then reload this page.`,
+        gitBash: (p) =>
+          `Installing ${p} on Windows takes the bash that comes with Git for Windows (Git Bash), which was not found. Install Git for Windows (MinGit has no bash), then reload this page.`,
         powershell: (p) => `Installing ${p} here takes Windows PowerShell, which was not found.`,
         system: (p) => `Harness Relay cannot install ${p} for you on this system: install it as its website says.`,
       },
@@ -1589,7 +1693,8 @@ export const en: Messages = {
       installedHere: (dir) => `Installed by Harness Relay in ${dir}`,
       notInUse: ' (the executable path is set to another program now, so this one is not in use)',
       remove: 'Remove',
-      confirmRemove: (p, dir) => `Remove the ${p} Harness Relay installed? This deletes ${dir}. ${p}'s sign-in, settings and sessions are not deleted.`,
+      confirmRemove: (p, dir) =>
+        `Remove the ${p} Harness Relay installed? This deletes ${dir}. ${p}'s sign-in, settings and sessions are not deleted.`,
       removed: (p) => `Removed ${p}`,
       installed: (p, version) => `Installed ${p}${version ? ` v${version}` : ''}`,
     },
@@ -1650,13 +1755,16 @@ export const en: Messages = {
     title: 'Sandboxes',
     hint: "Below full access, the commands agents run go in the operating system's sandbox: they write only in the working directories, and cannot reach your browsers' data or Harness Relay's database. When a sandbox lacks what it needs, Harness Relay does not let commands run outside it, so those agents' commands cannot run.",
     allSet: 'The sandboxes have everything they need on this computer.',
-    windows: 'There is nothing to install for the sandboxes on Windows: Codex’s and Copilot’s need nothing, and the other agents have none here (the open-source agents run with full access only; use WSL2 for a sandbox).',
+    windows:
+      'There is nothing to install for the sandboxes on Windows: Codex’s and Copilot’s need nothing, and the other agents have none here (the open-source agents run with full access only; use WSL2 for a sandbox).',
     checking: 'Checking what the sandboxes need…',
     missing: 'On this computer, the sandboxes still lack:',
     needs: {
       packages: (items) => `Linux packages: ${items}`,
-      apparmor: (file) => `The AppArmor profile that lets bubblewrap make user namespaces (${file}), which Ubuntu 23.10 and later do not allow by default; with it, that restriction of Ubuntu's no longer applies to bubblewrap`,
-      node: (version) => `Node.js${version ? ` ${version}` : ''} for Harness Relay's own sandbox, put into Harness Relay's folder without administrator rights`,
+      apparmor: (file) =>
+        `The AppArmor profile that lets bubblewrap make user namespaces (${file}), which Ubuntu 23.10 and later do not allow by default; with it, that restriction of Ubuntu's no longer applies to bubblewrap`,
+      node: (version) =>
+        `Node.js${version ? ` ${version}` : ''} for Harness Relay's own sandbox, put into Harness Relay's folder without administrator rights`,
     },
     for: (who) => ` (for the sandboxes of ${who})`,
     sep: ', ',
@@ -1667,8 +1775,10 @@ export const en: Messages = {
       pkexec: 'To install the packages, your system asks for the administrator password in a window of its own (once).',
     },
     blocked: {
-      admin: 'There is no way to get administrator rights here (not root, sudo asks for a password, and no desktop session to show a password prompt).',
-      packageManager: 'No package manager Harness Relay knows (apt, dnf, pacman, zypper) was found: install these packages with your system’s package manager.',
+      admin:
+        'There is no way to get administrator rights here (not root, sudo asks for a password, and no desktop session to show a password prompt).',
+      packageManager:
+        'No package manager Harness Relay knows (apt, dnf, pacman, zypper) was found: install these packages with your system’s package manager.',
       curl: 'Downloading Node.js takes curl, which was not found.',
       tar: "Unpacking Node.js's download takes tar, which was not found.",
       node: 'Node.js has no build of its own for this system or processor: install Node.js 22.12 or later yourself, on your login shell’s PATH.',
@@ -1784,7 +1894,7 @@ export const en: Messages = {
       },
       {
         title: 'Notifications and sound',
-        body: "No need to keep an eye on the sidebar: turn them on in Settings → Notifications and sound, and you are told when the team finishes replying or needs you. Each browser and each phone has its own choice:",
+        body: 'No need to keep an eye on the sidebar: turn them on in Settings → Notifications and sound, and you are told when the team finishes replying or needs you. Each browser and each phone has its own choice:',
         points: [
           'Show notifications: one pops up while the tab is in the background or its window is behind another; click it to open that chat',
           'Play a sound: two notes when a reply is done, three when you are needed',
@@ -1824,7 +1934,7 @@ export const en: Messages = {
       },
       {
         title: 'Messages on a schedule',
-        body: "New schedule, the calendar button beside New chat at the top left of the sidebar, sends a team a message at set times, as if you had sent it: write the message, pick the times, and the lead agent designs its team. For a chat you already have, use Schedule in its header (under ⋯ on a phone):",
+        body: 'New schedule, the calendar button beside New chat at the top left of the sidebar, sends a team a message at set times, as if you had sent it: write the message, pick the times, and the lead agent designs its team. For a chat you already have, use Schedule in its header (under ⋯ on a phone):',
         points: [
           'Once, every day, every week on the days you pick, or every few hours; once saved, "Run once now" tries it out',
           'Tick "Start a new chat each time" to begin every run in a fresh chat with the same team and settings',
@@ -1857,7 +1967,7 @@ export const en: Messages = {
         title: 'Agent sessions and AgentsView',
         body: 'Want a close look at what each agent did? In Settings → Agent sessions:',
         points: [
-          "Give the CLIs a folder of their own (such as ~/.relay-agents): their sign-in, settings and session records stay apart from your own use of the CLIs",
+          'Give the CLIs a folder of their own (such as ~/.relay-agents): their sign-in, settings and session records stay apart from your own use of the CLIs',
           "Enter AgentsView's address: each conversation becomes one thread in AgentsView, with each agent's own session under it, including tool calls, tokens and cost",
           'Both are optional, and only an AgentsView on this computer is accepted',
         ],

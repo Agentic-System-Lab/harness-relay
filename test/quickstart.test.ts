@@ -34,7 +34,9 @@ describe('commands people copy', () => {
       expect(html, page).not.toContain('git clone');
       expect(html.match(/npm run dev/g), page).toHaveLength(1);
       expect(html.match(/npm start/g), page).toHaveLength(1);
-      expect(html, page).toMatch(/href="https:\/\/github\.com\/Agentic-System-Lab\/harness-relay(#quick-start|\/blob\/main\/README\.zh-TW\.md#快速開始)"/);
+      expect(html, page).toMatch(
+        /href="https:\/\/github\.com\/Agentic-System-Lab\/harness-relay(#quick-start|\/blob\/main\/README\.zh-TW\.md#快速開始)"/,
+      );
     }
   });
 
@@ -58,7 +60,15 @@ describe('commands people copy', () => {
   });
 
   it('no bare address runs into the Chinese text after it, which GitHub would link along with it', () => {
-    const docs = ['README.zh-TW.md', 'CONTRIBUTING.zh-TW.md', 'CODE_OF_CONDUCT.zh-TW.md', 'SECURITY.zh-TW.md', 'e2e/README.zh-TW.md', 'desktop/README.zh-TW.md', ...['architecture', 'developer-guide', 'user-guide', 'remote-access', 'codespaces'].map((d) => `docs/${d}.zh-TW.md`)];
+    const docs = [
+      'README.zh-TW.md',
+      'CONTRIBUTING.zh-TW.md',
+      'CODE_OF_CONDUCT.zh-TW.md',
+      'SECURITY.zh-TW.md',
+      'e2e/README.zh-TW.md',
+      'desktop/README.zh-TW.md',
+      ...['architecture', 'developer-guide', 'user-guide', 'remote-access', 'codespaces'].map((d) => `docs/${d}.zh-TW.md`),
+    ];
     for (const doc of docs) {
       // Outside code: an address written as <…>, [text](…) or in backticks ends where it should.
       const prose = read(doc).replace(/```[\s\S]*?```|`[^`\n]+`/g, '');

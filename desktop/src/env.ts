@@ -169,11 +169,16 @@ export function mergeWindowsEnv(base: NodeJS.ProcessEnv, current: WindowsEnv): N
 export async function windowsEnv(env: NodeJS.ProcessEnv, timeoutMs = 15_000): Promise<WindowsEnv | undefined> {
   const root = env.SystemRoot ?? env.SYSTEMROOT ?? 'C:\\Windows';
   try {
-    const r = await capture(`${root}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`, ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_ENV_SCRIPT], env, {
-      timeoutMs,
-      maxCapture: 4 * 1024 * 1024,
-      keepStart: true,
-    });
+    const r = await capture(
+      `${root}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`,
+      ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_ENV_SCRIPT],
+      env,
+      {
+        timeoutMs,
+        maxCapture: 4 * 1024 * 1024,
+        keepStart: true,
+      },
+    );
     return r.code === 0 ? parseWindowsEnv(r.stdout) : undefined;
   } catch {
     return undefined;
@@ -216,9 +221,7 @@ export const DESKTOP_KEYRING_SERVICE = 'harness-relay-desktop';
 export function serverEnv(o: ServerEnvOptions): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [k, v] of Object.entries(o.base)) if (v !== undefined && !isElectronVar(k)) env[k] = v;
-  const hosts = [...(o.base.RELAY_ALLOWED_HOSTS ?? '').split(','), ...o.allowedHosts]
-    .map((h) => h.trim().toLowerCase())
-    .filter(Boolean);
+  const hosts = [...(o.base.RELAY_ALLOWED_HOSTS ?? '').split(','), ...o.allowedHosts].map((h) => h.trim().toLowerCase()).filter(Boolean);
   const ownData = !o.base.RELAY_DATA_DIR?.trim();
   env.RELAY_DATA_DIR = o.base.RELAY_DATA_DIR?.trim() || o.dataDir;
   if (ownData && !o.base.RELAY_KEYRING_SERVICE?.trim()) env.RELAY_KEYRING_SERVICE = DESKTOP_KEYRING_SERVICE;
@@ -235,5 +238,8 @@ export function serverEnv(o: ServerEnvOptions): NodeJS.ProcessEnv {
 
 /** The names in RELAY_ALLOWED_HOSTS. */
 export function allowedHostsOf(env: NodeJS.ProcessEnv): string[] {
-  return (env.RELAY_ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean);
+  return (env.RELAY_ALLOWED_HOSTS ?? '')
+    .split(',')
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
 }

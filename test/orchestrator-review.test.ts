@@ -279,7 +279,7 @@ describe('lead review', () => {
     expect(recentOf(reviewerCalls()[1]!.prompt)).toContain('(Attached files: notes.txt)');
   });
 
-  it("does not review a run in which nobody answered (every member passed or failed)", async () => {
+  it('does not review a run in which nobody answered (every member passed or failed)', async () => {
     const conv = conversation({ mode: 'parallel', leadReview: true });
     fake.fail = () => new Error('rate limited');
     await orchestrator.send(conv.id, 'hello');
@@ -388,10 +388,16 @@ describe('lead review', () => {
   it('counts as work under way while it reviews, links its session, and is stopped when the conversation is deleted', async () => {
     const links: string[] = [];
     setOrchestrator(
-      new Orchestrator(store, new Hub(), settings, { context: async () => ({ available: ['claude'], catalog: [], presets: store.listPresets() }) }, {
-        schedule: () => undefined,
-        link: (c: Conversation, provider: string, sessionId: string) => links.push(`${c.id} ${provider}:${sessionId}`),
-      }),
+      new Orchestrator(
+        store,
+        new Hub(),
+        settings,
+        { context: async () => ({ available: ['claude'], catalog: [], presets: store.listPresets() }) },
+        {
+          schedule: () => undefined,
+          link: (c: Conversation, provider: string, sessionId: string) => links.push(`${c.id} ${provider}:${sessionId}`),
+        },
+      ),
     );
     const conv = conversation({ mode: 'parallel', leadReview: true });
     let release!: () => void;
@@ -589,7 +595,11 @@ describe('after the review', () => {
     await finish(conv.id);
     expect(reviews(conv)[0]!.status).toBe('aborted');
     expect(leadCalls()).toHaveLength(1);
-    expect(agentMessages(conv).map((m) => m.agentName).sort()).toEqual(['Alice', 'Alice', 'Bob']);
+    expect(
+      agentMessages(conv)
+        .map((m) => m.agentName)
+        .sort(),
+    ).toEqual(['Alice', 'Alice', 'Bob']);
   });
 
   it('refuses a message sent while it reviews when another conversation took the folder meanwhile, and goes on reviewing', async () => {
@@ -686,7 +696,11 @@ describe('after the review', () => {
     // The server starts again: the stopped card comes back with where it started reading.
     const restarted = new Store(db);
     setStore(restarted);
-    setOrchestrator(new Orchestrator(restarted, new Hub(), settings, { context: async () => ({ available: ['claude'], catalog: [], presets: restarted.listPresets() }) }));
+    setOrchestrator(
+      new Orchestrator(restarted, new Hub(), settings, {
+        context: async () => ({ available: ['claude'], catalog: [], presets: restarted.listPresets() }),
+      }),
+    );
     const again = restarted.get(conv.id)!;
     expect(reviews(again)[0]!.status).toBe('aborted');
     expect(reviews(again)[0]!.review!.fromId).toBe(again.messages.find((m) => m.author.kind === 'user')!.id);
@@ -788,13 +802,21 @@ describe('schedules during a review, and Retry and Edit after a stopped one', ()
     expect(leadCalls()[1]!.prompt).toContain('a brand new question');
     expect(reviews(conv).map((m) => m.status)).toEqual(['aborted', 'done']);
     const recent = recentOf(reviewerCalls()[1]!.prompt);
-    for (const q of ['first question', 'scheduled check', 'a brand new question']) expect(recent).toContain(`<message from="user">\n${q}\n</message>`);
+    for (const q of ['first question', 'scheduled check', 'a brand new question'])
+      expect(recent).toContain(`<message from="user">\n${q}\n</message>`);
   });
 
   it("tries a schedule's message again later, rather than queue it into a design that will wait for confirmation", async () => {
     // Auto team, asking before a design is used; the team is there already.
     const conv = conversation({ mode: 'parallel', permission: 'read-only', autoTeam: true });
-    fake.leadReply = JSON.stringify({ choice: 'custom', name: 'Pair', mode: 'parallel', rounds: 1, agents: [{ name: 'Alice', provider: 'claude', role: 'Build it' }], reason: 'x' });
+    fake.leadReply = JSON.stringify({
+      choice: 'custom',
+      name: 'Pair',
+      mode: 'parallel',
+      rounds: 1,
+      agents: [{ name: 'Alice', provider: 'claude', role: 'Build it' }],
+      reason: 'x',
+    });
     // A new question: the lead agent designs a team for it (held until the test lets it go).
     let releaseLead!: () => void;
     fake.leadGate = new Promise((r) => (releaseLead = r));
@@ -848,7 +870,7 @@ describe('schedules during a review, and Retry and Edit after a stopped one', ()
     }
   });
 
-  it("refuses Retry, Edit, Apply and a settings change while the lead agent reviews: they wait for it, or for Stop", async () => {
+  it('refuses Retry, Edit, Apply and a settings change while the lead agent reviews: they wait for it, or for Stop', async () => {
     const conv = conversation({ mode: 'parallel', permission: 'edit', leadReview: true });
     let release!: () => void;
     fake.reviewGate = new Promise((r) => (release = r));
@@ -858,7 +880,9 @@ describe('schedules during a review, and Retry and Edit after a stopped one', ()
     const user = conv.messages.find((m) => m.author.kind === 'user')!;
     await expect(orchestrator.retry(conv.id, reply.id)).rejects.toMatchObject({ status: 409 });
     await expect(orchestrator.resend(conv.id, user.id, 'again')).rejects.toMatchObject({ status: 409 });
-    await expect(orchestrator.applyAgentWork(conv.id, reply.author.kind === 'agent' ? reply.author.agentId : '')).rejects.toMatchObject({ status: 409 });
+    await expect(orchestrator.applyAgentWork(conv.id, reply.author.kind === 'agent' ? reply.author.agentId : '')).rejects.toMatchObject({
+      status: 409,
+    });
     await expect(orchestrator.exclusive(conv.id, 'busy', async () => 'saved')).rejects.toMatchObject({ status: 409 });
     fake.reviewGate = undefined;
     release();
@@ -993,9 +1017,16 @@ describe('lead review and notifications', () => {
    */
   async function phone() {
     const hub = new Hub();
-    setOrchestrator(new Orchestrator(store, hub, settings, { context: async () => ({ available: ['claude'], catalog: [], presets: store.listPresets() }) }));
+    setOrchestrator(
+      new Orchestrator(store, hub, settings, {
+        context: async () => ({ available: ['claude'], catalog: [], presets: store.listPresets() }),
+      }),
+    );
     const push = new RecordingPush(db);
-    const keys = { p256dh: Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 1)]).toString('base64url'), auth: Buffer.alloc(16, 1).toString('base64url') };
+    const keys = {
+      p256dh: Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 1)]).toString('base64url'),
+      auth: Buffer.alloc(16, 1).toString('base64url'),
+    };
     push.subscribe(undefined, { endpoint: 'https://web.push.apple.com/phone', keys }, { done: true, needs: true, sound: true }, 'en');
     const list = () =>
       store.list(
@@ -1198,7 +1229,7 @@ describe('lead review and notifications', () => {
     expect(alerts.sent).toEqual([{ kind: 'done', body: 'Alice finished replying\nAlice done' }]);
   });
 
-  it("tells at once that an agent asked the user something, with no review; once they answered, that the team finished after the review", async () => {
+  it('tells at once that an agent asked the user something, with no review; once they answered, that the team finished after the review', async () => {
     const conv = conversation({ mode: 'roundtable', leadReview: true });
     const alerts = await phone();
     fake.asking.add('Alice');
@@ -1219,7 +1250,7 @@ describe('lead review and notifications', () => {
     expect(alerts.sent.slice(1)).toEqual([bobDone]);
   });
 
-  it("tells once that an agent asked the user something, also when the run that takes the answer could not be set up", async () => {
+  it('tells once that an agent asked the user something, also when the run that takes the answer could not be set up', async () => {
     const conv = conversation({ mode: 'roundtable', leadReview: true });
     const alerts = await phone();
     fake.asking.add('Alice');
@@ -1249,14 +1280,15 @@ describe('lead review and notifications', () => {
     expect(alerts.page).toEqual(['answer', 'done']);
   });
 
-  it('tells at once that an agent waits for an approval, during the team\'s turn; that the team finished after the review', async () => {
+  it("tells at once that an agent waits for an approval, during the team's turn; that the team finished after the review", async () => {
     const conv = conversation({ mode: 'roundtable', leadReview: true });
     conv.agents = [agents[0]!];
     store.saveMeta(conv);
     const alerts = await phone();
     const release = holdReview();
     await orchestrator.send(conv.id, 'please install');
-    const pending = () => conv.messages.flatMap((m) => m.parts).find((p) => p.type === 'approval' && p.status === 'pending') as { id: string } | undefined;
+    const pending = () =>
+      conv.messages.flatMap((m) => m.parts).find((p) => p.type === 'approval' && p.status === 'pending') as { id: string } | undefined;
     await vi.waitFor(() => expect(pending()).toBeDefined());
     await alerts.check();
     expect(alerts.sent).toEqual([{ kind: 'approval', body: 'Alice is waiting for your approval\nnpm install left-pad' }]);
@@ -1274,7 +1306,14 @@ describe('lead review and notifications', () => {
     const conv = conversation({ mode: 'parallel', permission: 'read-only', autoTeam: true, leadReview: true });
     conv.agents = [];
     store.saveMeta(conv);
-    fake.leadReply = JSON.stringify({ choice: 'custom', name: 'Solo', mode: 'parallel', rounds: 1, agents: [{ name: 'Alice', provider: 'claude', role: 'Build it' }], reason: 'x' });
+    fake.leadReply = JSON.stringify({
+      choice: 'custom',
+      name: 'Solo',
+      mode: 'parallel',
+      rounds: 1,
+      agents: [{ name: 'Alice', provider: 'claude', role: 'Build it' }],
+      reason: 'x',
+    });
     const alerts = await phone();
     await orchestrator.send(conv.id, 'a question');
     await finish(conv.id);

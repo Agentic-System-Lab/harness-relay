@@ -20,7 +20,7 @@ describe("the landing page's header", () => {
     expect(rule('.lang a')).toContain('white-space: nowrap;');
   });
 
-  it("keeps the name on one line, and hides it, not the logo, below the width where it fits beside the rest", () => {
+  it('keeps the name on one line, and hides it, not the logo, below the width where it fits beside the rest', () => {
     expect(rule('.brand')).toContain('white-space: nowrap;');
     expect(rule('.brand svg')).toContain('flex: none;');
     // The name, the switch and the buttons need some 481px: at 500px and below, the logo alone.
@@ -51,7 +51,10 @@ describe("the landing page's header", () => {
   it('scrolls no page sideways on a phone, down to a 280px screen (measured in Chromium at every width from 280px)', () => {
     /** The declarations of `selector` inside the `@media (max-width: <width>px)` block that holds it. */
     const inside = (width: number, selector: string) => {
-      const blocks = css.split(`@media (max-width: ${width}px) {`).slice(1).map((b) => b.slice(0, b.indexOf('\n}\n')));
+      const blocks = css
+        .split(`@media (max-width: ${width}px) {`)
+        .slice(1)
+        .map((b) => b.slice(0, b.indexOf('\n}\n')));
       const block = blocks.find((b) => b.includes(`\n  ${selector} {`));
       expect(block, `${selector} at ${width}px`).toBeDefined();
       const start = block!.indexOf(`\n  ${selector} {`);

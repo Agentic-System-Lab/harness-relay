@@ -10,7 +10,12 @@ const animations = (page: Page) =>
       const timing = effect.getComputedTiming();
       const changed = new Set(effect.getKeyframes().flatMap((k) => Object.keys(k)));
       for (const key of ['offset', 'computedOffset', 'easing', 'composite']) changed.delete(key);
-      return { name: (a as CSSAnimation).animationName, duration: Number(timing.duration), iterations: timing.iterations, changed: [...changed].sort() };
+      return {
+        name: (a as CSSAnimation).animationName,
+        duration: Number(timing.duration),
+        iterations: timing.iterations,
+        changed: [...changed].sort(),
+      };
     }),
   );
 
@@ -35,16 +40,27 @@ test.describe('the home page', () => {
     expect(new URL(page.url()).hash).toBe('#/');
   });
 
-  test('the logo plays its animation once on each visit, with transform and opacity alone, and not with reduced motion', async ({ page }) => {
+  test('the logo plays its animation once on each visit, with transform and opacity alone, and not with reduced motion', async ({
+    page,
+  }) => {
     await expect(homePage(page)).toBeVisible();
     // Each part runs for a while (a nameless `animation` shorthand once minified to `none`, which runs
     // for no time at all), once, and changes only what the compositor can animate by itself.
     const first = await animations(page);
-    expect(first.map((a) => a.name).sort()).toEqual(['home-join-claude', 'home-join-codex', 'home-join-grok', 'home-line-in', 'home-orbit']);
+    expect(first.map((a) => a.name).sort()).toEqual([
+      'home-join-claude',
+      'home-join-codex',
+      'home-join-grok',
+      'home-line-in',
+      'home-orbit',
+    ]);
     for (const a of first) {
       expect(a.duration, a.name).toBeGreaterThan(0);
       expect(a.iterations, a.name).toBe(1);
-      expect(a.changed.every((p) => p === 'transform' || p === 'opacity'), `${a.name} changes ${a.changed.join(', ')}`).toBe(true);
+      expect(
+        a.changed.every((p) => p === 'transform' || p === 'opacity'),
+        `${a.name} changes ${a.changed.join(', ')}`,
+      ).toBe(true);
     }
     // It ends by itself, and plays again when the home page is opened again.
     await expect.poll(() => running(page)).toBe(0);
@@ -59,7 +75,9 @@ test.describe('the home page', () => {
     expect(await animations(page)).toEqual([]);
   });
 
-  test('a part of the page that cannot be loaded: the page reloads once for it, then says so; the note closes, and Reload brings it', async ({ page }) => {
+  test('a part of the page that cannot be loaded: the page reloads once for it, then says so; the note closes, and Reload brings it', async ({
+    page,
+  }) => {
     // As in a page left open across an update, whose dialogs the new version replaced (src/web/chunks.ts).
     await page.route('**/assets/ReportDialog-*.js', (route) => route.fulfill({ status: 404, body: '' }));
     const pages = await countPages(page);
@@ -69,7 +87,9 @@ test.describe('the home page', () => {
     await expect(homePage(page)).toBeVisible();
     // Missing again so soon after: no reload this time, but a note instead of an empty page.
     await report.click();
-    const note = page.getByRole('alert').filter({ hasText: 'This part of the page could not be loaded (Harness Relay may have just been updated).' });
+    const note = page
+      .getByRole('alert')
+      .filter({ hasText: 'This part of the page could not be loaded (Harness Relay may have just been updated).' });
     await expect(note).toBeVisible();
     await note.getByRole('button', { name: 'Close' }).click();
     await expect(note).toBeHidden();
@@ -84,10 +104,15 @@ test.describe('the home page', () => {
     await expect(page.getByRole('dialog', { name: 'Report a problem' })).toBeVisible();
   });
 
-  test('a part of the page that loads but fails to draw says so, not that it could not be loaded, and the page does not reload', async ({ page }) => {
+  test('a part of the page that loads but fails to draw says so, not that it could not be loaded, and the page does not reload', async ({
+    page,
+  }) => {
     // A dialog with a bug in it: a reload would not help, so the note says to report it.
     await page.route('**/assets/ReportDialog-*.js', (route) =>
-      route.fulfill({ contentType: 'text/javascript', body: "export function ReportDialog() { throw new Error('e2e: broken on purpose'); }" }),
+      route.fulfill({
+        contentType: 'text/javascript',
+        body: "export function ReportDialog() { throw new Error('e2e: broken on purpose'); }",
+      }),
     );
     const pages = await countPages(page);
     await page.getByRole('button', { name: 'Report a problem' }).click();

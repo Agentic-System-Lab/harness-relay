@@ -32,7 +32,9 @@ async function runningApps(): Promise<string[]> {
     return r.stdout
       .split('\n')
       .map((line) => line.trim())
-      .filter((line) => /Harness Relay\.app\/Contents\/MacOS\/Harness Relay(\s|$)|\/harness-relay(\s|$)/.test(line) && !/--type=/.test(line));
+      .filter(
+        (line) => /Harness Relay\.app\/Contents\/MacOS\/Harness Relay(\s|$)|\/harness-relay(\s|$)/.test(line) && !/--type=/.test(line),
+      );
   } catch {
     return [];
   }

@@ -76,7 +76,14 @@ export function ScheduleForm({
         <span>{t.schedule.repeat}</span>
         <div className="segmented wide" role="radiogroup" aria-label={t.schedule.repeat}>
           {SCHEDULE_KINDS.map((k) => (
-            <button key={k} type="button" role="radio" aria-checked={draft.kind === k} className={draft.kind === k ? 'on' : ''} onClick={() => onEdit({ kind: k })}>
+            <button
+              key={k}
+              type="button"
+              role="radio"
+              aria-checked={draft.kind === k}
+              className={draft.kind === k ? 'on' : ''}
+              onClick={() => onEdit({ kind: k })}
+            >
               {t.schedule.kinds[k]}
             </button>
           ))}
@@ -184,7 +191,14 @@ export function ScheduleForm({
         <span>{t.schedule.approvals}</span>
         <div className="segmented wide" role="radiogroup" aria-label={t.schedule.approvals}>
           {(['deny', 'ask'] as const).map((v) => (
-            <button key={v} type="button" role="radio" aria-checked={draft.approvals === v} className={draft.approvals === v ? 'on' : ''} onClick={() => onEdit({ approvals: v })}>
+            <button
+              key={v}
+              type="button"
+              role="radio"
+              aria-checked={draft.approvals === v}
+              className={draft.approvals === v ? 'on' : ''}
+              onClick={() => onEdit({ approvals: v })}
+            >
               {v === 'deny' ? t.schedule.approvalsDeny : t.schedule.approvalsAsk}
             </button>
           ))}
@@ -204,7 +218,14 @@ export function ScheduleForm({
         <span>{t.schedule.missed}</span>
         <div className="segmented wide" role="radiogroup" aria-label={t.schedule.missed}>
           {(['skip', 'run'] as const).map((v) => (
-            <button key={v} type="button" role="radio" aria-checked={draft.missed === v} className={draft.missed === v ? 'on' : ''} onClick={() => onEdit({ missed: v })}>
+            <button
+              key={v}
+              type="button"
+              role="radio"
+              aria-checked={draft.missed === v}
+              className={draft.missed === v ? 'on' : ''}
+              onClick={() => onEdit({ missed: v })}
+            >
               {v === 'skip' ? t.schedule.missedSkip : t.schedule.missedRun}
             </button>
           ))}

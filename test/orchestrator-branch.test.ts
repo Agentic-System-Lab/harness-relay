@@ -9,7 +9,28 @@ import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { Conversation, ConversationSettings } from '../src/shared/types';
-import { agentMessages, agents, attachmentPath, branchAfterCut, branchOrigin, branchPause, calls, conversation, copying, db, fake, finish, mediaRoots, orchestrator, project, resolveMedia, store, Store, textOf, worktreeDir } from './orchestrator-harness';
+import {
+  agentMessages,
+  agents,
+  attachmentPath,
+  branchAfterCut,
+  branchOrigin,
+  branchPause,
+  calls,
+  conversation,
+  copying,
+  db,
+  fake,
+  finish,
+  mediaRoots,
+  orchestrator,
+  project,
+  resolveMedia,
+  store,
+  Store,
+  textOf,
+  worktreeDir,
+} from './orchestrator-harness';
 
 describe('branching a conversation', () => {
   const kinds = (conv: Conversation) => conv.messages.map((m) => m.author.kind);
@@ -157,7 +178,14 @@ describe('branching a conversation', () => {
 
     // The sidebar lists each under the conversation its reply was written in.
     const from = Object.fromEntries(store.list(() => false).map((c) => [c.id, c.branchFrom?.id]));
-    expect(from).toMatchObject({ [one.id]: conv.id, [two.id]: one.id, [three.id]: one.id, [four.id]: conv.id, [five.id]: conv.id, [edge.id]: conv.id });
+    expect(from).toMatchObject({
+      [one.id]: conv.id,
+      [two.id]: one.id,
+      [three.id]: one.id,
+      [four.id]: conv.id,
+      [five.id]: conv.id,
+      [edge.id]: conv.id,
+    });
 
     // The conversation the reply was written in is deleted: the branch still names it, by the title
     // the sidebar shows for it (its title when the newest branch of it was made).
@@ -310,7 +338,8 @@ describe('branching a conversation', () => {
     const file = branch.messages.find((m) => m.author.kind === 'user')!.parts.find((p) => p.type === 'attachment')!;
     expect(file.type === 'attachment' && readFileSync(attachmentPath(branch.id, file), 'utf8')).toBe('marmalade\n');
     // (Windows has no permission bits.)
-    if (process.platform !== 'win32') expect(file.type === 'attachment' && statSync(attachmentPath(branch.id, file)).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32')
+      expect(file.type === 'attachment' && statSync(attachmentPath(branch.id, file)).mode & 0o777).toBe(0o600);
     expect(gone.type === 'attachment' && existsSync(attachmentPath(branch.id, gone))).toBe(false);
     expect(refs().filter((r) => r.includes(`/${branch.id}/`))).toHaveLength(2);
 
@@ -384,7 +413,7 @@ describe('branching a conversation', () => {
     expect(store.groupOf(conv.id)).toBe('g1');
   });
 
-  it("keeps a question the reply asked open in the branch, also once it was answered here", async () => {
+  it('keeps a question the reply asked open in the branch, also once it was answered here', async () => {
     const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
     fake.asking = new Set(['Alice']);
     await orchestrator.send(conv.id, 'question');
@@ -402,7 +431,14 @@ describe('branching a conversation', () => {
     await finish(conv.id);
     expect(conv.pause).toBeUndefined();
     const later = await orchestrator.branch(conv.id, asked.id);
-    expect(later.pause).toEqual({ mode: 'roundtable', askers: ['a'], rest: [{ agentId: 'b' }], participants: ['a', 'b'], round: 1, rounds: 1 });
+    expect(later.pause).toEqual({
+      mode: 'roundtable',
+      askers: ['a'],
+      rest: [{ agentId: 'b' }],
+      participants: ['a', 'b'],
+      round: 1,
+      rounds: 1,
+    });
 
     // Its answer goes to the agent that asked, then the round goes on, with no new team designed.
     later.settings.autoTeam = true;
@@ -417,21 +453,57 @@ describe('branching a conversation', () => {
 
   it('works out what a branch waits for in each mode, and waits for nothing after a reply that did not ask', () => {
     const reply = (agentId: string, asked: boolean, round = 1) =>
-      ({ id: `${agentId}-${round}`, author: { kind: 'agent', agentId }, parts: [], status: 'done', createdAt: 0, meta: { round }, ...(asked ? { asked } : {}) }) as Conversation['messages'][number];
-    const question = (text: string) => ({ id: 'q', author: { kind: 'user' }, parts: [{ type: 'text', text }], status: 'done', createdAt: 0 }) as Conversation['messages'][number];
+      ({
+        id: `${agentId}-${round}`,
+        author: { kind: 'agent', agentId },
+        parts: [],
+        status: 'done',
+        createdAt: 0,
+        meta: { round },
+        ...(asked ? { asked } : {}),
+      }) as Conversation['messages'][number];
+    const question = (text: string) =>
+      ({
+        id: 'q',
+        author: { kind: 'user' },
+        parts: [{ type: 'text', text }],
+        status: 'done',
+        createdAt: 0,
+      }) as Conversation['messages'][number];
     const conv = (mode: ConversationSettings['mode'], messages: Conversation['messages']) =>
-      ({ id: 'c', agents, settings: { mode, rounds: 2, maxHops: 4, permission: 'read-only', cwd: project }, messages }) as unknown as Conversation;
+      ({
+        id: 'c',
+        agents,
+        settings: { mode, rounds: 2, maxHops: 4, permission: 'read-only', cwd: project },
+        messages,
+      }) as unknown as Conversation;
 
     // Parallel: the round's questions before the reply wait together; the others answered already.
     expect(branchPause(conv('parallel', [question('go'), reply('a', true), reply('b', true)]), 2)).toEqual({
-      mode: 'parallel', askers: ['a', 'b'], rest: [], participants: ['a', 'b'], round: 1, rounds: 2,
+      mode: 'parallel',
+      askers: ['a', 'b'],
+      rest: [],
+      participants: ['a', 'b'],
+      round: 1,
+      rounds: 2,
     });
     // Roundtable: a question for one member only leaves nobody after it in the round.
     expect(branchPause(conv('roundtable', [question('@Bob go'), reply('b', true, 2)]), 1)).toEqual({
-      mode: 'roundtable', askers: ['b'], rest: [], participants: ['b'], round: 2, rounds: 2,
+      mode: 'roundtable',
+      askers: ['b'],
+      rest: [],
+      participants: ['b'],
+      round: 2,
+      rounds: 2,
     });
     expect(branchPause(conv('relay', [question('go'), reply('a', true)]), 1)).toEqual({
-      mode: 'relay', askers: ['a'], rest: [], participants: [], round: 1, rounds: 1, hopsLeft: 4,
+      mode: 'relay',
+      askers: ['a'],
+      rest: [],
+      participants: [],
+      round: 1,
+      rounds: 1,
+      hopsLeft: 4,
     });
     expect(branchPause(conv('relay', [question('go'), reply('a', false)]), 1)).toBeUndefined();
   });
@@ -444,7 +516,11 @@ describe('branching a conversation', () => {
     const titleOf = (id: string) => ({ Z: 'Zed' })[id];
     // From the last message of the earlier part, and from inside the latest: by the titles now.
     expect(branchOrigin(b, 1, copies, titleOf)).toEqual({ fromId: 'Z', fromTitle: 'Zed', afterId: 'c1' });
-    expect(branchOrigin(b, 3, copies, titleOf)).toEqual({ ...branch, afterId: 'c3', earlier: [{ fromId: 'Z', fromTitle: 'Zed', afterId: 'c1' }] });
+    expect(branchOrigin(b, 3, copies, titleOf)).toEqual({
+      ...branch,
+      afterId: 'c3',
+      earlier: [{ fromId: 'Z', fromTitle: 'Zed', afterId: 'c1' }],
+    });
     // From its own reply: its branch, with both parts before it.
     expect(branchOrigin(b, 5, copies)).toEqual({
       fromId: 'B',
@@ -458,8 +534,16 @@ describe('branching a conversation', () => {
 
     // Cut: a part that lost its last message ends with the last one left; one left with nothing goes.
     expect(branchAfterCut({ branch, messages: msgs('m0', 'm1', 'm2') }, new Set(['m3', 'm4', 'm5']))).toEqual({ ...branch, afterId: 'm2' });
-    expect(branchAfterCut({ branch, messages: msgs('m0', 'm1') }, new Set(['m2', 'm3', 'm4', 'm5']))).toEqual({ fromId: 'Z', fromTitle: 'Z', afterId: 'm1' });
-    expect(branchAfterCut({ branch, messages: msgs('m0') }, new Set(['m1', 'm2', 'm3', 'm4', 'm5']))).toEqual({ fromId: 'Z', fromTitle: 'Z', afterId: 'm0' });
+    expect(branchAfterCut({ branch, messages: msgs('m0', 'm1') }, new Set(['m2', 'm3', 'm4', 'm5']))).toEqual({
+      fromId: 'Z',
+      fromTitle: 'Z',
+      afterId: 'm1',
+    });
+    expect(branchAfterCut({ branch, messages: msgs('m0') }, new Set(['m1', 'm2', 'm3', 'm4', 'm5']))).toEqual({
+      fromId: 'Z',
+      fromTitle: 'Z',
+      afterId: 'm0',
+    });
     expect(branchAfterCut({ branch, messages: [] }, new Set(['m0', 'm1', 'm2', 'm3', 'm4', 'm5']))).toBeUndefined();
     // Nothing of it dropped: as it was.
     expect(branchAfterCut({ branch, messages: msgs('m0', 'm1', 'm2', 'm3', 'm4') }, new Set(['m5']))).toEqual(branch);
@@ -489,10 +573,17 @@ describe('branching a conversation', () => {
   it('finishes copying the attached files before the original is deleted, and before shutdown', async () => {
     const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
     conv.agents = [agents[0]!];
-    const big = Array.from({ length: 10 }, (_, i) => ({ name: `f${i}.txt`, mimeType: 'text/plain', data: Buffer.alloc(1_000_000, 65).toString('base64') }));
+    const big = Array.from({ length: 10 }, (_, i) => ({
+      name: `f${i}.txt`,
+      mimeType: 'text/plain',
+      data: Buffer.alloc(1_000_000, 65).toString('base64'),
+    }));
     await orchestrator.send(conv.id, 'look', big);
     await finish(conv.id);
-    const [branch] = await Promise.all([orchestrator.branch(conv.id, agentMessages(conv)[0]!.id), orchestrator.deleteConversation(conv.id)]);
+    const [branch] = await Promise.all([
+      orchestrator.branch(conv.id, agentMessages(conv)[0]!.id),
+      orchestrator.deleteConversation(conv.id),
+    ]);
     const files = branch.messages[0]!.parts.filter((p) => p.type === 'attachment');
     expect(files).toHaveLength(10);
     expect(files.filter((p) => p.type === 'attachment' && existsSync(attachmentPath(branch.id, p)))).toHaveLength(10);

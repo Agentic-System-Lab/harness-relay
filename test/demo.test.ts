@@ -22,7 +22,14 @@ const at = (plan: ReturnType<typeof planCut>, name: string) => plan.timeline.mar
 
 describe('planCut', () => {
   it('plays a recording without sped-up stretches in real time, with a short tail', () => {
-    const plan = planCut(frames(100, 110, 0.5), [{ name: 'start', t: 100 }, { name: 'end', t: 110 }], 120);
+    const plan = planCut(
+      frames(100, 110, 0.5),
+      [
+        { name: 'start', t: 100 },
+        { name: 'end', t: 110 },
+      ],
+      120,
+    );
     expect(plan.timeline.speed).toBe(1);
     expect(plan.timeline.length).toBeCloseTo(10 + TAIL, 5);
     expect(total(plan)).toBeCloseTo(10 + TAIL, 5);
@@ -89,8 +96,18 @@ describe('planCut', () => {
     ]);
     // The folder's quote quoted for FFmpeg, its separators this system's (`\` on Windows).
     const frame = (file: string) => `file '${join('/rec', "it'\\''s", 'frames', file)}'`;
-    expect(list.split('\n')).toEqual(['ffconcat version 1.0', frame('000001.jpg'), 'duration 0.50000', frame('000002.jpg'), 'duration 0.25000', frame('000002.jpg'), '']);
-    expect(frame('000001.jpg')).toBe(process.platform === 'win32' ? "file '\\rec\\it'\\''s\\frames\\000001.jpg'" : "file '/rec/it'\\''s/frames/000001.jpg'");
+    expect(list.split('\n')).toEqual([
+      'ffconcat version 1.0',
+      frame('000001.jpg'),
+      'duration 0.50000',
+      frame('000002.jpg'),
+      'duration 0.25000',
+      frame('000002.jpg'),
+      '',
+    ]);
+    expect(frame('000001.jpg')).toBe(
+      process.platform === 'win32' ? "file '\\rec\\it'\\''s\\frames\\000001.jpg'" : "file '/rec/it'\\''s/frames/000001.jpg'",
+    );
   });
 });
 
@@ -150,8 +167,18 @@ describe('chapter rail', () => {
     expect(chapters.map((c) => c.t)).toEqual([0, 16, 25, 32, 42, 59, 71, 78, 85, 97, 114]);
     expect(chapters[0].say).toBe('Create a group, “Design reviews”, and open a template: teams are designed in templates.');
     expect(chapters[2]).toMatchObject({ kind: 'lead', who: 'Lead agent', av: 'C', tone: 'claude', via: 'Claude Code' });
-    expect(chapters[2].say).toBe('Sorts the chat into Design reviews, adapts the Three-way debate template for the question, and says why.');
-    expect(chapters[3]).toMatchObject({ kind: 'team', who: 'All three', members: [['P', 'claude'], ['P', 'codex'], ['S', 'grok']] });
+    expect(chapters[2].say).toBe(
+      'Sorts the chat into Design reviews, adapts the Three-way debate template for the question, and says why.',
+    );
+    expect(chapters[3]).toMatchObject({
+      kind: 'team',
+      who: 'All three',
+      members: [
+        ['P', 'claude'],
+        ['P', 'codex'],
+        ['S', 'grok'],
+      ],
+    });
     expect(chapters[3].say).toMatch(/^Once you confirm, two rounds:/);
     expect(chapters[4]).toMatchObject({ kind: 'agent', who: '@Skeptic', av: 'S', tone: 'grok', via: 'Grok' });
     expect(chapters[7].say).toBe('Picks a team for it: Proposer and Skeptic, one round. The review team stays until you confirm.');
@@ -175,7 +202,9 @@ describe('chapter rail', () => {
     expect(teamWho('zh-TW', ['A', 'B', 'C', 'D'])).toBe('四位成員');
     expect(rounds('en', 1)).toBe('one round');
     expect(rounds('zh-TW', 2)).toBe('兩輪');
-    expect(planPhrase('en', { name: 'q1-confirmed', video: 0, source: 'template', team: 'Three-way debate' })).toBe('picks the Three-way debate template');
+    expect(planPhrase('en', { name: 'q1-confirmed', video: 0, source: 'template', team: 'Three-way debate' })).toBe(
+      'picks the Three-way debate template',
+    );
     expect(planPhrase('zh-TW', { name: 'q1-confirmed', video: 0, source: 'custom' })).toBe('為這個問題設計新團隊');
   });
 
@@ -210,7 +239,8 @@ describe('demo scenario and site', () => {
   });
 
   it('re-times only the language’s poster frame in the design guidelines', () => {
-    const md = '| `poster-en.webp` | Frame at 0:27.5 of `docs/media/demo-en.mp4` |\n| `poster-zh-TW.webp` | Frame at 0:22.5 of `docs/media/demo-zh-TW.mp4` |\n';
+    const md =
+      '| `poster-en.webp` | Frame at 0:27.5 of `docs/media/demo-en.mp4` |\n| `poster-zh-TW.webp` | Frame at 0:22.5 of `docs/media/demo-zh-TW.mp4` |\n';
     const out = retimeGuidelines(md, 'zh-TW', 63.04);
     expect(out).toContain('Frame at 0:27.5 of `docs/media/demo-en.mp4`');
     expect(out).toContain('Frame at 1:03.0 of `docs/media/demo-zh-TW.mp4`');
@@ -236,7 +266,9 @@ describe('demo scenario and site', () => {
       expect(out, page).toContain('"duration": "PT2M11S"');
       // Nothing else changed: put the old values back and it is the page again.
       const before = (key: string) => html.match(new RegExp(`"${key}": "[^"]*"`))![0];
-      expect(out.replace(/"uploadDate": "[^"]*"/, before('uploadDate')).replace(/"duration": "[^"]*"/, before('duration')), page).toBe(html);
+      expect(out.replace(/"uploadDate": "[^"]*"/, before('uploadDate')).replace(/"duration": "[^"]*"/, before('duration')), page).toBe(
+        html,
+      );
       // The same video published again keeps the date it was first published on; only its length is written.
       const again = retimeVideoData(html, { seconds: 131.2 });
       expect(again, page).toContain(before('uploadDate'));

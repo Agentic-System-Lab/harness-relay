@@ -23,13 +23,26 @@ afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 /** The environment without what Codespaces, an earlier test or the user's shell set for start.sh. */
 function clean(env: Record<string, string>): NodeJS.ProcessEnv {
-  const drop = ['CODESPACES', 'CODESPACE_NAME', 'GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN', 'GITHUB_REPOSITORY', 'PORT', 'RELAY_ALLOWED_HOSTS', 'DO_NOT_TRACK'];
+  const drop = [
+    'CODESPACES',
+    'CODESPACE_NAME',
+    'GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN',
+    'GITHUB_REPOSITORY',
+    'PORT',
+    'RELAY_ALLOWED_HOSTS',
+    'DO_NOT_TRACK',
+  ];
   return { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !drop.includes(k))), ...env };
 }
 
 /** What `links` in start.sh makes of `input`, with these Codespaces variables. */
 function links(input: string, env: Record<string, string>): string {
-  return execFileSync('bash', ['-c', 'source .devcontainer/start.sh; links; echo "hosts=${RELAY_ALLOWED_HOSTS:-}"'], { cwd: root, input, env: clean(env), encoding: 'utf8' });
+  return execFileSync('bash', ['-c', 'source .devcontainer/start.sh; links; echo "hosts=${RELAY_ALLOWED_HOSTS:-}"'], {
+    cwd: root,
+    input,
+    env: clean(env),
+    encoding: 'utf8',
+  });
 }
 
 const CODESPACES_ENV = '/workspaces/.codespaces/shared/.env';
@@ -77,7 +90,12 @@ function start(running: boolean, env: Record<string, string>): { out: string; ca
   return { out, calls: readFileSync(calls, 'utf8').trim().split('\n') };
 }
 
-const INSTALLERS = ['https://x.ai/cli/install.sh', 'https://cursor.com/install', 'https://antigravity.google/cli/install.sh', 'https://dev.meta.ai/install.sh'];
+const INSTALLERS = [
+  'https://x.ai/cli/install.sh',
+  'https://cursor.com/install',
+  'https://antigravity.google/cli/install.sh',
+  'https://dev.meta.ai/install.sh',
+];
 const NPM_INSTALL = 'npm install -g @anthropic-ai/claude-code @openai/codex @github/copilot';
 
 /**
@@ -159,7 +177,13 @@ function setup(opts: { npmStatus?: number; npmWaits?: boolean; failing?: string;
     }),
     encoding: 'utf8',
   });
-  return { out: r.stdout, status: r.status, calls: () => readFileSync(calls, 'utf8').trim().split('\n'), done, left: () => readdirSync(temp) };
+  return {
+    out: r.stdout,
+    status: r.status,
+    calls: () => readFileSync(calls, 'utf8').trim().split('\n'),
+    done,
+    left: () => readdirSync(temp),
+  };
 }
 /** The installers that ran, in order. */
 const ran = (calls: string[]) => calls.filter((c) => c.startsWith('ran '));
@@ -191,7 +215,11 @@ function counter(branch = 'latest-release', downloads = read('site/assets/downlo
       env: clean({ ...env, PATH: `${join(at, 'bin')}${delimiter}${process.env.PATH}`, STUB_CALLS: calls, STUB_FAILS: fails ? '1' : '0' }),
       encoding: 'utf8',
     });
-    return { out, calls: readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean), marked: existsSync(join(at, 'data', 'codespace-counted')) };
+    return {
+      out,
+      calls: readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean),
+      marked: existsSync(join(at, 'data', 'codespace-counted')),
+    };
   };
 }
 const COUNT = `curl -fsS -o /dev/null --connect-timeout 3 --max-time 5 -X POST ${MIRROR}/codespaces`;
@@ -218,7 +246,10 @@ describe('the dev container', { timeout: slow(20_000) }, () => {
     expect(config.runArgs).toEqual(['--device=/dev/net/tun']);
     for (const key of ['privileged', 'capAdd', 'mounts', 'init']) expect(config[key], key).toBeUndefined();
     // A feature can ask for more of its own (docker-in-docker runs privileged): only these two.
-    expect(Object.keys(config.features as object)).toEqual(['ghcr.io/devcontainers/features/sshd:1', 'ghcr.io/devcontainers/features/github-cli:1']);
+    expect(Object.keys(config.features as object)).toEqual([
+      'ghcr.io/devcontainers/features/sshd:1',
+      'ghcr.io/devcontainers/features/github-cli:1',
+    ]);
   });
 
   it('installs the seven agent CLIs that are not open source, where the server finds them, and no open-source agent', () => {
@@ -300,7 +331,7 @@ describe('the dev container', { timeout: slow(20_000) }, () => {
     expect(calls).toEqual([`curl -fsS -o /dev/null --max-time 2 http://${DEFAULT_HOST}:${DEFAULT_PORT}/api/auth`, 'npm start']);
   });
 
-  it.skipIf(!posix)('prints another link on that address when the server runs already, without Vite\'s', () => {
+  it.skipIf(!posix)("prints another link on that address when the server runs already, without Vite's", () => {
     const { out, calls } = start(true, codespace);
     expect(out).toBe(
       'Harness Relay is running already.\n' +
@@ -316,22 +347,31 @@ describe('the dev container', { timeout: slow(20_000) }, () => {
   });
 
   it.skipIf(!posix)('keeps the hosts already allowed', () => {
-    expect(links('', { ...codespace, RELAY_ALLOWED_HOSTS: 'my-computer.tail1234.ts.net' })).toBe(`hosts=${address},my-computer.tail1234.ts.net\n`);
+    expect(links('', { ...codespace, RELAY_ALLOWED_HOSTS: 'my-computer.tail1234.ts.net' })).toBe(
+      `hosts=${address},my-computer.tail1234.ts.net\n`,
+    );
   });
 
-  it.skipIf(!posix)("reads the codespace's name from Codespaces' file in a shell without its profile, and only the names it asks for", () => {
-    const dir = join(tmp, 'codespaces');
-    mkdirSync(dir, { recursive: true });
-    const file = join(dir, '.env');
-    writeFileSync(file, 'CODESPACE_NAME=old\nGITHUB_TOKEN=ghu_secret\nCODESPACE_NAME=demo-x5w\n');
-    const ask = (name: string, env: Record<string, string> = {}) =>
-      execFileSync('bash', ['-c', `source .devcontainer/start.sh; codespace_var ${name} "$F"`], { cwd: root, env: clean({ ...env, F: file }), encoding: 'utf8' });
-    // Its last line for the name, as the profile that sources it would leave it.
-    expect(ask('CODESPACE_NAME')).toBe('demo-x5w');
-    // The environment first.
-    expect(ask('CODESPACE_NAME', { CODESPACE_NAME: 'from-env' })).toBe('from-env');
-    expect(ask('GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN')).toBe('');
-  });
+  it.skipIf(!posix)(
+    "reads the codespace's name from Codespaces' file in a shell without its profile, and only the names it asks for",
+    () => {
+      const dir = join(tmp, 'codespaces');
+      mkdirSync(dir, { recursive: true });
+      const file = join(dir, '.env');
+      writeFileSync(file, 'CODESPACE_NAME=old\nGITHUB_TOKEN=ghu_secret\nCODESPACE_NAME=demo-x5w\n');
+      const ask = (name: string, env: Record<string, string> = {}) =>
+        execFileSync('bash', ['-c', `source .devcontainer/start.sh; codespace_var ${name} "$F"`], {
+          cwd: root,
+          env: clean({ ...env, F: file }),
+          encoding: 'utf8',
+        });
+      // Its last line for the name, as the profile that sources it would leave it.
+      expect(ask('CODESPACE_NAME')).toBe('demo-x5w');
+      // The environment first.
+      expect(ask('CODESPACE_NAME', { CODESPACE_NAME: 'from-env' })).toBe('from-env');
+      expect(ask('GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN')).toBe('');
+    },
+  );
 
   it.skipIf(!posix)('counts a codespace once, at the mirror, with nothing in the request', () => {
     const run = counter();
@@ -365,7 +405,8 @@ describe('the dev container', { timeout: slow(20_000) }, () => {
   });
 
   it.skipIf(!posix)("counts only what the links make: not a fork's codespace, nor one on another branch, nor without a mirror", () => {
-    for (const repo of ['someone/harness-relay', '']) expect(counter()({ CODESPACES: 'true', GITHUB_REPOSITORY: repo }).calls, repo).toEqual([]);
+    for (const repo of ['someone/harness-relay', ''])
+      expect(counter()({ CODESPACES: 'true', GITHUB_REPOSITORY: repo }).calls, repo).toEqual([]);
     for (const branch of ['main', 'my-fix']) expect(counter(branch)(LINKED).calls, branch).toEqual([]);
     // The branch is the one the Release workflow moves to each release.
     expect(read('.github/workflows/release.yml')).toMatch(/^ {2}CODESPACES_BRANCH: latest-release$/m);

@@ -97,7 +97,8 @@ function transform(node: MdNode, inLink: boolean, opts: RelayOptions): void {
   const link = inLink || node.type === 'link' || node.type === 'linkReference';
   node.children = node.children.flatMap((child) => {
     // A file on this computer is shown (by path, through the server); anything else is a link.
-    const url = child.type === 'image' ? child.url : child.type === 'imageReference' ? opts.definitions.get(child.identifier ?? '') : undefined;
+    const url =
+      child.type === 'image' ? child.url : child.type === 'imageReference' ? opts.definitions.get(child.identifier ?? '') : undefined;
     const local = opts.media && !link && url !== undefined ? localMediaPath(url) : undefined;
     if (local) return [{ type: 'image', url, alt: child.alt, title: child.title, data: { hProperties: { dataMedia: local } } }];
     if (child.type === 'image' || child.type === 'imageReference') return [imageAsLink(child, link, opts)];
@@ -160,7 +161,8 @@ export function mermaidSource(pre: HtmlNode | undefined): string | undefined {
 }
 
 /** East Asian wide characters (CJK, kana, Hangul, full-width forms, emoji): about 1em each. */
-const WIDE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\u3000-\u303f\uff01-\uff60\uffe0-\uffe6\p{Emoji_Presentation}]/u;
+const WIDE =
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\u3000-\u303f\uff01-\uff60\uffe0-\uffe6\p{Emoji_Presentation}]/u;
 
 /** Roughly how wide `text` is on one line, in em: wide characters take 1em, the rest about half. */
 export function textWidthEm(text: string): number {

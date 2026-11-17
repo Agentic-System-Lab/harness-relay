@@ -285,7 +285,12 @@ export class ToolLibrary {
   private unreadable = new Set<string>();
 
   private save(): void {
-    const stored: Stored = { mcpServers: this.data.mcpServers, skills: this.data.skills, memory: this.data.memory, relayTools: this.data.relayTools ?? {} };
+    const stored: Stored = {
+      mcpServers: this.data.mcpServers,
+      skills: this.data.skills,
+      memory: this.data.memory,
+      relayTools: this.data.relayTools ?? {},
+    };
     const inDb = this.keyring ? [...this.leftInDb] : [...this.secrets.keys()];
     if (inDb.length) stored.secrets = Object.fromEntries(inDb.map((id) => [id, this.secrets.get(id)!]));
     this.db

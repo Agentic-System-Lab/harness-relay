@@ -313,7 +313,12 @@ try {
  * port, in the profile sandbox-runtime wrote, which must hold that rule exactly once. On Linux the
  * sandbox has a loopback of its own, so nothing is added.
  */
-function withLocalPorts(command: string, ports: readonly number[], proxyPort: number | undefined, connectOnly: readonly number[] = []): string {
+function withLocalPorts(
+  command: string,
+  ports: readonly number[],
+  proxyPort: number | undefined,
+  connectOnly: readonly number[] = [],
+): string {
   const outbound = connectOnly.filter((p) => !ports.includes(p));
   if ((!ports.length && !outbound.length) || process.platform !== 'darwin') return command;
   if (proxyPort === undefined) throw new Error('no proxy port to add the local ports beside');
@@ -321,7 +326,10 @@ function withLocalPorts(command: string, ports: readonly number[], proxyPort: nu
   const at = command.indexOf(anchor);
   if (at < 0 || command.indexOf(anchor, at + 1) >= 0) throw new Error('the sandbox profile is not as expected');
   const rules = [
-    ...ports.map((p) => `(allow network-bind (local ip "localhost:${p}"))(allow network-inbound (local ip "localhost:${p}"))(allow network-outbound (remote ip "localhost:${p}"))`),
+    ...ports.map(
+      (p) =>
+        `(allow network-bind (local ip "localhost:${p}"))(allow network-inbound (local ip "localhost:${p}"))(allow network-outbound (remote ip "localhost:${p}"))`,
+    ),
     ...outbound.map((p) => `(allow network-outbound (remote ip "localhost:${p}"))`),
   ].join('');
   return command.slice(0, at + anchor.length) + rules + command.slice(at + anchor.length);
@@ -330,7 +338,12 @@ function withLocalPorts(command: string, ports: readonly number[], proxyPort: nu
 const port = (p: unknown): p is number => Number.isInteger(p) && (p as number) > 0 && (p as number) < 65536;
 
 try {
-  wrapped = withLocalPorts(wrapped!, (c.localPorts ?? []).filter(port), SandboxManager.getProxyPort(), (c.loopbackPorts ?? []).filter(port));
+  wrapped = withLocalPorts(
+    wrapped!,
+    (c.localPorts ?? []).filter(port),
+    SandboxManager.getProxyPort(),
+    (c.loopbackPorts ?? []).filter(port),
+  );
 } catch (err) {
   await fail('wrap', (err as Error).message);
 }

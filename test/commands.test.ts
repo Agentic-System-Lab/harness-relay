@@ -17,13 +17,20 @@ describe('simpleCommands', () => {
       ['echo', 'done'],
     ]);
     expect(simpleCommands('git commit -m "fix (part 1); more"')).toEqual([['git', 'commit', '-m', 'fix (part 1); more']]);
-    expect(simpleCommands('echo "$(git push)" `npm publish`')).toEqual([['git', 'push'], ['npm', 'publish'], ['echo', '', '']]);
+    expect(simpleCommands('echo "$(git push)" `npm publish`')).toEqual([
+      ['git', 'push'],
+      ['npm', 'publish'],
+      ['echo', '', ''],
+    ]);
   });
 
   it('skips assignments, wrappers and paths, and reads sh -c recursively', () => {
     expect(simpleCommands('GIT_TRACE=0 /usr/bin/git push')).toEqual([['git', 'push']]);
     expect(simpleCommands('env -i FOO=1 sudo -u me timeout 10 git push')).toEqual([['sudo', 'git', 'push']]);
-    expect(simpleCommands(`sh -c "cd app && git push"`)).toEqual([['cd', 'app'], ['git', 'push']]);
+    expect(simpleCommands(`sh -c "cd app && git push"`)).toEqual([
+      ['cd', 'app'],
+      ['git', 'push'],
+    ]);
   });
 });
 
@@ -31,8 +38,14 @@ describe('parseShellSyntax', () => {
   const programs = (line: string) => parseShellSyntax(line).map((c) => [...c.privileged, ...c.args]);
 
   it('skips reserved words and `!` in front of a command, and reads the bodies of compound commands', () => {
-    expect(programs('if ! git push origin main; then echo FAILED; fi')).toEqual([['git', 'push', 'origin', 'main'], ['echo', 'FAILED']]);
-    expect(programs('while read -r r; do git push "$r"; done < remotes.txt')).toEqual([['read', '-r', 'r'], ['git', 'push', '$r']]);
+    expect(programs('if ! git push origin main; then echo FAILED; fi')).toEqual([
+      ['git', 'push', 'origin', 'main'],
+      ['echo', 'FAILED'],
+    ]);
+    expect(programs('while read -r r; do git push "$r"; done < remotes.txt')).toEqual([
+      ['read', '-r', 'r'],
+      ['git', 'push', '$r'],
+    ]);
     expect(programs('for x in a b; do npm publish; done')).toEqual([['npm', 'publish']]);
     expect(programs('case $x in a) git push;; esac')).toEqual([['git', 'push']]);
     expect(programs('function f() { if true; then git push; fi; }; f')).toEqual([['true'], ['git', 'push'], ['f']]);
@@ -57,7 +70,12 @@ describe('commandLine', () => {
     expect(commandLine(['echo', "it's", ''])).toBe(`echo 'it'\\''s' ''`);
     expect(isPublishCommand(commandLine(['bash', '-lc', 'git push origin main'])!)).toBe(true);
     expect(isPublishCommand(commandLine(['sh', '-c', 'npm test && npm publish'])!)).toBe(true);
-    expect([commandLine(''), commandLine([]), commandLine(['ls', 1]), commandLine({ cmd: 'ls' })]).toEqual([undefined, undefined, undefined, undefined]);
+    expect([commandLine(''), commandLine([]), commandLine(['ls', 1]), commandLine({ cmd: 'ls' })]).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
   });
 });
 
@@ -275,7 +293,7 @@ describe('isPublishCommand', () => {
       "declare 'a[$(npm publish)]=1'",
       "printf -v 'a[$(git push)]' x",
       "read 'a[$(git push)]'",
-      'mapfile -t \'a[$(git push)]\'',
+      "mapfile -t 'a[$(git push)]'",
       "let 'x=$(git push)'",
       "x='a[$(git push)]'; (( x ))",
       "x='a[$(git push)]'; echo $(( x ))",
@@ -329,7 +347,10 @@ describe('isPublishCommand', () => {
   });
 
   it('keys any line with an evaluation context by its exact text only, so no program rule covers it', () => {
-    const rules = ['echo', 'cat', 'source', 'find', 'ls', 'declare', 'let', 'printf', 'read'].map((key) => ({ kind: 'command' as const, key }));
+    const rules = ['echo', 'cat', 'source', 'find', 'ls', 'declare', 'let', 'printf', 'read'].map((key) => ({
+      kind: 'command' as const,
+      key,
+    }));
     const allowed = (cmd: string) => isAllowed(rules, 'command', approvalKeys('command', cmd));
     for (const cmd of [
       // An evaluation reaches a subscript/arithmetic that the single program would not show.
@@ -362,10 +383,10 @@ describe('isPublishCommand', () => {
   it('asks for a push reached through an evaluation, a run callback, source from stdin, or find -exec', () => {
     for (const cmd of [
       // Reached after expansion: the substitution is single-quoted but the evaluation runs it.
-      "y='[$(git push)]'; declare \"a$y=1\"",
-      "y='[$(git push)]'; read \"a$y\" <<< x",
-      "y='[$(git push)]'; let \"a$y\"",
-      "y='[$(git push)]'; export \"a$y=1\"",
+      'y=\'[$(git push)]\'; declare "a$y=1"',
+      'y=\'[$(git push)]\'; read "a$y" <<< x',
+      'y=\'[$(git push)]\'; let "a$y"',
+      'y=\'[$(git push)]\'; export "a$y=1"',
       "y='[$(git push)]'; (( a$y ))",
       "y='[$(git push)]'; echo $(( a$y ))",
       "printf -v'a[$(git push)]' x",
@@ -503,7 +524,8 @@ describe('approval keys', () => {
       'bash <<< "echo hi"',
       "bash <<'EOF'\necho hi\nEOF",
     ];
-    const bare = 'if then elif else fi while until do done for select in case esac function coproc time ! { } ( ) [[ eval sh bash EOF'.split(' ');
+    const bare =
+      'if then elif else fi while until do done for select in case esac function coproc time ! { } ( ) [[ eval sh bash EOF'.split(' ');
     const keys = [...new Set([...harmless.flatMap((cmd) => approvalKeys('command', cmd)), ...bare, 'sudo sh', '$CMD'])];
     const rules = keys.map((key) => ({ kind: 'command' as const, key }));
     const allowed = (cmd: string) => isAllowed(rules, 'command', approvalKeys('command', cmd));

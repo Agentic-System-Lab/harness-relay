@@ -1,5 +1,16 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -57,33 +68,80 @@ const rows = (name: string) =>
     .map((l) => JSON.parse(l) as Record<string, any>);
 
 /** The session updates a recording's agent sent, in order. */
-const updatesOf = (name: string) => rows(name).flatMap((r) => (r.dir === 'agent->client' && r.msg?.method === 'session/update' ? [r.msg.params.update] : []));
+const updatesOf = (name: string) =>
+  rows(name).flatMap((r) => (r.dir === 'agent->client' && r.msg?.method === 'session/update' ? [r.msg.params.update] : []));
 
 describe('Antigravity permission policy (it has no sandbox Harness Relay uses)', () => {
-  const read = (path: string): AntigravityToolCall => ({ name: 'read_file', kind: 'read', title: 'File x', rawInput: { Path: path }, locations: [{ path }] });
-  const write = (path: string): AntigravityToolCall => ({ name: 'write_file', kind: 'edit', title: 'File x', rawInput: { Path: path, Content: 'x' }, locations: [{ path }] });
-  const command: AntigravityToolCall = { name: 'run_command', kind: 'execute', title: 'ls', rawInput: { CommandLine: 'ls', toolSummary: 'List' } };
+  const read = (path: string): AntigravityToolCall => ({
+    name: 'read_file',
+    kind: 'read',
+    title: 'File x',
+    rawInput: { Path: path },
+    locations: [{ path }],
+  });
+  const write = (path: string): AntigravityToolCall => ({
+    name: 'write_file',
+    kind: 'edit',
+    title: 'File x',
+    rawInput: { Path: path, Content: 'x' },
+    locations: [{ path }],
+  });
+  const command: AntigravityToolCall = {
+    name: 'run_command',
+    kind: 'execute',
+    title: 'ls',
+    rawInput: { CommandLine: 'ls', toolSummary: 'List' },
+  };
 
   it('read-only: runs reads (inside the working directory or not) and web searches, asks about writes, commands and anything else', () => {
     expect(antigravityPermissionDecision('read-only', read('/work/app/a.ts'), CWD)).toEqual({ run: 'allow' });
     expect(antigravityPermissionDecision('read-only', read('/etc/hosts'), CWD)).toEqual({ run: 'allow' });
-    expect(antigravityPermissionDecision('read-only', { name: 'search_web', kind: 'search', title: '"x" on Web', rawInput: { query: 'x' } }, CWD)).toEqual({ run: 'allow' });
+    expect(
+      antigravityPermissionDecision(
+        'read-only',
+        { name: 'search_web', kind: 'search', title: '"x" on Web', rawInput: { query: 'x' } },
+        CWD,
+      ),
+    ).toEqual({ run: 'allow' });
     expect(antigravityPermissionDecision('read-only', write('/work/app/a.ts'), CWD)).toEqual({ run: 'ask' });
     expect(antigravityPermissionDecision('read-only', command, CWD)).toEqual({ run: 'ask' });
-    expect(antigravityPermissionDecision('read-only', { name: 'invoke_subagent', kind: 'other', title: 'Run invoke_subagent' }, CWD)).toEqual({ run: 'ask' });
+    expect(
+      antigravityPermissionDecision('read-only', { name: 'invoke_subagent', kind: 'other', title: 'Run invoke_subagent' }, CWD),
+    ).toEqual({ run: 'ask' });
     // A search of files runs where it says where it searches; one that does not say could be of a protected folder.
-    expect(antigravityPermissionDecision('read-only', { name: 'grep_search', kind: 'search', rawInput: { SearchPath: '/work/app/src', Query: 'TODO' } }, CWD)).toEqual({ run: 'allow' });
-    expect(antigravityPermissionDecision('read-only', { name: 'grep_search', kind: 'search', rawInput: { Query: 'TODO' } }, CWD)).toEqual({ run: 'ask' });
-    expect(antigravityPermissionDecision('read-only', { name: 'grep_search', kind: 'search', rawInput: { SearchPath: '/home/user/Library/Cookies' } }, CWD, [], ['/home/user/Library/Cookies']).run).toBe('refuse');
+    expect(
+      antigravityPermissionDecision(
+        'read-only',
+        { name: 'grep_search', kind: 'search', rawInput: { SearchPath: '/work/app/src', Query: 'TODO' } },
+        CWD,
+      ),
+    ).toEqual({ run: 'allow' });
+    expect(antigravityPermissionDecision('read-only', { name: 'grep_search', kind: 'search', rawInput: { Query: 'TODO' } }, CWD)).toEqual({
+      run: 'ask',
+    });
+    expect(
+      antigravityPermissionDecision(
+        'read-only',
+        { name: 'grep_search', kind: 'search', rawInput: { SearchPath: '/home/user/Library/Cookies' } },
+        CWD,
+        [],
+        ['/home/user/Library/Cookies'],
+      ).run,
+    ).toBe('refuse');
   });
 
   it('refuses a read or write of a protected path below full access, without asking', () => {
     const shield = ['/home/user/Library/Cookies'];
     for (const p of ['read-only', 'edit'] as const) {
-      expect(antigravityPermissionDecision(p, read('/home/user/Library/Cookies/Default/Cookies'), CWD, [], shield)).toEqual({ run: 'refuse', reason: t().antigravityProtected });
+      expect(antigravityPermissionDecision(p, read('/home/user/Library/Cookies/Default/Cookies'), CWD, [], shield)).toEqual({
+        run: 'refuse',
+        reason: t().antigravityProtected,
+      });
       expect(antigravityPermissionDecision(p, write('/home/user/Library/Cookies/x'), CWD, [], shield).run).toBe('refuse');
     }
-    expect(antigravityPermissionDecision('full', read('/home/user/Library/Cookies/Default/Cookies'), CWD, [], shield)).toEqual({ run: 'allow' });
+    expect(antigravityPermissionDecision('full', read('/home/user/Library/Cookies/Default/Cookies'), CWD, [], shield)).toEqual({
+      run: 'allow',
+    });
   });
 
   it("edit: writes in the chat's working directories run; elsewhere, and where a write could change how agents run, they ask", () => {
@@ -91,7 +149,21 @@ describe('Antigravity permission policy (it has no sandbox Harness Relay uses)',
     expect(antigravityPermissionDecision('edit', write('/work/lib/b.ts'), CWD, ['/work/lib'])).toEqual({ run: 'allow' });
     expect(antigravityPermissionDecision('edit', write('/work/other/c.ts'), CWD, ['/work/lib'])).toEqual({ run: 'ask' });
     expect(antigravityPermissionDecision('edit', write('~/notes.txt'), CWD)).toEqual({ run: 'ask' });
-    for (const p of ['.agents/hooks.json', '.agent/mcp_config.json', '_agents/hooks.json', '.gemini/settings.json', '.git/hooks/pre-commit', '.git/config', '.vscode/tasks.json', '.claude/settings.json', 'sub/.cursor/mcp.json', '.mcp.json', '.github/hooks/h.json', '.github/copilot/settings.json', '.github/agents/a.agent.md']) {
+    for (const p of [
+      '.agents/hooks.json',
+      '.agent/mcp_config.json',
+      '_agents/hooks.json',
+      '.gemini/settings.json',
+      '.git/hooks/pre-commit',
+      '.git/config',
+      '.vscode/tasks.json',
+      '.claude/settings.json',
+      'sub/.cursor/mcp.json',
+      '.mcp.json',
+      '.github/hooks/h.json',
+      '.github/copilot/settings.json',
+      '.github/agents/a.agent.md',
+    ]) {
       expect(antigravityPermissionDecision('edit', write(`/work/app/${p}`), CWD), p).toEqual({ run: 'ask' });
     }
     expect(antigravityPermissionDecision('edit', write('/work/app/.git/objects/ab/cd'), CWD)).toEqual({ run: 'allow' });
@@ -99,7 +171,20 @@ describe('Antigravity permission policy (it has no sandbox Harness Relay uses)',
   });
 
   it("edit: asks about agents' config in any letter case (macOS and Windows ignore it), a submodule's git hooks, and the other dangerous files", () => {
-    for (const p of ['.Claude/settings.json', '.AGENTS/mcp_config.json', '.Vscode/tasks.json', '.MCP.json', '.Gemini/x', '.git/modules/lib/hooks/pre-commit', '.git/modules/a/b/config', '.GIT/HOOKS/x', '.idea/workspace.xml', '.gitmodules', '.envrc', '.claude./settings.json']) {
+    for (const p of [
+      '.Claude/settings.json',
+      '.AGENTS/mcp_config.json',
+      '.Vscode/tasks.json',
+      '.MCP.json',
+      '.Gemini/x',
+      '.git/modules/lib/hooks/pre-commit',
+      '.git/modules/a/b/config',
+      '.GIT/HOOKS/x',
+      '.idea/workspace.xml',
+      '.gitmodules',
+      '.envrc',
+      '.claude./settings.json',
+    ]) {
       expect(antigravityPermissionDecision('edit', write(`/work/app/${p}`), CWD), p).toEqual({ run: 'ask' });
     }
     expect(antigravityPermissionDecision('edit', write('/work/app/docs/agents.md'), CWD)).toEqual({ run: 'allow' });
@@ -109,12 +194,29 @@ describe('Antigravity permission policy (it has no sandbox Harness Relay uses)',
   it('checks every path a call names, and asks about a read whose path it cannot tell', () => {
     const shield = ['/home/user/Library/Cookies'];
     // A call about two files: one protected, or one outside the working directory, decides for both.
-    const two = (a: string, b: string): AntigravityToolCall => ({ name: 'edit_file', kind: 'edit', rawInput: { Path: a }, locations: [{ path: a }, { path: b }] });
-    expect(antigravityPermissionDecision('edit', two('/work/app/a.ts', '/home/user/Library/Cookies/c'), CWD, [], shield).run).toBe('refuse');
+    const two = (a: string, b: string): AntigravityToolCall => ({
+      name: 'edit_file',
+      kind: 'edit',
+      rawInput: { Path: a },
+      locations: [{ path: a }, { path: b }],
+    });
+    expect(antigravityPermissionDecision('edit', two('/work/app/a.ts', '/home/user/Library/Cookies/c'), CWD, [], shield).run).toBe(
+      'refuse',
+    );
     expect(antigravityPermissionDecision('edit', two('/work/app/a.ts', '/elsewhere/b.ts'), CWD).run).toBe('ask');
     expect(antigravityPermissionDecision('edit', two('/work/app/a.ts', '/work/app/b.ts'), CWD).run).toBe('allow');
-    expect(antigravityPermissionDecision('read-only', { kind: 'read', name: 'read_file', rawInput: { Source: '/home/user/Library/Cookies/x' } }, CWD, [], shield).run).toBe('refuse');
-    expect(antigravityPermissionDecision('read-only', { kind: 'read', name: 'read_file', rawInput: { Something: '/x' } }, CWD)).toEqual({ run: 'ask' });
+    expect(
+      antigravityPermissionDecision(
+        'read-only',
+        { kind: 'read', name: 'read_file', rawInput: { Source: '/home/user/Library/Cookies/x' } },
+        CWD,
+        [],
+        shield,
+      ).run,
+    ).toBe('refuse');
+    expect(antigravityPermissionDecision('read-only', { kind: 'read', name: 'read_file', rawInput: { Something: '/x' } }, CWD)).toEqual({
+      run: 'ask',
+    });
   });
 
   it.skipIf(process.platform === 'win32')('edit: takes a link out of the working directory for where it leads', () => {
@@ -131,15 +233,39 @@ describe('Antigravity permission policy (it has no sandbox Harness Relay uses)',
   });
 
   it('full: approves everything', () => {
-    for (const call of [command, write('/elsewhere/x'), { kind: 'other', name: 'swarm' }]) expect(antigravityPermissionDecision('full', call, CWD)).toEqual({ run: 'allow' });
+    for (const call of [command, write('/elsewhere/x'), { kind: 'other', name: 'swarm' }])
+      expect(antigravityPermissionDecision('full', call, CWD)).toEqual({ run: 'allow' });
   });
 
   it('describes what it asks about: a command runs outside any sandbox once allowed, and a write says why it asks', () => {
-    expect(antigravityApprovalRequest('edit', command, CWD)).toEqual({ kind: 'command', detail: 'ls', reason: 'List', outsideSandbox: true });
-    expect(antigravityApprovalRequest('edit', write('/elsewhere/x.ts'), CWD)).toEqual({ kind: 'edit', detail: '/elsewhere/x.ts', reason: t().antigravityOutsideWrite });
-    expect(antigravityApprovalRequest('edit', write('/work/app/.agents/hooks.json'), CWD)).toEqual({ kind: 'edit', detail: '/work/app/.agents/hooks.json', reason: t().antigravityConfigWrite });
-    expect(antigravityApprovalRequest('read-only', write('/work/app/a.ts'), CWD)).toEqual({ kind: 'edit', detail: '/work/app/a.ts', reason: 'File x' });
-    expect(antigravityApprovalRequest('read-only', { name: 'invoke_subagent', kind: 'other', title: 'Run invoke_subagent', rawInput: { prompt: 'Look around' } }, CWD)).toEqual({
+    expect(antigravityApprovalRequest('edit', command, CWD)).toEqual({
+      kind: 'command',
+      detail: 'ls',
+      reason: 'List',
+      outsideSandbox: true,
+    });
+    expect(antigravityApprovalRequest('edit', write('/elsewhere/x.ts'), CWD)).toEqual({
+      kind: 'edit',
+      detail: '/elsewhere/x.ts',
+      reason: t().antigravityOutsideWrite,
+    });
+    expect(antigravityApprovalRequest('edit', write('/work/app/.agents/hooks.json'), CWD)).toEqual({
+      kind: 'edit',
+      detail: '/work/app/.agents/hooks.json',
+      reason: t().antigravityConfigWrite,
+    });
+    expect(antigravityApprovalRequest('read-only', write('/work/app/a.ts'), CWD)).toEqual({
+      kind: 'edit',
+      detail: '/work/app/a.ts',
+      reason: 'File x',
+    });
+    expect(
+      antigravityApprovalRequest(
+        'read-only',
+        { name: 'invoke_subagent', kind: 'other', title: 'Run invoke_subagent', rawInput: { prompt: 'Look around' } },
+        CWD,
+      ),
+    ).toEqual({
       kind: 'other',
       tool: 'invoke_subagent',
       detail: 'Look around',
@@ -191,7 +317,14 @@ describe('Antigravity session updates', () => {
   it('gives a call it reports only once it is over its row too', () => {
     const events: AgentEvent[] = [];
     const h = createAntigravityUpdateHandler((e) => events.push(e));
-    h.handle({ sessionUpdate: 'tool_call_update', toolCallId: 'r1', name: 'read_file', kind: 'read', status: 'failed', content: [{ type: 'content', content: { type: 'text', text: 'no such file' } }] });
+    h.handle({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'r1',
+      name: 'read_file',
+      kind: 'read',
+      status: 'failed',
+      content: [{ type: 'content', content: { type: 'text', text: 'no such file' } }],
+    });
     expect(events).toEqual([
       { type: 'tool_start', id: 'r1', name: 'Read' },
       { type: 'tool_end', id: 'r1', ok: false, error: 'no such file' },
@@ -199,8 +332,14 @@ describe('Antigravity session updates', () => {
   });
 
   it("keeps a command's output without the lines agy puts first", () => {
-    expect(antigravityCommandOutput('Created At: 2026\nCompleted At: 2026\nCommand exited with code 0.\n\nCommand output:\nline 1\r\nline 2\r\n')).toBe('line 1\nline 2\n');
-    expect(antigravityCommandOutput('Created At: 2026\nCompleted At: 2026\nCommand exited with code 1.\n\nNo output from the command.')).toBe('');
+    expect(
+      antigravityCommandOutput(
+        'Created At: 2026\nCompleted At: 2026\nCommand exited with code 0.\n\nCommand output:\nline 1\r\nline 2\r\n',
+      ),
+    ).toBe('line 1\nline 2\n');
+    expect(
+      antigravityCommandOutput('Created At: 2026\nCompleted At: 2026\nCommand exited with code 1.\n\nNo output from the command.'),
+    ).toBe('');
   });
 });
 
@@ -230,51 +369,83 @@ describe("Antigravity's settings and home for one run", () => {
       agentMode: '',
       allowNonWorkspaceAccess: false,
     });
-    expect(antigravityRunSettings(own, 'read-only', true)).toMatchObject({ toolPermission: 'request-review', allowNonWorkspaceAccess: false, modelProvider: 'gemini' });
+    expect(antigravityRunSettings(own, 'read-only', true)).toMatchObject({
+      toolPermission: 'request-review',
+      allowNonWorkspaceAccess: false,
+      modelProvider: 'gemini',
+    });
     expect(antigravityRunSettings(undefined, 'full', false)).toEqual({ toolPermission: 'always-proceed', agentMode: '' });
-    expect(antigravityRunSettings([1, 2], 'edit', false)).toEqual({ toolPermission: 'request-review', agentMode: '', allowNonWorkspaceAccess: false });
+    expect(antigravityRunSettings([1, 2], 'edit', false)).toEqual({
+      toolPermission: 'request-review',
+      agentMode: '',
+      allowNonWorkspaceAccess: false,
+    });
     // An account that runs on its key only is told to use it, also without one (agy then fails, never takes the default account's sign-in).
     expect(antigravityRunSettings(undefined, 'edit', false, true)).toMatchObject({ modelProvider: 'gemini' });
-    expect(Object.keys(antigravityRunSettings(own, 'edit', false))).toEqual(expect.not.arrayContaining(['permissions', 'trustedWorkspaces', 'statusLine', 'enableTerminalSandbox']));
+    expect(Object.keys(antigravityRunSettings(own, 'edit', false))).toEqual(
+      expect.not.arrayContaining(['permissions', 'trustedWorkspaces', 'statusLine', 'enableTerminalSandbox']),
+    );
   });
 
-  it.skipIf(process.platform === 'win32')("writes them in a folder of the run's own (owner only) in the account's CLI folder, removed after it, the account's own file left as it was", () => {
-    const app = join(root, 'acct', '.gemini', 'antigravity-cli');
-    mkdirSync(app, { recursive: true });
-    writeFileSync(join(app, 'settings.json'), JSON.stringify({ toolPermission: 'proceed-in-sandbox' }));
-    const run = prepareAntigravityRun(app, 'edit', true);
-    expect(run.name.startsWith(ANTIGRAVITY_RUN_PREFIX)).toBe(true);
-    expect(statSync(run.dir).mode & 0o777).toBe(0o700);
-    expect(statSync(join(run.dir, 'settings.json')).mode & 0o777).toBe(0o600);
-    expect(JSON.parse(readFileSync(join(run.dir, 'settings.json'), 'utf8'))).toEqual({ toolPermission: 'request-review', agentMode: '', allowNonWorkspaceAccess: false, modelProvider: 'gemini' });
-    expect(JSON.parse(readFileSync(join(app, 'settings.json'), 'utf8'))).toEqual({ toolPermission: 'proceed-in-sandbox' });
-    run.done();
-    expect(existsSync(run.dir)).toBe(false);
-  });
+  it.skipIf(process.platform === 'win32')(
+    "writes them in a folder of the run's own (owner only) in the account's CLI folder, removed after it, the account's own file left as it was",
+    () => {
+      const app = join(root, 'acct', '.gemini', 'antigravity-cli');
+      mkdirSync(app, { recursive: true });
+      writeFileSync(join(app, 'settings.json'), JSON.stringify({ toolPermission: 'proceed-in-sandbox' }));
+      const run = prepareAntigravityRun(app, 'edit', true);
+      expect(run.name.startsWith(ANTIGRAVITY_RUN_PREFIX)).toBe(true);
+      expect(statSync(run.dir).mode & 0o777).toBe(0o700);
+      expect(statSync(join(run.dir, 'settings.json')).mode & 0o777).toBe(0o600);
+      expect(JSON.parse(readFileSync(join(run.dir, 'settings.json'), 'utf8'))).toEqual({
+        toolPermission: 'request-review',
+        agentMode: '',
+        allowNonWorkspaceAccess: false,
+        modelProvider: 'gemini',
+      });
+      expect(JSON.parse(readFileSync(join(app, 'settings.json'), 'utf8'))).toEqual({ toolPermission: 'proceed-in-sandbox' });
+      run.done();
+      expect(existsSync(run.dir)).toBe(false);
+    },
+  );
 
-  it.skipIf(process.platform === 'win32')('removes the folders of runs the server was stopped during, once older than a turn may last', () => {
-    const app = join(root, 'left', '.gemini', 'antigravity-cli');
-    const old = join(app, `${ANTIGRAVITY_RUN_PREFIX}000000000000`);
-    const recent = join(app, `${ANTIGRAVITY_RUN_PREFIX}111111111111`);
-    mkdirSync(old, { recursive: true });
-    mkdirSync(recent, { recursive: true });
-    const long = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
-    utimesSync(old, long, long);
-    const run = prepareAntigravityRun(app, 'edit', false);
-    expect(existsSync(old)).toBe(false);
-    expect(existsSync(recent)).toBe(true); // another Harness Relay on the same home may be running it
-    // A run of this server still under way is never swept, however old its folder looks.
-    utimesSync(run.dir, long, long);
-    const next = prepareAntigravityRun(app, 'edit', false);
-    expect(existsSync(run.dir)).toBe(true);
-    next.done();
-    run.done();
-  });
+  it.skipIf(process.platform === 'win32')(
+    'removes the folders of runs the server was stopped during, once older than a turn may last',
+    () => {
+      const app = join(root, 'left', '.gemini', 'antigravity-cli');
+      const old = join(app, `${ANTIGRAVITY_RUN_PREFIX}000000000000`);
+      const recent = join(app, `${ANTIGRAVITY_RUN_PREFIX}111111111111`);
+      mkdirSync(old, { recursive: true });
+      mkdirSync(recent, { recursive: true });
+      const long = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+      utimesSync(old, long, long);
+      const run = prepareAntigravityRun(app, 'edit', false);
+      expect(existsSync(old)).toBe(false);
+      expect(existsSync(recent)).toBe(true); // another Harness Relay on the same home may be running it
+      // A run of this server still under way is never swept, however old its folder looks.
+      utimesSync(run.dir, long, long);
+      const next = prepareAntigravityRun(app, 'edit', false);
+      expect(existsSync(run.dir)).toBe(true);
+      next.done();
+      run.done();
+    },
+  );
 
   it("starts agy acp in the account's home, its own settings folder, and asks about nothing with full access", () => {
     const env = { [ANTIGRAVITY_HOME_ENV]: '/data/accounts/antigravity-a1' };
-    expect(antigravityArgs(env, 'edit', 'harness-relay-x')).toEqual(['acp', '--gemini-dir', join('/data/accounts/antigravity-a1', '.gemini'), '--cli_dir_name', 'harness-relay-x']);
-    expect(antigravityArgs({}, 'full', 'harness-relay-x')).toEqual(['acp', '--cli_dir_name', 'harness-relay-x', '--dangerously-skip-permissions']);
+    expect(antigravityArgs(env, 'edit', 'harness-relay-x')).toEqual([
+      'acp',
+      '--gemini-dir',
+      join('/data/accounts/antigravity-a1', '.gemini'),
+      '--cli_dir_name',
+      'harness-relay-x',
+    ]);
+    expect(antigravityArgs({}, 'full', 'harness-relay-x')).toEqual([
+      'acp',
+      '--cli_dir_name',
+      'harness-relay-x',
+      '--dangerously-skip-permissions',
+    ]);
     expect(antigravityGeminiDir({}, '/home/me')).toBe(join('/home/me', '.gemini'));
     expect(antigravityAppDir(env)).toBe(join('/data/accounts/antigravity-a1', '.gemini', 'antigravity-cli'));
   });
@@ -287,7 +458,7 @@ describe("Antigravity's settings and home for one run", () => {
   });
 });
 
-describe("what a project makes agy run by itself", () => {
+describe('what a project makes agy run by itself', () => {
   let root: string;
   beforeAll(() => (root = mkdtempSync(join(tmpdir(), 'relay-agy-project-'))));
   afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -305,7 +476,9 @@ describe("what a project makes agy run by itself", () => {
     writeFileSync(join(other, '.agent', 'mcp_config.json'), '{}');
     writeFileSync(join(root, 'mcp_config.json'), '{}'); // above the repository: not read
     writeFileSync(join(cwd, '.agents', 'skills', 's', 'SKILL.md'), '---\nname: s\n---\n'); // instructions only
-    expect(antigravityProjectFiles([cwd, other]).sort()).toEqual([join(cwd, '_agent', 'hooks.json'), join(repo, '.agents', 'plugins'), join(other, '.agent', 'mcp_config.json')].sort());
+    expect(antigravityProjectFiles([cwd, other]).sort()).toEqual(
+      [join(cwd, '_agent', 'hooks.json'), join(repo, '.agents', 'plugins'), join(other, '.agent', 'mcp_config.json')].sort(),
+    );
     const before = antigravityProjectFingerprint(antigravityProjectFiles([cwd]));
     expect(antigravityProjectFingerprint(antigravityProjectFiles([cwd]))).toBe(before);
     writeFileSync(join(cwd, '_agent', 'hooks.json'), '{"x":{"PreInvocation":[{"type":"command","command":"curl evil"}]}}');
@@ -365,7 +538,13 @@ describe("Antigravity's models and what it loads by itself", () => {
   it('reads each model by its base id, with the thinking levels its ids end in', () => {
     const models = parseAntigravityModels(readFileSync(join(CLI, 'models.txt'), 'utf8'));
     expect(models[0]).toEqual({ id: 'gemini-4-argon', label: 'Gemini 4 Argon', efforts: ['low', 'medium', 'high'] });
-    expect(models.map((m) => m.id)).toEqual(['gemini-4-argon', 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.1-pro']);
+    expect(models.map((m) => m.id)).toEqual([
+      'gemini-4-argon',
+      'gemini-3.8-flash',
+      'gemini-3.7-flash',
+      'gemini-3.6-flash',
+      'gemini-3.1-pro',
+    ]);
     expect(models.at(-1)).toEqual({ id: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro', efforts: ['low', 'high'] });
     expect(parseAntigravityModels(readFileSync(join(CLI, 'models-signed-out.txt'), 'utf8'))).toEqual([]);
     expect(parseAntigravityModels('gemini-x\tGemini X\n')).toEqual([{ id: 'gemini-x', label: 'Gemini X' }]);
@@ -380,8 +559,12 @@ describe("Antigravity's models and what it loads by itself", () => {
   });
 
   it('sets only a thinking level the session offers, not an on/off switch', () => {
-    expect(antigravityEffortOption([{ id: 'thought_level', category: 'thought_level', options: [{ value: 'low' }, { value: 'high' }] }])?.id).toBe('thought_level');
-    expect(antigravityEffortOption([{ id: 'thinking', category: 'thought_level', options: [{ value: 'true' }, { value: 'false' }] }])).toBeUndefined();
+    expect(
+      antigravityEffortOption([{ id: 'thought_level', category: 'thought_level', options: [{ value: 'low' }, { value: 'high' }] }])?.id,
+    ).toBe('thought_level');
+    expect(
+      antigravityEffortOption([{ id: 'thinking', category: 'thought_level', options: [{ value: 'true' }, { value: 'false' }] }]),
+    ).toBeUndefined();
   });
 
   it('lists its skills, hooks (never their commands), custom agents and plugins from its own answers', () => {
@@ -394,16 +577,28 @@ describe("Antigravity's models and what it loads by itself", () => {
     let lists: ReturnType<typeof parseAntigravityProbe>;
     try {
       lists = parseAntigravityProbe(
-        { skills: json('skills').command.data, hooks: json('hooks').command.data, agents: json('agents').command.data, plugins: json('plugins') },
+        {
+          skills: json('skills').command.data,
+          hooks: json('hooks').command.data,
+          agents: json('agents').command.data,
+          plugins: json('plugins'),
+        },
         join(repo, 'app'),
         '/home/user/.gemini',
       );
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
-    expect(lists.skills.find((s) => s.name === 'demo-skill')).toEqual({ name: 'demo-skill', description: 'A demo skill.', source: 'user', path: '/home/user/.gemini/config/skills/demo-skill/SKILL.md' });
+    expect(lists.skills.find((s) => s.name === 'demo-skill')).toEqual({
+      name: 'demo-skill',
+      description: 'A demo skill.',
+      source: 'user',
+      path: '/home/user/.gemini/config/skills/demo-skill/SKILL.md',
+    });
     expect(lists.skills.find((s) => s.name === 'agy-customizations')?.source).toBe('built-in');
-    expect(lists.hooks).toEqual([{ event: 'PostToolUse', matcher: 'run_command', source: 'lint', file: '/home/user/.gemini/config/hooks.json' }]);
+    expect(lists.hooks).toEqual([
+      { event: 'PostToolUse', matcher: 'run_command', source: 'lint', file: '/home/user/.gemini/config/hooks.json' },
+    ]);
     expect(JSON.stringify(lists.hooks)).not.toContain('echo hi');
     expect(lists.agents).toEqual([{ name: 'reviewer', description: '' }]);
     expect(lists.plugins).toEqual([]);
@@ -418,7 +613,12 @@ describe("Antigravity's models and what it loads by itself", () => {
       mkdirSync(join(repo, '.git'), { recursive: true });
       mkdirSync(join(cwd, '.agents', 'rules'), { recursive: true });
       mkdirSync(join(gemini, 'config'), { recursive: true });
-      writeFileSync(join(gemini, 'config', 'mcp_config.json'), JSON.stringify({ mcpServers: { docs: { command: 'node', args: ['x'], env: { TOKEN: 'secret' } }, web: { serverUrl: 'https://x', disabled: true } } }));
+      writeFileSync(
+        join(gemini, 'config', 'mcp_config.json'),
+        JSON.stringify({
+          mcpServers: { docs: { command: 'node', args: ['x'], env: { TOKEN: 'secret' } }, web: { serverUrl: 'https://x', disabled: true } },
+        }),
+      );
       writeFileSync(join(cwd, '.agents', 'mcp_config.json'), JSON.stringify({ mcpServers: { docs: { command: 'project-docs' } } }));
       writeFileSync(join(repo, 'GEMINI.md'), '# repo');
       writeFileSync(join(cwd, 'AGENTS.md'), '# pkg');
@@ -429,7 +629,11 @@ describe("Antigravity's models and what it loads by itself", () => {
         { name: 'web', transport: 'http', source: 'user', enabled: false, status: 'disabled' },
       ]);
       expect(JSON.stringify(antigravityMcpServers(cwd, gemini))).not.toContain('secret');
-      expect(antigravityMemoryFiles(cwd).map((f) => f.path)).toEqual([join(repo, 'GEMINI.md'), join(cwd, 'AGENTS.md'), join(cwd, '.agents', 'rules', 'style.md')]);
+      expect(antigravityMemoryFiles(cwd).map((f) => f.path)).toEqual([
+        join(repo, 'GEMINI.md'),
+        join(cwd, 'AGENTS.md'),
+        join(cwd, '.agents', 'rules', 'style.md'),
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -505,23 +709,37 @@ describe.skipIf(process.platform === 'win32')('an Antigravity turn (with a stand
   const methods = (r: Run) => r.log().flatMap((l) => (typeof l.method === 'string' ? [l.method] : []));
   const sent = (r: Run, method: string) => r.log().find((l) => l.method === method);
 
-  it("runs a turn in its own settings, sets the model and thinking level, briefs it in its system prompt, and asks about each command", async () => {
+  it('runs a turn in its own settings, sets the model and thinking level, briefs it in its system prompt, and asks about each command', async () => {
     const r = run('edit', { model: 'gemini-3.8-flash', effort: 'high' }, () => ({ allow: true }));
     const result = await withLang('en', () => antigravityRunner.run(r.o));
     expect(result).toEqual({ sessionId: 'c3471ccd-1a6e-4152-ad72-1baf7443ff46', inputTokens: 500, outputTokens: 100 });
     const start = r.log()[0]!;
-    expect(start.argv).toEqual(['acp', '--gemini-dir', join(r.home, '.gemini'), '--cli_dir_name', expect.stringMatching(/^harness-relay-[0-9a-f]{12}$/)]);
+    expect(start.argv).toEqual([
+      'acp',
+      '--gemini-dir',
+      join(r.home, '.gemini'),
+      '--cli_dir_name',
+      expect.stringMatching(/^harness-relay-[0-9a-f]{12}$/),
+    ]);
     expect(start.cwd).toBe(r.o.cwd.startsWith('/var/') ? `/private${r.o.cwd}` : r.o.cwd);
     // Its home is passed as a flag, not as a variable of its own, and no variable of Harness Relay's reaches it.
     expect(start.env).toMatchObject({ HARNESS_RELAY_ANTIGRAVITY_HOME: null, GEMINI_API_KEY: 'AIza-test-0000' });
-    expect(start.settings).toEqual({ toolPermission: 'request-review', agentMode: '', allowNonWorkspaceAccess: false, modelProvider: 'gemini' });
+    expect(start.settings).toEqual({
+      toolPermission: 'request-review',
+      agentMode: '',
+      allowNonWorkspaceAccess: false,
+      modelProvider: 'gemini',
+    });
     // The run's settings folder is gone with the run.
     expect(readdirSync(join(r.home, '.gemini', 'antigravity-cli')).filter((f) => f.startsWith(ANTIGRAVITY_RUN_PREFIX))).toEqual([]);
     expect(methods(r)).toEqual(['initialize', 'session/new', 'session/set_config_option', 'session/set_config_option', 'session/prompt']);
     const opened = sent(r, 'session/new')!.params;
     expect(opened._meta.antigravity.systemPrompt.append).toContain('You are @Ada on a team.');
     expect(opened.cwd).toBe(r.o.cwd);
-    const options = r.log().filter((l) => l.method === 'session/set_config_option').map((l) => [l.params.configId, l.params.value]);
+    const options = r
+      .log()
+      .filter((l) => l.method === 'session/set_config_option')
+      .map((l) => [l.params.configId, l.params.value]);
     expect(options).toEqual([
       ['model', 'gemini-3.8-flash'],
       ['thought_level', 'high'],
@@ -531,20 +749,38 @@ describe.skipIf(process.platform === 'win32')('an Antigravity turn (with a stand
       { kind: 'command', detail: 'ls', reason: 'List the files', outsideSandbox: true },
       { kind: 'command', detail: 'false', reason: 'Fail on purpose', outsideSandbox: true },
     ]);
-    const answers = r.log().filter((l) => l.result?.outcome).map((l) => l.result.outcome.optionId);
+    const answers = r
+      .log()
+      .filter((l) => l.result?.outcome)
+      .map((l) => l.result.outcome.optionId);
     expect(answers).toEqual(['allow', 'allow', 'allow']);
-    expect(r.events.filter((e) => e.type === 'text').map((e) => (e as { text: string }).text)).toEqual(['Let me look.', 'Done: wrote hello.txt.']);
+    expect(r.events.filter((e) => e.type === 'text').map((e) => (e as { text: string }).text)).toEqual([
+      'Let me look.',
+      'Done: wrote hello.txt.',
+    ]);
   });
 
   it('resumes a session, briefing it again only when the briefing changed', async () => {
-    const first = run('resume', { sessionId: 'c3471ccd-1a6e-4152-ad72-1baf7443ff46', prompt: 'And again', systemPrompt: 'Brief A.' }, () => ({ allow: true }));
+    const first = run(
+      'resume',
+      { sessionId: 'c3471ccd-1a6e-4152-ad72-1baf7443ff46', prompt: 'And again', systemPrompt: 'Brief A.' },
+      () => ({ allow: true }),
+    );
     await antigravityRunner.run(first.o);
     expect(sent(first, 'session/resume')!.params).toMatchObject({ sessionId: 'c3471ccd-1a6e-4152-ad72-1baf7443ff46', cwd: first.o.cwd });
     expect(sent(first, 'session/resume')!.params._meta).toBeDefined(); // the session was given another one
-    const again = run('resume', { sessionId: 'c3471ccd-1a6e-4152-ad72-1baf7443ff46', prompt: 'And again', systemPrompt: 'Brief A.' }, () => ({ allow: true }));
+    const again = run(
+      'resume',
+      { sessionId: 'c3471ccd-1a6e-4152-ad72-1baf7443ff46', prompt: 'And again', systemPrompt: 'Brief A.' },
+      () => ({ allow: true }),
+    );
     await antigravityRunner.run(again.o);
     expect(sent(again, 'session/resume')!.params._meta).toBeUndefined();
-    const changed = run('resume', { sessionId: 'c3471ccd-1a6e-4152-ad72-1baf7443ff46', prompt: 'And again', systemPrompt: 'Brief B.' }, () => ({ allow: true }));
+    const changed = run(
+      'resume',
+      { sessionId: 'c3471ccd-1a6e-4152-ad72-1baf7443ff46', prompt: 'And again', systemPrompt: 'Brief B.' },
+      () => ({ allow: true }),
+    );
     await antigravityRunner.run(changed.o);
     expect(sent(changed, 'session/resume')!.params._meta.antigravity.systemPrompt.append).toContain('Brief B.');
   });
@@ -555,7 +791,10 @@ describe.skipIf(process.platform === 'win32')('an Antigravity turn (with a stand
     expect(r.approvals.map((a) => [a.kind, a.detail])).toEqual([['edit', join(r.o.cwd, 'ro.txt')]]);
     expect(r.log().find((l) => l.result?.outcome)?.result.outcome.optionId).toBe('deny');
     const end = r.events.find((e) => e.type === 'tool_end') as Extract<AgentEvent, { type: 'tool_end' }>;
-    expect(end).toMatchObject({ ok: false, error: `${withLang('en', () => t().approvalDeclined)} Not now${withLang('en', () => t().antigravityEndsTurn)}` });
+    expect(end).toMatchObject({
+      ok: false,
+      error: `${withLang('en', () => t().approvalDeclined)} Not now${withLang('en', () => t().antigravityEndsTurn)}`,
+    });
     expect(r.events.some((e) => e.type === 'text' && e.text.includes('Should not be reached'))).toBe(false);
   });
 
@@ -563,7 +802,10 @@ describe.skipIf(process.platform === 'win32')('an Antigravity turn (with a stand
     const r = run('ro-auto', { permission: 'read-only', prompt: 'touch' });
     await withLang('en', () => antigravityRunner.run(r.o));
     expect(r.log().find((l) => l.result?.outcome)?.result.outcome.optionId).toBe('deny');
-    expect(r.events.find((e) => e.type === 'tool_end')).toMatchObject({ ok: false, error: `${withLang('en', () => t().antigravityRefused)}${withLang('en', () => t().antigravityEndsTurn)}` });
+    expect(r.events.find((e) => e.type === 'tool_end')).toMatchObject({
+      ok: false,
+      error: `${withLang('en', () => t().antigravityRefused)}${withLang('en', () => t().antigravityEndsTurn)}`,
+    });
   });
 
   it('refuses a protected path without asking', async () => {
@@ -571,7 +813,10 @@ describe.skipIf(process.platform === 'win32')('an Antigravity turn (with a stand
     await withLang('en', () => antigravityRunner.run(r.o));
     expect(r.approvals).toEqual([]);
     expect(r.log().find((l) => l.result?.outcome)?.result.outcome.optionId).toBe('deny');
-    expect(r.events.find((e) => e.type === 'tool_end')).toMatchObject({ ok: false, error: expect.stringContaining(withLang('en', () => t().antigravityProtected)) });
+    expect(r.events.find((e) => e.type === 'tool_end')).toMatchObject({
+      ok: false,
+      error: expect.stringContaining(withLang('en', () => t().antigravityProtected)),
+    });
   });
 
   it('runs everything with full access, asking nothing', async () => {
@@ -586,7 +831,9 @@ describe.skipIf(process.platform === 'win32')('an Antigravity turn (with a stand
   it('says to sign in when agy is not signed in', async () => {
     const r = run('signedout', { prompt: 'hi' });
     delete r.o.env.GEMINI_API_KEY;
-    await expect(withLang('en', () => antigravityRunner.run(r.o))).rejects.toThrow(withLang('en', () => t().antigravitySignIn('Authentication required')));
+    await expect(withLang('en', () => antigravityRunner.run(r.o))).rejects.toThrow(
+      withLang('en', () => t().antigravitySignIn('Authentication required')),
+    );
   });
 
   it('stops a turn: it cancels the session, and the run ends as stopped', async () => {
@@ -610,7 +857,7 @@ describe.skipIf(process.platform === 'win32')('an Antigravity turn (with a stand
     expect(r.log()).toEqual([]);
   });
 
-  it('asks agy for its models and what it loads in the account\'s home, telling it to use a Gemini API key when there is one', async () => {
+  it("asks agy for its models and what it loads in the account's home, telling it to use a Gemini API key when there is one", async () => {
     const { discoverModels } = await import('../src/server/models');
     const { NativeSetupService } = await import('../src/server/native');
     const r = run(undefined);
@@ -639,7 +886,12 @@ describe.skipIf(process.platform === 'win32')('an Antigravity turn (with a stand
     const err = (await withLang('en', () => antigravityRunner.run(r.o)).catch((e: unknown) => e)) as AgentRunError;
     expect(err.message).toContain(withLang('en', () => t().antigravityProjectSetupRefused(join('.agents', 'mcp_config.json'))));
     expect(r.approvals).toEqual([
-      { kind: 'other', tool: expect.stringMatching(/^Antigravity project setup [0-9a-f]{8}$/), detail: join('.agents', 'mcp_config.json'), reason: withLang('en', () => t().antigravityProjectSetup) },
+      {
+        kind: 'other',
+        tool: expect.stringMatching(/^Antigravity project setup [0-9a-f]{8}$/),
+        detail: join('.agents', 'mcp_config.json'),
+        reason: withLang('en', () => t().antigravityProjectSetup),
+      },
     ]);
     expect(r.log()).toEqual([]); // agy never started
     // Refused automatically when the chat refuses approvals; allowed, the turn runs.
@@ -678,12 +930,16 @@ describe.skipIf(process.platform === 'win32')('an Antigravity turn (with a stand
       const r = run(undefined, over);
       r.o.env.FAKE_AGY_REJECT = value;
       // The stand-in offers `high` as a level, so the effort is sent and rejected.
-      await expect(withLang('en', () => antigravityRunner.run(r.o))).rejects.toThrow(withLang('en', () => message(`unknown value ${value}`)));
+      await expect(withLang('en', () => antigravityRunner.run(r.o))).rejects.toThrow(
+        withLang('en', () => message(`unknown value ${value}`)),
+      );
     }
     const mode = run(undefined);
     mode.o.env.FAKE_AGY_MODE = 'accept-edits';
     mode.o.env.FAKE_AGY_REJECT = 'default';
-    await expect(withLang('en', () => antigravityRunner.run(mode.o))).rejects.toThrow(withLang('en', () => t().antigravityRejectedMode('unknown value default')));
+    await expect(withLang('en', () => antigravityRunner.run(mode.o))).rejects.toThrow(
+      withLang('en', () => t().antigravityRejectedMode('unknown value default')),
+    );
     const cancelled = run(undefined);
     cancelled.o.env.FAKE_AGY_CANCELLED = '1';
     await expect(withLang('en', () => antigravityRunner.run(cancelled.o))).rejects.toThrow(withLang('en', () => t().antigravityCancelled));
@@ -696,7 +952,12 @@ describe.skipIf(process.platform === 'win32')('an Antigravity turn (with a stand
     const r = run(undefined, { effort: 'xhigh' });
     r.o.env.FAKE_AGY_MODE = 'accept-edits';
     await antigravityRunner.run(r.o);
-    expect(r.log().filter((l) => l.method === 'session/set_config_option').map((l) => [l.params.configId, l.params.value])).toEqual([['mode', 'default']]);
+    expect(
+      r
+        .log()
+        .filter((l) => l.method === 'session/set_config_option')
+        .map((l) => [l.params.configId, l.params.value]),
+    ).toEqual([['mode', 'default']]);
   });
 
   it('sends the other working directories, the MCP servers and the images, and ignores what another session says', async () => {
@@ -716,7 +977,10 @@ describe.skipIf(process.platform === 'win32')('an Antigravity turn (with a stand
     expect(opened.additionalDirectories).toEqual(['/work/lib']);
     // HTTP MCP servers only go to an agent that advertises them, which agy does not over ACP.
     expect(opened.mcpServers).toEqual([{ name: 'docs', command: 'node', args: ['s.js'], env: [{ name: 'TOKEN', value: 't' }] }]);
-    expect(sent(r, 'session/prompt')!.params.prompt).toEqual([expect.objectContaining({ type: 'text' }), { type: 'image', data: 'iVBORw==', mimeType: 'image/png' }]);
+    expect(sent(r, 'session/prompt')!.params.prompt).toEqual([
+      expect.objectContaining({ type: 'text' }),
+      { type: 'image', data: 'iVBORw==', mimeType: 'image/png' },
+    ]);
     expect(r.events.filter((e) => e.type === 'text').map((e) => (e as { text: string }).text)).toEqual(['hello']);
   });
 

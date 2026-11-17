@@ -38,7 +38,21 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  linkSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import { basename, dirname, join, relative } from 'node:path';
 import { PROVIDERS, type Provider } from '../../src/shared/types';
@@ -100,7 +114,8 @@ function fakeModules(): [id: string, text: string][] {
     for (const name of readdirSync(dir).sort()) {
       const path = join(dir, name);
       if (statSync(path).isDirectory()) walk(path, `${prefix}${name}/`);
-      else if (name.endsWith('.cjs') && !(prefix === '' && STANDALONE.has(name))) found.push([prefix + name.slice(0, -'.cjs'.length), readFileSync(path, 'utf8')]);
+      else if (name.endsWith('.cjs') && !(prefix === '' && STANDALONE.has(name)))
+        found.push([prefix + name.slice(0, -'.cjs'.length), readFileSync(path, 'utf8')]);
     }
   };
   walk(FAKE_CLI_DIR, '');
@@ -191,8 +206,16 @@ export async function installFakeClis(): Promise<string> {
   if (sea) {
     // Each fake that is written answers `--version` as its module says (a broken module fails here, not in each test).
     const load = createRequire(import.meta.url);
-    const checks = IMPLEMENTED_FAKES.map((p): [string, RegExp] => [join(folder, fakeBin(p)), (load(join(FAKE_CLI_DIR, 'agents', `${p}.cjs`)) as { versionRe: RegExp }).versionRe]);
-    await buildExecutables(seaEntry(script, ghScript, npmScript), folder, [...bins, gh, npm], [...checks, [gh, /^gh version/], [npm, /^10\.9\.9-e2e/]]);
+    const checks = IMPLEMENTED_FAKES.map((p): [string, RegExp] => [
+      join(folder, fakeBin(p)),
+      (load(join(FAKE_CLI_DIR, 'agents', `${p}.cjs`)) as { versionRe: RegExp }).versionRe,
+    ]);
+    await buildExecutables(
+      seaEntry(script, ghScript, npmScript),
+      folder,
+      [...bins, gh, npm],
+      [...checks, [gh, /^gh version/], [npm, /^10\.9\.9-e2e/]],
+    );
   } else {
     for (const p of PROVIDERS) {
       if (p === 'openhands') installOpenhands(folder, script);
@@ -246,7 +269,9 @@ function installOpenhands(folder: string, script: string): void {
   symlinkSync(relative(folder, program), link);
   const list = join(folder, OPENHANDS_VENV.models);
   mkdirSync(dirname(list), { recursive: true });
-  const { litellmModels } = createRequire(import.meta.url)(join(FAKE_CLI_DIR, 'agents', 'openhands.cjs')) as { litellmModels: Record<string, unknown> };
+  const { litellmModels } = createRequire(import.meta.url)(join(FAKE_CLI_DIR, 'agents', 'openhands.cjs')) as {
+    litellmModels: Record<string, unknown>;
+  };
   writeFileSync(list, JSON.stringify(litellmModels, null, 2));
 }
 
@@ -268,7 +293,10 @@ async function buildExecutables(script: string, dir: string, bins: string[], che
   const blob = join(dir, 'fake-cli.blob');
   const config = join(dir, 'fake-cli.sea-config.json');
   writeFileSync(main, script);
-  writeFileSync(config, JSON.stringify({ main, output: blob, disableExperimentalSEAWarning: true, useCodeCache: false, useSnapshot: false }));
+  writeFileSync(
+    config,
+    JSON.stringify({ main, output: blob, disableExperimentalSEAWarning: true, useCodeCache: false, useSnapshot: false }),
+  );
   run(process.execPath, ['--experimental-sea-config', config]);
 
   const first = bins[0]!;
@@ -277,7 +305,12 @@ async function buildExecutables(script: string, dir: string, bins: string[], che
   // macOS runs no binary whose signature does not match it: take Node's off, sign again ad hoc after.
   if (process.platform === 'darwin') run('codesign', ['--remove-signature', first]);
   const postject = createRequire(import.meta.url)('postject') as {
-    inject(file: string, name: string, data: Buffer, o: { sentinelFuse: string; machoSegmentName?: string; overwrite?: boolean }): Promise<void>;
+    inject(
+      file: string,
+      name: string,
+      data: Buffer,
+      o: { sentinelFuse: string; machoSegmentName?: string; overwrite?: boolean },
+    ): Promise<void>;
   };
   await postject.inject(first, 'NODE_SEA_BLOB', readFileSync(blob), {
     sentinelFuse: 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2',
@@ -296,7 +329,9 @@ async function buildExecutables(script: string, dir: string, bins: string[], che
   for (const [bin, says] of checks) {
     const check = spawnSync(bin, ['--version'], { encoding: 'utf8', windowsHide: true });
     if (check.status !== 0 || !says.test(check.stdout)) {
-      throw new Error(`The fake ${basename(bin)} executable does not run: ${check.status} ${check.stdout} ${check.stderr} ${check.error ?? ''}`);
+      throw new Error(
+        `The fake ${basename(bin)} executable does not run: ${check.status} ${check.stdout} ${check.stderr} ${check.error ?? ''}`,
+      );
     }
   }
 }
@@ -361,7 +396,10 @@ export function writeFakeLaunchers(dir: string, from: { script: string; node: st
   const muse = join(dir, 'muse');
   mkdirSync(muse, { recursive: true });
   writeFileSync(join(muse, 'muse.cmd'), MUSE_LAUNCHER);
-  writeFileSync(join(muse, '.muse-launcher.ps1'), '# A stand-in for Muse Code\'s launcher script: Harness Relay starts the binary .muse-version names.\r\n');
+  writeFileSync(
+    join(muse, '.muse-launcher.ps1'),
+    "# A stand-in for Muse Code's launcher script: Harness Relay starts the binary .muse-version names.\r\n",
+  );
   writeFileSync(join(muse, '.muse-version'), `${MUSE_VERSION}\r\n`);
   linkOrCopy(from.program, join(muse, `muse-bin-${MUSE_VERSION}.exe`));
 
@@ -375,7 +413,13 @@ export function writeFakeLaunchers(dir: string, from: { script: string; node: st
   mkdirSync(join(npm, ...program.slice(0, -1)), { recursive: true });
   linkOrCopy(from.program, join(npm, ...program));
   writeFileSync(join(npm, 'opencode.cmd'), npmProgramShim(program.join('\\')));
-  return { cursor: join(cursor, 'cursor-agent.cmd'), muse: join(muse, 'muse.cmd'), cline: join(npm, 'cline.cmd'), pi: join(npm, 'pi.cmd'), opencode: join(npm, 'opencode.cmd') };
+  return {
+    cursor: join(cursor, 'cursor-agent.cmd'),
+    muse: join(muse, 'muse.cmd'),
+    cline: join(npm, 'cline.cmd'),
+    pi: join(npm, 'pi.cmd'),
+    opencode: join(npm, 'opencode.cmd'),
+  };
 }
 
 /**
@@ -386,14 +430,23 @@ export function writeFakeLaunchers(dir: string, from: { script: string; node: st
  */
 export function installFakeLaunchers(fakeBinDir: string): FakeLaunchers {
   const script = bundleFakeCli();
-  const key = createHash('sha256').update(LAYOUT).update('launchers-2').update(script).update(fakeBinDir).update(process.version).update(process.execPath).digest('hex').slice(0, 16);
+  const key = createHash('sha256')
+    .update(LAYOUT)
+    .update('launchers-2')
+    .update(script)
+    .update(fakeBinDir)
+    .update(process.version)
+    .update(process.execPath)
+    .digest('hex')
+    .slice(0, 16);
   const cache = join(ROOT, 'node_modules', '.cache', 'harness-relay-e2e');
   const dir = join(cache, `fake-launchers-${key}`);
   const done = join(dir, 'done');
   if (!existsSync(done)) {
     for (const old of existsSync(cache) ? readdirSync(cache) : []) {
       const path = join(cache, old);
-      if (old.startsWith('fake-launchers-') && path !== dir && Date.now() - statSync(path).mtimeMs > IN_USE_MS) rmSync(path, { recursive: true, force: true });
+      if (old.startsWith('fake-launchers-') && path !== dir && Date.now() - statSync(path).mtimeMs > IN_USE_MS)
+        rmSync(path, { recursive: true, force: true });
     }
     // Made aside and moved into place whole: another worker may be making it too.
     const making = `${dir}.${process.pid}-${Date.now().toString(36)}`;
@@ -409,7 +462,16 @@ export function installFakeLaunchers(fakeBinDir: string): FakeLaunchers {
   const now = new Date();
   utimesSync(dir, now, now);
   const at = (...parts: string[]) => join(dir, ...parts);
-  return { dir, bins: { cursor: at('cursor', 'cursor-agent.cmd'), muse: at('muse', 'muse.cmd'), cline: at('npm', 'cline.cmd'), pi: at('npm', 'pi.cmd'), opencode: at('npm', 'opencode.cmd') } };
+  return {
+    dir,
+    bins: {
+      cursor: at('cursor', 'cursor-agent.cmd'),
+      muse: at('muse', 'muse.cmd'),
+      cline: at('npm', 'cline.cmd'),
+      pi: at('npm', 'pi.cmd'),
+      opencode: at('npm', 'opencode.cmd'),
+    },
+  };
 }
 
 function run(bin: string, args: string[]): void {

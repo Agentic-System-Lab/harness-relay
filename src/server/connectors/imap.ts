@@ -69,7 +69,8 @@ export function upgrade(sock: Socket, host: string, timeoutMs: number): Promise<
 }
 
 /** The server's answer to STARTTLS came with more after it, before TLS started. */
-export const STARTTLS_EXTRA = 'The mail server sent more than its answer to STARTTLS before TLS started: the connection was closed, as someone on the way may have added it';
+export const STARTTLS_EXTRA =
+  'The mail server sent more than its answer to STARTTLS before TLS started: the connection was closed, as someone on the way may have added it';
 
 /** An IMAP quoted string. */
 export function quote(s: string): string {
@@ -329,7 +330,12 @@ export function parseFetch(r: ImapResponse): { uid?: number; flags: string[]; da
   const uid = /\bUID (\d+)/i.exec(r.text)?.[1];
   const flags = /\bFLAGS \(([^)]*)\)/i.exec(r.text)?.[1]?.split(/\s+/).filter(Boolean) ?? [];
   const date = /\bINTERNALDATE "([^"]+)"/i.exec(r.text)?.[1];
-  return { ...(uid ? { uid: Number(uid) } : {}), flags, ...(date ? { date } : {}), ...(r.literals.length ? { data: r.literals[r.literals.length - 1] } : {}) };
+  return {
+    ...(uid ? { uid: Number(uid) } : {}),
+    flags,
+    ...(date ? { date } : {}),
+    ...(r.literals.length ? { data: r.literals[r.literals.length - 1] } : {}),
+  };
 }
 
 /** A date as IMAP's SEARCH takes it (`5-Jan-2026`). */

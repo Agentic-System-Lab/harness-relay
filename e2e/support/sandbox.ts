@@ -38,6 +38,7 @@ export function relaySandboxHere(): string {
   const missing = Object.entries(tools).filter(([bin]) => !findProgram(bin));
   if (missing.length) return `${missing.map(([, what]) => what).join(', ')} not installed`;
   const tried = spawnSync(findProgram('bwrap')!, ['--ro-bind', '/', '/', 'true'], { encoding: 'utf8', timeout: 15_000 });
-  if (tried.status !== 0) return `bubblewrap cannot make its namespaces here: ${(tried.stderr || String(tried.error ?? `exit ${tried.status}`)).trim().slice(-300)}`;
+  if (tried.status !== 0)
+    return `bubblewrap cannot make its namespaces here: ${(tried.stderr || String(tried.error ?? `exit ${tried.status}`)).trim().slice(-300)}`;
   return 'ok';
 }

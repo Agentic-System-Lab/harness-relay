@@ -5,7 +5,15 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { fileName, isVideo, localFilePath, localMediaPath, mediaType } from '../src/shared/media';
 import type { ChatMessage, Conversation } from '../src/shared/types';
 import { attachmentsDir } from '../src/server/attachments';
-import { byteRange, contentDisposition, downloadProblem, mediaRoots, replyWorktrees, resolveDownload, resolveMedia } from '../src/server/media';
+import {
+  byteRange,
+  contentDisposition,
+  downloadProblem,
+  mediaRoots,
+  replyWorktrees,
+  resolveDownload,
+  resolveMedia,
+} from '../src/server/media';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-media-')));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -263,8 +271,14 @@ describe('files a reply links to', () => {
       changes: [{ root: '/repo', base: 'x', head: 'y', files: [], isolated: true, branch: 'relay/c0/Alice' }],
     } as unknown as ChatMessage;
     const conv = (id: string, from?: string, branch?: string) =>
-      ({ id, worktrees: branch ? { a: wt(branch) } : {}, ...(from ? { branch: { fromId: from, fromTitle: '', afterId: 'm' } } : {}) }) as unknown as Conversation;
-    const all = new Map([conv('c0', undefined, 'relay/c0/Alice'), conv('c1', 'c0', 'relay/c1/Alice'), conv('c2', 'c1')].map((c) => [c.id, c]));
+      ({
+        id,
+        worktrees: branch ? { a: wt(branch) } : {},
+        ...(from ? { branch: { fromId: from, fromTitle: '', afterId: 'm' } } : {}),
+      }) as unknown as Conversation;
+    const all = new Map(
+      [conv('c0', undefined, 'relay/c0/Alice'), conv('c1', 'c0', 'relay/c1/Alice'), conv('c2', 'c1')].map((c) => [c.id, c]),
+    );
     const lookup = (id: string) => all.get(id);
     expect(replyWorktrees(all.get('c0')!, reply, lookup)[0]?.branch).toBe('relay/c0/Alice');
     // Not the branch's own worktree for that agent, which holds other work.
@@ -274,7 +288,10 @@ describe('files a reply links to', () => {
     expect(replyWorktrees(all.get('c2')!, reply, (id) => (id === 'c0' ? undefined : lookup(id)))).toEqual([]);
     // A branch whose earlier copied messages were written in c0, while the one it was branched from is
     // gone (or no longer a branch): found in c0 through that part.
-    const c3 = { ...conv('c3', 'gone'), branch: { fromId: 'gone', fromTitle: '', afterId: 'm', earlier: [{ fromId: 'c0', fromTitle: '', afterId: 'm' }] } };
+    const c3 = {
+      ...conv('c3', 'gone'),
+      branch: { fromId: 'gone', fromTitle: '', afterId: 'm', earlier: [{ fromId: 'c0', fromTitle: '', afterId: 'm' }] },
+    };
     expect(replyWorktrees(c3, reply, lookup)[0]?.branch).toBe('relay/c0/Alice');
     // A loop of branches ends.
     const loop = new Map([conv('x', 'y'), conv('y', 'x')].map((c) => [c.id, c]));

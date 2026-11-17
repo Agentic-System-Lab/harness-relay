@@ -1,5 +1,17 @@
 import { createHash } from 'node:crypto';
-import { createReadStream, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  createReadStream,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, win32 } from 'node:path';
@@ -157,27 +169,56 @@ export const CLI_RECIPES: Record<Provider, CliRecipe> = {
   grok: {
     method: 'script',
     posix: { url: 'https://x.ai/cli/install.sh', shell: 'bash', bin: ['bin', 'grok'], env: (dir) => ({ GROK_BIN_DIR: join(dir, 'bin') }) },
-    windows: { url: 'https://x.ai/cli/install.ps1', shell: 'powershell', bin: ['bin', 'grok.exe'], env: (dir) => ({ GROK_BIN_DIR: join(dir, 'bin') }) },
+    windows: {
+      url: 'https://x.ai/cli/install.ps1',
+      shell: 'powershell',
+      bin: ['bin', 'grok.exe'],
+      env: (dir) => ({ GROK_BIN_DIR: join(dir, 'bin') }),
+    },
   },
   // No setting of its own: its versions in ~/.local/share/cursor-agent linked from ~/.local/bin; on
   // Windows in %LOCALAPPDATA%\cursor-agent, with its launcher (`winLaunch.ts` starts it).
   cursor: {
     method: 'script',
     posix: { url: 'https://cursor.com/install', shell: 'bash', bin: ['home', '.local', 'bin', 'cursor-agent'] },
-    windows: { url: 'https://cursor.com/install?win32=true', shell: 'powershell', bin: ['home', 'AppData', 'Local', 'cursor-agent', 'cursor-agent.cmd'] },
+    windows: {
+      url: 'https://cursor.com/install?win32=true',
+      shell: 'powershell',
+      bin: ['home', 'AppData', 'Local', 'cursor-agent', 'cursor-agent.cmd'],
+    },
   },
   antigravity: {
     method: 'script',
-    posix: { url: 'https://antigravity.google/cli/install.sh', shell: 'bash', bin: ['bin', 'agy'], args: (dir) => ['--dir', join(dir, 'bin')] },
-    windows: { url: 'https://antigravity.google/cli/install.ps1', shell: 'powershell', bin: ['bin', 'agy.exe'], args: (dir) => ['--dir', join(dir, 'bin')] },
+    posix: {
+      url: 'https://antigravity.google/cli/install.sh',
+      shell: 'bash',
+      bin: ['bin', 'agy'],
+      args: (dir) => ['--dir', join(dir, 'bin')],
+    },
+    windows: {
+      url: 'https://antigravity.google/cli/install.ps1',
+      shell: 'powershell',
+      bin: ['bin', 'agy.exe'],
+      args: (dir) => ['--dir', join(dir, 'bin')],
+    },
   },
   copilot: { method: 'npm', package: '@github/copilot', command: 'copilot', withNode: true },
   // A launcher, which fetches Muse Code's binary beside itself (and keeps it up to date there); on
   // Windows `muse.cmd`, which `winLaunch.ts` reads for the binary it names.
   muse: {
     method: 'script',
-    posix: { url: 'https://dev.meta.ai/install.sh', shell: 'bash', bin: ['bin', 'muse'], env: (dir) => ({ MUSE_INSTALL_DIR: join(dir, 'bin'), MUSE_NO_MODIFY_PATH: '1' }) },
-    windows: { url: 'https://dev.meta.ai/install.ps1', shell: 'powershell', bin: ['bin', 'muse.cmd'], env: (dir) => ({ MUSE_INSTALL_DIR: join(dir, 'bin'), MUSE_NO_MODIFY_PATH: '1' }) },
+    posix: {
+      url: 'https://dev.meta.ai/install.sh',
+      shell: 'bash',
+      bin: ['bin', 'muse'],
+      env: (dir) => ({ MUSE_INSTALL_DIR: join(dir, 'bin'), MUSE_NO_MODIFY_PATH: '1' }),
+    },
+    windows: {
+      url: 'https://dev.meta.ai/install.ps1',
+      shell: 'powershell',
+      bin: ['bin', 'muse.cmd'],
+      env: (dir) => ({ MUSE_INSTALL_DIR: join(dir, 'bin'), MUSE_NO_MODIFY_PATH: '1' }),
+    },
   },
   opencode: { method: 'npm', package: 'opencode-ai@1.19.5', command: 'opencode' },
   // Goose's own installer, of the version checked (Homebrew's formula would go outside the folder);
@@ -249,7 +290,11 @@ const MUSL_LOADERS = ['/lib/ld-musl-x86_64.so.1', '/lib/ld-musl-aarch64.so.1'];
  * Node.js's own build for `platform` on `arch` (`NODE_VERSION`): on macOS and Linux its `.tar.gz`,
  * on Windows its `.zip`; none for another system or processor, nor for a Linux with musl.
  */
-export function nodeBuildFor(platform: NodeJS.Platform, arch: string, isFile: (path: string) => boolean = fileExists): NodeBuild | undefined {
+export function nodeBuildFor(
+  platform: NodeJS.Platform,
+  arch: string,
+  isFile: (path: string) => boolean = fileExists,
+): NodeBuild | undefined {
   const os = platform === 'darwin' ? 'darwin' : platform === 'linux' ? 'linux' : platform === 'win32' ? 'win' : undefined;
   if (!os || (arch !== 'x64' && arch !== 'arm64')) return undefined;
   if (os === 'linux' && MUSL_LOADERS.some((p) => isFile(p))) return undefined;
@@ -351,7 +396,9 @@ export function gitBash(env: NodeJS.ProcessEnv, isFile: (path: string) => boolea
   for (const base of [env.ProgramFiles, env.ProgramW6432, env.LOCALAPPDATA && win32.join(env.LOCALAPPDATA, 'Programs')]) {
     if (base) roots.push(win32.join(base, 'Git'));
   }
-  return [...new Set(roots)].flatMap((root) => [win32.join(root, 'bin', 'bash.exe'), win32.join(root, 'usr', 'bin', 'bash.exe')]).find(isFile);
+  return [...new Set(roots)]
+    .flatMap((root) => [win32.join(root, 'bin', 'bash.exe'), win32.join(root, 'usr', 'bin', 'bash.exe')])
+    .find(isFile);
 }
 
 /** Windows PowerShell, which every Windows 10 and 11 has in System32. */
@@ -365,13 +412,15 @@ export function windowsPowerShell(env: NodeJS.ProcessEnv, isFile: (path: string)
  * Where uv's own installer puts it on macOS and Linux, besides the PATH (a server started outside a
  * terminal may not have them): POSIX paths, whichever system this runs on, as `findOnPath` takes them.
  */
-const uvDirs = (home: string, platform: NodeJS.Platform) => (platform === 'win32' ? [] : [posix.join(home, '.local', 'bin'), posix.join(home, '.cargo', 'bin')]);
+const uvDirs = (home: string, platform: NodeJS.Platform) =>
+  platform === 'win32' ? [] : [posix.join(home, '.local', 'bin'), posix.join(home, '.cargo', 'bin')];
 
 /** Where a system keeps curl and bash, besides the PATH. */
 const SYSTEM_DIRS = ['/usr/bin', '/bin'];
 
 /** Variables of the server's environment no installer is given: Claude Code's nesting markers, and npm's own of the run that started the server (`npm start`). */
-const NOT_FOR_INSTALLERS = /^(CLAUDECODE|CLAUDE_CODE_.*|CLAUDE_PID|AI_AGENT|npm_lifecycle_.*|npm_package_.*|npm_config_(local_prefix|global_prefix|prefix)|INIT_CWD)$/;
+const NOT_FOR_INSTALLERS =
+  /^(CLAUDECODE|CLAUDE_CODE_.*|CLAUDE_PID|AI_AGENT|npm_lifecycle_.*|npm_package_.*|npm_config_(local_prefix|global_prefix|prefix)|INIT_CWD)$/;
 
 /** Variables that would move a maker's installer out of the folder it is given as its home. */
 const HOME_MOVERS = ['ZDOTDIR', 'CURSOR_CONFIG_DIR', 'GROK_HOME', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'COPILOT_HOME', 'BASH_ENV', 'ENV'];
@@ -399,7 +448,12 @@ export function pathFirst(env: NodeJS.ProcessEnv, folder: string, platform: Node
  * elsewhere, the recipe's own variables, and the folder its program goes in first on its PATH, so that
  * it finds its program there and puts no link to it, nor a line for it, anywhere else.
  */
-export function scriptEnv(base: NodeJS.ProcessEnv, dir: string, script: ScriptInstaller, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
+export function scriptEnv(
+  base: NodeJS.ProcessEnv,
+  dir: string,
+  script: ScriptInstaller,
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
   const home = join(dir, 'home');
   const env: NodeJS.ProcessEnv = { ...base };
   for (const k of [...HOME_MOVERS, ...(script.clear ?? [])]) delete env[k];
@@ -694,14 +748,17 @@ export function findCurl(host: Pick<CliInstallHost, 'env' | 'platform' | 'isFile
  * another `tar` on the PATH, such as Git for Windows' GNU tar, which reads none); else what is missing
  * (`npm` when Node.js has no build for this computer).
  */
-export function nodeTools(host: Pick<CliInstallHost, 'env' | 'platform' | 'isFile' | 'nodeBuild'>): { build: NodeBuild; curl: string; tar: string } | CliInstallBlock {
+export function nodeTools(
+  host: Pick<CliInstallHost, 'env' | 'platform' | 'isFile' | 'nodeBuild'>,
+): { build: NodeBuild; curl: string; tar: string } | CliInstallBlock {
   const { env, platform, isFile } = host;
   const build = host.nodeBuild();
   if (!build) return 'npm';
   const curl = findCurl(host);
   if (!curl) return 'curl';
   const system32tar = win32.join(system32Of(env), 'tar.exe');
-  const tar = platform === 'win32' ? (isFile(system32tar) ? system32tar : undefined) : findOnPath('tar', env, platform, SYSTEM_DIRS, isFile);
+  const tar =
+    platform === 'win32' ? (isFile(system32tar) ? system32tar : undefined) : findOnPath('tar', env, platform, SYSTEM_DIRS, isFile);
   return tar ? { build, curl, tar } : 'tar';
 }
 
@@ -727,11 +784,21 @@ export async function putNode(
   mkdirSync(cache, { recursive: true });
   const archive = join(cache, build.file);
   job.append(`${intro(build.version)}\n`);
-  await runStep(host, job, `curl -fsSL ${build.url}`, { bin: curl, args: ['-fsSL', '--retry', '3', '-o', archive, build.url], env: base, cwd: dir });
+  await runStep(host, job, `curl -fsSL ${build.url}`, {
+    bin: curl,
+    args: ['-fsSL', '--retry', '3', '-o', archive, build.url],
+    env: base,
+    cwd: dir,
+  });
   const sum = await sha256Of(archive);
   if (sum !== build.sha256) throw new InstallError(() => t().cliNodeChecksum(build.url, build.sha256, sum));
   job.append(`SHA-256 ${sum}: as Node.js published it\n`);
-  await runStep(host, job, `tar -xf ${build.file}`, { bin: tar, args: ['-xf', archive, '-C', dir, '--strip-components', '1', ...build.members], env: base, cwd: dir });
+  await runStep(host, job, `tar -xf ${build.file}`, {
+    bin: tar,
+    args: ['-xf', archive, '-C', dir, '--strip-components', '1', ...build.members],
+    env: base,
+    cwd: dir,
+  });
   const npm = folderNpm(dir, host.platform);
   for (const file of [npm.bin, ...npm.args]) if (!host.isFile(file)) throw new InstallError(() => t().cliInstallNoProgram(file));
   // That it runs here, before anything runs on it: Node.js's Linux builds need libatomic, which a
@@ -836,7 +903,8 @@ export class CliInstaller {
       return typeof tools === 'string' ? tools : undefined;
     }
     // Without uv, uv's own installer goes first: what it needs.
-    const script = recipe.method === 'uv' ? (this.uv() ? undefined : uvInstallerFor(platform) ?? 'system') : scriptFor(recipe, platform) ?? 'system';
+    const script =
+      recipe.method === 'uv' ? (this.uv() ? undefined : (uvInstallerFor(platform) ?? 'system')) : (scriptFor(recipe, platform) ?? 'system');
     if (script === undefined || typeof script === 'string') return script;
     const runner = this.scriptRunner(script);
     return typeof runner === 'string' ? runner : undefined;
@@ -1068,7 +1136,19 @@ export class CliInstaller {
       }
       // Its cache (and the logs it writes there) in the folder, not the user's `~/.npm`.
       const cache = join(dir, INSTALL_CACHE, 'npm');
-      const args = [...npm.args, 'install', '--global', '--prefix', dir, '--cache', cache, '--no-audit', '--no-fund', '--no-update-notifier', recipe.package];
+      const args = [
+        ...npm.args,
+        'install',
+        '--global',
+        '--prefix',
+        dir,
+        '--cache',
+        cache,
+        '--no-audit',
+        '--no-fund',
+        '--no-update-notifier',
+        recipe.package,
+      ];
       // npm's folder first on the PATH: the Node beside it runs npm's script (`#!/usr/bin/env node`),
       // and the packages' install scripts, also when that folder is not on the PATH (Homebrew's).
       const env = pathFirst(base, nodeDir!, this.host.platform);
@@ -1100,7 +1180,14 @@ export class CliInstaller {
    * the CLI: Codex's and Copilot's programs run on that Node.
    */
   private installNode(job: InstallJob, dir: string, base: NodeJS.ProcessEnv, label: string): Promise<{ bin: string; args: string[] }> {
-    return putNode(this.host, job, dir, base, label, (version) => `npm is not on the PATH: Node.js ${version}, with its npm, goes into ${dir} first`);
+    return putNode(
+      this.host,
+      job,
+      dir,
+      base,
+      label,
+      (version) => `npm is not on the PATH: Node.js ${version}, with its npm, goes into ${dir} first`,
+    );
   }
 
   /**
@@ -1116,21 +1203,43 @@ export class CliInstaller {
     const powershell = script.shell === 'powershell';
     const file = join(dir, powershell ? 'install.ps1' : 'install.sh');
     mkdirSync(join(dir, 'home'), { recursive: true });
-    await this.step(job, `curl -fsSL ${script.url}`, { bin: runner.curl, args: ['-fsSL', '--retry', '3', '-o', file, script.url], env: base, cwd: dir });
+    await this.step(job, `curl -fsSL ${script.url}`, {
+      bin: runner.curl,
+      args: ['-fsSL', '--retry', '3', '-o', file, script.url],
+      env: base,
+      cwd: dir,
+    });
     const args = script.args?.(dir) ?? [];
     const env = scriptEnv(base, dir, script, platform);
     const run = async () => {
       if (powershell) {
         // As a script block made from the file's text (`POWERSHELL_RUN_SCRIPT`), the file and its arguments in its environment.
         const scriptVars = { HARNESS_RELAY_SCRIPT: file, HARNESS_RELAY_SCRIPT_ARGS: args.join('\n') };
-        await this.step(job, ['powershell', basename(file), ...args].join(' '), { bin: runner.shell, args: POWERSHELL_FLAGS, env: { ...env, ...scriptVars }, cwd: dir }, POWERSHELL_RUN_SCRIPT);
+        await this.step(
+          job,
+          ['powershell', basename(file), ...args].join(' '),
+          { bin: runner.shell, args: POWERSHELL_FLAGS, env: { ...env, ...scriptVars }, cwd: dir },
+          POWERSHELL_RUN_SCRIPT,
+        );
         return;
       }
       // Git for Windows' bash takes Windows paths written with forward slashes (`C:/…`).
       const forBash = platform === 'win32' ? (v: string) => v.replace(/\\/g, '/') : (v: string) => v;
-      const pathVars = ['HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME', ...Object.keys(script.env?.(dir) ?? {})];
+      const pathVars = [
+        'HOME',
+        'XDG_CONFIG_HOME',
+        'XDG_DATA_HOME',
+        'XDG_CACHE_HOME',
+        'XDG_STATE_HOME',
+        ...Object.keys(script.env?.(dir) ?? {}),
+      ];
       const bashEnv = { ...env, ...Object.fromEntries(pathVars.filter((k) => env[k]).map((k) => [k, forBash(env[k]!)])) };
-      await this.step(job, ['bash', basename(file), ...args].join(' '), { bin: runner.shell, args: [forBash(file), ...args.map(forBash)], env: bashEnv, cwd: dir });
+      await this.step(job, ['bash', basename(file), ...args].join(' '), {
+        bin: runner.shell,
+        args: [forBash(file), ...args.map(forBash)],
+        env: bashEnv,
+        cwd: dir,
+      });
     };
     await (platform === 'win32' ? this.keepingUserPath(job, run) : run());
     rmSync(file, { force: true });
@@ -1234,7 +1343,10 @@ export class CliInstaller {
   private async powershellScript(script: string, vars: Record<string, string>): Promise<string> {
     const powershell = windowsPowerShell(this.host.env, this.host.isFile);
     if (!powershell) throw new Error('Windows PowerShell is not there');
-    const r = await this.host.runScript(powershell, POWERSHELL_FLAGS, script, { env: { ...installerEnv(this.host.env), ...vars }, timeoutMs: 60_000 });
+    const r = await this.host.runScript(powershell, POWERSHELL_FLAGS, script, {
+      env: { ...installerEnv(this.host.env), ...vars },
+      timeoutMs: 60_000,
+    });
     if (r.code !== 0) throw new Error(tail(r.stderr || r.stdout, 300) || (r.timedOut ? 'timed out' : `exit ${r.code}`));
     return r.stdout;
   }
@@ -1249,14 +1361,25 @@ export class CliInstaller {
     return (await this.powershellScript(USER_PATH_RESTORE_SCRIPT, { HARNESS_RELAY_USER_PATH: saved })).trim() === 'changed';
   }
 
-  private async step(job: InstallJob, shown: string, o: Pick<SpawnOptions, 'bin' | 'args' | 'env' | 'cwd'>, script?: string): Promise<void> {
+  private async step(
+    job: InstallJob,
+    shown: string,
+    o: Pick<SpawnOptions, 'bin' | 'args' | 'env' | 'cwd'>,
+    script?: string,
+  ): Promise<void> {
     await runStep(this.host, job, shown, o, script);
   }
 
   /** `<bin> --version` in the CLI's own environment, as its status asks it; stopped with the install. */
   private async askVersion(p: Provider, bin: string, signal: AbortSignal): Promise<string | undefined> {
     const env = this.settings.env(p);
-    const r = await runProcess({ bin, args: ['--version'], env: isOpenProvider(p) ? openHomeEnv(openAgents[p].process, env) : env, timeoutMs: VERSION_TIMEOUT_MS, signal });
+    const r = await runProcess({
+      bin,
+      args: ['--version'],
+      env: isOpenProvider(p) ? openHomeEnv(openAgents[p].process, env) : env,
+      timeoutMs: VERSION_TIMEOUT_MS,
+      signal,
+    });
     if (r.aborted) throw new Error('aborted');
     if (r.code !== 0) throw new Error(tail(stripAnsi(r.stderr || r.stdout), 400) || (r.timedOut ? 'timed out' : `exit ${r.code}`));
     return parseVersion(r.stdout || r.stderr);

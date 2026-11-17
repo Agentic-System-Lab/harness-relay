@@ -54,7 +54,12 @@ export function browserTools(browser: BrowserService): GatewayTool[] {
       tier: 'read',
       description:
         "Open a web page (http or https) in Harness Relay's own headless browser for this conversation, and read it: its title, its text, and its links, buttons and fields, numbered. A page on a host this conversation has not opened yet may be asked about first. Pages stay open between calls until 10 minutes without use.",
-      inputSchema: { type: 'object', properties: { url: { type: 'string', description: 'The page to open, http or https.' } }, required: ['url'], additionalProperties: false },
+      inputSchema: {
+        type: 'object',
+        properties: { url: { type: 'string', description: 'The page to open, http or https.' } },
+        required: ['url'],
+        additionalProperties: false,
+      },
       describe: (a) => ({ title: t().gw.open(String(a.url ?? '')) }),
       unavailable,
       run: (a, ctx) => {
@@ -67,7 +72,8 @@ export function browserTools(browser: BrowserService): GatewayTool[] {
       name: 'browser_snapshot',
       group: 'browser',
       tier: 'read',
-      description: 'Read the page open in the browser again (after it changed by itself, say), with its links, buttons and fields numbered anew.',
+      description:
+        'Read the page open in the browser again (after it changed by itself, say), with its links, buttons and fields numbered anew.',
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
       describe: () => ({ title: 'Read the page again' }),
       unavailable,
@@ -99,7 +105,10 @@ export function browserTools(browser: BrowserService): GatewayTool[] {
       describe: (a, ctx) => {
         // The whole text the field gets (up to a length, with how long it is): nothing typed is hidden.
         const text = String(a.text ?? '');
-        return { title: t().gw.type(refWords(ctx && browser.refInfo(ctx.convId, refOf(a)), refOf(a)), a.submit === true), detail: t().gw.typed(text.slice(0, TYPED_SHOWN), text.length) };
+        return {
+          title: t().gw.type(refWords(ctx && browser.refInfo(ctx.convId, refOf(a)), refOf(a)), a.submit === true),
+          detail: t().gw.typed(text.slice(0, TYPED_SHOWN), text.length),
+        };
       },
       unavailable,
       run: async (a, ctx) => snapshot(browser.type(ctx, refOf(a), String(a.text ?? ''), a.submit === true)),
@@ -115,7 +124,10 @@ export function browserTools(browser: BrowserService): GatewayTool[] {
       unavailable,
       run: async (a, ctx) => {
         const shot = await browser.screenshot(ctx, a.fullPage === true);
-        return { text: `Saved the screenshot as ${shot.path}. To show it, put ![Screenshot](<${shot.path}>) in your reply.`, images: [{ data: shot.data, mimeType: 'image/png' }] };
+        return {
+          text: `Saved the screenshot as ${shot.path}. To show it, put ![Screenshot](<${shot.path}>) in your reply.`,
+          images: [{ data: shot.data, mimeType: 'image/png' }],
+        };
       },
     },
   ];

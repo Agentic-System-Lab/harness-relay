@@ -1,6 +1,19 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { API_BACKENDS, backendModelId, type ApiBackend, type ModelOption, type NativeItemsOff, type NativePart, type NativeHook, type NativeMemoryFile, type NativePlugin, type NativeSkill, type NativeTool, type NativeAgent } from '../../shared/types';
+import {
+  API_BACKENDS,
+  backendModelId,
+  type ApiBackend,
+  type ModelOption,
+  type NativeItemsOff,
+  type NativePart,
+  type NativeHook,
+  type NativeMemoryFile,
+  type NativePlugin,
+  type NativeSkill,
+  type NativeTool,
+  type NativeAgent,
+} from '../../shared/types';
 import type { BackendRun } from '../backends';
 import { API_BACKEND_ENV } from '../backends';
 import { commandLine } from '../commands';
@@ -319,7 +332,10 @@ function commandsOf(input: Record<string, any>): string | undefined {
 }
 
 /** The fields of a call's input that tell what it does, by Cline's tool (for the row and the decision). */
-function inputFacts(tool: string, input: Record<string, any>): { command?: string; path?: string; paths?: string[]; url?: string; query?: string } {
+function inputFacts(
+  tool: string,
+  input: Record<string, any>,
+): { command?: string; path?: string; paths?: string[]; url?: string; query?: string } {
   switch (tool) {
     case 'run_commands':
       return { command: commandsOf(input) };
@@ -397,7 +413,8 @@ export function clineOutput(raw: unknown): { text?: string; failed: boolean; det
   if (typeof raw === 'string') {
     try {
       const parsed = JSON.parse(raw) as unknown;
-      if (parsed && typeof parsed === 'object' && 'error' in parsed) return { text: String((parsed as { error: unknown }).error), failed: true };
+      if (parsed && typeof parsed === 'object' && 'error' in parsed)
+        return { text: String((parsed as { error: unknown }).error), failed: true };
     } catch {
       // plain text
     }
@@ -441,9 +458,12 @@ export function clineUpdate(update: Record<string, any>): Record<string, any> {
   if (update.rawInput && typeof update.rawInput === 'object') {
     const facts = inputFacts(clineToolOf(update), update.rawInput);
     const extra = Object.fromEntries(
-      Object.entries({ command: facts.command, path: facts.paths && facts.paths.length > 1 ? facts.paths.join(', ') : facts.path, url: facts.url, query: facts.query }).filter(
-        ([k, v]) => v !== undefined && update.rawInput[k] === undefined,
-      ),
+      Object.entries({
+        command: facts.command,
+        path: facts.paths && facts.paths.length > 1 ? facts.paths.join(', ') : facts.path,
+        url: facts.url,
+        query: facts.query,
+      }).filter(([k, v]) => v !== undefined && update.rawInput[k] === undefined),
     );
     if (Object.keys(extra).length) out.rawInput = { ...update.rawInput, ...extra };
   }
@@ -471,10 +491,17 @@ export function clineError(err: unknown, run: Pick<BackendRun, 'kind' | 'backend
   const detail = rpcText(err);
   const where = run.endpoint?.name || run.backend;
   const code = err instanceof RpcError ? err.code : undefined;
-  if (code === -32000 || /api[ _-]?key|unauthori[sz]ed|authenticat|\b401\b|\b403\b|forbidden|permission denied|invalid.*token/i.test(detail)) {
+  if (
+    code === -32000 ||
+    /api[ _-]?key|unauthori[sz]ed|authenticat|\b401\b|\b403\b|forbidden|permission denied|invalid.*token/i.test(detail)
+  ) {
     return new AgentRunError(t().clineBadKey(where, detail));
   }
-  if (/model\b.*(does not exist|not found|not_found|unknown|invalid|not supported|no access)|no such model|unknown model|\b404\b/i.test(detail)) {
+  if (
+    /model\b.*(does not exist|not found|not_found|unknown|invalid|not supported|no access)|no such model|unknown model|\b404\b/i.test(
+      detail,
+    )
+  ) {
     return new AgentRunError(t().clineBadModel(run.model, where, detail));
   }
   if (/cannot connect|unable to connect|econnrefused|enotfound|fetch failed|getaddrinfo|connection refused|timed? ?out/i.test(detail)) {
@@ -507,7 +534,10 @@ export function readClineUsage(file: string): ClineUsage | undefined {
 }
 
 /** This turn's part of a session's usage (`before`: what it was when the turn started). */
-export function usageDelta(after: ClineUsage | undefined, before: ClineUsage | undefined): Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'> {
+export function usageDelta(
+  after: ClineUsage | undefined,
+  before: ClineUsage | undefined,
+): Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'> {
   if (!after) return {};
   const b = before ?? { inputTokens: 0, outputTokens: 0, totalCost: 0 };
   const d = (x: number, y: number) => (x >= y ? x - y : undefined);
@@ -611,11 +641,17 @@ export const clineAcp: AcpAgentSpec = {
 // --- Its catalog and what it loads by itself -------------------------------------------------
 
 /** The models of one provider in Cline's catalog, from `session/new` (offline: no model API is asked). */
-export function parseClineCatalog(backend: ApiBackend, state: { models?: { currentModelId?: string; availableModels?: { modelId: string; name?: string }[] } }): { models: ModelOption[]; defaultModel?: string } {
+export function parseClineCatalog(
+  backend: ApiBackend,
+  state: { models?: { currentModelId?: string; availableModels?: { modelId: string; name?: string }[] } },
+): { models: ModelOption[]; defaultModel?: string } {
   const list = state.models?.availableModels ?? [];
   const models = list
     .filter((m) => typeof m?.modelId === 'string' && m.modelId)
-    .map((m) => ({ id: backendModelId(backend, m.modelId), ...(m.name && m.name !== m.modelId ? { label: `${m.name} · ${m.modelId}` } : {}) }));
+    .map((m) => ({
+      id: backendModelId(backend, m.modelId),
+      ...(m.name && m.name !== m.modelId ? { label: `${m.name} · ${m.modelId}` } : {}),
+    }));
   const current = state.models?.currentModelId;
   return { models, ...(current && list.some((m) => m.modelId === current) ? { defaultModel: backendModelId(backend, current) } : {}) };
 }
@@ -644,7 +680,13 @@ async function catalogOf(bin: string, env: NodeJS.ProcessEnv, root: string, back
     cwd: root,
     env: run,
     timeoutMs,
-    open: (write) => write({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false } } }),
+    open: (write) =>
+      write({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false } },
+      }),
     onMessage: (msg, write, finish) => {
       if (msg.id === 1) write({ jsonrpc: '2.0', id: 2, method: 'session/new', params: { cwd: root, mcpServers: [] } });
       if (msg.id === 2) {
@@ -678,14 +720,31 @@ export async function clineModels(bin: string, env: NodeJS.ProcessEnv, timeoutMs
   return { models, ...(defaultModel ? { defaultModel } : {}), ...(errors.length ? { error: errors.join('; ') } : {}) };
 }
 
-type ClineItem = { id?: string; name?: string; fileName?: string; hookEventName?: string; path?: string; description?: string; frontmatter?: Record<string, unknown> };
+type ClineItem = {
+  id?: string;
+  name?: string;
+  fileName?: string;
+  hookEventName?: string;
+  path?: string;
+  description?: string;
+  frontmatter?: Record<string, unknown>;
+};
 
 /**
  * The built-in tools of Cline's ACP sessions, by the name `disabledTools` takes. OpenAI models get
  * `apply_patch` where the others get `editor`; `skills` only when there are skills. (`cline config`
  * lists `ask_question` and the agent-team tools too, which ACP sessions never offer.)
  */
-export const CLINE_BUILTIN_TOOLS = ['read_files', 'search_codebase', 'run_commands', 'fetch_web_content', 'editor', 'apply_patch', 'skills', 'spawn_agent'];
+export const CLINE_BUILTIN_TOOLS = [
+  'read_files',
+  'search_codebase',
+  'run_commands',
+  'fetch_web_content',
+  'editor',
+  'apply_patch',
+  'skills',
+  'spawn_agent',
+];
 
 /** The kinds `cline config <kind> --json` lists, as the native probe asks them. */
 export const CLINE_CONFIG_KINDS = ['rules', 'skills', 'hooks', 'agents', 'plugins'] as const;
@@ -704,8 +763,12 @@ function sourceOf(path: string | undefined, cwd: string): { source?: string } {
  * Harness Relay's prompts never start with one), and so are MCP servers: only the tool library's
  * reach a run (its MCP settings file).
  */
-export function parseClineConfig(lists: Partial<Record<ClineConfigKind, unknown>>, cwd: string): Pick<NativeProbe, 'skills' | 'mcpServers' | 'memory' | 'hooks' | 'agents' | 'plugins' | 'builtinTools'> {
-  const list = (k: ClineConfigKind): ClineItem[] => (Array.isArray(lists[k]) ? (lists[k] as ClineItem[]).filter((x) => x && typeof x === 'object') : []);
+export function parseClineConfig(
+  lists: Partial<Record<ClineConfigKind, unknown>>,
+  cwd: string,
+): Pick<NativeProbe, 'skills' | 'mcpServers' | 'memory' | 'hooks' | 'agents' | 'plugins' | 'builtinTools'> {
+  const list = (k: ClineConfigKind): ClineItem[] =>
+    Array.isArray(lists[k]) ? (lists[k] as ClineItem[]).filter((x) => x && typeof x === 'object') : [];
   const off = (x: ClineItem) => (x.frontmatter?.disabled === true || x.frontmatter?.enabled === false ? { enabled: false } : {});
   const skills: NativeSkill[] = list('skills').map((x) => ({
     name: String(x.name ?? x.id ?? ''),
@@ -717,9 +780,22 @@ export function parseClineConfig(lists: Partial<Record<ClineConfigKind, unknown>
   const memory: NativeMemoryFile[] = list('rules')
     .filter((x) => x.path)
     .map((x) => ({ path: String(x.path), kind: 'instructions' as const, ...off(x) }));
-  const hooks: NativeHook[] = list('hooks').map((x) => ({ event: String(x.fileName ?? x.name ?? x.hookEventName ?? ''), ...sourceOf(x.path, cwd), ...(x.path ? { file: x.path } : {}) }));
-  const agents: NativeAgent[] = list('agents').map((x) => ({ name: String(x.name ?? x.id ?? ''), description: String(x.description ?? ''), ...sourceOf(x.path, cwd), ...off(x) }));
-  const plugins: NativePlugin[] = list('plugins').map((x) => ({ name: String(x.name ?? x.path ?? ''), ...sourceOf(x.path, cwd), ...(x.path ? { id: x.path } : {}) }));
+  const hooks: NativeHook[] = list('hooks').map((x) => ({
+    event: String(x.fileName ?? x.name ?? x.hookEventName ?? ''),
+    ...sourceOf(x.path, cwd),
+    ...(x.path ? { file: x.path } : {}),
+  }));
+  const agents: NativeAgent[] = list('agents').map((x) => ({
+    name: String(x.name ?? x.id ?? ''),
+    description: String(x.description ?? ''),
+    ...sourceOf(x.path, cwd),
+    ...off(x),
+  }));
+  const plugins: NativePlugin[] = list('plugins').map((x) => ({
+    name: String(x.name ?? x.path ?? ''),
+    ...sourceOf(x.path, cwd),
+    ...(x.path ? { id: x.path } : {}),
+  }));
   const builtinTools: NativeTool[] = CLINE_BUILTIN_TOOLS.map((name) => ({ name, id: name }));
   return { skills, mcpServers: [], memory, hooks, agents, plugins, builtinTools };
 }
@@ -749,7 +825,8 @@ export function clineLeftOut(
 }
 
 /** How the config probe starts `cline config <kind> --json` with its output in a file (fixed text). */
-export const CLINE_PROBE_SCRIPT = 'exec "$HARNESS_RELAY_CLINE" --cwd "$HARNESS_RELAY_CLINE_CWD" config "$HARNESS_RELAY_CLINE_KIND" --json > "$HARNESS_RELAY_CLINE_OUT"';
+export const CLINE_PROBE_SCRIPT =
+  'exec "$HARNESS_RELAY_CLINE" --cwd "$HARNESS_RELAY_CLINE_CWD" config "$HARNESS_RELAY_CLINE_KIND" --json > "$HARNESS_RELAY_CLINE_OUT"';
 
 /**
  * What Cline loads by itself for `cwd`: `cline config <kind> --json` for each kind, in its home
@@ -780,7 +857,13 @@ export async function clineNative(
         // A fixed script; what it needs comes in its environment (AGENTS.md: never in a shell's text or arguments).
         const res = await runShellScript('/bin/sh', [], CLINE_PROBE_SCRIPT, {
           cwd: dir,
-          env: { ...probeEnv, HARNESS_RELAY_CLINE: bin, HARNESS_RELAY_CLINE_KIND: kind, HARNESS_RELAY_CLINE_OUT: out, HARNESS_RELAY_CLINE_CWD: cwd },
+          env: {
+            ...probeEnv,
+            HARNESS_RELAY_CLINE: bin,
+            HARNESS_RELAY_CLINE_KIND: kind,
+            HARNESS_RELAY_CLINE_OUT: out,
+            HARNESS_RELAY_CLINE_CWD: cwd,
+          },
           timeoutMs,
         });
         try {

@@ -1,12 +1,42 @@
 import { describe, expect, it } from 'vitest';
 import { PROVIDERS, type ProviderModels } from '../src/shared/types';
-import { familiesForLead, familyOf, guideMark, modelFamily, ROLE_GUIDES, roleGuidesForLead, unlistedFamily, type ModelFamily } from '../src/server/roleGuides';
+import {
+  familiesForLead,
+  familyOf,
+  guideMark,
+  modelFamily,
+  ROLE_GUIDES,
+  roleGuidesForLead,
+  unlistedFamily,
+  type ModelFamily,
+} from '../src/server/roleGuides';
 
 describe('the family of a model', () => {
   it('is read from the ids each CLI lists', () => {
-    for (const id of ['opus', 'fable', 'haiku', 'opus[1m]', 'sonnet[1m]', 'opusplan', 'claude-sonnet-5-5', 'claude-haiku-4.5', 'anthropic/claude-haiku-5-5', 'sonnet-4.5-thinking'])
+    for (const id of [
+      'opus',
+      'fable',
+      'haiku',
+      'opus[1m]',
+      'sonnet[1m]',
+      'opusplan',
+      'claude-sonnet-5-5',
+      'claude-haiku-4.5',
+      'anthropic/claude-haiku-5-5',
+      'sonnet-4.5-thinking',
+    ])
       expect(modelFamily(id), id).toBe('claude');
-    for (const id of ['gpt-5.3-codex', 'gpt-6-sol', 'gpt-5.4-nano', 'gpt5', 'gpt4o', 'o3-pro', 'openai/gpt-5.4-nano', 'codex-mini-latest', 'chatgpt-4o-latest'])
+    for (const id of [
+      'gpt-5.3-codex',
+      'gpt-6-sol',
+      'gpt-5.4-nano',
+      'gpt5',
+      'gpt4o',
+      'o3-pro',
+      'openai/gpt-5.4-nano',
+      'codex-mini-latest',
+      'chatgpt-4o-latest',
+    ])
       expect(modelFamily(id), id).toBe('gpt');
     for (const id of ['gemini-3.1-pro', 'gemini-4-argon', 'gemini-3.8-flash']) expect(modelFamily(id), id).toBe('gemini');
     for (const id of ['grok-4.3', 'grok-code-fast-1', 'xai/grok-4.20-0309-non-reasoning']) expect(modelFamily(id), id).toBe('grok');
@@ -15,7 +45,16 @@ describe('the family of a model', () => {
   });
 
   it('is open for open weights, also on a gateway, and for anything else an endpoint serves', () => {
-    for (const id of ['homelab/Qwen/Qwen3-30B-A3B', 'qwen3-coder', 'deepseek-v3.2', 'glm-5', 'kimi-k3', 'router/openai/gpt-oss-120b', 'llama3.3:70b', 'devstral-small'])
+    for (const id of [
+      'homelab/Qwen/Qwen3-30B-A3B',
+      'qwen3-coder',
+      'deepseek-v3.2',
+      'glm-5',
+      'kimi-k3',
+      'router/openai/gpt-oss-120b',
+      'llama3.3:70b',
+      'devstral-small',
+    ])
       expect(modelFamily(id), id).toBe('open');
     expect(modelFamily('router/anthropic/claude-sonnet-5', true)).toBe('claude');
     expect(modelFamily('homelab/my-finetune', true)).toBe('open');
@@ -47,7 +86,12 @@ describe('the families the lead reads guides for', () => {
   const claude: ProviderModels = { provider: 'claude', models: [{ id: 'opus' }, { id: 'sonnet' }], efforts: [], source: 'builtin' };
 
   it('are those of the models the available CLIs offer, in a fixed order', () => {
-    const cursor: ProviderModels = { provider: 'cursor', models: [{ id: 'default' }, { id: 'gpt-6-sol' }, { id: 'composer-1' }, { id: 'claude-sonnet-5-5' }], efforts: [], source: 'cli' };
+    const cursor: ProviderModels = {
+      provider: 'cursor',
+      models: [{ id: 'default' }, { id: 'gpt-6-sol' }, { id: 'composer-1' }, { id: 'claude-sonnet-5-5' }],
+      efforts: [],
+      source: 'cli',
+    };
     expect(familiesForLead({ available: ['claude'], catalog: [claude, cursor] })).toEqual(['claude']);
     expect(familiesForLead({ available: ['cursor', 'claude'], catalog: [claude, cursor] })).toEqual(['claude', 'gpt', 'composer']);
     // Unknown availability: every CLI.
@@ -58,7 +102,12 @@ describe('the families the lead reads guides for', () => {
     expect(familiesForLead({ available: ['codex', 'antigravity', 'muse'], catalog: [] })).toEqual(['gpt', 'gemini', 'muse']);
     expect(familiesForLead({ available: ['copilot', 'opencode'], catalog: [] })).toEqual([]);
     // Its own list failed, its endpoint models are still there: its own models are still its family.
-    const failed: ProviderModels = { provider: 'codex', models: [{ id: 'homelab/qwen3-coder', endpoint: 'homelab' }], efforts: [], source: 'builtin' };
+    const failed: ProviderModels = {
+      provider: 'codex',
+      models: [{ id: 'homelab/qwen3-coder', endpoint: 'homelab' }],
+      efforts: [],
+      source: 'builtin',
+    };
     expect(familiesForLead({ available: ['codex'], catalog: [failed] })).toEqual(['gpt', 'open']);
     expect(unlistedFamily('codex', failed)).toBe('gpt');
     expect(unlistedFamily('codex', { models: [{ id: 'gpt-5.4' }] })).toBeUndefined();
@@ -70,14 +119,28 @@ describe('the families the lead reads guides for', () => {
     expect(familiesForLead({ available: ['claude'], catalog: [withEndpoint] })).toEqual(['claude', 'open']);
     const gateway: ProviderModels = { ...claude, models: [{ id: 'opus' }, { id: 'qwen-box/claude-sonnet-5', endpoint: 'qwen-box' }] };
     expect(familiesForLead({ available: ['claude'], catalog: [gateway] })).toEqual(['claude']);
-    const goose: ProviderModels = { provider: 'goose', models: [{ id: 'xai/grok-4.3' }, { id: 'homelab/muse-glimmer-30b-nvfp4' }, { id: 'homelab/tiny' }], efforts: [], source: 'cli' };
+    const goose: ProviderModels = {
+      provider: 'goose',
+      models: [{ id: 'xai/grok-4.3' }, { id: 'homelab/muse-glimmer-30b-nvfp4' }, { id: 'homelab/tiny' }],
+      efforts: [],
+      source: 'cli',
+    };
     // Meta's open Muse models on the user's own server are open weights, unlike the ones Muse Code runs.
     expect(familiesForLead({ available: ['goose'], catalog: [goose] })).toEqual(['grok', 'open']);
-    expect(familiesForLead({ available: ['goose'], catalog: [{ ...goose, models: [{ id: 'openai/gpt-5.4' }, { id: 'xai/unnamed-1' }] }] })).toEqual(['gpt', 'grok']);
+    expect(
+      familiesForLead({ available: ['goose'], catalog: [{ ...goose, models: [{ id: 'openai/gpt-5.4' }, { id: 'xai/unnamed-1' }] }] }),
+    ).toEqual(['gpt', 'grok']);
   });
 
   it('read the models of the account new members get, and the default it runs', () => {
-    const other: ProviderModels = { provider: 'codex', account: 'work', models: [{ id: 'gpt-5.4' }], efforts: [], defaultModel: 'homelab/qwen3-coder', source: 'cli' };
+    const other: ProviderModels = {
+      provider: 'codex',
+      account: 'work',
+      models: [{ id: 'gpt-5.4' }],
+      efforts: [],
+      defaultModel: 'homelab/qwen3-coder',
+      source: 'cli',
+    };
     const mine: ProviderModels = { provider: 'codex', models: [{ id: 'gpt-5.4' }], efforts: [], source: 'cli' };
     expect(familiesForLead({ available: ['codex'], catalog: [mine, other], accounts: { codex: ['work'] } })).toEqual(['gpt', 'open']);
     expect(familiesForLead({ available: ['codex'], catalog: [mine, other], accounts: { codex: [''] } })).toEqual(['gpt']);

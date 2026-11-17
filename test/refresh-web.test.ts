@@ -43,12 +43,16 @@ describe("the CLIs' status the chat shows", () => {
   });
 });
 
-describe("loading what the server does not date (the model catalog)", () => {
+describe('loading what the server does not date (the model catalog)', () => {
   it('drops an older answer that comes in after a newer one', async () => {
     const answers = [deferred<string>(), deferred<string>()];
     const shown: string[] = [];
     let i = 0;
-    const refresh = latestLoader(() => answers[i++]!.promise, (v) => shown.push(v), () => {});
+    const refresh = latestLoader(
+      () => answers[i++]!.promise,
+      (v) => shown.push(v),
+      () => {},
+    );
     const first = refresh(true);
     const second = refresh(true);
     answers[1]!.resolve('new');
@@ -63,7 +67,11 @@ describe("loading what the server does not date (the model catalog)", () => {
     const shown: string[] = [];
     const errors: unknown[] = [];
     let i = 0;
-    const refresh = latestLoader(() => answers[i++]!.promise, (v) => shown.push(v), (e) => errors.push(e));
+    const refresh = latestLoader(
+      () => answers[i++]!.promise,
+      (v) => shown.push(v),
+      (e) => errors.push(e),
+    );
     const first = refresh(true);
     const second = refresh(true);
     answers[1]!.reject(new Error('offline'));
@@ -78,7 +86,11 @@ describe("loading what the server does not date (the model catalog)", () => {
     const forced = deferred<string>();
     const load = vi.fn((force: boolean) => (force ? forced.promise : Promise.resolve('after')));
     const shown: string[] = [];
-    const refresh = latestLoader(load, (v) => shown.push(v), () => {});
+    const refresh = latestLoader(
+      load,
+      (v) => shown.push(v),
+      () => {},
+    );
     const a = refresh(true);
     const b = refresh();
     // Not asked yet: asked now, it could be answered from a cache made before the forced look.
@@ -96,7 +108,11 @@ describe("loading what the server does not date (the model catalog)", () => {
   it('asks once for the plain loads made during one forced load', async () => {
     const forced = deferred<string>();
     const load = vi.fn((force: boolean) => (force ? forced.promise : Promise.resolve('after')));
-    const refresh = latestLoader(load, () => {}, () => {});
+    const refresh = latestLoader(
+      load,
+      () => {},
+      () => {},
+    );
     const waiting = [refresh(true), refresh(), refresh(), refresh()];
     forced.resolve('fresh');
     await Promise.all(waiting);

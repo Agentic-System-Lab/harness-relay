@@ -110,7 +110,9 @@ describe.skipIf(process.platform === 'win32')("the Release workflow's step that 
     const r = tag({ GH_TAG: 'unknown' });
     expect(r.status).toBe(1);
     expect(r.calls).toEqual([ASK]);
-    expect(r.out).toBe(`::error::Could not ask GitHub for the tag ${TAG} (gh: Server Error (HTTP 502)): nothing was tagged, built or published.\n`);
+    expect(r.out).toBe(
+      `::error::Could not ask GitHub for the tag ${TAG} (gh: Server Error (HTTP 502)): nothing was tagged, built or published.\n`,
+    );
   });
 
   it("names main's changed workflow files when GitHub refuses the tag, and fails at once", () => {
@@ -131,7 +133,9 @@ describe.skipIf(process.platform === 'win32')("the Release workflow's step that 
     for (const GH_CHANGED of ['', 'fail']) {
       const r = tag({ GH_TAG: 'none', GH_MAKE: 'refused', GH_CHANGED });
       expect(r.status, GH_CHANGED).toBe(1);
-      expect(r.out, GH_CHANGED).toBe(`::error::Could not tag ${SHA} as ${TAG} (gh: Resource not accessible by integration (HTTP 403)): nothing was built or published.\n`);
+      expect(r.out, GH_CHANGED).toBe(
+        `::error::Could not tag ${SHA} as ${TAG} (gh: Resource not accessible by integration (HTTP 403)): nothing was built or published.\n`,
+      );
       expect(r.out).not.toContain('{');
     }
   });
@@ -145,10 +149,11 @@ describe('the job that tags the commit', () => {
     expect([...jobs.keys()].slice(0, 2)).toEqual(['tokens', 'version']);
     expect(version).not.toMatch(/^ {4}needs:/m);
     expect(jobs.get('check')).toMatch(/^ {4}needs: \[tokens, version\]$/m);
-    for (const [id, job] of jobs) if (id !== 'tokens' && id !== 'version') expect(job, id).toMatch(/^ {4}needs: \[(?:[a-z]+, )*version[,\]]/m);
+    for (const [id, job] of jobs)
+      if (id !== 'tokens' && id !== 'version') expect(job, id).toMatch(/^ {4}needs: \[(?:[a-z]+, )*version[,\]]/m);
   });
 
-  it('checks the version, then tags it with the job\'s own token', () => {
+  it("checks the version, then tags it with the job's own token", () => {
     const steps = stepsOf(version);
     const names = steps.map((s) => /^name: (.+)$/m.exec(s)?.[1]).filter(Boolean);
     expect(names).toEqual(['Check the version', 'Tag the commit']);

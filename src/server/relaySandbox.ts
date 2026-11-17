@@ -262,7 +262,9 @@ export function hostTmpRefusal(dataDir: string, platform: NodeJS.Platform): stri
  * else its source, run by Node's own type stripping (`--experimental-strip-types` where it is not on by default).
  */
 const BUNDLED_HOST = fileURLToPath(new URL('./relaySandboxHost.mjs', import.meta.url));
-export const RELAY_SANDBOX_HOST = existsSync(BUNDLED_HOST) ? BUNDLED_HOST : fileURLToPath(new URL('./relaySandboxHost.ts', import.meta.url));
+export const RELAY_SANDBOX_HOST = existsSync(BUNDLED_HOST)
+  ? BUNDLED_HOST
+  : fileURLToPath(new URL('./relaySandboxHost.ts', import.meta.url));
 
 /** sandbox-runtime's folder, wherever the host resolves it from (the checkout's node_modules, or the bundle's). */
 function sandboxRuntimeDir(): string | undefined {
@@ -296,7 +298,15 @@ export function servingPort(): number {
  */
 export function relayPorts(env: NodeJS.ProcessEnv = process.env, listening: number | undefined = listeningPort): number[] {
   const port = apiPort(env);
-  return [...new Set([...(Number.isInteger(port) && port > 0 ? [port] : []), ...(listening ? [listening] : []), DEFAULT_PORT, DEV_API_PORT, DEV_WEB_PORT])];
+  return [
+    ...new Set([
+      ...(Number.isInteger(port) && port > 0 ? [port] : []),
+      ...(listening ? [listening] : []),
+      DEFAULT_PORT,
+      DEV_API_PORT,
+      DEV_WEB_PORT,
+    ]),
+  ];
 }
 
 /** This computer's own addresses, without the zone of a link-local one. */
@@ -375,7 +385,9 @@ function hostNodeOnPath(find: (name: string) => string | undefined): string | nu
   if (!node) return null;
   let ok = nodeVersions.get(node);
   if (ok === undefined) {
-    const v = runSync(node, ['--version'], { timeoutMs: 5000 }).stdout?.trim().match(/^v(\d+)\.(\d+)/);
+    const v = runSync(node, ['--version'], { timeoutMs: 5000 })
+      .stdout?.trim()
+      .match(/^v(\d+)\.(\d+)/);
     ok = Boolean(v) && (Number(v![1]) > HOST_NODE_MIN[0]! || (Number(v![1]) === HOST_NODE_MIN[0] && Number(v![2]) >= HOST_NODE_MIN[1]!));
     nodeVersions.set(node, ok);
   }
@@ -466,7 +478,10 @@ function embeddedIpv4(g: number[]): number[] | undefined {
 
 /** A host as one spelling: lower case, without brackets, an IPv6 address in full. */
 function normalHost(host: string): string {
-  const h = host.toLowerCase().replace(/^\[|\]$/g, '').replace(/%.*$/, '');
+  const h = host
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/%.*$/, '');
   const g = ipv6Groups(h);
   return g ? g.map((x) => x.toString(16)).join(':') : h;
 }
@@ -491,7 +506,10 @@ export function canonicalHost(host: string): string | undefined {
 
 /** Loopback: `localhost` (and names under it), 127.0.0.0/8 and ::1 (also as an IPv4-carrying IPv6 address). */
 export function isLoopbackHost(host: string): boolean {
-  const h = host.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  const h = host
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '');
   if (h === 'localhost' || h.endsWith('.localhost')) return true;
   const g = ipv6Groups(h);
   const v4 = g ? embeddedIpv4(g) : ipv4(h);
@@ -571,7 +589,13 @@ export function relaySandboxHosts(
     const where = parsed.port === undefined ? bracket(parsed.host) : `${bracket(parsed.host)}:${parsed.port}`;
     quietReasons[where] = DENY_REASONS.quiet(hostLabel(parsed.host, parsed.port));
   }
-  return { allowed: [...new Set(allowed)], denied: [...new Set([...relay, ...Object.keys(quietReasons)])], quietReasons, loopback, loopbackPorts: [...new Set(loopbackPorts)] };
+  return {
+    allowed: [...new Set(allowed)],
+    denied: [...new Set([...relay, ...Object.keys(quietReasons)])],
+    quietReasons,
+    loopback,
+    loopbackPorts: [...new Set(loopbackPorts)],
+  };
 }
 
 /** The reasons the model sees for a host it may not reach (English, like every prompt to the agents). */
@@ -721,7 +745,10 @@ function withReal(paths: Iterable<string>): string[] {
  *   would let it write by default (`/tmp/claude`, `~/.npm/_logs`, `~/.claude/debug`).
  */
 export function relaySandboxPaths(
-  spec: Pick<RelaySandboxSpec, 'permission' | 'cwd' | 'extraCwds' | 'writable' | 'readOnly' | 'protectedPaths' | 'attachmentsDir' | 'privateRoots'>,
+  spec: Pick<
+    RelaySandboxSpec,
+    'permission' | 'cwd' | 'extraCwds' | 'writable' | 'readOnly' | 'protectedPaths' | 'attachmentsDir' | 'privateRoots'
+  >,
   ctx: Pick<RelaySandboxContext, 'home' | 'dataDir'>,
   run: RelaySandboxRunDirs & { programs?: readonly string[] },
 ): { allowWrite: string[]; denyWrite: string[]; denyRead: string[]; allowRead: string[] } {
@@ -782,7 +809,10 @@ export function relaySandboxRefusal(
       if (why) return why;
     }
   }
-  const writes = [...spec.writable, ...(spec.permission === 'edit' ? [...cwds, ...(spec.attachmentsDir ? [spec.attachmentsDir] : [])] : [])];
+  const writes = [
+    ...spec.writable,
+    ...(spec.permission === 'edit' ? [...cwds, ...(spec.attachmentsDir ? [spec.attachmentsDir] : [])] : []),
+  ];
   const voice = ctx.voiceDir ?? voiceFolder(ctx.dataDir);
   const roots = { install: ctx.relayRoot, data: ctx.dataDir, voice };
   const others = agentFolders({ home: ctx.home, clis: cliFolder(ctx.dataDir) });
@@ -813,7 +843,8 @@ export function shellQuote(s: string): string {
  */
 const OUTSIDE_ONLY = /^(LD_|DYLD_)|^(BASH_ENV|ENV|SHELLOPTS|BASHOPTS|PS4|IFS|CDPATH|GLOBIGNORE)$/;
 /** Variables of the agent's environment that the sandbox sets itself (the proxy) or that would bypass it. */
-const SANDBOX_OWNS = /^(HTTPS?_PROXY|ALL_PROXY|NO_PROXY|FTP_PROXY|GRPC_PROXY|https?_proxy|all_proxy|no_proxy|ftp_proxy|grpc_proxy|TMPDIR|TMP|TEMP|NODE_USE_ENV_PROXY)$/;
+const SANDBOX_OWNS =
+  /^(HTTPS?_PROXY|ALL_PROXY|NO_PROXY|FTP_PROXY|GRPC_PROXY|https?_proxy|all_proxy|no_proxy|ftp_proxy|grpc_proxy|TMPDIR|TMP|TEMP|NODE_USE_ENV_PROXY)$/;
 
 /**
  * The environment of the processes that start the sandbox (the agent's, without the variables that
@@ -860,14 +891,7 @@ export function relaySandboxEnv(
   const noProxy = o.loopback
     ? (o.localPorts ?? []).flatMap((port) => [`127.0.0.1:${port}`, `localhost:${port}`]).join(',')
     : 'localhost,127.0.0.1,::1';
-  inner.push(
-    ['TMPDIR', o.tmp],
-    ['TMP', o.tmp],
-    ['TEMP', o.tmp],
-    ['NODE_USE_ENV_PROXY', '1'],
-    ['NO_PROXY', noProxy],
-    ['no_proxy', noProxy],
-  );
+  inner.push(['TMPDIR', o.tmp], ['TMP', o.tmp], ['TEMP', o.tmp], ['NODE_USE_ENV_PROXY', '1'], ['NO_PROXY', noProxy], ['no_proxy', noProxy]);
   // Every value travels in the environment, under names of our own; the command is fixed text.
   for (const [k, v] of inner) outerEnv[`${SANDBOX_EXEC_PREFIX}IN_${k}`] = v;
   const relayed = (o.loopbackRelay?.ports ?? []).filter((p) => Number.isInteger(p) && p > 0 && p < 65536);
@@ -1362,7 +1386,10 @@ async function sweepMarkersAsync(markers: string[]): Promise<boolean> {
 }
 
 /** How Node runs the host: with type stripping, quietly. */
-export function hostArgs(features: { typescript?: unknown } = process.features as { typescript?: unknown }, host = RELAY_SANDBOX_HOST): string[] {
+export function hostArgs(
+  features: { typescript?: unknown } = process.features as { typescript?: unknown },
+  host = RELAY_SANDBOX_HOST,
+): string[] {
   // The bundled host is JavaScript; its source needs type stripping.
   const strip = host.endsWith('.ts') && !features.typescript ? ['--experimental-strip-types'] : [];
   return [...strip, '--disable-warning=ExperimentalWarning', host];
@@ -1526,8 +1553,16 @@ export async function sandboxCommand(
   let run: RelaySandboxRun;
   try {
     const paths = relaySandboxPaths(spec, ctx, { ...dirs, programs: found });
-    const loopbackRelay = ctx.platform === 'linux' && ctx.tools.socat && hosts.loopbackPorts.length ? { socat: ctx.tools.socat, ports: hosts.loopbackPorts } : undefined;
-    const { outerEnv, command } = relaySandboxEnv(found[0]!, args, env, { tmp: dirs.tmp, loopback: hosts.loopback, localPorts, loopbackRelay });
+    const loopbackRelay =
+      ctx.platform === 'linux' && ctx.tools.socat && hosts.loopbackPorts.length
+        ? { socat: ctx.tools.socat, ports: hosts.loopbackPorts }
+        : undefined;
+    const { outerEnv, command } = relaySandboxEnv(found[0]!, args, env, {
+      tmp: dirs.tmp,
+      loopback: hosts.loopback,
+      localPorts,
+      loopbackRelay,
+    });
     run = new RelaySandboxRun(
       dirs,
       {

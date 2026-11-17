@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
-import { PROVIDERS, currentPlan, planSavable, type AgentConfig, type ChatMessage, type ProviderModels, type TeamPlan, type TeamPreset } from '../src/shared/types';
+import {
+  PROVIDERS,
+  currentPlan,
+  planSavable,
+  type AgentConfig,
+  type ChatMessage,
+  type ProviderModels,
+  type TeamPlan,
+  type TeamPreset,
+} from '../src/shared/types';
 import { withLang } from '../src/server/i18n';
 import {
   buildPlannerPrompt,
@@ -54,12 +63,15 @@ describe("the lead agent's briefings", () => {
 
 describe('lead agent reply', () => {
   it('reads the JSON from a code block, or from bare braces', () => {
-    expect(parsePlanReply('Sure.\n```json\n{"choice":"template","templateId":"x"}\n```\nDone')).toEqual({ choice: 'template', templateId: 'x' });
+    expect(parsePlanReply('Sure.\n```json\n{"choice":"template","templateId":"x"}\n```\nDone')).toEqual({
+      choice: 'template',
+      templateId: 'x',
+    });
     expect(parsePlanReply('My pick: {"choice":"template","templateId":"y"} — enjoy')).toEqual({ choice: 'template', templateId: 'y' });
     expect(() => parsePlanReply('no json here')).toThrow();
   });
 
-  it('turns a template choice into that template\'s team', () => {
+  it("turns a template choice into that template's team", () => {
     const d = decidePlan({ choice: 'template', templateId: 'builtin-debate', reason: 'Trade-offs.' }, ctx, lead);
     expect(d).toMatchObject({ source: 'template', presetId: 'builtin-debate', name: 'Three-way debate', reason: 'Trade-offs.' });
     expect(d.settings).toEqual({ mode: 'roundtable', rounds: 2, maxHops: 6 });
@@ -94,7 +106,17 @@ describe('lead agent reply', () => {
     expect(() => decidePlan({ choice: 'template', templateId: 'nope' }, ctx, lead)).toThrow(/nope/);
     expect(() => decidePlan({ choice: 'custom', agents: [] }, ctx, lead)).toThrow();
     expect(() =>
-      decidePlan({ choice: 'custom', agents: [{ name: 'A', provider: 'claude' }, { name: 'a', provider: 'claude' }] }, ctx, lead),
+      decidePlan(
+        {
+          choice: 'custom',
+          agents: [
+            { name: 'A', provider: 'claude' },
+            { name: 'a', provider: 'claude' },
+          ],
+        },
+        ctx,
+        lead,
+      ),
     ).toThrow();
   });
 
@@ -107,12 +129,17 @@ describe('lead agent reply', () => {
 
   it('keeps every team it designs within the team limit RELAY_MAX_TEAM_AGENTS sets', () => {
     const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, permission: 'read-only' as const, cwd: '/tmp' };
-    const draft: TeamDraft = { settings: { mode: 'roundtable', rounds: 1, maxHops: 8 }, agents: [{ id: 'a1', name: 'A', provider: 'claude', role: 'r' }] };
+    const draft: TeamDraft = {
+      settings: { mode: 'roundtable', rounds: 1, maxHops: 8 },
+      agents: [{ id: 'a1', name: 'A', provider: 'claude', role: 'r' }],
+    };
     const small: PlannerContext = { ...ctx, maxTeamAgents: 2 };
     const four = ['A', 'B', 'C', 'D'].map((name) => ({ name, provider: 'claude' }));
     // A new team: the first two (5 when the limit is higher), and the prompt says so.
     expect(decidePlan({ choice: 'custom', agents: four }, small, lead).agents.map((a) => a.name)).toEqual(['A', 'B']);
-    expect(decidePlan({ choice: 'custom', agents: [...four, ...four.map((m) => ({ ...m, name: `${m.name}2` }))] }, ctx, lead).agents).toHaveLength(5);
+    expect(
+      decidePlan({ choice: 'custom', agents: [...four, ...four.map((m) => ({ ...m, name: `${m.name}2` }))] }, ctx, lead).agents,
+    ).toHaveLength(5);
     expect(buildPlannerPrompt('q', settings, small)).toContain('At most 2 members.');
     expect(buildPlannerPrompt('q', settings, { ...ctx, maxTeamAgents: 1 })).toContain('At most 1 member.');
     expect(buildPlannerPrompt('q', settings, ctx)).toContain('At most 5 members.');
@@ -121,9 +148,16 @@ describe('lead agent reply', () => {
     expect(() => withLang('en', () => decidePlan({ choice: 'template', templateId: 'builtin-general' }, small, lead))).toThrow(
       'the template "General-question panel" has more members than a team may have (2)',
     );
-    expect(() => withLang('en', () => decidePlan({ choice: 'template', templateId: 'no-such' }, small, lead))).toThrow('there is no template with id "no-such"');
+    expect(() => withLang('en', () => decidePlan({ choice: 'template', templateId: 'no-such' }, small, lead))).toThrow(
+      'there is no template with id "no-such"',
+    );
     // A template within the limit is.
-    const pair: TeamPreset = { id: 'user-pair', name: 'Pair', agents: four.slice(0, 2).map((m, i) => ({ ...m, id: `p${i}`, role: '' })), settings: { mode: 'relay', rounds: 1, maxHops: 4, permission: 'read-only' } } as TeamPreset;
+    const pair: TeamPreset = {
+      id: 'user-pair',
+      name: 'Pair',
+      agents: four.slice(0, 2).map((m, i) => ({ ...m, id: `p${i}`, role: '' })),
+      settings: { mode: 'relay', rounds: 1, maxHops: 4, permission: 'read-only' },
+    } as TeamPreset;
     const withPair = { ...small, presets: [...small.presets, pair] };
     expect(buildPlannerPrompt('q', settings, withPair)).toContain('user-pair');
     expect(decidePlan({ choice: 'template', templateId: 'user-pair' }, withPair, lead).agents.map((a) => a.name)).toEqual(['A', 'B']);
@@ -133,7 +167,10 @@ describe('lead agent reply', () => {
     expect(cut.presetId).toBe('builtin-general');
     expect(cut.agents).toHaveLength(2);
     // Changing a team: up to the limit.
-    expect(decideRevision({ agents: four.map((m) => ({ ...m, role: 'r' })) }, draft, small, lead).agents.map((a) => a.name)).toEqual(['A', 'B']);
+    expect(decideRevision({ agents: four.map((m) => ({ ...m, role: 'r' })) }, draft, small, lead).agents.map((a) => a.name)).toEqual([
+      'A',
+      'B',
+    ]);
     expect(buildRevisePrompt('x', draft, { permission: 'read-only', cwd: '/w' }, small)).toContain('At most 2 members.');
   });
 
@@ -221,20 +258,30 @@ describe('lead agent reply', () => {
   });
 
   it('tells the lead what it can use and asks for JSON', () => {
-    const prompt = buildPlannerPrompt('How do I bake bread?', { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'read-only', cwd: '/tmp' }, ctx);
+    const prompt = buildPlannerPrompt(
+      'How do I bake bread?',
+      { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'read-only', cwd: '/tmp' },
+      ctx,
+    );
     expect(prompt).toContain('How do I bake bread?');
     // Each model with the efforts it takes (its own list, else the CLI's), and the defaults.
-    expect(prompt).toContain('- claude (Claude Code)\n  Models: opus (efforts low/medium/high; guide: Claude), haiku (efforts low; guide: Claude)\n  Default model opus');
+    expect(prompt).toContain(
+      '- claude (Claude Code)\n  Models: opus (efforts low/medium/high; guide: Claude), haiku (efforts low; guide: Claude)\n  Default model opus',
+    );
     expect(prompt).not.toContain('- grok');
     expect(prompt).toContain('"id": "builtin-general"');
     expect(prompt).toContain('"read-only"');
     expect(prompt).toContain('```json');
   });
 
-  it("gives the lead the role guides of the models its coding agents run, and only those, with each model marked with its own", () => {
+  it('gives the lead the role guides of the models its coding agents run, and only those, with each model marked with its own', () => {
     const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, permission: 'edit' as const, cwd: '/tmp' };
-    const draft: TeamDraft = { settings: { mode: 'roundtable', rounds: 1, maxHops: 8 }, agents: [{ id: 'a1', name: 'A', provider: 'claude', role: 'r' }] };
-    const guide = (f: keyof typeof ROLE_GUIDES, edits = true) => `- ${ROLE_GUIDES[f].label} (${ROLE_GUIDES[f].about}): ${ROLE_GUIDES[f].text(edits)}`;
+    const draft: TeamDraft = {
+      settings: { mode: 'roundtable', rounds: 1, maxHops: 8 },
+      agents: [{ id: 'a1', name: 'A', provider: 'claude', role: 'r' }],
+    };
+    const guide = (f: keyof typeof ROLE_GUIDES, edits = true) =>
+      `- ${ROLE_GUIDES[f].label} (${ROLE_GUIDES[f].about}): ${ROLE_GUIDES[f].text(edits)}`;
     // Claude Code runs Claude, Codex lists no models here: GPT, its own.
     for (const prompt of [buildPlannerPrompt('q', settings, ctx), buildRevisePrompt('add a tester', draft, settings, ctx)]) {
       expect(prompt).toContain(`${guide('claude')}\n${guide('gpt')}\n`);
@@ -250,14 +297,20 @@ describe('lead agent reply', () => {
     // A model on the user's own server is open weights, and so marked; a default the CLI does not list is marked too.
     const local: PlannerContext = {
       ...ctx,
-      catalog: [{ ...catalog[0]!, defaultModel: 'opus[1m]', models: [...catalog[0]!.models, { id: 'homelab/qwen3-coder', endpoint: 'homelab' }] }],
+      catalog: [
+        { ...catalog[0]!, defaultModel: 'opus[1m]', models: [...catalog[0]!.models, { id: 'homelab/qwen3-coder', endpoint: 'homelab' }] },
+      ],
     };
     const prompt = buildPlannerPrompt('q', settings, local);
     expect(prompt).toContain(guide('open'));
     expect(prompt).toContain('homelab/qwen3-coder (efforts low/medium/high; guide: Open-weight)');
     expect(prompt).toContain('Default model opus[1m] (guide: Claude)');
     // No family known (Copilot listed no models): no guides and no marks, and the roles are asked for without them.
-    const unknown: PlannerContext = { ...ctx, available: ['copilot'], catalog: [{ provider: 'copilot', models: [{ id: 'auto' }], efforts: [], source: 'cli' }] };
+    const unknown: PlannerContext = {
+      ...ctx,
+      available: ['copilot'],
+      catalog: [{ provider: 'copilot', models: [{ id: 'auto' }], efforts: [], source: 'cli' }],
+    };
     for (const prompt of [buildPlannerPrompt('q', settings, unknown), buildRevisePrompt('add a tester', draft, settings, unknown)]) {
       expect(prompt).not.toContain('How to write a role for the model');
       expect(prompt).not.toContain('guide');
@@ -266,26 +319,33 @@ describe('lead agent reply', () => {
     }
   });
 
-  it("asks for roles whose first line says who the member is, which is what teammates see", () => {
+  it('asks for roles whose first line says who the member is, which is what teammates see', () => {
     const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, permission: 'edit' as const, cwd: '/tmp' };
-    const draft: TeamDraft = { settings: { mode: 'roundtable', rounds: 1, maxHops: 8 }, agents: [{ id: 'a1', name: 'A', provider: 'claude', role: 'r' }] };
-    expect(buildPlannerPrompt('q', settings, ctx)).toContain("- Write each member's role as instructions addressed to that member. Its first line says who the member is and their expertise: teammates see only that line.");
-    expect(buildRevisePrompt('x', draft, settings, ctx)).toContain('- Write a new or rewritten role as instructions addressed to that member. Its first line says who the member is and their expertise: teammates see only that line.');
+    const draft: TeamDraft = {
+      settings: { mode: 'roundtable', rounds: 1, maxHops: 8 },
+      agents: [{ id: 'a1', name: 'A', provider: 'claude', role: 'r' }],
+    };
+    expect(buildPlannerPrompt('q', settings, ctx)).toContain(
+      "- Write each member's role as instructions addressed to that member. Its first line says who the member is and their expertise: teammates see only that line.",
+    );
+    expect(buildRevisePrompt('x', draft, settings, ctx)).toContain(
+      '- Write a new or rewritten role as instructions addressed to that member. Its first line says who the member is and their expertise: teammates see only that line.',
+    );
   });
 });
 
 describe('lead review and a team design', () => {
   const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, permission: 'read-only' as const, cwd: '/tmp' };
 
-  it('is not the lead agent\'s to decide: its prompt says nothing of it, on or off, and a reply that names it changes nothing', () => {
+  it("is not the lead agent's to decide: its prompt says nothing of it, on or off, and a reply that names it changes nothing", () => {
     for (const leadReview of [undefined, true]) {
       const prompt = buildPlannerPrompt('Refactor the parser', { ...settings, ...(leadReview ? { leadReview } : {}) }, ctx);
       expect(prompt).not.toMatch(/lead review|leadReview/i);
     }
     const lead = { provider: 'claude' as const };
-    expect(decidePlan({ choice: 'template', templateId: 'builtin-general', leadReview: true, leadReviewReason: 'x' }, ctx, lead)).not.toHaveProperty(
-      'leadReview',
-    );
+    expect(
+      decidePlan({ choice: 'template', templateId: 'builtin-general', leadReview: true, leadReviewReason: 'x' }, ctx, lead),
+    ).not.toHaveProperty('leadReview');
   });
 });
 
@@ -313,7 +373,9 @@ describe('a question in a conversation', () => {
     expect(prompt).toContain('1. "keep"');
     expect(prompt).toContain('{"choice": "keep"');
     expect(prompt).toContain('The user reviews your team');
-    expect(buildPlannerPrompt('Q', { ...settings, autoConfirm: true }, ctx, { current })).toContain('Your team answers the question right away.');
+    expect(buildPlannerPrompt('Q', { ...settings, autoConfirm: true }, ctx, { current })).toContain(
+      'Your team answers the question right away.',
+    );
   });
 
   it("asks for members named as a schedule's message @mentions them, unless the team has them", () => {
@@ -321,7 +383,9 @@ describe('a question in a conversation', () => {
     const prompt = buildPlannerPrompt('@Reviewer 看一下 @dddd 的 PR', settings, ctx, { schedule });
     expect(prompt).toContain('It @mentions @Reviewer, @dddd. If these name the people or roles it is for');
     expect(buildPlannerPrompt('@alice what now?', settings, ctx, { current, schedule })).not.toContain('It @mentions');
-    expect(buildPlannerPrompt('Upgrade @angular/core and @types/node, keep @Component(…)', settings, ctx, { schedule })).not.toContain('It @mentions');
+    expect(buildPlannerPrompt('Upgrade @angular/core and @types/node, keep @Component(…)', settings, ctx, { schedule })).not.toContain(
+      'It @mentions',
+    );
     // An ordinary question's @-words are as often code: no hint.
     expect(buildPlannerPrompt('@Reviewer please look', settings, ctx, { current })).not.toContain('It @mentions');
   });
@@ -356,7 +420,9 @@ describe('a question in a conversation', () => {
   });
 
   it('lets members who stay on keep the tools the user set (whatever the new team says); new ones have none', () => {
-    const current: AgentConfig[] = [{ id: 'r1', name: 'Researcher', provider: 'codex', role: 'Search the web', tools: { 'mcp:browser': true } }];
+    const current: AgentConfig[] = [
+      { id: 'r1', name: 'Researcher', provider: 'codex', role: 'Search the web', tools: { 'mcp:browser': true } },
+    ];
     const next: AgentConfig[] = [
       { id: 'n1', name: 'researcher', provider: 'codex', role: 'Search the web' },
       { id: 'n2', name: 'Writer', provider: 'claude', role: 'Write it up' },
@@ -440,7 +506,7 @@ describe('a question in a conversation', () => {
     expect(fitAgents([{ id: 'y', name: 'B', provider: 'claude', role: '', account: 'any00001' }], ctx, lead)[0]!.account).toBe('any00001');
   });
 
-  it("checks a member who stays on against the models of the account it keeps", () => {
+  it('checks a member who stays on against the models of the account it keeps', () => {
     // Only the Work account's Codex offers gpt-b; only the default account's offers gpt-a.
     const perAccount: PlannerContext = {
       ...ctx,
@@ -478,7 +544,11 @@ describe('a question in a conversation', () => {
       ['Cy', false, undefined, undefined, undefined],
     ]);
     // A template used as it is: its members who stay on are checked the same way.
-    const template = { ...ctx.presets[0]!, id: 'user-t', agents: [{ id: 't1', name: 'Alice', provider: 'codex' as const, role: 'R', model: 'gpt-b' }] };
+    const template = {
+      ...ctx.presets[0]!,
+      id: 'user-t',
+      agents: [{ id: 't1', name: 'Alice', provider: 'codex' as const, role: 'R', model: 'gpt-b' }],
+    };
     const used = decidePlan({ choice: 'template', templateId: 'user-t' }, { ...perAccount, presets: [template] }, lead, current);
     expect(used.agents.map((a) => [a.account, a.model])).toEqual([['work0001', 'gpt-b']]);
   });
@@ -494,7 +564,10 @@ describe('a question in a conversation', () => {
         {
           provider: 'codex',
           account: 'work0001',
-          models: [{ id: 'gpt-a', efforts: ['low'] }, { id: 'gpt-b', efforts: ['high'] }],
+          models: [
+            { id: 'gpt-a', efforts: ['low'] },
+            { id: 'gpt-b', efforts: ['high'] },
+          ],
           efforts: ['low', 'high'],
           defaultModel: 'gpt-b',
           source: 'cli',
@@ -530,7 +603,10 @@ describe('a question in a conversation', () => {
     });
     const text = (t: string) => [{ type: 'text' as const, text: t }];
     const history = historyForLead([
-      msg({ author: { kind: 'user' }, parts: [...text('Look at this'), { type: 'attachment', id: 'f', name: 'log.txt', mimeType: 'text/plain', size: 3 }] }),
+      msg({
+        author: { kind: 'user' },
+        parts: [...text('Look at this'), { type: 'attachment', id: 'f', name: 'log.txt', mimeType: 'text/plain', size: 3 }],
+      }),
       msg({ author: { kind: 'system' }, parts: text('A note'), plan: { status: 'ready', lead } }),
       msg({
         author: { kind: 'agent', agentId: 'a1' },
@@ -547,7 +623,9 @@ describe('a question in a conversation', () => {
       `[@Bob (Codex)]: ${'x'.repeat(1499)}…`,
     ]);
     // A long conversation: the latest messages are kept.
-    const long = historyForLead(Array.from({ length: 40 }, (_, i) => msg({ author: { kind: 'user' }, parts: text(`${i} ${'y'.repeat(600)}`) })));
+    const long = historyForLead(
+      Array.from({ length: 40 }, (_, i) => msg({ author: { kind: 'user' }, parts: text(`${i} ${'y'.repeat(600)}`) })),
+    );
     expect(long.startsWith('(earlier messages left out)')).toBe(true);
     expect(long).toContain('[User]: 39 ');
     expect(long).not.toContain('[User]: 0 ');
@@ -555,7 +633,7 @@ describe('a question in a conversation', () => {
   });
 });
 
-describe('changing a team at the user\'s request', () => {
+describe("changing a team at the user's request", () => {
   const draft: TeamDraft = {
     settings: { mode: 'roundtable', rounds: 2, maxHops: 8 },
     agents: [
@@ -568,7 +646,17 @@ describe('changing a team at the user\'s request', () => {
   it("keeps a member's account while it stays on the same CLI, and never shows the lead the account ids", () => {
     const withAccount: TeamDraft = { ...draft, agents: [{ ...draft.agents[0]!, account: 'work0001' }, draft.agents[1]!] };
     expect(buildRevisePrompt('x', withAccount, where, ctx)).not.toContain('work0001');
-    const stays = decideRevision({ agents: [{ name: 'Alice', provider: 'claude' }, { name: 'Gus', provider: 'grok' }] }, withAccount, ctx, lead);
+    const stays = decideRevision(
+      {
+        agents: [
+          { name: 'Alice', provider: 'claude' },
+          { name: 'Gus', provider: 'grok' },
+        ],
+      },
+      withAccount,
+      ctx,
+      lead,
+    );
     expect(stays.agents.map((a) => [a.id, a.account])).toEqual([
       ['a1', 'work0001'],
       ['g1', undefined],
@@ -577,7 +665,17 @@ describe('changing a team at the user\'s request', () => {
     // it all the same, also when the lead changes its model.
     const signedOut: PlannerContext = { ...ctx, accounts: { claude: [''], codex: [''] } };
     for (const model of [undefined, 'haiku']) {
-      const r = decideRevision({ agents: [{ name: 'Alice', provider: 'claude', model }, { name: 'Gus', provider: 'grok' }] }, withAccount, signedOut, lead);
+      const r = decideRevision(
+        {
+          agents: [
+            { name: 'Alice', provider: 'claude', model },
+            { name: 'Gus', provider: 'grok' },
+          ],
+        },
+        withAccount,
+        signedOut,
+        lead,
+      );
       expect(r.agents[0]).toMatchObject({ id: 'a1', model: model ?? 'opus', account: 'work0001' });
     }
     const moves = decideRevision({ agents: [{ name: 'Alice', provider: 'codex' }] }, withAccount, ctx, lead);
@@ -615,7 +713,10 @@ describe('changing a team at the user\'s request', () => {
   });
 
   it("tells the lead when the team is its design waiting for confirmation, and about the schedule's message", () => {
-    const prompt = buildRevisePrompt('Use relay', draft, where, ctx, { pending: 'question', schedule: { text: '@Alice check the build', on: true } });
+    const prompt = buildRevisePrompt('Use relay', draft, where, ctx, {
+      pending: 'question',
+      schedule: { text: '@Alice check the build', on: true },
+    });
     expect(prompt).toContain('reviewing the team you designed for their latest question');
     expect(prompt).toContain('<scheduled_message>\n@Alice check the build\n</scheduled_message>');
     expect(prompt).toContain('keep the members it @mentions under those names');
@@ -684,7 +785,19 @@ describe('changing a team at the user\'s request', () => {
   });
 
   it('rejects a team that cannot run', () => {
-    expect(() => decideRevision({ agents: [{ name: 'A', provider: 'claude' }, { name: 'a', provider: 'codex' }] }, draft, ctx, lead)).toThrow();
+    expect(() =>
+      decideRevision(
+        {
+          agents: [
+            { name: 'A', provider: 'claude' },
+            { name: 'a', provider: 'codex' },
+          ],
+        },
+        draft,
+        ctx,
+        lead,
+      ),
+    ).toThrow();
     expect(() => decideRevision({ agents: [{ name: 'A!', provider: 'claude' }] }, draft, ctx, lead)).toThrow();
   });
 
@@ -695,7 +808,10 @@ describe('changing a team at the user\'s request', () => {
   });
 
   it("tells the lead a design for the schedule answers the schedule's message, not a question", () => {
-    const prompt = buildRevisePrompt('Add a tester', draft, where, ctx, { pending: 'schedule', schedule: { text: 'check the build', on: true } });
+    const prompt = buildRevisePrompt('Add a tester', draft, where, ctx, {
+      pending: 'schedule',
+      schedule: { text: 'check the build', on: true },
+    });
     expect(prompt).toContain("reviewing the team you designed for the conversation's schedule");
     expect(prompt).toContain("answers the schedule's message each time the schedule sends it");
     expect(prompt).not.toContain('latest question');
@@ -721,7 +837,15 @@ describe('changing a team at the user\'s request', () => {
       ctx,
       lead,
     );
-    expect(r.agents[0]).toEqual({ id: 'a1', name: 'Researcher', provider: 'claude', role: 'Research it.', model: 'opus', effort: undefined, tools: { memory: false } });
+    expect(r.agents[0]).toEqual({
+      id: 'a1',
+      name: 'Researcher',
+      provider: 'claude',
+      role: 'Research it.',
+      model: 'opus',
+      effort: undefined,
+      tools: { memory: false },
+    });
     expect(r.agents[1]).toMatchObject({ id: 'g1', name: 'Gus', provider: 'codex', effort: undefined });
     // "Rename Alice to Bob and add a new Alice": the "was" is settled first, whatever the order, so the
     // new Alice does not take the renamed member's place; a "was" naming nobody is a new member.
@@ -745,7 +869,17 @@ describe('changing a team at the user\'s request', () => {
 
   it('keeps a role the lead copied without its surrounding space as the user wrote it', () => {
     const spaced: TeamDraft = { ...draft, agents: [{ ...draft.agents[0]!, role: '  Research it.\n' }, draft.agents[1]!] };
-    const r = decideRevision({ agents: [{ name: 'Alice', provider: 'claude', role: 'Research it.' }, { name: 'Gus', provider: 'grok' }] }, spaced, ctx, lead);
+    const r = decideRevision(
+      {
+        agents: [
+          { name: 'Alice', provider: 'claude', role: 'Research it.' },
+          { name: 'Gus', provider: 'grok' },
+        ],
+      },
+      spaced,
+      ctx,
+      lead,
+    );
     expect(r.agents[0]!.role).toBe('  Research it.\n');
     expect(r.agents[1]!.role).toBe('Doubt it.');
   });
@@ -760,7 +894,19 @@ describe('changing a team at the user\'s request', () => {
   });
 
   it('refuses the same member twice, and cuts a team longer than 8', () => {
-    expect(() => decideRevision({ agents: [{ name: 'Alice', provider: 'claude' }, { name: 'alice', provider: 'claude' }] }, draft, ctx, lead)).toThrow();
+    expect(() =>
+      decideRevision(
+        {
+          agents: [
+            { name: 'Alice', provider: 'claude' },
+            { name: 'alice', provider: 'claude' },
+          ],
+        },
+        draft,
+        ctx,
+        lead,
+      ),
+    ).toThrow();
     const many = Array.from({ length: 11 }, (_, i) => ({ name: `M${i}`, provider: 'claude', role: '' }));
     expect(decideRevision({ agents: many }, draft, ctx, lead).agents.map((a) => a.name)).toEqual(many.slice(0, 8).map((m) => m.name));
   });
@@ -781,7 +927,11 @@ describe('changing a team at the user\'s request', () => {
 
   it('reads and names every working directory the drawer has, or the conversation has', () => {
     const saved = { permission: 'edit' as const, cwd: '/saved', extraCwds: ['/docs'] };
-    expect(draftPlace({ cwd: '/draft', extraCwds: ['/a', ' ', 3, ' /b '] }, saved)).toEqual({ permission: 'edit', cwd: '/draft', extraCwds: ['/a', '/b'] });
+    expect(draftPlace({ cwd: '/draft', extraCwds: ['/a', ' ', 3, ' /b '] }, saved)).toEqual({
+      permission: 'edit',
+      cwd: '/draft',
+      extraCwds: ['/a', '/b'],
+    });
     expect(draftPlace({ cwd: '/draft' }, saved)).toEqual({ permission: 'edit', cwd: '/draft' });
     expect(draftPlace({}, saved)).toEqual(saved);
     expect(buildRevisePrompt('x', draft, saved, ctx)).toContain('The file permission "edit" and the working directories /saved, /docs are');
@@ -789,12 +939,42 @@ describe('changing a team at the user\'s request', () => {
 
   it('keeps a member the lead renamed without saying so, when it is the only one left over and has no role', () => {
     // "Rename Alice to Researcher": the lead forgot "was" and, as told, left the role out.
-    const r = decideRevision({ agents: [{ name: 'Researcher', provider: 'claude' }, { name: 'Gus', provider: 'grok' }] }, draft, ctx, lead);
+    const r = decideRevision(
+      {
+        agents: [
+          { name: 'Researcher', provider: 'claude' },
+          { name: 'Gus', provider: 'grok' },
+        ],
+      },
+      draft,
+      ctx,
+      lead,
+    );
     expect(r.agents[0]).toMatchObject({ id: 'a1', name: 'Researcher', role: 'Research it.', model: 'opus', tools: { memory: false } });
     // A new member (it has a role), or more than one left over: not taken for a rename.
-    const added = decideRevision({ agents: [{ name: 'Tester', provider: 'claude', role: 'Test it.' }, { name: 'Gus', provider: 'grok' }] }, draft, ctx, lead);
+    const added = decideRevision(
+      {
+        agents: [
+          { name: 'Tester', provider: 'claude', role: 'Test it.' },
+          { name: 'Gus', provider: 'grok' },
+        ],
+      },
+      draft,
+      ctx,
+      lead,
+    );
     expect(added.agents[0]!.id).not.toBe('a1');
-    const two = decideRevision({ agents: [{ name: 'P', provider: 'claude' }, { name: 'Q', provider: 'claude' }] }, draft, ctx, lead);
+    const two = decideRevision(
+      {
+        agents: [
+          { name: 'P', provider: 'claude' },
+          { name: 'Q', provider: 'claude' },
+        ],
+      },
+      draft,
+      ctx,
+      lead,
+    );
     expect(two.agents.map((a) => a.id)).not.toContain('a1');
   });
 
@@ -812,13 +992,21 @@ describe('changing a team at the user\'s request', () => {
     );
     expect(r.agents[0]).toMatchObject({ role: 'Research it.', model: 'opus' });
     expect(r.agents[1]).toMatchObject({ role: 'Doubt it.', effort: 'high' });
-    expect(decideRevision({ agents: [{ name: 'Alice', provider: 'claude', model: '' }] }, draft, ctx, lead).agents[0]!.model).toBeUndefined();
+    expect(
+      decideRevision({ agents: [{ name: 'Alice', provider: 'claude', model: '' }] }, draft, ctx, lead).agents[0]!.model,
+    ).toBeUndefined();
   });
 
   it('ignores a "was" misused for a new member based on one the lead keeps unchanged', () => {
     // "Add Alice2 based on Alice": Alice is listed unchanged (no role), so the "was" does not take her place.
     const r = decideRevision(
-      { agents: [{ name: 'Alice', provider: 'claude' }, { name: 'Alice2', provider: 'claude', role: 'Like Alice.', was: 'Alice' }, { name: 'Gus', provider: 'grok' }] },
+      {
+        agents: [
+          { name: 'Alice', provider: 'claude' },
+          { name: 'Alice2', provider: 'claude', role: 'Like Alice.', was: 'Alice' },
+          { name: 'Gus', provider: 'grok' },
+        ],
+      },
       draft,
       ctx,
       lead,
@@ -838,12 +1026,24 @@ describe('changing a team at the user\'s request', () => {
   it('keeps swaps and chains of renames, which list old names again', () => {
     // Swap across CLIs: each keeps its own id, role and settings under the other's name.
     const swap = decideRevision(
-      { agents: [{ name: 'Gus', provider: 'claude', was: 'Alice' }, { name: 'Alice', provider: 'grok', was: 'Gus' }] },
+      {
+        agents: [
+          { name: 'Gus', provider: 'claude', was: 'Alice' },
+          { name: 'Alice', provider: 'grok', was: 'Gus' },
+        ],
+      },
       draft,
       ctx,
       lead,
     );
-    expect(swap.agents[0]).toMatchObject({ id: 'a1', name: 'Gus', provider: 'claude', role: 'Research it.', model: 'opus', tools: { memory: false } });
+    expect(swap.agents[0]).toMatchObject({
+      id: 'a1',
+      name: 'Gus',
+      provider: 'claude',
+      role: 'Research it.',
+      model: 'opus',
+      tools: { memory: false },
+    });
     expect(swap.agents[1]).toMatchObject({ id: 'g1', name: 'Alice', provider: 'grok', role: 'Doubt it.', effort: 'high' });
     // A chain on one CLI (Alice → Bob, Bob → Dan, with Dan's role rewritten), Carol removed.
     const three: TeamDraft = {
@@ -855,7 +1055,12 @@ describe('changing a team at the user\'s request', () => {
       ],
     };
     const chain = decideRevision(
-      { agents: [{ name: 'Bob', provider: 'claude', was: 'Alice' }, { name: 'Dan', provider: 'claude', was: 'Bob', role: 'D.' }] },
+      {
+        agents: [
+          { name: 'Bob', provider: 'claude', was: 'Alice' },
+          { name: 'Dan', provider: 'claude', was: 'Bob', role: 'D.' },
+        ],
+      },
       three,
       ctx,
       lead,
@@ -869,7 +1074,17 @@ describe('changing a team at the user\'s request', () => {
 
   it('starts a new member based on another (a misused "was") from that one\'s role, never from a removed member', () => {
     // "Add Alice2 based on Alice, remove Gus": Alice2 is new, with Alice's role; it is not taken for Gus renamed.
-    const r = decideRevision({ agents: [{ name: 'Alice', provider: 'claude' }, { name: 'Alice2', provider: 'claude', was: 'Alice' }] }, draft, ctx, lead);
+    const r = decideRevision(
+      {
+        agents: [
+          { name: 'Alice', provider: 'claude' },
+          { name: 'Alice2', provider: 'claude', was: 'Alice' },
+        ],
+      },
+      draft,
+      ctx,
+      lead,
+    );
     expect(r.agents[0]).toMatchObject({ id: 'a1', name: 'Alice' });
     expect(r.agents[1]).toMatchObject({ name: 'Alice2', role: 'Research it.' });
     expect(r.agents[1]!.id).not.toMatch(/^(a1|g1)$/);
@@ -877,7 +1092,17 @@ describe('changing a team at the user\'s request', () => {
   });
 
   it('keeps a member renamed without "was" when the lead copied its role', () => {
-    const r = decideRevision({ agents: [{ name: 'Researcher', provider: 'claude', role: ' Research it. ' }, { name: 'Gus', provider: 'grok' }] }, draft, ctx, lead);
+    const r = decideRevision(
+      {
+        agents: [
+          { name: 'Researcher', provider: 'claude', role: ' Research it. ' },
+          { name: 'Gus', provider: 'grok' },
+        ],
+      },
+      draft,
+      ctx,
+      lead,
+    );
     expect(r.agents[0]).toMatchObject({ id: 'a1', name: 'Researcher', role: 'Research it.', tools: { memory: false } });
   });
 
@@ -975,7 +1200,21 @@ describe("what the lead knows of each coding agent's tools and models", () => {
       { path: '/skills/pdf', name: 'pdf', description: 'Make PDFs', providers: ['claude', 'codex', 'grok'] },
       { path: '/skills/broken', name: 'broken', description: '', providers: ['claude'], problem: 'no SKILL.md' },
     ],
-    memory: { all: 'We use pnpm.\n  Always.', claude: '', codex: 'Codex: run tests', grok: '', cursor: '', antigravity: '', copilot: '', muse: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' },
+    memory: {
+      all: 'We use pnpm.\n  Always.',
+      claude: '',
+      codex: 'Codex: run tests',
+      grok: '',
+      cursor: '',
+      antigravity: '',
+      copilot: '',
+      muse: '',
+      opencode: '',
+      goose: '',
+      cline: '',
+      openhands: '',
+      pi: '',
+    },
   });
 
   it('reads the tool library: MCP servers, usable skills and the memory parts that are set, with their keys', () => {
@@ -989,10 +1228,13 @@ describe("what the lead knows of each coding agent's tools and models", () => {
     ]);
   });
 
-  it("reads what a CLI loads by itself as Harness Relay runs it: items left out of its runs, and disabled servers, are not there", () => {
+  it('reads what a CLI loads by itself as Harness Relay runs it: items left out of its runs, and disabled servers, are not there', () => {
     const tools = cliToolsForLead({
       builtinTools: [{ name: 'Bash' }, { name: 'WebSearch', leftOut: true }],
-      skills: [{ name: 'commit', description: ' Make commits ' }, { name: 'gone', description: '', leftOut: true }],
+      skills: [
+        { name: 'commit', description: ' Make commits ' },
+        { name: 'gone', description: '', leftOut: true },
+      ],
       mcpServers: [
         { name: 'github', status: 'connected', tools: [{ name: 'create_issue' }, { name: 'delete_repo', leftOut: true }] },
         { name: 'jira', status: 'needs-auth' },
@@ -1004,7 +1246,10 @@ describe("what the lead knows of each coding agent's tools and models", () => {
     expect(tools).toEqual({
       builtinTools: ['Bash'],
       skills: [{ name: 'commit', description: 'Make commits' }],
-      mcpServers: [{ name: 'github', tools: ['create_issue'] }, { name: 'jira', status: 'needs-auth' }],
+      mcpServers: [
+        { name: 'github', tools: ['create_issue'] },
+        { name: 'jira', status: 'needs-auth' },
+      ],
       agents: ['explorer'],
       plugins: ['x@market'],
     });
@@ -1024,7 +1269,13 @@ describe("what the lead knows of each coding agent's tools and models", () => {
         },
       ],
       native: {
-        claude: { builtinTools: ['Bash', 'WebSearch'], skills: [{ name: 'commit', description: 'Make commits' }], mcpServers: [{ name: 'github', tools: ['create_issue'] }], agents: ['explorer'], incomplete: true },
+        claude: {
+          builtinTools: ['Bash', 'WebSearch'],
+          skills: [{ name: 'commit', description: 'Make commits' }],
+          mcpServers: [{ name: 'github', tools: ['create_issue'] }],
+          agents: ['explorer'],
+          incomplete: true,
+        },
         codex: { skills: [], mcpServers: [], unknown: 'late' },
       },
       library,
@@ -1032,13 +1283,26 @@ describe("what the lead knows of each coding agent's tools and models", () => {
     // Ann has the browser turned off and the db server turned on; Bob is on Codex with the defaults.
     const current = {
       agents: [
-        { id: 'a1', name: 'Ann', provider: 'claude' as const, role: 'R', tools: { 'mcp:srv1': false, 'mcp:srv2': true, 'skill:/gone': true } },
+        {
+          id: 'a1',
+          name: 'Ann',
+          provider: 'claude' as const,
+          role: 'R',
+          tools: { 'mcp:srv1': false, 'mcp:srv2': true, 'skill:/gone': true },
+        },
         { id: 'b1', name: 'Bob', provider: 'codex' as const, role: 'S' },
       ],
       settings: { mode: 'roundtable' as const, rounds: 1, maxHops: 8 },
     };
-    const prompt = buildPlannerPrompt('Fix the login bug', { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'edit', cwd: '/w' }, rich, { current });
-    expect(prompt).toContain('  Models: fable (Fable; always its family\'s newest; efforts low/high/max; default effort high; guide: Claude), haiku (efforts low/medium; guide: Claude)');
+    const prompt = buildPlannerPrompt(
+      'Fix the login bug',
+      { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'edit', cwd: '/w' },
+      rich,
+      { current },
+    );
+    expect(prompt).toContain(
+      "  Models: fable (Fable; always its family's newest; efforts low/high/max; default effort high; guide: Claude), haiku (efforts low/medium; guide: Claude)",
+    );
     expect(prompt).toContain('  Default model fable, effort medium');
     // As its new members run it: the models and defaults of the account they get.
     const work = buildPlannerPrompt(
@@ -1047,7 +1311,18 @@ describe("what the lead knows of each coding agent's tools and models", () => {
       {
         ...rich,
         accounts: { claude: ['work0001'], codex: [''] },
-        catalog: [...rich.catalog, { provider: 'claude', account: 'work0001', models: [{ id: 'sonnet' }], efforts: ['low'], defaultModel: 'sonnet', defaultEffort: 'low', source: 'cli' }],
+        catalog: [
+          ...rich.catalog,
+          {
+            provider: 'claude',
+            account: 'work0001',
+            models: [{ id: 'sonnet' }],
+            efforts: ['low'],
+            defaultModel: 'sonnet',
+            defaultEffort: 'low',
+            source: 'cli',
+          },
+        ],
       },
       { current },
     );
@@ -1060,10 +1335,14 @@ describe("what the lead knows of each coding agent's tools and models", () => {
     expect(prompt).toContain('  Its own subagents: explorer');
     expect(prompt).toContain('  (It did not answer every question, so these lists may be incomplete.)');
     expect(prompt).toContain('  New members get from the tool library: mcp:browser, skill:pdf, memory');
-    expect(prompt).toContain('- codex (Codex)\n  Its own models (not listed): guide: GPT\n  Its own tools, skills and MCP servers: unknown (it did not answer in time)\n  New members get from the tool library: skill:pdf, memory, memory:codex');
+    expect(prompt).toContain(
+      '- codex (Codex)\n  Its own models (not listed): guide: GPT\n  Its own tools, skills and MCP servers: unknown (it did not answer in time)\n  New members get from the tool library: skill:pdf, memory, memory:codex',
+    );
     expect(prompt).toContain('- mcp:db: no member gets it unless the user gives it');
     expect(prompt).toContain('- memory:codex (Codex: run tests): only for codex members');
-    expect(prompt).toContain('Choose the coding agent whose tools (built in, its own skills and MCP servers, and what it gets from the tool library) cover that part');
+    expect(prompt).toContain(
+      'Choose the coding agent whose tools (built in, its own skills and MCP servers, and what it gets from the tool library) cover that part',
+    );
     // Each member of the current team with what it actually gets: its CLI's defaults with its exceptions.
     expect(prompt).toContain('"fromToolLibrary": [\n        "mcp:db",\n        "skill:pdf",\n        "memory"\n      ]');
     expect(prompt).toContain('"fromToolLibrary": [\n        "skill:pdf",\n        "memory",\n        "memory:codex"\n      ]');
@@ -1072,20 +1351,27 @@ describe("what the lead knows of each coding agent's tools and models", () => {
     expect(prompt).not.toContain('/gone');
   });
 
-  it('lists the library items a member gets: its CLI\'s defaults with its exceptions, a CLI\'s memory only for that CLI', () => {
+  it("lists the library items a member gets: its CLI's defaults with its exceptions, a CLI's memory only for that CLI", () => {
     expect(memberLibraryTools({ provider: 'claude' }, library)).toEqual(['mcp:browser', 'skill:pdf', 'memory']);
-    expect(memberLibraryTools({ provider: 'codex', tools: { 'skill:/skills/pdf': false, memory: false, 'memory:codex': true, 'mcp:srv2': true } }, library)).toEqual([
-      'mcp:db',
-      'memory:codex',
-    ]);
+    expect(
+      memberLibraryTools(
+        { provider: 'codex', tools: { 'skill:/skills/pdf': false, memory: false, 'memory:codex': true, 'mcp:srv2': true } },
+        library,
+      ),
+    ).toEqual(['mcp:db', 'memory:codex']);
     expect(memberLibraryTools({ provider: 'grok', tools: { 'memory:codex': true } }, library)).toEqual(['skill:pdf', 'memory']);
     expect(memberLibraryTools({ provider: 'grok' }, undefined)).toBeUndefined();
   });
 
-  it('ignores "tools" in the lead\'s reply: a designed member has its CLI\'s defaults, and a revision leaves members\' tools as they are', () => {
+  it("ignores \"tools\" in the lead's reply: a designed member has its CLI's defaults, and a revision leaves members' tools as they are", () => {
     const withLibrary: PlannerContext = { ...ctx, library };
     const d = decidePlan(
-      { choice: 'custom', name: 'T', agents: [{ name: 'Web', provider: 'codex', role: 'Browse', tools: { 'mcp:browser': true, memory: false } }], reason: 'r' },
+      {
+        choice: 'custom',
+        name: 'T',
+        agents: [{ name: 'Web', provider: 'codex', role: 'Browse', tools: { 'mcp:browser': true, memory: false } }],
+        reason: 'r',
+      },
       withLibrary,
       lead,
     );
@@ -1123,13 +1409,52 @@ describe("what the lead knows of each coding agent's tools and models", () => {
     const asked: string[] = [];
     const src: PlannerSources = {
       statuses: async () => [
-        { provider: 'claude', installed: true, bin: 'claude', auth: { loggedIn: true }, usingStoredApiKey: false, accounts: [account('', true), account('w2', true)] },
-        { provider: 'codex', installed: true, bin: 'codex', auth: { loggedIn: false }, usingStoredApiKey: false, accounts: [account('', false), account('w1', true)] },
-        { provider: 'grok', installed: true, bin: 'grok', auth: { loggedIn: false }, usingStoredApiKey: false, accounts: [account('', false)] },
+        {
+          provider: 'claude',
+          installed: true,
+          bin: 'claude',
+          auth: { loggedIn: true },
+          usingStoredApiKey: false,
+          accounts: [account('', true), account('w2', true)],
+        },
+        {
+          provider: 'codex',
+          installed: true,
+          bin: 'codex',
+          auth: { loggedIn: false },
+          usingStoredApiKey: false,
+          accounts: [account('', false), account('w1', true)],
+        },
+        {
+          provider: 'grok',
+          installed: true,
+          bin: 'grok',
+          auth: { loggedIn: false },
+          usingStoredApiKey: false,
+          accounts: [account('', false)],
+        },
       ],
       catalog: async () => catalog,
       presets: () => [],
-      library: () => ({ mcpServers: [], skills: [], memory: { all: 'notes', claude: '', codex: '', grok: '', cursor: '', antigravity: '', copilot: '', muse: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' } }),
+      library: () => ({
+        mcpServers: [],
+        skills: [],
+        memory: {
+          all: 'notes',
+          claude: '',
+          codex: '',
+          grok: '',
+          cursor: '',
+          antigravity: '',
+          copilot: '',
+          muse: '',
+          opencode: '',
+          goose: '',
+          cline: '',
+          openhands: '',
+          pi: '',
+        },
+      }),
       native: async (p, cwd, acc) => {
         asked.push(`${p} ${cwd} ${acc || 'default'}`);
         if (p === 'codex') return new Promise(() => {}); // never answers
@@ -1151,30 +1476,125 @@ describe("what the lead knows of each coding agent's tools and models", () => {
     expect(asked).toEqual([]);
   });
 
-  it("keeps what a CLI answered when it refused a question or ran out of time on one; only a CLI that answered nothing is unknown", async () => {
-    const answered = { skills: [{ name: 'commit', description: '' }], mcpServers: [{ name: 'github', status: 'connected', tools: [{ name: 'create_issue' }] }], builtinTools: [{ name: 'Bash' }] };
+  it('keeps what a CLI answered when it refused a question or ran out of time on one; only a CLI that answered nothing is unknown', async () => {
+    const answered = {
+      skills: [{ name: 'commit', description: '' }],
+      mcpServers: [{ name: 'github', status: 'connected', tools: [{ name: 'create_issue' }] }],
+      builtinTools: [{ name: 'Bash' }],
+    };
     const with_ = (native: PlannerSources['native']): PlannerSources => ({
-      statuses: async () => [{ provider: 'claude', installed: true, bin: 'claude', auth: { loggedIn: true }, usingStoredApiKey: false, accounts: [{ id: '', label: '', auth: { loggedIn: true }, usingStoredApiKey: false }] }],
+      statuses: async () => [
+        {
+          provider: 'claude',
+          installed: true,
+          bin: 'claude',
+          auth: { loggedIn: true },
+          usingStoredApiKey: false,
+          accounts: [{ id: '', label: '', auth: { loggedIn: true }, usingStoredApiKey: false }],
+        },
+      ],
       catalog: async () => catalog,
       presets: () => [],
-      library: () => ({ mcpServers: [], skills: [], memory: { all: '', claude: '', codex: '', grok: '', cursor: '', antigravity: '', copilot: '', muse: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' } }),
+      library: () => ({
+        mcpServers: [],
+        skills: [],
+        memory: {
+          all: '',
+          claude: '',
+          codex: '',
+          grok: '',
+          cursor: '',
+          antigravity: '',
+          copilot: '',
+          muse: '',
+          opencode: '',
+          goose: '',
+          cline: '',
+          openhands: '',
+          pi: '',
+        },
+      }),
       native,
     });
-    const refused = await plannerContext(with_(async () => ({ ...answered, problems: [{ kind: 'failed', detail: 'Unsupported control request subtype: get_hooks_listing' }] })), '/w', 50);
-    expect(refused.native!.claude).toEqual({ builtinTools: ['Bash'], skills: [{ name: 'commit', description: '' }], mcpServers: [{ name: 'github', tools: ['create_issue'] }], incomplete: true });
-    const late = await plannerContext(with_(async () => ({ ...answered, problems: [{ kind: 'timeout' }] })), '/w', 50);
+    const refused = await plannerContext(
+      with_(async () => ({
+        ...answered,
+        problems: [{ kind: 'failed', detail: 'Unsupported control request subtype: get_hooks_listing' }],
+      })),
+      '/w',
+      50,
+    );
+    expect(refused.native!.claude).toEqual({
+      builtinTools: ['Bash'],
+      skills: [{ name: 'commit', description: '' }],
+      mcpServers: [{ name: 'github', tools: ['create_issue'] }],
+      incomplete: true,
+    });
+    const late = await plannerContext(
+      with_(async () => ({ ...answered, problems: [{ kind: 'timeout' }] })),
+      '/w',
+      50,
+    );
     expect(late.native!.claude!.incomplete).toBe(true);
     // Answered nothing: unknown, with why.
-    expect((await plannerContext(with_(async () => ({ skills: [], mcpServers: [], problems: [{ kind: 'timeout' }] })), '/w', 50)).native!.claude).toEqual({ skills: [], mcpServers: [], unknown: 'late' });
-    expect((await plannerContext(with_(async () => ({ skills: [], mcpServers: [], problems: [{ kind: 'failed', detail: 'boom' }] })), '/w', 50)).native!.claude).toEqual({ skills: [], mcpServers: [], unknown: 'failed' });
+    expect(
+      (
+        await plannerContext(
+          with_(async () => ({ skills: [], mcpServers: [], problems: [{ kind: 'timeout' }] })),
+          '/w',
+          50,
+        )
+      ).native!.claude,
+    ).toEqual({ skills: [], mcpServers: [], unknown: 'late' });
+    expect(
+      (
+        await plannerContext(
+          with_(async () => ({ skills: [], mcpServers: [], problems: [{ kind: 'failed', detail: 'boom' }] })),
+          '/w',
+          50,
+        )
+      ).native!.claude,
+    ).toEqual({ skills: [], mcpServers: [], unknown: 'failed' });
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    expect((await plannerContext(with_(async () => Promise.reject(new Error('gone'))), '/w', 50)).native!.claude).toEqual({ skills: [], mcpServers: [], unknown: 'failed' });
+    expect(
+      (
+        await plannerContext(
+          with_(async () => Promise.reject(new Error('gone'))),
+          '/w',
+          50,
+        )
+      ).native!.claude,
+    ).toEqual({ skills: [], mcpServers: [], unknown: 'failed' });
     warn.mockRestore();
     // Lists answered empty (nothing of its own, as a new account's home has), one part unanswered or one
     // question refused: incomplete, not unknown.
-    expect((await plannerContext(with_(async () => ({ skills: [], mcpServers: [], problems: [{ kind: 'no-answer', part: 'mcp' }] })), '/w', 50)).native!.claude).toEqual({ skills: [], mcpServers: [], incomplete: true });
-    expect((await plannerContext(with_(async () => ({ skills: [], mcpServers: [], problems: [{ kind: 'failed', detail: 'no hooks/list', refused: true }] })), '/w', 50)).native!.claude).toEqual({ skills: [], mcpServers: [], incomplete: true });
+    expect(
+      (
+        await plannerContext(
+          with_(async () => ({ skills: [], mcpServers: [], problems: [{ kind: 'no-answer', part: 'mcp' }] })),
+          '/w',
+          50,
+        )
+      ).native!.claude,
+    ).toEqual({ skills: [], mcpServers: [], incomplete: true });
+    expect(
+      (
+        await plannerContext(
+          with_(async () => ({ skills: [], mcpServers: [], problems: [{ kind: 'failed', detail: 'no hooks/list', refused: true }] })),
+          '/w',
+          50,
+        )
+      ).native!.claude,
+    ).toEqual({ skills: [], mcpServers: [], incomplete: true });
     // Nothing of its own, and no trouble: known to have none.
-    expect((await plannerContext(with_(async () => ({ skills: [], mcpServers: [], problems: [] })), '/w', 50)).native!.claude).toEqual({ skills: [], mcpServers: [] });
+    expect(
+      (
+        await plannerContext(
+          with_(async () => ({ skills: [], mcpServers: [], problems: [] })),
+          '/w',
+          50,
+        )
+      ).native!.claude,
+    ).toEqual({ skills: [], mcpServers: [] });
   });
 });

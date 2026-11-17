@@ -1,4 +1,15 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -69,7 +80,14 @@ import {
   rejectWithReason,
   scrubOpencodeDatabase,
 } from '../src/server/agents/opencode';
-import { AgentRunError, type AgentEvent, type ApprovalRequest, type McpServerSpec, type RunBackends, type RunOptions } from '../src/server/agents/types';
+import {
+  AgentRunError,
+  type AgentEvent,
+  type ApprovalRequest,
+  type McpServerSpec,
+  type RunBackends,
+  type RunOptions,
+} from '../src/server/agents/types';
 import { backendRun } from '../src/server/backends';
 import { t, withLang } from '../src/server/i18n';
 import type { SpawnOptions, SpawnResult } from '../src/server/process';
@@ -77,7 +95,6 @@ import type { RelaySandboxCommand, RelaySandboxSpec } from '../src/server/relayS
 import { OPEN_AGENT_HOME_ENV } from '../src/server/settings';
 import { writeFakeOpencode } from './fake-opencode';
 import { addOpencodeRows, rowsEnv, stepData, writeOpencodeWithRows, type StepRow } from './opencode-db';
-
 
 /** The state key of the runs here: their state is in `<home>/private/<key>`. */
 const STATE_KEY = 'conv.c1.a1';
@@ -112,7 +129,15 @@ afterAll(() => {
 
 const backends = (): RunBackends => ({
   apis: { openai: 'sk-test-openai-0000', anthropic: 'sk-ant-test-0000', xai: 'xai-test-0000' },
-  endpoints: [{ id: 'homelab', name: 'Homelab', baseUrl: 'http://vllm.example:8000/v1', models: ['muse-glimmer-30b-nvfp4'], apiKey: 'endpoint-test-key' }],
+  endpoints: [
+    {
+      id: 'homelab',
+      name: 'Homelab',
+      baseUrl: 'http://vllm.example:8000/v1',
+      models: ['muse-glimmer-30b-nvfp4'],
+      apiKey: 'endpoint-test-key',
+    },
+  ],
 });
 
 /** The specs the fake relay sandbox was given, by run folder. */
@@ -129,7 +154,17 @@ const fakeSandbox = (dir: string): Partial<AcpTurnDeps> => ({
   },
   sandboxCommand: async (b, args, env, spec) => {
     specs.set(dir, spec);
-    return { bin: b, args, env, channel: () => undefined, failure: () => undefined, run: {} as RelaySandboxCommand['run'], dispose: async () => { for (const d of [spec.dirs?.tmp, spec.dirs?.hostTmp]) if (d) rmSync(d, { recursive: true, force: true }); } };
+    return {
+      bin: b,
+      args,
+      env,
+      channel: () => undefined,
+      failure: () => undefined,
+      run: {} as RelaySandboxCommand['run'],
+      dispose: async () => {
+        for (const d of [spec.dirs?.tmp, spec.dirs?.hostTmp]) if (d) rmSync(d, { recursive: true, force: true });
+      },
+    };
   },
 });
 
@@ -159,7 +194,14 @@ function turn(fixture: string, over: Partial<RunOptions> = {}, answer?: (req: Ap
       HOME: join(dir, 'user'),
       FAKE_OC_FIXTURE: join(FIXTURES, `${fixture}.jsonl`),
       FAKE_OC_LOG: logFile,
-      FAKE_OC_ENV: ['OPENCODE_CONFIG_CONTENT', 'OPENCODE_SERVER_PASSWORD', 'XDG_CACHE_HOME', OPENCODE_ENDPOINT_KEY_ENV, 'OPENCODE_DISABLE_PROJECT_CONFIG', 'OPENCODE_PERMISSION'].join(','),
+      FAKE_OC_ENV: [
+        'OPENCODE_CONFIG_CONTENT',
+        'OPENCODE_SERVER_PASSWORD',
+        'XDG_CACHE_HOME',
+        OPENCODE_ENDPOINT_KEY_ENV,
+        'OPENCODE_DISABLE_PROJECT_CONFIG',
+        'OPENCODE_PERMISSION',
+      ].join(','),
       OPENCODE_PERMISSION: '{"edit":"allow"}',
       [OPEN_AGENT_HOME_ENV]: home,
     },
@@ -212,117 +254,176 @@ const textOf = (r: Turn) =>
 
 // Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
 describe('OpenCode turns replayed from the real CLI', () => {
-  it.skipIf(process.platform === 'win32')('runs a text turn on an endpoint: its model as relay-<id>, thinking and text, tokens', async () => {
-    const r = withCalls(turn('text-only', { model: 'homelab/muse-glimmer-30b-nvfp4' }), {
-      steps: [{ id: 'prt_1', session: 'ses_e3a879d12ffeGVYFMLkxG3Kbz2', input: 7000, cacheRead: 700, cacheWrite: 21, output: 40, reasoning: 12, cost: 0 }],
-    });
-    const result = await runTurn(r);
-    // An endpoint has no price list: no cost.
-    expect(result).toEqual({ sessionId: 'ses_e3a879d12ffeGVYFMLkxG3Kbz2', inputTokens: 7721, outputTokens: 52 });
-    expect(r.events.some((e) => e.type === 'thinking')).toBe(true);
-    expect(textOf(r)).toBe('pong');
-    expect(r.events[0]).toEqual({ type: 'session', sessionId: 'ses_e3a879d12ffeGVYFMLkxG3Kbz2' });
-    // The session's model is OpenCode's id for the endpoint's provider.
-    expect(sent(r, 'session/set_config_option')[0]!.params).toEqual({ sessionId: 'ses_e3a879d12ffeGVYFMLkxG3Kbz2', configId: 'model', value: 'relay-homelab/muse-glimmer-30b-nvfp4' });
-    // Its own server on a port of its own, a password of this run, the endpoint's key in a variable.
-    const start = r.log()[0]!;
-    expect(start.argv[0]).toBe('acp');
-    expect(start.argv[1]).toBe('--port');
-    expect(Number(start.argv[2])).toBeGreaterThan(0);
-    expect(start.env.OPENCODE_SERVER_PASSWORD).toMatch(/^[A-Za-z0-9_-]{32}$/);
-    expect(start.env[OPENCODE_ENDPOINT_KEY_ENV]).toBe('endpoint-test-key');
-    expect(start.env.OPENCODE_DISABLE_PROJECT_CONFIG).toBe('1');
-    expect(start.env.OPENCODE_PERMISSION).toBe(''); // an inherited one is emptied
-    const config = JSON.parse(start.env.OPENCODE_CONFIG_CONTENT);
-    expect(config.enabled_providers).toEqual(['relay-homelab']);
-    expect(config.provider['relay-homelab']).toEqual({
-      npm: '@ai-sdk/openai-compatible',
-      name: 'Homelab',
-      env: [OPENCODE_ENDPOINT_KEY_ENV],
-      options: { baseURL: 'http://vllm.example:8000/v1' },
-      models: { 'muse-glimmer-30b-nvfp4': { name: 'muse-glimmer-30b-nvfp4', tool_call: true } },
-    });
-    expect(JSON.stringify(config)).not.toContain('endpoint-test-key');
-    // The run's cache is its own (in the run's temp folder, gone after the run).
-    expect(start.env.XDG_CACHE_HOME).toContain(join(r.dir, 'run-tmp'));
-    expect(existsSync(start.env.XDG_CACHE_HOME)).toBe(false);
-  });
+  it.skipIf(process.platform === 'win32')(
+    'runs a text turn on an endpoint: its model as relay-<id>, thinking and text, tokens',
+    async () => {
+      const r = withCalls(turn('text-only', { model: 'homelab/muse-glimmer-30b-nvfp4' }), {
+        steps: [
+          {
+            id: 'prt_1',
+            session: 'ses_e3a879d12ffeGVYFMLkxG3Kbz2',
+            input: 7000,
+            cacheRead: 700,
+            cacheWrite: 21,
+            output: 40,
+            reasoning: 12,
+            cost: 0,
+          },
+        ],
+      });
+      const result = await runTurn(r);
+      // An endpoint has no price list: no cost.
+      expect(result).toEqual({ sessionId: 'ses_e3a879d12ffeGVYFMLkxG3Kbz2', inputTokens: 7721, outputTokens: 52 });
+      expect(r.events.some((e) => e.type === 'thinking')).toBe(true);
+      expect(textOf(r)).toBe('pong');
+      expect(r.events[0]).toEqual({ type: 'session', sessionId: 'ses_e3a879d12ffeGVYFMLkxG3Kbz2' });
+      // The session's model is OpenCode's id for the endpoint's provider.
+      expect(sent(r, 'session/set_config_option')[0]!.params).toEqual({
+        sessionId: 'ses_e3a879d12ffeGVYFMLkxG3Kbz2',
+        configId: 'model',
+        value: 'relay-homelab/muse-glimmer-30b-nvfp4',
+      });
+      // Its own server on a port of its own, a password of this run, the endpoint's key in a variable.
+      const start = r.log()[0]!;
+      expect(start.argv[0]).toBe('acp');
+      expect(start.argv[1]).toBe('--port');
+      expect(Number(start.argv[2])).toBeGreaterThan(0);
+      expect(start.env.OPENCODE_SERVER_PASSWORD).toMatch(/^[A-Za-z0-9_-]{32}$/);
+      expect(start.env[OPENCODE_ENDPOINT_KEY_ENV]).toBe('endpoint-test-key');
+      expect(start.env.OPENCODE_DISABLE_PROJECT_CONFIG).toBe('1');
+      expect(start.env.OPENCODE_PERMISSION).toBe(''); // an inherited one is emptied
+      const config = JSON.parse(start.env.OPENCODE_CONFIG_CONTENT);
+      expect(config.enabled_providers).toEqual(['relay-homelab']);
+      expect(config.provider['relay-homelab']).toEqual({
+        npm: '@ai-sdk/openai-compatible',
+        name: 'Homelab',
+        env: [OPENCODE_ENDPOINT_KEY_ENV],
+        options: { baseURL: 'http://vllm.example:8000/v1' },
+        models: { 'muse-glimmer-30b-nvfp4': { name: 'muse-glimmer-30b-nvfp4', tool_call: true } },
+      });
+      expect(JSON.stringify(config)).not.toContain('endpoint-test-key');
+      // The run's cache is its own (in the run's temp folder, gone after the run).
+      expect(start.env.XDG_CACHE_HOME).toContain(join(r.dir, 'run-tmp'));
+      expect(existsSync(start.env.XDG_CACHE_HOME)).toBe(false);
+    },
+  );
 
   it('runs below full access on macOS only: on Linux its server could not be watched, so nothing starts', async () => {
     expect(opencodeSandboxUnsupported('darwin')).toBeUndefined();
     expect(withLang('en', () => opencodeSandboxUnsupported('linux'))).toMatch(/On Linux, OpenCode runs only with full access/);
     for (const permission of ['read-only', 'edit'] as const) {
       const r = turn('text-only', { permission, model: 'homelab/muse-glimmer-30b-nvfp4' });
-      await expect(withLang('en', () => opencodeRunner({ ...fakeSandbox(r.dir), platform: 'linux', runTmpDir: join(r.dir, 'run-tmp') }).run(r.o))).rejects.toThrow(
-        /On Linux, OpenCode runs only with full access/,
-      );
+      await expect(
+        withLang('en', () => opencodeRunner({ ...fakeSandbox(r.dir), platform: 'linux', runTmpDir: join(r.dir, 'run-tmp') }).run(r.o)),
+      ).rejects.toThrow(/On Linux, OpenCode runs only with full access/);
       expect(r.log()).toEqual([]); // the CLI never started
       expect(specs.has(r.dir)).toBe(false);
     }
   });
 
-  it.skipIf(process.platform === 'win32')('read-only: asks about the write and the command, never does fs/write_text_file, shows each call', async () => {
-    const r = turn('read-write-bash-permission-allowed', { permission: 'read-only', model: 'homelab/muse-glimmer-30b-nvfp4' }, () => ({ allow: true }));
-    await runTurn(r);
-    expect(r.approvals).toEqual([
-      { kind: 'edit', detail: '/home/user/project/notes.txt', reason: '/home/user/project/notes.txt', readOnlySandbox: true },
-      { kind: 'command', detail: 'ls -1', reason: 'ls -1', readOnlySandbox: true },
-    ]);
-    // Allowed once each; the write it asks the client to do is answered null and not done.
-    const a = answers(r);
-    expect(a.map((x) => x.result?.outcome?.optionId ?? x.result)).toEqual(['once', null, 'once']);
-    expect(existsSync('/home/user/project/notes.txt')).toBe(false);
-    expect(tools(r)).toEqual([
-      { type: 'tool_start', id: 'chatcmpl-tool-97137ca34452aed8', name: 'read', kind: 'read' },
-      { type: 'tool_end', id: 'chatcmpl-tool-97137ca34452aed8', ok: true, output: 'hello from the fixture project\nline two', detail: '/home/user/project/hello.txt' },
-      { type: 'tool_start', id: 'chatcmpl-tool-817550916c09ed0d', name: 'write', kind: 'edit' },
-      { type: 'tool_end', id: 'chatcmpl-tool-817550916c09ed0d', ok: true, output: 'Wrote file successfully.', detail: '/home/user/project/notes.txt' },
-      { type: 'tool_start', id: 'chatcmpl-tool-a441a6e679f5edc6', name: 'bash', kind: 'execute' },
-      { type: 'tool_end', id: 'chatcmpl-tool-a441a6e679f5edc6', ok: true, output: 'AGENTS.md\nhello.txt\nnotes.txt', detail: 'ls -1' },
-    ]);
-    // In the relay sandbox: its own server's port only, its config read-only, the run's temp folder its cache.
-    const spec = specs.get(r.dir)!;
-    expect(spec.localPorts).toEqual([Number(r.log()[0]!.argv[2])]);
-    expect(spec.quietlyDeniedHosts).toEqual(OPENCODE_QUIET_HOSTS);
-    // Its data and state are the conversation member's own.
-    expect(spec.readOnly).toEqual(opencodeHome(r.home, join(r.home, 'private', STATE_KEY)).configPaths);
-    expect(spec.writable).toEqual([...opencodeHome(r.home, join(r.home, 'private', STATE_KEY)).statePaths, join(r.dir, 'sandbox-tmp')]);
-    expect(spec.allowedHosts).toEqual(['vllm.example:8000']);
-    expect(r.log()[0]!.env.XDG_CACHE_HOME).toBe(join(r.dir, 'sandbox-tmp', 'cache'));
-    // The read-only rules, and the briefing with what a rejection means.
-    const config = JSON.parse(r.log()[0]!.env.OPENCODE_CONFIG_CONTENT);
-    expect(config.permission).toMatchObject({ '*': 'ask', read: 'allow', task: 'deny' });
-    expect(config.permission.edit).toBeUndefined();
-    expect(config.experimental).toEqual({ continue_loop_on_deny: true });
-    expect(config.agent.title).toEqual({ disable: true });
-  });
+  it.skipIf(process.platform === 'win32')(
+    'read-only: asks about the write and the command, never does fs/write_text_file, shows each call',
+    async () => {
+      const r = turn('read-write-bash-permission-allowed', { permission: 'read-only', model: 'homelab/muse-glimmer-30b-nvfp4' }, () => ({
+        allow: true,
+      }));
+      await runTurn(r);
+      expect(r.approvals).toEqual([
+        { kind: 'edit', detail: '/home/user/project/notes.txt', reason: '/home/user/project/notes.txt', readOnlySandbox: true },
+        { kind: 'command', detail: 'ls -1', reason: 'ls -1', readOnlySandbox: true },
+      ]);
+      // Allowed once each; the write it asks the client to do is answered null and not done.
+      const a = answers(r);
+      expect(a.map((x) => x.result?.outcome?.optionId ?? x.result)).toEqual(['once', null, 'once']);
+      expect(existsSync('/home/user/project/notes.txt')).toBe(false);
+      expect(tools(r)).toEqual([
+        { type: 'tool_start', id: 'chatcmpl-tool-97137ca34452aed8', name: 'read', kind: 'read' },
+        {
+          type: 'tool_end',
+          id: 'chatcmpl-tool-97137ca34452aed8',
+          ok: true,
+          output: 'hello from the fixture project\nline two',
+          detail: '/home/user/project/hello.txt',
+        },
+        { type: 'tool_start', id: 'chatcmpl-tool-817550916c09ed0d', name: 'write', kind: 'edit' },
+        {
+          type: 'tool_end',
+          id: 'chatcmpl-tool-817550916c09ed0d',
+          ok: true,
+          output: 'Wrote file successfully.',
+          detail: '/home/user/project/notes.txt',
+        },
+        { type: 'tool_start', id: 'chatcmpl-tool-a441a6e679f5edc6', name: 'bash', kind: 'execute' },
+        { type: 'tool_end', id: 'chatcmpl-tool-a441a6e679f5edc6', ok: true, output: 'AGENTS.md\nhello.txt\nnotes.txt', detail: 'ls -1' },
+      ]);
+      // In the relay sandbox: its own server's port only, its config read-only, the run's temp folder its cache.
+      const spec = specs.get(r.dir)!;
+      expect(spec.localPorts).toEqual([Number(r.log()[0]!.argv[2])]);
+      expect(spec.quietlyDeniedHosts).toEqual(OPENCODE_QUIET_HOSTS);
+      // Its data and state are the conversation member's own.
+      expect(spec.readOnly).toEqual(opencodeHome(r.home, join(r.home, 'private', STATE_KEY)).configPaths);
+      expect(spec.writable).toEqual([...opencodeHome(r.home, join(r.home, 'private', STATE_KEY)).statePaths, join(r.dir, 'sandbox-tmp')]);
+      expect(spec.allowedHosts).toEqual(['vllm.example:8000']);
+      expect(r.log()[0]!.env.XDG_CACHE_HOME).toBe(join(r.dir, 'sandbox-tmp', 'cache'));
+      // The read-only rules, and the briefing with what a rejection means.
+      const config = JSON.parse(r.log()[0]!.env.OPENCODE_CONFIG_CONTENT);
+      expect(config.permission).toMatchObject({ '*': 'ask', read: 'allow', task: 'deny' });
+      expect(config.permission.edit).toBeUndefined();
+      expect(config.experimental).toEqual({ continue_loop_on_deny: true });
+      expect(config.agent.title).toEqual({ disable: true });
+    },
+  );
 
-  it.skipIf(process.platform === 'win32')('read-only, declined with a note: refuses with reject_once, the reason going through its server, not in the answer', async () => {
-    const r = turn('permission-rejected-turn-ends', { permission: 'read-only', model: 'homelab/muse-glimmer-30b-nvfp4' }, () => ({ allow: false, note: 'not now' }));
-    await withLang('en', () => runTurn(r));
-    expect(r.approvals).toHaveLength(1);
-    expect(answers(r)[0]!.result).toEqual({ outcome: { outcome: 'selected', optionId: 'reject' } });
-    const end = r.events.find((e) => e.type === 'tool_end' && !e.ok) as Extract<AgentEvent, { type: 'tool_end' }>;
-    expect(end.error).toBe(`${withLang('en', () => t().approvalDeclined)} not now`);
-  });
+  it.skipIf(process.platform === 'win32')(
+    'read-only, declined with a note: refuses with reject_once, the reason going through its server, not in the answer',
+    async () => {
+      const r = turn('permission-rejected-turn-ends', { permission: 'read-only', model: 'homelab/muse-glimmer-30b-nvfp4' }, () => ({
+        allow: false,
+        note: 'not now',
+      }));
+      await withLang('en', () => runTurn(r));
+      expect(r.approvals).toHaveLength(1);
+      expect(answers(r)[0]!.result).toEqual({ outcome: { outcome: 'selected', optionId: 'reject' } });
+      const end = r.events.find((e) => e.type === 'tool_end' && !e.ok) as Extract<AgentEvent, { type: 'tool_end' }>;
+      expect(end.error).toBe(`${withLang('en', () => t().approvalDeclined)} not now`);
+    },
+  );
 
-  it.skipIf(process.platform === 'win32')('full access on Anthropic: no approvals, model then effort set in its order, the cost and tokens of every call of the turn', async () => {
-    const session = 'ses_e3a82337bffen0E28XT7dK76JK';
-    const call = (i: number, more: Partial<StepRow> = {}): StepRow => ({ id: `prt_${i}`, session, input: 2, cacheRead: 10915, cacheWrite: 575, output: 59, cost: 0.0004, ...more });
-    // Four calls (a read, a write, a command, the reply), the third with some reasoning.
-    const r = withCalls(turn('anthropic-read-write-bash', { effort: 'low' }), { steps: [call(1), call(2), call(3, { reasoning: 30 }), call(4, { cost: 0.0005484999999999998 })] });
-    const result = await runTurn(r);
-    expect(r.approvals).toEqual([]);
-    expect(answers(r).map((x) => x.result?.outcome?.optionId ?? x.result)).toEqual(['once', null, 'once']);
-    expect(sent(r, 'session/set_config_option').map((m) => [m.params.configId, m.params.value])).toEqual([
-      ['model', 'anthropic/claude-haiku-5-5'],
-    ]);
-    expect(result.sessionId).toBe(session);
-    expect(result).toMatchObject({ inputTokens: 4 * 11492, outputTokens: 4 * 59 + 30, costUsd: 0.0017485 });
-    const config = JSON.parse(r.log()[0]!.env.OPENCODE_CONFIG_CONTENT);
-    expect(config).toMatchObject({ model: 'anthropic/claude-haiku-5-5', enabled_providers: ['anthropic'], permission: { '*': 'allow', skill: 'allow' } });
-    expect(config.provider).toBeUndefined();
-  });
+  it.skipIf(process.platform === 'win32')(
+    'full access on Anthropic: no approvals, model then effort set in its order, the cost and tokens of every call of the turn',
+    async () => {
+      const session = 'ses_e3a82337bffen0E28XT7dK76JK';
+      const call = (i: number, more: Partial<StepRow> = {}): StepRow => ({
+        id: `prt_${i}`,
+        session,
+        input: 2,
+        cacheRead: 10915,
+        cacheWrite: 575,
+        output: 59,
+        cost: 0.0004,
+        ...more,
+      });
+      // Four calls (a read, a write, a command, the reply), the third with some reasoning.
+      const r = withCalls(turn('anthropic-read-write-bash', { effort: 'low' }), {
+        steps: [call(1), call(2), call(3, { reasoning: 30 }), call(4, { cost: 0.0005484999999999998 })],
+      });
+      const result = await runTurn(r);
+      expect(r.approvals).toEqual([]);
+      expect(answers(r).map((x) => x.result?.outcome?.optionId ?? x.result)).toEqual(['once', null, 'once']);
+      expect(sent(r, 'session/set_config_option').map((m) => [m.params.configId, m.params.value])).toEqual([
+        ['model', 'anthropic/claude-haiku-5-5'],
+      ]);
+      expect(result.sessionId).toBe(session);
+      expect(result).toMatchObject({ inputTokens: 4 * 11492, outputTokens: 4 * 59 + 30, costUsd: 0.0017485 });
+      const config = JSON.parse(r.log()[0]!.env.OPENCODE_CONFIG_CONTENT);
+      expect(config).toMatchObject({
+        model: 'anthropic/claude-haiku-5-5',
+        enabled_providers: ['anthropic'],
+        permission: { '*': 'allow', skill: 'allow' },
+      });
+      expect(config.provider).toBeUndefined();
+    },
+  );
 
   it.skipIf(process.platform === 'win32')('OpenAI: its apply_patch row says the file it adds', async () => {
     const r = turn('openai-read-applypatch-bash', { model: 'openai/gpt-6-luna', effort: 'low' });
@@ -336,7 +437,11 @@ describe('OpenCode turns replayed from the real CLI', () => {
     const r = turn('xai-read-write-bash-thinking', { model: 'xai/grok-4.3', effort: 'low' });
     await runTurn(r);
     expect(r.events.filter((e) => e.type === 'thinking').length).toBeGreaterThan(0);
-    expect(tools(r).filter((e) => e.type === 'tool_end').map((e) => (e as any).ok)).toEqual([true, true, true]);
+    expect(
+      tools(r)
+        .filter((e) => e.type === 'tool_end')
+        .map((e) => (e as any).ok),
+    ).toEqual([true, true, true]);
   });
 
   it.skipIf(process.platform === 'win32')('turns its todowrite calls into the plan, without rows', async () => {
@@ -344,8 +449,22 @@ describe('OpenCode turns replayed from the real CLI', () => {
     await runTurn(r);
     expect(tools(r)).toEqual([]);
     expect(r.events.filter((e) => e.type === 'plan')).toEqual([
-      { type: 'plan', entries: [{ text: 'inspect', status: 'in_progress' }, { text: 'decide', status: 'pending' }, { text: 'report', status: 'pending' }] },
-      { type: 'plan', entries: [{ text: 'inspect', status: 'completed' }, { text: 'decide', status: 'pending' }, { text: 'report', status: 'pending' }] },
+      {
+        type: 'plan',
+        entries: [
+          { text: 'inspect', status: 'in_progress' },
+          { text: 'decide', status: 'pending' },
+          { text: 'report', status: 'pending' },
+        ],
+      },
+      {
+        type: 'plan',
+        entries: [
+          { text: 'inspect', status: 'completed' },
+          { text: 'decide', status: 'pending' },
+          { text: 'report', status: 'pending' },
+        ],
+      },
     ]);
   });
 
@@ -374,36 +493,43 @@ describe('OpenCode turns replayed from the real CLI', () => {
     expect(answers(r).map((x) => x.result?.outcome?.optionId)).toEqual(['reject', 'once']);
   });
 
-  it.skipIf(process.platform === 'win32')('watches its own server below full access, with the run\'s password', async () => {
+  it.skipIf(process.platform === 'win32')("watches its own server below full access, with the run's password", async () => {
     const r = turn('edit-mode-config', { permission: 'edit' }, () => ({ allow: true }));
     await runTurn(r);
     expect(r.log().filter((m) => m.http)).toContainEqual({ http: 'GET /global/event', auth: true });
   });
 
-  it.skipIf(process.platform === 'win32')('ends a turn quietly: its stream resetting while the process exits is no security event (ended or stopped)', async () => {
-    const quiet = async (r: Turn) => {
-      r.o.env.FAKE_OC_SLOW_EXIT = String(WATCH_CLOSE_GRACE_MS + 500); // the stream resets at once; the exit comes after the grace
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-      try {
-        const out = await runTurn(r).catch((e: unknown) => e);
-        await new Promise((res) => setTimeout(res, 50));
-        expect(warn.mock.calls.filter((c) => String(c[0]).startsWith('[opencode]'))).toEqual([]);
-        return out;
-      } finally {
-        warn.mockRestore();
-      }
-    };
-    // An ordinary end: the watch stops as the prompt answers, before the process is told to exit.
-    const done = turn('edit-mode-config', { permission: 'edit' }, () => ({ allow: true }));
-    expect(await quiet(done)).toMatchObject({ sessionId: expect.any(String) });
-    expect(sent(done, 'session/cancel')).toEqual([]);
-    // A stop: only the user's own session/cancel, and the turn ends as stopped, not as a security error.
-    const stopped = turn('cancel-then-next-prompt', { permission: 'edit', onEvent: (e) => (stopped.events.push(e), e.type === 'text' && stopped.abort.abort()) }, () => ({ allow: true }));
-    const err = (await quiet(stopped)) as AgentRunError;
-    expect(err).toBeInstanceOf(AgentRunError);
-    expect(err.message).toBe(t().stopped);
-    expect(sent(stopped, 'session/cancel')).toHaveLength(1);
-  });
+  it.skipIf(process.platform === 'win32')(
+    'ends a turn quietly: its stream resetting while the process exits is no security event (ended or stopped)',
+    async () => {
+      const quiet = async (r: Turn) => {
+        r.o.env.FAKE_OC_SLOW_EXIT = String(WATCH_CLOSE_GRACE_MS + 500); // the stream resets at once; the exit comes after the grace
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        try {
+          const out = await runTurn(r).catch((e: unknown) => e);
+          await new Promise((res) => setTimeout(res, 50));
+          expect(warn.mock.calls.filter((c) => String(c[0]).startsWith('[opencode]'))).toEqual([]);
+          return out;
+        } finally {
+          warn.mockRestore();
+        }
+      };
+      // An ordinary end: the watch stops as the prompt answers, before the process is told to exit.
+      const done = turn('edit-mode-config', { permission: 'edit' }, () => ({ allow: true }));
+      expect(await quiet(done)).toMatchObject({ sessionId: expect.any(String) });
+      expect(sent(done, 'session/cancel')).toEqual([]);
+      // A stop: only the user's own session/cancel, and the turn ends as stopped, not as a security error.
+      const stopped = turn(
+        'cancel-then-next-prompt',
+        { permission: 'edit', onEvent: (e) => (stopped.events.push(e), e.type === 'text' && stopped.abort.abort()) },
+        () => ({ allow: true }),
+      );
+      const err = (await quiet(stopped)) as AgentRunError;
+      expect(err).toBeInstanceOf(AgentRunError);
+      expect(err.message).toBe(t().stopped);
+      expect(sent(stopped, 'session/cancel')).toHaveLength(1);
+    },
+  );
 
   it.skipIf(process.platform === 'win32')('ends the run with a security error when something else drives its server', async () => {
     const replied = { type: 'permission.replied', properties: { sessionID: 'ses_x', requestID: 'per_foreign', reply: 'once' } };
@@ -412,7 +538,9 @@ describe('OpenCode turns replayed from the real CLI', () => {
     const err = (await withLang('en', () => runTurn(r)).catch((e: unknown) => e)) as AgentRunError;
     expect(err).toBeInstanceOf(AgentRunError);
     expect(err.message).toBe(
-      withLang('en', () => t().opencodeForeignControl('a permission request (per_foreign) was answered "once" by something other than Harness Relay')),
+      withLang('en', () =>
+        t().opencodeForeignControl('a permission request (per_foreign) was answered "once" by something other than Harness Relay'),
+      ),
     );
     expect(sent(r, 'session/cancel')).toHaveLength(1);
   });
@@ -439,33 +567,36 @@ describe('OpenCode turns replayed from the real CLI', () => {
     expect(sent(r, 'session/cancel')).toHaveLength(1);
   });
 
-  it.skipIf(process.platform === 'win32')("resumes with session/resume, and counts only this turn's calls, a stopped turn's before it not among them", async () => {
-    const session = 'ses_e3a7ee4f4ffe2IzySQqvlHk7AO';
-    const r = turn('resume-3-session-resume', { sessionId: session, effort: 'low' });
-    // Earlier turns' calls, a stopped turn's and a subagent's among them, all made before this turn.
-    addOpencodeRows(dbOf(r), {
-      sessions: [{ id: 'ses_child', parent: session }],
-      steps: [
-        { id: 'prt_a', session, input: 100, output: 10, cost: 0.0001 },
-        { id: 'prt_stopped', session, input: 200, output: 20, cost: 0.0002 },
-        { id: 'prt_child_old', session: 'ses_child', input: 50, output: 5, cost: 0.00005 },
-      ],
-    });
-    withCalls(r, {
-      sessions: [{ id: 'ses_grandchild', parent: 'ses_child' }],
-      steps: [
-        { id: 'prt_b', session, input: 3, cacheRead: 9000, cacheWrite: 41, output: 8, reasoning: 2, cost: 0.0003 },
-        // The subagent it had (resumed by the task tool) and the one that one started.
-        { id: 'prt_child_new', session: 'ses_child', input: 7, output: 1, cost: 0.00004 },
-        { id: 'prt_grandchild', session: 'ses_grandchild', input: 5, cacheRead: 5, output: 1, cost: 0.00002044 },
-      ],
-    });
-    const result = await runTurn(r);
-    expect(sent(r, 'session/resume')[0]!.params).toMatchObject({ sessionId: 'ses_e3a7ee4f4ffe2IzySQqvlHk7AO', mcpServers: [] });
-    expect(sent(r, 'session/set_config_option')).toEqual([]); // model and effort as the session has them
-    expect(textOf(r)).toBe('BLUE-HERON-42');
-    expect(result).toEqual({ sessionId: session, inputTokens: 9044 + 7 + 10, outputTokens: 10 + 1 + 1, costUsd: 0.00036044 });
-  });
+  it.skipIf(process.platform === 'win32')(
+    "resumes with session/resume, and counts only this turn's calls, a stopped turn's before it not among them",
+    async () => {
+      const session = 'ses_e3a7ee4f4ffe2IzySQqvlHk7AO';
+      const r = turn('resume-3-session-resume', { sessionId: session, effort: 'low' });
+      // Earlier turns' calls, a stopped turn's and a subagent's among them, all made before this turn.
+      addOpencodeRows(dbOf(r), {
+        sessions: [{ id: 'ses_child', parent: session }],
+        steps: [
+          { id: 'prt_a', session, input: 100, output: 10, cost: 0.0001 },
+          { id: 'prt_stopped', session, input: 200, output: 20, cost: 0.0002 },
+          { id: 'prt_child_old', session: 'ses_child', input: 50, output: 5, cost: 0.00005 },
+        ],
+      });
+      withCalls(r, {
+        sessions: [{ id: 'ses_grandchild', parent: 'ses_child' }],
+        steps: [
+          { id: 'prt_b', session, input: 3, cacheRead: 9000, cacheWrite: 41, output: 8, reasoning: 2, cost: 0.0003 },
+          // The subagent it had (resumed by the task tool) and the one that one started.
+          { id: 'prt_child_new', session: 'ses_child', input: 7, output: 1, cost: 0.00004 },
+          { id: 'prt_grandchild', session: 'ses_grandchild', input: 5, cacheRead: 5, output: 1, cost: 0.00002044 },
+        ],
+      });
+      const result = await runTurn(r);
+      expect(sent(r, 'session/resume')[0]!.params).toMatchObject({ sessionId: 'ses_e3a7ee4f4ffe2IzySQqvlHk7AO', mcpServers: [] });
+      expect(sent(r, 'session/set_config_option')).toEqual([]); // model and effort as the session has them
+      expect(textOf(r)).toBe('BLUE-HERON-42');
+      expect(result).toEqual({ sessionId: session, inputTokens: 9044 + 7 + 10, outputTokens: 10 + 1 + 1, costUsd: 0.00036044 });
+    },
+  );
 
   it.skipIf(process.platform === 'win32')('a session it cannot resume fails before anything is said, without its error data', async () => {
     const r = turn('resume-5-resume-unknown-id', { sessionId: 'ses_doesnotexist000000000000' });
@@ -484,7 +615,13 @@ describe('OpenCode turns replayed from the real CLI', () => {
     const r = turn('bad-model-config-option', { model: 'anthropic/claude-nonexistent-9' });
     const err = (await withLang('en', () => runTurn(r)).catch((e: unknown) => e)) as AgentRunError;
     expect(err.message).toBe(
-      withLang('en', () => t().openRejectedModel('OpenCode', 'anthropic/claude-nonexistent-9', 'Invalid params: model not found: anthropic/claude-nonexistent-9')),
+      withLang('en', () =>
+        t().openRejectedModel(
+          'OpenCode',
+          'anthropic/claude-nonexistent-9',
+          'Invalid params: model not found: anthropic/claude-nonexistent-9',
+        ),
+      ),
     );
     expect(sent(r, 'session/prompt')).toEqual([]);
   });
@@ -500,7 +637,15 @@ describe('OpenCode turns replayed from the real CLI', () => {
   it.skipIf(process.platform === 'win32')("passes the tool library's MCP servers, stdio and HTTP", async () => {
     const servers: McpServerSpec[] = [
       { name: 'relayecho', transport: 'stdio', command: 'node', args: ['echo.mjs'], url: '', env: { A: '1' }, headers: {} },
-      { name: 'relayhttp', transport: 'http', command: '', args: [], url: 'http://127.0.0.1:18765/mcp', env: {}, headers: { 'x-relay-token': 'tok' } },
+      {
+        name: 'relayhttp',
+        transport: 'http',
+        command: '',
+        args: [],
+        url: 'http://127.0.0.1:18765/mcp',
+        env: {},
+        headers: { 'x-relay-token': 'tok' },
+      },
     ];
     const r = turn('mcp-http', { mcpServers: servers, permission: 'read-only' }, () => ({ allow: true }));
     await runTurn(r);
@@ -542,7 +687,16 @@ function context(over: Partial<RunOptions> = {}, model = 'anthropic/claude-haiku
   };
   const run = backendRun(o.backends, o.model, 'OpenCode');
   // On Linux unless a test says otherwise: relay-shell is not used on Windows.
-  return { o, run, home: { root: homeRoot, state: homeRoot, ...opencodeHome(homeRoot) }, env: { ...o.env }, sandboxed: o.permission !== 'full', platform: 'linux', tmpDir: tmp, state: {} };
+  return {
+    o,
+    run,
+    home: { root: homeRoot, state: homeRoot, ...opencodeHome(homeRoot) },
+    env: { ...o.env },
+    sandboxed: o.permission !== 'full',
+    platform: 'linux',
+    tmpDir: tmp,
+    state: {},
+  };
 }
 
 describe('its home', () => {
@@ -567,44 +721,47 @@ describe('its home', () => {
   });
 
   // POSIX paths, file modes or programs: tried on macOS and Linux.
-  it.skipIf(process.platform === 'win32')('keeps its config folder exactly as Harness Relay writes it, read-only, and the home stand-in empty', () => {
-    const home = join(root, `home-${++n}`);
-    ensureOpencodeHome(home);
-    const p = opencodePaths(home);
-    expect(readdirSync(p.configDir).sort()).toEqual(['.gitignore', 'opencode.json', OPENCODE_SHELL]);
-    expect(JSON.parse(readFileSync(join(p.configDir, 'opencode.json'), 'utf8'))).toEqual(OPENCODE_STATIC_CONFIG);
-    // LSP and formatters are off so OpenCode never starts a project program on its own (biome, tsserver…).
-    expect(OPENCODE_STATIC_CONFIG).toMatchObject({ lsp: false, formatter: false, snapshot: false });
-    expect(readFileSync(join(p.configDir, '.gitignore'), 'utf8')).toBe(OPENCODE_GITIGNORE);
-    expect(statSync(p.configDir).mode & 0o777).toBe(0o555);
-    expect(statSync(p.home).mode & 0o777).toBe(0o555);
-    // Nothing to do when it is as it should be.
-    const before = statSync(join(p.configDir, 'opencode.json')).mtimeMs;
-    ensureOpencodeHome(home);
-    expect(statSync(join(p.configDir, 'opencode.json')).mtimeMs).toBe(before);
-    // What a full-access run may leave there goes.
-    chmodSync(p.configDir, 0o755);
-    mkdirSync(join(p.configDir, 'plugins'));
-    writeFileSync(join(p.configDir, 'plugins', 'auto-allow.ts'), 'export default {}');
-    chmodSync(join(p.configDir, 'plugins'), 0o555);
-    mkdirSync(join(p.config, 'git'));
-    writeFileSync(join(p.config, 'git', 'config'), '[core]\n');
-    chmodSync(p.home, 0o755);
-    mkdirSync(join(p.home, '.opencode'));
-    writeFileSync(join(p.home, '.opencode', 'opencode.json'), '{}');
-    ensureOpencodeHome(home);
-    expect(readdirSync(p.configDir).sort()).toEqual(['.gitignore', 'opencode.json', OPENCODE_SHELL]);
-    expect(readdirSync(p.config)).toEqual(['opencode']);
-    expect(readdirSync(p.home)).toEqual([]);
-    // A changed file is written again.
-    chmodSync(p.configDir, 0o755);
-    chmodSync(join(p.configDir, 'opencode.json'), 0o644);
-    writeFileSync(join(p.configDir, 'opencode.json'), '{"permission":"allow"}');
-    ensureOpencodeHome(home);
-    expect(JSON.parse(readFileSync(join(p.configDir, 'opencode.json'), 'utf8'))).toEqual(OPENCODE_STATIC_CONFIG);
-  });
+  it.skipIf(process.platform === 'win32')(
+    'keeps its config folder exactly as Harness Relay writes it, read-only, and the home stand-in empty',
+    () => {
+      const home = join(root, `home-${++n}`);
+      ensureOpencodeHome(home);
+      const p = opencodePaths(home);
+      expect(readdirSync(p.configDir).sort()).toEqual(['.gitignore', 'opencode.json', OPENCODE_SHELL]);
+      expect(JSON.parse(readFileSync(join(p.configDir, 'opencode.json'), 'utf8'))).toEqual(OPENCODE_STATIC_CONFIG);
+      // LSP and formatters are off so OpenCode never starts a project program on its own (biome, tsserver…).
+      expect(OPENCODE_STATIC_CONFIG).toMatchObject({ lsp: false, formatter: false, snapshot: false });
+      expect(readFileSync(join(p.configDir, '.gitignore'), 'utf8')).toBe(OPENCODE_GITIGNORE);
+      expect(statSync(p.configDir).mode & 0o777).toBe(0o555);
+      expect(statSync(p.home).mode & 0o777).toBe(0o555);
+      // Nothing to do when it is as it should be.
+      const before = statSync(join(p.configDir, 'opencode.json')).mtimeMs;
+      ensureOpencodeHome(home);
+      expect(statSync(join(p.configDir, 'opencode.json')).mtimeMs).toBe(before);
+      // What a full-access run may leave there goes.
+      chmodSync(p.configDir, 0o755);
+      mkdirSync(join(p.configDir, 'plugins'));
+      writeFileSync(join(p.configDir, 'plugins', 'auto-allow.ts'), 'export default {}');
+      chmodSync(join(p.configDir, 'plugins'), 0o555);
+      mkdirSync(join(p.config, 'git'));
+      writeFileSync(join(p.config, 'git', 'config'), '[core]\n');
+      chmodSync(p.home, 0o755);
+      mkdirSync(join(p.home, '.opencode'));
+      writeFileSync(join(p.home, '.opencode', 'opencode.json'), '{}');
+      ensureOpencodeHome(home);
+      expect(readdirSync(p.configDir).sort()).toEqual(['.gitignore', 'opencode.json', OPENCODE_SHELL]);
+      expect(readdirSync(p.config)).toEqual(['opencode']);
+      expect(readdirSync(p.home)).toEqual([]);
+      // A changed file is written again.
+      chmodSync(p.configDir, 0o755);
+      chmodSync(join(p.configDir, 'opencode.json'), 0o644);
+      writeFileSync(join(p.configDir, 'opencode.json'), '{"permission":"allow"}');
+      ensureOpencodeHome(home);
+      expect(JSON.parse(readFileSync(join(p.configDir, 'opencode.json'), 'utf8'))).toEqual(OPENCODE_STATIC_CONFIG);
+    },
+  );
 
-  it('removes console accounts, sessions\' permission rules and saved permissions from its database, and throws when it cannot', () => {
+  it("removes console accounts, sessions' permission rules and saved permissions from its database, and throws when it cannot", () => {
     const dir = join(root, `db-${++n}`);
     mkdirSync(dir);
     const file = join(dir, 'opencode.db');
@@ -615,7 +772,9 @@ describe('its home', () => {
     }
     // A run's command wrote rules into its session row, which OpenCode would apply over the agent's own.
     const allowAll = JSON.stringify([{ permission: '*', pattern: '*', action: 'allow' }]);
-    db.exec(`CREATE TABLE session (id TEXT, title TEXT, permission TEXT); INSERT INTO session VALUES ('s1', 'kept', '${allowAll}'), ('s2', 'kept', NULL);`);
+    db.exec(
+      `CREATE TABLE session (id TEXT, title TEXT, permission TEXT); INSERT INTO session VALUES ('s1', 'kept', '${allowAll}'), ('s2', 'kept', NULL);`,
+    );
     db.close();
     scrubOpencodeDatabase(file);
     const after = new DatabaseSync(file);
@@ -666,12 +825,14 @@ describe('its home', () => {
     // A generated column (which PRAGMA table_info does not list) keeps the rules: it throws.
     const generated = join(dir, 'generated.db');
     const g = new DatabaseSync(generated);
-    g.exec(`CREATE TABLE session (id TEXT, permission TEXT GENERATED ALWAYS AS ('${allowAll}') VIRTUAL); INSERT INTO session (id) VALUES ('s1');`);
+    g.exec(
+      `CREATE TABLE session (id TEXT, permission TEXT GENERATED ALWAYS AS ('${allowAll}') VIRTUAL); INSERT INTO session (id) VALUES ('s1');`,
+    );
     g.close();
     expect(() => scrubOpencodeDatabase(generated)).toThrow();
   });
 
-  it('starts the member\'s state over when its database cannot be cleared, and does not resume the session', async () => {
+  it("starts the member's state over when its database cannot be cleared, and does not resume the session", async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     /** A context whose state folder is a member's own, in `private/` (as startOpenProcess gives it). */
     const member = (over: Partial<RunOptions>): OpenRunContext => {
@@ -690,7 +851,9 @@ describe('its home', () => {
     // Resuming: the folder is emptied, and the run fails so that the orchestrator starts a fresh session.
     const resumed = member({ sessionId: 'ses_1', stateKey: 'conv.c1.a1' });
     const file = unreadable(resumed);
-    await expect(withLang('en', () => prepareOpencode(resumed, async () => 1))).rejects.toThrow(/could not take out of OpenCode's database/);
+    await expect(withLang('en', () => prepareOpencode(resumed, async () => 1))).rejects.toThrow(
+      /could not take out of OpenCode's database/,
+    );
     expect(existsSync(file)).toBe(false);
     expect(readdirSync(resumed.home.state)).toEqual([]);
     // A new session goes on, in the emptied folder.
@@ -731,7 +894,11 @@ describe('the run config', () => {
     expect(opencodePermission({ permission: 'full' })).toEqual({ '*': 'allow', skill: 'allow' });
     // Skills left out: none at all; single ones: denied by name.
     expect(opencodePermission({ permission: 'full', nativeOff: ['skills'] })).toEqual({ '*': 'allow', skill: 'deny' });
-    expect(opencodePermission({ permission: 'edit', nativeItems: { skills: ['a', 'b'] } }).skill).toEqual({ '*': 'allow', a: 'deny', b: 'deny' });
+    expect(opencodePermission({ permission: 'edit', nativeItems: { skills: ['a', 'b'] } }).skill).toEqual({
+      '*': 'allow',
+      a: 'deny',
+      b: 'deny',
+    });
   });
 
   it("finds the project's instruction files as OpenCode does: the first kind found, every copy up to the repository root", () => {
@@ -838,27 +1005,51 @@ describe('prepare', () => {
 
 describe('what its calls are', () => {
   it('maps its tools to ACP kinds', () => {
-    expect(['bash', 'webfetch', 'apply_patch', 'glob', 'read', 'task', 'skill'].map(opencodeToolKind)).toEqual(['execute', 'fetch', 'edit', 'search', 'read', 'think', 'other']);
+    expect(['bash', 'webfetch', 'apply_patch', 'glob', 'read', 'task', 'skill'].map(opencodeToolKind)).toEqual([
+      'execute',
+      'fetch',
+      'edit',
+      'search',
+      'read',
+      'think',
+      'other',
+    ]);
   });
 
   it('a folder outside the project: what the earlier call does', () => {
-    const outside = { toolCallId: 'c1', kind: 'other', title: '/elsewhere', rawInput: { filepath: '/elsewhere/a.txt', parentDir: '/elsewhere' } };
-    expect(describeOpencodeCall(outside, { kind: 'read', title: 'read' })).toEqual({ kind: 'read', title: 'read (outside the project: /elsewhere)', path: '/elsewhere/a.txt' });
+    const outside = {
+      toolCallId: 'c1',
+      kind: 'other',
+      title: '/elsewhere',
+      rawInput: { filepath: '/elsewhere/a.txt', parentDir: '/elsewhere' },
+    };
+    expect(describeOpencodeCall(outside, { kind: 'read', title: 'read' })).toEqual({
+      kind: 'read',
+      title: 'read (outside the project: /elsewhere)',
+      path: '/elsewhere/a.txt',
+    });
     expect(describeOpencodeCall(outside, { kind: 'edit', title: 'write' })).toMatchObject({ kind: 'edit' });
     expect(describeOpencodeCall(outside, undefined)).toMatchObject({ kind: 'read', title: 'tool (outside the project: /elsewhere)' });
     expect(
-      describeOpencodeCall({ kind: 'other', rawInput: { command: 'ls /etc', directories: ['/etc'], patterns: ['/etc/*'] } }, { kind: 'execute', title: 'bash' }),
+      describeOpencodeCall(
+        { kind: 'other', rawInput: { command: 'ls /etc', directories: ['/etc'], patterns: ['/etc/*'] } },
+        { kind: 'execute', title: 'bash' },
+      ),
     ).toEqual({ kind: 'execute', title: 'ls /etc (outside the project: /etc)', command: 'ls /etc', path: '/etc' });
   });
 
   it('the same call again (doom_loop): the kind of that tool', () => {
-    expect(describeOpencodeCall({ kind: 'other', title: 'doom_loop', rawInput: { tool: 'bash', input: { command: 'make' } } }, undefined)).toEqual({
+    expect(
+      describeOpencodeCall({ kind: 'other', title: 'doom_loop', rawInput: { tool: 'bash', input: { command: 'make' } } }, undefined),
+    ).toEqual({
       kind: 'execute',
       tool: 'bash',
       title: 'bash (the same call again)',
       command: 'make',
     });
-    expect(describeOpencodeCall({ kind: 'other', title: 'doom_loop', rawInput: { tool: 'read', input: { filePath: '/p/a' } } }, undefined)).toMatchObject({ kind: 'read', path: '/p/a' });
+    expect(
+      describeOpencodeCall({ kind: 'other', title: 'doom_loop', rawInput: { tool: 'read', input: { filePath: '/p/a' } } }, undefined),
+    ).toMatchObject({ kind: 'read', path: '/p/a' });
   });
 
   it('an MCP tool: its name; anything else: as ACP says', () => {
@@ -871,7 +1062,11 @@ describe('what its calls are', () => {
     expect(hideOpencodeTool({ title: 'write' })).toBe(false);
     expect(opencodePlan({ rawInput: {} })).toBeUndefined();
     expect(
-      opencodePlan({ rawInput: { todos: [{ content: 'a', status: 'completed' }, { content: 'b', status: 'cancelled' }, { content: 'c', status: 'weird' }, null] } }),
+      opencodePlan({
+        rawInput: {
+          todos: [{ content: 'a', status: 'completed' }, { content: 'b', status: 'cancelled' }, { content: 'c', status: 'weird' }, null],
+        },
+      }),
     ).toEqual([
       { text: 'a', status: 'completed' },
       { text: 'c', status: 'pending' },
@@ -881,7 +1076,10 @@ describe('what its calls are', () => {
   it('gives a call its input back when it ends, and an apply_patch its file', () => {
     const ctx = { state: {}, sandboxed: false };
     const f = (update: Record<string, any>) => filterOpencodeUpdate({ update }, ctx);
-    expect(f({ sessionUpdate: 'agent_message_chunk', content: { text: 'x' } })).toEqual({ sessionUpdate: 'agent_message_chunk', content: { text: 'x' } });
+    expect(f({ sessionUpdate: 'agent_message_chunk', content: { text: 'x' } })).toEqual({
+      sessionUpdate: 'agent_message_chunk',
+      content: { text: 'x' },
+    });
     f({ sessionUpdate: 'tool_call', toolCallId: 't', title: 'bash', rawInput: {} });
     f({ sessionUpdate: 'tool_call_update', toolCallId: 't', status: 'in_progress', rawInput: { command: 'ls' } });
     expect(f({ sessionUpdate: 'tool_call_update', toolCallId: 't', status: 'completed' })).toEqual({
@@ -890,11 +1088,26 @@ describe('what its calls are', () => {
       status: 'completed',
       rawInput: { command: 'ls' },
     });
-    f({ sessionUpdate: 'tool_call_update', toolCallId: 'p', status: 'in_progress', rawInput: { patchText: '*** Begin Patch\n*** Update File: src/a.ts\n@@' } });
-    expect(f({ sessionUpdate: 'tool_call_update', toolCallId: 'p', status: 'failed' })!.rawInput).toEqual({ patchText: '*** Begin Patch\n*** Update File: src/a.ts\n@@', path: 'src/a.ts' });
+    f({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'p',
+      status: 'in_progress',
+      rawInput: { patchText: '*** Begin Patch\n*** Update File: src/a.ts\n@@' },
+    });
+    expect(f({ sessionUpdate: 'tool_call_update', toolCallId: 'p', status: 'failed' })!.rawInput).toEqual({
+      patchText: '*** Begin Patch\n*** Update File: src/a.ts\n@@',
+      path: 'src/a.ts',
+    });
     // Its own input at the end stays; one it never saw stays without.
-    expect(f({ sessionUpdate: 'tool_call_update', toolCallId: 'q', status: 'completed' })).toEqual({ sessionUpdate: 'tool_call_update', toolCallId: 'q', status: 'completed' });
-    expect(f({ sessionUpdate: 'tool_call_update', status: 'completed' })).toEqual({ sessionUpdate: 'tool_call_update', status: 'completed' });
+    expect(f({ sessionUpdate: 'tool_call_update', toolCallId: 'q', status: 'completed' })).toEqual({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'q',
+      status: 'completed',
+    });
+    expect(f({ sessionUpdate: 'tool_call_update', status: 'completed' })).toEqual({
+      sessionUpdate: 'tool_call_update',
+      status: 'completed',
+    });
   });
 
   it('answers fs/write_text_file as done (never doing it), and nothing else', () => {
@@ -933,7 +1146,14 @@ describe('after the session starts', () => {
   it('sets the mode to build, the model, then the effort from the options as they are after the model', async () => {
     const ctx = unwatched(context({ effort: 'high' }));
     const conn = fakeConn((method, p) =>
-      p.configId === 'model' ? { configOptions: [{ id: 'model', currentValue: p.value }, { id: 'effort', category: 'thought_level', currentValue: 'low' }] } : null,
+      p.configId === 'model'
+        ? {
+            configOptions: [
+              { id: 'model', currentValue: p.value },
+              { id: 'effort', category: 'thought_level', currentValue: 'low' },
+            ],
+          }
+        : null,
     );
     await opencodeAfterSession(conn as any, { sessionId: 's1', state: state('anthropic/claude-sonnet-4-6') }, ctx);
     expect(conn.requests.map(([, p]) => [p.configId, p.value])).toEqual([
@@ -951,13 +1171,18 @@ describe('after the session starts', () => {
     ] as const) {
       const ctx = unwatched(context(effort ? { effort } : {}));
       const conn = fakeConn(() => ({}));
-      await opencodeAfterSession(conn as any, { sessionId: 's', state: { configOptions: [{ id: 'model', currentValue: 'anthropic/claude-haiku-5-5' }, ...extra] } }, ctx);
+      await opencodeAfterSession(
+        conn as any,
+        { sessionId: 's', state: { configOptions: [{ id: 'model', currentValue: 'anthropic/claude-haiku-5-5' }, ...extra] } },
+        ctx,
+      );
       expect(conn.requests).toEqual([]);
     }
   });
 
   it('says which setting it refused', async () => {
-    const reject = (id: string) => (_m: string, p: any) => (p.configId === id ? new RpcError(-32602, 'Invalid params: nope', { x: 1 }) : {});
+    const reject = (id: string) => (_m: string, p: any) =>
+      p.configId === id ? new RpcError(-32602, 'Invalid params: nope', { x: 1 }) : {};
     const cases = [
       ['mode', () => t().openRejectedMode('OpenCode', 'build', 'Invalid params: nope')],
       ['model', () => t().openRejectedModel('OpenCode', 'anthropic/claude-haiku-5-5', 'Invalid params: nope')],
@@ -967,7 +1192,11 @@ describe('after the session starts', () => {
       const ctx = unwatched(context({ effort: 'max' }));
       const conn = fakeConn(reject(id));
       const err = await withLang('en', () =>
-        opencodeAfterSession(conn as any, { sessionId: 's', state: state('x/y', [{ id: 'effort', category: 'thought_level', currentValue: 'low' }]) }, ctx),
+        opencodeAfterSession(
+          conn as any,
+          { sessionId: 's', state: state('x/y', [{ id: 'effort', category: 'thought_level', currentValue: 'low' }]) },
+          ctx,
+        ),
       ).catch((e: unknown) => e);
       expect((err as Error).message).toBe(withLang('en', message));
     }
@@ -1027,13 +1256,24 @@ describe('refusal reasons', () => {
 
   it("keeps the answer's other _meta, lets allowed answers and other requests through, and survives a failed hand-over", async () => {
     const conn = fakeConn();
-    let next: unknown = { outcome: { outcome: 'selected', optionId: 'reject' }, _meta: { other: 1, ...(opencodeRejection('r')._meta as object) } };
+    let next: unknown = {
+      outcome: { outcome: 'selected', optionId: 'reject' },
+      _meta: { other: 1, ...(opencodeRejection('r')._meta as object) },
+    };
     conn.onRequest = async () => next;
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    opencodeRefusalBridge(conn as any, { o: { cwd: '/p' } as RunOptions, env: { OPENCODE_SERVER_PASSWORD: 'pw' }, state: { port: 1 } }, 's1', async () => {
-      throw new Error('ECONNREFUSED');
+    opencodeRefusalBridge(
+      conn as any,
+      { o: { cwd: '/p' } as RunOptions, env: { OPENCODE_SERVER_PASSWORD: 'pw' }, state: { port: 1 } },
+      's1',
+      async () => {
+        throw new Error('ECONNREFUSED');
+      },
+    );
+    expect(await conn.onRequest!('session/request_permission', { toolCall: { toolCallId: 'c' } })).toEqual({
+      outcome: { outcome: 'selected', optionId: 'reject' },
+      _meta: { other: 1 },
     });
-    expect(await conn.onRequest!('session/request_permission', { toolCall: { toolCallId: 'c' } })).toEqual({ outcome: { outcome: 'selected', optionId: 'reject' }, _meta: { other: 1 } });
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
     next = { outcome: { outcome: 'selected', optionId: 'once' } };
@@ -1044,8 +1284,15 @@ describe('refusal reasons', () => {
     const quiet = fakeConn();
     quiet.onRequest = async () => ({ outcome: { outcome: 'cancelled' }, ...opencodeRejection('r') });
     const sends: unknown[] = [];
-    opencodeRefusalBridge(quiet as any, { o: { cwd: '/p' } as RunOptions, env: {}, state: {} }, 's1', async (...a) => (sends.push(a), true));
-    expect(await quiet.onRequest!('session/request_permission', { toolCall: { toolCallId: 'c' } })).toEqual({ outcome: { outcome: 'cancelled' } });
+    opencodeRefusalBridge(
+      quiet as any,
+      { o: { cwd: '/p' } as RunOptions, env: {}, state: {} },
+      's1',
+      async (...a) => (sends.push(a), true),
+    );
+    expect(await quiet.onRequest!('session/request_permission', { toolCall: { toolCallId: 'c' } })).toEqual({
+      outcome: { outcome: 'cancelled' },
+    });
     expect(sends).toEqual([]);
     // A connection without a handler is left as it is.
     const none = fakeConn();
@@ -1056,109 +1303,122 @@ describe('refusal reasons', () => {
 
 describe('keeping its server to Harness Relay', () => {
   // POSIX paths, file modes or programs: tried on macOS and Linux.
-  it.skipIf(process.platform === 'win32')('runs its commands through a fixed read-only shell that drops the server password (shell from the environment)', () => {
-    const home = join(root, `shell-${++n}`);
-    ensureOpencodeHome(home);
-    const wrapper = join(opencodePaths(home).configDir, OPENCODE_SHELL);
-    expect(statSync(wrapper).mode & 0o777).toBe(0o555);
-    // Fixed text: the user's shell is not baked in (AGENTS.md: a shell script's values go in the environment).
-    expect(readFileSync(wrapper, 'utf8')).toBe(opencodeShellScript());
-    expect(readFileSync(wrapper, 'utf8')).not.toContain('/bin/zsh');
-    const run = (cmd: string, env: Record<string, string> = {}) =>
-      spawnSync(wrapper, ['-c', cmd], { env: { PATH: '/usr/bin:/bin', [OPENCODE_SHELL_ENV]: '/bin/sh', ...env }, encoding: 'utf8' });
-    const out = run('echo "pw=${OPENCODE_SERVER_PASSWORD:-unset} user=${OPENCODE_SERVER_USERNAME:-unset} shell=${HARNESS_RELAY_USER_SHELL:-unset} keep=$KEEP"', {
-      OPENCODE_SERVER_PASSWORD: 'secret',
-      OPENCODE_SERVER_USERNAME: 'opencode',
-      KEEP: 'yes',
-    });
-    expect(out.stdout.trim()).toBe('pw=unset user=unset shell=unset keep=yes');
-    // An unchanged home is left as it is; a changed mode is written again.
-    chmodSync(opencodePaths(home).configDir, 0o755);
-    chmodSync(wrapper, 0o755);
-    ensureOpencodeHome(home);
-    expect(statSync(wrapper).mode & 0o777).toBe(0o555);
-    expect(opencodeUserShell('/bin/sh')).toBe('/bin/sh');
-    expect(opencodeUserShell('zsh', 'darwin')).toBe('/bin/zsh');
-    expect(opencodeUserShell("/bin/it's", 'darwin')).toBe('/bin/zsh');
-    expect(['/bin/bash', '/bin/sh']).toContain(opencodeUserShell(undefined, 'linux'));
-  });
+  it.skipIf(process.platform === 'win32')(
+    'runs its commands through a fixed read-only shell that drops the server password (shell from the environment)',
+    () => {
+      const home = join(root, `shell-${++n}`);
+      ensureOpencodeHome(home);
+      const wrapper = join(opencodePaths(home).configDir, OPENCODE_SHELL);
+      expect(statSync(wrapper).mode & 0o777).toBe(0o555);
+      // Fixed text: the user's shell is not baked in (AGENTS.md: a shell script's values go in the environment).
+      expect(readFileSync(wrapper, 'utf8')).toBe(opencodeShellScript());
+      expect(readFileSync(wrapper, 'utf8')).not.toContain('/bin/zsh');
+      const run = (cmd: string, env: Record<string, string> = {}) =>
+        spawnSync(wrapper, ['-c', cmd], { env: { PATH: '/usr/bin:/bin', [OPENCODE_SHELL_ENV]: '/bin/sh', ...env }, encoding: 'utf8' });
+      const out = run(
+        'echo "pw=${OPENCODE_SERVER_PASSWORD:-unset} user=${OPENCODE_SERVER_USERNAME:-unset} shell=${HARNESS_RELAY_USER_SHELL:-unset} keep=$KEEP"',
+        {
+          OPENCODE_SERVER_PASSWORD: 'secret',
+          OPENCODE_SERVER_USERNAME: 'opencode',
+          KEEP: 'yes',
+        },
+      );
+      expect(out.stdout.trim()).toBe('pw=unset user=unset shell=unset keep=yes');
+      // An unchanged home is left as it is; a changed mode is written again.
+      chmodSync(opencodePaths(home).configDir, 0o755);
+      chmodSync(wrapper, 0o755);
+      ensureOpencodeHome(home);
+      expect(statSync(wrapper).mode & 0o777).toBe(0o555);
+      expect(opencodeUserShell('/bin/sh')).toBe('/bin/sh');
+      expect(opencodeUserShell('zsh', 'darwin')).toBe('/bin/zsh');
+      expect(opencodeUserShell("/bin/it's", 'darwin')).toBe('/bin/zsh');
+      expect(['/bin/bash', '/bin/sh']).toContain(opencodeUserShell(undefined, 'linux'));
+    },
+  );
 
   // POSIX paths, file modes or programs: tried on macOS and Linux.
-  it.skipIf(process.platform === 'win32')('below full access refuses the hidden-substitution forms OpenCode would not ask about, and runs ordinary commands', () => {
-    const home = join(root, `shell2-${++n}`);
-    ensureOpencodeHome(home);
-    const wrapper = join(opencodePaths(home).configDir, OPENCODE_SHELL);
-    const cwd = join(root, `shellcwd-${n}`);
-    mkdirSync(cwd, { recursive: true });
-    const run = (cmd: string, shell = '/bin/bash', armed = true) =>
-      spawnSync(wrapper, ['-c', cmd], { cwd, env: { PATH: '/usr/bin:/bin', [OPENCODE_SHELL_ENV]: shell, ...(armed ? { [OPENCODE_SHELL_SCREEN_ENV]: '1' } : {}) }, encoding: 'utf8' });
-    const availableShells = ['/bin/bash', '/bin/zsh'].filter((s) => existsSync(s));
-    // The traps: a command substitution hidden (single-quoted, escaped, `$'`, backquote) inside a subscript or
-    // arithmetic the shell re-evaluates, or an eval. The inner `touch RAN` must never run.
-    const traps = [
-      "eval 'touch RAN'",
-      "x='a[$(touch RAN)]'; a[x]=1",
-      "x='a[$(touch RAN)]'; (( x ))",
-      "declare 'a[$(touch RAN)]=1'",
-      "x='a[`touch RAN`]'; a[x]=1",
-      "y='[$''(touch RAN)]'; declare \"a$y=1\"",
-      'y=a\\[\\$\\(touch\\ RAN\\)\\]; (( y ))',
-      "x='a[$(touch RAN)]'; arr=([x]=1)",
-      // The single-quoted text set aside only where it can be told apart: a declaration's quoted argument is
-      // itself evaluated, and a quote the shell takes literally (in double quotes, a comment) or one left open
-      // keeps the whole line looked at.
-      "local 'a[$(touch RAN)]=1'",
-      "typeset 'a[$(touch RAN)]=1'",
-      `x='it'"'"'s'; y='a[$(touch RAN)]'; a[y]=1`,
-      "x='a[$(touch RAN)]';a[x]=1 # it's",
-      "x='a[$(touch RAN)]'; a[x]=1; echo 'open",
-      "x='a[$(touch RAN)]'; a['k']=1; a[x]+=1",
-      // `let` evaluates each argument, a quoted one too; bash evaluates a name in `$(( … ))` again.
-      "let 'a[$(touch RAN)]=1'",
-      "x='a[$(touch RAN)]'; let x+1",
-      "x='a[$(touch RAN)]'; y=$((x+1))",
-      'x=a\\[\\$\\(touch\\ RAN\\)\\]; echo $((x))',
-    ];
-    for (const shell of availableShells) {
-      for (const trap of traps) {
-        const r = run(trap, shell);
-        expect(r.status).toBe(OPENCODE_SHELL_REFUSED);
-        expect(r.stderr).toContain('Harness Relay refused');
-        expect(existsSync(join(cwd, 'RAN'))).toBe(false);
+  it.skipIf(process.platform === 'win32')(
+    'below full access refuses the hidden-substitution forms OpenCode would not ask about, and runs ordinary commands',
+    () => {
+      const home = join(root, `shell2-${++n}`);
+      ensureOpencodeHome(home);
+      const wrapper = join(opencodePaths(home).configDir, OPENCODE_SHELL);
+      const cwd = join(root, `shellcwd-${n}`);
+      mkdirSync(cwd, { recursive: true });
+      const run = (cmd: string, shell = '/bin/bash', armed = true) =>
+        spawnSync(wrapper, ['-c', cmd], {
+          cwd,
+          env: { PATH: '/usr/bin:/bin', [OPENCODE_SHELL_ENV]: shell, ...(armed ? { [OPENCODE_SHELL_SCREEN_ENV]: '1' } : {}) },
+          encoding: 'utf8',
+        });
+      const availableShells = ['/bin/bash', '/bin/zsh'].filter((s) => existsSync(s));
+      // The traps: a command substitution hidden (single-quoted, escaped, `$'`, backquote) inside a subscript or
+      // arithmetic the shell re-evaluates, or an eval. The inner `touch RAN` must never run.
+      const traps = [
+        "eval 'touch RAN'",
+        "x='a[$(touch RAN)]'; a[x]=1",
+        "x='a[$(touch RAN)]'; (( x ))",
+        "declare 'a[$(touch RAN)]=1'",
+        "x='a[`touch RAN`]'; a[x]=1",
+        "y='[$''(touch RAN)]'; declare \"a$y=1\"",
+        'y=a\\[\\$\\(touch\\ RAN\\)\\]; (( y ))',
+        "x='a[$(touch RAN)]'; arr=([x]=1)",
+        // The single-quoted text set aside only where it can be told apart: a declaration's quoted argument is
+        // itself evaluated, and a quote the shell takes literally (in double quotes, a comment) or one left open
+        // keeps the whole line looked at.
+        "local 'a[$(touch RAN)]=1'",
+        "typeset 'a[$(touch RAN)]=1'",
+        `x='it'"'"'s'; y='a[$(touch RAN)]'; a[y]=1`,
+        "x='a[$(touch RAN)]';a[x]=1 # it's",
+        "x='a[$(touch RAN)]'; a[x]=1; echo 'open",
+        "x='a[$(touch RAN)]'; a['k']=1; a[x]+=1",
+        // `let` evaluates each argument, a quoted one too; bash evaluates a name in `$(( … ))` again.
+        "let 'a[$(touch RAN)]=1'",
+        "x='a[$(touch RAN)]'; let x+1",
+        "x='a[$(touch RAN)]'; y=$((x+1))",
+        'x=a\\[\\$\\(touch\\ RAN\\)\\]; echo $((x))',
+      ];
+      for (const shell of availableShells) {
+        for (const trap of traps) {
+          const r = run(trap, shell);
+          expect(r.status).toBe(OPENCODE_SHELL_REFUSED);
+          expect(r.stderr).toContain('Harness Relay refused');
+          expect(existsSync(join(cwd, 'RAN'))).toBe(false);
+        }
       }
-    }
-    // Ordinary commands run: arithmetic `$((…))`, a live `$(…)` (which OpenCode itself asks about), the keyword
-    // words as substrings (`npm run eval`, `--read-only`, `grep "eval("`), and the harmless no-command forms.
-    const ordinary = [
-      'echo hello',
-      'echo $((1 + 2))',
-      'X=$(echo hi); echo $X',
-      'export FOO="$(echo hi)"; echo p',
-      'if [[ -n "$(echo x)" ]]; then echo ok; fi',
-      'count=$(echo 3); if (( count >= 0 )); then echo ok; fi',
-      "awk '{print $1}' /dev/null; echo ok",
-      'grep -c "eval(" /dev/null; echo ok',
-      'echo npm run eval; echo ok',
-      'export PATH=${HOME}/bin:$PATH; echo p',
-      'printf "%s\\n" ok',
-      // A subscript or arithmetic look-alike inside single quotes, with a `$` there too, is only text.
-      "awk -F= '/^[A-Z_]+=/ {print $2}' /dev/null; echo ok",
-      "grep -E '^[A-Z_]+=.*$' /dev/null; echo ok",
-      "sed -n '/^[a-z]*=/p' /dev/null; echo ok",
-      // Arithmetic beside a quoted `$`, and the word `let` as a substring or an argument.
-      "echo $((1 + 2)) | awk '{print $1}'",
-      "n=2; echo $((n * 2)); echo '$HOME'",
-      "echo letter; grep -c 'let $x' /dev/null; echo ok",
-    ];
-    for (const shell of availableShells) for (const ok of ordinary) expect(run(ok, shell).status).toBe(0);
-    // In full access the screen is not armed: even a trap runs (the sandbox is not there; every command runs anyway).
-    expect(run("eval 'echo ran'", '/bin/bash', false).status).toBe(0);
-    // The refusal message is single-quoted, so the shell never expands the `$(...)` it names.
-    const r = run("x='a[$(touch RAN)]'; a[x]=1");
-    expect(r.stderr).toContain('$(...)');
-    expect(r.stderr).not.toMatch(/command not found/);
-    expect(existsSync(join(cwd, 'RAN'))).toBe(false);
-  });
+      // Ordinary commands run: arithmetic `$((…))`, a live `$(…)` (which OpenCode itself asks about), the keyword
+      // words as substrings (`npm run eval`, `--read-only`, `grep "eval("`), and the harmless no-command forms.
+      const ordinary = [
+        'echo hello',
+        'echo $((1 + 2))',
+        'X=$(echo hi); echo $X',
+        'export FOO="$(echo hi)"; echo p',
+        'if [[ -n "$(echo x)" ]]; then echo ok; fi',
+        'count=$(echo 3); if (( count >= 0 )); then echo ok; fi',
+        "awk '{print $1}' /dev/null; echo ok",
+        'grep -c "eval(" /dev/null; echo ok',
+        'echo npm run eval; echo ok',
+        'export PATH=${HOME}/bin:$PATH; echo p',
+        'printf "%s\\n" ok',
+        // A subscript or arithmetic look-alike inside single quotes, with a `$` there too, is only text.
+        "awk -F= '/^[A-Z_]+=/ {print $2}' /dev/null; echo ok",
+        "grep -E '^[A-Z_]+=.*$' /dev/null; echo ok",
+        "sed -n '/^[a-z]*=/p' /dev/null; echo ok",
+        // Arithmetic beside a quoted `$`, and the word `let` as a substring or an argument.
+        "echo $((1 + 2)) | awk '{print $1}'",
+        "n=2; echo $((n * 2)); echo '$HOME'",
+        "echo letter; grep -c 'let $x' /dev/null; echo ok",
+      ];
+      for (const shell of availableShells) for (const ok of ordinary) expect(run(ok, shell).status).toBe(0);
+      // In full access the screen is not armed: even a trap runs (the sandbox is not there; every command runs anyway).
+      expect(run("eval 'echo ran'", '/bin/bash', false).status).toBe(0);
+      // The refusal message is single-quoted, so the shell never expands the `$(...)` it names.
+      const r = run("x='a[$(touch RAN)]'; a[x]=1");
+      expect(r.stderr).toContain('$(...)');
+      expect(r.stderr).not.toMatch(/command not found/);
+      expect(existsSync(join(cwd, 'RAN'))).toBe(false);
+    },
+  );
 
   it('names the shell in the run config and in the environment, and arms the screen only below full access', async () => {
     const ctx = context({ permission: 'edit' });
@@ -1182,7 +1442,8 @@ describe('keeping its server to Harness Relay', () => {
       calls.push({ url, init });
       const body = new ReadableStream<Uint8Array>({
         start(c) {
-          for (const e of events) c.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ payload: e })}\n\n: comment\ndata: not json\n`));
+          for (const e of events)
+            c.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ payload: e })}\n\n: comment\ndata: not json\n`));
           close = () => c.close();
           push = (e) => c.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ payload: e })}\n`));
           init.signal.addEventListener('abort', () => c.error(new Error('aborted')));
@@ -1196,13 +1457,44 @@ describe('keeping its server to Harness Relay', () => {
 
   it('sees what only something else could have done on its server', async () => {
     const cases: [unknown[], string[]][] = [
-      [[{ type: 'permission.asked', properties: { id: 'per_1', sessionID: 's1', tool: { callID: 'c1' } } }, { type: 'permission.replied', properties: { requestID: 'per_1', reply: 'once' } }], ['a permission request (per_1) was answered "once" by something other than Harness Relay']],
-      [[{ type: 'permission.replied', properties: { requestID: 'per_9', reply: 'always' } }], ['a permission request (per_9) was answered "always" by something other than Harness Relay']],
+      [
+        [
+          { type: 'permission.asked', properties: { id: 'per_1', sessionID: 's1', tool: { callID: 'c1' } } },
+          { type: 'permission.replied', properties: { requestID: 'per_1', reply: 'once' } },
+        ],
+        ['a permission request (per_1) was answered "once" by something other than Harness Relay'],
+      ],
+      [
+        [{ type: 'permission.replied', properties: { requestID: 'per_9', reply: 'always' } }],
+        ['a permission request (per_9) was answered "always" by something other than Harness Relay'],
+      ],
       [[{ type: 'permission.replied', properties: { requestID: 'per_9', reply: 'reject' } }], []],
-      [[{ type: 'session.created', properties: { info: { id: 'ses_child', parentID: 's1' } } }, { type: 'session.status', properties: { sessionID: 'ses_child', status: { type: 'busy' } } }], []],
-      [[{ type: 'session.created', properties: { info: { id: 'ses_other' } } }], ['a session Harness Relay did not start was created (ses_other)']],
-      [[{ type: 'session.status', properties: { sessionID: 'ses_old', status: { type: 'busy' } } }, { type: 'session.status', properties: { sessionID: 's1', status: { type: 'busy' } } }], ['a session Harness Relay did not start was set to work (ses_old)']],
-      [[{ type: 'session.updated', properties: { info: { id: 's1', permission: [{ permission: '*', pattern: '*', action: 'allow' }] } } }, { type: 'session.updated', properties: { info: { id: 's1', title: 't' } } }, { type: 'session.updated', properties: {} }], ['permission rules were set on the session (s1)']],
+      [
+        [
+          { type: 'session.created', properties: { info: { id: 'ses_child', parentID: 's1' } } },
+          { type: 'session.status', properties: { sessionID: 'ses_child', status: { type: 'busy' } } },
+        ],
+        [],
+      ],
+      [
+        [{ type: 'session.created', properties: { info: { id: 'ses_other' } } }],
+        ['a session Harness Relay did not start was created (ses_other)'],
+      ],
+      [
+        [
+          { type: 'session.status', properties: { sessionID: 'ses_old', status: { type: 'busy' } } },
+          { type: 'session.status', properties: { sessionID: 's1', status: { type: 'busy' } } },
+        ],
+        ['a session Harness Relay did not start was set to work (ses_old)'],
+      ],
+      [
+        [
+          { type: 'session.updated', properties: { info: { id: 's1', permission: [{ permission: '*', pattern: '*', action: 'allow' }] } } },
+          { type: 'session.updated', properties: { info: { id: 's1', title: 't' } } },
+          { type: 'session.updated', properties: {} },
+        ],
+        ['permission rules were set on the session (s1)'],
+      ],
       [[{ type: 'pty.created', properties: {} }], ['a terminal was opened on its server']],
     ];
     for (const [events, expected] of cases) {
@@ -1233,7 +1525,12 @@ describe('keeping its server to Harness Relay', () => {
     // The stream errors: likewise, after the grace.
     const failed: string[] = [];
     const errFetcher = (async (_u: string, init: any) => {
-      const body = new ReadableStream<Uint8Array>({ start: (s) => (init.signal.addEventListener('abort', () => s.error(new Error('aborted'))), setTimeout(() => s.error(new Error('reset by peer')), 5)) });
+      const body = new ReadableStream<Uint8Array>({
+        start: (s) => (
+          init.signal.addEventListener('abort', () => s.error(new Error('aborted'))),
+          setTimeout(() => s.error(new Error('reset by peer')), 5)
+        ),
+      });
       return { ok: true, status: 200, body } as unknown as Response;
     }) as unknown as typeof fetch;
     const wf = watchOpencode({ port: 1, password: 'p' }, 's1', (d) => failed.push(d), errFetcher, grace);
@@ -1310,21 +1607,35 @@ describe('keeping its server to Harness Relay', () => {
     await tick();
     expect(quiet).toEqual([]);
     // A stream it cannot open: `ready` fails.
-    await expect(watchOpencode({ port: 1, password: 'p' }, 's1', () => undefined, eventStream([], 401).fetcher).ready).rejects.toThrow('its event stream answered 401');
+    await expect(watchOpencode({ port: 1, password: 'p' }, 's1', () => undefined, eventStream([], 401).fetcher).ready).rejects.toThrow(
+      'its event stream answered 401',
+    );
   });
 
   it('after the session, below full access: watches, fails closed, and ends the run on what it sees', async () => {
     const conn = () => ({ ...fakeConn(() => ({})), notify: vi.fn(), close: vi.fn() });
-    const base = (ctx: OpenRunContext) => ({ sessionId: 's1', state: { configOptions: [{ id: 'model', currentValue: opencodeModelId(ctx.run) }, { id: 'mode', currentValue: 'build' }] } });
+    const base = (ctx: OpenRunContext) => ({
+      sessionId: 's1',
+      state: {
+        configOptions: [
+          { id: 'model', currentValue: opencodeModelId(ctx.run) },
+          { id: 'mode', currentValue: 'build' },
+        ],
+      },
+    });
     // Without a port, or a stream that does not open: the run does not go on.
     const noPort = context({ permission: 'edit' });
     noPort.env.OPENCODE_SERVER_PASSWORD = 'pw';
-    await expect(withLang('en', () => opencodeAfterSession(conn() as any, base(noPort), noPort))).rejects.toThrow(withLang('en', () => t().opencodeWatchFailed('no port or password for its server')));
+    await expect(withLang('en', () => opencodeAfterSession(conn() as any, base(noPort), noPort))).rejects.toThrow(
+      withLang('en', () => t().opencodeWatchFailed('no port or password for its server')),
+    );
     const broken = context({ permission: 'edit' });
     Object.assign(broken.state, { port: 1 });
     broken.env.OPENCODE_SERVER_PASSWORD = 'pw';
     const failing = () => ({ ready: Promise.reject(new Error('refused')), allowed: () => undefined, stop: vi.fn() });
-    await expect(withLang('en', () => opencodeAfterSession(conn() as any, base(broken), broken, failing as any))).rejects.toThrow(withLang('en', () => t().opencodeWatchFailed('refused')));
+    await expect(withLang('en', () => opencodeAfterSession(conn() as any, base(broken), broken, failing as any))).rejects.toThrow(
+      withLang('en', () => t().opencodeWatchFailed('refused')),
+    );
     // Watching: something it sees cancels the turn and closes the connection with the security error.
     const ok = context({ permission: 'read-only' });
     Object.assign(ok.state, { port: 2 });
@@ -1332,12 +1643,22 @@ describe('keeping its server to Harness Relay', () => {
     let report: ((d: string) => void) | undefined;
     const stop = vi.fn();
     const c = conn();
-    await opencodeAfterSession(c as any, base(ok), ok, ((_s: unknown, _id: string, on: (d: string) => void) => ((report = on), { ready: Promise.resolve(), allowed: () => undefined, stop })) as any);
+    await opencodeAfterSession(
+      c as any,
+      base(ok),
+      ok,
+      ((_s: unknown, _id: string, on: (d: string) => void) => (
+        (report = on),
+        { ready: Promise.resolve(), allowed: () => undefined, stop }
+      )) as any,
+    );
     withLang('en', () => report!('a terminal was opened on its server'));
     withLang('en', () => report!('again'));
     expect(c.notify).toHaveBeenCalledWith('session/cancel', { sessionId: 's1' });
     expect(c.close).toHaveBeenCalledTimes(1);
-    expect((c.close.mock.calls[0]![0] as Error).message).toBe(withLang('en', () => t().opencodeForeignControl('a terminal was opened on its server')));
+    expect((c.close.mock.calls[0]![0] as Error).message).toBe(
+      withLang('en', () => t().opencodeForeignControl('a terminal was opened on its server')),
+    );
     expect(stop).toHaveBeenCalled();
     // In full access nothing is watched.
     const full = context({ permission: 'full' });
@@ -1354,8 +1675,21 @@ describe('keeping its server to Harness Relay', () => {
     let exited: (() => void) | undefined;
     ctx.onAgentExit = (listener) => (exited = listener);
     const closing = vi.fn();
-    const base = { sessionId: 's1', state: { configOptions: [{ id: 'model', currentValue: opencodeModelId(ctx.run) }, { id: 'mode', currentValue: 'build' }] } };
-    await opencodeAfterSession({ ...fakeConn(() => ({})), notify: vi.fn(), close: vi.fn() } as any, base, ctx, (() => ({ ready: Promise.resolve(), allowed: () => undefined, closing, stop: vi.fn() })) as any);
+    const base = {
+      sessionId: 's1',
+      state: {
+        configOptions: [
+          { id: 'model', currentValue: opencodeModelId(ctx.run) },
+          { id: 'mode', currentValue: 'build' },
+        ],
+      },
+    };
+    await opencodeAfterSession({ ...fakeConn(() => ({})), notify: vi.fn(), close: vi.fn() } as any, base, ctx, (() => ({
+      ready: Promise.resolve(),
+      allowed: () => undefined,
+      closing,
+      stop: vi.fn(),
+    })) as any);
     expect(closing).not.toHaveBeenCalled();
     exited!();
     expect(closing).toHaveBeenCalledTimes(1);
@@ -1363,7 +1697,9 @@ describe('keeping its server to Harness Relay', () => {
 
   it('stops the watch as the prompt answers, and in its cleanup hook however else the turn ends', () => {
     const stop = vi.fn();
-    const ctx = { state: { watch: { stop, allowed: () => undefined, closing: () => undefined, ready: Promise.resolve() } } } as unknown as OpenRunContext;
+    const ctx = {
+      state: { watch: { stop, allowed: () => undefined, closing: () => undefined, ready: Promise.resolve() } },
+    } as unknown as OpenRunContext;
     opencodeAcp.endTurn!({ stopReason: 'end_turn' }, ctx, 's1');
     expect(stop).toHaveBeenCalledTimes(1);
     opencodeAcp.cleanup!(ctx);
@@ -1374,7 +1710,11 @@ describe('keeping its server to Harness Relay', () => {
 
   it('tells the watch which calls Harness Relay allowed', async () => {
     const allowed: string[] = [];
-    const ctx = { o: { cwd: '/p' } as RunOptions, env: {}, state: { watch: { allowed: (c: string) => allowed.push(c), ready: Promise.resolve(), stop: () => undefined } } as any };
+    const ctx = {
+      o: { cwd: '/p' } as RunOptions,
+      env: {},
+      state: { watch: { allowed: (c: string) => allowed.push(c), ready: Promise.resolve(), stop: () => undefined } } as any,
+    };
     const c = fakeConn();
     const options = [
       { optionId: 'once', kind: 'allow_once' },
@@ -1394,7 +1734,11 @@ describe('keeping its server to Harness Relay', () => {
     const seen: string[] = [];
     const ctx = { state: { asked: new Set(['asked']), foreign: (d: string) => seen.push(d) } as any, sandboxed: true };
     const f = (update: Record<string, any>) => filterOpencodeUpdate({ update }, ctx);
-    for (const [id, command] of [['shell-route', 'curl -s http://x'], ['asked', 'ls'], ['cd', 'cd src && cd ..']]) {
+    for (const [id, command] of [
+      ['shell-route', 'curl -s http://x'],
+      ['asked', 'ls'],
+      ['cd', 'cd src && cd ..'],
+    ]) {
       f({ sessionUpdate: 'tool_call', toolCallId: id, kind: 'execute', title: 'bash', rawInput: {} });
       f({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'in_progress', rawInput: { command } });
       f({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'completed' });
@@ -1402,10 +1746,23 @@ describe('keeping its server to Harness Relay', () => {
     expect(seen).toEqual(['a command ran without being asked about (curl -s http://x)']);
     // In full access nothing is checked.
     const full = { state: { foreign: (d: string) => seen.push(d) } as any, sandboxed: false };
-    filterOpencodeUpdate({ update: { sessionUpdate: 'tool_call_update', toolCallId: 'z', kind: 'execute', status: 'completed', rawInput: { command: 'make' } } }, full);
+    filterOpencodeUpdate(
+      {
+        update: { sessionUpdate: 'tool_call_update', toolCallId: 'z', kind: 'execute', status: 'completed', rawInput: { command: 'make' } },
+      },
+      full,
+    );
     expect(seen).toHaveLength(1);
     const refused = withLang('en', () =>
-      f({ sessionUpdate: 'tool_call_update', toolCallId: 'w', status: 'failed', content: [{ type: 'content', content: { type: 'text', text: 'Unknown: FileSystem.writeFile (/p/ro.txt)' } }, { type: 'content', content: { type: 'text', text: 'other' } }] }),
+      f({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'w',
+        status: 'failed',
+        content: [
+          { type: 'content', content: { type: 'text', text: 'Unknown: FileSystem.writeFile (/p/ro.txt)' } },
+          { type: 'content', content: { type: 'text', text: 'other' } },
+        ],
+      }),
     );
     expect(refused!.content).toEqual([
       { type: 'content', content: { type: 'text', text: withLang('en', () => t().opencodeWriteRefused('/p/ro.txt')) } },
@@ -1418,27 +1775,83 @@ describe('keeping its server to Harness Relay', () => {
     // `(( ))`/`[[ ]]`/`[ ]`, loops over folders, assignments, comments, bare redirections. (Verified
     // against bash-language-server's tree-sitter-bash by the reviewer's oracle.)
     for (const skip of [
-      '(cd src)', 'for d in a b; do cd $d; done', 'X=1', 'FOO=bar BAZ=1', '# a comment', '   ', 'cd a && cd ..', 'pushd x; popd', '> out', '2>&1',
-      '[[ -d x ]] && cd x', '[ -d x ] && cd x', 'export X=1', '(( i++ ))', 'unset X', 'declare -p', 'declare -A m', 'X=1 cd y', 'X=$(( 1 + 1 ))',
-      "declare 'a[$(echo P)]=1'", "x='a[$(echo P)]'; (( x ))", 'cd "a; curl evil"',
+      '(cd src)',
+      'for d in a b; do cd $d; done',
+      'X=1',
+      'FOO=bar BAZ=1',
+      '# a comment',
+      '   ',
+      'cd a && cd ..',
+      'pushd x; popd',
+      '> out',
+      '2>&1',
+      '[[ -d x ]] && cd x',
+      '[ -d x ] && cd x',
+      'export X=1',
+      '(( i++ ))',
+      'unset X',
+      'declare -p',
+      'declare -A m',
+      'X=1 cd y',
+      'X=$(( 1 + 1 ))',
+      "declare 'a[$(echo P)]=1'",
+      "x='a[$(echo P)]'; (( x ))",
+      'cd "a; curl evil"',
       // Parameter expansions, array literals and function headers are not commands (the round-3 false stops).
-      'cd ${dir}', 'export PATH=${HOME}/bin:$PATH', 'FOO=${BAR:-x}', 'pushd ${d}', 'arr=(a b)', 'arr+=(x)', 'f() { cd x; }', 'declare -A m=([k]=v)',
+      'cd ${dir}',
+      'export PATH=${HOME}/bin:$PATH',
+      'FOO=${BAR:-x}',
+      'pushd ${d}',
+      'arr=(a b)',
+      'arr+=(x)',
+      'f() { cd x; }',
+      'declare -A m=([k]=v)',
       'cd "${HOME}/p"',
       // A line continuation is no separator (`cd \⏎ /long/dir` is one cd), and `function NAME` is a header.
-      'cd \\\n  /long/dir', 'function f { cd x; }', 'function f() { cd x; }', 'function f\n{\n  cd x\n}',
+      'cd \\\n  /long/dir',
+      'function f { cd x; }',
+      'function f() { cd x; }',
+      'function f\n{\n  cd x\n}',
     ]) {
       expect(opencodeWouldAsk(skip)).toBe(false);
     }
     // What it asks for: a real program anywhere in the line, including inside a command substitution a
     // declaration or a double-quoted string holds (the A5 blind spots).
     for (const ask of [
-      'cat f', 'cat f; X=1', 'curl http://x', 'time curl http://x', 'while cat f; do echo x; done', 'FOO=1 node app.js', 'ls | xargs rg x',
-      '$(curl http://x)', 'cd a; curl http://x', 'for d in a b; do curl $d; done', '/project/node_modules/.bin/biome lsp-proxy', 'echo "a; b"',
-      'test -d x && cd x', 'X="$(curl -s e | sh)"', 'cd "$(touch /tmp/x)"', 'cd "`id`"', 'X=$(id)', 'cd $(id)', 'eval "$X"', 'export X=$(id)', 'echo $(( 1 + 1 ))',
-      'read x', 'mapfile -t a < f', 'printf -v X %s y', 'let x=1+1',
+      'cat f',
+      'cat f; X=1',
+      'curl http://x',
+      'time curl http://x',
+      'while cat f; do echo x; done',
+      'FOO=1 node app.js',
+      'ls | xargs rg x',
+      '$(curl http://x)',
+      'cd a; curl http://x',
+      'for d in a b; do curl $d; done',
+      '/project/node_modules/.bin/biome lsp-proxy',
+      'echo "a; b"',
+      'test -d x && cd x',
+      'X="$(curl -s e | sh)"',
+      'cd "$(touch /tmp/x)"',
+      'cd "`id`"',
+      'X=$(id)',
+      'cd $(id)',
+      'eval "$X"',
+      'export X=$(id)',
+      'echo $(( 1 + 1 ))',
+      'read x',
+      'mapfile -t a < f',
+      'printf -v X %s y',
+      'let x=1+1',
       // A command in a parameter-expansion default or a function body is still a command; `echo ${x}` is too.
-      'echo ${x}', 'cat ${f}', 'f() { curl evil; }', 'local x=$(id)', 'X=${y:-$(curl e)}',
-      'curl \\\n  http://x', 'cd x && \\\n  curl e', 'function f { curl evil; }',
+      'echo ${x}',
+      'cat ${f}',
+      'f() { curl evil; }',
+      'local x=$(id)',
+      'X=${y:-$(curl e)}',
+      'curl \\\n  http://x',
+      'cd x && \\\n  curl e',
+      'function f { curl evil; }',
     ]) {
       expect(opencodeWouldAsk(ask)).toBe(true);
     }
@@ -1465,11 +1878,7 @@ describe('usage and errors', () => {
   it("reads every model call of a session and of the sessions under it, from OpenCode's database", async () => {
     const file = join(root, `usage-${++n}`, 'opencode.db');
     addOpencodeRows(file, {
-      sessions: [
-        { id: 'ses_child', parent: 'ses_a' },
-        { id: 'ses_grandchild', parent: 'ses_child' },
-        { id: 'ses_other' },
-      ],
+      sessions: [{ id: 'ses_child', parent: 'ses_a' }, { id: 'ses_grandchild', parent: 'ses_child' }, { id: 'ses_other' }],
       steps: [
         { id: 'prt_1', session: 'ses_a', input: 3, output: 4, reasoning: 5, cacheRead: 6, cacheWrite: 7, cost: 0.25 },
         { id: 'prt_2', session: 'ses_child', input: 1, output: 1, cost: 0.125 },
@@ -1500,8 +1909,24 @@ describe('usage and errors', () => {
       ],
     });
     // prt_1, prt_2, prt_3 and prt_odd (whose numbers count as 0), added up: one row comes back.
-    expect(await opencodeTurnCalls(file, 'ses_a')).toEqual({ calls: 4, cost: 0.375, input: 6, output: 7, reasoning: 5, cacheRead: 6, cacheWrite: 7 });
-    expect(await opencodeTurnCalls(file, 'ses_none')).toEqual({ calls: 0, cost: 0, input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 });
+    expect(await opencodeTurnCalls(file, 'ses_a')).toEqual({
+      calls: 4,
+      cost: 0.375,
+      input: 6,
+      output: 7,
+      reasoning: 5,
+      cacheRead: 6,
+      cacheWrite: 7,
+    });
+    expect(await opencodeTurnCalls(file, 'ses_none')).toEqual({
+      calls: 0,
+      cost: 0,
+      input: 0,
+      output: 0,
+      reasoning: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+    });
     expect((await opencodeTurnCalls(file, 'ses_other'))!.input).toBe(99 + 1.8e19);
     // No database, or not OpenCode's: not known.
     expect(await opencodeTurnCalls(join(root, 'no-such.db'), 'ses_a')).toBeUndefined();
@@ -1512,17 +1937,39 @@ describe('usage and errors', () => {
 
   it('reads the parts there before a turn without their data, and leaves them out after it', async () => {
     const file = join(root, `usage-${++n}`, 'opencode.db');
-    addOpencodeRows(file, { sessions: [{ id: 'ses_child', parent: 'ses_a' }], steps: [{ id: 'prt_1', session: 'ses_a', input: 1, output: 1 }], parts: [{ id: 'prt_t', session: 'ses_child', data: '{"type":"text"}' }] });
+    addOpencodeRows(file, {
+      sessions: [{ id: 'ses_child', parent: 'ses_a' }],
+      steps: [{ id: 'prt_1', session: 'ses_a', input: 1, output: 1 }],
+      parts: [{ id: 'prt_t', session: 'ses_child', data: '{"type":"text"}' }],
+    });
     // A part a command added without a text id: left out of the list (a NULL there would leave every part out).
     const odd = new (createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite')).DatabaseSync(file);
-    odd.exec(`INSERT INTO part (id, message_id, session_id, time_created, data) VALUES (NULL, 'm', 'ses_a', 0, '{}'), (x'01', 'm', 'ses_a', 0, '{}')`);
+    odd.exec(
+      `INSERT INTO part (id, message_id, session_id, time_created, data) VALUES (NULL, 'm', 'ses_a', 0, '{}'), (x'01', 'm', 'ses_a', 0, '{}')`,
+    );
     odd.close();
     const before = (await opencodePartIds(file, 'ses_a'))!;
     expect((JSON.parse(before) as string[]).sort()).toEqual(['prt_1', 'prt_t']);
     // And a NULL in a list handed back does not leave the turn's calls out either.
-    expect(await opencodeTurnCalls(file, 'ses_a', '["prt_1", null, "prt_t"]')).toEqual({ calls: 0, cost: 0, input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 });
+    expect(await opencodeTurnCalls(file, 'ses_a', '["prt_1", null, "prt_t"]')).toEqual({
+      calls: 0,
+      cost: 0,
+      input: 0,
+      output: 0,
+      reasoning: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+    });
     addOpencodeRows(file, { steps: [{ id: 'prt_2', session: 'ses_child', input: 2, output: 3, cost: 0.5 }] });
-    expect(await opencodeTurnCalls(file, 'ses_a', before)).toEqual({ calls: 1, cost: 0.5, input: 2, output: 3, reasoning: 0, cacheRead: 0, cacheWrite: 0 });
+    expect(await opencodeTurnCalls(file, 'ses_a', before)).toEqual({
+      calls: 1,
+      cost: 0.5,
+      input: 2,
+      output: 3,
+      reasoning: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+    });
     expect(await opencodeTurnCalls(file, 'ses_a', JSON.stringify([...(JSON.parse(before) as string[]), null]))).toEqual({
       calls: 1,
       cost: 0.5,
@@ -1536,7 +1983,15 @@ describe('usage and errors', () => {
     const empty = join(root, `usage-${++n}.db`);
     new (createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite')).DatabaseSync(empty).close();
     expect(await opencodePartIds(empty, 'ses_a')).toBe('[]');
-    expect(await opencodeTurnCalls(empty, 'ses_a')).toEqual({ calls: 0, cost: 0, input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 });
+    expect(await opencodeTurnCalls(empty, 'ses_a')).toEqual({
+      calls: 0,
+      cost: 0,
+      input: 0,
+      output: 0,
+      reasoning: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+    });
     expect(await opencodePartIds(join(root, 'no-such.db'), 'ses_a')).toBeUndefined();
   });
 
@@ -1571,7 +2026,16 @@ describe('usage and errors', () => {
   });
 
   it("counts the turn's calls with the cached input and the reasoning; an endpoint's zero cost is none", () => {
-    const calls = (more: Partial<OpencodeCalls> = {}): OpencodeCalls => ({ calls: 2, cost: 0.3, input: 2, output: 4, reasoning: 6, cacheRead: 80, cacheWrite: 100, ...more });
+    const calls = (more: Partial<OpencodeCalls> = {}): OpencodeCalls => ({
+      calls: 2,
+      cost: 0.3,
+      input: 2,
+      output: 4,
+      reasoning: 6,
+      cacheRead: 80,
+      cacheWrite: 100,
+      ...more,
+    });
     const api = { kind: 'anthropic' as const };
     const endpoint = { kind: 'endpoint' as const };
     expect(opencodeTurnUsage(calls(), api)).toEqual({ inputTokens: 182, outputTokens: 10, costUsd: 0.3 });
@@ -1600,11 +2064,30 @@ describe('usage and errors', () => {
     const home = join(root, `usage-home-${++n}`);
     const state = join(home, 'private', 'k');
     const db = join(state, 'data', 'opencode', 'opencode.db');
-    addOpencodeRows(db, { steps: [{ id: 'prt_1', session: 'ses_a', input: 1, output: 1, cost: 0.5 }, { id: 'prt_2', session: 'ses_a', input: 2, output: 2, cost: 0.25 }] });
-    const ctx = (st: Record<string, unknown>) => ({ state: st, home: { root: home, state, env: {}, statePaths: [], configPaths: [] }, run: backendRun(backends(), 'anthropic/claude-haiku-5-5', 'OpenCode') });
-    expect(await opencodeUsage(undefined, undefined, ctx({ sessionId: 'ses_a', partsBefore: '["prt_1"]' }))).toEqual({ inputTokens: 2, outputTokens: 2, costUsd: 0.25 });
+    addOpencodeRows(db, {
+      steps: [
+        { id: 'prt_1', session: 'ses_a', input: 1, output: 1, cost: 0.5 },
+        { id: 'prt_2', session: 'ses_a', input: 2, output: 2, cost: 0.25 },
+      ],
+    });
+    const ctx = (st: Record<string, unknown>) => ({
+      state: st,
+      home: { root: home, state, env: {}, statePaths: [], configPaths: [] },
+      run: backendRun(backends(), 'anthropic/claude-haiku-5-5', 'OpenCode'),
+    });
+    expect(await opencodeUsage(undefined, undefined, ctx({ sessionId: 'ses_a', partsBefore: '["prt_1"]' }))).toEqual({
+      inputTokens: 2,
+      outputTokens: 2,
+      costUsd: 0.25,
+    });
     // What ACP says is not used: the last call's tokens only, the session's total cost.
-    expect(await opencodeUsage({ usage: { inputTokens: 9, outputTokens: 9 } }, { cost: { amount: 9, currency: 'USD' } }, ctx({ sessionId: 'ses_a', partsBefore: '[]' }))).toEqual({
+    expect(
+      await opencodeUsage(
+        { usage: { inputTokens: 9, outputTokens: 9 } },
+        { cost: { amount: 9, currency: 'USD' } },
+        ctx({ sessionId: 'ses_a', partsBefore: '[]' }),
+      ),
+    ).toEqual({
       inputTokens: 3,
       outputTokens: 3,
       costUsd: 0.75,
@@ -1617,13 +2100,28 @@ describe('usage and errors', () => {
   it('says the backend error, an authentication problem, and strips the data of others', () => {
     const o = { model: 'homelab/m', backends: backends() };
     const en = <T>(f: () => T) => withLang('en', f);
-    expect(en(() => (opencodeRunError(new AgentRunError('Internal error: The model `m` does not exist.: {"service":"session","errorName":"APIError"}'), o) as Error).message)).toBe(
-      en(() => t().opencodeBackendError('Homelab', 'The model `m` does not exist')),
-    );
-    expect(en(() => (opencodeRunError(new AgentRunError('Authentication required: provider authentication required: {"providerId":"x"}'), o) as Error).message)).toBe(
-      en(() => t().opencodeAuthRequired('Homelab')),
-    );
-    expect((opencodeRunError(new AgentRunError('X failed: Internal error: OpenCode service failure: {"service":"session"}'), o) as Error).message).toBe('X failed: Internal error: OpenCode service failure');
+    expect(
+      en(
+        () =>
+          (
+            opencodeRunError(
+              new AgentRunError('Internal error: The model `m` does not exist.: {"service":"session","errorName":"APIError"}'),
+              o,
+            ) as Error
+          ).message,
+      ),
+    ).toBe(en(() => t().opencodeBackendError('Homelab', 'The model `m` does not exist')));
+    expect(
+      en(
+        () =>
+          (opencodeRunError(new AgentRunError('Authentication required: provider authentication required: {"providerId":"x"}'), o) as Error)
+            .message,
+      ),
+    ).toBe(en(() => t().opencodeAuthRequired('Homelab')));
+    expect(
+      (opencodeRunError(new AgentRunError('X failed: Internal error: OpenCode service failure: {"service":"session"}'), o) as Error)
+        .message,
+    ).toBe('X failed: Internal error: OpenCode service failure');
     // An internal error without OpenCode's data, a stop and other errors stay as they are.
     const internal = new AgentRunError('Internal error: something: {not json}');
     expect(opencodeRunError(internal, o)).toBe(internal);
@@ -1631,7 +2129,9 @@ describe('usage and errors', () => {
     expect(opencodeRunError(stop, o)).toBe(stop);
     const other = new Error('plain');
     expect(opencodeRunError(other, o)).toBe(other);
-    expect(en(() => (opencodeRunError(new AgentRunError('provider authentication required'), {}) as Error).message)).toBe(en(() => t().opencodeAuthRequired('OpenCode')));
+    expect(en(() => (opencodeRunError(new AgentRunError('provider authentication required'), {}) as Error).message)).toBe(
+      en(() => t().opencodeAuthRequired('OpenCode')),
+    );
   });
 });
 
@@ -1649,7 +2149,11 @@ describe('its catalog and what it loads by itself', () => {
       'xai/grok-4.20-0309-non-reasoning',
       'xai/grok-4.3',
     ]);
-    expect(models.find((m) => m.id === 'anthropic/claude-haiku-5-5')).toEqual({ id: 'anthropic/claude-haiku-5-5', label: 'Claude Haiku 5.5', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] });
+    expect(models.find((m) => m.id === 'anthropic/claude-haiku-5-5')).toEqual({
+      id: 'anthropic/claude-haiku-5-5',
+      label: 'Claude Haiku 5.5',
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+    });
     expect(models.find((m) => m.id === 'xai/grok-4.20-0309-non-reasoning')!.efforts).toBeUndefined();
     // Deprecated models, other providers and broken blocks are left out.
     const more = `${verbose.replace('"id": "gpt-6-luna",', '"id": "gpt-6-luna", "status": "deprecated",')}opencode/big-pickle\n{\n  "capabilities": { "toolcall": true }\n}\nopenai/broken\n{\n  nope\n}\n`;
@@ -1664,12 +2168,24 @@ describe('its catalog and what it loads by itself', () => {
     const cat = await opencodeModels('opencode', { [OPEN_AGENT_HOME_ENV]: home, ...opencodeHome(home).env }, run);
     expect(cat.models.length).toBe(6);
     expect(calls[0]!.args).toEqual(['models', '--verbose']);
-    expect(calls[0]!.env).toMatchObject({ OPENAI_API_KEY: 'harness-relay-catalog', ANTHROPIC_API_KEY: 'harness-relay-catalog', XAI_API_KEY: 'harness-relay-catalog', OPENCODE_PERMISSION: '' });
+    expect(calls[0]!.env).toMatchObject({
+      OPENAI_API_KEY: 'harness-relay-catalog',
+      ANTHROPIC_API_KEY: 'harness-relay-catalog',
+      XAI_API_KEY: 'harness-relay-catalog',
+      OPENCODE_PERMISSION: '',
+    });
     expect(JSON.parse(calls[0]!.env.OPENCODE_CONFIG_CONTENT!)).toEqual({ enabled_providers: ['openai', 'anthropic', 'xai'] });
     expect(existsSync(join(home, 'config', 'opencode', '.gitignore'))).toBe(true);
-    expect(await opencodeModels('opencode', { [OPEN_AGENT_HOME_ENV]: home }, async () => result({ timedOut: true }))).toEqual({ models: [], error: t().timedOut });
-    expect(await opencodeModels('opencode', { [OPEN_AGENT_HOME_ENV]: home }, async () => result({ code: 1, stderr: 'a\nb\nboom' }))).toEqual({ models: [], error: 'a b boom' });
-    expect((await opencodeModels('opencode', { [OPEN_AGENT_HOME_ENV]: home }, async () => result({ code: 1 }))).error).toBe(t().exitedWithoutTurn('OpenCode', 1));
+    expect(await opencodeModels('opencode', { [OPEN_AGENT_HOME_ENV]: home }, async () => result({ timedOut: true }))).toEqual({
+      models: [],
+      error: t().timedOut,
+    });
+    expect(
+      await opencodeModels('opencode', { [OPEN_AGENT_HOME_ENV]: home }, async () => result({ code: 1, stderr: 'a\nb\nboom' })),
+    ).toEqual({ models: [], error: 'a b boom' });
+    expect((await opencodeModels('opencode', { [OPEN_AGENT_HOME_ENV]: home }, async () => result({ code: 1 }))).error).toBe(
+      t().exitedWithoutTurn('OpenCode', 1),
+    );
   });
 
   it.skipIf(process.platform === 'win32')('reads its skills and subagents', () => {
@@ -1714,7 +2230,10 @@ describe('its catalog and what it loads by itself', () => {
     expect(failed.skills).toEqual([]);
     expect(failed.agents).toBeUndefined();
     const silent = await opencodeNative('opencode', { [OPEN_AGENT_HOME_ENV]: home }, cwd, 1000, async () => result({ stdout: '???' }));
-    expect(silent.problems).toEqual([{ kind: 'no-answer', part: 'skills' }, { kind: 'no-answer', part: 'agents' }]);
+    expect(silent.problems).toEqual([
+      { kind: 'no-answer', part: 'skills' },
+      { kind: 'no-answer', part: 'agents' },
+    ]);
   });
 
   it.skipIf(process.platform === 'win32')('runs the real hooks against the fake CLI', async () => {
@@ -1729,7 +2248,18 @@ describe('its catalog and what it loads by itself', () => {
 });
 
 function result(over: Partial<SpawnResult> = {}): SpawnResult {
-  return { code: 0, signal: null, stdout: '', stdoutBytes: Buffer.alloc(0), stdoutTruncated: false, stdoutSize: 0, stderr: '', aborted: false, timedOut: false, ...over };
+  return {
+    code: 0,
+    signal: null,
+    stdout: '',
+    stdoutBytes: Buffer.alloc(0),
+    stdoutTruncated: false,
+    stdoutSize: 0,
+    stderr: '',
+    aborted: false,
+    timedOut: false,
+    ...over,
+  };
 }
 
 // Kept for the type of permissions used above.

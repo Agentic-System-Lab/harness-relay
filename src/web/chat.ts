@@ -248,7 +248,11 @@ export function teamChanges(before: Team, after: Team): TeamChange[] {
     if (x.model !== y.model || x.effort !== y.effort) out.push({ kind: 'model', name: y.name });
   }
   for (const b of before.agents) if (!now.has(b.id)) out.push({ kind: 'removed', name: b.name });
-  const order = (team: Team, keep: (id: string) => boolean) => team.agents.map((a) => a.id).filter(keep).join('\n');
+  const order = (team: Team, keep: (id: string) => boolean) =>
+    team.agents
+      .map((a) => a.id)
+      .filter(keep)
+      .join('\n');
   if (order(before, (id) => now.has(id)) !== order(after, (id) => was.has(id))) out.push({ kind: 'order' });
   const s = before.settings;
   const t = after.settings;
@@ -424,6 +428,10 @@ export function thoughtTitle(text: string): string {
 
 /** The latest line of thinking, shown while it streams so you can follow along without opening it. */
 export function thoughtTail(text: string): string {
-  const line = text.split('\n').filter((l) => l.trim()).pop() ?? '';
+  const line =
+    text
+      .split('\n')
+      .filter((l) => l.trim())
+      .pop() ?? '';
   return plainLine(line);
 }

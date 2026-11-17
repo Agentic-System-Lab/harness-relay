@@ -174,7 +174,9 @@ export class ToolGateway {
     this.claimOnce = o.claimOnce ?? platform === 'win32';
     this.tokenWaitMs = o.tokenWaitMs ?? TOKEN_WAIT_MS;
     this.socketPath =
-      platform === 'win32' ? `\\\\.\\pipe\\harness-relay-gateway-${process.pid}-${randomBytes(6).toString('hex')}` : join(dataDir, 'gateway', 'relay.sock');
+      platform === 'win32'
+        ? `\\\\.\\pipe\\harness-relay-gateway-${process.pid}-${randomBytes(6).toString('hex')}`
+        : join(dataDir, 'gateway', 'relay.sock');
   }
 
   /** Adds tools (by name; a later one with the same name replaces an earlier one). */
@@ -328,7 +330,12 @@ export class ToolGateway {
         // Looked up again for each request: a turn that ended takes its tools with it.
         const live = grant && [...this.grants.values()].includes(grant) ? grant : undefined;
         if (!live) {
-          reply({ id: req.id, error: taken ? "This turn's tools are in use by its own MCP server already" : 'This turn is over: Harness Relay has no tools for it any more' });
+          reply({
+            id: req.id,
+            error: taken
+              ? "This turn's tools are in use by its own MCP server already"
+              : 'This turn is over: Harness Relay has no tools for it any more',
+          });
           continue;
         }
         void this.handle(live, req).then(
@@ -352,8 +359,10 @@ export class ToolGateway {
     }
     if (req.method !== 'call') throw new Error('Unknown request');
     const tool = typeof req.name === 'string' ? this.tools.get(req.name) : undefined;
-    if (!tool || (tool.group && !grant.groups.has(tool.group))) return toolResult({ text: `No such tool: ${String(req.name)}`, isError: true });
-    const args = req.arguments && typeof req.arguments === 'object' && !Array.isArray(req.arguments) ? (req.arguments as Record<string, unknown>) : {};
+    if (!tool || (tool.group && !grant.groups.has(tool.group)))
+      return toolResult({ text: `No such tool: ${String(req.name)}`, isError: true });
+    const args =
+      req.arguments && typeof req.arguments === 'object' && !Array.isArray(req.arguments) ? (req.arguments as Record<string, unknown>) : {};
     const ctx = grant.ctx;
     return toolResult(await (ctx.lang ? withLang(ctx.lang, () => this.call(tool, args, ctx)) : this.call(tool, args, ctx)));
   }
@@ -363,7 +372,11 @@ export class ToolGateway {
     const missing = tool.unavailable?.();
     if (missing) return { text: `${tool.name} cannot be used now: ${missing}`, isError: true };
     const decision = gatewayDecision(tool.tier, ctx.permission, Boolean(ctx.ask));
-    if (decision === 'refuse') return { text: `The user's settings refuse ${tool.name} in this conversation without asking; do not try it another way.`, isError: true };
+    if (decision === 'refuse')
+      return {
+        text: `The user's settings refuse ${tool.name} in this conversation without asking; do not try it another way.`,
+        isError: true,
+      };
     if (decision === 'outbox') {
       if (!ctx.toOutbox) return { text: `${tool.name} cannot be used in this run.`, isError: true };
       let described: ReturnType<GatewayTool['describe']>;
@@ -372,7 +385,12 @@ export class ToolGateway {
       } catch (err) {
         return { text: (err as Error).message, isError: true };
       }
-      const item = ctx.toOutbox({ tool: tool.name, title: described.title, preview: described.preview ?? { fields: [] }, args: tool.bind ? tool.bind(args) : args });
+      const item = ctx.toOutbox({
+        tool: tool.name,
+        title: described.title,
+        preview: described.preview ?? { fields: [] },
+        args: tool.bind ? tool.bind(args) : args,
+      });
       return {
         text: `Not sent yet: "${item.title}" is waiting in the user's outbox (item ${item.id}). Only the user can send it, with its Send button in the chat; it may happen later. Do not try to send it another way. Tell the user it is waiting for them.`,
       };
@@ -386,7 +404,13 @@ export class ToolGateway {
       }
       // Keyed as the gateway's own (`relay:<tool>`), so "always allow" is never another server's tool of that name;
       // no folder lock either: the call writes nothing in the working directory.
-      const answer = await ctx.ask!({ kind: 'other', tool: gatewayApprovalTool(tool.name), detail: described.title, ...(described.detail ? { reason: described.detail } : {}), noLock: true });
+      const answer = await ctx.ask!({
+        kind: 'other',
+        tool: gatewayApprovalTool(tool.name),
+        detail: described.title,
+        ...(described.detail ? { reason: described.detail } : {}),
+        noLock: true,
+      });
       if (!answer.allow) return { text: `The user declined ${tool.name}${answer.note ? `: ${answer.note}` : ''}.`, isError: true };
     }
     if (ctx.signal.aborted) return { text: 'The turn was stopped.', isError: true };

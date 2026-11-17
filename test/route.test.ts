@@ -1,6 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { PROVIDERS } from '../src/shared/types';
-import { AGENT_SECTIONS, CORNER_GAP, SETTINGS_NAV, SETTINGS_SECTIONS, currentSection, hashFor, isAgentSection, makeRoomForCorner, menuMove, navEntryOf, readingLine, revealLink, routeFromHash, sectionId, settingsHref } from '../src/web/route';
+import {
+  AGENT_SECTIONS,
+  CORNER_GAP,
+  SETTINGS_NAV,
+  SETTINGS_SECTIONS,
+  currentSection,
+  hashFor,
+  isAgentSection,
+  makeRoomForCorner,
+  menuMove,
+  navEntryOf,
+  readingLine,
+  revealLink,
+  routeFromHash,
+  sectionId,
+  settingsHref,
+} from '../src/web/route';
 
 describe('client routes', () => {
   it('reads the hash', () => {
@@ -61,15 +77,31 @@ describe('client routes', () => {
 });
 
 describe("the settings links row's agents' menu", () => {
-  it('gathers every agent\'s card into one entry, where the first of them is, keeping the page order', () => {
+  it("gathers every agent's card into one entry, where the first of them is, keeping the page order", () => {
     expect([...AGENT_SECTIONS].sort()).toEqual([...PROVIDERS].sort());
     // The agents' cards come one after another on the page, in that order.
     const first = SETTINGS_SECTIONS.indexOf(AGENT_SECTIONS[0]!);
     expect(SETTINGS_SECTIONS.slice(first, first + AGENT_SECTIONS.length)).toEqual(AGENT_SECTIONS);
-    expect(SETTINGS_NAV).toEqual(['version', 'language', 'appearance', 'notifications', 'sandboxes', 'backends', 'agents', 'lead', 'tools', 'voice', 'cwd', 'sessions', 'shares', 'browsers', 'tour']);
+    expect(SETTINGS_NAV).toEqual([
+      'version',
+      'language',
+      'appearance',
+      'notifications',
+      'sandboxes',
+      'backends',
+      'agents',
+      'lead',
+      'tools',
+      'voice',
+      'cwd',
+      'sessions',
+      'shares',
+      'browsers',
+      'tour',
+    ]);
   });
 
-  it('leads to an agent\'s card through the menu, and to every other card through its own link', () => {
+  it("leads to an agent's card through the menu, and to every other card through its own link", () => {
     for (const s of SETTINGS_SECTIONS) {
       expect(navEntryOf(s)).toBe(isAgentSection(s) ? 'agents' : s);
       expect(SETTINGS_NAV).toContain(navEntryOf(s));

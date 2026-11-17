@@ -60,7 +60,16 @@ export async function smoke(o: SmokeOptions): Promise<string[]> {
   const fakes = o.fakeClis ? withFakeClis(base, o.fakeClis, root) : undefined;
   const child: ChildProcess = fork(o.entry, [], {
     execArgv: [...(o.execArgv ?? []), '--import', pathToFileURL(join(DESKTOP, 'scripts/parent-port.mjs')).href],
-    env: { ...(fakes?.env ?? base), PORT: '0', HOST: '127.0.0.1', RELAY_DATA_DIR: data, RELAY_KEYRING: 'off', RELAY_WEB_DIR: o.webDir, RELAY_ALLOWED_HOSTS: '', ...o.env },
+    env: {
+      ...(fakes?.env ?? base),
+      PORT: '0',
+      HOST: '127.0.0.1',
+      RELAY_DATA_DIR: data,
+      RELAY_KEYRING: 'off',
+      RELAY_WEB_DIR: o.webDir,
+      RELAY_ALLOWED_HOSTS: '',
+      ...o.env,
+    },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
   child.stdout!.on('data', (b: Buffer) => (output += b.toString()));

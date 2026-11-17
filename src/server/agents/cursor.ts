@@ -242,7 +242,12 @@ const inside = (cwd: string, path: string, dir = cwd) => {
  * its protected files (`.git/hooks/**`, `.git/config`, `.vscode/**`, `.cursor/*.json`…), where a write
  * could make code run later, outside any sandbox.
  */
-export function cursorPermissionDecision(permission: Permission, call: CursorToolCall, cwd: string, addDirs: readonly string[] = []): AcpDecision {
+export function cursorPermissionDecision(
+  permission: Permission,
+  call: CursorToolCall,
+  cwd: string,
+  addDirs: readonly string[] = [],
+): AcpDecision {
   if (permission === 'full') return { allow: true };
   if (isWeb(call) || call.kind === 'read') return { allow: true };
   // A delete in any of the conversation's working directories (each has the same access as `cwd`).
@@ -258,7 +263,8 @@ export function cursorPermissionDecision(permission: Permission, call: CursorToo
  * runs once allowed runs outside any sandbox (Cursor has none over ACP), and the card says so.
  */
 export function cursorApprovalRequest(call: CursorToolCall, cwd: string, addDirs: readonly string[] = []): ApprovalRequest {
-  if (call.kind === 'execute') return { kind: 'command', detail: cursorCommand(call), reason: call.rawInput?.description, outsideSandbox: true };
+  if (call.kind === 'execute')
+    return { kind: 'command', detail: cursorCommand(call), reason: call.rawInput?.description, outsideSandbox: true };
   // Cursor asks about a write outside its workspace (`cwd`), and inside it only for its protected
   // files: say which, and when the file is in another of the conversation's working directories.
   if (call.kind === 'edit' || call.kind === 'delete' || call.kind === 'move') {
@@ -274,7 +280,12 @@ export function cursorApprovalRequest(call: CursorToolCall, cwd: string, addDirs
   }
   if (call.kind === 'fetch') return { kind: 'fetch', detail: call.rawInput?.url ?? titleSubject(call.title), reason: call.title };
   const tool = call.title?.replace(/\s*\(.*$/, '') || call.kind || 'tool';
-  return { kind: 'other', tool, detail: summarizeInput(call.rawInput, { wholePaths: true }) ?? acpContentText(call.content), reason: call.title };
+  return {
+    kind: 'other',
+    tool,
+    detail: summarizeInput(call.rawInput, { wholePaths: true }) ?? acpContentText(call.content),
+    reason: call.title,
+  };
 }
 
 /**
@@ -353,7 +364,8 @@ export function createCursorUpdateHandler(emit: (e: AgentEvent) => void, readOnl
     return c;
   };
 
-  const detailOf = (c: CallState) => summarizeInput(c.rawInput) ?? (c.kind === 'execute' ? undefined : titleSubject(c.title) && clip(titleSubject(c.title)!));
+  const detailOf = (c: CallState) =>
+    summarizeInput(c.rawInput) ?? (c.kind === 'execute' ? undefined : titleSubject(c.title) && clip(titleSubject(c.title)!));
 
   const finish = (id: string, c: CallState, u: Record<string, any>) => {
     open.delete(id);
@@ -413,7 +425,13 @@ export function createCursorUpdateHandler(emit: (e: AgentEvent) => void, readOnl
           open.add(id);
           c.detail = detailOf(c);
           const kind = toolCallKind(c.kind);
-          emit({ type: 'tool_start', id, name: KIND_NAME[c.kind ?? ''] ?? (c.title || 'tool'), ...(c.detail ? { detail: c.detail } : {}), ...(kind ? { kind } : {}) });
+          emit({
+            type: 'tool_start',
+            id,
+            name: KIND_NAME[c.kind ?? ''] ?? (c.title || 'tool'),
+            ...(c.detail ? { detail: c.detail } : {}),
+            ...(kind ? { kind } : {}),
+          });
         }
         if (DONE.has(u.status)) finish(id, c, u);
         break;
@@ -450,7 +468,10 @@ export function createCursorUpdateHandler(emit: (e: AgentEvent) => void, readOnl
 
 /** Why `authenticate` failed, without the sign-in link Cursor adds (signing in goes through Settings). */
 export function cursorSignInError(message: string): string {
-  return message.replace(/[\s.:]*Please visit:?\s*https?:\/\/\S+/gi, '').replace(/[\s:]+$/, '').trim();
+  return message
+    .replace(/[\s.:]*Please visit:?\s*https?:\/\/\S+/gi, '')
+    .replace(/[\s:]+$/, '')
+    .trim();
 }
 
 /** The decision after the user declined; Cursor cannot pass their note to the model. */
@@ -514,7 +535,10 @@ async function cursorTurn(o: RunOptions, configDir: string): Promise<RunResult> 
     }
     if (!decision.allow && call.toolCallId) updates.refused(call.toolCallId, label);
     // Never "allow always": Cursor would write the rule into its settings.
-    return answerPermission(decision, options.filter((x) => x.kind !== 'allow_always' && x.kind !== 'reject_always'));
+    return answerPermission(
+      decision,
+      options.filter((x) => x.kind !== 'allow_always' && x.kind !== 'reject_always'),
+    );
   };
 
   const onAbort = () => {
@@ -613,7 +637,12 @@ const option = (opts: any[] | undefined, pick: (c: any) => boolean) => (Array.is
  * only when it differs. A model without such an option (Auto, say), or without that effort among its
  * values, runs at its own effort. Returns the session's options as they then are.
  */
-async function setCursorOptions(conn: JsonRpcConnection, sessionId: string, configOptions: any[] | undefined, o: RunOptions): Promise<any[] | undefined> {
+async function setCursorOptions(
+  conn: JsonRpcConnection,
+  sessionId: string,
+  configOptions: any[] | undefined,
+  o: RunOptions,
+): Promise<any[] | undefined> {
   let opts = configOptions;
   const set = async (configId: string, value: string, rejected: (value: string, err: string) => string) => {
     const r = await conn.request('session/set_config_option', { sessionId, configId, value }).catch((err: Error) => {

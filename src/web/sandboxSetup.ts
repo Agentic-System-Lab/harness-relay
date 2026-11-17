@@ -42,6 +42,11 @@ export const setupRunning = (view: SandboxSetupView | undefined) => view?.job?.s
 export const byHand = (view: SandboxSetupView | undefined) => (view?.needs ?? []).filter((n) => n.blocked && n.command);
 
 /** Who a need is for, in words: the CLIs' names, and the open agents' as `open` says. */
-export function usersText(users: readonly SandboxUser[], name: (u: Exclude<SandboxUser, 'open'>) => string, open: string, sep = ', '): string {
+export function usersText(
+  users: readonly SandboxUser[],
+  name: (u: Exclude<SandboxUser, 'open'>) => string,
+  open: string,
+  sep = ', ',
+): string {
   return users.map((u) => (u === 'open' ? open : name(u))).join(sep);
 }

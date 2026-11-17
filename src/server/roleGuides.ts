@@ -146,7 +146,12 @@ const CLI_FAMILY: Partial<Record<Provider, ModelFamily>> = {
 export function modelFamily(id: string, onEndpoint = false): ModelFamily | undefined {
   const m = id.trim().toLowerCase();
   if (!m) return undefined;
-  if (/gpt-oss|qwen|deepseek|glm|kimi|llama|mistral|devstral|codestral|mixtral|minimax|gemma|nemotron|granite|phi-?\d|olmo|seed-oss|hermes/.test(m)) return 'open';
+  if (
+    /gpt-oss|qwen|deepseek|glm|kimi|llama|mistral|devstral|codestral|mixtral|minimax|gemma|nemotron|granite|phi-?\d|olmo|seed-oss|hermes/.test(
+      m,
+    )
+  )
+    return 'open';
   if (/claude|(^|[/._-])(opus|sonnet|haiku|fable)(plan)?(?![a-z])/.test(m)) return 'claude';
   if (/(^|[/._-])(gpt|codex|o[1-9])(?![a-z])|chatgpt/.test(m)) return 'gpt';
   if (/gemini/.test(m)) return 'gemini';
@@ -185,13 +190,21 @@ export function unlistedFamily(p: Provider, c: Pick<ProviderModels, 'models'> | 
  * members' accounts run them) and of their defaults, and a CLI's own family when it lists none of its own
  * models. `available` empty = unknown: every CLI.
  */
-export function familiesForLead(ctx: { available: Provider[]; catalog: ProviderModels[]; accounts?: Partial<Record<Provider, string[]>> }): ModelFamily[] {
+export function familiesForLead(ctx: {
+  available: Provider[];
+  catalog: ProviderModels[];
+  accounts?: Partial<Record<Provider, string[]>>;
+}): ModelFamily[] {
   const found = new Set<ModelFamily>();
   for (const p of ctx.available.length ? ctx.available : PROVIDERS) {
     const c = catalogFor(ctx.catalog, p, ctx.accounts?.[p]?.[0]);
     const ids = [...(c?.models.map((m) => m.id) ?? []), ...(c?.defaultModel ? [c.defaultModel] : [])];
     for (const id of ids) {
-      const f = familyOf(p, id, c?.models.find((o) => o.id === id));
+      const f = familyOf(
+        p,
+        id,
+        c?.models.find((o) => o.id === id),
+      );
       if (f) found.add(f);
     }
     const own = unlistedFamily(p, c);
