@@ -304,7 +304,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 帳號在新分頁用 Microsoft 登入，回到 web app 自己的回呼頁面，它的行事曆加入行事曆工具 | — | 還沒有 app 時，這一區說明要先註冊一個；**設定 app**（Set up the app）顯示要允許的重新導向網址（`http://127.0.0.1/oauth/callback`），並填入用戶端 ID。**用 … 登入**（Sign in with …）在新分頁打開替身的頁面，「設定」顯示正在等待；它的 **Allow** 把那個分頁帶到 `/oauth/callback`，頁面顯示 **已登入 …**（Signed in as …），並把授權碼與 state 從網址拿掉；替身只看到一次用 PKCE 驗證碼交換授權碼。接著「設定」顯示帳號 **已連線**（Connected），它自己的行事曆出現在行事曆清單中，沒有 **編輯**（Edit）；**行事曆**（Calendars）列出它的其他行事曆，**加入**（Add）可以加入一個。**移除**（Remove，確認後）會說明要到 Microsoft 哪裡移除 app 的存取權，並移除帳號與它的行事曆。 |
+| 帳號在新分頁用 Microsoft 登入，回到 web app 自己的回呼頁面，它的行事曆加入行事曆工具 | — | 還沒有 app 時，這一區說明要先註冊一個；**設定 app**（Set up the app）顯示要允許的重新導向網址（`http://127.0.0.1/oauth/callback`），並填入用戶端 ID。**用 … 登入**（Sign in with …）在新分頁打開替身的頁面，「設定」顯示正在等待；它的 **Allow** 把那個分頁帶到 `/oauth/callback`，頁面顯示 **已登入 …**（Signed in as …），並把授權碼與 state 從網址拿掉；替身只看到一次用 PKCE 驗證碼交換授權碼。接著「設定」顯示帳號 **已連線**（Connected），它自己的行事曆出現在行事曆清單中，沒有 **編輯**（Edit）；**行事曆**（Calendars）列出的那一個已經是 **已加入**（Added），**加入**（Add）可以再加入另一個。然後替身拒絕這個帳號的權杖與它的更新（`invalid_grant`，就像在 Microsoft 撤銷了登入）：它的行事曆的 **測試**（Test）說登入已經失效，帳號接著顯示 **需要重新登入**（Needs a new sign-in）與原因，以及 **重新登入**（Sign in again）。**移除**（Remove，確認後）會說明要到 Microsoft 哪裡移除 app 的存取權，並移除帳號與它的行事曆。 |
 
 ## 修改對話的歷史
 
@@ -654,7 +654,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **GitHub 對 gh 的真正登入。** 分享對話框的登入跑的是假的 `gh`，它印出一組代碼後等測試核准；gh 真正的裝置登入只用手動檢查過（沒有終端機時它會印出代碼與 `github.com/login/device`，不會開瀏覽器），沒有經過 GitHub 的核准。
 - **gistpreview.github.io 上的分享頁。**測試開啟的是假 `gh` 存下的頁面，由測試自己的網址提供：gistpreview 自己那個把 gist 寫進自身的頁面沒有測。
 - **長時間追蹤的目標。**執行失敗後的重試（5、30、120 分鐘）、被重新啟動中斷的執行，以及排程本身的時間，是在單元測試中用假時鐘測的（`test/orchestrator-tracking.test.ts`）；端對端測試只用**立即執行一次**跑一次追蹤目標的排程。
-- **真的 OAuth 服務。** 登入只對 Microsoft 頁面與 Graph 的替身測試（[用 OAuth 登入的帳號](#用-oauth-登入的帳號)）；裝置代碼、貼上網址、被拒或過期的登入、權杖代理的更新，以及透過 Graph 的行事曆工具，在 `test/oauth.test.ts` 中測試。沒有登入過真的 Microsoft 或 Google 帳號，而用權杖使用 Google 日曆的 CalDAV 在任何地方都沒有測過。
+- **真的 OAuth 服務，以及在瀏覽器裡的 Google 登入。** 瀏覽器裡的登入只對 Microsoft 頁面與 Graph 的替身測試（[用 OAuth 登入的帳號](#用-oauth-登入的帳號)）；裝置代碼、貼上網址、被拒或過期的登入、權杖代理的更新、帳號移除後才回來的更新，以及透過 Graph 和用權杖透過 Google 的 CalDAV 使用的行事曆工具（對 Google 登入與 CalDAV 的替身），在 `test/oauth.test.ts` 中測試。沒有登入過真的 Microsoft 或 Google 帳號。
 - **郵件觸發的檢查頻率。** [自動任務](#自動任務)用**立即檢查**來檢查；每 2 分鐘一次、失敗後放慢，以及重新啟動後保留的狀態，在 `test/orchestrator-watch.test.ts` 中用假時鐘測試，IMAP 的部分（UIDVALIDITY、條件、一次很多封）在 `test/watch.test.ts`。
 - **真的郵件與行事曆伺服器、TLS，以及其他 gateway 工具。** 郵件與行事曆工具是在單元測試中，對這台電腦上不加密的 IMAP、SMTP 與 CalDAV 替身伺服器測的（`test/connectors.test.ts`：後面還跟著其他內容的 STARTTLS 回應會在 TLS 開始前被拒絕），瀏覽器工具則在找得到 Chromium 時用真的 Chromium 測（`test/browser.test.ts`：包括檢查請求、彈出視窗與同時的呼叫）；端對端測試呼叫兩個 gateway 工具：`mail_send` 透過 Claude Code（經由 stdio 程式）、Codex 與 OpenCode（經由本機 HTTP）的假 CLI，`calendar_create` 透過 Claude Code 的；其他 CLI 的假 CLI 一個都不呼叫。沒有用任何真的服務（Gmail、iCloud、Fastmail）測過。
 - **Cursor 在暫存資料夾中不詢問就做的事。**真正的 Cursor 在暫存資料夾（`/tmp`、macOS 的 `/private/var/folders`）中寫入不會詢問；它的假 CLI 不會這樣，因為測試的資料夾都在暫存資料夾裡，否則寫到工作區之外的每個檔案都會不經詢問就寫入。也沒有 spec 試用 Cursor 團隊的自動執行允許清單（假 CLI 有一份，`E2E_FAKE_CURSOR_TEAM_ALLOW`）。真正的 Muse Code 的沙箱也讓它的指令寫入暫存資料夾；它的假 CLI 因為同樣的原因不會這樣。

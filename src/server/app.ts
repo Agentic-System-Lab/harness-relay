@@ -365,7 +365,7 @@ export function createApp({
    * redirect brings no key, and in the desktop app it comes to the system browser, never signed in).
    */
   const OPEN = new Set(['GET /api/auth', 'POST /api/auth/login', 'POST /api/oauth/callback']);
-  /** The OAuth callbacks that named no sign-in lately: after too many, a while of refusals. */
+  /** The OAuth callbacks that named no sign-in lately: after too many, those that name none are refused a while. */
   const callbackMisses: number[] = [];
   /** A schedule's webhook (`POST /api/hooks/:id`): its route checks the token it was given. */
   const HOOK_PATH = /^\/api\/hooks\/[^/]+$/;
@@ -688,11 +688,12 @@ export function createApp({
   app.post('/api/oauth/callback', async (c) => {
     const now = Date.now();
     while (callbackMisses.length && callbackMisses[0]! < now - 10 * 60_000) callbackMisses.shift();
-    if (callbackMisses.length >= 20) throw new HttpError(429, t().oauthCallbackTooOften);
     const b = await body<{ state?: unknown; code?: unknown; error?: unknown }>(c);
     const field = (v: unknown) => (typeof v === 'string' && v.length <= 4096 ? v : undefined);
+    const state = field(b.state);
+    // Guessing states is what the limit stops: a state a sign-in here gave always goes through.
+    if (callbackMisses.length >= 20 && !oauth.signIns.knows(state)) throw new HttpError(429, t().oauthCallbackTooOften);
     try {
-      const state = field(b.state);
       const code = field(b.code);
       const error = field(b.error);
       const v = await oauth.signIns.callback({ ...(state ? { state } : {}), ...(code ? { code } : {}), ...(error ? { error } : {}) });

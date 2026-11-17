@@ -30,13 +30,24 @@ async function graphJson<T>(res: Response, what: string): Promise<T> {
   return JSON.parse(text) as T;
 }
 
-/** The calendars of the signed-in account, which it can add events to. */
+/**
+ * The calendars of the signed-in account, which it can add events to. Its own (`isDefaultCalendar`) at
+ * `…/me/calendar`, the address a new sign-in adds it as, so it is not listed as one to add again.
+ */
 export async function graphCalendars(fetch: AuthorizedFetch, graph: string): Promise<{ name: string; url: string }[]> {
-  const res = await fetch(`${graph}/v1.0/me/calendars?$select=id,name,canEdit&$top=100`, { signal: AbortSignal.timeout(20_000) });
-  const body = await graphJson<{ value?: { id: string; name?: string; canEdit?: boolean }[] }>(res, t().conn.calFindFailed);
+  const res = await fetch(`${graph}/v1.0/me/calendars?$select=id,name,canEdit,isDefaultCalendar&$top=100`, {
+    signal: AbortSignal.timeout(20_000),
+  });
+  const body = await graphJson<{ value?: { id: string; name?: string; canEdit?: boolean; isDefaultCalendar?: boolean }[] }>(
+    res,
+    t().conn.calFindFailed,
+  );
   return (body.value ?? [])
     .filter((c) => c.canEdit !== false)
-    .map((c) => ({ name: c.name || c.id, url: `${graph}/v1.0/me/calendars/${encodeURIComponent(c.id)}` }));
+    .map((c) => ({
+      name: c.name || c.id,
+      url: c.isDefaultCalendar ? `${graph}/v1.0/me/calendar` : `${graph}/v1.0/me/calendars/${encodeURIComponent(c.id)}`,
+    }));
 }
 
 interface GraphTime {
@@ -54,21 +65,24 @@ interface GraphEvent {
   location?: { displayName?: string };
   bodyPreview?: string;
   attendees?: { emailAddress?: { address?: string; name?: string } }[];
-  type?: string;
-  recurrence?: { pattern?: { type?: string; interval?: number } } | null;
 }
+
+const DAY_MS = 86_400_000;
 
 /**
  * A Graph time as the calendar tools show it (`2026-01-05 09:00 UTC`, `2026-01-05 (all day)`), as
  * `parseEvents()` shows CalDAV's. `end`: an all-day event's end, which Graph gives as the day after its
- * last: shown as its last day.
+ * last: shown as its last day. An all-day event's times are midnight in its own time zone, which the
+ * events are asked for in UTC may move off midnight (`2026-01-05T16:00` for 6 January in Taipei): such
+ * a time is rounded to the nearest day, so the day shown is the event's own from UTC−11 to UTC+12
+ * (further east, UTC+13 and +14, a day early still).
  */
 function showTime(t: GraphTime | undefined, allDay: boolean, end = false): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(t?.dateTime ?? '');
   if (!m) return t?.dateTime ?? '';
   if (allDay) {
-    const day = end ? new Date(Date.UTC(+m[1]!, +m[2]! - 1, +m[3]! - 1)).toISOString().slice(0, 10) : `${m[1]}-${m[2]}-${m[3]}`;
-    return `${day} (all day)`;
+    const day = Math.round(Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!) / DAY_MS) * DAY_MS - (end ? DAY_MS : 0);
+    return `${new Date(day).toISOString().slice(0, 10)} (all day)`;
   }
   const zone = t?.timeZone && t.timeZone !== 'UTC' ? ` (${t.timeZone})` : ' UTC';
   return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}${zone}`;
@@ -84,8 +98,7 @@ export function graphEvent(e: GraphEvent): CalendarEvent {
     ...(e.end ? { end: showTime(e.end, allDay, true) } : {}),
     ...(e.location?.displayName ? { location: e.location.displayName } : {}),
     ...(e.bodyPreview ? { description: e.bodyPreview.slice(0, 2000) } : {}),
-    // A recurring series' own entry (the range lists each of its times apart, as occurrences).
-    ...(e.type === 'seriesMaster' && e.recurrence?.pattern?.type ? { repeats: e.recurrence.pattern.type } : {}),
+    // No `repeats`: `calendarView` lists each time of a recurring event apart, as an event of its own.
     attendees: (e.attendees ?? []).flatMap((a) => (a.emailAddress?.address ? [a.emailAddress.address] : [])),
   };
 }
@@ -97,7 +110,7 @@ function utc(ms: number): string {
 
 /** The events of a calendar (its Graph address) between two moments, each time of a recurring one on its own. */
 export async function graphEvents(fetch: AuthorizedFetch, calendar: string, from: number, to: number): Promise<CalendarEvent[]> {
-  const select = 'id,iCalUId,subject,isAllDay,start,end,location,bodyPreview,attendees,type';
+  const select = 'id,iCalUId,subject,isAllDay,start,end,location,bodyPreview,attendees';
   let next: string | undefined =
     `${calendar.replace(/\/+$/, '')}/calendarView?startDateTime=${encodeURIComponent(`${utc(from)}Z`)}` +
     `&endDateTime=${encodeURIComponent(`${utc(to)}Z`)}&$top=200&$orderby=start/dateTime&$select=${select}`;

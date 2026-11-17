@@ -70,9 +70,14 @@ export class OAuthService implements CalendarOAuth {
   }
 
   saveClient(provider: OAuthProviderId, u: OAuthClientUpdate): OAuthView {
-    this.store.saveClient(provider, u);
-    // Its accounts' tokens were given to the app before: the next request refreshes with this one.
-    for (const a of this.store.accounts()) if (a.provider === provider) this.broker.forget(a.id);
+    // Another app: its accounts' tokens were given to the one before, which this one cannot refresh.
+    // They need a new sign-in, and say so, rather than look connected until their next request fails.
+    if (this.store.saveClient(provider, u))
+      for (const a of this.store.accounts())
+        if (a.provider === provider) {
+          this.broker.forget(a.id);
+          this.store.needsSignIn(a.id, t().oauthAppChanged);
+        }
     return this.view();
   }
 
@@ -91,7 +96,7 @@ export class OAuthService implements CalendarOAuth {
   private async keep(s: SignedIn): Promise<OAuthAccountView> {
     const who = await s.whoami(signInFetch(s));
     const account = this.store.signedIn(s.provider, who, s.uses, s.scopes, s.tokens.refresh_token, (this.opts.now ?? Date.now)());
-    this.broker.remember(account.id, s.tokens.access_token, s.tokens.expires_in);
+    this.broker.signedIn(account.id, s.tokens.access_token, s.tokens.expires_in);
     if (s.uses.includes('calendar') && !this.connectors.oauthCalendars(account.id).length) {
       const own = this.provider(s.provider).defaultCalendar(who.email);
       try {
@@ -107,9 +112,14 @@ export class OAuthService implements CalendarOAuth {
     return this.store.accounts().find((a) => a.id === account.id) ?? account;
   }
 
-  /** The account's calendars, each with the calendar it was added as, when it was. */
+  /**
+   * The account's calendars, each with the calendar it was added as, when it was. An account that needs
+   * a new sign-in says so (a 409), rather than list what its provider can no longer be asked about.
+   */
   async calendars(accountId: string): Promise<OAuthCalendar[]> {
     const a = this.account(accountId);
+    const problem = this.problem(accountId);
+    if (problem) throw new HttpError(409, problem);
     const added = this.connectors.oauthCalendars(accountId);
     const found = await this.provider(a.provider).calendars(this.broker.fetch(accountId), a.email);
     return found.map((c) => {
@@ -139,8 +149,9 @@ export class OAuthService implements CalendarOAuth {
   }
 
   /**
-   * Removes the account, its tokens and the calendars reached through it. Google's token is revoked
-   * too; Microsoft has no revoke for one token, so its pages where the app's access is taken away are
+   * Removes the account, its tokens and the calendars reached through it: at once, so that a refresh
+   * under way writes nothing back (`TokenBroker.forget()`). Google's token is revoked then too;
+   * Microsoft has no revoke for one token, so its pages where the app's access is taken away are
    * returned for the user.
    */
   async removeAccount(accountId: string): Promise<{ permissionsPages?: string[] }> {
@@ -152,6 +163,9 @@ export class OAuthService implements CalendarOAuth {
       provider = undefined;
     }
     const refresh = this.store.refreshToken(accountId);
+    this.broker.forget(accountId);
+    this.store.delete(accountId);
+    this.connectors.removeOAuthCalendars(accountId);
     if (provider?.endpoints.revoke && refresh) {
       await fetch(provider.endpoints.revoke, {
         method: 'POST',
@@ -161,9 +175,6 @@ export class OAuthService implements CalendarOAuth {
         signal: AbortSignal.timeout(15_000),
       }).catch(() => undefined);
     }
-    this.store.delete(accountId);
-    this.broker.forget(accountId);
-    this.connectors.removeOAuthCalendars(accountId);
     return provider?.permissionsPages ? { permissionsPages: provider.permissionsPages } : {};
   }
 

@@ -2,7 +2,7 @@
 
 # 用 OAuth 登入的帳號
 
-> **狀態：核心與第一批用途已完成：透過 Microsoft Graph 使用 Microsoft 365 與 Outlook.com 的行事曆，以及用帳號的權杖透過 CalDAV 使用 Google 日曆（還沒有對 Google 本身實際試過）。透過 OAuth 收發郵件、遠端 MCP 伺服器自己的登入，以及 Harness Relay 自己註冊的 app，仍是提案。** 見[提案](README.zh-TW.md)。來自 [#90](https://github.com/Agentic-System-Lab/harness-relay/issues/90)。
+> **狀態：核心與第一批用途已完成：透過 Microsoft Graph 使用 Microsoft 365 與 Outlook.com 的行事曆，以及用帳號的權杖透過 CalDAV 使用 Google 日曆（單元測試裡對 Google 登入與 CalDAV 的替身試過，還沒有對 Google 本身實際試過）。透過 OAuth 收發郵件、遠端 MCP 伺服器自己的登入，以及 Harness Relay 自己註冊的 app，仍是提案。** 見[提案](README.zh-TW.md)。來自 [#90](https://github.com/Agentic-System-Lab/harness-relay/issues/90)。
 
 ## 為什麼
 
@@ -38,7 +38,7 @@ OAuth 本身是一個介面，各個 API 則留在使用它的工具群組裡。
 ## 回答待決問題
 
 - **用誰的 OAuth 用戶端？** 兩者都要，以使用者自己的為先。「設定 → 工具庫」可以填用戶端 ID（加上 Microsoft 的租用戶，以及 Google 的用戶端密碼；桌面 app 的這個密碼其實不是秘密，但仍然需要）。`BUILT_IN_CLIENTS` 會放 Harness Relay 自己註冊一次、隨程式碼發布的 app，目前還沒有註冊任何一個。在 Microsoft Entra 上，那會是一個同時支援公司、學校與個人帳號的公用用戶端。Google 要求 app 為日曆的敏感權限範圍通過驗證（Gmail 的受限權限範圍還要安全評估）；使用者自己的 Google app 若還在「測試」階段，更新權杖 7 天就會失效。不管用哪一種，公司或學校的租用戶都可能需要系統管理員同意。
-- **回呼的路由。** #90 列的兩個選項都不行，因為重新導向是從服務的網站發起的頂層瀏覽：工作階段的 cookie 是 `SameSite=Strict`，不會跟著來（選項 B，`BROWSER_LOADS`，行不通）；桌面版裡它還會在系統瀏覽器開啟，而系統瀏覽器從來沒有登入過（選項 A，帶金鑰回傳的頁面，也行不通）。實作的做法是：`/oauth/callback` 是 web app 的一個頁面（和所有頁面一樣在 `/api/` 之外），它把授權碼和 state 以 JSON 傳給 `POST /api/oauth/callback`。這個路由保留 Host、Origin 與 JSON 檢查，並以 state 作為證明，就像 webhook 以它的權杖作為證明：256 位元的亂數，只有服務和瀏覽器看得到，以雜湊在固定時間內比對，只屬於一次登入，只能用一次，10 分鐘內有效；沒有 PKCE 的驗證碼，授權碼毫無用處，而驗證碼從不離開伺服器。10 分鐘內有 20 次回呼都找不到對應的登入時，這個路由會暫時拒絕（429）。頁面只回傳一次（React 的 StrictMode 下也一樣），之後把授權碼和 state 從網址拿掉。
+- **回呼的路由。** #90 列的兩個選項都不行，因為重新導向是從服務的網站發起的頂層瀏覽：工作階段的 cookie 是 `SameSite=Strict`，不會跟著來（選項 B，`BROWSER_LOADS`，行不通）；桌面版裡它還會在系統瀏覽器開啟，而系統瀏覽器從來沒有登入過（選項 A，帶金鑰回傳的頁面，也行不通）。實作的做法是：`/oauth/callback` 是 web app 的一個頁面（和所有頁面一樣在 `/api/` 之外），它把授權碼和 state 以 JSON 傳給 `POST /api/oauth/callback`。這個路由保留 Host、Origin 與 JSON 檢查，並以 state 作為證明，就像 webhook 以它的權杖作為證明：256 位元的亂數，只有服務和瀏覽器看得到，以雜湊在固定時間內比對，只屬於一次登入，只能用一次，10 分鐘內有效；沒有 PKCE 的驗證碼，授權碼毫無用處，而驗證碼從不離開伺服器。10 分鐘內有 20 次回呼都找不到對應的登入時，這個路由會暫時拒絕找不到登入的回呼（429）；帶著某次登入自己的 state 的回呼一定會通過。頁面只回傳一次（React 的 StrictMode 下也一樣），等這裡的某次登入回答後，才把授權碼和 state 從網址拿掉；這裡沒有那次登入時（是另一台電腦上的 Harness Relay 開始的），頁面會顯示網址，讓人貼到那裡。
 - **一次登入給多個群組用？** 每次登入一個帳號，記下用在哪裡（`uses`，目前只有 `calendar`）。之後新增的用途會在自己的那次登入要它的權限範圍（漸進式同意），並更新同一個帳號（以它在服務那邊的 ID 找到）。郵件帳號與行事曆仍然分開（`ConnectorStore`）；透過帳號使用的行事曆會記下是哪個帳號（`CalendarAccountView.oauth`），為行事曆登入時會自動加入帳號自己的行事曆，其他行事曆則在「設定」裡列出、加入。
 - **移除帳號。** 它的更新權杖和它的行事曆都會刪除。Google 的權杖會被撤銷；Microsoft 不能撤銷單一個權杖，所以「設定」會列出使用者移除 app 存取權的頁面（公司與學校帳號在 `myapps.microsoft.com`，個人帳號在 `account.live.com/consent/Manage`）。
 

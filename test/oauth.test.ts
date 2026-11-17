@@ -1,16 +1,19 @@
 /*
- * Accounts that sign in with OAuth (`src/server/oauth/`), against a stand-in for Microsoft's sign-in
- * and Graph (`fake-oauth-server.ts`): the authorization code with PKCE and the loopback redirect, the
- * state (once, for its own sign-in, expiring), a pasted address, the device code flow, the token broker
- * (refreshing early and once, rotation, `invalid_grant`, the host rule, no redirects), the calendar
- * tools over Graph, and the HTTP API with sign-in on (the callback is the one route that takes no sign-in).
+ * Accounts that sign in with OAuth (`src/server/oauth/`), against a stand-in for Microsoft's and
+ * Google's sign-ins, Graph and Google's CalDAV (`fake-oauth-server.ts`): the authorization code with
+ * PKCE and the loopback redirect, the state (once, for its own sign-in, expiring), a pasted address,
+ * the device code flow and its answers, the token broker (refreshing early and once, rotation,
+ * `invalid_grant` and the other refusals, a refresh coming back after its account was removed or
+ * signed in again, the host rule, no redirects), an app that changed, the credential store refusing a
+ * token, the calendar tools over Graph and over Google's CalDAV with the token, and the HTTP API with
+ * sign-in on (the callback is the one route here that takes no sign-in).
  */
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AUTH_KEY_HEADER } from '../src/shared/auth';
-import type { ConnectorsView, OAuthSignInView, OAuthView, OutboxItem } from '../src/shared/types';
+import type { ConnectorsView, OAuthCalendar, OAuthSignInView, OAuthView, OutboxItem } from '../src/shared/types';
 import { fakeOAuth, type FakeOAuth } from './fake-oauth-server';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-oauth-')));
@@ -20,11 +23,13 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 const { AuthStore, CODE_TTL_MS } = await import('../src/server/auth');
 const { createApp } = await import('../src/server/app');
 const { ConnectorStore } = await import('../src/server/connectors/accounts');
+const { calendarBackend } = await import('../src/server/connectors/calendar');
 const { graphEvent, graphNewEvent } = await import('../src/server/connectors/graph');
 const { connectorTools } = await import('../src/server/connectors/tools');
 const { openDatabase } = await import('../src/server/db');
 const { Hub } = await import('../src/server/hub');
 const { withLang } = await import('../src/server/i18n');
+const { hostOnlyFetch } = await import('../src/server/oauth/broker');
 const { microsoftProvider, googleProvider } = await import('../src/server/oauth/providers');
 const { OAuthService } = await import('../src/server/oauth/service');
 const { callbackParams, loopbackOrigin } = await import('../src/server/oauth/signin');
@@ -65,23 +70,41 @@ let db: ReturnType<typeof openDatabase>;
 let keyring: ReturnType<typeof fakeKeyring>;
 let connectors: InstanceType<typeof ConnectorStore>;
 let service: InstanceType<typeof OAuthService>;
+/** The waits a device code sign-in asked for between two asks, in seconds. */
+let waits: number[];
+/** Set once a test is over: its service's clock runs out, so a device sign-in it left waiting stops asking. */
+let over: { yes: boolean };
+
+/** The service the tests use, on this test's database, with the stand-in's providers. */
+function newService(store = new OAuthStore(db, keyring), on = connectors) {
+  const ended = over;
+  return new OAuthService(store, on, {
+    provider: (id, client) =>
+      id === 'microsoft' ? microsoftProvider(client, { login: fake.url, graph: fake.url }) : googleProvider(client, fake.google.urls),
+    now: () => (ended.yes ? Number.MAX_SAFE_INTEGER : now),
+    pollMs: (interval) => {
+      waits.push(interval);
+      return 20;
+    },
+  });
+}
 
 beforeEach(async () => {
   fake = await fakeOAuth();
   now = T0;
+  waits = [];
+  over = { yes: false };
   db = openDatabase(':memory:');
   keyring = fakeKeyring();
   connectors = new ConnectorStore(db, keyring);
   const store = new OAuthStore(db, keyring);
   store.saveClient('microsoft', { clientId: fake.clientId });
-  service = new OAuthService(store, connectors, {
-    provider: (id, client) =>
-      id === 'microsoft' ? microsoftProvider(client, { login: fake.url, graph: fake.url }) : googleProvider(client),
-    now: () => now,
-    pollMs: () => 20,
-  });
+  service = newService(store);
 });
-afterEach(() => fake.close());
+afterEach(async () => {
+  over.yes = true;
+  await fake.close();
+});
 
 /** A Microsoft sign-in, all the way, as the browser that started it would do it. */
 async function signIn(session = 's1'): Promise<OAuthSignInView> {
@@ -94,7 +117,14 @@ async function signIn(session = 's1'): Promise<OAuthSignInView> {
   });
   return service.signIns.callback(callbackParams(fake.allow(started.authorizeUrl!)));
 }
-const tokenRequests = () => fake.requests.filter((r) => r.path.endsWith('/oauth2/v2.0/token'));
+const tokenRequests = (path = '/oauth2/v2.0/token') => fake.requests.filter((r) => r.path.endsWith(path));
+const grants = (grant: string) => tokenRequests().filter((r) => new URLSearchParams(r.body).get('grant_type') === grant);
+/** A promise the test resolves itself, and the resolving. */
+function gate(): { until: Promise<void>; open: () => void } {
+  let open!: () => void;
+  const until = new Promise<void>((r) => (open = r));
+  return { until, open };
+}
 
 describe('signing in', () => {
   it('asks for an authorization code with PKCE, to the page’s own web app on this computer, and keeps who signed in', async () => {
@@ -122,7 +152,8 @@ describe('signing in', () => {
       account: { provider: 'microsoft', email: 'ming@contoso.com', name: 'Ming', status: 'connected' },
     });
     const id = done.account!.id;
-    expect(id).toBe('microsoft-ming');
+    // The provider, the address's name, and a random part: an id is never given again.
+    expect(id).toMatch(/^microsoft-ming-[0-9a-f]{6}$/);
     // The refresh token in the credential store, never with the settings.
     expect(keyring.values.get(`oauth-${id}`)).toMatch(/^refresh-/);
     const row = db.prepare("SELECT value FROM app_settings WHERE key = 'oauth'").get() as { value: string };
@@ -179,8 +210,11 @@ describe('signing in', () => {
   it('refuses a state it never gave, a code from another sign-in, a refusal, and a sign-in that waited too long', async () => {
     await withLang('en', async () => {
       await expect(service.signIns.callback({ state: 'made-up', code: 'x' })).rejects.toThrow('No such sign-in');
+      expect(service.signIns.knows('made-up')).toBe(false);
+      expect(service.signIns.knows(undefined)).toBe(false);
       const a = await service.startSignIn({ provider: 'microsoft', uses: ['calendar'], port: 8787 });
       const b = await service.startSignIn({ provider: 'microsoft', uses: ['calendar'], port: 8787 });
+      expect(service.signIns.knows(new URL(a.authorizeUrl!).searchParams.get('state')!)).toBe(true);
       // A's code with B's state: B's verifier does not fit A's challenge.
       const code = callbackParams(fake.allow(a.authorizeUrl!)).code!;
       const bState = new URL(b.authorizeUrl!).searchParams.get('state')!;
@@ -202,15 +236,31 @@ describe('signing in', () => {
     expect(service.view().accounts).toEqual([]);
   });
 
-  it('signs in on another device with a code, asking Microsoft until it is typed', async () => {
-    const started = await service.startSignIn({ provider: 'microsoft', uses: ['calendar'], session: 's1', port: 8787, device: true });
-    expect(started).toMatchObject({ status: 'waiting', device: { userCode: 'UC1', verificationUri: `${fake.url}/devicelogin` } });
-    expect(started.authorizeUrl).toBeUndefined();
-    await new Promise((r) => setTimeout(r, 60));
-    expect(service.signIn(started.id, 's1').status).toBe('waiting');
-    fake.typeCode('UC1');
-    await vi.waitFor(() => expect(service.signIn(started.id, 's1').status).toBe('done'), { timeout: 5000, interval: 20 });
-    expect(service.view().accounts[0]!.email).toBe('ming@contoso.com');
+  it('keeps at most 10 sign-ins waiting at once', async () => {
+    for (let i = 0; i < 10; i++) await service.startSignIn({ provider: 'microsoft', uses: ['calendar'], port: 8787 });
+    await withLang('en', async () => {
+      await expect(service.startSignIn({ provider: 'microsoft', uses: ['calendar'], port: 8787 })).rejects.toMatchObject({
+        status: 429,
+        message: expect.stringContaining('Too many sign-ins are waiting'),
+      });
+    });
+    // Once they expired, there is room again.
+    now += 11 * MIN;
+    expect((await service.startSignIn({ provider: 'microsoft', uses: ['calendar'], port: 8787 })).status).toBe('waiting');
+  });
+
+  it('keeps no account when the credential store refuses its refresh token', async () => {
+    keyring.set = () => {
+      throw new Error('The keychain is locked');
+    };
+    await withLang('en', async () => {
+      expect(await signIn()).toMatchObject({
+        status: 'failed',
+        error: "The sign-in's token could not be saved in the credential store: The keychain is locked",
+      });
+    });
+    expect(service.view().accounts).toEqual([]);
+    expect(connectors.view().calendar).toEqual([]);
   });
 
   it('needs an app for the provider first, and keeps a client secret masked', async () => {
@@ -243,6 +293,128 @@ describe('signing in', () => {
     service.saveClient('google', { clientId: '' });
     expect(keyring.values.has('oauth-client-google')).toBe(false);
   });
+
+  it('marks the accounts of an app that changed as needing a new sign-in, until they sign in with the new one', async () => {
+    const id = (await signIn()).account!.id;
+    // The same app saved again: nothing to sign in again for.
+    service.saveClient('microsoft', { clientId: fake.clientId });
+    expect(service.view().accounts[0]!.status).toBe('connected');
+    await withLang('en', async () => {
+      // Another tenant: the tokens were the app's before, under the tenant before.
+      service.saveClient('microsoft', { clientId: fake.clientId, tenant: 'contoso.onmicrosoft.com' });
+      expect(service.view().accounts[0]).toMatchObject({ status: 'reauth', error: 'the app it signed in with was changed in Settings' });
+      expect(service.problem(id)).toBe(
+        'The sign-in of ming@contoso.com no longer works: sign in again in Settings → Tool library (the app it signed in with was changed in Settings)',
+      );
+      // No token of the app before is used: the kept one was forgotten.
+      await expect(service.broker.accessToken(id)).rejects.toThrow('no longer works');
+    });
+    const again = await signIn();
+    expect(again.account).toMatchObject({ id, status: 'connected' });
+    expect(new URL(tokenRequests().at(-1)!.path, fake.url).pathname).toBe('/contoso.onmicrosoft.com/oauth2/v2.0/token');
+    // Another client id too.
+    service.saveClient('microsoft', { clientId: 'client-2' });
+    expect(service.view().accounts[0]!.status).toBe('reauth');
+  });
+
+  it('reads its accounts and apps back from the database, their refresh tokens from the credential store', async () => {
+    const id = (await signIn()).account!.id;
+    const reloaded = new OAuthStore(db, keyring);
+    expect(reloaded.accounts()).toEqual(service.view().accounts);
+    expect(reloaded.client('microsoft')).toMatchObject({ clientId: fake.clientId, builtIn: false });
+    expect(reloaded.refreshToken(id)).toBe(keyring.values.get(`oauth-${id}`));
+    // A server started again knows no access token: its first request refreshes.
+    const restarted = newService(reloaded);
+    const before = grants('refresh_token').length;
+    expect((await restarted.broker.fetch(id)(`${fake.url}/v1.0/me`)).status).toBe(200);
+    expect(grants('refresh_token')).toHaveLength(before + 1);
+  });
+});
+
+describe('signing in on another device', () => {
+  const device = () => service.startSignIn({ provider: 'microsoft', uses: ['calendar'], session: 's1', port: 8787, device: true });
+  const status = (id: string) => service.signIn(id, 's1');
+
+  it('signs in with a code, asking Microsoft until it is typed', async () => {
+    const started = await device();
+    expect(started).toMatchObject({ status: 'waiting', device: { userCode: 'UC1', verificationUri: `${fake.url}/devicelogin` } });
+    expect(started.authorizeUrl).toBeUndefined();
+    await new Promise((r) => setTimeout(r, 60));
+    expect(status(started.id).status).toBe('waiting');
+    fake.typeCode('UC1');
+    await vi.waitFor(() => expect(status(started.id).status).toBe('done'), { timeout: 5000, interval: 20 });
+    expect(service.view().accounts[0]!.email).toBe('ming@contoso.com');
+  });
+
+  it('waits longer on slow_down, asks again after a server error, and never more often than once a second', async () => {
+    fake.deviceInterval = 0;
+    fake.deviceAnswers.push({ status: 400, body: { error: 'slow_down' } }, { status: 503, body: { error: 'temporarily_unavailable' } });
+    const started = await device();
+    await vi.waitFor(() => expect(fake.deviceAnswers).toEqual([]), { timeout: 5000, interval: 20 });
+    fake.typeCode('UC1');
+    await vi.waitFor(() => expect(status(started.id).status).toBe('done'), { timeout: 5000, interval: 20 });
+    // An interval of 0 is one second; slow_down adds five.
+    expect(waits[0]).toBe(1);
+    expect(waits).toContain(6);
+  });
+
+  it('ends a sign-in refused on the other device, or whose code expired', async () => {
+    await withLang('en', async () => {
+      const denied = await device();
+      fake.typeCode('UC1', true);
+      await vi.waitFor(() => expect(status(denied.id).status).toBe('failed'), { timeout: 5000, interval: 20 });
+      expect(status(denied.id).error).toBe('Microsoft did not finish the sign-in: access_denied: The user declined');
+      const expired = await device();
+      fake.expireCode('UC2');
+      await vi.waitFor(() => expect(status(expired.id).status).toBe('failed'), { timeout: 5000, interval: 20 });
+      expect(status(expired.id).error).toContain('expired_token');
+      // Its own time over, too.
+      const late = await device();
+      now += 11 * MIN;
+      await vi.waitFor(() => expect(status(late.id)).toMatchObject({ status: 'failed', error: expect.stringContaining('expired') }), {
+        timeout: 5000,
+        interval: 20,
+      });
+    });
+    expect(service.view().accounts).toEqual([]);
+  });
+
+  it('stops asking once cancelled, and keeps nothing a token request in flight then brings', async () => {
+    const cancelled = await device();
+    service.signIns.cancel(cancelled.id, 's1');
+    const asked = grants('urn:ietf:params:oauth:grant-type:device_code').length;
+    await new Promise((r) => setTimeout(r, 100));
+    expect(grants('urn:ietf:params:oauth:grant-type:device_code').length).toBeLessThanOrEqual(asked + 1);
+
+    const held = gate();
+    const before = grants('urn:ietf:params:oauth:grant-type:device_code').length;
+    fake.hold = { grant: 'urn:ietf:params:oauth:grant-type:device_code', until: held.until };
+    const inFlight = await device();
+    fake.typeCode('UC2');
+    await vi.waitFor(() => expect(grants('urn:ietf:params:oauth:grant-type:device_code').length).toBeGreaterThan(before), {
+      timeout: 5000,
+      interval: 10,
+    });
+    service.signIns.cancel(inFlight.id, 's1');
+    held.open();
+    fake.hold = undefined;
+    await new Promise((r) => setTimeout(r, 100));
+    expect(service.view().accounts).toEqual([]);
+    expect([...keyring.values.keys()].filter((k) => k.startsWith('oauth-microsoft'))).toEqual([]);
+    expect(() => status(inFlight.id)).toThrow(/No such sign-in|找不到/);
+  });
+
+  it('says when Microsoft cannot start one, and that Google has none for the calendar', async () => {
+    await withLang('en', async () => {
+      fake.deviceDown = true;
+      await expect(device()).rejects.toMatchObject({ status: 502, message: 'The Microsoft sign-in could not start: HTTP 500' });
+      service.saveClient('google', { clientId: fake.google.clientId, secret: fake.google.secret });
+      await expect(
+        service.startSignIn({ provider: 'google', uses: ['calendar'], session: 's1', port: 8787, device: true }),
+      ).rejects.toMatchObject({ status: 400, message: 'Google cannot sign in on another device for these permissions' });
+    });
+    expect(service.view().clients.find((c) => c.provider === 'google')!.device).toBe(false);
+  });
 });
 
 describe('the token broker', () => {
@@ -272,12 +444,81 @@ describe('the token broker', () => {
       await expect(service.broker.accessToken(id)).rejects.toThrow('The sign-in of ming@contoso.com no longer works');
       expect(service.view().accounts[0]).toMatchObject({ status: 'reauth', error: expect.stringContaining('invalid_grant') });
       expect(service.problem(id)).toMatch(/sign in again/);
-      const calendar = connectorTools(connectors, service).find((t) => t.name === 'calendar_events')!;
-      expect(calendar.unavailable!()).toMatch(/^The sign-in of ming@contoso.com no longer works/);
+      const tools = Object.fromEntries(connectorTools(connectors, service).map((t) => [t.name, t]));
+      expect(tools.calendar_events!.unavailable!()).toMatch(/^The sign-in of ming@contoso.com no longer works/);
+      // A calendar of it, through the backend the tools and Test use: the same.
+      expect(() => calendarBackend(connectors.calendar(id)!.account, '', service)).toThrow('no longer works');
+      await expect(tools.calendar_events!.run!({ from: '2026-01-05', to: '2026-01-06' }, ctx)).rejects.toThrow('no longer works');
+      await expect(service.calendars(id)).rejects.toMatchObject({ status: 409, message: expect.stringContaining('no longer works') });
     });
     // Signed in again, it works again.
     await signIn();
     expect(service.problem(id)).toBeUndefined();
+  });
+
+  it('marks consent_required and interaction_required as needing a new sign-in, and not a server error', async () => {
+    const id = (await signIn()).account!.id;
+    await withLang('en', async () => {
+      for (const error of ['consent_required', 'interaction_required']) {
+        now += 61 * MIN;
+        fake.refreshAnswer = { status: 400, body: { error, error_description: 'AADSTS65001: The user has not consented.\r\nTrace ID: 1' } };
+        await expect(service.broker.accessToken(id)).rejects.toThrow(`no longer works: sign in again in Settings → Tool library (${error}`);
+        expect(service.view().accounts[0]).toMatchObject({ status: 'reauth', error: `${error}: AADSTS65001: The user has not consented.` });
+        fake.refreshAnswer = undefined;
+        await signIn();
+      }
+      // The provider down: the refresh fails this time, and the account stays connected.
+      now += 61 * MIN;
+      fake.refreshAnswer = { status: 500, body: {} };
+      await expect(service.broker.accessToken(id)).rejects.toThrow('The sign-in of ming@contoso.com could not be renewed: HTTP 500');
+      expect(service.view().accounts[0]!.status).toBe('connected');
+      fake.refreshAnswer = undefined;
+    });
+    expect(await service.broker.accessToken(id)).toMatch(/^access-/);
+  });
+
+  it('writes nothing back from a refresh that comes back after its account was removed', async () => {
+    const id = (await signIn()).account!.id;
+    now += 59 * MIN;
+    const held = gate();
+    fake.hold = { grant: 'refresh_token', until: held.until };
+    await withLang('en', async () => {
+      const before = grants('refresh_token').length;
+      const refreshing = service.broker.accessToken(id);
+      await vi.waitFor(() => expect(grants('refresh_token')).toHaveLength(before + 1), { timeout: 5000, interval: 10 });
+      await service.removeAccount(id);
+      expect(keyring.values.has(`oauth-${id}`)).toBe(false);
+      // The provider answers now, with a new (rotated) refresh token.
+      held.open();
+      await expect(refreshing).rejects.toThrow('The account that signed in is not there any more');
+    });
+    fake.hold = undefined;
+    expect(keyring.values.has(`oauth-${id}`)).toBe(false);
+    expect(service.view().accounts).toEqual([]);
+    // The same account signing in again gets a new id, never the old one.
+    expect((await signIn()).account!.id).not.toBe(id);
+  });
+
+  it('keeps a new sign-in over a refresh of the one before that comes back refused', async () => {
+    const id = (await signIn()).account!.id;
+    now += 59 * MIN;
+    const held = gate();
+    fake.hold = { grant: 'refresh_token', until: held.until };
+    const before = grants('refresh_token').length;
+    const refreshing = service.broker.accessToken(id);
+    await vi.waitFor(() => expect(grants('refresh_token')).toHaveLength(before + 1), { timeout: 5000, interval: 10 });
+    // Signed in again meanwhile; the refresh of the sign-in before is then refused.
+    const again = await signIn();
+    expect(again.account!.id).toBe(id);
+    const kept = keyring.values.get(`oauth-${id}`)!;
+    fake.refreshAnswer = { status: 400, body: { error: 'invalid_grant' } };
+    held.open();
+    fake.hold = undefined;
+    // The caller gets the new sign-in's token; the account stays connected, with its own refresh token.
+    const token = await refreshing;
+    expect(fake.accessTokens.get(token)).toBe(true);
+    expect(service.view().accounts[0]!.status).toBe('connected');
+    expect(keyring.values.get(`oauth-${id}`)).toBe(kept);
   });
 
   it("sends the token only to its provider's hosts, follows no redirect, and refreshes once when the token is refused", async () => {
@@ -297,7 +538,21 @@ describe('the token broker', () => {
     expect(fake.requests.at(-1)!.bearer).not.toBe(used);
   });
 
-  it('sends Microsoft tokens only to https, or plain http to a stand-in on this computer', async () => {
+  it('sends a token only over https, or plain http to a stand-in on this computer', async () => {
+    const token = vi.fn(async () => 'stand-in-token');
+    const send = hostOnlyFetch(['example.com', 'localhost:1', fake.host], token);
+    await withLang('en', async () => {
+      // The right host, but plain http (or another scheme) there: refused before the token is asked for.
+      await expect(send('http://example.com/cal')).rejects.toThrow('is not sent to "example.com"');
+      await expect(send('ftp://example.com/cal')).rejects.toThrow('is not sent to "example.com"');
+      await expect(send('https://example.com.evil.example/cal')).rejects.toThrow('is not sent to "example.com.evil.example"');
+      await expect(send('not a url')).rejects.toThrow('is not sent to "not a url"');
+    });
+    expect(token).not.toHaveBeenCalled();
+    // Plain http to this computer: sent, with the token, and its 3xx not followed.
+    expect((await send(`${fake.url}/v1.0/redirect`)).status).toBe(401);
+    expect(fake.requests.at(-1)!.bearer).toBe('stand-in-token');
+
     const real = microsoftProvider({ clientId: 'x' });
     expect(real.hosts).toEqual(['graph.microsoft.com']);
     expect(real.endpoints.token).toBe('https://login.microsoftonline.com/common/oauth2/v2.0/token');
@@ -305,15 +560,17 @@ describe('the token broker', () => {
     expect(microsoftProvider({ clientId: 'x', tenant: 'contoso.onmicrosoft.com' }).endpoints.authorize).toContain(
       '/contoso.onmicrosoft.com/',
     );
+    expect(googleProvider({ clientId: 'x' }).hosts).toEqual(['apidata.googleusercontent.com', 'openidconnect.googleapis.com']);
   });
 });
 
 describe('calendars through a sign-in', () => {
-  it('lists an account’s calendars, adds one by its Graph address only, and removing the account takes its tokens and calendars', async () => {
+  it('lists an account’s calendars (its own as added), adds one by its Graph address only, and removing the account takes its tokens and calendars', async () => {
     const id = (await signIn()).account!.id;
     const found = await service.calendars(id);
+    // Its own calendar at the address the sign-in added it as, so not offered again.
     expect(found).toEqual([
-      { name: 'Calendar', url: `${fake.url}/v1.0/me/calendars/AAA%3D` },
+      { name: 'Calendar', url: `${fake.url}/v1.0/me/calendar`, addedAs: id },
       { name: 'Team', url: `${fake.url}/v1.0/me/calendars/BBB%2F1` },
     ]);
     service.addCalendar(id, { name: 'Team', url: found[1]!.url });
@@ -331,7 +588,8 @@ describe('calendars through a sign-in', () => {
   });
 
   it('gives the calendar tools a Microsoft calendar over Graph: its events across pages, an event added, an invitation', async () => {
-    await signIn();
+    const id = (await signIn()).account!.id;
+    expect(service.via(id).api).toBe('graph');
     fake.events.push(
       {
         id: 'e1',
@@ -369,7 +627,7 @@ describe('calendars through a sign-in', () => {
       calendar: '/v1.0/me/calendar/events',
     });
     const sent = await tools.calendar_invite!.send!(
-      { summary: 'Review', start: '2026-01-08', end: '2026-01-08', attendees: ['bob@contoso.com'], accountId: 'microsoft-ming' },
+      { summary: 'Review', start: '2026-01-08', end: '2026-01-08', attendees: ['bob@contoso.com'], accountId: id },
       {} as OutboxItem,
     );
     expect(sent).toBeTruthy();
@@ -382,31 +640,154 @@ describe('calendars through a sign-in', () => {
     });
   });
 
-  it('reads and writes Graph events as the CalDAV ones read', () => {
+  it('reads and writes Graph events as the CalDAV ones read, an all-day one on its own day', () => {
     expect(
       graphEvent({
         id: 'x',
         iCalUId: 'ical-x',
         subject: 'S',
-        type: 'seriesMaster',
-        recurrence: { pattern: { type: 'weekly' } },
         start: { dateTime: '2026-01-05T09:30:00', timeZone: 'Asia/Taipei' },
       }),
-    ).toEqual({ uid: 'ical-x', summary: 'S', start: '2026-01-05 09:30 (Asia/Taipei)', repeats: 'weekly', attendees: [] });
+    ).toEqual({ uid: 'ical-x', summary: 'S', start: '2026-01-05 09:30 (Asia/Taipei)', attendees: [] });
+    const allDay = (start: string, end: string) => {
+      const e = graphEvent({
+        id: 'd',
+        isAllDay: true,
+        start: { dateTime: start, timeZone: 'UTC' },
+        end: { dateTime: end, timeZone: 'UTC' },
+      });
+      return [e.start, e.end];
+    };
+    // At midnight: as it is (the end is the day after its last).
+    expect(allDay('2026-01-06T00:00:00.0000000', '2026-01-07T00:00:00.0000000')).toEqual(['2026-01-06 (all day)', '2026-01-06 (all day)']);
+    // Midnight in Taipei, given in UTC: 16:00 the day before is that next day.
+    expect(allDay('2026-01-05T16:00:00.0000000', '2026-01-07T16:00:00.0000000')).toEqual(['2026-01-06 (all day)', '2026-01-07 (all day)']);
+    // Midnight in New York: 05:00 the same day.
+    expect(allDay('2026-01-06T05:00:00', '2026-01-07T05:00:00')).toEqual(['2026-01-06 (all day)', '2026-01-06 (all day)']);
     expect(() => graphNewEvent({ summary: 's', start: '2026-01-05', end: '2026-01-05T10:00', timeZone: 'UTC' })).toThrow(
       'must both be dates',
     );
   });
 });
 
+describe('Google Calendar through a sign-in', () => {
+  /** A Google sign-in, all the way, with the app's client secret. */
+  async function googleSignIn(secret = fake.google.secret): Promise<OAuthSignInView> {
+    service.saveClient('google', { clientId: fake.google.clientId, secret });
+    const started = await service.startSignIn({
+      provider: 'google',
+      uses: ['calendar'],
+      session: 's1',
+      origin: 'http://127.0.0.1:8787',
+      port: 8787,
+    });
+    return service.signIns.callback(callbackParams(fake.allow(started.authorizeUrl!)));
+  }
+  const primary = () => `${fake.google.urls.caldav}/ming%40gmail.com/events/`;
+
+  it("signs in with the app's client secret, asks who signed in, and adds the primary calendar over CalDAV", async () => {
+    expect((await googleSignIn('GOCSPX-wrong')).error).toContain('invalid_client');
+    const done = await googleSignIn();
+    expect(done).toMatchObject({
+      status: 'done',
+      account: { provider: 'google', email: 'ming@gmail.com', name: 'Ming', status: 'connected' },
+    });
+    const exchange = new URLSearchParams(tokenRequests('/google/token').at(-1)!.body);
+    expect(exchange.get('client_secret')).toBe(fake.google.secret);
+    expect(exchange.get('code_verifier')).toMatch(/^[\w-]{64}$/);
+    expect(fake.requests.find((r) => r.path === '/google/userinfo')!.bearer).toMatch(/^access-/);
+    const id = done.account!.id;
+    expect(id).toMatch(/^google-ming-[0-9a-f]{6}$/);
+    expect(keyring.values.get(`oauth-${id}`)).toMatch(/^refresh-/);
+    expect(connectors.view().calendar).toEqual([
+      {
+        id,
+        name: 'Google · ming@gmail.com',
+        url: primary(),
+        username: 'ming@gmail.com',
+        address: 'ming@gmail.com',
+        oauth: id,
+        password: '',
+      },
+    ]);
+    expect(service.via(id).api).toBe('caldav');
+
+    // Its calendars from CalDAV discovery with the token, its own as added; else its primary one.
+    const team = `${fake.google.urls.caldav}/team%40group.calendar.google.com/events/`;
+    expect(await service.calendars(id)).toEqual<OAuthCalendar[]>([
+      { name: 'ming@gmail.com', url: primary(), addedAs: id },
+      { name: 'Team', url: team },
+    ]);
+    fake.google.calendars = 'none';
+    expect(await service.calendars(id)).toEqual([{ name: 'ming@gmail.com', url: primary(), addedAs: id }]);
+    fake.google.calendars = 'fail';
+    expect(await service.calendars(id)).toEqual([{ name: 'ming@gmail.com', url: primary(), addedAs: id }]);
+    const dav = fake.requests.filter((r) => r.path.startsWith('/caldav/'));
+    expect(dav.length).toBeGreaterThan(0);
+    expect(dav.every((r) => r.bearer && fake.accessTokens.get(r.bearer))).toBe(true);
+  });
+
+  it('gives the calendar tools its events and adds one over CalDAV with the token', async () => {
+    await googleSignIn();
+    fake.google.events.push(
+      'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:g1@google.com\r\nDTSTART:20260105T090000Z\r\nDTEND:20260105T100000Z\r\nSUMMARY:Standup\r\nLOCATION:Room 2\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
+    );
+    const tools = Object.fromEntries(connectorTools(connectors, service).map((t) => [t.name, t]));
+    const listed = await tools.calendar_events!.run!({ from: '2026-01-05', to: '2026-01-09' }, ctx);
+    expect(listed.text).toContain('2026-01-05 09:00');
+    expect(listed.text).toContain(': Standup');
+    expect(listed.text).toContain('  at Room 2');
+    const report = fake.requests.find((r) => r.method === 'REPORT')!;
+    expect(report.path).toBe('/caldav/v2/ming%40gmail.com/events/');
+    expect(fake.accessTokens.get(report.bearer!)).toBe(true);
+
+    await tools.calendar_create!.run!(
+      { summary: 'Focus', start: '2026-01-07T09:00', end: '2026-01-07T10:30', timeZone: 'Asia/Taipei' },
+      ctx,
+    );
+    expect(fake.google.puts).toHaveLength(1);
+    const put = fake.google.puts[0]!;
+    expect(put.path).toMatch(/^\/caldav\/v2\/ming%40gmail\.com\/events\/[^/]+\.ics$/);
+    expect(fake.accessTokens.get(put.bearer!)).toBe(true);
+    expect(put.ics).toContain('SUMMARY:Focus');
+    expect(put.ics).toContain('DTSTART:20260107T010000Z');
+  });
+
+  it('says the account needs a new sign-in rather than fall back to its primary calendar, and removing it revokes its token', async () => {
+    const id = (await googleSignIn()).account!.id;
+    now += 61 * MIN;
+    fake.refreshAnswer = { status: 400, body: { error: 'invalid_grant', error_description: 'Token has been expired or revoked.' } };
+    await withLang('en', async () => {
+      await expect(service.calendars(id)).rejects.toThrow('The sign-in of ming@gmail.com no longer works');
+      expect(service.view().accounts[0]).toMatchObject({ status: 'reauth', error: 'invalid_grant: Token has been expired or revoked.' });
+      await expect(service.calendars(id)).rejects.toMatchObject({ status: 409 });
+    });
+    fake.refreshAnswer = undefined;
+    // The refresh sent the app's secret too, and asked for no scopes again (Google keeps them).
+    const refresh = new URLSearchParams(
+      tokenRequests('/google/token')
+        .filter((r) => new URLSearchParams(r.body).get('grant_type') === 'refresh_token')
+        .at(-1)!.body,
+    );
+    expect(refresh.get('grant_type')).toBe('refresh_token');
+    expect(refresh.get('client_secret')).toBe(fake.google.secret);
+    expect(refresh.has('scope')).toBe(false);
+
+    const token = keyring.values.get(`oauth-${id}`)!;
+    expect(await service.removeAccount(id)).toEqual({});
+    expect(fake.google.revoked).toEqual([token]);
+    expect(new URLSearchParams(fake.requests.find((r) => r.path === '/google/revoke')!.body).get('token')).toBe(token);
+    expect(keyring.values.has(`oauth-${id}`)).toBe(false);
+    expect(connectors.view().calendar).toEqual([]);
+  });
+});
+
 describe('/api/oauth', () => {
-  it('runs a sign-in for a signed-in browser, and takes the callback from any browser with its state alone', async () => {
+  /** The server's app, signed in as a browser: `call()` with its cookie and key, `HOST` alone signed out. */
+  async function signedInApp() {
     const settings = new SettingsStore(db, keyring);
     // The service the server makes, on Settings' own calendars, with the stand-in's sign-in.
-    service = new OAuthService(new OAuthStore(db, keyring), settings.connectors, {
-      provider: (_id, client) => microsoftProvider(client, { login: fake.url, graph: fake.url }),
-      now: () => now,
-    });
+    service = newService(new OAuthStore(db, keyring), settings.connectors);
     const store = new Store(db);
     const hub = new Hub();
     const auth = new AuthStore(db);
@@ -419,20 +800,30 @@ describe('/api/oauth', () => {
       providers: new ProviderService(settings),
       oauth: service,
     });
-    const HOST = { host: '127.0.0.1:8787' };
+    const HOST = { host: '127.0.0.1:8787', 'x-relay-lang': 'en' };
     const res = await app.request('/api/auth/login', {
       method: 'POST',
       headers: { ...HOST, 'content-type': 'application/json' },
       body: JSON.stringify({ code: auth.createCode(CODE_TTL_MS.device).code }),
     });
     const cookie = (res.headers.get('set-cookie') ?? '').split(';')[0]!;
-    const signedIn = { ...HOST, cookie, [AUTH_KEY_HEADER]: ((await res.json()) as { key: string }).key, 'x-relay-lang': 'en' };
+    const signedIn = { ...HOST, cookie, [AUTH_KEY_HEADER]: ((await res.json()) as { key: string }).key };
     const call = (method: string, path: string, body?: unknown, headers: Record<string, string> = signedIn) =>
       app.request(path, {
         method,
         headers: { ...headers, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       });
+    const start = async () =>
+      (await (
+        await call('POST', '/api/oauth/signins', { provider: 'microsoft', origin: 'http://localhost:5173' })
+      ).json()) as OAuthSignInView;
+    return { call, HOST, settings, start };
+  }
+  const error = async (res: Response) => ((await res.json()) as { error: string }).error;
+
+  it('runs a sign-in for a signed-in browser, and takes the callback from any browser with its state alone', async () => {
+    const { call, HOST, start } = await signedInApp();
 
     // Signed out: only the callback answers.
     expect((await call('GET', '/api/oauth', undefined, HOST)).status).toBe(401);
@@ -442,9 +833,7 @@ describe('/api/oauth', () => {
     const view = (await (await call('GET', '/api/oauth')).json()) as OAuthView;
     expect(view.clients.find((c) => c.provider === 'microsoft')).toMatchObject({ clientId: fake.clientId, device: true });
     expect((await call('POST', '/api/oauth/signins', { provider: 'yahoo' })).status).toBe(404);
-    const started = (await (
-      await call('POST', '/api/oauth/signins', { provider: 'microsoft', origin: 'http://localhost:5173' })
-    ).json()) as OAuthSignInView;
+    const started = await start();
     expect(started.redirectUri).toBe('http://localhost:5173/oauth/callback');
 
     // The provider's page sent the browser back: the callback page posts what it got, without a key or cookie.
@@ -473,9 +862,87 @@ describe('/api/oauth', () => {
     expect(removed.accounts).toEqual([]);
     expect(removed.connectors.calendar).toEqual([]);
     expect(removed.permissionsPages.length).toBeGreaterThan(0);
+  });
 
-    // Too many callbacks for no sign-in: refused for a while.
-    for (let i = 0; i < 20; i++) await call('POST', '/api/oauth/callback', { state: `guess-${i}` }, HOST);
-    expect((await call('POST', '/api/oauth/callback', { state: 'one-more' }, HOST)).status).toBe(429);
+  it("saves a provider's app, checked, and a changed one asks its accounts to sign in again, which Test and the calendars say", async () => {
+    const { call } = await signedInApp();
+    expect((await call('PUT', '/api/oauth/clients/yahoo', { clientId: 'x' })).status).toBe(404);
+    for (const bad of [{ clientId: 'not a client id' }, { clientId: 'ok', tenant: 'not a tenant' }, { clientId: 'ok', secret: 'a\nb' }]) {
+      const res = await call('PUT', '/api/oauth/clients/microsoft', bad);
+      expect(res.status).toBe(400);
+      expect(await error(res)).toMatch(/clientId|tenant|secret/);
+    }
+    const google = await call('PUT', '/api/oauth/clients/google', { clientId: fake.google.clientId, secret: 'GOCSPX-typed' });
+    expect(google.status).toBe(200);
+    const text = await google.text();
+    expect(text).not.toContain('GOCSPX-typed');
+    expect((JSON.parse(text) as OAuthView).clients.find((c) => c.provider === 'google')).toMatchObject({ secret: '••••', device: false });
+
+    const id = (await signIn()).account!.id;
+    const changed = (await (
+      await call('PUT', '/api/oauth/clients/microsoft', { clientId: fake.clientId, tenant: 'organizations' })
+    ).json()) as OAuthView;
+    expect(changed.accounts[0]).toMatchObject({ id, status: 'reauth', error: 'the app it signed in with was changed in Settings' });
+    expect(changed.clients.find((c) => c.provider === 'microsoft')).toMatchObject({ tenant: 'organizations' });
+    expect(await (await call('POST', `/api/connectors/calendar/${id}/test`, {})).json()).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('The sign-in of ming@contoso.com no longer works'),
+    });
+    const calendars = await call('GET', `/api/oauth/accounts/${id}/calendars`);
+    expect(calendars.status).toBe(409);
+    expect(await error(calendars)).toContain('no longer works');
+  });
+
+  it("checks what it is given: its limits, a calendar's host, a calendar that signs in, a sign-in cancelled", async () => {
+    const { call, HOST, start } = await signedInApp();
+    const id = (await signIn()).account!.id;
+    // A calendar on another host than the provider's: its token would go there.
+    const elsewhere = await call('POST', `/api/oauth/accounts/${id}/calendars`, { name: 'Evil', url: 'https://evil.example/cal' });
+    expect(elsewhere.status).toBe(400);
+    expect(await error(elsewhere)).toBe('The sign-in\'s token is not sent to "evil.example": it goes only to the account\'s own service');
+    // A calendar reached through a sign-in never turns into one with a password.
+    const fixed = await call('PUT', `/api/connectors/calendar/${id}`, {
+      name: 'Mine',
+      url: 'https://caldav.example.com/cal/',
+      username: 'u',
+      password: 'p',
+    });
+    expect(fixed.status).toBe(409);
+    expect(await error(fixed)).toBe(
+      'This calendar is reached through an account that signed in, not a password: remove it and add it again',
+    );
+
+    // A pasted address of at most 8000 characters; the callback's fields of at most 4096 (a longer one is not taken).
+    const started = await start();
+    const long = await call('POST', `/api/oauth/signins/${started.id}/address`, { address: `http://localhost/?${'x'.repeat(8000)}` });
+    expect(long.status).toBe(400);
+    expect(await error(long)).toContain('That is not an address');
+    const state = new URL(started.authorizeUrl!).searchParams.get('state')!;
+    await expect((await call('POST', '/api/oauth/callback', { state, code: 'x'.repeat(4097) }, HOST)).json()).resolves.toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('no authorization code'),
+    });
+    expect((await call('POST', '/api/oauth/callback', { state: `${state}${'x'.repeat(4096)}` }, HOST)).status).toBe(404);
+
+    // Cancelled: gone for the page that started it; another browser cannot cancel it.
+    const other = await start();
+    expect((await call('DELETE', `/api/oauth/signins/${other.id}`, {}, HOST)).status).toBe(401);
+    expect(await (await call('DELETE', `/api/oauth/signins/${other.id}`, {})).json()).toEqual({ ok: true });
+    expect((await call('GET', `/api/oauth/signins/${other.id}`)).status).toBe(404);
+    expect((await call('DELETE', `/api/oauth/signins/${other.id}`, {})).status).toBe(404);
+  });
+
+  it('refuses callbacks for no sign-in after 20 in 10 minutes, but never one with a state a sign-in here gave', async () => {
+    const { call, HOST, start } = await signedInApp();
+    const started = await start();
+    for (let i = 0; i < 20; i++) expect((await call('POST', '/api/oauth/callback', { state: `guess-${i}` }, HOST)).status).toBe(404);
+    const refused = await call('POST', '/api/oauth/callback', { state: 'one-more' }, HOST);
+    expect(refused.status).toBe(429);
+    expect(await error(refused)).toBe('Too many sign-in callbacks failed: try again in a while');
+    expect((await call('POST', '/api/oauth/callback', {}, HOST)).status).toBe(429);
+    // The sign-in under way still comes back.
+    const done = await call('POST', '/api/oauth/callback', callbackParams(fake.allow(started.authorizeUrl!)), HOST);
+    expect(done.status).toBe(200);
+    expect(await done.json()).toMatchObject({ status: 'done', email: 'ming@contoso.com' });
   });
 });

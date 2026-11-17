@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import {
   CONNECTOR_LIMITS,
   OAUTH_PROVIDERS,
@@ -107,14 +108,20 @@ export class OAuthStore {
     return builtIn ? { clientId: builtIn, builtIn: true } : undefined;
   }
 
-  saveClient(provider: OAuthProviderId, u: OAuthClientUpdate): void {
-    const before = this.data.clients[provider]?.clientId;
+  /**
+   * Saves the app a provider is signed in to with; true when it is another app than before (another
+   * client id or tenant, or none): the accounts that signed in with the one before then need a new sign-in.
+   */
+  saveClient(provider: OAuthProviderId, u: OAuthClientUpdate): boolean {
+    const before = this.client(provider);
     if (u.clientId) this.data.clients[provider] = { clientId: u.clientId, ...(u.tenant ? { tenant: u.tenant } : {}) };
     else delete this.data.clients[provider];
     // A secret belongs to the app it was given with: another app (or none) takes it away unless a new one comes.
     if (u.secret !== undefined) this.setSecret(`oauth-client-${provider}`, u.secret);
-    else if (!u.clientId || u.clientId !== before) this.setSecret(`oauth-client-${provider}`, '');
+    else if (!u.clientId || u.clientId !== before?.clientId) this.setSecret(`oauth-client-${provider}`, '');
     this.save();
+    const after = this.client(provider);
+    return before?.clientId !== after?.clientId || (before?.tenant ?? '') !== (after?.tenant ?? '');
   }
 
   clientsView(device: (provider: OAuthProviderId) => boolean): OAuthClientView[] {
@@ -151,7 +158,9 @@ export class OAuthStore {
 
   /**
    * A sign-in that worked: the account it signed in (the same one again, by the provider's id for it,
-   * keeps its id and what uses it), connected, with its refresh token and the scopes granted.
+   * keeps its id and what uses it), connected, with its refresh token and the scopes granted. The
+   * refresh token is stored first: when the credential store refuses it, nothing changes (no account
+   * shown as connected without one).
    */
   signedIn(
     provider: OAuthProviderId,
@@ -164,18 +173,11 @@ export class OAuthStore {
     let account = this.data.accounts.find((a) => a.provider === provider && a.subject === who.subject);
     if (!account) {
       if (this.data.accounts.length >= CONNECTOR_LIMITS.accounts) throw new HttpError(400, t().connectorTooMany(CONNECTOR_LIMITS.accounts));
-      account = {
-        id: this.newId(provider, who.email),
-        provider,
-        subject: who.subject,
-        email: who.email,
-        uses: [],
-        status: 'connected',
-        connectedAt: now,
-        scopes: [],
-      };
+      const id = this.newId(provider, who.email);
+      this.setRefreshToken(id, refreshToken);
+      account = { id, provider, subject: who.subject, email: who.email, uses: [], status: 'connected', connectedAt: now, scopes: [] };
       this.data.accounts.push(account);
-    }
+    } else this.setRefreshToken(account.id, refreshToken);
     account.email = who.email;
     if (who.name) account.name = who.name;
     else delete account.name;
@@ -184,7 +186,6 @@ export class OAuthStore {
     account.status = 'connected';
     account.connectedAt = now;
     delete account.error;
-    this.setRefreshToken(account.id, refreshToken);
     this.save();
     const { subject: _s, scopes: _sc, ...view } = account;
     return view;
@@ -211,18 +212,23 @@ export class OAuthStore {
     this.save();
   }
 
-  /** A new account's id: the provider and the address's name (`microsoft-ming`, `microsoft-ming-2`…). */
+  /**
+   * A new account's id: the provider, the address's name and a random part (`microsoft-ming-3fa2c1`), so
+   * that an id is never given again: nothing meant for an account removed (a refresh coming back late,
+   * its calendars) can reach a new one. At most 37 characters, so its calendars' ids fit in 40.
+   */
   private newId(provider: OAuthProviderId, email: string): string {
     const base = `${provider}-${email
       .replace(/@.*$/, '')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')}`
-      .replace(/-+$/, '')
-      .slice(0, 34);
+      .slice(0, 30)
+      .replace(/-+$/, '');
     const taken = new Set(this.data.accounts.map((a) => a.id));
-    let id = base;
-    for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
+    let id: string;
+    do id = `${base}-${randomBytes(3).toString('hex')}`;
+    while (taken.has(id));
     return id;
   }
 }

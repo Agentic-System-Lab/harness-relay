@@ -28,6 +28,8 @@ export function ConnectorsSettings() {
   /** The form open: a kind, and the account edited ('' for a new one). */
   const [editing, setEditing] = useState<{ kind: 'mail' | 'calendar'; id: string } | null>(null);
   const [tested, setTested] = useState<Record<string, string>>({});
+  /** One more after each test of a calendar reached through a sign-in, which may find that it needs a new one: the accounts are read again. */
+  const [oauthTested, setOauthTested] = useState(0);
 
   useEffect(() => {
     api.connectors().then(setView, (e: Error) => setError(e.message));
@@ -48,6 +50,7 @@ export function ConnectorsSettings() {
     setTested((x) => ({ ...x, [`${kind}:${id}`]: t.connectors.testing }));
     const r = await api.testConnector(kind, id).catch((e: Error) => ({ ok: false, error: e.message }));
     setTested((x) => ({ ...x, [`${kind}:${id}`]: r.ok ? ('message' in r && r.message) || t.connectors.testOk : `✗ ${r.error ?? ''}` }));
+    if (kind === 'calendar' && view?.calendar.some((c) => c.id === id && c.oauth)) setOauthTested((n) => n + 1);
   };
 
   if (!view) return error ? <p className="error-line">{error}</p> : null;
@@ -129,7 +132,7 @@ export function ConnectorsSettings() {
         </button>
       )}
 
-      <OAuthAccounts onConnectors={setView} />
+      <OAuthAccounts onConnectors={setView} refresh={oauthTested} />
     </div>
   );
 }

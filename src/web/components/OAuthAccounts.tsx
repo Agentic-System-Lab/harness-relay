@@ -9,17 +9,20 @@ import {
   type OAuthSignInView,
   type OAuthView,
 } from '../../shared/types';
-import { api } from '../api';
+import { ApiError, api } from '../api';
 import { useT } from '../i18n';
-import { calendarName, redirectAddresses, waiting } from '../oauth';
+import { calendarName, redirectAddresses, sayPopupBlocked, waiting } from '../oauth';
+import { isAppWindow } from '../update';
 
 /**
  * Settings → Tool library → Mail and calendar → Accounts you sign in to: Microsoft 365, Outlook.com and
  * Google Calendar, which sign in with OAuth instead of an app password. The server runs each sign-in;
  * this only starts it (the provider's page in a new tab, or a code for another device), follows it,
  * and takes a pasted address when the provider's page cannot come back here. No token ever comes here.
+ * `refresh`: read the accounts again when it changes (a calendar of one was tested, which may have found
+ * that its sign-in no longer works).
  */
-export function OAuthAccounts({ onConnectors }: { onConnectors: (v: ConnectorsView) => void }) {
+export function OAuthAccounts({ onConnectors, refresh = 0 }: { onConnectors: (v: ConnectorsView) => void; refresh?: number }) {
   const t = useT();
   const o = t.connectors.oauth;
   const [view, setView] = useState<OAuthView | null>(null);
@@ -31,7 +34,7 @@ export function OAuthAccounts({ onConnectors }: { onConnectors: (v: ConnectorsVi
 
   useEffect(() => {
     api.oauth().then(setView, (e: Error) => setError(e.message));
-  }, []);
+  }, [refresh]);
 
   // Follow a sign-in while it waits; once done, the account (and its calendar) are shown.
   const following = signIn && waiting(signIn) ? signIn.id : undefined;
@@ -44,7 +47,10 @@ export function OAuthAccounts({ onConnectors }: { onConnectors: (v: ConnectorsVi
         if (!live) return;
         setSignIn(v);
       } catch (e) {
-        if (live) setError((e as Error).message);
+        if (!live) return;
+        setError((e as Error).message);
+        // Gone (the server restarted, or it ended long ago): nothing more to follow. Anything else may pass.
+        if (e instanceof ApiError && e.status === 404) setSignIn(undefined);
       }
     }, 1500);
     return () => {
@@ -73,9 +79,10 @@ export function OAuthAccounts({ onConnectors }: { onConnectors: (v: ConnectorsVi
       setSignIn(v);
       if (v.authorizeUrl) {
         // `noopener` would make open() answer null whether or not the tab opened: the opener is dropped by hand.
+        // The desktop app's window opens it in the system browser, and answers null too.
         const tab = window.open(v.authorizeUrl, '_blank');
         if (tab) tab.opener = null;
-        else setError(o.popupBlocked);
+        if (sayPopupBlocked(Boolean(tab), isAppWindow(navigator.userAgent))) setError(o.popupBlocked);
       }
     } catch (e) {
       setError((e as Error).message);
@@ -114,7 +121,7 @@ export function OAuthAccounts({ onConnectors }: { onConnectors: (v: ConnectorsVi
             {a.status === 'reauth' && a.error && <p className="small warn-text">{a.error}</p>}
             <div className="lib-row-actions">
               {a.status === 'reauth' && (
-                <button type="button" className="ghost small-button" onClick={() => start(a.provider)}>
+                <button type="button" className="ghost small-button" disabled={waiting(signIn)} onClick={() => start(a.provider)}>
                   {o.signInAgain}
                 </button>
               )}

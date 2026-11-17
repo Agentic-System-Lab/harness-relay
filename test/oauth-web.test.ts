@@ -1,10 +1,12 @@
 /*
  * Accounts that sign in with OAuth, in the page (`src/web/oauth.ts`): the redirect addresses a
- * provider's app must allow, what the provider's page sent back to /oauth/callback, and the name an
- * account's calendar gets.
+ * provider's app must allow, what the provider's page sent back to /oauth/callback and what that page
+ * does with the server's answer, the name an account's calendar gets, and when a sign-in page that did
+ * not open was blocked.
  */
 import { describe, expect, it } from 'vitest';
-import { calendarName, callbackFrom, redirectAddresses, waiting } from '../src/web/oauth';
+import { calendarName, callbackFrom, callbackOutcome, redirectAddresses, sayPopupBlocked, waiting } from '../src/web/oauth';
+import { isAppWindow } from '../src/web/update';
 
 describe('signing in with OAuth, in the page', () => {
   it("names the redirect addresses Microsoft's app must allow (no port: it takes any on this computer), and none for Google", () => {
@@ -25,6 +27,38 @@ describe('signing in with OAuth, in the page', () => {
       error: 'access_denied: The user said no',
     });
     expect(callbackFrom('')).toEqual({});
+  });
+
+  it('takes the code and state off the callback page’s address only once a sign-in here answered', () => {
+    expect(callbackOutcome({ ok: true, status: 'done', email: 'ming@contoso.com' }, true)).toEqual({
+      outcome: { kind: 'done', email: 'ming@contoso.com' },
+      clearAddress: true,
+    });
+    expect(callbackOutcome({ ok: true, status: 'failed', error: 'invalid_grant' }, true)).toEqual({
+      outcome: { kind: 'failed', error: 'invalid_grant' },
+      clearAddress: true,
+    });
+    // No sign-in here has its state: another computer's Harness Relay started it. The address stays, to copy.
+    expect(callbackOutcome({ ok: false, httpStatus: 404, error: 'No such sign-in' }, true)).toEqual({
+      outcome: { kind: 'elsewhere' },
+      clearAddress: false,
+    });
+    // An address with no state at all is no sign-in's; a refusal or a network error keeps the address for a reload.
+    expect(callbackOutcome({ ok: false, httpStatus: 404, error: 'No such sign-in' }, false)).toEqual({
+      outcome: { kind: 'failed', error: 'No such sign-in' },
+      clearAddress: false,
+    });
+    expect(callbackOutcome({ ok: false, httpStatus: 429, error: 'Too many' }, true).clearAddress).toBe(false);
+    expect(callbackOutcome({ ok: false, httpStatus: 0, error: 'Failed to fetch' }, true).clearAddress).toBe(false);
+  });
+
+  it("says a sign-in page was blocked only in a browser, not in the desktop app's window (it opens the system browser)", () => {
+    const electron =
+      'Mozilla/5.0 (Macintosh) AppleWebKit/537.36 (KHTML, like Gecko) HarnessRelay/2026.11.18 Chrome/138.0 Electron/37.2.0 Safari/537.36';
+    const chrome = 'Mozilla/5.0 (Macintosh) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0 Safari/537.36';
+    expect(sayPopupBlocked(false, isAppWindow(chrome))).toBe(true);
+    expect(sayPopupBlocked(false, isAppWindow(electron))).toBe(false);
+    expect(sayPopupBlocked(true, isAppWindow(chrome))).toBe(false);
   });
 
   it("names an account's calendar after it and whose it is, and knows a sign-in that still waits", () => {

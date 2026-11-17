@@ -221,7 +221,7 @@ export interface OAuthClientView {
   tenant?: string;
   /** The client secret, masked ('' when none is kept). */
   secret: string;
-  /** Microsoft's device code sign-in (on another device) can be used: its sign-in page, set in the environment, is not changed. */
+  /** The provider has a sign-in on another device, with a code to type at its address (the device code flow): Microsoft does; Google takes no Calendar scope there. */
   device: boolean;
 }
 

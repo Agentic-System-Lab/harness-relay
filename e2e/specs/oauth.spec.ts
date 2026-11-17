@@ -7,20 +7,23 @@ import { expect, test as base } from '../fixtures';
  * stand-in for Microsoft's sign-in page and Graph on this computer, which the server is pointed at
  * (`RELAY_MICROSOFT_LOGIN_URL`, `RELAY_MICROSOFT_GRAPH_URL`): the app set up, the sign-in page opened
  * in a new tab, its Allow sending the browser back to the web app's /oauth/callback, the account and
- * its own calendar shown, another calendar added, and the account removed with its calendars.
+ * its own calendar shown, another calendar added, the sign-in revoked at Microsoft (a calendar's Test
+ * then finds it needs a new one, which the account says), and the account removed with its calendars.
  */
 
 interface FakeMicrosoft {
   url: string;
   /** The token requests: the code exchanged with its verifier, once. */
   exchanges: number;
+  /** The account's sign-in revoked at Microsoft: Graph refuses its tokens, and a refresh is refused (`invalid_grant`). */
+  revoked: boolean;
 }
 
 /** Microsoft's sign-in page (Allow sends the browser back with a code), its token endpoint (PKCE checked) and a little of Graph. */
 async function fakeMicrosoft(): Promise<{ fake: FakeMicrosoft; server: Server }> {
   const codes = new Map<string, { challenge: string; redirect: string }>();
   const tokens = new Set<string>();
-  const fake: FakeMicrosoft = { url: '', exchanges: 0 };
+  const fake: FakeMicrosoft = { url: '', exchanges: 0, revoked: false };
   const server = createServer((req, res) => {
     let body = '';
     req.on('data', (c: Buffer) => (body += c.toString()));
@@ -44,6 +47,11 @@ async function fakeMicrosoft(): Promise<{ fake: FakeMicrosoft; server: Server }>
       }
       if (url.pathname.endsWith('/oauth2/v2.0/token')) {
         const form = new URLSearchParams(body);
+        if (form.get('grant_type') === 'refresh_token')
+          return json(400, {
+            error: 'invalid_grant',
+            error_description: 'AADSTS50173: The provided grant has expired due to it being revoked',
+          });
         const c = codes.get(form.get('code') ?? '');
         codes.delete(form.get('code') ?? '');
         const verified =
@@ -59,13 +67,13 @@ async function fakeMicrosoft(): Promise<{ fake: FakeMicrosoft; server: Server }>
         tokens.add(access);
         return json(200, { access_token: access, refresh_token: `refresh-${randomUUID()}`, expires_in: 3600 });
       }
-      if (!tokens.has(/^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1] ?? ''))
+      if (fake.revoked || !tokens.has(/^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1] ?? ''))
         return json(401, { error: { message: 'no token' } });
       if (url.pathname === '/v1.0/me') return json(200, { id: 'e2e-subject', displayName: 'Ming', mail: 'ming@contoso.com' });
       if (url.pathname === '/v1.0/me/calendars')
         return json(200, {
           value: [
-            { id: 'main', name: 'Calendar', canEdit: true },
+            { id: 'main', name: 'Calendar', canEdit: true, isDefaultCalendar: true },
             { id: 'team', name: 'Team', canEdit: true },
           ],
         });
@@ -128,12 +136,23 @@ test("an account signs in with Microsoft in a new tab, comes back to the web app
     0,
   );
 
-  // Another of its calendars, added.
+  // Its own calendar is listed as added already; another of them is added.
   await row.getByRole('button', { name: 'Calendars' }).click();
   const found = row.getByRole('list', { name: 'Calendars · ming@contoso.com' });
+  await expect(found.locator('li', { hasText: 'Calendar' }).first()).toContainText('Added');
   await found.locator('li', { hasText: 'Team' }).getByRole('button', { name: 'Add' }).click();
   await expect(found.locator('li', { hasText: 'Team' })).toContainText('Added');
   await expect(calendars).toContainText('Team · ming@contoso.com');
+
+  // The sign-in revoked at Microsoft: a calendar's Test finds its token refused and its refresh too,
+  // and the account then says it needs a new sign-in.
+  microsoft.revoked = true;
+  const own = calendars.locator('.lib-row', { hasText: 'Outlook · ming@contoso.com' });
+  await own.getByRole('button', { name: 'Test' }).click();
+  await expect(own).toContainText('The sign-in of ming@contoso.com no longer works');
+  await expect(row).toContainText('Needs a new sign-in');
+  await expect(row).toContainText('invalid_grant');
+  await expect(row.getByRole('button', { name: 'Sign in again' })).toBeEnabled();
 
   // Removed: its calendars go with it, and where to take the app's access away at Microsoft is said.
   page.once('dialog', (d) => void d.accept());

@@ -1,6 +1,6 @@
 import { t } from '../i18n';
 import type { OAuthStore } from './store';
-import { tokenHost, type AuthorizedFetch, type OAuthProvider } from './providers';
+import { OAuthSignInError, tokenHost, type AuthorizedFetch, type OAuthProvider } from './providers';
 
 /*
  * The token broker: an account's access token, refreshed shortly before it expires (one refresh at a
@@ -79,6 +79,12 @@ export function hostOnlyFetch(hosts: readonly string[], token: () => Promise<str
 export class TokenBroker {
   private tokens = new Map<string, { token: string; expiresAt: number }>();
   private refreshing = new Map<string, Promise<string>>();
+  /**
+   * Each account's generation: one more each time it is signed in again or removed (`forget()`). A
+   * refresh takes it before it asks the provider, and writes nothing (no refresh token, no `reauth`, no
+   * access token) when it changed meanwhile: what came back belongs to a sign-in that is over.
+   */
+  private generations = new Map<string, number>();
 
   constructor(
     private store: OAuthStore,
@@ -87,14 +93,31 @@ export class TokenBroker {
     private now: () => number = Date.now,
   ) {}
 
-  /** Keep an access token a sign-in just got, so its first request does not refresh it. */
-  remember(accountId: string, token: string, expiresIn: number | undefined): void {
+  private generation(accountId: string): number {
+    return this.generations.get(accountId) ?? 0;
+  }
+
+  private keep(accountId: string, token: string, expiresIn: number | undefined): void {
     this.tokens.set(accountId, { token, expiresAt: this.now() + (expiresIn ?? 3600) * 1000 });
   }
 
-  /** Forget an account's token (it was removed, or its sign-in replaced). */
+  /**
+   * A sign-in of the account just worked: a new generation of it, with the access token the sign-in got
+   * (so its first request does not refresh it). A refresh still under way for the sign-in before writes nothing.
+   */
+  signedIn(accountId: string, token: string, expiresIn: number | undefined): void {
+    this.forget(accountId);
+    this.keep(accountId, token, expiresIn);
+  }
+
+  /**
+   * Forget the account's token, and the refresh under way (it was removed, its sign-in replaced, or its
+   * app changed): a new generation, so that refresh writes nothing when it comes back.
+   */
   forget(accountId: string): void {
+    this.generations.set(accountId, this.generation(accountId) + 1);
     this.tokens.delete(accountId);
+    this.refreshing.delete(accountId);
   }
 
   /**
@@ -107,35 +130,46 @@ export class TokenBroker {
     if (!fresh && kept && kept.expiresAt - EARLY_MS > this.now()) return Promise.resolve(kept.token);
     const running = this.refreshing.get(accountId);
     if (running) return running;
-    const p = this.refresh(accountId).finally(() => this.refreshing.delete(accountId));
+    const p: Promise<string> = this.refresh(accountId).finally(() => {
+      // Only its own: `forget()` may have dropped it, and another refresh begun since.
+      if (this.refreshing.get(accountId) === p) this.refreshing.delete(accountId);
+    });
     this.refreshing.set(accountId, p);
     return p;
   }
 
   private async refresh(accountId: string): Promise<string> {
     const account = this.store.account(accountId);
-    if (!account) throw new Error(t().oauthAccountGone);
-    if (account.status === 'reauth') throw new Error(t().oauthSignInAgain(account.email, account.error ?? ''));
+    if (!account) throw new OAuthSignInError(t().oauthAccountGone);
+    if (account.status === 'reauth') throw new OAuthSignInError(t().oauthSignInAgain(account.email, account.error ?? ''));
     const refreshToken = this.store.refreshToken(accountId);
-    if (!refreshToken) throw new Error(t().oauthNoToken(account.email));
+    if (!refreshToken) throw new OAuthSignInError(t().oauthNoToken(account.email));
     const provider = this.providerOf(accountId);
+    const generation = this.generation(accountId);
     const { status, body } = await tokenRequest(provider, {
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
       ...(provider.refreshWithScopes ? { scope: provider.scopes(account.uses).join(' ') } : {}),
+    }).catch((err: Error) => {
+      throw new OAuthSignInError(t().oauthRefreshFailed(account.email, err.message));
     });
+    // Removed, or signed in again, while the provider was asked: nothing of this answer is written.
+    if (this.generation(accountId) !== generation) {
+      if (!this.store.account(accountId)) throw new OAuthSignInError(t().oauthAccountGone);
+      return this.accessToken(accountId);
+    }
     if (!body.access_token) {
       const why = tokenError(status, body);
       // Refused for good: only a new sign-in mends it. Anything else (the network, the provider down) may pass.
       if (body.error === 'invalid_grant' || body.error === 'interaction_required' || body.error === 'consent_required') {
         this.tokens.delete(accountId);
         this.store.needsSignIn(accountId, why);
-        throw new Error(t().oauthSignInAgain(account.email, why));
+        throw new OAuthSignInError(t().oauthSignInAgain(account.email, why));
       }
-      throw new Error(t().oauthRefreshFailed(account.email, why));
+      throw new OAuthSignInError(t().oauthRefreshFailed(account.email, why));
     }
     if (body.refresh_token && body.refresh_token !== refreshToken) this.store.setRefreshToken(accountId, body.refresh_token);
-    this.remember(accountId, body.access_token, body.expires_in);
+    this.keep(accountId, body.access_token, body.expires_in);
     return body.access_token;
   }
 

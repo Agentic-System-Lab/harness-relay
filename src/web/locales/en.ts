@@ -690,6 +690,8 @@ export const en: Messages = {
     failed: (why) => `The sign-in did not finish: ${why}`,
     close: 'You can close this tab.',
     back: "Back to Harness Relay's Settings",
+    elsewhere:
+      'No sign-in started here has this address. If Harness Relay on another computer started it (in a codespace, say), copy this whole address and paste it into the box that Harness Relay’s Settings shows:',
   },
   connectors: {
     title: 'Mail and calendar accounts',
@@ -758,7 +760,7 @@ export const en: Messages = {
       microsoftApp:
         'Register an app in the Microsoft Entra admin center: accounts in any organizational directory and personal Microsoft accounts, the platform "Mobile and desktop applications", "Allow public client flows" on (to sign in on another device), and the API permissions Calendars.ReadWrite and offline_access.',
       googleApp:
-        'Create an OAuth client of the type "Desktop app" in the Google Cloud console, enable the Google Calendar API and the CalDAV API, and add the …/auth/calendar scope to the OAuth consent screen. While the app is in Testing, its sign-ins stop working every 7 days.',
+        'Create an OAuth client of the type "Desktop app" in the Google Cloud console, enable the Google Calendar API and the CalDAV API, and add the …/auth/calendar scope to the OAuth consent screen. While the app is in Testing, add your own Google account to the consent screen’s Test users, or Google refuses the sign-in; its sign-ins also stop working every 7 days then.',
       waiting: (provider) => `Waiting for ${provider}'s sign-in page…`,
       openAgain: 'Open the sign-in page again',
       pasteHint:
@@ -2101,7 +2103,7 @@ export const en: Messages = {
           'MCP servers: a local command or a URL; tokens go to your system credential store',
           'Skills: pick the skills to add from a folder (such as ~/.claude/skills)',
           'Memory: one part for everyone, plus one for each CLI',
-          "Harness Relay's own tools: a browser of its own, and your mail and calendar (add the accounts there, with an app password)",
+          "Harness Relay's own tools: a browser of its own, and your mail and calendar (add the accounts there, with an app password; Microsoft 365, Outlook.com and Google Calendar sign in in the browser instead, their tokens kept in your credential store)",
           'Give each item only to some CLIs; the team settings can change it for a single member',
         ],
       },

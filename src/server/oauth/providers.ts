@@ -21,6 +21,13 @@ export type OAuthFlow = 'loopback' | 'device';
 /** A request with an account's access token: only to its provider's hosts, never following a redirect (`TokenBroker.fetch`). */
 export type AuthorizedFetch = (url: string, init?: RequestInit) => Promise<Response>;
 
+/**
+ * Why an account's token could not be had: it needs signing in again, it is gone, its refresh token
+ * cannot be read, or the provider could not renew it now. Told apart from what the service it is for
+ * answered, so that nothing falls back over it (Google's primary calendar, say): the account says so.
+ */
+export class OAuthSignInError extends Error {}
+
 /** Who an account is, from its provider: its id there (which never changes), its address and name. */
 export interface OAuthIdentity {
   subject: string;
@@ -112,47 +119,62 @@ export function microsoftProvider(client: OAuthClient, urls = microsoftUrls()): 
       if (!me.id) throw new Error('Microsoft Graph did not say who signed in');
       return { subject: me.id, email: me.mail || me.userPrincipalName || me.id, ...(me.displayName ? { name: me.displayName } : {}) };
     },
+    // Its own calendar at the address a new sign-in adds it as (`defaultCalendar`), so it is listed as added.
     calendars: (fetch) => graphCalendars(fetch, graph),
     defaultCalendar: () => ({ name: 'Calendar', url: `${graph}/v1.0/me/calendar` }),
     permissionsPages: ['https://myapps.microsoft.com', 'https://account.live.com/consent/Manage'],
   };
 }
 
-const GOOGLE_CALDAV = 'https://apidata.googleusercontent.com/caldav/v2';
+/** Where Google's sign-in, its userinfo and its CalDAV are. */
+export interface GoogleUrls {
+  authorize: string;
+  token: string;
+  revoke: string;
+  userinfo: string;
+  /** CalDAV's base: a calendar is `<caldav>/<its id>/events/`, an account's principal `<caldav>/<address>/user`. */
+  caldav: string;
+}
 
-/** Google Calendar: Google's sign-in, and its CalDAV with the token. */
-export function googleProvider(client: OAuthClient): OAuthProvider {
-  const defaultCalendar = (email: string) => ({ name: email, url: `${GOOGLE_CALDAV}/${encodeURIComponent(email)}/events/` });
+const GOOGLE: GoogleUrls = {
+  authorize: 'https://accounts.google.com/o/oauth2/v2/auth',
+  token: 'https://oauth2.googleapis.com/token',
+  revoke: 'https://oauth2.googleapis.com/revoke',
+  userinfo: 'https://openidconnect.googleapis.com/v1/userinfo',
+  caldav: 'https://apidata.googleusercontent.com/caldav/v2',
+};
+
+/** Google Calendar: Google's sign-in, and its CalDAV with the token (`urls`: a stand-in's, in tests). */
+export function googleProvider(client: OAuthClient, urls: GoogleUrls = GOOGLE): OAuthProvider {
+  const defaultCalendar = (email: string) => ({ name: email, url: `${urls.caldav}/${encodeURIComponent(email)}/events/` });
   return {
     id: 'google',
     label: 'Google',
-    endpoints: {
-      authorize: 'https://accounts.google.com/o/oauth2/v2/auth',
-      token: 'https://oauth2.googleapis.com/token',
-      revoke: 'https://oauth2.googleapis.com/revoke',
-    },
+    endpoints: { authorize: urls.authorize, token: urls.token, revoke: urls.revoke },
     clientId: client.clientId,
     ...(client.secret ? { clientSecret: client.secret } : {}),
     // Google's device flow takes a short list of scopes, without Calendar's.
     flows: ['loopback'],
     scopes: (uses) => ['openid', 'email', 'profile', ...(uses.includes('calendar') ? ['https://www.googleapis.com/auth/calendar'] : [])],
-    hosts: ['apidata.googleusercontent.com', 'openidconnect.googleapis.com'],
+    hosts: [...new Set([tokenHost(urls.caldav), tokenHost(urls.userinfo)])],
     // A refresh token every time, also for an account that signed in before.
     extraParams: { access_type: 'offline', prompt: 'consent' },
     whoami: async (fetch) => {
-      const res = await fetch('https://openidconnect.googleapis.com/v1/userinfo');
+      const res = await fetch(urls.userinfo);
       if (!res.ok) throw new Error(`Google answered ${res.status} for the signed-in account`);
       const me = (await res.json()) as { sub?: string; email?: string; name?: string };
       if (!me.sub || !me.email) throw new Error('Google did not say who signed in');
       return { subject: me.sub, email: me.email, ...(me.name ? { name: me.name } : {}) };
     },
-    // Its CalDAV with the token: the calendars its principal lists, or the primary one when it lists none.
+    // Its CalDAV with the token: the calendars its principal lists, or the primary one when it lists none
+    // or cannot be read so. Never over the sign-in's own trouble: an account that needs a new one says so.
     calendars: async (fetch, email) => {
       const primary = defaultCalendar(email);
       try {
-        const found = await discoverCalendars(`${GOOGLE_CALDAV}/${encodeURIComponent(email)}/user`, { fetch });
+        const found = await discoverCalendars(`${urls.caldav}/${encodeURIComponent(email)}/user`, { fetch });
         return found.length ? found : [primary];
-      } catch {
+      } catch (err) {
+        if (err instanceof OAuthSignInError) throw err;
         return [primary];
       }
     },

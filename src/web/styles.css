@@ -4246,6 +4246,11 @@ video.chat-media {
   gap: 4px;
 }
 
+/* The callback page's address, when another Harness Relay started the sign-in: to copy and paste there. */
+.oauth-callback-address code {
+  word-break: break-all;
+}
+
 .oauth-calendars li {
   display: flex;
   align-items: center;

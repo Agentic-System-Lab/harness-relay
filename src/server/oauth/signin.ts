@@ -155,7 +155,13 @@ export class SignIns {
       const p: Pending = {
         ...base,
         expiresAt: Math.min(expiresAt, this.now() + (body.expires_in ?? 900) * 1000),
-        device: { code: body.device_code, userCode: body.user_code, verificationUri: body.verification_uri, interval: body.interval ?? 5 },
+        // At least a second between two asks, whatever the provider says.
+        device: {
+          code: body.device_code,
+          userCode: body.user_code,
+          verificationUri: body.verification_uri,
+          interval: Math.max(1, body.interval ?? 5),
+        },
       };
       this.pending.set(id, p);
       void this.poll(p, scopes);
@@ -220,6 +226,11 @@ export class SignIns {
     return undefined;
   }
 
+  /** Whether a sign-in here gave this state: the callback's limit on misses never refuses one. */
+  knows(state: string | undefined): boolean {
+    return Boolean(state && this.byState(state));
+  }
+
   /**
    * The provider's page sent the browser back (`/oauth/callback` posted what it got): the code is
    * exchanged, with the verifier, and the account kept. The state is the proof; it works for one
@@ -261,28 +272,41 @@ export class SignIns {
     return this.view(p);
   }
 
-  /** Asks the provider whether the device code was typed, as often as it says, until it is or the code expires. */
+  /**
+   * Asks the provider whether the device code was typed, as often as it says, until it is or the code
+   * expires. The network failing, or the provider answering with a server error, is asked again at the
+   * next interval; the code refused (denied, expired) ends it.
+   */
   private async poll(p: Pending, scopes: string[]): Promise<void> {
     let wait = p.device!.interval;
+    const live = () => this.pending.get(p.id) === p && p.status === 'waiting';
     for (;;) {
       await new Promise((r) => setTimeout(r, this.pollMs(wait)).unref());
-      if (this.pending.get(p.id) !== p || p.status !== 'waiting') return;
+      if (!live()) return;
       if (this.now() >= p.expiresAt) return this.failed(p, new Error(t().oauthExpired));
+      let answer: { status: number; body: TokenAnswer };
       try {
-        const { status, body } = await tokenRequest(p.provider, {
+        answer = await tokenRequest(p.provider, {
           grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
           device_code: p.device!.code,
         });
-        if (body.error === 'authorization_pending') continue;
-        if (body.error === 'slow_down') {
-          wait += 5;
-          continue;
-        }
-        await this.signedIn(p, status, body, scopes);
-        return;
-      } catch (err) {
-        return this.failed(p, err);
+      } catch {
+        continue;
       }
+      // Cancelled while the provider was asked: nothing it answered is kept.
+      if (!live()) return;
+      const { status, body } = answer;
+      if (body.error === 'authorization_pending' || (!body.access_token && status >= 500)) continue;
+      if (body.error === 'slow_down') {
+        wait += 5;
+        continue;
+      }
+      try {
+        await this.signedIn(p, status, body, scopes);
+      } catch (err) {
+        this.failed(p, err);
+      }
+      return;
     }
   }
 

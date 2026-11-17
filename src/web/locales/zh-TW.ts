@@ -703,6 +703,8 @@ export const zhTW = {
     failed: (why: string) => `沒有完成登入：${why}`,
     close: '可以關閉這個分頁了。',
     back: '回到 Harness Relay 的設定',
+    elsewhere:
+      '這裡沒有用這個網址的登入。如果登入是從另一台電腦上的 Harness Relay 開始的（例如在 codespace 裡），請複製這個完整網址，貼到那個 Harness Relay 的「設定」顯示的欄位：',
   },
   connectors: {
     title: '郵件與行事曆帳號',
@@ -770,7 +772,7 @@ export const zhTW = {
       microsoftApp:
         '在 Microsoft Entra 系統管理中心註冊一個 app：支援「任何組織目錄中的帳戶及個人 Microsoft 帳戶」，平台選「行動與桌面應用程式」，開啟「允許公用用戶端流程」（要在另一台裝置上登入時），API 權限加上 Calendars.ReadWrite 與 offline_access。',
       googleApp:
-        '在 Google Cloud Console 建立一個「電腦版應用程式」類型的 OAuth 用戶端，啟用 Google Calendar API 與 CalDAV API，並在 OAuth 同意畫面加入 …/auth/calendar 範圍。還在「測試」階段的 app，登入每 7 天會失效一次。',
+        '在 Google Cloud Console 建立一個「電腦版應用程式」類型的 OAuth 用戶端，啟用 Google Calendar API 與 CalDAV API，並在 OAuth 同意畫面加入 …/auth/calendar 範圍。app 還在「測試」階段時，要在同意畫面的「測試使用者」加入你自己的 Google 帳號，否則 Google 會拒絕登入；而且登入每 7 天會失效一次。',
       waiting: (provider: string) => `等待 ${provider} 的登入頁面…`,
       openAgain: '再開一次登入頁面',
       pasteHint: '沒有回到這裡？如果瀏覽器說網頁打不開（例如 Harness Relay 在另一台電腦上），把那個網頁的完整網址貼在這裡：',
@@ -2102,7 +2104,7 @@ export const zhTW = {
           'MCP 伺服器：本機指令或網址，token 存在系統的金鑰儲存區',
           'Skills：從資料夾裡挑選要加入的 skill（例如 ~/.claude/skills）',
           '記憶：所有成員共用，加上各 CLI 專屬的一份',
-          'Harness Relay 自己的工具：它自己的瀏覽器，以及你的郵件與行事曆（在那裡用應用程式專用密碼加入帳號）',
+          'Harness Relay 自己的工具：它自己的瀏覽器，以及你的郵件與行事曆（在那裡用應用程式專用密碼加入帳號；Microsoft 365、Outlook.com 與 Google 日曆改在瀏覽器裡登入，權杖存在系統的憑證儲存區）',
           '每一項可以只給某幾種 CLI；團隊設定裡也能針對單一成員調整',
         ],
       },
