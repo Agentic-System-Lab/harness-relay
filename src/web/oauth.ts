@@ -27,14 +27,18 @@ export function redirectAddresses(provider: OAuthProviderId, origin: string): st
   return [...new Set([...(own ? [own] : []), `http://localhost${CALLBACK_PATH}`])];
 }
 
-/** What the provider's page sent the browser back with: the code and state, or its error. */
-export function callbackFrom(search: string): { state?: string; code?: string; error?: string } {
+/**
+ * What the provider's page sent the browser back with: the code and state, or its error (capped), and
+ * the issuer it names (`iss`, RFC 9207: the server refuses one that is not the sign-in's own).
+ */
+export function callbackFrom(search: string): { state?: string; code?: string; error?: string; iss?: string } {
   const q = new URLSearchParams(search);
   const error = q.get('error');
   return {
     ...(q.get('state') ? { state: q.get('state')! } : {}),
     ...(q.get('code') ? { code: q.get('code')! } : {}),
-    ...(error ? { error: [error, q.get('error_description')].filter(Boolean).join(': ') } : {}),
+    ...(error ? { error: [error.slice(0, 100), q.get('error_description')?.slice(0, 300)].filter(Boolean).join(': ') } : {}),
+    ...(q.get('iss') !== null ? { iss: q.get('iss')! } : {}),
   };
 }
 
@@ -86,6 +90,35 @@ export function waiting(v: OAuthSignInView | undefined): boolean {
 /** The name a calendar of an account gets in the calendar tools: its own, then whose it is. */
 export function calendarName(account: Pick<OAuthAccountView, 'email'>, calendar: string): string {
   return `${calendar} · ${account.email}`.slice(0, 60);
+}
+
+/**
+ * Whether two URLs name the same MCP server as the server tells them apart (its canonical URL: scheme and
+ * host in lower case, no default port, no fragment, no slash at the end of its path): another one signs
+ * a server out.
+ */
+export function sameServerUrl(a: string, b: string): boolean {
+  const canonical = (url: string) => {
+    try {
+      const u = new URL(url.trim());
+      return `${u.protocol}//${u.host}${u.pathname.replace(/\/+$/, '')}${u.search}`;
+    } catch {
+      return url.trim();
+    }
+  };
+  return canonical(a) === canonical(b);
+}
+
+/**
+ * What an MCP server's sign-in asks the user to confirm before its page opens, a line each: its page is
+ * on another host than its authorization server's, and (or) its token endpoint is.
+ */
+export function confirmLines(confirm: NonNullable<OAuthSignInView['confirm']>, t: Messages): string[] {
+  const m = t.tools.signIn;
+  return [
+    ...(confirm.host !== confirm.issuer ? [m.confirmPage(confirm.host, confirm.issuer)] : []),
+    ...(confirm.tokenHost ? [m.confirmToken(confirm.tokenHost, confirm.issuer)] : []),
+  ];
 }
 
 /**

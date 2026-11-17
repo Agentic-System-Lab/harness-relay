@@ -1,5 +1,6 @@
 import type { OAuthProviderId, OAuthUse } from '../../shared/types';
 import { CONFIG } from '../config';
+import type { ProviderRequest } from './broker';
 import { discoverCalendars } from '../connectors/caldav';
 import { graphCalendars } from '../connectors/graph';
 
@@ -65,6 +66,16 @@ export interface OAuthProvider {
    * may give none): its access token works until it expires, and it then needs a new sign-in.
    */
   refreshOptional?: boolean;
+  /**
+   * Its authorization server's issuer, as its metadata names it (an MCP server's): the `iss` a redirect
+   * brings back must be it (RFC 9207), and must be there when `issParameter` (the metadata's
+   * `authorization_response_iss_parameter_supported`). None for the built-in providers, whose endpoints
+   * are fixed: a code of theirs can only go to their own token endpoint.
+   */
+  issuer?: string;
+  issParameter?: boolean;
+  /** How its token requests go (an MCP server's: only to addresses checked for it); this process's fetch otherwise. */
+  send?: (url: string, r: ProviderRequest) => Promise<Response>;
 }
 
 /** A provider whose accounts sign in (Microsoft, Google): who signed in, and their calendars. */

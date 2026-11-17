@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { OAUTH_LIMITS, type OAuthAccountView, type OAuthProviderId, type OAuthSignInView, type OAuthUse } from '../../shared/types';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
-import { hostOnlyFetch, tokenError, tokenRequest, type TokenAnswer } from './broker';
+import { answerText, hostOnlyFetch, jsonObject, plainSend, tokenError, tokenRequest, type TokenAnswer } from './broker';
 import { missingScopes, useScopes, type OAuthProvider } from './providers';
 
 /*
@@ -24,7 +24,11 @@ import { missingScopes, useScopes, type OAuthProvider } from './providers';
  *
  * A sign-in is an account's (Microsoft, Google: `service.ts`) or a tool library MCP server's own
  * (`mcp.ts`), whose provider is a description built from what the server publishes; each brings what
- * keeps the sign-in once it worked (`keep`), and every check here holds for both alike.
+ * keeps the sign-in once it worked (`keep`), and every check here holds for both alike. An MCP server's
+ * also guards against a mix-up (one client, many authorization servers: a hostile server's metadata
+ * naming another's sign-in page, to have its code sent to its own token endpoint): the `iss` its redirect
+ * brings back must be its issuer (RFC 9207), and a sign-in page or token endpoint that is not on the
+ * issuer's own origin is shown to the user first (`confirm`), its page given only once they confirm.
  */
 
 /** A sign-in that worked, for what started it to keep: the tokens and the scopes granted. */
@@ -55,6 +59,8 @@ interface Pending {
   redirectUri?: string;
   authorizeUrl?: string;
   device?: { code: string; userCode: string; verificationUri: string; interval: number };
+  /** Its page or token endpoint is not on its issuer's origin, and the user has not confirmed it yet: its page is not given. */
+  unconfirmed?: NonNullable<OAuthSignInView['confirm']>;
   expiresAt: number;
   status: OAuthSignInView['status'];
   account?: OAuthAccountView;
@@ -89,8 +95,22 @@ export function loopbackOrigin(origin: string | undefined): string | undefined {
   }
 }
 
-/** The code and state (or the provider's error) in the address its page sent the browser to. */
-export function callbackParams(address: string): { code?: string; state?: string; error?: string } {
+/** What came back to the redirect address: the code and state, or the provider's error, and its issuer (RFC 9207). */
+export interface CallbackParams {
+  code?: string;
+  state?: string;
+  error?: string;
+  iss?: string;
+}
+
+/** The provider's error as one line: its code and description, capped. */
+export function callbackError(error: string | null | undefined, description?: string | null): string | undefined {
+  const code = answerText(error, 100);
+  return code ? [code, answerText(description, 300)].filter(Boolean).join(': ') : undefined;
+}
+
+/** The code and state (or the provider's error), and the issuer, in the address its page sent the browser to. */
+export function callbackParams(address: string): CallbackParams {
   let u: URL;
   try {
     u = new URL(address.trim());
@@ -98,16 +118,19 @@ export function callbackParams(address: string): { code?: string; state?: string
     throw new HttpError(400, t().oauthBadAddress);
   }
   const q = u.searchParams;
-  const error = q.get('error');
+  const error = callbackError(q.get('error'), q.get('error_description'));
   return {
     ...(q.get('code') ? { code: q.get('code')! } : {}),
     ...(q.get('state') ? { state: q.get('state')! } : {}),
-    ...(error ? { error: [error, q.get('error_description')].filter(Boolean).join(': ') } : {}),
+    ...(error ? { error } : {}),
+    ...(q.get('iss') !== null ? { iss: q.get('iss')! } : {}),
   };
 }
 
 export class SignIns {
   private pending = new Map<string, Pending>();
+  /** Sign-ins being prepared (an MCP server's discovery and registration): they count as waiting (`reserve()`). */
+  private preparing = 0;
 
   constructor(
     private now: () => number = Date.now,
@@ -127,18 +150,35 @@ export class SignIns {
     }
   }
 
-  /** Refuses another sign-in while too many wait (429): checked again as one starts, and before an MCP server's registration. */
+  /** Refuses another sign-in while too many wait or are being prepared (429): checked again as one starts. */
   assertRoom(): void {
     this.sweep();
-    if ([...this.pending.values()].filter((p) => p.status === 'waiting').length >= OAUTH_LIMITS.pending)
+    if ([...this.pending.values()].filter((p) => p.status === 'waiting').length + this.preparing >= OAUTH_LIMITS.pending)
       throw new HttpError(429, t().oauthTooMany);
+  }
+
+  /**
+   * Holds a place for a sign-in being prepared (an MCP server's discovery and registration, which take
+   * a while), refused as `assertRoom()` refuses; the function it answers gives the place back, once,
+   * before the sign-in starts.
+   */
+  reserve(): () => void {
+    this.assertRoom();
+    this.preparing++;
+    let held = true;
+    return () => {
+      if (held) this.preparing--;
+      held = false;
+    };
   }
 
   /**
    * Start a sign-in: the provider's page to open, with a redirect to `origin`'s own web app when the
    * page is on this computer (else to this computer's port on localhost: the address it then shows is
    * pasted back, `redirectAddress()`), or, with `device`, a code to type at the provider's address.
-   * `keep` keeps it once it worked; `server`, for an MCP server's own sign-in, names it.
+   * `keep` keeps it once it worked; `server`, for an MCP server's own sign-in, names it; `confirm`: its
+   * page (or token endpoint) is not on its issuer's origin, so the page is given only once the user
+   * confirms (`confirm()`).
    */
   async start(o: {
     provider: OAuthProvider;
@@ -149,6 +189,7 @@ export class SignIns {
     origin?: string;
     port: number;
     device?: boolean;
+    confirm?: NonNullable<OAuthSignInView['confirm']>;
   }): Promise<OAuthSignInView> {
     this.assertRoom();
     const { provider, uses } = o;
@@ -167,24 +208,24 @@ export class SignIns {
     };
     if (o.device) {
       if (!provider.flows.includes('device') || !provider.endpoints.device) throw new HttpError(400, t().oauthNoDevice(provider.label));
-      const res = await fetch(provider.endpoints.device, {
+      const res = await (provider.send ?? plainSend)(provider.endpoints.device, {
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
         body: new URLSearchParams({ client_id: provider.clientId, ...(scopes.length ? { scope: scopes.join(' ') } : {}) }).toString(),
-        redirect: 'manual',
-        signal: AbortSignal.timeout(30_000),
+        timeoutMs: 30_000,
       });
-      const body = (await res.json().catch(() => ({}))) as {
-        device_code?: string;
-        user_code?: string;
-        verification_uri?: string;
-        expires_in?: number;
-        interval?: number;
-        error?: string;
-        error_description?: string;
+      const raw = (await jsonObject(res)) ?? {};
+      const text = (v: unknown, max: number) => (typeof v === 'string' && v && v.length <= max ? v : undefined);
+      const number = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined);
+      const body = {
+        device_code: text(raw.device_code, 4096),
+        user_code: text(raw.user_code, 100),
+        verification_uri: text(raw.verification_uri, 2000),
+        expires_in: number(raw.expires_in),
+        interval: number(raw.interval),
       };
       if (!body.device_code || !body.user_code || !body.verification_uri)
-        throw new HttpError(502, t().oauthStartFailed(provider.label, tokenError(res.status, body)));
+        throw new HttpError(502, t().oauthStartFailed(provider.label, tokenError(res.status, raw)));
       const p: Pending = {
         ...base,
         expiresAt: Math.min(expiresAt, this.now() + (body.expires_in ?? 900) * 1000),
@@ -216,8 +257,26 @@ export class SignIns {
       ...provider.extraParams,
     }))
       url.searchParams.set(k, v);
-    const p: Pending = { ...base, stateHash: sha256(state), verifier, redirectUri, authorizeUrl: url.href };
+    const p: Pending = {
+      ...base,
+      stateHash: sha256(state),
+      verifier,
+      redirectUri,
+      authorizeUrl: url.href,
+      ...(o.confirm ? { unconfirmed: o.confirm } : {}),
+    };
     this.pending.set(id, p);
+    return this.view(p);
+  }
+
+  /**
+   * The user confirmed a sign-in whose page (or token endpoint) is not on its issuer's origin, having
+   * been shown where: it is recorded, and its page given. For the browser session that started it only.
+   */
+  confirm(id: string, session?: string): OAuthSignInView {
+    this.sweep();
+    const p = this.own(id, session);
+    if (p.status === 'waiting') delete p.unconfirmed;
     return this.view(p);
   }
 
@@ -264,7 +323,9 @@ export class SignIns {
       ...(p.server ? { server: { ...p.server } } : {}),
       status: p.status,
       expiresAt: p.expiresAt,
-      ...(p.authorizeUrl && p.status === 'waiting' ? { authorizeUrl: p.authorizeUrl } : {}),
+      // Not confirmed yet: where its page is, and not the page itself.
+      ...(p.unconfirmed && p.status === 'waiting' ? { confirm: { ...p.unconfirmed } } : {}),
+      ...(p.authorizeUrl && p.status === 'waiting' && !p.unconfirmed ? { authorizeUrl: p.authorizeUrl } : {}),
       ...(p.redirectUri ? { redirectUri: p.redirectUri } : {}),
       ...(p.device && p.status === 'waiting' ? { device: { userCode: p.device.userCode, verificationUri: p.device.verificationUri } } : {}),
       ...(p.account ? { account: p.account } : {}),
@@ -289,7 +350,7 @@ export class SignIns {
    * exchanged, with the verifier, and the account kept. The state is the proof; it works for one
    * sign-in only, and once: the same address posted again answers how that sign-in went.
    */
-  async callback(o: { state?: string; code?: string; error?: string }): Promise<OAuthSignInView> {
+  async callback(o: CallbackParams): Promise<OAuthSignInView> {
     this.sweep();
     const p = o.state ? this.byState(o.state) : undefined;
     if (!p) throw new HttpError(404, t().oauthSignInNotFound);
@@ -308,10 +369,17 @@ export class SignIns {
     return this.callback(got);
   }
 
-  private async finish(p: Pending, o: { code?: string; error?: string }): Promise<OAuthSignInView> {
+  private async finish(p: Pending, o: CallbackParams): Promise<OAuthSignInView> {
     const scopes = p.provider.scopes(p.uses);
     try {
-      if (o.error || !o.code) throw new Error(t().oauthRefused(p.provider.label, o.error ?? t().oauthNoCode));
+      // Its page was never given (it waits for the user to confirm where it is): whatever came back is not taken.
+      if (p.unconfirmed) throw new Error(t().oauthNotConfirmed(p.provider.label));
+      // RFC 9207: the issuer that answered must be the one this sign-in started at, and say so when it says it will.
+      const issuer = p.provider.issuer;
+      if (issuer && o.iss !== undefined && o.iss !== issuer)
+        throw new Error(t().oauthOtherIssuer(p.provider.label, answerText(o.iss, 200) ?? ''));
+      if (issuer && o.iss === undefined && p.provider.issParameter) throw new Error(t().oauthNoIssuer(p.provider.label));
+      if (o.error || !o.code) throw new Error(t().oauthRefused(p.provider.label, answerText(o.error, 400) ?? t().oauthNoCode));
       const { status, body } = await tokenRequest(p.provider, {
         grant_type: 'authorization_code',
         code: o.code,

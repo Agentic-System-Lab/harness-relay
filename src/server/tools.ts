@@ -22,6 +22,7 @@ import {
   type ToolLibraryUpdate,
   type ToolLibraryView,
 } from '../shared/types';
+import { NO_HTTP_MCP } from './agents/acp';
 import type { McpServerSpec } from './agents/types';
 import type { Database } from './db';
 import { HttpError } from './errors';
@@ -94,6 +95,10 @@ export interface StoredMcpOAuth {
   error?: string;
   /** Its sign-in brought no refresh token: it lasts as long as its access token. */
   noRefresh?: boolean;
+  /** Its authorization server's redirects bring back `iss` (RFC 9207): one without it is refused. */
+  issParameter?: boolean;
+  /** Its client was refused at a refresh (`invalid_client`, `unauthorized_client`): the next sign-in registers again. */
+  clientRefused?: boolean;
 }
 
 /** An HTTP server's sign-in secrets, in the credential store as one entry. */
@@ -602,6 +607,14 @@ export class ToolLibrary {
     this.save();
   }
 
+  /** Its client was refused (expired, purged): it needs a new sign-in, which registers a client again. */
+  mcpClientRefused(id: string, why: string): void {
+    const server = this.data.mcpServers.find((s) => s.id === id);
+    if (!server?.oauth) return;
+    server.oauth = { ...server.oauth, status: 'reauth', error: why, clientRefused: true };
+    this.save();
+  }
+
   /** Signs a server out: its sign-in and its secrets go; what it had comes back, for the caller to revoke (`McpOAuth.signOut()`). */
   mcpSignOut(id: string): DroppedMcpOAuth | undefined {
     const server = this.data.mcpServers.find((s) => s.id === id);
@@ -692,7 +705,10 @@ export class ToolLibrary {
     this.readAgain();
     const on = (key: string, providers: Provider[]) => agentHasTool(agent, key, providers.includes(agent.provider));
     const given = this.data.mcpServers.filter((s) => !this.unreadable.has(s.id) && on(toolKey('mcp', s.id), s.providers));
-    const oauthServers = given.filter((s) => s.transport === 'http' && s.oauth).map((s) => ({ name: s.name, id: s.id }));
+    // Not for a CLI that takes no HTTP MCP server (they are left out of its runs): no token, no refresh, no note.
+    const oauthServers = NO_HTTP_MCP.includes(agent.provider)
+      ? []
+      : given.filter((s) => s.transport === 'http' && s.oauth).map((s) => ({ name: s.name, id: s.id }));
     const mcpServers = given.map<McpServerSpec>((s) => {
       const secrets = this.secrets.get(s.id) ?? { env: {}, headers: {} };
       return {

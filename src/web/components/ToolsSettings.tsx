@@ -13,6 +13,7 @@ import {
 } from '../../shared/types';
 import { api } from '../api';
 import { useT, type Messages } from '../i18n';
+import { sameServerUrl } from '../oauth';
 import { PROVIDER_COLOR } from '../util';
 import { sectionId } from '../route';
 import { ConnectorsSettings } from './ConnectorsSettings';
@@ -277,6 +278,8 @@ function McpForm({ server, change, onDone }: { server?: McpServerView; change: C
 
   // A stored value cannot follow a new name: the row needs its value typed again.
   const renamed = rows.filter((r) => r.masked !== undefined && r.name.trim() && r.name.trim() !== r.stored && !r.value);
+  // A server signed in: another URL or transport is another server, and signs it out (said, louder once changed).
+  const signsOut = Boolean(server?.oauth && (transport !== server.transport || !sameServerUrl(url, server.url)));
 
   const save = async () => {
     setSaving(true);
@@ -325,6 +328,11 @@ function McpForm({ server, change, onDone }: { server?: McpServerView; change: C
           </div>
         </div>
       </div>
+      {server?.oauth && (
+        <p className={`small ${signsOut ? 'warn-text' : 'muted'}`} role={signsOut ? 'alert' : undefined}>
+          {t.tools.signIn.changeSignsOut}
+        </p>
+      )}
       {http ? (
         <label className="field">
           <span>{t.tools.url}</span>

@@ -267,7 +267,14 @@ export interface OAuthSignInView {
   server?: { id: string; name: string };
   status: 'waiting' | 'done' | 'failed';
   expiresAt: number;
+  /** The provider's page to open: not given while `confirm` waits. */
   authorizeUrl?: string;
+  /**
+   * An MCP server's sign-in whose page (`host`) or token endpoint (`tokenHost`) is not on its
+   * authorization server's own origin (`issuer`, its host): the user is shown where they will sign in,
+   * and the page is given only once they confirm (`POST /api/oauth/signins/:id/confirm`).
+   */
+  confirm?: { host: string; issuer: string; tokenHost?: string };
   redirectUri?: string;
   device?: { userCode: string; verificationUri: string };
   account?: OAuthAccountView;

@@ -182,6 +182,30 @@ export function openSignInPage(url: string): boolean {
 }
 
 /**
+ * A blank tab opened on the click itself, for a sign-in page whose address comes only once the server
+ * answered (an MCP server's discovery and registration can outlast a browser's user activation, after
+ * which Safari blocks the tab): null in the desktop app's window, which opens the page in the system
+ * browser once it is known (`showSignInPage()`), and when the browser blocked it.
+ */
+export function openPendingTab(): Window | null {
+  if (isAppWindow(navigator.userAgent)) return null;
+  const tab = window.open('', '_blank');
+  if (tab) tab.opener = null;
+  return tab;
+}
+
+/**
+ * Shows a sign-in's page in the tab opened for it (`openPendingTab()`), or in the desktop app in the
+ * system browser; false when the browser blocked it, to say so.
+ */
+export function showSignInPage(tab: Window | null, url: string): boolean {
+  // No tab (blocked on the click, or closed since): one more try, which a browser may still allow.
+  if (isAppWindow(navigator.userAgent) || !tab || tab.closed) return openSignInPage(url);
+  tab.location.href = url;
+  return true;
+}
+
+/**
  * Follows a sign-in while it waits, asking the server how it goes every moment and handing each answer
  * to `onChange`; one the server no longer has (it restarted, or it ended long ago) is over (`undefined`).
  */

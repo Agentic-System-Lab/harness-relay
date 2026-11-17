@@ -2,15 +2,17 @@ import { useEffect, useRef, useState } from 'react';
 import type { McpServerView, OAuthSignInView, ToolLibraryView } from '../../shared/types';
 import { ApiError, api } from '../api';
 import { useI18n } from '../i18n';
-import { mcpSignInLine, waiting } from '../oauth';
-import { openSignInPage, SignInWaiting, useFollowSignIn } from './OAuthAccounts';
+import { confirmLines, mcpSignInLine, waiting } from '../oauth';
+import { openPendingTab, showSignInPage, SignInWaiting, useFollowSignIn } from './OAuthAccounts';
 
 /**
  * An HTTP MCP server's own sign-in, in its row of Settings → Tool library → MCP servers (MCP's
  * authorization: the server and its authorization server say where it signs in). The server runs the
- * sign-in, as it does an account's: this starts it (the authorization server's page in a new tab, in the
- * desktop app in the system browser), follows it, takes a pasted address when that page cannot come back
- * here, and shows its state: signed in (since when), or needing a new sign-in. No token ever comes here.
+ * sign-in, as it does an account's: this starts it (the authorization server's page in a tab opened on
+ * the click, navigated once the server answers; in the desktop app in the system browser), follows it,
+ * takes a pasted address when that page cannot come back here, and shows its state: signed in (since
+ * when), or needing a new sign-in. A sign-in whose page (or token endpoint) is not on its authorization
+ * server's own host first says where, and opens only on Continue. No token ever comes here.
  * `change`: runs a call that answers the library, and shows it (or its error).
  */
 export function McpSignIn({
@@ -40,21 +42,33 @@ export function McpSignIn({
     setSignIn(undefined);
   }, [ended, m, server.name, change]);
 
-  const start = async () => {
+  /** Opens a tab on the click, runs `call`, and shows the page it answers in that tab (closed when there is none to show). */
+  const withPage = async (call: () => Promise<OAuthSignInView>) => {
     setError('');
     setInfo('');
     setBusy(true);
+    const tab = openPendingTab();
     try {
-      const v = await api.startMcpSignIn(server.name);
+      const v = await call();
       setSignIn(v);
-      if (v.authorizeUrl && !openSignInPage(v.authorizeUrl)) setError(t.connectors.oauth.popupBlocked);
+      if (v.authorizeUrl && !v.confirm) {
+        if (!showSignInPage(tab, v.authorizeUrl)) setError(t.connectors.oauth.popupBlocked);
+      } else tab?.close();
     } catch (e) {
+      tab?.close();
       // One that asks for no sign-in says so: news, not trouble.
       if (e instanceof ApiError && e.code === 'mcp-no-sign-in') setInfo(e.message);
       else setError((e as Error).message);
     } finally {
       setBusy(false);
     }
+  };
+  const start = () => withPage(() => api.startMcpSignIn(server.name));
+  // Its page is on another host than its authorization server's: Continue opens it, once the server records it.
+  const proceed = (id: string) => withPage(() => api.confirmOAuthSignIn(id));
+  const cancel = async (id: string) => {
+    await api.cancelOAuthSignIn(id).catch(() => undefined);
+    setSignIn(undefined);
   };
 
   const signOut = async () => {
@@ -65,6 +79,7 @@ export function McpSignIn({
 
   const line = mcpSignInLine(server.oauth, t, lang);
   const under = Boolean(signIn && waiting(signIn));
+  const asking = under && signIn?.confirm ? signIn : undefined;
   return (
     <div className="mcp-signin">
       <div className="mcp-signin-row">
@@ -80,7 +95,25 @@ export function McpSignIn({
           )}
         </div>
       </div>
-      {signIn && under && <SignInWaiting signIn={signIn} label={server.name} onChange={setSignIn} onError={setError} />}
+      {asking?.confirm && (
+        <div className="oauth-waiting mcp-confirm" role="alert">
+          {confirmLines(asking.confirm, t).map((l) => (
+            <p key={l} className="small warn-text">
+              {l}
+            </p>
+          ))}
+          <p className="small muted">{m.confirmHint}</p>
+          <div className="form-actions">
+            <button type="button" className="ghost small-button" onClick={() => void cancel(asking.id)}>
+              {t.connectors.oauth.cancel}
+            </button>
+            <button type="button" className="primary small-button" disabled={busy} onClick={() => void proceed(asking.id)}>
+              {m.confirmContinue}
+            </button>
+          </div>
+        </div>
+      )}
+      {signIn && under && !asking && <SignInWaiting signIn={signIn} label={server.name} onChange={setSignIn} onError={setError} />}
       {error && <p className="error-line">{error}</p>}
       {info && <p className="small ok-text">{info}</p>}
     </div>

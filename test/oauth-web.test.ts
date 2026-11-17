@@ -2,10 +2,21 @@
  * Accounts that sign in with OAuth, in the page (`src/web/oauth.ts`): the redirect addresses a
  * provider's app must allow, what the provider's page sent back to /oauth/callback and what that page
  * does with the server's answer (an account's sign-in or an MCP server's), the name an account's calendar
- * gets, when a sign-in page that did not open was blocked, and what an MCP server's row says of its sign-in.
+ * gets, when a sign-in page that did not open was blocked, what an MCP server's row says of its sign-in,
+ * what it asks before a page elsewhere opens, and when its form says that a change signs it out.
  */
 import { describe, expect, it } from 'vitest';
-import { calendarName, callbackFrom, callbackOutcome, mcpSignInLine, redirectAddresses, sayPopupBlocked, waiting } from '../src/web/oauth';
+import {
+  calendarName,
+  callbackFrom,
+  callbackOutcome,
+  confirmLines,
+  mcpSignInLine,
+  redirectAddresses,
+  sameServerUrl,
+  sayPopupBlocked,
+  waiting,
+} from '../src/web/oauth';
 import { isAppWindow } from '../src/web/update';
 import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
@@ -22,13 +33,24 @@ describe('signing in with OAuth, in the page', () => {
     expect(redirectAddresses('google', 'http://127.0.0.1:8787')).toEqual([]);
   });
 
-  it('reads the code and state the provider sent back, or its error', () => {
+  it('reads the code and state the provider sent back, or its error, and the issuer it names', () => {
     expect(callbackFrom('?code=abc&state=xyz&session_state=1')).toEqual({ code: 'abc', state: 'xyz' });
     expect(callbackFrom('?error=access_denied&error_description=The+user+said+no&state=xyz')).toEqual({
       state: 'xyz',
       error: 'access_denied: The user said no',
     });
     expect(callbackFrom('')).toEqual({});
+    // RFC 9207: forwarded for the server to check, even empty (it is then not the sign-in's issuer).
+    expect(callbackFrom('?code=abc&state=xyz&iss=https%3A%2F%2Faccounts.google.com')).toEqual({
+      code: 'abc',
+      state: 'xyz',
+      iss: 'https://accounts.google.com',
+    });
+    expect(callbackFrom('?code=abc&state=xyz&iss=').iss).toBe('');
+    // A long error is capped.
+    expect(callbackFrom(`?error=${'e'.repeat(500)}&error_description=${'d'.repeat(500)}`).error).toBe(
+      `${'e'.repeat(100)}: ${'d'.repeat(300)}`,
+    );
   });
 
   it('takes the code and state off the callback page’s address only once a sign-in here answered', () => {
@@ -88,5 +110,26 @@ describe('signing in with OAuth, in the page', () => {
       text: "Its sign-in no longer works (invalid_grant): members' turns go without it until it signs in again.",
       warn: true,
     });
+  });
+
+  it('says where a sign-in page elsewhere is, and its token endpoint, before it opens', () => {
+    expect(confirmLines({ host: 'linear.app', issuer: 'evil.example' }, en)).toEqual([
+      'You will sign in at linear.app, which is not evil.example.',
+    ]);
+    expect(confirmLines({ host: 'evil.example', issuer: 'evil.example', tokenHost: 'tokens.example' }, en)).toEqual([
+      'The sign-in is finished at tokens.example, which is not evil.example.',
+    ]);
+    expect(confirmLines({ host: 'linear.app', issuer: 'evil.example', tokenHost: 'tokens.example' }, zhTW)).toEqual([
+      '你會在 linear.app 登入，它不是 evil.example。',
+      '登入會在 tokens.example 完成，它不是 evil.example。',
+    ]);
+  });
+
+  it("tells a signed-in server's new URL from the same one written otherwise", () => {
+    expect(sameServerUrl('https://mcp.example.com/mcp', 'https://mcp.example.com/mcp/')).toBe(true);
+    expect(sameServerUrl('HTTPS://MCP.Example.com:443/mcp#x', ' https://mcp.example.com/mcp ')).toBe(true);
+    expect(sameServerUrl('https://mcp.example.com/mcp', 'https://mcp.example.com/v2/mcp')).toBe(false);
+    expect(sameServerUrl('https://mcp.example.com/mcp', 'https://mcp.example.com/mcp?team=1')).toBe(false);
+    expect(sameServerUrl('not a url', 'not a url ')).toBe(true);
   });
 });

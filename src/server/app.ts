@@ -687,12 +687,15 @@ export function createApp({
     oauth.signIns.cancel(c.req.param('id'), sessions.get(c.req.raw));
     return c.json({ ok: true });
   });
+  // The user confirmed a sign-in whose page or token endpoint is not on its authorization server's own
+  // origin (an MCP server's, `confirm`), having been shown where: only now is its page given.
+  app.post('/api/oauth/signins/:id/confirm', (c) => c.json(oauth.signIns.confirm(c.req.param('id'), sessions.get(c.req.raw))));
   // The page the provider sent the browser back to (`/oauth/callback`) posts the code and state it got:
   // the state is the proof (OPEN above). It answers how that sign-in went, and whose account it is.
   app.post('/api/oauth/callback', async (c) => {
     const now = Date.now();
     while (callbackMisses.length && callbackMisses[0]! < now - 10 * 60_000) callbackMisses.shift();
-    const b = await body<{ state?: unknown; code?: unknown; error?: unknown }>(c);
+    const b = await body<{ state?: unknown; code?: unknown; error?: unknown; iss?: unknown }>(c);
     const field = (v: unknown) => (typeof v === 'string' && v.length <= 4096 ? v : undefined);
     const state = field(b.state);
     // Guessing states is what the limit stops: a state a sign-in here gave always goes through.
@@ -700,7 +703,14 @@ export function createApp({
     try {
       const code = field(b.code);
       const error = field(b.error);
-      const v = await oauth.signIns.callback({ ...(state ? { state } : {}), ...(code ? { code } : {}), ...(error ? { error } : {}) });
+      // The issuer the redirect named (RFC 9207), even empty: one there that is not the sign-in's is refused.
+      const iss = typeof b.iss === 'string' ? (field(b.iss) ?? '') : undefined;
+      const v = await oauth.signIns.callback({
+        ...(state ? { state } : {}),
+        ...(code ? { code } : {}),
+        ...(error ? { error } : {}),
+        ...(iss !== undefined ? { iss } : {}),
+      });
       return c.json({
         status: v.status,
         provider: v.provider,

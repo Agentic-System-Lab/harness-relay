@@ -351,8 +351,10 @@ export const api = {
   oauthSignIn: (id: string) => request<OAuthSignInView>('GET', `/api/oauth/signins/${id}`),
   pasteOAuthAddress: (id: string, address: string) => request<OAuthSignInView>('POST', `/api/oauth/signins/${id}/address`, { address }),
   cancelOAuthSignIn: (id: string) => request<{ ok: true }>('DELETE', `/api/oauth/signins/${id}`),
+  /** The user confirmed where a sign-in's page is (`OAuthSignInView.confirm`): the page comes back to open. */
+  confirmOAuthSignIn: (id: string) => request<OAuthSignInView>('POST', `/api/oauth/signins/${id}/confirm`, {}),
   /** The page the provider sent the browser back to posts what it got: its state is the proof (no sign-in needed). */
-  oauthCallback: (b: { state?: string; code?: string; error?: string }) =>
+  oauthCallback: (b: { state?: string; code?: string; error?: string; iss?: string }) =>
     request<{ status: OAuthSignInView['status']; provider: OAuthSignInView['provider']; email?: string; server?: string; error?: string }>(
       'POST',
       '/api/oauth/callback',

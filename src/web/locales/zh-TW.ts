@@ -1329,7 +1329,7 @@ export const zhTW = {
     confirmRemove: (name: string) => `要刪除 MCP 伺服器「${name}」嗎？`,
     secretsIn: (where: string) => `變數和標頭的值存放於${where}，畫面上只顯示遮蔽後的值。`,
     signIn: {
-      hint: '要求登入的 HTTP 伺服器（MCP 的 OAuth 授權），可以在這裡登入，不必把 token 手動填進標頭。登入的權杖存放於金鑰儲存區；每一回合，拿到它的成員會在 Authorization 標頭收到一個還能用一陣子的存取權杖。',
+      hint: '要求登入的 HTTP 伺服器（MCP 的 OAuth 授權），可以在這裡登入，不必把 token 手動填進標頭。它的更新權杖（refresh token）存放於金鑰儲存區；每一回合，拿到它的成員會在 Authorization 標頭收到一個還能用一陣子的存取權杖。',
       signIn: '登入',
       signInAgain: '重新登入',
       signOut: '登出',
@@ -1340,6 +1340,12 @@ export const zhTW = {
       confirmSignOut: (name: string) => `要登出 ${name} 嗎？它的權杖會被刪除，授權伺服器能撤銷的話也會撤銷。`,
       done: (name: string) => `已登入 ${name}。`,
       signedOut: (name: string) => `已登出 ${name}。`,
+      confirmPage: (host: string, issuer: string) => `你會在 ${host} 登入，它不是 ${issuer}。`,
+      confirmToken: (host: string, issuer: string) => `登入會在 ${host} 完成，它不是 ${issuer}。`,
+      confirmHint:
+        '這些位址是這台 MCP 伺服器的中繼資料寫的。一台冒充的伺服器可以藉此拿到你在別的服務的登入：只有在你預期是這樣、也信任它們時才繼續。',
+      confirmContinue: '繼續',
+      changeSignsOut: '它已經登入了：改了它的網址或傳輸方式，就會登出它（刪除並撤銷它的權杖）。',
     },
     skills: 'Skills',
     skillsHint:
@@ -2115,7 +2121,7 @@ export const zhTW = {
         title: '工具庫：MCP、skill、記憶與 Harness Relay 的工具',
         body: '在「設定 → 工具庫」設定一次，每位成員都能用，不管它跑在哪個 CLI，而且加在各 CLI 自己的設定之外：',
         points: [
-          'MCP 伺服器：本機指令或網址，token 存在系統的金鑰儲存區',
+          'MCP 伺服器：本機指令或網址，token 存在系統的金鑰儲存區；要求 OAuth 登入的伺服器直接在這裡登入',
           'Skills：從資料夾裡挑選要加入的 skill（例如 ~/.claude/skills）',
           '記憶：所有成員共用，加上各 CLI 專屬的一份',
           'Harness Relay 自己的工具：它自己的瀏覽器，以及你的郵件與行事曆（在那裡用應用程式專用密碼加入帳號；Microsoft 365、Outlook.com 與 Google 日曆改在瀏覽器裡登入，權杖存在系統的憑證儲存區）',

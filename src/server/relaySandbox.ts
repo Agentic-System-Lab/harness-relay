@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { accessSync, closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { homedir, networkInterfaces } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { createServer } from 'node:net';
+import { BlockList, createServer, isIP } from 'node:net';
 import { createInterface } from 'node:readline';
 import type { Duplex } from 'node:stream';
 import { createRequire } from 'node:module';
@@ -542,6 +542,29 @@ export function isLocalHost(host: string, own: readonly string[] = []): boolean 
   if (g.every((x) => x === 0)) return true; // unspecified
   if ((g[0]! & 0xffc0) === 0xfe80 || (g[0]! & 0xff00) === 0xff00) return true; // link-local, multicast
   return METADATA_V6.includes(h);
+}
+
+/**
+ * The private networks (and the shared address space VPNs such as Tailscale use, and the one kept for
+ * benchmarks): the local network, to the browser tools and to an MCP server's sign-in.
+ */
+const PRIVATE = new BlockList();
+PRIVATE.addSubnet('10.0.0.0', 8, 'ipv4');
+PRIVATE.addSubnet('172.16.0.0', 12, 'ipv4');
+PRIVATE.addSubnet('192.168.0.0', 16, 'ipv4');
+PRIVATE.addSubnet('100.64.0.0', 10, 'ipv4');
+PRIVATE.addSubnet('198.18.0.0', 15, 'ipv4');
+PRIVATE.addSubnet('fc00::', 7, 'ipv6');
+
+/** Whether an address is on a private network (an IPv4 one written as IPv6, `::ffff:10.0.0.1`, too). */
+export function isPrivateAddress(a: string): boolean {
+  const kind = isIP(a);
+  if (!kind) return false;
+  try {
+    return PRIVATE.check(a, kind === 6 ? 'ipv6' : 'ipv4');
+  } catch {
+    return false;
+  }
 }
 
 const bracket = (host: string) => (host.includes(':') && !host.startsWith('[') ? `[${host}]` : host);

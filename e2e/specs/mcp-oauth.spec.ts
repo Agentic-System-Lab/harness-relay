@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { createServer, type Server } from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { expect, test as base } from '../fixtures';
 import { finishedReply, openTeamChat, send } from '../support/app';
 import { logged } from '../support/clis';
@@ -8,15 +8,21 @@ import { logged } from '../support/clis';
  * A tool library MCP server's own sign-in (MCP's authorization), against a stand-in MCP server and its
  * authorization server on this computer: the server answers 401 and names its protected resource
  * metadata, which names the authorization server; Settings → Tool library's Sign in registers Harness
- * Relay there and opens its page in a new tab, whose Allow sends the browser back to the web app's
- * /oauth/callback; the server then says it is signed in, and a fake Claude Code's turn gets its access
- * token in the server's Authorization header. Revoked at the authorization server, the next turn goes
- * without the server and the reply says so; Settings says it needs a new sign-in, Sign in again mends it,
- * and Sign out deletes and revokes its tokens.
+ * Relay there and opens its page in a new tab (opened on the click, navigated once the server answers),
+ * whose Allow sends the browser back to the web app's /oauth/callback; the server then says it is signed
+ * in, and a fake Claude Code's turn gets its access token in the server's Authorization header. Revoked at
+ * the authorization server, the next turn goes without the server and the reply says so; Settings says it
+ * needs a new sign-in, Sign in again mends it, and Sign out deletes and revokes its tokens. A server whose
+ * sign-in page is on another host than its authorization server says where first, and opens it only on
+ * Continue.
  */
 
 interface FakeAuth {
   url: string;
+  /** A second address of the same stand-in: where its sign-in page is when `pageElsewhere`. */
+  pageUrl: string;
+  /** Its metadata names its sign-in page at `pageUrl`, not on the issuer's own origin. */
+  pageElsewhere: boolean;
   /** The clients registered: their redirect addresses. */
   clients: { id: string; redirects: string[] }[];
   /** The access tokens given, the newest last. */
@@ -29,21 +35,30 @@ interface FakeAuth {
 }
 
 /** The MCP server (`/mcp`), its protected resource metadata, and its authorization server under `/tenant`. */
-async function fakeAuth(): Promise<{ fake: FakeAuth; server: Server }> {
+async function fakeAuth(): Promise<{ fake: FakeAuth; servers: Server[] }> {
   const codes = new Map<string, { challenge: string; redirect: string; resource: string }>();
   const good = new Set<string>();
   const refresh = new Set<string>();
-  const fake: FakeAuth = { url: '', clients: [], access: [], resources: [], refuseRefresh: false, revoked: [] };
+  const fake: FakeAuth = {
+    url: '',
+    pageUrl: '',
+    pageElsewhere: false,
+    clients: [],
+    access: [],
+    resources: [],
+    refuseRefresh: false,
+    revoked: [],
+  };
   const tokens = () => {
     const access = `mcp-access-${randomUUID()}`;
     const next = `mcp-refresh-${randomUUID()}`;
     good.add(access);
     refresh.add(next);
     fake.access.push(access);
-    // Ten minutes or less: each turn gets one renewed.
-    return { access_token: access, refresh_token: next, token_type: 'Bearer', expires_in: 300 };
+    // A second: each turn gets one renewed (less than half of it is left by then).
+    return { access_token: access, refresh_token: next, token_type: 'Bearer', expires_in: 1 };
   };
-  const server = createServer((req, res) => {
+  const handle = (req: IncomingMessage, res: ServerResponse) => {
     let body = '';
     req.on('data', (c: Buffer) => (body += c.toString()));
     req.on('end', () => {
@@ -64,7 +79,7 @@ async function fakeAuth(): Promise<{ fake: FakeAuth; server: Server }> {
       if (url.pathname === '/.well-known/oauth-authorization-server/tenant')
         return json(200, {
           issuer,
-          authorization_endpoint: `${issuer}/authorize`,
+          authorization_endpoint: `${fake.pageElsewhere ? `${fake.pageUrl}/tenant` : issuer}/authorize`,
           token_endpoint: `${issuer}/token`,
           registration_endpoint: `${issuer}/register`,
           revocation_endpoint: `${issuer}/revoke`,
@@ -117,17 +132,20 @@ async function fakeAuth(): Promise<{ fake: FakeAuth; server: Server }> {
       }
       json(404, {});
     });
-  });
-  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  };
+  const server = createServer(handle);
+  const page = createServer(handle);
+  for (const s of [server, page]) await new Promise<void>((r) => s.listen(0, '127.0.0.1', () => r()));
   fake.url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-  return { fake, server };
+  fake.pageUrl = `http://127.0.0.1:${(page.address() as { port: number }).port}`;
+  return { fake, servers: [server, page] };
 }
 
 const test = base.extend<{ auth: FakeAuth }>({
   auth: async ({}, use) => {
-    const { fake, server } = await fakeAuth();
+    const { fake, servers } = await fakeAuth();
     await use(fake);
-    await new Promise((r) => server.close(r));
+    for (const s of servers) await new Promise((r) => s.close(r));
   },
 });
 
@@ -165,8 +183,10 @@ test("a library MCP server signs in in a new tab, comes back to the web app's ca
   expect(given.at(-1)!.mcpEnv!.linear!.Authorization).toBe(`Bearer ${auth.access.at(-1)}`);
   expect(auth.resources.every((r) => r === `${auth.url}/mcp`)).toBe(true);
 
-  // Revoked at the authorization server: the next turn goes without it, and the reply says so.
+  // Revoked at the authorization server: the next turn goes without it, and the reply says so (its token,
+  // good for a second, has less than half of it left by then: renewed, and refused).
   auth.refuseRefresh = true;
+  await page.waitForTimeout(1_000);
   const before = relay.fakeLog().filter((e) => e.cli === 'claude' && e.mcpEnv?.linear).length;
   await send(page, 'And now?');
   const reply = await finishedReply(page, 'Claude');
@@ -186,6 +206,8 @@ test("a library MCP server signs in in a new tab, comes back to the web app's ca
   await again.close();
   await expect(row.locator('.badge')).toHaveText('Signed in');
   expect(auth.clients).toHaveLength(1);
+  // The refresh token it replaced is revoked.
+  await expect.poll(() => auth.revoked.length).toBe(1);
 
   // Sign out: its tokens deleted and revoked; Sign in is offered again.
   page.once('dialog', (d) => void d.accept());
@@ -193,5 +215,42 @@ test("a library MCP server signs in in a new tab, comes back to the web app's ca
   await expect(row).toContainText('Signed out of linear.');
   await expect(row.locator('.badge')).toHaveCount(0);
   await expect(row.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
-  expect(auth.revoked).toHaveLength(1);
+  expect(auth.revoked).toHaveLength(2);
+});
+
+test('a library MCP server whose sign-in page is on another host says where first, and opens it only on Continue', async ({
+  page,
+  relay,
+  auth,
+}) => {
+  auth.pageElsewhere = true;
+  await relay.api('/api/tools/mcp/linear', {
+    method: 'PUT',
+    body: { transport: 'http', url: `${auth.url}/mcp`, headers: [], providers: ['claude'] },
+  });
+  await page.goto(`${relay.base}/#/settings/tools`);
+  const row = page.locator('#settings-tools .lib-row', { hasText: 'linear' });
+  const pageHost = new URL(auth.pageUrl).host;
+  const issuerHost = new URL(auth.url).host;
+
+  // Sign in: where the page is, and no page yet (the tab opened on the click closes again).
+  await row.getByRole('button', { name: 'Sign in', exact: true }).click();
+  const ask = row.getByRole('alert');
+  await expect(ask).toContainText(`You will sign in at ${pageHost}, which is not ${issuerHost}.`);
+  await expect(row.getByRole('status')).toHaveCount(0);
+  // Cancel: nothing opens, and Sign in is offered again.
+  await ask.getByRole('button', { name: 'Cancel' }).click();
+  await expect(ask).toHaveCount(0);
+  await expect(row.locator('.badge')).toHaveCount(0);
+
+  // Continue: the page opens in a new tab, at the host it named, and signs in.
+  await row.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(ask).toContainText(pageHost);
+  const [tab] = await Promise.all([page.waitForEvent('popup'), ask.getByRole('button', { name: 'Continue' }).click()]);
+  await tab.getByRole('link', { name: 'Allow' }).click();
+  await expect(tab.getByRole('status')).toHaveText('Signed in to the MCP server linear.');
+  await tab.close();
+  await expect(row.locator('.badge')).toHaveText('Signed in');
+  // A client is kept once a sign-in works: the cancelled one's was registered apart.
+  expect(auth.clients).toHaveLength(2);
 });

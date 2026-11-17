@@ -35,12 +35,18 @@ export interface TokenGrants {
   setRefreshToken(id: string, token: string): void;
   /** Its sign-in no longer works: it needs a new one (the tools and Settings say so). */
   needsSignIn(id: string, why: string): void;
+  /**
+   * Its client was refused (`invalid_client`, `unauthorized_client`: an MCP server's registered client
+   * expired or was purged): it needs a new sign-in, which registers again. Without it (accounts, whose
+   * app is the user's own), such a refusal is only a failed refresh.
+   */
+  clientRefused?(id: string, why: string): void;
 }
 
 /** Refreshed this long before it expires, so a request never starts with a token about to run out. */
 const EARLY_MS = 2 * 60_000;
 
-/** A provider's token endpoint's answer. */
+/** A provider's token endpoint's answer, as it is used (`tokenAnswer()`). */
 export interface TokenAnswer {
   access_token?: string;
   refresh_token?: string;
@@ -50,7 +56,102 @@ export interface TokenAnswer {
   error_description?: string;
 }
 
-/** A request to a provider's token endpoint: a form, its answer as JSON (an error answer too). */
+/** What an answer of a token, registration, revocation or device endpoint is read up to. */
+export const MAX_ANSWER_BYTES = 256 * 1024;
+/** The longest error code, error description and scope list kept from an answer. */
+const MAX_ERROR = 100;
+const MAX_DESCRIPTION = 300;
+const MAX_SCOPE = 4000;
+/** The longest token taken: an answer with a longer one is refused (a JWT is a few kilobytes). */
+export const MAX_TOKEN = 16 * 1024;
+
+/**
+ * A response's body as a JSON object, read up to `max` bytes: undefined when it is not one, is longer,
+ * or cannot be read (the connection failed, or its time ran out, meanwhile).
+ */
+export async function jsonObject(res: Response, max = MAX_ANSWER_BYTES): Promise<Record<string, unknown> | undefined> {
+  const reader = res.body?.getReader();
+  if (!reader) return undefined;
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > max) {
+        await reader.cancel().catch(() => undefined);
+        return undefined;
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return undefined;
+  }
+  try {
+    const v = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Text from an answer, on one line and at most `max` characters (none when it is not text). */
+export function answerText(v: unknown, max: number): string | undefined {
+  if (typeof v !== 'string') return undefined;
+  const line = v
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .trim()
+    .slice(0, max);
+  return line || undefined;
+}
+
+/**
+ * A token endpoint's answer as it is used: its strings only, the error and its description on one line
+ * and capped, `expires_in` a number of seconds. A token longer than `MAX_TOKEN` is none, with an error
+ * that says so: such an answer is refused, never kept.
+ */
+export function tokenAnswer(raw: Record<string, unknown> | undefined): TokenAnswer {
+  const v = raw ?? {};
+  const token = (x: unknown) => (typeof x === 'string' && x ? x : undefined);
+  const access = token(v.access_token);
+  const refresh = token(v.refresh_token);
+  if ((access && access.length > MAX_TOKEN) || (refresh && refresh.length > MAX_TOKEN))
+    return { error: 'invalid_response', error_description: t().oauthTokenTooLong(MAX_TOKEN) };
+  const expires = typeof v.expires_in === 'string' ? Number(v.expires_in) : v.expires_in;
+  const error = answerText(v.error, MAX_ERROR);
+  const description = firstLine(v.error_description);
+  const scope = answerText(v.scope, MAX_SCOPE);
+  return {
+    ...(access ? { access_token: access } : {}),
+    ...(refresh ? { refresh_token: refresh } : {}),
+    ...(typeof expires === 'number' && Number.isFinite(expires) && expires > 0 ? { expires_in: expires } : {}),
+    ...(scope ? { scope } : {}),
+    ...(error ? { error } : {}),
+    ...(description ? { error_description: description } : {}),
+  };
+}
+
+/** What a request to a provider sends: a form, or JSON (registration), to one address. */
+export interface ProviderRequest {
+  method: 'POST' | 'GET';
+  headers: Record<string, string>;
+  body?: string;
+  timeoutMs: number;
+}
+
+/** A request to a provider's endpoint the usual way: this process's fetch, following no redirect. */
+export function plainSend(url: string, r: ProviderRequest): Promise<Response> {
+  return fetch(url, {
+    method: r.method,
+    headers: r.headers,
+    ...(r.body !== undefined ? { body: r.body } : {}),
+    redirect: 'manual',
+    signal: AbortSignal.timeout(r.timeoutMs),
+  });
+}
+
+/** A request to a provider's token endpoint: a form, its answer as JSON (an error answer too), read up to `MAX_ANSWER_BYTES`. */
 export async function tokenRequest(
   provider: OAuthProvider,
   form: Record<string, string>,
@@ -58,7 +159,7 @@ export async function tokenRequest(
 ): Promise<{ status: number; body: TokenAnswer }> {
   // A client secret in a Basic header (`client_secret_basic`), or in the form.
   const basic = provider.clientSecret && provider.clientSecretBasic;
-  const res = await fetch(provider.endpoints.token, {
+  const res = await (provider.send ?? plainSend)(provider.endpoints.token, {
     method: 'POST',
     headers: {
       'content-type': 'application/x-www-form-urlencoded',
@@ -71,16 +172,10 @@ export async function tokenRequest(
       ...provider.tokenParams,
       ...form,
     }).toString(),
-    redirect: 'manual',
-    signal: AbortSignal.timeout(timeoutMs),
+    timeoutMs,
   });
-  let body: TokenAnswer = {};
-  try {
-    body = (await res.json()) as TokenAnswer;
-  } catch {
-    /* not JSON: the status says it */
-  }
-  return { status: res.status, body };
+  // Not JSON, or too long: the status says it.
+  return { status: res.status, body: tokenAnswer(await jsonObject(res)) };
 }
 
 /** A client's id and secret as a Basic header (`client_secret_basic`), each part form-encoded first (RFC 6749, 2.3.1). */
@@ -89,9 +184,14 @@ export function basicAuth(clientId: string, secret: string): string {
   return `Basic ${Buffer.from(`${enc(clientId)}:${enc(secret)}`).toString('base64')}`;
 }
 
-/** What a token endpoint's error answer says, in a line. */
-export function tokenError(status: number, body: TokenAnswer): string {
-  return [body.error, body.error_description?.split(/\r?\n/)[0]].filter(Boolean).join(': ') || `HTTP ${status}`;
+/** An error description's first line (Microsoft's go on with a trace id), capped. */
+function firstLine(v: unknown): string | undefined {
+  return answerText(typeof v === 'string' ? v.split(/\r?\n/)[0] : undefined, MAX_DESCRIPTION);
+}
+
+/** What a token (or registration) endpoint's error answer says, in a line, capped. */
+export function tokenError(status: number, body: { error?: unknown; error_description?: unknown }): string {
+  return [answerText(body.error, MAX_ERROR), firstLine(body.error_description)].filter(Boolean).join(': ') || `HTTP ${status}`;
 }
 
 /**
@@ -115,8 +215,16 @@ export function hostOnlyFetch(hosts: readonly string[], token: () => Promise<str
   };
 }
 
+/** The errors of a refresh that only a new sign-in mends. */
+const REFUSED_FOR_GOOD = ['invalid_grant', 'interaction_required', 'consent_required'];
+/** The errors of a refresh that refuse the client itself (an MCP server's registered client expired or purged). */
+const CLIENT_REFUSED = ['invalid_client', 'unauthorized_client'];
+
+/** How long before it expires a kept token is renewed: a time, or one from its lifetime (both in ms). */
+export type EarlyMargin = number | ((lifetimeMs: number) => number);
+
 export class TokenBroker {
-  private tokens = new Map<string, { token: string; expiresAt: number }>();
+  private tokens = new Map<string, { token: string; expiresAt: number; lifetimeMs: number }>();
   private refreshing = new Map<string, Promise<string>>();
   /**
    * Each sign-in's generation: one more each time it is signed in again or removed (`forget()`). A
@@ -142,7 +250,8 @@ export class TokenBroker {
   }
 
   private keep(accountId: string, token: string, expiresIn: number | undefined): void {
-    this.tokens.set(accountId, { token, expiresAt: this.now() + (expiresIn ?? 3600) * 1000 });
+    const lifetimeMs = (expiresIn ?? 3600) * 1000;
+    this.tokens.set(accountId, { token, expiresAt: this.now() + lifetimeMs, lifetimeMs });
   }
 
   /**
@@ -166,12 +275,14 @@ export class TokenBroker {
 
   /**
    * The account's access token: the one kept while it is good for more than a couple of minutes
-   * (`earlyMs`: for longer, a turn's), else a new one (`fresh`: a new one anyway, the provider refused
-   * the one kept). One refresh at a time per account: callers meanwhile wait for the same one.
+   * (`early`: another margin, such as a turn's, which may depend on the token's lifetime), else a new
+   * one (`fresh`: a new one anyway, the provider refused the one kept). One refresh at a time per
+   * account: callers meanwhile wait for the same one.
    */
-  accessToken(accountId: string, fresh = false, earlyMs = EARLY_MS): Promise<string> {
+  accessToken(accountId: string, fresh = false, early: EarlyMargin = EARLY_MS): Promise<string> {
     const kept = this.tokens.get(accountId);
-    if (!fresh && kept && kept.expiresAt - earlyMs > this.now()) return Promise.resolve(kept.token);
+    const margin = kept ? (typeof early === 'function' ? early(kept.lifetimeMs) : early) : 0;
+    if (!fresh && kept && kept.expiresAt - margin > this.now()) return Promise.resolve(kept.token);
     const running = this.refreshing.get(accountId);
     if (running) return running;
     const p: Promise<string> = this.refresh(accountId).finally(() => {
@@ -218,9 +329,15 @@ export class TokenBroker {
     if (!body.access_token) {
       const why = tokenError(status, body);
       // Refused for good: only a new sign-in mends it. Anything else (the network, the provider down) may pass.
-      if (body.error === 'invalid_grant' || body.error === 'interaction_required' || body.error === 'consent_required') {
+      if (body.error && REFUSED_FOR_GOOD.includes(body.error)) {
         this.tokens.delete(accountId);
         this.store.needsSignIn(accountId, why);
+        throw new OAuthSignInError(t().oauthSignInAgain(account.label, why));
+      }
+      // Its client refused: a new sign-in, with a client registered again (an MCP server's).
+      if (body.error && CLIENT_REFUSED.includes(body.error) && this.store.clientRefused) {
+        this.tokens.delete(accountId);
+        this.store.clientRefused(accountId, why);
         throw new OAuthSignInError(t().oauthSignInAgain(account.label, why));
       }
       throw new OAuthSignInError(t().oauthRefreshFailed(account.label, why));

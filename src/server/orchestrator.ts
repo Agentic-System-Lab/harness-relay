@@ -477,6 +477,11 @@ function questionOf(m: ChatMessage): string {
   return textOf(m) + (files.length ? `\n\n(Attached files: ${files.join(', ')})` : '');
 }
 
+/** Whether the agent said or did anything in its reply yet: Harness Relay's own notes (`notice`) are not its words. */
+function agentSaid(msg: ChatMessage): boolean {
+  return msg.parts.some((p) => p.type !== 'notice');
+}
+
 /**
  * A finished reply that ends with the ask marker asks the user something: the marker is taken out of
  * the message. Returns whether it asks.
@@ -3090,7 +3095,7 @@ export class Orchestrator {
       } catch (err) {
         // A stale or missing CLI session (e.g. the working directory changed): start over with full history.
         const aborted = err instanceof AgentRunError && err.aborted;
-        if (!hadSession || aborted || msg.parts.length > 0) throw err;
+        if (!hadSession || aborted || agentSaid(msg)) throw err;
         console.warn(`[orchestrator] resume failed for @${agent.name}, retrying fresh:`, (err as Error).message);
         const kept = { sessionId: state.sessionId, seen: state.seen };
         try {
@@ -3098,7 +3103,7 @@ export class Orchestrator {
         } catch (freshErr) {
           // The fresh session failed too before saying anything (rate limit, sign-in, network…): the
           // problem was not the session, so keep it for the next turn.
-          if (msg.parts.length === 0) {
+          if (!agentSaid(msg)) {
             Object.assign(state, kept);
             keptOldSession = true;
           }

@@ -22,6 +22,7 @@ import {
   isPathDetail,
   isTouchScreen,
   segments,
+  shownSegments,
   thoughtTail,
   thoughtTitle,
   type ActivityItem,
@@ -1092,6 +1093,8 @@ function AgentMessage({
   const name = who.name;
   const provider = who.provider ?? 'claude';
   const segs = segments(msg.parts);
+  const passed = Boolean(msg.passed && msg.status === 'done');
+  const { shown, typing } = shownSegments(segs, passed, live);
   const marked = marks?.highlights.length ?? 0;
   const m = msg.meta;
   const copyable = !msg.passed && messageText(msg).length > 0;
@@ -1122,43 +1125,40 @@ function AgentMessage({
           )}
         </div>
 
-        {msg.passed && msg.status === 'done' ? (
-          <p className="muted small">{t.message.passed}</p>
-        ) : (
-          segs.map((s) => {
-            switch (s.kind) {
-              case 'text':
-                // A question's closing marker is taken out when the reply ends; hide it while it streams.
-                return (
-                  <Markdown
-                    key={s.key}
-                    text={live ? withoutProgressTail(splitAsk(s.text).text) : s.text}
-                    mentions={mentionNames}
-                    mediaBase={api.mediaBase(convId, msg.id)}
-                    downloadBase={api.downloadBase(convId, msg.id)}
-                  />
-                );
-              case 'activity':
-                return <ActivityGroup key={s.key} items={s.items} live={live} last={s.last} />;
-              case 'todo':
-                return <TodoList key={s.key} entries={s.entries} />;
-              case 'approval':
-                return <ApprovalCard key={s.key} part={s.part} agentName={name} live={live} onAnswer={onApproval} />;
-              case 'progress':
-                return <ProgressCard key={s.key} status={s.status} text={s.text} />;
-              case 'outbox':
-                return <OutboxCard key={s.key} part={s.part} convId={convId} agentName={name} />;
-              case 'notice':
-                return (
-                  <p key={s.key} className="warn-line small msg-notice" role="note">
-                    {s.text}
-                  </p>
-                );
-            }
-          })
-        )}
+        {shown.map((s) => {
+          switch (s.kind) {
+            case 'text':
+              // A question's closing marker is taken out when the reply ends; hide it while it streams.
+              return (
+                <Markdown
+                  key={s.key}
+                  text={live ? withoutProgressTail(splitAsk(s.text).text) : s.text}
+                  mentions={mentionNames}
+                  mediaBase={api.mediaBase(convId, msg.id)}
+                  downloadBase={api.downloadBase(convId, msg.id)}
+                />
+              );
+            case 'activity':
+              return <ActivityGroup key={s.key} items={s.items} live={live} last={s.last} />;
+            case 'todo':
+              return <TodoList key={s.key} entries={s.entries} />;
+            case 'approval':
+              return <ApprovalCard key={s.key} part={s.part} agentName={name} live={live} onAnswer={onApproval} />;
+            case 'progress':
+              return <ProgressCard key={s.key} status={s.status} text={s.text} />;
+            case 'outbox':
+              return <OutboxCard key={s.key} part={s.part} convId={convId} agentName={name} />;
+            case 'notice':
+              return (
+                <p key={s.key} className="warn-line small msg-notice" role="note">
+                  {s.text}
+                </p>
+              );
+          }
+        })}
+        {passed && <p className="muted small">{t.message.passed}</p>}
 
-        {live && segs.length === 0 && (
+        {typing && (
           <div className="typing" aria-label={t.message.thinking}>
             <i />
             <i />
