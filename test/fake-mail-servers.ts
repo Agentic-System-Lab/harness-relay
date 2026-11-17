@@ -337,6 +337,11 @@ export async function fakeSmtp(
     asksResponse?: boolean;
     /** Answers AUTH XOAUTH2 with this reply instead of checking the token (`454 4.7.0 …`, `504 5.7.4 …`). */
     authAnswer?: string;
+    /**
+     * Never takes the token, and keeps asking: an empty 334 to every line (`empty`), or a reason first and
+     * then an empty 334 to every line (`reason`): how often the client sends it is in `lines`.
+     */
+    keepsAsking?: 'empty' | 'reason';
   } & FakeBearer = {},
 ): Promise<FakeSmtp> {
   const sent: FakeSmtp['sent'] = [];
@@ -352,6 +357,8 @@ export async function fakeSmtp(
     let refusedToken = false;
     /** The response to an AUTH XOAUTH2 answered with an empty 334 comes next, on its own line. */
     let responseNext = false;
+    /** `keepsAsking`: every line from now on gets an empty 334. */
+    let asking = false;
     const checkToken = (b64: string) => {
       const given = readXoauth2(b64);
       const ok = Boolean(o.bearer && given && o.bearer(given.user, given.token));
@@ -382,7 +389,9 @@ export async function fakeSmtp(
         const line = buf.slice(0, eol);
         buf = buf.slice(eol + 2);
         lines.push(line);
-        if (refusedToken) {
+        if (asking) {
+          sock.write('334 \r\n');
+        } else if (refusedToken) {
           refusedToken = false;
           sock.write(
             '535-5.7.8 Username and Password not accepted. For more information, go to\r\n535 5.7.8  https://support.google.com/mail/?p=BadCredentials fake\r\n',
@@ -393,7 +402,10 @@ export async function fakeSmtp(
         } else if (/^AUTH XOAUTH2( |$)/i.test(line)) {
           if (!o.bearer) sock.write('504 5.7.4 Unrecognized authentication type\r\n');
           else if (o.authAnswer) sock.write(`${o.authAnswer}\r\n`);
-          else if (o.asksResponse) {
+          else if (o.keepsAsking) {
+            asking = true;
+            sock.write(o.keepsAsking === 'empty' ? '334 \r\n' : `334 ${GMAIL_XOAUTH2_ERROR}\r\n`);
+          } else if (o.asksResponse) {
             responseNext = true;
             sock.write('334 \r\n');
           } else checkToken(line.slice('AUTH XOAUTH2 '.length));

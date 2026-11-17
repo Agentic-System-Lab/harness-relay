@@ -517,6 +517,9 @@ const zhTW = {
     `${email} 登入時沒有允許${use === 'mail' ? '郵件' : '行事曆'}：請先在「設定 → 工具庫」為它按「${use === 'mail' ? '用於郵件' : '用於行事曆'}」`,
   oauthMailFixed: '這個郵件帳號是透過登入的帳號使用的，用的是該服務自己的伺服器，不能改成用密碼或其他伺服器：請移除它，再重新加入',
   oauthSignInCancelled: '這次登入已經取消，或是它用的 app 在「設定」裡換掉了',
+  oauthAccountRemoved: '這次登入要用的帳號在登入期間被移除了，所以什麼都沒有改變',
+  oauthOtherAccount: (signedIn: string, meant: string) =>
+    `你登入的是 ${signedIn}，不是 ${meant}：${meant} 沒有改變。要加入另一個帳號，請用「用 … 登入」`,
   oauthSecretNotSaved: (why: string) => `無法把 app 的用戶端密碼存進憑證儲存區：${why}`,
   oauthNotHere: (name: string) => `「${name}」是透過登入的帳號使用的，但這裡無法使用登入的帳號`,
   watchNoAccount: '找不到這個自動任務要檢查的郵件帳號：請到「設定 → 工具庫 → 郵件與行事曆」新增，或重新選一個',
@@ -1328,6 +1331,9 @@ const en: ServerMessages = {
   oauthMailFixed:
     "This mail account is reached through an account that signed in, at its provider's own servers, not with a password or other servers: remove it and add it again",
   oauthSignInCancelled: 'The sign-in was cancelled, or the app it signed in with was changed in Settings',
+  oauthAccountRemoved: 'The account this sign-in was for was removed meanwhile, so nothing was changed',
+  oauthOtherAccount: (signedIn: string, meant: string) =>
+    `You signed in as ${signedIn}, not ${meant}: ${meant} was not changed. To add another account, use Sign in with …`,
   oauthSecretNotSaved: (why) => `The app's client secret could not be saved in the credential store: ${why}`,
   oauthNotHere: (name) => `"${name}" is reached through an account that signed in, which cannot be used here`,
   watchNoAccount:

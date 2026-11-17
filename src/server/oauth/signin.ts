@@ -53,6 +53,8 @@ export interface SignedIn {
    * added to `access`, `scopes` and `refreshToken`. Nothing for a provider whose one token serves every use.
    */
   tokenFor: (use: OAuthUse) => Promise<void>;
+  /** The account it was started for (Sign in again, Use for …): only it may be signed in. */
+  forAccount?: { id: string; subject: string };
   /** What the sign-in's own token was granted, as its answer said (`scope`); undefined when it did not say. */
   granted?: string;
   whoami: OAuthProvider['whoami'];
@@ -81,6 +83,8 @@ interface Pending {
   expiresAt: number;
   status: OAuthSignInView['status'];
   account?: OAuthAccountView;
+  /** The account it was started for (Sign in again, Use for …): only it may be signed in. */
+  forAccount?: { id: string; subject: string };
   error?: string;
   /** Finishing now (the code is being exchanged): a second post of the same address waits for it. */
   finishing?: Promise<OAuthSignInView>;
@@ -158,6 +162,8 @@ export class SignIns {
     device?: boolean;
     /** The address of the account signing in again (or for another use): its provider's page starts with it. */
     loginHint?: string;
+    /** That account: another one signed in on the provider's page, or this one removed meanwhile, keeps nothing. */
+    forAccount?: { id: string; subject: string };
   }): Promise<OAuthSignInView> {
     this.sweep();
     if ([...this.pending.values()].filter((p) => p.status === 'waiting').length >= OAUTH_LIMITS.pending)
@@ -166,7 +172,15 @@ export class SignIns {
     const scopes = provider.scopes(uses);
     const id = randomUUID();
     const expiresAt = this.now() + OAUTH_LIMITS.signInMinutes * 60_000;
-    const base = { id, provider, uses, ...(o.session ? { session: o.session } : {}), expiresAt, status: 'waiting' as const };
+    const base = {
+      id,
+      provider,
+      uses,
+      ...(o.session ? { session: o.session } : {}),
+      ...(o.forAccount ? { forAccount: o.forAccount } : {}),
+      expiresAt,
+      status: 'waiting' as const,
+    };
     if (o.device) {
       if (!provider.flows.includes('device') || !provider.endpoints.device) throw new HttpError(400, t().oauthNoDevice(provider.label));
       const res = await fetch(provider.endpoints.device, {
@@ -387,6 +401,7 @@ export class SignIns {
       ...(typeof body.scope === 'string' ? { granted: body.scope } : {}),
       whoami: provider.whoami,
       hosts: provider.hosts,
+      ...(p.forAccount ? { forAccount: p.forAccount } : {}),
       live: () => this.live(p),
       tokenFor: async (use) => {
         if (!provider.tokenScopes) return;
