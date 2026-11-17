@@ -118,13 +118,14 @@ const orchestrator = new Orchestrator(
   agentsView,
 );
 
-// Harness Relay's own tools (browser, mail, calendar), which every agent but the open agents reaches through
-// one MCP server of Harness Relay's (the gateway), and the outbox of what they asked to send.
+// Harness Relay's own tools (browser, mail, calendar), which agents reach through one MCP server of
+// Harness Relay's (the gateway), and the outbox of what they asked to send.
 const outbox = new Outbox(db);
 const gateway = new ToolGateway(DATA_DIR, relayTmpDir(), () => gatewayNode());
 const browser = new BrowserService({
   dataDir: DATA_DIR,
-  executable: () => findBrowser({ configured: CONFIG.browser }),
+  // The browser set in Settings, else RELAY_BROWSER's, else one found on this computer.
+  executable: () => findBrowser({ configured: settings.tools.browserPath() ?? CONFIG.browser }),
   relayPorts: () => relayPorts(),
   own: () => localAddresses(),
 });
@@ -133,6 +134,10 @@ orchestrator.onDelete = (id) => void browser.close(id, true);
 orchestrator.gateway = gateway;
 orchestrator.outbox = outbox;
 orchestrator.reconcileOutbox();
+settings.tools.browserStatus = () => {
+  const using = findBrowser({ configured: settings.tools.browserPath() ?? CONFIG.browser });
+  return { ...(CONFIG.browser ? { env: CONFIG.browser } : {}), ...(using ? { using } : {}) };
+};
 settings.tools.gatewayStatus = () => {
   const why = gateway.unavailable();
   return why ? { available: false, reason: why } : { available: true };

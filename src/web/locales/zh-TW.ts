@@ -1189,6 +1189,11 @@ export const zhTW = {
         mail: '搜尋與閱讀郵件、存草稿，透過待送出匣寄信：需要在下方設定郵件帳號。',
         calendar: '列出與新增活動（有邀請對象時透過待送出匣）：需要在下方設定行事曆。',
       } as Record<RelayToolGroup, string>,
+      browserPath: '要啟動的瀏覽器',
+      browserPathHint: (env: string) =>
+        `Chromium、Chrome 或 Edge 執行檔的完整路徑。留空時${env ? `用 RELAY_BROWSER（${env}）` : ''}${env ? '，否則' : ''}用這台電腦上找到的第一個：Chrome、Chromium 或 Edge，再來是 Playwright 的 Chromium。之後開始的對話才會用新的設定。`,
+      browserUsing: (path: string) => `使用中：${path}`,
+      browserNone: '找不到瀏覽器：設定一個，或安裝 Chrome、Chromium 或 Edge 之前，瀏覽器工具無法啟動。',
       unavailable: {
         'not-started': '目前無法使用：伺服器沒能啟動它們（原因見伺服器的紀錄）。',
         'no-node': '桌面 app 需要 PATH 上有 Node.js 22.12 以上，或 設定 → 沙箱 安裝的那一個，才能使用。',

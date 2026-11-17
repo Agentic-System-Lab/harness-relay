@@ -344,6 +344,23 @@ describe('ToolLibrary', () => {
     expect(lib.view().gateway).toEqual({ available: true });
   });
 
+  it('keeps the browser set in Settings, shows it beside RELAY_BROWSER and the one in use, and forgets it when emptied', () => {
+    const lib = new ToolLibrary(db);
+    expect(lib.view().browser).toEqual({});
+    expect(lib.browserPath()).toBeUndefined();
+    lib.browserStatus = () => ({ env: '/opt/env-chrome', using: '/opt/my-chrome' });
+    lib.update({ browser: '/opt/my-chrome' });
+    expect(lib.browserPath()).toBe('/opt/my-chrome');
+    expect(lib.view().browser).toEqual({ path: '/opt/my-chrome', env: '/opt/env-chrome', using: '/opt/my-chrome' });
+    expect(new ToolLibrary(db).browserPath()).toBe('/opt/my-chrome');
+    // Other changes keep it; an empty one forgets it.
+    lib.update({ memory: { all: 'notes' } });
+    expect(new ToolLibrary(db).browserPath()).toBe('/opt/my-chrome');
+    lib.update({ browser: '' });
+    expect(new ToolLibrary(db).browserPath()).toBeUndefined();
+    expect(new ToolLibrary(db).view().browser).toEqual({});
+  });
+
   it('checks new skill paths only, and marks skills it cannot use', () => {
     const dir = join(root, 'marks');
     const a = skill(join(dir, 'a'), 'name: same');

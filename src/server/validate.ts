@@ -511,6 +511,23 @@ export function validateToolLibraryUpdate(input: unknown): ToolLibraryUpdate {
     }
     out.relayTools = groups;
   }
+  if (b.browser !== undefined) {
+    if (typeof b.browser !== 'string' || b.browser.length > 4000 || b.browser.includes('\0')) bad(t().invalidField('browser'));
+    const path = b.browser.trim();
+    if (!path) out.browser = '';
+    else {
+      // A file there now, as the browser tools will start it; empty finds one by itself again.
+      const full = expandPath(path);
+      let file = false;
+      try {
+        file = statSync(full).isFile();
+      } catch {
+        /* none there */
+      }
+      if (!file) bad(t().browserNotFound(full));
+      out.browser = full;
+    }
+  }
   return out;
 }
 

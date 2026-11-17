@@ -16,6 +16,7 @@ import {
 
 const lib: ToolLibraryView = {
   relayTools: [],
+  browser: {},
   gateway: { available: true },
   mcpServers: [
     { id: 'gh1', name: 'github', transport: 'stdio', command: 'x', args: [], url: '', env: [], headers: [], providers: ['claude'] },

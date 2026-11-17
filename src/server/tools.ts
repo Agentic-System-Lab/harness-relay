@@ -69,6 +69,8 @@ interface Stored {
   relayTools?: Partial<Record<RelayToolGroup, Provider[]>>;
   /** Without a secret store (tests), or saved by an older version: the secret values, by server id. */
   secrets?: Record<string, Secrets>;
+  /** The browser the browser tools start (Settings), before `RELAY_BROWSER` and the ones found. */
+  browser?: string;
 }
 
 /** A skill an agent can use. */
@@ -243,6 +245,7 @@ export class ToolLibrary {
           memory,
           relayTools: storedRelayTools(v.relayTools),
           ...(v.secrets ? { secrets: v.secrets } : {}),
+          ...(typeof v.browser === 'string' && v.browser ? { browser: v.browser } : {}),
         };
       } catch {
         /* keep it empty */
@@ -290,6 +293,7 @@ export class ToolLibrary {
       skills: this.data.skills,
       memory: this.data.memory,
       relayTools: this.data.relayTools ?? {},
+      ...(this.data.browser ? { browser: this.data.browser } : {}),
     };
     const inDb = this.keyring ? [...this.leftInDb] : [...this.secrets.keys()];
     if (inDb.length) stored.secrets = Object.fromEntries(inDb.map((id) => [id, this.secrets.get(id)!]));
@@ -353,12 +357,21 @@ export class ToolLibrary {
       memory: { ...this.data.memory },
       relayTools: RELAY_TOOL_GROUPS.map((group) => ({ group, providers: [...(this.data.relayTools?.[group] ?? [])] })),
       gateway: this.gatewayStatus(),
+      browser: { ...(this.data.browser ? { path: this.data.browser } : {}), ...this.browserStatus() },
       secretStorage: this.secretStorage,
     };
   }
 
   /** Whether the gateway can give agents Harness Relay's tools now (set by the server once it runs one). */
   gatewayStatus: () => ToolLibraryView['gateway'] = () => ({ available: false, reason: 'not-started' });
+
+  /** `RELAY_BROWSER`, and the browser the browser tools would start now (set by the server). */
+  browserStatus: () => Pick<ToolLibraryView['browser'], 'env' | 'using'> = () => ({});
+
+  /** The browser set in Settings, if any: the browser tools start it before any other. */
+  browserPath(): string | undefined {
+    return this.data.browser;
+  }
 
   /** Adds an MCP server (no `previousName`) or replaces one (renaming it when the names differ). */
   saveServer(name: string, u: McpServerUpdate): ToolLibraryView {
@@ -439,6 +452,10 @@ export class ToolLibrary {
         if (providers) next[group] = PROVIDERS.filter((p) => providers.includes(p));
       }
       this.data.relayTools = next;
+    }
+    if (u.browser !== undefined) {
+      if (u.browser) this.data.browser = u.browser;
+      else delete this.data.browser;
     }
     this.save();
     return this.view();

@@ -2223,6 +2223,17 @@ describe('tool library', () => {
     expect((await app.request('/api/tools', json('PUT', { relayTools: { teleport: ['claude'] } }))).status).toBe(400);
     expect((await app.request('/api/tools', json('PUT', { relayTools: { browser: 'claude' } }))).status).toBe(400);
     expect((await app.request('/api/tools', json('PUT', { relayTools: { browser: ['gemini'] } }))).status).toBe(400);
+    // The browser to start: a file there now (as a full path), or empty to find one by itself again.
+    const nowhere = join(root, 'no-such-browser');
+    const refused = await app.request('/api/tools', json('PUT', { browser: nowhere }));
+    expect(refused.status).toBe(400);
+    expect(((await refused.json()) as { error: string }).error).toContain(nowhere);
+    expect((await app.request('/api/tools', json('PUT', { browser: 42 }))).status).toBe(400);
+    const chosen = (await (await app.request('/api/tools', json('PUT', { browser: ` ${process.execPath} ` }))).json()) as {
+      browser: { path?: string };
+    };
+    expect(chosen.browser.path).toBe(process.execPath);
+    expect(((await (await app.request('/api/tools', json('PUT', { browser: '' }))).json()) as { browser: object }).browser).toEqual({});
     const relay = (await (await app.request('/api/tools', json('PUT', { relayTools: { browser: ['codex', 'claude'] } }))).json()) as {
       relayTools: unknown;
       gateway: unknown;

@@ -600,6 +600,31 @@ test("a member reaches Harness Relay's own tools through its MCP gateway, and a 
   }
 });
 
+test('the browser to start is set in Settings: a path with no file there is refused with why, a file is saved and used, and emptied it is found again', async ({
+  page,
+  relay,
+}) => {
+  await page.goto(`${relay.base}/#/settings/tools`);
+  const field = page.getByRole('textbox', { name: 'Browser to start' });
+  const box = page.locator('.browser-path');
+  await box.locator('summary').click();
+  await expect(field).toBeVisible();
+  const nowhere = join(relay.workDir, 'no-such-browser');
+  await field.fill(nowhere);
+  await box.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.locator('.tools-card .error-line')).toContainText('There is no file at');
+  // A file that exists (any program: the tools start it only when an agent opens a page).
+  await field.fill(process.execPath);
+  await box.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(box).toContainText(`In use: ${process.execPath}`);
+  await expect(box.locator('summary')).toContainText(process.execPath);
+  await page.reload();
+  await expect(page.getByRole('textbox', { name: 'Browser to start' })).toHaveValue(process.execPath);
+  await page.getByRole('textbox', { name: 'Browser to start' }).fill('');
+  await page.locator('.browser-path').getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.locator('.browser-path summary')).not.toContainText(process.execPath);
+});
+
 // OpenCode's fake installed for it, besides Claude Code, Codex and Grok.
 test.describe(() => {
   withClis('opencode');

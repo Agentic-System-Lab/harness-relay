@@ -123,11 +123,57 @@ function RelaySection({ lib, change }: { lib: ToolLibraryView; change: Change })
               label={`${t.tools.relay.groups[g.group]} · ${t.tools.givenTo}`}
               onChange={(providers) => change(() => api.updateTools({ relayTools: { [g.group]: providers } }))}
             />
+            {g.group === 'browser' && <BrowserPath lib={lib} change={change} />}
           </li>
         ))}
       </ul>
       <ConnectorsSettings />
     </section>
+  );
+}
+
+/**
+ * Which browser the browser tools start: a path of the user's (`browser` in the library), else
+ * RELAY_BROWSER's, else the first found; and the one in use now, or none found.
+ */
+function BrowserPath({ lib, change }: { lib: ToolLibraryView; change: Change }) {
+  const t = useT();
+  const saved = lib.browser.path ?? '';
+  const [path, setPath] = useState(saved);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setPath(saved), [saved]);
+  const save = async () => {
+    setBusy(true);
+    await change(() => api.updateTools({ browser: path.trim() }));
+    setBusy(false);
+  };
+  const dirty = path.trim() !== saved;
+  return (
+    <details className="sub browser-path" open={Boolean(saved) || !lib.browser.using}>
+      <summary>
+        {t.tools.relay.browserPath}
+        {saved && ` (${saved})`}
+      </summary>
+      <div className="sub-body">
+        <p className="muted small">{t.tools.relay.browserPathHint(lib.browser.env ?? '')}</p>
+        <div className="input-row">
+          <input
+            value={path}
+            placeholder={lib.browser.using ?? ''}
+            aria-label={t.tools.relay.browserPath}
+            onChange={(e) => setPath(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !busy && dirty && void save()}
+            spellCheck={false}
+          />
+          <button className="ghost" onClick={() => void save()} disabled={busy || !dirty}>
+            {t.common.save}
+          </button>
+        </div>
+        <p className={`small ${lib.browser.using ? 'muted' : 'warn-text'}`}>
+          {lib.browser.using ? t.tools.relay.browserUsing(lib.browser.using) : t.tools.relay.browserNone}
+        </p>
+      </div>
+    </details>
   );
 }
 

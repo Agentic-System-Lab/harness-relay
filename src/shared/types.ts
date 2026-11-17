@@ -325,9 +325,15 @@ export interface ToolLibraryView {
   relayTools: { group: RelayToolGroup; providers: Provider[] }[];
   /**
    * Whether this server can give agents its own tools: it needs a Node.js to run the gateway's MCP
-   * server with (the desktop app's runtime is not one), and the open agents do not get them yet.
+   * server with (the desktop app's runtime is not one).
    */
   gateway: { available: boolean; reason?: 'not-started' | 'no-node' | 'no-node-path' };
+  /**
+   * Which browser the browser tools start: `path`, set in Settings, before `env` (`RELAY_BROWSER`),
+   * before the system's Chrome, Chromium or Edge and Playwright's Chromium; `using`, the first of them
+   * there is now (none: no browser was found).
+   */
+  browser: { path?: string; env?: string; using?: string };
   /**
    * Notes agents get in their briefing, in every conversation: `all` for every agent, and a part for
    * each CLI's agents. Empty = none.
@@ -344,6 +350,8 @@ export interface ToolLibraryUpdate {
   relayTools?: Partial<Record<RelayToolGroup, Provider[]>>;
   /** The parts to change. */
   memory?: Partial<Record<MemoryScope, string>>;
+  /** The browser the browser tools start: its executable, a full path to a file; empty for none (found by itself). */
+  browser?: string;
 }
 
 // --- What each CLI loads by itself (its own skills, MCP servers and memory) -------------------

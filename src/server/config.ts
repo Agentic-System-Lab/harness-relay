@@ -17,7 +17,10 @@ export interface ServerConfig extends ServerLimits {
   voiceEngineBaseUrl?: string;
   /** Where voice input keeps its models and engine; undefined = `voice` in the data folder. */
   voiceDir?: string;
-  /** The Chromium, Chrome or Edge the browser tools start (`RELAY_BROWSER`); undefined = the first one found (`browser/find.ts`). */
+  /**
+   * The Chromium, Chrome or Edge the browser tools start (`RELAY_BROWSER`), unless Settings sets one; undefined =
+   * the first one found (`browser/find.ts`).
+   */
   browser?: string;
 }
 

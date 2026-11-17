@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 35 個 spec 檔、457 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 35 個 spec 檔、458 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -50,7 +50,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [工作目錄與其他資料夾](#工作目錄與其他資料夾) | [`folders.spec.ts`](specs/folders.spec.ts) | 34 | [架構 → 多個工作目錄](../docs/architecture.zh-TW.md#多個工作目錄)、[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md) |
 | [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱) | [`sandbox.spec.ts`](specs/sandbox.spec.ts) | 17 | [各平台的作業系統沙箱 → Harness Relay 自己的沙箱](../docs/sandboxing.zh-TW.md#harness-relay-自己的沙箱)、[開源 agent → Harness Relay 的沙箱](../docs/open-agents.zh-TW.md#harness-relay-的沙箱) |
 | [除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西) | [`inputs.spec.ts`](specs/inputs.spec.ts) | 34 | [架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
-| [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 18 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
+| [工具庫](#工具庫) | [`tools.spec.ts`](specs/tools.spec.ts) | 19 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 工具庫](../docs/architecture.zh-TW.md#工具庫) |
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 11 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 10 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
@@ -290,6 +290,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 在頁面上給 MCP 伺服器新的值，下一回合就拿到它；移除後不再給出去 | 兩個團隊 | 修改後頁面顯示新的遮蔽值，每個 CLI 的下一回合只拿到新的值，而且不在任何參數裡；移除後下一回合既沒有它的名稱也沒有它的值。另一個伺服器全程保留，所以「什麼都沒給」不會因為某個回合完全沒拿到工具庫而通過。 |
 | 在頁面上移除的 skill 與記憶筆記不再給出去 | 兩個團隊 | 移除兩個 skill 之一與共享記憶後，下一份簡報與回答都沒有它們，另一個 skill 與每個 CLI 自己的筆記仍然送到。 |
 | 成員透過 MCP gateway 使用 Harness Relay 自己的工具，它寄出的郵件會在待送出匣等到使用者按送出 | Claude Code | 用 API 設定一個郵件帳號（SMTP 是這台電腦上的替身，因為是本機伺服器所以可以不加密），並把 **郵件** 給 Claude Code；假 CLI 啟動它拿到的 `relay` MCP server（伺服器寫出的真程式），呼叫 `mail_send`（`e2e:mcp`）：回覆說郵件還沒寄出，正在待送出匣等待；回覆中的卡片顯示收件人與內文、**等你決定**（Waiting for you），對話標為 **等你核准**（Needs you）；SMTP 伺服器沒有收到任何東西。按 **送出**（Send）只寄一次（卡片顯示 **已送出**（Sent），對話中有說明，替身收到寄給收件人、帶著主旨的郵件）。第二封郵件按 **捨棄**（Discard）：卡片顯示 **已捨棄**（Discarded），不再有送出按鈕，對話中有說明，伺服器沒有再收到任何東西。 |
+| 在設定中指定要啟動的瀏覽器：沒有檔案的路徑會被拒絕並說明原因，是檔案的會保存並使用，清空後重新自己找 | — | 在 **設定 → 工具庫** 的 **要啟動的瀏覽器**（Browser to start）：沒有檔案的路徑會被拒絕（卡片上說那裡沒有檔案）；測試自己的 Node.js（是檔案）會保存、顯示使用中，重新整理後還在；清空後，標題就不再顯示它。 |
 | 完全存取時，開源 agent（OpenCode）也能使用 Harness Relay 自己的工具，它的郵件在待送出匣等待 | OpenCode | 完全存取時，透過 API 設定一個郵件帳號（這裡不會真的連線），並把**郵件**給 OpenCode：假 OpenCode 從它 session 拿到的 MCP server（ACP 的 `mcpServers`）啟動 gateway 的程式並呼叫 `mail_send`，回覆說郵件在待送出匣等待，卡片寫出收件人並等使用者處理。完全存取以下開源 agent 拿不到這些工具（單元測試 `test/orchestrator-gateway.test.ts`）。 |
 | 完全存取以下，CLI 自己對 Harness Relay 工具的詢問由 Harness Relay 代為回答，gateway 則對 act 呼叫說明它會做什麼並詢問 | Claude Code | 在可編輯模式下，這台電腦上有一個行事曆（收下放進來的活動的替身），並把 **行事曆** 給 Claude Code，假 CLI 呼叫 `calendar_create`：它自己對 `mcp__relay__calendar_create` 的詢問沒有卡片；gateway 的卡片（"wants to use a tool relay:calendar_create"）寫出要加的活動與時間，按 **允許**（Allow）之前什麼都不會加入；允許後替身收到活動，回覆說已經加入。 |
 

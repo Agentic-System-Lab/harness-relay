@@ -1170,6 +1170,11 @@ export const en: Messages = {
         mail: 'Search and read mail, save drafts, and send through the outbox: needs a mail account below.',
         calendar: 'List events and add them (with attendees, through the outbox): needs a calendar below.',
       },
+      browserPath: 'Browser to start',
+      browserPathHint: (env) =>
+        `The full path of a Chromium, Chrome or Edge executable. Left empty, ${env ? `RELAY_BROWSER's (${env}), else ` : ''}the first found on this computer: Chrome, Chromium or Edge, then Playwright's Chromium. Chats that start after a change use it.`,
+      browserUsing: (path) => `In use: ${path}`,
+      browserNone: 'No browser found: the browser tools cannot start until you set one, or install Chrome, Chromium or Edge.',
       unavailable: {
         'not-started': 'Not available now: the server could not start them (its log says why).',
         'no-node':
