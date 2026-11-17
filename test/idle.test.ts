@@ -222,7 +222,7 @@ describe('the IDLE connections of automations that wait for new mail', () => {
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
-  it('leaves a server that does not list or take IDLE to the checks, never trying again', async () => {
+  it('leaves a server that does not list or take IDLE to the checks, trying again only after a long while', async () => {
     server = await fakeImap([]);
     const w = start({ watching: () => [{ conversationId: 'c1', trigger: inbox }] });
     await vi.waitFor(() => expect(w.unsupported('c1')).toBe(true));
@@ -357,5 +357,39 @@ describe('the IDLE connections of automations that wait for new mail', () => {
     const sock = await openSocket({ host: '127.0.0.1', port: server.port, security: 'none' }, 2000, abort.signal);
     expect(getEventListeners(abort.signal, 'abort')).toHaveLength(0);
     sock.destroy();
+  });
+
+  it('says it listens only for what the automation waits for now, and not while it waits between short rounds', async () => {
+    server = await fakeImap([]);
+    server.idle = true;
+    const w = start({ watching: () => [{ conversationId: 'c1', trigger: inbox }] });
+    await vi.waitFor(() => expect(w.live('c1', inbox)).toBe(true));
+    // Saved meanwhile for another source or folder: no reason to check more slowly, before the next sync.
+    expect(w.live('c1', { source: 'file', pattern: '*.csv' })).toBe(false);
+    expect(w.live('c1', { ...inbox, folder: 'Alerts' })).toBe(false);
+    expect(w.live('c1', { ...inbox, account: 'home' })).toBe(false);
+    await w.stop();
+    server.idleAnswer = 'end';
+    const v = start({ watching: () => [{ conversationId: 'c1', trigger: inbox }], backoffMs: [400] });
+    await vi.waitFor(() => expect(server!.commands.some((c) => / IDLE$/.test(c))).toBe(true));
+    await sleep(100);
+    expect(v.live('c1', inbox)).toBe(false);
+  });
+
+  it('counts only a refused sign-in as one, not a server that does not answer', async () => {
+    server = await fakeImap([]);
+    const addr = { host: '127.0.0.1', port: server.port, security: 'none' as const };
+    const { ImapLoginError } = await import('../src/server/connectors/imap');
+    await expect(ImapClient.open(addr, { ...login, password: 'wrong' })).rejects.toBeInstanceOf(ImapLoginError);
+    const silent: Server = createServer((sock) => sock.write('* OK ready\r\n'));
+    await new Promise<void>((r) => silent.listen(0, '127.0.0.1', () => r()));
+    try {
+      const port = (silent.address() as { port: number }).port;
+      const err = await ImapClient.open({ host: '127.0.0.1', port, security: 'none' }, login, 200).catch((e: Error) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err).not.toBeInstanceOf(ImapLoginError);
+    } finally {
+      silent.close();
+    }
   });
 });

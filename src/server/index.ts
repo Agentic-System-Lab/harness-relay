@@ -158,7 +158,7 @@ const idle = new IdleWatcher({
   watching: () => store.mailWatches(),
   check: (id) => scheduler.check(id, false, true),
 });
-scheduler.listening = (id) => idle.live(id);
+scheduler.listening = (id, trigger) => idle.live(id, trigger);
 
 // Push notifications to the browsers that turned them on (a phone, say), when agents finish or need the user.
 const push = new PushService(db);

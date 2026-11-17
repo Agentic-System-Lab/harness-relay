@@ -59,7 +59,7 @@ class Listener {
   }
   /** The server accepted IDLE and waits in it now. */
   live = false;
-  /** The server does not take IDLE: nothing more is tried until its account changes. */
+  /** The server does not take IDLE: asked again only after a long while (`unsupportedRetryMs`). */
   unsupported = false;
   private stopped = false;
   /** The connection being opened or open: stopping aborts it (one for each connection, so nothing piles up). */
@@ -201,7 +201,8 @@ class Listener {
             failures = 0;
             refused = 0;
           } else if (!this.stopped) {
-            // The server ended IDLE at once: not again straight away.
+            // The server ended IDLE at once: not again straight away, and not listening meanwhile.
+            this.live = false;
             const steps = this.deps.backoffMs;
             await this.wait(steps[Math.min(failures++, steps.length - 1)]!).done;
           }
@@ -306,9 +307,16 @@ export class IdleWatcher {
     return undefined;
   }
 
-  /** Whether the server waits in IDLE for this automation's folder now: its checks can come more slowly. */
-  live(conversationId: string): boolean {
-    return this.listenerOf(conversationId)?.live ?? false;
+  /**
+   * Whether the server waits in IDLE for this automation's folder now: its checks can come more slowly.
+   * `trigger`: what the automation waits for now, which the connections learn only at the next sync:
+   * another source, account or folder is no reason to check more slowly.
+   */
+  live(conversationId: string, trigger?: ScheduleTrigger): boolean {
+    const l = this.listenerOf(conversationId);
+    if (!l?.live) return false;
+    if (!trigger) return true;
+    return trigger.source === 'mail' && l.folderKey === JSON.stringify([trigger.account, trigger.folder]);
   }
 
   /** Whether the automation's server does not take IDLE. */

@@ -1,4 +1,4 @@
-import type { Conversation, ConversationSchedule, ScheduleResult, ScheduleWatch, WatchState } from '../shared/types';
+import type { Conversation, ConversationSchedule, ScheduleResult, ScheduleTrigger, ScheduleWatch, WatchState } from '../shared/types';
 import { nextRun } from '../shared/schedule';
 import { HttpError } from './errors';
 import { t, withLang } from './i18n';
@@ -75,7 +75,7 @@ export class Scheduler {
    * Whether the mail server tells Harness Relay when mail arrives for this automation (IMAP IDLE,
    * `idle.ts`): its checks then come more slowly, since one comes at once when mail arrives.
    */
-  listening?: (convId: string) => boolean;
+  listening?: (convId: string, trigger: ScheduleTrigger) => boolean;
 
   constructor(
     private store: Store,
@@ -189,7 +189,7 @@ export class Scheduler {
     const hold = prev?.held && !force ? withLang(s.lang, () => this.orchestrator.scheduledHold(convId)) : undefined;
     if (prev && hold) {
       const { listening: _l, ...rest } = prev;
-      const listening = this.listening?.(convId) ?? false;
+      const listening = this.listening?.(convId, trigger) ?? false;
       return this.keepWatch(conv, s, {
         ...rest,
         checkedAt: started,
@@ -222,7 +222,7 @@ export class Scheduler {
     if (this.stopped || conv.schedule !== s) return;
     // A run that began while the files were looked at writes there too.
     const busy = writing || (files && this.orchestrator.folderInUse(convId));
-    const listening = this.listening?.(convId) ?? false;
+    const listening = this.listening?.(convId, trigger) ?? false;
     const seen: ScheduleWatch = {
       key,
       ...keptState(found.state),

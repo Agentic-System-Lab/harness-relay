@@ -214,6 +214,16 @@ class ResponseReader {
 /** The server refused the user name and password (LOGIN): trying again soon will not help. */
 export class ImapLoginError extends Error {}
 
+/** A command answered NO or BAD: `status` is the whole answer after the tag. */
+export class ImapStatusError extends Error {
+  constructor(
+    message: string,
+    readonly status: string,
+  ) {
+    super(message);
+  }
+}
+
 /** The server refused IDLE although it may list it: waiting for mail that way will not work there. */
 export class IdleRefusedError extends Error {}
 
@@ -248,7 +258,10 @@ export class ImapClient {
         c.reader.attach(c.sock);
       }
       await c.command(`LOGIN ${quote(login.username)} ${quote(login.password)}`).catch((err: Error) => {
-        throw new ImapLoginError(t().conn.mailLogin(err.message));
+        // Refused (a tagged NO, but not "try later"): trying again soon will not help. A time-out or a
+        // dropped connection is no refusal.
+        const refused = err instanceof ImapStatusError && /^NO\b/i.test(err.status) && !/\[UNAVAILABLE\]/i.test(err.status);
+        throw refused ? new ImapLoginError(t().conn.mailLogin(err.message)) : new Error(t().conn.mailLogin(err.message));
       });
       const caps = await c.command('CAPABILITY');
       for (const r of caps.untagged) {
@@ -316,7 +329,7 @@ export class ImapClient {
         continue;
       }
       const status = r.text.slice(tag.length + 1);
-      if (!/^OK/i.test(status)) throw new Error(status.replace(/^(NO|BAD)\s*/i, '') || status);
+      if (!/^OK/i.test(status)) throw new ImapStatusError(status.replace(/^(NO|BAD)\s*/i, '') || status, status);
       return { untagged, status };
     }
   }
