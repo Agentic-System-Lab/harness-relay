@@ -154,6 +154,46 @@ test.describe('reporting a problem', () => {
     expect(mail.body.split('\r\n').slice(0, 4)).toEqual(['Switch to dark at sunset.', '', '---', 'Type: Idea']);
   });
 
+  test('on a phone, the ways to send stay at the bottom of the dialog while the rest scrolls under them, with what sending did', async ({ page }) => {
+    const caught = await catchMail(page);
+    await page.setViewportSize({ width: 390, height: 640 });
+    await page.getByRole('button', { name: 'Open sidebar' }).click();
+    await page.getByRole('button', { name: 'Report a problem' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Report a problem' });
+    const foot = dialog.locator('.report-foot');
+    const send = dialog.getByRole('button', { name: 'Send', exact: true });
+    // Taller than the screen, the dialog scrolls.
+    expect(await dialog.evaluate((el) => el.scrollHeight > el.clientHeight + 100)).toBe(true);
+    /** The footer at the dialog's bottom, Send in view, and the footer over what scrolls under it. */
+    const atBottom = async () => {
+      const d = (await dialog.boundingBox())!;
+      const f = (await foot.boundingBox())!;
+      expect(Math.abs(f.y + f.height - (d.y + d.height))).toBeLessThanOrEqual(1);
+      await expect(send).toBeInViewport({ ratio: 1 });
+      expect(await foot.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return el.contains(document.elementFromPoint(r.left + 4, r.top + 4));
+      })).toBe(true);
+    };
+    await atBottom();
+
+    // Sent from the top of the dialog: what that did shows in the footer, in view.
+    await dialog.getByRole('textbox', { name: 'Details' }).fill('The export drops the last row.');
+    await dialog.evaluate((el) => (el.scrollTop = 0));
+    await send.click();
+    await expect.poll(async () => (await caught()).opened.length).toBe(1);
+    await expect(foot.getByRole('status')).toContainText('Your mail app is open');
+    await expect(foot.getByRole('status')).toBeInViewport({ ratio: 1 });
+    expect(await dialog.evaluate((el) => el.scrollTop)).toBe(0);
+    await atBottom();
+
+    // Scrolled halfway and to the end, it stays.
+    await dialog.evaluate((el) => (el.scrollTop = (el.scrollHeight - el.clientHeight) / 2));
+    await atBottom();
+    await dialog.evaluate((el) => (el.scrollTop = el.scrollHeight));
+    await atBottom();
+  });
+
   test('a report too long for the mail link goes on the clipboard, and the mail says to paste it', async ({ page }) => {
     const caught = await catchMail(page);
     await page.getByRole('button', { name: 'Report a problem' }).click();

@@ -363,43 +363,47 @@ export function ReportDialog({ providers, onClose }: Props) {
         </details>
 
         <p className="muted small">{r.hint}</p>
-        {waiting && reportReady(draft) && <p className="small warn-text">{r.shots.uploadFirst}</p>}
-        {sent && (
-          <p className={sent === 'cutCopyFailed' ? 'small warn-text' : 'small report-sent'} role="status">
-            {sentLinks(sent, upload?.id, uploads.linkedId) ? r.sentLinked[sent] : r.sent[sent]}
-          </p>
-        )}
-        {uploadUnlinked(sent, upload?.id, uploads.linkedId) && (
-          <p className="small warn-text" role="status">
-            {r.shots.notLinked}
-          </p>
-        )}
 
+        {/* Kept at the bottom of the dialog while the rest scrolls under it (a phone's screen is short
+            for all of it): the ways to send, in reach from anywhere, and what sending did, in sight. */}
         <footer className="report-foot">
-          <div className="report-alt">
-            <span className="muted small">{r.noMailApp}</span>
-            <button type="button" className="ghost small-button" disabled={!ready} onClick={sendGmail}>
-              {r.gmail}
+          {waiting && reportReady(draft) && <p className="small warn-text">{r.shots.uploadFirst}</p>}
+          {sent && (
+            <p className={sent === 'cutCopyFailed' ? 'small warn-text' : 'small report-sent'} role="status">
+              {sentLinks(sent, upload?.id, uploads.linkedId) ? r.sentLinked[sent] : r.sent[sent]}
+            </p>
+          )}
+          {uploadUnlinked(sent, upload?.id, uploads.linkedId) && (
+            <p className="small warn-text" role="status">
+              {r.shots.notLinked}
+            </p>
+          )}
+          <div className="report-actions">
+            <div className="report-alt">
+              <span className="muted small">{r.noMailApp}</span>
+              <button type="button" className="ghost small-button" disabled={!ready} onClick={sendGmail}>
+                {r.gmail}
+              </button>
+              <CopyButton
+                className="ghost small-button report-copy"
+                label={r.copy}
+                icon={<CopyIcon size={14} />}
+                text={whole}
+                // Copied to send by hand, it counts as sent: the mail links to the upload done now, which then
+                // stays on GitHub, and the report is forgotten once the dialog closes. Not when copying failed.
+                onDone={(copied) => {
+                  if (!copied) return;
+                  uploads.sent();
+                  setSent('copied');
+                }}
+                disabled={!ready}
+              />
+            </div>
+            <button type="button" className="primary report-send" disabled={!ready} onClick={sendMail}>
+              <MailIcon size={16} />
+              <span>{r.send}</span>
             </button>
-            <CopyButton
-              className="ghost small-button report-copy"
-              label={r.copy}
-              icon={<CopyIcon size={14} />}
-              text={whole}
-              // Copied to send by hand, it counts as sent: the mail links to the upload done now, which then
-              // stays on GitHub, and the report is forgotten once the dialog closes. Not when copying failed.
-              onDone={(copied) => {
-                if (!copied) return;
-                uploads.sent();
-                setSent('copied');
-              }}
-              disabled={!ready}
-            />
           </div>
-          <button type="button" className="primary report-send" disabled={!ready} onClick={sendMail}>
-            <MailIcon size={16} />
-            <span>{r.send}</span>
-          </button>
         </footer>
       </div>
     </div>,

@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 450 tests in 35 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 451 tests in 35 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -64,7 +64,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [What each CLI loads by itself, and Grok's trust](#what-each-cli-loads-by-itself-and-groks-trust) | [`native.spec.ts`](specs/native.spec.ts) | 5 | [User guide → What each CLI loads by itself](../docs/user-guide.md#what-each-cli-loads-by-itself), [Architecture → What each CLI loads by itself](../docs/architecture.md#what-each-cli-loads-by-itself) |
 | [Agent sessions and AgentsView](#agent-sessions-and-agentsview) | [`sessions.spec.ts`](specs/sessions.spec.ts) | 10 | [User guide → Agent sessions](../docs/user-guide.md#agent-sessions-the-clis-own-folder-and-agentsview), [Architecture → Agent homes and AgentsView](../docs/architecture.md#agent-homes-and-agentsview) |
 | [Voice input's install](#voice-inputs-install) | [`voice.spec.ts`](specs/voice.spec.ts) | 2 | [User guide → Voice input](../docs/user-guide.md#voice-input), [Architecture → Voice input](../docs/architecture.md#voice-input) |
-| [Reporting a problem](#reporting-a-problem) | [`report.spec.ts`](specs/report.spec.ts) | 6 | [User guide → Reporting a problem](../docs/user-guide.md#reporting-a-problem), [Architecture → Reporting a problem](../docs/architecture.md#reporting-a-problem) |
+| [Reporting a problem](#reporting-a-problem) | [`report.spec.ts`](specs/report.spec.ts) | 7 | [User guide → Reporting a problem](../docs/user-guide.md#reporting-a-problem), [Architecture → Reporting a problem](../docs/architecture.md#reporting-a-problem) |
 | [The guided tour and the theme](#the-guided-tour-and-the-theme) | [`appearance.spec.ts`](specs/appearance.spec.ts) | 9 | [User guide → Language and the guided tour](../docs/user-guide.md#language-and-the-guided-tour) |
 | [Notifications and sound](#notifications-and-sound) | [`notifications.spec.ts`](specs/notifications.spec.ts) | 4 | [User guide → Notifications and sound](../docs/user-guide.md#notifications-and-sound), [Architecture → Notifications](../docs/architecture.md#notifications) |
 | [Limits the environment sets](#limits-the-environment-sets) | [`limits.spec.ts`](specs/limits.spec.ts) | 4 | [Developer guide → Environment variables](../docs/developer-guide.md#environment-variables) |
@@ -448,12 +448,13 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 
 ## Reporting a problem
 
-[`report.spec.ts`](specs/report.spec.ts): the sidebar's **Report a problem**. The mail's links are caught in the page (`window.open`, the clipboard, and the `mailto:` navigation, cancelled), so nothing opens and nothing goes online. The three tests that read the mail's links are skipped in a browser without the Navigation API.
+[`report.spec.ts`](specs/report.spec.ts): the sidebar's **Report a problem**. The mail's links are caught in the page (`window.open`, the clipboard, and the `mailto:` navigation, cancelled), so nothing opens and nothing goes online. The four tests that read the mail's links are skipped in a browser without the Navigation API.
 
 | Scenario | What is checked |
 | --- | --- |
 | The mail's links carry the description and the version and system details | Send waits for a description; the details match `/api/about`, the browser, each CLI's version and the language, without a temporary path; the `mailto:` link has the address, a subject from the first line and the body; the Gmail link the same; **Copy report** copies the whole mail; the dialog opens empty again once sent. |
 | A report closed before it was sent is kept, and the kind and subject chosen go in the mail | The kind, subject and description outlive Escape, and the mail says `[Harness Relay] Idea: <subject>` and `Type: Idea`. |
+| On a phone, the ways to send stay at the bottom of the dialog while the rest scrolls under them, with what sending did | At 390×640 the dialog scrolls, and its footer (**Send with Gmail**, **Copy report**, **Send**) sits at its bottom with **Send** in view, over what scrolls under it, at the top, halfway and at the end; sent from the top, the dialog does not move and the footer says the mail app is open. |
 | A report too long for the mail link goes on the clipboard, and the mail says to paste it | The `mailto:` link stays within its limit and asks to paste the report, which is on the clipboard; the Gmail link still carries all of it. |
 | Screenshots added must be uploaded or removed before the mail can go | A text file is refused with its reason; a PNG shows a thumbnail and holds both send buttons until it is removed. |
 | Screenshots that cannot be uploaded say why, and the report goes without them | With the fake `gh` signed out, **Upload screenshots** shows the share dialog's help (**Sign in to GitHub**, the terminal's command, upload again), with the mail's way round it, and once the screenshot is removed the report can go. |
@@ -480,7 +481,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | On a phone, the tour slides up once as it opens, also from Settings, comes to rest at the bottom of the screen, and not with reduced motion | Opened at 390×560, the sheet slides up from below the screen (`translateY(100%)`) and the backdrop fades in from clear (apart from the welcome step's picture), changing only `transform` and `opacity`, both ending by themselves; the sheet then rests with its bottom at the screen's and **Next** in view and focused (focusing **Next** while the sheet was still below the screen moved nothing); the next step keeps the same finished animations, so nothing plays again; **Settings → Guided tour → Replay the tour** plays them again, later, and the sheet rests at the bottom; with reduced motion nothing animates and the sheet is at the bottom. |
 | On a wide screen, Next stays in one place through the steps in the middle of the screen | At 1280×800, nothing in the tour animates but the welcome step's picture, and every step not pointing at the sidebar has **Next** at the same height: the card is as tall as the tallest step. |
 | The welcome step's picture: a request going in and a result coming out, drawn once, then still | At 1280×800 the welcome step shows its picture between its text and the dots, more than 200px tall, hidden from screen readers and without words: your request at the top left, Harness Relay's mark (the logo's three dots), and the result at the bottom right with two lines added, one removed and a check. Its animations change only `transform`, `opacity` and the arrows' dash, and all end by themselves: everything in place, the arrows drawn with their heads, the lines written out whole, the ring gone. The next step has none; with reduced motion, Back shows it still at once, nothing animating, in that same state. |
-| The welcome step's picture takes the room the card leaves it, and is left out where that is too little | At 1280×520 it shrinks below its largest size (300px) to fit between the text and the dots; at 1280×380 the card is cut to the screen and the picture is hidden; at 390×844 the phone's sheet makes room for it. |
+| The welcome step's picture takes the room the card leaves it, and is left out where that is too little | At 1280×520 it shrinks below its largest size (300px) to fit between the text and the dots; at 1280×380 the card is cut to the screen and the picture is hidden; at 390×844 the phone's sheet makes room for it: the picture stays in its room, between the text and the dots, and the step's text does not scroll. |
 | Dark or light chosen in Settings is set on the page, kept after a reload, and wins over the system | Dark sets `data-theme`, the background and the `theme-color` metas, and survives a reload; Light stays light with the system dark. |
 | Following the system follows its light or dark mode | **Follow system** removes `data-theme`, and the page follows the emulated light or dark mode, open and after a reload. |
 
@@ -613,7 +614,7 @@ The open agents, in Harness Relay's own sandbox below full access:
 - [On a phone](#on-a-phone) is skipped in Firefox, and its test with the browser's own touches runs in Chromium only (they are sent through its DevTools protocol).
 - The add card test in [Changing a chat's team](#changing-a-chats-team) checks the list's shadow only in a browser with scroll-driven animations (Chromium, WebKit), as there is no shadow elsewhere: in Firefox it checks the rest.
 - The two copy tests in [Copying and sharing](#copying-and-sharing) run in Chromium only (reading the clipboard), and "Without gh" is skipped on Windows.
-- The three tests of [Reporting a problem](#reporting-a-problem) that read the mail's links are skipped in a browser without the Navigation API.
+- The four tests of [Reporting a problem](#reporting-a-problem) that read the mail's links are skipped in a browser without the Navigation API.
 
 ## What they do not cover
 

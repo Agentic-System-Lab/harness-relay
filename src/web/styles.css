@@ -5438,17 +5438,20 @@ details.sub summary {
 .tour-art {
   flex: 1 1 0;
   min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
   container-type: size;
   --art-ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Placed in the room, centred, never taller than it: as a flex item's child, iOS Safari left its
+   100% height unresolved and drew it as tall as its width makes it, over the step's text. */
 .tour-art svg {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   max-height: 300px;
+  margin: auto;
   overflow: visible;
 }
 
@@ -7801,6 +7804,8 @@ a.share-action {
 .modal.report-dialog {
   width: min(560px, 100%);
   overflow-y: auto;
+  /* Its footer, kept at the bottom, has the bottom padding. */
+  padding-bottom: 0;
 }
 
 .report-dialog p {
@@ -7854,7 +7859,22 @@ a.share-action {
   color: var(--ok);
 }
 
+/* The ways to send and what sending did, kept at the bottom of the dialog while the rest scrolls under
+   it: on a phone's short screen, sending is in reach without scrolling to the end. */
 .report-foot {
+  position: sticky;
+  bottom: 0;
+  /* Reaches the dialog's sides, so that what scrolls under it is hidden edge to edge. */
+  margin: 0 -20px;
+  padding: 12px 20px 18px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.report-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;

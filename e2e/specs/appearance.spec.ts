@@ -280,9 +280,19 @@ test.describe('the guided tour', () => {
     await page.setViewportSize({ width: 1280, height: 380 });
     await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
     await expect(page.locator('.tour-card:not(.tour-measure) .tour-art svg')).toBeHidden();
-    // On a phone, the sheet makes room for it.
+    // On a phone, the sheet makes room for it: in its room, between the text and the dots, so the step's text does not scroll.
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(page.locator('.tour-card:not(.tour-measure) .tour-art svg')).toBeVisible();
+    await expect(svg).toBeVisible();
+    // Measured at once: the sheet may still be sliding up.
+    const onPhone = await page.evaluate(() => {
+      const box = (part: string) => document.querySelector(`.tour-card:not(.tour-measure) ${part}`)!.getBoundingClientRect();
+      return { text: box('.tour-body p'), room: box('.tour-art'), svg: box('.tour-art svg'), dots: box('.tour-dots') };
+    });
+    expect(onPhone.svg.top).toBeGreaterThanOrEqual(onPhone.text.bottom);
+    expect(onPhone.svg.top).toBeGreaterThanOrEqual(onPhone.room.top);
+    expect(onPhone.svg.bottom).toBeLessThanOrEqual(onPhone.room.bottom);
+    expect(onPhone.svg.bottom).toBeLessThanOrEqual(onPhone.dots.top);
+    await expect(page.locator('.tour-card:not(.tour-measure) .tour-foot')).not.toHaveClass(/scrolls/);
   });
 });
 
