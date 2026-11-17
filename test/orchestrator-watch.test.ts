@@ -494,4 +494,24 @@ describe('automations that start when something happens', () => {
     await finish(conv.id);
     expect(scheduledCount()).toBe(2);
   });
+
+  it('checks more slowly while the mail server says when mail arrives (IMAP IDLE), and lists the automations IDLE listens for', async () => {
+    reset();
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    watching(conv);
+    const off = conversation({ mode: 'roundtable', permission: 'read-only' });
+    watching(off, { enabled: false });
+    const files = conversation({ mode: 'roundtable', permission: 'read-only' });
+    watching(files, { repeat: { kind: 'event', trigger: { source: 'file', pattern: '*.csv' } } });
+    expect(store.mailWatches()).toEqual([{ conversationId: conv.id, trigger }]);
+    const s = scheduler();
+    s.listening = (id) => id === conv.id;
+    await s.check(conv.id);
+    expect(conv.schedule!.watch).toMatchObject({ listening: true, nextCheckAt: T0 + WATCH_LIMITS.idleCheckMinutes * MIN });
+    s.listening = () => false;
+    now += MIN;
+    await s.check(conv.id);
+    expect(conv.schedule!.watch!.listening).toBeUndefined();
+    expect(conv.schedule!.watch!.nextCheckAt).toBe(now + WATCH_LIMITS.checkMinutes * MIN);
+  });
 });

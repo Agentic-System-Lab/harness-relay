@@ -28,6 +28,14 @@ export interface FakeImap {
    * was expunged), none at all when `null` (a server that does not say it).
    */
   uidNext: number | null | undefined;
+  /** Whether it says IDLE (RFC 2177) in its capabilities, and takes it. */
+  idle: boolean;
+  /** The connections waiting in IDLE now. */
+  readonly idling: number;
+  /** Tells every connection waiting in IDLE that the inbox has this many messages (`* n EXISTS`). */
+  notify(): void;
+  /** Drops every connection (a lost network, a server restarting). */
+  drop(): void;
   close(): Promise<void>;
 }
 
@@ -40,8 +48,18 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
   const commands: string[] = [];
   const literals: string[] = [];
   const appended: FakeImap['appended'] = [];
-  const fake: { uidValidity: number; uidNext: number | null | undefined } = { uidValidity: 7, uidNext: undefined };
+  const fake: { uidValidity: number; uidNext: number | null | undefined; idle: boolean } = {
+    uidValidity: 7,
+    uidNext: undefined,
+    idle: false,
+  };
+  /** The connections waiting in IDLE, with the tag their DONE answers. */
+  const idling = new Map<Socket, string>();
+  const sockets = new Set<Socket>();
   const server: Server = createServer((sock: Socket) => {
+    sockets.add(sock);
+    sock.on('close', () => (sockets.delete(sock), idling.delete(sock)));
+    sock.on('error', () => undefined);
     let buf = Buffer.alloc(0);
     let line = '';
     let need = 0; // bytes of a literal still to read
@@ -51,6 +69,11 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
     const handle = (full: string, lits: string[]) => {
       commands.push(full);
       literals.push(...lits);
+      if (full === 'DONE' && idling.has(sock)) {
+        const tag = idling.get(sock)!;
+        idling.delete(sock);
+        return send(`${tag} OK IDLE terminated\r\n`);
+      }
       const m = /^(\S+) (.*)$/.exec(full);
       if (!m) return;
       const [, tag, rest] = m as unknown as [string, string, string];
@@ -63,7 +86,13 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
             : `${tag} NO [AUTHENTICATIONFAILED] Invalid credentials\r\n`,
         );
       }
-      if (cmd.startsWith('CAPABILITY')) return send(`* CAPABILITY IMAP4rev1 LITERAL+ SPECIAL-USE\r\n${tag} OK\r\n`);
+      if (cmd.startsWith('CAPABILITY'))
+        return send(`* CAPABILITY IMAP4rev1 LITERAL+ SPECIAL-USE${fake.idle ? ' IDLE' : ''}\r\n${tag} OK\r\n`);
+      if (cmd === 'IDLE') {
+        if (!fake.idle) return send(`${tag} BAD unknown command\r\n`);
+        idling.set(sock, tag);
+        return send('+ idling\r\n');
+      }
       if (cmd.startsWith('LIST'))
         return send(
           `* LIST (\\HasNoChildren) "/" "INBOX"\r\n* LIST (\\HasNoChildren \\Drafts) "/" "Drafts"\r\n* LIST (\\HasNoChildren) "/" {7}\r\nArchive\r\n${tag} OK\r\n`,
@@ -168,10 +197,28 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
     get uidNext() {
       return fake.uidNext;
     },
+    get idle() {
+      return fake.idle;
+    },
+    set idle(v: boolean) {
+      fake.idle = v;
+    },
+    get idling() {
+      return idling.size;
+    },
+    notify: () => {
+      for (const sock of idling.keys()) sock.write(`* ${messages.length} EXISTS\r\n`);
+    },
+    drop: () => {
+      for (const sock of sockets) sock.destroy();
+    },
     set uidNext(v: number | null | undefined) {
       fake.uidNext = v;
     },
-    close: () => new Promise((r) => server.close(() => r())),
+    close: () => {
+      for (const sock of sockets) sock.destroy();
+      return new Promise((r) => server.close(() => r()));
+    },
   };
 }
 

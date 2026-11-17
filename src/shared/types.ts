@@ -1496,6 +1496,8 @@ export interface ScheduleWatch {
   failures?: number;
   /** Something new was found but the team could not take it: why. Sent at a later check, with what came since. */
   held?: string;
+  /** At its last check, the mail server was telling Harness Relay when mail arrives (IMAP IDLE): checked at once then. */
+  listening?: boolean;
 }
 
 /** What a check keeps of an automation's source (`ScheduleWatch`), apart from when and how it went. */
@@ -1511,6 +1513,8 @@ export type WatchState = Pick<ScheduleWatch, 'uidValidity' | 'lastUid' | 'lastId
  */
 export const WATCH_LIMITS = {
   checkMinutes: 2,
+  /** While the mail server tells Harness Relay when mail arrives (IMAP IDLE), checks come this often all the same. */
+  idleCheckMinutes: 15,
   backoffMinutes: [5, 15, 30, 60],
   items: 10,
   excerptChars: 500,

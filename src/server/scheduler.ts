@@ -69,6 +69,11 @@ export class Scheduler {
   /** The checks of what automations wait for, under way: one at a time for each. */
   private checks = new Map<string, Promise<void>>();
   private watching?: Promise<void>;
+  /**
+   * Whether the mail server tells Harness Relay when mail arrives for this automation (IMAP IDLE,
+   * `idle.ts`): its checks then come more slowly, since one comes at once when mail arrives.
+   */
+  listening?: (convId: string) => boolean;
 
   constructor(
     private store: Store,
@@ -189,12 +194,14 @@ export class Scheduler {
     if (this.stopped || conv.schedule !== s) return;
     // A run that began while the files were looked at writes there too.
     const busy = writing || (files && this.orchestrator.folderInUse(convId));
+    const listening = this.listening?.(convId) ?? false;
     const seen: ScheduleWatch = {
       key,
       ...keptState(found.state),
       checkedAt: started,
       seenAt: started,
-      nextCheckAt: nextCheckAt(this.now()),
+      nextCheckAt: nextCheckAt(this.now(), 0, listening),
+      ...(listening ? { listening } : {}),
       ...(busy ? { teamWrote: true } : {}),
     };
     if (!found.event || recordOnly || busy) return this.keepWatch(conv, s, seen);

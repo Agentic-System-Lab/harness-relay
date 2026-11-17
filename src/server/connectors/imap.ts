@@ -298,6 +298,43 @@ export class ImapClient {
     }
   }
 
+  /**
+   * Waits in IDLE (RFC 2177) until `stop` resolves, passing each untagged response the server sends
+   * meanwhile (`* 12 EXISTS` when mail arrives) to `onResponse`; then ends it (DONE) and reads its
+   * tagged answer. No time limit while it waits: the caller stops it before the server would (most
+   * end IDLE after about 29 minutes). A connection that drops, or a server that ends it, is an error.
+   */
+  async idle(onResponse: (r: ImapResponse) => void, stop: Promise<void>): Promise<void> {
+    const tag = `R${++this.tag}`;
+    this.sock.write(`${tag} IDLE\r\n`);
+    for (;;) {
+      const r = await this.timed(this.reader.next());
+      if (r.text.startsWith('+')) break;
+      if (r.text.startsWith(`${tag} `)) throw new Error(r.text.slice(tag.length + 1));
+      onResponse(r);
+    }
+    const stopped = stop.then(() => undefined);
+    let next = this.reader.next();
+    for (;;) {
+      const r = await Promise.race([next, stopped]);
+      if (!r) break;
+      if (r.text.startsWith(`${tag} `) || /^\* BYE\b/i.test(r.text)) throw new Error(t().conn.mailIdleEnded(r.text));
+      onResponse(r);
+      next = this.reader.next();
+    }
+    this.sock.write('DONE\r\n');
+    for (;;) {
+      const r = await this.timed(next);
+      if (r.text.startsWith(`${tag} `)) {
+        const status = r.text.slice(tag.length + 1);
+        if (!/^OK/i.test(status)) throw new Error(status);
+        return;
+      }
+      onResponse(r);
+      next = this.reader.next();
+    }
+  }
+
   /** The folders, with their attributes (`\Drafts`…). */
   async folders(): Promise<{ name: string; attributes: string[] }[]> {
     const { untagged } = await this.command('LIST "" "*"');

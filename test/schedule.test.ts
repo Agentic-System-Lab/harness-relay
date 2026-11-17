@@ -350,6 +350,13 @@ describe('the schedule form', () => {
       /Something new is waiting until the team can take it \(the team is busy\)$/,
     );
     expect(scheduleState({ ...checked, enabled: false }, en, 'en')).toBe('paused');
+    // The mail server says when mail arrives (IMAP IDLE).
+    expect(scheduleState({ ...checked, watch: { ...checked.watch, listening: true } }, en, 'en')).toMatch(
+      / · the mail server says at once when mail arrives$/,
+    );
+    expect(scheduleState({ ...checked, watch: { ...checked.watch, listening: true } }, zhTW, 'zh-TW')).toMatch(
+      /郵件伺服器收到郵件時會馬上通知$/,
+    );
     // Off, a failed check is no trouble: nothing checks it.
     expect(scheduleTrouble({ ...failing, enabled: false })).toBe(false);
     // The badge's title says what is wrong: the check, not the last time it sent.

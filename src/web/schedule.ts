@@ -372,7 +372,8 @@ export function watchState(w: ScheduleWatch | undefined, t: Messages, lang: stri
   if (!w?.checkedAt) return m.notYet;
   if (w.error) return m.error(w.error);
   const checked = `${m.checked(formatWhen(w.checkedAt, lang))} · ${m.nextCheck(formatWhen(w.nextCheckAt, lang))}`;
-  return w.held ? `${checked} · ${m.held(w.held)}` : checked;
+  const listening = w.listening ? `${checked} · ${m.listening}` : checked;
+  return w.held ? `${listening} · ${m.held(w.held)}` : listening;
 }
 
 /** The schedule's state in a few words: when it sends next, paused, or (a one-time schedule that came due) done. */

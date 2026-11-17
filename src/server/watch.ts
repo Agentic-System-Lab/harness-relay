@@ -87,10 +87,14 @@ export function triggerKey(trigger: ScheduleTrigger): string {
   }
 }
 
-/** When the next check is, after `failures` failed checks in a row (0: the last one worked). */
-export function nextCheckAt(now: number, failures = 0): number {
+/**
+ * When the next check is, after `failures` failed checks in a row (0: the last one worked); more
+ * slowly while the mail server says when mail arrives (`listening`, IMAP IDLE), which checks at once.
+ */
+export function nextCheckAt(now: number, failures = 0, listening = false): number {
   const steps = WATCH_LIMITS.backoffMinutes;
-  const minutes = failures > 0 ? steps[Math.min(failures, steps.length) - 1]! : WATCH_LIMITS.checkMinutes;
+  const every = listening ? WATCH_LIMITS.idleCheckMinutes : WATCH_LIMITS.checkMinutes;
+  const minutes = failures > 0 ? steps[Math.min(failures, steps.length) - 1]! : every;
   return now + minutes * 60_000;
 }
 
