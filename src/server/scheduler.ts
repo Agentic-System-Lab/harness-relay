@@ -6,6 +6,12 @@ import type { Orchestrator } from './orchestrator';
 import type { Store } from './store';
 import { nextCheckAt, triggerKey, type TriggerChecker, type WatchCheck } from './watch';
 
+/** Files held for the team or still settling, together (none: nothing). */
+function heldOf(...maps: (Record<string, string> | undefined)[]): Pick<ScheduleWatch, 'heldFiles'> {
+  const all = Object.assign({}, ...maps.filter(Boolean)) as Record<string, string>;
+  return Object.keys(all).length ? { heldFiles: all } : {};
+}
+
 /** What a check found of its source, to keep: only what each source keeps (`WatchState`), never anything else it said. */
 function keptState(state: WatchState): WatchState {
   const { uidValidity, lastUid, lastId, seen, lookedAt, files, filesIn } = state;
@@ -204,7 +210,11 @@ export class Scheduler {
         ...(listening ? { listening } : {}),
       });
     }
-    const recordOnly = files && (writing || Boolean(prev?.teamWrote));
+    // A run that wrote there since the last check (began and ended between them): the next check only records too.
+    const writes = files ? this.orchestrator.folderWrites(convId) : undefined;
+    const sameServer = (a: string, b: string) => a.split(':')[0] === b.split(':')[0];
+    const wroteSince = Boolean(writes && prev?.writes && sameServer(prev.writes, writes) && prev.writes !== writes);
+    const recordOnly = files && (writing || Boolean(prev?.teamWrote) || wroteSince);
     let found: WatchCheck;
     try {
       found = await withLang(s.lang, () =>
@@ -242,8 +252,10 @@ export class Scheduler {
       nextCheckAt: nextCheckAt(this.now(), 0, listening),
       ...(listening ? { listening } : {}),
       ...(busy ? { teamWrote: true } : {}),
-      // What was held for the team stays held while only recorded: it is listed once the folder is free.
-      ...(recordOnly && prev?.heldFiles ? { heldFiles: prev.heldFiles } : {}),
+      // What was held for the team stays held while only recorded, and what still settles is kept like it:
+      // listed once the folder is free.
+      ...heldOf(recordOnly ? prev?.heldFiles : undefined, found.pending),
+      ...(writes ? { writes } : {}),
     };
     // A run that began during this look did not write what was found (every file listed had not
     // changed for a while): sent all the same, queued for the team.
@@ -265,7 +277,8 @@ export class Scheduler {
           ...(listening ? { listening } : {}),
           held: sent.reason ?? t().scheduleBusy,
           // The files it found, as they are now: kept unseen through what the team writes meanwhile.
-          ...(found.found ? { heldFiles: found.found } : {}),
+          ...heldOf(found.found, found.pending),
+          ...(writes ? { writes } : {}),
           ...(busy ? { teamWrote: true } : {}),
         });
       }
@@ -274,11 +287,10 @@ export class Scheduler {
       const current = conv.schedule;
       if (!current || current.repeat.kind !== 'event' || triggerKey(current.repeat.trigger) !== key) return;
       const { lastError: _error, lastChatId: _chat, watch: _watch, ...rest } = current;
-      // The run it started writes in the folder: what it writes is the team's own.
-      const runs = files && (sent.result === 'sent' || sent.result === 'queued');
+      // The run it started, when it writes in the folder, locks it: the next check sees the count change.
       conv.schedule = {
         ...rest,
-        watch: runs ? { ...seen, teamWrote: true } : seen,
+        watch: seen,
         lastRunAt: now,
         lastResult: sent.result,
         ...('reason' in sent && sent.reason ? { lastError: sent.reason } : {}),
