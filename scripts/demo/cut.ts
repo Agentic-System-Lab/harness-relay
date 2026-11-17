@@ -82,9 +82,12 @@ export function planCut(allFrames: FrameEntry[], allMarks: Mark[], target: numbe
   };
 
   const length = videoTime(end);
+  // The first frame shows from the start mark: the video begins with it, so starting it later would
+  // play every mark that much earlier than the timeline says (the first screenshot can come 0.6 s
+  // after the mark).
   const shown = frames.map((f, i) => ({
     file: f.file,
-    duration: (i + 1 < frames.length ? videoTime(frames[i + 1].ts) : length) - videoTime(f.ts),
+    duration: (i + 1 < frames.length ? videoTime(frames[i + 1].ts) : length) - (i === 0 ? 0 : videoTime(f.ts)),
   }));
   const round = (x: number) => Math.round(x * 100) / 100;
   return {
@@ -133,7 +136,9 @@ export function cutRecording(dir: string, target: number, log: (...a: unknown[])
   execFileSync('ffmpeg', [
     ...['-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list],
     ...['-vf', 'fps=24,format=yuv420p', '-c:v', 'libx264', '-preset', 'slow', '-crf', '24', '-profile:v', 'high'],
-    ...['-movflags', '+faststart', '-an', mp4],
+    // Ends where the timeline does: FFmpeg would hold the last frame, listed twice, about as long
+    // again as the frame before it.
+    ...['-t', plan.timeline.length.toFixed(3), '-movflags', '+faststart', '-an', mp4],
   ]);
 
   // The README animation: 880×550 at 8 fps, lossy WebP.

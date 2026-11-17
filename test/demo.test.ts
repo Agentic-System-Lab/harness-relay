@@ -85,6 +85,24 @@ describe('planCut', () => {
     expect(plan.frames.map((f) => f.file)).not.toContain('000051.jpg'); // the frame at 50 s
   });
 
+  it('shows the first frame from the start mark, so the marks fall where the timeline says', () => {
+    // The first screenshot comes 0.6 s after the start mark.
+    const plan = planCut(
+      frames(100.6, 110, 0.2),
+      [
+        { name: 'start', t: 100 },
+        { name: 'chat-open', t: 105 },
+        { name: 'end', t: 110 },
+      ],
+      120,
+    );
+    expect(plan.frames[0].duration).toBeCloseTo(0.8, 5);
+    expect(total(plan)).toBeCloseTo(plan.timeline.length, 5);
+    // The frame at 105 s, the 23rd, starts at the mark's time in the video.
+    const startOf23 = plan.frames.slice(0, 22).reduce((s, f) => s + f.duration, 0);
+    expect(startOf23).toBeCloseTo(at(plan, 'chat-open')!, 5);
+  });
+
   it('refuses a recording that did not finish', () => {
     expect(() => planCut(frames(0, 10, 1), [{ name: 'start', t: 0 }], 120)).toThrow(/end mark/);
   });
@@ -168,7 +186,7 @@ describe('chapter rail', () => {
     expect(chapters[0].say).toBe('Create a group, “Design reviews”, and open a template: teams are designed in templates.');
     expect(chapters[2]).toMatchObject({ kind: 'lead', who: 'Lead agent', av: 'C', tone: 'claude', via: 'Claude Code' });
     expect(chapters[2].say).toBe(
-      'Sorts the chat into Design reviews, adapts the Three-way debate template for the question, and says why.',
+      'Sorts the conversation into Design reviews, adapts the Three-way debate template for the question, and says why.',
     );
     expect(chapters[3]).toMatchObject({
       kind: 'team',
@@ -183,7 +201,7 @@ describe('chapter rail', () => {
     expect(chapters[4]).toMatchObject({ kind: 'agent', who: '@Skeptic', av: 'S', tone: 'grok', via: 'Grok' });
     expect(chapters[7].say).toBe('Picks a team for it: Proposer and Skeptic, one round. The review team stays until you confirm.');
     expect(chapters[8].who).toBe('Proposer and Skeptic');
-    expect(chapters[10].say).toBe('Search for “maxHops” and find the chat by what the agents wrote.');
+    expect(chapters[10].say).toBe('Search for “maxHops” and find the conversation by what the agents wrote.');
   });
 
   it('leaves out a chapter whose mark never came', () => {

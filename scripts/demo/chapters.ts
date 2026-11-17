@@ -40,8 +40,8 @@ export const RAILS: Record<DemoLang, RailSpec> = {
     lead: 'Lead agent',
     chapters: [
       { at: 'start', kind: 'you', say: 'Create a group, “{group}”, and open a template: teams are designed in templates.' },
-      { at: 'chat-open', kind: 'you', say: 'Start a new chat and ask straight away: “Is relay mode a good design?”' },
-      { at: 'q1-plan', kind: 'lead', team: 'q1', say: 'Sorts the chat into {group}, {plan}, and says why.' },
+      { at: 'chat-open', kind: 'you', say: 'Start a new conversation and ask straight away: “Is relay mode a good design?”' },
+      { at: 'q1-plan', kind: 'lead', team: 'q1', say: 'Sorts the conversation into {group}, {plan}, and says why.' },
       {
         at: 'q1-confirmed',
         kind: 'team',
@@ -51,7 +51,7 @@ export const RAILS: Record<DemoLang, RailSpec> = {
       {
         at: 'approval',
         kind: 'agent',
-        say: 'Wants to run a shell command over the relay code, which read-only asks about first: it waits in the chat, and you decline.',
+        say: 'Wants to run a shell command over the relay code, which read-only asks about first: it waits in the conversation, and you decline.',
       },
       { at: 'q1-answered', kind: 'team', team: 'q1', say: 'The answers, down to a ranked list of what to change first.' },
       { at: 'q1-read', kind: 'you', say: 'Ask a new question: a short README note on relay mode.' },
@@ -60,9 +60,9 @@ export const RAILS: Record<DemoLang, RailSpec> = {
       {
         at: 'files',
         kind: 'you',
-        say: 'Open Files and read relay mode’s hand-off in orchestrator.ts, right in the chat’s working directory.',
+        say: 'Open Files and read relay mode’s hand-off in orchestrator.ts, right in the conversation’s working directory.',
       },
-      { at: 'search', kind: 'you', say: 'Search for “{term}” and find the chat by what the agents wrote.' },
+      { at: 'search', kind: 'you', say: 'Search for “{term}” and find the conversation by what the agents wrote.' },
     ],
   },
   'zh-TW': {
@@ -77,7 +77,7 @@ export const RAILS: Record<DemoLang, RailSpec> = {
       {
         at: 'approval',
         kind: 'agent',
-        say: '想執行一小段腳本，實際測試交棒用的 @mention 解析，唯讀模式會先問你：它在聊天裡等你決定，你選擇拒絕。',
+        say: '想執行一串 grep 指令，在程式碼裡找 @mention 解析和交棒的部分，唯讀模式會先問你：它在對話裡等你決定，你選擇拒絕。',
       },
       { at: 'q1-answered', kind: 'team', team: 'q1', say: '結論：排好優先順序的修改建議，從最先該改的開始。' },
       { at: 'q1-read', kind: 'you', say: '問新的問題：寫一段放在 README 的接力模式說明。' },
