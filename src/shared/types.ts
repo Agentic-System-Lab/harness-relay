@@ -1492,11 +1492,12 @@ export interface ScheduleWatch {
    */
   teamWrote?: boolean;
   /**
-   * `file`: when the folder was last seen free of the team's runs (a check while none wrote there,
-   * and not the first right after one): what a check that only records keeps from before it is no
-   * run's, and is still listed later.
+   * `file`: the files a check found and held for the team (it could not take them), as they were
+   * then: while they stay so, a check that only records (the team writes) keeps them unseen, so that
+   * they are still listed once the folder is free. No clock is compared: what the team moves, renames
+   * or extracts keeps an old time, and is its own all the same.
    */
-  freeAt?: number;
+  heldFiles?: Record<string, string>;
   /** The last check failed: why, and how many checks failed in a row (they come slower). */
   error?: string;
   failures?: number;

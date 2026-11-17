@@ -167,10 +167,10 @@ export class Scheduler {
     // The team writes in the folder now, or did since the last check: only recorded.
     const files = trigger.source === 'file';
     const writing = files && this.orchestrator.folderInUse(convId);
-    /** A file check with the folder free of the team: when it was last seen so (`freeAt`). */
-    const free = (w: ScheduleWatch | undefined) => (files && !writing && !w?.teamWrote ? { freeAt: started } : {});
+    /** Someone writes in the folder while nothing is recorded (held, a failed check): what is written is the team's. */
+    const wrote = writing ? { teamWrote: true } : {};
     if (prev && hold)
-      return this.keepWatch(conv, s, { ...prev, checkedAt: started, nextCheckAt: nextCheckAt(started), held: hold, ...free(prev) });
+      return this.keepWatch(conv, s, { ...prev, checkedAt: started, nextCheckAt: nextCheckAt(started), held: hold, ...wrote });
     const recordOnly = files && (writing || Boolean(prev?.teamWrote));
     let found: WatchCheck;
     try {
@@ -179,7 +179,7 @@ export class Scheduler {
           cwd: conv.settings.cwd,
           now: started,
           recordOnly,
-          ...(prev?.freeAt !== undefined ? { keepBefore: prev.freeAt } : {}),
+          ...(prev?.heldFiles ? { held: prev.heldFiles } : {}),
         }),
       );
     } catch (err) {
@@ -193,6 +193,7 @@ export class Scheduler {
         nextCheckAt: nextCheckAt(this.now(), failures),
         error: (err as Error).message || String(err),
         failures,
+        ...wrote,
       });
     }
     // Changed or removed while it was checked: the new one starts afresh.
@@ -206,8 +207,8 @@ export class Scheduler {
       seenAt: started,
       nextCheckAt: nextCheckAt(this.now()),
       ...(busy ? { teamWrote: true } : {}),
-      // Free of the team now (also right after a run: what it wrote was just recorded); else as it was.
-      ...(files && !busy ? { freeAt: started } : files && prev?.freeAt !== undefined ? { freeAt: prev.freeAt } : {}),
+      // What was held for the team stays held while only recorded: it is listed once the folder is free.
+      ...(recordOnly && prev?.heldFiles ? { heldFiles: prev.heldFiles } : {}),
     };
     // A run that began during this look did not write what was found (every file listed had not
     // changed for a while): sent all the same, queued for the team.
@@ -226,7 +227,9 @@ export class Scheduler {
           checkedAt: started,
           nextCheckAt: seen.nextCheckAt,
           held: sent.reason ?? t().scheduleBusy,
-          ...(files && !busy ? { freeAt: started } : {}),
+          // The files it found, as they are now: kept unseen through what the team writes meanwhile.
+          ...(found.found ? { heldFiles: found.found } : {}),
+          ...(busy ? { teamWrote: true } : {}),
         });
       }
       // The message went (or could not start): what it was about counts as seen, also when the
