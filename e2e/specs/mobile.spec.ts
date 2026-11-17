@@ -357,6 +357,34 @@ test.describe('on a phone', () => {
     });
   });
 
+  test("the menu button tells of unread notifications; one opened from the drawer's bell closes the drawer, also for the chat on screen", async ({ page, relay }) => {
+    await openTeamChat(page, relay, [{ name: 'Grok', provider: 'grok' }], {}, 'On the go');
+    // As if the window were behind another: the chat on screen reads nothing of its own.
+    await page.evaluate(() => void (document.hasFocus = () => false));
+    await composer(page).fill('Quick question');
+    await page.getByRole('button', { name: 'Send' }).tap();
+    await finishedReply(page, 'Grok');
+    const menu = page.getByRole('button', { name: 'Open sidebar (1 unread notification)' });
+    await expect(menu).toBeVisible();
+    await expect(menu.locator('.menu-dot')).toBeVisible();
+
+    await menu.tap();
+    const bell = page.locator('.sidebar .brand').getByRole('button', { name: 'Notifications (1 unread)' });
+    await expect(bell).toBeInViewport();
+    await expect(bell.locator('.inbox-badge')).toHaveText('1');
+    await bell.tap();
+    const dialog = page.getByRole('dialog', { name: 'Notifications' });
+    const item = dialog.locator('.inbox-item');
+    await expect(item).toHaveCount(1);
+    await expect(item).toContainText('Grok finished replying');
+    // The chat it opens is the one on screen: the address stays, the dialog and the drawer close.
+    await item.tap();
+    await expect(dialog).toBeHidden();
+    await expect(page.locator('.sidebar')).not.toBeInViewport();
+    await expect(page.getByRole('button', { name: 'Open sidebar', exact: true })).toBeVisible();
+    await expect(page.locator('.menu-dot')).toHaveCount(0);
+  });
+
   test("a conversation's pin shows without hovering, and a tap pins it above the groups", async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Grok', provider: 'grok' }], {}, 'Pin me');
     // Somewhere else, so that a tap on the conversation opens it.

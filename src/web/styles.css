@@ -477,7 +477,7 @@ p {
   }
 }
 
-/* New group / Search, under New chat ----------------------------------------------- */
+/* Search / New group (an icon only), under New chat --------------------------------- */
 
 /* Closer to New chat than New chat is to the brand. */
 .sidebar-actions,
@@ -495,8 +495,13 @@ p {
 
 .sidebar-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) 42px;
   gap: 6px;
+}
+
+/* As wide as New schedule above it. */
+.sidebar-action.new-group {
+  padding: 0;
 }
 
 .sidebar-action {
@@ -956,8 +961,48 @@ p {
   display: none;
 }
 
-.brand .collapse-sidebar {
+/* The notification inbox's bell, then the collapse button, at the row's end (the bell alone on a phone). */
+.brand .inbox-button {
   margin-left: auto;
+}
+
+.brand .inbox-button + .collapse-sidebar {
+  margin-left: -6px;
+}
+
+.inbox-button {
+  position: relative;
+}
+
+/* How many are unread, on the bell's corner. */
+.inbox-badge {
+  position: absolute;
+  top: -3px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  /* The light theme's red in both: white on it reads well (the dark theme's lighter red would not). */
+  background: #dc2626;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  box-shadow: 0 0 0 2px var(--sidebar);
+}
+
+.sidebar-tools .inbox-badge {
+  top: 1px;
+  right: 0;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+.inbox-button.has-unread {
+  color: var(--text);
 }
 
 /* Wide screens: the sidebar can be collapsed; its button stays in the corner. */
@@ -992,8 +1037,17 @@ p {
   height: 34px;
 }
 
+/* Clear of the corner's two buttons (expand and the bell: 74px wide, 10px from the edge). */
 .sidebar-collapsed .chat-head {
-  padding-left: 60px;
+  padding-left: 96px;
+}
+
+/* A page's heading starts below the corner's buttons (48px down) while the page reaches under them:
+   up to a window of about 1140px, past which the centred page starts right of them. */
+@media (min-width: 821px) and (max-width: 1140px) {
+  .sidebar-collapsed .page-inner {
+    padding-top: 60px;
+  }
 }
 
 .sidebar-scrim {
@@ -4611,6 +4665,18 @@ details.sub summary {
     z-index: 30;
   }
 
+  /* Notifications unread: a dot on the menu button (the bell is in the sidebar). */
+  .menu-dot {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--danger);
+    box-shadow: 0 0 0 2px var(--bg);
+  }
+
   .menu-button {
     display: grid;
     place-items: center;
@@ -6965,7 +7031,7 @@ details.sub summary {
    to its height (.stuck, makeRoomForCorner in route.ts), they start after it. */
 @media (min-width: 821px) {
   .sidebar-collapsed .settings-nav.stuck {
-    padding-left: max(var(--page-pad, 24px), calc(60px - max(0px, (100vw - 1000px) / 2)));
+    padding-left: max(var(--page-pad, 24px), calc(96px - max(0px, (100vw - 1000px) / 2)));
   }
 }
 
@@ -7968,6 +8034,148 @@ a.share-action {
   display: flex;
   gap: 8px;
   margin-left: auto;
+}
+
+/* The notification inbox (the bell beside the sidebar's collapse button): the team's notifications,
+   the newest first, each a link to its chat. */
+.modal.inbox-dialog {
+  width: min(520px, 100%);
+  max-height: min(720px, 100%);
+}
+
+.inbox-dialog h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+}
+
+.inbox-count {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.inbox-dialog > p {
+  margin: 0;
+}
+
+.inbox-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -8px;
+}
+
+.inbox-empty {
+  margin: 0;
+  padding: 28px 8px;
+  text-align: center;
+}
+
+.inbox-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.inbox-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 9px 8px;
+  border-radius: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.inbox-item:hover,
+.inbox-item:focus-visible {
+  background: var(--surface-2);
+}
+
+.inbox-tone {
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--ok);
+}
+
+.inbox-tone.needs {
+  background: var(--warn);
+}
+
+.inbox-tone.error {
+  background: var(--danger);
+}
+
+/* Read: its mark hollow and its text muted. */
+.inbox-item:not(.unread) .inbox-tone {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--border);
+}
+
+.inbox-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.inbox-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.inbox-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.inbox-item.unread .inbox-title {
+  font-weight: 600;
+}
+
+.inbox-time {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.inbox-line {
+  font-size: 13px;
+}
+
+.inbox-item:not(.unread) .inbox-line {
+  color: var(--muted);
+}
+
+.inbox-text {
+  font-size: 12.5px;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.inbox-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 /* Star on GitHub (the sidebar's star beside Report a problem): the repository's page, its Star

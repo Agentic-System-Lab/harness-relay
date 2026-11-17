@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
-import { awaitingPlan, chatId, confirmTeam, finishedReply, homePage, send, settled, startChat } from '../support/app';
+import type { InboxItem } from '../../src/shared/types';
+import { acceptNextDialog, awaitingPlan, chatId, confirmTeam, finishedReply, homePage, send, settled, startChat } from '../support/app';
 
 /*
  * Settings → Notifications, and what the page does when agents finish or need the user. The browser's
@@ -186,3 +187,109 @@ test.describe('notifications and sound', () => {
   });
 });
 
+test.describe('the notification inbox', () => {
+  /** The bell in the sidebar, left of its collapse button. */
+  const bell = (page: Page) => page.locator('.sidebar .brand').getByRole('button', { name: /^Notifications/ });
+  const inbox = (page: Page) => page.getByRole('dialog', { name: 'Notifications' });
+
+  test('the bell keeps what the team said: how many are unread, the list, a click opens its chat and reads it, and Clear all', async ({ page, relay }) => {
+    // Notifications and sound off: the inbox keeps them all the same. The window behind another, so the chat on screen reads nothing.
+    await recordAlerts(page);
+    await startChat(page);
+    const id = chatId(page);
+    await setFocused(page, false);
+    await expect(bell(page)).toHaveAccessibleName('Notifications');
+    await expect(bell(page).locator('.inbox-badge')).toHaveCount(0);
+    // Left of the collapse button.
+    const collapse = page.getByRole('button', { name: 'Collapse sidebar' });
+    expect((await bell(page).boundingBox())!.x).toBeLessThan((await collapse.boundingBox())!.x);
+
+    await send(page, 'Tell me when you are done');
+    await expect(awaitingPlan(page)).toBeVisible();
+    // The server reads the states every 1.5 s, as for push: the team to confirm is kept once it has looked.
+    await expect(bell(page)).toHaveAccessibleName('Notifications (1 unread)', { timeout: 15_000 });
+    await confirmTeam(page);
+    await finishedReply(page, 'Claude');
+    await settled(relay, id);
+    await expect(bell(page)).toHaveAccessibleName('Notifications (2 unread)', { timeout: 15_000 });
+    await expect(bell(page).locator('.inbox-badge')).toHaveText('2');
+    expect((await recorded(page)).notes).toEqual([]);
+
+    await page.evaluate(() => (location.hash = '#/'));
+    await expect(homePage(page)).toBeVisible();
+    await setFocused(page, true);
+    await bell(page).click();
+    const dialog = inbox(page);
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('heading', { name: 'Notifications' })).toContainText('2 unread');
+    const items = dialog.locator('.inbox-item');
+    await expect(items).toHaveCount(2);
+    await expect(dialog.locator('.inbox-item.unread')).toHaveCount(2);
+    // The newest first: the reply, then the team to confirm, each with its chat's title.
+    await expect(items.nth(0)).toContainText('Tell me when you are done');
+    await expect(items.nth(0)).toContainText('Claude finished replying');
+    await expect(items.nth(0)).toContainText('Hello from Claude (Claude Code). You said: “Tell me when you are done”.');
+    await expect(items.nth(1)).toContainText("The lead agent's team is ready for you to confirm");
+
+    await items.nth(0).click();
+    await page.waitForURL(new RegExp(`#/c/${id}$`));
+    await expect(dialog).toBeHidden();
+    await expect(bell(page)).toHaveAccessibleName('Notifications');
+    await expect(bell(page).locator('.inbox-badge')).toHaveCount(0);
+    await expect.poll(async () => (await relay.api<InboxItem[]>('/api/notifications')).map((i) => i.read)).toEqual([true, true]);
+
+    // Read now: kept, without the unread mark; Mark all as read has nothing to do. Clear all asks first.
+    await bell(page).click();
+    await expect(items).toHaveCount(2);
+    await expect(dialog.locator('.inbox-item.unread')).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Mark all as read' })).toBeDisabled();
+    acceptNextDialog(page);
+    await dialog.getByRole('button', { name: 'Clear all' }).click();
+    await expect(dialog).toContainText('No notifications yet.');
+    await expect(dialog.getByRole('button', { name: 'Clear all' })).toBeDisabled();
+    expect(await relay.api<InboxItem[]>('/api/notifications')).toEqual([]);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(bell(page)).toBeFocused();
+  });
+
+  test('reads at once what comes in the chat on screen; Mark all as read reads the rest; with the sidebar collapsed, the bell is right of the expand button, which keeps the corner', async ({ page, relay }) => {
+    await startChat(page, { autoConfirm: true });
+    const first = chatId(page);
+    await send(page, 'First question');
+    await finishedReply(page, 'Claude');
+    await settled(relay, first);
+    // Kept, and read: the user was looking.
+    await expect.poll(async () => (await relay.api<InboxItem[]>('/api/notifications')).map((i) => [i.kind, i.read])).toEqual([['done', true]]);
+    await expect(bell(page)).toHaveAccessibleName('Notifications');
+
+    // A reply that ends while the user is elsewhere stays unread.
+    await send(page, 'Take your time e2e:slow=5');
+    await page.evaluate(() => (location.hash = '#/'));
+    await expect(homePage(page)).toBeVisible();
+    await settled(relay, first);
+    await expect(bell(page)).toHaveAccessibleName('Notifications (1 unread)', { timeout: 15_000 });
+
+    // Collapsed: the expand button keeps the corner, the bell and its count right of it.
+    await page.getByRole('button', { name: 'Collapse sidebar' }).click();
+    const corner = page.locator('.sidebar-tools');
+    const cornerBell = corner.getByRole('button', { name: 'Notifications (1 unread)' });
+    const expand = corner.getByRole('button', { name: 'Expand sidebar' });
+    await expect(cornerBell).toBeVisible();
+    await expect(cornerBell.locator('.inbox-badge')).toHaveText('1');
+    // Measured together: the sidebar may still be sliding away.
+    const [expandX, bellX] = await corner.evaluate((el) => [...el.querySelectorAll('button')].map((b) => b.getBoundingClientRect().x));
+    expect(expandX).toBeLessThan(bellX!);
+    await expect(corner.getByRole('button').first()).toHaveAccessibleName('Expand sidebar');
+    await cornerBell.click();
+    const dialog = inbox(page);
+    await expect(dialog.locator('.inbox-item.unread')).toHaveCount(1);
+    await dialog.getByRole('button', { name: 'Mark all as read' }).click();
+    await expect(dialog.locator('.inbox-item.unread')).toHaveCount(0);
+    await expect(corner.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible();
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await expect(dialog).toBeHidden();
+    await expand.click();
+    await expect(bell(page)).toHaveAccessibleName('Notifications');
+  });
+});

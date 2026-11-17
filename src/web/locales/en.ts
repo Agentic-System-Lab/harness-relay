@@ -56,7 +56,12 @@ export const en: Messages = {
     hoursAgo: (n) => `${n} h ago`,
   },
 
-  app: { openSidebar: 'Open sidebar', collapseSidebar: 'Collapse sidebar', expandSidebar: 'Expand sidebar' },
+  app: {
+    openSidebar: 'Open sidebar',
+    openSidebarUnread: (n) => `Open sidebar (${n} unread ${n === 1 ? 'notification' : 'notifications'})`,
+    collapseSidebar: 'Collapse sidebar',
+    expandSidebar: 'Expand sidebar',
+  },
 
   home: { tagline: 'From now on,\nlet your agent team work for you' },
 
@@ -1555,6 +1560,21 @@ export const en: Messages = {
     noOutput: '(no output yet)',
   },
 
+  inbox: {
+    open: (unread) => (unread ? `Notifications (${unread} unread)` : 'Notifications'),
+    title: 'Notifications',
+    hint: 'Kept here whenever the team finishes a reply, runs into an error, or needs you (an approval, a team to confirm, a question), the same in every signed-in browser. Opening its chat marks it read.',
+    empty: 'No notifications yet. When the team finishes a reply or needs you, it shows up here.',
+    unread: (n) => `${n} unread`,
+    unreadMark: 'Unread',
+    markAllRead: 'Mark all as read',
+    clear: 'Clear all',
+    confirmClear: 'Clear every notification?',
+    loading: 'Loading…',
+    failed: (msg) => `Could not load the notifications: ${msg}`,
+    actionFailed: (msg) => `That did not work: ${msg}`,
+  },
+
   star: {
     title: 'Give Harness Relay a star',
     body: 'If Harness Relay works well for you and you would like to support the project, please star its repository on GitHub. Every star helps more people find Harness Relay, and encourages us to keep improving it.',
@@ -1711,6 +1731,15 @@ export const en: Messages = {
         ],
       },
       {
+        title: 'Notifications from the team',
+        body: 'The bell at the top of the sidebar, left of the collapse button, keeps every notification from the team, also those that came while no page was open: a reply done or ended with an error, an approval waiting, a team to confirm, a question for you. Its red count is how many you have not read:',
+        points: [
+          'Click the bell to see them, the newest first; click one to open its chat',
+          'Opening a chat marks its notifications read; "Mark all as read" and "Clear all" are at the bottom',
+          'Every signed-in browser sees the same list; with the sidebar collapsed, the bell is in the top-left corner, right of the expand button; on a phone, a dot on the menu button says some are unread',
+        ],
+      },
+      {
         title: 'File permission and changes',
         body: 'Every chat has a file permission:',
         points: [
@@ -1755,7 +1784,7 @@ export const en: Messages = {
         title: 'Groups, pins and search',
         body: 'When the list grows, sort it into groups:',
         points: [
-          '"New group" makes a group; drag conversations onto it (or use the folder button)',
+          'The folder button beside Search (New group) makes a group; drag conversations onto it (or use the folder button on a conversation)',
           'The pin in a conversation\'s top-left corner keeps it under "Pinned", above the groups (on a computer, point at the conversation to see the pin)',
           "Once you have groups, the lead agent reads a new conversation's first message and puts it in the group it fits",
           '"Search" looks through titles and everything you and the agents wrote',
