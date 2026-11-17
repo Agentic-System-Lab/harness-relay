@@ -346,7 +346,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | --- | --- | --- |
 | 儲存對話的排程，立即執行一次會把訊息送給團隊 | Codex | 存成「每天」（Every day）後，側邊欄標出這個對話；按**立即執行一次**（Run once now）送出標為自動任務的訊息，成員回答。 |
 | 追蹤目標的排程會顯示回覆回報的進度，目標達成時自動關閉 | Codex | 加上目標儲存後，視窗的**進度**（Progress）說還沒有紀錄；按**立即執行一次**（假 CLI 用 `e2e:progress` 在回覆最後加上 `<progress status="done">` 區塊，寫出 briefing 給它的目標）：回覆顯示**已達成**（Done）卡片而不是區塊的文字，一則說明寫著目標已達成、自動任務已關閉，視窗列出這一則紀錄、**已達成**，**啟用**（On）也取消了勾選。 |
-| 排程的 webhook 只顯示一次權杖，程式呼叫時會連同送來的內容送出訊息 | Codex | 選**不定時**（No set times）時，抽屜說明只有**立即執行一次**（Run once now）和 webhook 會送出，沒有**啟用**（On）也沒有**錯過的時間**（Missed times）；儲存後側邊欄的時鐘也這麼說，狀態顯示**不定時**。**建立 webhook**（Add a webhook）會顯示帶權杖與網址的 `curl` 指令，以及**還沒有被呼叫過**（Not called yet）；從瀏覽器以外呼叫時，權杖錯誤是 404，正確是 202，視窗會顯示上次呼叫的時間。訊息標為自動任務，顯示**Webhook 傳來的內容**（What the webhook sent）與送來的 JSON，成員回答它。再次打開時，視窗不再顯示權杖，只有**換一個新的權杖**（New token）。 |
+| 排程的 webhook 只顯示一次權杖，程式呼叫時會連同送來的內容送出訊息 | Codex | 選**不定時**（No set times）時，抽屜說明只有**立即執行一次**（Run once now）和 webhook 會送出，沒有**啟用**（On）也沒有**錯過的時間**（Missed times）；儲存後側邊欄的時鐘也這麼說，狀態顯示**不定時**。**建立 webhook**（Add a webhook）會顯示帶權杖與網址的 `curl` 指令（Windows 上是 PowerShell 的 `Invoke-RestMethod`），以及**還沒有被呼叫過**（Not called yet）；從瀏覽器以外呼叫時，權杖錯誤是 404，正確是 202，視窗會顯示上次呼叫的時間。訊息標為自動任務，顯示**Webhook 傳來的內容**（What the webhook sent）與送來的 JSON，成員回答它。再次打開時，視窗不再顯示權杖，只有**換一個新的權杖**（New token）。 |
 
 ## 設定
 

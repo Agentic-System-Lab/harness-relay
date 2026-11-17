@@ -76,7 +76,8 @@ test.describe('schedules', () => {
     const hook = drawer.getByRole('region', { name: 'Webhook' });
     await hook.getByRole('button', { name: 'Add a webhook' }).click();
     const example = hook.locator('.hook-example');
-    await expect(example).toContainText('curl -X POST');
+    // curl, or on a server on Windows PowerShell's own Invoke-RestMethod (cmd.exe takes no single quotes).
+    await expect(example).toContainText(process.platform === 'win32' ? 'Invoke-RestMethod -Method Post' : 'curl -X POST');
     const line = (await example.textContent())!;
     const token = /Bearer ([A-Za-z0-9_-]+)/.exec(line)![1]!;
     const url = /'(http:\/\/127\.0\.0\.1:\d+\/api\/hooks\/[^']+)'/.exec(line)![1]!;
