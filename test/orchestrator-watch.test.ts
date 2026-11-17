@@ -422,12 +422,14 @@ describe('automations that start when something happens', () => {
       filesIn: conv.settings.cwd,
       checkedAt: T0,
       seenAt: T0,
+      writes: expect.any(String),
       nextCheckAt: T0 + WATCH_LIMITS.checkMinutes * MIN,
     });
     // What it saw of each file and event stays in the server: browsers get the rest.
     const shown = forClient(store.get(conv.id)!).schedule!.watch!;
     expect(shown).not.toHaveProperty('files');
     expect(shown).not.toHaveProperty('seen');
+    expect(shown).not.toHaveProperty('heldFiles');
     expect(shown).toMatchObject({ checkedAt: T0, lastId: 9 });
   });
 
@@ -461,8 +463,9 @@ describe('automations that start when something happens', () => {
     await s().check(conv.id);
     expect(scheduledCount()).toBe(1);
     expect(JSON.parse(scheduled(store.get(conv.id)!)[0]!.event!).files.map((f: { path: string }) => f.path)).toEqual(['report.txt']);
-    expect(conv.schedule!.watch!.teamWrote).toBe(true);
+    // The run it started locks the folder: the count the check kept is behind already.
     expect(orchestrator.folderInUse(conv.id)).toBe(true);
+    expect(orchestrator.folderWrites(conv.id)).not.toBe(conv.schedule!.watch!.writes);
     await vi.waitFor(() => expect(calls.map((c) => c.name)).toContain('Alice'));
 
     // While it writes: recorded, nothing sent.
@@ -559,5 +562,44 @@ describe('automations that start when something happens', () => {
     expect(orchestrator.folderInUse(ro.id)).toBe(false);
     release();
     await finish(ro.id);
+  });
+
+  it("counts a run that began and ended between two checks as the team's, and a read-only run's allowed action as writing", async () => {
+    reset();
+    now = Date.now();
+    const conv = conversation({ mode: 'roundtable', permission: 'edit' });
+    watching(conv, { repeat: { kind: 'event', trigger: { source: 'file', pattern: '*.md' } } });
+    const checker = (t: Parameters<typeof checkFiles>[0], prev: ScheduleWatch | undefined, ctx: WatchContext) =>
+      checkFiles(t, prev, ctx.cwd, ctx.now, ctx.recordOnly, ctx.held);
+    const s = () => new Scheduler(store, orchestrator, () => now, checker as never);
+    await s().check(conv.id);
+    // A run the user starts writes notes.md, and ends, between two checks.
+    fake.inTurn = async (name, o) => {
+      if (name === 'Alice') writeFileSync(join(o.cwd, 'notes.md'), 'by the team');
+    };
+    await orchestrator.send(conv.id, 'write notes');
+    await finish(conv.id);
+    fake.inTurn = undefined;
+    utimesSync(join(project, 'notes.md'), (now - 120_000) / 1000, (now - 120_000) / 1000);
+    now = Date.now() + 60_000;
+    await s().check(conv.id);
+    expect(scheduled(conv)).toHaveLength(0);
+    expect(Object.keys(conv.schedule!.watch!.files!)).toContain('notes.md');
+    now += 120_000;
+    await s().check(conv.id);
+    expect(scheduled(conv)).toHaveLength(0);
+
+    // Read-only, its own run writes only once an action is allowed, which locks the folder: counted.
+    const ro = conversation({ mode: 'roundtable', permission: 'read-only' });
+    ro.agents = [ro.agents[0]!];
+    const before = orchestrator.folderWrites(ro.id);
+    await orchestrator.send(ro.id, 'please install');
+    const pending = () =>
+      ro.messages.flatMap((m) => m.parts).find((p) => p.type === 'approval' && p.status === 'pending') as { id: string } | undefined;
+    await vi.waitFor(() => expect(pending()).toBeDefined());
+    expect(orchestrator.folderWrites(ro.id)).toBe(before);
+    orchestrator.answerApproval(ro.id, pending()!.id, { allow: true });
+    await finish(ro.id);
+    expect(orchestrator.folderWrites(ro.id)).not.toBe(before);
   });
 });

@@ -1498,6 +1498,11 @@ export interface ScheduleWatch {
    * or extracts keeps an old time, and is its own all the same.
    */
   heldFiles?: Record<string, string>;
+  /**
+   * `file`: how often its folder had been locked for writing at the last check (`Orchestrator.folderWrites()`):
+   * changed since, a run wrote there between the checks, and the next check only records.
+   */
+  writes?: string;
   /** The last check failed: why, and how many checks failed in a row (they come slower). */
   error?: string;
   failures?: number;

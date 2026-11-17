@@ -128,7 +128,7 @@ export function forClient(conv: Conversation): Conversation {
  */
 export function scheduleForClient(s: ConversationSchedule): ConversationSchedule {
   if (!s.watch) return s;
-  const { seen: _seen, files: _files, ...watch } = s.watch;
+  const { seen: _seen, files: _files, heldFiles: _held, ...watch } = s.watch;
   return { ...s, watch };
 }
 
@@ -560,6 +560,14 @@ export class Orchestrator {
   private closing = false;
   /** Repository root → conversation currently writing to its working tree. */
   private dirLocks = new Map<string, string>();
+  /**
+   * How many times each folder was locked for writing since the server started (a run that writes, an
+   * action allowed in a read-only run, an apply): an automation that waits for files compares it
+   * between checks (`folderWrites()`), so a run that began and ended between two checks is the team's too.
+   */
+  private writeCounts = new Map<string, number>();
+  /** This server's own: counts from another start are not compared. */
+  private readonly writesEpoch = randomUUID();
   /** Approval requests waiting for the user, by approval part id. */
   private approvals = new Map<string, { convId: string; resolve: (a: ApprovalAnswer & { expired?: boolean }) => void }>();
   /** Sorts new conversations into the user's sidebar groups. */
@@ -1779,7 +1787,32 @@ export class Orchestrator {
         }
       }
     }
-    for (const root of roots) this.dirLocks.set(root, conv.id);
+    for (const root of roots) {
+      this.dirLocks.set(root, conv.id);
+      this.writeCounts.set(root, (this.writeCounts.get(root) ?? 0) + 1);
+    }
+  }
+
+  /**
+   * How often the conversation's working directories (or a folder around or inside one) were locked
+   * for writing, as `<this server's id>:<count>`: changed since the last check, someone wrote there.
+   * Nothing is started or changed.
+   */
+  folderWrites(convId: string): string {
+    const conv = this.store.get(convId);
+    let n = 0;
+    if (conv) {
+      const within = (a: string, b: string) => a === b || a.startsWith(b.endsWith(sep) ? b : b + sep);
+      const dirs = cwdsOf(conv.settings).flatMap((d) => {
+        try {
+          return [realpathSync(d)];
+        } catch {
+          return [];
+        }
+      });
+      for (const [root, count] of this.writeCounts) if (dirs.some((d) => within(d, root) || within(root, d))) n += count;
+    }
+    return `${this.writesEpoch}:${n}`;
   }
 
   /**
@@ -1802,9 +1835,11 @@ export class Orchestrator {
   folderInUse(convId: string): boolean {
     const conv = this.store.get(convId);
     if (!conv) return false;
-    // Its own run writes in the folder only in edit mode outside parallel (whose members work in worktrees); a change being applied does.
+    // Its own run writes in the folder in edit mode outside parallel (whose members work in worktrees), or
+    // once it holds the folder's lock (an action allowed in a read-only run); a change being applied does.
     const writes = conv.settings.permission !== 'read-only' && conv.settings.mode !== 'parallel';
-    if ((writes && (this.runs.has(convId) || this.starting.has(convId))) || this.reserved.has(convId)) return true;
+    const run = this.runs.get(convId);
+    if (run?.lockRoots || (writes && (run || this.starting.has(convId))) || this.reserved.has(convId)) return true;
     return this.lockedFolder(conv) !== undefined;
   }
 
