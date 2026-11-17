@@ -94,6 +94,8 @@ The font file only covers Latin; Chinese always comes from the system stack.
 - **Quick start step:** a step with more than one block (the download cards, text) wraps them in `.step-body`, so they stay together in the right-hand column.
 - **Command block** (`.cmd`, not on the page now): `$` prompts are not copied; the copy button copies the commands only and confirms with a check. One command per line, never joined with `&&`: Windows PowerShell 5.1, still the default shell on Windows, rejects `&&`, while separate lines run in every shell.
 - **UI excerpts** (`.ui`): approval card, question, changed files, waiting message tray, and Settings → Model backends (`.ui-backends`, from `src/web/components/BackendsSettings.tsx`). They recreate the app's components with sample content, and the page says so under them. Keep them faithful to the app when the app changes.
+- **Use-case card** (`.case`, on the landing page): the use case's poster (the frame `npm run use-cases` cuts, 16:10, the excerpts' radius and shadow) and name in one link to its section, then one sentence and its facts row. Its pills are the agents that ran, over the page's background, so they keep the pill's contrast (`test/site-theme.test.ts`). Cards fill a grid of columns at least 320px wide (three, then two, on a wide screen; one on a phone).
+- **Use-case screen** (`.usecase-screen`): the screening's grid (`.screening-grid`) on a dark panel (`--band`, 22px radius) inside the section, the rail's heading an h3 (`.rail-title`). `site.js` gives every screen on a page its own rail, following its own video.
 - **Icons:** drawn inline SVG symbols in one 1.8px stroke. No emoji or Unicode glyphs as icons, and no company logos: the systems are a command key (macOS), a four-pane window (Windows) and a penguin (Linux), and GitHub Codespaces is a cloud (`#i-cloud`). The GitHub button keeps GitHub's mark.
 
 ## Page structure
@@ -103,22 +105,37 @@ The font file only covers Latin; Chinese always comes from the system stack.
 | 1 | Header | Mark, section links, EN / 中文 switch, GitHub with the star count, the theme button. Each stays on one line at any width (`test/site-header.test.ts`): the switch is never squeezed, so 中文 never breaks between its characters, and at 500px and below the mark shows without its name, which does not fit beside the rest under some 481px (the link keeps the name as its label) |
 | 2 | Hero | Headline about the reader's own agents in any mix (no agent names, so it never reads as a list to have), a lead that names the demo's three and says there are twelve to mix, says one kind of agent is enough and that the lead agent designs the team for each question with each model's own traits in mind, the download button for the visitor's system with the link to the requirements beside it, the Codespaces button, GitHub button with the star count |
 | 3 | Screening (`#demo`) | Demo video and the chapter rail on the dark band |
-| 4 | The agents you installed (`#agents`) | How each signed-in CLI is driven (Claude Code, Codex, Grok, then Cursor, Antigravity, Copilot and Muse Code, with their colours on their dots only); the mark at page scale |
-| 5 | Open agents (`#open`) | The five open-source CLIs and how each is driven, the model backends they run on (API keys, your own endpoint, `backend/model`, no subscription) beside an excerpt of Settings → Model backends, and Harness Relay's own sandbox around them |
-| 6 | Modes (`#modes`) | Roundtable, Parallel, Relay as animated diagrams in tabs |
-| 7 | Teams (`#teams`) | A team for every question: the lead agent picks it and writes each role for the model its member runs on, reads the answers too (lead review), you design the templates; the five built-in templates |
-| 8 | You stay in charge (`#control`) | Approvals, questions, diffs, the message tray |
-| 9 | Also in every chat (`#more`) | The remaining features as a two-column list |
-| 10 | Safety (`#safety`) | Local-only facts (sign-in, the CLIs' own sandboxes, Harness Relay's own sandbox around the open agents) and the permission table, with a link to the sandboxing doc |
-| 11 | Quick start (`#start`) | One row per step (title left, content right): requirements (the CLIs, the open-source ones with the versions tested), the three installers with the newest version and how to open them the first time, first steps, then (optional) opening it on a phone with the app's *Share with your phone*; then trying it in GitHub Codespaces and running from source, in one paragraph, and links to the docs |
+| 4 | Use cases (`#use-cases`) | *Hand it a task*: the five use cases as cards (each one's poster, name, one sentence, and its agents and how they ran), each linking to its section on the use-cases page, and a link to the whole page |
+| 5 | The agents you installed (`#agents`) | How each signed-in CLI is driven (Claude Code, Codex, Grok, then Cursor, Antigravity, Copilot and Muse Code, with their colours on their dots only); the mark at page scale |
+| 6 | Open agents (`#open`) | The five open-source CLIs and how each is driven, the model backends they run on (API keys, your own endpoint, `backend/model`, no subscription) beside an excerpt of Settings → Model backends, and Harness Relay's own sandbox around them |
+| 7 | Modes (`#modes`) | Roundtable, Parallel, Relay as animated diagrams in tabs |
+| 8 | Teams (`#teams`) | A team for every question: the lead agent picks it and writes each role for the model its member runs on, reads the answers too (lead review), you design the templates; the five built-in templates |
+| 9 | You stay in charge (`#control`) | Approvals, questions, diffs, the message tray |
+| 10 | Also in every chat (`#more`) | The remaining features as a two-column list |
+| 11 | Safety (`#safety`) | Local-only facts (sign-in, the CLIs' own sandboxes, Harness Relay's own sandbox around the open agents) and the permission table, with a link to the sandboxing doc |
+| 12 | Quick start (`#start`) | One row per step (title left, content right): requirements (the CLIs, the open-source ones with the versions tested), the three installers with the newest version and how to open them the first time, first steps, then (optional) opening it on a phone with the app's *Share with your phone*; then trying it in GitHub Codespaces and running from source, in one paragraph, and links to the docs |
+
+The header's section links: Demo, Use cases (`#use-cases`), Modes, Teams, Safety, Quick start; on the use-cases page they lead back to the landing page's sections, and Use cases is the page itself (`aria-current`).
+
+### The use-cases page
+
+`use-cases/index.html` and `zh-TW/use-cases/index.html`: five tasks, each a real recording (`npm run use-cases`, [Recording the use cases](../docs/developer-guide.md#recording-the-use-cases)), so the page shows the run first, as the landing page does. The same header and footer as the landing page, its language switch to the other language's use-cases page, and the same `<head>` scripts (the theme, and the language preference, which sends a visitor to the use-cases page in their language).
+
+| # | Section | Purpose |
+| --- | --- | --- |
+| 1 | Hero (`.uc-hero`) | *Five tasks to hand the team*: what a task assistant is, that each run is real and sped up while the agents work, and a row of links to the five (`.uc-jump`) |
+| 2–6 | One per use case (`#fix-a-bug`, `#research`, `#release-notes`, `#analyze-data`, `#morning-briefing`) | Its name (h2), what it is and why you would hand it over (`.lead`), the agents and how they ran (`.usecase-facts`: their pills, the mode and the permission as chips, as the recording ran), its screen (`.usecase-screen`: the video and its chapter rail, the screening's, on a dark panel of its own), then what was asked, word for word as typed (`.usecase-ask`), and what it shows, each with its section of the user guide (`.usecase-shows`). A use case recorded with stand-in servers says so (`.usecase-note`) |
+| 7 | Hand it a task of your own (`.uc-cta`) | The download button for the visitor's system (`downloads.js`), with the link to the landing page's quick start (requirements, the other systems, Codespaces), so the page never ends on a dead end |
+
+Its order is the landing page's list's. Each language's page shows its own recording, as the demo does, so a use case's team, mode and a chapter sentence may differ between the languages; everything else is the same. A use case's words and facts are the recording's: re-record it, and check the lead paragraph, the facts row, the home page's card and the READMEs' line against `review.md`.
 
 Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numbers, gradient text, stat counters.
 
 ## Motion
 
-- **The signature:** the chapter rail follows the video. The active chapter is highlighted and a 2px bar fills in the colour of whoever acts; clicking a chapter seeks there. Beside the video the rail is exactly as tall as the video and its chapters scroll inside it, fading out at an edge with more past it; the active chapter is scrolled to the middle of the list as the video plays (not for 4 seconds after the visitor scrolls the list, and a clicked chapter is only brought fully into view). Under the video (920px and narrower) the rail shows every chapter and nothing scrolls by itself.
+- **The signature:** the chapter rail follows the video (each use case's too, its own video). The active chapter is highlighted and a 2px bar fills in the colour of whoever acts; clicking a chapter seeks there. Beside the video the rail is exactly as tall as the video and its chapters scroll inside it, fading out at an edge with more past it; the active chapter is scrolled to the middle of the list as the video plays (not for 4 seconds after the visitor scrolls the list, and a clicked chapter is only brought fully into view). Under the video (920px and narrower) the rail shows every chapter and nothing scrolls by itself.
 - **Mode diagrams** act out their mode step by step (0.85s per step, then a pause) only while the section is on screen.
-- The video plays muted when it scrolls into view and pauses when it leaves; a visitor's pause is respected.
+- A video plays muted when it scrolls into view and pauses when it leaves; a visitor's pause is respected. On the use-cases page each video loads only once it plays (`preload="none"`, with its poster).
 - Easing `cubic-bezier(0.16, 1, 0.3, 1)`. No entrance animation on sections.
 - `prefers-reduced-motion`: no autoplay, diagrams show their final state, transitions are instant, and the chapter list jumps to the active chapter instead of gliding.
 - Without JavaScript everything is still readable: all three mode panels show, diagrams show every step.
@@ -142,6 +159,7 @@ Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numb
 | `assets/media/poster-en.webp` | Frame at 0:28.7 of `docs/media/demo-en.mp4` |
 | `assets/media/poster-zh-TW.webp` | Frame at 0:24.2 of `docs/media/demo-zh-TW.mp4` |
 | `assets/media/og-en.png`, `og-zh-TW.png` | Social preview cards (1200×630) rendered from the page's own styles |
+| `assets/media/use-cases/<case>-<lang>.mp4`, `.webp` | Each use case's recording and its poster, written by `npm run use-cases` (the poster from the frame its use case names, its origin in a `.webp.json` sidecar); the use-cases pages share the landing page's social cards |
 | `assets/fonts/bricolage-grotesque-latin.woff2` | Google Fonts, SIL Open Font License (`assets/fonts/OFL.txt`) |
 | `favicon.svg` | Same drawing as the app's favicon |
 | `sitemap.xml` | The pages for search engines, with their `hreflang` alternates; a new page goes in it, without a `<lastmod>`: the Pages workflow dates each page (developer guide, "Website") |
@@ -150,6 +168,10 @@ Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numb
 | `8de13cb3ba2dccfb84c9d81d70aab5b9.txt` | IndexNow's key, which the Pages workflow names as `INDEXNOW_KEY`: never delete it; a new key renames it, in the same commit (developer guide, "Website", "Search engines") |
 
 The origin of each raster is also embedded in the file (PNG text chunk) or in a `*.webp.json` sidecar next to it.
+
+### When a use case is re-recorded
+
+`npm run use-cases` replaces its videos and posters, re-times its chapter rails and writes its videos' `uploadDate` and `duration` (see [Recording the use cases](../docs/developer-guide.md#recording-the-use-cases)). The rest is by hand, in both languages: its lead paragraph and facts row on the use-cases page, its card on the landing page, and its line in both READMEs, against what `data/use-cases/<case>/<lang>/review.md` says the agents did; the chapter sentences are in `scripts/demo/use-cases/cases.ts`.
 
 ### When the demo is re-recorded
 
@@ -176,4 +198,4 @@ The origin of each raster is also embedded in the file (PNG text chunk) or in a 
 npm run site:preview   # http://127.0.0.1:4180/ and /zh-TW/ (SITE_PORT changes the port)
 ```
 
-[`scripts/preview-site.ts`](../scripts/preview-site.ts) serves `site/` the way GitHub Pages will: the demo videos come from `docs/media/` under `/media/`, and Markdown files and `*.webp.json` sidecars are not served. To see the first-visit language redirect again, remove the `harness-relay.lang` key from the browser's local storage; to have the page follow the system's light or dark mode again, remove `harness-relay.theme` (or press the theme button until it shows the system's theme).
+[`scripts/preview-site.ts`](../scripts/preview-site.ts) serves `site/` the way GitHub Pages will (the use-cases pages at `/use-cases/` and `/zh-TW/use-cases/`): the demo videos come from `docs/media/` under `/media/`, and Markdown files and `*.webp.json` sidecars are not served. To see the first-visit language redirect again, remove the `harness-relay.lang` key from the browser's local storage; to have the page follow the system's light or dark mode again, remove `harness-relay.theme` (or press the theme button until it shows the system's theme).

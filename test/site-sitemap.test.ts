@@ -14,7 +14,7 @@ import { pagesStep, pagesWorkflow } from './workflow-steps';
 // wrote it.
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
-const PAGES = ['site/index.html', 'site/zh-TW/index.html'];
+const PAGES = ['site/index.html', 'site/zh-TW/index.html', 'site/use-cases/index.html', 'site/zh-TW/use-cases/index.html'];
 const sitemap = read('site/sitemap.xml');
 
 /** A page's canonical address and its language alternates, from its <head>. */
@@ -105,6 +105,9 @@ const git = (cwd: string, args: string[], date?: string) =>
 
 const EN = 'https://agentic-system-lab.github.io/harness-relay/';
 const ZH = 'https://agentic-system-lab.github.io/harness-relay/zh-TW/';
+/** The use-cases pages: in the first commit only. */
+const EN_UC = `${EN}use-cases/`;
+const ZH_UC = `${ZH}use-cases/`;
 
 /**
  * A checkout of the site with three commits: the site (in Taiwan's time), the Chinese page changed, and the
@@ -159,8 +162,17 @@ describe.skipIf(process.platform === 'win32')('dating the pages in the sitemap',
   it('dates each page by the last commit that changed its HTML, in UTC, right after its address', () => {
     const r = date(checkout());
     expect(r.status, r.out).toBe(0);
-    expect(r.sitemap).toBe(dated({ [EN]: '2026-01-01T19:04:05Z', [ZH]: '2026-02-03T00:00:00Z' }));
-    expect(r.out).toBe(`${EN} 2026-01-01T19:04:05Z\n${ZH} 2026-02-03T00:00:00Z\n`);
+    expect(r.sitemap).toBe(
+      dated({
+        [EN]: '2026-01-01T19:04:05Z',
+        [ZH]: '2026-02-03T00:00:00Z',
+        [EN_UC]: '2026-01-01T19:04:05Z',
+        [ZH_UC]: '2026-01-01T19:04:05Z',
+      }),
+    );
+    expect(r.out).toBe(
+      `${EN} 2026-01-01T19:04:05Z\n${ZH} 2026-02-03T00:00:00Z\n${EN_UC} 2026-01-01T19:04:05Z\n${ZH_UC} 2026-01-01T19:04:05Z\n`,
+    );
     expect(r.summary).toBe('');
     // Still the sitemap the first test checks, with a date for each page.
     expect(entries(r.sitemap).map((e) => [e.loc, e.alternates])).toEqual(entries(sitemap).map((e) => [e.loc, e.alternates]));
@@ -183,6 +195,8 @@ describe.skipIf(process.platform === 'win32')('dating the pages in the sitemap',
     expect(entries(r.sitemap).map((e) => [e.loc, e.lastmod])).toEqual([
       [EN, '2026-01-01T19:04:05Z'],
       [ZH, '2026-02-03T00:00:00Z'],
+      [EN_UC, '2026-01-01T19:04:05Z'],
+      [ZH_UC, '2026-01-01T19:04:05Z'],
       [MISSING, undefined],
     ]);
   });

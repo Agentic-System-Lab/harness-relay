@@ -16,6 +16,8 @@
 
 - [Harness Relay](https://agentic-system-lab.github.io/harness-relay/): the landing page in English, with the demo video and the downloads
 - [Harness Relay（繁體中文）](https://agentic-system-lab.github.io/harness-relay/zh-TW/): the same page in Traditional Chinese
+- [Use cases](https://agentic-system-lab.github.io/harness-relay/use-cases/): five tasks, each a real recorded run: a bug fixed three ways in parallel worktrees, a choice researched with sources, release notes written in relay, a spreadsheet turned into answers and a chart, and a morning briefing from mail and calendar
+- [使用情境（繁體中文）](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/): the same five use cases in Traditional Chinese
 
 ## Docs
 

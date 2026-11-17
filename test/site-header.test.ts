@@ -28,7 +28,7 @@ describe("the landing page's header", () => {
     expect(css.match(/\.brand span \{\s*display: none;/g)).toHaveLength(1);
     // Screen readers still hear the name: the rule hides it in every one of the mark's links (the header's and
     // the footer's), so each has a label, one per language, that starts with the name it shows (WCAG's label in name).
-    for (const page of ['site/index.html', 'site/zh-TW/index.html']) {
+    for (const page of ['site/index.html', 'site/zh-TW/index.html', 'site/use-cases/index.html', 'site/zh-TW/use-cases/index.html']) {
       const html = read(page);
       const links = [...html.matchAll(/<a\b([^>]*\bclass="(?:[^"]*\s)?brand(?:\s[^"]*)?"[^>]*)>([\s\S]*?)<\/a>/g)].map((m) => ({
         label: m[1].match(/\baria-label="([^"]*)"/)?.[1],

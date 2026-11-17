@@ -1,0 +1,923 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Harness Relay 使用情境：五件事，每件都是實際執行的錄影</title>
+    <meta
+      name="description"
+      content="Harness Relay 使用情境，每件都是實際錄影：三種修法修 bug、查資料做決定、接力寫版本說明、分析試算表、晨間簡報。"
+    />
+    <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/" />
+    <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/use-cases/" />
+    <link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/" />
+    <link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/use-cases/" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141415" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Harness Relay" />
+    <meta property="og:title" content="Harness Relay 使用情境：五件事，每件都是實際執行的錄影" />
+    <meta
+      property="og:description"
+      content="交給你手上 coding agent 團隊的五件事，每件都是實際執行的錄影：在各自的 worktree 裡平行用三種方法修 bug、查資料附來源做決定、接力寫版本說明、把試算表變成結論和圖表，以及從信件和行事曆整理出晨間簡報。"
+    />
+    <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/" />
+    <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="zh_TW" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="../../favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="../../assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="../../assets/site.css" />
+    <script>
+      document.documentElement.classList.add('js');
+      // The theme the visitor picked with the theme button (assets/theme.js), set before anything is drawn
+      // so that it does not flash. Until they pick one, the page follows the system's light or dark mode.
+      try {
+        var theme = localStorage.getItem('harness-relay.theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {}
+      // The visitor picked English last time: show the English page.
+      try {
+        if (localStorage.getItem('harness-relay.lang') === 'en') location.replace('../../use-cases/' + location.hash);
+      } catch (e) {}
+    </script>
+    <script src="../../assets/site.js" defer></script>
+    <script type="module" src="../../assets/downloads.js"></script>
+    <script type="module" src="../../assets/theme.js"></script>
+    <!-- What search and answer engines read about the page and its recordings (test/site-use-cases.test.ts keeps
+         it in step with the page and the other language's). Each video's uploadDate and duration are written by
+         npm run use-cases. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebPage",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#webpage",
+            "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/",
+            "name": "Harness Relay 使用情境：五件事，每件都是實際執行的錄影",
+            "description": "Harness Relay 使用情境，每件都是實際錄影：三種修法修 bug、查資料做決定、接力寫版本說明、分析試算表、晨間簡報。",
+            "inLanguage": "zh-TW",
+            "isPartOf": {
+              "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
+            },
+            "about": {
+              "@id": "https://agentic-system-lab.github.io/harness-relay/#app"
+            },
+            "primaryImageOfPage": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/fix-a-bug-zh-TW.webp",
+            "video": [
+              {
+                "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#fix-a-bug-video"
+              },
+              {
+                "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#research-video"
+              },
+              {
+                "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#release-notes-video"
+              },
+              {
+                "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#analyze-data-video"
+              },
+              {
+                "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#morning-briefing-video"
+              }
+            ]
+          },
+          {
+            "@type": "VideoObject",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#fix-a-bug-video",
+            "name": "Harness Relay 使用情境：一個 bug 三種修法，留下最好的",
+            "description": "錄影：三位 agent 各在自己的 worktree 裡平行修好失敗的測試，再把其中一個修法套用到工作目錄",
+            "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/fix-a-bug-zh-TW.webp",
+            "contentUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/fix-a-bug-zh-TW.mp4",
+            "uploadDate": "2026-11-17T18:14:42Z",
+            "duration": "PT1M15S",
+            "inLanguage": "zh-TW"
+          },
+          {
+            "@type": "VideoObject",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#research-video",
+            "name": "Harness Relay 使用情境：查資料做決定，附上來源",
+            "description": "錄影：三位 agent 查資料比較該用哪個日期函式庫，彼此辯論後附上來源給出選擇，再由首席 agent 審閱回覆",
+            "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/research-zh-TW.webp",
+            "contentUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/research-zh-TW.mp4",
+            "uploadDate": "2026-11-17T18:30:20Z",
+            "duration": "PT1M12S",
+            "inLanguage": "zh-TW"
+          },
+          {
+            "@type": "VideoObject",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#release-notes-video",
+            "name": "Harness Relay 使用情境：接力寫版本說明",
+            "description": "錄影：三位 agent 接力寫版本說明，起草、改寫並對照 commit 查核，再在「檔案」打開它",
+            "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/release-notes-zh-TW.webp",
+            "contentUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/release-notes-zh-TW.mp4",
+            "uploadDate": "2026-11-17T18:15:55Z",
+            "duration": "PT1M11S",
+            "inLanguage": "zh-TW"
+          },
+          {
+            "@type": "VideoObject",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#analyze-data-video",
+            "name": "Harness Relay 使用情境：把試算表變成結論和圖表",
+            "description": "錄影：agent 分析附上的客服工單 CSV，排出該先修的事，並顯示他們畫的圖表",
+            "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/analyze-data-zh-TW.webp",
+            "contentUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/analyze-data-zh-TW.mp4",
+            "uploadDate": "2026-11-17T18:17:39Z",
+            "duration": "PT1M12S",
+            "inLanguage": "zh-TW"
+          },
+          {
+            "@type": "VideoObject",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#morning-briefing-video",
+            "name": "Harness Relay 使用情境：每天早上，整理信件和行事曆",
+            "description": "錄影：每個工作日早上的自動任務，先立即執行一次；兩位 agent 讀信和行事曆，再送出一封在待送出匣等待的回信",
+            "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/morning-briefing-zh-TW.webp",
+            "contentUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/morning-briefing-zh-TW.mp4",
+            "uploadDate": "2026-11-17T18:44:31Z",
+            "duration": "PT1M15S",
+            "inLanguage": "zh-TW"
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-github" viewBox="0 0 16 16">
+          <path
+            fill="currentColor"
+            d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+          />
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+          <path d="M12 3.86 14.22 9.8l6.34.28-4.97 3.95 1.7 6.11L12 16.64l-5.29 3.5 1.7-6.11-4.97-3.95 6.34-.28Z" />
+        </symbol>
+        <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="9" width="11" height="11" rx="2.5" />
+          <path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H15" />
+        </symbol>
+        <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 12.5l4.5 4.5L19 7.5" />
+        </symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M12 2.5c.8 5.9 3.6 8.7 9.5 9.5-5.9.8-8.7 3.6-9.5 9.5-.8-5.9-3.6-8.7-9.5-9.5 5.9-.8 8.7-3.6 9.5-9.5Z" />
+        </symbol>
+        <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="5" y="10.5" width="14" height="10" rx="2.5" />
+          <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.7 7 9 4.1-1.3 7-4.7 7-9V6.2Z" />
+          <path d="m9 12 2.2 2.2L15.2 10" />
+        </symbol>
+        <symbol id="i-branch" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="6.5" cy="5.5" r="2.25" />
+          <circle cx="6.5" cy="18.5" r="2.25" />
+          <circle cx="17.5" cy="7.5" r="2.25" />
+          <path d="M6.5 7.75v8.5M17.5 9.75c0 4.25-4.5 4.75-9.4 7" />
+        </symbol>
+        <symbol id="i-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="8" cy="15.5" r="4" />
+          <path d="M10.9 12.6 19.5 4M16 7.5l2.5 2.5M13.5 10l2 2" />
+        </symbol>
+        <symbol id="i-box" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 19.5 7.6v8.8L12 20.5l-7.5-4.1V7.6Z" />
+          <path d="M4.5 7.6 12 11.8l7.5-4.2M12 11.8v8.7" />
+        </symbol>
+        <symbol id="i-db" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <ellipse cx="12" cy="6" rx="7" ry="2.75" />
+          <path d="M5 6v12c0 1.5 3.1 2.75 7 2.75s7-1.25 7-2.75V6M5 12c0 1.5 3.1 2.75 7 2.75s7-1.25 7-2.75" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
+        </symbol>
+        <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </symbol>
+        <symbol id="i-cloud" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M7 18.5h10a4 4 0 0 0 .7-7.94A6 6 0 0 0 6.2 9.6 4.5 4.5 0 0 0 7 18.5Z" />
+        </symbol>
+        <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+        </symbol>
+        <symbol id="i-os-win" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+          <path d="M12 4.5v15M3.5 12h17" />
+        </symbol>
+        <symbol id="i-os-linux" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3c-2.3 0-3.6 1.9-3.6 4.4 0 1.5.4 2.4-.7 3.8C6.4 12.9 5.4 14.8 5.4 17c0 2.6 2.9 4 6.6 4s6.6-1.4 6.6-4c0-2.2-1-4.1-2.3-5.8-1.1-1.4-.7-2.3-.7-3.8C15.6 4.9 14.3 3 12 3Z" />
+          <path d="M9.6 14.6c0-1.6 1-2.7 2.4-2.7s2.4 1.1 2.4 2.7v1.6c0 1.5-1 2.6-2.4 2.6s-2.4-1.1-2.4-2.6Z" />
+          <path d="M10.6 9.2 12 10.3l1.4-1.1" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2.75v1.5M12 19.75v1.5M2.75 12h1.5M19.75 12h1.5M5.46 5.46l1.06 1.06M17.48 17.48l1.06 1.06M5.46 18.54l1.06-1.06M17.48 6.52l1.06-1.06" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 13.6A8 8 0 1 1 10.4 4a6.25 6.25 0 0 0 9.6 9.6Z" />
+        </symbol>
+        <symbol id="i-mark" viewBox="0 0 32 32">
+          <circle cx="9" cy="16" r="6" fill="#d97757" />
+          <circle cx="23" cy="10" r="5" fill="#10a37f" />
+          <circle cx="23" cy="23" r="5" fill="#7c5cff" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <a class="skip" href="#main">跳到主要內容</a>
+
+    <header class="site-header">
+      <div class="wrap header-row">
+        <a class="brand" href="../" aria-label="Harness Relay 首頁">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="site-nav" aria-label="頁面段落">
+          <a href="../#demo">示範</a>
+          <a href="./" aria-current="page">使用情境</a>
+          <a href="../#modes">對話模式</a>
+          <a href="../#teams">團隊</a>
+          <a href="../#safety">安全</a>
+          <a href="../#start">快速開始</a>
+        </nav>
+        <div class="header-tools">
+          <nav class="lang" aria-label="語言">
+            <a href="../../use-cases/" hreflang="en" lang="en" data-lang="en">EN</a>
+            <a href="./" hreflang="zh-TW" lang="zh-Hant-TW" aria-current="page" data-lang="zh-TW">中文</a>
+          </nav>
+          <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            <span class="gh-label">GitHub</span>
+            <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> 顆星</span></span>
+          </a>
+          <button class="btn btn-ghost theme-toggle" type="button" data-theme-toggle data-to-dark="切換成深色主題" data-to-light="切換成淺色主題" aria-label="切換成深色主題">
+            <svg class="i-moon" aria-hidden="true"><use href="#i-moon" /></svg>
+            <svg class="i-sun" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero uc-hero" aria-labelledby="hero-title">
+        <div class="wrap">
+          <h1 id="hero-title">交給團隊的五件事</h1>
+          <p class="lead">Harness Relay 是任務助理：你說要做什麼，首席 agent 就為它設計團隊，你手上的 coding agent 在你的電腦上一起完成。以下每件事都是實際執行的錄影，執行的 agent 列在各段裡，agent 工作的段落加速播放。</p>
+          <nav class="uc-jump" aria-label="使用情境">
+            <a href="#fix-a-bug">一個 bug 三種修法</a>
+            <a href="#research">查資料做決定</a>
+            <a href="#release-notes">接力寫版本說明</a>
+            <a href="#analyze-data">分析試算表</a>
+            <a href="#morning-briefing">晨間簡報</a>
+          </nav>
+        </div>
+      </section>
+
+      <section class="section usecase" id="fix-a-bug" aria-labelledby="fix-a-bug-title">
+        <div class="wrap">
+          <div class="usecase-head">
+            <h2 id="fix-a-bug-title"><span class="phrase">一個 bug</span> <span class="phrase">三種修法，</span><span class="phrase">留下最好的</span></h2>
+            <p class="lead">測試沒過，只有一種修法等於用猜的。那就要三種：在平行模式下，每位 agent 都在自己的 git worktree 裡工作，修法不會互相干擾，也不會動到你的檔案。每則回覆都列出改了哪些檔案；你看完差異，把想要的那個套用到工作目錄，不會自動 commit，再用你慣用的工具檢查。</p>
+            <ul class="usecase-facts" aria-label="執行方式"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">平行</span></li><li><span class="chip">可編輯</span></li></ul>
+          </div>
+          <div class="screening-grid usecase-screen">
+            <div class="player">
+              <video
+                id="fix-a-bug-video"
+                controls
+                muted
+                loop
+                playsinline
+                preload="none"
+                poster="../../assets/media/use-cases/fix-a-bug-zh-TW.webp"
+                aria-label="錄影：三位 agent 各在自己的 worktree 裡平行修好失敗的測試，再把其中一個修法套用到工作目錄"
+              >
+                <source src="../../assets/media/use-cases/fix-a-bug-zh-TW.mp4" type="video/mp4" />
+                <a href="https://github.com/Agentic-System-Lab/harness-relay/raw/main/site/assets/media/use-cases/fix-a-bug-zh-TW.mp4">下載這段錄影（MP4）</a>
+              </video>
+            </div>
+            <div class="rail">
+              <h3 class="rail-title">看它實際執行</h3>
+              <p class="rail-note">agent 工作時加速播放。點一個步驟就跳到那裡。</p>
+              <ol class="chapters">
+                <li>
+                  <button class="chapter" type="button" data-t="0">
+                    <time>0:00</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
+                    <span class="say">在 bill-split 開新對話，權限選「可編輯」，agent 才能改檔案、跑測試。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="7">
+                    <time>0:07</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
+                    <span class="say">提問：測試沒過，splitBill 會多算或少算一分錢。請三位平行修好，每位在自己的 worktree 裡。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-claude" type="button" data-t="21">
+                    <time>0:21</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">C</span><span class="who">首席 agent</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">以「平行解題比較」範本為這個問題調整出團隊：Claude、Codex 與 Grok，各自處理，並說明原因。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="28">
+                    <time>0:28</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-claude">C</span><span class="av t-codex">C</span><span class="av t-grok">G</span></span
+                      ><span class="who">三位成員</span></span
+                    >
+                    <span class="say">每位在自己的 git worktree 裡修正，再在那裡跑 npm test。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-claude" type="button" data-t="30">
+                    <time>0:30</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">C</span><span class="who">@Claude</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">要執行權限之外的指令前先問你：你選擇允許。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="49">
+                    <time>0:49</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-claude">C</span><span class="av t-codex">C</span><span class="av t-grok">G</span></span
+                      ><span class="who">三位成員</span></span
+                    >
+                    <span class="say">三種修法並排，各自列出改了哪些檔案。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="62">
+                    <time>1:02</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
+                    <span class="say">打開改動最小的修法：@Codex 的差異。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="69">
+                    <time>1:09</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
+                    <span class="say">套用到工作目錄，不會自動 commit；其他結果的卡片隨即註明已套用其中一份。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+              </ol>
+            </div>
+          </div>
+          <div class="usecase-body">
+            <div class="usecase-ask">
+              <h3>你問的</h3>
+              <blockquote>測試沒過：帳單無法整除時，splitBill 會多算或少算一分錢。請 Claude Code、Codex 和 Grok 平行修好它，每位在 Harness Relay 給它的 git worktree 裡修，並在那裡跑 npm test。</blockquote>
+            </div>
+            <div class="usecase-shows">
+              <h3>用到的功能</h3>
+              <ul>
+              <li><b>平行模式。</b> 大家同時、獨立回答，每位各有自己的 worktree。 <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#對話規則">對話規則</a></li>
+              <li><b>可編輯權限。</b> agent 可以修改工作目錄裡的檔案、執行測試；超出的動作會先問你。 <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#核准">核准</a></li>
+              <li><b>差異與套用。</b> 改了檔案的回覆會列出檔案和 diff；「套用到工作目錄」把一個結果複製到你的工作目錄，不會 commit。 <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#檢視與套用修改">檢視與套用修改</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section usecase" id="research" aria-labelledby="research-title">
+        <div class="wrap">
+          <div class="usecase-head">
+            <h2 id="research-title"><span class="phrase">查資料做決定，</span><span class="phrase">附上來源</span></h2>
+            <p class="lead">不是每件事都是寫程式。問一個需要查資料的問題，agent 會自己上網搜尋、讀文件，再以圓桌輪流回應彼此的論點，全程唯讀。你得到附上參考連結的比較與建議；首席 agent 的審閱則標出他們意見不同的地方，以及哪些該由你親自確認。</p>
+            <ul class="usecase-facts" aria-label="執行方式"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">圓桌 × 2</span></li><li><span class="chip">唯讀</span></li></ul>
+          </div>
+          <div class="screening-grid usecase-screen">
+            <div class="player">
+              <video
+                id="research-video"
+                controls
+                muted
+                loop
+                playsinline
+                preload="none"
+                poster="../../assets/media/use-cases/research-zh-TW.webp"
+                aria-label="錄影：三位 agent 查資料比較該用哪個日期函式庫，彼此辯論後附上來源給出選擇，再由首席 agent 審閱回覆"
+              >
+                <source src="../../assets/media/use-cases/research-zh-TW.mp4" type="video/mp4" />
+                <a href="https://github.com/Agentic-System-Lab/harness-relay/raw/main/site/assets/media/use-cases/research-zh-TW.mp4">下載這段錄影（MP4）</a>
+              </video>
+            </div>
+            <div class="rail">
+              <h3 class="rail-title">看它實際執行</h3>
+              <p class="rail-note">agent 工作時加速播放。點一個步驟就跳到那裡。</p>
+              <ol class="chapters">
+                <li>
+                  <button class="chapter" type="button" data-t="0">
+                    <time>0:00</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
+                    <span class="say">開新對話，權限維持唯讀，首席 agent 審閱保持開啟。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="4">
+                    <time>0:04</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
+                    <span class="say">提問：date-fns、Day.js、Luxon，哪個該取代 Moment.js？要附來源。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-claude" type="button" data-t="13">
+                    <time>0:13</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">C</span><span class="who">首席 agent</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">以「三方辯論」範本為這個問題調整出團隊：Proposer、Pragmatist 與 Skeptic，兩輪，並說明原因。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="20">
+                    <time>0:20</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-claude">P</span><span class="av t-codex">P</span><span class="av t-grok">S</span></span
+                      ><span class="who">三位成員</span></span
+                    >
+                    <span class="say">每位上網搜尋、讀文件，再回應其他人的論點。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-claude" type="button" data-t="22">
+                    <time>0:22</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">P</span><span class="who">@Proposer</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">要執行唯讀權限本身不涵蓋的指令前先問你：你選擇允許。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="50">
+                    <time>0:50</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-claude">P</span><span class="av t-codex">P</span><span class="av t-grok">S</span></span
+                      ><span class="who">三位成員</span></span
+                    >
+                    <span class="say">建議與取捨，附上他們讀過的連結；第二輪裡有成員改變了立場。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-claude" type="button" data-t="62">
+                    <time>1:02</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">C</span><span class="who">首席 agent</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">審閱回覆：哪裡意見不同、哪些該由你親自確認。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+              </ol>
+            </div>
+          </div>
+          <div class="usecase-body">
+            <div class="usecase-ask">
+              <h3>你問的</h3>
+              <blockquote>先讀 NOTES.md。我們該用 date-fns、Day.js 還是 Luxon 取代 Moment.js？請 Claude Code、Codex 和 Grok 查各自的文件和 npm 頁面，比較時區支援、大小和維護狀況，彼此辯論後給我們一個選擇，並附上來源連結。</blockquote>
+            </div>
+            <div class="usecase-shows">
+              <h3>用到的功能</h3>
+              <ul>
+              <li><b>圓桌。</b> 依序發言，每位都看得到前面的人說了什麼。 <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#對話規則">對話規則</a></li>
+              <li><b>唯讀。</b> 只讀檔案、上網搜尋，不修改任何東西。 <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#對話規則">對話規則</a></li>
+              <li><b>首席 agent 審閱。</b> 團隊回答後，首席 agent 直接在回覆裡標出風險、意見分歧和該查證的說法，並建議下一步。 <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#首席-agent-審閱">首席 agent 審閱</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section usecase" id="release-notes" aria-labelledby="release-notes-title">
+        <div class="wrap">
+          <div class="usecase-head">
+            <h2 id="release-notes-title">接力寫版本說明</h2>
+            <p class="lead">寫東西分幾輪會更好。在接力模式下一次一位發言，用 @ 交棒：這裡第一位根據上個標籤之後的 commit 起草版本說明，下一位改寫給使用者看，最後一位逐行對照 commit 查核。檔案就在你的工作目錄裡，「檔案」會顯示排版後的樣子。</p>
+            <ul class="usecase-facts" aria-label="執行方式"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">接力</span></li><li><span class="chip">可編輯</span></li></ul>
+          </div>
+          <div class="screening-grid usecase-screen">
+            <div class="player">
+              <video
+                id="release-notes-video"
+                controls
+                muted
+                loop
+                playsinline
+                preload="none"
+                poster="../../assets/media/use-cases/release-notes-zh-TW.webp"
+                aria-label="錄影：三位 agent 接力寫版本說明，起草、改寫並對照 commit 查核，再在「檔案」打開它"
+              >
+                <source src="../../assets/media/use-cases/release-notes-zh-TW.mp4" type="video/mp4" />
+                <a href="https://github.com/Agentic-System-Lab/harness-relay/raw/main/site/assets/media/use-cases/release-notes-zh-TW.mp4">下載這段錄影（MP4）</a>
+              </video>
+            </div>
+            <div class="rail">
+              <h3 class="rail-title">看它實際執行</h3>
+              <p class="rail-note">agent 工作時加速播放。點一個步驟就跳到那裡。</p>
+              <ol class="chapters">
+                <li>
+                  <button class="chapter" type="button" data-t="0">
+                    <time>0:00</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
+                    <span class="say">在 pocket-budget 開新對話，權限選「可編輯」，agent 才能寫檔案。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="9">
+                    <time>0:09</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
+                    <span class="say">請他們用接力的方式，根據 v1.3.0 之後的 commit 寫 1.4.0 的版本說明。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-claude" type="button" data-t="17">
+                    <time>0:17</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">C</span><span class="who">首席 agent</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">以「架構師 → 實作者 → 審查者」範本為這個問題調整出團隊：Drafter、Plainer 與 Checker，以接力進行，並說明原因。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="24">
+                    <time>0:24</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-claude">D</span><span class="av t-codex">P</span><span class="av t-grok">C</span></span
+                      ><span class="who">三位成員</span></span
+                    >
+                    <span class="say">每位接過上一位的檔案，再用 @ 交棒：起草、改白話、查核。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-claude" type="button" data-t="42">
+                    <time>0:42</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">D</span><span class="who">@Drafter</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">要執行權限之外的指令前先問你：你選擇允許。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="48">
+                    <time>0:48</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-claude">D</span><span class="av t-codex">P</span><span class="av t-grok">C</span></span
+                      ><span class="who">三位成員</span></span
+                    >
+                    <span class="say">查核沒過的句子退回改寫，再通過查核；每則回覆都列出它改了哪個檔案。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="59">
+                    <time>0:59</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
+                    <span class="say">在「檔案」打開 RELEASE_NOTES.md，看排版後的樣子。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+              </ol>
+            </div>
+          </div>
+          <div class="usecase-body">
+            <div class="usecase-ask">
+              <h3>你問的</h3>
+              <blockquote>根據 v1.3.0 之後的 commit，幫使用者寫 1.4.0 的版本說明，存成 RELEASE_NOTES.md。用接力的方式：Claude Code 起草，Codex 改成白話，Grok 逐行對照 commit 查核。</blockquote>
+            </div>
+            <div class="usecase-shows">
+              <h3>用到的功能</h3>
+              <ul>
+              <li><b>接力模式。</b> 一次一位發言；被 @ 的隊友接棒，沒有人被 @ 就交還給你。 <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#對話規則">對話規則</a></li>
+              <li><b>依模型寫的角色。</b> 首席 agent 決定誰起草、誰改寫、誰查核，並依每位成員的模型最能理解的方式寫角色。 <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#自動組隊">自動組隊</a></li>
+              <li><b>檔案。</b> 瀏覽工作目錄，預覽 Markdown、程式碼和圖片，或下載檔案。 <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#瀏覽檔案">瀏覽檔案</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section usecase" id="analyze-data" aria-labelledby="analyze-data-title">
+        <div class="wrap">
+          <div class="usecase-head">
+            <h2 id="analyze-data-title"><span class="phrase">把試算表</span><span class="phrase">變成結論和圖表</span></h2>
+            <p class="lead">附上匯出檔，問哪裡變了。agent 不靠瞄一眼猜測，而是自己寫程式計算、互相核對數字，再排出該先修的事。他們存在工作目錄裡的圖表直接顯示在回覆中，可以貼進週報。</p>
+            <ul class="usecase-facts" aria-label="執行方式"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li><span class="chip">圓桌</span></li><li><span class="chip">可編輯</span></li></ul>
+          </div>
+          <div class="screening-grid usecase-screen">
+            <div class="player">
+              <video
+                id="analyze-data-video"
+                controls
+                muted
+                loop
+                playsinline
+                preload="none"
+                poster="../../assets/media/use-cases/analyze-data-zh-TW.webp"
+                aria-label="錄影：agent 分析附上的客服工單 CSV，排出該先修的事，並顯示他們畫的圖表"
+              >
+                <source src="../../assets/media/use-cases/analyze-data-zh-TW.mp4" type="video/mp4" />
+                <a href="https://github.com/Agentic-System-Lab/harness-relay/raw/main/site/assets/media/use-cases/analyze-data-zh-TW.mp4">下載這段錄影（MP4）</a>
+              </video>
+            </div>
+            <div class="rail">
+              <h3 class="rail-title">看它實際執行</h3>
+              <p class="rail-note">agent 工作時加速播放。點一個步驟就跳到那裡。</p>
+              <ol class="chapters">
+                <li>
+                  <button class="chapter" type="button" data-t="0">
+                    <time>0:00</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
+                    <span class="say">開新對話，權限選「可編輯」，agent 才能存檔。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="9">
+                    <time>0:09</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
+                    <span class="say">附上這一季的工單 CSV 檔，問哪裡變了、該先修什麼。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-claude" type="button" data-t="17">
+                    <time>0:17</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">C</span><span class="who">首席 agent</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">以「一般問題智囊團」範本為這個問題調整出團隊：Analyst 與 Verifier，並說明原因。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="24">
+                    <time>0:24</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-claude">A</span><span class="av t-codex">V</span></span
+                      ><span class="who">Analyst 與 Verifier</span></span
+                    >
+                    <span class="say">他們讀檔案、自己寫程式計算，並互相核對數字。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-claude" type="button" data-t="26">
+                    <time>0:26</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">A</span><span class="who">@Analyst</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">要執行權限之外的指令前先問你：你選擇允許。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="44">
+                    <time>0:44</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-claude">A</span><span class="av t-codex">V</span></span
+                      ><span class="who">Analyst 與 Verifier</span></span
+                    >
+                    <span class="say">哪裡變了、為什麼，依該先修的順序排好。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="57">
+                    <time>0:57</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
+                    <span class="say">他們畫的圖表，直接顯示在回覆裡。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="61">
+                    <time>1:01</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
+                    <span class="say">在「檔案」打開它：已存在工作目錄，可以貼進週報。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+              </ol>
+            </div>
+          </div>
+          <div class="usecase-body">
+            <div class="usecase-ask">
+              <h3>你問的</h3>
+              <blockquote>這是上一季的客服工單。哪裡變了、原因是什麼、我們該先修什麼？存一張可以貼進週報的圖表，並在這裡顯示。</blockquote>
+            </div>
+            <div class="usecase-shows">
+              <h3>用到的功能</h3>
+              <ul>
+              <li><b>附加檔案。</b> 把檔案貼上或拖進訊息；每位 agent 都會拿到檔案路徑。 <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#4-對話">對話</a></li>
+              <li><b>核准。</b> 超出權限的指令會在對話裡等你決定：允許一次，或本對話都允許。 <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#核准">核准</a></li>
+              <li><b>回覆裡的圖片。</b> agent 存在工作目錄、並放進回覆裡的圖片或影片會顯示在對話裡，也能在「檔案」打開。 <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#瀏覽檔案">瀏覽檔案</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section usecase" id="morning-briefing" aria-labelledby="morning-briefing-title">
+        <div class="wrap">
+          <div class="usecase-head">
+            <h2 id="morning-briefing-title"><span class="phrase">每天早上，</span><span class="phrase">整理信件</span><span class="phrase">和行事曆</span></h2>
+            <p class="lead">把重複的工作交給團隊。自動任務每個工作日 08:30 送出它的訊息；agent 用 Harness Relay 自己的工具讀你的信和行事曆，告訴你今天有哪些事需要你，並寫好回信。他們的回合裡什麼都不會送到別人那裡：每封信都在待送出匣逐欄列出，等你按「送出」。</p>
+            <p class="usecase-note">錄影時用的是同一台電腦上的替身郵件與行事曆伺服器，裡面的信件和行程都是虛構的。</p>
+            <ul class="usecase-facts" aria-label="執行方式"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li><span class="chip">圓桌</span></li><li><span class="chip">唯讀</span></li><li><span class="chip">每個工作日 08:30</span></li></ul>
+          </div>
+          <div class="screening-grid usecase-screen">
+            <div class="player">
+              <video
+                id="morning-briefing-video"
+                controls
+                muted
+                loop
+                playsinline
+                preload="none"
+                poster="../../assets/media/use-cases/morning-briefing-zh-TW.webp"
+                aria-label="錄影：每個工作日早上的自動任務，先立即執行一次；兩位 agent 讀信和行事曆，再送出一封在待送出匣等待的回信"
+              >
+                <source src="../../assets/media/use-cases/morning-briefing-zh-TW.mp4" type="video/mp4" />
+                <a href="https://github.com/Agentic-System-Lab/harness-relay/raw/main/site/assets/media/use-cases/morning-briefing-zh-TW.mp4">下載這段錄影（MP4）</a>
+              </video>
+            </div>
+            <div class="rail">
+              <h3 class="rail-title">看它實際執行</h3>
+              <p class="rail-note">agent 工作時加速播放。點一個步驟就跳到那裡。</p>
+              <ol class="chapters">
+                <li>
+                  <button class="chapter" type="button" data-t="0">
+                    <time>0:00</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
+                    <span class="say">新自動任務：每個工作日 08:30 要交給團隊的事，權限唯讀。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="17">
+                    <time>0:17</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
+                    <span class="say">建立後會開一段它的對話，這時還不會執行。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-claude" type="button" data-t="23">
+                    <time>0:23</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">C</span><span class="who">首席 agent</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">為這則訊息設計團隊：Calendar 與 Mail，並說明原因。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="31">
+                    <time>0:31</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
+                    <span class="say">按「立即執行一次」，在第一個早上之前先試跑。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="36">
+                    <time>0:36</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-codex">C</span><span class="av t-claude">M</span></span
+                      ><span class="who">Calendar 與 Mail</span></span
+                    >
+                    <span class="say">他們用 Harness Relay 的郵件和行事曆工具搜尋、讀信，查看當天行程。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="52">
+                    <time>0:52</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-codex">C</span><span class="av t-claude">M</span></span
+                      ><span class="who">Calendar 與 Mail</span></span
+                    >
+                    <span class="say">今天需要你處理的事，以及他們放進待送出匣的回覆。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="65">
+                    <time>1:05</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
+                    <span class="say">他們的回合裡什麼都沒送出：每封回覆都在待送出匣等你，逐欄列出。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="71">
+                    <time>1:11</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">你</span></span>
+                    <span class="say">按「送出」，照所示用你自己的帳號寄出一封；「捨棄」會丟掉它。</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+              </ol>
+            </div>
+          </div>
+          <div class="usecase-body">
+            <div class="usecase-ask">
+              <h3>你問的</h3>
+              <blockquote>每個工作日早上，用 Harness Relay 的郵件和行事曆工具：讀昨天以來的新信和今天的行事曆，告訴我今天有哪些事需要我。需要回覆的信，用 mail_send 寫好簡短的回信：它不會自己寄出，每封回信都在待送出匣等我按「送出」（無人值守的執行不能存草稿）。每個會議邀約，都在回信裡提一個空檔。Claude Code 讀信，Codex 看行事曆。</blockquote>
+            </div>
+            <div class="usecase-shows">
+              <h3>用到的功能</h3>
+              <ul>
+              <li><b>自動任務。</b> 在設定的時間、你按「立即執行一次」，或有程式呼叫它的 webhook 時執行；沒人看著時，超出權限的動作一律拒絕。 <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#自動任務">自動任務</a></li>
+              <li><b>郵件與行事曆。</b> Harness Relay 自己的工具，用 app 密碼連上你的帳號；密碼只留在 Harness Relay。 <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆">Harness Relay 的工具</a></li>
+              <li><b>待送出匣。</b> 郵件或邀請絕不會在 agent 的回合裡送出：它會以卡片等著，直到你按「送出」或「捨棄」。 <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#核准">核准</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section start uc-cta" aria-labelledby="cta-title">
+        <div class="wrap">
+          <div class="section-head">
+            <h2 id="cta-title">交給它一件你自己的事</h2>
+            <p class="lead">十二種 agent 任你搭配，一種就能組隊。桌面 app 支援 macOS、Windows 與 Linux；也可以在 GitHub codespace 裡試用，什麼都不用安裝。</p>
+          </div>
+          <div class="download" data-downloads data-mac="下載 macOS 版" data-win="下載 Windows 版" data-win-arm64="下載 Windows on Arm 版" data-linux="下載 Linux 版" data-linux-arm64="下載 Linux on Arm 版" data-release="版本" data-mobile="Harness Relay 在電腦上執行：請在電腦上打開這個頁面。">
+            <div class="download-row">
+              <a class="btn btn-primary btn-download" href="https://github.com/Agentic-System-Lab/harness-relay/releases" data-download-primary>
+                <svg aria-hidden="true"><use href="#i-download" /></svg>
+                <span data-download-label>下載 Harness Relay</span>
+              </a>
+              <a class="text-link" href="../#start">系統需求、其他系統與 Codespaces</a>
+            </div>
+            <p class="download-meta" data-release-meta data-hero hidden></p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-row">
+        <a class="brand" href="../" aria-label="Harness Relay 首頁">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="footer-links" aria-label="頁尾">
+          <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE">Sustainable Use License</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

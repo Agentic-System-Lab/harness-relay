@@ -114,8 +114,18 @@ export function ffconcat(framesDir: string, frames: CutPlan['frames']): string {
 
 const mb = (file: string) => `${(statSync(file).size / 1e6).toFixed(1)} MB`;
 
+/** How a recording is cut: the video's size and quality, and whether the README animation is made too. */
+export interface CutOptions {
+  /** The video's width and height (1600×1000, the frames' own size, by default). */
+  size?: [number, number];
+  /** H.264's constant rate factor: higher is smaller (24 by default). */
+  crf?: number;
+  /** Also make the README animation (by default). */
+  animation?: boolean;
+}
+
 /** Cuts `<dir>` (a recording) into its video, animation and timeline. */
-export function cutRecording(dir: string, target: number, log: (...a: unknown[]) => void): Timeline {
+export function cutRecording(dir: string, target: number, log: (...a: unknown[]) => void, o: CutOptions = {}): Timeline {
   const frames = readFileSync(join(dir, 'frames.jsonl'), 'utf8')
     .split('\n')
     .filter(Boolean)
@@ -135,11 +145,17 @@ export function cutRecording(dir: string, target: number, log: (...a: unknown[])
   const mp4 = join(dir, 'video.mp4');
   execFileSync('ffmpeg', [
     ...['-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list],
-    ...['-vf', 'fps=24,format=yuv420p', '-c:v', 'libx264', '-preset', 'slow', '-crf', '24', '-profile:v', 'high'],
+    ...['-vf', `fps=24,${o.size ? `scale=${o.size[0]}:${o.size[1]}:flags=lanczos,` : ''}format=yuv420p`],
+    ...['-c:v', 'libx264', '-preset', 'slow', '-crf', String(o.crf ?? 24), '-profile:v', 'high'],
     // Ends where the timeline does: FFmpeg would hold the last frame, listed twice, about as long
     // again as the frame before it.
     ...['-t', plan.timeline.length.toFixed(3), '-movflags', '+faststart', '-an', mp4],
   ]);
+
+  if (o.animation === false) {
+    log(`video.mp4 ${mb(mp4)}`);
+    return plan.timeline;
+  }
 
   // The README animation: 880×550 at 8 fps, lossy WebP.
   const pngs = join(dir, 'animation-frames');

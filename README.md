@@ -16,6 +16,16 @@ A local task assistant: the real **Claude Code, Codex, Grok, Cursor, Antigravity
 
 For each question, a lead agent picks the team from your templates (or adapts one, or designs a new one), and you confirm it. Harness Relay then runs the CLIs with your own sign-ins and tools, passes each agent the messages it hasn't seen yet, and streams everything into one chat.
 
+## Use cases
+
+Five tasks to hand the team, each a real run recorded as it happened, with its chapters, on the [website](https://agentic-system-lab.github.io/harness-relay/use-cases/):
+
+- **[Fix a bug three ways, keep the best one](https://agentic-system-lab.github.io/harness-relay/use-cases/#fix-a-bug)**: in parallel mode, Claude Code, Codex and Grok each fix a failing test in a git worktree of its own; you read the diffs and apply one to your working directory.
+- **[Research a choice, with sources](https://agentic-system-lab.github.io/harness-relay/use-cases/#research)**: read-only, the agents search the web and read the docs, debate in a roundtable and pick one with the links they read; lead review marks where they disagree.
+- **[Write release notes as a relay](https://agentic-system-lab.github.io/harness-relay/use-cases/#release-notes)**: one drafts them from the commits since the last tag, the next rewrites them for users, the last checks every line against the commits, handing off with `@mentions`.
+- **[Turn a spreadsheet into answers and a chart](https://agentic-system-lab.github.io/harness-relay/use-cases/#analyze-data)**: attach a CSV export; the agents count with scripts of their own, rank what to fix first and show the chart they saved in the reply.
+- **[A morning briefing from your mail and calendar](https://agentic-system-lab.github.io/harness-relay/use-cases/#morning-briefing)**: an automation every weekday at 08:30 reads your mail and calendar with Harness Relay's own tools; the replies wait in the outbox until you press Send.
+
 ## Features
 
 - **Twelve coding agents, one task assistant**: the CLIs you already have, with their own tools, sessions and sign-ins, and the open-source ones on your API keys or your own OpenAI-compatible server; mix them in one team. ([Signing in](docs/user-guide.md#2-sign-in-to-each-agent--settings--sign-in), [model backends](docs/user-guide.md#open-source-agents-and-model-backends))

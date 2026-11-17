@@ -16,6 +16,16 @@
 
 每個問題都由首席 agent 從你的範本挑選團隊（或依範本調整、重新設計），你確認後團隊才開始回答。Harness Relay 會用你自己的登入與工具執行這些 CLI，把每個 agent 還沒看過的訊息交給它，並把所有內容即時串流到同一個聊天畫面。
 
+## 使用情境
+
+交給團隊的五件事，每件都是實際執行的錄影，附章節，放在[官網](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/)：
+
+- **[一個 bug 三種修法，留下最好的](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#fix-a-bug)**：在平行模式下，Claude Code、Codex 和 Grok 各在自己的 git worktree 裡修好失敗的測試；你看過差異，把其中一個套用到工作目錄。
+- **[查資料做決定，附上來源](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#research)**：在唯讀模式下，agent 上網搜尋、讀文件，以圓桌辯論後附上讀過的連結給出選擇；首席 agent 審閱會標出意見不同之處。
+- **[接力寫版本說明](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#release-notes)**：一位根據上個標籤之後的 commit 起草，下一位改寫給使用者看，最後一位逐行對照 commit 查核，彼此用 `@` 交棒。
+- **[把試算表變成結論和圖表](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#analyze-data)**：附上 CSV 匯出檔；agent 自己寫程式計算、排出該先修的事，並在回覆裡顯示他們存下的圖表。
+- **[每天早上，整理信件和行事曆](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#morning-briefing)**：每個工作日 08:30 的自動任務，用 Harness Relay 自己的工具讀你的信和行事曆；回信在待送出匣等你按「送出」。
+
 ## 功能
 
 - **十二個 coding agent，同一個任務助理**：直接使用你已安裝的 CLI，保有它們各自的工具、session 與登入；開源 agent 則用你的 API key 或你自己的 OpenAI 相容伺服器執行；同一個團隊裡可以混搭。（[登入](docs/user-guide.zh-TW.md#2-分別登入各個-agent設定與登入)、[模型來源](docs/user-guide.zh-TW.md#開源-agent-與模型來源)）

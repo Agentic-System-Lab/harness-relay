@@ -19,6 +19,7 @@
     "site:preview": "tsx scripts/preview-site.ts",
     "icons": "tsx scripts/app-icons.ts",
     "demo": "tsx scripts/demo/index.ts",
+    "use-cases": "tsx scripts/demo/use-cases/index.ts",
     "desktop": "npm run build && npm --prefix desktop run build && npm --prefix desktop start",
     "desktop:dist": "npm run build && npm --prefix desktop run build && npm --prefix desktop run dist --",
     "desktop:typecheck": "npm --prefix desktop run typecheck",

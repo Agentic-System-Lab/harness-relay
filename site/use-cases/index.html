@@ -1,0 +1,926 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Harness Relay use cases: five tasks, each a real run</title>
+    <meta
+      name="description"
+      content="Harness Relay use cases, each a real recorded run: fix a bug three ways, research a choice, write release notes, chart a spreadsheet, a morning briefing."
+    />
+    <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/use-cases/" />
+    <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/use-cases/" />
+    <link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/" />
+    <link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/use-cases/" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141415" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Harness Relay" />
+    <meta property="og:title" content="Harness Relay use cases: five tasks, each a real run" />
+    <meta
+      property="og:description"
+      content="Five tasks for a team of the coding agents you already have, each a real run recorded as it happened: fix a bug three ways in parallel worktrees, research a choice with sources, write release notes in relay, turn a spreadsheet into answers and a chart, and a morning briefing from your mail and calendar."
+    />
+    <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/use-cases/" />
+    <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="zh_TW" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="../favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="../assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="../assets/site.css" />
+    <script>
+      document.documentElement.classList.add('js');
+      // The theme the visitor picked with the theme button (assets/theme.js), set before anything is drawn
+      // so that it does not flash. Until they pick one, the page follows the system's light or dark mode.
+      try {
+        var theme = localStorage.getItem('harness-relay.theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {}
+      // Show the language the visitor picked last time. Before they pick one, follow the
+      // browser like the app does: Chinese gets the Traditional Chinese page.
+      try {
+        var lang = localStorage.getItem('harness-relay.lang');
+        var browserZh = /^zh/i.test((navigator.languages || [])[0] || navigator.language || '');
+        if (lang === 'zh-TW' || (!lang && browserZh)) location.replace('../zh-TW/use-cases/' + location.hash);
+      } catch (e) {}
+    </script>
+    <script src="../assets/site.js" defer></script>
+    <script type="module" src="../assets/downloads.js"></script>
+    <script type="module" src="../assets/theme.js"></script>
+    <!-- What search and answer engines read about the page and its recordings (test/site-use-cases.test.ts keeps
+         it in step with the page and the other language's). Each video's uploadDate and duration are written by
+         npm run use-cases. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebPage",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/use-cases/#webpage",
+            "url": "https://agentic-system-lab.github.io/harness-relay/use-cases/",
+            "name": "Harness Relay use cases: five tasks, each a real run",
+            "description": "Harness Relay use cases, each a real recorded run: fix a bug three ways, research a choice, write release notes, chart a spreadsheet, a morning briefing.",
+            "inLanguage": "en",
+            "isPartOf": {
+              "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
+            },
+            "about": {
+              "@id": "https://agentic-system-lab.github.io/harness-relay/#app"
+            },
+            "primaryImageOfPage": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/fix-a-bug-en.webp",
+            "video": [
+              {
+                "@id": "https://agentic-system-lab.github.io/harness-relay/use-cases/#fix-a-bug-video"
+              },
+              {
+                "@id": "https://agentic-system-lab.github.io/harness-relay/use-cases/#research-video"
+              },
+              {
+                "@id": "https://agentic-system-lab.github.io/harness-relay/use-cases/#release-notes-video"
+              },
+              {
+                "@id": "https://agentic-system-lab.github.io/harness-relay/use-cases/#analyze-data-video"
+              },
+              {
+                "@id": "https://agentic-system-lab.github.io/harness-relay/use-cases/#morning-briefing-video"
+              }
+            ]
+          },
+          {
+            "@type": "VideoObject",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/use-cases/#fix-a-bug-video",
+            "name": "Harness Relay use case: Fix a bug three ways, keep the best one",
+            "description": "Recording: three agents fix a failing test in parallel, each in a worktree of its own, then one fix is applied to the working directory",
+            "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/fix-a-bug-en.webp",
+            "contentUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/fix-a-bug-en.mp4",
+            "uploadDate": "2026-11-17T18:14:35Z",
+            "duration": "PT1M15S",
+            "inLanguage": "en"
+          },
+          {
+            "@type": "VideoObject",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/use-cases/#research-video",
+            "name": "Harness Relay use case: Research a choice, with sources",
+            "description": "Recording: three agents research which date library to use, debate it and pick one with sources, then the lead agent reviews their replies",
+            "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/research-en.webp",
+            "contentUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/research-en.mp4",
+            "uploadDate": "2026-11-17T18:13:56Z",
+            "duration": "PT1M12S",
+            "inLanguage": "en"
+          },
+          {
+            "@type": "VideoObject",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/use-cases/#release-notes-video",
+            "name": "Harness Relay use case: Write release notes as a relay",
+            "description": "Recording: three agents write release notes in relay, drafting, editing and checking them against the commits, then the file is opened in Files",
+            "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/release-notes-en.webp",
+            "contentUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/release-notes-en.mp4",
+            "uploadDate": "2026-11-17T18:15:44Z",
+            "duration": "PT1M12S",
+            "inLanguage": "en"
+          },
+          {
+            "@type": "VideoObject",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/use-cases/#analyze-data-video",
+            "name": "Harness Relay use case: Turn a spreadsheet into answers and a chart",
+            "description": "Recording: the agents analyze an attached CSV of support tickets, rank what to fix first and show the chart they drew",
+            "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/analyze-data-en.webp",
+            "contentUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/analyze-data-en.mp4",
+            "uploadDate": "2026-11-17T18:17:39Z",
+            "duration": "PT1M12S",
+            "inLanguage": "en"
+          },
+          {
+            "@type": "VideoObject",
+            "@id": "https://agentic-system-lab.github.io/harness-relay/use-cases/#morning-briefing-video",
+            "name": "Harness Relay use case: A morning briefing from your mail and calendar",
+            "description": "Recording: an automation for every weekday morning, run once now; two agents read the mail and the calendar, and a reply waiting in the outbox is sent",
+            "thumbnailUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/morning-briefing-en.webp",
+            "contentUrl": "https://agentic-system-lab.github.io/harness-relay/assets/media/use-cases/morning-briefing-en.mp4",
+            "uploadDate": "2026-11-17T18:44:31Z",
+            "duration": "PT1M15S",
+            "inLanguage": "en"
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-github" viewBox="0 0 16 16">
+          <path
+            fill="currentColor"
+            d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+          />
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+          <path d="M12 3.86 14.22 9.8l6.34.28-4.97 3.95 1.7 6.11L12 16.64l-5.29 3.5 1.7-6.11-4.97-3.95 6.34-.28Z" />
+        </symbol>
+        <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="9" width="11" height="11" rx="2.5" />
+          <path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H15" />
+        </symbol>
+        <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 12.5l4.5 4.5L19 7.5" />
+        </symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M12 2.5c.8 5.9 3.6 8.7 9.5 9.5-5.9.8-8.7 3.6-9.5 9.5-.8-5.9-3.6-8.7-9.5-9.5 5.9-.8 8.7-3.6 9.5-9.5Z" />
+        </symbol>
+        <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="5" y="10.5" width="14" height="10" rx="2.5" />
+          <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.7 7 9 4.1-1.3 7-4.7 7-9V6.2Z" />
+          <path d="m9 12 2.2 2.2L15.2 10" />
+        </symbol>
+        <symbol id="i-branch" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="6.5" cy="5.5" r="2.25" />
+          <circle cx="6.5" cy="18.5" r="2.25" />
+          <circle cx="17.5" cy="7.5" r="2.25" />
+          <path d="M6.5 7.75v8.5M17.5 9.75c0 4.25-4.5 4.75-9.4 7" />
+        </symbol>
+        <symbol id="i-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="8" cy="15.5" r="4" />
+          <path d="M10.9 12.6 19.5 4M16 7.5l2.5 2.5M13.5 10l2 2" />
+        </symbol>
+        <symbol id="i-box" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 19.5 7.6v8.8L12 20.5l-7.5-4.1V7.6Z" />
+          <path d="M4.5 7.6 12 11.8l7.5-4.2M12 11.8v8.7" />
+        </symbol>
+        <symbol id="i-db" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <ellipse cx="12" cy="6" rx="7" ry="2.75" />
+          <path d="M5 6v12c0 1.5 3.1 2.75 7 2.75s7-1.25 7-2.75V6M5 12c0 1.5 3.1 2.75 7 2.75s7-1.25 7-2.75" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
+        </symbol>
+        <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </symbol>
+        <symbol id="i-cloud" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M7 18.5h10a4 4 0 0 0 .7-7.94A6 6 0 0 0 6.2 9.6 4.5 4.5 0 0 0 7 18.5Z" />
+        </symbol>
+        <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+        </symbol>
+        <symbol id="i-os-win" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+          <path d="M12 4.5v15M3.5 12h17" />
+        </symbol>
+        <symbol id="i-os-linux" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3c-2.3 0-3.6 1.9-3.6 4.4 0 1.5.4 2.4-.7 3.8C6.4 12.9 5.4 14.8 5.4 17c0 2.6 2.9 4 6.6 4s6.6-1.4 6.6-4c0-2.2-1-4.1-2.3-5.8-1.1-1.4-.7-2.3-.7-3.8C15.6 4.9 14.3 3 12 3Z" />
+          <path d="M9.6 14.6c0-1.6 1-2.7 2.4-2.7s2.4 1.1 2.4 2.7v1.6c0 1.5-1 2.6-2.4 2.6s-2.4-1.1-2.4-2.6Z" />
+          <path d="M10.6 9.2 12 10.3l1.4-1.1" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2.75v1.5M12 19.75v1.5M2.75 12h1.5M19.75 12h1.5M5.46 5.46l1.06 1.06M17.48 17.48l1.06 1.06M5.46 18.54l1.06-1.06M17.48 6.52l1.06-1.06" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 13.6A8 8 0 1 1 10.4 4a6.25 6.25 0 0 0 9.6 9.6Z" />
+        </symbol>
+        <symbol id="i-mark" viewBox="0 0 32 32">
+          <circle cx="9" cy="16" r="6" fill="#d97757" />
+          <circle cx="23" cy="10" r="5" fill="#10a37f" />
+          <circle cx="23" cy="23" r="5" fill="#7c5cff" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="wrap header-row">
+        <a class="brand" href="../" aria-label="Harness Relay, home">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="site-nav" aria-label="Sections">
+          <a href="../#demo">Demo</a>
+          <a href="./" aria-current="page">Use cases</a>
+          <a href="../#modes">Modes</a>
+          <a href="../#teams">Teams</a>
+          <a href="../#safety">Safety</a>
+          <a href="../#start">Quick start</a>
+        </nav>
+        <div class="header-tools">
+          <nav class="lang" aria-label="Language">
+            <a href="./" hreflang="en" lang="en" aria-current="page" data-lang="en">EN</a>
+            <a href="../zh-TW/use-cases/" hreflang="zh-TW" lang="zh-Hant-TW" data-lang="zh-TW">中文</a>
+          </nav>
+          <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            <span class="gh-label">GitHub</span>
+            <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> stars</span></span>
+          </a>
+          <button class="btn btn-ghost theme-toggle" type="button" data-theme-toggle data-to-dark="Switch to dark theme" data-to-light="Switch to light theme" aria-label="Switch to dark theme">
+            <svg class="i-moon" aria-hidden="true"><use href="#i-moon" /></svg>
+            <svg class="i-sun" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero uc-hero" aria-labelledby="hero-title">
+        <div class="wrap">
+          <h1 id="hero-title">Five tasks to hand the team</h1>
+          <p class="lead">Harness Relay is a task assistant: say what you need, the lead agent designs a team for it, and the coding agents you already have do it together on your computer. Each task below is a real run of the agents listed with it, recorded as it happened and sped up while they work.</p>
+          <nav class="uc-jump" aria-label="The use cases">
+            <a href="#fix-a-bug">Fix a bug three ways</a>
+            <a href="#research">Research a choice</a>
+            <a href="#release-notes">Write release notes</a>
+            <a href="#analyze-data">Analyze a spreadsheet</a>
+            <a href="#morning-briefing">A morning briefing</a>
+          </nav>
+        </div>
+      </section>
+
+      <section class="section usecase" id="fix-a-bug" aria-labelledby="fix-a-bug-title">
+        <div class="wrap">
+          <div class="usecase-head">
+            <h2 id="fix-a-bug-title">Fix a bug three ways, keep the best one</h2>
+            <p class="lead">A test fails, and one fix is a guess. Ask for three: in parallel mode each agent works in a git worktree of its own, so their fixes never touch each other or your files. Each reply lists the files it changed; you read the diffs and apply the one you want to your working directory, uncommitted, to check with your usual tools.</p>
+            <ul class="usecase-facts" aria-label="How it ran"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">Parallel</span></li><li><span class="chip">Edit</span></li></ul>
+          </div>
+          <div class="screening-grid usecase-screen">
+            <div class="player">
+              <video
+                id="fix-a-bug-video"
+                controls
+                muted
+                loop
+                playsinline
+                preload="none"
+                poster="../assets/media/use-cases/fix-a-bug-en.webp"
+                aria-label="Recording: three agents fix a failing test in parallel, each in a worktree of its own, then one fix is applied to the working directory"
+              >
+                <source src="../assets/media/use-cases/fix-a-bug-en.mp4" type="video/mp4" />
+                <a href="https://github.com/Agentic-System-Lab/harness-relay/raw/main/site/assets/media/use-cases/fix-a-bug-en.mp4">Download the recording (MP4)</a>
+              </video>
+            </div>
+            <div class="rail">
+              <h3 class="rail-title">Watch it run</h3>
+              <p class="rail-note">Sped up while the agents work. Click a step to jump to it.</p>
+              <ol class="chapters">
+                <li>
+                  <button class="chapter" type="button" data-t="0">
+                    <time>0:00</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
+                    <span class="say">Start a new conversation in bill-split with Edit, so the agents may change files and run its tests.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="7">
+                    <time>0:07</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
+                    <span class="say">Ask: the tests fail, splitBill gains or loses a cent. Have all three fix it in parallel, each in its own worktree.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-claude" type="button" data-t="25">
+                    <time>0:25</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">C</span><span class="who">Lead agent</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">Adapts the Parallel comparison template for the question: Claude, Codex and Grok, each on its own, and says why.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="32">
+                    <time>0:32</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-claude">C</span><span class="av t-codex">C</span><span class="av t-grok">G</span></span
+                      ><span class="who">All three</span></span
+                    >
+                    <span class="say">Each fixes it in a git worktree of its own, then runs npm test there.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-claude" type="button" data-t="35">
+                    <time>0:35</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">C</span><span class="who">@Claude</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">Asks before running a command its permission does not cover: you allow it.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="49">
+                    <time>0:49</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-claude">C</span><span class="av t-codex">C</span><span class="av t-grok">G</span></span
+                      ><span class="who">All three</span></span
+                    >
+                    <span class="say">Three fixes side by side, each with the files it changed.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="62">
+                    <time>1:02</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
+                    <span class="say">Open the smallest fix’s diff, @Codex’s.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="69">
+                    <time>1:09</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
+                    <span class="say">Apply it to the working directory, uncommitted; the other results’ cards then say one of them was applied.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+              </ol>
+            </div>
+          </div>
+          <div class="usecase-body">
+            <div class="usecase-ask">
+              <h3>What you ask</h3>
+              <blockquote>The tests fail: splitBill gains or loses a cent when the bill doesn’t divide evenly. Have Claude Code, Codex and Grok each fix it in parallel, each in the git worktree Harness Relay gives it, and run npm test there.</blockquote>
+            </div>
+            <div class="usecase-shows">
+              <h3>What it shows</h3>
+              <ul>
+              <li><b>Parallel mode.</b> Everyone answers at once, independently, each in a worktree of its own. <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#conversation-rules">Conversation rules</a></li>
+              <li><b>Edit permission.</b> Agents may change files in the working directory and run its tests; anything more asks you first. <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#approvals">Approvals</a></li>
+              <li><b>Diffs and Apply.</b> A reply that changed files lists them, with the diff; Apply copies one result into your working directory and commits nothing. <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#reviewing-and-applying-changes">Reviewing and applying changes</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section usecase" id="research" aria-labelledby="research-title">
+        <div class="wrap">
+          <div class="usecase-head">
+            <h2 id="research-title">Research a choice, with sources</h2>
+            <p class="lead">Not every task is code. Ask a question that needs looking up, and the agents search the web and read the docs themselves, then answer each other’s points in a roundtable, read-only all along. You get one recommendation with the links they read, and the lead agent’s review marks where they disagree and what to check yourself.</p>
+            <ul class="usecase-facts" aria-label="How it ran"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">Roundtable × 2</span></li><li><span class="chip">Read-only</span></li></ul>
+          </div>
+          <div class="screening-grid usecase-screen">
+            <div class="player">
+              <video
+                id="research-video"
+                controls
+                muted
+                loop
+                playsinline
+                preload="none"
+                poster="../assets/media/use-cases/research-en.webp"
+                aria-label="Recording: three agents research which date library to use, debate it and pick one with sources, then the lead agent reviews their replies"
+              >
+                <source src="../assets/media/use-cases/research-en.mp4" type="video/mp4" />
+                <a href="https://github.com/Agentic-System-Lab/harness-relay/raw/main/site/assets/media/use-cases/research-en.mp4">Download the recording (MP4)</a>
+              </video>
+            </div>
+            <div class="rail">
+              <h3 class="rail-title">Watch it run</h3>
+              <p class="rail-note">Sped up while the agents work. Click a step to jump to it.</p>
+              <ol class="chapters">
+                <li>
+                  <button class="chapter" type="button" data-t="0">
+                    <time>0:00</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
+                    <span class="say">Start a new conversation, read-only, with lead review on.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="6">
+                    <time>0:06</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
+                    <span class="say">Ask which library should replace Moment.js: date-fns, Day.js or Luxon, with sources.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-claude" type="button" data-t="20">
+                    <time>0:20</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">C</span><span class="who">Lead agent</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">Adapts the Three-way debate template for the question: Pragmatist, Skeptic and Decider, two rounds, and says why.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="27">
+                    <time>0:27</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-codex">P</span><span class="av t-grok">S</span><span class="av t-claude">D</span></span
+                      ><span class="who">All three</span></span
+                    >
+                    <span class="say">Each searches the web and reads the docs, then answers the others’ points.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-codex" type="button" data-t="29">
+                    <time>0:29</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">P</span><span class="who">@Pragmatist</span
+                      ><span class="via">Codex</span></span
+                    >
+                    <span class="say">Asks before running a command read-only does not cover by itself: you allow it.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="49">
+                    <time>0:49</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-codex">P</span><span class="av t-grok">S</span><span class="av t-claude">D</span></span
+                      ><span class="who">All three</span></span
+                    >
+                    <span class="say">One pick, with the trade-offs and the links they read.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-claude" type="button" data-t="62">
+                    <time>1:02</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">C</span><span class="who">Lead agent</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">Reviews the replies: where they disagree, and what you should check yourself.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+              </ol>
+            </div>
+          </div>
+          <div class="usecase-body">
+            <div class="usecase-ask">
+              <h3>What you ask</h3>
+              <blockquote>Read NOTES.md. Should we replace Moment.js with date-fns, Day.js or Luxon? Have Claude Code, Codex and Grok look up each one’s docs and npm page, compare time-zone support, size and upkeep, debate it, and give us one pick with links to the sources.</blockquote>
+            </div>
+            <div class="usecase-shows">
+              <h3>What it shows</h3>
+              <ul>
+              <li><b>Roundtable.</b> They speak in turn, each reading what the others said before it. <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#conversation-rules">Conversation rules</a></li>
+              <li><b>Read-only.</b> They read and search the web, and change nothing. <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#conversation-rules">Conversation rules</a></li>
+              <li><b>Lead review.</b> Once the team has answered, the lead agent marks risks, disagreements and claims to check right in the replies, and suggests next steps. <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#lead-review">Lead review</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section usecase" id="release-notes" aria-labelledby="release-notes-title">
+        <div class="wrap">
+          <div class="usecase-head">
+            <h2 id="release-notes-title">Write release notes as a relay</h2>
+            <p class="lead">Writing goes better in passes. In relay mode one agent speaks at a time and hands over with an @mention: here the first drafts the release notes from the commits since the last tag, the next rewrites them for users, the last checks every line against the commits. The file is in your working directory, and Files shows it rendered.</p>
+            <ul class="usecase-facts" aria-label="How it ran"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">Relay</span></li><li><span class="chip">Edit</span></li></ul>
+          </div>
+          <div class="screening-grid usecase-screen">
+            <div class="player">
+              <video
+                id="release-notes-video"
+                controls
+                muted
+                loop
+                playsinline
+                preload="none"
+                poster="../assets/media/use-cases/release-notes-en.webp"
+                aria-label="Recording: three agents write release notes in relay, drafting, editing and checking them against the commits, then the file is opened in Files"
+              >
+                <source src="../assets/media/use-cases/release-notes-en.mp4" type="video/mp4" />
+                <a href="https://github.com/Agentic-System-Lab/harness-relay/raw/main/site/assets/media/use-cases/release-notes-en.mp4">Download the recording (MP4)</a>
+              </video>
+            </div>
+            <div class="rail">
+              <h3 class="rail-title">Watch it run</h3>
+              <p class="rail-note">Sped up while the agents work. Click a step to jump to it.</p>
+              <ol class="chapters">
+                <li>
+                  <button class="chapter" type="button" data-t="0">
+                    <time>0:00</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
+                    <span class="say">Start a new conversation in pocket-budget with Edit, so the agents may write the file.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="8">
+                    <time>0:08</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
+                    <span class="say">Ask for 1.4.0’s release notes from the commits since v1.3.0, as a relay.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-claude" type="button" data-t="21">
+                    <time>0:21</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">C</span><span class="who">Lead agent</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">Adapts the Architect → Builder → Reviewer template for the question: Drafter, Editor and Checker, in relay, and says why.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="28">
+                    <time>0:28</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-claude">D</span><span class="av t-codex">E</span><span class="av t-grok">C</span></span
+                      ><span class="who">All three</span></span
+                    >
+                    <span class="say">Each takes the file from the last and hands it on with an @mention: draft, plain words, fact check.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-claude" type="button" data-t="29">
+                    <time>0:29</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">D</span><span class="who">@Drafter</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">Asks before running a command its permission does not cover: you allow it.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="49">
+                    <time>0:49</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-claude">D</span><span class="av t-codex">E</span><span class="av t-grok">C</span></span
+                      ><span class="who">All three</span></span
+                    >
+                    <span class="say">A line that fails the check goes back to the editor, then passes; each reply lists the file it changed.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="60">
+                    <time>1:00</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
+                    <span class="say">Open RELEASE_NOTES.md in Files, rendered as it will read.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+              </ol>
+            </div>
+          </div>
+          <div class="usecase-body">
+            <div class="usecase-ask">
+              <h3>What you ask</h3>
+              <blockquote>Write the release notes for 1.4.0 in RELEASE_NOTES.md, for our users, from the commits since v1.3.0. Pass it along as a relay: Claude Code drafts, Codex edits it into plain words, Grok checks every line against the commits.</blockquote>
+            </div>
+            <div class="usecase-shows">
+              <h3>What it shows</h3>
+              <ul>
+              <li><b>Relay mode.</b> One at a time; whoever is @mentioned goes next, and with nobody mentioned it comes back to you. <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#conversation-rules">Conversation rules</a></li>
+              <li><b>Roles for each model.</b> The lead agent decides who drafts, edits and checks, and writes each role the way that member’s model takes it best. <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#auto-team">Auto team</a></li>
+              <li><b>Files.</b> Browse the working directory and preview Markdown, code and images, or download a file. <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#browsing-files">Browsing files</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section usecase" id="analyze-data" aria-labelledby="analyze-data-title">
+        <div class="wrap">
+          <div class="usecase-head">
+            <h2 id="analyze-data-title">Turn a spreadsheet into answers and a chart</h2>
+            <p class="lead">Attach an export and ask what changed. Rather than guess from a glance, the agents count with scripts of their own and check each other’s numbers, then rank what to fix first. The chart they save in your working directory shows right in the reply, ready for the weekly update.</p>
+            <ul class="usecase-facts" aria-label="How it ran"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li><span class="chip">Relay</span></li><li><span class="chip">Edit</span></li></ul>
+          </div>
+          <div class="screening-grid usecase-screen">
+            <div class="player">
+              <video
+                id="analyze-data-video"
+                controls
+                muted
+                loop
+                playsinline
+                preload="none"
+                poster="../assets/media/use-cases/analyze-data-en.webp"
+                aria-label="Recording: the agents analyze an attached CSV of support tickets, rank what to fix first and show the chart they drew"
+              >
+                <source src="../assets/media/use-cases/analyze-data-en.mp4" type="video/mp4" />
+                <a href="https://github.com/Agentic-System-Lab/harness-relay/raw/main/site/assets/media/use-cases/analyze-data-en.mp4">Download the recording (MP4)</a>
+              </video>
+            </div>
+            <div class="rail">
+              <h3 class="rail-title">Watch it run</h3>
+              <p class="rail-note">Sped up while the agents work. Click a step to jump to it.</p>
+              <ol class="chapters">
+                <li>
+                  <button class="chapter" type="button" data-t="0">
+                    <time>0:00</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
+                    <span class="say">Start a new conversation with Edit, so the agents may save files.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="13">
+                    <time>0:13</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
+                    <span class="say">Attach the quarter’s tickets, a CSV file, and ask what changed and what to fix first.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-claude" type="button" data-t="26">
+                    <time>0:26</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">C</span><span class="who">Lead agent</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">Adapts the General-question panel template for the question: Analyst and Checker, and says why.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="33">
+                    <time>0:33</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-claude">A</span><span class="av t-codex">C</span></span
+                      ><span class="who">Analyst and Checker</span></span
+                    >
+                    <span class="say">They read the file, count with scripts of their own and check each other’s numbers.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-claude" type="button" data-t="35">
+                    <time>0:35</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">A</span><span class="who">@Analyst</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">Asks before running a command its permission does not cover: you allow it.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="46">
+                    <time>0:46</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-claude">A</span><span class="av t-codex">C</span></span
+                      ><span class="who">Analyst and Checker</span></span
+                    >
+                    <span class="say">What changed and why, ranked by what to fix first.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="59">
+                    <time>0:59</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
+                    <span class="say">The chart they drew, shown right in the reply.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="63">
+                    <time>1:03</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
+                    <span class="say">Open it in Files, saved in the working directory for the weekly update.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+              </ol>
+            </div>
+          </div>
+          <div class="usecase-body">
+            <div class="usecase-ask">
+              <h3>What you ask</h3>
+              <blockquote>Here are last quarter’s support tickets. What changed, what is driving it, and what should we fix first? Save a chart I can paste into the weekly update, and show it here.</blockquote>
+            </div>
+            <div class="usecase-shows">
+              <h3>What it shows</h3>
+              <ul>
+              <li><b>Attached files.</b> Paste or drop files into the message; every agent gets each file’s path. <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#4-chat">Chatting</a></li>
+              <li><b>Approvals.</b> A command beyond the permission waits for you in the conversation: allow it once, or always in this chat. <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#approvals">Approvals</a></li>
+              <li><b>Pictures in replies.</b> An image or video an agent saves in the working directory and puts in its reply shows in the conversation, and in Files. <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#browsing-files">Browsing files</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section usecase" id="morning-briefing" aria-labelledby="morning-briefing-title">
+        <div class="wrap">
+          <div class="usecase-head">
+            <h2 id="morning-briefing-title">A morning briefing from your mail and calendar</h2>
+            <p class="lead">Hand the team a job that repeats. An automation sends its message every weekday at 08:30; the agents read your mail and calendar with Harness Relay’s own tools, tell you what needs you today and write the replies. Nothing reaches anyone in their turn: each mail waits in the outbox, field by field, until you press Send.</p>
+            <p class="usecase-note">Recorded with stand-in mail and calendar servers on the same computer, holding made-up messages and events.</p>
+            <ul class="usecase-facts" aria-label="How it ran"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li><span class="chip">Relay</span></li><li><span class="chip">Read-only</span></li><li><span class="chip">Every weekday 08:30</span></li></ul>
+          </div>
+          <div class="screening-grid usecase-screen">
+            <div class="player">
+              <video
+                id="morning-briefing-video"
+                controls
+                muted
+                loop
+                playsinline
+                preload="none"
+                poster="../assets/media/use-cases/morning-briefing-en.webp"
+                aria-label="Recording: an automation for every weekday morning, run once now; two agents read the mail and the calendar, and a reply waiting in the outbox is sent"
+              >
+                <source src="../assets/media/use-cases/morning-briefing-en.mp4" type="video/mp4" />
+                <a href="https://github.com/Agentic-System-Lab/harness-relay/raw/main/site/assets/media/use-cases/morning-briefing-en.mp4">Download the recording (MP4)</a>
+              </video>
+            </div>
+            <div class="rail">
+              <h3 class="rail-title">Watch it run</h3>
+              <p class="rail-note">Sped up while the agents work. Click a step to jump to it.</p>
+              <ol class="chapters">
+                <li>
+                  <button class="chapter" type="button" data-t="0">
+                    <time>0:00</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
+                    <span class="say">New automation: what to send the team every weekday at 08:30, read-only.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="25">
+                    <time>0:25</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
+                    <span class="say">Create it: a conversation opens for it, and nothing runs yet.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-claude" type="button" data-t="28">
+                    <time>0:28</time>
+                    <span class="actor"
+                      ><span class="av" aria-hidden="true">C</span><span class="who">Lead agent</span
+                      ><span class="via">Claude Code</span></span
+                    >
+                    <span class="say">Designs the team for the message: Mail and Calendar, and says why.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="36">
+                    <time>0:36</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
+                    <span class="say">Run once now, to try it before its first morning.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="42">
+                    <time>0:42</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-claude">M</span><span class="av t-codex">C</span></span
+                      ><span class="who">Mail and Calendar</span></span
+                    >
+                    <span class="say">They search and read the mail and the day’s events with Harness Relay’s mail and calendar tools.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter t-team" type="button" data-t="52">
+                    <time>0:52</time>
+                    <span class="actor"
+                      ><span class="stack" aria-hidden="true"
+                        ><span class="av t-claude">M</span><span class="av t-codex">C</span></span
+                      ><span class="who">Mail and Calendar</span></span
+                    >
+                    <span class="say">What needs you today, and the replies they put in your outbox.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="65">
+                    <time>1:05</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
+                    <span class="say">Nothing went out in their turn: each reply waits in the outbox, field by field.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+                <li>
+                  <button class="chapter" type="button" data-t="71">
+                    <time>1:11</time>
+                    <span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">You</span></span>
+                    <span class="say">Send one as shown, from your own account; Discard would drop it.</span>
+                    <span class="bar" aria-hidden="true"></span>
+                  </button>
+                </li>
+              </ol>
+            </div>
+          </div>
+          <div class="usecase-body">
+            <div class="usecase-ask">
+              <h3>What you ask</h3>
+              <blockquote>Every weekday morning, with Harness Relay’s mail and calendar tools: read the mail that came in since yesterday and today’s calendar, and tell me what needs me today. Answer each mail that needs a reply with mail_send: it sends nothing by itself, each reply waits in my outbox until I press Send (an unattended run cannot save drafts). For each meeting request, propose a free time in the reply. Claude Code reads the mail, Codex checks the calendar.</blockquote>
+            </div>
+            <div class="usecase-shows">
+              <h3>What it shows</h3>
+              <ul>
+              <li><b>Automations.</b> At set times, when you run one now, or when a program calls its webhook; while nobody watches, anything beyond the permission is refused. <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#automations">Automations</a></li>
+              <li><b>Mail and calendar.</b> Harness Relay’s own tools, for your accounts with an app password; the passwords stay in Harness Relay. <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#harness-relays-tools-browser-mail-and-calendar">Harness Relay’s tools</a></li>
+              <li><b>The outbox.</b> A mail or an invitation never goes out in the agent’s turn: it waits as a card until you press Send, or Discard. <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#approvals">Approvals</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section start uc-cta" aria-labelledby="cta-title">
+        <div class="wrap">
+          <div class="section-head">
+            <h2 id="cta-title">Hand it a task of your own</h2>
+            <p class="lead">Any of the twelve agents, and one kind is enough for a team. The desktop app runs on macOS, Windows and Linux; or try it in a GitHub codespace, with nothing to install.</p>
+          </div>
+          <div class="download" data-downloads data-mac="Download for macOS" data-win="Download for Windows" data-win-arm64="Download for Windows on Arm" data-linux="Download for Linux" data-linux-arm64="Download for Linux on Arm" data-release="Release" data-mobile="Harness Relay runs on a computer: open this page there.">
+            <div class="download-row">
+              <a class="btn btn-primary btn-download" href="https://github.com/Agentic-System-Lab/harness-relay/releases" data-download-primary>
+                <svg aria-hidden="true"><use href="#i-download" /></svg>
+                <span data-download-label>Download Harness Relay</span>
+              </a>
+              <a class="text-link" href="../#start">Requirements, other systems and Codespaces</a>
+            </div>
+            <p class="download-meta" data-release-meta data-hero hidden></p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-row">
+        <a class="brand" href="../" aria-label="Harness Relay, home">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="footer-links" aria-label="Footer">
+          <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE">Sustainable Use License</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

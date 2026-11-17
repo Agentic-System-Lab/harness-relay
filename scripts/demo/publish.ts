@@ -32,15 +32,27 @@ export function isoDuration(seconds: number): string {
 /**
  * The page with its demo's structured data (the VideoObject in its JSON-LD) brought up to date: when the
  * video was published (left as it is without one: the same video again) and how long it is. Pure; the
- * page has each of the two fields once, or it is refused.
+ * page has each of the two fields once, or it is refused. With `node`, only the VideoObject whose `@id`
+ * ends in `#<node>` (a page with several videos, as the use-cases pages are), which has them once.
  */
-export function retimeVideoData(html: string, video: { uploadDate?: string; seconds: number }): string {
+export function retimeVideoData(html: string, video: { uploadDate?: string; seconds: number }, node?: string): string {
   const set = (text: string, key: string, value: string | undefined) => {
     const re = new RegExp(`("${key}": )"[^"]*"`, 'g');
-    if ((text.match(re) ?? []).length !== 1) throw new Error(`The page's structured data should have "${key}" once`);
+    if ((text.match(re) ?? []).length !== 1)
+      throw new Error(`The ${node ? `#${node} video's` : "page's"} structured data should have "${key}" once`);
     return value === undefined ? text : text.replace(re, (_whole, field: string) => `${field}${JSON.stringify(value)}`);
   };
-  return set(set(html, 'uploadDate', video.uploadDate), 'duration', isoDuration(video.seconds));
+  const retime = (text: string) => set(set(text, 'uploadDate', video.uploadDate), 'duration', isoDuration(video.seconds));
+  if (node === undefined) return retime(html);
+  // The node itself, not a reference to it ({ "@id": … } alone, as the page's own node has): from its
+  // opening brace to its closing one (a VideoObject holds no other object).
+  const id = new RegExp(`"@id": "[^"]*#${node.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`, 'g');
+  const nodes = [...html.matchAll(id)]
+    .map((m) => ({ start: html.lastIndexOf('{', m.index), end: html.indexOf('}', m.index) }))
+    .filter(({ start, end }) => /"@type": "VideoObject"/.test(html.slice(start, end)));
+  if (nodes.length !== 1) throw new Error(`The page's structured data should have one VideoObject #${node}, not ${nodes.length}`);
+  const { start, end } = nodes[0]!;
+  return html.slice(0, start) + retime(html.slice(start, end)) + html.slice(end);
 }
 
 export function publish(dir: string, lang: DemoLang, log: (...a: unknown[]) => void): void {

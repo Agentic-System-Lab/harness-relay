@@ -1,4 +1,4 @@
-// Harness Relay landing page: copy buttons, the GitHub star count, the demo's chapter rail, the mode
+// Harness Relay website: copy buttons, the GitHub star count, the videos' chapter rails, the mode
 // diagrams and the language preference. Everything on the page works without this file; it only adds
 // behaviour.
 
@@ -108,13 +108,18 @@ if (starSlots.length && 'fetch' in window) {
   }
 }
 
-// ---------- Demo video and its chapter rail ----------
+// ---------- Each video and its chapter rail ----------
+// The demo on the home page, and each use case's recording on the use-cases page: a screen
+// (.screening-grid) holds one video and the rail of its chapters.
 
-const video = document.getElementById('demo-video');
-const chapters = [...document.querySelectorAll('.chapter')];
-const list = document.querySelector('.chapters');
+for (const screen of document.querySelectorAll('.screening-grid')) {
+  const video = screen.querySelector('video');
+  const list = screen.querySelector('.chapters');
+  const chapters = list ? [...list.querySelectorAll('.chapter')] : [];
+  if (video && chapters.length) followChapters(video, list, chapters);
+}
 
-if (video && chapters.length && list) {
+function followChapters(video, list, chapters) {
   const starts = chapters.map((c) => Number(c.dataset.t));
   let current = -1;
   let pausedByUser = false;

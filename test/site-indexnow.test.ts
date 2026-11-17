@@ -16,9 +16,14 @@ const SITE = /^ {2}SITE: (\S+)$/m.exec(workflow)?.[1];
 const KEY = /^ {2}INDEXNOW_KEY: (\S+)$/m.exec(workflow)?.[1];
 const FIND = 'Find the pages the deployment changes';
 const TELL = 'Tell IndexNow which pages changed';
-const PAGES = ['site/index.html', 'site/zh-TW/index.html'];
+const PAGES = ['site/index.html', 'site/zh-TW/index.html', 'site/use-cases/index.html', 'site/zh-TW/use-cases/index.html'];
 const EN = 'https://agentic-system-lab.github.io/harness-relay/';
 const ZH = 'https://agentic-system-lab.github.io/harness-relay/zh-TW/';
+/** The use-cases pages, in each language. */
+const EN_UC = `${EN}use-cases/`;
+const ZH_UC = `${ZH}use-cases/`;
+/** Every page of the sitemap, in its order. */
+const ALL = [EN, ZH, EN_UC, ZH_UC];
 
 describe("IndexNow's key", () => {
   it('is one the protocol takes, and the site serves it as it is, at the top of the site', () => {
@@ -29,7 +34,7 @@ describe("IndexNow's key", () => {
   it('is good for every page: they are all under the site, where the key file is', () => {
     expect(SITE).toBe(EN);
     const locs = [...read('site/sitemap.xml').matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
-    expect(locs).toEqual([EN, ZH]);
+    expect(locs).toEqual(ALL);
     for (const page of PAGES) expect(read(page), page).toMatch(new RegExp(`<link rel="canonical" href="${SITE}[^"]*" />`));
   });
 
@@ -232,7 +237,7 @@ describe.skipIf(process.platform === 'win32')('finding the pages the deployment 
     expect(r.outputs).toEqual({ pages: '' });
     expect(r.out).toBe('The deployment changes no page.\n');
     // Each read as a failure when the server answers one (-f), within its time.
-    expect(r.calls.map((call) => call.split(' ').at(-1))).toEqual([EN, ZH, `${SITE}sitemap.xml`]);
+    expect(r.calls.map((call) => call.split(' ').at(-1))).toEqual([...ALL, `${SITE}sitemap.xml`]);
     for (const call of r.calls) expect(call).toMatch(/^-fsS --max-time 30 -o \S+ \S+$/);
   });
 
@@ -246,18 +251,19 @@ describe.skipIf(process.platform === 'win32')('finding the pages the deployment 
   it('hands on every changed page, one address to a line, under a delimiter of its own each run', () => {
     const delimiters = [step(FIND, { down: true }), step(FIND, { down: true })].map((r) => {
       expect(r.status, r.out).toBe(0);
-      expect(r.outputs).toEqual({ pages: `${EN}\n${ZH}` });
+      expect(r.outputs).toEqual({ pages: ALL.join('\n') });
       const delimiter = /^pages<<([0-9a-f]{32})\n/.exec(r.output)?.[1];
-      expect(r.output).toBe(`pages<<${delimiter}\n${EN}\n${ZH}\n${delimiter}\n`);
+      expect(r.output).toBe(`pages<<${delimiter}\n${ALL.join('\n')}\n${delimiter}\n`);
       return delimiter;
     });
     expect(delimiters[0]).not.toBe(delimiters[1]);
   });
 
   it('finds a page the site does not have yet', () => {
+    // The Chinese pages' folder, both of them.
     const r = step(FIND, { live: (dir) => rmSync(join(dir, 'zh-TW'), { recursive: true }) });
     expect(r.status, r.out).toBe(0);
-    expect(r.changed).toEqual([ZH]);
+    expect(r.changed).toEqual([ZH, ZH_UC]);
   });
 
   it('finds a page the live sitemap lists and the new one does not: a removed page', () => {
@@ -272,7 +278,7 @@ describe.skipIf(process.platform === 'win32')('finding the pages the deployment 
   it('takes every page as changed when the live site cannot be read, and none as removed', () => {
     const r = step(FIND, { down: true });
     expect(r.status, r.out).toBe(0);
-    expect(r.changed).toEqual([EN, ZH]);
+    expect(r.changed).toEqual(ALL);
   });
 });
 
@@ -293,7 +299,7 @@ describe.skipIf(process.platform === 'win32')('telling IndexNow', { timeout: slo
     expect(found.status, found.out).toBe(0);
     const r = step(TELL, { changed: found.outputs.pages });
     expect(r.status, r.out).toBe(0);
-    expect(r.body).toMatchObject({ urlList: [ZH] });
+    expect(r.body).toMatchObject({ urlList: [ZH, ZH_UC] });
     const blank = step(TELL, { changed: `\n${EN}\n\n${ZH}\n` });
     expect(blank.body).toMatchObject({ urlList: [EN, ZH] });
     expect(blank.out).toBe('IndexNow was told of 2 changed page(s) (HTTP 200).\n');

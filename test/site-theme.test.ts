@@ -3,11 +3,15 @@ import { describe, expect, it } from 'vitest';
 import { applyTheme, BAR_COLOR, nextChoice, parseTheme, shownTheme, THEME_KEY, wire } from '../site/assets/theme.js';
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
-const PAGES = ['site/index.html', 'site/zh-TW/index.html'];
+const PAGES = ['site/index.html', 'site/zh-TW/index.html', 'site/use-cases/index.html', 'site/zh-TW/use-cases/index.html'];
 const WORDS = {
   'site/index.html': ['Switch to dark theme', 'Switch to light theme'],
   'site/zh-TW/index.html': ['切換成深色主題', '切換成淺色主題'],
+  'site/use-cases/index.html': ['Switch to dark theme', 'Switch to light theme'],
+  'site/zh-TW/use-cases/index.html': ['切換成深色主題', '切換成淺色主題'],
 } as const;
+/** How far a page is below the site's top: its path back to `assets/`. */
+const up = (page: string) => '../'.repeat(page.split('/').length - 2);
 
 /** Just enough of a page for theme.js: <html>'s attributes, the theme-color metas and the theme button. */
 function fakePage() {
@@ -270,7 +274,8 @@ describe("the landing page's theme in its styles and pages", () => {
       const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
       return (hi + 0.05) / (lo + 0.05);
     };
-    // Every pill on both pages is in a message's head, in the card of one of the three agents...
+    // Every pill on the pages is in a message's head, in the card of one of the three agents, or in a use case's
+    // list of what ran (`.usecase-facts`, on the page itself), its agent's helper class on its item...
     for (const page of PAGES) {
       const html = read(page);
       const placed = [
@@ -278,12 +283,16 @@ describe("the landing page's theme in its styles and pages", () => {
           /<div class="ui ui-msg t-(claude|codex|grok)">\s*<span class="av" aria-hidden="true">\w<\/span>\s*<div class="ui-head">[^<]*<span class="pill">/g,
         ),
       ];
-      expect(placed.map((m) => m[1]).sort(), page).toEqual(['claude', 'codex', 'grok']);
-      expect(html.match(/class="pill[" ]/g), page).toHaveLength(placed.length);
+      const facts = [...html.matchAll(/<ul class="usecase-facts"[^>]*>(.*?)<\/ul>/g)].flatMap((m) => [
+        ...m[1].matchAll(/<li class="t-(claude|codex|grok)"><span class="pill">/g),
+      ]);
+      if (page.includes('use-cases')) expect(placed, page).toEqual([]);
+      else expect(placed.map((m) => m[1]).sort(), page).toEqual(['claude', 'codex', 'grok']);
+      expect(html.match(/class="pill[" ]/g), page).toHaveLength(placed.length + facts.length);
     }
-    // ...so its tint is over the card's background (`.ui`, the page's), with nothing in between.
+    // ...so its tint is over the card's background (`.ui`, the page's), or the page's, with nothing in between.
     expect(block('.ui {')).toContain('background: var(--bg);');
-    for (const rule of ['.ui-msg {', '.ui-head {'])
+    for (const rule of ['.ui-msg {', '.ui-head {', '.usecase-facts {', '.case {', '.cases {', '.usecase-head {'])
       expect(
         block(rule).filter((l) => l.startsWith('background')),
         rule,
@@ -335,7 +344,7 @@ describe("the landing page's theme in its styles and pages", () => {
       );
       // In a try of its own: a browser that refuses site data throws there, and the page still shows.
       expect(inline, page).toMatch(/try \{\s*var theme = [^}]*\} catch \(e\) \{\}/);
-      expect(head, page).toContain(`<script type="module" src="${page.includes('zh-TW') ? '../' : ''}assets/theme.js"></script>`);
+      expect(head, page).toContain(`<script type="module" src="${up(page)}assets/theme.js"></script>`);
     }
   });
 

@@ -19,8 +19,9 @@ export interface ChapterSpec {
   /** Instead of the name worked out from the team. */
   who?: string;
   /**
-   * The sentence. Placeholders: {group}, {template}, {term} (the search), and for the chapter's team
-   * {plan} (how the lead agent chose it), {names} and {rounds}.
+   * The sentence. Placeholders: {group}, {template}, {term} (the search), for the chapter's team
+   * {plan} (how the lead agent chose it; {Plan} to start a sentence with it), {names} and {rounds}, and
+   * {mark:field} for what a mark says.
    */
   say: string;
 }
@@ -168,7 +169,13 @@ export function buildChapters(lang: DemoLang, spec: RailSpec, timeline: Timeline
     }
     const agents = (team?.agents as [string, Provider][] | undefined) ?? [];
     const names = agents.map(([name]) => name);
-    const say = c.say.replace(/\{(\w+)\}/g, (whole, key: string) => {
+    const say = c.say.replace(/\{([\w-]+)(?::(\w+))?\}/g, (whole, key: string, field?: string) => {
+      // {mark:field}: what a mark of the recording says (the agent whose diff was opened, say).
+      if (field) {
+        const value = find(key)?.[field];
+        if (value === undefined) throw new Error(`No ${field} on the ${key} mark for ${whole} in a ${lang} chapter`);
+        return String(value);
+      }
       switch (key) {
         case 'group':
           return fact('group-made', 'group');
@@ -178,6 +185,11 @@ export function buildChapters(lang: DemoLang, spec: RailSpec, timeline: Timeline
           return fact('search', 'term');
         case 'plan':
           return team ? planPhrase(lang, team) : whole;
+        case 'Plan': {
+          // At the start of a sentence.
+          const phrase = team ? planPhrase(lang, team) : whole;
+          return phrase.charAt(0).toUpperCase() + phrase.slice(1);
+        }
         case 'names':
           return joinNames(lang, names);
         case 'rounds':
@@ -213,9 +225,9 @@ export function buildChapters(lang: DemoLang, spec: RailSpec, timeline: Timeline
 const esc = (s: string) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 export const clock = (t: number) => `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
 
-/** The rail's `<ol class="chapters">`, indented as in the pages. */
-export function renderRail(chapters: Chapter[]): string {
-  const I = ' '.repeat(14);
+/** The rail's `<ol class="chapters">`, indented as in the pages (the list's own line at `indent` spaces). */
+export function renderRail(chapters: Chapter[], indent = 12): string {
+  const I = ' '.repeat(indent + 2);
   const actor = (c: Chapter) => {
     if (c.kind === 'you')
       return `<span class="actor"><span class="av av-you" aria-hidden="true"></span><span class="who">${esc(c.who)}</span></span>`;
@@ -245,13 +257,19 @@ export function renderRail(chapters: Chapter[]): string {
       `${I}</li>`,
     ].join('\n');
   });
-  return `<ol class="chapters">\n${items.join('\n')}\n${' '.repeat(12)}</ol>`;
+  return `<ol class="chapters">\n${items.join('\n')}\n${' '.repeat(indent)}</ol>`;
 }
 
-/** The page with its chapter rail replaced. */
-export function replaceRail(html: string, chapters: Chapter[]): string {
-  const start = html.indexOf('<ol class="chapters">');
-  if (start < 0) throw new Error('The page has no <ol class="chapters">');
+/**
+ * The page with its chapter rail replaced: the first one, or the first in the element with the id
+ * `section` (a use case's, on the use-cases page). It keeps the list's indentation.
+ */
+export function replaceRail(html: string, chapters: Chapter[], section?: string): string {
+  const from = section === undefined ? 0 : html.indexOf(` id="${section}"`);
+  if (from < 0) throw new Error(`The page has no element with the id ${section}`);
+  const start = html.indexOf('<ol class="chapters">', from);
+  if (start < 0) throw new Error(`The page has no <ol class="chapters">${section === undefined ? '' : ` after #${section}`}`);
   const end = html.indexOf('</ol>', start) + '</ol>'.length;
-  return html.slice(0, start) + renderRail(chapters) + html.slice(end);
+  const indent = start - html.lastIndexOf('\n', start) - 1;
+  return html.slice(0, start) + renderRail(chapters, indent) + html.slice(end);
 }

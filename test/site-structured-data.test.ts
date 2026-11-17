@@ -345,8 +345,14 @@ describe('site/llms.txt', () => {
     expect(zh).toContain('（在原生 Windows 上，以及 Linux 上的 OpenCode，只能以完全存取執行）');
   });
 
-  it('links to the two pages at their canonical addresses, and to files that are in the repository', () => {
-    const canonical = PAGES.map(({ file }) => page(file).canonical);
+  it('links to the pages at their canonical addresses, and to files that are in the repository', () => {
+    // The home pages, and the use-cases pages (test/site-use-cases.test.ts checks theirs).
+    const canonical = [
+      ...PAGES.map(({ file }) => page(file).canonical),
+      ...['site/use-cases/index.html', 'site/zh-TW/use-cases/index.html'].map(
+        (file) => read(file).match(/<link rel="canonical" href="([^"]+)" \/>/)![1],
+      ),
+    ];
     const sitemap = read('site/sitemap.xml');
     for (const { url } of links) {
       if (url.startsWith(SITE)) {
