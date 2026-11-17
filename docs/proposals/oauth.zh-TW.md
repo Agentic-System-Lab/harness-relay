@@ -2,7 +2,7 @@
 
 # 用 OAuth 登入的帳號
 
-> **狀態：核心與第一批用途已完成：透過 Microsoft Graph 使用 Microsoft 365 與 Outlook.com 的行事曆，以及用帳號的權杖透過 CalDAV 使用 Google 日曆（單元測試裡對 Google 登入與 CalDAV 的替身試過，還沒有對 Google 本身實際試過）。透過 OAuth 收發郵件、遠端 MCP 伺服器自己的登入，以及 Harness Relay 自己註冊的 app，仍是提案。** 見[提案](README.zh-TW.md)。來自 [#90](https://github.com/Agentic-System-Lab/harness-relay/issues/90)。
+> **狀態：核心與第一批用途已完成：透過 Microsoft Graph 使用 Microsoft 365 與 Outlook.com 的行事曆，以及用帳號的權杖透過 CalDAV 使用 Google 日曆（Microsoft 的登入與 Graph，以及 Google 的登入與 CalDAV，都只對替身試過，沒有對真正的服務試過）。透過 OAuth 收發郵件、遠端 MCP 伺服器自己的登入，以及 Harness Relay 自己註冊的 app，仍是提案。** 見[提案](README.zh-TW.md)。來自 [#90](https://github.com/Agentic-System-Lab/harness-relay/issues/90)。
 
 ## 為什麼
 
@@ -83,7 +83,7 @@ CLI 自己的登入（`login.ts`）不在範圍內；每個 CLI 保留自己的�
 
 全部離線執行：
 
-- `test/fake-oauth-server.ts`：Microsoft 登入與 Graph 的替身（授權、以驗證碼交換授權碼、輪換更新權杖、`invalid_grant`、裝置代碼、`/me`、`/me/calendars`、分頁的 `calendarView`、`POST …/events`）。
-- `test/oauth.test.ts`：登入（PKCE、重新導向網址、state 只能用一次且只屬於自己的登入、拒絕、到期、貼上網址、裝置代碼）、權杖代理（提早且只更新一次、輪換、`invalid_grant`、主機規則、不跟隨重新導向、被拒的權杖更新一次）、透過 Graph 的行事曆工具，以及開啟登入時的 HTTP API（只有回呼不需要登入）。
-- `test/oauth-web.test.ts`：頁面自己的邏輯（重新導向網址、回呼收到的內容）。
-- `e2e/specs/oauth.spec.ts`：在新分頁對替身的 Microsoft 頁面登入、回到 `/oauth/callback`、加入它的行事曆，然後移除帳號。
+- `test/fake-oauth-server.ts`：Microsoft 登入與 Graph 的替身（授權、以驗證碼交換授權碼、輪換更新權杖、`invalid_grant` 與其他拒絕、給予的權限範圍、裝置代碼與它的放慢和錯誤、`/me`、`/me/calendars`、分頁的 `calendarView`、`POST …/events`），以及 Google 的替身（檢查用戶端密碼的權杖端點、撤銷、userinfo，以及只接受 Bearer 權杖的 CalDAV）；它可以扣住一個回答或丟掉一個請求，代表很慢或斷掉的網路。
+- `test/oauth.test.ts`：登入（PKCE、重新導向網址、state 只能用一次且只屬於自己的登入、拒絕、到期、貼上網址、裝置代碼與它的重試、給予的權限範圍、app 改了或在任何一步取消時結束登入）、權杖代理（提早且只更新一次、輪換、需要重新登入的拒絕與不需要的錯誤、更新期間帳號被移除或重新登入、主機與 https 規則、不跟隨重新導向、被拒的權杖更新一次）、透過 Graph 與用權杖透過 Google CalDAV 的行事曆工具、Google 的撤銷，以及開啟登入時的 HTTP API（只有回呼不需要登入；它的 429；每個路由的上限與拒絕）。
+- `test/oauth-web.test.ts`：頁面自己的邏輯（重新導向網址、回呼收到的內容與何時清掉網址、桌面 app 中的彈出視窗訊息）。
+- `e2e/specs/oauth.spec.ts`：在新分頁對替身的 Microsoft 頁面登入、回到 `/oauth/callback`、加入它的行事曆、更新被拒（需要重新登入、重新登入），然後移除帳號。

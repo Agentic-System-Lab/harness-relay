@@ -314,7 +314,8 @@ export class SignIns {
       if (!live()) return;
       const { status, body } = answer;
       if (body.error === 'authorization_pending' || (!body.access_token && status >= 500)) continue;
-      if (body.error === 'slow_down') {
+      // Asked to slow down, or throttled (429) without saying so: more slowly from now on.
+      if (body.error === 'slow_down' || (status === 429 && !body.access_token)) {
         wait += 5;
         continue;
       }

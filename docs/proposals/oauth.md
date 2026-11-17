@@ -2,7 +2,7 @@
 
 # Accounts that sign in with OAuth
 
-> **Status: the core and its first uses built: Microsoft 365 and Outlook.com calendars over Microsoft Graph, and Google Calendar over its CalDAV with the account's token (tried against a stand-in for Google's sign-in and CalDAV in the unit tests, not yet against Google itself). Mail over OAuth, remote MCP servers' own sign-in and Harness Relay's own registered apps are still a proposal.** See [Proposals](README.md). From [#90](https://github.com/Agentic-System-Lab/harness-relay/issues/90).
+> **Status: the core and its first uses built: Microsoft 365 and Outlook.com calendars over Microsoft Graph, and Google Calendar over its CalDAV with the account's token (Microsoft's sign-in and Graph, and Google's sign-in and CalDAV, tried against stand-ins only, not against the real services). Mail over OAuth, remote MCP servers' own sign-in and Harness Relay's own registered apps are still a proposal.** See [Proposals](README.md). From [#90](https://github.com/Agentic-System-Lab/harness-relay/issues/90).
 
 ## Why
 
@@ -83,7 +83,7 @@ The CLIs' own sign-ins (`login.ts`) stay out of scope; each CLI keeps its own.
 
 Everything runs offline:
 
-- `test/fake-oauth-server.ts`: a stand-in for Microsoft's sign-in and Graph (authorize, the code exchanged with its verifier, refresh with rotation, `invalid_grant`, the device code, `/me`, `/me/calendars`, `calendarView` in pages, `POST …/events`).
-- `test/oauth.test.ts`: the sign-in (PKCE, the redirect address, the state once and for its own sign-in only, a refusal, expiry, a pasted address, the device code), the broker (refreshing early and once, rotation, `invalid_grant`, the host rule, no redirect, a refused token refreshed once), the calendar tools over Graph, and the HTTP API with sign-in on (only the callback answers without it).
-- `test/oauth-web.test.ts`: the page's own logic (the redirect addresses, what the callback got).
-- `e2e/specs/oauth.spec.ts`: a sign-in in a new tab against a stand-in Microsoft page, back to `/oauth/callback`, its calendars added and the account removed.
+- `test/fake-oauth-server.ts`: a stand-in for Microsoft's sign-in and Graph (authorize, the code exchanged with its verifier, refresh with rotation, `invalid_grant` and the other refusals, the granted scopes, the device code with its slow-downs and errors, `/me`, `/me/calendars`, `calendarView` in pages, `POST …/events`), and for Google's (its token endpoint checking the client secret, revoke, userinfo, and a CalDAV that takes a Bearer token only); it can hold an answer, or drop a request, to stand for a slow or failing network.
+- `test/oauth.test.ts`: the sign-in (PKCE, the redirect address, the state once and for its own sign-in only, a refusal, expiry, a pasted address, the device code and its retries, the scopes granted, a sign-in ended when its app changes or cancelled at any step), the broker (refreshing early and once, rotation, the refusals that need a new sign-in and the errors that do not, an account removed or signed in again during a refresh, the host and https rule, no redirect, a refused token refreshed once), the calendar tools over Graph and over Google's CalDAV with a token, Google's revoke, and the HTTP API with sign-in on (only the callback answers without it; its 429; the limits and refusals of each route).
+- `test/oauth-web.test.ts`: the page's own logic (the redirect addresses, what the callback got and when it clears its address, the popup message in the desktop app).
+- `e2e/specs/oauth.spec.ts`: a sign-in in a new tab against a stand-in Microsoft page, back to `/oauth/callback`, its calendars added, a refresh refused (Needs a new sign-in, Sign in again), and the account removed.

@@ -824,7 +824,10 @@ export function validateOAuthCalendar(input: unknown): { name: string; url: stri
   } catch {
     bad(t().connectorBadUrl);
   }
-  if (url.username || url.password || url.hash || !['https:', 'http:'].includes(url.protocol)) bad(t().connectorBadUrl);
+  // https, as the token goes (plain http only to a stand-in on this computer): one it could never be sent to is refused.
+  const loopback = /^(127\.0\.0\.1|localhost|\[::1\])$/.test(url.hostname);
+  if (url.username || url.password || url.hash || !(url.protocol === 'https:' || (url.protocol === 'http:' && loopback)))
+    bad(t().connectorBadUrl);
   return { name: connectorName(b.name), url: url.href };
 }
 

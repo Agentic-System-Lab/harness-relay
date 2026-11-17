@@ -30,6 +30,7 @@ const { connectorTools } = await import('../src/server/connectors/tools');
 const { openDatabase } = await import('../src/server/db');
 const { Hub } = await import('../src/server/hub');
 const { withLang } = await import('../src/server/i18n');
+const { validateOAuthCalendar } = await import('../src/server/validate');
 const { hostOnlyFetch } = await import('../src/server/oauth/broker');
 const { microsoftProvider, googleProvider } = await import('../src/server/oauth/providers');
 const { OAuthService } = await import('../src/server/oauth/service');
@@ -437,7 +438,12 @@ describe('signing in on another device', () => {
 
   it('waits longer on slow_down, asks again after a server error, and never more often than once a second', async () => {
     fake.deviceInterval = 0;
-    fake.deviceAnswers.push({ status: 400, body: { error: 'slow_down' } }, { status: 503, body: { error: 'temporarily_unavailable' } });
+    fake.deviceAnswers.push(
+      { status: 400, body: { error: 'slow_down' } },
+      { status: 503, body: { error: 'temporarily_unavailable' } },
+      // Throttled without saying slow_down: slower too, never the end of the sign-in.
+      { status: 429, body: { error: 'too_many_requests' } },
+    );
     const started = await device();
     await vi.waitFor(() => expect(fake.deviceAnswers).toEqual([]), { timeout: 5000, interval: 20 });
     fake.typeCode('UC1');
@@ -445,6 +451,7 @@ describe('signing in on another device', () => {
     // An interval of 0 is one second; slow_down adds five.
     expect(waits[0]).toBe(1);
     expect(waits).toContain(6);
+    expect(waits).toContain(11);
   });
 
   it('asks again at the next interval when the network fails', async () => {
@@ -637,6 +644,8 @@ describe('the token broker', () => {
     fake.hold = undefined;
     const token = await refreshing;
     expect(fake.drop).toEqual([]);
+    // The new sign-in's own token, not the one from before it.
+    expect(token).toBe(await service.broker.accessToken(id));
     expect(fake.accessTokens.get(token)).toBe(true);
     expect(service.view().accounts[0]!.status).toBe('connected');
     expect(keyring.values.get(`oauth-${id}`)).toBe(kept);
@@ -1112,6 +1121,9 @@ describe('/api/oauth', () => {
     const elsewhere = await call('POST', `/api/oauth/accounts/${id}/calendars`, { name: 'Evil', url: 'https://evil.example/cal' });
     expect(elsewhere.status).toBe(400);
     expect(await error(elsewhere)).toBe('The sign-in\'s token is not sent to "evil.example": it goes only to the account\'s own service');
+    // Plain http, except to this computer: the token never goes there.
+    expect(() => validateOAuthCalendar({ name: 'Plain', url: 'http://graph.microsoft.com/v1.0/me/calendar' })).toThrow();
+    expect(validateOAuthCalendar({ name: 'Here', url: 'http://127.0.0.1:9/cal' }).url).toBe('http://127.0.0.1:9/cal');
     // A calendar reached through a sign-in never turns into one with a password.
     const fixed = await call('PUT', `/api/connectors/calendar/${id}`, {
       name: 'Mine',
