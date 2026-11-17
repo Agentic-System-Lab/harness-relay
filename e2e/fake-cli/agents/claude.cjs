@@ -19,6 +19,7 @@
  * `model_usage_since_last_result` are the run's own.
  */
 const fs = require('node:fs');
+const { callMcpTool } = require('../lib/mcp.cjs');
 const os = require('node:os');
 const path = require('node:path');
 const readline = require('node:readline');
@@ -67,6 +68,20 @@ function claudeMcp() {
       return [];
     }
   });
+}
+
+/** Each `--mcp-config` stdio server as it is given (command, args, env), by name: to call one. */
+function claudeMcpSpecs() {
+  const out = {};
+  for (const file of values('--mcp-config')) {
+    try {
+      const servers = JSON.parse(file.trim().startsWith('{') ? file : fs.readFileSync(file, 'utf8')).mcpServers || {};
+      for (const [name, s] of Object.entries(servers)) if (s.command) out[name] = { command: s.command, args: s.args || [], env: s.env || {} };
+    } catch {
+      /* not one to read */
+    }
+  }
+  return out;
 }
 
 /** The values each `--mcp-config` server is given (env, or an HTTP server's headers), by server. */
@@ -152,6 +167,7 @@ function claudeStream() {
     others: addDirs.filter((d) => !notAWorkingDirectory(d)),
     // Its Read tool, without asking: in its folders and those of its Read rules, anywhere with full access.
     reads: mode === 'bypassPermissions' ? null : [process.cwd(), ...addDirs, ...claudeReadRules()],
+    mcpSpecs: claudeMcpSpecs(),
   };
   const pending = new Map();
   let busy = false;
@@ -350,6 +366,19 @@ async function claudeTurn(steps, o) {
       }));
     }
     if (step.type === 'tool') await tool('Bash', { command: 'ls', description: 'List the working directory' }, async () => ({ content: step.output, isError: false }));
+    if (step.type === 'mcp') {
+      const spec = o.mcpSpecs[step.server];
+      const name = `mcp__${step.server}__${step.tool}`;
+      const p = !spec ? { ok: false, message: `No MCP server ${step.server}` } : o.mode === 'bypassPermissions' ? { ok: true } : await permission(name, step.args);
+      let said = p.message;
+      await tool(name, step.args, async () => {
+        if (!p.ok) return { content: p.message, isError: true };
+        const r = await callMcpTool(spec, step.tool, step.args);
+        said = r.text;
+        return { content: r.text, isError: r.isError };
+      });
+      full += `The ${step.tool} tool said: ${said} `;
+    }
     if (step.type === 'approve') {
       const input = { command: step.command, description: 'Print a line (an e2e check)' };
       const p = o.mode === 'bypassPermissions' ? { ok: true } : await permission('Bash', input);

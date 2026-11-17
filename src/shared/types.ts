@@ -162,6 +162,53 @@ export const GATEWAY_SERVER_NAME = 'relay';
  */
 export type GatewayTier = 'read' | 'act' | 'send';
 
+/** How a mail server is reached: TLS from the start, STARTTLS, or plain (only to this computer: a local bridge). */
+export type MailSecurity = 'tls' | 'starttls' | 'none';
+
+export interface MailServer {
+  host: string;
+  port: number;
+  security: MailSecurity;
+}
+
+/** A mail account the mail tools use (IMAP to read and save drafts, SMTP to send), as the UI sees it. */
+export interface MailAccountView {
+  id: string;
+  name: string;
+  /** The address mail is sent from (`Name <a@b>` or `a@b`). */
+  address: string;
+  username: string;
+  imap: MailServer;
+  smtp: MailServer;
+  /** The password, masked ('' when none is kept). */
+  password: string;
+}
+
+/** A calendar the calendar tools use (CalDAV), as the UI sees it. */
+export interface CalendarAccountView {
+  id: string;
+  name: string;
+  /** The calendar collection's address (https). */
+  url: string;
+  username: string;
+  /** The address invitations are sent from (the calendar's owner). */
+  address?: string;
+  password: string;
+}
+
+export interface ConnectorsView {
+  mail: MailAccountView[];
+  calendar: CalendarAccountView[];
+  /** Where the passwords are kept. */
+  secretStorage: KeyStorage;
+}
+
+/** Saving a mail account: without `password`, the kept one stays. */
+export type MailAccountUpdate = Omit<MailAccountView, 'id' | 'password'> & { password?: string };
+export type CalendarAccountUpdate = Omit<CalendarAccountView, 'id' | 'password'> & { password?: string };
+
+export const CONNECTOR_LIMITS = { accounts: 10, name: 60 };
+
 /** An outbox item: what a `send` call would do, kept until the user sends or discards it. */
 export type OutboxStatus = 'pending' | 'sending' | 'sent' | 'discarded' | 'failed';
 

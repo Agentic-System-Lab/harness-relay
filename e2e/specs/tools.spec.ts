@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { join } from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import { PROVIDER_LABEL, PROVIDERS, type Provider, type ToolLibraryView } from '../../src/shared/types';
@@ -424,3 +425,83 @@ eachHalf((half) => test.describe('the tool library', () => {
     }
   });
 }));
+
+/** A mail server's SMTP on this computer: it takes one message with this user and password, and keeps it. */
+async function smtpServer(): Promise<{ port: number; sent: { to: string[]; data: string }[]; close: () => Promise<void> }> {
+  const sent: { to: string[]; data: string }[] = [];
+  const server = createServer((sock) => {
+    let buf = '';
+    let data: string | undefined;
+    let to: string[] = [];
+    sock.write('220 e2e SMTP\r\n');
+    sock.on('data', (chunk: Buffer) => {
+      buf += chunk.toString();
+      for (;;) {
+        if (data !== undefined) {
+          const end = buf.indexOf('\r\n.\r\n');
+          if (end < 0) return;
+          sent.push({ to, data: data + buf.slice(0, end) });
+          buf = buf.slice(end + 5);
+          data = undefined;
+          sock.write('250 queued as E2E\r\n');
+          continue;
+        }
+        const eol = buf.indexOf('\r\n');
+        if (eol < 0) return;
+        const line = buf.slice(0, eol);
+        buf = buf.slice(eol + 2);
+        if (/^EHLO/i.test(line)) sock.write('250-e2e\r\n250 AUTH PLAIN\r\n');
+        else if (/^AUTH PLAIN /i.test(line)) sock.write(Buffer.from(line.slice(11), 'base64').toString() === '\0me@example.com\0app-pass' ? '235 ok\r\n' : '535 no\r\n');
+        else if (/^MAIL FROM/i.test(line)) (to = [], sock.write('250 ok\r\n'));
+        else if (/^RCPT TO:<(.*)>/i.test(line)) (to.push(/<(.*)>/.exec(line)![1]!), sock.write('250 ok\r\n'));
+        else if (/^DATA/i.test(line)) (data = '', sock.write('354 go\r\n'));
+        else if (/^QUIT/i.test(line)) (sock.write('221 bye\r\n'), sock.end());
+        else sock.write('500 ?\r\n');
+      }
+    });
+    sock.on('error', () => undefined);
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  return { port: (server.address() as { port: number }).port, sent, close: () => new Promise((r) => server.close(() => r())) };
+}
+
+test("a member reaches Harness Relay's own tools through its MCP gateway, and a mail it sends waits in the outbox until the user's Send", async ({ page, relay }) => {
+  const smtp = await smtpServer();
+  try {
+    // A mail account whose SMTP is the stand-in (its IMAP is never used here), and the Mail tools for Claude Code.
+    await relay.api('/api/connectors/mail/work', {
+      method: 'PUT',
+      body: {
+        name: 'Work',
+        address: 'Me <me@example.com>',
+        username: 'me@example.com',
+        password: 'app-pass',
+        imap: { host: '127.0.0.1', port: 9, security: 'none' },
+        smtp: { host: '127.0.0.1', port: smtp.port, security: 'none' },
+      },
+    });
+    await relay.api('/api/tools', { method: 'PUT', body: { relayTools: { mail: ['claude'] } } });
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'full' }, 'Mail Bob');
+    await send(page, 'Tell Bob it shipped: {"to": "bob@example.com", "subject": "Shipped", "body": "It is out."} e2e:mcp=mail_send');
+
+    // The fake CLI started the real gateway program and called the tool: nothing was sent yet.
+    const reply = await finishedReply(page, 'Claude');
+    await expect(reply).toContainText('The mail_send tool said: Not sent yet: "Mail to bob@example.com: "Shipped"" is waiting in the user\'s outbox');
+    const card = reply.getByRole('region', { name: 'What @Claude asked to send' });
+    await expect(card).toContainText('Waiting for you');
+    await expect(card).toContainText('bob@example.com');
+    await expect(card).toContainText('It is out.');
+    expect(smtp.sent).toEqual([]);
+    await expect(page.locator('.conv-item.active')).toContainText('Needs you');
+
+    await card.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(card).toContainText('Sent');
+    await expect(card.getByRole('button', { name: 'Send', exact: true })).toHaveCount(0);
+    await expect(page.locator('.msg-system', { hasText: 'Sent "Mail to bob@example.com' })).toBeVisible();
+    expect(smtp.sent).toHaveLength(1);
+    expect(smtp.sent[0]!.to).toEqual(['bob@example.com']);
+    expect(smtp.sent[0]!.data).toContain('Subject: Shipped');
+  } finally {
+    await smtp.close();
+  }
+});

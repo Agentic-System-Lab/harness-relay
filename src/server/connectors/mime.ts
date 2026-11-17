@@ -1,0 +1,220 @@
+import { randomBytes } from 'node:crypto';
+
+/*
+ * Mail messages, as much as the mail tools need: writing a plain-text message (UTF-8, headers encoded
+ * as RFC 2047 words when they are not ASCII) and reading one (its headers, decoded, and its text: the
+ * text/plain part, else the text/html part without its tags), whatever its transfer encoding and
+ * charset. Pure, so it is tested with messages as servers send them.
+ */
+
+/** An address as `Name <a@b>` or `a@b`, checked to be one: no line breaks, one `@`, no spaces in it. */
+export function validAddress(raw: string): string | undefined {
+  const s = raw.trim();
+  if (!s || s.length > 320 || /[\r\n]/.test(s)) return undefined;
+  const m = /^(?:(.*?)\s*<([^<>\s]+@[^<>\s@]+)>|([^<>\s]+@[^<>\s@]+))$/.exec(s);
+  if (!m) return undefined;
+  const addr = (m[2] ?? m[3])!;
+  if (!/^[^@\s"(),:;<>[\]\\]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(addr) && !/^[^@\s]+@localhost$/.test(addr)) return undefined;
+  const name = (m[1] ?? '').replace(/^"|"$/g, '').trim();
+  return name ? `${name} <${addr}>` : addr;
+}
+
+/** The bare address of `Name <a@b>`. */
+export function bareAddress(addr: string): string {
+  return /<([^>]+)>/.exec(addr)?.[1] ?? addr.trim();
+}
+
+/** A header value, as RFC 2047 words when it is not printable ASCII. */
+export function encodeWords(value: string): string {
+  if (/^[\x20-\x7e]*$/.test(value)) return value;
+  // Base64 words of at most 45 bytes each, cut between characters.
+  const words: string[] = [];
+  let chunk = '';
+  for (const ch of value) {
+    if (Buffer.byteLength(chunk + ch) > 45) {
+      words.push(chunk);
+      chunk = '';
+    }
+    chunk += ch;
+  }
+  if (chunk) words.push(chunk);
+  return words.map((w) => `=?UTF-8?B?${Buffer.from(w).toString('base64')}?=`).join(' ');
+}
+
+/** An address header's value with its display names encoded. */
+function encodeAddress(addr: string): string {
+  const m = /^(.*?)\s*<([^>]+)>$/.exec(addr);
+  if (!m) return addr;
+  const name = m[1]!.trim();
+  return name ? `${/^[\x20-\x7e]*$/.test(name) ? `"${name.replace(/["\\]/g, '')}"` : encodeWords(name)} <${m[2]}>` : `<${m[2]}>`;
+}
+
+export interface OutgoingMail {
+  from: string;
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject: string;
+  body: string;
+  /** The Message-ID of the message this answers. */
+  inReplyTo?: string;
+  date?: Date;
+}
+
+/** A plain-text message, ready for SMTP's DATA or IMAP's APPEND (CRLF lines, base64 body). Bcc is never written. */
+export function composeMail(m: OutgoingMail, domain = bareAddress(m.from).split('@')[1] ?? 'localhost'): { raw: string; messageId: string } {
+  const messageId = `<${randomBytes(12).toString('hex')}@${domain}>`;
+  const date = (m.date ?? new Date()).toUTCString().replace('GMT', '+0000');
+  const headers = [
+    `From: ${encodeAddress(m.from)}`,
+    `To: ${m.to.map(encodeAddress).join(', ')}`,
+    ...(m.cc?.length ? [`Cc: ${m.cc.map(encodeAddress).join(', ')}`] : []),
+    `Subject: ${encodeWords(m.subject.replace(/[\r\n]+/g, ' '))}`,
+    `Date: ${date}`,
+    `Message-ID: ${messageId}`,
+    ...(m.inReplyTo ? [`In-Reply-To: ${m.inReplyTo}`, `References: ${m.inReplyTo}`] : []),
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=utf-8',
+    'Content-Transfer-Encoding: base64',
+    'User-Agent: Harness Relay',
+  ];
+  const body = Buffer.from(m.body.replace(/\r?\n/g, '\r\n')).toString('base64').replace(/.{76}/g, '$&\r\n');
+  return { raw: `${headers.join('\r\n')}\r\n\r\n${body}\r\n`, messageId };
+}
+
+// --- Reading ---------------------------------------------------------------------------------------
+
+/** Bytes in a charset as text (Node's TextDecoder knows the common ones, Big5 and the Japanese and Chinese ones included). */
+function decodeCharset(bytes: Buffer, charset = 'utf-8'): string {
+  try {
+    return new TextDecoder(charset.trim().toLowerCase() || 'utf-8').decode(bytes);
+  } catch {
+    return bytes.toString('latin1');
+  }
+}
+
+/** Quoted-printable as bytes. */
+export function decodeQuotedPrintable(text: string): Buffer {
+  const out: number[] = [];
+  const s = text.replace(/=\r?\n/g, '');
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]!;
+    if (c === '=' && /^[0-9A-Fa-f]{2}$/.test(s.slice(i + 1, i + 3))) {
+      out.push(parseInt(s.slice(i + 1, i + 3), 16));
+      i += 2;
+    } else out.push(...Buffer.from(c, 'latin1'));
+  }
+  return Buffer.from(out);
+}
+
+/** A header value's RFC 2047 words decoded (B and Q), the space between two words dropped. */
+export function decodeWords(value: string): string {
+  return value
+    .replace(/(=\?[^?]+\?[BbQq]\?[^?]*\?=)\s+(?==\?)/g, '$1')
+    .replace(/=\?([^?*]+)(?:\*[^?]*)?\?([BbQq])\?([^?]*)\?=/g, (_all, charset: string, enc: string, data: string) => {
+      const bytes = enc.toUpperCase() === 'B' ? Buffer.from(data, 'base64') : decodeQuotedPrintable(data.replace(/_/g, ' '));
+      return decodeCharset(bytes, charset);
+    });
+}
+
+/**
+ * A header value read byte for byte (latin1) as UTF-8, when its bytes are UTF-8 (a server that sends
+ * UTF-8 headers, RFC 6532); else as it is.
+ */
+function utf8Header(value: string): string {
+  if (!/[\x80-\xff]/.test(value)) return value;
+  const text = Buffer.from(value, 'latin1').toString('utf8');
+  return text.includes('\ufffd') ? value : text;
+}
+
+/** Headers by lower-case name (the first of each), unfolded and decoded. */
+export function parseHeaders(block: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of block.replace(/\r?\n[ \t]+/g, ' ').split(/\r?\n/)) {
+    const i = line.indexOf(':');
+    if (i <= 0) continue;
+    const name = line.slice(0, i).trim().toLowerCase();
+    if (!(name in out)) out[name] = decodeWords(utf8Header(line.slice(i + 1).trim()));
+  }
+  return out;
+}
+
+/** A header's parameter (`charset`, `boundary`), unquoted. */
+function param(header: string | undefined, name: string): string | undefined {
+  const m = new RegExp(`(?:^|;)\\s*${name}\\s*=\\s*(?:"([^"]*)"|([^;\\s]+))`, 'i').exec(header ?? '');
+  return m ? (m[1] ?? m[2]) : undefined;
+}
+
+/** Splits a raw message (or part) into its headers and body. */
+function splitEntity(raw: string): { headers: Record<string, string>; body: string } {
+  const m = /\r?\n\r?\n/.exec(raw);
+  if (!m) return { headers: parseHeaders(raw), body: '' };
+  return { headers: parseHeaders(raw.slice(0, m.index)), body: raw.slice(m.index + m[0].length) };
+}
+
+/** A part's body as text, by its transfer encoding and charset. */
+function bodyText(headers: Record<string, string>, body: string): string {
+  const enc = (headers['content-transfer-encoding'] ?? '').toLowerCase();
+  const charset = param(headers['content-type'], 'charset');
+  const bytes = enc === 'base64' ? Buffer.from(body.replace(/\s+/g, ''), 'base64') : enc === 'quoted-printable' ? decodeQuotedPrintable(body) : Buffer.from(body, 'latin1');
+  return decodeCharset(bytes, charset);
+}
+
+/** HTML as plain text: no scripts or styles, block ends as line breaks, entities decoded. */
+export function htmlText(html: string): string {
+  return html
+    .replace(/<(script|style|head)[\s\S]*?<\/\1>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|tr|h[1-6]|blockquote)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#(\d+);/g, (_m, n: string) => String.fromCodePoint(Number(n)))
+    .replace(/&amp;/g, '&')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** The text of an entity: plain text first, else HTML as text, looking into multipart parts (and attachments' names). */
+function entityText(raw: string, depth = 0): { text: string; html?: string; attachments: string[] } {
+  const { headers, body } = splitEntity(raw);
+  const type = (headers['content-type'] ?? 'text/plain').toLowerCase();
+  const disposition = headers['content-disposition'] ?? '';
+  const filename = param(disposition, 'filename') ?? param(headers['content-type'], 'name');
+  if (/^attachment/i.test(disposition) || (filename && !type.startsWith('text/'))) return { text: '', attachments: [filename ? decodeWords(filename) : 'attachment'] };
+  if (type.startsWith('multipart/') && depth < 8) {
+    const boundary = param(headers['content-type'], 'boundary');
+    if (!boundary) return { text: '', attachments: [] };
+    const parts = body.split(new RegExp(`\\r?\\n?--${boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:--)?[ \\t]*\\r?\\n?`)).slice(1).filter((p) => p.trim());
+    let text = '';
+    let html: string | undefined;
+    const attachments: string[] = [];
+    for (const part of parts) {
+      const t = entityText(part, depth + 1);
+      attachments.push(...t.attachments);
+      if (t.text && !text) text = t.text;
+      if (t.html && html === undefined) html = t.html;
+    }
+    return { text, ...(html !== undefined ? { html } : {}), attachments };
+  }
+  if (type.startsWith('text/html')) return { text: '', html: htmlText(bodyText(headers, body)), attachments: [] };
+  if (type.startsWith('text/')) return { text: bodyText(headers, body), attachments: [] };
+  return { text: '', attachments: [] };
+}
+
+export interface ReadMail {
+  headers: Record<string, string>;
+  text: string;
+  /** The attachments' names. */
+  attachments: string[];
+}
+
+/** A raw message's headers and text (its plain text, else its HTML as text). */
+export function readMail(raw: string): ReadMail {
+  const { headers } = splitEntity(raw);
+  const t = entityText(raw);
+  return { headers, text: (t.text || t.html || '').replace(/\r\n/g, '\n').trim(), attachments: t.attachments };
+}

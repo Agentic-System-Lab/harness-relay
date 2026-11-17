@@ -3966,6 +3966,34 @@ video.chat-media {
   white-space: pre-wrap;
 }
 
+/* Mail and calendar accounts (Settings → Tool library). */
+.connectors h5 {
+  margin: 14px 0 6px;
+  font-size: 0.85rem;
+}
+
+.connector-servers {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 5.5em auto;
+  gap: 6px 8px;
+  align-items: center;
+}
+
+.connector-servers input,
+.connector-servers select {
+  min-width: 0;
+}
+
+@media (max-width: 520px) {
+  .connector-servers {
+    grid-template-columns: auto minmax(0, 1fr) 4.5em;
+  }
+
+  .connector-servers select {
+    grid-column: 2 / -1;
+  }
+}
+
 .relay-group {
   flex-direction: column;
   align-items: stretch;

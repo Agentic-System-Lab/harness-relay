@@ -322,6 +322,8 @@ Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / 
 
 **瀏覽器。** 成員會拿到 `browser_open`、`browser_snapshot`、`browser_click`、`browser_type` 與 `browser_screenshot`：每個對話一個 Harness Relay 自己的瀏覽器（有 Playwright 的 Chromium 就用它，否則用 Chrome、Chromium 或 Edge；或 `RELAY_BROWSER` 指定的那一個），無頭模式，有自己的設定檔，一開始是空的，刪除對話時一起刪除；絕不使用你自己的瀏覽器或它的登入。網頁讀出來是它的文字，連結、按鈕與欄位都有編號，點擊或輸入時用編號指定；截圖會存在對話的附件資料夾，顯示在回覆中。只會開啟 http 與 https 網頁，絕不開啟檔案、這台電腦上的 Harness Relay 或雲端的 metadata 位址。在完全存取以下，這個對話的瀏覽器還沒開過的主機上的網頁，會先詢問你，和讀取網頁一樣（**一律允許** 對那個主機有效），點擊前往那裡時也一樣：被拒絕時，瀏覽器會留在原本的網頁。下載與上傳檔案都會被拒絕。瀏覽器閒置 10 分鐘後會關閉。
 
+**郵件與行事曆。** 在 **郵件與行事曆帳號** 中新增郵件帳號（選 Gmail、iCloud Mail、Fastmail 或 Yahoo Mail 會自動填入伺服器，或自行輸入），搭配 **應用程式專用密碼**（在服務的安全性設定中產生；Gmail 需要先開啟兩步驟驗證），以及行事曆（選 iCloud 或 Fastmail，或輸入你的 CalDAV 伺服器網址，再按 **尋找行事曆** 選一個；也可以直接填行事曆自己的網址）。**測試** 只會登入，不會送出任何東西。密碼存在系統的金鑰儲存區，畫面上只顯示遮蔽後的內容；任何 CLI 都拿不到。有 **郵件** 時，成員會拿到 `mail_search` 與 `mail_read`（讀取）、`mail_draft`（在你的草稿匣存一封純文字草稿，在完全存取以下會詢問）與 `mail_send`（進待送出匣，只有你按 **送出** 時才用 SMTP 寄出；密件副本絕不會出現在郵件中）。有 **行事曆** 時：`calendar_events`（某個時區中最多 62 天的範圍）、`calendar_create`（沒有邀請對象的活動，在完全存取以下會詢問）與 `calendar_invite`（有邀請對象的活動，由你的行事曆伺服器寄出邀請：透過待送出匣）。郵件一定加密寄出（TLS 或 STARTTLS），除非伺服器就在這台電腦上（本機的轉接程式）。Google 日曆與 Microsoft 365 需要 Harness Relay 目前還沒有的登入方式（OAuth）；Harness Relay 不會把寄出的郵件複製到寄件備份（Gmail 與大多數服務會自己做）。
+
 ### Agent 的 session：各 CLI 自己的資料夾與 AgentsView
 
 **設定 → Agent 的 session** 有兩個選用的設定。它們和其他設定一起存在 Harness Relay 裡，所以不論 macOS、Linux 或 Windows，都照常用 `npm start`（或 `npm run dev`）啟動。

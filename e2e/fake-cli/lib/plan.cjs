@@ -36,6 +36,7 @@ const DIRECTIVES = {
   memory: "say the tool library's memory notes its briefing holds",
   skills: "read the SKILL.md of each tool library skill its briefing lists, and say its first line (or that it may not)",
   progress: 'end the reply with a <progress> block of the status given (`working` by default) about the goal its briefing says a schedule tracks',
+  mcp: "call the tool named on Harness Relay's own MCP server (`relay`), with the JSON object in the message as its arguments, and say what it answered (Claude Code's fake only)",
 };
 
 function directivesIn(text) {
@@ -218,6 +219,16 @@ function plan(prompt, turn) {
   if (d.tool) steps.push({ type: 'tool', kind: 'list', output: safeList(turn.cwd) });
   if (d.approve) steps.push({ type: 'approve', command: d.approve === 'publish' ? 'npm publish e2e-approval' : 'echo e2e-approval' });
   if (typeof d.fetch === 'string') steps.push({ type: 'fetch', url: d.fetch });
+  if (typeof d.mcp === 'string') {
+    const json = /\{[\s\S]*\}/.exec(user);
+    let args = {};
+    try {
+      args = json ? JSON.parse(json[0]) : {};
+    } catch {
+      /* no arguments */
+    }
+    steps.push({ type: 'mcp', server: 'relay', tool: d.mcp, args });
+  }
   const content = `Written by ${me} (${self.label()}).\n`;
   if (typeof d.write === 'string') steps.push({ type: 'write', path: d.write, content });
   if (typeof d.writeother === 'string') steps.push({ type: 'write', path: d.writeother, other: true, content });

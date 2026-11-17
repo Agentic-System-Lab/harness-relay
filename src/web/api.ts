@@ -38,6 +38,9 @@ import type {
   PushSubscriptionJson,
   ReportScreenshots,
   OutboxItem,
+  CalendarAccountUpdate,
+  ConnectorsView,
+  MailAccountUpdate,
   ScheduleHook,
   ScheduleUpdate,
   SearchResult,
@@ -307,6 +310,13 @@ export const api = {
     request<Conversation>('POST', `/api/conversations/${id}/messages/${messageId}/branch`),
   answerApproval: (id: string, approvalId: string, answer: ApprovalAnswer) =>
     request<{ ok: true }>('POST', `/api/conversations/${id}/approvals/${approvalId}`, answer),
+  connectors: () => request<ConnectorsView>('GET', '/api/connectors'),
+  saveMailAccount: (id: string, b: MailAccountUpdate) => request<ConnectorsView>('PUT', `/api/connectors/mail/${id}`, b),
+  saveCalendarAccount: (id: string, b: CalendarAccountUpdate) => request<ConnectorsView>('PUT', `/api/connectors/calendar/${id}`, b),
+  deleteConnector: (kind: 'mail' | 'calendar', id: string) => request<ConnectorsView>('DELETE', `/api/connectors/${kind}/${id}`),
+  testConnector: (kind: 'mail' | 'calendar', id: string) => request<{ ok: boolean; message?: string; error?: string }>('POST', `/api/connectors/${kind}/${id}/test`, {}),
+  discoverCalendars: (b: { url: string; username: string; password?: string; id?: string }) =>
+    request<{ ok: boolean; calendars?: { name: string; url: string }[]; error?: string }>('POST', '/api/connectors/calendar/discover', b),
   /** Send or discard what an agent asked to send (an outbox item); only Send sends it. */
   answerOutbox: (id: string, itemId: string, action: 'send' | 'discard') =>
     request<OutboxItem>('POST', `/api/conversations/${id}/outbox/${itemId}`, { action }),

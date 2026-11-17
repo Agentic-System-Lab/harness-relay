@@ -16,6 +16,7 @@ import { api } from '../api';
 import { useT, type Messages } from '../i18n';
 import { PROVIDER_COLOR } from '../util';
 import { sectionId } from '../route';
+import { ConnectorsSettings } from './ConnectorsSettings';
 import { SectionTitle } from './SectionTitle';
 import { useDialog } from './useDialog';
 
@@ -130,6 +131,7 @@ function RelaySection({ lib, change }: { lib: ToolLibraryView; change: Change })
           </li>
         ))}
       </ul>
+      <ConnectorsSettings />
     </section>
   );
 }

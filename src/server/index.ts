@@ -20,6 +20,7 @@ import { ToolGateway, outboxTool } from './gateway';
 import { findBrowser } from './browser/find';
 import { BrowserService } from './browser/session';
 import { browserTools } from './browser/tools';
+import { connectorTools } from './connectors/tools';
 import { Outbox } from './outbox';
 import { clearShareTmp } from './share';
 import { openSecretStore, openSystemKeyring, type SecretStore } from './secrets';
@@ -119,7 +120,7 @@ const browser = new BrowserService({
   relayPorts: () => relayPorts(),
   own: () => localAddresses(),
 });
-gateway.register([outboxTool((id) => outbox.list(id)), ...browserTools(browser)]);
+gateway.register([outboxTool((id) => outbox.list(id)), ...browserTools(browser), ...connectorTools(settings.connectors)]);
 orchestrator.onDelete = (id) => void browser.close(id, true);
 orchestrator.gateway = gateway;
 orchestrator.outbox = outbox;

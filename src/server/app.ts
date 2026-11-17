@@ -53,6 +53,8 @@ import {
 import type { AgentsViewSync } from './agentsview';
 import { freshTracking } from '../shared/tracking';
 import { servingPort } from './relaySandbox';
+import { discoverCalendars, listEvents } from './connectors/caldav';
+import { testMail } from './connectors/test';
 import { attachmentPath, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
 import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, readPreview, zipPlan, type ZipPlan } from './files';
 import { zipStream } from './zip';
@@ -106,6 +108,9 @@ import {
   validateSchedule,
   validateSettings,
   validateToolLibraryUpdate,
+  validConnectorId,
+  validateMailAccount,
+  validateCalendarAccount,
   validateVoiceUpdate,
   validSkillPath,
 } from './validate';
@@ -532,6 +537,57 @@ export function createApp({
   });
 
   // --- Tool library: MCP servers, skills and memory for the agents --------------
+
+  // Mail accounts and calendars for Harness Relay's mail and calendar tools: their passwords go to the
+  // credential store and come back masked only.
+  app.get('/api/connectors', (c) => c.json(settings.connectors.view()));
+  app.put('/api/connectors/mail/:id', async (c) =>
+    c.json(settings.connectors.saveMail(validConnectorId(c.req.param('id')), validateMailAccount(await body<unknown>(c)))),
+  );
+  app.put('/api/connectors/calendar/:id', async (c) =>
+    c.json(settings.connectors.saveCalendar(validConnectorId(c.req.param('id')), validateCalendarAccount(await body<unknown>(c)))),
+  );
+  app.delete('/api/connectors/:kind/:id', (c) => {
+    const kind = c.req.param('kind');
+    if (kind !== 'mail' && kind !== 'calendar') throw new HttpError(404, t().connectorNotFound(c.req.param('id')));
+    return c.json(settings.connectors.delete(kind, c.req.param('id')));
+  });
+  // The calendars an account has, from its server's address: their names and own addresses, to pick one.
+  app.post('/api/connectors/calendar/discover', async (c) => {
+    const b = await body<Record<string, unknown>>(c);
+    const v = validateCalendarAccount({ ...b, name: 'x' });
+    // The password typed in the form, or the one kept for the account being edited.
+    const kept = typeof b.id === 'string' ? settings.connectors.calendar(b.id) : undefined;
+    const password = v.password ?? (kept?.account.id === b.id ? kept?.password : undefined);
+    if (!password) throw new HttpError(400, t().connectorPasswordRequired);
+    try {
+      return c.json({ ok: true, calendars: await discoverCalendars(v.url, { username: v.username, password }) });
+    } catch (err) {
+      return c.json({ ok: false, error: (err as Error).message });
+    }
+  });
+
+  // Try an account as saved: sign in to its mail server (IMAP, then SMTP's sign-in), or read its calendar.
+  app.post('/api/connectors/:kind/:id/test', async (c) => {
+    const kind = c.req.param('kind');
+    const id = c.req.param('id');
+    try {
+      if (kind === 'mail') {
+        const m = settings.connectors.mail(id);
+        if (!m || m.account.id !== id) throw new HttpError(404, t().connectorNotFound(id));
+        await testMail(m.account, m.password);
+      } else if (kind === 'calendar') {
+        const cal = settings.connectors.calendar(id);
+        if (!cal || cal.account.id !== id) throw new HttpError(404, t().connectorNotFound(id));
+        const now = Date.now();
+        await listEvents(cal.account.url, { username: cal.account.username, password: cal.password }, now, now + 86_400_000);
+      } else throw new HttpError(404, t().connectorNotFound(id));
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      return c.json({ ok: false, error: (err as Error).message });
+    }
+    return c.json({ ok: true, message: t().connectorTestOk });
+  });
 
   app.get('/api/tools', (c) => c.json(settings.tools.view()));
 

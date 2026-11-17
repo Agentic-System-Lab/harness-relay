@@ -30,6 +30,7 @@ import { transaction, type Database } from './db';
 import { t } from './i18n';
 import { maskSecret, type SecretStore } from './secrets';
 import { ToolLibrary } from './tools';
+import { ConnectorStore } from './connectors/accounts';
 
 export const DATA_DIR = resolve(process.env.RELAY_DATA_DIR ?? join(process.cwd(), 'data'));
 export const DB_FILE = join(DATA_DIR, 'relay.db');
@@ -270,6 +271,8 @@ export class SettingsStore {
   private accountList: Record<Provider, AccountSettings[]>;
   /** MCP servers, skills and memory for the agents. */
   readonly tools: ToolLibrary;
+  /** The mail accounts and calendars Harness Relay's mail and calendar tools use. */
+  readonly connectors: ConnectorStore;
   /** The open agents' model backends (API keys and the user's own endpoints). */
   readonly backends: ModelBackendStore;
 
@@ -385,6 +388,7 @@ export class SettingsStore {
     }
     if (keyring) this.loadKeys(keyring);
     this.tools = new ToolLibrary(db, keyring);
+    this.connectors = new ConnectorStore(db, keyring);
     this.backends = new ModelBackendStore(db, keyring);
   }
 

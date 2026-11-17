@@ -1861,6 +1861,53 @@ describe('the folder dialog', () => {
   });
 });
 
+describe('mail accounts and calendars', () => {
+  it('saves an account with its password masked, tries it, finds calendars, and removes it', async () => {
+    const { fakeImap, fakeSmtp, fakeCalDav } = await import('./fake-mail-servers');
+    const imap = await fakeImap([]);
+    const smtp = await fakeSmtp();
+    const cal = await fakeCalDav([]);
+    try {
+      const put = (path: string, b: unknown) => app.request(path, json('PUT', b, { 'x-relay-lang': 'en' }));
+      const account = {
+        name: 'Work',
+        address: 'me@example.com',
+        username: 'me@example.com',
+        password: 'app-pass',
+        imap: { host: '127.0.0.1', port: imap.port, security: 'none' },
+        smtp: { host: '127.0.0.1', port: smtp.port, security: 'none' },
+      };
+      expect((await put('/api/connectors/mail/Bad Id', account)).status).toBe(400);
+      expect((await put('/api/connectors/mail/work', { ...account, imap: { host: 'imap.example.com', port: 143, security: 'none' } })).status).toBe(400);
+      const saved = (await (await put('/api/connectors/mail/work', account)).json()) as { mail: { password: string }[] };
+      expect(saved.mail[0]!.password).toBe('••••');
+      expect(JSON.stringify(await (await get('/api/connectors')).json())).not.toContain('app-pass');
+
+      const test = (kind: string, id: string) => app.request(`/api/connectors/${kind}/${id}/test`, json('POST', {}, { 'x-relay-lang': 'en' }));
+      expect(await (await test('mail', 'work')).json()).toEqual({ ok: true, message: 'Connected: the user name and password work.' });
+      await put('/api/connectors/mail/work', { ...account, password: 'wrong' });
+      expect(await (await test('mail', 'work')).json()).toMatchObject({ ok: false, error: expect.stringMatching(/did not accept/) });
+      expect((await test('mail', 'missing')).status).toBe(404);
+
+      const root = cal.url.replace('/cal/me/', '/');
+      const found = await app.request('/api/connectors/calendar/discover', json('POST', { url: root, username: 'me@example.com', password: 'app-pass' }));
+      expect(await found.json()).toEqual({ ok: true, calendars: [{ name: 'Personal', url: cal.url }] });
+      expect((await app.request('/api/connectors/calendar/discover', json('POST', { url: root, username: 'me@example.com' }, { 'x-relay-lang': 'en' }))).status).toBe(400);
+      await put('/api/connectors/calendar/home', { name: 'Home', url: cal.url, username: 'me@example.com', password: 'app-pass' });
+      expect(await (await test('calendar', 'home')).json()).toMatchObject({ ok: true });
+      // Found again with the password kept for the calendar being edited.
+      expect(await (await app.request('/api/connectors/calendar/discover', json('POST', { url: root, username: 'me@example.com', id: 'home' }))).json()).toMatchObject({ ok: true });
+
+      expect((await app.request('/api/connectors/mail/work', json('DELETE', {}))).status).toBe(200);
+      expect((await app.request('/api/connectors/mail/work', json('DELETE', {}))).status).toBe(404);
+      expect((await app.request('/api/connectors/other/work', json('DELETE', {}))).status).toBe(404);
+      expect(((await (await get('/api/connectors')).json()) as { mail: unknown[] }).mail).toEqual([]);
+    } finally {
+      await Promise.all([imap.close(), smtp.close(), cal.close()]);
+    }
+  });
+});
+
 describe('the outbox', () => {
   it("sends or discards an item only on the user's answer, and refuses anything else", async () => {
     const { Outbox } = await import('../src/server/outbox');

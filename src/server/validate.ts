@@ -38,6 +38,10 @@ import {
   type Permission,
   type Provider,
   type RelayToolGroup,
+  type CalendarAccountUpdate,
+  type MailAccountUpdate,
+  type MailServer,
+  CONNECTOR_LIMITS,
   type ProviderAccountUpdate,
   type ProviderSettingsUpdate,
   type PushSubscriptionJson,
@@ -53,7 +57,8 @@ import { CONFIG } from './config';
 import { HttpError } from './errors';
 import { isOtherGroupName, t } from './i18n';
 import { apiPort } from './ports';
-import { isLocalHost, localAddresses, relayPorts } from './relaySandbox';
+import { isLocalHost, isLoopbackHost, localAddresses, relayPorts } from './relaySandbox';
+import { validAddress } from './connectors/mime';
 import { endpointProblem, subscriptionKeys } from './push';
 
 const MODES: Mode[] = ['roundtable', 'parallel', 'relay'];
@@ -695,4 +700,85 @@ export function validatePushSubscription(input: unknown): { subscription: PushSu
     return p[name] as boolean;
   };
   return { subscription: { endpoint, keys: { p256dh, auth } }, prefs: { done: flag('done'), needs: flag('needs'), sound: flag('sound') } };
+}
+
+// --- Mail accounts and calendars (the mail and calendar tools) ------------------------------------
+
+/** An account's id: a short slug the UI makes. */
+export function validConnectorId(input: string): string {
+  if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(input)) bad(t().invalidField('id'));
+  return input;
+}
+
+function connectorName(v: unknown): string {
+  const name = typeof v === 'string' ? v.trim() : '';
+  if (!name || name.length > CONNECTOR_LIMITS.name || /[\r\n]/.test(name)) bad(t().invalidField('name'));
+  return name;
+}
+
+function connectorPassword(v: unknown): string | undefined {
+  if (v === undefined || v === null || v === '') return undefined;
+  if (typeof v !== 'string' || v.length > 1000 || /[\r\n\0]/.test(v)) bad(t().invalidField('password'));
+  return v;
+}
+
+function connectorUser(v: unknown): string {
+  const user = typeof v === 'string' ? v.trim() : '';
+  if (!user || user.length > 320 || /[\r\n\0]/.test(user)) bad(t().invalidField('username'));
+  return user;
+}
+
+/**
+ * A mail server: a host name or address, a port, TLS or STARTTLS (plain only to this computer: a
+ * local bridge), and never one of Harness Relay's own ports on this computer.
+ */
+function mailServer(input: unknown, field: string, own: readonly string[]): MailServer {
+  const b = (input ?? {}) as Record<string, unknown>;
+  const host = typeof b.host === 'string' ? b.host.trim().replace(/^\[|\]$/g, '') : '';
+  if (!/^[A-Za-z0-9.-]{1,253}$/.test(host) && !/^[0-9A-Fa-f:]{2,39}$/.test(host)) bad(t().connectorBadHost(field));
+  const port = Number(b.port);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) bad(t().connectorBadPort(field));
+  const security = b.security === 'starttls' ? 'starttls' : b.security === 'none' ? 'none' : 'tls';
+  if (security === 'none' && !isLoopbackHost(host)) bad(t().connectorPlainRemote(field));
+  if (isLocalHost(host, own) && relayPorts().includes(port)) bad(t().connectorRelayPort(field));
+  return { host, port, security };
+}
+
+export function validateMailAccount(input: unknown, own: readonly string[] = localAddresses()): MailAccountUpdate {
+  const b = (input ?? {}) as Record<string, unknown>;
+  const address = typeof b.address === 'string' ? validAddress(b.address) : undefined;
+  if (!address) bad(t().connectorBadAddress('address'));
+  const password = connectorPassword(b.password);
+  return {
+    name: connectorName(b.name),
+    address,
+    username: connectorUser(b.username),
+    imap: mailServer(b.imap, 'IMAP', own),
+    smtp: mailServer(b.smtp, 'SMTP', own),
+    ...(password !== undefined ? { password } : {}),
+  };
+}
+
+export function validateCalendarAccount(input: unknown, own: readonly string[] = localAddresses()): CalendarAccountUpdate {
+  const b = (input ?? {}) as Record<string, unknown>;
+  let url: URL;
+  try {
+    url = new URL(String(b.url ?? '').trim());
+  } catch {
+    bad(t().connectorBadUrl);
+  }
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  if (url.username || url.password || url.hash || !['https:', 'http:'].includes(url.protocol) || (url.protocol === 'http:' && !isLoopbackHost(host))) bad(t().connectorBadUrl);
+  const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80));
+  if (isLocalHost(host, own) && relayPorts().includes(port)) bad(t().connectorRelayPort('URL'));
+  const address = typeof b.address === 'string' && b.address.trim() ? validAddress(b.address) : '';
+  if (address === undefined) bad(t().connectorBadAddress('address'));
+  const password = connectorPassword(b.password);
+  return {
+    name: connectorName(b.name),
+    url: url.href,
+    username: connectorUser(b.username),
+    ...(address ? { address } : {}),
+    ...(password !== undefined ? { password } : {}),
+  };
 }
