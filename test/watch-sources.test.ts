@@ -751,17 +751,40 @@ describe('a file appearing or changing in the working directory', () => {
     expect(slashed(['a', 'b'].join(sep))).toBe('a/b');
   });
 
-  it('records only what changed after the folder was last free of the team, keeping what came before it', async () => {
+  it('records what the team writes whatever its times, keeping a file held for it unseen while it is as it was', async () => {
     dir = mkdtempSync(join(tmpdir(), 'relay-watch-'));
-    file('held.pdf', 'from outside', NOW - 10 * MIN);
-    const trigger: Extract<ScheduleTrigger, { source: 'file' }> = { source: 'file', pattern: '*.pdf' };
-    const prev = kept(trigger, { files: {}, filesIn: dir });
-    file('team.pdf', 'the team wrote it', NOW);
-    const only = await checkFiles(trigger, prev, dir, NOW + MIN, true, NOW - 5 * MIN);
-    // The team's file recorded; the one from before the team started not, so it is listed later.
-    expect(only).toEqual({ state: { files: { 'team.pdf': `${NOW}:17` }, filesIn: dir }, total: 0 });
+    file('inbox/held.pdf', 'from outside', NOW - 10 * MIN);
+    file('inbox/a.pdf', 'old one', NOW - 60 * MIN);
+    const trigger: Extract<ScheduleTrigger, { source: 'file' }> = { source: 'file', pattern: '**/*.pdf' };
+    const prev = kept(trigger, { files: { 'inbox/a.pdf': `${NOW - 60 * MIN}:7` }, filesIn: dir });
+    // A check found held.pdf and held it for the team: its stamp then.
+    const held = { 'inbox/held.pdf': `${NOW - 10 * MIN}:12` };
+    // The team moves a.pdf (an old time kept) and writes team.pdf with a time older than the hold.
+    rmSync(join(dir, 'inbox', 'a.pdf'));
+    file('done/a.pdf', 'old one', NOW - 60 * MIN);
+    file('team.pdf', 'the team wrote it', NOW - 20 * MIN);
+    const only = await checkFiles(trigger, prev, dir, NOW + MIN, true, held);
+    expect(only).toEqual({
+      state: { files: { 'done/a.pdf': `${NOW - 60 * MIN}:7`, 'team.pdf': `${NOW - 20 * MIN}:17` }, filesIn: dir },
+      total: 0,
+    });
+    // The next check with the folder free lists the held file only.
     const later = await checkFiles(trigger, kept(trigger, only.state), dir, NOW + 2 * MIN);
-    expect(JSON.parse(later.event!).files.map((f: { path: string }) => f.path)).toEqual(['held.pdf']);
+    expect(JSON.parse(later.event!).files.map((f: { path: string }) => f.path)).toEqual(['inbox/held.pdf']);
+    expect(later.found).toEqual(held);
+    // Changed since it was held: the team's now, recorded.
+    file('inbox/held.pdf', 'the team edited it', NOW + MIN);
+    const edited = await checkFiles(trigger, prev, dir, NOW + 2 * MIN, true, held);
+    expect(edited.state.files!['inbox/held.pdf']).toBe(`${NOW + MIN}:18`);
+  });
+
+  it("takes a file whose time is far ahead of this computer's clock as settled", async () => {
+    dir = mkdtempSync(join(tmpdir(), 'relay-watch-'));
+    const trigger: Extract<ScheduleTrigger, { source: 'file' }> = { source: 'file', pattern: '*.zip' };
+    const first = await checkFiles(trigger, undefined, dir, NOW);
+    file('future.zip', 'from a NAS ahead of us', NOW + 3 * 3_600_000);
+    const found = await checkFiles(trigger, kept(trigger, first.state), dir, NOW);
+    expect(found.total).toBe(1);
   });
 
   it('turns a pattern into a match of paths with /, in any case', () => {

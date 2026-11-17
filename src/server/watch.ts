@@ -45,6 +45,8 @@ export interface WatchCheck {
   total: number;
   /** The `<event>` block's body for the run, when something new matches (JSON, as a webhook's body is). */
   event?: string;
+  /** `file`: each new or changed file found, as it was then (`<mtime>:<size>`): what a hold keeps (`ScheduleWatch.heldFiles`). */
+  found?: Record<string, string>;
 }
 
 /** What a check needs to know of the automation's conversation, and of the check itself. */
@@ -59,10 +61,10 @@ export interface WatchContext {
    */
   recordOnly?: boolean;
   /**
-   * With `recordOnly`: when the folder was last seen free of the team (`ScheduleWatch.freeAt`). A file
-   * that changed by then is no run's: it is kept as it was, so a later check lists it.
+   * With `recordOnly`: the files a check found and held for the team (`ScheduleWatch.heldFiles`). One
+   * still as it was then is no run's: it is kept unseen, so a later check lists it.
    */
-  keepBefore?: number;
+  held?: Record<string, string>;
 }
 
 /** Checks a trigger's source (`checkTrigger`, or a stand-in in tests). */
@@ -772,7 +774,7 @@ export async function checkFiles(
   cwd: string,
   now = Date.now(),
   recordOnly = false,
-  keepBefore?: number,
+  held?: Record<string, string>,
 ): Promise<WatchCheck> {
   const files = await matchingFiles(cwd, trigger.pattern).catch((err: NodeJS.ErrnoException) => {
     if (err.code === 'ENOENT' || err.code === 'ENOTDIR') throw new Error(t().watchNoCwd(cwd));
@@ -783,18 +785,21 @@ export async function checkFiles(
   const current = Object.fromEntries(files.map((f) => [f.path, `${f.mtimeMs}:${f.size}`]));
   if (!prev?.files || prev.filesIn !== cwd) return { state: { files: current, filesIn: cwd }, total: 0 };
   if (recordOnly) {
-    // The team's own: recorded. A file that changed before the team started (one held for it, say) is
-    // kept as it was, so the next check with the folder free lists it.
+    // The team's own: recorded, whatever their times say (a file it moves, renames, extracts or copies
+    // keeps an old one). One held for the team and still as it was then is kept unseen, so the next
+    // check with the folder free lists it.
     const kept: Record<string, string> = {};
     for (const f of files) {
       const was = prev.files[f.path];
-      if (was === current[f.path] || keepBefore === undefined || f.mtimeMs > keepBefore) kept[f.path] = current[f.path]!;
-      else if (was !== undefined) kept[f.path] = was;
+      if (held?.[f.path] === current[f.path] && was !== current[f.path]) {
+        if (was !== undefined) kept[f.path] = was;
+      } else kept[f.path] = current[f.path]!;
     }
     return { state: { files: kept, filesIn: cwd }, total: 0 };
   }
   const before = prev.files;
-  const settled = (f: FoundFile) => f.mtimeMs <= now - SETTLE_MS;
+  // A time well ahead of this computer's clock (a NAS ahead of it, a zip's other time zone) never settles: taken as settled.
+  const settled = (f: FoundFile) => f.mtimeMs <= now - SETTLE_MS || f.mtimeMs > now + 60_000;
   const state: Record<string, string> = {};
   for (const f of files) {
     const was = before[f.path];
@@ -816,6 +821,7 @@ export async function checkFiles(
   return {
     state: { files: state, filesIn: cwd },
     total: changed.length,
+    found: Object.fromEntries(changed.map((f) => [f.path, current[f.path]!])),
     event: fitEvent(listed.length, (n) => ({
       source: 'file',
       workingDirectory: slashed(cwd),
@@ -838,7 +844,7 @@ export function checkTrigger(connectors: ConnectorStore, oauth?: CalendarOAuth, 
       case 'github':
         return checkGithub(trigger, prev, gh);
       case 'file':
-        return checkFiles(trigger, prev, ctx.cwd, ctx.now, ctx.recordOnly, ctx.keepBefore);
+        return checkFiles(trigger, prev, ctx.cwd, ctx.now, ctx.recordOnly, ctx.held);
     }
   };
 }
