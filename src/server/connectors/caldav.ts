@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { validTimeZone, zonedTime } from '../../shared/schedule';
-import type { Login } from './imap';
 import { t } from '../i18n';
 import type { AuthorizedFetch } from '../oauth/providers';
 
@@ -336,7 +335,7 @@ export async function answerText(res: Response, max = CALDAV_MAX_ANSWER): Promis
  * How the requests to a calendar are signed: its user name and password (Basic authentication), or an
  * OAuth account's token, by that account's fetch (`TokenBroker.fetch`: only to its provider's hosts).
  */
-export type CalDavAuth = Login | { fetch: AuthorizedFetch };
+export type CalDavAuth = { username: string; password: string } | { fetch: AuthorizedFetch };
 
 /** A request to the calendar, signed as `auth` says; never following a redirect, so the password or token goes nowhere else. */
 function send(auth: CalDavAuth, url: string, init: RequestInit & { headers: Record<string, string> }): Promise<Response> {

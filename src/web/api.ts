@@ -47,6 +47,7 @@ import type {
   OAuthClientUpdate,
   OAuthProviderId,
   OAuthSignInView,
+  OAuthUse,
   OAuthView,
   MailAccountUpdate,
   NewScheduleHook,
@@ -345,9 +346,9 @@ export const api = {
   /** Accounts that sign in with OAuth, and the apps they sign in with: never a token. */
   oauth: () => request<OAuthView>('GET', '/api/oauth'),
   saveOAuthClient: (provider: OAuthProviderId, b: OAuthClientUpdate) => request<OAuthView>('PUT', `/api/oauth/clients/${provider}`, b),
-  /** A sign-in: the provider's page sends the browser back to this page's own origin when it is on this computer. */
-  startOAuthSignIn: (provider: OAuthProviderId, device = false) =>
-    request<OAuthSignInView>('POST', '/api/oauth/signins', { provider, origin: location.origin, device }),
+  /** A sign-in for its uses: the provider's page sends the browser back to this page's own origin when it is on this computer. */
+  startOAuthSignIn: (provider: OAuthProviderId, uses: OAuthUse[], device = false) =>
+    request<OAuthSignInView>('POST', '/api/oauth/signins', { provider, uses, origin: location.origin, device }),
   oauthSignIn: (id: string) => request<OAuthSignInView>('GET', `/api/oauth/signins/${id}`),
   pasteOAuthAddress: (id: string, address: string) => request<OAuthSignInView>('POST', `/api/oauth/signins/${id}/address`, { address }),
   cancelOAuthSignIn: (id: string) => request<{ ok: true }>('DELETE', `/api/oauth/signins/${id}`),
@@ -361,6 +362,8 @@ export const api = {
   oauthCalendars: (id: string) => request<OAuthCalendar[]>('GET', `/api/oauth/accounts/${id}/calendars`),
   addOAuthCalendar: (id: string, b: { name: string; url: string }) =>
     request<ConnectorsView>('POST', `/api/oauth/accounts/${id}/calendars`, b),
+  /** An account's mail account, for the mail tools (it must have signed in for mail). */
+  addOAuthMail: (id: string) => request<ConnectorsView>('POST', `/api/oauth/accounts/${id}/mail`, {}),
   removeOAuthAccount: (id: string) =>
     request<OAuthView & { connectors: ConnectorsView; permissionsPages?: string[] }>('DELETE', `/api/oauth/accounts/${id}`),
   /** Send or discard what an agent asked to send (an outbox item); only Send sends it. */

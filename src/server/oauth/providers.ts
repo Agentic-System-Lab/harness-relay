@@ -1,4 +1,4 @@
-import type { OAuthProviderId, OAuthUse } from '../../shared/types';
+import type { MailServer, OAuthProviderId, OAuthUse } from '../../shared/types';
 import { CONFIG } from '../config';
 import { discoverCalendars } from '../connectors/caldav';
 import { graphCalendars } from '../connectors/graph';
@@ -6,9 +6,10 @@ import { graphCalendars } from '../connectors/graph';
 /*
  * The providers whose accounts sign in with OAuth, as descriptions rather than a class each: where
  * their sign-in is, the app (client) Harness Relay signs in with, the flows they allow, the scopes each
- * use asks for, and the only hosts their access tokens are sent to. What uses the token (Graph, CalDAV)
- * stays in its connector (`connectors/graph.ts`, `connectors/caldav.ts`), behind the calendar tools.
- * Adding a provider is a description here and a test.
+ * use asks for, the only hosts their access tokens are sent to, and their own mail servers (the only
+ * ones a token for mail goes to). What uses the token (Graph, CalDAV, IMAP and SMTP) stays in its
+ * connector (`connectors/graph.ts`, `connectors/caldav.ts`, `connectors/mailLogin.ts`), behind the
+ * calendar and mail tools. Adding a provider is a description here and a test.
  */
 
 /**
@@ -35,6 +36,12 @@ export interface OAuthIdentity {
   name?: string;
 }
 
+/** A provider's own mail servers: IMAP to read and save drafts, SMTP to send, each signed in to with XOAUTH2. */
+export interface MailServers {
+  imap: MailServer;
+  smtp: MailServer;
+}
+
 export interface OAuthProvider {
   id: OAuthProviderId;
   label: string;
@@ -43,13 +50,26 @@ export interface OAuthProvider {
   /** Google's "secret" for a desktop app, which is not one (it ships with the app); none for Microsoft's public clients. */
   clientSecret?: string;
   flows: OAuthFlow[];
+  /** What the sign-in page asks for, for these uses (with no use: only signing in, and who it is). */
   scopes(uses: readonly OAuthUse[]): string[];
+  /**
+   * For a provider whose access tokens are each for one resource (Microsoft: Graph's for who signed in
+   * and the calendar, Exchange Online's for IMAP and SMTP): the scopes a use's own access token is asked
+   * for, at a refresh, which serves that use alone; one refresh token serves them all. Undefined: one
+   * access token serves every use (Google's covers each scope granted), refreshed without asking for scopes.
+   */
+  tokenScopes?(use: OAuthUse): string[];
+  /**
+   * With `tokenScopes`: what the code exchange asks its token for (its `scope`, one resource's: Graph's,
+   * to ask who signed in), and the uses that token serves besides (the calendar's, not mail's).
+   */
+  signInToken?(uses: readonly OAuthUse[]): { scopes: string[]; uses: OAuthUse[] };
   /** The only hosts (with their port when not the usual one) the access token is sent to. */
   hosts: string[];
+  /** Its own IMAP and SMTP servers: the only ones a token for mail goes to. */
+  mail: MailServers;
   /** What the sign-in page is asked for besides the usual: Google's refresh token (`access_type=offline`). */
   extraParams?: Record<string, string>;
-  /** The refresh asks for the scopes again (Microsoft: a token for which resource). */
-  refreshWithScopes?: boolean;
   whoami(fetch: AuthorizedFetch): Promise<OAuthIdentity>;
   /** Its calendars, by name, at the addresses the calendar tools use. */
   calendars(fetch: AuthorizedFetch, email: string): Promise<{ name: string; url: string }[]>;
@@ -78,7 +98,7 @@ export function tokenHost(url: string): string {
   return new URL(url).host.toLowerCase();
 }
 
-/** The scopes the uses ask for besides signing in (Calendar's, for the calendar tools). */
+/** The scopes the uses ask for besides signing in (Calendar's for the calendar tools, mail's for the mail tools). */
 export function useScopes(provider: OAuthProvider, uses: readonly OAuthUse[]): string[] {
   const signIn = new Set(provider.scopes([]));
   return provider.scopes(uses).filter((s) => !signIn.has(s));
@@ -87,27 +107,69 @@ export function useScopes(provider: OAuthProvider, uses: readonly OAuthUse[]): s
 /**
  * Those of `needed` a token answer's `scope` (space-separated) does not grant. Compared by name,
  * without case, on the last part of the path: Microsoft names Graph's scopes there with or without
- * their resource (`https://graph.microsoft.com/Calendars.ReadWrite`, `Calendars.ReadWrite`).
+ * their resource (`https://graph.microsoft.com/Calendars.ReadWrite`, `Calendars.ReadWrite`); a scope
+ * that is an address of its own (Gmail's `https://mail.google.com/`) by its host.
  */
 export function missingScopes(needed: readonly string[], granted: string): string[] {
-  const name = (s: string) => s.toLowerCase().split('/').pop() ?? '';
+  const name = (s: string) => s.toLowerCase().replace(/\/+$/, '').split('/').pop() ?? '';
   const have = new Set(granted.split(/\s+/).filter(Boolean).map(name));
   return needed.filter((s) => !have.has(name(s)));
 }
 
-const GLOBAL_GRAPH = 'https://graph.microsoft.com';
-
-/** Microsoft's sign-in and Graph: the global cloud's, or those the environment sets (`config.ts`). */
-function microsoftUrls(): { login: string; graph: string } {
-  return { login: CONFIG.microsoftLoginUrl ?? 'https://login.microsoftonline.com', graph: CONFIG.microsoftGraphUrl ?? GLOBAL_GRAPH };
+/** The first of the uses whose own scopes `granted` (a token answer's `scope`) lacks, of those in `among` when given (the token's resource). */
+export function missingUse(
+  provider: OAuthProvider,
+  uses: readonly OAuthUse[],
+  granted: string,
+  among?: readonly string[],
+): OAuthUse | undefined {
+  return uses.find(
+    (use) =>
+      missingScopes(
+        useScopes(provider, [use]).filter((s) => !among || among.includes(s)),
+        granted,
+      ).length > 0,
+  );
 }
 
-/** Microsoft 365 and Outlook.com: Microsoft Entra's sign-in (`urls`: another cloud's, or a stand-in's), and Graph. */
-export function microsoftProvider(client: OAuthClient, urls = microsoftUrls()): OAuthProvider {
+const GLOBAL_GRAPH = 'https://graph.microsoft.com';
+/** Exchange Online, whose IMAP and SMTP take a token of its own (another resource than Graph's). */
+const OUTLOOK = 'https://outlook.office.com';
+
+/** Microsoft's mail servers for Microsoft 365 and Outlook.com. */
+export const MICROSOFT_MAIL: MailServers = {
+  imap: { host: 'outlook.office365.com', port: 993, security: 'tls' },
+  smtp: { host: 'smtp.office365.com', port: 587, security: 'starttls' },
+};
+
+/** Microsoft's sign-in, Graph and mail servers: the global cloud's, or those the environment sets (`config.ts`). */
+function microsoftUrls(): { login: string; graph: string; mail: MailServers } {
+  return {
+    login: CONFIG.microsoftLoginUrl ?? 'https://login.microsoftonline.com',
+    graph: CONFIG.microsoftGraphUrl ?? GLOBAL_GRAPH,
+    mail: { imap: CONFIG.microsoftImap ?? MICROSOFT_MAIL.imap, smtp: CONFIG.microsoftSmtp ?? MICROSOFT_MAIL.smtp },
+  };
+}
+
+/**
+ * Microsoft 365 and Outlook.com: Microsoft Entra's sign-in (`urls`: another cloud's, or a stand-in's),
+ * Graph, and Exchange Online's IMAP and SMTP. A token is for one resource: Graph's (who signed in, the
+ * calendar) or Exchange Online's (mail), each asked for with its own scopes from the one refresh token.
+ */
+export function microsoftProvider(
+  client: OAuthClient,
+  urls: { login: string; graph: string; mail?: MailServers } = microsoftUrls(),
+): OAuthProvider {
   const { login, graph } = urls;
   const tenant = encodeURIComponent(client.tenant?.trim() || 'common');
   // Graph's scopes by their short names in the global cloud; in another, by its own address.
   const graphScope = (name: string) => (graph === GLOBAL_GRAPH ? name : `${graph}/${name}`);
+  const signIn = ['openid', 'email', 'profile', 'offline_access'];
+  const onGraph = (uses: readonly OAuthUse[]) => [
+    graphScope('User.Read'),
+    ...(uses.includes('calendar') ? [graphScope('Calendars.ReadWrite')] : []),
+  ];
+  const mail = [`${OUTLOOK}/IMAP.AccessAsUser.All`, `${OUTLOOK}/SMTP.Send`];
   return {
     id: 'microsoft',
     label: 'Microsoft',
@@ -118,17 +180,13 @@ export function microsoftProvider(client: OAuthClient, urls = microsoftUrls()): 
     },
     clientId: client.clientId,
     flows: ['loopback', 'device'],
-    scopes: (uses) => [
-      'openid',
-      'email',
-      'profile',
-      'offline_access',
-      graphScope('User.Read'),
-      ...(uses.includes('calendar') ? [graphScope('Calendars.ReadWrite')] : []),
-    ],
+    // Graph's first: a token asked for without naming its resource is the first one's.
+    scopes: (uses) => [...signIn, ...onGraph(uses), ...(uses.includes('mail') ? mail : [])],
+    tokenScopes: (use) => [...signIn, ...(use === 'mail' ? mail : onGraph([use]))],
+    signInToken: (uses) => ({ scopes: [...signIn, ...onGraph(uses)], uses: uses.filter((u) => u !== 'mail') }),
     hosts: [tokenHost(graph)],
+    mail: urls.mail ?? MICROSOFT_MAIL,
     extraParams: { prompt: 'select_account' },
-    refreshWithScopes: true,
     whoami: async (fetch) => {
       const res = await fetch(`${graph}/v1.0/me?$select=id,displayName,mail,userPrincipalName`);
       if (!res.ok) throw new Error(`Microsoft Graph answered ${res.status} for the signed-in account`);
@@ -153,6 +211,12 @@ export interface GoogleUrls {
   caldav: string;
 }
 
+/** Gmail's servers. */
+export const GOOGLE_MAIL: MailServers = {
+  imap: { host: 'imap.gmail.com', port: 993, security: 'tls' },
+  smtp: { host: 'smtp.gmail.com', port: 465, security: 'tls' },
+};
+
 const GOOGLE: GoogleUrls = {
   authorize: 'https://accounts.google.com/o/oauth2/v2/auth',
   token: 'https://oauth2.googleapis.com/token',
@@ -161,8 +225,11 @@ const GOOGLE: GoogleUrls = {
   caldav: 'https://apidata.googleusercontent.com/caldav/v2',
 };
 
-/** Google Calendar: Google's sign-in, and its CalDAV with the token (`urls`: a stand-in's, in tests). */
-export function googleProvider(client: OAuthClient, urls: GoogleUrls = GOOGLE): OAuthProvider {
+/**
+ * Google Calendar and Gmail: Google's sign-in, its CalDAV with the token, and Gmail's IMAP and SMTP
+ * (`urls` and `mail`: a stand-in's, in tests). One access token covers every scope granted.
+ */
+export function googleProvider(client: OAuthClient, urls: GoogleUrls = GOOGLE, mail: MailServers = GOOGLE_MAIL): OAuthProvider {
   const defaultCalendar = (email: string) => ({ name: email, url: `${urls.caldav}/${encodeURIComponent(email)}/events/` });
   return {
     id: 'google',
@@ -170,12 +237,20 @@ export function googleProvider(client: OAuthClient, urls: GoogleUrls = GOOGLE): 
     endpoints: { authorize: urls.authorize, token: urls.token, revoke: urls.revoke },
     clientId: client.clientId,
     ...(client.secret ? { clientSecret: client.secret } : {}),
-    // Google's device flow takes a short list of scopes, without Calendar's.
+    // Google's device flow takes a short list of scopes, without Calendar's or Gmail's.
     flows: ['loopback'],
-    scopes: (uses) => ['openid', 'email', 'profile', ...(uses.includes('calendar') ? ['https://www.googleapis.com/auth/calendar'] : [])],
+    scopes: (uses) => [
+      'openid',
+      'email',
+      'profile',
+      ...(uses.includes('calendar') ? ['https://www.googleapis.com/auth/calendar'] : []),
+      ...(uses.includes('mail') ? ['https://mail.google.com/'] : []),
+    ],
     hosts: [...new Set([tokenHost(urls.caldav), tokenHost(urls.userinfo)])],
-    // A refresh token every time, also for an account that signed in before.
-    extraParams: { access_type: 'offline', prompt: 'consent' },
+    mail,
+    // A refresh token every time, also for an account that signed in before; and what was granted
+    // before kept (incremental consent): a sign-in for mail keeps the calendar's, and the other way round.
+    extraParams: { access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true' },
     whoami: async (fetch) => {
       const res = await fetch(urls.userinfo);
       if (!res.ok) throw new Error(`Google answered ${res.status} for the signed-in account`);

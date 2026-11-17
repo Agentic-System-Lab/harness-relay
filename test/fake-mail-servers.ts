@@ -2,10 +2,27 @@
  * Stand-ins for a mail account's servers, on local ports, for the mail and calendar tools' tests:
  * an IMAP server (sign-in, folders, search, fetch, append, with literals as servers send them), an
  * SMTP server (EHLO, AUTH, the envelope, DATA), and a CalDAV calendar (REPORT and PUT). Plain TCP and
- * HTTP on 127.0.0.1: what Harness Relay allows only for a server on this computer.
+ * HTTP on 127.0.0.1: what Harness Relay allows only for a server on this computer. With `bearer`, the
+ * IMAP and SMTP servers take SASL XOAUTH2 too, with the tokens it accepts, and refuse another as
+ * Gmail does (its reason in a continuation, then NO or 535) or as Microsoft does (NO or 535 at once).
  */
 import { createServer as createHttp, type Server as HttpServer } from 'node:http';
 import { createServer, type Server, type Socket } from 'node:net';
+
+/** Which tokens a stand-in takes over XOAUTH2 (for which user), and how it refuses another: as Gmail or as Microsoft does. */
+export interface FakeBearer {
+  bearer?: (user: string, token: string) => boolean;
+  refusal?: 'gmail' | 'microsoft';
+}
+
+/** The base64 JSON Gmail sends before it refuses a token (`{"status":"400","schemes":"Bearer","scope":"https://mail.google.com/"}`). */
+export const GMAIL_XOAUTH2_ERROR = Buffer.from('{"status":"400","schemes":"Bearer","scope":"https://mail.google.com/"}').toString('base64');
+
+/** The user and token in an XOAUTH2 initial response, or undefined when it is not one. */
+export function readXoauth2(b64: string): { user: string; token: string } | undefined {
+  const m = /^user=([^\x01]*)\x01auth=Bearer ([^\x01]*)\x01\x01$/.exec(Buffer.from(b64, 'base64').toString('utf8'));
+  return m ? { user: m[1]!, token: m[2]! } : undefined;
+}
 
 export interface FakeMessage {
   uid: number;
@@ -20,6 +37,8 @@ export interface FakeImap {
   /** Every command line as it came (literals as `{n}`), and each literal's text. */
   commands: string[];
   literals: string[];
+  /** The XOAUTH2 sign-ins it was given: their user and token, and whether it took them. */
+  xoauth2: { user: string; token: string; ok: boolean }[];
   appended: { folder: string; flags: string; raw: string }[];
   /** INBOX's UIDVALIDITY, which EXAMINE answers (change it to stand for a rebuilt folder). */
   uidValidity: number;
@@ -49,9 +68,14 @@ export interface FakeImap {
  * the array for mail that arrives). EXAMINE answers INBOX's UIDVALIDITY and UIDNEXT; `UID SEARCH` takes
  * a UID range (`n:*`, as RFC 3501 reads it).
  */
-export async function fakeImap(messages: FakeMessage[], login = { user: 'me@example.com', pass: 'app-pass' }): Promise<FakeImap> {
+export async function fakeImap(
+  messages: FakeMessage[],
+  login = { user: 'me@example.com', pass: 'app-pass' },
+  o: FakeBearer = {},
+): Promise<FakeImap> {
   const commands: string[] = [];
   const literals: string[] = [];
+  const xoauth2: FakeImap['xoauth2'] = [];
   const appended: FakeImap['appended'] = [];
   const fake: {
     uidValidity: number;
@@ -77,11 +101,33 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
     let line = '';
     let need = 0; // bytes of a literal still to read
     let parts: string[] = [];
+    /** An AUTHENTICATE XOAUTH2 under way: its tag, and whether its response or (after a refusal's continuation) the empty line comes next. */
+    let sasl: { tag: string; step: 'response' | 'refused' } | undefined;
     const send = (s: string) => sock.write(s);
-    send('* OK [CAPABILITY IMAP4rev1] fake IMAP ready\r\n');
+    send('* OK [CAPABILITY IMAP4rev1 AUTH=XOAUTH2] fake IMAP ready\r\n');
     const handle = (full: string, lits: string[]) => {
       commands.push(full);
       literals.push(...lits);
+      if (sasl) {
+        const { tag } = sasl;
+        if (sasl.step === 'refused') {
+          sasl = undefined;
+          return send(`${tag} NO [AUTHENTICATIONFAILED] Invalid credentials (Failure)\r\n`);
+        }
+        const given = readXoauth2(full);
+        const ok = Boolean(given && o.bearer?.(given.user, given.token));
+        if (given) xoauth2.push({ ...given, ok });
+        if (ok) {
+          sasl = undefined;
+          return send(`${tag} OK AUTHENTICATE completed.\r\n`);
+        }
+        if (o.refusal === 'microsoft') {
+          sasl = undefined;
+          return send(`${tag} NO AUTHENTICATE failed.\r\n`);
+        }
+        sasl.step = 'refused';
+        return send(`+ ${GMAIL_XOAUTH2_ERROR}\r\n`);
+      }
       if (full === 'DONE' && idling.has(sock)) {
         const tag = idling.get(sock)!;
         idling.delete(sock);
@@ -92,6 +138,11 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
       if (!m) return;
       const [, tag, rest] = m as unknown as [string, string, string];
       const cmd = rest.toUpperCase();
+      if (cmd === 'AUTHENTICATE XOAUTH2') {
+        if (!o.bearer) return send(`${tag} NO [CANNOT] Unsupported authentication mechanism\r\n`);
+        sasl = { tag, step: 'response' };
+        return send('+ \r\n');
+      }
       if (cmd.startsWith('LOGIN')) {
         const q = [...rest.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((x) => x[1]!.replace(/\\(.)/g, '$1'));
         return send(
@@ -204,6 +255,7 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
     port: (server.address() as { port: number }).port,
     commands,
     literals,
+    xoauth2,
     appended,
     get uidValidity() {
       return fake.uidValidity;
@@ -259,6 +311,8 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
 
 export interface FakeSmtp {
   port: number;
+  /** The XOAUTH2 sign-ins it was given: their user and token, and whether it took them. */
+  xoauth2: { user: string; token: string; ok: boolean }[];
   /** What each session did: its envelope and the message as DATA carried it (dot-stuffing undone). */
   sent: { from: string; to: string[]; data: string }[];
   lines: string[];
@@ -267,16 +321,19 @@ export interface FakeSmtp {
 
 export async function fakeSmtp(
   login = { user: 'me@example.com', pass: 'app-pass' },
-  o: { authLoginOnly?: boolean; refuse?: string } = {},
+  o: { authLoginOnly?: boolean; refuse?: string } & FakeBearer = {},
 ): Promise<FakeSmtp> {
   const sent: FakeSmtp['sent'] = [];
   const lines: string[] = [];
+  const xoauth2: FakeSmtp['xoauth2'] = [];
   const server = createServer((sock) => {
     let buf = '';
     let data: string | undefined;
     let from = '';
     let to: string[] = [];
     let loginStep = 0;
+    /** A refused XOAUTH2 waits for the client's empty line, then says 535 (as Gmail does). */
+    let refusedToken = false;
     sock.write('220 fake SMTP ready\r\n');
     sock.on('data', (chunk: Buffer) => {
       buf += chunk.toString('utf8');
@@ -296,7 +353,23 @@ export async function fakeSmtp(
         const line = buf.slice(0, eol);
         buf = buf.slice(eol + 2);
         lines.push(line);
-        if (loginStep === 1) {
+        if (refusedToken) {
+          refusedToken = false;
+          sock.write(
+            '535-5.7.8 Username and Password not accepted. For more information, go to\r\n535 5.7.8  https://support.google.com/mail/?p=BadCredentials fake\r\n',
+          );
+        } else if (/^AUTH XOAUTH2 /i.test(line)) {
+          const given = readXoauth2(line.slice('AUTH XOAUTH2 '.length));
+          const ok = Boolean(o.bearer && given && o.bearer(given.user, given.token));
+          if (given) xoauth2.push({ ...given, ok });
+          if (!o.bearer) sock.write('504 5.7.4 Unrecognized authentication type\r\n');
+          else if (ok) sock.write('235 2.7.0 Accepted\r\n');
+          else if (o.refusal === 'microsoft') sock.write('535 5.7.3 Authentication unsuccessful [FAKE.prod.outlook.com]\r\n');
+          else {
+            refusedToken = true;
+            sock.write(`334 ${GMAIL_XOAUTH2_ERROR}\r\n`);
+          }
+        } else if (loginStep === 1) {
           loginStep = Buffer.from(line, 'base64').toString() === login.user ? 2 : -1;
           sock.write('334 UGFzc3dvcmQ6\r\n');
         } else if (loginStep === 2 || loginStep === -1) {
@@ -304,7 +377,9 @@ export async function fakeSmtp(
           loginStep = 0;
           sock.write(ok ? '235 ok\r\n' : '535 bad credentials\r\n');
         } else if (/^EHLO/i.test(line))
-          sock.write(`250-fake\r\n250-SIZE 1000000\r\n250 AUTH ${o.authLoginOnly ? 'LOGIN' : 'PLAIN LOGIN'}\r\n`);
+          sock.write(
+            `250-fake\r\n250-SIZE 1000000\r\n250 AUTH ${o.authLoginOnly ? 'LOGIN' : 'PLAIN LOGIN'}${o.bearer ? ' XOAUTH2' : ''}\r\n`,
+          );
         else if (/^AUTH PLAIN /i.test(line)) {
           const ok = Buffer.from(line.slice(11), 'base64').toString() === `\0${login.user}\0${login.pass}`;
           sock.write(ok ? '235 2.7.0 Authentication successful\r\n' : '535 5.7.8 bad credentials\r\n');
@@ -334,7 +409,13 @@ export async function fakeSmtp(
     sock.on('error', () => undefined);
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
-  return { port: (server.address() as { port: number }).port, sent, lines, close: () => new Promise((r) => server.close(() => r())) };
+  return {
+    port: (server.address() as { port: number }).port,
+    xoauth2,
+    sent,
+    lines,
+    close: () => new Promise((r) => server.close(() => r())),
+  };
 }
 
 export interface FakeCalDav {

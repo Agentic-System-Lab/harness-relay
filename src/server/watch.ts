@@ -4,7 +4,8 @@ import { TRACKING_LIMITS, WATCH_LIMITS, type ScheduleTrigger, type ScheduleWatch
 import type { ConnectorStore } from './connectors/accounts';
 import { calendarBackend, type CalendarOAuth } from './connectors/calendar';
 import type { CalendarEvent } from './connectors/caldav';
-import { ImapClient, parseFetch, quote, type ImapResponse } from './connectors/imap';
+import { parseFetch, quote, type ImapResponse } from './connectors/imap';
+import { mailLogin, openImap, type MailOAuth } from './connectors/mailLogin';
 import { parseHeaders, readMail } from './connectors/mime';
 import { t } from './i18n';
 import { CommandNotFoundError, runProcess, tail, type SpawnResult } from './process';
@@ -15,7 +16,7 @@ import { DEFAULT_EXCLUDES } from './workspace';
  * What an automation that starts when something happens waits for (`ScheduleRepeat` `event`), checked
  * by Harness Relay itself (the scheduler calls `checkTrigger()` every few minutes): no address, no
  * token, nothing listening beyond 127.0.0.1. The first check only records what is there; later ones
- * find what came since. The passwords stay in the server, as they do for the mail tools.
+ * find what came since. The passwords and tokens stay in the server, as they do for the mail tools.
  *
  * A new mail: the folder's UIDVALIDITY and the highest UID seen are kept (`ScheduleWatch`); a check asks
  * for the UIDs above it (`UID SEARCH UID n:*`), reads their senders and subjects, keeps those the
@@ -233,18 +234,22 @@ export function internalDate(v: string | undefined): number | undefined {
   return Date.UTC(Number(m[3]), month, Number(m[1]), Number(m[4]), Number(m[5]), Number(m[6])) - offset;
 }
 
-/** A new mail in the trigger's folder since `prev` (the first check records what is there). */
+/**
+ * A new mail in the trigger's folder since `prev` (the first check records what is there). The account
+ * signs in with its password, or through its OAuth account with a token for mail (`oauth`); one that
+ * needs a new sign-in is the check's error.
+ */
 export async function checkMail(
   trigger: Extract<ScheduleTrigger, { source: 'mail' }>,
   prev: ScheduleWatch | undefined,
   connectors: ConnectorStore,
   timeoutMs = 30_000,
+  oauth?: MailOAuth,
 ): Promise<WatchCheck> {
   const found = connectors.mailById(trigger.account);
   if (!found) throw new Error(t().watchNoAccount);
-  if (!found.password) throw new Error(t().watchNoPassword(found.account.name));
-  const { account, password } = found;
-  const c = await ImapClient.open(account.imap, { username: account.username, password }, timeoutMs);
+  const { account } = found;
+  const c = await openImap(mailLogin(account, found.password, oauth), timeoutMs);
   try {
     const opened = await c.command(`EXAMINE ${quote(trigger.folder)}`).catch((err: Error) => {
       throw new Error(t().watchNoFolder(trigger.folder, err.message));
@@ -808,11 +813,11 @@ export async function checkFiles(
 }
 
 /** Checks a trigger's source with the accounts in Settings (and gh, and the working directory). */
-export function checkTrigger(connectors: ConnectorStore, oauth?: CalendarOAuth, gh: GhRunner = runGh): TriggerChecker {
+export function checkTrigger(connectors: ConnectorStore, oauth?: CalendarOAuth & MailOAuth, gh: GhRunner = runGh): TriggerChecker {
   return (trigger, prev, ctx) => {
     switch (trigger.source) {
       case 'mail':
-        return checkMail(trigger, prev, connectors);
+        return checkMail(trigger, prev, connectors, undefined, oauth);
       case 'calendar':
         return checkCalendar(trigger, prev, connectors, oauth, ctx.now);
       case 'github':

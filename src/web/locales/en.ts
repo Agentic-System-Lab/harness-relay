@@ -595,7 +595,8 @@ export const en: Messages = {
         file: 'A file appears or changes in the working directory',
       },
       account: 'Mail account',
-      noAccounts: 'There is no mail account yet: add one in Settings → Tool library → Mail and calendar first (with an app password).',
+      noAccounts:
+        'There is no mail account yet: add one in Settings → Tool library → Mail and calendar first (with an app password, or signed in in the browser with Microsoft 365, Outlook.com or Gmail).',
       openSettings: 'Open Settings',
       folder: 'Folder',
       from: 'The sender contains (optional)',
@@ -735,7 +736,7 @@ export const en: Messages = {
   },
   connectors: {
     title: 'Mail and calendar accounts',
-    hint: "The accounts the Mail and Calendar tools use, over IMAP, SMTP and CalDAV with an app password (most providers offer one in their security settings; Gmail's needs 2-Step Verification). Microsoft 365, Outlook.com and Google Calendar take no app password: use Accounts you sign in to below.",
+    hint: "The accounts the Mail and Calendar tools use, over IMAP, SMTP and CalDAV with an app password (most providers offer one in their security settings; Gmail's needs 2-Step Verification). Microsoft 365 and Outlook.com mail, and Microsoft's and Google's calendars, take no app password: use Accounts you sign in to below (Gmail takes either).",
     // Follows the hint directly: its own space first.
     passwordsIn: (where) => ` Passwords are kept in ${where}, and never shown, not even in part.`,
     mail: 'Mail',
@@ -772,8 +773,13 @@ export const en: Messages = {
     oauth: {
       title: 'Accounts you sign in to',
       hint: (where) =>
-        `Microsoft 365, Outlook.com and Google Calendar sign in in the browser instead of with a password. Harness Relay runs the sign-in itself; the tokens are kept in ${where}, go only to the account's own service, and agents never get them.`,
-      providers: { microsoft: 'Microsoft 365 / Outlook.com', google: 'Google Calendar' },
+        `Microsoft 365, Outlook.com and Google (Gmail, Google Calendar) sign in in the browser instead of with a password, for calendars, mail or both. Harness Relay runs the sign-in itself; the tokens are kept in ${where}, go only to the account's own service and its own mail servers, and agents never get them.`,
+      providers: { microsoft: 'Microsoft 365 / Outlook.com', google: 'Google' },
+      uses: { calendar: 'Calendars', mail: 'Mail' },
+      signInFor: 'A new sign-in is for:',
+      usedFor: (uses) => `Used for: ${uses}`,
+      useFor: { calendar: 'Use for calendars', mail: 'Use for mail' },
+      mailAdded: (email) => `The mail of ${email} was added to the mail tools.`,
       signIn: (provider) => `Sign in with ${provider}`,
       onAnotherDevice: 'Sign in on another device',
       signInAgain: 'Sign in again',
@@ -784,7 +790,7 @@ export const en: Messages = {
       added: 'Added',
       loadingCalendars: 'Reading the calendars…',
       remove: 'Remove',
-      confirmRemove: (email) => `Remove ${email}? Its tokens and the calendars reached through it are removed too.`,
+      confirmRemove: (email) => `Remove ${email}? Its tokens, and the calendars and mail accounts reached through it, are removed too.`,
       removedMicrosoft: (pages) =>
         `Removed. Microsoft cannot revoke one token: to take Harness Relay's access away entirely, remove it at ${pages}.`,
       app: 'The app to sign in with',
@@ -798,9 +804,9 @@ export const en: Messages = {
       secretHint: 'The "secret" Google gives a desktop app is not one, but it is needed; it is kept in the credential store.',
       redirects: 'Allow these redirect addresses in the app’s settings:',
       microsoftApp:
-        'Register an app in the Microsoft Entra admin center: accounts in any organizational directory and personal Microsoft accounts, the platform "Mobile and desktop applications", "Allow public client flows" on (to sign in on another device), and the API permissions Calendars.ReadWrite and offline_access.',
+        'Register an app in the Microsoft Entra admin center: accounts in any organizational directory and personal Microsoft accounts, the platform "Mobile and desktop applications", "Allow public client flows" on (to sign in on another device), and the API permissions Calendars.ReadWrite and offline_access of Microsoft Graph; for mail, IMAP.AccessAsUser.All and SMTP.Send of Office 365 Exchange Online too (and SMTP AUTH on for the mailbox).',
       googleApp:
-        'Create an OAuth client of the type "Desktop app" in the Google Cloud console, enable the Google Calendar API and the CalDAV API, and add the …/auth/calendar scope to the OAuth consent screen. While the app is in Testing, add your own Google account to the consent screen’s Test users, or Google refuses the sign-in; its sign-ins also stop working every 7 days then.',
+        'Create an OAuth client of the type "Desktop app" in the Google Cloud console, enable the Google Calendar API and the CalDAV API, and add the …/auth/calendar scope to the OAuth consent screen; for mail, the https://mail.google.com/ scope too. While the app is in Testing, add your own Google account to the consent screen’s Test users, or Google refuses the sign-in; its sign-ins also stop working every 7 days then.',
       waiting: (provider) => `Waiting for ${provider}'s sign-in page…`,
       openAgain: 'Open the sign-in page again',
       pasteHint:
@@ -2143,7 +2149,7 @@ export const en: Messages = {
           'MCP servers: a local command or a URL; tokens go to your system credential store',
           'Skills: pick the skills to add from a folder (such as ~/.claude/skills)',
           'Memory: one part for everyone, plus one for each CLI',
-          "Harness Relay's own tools: a browser of its own, and your mail and calendar (add the accounts there, with an app password; Microsoft 365, Outlook.com and Google Calendar sign in in the browser instead, their tokens kept in your credential store)",
+          "Harness Relay's own tools: a browser of its own, and your mail and calendar (add the accounts there, with an app password; Microsoft 365, Outlook.com and Google mail and calendars can sign in in the browser instead, their tokens kept in your credential store)",
           'Give each item only to some CLIs; the team settings can change it for a single member',
         ],
       },

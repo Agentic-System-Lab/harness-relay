@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { CliInstallBlock, Permission } from '../shared/types';
+import type { CliInstallBlock, OAuthUse, Permission } from '../shared/types';
 import { LANGS, type Lang } from '../shared/types';
 
 /*
@@ -511,6 +511,10 @@ const zhTW = {
   oauthCallbackTooOften: '登入的回呼太多次失敗了：請稍後再試',
   oauthAppChanged: '登入時用的 app 在「設定」裡換掉了',
   oauthNoCalendarAccess: (provider: string) => `${provider} 沒有給行事曆的存取權限：請重新登入，並在登入頁面上允許存取你的行事曆`,
+  oauthNoMailAccess: (provider: string) => `${provider} 沒有給郵件的存取權限：請重新登入，並在登入頁面上允許存取你的郵件`,
+  oauthNotFor: (email: string, use: OAuthUse) =>
+    `${email} 登入時沒有允許${use === 'mail' ? '郵件' : '行事曆'}：請先在「設定 → 工具庫」為它按「${use === 'mail' ? '用於郵件' : '用於行事曆'}」`,
+  oauthMailFixed: '這個郵件帳號是透過登入的帳號使用的，用的是該服務自己的伺服器，不能改成用密碼或其他伺服器：請移除它，再重新加入',
   oauthSignInCancelled: '這次登入已經取消，或是它用的 app 在「設定」裡換掉了',
   oauthSecretNotSaved: (why: string) => `無法把 app 的用戶端密碼存進憑證儲存區：${why}`,
   watchNoAccount: '找不到這個自動任務要檢查的郵件帳號：請到「設定 → 工具庫 → 郵件與行事曆」新增，或重新選一個',
@@ -563,6 +567,7 @@ const zhTW = {
     mailClosed: '郵件伺服器關閉了連線',
     mailRefused: (text: string) => `郵件伺服器拒絕連線：${text}`,
     mailLogin: (why: string) => `郵件伺服器不接受這組使用者名稱與密碼：${why}`,
+    mailTokenRefused: (why: string) => `郵件伺服器不接受登入的權杖：${why}`,
     mailNoAnswer: (seconds: number) => `郵件伺服器在 ${seconds} 秒內沒有回應`,
     mailIdleEnded: (line: string) => `郵件伺服器結束了等待新郵件的連線：${line}`,
     calTooMuch: '行事曆送來的內容超過一個回應能有的大小',
@@ -621,6 +626,7 @@ const zhTW = {
   connectorBadAddress: (field: string) => `${field} 不是有效的電子郵件地址`,
   connectorBadUrl: '行事曆網址應為 https（連到這台電腦時可以用 http），而且不能含帳號密碼',
   connectorTestOk: '連線成功，帳號與密碼可以使用。',
+  connectorTestOkSignedIn: '連線成功，登入可以使用。',
   connectorTestFailed: (why: string) => `連不上：${why}`,
   connectorDiscoverFailed: (why: string) => `找不到行事曆：${why}`,
 
@@ -1310,6 +1316,12 @@ const en: ServerMessages = {
   oauthAppChanged: 'the app it signed in with was changed in Settings',
   oauthNoCalendarAccess: (provider) =>
     `${provider} did not give access to the calendar: sign in again, and allow access to your calendar on the sign-in page`,
+  oauthNoMailAccess: (provider) =>
+    `${provider} did not give access to mail: sign in again, and allow access to your mail on the sign-in page`,
+  oauthNotFor: (email, use) =>
+    `${email} was not signed in for ${use === 'mail' ? 'mail' : 'calendars'}: click ${use === 'mail' ? 'Use for mail' : 'Use for calendars'} for it in Settings → Tool library first`,
+  oauthMailFixed:
+    "This mail account is reached through an account that signed in, at its provider's own servers, not with a password or other servers: remove it and add it again",
   oauthSignInCancelled: 'The sign-in was cancelled, or the app it signed in with was changed in Settings',
   oauthSecretNotSaved: (why) => `The app's client secret could not be saved in the credential store: ${why}`,
   watchNoAccount:
@@ -1361,6 +1373,7 @@ const en: ServerMessages = {
     mailClosed: 'The mail server closed the connection',
     mailRefused: (text) => `The mail server refused the connection: ${text}`,
     mailLogin: (why) => `The mail server did not accept the user name and password: ${why}`,
+    mailTokenRefused: (why) => `The mail server did not accept the sign-in's token: ${why}`,
     mailNoAnswer: (seconds) => `The mail server did not answer in ${seconds} seconds`,
     mailIdleEnded: (line) => `The mail server ended the connection waiting for new mail: ${line}`,
     calTooMuch: 'The calendar answered with more than an answer may hold',
@@ -1420,6 +1433,7 @@ const en: ServerMessages = {
   connectorBadAddress: (field) => `${field} is not a valid mail address`,
   connectorBadUrl: "The calendar's address must be https (http only to this computer), without a user name or password in it",
   connectorTestOk: 'Connected: the user name and password work.',
+  connectorTestOkSignedIn: 'Connected: the sign-in works.',
   connectorTestFailed: (why) => `Not connected: ${why}`,
   connectorDiscoverFailed: (why) => `No calendars found: ${why}`,
 

@@ -150,6 +150,11 @@ export class OAuthStore {
     return this.data.accounts.find((a) => a.id === id);
   }
 
+  /** The account a provider knows by this id (a sign-in of it again updates it). */
+  bySubject(provider: OAuthProviderId, subject: string): StoredAccount | undefined {
+    return this.data.accounts.find((a) => a.provider === provider && a.subject === subject);
+  }
+
   /** An account's refresh token ('' when none can be read). */
   refreshToken(id: string): string {
     return this.secret(`oauth-${id}`);
@@ -162,9 +167,9 @@ export class OAuthStore {
 
   /**
    * A sign-in that worked: the account it signed in (the same one again, by the provider's id for it,
-   * keeps its id and what uses it), connected, with its refresh token and the scopes granted. The
-   * refresh token is stored first: when the credential store refuses it, nothing changes (no account
-   * shown as connected without one).
+   * keeps its id, and what uses it besides this sign-in's uses: incremental consent), connected, with its
+   * refresh token and the scopes granted (with those before). The refresh token is stored first: when
+   * the credential store refuses it, nothing changes (no account shown as connected without one).
    */
   signedIn(
     provider: OAuthProviderId,
@@ -174,7 +179,7 @@ export class OAuthStore {
     refreshToken: string,
     now: number,
   ): OAuthAccountView {
-    let account = this.data.accounts.find((a) => a.provider === provider && a.subject === who.subject);
+    let account = this.bySubject(provider, who.subject);
     if (!account) {
       if (this.data.accounts.length >= CONNECTOR_LIMITS.accounts) throw new HttpError(400, t().connectorTooMany(CONNECTOR_LIMITS.accounts));
       const id = this.newId(provider, who.email);
@@ -186,7 +191,7 @@ export class OAuthStore {
     if (who.name) account.name = who.name;
     else delete account.name;
     account.uses = [...new Set([...account.uses, ...uses])];
-    account.scopes = scopes;
+    account.scopes = [...new Set([...account.scopes, ...scopes])];
     account.status = 'connected';
     account.connectedAt = now;
     delete account.error;

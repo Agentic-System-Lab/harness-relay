@@ -3,10 +3,11 @@ import { connect as connectTls, type TLSSocket } from 'node:tls';
 import { t } from '../i18n';
 
 /*
- * A small IMAP4rev1 client, enough for the mail tools: sign in (LOGIN), list the folders (to find the
- * drafts), search a folder, fetch headers and messages, and append a draft. A connection serves one
- * tool call and is closed after it. TLS from the start (port 993) or STARTTLS; plain only to this
- * computer (a local bridge, the tests' stand-in server).
+ * A small IMAP4rev1 client, enough for the mail tools: sign in (LOGIN with a password, or SASL XOAUTH2
+ * with an OAuth account's token), list the folders (to find the drafts), search a folder, fetch headers
+ * and messages, and append a draft. A connection serves one tool call and is closed after it. TLS from
+ * the start (port 993) or STARTTLS; plain only to this computer (a local bridge, the tests' stand-in
+ * server).
  */
 
 export type MailSecurity = 'tls' | 'starttls' | 'none';
@@ -17,9 +18,35 @@ export interface ServerAddress {
   security: MailSecurity;
 }
 
-export interface Login {
-  username: string;
-  password: string;
+/** How a mail server is signed in to: a user name with its password, or with an OAuth access token (SASL XOAUTH2). */
+export type Login = { username: string; password: string } | { username: string; token: string };
+
+/**
+ * SASL XOAUTH2's initial response (Google's and Microsoft's IMAP and SMTP): the user and the token, in
+ * base64. Neither may hold a line break or the ^A that separates them.
+ */
+export function xoauth2(username: string, token: string): string {
+  if (/[\x00-\x1f\x7f]/.test(username) || /[\x00-\x1f\x7f\s]/.test(token))
+    throw new Error('A line break cannot be sent to the mail server');
+  return Buffer.from(`user=${username}\x01auth=Bearer ${token}\x01\x01`).toString('base64');
+}
+
+/**
+ * What a server's XOAUTH2 refusal says (base64 JSON, `{"status":"401","schemes":"bearer","scope":…}`),
+ * in a few words: its status, or its text when it is not JSON.
+ */
+export function xoauth2Detail(b64: string): string {
+  const text = Buffer.from(b64.trim(), 'base64').toString('utf8');
+  try {
+    const v = JSON.parse(text) as { status?: unknown };
+    if (typeof v.status === 'string' || typeof v.status === 'number') return `status ${String(v.status).slice(0, 20)}`;
+  } catch {
+    /* not JSON */
+  }
+  return text
+    .replace(/[^\x20-\x7e]+/g, ' ')
+    .trim()
+    .slice(0, 200);
 }
 
 /** One response: its text (literals left as `{n}`) and the literals in it, in order. */
@@ -211,7 +238,7 @@ class ResponseReader {
   }
 }
 
-/** The server refused the user name and password (LOGIN): trying again soon will not help. */
+/** The server refused the user name and password (LOGIN), or the token (XOAUTH2): trying again soon with the same will not help. */
 export class ImapLoginError extends Error {}
 
 /** The server refused IDLE although it may list it: waiting for mail that way will not work there. */
@@ -247,9 +274,14 @@ export class ImapClient {
         c.sock = await upgrade(c.sock as Socket, addr.host, timeoutMs);
         c.reader.attach(c.sock);
       }
-      await c.command(`LOGIN ${quote(login.username)} ${quote(login.password)}`).catch((err: Error) => {
-        throw new ImapLoginError(t().conn.mailLogin(err.message));
-      });
+      if ('token' in login)
+        await c.authenticate(login.username, login.token).catch((err: Error) => {
+          throw new ImapLoginError(t().conn.mailTokenRefused(err.message));
+        });
+      else
+        await c.command(`LOGIN ${quote(login.username)} ${quote(login.password)}`).catch((err: Error) => {
+          throw new ImapLoginError(t().conn.mailLogin(err.message));
+        });
       const caps = await c.command('CAPABILITY');
       for (const r of caps.untagged) {
         const m = /^\* CAPABILITY (.*)$/i.exec(r.text);
@@ -259,6 +291,39 @@ export class ImapClient {
     } catch (err) {
       c.sock.destroy();
       throw err;
+    }
+  }
+
+  /**
+   * Signs in with SASL XOAUTH2 (RFC 3501 AUTHENTICATE): the command, the server's go-ahead (`+`), then
+   * the user and token in one base64 line. A server that refuses the token says why in a `+` line of
+   * its own first (base64 JSON), answered with an empty line, and then its tagged NO.
+   */
+  private async authenticate(username: string, token: string): Promise<void> {
+    const initial = xoauth2(username, token);
+    const tag = `R${++this.tag}`;
+    this.sock.write(`${tag} AUTHENTICATE XOAUTH2\r\n`);
+    for (;;) {
+      const r = await this.timed(this.reader.next());
+      if (r.text.startsWith('+')) break;
+      if (r.text.startsWith(`${tag} `)) throw new Error(r.text.slice(tag.length + 1).replace(/^(NO|BAD)\s*/i, ''));
+    }
+    this.sock.write(`${initial}\r\n`);
+    let detail = '';
+    for (let asked = 0; ;) {
+      const r = await this.timed(this.reader.next());
+      if (r.text.startsWith('+')) {
+        // Once: a server that keeps asking is not one that takes the token.
+        if (++asked > 1) throw new Error(detail || r.text);
+        detail = xoauth2Detail(r.text.slice(1));
+        this.sock.write('\r\n');
+        continue;
+      }
+      // Untagged responses before the answer (a CAPABILITY) are read past.
+      if (!r.text.startsWith(`${tag} `)) continue;
+      const status = r.text.slice(tag.length + 1);
+      if (/^OK/i.test(status)) return;
+      throw new Error([status.replace(/^(NO|BAD)\s*/i, '') || status, detail && `(${detail})`].filter(Boolean).join(' '));
     }
   }
 

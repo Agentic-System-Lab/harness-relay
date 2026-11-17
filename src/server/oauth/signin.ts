@@ -1,9 +1,16 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { OAUTH_LIMITS, type OAuthAccountView, type OAuthProviderId, type OAuthSignInView, type OAuthUse } from '../../shared/types';
+import {
+  OAUTH_LIMITS,
+  OAUTH_USES,
+  type OAuthAccountView,
+  type OAuthProviderId,
+  type OAuthSignInView,
+  type OAuthUse,
+} from '../../shared/types';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
-import { hostOnlyFetch, tokenError, tokenRequest, type TokenAnswer } from './broker';
-import { missingScopes, useScopes, type OAuthProvider } from './providers';
+import { hostOnlyFetch, tokenError, tokenRequest, type AccessToken, type TokenAnswer } from './broker';
+import { missingUse, type OAuthProvider } from './providers';
 
 /*
  * Signing an account in with OAuth. The server runs the sign-in; the page only starts it and shows how
@@ -21,18 +28,35 @@ import { missingScopes, useScopes, type OAuthProvider } from './providers';
  *   (that same signed-in browser only).
  * - Where the provider allows it for the scopes (Microsoft), the device code flow: a code typed at the
  *   provider's address on any device, while the server asks the provider until it is done.
+ *
+ * What was granted is checked for each use of the sign-in, when the provider's answer says: a sign-in
+ * without its use's own scopes would look connected, and fail at its first request. Where a token is
+ * for one resource (Microsoft), the code exchange asks for Graph's (who signed in, the calendar), and
+ * each use on another resource (mail, on Exchange Online) gets its own token at once, with the refresh
+ * token, its scopes checked in its own answer.
  */
 
 /** A sign-in that worked, for the service to keep: who signed in and the tokens. */
 export interface SignedIn {
   provider: OAuthProviderId;
   uses: OAuthUse[];
-  tokens: TokenAnswer & { access_token: string; refresh_token: string };
+  /** The refresh token: the newest, when asking for another use's token rotated it. */
+  refreshToken: string;
+  /** The access tokens it got, each with the uses it serves: the sign-in's own first, which asks who signed in. */
+  access: AccessToken[];
+  /** The scopes granted (those asked for, when the answers did not say). */
   scopes: string[];
+  /** What the sign-in's own token was granted, as its answer said (`scope`); undefined when it did not say. */
+  granted?: string;
   whoami: OAuthProvider['whoami'];
   hosts: string[];
   /** Whether it is still wanted: not cancelled, nor its app changed, while who signed in is asked. */
   live: () => boolean;
+}
+
+/** Why a sign-in fails that was not given a use's access. */
+export function noAccess(provider: string, use: OAuthUse): string {
+  return use === 'mail' ? t().oauthNoMailAccess(provider) : t().oauthNoCalendarAccess(provider);
 }
 
 interface Pending {
@@ -272,6 +296,7 @@ export class SignIns {
 
   private async finish(p: Pending, o: { code?: string; error?: string }): Promise<OAuthSignInView> {
     const scopes = p.provider.scopes(p.uses);
+    const own = p.provider.signInToken?.(p.uses);
     try {
       if (o.error || !o.code) throw new Error(t().oauthRefused(p.provider.label, o.error ?? t().oauthNoCode));
       const { status, body } = await tokenRequest(p.provider, {
@@ -279,6 +304,8 @@ export class SignIns {
         code: o.code,
         redirect_uri: p.redirectUri!,
         code_verifier: p.verifier!,
+        // A token for one resource (Microsoft's Graph, to ask who signed in), named rather than left to the first one asked.
+        ...(own ? { scope: own.scopes.join(' ') } : {}),
       });
       // Cancelled, or its app changed, while the code was exchanged: nothing it brought is kept.
       if (!this.live(p)) throw new Error(t().oauthSignInCancelled);
@@ -329,21 +356,57 @@ export class SignIns {
   }
 
   private async signedIn(p: Pending, status: number, body: TokenAnswer, scopes: string[]): Promise<void> {
-    if (!body.access_token) throw new Error(t().oauthRefused(p.provider.label, tokenError(status, body)));
-    // What was granted, when the answer says (Google lets the user untick Calendar on its page): a sign-in
-    // without its use's own scopes would look connected, and fail at its first request.
-    if (typeof body.scope === 'string' && missingScopes(useScopes(p.provider, p.uses), body.scope).length)
-      throw new Error(t().oauthNoCalendarAccess(p.provider.label));
+    const { provider } = p;
+    if (!body.access_token) throw new Error(t().oauthRefused(provider.label, tokenError(status, body)));
+    // The uses the sign-in's own token serves: on its resource (Microsoft's Graph), or every one (Google's).
+    const own = provider.signInToken?.(p.uses);
+    const ownUses = own ? own.uses : p.uses;
+    // What was granted, when the answer says (Google lets the user untick Calendar or Gmail on its page).
+    if (typeof body.scope === 'string') {
+      const missing = missingUse(provider, ownUses, body.scope, own?.scopes);
+      if (missing) throw new Error(noAccess(provider.label, missing));
+    }
     // No refresh token: the account could be used for an hour only (Google gives one only with access_type=offline).
-    if (!body.refresh_token) throw new Error(t().oauthNoRefresh(p.provider.label));
-    const tokens = body as SignedIn['tokens'];
+    if (!body.refresh_token) throw new Error(t().oauthNoRefresh(provider.label));
+    let refreshToken = body.refresh_token;
+    const granted = new Set(body.scope ? body.scope.split(/\s+/).filter(Boolean) : scopes);
+    const access: AccessToken[] = [
+      { uses: own ? own.uses : OAUTH_USES, token: body.access_token, ...(body.expires_in ? { expiresIn: body.expires_in } : {}) },
+    ];
+    // Each use on another resource (Microsoft's mail): its own token now, its access checked in its answer.
+    for (const use of p.uses) {
+      if (!provider.tokenScopes || ownUses.includes(use)) continue;
+      if (!this.live(p)) throw new Error(t().oauthSignInCancelled);
+      const r = await tokenRequest(provider, {
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        scope: provider.tokenScopes(use).join(' '),
+      });
+      if (!r.body.access_token) {
+        // Refused that resource's scopes: the sign-in did not give the use's access.
+        if (
+          r.body.error === 'invalid_grant' ||
+          r.body.error === 'consent_required' ||
+          r.body.error === 'interaction_required' ||
+          r.body.error === 'invalid_scope'
+        )
+          throw new Error(`${noAccess(provider.label, use)} (${tokenError(r.status, r.body)})`);
+        throw new Error(t().oauthRefused(provider.label, tokenError(r.status, r.body)));
+      }
+      if (typeof r.body.scope === 'string' && missingUse(provider, [use], r.body.scope)) throw new Error(noAccess(provider.label, use));
+      if (r.body.refresh_token) refreshToken = r.body.refresh_token;
+      for (const s of r.body.scope ? r.body.scope.split(/\s+/).filter(Boolean) : provider.tokenScopes(use)) granted.add(s);
+      access.push({ uses: [use], token: r.body.access_token, ...(r.body.expires_in ? { expiresIn: r.body.expires_in } : {}) });
+    }
     p.account = await this.keep({
-      provider: p.provider.id,
+      provider: provider.id,
       uses: p.uses,
-      tokens,
-      scopes: body.scope ? body.scope.split(/\s+/).filter(Boolean) : scopes,
-      whoami: p.provider.whoami,
-      hosts: p.provider.hosts,
+      refreshToken,
+      access,
+      scopes: [...granted],
+      ...(typeof body.scope === 'string' ? { granted: body.scope } : {}),
+      whoami: provider.whoami,
+      hosts: provider.hosts,
       live: () => this.live(p),
     });
     p.status = 'done';
@@ -359,7 +422,7 @@ export class SignIns {
   }
 }
 
-/** A fetch with a token a sign-in just got: to its provider's hosts only, to ask who signed in. */
+/** A fetch with the token a sign-in just got: to its provider's hosts only, to ask who signed in. */
 export function signInFetch(s: SignedIn) {
-  return hostOnlyFetch(s.hosts, async () => s.tokens.access_token);
+  return hostOnlyFetch(s.hosts, async () => s.access[0]!.token);
 }

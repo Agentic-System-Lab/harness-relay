@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
-import { DEFAULT_LIMITS, type ServerLimits } from '../shared/types';
+import { DEFAULT_LIMITS, type MailServer, type ServerLimits } from '../shared/types';
 
 /**
  * What the server's environment sets at startup besides its port, host and data folder
@@ -31,6 +31,14 @@ export interface ServerConfig extends ServerLimits {
    */
   microsoftLoginUrl?: string;
   microsoftGraphUrl?: string;
+  /**
+   * The mail servers an account that signs in with Microsoft is reached at for the mail tools
+   * (`RELAY_MICROSOFT_IMAP`, `RELAY_MICROSOFT_SMTP`, as `host:port`): another cloud's, or a stand-in
+   * on this computer in the end-to-end tests, the only place plain TCP goes to. undefined =
+   * `outlook.office365.com:993` (TLS) and `smtp.office365.com:587` (STARTTLS).
+   */
+  microsoftImap?: MailServer;
+  microsoftSmtp?: MailServer;
 }
 
 /** The whole numbers each limit may be set to: from one, and below a value no setup needs, to catch a typo. */
@@ -104,6 +112,23 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     return undefined;
   };
 
+  // A mail server a token goes to, as `host:port`: TLS, or STARTTLS on the port that asks for it
+  // (IMAP's 143, SMTP's 587 and 25); plain TCP to this computer only (a stand-in).
+  const mailServer = (name: string, kind: 'imap' | 'smtp'): MailServer | undefined => {
+    const raw = env[name]?.trim();
+    if (!raw) return undefined;
+    const m = /^(\[[0-9A-Fa-f:]+\]|[A-Za-z0-9.-]{1,253}):(\d{1,5})$/.exec(raw);
+    const port = m ? Number(m[2]) : NaN;
+    if (!m || port < 1 || port > 65535) {
+      problems.push(`${name} must be a mail server's host:port.`);
+      return undefined;
+    }
+    const host = m[1]!.replace(/^\[|\]$/g, '').toLowerCase();
+    if (/^(127\.0\.0\.1|localhost|::1)$/.test(host)) return { host, port, security: 'none' };
+    const starttls = kind === 'imap' ? port === 143 : port === 587 || port === 25;
+    return { host, port, security: starttls ? 'starttls' : 'tls' };
+  };
+
   const turnTimeoutMinutes = whole('RELAY_TURN_TIMEOUT_MIN', DEFAULT_LIMITS.turnTimeoutMinutes);
   const config: ServerConfig = {
     maxAccounts: whole('RELAY_MAX_ACCOUNTS', DEFAULT_LIMITS.maxAccounts),
@@ -116,6 +141,8 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     browser: folder('RELAY_BROWSER'),
     microsoftLoginUrl: secure('RELAY_MICROSOFT_LOGIN_URL'),
     microsoftGraphUrl: secure('RELAY_MICROSOFT_GRAPH_URL'),
+    microsoftImap: mailServer('RELAY_MICROSOFT_IMAP', 'imap'),
+    microsoftSmtp: mailServer('RELAY_MICROSOFT_SMTP', 'smtp'),
   };
   return { config, problems };
 }

@@ -155,6 +155,7 @@ const scheduler = new Scheduler(store, orchestrator, Date.now, checkTrigger(sett
 // IMAP IDLE for the automations that wait for new mail: their mail servers say at once when mail arrives.
 const idle = new IdleWatcher({
   connectors: settings.connectors,
+  oauth: settings.oauth,
   watching: () => store.mailWatches(),
   check: (id) => scheduler.check(id, false, true),
 });

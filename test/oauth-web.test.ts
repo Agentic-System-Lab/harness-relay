@@ -1,11 +1,21 @@
 /*
  * Accounts that sign in with OAuth, in the page (`src/web/oauth.ts`): the redirect addresses a
  * provider's app must allow, what the provider's page sent back to /oauth/callback and what that page
- * does with the server's answer, the name an account's calendar gets, and when a sign-in page that did
- * not open was blocked.
+ * does with the server's answer, the name an account's calendar gets, when a sign-in page that did
+ * not open was blocked, what each account offers for calendars and mail, and the uses a new sign-in
+ * asks for.
  */
 import { describe, expect, it } from 'vitest';
-import { calendarName, callbackFrom, callbackOutcome, redirectAddresses, sayPopupBlocked, waiting } from '../src/web/oauth';
+import {
+  accountActions,
+  calendarName,
+  callbackFrom,
+  callbackOutcome,
+  redirectAddresses,
+  sayPopupBlocked,
+  toggleUse,
+  waiting,
+} from '../src/web/oauth';
 import { isAppWindow } from '../src/web/update';
 
 describe('signing in with OAuth, in the page', () => {
@@ -67,5 +77,21 @@ describe('signing in with OAuth, in the page', () => {
     expect(waiting({ id: 'a', provider: 'microsoft', status: 'waiting', expiresAt: 1 })).toBe(true);
     expect(waiting({ id: 'a', provider: 'microsoft', status: 'done', expiresAt: 1 })).toBe(false);
     expect(waiting(undefined)).toBe(false);
+  });
+
+  it('offers each account its calendars or a sign-in for them, and for mail a sign-in, its mail account to add, or nothing once there', () => {
+    expect(accountActions({ uses: ['calendar'] }, false)).toEqual({ calendars: true, signInFor: ['mail'], addMail: false });
+    expect(accountActions({ uses: ['mail'] }, true)).toEqual({ calendars: false, signInFor: ['calendar'], addMail: false });
+    // Signed in for mail, its mail account removed since (or not added): added again without a sign-in.
+    expect(accountActions({ uses: ['calendar', 'mail'] }, false)).toEqual({ calendars: true, signInFor: [], addMail: true });
+    expect(accountActions({ uses: ['calendar', 'mail'] }, true)).toEqual({ calendars: true, signInFor: [], addMail: false });
+  });
+
+  it('keeps the uses a new sign-in asks for in their usual order, each once', () => {
+    expect(toggleUse(['calendar'], 'mail', true)).toEqual(['calendar', 'mail']);
+    expect(toggleUse(['mail'], 'calendar', true)).toEqual(['calendar', 'mail']);
+    expect(toggleUse(['calendar', 'mail'], 'calendar', false)).toEqual(['mail']);
+    expect(toggleUse(['mail'], 'mail', true)).toEqual(['mail']);
+    expect(toggleUse(['mail'], 'mail', false)).toEqual([]);
   });
 });

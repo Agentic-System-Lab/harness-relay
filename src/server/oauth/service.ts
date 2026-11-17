@@ -1,4 +1,5 @@
 import type {
+  ConnectorsView,
   OAuthAccountView,
   OAuthCalendar,
   OAuthClientUpdate,
@@ -9,21 +10,23 @@ import type {
 } from '../../shared/types';
 import type { ConnectorStore } from '../connectors/accounts';
 import type { CalendarOAuth } from '../connectors/calendar';
+import type { MailOAuth } from '../connectors/mailLogin';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
 import { TokenBroker } from './broker';
-import { oauthProvider, tokenHost, type OAuthClient, type OAuthProvider } from './providers';
-import { SignIns, signInFetch, type SignedIn } from './signin';
+import { missingUse, oauthProvider, tokenHost, type OAuthClient, type OAuthProvider } from './providers';
+import { noAccess, SignIns, signInFetch, type SignedIn } from './signin';
 import type { OAuthStore } from './store';
 
 /*
  * Accounts that sign in with OAuth, and what they serve (`src/server/oauth/`): the providers
  * (`providers.ts`), the accounts and their apps (`store.ts`), the token broker (`broker.ts`) and the
- * sign-ins (`signin.ts`). Its first use is the calendar tools: a sign-in for them adds the account's
- * own calendar, and others it has can be added; they are reached through the account
- * (`CalendarOAuth`), with its token, which never leaves the server.
+ * sign-ins (`signin.ts`). They serve the calendar tools and the mail tools: a sign-in for calendars
+ * adds the account's own calendar (and others it has can be added), one for mail adds its mail
+ * account, at its provider's own IMAP and SMTP servers. They are reached through the account
+ * (`CalendarOAuth`, `MailOAuth`), with its token, which never leaves the server.
  */
-export class OAuthService implements CalendarOAuth {
+export class OAuthService implements CalendarOAuth, MailOAuth {
   readonly broker: TokenBroker;
   readonly signIns: SignIns;
 
@@ -84,6 +87,10 @@ export class OAuthService implements CalendarOAuth {
     return this.view();
   }
 
+  /**
+   * A sign-in for these uses. Another use than the account has asks for its scopes at a sign-in of its
+   * own (incremental consent), which updates the same account, found by its id at the provider.
+   */
   async startSignIn(o: {
     provider: OAuthProviderId;
     uses: OAuthUse[];
@@ -95,13 +102,32 @@ export class OAuthService implements CalendarOAuth {
     return this.signIns.start({ ...o, provider: this.provider(o.provider) });
   }
 
-  /** Keeps a sign-in that worked: who it is, its refresh token, and for the calendar tools its own calendar. */
+  /**
+   * Keeps a sign-in that worked: who it is, its refresh token, its access tokens, and for the calendar
+   * tools its own calendar, for the mail tools its mail account.
+   */
   private async keep(s: SignedIn): Promise<OAuthAccountView> {
     const who = await s.whoami(signInFetch(s));
     // Cancelled, or its app changed, while who signed in was asked: nothing is kept.
     if (!s.live()) throw new Error(t().oauthSignInCancelled);
-    const account = this.store.signedIn(s.provider, who, s.uses, s.scopes, s.tokens.refresh_token, (this.opts.now ?? Date.now)());
-    this.broker.signedIn(account.id, s.tokens.access_token, s.tokens.expires_in);
+    // The account signed in before, for other uses: where one token covers every scope granted (Google,
+    // with include_granted_scopes), it must still have theirs, or they would fail with the new token.
+    const before = this.store.bySubject(s.provider, who.subject);
+    const provider = this.provider(s.provider);
+    if (before && !provider.tokenScopes && s.granted !== undefined) {
+      const lost = missingUse(provider, before.uses, s.granted);
+      if (lost) throw new Error(noAccess(provider.label, lost));
+    }
+    const account = this.store.signedIn(s.provider, who, s.uses, s.scopes, s.refreshToken, (this.opts.now ?? Date.now)());
+    this.broker.signedIn(account.id, s.access);
+    if (s.uses.includes('mail') && !this.connectors.oauthMail(account.id).length) {
+      try {
+        this.addMail(account.id);
+      } catch (err) {
+        // Kept all the same: its mail account can be added from Settings.
+        console.warn('[oauth] could not add the mail account of a new sign-in:', (err as Error).message);
+      }
+    }
     if (s.uses.includes('calendar') && !this.connectors.oauthCalendars(account.id).length) {
       const own = this.provider(s.provider).defaultCalendar(who.email);
       try {
@@ -126,10 +152,11 @@ export class OAuthService implements CalendarOAuth {
     const a = this.account(accountId);
     const problem = this.problem(accountId);
     if (problem) throw new HttpError(409, problem);
+    if (!a.uses.includes('calendar')) throw new HttpError(409, t().oauthNotFor(a.email, 'calendar'));
     const added = this.connectors.oauthCalendars(accountId);
     let found: { name: string; url: string }[];
     try {
-      found = await this.provider(a.provider).calendars(this.broker.fetch(accountId), a.email);
+      found = await this.provider(a.provider).calendars(this.broker.fetch(accountId, 'calendar'), a.email);
     } catch (err) {
       const refused = this.problem(accountId);
       if (refused) throw new HttpError(409, refused);
@@ -147,6 +174,8 @@ export class OAuthService implements CalendarOAuth {
    */
   addCalendar(accountId: string, c: { name: string; url: string }) {
     const a = this.account(accountId);
+    // Its token would be asked for calendar scopes it was never granted.
+    if (!a.uses.includes('calendar')) throw new HttpError(409, t().oauthNotFor(a.email, 'calendar'));
     let host: string;
     try {
       host = tokenHost(c.url);
@@ -162,10 +191,28 @@ export class OAuthService implements CalendarOAuth {
   }
 
   /**
-   * Removes the account, its tokens and the calendars reached through it: at once, so that a refresh
-   * under way writes nothing back (`TokenBroker.forget()`). Google's token is revoked then too;
-   * Microsoft has no revoke for one token, so its pages where the app's access is taken away are
-   * returned for the user.
+   * Adds the account's mail account to the mail tools (once: it is there already, it stays): its
+   * provider's own IMAP and SMTP servers, its address as the sender and user name, under a name not
+   * taken. Only for an account signed in for mail.
+   */
+  addMail(accountId: string): ConnectorsView {
+    const a = this.account(accountId);
+    if (!a.uses.includes('mail')) throw new HttpError(409, t().oauthNotFor(a.email, 'mail'));
+    const same = this.connectors.oauthMail(accountId)[0];
+    if (same) return this.connectors.view();
+    const { mail } = this.provider(a.provider);
+    const taken = this.connectors.mailIds();
+    let id = accountId;
+    for (let n = 2; taken.includes(id); n++) id = `${accountId.slice(0, 36)}-${n}`;
+    const name = `${a.provider === 'microsoft' ? 'Outlook' : 'Gmail'} · ${a.email}`.slice(0, 60);
+    return this.connectors.saveOAuthMail(id, { name, oauth: accountId, email: a.email, imap: mail.imap, smtp: mail.smtp });
+  }
+
+  /**
+   * Removes the account, its tokens and the calendars and mail accounts reached through it: at once,
+   * so that a refresh under way writes nothing back (`TokenBroker.forget()`). Google's token is revoked
+   * then too; Microsoft has no revoke for one token, so its pages where the app's access is taken away
+   * are returned for the user.
    */
   async removeAccount(accountId: string): Promise<{ permissionsPages?: string[] }> {
     const a = this.account(accountId);
@@ -178,7 +225,7 @@ export class OAuthService implements CalendarOAuth {
     const refresh = this.store.refreshToken(accountId);
     this.broker.forget(accountId);
     this.store.delete(accountId);
-    this.connectors.removeOAuthCalendars(accountId);
+    this.connectors.removeOAuth(accountId);
     if (provider?.endpoints.revoke && refresh) {
       await fetch(provider.endpoints.revoke, {
         method: 'POST',
@@ -202,7 +249,29 @@ export class OAuthService implements CalendarOAuth {
   via(oauthAccount: string) {
     const a = this.store.account(oauthAccount);
     if (!a) throw new Error(t().oauthAccountGone);
-    return { api: a.provider === 'microsoft' ? ('graph' as const) : ('caldav' as const), fetch: this.broker.fetch(oauthAccount) };
+    return {
+      api: a.provider === 'microsoft' ? ('graph' as const) : ('caldav' as const),
+      fetch: this.broker.fetch(oauthAccount, 'calendar'),
+    };
+  }
+
+  // MailOAuth: how the mail tools, the mail trigger and IDLE reach a mail account of an account.
+
+  /** Its provider's own mail servers as they are now (never those saved with the mail account), and its address. */
+  mailVia(oauthAccount: string) {
+    const a = this.store.account(oauthAccount);
+    if (!a) throw new Error(t().oauthAccountGone);
+    const { mail } = this.provider(a.provider);
+    return { imap: mail.imap, smtp: mail.smtp, username: a.email };
+  }
+
+  mailToken(oauthAccount: string, fresh = false): Promise<string> {
+    return this.broker.accessToken(oauthAccount, 'mail', fresh);
+  }
+
+  signInState(oauthAccount: string): string {
+    const a = this.store.account(oauthAccount);
+    return a ? `${a.status} ${a.connectedAt}` : 'gone';
   }
 
   problem(oauthAccount: string): string | undefined {

@@ -1,8 +1,9 @@
 // Accounts that sign in with OAuth, in the page, without React: the redirect addresses a provider's
 // app must allow, what the provider's page sent back to /oauth/callback and what that page then does,
-// a sign-in's next step, and whether a sign-in page that did not open was blocked.
+// a sign-in's next step, whether a sign-in page that did not open was blocked, and what each account
+// offers for the calendar and mail tools.
 
-import type { OAuthAccountView, OAuthProviderId, OAuthSignInView } from '../shared/types';
+import { OAUTH_USES, type OAuthAccountView, type OAuthProviderId, type OAuthSignInView, type OAuthUse } from '../shared/types';
 
 /** Where the provider's page sends the browser back: this web app's own page for it. */
 export const CALLBACK_PATH = '/oauth/callback';
@@ -81,4 +82,26 @@ export function waiting(v: OAuthSignInView | undefined): boolean {
 /** The name a calendar of an account gets in the calendar tools: its own, then whose it is. */
 export function calendarName(account: Pick<OAuthAccountView, 'email'>, calendar: string): string {
   return `${calendar} · ${account.email}`.slice(0, 60);
+}
+
+/**
+ * What an account offers in Settings: its calendars to list and add (signed in for calendars), or a
+ * sign-in for them; for mail, a sign-in for it when not yet granted, its mail account to add once
+ * granted (it was removed, or the sign-in could not add it), nothing more once it is there.
+ */
+export function accountActions(
+  account: Pick<OAuthAccountView, 'uses'>,
+  hasMailAccount: boolean,
+): { calendars: boolean; signInFor: OAuthUse[]; addMail: boolean } {
+  const has = (u: OAuthUse) => account.uses.includes(u);
+  return {
+    calendars: has('calendar'),
+    signInFor: OAUTH_USES.filter((u) => !has(u)),
+    addMail: has('mail') && !hasMailAccount,
+  };
+}
+
+/** The uses a new sign-in asks for, with one ticked or unticked, in their usual order. */
+export function toggleUse(uses: readonly OAuthUse[], use: OAuthUse, on: boolean): OAuthUse[] {
+  return OAUTH_USES.filter((u) => (u === use ? on : uses.includes(u)));
 }

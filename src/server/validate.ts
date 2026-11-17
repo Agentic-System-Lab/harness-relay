@@ -24,6 +24,7 @@ import {
   SCHEDULE_LIMITS,
   WATCH_LIMITS,
   OAUTH_PROVIDERS,
+  OAUTH_USES,
   TOOL_LIMITS,
   VOICE_LANGUAGES,
   cwdSettings,
@@ -52,6 +53,7 @@ import {
   type ScheduleTrigger,
   type OAuthClientUpdate,
   type OAuthProviderId,
+  type OAuthUse,
   type ScheduleUpdate,
   type ToolLibraryUpdate,
   type VoiceLanguage,
@@ -829,6 +831,14 @@ export function validatePushSubscription(input: unknown): { subscription: PushSu
 export function validOAuthProvider(input: string): OAuthProviderId {
   if (!(OAUTH_PROVIDERS as readonly string[]).includes(input)) throw new HttpError(404, t().invalidField('provider'));
   return input as OAuthProviderId;
+}
+
+/** What a sign-in is for: some of the uses, each once (the calendar when none is said, as before mail). */
+export function validOAuthUses(input: unknown): OAuthUse[] {
+  if (input === undefined) return ['calendar'];
+  if (!Array.isArray(input) || !input.length || input.some((u) => !(OAUTH_USES as readonly unknown[]).includes(u)))
+    bad(t().invalidField('uses'));
+  return OAUTH_USES.filter((u) => (input as unknown[]).includes(u));
 }
 
 /**

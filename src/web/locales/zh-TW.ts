@@ -1,5 +1,6 @@
 import type {
   OAuthProviderId,
+  OAuthUse,
   ApprovalKind,
   CliInstallBlock,
   KeyStorage,
@@ -609,7 +610,8 @@ export const zhTW = {
         file: '工作目錄中的檔案出現或變動',
       } as Record<ScheduleTrigger['source'], string>,
       account: '郵件帳號',
-      noAccounts: '還沒有郵件帳號：請先到「設定 → 工具庫 → 郵件與行事曆」新增一個（用應用程式專用密碼）。',
+      noAccounts:
+        '還沒有郵件帳號：請先到「設定 → 工具庫 → 郵件與行事曆」新增一個（用應用程式專用密碼，或在瀏覽器裡登入 Microsoft 365、Outlook.com 或 Gmail）。',
       openSettings: '前往設定',
       folder: '資料夾',
       from: '寄件者包含（選填）',
@@ -749,7 +751,7 @@ export const zhTW = {
   },
   connectors: {
     title: '郵件與行事曆帳號',
-    hint: '「郵件」與「行事曆」工具用的帳號，透過 IMAP、SMTP 與 CalDAV，搭配應用程式專用密碼（大多數服務在安全性設定中提供；Gmail 需要先開啟兩步驟驗證）。Microsoft 365、Outlook.com 與 Google 日曆不接受應用程式專用密碼：請用下方的「登入的帳號」。',
+    hint: '「郵件」與「行事曆」工具用的帳號，透過 IMAP、SMTP 與 CalDAV，搭配應用程式專用密碼（大多數服務在安全性設定中提供；Gmail 需要先開啟兩步驟驗證）。Microsoft 365 與 Outlook.com 的郵件，以及 Microsoft 與 Google 的行事曆，不接受應用程式專用密碼：請用下方的「登入的帳號」（Gmail 兩種都可以）。',
     // 直接接在說明後面（句號之後不加空格）；英文開頭的名稱前留一個空格。
     passwordsIn: (where: string) => `密碼存放於${/^[A-Za-z]/.test(where) ? ' ' : ''}${where}，畫面上不會顯示，連一部分也不會。`,
     mail: '郵件',
@@ -785,8 +787,13 @@ export const zhTW = {
     oauth: {
       title: '登入的帳號',
       hint: (where: string) =>
-        `Microsoft 365、Outlook.com 與 Google 日曆要在瀏覽器裡登入，而不是用密碼。登入由 Harness Relay 自己進行，權杖存放於${/^[A-Za-z]/.test(where) ? ' ' : ''}${where}，只送到該帳號的服務，agent 永遠拿不到。`,
-      providers: { microsoft: 'Microsoft 365 / Outlook.com', google: 'Google 日曆' } as Record<OAuthProviderId, string>,
+        `Microsoft 365、Outlook.com 與 Google（Gmail、Google 日曆）在瀏覽器裡登入，而不是用密碼，用於行事曆、郵件或兩者。登入由 Harness Relay 自己進行，權杖存放於${/^[A-Za-z]/.test(where) ? ' ' : ''}${where}，只送到該帳號的服務與它自己的郵件伺服器，agent 永遠拿不到。`,
+      providers: { microsoft: 'Microsoft 365 / Outlook.com', google: 'Google' } as Record<OAuthProviderId, string>,
+      uses: { calendar: '行事曆', mail: '郵件' } as Record<OAuthUse, string>,
+      signInFor: '新的登入用於：',
+      usedFor: (uses: string) => `用於：${uses}`,
+      useFor: { calendar: '用於行事曆', mail: '用於郵件' } as Record<OAuthUse, string>,
+      mailAdded: (email: string) => `已把 ${email} 的郵件加入郵件工具。`,
       signIn: (provider: string) => `用 ${provider} 登入`,
       onAnotherDevice: '在另一台裝置上登入',
       signInAgain: '重新登入',
@@ -797,7 +804,7 @@ export const zhTW = {
       added: '已加入',
       loadingCalendars: '讀取行事曆中…',
       remove: '移除',
-      confirmRemove: (email: string) => `移除 ${email}？它的權杖與透過它使用的行事曆都會一起移除。`,
+      confirmRemove: (email: string) => `移除 ${email}？它的權杖，以及透過它使用的行事曆與郵件帳號，都會一起移除。`,
       removedMicrosoft: (pages: string) =>
         `已移除。Microsoft 不能撤銷單一個權杖：要讓 Harness Relay 完全失去存取權，請到 ${pages} 移除它。`,
       app: '要用的 app',
@@ -811,9 +818,9 @@ export const zhTW = {
       secretHint: 'Google 給桌面 app 的「密碼」其實不是秘密，但仍需要；它存放在憑證儲存區。',
       redirects: '在 app 的設定裡允許這些重新導向網址：',
       microsoftApp:
-        '在 Microsoft Entra 系統管理中心註冊一個 app：支援「任何組織目錄中的帳戶及個人 Microsoft 帳戶」，平台選「行動與桌面應用程式」，開啟「允許公用用戶端流程」（要在另一台裝置上登入時），API 權限加上 Calendars.ReadWrite 與 offline_access。',
+        '在 Microsoft Entra 系統管理中心註冊一個 app：支援「任何組織目錄中的帳戶及個人 Microsoft 帳戶」，平台選「行動與桌面應用程式」，開啟「允許公用用戶端流程」（要在另一台裝置上登入時），API 權限加上 Microsoft Graph 的 Calendars.ReadWrite 與 offline_access；用於郵件時，再加上 Office 365 Exchange Online 的 IMAP.AccessAsUser.All 與 SMTP.Send（信箱的 SMTP AUTH 也要開啟）。',
       googleApp:
-        '在 Google Cloud Console 建立一個「電腦版應用程式」類型的 OAuth 用戶端，啟用 Google Calendar API 與 CalDAV API，並在 OAuth 同意畫面加入 …/auth/calendar 範圍。app 還在「測試」階段時，要在同意畫面的「測試使用者」加入你自己的 Google 帳號，否則 Google 會拒絕登入；而且登入每 7 天會失效一次。',
+        '在 Google Cloud Console 建立一個「電腦版應用程式」類型的 OAuth 用戶端，啟用 Google Calendar API 與 CalDAV API，並在 OAuth 同意畫面加入 …/auth/calendar 範圍；用於郵件時，再加入 https://mail.google.com/ 範圍。app 還在「測試」階段時，要在同意畫面的「測試使用者」加入你自己的 Google 帳號，否則 Google 會拒絕登入；而且登入每 7 天會失效一次。',
       waiting: (provider: string) => `等待 ${provider} 的登入頁面…`,
       openAgain: '再開一次登入頁面',
       pasteHint: '沒有回到這裡？如果瀏覽器說網頁打不開（例如 Harness Relay 在另一台電腦上），把那個網頁的完整網址貼在這裡：',
@@ -2145,7 +2152,7 @@ export const zhTW = {
           'MCP 伺服器：本機指令或網址，token 存在系統的金鑰儲存區',
           'Skills：從資料夾裡挑選要加入的 skill（例如 ~/.claude/skills）',
           '記憶：所有成員共用，加上各 CLI 專屬的一份',
-          'Harness Relay 自己的工具：它自己的瀏覽器，以及你的郵件與行事曆（在那裡用應用程式專用密碼加入帳號；Microsoft 365、Outlook.com 與 Google 日曆改在瀏覽器裡登入，權杖存在系統的憑證儲存區）',
+          'Harness Relay 自己的工具：它自己的瀏覽器，以及你的郵件與行事曆（在那裡用應用程式專用密碼加入帳號；Microsoft 365、Outlook.com 與 Google 的郵件和日曆也可以改在瀏覽器裡登入，權杖存在系統的憑證儲存區）',
           '每一項可以只給某幾種 CLI；團隊設定裡也能針對單一成員調整',
         ],
       },

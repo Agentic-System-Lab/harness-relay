@@ -182,6 +182,12 @@ export interface MailAccountView {
   smtp: MailServer;
   /** The password, masked ('' when none is kept). */
   password: string;
+  /**
+   * The account that signs in with OAuth this mail account is reached through (its id, `OAuthAccountView`),
+   * instead of a password: its provider's own IMAP and SMTP servers, fixed, signed in to with the
+   * account's token (SASL XOAUTH2), its address as the user name.
+   */
+  oauth?: string;
 }
 
 /** A calendar the calendar tools use (CalDAV), as the UI sees it. */
@@ -205,8 +211,12 @@ export interface CalendarAccountView {
 export const OAUTH_PROVIDERS = ['microsoft', 'google'] as const;
 export type OAuthProviderId = (typeof OAUTH_PROVIDERS)[number];
 
-/** What an account that signs in with OAuth is used for: each use asks for its own scopes. */
-export type OAuthUse = 'calendar';
+/**
+ * What an account that signs in with OAuth is used for: each use asks for its own scopes (the
+ * calendar tools; the mail tools and the mail trigger, over IMAP and SMTP with XOAUTH2).
+ */
+export const OAUTH_USES = ['calendar', 'mail'] as const;
+export type OAuthUse = (typeof OAUTH_USES)[number];
 
 /**
  * The OAuth app (client) Harness Relay signs in to a provider with, as the UI sees it: its id, the
@@ -221,7 +231,7 @@ export interface OAuthClientView {
   tenant?: string;
   /** The client secret, masked ('' when none is kept). */
   secret: string;
-  /** The provider has a sign-in on another device, with a code to type at its address (the device code flow): Microsoft does; Google takes no Calendar scope there. */
+  /** The provider has a sign-in on another device, with a code to type at its address (the device code flow): Microsoft does; Google takes no Calendar or Gmail scope there. */
   device: boolean;
 }
 

@@ -7,8 +7,13 @@
  * `/caldav/v2/`): its token endpoint (the client secret checked, no rotation), revoke, userinfo, and
  * CalDAV that takes only a Bearer token (discovery from the principal, `REPORT`, `PUT`). The token
  * endpoints can be held (a request in flight), or drop a request (the network failing), and the code
- * exchange can grant other scopes than asked; who signed in can be held too. Plain HTTP on 127.0.0.1,
- * which Harness Relay allows for a stand-in only.
+ * exchange can grant other scopes than asked; who signed in can be held too. Microsoft's tokens are
+ * each for one resource, as its real ones are: Graph's, or Exchange Online's (`https://outlook.office.com/…`,
+ * for IMAP and SMTP), as the `scope` of the code exchange or of a refresh says (the authorize request's
+ * first resource when the exchange names none); a request naming both is refused, and so is a refresh
+ * for scopes the user never consented to. Google's token covers every scope granted, those granted
+ * before too when the sign-in asked with `include_granted_scopes`. Plain HTTP on 127.0.0.1, which
+ * Harness Relay allows for a stand-in only.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage } from 'node:http';
@@ -30,6 +35,20 @@ export interface FakeAnswer {
   body: Record<string, unknown>;
 }
 
+/** What a Microsoft token is for: Graph, or Exchange Online's IMAP and SMTP. */
+export type FakeResource = 'graph' | 'outlook';
+
+/** The scopes signing in itself asks for, which go with a token of any resource. */
+const OIDC = new Set(['openid', 'email', 'profile', 'offline_access']);
+
+/** The resource a list of scopes is for: one, or `mixed` (Microsoft refuses that), Graph's when none. */
+export function resourceOf(scopes: string[]): FakeResource | 'mixed' {
+  const own = scopes.filter((s) => !OIDC.has(s));
+  const outlook = own.filter((s) => s.startsWith('https://outlook.office.com/'));
+  if (outlook.length && outlook.length < own.length) return 'mixed';
+  return outlook.length ? 'outlook' : 'graph';
+}
+
 export interface FakeGoogle {
   /** Its app: the client id and the secret its token endpoint checks. */
   clientId: string;
@@ -46,6 +65,8 @@ export interface FakeGoogle {
   puts: { path: string; ics: string; bearer?: string }[];
   /** The tokens revoked. */
   revoked: string[];
+  /** The scopes the account granted the app: a sign-in with `include_granted_scopes` gets them too. Delete one for a grant taken away. */
+  granted: Set<string>;
 }
 
 export interface FakeOAuth {
@@ -64,6 +85,13 @@ export interface FakeOAuth {
   /** Refresh tokens and access tokens it gave out, by token: still good or not. */
   refreshTokens: Map<string, boolean>;
   accessTokens: Map<string, boolean>;
+  /** What each access token it gave is for: a Microsoft resource, or `google`; and the scopes it carries. */
+  resources: Map<string, FakeResource | 'google'>;
+  scopesOf: Map<string, string[]>;
+  /** The scopes the Microsoft user consented to (each sign-in's): a refresh for any other is refused. Delete one for consent taken away. */
+  consented: Set<string>;
+  /** While set, what a refresh says it granted (`scope`), from what it asked; undefined: what it asked. */
+  refreshScope?: (asked: string) => string | undefined;
   /** Give a new refresh token on each refresh (Microsoft does), the old one no longer working. */
   rotate: boolean;
   /** An access token's lifetime, in seconds. */
@@ -97,8 +125,8 @@ type Grant = 'refresh_token' | 'authorization_code' | 'urn:ietf:params:oauth:gra
 const b64url = (b: Buffer) => b.toString('base64url');
 
 export async function fakeOAuth(clientId = 'client-1'): Promise<FakeOAuth> {
-  const codes = new Map<string, { challenge: string; redirectUri: string; clientId: string; scope: string }>();
-  const devices = new Map<string, { userCode: string; typed: boolean; denied: boolean }>();
+  const codes = new Map<string, { challenge: string; redirectUri: string; clientId: string; scope: string; include: boolean }>();
+  const devices = new Map<string, { userCode: string; typed: boolean; denied: boolean; scope: string }>();
   const google: FakeGoogle = {
     clientId: 'google-client.apps.googleusercontent.com',
     secret: 'GOCSPX-stand-in',
@@ -108,6 +136,7 @@ export async function fakeOAuth(clientId = 'client-1'): Promise<FakeOAuth> {
     events: [],
     puts: [],
     revoked: [],
+    granted: new Set(),
   };
   const self: FakeOAuth = {
     url: '',
@@ -116,6 +145,9 @@ export async function fakeOAuth(clientId = 'client-1'): Promise<FakeOAuth> {
     requests: [],
     refreshTokens: new Map(),
     accessTokens: new Map(),
+    resources: new Map(),
+    scopesOf: new Map(),
+    consented: new Set(),
     rotate: true,
     expiresIn: 3600,
     deviceAnswers: [],
@@ -140,6 +172,7 @@ export async function fakeOAuth(clientId = 'client-1'): Promise<FakeOAuth> {
           redirectUri: q.get('redirect_uri')!,
           clientId: q.get('client_id')!,
           scope: q.get('scope') ?? '',
+          include: q.get('include_granted_scopes') === 'true',
         });
         redirect.searchParams.set('code', code);
       }
@@ -159,12 +192,23 @@ export async function fakeOAuth(clientId = 'client-1'): Promise<FakeOAuth> {
     close: () => new Promise((r) => server.close(() => r())),
   };
 
-  const tokens = () => {
+  const tokens = (resource: FakeResource | 'google', scopes: string[]) => {
     const access = `access-${randomUUID()}`;
     const refresh = `refresh-${randomUUID()}`;
     self.accessTokens.set(access, true);
+    self.resources.set(access, resource);
+    self.scopesOf.set(access, scopes);
     self.refreshTokens.set(refresh, true);
     return { access, refresh };
+  };
+  const split = (scope: string | null | undefined) => (scope ?? '').split(/\s+/).filter(Boolean);
+  const mixed = {
+    status: 400,
+    body: {
+      error: 'invalid_scope',
+      error_description:
+        'AADSTS28000: Provided value for the input parameter scope is not valid because it contains more than one resource.',
+    },
   };
   const read = (req: IncomingMessage) =>
     new Promise<string>((resolve) => {
@@ -186,8 +230,27 @@ export async function fakeOAuth(clientId = 'client-1'): Promise<FakeOAuth> {
       const verifier = form.get('code_verifier') ?? '';
       if (!c || c.redirectUri !== form.get('redirect_uri') || c.challenge !== b64url(createHash('sha256').update(verifier).digest()))
         return { status: 400, body: { error: 'invalid_grant', error_description: 'AADSTS70000: The code is not valid' } };
-      const t = tokens();
-      const scope = self.grantScope ? self.grantScope(c.scope) : c.scope;
+      let carried: string[];
+      let resource: FakeResource | 'google';
+      if (app === 'google') {
+        // One token for every scope granted; with include_granted_scopes, those granted before too.
+        if (!c.include) google.granted.clear();
+        for (const s of split(c.scope)) google.granted.add(s);
+        carried = [...google.granted];
+        resource = 'google';
+      } else {
+        // The token is for the resource the exchange names, else the authorize request's first one.
+        for (const s of split(c.scope)) self.consented.add(s);
+        const named = form.get('scope');
+        const asked = named ? split(named) : split(c.scope);
+        const first = asked.find((s) => !OIDC.has(s));
+        const r = named ? resourceOf(asked) : first ? resourceOf([first]) : 'graph';
+        if (r === 'mixed') return mixed;
+        resource = r;
+        carried = split(c.scope).filter((s) => OIDC.has(s) || resourceOf([s]) === r);
+      }
+      const t = tokens(resource, carried);
+      const scope = self.grantScope ? self.grantScope(c.scope) : carried.join(' ');
       return {
         status: 200,
         body: {
@@ -204,11 +267,43 @@ export async function fakeOAuth(clientId = 'client-1'): Promise<FakeOAuth> {
       const old = form.get('refresh_token') ?? '';
       if (!self.refreshTokens.get(old))
         return { status: 400, body: { error: 'invalid_grant', error_description: 'AADSTS700082: The refresh token has expired' } };
-      const t = tokens();
+      // Microsoft: a token for the resource the refresh's scopes name, consented to; Google's carries every scope granted.
+      const asked = split(form.get('scope'));
+      let resource: FakeResource | 'google' = 'google';
+      let carried = [...google.granted];
+      if (app === 'microsoft') {
+        const r = resourceOf(asked);
+        if (r === 'mixed') return mixed;
+        const notConsented = asked.filter((s) => !OIDC.has(s) && !self.consented.has(s));
+        if (notConsented.length)
+          return {
+            status: 400,
+            body: {
+              error: 'invalid_grant',
+              error_description: `AADSTS65001: The user or administrator has not consented to use the application (${notConsented.join(' ')}).`,
+            },
+          };
+        resource = r;
+        carried = asked.length ? asked : [...self.consented].filter((s) => resourceOf([s]) === 'graph');
+      }
+      const t = tokens(resource, carried);
       const rotate = app === 'microsoft' && self.rotate;
       if (rotate) self.refreshTokens.set(old, false);
       else self.refreshTokens.delete(t.refresh);
-      return { status: 200, body: { access_token: t.access, ...(rotate ? { refresh_token: t.refresh } : {}), expires_in: self.expiresIn } };
+      const granted = self.refreshScope
+        ? self.refreshScope(asked.join(' '))
+        : app === 'microsoft' && asked.length
+          ? asked.filter((s) => !OIDC.has(s)).join(' ')
+          : undefined;
+      return {
+        status: 200,
+        body: {
+          access_token: t.access,
+          ...(rotate ? { refresh_token: t.refresh } : {}),
+          expires_in: self.expiresIn,
+          ...(granted !== undefined ? { scope: granted } : {}),
+        },
+      };
     }
     if (grant === 'urn:ietf:params:oauth:grant-type:device_code') {
       const next = self.deviceAnswers.shift();
@@ -218,7 +313,11 @@ export async function fakeOAuth(clientId = 'client-1'): Promise<FakeOAuth> {
       if (d.denied) return { status: 400, body: { error: 'access_denied', error_description: 'The user declined' } };
       if (!d.typed) return { status: 400, body: { error: 'authorization_pending' } };
       devices.delete(form.get('device_code')!);
-      const t = tokens();
+      // The first resource the device code asked for (Graph's, as Harness Relay names it first).
+      for (const s of split(d.scope)) self.consented.add(s);
+      const first = split(d.scope).find((s) => !OIDC.has(s));
+      const r = first ? resourceOf([first]) : 'graph';
+      const t = tokens(r === 'mixed' ? 'graph' : r, split(d.scope));
       return { status: 200, body: { access_token: t.access, refresh_token: t.refresh, expires_in: self.expiresIn } };
     }
     return { status: 400, body: { error: 'unsupported_grant_type' } };
@@ -240,6 +339,8 @@ export async function fakeOAuth(clientId = 'client-1'): Promise<FakeOAuth> {
     const form = new URLSearchParams(body);
     const url = new URL(path, self.url);
     const goodToken = Boolean(bearer && self.accessTokens.get(bearer));
+    // Graph takes a token for Graph only, not Exchange Online's (one a test set by hand, with no resource, as Graph's).
+    const graphToken = goodToken && (self.resources.get(bearer!) ?? 'graph') === 'graph';
     if (self.holdWhoami && (url.pathname === '/v1.0/me' || url.pathname === '/google/userinfo')) await self.holdWhoami;
 
     if (req.method === 'POST' && (/\/oauth2\/v2\.0\/token$/.test(url.pathname) || url.pathname === '/google/token')) {
@@ -256,7 +357,7 @@ export async function fakeOAuth(clientId = 'client-1'): Promise<FakeOAuth> {
       if (self.deviceDown) return json(500, {});
       const code = `device-${randomUUID()}`;
       const userCode = `UC${devices.size + 1}`;
-      devices.set(code, { userCode, typed: false, denied: false });
+      devices.set(code, { userCode, typed: false, denied: false, scope: form.get('scope') ?? '' });
       return json(200, {
         device_code: code,
         user_code: userCode,
@@ -320,9 +421,9 @@ export async function fakeOAuth(clientId = 'client-1'): Promise<FakeOAuth> {
       return res.end();
     }
 
-    // Graph: a good access token, or 401.
+    // Graph: a good access token for it, or 401.
     if (url.pathname.startsWith('/v1.0/')) {
-      if (!goodToken)
+      if (!graphToken)
         return json(401, { error: { code: 'InvalidAuthenticationToken', message: 'Access token has expired or is not yet valid.' } });
       if (url.pathname === '/v1.0/me') return json(200, self.me);
       if (url.pathname === '/v1.0/me/calendars')

@@ -4237,6 +4237,23 @@ video.chat-media {
   gap: 6px;
 }
 
+/* What a new sign-in is for (the calendar tools, the mail tools): side by side, under its legend. */
+.oauth-uses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.oauth-uses legend {
+  padding: 0;
+  margin-bottom: 4px;
+  color: var(--muted);
+}
+
 .oauth-calendars {
   list-style: none;
   margin: 6px 0 0;

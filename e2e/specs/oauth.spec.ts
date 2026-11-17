@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
+import { createServer as createTcpServer, type Server as TcpServer } from 'node:net';
 import { expect, test as base } from '../fixtures';
 
 /*
@@ -10,7 +11,10 @@ import { expect, test as base } from '../fixtures';
  * its own calendar shown, another calendar added, the sign-in revoked at Microsoft (a calendar's Test
  * then finds it needs a new one, which the account says), signed in again and revoked once more (the
  * list of its calendars then finds it, and the account says so again), and the account removed with
- * its calendars.
+ * its calendars. Then a sign-in for mail alone: its mail account added, at stand-ins for Exchange
+ * Online's IMAP and SMTP on this computer (`RELAY_MICROSOFT_IMAP`, `RELAY_MICROSOFT_SMTP`), whose Test
+ * signs in to both over XOAUTH2 with Exchange Online's token; removed alone and added again from its
+ * account, then removed with it.
  */
 
 interface FakeMicrosoft {
@@ -19,13 +23,18 @@ interface FakeMicrosoft {
   exchanges: number;
   /** The account's sign-in revoked at Microsoft: Graph refuses its tokens, and a refresh is refused (`invalid_grant`). */
   revoked: boolean;
+  /** Each access token it gave, and what it is for: Graph, or Exchange Online's IMAP and SMTP (as the request's scope says). */
+  tokens: Map<string, 'graph' | 'outlook'>;
 }
 
-/** Microsoft's sign-in page (Allow sends the browser back with a code), its token endpoint (PKCE checked) and a little of Graph. */
+/**
+ * Microsoft's sign-in page (Allow sends the browser back with a code), its token endpoint (PKCE checked;
+ * a refresh token that rotates; a token for the resource the scope names) and a little of Graph.
+ */
 async function fakeMicrosoft(): Promise<{ fake: FakeMicrosoft; server: Server }> {
   const codes = new Map<string, { challenge: string; redirect: string }>();
-  const tokens = new Set<string>();
-  const fake: FakeMicrosoft = { url: '', exchanges: 0, revoked: false };
+  const refreshTokens = new Set<string>();
+  const fake: FakeMicrosoft = { url: '', exchanges: 0, revoked: false, tokens: new Map() };
   const server = createServer((req, res) => {
     let body = '';
     req.on('data', (c: Buffer) => (body += c.toString()));
@@ -49,11 +58,21 @@ async function fakeMicrosoft(): Promise<{ fake: FakeMicrosoft; server: Server }>
       }
       if (url.pathname.endsWith('/oauth2/v2.0/token')) {
         const form = new URLSearchParams(body);
-        if (form.get('grant_type') === 'refresh_token')
-          return json(400, {
-            error: 'invalid_grant',
-            error_description: 'AADSTS50173: The provided grant has expired due to it being revoked',
-          });
+        const issue = () => {
+          const access = `access-${randomUUID()}`;
+          const refresh = `refresh-${randomUUID()}`;
+          fake.tokens.set(access, (form.get('scope') ?? '').includes('https://outlook.office.com/') ? 'outlook' : 'graph');
+          refreshTokens.add(refresh);
+          return json(200, { access_token: access, refresh_token: refresh, expires_in: 3600 });
+        };
+        if (form.get('grant_type') === 'refresh_token') {
+          if (fake.revoked || !refreshTokens.delete(form.get('refresh_token') ?? ''))
+            return json(400, {
+              error: 'invalid_grant',
+              error_description: 'AADSTS50173: The provided grant has expired due to it being revoked',
+            });
+          return issue();
+        }
         const c = codes.get(form.get('code') ?? '');
         codes.delete(form.get('code') ?? '');
         const verified =
@@ -65,11 +84,10 @@ async function fakeMicrosoft(): Promise<{ fake: FakeMicrosoft; server: Server }>
               .digest('base64url');
         if (form.get('client_id') !== 'e2e-client' || !verified) return json(400, { error: 'invalid_grant' });
         fake.exchanges++;
-        const access = `access-${randomUUID()}`;
-        tokens.add(access);
-        return json(200, { access_token: access, refresh_token: `refresh-${randomUUID()}`, expires_in: 3600 });
+        return issue();
       }
-      if (fake.revoked || !tokens.has(/^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1] ?? ''))
+      // Graph takes a token for Graph only, never Exchange Online's.
+      if (fake.revoked || fake.tokens.get(/^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1] ?? '') !== 'graph')
         return json(401, { error: { message: 'no token' } });
       if (url.pathname === '/v1.0/me') return json(200, { id: 'e2e-subject', displayName: 'Ming', mail: 'ming@contoso.com' });
       if (url.pathname === '/v1.0/me/calendars')
@@ -87,14 +105,97 @@ async function fakeMicrosoft(): Promise<{ fake: FakeMicrosoft; server: Server }>
   return { fake, server };
 }
 
-/** The server signs Microsoft accounts in at the stand-in, and reaches their calendars there. */
-const test = base.extend<{ microsoft: FakeMicrosoft }>({
+interface FakeMail {
+  imapPort: number;
+  smtpPort: number;
+  /** Each XOAUTH2 sign-in: which server, as whom, and whether the token was taken. */
+  signIns: { server: 'imap' | 'smtp'; user: string; ok: boolean }[];
+}
+
+/**
+ * Exchange Online's IMAP and SMTP, enough for a Test: IMAP's AUTHENTICATE XOAUTH2 (and CAPABILITY,
+ * LOGOUT), SMTP's EHLO and AUTH XOAUTH2 (and QUIT), each taking the token `accepts` takes.
+ */
+async function fakeMailServers(accepts: (user: string, token: string) => boolean): Promise<{ mail: FakeMail; servers: TcpServer[] }> {
+  const signIns: FakeMail['signIns'] = [];
+  const check = (server: 'imap' | 'smtp', b64: string) => {
+    const m = /^user=([^\x01]*)\x01auth=Bearer ([^\x01]*)\x01\x01$/.exec(Buffer.from(b64, 'base64').toString('utf8'));
+    const ok = Boolean(m && accepts(m[1]!, m[2]!));
+    signIns.push({ server, user: m?.[1] ?? '', ok });
+    return ok;
+  };
+  const lines = (sock: import('node:net').Socket, onLine: (line: string) => void) => {
+    let buf = '';
+    sock.on('error', () => undefined);
+    sock.on('data', (chunk: Buffer) => {
+      buf += chunk.toString('utf8');
+      for (let eol = buf.indexOf('\r\n'); eol >= 0; eol = buf.indexOf('\r\n')) {
+        const line = buf.slice(0, eol);
+        buf = buf.slice(eol + 2);
+        onLine(line);
+      }
+    });
+  };
+  const imap = createTcpServer((sock) => {
+    let sasl: string | undefined;
+    sock.write('* OK [CAPABILITY IMAP4rev1 AUTH=XOAUTH2] e2e IMAP\r\n');
+    lines(sock, (line) => {
+      if (sasl) {
+        const tag = sasl;
+        sasl = undefined;
+        return sock.write(check('imap', line) ? `${tag} OK AUTHENTICATE completed.\r\n` : `${tag} NO AUTHENTICATE failed.\r\n`);
+      }
+      const [tag, ...rest] = line.split(' ');
+      const cmd = rest.join(' ').toUpperCase();
+      if (cmd === 'AUTHENTICATE XOAUTH2') {
+        sasl = tag;
+        sock.write('+ \r\n');
+      } else if (cmd === 'CAPABILITY') sock.write(`* CAPABILITY IMAP4rev1 AUTH=XOAUTH2\r\n${tag} OK\r\n`);
+      else if (cmd === 'LOGOUT') {
+        sock.write(`* BYE\r\n${tag} OK\r\n`);
+        sock.end();
+      } else sock.write(`${tag} BAD not here\r\n`);
+    });
+  });
+  const smtp = createTcpServer((sock) => {
+    sock.write('220 e2e SMTP\r\n');
+    lines(sock, (line) => {
+      if (/^EHLO /i.test(line)) sock.write('250-e2e\r\n250 AUTH XOAUTH2\r\n');
+      else if (/^AUTH XOAUTH2 /i.test(line))
+        sock.write(check('smtp', line.slice(13)) ? '235 2.7.0 Accepted\r\n' : '535 5.7.3 Authentication unsuccessful\r\n');
+      else if (/^QUIT$/i.test(line)) {
+        sock.write('221 bye\r\n');
+        sock.end();
+      } else sock.write('500 not here\r\n');
+    });
+  });
+  for (const s of [imap, smtp]) await new Promise<void>((r) => s.listen(0, '127.0.0.1', () => r()));
+  const port = (s: TcpServer) => (s.address() as { port: number }).port;
+  return { mail: { imapPort: port(imap), smtpPort: port(smtp), signIns }, servers: [imap, smtp] };
+}
+
+/** The server signs Microsoft accounts in at the stand-in, reaches their calendars there, and their mail at the stand-in mail servers. */
+const test = base.extend<{ microsoft: FakeMicrosoft; mail: FakeMail }>({
   microsoft: async ({}, use) => {
     const { fake, server } = await fakeMicrosoft();
     await use(fake);
     await new Promise((r) => server.close(r));
   },
-  serverEnv: async ({ microsoft }, use) => use({ RELAY_MICROSOFT_LOGIN_URL: microsoft.url, RELAY_MICROSOFT_GRAPH_URL: microsoft.url }),
+  // Exchange Online's token only, for the account's address.
+  mail: async ({ microsoft }, use) => {
+    const { mail, servers } = await fakeMailServers(
+      (user, token) => user === 'ming@contoso.com' && microsoft.tokens.get(token) === 'outlook',
+    );
+    await use(mail);
+    for (const s of servers) await new Promise((r) => s.close(r));
+  },
+  serverEnv: async ({ microsoft, mail }, use) =>
+    use({
+      RELAY_MICROSOFT_LOGIN_URL: microsoft.url,
+      RELAY_MICROSOFT_GRAPH_URL: microsoft.url,
+      RELAY_MICROSOFT_IMAP: `127.0.0.1:${mail.imapPort}`,
+      RELAY_MICROSOFT_SMTP: `127.0.0.1:${mail.smtpPort}`,
+    }),
 });
 
 test("an account signs in with Microsoft in a new tab, comes back to the web app's own callback page, and its calendars join the calendar tools", async ({
@@ -178,4 +279,68 @@ test("an account signs in with Microsoft in a new tab, comes back to the web app
   await expect(accounts).toContainText('Microsoft cannot revoke one token');
   await expect(accounts.locator('.lib-row')).toHaveCount(0);
   await expect(calendars).not.toContainText('ming@contoso.com');
+});
+
+test('an account signed in with Microsoft for mail adds its mail account, whose Test signs in over XOAUTH2 to its IMAP and SMTP servers', async ({
+  page,
+  relay,
+  microsoft,
+  mail,
+}) => {
+  await page.goto(`${relay.base}/#/settings/tools`);
+  const accounts = page.locator('.oauth-accounts');
+  await accounts.getByRole('button', { name: 'Set up the app' }).first().click();
+  const form = accounts.getByRole('form', { name: 'The app to sign in with · Microsoft 365 / Outlook.com' });
+  await form.getByRole('textbox', { name: 'Client ID' }).fill('e2e-client');
+  await form.getByRole('button', { name: 'Save', exact: true }).click();
+
+  // A new sign-in for mail alone.
+  const uses = accounts.getByRole('group', { name: 'A new sign-in is for:' });
+  await uses.getByRole('checkbox', { name: 'Calendars' }).uncheck();
+  await uses.getByRole('checkbox', { name: 'Mail' }).check();
+  const [tab] = await Promise.all([
+    page.waitForEvent('popup'),
+    accounts.getByRole('button', { name: 'Sign in with Microsoft 365 / Outlook.com' }).click(),
+  ]);
+  await tab.getByRole('link', { name: 'Allow' }).click();
+  await expect(tab.getByRole('status')).toHaveText('Signed in as ming@contoso.com.');
+  await tab.close();
+  expect(microsoft.exchanges).toBe(1);
+
+  // The account, for mail, with a sign-in for calendars on offer; its mail account among the mail
+  // tools', at Microsoft's servers (here the stand-ins), with no password nor servers to edit.
+  const row = accounts.locator('.lib-row', { hasText: 'ming@contoso.com' });
+  await expect(row).toContainText('Used for: Mail');
+  await expect(row.getByRole('button', { name: 'Use for calendars' })).toBeEnabled();
+  await expect(row.getByRole('button', { name: 'Calendars', exact: true })).toHaveCount(0);
+  const mailList = page.locator('.connectors > .lib-list').first();
+  const own = mailList.locator('.lib-row', { hasText: 'Outlook · ming@contoso.com' });
+  await expect(own).toContainText('ming@contoso.com · 127.0.0.1');
+  await expect(own.getByRole('button', { name: 'Edit' })).toHaveCount(0);
+  await expect(page.locator('.connectors > .lib-list').nth(1)).not.toContainText('ming@contoso.com');
+
+  // Test: IMAP, then SMTP, each over XOAUTH2 with Exchange Online's token.
+  await own.getByRole('button', { name: 'Test' }).click();
+  await expect(own).toContainText('Connected: the sign-in works.');
+  expect(mail.signIns).toEqual([
+    { server: 'imap', user: 'ming@contoso.com', ok: true },
+    { server: 'smtp', user: 'ming@contoso.com', ok: true },
+  ]);
+  expect([...microsoft.tokens.values()]).toContain('outlook');
+
+  // Removed from the mail accounts alone: Use for mail adds it again, without signing in again.
+  page.once('dialog', (d) => void d.accept());
+  await own.getByRole('button', { name: 'Remove' }).click();
+  await expect(own).toHaveCount(0);
+  await row.getByRole('button', { name: 'Use for mail' }).click();
+  await expect(accounts).toContainText('The mail of ming@contoso.com was added to the mail tools.');
+  await expect(own).toBeVisible();
+  await expect(row.getByRole('button', { name: 'Use for mail' })).toHaveCount(0);
+  expect(microsoft.exchanges).toBe(1);
+
+  // Removed with its account.
+  page.once('dialog', (d) => void d.accept());
+  await row.getByRole('button', { name: 'Remove ming@contoso.com' }).click();
+  await expect(accounts.locator('.lib-row')).toHaveCount(0);
+  await expect(mailList).not.toContainText('ming@contoso.com');
 });

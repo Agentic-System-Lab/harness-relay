@@ -395,7 +395,7 @@ describe('signing in', () => {
         'The sign-in of ming@contoso.com no longer works: sign in again in Settings → Tool library (the app it signed in with was changed in Settings)',
       );
       // No token of the app before is used: the kept one was forgotten.
-      await expect(service.broker.accessToken(id)).rejects.toThrow('no longer works');
+      await expect(service.broker.accessToken(id, 'calendar')).rejects.toThrow('no longer works');
     });
     const again = await signIn();
     expect(again.account).toMatchObject({ id, status: 'connected' });
@@ -416,7 +416,7 @@ describe('signing in', () => {
     // A server started again knows no access token: its first request refreshes.
     const restarted = newService(reloaded);
     const before = grants('refresh_token').length;
-    expect((await restarted.broker.fetch(id)(`${fake.url}/v1.0/me`)).status).toBe(200);
+    expect((await restarted.broker.fetch(id, 'calendar')(`${fake.url}/v1.0/me`)).status).toBe(200);
     expect(grants('refresh_token')).toHaveLength(before + 1);
   });
 });
@@ -528,7 +528,7 @@ describe('the token broker', () => {
   it('refreshes shortly before the token expires, once for requests at the same time, and keeps the rotated refresh token', async () => {
     const id = (await signIn()).account!.id;
     const first = keyring.values.get(`oauth-${id}`)!;
-    const fetch = service.broker.fetch(id);
+    const fetch = service.broker.fetch(id, 'calendar');
     expect((await fetch(`${fake.url}/v1.0/me`)).status).toBe(200);
     const exchanges = tokenRequests().length;
     // Within two minutes of expiring: refreshed, once for both.
@@ -548,7 +548,7 @@ describe('the token broker', () => {
     fake.refreshTokens.set(keyring.values.get(`oauth-${id}`)!, false);
     now += 61 * MIN;
     await withLang('en', async () => {
-      await expect(service.broker.accessToken(id)).rejects.toThrow('The sign-in of ming@contoso.com no longer works');
+      await expect(service.broker.accessToken(id, 'calendar')).rejects.toThrow('The sign-in of ming@contoso.com no longer works');
       expect(service.view().accounts[0]).toMatchObject({ status: 'reauth', error: expect.stringContaining('invalid_grant') });
       expect(service.problem(id)).toMatch(/sign in again/);
       const tools = Object.fromEntries(connectorTools(connectors, service).map((t) => [t.name, t]));
@@ -569,7 +569,9 @@ describe('the token broker', () => {
       for (const error of ['consent_required', 'interaction_required']) {
         now += 61 * MIN;
         fake.refreshAnswer = { status: 400, body: { error, error_description: 'AADSTS65001: The user has not consented.\r\nTrace ID: 1' } };
-        await expect(service.broker.accessToken(id)).rejects.toThrow(`no longer works: sign in again in Settings → Tool library (${error}`);
+        await expect(service.broker.accessToken(id, 'calendar')).rejects.toThrow(
+          `no longer works: sign in again in Settings → Tool library (${error}`,
+        );
         expect(service.view().accounts[0]).toMatchObject({ status: 'reauth', error: `${error}: AADSTS65001: The user has not consented.` });
         fake.refreshAnswer = undefined;
         await signIn();
@@ -577,11 +579,13 @@ describe('the token broker', () => {
       // The provider down: the refresh fails this time, and the account stays connected.
       now += 61 * MIN;
       fake.refreshAnswer = { status: 500, body: {} };
-      await expect(service.broker.accessToken(id)).rejects.toThrow('The sign-in of ming@contoso.com could not be renewed: HTTP 500');
+      await expect(service.broker.accessToken(id, 'calendar')).rejects.toThrow(
+        'The sign-in of ming@contoso.com could not be renewed: HTTP 500',
+      );
       expect(service.view().accounts[0]!.status).toBe('connected');
       fake.refreshAnswer = undefined;
     });
-    expect(await service.broker.accessToken(id)).toMatch(/^access-/);
+    expect(await service.broker.accessToken(id, 'calendar')).toMatch(/^access-/);
   });
 
   it('writes nothing back from a refresh that comes back after its account was removed', async () => {
@@ -591,7 +595,7 @@ describe('the token broker', () => {
     fake.hold = { grant: 'refresh_token', until: held.until };
     await withLang('en', async () => {
       const before = grants('refresh_token').length;
-      const refreshing = service.broker.accessToken(id);
+      const refreshing = service.broker.accessToken(id, 'calendar');
       await vi.waitFor(() => expect(grants('refresh_token')).toHaveLength(before + 1), { timeout: 5000, interval: 10 });
       await service.removeAccount(id);
       expect(keyring.values.has(`oauth-${id}`)).toBe(false);
@@ -612,7 +616,7 @@ describe('the token broker', () => {
     const held = gate();
     fake.hold = { grant: 'refresh_token', until: held.until };
     const before = grants('refresh_token').length;
-    const refreshing = service.broker.accessToken(id);
+    const refreshing = service.broker.accessToken(id, 'calendar');
     await vi.waitFor(() => expect(grants('refresh_token')).toHaveLength(before + 1), { timeout: 5000, interval: 10 });
     // Signed in again meanwhile; the refresh of the sign-in before is then refused.
     const again = await signIn();
@@ -634,7 +638,7 @@ describe('the token broker', () => {
     const held = gate();
     fake.hold = { grant: 'refresh_token', until: held.until };
     const before = grants('refresh_token').length;
-    const refreshing = service.broker.accessToken(id);
+    const refreshing = service.broker.accessToken(id, 'calendar');
     await vi.waitFor(() => expect(grants('refresh_token')).toHaveLength(before + 1), { timeout: 5000, interval: 10 });
     await signIn();
     const kept = keyring.values.get(`oauth-${id}`)!;
@@ -645,7 +649,7 @@ describe('the token broker', () => {
     const token = await refreshing;
     expect(fake.drop).toEqual([]);
     // The new sign-in's own token, not the one from before it.
-    expect(token).toBe(await service.broker.accessToken(id));
+    expect(token).toBe(await service.broker.accessToken(id, 'calendar'));
     expect(fake.accessTokens.get(token)).toBe(true);
     expect(service.view().accounts[0]!.status).toBe('connected');
     expect(keyring.values.get(`oauth-${id}`)).toBe(kept);
@@ -653,14 +657,14 @@ describe('the token broker', () => {
     now += 59 * MIN;
     fake.drop.push('refresh_token');
     await withLang('en', async () => {
-      await expect(service.broker.accessToken(id)).rejects.toThrow('The sign-in of ming@contoso.com could not be renewed');
+      await expect(service.broker.accessToken(id, 'calendar')).rejects.toThrow('The sign-in of ming@contoso.com could not be renewed');
     });
     expect(service.view().accounts[0]!.status).toBe('connected');
   });
 
   it("sends the token only to its provider's hosts, follows no redirect, and refreshes once when the token is refused", async () => {
     const id = (await signIn()).account!.id;
-    const fetch = service.broker.fetch(id);
+    const fetch = service.broker.fetch(id, 'calendar');
     await withLang('en', async () => {
       await expect(fetch('https://evil.example/steal')).rejects.toThrow('is not sent to "evil.example"');
       await expect(fetch('http://127.0.0.1:1/v1.0/me')).rejects.toThrow('is not sent to "127.0.0.1:1"');

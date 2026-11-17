@@ -1,6 +1,7 @@
 import { WATCH_LIMITS, type ScheduleTrigger } from '../shared/types';
 import type { ConnectorStore } from './connectors/accounts';
 import { IdleRefusedError, ImapClient, ImapLoginError, quote, type ImapResponse } from './connectors/imap';
+import { MailSignInError, mailLogin, openImap, type MailOAuth } from './connectors/mailLogin';
 import { HttpError } from './errors';
 
 /*
@@ -15,13 +16,18 @@ import { HttpError } from './errors';
  * slowly as the checks back off, so that a wrong password is not tried every few minutes); the count
  * starts again only after a whole healthy round. TCP keepalive, IDLE renewed every few minutes (whose
  * DONE must be answered) and a restart of every connection after the computer slept find a connection
- * that died without a word. The passwords stay in the server, read when it connects.
+ * that died without a word. The passwords stay in the server, read when it connects; a mail account
+ * reached through an account that signs in with OAuth gets a token for mail each time it connects
+ * (`mailLogin`), renewed when it has run out, and one that needs a new sign-in backs off as a refused
+ * password does, until it is signed in again.
  */
 
 type MailTrigger = Extract<ScheduleTrigger, { source: 'mail' }>;
 
 export interface IdleDeps {
   connectors: ConnectorStore;
+  /** How the mail accounts reached through an account that signs in with OAuth sign in (`OAuthService`). */
+  oauth?: MailOAuth;
   /** The automations that are on and wait for new mail (`Store.mailWatches()`). */
   watching(): { conversationId: string; trigger: MailTrigger }[];
   /** Check this automation now: the server said mail arrived (once more after a check under way). */
@@ -47,7 +53,7 @@ export const IDLE_SYNC_MS = 15_000;
 /** A sync that comes this much later than it should means the computer slept: every connection is opened again. */
 const WOKE_AFTER_MS = 4 * IDLE_SYNC_MS;
 
-type Resolved = Required<Omit<IdleDeps, 'watching' | 'check'>> & Pick<IdleDeps, 'check'>;
+type Resolved = Required<Omit<IdleDeps, 'watching' | 'check' | 'oauth'>> & Pick<IdleDeps, 'check' | 'oauth'>;
 
 /** One mail account's folder, waiting in IDLE, for the automations that wait for new mail there. */
 class Listener {
@@ -159,12 +165,11 @@ class Listener {
     while (!this.stopped) {
       try {
         const found = this.deps.connectors.mailById(this.account);
-        if (!found?.password) throw new Error('no such mail account, or no password');
-        const { account, password } = found;
+        if (!found) throw new Error('no such mail account');
         this.connection = new AbortController();
-        const c = await ImapClient.open(
-          account.imap,
-          { username: account.username, password },
+        // Its password, or a token for mail (a new one when the kept one has run out).
+        const c: ImapClient = await openImap(
+          mailLogin(found.account, found.password, this.deps.oauth),
           this.deps.timeoutMs,
           this.connection.signal,
         );
@@ -216,7 +221,8 @@ class Listener {
           await this.notNow();
           continue;
         }
-        const login = err instanceof ImapLoginError;
+        // A refused sign-in, or an account that needs a new one: as slowly as the checks back off.
+        const login = err instanceof ImapLoginError || err instanceof MailSignInError;
         const steps = login ? this.deps.loginBackoffMs : this.deps.backoffMs;
         const n = login ? refused++ : failures++;
         if (n === 0) console.warn(`[idle] listening for new mail stopped (${(err as Error).message}); trying again later`);
@@ -258,8 +264,9 @@ export class IdleWatcher {
   /**
    * One connection for each mail account and folder that automations which are on wait for, checking
    * each of them when mail arrives. One that nothing waits for any more is closed; one whose account
-   * changed in Settings (its server, user name, or saved again: a new password) is opened again; after
-   * the computer slept (this sync came much later than it should), every one is opened again.
+   * changed in Settings (its server, user name, or saved again: a new password), or whose sign-in came
+   * to need renewing or was renewed, is opened again; after the computer slept (this sync came much
+   * later than it should), every one is opened again.
    */
   sync(): void {
     const now = this.deps.now();
@@ -276,6 +283,8 @@ export class IdleWatcher {
         account.imap,
         account.username,
         this.deps.connectors.mailSaves(w.trigger.account),
+        // Through a sign-in: its state, so that once signed in again it connects at once.
+        account.oauth ? (this.deps.oauth?.signInState(account.oauth) ?? null) : null,
       ]);
       const entry = wanted.get(key) ?? { account: w.trigger.account, folder: w.trigger.folder, ids: [] };
       entry.ids.push(w.conversationId);

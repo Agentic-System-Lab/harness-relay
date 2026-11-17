@@ -4,16 +4,20 @@ import type { ConnectorStore } from './accounts';
 import { calendarBackend, type CalendarOAuth } from './calendar';
 import { eventTime, rangeTime, type CalendarEvent } from './caldav';
 import { ImapClient, Literal, imapDate, parseFetch, quote } from './imap';
+import { mailLogin, openImap, sendMailAs, type MailOAuth } from './mailLogin';
 import { bareAddress, composeMail, parseHeaders, readMail, validAddress } from './mime';
-import { sendMail } from './smtp';
 
 /*
  * The mail and calendar groups' tools on the gateway (`gateway.ts`), for the accounts in Settings
  * (`accounts.ts`): search and read mail (read), save a draft (act), send (send: the outbox), list
  * events (read), add one (act) or invite people to one (send). What a mail or an event says comes
  * back marked as data, never instructions. A calendar is reached with its password, or through an
- * account that signs in with OAuth (`oauth`: Microsoft's over Graph, Google's over CalDAV).
+ * account that signs in with OAuth (`oauth`: Microsoft's over Graph, Google's over CalDAV); a mail
+ * account with its password, or through one (its provider's IMAP and SMTP, with XOAUTH2: `mailLogin`).
  */
+
+/** How the calendars and mail accounts of accounts that sign in with OAuth are reached (`OAuthService`). */
+export type ConnectorOAuth = CalendarOAuth & MailOAuth;
 
 /** Longest text of one message the agent gets. */
 const READ_MAX = 50_000;
@@ -85,8 +89,13 @@ function eventLine(e: CalendarEvent): string {
   );
 }
 
-export function connectorTools(store: ConnectorStore, oauth?: CalendarOAuth): GatewayTool[] {
-  const noMail = () => (store.hasMail() ? undefined : 'no mail account is set up (Settings → Tool library → Mail and calendar)');
+export function connectorTools(store: ConnectorStore, oauth?: ConnectorOAuth): GatewayTool[] {
+  const noMail = () => {
+    if (!store.hasMail()) return 'no mail account is set up (Settings → Tool library → Mail and calendar)';
+    // Every mail account is reached through a sign-in that needs renewing: none can be used until the user signs in again.
+    const problems = store.mailAccounts().map((m) => (m.oauth ? (oauth ? oauth.problem(m.oauth) : 'no OAuth here') : undefined));
+    return problems.every(Boolean) ? `${problems[0]} (Settings → Tool library → Mail and calendar)` : undefined;
+  };
   const noCalendar = () => {
     if (!store.hasCalendar()) return 'no calendar is set up (Settings → Tool library → Mail and calendar)';
     // Every calendar is reached through a sign-in that needs renewing: none can be used until the user signs in again.
@@ -105,7 +114,7 @@ export function connectorTools(store: ConnectorStore, oauth?: CalendarOAuth): Ga
   };
   const withImap = async <T>(which: unknown, fn: (c: ImapClient) => Promise<T>): Promise<T> => {
     const { account, password } = mailbox(which);
-    const c = await ImapClient.open(account.imap, { username: account.username, password });
+    const c = await openImap(mailLogin(account, password, oauth));
     try {
       return await fn(c);
     } finally {
@@ -348,13 +357,13 @@ export function connectorTools(store: ConnectorStore, oauth?: CalendarOAuth): Ga
         const m = mailArgs(a, true);
         const { account, password } = sendsFrom(a, (id) => store.mailById(id), mailbox);
         const { raw, messageId } = composeMail({ from: account.address, ...m });
-        const answer = await sendMail(
-          account.smtp,
-          { username: account.username, password },
+        const login = mailLogin(account, password, oauth);
+        const answer = await sendMailAs(
+          login,
           { from: bareAddress(account.address), recipients: [...m.to, ...m.cc, ...m.bcc].map(bareAddress) },
           raw,
         );
-        return t().gw.mailSent(messageId, account.smtp.host, answer ?? '');
+        return t().gw.mailSent(messageId, login.smtp.host, answer ?? '');
       },
     },
     {

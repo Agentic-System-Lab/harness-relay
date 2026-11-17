@@ -118,6 +118,7 @@ import {
   validateToolLibraryUpdate,
   validConnectorId,
   validOAuthProvider,
+  validOAuthUses,
   validateOAuthCalendar,
   validateOAuthClient,
   validateMailAccount,
@@ -625,18 +626,22 @@ export function createApp({
     }
   });
 
-  // Try an account as saved: sign in to its mail server (IMAP, then SMTP's sign-in), or read its calendar.
+  // Try an account as saved: sign in to its mail server (IMAP, then SMTP's sign-in; with its password or its sign-in's token), or read its calendar.
   app.post('/api/connectors/:kind/:id/test', async (c) => {
     const kind = c.req.param('kind');
     const id = c.req.param('id');
+    /** Reached through an account that signs in (its token), not a password. */
+    let signedIn = false;
     try {
       if (kind === 'mail') {
         const m = settings.connectors.mail(id);
         if (!m || m.account.id !== id) throw new HttpError(404, t().connectorNotFound(id));
-        await testMail(m.account, m.password);
+        signedIn = Boolean(m.account.oauth);
+        await testMail(m.account, m.password, oauth);
       } else if (kind === 'calendar') {
         const cal = settings.connectors.calendar(id);
         if (!cal || cal.account.id !== id) throw new HttpError(404, t().connectorNotFound(id));
+        signedIn = Boolean(cal.account.oauth);
         const now = Date.now();
         await calendarBackend(cal.account, cal.password, oauth).events(now, now + 86_400_000);
       } else throw new HttpError(404, t().connectorNotFound(id));
@@ -644,10 +649,10 @@ export function createApp({
       if (err instanceof HttpError) throw err;
       return c.json({ ok: false, error: t().connectorTestFailed((err as Error).message) });
     }
-    return c.json({ ok: true, message: t().connectorTestOk });
+    return c.json({ ok: true, message: signedIn ? t().connectorTestOkSignedIn : t().connectorTestOk });
   });
 
-  // --- Accounts that sign in with OAuth (Microsoft, Google), for the calendar tools so far ---------
+  // --- Accounts that sign in with OAuth (Microsoft, Google), for the calendar and mail tools --------
   // The server runs each sign-in; the page starts it and shows how it went. Tokens never leave the
   // server: the page sees an account's address and state only.
 
@@ -655,16 +660,17 @@ export function createApp({
   app.put('/api/oauth/clients/:provider', async (c) =>
     c.json(oauth.saveClient(validOAuthProvider(c.req.param('provider')), validateOAuthClient(await body<unknown>(c)))),
   );
-  // A sign-in: the provider's page to open, which sends the browser back to this page's own web app
-  // when it is on this computer (`origin`), or a code to type on another device (`device`).
+  // A sign-in for its uses (the calendar, mail), its provider's page to open, which sends the browser back
+  // to this page's own web app when it is on this computer (`origin`), or a code to type on another device (`device`).
   app.post('/api/oauth/signins', async (c) => {
-    const b = await body<{ provider?: unknown; origin?: unknown; device?: unknown }>(c);
+    const b = await body<{ provider?: unknown; uses?: unknown; origin?: unknown; device?: unknown }>(c);
     const provider = validOAuthProvider(String(b.provider ?? ''));
+    const uses = validOAuthUses(b.uses);
     const session = sessions.get(c.req.raw);
     return c.json(
       await oauth.startSignIn({
         provider,
-        uses: ['calendar'],
+        uses,
         ...(session ? { session } : {}),
         ...(typeof b.origin === 'string' ? { origin: b.origin } : {}),
         port: servingPort(),
@@ -720,7 +726,9 @@ export function createApp({
   app.post('/api/oauth/accounts/:id/calendars', async (c) =>
     c.json(oauth.addCalendar(c.req.param('id'), validateOAuthCalendar(await body<unknown>(c)))),
   );
-  // Removes the account, its tokens (Google's revoked) and its calendars; Microsoft's pages to take the app's access away come back.
+  // Its mail account, for the mail tools: at its provider's own servers, signed in to with its token.
+  app.post('/api/oauth/accounts/:id/mail', (c) => c.json(oauth.addMail(c.req.param('id'))));
+  // Removes the account, its tokens (Google's revoked), its calendars and mail accounts; Microsoft's pages to take the app's access away come back.
   app.delete('/api/oauth/accounts/:id', async (c) => {
     const removed = await oauth.removeAccount(c.req.param('id'));
     return c.json({ ...oauth.view(), connectors: settings.connectors.view(), ...removed });
