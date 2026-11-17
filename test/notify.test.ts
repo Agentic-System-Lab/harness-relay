@@ -199,6 +199,27 @@ describe('alertDetail', () => {
     };
     expect(alertDetail({ agents, messages: [approval] }, 'approval')).toEqual({ agent: 'Codex (old name)', text: 'npm install' });
     expect(alertDetail({ agents, messages: [approval] }, 'confirm')).toEqual({});
+    // What an agent asked to send waits in the outbox: the notification names it, by its card's title.
+    const outbox: ChatMessage = {
+      ...reply('a1', 'I wrote to Bob.'),
+      parts: [
+        { type: 'text', text: 'I wrote to Bob.' },
+        {
+          type: 'outbox',
+          id: 'o1',
+          tool: 'mail_send',
+          title: 'Mail to bob@example.com: "Shipped"',
+          preview: { fields: [] },
+          status: 'pending',
+        },
+      ],
+    };
+    expect(alertDetail({ agents, messages: [outbox, reply('a2', 'later')] }, 'approval')).toEqual({
+      agent: 'Claude',
+      text: 'Mail to bob@example.com: "Shipped"',
+    });
+    const sent: ChatMessage = { ...outbox, parts: outbox.parts.map((p) => (p.type === 'outbox' ? { ...p, status: 'sent' as const } : p)) };
+    expect(alertDetail({ agents, messages: [sent] }, 'approval')).toEqual({});
     expect(alertDetail({ agents, messages: [] }, 'done')).toEqual({});
   });
 

@@ -153,7 +153,7 @@ const agentName = (conv: Pick<Conversation, 'agents'>, m: ChatMessage) =>
 
 /**
  * The agent an alert is about and what it said: the latest agent reply (its error, for `error`); the
- * approval waiting (its command, file or address); the question asked. Nothing for a team to confirm
+ * approval waiting (its command, file or address), or what waits in the outbox (its card's title); the question asked. Nothing for a team to confirm
  * (the lead agent designed it).
  */
 export function alertDetail(conv: Pick<Conversation, 'agents' | 'messages'>, kind: AlertKind): AlertDetail {
@@ -163,9 +163,13 @@ export function alertDetail(conv: Pick<Conversation, 'agents' | 'messages'>, kin
     if (m.author.kind !== 'agent') continue;
     const agent = agentName(conv, m);
     if (kind === 'approval') {
-      const pending = m.parts.find((p) => p.type === 'approval' && p.status === 'pending');
-      if (!pending || pending.type !== 'approval') continue;
-      const what = pending.detail || pending.tool;
+      // An approval waiting (its command, file or address), or what it asked to send waiting in the outbox
+      // for the user's Send (a mail, an invitation: its card's title).
+      const pending = m.parts.find(
+        (p) => (p.type === 'approval' && p.status === 'pending') || (p.type === 'outbox' && p.status === 'pending'),
+      );
+      if (!pending) continue;
+      const what = pending.type === 'approval' ? pending.detail || pending.tool : pending.type === 'outbox' ? pending.title : '';
       return { ...(agent ? { agent } : {}), ...(what ? { text: snippet(what) } : {}) };
     }
     if (kind === 'answer' && !m.asked) continue;
