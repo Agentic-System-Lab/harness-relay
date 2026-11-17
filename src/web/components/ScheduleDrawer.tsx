@@ -14,6 +14,7 @@ import {
   shownZone,
   toUpdate,
   type ScheduleDraft,
+  watchState,
 } from '../schedule';
 import { MemberDots } from './MemberDots';
 import { ScheduleForm } from './ScheduleForm';
@@ -136,8 +137,11 @@ export function ScheduleDrawer({
     setInfo('');
     setRanIn(undefined);
     try {
-      await api.checkSchedule(conv.id);
-      setInfo(t.schedule.watch.done);
+      // What the check found shows, also while the automation is off (its state then says paused only).
+      const after = await api.checkSchedule(conv.id);
+      const w = after?.watch;
+      if (w?.error) setError(t.schedule.watch.error(w.error));
+      else setInfo(w?.checkedAt ? `${t.schedule.watch.done} · ${watchState(w, t, lang)}` : t.schedule.watch.done);
     } catch (e) {
       setError((e as Error).message);
     } finally {

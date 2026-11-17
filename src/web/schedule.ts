@@ -3,6 +3,7 @@ import {
   type ConversationSchedule,
   type ConversationSummary,
   type NewScheduleHook,
+  type EventSource,
   type ScheduleRepeat,
   type ScheduleTrigger,
   type ScheduleUpdate,
@@ -226,11 +227,8 @@ export function formatWhen(ms: number, lang: string, timeZone?: string): string 
   }
 }
 
-/**
- * When a schedule sends, in a few words: "Weekdays at 09:00", "每 6 小時", "When a new mail from … arrives".
- * `accountName`: the name in Settings of a mail account, by its id (absent: none is named).
- */
-export function describeRepeat(r: ScheduleRepeat, t: Messages, lang: string, accountName?: (id: string) => string | undefined): string {
+/** When a schedule sends, in a few words: "Weekdays at 09:00", "每 6 小時", "When a new mail from … arrives". */
+export function describeRepeat(r: ScheduleRepeat, t: Messages, lang: string): string {
   const s = t.schedule.summary;
   switch (r.kind) {
     case 'once':
@@ -250,28 +248,42 @@ export function describeRepeat(r: ScheduleRepeat, t: Messages, lang: string, acc
     case 'manual':
       return s.manual;
     case 'event':
-      return describeTrigger(r.trigger, t, accountName?.(r.trigger.account));
+      return describeTrigger(r.trigger, t);
   }
 }
 
-/** What an automation that starts when something happens waits for, in a few words. */
-export function describeTrigger(trigger: ScheduleTrigger, t: Messages, account?: string): string {
+/** What an automation that starts when something happens waits for, in a few words (a folder other than the inbox named). */
+export function describeTrigger(trigger: ScheduleTrigger, t: Messages): string {
   return t.schedule.summary.mail({
-    ...(account ? { account } : {}),
+    ...(trigger.folder.toUpperCase() !== 'INBOX' ? { folder: trigger.folder } : {}),
     ...(trigger.from ? { from: trigger.from } : {}),
     ...(trigger.subject ? { subject: trigger.subject } : {}),
   });
 }
 
 /**
- * Whether a schedule needs a look: the last time it came due, it was not sent, or the last check of
- * what it waits for failed.
+ * Whether a schedule needs a look: the last time it came due, it was not sent, or (while it is on)
+ * the last check of what it waits for failed.
  */
 export function scheduleTrouble(
-  s: (Pick<ConversationSchedule, 'lastResult'> & { watch?: Pick<ScheduleWatch, 'error'>; watchError?: boolean }) | undefined,
+  s:
+    | (Pick<ConversationSchedule, 'lastResult'> & { enabled?: boolean; watch?: Pick<ScheduleWatch, 'error'>; watchError?: boolean })
+    | undefined,
 ): boolean {
-  if (s?.watch?.error || s?.watchError) return true;
+  if ((s?.watch?.error && s.enabled !== false) || s?.watchError) return true;
   return s?.lastResult === 'missed' || s?.lastResult === 'skipped' || s?.lastResult === 'failed';
+}
+
+/**
+ * A chat's schedule badge's title: what it does and how it goes, or what is wrong: the last check
+ * failed (while it is on), or the last time came due and was not sent.
+ */
+export function scheduleBadgeTitle(s: ConversationSchedule, t: Messages, lang: string): string {
+  const what = describeRepeat(s.repeat, t, lang);
+  if (s.repeat.kind === 'event' && s.enabled && s.watch?.error) return `${what} · ${t.schedule.watch.error(s.watch.error)}`;
+  if (scheduleTrouble(s) && s.lastResult && s.lastResult !== 'sent' && s.lastResult !== 'queued')
+    return `${what} · ${t.schedule.sidebar.problem(t.schedule.results[s.lastResult])}`;
+  return `${what} · ${scheduleState(s, t, lang)}`;
 }
 
 /**
@@ -298,7 +310,8 @@ export function scheduleState(s: ConversationSchedule, t: Messages, lang: string
 /** The sidebar's tooltip for a conversation's schedule. */
 export function sidebarScheduleTitle(s: NonNullable<ConversationSummary['schedule']>, t: Messages, lang: string): string {
   if (s.watchError && s.enabled) return t.schedule.sidebar.watchError;
-  if (scheduleTrouble(s) && s.lastResult) return t.schedule.sidebar.problem(t.schedule.results[s.lastResult]);
+  if (scheduleTrouble(s) && s.lastResult && s.lastResult !== 'sent' && s.lastResult !== 'queued')
+    return t.schedule.sidebar.problem(t.schedule.results[s.lastResult]);
   if (s.enabled && s.manual) return t.schedule.sidebar.manual;
   if (s.enabled && s.trigger) return t.schedule.sidebar.watch(describeTrigger(s.trigger, t));
   if (!s.enabled || s.nextRunAt === undefined) return t.schedule.sidebar.paused;
@@ -338,4 +351,18 @@ export function handedHook(convId: string): NewScheduleHook | undefined {
 /** Drops it once shown, so the drawer opened again shows no token. */
 export function forgetHandedHook(convId: string): void {
   handedHooks.delete(convId);
+}
+
+/**
+ * An <event> block as the chat shows it. What a trigger found is JSON whose `<` is written `\u003c`
+ * for the agents' sake: shown read back, so a sender reads `Ann <ann@example.com>`. A webhook's body
+ * is shown as it came.
+ */
+export function shownEvent(event: string, source?: EventSource): string {
+  if (!source || source === 'webhook') return event;
+  try {
+    return JSON.stringify(JSON.parse(event), null, 2);
+  } catch {
+    return event;
+  }
 }

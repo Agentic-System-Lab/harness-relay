@@ -2943,10 +2943,27 @@ describe('schedules', () => {
       await req(`/api/conversations/${conv.id}/schedule`, 'PUT', watch('work', { folder: 'Alerts' }))
     ).json()) as ConversationSchedule;
     expect(other.watch).toBeUndefined();
+    // Turned off, it keeps its place (the same folder); turned on again, it starts afresh.
     await req(`/api/conversations/${conv.id}/schedule/check`, 'POST', {});
-    await req(`/api/conversations/${conv.id}/schedule`, 'PUT', { ...watch('work'), enabled: false });
-    const back = (await (await req(`/api/conversations/${conv.id}/schedule`, 'PUT', watch('work'))).json()) as ConversationSchedule;
+    const off = (await (
+      await req(`/api/conversations/${conv.id}/schedule`, 'PUT', { ...watch('work', { folder: 'Alerts' }), enabled: false })
+    ).json()) as ConversationSchedule;
+    expect(off.watch).toMatchObject({ lastUid: 4 });
+    const back = (await (
+      await req(`/api/conversations/${conv.id}/schedule`, 'PUT', watch('work', { folder: 'Alerts' }))
+    ).json()) as ConversationSchedule;
     expect(back.watch).toBeUndefined();
+
+    // Its account removed in Settings: it can still be turned off, not on.
+    expect((await req(`/api/conversations/${conv.id}/schedule`, 'PUT', { ...watch('gone'), enabled: false })).status).toBe(200);
+    expect((await req(`/api/conversations/${conv.id}/schedule`, 'PUT', watch('gone'))).status).toBe(400);
+    // New automation: refused for an account that is not there.
+    const fresh = await req('/api/schedules', 'POST', {
+      schedule: watch('gone'),
+      settings: { mode: 'roundtable', permission: 'read-only', cwd: project },
+    });
+    expect(fresh.status).toBe(400);
+    expect(((await fresh.json()) as { error: string }).error).toMatch(/mail account this automation checks is gone/);
 
     // An automation with times has nothing to check.
     await req(`/api/conversations/${conv.id}/schedule`, 'PUT', valid);

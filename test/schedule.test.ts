@@ -7,6 +7,8 @@ import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
 import {
   describeRepeat,
+  scheduleBadgeTitle,
+  shownEvent,
   draftChanged,
   draftFrom,
   draftProblems,
@@ -321,10 +323,16 @@ describe('the schedule form', () => {
     expect(draftFrom(saved2, MON).trigger).toEqual({ source: 'mail', account: 'work', folder: 'INBOX', from: 'github.com', subject: '' });
     expect(draftChanged(draftFrom(saved2, MON), saved2)).toBe(false);
     expect(describeRepeat(event, en, 'en')).toBe('When a new mail from github.com arrives');
-    expect(describeRepeat(event, en, 'en', () => 'Work')).toBe('When a new mail from github.com arrives (Work)');
     expect(
       describeRepeat({ kind: 'event', trigger: { source: 'mail', account: 'w', folder: 'INBOX', subject: 'CI' } }, zhTW, 'zh-TW'),
-    ).toBe('收到、主旨含「CI」的新郵件時');
+    ).toBe('收到主旨含「CI」的新郵件時');
+    // A folder other than the inbox is named.
+    const alerts: ScheduleRepeat = {
+      kind: 'event',
+      trigger: { source: 'mail', account: 'w', folder: 'Alerts', from: 'bot', subject: 'CI' },
+    };
+    expect(describeRepeat(alerts, en, 'en')).toBe('When a new mail from bot with "CI" in its subject arrives in Alerts');
+    expect(describeRepeat(alerts, zhTW, 'zh-TW')).toBe('「Alerts」收到 bot 寄來、主旨含「CI」的新郵件時');
     expect(describeRepeat(event, zhTW, 'zh-TW')).toBe('收到 github.com 寄來的新郵件時');
     // Its state: how its checks go.
     expect(scheduleState(saved2, en, 'en')).toMatch(/^Not checked yet/);
@@ -337,6 +345,21 @@ describe('the schedule form', () => {
       /New mail is waiting until the team can take it \(the team is busy\)$/,
     );
     expect(scheduleState({ ...checked, enabled: false }, en, 'en')).toBe('paused');
+    // Off, a failed check is no trouble: nothing checks it.
+    expect(scheduleTrouble({ ...failing, enabled: false })).toBe(false);
+    // The badge's title says what is wrong: the check, not the last time it sent.
+    expect(scheduleBadgeTitle({ ...failing, lastResult: 'sent', lastRunAt: MON }, en, 'en')).toBe(
+      'When a new mail from github.com arrives · The check failed: Connection refused',
+    );
+    expect(scheduleBadgeTitle({ ...checked, lastResult: 'sent', lastRunAt: MON }, en, 'en')).toBe(
+      `When a new mail from github.com arrives · ${scheduleState(checked, en, 'en')}`,
+    );
+    expect(sidebarScheduleTitle({ enabled: false, trigger: event.trigger, lastResult: 'sent' }, en, 'en')).toBe('Automation paused');
+    // What a trigger found reads back in the chat; a webhook's body as it came.
+    expect(shownEvent('{"from":"Ann \\u003cann@example.com>"}', 'mail')).toBe('{\n  "from": "Ann <ann@example.com>"\n}');
+    expect(shownEvent('{"a":"\\u003c"}', 'webhook')).toBe('{"a":"\\u003c"}');
+    expect(shownEvent('{"a":"\\u003c"}')).toBe('{"a":"\\u003c"}');
+    expect(shownEvent('not json', 'mail')).toBe('not json');
     // The sidebar says what it waits for, or that its last check failed.
     expect(sidebarScheduleTitle({ enabled: true, trigger: event.trigger }, en, 'en')).toBe(
       'Automation: when a new mail from github.com arrives',

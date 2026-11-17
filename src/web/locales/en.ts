@@ -536,7 +536,7 @@ export const en: Messages = {
       interval: (hours) => (hours === 1 ? 'Every hour' : `Every ${hours} hours`),
       manual: 'No set times',
       mail: (o) =>
-        `When a new mail${o.from ? ` from ${o.from}` : ''}${o.subject ? ` with "${o.subject}" in its subject` : ''} arrives${o.account ? ` (${o.account})` : ''}`,
+        `When a new mail${o.from ? ` from ${o.from}` : ''}${o.subject ? ` with "${o.subject}" in its subject` : ''} arrives${o.folder ? ` in ${o.folder}` : ''}`,
     },
     daySeparator: ', ',
     next: (when) => `next ${when}`,
@@ -2022,15 +2022,15 @@ export const en: Messages = {
       },
       {
         title: 'Automations',
-        body: 'New automation, the button with a lightning bolt beside New chat at the top left of the sidebar, sends a team a message as if you had sent it, whenever something starts it: you, set times, or a program. Write the message, pick how it starts, and the lead agent designs its team. For a chat you already have, use Automation in its header (under ⋯ on a phone):',
+        body: 'New automation, the button with a lightning bolt beside New chat at the top left of the sidebar, sends a team a message as if you had sent it, whenever something starts it: you, set times, a new mail, or a program. Write the message, pick how it starts, and the lead agent designs its team. For a chat you already have, use Automation in its header (under ⋯ on a phone):',
         points: [
-          'It starts when you click "Run once now", at set times (once, every day, every week on the days you pick, or every few hours), or when a program calls its webhook; a new one has no set times',
+          'It starts when you click "Run once now", at set times (once, every day, every week on the days you pick, or every few hours), when a new mail arrives in one of your accounts (Harness Relay checks it itself), or when a program calls its webhook; a new one has no set times',
           'Tick "Start a new chat each time" to begin every run in a fresh chat with the same team and settings',
           'Nobody may be watching: by default anything beyond the file permission is refused (unless you always allow it in this chat) and the agent works around it; or choose "Ask me"',
           'It sends only while Harness Relay runs: a missed time is skipped, or sent once when it starts if you choose',
           'A goal to track: each run is told the goal and what earlier runs reported, and says where it stands; the automation switches off once it is reached, and a run that fails is tried again',
           'A webhook lets a program on your computer (a git hook, a CI runner) send the message now, with what it posted',
-          'A clock in the sidebar marks the conversation, amber when the last time was not sent',
+          'A clock in the sidebar marks the conversation, amber when the last time was not sent or its last check failed',
         ],
       },
       {

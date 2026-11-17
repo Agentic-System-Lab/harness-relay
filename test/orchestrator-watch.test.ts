@@ -8,13 +8,15 @@
  *
  * The fake CLI, and what each test starts with, are in ./orchestrator-harness.ts.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { WATCH_LIMITS, type Conversation, type ConversationSchedule, type ScheduleWatch } from '../src/shared/types';
 import { mailEvent, triggerKey, type WatchCheck } from '../src/server/watch';
 import {
+  agentMessages,
   calls,
   conversation,
   db,
+  fake,
   finish,
   Hub,
   orchestrator,
@@ -95,8 +97,9 @@ describe('automations that start when something happens', () => {
     watching(conv);
     newMail(5, 6, 7);
     expect(store.watchDue(now)).toEqual([conv.id]);
+    // The scheduler's own look checks it, beside the times (no Check now, no watchTick of the test's).
     await scheduler().tick();
-    await scheduler().watchTick();
+    await vi.waitFor(() => expect(conv.schedule!.watch?.checkedAt).toBe(T0));
     // The first check only recorded.
     expect(given).toEqual([undefined]);
     expect(scheduled(conv)).toEqual([]);
@@ -233,5 +236,123 @@ describe('automations that start when something happens', () => {
     await checking;
     expect(conv.schedule).toBe(replaced);
     expect(conv.schedule.watch).toBeUndefined();
+  });
+
+  it('queues what it found while the team replies, its source kept to the message that delivers it', async () => {
+    reset();
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    watching(conv);
+    newMail(5, 6);
+    await scheduler().watchTick();
+    let release!: () => void;
+    fake.gates.Alice = new Promise((r) => (release = r));
+    await orchestrator.send(conv.id, 'question');
+    await vi.waitFor(() => expect(calls.map((c) => c.name)).toEqual(['Alice']));
+    now = T0 + WATCH_LIMITS.checkMinutes * MIN;
+    await scheduler().watchTick();
+    expect(conv.schedule).toMatchObject({ lastResult: 'queued', watch: { lastUid: 6 } });
+    expect(conv.queue).toEqual([expect.objectContaining({ scheduled: true, eventSource: 'mail' })]);
+    release();
+    await finish(conv.id);
+    const delivered = scheduled(conv);
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]!.eventSource).toBe('mail');
+    expect(calls.some((c) => c.prompt.includes('<event source="mail">'))).toBe(true);
+  });
+
+  it('opens a new chat each time when asked to, with the mail in its message', async () => {
+    reset();
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    watching(conv, { newChat: true });
+    newMail(5, 6);
+    await scheduler().watchTick();
+    now = T0 + WATCH_LIMITS.checkMinutes * MIN;
+    await scheduler().watchTick();
+    const chatId = conv.schedule!.lastChatId!;
+    expect(chatId).toBeDefined();
+    await finish(chatId);
+    const chat = store.get(chatId)!;
+    const sent = chat.messages.find((m) => m.scheduled)!;
+    expect(sent.eventSource).toBe('mail');
+    expect(JSON.parse(sent.event!).mails[0].uid).toBe(6);
+    expect(agentMessages(chat).length).toBeGreaterThan(0);
+  });
+
+  it('says in the chat when what it found could not be sent, and counts it as seen', async () => {
+    reset();
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    watching(conv);
+    newMail(5, 6);
+    await scheduler().watchTick();
+    const spy = vi.spyOn(orchestrator, 'sendScheduled').mockResolvedValueOnce({ result: 'failed', reason: 'the folder is gone.' });
+    now = T0 + WATCH_LIMITS.checkMinutes * MIN;
+    await scheduler().watchTick();
+    spy.mockRestore();
+    expect(conv.schedule).toMatchObject({ lastResult: 'failed', lastError: 'the folder is gone.', watch: { lastUid: 6 } });
+    expect(textOf(conv.messages.at(-1)!)).toBe("New mail came, but the automation's message could not be sent: the folder is gone");
+  });
+
+  it('does not ask the source again while what it holds still waits for a team that cannot take it', async () => {
+    reset();
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    watching(conv);
+    newMail(5, 6);
+    await scheduler().watchTick();
+    let release!: () => void;
+    const held = orchestrator.exclusive(conv.id, 'busy', () => new Promise<void>((r) => (release = r)));
+    now = T0 + WATCH_LIMITS.checkMinutes * MIN;
+    await scheduler().watchTick();
+    expect(conv.schedule!.watch).toMatchObject({ lastUid: 5, held: expect.any(String) });
+    expect(given).toHaveLength(2);
+    // Still busy: the next check keeps it held without reading the mail again.
+    now += WATCH_LIMITS.checkMinutes * MIN;
+    await scheduler().watchTick();
+    expect(given).toHaveLength(2);
+    expect(conv.schedule!.watch).toMatchObject({ lastUid: 5, held: expect.any(String), checkedAt: now });
+    release();
+    await held;
+    now += WATCH_LIMITS.checkMinutes * MIN;
+    await scheduler().watchTick();
+    await finish(conv.id);
+    expect(given).toHaveLength(3);
+    expect(scheduled(conv)).toHaveLength(1);
+  });
+
+  it('only records when checked while it is off (Check now), so trying it never starts a run', async () => {
+    reset();
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    watching(conv);
+    newMail(5, 6, 7);
+    await scheduler().watchTick();
+    conv.schedule = { ...conv.schedule!, enabled: false };
+    store.saveSchedule(conv);
+    answer = async (prev) => ({ state: { uidValidity: 1, lastUid: 7 }, total: prev ? 2 : 0, ...(prev ? { event: '{}' } : {}) });
+    await scheduler().check(conv.id, true);
+    expect(given.at(-1)).toBeUndefined();
+    expect(scheduled(conv)).toEqual([]);
+    expect(conv.schedule!.watch).toMatchObject({ lastUid: 7, checkedAt: now });
+  });
+
+  it('counts what it sent as seen when the automation was saved meanwhile, waiting for the same folder', async () => {
+    reset();
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    watching(conv);
+    newMail(5, 6);
+    await scheduler().watchTick();
+    const send = orchestrator.sendScheduled.bind(orchestrator);
+    const spy = vi.spyOn(orchestrator, 'sendScheduled').mockImplementationOnce(async (...a) => {
+      // Saved again while the message goes: the same trigger, other words in its message.
+      conv.schedule = { ...conv.schedule!, text: 'triage it again' };
+      return send(...a);
+    });
+    now = T0 + WATCH_LIMITS.checkMinutes * MIN;
+    await scheduler().watchTick();
+    spy.mockRestore();
+    await finish(conv.id);
+    expect(conv.schedule).toMatchObject({ text: 'triage it again', lastResult: 'sent', watch: { lastUid: 6 } });
+    now += WATCH_LIMITS.checkMinutes * MIN;
+    await scheduler().watchTick();
+    await finish(conv.id);
+    expect(scheduled(conv)).toHaveLength(1);
   });
 });

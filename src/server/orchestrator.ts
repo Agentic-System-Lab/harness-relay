@@ -884,6 +884,29 @@ export class Orchestrator {
    * refuses approval requests unless the schedule asks. A schedule that opens a new conversation each
    * time sends it there (`sendInNewChat`); `at` is the time it came due, which names that conversation.
    */
+  /**
+   * Why the team could not take a scheduled message now (`sendScheduled` would answer busy or
+   * skipped), or undefined when it could: asked before an automation that starts when something
+   * happens reads again what it holds for the team, so that a team waiting for the user is not the
+   * cause of the same mail being downloaded at every check. Nothing is started or changed.
+   */
+  scheduledHold(convId: string): string | undefined {
+    const conv = this.store.get(convId);
+    const s = conv?.schedule;
+    if (!conv || !s) return undefined;
+    if (this.closing) return t().shuttingDown;
+    if (conv.agents.length === 0 || pendingPlan(conv.messages)) return t().scheduleNoTeam;
+    if (s.newChat) return this.folderLockedBy({ ...conv, id: '' });
+    const replying = this.runs.has(convId) || this.starting.has(convId);
+    if (conv.pause && !replying) return t().scheduleWaitsForAnswer;
+    if (replying && conv.queue?.some((m) => m.scheduled)) return t().scheduleStillQueued;
+    if (this.designing.has(convId) && !conv.settings.autoConfirm) return t().scheduleDesigning;
+    if (replying && (conv.queue?.length ?? 0) >= MAX_QUEUE) return t().scheduleQueueFull;
+    if (replying) return undefined;
+    if (this.isBusy(convId)) return t().scheduleConvBusy;
+    return this.folderLockedBy(conv);
+  }
+
   async sendScheduled(
     convId: string,
     at = Date.now(),

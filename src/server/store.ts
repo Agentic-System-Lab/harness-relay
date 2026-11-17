@@ -452,7 +452,7 @@ function scheduleSummary(
     ...(ofDay ? { timeZone: s.timeZone } : {}),
     ...(s.repeat?.kind === 'manual' ? { manual: true } : {}),
     ...(s.repeat?.kind === 'event' ? { trigger: s.repeat.trigger } : {}),
-    ...(s.repeat?.kind === 'event' && s.watch?.error ? { watchError: true } : {}),
+    ...(s.repeat?.kind === 'event' && s.enabled && s.watch?.error ? { watchError: true } : {}),
   };
 }
 

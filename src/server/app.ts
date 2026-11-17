@@ -1344,9 +1344,10 @@ export function createApp({
     return c.json(schedule);
   });
 
-  /** An automation that starts when something happens waits for something that is there: a mail account from Settings. */
+  /** An automation that starts when something happens, when it is on, waits for something that is there: a mail account from Settings. */
   const refuseMissingTrigger = (update: ScheduleUpdate) => {
-    if (update.repeat.kind === 'event' && !settings.connectors.mailById(update.repeat.trigger.account))
+    // Turned off, it checks nothing: an automation whose account went can still be paused.
+    if (update.enabled && update.repeat.kind === 'event' && !settings.connectors.mailById(update.repeat.trigger.account))
       throw new HttpError(400, t().watchNoAccount);
   };
 
@@ -1355,7 +1356,7 @@ export function createApp({
   app.post('/api/conversations/:id/schedule/check', async (c) => {
     const conv = getConv(c.req.param('id'));
     if (conv.schedule?.repeat.kind !== 'event') throw new HttpError(409, t().watchNotEvent);
-    if (!scheduler) throw new HttpError(503, t().watchNotEvent);
+    if (!scheduler) throw new HttpError(503, t().watchNoScheduler);
     await scheduler.check(conv.id, true);
     return c.json(store.get(conv.id)?.schedule ?? null);
   });

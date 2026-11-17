@@ -138,8 +138,14 @@ export class Scheduler {
     if (!conv || !s || s.repeat.kind !== 'event' || (!s.enabled && !force)) return;
     const trigger = s.repeat.trigger;
     const key = triggerKey(trigger);
-    const prev = s.watch?.key === key ? s.watch : undefined;
+    // Checked while it is off (Check now): what came meanwhile is only recorded, as turning it on
+    // again would, so that trying the connection never starts a run.
+    const prev = s.watch?.key === key && s.enabled ? s.watch : undefined;
     const started = this.now();
+    // Something found earlier still waits for a team that cannot take it: the source is not asked
+    // again (nor the same mail downloaded) until the team can.
+    const hold = prev?.held ? this.orchestrator.scheduledHold(convId) : undefined;
+    if (prev && hold) return this.keepWatch(conv, s, { ...prev, checkedAt: started, nextCheckAt: nextCheckAt(started), held: hold });
     let found: WatchCheck;
     try {
       found = await withLang(s.lang, () => this.checkTrigger!(trigger, prev));
@@ -171,8 +177,9 @@ export class Scheduler {
     await withLang(s.lang, async () => {
       const sent = await this.orchestrator.sendScheduled(convId, now, { event: found.event, eventSource: trigger.source });
       // Shutting down: nothing was recorded, so the next start finds the same mail.
-      if (this.stopped || conv.schedule !== s) return;
+      if (this.stopped) return;
       if (sent.result === 'busy' || sent.result === 'skipped') {
+        if (conv.schedule !== s) return;
         // Not seen yet: a later check finds it again, with what came meanwhile, in one run.
         const { error: _e, failures: _f, ...kept } = prev ?? { key, nextCheckAt: seen.nextCheckAt };
         return this.keepWatch(conv, s, {
@@ -182,7 +189,11 @@ export class Scheduler {
           held: sent.reason ?? t().scheduleBusy,
         });
       }
-      const { lastError: _error, lastChatId: _chat, watch: _watch, ...rest } = s;
+      // The message went (or could not start): what it was about counts as seen, also when the
+      // automation was saved meanwhile and still waits for the same source.
+      const current = conv.schedule;
+      if (!current || current.repeat.kind !== 'event' || triggerKey(current.repeat.trigger) !== key) return;
+      const { lastError: _error, lastChatId: _chat, watch: _watch, ...rest } = current;
       conv.schedule = {
         ...rest,
         watch: seen,

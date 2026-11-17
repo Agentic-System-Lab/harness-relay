@@ -4283,6 +4283,15 @@ video.chat-media {
   gap: 5px;
   background: transparent;
   cursor: pointer;
+  /* What an automation waits for can be long: the chat's title keeps its room. */
+  max-width: 36ch;
+  min-width: 0;
+}
+
+.schedule-badge-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .schedule-badge:hover {

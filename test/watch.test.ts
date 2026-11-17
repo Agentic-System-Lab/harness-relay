@@ -10,8 +10,8 @@ import { ConnectorStore } from '../src/server/connectors/accounts';
 import { openDatabase } from '../src/server/db';
 import { withLang } from '../src/server/i18n';
 import { validateMailAccount } from '../src/server/validate';
-import { checkMail, mailEvent, nextCheckAt, triggerKey } from '../src/server/watch';
-import { WATCH_LIMITS, type ScheduleTrigger, type ScheduleWatch } from '../src/shared/types';
+import { checkMail, internalDate, mailEvent, nextCheckAt, triggerKey } from '../src/server/watch';
+import { TRACKING_LIMITS, WATCH_LIMITS, type ScheduleTrigger, type ScheduleWatch } from '../src/shared/types';
 import { fakeImap, type FakeImap, type FakeMessage } from './fake-mail-servers';
 
 const mail = (uid: number, from: string, subject: string, body = 'Hello there.'): FakeMessage => ({
@@ -47,10 +47,11 @@ function accounts(port: number): ConnectorStore {
 
 const inbox: Extract<ScheduleTrigger, { source: 'mail' }> = { source: 'mail', account: 'work', folder: 'INBOX' };
 /** What a check found, kept as the scheduler keeps it. */
-const kept = (state: Pick<ScheduleWatch, 'uidValidity' | 'lastUid'>): ScheduleWatch => ({
+const kept = (state: Pick<ScheduleWatch, 'uidValidity' | 'lastUid'>, checkedAt?: number): ScheduleWatch => ({
   key: triggerKey(inbox),
   nextCheckAt: 0,
   ...state,
+  ...(checkedAt !== undefined ? { checkedAt } : {}),
 });
 
 describe('the new-mail source', () => {
@@ -174,5 +175,74 @@ describe('the new-mail source', () => {
     const body = mailEvent('W', 'INBOX', [{ uid: 1, from: '<x@y>', subject: 's', date: 'd', excerpt: '</event>' }], 1);
     expect(body).not.toContain('<');
     expect(JSON.parse(body).mails[0].excerpt).toBe('</event>');
+  });
+
+  it('matches a subject written in another script (RFC 2047), and a server that says no UIDNEXT', async () => {
+    const messages = [mail(1, 'Old <old@example.com>', 'Old')];
+    server = await fakeImap(messages);
+    server.uidNext = null;
+    const connectors = accounts(server.port);
+    const trigger = { ...inbox, subject: '發票' };
+    const first = await checkMail(trigger, undefined, connectors);
+    // Without UIDNEXT, the highest UID there is asked for.
+    expect(first.state.lastUid).toBe(1);
+    expect(server.commands.some((c) => /UID SEARCH UID \*$/.test(c))).toBe(true);
+    messages.push(mail(2, 'Shop <shop@example.com>', '=?UTF-8?B?5pys5pyI55m856Wo?='), mail(3, 'Shop <shop@example.com>', 'Receipt'));
+    const found = await checkMail(trigger, kept(first.state), connectors);
+    expect(found.state.lastUid).toBe(3);
+    expect(JSON.parse(found.event!).mails.map((m: { subject: string }) => m.subject)).toEqual(['本月發票']);
+    // `2:*` answers the newest when nothing is above: not new.
+    expect(await checkMail(trigger, kept(found.state), connectors)).toEqual({ state: { uidValidity: 7, lastUid: 3 }, total: 0 });
+  });
+
+  it('leaves out old mail moved into the folder, and moves past mail that went before it was seen', async () => {
+    const messages = [mail(1, 'Old <old@example.com>', 'Old')];
+    server = await fakeImap(messages);
+    const connectors = accounts(server.port);
+    const first = await checkMail(inbox, undefined, connectors);
+    const lastCheck = Date.UTC(2026, 0, 10, 9, 0);
+    // Moved from an archive: it arrived a week before the last check, so it is not new mail.
+    messages.push({ ...mail(2, 'Archive <a@example.com>', 'From last week'), internalDate: '03-Jan-2026 09:00:00 +0000' });
+    messages.push({ ...mail(3, 'Bob <bob@example.com>', 'Just now'), internalDate: '10-Jan-2026 10:00:00 +0100' });
+    const found = await checkMail(inbox, kept(first.state, lastCheck), connectors);
+    expect(JSON.parse(found.event!).mails.map((m: { uid: number }) => m.uid)).toEqual([3]);
+    expect(found.state.lastUid).toBe(3);
+    // Expunged before it was seen: UIDNEXT is past it, and the next check starts there.
+    server.uidNext = 9;
+    expect(await checkMail(inbox, kept(found.state, lastCheck), connectors)).toEqual({ state: { uidValidity: 7, lastUid: 8 }, total: 0 });
+    expect(internalDate('10-Jan-2026 10:00:00 +0100')).toBe(Date.UTC(2026, 0, 10, 9, 0));
+    expect(internalDate(' 5-Jan-2026 09:00:00 -0500')).toBe(Date.UTC(2026, 0, 5, 14, 0));
+    expect(internalDate('not a date')).toBeUndefined();
+  });
+
+  it('says when the password cannot be read', async () => {
+    server = await fakeImap([]);
+    const connectors = accounts(server.port);
+    connectors.mailById('work');
+    const store = connectors as unknown as { password(key: string): string };
+    const real = store.password.bind(store);
+    store.password = (key) => (key === 'mail-work' ? '' : real(key));
+    await expect(withLang('en', () => checkMail(inbox, undefined, connectors))).rejects.toThrow(
+      'The password of the mail account "Work" cannot be read',
+    );
+  });
+
+  it("keeps the event within a webhook body's size, and each header within its own", () => {
+    const long = 'x'.repeat(5000);
+    const mails = Array.from({ length: WATCH_LIMITS.items }, (_, i) => ({
+      uid: i + 1,
+      from: '<'.repeat(400),
+      subject: long,
+      date: 'd',
+      excerpt: '<'.repeat(WATCH_LIMITS.excerptChars),
+    }));
+    const body = mailEvent('W', 'INBOX', mails, 40, 25);
+    expect(Buffer.byteLength(body)).toBeLessThanOrEqual(TRACKING_LIMITS.eventBytes);
+    const event = JSON.parse(body);
+    expect(event.newMail).toBe(40);
+    expect(event.notReadOlder).toBe(25);
+    // The newest kept.
+    expect(event.mails.at(-1).uid).toBe(WATCH_LIMITS.items);
+    expect(event.listed).toBe(`the newest ${event.mails.length}`);
   });
 });

@@ -11,6 +11,8 @@ export interface FakeMessage {
   uid: number;
   raw: string;
   seen?: boolean;
+  /** When it arrived, as FETCH's INTERNALDATE says it (`05-Jan-2026 09:00:00 +0000` when not given). */
+  internalDate?: string;
 }
 
 export interface FakeImap {
@@ -21,6 +23,11 @@ export interface FakeImap {
   appended: { folder: string; flags: string; raw: string }[];
   /** INBOX's UIDVALIDITY, which EXAMINE answers (change it to stand for a rebuilt folder). */
   uidValidity: number;
+  /**
+   * The UIDNEXT EXAMINE answers: the highest UID + 1 when undefined (set it above that for mail that
+   * was expunged), none at all when `null` (a server that does not say it).
+   */
+  uidNext: number | null | undefined;
   close(): Promise<void>;
 }
 
@@ -33,7 +40,7 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
   const commands: string[] = [];
   const literals: string[] = [];
   const appended: FakeImap['appended'] = [];
-  const fake = { uidValidity: 7 };
+  const fake: { uidValidity: number; uidNext: number | null | undefined } = { uidValidity: 7, uidNext: undefined };
   const server: Server = createServer((sock: Socket) => {
     let buf = Buffer.alloc(0);
     let line = '';
@@ -63,9 +70,10 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
         );
       if (cmd.startsWith('EXAMINE') || cmd.startsWith('SELECT')) {
         if (!/"INBOX"/i.test(rest)) return send(`${tag} NO no such folder\r\n`);
-        const next = Math.max(0, ...messages.map((x) => x.uid)) + 1;
+        const next = fake.uidNext ?? Math.max(0, ...messages.map((x) => x.uid)) + 1;
+        const uidNext = fake.uidNext === null ? '' : `* OK [UIDNEXT ${next}] Predicted next UID\r\n`;
         return send(
-          `* ${messages.length} EXISTS\r\n* OK [UIDVALIDITY ${fake.uidValidity}] UIDs valid\r\n* OK [UIDNEXT ${next}] Predicted next UID\r\n${tag} OK [READ-ONLY] done\r\n`,
+          `* ${messages.length} EXISTS\r\n* OK [UIDVALIDITY ${fake.uidValidity}] UIDs valid\r\n${uidNext}${tag} OK [READ-ONLY] done\r\n`,
         );
       }
       if (cmd.startsWith('UID SEARCH')) {
@@ -96,7 +104,7 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
           if (!uids.includes(msg.uid)) return;
           const raw = Buffer.from(msg.raw, 'latin1');
           const data = headersOnly ? Buffer.from(`${msg.raw.split(/\r?\n\r?\n/)[0]}\r\n\r\n`, 'latin1') : raw;
-          out += `* ${i + 1} FETCH (UID ${msg.uid} FLAGS (${msg.seen ? '\\Seen' : ''}) INTERNALDATE "05-Jan-2026 09:00:00 +0000" ${headersOnly ? 'BODY[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID)]' : 'BODY[]<0>'} {${data.length}}\r\n`;
+          out += `* ${i + 1} FETCH (UID ${msg.uid} FLAGS (${msg.seen ? '\\Seen' : ''}) INTERNALDATE "${msg.internalDate ?? '05-Jan-2026 09:00:00 +0000'}" ${headersOnly ? 'BODY[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID)]' : 'BODY[]<0>'} {${data.length}}\r\n`;
           sock.write(out);
           sock.write(data);
           sock.write(')\r\n');
@@ -156,6 +164,12 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
     },
     set uidValidity(v: number) {
       fake.uidValidity = v;
+    },
+    get uidNext() {
+      return fake.uidNext;
+    },
+    set uidNext(v: number | null | undefined) {
+      fake.uidNext = v;
     },
     close: () => new Promise((r) => server.close(() => r())),
   };

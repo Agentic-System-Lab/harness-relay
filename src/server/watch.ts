@@ -1,4 +1,4 @@
-import { WATCH_LIMITS, type ScheduleTrigger, type ScheduleWatch } from '../shared/types';
+import { TRACKING_LIMITS, WATCH_LIMITS, type ScheduleTrigger, type ScheduleWatch } from '../shared/types';
 import type { ConnectorStore } from './connectors/accounts';
 import { ImapClient, parseFetch, quote, type ImapResponse } from './connectors/imap';
 import { parseHeaders, readMail } from './connectors/mime';
@@ -90,6 +90,29 @@ function excerptOf(raw: string): string {
 
 /** The most UIDs whose senders and subjects one check reads: the newest, when more came at once. */
 const MAX_HEADERS = 200;
+/** The most characters of a sender, subject, date or Message-ID listed: the sender writes them. */
+const MAX_HEADER_CHARS = 300;
+/**
+ * How much older than the last check a new UID's mail may have arrived (its INTERNALDATE) and still
+ * count as new: old mail moved into the folder (from an archive, say) gets new UIDs, but keeps when it
+ * arrived; a day covers clocks that disagree, and mail a server takes in late.
+ */
+const MOVED_MS = 86_400_000;
+
+/** A header as listed: on one line, cut at `MAX_HEADER_CHARS`. */
+function header(v: string | undefined): string {
+  const line = (v ?? '').replace(/\s+/g, ' ').trim();
+  return line.length > MAX_HEADER_CHARS ? `${line.slice(0, MAX_HEADER_CHARS)}…` : line;
+}
+
+/** When IMAP says a mail arrived (INTERNALDATE, `05-Jan-2026 09:01:00 +0000`), or undefined when it cannot be read. */
+export function internalDate(v: string | undefined): number | undefined {
+  const m = /^\s?(\d{1,2})-([A-Za-z]{3})-(\d{4}) (\d{2}):(\d{2}):(\d{2}) ([+-])(\d{2})(\d{2})$/.exec(v ?? '');
+  const month = m ? ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].indexOf(m[2]!.toLowerCase()) : -1;
+  if (!m || month < 0) return undefined;
+  const offset = (m[7] === '-' ? -1 : 1) * (Number(m[8]) * 60 + Number(m[9])) * 60_000;
+  return Date.UTC(Number(m[3]), month, Number(m[1]), Number(m[4]), Number(m[5]), Number(m[6])) - offset;
+}
 
 /** A new mail in the trigger's folder since `prev` (the first check records what is there). */
 export async function checkMail(
@@ -115,21 +138,26 @@ export async function checkMail(
       return { state: { ...(uidValidity !== undefined ? { uidValidity } : {}), lastUid }, total: 0 };
     }
     const since = prev.lastUid;
-    const same = { state: { ...(uidValidity !== undefined ? { uidValidity } : {}), lastUid: since }, total: 0 };
-    if (uidNext !== undefined && uidNext <= since + 1) return same;
+    const withValidity = (lastUid: number) => ({ state: { ...(uidValidity !== undefined ? { uidValidity } : {}), lastUid }, total: 0 });
+    if (uidNext !== undefined && uidNext <= since + 1) return withValidity(since);
     // `n:*` also answers the newest mail when none is above n: only those above it are new.
     const uids = searchUids((await c.command(`UID SEARCH UID ${since + 1}:*`)).untagged)
       .filter((u) => u > since)
       .sort((a, b) => a - b);
-    if (!uids.length) return same;
+    // The new mail went again before it was seen (expunged): its UIDs are never used again.
+    if (!uids.length) return withValidity(uidNext !== undefined ? Math.max(since, uidNext - 1) : since);
     const lastUid = uids[uids.length - 1]!;
     const state = { ...(uidValidity !== undefined ? { uidValidity } : {}), lastUid };
-    const heads = await c.command(
-      `UID FETCH ${uids.slice(-MAX_HEADERS).join(',')} (UID BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)])`,
-    );
+    const read = uids.slice(-MAX_HEADERS);
+    const heads = await c.command(`UID FETCH ${read.join(',')} (UID INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)])`);
+    const movedBefore = prev.checkedAt !== undefined ? prev.checkedAt - MOVED_MS : undefined;
     const matching = heads.untagged
       .map(parseFetch)
       .filter((f) => f.uid !== undefined && f.uid > since)
+      .filter((f) => {
+        const arrived = internalDate(f.date);
+        return movedBefore === undefined || arrived === undefined || arrived >= movedBefore;
+      })
       .map((f) => ({ uid: f.uid!, h: parseHeaders(f.data?.toString('latin1') ?? '') }))
       .filter(({ h }) => contains(h.from, trigger.from) && contains(h.subject, trigger.subject))
       .sort((a, b) => a.uid - b.uid);
@@ -143,33 +171,49 @@ export async function checkMail(
       const raw = texts.get(uid)?.toString('latin1');
       return {
         uid,
-        from: h.from ?? '',
-        subject: h.subject ?? '',
-        date: h.date ?? '',
-        ...(h['message-id'] ? { messageId: h['message-id'] } : {}),
+        from: header(h.from),
+        subject: header(h.subject),
+        date: header(h.date),
+        ...(h['message-id'] ? { messageId: header(h['message-id']) } : {}),
         excerpt: raw ? excerptOf(raw) : '',
       };
     });
-    return { state, total: matching.length, event: mailEvent(account.name, trigger.folder, mails, matching.length) };
+    // More came than one check reads the headers of: how many of the older ones were not looked at.
+    const unread = uids.length - read.length;
+    return { state, total: matching.length, event: mailEvent(account.name, trigger.folder, mails, matching.length, unread) };
   } finally {
     await c.logout();
   }
 }
 
 /**
- * The `<event>` block's body for new mail: JSON, as a webhook's body is, with `<` written as `<`
- * (the same data), so that nothing in a mail can close the block it goes in.
+ * The `<event>` block's body for new mail: JSON, as a webhook's body is, with `<` written as `\u003c`
+ * (the same data), so that nothing in a mail can close the block it goes in. Within a webhook body's
+ * size (`TRACKING_LIMITS.eventBytes`): the oldest of the mails listed are left out until it fits.
+ * `unread`: new mails older than those whose headers were read, not looked at.
  */
-export function mailEvent(account: string, folder: string, mails: NewMail[], total: number): string {
-  const body = {
-    source: 'mail',
-    account,
-    folder,
-    newMail: total,
-    ...(total > mails.length ? { listed: `the newest ${mails.length}` } : {}),
-    mails,
-  };
-  return JSON.stringify(body, null, 2).replace(/</g, '\\u003c');
+export function mailEvent(account: string, folder: string, mails: NewMail[], total: number, unread = 0): string {
+  const body = (listed: NewMail[]) =>
+    JSON.stringify(
+      {
+        source: 'mail',
+        account,
+        folder,
+        newMail: total,
+        ...(total > listed.length ? { listed: `the newest ${listed.length}` } : {}),
+        ...(unread > 0 ? { notReadOlder: unread } : {}),
+        mails: listed,
+      },
+      null,
+      2,
+    ).replace(/</g, '\\u003c');
+  let listed = mails;
+  let text = body(listed);
+  while (listed.length > 1 && Buffer.byteLength(text) > TRACKING_LIMITS.eventBytes) {
+    listed = listed.slice(1);
+    text = body(listed);
+  }
+  return text;
 }
 
 /** Checks a trigger's source with the accounts in Settings. */

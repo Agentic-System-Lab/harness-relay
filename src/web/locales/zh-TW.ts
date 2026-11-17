@@ -546,8 +546,8 @@ export const zhTW = {
       interval: (hours: number) => `每 ${hours} 小時`,
       manual: '不定時',
       /** An automation that starts when a new mail comes: from whom, with what in its subject, in which account. */
-      mail: (o: { account?: string; from?: string; subject?: string }) =>
-        `${o.from ? `收到 ${o.from} 寄來` : '收到'}${o.subject ? `、主旨含「${o.subject}」` : ''}的新郵件時${o.account ? `（${o.account}）` : ''}`,
+      mail: (o: { folder?: string; from?: string; subject?: string }) =>
+        `${o.folder ? `「${o.folder}」` : ''}收到${o.from ? ` ${o.from} 寄來` : ''}${o.subject ? `${o.from ? '、' : ''}主旨含「${o.subject}」` : ''}的新郵件時`,
     },
     daySeparator: '、',
     next: (when: string) => `下次 ${when}`,
@@ -592,7 +592,7 @@ export const zhTW = {
       source: '要等的事',
       sources: { mail: '收到新郵件' } as Record<ScheduleTrigger['source'], string>,
       account: '郵件帳號',
-      noAccounts: '還沒有郵件帳號：請先到「設定 → 工具庫 → 郵件與行事曆」新增一個（用 app 密碼）。',
+      noAccounts: '還沒有郵件帳號：請先到「設定 → 工具庫 → 郵件與行事曆」新增一個（用應用程式專用密碼）。',
       openSettings: '前往設定',
       folder: '資料夾',
       from: '寄件者包含（選填）',
@@ -2021,15 +2021,15 @@ export const zhTW = {
       },
       {
         title: '自動任務',
-        body: '側邊欄左上角「新對話」旁、有閃電圖示的按鈕是「新自動任務」：在有東西啟動它時，把訊息傳給團隊，就像你自己送出的一樣；啟動它的可以是你、設定的時間，或一個程式。寫好訊息、選好啟動方式，首席 agent 會為它組隊。現有的對話也可以用上方的「自動任務」（手機上在 ⋯ 裡）設定：',
+        body: '側邊欄左上角「新對話」旁、有閃電圖示的按鈕是「新自動任務」：在有東西啟動它時，把訊息傳給團隊，就像你自己送出的一樣；啟動它的可以是你、設定的時間、收到新郵件，或一個程式。寫好訊息、選好啟動方式，首席 agent 會為它組隊。現有的對話也可以用上方的「自動任務」（手機上在 ⋯ 裡）設定：',
         points: [
-          '你按「立即執行一次」、到了設定的時間（一次、每天、每週選定的星期幾，或每隔幾小時），或程式呼叫它的 webhook 時啟動；新的自動任務預設不定時',
+          '你按「立即執行一次」、到了設定的時間（一次、每天、每週選定的星期幾，或每隔幾小時）、你的郵件帳號收到新郵件時（由 Harness Relay 自己檢查），或程式呼叫它的 webhook 時啟動；新的自動任務預設不定時',
           '勾選「每次開新對話」，每次都在新對話中從乾淨的上下文開始，沿用同樣的團隊與設定',
           '自動任務執行時可能沒人看著：預設會拒絕檔案權限以外的動作（已設為「本對話都允許」的除外），agent 會改用其他方式；也可以選「詢問我」',
           'Harness Relay 開著才會送出：錯過的時間會略過，也可以選擇在開啟後補送一次',
           '追蹤目標：每次執行都會看到目標與前幾次的回報，並說明進度；目標達成時自動任務會關閉，失敗的執行會再試',
           'webhook 讓這台電腦上的程式（git hook、CI）立刻送出訊息，附上它送來的內容',
-          '側邊欄的對話旁會出現時鐘；上次沒有送出時會變成琥珀色',
+          '側邊欄的對話旁會出現時鐘；上次沒有送出或上次檢查失敗時會變成琥珀色',
         ],
       },
       {

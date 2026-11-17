@@ -40,6 +40,7 @@ import { Logo } from './Logo';
 import { Markdown } from './Markdown';
 import { RoleText } from './RoleText';
 import { markQuotes, replyElementId, revealMessage, revealQuote, reviewElementId } from '../review';
+import { shownEvent } from '../schedule';
 
 /**
  * A tool call's detail on one line. A path too long for it loses its start, not its file name: it is
@@ -236,7 +237,7 @@ function EventBlock({ event, source }: { event: string; source?: EventSource }) 
   return (
     <details className="event-block">
       <summary>{source === 'mail' ? t.schedule.watch.eventTag : t.schedule.hook.eventTag}</summary>
-      <pre>{event}</pre>
+      <pre>{shownEvent(event, source)}</pre>
     </details>
   );
 }
