@@ -1,10 +1,22 @@
-import type { Conversation, ConversationSchedule, ScheduleResult, ScheduleWatch } from '../shared/types';
+import type { Conversation, ConversationSchedule, ScheduleResult, ScheduleWatch, WatchState } from '../shared/types';
 import { nextRun } from '../shared/schedule';
 import { HttpError } from './errors';
 import { t, withLang } from './i18n';
 import type { Orchestrator } from './orchestrator';
 import type { Store } from './store';
 import { nextCheckAt, triggerKey, type TriggerChecker, type WatchCheck } from './watch';
+
+/** What a check found of its source, to keep: only what each source keeps (`WatchState`), never anything else it said. */
+function keptState(state: WatchState): WatchState {
+  const { uidValidity, lastUid, lastId, seen, files } = state;
+  return {
+    ...(uidValidity !== undefined ? { uidValidity } : {}),
+    ...(lastUid !== undefined ? { lastUid } : {}),
+    ...(lastId !== undefined ? { lastId } : {}),
+    ...(seen ? { seen } : {}),
+    ...(files ? { files } : {}),
+  };
+}
 
 /** A time missed by more than this (Harness Relay was not running, the computer slept) counts as missed. */
 export const MISSED_AFTER_MS = 10 * 60_000;
@@ -148,7 +160,7 @@ export class Scheduler {
     if (prev && hold) return this.keepWatch(conv, s, { ...prev, checkedAt: started, nextCheckAt: nextCheckAt(started), held: hold });
     let found: WatchCheck;
     try {
-      found = await withLang(s.lang, () => this.checkTrigger!(trigger, prev));
+      found = await withLang(s.lang, () => this.checkTrigger!(trigger, prev, { cwd: conv.settings.cwd }));
     } catch (err) {
       if (this.stopped || conv.schedule !== s) return;
       const failures = (prev?.failures ?? 0) + 1;
@@ -164,11 +176,9 @@ export class Scheduler {
     }
     // Changed or removed while it was checked: the new one starts afresh.
     if (this.stopped || conv.schedule !== s) return;
-    const { uidValidity, lastUid } = found.state;
     const seen: ScheduleWatch = {
       key,
-      ...(uidValidity !== undefined ? { uidValidity } : {}),
-      ...(lastUid !== undefined ? { lastUid } : {}),
+      ...keptState(found.state),
       checkedAt: started,
       seenAt: started,
       nextCheckAt: nextCheckAt(this.now()),

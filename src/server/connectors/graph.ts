@@ -118,7 +118,15 @@ export function graphEvent(e: GraphEvent): CalendarEvent {
     ...(e.bodyPreview ? { description: e.bodyPreview.slice(0, 2000) } : {}),
     // No `repeats`: `calendarView` lists each time of a recurring event apart, as an event of its own.
     attendees: (e.attendees ?? []).flatMap((a) => (a.emailAddress?.address ? [a.emailAddress.address] : [])),
+    ...(allDay ? {} : moment(e.start)),
   };
+}
+
+/** The moment an event at a time starts (`CalendarEvent.at`): Graph gives it in UTC, as it was asked to. */
+function moment(t: GraphTime | undefined): { at?: number } {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/.exec(t?.dateTime ?? '');
+  if (!m || (t?.timeZone && t.timeZone !== 'UTC')) return {};
+  return { at: Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!, +(m[6] ?? 0)) };
 }
 
 /** Graph's time of a moment: UTC, to the second, without its zone (given apart). */

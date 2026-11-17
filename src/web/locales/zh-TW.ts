@@ -459,10 +459,11 @@ export const zhTW = {
 
   schedule: {
     button: '自動任務',
-    buttonTitle: '在你執行它、到了設定的時間、某件事發生（例如收到新郵件），或程式呼叫它的 webhook 時，傳訊息給團隊',
+    buttonTitle:
+      '在你執行它、到了設定的時間、某件事發生（收到新郵件、行程即將開始、新的 pull request、檔案變動），或程式呼叫它的 webhook 時，傳訊息給團隊',
     title: '自動任務',
     intro:
-      '在你按「立即執行一次」、到了設定的時間、某件事發生（例如收到新郵件），或程式呼叫它的 webhook 時，把這則訊息傳給這個對話的團隊（在這裡，或依設定每次開新對話），就像你自己送出的一樣。Harness Relay 要開著才會執行。',
+      '在你按「立即執行一次」、到了設定的時間、某件事發生（收到新郵件、行程即將開始、新的 pull request 或失敗的 CI、檔案變動），或程式呼叫它的 webhook 時，把這則訊息傳給這個對話的團隊（在這裡，或依設定每次開新對話），就像你自己送出的一樣。Harness Relay 要開著才會執行。',
     message: '要傳給團隊的訊息',
     messagePlaceholder: '例如：@Reviewer 看一下昨天合併的 PR，列出可能的風險。',
     messageHint: '用 @ 指定成員時，只有被 @ 的成員回答，和平常一樣。',
@@ -549,6 +550,11 @@ export const zhTW = {
       /** An automation that starts when a new mail comes: from whom, with what in its subject, in which account. */
       mail: (o: { folder?: string; from?: string; subject?: string }) =>
         `${o.folder ? `「${o.folder}」` : ''}收到${o.from ? ` ${o.from} 寄來` : ''}${o.subject ? `${o.from ? '、' : ''}主旨含「${o.subject}」` : ''}的新郵件時`,
+      /** Before each event of a calendar begins (whose title contains the words, when given). */
+      calendar: (minutes: number, title?: string) => `${title ? `標題含「${title}」的` : '每個'}行程開始前 ${minutes} 分鐘`,
+      pullRequest: (repo: string) => `${repo} 有新的 pull request 時`,
+      failedRun: (repo: string, branch?: string) => `${repo}${branch ? ` 的 ${branch} 分支` : ' '}有 CI 執行失敗時`,
+      file: (pattern: string) => `工作目錄中符合 ${pattern} 的檔案出現或變動時`,
     },
     daySeparator: '、',
     next: (when: string) => `下次 ${when}`,
@@ -571,6 +577,10 @@ export const zhTW = {
       moment: '請選擇日期與時間',
       past: '這個時間已經過了，請選擇之後的時間',
       account: '請選擇要檢查的郵件帳號',
+      calendar: '請選擇要檢查的行事曆',
+      minutes: (max: number) => `行程開始前的分鐘數要是 1 到 ${max} 的整數`,
+      repo: '請填 GitHub 儲存庫，格式是「擁有者/名稱」',
+      pattern: '請填工作目錄中的檔案樣式（不能是絕對路徑，也不能有 ..）',
     },
     teamNote: (summary: string) => `這個對話有自動任務（${summary}），這裡的修改會套用到它之後的執行。`,
     fullWarning: '自動任務執行時可能沒人看著，完全存取的成員可以不經詢問執行任何指令。',
@@ -591,7 +601,12 @@ export const zhTW = {
     /** An automation that starts when something happens (When something happens): what it waits for, and its checks. */
     watch: {
       source: '要等的事',
-      sources: { mail: '收到新郵件' } as Record<ScheduleTrigger['source'], string>,
+      sources: {
+        mail: '收到新郵件',
+        calendar: '行程即將開始',
+        github: 'GitHub 上有新的 pull request 或 CI 失敗',
+        file: '工作目錄中的檔案出現或變動',
+      } as Record<ScheduleTrigger['source'], string>,
       account: '郵件帳號',
       noAccounts: '還沒有郵件帳號：請先到「設定 → 工具庫 → 郵件與行事曆」新增一個（用應用程式專用密碼）。',
       openSettings: '前往設定',
@@ -603,15 +618,39 @@ export const zhTW = {
       hint: (minutes: number) =>
         `Harness Relay 自己每 ${minutes} 分鐘檢查一次，不需要網址或權杖。第一次檢查只記下已經在的郵件，之後收到的才會啟動它；同一次檢查找到幾封，都只送一次訊息，列出寄件者、主旨和開頭幾行。Harness Relay 沒開著時收到的郵件，開啟後的第一次檢查會找到。`,
       checked: (when: string) => `上次檢查 ${when}`,
-      notYet: '還沒檢查過：馬上會第一次檢查，只記下已經在的郵件',
+      notYet: '還沒檢查過：馬上會第一次檢查，只記下已經在的東西',
       nextCheck: (when: string) => `下次檢查 ${when}`,
       error: (why: string) => `檢查失敗：${why}`,
-      held: (why: string) => `有新郵件，等團隊能接手時再送（${why}）`,
+      held: (why: string) => `找到新的東西，等團隊能接手時再送（${why}）`,
       checkNow: '立即檢查',
-      checkNowTitle: '現在就檢查一次（第一次只記下已經在的郵件）',
+      checkNowTitle: '現在就檢查一次（第一次只記下已經在的東西）',
       checkSaveFirst: '先儲存修改，才能立即檢查',
       done: '已檢查',
-      eventTag: '新郵件',
+      eventTags: {
+        mail: '新郵件',
+        calendar: '即將開始的行程',
+        github: 'GitHub 上的新動態',
+        file: '出現或變動的檔案',
+      } as Record<ScheduleTrigger['source'], string>,
+      calendarAccount: '行事曆',
+      noCalendars: '還沒有行事曆：請先到「設定 → 工具庫 → 郵件與行事曆」新增一個。',
+      minutes: '開始前幾分鐘',
+      title: '標題包含（選填）',
+      titlePlaceholder: '例如：站會',
+      calendarHint: (minutes: number) =>
+        `Harness Relay 自己每 ${minutes} 分鐘檢查一次行事曆。每個行程（重複的行程每一次各算一個）在開始前這麼多分鐘時啟動一次，訊息裡有它的標題、時間、地點與參加者；全天的行程不算。第一次檢查只記下已經快開始的行程。`,
+      repo: 'GitHub 儲存庫',
+      repoPlaceholder: '擁有者/名稱，例如 octocat/hello-world',
+      on: { pr: '有人開了 pull request', ci: '有 CI 執行失敗' },
+      what: '要等的動態',
+      branch: '分支（選填）',
+      branchPlaceholder: '例如：main',
+      githubHint: (minutes: number) =>
+        `Harness Relay 自己每 ${minutes} 分鐘用你自己的 GitHub CLI（gh，用 gh auth login 登入）檢查一次，不需要 webhook。第一次檢查只記下現有的；之後新開的 pull request（或失敗的 CI 執行）才會啟動它，一次檢查不管找到幾個都只送一次訊息。`,
+      pattern: '檔案樣式',
+      patternPlaceholder: '例如：reports/*.csv、**/*.log',
+      fileHint: (minutes: number) =>
+        `在這個對話的工作目錄中，每 ${minutes} 分鐘看一次符合樣式的檔案（* 是一層資料夾裡的任何字，** 是任何幾層資料夾，? 是一個字元；不分大小寫；不看 .git 與 node_modules）。第一次只記下現有的；之後新出現或大小、修改時間變了的檔案才會啟動它，訊息裡只有檔名、大小與時間，沒有內容。`,
     },
     goal: '追蹤的目標（選填）',
     goalPlaceholder: '例如：main 分支的 CI 全部通過，而且 issue #42 已關閉。',
@@ -2076,9 +2115,9 @@ export const zhTW = {
       },
       {
         title: '自動任務',
-        body: '側邊欄左上角「新對話」旁、有閃電圖示的按鈕是「新自動任務」：在有東西啟動它時，把訊息傳給團隊，就像你自己送出的一樣；啟動它的可以是你、設定的時間、收到新郵件，或一個程式。寫好訊息、選好啟動方式，首席 agent 會為它組隊。現有的對話也可以用上方的「自動任務」（手機上在 ⋯ 裡）設定：',
+        body: '側邊欄左上角「新對話」旁、有閃電圖示的按鈕是「新自動任務」：在有東西啟動它時，把訊息傳給團隊，就像你自己送出的一樣；啟動它的可以是你、設定的時間、某件事發生（新郵件、即將開始的行程、pull request、檔案），或一個程式。寫好訊息、選好啟動方式，首席 agent 會為它組隊。現有的對話也可以用上方的「自動任務」（手機上在 ⋯ 裡）設定：',
         points: [
-          '你按「立即執行一次」、到了設定的時間（一次、每天、每週選定的星期幾，或每隔幾小時）、你的郵件帳號收到新郵件時（由 Harness Relay 自己檢查），或程式呼叫它的 webhook 時啟動；新的自動任務預設不定時',
+          '你按「立即執行一次」、到了設定的時間（一次、每天、每週選定的星期幾，或每隔幾小時）、某件事發生時（新郵件、即將開始的行程、GitHub 上的 pull request 或失敗的 CI、工作目錄中的檔案；由 Harness Relay 自己檢查），或程式呼叫它的 webhook 時啟動；新的自動任務預設不定時',
           '勾選「每次開新對話」，每次都在新對話中從乾淨的上下文開始，沿用同樣的團隊與設定',
           '自動任務執行時可能沒人看著：預設會拒絕檔案權限以外的動作（已設為「本對話都允許」的除外），agent 會改用其他方式；也可以選「詢問我」',
           'Harness Relay 開著才會送出：錯過的時間會略過，也可以選擇在開啟後補送一次',

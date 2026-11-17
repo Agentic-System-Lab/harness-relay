@@ -10,7 +10,11 @@ import { graphAddEvent, graphEvents } from './graph';
  */
 
 export interface CalendarBackend {
-  events(from: number, to: number): Promise<CalendarEvent[]>;
+  /**
+   * The events between two moments. `expand`: each time of a recurring event on its own (Graph always
+   * does; a CalDAV server when it can), for an automation that starts before each.
+   */
+  events(from: number, to: number, expand?: boolean): Promise<CalendarEvent[]>;
   /** Adds the event; with attendees, the calendar's server invites them. */
   add(e: NewEvent): Promise<void>;
 }
@@ -25,7 +29,7 @@ export interface CalendarOAuth {
 
 function caldav(url: string, auth: CalDavAuth): CalendarBackend {
   return {
-    events: (from, to) => listEvents(url, auth, from, to),
+    events: (from, to, expand) => listEvents(url, auth, from, to, undefined, expand),
     add: async (e) => {
       const { uid, ics } = composeEvent(e);
       await putEvent(url, auth, ics, uid);

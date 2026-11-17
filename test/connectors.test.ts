@@ -238,10 +238,12 @@ describe('calendars', () => {
         location: 'Room 3',
         description: 'Bring notes\nand coffee',
         attendees: ['bob@example.com'],
+        // The moment it starts, for an automation that starts before it: 09:30 in Taipei.
+        at: Date.UTC(2026, 0, 5, 1, 30),
       },
-      // iCalendar's end is the day after the last: shown as the last day, as calendar_create takes it.
+      // iCalendar's end is the day after the last: shown as the last day, as calendar_create takes it. No moment: all day.
       { uid: '2@x', summary: 'Holiday', start: '2026-01-06 (all day)', end: '2026-01-06 (all day)', attendees: [] },
-      { uid: '3@x', summary: 'Long call', start: '2026-01-07 01:00 UTC', attendees: [] },
+      { uid: '3@x', summary: 'Long call', start: '2026-01-07 01:00 UTC', attendees: [], at: Date.UTC(2026, 0, 7, 1, 0) },
     ]);
   });
 

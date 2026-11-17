@@ -40,13 +40,15 @@ describe('automations that start when something happens', () => {
   /** What the stand-in source answers next, and what each check was given. */
   let answer: (prev: ScheduleWatch | undefined) => Promise<WatchCheck> = async () => ({ state: { uidValidity: 1, lastUid: 5 }, total: 0 });
   const given: (ScheduleWatch | undefined)[] = [];
+  const contexts: { cwd: string }[] = [];
   const scheduler = () =>
     new Scheduler(
       store,
       orchestrator,
       () => now,
-      (_t, prev) => {
+      (_t, prev, ctx) => {
         given.push(prev);
+        contexts.push(ctx);
         return answer(prev);
       },
     );
@@ -292,7 +294,9 @@ describe('automations that start when something happens', () => {
     await scheduler().watchTick();
     spy.mockRestore();
     expect(conv.schedule).toMatchObject({ lastResult: 'failed', lastError: 'the folder is gone.', watch: { lastUid: 6 } });
-    expect(textOf(conv.messages.at(-1)!)).toBe("New mail came, but the automation's message could not be sent: the folder is gone");
+    expect(textOf(conv.messages.at(-1)!)).toBe(
+      'What the automation waits for happened, but its message could not be sent: the folder is gone',
+    );
   });
 
   it('does not ask the source again while what it holds still waits for a team that cannot take it', async () => {
@@ -382,5 +386,27 @@ describe('automations that start when something happens', () => {
     expect(given).toHaveLength(3);
     release();
     await held;
+  });
+
+  it("checks a source with the conversation's working directory, and keeps what each source keeps", async () => {
+    reset();
+    contexts.length = 0;
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    watching(conv, { repeat: { kind: 'event', trigger: { source: 'file', pattern: '*.csv' } } });
+    answer = async () => ({
+      state: { files: { 'a.csv': '1:2' }, uidValidity: 3, seen: ['x@1'], lastId: 9, extra: 'no' } as never,
+      total: 0,
+    });
+    await scheduler().watchTick();
+    expect(contexts).toEqual([{ cwd: conv.settings.cwd }]);
+    expect(conv.schedule!.watch).toEqual({
+      key: triggerKey({ source: 'file', pattern: '*.csv' }),
+      uidValidity: 3,
+      lastId: 9,
+      seen: ['x@1'],
+      files: { 'a.csv': '1:2' },
+      checkedAt: T0,
+      nextCheckAt: T0 + WATCH_LIMITS.checkMinutes * MIN,
+    });
   });
 });

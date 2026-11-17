@@ -236,7 +236,7 @@ function EventBlock({ event, source }: { event: string; source?: EventSource }) 
   const t = useT();
   return (
     <details className="event-block">
-      <summary>{source === 'mail' ? t.schedule.watch.eventTag : t.schedule.hook.eventTag}</summary>
+      <summary>{source && source !== 'webhook' ? t.schedule.watch.eventTags[source] : t.schedule.hook.eventTag}</summary>
       <pre>{shownEvent(event, source)}</pre>
     </details>
   );

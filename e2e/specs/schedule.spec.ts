@@ -1,4 +1,6 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
+import { join } from 'node:path';
 import { expect, test } from '../fixtures';
 import { confirmTeam, finishedReply, openTeamChat, send } from '../support/app';
 
@@ -243,6 +245,55 @@ test.describe('schedules', () => {
     } finally {
       await imap.close();
     }
+  });
+
+  test('an automation that starts when a file appears in the working directory: the first check notes the files there, and a new one reaches the team by its path, never its contents', async ({
+    page,
+    relay,
+  }) => {
+    mkdirSync(join(relay.workDir, 'reports'), { recursive: true });
+    writeFileSync(join(relay.workDir, 'reports', 'jan.csv'), 'month,total\njan,1\n');
+    await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Report watch');
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Automation' });
+    await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('Summarize the new report');
+    await drawer.getByRole('radio', { name: 'When something happens' }).click();
+    await drawer
+      .getByRole('combobox', { name: 'What to wait for' })
+      .selectOption({ label: 'A file appears or changes in the working directory' });
+    await drawer.getByRole('textbox', { name: 'File pattern' }).fill('reports/*.csv');
+    await expect(drawer).toContainText('never its contents');
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drawer).toBeHidden();
+    await expect(page.locator('.conv-item.active .conv-schedule')).toHaveAccessibleName(
+      'Automation: when a file matching reports/*.csv appears or changes in the working directory',
+    );
+
+    // Check now: the first check notes jan.csv, and sends nothing.
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await drawer.getByRole('button', { name: 'Check now' }).click();
+    await expect(drawer.locator('.schedule-status')).toContainText('Checked');
+    await expect(page.locator('.msg-user', { hasText: 'Summarize the new report' })).toHaveCount(0);
+
+    // A new report, and a file the pattern leaves out.
+    writeFileSync(join(relay.workDir, 'reports', 'feb.csv'), 'month,total\nfeb,SECRET-TOTAL\n');
+    writeFileSync(join(relay.workDir, 'reports', 'notes.txt'), 'not a report');
+    await drawer.getByRole('button', { name: 'Check now' }).click();
+    await expect(drawer.locator('.schedule-status')).toContainText('sent');
+    await drawer.getByRole('button', { name: 'Close' }).click();
+
+    const sent = page.locator('.msg-user', { hasText: 'Summarize the new report' });
+    await expect(sent).toHaveCount(1);
+    await sent.getByText('The files that appeared or changed', { exact: true }).click();
+    const block = sent.locator('.event-block pre');
+    await expect(block).toContainText('"path": "reports/feb.csv"');
+    await expect(block).toContainText('"change": "new"');
+    await expect(block).not.toContainText('jan.csv');
+    await expect(block).not.toContainText('notes.txt');
+    await expect(block).not.toContainText('SECRET-TOTAL');
+    const reply = await finishedReply(page, 'Codex');
+    await expect(reply).toContainText('<event source="file">');
+    await expect(reply).toContainText('reports/feb.csv');
   });
 });
 

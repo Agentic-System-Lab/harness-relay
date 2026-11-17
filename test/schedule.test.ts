@@ -9,6 +9,7 @@ import {
   describeRepeat,
   scheduleBadgeTitle,
   shownEvent,
+  EMPTY_TRIGGER,
   draftChanged,
   draftFrom,
   draftProblems,
@@ -205,8 +206,12 @@ describe('validateSchedule', () => {
       kind: 'event',
       trigger: { source: 'mail', account: 'work', folder: 'Alerts', from: 'bob' },
     });
-    expect(message({ ...valid, repeat: { kind: 'event', trigger: { source: 'mail' } } })).toMatch(/pick a mail account/);
-    expect(message({ ...valid, repeat: { kind: 'event', trigger: { source: 'rss', account: 'work' } } })).toMatch(/pick a mail account/);
+    expect(message({ ...valid, repeat: { kind: 'event', trigger: { source: 'mail' } } })).toMatch(
+      /pick a source, and its account or calendar/,
+    );
+    expect(message({ ...valid, repeat: { kind: 'event', trigger: { source: 'rss', account: 'work' } } })).toMatch(
+      /pick a source, and its account or calendar/,
+    );
     expect(message({ ...valid, repeat: { kind: 'event', trigger: { source: 'mail', account: 'work', from: 'a\r\nb' } } })).toMatch(/from/);
     expect(
       message({ ...valid, repeat: { kind: 'event', trigger: { source: 'mail', account: 'work', subject: 'x'.repeat(201) } } }),
@@ -316,11 +321,11 @@ describe('the schedule form', () => {
     // The form: an account to pick first; the inbox when no folder is given; conditions trimmed, empty ones left out.
     const draft = { ...draftFrom(undefined, MON, 'UTC'), text: 'triage it', kind: 'event' as const };
     expect(draftProblems(draft, MON, en)).toEqual(['Pick the mail account to check']);
-    const filled = { ...draft, trigger: { source: 'mail' as const, account: 'work', folder: ' ', from: ' github.com ', subject: '  ' } };
+    const filled = { ...draft, trigger: { ...EMPTY_TRIGGER, account: 'work', folder: ' ', from: ' github.com ', subject: '  ' } };
     expect(draftProblems(filled, MON, en)).toEqual([]);
     expect(toUpdate(filled).repeat).toEqual(event);
     const saved2: ConversationSchedule = { ...saved, repeat: event, nextRunAt: undefined };
-    expect(draftFrom(saved2, MON).trigger).toEqual({ source: 'mail', account: 'work', folder: 'INBOX', from: 'github.com', subject: '' });
+    expect(draftFrom(saved2, MON).trigger).toEqual({ ...EMPTY_TRIGGER, account: 'work', from: 'github.com' });
     expect(draftChanged(draftFrom(saved2, MON), saved2)).toBe(false);
     expect(describeRepeat(event, en, 'en')).toBe('When a new mail from github.com arrives');
     expect(
@@ -342,7 +347,7 @@ describe('the schedule form', () => {
     expect(scheduleState(failing, en, 'en')).toBe('The check failed: Connection refused');
     expect(scheduleTrouble(failing)).toBe(true);
     expect(scheduleState({ ...checked, watch: { ...checked.watch, held: 'the team is busy' } }, en, 'en')).toMatch(
-      /New mail is waiting until the team can take it \(the team is busy\)$/,
+      /Something new is waiting until the team can take it \(the team is busy\)$/,
     );
     expect(scheduleState({ ...checked, enabled: false }, en, 'en')).toBe('paused');
     // Off, a failed check is no trouble: nothing checks it.
@@ -368,6 +373,58 @@ describe('the schedule form', () => {
     expect(sidebarScheduleTitle({ enabled: true, trigger: event.trigger, watchError: true }, en, 'en')).toBe(
       'Automation: its last check failed',
     );
+  });
+
+  it('waits for an event about to begin, a pull request or failed run, or a file: each source in the form and in a few words', () => {
+    const draft = { ...draftFrom(undefined, MON, 'UTC'), text: 'prepare', kind: 'event' as const };
+    const withTrigger = (t: Partial<typeof EMPTY_TRIGGER>) => ({ ...draft, trigger: { ...EMPTY_TRIGGER, ...t } });
+    // A calendar: one to pick, minutes in range, the title's words trimmed.
+    expect(draftProblems(withTrigger({ source: 'calendar' }), MON, en)).toEqual(['Pick the calendar to check']);
+    expect(draftProblems(withTrigger({ source: 'calendar', calendar: 'home', minutes: 0 }), MON, en)).toEqual([
+      'The minutes before an event begins are a whole number from 1 to 1440',
+    ]);
+    const cal = withTrigger({ source: 'calendar', calendar: 'home', minutes: 15, title: ' standup ' });
+    expect(draftProblems(cal, MON, en)).toEqual([]);
+    const calRepeat = toUpdate(cal).repeat;
+    expect(calRepeat).toEqual({ kind: 'event', trigger: { source: 'calendar', account: 'home', minutes: 15, title: 'standup' } });
+    expect(describeRepeat(calRepeat, en, 'en')).toBe('15 minutes before each event with "standup" in its title begins');
+    expect(describeRepeat(calRepeat, zhTW, 'zh-TW')).toBe('標題含「standup」的行程開始前 15 分鐘');
+    const savedCal: ConversationSchedule = { ...saved, repeat: calRepeat, nextRunAt: undefined };
+    expect(draftFrom(savedCal, MON).trigger).toMatchObject({ source: 'calendar', calendar: 'home', minutes: 15, title: 'standup' });
+    expect(draftChanged(draftFrom(savedCal, MON), savedCal)).toBe(false);
+
+    // GitHub: owner/name (or its address), a branch for CI runs only.
+    expect(draftProblems(withTrigger({ source: 'github', repo: 'not a repo' }), MON, en)).toEqual([
+      'Give the GitHub repository as owner/name',
+    ]);
+    const pr = withTrigger({ source: 'github', repo: 'https://github.com/octo/app', on: 'pr', branch: 'main' });
+    expect(draftProblems(pr, MON, en)).toEqual([]);
+    expect(toUpdate(pr).repeat).toEqual({ kind: 'event', trigger: { source: 'github', repo: 'octo/app', on: 'pr' } });
+    expect(describeRepeat({ kind: 'event', trigger: { source: 'github', repo: 'octo/app', on: 'pr' } }, en, 'en')).toBe(
+      'When a pull request is opened in octo/app',
+    );
+    const ci: ScheduleRepeat = { kind: 'event', trigger: { source: 'github', repo: 'octo/app', on: 'ci', branch: 'main' } };
+    expect(describeRepeat(ci, en, 'en')).toBe('When a CI run fails in octo/app on main');
+    expect(describeRepeat(ci, zhTW, 'zh-TW')).toBe('octo/app 的 main 分支有 CI 執行失敗時');
+
+    // A file: a pattern inside the working directory.
+    for (const pattern of ['', '/etc/x', 'C:\\x', '../x', 'a/../b']) {
+      expect(draftProblems(withTrigger({ source: 'file', pattern }), MON, en)).toEqual([
+        'Give a pattern for files in the working directory (not a full path, and without ..)',
+      ]);
+    }
+    const file = withTrigger({ source: 'file', pattern: ' reports/*.csv ' });
+    expect(toUpdate(file).repeat).toEqual({ kind: 'event', trigger: { source: 'file', pattern: 'reports/*.csv' } });
+    expect(describeRepeat(toUpdate(file).repeat, en, 'en')).toBe(
+      'When a file matching reports/*.csv appears or changes in the working directory',
+    );
+    expect(sidebarScheduleTitle({ enabled: true, trigger: { source: 'file', pattern: '*.log' } }, zhTW, 'zh-TW')).toBe(
+      '自動任務：工作目錄中符合 *.log 的檔案出現或變動時',
+    );
+    // Switching sources keeps what was typed for the others.
+    const switched = { ...cal, trigger: { ...cal.trigger, source: 'mail' as const, account: 'work' } };
+    expect(switched.trigger.calendar).toBe('home');
+    expect(toUpdate(switched).repeat).toEqual({ kind: 'event', trigger: { source: 'mail', account: 'work', folder: 'INBOX' } });
   });
 
   it("writes a command that calls the schedule's webhook", () => {

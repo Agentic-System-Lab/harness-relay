@@ -150,7 +150,7 @@ settings.tools.gatewayStatus = () => {
 };
 
 // Sends each conversation's scheduled message when it comes due.
-const scheduler = new Scheduler(store, orchestrator, Date.now, checkTrigger(settings.connectors));
+const scheduler = new Scheduler(store, orchestrator, Date.now, checkTrigger(settings.connectors, settings.oauth));
 
 // Push notifications to the browsers that turned them on (a phone, say), when agents finish or need the user.
 const push = new PushService(db);

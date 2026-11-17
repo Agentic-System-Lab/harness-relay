@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 36 個 spec 檔、468 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 36 個 spec 檔、469 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -55,7 +55,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 11 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 11 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
-| [自動任務](#自動任務) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 6 | [使用者說明 → 自動任務](../docs/user-guide.zh-TW.md#自動任務)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
+| [自動任務](#自動任務) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 7 | [使用者說明 → 自動任務](../docs/user-guide.zh-TW.md#自動任務)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
 | [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 17 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席-agent)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
 | [安裝 CLI](#安裝-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [使用者說明 → 從設定頁安裝 CLI](../docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[架構 → 從設定頁安裝 CLI](../docs/architecture.zh-TW.md#從設定頁安裝-cli) |
 | [沙箱需要的元件](#沙箱需要的元件) | [`sandbox-setup.spec.ts`](specs/sandbox-setup.spec.ts) | 6 | [使用者說明 → 安裝沙箱需要的元件](../docs/user-guide.zh-TW.md#安裝沙箱需要的元件)、[各平台的 OS 沙箱 → 由 Harness Relay 安裝它們需要的東西](../docs/sandboxing.zh-TW.md#由-harness-relay-安裝它們需要的東西) |
@@ -363,6 +363,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 回覆說目標卡住的執行，會把對話標為需要你，自動任務維持啟用 | Codex | 回覆（假 CLI 的 `e2e:progress=blocked`）顯示 **卡住了**（Blocked）卡片和目標卡住的說明；側邊欄把對話標為 **目標卡住了**（Goal held up），分頁標題也算進去；抽屜的 **進度**（Progress）顯示 **卡住了**。使用者回答、成員回覆之後，標記就消失。 |
 | 排程的 webhook 只顯示一次權杖，程式呼叫時會連同送來的內容送出訊息 | Codex | 選**不定時**（No set times）時，抽屜說明只有**立即執行一次**（Run once now）和 webhook 會送出，沒有**啟用**（On）也沒有**錯過的時間**（Missed times）；儲存後側邊欄的時鐘也這麼說，狀態顯示**不定時**。**讓其他程式啟動它（Webhook）**（Let another program start it (webhook)）收起來，打開才看得到；**建立 webhook**（Add a webhook）會顯示帶權杖與網址的 `curl` 指令（Windows 上是 PowerShell 的 `Invoke-RestMethod`），以及**還沒有被呼叫過**（Not called yet）；從瀏覽器以外呼叫時，權杖錯誤是 404，正確是 202，視窗會顯示上次呼叫的時間。訊息標為自動任務，顯示**Webhook 傳來的內容**（What the webhook sent）與送來的 JSON，成員回答它。再次打開時，視窗不再顯示權杖，只有**換一個新的權杖**（New token）。 |
 | 收到新郵件時啟動的自動任務自己檢查收件匣：第一次檢查只記下已經在的郵件，之後收到的郵件會送到團隊，訊息中有它的寄件者與主旨 | Codex | 郵件帳號的 IMAP 是這台電腦上的替身；**當某件事發生時**（When something happens）自動選了唯一的帳號，說明第一次檢查只記下已經在的郵件，也沒有**錯過的時間**（Missed times）；填了**寄件者包含（選填）**（The sender contains (optional)）後，側邊欄的時鐘顯示 **when a new mail from carol arrives**。**立即檢查**（Check now）只記錄（狀態顯示 **Checked**），不送出任何東西；收到兩封信後，再按一次**立即檢查**會送出一次標為自動任務的訊息，**新郵件**（The new mail）區塊裡有 Carol 的主旨，沒有另一封新郵件，也沒有舊郵件；Codex 的回覆引用了它的 `<event source="mail">` 區塊。 |
+| 工作目錄中出現檔案時啟動的自動任務：第一次檢查記下已經在的檔案，新的檔案以路徑送到團隊，從不送出內容 | Codex | **要等的事** → **工作目錄中的檔案出現或變動**（When something happens → A file appears or changes in the working directory），樣式 `reports/*.csv`；說明寫著只列出檔名、不列內容，側邊欄的時鐘寫著 **when a file matching reports/\*.csv appears or changes in the working directory**。**立即檢查** 記下 `reports/jan.csv`，什麼都不送；新的 `reports/feb.csv`（以及樣式不包含的 `notes.txt`）讓下一次 **立即檢查** 送出訊息一次，它的 **The files that appeared or changed** 區塊把 `reports/feb.csv` 列為新檔案，沒有 `jan.csv`、`notes.txt`，也沒有檔案裡的內容；agent 收到的是 `<event source="file">` |
 | 新自動任務的**同時建立 webhook**會打開自動任務的對話並顯示一次權杖，之後程式用它呼叫 | Claude（首席 agent 組的團隊） | 在**新自動任務**（New automation）選**不定時**（No set times），這個方塊收在**時間**下方的**讓其他程式啟動它（Webhook）**裡；打開後它沒勾，勾選後顯示它的說明；按**建立自動任務**（Create automation）會打開對話，**自動任務**（Automation）抽屜已經打開，webhook 區塊（打開的）顯示一次權杖與呼叫它的範例；關掉再打開就沒有權杖（**還沒有被呼叫過**，Not called yet）。確認團隊後，在瀏覽器外用這個權杖呼叫會被接受（202），訊息送出，Claude 會回覆。 |
 
 ## 設定
@@ -655,7 +656,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **gistpreview.github.io 上的分享頁。**測試開啟的是假 `gh` 存下的頁面，由測試自己的網址提供：gistpreview 自己那個把 gist 寫進自身的頁面沒有測。
 - **長時間追蹤的目標。**執行失敗後的重試（5、30、120 分鐘）、被重新啟動中斷的執行，以及排程本身的時間，是在單元測試中用假時鐘測的（`test/orchestrator-tracking.test.ts`）；端對端測試只用**立即執行一次**跑一次追蹤目標的排程。
 - **真的 OAuth 服務，以及在瀏覽器裡的 Google 登入。** 瀏覽器裡的登入只對 Microsoft 頁面與 Graph 的替身測試（[用 OAuth 登入的帳號](#用-oauth-登入的帳號)）；裝置代碼、貼上網址、被拒或過期的登入、權杖代理的更新、帳號移除後才回來的更新，以及透過 Graph 和用權杖透過 Google 的 CalDAV 使用的行事曆工具（對 Google 登入與 CalDAV 的替身），在 `test/oauth.test.ts` 中測試。沒有登入過真的 Microsoft 或 Google 帳號。
-- **郵件觸發的檢查頻率。** [自動任務](#自動任務)用**立即檢查**來檢查；每 2 分鐘一次、失敗後放慢，以及重新啟動後保留的狀態，在 `test/orchestrator-watch.test.ts` 中用假時鐘測試，IMAP 的部分（UIDVALIDITY、條件、一次很多封）在 `test/watch.test.ts`。
+- **觸發的檢查頻率，以及行事曆與 GitHub 來源。** [自動任務](#自動任務)用**立即檢查**來檢查；每 2 分鐘一次、失敗後放慢，以及重新啟動後保留的狀態，在 `test/orchestrator-watch.test.ts` 中用假時鐘測試，IMAP 的部分（UIDVALIDITY、條件、一次很多封）在 `test/watch.test.ts`，即將開始的行程（對 CalDAV 行事曆替身）與 pull request 或失敗的 CI（對 gh 的替身）在 `test/watch-sources.test.ts`，沒有端對端測試。
 - **真的郵件與行事曆伺服器、TLS，以及其他 gateway 工具。** 郵件與行事曆工具是在單元測試中，對這台電腦上不加密的 IMAP、SMTP 與 CalDAV 替身伺服器測的（`test/connectors.test.ts`：後面還跟著其他內容的 STARTTLS 回應會在 TLS 開始前被拒絕），瀏覽器工具則在找得到 Chromium 時用真的 Chromium 測（`test/browser.test.ts`：包括檢查請求、彈出視窗與同時的呼叫）；端對端測試呼叫兩個 gateway 工具：`mail_send` 透過 Claude Code（經由 stdio 程式）、Codex 與 OpenCode（經由本機 HTTP）的假 CLI，`calendar_create` 透過 Claude Code 的；其他 CLI 的假 CLI 一個都不呼叫。沒有用任何真的服務（Gmail、iCloud、Fastmail）測過。
 - **Cursor 在暫存資料夾中不詢問就做的事。**真正的 Cursor 在暫存資料夾（`/tmp`、macOS 的 `/private/var/folders`）中寫入不會詢問；它的假 CLI 不會這樣，因為測試的資料夾都在暫存資料夾裡，否則寫到工作區之外的每個檔案都會不經詢問就寫入。也沒有 spec 試用 Cursor 團隊的自動執行允許清單（假 CLI 有一份，`E2E_FAKE_CURSOR_TEAM_ALLOW`）。真正的 Muse Code 的沙箱也讓它的指令寫入暫存資料夾；它的假 CLI 因為同樣的原因不會這樣。
 - **CLI 真正的方案用量。**[方案用量](#方案用量)用替身的回答檢查 Harness Relay 這一邊；真正 CLI 的回答由 `test/usage.test.ts` 中從它們錄下的回答涵蓋（Antigravity 只照 agy 1.5.8 的型別：沒有看過真正 Google 帳號的回答），沒有 live 測試問真正的 CLI。未登入時替身 agy 會立刻以錯誤回答 `/usage`，真正的則會在 stderr 要求登入並等待（單元測試的替身會這樣做）。錯誤訊息與面板的 zh-TW 文字由 `test/usage-web.test.ts` 涵蓋，不在這裡。

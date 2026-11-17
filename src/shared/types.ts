@@ -1432,10 +1432,23 @@ export const SCHEDULE_KINDS: ScheduleRepeat['kind'][] = ['manual', 'once', 'dail
 /**
  * What an automation that starts when something happens watches (`ScheduleRepeat` `event`), checked by
  * Harness Relay itself: no address, no token, and the server still listens on 127.0.0.1 only.
- * `mail`: a new mail in a folder of an account from Settings (by its id), whose sender and subject
- * contain the words given (any case), when given.
+ * - `mail`: a new mail in a folder of an account from Settings (by its id), whose sender and subject
+ *   contain the words given (any case), when given.
+ * - `calendar`: an event of a calendar from Settings (by its id) about to begin, `minutes` before it
+ *   does, whose title contains the words given, when given; all-day events are left out.
+ * - `github`: in a repository (`owner/name`), through the user's own `gh`: a pull request opened
+ *   (`pr`), or a CI run that failed (`ci`, on `branch` when given).
+ * - `file`: a file in the conversation's working directory, whose path there matches `pattern` (`*`
+ *   within a folder, `**` across folders, `?` one character), appearing or changing.
  */
-export type ScheduleTrigger = { source: 'mail'; account: string; folder: string; from?: string; subject?: string };
+export type ScheduleTrigger =
+  | { source: 'mail'; account: string; folder: string; from?: string; subject?: string }
+  | { source: 'calendar'; account: string; minutes: number; title?: string }
+  | { source: 'github'; repo: string; on: 'pr' | 'ci'; branch?: string }
+  | { source: 'file'; pattern: string };
+
+/** The sources an automation can wait for, in the order the form offers them. */
+export const TRIGGER_SOURCES: ScheduleTrigger['source'][] = ['mail', 'calendar', 'github', 'file'];
 
 /** Where a scheduled message's `<event>` block came from: the schedule's webhook, or what a trigger found. */
 export type EventSource = 'webhook' | ScheduleTrigger['source'];
@@ -1443,8 +1456,8 @@ export type EventSource = 'webhook' | ScheduleTrigger['source'];
 /**
  * What an automation that starts when something happens keeps of its source between checks, with the
  * schedule (so a restart never fires twice): for which trigger (`key`, another trigger starts afresh),
- * the mail folder's UIDVALIDITY and the highest UID seen, when it was checked and is checked next, and
- * the last check's error. The first check only records what is there.
+ * what it has seen of the source, when it was checked and is checked next, and the last check's error.
+ * The first check only records what is there.
  */
 export interface ScheduleWatch {
   key: string;
@@ -1456,8 +1469,15 @@ export interface ScheduleWatch {
    * new mail later, however long it waited.
    */
   seenAt?: number;
+  /** `mail`: the folder's UIDVALIDITY, and the highest UID seen. */
   uidValidity?: number;
   lastUid?: number;
+  /** `github`: the highest pull request number, or CI run id, seen. */
+  lastId?: number;
+  /** `calendar`: the events already seen about to begin (`<uid>@<start>`), those not long past. */
+  seen?: string[];
+  /** `file`: each matching file's path in the working directory, with its size and when it changed (`<mtime>:<size>`). */
+  files?: Record<string, string>;
   /** The last check failed: why, and how many checks failed in a row (they come slower). */
   error?: string;
   failures?: number;
@@ -1465,12 +1485,25 @@ export interface ScheduleWatch {
   held?: string;
 }
 
+/** What a check keeps of an automation's source (`ScheduleWatch`), apart from when and how it went. */
+export type WatchState = Pick<ScheduleWatch, 'uidValidity' | 'lastUid' | 'lastId' | 'seen' | 'files'>;
+
 /**
  * The checks of an automation that starts when something happens: every `checkMinutes`, slower after
  * errors (`backoffMinutes`, one more step for each in a row), at most `items` new items listed in the
- * run's message (the newest; how many more came is said), and `excerptChars` of each mail's text.
+ * run's message (the newest; how many more came is said), `excerptChars` of each mail's text, a
+ * condition or other text field of at most `field` characters, an event's `minutes` before it begins
+ * from 1 to `maxMinutes`, and at most `files` files matching a file trigger's pattern.
  */
-export const WATCH_LIMITS = { checkMinutes: 2, backoffMinutes: [5, 15, 30, 60], items: 10, excerptChars: 500, field: 200 };
+export const WATCH_LIMITS = {
+  checkMinutes: 2,
+  backoffMinutes: [5, 15, 30, 60],
+  items: 10,
+  excerptChars: 500,
+  field: 200,
+  maxMinutes: 1440,
+  files: 2000,
+};
 
 /**
  * How the last time a schedule came due went: its message started a run (`sent`), waited in the queue

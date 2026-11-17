@@ -24,6 +24,23 @@ export interface CalendarEvent {
   /** How it repeats (its RRULE), when it does: the range shows its first time only. */
   repeats?: string;
   attendees: string[];
+  /**
+   * The moment it starts, for an event at a time (not all day) whose time can be read: in UTC, in a
+   * time zone this computer knows, or (floating) in this computer's own. For an automation that starts
+   * before an event (`watch.ts`); the tools show `start`.
+   */
+  at?: number;
+}
+
+/** The moment a DTSTART at a time starts (`at`), or undefined for a date, or a time zone not known here. */
+export function startMoment(value: string, params: Record<string, string>): number | undefined {
+  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})?(Z)?$/.exec(value);
+  if (!m || params.VALUE?.toUpperCase() === 'DATE') return undefined;
+  const [y, mo, d, h, mi, s] = [+m[1]!, +m[2]!, +m[3]!, +m[4]!, +m[5]!, +(m[6] ?? 0)];
+  if (m[7]) return Date.UTC(y, mo - 1, d, h, mi, s);
+  const tz = params.TZID?.replace(/^"|"$/g, '');
+  if (tz) return validTimeZone(tz) ? zonedTime(y, mo, d, h, mi, tz) + s * 1000 : undefined;
+  return new Date(y, mo - 1, d, h, mi, s).getTime();
 }
 
 /** iCalendar text unescaped. */
@@ -143,8 +160,11 @@ export function parseEvents(ics: string): CalendarEvent[] {
     const { name, params, value } = cl;
     if (name === 'UID') ev.uid = value;
     else if (name === 'SUMMARY') ev.summary = unescapeText(value);
-    else if (name === 'DTSTART') ev.start = showTime(value, params);
-    else if (name === 'DTEND') ev.end = showTime(value, params, true);
+    else if (name === 'DTSTART') {
+      ev.start = showTime(value, params);
+      const at = startMoment(value, params);
+      if (at !== undefined) ev.at = at;
+    } else if (name === 'DTEND') ev.end = showTime(value, params, true);
     else if (name === 'LOCATION') ev.location = unescapeText(value);
     else if (name === 'DESCRIPTION') ev.description = unescapeText(value).slice(0, 2000);
     else if (name === 'RRULE') ev.repeats = value;
@@ -329,11 +349,22 @@ async function failure(res: Response, what: string): Promise<Error> {
   return new Error(t().conn.calStatus(what, `${res.status} ${res.statusText}`.trim()));
 }
 
-/** The events between two moments. */
-export async function listEvents(url: string, login: CalDavAuth, from: number, to: number, timeoutMs = 30_000): Promise<CalendarEvent[]> {
+/**
+ * The events between two moments. `expand`: each time of a recurring event on its own, as the server
+ * expands it (RFC 4791's `expand`, in UTC); a server that does not gives a recurring event's first time.
+ */
+export async function listEvents(
+  url: string,
+  login: CalDavAuth,
+  from: number,
+  to: number,
+  timeoutMs = 30_000,
+  expand = false,
+): Promise<CalendarEvent[]> {
+  const data = expand ? `<c:calendar-data><c:expand start="${utc(from)}" end="${utc(to)}"/></c:calendar-data>` : '<c:calendar-data/>';
   const body = `<?xml version="1.0" encoding="utf-8"?>
 <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
-  <d:prop><d:getetag/><c:calendar-data/></d:prop>
+  <d:prop><d:getetag/>${data}</d:prop>
   <c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT"><c:time-range start="${utc(from)}" end="${utc(to)}"/></c:comp-filter></c:comp-filter></c:filter>
 </c:calendar-query>`;
   const res = await send(login, url, {

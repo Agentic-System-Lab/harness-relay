@@ -622,24 +622,63 @@ function validRepeat(input: unknown, enabled: boolean, now: number): ScheduleRep
 }
 
 /**
- * What an automation that starts when something happens waits for: a new mail in a folder (the inbox when
- * none is given) of a mail account, by its id (that it exists is checked where the accounts are), with
- * the words its sender and subject contain, when given. Each a line of at most `WATCH_LIMITS.field`.
+ * What an automation that starts when something happens waits for (`ScheduleTrigger`), each text a line
+ * of at most `WATCH_LIMITS.field`:
+ * - a new mail in a folder (the inbox when none is given) of a mail account, by its id (that it exists
+ *   is checked where the accounts are), with the words its sender and subject contain, when given;
+ * - an event of a calendar, by its id, about to begin: 1 to `WATCH_LIMITS.maxMinutes` minutes before,
+ *   with the words its title contains, when given;
+ * - in a GitHub repository (`owner/name`): a pull request opened, or a CI run that failed (on a branch,
+ *   when given);
+ * - a file in the working directory matching a pattern: relative, inside it (no `..`).
  */
 function validTrigger(input: unknown): ScheduleTrigger {
   const r = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
-  if (r.source !== 'mail') bad(t().watchBadTrigger);
   const line = (v: unknown, field: string): string => {
     if (v === undefined || v === null) return '';
     if (typeof v !== 'string' || v.length > WATCH_LIMITS.field || /[\r\n\0]/.test(v)) bad(t().invalidField(field));
     return v.trim();
   };
-  const account = line(r.account, 'account');
-  if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(account)) bad(t().watchBadTrigger);
-  const folder = line(r.folder, 'folder') || 'INBOX';
-  const from = line(r.from, 'from');
-  const subject = line(r.subject, 'subject');
-  return { source: 'mail', account, folder, ...(from ? { from } : {}), ...(subject ? { subject } : {}) };
+  const id = (v: unknown): string => {
+    const account = line(v, 'account');
+    if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(account)) bad(t().watchBadTrigger);
+    return account;
+  };
+  switch (r.source) {
+    case 'mail': {
+      const account = id(r.account);
+      const folder = line(r.folder, 'folder') || 'INBOX';
+      const from = line(r.from, 'from');
+      const subject = line(r.subject, 'subject');
+      return { source: 'mail', account, folder, ...(from ? { from } : {}), ...(subject ? { subject } : {}) };
+    }
+    case 'calendar': {
+      const account = id(r.account);
+      const minutes = r.minutes;
+      if (typeof minutes !== 'number' || !Number.isInteger(minutes) || minutes < 1 || minutes > WATCH_LIMITS.maxMinutes)
+        bad(t().watchBadMinutes(WATCH_LIMITS.maxMinutes));
+      const title = line(r.title, 'title');
+      return { source: 'calendar', account, minutes, ...(title ? { title } : {}) };
+    }
+    case 'github': {
+      const repo = line(r.repo, 'repo')
+        .replace(/^https:\/\/github\.com\//i, '')
+        .replace(/(\.git)?\/?$/, '');
+      if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9_.][A-Za-z0-9_.-]{0,99}$/.test(repo)) bad(t().watchBadRepo);
+      if (r.on !== 'pr' && r.on !== 'ci') bad(t().invalidField('on'));
+      const branch = r.on === 'ci' ? line(r.branch, 'branch') : '';
+      if (branch && (!/^[A-Za-z0-9._/-]+$/.test(branch) || branch.startsWith('-'))) bad(t().invalidField('branch'));
+      return { source: 'github', repo, on: r.on, ...(branch ? { branch } : {}) };
+    }
+    case 'file': {
+      const pattern = line(r.pattern, 'pattern').replace(/\\/g, '/').replace(/^\.\//, '');
+      if (!pattern || pattern.startsWith('/') || /^[A-Za-z]:/.test(pattern) || pattern.split('/').some((p) => p === '..'))
+        bad(t().watchBadPattern);
+      return { source: 'file', pattern };
+    }
+    default:
+      bad(t().watchBadTrigger);
+  }
 }
 
 /** A schedule to save. Missing choices take their defaults: on, refuse approvals, skip missed times. */

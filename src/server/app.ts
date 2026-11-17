@@ -1438,11 +1438,13 @@ export function createApp({
     return c.json(schedule);
   });
 
-  /** An automation that starts when something happens, when it is on, waits for something that is there: a mail account from Settings. */
+  /** An automation that starts when something happens, when it is on, waits for something that is there: a mail account or calendar from Settings. */
   const refuseMissingTrigger = (update: ScheduleUpdate, always = false) => {
     // Turned off, it checks nothing: an automation whose account went can still be paused.
-    if ((update.enabled || always) && update.repeat.kind === 'event' && !settings.connectors.mailById(update.repeat.trigger.account))
-      throw new HttpError(400, t().watchNoAccount);
+    if ((!update.enabled && !always) || update.repeat.kind !== 'event') return;
+    const trigger = update.repeat.trigger;
+    if (trigger.source === 'mail' && !settings.connectors.mailById(trigger.account)) throw new HttpError(400, t().watchNoAccount);
+    if (trigger.source === 'calendar' && !settings.connectors.calendarById(trigger.account)) throw new HttpError(400, t().watchNoCalendar);
   };
 
   // Check what the automation waits for now (Check now), as its next check would, even while it is off;

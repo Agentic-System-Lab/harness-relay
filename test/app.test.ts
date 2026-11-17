@@ -2904,6 +2904,22 @@ describe('schedules', () => {
       repeat: { kind: 'event', trigger: { source: 'mail', account, ...extra } },
       timeZone: 'UTC',
     });
+    // No such calendar: refused too; GitHub and files need nothing from Settings.
+    const calendar = await req(`/api/conversations/${conv.id}/schedule`, 'PUT', {
+      text: 'prepare',
+      repeat: { kind: 'event', trigger: { source: 'calendar', account: 'home', minutes: 10 } },
+      timeZone: 'UTC',
+    });
+    expect(calendar.status).toBe(400);
+    expect(((await calendar.json()) as { error: string }).error).toMatch(/calendar this automation checks is gone/);
+    for (const trigger of [
+      { source: 'github', repo: 'octo/app', on: 'pr' },
+      { source: 'file', pattern: 'reports/*.csv' },
+    ])
+      expect(
+        (await req(`/api/conversations/${conv.id}/schedule`, 'PUT', { text: 'go', repeat: { kind: 'event', trigger }, timeZone: 'UTC' }))
+          .status,
+      ).toBe(200);
     // No such account: refused.
     const none = await req(`/api/conversations/${conv.id}/schedule`, 'PUT', watch('work'));
     expect(none.status).toBe(400);

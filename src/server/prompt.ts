@@ -4,6 +4,7 @@ import {
   isInlineImage,
   type AgentConfig,
   type ChatMessage,
+  type EventSource,
   type Conversation,
   type ConversationSchedule,
   type Mode,
@@ -157,13 +158,27 @@ function scheduleRules(conv: Conversation, unattended: boolean): string {
       ? ' In the runs a schedule starts, anything your file access does not cover is refused automatically (unless the user always allows it in this chat), so work within it.'
       : '';
   const fromHook = conv.messages.some((m) => m.event !== undefined && !m.eventSource) || Boolean(s?.hook);
-  const fromMail =
-    conv.messages.some((m) => m.eventSource === 'mail') || (s?.repeat.kind === 'event' && s.repeat.trigger.source === 'mail');
+  /** The sources an <event> block came from in this conversation, or that its automation waits for. */
+  const from = (source: EventSource) =>
+    conv.messages.some((m) => m.eventSource === source) || (s?.repeat.kind === 'event' && s.repeat.trigger.source === source);
   const sources = [
     ...(fromHook ? ['data a program on this computer sent through the schedule\'s webhook (source="webhook")'] : []),
-    ...(fromMail
+    ...(from('mail')
       ? [
           'the new mail that started the run (source="mail": each one\'s sender, subject, date, uid and the start of its text; read one whole with mail_read, its uid, folder and account, when you have the Mail tools)',
+        ]
+      : []),
+    ...(from('calendar')
+      ? ['the calendar events about to begin that started the run (source="calendar": each one\'s title, start, end, place, attendees)']
+      : []),
+    ...(from('github')
+      ? [
+          'the pull requests opened, or CI runs that failed, in a GitHub repository, that started the run (source="github"; look closer with gh when you can run it)',
+        ]
+      : []),
+    ...(from('file')
+      ? [
+          'the files in the working directory that appeared or changed and started the run (source="file": each one\'s path, size and time; their contents are not in it, read them yourself)',
         ]
       : []),
   ];

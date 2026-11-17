@@ -1,5 +1,6 @@
 import {
   SCHEDULE_LIMITS,
+  WATCH_LIMITS,
   type ConversationSchedule,
   type ConversationSummary,
   type NewScheduleHook,
@@ -31,8 +32,87 @@ export interface ScheduleDraft {
   newChat: boolean;
   /** The goal it tracks ('' for none). */
   goal: string;
-  /** `event`: what it waits for, every field a string as the inputs keep them ('' for a condition not given). */
-  trigger: { source: ScheduleTrigger['source']; account: string; folder: string; from: string; subject: string };
+  /**
+   * `event`: what it waits for, every source's fields as the inputs keep them ('' for a condition not
+   * given), so that switching sources keeps what was typed: a mail account (`account`), its folder,
+   * sender and subject; a calendar (`calendar`), the minutes before an event and its title; a GitHub
+   * repository, what to watch there and the branch of CI runs; a file pattern.
+   */
+  trigger: TriggerDraft;
+}
+
+export interface TriggerDraft {
+  source: ScheduleTrigger['source'];
+  account: string;
+  folder: string;
+  from: string;
+  subject: string;
+  calendar: string;
+  minutes: number;
+  title: string;
+  repo: string;
+  on: 'pr' | 'ci';
+  branch: string;
+  pattern: string;
+}
+
+/** A trigger's fields in the form, before anything is picked or typed. */
+export const EMPTY_TRIGGER: TriggerDraft = {
+  source: 'mail',
+  account: '',
+  folder: 'INBOX',
+  from: '',
+  subject: '',
+  calendar: '',
+  minutes: 10,
+  title: '',
+  repo: '',
+  on: 'pr',
+  branch: '',
+  pattern: '',
+};
+
+/** A saved trigger's fields in the form. */
+function triggerDraft(tr: ScheduleTrigger): TriggerDraft {
+  switch (tr.source) {
+    case 'mail':
+      return { ...EMPTY_TRIGGER, source: 'mail', account: tr.account, folder: tr.folder, from: tr.from ?? '', subject: tr.subject ?? '' };
+    case 'calendar':
+      return { ...EMPTY_TRIGGER, source: 'calendar', calendar: tr.account, minutes: tr.minutes, title: tr.title ?? '' };
+    case 'github':
+      return { ...EMPTY_TRIGGER, source: 'github', repo: tr.repo, on: tr.on, branch: tr.branch ?? '' };
+    case 'file':
+      return { ...EMPTY_TRIGGER, source: 'file', pattern: tr.pattern };
+  }
+}
+
+/** The trigger the form's fields make (trimmed; an empty condition left out). */
+export function triggerOf(d: TriggerDraft): ScheduleTrigger {
+  const opt = <K extends string>(key: K, v: string) => (v.trim() ? ({ [key]: v.trim() } as Record<K, string>) : {});
+  switch (d.source) {
+    case 'mail':
+      return {
+        source: 'mail',
+        account: d.account,
+        folder: d.folder.trim() || 'INBOX',
+        ...opt('from', d.from),
+        ...opt('subject', d.subject),
+      };
+    case 'calendar':
+      return { source: 'calendar', account: d.calendar, minutes: d.minutes, ...opt('title', d.title) };
+    case 'github':
+      return { source: 'github', repo: repoName(d.repo), on: d.on, ...(d.on === 'ci' ? opt('branch', d.branch) : {}) };
+    case 'file':
+      return { source: 'file', pattern: d.pattern.trim() };
+  }
+}
+
+/** A GitHub repository as the form takes it: `owner/name`, or its address on github.com. */
+export function repoName(v: string): string {
+  return v
+    .trim()
+    .replace(/^https:\/\/github\.com\//i, '')
+    .replace(/(\.git)?\/?$/, '');
 }
 
 /** The time zone of this browser. */
@@ -79,7 +159,7 @@ export function draftFrom(s: ConversationSchedule | undefined, now: number, time
     missed: 'skip',
     newChat: false,
     goal: '',
-    trigger: { source: 'mail', account: '', folder: 'INBOX', from: '', subject: '' },
+    trigger: EMPTY_TRIGGER,
   };
   if (!s) return draft;
   const r = s.repeat;
@@ -91,9 +171,7 @@ export function draftFrom(s: ConversationSchedule | undefined, now: number, time
     ...(r.kind === 'daily' || r.kind === 'weekly' ? { time: r.time } : {}),
     ...(r.kind === 'weekly' ? { days: [...r.days] } : {}),
     ...(r.kind === 'interval' ? { hours: r.hours } : {}),
-    ...(r.kind === 'event'
-      ? { trigger: { ...draft.trigger, ...r.trigger, from: r.trigger.from ?? '', subject: r.trigger.subject ?? '' } }
-      : {}),
+    ...(r.kind === 'event' ? { trigger: triggerDraft(r.trigger) } : {}),
     timeZone: s.timeZone,
     enabled: s.enabled,
     approvals: s.approvals,
@@ -115,19 +193,8 @@ export function repeatOf(d: ScheduleDraft): ScheduleRepeat {
       return { kind: 'interval', hours: d.hours };
     case 'manual':
       return { kind: 'manual' };
-    case 'event': {
-      const { account, folder, from, subject } = d.trigger;
-      return {
-        kind: 'event',
-        trigger: {
-          source: 'mail',
-          account,
-          folder: folder.trim() || 'INBOX',
-          ...(from.trim() ? { from: from.trim() } : {}),
-          ...(subject.trim() ? { subject: subject.trim() } : {}),
-        },
-      };
-    }
+    case 'event':
+      return { kind: 'event', trigger: triggerOf(d.trigger) };
   }
 }
 
@@ -178,9 +245,20 @@ export function draftProblems(d: ScheduleDraft, now: number, t: Messages): strin
     case 'interval':
       if (!Number.isInteger(d.hours) || d.hours < 1 || d.hours > SCHEDULE_LIMITS.maxHours) out.push(p.hours(SCHEDULE_LIMITS.maxHours));
       break;
-    case 'event':
-      if (!d.trigger.account) out.push(p.account);
+    case 'event': {
+      const tr = d.trigger;
+      if (tr.source === 'mail' && !tr.account) out.push(p.account);
+      if (tr.source === 'calendar' && !tr.calendar) out.push(p.calendar);
+      if (tr.source === 'calendar' && (!Number.isInteger(tr.minutes) || tr.minutes < 1 || tr.minutes > WATCH_LIMITS.maxMinutes))
+        out.push(p.minutes(WATCH_LIMITS.maxMinutes));
+      if (tr.source === 'github' && !/^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9_.][A-Za-z0-9_.-]*$/.test(repoName(tr.repo))) out.push(p.repo);
+      if (
+        tr.source === 'file' &&
+        (!tr.pattern.trim() || /^([/\\]|[A-Za-z]:)/.test(tr.pattern.trim()) || /(^|[/\\])\.\.([/\\]|$)/.test(tr.pattern))
+      )
+        out.push(p.pattern);
       break;
+    }
   }
   return out;
 }
@@ -252,13 +330,23 @@ export function describeRepeat(r: ScheduleRepeat, t: Messages, lang: string): st
   }
 }
 
-/** What an automation that starts when something happens waits for, in a few words (a folder other than the inbox named). */
+/** What an automation that starts when something happens waits for, in a few words (a mail folder other than the inbox named). */
 export function describeTrigger(trigger: ScheduleTrigger, t: Messages): string {
-  return t.schedule.summary.mail({
-    ...(trigger.folder.toUpperCase() !== 'INBOX' ? { folder: trigger.folder } : {}),
-    ...(trigger.from ? { from: trigger.from } : {}),
-    ...(trigger.subject ? { subject: trigger.subject } : {}),
-  });
+  const s = t.schedule.summary;
+  switch (trigger.source) {
+    case 'mail':
+      return s.mail({
+        ...(trigger.folder.toUpperCase() !== 'INBOX' ? { folder: trigger.folder } : {}),
+        ...(trigger.from ? { from: trigger.from } : {}),
+        ...(trigger.subject ? { subject: trigger.subject } : {}),
+      });
+    case 'calendar':
+      return s.calendar(trigger.minutes, trigger.title);
+    case 'github':
+      return trigger.on === 'pr' ? s.pullRequest(trigger.repo) : s.failedRun(trigger.repo, trigger.branch);
+    case 'file':
+      return s.file(trigger.pattern);
+  }
 }
 
 /**
