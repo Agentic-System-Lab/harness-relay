@@ -35,6 +35,7 @@ const DIRECTIVES = {
   widecode: 'answer with a code block of one line far wider than a phone, which scrolls sideways',
   memory: "say the tool library's memory notes its briefing holds",
   skills: "read the SKILL.md of each tool library skill its briefing lists, and say its first line (or that it may not)",
+  progress: 'end the reply with a <progress> block of the status given (`working` by default) about the goal its briefing says a schedule tracks',
 };
 
 function directivesIn(text) {
@@ -234,6 +235,11 @@ function plan(prompt, turn) {
   if (d.widecode) text += `\n\n\`\`\`js\nconst wide = '${'wide '.repeat(80).trim()}';\n\`\`\``;
   if (typeof d.handoff === 'string' && d.handoff.toLowerCase() !== me.toLowerCase()) text += ` @${d.handoff}, over to you.`;
   if (d.ask) text += '\n\nWhich option do you prefer, A or B? [ASK_USER]';
+  if (d.progress) {
+    const status = typeof d.progress === 'string' ? d.progress : 'working';
+    const goal = /<tracked_goal[^>]*>\n([\s\S]*?)\n<\/tracked_goal>/.exec(turn.briefing || '');
+    text += `\n\n<progress status="${status}">${goal ? `“${goal[1].trim()}”` : 'No goal tracked'}: ${status} (${me}).</progress>`;
+  }
   steps.push({ type: 'text', text, slow: slowMs(d.slow) });
   return steps;
 }

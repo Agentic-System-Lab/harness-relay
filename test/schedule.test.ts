@@ -12,6 +12,7 @@ import {
   draftProblems,
   formatWhen,
   fromLocalInput,
+  hookExample,
   localInput,
   previewRuns,
   scheduleState,
@@ -229,6 +230,22 @@ describe('the schedule form', () => {
     expect(draftFrom({ ...saved, newChat: true }, MON).newChat).toBe(true);
     // Switching kinds keeps the other kinds' fields.
     expect(toUpdate({ ...draft, kind: 'interval' }).repeat).toEqual({ kind: 'interval', hours: 6 });
+  });
+
+  it('reads a goal back, saves it trimmed, leaves out an empty one, and says when it is too long', () => {
+    const draft = draftFrom({ ...saved, goal: 'CI passes' }, MON);
+    expect(draft.goal).toBe('CI passes');
+    expect(toUpdate({ ...draft, goal: '  Ship it  ' }).goal).toBe('Ship it');
+    expect(toUpdate({ ...draft, goal: '   ' })).not.toHaveProperty('goal');
+    expect(draftChanged({ ...draft, goal: 'other' }, { ...saved, goal: 'CI passes' })).toBe(true);
+    expect(draftChanged(draft, { ...saved, goal: 'CI passes' })).toBe(false);
+    expect(draftProblems({ ...draft, goal: 'x'.repeat(2001) }, MON, en)).toContain('A goal can be at most 2000 characters');
+  });
+
+  it("writes a command that calls the schedule's webhook", () => {
+    expect(hookExample('http://127.0.0.1:8787/api/hooks/c1', 'tok_en-1')).toBe(
+      `curl -X POST -H 'Authorization: Bearer tok_en-1' -H 'Content-Type: application/json' -d '{"event":"ci-failed","branch":"main"}' 'http://127.0.0.1:8787/api/hooks/c1'`,
+    );
   });
 
   it('shows times of day in the schedule\'s time zone, and moments and intervals in the browser\'s', () => {

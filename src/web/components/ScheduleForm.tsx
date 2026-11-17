@@ -60,6 +60,18 @@ export function ScheduleForm({
         {warning && <span className="small warn-text">{warning}</span>}
       </label>
 
+      <label className="field">
+        <span>{t.schedule.goal}</span>
+        <textarea
+          value={draft.goal}
+          rows={2}
+          maxLength={SCHEDULE_LIMITS.maxGoal}
+          placeholder={t.schedule.goalPlaceholder}
+          onChange={(e) => onEdit({ goal: e.target.value })}
+        />
+        <span className="small muted">{t.schedule.goalHint}</span>
+      </label>
+
       <div className="field schedule-repeat">
         <span>{t.schedule.repeat}</span>
         <div className="segmented wide" role="radiogroup" aria-label={t.schedule.repeat}>

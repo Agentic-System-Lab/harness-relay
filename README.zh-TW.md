@@ -24,7 +24,7 @@
 - **用 git 安全地改檔**：每個工作目錄（一個對話最多八個）都會成為 git repository，每則回覆都列出它改了哪些檔案並附上 diff，平行模式中每個 agent 在自己的 worktree 工作。（[檢視與套用修改](docs/user-guide.zh-TW.md#檢視與套用修改)）
 - **由你掌控**：每個對話有自己的權限（唯讀、可編輯、完全存取），超出範圍的動作在對話中請你核准；agent 不確定時先問你而不亂猜；團隊回覆時你也能插話。（[核准](docs/user-guide.zh-TW.md#核准)、[對話](docs/user-guide.zh-TW.md#4-對話)）
 - **一切即時呈現**：回覆、推理、計畫與工具動作即時串流；Mermaid 圖表、圖片與 agent 做出的檔案直接顯示在對話中；任何一則回覆都能複製、編輯、重試或分支。（[複製、編輯與重試](docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](docs/user-guide.zh-TW.md#分支對話)）
-- **排程**：在設定的時間把訊息傳給團隊，例如每個平日 9:00 審查昨天的 commit。（[排程](docs/user-guide.zh-TW.md#排程)）
+- **排程**：在設定的時間把訊息傳給團隊，例如每個平日 9:00 審查昨天的 commit，或在這台電腦上的程式呼叫排程的 webhook 時送出；排程可以跨天追蹤一個目標，直到 agent 回報已達成，失敗的執行也會重試。（[排程](docs/user-guide.zh-TW.md#排程)）
 - **檔案、語音與分享**：附加檔案與截圖、瀏覽工作目錄、用只在你電腦上執行的語音輸入說話，並把對話分享成 Markdown 或連結。（[瀏覽檔案](docs/user-guide.zh-TW.md#瀏覽檔案)、[語音輸入](docs/user-guide.zh-TW.md#語音輸入)、[分享對話](docs/user-guide.zh-TW.md#分享對話)）
 - **井然有序**：群組、釘選在最上面的對話、搜尋、側邊欄上每個對話的狀態，以及通知與提示音（手機上是推播通知）。（[群組](docs/user-guide.zh-TW.md#群組)、[釘選](docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](docs/user-guide.zh-TW.md#搜尋)、[通知與提示音](docs/user-guide.zh-TW.md#通知與提示音)）
 - **設定一次，每個 CLI 都適用**：找不到的 CLI 在它的卡片上一鍵安裝（也能再移除），MCP 伺服器、skill 與記憶的工具庫，每個 CLI 多個帳號、每個帳號的方案用量、各 CLI 自己載入的內容，以及在 [AgentsView](https://www.agentsview.io) 中檢視 agent 的 session。（[安裝 CLI](docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[工具庫](docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[多個帳號](docs/user-guide.zh-TW.md#多個帳號)、[方案用量](docs/user-guide.zh-TW.md#方案用量)、[AgentsView](docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)）

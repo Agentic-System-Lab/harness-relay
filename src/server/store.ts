@@ -16,10 +16,13 @@ import type {
   MessagePart,
   Mode,
   Permission,
+  ProgressStatus,
   Provider,
   RunPause,
+  ScheduleHook,
   ScheduleRepeat,
   ScheduleResult,
+  ScheduleTracking,
   TeamPlan,
   TeamPreset,
   ToolCallKind,
@@ -28,7 +31,7 @@ import type {
   SearchResult,
   SharedPage,
 } from '../shared/types';
-import { PERMISSION_ORDER, PROVIDERS, TOOL_CALL_KINDS, cwdSettings, pendingPlan } from '../shared/types';
+import { PERMISSION_ORDER, PROGRESS_STATUSES, PROVIDERS, TOOL_CALL_KINDS, cwdSettings, pendingPlan } from '../shared/types';
 import { byAge, familyOf, type FamilyMember } from '../shared/family';
 import { searchTerms, snippetAround, termsIn } from '../shared/search';
 import { nul, transaction, type Database } from './db';
@@ -129,6 +132,7 @@ interface MessageRow {
   queued: number | null;
   asked: number | null;
   scheduled: number | null;
+  event: string | null;
 }
 
 interface ScheduleRow {
@@ -147,6 +151,9 @@ interface ScheduleRow {
   last_error: string | null;
   new_chat: number;
   last_chat_id: string | null;
+  goal: string | null;
+  tracking: string | null;
+  hook: string | null;
 }
 
 interface ChangeRow {
@@ -252,6 +259,10 @@ function toPart(r: PartRow): MessagePart {
       return { type: 'approval', ...parseJson(r.data, { id: '', kind: 'other' as const, status: 'expired' as const }) };
     case 'attachment':
       return { type: 'attachment', ...parseJson(r.data, { id: '', name: 'file', mimeType: 'application/octet-stream', size: 0 }) };
+    case 'progress': {
+      const status = parseJson<{ status?: unknown }>(r.data, {}).status;
+      return { type: 'progress', status: PROGRESS_STATUSES.includes(status as never) ? (status as ProgressStatus) : 'working', text: r.text ?? '' };
+    }
     default:
       return { type: 'text', text: r.text ?? '' };
   }
@@ -267,6 +278,8 @@ function partColumns(p: MessagePart): (string | null)[] {
       return [null, p.id, p.name, nul(p.detail), p.status, nul(p.error), nul(p.output), p.kind ? JSON.stringify({ kind: p.kind }) : null];
     case 'plan':
       return [null, null, null, null, null, null, null, JSON.stringify(p.entries)];
+    case 'progress':
+      return [p.text, null, null, null, null, null, null, JSON.stringify({ status: p.status })];
     case 'approval':
     case 'attachment': {
       const { type: _type, ...data } = p;
@@ -335,12 +348,15 @@ function toMessage(r: MessageRow, parts: MessagePart[], files: FileChange[]): Ch
     queued: r.queued ? true : undefined,
     asked: r.asked ? true : undefined,
     scheduled: r.scheduled ? true : undefined,
+    ...(r.event ? { event: r.event } : {}),
   };
 }
 
 function toSchedule(r: ScheduleRow): ConversationSchedule | undefined {
   const repeat = parseJson<ScheduleRepeat | null>(r.repeat, null);
   if (!repeat) return undefined;
+  const tracking = parseTracking(r.tracking);
+  const hook = parseHook(r.hook);
   return {
     text: r.text,
     repeat,
@@ -356,7 +372,22 @@ function toSchedule(r: ScheduleRow): ConversationSchedule | undefined {
     ...(r.last_result ? { lastResult: r.last_result } : {}),
     ...(r.last_error ? { lastError: r.last_error } : {}),
     ...(r.last_chat_id ? { lastChatId: r.last_chat_id } : {}),
+    ...(r.goal ? { goal: r.goal } : {}),
+    ...(r.goal && tracking ? { tracking } : {}),
+    ...(hook ? { hook } : {}),
   };
+}
+
+/** A schedule's tracking state as stored, when it can be read. */
+function parseTracking(json: string | null): ScheduleTracking | undefined {
+  const t = parseJson<ScheduleTracking | null>(json, null);
+  if (!t || typeof t !== 'object' || !Array.isArray(t.notes)) return undefined;
+  return { ...t, status: PROGRESS_STATUSES.includes(t.status) ? t.status : 'working' };
+}
+
+function parseHook(json: string | null): ScheduleHook | undefined {
+  const h = parseJson<ScheduleHook | null>(json, null);
+  return h && typeof h === 'object' && typeof h.createdAt === 'number' ? h : undefined;
 }
 
 /** What the sidebar shows of a schedule; times of day are shown in the schedule's time zone. */
@@ -481,8 +512,8 @@ function parseReview(json: string | null): LeadReview | undefined {
 const UPSERT_MESSAGE = `INSERT INTO messages (id, conversation_id, seq, author_kind, agent_id, agent_name, provider, created_at,
                        status, passed, error, round, duration_ms, cost_usd, input_tokens, output_tokens,
                        change_root, change_base, change_head, change_isolated, change_branch, more_changes, plan, review, queued,
-                       asked, scheduled)
- VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       asked, scheduled, event)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
  ON CONFLICT(id) DO UPDATE SET
    seq = excluded.seq, status = excluded.status, passed = excluded.passed, error = excluded.error,
    round = excluded.round, duration_ms = excluded.duration_ms, cost_usd = excluded.cost_usd,
@@ -490,7 +521,7 @@ const UPSERT_MESSAGE = `INSERT INTO messages (id, conversation_id, seq, author_k
    change_root = excluded.change_root, change_base = excluded.change_base, change_head = excluded.change_head,
    change_isolated = excluded.change_isolated, change_branch = excluded.change_branch,
    more_changes = excluded.more_changes, plan = excluded.plan, review = excluded.review,
-   queued = excluded.queued, asked = excluded.asked, scheduled = excluded.scheduled`;
+   queued = excluded.queued, asked = excluded.asked, scheduled = excluded.scheduled, event = excluded.event`;
 
 const INSERT_PART = `INSERT INTO message_parts (message_id, idx, type, text, tool_id, tool_name, tool_detail, tool_status, tool_error,
                             tool_output, data)
@@ -887,13 +918,14 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO schedules (conversation_id, text, repeat, time_zone, lang, enabled, approvals, missed, new_chat, updated_at,
-                                next_run_at, last_run_at, last_result, last_error, last_chat_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                next_run_at, last_run_at, last_result, last_error, last_chat_id, goal, tracking, hook)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(conversation_id) DO UPDATE SET text = excluded.text, repeat = excluded.repeat,
            time_zone = excluded.time_zone, lang = excluded.lang, enabled = excluded.enabled, approvals = excluded.approvals,
            missed = excluded.missed, new_chat = excluded.new_chat, updated_at = excluded.updated_at,
            next_run_at = excluded.next_run_at, last_run_at = excluded.last_run_at, last_result = excluded.last_result,
-           last_error = excluded.last_error, last_chat_id = excluded.last_chat_id`,
+           last_error = excluded.last_error, last_chat_id = excluded.last_chat_id, goal = excluded.goal,
+           tracking = excluded.tracking, hook = excluded.hook`,
       )
       .run(
         conv.id,
@@ -911,7 +943,39 @@ export class Store {
         nul(s.lastResult),
         nul(s.lastError),
         nul(s.lastChatId),
+        nul(s.goal),
+        s.goal && s.tracking ? JSON.stringify(s.tracking) : null,
+        s.hook ? JSON.stringify(s.hook) : null,
       );
+    // A schedule without a webhook has no token either.
+    if (!s.hook) this.db.prepare('UPDATE schedules SET hook_hash = NULL WHERE conversation_id = ?').run(conv.id);
+  }
+
+  /** The SHA-256 (hex) of the token of the conversation's schedule's webhook, if it has one. */
+  hookHash(convId: string): string | undefined {
+    const row = this.db.prepare('SELECT hook_hash FROM schedules WHERE conversation_id = ?').get(convId) as { hook_hash: string | null } | undefined;
+    return row?.hook_hash ?? undefined;
+  }
+
+  /**
+   * Give the conversation's schedule a webhook whose token has this hash (replacing one it had), or
+   * take it away (`undefined`). The schedule must be saved; its `hook` is set here as well.
+   */
+  setHook(conv: Conversation, hash: string | undefined, now: number): void {
+    if (!conv.schedule || this.deleted.has(conv.id)) return;
+    if (hash) conv.schedule.hook = { createdAt: now };
+    else delete conv.schedule.hook;
+    transaction(this.db, () => {
+      this.saveSchedule(conv);
+      this.db.prepare('UPDATE schedules SET hook_hash = ? WHERE conversation_id = ?').run(nul(hash), conv.id);
+    });
+  }
+
+  /** Conversations whose schedule tracks a goal. */
+  trackingSchedules(): string[] {
+    return (
+      this.db.prepare('SELECT conversation_id FROM schedules WHERE goal IS NOT NULL AND tracking IS NOT NULL').all() as { conversation_id: string }[]
+    ).map((r) => r.conversation_id);
   }
 
   /** Conversations whose schedule is on and due by `now`, the most overdue first. */
@@ -1020,6 +1084,7 @@ export class Store {
         m.queued ? 1 : null,
         m.asked ? 1 : null,
         m.scheduled ? 1 : null,
+        nul(m.event),
       );
       clearChanges.run(m.id);
       first?.files.forEach((f, idx) => insertChange.run(m.id, idx, f.path, f.status, f.added, f.deleted));

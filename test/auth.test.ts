@@ -10,7 +10,7 @@ process.env.RELAY_DATA_DIR = join(root, 'data');
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 const { AuthStore, CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S } = await import('../src/server/auth');
-const { createApp } = await import('../src/server/app');
+const { createApp, hookHash } = await import('../src/server/app');
 const { openDatabase } = await import('../src/server/db');
 const { Hub } = await import('../src/server/hub');
 const { Orchestrator } = await import('../src/server/orchestrator');
@@ -151,10 +151,11 @@ describe('the API with sign-in', () => {
   const HOST = { host: '127.0.0.1:8787' };
   let app: ReturnType<typeof createApp>;
   let auth: InstanceType<typeof AuthStore>;
+  let store: InstanceType<typeof Store>;
   beforeEach(() => {
     const db = openDatabase(':memory:');
     const settings = new SettingsStore(db);
-    const store = new Store(db);
+    store = new Store(db);
     const hub = new Hub();
     auth = new AuthStore(db);
     app = createApp({ auth, store, settings, hub, orchestrator: new Orchestrator(store, hub, settings), providers: new ProviderService(settings) });
@@ -178,6 +179,32 @@ describe('the API with sign-in', () => {
     expect(await (await app.request('/api/auth', { headers: HOST })).json()).toEqual({ signedIn: false });
     // Host and Origin are still checked first.
     expect((await app.request('/api/conversations', { headers: { host: 'evil.test' } })).status).toBe(403);
+  });
+
+  it("takes a schedule's webhook token instead of a browser's sign-in on the webhook alone", async () => {
+    const conv = {
+      id: 'c1',
+      title: 't',
+      createdAt: 0,
+      updatedAt: 0,
+      agents: [],
+      settings: { mode: 'roundtable', rounds: 1, maxHops: 1, permission: 'read-only', cwd: tmpdir(), approvals: 'ask' },
+      messages: [],
+      agentState: {},
+      worktrees: {},
+    } as unknown as Parameters<typeof store.create>[0];
+    store.create(conv);
+    conv.schedule = { text: 'x', repeat: { kind: 'daily', time: '09:00' }, timeZone: 'UTC', lang: 'en', enabled: false, approvals: 'deny', missed: 'skip', newChat: false, updatedAt: 0 };
+    store.saveSchedule(conv);
+    store.setHook(conv, hookHash('the-token'), 1);
+    const hook = (token: string) =>
+      app.request('/api/hooks/c1', { method: 'POST', headers: { ...HOST, 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: '{}' });
+    // Not a sign-in problem: the token is checked (a wrong one is a 404), and the team has no members (409).
+    expect((await hook('wrong')).status).toBe(404);
+    expect((await hook('the-token')).status).toBe(409);
+    // Making a token is for a signed-in browser.
+    expect((await post('/api/conversations/c1/schedule/hook', {})).status).toBe(401);
+    expect((await app.request('/api/hooks/c1', { method: 'GET', headers: HOST })).status).toBe(401);
   });
 
   it("points a browser that is not signed in at the desktop app's menu when the app started the server", async () => {

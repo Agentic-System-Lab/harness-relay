@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createReadStream, realpathSync, statSync } from 'node:fs';
 import { readFile, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -29,6 +29,7 @@ import {
   SHARE_FILE_REFUSED,
   SHARE_FILE_URL_MAX,
   SHARE_MAX_BYTES,
+  TRACKING_LIMITS,
   VOICE_MAX_SECONDS,
   cwdsOf,
   pendingPlan,
@@ -50,6 +51,8 @@ import {
   type ZipCheck,
 } from '../shared/types';
 import type { AgentsViewSync } from './agentsview';
+import { freshTracking } from '../shared/tracking';
+import { servingPort } from './relaySandbox';
 import { attachmentPath, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
 import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, readPreview, zipPlan, type ZipPlan } from './files';
 import { zipStream } from './zip';
@@ -207,6 +210,18 @@ function realDir(dir: string): string {
 }
 
 /** The HTTP API (`/api/*`). Static files and the listening server are set up in `index.ts`. */
+/** The SHA-256 (hex) of a webhook's token: all the database keeps of it. */
+export function hookHash(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+/** Two hashes compared in constant time. */
+function sameHash(a: string, b: string): boolean {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+}
+
 export function createApp({
   auth,
   store,
@@ -278,7 +293,8 @@ export function createApp({
     }
     // User-facing server text follows the UI language — also in runs this request starts.
     return withLang(parseLang(c.req.header('x-relay-lang'), c.req.header('accept-language')), async () => {
-      if (auth && !OPEN.has(`${c.req.method} ${c.req.path}`)) {
+      // A schedule's webhook takes its own token instead (checked by its route), for programs, not browsers.
+      if (auth && !OPEN.has(`${c.req.method} ${c.req.path}`) && !(c.req.method === 'POST' && HOOK_PATH.test(c.req.path))) {
         const session = auth.check(getCookie(c, SESSION_COOKIE), requestKey(c));
         if (!session) return c.json({ error: desktopApp ? t().signedOutDesktop : t().signedOut, code: SIGNED_OUT }, 401);
         sessions.set(c.req.raw, session);
@@ -289,6 +305,10 @@ export function createApp({
 
   /** What a request takes without a signed-in browser: asking whether it is one, and signing in. */
   const OPEN = new Set(['GET /api/auth', 'POST /api/auth/login']);
+  /** A schedule's webhook (`POST /api/hooks/:id`): its route checks the token it was given. */
+  const HOOK_PATH = /^\/api\/hooks\/[^/]+$/;
+  /** When each webhook was last called, by conversation: at most one call per `TRACKING_LIMITS.hookIntervalMs`. */
+  const hookCalls = new Map<string, number>();
   /** The session each request came from. */
   const sessions = new WeakMap<Request, string>();
 
@@ -1149,13 +1169,80 @@ export function createApp({
       ...(prev?.lastResult ? { lastResult: prev.lastResult } : {}),
       ...(prev?.lastError ? { lastError: prev.lastError } : {}),
       ...(prev?.lastChatId ? { lastChatId: prev.lastChatId } : {}),
+      ...(prev?.hook ? { hook: prev.hook } : {}),
     };
+    // The same goal keeps what the agents said of it (and a run still in flight); a reached goal is worked on
+    // again once the schedule is on. A new goal starts afresh, and none drops the notes.
+    if (update.goal) {
+      const kept = prev?.goal === update.goal ? prev.tracking : undefined;
+      const { retry: _retry, ...tracking } = kept ?? freshTracking();
+      schedule.tracking = update.enabled && tracking.status === 'done' ? { ...tracking, status: 'working' } : tracking;
+    }
     const next = update.enabled ? nextRun(schedule, now) : undefined;
     if (next !== undefined) schedule.nextRunAt = next;
     conv.schedule = schedule;
     store.saveSchedule(conv);
     orchestrator.emitConversation(conv);
     return c.json(schedule);
+  });
+
+  // A webhook for the schedule: a new token (replacing the one it had), shown this once; only its hash is kept.
+  app.post('/api/conversations/:id/schedule/hook', (c) => {
+    const conv = getConv(c.req.param('id'));
+    if (!conv.schedule) throw new HttpError(409, t().hookNeedsSchedule);
+    const token = randomBytes(32).toString('base64url');
+    store.setHook(conv, hookHash(token), Date.now());
+    orchestrator.emitConversation(conv);
+    return c.json({ token, url: `http://127.0.0.1:${servingPort()}/api/hooks/${conv.id}`, hook: conv.schedule.hook });
+  });
+
+  app.delete('/api/conversations/:id/schedule/hook', (c) => {
+    const conv = getConv(c.req.param('id'));
+    if (conv.schedule?.hook) {
+      store.setHook(conv, undefined, Date.now());
+      orchestrator.emitConversation(conv);
+    }
+    return c.json({ ok: true });
+  });
+
+  // A program on this computer calls the schedule's webhook: the schedule's message goes now, with the JSON
+  // body it posted in an <event> block. Its token stands in for a browser's sign-in; a wrong one, or none,
+  // is the same 404 as a conversation that does not exist.
+  app.post('/api/hooks/:id', async (c) => {
+    const id = c.req.param('id');
+    const given = /^Bearer\s+(\S+)$/i.exec(c.req.header('authorization') ?? '')?.[1];
+    const stored = store.hookHash(id);
+    if (!given || !stored || !sameHash(hookHash(given), stored)) throw new HttpError(404, t().hookNotFound);
+    const conv = getConv(id);
+    if (!conv.schedule) throw new HttpError(404, t().hookNotFound);
+    const raw = await c.req.text();
+    if (Buffer.byteLength(raw) > TRACKING_LIMITS.eventBytes) throw new HttpError(413, t().hookBodyTooLarge(TRACKING_LIMITS.eventBytes / 1000));
+    let event: string;
+    try {
+      event = raw.trim() ? JSON.stringify(JSON.parse(raw), null, 2) : '{}';
+    } catch {
+      throw new HttpError(400, 'Invalid JSON body');
+    }
+    // Pretty-printed it may be longer than it came: cut to the limit, as it is only data.
+    if (Buffer.byteLength(event) > TRACKING_LIMITS.eventBytes) event = Buffer.from(event).subarray(0, TRACKING_LIMITS.eventBytes).toString('utf8') + '\n…';
+    const now = Date.now();
+    const last = hookCalls.get(id);
+    if (last !== undefined && now - last < TRACKING_LIMITS.hookIntervalMs) throw new HttpError(429, t().hookTooOften(TRACKING_LIMITS.hookIntervalMs / 1000));
+    if (conv.schedule.goal && conv.schedule.tracking?.status === 'done' && !conv.schedule.enabled) throw new HttpError(409, t().hookGoalReached);
+    hookCalls.set(id, now);
+    const sent = await withLang(conv.schedule.lang, () => orchestrator.sendScheduled(id, now, { event }));
+    const s = store.get(id)?.schedule;
+    if (s?.hook) {
+      s.hook = { ...s.hook, lastAt: now };
+      store.saveSchedule(store.get(id)!);
+      orchestrator.emitConversation(store.get(id)!);
+    }
+    if (sent.result === 'busy' || sent.result === 'skipped' || sent.result === 'failed') {
+      const reason = sent.reason ?? t().scheduleBusy;
+      throw new HttpError(409, reason.charAt(0).toUpperCase() + reason.slice(1));
+    }
+    const chatId = sent.result === 'sent' ? sent.chatId : undefined;
+    return c.json({ ok: true, queued: sent.result === 'queued', ...(chatId ? { chatId } : {}) }, 202);
   });
 
   app.delete('/api/conversations/:id/schedule', (c) => {

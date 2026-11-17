@@ -285,6 +285,11 @@ export function noteListeningPort(port: number): void {
   listeningPort = Number.isInteger(port) && port > 0 ? port : undefined;
 }
 
+/** The port this server listens on: the one it got (`noteListeningPort`), else the one its settings name. */
+export function servingPort(): number {
+  return listeningPort ?? apiPort();
+}
+
 /**
  * Harness Relay's own ports: this server's (`apiPort()`, and the one it got when that is 0: any free
  * one), 8787, and `npm run dev`'s API and Vite's (`ports.ts`).

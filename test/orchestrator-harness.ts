@@ -132,6 +132,8 @@ export interface Fake {
   fail: ((name: string, sessionId?: string) => Error | undefined) | undefined;
   /** The way to ask the user that a fake CLI run whose prompt says "keep asking" had (kept past its turn). */
   keptAsk: ((req: { kind: 'fetch'; detail: string }) => Promise<unknown>) | undefined;
+  /** What an agent replies instead of "<name> done", when it returns text. */
+  reply: ((name: string, prompt: string) => string | undefined) | undefined;
 }
 
 const fresh = (): Fake => ({
@@ -152,6 +154,7 @@ const fresh = (): Fake => ({
   asking: new Set(),
   fail: undefined,
   keptAsk: undefined,
+  reply: undefined,
 });
 
 export const fake: Fake = fresh();
@@ -287,7 +290,7 @@ beforeAll(() => {
         o.onEvent({ type: 'text_end' });
         return { sessionId: `session-${name}` };
       }
-      o.onEvent({ type: 'text', text: `${name} done` });
+      o.onEvent({ type: 'text', text: fake.reply?.(name, o.prompt) ?? `${name} done` });
       o.onEvent({ type: 'text_end' });
       return { sessionId: `session-${name}` };
     },

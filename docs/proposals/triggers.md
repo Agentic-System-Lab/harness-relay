@@ -2,7 +2,7 @@
 
 # Scheduled and event-triggered runs
 
-> **Status: step 1 built (schedules), and step 3 as a schedule option; webhook triggers (step 2) are still a proposal.** See [Proposals](README.md).
+> **Status: step 1 built (schedules), step 3 as a schedule option, and step 2 (webhooks) for a conversation's schedule; several named triggers per conversation are still a proposal.** See [Proposals](README.md).
 
 ## What was built
 
@@ -16,7 +16,10 @@ Step 1, schedules in the same conversation, is in the app: see [Architecture →
 - **A new conversation per fire (step 3) is a choice of each schedule** (`newChat`, **Start a new chat each time**), which answers the open question below by leaving it to the user: each time opens a conversation with the same team, settings, "always allow" answers and sidebar group, and sends the message there. See [Architecture → Schedules](../architecture.md#schedules).
 - **A schedule can be where a conversation starts** (**New schedule** in the sidebar): the lead agent designs the team for its message when it is created, while the user is there to confirm it, not each time it fires; nothing runs until then.
 
-Still open: webhook triggers (step 2), several named triggers per conversation, and intervals in minutes.
+- **Webhooks (step 2) belong to the conversation's schedule**, one per schedule, rather than being triggers of their own: `POST /api/hooks/:id` with the schedule's token sends the schedule's message now, with the JSON body as `ChatMessage.event`, which the agents get in an `<event>` block (see [Architecture → Schedules](../architecture.md#schedules)). Since the server now has a sign-in, the token stands in for the browser's sign-in on that route alone. A wrong token is a 404, one call per 10 seconds, the body at most 20 KB, as designed below.
+- **A schedule can track a goal**, which this proposal did not have: its runs are told the goal and the latest progress notes, the agents report on it in a `<progress>` block, the schedule switches off once it is reached, and a run that failed is tried again after 5, 30 and 120 minutes (also one a restart cut off).
+
+Still open: several named triggers per conversation (and a webhook of their own each), and intervals in minutes.
 
 Let a conversation start a run without the user typing: at set times ("every weekday at 9:00, review yesterday's commits"), or when a program on this computer reports an event ("CI failed on `main`").
 

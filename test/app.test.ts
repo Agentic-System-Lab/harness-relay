@@ -30,7 +30,7 @@ import { shareFileHref } from '../src/shared/share';
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-app-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 
-const { createApp } = await import('../src/server/app');
+const { createApp, hookHash } = await import('../src/server/app');
 const { openDatabase } = await import('../src/server/db');
 const { Hub } = await import('../src/server/hub');
 const { Orchestrator } = await import('../src/server/orchestrator');
@@ -2452,6 +2452,116 @@ describe('schedules', () => {
     expect(live.schedule!.lastResult).toBeUndefined(); // running it by hand leaves the schedule's record as it is
     orchestrator.stop(conv.id);
     await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+  });
+
+  it('keeps a goal and what the agents said of it while the goal stays the same, and starts afresh on a new one', async () => {
+    const conv = await createConversation({ permission: 'read-only' });
+    const tooLong = await put(conv.id, { ...valid, goal: 'x'.repeat(2001) });
+    expect(tooLong.status).toBe(400);
+    expect(((await tooLong.json()) as { error: string }).error).toBe('A goal can be at most 2000 characters');
+    expect((await put(conv.id, { ...valid, goal: 42 })).status).toBe(400);
+
+    const saved = (await (await put(conv.id, { ...valid, goal: '  CI passes  ' })).json()) as NonNullable<Conversation['schedule']>;
+    expect(saved).toMatchObject({ goal: 'CI passes', tracking: { status: 'working', notes: [] } });
+    const live = store.get(conv.id)!;
+    live.schedule!.tracking = { status: 'done', notes: [{ at: 1, status: 'done', text: 'green', agent: 'Alice' }], retry: { due: 1, attempt: 1, at: 2 } };
+    store.saveSchedule(live);
+
+    // Saved again with the same goal and on: the notes stay, and the goal is worked on again.
+    const again = (await (await put(conv.id, { ...valid, goal: 'CI passes' })).json()) as NonNullable<Conversation['schedule']>;
+    expect(again.tracking).toEqual({ status: 'working', notes: [{ at: 1, status: 'done', text: 'green', agent: 'Alice' }] });
+    const other = (await (await put(conv.id, { ...valid, goal: 'Docs build' })).json()) as NonNullable<Conversation['schedule']>;
+    expect(other.tracking).toEqual({ status: 'working', notes: [] });
+    const none = (await (await put(conv.id, valid)).json()) as NonNullable<Conversation['schedule']>;
+    expect(none.goal).toBeUndefined();
+    expect(none.tracking).toBeUndefined();
+  });
+
+  describe('its webhook', () => {
+    const call = (id: string, token: string | undefined, body: string, headers: Record<string, string> = {}) =>
+      app.request(`/api/hooks/${id}`, {
+        method: 'POST',
+        headers: { ...HOST, 'content-type': 'application/json', 'x-relay-lang': 'en', ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers },
+        body,
+      });
+    const makeHook = async (id: string) => {
+      const res = await app.request(`/api/conversations/${id}/schedule/hook`, json('POST', {}, { 'x-relay-lang': 'en' }));
+      return { res, made: res.status === 200 ? ((await res.json()) as { token: string; url: string; hook: { createdAt: number } }) : undefined };
+    };
+
+    it('is made for a schedule, its token shown once and only its hash kept, and sends the message with the body as data', async () => {
+      const conv = await createConversation({ permission: 'read-only' });
+      expect((await makeHook(conv.id)).res.status).toBe(409); // no schedule yet
+      await put(conv.id, { ...valid, enabled: false }); // the times may be off
+      const { made } = await makeHook(conv.id);
+      expect(made!.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(made!.url).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:\\d+/api/hooks/${conv.id}$`));
+      const shown = (await (await get(`/api/conversations/${conv.id}`)).json()) as Conversation;
+      expect(shown.schedule!.hook).toEqual({ createdAt: made!.hook.createdAt });
+      expect(JSON.stringify(shown)).not.toContain(made!.token);
+      expect(store.hookHash(conv.id)).toBe(hookHash(made!.token));
+
+      const res = await call(conv.id, made!.token, JSON.stringify({ event: 'ci-failed', branch: 'main' }));
+      expect(res.status).toBe(202);
+      expect(await res.json()).toEqual({ ok: true, queued: false });
+      const live = store.get(conv.id)!;
+      expect(live.messages[0]).toMatchObject({ scheduled: true, event: JSON.stringify({ event: 'ci-failed', branch: 'main' }, null, 2) });
+      expect(live.schedule!.hook!.lastAt).toBeGreaterThan(0);
+      orchestrator.stop(conv.id);
+      await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+    });
+
+    it('answers a missing or wrong token as a conversation that does not exist, and a new token replaces the old one', async () => {
+      const conv = await createConversation({ permission: 'read-only' });
+      await put(conv.id, valid);
+      const first = (await makeHook(conv.id)).made!;
+      expect((await call(conv.id, undefined, '{}')).status).toBe(404);
+      expect((await call(conv.id, 'wrong', '{}')).status).toBe(404);
+      expect((await call('missing', first.token, '{}')).status).toBe(404);
+      const second = (await makeHook(conv.id)).made!;
+      expect((await call(conv.id, first.token, '{}')).status).toBe(404);
+      expect((await call(conv.id, second.token, '{}')).status).toBe(202);
+      orchestrator.stop(conv.id);
+      await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+
+      // Removed, it takes no token; so does a schedule deleted with it.
+      expect((await app.request(`/api/conversations/${conv.id}/schedule/hook`, json('DELETE', {}))).status).toBe(200);
+      expect(store.hookHash(conv.id)).toBeUndefined();
+      expect((await call(conv.id, second.token, '{}')).status).toBe(404);
+      const third = (await makeHook(conv.id)).made!;
+      await app.request(`/api/conversations/${conv.id}/schedule`, json('DELETE', {}));
+      expect(store.hookHash(conv.id)).toBeUndefined();
+      expect((await call(conv.id, third.token, '{}')).status).toBe(404);
+    });
+
+    it('takes one call every 10 seconds, JSON of at most 20 KB, and keeps the usual checks', async () => {
+      const conv = await createConversation({ permission: 'read-only' });
+      await put(conv.id, valid);
+      const { token } = (await makeHook(conv.id)).made!;
+      expect((await call(conv.id, token, 'not json')).status).toBe(400);
+      expect((await call(conv.id, token, JSON.stringify({ x: 'y'.repeat(20_001) }))).status).toBe(413);
+      expect((await call(conv.id, token, '{}', { 'content-type': 'text/plain' })).status).toBe(415);
+      expect((await call(conv.id, token, '{}', { host: 'evil.test' })).status).toBe(403);
+      expect((await call(conv.id, token, '{}', { origin: 'https://evil.test' })).status).toBe(403);
+      expect((await call(conv.id, token, '')).status).toBe(202); // an empty body is an empty event
+      const soon = await call(conv.id, token, '{}');
+      expect(soon.status).toBe(429);
+      expect(((await soon.json()) as { error: string }).error).toBe('This webhook can be called at most once every 10 seconds');
+      orchestrator.stop(conv.id);
+      await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+    });
+
+    it('refuses once the goal it tracks is reached and the schedule is off', async () => {
+      const conv = await createConversation({ permission: 'read-only' });
+      await put(conv.id, { ...valid, goal: 'CI passes' });
+      const { token } = (await makeHook(conv.id)).made!;
+      const live = store.get(conv.id)!;
+      live.schedule = { ...live.schedule!, enabled: false, tracking: { status: 'done', notes: [] } };
+      store.saveSchedule(live);
+      const res = await call(conv.id, token, '{}');
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toMatch(/goal this schedule tracks is reached/);
+    });
   });
 
   it('refuses a schedule while the team design waits for confirmation', async () => {

@@ -16,12 +16,14 @@ import type {
   LeadReview,
   MessageChanges,
   MessagePart,
+  ProgressStatus,
   Provider,
   RunPause,
   TeamPreset,
   TeamRevision,
 } from '../shared/types';
 import { splitAsk } from '../shared/ask';
+import { freshTracking, retryDelayMs, splitProgress, withNote } from '../shared/tracking';
 import {
   OPEN_PROVIDERS,
   PROVIDER_LABEL,
@@ -183,6 +185,20 @@ interface Run {
   reviewAbort?: AbortController;
   /** Settles once the run has finished, including its clean-up. */
   done: Promise<void>;
+  /** A schedule that tracks a goal started this run (`StartOptions.tracking`): `from` is where its replies begin in the chat. */
+  tracking?: TrackedRun & { from: number };
+}
+
+/**
+ * A run started by a schedule that tracks a goal: the schedule's conversation (`sourceId`, this one or
+ * the one whose schedule opened this chat), the time it came due, which try this is (0 = the first),
+ * and whether a run that fails is tried again (not for a webhook's call, whose body would be lost).
+ */
+interface TrackedRun {
+  sourceId: string;
+  due: number;
+  attempt: number;
+  retries: boolean;
 }
 
 interface StartOptions {
@@ -204,6 +220,10 @@ interface StartOptions {
   queue?: boolean;
   /** The conversation's schedule sends the message (it is marked `scheduled`). */
   scheduled?: boolean;
+  /** The body a program sent through the schedule's webhook, kept with the scheduled message (`ChatMessage.event`). */
+  event?: string;
+  /** A schedule that tracks a goal starts the run. */
+  tracking?: TrackedRun;
   /** The lead agent designs the team for the conversation's schedule, and nobody answers (`designForSchedule`). */
   designSchedule?: boolean;
   /**
@@ -460,6 +480,24 @@ function takeAsk(msg: ChatMessage): boolean {
   return false;
 }
 
+/**
+ * Take the `<progress>` block off the end of a reply (see `src/shared/tracking.ts`): what it says, or
+ * undefined when the reply's last text has none. The reply keeps it as a `progress` part.
+ */
+function takeProgress(msg: ChatMessage): { status: ProgressStatus; text: string } | undefined {
+  for (let i = msg.parts.length - 1; i >= 0; i--) {
+    const part = msg.parts[i]!;
+    if (part.type !== 'text') continue;
+    const { text, progress } = splitProgress(part.text);
+    if (!progress) return undefined;
+    if (text) part.text = text;
+    else msg.parts.splice(i, 1);
+    msg.parts.push({ type: 'progress', status: progress.status, text: progress.text });
+    return progress;
+  }
+  return undefined;
+}
+
 /** Where a run begins: round 1 with everyone taking part, or — after the user answered a question — where the team stopped. */
 interface Schedule {
   participants: AgentConfig[];
@@ -507,6 +545,9 @@ export class Orchestrator {
   private revisions = new Map<string, Set<{ abort: AbortController; done: Promise<unknown> }>>();
   /** Branches being made, by the conversation they come from: deleting it, and shutdown, wait for them. */
   private branching = new Map<string, Set<Promise<Conversation>>>();
+
+  /** The clock tracking schedules' notes and retries go by (the scheduler's, in tests). */
+  clock: () => number = Date.now;
 
   constructor(
     private store: Store,
@@ -775,7 +816,7 @@ export class Orchestrator {
    * refuses approval requests unless the schedule asks. A schedule that opens a new conversation each
    * time sends it there (`sendInNewChat`); `at` is the time it came due, which names that conversation.
    */
-  async sendScheduled(convId: string, at = Date.now()): Promise<ScheduledSend> {
+  async sendScheduled(convId: string, at = Date.now(), opts: { event?: string; attempt?: number } = {}): Promise<ScheduledSend> {
     const conv = this.store.get(convId);
     if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
     const s = conv.schedule;
@@ -789,7 +830,9 @@ export class Orchestrator {
       const coming = conv.agents.length === 0 && (this.designing.has(convId) || Boolean(pendingPlan(conv.messages)));
       return { result: coming ? 'busy' : 'skipped', reason: t().scheduleNoTeam };
     }
-    if (s.newChat) return this.sendInNewChat(conv, s, at);
+    // A schedule that tracks a goal: its runs are followed (`TrackedRun`), and a webhook's call is not tried again.
+    const tracking = s.goal ? { sourceId: convId, due: at, attempt: opts.attempt ?? 0, retries: opts.event === undefined } : undefined;
+    if (s.newChat) return this.sendInNewChat(conv, s, at, opts.event, tracking);
     const replying = this.runs.has(convId) || this.starting.has(convId);
     // A run being set up may be the user's answer: the message then waits for its next turn instead.
     if (conv.pause && !replying) return { result: 'skipped', reason: t().scheduleWaitsForAnswer };
@@ -802,7 +845,7 @@ export class Orchestrator {
     if (replying && (conv.queue?.length ?? 0) >= MAX_QUEUE) return { result: 'skipped', reason: t().scheduleQueueFull };
     try {
       if (replying) {
-        this.enqueue(conv, s.text, undefined, true);
+        this.enqueue(conv, s.text, undefined, true, opts.event);
         return { result: 'queued' };
       }
       // A settings change or an apply holds the conversation for a moment.
@@ -811,12 +854,17 @@ export class Orchestrator {
       // user sends meanwhile is not left in the queue of a run that then cannot start.
       const locked = this.folderLockedBy(conv);
       if (locked) return { result: 'busy', reason: locked };
-      await this.start(conv, waiting ? '' : s.text, {
+      // An earlier scheduled message left waiting goes out now instead; a webhook's body still goes, in a message of its own.
+      const own = !waiting || opts.event !== undefined;
+      await this.start(conv, own ? s.text : '', {
         queue: true,
         keepTeam: true,
-        scheduled: !waiting,
+        scheduled: own,
+        ...(own && opts.event !== undefined ? { event: opts.event } : {}),
         refuseApprovals: s.approvals !== 'ask',
+        ...(tracking ? { tracking } : {}),
       });
+      this.markInFlight(conv, tracking, conv.id);
       return { result: 'sent' };
     } catch (err) {
       if (err instanceof HttpError && err.status === 404) throw err;
@@ -832,7 +880,7 @@ export class Orchestrator {
    * writing in the same folder (this one included) makes it wait. A conversation whose run could not
    * start is removed again: nothing was sent in it.
    */
-  private async sendInNewChat(conv: Conversation, s: ConversationSchedule, at: number): Promise<ScheduledSend> {
+  private async sendInNewChat(conv: Conversation, s: ConversationSchedule, at: number, event?: string, tracking?: TrackedRun): Promise<ScheduledSend> {
     const id = randomUUID();
     const locked = this.folderLockedBy({ ...conv, id });
     if (locked) return { result: 'busy', reason: locked };
@@ -858,12 +906,126 @@ export class Orchestrator {
       // Where the schedule's conversation shows: its family's group.
       this.store.moveToGroup(id, this.store.familyGroupOf(conv.id));
       this.systemNote(chat, t().scheduleChatNote(name));
-      await this.start(chat, s.text, { keepTeam: true, scheduled: true, refuseApprovals: s.approvals !== 'ask' });
+      await this.start(chat, s.text, {
+        keepTeam: true,
+        scheduled: true,
+        ...(event !== undefined ? { event } : {}),
+        refuseApprovals: s.approvals !== 'ask',
+        ...(tracking ? { tracking } : {}),
+      });
+      this.markInFlight(conv, tracking, id);
       return { result: 'sent', chatId: id };
     } catch (err) {
       if (!this.runs.has(id)) this.store.delete(id);
       return sendFailure(err);
     }
+  }
+
+  /**
+   * The conversation whose schedule tracks the goal a run in `conv` works on: the one that started it
+   * (`Run.tracking`), else `conv` itself when its own schedule tracks one and sends its message here.
+   */
+  private trackingSource(conv: Conversation, run: Pick<Run, 'tracking'>): Conversation | undefined {
+    const source = run.tracking ? this.store.get(run.tracking.sourceId) : conv.schedule && !conv.schedule.newChat ? conv : undefined;
+    return source?.schedule?.goal ? source : undefined;
+  }
+
+  /** Remember that the run a tracking schedule just started has not ended yet: a restart tries it again. */
+  private markInFlight(conv: Conversation, tracking: TrackedRun | undefined, chatId: string): void {
+    const s = conv.schedule;
+    if (!tracking?.retries || !s?.goal) return;
+    s.tracking = { ...(s.tracking ?? freshTracking()), inFlight: { due: tracking.due, attempt: tracking.attempt, chatId } };
+    this.store.saveSchedule(conv);
+  }
+
+  /**
+   * A reply said where the tracked goal stands: keep the note with the schedule. Once an agent says it
+   * is done, the schedule switches off; one that is held up tells the user in the chat (an agent that
+   * needs their answer also asks, which notifies them).
+   */
+  private recordProgress(source: Conversation, conv: Conversation, msg: ChatMessage, progress: { status: ProgressStatus; text: string }): void {
+    const s = source.schedule;
+    if (!s?.goal) return;
+    const agent = msg.agentName ?? 'agent';
+    s.tracking = withNote(s.tracking, {
+      at: this.clock(),
+      status: progress.status,
+      text: progress.text,
+      agent,
+      ...(source.id !== conv.id ? { chatId: conv.id } : {}),
+    });
+    const note =
+      progress.status === 'done'
+        ? t().trackingDoneNote(agent, progress.text)
+        : progress.status === 'blocked'
+          ? t().trackingBlockedNote(agent, progress.text)
+          : undefined;
+    if (progress.status === 'done') {
+      s.enabled = false;
+      delete s.nextRunAt;
+      delete s.tracking.retry;
+    }
+    this.store.saveSchedule(source);
+    this.emitConversation(source);
+    if (note) {
+      this.systemNote(source, note);
+      if (source.id !== conv.id) this.systemNote(conv, note);
+    }
+  }
+
+  /**
+   * A run a tracking schedule started has ended. It is no longer in flight; when every reply in it
+   * failed (not when it was stopped), the time it came due is tried again (`retryTracked`).
+   */
+  private trackedRunEnded(conv: Conversation, run: Run): void {
+    const tracked = run.tracking!;
+    const source = this.store.get(tracked.sourceId);
+    const s = source?.schedule;
+    if (!source || !s?.goal || this.deleting.has(source.id)) return;
+    const flight = s.tracking?.inFlight;
+    if (flight && flight.due === tracked.due && flight.chatId === conv.id) {
+      const { inFlight: _done, ...rest } = s.tracking!;
+      s.tracking = rest;
+      this.store.saveSchedule(source);
+    }
+    if (!tracked.retries || run.abort.signal.aborted || s.tracking?.status === 'done') return;
+    const replies = conv.messages.slice(tracked.from).filter((m) => m.author.kind === 'agent');
+    if (replies.length && replies.every((m) => m.status === 'error')) this.retryTracked(source, tracked.due, tracked.attempt + 1);
+  }
+
+  /**
+   * Try a tracking schedule's time again (its run failed, or could not start, or a restart cut it off):
+   * the `attempt`th retry, after the wait `retryDelayMs` gives it, unless the schedule's next time comes
+   * first; with no retry left, a note says so and the schedule waits for its next time. `restarted`:
+   * the server stopped during the run, so it is tried at once.
+   */
+  retryTracked(conv: Conversation, due: number, attempt: number, now = this.clock(), restarted = false): void {
+    const s = conv.schedule;
+    // Reached, or switched off by the user meanwhile (a one-time schedule is off once it has sent).
+    if (!s?.goal || s.tracking?.status === 'done' || (!s.enabled && s.repeat.kind !== 'once')) return;
+    const when = scheduleTime(due, s);
+    const wait = retryDelayMs(attempt);
+    const delay = wait === undefined ? undefined : restarted ? 0 : wait;
+    const at = delay === undefined ? undefined : now + delay;
+    const { retry: _old, ...rest } = s.tracking ?? freshTracking();
+    s.tracking = rest;
+    if (at === undefined) {
+      this.store.saveSchedule(conv);
+      this.emitConversation(conv);
+      this.systemNote(conv, t().trackingGaveUpNote(when, attempt - 1));
+      return;
+    }
+    // The schedule's own next time comes first: that one is the next try.
+    if (s.enabled && s.nextRunAt !== undefined && s.nextRunAt <= at) {
+      this.store.saveSchedule(conv);
+      return;
+    }
+    s.tracking = { ...rest, retry: { due, attempt, at } };
+    s.enabled = true;
+    s.nextRunAt = at;
+    this.store.saveSchedule(conv);
+    this.emitConversation(conv);
+    this.systemNote(conv, restarted ? t().trackingRestartNote(when) : t().trackingRetryNote(when, attempt, Math.round(delay! / 60_000)));
   }
 
   /**
@@ -896,7 +1058,7 @@ export class Orchestrator {
     return this.runs.has(conv.id) || this.starting.has(conv.id) || Boolean(pendingPlan(conv.messages));
   }
 
-  private enqueue(conv: Conversation, text: string, uploads?: AttachmentUpload[], scheduled = false): void {
+  private enqueue(conv: Conversation, text: string, uploads?: AttachmentUpload[], scheduled = false, event?: string): void {
     const queue = (conv.queue ??= []);
     if (queue.length >= MAX_QUEUE) throw new HttpError(409, t().queueFull(MAX_QUEUE));
     const files = saveAttachments(conv.id, uploads);
@@ -912,6 +1074,7 @@ export class Orchestrator {
       status: 'done',
       ...(midReply ? { queued: true } : {}),
       ...(scheduled ? { scheduled: true } : {}),
+      ...(scheduled && event !== undefined ? { event } : {}),
     });
     try {
       this.saveQueue(conv);
@@ -1244,7 +1407,7 @@ export class Orchestrator {
       if (lockRoots) this.lockDirs(lockRoots, conv);
       beforePost?.();
       if (ahead) posted = this.deliverQueued(conv, { ids: ahead });
-      const own = this.postUserMessage(conv, text, files, opts.scheduled);
+      const own = this.postUserMessage(conv, text, files, opts.scheduled, opts.event);
       if (own) posted.push(own);
       resume = this.takePause(conv, posted, only, planning);
       run = {
@@ -1257,6 +1420,7 @@ export class Orchestrator {
         ...(opts.refuseApprovals && posted.every((m) => m.scheduled) ? { refuseApprovals: true } : {}),
         ...(planning ? { designs: true } : {}),
         ...(planning && opts.designSchedule && conv.schedule ? { designFor: conv.schedule.text } : {}),
+        ...(opts.tracking ? { tracking: { ...opts.tracking, from: conv.messages.length } } : {}),
         done: Promise.resolve(),
       };
       this.runs.set(convId, run);
@@ -1288,6 +1452,7 @@ export class Orchestrator {
           if (run.lockRoots) this.unlockDirs(run.lockRoots, conv.id);
           this.runs.delete(convId);
           this.designing.delete(convId);
+          if (run.tracking) this.trackedRunEnded(conv, run);
           // The team the lead agent just designed answers at once, when it needs no confirmation.
           // Otherwise, messages sent while the team replied that no turn took: the team answers them
           // now. After Stop they keep waiting, for the user to send or withdraw.
@@ -1333,7 +1498,7 @@ export class Orchestrator {
   }
 
   /** Post the user's message (none for Continue / retry) and name the conversation after it. */
-  private postUserMessage(conv: Conversation, text: string, files: AttachmentPart[], scheduled = false): ChatMessage | undefined {
+  private postUserMessage(conv: Conversation, text: string, files: AttachmentPart[], scheduled = false, event?: string): ChatMessage | undefined {
     let msg: ChatMessage | undefined;
     if (text || files.length) {
       msg = {
@@ -1343,6 +1508,7 @@ export class Orchestrator {
         parts: [...(text ? [{ type: 'text' as const, text }] : []), ...files],
         status: 'done',
         ...(scheduled ? { scheduled: true } : {}),
+        ...(scheduled && event !== undefined ? { event } : {}),
       };
       conv.messages.push(msg);
       this.store.saveMessage(conv.id, msg, true);
@@ -2634,7 +2800,7 @@ export class Orchestrator {
           nativeItems,
           sandboxTerminal: this.settings.sandboxTerminal(agent.provider),
           prompt,
-          systemPrompt: buildBriefing(conv, agent, workspace, tools, nativeOff, nativeItems, Boolean(run.refuseApprovals)),
+          systemPrompt: buildBriefing(conv, agent, workspace, tools, nativeOff, nativeItems, Boolean(run.refuseApprovals), this.trackingSource(conv, run)?.schedule),
           sessionId: state.sessionId,
           cwd,
           ...(addDirs.length ? { addDirs } : {}),
@@ -2684,7 +2850,12 @@ export class Orchestrator {
           throw freshErr;
         }
       }
+      // A reply about a tracked goal ends with its <progress> block, before or after an ask marker.
+      const tracked = this.trackingSource(conv, run);
+      let progress = tracked ? takeProgress(msg) : undefined;
       if (takeAsk(msg)) msg.asked = true;
+      if (tracked) progress ??= takeProgress(msg);
+      if (tracked && progress) this.recordProgress(tracked, conv, msg, progress);
       const text = textOf(msg);
       msg.passed = isPass(text) || (!text && !msg.parts.some((p) => p.type === 'tool'));
       msg.status = 'done';

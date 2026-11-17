@@ -205,6 +205,8 @@ function replyBlock(p: Exclude<MessagePart, { type: 'tool' }>): Record<string, u
     }
     case 'attachment':
       return { type: 'text', text: `[${p.name}]` };
+    case 'progress':
+      return { type: 'text', text: `[Progress on the tracked goal: ${p.status}${p.text ? ` — ${p.text}` : ''}]` };
   }
 }
 

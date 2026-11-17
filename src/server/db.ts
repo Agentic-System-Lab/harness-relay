@@ -430,6 +430,16 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE conversations ADD COLUMN pinned_at INTEGER;
   `,
+  // 31: a schedule that tracks a goal (schedules.goal; schedules.tracking, JSON: ScheduleTracking) and its
+  // webhook (schedules.hook, JSON: ScheduleHook; schedules.hook_hash: the SHA-256 of its token, never the
+  // token), and the body a webhook call sent with a scheduled message (messages.event).
+  `
+  ALTER TABLE schedules ADD COLUMN goal TEXT;
+  ALTER TABLE schedules ADD COLUMN tracking TEXT;
+  ALTER TABLE schedules ADD COLUMN hook TEXT;
+  ALTER TABLE schedules ADD COLUMN hook_hash TEXT;
+  ALTER TABLE messages ADD COLUMN event TEXT;
+  `,
 ];
 
 /**

@@ -19,6 +19,8 @@ export interface ScheduleDraft {
   approvals: ConversationSchedule['approvals'];
   missed: ConversationSchedule['missed'];
   newChat: boolean;
+  /** The goal it tracks ('' for none). */
+  goal: string;
 }
 
 /** The time zone of this browser. */
@@ -61,6 +63,7 @@ export function draftFrom(s: ConversationSchedule | undefined, now: number, time
     approvals: 'deny',
     missed: 'skip',
     newChat: false,
+    goal: '',
   };
   if (!s) return draft;
   const r = s.repeat;
@@ -77,6 +80,7 @@ export function draftFrom(s: ConversationSchedule | undefined, now: number, time
     approvals: s.approvals,
     missed: s.missed,
     newChat: s.newChat,
+    goal: s.goal ?? '',
   };
 }
 
@@ -103,6 +107,7 @@ export function toUpdate(d: ScheduleDraft): ScheduleUpdate {
     approvals: d.approvals,
     missed: d.missed,
     newChat: d.newChat,
+    ...(d.goal.trim() ? { goal: d.goal.trim() } : {}),
   };
 }
 
@@ -120,6 +125,7 @@ export function draftProblems(d: ScheduleDraft, now: number, t: Messages): strin
   const text = d.text.trim();
   if (!text) out.push(p.text);
   else if (text.length > SCHEDULE_LIMITS.maxText) out.push(p.tooLong(SCHEDULE_LIMITS.maxText));
+  if (d.goal.trim().length > SCHEDULE_LIMITS.maxGoal) out.push(t.schedule.goalTooLong(SCHEDULE_LIMITS.maxGoal));
   switch (d.kind) {
     case 'once': {
       const at = fromLocalInput(d.at);
@@ -219,4 +225,12 @@ export function sidebarScheduleTitle(s: NonNullable<ConversationSummary['schedul
   if (scheduleTrouble(s)) return t.schedule.sidebar.problem(t.schedule.results[s.lastResult!]);
   if (!s.enabled || s.nextRunAt === undefined) return t.schedule.sidebar.paused;
   return t.schedule.sidebar.next(formatWhen(s.nextRunAt, lang, s.timeZone));
+}
+
+/**
+ * A command that calls a schedule's webhook from this computer, with an example body. The token and the
+ * address are single-quoted for a POSIX shell (a token is base64url, which needs no escaping).
+ */
+export function hookExample(url: string, token: string): string {
+  return `curl -X POST -H 'Authorization: Bearer ${token}' -H 'Content-Type: application/json' -d '{"event":"ci-failed","branch":"main"}' '${url}'`;
 }

@@ -8,10 +8,12 @@ import {
   type ChatMessage,
   type MessageMeta,
   type PlanEntry,
+  type ProgressStatus,
   type ReviewHighlight,
 } from '../../shared/types';
 import { mostSerious, type ReplyMarks } from '../../shared/review';
 import { splitAsk } from '../../shared/ask';
+import { withoutProgressTail } from '../../shared/tracking';
 import { api } from '../api';
 import {
   activityCounts,
@@ -159,6 +161,28 @@ function ActivityGroup({ items, live, last }: { items: ActivityItem[]; live: boo
 }
 
 /** The agent's plan / to-do list. */
+/** What a reply said about the goal its schedule tracks (its `<progress>` block). */
+function ProgressCard({ status, text }: { status: ProgressStatus; text: string }) {
+  const t = useT();
+  return (
+    <div className={`progress-card progress-${status}`} role="note" aria-label={t.schedule.progress.label}>
+      <span className="progress-status">{t.schedule.progress.status[status]}</span>
+      {text && <span className="progress-text">{text}</span>}
+    </div>
+  );
+}
+
+/** The body a program sent through the schedule's webhook with this message: data, shown as it came. */
+function EventBlock({ event }: { event: string }) {
+  const t = useT();
+  return (
+    <details className="event-block">
+      <summary>{t.schedule.hook.eventTag}</summary>
+      <pre>{event}</pre>
+    </details>
+  );
+}
+
 function TodoList({ entries }: { entries: PlanEntry[] }) {
   const t = useT();
   const done = entries.filter((e) => e.status === 'completed').length;
@@ -786,6 +810,7 @@ function UserMessage({
       <div className="msg-user">
         <Attachments msg={msg} convId={convId} />
         {text && <UserBubble text={text} mentions={mentionNames} />}
+        {msg.event !== undefined && <EventBlock event={msg.event} />}
         <div className="msg-actions">
           <CopyButton className="msg-action icon-action" iconOnly icon={<CopyIcon size={16} />} text={() => text} />
           {canEdit && (
@@ -1049,7 +1074,7 @@ function AgentMessage({
                 return (
                   <Markdown
                     key={s.key}
-                    text={live ? splitAsk(s.text).text : s.text}
+                    text={live ? withoutProgressTail(splitAsk(s.text).text) : s.text}
                     mentions={mentionNames}
                     mediaBase={api.mediaBase(convId, msg.id)}
                     downloadBase={api.downloadBase(convId, msg.id)}
@@ -1061,6 +1086,8 @@ function AgentMessage({
                 return <TodoList key={s.key} entries={s.entries} />;
               case 'approval':
                 return <ApprovalCard key={s.key} part={s.part} agentName={name} live={live} onAnswer={onApproval} />;
+              case 'progress':
+                return <ProgressCard key={s.key} status={s.status} text={s.text} />;
             }
           })
         )}

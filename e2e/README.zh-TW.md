@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 35 個 spec 檔、451 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 35 個 spec 檔、453 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -54,7 +54,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 11 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 10 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
-| [排程](#排程) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 1 | [使用者說明 → 排程](../docs/user-guide.zh-TW.md#排程)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
+| [排程](#排程) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 3 | [使用者說明 → 排程](../docs/user-guide.zh-TW.md#排程)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
 | [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 17 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席-agent)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
 | [安裝 CLI](#安裝-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [使用者說明 → 從設定頁安裝 CLI](../docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[架構 → 從設定頁安裝 CLI](../docs/architecture.zh-TW.md#從設定頁安裝-cli) |
 | [沙箱需要的元件](#沙箱需要的元件) | [`sandbox-setup.spec.ts`](specs/sandbox-setup.spec.ts) | 6 | [使用者說明 → 安裝沙箱需要的元件](../docs/user-guide.zh-TW.md#安裝沙箱需要的元件)、[各平台的 OS 沙箱 → 由 Harness Relay 安裝它們需要的東西](../docs/sandboxing.zh-TW.md#由-harness-relay-安裝它們需要的東西) |
@@ -342,6 +342,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 儲存對話的排程，立即執行一次會把訊息送給團隊 | Codex | 存成「每天」（Every day）後，側邊欄標出這個對話；按**立即執行一次**（Run once now）送出標為排程的訊息，成員回答。 |
+| 追蹤目標的排程會顯示回覆回報的進度，目標達成時自動關閉 | Codex | 加上目標儲存後，視窗的**進度**（Progress）說還沒有紀錄；按**立即執行一次**（假 CLI 用 `e2e:progress` 在回覆最後加上 `<progress status="done">` 區塊，寫出 briefing 給它的目標）：回覆顯示**已達成**（Done）卡片而不是區塊的文字，一則說明寫著目標已達成、排程已關閉，視窗列出這一則紀錄、**已達成**，**啟用**（On）也取消了勾選。 |
+| 排程的 webhook 只顯示一次權杖，程式呼叫時會連同送來的內容送出訊息 | Codex | **建立 webhook**（Add a webhook）會顯示帶權杖與網址的 `curl` 指令，以及**還沒有被呼叫過**（Not called yet）；從瀏覽器以外呼叫時，權杖錯誤是 404，正確是 202，視窗會顯示上次呼叫的時間。訊息標為排程，顯示**Webhook 傳來的內容**（What the webhook sent）與送來的 JSON，成員回答它。再次打開時，視窗不再顯示權杖，只有**換一個新的權杖**（New token）。 |
 
 ## 設定
 
@@ -625,6 +627,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **AgentsView 本身。**它是 [`sessions.spec.ts`](specs/sessions.spec.ts) 中的替身伺服器，只回應 Harness Relay 的請求，從不讀 session 檔。真正的 AgentsView 是否在 Harness Relay 的執行留下 session 的地方讀到各 CLI 自己的 session、用的是不是 Harness Relay 連結的 id（包括 Copilot 的 `session-state` 與 Muse Code 的資料資料夾，在各 CLI 平常的家目錄，以及透過使用者說明中專用 AgentsView 的 `config.toml`），並把它們放在討論串底下，是用 AgentsView 0.46.1 手動試過的（Copilot 與 Muse Code 也用 copilot 1.0.109 與 muse 1.4.18 透過它們的 adapter 在 Linux 與 Windows 上寫的 session 試過）。
 - **GitHub 對 gh 的真正登入。** 分享對話框的登入跑的是假的 `gh`，它印出一組代碼後等測試核准；gh 真正的裝置登入只用手動檢查過（沒有終端機時它會印出代碼與 `github.com/login/device`，不會開瀏覽器），沒有經過 GitHub 的核准。
 - **gistpreview.github.io 上的分享頁。**測試開啟的是假 `gh` 存下的頁面，由測試自己的網址提供：gistpreview 自己那個把 gist 寫進自身的頁面沒有測。
+- **長時間追蹤的目標。**執行失敗後的重試（5、30、120 分鐘）、被重新啟動中斷的執行，以及排程本身的時間，是在單元測試中用假時鐘測的（`test/orchestrator-tracking.test.ts`）；端對端測試只用**立即執行一次**跑一次追蹤目標的排程。
 - **Cursor 在暫存資料夾中不詢問就做的事。**真正的 Cursor 在暫存資料夾（`/tmp`、macOS 的 `/private/var/folders`）中寫入不會詢問；它的假 CLI 不會這樣，因為測試的資料夾都在暫存資料夾裡，否則寫到工作區之外的每個檔案都會不經詢問就寫入。也沒有 spec 試用 Cursor 團隊的自動執行允許清單（假 CLI 有一份，`E2E_FAKE_CURSOR_TEAM_ALLOW`）。真正的 Muse Code 的沙箱也讓它的指令寫入暫存資料夾；它的假 CLI 因為同樣的原因不會這樣。
 - **CLI 真正的方案用量。**[方案用量](#方案用量)用替身的回答檢查 Harness Relay 這一邊；真正 CLI 的回答由 `test/usage.test.ts` 中從它們錄下的回答涵蓋（Antigravity 只照 agy 1.5.8 的型別：沒有看過真正 Google 帳號的回答），沒有 live 測試問真正的 CLI。未登入時替身 agy 會立刻以錯誤回答 `/usage`，真正的則會在 stderr 要求登入並等待（單元測試的替身會這樣做）。錯誤訊息與面板的 zh-TW 文字由 `test/usage-web.test.ts` 涵蓋，不在這裡。
 - **捲到對話最後的平滑捲動。**[捲動對話](#捲動對話)檢查箭頭把對話帶到哪裡，以及減少動態效果時立刻到達，不檢查平滑捲動途中的樣子。在最後展開訊息的某個部分、底下又多了內容時出現的箭頭，只有 `test/chat.test.ts` 測到；手機上的對話是用程式捲動，不是用手指。

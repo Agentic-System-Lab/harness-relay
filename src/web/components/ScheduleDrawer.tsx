@@ -17,6 +17,7 @@ import {
 } from '../schedule';
 import { MemberDots } from './MemberDots';
 import { ScheduleForm } from './ScheduleForm';
+import { ScheduleHookPanel, ScheduleProgress } from './ScheduleTracking';
 import { useDialog } from './useDialog';
 
 /**
@@ -197,6 +198,9 @@ export function ScheduleDrawer({
             </div>
           </div>
         )}
+
+        {saved?.goal && <ScheduleProgress schedule={saved} />}
+        {saved && <ScheduleHookPanel convId={conv.id} schedule={saved} onError={setError} />}
 
         {!teamReady && (
           <p className="warn-line">

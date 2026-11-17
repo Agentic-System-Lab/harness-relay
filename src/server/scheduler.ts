@@ -62,6 +62,7 @@ export class Scheduler {
   start(): void {
     if (this.timer) return;
     this.stopped = false;
+    this.recover();
     this.timer = setInterval(() => void this.tick(), TICK_MS);
     this.timer.unref();
     void this.tick();
@@ -89,6 +90,23 @@ export class Scheduler {
     return this.ticking;
   }
 
+  /**
+   * At startup: a run a tracking schedule started that never ended was cut off when the server stopped,
+   * so it is tried again now (as a retry, so the schedule's tries still count).
+   */
+  recover(): void {
+    const now = this.now();
+    for (const id of this.store.trackingSchedules()) {
+      const conv = this.store.get(id);
+      const flight = conv?.schedule?.tracking?.inFlight;
+      if (!conv || !flight) continue;
+      const { inFlight: _cut, ...rest } = conv.schedule!.tracking!;
+      conv.schedule!.tracking = rest;
+      this.store.saveSchedule(conv);
+      withLang(conv.schedule!.lang, () => this.orchestrator.retryTracked(conv, flight.due, flight.attempt + 1, now, true));
+    }
+  }
+
   private async fire(convId: string, now: number): Promise<void> {
     if (this.stopped) return;
     const conv = this.store.get(convId);
@@ -98,16 +116,18 @@ export class Scheduler {
     if (!s) return this.store.saveSchedule(conv);
     if (!s.enabled || s.nextRunAt === undefined || s.nextRunAt > now) return;
     const due = s.nextRunAt;
+    // A tracking schedule's time whose run failed, tried again: sent as that time, its tries counted.
+    const retry = s.tracking?.retry?.at === due ? s.tracking.retry : undefined;
     const late = now - due > MISSED_AFTER_MS;
-    const retry = this.retrying.get(convId);
-    const since = retry?.due === due ? retry.since : undefined;
+    const busyFor = this.retrying.get(convId);
+    const since = busyFor?.due === due ? busyFor.since : undefined;
     // Notes and the run's system messages are written in the language the schedule was saved in.
     await withLang(s.lang, async () => {
       let outcome: Outcome;
       if (late && since === undefined && s.missed === 'skip') {
         outcome = { result: 'missed' };
       } else {
-        const sent = await this.orchestrator.sendScheduled(convId, due);
+        const sent = await this.orchestrator.sendScheduled(convId, retry?.due ?? due, { attempt: retry?.attempt ?? 0 });
         if (this.stopped) return; // shutting down: the time is still due when the server is back
         if (sent.result === 'busy') {
           // Tried again at the next look; after a while, given up.
@@ -124,14 +144,19 @@ export class Scheduler {
       // Changed or removed while it was being sent: the new one keeps its own times.
       if (conv.schedule !== s) return;
       this.record(conv, s, due, now, outcome);
+      // A tracking schedule's run that could not start is tried again too.
+      if (outcome.result === 'failed' && s.goal) this.orchestrator.retryTracked(conv, retry?.due ?? due, (retry?.attempt ?? 0) + 1, now);
     });
   }
 
   private record(conv: Conversation, s: ConversationSchedule, due: number, now: number, outcome: Outcome): void {
     const { nextRunAt: _done, lastError: _error, lastChatId: _chat, ...rest } = s;
     const next = s.repeat.kind === 'once' ? undefined : nextRun(s, Math.max(now, due));
+    // A retry is used up by the time it came due for, whatever happened then.
+    const { retry: _retry, ...tracking } = s.tracking ?? { status: 'working', notes: [] };
     conv.schedule = {
       ...rest,
+      ...(s.tracking ? { tracking } : {}),
       // A one-time schedule is done; it stays, switched off, to be set again.
       enabled: next !== undefined && s.enabled,
       ...(next !== undefined ? { nextRunAt: next } : {}),

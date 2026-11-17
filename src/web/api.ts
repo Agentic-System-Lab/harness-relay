@@ -37,6 +37,7 @@ import type {
   PushStatus,
   PushSubscriptionJson,
   ReportScreenshots,
+  ScheduleHook,
   ScheduleUpdate,
   SearchResult,
   ServerLimits,
@@ -270,6 +271,9 @@ export const api = {
   designSchedule: (id: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/schedule/design`),
   /** Send the schedule's message now; `queued` while the team replies, `chatId` when it opened a new conversation. */
   runSchedule: (id: string) => request<{ ok: true; queued: boolean; chatId?: string }>('POST', `/api/conversations/${id}/schedule/run`),
+  /** A webhook for the schedule (a new token replaces the one it had): the token, shown this once, and the address to call. */
+  createScheduleHook: (id: string) => request<{ token: string; url: string; hook: ScheduleHook }>('POST', `/api/conversations/${id}/schedule/hook`, {}),
+  deleteScheduleHook: (id: string) => request<{ ok: true }>('DELETE', `/api/conversations/${id}/schedule/hook`),
   /** Conversations whose title or messages contain every word of `q`. */
   search: (q: string) => request<SearchResult[]>('GET', `/api/search?q=${encodeURIComponent(q)}`),
   /** The working directories to offer: the default one, then the conversations', the most recently used first. */

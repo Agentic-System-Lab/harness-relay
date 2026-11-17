@@ -579,6 +579,9 @@ export function validateSchedule(input: unknown, now: number): ScheduleUpdate {
   const enabled = b.enabled !== false;
   const tz = typeof b.timeZone === 'string' && b.timeZone.trim() ? b.timeZone.trim().slice(0, 100) : serverTimeZone();
   if (!validTimeZone(tz)) bad(t().scheduleBadTimeZone(tz));
+  if (b.goal !== undefined && b.goal !== null && typeof b.goal !== 'string') bad(t().invalidField('goal'));
+  const goal = typeof b.goal === 'string' ? b.goal.trim() : '';
+  if (goal.length > SCHEDULE_LIMITS.maxGoal) bad(t().scheduleGoalTooLong(SCHEDULE_LIMITS.maxGoal));
   return {
     text,
     repeat: validRepeat(b.repeat, enabled, now),
@@ -587,6 +590,7 @@ export function validateSchedule(input: unknown, now: number): ScheduleUpdate {
     approvals: b.approvals === 'ask' ? 'ask' : 'deny',
     missed: b.missed === 'run' ? 'run' : 'skip',
     newChat: b.newChat === true,
+    ...(goal ? { goal } : {}),
   };
 }
 

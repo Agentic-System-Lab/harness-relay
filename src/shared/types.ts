@@ -1043,7 +1043,9 @@ export type MessagePart =
       note?: string;
     }
   /** A file the user attached to their message (stored under data/attachments). */
-  | { type: 'attachment'; id: string; name: string; mimeType: string; size: number };
+  | { type: 'attachment'; id: string; name: string; mimeType: string; size: number }
+  /** What the reply said about the goal its schedule tracks (its `<progress>` block, taken out of its text). */
+  | { type: 'progress'; status: ProgressStatus; text: string };
 
 /** Limits for files attached to one message. */
 export const ATTACHMENT_LIMITS = { maxFiles: 10, maxBytes: 20 * 1024 * 1024 };
@@ -1145,6 +1147,11 @@ export interface ChatMessage {
   asked?: boolean;
   /** A user message the conversation's schedule sent (see `ConversationSchedule`), not one the user typed. */
   scheduled?: boolean;
+  /**
+   * A scheduled message a program sent through the schedule's webhook: the JSON body it posted (at most
+   * `TRACKING_LIMITS.eventBytes`), which the agents get as data in an `<event>` block, never as instructions.
+   */
+  event?: string;
 }
 
 /**
@@ -1169,8 +1176,52 @@ export const SCHEDULE_KINDS: ScheduleRepeat['kind'][] = ['once', 'daily', 'weekl
  */
 export type ScheduleResult = 'sent' | 'queued' | 'missed' | 'skipped' | 'failed';
 
-/** Longest scheduled message, and the longest interval in hours. */
-export const SCHEDULE_LIMITS = { maxText: 4000, maxHours: 168 };
+/** Longest scheduled message, and the longest interval in hours; `maxGoal`: the longest goal a schedule tracks. */
+export const SCHEDULE_LIMITS = { maxText: 4000, maxHours: 168, maxGoal: 2000 };
+
+/** Where a tracked goal stands: still being worked on, reached, or held up by something only the user can settle. */
+export type ProgressStatus = 'working' | 'done' | 'blocked';
+
+export const PROGRESS_STATUSES: readonly ProgressStatus[] = ['working', 'done', 'blocked'];
+
+/** What a reply said about a tracked goal (its `<progress>` block). */
+export interface ProgressNote {
+  at: number;
+  status: ProgressStatus;
+  text: string;
+  /** The agent that wrote it. */
+  agent?: string;
+  /** The conversation it was written in, when that is not the schedule's own (`newChat`). */
+  chatId?: string;
+}
+
+/**
+ * The limits of tracking a goal: `notes` kept with the schedule (the oldest go first), `shown` given to
+ * the agents in their briefing, `noteChars` of one note, `retryMinutes` between the tries of a time
+ * whose run failed (one more try for each), and `eventBytes` of a webhook call's body in the message.
+ */
+export const TRACKING_LIMITS = { notes: 30, shown: 12, noteChars: 1000, retryMinutes: [5, 30, 120], eventBytes: 20_000, hookIntervalMs: 10_000 };
+
+/**
+ * How a schedule that tracks a goal (`ConversationSchedule.goal`) is getting on: what the agents said
+ * about it, the newest last, and the run it started that has not ended yet, which a restart of the
+ * server tries again.
+ */
+export interface ScheduleTracking {
+  status: ProgressStatus;
+  notes: ProgressNote[];
+  /** A run the schedule started that has not ended: the time it came due, its try (0 = the first), and where it runs. */
+  inFlight?: { due: number; attempt: number; chatId: string };
+  /** A time whose run failed, tried again at `at` (the schedule's `nextRunAt`): the time it came due, and which retry that is (1 = the first). */
+  retry?: { due: number; attempt: number; at: number };
+}
+
+/** A schedule's webhook, as the UI sees it: never its token, which is shown once, nor the token's hash. */
+export interface ScheduleHook {
+  createdAt: number;
+  /** When a program last called it. */
+  lastAt?: number;
+}
 
 /**
  * A conversation's schedule: a message the team is sent at set times, as if the user had sent it (it
@@ -1208,6 +1259,16 @@ export interface ConversationSchedule {
   lastError?: string;
   /** The conversation the last time opened (`newChat`), when it was sent. */
   lastChatId?: string;
+  /**
+   * What done means, in the user's words: the schedule then tracks this goal. Its runs are told where it
+   * stands, the agents report on it (`<progress>`), a run that fails is tried again, and once an agent
+   * says it is done the schedule switches off.
+   */
+  goal?: string;
+  /** How the goal is getting on (only with a `goal`). */
+  tracking?: ScheduleTracking;
+  /** The schedule's webhook, when it has one: a program on this computer can send its message now. */
+  hook?: ScheduleHook;
 }
 
 /** A moment's wall-clock date and time in a time zone (`zonedParts()`). */
@@ -1224,7 +1285,7 @@ export interface ZonedParts {
 }
 
 /** What the browser sends to save a schedule (`PUT /api/conversations/:id/schedule`). */
-export type ScheduleUpdate = Pick<ConversationSchedule, 'text' | 'repeat' | 'timeZone' | 'enabled' | 'approvals' | 'missed' | 'newChat'>;
+export type ScheduleUpdate = Pick<ConversationSchedule, 'text' | 'repeat' | 'timeZone' | 'enabled' | 'approvals' | 'missed' | 'newChat' | 'goal'>;
 
 /**
  * Where the team stopped because an agent asked the user something. Once the user replies, the
