@@ -40,21 +40,27 @@ export async function openSocket(addr: ServerAddress, timeoutMs: number, signal?
       sock.destroy();
       return reject(new Error('stopped'));
     }
-    signal?.addEventListener('abort', () => {
+    const onAbort = () => {
       sock.destroy();
       clearTimeout(timer);
       reject(new Error('stopped'));
-    });
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    const settled = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+    };
     const timer = setTimeout(() => {
+      settled();
       sock.destroy();
       reject(new Error(t().conn.timedOut(addr.host, addr.port, Math.round(timeoutMs / 1000))));
     }, timeoutMs);
     sock.once(addr.security === 'tls' ? 'secureConnect' : 'connect', () => {
-      clearTimeout(timer);
+      settled();
       resolve(sock);
     });
     sock.once('error', (err) => {
-      clearTimeout(timer);
+      settled();
       reject(new Error(t().conn.connectFailed(addr.host, addr.port, err.message)));
     });
   });
@@ -228,7 +234,7 @@ export class ImapClient {
   static async open(addr: ServerAddress, login: Login, timeoutMs = 30_000, signal?: AbortSignal): Promise<ImapClient> {
     const c = new ImapClient(timeoutMs);
     c.sock = await openSocket(addr, timeoutMs, signal);
-    signal?.addEventListener('abort', () => c.sock.destroy());
+    signal?.addEventListener('abort', () => c.sock.destroy(), { once: true });
     c.reader = new ResponseReader(c.sock);
     try {
       const greeting = await c.timed(c.reader.next());

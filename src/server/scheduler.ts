@@ -157,10 +157,13 @@ export class Scheduler {
       // said mail arrived): one more check after it, shared by every such ask meanwhile.
       let next = this.followUps.get(convId);
       if (!next) {
-        next = running.then(() => {
-          this.followUps.delete(convId);
-          return this.check(convId, force);
-        });
+        // After the one under way, however it went (a deleted conversation's 404 too): never left behind.
+        next = running
+          .catch(() => undefined)
+          .then(() => {
+            this.followUps.delete(convId);
+            return this.check(convId, force);
+          });
         this.followUps.set(convId, next);
       }
       return next;

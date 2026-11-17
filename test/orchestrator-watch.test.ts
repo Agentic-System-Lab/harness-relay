@@ -562,4 +562,25 @@ describe('automations that start when something happens', () => {
     release();
     await held;
   });
+
+  it('still checks once more when the check under way failed (a conversation deleted meanwhile, say)', async () => {
+    reset();
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    watching(conv);
+    newMail(5, 6);
+    const s = scheduler();
+    await s.check(conv.id);
+    const { HttpError } = await import('../src/server/errors');
+    const spy = vi.spyOn(orchestrator, 'sendScheduled').mockRejectedValueOnce(new HttpError(404, 'gone'));
+    now += WATCH_LIMITS.checkMinutes * MIN;
+    const first = s.check(conv.id);
+    const again = s.check(conv.id, false, true);
+    await expect(first).rejects.toThrow('gone');
+    await again;
+    spy.mockRestore();
+    // The follow-up ran, and a later ask is a new check, not the old failure.
+    expect(given).toHaveLength(3);
+    await s.check(conv.id, false, true);
+    expect(given).toHaveLength(4);
+  });
 });

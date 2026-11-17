@@ -31,7 +31,7 @@ export interface FakeImap {
   /** Whether it says IDLE (RFC 2177) in its capabilities, and takes it. */
   idle: boolean;
   /** How it answers IDLE (`no`: refuses it, although it lists it), and DONE (`no`, or `none`: never). */
-  idleAnswer: 'ok' | 'no';
+  idleAnswer: 'ok' | 'no' | 'end';
   doneAnswer: 'ok' | 'no' | 'none';
   /** Says BYE to every connection waiting in IDLE (a server shutting down), and closes them. */
   bye(): void;
@@ -57,7 +57,7 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
     uidValidity: number;
     uidNext: number | null | undefined;
     idle: boolean;
-    idleAnswer: 'ok' | 'no';
+    idleAnswer: 'ok' | 'no' | 'end';
     doneAnswer: 'ok' | 'no' | 'none';
   } = {
     uidValidity: 7,
@@ -105,6 +105,8 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
       if (cmd === 'IDLE') {
         if (!fake.idle) return send(`${tag} BAD unknown command\r\n`);
         if (fake.idleAnswer === 'no') return send(`${tag} NO IDLE is off for this account\r\n`);
+        // Takes it, and ends it at once (a proxy that does not hold it).
+        if (fake.idleAnswer === 'end') return send(`+ idling\r\n${tag} OK IDLE done\r\n`);
         idling.set(sock, tag);
         return send('+ idling\r\n');
       }
@@ -224,7 +226,7 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
     get idleAnswer() {
       return fake.idleAnswer;
     },
-    set idleAnswer(v: 'ok' | 'no') {
+    set idleAnswer(v: 'ok' | 'no' | 'end') {
       fake.idleAnswer = v;
     },
     get doneAnswer() {

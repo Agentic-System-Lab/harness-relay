@@ -36,6 +36,8 @@ export interface IdleDeps {
   settleMs?: number;
   /** How long to wait for the server's answers. */
   timeoutMs?: number;
+  /** How long before a server that did not take IDLE is asked again (it may take it by then). */
+  unsupportedRetryMs?: number;
   /** The clock: a jump much longer than the sync interval means the computer slept. */
   now?: () => number;
 }
@@ -51,12 +53,17 @@ type Resolved = Required<Omit<IdleDeps, 'watching' | 'check'>> & Pick<IdleDeps, 
 class Listener {
   /** The automations it checks when mail arrives. */
   readonly subscribers = new Set<string>();
+  /** Its account and folder, whatever else changed. */
+  get folderKey(): string {
+    return JSON.stringify([this.account, this.folder]);
+  }
   /** The server accepted IDLE and waits in it now. */
   live = false;
   /** The server does not take IDLE: nothing more is tried until its account changes. */
   unsupported = false;
   private stopped = false;
-  private abort = new AbortController();
+  /** The connection being opened or open: stopping aborts it (one for each connection, so nothing piles up). */
+  private connection?: AbortController;
   private client?: ImapClient;
   private timers = new Set<() => void>();
   private checking = false;
@@ -69,6 +76,8 @@ class Listener {
     private account: string,
     private folder: string,
     private deps: Resolved,
+    /** It replaces a connection that dropped or slept: mail may have come meanwhile, so it checks once it listens. */
+    private catchUp = false,
   ) {
     this.done = this.run();
   }
@@ -77,7 +86,7 @@ class Listener {
     this.stopped = true;
     this.live = false;
     if (this.settle) clearTimeout(this.settle);
-    this.abort.abort();
+    this.connection?.abort();
     this.client?.close();
     for (const cancel of [...this.timers]) cancel();
   }
@@ -135,37 +144,67 @@ class Listener {
     }
   }
 
+  /** The server does not take IDLE: asked again after a long while (the checks go on meanwhile). */
+  private async notNow(): Promise<void> {
+    this.unsupported = true;
+    await this.wait(this.deps.unsupportedRetryMs).done;
+    this.unsupported = false;
+  }
+
   private async run(): Promise<void> {
     let failures = 0;
     let refused = 0;
+    /** A round shorter than this (a server ending IDLE at once) is no healthy round, and waits before the next. */
+    const healthyMs = Math.min(60_000, this.deps.renewMs / 2);
     while (!this.stopped) {
       try {
         const found = this.deps.connectors.mailById(this.account);
         if (!found?.password) throw new Error('no such mail account, or no password');
         const { account, password } = found;
-        const c = await ImapClient.open(account.imap, { username: account.username, password }, this.deps.timeoutMs, this.abort.signal);
+        this.connection = new AbortController();
+        const c = await ImapClient.open(
+          account.imap,
+          { username: account.username, password },
+          this.deps.timeoutMs,
+          this.connection.signal,
+        );
         this.client = c;
         if (this.stopped) return c.close();
         if (!c.capabilities.has('IDLE')) {
-          this.unsupported = true;
           await c.logout();
-          return;
+          await this.notNow();
+          continue;
         }
         c.keepAlive(60_000);
         await c.command(`EXAMINE ${quote(this.folder)}`);
         const onResponse = (r: ImapResponse) => {
           if (/^\* \d+ EXISTS\b/i.test(r.text)) this.arrived();
         };
+        const onIdling = () => {
+          this.live = true;
+          // Mail that came while it was not listening (a dropped connection, a sleep) says nothing now: checked once.
+          if (this.catchUp) {
+            this.catchUp = false;
+            this.arrived();
+          }
+        };
         while (!this.stopped) {
           const renew = this.wait(this.deps.renewMs);
+          const began = this.deps.now();
           try {
-            await c.idle(onResponse, renew.done, () => (this.live = true));
+            await c.idle(onResponse, renew.done, onIdling);
           } finally {
             renew.cancel();
           }
-          // A whole round went well: the next failure starts the waits again.
-          failures = 0;
-          refused = 0;
+          if (this.deps.now() - began >= healthyMs) {
+            // A whole round went well: the next failure starts the waits again.
+            failures = 0;
+            refused = 0;
+          } else if (!this.stopped) {
+            // The server ended IDLE at once: not again straight away.
+            const steps = this.deps.backoffMs;
+            await this.wait(steps[Math.min(failures++, steps.length - 1)]!).done;
+          }
         }
         await c.logout();
       } catch (err) {
@@ -173,14 +212,17 @@ class Listener {
         this.client?.close();
         if (this.stopped) return;
         if (err instanceof IdleRefusedError) {
-          this.unsupported = true;
-          return;
+          this.client?.close();
+          await this.notNow();
+          continue;
         }
         const login = err instanceof ImapLoginError;
         const steps = login ? this.deps.loginBackoffMs : this.deps.backoffMs;
         const n = login ? refused++ : failures++;
         if (n === 0) console.warn(`[idle] listening for new mail stopped (${(err as Error).message}); trying again later`);
         await this.wait(steps[Math.min(n, steps.length - 1)]!).done;
+        // The connection that dropped may have missed mail: checked once the new one listens.
+        this.catchUp = true;
       }
     }
   }
@@ -200,6 +242,7 @@ export class IdleWatcher {
       loginBackoffMs: WATCH_LIMITS.backoffMinutes.map((m) => m * 60_000),
       settleMs: 1_500,
       timeoutMs: 30_000,
+      unsupportedRetryMs: 6 * 3_600_000,
       now: Date.now,
       ...deps,
     };
@@ -238,16 +281,19 @@ export class IdleWatcher {
       entry.ids.push(w.conversationId);
       wanted.set(key, entry);
     }
+    // The folders whose connection is replaced (the computer slept, the account changed): checked once listening again.
+    const replaced = new Set<string>();
     for (const [key, l] of this.listeners) {
       if (woke || !wanted.has(key)) {
         l.stop();
         this.listeners.delete(key);
+        replaced.add(l.folderKey);
       }
     }
     for (const [key, w] of wanted) {
       let l = this.listeners.get(key);
       if (!l) {
-        l = new Listener(key, w.account, w.folder, this.deps);
+        l = new Listener(key, w.account, w.folder, this.deps, replaced.has(JSON.stringify([w.account, w.folder])));
         this.listeners.set(key, l);
       }
       l.subscribers.clear();

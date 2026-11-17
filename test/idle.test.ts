@@ -313,4 +313,49 @@ describe('the IDLE connections of automations that wait for new mail', () => {
     // Failing checks still back off as before.
     expect(nextCheckAt(0, 1, true)).toBe(WATCH_LIMITS.backoffMinutes[0]! * 60_000);
   });
+
+  it('checks once a connection that dropped listens again: mail that came meanwhile says nothing by itself', async () => {
+    const messages = [mail(1)];
+    server = await fakeImap(messages);
+    server.idle = true;
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const checks: string[] = [];
+    const w = start({ watching: () => [{ conversationId: 'c1', trigger: inbox }], check: async (id) => void checks.push(id) });
+    await vi.waitFor(() => expect(w.live('c1') && server!.idling === 1).toBe(true));
+    // The first connection checks nothing by itself.
+    await sleep(60);
+    expect(checks).toEqual([]);
+    server.drop();
+    messages.push(mail(2));
+    await vi.waitFor(() => expect(checks).toEqual(['c1']));
+  });
+
+  it('waits before waiting in IDLE again when the server ends it at once', async () => {
+    server = await fakeImap([]);
+    server.idle = true;
+    server.idleAnswer = 'end';
+    start({ watching: () => [{ conversationId: 'c1', trigger: inbox }], backoffMs: [100], renewMs: 60_000 });
+    await sleep(350);
+    const idles = server.commands.filter((c) => / IDLE$/.test(c)).length;
+    expect(idles).toBeGreaterThan(0);
+    expect(idles).toBeLessThan(10);
+  });
+
+  it('asks a server that did not take IDLE again after a long while', async () => {
+    server = await fakeImap([]);
+    const w = start({ watching: () => [{ conversationId: 'c1', trigger: inbox }], unsupportedRetryMs: 150 });
+    await vi.waitFor(() => expect(w.unsupported('c1')).toBe(true));
+    server.idle = true;
+    await vi.waitFor(() => expect(w.live('c1')).toBe(true), { timeout: 2000 });
+  });
+
+  it('leaves no abort listener behind once a connection is open', async () => {
+    server = await fakeImap([]);
+    const { getEventListeners } = await import('node:events');
+    const { openSocket } = await import('../src/server/connectors/imap');
+    const abort = new AbortController();
+    const sock = await openSocket({ host: '127.0.0.1', port: server.port, security: 'none' }, 2000, abort.signal);
+    expect(getEventListeners(abort.signal, 'abort')).toHaveLength(0);
+    sock.destroy();
+  });
 });
