@@ -159,6 +159,8 @@ describe('automations that start when something happens', () => {
     now += WATCH_LIMITS.backoffMinutes[0]! * MIN;
     await scheduler().watchTick();
     expect(conv.schedule!.watch).toMatchObject({ failures: 2, nextCheckAt: now + WATCH_LIMITS.backoffMinutes[1]! * MIN });
+    // Mail that arrives while checks fail is still new later: when mail was last seen stays.
+    expect(conv.schedule!.watch!.seenAt).toBe(T0);
     // The sidebar shows it.
     expect(store.list(() => false).find((c) => c.id === conv.id)!.schedule).toMatchObject({ trigger, watchError: true });
 
