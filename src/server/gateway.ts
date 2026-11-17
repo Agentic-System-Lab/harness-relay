@@ -700,14 +700,15 @@ function toolResult(r: GatewayResult): { content: unknown[]; isError: boolean } 
 
 /**
  * The CLIs given the gateway over loopback HTTP, the turn's token only in their memory (#88): each
- * passes it from its session's MCP servers (OpenCode's ACP `session/new` and `session/load`, Codex's
- * thread config, both over its stdin) to its own MCP client, and writes it nowhere. Checked with the
- * real CLIs (OpenCode 1.19.5, Codex 0.169; `scripts/mcp-headers-check.ts`): every request carried the
- * header, and no file they wrote (sessions, rollouts, databases, logs) held it, after a new session, a
- * turn and a resume. The others stay as they are until the same check passes for them:
- * - Grok, Copilot, Cursor, Antigravity and Muse Code take HTTP MCP servers too, but need a sign-in to
- *   open a session, so they could not be checked yet (Grok in full access only; the others start the
- *   stdio program).
+ * passes it from its session's MCP servers (OpenCode's and Copilot's ACP `session/new` and
+ * `session/load`, Codex's thread config, all over its stdin) to its own MCP client, and writes it
+ * nowhere. Checked with the real CLIs (OpenCode 1.19.5, Codex 0.169, Copilot 1.0.112;
+ * `scripts/mcp-headers-check.ts`): every request carried the header, and no file they wrote (sessions,
+ * rollouts, databases, logs) held it, after a new session, a turn and a resume. Copilot has no other
+ * way: it takes only HTTP and SSE MCP servers over ACP ("Rejecting non-http/sse MCP server" in its log),
+ * so the stdio program never reached it. The others stay as they are until the same check passes for them:
+ * - Grok and Cursor pass it too, signed in (Grok in full access only, see `GATEWAY_SANDBOXED_MCP`);
+ *   they, Antigravity and Muse Code take HTTP MCP servers but start the stdio program for now.
  * - Goose keeps the extensions a session was given, to start them again when it is loaded, in its
  *   session database: in its state folder, which its commands can read.
  * - OpenHands writes its MCP servers to `mcp.json` when it resumes a session.
@@ -716,15 +717,17 @@ function toolResult(r: GatewayResult): { content: unknown[]; isError: boolean } 
  * - Claude Code reads its MCP servers from a file, so it keeps the stdio program (on Windows its token
  *   serves one connection and is deleted at once).
  */
-export const GATEWAY_OVER_HTTP: readonly Provider[] = ['opencode', 'codex'];
+export const GATEWAY_OVER_HTTP: readonly Provider[] = ['opencode', 'codex', 'copilot'];
 
 /**
  * The CLIs whose sandbox holds the MCP servers they start below full access, with their commands (Grok's
- * own, and Harness Relay's around the open agents): the stdio program could not run there (it denies them
- * `data/tmp`, where the program and its token are, and opening it would open the token to every command
- * too), so they get no stdio stand-in for HTTP (`GrantOptions.fallback`) below full access.
+ * and Muse Code's own, and Harness Relay's around the open agents): the stdio program could not run there
+ * (it denies them `data/tmp`, where the program and its token are, and opening it would open the token to
+ * every command too), so they get no stdio stand-in for HTTP (`GrantOptions.fallback`) below full access.
+ * Muse Code (1.4.23) was seen to: below full access its session had neither the stdio program's tools nor
+ * an HTTP server's, in full access the program's.
  */
-export const GATEWAY_SANDBOXED_MCP: readonly Provider[] = ['grok', ...OPEN_PROVIDERS];
+export const GATEWAY_SANDBOXED_MCP: readonly Provider[] = ['grok', 'muse', ...OPEN_PROVIDERS];
 
 /** The CLIs that get the gateway in full access only: sandboxed MCP servers (above), and no HTTP way to the gateway. */
 export const GATEWAY_FULL_ACCESS_ONLY: readonly Provider[] = GATEWAY_SANDBOXED_MCP.filter((p) => !GATEWAY_OVER_HTTP.includes(p));
@@ -735,7 +738,8 @@ export const gatewayApprovalTool = (name: string) => `${GATEWAY_SERVER_NAME}:${n
 /**
  * The gateway's tool a CLI's own approval request is about, if it is one: a request for a tool (kind
  * `other`) named exactly as the CLI names the gateway's (`mcp__relay__browser_open` in Claude Code,
- * `relay:browser_open` in Codex, `relay_browser_open` in OpenCode, `relay/browser_open`,
+ * `relay:browser_open` in Codex, `relay_browser_open` in OpenCode, `mcp_relay_browser_open` in
+ * Antigravity (its `session/request_permission`, seen with agy 1.5.10), `relay/browser_open`,
  * `relay__browser_open`, `relay.browser_open`), never a command, a path or a URL with such words in it,
  * nor another server's tool of the same name. OpenCode's one underscore could join a library server's
  * name and its tool into the same words (`relay_mail` and `search`), so no library server may be named
@@ -745,7 +749,9 @@ export const gatewayApprovalTool = (name: string) => `${GATEWAY_SERVER_NAME}:${n
 export function gatewayToolNamed(names: readonly string[], req: Pick<ApprovalRequest, 'kind' | 'tool'>): string | undefined {
   if (req.kind !== 'other' || !req.tool) return undefined;
   const s = GATEWAY_SERVER_NAME;
-  return names.find((n) => [`mcp__${s}__${n}`, `${s}:${n}`, `${s}_${n}`, `${s}__${n}`, `${s}/${n}`, `${s}.${n}`].includes(req.tool!));
+  return names.find((n) =>
+    [`mcp__${s}__${n}`, `mcp_${s}_${n}`, `${s}:${n}`, `${s}_${n}`, `${s}__${n}`, `${s}/${n}`, `${s}.${n}`].includes(req.tool!),
+  );
 }
 
 /** Whether a library MCP server's name is the gateway's (`relay`), or starts as its tools' names do in a CLI that joins them with `_` (`relay_…`). */

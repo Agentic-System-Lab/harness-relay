@@ -41,6 +41,8 @@ describe('what a call of each tier does', () => {
     expect(gatewayToolNamed(names, other('relay__mail_send'))).toBe('mail_send');
     // OpenCode's `<server>_<tool>`, as the real `opencode acp` titles an MCP call.
     expect(gatewayToolNamed(names, other('relay_mail_send'))).toBe('mail_send');
+    // Antigravity's `mcp_<server>_<tool>`, as the real agy 1.5.10 names it in its question.
+    expect(gatewayToolNamed(names, other('mcp_relay_browser_open'))).toBe('browser_open');
     for (const tool of [
       'mcp__evil__browser_open',
       'browser_open',
@@ -51,6 +53,9 @@ describe('what a call of each tier does', () => {
       'relay:mail_sender',
       'relay_mail_sender',
       'relay_x_mail_send',
+      'mcp_relay_browser_opener',
+      'mcp_evil_browser_open',
+      'mcp_relay_x_mail_send',
       'https://h/relay/mail_send',
       undefined,
     ]) {

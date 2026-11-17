@@ -7,6 +7,7 @@
  * The fake CLI, and what each test starts with, are in ./orchestrator-harness.ts.
  */
 import { describe, expect, it } from 'vitest';
+import { slow } from './timeouts';
 import type { OutboxItem, Permission, Provider, RelayToolGroup } from '../src/shared/types';
 import type { GatewayContext, GatewayTool, GrantOptions, ToolGateway } from '../src/server/gateway';
 import { Outbox } from '../src/server/outbox';
@@ -59,68 +60,75 @@ describe("Harness Relay's own tools in a turn", () => {
     return conv;
   };
 
-  it('gives a member the gateway for the groups its CLI was given, for its turn alone, and none without a group', async () => {
-    const { grants } = fakeGateway();
-    const conv = solo();
-    // A library server saved before `relay_` was reserved (validation refuses it now): with the gateway
-    // it is left out, since OpenCode would name its tools as the gateway's (`relay_mail` + `send`).
-    settings.tools.saveServer('relay_mail', { transport: 'stdio', command: 'x', args: [], env: [], providers: ['claude'] });
-    await orchestrator.send(conv.id, 'hello');
-    await finish(conv.id);
-    expect(calls[0]!.mcpServers).toEqual(['relay_mail']);
-    expect(grants).toEqual([]);
+  // A turn for each CLI and permission: longer than most.
+  it(
+    'gives a member the gateway for the groups its CLI was given, for its turn alone, and none without a group',
+    async () => {
+      const { grants } = fakeGateway();
+      const conv = solo();
+      // A library server saved before `relay_` was reserved (validation refuses it now): with the gateway
+      // it is left out, since OpenCode would name its tools as the gateway's (`relay_mail` + `send`).
+      settings.tools.saveServer('relay_mail', { transport: 'stdio', command: 'x', args: [], env: [], providers: ['claude'] });
+      await orchestrator.send(conv.id, 'hello');
+      await finish(conv.id);
+      expect(calls[0]!.mcpServers).toEqual(['relay_mail']);
+      expect(grants).toEqual([]);
 
-    settings.tools.update({ relayTools: { browser: ['claude'], mail: ['claude'] } });
-    await orchestrator.send(conv.id, 'again');
-    await finish(conv.id);
-    expect(calls[1]!.mcpServers).toEqual(['relay']);
-    expect(grants).toHaveLength(1);
-    expect(grants[0]!.groups).toEqual(['browser', 'mail']);
-    expect(grants[0]!.ctx).toMatchObject({ convId: conv.id, agentId: 'a', agentName: 'Alice', permission: 'edit', unattended: false });
-    expect(grants[0]!.ctx.messageId).toBe(conv.messages.at(-1)!.id);
-    expect(grants[0]!.revoked).toBe(true);
+      settings.tools.update({ relayTools: { browser: ['claude'], mail: ['claude'] } });
+      await orchestrator.send(conv.id, 'again');
+      await finish(conv.id);
+      expect(calls[1]!.mcpServers).toEqual(['relay']);
+      expect(grants).toHaveLength(1);
+      expect(grants[0]!.groups).toEqual(['browser', 'mail']);
+      expect(grants[0]!.ctx).toMatchObject({ convId: conv.id, agentId: 'a', agentName: 'Alice', permission: 'edit', unattended: false });
+      expect(grants[0]!.ctx.messageId).toBe(conv.messages.at(-1)!.id);
+      expect(grants[0]!.revoked).toBe(true);
 
-    // How each CLI gets it: over HTTP where the token stays in its memory (OpenCode, Codex), with the stdio
-    // program as a stand-in only where it could run; Grok, Goose, Cline, OpenHands and Pi in full access
-    // only, over stdio; the rest over stdio.
-    const as = async (provider: Provider, permission: Permission) => {
-      const saved = runners[provider];
-      runners[provider] = { ...runners.claude, provider };
-      try {
-        const c = conversation({ mode: 'roundtable', permission });
-        c.agents = [{ ...agents[0]!, provider }];
-        store.saveMeta(c);
-        settings.tools.update({ relayTools: { browser: ['claude', provider], mail: ['claude'] } });
-        const before = grants.length;
-        await orchestrator.send(c.id, 'go');
-        await finish(c.id);
-        return grants.length > before ? grants.at(-1)!.o : 'none';
-      } finally {
-        runners[provider] = saved;
-      }
-    };
-    expect(grants[0]!.o).toEqual({ http: false, fallback: true });
-    expect(await as('opencode', 'edit')).toEqual({ http: true, fallback: false });
-    expect(await as('opencode', 'full')).toEqual({ http: true, fallback: true });
-    expect(await as('codex', 'edit')).toEqual({ http: true, fallback: true });
-    expect(await as('grok', 'edit')).toBe('none');
-    expect(await as('grok', 'full')).toEqual({ http: false, fallback: true });
-    expect(await as('goose', 'edit')).toBe('none');
-    expect(await as('goose', 'full')).toEqual({ http: false, fallback: true });
-    expect(await as('copilot', 'read-only')).toEqual({ http: false, fallback: true });
-    expect(await as('cline', 'edit')).toBe('none');
-    expect(await as('cline', 'full')).toEqual({ http: false, fallback: true });
-    expect(await as('openhands', 'edit')).toBe('none');
-    expect(await as('pi', 'full')).toEqual({ http: false, fallback: true });
-    expect(calls.at(-1)!.mcpServers).toEqual(['relay']);
+      // How each CLI gets it: over HTTP where the token stays in its memory (OpenCode, Codex, Copilot), with
+      // the stdio program as a stand-in only where it could run; Grok, Muse Code, Goose, Cline, OpenHands and
+      // Pi in full access only, over stdio; the rest over stdio.
+      const as = async (provider: Provider, permission: Permission) => {
+        const saved = runners[provider];
+        runners[provider] = { ...runners.claude, provider };
+        try {
+          const c = conversation({ mode: 'roundtable', permission });
+          c.agents = [{ ...agents[0]!, provider }];
+          store.saveMeta(c);
+          settings.tools.update({ relayTools: { browser: ['claude', provider], mail: ['claude'] } });
+          const before = grants.length;
+          await orchestrator.send(c.id, 'go');
+          await finish(c.id);
+          return grants.length > before ? grants.at(-1)!.o : 'none';
+        } finally {
+          runners[provider] = saved;
+        }
+      };
+      expect(grants[0]!.o).toEqual({ http: false, fallback: true });
+      expect(await as('opencode', 'edit')).toEqual({ http: true, fallback: false });
+      expect(await as('opencode', 'full')).toEqual({ http: true, fallback: true });
+      expect(await as('codex', 'edit')).toEqual({ http: true, fallback: true });
+      expect(await as('grok', 'edit')).toBe('none');
+      expect(await as('grok', 'full')).toEqual({ http: false, fallback: true });
+      expect(await as('goose', 'edit')).toBe('none');
+      expect(await as('goose', 'full')).toEqual({ http: false, fallback: true });
+      expect(await as('copilot', 'read-only')).toEqual({ http: true, fallback: true });
+      expect(await as('muse', 'edit')).toBe('none');
+      expect(await as('muse', 'full')).toEqual({ http: false, fallback: true });
+      expect(await as('cline', 'edit')).toBe('none');
+      expect(await as('cline', 'full')).toEqual({ http: false, fallback: true });
+      expect(await as('openhands', 'edit')).toBe('none');
+      expect(await as('pi', 'full')).toEqual({ http: false, fallback: true });
+      expect(calls.at(-1)!.mcpServers).toEqual(['relay']);
 
-    // A member turned off its groups gets none, and the library's server again.
-    conv.agents = [{ ...agents[0]!, tools: { 'relay:browser': false, 'relay:mail': false } }];
-    store.saveMeta(conv);
-    await orchestrator.send(conv.id, 'third');
-    await finish(conv.id);
-    expect(calls.at(-1)!.mcpServers).toEqual(['relay_mail']);
-  });
+      // A member turned off its groups gets none, and the library's server again.
+      conv.agents = [{ ...agents[0]!, tools: { 'relay:browser': false, 'relay:mail': false } }];
+      store.saveMeta(conv);
+      await orchestrator.send(conv.id, 'third');
+      await finish(conv.id);
+      expect(calls.at(-1)!.mcpServers).toEqual(['relay_mail']);
+    },
+    slow(60_000),
+  );
 
   it("answers a CLI's own question about one of its tools yes, with no card, and leaves every other question as it was", async () => {
     const { grants } = fakeGateway();

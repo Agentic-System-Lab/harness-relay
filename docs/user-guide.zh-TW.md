@@ -312,7 +312,7 @@ Grok 只有在你信任過的資料夾，才會讀專案自己的 `AGENTS.md` / 
 
 ### Harness Relay 的工具：瀏覽器、郵件與行事曆
 
-**設定 → 工具庫** 最上面的 **Harness Relay 的工具**，是 Harness Relay 自己提供的工具：**瀏覽器**、**郵件** 與 **行事曆**。一開始都是關閉的；勾選要給哪些 CLI 的成員（每個 CLI 都可以；Grok、Goose、Cline、OpenHands 與 Pi 只有完全存取時才能用，因為在那以下，裝著它們指令的沙箱也裝著它們啟動的 MCP server，讀不到 Harness Relay 放每一回合權杖的資料夾），某一組給了任何 CLI 之後，也可以像工具庫的項目一樣，在[團隊成員](#團隊成員)的 **工具** 為單一成員調整。有其中任何一項的成員，它的每一回合會多一個 MCP server：`relay`，每個 CLI 都一樣：OpenCode 與 Codex 自己在這台電腦上連過去，用只有它們持有、只限這一回合的權杖；其他 CLI 則啟動 Harness Relay 的一個小程式來連。密碼與帳號留在 Harness Relay，CLI 只會看到每次呼叫的結果，而且 agent 會被告知那是網頁、郵件或行事曆的資料，不是指令。這個伺服器無法提供時，這一段會說明原因（在桌面 app 中，那個小程式需要 `PATH` 上有 Node.js 22.12 以上，或 設定 → 沙箱 安裝的那一個；OpenCode 與 Codex 不需要）。
+**設定 → 工具庫** 最上面的 **Harness Relay 的工具**，是 Harness Relay 自己提供的工具：**瀏覽器**、**郵件** 與 **行事曆**。一開始都是關閉的；勾選要給哪些 CLI 的成員（每個 CLI 都可以；Grok、Muse Code、Goose、Cline、OpenHands 與 Pi 只有完全存取時才能用，因為在那以下，裝著它們指令的沙箱也裝著它們啟動的 MCP server，讀不到 Harness Relay 放每一回合權杖的資料夾），某一組給了任何 CLI 之後，也可以像工具庫的項目一樣，在[團隊成員](#團隊成員)的 **工具** 為單一成員調整。有其中任何一項的成員，它的每一回合會多一個 MCP server：`relay`，每個 CLI 都一樣：OpenCode、Codex 與 Copilot 自己在這台電腦上連過去，用只有它們持有、只限這一回合的權杖；其他 CLI 則啟動 Harness Relay 的一個小程式來連。密碼與帳號留在 Harness Relay，CLI 只會看到每次呼叫的結果，而且 agent 會被告知那是網頁、郵件或行事曆的資料，不是指令。這個伺服器無法提供時，這一段會說明原因（在桌面 app 中，那個小程式需要 `PATH` 上有 Node.js 22.12 以上，或 設定 → 沙箱 安裝的那一個；OpenCode、Codex 與 Copilot 不需要）。
 
 每次呼叫不經你同意能做什麼，取決於它做的事：
 
