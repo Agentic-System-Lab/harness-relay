@@ -431,6 +431,26 @@ describe('mail accounts and calendars in Settings', () => {
       expect(() => store.delete('mail', 'work')).toThrow('No such account');
     }));
 
+  it('says the password could not be kept when the credential store refuses it (a locked one), and saves nothing', () =>
+    withLang('en', () => {
+      const refusing = {
+        ...fakeKeyring(),
+        set: () => {
+          throw new Error('Secret Service: unlock prompt was dismissed');
+        },
+      };
+      const store = new ConnectorStore(openDatabase(':memory:'), refusing);
+      expect(() => store.saveMail('work', validateMailAccount(mail, []))).toThrow(
+        "Could not save the account's password to the credential store, so the account was not saved: Secret Service: unlock prompt was dismissed",
+      );
+      expect(store.hasMail()).toBe(false);
+      const cal = { name: 'Home', url: 'https://caldav.example.com/me/', username: 'me', password: 'p' };
+      withLang('zh-TW', () =>
+        expect(() => store.saveCalendar('home', validateCalendarAccount(cal, []))).toThrow('無法把帳號的密碼存進金鑰儲存區'),
+      );
+      expect(store.view().calendar).toEqual([]);
+    }));
+
   it('shows a password as there, never any of it, and sends an outbox item from the account its card showed, found by its id', () =>
     withLang('en', async () => {
       const store = new ConnectorStore(openDatabase(':memory:'), fakeKeyring());

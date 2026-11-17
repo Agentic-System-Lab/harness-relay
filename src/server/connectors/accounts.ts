@@ -88,7 +88,7 @@ export class ConnectorStore {
       if (value) this.keyring.set(name, value);
       else this.keyring.delete(name);
     } catch (err) {
-      throw new HttpError(503, t().secretsFailed((err as Error).message));
+      throw new HttpError(503, t().connectorPasswordNotSaved((err as Error).message));
     }
   }
 
