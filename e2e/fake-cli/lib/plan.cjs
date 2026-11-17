@@ -19,7 +19,8 @@ const DIRECTIVES = {
   think: 'show some thinking first',
   tool: 'list the working directory with a tool first',
   todo: 'show a to-do list',
-  approve: 'run a command that needs approval (`echo e2e-approval`; with `=publish`, `npm publish e2e-approval`, which asks in edit mode too), then say whether it ran',
+  approve:
+    'run a command that needs approval (`echo e2e-approval`; with `=publish`, `npm publish e2e-approval`, which asks in edit mode too), then say whether it ran',
   fetch: 'reach the URL given (a host the run may not reach without asking), then say whether it could',
   write: 'write the file named (relative to the working directory)',
   writeother: 'write the file named in the first other working directory the CLI was given (none: it says so)',
@@ -34,7 +35,10 @@ const DIRECTIVES = {
   mermaid: 'answer with a Mermaid diagram (a ```mermaid code block)',
   widecode: 'answer with a code block of one line far wider than a phone, which scrolls sideways',
   memory: "say the tool library's memory notes its briefing holds",
-  skills: "read the SKILL.md of each tool library skill its briefing lists, and say its first line (or that it may not)",
+  skills: 'read the SKILL.md of each tool library skill its briefing lists, and say its first line (or that it may not)',
+  progress:
+    'end the reply with a <progress> block of the status given (`working` by default) about the goal its briefing says a schedule tracks',
+  mcp: "call the tool named on Harness Relay's own MCP server (`relay`), with the JSON object in the message as its arguments, and say what it answered (Claude Code's fake only)",
 };
 
 function directivesIn(text) {
@@ -47,7 +51,11 @@ function directivesIn(text) {
   return found;
 }
 
-const withoutDirectives = (text) => text.replace(/\be2e:\S+/gi, '').replace(/\s+/g, ' ').trim();
+const withoutDirectives = (text) =>
+  text
+    .replace(/\be2e:\S+/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 
 /** The last message the user wrote, in a turn prompt's chat (without the list of files it attached). */
 function lastUserMessage(prompt) {
@@ -156,15 +164,25 @@ function reviewReply(prompt) {
   const first = replies[0];
   // `e2e:reviewquote=list`: words across the two items of the list `e2e:markdown` writes; `none`: no words.
   const words =
-    d.reviewquote === 'none' ? '' : d.reviewquote === 'list' ? 'first point second point' : first ? first.text.split(/\s+/).slice(0, 4).join(' ') : '';
+    d.reviewquote === 'none'
+      ? ''
+      : d.reviewquote === 'list'
+        ? 'first point second point'
+        : first
+          ? first.text.split(/\s+/).slice(0, 4).join(' ')
+          : '';
   const kind = typeof d.reviewkind === 'string' ? d.reviewkind : 'risk';
   return {
     text: json({
       summary: `The fake lead agent read ${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}.`,
-      highlights: first ? [{ kind, reply: first.n, ...(words ? { quote: words } : {}), note: `The fake lead agent flags what @${first.name} said first.` }] : [],
+      highlights: first
+        ? [{ kind, reply: first.n, ...(words ? { quote: words } : {}), note: `The fake lead agent flags what @${first.name} said first.` }]
+        : [],
       nextSteps: [
         { text: 'Try the answer yourself.', by: 'user' },
-        ...(first ? [{ text: `Ask @${first.name} to go on.`, by: 'team', message: `@${first.name} please go on with the next part.` }] : []),
+        ...(first
+          ? [{ text: `Ask @${first.name} to go on.`, by: 'team', message: `@${first.name} please go on with the next part.` }]
+          : []),
       ],
     }),
     slow: d.slowreview ? slowMs(true) : 0,
@@ -217,6 +235,16 @@ function plan(prompt, turn) {
   if (d.tool) steps.push({ type: 'tool', kind: 'list', output: safeList(turn.cwd) });
   if (d.approve) steps.push({ type: 'approve', command: d.approve === 'publish' ? 'npm publish e2e-approval' : 'echo e2e-approval' });
   if (typeof d.fetch === 'string') steps.push({ type: 'fetch', url: d.fetch });
+  if (typeof d.mcp === 'string') {
+    const json = /\{[\s\S]*\}/.exec(user);
+    let args = {};
+    try {
+      args = json ? JSON.parse(json[0]) : {};
+    } catch {
+      /* no arguments */
+    }
+    steps.push({ type: 'mcp', server: 'relay', tool: d.mcp, args });
+  }
   const content = `Written by ${me} (${self.label()}).\n`;
   if (typeof d.write === 'string') steps.push({ type: 'write', path: d.write, content });
   if (typeof d.writeother === 'string') steps.push({ type: 'write', path: d.writeother, other: true, content });
@@ -228,12 +256,20 @@ function plan(prompt, turn) {
   if (d.skills) text += readSkills(turn);
   if (d.long) text += Array.from({ length: 40 }, (_, i) => `\n\nPadding paragraph ${i + 1} of a long reply.`).join('');
   if (d.markdown) {
-    text += '\n\n## Fake findings\n\n- first point\n- second point\n\n| CLI | Fake |\n| --- | --- |\n| ' + self.label() + ' | yes |\n\n```js\nconst answer = 42;\n```';
+    text +=
+      '\n\n## Fake findings\n\n- first point\n- second point\n\n| CLI | Fake |\n| --- | --- |\n| ' +
+      self.label() +
+      ' | yes |\n\n```js\nconst answer = 42;\n```';
   }
   if (d.mermaid) text += '\n\n```mermaid\ngraph TD\n  Question --> Answer\n```';
   if (d.widecode) text += `\n\n\`\`\`js\nconst wide = '${'wide '.repeat(80).trim()}';\n\`\`\``;
   if (typeof d.handoff === 'string' && d.handoff.toLowerCase() !== me.toLowerCase()) text += ` @${d.handoff}, over to you.`;
   if (d.ask) text += '\n\nWhich option do you prefer, A or B? [ASK_USER]';
+  if (d.progress) {
+    const status = typeof d.progress === 'string' ? d.progress : 'working';
+    const goal = /<tracked_goal[^>]*>\n([\s\S]*?)\n<\/tracked_goal>/.exec(turn.briefing || '');
+    text += `\n\n<progress status="${status}">${goal ? `“${goal[1].trim()}”` : 'No goal tracked'}: ${status} (${me}).</progress>`;
+  }
   steps.push({ type: 'text', text, slow: slowMs(d.slow) });
   return steps;
 }
@@ -263,7 +299,11 @@ function readSkills(turn) {
       if (turn.mayRead && !turn.mayRead(s.file)) return ` I may not read the skill ${s.name}.`;
       try {
         const body = fs.readFileSync(s.file, 'utf8').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
-        const first = body.split(/\r?\n/).map((l) => l.trim()).find(Boolean) || '';
+        const first =
+          body
+            .split(/\r?\n/)
+            .map((l) => l.trim())
+            .find(Boolean) || '';
         return ` I read the skill ${s.name}: “${first}”.`;
       } catch (err) {
         return ` I could not read the skill ${s.name} (${err.code || err.message}).`;
@@ -321,7 +361,8 @@ function noteIn(message) {
 }
 const declined = (what, note) => `The ${what} was declined${note ? ` (the user said: ${note})` : ''}. `;
 const noOther = (step) => `I was given no other working directory for ${step.path}. `;
-const wrote = (step, ok, note) => (ok ? `I wrote ${step.path}. ` : `I may not write ${step.path} here${note ? ` (the user said: ${note})` : ''}. `);
+const wrote = (step, ok, note) =>
+  ok ? `I wrote ${step.path}. ` : `I may not write ${step.path} here${note ? ` (the user said: ${note})` : ''}. `;
 
 module.exports = {
   DIRECTIVES,

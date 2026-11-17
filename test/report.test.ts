@@ -61,10 +61,13 @@ describe('infoLines', () => {
   it('goes without what the server could not say, in the UI language', () => {
     expect(infoLines({ providers: [], userAgent: '', lang: 'zh-TW' }, zhTW)).toEqual(['介面語言：zh-TW']);
     // Known to be missing (the server did not answer): said so in the mail, not left out without a word.
-    expect(infoLines({ about: null, providers: [], userAgent: '', lang: 'en' }, en)).toEqual([`Harness Relay: ${en.report.info.unknown}`, 'Language: en']);
-    expect(infoLines({ about: { ...about, desktop: false, version: 'source (92449c7)' }, providers: [], userAgent: '', lang: 'zh-TW' }, zhTW)[0]).toBe(
-      'Harness Relay：source (92449c7) · 網頁版',
-    );
+    expect(infoLines({ about: null, providers: [], userAgent: '', lang: 'en' }, en)).toEqual([
+      `Harness Relay: ${en.report.info.unknown}`,
+      'Language: en',
+    ]);
+    expect(
+      infoLines({ about: { ...about, desktop: false, version: 'source (92449c7)' }, providers: [], userAgent: '', lang: 'zh-TW' }, zhTW)[0],
+    ).toBe('Harness Relay：source (92449c7) · 網頁版');
   });
 });
 
@@ -105,7 +108,8 @@ describe('screenshots', () => {
   const { maxFiles, maxBytes } = REPORT_SCREENSHOT_LIMITS;
   it('takes PNG, JPEG and WebP images up to the limits, pasted ones too (they have no name)', () => {
     for (const type of ['image/png', 'image/jpeg', 'image/webp']) expect(screenshotProblem({ type, size: 1000 }, 0)).toBeUndefined();
-    for (const name of ['a.png', 'b.JPG', 'c.jpeg', 'd.webp', 'image']) expect(screenshotProblem({ type: 'image/jpeg', size: 1, name }, 0)).toBeUndefined();
+    for (const name of ['a.png', 'b.JPG', 'c.jpeg', 'd.webp', 'image'])
+      expect(screenshotProblem({ type: 'image/jpeg', size: 1, name }, 0)).toBeUndefined();
     expect(screenshotProblem({ type: 'image/png', size: maxBytes }, maxFiles - 1)).toBeUndefined();
   });
 
@@ -218,7 +222,7 @@ describe("a report's screenshots on GitHub", () => {
   function fakeServer() {
     const calls: string[] = [];
     let answer: { ok: (v?: unknown) => void; fail: (e: unknown) => void } | undefined;
-    const pending = <T,>(what: string) =>
+    const pending = <T>(what: string) =>
       new Promise<T>((ok, fail) => {
         calls.push(what);
         answer = { ok: ok as (v?: unknown) => void, fail };

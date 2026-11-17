@@ -19,6 +19,7 @@
  * `model_usage_since_last_result` are the run's own.
  */
 const fs = require('node:fs');
+const { callMcpTool } = require('../lib/mcp.cjs');
 const os = require('node:os');
 const path = require('node:path');
 const readline = require('node:readline');
@@ -43,7 +44,9 @@ function claudeStatic() {
   }
   if (args[0] === 'auth' && args[1] === 'login') {
     // As Claude Code's own flow: a page to open, then the code it shows, pasted here.
-    process.stdout.write('Opening browser to sign in…\nIf the browser didn\'t open, visit: https://claude.example.invalid/e2e-login\nPaste code here if prompted > ');
+    process.stdout.write(
+      "Opening browser to sign in…\nIf the browser didn't open, visit: https://claude.example.invalid/e2e-login\nPaste code here if prompted > ",
+    );
     const rl = readline.createInterface({ input: process.stdin });
     rl.once('line', (code) => {
       rl.close();
@@ -67,6 +70,21 @@ function claudeMcp() {
       return [];
     }
   });
+}
+
+/** Each `--mcp-config` stdio server as it is given (command, args, env), by name: to call one. */
+function claudeMcpSpecs() {
+  const out = {};
+  for (const file of values('--mcp-config')) {
+    try {
+      const servers = JSON.parse(file.trim().startsWith('{') ? file : fs.readFileSync(file, 'utf8')).mcpServers || {};
+      for (const [name, s] of Object.entries(servers))
+        if (s.command) out[name] = { command: s.command, args: s.args || [], env: s.env || {} };
+    } catch {
+      /* not one to read */
+    }
+  }
+  return out;
 }
 
 /** The values each `--mcp-config` server is given (env, or an HTTP server's headers), by server. */
@@ -152,6 +170,7 @@ function claudeStream() {
     others: addDirs.filter((d) => !notAWorkingDirectory(d)),
     // Its Read tool, without asking: in its folders and those of its Read rules, anywhere with full access.
     reads: mode === 'bypassPermissions' ? null : [process.cwd(), ...addDirs, ...claudeReadRules()],
+    mcpSpecs: claudeMcpSpecs(),
   };
   const pending = new Map();
   let busy = false;
@@ -214,8 +233,22 @@ function claudeStream() {
             rate_limits: plan
               ? {
                   limits: [
-                    { kind: 'session', group: 'session', percent: used, resets_at: new Date(planResets.fiveHour()).toISOString(), scope: null, is_active: true },
-                    { kind: 'weekly_all', group: 'weekly', percent: Math.round(used / 2), resets_at: new Date(planResets.week()).toISOString(), scope: null, is_active: true },
+                    {
+                      kind: 'session',
+                      group: 'session',
+                      percent: used,
+                      resets_at: new Date(planResets.fiveHour()).toISOString(),
+                      scope: null,
+                      is_active: true,
+                    },
+                    {
+                      kind: 'weekly_all',
+                      group: 'weekly',
+                      percent: Math.round(used / 2),
+                      resets_at: new Date(planResets.week()).toISOString(),
+                      scope: null,
+                      is_active: true,
+                    },
                   ],
                 }
               : null,
@@ -259,7 +292,8 @@ function claudeStream() {
       model: flag('--model') || 'claude-fake',
       permissionMode: mode,
     });
-    if (signedOut()) return claudeResult(o, { is_error: true, subtype: 'error_during_execution', result: 'Not logged in · Please run /login' }, false);
+    if (signedOut())
+      return claudeResult(o, { is_error: true, subtype: 'error_during_execution', result: 'Not logged in · Please run /login' }, false);
     await claudeTurn(plan(prompt, turn), o);
   });
 }
@@ -281,15 +315,28 @@ function sessionTotals(o) {
     // its first run
   }
   const m = (was.modelUsage || {})['claude-fake'] || {};
-  const totals = { cost: Math.round((was.totalCostUSD + RUN.cost) * 1e8) / 1e8, input: (m.inputTokens || 0) + RUN.input, output: (m.outputTokens || 0) + RUN.output };
+  const totals = {
+    cost: Math.round((was.totalCostUSD + RUN.cost) * 1e8) / 1e8,
+    input: (m.inputTokens || 0) + RUN.input,
+    output: (m.outputTokens || 0) + RUN.output,
+  };
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.appendFileSync(file, JSON.stringify({ type: 'cost-state', sessionId: o.sessionId, totalCostUSD: totals.cost, modelUsage: modelUsageOf(totals) }) + '\n');
+  fs.appendFileSync(
+    file,
+    JSON.stringify({ type: 'cost-state', sessionId: o.sessionId, totalCostUSD: totals.cost, modelUsage: modelUsageOf(totals) }) + '\n',
+  );
   return totals;
 }
 
 /** `modelUsage` as Claude Code writes it, for `totals` of the one model. */
 const modelUsageOf = (totals) => ({
-  'claude-fake': { inputTokens: totals.input, outputTokens: totals.output, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: totals.cost },
+  'claude-fake': {
+    inputTokens: totals.input,
+    outputTokens: totals.output,
+    cacheReadInputTokens: 0,
+    cacheCreationInputTokens: 0,
+    costUSD: totals.cost,
+  },
 });
 
 /** The run's result; `spent` false for a run that never reached the model (signed out). */
@@ -303,7 +350,9 @@ function claudeResult(o, r, spent = true) {
     total_cost_usd: totals.cost,
     modelUsage: modelUsageOf(totals),
     model_usage_since_last_result: spent ? modelUsageOf(RUN) : {},
-    usage: spent ? { input_tokens: RUN.input, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: RUN.output } : { input_tokens: 0, output_tokens: 0 },
+    usage: spent
+      ? { input_tokens: RUN.input, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: RUN.output }
+      : { input_tokens: 0, output_tokens: 0 },
     ...r,
   });
 }
@@ -313,24 +362,47 @@ async function claudeTurn(steps, o) {
   let full = '';
   const tool = async (name, input, run) => {
     const id = `toolu_${++n}_${process.pid}`;
-    out({ type: 'assistant', session_id: o.sessionId, parent_tool_use_id: null, message: { id: `msg_tool_${n}`, role: 'assistant', content: [{ type: 'tool_use', id, name, input }] } });
+    out({
+      type: 'assistant',
+      session_id: o.sessionId,
+      parent_tool_use_id: null,
+      message: { id: `msg_tool_${n}`, role: 'assistant', content: [{ type: 'tool_use', id, name, input }] },
+    });
     await sleep(20);
     const { content, isError } = await run();
-    out({ type: 'user', session_id: o.sessionId, parent_tool_use_id: null, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] } });
+    out({
+      type: 'user',
+      session_id: o.sessionId,
+      parent_tool_use_id: null,
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] },
+    });
   };
   const stream = async (kind, text, slow) => {
     const msgId = `msg_${++n}_${process.pid}`;
     const ev = (event) => out({ type: 'stream_event', session_id: o.sessionId, parent_tool_use_id: null, event });
     ev({ type: 'message_start', message: { id: msgId, role: 'assistant', content: [] } });
-    ev({ type: 'content_block_start', index: 0, content_block: kind === 'text' ? { type: 'text', text: '' } : { type: 'thinking', thinking: '' } });
+    ev({
+      type: 'content_block_start',
+      index: 0,
+      content_block: kind === 'text' ? { type: 'text', text: '' } : { type: 'thinking', thinking: '' },
+    });
     for (const piece of pieces(text, slow)) {
-      ev({ type: 'content_block_delta', index: 0, delta: kind === 'text' ? { type: 'text_delta', text: piece } : { type: 'thinking_delta', thinking: piece } });
+      ev({
+        type: 'content_block_delta',
+        index: 0,
+        delta: kind === 'text' ? { type: 'text_delta', text: piece } : { type: 'thinking_delta', thinking: piece },
+      });
       await sleep(pieceDelay(slow));
     }
     ev({ type: 'content_block_stop', index: 0 });
     ev({ type: 'message_stop' });
     const block = kind === 'text' ? { type: 'text', text } : { type: 'thinking', thinking: text };
-    out({ type: 'assistant', session_id: o.sessionId, parent_tool_use_id: null, message: { id: msgId, role: 'assistant', content: [block] } });
+    out({
+      type: 'assistant',
+      session_id: o.sessionId,
+      parent_tool_use_id: null,
+      message: { id: msgId, role: 'assistant', content: [block] },
+    });
   };
   /** Asks (or not) to use a tool beyond what it may do by itself: { ok, note }. */
   const permission = async (tool_name, input) => {
@@ -344,12 +416,37 @@ async function claudeTurn(steps, o) {
     if (step.type === 'error') return claudeResult(o, { subtype: 'error_during_execution', is_error: true, result: step.text });
     if (step.type === 'think') await stream('thinking', step.text);
     if (step.type === 'todo') {
-      await tool('TodoWrite', { todos: step.entries.map((e) => ({ content: e.text, status: e.status, activeForm: e.text })) }, async () => ({
-        content: 'Todos have been modified successfully.',
+      await tool(
+        'TodoWrite',
+        { todos: step.entries.map((e) => ({ content: e.text, status: e.status, activeForm: e.text })) },
+        async () => ({
+          content: 'Todos have been modified successfully.',
+          isError: false,
+        }),
+      );
+    }
+    if (step.type === 'tool')
+      await tool('Bash', { command: 'ls', description: 'List the working directory' }, async () => ({
+        content: step.output,
         isError: false,
       }));
+    if (step.type === 'mcp') {
+      const spec = o.mcpSpecs[step.server];
+      const name = `mcp__${step.server}__${step.tool}`;
+      const p = !spec
+        ? { ok: false, message: `No MCP server ${step.server}` }
+        : o.mode === 'bypassPermissions'
+          ? { ok: true }
+          : await permission(name, step.args);
+      let said = p.message;
+      await tool(name, step.args, async () => {
+        if (!p.ok) return { content: p.message, isError: true };
+        const r = await callMcpTool(spec, step.tool, step.args);
+        said = r.text;
+        return { content: r.text, isError: r.isError };
+      });
+      full += `The ${step.tool} tool said: ${said} `;
     }
-    if (step.type === 'tool') await tool('Bash', { command: 'ls', description: 'List the working directory' }, async () => ({ content: step.output, isError: false }));
     if (step.type === 'approve') {
       const input = { command: step.command, description: 'Print a line (an e2e check)' };
       const p = o.mode === 'bypassPermissions' ? { ok: true } : await permission('Bash', input);

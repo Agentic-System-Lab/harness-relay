@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { constants, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { chmod, copyFile, mkdir } from 'node:fs/promises';
-import { basename, join } from 'node:path';
-import type { MessagePart } from '../shared/types';
+import { basename, join, sep } from 'node:path';
+import type { ChatMessage, MessagePart } from '../shared/types';
 import { ATTACHMENT_LIMITS, isInlineImage } from '../shared/types';
 import { HttpError } from './errors';
 import { t } from './i18n';
@@ -75,6 +75,36 @@ export async function copyAttachments(fromConvId: string, toConvId: string, part
     }
     await chmod(to, 0o600);
   }
+}
+
+/**
+ * The files of one conversation's folder its copied replies show by their path there (the browser's
+ * screenshots, `browser-<time>.png`, which no attachment part names), copied to the branch's folder; the
+ * copied replies' text then names the branch's folder, where its attached files are too
+ * (`copyAttachments`), so the branch shows them as the conversation did, and keeps them if that one is
+ * deleted.
+ */
+export async function copyShownFiles(fromConvId: string, toConvId: string, messages: ChatMessage[]): Promise<void> {
+  const from = attachmentsDir(fromConvId) + sep;
+  const to = attachmentsDir(toConvId) + sep;
+  const texts = messages.flatMap((m) => m.parts.filter((p): p is Extract<MessagePart, { type: 'text' }> => p.type === 'text'));
+  const names = new Set<string>();
+  for (const p of texts) {
+    for (let i = p.text.indexOf(from); i >= 0; i = p.text.indexOf(from, i + from.length)) {
+      const name = /^browser-[A-Za-z0-9-]+\.png/.exec(p.text.slice(i + from.length))?.[0];
+      if (name) names.add(name);
+    }
+  }
+  if (names.size) await mkdir(to, { recursive: true, mode: 0o700 });
+  for (const name of names) {
+    try {
+      await copyFile(from + name, to + name, constants.COPYFILE_FICLONE);
+      await chmod(to + name, 0o600);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+  }
+  for (const p of texts) if (p.text.includes(from)) p.text = p.text.split(from).join(to);
 }
 
 export function removeAttachments(convId: string, parts?: AttachmentPart[]): void {

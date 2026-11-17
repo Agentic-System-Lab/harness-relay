@@ -87,7 +87,8 @@ export function parseVersion(input: string): Parsed {
   if (/-rc/i.test(v) && !v.includes('-rc')) return fail(`Write "-rc" in lower case: ${v.replace(/-rc/i, '-rc')}.`);
   const m = VERSION.exec(v);
   if (!m) {
-    if (/^\d{4}-\d{1,2}-\d{1,2}(?:\.\d+)?(?:-rc(?:\.\d+)?)?$/.test(v)) return fail(`Write the month and the day with two digits each: YYYY-MM-DD, such as 2026-01-05.`);
+    if (/^\d{4}-\d{1,2}-\d{1,2}(?:\.\d+)?(?:-rc(?:\.\d+)?)?$/.test(v))
+      return fail(`Write the month and the day with two digits each: YYYY-MM-DD, such as 2026-01-05.`);
     if (/-rc\d/.test(v) || /-rc-\d/.test(v)) return fail(`Put a dot between "-rc" and the patch number: YYYY-MM-DD-rc.N.`);
     return fail(`"${v}" does not follow the rules: ${RULES}.`);
   }
@@ -256,7 +257,9 @@ export function checkRelease(c: ReleaseCheck): CheckResult {
   const nextOnes = `next release candidate is ${nextVersion(tags, c.today, true)}, and its next release ${nextVersion(tags, c.today, false)}`;
   const hint = `Today's ${nextOnes}.`;
   if (c.ref !== undefined && c.ref !== 'refs/heads/main') {
-    errors.push(`Releases are made from main, and this run is on ${c.ref.replace(/^refs\/heads\//, '')}. Choose main under "Use workflow from".`);
+    errors.push(
+      `Releases are made from main, and this run is on ${c.ref.replace(/^refs\/heads\//, '')}. Choose main under "Use workflow from".`,
+    );
   }
   if (!parsed.ok) return { ok: false, errors: [...errors, parsed.error, hint] };
   const v = parsed.value;
@@ -272,7 +275,9 @@ export function checkRelease(c: ReleaseCheck): CheckResult {
       // It would sort before the release it is a candidate of, and so before the newest release.
       errors.push(`${v.version} is a release candidate of ${target}, which is out already: today's ${nextOnes}.`);
     } else if (v.rc && v.patch > patch) {
-      errors.push(`${v.version} is a release candidate of ${target}, but today's next release is ${releaseName(v.date, patch)}: its next release candidate is ${expected}.`);
+      errors.push(
+        `${v.version} is a release candidate of ${target}, but today's next release is ${releaseName(v.date, patch)}: its next release candidate is ${expected}.`,
+      );
     } else if (v.version !== expected) {
       const first = v.rc ? `${target}-rc` : v.date;
       errors.push(
@@ -447,7 +452,8 @@ export async function commitsSince(api: GitHubApi, repo: string, since: string |
       };
       out.push(...r.commits);
       if (out.length >= r.total_commits) return out;
-      if (r.commits.length === 0) throw new Error(`GitHub listed ${out.length} of the ${r.total_commits} commits from ${since} to ${target}.`);
+      if (r.commits.length === 0)
+        throw new Error(`GitHub listed ${out.length} of the ${r.total_commits} commits from ${since} to ${target}.`);
     }
   }
   for (let page = 1; ; page++) {
@@ -477,7 +483,12 @@ export async function pullMergedBy(api: GitHubApi, repo: string, sha: string): P
  * commit before `since` by their account or by an address of theirs in these changes: it never finds
  * a bot's (`…[bot]`) by its account.
  */
-export async function newContributors(api: GitHubApi, repo: string, since: string | undefined, changes: readonly Change[]): Promise<Change[]> {
+export async function newContributors(
+  api: GitHubApi,
+  repo: string,
+  since: string | undefined,
+  changes: readonly Change[],
+): Promise<Change[]> {
   const first = new Map<string, Change>();
   const emails = new Map<string, Set<string>>();
   const isPull = (c: Change) => /\/pull\/\d+$/.test(c.url);
@@ -492,7 +503,8 @@ export async function newContributors(api: GitHubApi, repo: string, since: strin
   const logins = [...first.keys()];
   if (!since) return logins.map((l) => first.get(l)!);
   const before = async (author: string) =>
-    ((await api(`repos/${repo}/commits?sha=${encodeURIComponent(since)}&author=${encodeURIComponent(author)}&per_page=1`)) as unknown[]).length > 0;
+    ((await api(`repos/${repo}/commits?sha=${encodeURIComponent(since)}&author=${encodeURIComponent(author)}&per_page=1`)) as unknown[])
+      .length > 0;
   const isNew = await mapLimit(logins, AT_ONCE, async (login) => {
     for (const author of [login, ...(emails.get(login) ?? [])]) if (await before(author)) return false;
     return true;
@@ -526,7 +538,10 @@ export function subjectMarkdown(subject: string): string {
  * is in code), but not an address (`dev@example.com`, `dev_@example.com`).
  */
 function codeMentions(text: string): string {
-  return text.replace(/(?<![A-Za-z0-9`])(?<![A-Za-z0-9]_)@([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\/[\w.-]*[\w-])?(?:@[\w.-]*[\w-])*)/g, '`@$1`');
+  return text.replace(
+    /(?<![A-Za-z0-9`])(?<![A-Za-z0-9]_)@([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\/[\w.-]*[\w-])?(?:@[\w.-]*[\w-])*)/g,
+    '`@$1`',
+  );
 }
 
 /**
@@ -553,13 +568,18 @@ export function changesMarkdown(n: {
   const site = `https://github.com/${n.repo}`;
   const tail: string[] = [];
   if (n.newContributors.length) {
-    tail.push('## New Contributors', ...n.newContributors.map((c) => `* ${mention(c.login!)} made their first contribution in ${c.url}`), '');
+    tail.push(
+      '## New Contributors',
+      ...n.newContributors.map((c) => `* ${mention(c.login!)} made their first contribution in ${c.url}`),
+      '',
+    );
   }
   tail.push(`**Full Changelog**: ${n.since ? `${site}/compare/${n.since}...${n.tag}` : `${site}/commits/${n.tag}`}`);
   const items = n.changes.map((c) => `* ${subjectMarkdown(c.title)} by ${c.login ? mention(c.login) : codeMentions(c.name)} in ${c.url}`);
   if (items.length) {
     const size = (lines: readonly string[]) => lines.reduce((sum, l) => sum + l.length + 1, 0);
-    const moreLine = (more: number) => `* … and ${more} more change${more === 1 ? '' : 's'}, in the history up to ${n.tag}: ${site}/commits/${n.tag}`;
+    const moreLine = (more: number) =>
+      `* … and ${more} more change${more === 1 ? '' : 's'}, in the history up to ${n.tag}: ${site}/commits/${n.tag}`;
     const limit = n.limit ?? CHANGES_LIMIT;
     const whole = `${["## What's Changed", ...items, '', ...tail].join('\n')}\n`;
     if (whole.length <= limit) return whole;
@@ -584,7 +604,13 @@ export async function releaseChanges(o: {
   const pulls = await mapLimit(commits, AT_ONCE, (c) => pullMergedBy(o.api, o.repo, c.sha));
   const bySha = new Map(commits.map((c, i) => [c.sha, pulls[i]]));
   const changes = changesOf(commits, o.repo, (sha) => bySha.get(sha));
-  const markdown = changesMarkdown({ repo: o.repo, tag: o.tag, since: o.since, changes, newContributors: await newContributors(o.api, o.repo, o.since, changes) });
+  const markdown = changesMarkdown({
+    repo: o.repo,
+    tag: o.tag,
+    since: o.since,
+    changes,
+    newContributors: await newContributors(o.api, o.repo, o.since, changes),
+  });
   return { markdown, changes };
 }
 
@@ -618,7 +644,10 @@ function githubRepo(): string | undefined {
 
 function readTags(remote: boolean): string[] {
   if (remote) return tagsFromLsRemote(execFileSync('git', ['ls-remote', '--tags', 'origin'], { encoding: 'utf8' }));
-  return execFileSync('git', ['tag', '--list'], { encoding: 'utf8' }).split('\n').map((t) => t.trim()).filter(Boolean);
+  return execFileSync('git', ['tag', '--list'], { encoding: 'utf8' })
+    .split('\n')
+    .map((t) => t.trim())
+    .filter(Boolean);
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -644,7 +673,9 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if ((command !== 'check' && command !== 'notes') || rest.length === 0 || rest[0]!.startsWith('--')) {
-    console.error('Usage: tsx scripts/release.ts next | check <version> [--remote] [--today YYYY-MM-DD] [--own-tag] | notes <version> [--target <commit>] [--remote]');
+    console.error(
+      'Usage: tsx scripts/release.ts next | check <version> [--remote] [--today YYYY-MM-DD] [--own-tag] | notes <version> [--target <commit>] [--remote]',
+    );
     return 2;
   }
   if (command === 'notes') {
@@ -668,7 +699,9 @@ async function main(argv: string[]): Promise<number> {
     try {
       const { markdown, changes } = await releaseChanges({ api: ghApi, repo, tag, since, target: target ?? tag });
       process.stdout.write(markdown);
-      console.error(`${changes.length} change${changes.length === 1 ? '' : 's'} ${since ? `since ${since}` : 'since the first commit'}, up to ${target ?? tag}.`);
+      console.error(
+        `${changes.length} change${changes.length === 1 ? '' : 's'} ${since ? `since ${since}` : 'since the first commit'}, up to ${target ?? tag}.`,
+      );
       return 0;
     } catch (e) {
       const message = (e as Error).message;
@@ -722,14 +755,22 @@ async function main(argv: string[]): Promise<number> {
     today,
     previous: result.previous ?? '',
   };
-  console.log(`✓ ${result.tag} may be released (${result.prerelease ? 'a release candidate, published as a pre-release' : 'a release'}; app version ${result.semver}).`);
+  console.log(
+    `✓ ${result.tag} may be released (${result.prerelease ? 'a release candidate, published as a pre-release' : 'a release'}; app version ${result.semver}).`,
+  );
   console.log(
     result.previous
       ? `  Its notes list the changes since ${result.previous}${result.prerelease ? '' : ', the release before it'}.`
       : `  There is no ${result.prerelease ? 'version' : 'release'} before it: its notes list every commit up to it.`,
   );
   if (ownTag) console.log(`  Its tag is on GitHub without a release: the Release workflow made it at a run's start.`);
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, Object.entries(out).map(([k, v]) => `${k}=${v}\n`).join(''));
+  if (process.env.GITHUB_OUTPUT)
+    appendFileSync(
+      process.env.GITHUB_OUTPUT,
+      Object.entries(out)
+        .map(([k, v]) => `${k}=${v}\n`)
+        .join(''),
+    );
   return 0;
 }
 

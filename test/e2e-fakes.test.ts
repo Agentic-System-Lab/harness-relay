@@ -7,7 +7,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FACTS } from '../e2e/support/clis/all';
-import { bundleFakeCli, DEFAULT_CLIS, IMPLEMENTED_FAKES, NOT_YET_FAKED, notInstalledBut, writeFakeLaunchers } from '../e2e/support/fake-cli';
+import {
+  bundleFakeCli,
+  DEFAULT_CLIS,
+  IMPLEMENTED_FAKES,
+  NOT_YET_FAKED,
+  notInstalledBut,
+  writeFakeLaunchers,
+} from '../e2e/support/fake-cli';
 import { FAKE_CLI_DIR } from '../e2e/support/paths';
 import { DATA_DIR_MAX } from '../e2e/support/relay';
 import { hostTmpRefusal } from '../src/server/relaySandbox';
@@ -41,12 +48,24 @@ let dir = '';
 const script = (name: string) => join(dir, `${name}.cjs`);
 /** Runs the fake named `name`; `env` replaces the fakes' own variables of the test's environment. */
 const run = (name: string, args: string[], env: NodeJS.ProcessEnv = {}) =>
-  spawnSync(process.execPath, [script(name), ...args], { encoding: 'utf8', env: { ...withoutFakeVars(process.env), ...env }, timeout: slow(15_000) });
+  spawnSync(process.execPath, [script(name), ...args], {
+    encoding: 'utf8',
+    env: { ...withoutFakeVars(process.env), ...env },
+    timeout: slow(15_000),
+  });
 
 /** Runs it without waiting (this process's own servers answer it meanwhile): its exit code and output. */
-function runAsync(name: string, args: string[], env: NodeJS.ProcessEnv, input?: string): Promise<{ code: number | null; stdout: string; stderr: string }> {
+function runAsync(
+  name: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  input?: string,
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [script(name), ...args], { env: { ...withoutFakeVars(process.env), ...env }, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [script(name), ...args], {
+      env: { ...withoutFakeVars(process.env), ...env },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d: Buffer) => (stdout += d.toString('utf8')));
@@ -103,13 +122,19 @@ describe('the fake CLIs', () => {
     expect(DEFAULT_CLIS).toEqual(['claude', 'codex', 'grok']);
     const installed = (missing: readonly Provider[]) => PROVIDERS.filter((p) => !missing.includes(p));
     expect(installed(notInstalledBut())).toEqual(DEFAULT_CLIS.filter((p) => !NOT_YET_FAKED.includes(p)));
-    expect(installed(notInstalledBut(['cursor', 'pi']))).toEqual(PROVIDERS.filter((p) => ['claude', 'codex', 'grok', 'cursor', 'pi'].includes(p) && !NOT_YET_FAKED.includes(p)));
+    expect(installed(notInstalledBut(['cursor', 'pi']))).toEqual(
+      PROVIDERS.filter((p) => ['claude', 'codex', 'grok', 'cursor', 'pi'].includes(p) && !NOT_YET_FAKED.includes(p)),
+    );
     // A CLI whose fake is not written is never installed, named or not.
     for (const p of NOT_YET_FAKED) expect(notInstalledBut([p])).toContain(p);
   });
 
   it('stream a slow reply over about ten seconds, or the seconds `e2e:slow=` gives', () => {
-    const plan = load(join(FAKE_CLI_DIR, 'lib', 'plan.cjs')) as { slowMs(v: unknown): number; pieceDelay(slow: number): number; pieces(text: string, slow: number): string[] };
+    const plan = load(join(FAKE_CLI_DIR, 'lib', 'plan.cjs')) as {
+      slowMs(v: unknown): number;
+      pieceDelay(slow: number): number;
+      pieces(text: string, slow: number): string[];
+    };
     expect(plan.slowMs(undefined)).toBe(0);
     expect(plan.slowMs(true)).toBe(10_000);
     expect(plan.slowMs('5')).toBe(5_000);
@@ -121,7 +146,10 @@ describe('the fake CLIs', () => {
   });
 
   it('stream a slow reply of several paragraphs one paragraph after another, over the same time', () => {
-    const plan = load(join(FAKE_CLI_DIR, 'lib', 'plan.cjs')) as { slowMs(v: unknown): number; pieces(text: string, slow: number): string[] };
+    const plan = load(join(FAKE_CLI_DIR, 'lib', 'plan.cjs')) as {
+      slowMs(v: unknown): number;
+      pieces(text: string, slow: number): string[];
+    };
     const ms = plan.slowMs('5');
     // One paragraph: all of it at once, then small pieces.
     expect(plan.pieces('Hello', ms)[0]).toBe('Hello');
@@ -163,7 +191,10 @@ describe('the fake CLIs', () => {
     const home = join(dir, 'claude-home');
     const r = run('claude', ['--version'], { E2E_FAKE_LOG: log, CLAUDE_CONFIG_DIR: home });
     expect(r.status).toBe(0);
-    const lines = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>);
+    const lines = readFileSync(log, 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
     expect(lines).toEqual([expect.objectContaining({ cli: 'claude', args: ['--version'], home, apiKey: null })]);
     expect(lines[0]!.sandboxed).toBeUndefined();
   });
@@ -171,7 +202,12 @@ describe('the fake CLIs', () => {
   it("names the lead agent's members of every CLI as the tests do", async () => {
     const question = 'Who answers? e2e:team=claude,cursor,opencode,openhands,nobody';
     const prompt = `Reply with only one of these JSON objects.\n<question>\n${question}\n</question>`;
-    const r = await runAsync('claude', ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json'], {}, JSON.stringify({ type: 'user', message: { role: 'user', content: prompt } }) + '\n');
+    const r = await runAsync(
+      'claude',
+      ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json'],
+      {},
+      JSON.stringify({ type: 'user', message: { role: 'user', content: prompt } }) + '\n',
+    );
     expect(r.code, r.stderr).toBe(0);
     const result = r.stdout
       .split('\n')
@@ -206,30 +242,41 @@ describe('the fake CLIs', () => {
     afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
 
     // A folder it may not write in: the permission bits, which Windows does not have, and which root ignores.
-    it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('sends its lines to the fake endpoint, and waits for them before it exits', async () => {
-      const locked = join(dir, 'locked');
-      mkdirSync(locked);
-      chmodSync(locked, 0o555);
-      try {
-        const r = await runAsync('codex', ['--version'], { E2E_FAKE_LOG: join(locked, 'fake-cli.jsonl'), E2E_FAKE_LOG_URL: url, CODEX_HOME: join(dir, 'codex-home') });
-        expect(r.code, r.stderr).toBe(0);
-        expect(existsSync(join(locked, 'fake-cli.jsonl'))).toBe(false);
-        expect(got).toEqual([expect.objectContaining({ cli: 'codex', args: ['--version'], sandboxed: true })]);
-      } finally {
-        chmodSync(locked, 0o755);
-      }
-    });
+    it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+      'sends its lines to the fake endpoint, and waits for them before it exits',
+      async () => {
+        const locked = join(dir, 'locked');
+        mkdirSync(locked);
+        chmodSync(locked, 0o555);
+        try {
+          const r = await runAsync('codex', ['--version'], {
+            E2E_FAKE_LOG: join(locked, 'fake-cli.jsonl'),
+            E2E_FAKE_LOG_URL: url,
+            CODEX_HOME: join(dir, 'codex-home'),
+          });
+          expect(r.code, r.stderr).toBe(0);
+          expect(existsSync(join(locked, 'fake-cli.jsonl'))).toBe(false);
+          expect(got).toEqual([expect.objectContaining({ cli: 'codex', args: ['--version'], sandboxed: true })]);
+        } finally {
+          chmodSync(locked, 0o755);
+        }
+      },
+    );
   });
 });
 
-describe("the fakes as launchers start them on Windows (e2e/specs/windows.spec.ts)", () => {
+describe('the fakes as launchers start them on Windows (e2e/specs/windows.spec.ts)', () => {
   // The launchers' folder seen as Windows sees it, at C:\e2e: Harness Relay's own reading of a
   // launcher (winLaunch.ts) says what it would start, which then runs here with this Node.
   const WIN = 'C:\\e2e';
   let folder = '';
   let bins: ReturnType<typeof writeFakeLaunchers>;
   const local = (p: string) => join(folder, ...p.slice(WIN.length + 1).split('\\'));
-  const win = (p: string) => `${WIN}\\${p.slice(folder.length + 1).split(/[\\/]/).join('\\')}`;
+  const win = (p: string) =>
+    `${WIN}\\${p
+      .slice(folder.length + 1)
+      .split(/[\\/]/)
+      .join('\\')}`;
   const stat = (p: string) => {
     try {
       return p.startsWith(`${WIN}\\`) ? statSync(local(p)) : undefined;
@@ -254,7 +301,11 @@ describe("the fakes as launchers start them on Windows (e2e/specs/windows.spec.t
 
   /** What running the script `args[0]` as Harness Relay would says it is: its version, or that its fake is not written yet. */
   function says(p: Provider, args: string[], extra: NodeJS.ProcessEnv = {}) {
-    const r = spawnSync(process.execPath, [local(args[0]!), ...args.slice(1)], { encoding: 'utf8', env: { ...withoutFakeVars(process.env), ...extra }, timeout: slow(15_000) });
+    const r = spawnSync(process.execPath, [local(args[0]!), ...args.slice(1)], {
+      encoding: 'utf8',
+      env: { ...withoutFakeVars(process.env), ...extra },
+      timeout: slow(15_000),
+    });
     if (FACTS[p].implemented) expect(r.stdout).toMatch(fakeModule(p).versionRe);
     else expect(r.stderr).toContain(`fake ${p}: not implemented yet`);
   }
@@ -263,7 +314,11 @@ describe("the fakes as launchers start them on Windows (e2e/specs/windows.spec.t
     expect(win(bins.cursor)).toBe(`${WIN}\\cursor\\cursor-agent.cmd`);
     const launch = windowsLaunch('cursor-agent', ['--version'], env('cursor'), fs, null);
     const version = `${WIN}\\cursor\\versions\\2026.11.11-e2e0001`;
-    expect(launch).toEqual({ file: `${version}\\node.exe`, args: [`${version}\\index.js`, '--version'], env: { CURSOR_INVOKED_AS: 'cursor-agent.cmd' } });
+    expect(launch).toEqual({
+      file: `${version}\\node.exe`,
+      args: [`${version}\\index.js`, '--version'],
+      env: { CURSOR_INVOKED_AS: 'cursor-agent.cmd' },
+    });
     says('cursor', launch.args, launch.env);
   });
 

@@ -243,7 +243,12 @@ export async function claudeSessionTally(file: string, sessionId: string, limit 
       try {
         const r = JSON.parse(line);
         const cost = r?.totalCostUSD;
-        return r?.type === 'cost-state' && r.sessionId === sessionId && typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 && cost <= 1e9
+        return r?.type === 'cost-state' &&
+          r.sessionId === sessionId &&
+          typeof cost === 'number' &&
+          Number.isFinite(cost) &&
+          cost >= 0 &&
+          cost <= 1e9
           ? (r as { totalCostUSD: number; modelUsage?: unknown })
           : undefined;
       } catch {
@@ -262,7 +267,12 @@ export async function claudeSessionTally(file: string, sessionId: string, limit 
  * the server (a session's file can be large): only lines with `marker` in them are decoded and given
  * to `pick`. `whole` says whether the file was read to its start (it stops `limit` bytes from the end).
  */
-async function lastLine<T>(file: string, marker: string, limit: number, pick: (line: string) => T | undefined): Promise<{ line?: T; whole: boolean }> {
+async function lastLine<T>(
+  file: string,
+  marker: string,
+  limit: number,
+  pick: (line: string) => T | undefined,
+): Promise<{ line?: T; whole: boolean }> {
   const fh = await open(file, 'r');
   try {
     const size = (await fh.stat()).size;
@@ -276,7 +286,7 @@ async function lastLine<T>(file: string, marker: string, limit: number, pick: (l
       if (size - end >= limit) return { whole: false };
       const start = Math.max(0, end - 64 * 1024);
       const block = Buffer.alloc(end - start);
-      for (let got = 0; got < block.length; ) {
+      for (let got = 0; got < block.length;) {
         const { bytesRead } = await fh.read(block, got, block.length - got, start + got);
         if (bytesRead <= 0) throw new Error('the file got shorter');
         got += bytesRead;
@@ -306,7 +316,10 @@ async function lastLine<T>(file: string, marker: string, limit: number, pick: (l
  * session had used before it (`before`, nothing for a new session). Without that, or when the totals
  * do not add up, the tokens are the main conversation's (`usage`) and the cost is not known.
  */
-export function claudeTurnUsage(r: Record<string, any>, before: ClaudeTally | undefined): Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'> {
+export function claudeTurnUsage(
+  r: Record<string, any>,
+  before: ClaudeTally | undefined,
+): Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'> {
   const round = (n: number) => Math.round(n * 1e10) / 1e10;
   const turn = r.model_usage_since_last_result;
   const turnTokens = claudeModelTokens(turn);
@@ -324,7 +337,8 @@ export function claudeTurnUsage(r: Record<string, any>, before: ClaudeTally | un
   const models = before ? claudeModelTokens(r.modelUsage) : undefined;
   const input = models && before ? since(models.inputTokens, before.inputTokens) : undefined;
   const output = models && before ? since(models.outputTokens, before.outputTokens) : undefined;
-  if (input !== undefined && output !== undefined && (input > 0 || output > 0)) return { costUsd, inputTokens: input, outputTokens: output };
+  if (input !== undefined && output !== undefined && (input > 0 || output > 0))
+    return { costUsd, inputTokens: input, outputTokens: output };
   return { costUsd, inputTokens: sumInput(r.usage), outputTokens: r.usage?.output_tokens };
 }
 
@@ -653,7 +667,15 @@ export function parseClaudePluginList(stdout: string): ClaudePlugin[] | undefine
 
 /** Claude Code's installed plugins (user, project and the rest), asked with `claude plugin list --json`. */
 export async function claudePlugins(bin: string, env: NodeJS.ProcessEnv, cwd: string, signal?: AbortSignal): Promise<ClaudePlugin[]> {
-  const res = await runProcess({ bin, args: ['plugin', 'list', '--json'], cwd, env, signal, timeoutMs: PROBE_TIMEOUT_MS, maxCapture: 4 * 1024 * 1024 });
+  const res = await runProcess({
+    bin,
+    args: ['plugin', 'list', '--json'],
+    cwd,
+    env,
+    signal,
+    timeoutMs: PROBE_TIMEOUT_MS,
+    maxCapture: 4 * 1024 * 1024,
+  });
   const list = res.code === 0 ? parseClaudePluginList(res.stdout) : undefined;
   if (!list) throw new Error(res.timedOut ? 'timed out' : tail(res.stderr || res.stdout) || `exit ${res.code}`);
   return list;
@@ -723,14 +745,7 @@ async function askBuiltinAgents(bin: string, env: NodeJS.ProcessEnv): Promise<Cl
       cwd: dir,
       env,
       timeoutMs: PROBE_TIMEOUT_MS,
-      args: [
-        ...CLAUDE_PROBE_ARGS,
-        '--setting-sources',
-        '',
-        '--strict-mcp-config',
-        '--settings',
-        JSON.stringify({ disableAllHooks: true }),
-      ],
+      args: [...CLAUDE_PROBE_ARGS, '--setting-sources', '', '--strict-mcp-config', '--settings', JSON.stringify({ disableAllHooks: true })],
       open: (write) => write({ type: 'control_request', request_id: 'relay-builtin', request: { subtype: 'initialize' } }),
       onMessage: (m, _write, finish) => {
         if (m.type !== 'control_response' || m.response?.request_id !== 'relay-builtin') return;
@@ -784,7 +799,11 @@ export function claudeAgentsGate(o: {
         (builtins) => {
           const deny = claudeAgentDenyRules(agents, builtins);
           if (!deny.length) return o.start();
-          o.send({ type: 'control_request', request_id: denyId, request: { subtype: 'apply_flag_settings', settings: { permissions: { deny } } } });
+          o.send({
+            type: 'control_request',
+            request_id: denyId,
+            request: { subtype: 'apply_flag_settings', settings: { permissions: { deny } } },
+          });
         },
         (err: unknown) => o.fail(err instanceof Error ? err.message : String(err)),
       );
@@ -1159,7 +1178,12 @@ async function runClaude(given: Parameters<AgentRunner['run']>[0], mcpConfig?: s
   const endpoint = endpointRunModel(given.backends, given.model, PROVIDER_LABEL.claude);
   const endpointEnv = endpoint ? claudeEndpointEnv(endpoint) : undefined;
   const o = endpoint
-    ? { ...given, model: endpoint.model, effort: endpointEffort('claude', given.effort), env: claudeEndpointProcessEnv(given.env, endpointEnv!) }
+    ? {
+        ...given,
+        model: endpoint.model,
+        effort: endpointEffort('claude', given.effort),
+        env: claudeEndpointProcessEnv(given.env, endpointEnv!),
+      }
     : given;
   const pluginIds = await pluginIdsForRun(o);
   const nativeItems = claudeItemsBesideLibrary(o.nativeItems ?? {}, o.mcpServers ?? []);
@@ -1173,7 +1197,9 @@ async function runClaude(given: Parameters<AgentRunner['run']>[0], mcpConfig?: s
     if (reopened) throw new AgentRunError(t().claudeReopens(...reopened));
   }
   // The endpoint's key goes in this private file, never on the command line.
-  const settings = claudeSettingsFile(claudeRunSettings(o.permission, o.nativeOff, pluginIds, nativeItems, process.platform, protectedPaths, endpointEnv));
+  const settings = claudeSettingsFile(
+    claudeRunSettings(o.permission, o.nativeOff, pluginIds, nativeItems, process.platform, protectedPaths, endpointEnv),
+  );
   try {
     const result = await runClaudeTurn(o, { mcpConfig, pluginIds, nativeItems, settingsFile: settings?.file, protectedPaths, endpointEnv });
     // Claude Code prices a model it does not know as one of its own: no cost for the user's own endpoint.

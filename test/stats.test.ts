@@ -64,7 +64,10 @@ describe('npm run stats: the downloads', () => {
       // .10 after .9 and .2: by version, not by the order GitHub lists them in.
       release('2026-11-13.10', installer, each(2)),
       release('2026-11-14', installer, each(3), {
-        assets: [...release('2026-11-14', installer, each(3)).assets, { name: 'Harness-Relay-2026-11-14-mac-arm64.dmg.blockmap', downloads: 50 }],
+        assets: [
+          ...release('2026-11-14', installer, each(3)).assets,
+          { name: 'Harness-Relay-2026-11-14-mac-arm64.dmg.blockmap', downloads: 50 },
+        ],
       }),
       // Two systems only, the Mac's under its name then, and no copies yet.
       {
@@ -133,8 +136,24 @@ describe('npm run stats: the downloads', () => {
 
 describe('npm run stats: the codespaces count', () => {
   it('shows the last seven days in Taiwan, oldest first, across months and years', () => {
-    expect(lastDays('2026-11-14')).toEqual(['2026-11-08', '2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13', '2026-11-14']);
-    expect(lastDays('2027-01-03')).toEqual(['2026-12-28', '2026-12-29', '2026-12-30', '2026-12-31', '2027-01-01', '2027-01-02', '2027-01-03']);
+    expect(lastDays('2026-11-14')).toEqual([
+      '2026-11-08',
+      '2026-11-09',
+      '2026-11-10',
+      '2026-11-11',
+      '2026-11-12',
+      '2026-11-13',
+      '2026-11-14',
+    ]);
+    expect(lastDays('2027-01-03')).toEqual([
+      '2026-12-28',
+      '2026-12-29',
+      '2026-12-30',
+      '2026-12-31',
+      '2027-01-01',
+      '2027-01-02',
+      '2027-01-03',
+    ]);
     expect(lastDays('2028-03-01', 2)).toEqual(['2028-02-29', '2028-03-01']);
   });
 
@@ -152,7 +171,13 @@ describe('npm run stats: the codespaces count', () => {
         { results: [{ total }], success: true, meta: {} },
         { results: rows, success: true, meta: {} },
       ]);
-    const c = codespacesOf(answer(9, [{ day: '2026-11-10', created: 2 }, { day: '2026-11-14', created: 3 }]), days);
+    const c = codespacesOf(
+      answer(9, [
+        { day: '2026-11-10', created: 2 },
+        { day: '2026-11-14', created: 3 },
+      ]),
+      days,
+    );
     expect(c.total).toBe(9);
     expect(c.days).toEqual(days.map((day) => ({ day, created: day === '2026-11-10' ? 2 : day === '2026-11-14' ? 3 : 0 })));
     // What wrangler may print before its JSON is passed over.
@@ -164,17 +189,30 @@ describe('npm run stats: the codespaces count', () => {
     // D1's own message is in the notes; the text names the API address, the account's id in it.
     const table = Object.assign(new Error('Command failed'), { stdout: fixture('wrangler-no-such-table.out'), stderr: '' });
     expect(wranglerReason(table)).toBe('no such table: codespaces: SQLITE_ERROR [code: 7500]');
-    const noNotes = { stdout: JSON.stringify({ error: { text: 'A request to the Cloudflare API (/accounts/0ceab7/d1/database/d4a1/query) failed.' } }) };
+    const noNotes = {
+      stdout: JSON.stringify({ error: { text: 'A request to the Cloudflare API (/accounts/0ceab7/d1/database/d4a1/query) failed.' } }),
+    };
     expect(wranglerReason(noNotes)).toBe('A request to the Cloudflare API (/accounts/…/d1/database/…/query) failed.');
-    expect(wranglerReason({ stdout: fixture('wrangler-not-signed-in.out') })).toMatch(/^In a non-interactive environment, it's necessary to set a CLOUDFLARE_API_TOKEN/);
+    expect(wranglerReason({ stdout: fixture('wrangler-not-signed-in.out') })).toMatch(
+      /^In a non-interactive environment, it's necessary to set a CLOUDFLARE_API_TOKEN/,
+    );
     // No JSON: its last lines.
-    expect(wranglerReason({ stderr: 'npm error\nnpm error code E404\nnpm error 404 Not Found - wrangler' })).toBe('npm error code E404 npm error 404 Not Found - wrangler');
+    expect(wranglerReason({ stderr: 'npm error\nnpm error code E404\nnpm error 404 Not Found - wrangler' })).toBe(
+      'npm error code E404 npm error 404 Not Found - wrangler',
+    );
   });
 });
 
 /** Stand-ins for gh and wrangler, answering as they do, noting their arguments. */
 function sources(
-  o: { variable?: string | Error; releases?: Release[]; copies?: Release[]; gh?: Error; copiesError?: Error; wrangler?: string | Error } = {},
+  o: {
+    variable?: string | Error;
+    releases?: Release[];
+    copies?: Release[];
+    gh?: Error;
+    copiesError?: Error;
+    wrangler?: string | Error;
+  } = {},
 ) {
   const calls: { gh: string[][]; wrangler: string[][] } = { gh: [], wrangler: [] };
   const lines = (rs: Release[]) => rs.map((r) => JSON.stringify(r)).join('\n') + '\n';
@@ -182,7 +220,8 @@ function sources(
     gh: async (args) => {
       calls.gh.push(args);
       if (args[0] === 'variable') {
-        if (o.variable instanceof Error || o.variable === undefined) throw o.variable ?? Object.assign(new Error('failed'), { stderr: 'variable UPDATES_REPO was not found' });
+        if (o.variable instanceof Error || o.variable === undefined)
+          throw o.variable ?? Object.assign(new Error('failed'), { stderr: 'variable UPDATES_REPO was not found' });
         return `${o.variable}\n`;
       }
       const main = args[1]!.startsWith(`repos/${REPO}/`);
@@ -193,7 +232,13 @@ function sources(
     wrangler: async (args) => {
       calls.wrangler.push(args);
       if (o.wrangler instanceof Error) throw o.wrangler;
-      return o.wrangler ?? JSON.stringify([{ results: [{ total: 4 }], success: true }, { results: [{ day: '2026-11-15', created: 4 }], success: true }]);
+      return (
+        o.wrangler ??
+        JSON.stringify([
+          { results: [{ total: 4 }], success: true },
+          { results: [{ day: '2026-11-15', created: 4 }], success: true },
+        ])
+      );
     },
   };
   return { s, calls };
@@ -216,9 +261,14 @@ describe('npm run stats: reading and reporting', () => {
       ]),
     );
     expect(calls.gh).toHaveLength(3);
-    expect(calls.wrangler).toEqual([['d1', 'execute', COUNTS_DATABASE, '--remote', '--config', WRANGLER_CONFIG, '--json', '--command', countsQuery('2026-11-09')]]);
+    expect(calls.wrangler).toEqual([
+      ['d1', 'execute', COUNTS_DATABASE, '--remote', '--config', WRANGLER_CONFIG, '--json', '--command', countsQuery('2026-11-09')],
+    ]);
     expect(stats.downloads).toMatchObject({ updatesRepo: UPDATES_REPO, installs: { mac: 2 }, updates: { mac: 1 } });
-    expect(stats.codespaces).toEqual({ total: 4, days: lastDays('2026-11-15').map((day) => ({ day, created: day === '2026-11-15' ? 4 : 0 })) });
+    expect(stats.codespaces).toEqual({
+      total: 4,
+      days: lastDays('2026-11-15').map((day) => ({ day, created: day === '2026-11-15' ? 4 : 0 })),
+    });
   });
 
   it("reads the copies where the workflow's UPDATES_REPO variable says, checked as the build checks it", async () => {
@@ -231,22 +281,36 @@ describe('npm run stats: reading and reporting', () => {
     expect('error' in main ? '' : main.updatesError).toMatch(/^RELAY_UPDATES_REPO: the copies go in a repository of their own/);
     // Not readable (not only not set): the website's, and it says so.
     const denied = (await collect(sources({ variable: failure('HTTP 403: Resource not accessible by integration') }).s, NOW)).downloads;
-    expect('error' in denied ? '' : denied.updatesError).toBe(`could not read the workflow's UPDATES_REPO variable (HTTP 403: Resource not accessible by integration); read ${UPDATES_REPO}`);
+    expect('error' in denied ? '' : denied.updatesError).toBe(
+      `could not read the workflow's UPDATES_REPO variable (HTTP 403: Resource not accessible by integration); read ${UPDATES_REPO}`,
+    );
   });
 
   it('says why a part cannot be read, and shows the rest', async () => {
     const signedOut = failure('To get started with GitHub CLI, please run:  gh auth login');
     const stats = await collect(sources({ gh: signedOut }).s, NOW);
-    expect(stats.downloads).toEqual({ error: `could not read ${REPO} through gh (To get started with GitHub CLI, please run:  gh auth login). Sign gh in: gh auth login` });
+    expect(stats.downloads).toEqual({
+      error: `could not read ${REPO} through gh (To get started with GitHub CLI, please run:  gh auth login). Sign gh in: gh auth login`,
+    });
     expect(stats.codespaces).toMatchObject({ total: 4 });
     // The copies' repository alone: the new installs still shown, without telling to sign in.
-    const copies = (await collect(sources({ releases: [release('2026-11-14', installer, each(2))], copiesError: failure('gh: Not Found (HTTP 404)') }).s, NOW)).downloads;
-    expect(copies).toMatchObject({ installs: { mac: 2 }, updatesError: `${UPDATES_REPO} was not found, or gh's account cannot read it (gh: Not Found (HTTP 404))` });
+    const copies = (
+      await collect(
+        sources({ releases: [release('2026-11-14', installer, each(2))], copiesError: failure('gh: Not Found (HTTP 404)') }).s,
+        NOW,
+      )
+    ).downloads;
+    expect(copies).toMatchObject({
+      installs: { mac: 2 },
+      updatesError: `${UPDATES_REPO} was not found, or gh's account cannot read it (gh: Not Found (HTTP 404))`,
+    });
     const offline = (await collect(sources({ gh: failure('error connecting to api.github.com') }).s, NOW)).downloads;
     expect(offline).toEqual({ error: `could not read ${REPO} through gh (error connecting to api.github.com)` });
     // wrangler signed out, as it really says it.
     const c = (await collect(sources({ wrangler: failure('', fixture('wrangler-not-signed-in.out')) }).s, NOW)).codespaces;
-    expect('error' in c ? c.error : '').toMatch(/^could not read the count through wrangler \(In a non-interactive environment, .*\)\. Sign wrangler in to the account with the mirror: npx wrangler login$/);
+    expect('error' in c ? c.error : '').toMatch(
+      /^could not read the count through wrangler \(In a non-interactive environment, .*\)\. Sign wrangler in to the account with the mirror: npx wrangler login$/,
+    );
     // No codespace counted yet: the table is made at the first count. As wrangler really says it.
     const none = (await collect(sources({ wrangler: failure('', fixture('wrangler-no-such-table.out')) }).s, NOW)).codespaces;
     expect(none).toEqual({ total: 0, days: lastDays('2026-11-15').map((day) => ({ day, created: 0 })) });
@@ -256,12 +320,22 @@ describe('npm run stats: reading and reporting', () => {
     const { s } = sources({
       releases: [
         release('2026-11-14', installer, (sys) => (sys === 'linux' ? 12 : 3)),
-        { tag: '2026-11-13', prerelease: false, draft: false, assets: [{ name: installer('2026-11-13', 'mac'), downloads: 1 }, { name: 'notes.txt', downloads: 7 }] },
+        {
+          tag: '2026-11-13',
+          prerelease: false,
+          draft: false,
+          assets: [
+            { name: installer('2026-11-13', 'mac'), downloads: 1 },
+            { name: 'notes.txt', downloads: 7 },
+          ],
+        },
       ],
       copies: [release('2026-11-14', copy, each(2))],
     });
     const text = report(await collect(s, NOW));
-    expect(text).toContain(`  New installs: the installers on ${REPO}.\n  Updates: the app's copies on ${UPDATES_REPO}, an installed app updating.`);
+    expect(text).toContain(
+      `  New installs: the installers on ${REPO}.\n  Updates: the app's copies on ${UPDATES_REPO}, an installed app updating.`,
+    );
     // About how many downloads: the new installs halved, the updates as they are.
     expect(text).toMatch(/^ {2}About how many downloads +New installs +Updates +Total$/m);
     // All systems' halved from GitHub's own (25 → 13), not added up from halved ones (2 + 2 + 2 + 6 + 2 = 14).
@@ -286,7 +360,12 @@ describe('npm run stats: reading and reporting', () => {
     expect(text).toContain('or one\nwhose read token stopped working) updates from the installer');
     expect(text).toContain('See docs/developer-guide.md, "Download counts".');
     // Updates unknown: said, and ? in their place.
-    const unknown = report(await collect(sources({ releases: [release('2026-11-14', installer, each(2))], copiesError: failure('gh: Not Found (HTTP 404)') }).s, NOW));
+    const unknown = report(
+      await collect(
+        sources({ releases: [release('2026-11-14', installer, each(2))], copiesError: failure('gh: Not Found (HTTP 404)') }).s,
+        NOW,
+      ),
+    );
     expect(unknown).toContain(`  ✗ Updates unknown: ${UPDATES_REPO} was not found`);
     expect(unknown).toMatch(/^ {2}macOS +2 +\? +\?$/m);
     expect(unknown).toMatch(/^ {2}2026-11-14 +2 \/ \? /m);
@@ -303,7 +382,10 @@ describe('npm run stats: reading and reporting', () => {
     expect(out).toContain('Downloads of the releases (release candidates left out)');
     out = '';
     expect(await main(['--json'], sources().s, NOW, write)).toBe(0);
-    expect(JSON.parse(out)).toMatchObject({ downloads: { repo: REPO, releases: [], estimate: { installs: all(0) } }, codespaces: { total: 4 } });
+    expect(JSON.parse(out)).toMatchObject({
+      downloads: { repo: REPO, releases: [], estimate: { installs: all(0) } },
+      codespaces: { total: 4 },
+    });
     // Each part failing alone: 1.
     expect(await main([], sources({ gh: failure('offline') }).s, NOW, write)).toBe(1);
     expect(await main([], sources({ copiesError: failure('gh: Not Found (HTTP 404)') }).s, NOW, write)).toBe(1);

@@ -10,8 +10,12 @@ import {
   draftChanged,
   draftFrom,
   draftProblems,
+  forgetHandedHook,
   formatWhen,
+  handOverHook,
+  handedHook,
   fromLocalInput,
+  hookExample,
   localInput,
   previewRuns,
   scheduleState,
@@ -207,9 +211,17 @@ describe('the schedule form', () => {
     nextRunAt: MON + DAY,
   };
 
-  it('starts a new schedule on weekdays at 09:00, and reads a saved one back unchanged', () => {
+  it('starts a new schedule with no set times (weekdays at 09:00 ready for another kind), and reads a saved one back unchanged', () => {
     const fresh = draftFrom(undefined, MON, 'UTC');
-    expect(fresh).toMatchObject({ kind: 'weekly', time: '09:00', days: [1, 2, 3, 4, 5], enabled: true, approvals: 'deny', missed: 'skip', newChat: false });
+    expect(fresh).toMatchObject({
+      kind: 'manual',
+      time: '09:00',
+      days: [1, 2, 3, 4, 5],
+      enabled: true,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+    });
     expect(draftChanged(fresh, undefined)).toBe(true);
 
     const draft = draftFrom(saved, MON);
@@ -231,7 +243,62 @@ describe('the schedule form', () => {
     expect(toUpdate({ ...draft, kind: 'interval' }).repeat).toEqual({ kind: 'interval', hours: 6 });
   });
 
-  it('shows times of day in the schedule\'s time zone, and moments and intervals in the browser\'s', () => {
+  it('reads a goal back, saves it trimmed, leaves out an empty one, and says when it is too long', () => {
+    const draft = draftFrom({ ...saved, goal: 'CI passes' }, MON);
+    expect(draft.goal).toBe('CI passes');
+    expect(toUpdate({ ...draft, goal: '  Ship it  ' }).goal).toBe('Ship it');
+    expect(toUpdate({ ...draft, goal: '   ' })).not.toHaveProperty('goal');
+    expect(draftChanged({ ...draft, goal: 'other' }, { ...saved, goal: 'CI passes' })).toBe(true);
+    expect(draftChanged(draft, { ...saved, goal: 'CI passes' })).toBe(false);
+    expect(draftProblems({ ...draft, goal: 'x'.repeat(2001) }, MON, en)).toContain('A goal can be at most 2000 characters');
+  });
+
+  it("hands the webhook New automation made to that automation's chat alone, until it was shown", () => {
+    const made = { token: 't0k', url: 'http://127.0.0.1:8787/api/hooks/c1', hook: { createdAt: 1 }, platform: 'darwin' };
+    expect(handedHook('c1')).toBeUndefined();
+    handOverHook('c1', made);
+    expect(handedHook('c2')).toBeUndefined();
+    // Read as often as the page renders, until the drawer showed it.
+    expect(handedHook('c1')).toBe(made);
+    expect(handedHook('c1')).toBe(made);
+    forgetHandedHook('c1');
+    expect(handedHook('c1')).toBeUndefined();
+  });
+
+  it('has no set times when the user only wants Run once now and the webhook: never due, never off, said so everywhere', () => {
+    const manual: ScheduleRepeat = { kind: 'manual' };
+    expect(nextRun(at(manual), MON)).toBeUndefined();
+    expect(upcomingRuns(at(manual), MON, 3)).toEqual([]);
+    // Saved as it is, with nothing else asked for: no time, no day, and on whatever the box said.
+    expect(withLang('en', () => validateSchedule({ text: 'check CI', repeat: manual, enabled: true }, MON).repeat)).toEqual(manual);
+    const draft = { ...draftFrom(undefined, MON, 'UTC'), text: 'check CI', kind: 'manual' as const, time: '', days: [], enabled: false };
+    expect(draftProblems(draft, MON, en)).toEqual([]);
+    expect(toUpdate(draft)).toMatchObject({ repeat: manual, enabled: true });
+    expect(describeRepeat(manual, en, 'en')).toBe('No set times');
+    expect(describeRepeat(manual, zhTW, 'zh-TW')).toBe('不定時');
+    const manualSaved: ConversationSchedule = { ...saved, repeat: manual, enabled: true, nextRunAt: undefined };
+    expect(scheduleState(manualSaved, en, 'en')).toBe('sent by Run once now or its webhook');
+    // Switched off by its reached goal, saving it as it is turns it on again.
+    expect(draftChanged(draftFrom(manualSaved, MON), manualSaved)).toBe(false);
+    const manualOff = { ...manualSaved, enabled: false };
+    expect(draftChanged(draftFrom(manualOff, MON), manualOff)).toBe(true);
+    expect(toUpdate(draftFrom(manualOff, MON)).enabled).toBe(true);
+    expect(scheduleState(manualOff, en, 'en')).toBe('paused');
+    expect(sidebarScheduleTitle({ enabled: true, manual: true }, en, 'en')).toBe('Automation: no set times (Run once now or its webhook)');
+    expect(sidebarScheduleTitle({ enabled: true, manual: true }, zhTW, 'zh-TW')).toBe('自動任務：不定時（立即執行一次或 webhook）');
+  });
+
+  it("writes a command that calls the schedule's webhook", () => {
+    expect(hookExample('http://127.0.0.1:8787/api/hooks/c1', 'tok_en-1')).toBe(
+      `curl -X POST -H 'Authorization: Bearer tok_en-1' -H 'Content-Type: application/json' -d '{"event":"ci-failed","branch":"main"}' 'http://127.0.0.1:8787/api/hooks/c1'`,
+    );
+    // A server on Windows: PowerShell's own command, whose `curl` is another one and whose cmd.exe takes no single quotes.
+    expect(hookExample('http://127.0.0.1:8787/api/hooks/c1', 'tok_en-1', 'win32')).toBe(
+      `Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8787/api/hooks/c1' -Headers @{ Authorization = 'Bearer tok_en-1' } -ContentType 'application/json' -Body '{"event":"ci-failed","branch":"main"}'`,
+    );
+  });
+
+  it("shows times of day in the schedule's time zone, and moments and intervals in the browser's", () => {
     expect(shownZone({ repeat: { kind: 'daily' }, timeZone: 'Asia/Taipei' })).toBe('Asia/Taipei');
     expect(shownZone({ repeat: { kind: 'weekly' }, timeZone: 'Asia/Taipei' })).toBe('Asia/Taipei');
     expect(shownZone({ repeat: { kind: 'once' }, timeZone: 'Asia/Taipei' })).toBeUndefined();
@@ -255,12 +322,18 @@ describe('the schedule form', () => {
     const draft = draftFrom(undefined, MON, 'UTC');
     const p = en.schedule.problems;
     expect(draftProblems(draft, MON, en)).toEqual([p.text]);
-    expect(draftProblems({ ...draft, text: 'go', days: [], time: '' }, MON, en)).toEqual([p.days, p.time]);
+    expect(draftProblems({ ...draft, text: 'go', kind: 'weekly', days: [], time: '' }, MON, en)).toEqual([p.days, p.time]);
+    // No set times: no days nor time to check.
+    expect(draftProblems({ ...draft, text: 'go', days: [], time: '' }, MON, en)).toEqual([]);
     expect(draftProblems({ ...draft, text: 'go', kind: 'interval', hours: 200 }, MON, en)).toEqual([p.hours(168)]);
     expect(draftProblems({ ...draft, text: 'go', kind: 'once', at: localInput(MON - HOUR) }, MON, en)).toEqual([p.past]);
     expect(draftProblems({ ...draft, text: 'go', kind: 'once', at: localInput(MON - HOUR), enabled: false }, MON, en)).toEqual([]);
     expect(draftProblems({ ...draft, text: 'go', kind: 'once', at: '' }, MON, en)).toEqual([p.moment]);
-    expect(previewRuns({ ...draft, text: 'go', kind: 'interval', hours: 2 }, MON)).toEqual([MON + 2 * HOUR, MON + 4 * HOUR, MON + 6 * HOUR]);
+    expect(previewRuns({ ...draft, text: 'go', kind: 'interval', hours: 2 }, MON)).toEqual([
+      MON + 2 * HOUR,
+      MON + 4 * HOUR,
+      MON + 6 * HOUR,
+    ]);
     // A saved interval whose times stay the same keeps its cadence, as the server does on saving.
     const every6: ConversationSchedule = { ...saved, repeat: { kind: 'interval', hours: 6 }, updatedAt: MON - 2 * HOUR };
     const editing = { ...draftFrom(every6, MON), text: 'another message' };
@@ -282,16 +355,22 @@ describe('the schedule form', () => {
     expect(scheduleTrouble({ lastResult: 'queued' })).toBe(false);
     for (const r of ['missed', 'skipped', 'failed'] as const) expect(scheduleTrouble({ lastResult: r })).toBe(true);
     expect(scheduleState({ ...saved, enabled: false }, en, 'en')).toBe('paused');
-    expect(scheduleState({ ...saved, repeat: { kind: 'once', at: MON }, enabled: false, nextRunAt: undefined, lastRunAt: MON }, en, 'en')).toBe('done');
+    expect(
+      scheduleState({ ...saved, repeat: { kind: 'once', at: MON }, enabled: false, nextRunAt: undefined, lastRunAt: MON }, en, 'en'),
+    ).toBe('done');
     // Changed to a one-time schedule, switched off: the earlier time it came due does not make it done.
-    expect(scheduleState({ ...saved, repeat: { kind: 'once', at: MON + DAY }, enabled: false, nextRunAt: undefined, lastRunAt: MON }, en, 'en')).toBe('paused');
+    expect(
+      scheduleState({ ...saved, repeat: { kind: 'once', at: MON + DAY }, enabled: false, nextRunAt: undefined, lastRunAt: MON }, en, 'en'),
+    ).toBe('paused');
     expect(scheduleState(saved, en, 'en')).toMatch(/^next /);
-    expect(sidebarScheduleTitle({ enabled: true, nextRunAt: MON, lastResult: 'failed' }, en, 'en')).toBe('Schedule last time: could not be sent');
-    expect(sidebarScheduleTitle({ enabled: false }, en, 'en')).toBe('Schedule paused');
+    expect(sidebarScheduleTitle({ enabled: true, nextRunAt: MON, lastResult: 'failed' }, en, 'en')).toBe(
+      'Automation last time: could not be sent',
+    );
+    expect(sidebarScheduleTitle({ enabled: false }, en, 'en')).toBe('Automation paused');
     // The next time in the schedule's own time zone when it has one, else the browser's.
     const next = Date.UTC(2026, 0, 5, 1, 0);
     expect(sidebarScheduleTitle({ enabled: true, nextRunAt: next, timeZone: 'Asia/Taipei' }, en, 'en')).toMatch(/09:00/);
     expect(sidebarScheduleTitle({ enabled: true, nextRunAt: next, timeZone: 'UTC' }, en, 'en')).toMatch(/01:00/);
-    expect(sidebarScheduleTitle({ enabled: true, nextRunAt: next }, en, 'en')).toBe(`Schedule: next ${formatWhen(next, 'en')}`);
+    expect(sidebarScheduleTitle({ enabled: true, nextRunAt: next }, en, 'en')).toBe(`Automation: next ${formatWhen(next, 'en')}`);
   });
 });

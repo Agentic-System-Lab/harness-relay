@@ -1,5 +1,16 @@
 import { expect, test } from '../fixtures';
-import { askAndConfirm, awaitingPlan, chatId, composer, confirmTeam, finishedReply, replies, send, settled, startChat } from '../support/app';
+import {
+  askAndConfirm,
+  awaitingPlan,
+  chatId,
+  composer,
+  confirmTeam,
+  finishedReply,
+  replies,
+  send,
+  settled,
+  startChat,
+} from '../support/app';
 import { eachHalf, sharedPermission, teamOf } from '../support/clis';
 
 /** The most members the lead agent puts in a team it designs for a new question (`newTeamLimit` in src/server/planner.ts). */

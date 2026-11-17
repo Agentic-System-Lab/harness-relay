@@ -40,6 +40,11 @@ import type {
   PushStatus,
   PushSubscriptionJson,
   ReportScreenshots,
+  OutboxItem,
+  CalendarAccountUpdate,
+  ConnectorsView,
+  MailAccountUpdate,
+  NewScheduleHook,
   ScheduleUpdate,
   SearchResult,
   ServerLimits,
@@ -231,7 +236,8 @@ export const api = {
   /** Whether the server sends push notifications: the key to subscribe with, or why not. */
   pushStatus: () => request<PushStatus>('GET', '/api/push'),
   /** Keeps this browser's push subscription and which alerts it wants. */
-  pushSubscribe: (subscription: PushSubscriptionJson, prefs: AlertPrefs) => request<{ ok: true }>('PUT', '/api/push/subscription', { subscription, prefs }),
+  pushSubscribe: (subscription: PushSubscriptionJson, prefs: AlertPrefs) =>
+    request<{ ok: true }>('PUT', '/api/push/subscription', { subscription, prefs }),
   pushUnsubscribe: (endpoint: string) => request<{ ok: true }>('DELETE', '/api/push/subscription', { endpoint }),
   /** Has the server send this browser a test notification through its push service. */
   pushTest: (endpoint: string) => request<{ ok: true }>('POST', '/api/push/test', { endpoint }),
@@ -241,9 +247,12 @@ export const api = {
    * page of it is still in front. Never fails.
    */
   presence: (visible: boolean, page: string) =>
-    void fetch('/api/push/presence', { method: 'POST', keepalive: true, headers: headers(true, readKey()), body: JSON.stringify({ visible, page }) }).catch(
-      () => undefined,
-    ),
+    void fetch('/api/push/presence', {
+      method: 'POST',
+      keepalive: true,
+      headers: headers(true, readKey()),
+      body: JSON.stringify({ visible, page }),
+    }).catch(() => undefined),
   /** The conversation's live updates. EventSource sends no headers, so the key goes in the query. */
   eventsUrl: (id: string) => {
     const key = readKey();
@@ -267,20 +276,27 @@ export const api = {
     request<Conversation>('PATCH', `/api/conversations/${id}`, b),
   deleteConversation: (id: string) => request<{ ok: true }>('DELETE', `/api/conversations/${id}`),
   /** `groupId: null` puts it in the default group ("Other"). */
-  moveToGroup: (id: string, groupId: string | null) =>
-    request<{ ok: true }>('PUT', `/api/conversations/${id}/group`, { groupId }),
+  moveToGroup: (id: string, groupId: string | null) => request<{ ok: true }>('PUT', `/api/conversations/${id}/group`, { groupId }),
   /** Pin it to the top of the sidebar, or unpin it. */
   pinConversation: (id: string, pinned: boolean) => request<{ ok: true }>('PUT', `/api/conversations/${id}/pin`, { pinned }),
   /** Set the conversation's schedule (it replaces the one there was). */
   saveSchedule: (id: string, b: ScheduleUpdate) => request<ConversationSchedule>('PUT', `/api/conversations/${id}/schedule`, b),
   deleteSchedule: (id: string) => request<{ ok: true }>('DELETE', `/api/conversations/${id}/schedule`),
   /** A new schedule in a conversation of its own, whose lead agent designs the team for it now. */
-  createSchedule: (b: { title?: string; settings: Partial<ConversationSettings>; createCwd?: boolean; schedule: ScheduleUpdate }) =>
-    request<Conversation>('POST', '/api/schedules', b),
+  createSchedule: (b: {
+    title?: string;
+    settings: Partial<ConversationSettings>;
+    createCwd?: boolean;
+    schedule: ScheduleUpdate;
+    hook?: boolean;
+  }) => request<Conversation & { newHook?: NewScheduleHook }>('POST', '/api/schedules', b),
   /** Have the lead agent design the team for the schedule's message (again). */
   designSchedule: (id: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/schedule/design`),
   /** Send the schedule's message now; `queued` while the team replies, `chatId` when it opened a new conversation. */
   runSchedule: (id: string) => request<{ ok: true; queued: boolean; chatId?: string }>('POST', `/api/conversations/${id}/schedule/run`),
+  /** A webhook for the schedule (a new token replaces the one it had): the token, shown this once, and the address to call. */
+  createScheduleHook: (id: string) => request<NewScheduleHook>('POST', `/api/conversations/${id}/schedule/hook`, {}),
+  deleteScheduleHook: (id: string) => request<{ ok: true }>('DELETE', `/api/conversations/${id}/schedule/hook`),
   /** Conversations whose title or messages contain every word of `q`. */
   search: (q: string) => request<SearchResult[]>('GET', `/api/search?q=${encodeURIComponent(q)}`),
   /** The working directories to offer: the default one, then the conversations', the most recently used first. */
@@ -306,13 +322,22 @@ export const api = {
   downloadBase: (convId: string, messageId: string) => `/api/conversations/${convId}/messages/${messageId}/download`,
   resend: (id: string, messageId: string, text: string) =>
     request<{ ok: true }>('PUT', `/api/conversations/${id}/messages/${messageId}`, { text }),
-  retry: (id: string, messageId: string) =>
-    request<{ ok: true }>('POST', `/api/conversations/${id}/messages/${messageId}/retry`),
+  retry: (id: string, messageId: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/messages/${messageId}/retry`),
   /** A new conversation with the messages up to and including this agent reply; returns it. */
-  branch: (id: string, messageId: string) =>
-    request<Conversation>('POST', `/api/conversations/${id}/messages/${messageId}/branch`),
+  branch: (id: string, messageId: string) => request<Conversation>('POST', `/api/conversations/${id}/messages/${messageId}/branch`),
   answerApproval: (id: string, approvalId: string, answer: ApprovalAnswer) =>
     request<{ ok: true }>('POST', `/api/conversations/${id}/approvals/${approvalId}`, answer),
+  connectors: () => request<ConnectorsView>('GET', '/api/connectors'),
+  saveMailAccount: (id: string, b: MailAccountUpdate) => request<ConnectorsView>('PUT', `/api/connectors/mail/${id}`, b),
+  saveCalendarAccount: (id: string, b: CalendarAccountUpdate) => request<ConnectorsView>('PUT', `/api/connectors/calendar/${id}`, b),
+  deleteConnector: (kind: 'mail' | 'calendar', id: string) => request<ConnectorsView>('DELETE', `/api/connectors/${kind}/${id}`),
+  testConnector: (kind: 'mail' | 'calendar', id: string) =>
+    request<{ ok: boolean; message?: string; error?: string }>('POST', `/api/connectors/${kind}/${id}/test`, {}),
+  discoverCalendars: (b: { url: string; username: string; password?: string; id?: string }) =>
+    request<{ ok: boolean; calendars?: { name: string; url: string }[]; error?: string }>('POST', '/api/connectors/calendar/discover', b),
+  /** Send or discard what an agent asked to send (an outbox item); only Send sends it. */
+  answerOutbox: (id: string, itemId: string, action: 'send' | 'discard') =>
+    request<OutboxItem>('POST', `/api/conversations/${id}/outbox/${itemId}`, { action }),
   confirmPlan: (id: string, messageId: string) =>
     request<{ ok: true }>('POST', `/api/conversations/${id}/messages/${messageId}/confirm-plan`),
   declinePlan: (id: string, messageId: string) =>
@@ -353,8 +378,7 @@ export const api = {
   // Tool library
   tools: () => request<ToolLibraryView>('GET', '/api/tools'),
   updateTools: (b: ToolLibraryUpdate) => request<ToolLibraryView>('PUT', '/api/tools', b),
-  saveMcpServer: (name: string, b: McpServerUpdate) =>
-    request<ToolLibraryView>('PUT', `/api/tools/mcp/${encodeURIComponent(name)}`, b),
+  saveMcpServer: (name: string, b: McpServerUpdate) => request<ToolLibraryView>('PUT', `/api/tools/mcp/${encodeURIComponent(name)}`, b),
   deleteMcpServer: (name: string) => request<ToolLibraryView>('DELETE', `/api/tools/mcp/${encodeURIComponent(name)}`),
   scanSkills: (path: string) =>
     request<{ path: string; skills: SkillCandidate[] }>('GET', `/api/tools/skills/scan?path=${encodeURIComponent(path)}`),
@@ -367,7 +391,8 @@ export const api = {
   rawFileUrl: (id: string, root: string, path: string) => `/api/conversations/${id}/files/raw?${fileQuery(root, path)}`,
   downloadFileUrl: (id: string, root: string, path: string) => `/api/conversations/${id}/files/download?${fileQuery(root, path)}`,
   /** What a folder's ZIP file would hold (nothing is zipped). */
-  checkZip: (id: string, root: string, path: string) => request<ZipCheck>('GET', `/api/conversations/${id}/files/zip/check?${fileQuery(root, path)}`),
+  checkZip: (id: string, root: string, path: string) =>
+    request<ZipCheck>('GET', `/api/conversations/${id}/files/zip/check?${fileQuery(root, path)}`),
   /** A folder as a ZIP file; `unignored`: only what git does not ignore. */
   zipUrl: (id: string, root: string, path: string, unignored = false) =>
     `/api/conversations/${id}/files/zip?${fileQuery(root, path)}${unignored ? '&unignored=1' : ''}`,
@@ -376,12 +401,12 @@ export const api = {
   // Model backends (the open agents): keys come back masked
   backends: () => request<ModelBackendsView>('GET', '/api/backends'),
   setBackendKey: (id: ApiBackend, apiKey: string | null) => request<ModelBackendsView>('PUT', `/api/backends/${id}`, { apiKey }),
-  saveEndpoint: (id: string, b: ModelEndpointUpdate) => request<ModelBackendsView>('PUT', `/api/backends/endpoints/${encodeURIComponent(id)}`, b),
+  saveEndpoint: (id: string, b: ModelEndpointUpdate) =>
+    request<ModelBackendsView>('PUT', `/api/backends/endpoints/${encodeURIComponent(id)}`, b),
   deleteEndpoint: (id: string) => request<ModelBackendsView>('DELETE', `/api/backends/endpoints/${encodeURIComponent(id)}`),
   forgetDeletedEndpoint: (id: string) => request<ModelBackendsView>('DELETE', `/api/backends/deleted-endpoints/${encodeURIComponent(id)}`),
   updateSettings: (b: SettingsUpdate) => request<SettingsView>('PUT', '/api/settings', b),
-  updateProvider: (p: Provider, b: ProviderSettingsUpdate) =>
-    request<SettingsView>('PUT', `/api/settings/providers/${p}`, b),
+  updateProvider: (p: Provider, b: ProviderSettingsUpdate) => request<SettingsView>('PUT', `/api/settings/providers/${p}`, b),
   models: (refresh = false) => request<ProviderModels[]>('GET', `/api/models${refresh ? '?refresh=1' : ''}`),
   providers: (refresh = false) => request<ProviderStatus[]>('GET', `/api/providers${refresh ? '?refresh=1' : ''}`),
   /**

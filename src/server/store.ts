@@ -20,10 +20,14 @@ import type {
   MessagePart,
   Mode,
   Permission,
+  ProgressStatus,
   Provider,
   RunPause,
+  TrackedRun,
+  ScheduleHook,
   ScheduleRepeat,
   ScheduleResult,
+  ScheduleTracking,
   TeamPlan,
   TeamPreset,
   ToolCallKind,
@@ -32,7 +36,7 @@ import type {
   SearchResult,
   SharedPage,
 } from '../shared/types';
-import { PERMISSION_ORDER, PROVIDERS, TOOL_CALL_KINDS, cwdSettings, pendingPlan } from '../shared/types';
+import { ALERT_KINDS, PERMISSION_ORDER, PROGRESS_STATUSES, PROVIDERS, TOOL_CALL_KINDS, cwdSettings, pendingPlan } from '../shared/types';
 import { byAge, familyOf, type FamilyMember } from '../shared/family';
 import { searchTerms, snippetAround, termsIn } from '../shared/search';
 import { nul, transaction, type Database } from './db';
@@ -58,8 +62,6 @@ interface ShareRow {
 
 /** How many notifications the inbox keeps: past them, the oldest go. */
 export const INBOX_KEPT = 200;
-
-const ALERT_KINDS: readonly AlertKind[] = ['done', 'error', 'approval', 'confirm', 'answer'];
 
 interface NotificationRow {
   id: string;
@@ -149,6 +151,8 @@ interface MessageRow {
   queued: number | null;
   asked: number | null;
   scheduled: number | null;
+  tracked: string | null;
+  event: string | null;
 }
 
 interface ScheduleRow {
@@ -167,6 +171,9 @@ interface ScheduleRow {
   last_error: string | null;
   new_chat: number;
   last_chat_id: string | null;
+  goal: string | null;
+  tracking: string | null;
+  hook: string | null;
 }
 
 interface ChangeRow {
@@ -220,7 +227,14 @@ function parseJson<T>(json: string | null, fallback: T): T {
 const opt = <T>(v: T | null): T | undefined => (v === null ? undefined : v);
 
 function toAgent(r: AgentRow): AgentConfig {
-  const agent: AgentConfig = { id: r.agent_id, name: r.name, provider: r.provider, role: r.role, model: opt(r.model), effort: opt(r.effort) };
+  const agent: AgentConfig = {
+    id: r.agent_id,
+    name: r.name,
+    provider: r.provider,
+    role: r.role,
+    model: opt(r.model),
+    effort: opt(r.effort),
+  };
   const tools = parseTools(r.tools);
   if (tools) agent.tools = tools;
   if (r.account) agent.account = r.account;
@@ -272,6 +286,19 @@ function toPart(r: PartRow): MessagePart {
       return { type: 'approval', ...parseJson(r.data, { id: '', kind: 'other' as const, status: 'expired' as const }) };
     case 'attachment':
       return { type: 'attachment', ...parseJson(r.data, { id: '', name: 'file', mimeType: 'application/octet-stream', size: 0 }) };
+    case 'outbox':
+      return {
+        type: 'outbox',
+        ...parseJson(r.data, { id: '', tool: '', title: '', preview: { fields: [] }, status: 'failed' as const }),
+      };
+    case 'progress': {
+      const status = parseJson<{ status?: unknown }>(r.data, {}).status;
+      return {
+        type: 'progress',
+        status: PROGRESS_STATUSES.includes(status as never) ? (status as ProgressStatus) : 'working',
+        text: r.text ?? '',
+      };
+    }
     default:
       return { type: 'text', text: r.text ?? '' };
   }
@@ -287,8 +314,11 @@ function partColumns(p: MessagePart): (string | null)[] {
       return [null, p.id, p.name, nul(p.detail), p.status, nul(p.error), nul(p.output), p.kind ? JSON.stringify({ kind: p.kind }) : null];
     case 'plan':
       return [null, null, null, null, null, null, null, JSON.stringify(p.entries)];
+    case 'progress':
+      return [p.text, null, null, null, null, null, null, JSON.stringify({ status: p.status })];
     case 'approval':
-    case 'attachment': {
+    case 'attachment':
+    case 'outbox': {
       const { type: _type, ...data } = p;
       return [null, null, null, null, null, null, null, JSON.stringify(data)];
     }
@@ -355,12 +385,16 @@ function toMessage(r: MessageRow, parts: MessagePart[], files: FileChange[]): Ch
     queued: r.queued ? true : undefined,
     asked: r.asked ? true : undefined,
     scheduled: r.scheduled ? true : undefined,
+    ...(r.event ? { event: r.event } : {}),
+    ...trackedOf(r.tracked),
   };
 }
 
 function toSchedule(r: ScheduleRow): ConversationSchedule | undefined {
   const repeat = parseJson<ScheduleRepeat | null>(r.repeat, null);
   if (!repeat) return undefined;
+  const tracking = parseTracking(r.tracking);
+  const hook = parseHook(r.hook);
   return {
     text: r.text,
     repeat,
@@ -376,7 +410,22 @@ function toSchedule(r: ScheduleRow): ConversationSchedule | undefined {
     ...(r.last_result ? { lastResult: r.last_result } : {}),
     ...(r.last_error ? { lastError: r.last_error } : {}),
     ...(r.last_chat_id ? { lastChatId: r.last_chat_id } : {}),
+    ...(r.goal ? { goal: r.goal } : {}),
+    ...(r.goal && tracking ? { tracking } : {}),
+    ...(hook ? { hook } : {}),
   };
+}
+
+/** A schedule's tracking state as stored, when it can be read. */
+function parseTracking(json: string | null): ScheduleTracking | undefined {
+  const t = parseJson<ScheduleTracking | null>(json, null);
+  if (!t || typeof t !== 'object' || !Array.isArray(t.notes)) return undefined;
+  return { ...t, status: PROGRESS_STATUSES.includes(t.status) ? t.status : 'working' };
+}
+
+function parseHook(json: string | null): ScheduleHook | undefined {
+  const h = parseJson<ScheduleHook | null>(json, null);
+  return h && typeof h === 'object' && typeof h.createdAt === 'number' ? h : undefined;
 }
 
 /** What the sidebar shows of a schedule; times of day are shown in the schedule's time zone. */
@@ -389,16 +438,21 @@ function scheduleSummary(
     ...(s.nextRunAt !== undefined ? { nextRunAt: s.nextRunAt } : {}),
     ...(s.lastResult ? { lastResult: s.lastResult } : {}),
     ...(ofDay ? { timeZone: s.timeZone } : {}),
+    ...(s.repeat?.kind === 'manual' ? { manual: true } : {}),
   };
 }
 
 /** The latest agent reply's id and status, from memory when the conversation is open (it may be streaming). */
 function statusOf(
   live: Conversation | undefined,
-  stored: { id: string; status: MessageStatus } | undefined,
-): Pick<ConversationSummary, 'lastStatus' | 'lastReplyId'> {
-  const last = live ? [...live.messages].reverse().find((m) => m.author.kind === 'agent') : stored;
-  return last ? { lastStatus: last.status, lastReplyId: last.id } : {};
+  stored: { id: string; status: MessageStatus; blocked?: boolean } | undefined,
+): Pick<ConversationSummary, 'lastStatus' | 'lastReplyId' | 'blocked'> {
+  const reply = live ? [...live.messages].reverse().find((m) => m.author.kind === 'agent') : undefined;
+  const last = reply ?? (live ? undefined : stored);
+  if (!last) return {};
+  // A finished reply whose tracked goal it says is held up needs the user (`blocked`).
+  const blocked = reply ? reply.parts.some((p) => p.type === 'progress' && p.status === 'blocked') : Boolean(stored?.blocked);
+  return { lastStatus: last.status, lastReplyId: last.id, ...(blocked && last.status !== 'streaming' ? { blocked: true } : {}) };
 }
 
 /**
@@ -413,12 +467,17 @@ function queueOf(json: string | null, messages: ChatMessage[]): Pick<Conversatio
 }
 
 /** The sidebar's view of a conversation's schedule, from memory when the conversation is open. */
-function scheduleOf(
-  live: Conversation | undefined,
-  stored: ConversationSummary['schedule'],
-): Pick<ConversationSummary, 'schedule'> {
+function scheduleOf(live: Conversation | undefined, stored: ConversationSummary['schedule']): Pick<ConversationSummary, 'schedule'> {
   const schedule = live ? live.schedule && scheduleSummary(live.schedule) : stored;
   return schedule ? { schedule } : {};
+}
+
+/** A message's `tracked` run (JSON), when it has a sound one. */
+function trackedOf(json: string | null): Pick<ChatMessage, 'tracked'> {
+  const t = parseJson<Partial<TrackedRun> | null>(json, null);
+  return t && typeof t.sourceId === 'string' && typeof t.due === 'number' && typeof t.attempt === 'number'
+    ? { tracked: { sourceId: t.sourceId, due: t.due, attempt: t.attempt, retries: Boolean(t.retries) } }
+    : {};
 }
 
 function pauseOf(json: string | null): Pick<Conversation, 'pause'> {
@@ -454,10 +513,7 @@ function branchOf(json: string | null): Pick<Conversation, 'branch'> {
  * where the deleted one came from goes after it (see `BranchPart.via`), so the family stays together.
  * Undefined when nothing changes.
  */
-function partPast<P extends BranchPart>(
-  part: P,
-  deleted: { id: string; title: string; branch?: ConversationBranch },
-): P | undefined {
+function partPast<P extends BranchPart>(part: P, deleted: { id: string; title: string; branch?: ConversationBranch }): P | undefined {
   const via = part.via ?? [];
   if ((via.at(-1)?.id ?? part.fromId) !== deleted.id) return undefined;
   const above = deleted.branch ? [{ id: deleted.branch.fromId, title: deleted.branch.fromTitle }, ...(deleted.branch.via ?? [])] : [];
@@ -501,8 +557,8 @@ function parseReview(json: string | null): LeadReview | undefined {
 const UPSERT_MESSAGE = `INSERT INTO messages (id, conversation_id, seq, author_kind, agent_id, agent_name, provider, created_at,
                        status, passed, error, round, duration_ms, cost_usd, input_tokens, output_tokens,
                        change_root, change_base, change_head, change_isolated, change_branch, more_changes, plan, review, queued,
-                       asked, scheduled)
- VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       asked, scheduled, event, tracked)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
  ON CONFLICT(id) DO UPDATE SET
    seq = excluded.seq, status = excluded.status, passed = excluded.passed, error = excluded.error,
    round = excluded.round, duration_ms = excluded.duration_ms, cost_usd = excluded.cost_usd,
@@ -510,7 +566,8 @@ const UPSERT_MESSAGE = `INSERT INTO messages (id, conversation_id, seq, author_k
    change_root = excluded.change_root, change_base = excluded.change_base, change_head = excluded.change_head,
    change_isolated = excluded.change_isolated, change_branch = excluded.change_branch,
    more_changes = excluded.more_changes, plan = excluded.plan, review = excluded.review,
-   queued = excluded.queued, asked = excluded.asked, scheduled = excluded.scheduled`;
+   queued = excluded.queued, asked = excluded.asked, scheduled = excluded.scheduled, event = excluded.event,
+   tracked = excluded.tracked`;
 
 const INSERT_PART = `INSERT INTO message_parts (message_id, idx, type, text, tool_id, tool_name, tool_detail, tool_status, tool_error,
                             tool_output, data)
@@ -575,24 +632,28 @@ export class Store {
     const agents = this.db
       .prepare('SELECT conversation_id, name, provider FROM conversation_agents ORDER BY conversation_id, position')
       .all() as { conversation_id: string; name: string; provider: Provider }[];
-    // Each conversation's latest agent reply: which, and how it ended.
+    // Each conversation's latest agent reply: which, how it ended, and whether its progress block says
+    // the tracked goal is held up (JSON.stringify writes the status this way).
     const lastStatus = new Map(
       (
         this.db
           .prepare(
-            `SELECT m.conversation_id, m.id, m.status FROM messages m
+            `SELECT m.conversation_id, m.id, m.status,
+                    EXISTS (SELECT 1 FROM message_parts p WHERE p.message_id = m.id AND p.type = 'progress'
+                            AND p.data LIKE '%"status":"blocked"%') AS blocked
+             FROM messages m
              JOIN (SELECT conversation_id, MAX(seq) AS seq FROM messages WHERE author_kind = 'agent' GROUP BY conversation_id) l
                ON l.conversation_id = m.conversation_id AND l.seq = m.seq`,
           )
-          .all() as { conversation_id: string; id: string; status: MessageStatus }[]
-      ).map((r) => [r.conversation_id, { id: r.id, status: r.status }]),
+          .all() as { conversation_id: string; id: string; status: MessageStatus; blocked: number }[]
+      ).map((r) => [r.conversation_id, { id: r.id, status: r.status, ...(r.blocked ? { blocked: true } : {}) }]),
     );
     // Team designs waiting for the user's confirmation (JSON.stringify writes the flag this way).
     const confirming = new Set(
       (
-        this.db
-          .prepare(`SELECT DISTINCT conversation_id FROM messages WHERE plan LIKE '%"awaitingConfirmation":true%'`)
-          .all() as { conversation_id: string }[]
+        this.db.prepare(`SELECT DISTINCT conversation_id FROM messages WHERE plan LIKE '%"awaitingConfirmation":true%'`).all() as {
+          conversation_id: string;
+        }[]
       ).map((r) => r.conversation_id),
     );
     const schedules = new Map(
@@ -637,9 +698,7 @@ export class Store {
           ...(r.pinned_at !== null ? { pinnedAt: r.pinned_at } : {}),
           ...(sorting(r.id) ? { sorting: true } : {}),
           ...scheduleOf(live, schedules.get(r.id)),
-          ...(branch
-            ? { branchFrom: { id: branch.fromId, title: branch.fromTitle, ...(branch.via ? { via: branch.via } : {}) } }
-            : {}),
+          ...(branch ? { branchFrom: { id: branch.fromId, title: branch.fromTitle, ...(branch.via ? { via: branch.via } : {}) } } : {}),
         };
       })
       .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -690,9 +749,10 @@ export class Store {
       if (s.account) agentState[s.agent_id]!.account = s.account;
       if (s.backend) agentState[s.agent_id]!.backend = s.backend;
     }
-    const seen = this.db
-      .prepare('SELECT agent_id, message_id FROM agent_seen WHERE conversation_id = ?')
-      .all(id) as { agent_id: string; message_id: string }[];
+    const seen = this.db.prepare('SELECT agent_id, message_id FROM agent_seen WHERE conversation_id = ?').all(id) as {
+      agent_id: string;
+      message_id: string;
+    }[];
     for (const s of seen) agentState[s.agent_id]?.seen.push(s.message_id);
     for (const [agentId, state] of Object.entries(agentState)) this.savedSeen.set(seenKey(id, agentId), new Set(state.seen));
 
@@ -889,9 +949,7 @@ export class Store {
   /** Persist the messages waiting to be delivered. */
   saveQueue(conv: Conversation): void {
     if (this.deleted.has(conv.id)) return;
-    this.db
-      .prepare('UPDATE conversations SET queue = ? WHERE id = ?')
-      .run(conv.queue?.length ? JSON.stringify(conv.queue) : null, conv.id);
+    this.db.prepare('UPDATE conversations SET queue = ? WHERE id = ?').run(conv.queue?.length ? JSON.stringify(conv.queue) : null, conv.id);
   }
 
   // Schedules ----------------------------------------------------------------------
@@ -907,13 +965,14 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO schedules (conversation_id, text, repeat, time_zone, lang, enabled, approvals, missed, new_chat, updated_at,
-                                next_run_at, last_run_at, last_result, last_error, last_chat_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                next_run_at, last_run_at, last_result, last_error, last_chat_id, goal, tracking, hook)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(conversation_id) DO UPDATE SET text = excluded.text, repeat = excluded.repeat,
            time_zone = excluded.time_zone, lang = excluded.lang, enabled = excluded.enabled, approvals = excluded.approvals,
            missed = excluded.missed, new_chat = excluded.new_chat, updated_at = excluded.updated_at,
            next_run_at = excluded.next_run_at, last_run_at = excluded.last_run_at, last_result = excluded.last_result,
-           last_error = excluded.last_error, last_chat_id = excluded.last_chat_id`,
+           last_error = excluded.last_error, last_chat_id = excluded.last_chat_id, goal = excluded.goal,
+           tracking = excluded.tracking, hook = excluded.hook`,
       )
       .run(
         conv.id,
@@ -931,15 +990,50 @@ export class Store {
         nul(s.lastResult),
         nul(s.lastError),
         nul(s.lastChatId),
+        nul(s.goal),
+        s.goal && s.tracking ? JSON.stringify(s.tracking) : null,
+        s.hook ? JSON.stringify(s.hook) : null,
       );
+    // A schedule without a webhook has no token either.
+    if (!s.hook) this.db.prepare('UPDATE schedules SET hook_hash = NULL WHERE conversation_id = ?').run(conv.id);
+  }
+
+  /** The SHA-256 (hex) of the token of the conversation's schedule's webhook, if it has one. */
+  hookHash(convId: string): string | undefined {
+    const row = this.db.prepare('SELECT hook_hash FROM schedules WHERE conversation_id = ?').get(convId) as
+      { hook_hash: string | null } | undefined;
+    return row?.hook_hash ?? undefined;
+  }
+
+  /**
+   * Give the conversation's schedule a webhook whose token has this hash (replacing one it had), or
+   * take it away (`undefined`). The schedule must be saved; its `hook` is set here as well.
+   */
+  setHook(conv: Conversation, hash: string | undefined, now: number): void {
+    if (!conv.schedule || this.deleted.has(conv.id)) return;
+    if (hash) conv.schedule.hook = { createdAt: now };
+    else delete conv.schedule.hook;
+    transaction(this.db, () => {
+      this.saveSchedule(conv);
+      this.db.prepare('UPDATE schedules SET hook_hash = ? WHERE conversation_id = ?').run(nul(hash), conv.id);
+    });
+  }
+
+  /** Conversations whose schedule tracks a goal. */
+  trackingSchedules(): string[] {
+    return (
+      this.db.prepare('SELECT conversation_id FROM schedules WHERE goal IS NOT NULL AND tracking IS NOT NULL').all() as {
+        conversation_id: string;
+      }[]
+    ).map((r) => r.conversation_id);
   }
 
   /** Conversations whose schedule is on and due by `now`, the most overdue first. */
   dueSchedules(now: number): string[] {
     return (
-      this.db
-        .prepare('SELECT conversation_id FROM schedules WHERE enabled = 1 AND next_run_at <= ? ORDER BY next_run_at')
-        .all(now) as { conversation_id: string }[]
+      this.db.prepare('SELECT conversation_id FROM schedules WHERE enabled = 1 AND next_run_at <= ? ORDER BY next_run_at').all(now) as {
+        conversation_id: string;
+      }[]
     ).map((r) => r.conversation_id);
   }
 
@@ -1040,6 +1134,8 @@ export class Store {
         m.queued ? 1 : null,
         m.asked ? 1 : null,
         m.scheduled ? 1 : null,
+        nul(m.event),
+        m.tracked ? JSON.stringify(m.tracked) : null,
       );
       clearChanges.run(m.id);
       first?.files.forEach((f, idx) => insertChange.run(m.id, idx, f.path, f.status, f.added, f.deleted));
@@ -1168,7 +1264,9 @@ export class Store {
 
   /** The user's groups, in the order they were made. (The default group, "Other", is not stored.) */
   listGroups(): ConversationGroup[] {
-    return this.db.prepare('SELECT id, name FROM conversation_groups ORDER BY position, created_at').all() as unknown as ConversationGroup[];
+    return this.db
+      .prepare('SELECT id, name FROM conversation_groups ORDER BY position, created_at')
+      .all() as unknown as ConversationGroup[];
   }
 
   getGroup(id: string): ConversationGroup | undefined {
@@ -1234,8 +1332,7 @@ export class Store {
    */
   private branchesPast(id: string, live: Conversation | undefined): [string, ConversationBranch][] {
     const row = this.db.prepare('SELECT title, branch FROM conversations WHERE id = ?').get(id) as
-      | Pick<ConversationRow, 'title' | 'branch'>
-      | undefined;
+      Pick<ConversationRow, 'title' | 'branch'> | undefined;
     if (!row) return [];
     const deleted = { id, title: live?.title ?? row.title, branch: live ? live.branch : branchOf(row.branch).branch };
     const rows = this.db.prepare('SELECT id, branch FROM conversations WHERE branch IS NOT NULL AND id != ?').all(id) as Pick<
@@ -1309,9 +1406,7 @@ export class Store {
 
   /** A new branch goes into its family's group, as the user's choice (so the lead agent does not sort it). */
   placeBranch(convId: string): void {
-    this.db
-      .prepare("UPDATE conversations SET group_id = ?, group_source = 'user' WHERE id = ?")
-      .run(this.familyGroupOf(convId), convId);
+    this.db.prepare("UPDATE conversations SET group_id = ?, group_source = 'user' WHERE id = ?").run(this.familyGroupOf(convId), convId);
   }
 
   /**
@@ -1338,25 +1433,25 @@ export class Store {
   /** The conversation was put in a group already (or left in "Other" on purpose), by the user or the lead agent. */
   isSorted(convId: string): boolean {
     const row = this.db.prepare('SELECT group_source FROM conversations WHERE id = ?').get(convId) as
-      | { group_source: string | null }
-      | undefined;
+      { group_source: string | null } | undefined;
     return Boolean(row?.group_source);
   }
 
   /** Titles of a group's most recent conversations (shown to the lead agent as examples of what is in it). */
   groupTitles(groupId: string, limit: number): string[] {
     return (
-      this.db
-        .prepare('SELECT title FROM conversations WHERE group_id = ? ORDER BY updated_at DESC LIMIT ?')
-        .all(groupId, limit) as { title: string }[]
+      this.db.prepare('SELECT title FROM conversations WHERE group_id = ? ORDER BY updated_at DESC LIMIT ?').all(groupId, limit) as {
+        title: string;
+      }[]
     ).map((r) => r.title);
   }
 
   /** The conversations' working directories (all of each), each once, the most recently used first. */
   listCwds(): string[] {
-    const rows = this.db
-      .prepare('SELECT cwd, extra_cwds FROM conversations ORDER BY updated_at DESC, cwd')
-      .all() as { cwd: string; extra_cwds: string | null }[];
+    const rows = this.db.prepare('SELECT cwd, extra_cwds FROM conversations ORDER BY updated_at DESC, cwd').all() as {
+      cwd: string;
+      extra_cwds: string | null;
+    }[];
     return [...new Set(rows.flatMap((r) => [r.cwd, ...extraCwdsOf(r.extra_cwds)]))];
   }
 
@@ -1384,7 +1479,12 @@ export class Store {
       .all(...like) as { conversation_id: string; message_id: string; text: string }[];
     // The lead agent's reviews too (their text is in `review`, not in parts): what they say, not their JSON.
     // Their column holds JSON, which escapes quotes and backslashes: the words are looked for as it writes them.
-    const inJson = terms.map((t) => `%${JSON.stringify(t).slice(1, -1).replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+    const inJson = terms.map(
+      (t) =>
+        `%${JSON.stringify(t)
+          .slice(1, -1)
+          .replace(/[\\%_]/g, (c) => `\\${c}`)}%`,
+    );
     const reviews = this.db
       .prepare(
         `SELECT conversation_id, id AS message_id, review FROM messages
@@ -1499,7 +1599,14 @@ export class Store {
    * Keeps a notification about a conversation, unread; past `INBOX_KEPT`, the oldest go. Returns it,
    * or undefined when the conversation is gone (deleted while its run wound down).
    */
-  addNotification(n: { id: string; conversationId: string; kind: AlertKind; agent?: string; text?: string; createdAt: number }): InboxItem | undefined {
+  addNotification(n: {
+    id: string;
+    conversationId: string;
+    kind: AlertKind;
+    agent?: string;
+    text?: string;
+    createdAt: number;
+  }): InboxItem | undefined {
     if (this.deleted.has(n.conversationId)) return undefined;
     try {
       transaction(this.db, () => {
@@ -1527,7 +1634,7 @@ export class Store {
       )
       .all() as unknown as NotificationRow[];
     return rows
-      .filter((r) => (ALERT_KINDS as string[]).includes(r.kind))
+      .filter((r) => (ALERT_KINDS as readonly string[]).includes(r.kind))
       .map((r) => ({
         id: r.id,
         conversationId: r.conversation_id,
@@ -1543,9 +1650,12 @@ export class Store {
   /** How many are unread, in which conversations, and the newest one's id. */
   notificationSummary(): InboxSummary {
     const unread = this.db
-      .prepare('SELECT conversation_id, COUNT(*) AS n FROM notifications WHERE read_at IS NULL GROUP BY conversation_id ORDER BY MAX(created_at) DESC')
+      .prepare(
+        'SELECT conversation_id, COUNT(*) AS n FROM notifications WHERE read_at IS NULL GROUP BY conversation_id ORDER BY MAX(created_at) DESC',
+      )
       .all() as { conversation_id: string; n: number }[];
-    const newest = this.db.prepare('SELECT id FROM notifications ORDER BY created_at DESC, rowid DESC LIMIT 1').get() as { id: string } | undefined;
+    const newest = this.db.prepare('SELECT id FROM notifications ORDER BY created_at DESC, rowid DESC LIMIT 1').get() as
+      { id: string } | undefined;
     return {
       unread: unread.reduce((sum, r) => sum + r.n, 0),
       unreadIn: unread.map((r) => r.conversation_id),
@@ -1557,7 +1667,10 @@ export class Store {
   readNotifications(which: InboxReadRequest, now = Date.now()): number {
     if ('all' in which) return Number(this.db.prepare('UPDATE notifications SET read_at = ? WHERE read_at IS NULL').run(now).changes);
     if ('conversationId' in which) {
-      return Number(this.db.prepare('UPDATE notifications SET read_at = ? WHERE read_at IS NULL AND conversation_id = ?').run(now, which.conversationId).changes);
+      return Number(
+        this.db.prepare('UPDATE notifications SET read_at = ? WHERE read_at IS NULL AND conversation_id = ?').run(now, which.conversationId)
+          .changes,
+      );
     }
     return transaction(this.db, () => {
       const mark = this.db.prepare('UPDATE notifications SET read_at = ? WHERE read_at IS NULL AND id = ?');

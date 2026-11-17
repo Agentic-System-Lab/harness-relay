@@ -422,7 +422,11 @@ export class VoiceService {
     };
     const custom = this.settings.voice.bin;
     if (custom) {
-      const path = /[\\/]|^~/.test(custom) ? (fileExists(expandPath(custom)) ? expandPath(custom) : undefined) : findOnPath(custom, env, platform);
+      const path = /[\\/]|^~/.test(custom)
+        ? fileExists(expandPath(custom))
+          ? expandPath(custom)
+          : undefined
+        : findOnPath(custom, env, platform);
       return path ? { ...base, installed: true, path, source: 'custom' } : { ...base, problem: t().voiceBinNotFound(custom) };
     }
     const relay = relayEnginePath(this.host.dir, platform, arch);
@@ -447,7 +451,12 @@ export class VoiceService {
     return {
       ready: engine.installed && this.hasModel(model),
       engine,
-      models: VOICE_MODELS.map((id) => ({ id, size: MODEL_FILES[id].size, downloaded: this.hasModel(id), recommended: id === recommended })),
+      models: VOICE_MODELS.map((id) => ({
+        id,
+        size: MODEL_FILES[id].size,
+        downloaded: this.hasModel(id),
+        recommended: id === recommended,
+      })),
       model,
       language,
       bin,
@@ -582,7 +591,8 @@ export class VoiceService {
     } catch {
       /* not JSON */
     }
-    if (!res.ok || data.error) throw new HttpError(503, t().voiceTranscribeFailed(String(data.error ?? (body.slice(0, 300) || `HTTP ${res.status}`))));
+    if (!res.ok || data.error)
+      throw new HttpError(503, t().voiceTranscribeFailed(String(data.error ?? (body.slice(0, 300) || `HTTP ${res.status}`))));
     return cleanTranscript(String(data.text ?? ''));
   }
 
@@ -645,7 +655,13 @@ export class VoiceService {
     mkdirSync(unpacked, { recursive: true });
     // tar reads .tar.gz everywhere, and .zip on Windows 10+ (bsdtar).
     job.append(`$ tar -xf ${build.asset}\n`);
-    const r = await this.host.run({ bin: 'tar', args: ['-xf', archive, '-C', unpacked], env: this.host.env, signal, timeoutMs: 5 * 60 * 1000 });
+    const r = await this.host.run({
+      bin: 'tar',
+      args: ['-xf', archive, '-C', unpacked],
+      env: this.host.env,
+      signal,
+      timeoutMs: 5 * 60 * 1000,
+    });
     rmSync(archive, { force: true });
     if (r.aborted) throw new Error('aborted');
     if (r.code !== 0 || !fileExists(join(unpacked, build.server))) {
@@ -766,12 +782,18 @@ export class VoiceService {
       mkdirSync(publicDir, { recursive: true });
       const threads = String(Math.max(1, Math.min(8, availableParallelism())));
       const args = [
-        '--model', this.modelPath(model),
-        '--host', '127.0.0.1',
-        '--port', String(port),
-        '--request-path', `/${secret}`,
-        '--public', publicDir,
-        '--threads', threads,
+        '--model',
+        this.modelPath(model),
+        '--host',
+        '127.0.0.1',
+        '--port',
+        String(port),
+        '--request-path',
+        `/${secret}`,
+        '--public',
+        publicDir,
+        '--threads',
+        threads,
         '--no-timestamps',
         '--suppress-nst',
       ];

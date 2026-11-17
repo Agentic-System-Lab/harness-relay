@@ -9,7 +9,22 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { basename, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { Conversation } from '../src/shared/types';
-import { agentMessages, agents, calls, conversation, db, fake, finish, n, orchestrator, project, root, store, Store, textOf } from './orchestrator-harness';
+import {
+  agentMessages,
+  agents,
+  calls,
+  conversation,
+  db,
+  fake,
+  finish,
+  n,
+  orchestrator,
+  project,
+  root,
+  store,
+  Store,
+  textOf,
+} from './orchestrator-harness';
 
 describe('several working directories', () => {
   /** A second working directory with a file of its own; the first is `project`. */
@@ -96,7 +111,7 @@ describe('several working directories', () => {
     await finish(writer.id);
   });
 
-  it("tells a schedule that another conversation writes in one of them, before setting up its run", async () => {
+  it('tells a schedule that another conversation writes in one of them, before setting up its run', async () => {
     const docs = docsFolder();
     let release!: () => void;
     fake.gate = new Promise((r) => (release = r));
@@ -154,11 +169,15 @@ describe('several working directories', () => {
     }
     // The first folder's patch was applied: the worktrees start again from the folders as they are.
     expect(readFileSync(join(project, 'shared.txt'), 'utf8')).toBe('written by Bob\n');
-    expect(Object.values(conv.worktrees).flat().every((w) => w.needsReset)).toBe(true);
+    expect(
+      Object.values(conv.worktrees)
+        .flat()
+        .every((w) => w.needsReset),
+    ).toBe(true);
     await orchestrator.cleanupWorktrees(conv);
   });
 
-  it("neither applies nor shows a worktree of a folder taken off the list, even once that folder is gone", async () => {
+  it('neither applies nor shows a worktree of a folder taken off the list, even once that folder is gone', async () => {
     const docs = docsFolder();
     const conv = conversation({ mode: 'parallel', extraCwds: [docs] });
     await orchestrator.send(conv.id, 'go');
@@ -220,9 +239,17 @@ describe('several working directories', () => {
     expect(files.map((f) => f.path).sort()).toEqual(['Bob.txt', 'Bob.txt', 'shared.txt']);
     expect(readFileSync(join(project, 'shared.txt'), 'utf8')).toBe('written by Bob\n');
     expect(readFileSync(join(docs, 'Bob.txt'), 'utf8')).toBe('Bob was here\n');
-    expect(Object.values(conv.worktrees).flat().every((w) => w.needsReset)).toBe(true);
+    expect(
+      Object.values(conv.worktrees)
+        .flat()
+        .every((w) => w.needsReset),
+    ).toBe(true);
     await orchestrator.cleanupWorktrees(conv);
-    expect(Object.values(conv.worktrees).flat().some((w) => existsSync(w.path))).toBe(false);
+    expect(
+      Object.values(conv.worktrees)
+        .flat()
+        .some((w) => existsSync(w.path)),
+    ).toBe(false);
   });
 
   it('removes the worktrees of a folder the conversation no longer works in', async () => {

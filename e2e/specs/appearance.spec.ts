@@ -23,17 +23,17 @@ function tourAnimations(page: Page, art = false) {
       (document.querySelector('.tour')?.getAnimations({ subtree: true }) ?? [])
         .filter((a) => Boolean(((a.effect as KeyframeEffect).target as Element | null)?.closest('.tour-art')) === art)
         .map((a) => {
-      const effect = a.effect as KeyframeEffect;
-      const [first] = effect.getKeyframes();
-      const changed = Object.keys(first ?? {}).filter((k) => !['offset', 'computedOffset', 'easing', 'composite'].includes(k));
-      return {
-        name: (a as CSSAnimation).animationName,
-        state: a.playState,
-        start: a.startTime as number | null,
-        duration: Number(effect.getComputedTiming().duration),
-        changed,
-        from: changed.length === 1 ? String(first![changed[0]!]) : undefined,
-      };
+          const effect = a.effect as KeyframeEffect;
+          const [first] = effect.getKeyframes();
+          const changed = Object.keys(first ?? {}).filter((k) => !['offset', 'computedOffset', 'easing', 'composite'].includes(k));
+          return {
+            name: (a as CSSAnimation).animationName,
+            state: a.playState,
+            start: a.startTime as number | null,
+            duration: Number(effect.getComputedTiming().duration),
+            changed,
+            from: changed.length === 1 ? String(first![changed[0]!]) : undefined,
+          };
         }),
     art,
   );
@@ -100,7 +100,9 @@ test.describe('the guided tour', () => {
     await expect(tour(page)).toHaveCount(0);
   });
 
-  test("on a phone, the tour is a sheet at the bottom of the screen, and a long step's text scrolls above its buttons", async ({ page }) => {
+  test("on a phone, the tour is a sheet at the bottom of the screen, and a long step's text scrolls above its buttons", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 390, height: 560 });
     // The longest step: file permission and changes.
     const long = en.tour.steps.findIndex((s) => s.title === 'File permission and changes');
@@ -118,12 +120,18 @@ test.describe('the guided tour', () => {
       return c!.y >= 0 && Math.abs(c!.y + c!.height - 560) <= 1 && n!.y + n!.height <= c!.y + c!.height;
     };
     expect(await inView()).toBe(true);
-    const sizes = () => text.evaluate((el) => ({ top: el.scrollTop, scrolls: el.scrollHeight > el.clientHeight, max: el.scrollHeight - el.clientHeight }));
+    const sizes = () =>
+      text.evaluate((el) => ({ top: el.scrollTop, scrolls: el.scrollHeight > el.clientHeight, max: el.scrollHeight - el.clientHeight }));
     expect(await sizes()).toMatchObject({ top: 0, scrolls: true });
     // The text scrolls under the buttons, with the keys too while Next has the focus.
     await next.focus();
     await page.keyboard.press('End');
-    await expect.poll(async () => { const s = await sizes(); return s.top >= s.max - 1; }).toBe(true);
+    await expect
+      .poll(async () => {
+        const s = await sizes();
+        return s.top >= s.max - 1;
+      })
+      .toBe(true);
     expect(await inView()).toBe(true);
     await expect(card.locator('.tour-foot.scrolls')).toBeVisible();
     // The next step starts at its top.
@@ -132,7 +140,9 @@ test.describe('the guided tour', () => {
     expect((await sizes()).top).toBe(0);
   });
 
-  test('on a phone, the tour slides up once as it opens, also from Settings, comes to rest at the bottom of the screen, and not with reduced motion', async ({ page }) => {
+  test('on a phone, the tour slides up once as it opens, also from Settings, comes to rest at the bottom of the screen, and not with reduced motion', async ({
+    page,
+  }) => {
     // Opened at a phone's size: Next takes the focus while the sheet is still below the screen.
     await page.setViewportSize({ width: 390, height: 560 });
     await page.reload();
@@ -205,7 +215,9 @@ test.describe('the guided tour', () => {
     expect(places.size).toBe(1);
   });
 
-  test("the welcome step's picture: a request going in and a result coming out, drawn once, then still; not on the next step, and still from the start with reduced motion", async ({ page }) => {
+  test("the welcome step's picture: a request going in and a result coming out, drawn once, then still; not on the next step, and still from the start with reduced motion", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await expect(page.getByRole('dialog', { name: 'Welcome to Harness Relay' })).toBeVisible();
     const art = page.locator('.tour-card:not(.tour-measure) .tour-art');
@@ -238,7 +250,15 @@ test.describe('the guided tour', () => {
     const played = await tourAnimations(page, true);
     expect(played.every((a) => a.duration > 0 && Number.isFinite(a.duration))).toBe(true);
     expect([...new Set(played.flatMap((a) => a.changed))].sort()).toEqual(['opacity', 'strokeDashoffset', 'transform']);
-    expect([...new Set(played.map((a) => a.name))].sort()).toEqual(['tour-art-draw', 'tour-art-in', 'tour-art-pop', 'tour-art-ring', 'tour-art-show', 'tour-art-turn', 'tour-art-write']);
+    expect([...new Set(played.map((a) => a.name))].sort()).toEqual([
+      'tour-art-draw',
+      'tour-art-in',
+      'tour-art-pop',
+      'tour-art-ring',
+      'tour-art-show',
+      'tour-art-turn',
+      'tour-art-write',
+    ]);
     // At rest: the request, the mark and the result there, the arrows drawn, the ring gone.
     const shown = async () => {
       for (const part of ['.request', '.mark', '.result', '.check']) await expect(art.locator(part)).toHaveCSS('opacity', '1');
@@ -339,7 +359,7 @@ test.describe('the theme', () => {
     await expect(body).toHaveCSS('background-color', BACKGROUND.light);
   });
 
-  test("following the system follows its light or dark mode", async ({ page }) => {
+  test('following the system follows its light or dark mode', async ({ page }) => {
     await page.emulateMedia({ colorScheme: 'dark' });
     const html = page.locator('html');
     const body = page.locator('body');

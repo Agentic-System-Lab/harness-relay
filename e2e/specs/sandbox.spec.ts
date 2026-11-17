@@ -13,21 +13,27 @@ import { CLIS, eachCli, fetchPermission, member, needsFake, needsRelaySandbox, O
  */
 test.describe("Harness Relay's own sandbox", () => {
   // Each open agent that asks before a write in a read-only chat (not Pi, which has no write tool there).
-  eachCli(OPEN.filter((c) => c.readOnlyWriteAsks), (cli) => {
-    test(`${cli.provider}: in a read-only chat a write the user allows still cannot reach the working directory`, async ({ page, relay }) => {
-      needsRelaySandbox(cli.provider);
-      await openTeamChat(page, relay, [member(cli)]);
-      await send(page, 'Write it e2e:write=out.txt');
-      const card = page.getByRole('region', { name: `@${cli.name} wants to change files` });
-      await card.getByRole('button', { name: 'Allow', exact: true }).click();
-      const reply = await finishedReply(page, cli.name);
-      await expect(reply.locator('.approval-done')).toContainText('Allowed');
-      // Allowed, written for real, and refused by the sandbox (read-only there).
-      await expect(reply).toContainText('I may not write out.txt here.');
-      await expect(reply.locator('.changes-card')).toHaveCount(0);
-      expect(existsSync(join(relay.workDir, 'out.txt'))).toBe(false);
-    });
-  });
+  eachCli(
+    OPEN.filter((c) => c.readOnlyWriteAsks),
+    (cli) => {
+      test(`${cli.provider}: in a read-only chat a write the user allows still cannot reach the working directory`, async ({
+        page,
+        relay,
+      }) => {
+        needsRelaySandbox(cli.provider);
+        await openTeamChat(page, relay, [member(cli)]);
+        await send(page, 'Write it e2e:write=out.txt');
+        const card = page.getByRole('region', { name: `@${cli.name} wants to change files` });
+        await card.getByRole('button', { name: 'Allow', exact: true }).click();
+        const reply = await finishedReply(page, cli.name);
+        await expect(reply.locator('.approval-done')).toContainText('Allowed');
+        // Allowed, written for real, and refused by the sandbox (read-only there).
+        await expect(reply).toContainText('I may not write out.txt here.');
+        await expect(reply.locator('.changes-card')).toHaveCount(0);
+        expect(existsSync(join(relay.workDir, 'out.txt'))).toBe(false);
+      });
+    },
+  );
 
   // A host that is not the run's model backend: the sandbox's proxy asks before it connects (so no
   // name needs to resolve), and refuses when the user declines.
@@ -57,7 +63,9 @@ test.describe('below full access where an open agent runs with full access only'
     test(`${cli.provider}: its turn does not run, and says why`, async ({ page, relay }) => {
       const id = await openTeamChat(page, relay, [member(cli)]);
       await send(page, 'Anyone there?');
-      await expect(replies(page, cli.name).last().locator('.msg-error')).toContainText(/only runs with full access|runs only with full access/);
+      await expect(replies(page, cli.name).last().locator('.msg-error')).toContainText(
+        /only runs with full access|runs only with full access/,
+      );
       await settled(relay, id);
       // Its CLI never got the prompt.
       expect(relay.fakeLog().some((e) => e.cli === cli.provider && e.prompt)).toBe(false);
@@ -69,13 +77,18 @@ test.describe('OpenHands on macOS', () => {
   test.use({ sandboxTerminal: false });
   needsFake('openhands');
   withClis('openhands');
-  test.skip(process.platform !== 'darwin', 'only macOS needs the switch (Linux gives the sandbox a terminal of its own; Windows runs it with full access only)');
+  test.skip(
+    process.platform !== 'darwin',
+    'only macOS needs the switch (Linux gives the sandbox a terminal of its own; Windows runs it with full access only)',
+  );
 
   test('openhands: below full access, it needs its terminal switch', async ({ page, relay }) => {
     const cli = CLIS.find((c) => c.provider === 'openhands')!;
     await openTeamChat(page, relay, [member(cli)]);
     await send(page, 'Anyone there?');
-    await expect(replies(page, cli.name).last().locator('.msg-error')).toContainText('Below full access OpenHands runs only with a terminal in the sandbox');
+    await expect(replies(page, cli.name).last().locator('.msg-error')).toContainText(
+      'Below full access OpenHands runs only with a terminal in the sandbox',
+    );
   });
 });
 
@@ -87,7 +100,7 @@ test.describe("a project's own setup", () => {
   needsFake('antigravity');
   withClis('antigravity');
 
-  test("antigravity: is asked about before agy starts, and a refusal keeps it from starting", async ({ page, relay }) => {
+  test('antigravity: is asked about before agy starts, and a refusal keeps it from starting', async ({ page, relay }) => {
     const cli = SIGNED_IN.find((c) => c.provider === 'antigravity')!;
     mkdirSync(join(relay.workDir, '.agents'), { recursive: true });
     writeFileSync(join(relay.workDir, '.agents', 'mcp_config.json'), '{"mcpServers":{}}\n');
@@ -96,7 +109,9 @@ test.describe("a project's own setup", () => {
     const card = page.getByRole('region', { name: `@${cli.name} wants to use a tool` });
     await expect(card.locator('.approval-detail')).toContainText(join('.agents', 'mcp_config.json'));
     await card.getByRole('button', { name: 'Decline' }).click();
-    await expect(replies(page, cli.name).last().locator('.msg-error')).toContainText('The turn did not start: this project has setup Antigravity would run by itself');
+    await expect(replies(page, cli.name).last().locator('.msg-error')).toContainText(
+      'The turn did not start: this project has setup Antigravity would run by itself',
+    );
     await settled(relay, id);
     expect(relay.fakeLog().some((e) => e.cli === 'antigravity' && e.prompt)).toBe(false);
   });
@@ -111,7 +126,10 @@ test.describe("a project's hooks", () => {
   needsFake('copilot');
   withClis('copilot');
 
-  test('copilot: are asked about before Copilot starts; a refusal keeps it from starting, and once allowed the turn runs', async ({ page, relay }) => {
+  test('copilot: are asked about before Copilot starts; a refusal keeps it from starting, and once allowed the turn runs', async ({
+    page,
+    relay,
+  }) => {
     const cli = SIGNED_IN.find((c) => c.provider === 'copilot')!;
     const hook = join('.github', 'hooks', 'audit.json');
     mkdirSync(join(relay.workDir, '.github', 'hooks'), { recursive: true });
@@ -121,16 +139,26 @@ test.describe("a project's hooks", () => {
     const card = page.getByRole('region', { name: `@${cli.name} wants to use a tool` });
     await expect(card.locator('.approval-detail')).toContainText(hook);
     await card.getByRole('button', { name: 'Decline' }).click();
-    await expect(replies(page, cli.name).last().locator('.msg-error')).toContainText('The turn did not start: this project has hooks Copilot would run by itself');
+    await expect(replies(page, cli.name).last().locator('.msg-error')).toContainText(
+      'The turn did not start: this project has hooks Copilot would run by itself',
+    );
     await settled(relay, id);
     const copilot = () => relay.fakeLog().filter((e) => e.cli === 'copilot');
     expect(copilot().some((e) => e.prompt)).toBe(false);
 
     await send(page, 'And now?');
-    await page.getByRole('region', { name: `@${cli.name} wants to use a tool` }).last().getByRole('button', { name: 'Allow', exact: true }).click();
+    await page
+      .getByRole('region', { name: `@${cli.name} wants to use a tool` })
+      .last()
+      .getByRole('button', { name: 'Allow', exact: true })
+      .click();
     await finishedReply(page, cli.name);
     expect(copilot().some((e) => e.prompt)).toBe(true);
     // The fake found the hook Copilot would have run when its session opened.
-    expect(copilot().flatMap((e) => e.projectHooks ?? []).some((p) => p.endsWith(hook))).toBe(true);
+    expect(
+      copilot()
+        .flatMap((e) => e.projectHooks ?? [])
+        .some((p) => p.endsWith(hook)),
+    ).toBe(true);
   });
 });

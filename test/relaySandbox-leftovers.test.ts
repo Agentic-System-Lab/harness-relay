@@ -80,7 +80,11 @@ describe.skipIf(process.platform === 'win32')('a run that fails in sandboxComman
     mkdirSync(dataDir, { recursive: true });
     const cwd = join(root, 'cwd');
     mkdirSync(cwd, { recursive: true });
-    const agent = { provider: 'opencode' as const, implemented: true, home: (_r: string, s: string) => ({ env: {}, statePaths: [join(s, 'd')], configPaths: [] }) };
+    const agent = {
+      provider: 'opencode' as const,
+      implemented: true,
+      home: (_r: string, s: string) => ({ env: {}, statePaths: [join(s, 'd')], configPaths: [] }),
+    };
     let error = '';
     try {
       await startOpenProcess(

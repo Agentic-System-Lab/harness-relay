@@ -30,12 +30,31 @@
  * Electron: main.ts passes in what it needs (net.fetch, the paths).
  */
 import { createHash } from 'node:crypto';
-import { accessSync, chmodSync, constants, createReadStream, existsSync, mkdtempSync, readdirSync, renameSync, rmdirSync, rmSync } from 'node:fs';
+import {
+  accessSync,
+  chmodSync,
+  constants,
+  createReadStream,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  renameSync,
+  rmdirSync,
+  rmSync,
+} from 'node:fs';
 import { open, type FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { compareSemver, parseVersion, semverOf } from '../../scripts/release';
-import { INSTALLERS, isInstallerUrl, mirrorCopyUrl, RELEASES_PAGE, REPO, updateCopyName, updateCopyUrl } from '../../site/assets/downloads.js';
+import {
+  INSTALLERS,
+  isInstallerUrl,
+  mirrorCopyUrl,
+  RELEASES_PAGE,
+  REPO,
+  updateCopyName,
+  updateCopyUrl,
+} from '../../site/assets/downloads.js';
 import { capture } from '../../src/server/process';
 import type { DesktopUpdate, UpdateProgress } from '../../src/shared/types';
 import type { UpdateSource } from './updateSource';
@@ -219,7 +238,12 @@ export function parseRelease(json: unknown, source: UpdateSource): UpdateRelease
       const installer = a.browser_download_url as string;
       const copy = updateCopyUrl(r.tag_name, a.name, source.repo);
       const sha256 = typeof a.digest === 'string' ? /^sha256:([0-9a-f]{64})$/i.exec(a.digest)?.[1]?.toLowerCase() : undefined;
-      assets[system] = { name: a.name, ...(copy ? { url: copy, fallback: installer } : { url: installer }), size: typeof a.size === 'number' ? a.size : undefined, sha256 };
+      assets[system] = {
+        name: a.name,
+        ...(copy ? { url: copy, fallback: installer } : { url: installer }),
+        size: typeof a.size === 'number' ? a.size : undefined,
+        sha256,
+      };
     }
   }
   const page = typeof r.html_url === 'string' && r.html_url.startsWith(`${RELEASES_PAGE}/tag/`) ? r.html_url : RELEASES_PAGE;
@@ -296,7 +320,10 @@ export type Fetch = (
  * Asks GitHub for the newest release, release candidates included; undefined when there is none yet.
  * Each installer is fetched from its copy in the copies' repository of `source` (never asked here).
  */
-export async function checkLatest(fetch: Fetch, o: { source: UpdateSource; candidates?: boolean; signal?: AbortSignal }): Promise<UpdateRelease | undefined> {
+export async function checkLatest(
+  fetch: Fetch,
+  o: { source: UpdateSource; candidates?: boolean; signal?: AbortSignal },
+): Promise<UpdateRelease | undefined> {
   const { source, candidates = true, signal } = o;
   // A release candidate (or a build of your own) looks through the newest releases, candidates too; a
   // release asks for the newest release alone.
@@ -375,10 +402,7 @@ export type ManualReason =
   | 'not-appimage';
 
 export type InstallPlan =
-  | { kind: 'mac'; app: string }
-  | { kind: 'win' }
-  | { kind: 'linux'; appImage: string }
-  | { kind: 'manual'; why: ManualReason };
+  { kind: 'mac'; app: string } | { kind: 'win' } | { kind: 'linux'; appImage: string } | { kind: 'manual'; why: ManualReason };
 
 /** The .app an executable is in (…/Harness Relay.app/Contents/MacOS/Harness Relay). */
 export function macAppOf(execPath: string): string | undefined {
@@ -491,7 +515,15 @@ export async function download(o: DownloadOptions): Promise<void> {
     // itself, once, without the token, checked against the same SHA-256. Not when the bytes came from
     // the installer already (the copy could not be had): it would only be fetched again.
     const { fallback } = o.asset;
-    if (!(err instanceof UpdateError) || err.failure !== 'checksum' || !o.asset.sha256 || !fallback || fallback === o.asset.url || went.toFallback) throw err;
+    if (
+      !(err instanceof UpdateError) ||
+      err.failure !== 'checksum' ||
+      !o.asset.sha256 ||
+      !fallback ||
+      fallback === o.asset.url ||
+      went.toFallback
+    )
+      throw err;
     await downloadOnce({ ...o, asset: { ...o.asset, url: fallback, fallback: undefined }, headers: undefined }, went);
   }
 }
@@ -565,7 +597,13 @@ export function mirrorAsset(mirror: string | undefined, tag: string, asset: Upda
  * both, as for a download from GitHub (docs/developer-guide.md, "Releasing", "Download counts"). Never
  * fails: GitHub not reached within `answerMs`, the update goes uncounted.
  */
-export async function countUpdate(o: { fetch: Fetch; locate: Locate; asset: UpdateAsset; headers?: Record<string, string>; answerMs?: number }): Promise<void> {
+export async function countUpdate(o: {
+  fetch: Fetch;
+  locate: Locate;
+  asset: UpdateAsset;
+  headers?: Record<string, string>;
+  answerMs?: number;
+}): Promise<void> {
   const ms = o.answerMs ?? CHECK_TIMEOUT_MS;
   const signal = AbortSignal.timeout(ms);
   try {
@@ -597,7 +635,9 @@ export async function countUpdate(o: { fetch: Fetch; locate: Locate; asset: Upda
  * say, stalled, its file not the installer) and the download is made from GitHub as without a mirror,
  * counted there by itself. What main.ts calls.
  */
-export async function downloadUpdate(o: Omit<DownloadOptions, 'headers'> & { source: UpdateSource; tag: string; lookupSignal?: AbortSignal; mirror?: string }): Promise<void> {
+export async function downloadUpdate(
+  o: Omit<DownloadOptions, 'headers'> & { source: UpdateSource; tag: string; lookupSignal?: AbortSignal; mirror?: string },
+): Promise<void> {
   const { source, tag, lookupSignal, mirror, ...rest } = o;
   const from = await copyToDownload(o.fetch, source, tag, o.asset, lookupSignal);
   const { locate } = o;
@@ -640,15 +680,52 @@ async function downloadOnce(o: DownloadOptions, went: { toFallback: boolean }): 
     const write = writer(file);
     if (o.connections && o.connections.length > 1 && o.locate && size >= 2 * minPart) {
       try {
-        await inParts({ connections: o.connections, locate: o.locate, asset: o.asset, headers: o.headers, size, minPart, stall, stallMs, answerMs, write, onProgress: o.onProgress, fellBack });
+        await inParts({
+          connections: o.connections,
+          locate: o.locate,
+          asset: o.asset,
+          headers: o.headers,
+          size,
+          minPart,
+          stall,
+          stallMs,
+          answerMs,
+          write,
+          onProgress: o.onProgress,
+          fellBack,
+        });
       } catch (err) {
         if (!(err instanceof NoRanges)) throw err;
         // A server (or a proxy) that sends the whole file for a part of it: all of it in one request, from there.
         await file.truncate(0);
-        await whole({ fetch: o.fetch, locate: o.locate, url: err.address, headers: err.headers, fallback: o.asset.fallback, size, stall, answerMs, write, onProgress: o.onProgress, fellBack });
+        await whole({
+          fetch: o.fetch,
+          locate: o.locate,
+          url: err.address,
+          headers: err.headers,
+          fallback: o.asset.fallback,
+          size,
+          stall,
+          answerMs,
+          write,
+          onProgress: o.onProgress,
+          fellBack,
+        });
       }
     } else {
-      await whole({ fetch: o.fetch, locate: o.locate, url: o.asset.url, headers: o.headers, fallback: o.asset.fallback, size, stall, answerMs, write, onProgress: o.onProgress, fellBack });
+      await whole({
+        fetch: o.fetch,
+        locate: o.locate,
+        url: o.asset.url,
+        headers: o.headers,
+        fallback: o.asset.fallback,
+        size,
+        stall,
+        answerMs,
+        write,
+        onProgress: o.onProgress,
+        fellBack,
+      });
     }
   } catch (err) {
     failed = true;
@@ -714,7 +791,11 @@ class Stall {
  * Gives `body`'s chunks to `take`, one at a time, until it ends or `take` has had enough (false: the rest
  * is cancelled). Stops with `signal`'s reason once it aborts, also with a body that would go on.
  */
-async function readBody(body: ReadableStream<Uint8Array>, signal: AbortSignal, take: (chunk: Uint8Array) => Promise<boolean>): Promise<void> {
+async function readBody(
+  body: ReadableStream<Uint8Array>,
+  signal: AbortSignal,
+  take: (chunk: Uint8Array) => Promise<boolean>,
+): Promise<void> {
   const reader = body.getReader();
   const cancel = () => void reader.cancel(signal.reason).catch(() => undefined);
   signal.addEventListener('abort', cancel, { once: true });
@@ -758,7 +839,13 @@ function unavailable(status: number, authorized: boolean): boolean {
  * `answerMs`, counts as one that is `unavailable` (status 0), so that the installer is fetched instead,
  * unless the download itself was given up on (`signal`).
  */
-async function locateWithToken(locate: Locate, url: string, signal: AbortSignal, headers: Record<string, string>, answerMs: number): Promise<{ status: number; location?: string }> {
+async function locateWithToken(
+  locate: Locate,
+  url: string,
+  signal: AbortSignal,
+  headers: Record<string, string>,
+  answerMs: number,
+): Promise<{ status: number; location?: string }> {
   try {
     return await answeredWithin(answerMs, signal, (s) => locate(url, s, headers));
   } catch (err) {
@@ -808,7 +895,8 @@ async function whole(o: {
   let target: { url: string; headers?: Record<string, string> } | undefined = { url: o.url };
   if (o.headers) {
     const found = o.locate ? await locateWithToken(o.locate, o.url, signal, o.headers, o.answerMs) : undefined;
-    if (found && unavailable(found.status, true) && !o.fallback) throw new UpdateError('download', found.status ? `HTTP ${found.status}` : 'no answer');
+    if (found && unavailable(found.status, true) && !o.fallback)
+      throw new UpdateError('download', found.status ? `HTTP ${found.status}` : 'no answer');
     if (!found || unavailable(found.status, true)) target = undefined;
     else {
       const at = addressFrom(found, o.url);
@@ -819,7 +907,9 @@ async function whole(o: {
   if (target) {
     try {
       const { url, headers } = target;
-      res = headers ? await answeredWithin(o.answerMs, signal, (s) => o.fetch(url, { headers, signal: s, redirect: 'error' })) : await o.fetch(url, { signal });
+      res = headers
+        ? await answeredWithin(o.answerMs, signal, (s) => o.fetch(url, { headers, signal: s, redirect: 'error' }))
+        : await o.fetch(url, { signal });
     } catch (err) {
       // No answer where the token went (GitHub's API answering with the file itself), also none within
       // `answerMs`: the installer, as below.
@@ -904,7 +994,9 @@ async function inParts(o: {
   const { size, stall } = o;
   let source = o.asset.url;
   let headers = o.headers;
-  let found = headers ? await locateWithToken(o.locate, source, stall.signal, headers, o.answerMs) : await o.locate(source, stall.signal, headers);
+  let found = headers
+    ? await locateWithToken(o.locate, source, stall.signal, headers, o.answerMs)
+    : await o.locate(source, stall.signal, headers);
   // Its copy for updates cannot be had (a release published before the copies, its repository gone, the
   // token expired): the installer itself, without the token.
   if (unavailable(found.status, !!headers) && o.asset.fallback) {
@@ -959,7 +1051,10 @@ async function inParts(o: {
   };
 
   const count = Math.min(o.connections.length, Math.floor(size / o.minPart));
-  const waiting: Part[] = Array.from({ length: count }, (_, i) => ({ pos: Math.floor((size * i) / count), end: Math.floor((size * (i + 1)) / count) }));
+  const waiting: Part[] = Array.from({ length: count }, (_, i) => ({
+    pos: Math.floor((size * i) / count),
+    end: Math.floor((size * (i + 1)) / count),
+  }));
   const active = new Set<Part>();
   let received = 0;
   let failures = 0;
@@ -983,7 +1078,12 @@ async function inParts(o: {
     const watch = new Stall(o.stallMs);
     const signal = AbortSignal.any([stop, watch.signal]);
     try {
-      const ask = (s: AbortSignal) => fetch(at, { headers: { ...sent, Range: `bytes=${from}-${part.end - 1}` }, signal: s, ...(sent ? { redirect: 'error' as const } : {}) });
+      const ask = (s: AbortSignal) =>
+        fetch(at, {
+          headers: { ...sent, Range: `bytes=${from}-${part.end - 1}` },
+          signal: s,
+          ...(sent ? { redirect: 'error' as const } : {}),
+        });
       let res: Response;
       try {
         res = sent ? await answeredWithin(o.answerMs, signal, ask) : await ask(signal);
@@ -1077,7 +1177,10 @@ export const IDLE_CHECK_MS = 2000;
  * the way to a crash; and unknown for good once the app is quitting (or the system shutting down),
  * so that quitting never switches to the new version.
  */
-export function busyWithoutAsking(server: 'stopped' | 'starting' | 'running' | 'stopping', o: { starting: boolean; quitting: boolean }): 0 | 'ask' | undefined {
+export function busyWithoutAsking(
+  server: 'stopped' | 'starting' | 'running' | 'stopping',
+  o: { starting: boolean; quitting: boolean },
+): 0 | 'ask' | undefined {
   if (o.quitting || o.starting) return undefined;
   if (server === 'running') return 'ask';
   return server === 'stopped' ? 0 : undefined;
@@ -1103,7 +1206,10 @@ export async function whenIdle(o: {
     if (busy === 0) return 'idle';
     o.onWaiting?.(busy);
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const waited = await Promise.race([new Promise<'again'>((r) => (timer = setTimeout(() => r('again'), o.everyMs ?? IDLE_CHECK_MS))), now]);
+    const waited = await Promise.race([
+      new Promise<'again'>((r) => (timer = setTimeout(() => r('again'), o.everyMs ?? IDLE_CHECK_MS))),
+      now,
+    ]);
     clearTimeout(timer);
     if (waited === 'now') return 'now';
   }
@@ -1121,11 +1227,22 @@ export function macStaging(app: string): { staged: string; old: string } {
  * renames), and checks it: its signature holds, and it is this app (`bundleId`) at the release's
  * version (`semver`). Returns where it is.
  */
-export async function stageMacApp(o: { dmg: string; app: string; bundleId: string; semver: string; env: NodeJS.ProcessEnv }): Promise<string> {
+export async function stageMacApp(o: {
+  dmg: string;
+  app: string;
+  bundleId: string;
+  semver: string;
+  env: NodeJS.ProcessEnv;
+}): Promise<string> {
   const { staged } = macStaging(o.app);
   rmSync(staged, { recursive: true, force: true });
   const mount = mkdtempSync(join(tmpdir(), 'harness-relay-update-'));
-  const attach = await capture('/usr/bin/hdiutil', ['attach', '-nobrowse', '-readonly', '-noautoopen', '-mountpoint', mount, o.dmg], o.env, { timeoutMs: 120_000 });
+  const attach = await capture(
+    '/usr/bin/hdiutil',
+    ['attach', '-nobrowse', '-readonly', '-noautoopen', '-mountpoint', mount, o.dmg],
+    o.env,
+    { timeoutMs: 120_000 },
+  );
   if (attach.code !== 0) {
     try {
       rmdirSync(mount);
@@ -1152,7 +1269,8 @@ export async function stageMacApp(o: { dmg: string; app: string; bundleId: strin
     const signature = await capture('/usr/bin/codesign', ['--verify', '--deep', '--strict', staged], o.env, { timeoutMs: 120_000 });
     if (signature.code !== 0) throw new UpdateError('verify', signature.stderr.trim() || 'codesign --verify failed');
     const plist = join(staged, 'Contents', 'Info.plist');
-    const read = async (key: string) => (await capture('/usr/bin/plutil', ['-extract', key, 'raw', '-o', '-', plist], o.env, { timeoutMs: 10_000 })).stdout.trim();
+    const read = async (key: string) =>
+      (await capture('/usr/bin/plutil', ['-extract', key, 'raw', '-o', '-', plist], o.env, { timeoutMs: 10_000 })).stdout.trim();
     const id = await read('CFBundleIdentifier');
     if (id !== o.bundleId) throw new UpdateError('verify', `bundle id ${id}, expected ${o.bundleId}`);
     const version = await read('CFBundleShortVersionString');
@@ -1258,7 +1376,13 @@ export const RELAUNCH_TARGET = 'HARNESS_RELAY_RELAUNCH_TARGET';
  * it exits. The script is fixed text, and the pid and the path reach it in its environment, never in
  * its arguments.
  */
-export function relaunchCommand(platform: NodeJS.Platform, pid: number, target: string, env: NodeJS.ProcessEnv, args: readonly string[] = []): StartCommand {
+export function relaunchCommand(
+  platform: NodeJS.Platform,
+  pid: number,
+  target: string,
+  env: NodeJS.ProcessEnv,
+  args: readonly string[] = [],
+): StartCommand {
   const wait =
     `pid=$${RELAUNCH_PID}; target=$${RELAUNCH_TARGET}; unset ${RELAUNCH_PID} ${RELAUNCH_TARGET}; ` +
     'i=0; while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 600 ]; do sleep 0.1; i=$((i+1)); done;';

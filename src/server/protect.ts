@@ -144,7 +144,8 @@ export function codespaceSecretDirs(env: NodeJS.ProcessEnv = process.env, home =
   if (env.CODESPACES !== 'true') return [];
   const ghConfig = env.GH_CONFIG_DIR?.trim();
   const xdgConfig = env.XDG_CONFIG_HOME?.trim();
-  const gh = ghConfig && isAbsolute(ghConfig) ? ghConfig : join(xdgConfig && isAbsolute(xdgConfig) ? xdgConfig : join(home, '.config'), 'gh');
+  const gh =
+    ghConfig && isAbsolute(ghConfig) ? ghConfig : join(xdgConfig && isAbsolute(xdgConfig) ? xdgConfig : join(home, '.config'), 'gh');
   return [shared, gh];
 }
 
@@ -180,12 +181,22 @@ export function relayTmpDir(dataDir = DATA_DIR): string {
 }
 
 /**
+ * Where the browser tools keep each conversation's browser profile (`browser/<conversation>`): its
+ * cookies and logins, readable to anything that can read the folder (Chromium keeps them with a fixed
+ * key there, `--password-store=basic`), so no agent may (`protectedReads`). Made at the server's start,
+ * so that it is kept from the sandboxes of turns already running when a browser first starts.
+ */
+export function relayBrowserDir(dataDir = DATA_DIR): string {
+  return join(dataDir, 'browser');
+}
+
+/**
  * How the folders a turn makes in `relayTmpDir` for its own files begin: a Claude Code turn's
  * `--settings` and `--mcp-config` files (the settings hold an endpoint's key when it runs on one, the
  * MCP config the servers' secret values), a Cursor turn's config folder, and a Copilot turn's home
  * (its settings, which decide its sandbox, and a copy of the account's sign-in state).
  */
-export const RUN_TMP_PREFIXES = { claude: 'claude-', cursor: 'cursor-', copilot: 'copilot-' } as const;
+export const RUN_TMP_PREFIXES = { claude: 'claude-', cursor: 'cursor-', copilot: 'copilot-', gateway: 'gateway-' } as const;
 
 /**
  * Removes the folders of turns the server was stopped during (`RUN_TMP_PREFIXES`; a turn removes its
@@ -245,9 +256,13 @@ export function protectedReads(
 ): string[] {
   const platform = o.platform ?? process.platform;
   if (platform === 'win32') return [];
-  const relay = [...relayDatabaseFiles(o.dataDir, o.env), relayTmpDir(o.dataDir)];
+  const relay = [...relayDatabaseFiles(o.dataDir, o.env), relayTmpDir(o.dataDir), relayBrowserDir(o.dataDir)];
   const codespace = platform === 'linux' ? codespaceSecretDirs(o.env, o.home, o.codespaceDir) : [];
-  const paths = [...browserDataDirs(platform, o.home), ...appBrowserDirs(o.env), ...relay, ...codespace].filter((p) => existsSync(p));
+  // Where $XDG_CONFIG_HOME is, from the environment given ('' when it names none: undefined would be the server's).
+  const xdgConfig = (o.env ?? process.env).XDG_CONFIG_HOME ?? '';
+  const paths = [...browserDataDirs(platform, o.home, xdgConfig), ...appBrowserDirs(o.env), ...relay, ...codespace].filter((p) =>
+    existsSync(p),
+  );
   return [...new Set(paths.flatMap((p) => [p, real(p)]))];
 }
 
@@ -305,16 +320,17 @@ export function relayFolderOverlap(
  * A command as the CLI is started: where it was found (as given, or the first match on the PATH) and
  * its real path, when it exists.
  */
-export function commandPaths(
-  bin: string,
-  env: NodeJS.ProcessEnv = process.env,
-  platform: NodeJS.Platform = process.platform,
-): string[] {
+export function commandPaths(bin: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string[] {
   // On Windows a command is found by its extensions too (`claude.exe`, `codex.cmd`).
   const exts = platform === 'win32' ? ['', ...(env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)] : [''];
-  const found = (/[\\/]/.test(bin) ? [bin] : (env.PATH ?? '').split(delimiter).filter(Boolean).map((dir) => join(dir, bin))).flatMap(
-    (p) => exts.map((ext) => p + ext),
-  );
+  const found = (
+    /[\\/]/.test(bin)
+      ? [bin]
+      : (env.PATH ?? '')
+          .split(delimiter)
+          .filter(Boolean)
+          .map((dir) => join(dir, bin))
+  ).flatMap((p) => exts.map((ext) => p + ext));
   const at = found.find((p) => existsSync(p) && statSync(p).isFile());
   return at ? [...new Set([resolve(at), real(at)])] : [];
 }

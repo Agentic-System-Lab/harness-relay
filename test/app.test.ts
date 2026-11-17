@@ -1,4 +1,17 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  truncateSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -30,7 +43,7 @@ import { shareFileHref } from '../src/shared/share';
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-app-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 
-const { createApp } = await import('../src/server/app');
+const { createApp, hookHash } = await import('../src/server/app');
 const { openDatabase } = await import('../src/server/db');
 const { Hub } = await import('../src/server/hub');
 const { Orchestrator } = await import('../src/server/orchestrator');
@@ -109,26 +122,40 @@ describe("Harness Relay's own folder as a working directory", () => {
   it('is refused in edit mode, on creating, scheduling and changing a conversation', async () => {
     const { RELAY_ROOT } = await import('../src/server/protect');
     const agents = [{ name: 'Alice', provider: 'claude', role: '' }];
-    const refused = await app.request('/api/conversations', json('POST', { agents, settings: { mode: 'roundtable', permission: 'edit', cwd: RELAY_ROOT } }, { 'x-relay-lang': 'en' }));
+    const refused = await app.request(
+      '/api/conversations',
+      json('POST', { agents, settings: { mode: 'roundtable', permission: 'edit', cwd: RELAY_ROOT } }, { 'x-relay-lang': 'en' }),
+    );
     expect(refused.status).toBe(400);
     expect(await refused.json()).toMatchObject({ code: 'relay-folder', error: expect.stringMatching(/holds Harness Relay itself/) });
     const schedule = { text: 'Daily check', repeat: { kind: 'daily', time: '09:00' }, timeZone: 'UTC', enabled: true };
-    expect((await app.request('/api/schedules', json('POST', { settings: { permission: 'edit', cwd: RELAY_ROOT }, schedule }))).status).toBe(400);
+    expect(
+      (await app.request('/api/schedules', json('POST', { settings: { permission: 'edit', cwd: RELAY_ROOT }, schedule }))).status,
+    ).toBe(400);
     // Read-only asks before writing: allowed, but not switched to edit later.
     const reader = await createConversation({ permission: 'read-only', cwd: RELAY_ROOT });
-    const change = await app.request(`/api/conversations/${reader.id}`, json('PATCH', { settings: { ...reader.settings, permission: 'edit' } }));
+    const change = await app.request(
+      `/api/conversations/${reader.id}`,
+      json('PATCH', { settings: { ...reader.settings, permission: 'edit' } }),
+    );
     expect(change.status).toBe(400);
     expect((await createConversation({ permission: 'full', cwd: RELAY_ROOT })).settings.permission).toBe('full');
     // A folder it would have to create there is refused before it is made.
     const missing = join(RELAY_ROOT, `relay-refused-${Date.now()}`);
-    const made = await app.request('/api/conversations', json('POST', { agents, settings: { mode: 'roundtable', permission: 'edit', cwd: missing }, createCwd: true }));
+    const made = await app.request(
+      '/api/conversations',
+      json('POST', { agents, settings: { mode: 'roundtable', permission: 'edit', cwd: missing }, createCwd: true }),
+    );
     expect(made.status).toBe(400);
     expect(existsSync(missing)).toBe(false);
   });
 
   it('is refused for the home folder in edit mode, where its settings decide how the agents run', async () => {
     const agents = [{ name: 'Alice', provider: 'claude', role: '' }];
-    const res = await app.request('/api/conversations', json('POST', { agents, settings: { mode: 'roundtable', permission: 'edit', cwd: homedir() } }, { 'x-relay-lang': 'en' }));
+    const res = await app.request(
+      '/api/conversations',
+      json('POST', { agents, settings: { mode: 'roundtable', permission: 'edit', cwd: homedir() } }, { 'x-relay-lang': 'en' }),
+    );
     expect(res.status).toBe(400);
     // (Harness Relay may be inside it too, which is then the reason given.)
     expect(await res.json()).toMatchObject({ code: 'relay-folder', error: expect.stringContaining(homedir()) });
@@ -143,8 +170,7 @@ describe('request checks', () => {
   });
 
   it('requires a JSON content type for writes, not just one that mentions it', async () => {
-    const send = (type: string) =>
-      app.request('/api/presets', { method: 'POST', headers: { ...HOST, 'content-type': type }, body: '{}' });
+    const send = (type: string) => app.request('/api/presets', { method: 'POST', headers: { ...HOST, 'content-type': type }, body: '{}' });
     expect((await send('text/plain; x=application/json')).status).toBe(415);
     expect((await send('text/plain')).status).toBe(415);
     expect((await send('application/json; charset=utf-8')).status).toBe(400); // passes the check, then fails validation
@@ -175,7 +201,10 @@ describe('DELETE /api/conversations/:id', () => {
       await vi.waitFor(() => expect(orchestrator.activeAgentIds(conv.id)).toHaveLength(1));
       await new Promise((r) => setTimeout(r, 50));
 
-      const res = await app.request(`/api/conversations/${conv.id}`, { method: 'DELETE', headers: { ...HOST, 'content-type': 'application/json' } });
+      const res = await app.request(`/api/conversations/${conv.id}`, {
+        method: 'DELETE',
+        headers: { ...HOST, 'content-type': 'application/json' },
+      });
       expect(res.status).toBe(200);
       expect(orchestrator.isRunning(conv.id)).toBe(false);
       expect((await get(`/api/conversations/${conv.id}`)).status).toBe(404);
@@ -272,7 +301,10 @@ describe('settings', () => {
     expect((await openhands({ sandboxTerminal: 1 })).status).toBe(400);
     const on = await openhands({ sandboxTerminal: true });
     expect(on.status).toBe(200);
-    expect(((await on.json()) as SettingsView).providers.find((p) => p.provider === 'openhands')).toMatchObject({ sandboxTerminal: true, apiKeyMasked: '' });
+    expect(((await on.json()) as SettingsView).providers.find((p) => p.provider === 'openhands')).toMatchObject({
+      sandboxTerminal: true,
+      apiKeyMasked: '',
+    });
     const offAgain = (await (await openhands({ sandboxTerminal: false })).json()) as SettingsView;
     expect(offAgain.providers.find((p) => p.provider === 'openhands')!.sandboxTerminal).toBe(false);
     // Back as they were, for the tests after this one.
@@ -318,7 +350,9 @@ describe('settings', () => {
       expect((await put({ agentsViewUrl: url })).status).toBe(400);
     }
     // Saved as its origin.
-    expect(((await (await put({ agentsViewUrl: 'http://localhost:8080' })).json()) as SettingsView).agentsViewUrl).toBe('http://localhost:8080');
+    expect(((await (await put({ agentsViewUrl: 'http://localhost:8080' })).json()) as SettingsView).agentsViewUrl).toBe(
+      'http://localhost:8080',
+    );
     expect(((await (await put({ agentsViewUrl: 'http://[::1]:8080' })).json()) as SettingsView).agentsViewUrl).toBe('http://[::1]:8080');
     const set = (await (await put({ agentsViewUrl: 'http://127.0.0.1:9999/sessions?x=1' })).json()) as SettingsView;
     expect(set.agentsViewUrl).toBe('http://127.0.0.1:9999');
@@ -357,7 +391,13 @@ describe('settings', () => {
 
   it('takes any http(s) address to open AgentsView, without changing where conversations go', async () => {
     const put = (body: unknown) => app.request('/api/settings', json('PUT', body));
-    for (const link of ['javascript:alert(1)', 'ftp://my-computer.tail1234.ts.net', 'https://me:secret@my-computer.tail1234.ts.net', 'not a url', 7]) {
+    for (const link of [
+      'javascript:alert(1)',
+      'ftp://my-computer.tail1234.ts.net',
+      'https://me:secret@my-computer.tail1234.ts.net',
+      'not a url',
+      7,
+    ]) {
       expect((await put({ agentsViewLink: link })).status).toBe(400);
     }
     await put({ agentsViewUrl: 'http://127.0.0.1:9999' });
@@ -500,7 +540,10 @@ describe('settings', () => {
       orchestrator.setLeadReview(on.id, false);
       return { isolated: false };
     });
-    const saved = await app.request(`/api/conversations/${on.id}`, json('PATCH', { settings: { ...store.get(on.id)!.settings, leadReview: true, rounds: 2 } }));
+    const saved = await app.request(
+      `/api/conversations/${on.id}`,
+      json('PATCH', { settings: { ...store.get(on.id)!.settings, leadReview: true, rounds: 2 } }),
+    );
     expect(saved.status).toBe(200);
     expect(store.get(on.id)!.settings).toMatchObject({ rounds: 2 });
     expect(store.get(on.id)!.settings.leadReview).toBeUndefined();
@@ -528,7 +571,9 @@ describe('settings', () => {
     expect(((await made.json()) as Conversation).settings).toMatchObject({ cwd: project, extraCwds: [newA, docs, newB] });
     expect(statSync(newB).isDirectory()).toBe(true);
     // One folder: no extraCwds.
-    expect(((await (await post({ agents, settings: { cwd: project, extraCwds: [] } })).json()) as Conversation).settings).not.toHaveProperty('extraCwds');
+    expect(
+      ((await (await post({ agents, settings: { cwd: project, extraCwds: [] } })).json()) as Conversation).settings,
+    ).not.toHaveProperty('extraCwds');
 
     // The same folder twice, spelled another way, is refused; so are more than eight, and a list that is not one.
     const twice = await post({ agents, settings: { cwd: project, extraCwds: [docs, `${project}/./docs/`] } });
@@ -545,7 +590,8 @@ describe('settings', () => {
     const docs = join(project, 'docs');
     mkdirSync(docs);
     const conv = await createConversation({ extraCwds: [docs] });
-    const patch = (body: Record<string, unknown>) => app.request(`/api/conversations/${conv.id}`, json('PATCH', body, { 'x-relay-lang': 'en' }));
+    const patch = (body: Record<string, unknown>) =>
+      app.request(`/api/conversations/${conv.id}`, json('PATCH', body, { 'x-relay-lang': 'en' }));
     const settings = async () => store.get(conv.id)!.settings;
     expect(await settings()).toMatchObject({ cwd: project, extraCwds: [docs] });
     // Without a cwd: the folders it has.
@@ -569,12 +615,16 @@ describe('settings', () => {
     expect(await refused.json()).toMatchObject({ code: 'relay-folder' });
   });
 
-  it("refuses edit mode in any working directory that holds Harness Relay, also one after the first", async () => {
+  it('refuses edit mode in any working directory that holds Harness Relay, also one after the first', async () => {
     const { RELAY_ROOT } = await import('../src/server/protect');
     const agents = [{ name: 'Alice', provider: 'claude', role: '' }];
     const refused = await app.request(
       '/api/conversations',
-      json('POST', { agents, settings: { mode: 'roundtable', permission: 'edit', cwd: project, extraCwds: [RELAY_ROOT] } }, { 'x-relay-lang': 'en' }),
+      json(
+        'POST',
+        { agents, settings: { mode: 'roundtable', permission: 'edit', cwd: project, extraCwds: [RELAY_ROOT] } },
+        { 'x-relay-lang': 'en' },
+      ),
     );
     expect(refused.status).toBe(400);
     expect(await refused.json()).toMatchObject({ code: 'relay-folder' });
@@ -652,10 +702,15 @@ describe('accounts', () => {
     expect(add.status).toBe(200);
     const { id, settings: view } = (await add.json()) as { id: string; settings: SettingsView };
     const codex = view.providers.find((p) => p.provider === 'codex')!;
-    expect(codex.accounts.map((a) => [a.id, a.label])).toEqual([['', ''], [id, 'Work']]);
+    expect(codex.accounts.map((a) => [a.id, a.label])).toEqual([
+      ['', ''],
+      [id, 'Work'],
+    ]);
     expect(codex.accounts[1]!.home).toMatch(new RegExp(`codex-${id}$`));
 
-    const renamed = (await (await call('PUT', `/api/settings/providers/codex/accounts/${id}`, { label: 'Personal' })).json()) as SettingsView;
+    const renamed = (await (
+      await call('PUT', `/api/settings/providers/codex/accounts/${id}`, { label: 'Personal' })
+    ).json()) as SettingsView;
     expect(renamed.providers.find((p) => p.provider === 'codex')!.accounts[1]!.label).toBe('Personal');
     const def = (await (await call('PUT', '/api/settings/providers/codex/accounts/default', { label: 'Company' })).json()) as SettingsView;
     expect(def.providers.find((p) => p.provider === 'codex')!.accounts[0]!.label).toBe('Company');
@@ -671,13 +726,25 @@ describe('accounts', () => {
   it("gives each account's plan usage, asked again on request, for accounts the CLI has", async () => {
     const { call, read, providers } = accountsApp();
     const id = ((await (await call('POST', '/api/settings/providers/claude/accounts', { label: 'Work' })).json()) as { id: string }).id;
-    const usage = vi
-      .spyOn(providers, 'usage')
-      .mockImplementation(async (p, account = '') => ({ provider: p, account, plan: 'max', limits: [{ span: 'week', usedPercent: 55 }], checkedAt: 1 }));
+    const usage = vi.spyOn(providers, 'usage').mockImplementation(async (p, account = '') => ({
+      provider: p,
+      account,
+      plan: 'max',
+      limits: [{ span: 'week', usedPercent: 55 }],
+      checkedAt: 1,
+    }));
     const def = await read('/api/providers/claude/usage');
     expect(def.status).toBe(200);
-    expect(await def.json()).toEqual({ provider: 'claude', account: '', plan: 'max', limits: [{ span: 'week', usedPercent: 55 }], checkedAt: 1 });
-    expect((await (await read(`/api/providers/claude/usage?account=${id}&refresh=1`)).json()) as { account: string }).toMatchObject({ account: id });
+    expect(await def.json()).toEqual({
+      provider: 'claude',
+      account: '',
+      plan: 'max',
+      limits: [{ span: 'week', usedPercent: 55 }],
+      checkedAt: 1,
+    });
+    expect((await (await read(`/api/providers/claude/usage?account=${id}&refresh=1`)).json()) as { account: string }).toMatchObject({
+      account: id,
+    });
     expect((await read('/api/providers/claude/usage?account=default')).status).toBe(200);
     expect(usage.mock.calls).toEqual([
       ['claude', '', false],
@@ -718,13 +785,23 @@ describe('accounts', () => {
   it('signs a Codex account in with its key and saves its defaults in the same request', async () => {
     const { call, settings, codexKey } = accountsApp();
     const id = ((await (await call('POST', '/api/settings/providers/codex/accounts', { label: 'Work' })).json()) as { id: string }).id;
-    const res = await call('PUT', `/api/settings/providers/codex/accounts/${id}`, { apiKey: 'sk-codex-work', defaultModel: 'gpt-b', nativeOff: ['hooks'] });
+    const res = await call('PUT', `/api/settings/providers/codex/accounts/${id}`, {
+      apiKey: 'sk-codex-work',
+      defaultModel: 'gpt-b',
+      nativeOff: ['hooks'],
+    });
     expect(res.status).toBe(200);
     expect(codexKey).toHaveBeenCalledWith('sk-codex-work', id);
-    expect([settings.defaultModel('codex', id), settings.nativeOff('codex', id), settings.hasStoredApiKey('codex', id)]).toEqual(['gpt-b', ['hooks'], false]);
+    expect([settings.defaultModel('codex', id), settings.nativeOff('codex', id), settings.hasStoredApiKey('codex', id)]).toEqual([
+      'gpt-b',
+      ['hooks'],
+      false,
+    ]);
     // A sign-in that fails saves nothing.
     codexKey.mockRejectedValueOnce(new Error('bad key'));
-    expect((await call('PUT', `/api/settings/providers/codex/accounts/${id}`, { apiKey: 'sk-bad', defaultModel: 'gpt-c' })).status).toBe(500);
+    expect((await call('PUT', `/api/settings/providers/codex/accounts/${id}`, { apiKey: 'sk-bad', defaultModel: 'gpt-c' })).status).toBe(
+      500,
+    );
     expect(settings.defaultModel('codex', id)).toBe('gpt-b');
   });
 
@@ -786,7 +863,9 @@ describe('accounts', () => {
     const { call, codexKey, settings } = accountsApp();
     const claude = ((await (await call('POST', '/api/settings/providers/claude/accounts', { label: 'Work' })).json()) as { id: string }).id;
     const codex = ((await (await call('POST', '/api/settings/providers/codex/accounts', { label: 'Work' })).json()) as { id: string }).id;
-    const view = (await (await call('PUT', `/api/settings/providers/claude/accounts/${claude}`, { apiKey: 'sk-ant-work-98765' })).json()) as SettingsView;
+    const view = (await (
+      await call('PUT', `/api/settings/providers/claude/accounts/${claude}`, { apiKey: 'sk-ant-work-98765' })
+    ).json()) as SettingsView;
     // Shorter than 20 characters: nothing of it shows (`maskSecret`).
     expect(view.providers[0]!.accounts[1]!.apiKeyMasked).toBe('••••');
     expect(view.providers[0]!.apiKeyMasked).toBe(''); // the default account's is its own
@@ -796,11 +875,13 @@ describe('accounts', () => {
     await call('PUT', '/api/settings/providers/codex/accounts/default', { apiKey: 'sk-codex-default' });
     expect(codexKey).toHaveBeenLastCalledWith('sk-codex-default', '');
     expect(settings.hasStoredApiKey('codex', codex)).toBe(false);
-    const removed = (await (await call('PUT', `/api/settings/providers/claude/accounts/${claude}`, { apiKey: null })).json()) as SettingsView;
+    const removed = (await (
+      await call('PUT', `/api/settings/providers/claude/accounts/${claude}`, { apiKey: null })
+    ).json()) as SettingsView;
     expect(removed.providers[0]!.accounts[1]!.apiKeyMasked).toBe('');
   });
 
-  it("refuses a browser sign-in for a Cursor account besides the default one, which signs in with its key", async () => {
+  it('refuses a browser sign-in for a Cursor account besides the default one, which signs in with its key', async () => {
     const { call, read } = accountsApp();
     const id = ((await (await call('POST', '/api/settings/providers/cursor/accounts', { label: 'Team' })).json()) as { id: string }).id;
     const res = await call('POST', `/api/providers/cursor/login?account=${id}`, { method: 'browser' });
@@ -809,21 +890,32 @@ describe('accounts', () => {
     expect((await (await read('/api/providers/cursor/login-methods')).json()).map((m: { id: string }) => m.id)).toEqual(['browser']);
   });
 
-  it("refuses a Meta sign-in for a Muse Code account besides the default one, which signs in with its key", async () => {
+  it('refuses a Meta sign-in for a Muse Code account besides the default one, which signs in with its key', async () => {
     const { call, read } = accountsApp();
     const id = ((await (await call('POST', '/api/settings/providers/muse/accounts', { label: 'Team' })).json()) as { id: string }).id;
     const res = await call('POST', `/api/providers/muse/login?account=${id}`, { method: 'meta' });
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/runs on a Meta API key only/);
     // The default account signs in with its Meta account (a device code).
-    expect(await (await read('/api/providers/muse/login-methods')).json()).toEqual([{ id: 'meta', label: expect.stringContaining('Meta'), description: expect.any(String) }]);
+    expect(await (await read('/api/providers/muse/login-methods')).json()).toEqual([
+      { id: 'meta', label: expect.stringContaining('Meta'), description: expect.any(String) },
+    ]);
   });
 
   it('signs each account in and out on its own, and refuses accounts the CLI does not have', async () => {
     const { call, read, providers, logout } = accountsApp();
     const id = ((await (await call('POST', '/api/settings/providers/claude/accounts', { label: 'Work' })).json()) as { id: string }).id;
     const start = vi.spyOn(providers, 'startLogin').mockImplementation((p, method, account = '') => ({
-      id: 'l1', provider: p, account, method: method ?? '', state: 'running', startedAt: 1, output: '', urls: [], codes: [], wantsInput: false,
+      id: 'l1',
+      provider: p,
+      account,
+      method: method ?? '',
+      state: 'running',
+      startedAt: 1,
+      output: '',
+      urls: [],
+      codes: [],
+      wantsInput: false,
     }));
     const started = await call('POST', `/api/providers/claude/login?account=${id}`, { method: 'claudeai' });
     expect(await started.json()).toMatchObject({ account: id, method: 'claudeai' });
@@ -922,7 +1014,13 @@ describe('images and videos in replies', () => {
   async function replyIn(): Promise<{ conv: Conversation; base: string }> {
     const conv = await createConversation({ permission: 'read-only' });
     const live = store.get(conv.id)!;
-    const msg = { id: 'reply-1', author: { kind: 'agent' as const, agentId: live.agents[0]!.id }, createdAt: Date.now(), parts: [], status: 'done' as const };
+    const msg = {
+      id: 'reply-1',
+      author: { kind: 'agent' as const, agentId: live.agents[0]!.id },
+      createdAt: Date.now(),
+      parts: [],
+      status: 'done' as const,
+    };
     live.messages.push(msg);
     mkdirSync(join(project, 'out'), { recursive: true });
     writeFileSync(join(project, 'out', 'chart.png'), 'not really a png');
@@ -971,7 +1069,13 @@ describe('files replies link to', () => {
   async function replyIn(): Promise<{ conv: Conversation; base: string }> {
     const conv = await createConversation({ permission: 'read-only' });
     const live = store.get(conv.id)!;
-    live.messages.push({ id: 'reply-1', author: { kind: 'agent', agentId: live.agents[0]!.id }, createdAt: Date.now(), parts: [], status: 'done' });
+    live.messages.push({
+      id: 'reply-1',
+      author: { kind: 'agent', agentId: live.agents[0]!.id },
+      createdAt: Date.now(),
+      parts: [],
+      status: 'done',
+    });
     mkdirSync(join(project, 'out'), { recursive: true });
     mkdirSync(join(project, '.git'), { recursive: true });
     writeFileSync(join(project, 'out', 'Q3 報告.pdf'), '%PDF-1.7 0123456789');
@@ -985,7 +1089,9 @@ describe('files replies link to', () => {
     const res = await get(base + encodeURIComponent('out/Q3 報告.pdf'));
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('application/octet-stream');
-    expect(res.headers.get('content-disposition')).toBe(`attachment; filename="Q3 __.pdf"; filename*=UTF-8''${encodeURIComponent('Q3 報告.pdf')}`);
+    expect(res.headers.get('content-disposition')).toBe(
+      `attachment; filename="Q3 __.pdf"; filename*=UTF-8''${encodeURIComponent('Q3 報告.pdf')}`,
+    );
     expect(res.headers.get('content-length')).toBe('19');
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
     expect(res.headers.get('content-security-policy')).toContain('sandbox');
@@ -1061,7 +1167,15 @@ describe('files replies link to', () => {
     const { base } = await replyIn();
     // As started with RELAY_ALLOWED_HOSTS=my-computer.tail1234.ts.net, behind `tailscale serve`.
     const settings = new SettingsStore(openDatabase(':memory:'));
-    app = createApp({ auth: null, store, settings, hub: new Hub(), orchestrator, providers: new ProviderService(settings), extraHosts: ['my-computer.tail1234.ts.net'] });
+    app = createApp({
+      auth: null,
+      store,
+      settings,
+      hub: new Hub(),
+      orchestrator,
+      providers: new ProviderService(settings),
+      extraHosts: ['my-computer.tail1234.ts.net'],
+    });
     const viaTailnet = (host: string) => app.request(base + 'out/slides.html', { headers: { host } });
     expect((await viaTailnet('my-computer.tail1234.ts.net')).status).toBe(200);
     expect((await viaTailnet('my-computer.tail1234.ts.net:443')).status).toBe(200);
@@ -1091,7 +1205,14 @@ describe('a team design waiting for confirmation', () => {
         createdAt: Date.now(),
         parts: [],
         status: 'done',
-        plan: { status: 'ready', lead: { provider: 'claude' }, source: 'template', name: 'x', agents: live.agents, awaitingConfirmation: true },
+        plan: {
+          status: 'ready',
+          lead: { provider: 'claude' },
+          source: 'template',
+          name: 'x',
+          agents: live.agents,
+          awaitingConfirmation: true,
+        },
       },
     );
     return conv;
@@ -1180,7 +1301,9 @@ describe('a team design waiting for confirmation', () => {
       expect(plan.adjustedAt).toEqual(expect.any(Number));
       expect(store.get(conv.id)!.messages[1]!.plan!.agents!.map((a) => a.name)).toEqual(['Ada']);
       // The chat hears of it.
-      expect(events.some((e) => e.type === 'message' && e.message?.id === 'plan' && e.message.plan?.agents?.[0]?.name === 'Ada')).toBe(true);
+      expect(events.some((e) => e.type === 'message' && e.message?.id === 'plan' && e.message.plan?.agents?.[0]?.name === 'Ada')).toBe(
+        true,
+      );
       // How they take turns, changed alone.
       expect((await patch({ settings: { ...live.settings, mode: 'relay', maxHops: 4 } })).status).toBe(200);
       expect(plan.settings).toEqual({ mode: 'relay', rounds: 1, maxHops: 4 });
@@ -1197,7 +1320,13 @@ describe('a team design waiting for confirmation', () => {
         createdAt: Date.now(),
         parts: [],
         status: 'done',
-        plan: { status: 'ready', lead: { provider: 'claude' }, source: 'custom', agents: [{ id: 'z', name: 'Zed', provider: 'claude', role: '' }], declinedAt: 2 },
+        plan: {
+          status: 'ready',
+          lead: { provider: 'claude' },
+          source: 'custom',
+          agents: [{ id: 'z', name: 'Zed', provider: 'claude', role: '' }],
+          declinedAt: 2,
+        },
       });
       expect((await patch({ agents: [{ ...live.agents[0]!, name: 'Bea' }] })).status).toBe(200);
       expect(plan.agents!.map((a) => a.name)).toEqual(['Bea']);
@@ -1234,7 +1363,13 @@ describe('a team design waiting for confirmation', () => {
       provider: 'claude',
       async run(o) {
         if (o.systemPrompt === REVISER_BRIEFING) {
-          const team = { agents: [{ name: 'Alice', provider: 'claude' }, { name: 'Tester', provider: 'claude', role: 'Test it.' }], reason: 'Added a tester.' };
+          const team = {
+            agents: [
+              { name: 'Alice', provider: 'claude' },
+              { name: 'Tester', provider: 'claude', role: 'Test it.' },
+            ],
+            reason: 'Added a tester.',
+          };
           o.onEvent({ type: 'text', text: JSON.stringify(team) });
           return {};
         }
@@ -1283,7 +1418,9 @@ describe('a team design waiting for confirmation', () => {
     const patch = (body: Record<string, unknown>) => app.request(`/api/conversations/${conv.id}`, json('PATCH', body));
 
     // The settings, without autoTeam (the drawer may leave it out): it stays on; autoConfirm follows.
-    const patched = (await (await patch({ settings: { ...conv.settings, autoTeam: undefined, autoConfirm: true } })).json()) as Conversation;
+    const patched = (await (
+      await patch({ settings: { ...conv.settings, autoTeam: undefined, autoConfirm: true } })
+    ).json()) as Conversation;
     expect(patched.settings).toMatchObject({ autoTeam: true, autoConfirm: true });
     // A team set by hand does not switch it off either.
     const team = (await (await patch({ agents: [{ name: 'Zed', provider: 'claude', role: '' }] })).json()) as Conversation;
@@ -1370,7 +1507,10 @@ describe('messages sent while the team replies', () => {
     const conv = await createConversation({ permission: 'read-only' });
     const send = (b: Record<string, unknown>) => app.request(`/api/conversations/${conv.id}/messages`, json('POST', b));
     const withdraw = (messageId: string) =>
-      app.request(`/api/conversations/${conv.id}/queue/${messageId}`, { method: 'DELETE', headers: { ...HOST, 'content-type': 'application/json' } });
+      app.request(`/api/conversations/${conv.id}/queue/${messageId}`, {
+        method: 'DELETE',
+        headers: { ...HOST, 'content-type': 'application/json' },
+      });
     expect(await (await send({ text: 'go' })).json()).toEqual({ ok: true, queued: false });
     await vi.waitFor(() => expect(orchestrator.activeAgentIds(conv.id)).toHaveLength(1));
 
@@ -1396,7 +1536,7 @@ describe('messages sent while the team replies', () => {
 });
 
 describe('POST /api/conversations/:id/messages/:messageId/branch', () => {
-  it('answers with a new conversation holding the messages up to the reply, and refuses the user\'s messages', async () => {
+  it("answers with a new conversation holding the messages up to the reply, and refuses the user's messages", async () => {
     const conv = await createConversation({ permission: 'read-only' });
     await app.request(`/api/conversations/${conv.id}/messages`, json('POST', { text: 'go' }));
     await vi.waitFor(() => expect(orchestrator.activeAgentIds(conv.id)).toHaveLength(1));
@@ -1477,8 +1617,7 @@ describe('sidebar groups', () => {
   it('pins a conversation to the top of the sidebar and unpins it', async () => {
     const conv = await createConversation();
     const pin = (b: unknown, id = conv.id) => app.request(`/api/conversations/${id}/pin`, json('PUT', b));
-    const listed = async () =>
-      ((await (await get('/api/conversations')).json()) as ConversationSummary[]).find((c) => c.id === conv.id)!;
+    const listed = async () => ((await (await get('/api/conversations')).json()) as ConversationSummary[]).find((c) => c.id === conv.id)!;
     const before = await listed();
     expect(before.pinnedAt).toBeUndefined();
 
@@ -1577,7 +1716,15 @@ describe('/api/desktop/lang', () => {
   it("tells the desktop app the language its window's chat shows, and nothing that is not one", async () => {
     const s = new SettingsStore(openDatabase(':memory:'));
     const told: string[] = [];
-    const own = createApp({ auth: null, store, settings: s, hub: new Hub(), orchestrator, providers: new ProviderService(s), desktopLang: (lang) => told.push(lang) });
+    const own = createApp({
+      auth: null,
+      store,
+      settings: s,
+      hub: new Hub(),
+      orchestrator,
+      providers: new ProviderService(s),
+      desktopLang: (lang) => told.push(lang),
+    });
     expect((await own.request('/api/desktop/lang', json('PUT', { lang: 'zh-TW' }))).status).toBe(200);
     expect((await own.request('/api/desktop/lang', json('PUT', { lang: 'en' }))).status).toBe(200);
     for (const bad of [{ lang: 'fr' }, { lang: 'EN' }, { lang: 1 }, {}]) {
@@ -1601,7 +1748,10 @@ describe('/api/desktop/lang', () => {
       extraHosts: ['my-computer.tail1234.ts.net'],
       desktopLang: (lang) => told.push(lang),
     });
-    const phone = await own.request('/api/desktop/lang', json('PUT', { lang: 'zh-TW' }, { host: 'my-computer.tail1234.ts.net', 'x-relay-lang': 'en' }));
+    const phone = await own.request(
+      '/api/desktop/lang',
+      json('PUT', { lang: 'zh-TW' }, { host: 'my-computer.tail1234.ts.net', 'x-relay-lang': 'en' }),
+    );
     expect(phone.status).toBe(403);
     expect(((await phone.json()) as { error: string }).error).toMatch(/desktop app's own window/);
     expect((await own.request('/api/desktop/lang', json('PUT', { lang: 'zh-TW' }, { host: 'localhost:8787' }))).status).toBe(200);
@@ -1620,7 +1770,9 @@ describe('/api/desktop/lang', () => {
 describe('/api/report/screenshots', () => {
   const ID = 'f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff';
   // A PNG whole enough to be read through: signature, then IEND (length, type, CRC).
-  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]).toString('base64');
+  const PNG = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+  ]).toString('base64');
   type Upload = { name: string; data: Buffer };
   function shotsApp(gists: { upload?: (files: Upload[]) => Promise<{ id: string; url: string }>; remove?: (id: string) => Promise<void> }) {
     const s = new SettingsStore(openDatabase(':memory:'));
@@ -1690,11 +1842,18 @@ describe('GET /api/search', () => {
     const stored = store.get(conv.id)!;
     stored.title = 'Release checklist';
     store.saveMeta(stored);
-    const msg = { id: 'm1', author: { kind: 'user' as const }, createdAt: 1, parts: [{ type: 'text' as const, text: '部署到 staging 之前要跑測試' }], status: 'done' as const };
+    const msg = {
+      id: 'm1',
+      author: { kind: 'user' as const },
+      createdAt: 1,
+      parts: [{ type: 'text' as const, text: '部署到 staging 之前要跑測試' }],
+      status: 'done' as const,
+    };
     stored.messages.push(msg);
     store.saveMessage(conv.id, msg, true);
 
-    const search = async (q: string) => (await (await get(`/api/search?q=${encodeURIComponent(q)}`)).json()) as { id: string; snippet?: string }[];
+    const search = async (q: string) =>
+      (await (await get(`/api/search?q=${encodeURIComponent(q)}`)).json()) as { id: string; snippet?: string }[];
     expect((await search('release')).map((r) => r.id)).toEqual([conv.id]);
     const [hit] = await search('staging 測試');
     expect(hit?.id).toBe(conv.id);
@@ -1708,7 +1867,13 @@ describe('GET /api/cwds', () => {
   it('offers the default working directory, then those in use, the most recently used first, only folders that exist', async () => {
     expect((await app.request('/api/settings', json('PUT', { defaultCwd: project }))).status).toBe(200);
     const [a, b, gone] = ['a', 'b with spaces', 'gone'].map((name) => join(project, name));
-    for (const [cwd, at] of [[a, 3], [b, 2], [gone, 4], [project, 1], [a, 1]] as const) {
+    for (const [cwd, at] of [
+      [a, 3],
+      [b, 2],
+      [gone, 4],
+      [project, 1],
+      [a, 1],
+    ] as const) {
       mkdirSync(cwd, { recursive: true });
       const conv = store.get((await createConversation({ cwd })).id)!;
       conv.updatedAt = at;
@@ -1729,7 +1894,14 @@ describe('GET /api/cwds', () => {
       const s = new SettingsStore(db);
       const st = new Store(db);
       const hub = new Hub();
-      const own = createApp({ auth: null, store: st, settings: s, hub, orchestrator: new Orchestrator(st, hub, s), providers: new ProviderService(s) });
+      const own = createApp({
+        auth: null,
+        store: st,
+        settings: s,
+        hub,
+        orchestrator: new Orchestrator(st, hub, s),
+        providers: new ProviderService(s),
+      });
       const res = await own.request('/api/cwds', { headers: HOST });
       expect(((await res.json()) as WorkingDirectories).dirs).toEqual([{ path: homedir(), default: true }]);
     } finally {
@@ -1764,7 +1936,10 @@ describe('GET /api/cwds', () => {
 
 describe('the folder dialog', () => {
   /** An app whose folder dialog answers `answer` and records where it was opened. */
-  function withPicker(answer: (o: { title: string; start: string; signal?: AbortSignal }) => Promise<string[]>, opts: { available?: boolean; extraHosts?: string[] } = {}) {
+  function withPicker(
+    answer: (o: { title: string; start: string; signal?: AbortSignal }) => Promise<string[]>,
+    opts: { available?: boolean; extraHosts?: string[] } = {},
+  ) {
     const opened: { title: string; start: string; signal?: AbortSignal }[] = [];
     const settings = new SettingsStore(openDatabase(':memory:'));
     const own = createApp({
@@ -1790,7 +1965,8 @@ describe('the folder dialog', () => {
 
   it('is offered to a browser on this computer that has one, not through the tailnet nor without one', async () => {
     const { own } = withPicker(async () => [], { extraHosts: ['my-computer.tail1234.ts.net'] });
-    const cwds = async (a: typeof own, host: string) => ((await (await a.request('/api/cwds', { headers: { host } })).json()) as WorkingDirectories).pick;
+    const cwds = async (a: typeof own, host: string) =>
+      ((await (await a.request('/api/cwds', { headers: { host } })).json()) as WorkingDirectories).pick;
     expect(await cwds(own, '127.0.0.1:8787')).toBe(true);
     expect(await cwds(own, 'localhost:5173')).toBe(true);
     expect(await cwds(own, 'my-computer.tail1234.ts.net')).toBeUndefined();
@@ -1824,10 +2000,13 @@ describe('the folder dialog', () => {
 
   it('opens one dialog at a time, and closes it when the request is gone', async () => {
     let close!: (paths: string[]) => void;
-    const { own, opened } = withPicker((o) => new Promise((done) => {
-      close = done;
-      o.signal?.addEventListener('abort', () => done([]), { once: true });
-    }));
+    const { own, opened } = withPicker(
+      (o) =>
+        new Promise((done) => {
+          close = done;
+          o.signal?.addEventListener('abort', () => done([]), { once: true });
+        }),
+    );
     const first = pick(own, project);
     await vi.waitFor(() => expect(opened).toHaveLength(1));
     const second = await pick(own, project, { 'x-relay-lang': 'en' });
@@ -1855,9 +2034,128 @@ describe('the folder dialog', () => {
     expect(none.status).toBe(503);
     expect((await none.json()).error).toMatch(/zenity or kdialog/);
 
-    const broken = await pick(withPicker(async () => { throw new Error('No user interaction allowed. (-1713)'); }).own, project, { 'x-relay-lang': 'en' });
+    const broken = await pick(
+      withPicker(async () => {
+        throw new Error('No user interaction allowed. (-1713)');
+      }).own,
+      project,
+      { 'x-relay-lang': 'en' },
+    );
     expect(broken.status).toBe(502);
     expect((await broken.json()).error).toBe('Could not open the folder dialog (No user interaction allowed. (-1713))');
+  });
+});
+
+describe('mail accounts and calendars', () => {
+  it('saves an account with its password masked, tries it, finds calendars, and removes it', async () => {
+    const { fakeImap, fakeSmtp, fakeCalDav } = await import('./fake-mail-servers');
+    const imap = await fakeImap([]);
+    const smtp = await fakeSmtp();
+    const cal = await fakeCalDav([]);
+    try {
+      const put = (path: string, b: unknown) => app.request(path, json('PUT', b, { 'x-relay-lang': 'en' }));
+      const account = {
+        name: 'Work',
+        address: 'me@example.com',
+        username: 'me@example.com',
+        password: 'app-pass',
+        imap: { host: '127.0.0.1', port: imap.port, security: 'none' },
+        smtp: { host: '127.0.0.1', port: smtp.port, security: 'none' },
+      };
+      expect((await put('/api/connectors/mail/Bad Id', account)).status).toBe(400);
+      expect(
+        (await put('/api/connectors/mail/work', { ...account, imap: { host: 'imap.example.com', port: 143, security: 'none' } })).status,
+      ).toBe(400);
+      const saved = (await (await put('/api/connectors/mail/work', account)).json()) as { mail: { password: string }[] };
+      expect(saved.mail[0]!.password).toBe('••••');
+      expect(JSON.stringify(await (await get('/api/connectors')).json())).not.toContain('app-pass');
+
+      const test = (kind: string, id: string) =>
+        app.request(`/api/connectors/${kind}/${id}/test`, json('POST', {}, { 'x-relay-lang': 'en' }));
+      expect(await (await test('mail', 'work')).json()).toEqual({ ok: true, message: 'Connected: the user name and password work.' });
+      await put('/api/connectors/mail/work', { ...account, password: 'wrong' });
+      expect(await (await test('mail', 'work')).json()).toMatchObject({
+        ok: false,
+        error: expect.stringMatching(/^Not connected: .*did not accept/),
+      });
+      // In the user's language, the server's own words after it.
+      const zh = await app.request('/api/connectors/mail/work/test', json('POST', {}, { 'x-relay-lang': 'zh-TW' }));
+      expect(await zh.json()).toMatchObject({ ok: false, error: expect.stringMatching(/^連不上：郵件伺服器不接受這組使用者名稱與密碼：/) });
+      expect((await test('mail', 'missing')).status).toBe(404);
+
+      const root = cal.url.replace('/cal/me/', '/');
+      const found = await app.request(
+        '/api/connectors/calendar/discover',
+        json('POST', { url: root, username: 'me@example.com', password: 'app-pass' }),
+      );
+      expect(await found.json()).toEqual({ ok: true, calendars: [{ name: 'Personal', url: cal.url }] });
+      expect(
+        (
+          await app.request(
+            '/api/connectors/calendar/discover',
+            json('POST', { url: root, username: 'me@example.com' }, { 'x-relay-lang': 'en' }),
+          )
+        ).status,
+      ).toBe(400);
+      await put('/api/connectors/calendar/home', { name: 'Home', url: cal.url, username: 'me@example.com', password: 'app-pass' });
+      expect(await (await test('calendar', 'home')).json()).toMatchObject({ ok: true });
+      // Found again with the password kept for the calendar being edited.
+      expect(
+        await (
+          await app.request('/api/connectors/calendar/discover', json('POST', { url: root, username: 'me@example.com', id: 'home' }))
+        ).json(),
+      ).toMatchObject({ ok: true });
+      // The kept password never goes to another server: there it must be typed again.
+      const elsewhere = await app.request(
+        '/api/connectors/calendar/discover',
+        json('POST', { url: 'http://localhost:5232/', username: 'me@example.com', id: 'home' }, { 'x-relay-lang': 'en' }),
+      );
+      expect(elsewhere.status).toBe(400);
+      expect(await elsewhere.text()).toContain('enter the password again');
+      expect(
+        (await put('/api/connectors/calendar/home', { name: 'Home', url: 'http://localhost:5232/me/', username: 'me@example.com' })).status,
+      ).toBe(400);
+
+      expect((await app.request('/api/connectors/mail/work', json('DELETE', {}))).status).toBe(200);
+      expect((await app.request('/api/connectors/mail/work', json('DELETE', {}))).status).toBe(404);
+      expect((await app.request('/api/connectors/other/work', json('DELETE', {}))).status).toBe(404);
+      expect(((await (await get('/api/connectors')).json()) as { mail: unknown[] }).mail).toEqual([]);
+    } finally {
+      await Promise.all([imap.close(), smtp.close(), cal.close()]);
+    }
+  });
+});
+
+describe('the outbox', () => {
+  it("sends or discards an item only on the user's answer, and refuses anything else", async () => {
+    const { Outbox } = await import('../src/server/outbox');
+    const conv = await createConversation({ permission: 'read-only' });
+    const db = (store as unknown as { db: ReturnType<typeof import('../src/server/db').openDatabase> }).db;
+    const outbox = new Outbox(db);
+    orchestrator.outbox = outbox;
+    const sent: unknown[] = [];
+    orchestrator.gateway = { tool: () => ({ send: async (a: unknown) => (sent.push(a), 'ok') }) } as never;
+    const { item } = outbox.add(
+      { convId: conv.id, messageId: 'm', agentId: 'a', agentName: 'Alice', tool: 'mail_send', title: 'Mail', preview: { fields: [] } },
+      { to: 'x' },
+    );
+    const answer = (id: string, body: unknown) =>
+      app.request(`/api/conversations/${conv.id}/outbox/${id}`, json('POST', body, { 'x-relay-lang': 'en' }));
+    expect((await answer(item.id, { action: 'maybe' })).status).toBe(400);
+    expect((await answer('missing', { action: 'send' })).status).toBe(404);
+    const res = await answer(item.id, { action: 'send' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ id: item.id, status: 'sent', result: 'ok' });
+    expect(sent).toEqual([{ to: 'x' }]);
+    expect((await answer(item.id, { action: 'discard' })).status).toBe(409);
+    const list = (await (await get('/api/conversations')).json()) as { id: string; waiting?: boolean }[];
+    expect(list.find((c) => c.id === conv.id)!.waiting).toBeUndefined();
+    outbox.add(
+      { convId: conv.id, messageId: 'm', agentId: 'a', agentName: 'Alice', tool: 'mail_send', title: 'Mail 2', preview: { fields: [] } },
+      { to: 'y' },
+    );
+    const waiting = (await (await get('/api/conversations')).json()) as { id: string; waiting?: boolean }[];
+    expect(waiting.find((c) => c.id === conv.id)!.waiting).toBe(true);
   });
 });
 
@@ -1874,16 +2172,28 @@ describe('tool library', () => {
     expect(ok.status).toBe(200);
     const view = await ok.json();
     expect(JSON.stringify(view)).not.toContain('ghp_secret_value_123');
-    expect(view.mcpServers[0]).toMatchObject({ name: 'github', providers: ['claude', 'grok'], env: [{ name: 'GITHUB_TOKEN', masked: 'ghp…123' }] });
+    expect(view.mcpServers[0]).toMatchObject({
+      name: 'github',
+      providers: ['claude', 'grok'],
+      env: [{ name: 'GITHUB_TOKEN', masked: 'ghp…123' }],
+    });
     expect(JSON.stringify(await (await get('/api/tools')).json())).not.toContain('ghp_secret_value_123');
 
     expect((await save('bad.name', { transport: 'stdio', command: 'x' })).status).toBe(400);
+    // Harness Relay's own tools' name, and names OpenCode would join with a tool into theirs (`relay_mail` + `send`).
+    for (const name of ['relay', 'Relay', 'relay_mail']) {
+      const r = await save(name, { transport: 'stdio', command: 'x' });
+      expect(r.status).toBe(400);
+      expect((await r.json()).error).toContain("is taken by Harness Relay's own tools");
+    }
     expect((await save('x', { transport: 'stdio', command: '' })).status).toBe(400);
     expect((await save('x', { transport: 'http', url: 'file:///etc/passwd' })).status).toBe(400);
     expect((await save('x', { transport: 'stdio', command: 'x', providers: ['gemini'] })).status).toBe(400);
     expect((await save('x', { transport: 'stdio', command: 'x', env: [{ name: 'A B', value: '1' }] })).status).toBe(400);
     expect((await save('GitHub', { transport: 'stdio', command: 'x' })).status).toBe(409);
-    expect((await app.request('/api/tools/mcp/nope', { method: 'DELETE', headers: { ...HOST, 'content-type': 'application/json' } })).status).toBe(404);
+    expect(
+      (await app.request('/api/tools/mcp/nope', { method: 'DELETE', headers: { ...HOST, 'content-type': 'application/json' } })).status,
+    ).toBe(404);
     const del = await app.request('/api/tools/mcp/github', { method: 'DELETE', headers: { ...HOST, 'content-type': 'application/json' } });
     expect((await del.json()).mcpServers).toEqual([]);
   });
@@ -1899,8 +2209,47 @@ describe('tool library', () => {
     expect(res.status).toBe(200);
     const view = await res.json();
     expect(view.skills).toEqual([{ path: skills, name: 'commit', description: 'Commit well.', providers: ['codex'] }]);
-    expect(view.memory).toEqual({ all: 'Be brief.', claude: 'Use pnpm.', codex: '', grok: '', cursor: '', antigravity: '', copilot: '', muse: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' });
+    expect(view.memory).toEqual({
+      all: 'Be brief.',
+      claude: 'Use pnpm.',
+      codex: '',
+      grok: '',
+      cursor: '',
+      antigravity: '',
+      copilot: '',
+      muse: '',
+      opencode: '',
+      goose: '',
+      cline: '',
+      openhands: '',
+      pi: '',
+    });
     expect((await app.request('/api/tools', json('PUT', { memory: { gemini: 'x' } }))).status).toBe(400);
+    // Harness Relay's own tool groups: known groups, each with a list of CLIs.
+    expect((await app.request('/api/tools', json('PUT', { relayTools: { teleport: ['claude'] } }))).status).toBe(400);
+    expect((await app.request('/api/tools', json('PUT', { relayTools: { browser: 'claude' } }))).status).toBe(400);
+    expect((await app.request('/api/tools', json('PUT', { relayTools: { browser: ['gemini'] } }))).status).toBe(400);
+    // The browser to start: a file there now (as a full path), or empty to find one by itself again.
+    const nowhere = join(root, 'no-such-browser');
+    const refused = await app.request('/api/tools', json('PUT', { browser: nowhere }));
+    expect(refused.status).toBe(400);
+    expect(((await refused.json()) as { error: string }).error).toContain(nowhere);
+    expect((await app.request('/api/tools', json('PUT', { browser: 42 }))).status).toBe(400);
+    const chosen = (await (await app.request('/api/tools', json('PUT', { browser: ` ${process.execPath} ` }))).json()) as {
+      browser: { path?: string };
+    };
+    expect(chosen.browser.path).toBe(process.execPath);
+    expect(((await (await app.request('/api/tools', json('PUT', { browser: '' }))).json()) as { browser: object }).browser).toEqual({});
+    const relay = (await (await app.request('/api/tools', json('PUT', { relayTools: { browser: ['codex', 'claude'] } }))).json()) as {
+      relayTools: unknown;
+      gateway: unknown;
+    };
+    expect(relay.relayTools).toEqual([
+      { group: 'browser', providers: ['claude', 'codex'] },
+      { group: 'mail', providers: [] },
+      { group: 'calendar', providers: [] },
+    ]);
+    expect(relay.gateway).toEqual({ available: false, reason: 'not-started' });
     expect((await app.request('/api/tools', json('PUT', { memory: { all: 'x'.repeat(20_001) } }))).status).toBe(400);
     expect((await app.request('/api/tools', json('PUT', { skills: [{ path: join(project, 'nothing-here') }] }))).status).toBe(400);
   });
@@ -1927,7 +2276,14 @@ describe('tool library', () => {
     const res = await app.request(
       '/api/conversations',
       json('POST', {
-        agents: [{ name: 'Alice', provider: 'claude', role: '', tools: { 'mcp:github': false, memory: true, 'memory:codex': true, bogus: true, 'mcp:x': 'yes' } }],
+        agents: [
+          {
+            name: 'Alice',
+            provider: 'claude',
+            role: '',
+            tools: { 'mcp:github': false, memory: true, 'memory:codex': true, bogus: true, 'mcp:x': 'yes' },
+          },
+        ],
         settings: { mode: 'roundtable', permission: 'read-only', cwd: project },
       }),
     );
@@ -1936,7 +2292,7 @@ describe('tool library', () => {
     expect(conv.agents[0]!.tools).toEqual({ 'mcp:github': false, memory: true, 'memory:codex': true });
   });
 
-  it("hands each agent its library items when it runs", async () => {
+  it('hands each agent its library items when it runs', async () => {
     writeFileSync(join(project, 'SKILL.md'), '---\nname: solo\n---\n');
     await app.request('/api/tools', json('PUT', { skills: [{ path: project }], memory: { all: 'Shared note.' } }));
     await app.request('/api/tools/mcp/gh', json('PUT', { transport: 'stdio', command: 'gh-mcp', env: [{ name: 'T', value: 'tok' }] }));
@@ -1957,7 +2313,9 @@ describe('tool library', () => {
     } finally {
       runners.claude = before;
     }
-    expect(seen[0]!.mcp).toEqual([{ name: 'gh', transport: 'stdio', command: 'gh-mcp', args: [], url: '', env: { T: 'tok' }, headers: {} }]);
+    expect(seen[0]!.mcp).toEqual([
+      { name: 'gh', transport: 'stdio', command: 'gh-mcp', args: [], url: '', env: { T: 'tok' }, headers: {} },
+    ]);
     expect(seen[0]!.readDirs).toEqual([project]);
     expect(seen[0]!.briefing).toContain('Shared note.');
     expect(seen[0]!.briefing).toContain(`- solo (${join(project, 'SKILL.md')})`);
@@ -2011,7 +2369,7 @@ describe('browsing files', () => {
     expect((await app.request(`${base}?path=`, { headers: { host: 'evil.example' } })).status).toBe(403);
   });
 
-  it('lists each working directory, and each agent\'s worktree of each, to browse', async () => {
+  it("lists each working directory, and each agent's worktree of each, to browse", async () => {
     const docs = join(project, 'docs');
     mkdirSync(docs);
     writeFileSync(join(docs, 'guide.md'), '# Guide\n');
@@ -2063,7 +2421,9 @@ describe('browsing files', () => {
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
     expect(res.headers.get('content-security-policy')).toContain('sandbox');
     const all = readZip(Buffer.from(await res.arrayBuffer()));
-    expect(all.map((e) => e.name).sort()).toEqual([`${top}/`, `${top}/src/`, `${top}/src/a.ts`, `${top}/src/empty/`, `${top}/報告.md`].sort());
+    expect(all.map((e) => e.name).sort()).toEqual(
+      [`${top}/`, `${top}/src/`, `${top}/src/a.ts`, `${top}/src/empty/`, `${top}/報告.md`].sort(),
+    );
     expect(all.find((e) => e.name.endsWith('報告.md'))!.data.toString()).toBe('# 報告\n');
 
     // HEAD: the headers only.
@@ -2095,20 +2455,27 @@ describe('browsing files', () => {
       const base = `/api/conversations/${conv.id}/files`;
 
       const check = await (await get(`${base}/zip/check?path=`)).json();
-      expect(check).toEqual({ all: null, unignored: { files: 2, bytes: Buffer.byteLength('node_modules/\n') + Buffer.byteLength('require("pkg");\n') } });
+      expect(check).toEqual({
+        all: null,
+        unignored: { files: 2, bytes: Buffer.byteLength('node_modules/\n') + Buffer.byteLength('require("pkg");\n') },
+      });
       const big = await get(`${base}/zip?path=`, { 'x-relay-lang': 'en' });
       expect(big.status).toBe(413);
       expect(((await big.json()) as { error: string }).error).toMatch(/too large for a ZIP file: at most 1,000 files and folders, 1 GB/);
       const res = await get(`${base}/zip?path=&unignored=1`);
       expect(res.status).toBe(200);
-      expect(readZip(Buffer.from(await res.arrayBuffer())).map((e) => e.name.split('/').slice(1).join('/')).sort()).toEqual(['', '.gitignore', 'index.js']);
+      expect(
+        readZip(Buffer.from(await res.arrayBuffer()))
+          .map((e) => e.name.split('/').slice(1).join('/'))
+          .sort(),
+      ).toEqual(['', '.gitignore', 'index.js']);
     } finally {
       FILE_LIMITS.zipItems = items;
     }
   });
 });
 
-describe("what each CLI loads by itself", () => {
+describe('what each CLI loads by itself', () => {
   it('asks the CLI for the default working directory, only from the app itself', async () => {
     const asked: ([string, string, boolean] | [string, string, boolean, string])[] = [];
     const reported: { path: string; kind: 'instructions' }[] = [];
@@ -2139,7 +2506,15 @@ describe("what each CLI loads by itself", () => {
     settings.setDefaultCwd(project);
     const s = new Store(db);
     const hub = new Hub();
-    const local = createApp({ auth: null, store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
+    const local = createApp({
+      auth: null,
+      store: s,
+      settings,
+      hub,
+      orchestrator: new Orchestrator(s, hub, settings),
+      providers: new ProviderService(settings),
+      native,
+    });
     const call = (path: string, body: unknown = {}) => local.request(path, json('POST', body, { 'x-relay-lang': 'en' }));
 
     const res = await call('/api/providers/codex/native');
@@ -2192,7 +2567,15 @@ describe("what each CLI loads by itself", () => {
 
     // Not a GET, and not a form post: a page elsewhere cannot set it off.
     expect((await local.request('/api/providers/claude/native', { headers: HOST })).status).toBe(404);
-    expect((await local.request('/api/providers/claude/native', { method: 'POST', headers: { ...HOST, 'content-type': 'text/plain' }, body: '{}' })).status).toBe(415);
+    expect(
+      (
+        await local.request('/api/providers/claude/native', {
+          method: 'POST',
+          headers: { ...HOST, 'content-type': 'text/plain' },
+          body: '{}',
+        })
+      ).status,
+    ).toBe(415);
   });
 });
 
@@ -2242,7 +2625,15 @@ process.stdout.write(JSON.stringify({ cwd, projectRoot: root ? root + '/' : null
     const hub = new Hub();
     // The real probe, running the stand-in.
     const native = new NativeSetupService({ bin: () => fakeGrok, env: () => settings.env('grok') });
-    const local = createApp({ auth: null, store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
+    const local = createApp({
+      auth: null,
+      store: s,
+      settings,
+      hub,
+      orchestrator: new Orchestrator(s, hub, settings),
+      providers: new ProviderService(settings),
+      native,
+    });
     const call = (body: unknown) => local.request('/api/providers/grok/folder-trust', json('POST', body, { 'x-relay-lang': 'en' }));
     try {
       // A folder outside a repository: trust is decided for that folder.
@@ -2255,7 +2646,12 @@ process.stdout.write(JSON.stringify({ cwd, projectRoot: root ? root + '/' : null
       expect(wrong.status).toBe(409);
       expect((await wrong.json()).error).toContain(repo);
       expect(existsSync(storeFile)).toBe(false);
-      expect(await (await call({ cwd: sub, trust: true, folder: repo })).json()).toEqual({ cwd: sub, folder: repo, above: true, trusted: true });
+      expect(await (await call({ cwd: sub, trust: true, folder: repo })).json()).toEqual({
+        cwd: sub,
+        folder: repo,
+        above: true,
+        trusted: true,
+      });
       const afterRepo = readFileSync(storeFile, 'utf8');
       expect(afterRepo).toContain(`[folders."${repo}"]`);
       expect(afterRepo).not.toContain(sub);
@@ -2271,12 +2667,25 @@ process.stdout.write(JSON.stringify({ cwd, projectRoot: root ? root + '/' : null
       expect(readFileSync(storeFile, 'utf8')).toBe(afterRepo);
       delete process.env.FAKE_GROK_REFUSE;
 
-      expect(await (await call({ cwd: link, trust: true, folder: project })).json()).toEqual({ cwd: link, folder: project, above: false, trusted: true });
+      expect(await (await call({ cwd: link, trust: true, folder: project })).json()).toEqual({
+        cwd: link,
+        folder: project,
+        above: false,
+        trusted: true,
+      });
       expect(readFileSync(storeFile, 'utf8')).toContain(`[folders."${project}"]`);
       expect(readFileSync(storeFile, 'utf8')).not.toContain(link);
 
       expect((await call({ cwd: join(root, 'missing') })).status).toBe(404);
-      expect((await local.request('/api/providers/grok/folder-trust', { method: 'POST', headers: { ...HOST, 'content-type': 'text/plain' }, body: '{}' })).status).toBe(415);
+      expect(
+        (
+          await local.request('/api/providers/grok/folder-trust', {
+            method: 'POST',
+            headers: { ...HOST, 'content-type': 'text/plain' },
+            body: '{}',
+          })
+        ).status,
+      ).toBe(415);
     } finally {
       if (saved.home === undefined) delete process.env.GROK_HOME;
       else process.env.GROK_HOME = saved.home;
@@ -2285,7 +2694,7 @@ process.stdout.write(JSON.stringify({ cwd, projectRoot: root ? root + '/' : null
     }
   });
 
-  it("trusts the folder for every Grok account, each in its own folder, and undoes it for all when Grok does not take it", async () => {
+  it('trusts the folder for every Grok account, each in its own folder, and undoes it for all when Grok does not take it', async () => {
     const fakeGrok = join(root, `fake-grok-${++n}`);
     writeFileSync(fakeGrok, FAKE_GROK, { mode: 0o755 });
     const saved = process.env.FAKE_GROK_REFUSE;
@@ -2298,7 +2707,15 @@ process.stdout.write(JSON.stringify({ cwd, projectRoot: root ? root + '/' : null
     const s = new Store(db);
     const hub = new Hub();
     const native = new NativeSetupService({ bin: () => fakeGrok, env: () => settings.env('grok') });
-    const local = createApp({ auth: null, store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
+    const local = createApp({
+      auth: null,
+      store: s,
+      settings,
+      hub,
+      orchestrator: new Orchestrator(s, hub, settings),
+      providers: new ProviderService(settings),
+      native,
+    });
     const stores = [settings.env('grok').GROK_HOME!, settings.env('grok', work).GROK_HOME!].map((h) => join(h, 'trusted_folders.toml'));
     try {
       process.env.FAKE_GROK_REFUSE = '1';
@@ -2327,7 +2744,15 @@ process.stdout.write(JSON.stringify({ cwd, projectRoot: root ? root + '/' : null
     const s = new Store(db);
     const hub = new Hub();
     const native = new NativeSetupService({ bin: () => fakeGrok, env: () => settings.env('grok') });
-    const local = createApp({ auth: null, store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
+    const local = createApp({
+      auth: null,
+      store: s,
+      settings,
+      hub,
+      orchestrator: new Orchestrator(s, hub, settings),
+      providers: new ProviderService(settings),
+      native,
+    });
     const store = (id = '') => join(settings.env('grok', id).GROK_HOME!, 'trusted_folders.toml');
     const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
@@ -2338,14 +2763,18 @@ process.stdout.write(JSON.stringify({ cwd, projectRoot: root ? root + '/' : null
       expect(existsSync(store())).toBe(false);
       rmSync(store(broken), { recursive: true });
 
-      expect(await (await local.request('/api/providers/grok/folder-trust', json('POST', { trust: true, folder: project }))).json()).toMatchObject({ trusted: true });
+      expect(
+        await (await local.request('/api/providers/grok/folder-trust', json('POST', { trust: true, folder: project }))).json(),
+      ).toMatchObject({ trusted: true });
       // A Grok account added now trusts what the default account trusts.
       const added = await local.request('/api/settings/providers/grok/accounts', json('POST', { label: 'Later' }));
       const { id } = (await added.json()) as { id: string };
       expect(readFileSync(store(id), 'utf8')).toBe(readFileSync(store(), 'utf8'));
       expect(statSync(store(id)).mode & 0o777).toBe(0o600);
       // Another CLI's account gets nothing of Grok's.
-      const claude = (await (await local.request('/api/settings/providers/claude/accounts', json('POST', { label: 'C' }))).json()) as { id: string };
+      const claude = (await (await local.request('/api/settings/providers/claude/accounts', json('POST', { label: 'C' }))).json()) as {
+        id: string;
+      };
       expect(existsSync(join(settings.env('claude', claude.id).CLAUDE_CONFIG_DIR!, 'trusted_folders.toml'))).toBe(false);
     } finally {
       warn.mockRestore();
@@ -2367,7 +2796,15 @@ process.stdout.write(JSON.stringify({ cwd, projectRoot: root ? root + '/' : null
     const s = new Store(db);
     const hub = new Hub();
     const native = new NativeSetupService({ bin: () => fakeGrok, env: () => settings.env('grok') });
-    const local = createApp({ auth: null, store: s, settings, hub, orchestrator: new Orchestrator(s, hub, settings), providers: new ProviderService(settings), native });
+    const local = createApp({
+      auth: null,
+      store: s,
+      settings,
+      hub,
+      orchestrator: new Orchestrator(s, hub, settings),
+      providers: new ProviderService(settings),
+      native,
+    });
     try {
       const res = await local.request('/api/providers/grok/folder-trust', json('POST', { trust: true, folder: project }));
       expect(res.status).toBe(409);
@@ -2444,7 +2881,7 @@ describe('schedules', () => {
     expect(await (await run()).json()).toEqual({ ok: true, queued: true });
     const third = await run();
     expect(third.status).toBe(409);
-    expect(((await third.json()) as { error: string }).error).toBe('The previous scheduled message is still waiting to be delivered');
+    expect(((await third.json()) as { error: string }).error).toBe("The automation's previous message is still waiting to be delivered");
 
     const live = store.get(conv.id)!;
     expect(live.messages[0]).toMatchObject({ scheduled: true });
@@ -2452,6 +2889,149 @@ describe('schedules', () => {
     expect(live.schedule!.lastResult).toBeUndefined(); // running it by hand leaves the schedule's record as it is
     orchestrator.stop(conv.id);
     await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+  });
+
+  it('keeps a goal and what the agents said of it while the goal stays the same, and starts afresh on a new one', async () => {
+    const conv = await createConversation({ permission: 'read-only' });
+    // A run in flight stays the schedule's while it stays on, and is no longer once it is switched off.
+    await put(conv.id, { ...valid, goal: 'Ship' });
+    const flying = store.get(conv.id)!;
+    flying.schedule!.tracking = { status: 'working', notes: [], inFlight: { due: 1, attempt: 0, chatId: conv.id } };
+    store.saveSchedule(flying);
+    expect(
+      ((await (await put(conv.id, { ...valid, goal: 'Ship', text: 'other' })).json()) as Conversation['schedule'])!.tracking!.inFlight,
+    ).toEqual({ due: 1, attempt: 0, chatId: conv.id });
+    expect(
+      ((await (await put(conv.id, { ...valid, goal: 'Ship', enabled: false })).json()) as Conversation['schedule'])!.tracking!.inFlight,
+    ).toBeUndefined();
+
+    const tooLong = await put(conv.id, { ...valid, goal: 'x'.repeat(2001) });
+    expect(tooLong.status).toBe(400);
+    expect(((await tooLong.json()) as { error: string }).error).toBe('A goal can be at most 2000 characters');
+    expect((await put(conv.id, { ...valid, goal: 42 })).status).toBe(400);
+
+    const saved = (await (await put(conv.id, { ...valid, goal: '  CI passes  ' })).json()) as NonNullable<Conversation['schedule']>;
+    expect(saved).toMatchObject({ goal: 'CI passes', tracking: { status: 'working', notes: [] } });
+    const live = store.get(conv.id)!;
+    live.schedule!.tracking = {
+      status: 'done',
+      notes: [{ at: 1, status: 'done', text: 'green', agent: 'Alice' }],
+      retry: { due: 1, attempt: 1, at: 2 },
+    };
+    store.saveSchedule(live);
+
+    // Saved again with the same goal and on: the notes stay, and the goal is worked on again.
+    const again = (await (await put(conv.id, { ...valid, goal: 'CI passes' })).json()) as NonNullable<Conversation['schedule']>;
+    expect(again.tracking).toEqual({ status: 'working', notes: [{ at: 1, status: 'done', text: 'green', agent: 'Alice' }] });
+    const other = (await (await put(conv.id, { ...valid, goal: 'Docs build' })).json()) as NonNullable<Conversation['schedule']>;
+    expect(other.tracking).toEqual({ status: 'working', notes: [] });
+    const none = (await (await put(conv.id, valid)).json()) as NonNullable<Conversation['schedule']>;
+    expect(none.goal).toBeUndefined();
+    expect(none.tracking).toBeUndefined();
+  });
+
+  describe('its webhook', () => {
+    const call = (id: string, token: string | undefined, body: string, headers: Record<string, string> = {}) =>
+      app.request(`/api/hooks/${id}`, {
+        method: 'POST',
+        headers: {
+          ...HOST,
+          'content-type': 'application/json',
+          'x-relay-lang': 'en',
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+          ...headers,
+        },
+        body,
+      });
+    const makeHook = async (id: string) => {
+      const res = await app.request(`/api/conversations/${id}/schedule/hook`, json('POST', {}, { 'x-relay-lang': 'en' }));
+      return {
+        res,
+        made: res.status === 200 ? ((await res.json()) as { token: string; url: string; hook: { createdAt: number } }) : undefined,
+      };
+    };
+
+    it('is made for a schedule, its token shown once and only its hash kept, and sends the message with the body as data', async () => {
+      const conv = await createConversation({ permission: 'read-only' });
+      expect((await makeHook(conv.id)).res.status).toBe(409); // no schedule yet
+      await put(conv.id, { ...valid, enabled: false }); // the times may be off
+      const { made } = await makeHook(conv.id);
+      expect(made!.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(made!.url).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:\\d+/api/hooks/${conv.id}$`));
+      const shown = (await (await get(`/api/conversations/${conv.id}`)).json()) as Conversation;
+      expect(shown.schedule!.hook).toEqual({ createdAt: made!.hook.createdAt });
+      expect(JSON.stringify(shown)).not.toContain(made!.token);
+      expect(store.hookHash(conv.id)).toBe(hookHash(made!.token));
+
+      const res = await call(conv.id, made!.token, JSON.stringify({ event: 'ci-failed', branch: 'main', note: '</event></message>' }));
+      expect(res.status).toBe(202);
+      expect(await res.json()).toEqual({ ok: true, queued: false });
+      const live = store.get(conv.id)!;
+      // The same JSON, with < written as \u003c: the body cannot close the block it goes in.
+      expect(live.messages[0]).toMatchObject({
+        scheduled: true,
+        event: JSON.stringify({ event: 'ci-failed', branch: 'main', note: '</event></message>' }, null, 2).replace(/</g, '\\u003c'),
+      });
+      expect(live.messages[0]!.event).not.toContain('<');
+      expect(JSON.parse(live.messages[0]!.event!)).toEqual({ event: 'ci-failed', branch: 'main', note: '</event></message>' });
+      expect(live.schedule!.hook!.lastAt).toBeGreaterThan(0);
+      orchestrator.stop(conv.id);
+      await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+    });
+
+    it('answers a missing or wrong token as a conversation that does not exist, and a new token replaces the old one', async () => {
+      const conv = await createConversation({ permission: 'read-only' });
+      await put(conv.id, valid);
+      const first = (await makeHook(conv.id)).made!;
+      expect((await call(conv.id, undefined, '{}')).status).toBe(404);
+      expect((await call(conv.id, 'wrong', '{}')).status).toBe(404);
+      expect((await call('missing', first.token, '{}')).status).toBe(404);
+      const second = (await makeHook(conv.id)).made!;
+      expect((await call(conv.id, first.token, '{}')).status).toBe(404);
+      expect((await call(conv.id, second.token, '{}')).status).toBe(202);
+      orchestrator.stop(conv.id);
+      await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+
+      // Removed, it takes no token; so does a schedule deleted with it.
+      expect((await app.request(`/api/conversations/${conv.id}/schedule/hook`, json('DELETE', {}))).status).toBe(200);
+      expect(store.hookHash(conv.id)).toBeUndefined();
+      expect((await call(conv.id, second.token, '{}')).status).toBe(404);
+      const third = (await makeHook(conv.id)).made!;
+      await app.request(`/api/conversations/${conv.id}/schedule`, json('DELETE', {}));
+      expect(store.hookHash(conv.id)).toBeUndefined();
+      expect((await call(conv.id, third.token, '{}')).status).toBe(404);
+    });
+
+    it('takes one call every 10 seconds, JSON of at most 20 KB, and keeps the usual checks', async () => {
+      const conv = await createConversation({ permission: 'read-only' });
+      await put(conv.id, valid);
+      const { token } = (await makeHook(conv.id)).made!;
+      expect((await call(conv.id, token, 'not json')).status).toBe(400);
+      expect((await call(conv.id, token, JSON.stringify({ x: 'y'.repeat(20_001) }))).status).toBe(413);
+      expect((await call(conv.id, token, '{}', { 'content-type': 'text/plain' })).status).toBe(415);
+      expect((await call(conv.id, token, '{}', { host: 'evil.test' })).status).toBe(403);
+      expect((await call(conv.id, token, '{}', { origin: 'https://evil.test' })).status).toBe(403);
+      // A body that says it is too large is refused before it is read.
+      expect((await call(conv.id, token, '{}', { 'content-length': '20001' })).status).toBe(413);
+      expect((await call(conv.id, token, '')).status).toBe(202); // an empty body is an empty event
+      const soon = await call(conv.id, token, '{}');
+      expect(soon.status).toBe(429);
+      expect(((await soon.json()) as { error: string }).error).toBe('This webhook can be called at most once every 10 seconds');
+      orchestrator.stop(conv.id);
+      await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
+    });
+
+    it('refuses once the goal it tracks is reached and the schedule is off', async () => {
+      const conv = await createConversation({ permission: 'read-only' });
+      await put(conv.id, { ...valid, goal: 'CI passes' });
+      const { token } = (await makeHook(conv.id)).made!;
+      const live = store.get(conv.id)!;
+      live.schedule = { ...live.schedule!, enabled: false, tracking: { status: 'done', notes: [] } };
+      store.saveSchedule(live);
+      const res = await call(conv.id, token, '{}');
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toMatch(/goal this automation tracks is reached/);
+    });
   });
 
   it('refuses a schedule while the team design waits for confirmation', async () => {
@@ -2521,17 +3101,26 @@ describe('schedules', () => {
 
   it('creates a schedule in a chat of its own, whose lead agent designs its team now and nothing else runs', async () => {
     const create = (b: Record<string, unknown>) => app.request('/api/schedules', json('POST', b, { 'x-relay-lang': 'en' }));
-    const res = await create({ settings: { permission: 'read-only', cwd: project }, schedule: { ...valid, text: 'Weekly report\nwith numbers', newChat: true } });
+    const res = await create({
+      settings: { permission: 'read-only', cwd: project },
+      schedule: { ...valid, text: 'Weekly report\nwith numbers', newChat: true },
+    });
     expect(res.status).toBe(200);
     const conv = (await res.json()) as Conversation;
     expect(conv.title).toBe('Weekly report');
     expect(conv.agents).toEqual([]);
     expect(conv.settings).toMatchObject({ autoTeam: true, permission: 'read-only', cwd: project });
-    expect(conv.schedule).toMatchObject({ text: 'Weekly report\nwith numbers', enabled: true, newChat: true, lang: 'en', nextRunAt: expect.any(Number) });
+    expect(conv.schedule).toMatchObject({
+      text: 'Weekly report\nwith numbers',
+      enabled: true,
+      newChat: true,
+      lang: 'en',
+      nextRunAt: expect.any(Number),
+    });
     const live = store.get(conv.id)!;
     expect(orchestrator.isRunning(conv.id)).toBe(true); // the lead agent designs the team
     expect(live.messages.map((m) => m.author.kind)).toEqual(['system', 'system']);
-    expect(live.messages[0]!.parts).toEqual([{ type: 'text', text: expect.stringMatching(/^Schedule created\./) }]);
+    expect(live.messages[0]!.parts).toEqual([{ type: 'text', text: expect.stringMatching(/^Automation created\./) }]);
     expect(live.messages[1]!.plan).toMatchObject({ status: 'planning' });
     expect(live.messages.some((m) => m.author.kind === 'user')).toBe(false);
 
@@ -2545,12 +3134,60 @@ describe('schedules', () => {
     orchestrator.stop(conv.id);
     await vi.waitFor(() => expect(orchestrator.isRunning(conv.id)).toBe(false));
 
-    const titled = (await (await create({ title: ' Reports ', settings: { cwd: project, leadReview: true }, schedule: valid })).json()) as Conversation;
+    const titled = (await (
+      await create({ title: ' Reports ', settings: { cwd: project, leadReview: true }, schedule: valid })
+    ).json()) as Conversation;
     expect(titled.title).toBe('Reports');
     // Lead review, as the New schedule page asked.
     expect(titled.settings.leadReview).toBe(true);
     orchestrator.stop(titled.id);
     await vi.waitFor(() => expect(orchestrator.isRunning(titled.id)).toBe(false));
+  });
+
+  it('creates its webhook with it when asked (New automation\'s "Create a webhook too"), the token in the answer this once', async () => {
+    const create = (b: Record<string, unknown>) => app.request('/api/schedules', json('POST', b, { 'x-relay-lang': 'en' }));
+    const plain = (await (await create({ settings: { cwd: project }, schedule: valid })).json()) as Conversation & { newHook?: unknown };
+    expect(plain.newHook).toBeUndefined();
+    expect(plain.schedule!.hook).toBeUndefined();
+    // Only a real `true` makes one: a string or a number does not.
+    for (const hook of ['true', 1]) {
+      const other = (await (await create({ settings: { cwd: project }, schedule: valid, hook })).json()) as Conversation & {
+        newHook?: unknown;
+      };
+      expect(other.newHook).toBeUndefined();
+      expect(other.schedule!.hook).toBeUndefined();
+      orchestrator.stop(other.id);
+      await vi.waitFor(() => expect(orchestrator.isRunning(other.id)).toBe(false));
+    }
+    const res = await create({ settings: { cwd: project }, schedule: { ...valid, manual: true }, hook: true });
+    expect(res.status).toBe(200);
+    const conv = (await res.json()) as Conversation & {
+      newHook?: { token: string; url: string; hook: { createdAt: number }; platform: string };
+    };
+    expect(conv.newHook!.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(conv.newHook!.url).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:\\d+/api/hooks/${conv.id}$`));
+    expect(conv.newHook!.platform).toBe(process.platform);
+    expect(conv.schedule!.hook).toEqual({ createdAt: conv.newHook!.hook.createdAt });
+    // Only its hash is kept; the conversation shown again has no token.
+    expect(store.hookHash(conv.id)).toBe(hookHash(conv.newHook!.token));
+    expect(JSON.stringify(await (await get(`/api/conversations/${conv.id}`)).json())).not.toContain(conv.newHook!.token);
+    for (const id of [plain.id, conv.id]) {
+      orchestrator.stop(id);
+      await vi.waitFor(() => expect(orchestrator.isRunning(id)).toBe(false));
+    }
+    // A program's call with that token is taken (a wrong one is a conversation that does not exist); it
+    // sends nothing before the team is confirmed.
+    const call = (token: string) =>
+      app.request(`/api/hooks/${conv.id}`, {
+        method: 'POST',
+        headers: { ...HOST, 'content-type': 'application/json', 'x-relay-lang': 'en', authorization: `Bearer ${token}` },
+        body: '{}',
+      });
+    expect((await call('wrong')).status).toBe(404);
+    const taken = await call(conv.newHook!.token);
+    expect(taken.status).toBe(409);
+    expect(((await taken.json()) as { error: string }).error).not.toMatch(/No such/i);
+    expect(store.get(conv.id)!.schedule!.hook!.lastAt).toBeGreaterThan(0);
   });
 
   it("sorts a new schedule's chat into the user's groups by its message, and creates nothing while the server stops", async () => {
@@ -2657,13 +3294,29 @@ describe('sharing conversations', () => {
     const own = createApp({ auth: null, store, settings: s, hub: new Hub(), orchestrator, providers: new ProviderService(s), ghLogin });
     const json = { ...HOST, 'content-type': 'application/json' };
     expect(await (await own.request('/api/gh/login', { headers: HOST })).json()).toBeNull();
-    expect(await (await own.request('/api/gh/login', { method: 'POST', headers: json, body: '{}' })).json()).toMatchObject({ state: 'running', codes: ['ABCD-1234'] });
-    expect(await (await own.request('/api/gh/login', { headers: HOST })).json()).toMatchObject({ state: 'running', urls: ['https://github.com/login/device'] });
+    expect(await (await own.request('/api/gh/login', { method: 'POST', headers: json, body: '{}' })).json()).toMatchObject({
+      state: 'running',
+      codes: ['ABCD-1234'],
+    });
+    expect(await (await own.request('/api/gh/login', { headers: HOST })).json()).toMatchObject({
+      state: 'running',
+      urls: ['https://github.com/login/device'],
+    });
     expect((await own.request('/api/gh/login', { method: 'DELETE', headers: json })).status).toBe(200);
     expect(await (await own.request('/api/gh/login', { headers: HOST })).json()).toMatchObject({ state: 'cancelled' });
     // Like any write, only from Harness Relay's own pages (the middleware's Host and content-type checks).
-    expect((await own.request('/api/gh/login', { method: 'POST', headers: { host: 'evil.example', 'content-type': 'application/json' }, body: '{}' })).status).toBe(403);
-    expect((await own.request('/api/gh/login', { method: 'POST', headers: { ...HOST, 'content-type': 'text/plain' }, body: '{}' })).status).toBe(415);
+    expect(
+      (
+        await own.request('/api/gh/login', {
+          method: 'POST',
+          headers: { host: 'evil.example', 'content-type': 'application/json' },
+          body: '{}',
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (await own.request('/api/gh/login', { method: 'POST', headers: { ...HOST, 'content-type': 'text/plain' }, body: '{}' })).status,
+    ).toBe(415);
     expect(calls).toEqual(['start', 'cancel']);
   });
 
@@ -2689,7 +3342,14 @@ describe('sharing conversations', () => {
     const conv = await createConversation();
     const agentId = conv.agents[0]!.id;
     const cached = store.get(conv.id)!;
-    cached.messages.push({ id: 'r1', author: { kind: 'agent', agentId }, agentName: 'Alice', createdAt: 1, parts: [{ type: 'text', text: 'hi' }], status: 'done' });
+    cached.messages.push({
+      id: 'r1',
+      author: { kind: 'agent', agentId },
+      agentName: 'Alice',
+      createdAt: 1,
+      parts: [{ type: 'text', text: 'hi' }],
+      status: 'done',
+    });
     const own = shareApp({ create: async () => link() });
     const res = await own.request(`/api/conversations/${conv.id}/share`, json('POST', { html: '<p>hi</p>', upTo: 'r1' }));
     expect((await res.json()).upTo).toEqual({ messageId: 'r1', agentName: 'Alice' });
@@ -2697,7 +3357,9 @@ describe('sharing conversations', () => {
 
   it('records no reply for an upTo that is not an agent reply of the conversation', async () => {
     const conv = await createConversation();
-    store.get(conv.id)!.messages.push({ id: 'u1', author: { kind: 'user' }, createdAt: 1, parts: [{ type: 'text', text: 'hi' }], status: 'done' });
+    store
+      .get(conv.id)!
+      .messages.push({ id: 'u1', author: { kind: 'user' }, createdAt: 1, parts: [{ type: 'text', text: 'hi' }], status: 'done' });
     let n = 0;
     const own = shareApp({ create: async () => link((++n).toString(16).padStart(32, '0')) });
     for (const upTo of ['u1', 'missing', 42]) {
@@ -2758,7 +3420,8 @@ describe('sharing conversations', () => {
       },
     });
     await own.request(`/api/conversations/${conv.id}/share`, json('POST', { html: '<p>hi</p>' }));
-    const del = (id: string) => own.request(`/api/shares/${id}`, { method: 'DELETE', headers: { ...HOST, 'content-type': 'application/json' } });
+    const del = (id: string) =>
+      own.request(`/api/shares/${id}`, { method: 'DELETE', headers: { ...HOST, 'content-type': 'application/json' } });
     expect((await del(ID)).status).toBe(502);
     expect(store.listShares().map((s) => s.id)).toEqual([ID]);
     expect((await del('ffffffffffffffffffffffff')).status).toBe(404);
@@ -2779,7 +3442,14 @@ describe('sharing conversations', () => {
     const live = store.get(conv.id)!;
     const agentId = live.agents[0]!.id;
     for (const id of ['r1', 'r2', 'r3']) {
-      live.messages.push({ id, author: { kind: 'agent', agentId }, agentName: 'Alice', createdAt: 1, parts: [{ type: 'text', text: id }], status: 'done' });
+      live.messages.push({
+        id,
+        author: { kind: 'agent', agentId },
+        agentName: 'Alice',
+        createdAt: 1,
+        parts: [{ type: 'text', text: id }],
+        status: 'done',
+      });
     }
     mkdirSync(join(project, 'out'), { recursive: true });
     mkdirSync(join(project, 'docs'), { recursive: true });
@@ -2852,7 +3522,10 @@ describe('sharing conversations', () => {
     expect(await check({ files: [ref('r1', 'out/report.md')], upTo: 'r1' })).toEqual([undefined]);
     // Nor does a share take it along.
     const own = shareApp({});
-    const res = await own.request(`/api/conversations/${conv.id}/share`, json('POST', { html: fileLink(0), files: [ref('theirs', 'out/report.md')] }));
+    const res = await own.request(
+      `/api/conversations/${conv.id}/share`,
+      json('POST', { html: fileLink(0), files: [ref('theirs', 'out/report.md')] }),
+    );
     expect(res.status).toBe(409);
   });
 
@@ -2864,7 +3537,15 @@ describe('sharing conversations', () => {
     expect((await check({ files: [] }, 'missing')).status).toBe(404);
     expect((await check({ files: [] }, conv.id)).status).toBe(200);
     expect((await check({ files: [ref('r1', 'out/report.md')] }, conv.id)).headers.get('content-type')).toContain('application/json');
-    expect((await app.request(`/api/conversations/${conv.id}/share/files`, { method: 'POST', headers: { ...HOST, 'content-type': 'text/plain' }, body: '{}' })).status).toBe(415);
+    expect(
+      (
+        await app.request(`/api/conversations/${conv.id}/share/files`, {
+          method: 'POST',
+          headers: { ...HOST, 'content-type': 'text/plain' },
+          body: '{}',
+        })
+      ).status,
+    ).toBe(415);
   });
 
   it('takes the files the page links to along, each once and named apart, and records them and their gist', async () => {
@@ -2914,7 +3595,10 @@ describe('sharing conversations', () => {
     const conv = await withFiles();
     const calls: (Upload[] | undefined)[] = [];
     const own = shareApp({ create: async (_h, _d, files) => (calls.push(files), link()) });
-    const res = await own.request(`/api/conversations/${conv.id}/share`, json('POST', { html: '<p>hi</p>', files: [ref('r1', 'out/report.md')] }));
+    const res = await own.request(
+      `/api/conversations/${conv.id}/share`,
+      json('POST', { html: '<p>hi</p>', files: [ref('r1', 'out/report.md')] }),
+    );
     expect((await res.json()).files).toBeUndefined();
     expect(calls).toEqual([[]]);
   });
@@ -2974,7 +3658,10 @@ describe('sharing conversations', () => {
       },
       remove: async (id) => void removed.push(id),
     });
-    const res = await own.request(`/api/conversations/${conv.id}/share`, json('POST', { html: fileLink(0), files: [ref('r1', 'out/report.md')] }));
+    const res = await own.request(
+      `/api/conversations/${conv.id}/share`,
+      json('POST', { html: fileLink(0), files: [ref('r1', 'out/report.md')] }),
+    );
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ error: 'Could not make the shared page, nor delete the files' });
     const [listed] = store.listShares();
@@ -2996,7 +3683,10 @@ describe('sharing conversations', () => {
         return { ...link(), filesGist: FILES };
       },
     });
-    const res = await own.request(`/api/conversations/${conv.id}/share`, json('POST', { html: fileLink(0), files: [ref('r1', 'out/report.md')] }));
+    const res = await own.request(
+      `/api/conversations/${conv.id}/share`,
+      json('POST', { html: fileLink(0), files: [ref('r1', 'out/report.md')] }),
+    );
     expect(res.status).toBe(200);
     // Listed while the files went up, so it could be removed had the server stopped then.
     expect(during).toEqual([[expect.objectContaining({ id: FILES, url: '', unfinished: true, conversationId: conv.id, files: 1 })]]);
@@ -3021,21 +3711,31 @@ describe('sharing conversations', () => {
       },
       remove: async (id) => void removed.push(id),
     });
-    const sharing = own.request(`/api/conversations/${conv.id}/share`, json('POST', { html: fileLink(0), files: [ref('r1', 'out/report.md')] }));
+    const sharing = own.request(
+      `/api/conversations/${conv.id}/share`,
+      json('POST', { html: fileLink(0), files: [ref('r1', 'out/report.md')] }),
+    );
     await madeGist;
     // Recorded, for a restart, but not listed nor removed while its files go up.
     expect(store.getShare(FILES)).toMatchObject({ unfinished: true });
     expect(await (await own.request('/api/shares', { headers: HOST })).json()).toEqual([]);
-    const del = await own.request(`/api/shares/${FILES}`, { method: 'DELETE', headers: { ...HOST, 'content-type': 'application/json', 'x-relay-lang': 'en' } });
+    const del = await own.request(`/api/shares/${FILES}`, {
+      method: 'DELETE',
+      headers: { ...HOST, 'content-type': 'application/json', 'x-relay-lang': 'en' },
+    });
     expect(del.status).toBe(409);
     expect((await del.json()).error).toContain('still being made');
     expect(removed).toEqual([]);
     // After a restart (another app on the same records) it is listed, to be removed.
     const restarted = shareApp({});
-    expect(await (await restarted.request('/api/shares', { headers: HOST })).json()).toEqual([expect.objectContaining({ id: FILES, unfinished: true })]);
+    expect(await (await restarted.request('/api/shares', { headers: HOST })).json()).toEqual([
+      expect.objectContaining({ id: FILES, unfinished: true }),
+    ]);
     release();
     expect((await sharing).status).toBe(200);
-    expect(await (await own.request('/api/shares', { headers: HOST })).json()).toEqual([expect.objectContaining({ id: ID, filesGist: FILES })]);
+    expect(await (await own.request('/api/shares', { headers: HOST })).json()).toEqual([
+      expect.objectContaining({ id: ID, filesGist: FILES }),
+    ]);
   });
 
   it('forgets the files gist when it was deleted again, and keeps it listed when it may still be on GitHub', async () => {
@@ -3078,7 +3778,10 @@ describe('sharing conversations', () => {
         throw new ShareError('GitHub CLI (gh) is not signed in.', 'gh-signed-out');
       },
     });
-    const res = await own.request(`/api/conversations/${conv.id}/share`, json('POST', { html: fileLink(0), files: [ref('r1', 'out/report.md')] }));
+    const res = await own.request(
+      `/api/conversations/${conv.id}/share`,
+      json('POST', { html: fileLink(0), files: [ref('r1', 'out/report.md')] }),
+    );
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ error: 'GitHub CLI (gh) is not signed in.', code: 'gh-signed-out' });
     expect(store.listShares()).toEqual([]);

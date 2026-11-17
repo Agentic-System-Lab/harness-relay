@@ -400,7 +400,8 @@ export function prepareMuseRun(
         console.warn(`[muse] could not read ${rules}: ${(err as Error).message}`);
       }
     }
-    if (permission !== 'full') writeFileSync(join(cfg, 'trust.json'), `${JSON.stringify(museTrust(opts.dirs ?? []), null, 2)}\n`, { mode: 0o600 });
+    if (permission !== 'full')
+      writeFileSync(join(cfg, 'trust.json'), `${JSON.stringify(museTrust(opts.dirs ?? []), null, 2)}\n`, { mode: 0o600 });
     // The commands Muse runs find the rest of the user's config folder where they look for it.
     if (platform !== 'win32') {
       const user = opts.userConfig ?? (env.XDG_CONFIG_HOME || join(homedir(), '.config'));
@@ -455,7 +456,7 @@ export const MUSE_WINDOWS_BRIEFING_MAX = 24_000;
  * workflows are off (`MUSE_RUN_RUN_SETTINGS`), which the user cannot change in Harness Relay.
  */
 export const MUSE_NOTES =
-  'In this app, a tool call that is refused (by the user, or because the conversation\'s permission does not cover it) comes back to you as ' +
+  "In this app, a tool call that is refused (by the user, or because the conversation's permission does not cover it) comes back to you as " +
   '"The user rejected this action", without the reason. Do not retry it; say what you needed it for, or ask the user as these instructions say. ' +
   'Workflows are off in this app, since your turn ends before their agents could finish; this is not a setting the user can change here, so do the work yourself.';
 
@@ -464,7 +465,15 @@ export const MUSE_NOTES =
  * made a replacement character: Muse refuses a `-c` value that is not valid JSON text.
  */
 export function museBriefing(briefing: string): string {
-  const text = ['<harness-relay-briefing>', 'Standing instructions from Harness Relay, the app this conversation runs in.', '', briefing.trim(), '', MUSE_NOTES, '</harness-relay-briefing>'].join('\n');
+  const text = [
+    '<harness-relay-briefing>',
+    'Standing instructions from Harness Relay, the app this conversation runs in.',
+    '',
+    briefing.trim(),
+    '',
+    MUSE_NOTES,
+    '</harness-relay-briefing>',
+  ].join('\n');
   return text.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '\uFFFD');
 }
 
@@ -486,7 +495,10 @@ export const MUSE_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']
  * The arguments of a run: its model and effort, the briefing as its developer prompt (when it fits on
  * the command line), and in full access no sandbox and a trusted workspace.
  */
-export function museArgs(o: Pick<RunOptions, 'permission' | 'model' | 'effort' | 'systemPrompt'>, platform: NodeJS.Platform = process.platform): string[] {
+export function museArgs(
+  o: Pick<RunOptions, 'permission' | 'model' | 'effort' | 'systemPrompt'>,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
   const effort = o.effort?.trim();
   const briefing = o.systemPrompt.trim() && briefingOnCommandLine(o.systemPrompt, platform) ? museBriefing(o.systemPrompt) : '';
   return [
@@ -552,7 +564,9 @@ export function museCommand(call: MuseToolCall): string {
 export function musePaths(call: MuseToolCall): string[] {
   const input = call.rawInput ?? {};
   const fromInput = [input.path, input.file_path, input.workdir].filter((p): p is string => typeof p === 'string' && p.length > 0);
-  const fromLocations = Array.isArray(call.locations) ? call.locations.map((l) => l?.path).filter((p): p is string => typeof p === 'string' && p.length > 0) : [];
+  const fromLocations = Array.isArray(call.locations)
+    ? call.locations.map((l) => l?.path).filter((p): p is string => typeof p === 'string' && p.length > 0)
+    : [];
   return [...new Set([...fromInput, ...fromLocations])];
 }
 
@@ -566,8 +580,10 @@ function within(cwd: string, path: string, dir: string): boolean {
 const COMMAND_TOOLS = new Set(['bash', 'bash_input', 'powershell', 'powershell_input']);
 const isCommand = (c: MuseToolCall) => c.kind === 'execute' || COMMAND_TOOLS.has(c.name ?? '');
 const isWeb = (c: MuseToolCall) => c.kind === 'fetch' || c.name === 'web_fetch' || c.name === 'web_search';
-const isWrite = (c: MuseToolCall) => c.kind === 'edit' || c.kind === 'delete' || c.kind === 'move' || c.name === 'write_file' || c.name === 'edit_file';
-const isRead = (c: MuseToolCall) => (c.kind === 'read' || c.kind === 'search' || c.name === 'read_file' || c.name === 'search') && !isWeb(c);
+const isWrite = (c: MuseToolCall) =>
+  c.kind === 'edit' || c.kind === 'delete' || c.kind === 'move' || c.name === 'write_file' || c.name === 'edit_file';
+const isRead = (c: MuseToolCall) =>
+  (c.kind === 'read' || c.kind === 'search' || c.name === 'read_file' || c.name === 'search') && !isWeb(c);
 
 /** What to do with a call Muse asks about: run it, ask the user, or refuse it without asking. */
 export type MuseDecision = { run: 'allow' } | { run: 'ask' } | { run: 'refuse'; reason: string };
@@ -609,11 +625,21 @@ export function musePermissionDecision(
 }
 
 /** What to show the user when Muse asks about a call the permission does not cover. */
-export function museApprovalRequest(permission: Permission, call: MuseToolCall, cwd: string, addDirs: readonly string[] = []): ApprovalRequest {
+export function museApprovalRequest(
+  permission: Permission,
+  call: MuseToolCall,
+  cwd: string,
+  addDirs: readonly string[] = [],
+): ApprovalRequest {
   const input = call.rawInput ?? {};
   const description = typeof input.description === 'string' && input.description ? input.description : undefined;
   if (call.network && isCommand(call)) return { kind: 'fetch', detail: museCommand(call), reason: t().museNetwork };
-  if (isCommand(call)) return { kind: 'command', detail: museCommand(call), reason: permission === 'edit' ? t().musePublish : (description ?? t().museCommandAsked) };
+  if (isCommand(call))
+    return {
+      kind: 'command',
+      detail: museCommand(call),
+      reason: permission === 'edit' ? t().musePublish : (description ?? t().museCommandAsked),
+    };
   if (isWrite(call)) {
     const path = musePaths(call)[0];
     const dir = path ? [cwd, ...addDirs].find((d) => within(cwd, path, d)) : undefined;
@@ -728,7 +754,8 @@ export function createMuseUpdateHandler(emit: (e: AgentEvent) => void) {
     const command = isCommand(c) ? museCommandResult(u.rawOutput) : undefined;
     const raw = command?.output ?? (typeof u.rawOutput === 'string' ? u.rawOutput : acpContentText(u.content));
     const failedCode = command?.exitCode !== undefined && command.exitCode !== 0 ? command.exitCode : undefined;
-    const ok = u.status === 'completed' && !why && failedCode === undefined && command?.status !== 'failed' && command?.status !== 'cancelled';
+    const ok =
+      u.status === 'completed' && !why && failedCode === undefined && command?.status !== 'failed' && command?.status !== 'cancelled';
     const printed = raw?.trim() ? raw : '';
     const output = printed && (ok || command) ? tailText(printed) : undefined;
     const error = ok
@@ -911,7 +938,11 @@ export const museRunner: AgentRunner = {
     if (o.sessionId && grants.get(o.sessionId) !== grant) throw new AgentRunError(t().museSessionGrant);
     let run: MuseRun;
     try {
-      run = prepareMuseRun(o.env, o.permission, denied, { nativeOff: o.nativeOff, nativeItems: o.nativeItems, dirs: [o.cwd, ...(o.addDirs ?? [])] });
+      run = prepareMuseRun(o.env, o.permission, denied, {
+        nativeOff: o.nativeOff,
+        nativeItems: o.nativeItems,
+        dirs: [o.cwd, ...(o.addDirs ?? [])],
+      });
     } catch (err) {
       throw new AgentRunError(t().museConfigFailed((err as Error).message));
     }
@@ -1043,7 +1074,10 @@ async function museTurn(o: RunOptions, runDir: string, protectedPaths: readonly 
       throw new AgentRunError(t().museRejectedMode(err.message));
     });
 
-    const result = await conn.request('session/prompt', { sessionId, prompt: acpPrompt(musePromptText(o.prompt, o.systemPrompt), o.images) });
+    const result = await conn.request('session/prompt', {
+      sessionId,
+      prompt: acpPrompt(musePromptText(o.prompt, o.systemPrompt), o.images),
+    });
     updates.finish();
     if (userAborted) throw new AgentRunError(t().stopped, true);
     if (result?.stopReason === 'cancelled') throw new AgentRunError(t().museCancelled);

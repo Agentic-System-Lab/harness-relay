@@ -8,7 +8,15 @@
 import { readdirSync, type Dirent } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
-import { DEFAULT_MAX_TEAM_AGENTS, isOpenProvider, PROVIDERS, type ConversationSettings, type Mode, type Permission, type Provider } from '../../src/shared/types';
+import {
+  DEFAULT_MAX_TEAM_AGENTS,
+  isOpenProvider,
+  PROVIDERS,
+  type ConversationSettings,
+  type Mode,
+  type Permission,
+  type Provider,
+} from '../../src/shared/types';
 import { expect, test } from '../fixtures';
 import { openTeamChat, type Member } from './app';
 import { FACTS, type CliFacts } from './clis/all';
@@ -123,14 +131,20 @@ export function eachHalf(body: (half: Half) => void): void {
 export function teamOf(clis: readonly Cli[], least = 1): Cli[] {
   const team = faked(clis).filter(testedHere);
   const why = bySystem() ? ' and is tested on this system (E2E_SYSTEM_CLIS=1)' : '';
-  test.skip(team.length < least, `${least === 1 ? 'none' : `fewer than ${least}`} of ${clis.map((c) => c.label).join(', ')} has a fake written yet${why}`);
+  test.skip(
+    team.length < least,
+    `${least === 1 ? 'none' : `fewer than ${least}`} of ${clis.map((c) => c.label).join(', ')} has a fake written yet${why}`,
+  );
   // Its members take their turns one after another, each CLI started anew (and an open agent's adapter
   // asks its CLI for its models before each turn): on Windows, slower to start programs, five of them
   // need more than a test's minute. So do several open agents in Harness Relay's own sandbox, where each
   // run's sandbox is made and torn down (its leftovers swept: on macOS 2 to 4 seconds a turn, against
   // half a second with full access): the longest of these tests took up to 66 s on CI's macOS runners.
   const sandboxed = team.filter((c) => c.open && belowFull(c.provider)).length;
-  test.slow(team.length > 2 && (process.platform === 'win32' || sandboxed > 2), 'a team of several CLIs started anew in turn, on Windows or in Harness Relay\'s own sandbox');
+  test.slow(
+    team.length > 2 && (process.platform === 'win32' || sandboxed > 2),
+    "a team of several CLIs started anew in turn, on Windows or in Harness Relay's own sandbox",
+  );
   return team;
 }
 
@@ -141,7 +155,8 @@ export const logoutArgs = (c: CliFacts): string => c.logout ?? 'logout';
 export const skillReadAsks = (c: CliFacts): boolean => c.skillReadAsks ?? false;
 export const showsTodo = (c: CliFacts): boolean => c.todoList ?? true;
 /** The tool its `e2e:tool` listing shows as in a chat of `permission`. */
-export const listToolAt = (c: CliFacts, permission: Permission): string => (permission === 'full' ? (c.listToolFull ?? c.listTool) : c.listTool);
+export const listToolAt = (c: CliFacts, permission: Permission): string =>
+  permission === 'full' ? (c.listToolFull ?? c.listTool) : c.listTool;
 export const fetchPermission = (c: CliFacts): Permission => c.fetchPermission ?? 'read-only';
 /** A stdio MCP server's environment as the CLI was given it, without what its adapter adds (`mcpEnvAdded`). */
 export const libraryEnv = (c: CliFacts, env: Record<string, string>): Record<string, string> =>
@@ -208,19 +223,31 @@ export async function chatOf(
     members.map((m) => m.cli),
     settings.permission ?? 'read-only',
   );
-  return openTeamChat(page, relay, members.map((m) => member(m.cli, m.member)), { ...settings, permission }, title);
+  return openTeamChat(
+    page,
+    relay,
+    members.map((m) => member(m.cli, m.member)),
+    { ...settings, permission },
+    title,
+  );
 }
 
 /** A chat with the CLI as its one member (its usual name), as `chatOf()`. */
-export const chatWith = (page: Page, relay: RelayServer, c: Cli, settings: Partial<ConversationSettings> & { mode?: Mode } = {}): Promise<string> =>
-  chatOf(page, relay, [{ cli: c }], settings);
+export const chatWith = (
+  page: Page,
+  relay: RelayServer,
+  c: Cli,
+  settings: Partial<ConversationSettings> & { mode?: Mode } = {},
+): Promise<string> => chatOf(page, relay, [{ cli: c }], settings);
 
 /**
  * The fakes' log entries `match` takes, once there is at least one: a fake in Harness Relay's own
  * sandbox sends its lines over HTTP, which land a moment after its reply.
  */
 export async function logged(relay: RelayServer, match: (e: FakeLogEntry) => unknown): Promise<FakeLogEntry[]> {
-  await expect.poll(() => relay.fakeLog().filter((e) => match(e)).length, { message: 'the fakes logged what the test looks for' }).toBeGreaterThan(0);
+  await expect
+    .poll(() => relay.fakeLog().filter((e) => match(e)).length, { message: 'the fakes logged what the test looks for' })
+    .toBeGreaterThan(0);
   return relay.fakeLog().filter((e) => match(e));
 }
 
@@ -233,7 +260,8 @@ function onThisSystem(c: CliFacts): void {
 function withRelaySandbox(): void {
   const s = relaySandbox();
   if (s.ok) return;
-  if (sandboxRequired()) throw new Error(`Harness Relay's own sandbox is required (E2E_REQUIRE_RELAY_SANDBOX=1), but it does not work here: ${s.reason}`);
+  if (sandboxRequired())
+    throw new Error(`Harness Relay's own sandbox is required (E2E_REQUIRE_RELAY_SANDBOX=1), but it does not work here: ${s.reason}`);
   test.skip(true, `Harness Relay's own sandbox does not work here: ${s.reason}`);
 }
 
@@ -254,7 +282,11 @@ export function needsRelaySandbox(p: Provider): void {
  * Teams for a test of every CLI in `clis`: the CLIs grouped by the permission each runs with here
  * (`basePermission(…, wanted)`), at most `maxTeam` members a team.
  */
-export function teams(clis: readonly Cli[], wanted: Permission, maxTeam = DEFAULT_MAX_TEAM_AGENTS): { permission: Permission; members: Cli[] }[] {
+export function teams(
+  clis: readonly Cli[],
+  wanted: Permission,
+  maxTeam = DEFAULT_MAX_TEAM_AGENTS,
+): { permission: Permission; members: Cli[] }[] {
   const out: { permission: Permission; members: Cli[] }[] = [];
   for (const c of clis) {
     const permission = basePermission(c.provider, wanted);

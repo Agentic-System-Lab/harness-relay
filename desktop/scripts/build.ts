@@ -52,7 +52,10 @@ const rootPackage = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 /** The commit being built, when this is a git checkout. */
 function commit(): string | undefined {
   try {
-    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || undefined;
+    return (
+      execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() ||
+      undefined
+    );
   } catch {
     return undefined;
   }
@@ -141,7 +144,11 @@ await build({
   external: ['electron'],
   // import.meta.url: scripts/release.ts (version rules) checks it to run as a script, never true in the app.
   // Where it downloads its updates from (main.ts), the token included, encoded (updateSource.ts).
-  define: { __RELAY_VERSION__: JSON.stringify(version.shown), __RELAY_UPDATE_SOURCE__: JSON.stringify(encodeUpdateSource(updates.value)), 'import.meta.url': 'undefined' },
+  define: {
+    __RELAY_VERSION__: JSON.stringify(version.shown),
+    __RELAY_UPDATE_SOURCE__: JSON.stringify(encodeUpdateSource(updates.value)),
+    'import.meta.url': 'undefined',
+  },
   legalComments: 'none',
   logLevel: 'warning',
 });
@@ -156,4 +163,6 @@ for (const icon of DESKTOP_ICONS) {
 }
 
 const from = `updates downloaded from ${updates.value.repo}${updates.value.token ? ', with a token' : ''}`;
-console.log(`Desktop app ${version.shown} (${version.app}) built in ${OUT} (keyring: ${keyring.filter((n) => n !== 'keyring').join(', ')}; ${from})`);
+console.log(
+  `Desktop app ${version.shown} (${version.app}) built in ${OUT} (keyring: ${keyring.filter((n) => n !== 'keyring').join(', ')}; ${from})`,
+);

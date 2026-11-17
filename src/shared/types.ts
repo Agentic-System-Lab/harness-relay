@@ -139,10 +139,103 @@ export interface AgentConfig {
 // --- Tool library: MCP servers, skills and memory every agent can be given ------------------
 
 /**
- * Tool keys: `mcp:<server id>`, `skill:<skill folder>`, `memory` (the memory for everyone) or
- * `memory:<provider>` (the memory for one CLI's agents). Ids and folders stay when things are renamed.
+ * Tool keys: `mcp:<server id>`, `skill:<skill folder>`, `memory` (the memory for everyone),
+ * `memory:<provider>` (the memory for one CLI's agents) or `relay:<group>` (one of Harness Relay's own
+ * tool groups). Ids and folders stay when things are renamed.
  */
-export type ToolKind = 'mcp' | 'skill' | 'memory';
+export type ToolKind = 'mcp' | 'skill' | 'memory' | 'relay';
+
+/**
+ * Harness Relay's own tools, which every agent reaches through one MCP server of Harness Relay's (the
+ * gateway, `src/server/gateway.ts`), in groups the user gives to the CLIs they choose.
+ */
+export const RELAY_TOOL_GROUPS = ['browser', 'mail', 'calendar'] as const;
+export type RelayToolGroup = (typeof RELAY_TOOL_GROUPS)[number];
+
+/** The name agents see Harness Relay's gateway under (`mcp__relay__browser_open` in Claude Code). */
+export const GATEWAY_SERVER_NAME = 'relay';
+
+/**
+ * What a call of one of Harness Relay's tools may do without the user: `read` runs; `act` (it changes
+ * something somewhere, as a click on a page does) is asked about below full access; `send` (it reaches
+ * other people: a mail, an invitation) never runs in the turn but waits in the outbox for the user.
+ */
+export type GatewayTier = 'read' | 'act' | 'send';
+
+/** How a mail server is reached: TLS from the start, STARTTLS, or plain (only to this computer: a local bridge). */
+export type MailSecurity = 'tls' | 'starttls' | 'none';
+
+export interface MailServer {
+  host: string;
+  port: number;
+  security: MailSecurity;
+}
+
+/** A mail account the mail tools use (IMAP to read and save drafts, SMTP to send), as the UI sees it. */
+export interface MailAccountView {
+  id: string;
+  name: string;
+  /** The address mail is sent from (`Name <a@b>` or `a@b`). */
+  address: string;
+  username: string;
+  imap: MailServer;
+  smtp: MailServer;
+  /** The password, masked ('' when none is kept). */
+  password: string;
+}
+
+/** A calendar the calendar tools use (CalDAV), as the UI sees it. */
+export interface CalendarAccountView {
+  id: string;
+  name: string;
+  /** The calendar collection's address (https). */
+  url: string;
+  username: string;
+  /** The address invitations are sent from (the calendar's owner). */
+  address?: string;
+  password: string;
+}
+
+export interface ConnectorsView {
+  mail: MailAccountView[];
+  calendar: CalendarAccountView[];
+  /** Where the passwords are kept. */
+  secretStorage: KeyStorage;
+}
+
+/** Saving a mail account: without `password`, the kept one stays. */
+export type MailAccountUpdate = Omit<MailAccountView, 'id' | 'password'> & { password?: string };
+export type CalendarAccountUpdate = Omit<CalendarAccountView, 'id' | 'password'> & { password?: string };
+
+export const CONNECTOR_LIMITS = { accounts: 10, name: 60 };
+
+/** An outbox item: what a `send` call would do, kept until the user sends or discards it. */
+export type OutboxStatus = 'pending' | 'sending' | 'sent' | 'discarded' | 'failed';
+
+/** What an outbox item shows the user before they send it: each field, as it will go out. */
+export interface OutboxPreview {
+  fields: { label: string; value: string }[];
+  /** The text it sends (a mail's body, an event's description). */
+  body?: string;
+}
+
+export interface OutboxItem {
+  id: string;
+  convId: string;
+  /** The reply whose turn put it there, which shows its card. */
+  messageId: string;
+  agentId: string;
+  agentName: string;
+  tool: string;
+  /** In a line: what sending it does. */
+  title: string;
+  preview: OutboxPreview;
+  status: OutboxStatus;
+  /** What happened once it was sent or failed. */
+  result?: string;
+  createdAt: number;
+  decidedAt?: number;
+}
 
 export function toolKey(kind: ToolKind, name = ''): string {
   if (kind === 'memory') return name && name !== 'all' ? `memory:${name}` : 'memory';
@@ -228,6 +321,19 @@ export interface SkillCandidate {
 export interface ToolLibraryView {
   mcpServers: McpServerView[];
   skills: SkillView[];
+  /** Harness Relay's own tool groups and the CLIs whose agents get each (none at first). */
+  relayTools: { group: RelayToolGroup; providers: Provider[] }[];
+  /**
+   * Whether this server can give agents its own tools: it needs a Node.js to run the gateway's MCP
+   * server with (the desktop app's runtime is not one).
+   */
+  gateway: { available: boolean; reason?: 'not-started' | 'no-node' | 'no-node-path' };
+  /**
+   * Which browser the browser tools start: `path`, set in Settings, before `env` (`RELAY_BROWSER`),
+   * before the system's Chrome, Chromium or Edge and Playwright's Chromium; `using`, the first of them
+   * there is now (none: no browser was found).
+   */
+  browser: { path?: string; env?: string; using?: string };
   /**
    * Notes agents get in their briefing, in every conversation: `all` for every agent, and a part for
    * each CLI's agents. Empty = none.
@@ -240,8 +346,12 @@ export interface ToolLibraryView {
 export interface ToolLibraryUpdate {
   /** The whole list, replacing the current one. A folder of skills adds each skill in it. */
   skills?: { path: string; providers?: Provider[] }[];
+  /** The CLIs whose agents get each of Harness Relay's tool groups named. */
+  relayTools?: Partial<Record<RelayToolGroup, Provider[]>>;
   /** The parts to change. */
   memory?: Partial<Record<MemoryScope, string>>;
+  /** The browser the browser tools start: its executable, a full path to a file; empty for none (found by itself). */
+  browser?: string;
 }
 
 // --- What each CLI loads by itself (its own skills, MCP servers and memory) -------------------
@@ -615,9 +725,11 @@ export interface AuthSessionView {
 /**
  * What a browser is alerted to (`src/shared/notify.ts`): the team's reply ended (`done`) or ended with
  * an error (`error`); an agent asks to do something its permission does not cover (`approval`), the
- * lead agent's team waits to be confirmed (`confirm`), or an agent asked the user something (`answer`).
+ * lead agent's team waits to be confirmed (`confirm`), an agent asked the user something (`answer`), or a
+ * tracked goal is held up and needs the user (`blocked`). The notification inbox keeps these kinds alone.
  */
-export type AlertKind = 'done' | 'error' | 'approval' | 'confirm' | 'answer';
+export const ALERT_KINDS = ['done', 'error', 'approval', 'confirm', 'answer', 'blocked'] as const;
+export type AlertKind = (typeof ALERT_KINDS)[number];
 
 /**
  * A notification in the inbox (the bell beside the sidebar's collapse button): an alert the team gave
@@ -1018,10 +1130,7 @@ export interface TeamPreset {
   settings: Omit<ConversationSettings, 'cwd' | 'extraCwds'>;
 }
 
-export type Author =
-  | { kind: 'user' }
-  | { kind: 'agent'; agentId: string }
-  | { kind: 'system' };
+export type Author = { kind: 'user' } | { kind: 'agent'; agentId: string } | { kind: 'system' };
 
 export type ToolStatus = 'running' | 'done' | 'error';
 
@@ -1079,7 +1188,11 @@ export type MessagePart =
       note?: string;
     }
   /** A file the user attached to their message (stored under data/attachments). */
-  | { type: 'attachment'; id: string; name: string; mimeType: string; size: number };
+  | { type: 'attachment'; id: string; name: string; mimeType: string; size: number }
+  /** What the reply said about the goal its schedule tracks (its `<progress>` block, taken out of its text). */
+  | { type: 'progress'; status: ProgressStatus; text: string }
+  /** Something the agent asked to send (a `send` call of Harness Relay's tools): it waits in the outbox for the user. */
+  | { type: 'outbox'; id: string; tool: string; title: string; preview: OutboxPreview; status: OutboxStatus; result?: string };
 
 /** Limits for files attached to one message. */
 export const ATTACHMENT_LIMITS = { maxFiles: 10, maxBytes: 20 * 1024 * 1024 };
@@ -1181,20 +1294,47 @@ export interface ChatMessage {
   asked?: boolean;
   /** A user message the conversation's schedule sent (see `ConversationSchedule`), not one the user typed. */
   scheduled?: boolean;
+  /**
+   * A scheduled message a program sent through the schedule's webhook: the JSON body it posted (at most
+   * `TRACKING_LIMITS.eventBytes`), which the agents get as data in an `<event>` block, never as instructions.
+   */
+  event?: string;
+  /**
+   * The run of a schedule that tracks a goal this message belongs to (`TrackedRun`): a scheduled message
+   * that waited in the queue carries it to the run that sends it; a reply written in such a run keeps it,
+   * so a Retry or Continue after it goes on with the goal.
+   */
+  tracked?: TrackedRun;
+}
+
+/**
+ * A run a schedule that tracks a goal started: the schedule's conversation (`sourceId`, the same one or
+ * the one whose schedule opened this chat), the time it came due, which try that is (0 = the first), and
+ * whether a run that fails is tried again (not for a webhook's call, whose body would be lost, nor for a
+ * run the user carries on: they are there).
+ */
+export interface TrackedRun {
+  sourceId: string;
+  due: number;
+  attempt: number;
+  retries: boolean;
 }
 
 /**
  * When a schedule sends its message. `daily` and `weekly` times are wall-clock times ("HH:MM") in the
  * schedule's time zone; `days` are weekdays, 0 = Sunday. `interval` repeats every so many hours from
- * when the schedule was saved; `once` is a moment (epoch ms).
+ * when the schedule was saved; `once` is a moment (epoch ms); `manual` has no times of its own.
  */
 export type ScheduleRepeat =
   | { kind: 'once'; at: number }
   | { kind: 'daily'; time: string }
   | { kind: 'weekly'; time: string; days: number[] }
-  | { kind: 'interval'; hours: number };
+  | { kind: 'interval'; hours: number }
+  /** No set times: sent only when the user clicks Run once now, or a program calls the schedule's webhook. */
+  | { kind: 'manual' };
 
-export const SCHEDULE_KINDS: ScheduleRepeat['kind'][] = ['once', 'daily', 'weekly', 'interval'];
+/** In the order the schedule form offers them: no set times first. */
+export const SCHEDULE_KINDS: ScheduleRepeat['kind'][] = ['manual', 'once', 'daily', 'weekly', 'interval'];
 
 /**
  * How the last time a schedule came due went: its message started a run (`sent`), waited in the queue
@@ -1205,8 +1345,67 @@ export const SCHEDULE_KINDS: ScheduleRepeat['kind'][] = ['once', 'daily', 'weekl
  */
 export type ScheduleResult = 'sent' | 'queued' | 'missed' | 'skipped' | 'failed';
 
-/** Longest scheduled message, and the longest interval in hours. */
-export const SCHEDULE_LIMITS = { maxText: 4000, maxHours: 168 };
+/** Longest scheduled message, and the longest interval in hours; `maxGoal`: the longest goal a schedule tracks. */
+export const SCHEDULE_LIMITS = { maxText: 4000, maxHours: 168, maxGoal: 2000 };
+
+/** Where a tracked goal stands: still being worked on, reached, or held up by something only the user can settle. */
+export type ProgressStatus = 'working' | 'done' | 'blocked';
+
+export const PROGRESS_STATUSES: readonly ProgressStatus[] = ['working', 'done', 'blocked'];
+
+/** What a reply said about a tracked goal (its `<progress>` block). */
+export interface ProgressNote {
+  at: number;
+  status: ProgressStatus;
+  text: string;
+  /** The agent that wrote it. */
+  agent?: string;
+  /** The conversation it was written in, when that is not the schedule's own (`newChat`). */
+  chatId?: string;
+}
+
+/**
+ * The limits of tracking a goal: `notes` kept with the schedule (the oldest go first), `shown` given to
+ * the agents in their briefing, `noteChars` of one note, `retryMinutes` between the tries of a time
+ * whose run failed (one more try for each), and `eventBytes` of a webhook call's body in the message.
+ */
+export const TRACKING_LIMITS = {
+  notes: 30,
+  shown: 12,
+  noteChars: 1000,
+  retryMinutes: [5, 30, 120],
+  eventBytes: 20_000,
+  hookIntervalMs: 10_000,
+};
+
+/**
+ * How a schedule that tracks a goal (`ConversationSchedule.goal`) is getting on: what the agents said
+ * about it, the newest last, and the run it started that has not ended yet, which a restart of the
+ * server tries again.
+ */
+export interface ScheduleTracking {
+  status: ProgressStatus;
+  notes: ProgressNote[];
+  /** A run the schedule started that has not ended: the time it came due, its try (0 = the first), and where it runs. */
+  inFlight?: { due: number; attempt: number; chatId: string };
+  /** A time whose run failed, tried again at `at` (the schedule's `nextRunAt`): the time it came due, and which retry that is (1 = the first). */
+  retry?: { due: number; attempt: number; at: number };
+}
+
+/** A schedule's webhook, as the UI sees it: never its token, which is shown once, nor the token's hash. */
+export interface ScheduleHook {
+  createdAt: number;
+  /** When a program last called it. */
+  lastAt?: number;
+}
+
+/** A webhook just made: its token (shown this once; only its hash is kept), the address to call, and the server's system (for the example). */
+export interface NewScheduleHook {
+  token: string;
+  url: string;
+  hook: ScheduleHook;
+  platform: string;
+}
 
 /**
  * A conversation's schedule: a message the team is sent at set times, as if the user had sent it (it
@@ -1244,6 +1443,16 @@ export interface ConversationSchedule {
   lastError?: string;
   /** The conversation the last time opened (`newChat`), when it was sent. */
   lastChatId?: string;
+  /**
+   * What done means, in the user's words: the schedule then tracks this goal. Its runs are told where it
+   * stands, the agents report on it (`<progress>`), a run that fails is tried again, and once an agent
+   * says it is done the schedule switches off.
+   */
+  goal?: string;
+  /** How the goal is getting on (only with a `goal`). */
+  tracking?: ScheduleTracking;
+  /** The schedule's webhook, when it has one: a program on this computer can send its message now. */
+  hook?: ScheduleHook;
 }
 
 /** A moment's wall-clock date and time in a time zone (`zonedParts()`). */
@@ -1260,7 +1469,10 @@ export interface ZonedParts {
 }
 
 /** What the browser sends to save a schedule (`PUT /api/conversations/:id/schedule`). */
-export type ScheduleUpdate = Pick<ConversationSchedule, 'text' | 'repeat' | 'timeZone' | 'enabled' | 'approvals' | 'missed' | 'newChat'>;
+export type ScheduleUpdate = Pick<
+  ConversationSchedule,
+  'text' | 'repeat' | 'timeZone' | 'enabled' | 'approvals' | 'missed' | 'newChat' | 'goal'
+>;
 
 /**
  * Where the team stopped because an agent asked the user something. Once the user replies, the
@@ -1278,6 +1490,8 @@ export interface RunPause {
   rounds: number;
   /** Relay: handoffs left. */
   hopsLeft?: number;
+  /** The run that asked was one a schedule that tracks a goal started: the answer's run goes on with the goal. */
+  tracked?: TrackedRun;
 }
 
 export interface AgentSessionState {
@@ -1379,6 +1593,11 @@ export interface ConversationSummary {
   confirmTeam?: boolean;
   /** An agent asked the user something and the team waits for the answer. */
   asking?: boolean;
+  /**
+   * The latest agent reply says its tracked goal is held up (`<progress status="blocked">`): it needs the
+   * user until a later reply (to the user's answer, or the automation's next run) says otherwise.
+   */
+  blocked?: boolean;
   /** How the latest agent reply ended (absent before the first one). */
   lastStatus?: MessageStatus;
   /**
@@ -1405,10 +1624,15 @@ export interface ConversationSummary {
    */
   branchFrom?: { id: string; title: string; via?: ConversationBranch['via'] };
   /**
-   * It has a schedule: whether it is on, when it sends next, how the last time went, and the time zone
-   * its times are shown in (a daily or weekly schedule's own; absent: the browser's).
+   * It has a schedule: whether it is on, when it sends next, how the last time went, the time zone its
+   * times are shown in (a daily or weekly schedule's own; absent: the browser's), and whether it has
+   * no set times.
    */
-  schedule?: Pick<ConversationSchedule, 'enabled' | 'nextRunAt' | 'lastResult'> & { timeZone?: string };
+  schedule?: Pick<ConversationSchedule, 'enabled' | 'nextRunAt' | 'lastResult'> & {
+    timeZone?: string;
+    /** No set times: only Run once now and the webhook send it (`ScheduleRepeat` `manual`). */
+    manual?: boolean;
+  };
 }
 
 /**

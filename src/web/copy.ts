@@ -67,9 +67,7 @@ function quote(text: string): string {
 
 /** The files attached to a message, one "📎 name" line each. */
 export function attachmentLines(m: ChatMessage): string {
-  return m.parts
-    .flatMap((p) => (p.type === 'attachment' ? [`📎 ${p.name}`] : []))
-    .join('\n');
+  return m.parts.flatMap((p) => (p.type === 'attachment' ? [`📎 ${p.name}`] : [])).join('\n');
 }
 
 /**
@@ -160,8 +158,7 @@ export function conversationMarkdown(conv: Conversation, t: Messages): string {
       } else if (m.plan?.status === 'ready') {
         // A declined design did not answer: say so.
         blocks.push(`*${t.plan.title}: ${planHeadline(m.plan, t)}${m.plan.declinedAt ? ` (${t.plan.declined})` : ''}*`);
-      }
-      else if (text) blocks.push(`*${text}*`);
+      } else if (text) blocks.push(`*${text}*`);
       continue;
     }
     if (m.author.kind === 'user') {

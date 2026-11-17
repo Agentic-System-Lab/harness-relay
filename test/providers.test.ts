@@ -140,11 +140,17 @@ esac
       settings.updateAccount('cursor', team, { apiKey: 'key_team' });
       service.invalidate('cursor');
       // Its key signs it in for each run only, which \`status\` cannot see: it is taken as signed in by it.
-      expect((await service.status('cursor', true)).accounts[1]).toMatchObject({ auth: { loggedIn: true, method: 'API key' }, usingStoredApiKey: true });
+      expect((await service.status('cursor', true)).accounts[1]).toMatchObject({
+        auth: { loggedIn: true, method: 'API key' },
+        usingStoredApiKey: true,
+      });
 
       // A key only in the server's environment: the default account runs on it, and shows so.
       vi.stubEnv('CURSOR_API_KEY', 'key_from_shell');
-      expect((await service.status('cursor', true)).accounts[0]).toMatchObject({ auth: { loggedIn: true, method: 'API key' }, usingStoredApiKey: false });
+      expect((await service.status('cursor', true)).accounts[0]).toMatchObject({
+        auth: { loggedIn: true, method: 'API key' },
+        usingStoredApiKey: false,
+      });
       vi.stubEnv('CURSOR_API_KEY', '');
 
       // Signing the other account out signs nothing out: it kept nothing.
@@ -167,170 +173,210 @@ esac
 describe("Antigravity's sign-in", () => {
   const posixIt = process.platform === 'win32' ? it.skip : it;
 
-  posixIt("signs the default account in with Google in its home, prints the link rather than open a browser, and gives another account its key only", async () => {
-    const { KeyOnlyAccountError } = await import('../src/server/providers');
-    const { writeFakeAntigravity } = await import('./fake-antigravity');
-    const { t } = await import('../src/server/i18n');
-    const dir = join(root, 'antigravity-sign-in');
-    mkdirSync(dir, { recursive: true });
-    const bin = writeFakeAntigravity(join(dir, 'agy'));
-    const logFile = join(dir, 'log.jsonl');
-    vi.stubEnv('FAKE_AGY_LOG', logFile);
-    vi.stubEnv('FAKE_AGY_CLI', join(__dirname, 'fixtures', 'antigravity', 'cli'));
-    vi.stubEnv('FAKE_AGY_MODELS', 'models-signed-out.txt');
-    vi.stubEnv('GEMINI_API_KEY', '');
-    try {
-      const settings = new SettingsStore(openDatabase(':memory:'));
-      settings.update('antigravity', { bin });
-      settings.setAgentHome(join(dir, 'homes'));
-      const team = settings.addAccount('antigravity', 'Team');
-      const service = new ProviderService(settings);
-      const log = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, any>) : []);
-      const starts = () => log().filter((l) => l.start);
-
-      // `agy models` answers only signed in, asked in the account's home (as HOME: only `agy acp` takes
-      // --gemini-dir). The other account runs on its own key only: without one it is signed out, and agy
-      // is not asked (the Google sign-in it keeps is the default account's), even when agy is signed in.
-      vi.stubEnv('FAKE_AGY_MODELS', 'models.txt');
-      const out = await service.status('antigravity', true);
-      expect(out.accounts.map((a) => [a.id, a.auth.loggedIn])).toEqual([
-        ['', true],
-        [team, false],
-      ]);
-      expect(starts().filter((l) => l.argv.includes('models')).map((l) => l.env.HOME)).toEqual([join(dir, 'homes', 'antigravity')]);
+  posixIt(
+    'signs the default account in with Google in its home, prints the link rather than open a browser, and gives another account its key only',
+    async () => {
+      const { KeyOnlyAccountError } = await import('../src/server/providers');
+      const { writeFakeAntigravity } = await import('./fake-antigravity');
+      const { t } = await import('../src/server/i18n');
+      const dir = join(root, 'antigravity-sign-in');
+      mkdirSync(dir, { recursive: true });
+      const bin = writeFakeAntigravity(join(dir, 'agy'));
+      const logFile = join(dir, 'log.jsonl');
+      vi.stubEnv('FAKE_AGY_LOG', logFile);
+      vi.stubEnv('FAKE_AGY_CLI', join(__dirname, 'fixtures', 'antigravity', 'cli'));
       vi.stubEnv('FAKE_AGY_MODELS', 'models-signed-out.txt');
-      expect((await service.status('antigravity', true)).accounts[0]!.auth.loggedIn).toBe(false);
-      expect(starts().filter((l) => l.argv[0] === 'models').every((l) => l.env.SSH_CONNECTION && l.env.HARNESS_RELAY_ANTIGRAVITY_HOME === null)).toBe(true);
-      expect(out).toMatchObject({ installed: true, version: '1.5.6' });
-      vi.stubEnv('FAKE_AGY_MODELS', 'models.txt');
-      expect((await service.status('antigravity', true)).accounts[0]!.auth).toEqual({ loggedIn: true });
+      vi.stubEnv('GEMINI_API_KEY', '');
+      try {
+        const settings = new SettingsStore(openDatabase(':memory:'));
+        settings.update('antigravity', { bin });
+        settings.setAgentHome(join(dir, 'homes'));
+        const team = settings.addAccount('antigravity', 'Team');
+        const service = new ProviderService(settings);
+        const log = () =>
+          existsSync(logFile)
+            ? readFileSync(logFile, 'utf8')
+                .trim()
+                .split('\n')
+                .map((l) => JSON.parse(l) as Record<string, any>)
+            : [];
+        const starts = () => log().filter((l) => l.start);
 
-      // Its sign-in prints the link and waits for the code the page shows.
-      const view = service.startLogin('antigravity');
-      expect(view.method).toBe('google');
-      await vi.waitFor(() => expect(service.login('antigravity')?.wantsInput).toBe(true));
-      expect(service.login('antigravity')?.urls).toEqual(['https://accounts.google.com/o/oauth2/auth?access_type=offline&client_id=test']);
-      service.sendLoginInput('antigravity', '4/0Abc-code');
-      await vi.waitFor(() => expect(service.login('antigravity')?.state).toBe('success'));
-      const login = starts().find((l) => l.argv.includes('--login'))!;
-      expect(login.argv).toEqual(['acp', '--login']);
-      expect(login.env).toMatchObject({ HOME: join(dir, 'homes', 'antigravity'), SSH_CONNECTION: expect.any(String) });
-      expect(log().find((l) => l.code)?.code).toBe('4/0Abc-code');
-      // Another account's sign-in could replace the default one's in the keyring: it runs on its key only.
-      expect(() => service.startLogin('antigravity', undefined, team)).toThrow(KeyOnlyAccountError);
-      expect(() => service.startLogin('antigravity', undefined, team)).toThrow(t().antigravityAccountLogin);
-      settings.updateAccount('antigravity', team, { apiKey: 'AIza-team' });
-      service.invalidate('antigravity');
-      expect((await service.status('antigravity', true)).accounts[1]).toMatchObject({ auth: { loggedIn: true, method: 'API key' }, usingStoredApiKey: true });
+        // `agy models` answers only signed in, asked in the account's home (as HOME: only `agy acp` takes
+        // --gemini-dir). The other account runs on its own key only: without one it is signed out, and agy
+        // is not asked (the Google sign-in it keeps is the default account's), even when agy is signed in.
+        vi.stubEnv('FAKE_AGY_MODELS', 'models.txt');
+        const out = await service.status('antigravity', true);
+        expect(out.accounts.map((a) => [a.id, a.auth.loggedIn])).toEqual([
+          ['', true],
+          [team, false],
+        ]);
+        expect(
+          starts()
+            .filter((l) => l.argv.includes('models'))
+            .map((l) => l.env.HOME),
+        ).toEqual([join(dir, 'homes', 'antigravity')]);
+        vi.stubEnv('FAKE_AGY_MODELS', 'models-signed-out.txt');
+        expect((await service.status('antigravity', true)).accounts[0]!.auth.loggedIn).toBe(false);
+        expect(
+          starts()
+            .filter((l) => l.argv[0] === 'models')
+            .every((l) => l.env.SSH_CONNECTION && l.env.HARNESS_RELAY_ANTIGRAVITY_HOME === null),
+        ).toBe(true);
+        expect(out).toMatchObject({ installed: true, version: '1.5.6' });
+        vi.stubEnv('FAKE_AGY_MODELS', 'models.txt');
+        expect((await service.status('antigravity', true)).accounts[0]!.auth).toEqual({ loggedIn: true });
 
-      // Signing that account out drops nothing (the Google sign-in agy keeps is the default account's);
-      // the default account signs out with agy's ACP logout, in its home.
-      const before = starts().length;
-      await service.logout('antigravity', team);
-      expect(starts().length).toBe(before);
-      await service.logout('antigravity');
-      const logout = starts().at(-1)!;
-      expect(logout.argv).toEqual(['acp', '--gemini-dir', join(dir, 'homes', 'antigravity', '.gemini')]);
-      expect(log().at(-1)).toMatchObject({ method: 'logout' });
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  });
+        // Its sign-in prints the link and waits for the code the page shows.
+        const view = service.startLogin('antigravity');
+        expect(view.method).toBe('google');
+        await vi.waitFor(() => expect(service.login('antigravity')?.wantsInput).toBe(true));
+        expect(service.login('antigravity')?.urls).toEqual([
+          'https://accounts.google.com/o/oauth2/auth?access_type=offline&client_id=test',
+        ]);
+        service.sendLoginInput('antigravity', '4/0Abc-code');
+        await vi.waitFor(() => expect(service.login('antigravity')?.state).toBe('success'));
+        const login = starts().find((l) => l.argv.includes('--login'))!;
+        expect(login.argv).toEqual(['acp', '--login']);
+        expect(login.env).toMatchObject({ HOME: join(dir, 'homes', 'antigravity'), SSH_CONNECTION: expect.any(String) });
+        expect(log().find((l) => l.code)?.code).toBe('4/0Abc-code');
+        // Another account's sign-in could replace the default one's in the keyring: it runs on its key only.
+        expect(() => service.startLogin('antigravity', undefined, team)).toThrow(KeyOnlyAccountError);
+        expect(() => service.startLogin('antigravity', undefined, team)).toThrow(t().antigravityAccountLogin);
+        settings.updateAccount('antigravity', team, { apiKey: 'AIza-team' });
+        service.invalidate('antigravity');
+        expect((await service.status('antigravity', true)).accounts[1]).toMatchObject({
+          auth: { loggedIn: true, method: 'API key' },
+          usingStoredApiKey: true,
+        });
+
+        // Signing that account out drops nothing (the Google sign-in agy keeps is the default account's);
+        // the default account signs out with agy's ACP logout, in its home.
+        const before = starts().length;
+        await service.logout('antigravity', team);
+        expect(starts().length).toBe(before);
+        await service.logout('antigravity');
+        const logout = starts().at(-1)!;
+        expect(logout.argv).toEqual(['acp', '--gemini-dir', join(dir, 'homes', 'antigravity', '.gemini')]);
+        expect(log().at(-1)).toMatchObject({ method: 'logout' });
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
 });
 
 describe("Copilot's sign-in", () => {
   const posixIt = process.platform === 'win32' ? it.skip : it;
 
-  posixIt("signs each account in to GitHub with a device code in its own home, tells who it is signed in as, and signs out over ACP", async () => {
-    const { writeFakeCopilot } = await import('./fake-copilot');
-    const dir = join(root, 'copilot-sign-in');
-    mkdirSync(dir, { recursive: true });
-    const bin = writeFakeCopilot(join(dir, 'copilot'));
-    const logFile = join(dir, 'log.jsonl');
-    vi.stubEnv('FAKE_COPILOT_LOG', logFile);
-    // A GitHub token in the server's environment is the default account's only.
-    vi.stubEnv('GH_TOKEN', '');
-    vi.stubEnv('GITHUB_TOKEN', '');
-    vi.stubEnv('COPILOT_GITHUB_TOKEN', '');
-    try {
-      const settings = new SettingsStore(openDatabase(':memory:'));
-      settings.update('copilot', { bin });
-      settings.setAgentHome(join(dir, 'homes'));
-      const team = settings.addAccount('copilot', 'Team');
-      const service = new ProviderService(settings);
-      const log = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, any>) : []);
-      const starts = () => log().filter((l) => l.start);
-      const home = join(dir, 'homes', 'copilot');
+  posixIt(
+    'signs each account in to GitHub with a device code in its own home, tells who it is signed in as, and signs out over ACP',
+    async () => {
+      const { writeFakeCopilot } = await import('./fake-copilot');
+      const dir = join(root, 'copilot-sign-in');
+      mkdirSync(dir, { recursive: true });
+      const bin = writeFakeCopilot(join(dir, 'copilot'));
+      const logFile = join(dir, 'log.jsonl');
+      vi.stubEnv('FAKE_COPILOT_LOG', logFile);
+      // A GitHub token in the server's environment is the default account's only.
+      vi.stubEnv('GH_TOKEN', '');
+      vi.stubEnv('GITHUB_TOKEN', '');
+      vi.stubEnv('COPILOT_GITHUB_TOKEN', '');
+      try {
+        const settings = new SettingsStore(openDatabase(':memory:'));
+        settings.update('copilot', { bin });
+        settings.setAgentHome(join(dir, 'homes'));
+        const team = settings.addAccount('copilot', 'Team');
+        const service = new ProviderService(settings);
+        const log = () =>
+          existsSync(logFile)
+            ? readFileSync(logFile, 'utf8')
+                .trim()
+                .split('\n')
+                .map((l) => JSON.parse(l) as Record<string, any>)
+            : [];
+        const starts = () => log().filter((l) => l.start);
+        const home = join(dir, 'homes', 'copilot');
 
-      // Nobody signed in yet: a session it opens (in a home of its own, with the account's sign-in state) says so.
-      let out = await service.status('copilot', true);
-      expect(out).toMatchObject({ installed: true, version: '1.0.109' });
-      expect(out.accounts.map((a) => [a.id, a.auth.loggedIn])).toEqual([
-        ['', false],
-        [team, false],
-      ]);
+        // Nobody signed in yet: a session it opens (in a home of its own, with the account's sign-in state) says so.
+        let out = await service.status('copilot', true);
+        expect(out).toMatchObject({ installed: true, version: '1.0.109' });
+        expect(out.accounts.map((a) => [a.id, a.auth.loggedIn])).toEqual([
+          ['', false],
+          [team, false],
+        ]);
 
-      // Where it cannot keep the token (no credential store), it says so and exits 0: a failed sign-in.
-      vi.stubEnv('FAKE_COPILOT_NO_KEYRING', '1');
-      service.startLogin('copilot');
-      await vi.waitFor(() => expect(service.login('copilot')?.state).toBe('failed'));
-      expect(service.login('copilot')?.output).toContain('the token was not saved');
-      expect((await service.status('copilot', true)).accounts[0]!.auth.loggedIn).toBe(false);
-      vi.stubEnv('FAKE_COPILOT_NO_KEYRING', '');
+        // Where it cannot keep the token (no credential store), it says so and exits 0: a failed sign-in.
+        vi.stubEnv('FAKE_COPILOT_NO_KEYRING', '1');
+        service.startLogin('copilot');
+        await vi.waitFor(() => expect(service.login('copilot')?.state).toBe('failed'));
+        expect(service.login('copilot')?.output).toContain('the token was not saved');
+        expect((await service.status('copilot', true)).accounts[0]!.auth.loggedIn).toBe(false);
+        vi.stubEnv('FAKE_COPILOT_NO_KEYRING', '');
 
-      // Its device sign-in prints GitHub's link and code, in the account's home.
-      const view = service.startLogin('copilot');
-      expect(view.method).toBe('device');
-      await vi.waitFor(() => expect(service.login('copilot')?.state).toBe('success'));
-      expect(service.login('copilot')?.urls).toEqual(['https://github.com/login/device']);
-      expect(service.login('copilot')?.codes).toEqual(['ABCD-1234']);
-      const login = starts().find((l) => l.argv[0] === 'login')!;
-      expect(login.argv).toEqual(['login', '--device-code']);
-      expect(login.env.COPILOT_HOME).toBe(home);
-      out = await service.status('copilot', true);
-      expect(out.accounts[0]!.auth).toEqual({ loggedIn: true, account: 'octocat' });
-      expect(out.accounts[1]!.auth.loggedIn).toBe(false);
+        // Its device sign-in prints GitHub's link and code, in the account's home.
+        const view = service.startLogin('copilot');
+        expect(view.method).toBe('device');
+        await vi.waitFor(() => expect(service.login('copilot')?.state).toBe('success'));
+        expect(service.login('copilot')?.urls).toEqual(['https://github.com/login/device']);
+        expect(service.login('copilot')?.codes).toEqual(['ABCD-1234']);
+        const login = starts().find((l) => l.argv[0] === 'login')!;
+        expect(login.argv).toEqual(['login', '--device-code']);
+        expect(login.env.COPILOT_HOME).toBe(home);
+        out = await service.status('copilot', true);
+        expect(out.accounts[0]!.auth).toEqual({ loggedIn: true, account: 'octocat' });
+        expect(out.accounts[1]!.auth.loggedIn).toBe(false);
 
-      // Another account signs in in its own home; with a token of its own it runs on that.
-      settings.updateAccount('copilot', team, { apiKey: 'github_pat_team' });
-      service.invalidate('copilot');
-      expect((await service.status('copilot', true)).accounts[1]).toMatchObject({ auth: { loggedIn: true, method: 'GitHub token' }, usingStoredApiKey: true });
-      expect(settings.env('copilot', team).COPILOT_GITHUB_TOKEN).toBe('github_pat_team');
-      // A token is asked about too: one Copilot does not take (a classic token) is not signed in, though it is set.
-      vi.stubEnv('FAKE_COPILOT_SIGNED_OUT', '1');
-      service.invalidate('copilot');
-      expect((await service.status('copilot', true)).accounts[1]!.auth.loggedIn).toBe(false);
-      vi.stubEnv('FAKE_COPILOT_SIGNED_OUT', '');
-      service.invalidate('copilot');
-      // Any GitHub user's token opens a session, with Copilot or without (a codespace gives every program
-      // one): it counts as signed in only once Copilot's headless server reports a plan for it.
-      expect(log().some((l) => l.method === 'account.getQuota')).toBe(true);
-      const noPlan = 'Request account.getQuota failed with message: not found';
-      vi.stubEnv('FAKE_COPILOT_NO_PLAN', noPlan);
-      service.invalidate('copilot');
-      expect((await service.status('copilot', true)).accounts[1]!.auth).toEqual({ loggedIn: null, method: 'GitHub token', detail: t().copilotTokenUnconfirmed(noPlan) });
-      vi.stubEnv('FAKE_COPILOT_NO_PLAN', '');
-      service.invalidate('copilot');
+        // Another account signs in in its own home; with a token of its own it runs on that.
+        settings.updateAccount('copilot', team, { apiKey: 'github_pat_team' });
+        service.invalidate('copilot');
+        expect((await service.status('copilot', true)).accounts[1]).toMatchObject({
+          auth: { loggedIn: true, method: 'GitHub token' },
+          usingStoredApiKey: true,
+        });
+        expect(settings.env('copilot', team).COPILOT_GITHUB_TOKEN).toBe('github_pat_team');
+        // A token is asked about too: one Copilot does not take (a classic token) is not signed in, though it is set.
+        vi.stubEnv('FAKE_COPILOT_SIGNED_OUT', '1');
+        service.invalidate('copilot');
+        expect((await service.status('copilot', true)).accounts[1]!.auth.loggedIn).toBe(false);
+        vi.stubEnv('FAKE_COPILOT_SIGNED_OUT', '');
+        service.invalidate('copilot');
+        // Any GitHub user's token opens a session, with Copilot or without (a codespace gives every program
+        // one): it counts as signed in only once Copilot's headless server reports a plan for it.
+        expect(log().some((l) => l.method === 'account.getQuota')).toBe(true);
+        const noPlan = 'Request account.getQuota failed with message: not found';
+        vi.stubEnv('FAKE_COPILOT_NO_PLAN', noPlan);
+        service.invalidate('copilot');
+        expect((await service.status('copilot', true)).accounts[1]!.auth).toEqual({
+          loggedIn: null,
+          method: 'GitHub token',
+          detail: t().copilotTokenUnconfirmed(noPlan),
+        });
+        vi.stubEnv('FAKE_COPILOT_NO_PLAN', '');
+        service.invalidate('copilot');
 
-      // The status asked Copilot itself: a session in a home of its own, never the account's, with no prompt.
-      const asks = starts().filter((l) => l.argv.join(' ') === '--acp');
-      expect(asks.length).toBeGreaterThan(0);
-      expect(asks.every((l) => l.env.COPILOT_HOME !== home)).toBe(true);
-      expect(log().some((l) => l.method === 'session/prompt')).toBe(false);
+        // The status asked Copilot itself: a session in a home of its own, never the account's, with no prompt.
+        const asks = starts().filter((l) => l.argv.join(' ') === '--acp');
+        expect(asks.length).toBeGreaterThan(0);
+        expect(asks.every((l) => l.env.COPILOT_HOME !== home)).toBe(true);
+        expect(log().some((l) => l.method === 'session/prompt')).toBe(false);
 
-      // The default account signs out with Copilot's ACP logout, in its home.
-      await service.logout('copilot');
-      const logout = starts().filter((l) => l.env.COPILOT_HOME === home).at(-1)!;
-      expect(logout.argv).toEqual(['--acp']);
-      expect(log().filter((l) => l.method === 'logout')).toHaveLength(1);
-      expect((await service.status('copilot', true)).accounts[0]!.auth.loggedIn).toBe(false);
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  });
+        // The default account signs out with Copilot's ACP logout, in its home.
+        await service.logout('copilot');
+        const logout = starts()
+          .filter((l) => l.env.COPILOT_HOME === home)
+          .at(-1)!;
+        expect(logout.argv).toEqual(['--acp']);
+        expect(log().filter((l) => l.method === 'logout')).toHaveLength(1);
+        expect((await service.status('copilot', true)).accounts[0]!.auth.loggedIn).toBe(false);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
 });
 
-describe("Copilot on a GitHub token from its environment", () => {
+describe('Copilot on a GitHub token from its environment', () => {
   it('counts as signed in only once Copilot reports a plan for the token', () => {
     const method = 'GitHub token';
     expect(copilotTokenAuth({ limits: [{ span: 'month', kind: 'premiumRequests', usedPercent: 10 }] })).toEqual({ loggedIn: true, method });
@@ -339,8 +385,16 @@ describe("Copilot on a GitHub token from its environment", () => {
     // Copilot says the token signs nobody in.
     expect(copilotTokenAuth({ limits: [], none: 'signedOut' })).toEqual({ loggedIn: false });
     // No plan, an error, no answer: not known, never signed in.
-    expect(copilotTokenAuth({ limits: [], none: 'noData' })).toEqual({ loggedIn: null, method, detail: t().copilotTokenUnconfirmed(undefined) });
-    expect(copilotTokenAuth({ limits: [], error: 'HTTP 404' })).toEqual({ loggedIn: null, method, detail: t().copilotTokenUnconfirmed('HTTP 404') });
+    expect(copilotTokenAuth({ limits: [], none: 'noData' })).toEqual({
+      loggedIn: null,
+      method,
+      detail: t().copilotTokenUnconfirmed(undefined),
+    });
+    expect(copilotTokenAuth({ limits: [], error: 'HTTP 404' })).toEqual({
+      loggedIn: null,
+      method,
+      detail: t().copilotTokenUnconfirmed('HTTP 404'),
+    });
     expect(copilotTokenAuth({ limits: [], problem: 'timedOut' })).toMatchObject({ loggedIn: null });
   });
 });
@@ -348,80 +402,104 @@ describe("Copilot on a GitHub token from its environment", () => {
 describe("Muse Code's sign-in", () => {
   const posixIt = process.platform === 'win32' ? it.skip : it;
 
-  posixIt("asks `muse usage` in the account's own folders, signs the default account in with Muse's device code, and gives another account its key only", async () => {
-    const { KeyOnlyAccountError } = await import('../src/server/providers');
-    const { writeFakeMuse } = await import('./fake-muse');
-    const { t } = await import('../src/server/i18n');
-    const dir = join(root, 'muse-sign-in');
-    mkdirSync(dir, { recursive: true });
-    const bin = writeFakeMuse(join(dir, 'muse'));
-    const logFile = join(dir, 'log.jsonl');
-    vi.stubEnv('FAKE_MUSE_LOG', logFile);
-    vi.stubEnv('FAKE_MUSE_CLI', join(__dirname, 'fixtures', 'muse', 'cli'));
-    vi.stubEnv('FAKE_MUSE_USAGE', 'usage-signed-out.txt');
-    vi.stubEnv('FAKE_MUSE_LOGIN_MS', '300');
-    vi.stubEnv('META_API_KEY', '');
-    try {
-      const settings = new SettingsStore(openDatabase(':memory:'));
-      settings.update('muse', { bin });
-      settings.setAgentHome(join(dir, 'homes'));
-      const team = settings.addAccount('muse', 'Team');
-      const service = new ProviderService(settings);
-      const home = join(dir, 'homes', 'muse');
-      const log = () => (existsSync(logFile) ? readFileSync(logFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, any>) : []);
-      const starts = () => log().filter((l) => l.start);
-      // Muse's own folders are the account's home's, as its XDG folders; no variable of Harness Relay's reaches it.
-      const folders = { XDG_CONFIG_HOME: join(home, 'config'), XDG_DATA_HOME: join(home, 'data'), HARNESS_RELAY_MUSE_HOME: null, HARNESS_RELAY_MUSE_KEY_ONLY: null };
-
-      // Signed out, `muse usage` says so. The other account runs on its own key only: without one it is
-      // signed out, and muse is not asked (the Meta sign-in it keeps in the keychain is the default account's).
-      const out = await service.status('muse', true);
-      expect(out).toMatchObject({ installed: true, version: '1.4.18' });
-      expect(out.accounts.map((a) => [a.id, a.auth])).toEqual([
-        ['', { loggedIn: false }],
-        [team, { loggedIn: false }],
-      ]);
-      expect(starts().filter((l) => l.argv[0] === 'usage').map((l) => l.env)).toEqual([{ ...folders, MUSE_DISABLE_APPROVAL_JUDGE: null, META_API_KEY: false }]);
-      // Signed in (here with a key it keeps itself), it answers with its allowance.
-      vi.stubEnv('FAKE_MUSE_USAGE', 'usage-key.txt');
-      expect((await service.status('muse', true)).accounts[0]!.auth).toEqual({ loggedIn: true, detail: 'No subscription allowance (api_key)' });
-      // With a Meta API key it is signed in without being asked.
-      const usage = () => starts().filter((l) => l.argv[0] === 'usage').length;
-      const asked = usage();
-      vi.stubEnv('META_API_KEY', 'meta-own');
-      expect((await service.status('muse', true)).accounts[0]!.auth).toEqual({ loggedIn: true, method: 'API key' });
-      expect(usage()).toBe(asked);
+  posixIt(
+    "asks `muse usage` in the account's own folders, signs the default account in with Muse's device code, and gives another account its key only",
+    async () => {
+      const { KeyOnlyAccountError } = await import('../src/server/providers');
+      const { writeFakeMuse } = await import('./fake-muse');
+      const { t } = await import('../src/server/i18n');
+      const dir = join(root, 'muse-sign-in');
+      mkdirSync(dir, { recursive: true });
+      const bin = writeFakeMuse(join(dir, 'muse'));
+      const logFile = join(dir, 'log.jsonl');
+      vi.stubEnv('FAKE_MUSE_LOG', logFile);
+      vi.stubEnv('FAKE_MUSE_CLI', join(__dirname, 'fixtures', 'muse', 'cli'));
+      vi.stubEnv('FAKE_MUSE_USAGE', 'usage-signed-out.txt');
+      vi.stubEnv('FAKE_MUSE_LOGIN_MS', '300');
       vi.stubEnv('META_API_KEY', '');
+      try {
+        const settings = new SettingsStore(openDatabase(':memory:'));
+        settings.update('muse', { bin });
+        settings.setAgentHome(join(dir, 'homes'));
+        const team = settings.addAccount('muse', 'Team');
+        const service = new ProviderService(settings);
+        const home = join(dir, 'homes', 'muse');
+        const log = () =>
+          existsSync(logFile)
+            ? readFileSync(logFile, 'utf8')
+                .trim()
+                .split('\n')
+                .map((l) => JSON.parse(l) as Record<string, any>)
+            : [];
+        const starts = () => log().filter((l) => l.start);
+        // Muse's own folders are the account's home's, as its XDG folders; no variable of Harness Relay's reaches it.
+        const folders = {
+          XDG_CONFIG_HOME: join(home, 'config'),
+          XDG_DATA_HOME: join(home, 'data'),
+          HARNESS_RELAY_MUSE_HOME: null,
+          HARNESS_RELAY_MUSE_KEY_ONLY: null,
+        };
 
-      // Its sign-in prints a link and a code to check, and ends once the code is approved.
-      const view = service.startLogin('muse');
-      expect(view.method).toBe('meta');
-      await vi.waitFor(() => expect(service.login('muse')?.urls).toEqual(['https://auth.meta.com/oauth/device/?code=ABCD-EFGH']));
-      expect(service.login('muse')).toMatchObject({ codes: ['ABCD-EFGH'], wantsInput: false });
-      await vi.waitFor(() => expect(service.login('muse')?.state).toBe('success'));
-      const login = starts().find((l) => l.argv[0] === 'login')!;
-      expect(login.argv).toEqual(['login']);
-      expect(login.env).toMatchObject(folders);
-      // Another account's sign-in could replace the default one's in the keychain: it runs on its key only.
-      expect(() => service.startLogin('muse', undefined, team)).toThrow(KeyOnlyAccountError);
-      expect(() => service.startLogin('muse', undefined, team)).toThrow(t().museAccountLogin);
-      settings.updateAccount('muse', team, { apiKey: 'meta-team' });
-      service.invalidate('muse');
-      expect((await service.status('muse', true)).accounts[1]).toMatchObject({ auth: { loggedIn: true, method: 'API key' }, usingStoredApiKey: true });
+        // Signed out, `muse usage` says so. The other account runs on its own key only: without one it is
+        // signed out, and muse is not asked (the Meta sign-in it keeps in the keychain is the default account's).
+        const out = await service.status('muse', true);
+        expect(out).toMatchObject({ installed: true, version: '1.4.18' });
+        expect(out.accounts.map((a) => [a.id, a.auth])).toEqual([
+          ['', { loggedIn: false }],
+          [team, { loggedIn: false }],
+        ]);
+        expect(
+          starts()
+            .filter((l) => l.argv[0] === 'usage')
+            .map((l) => l.env),
+        ).toEqual([{ ...folders, MUSE_DISABLE_APPROVAL_JUDGE: null, META_API_KEY: false }]);
+        // Signed in (here with a key it keeps itself), it answers with its allowance.
+        vi.stubEnv('FAKE_MUSE_USAGE', 'usage-key.txt');
+        expect((await service.status('muse', true)).accounts[0]!.auth).toEqual({
+          loggedIn: true,
+          detail: 'No subscription allowance (api_key)',
+        });
+        // With a Meta API key it is signed in without being asked.
+        const usage = () => starts().filter((l) => l.argv[0] === 'usage').length;
+        const asked = usage();
+        vi.stubEnv('META_API_KEY', 'meta-own');
+        expect((await service.status('muse', true)).accounts[0]!.auth).toEqual({ loggedIn: true, method: 'API key' });
+        expect(usage()).toBe(asked);
+        vi.stubEnv('META_API_KEY', '');
 
-      // Signing that account out drops nothing (the Meta sign-in muse keeps is the default account's);
-      // the default account signs out with `muse logout`, in its folders.
-      const count = starts().length;
-      expect(await service.logout('muse', team)).toBe('');
-      expect(starts().length).toBe(count);
-      expect(await service.logout('muse')).toBe('no stored Meta credential to remove');
-      const logout = starts().at(-1)!;
-      expect(logout.argv).toEqual(['logout']);
-      expect(logout.env).toMatchObject(folders);
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  });
+        // Its sign-in prints a link and a code to check, and ends once the code is approved.
+        const view = service.startLogin('muse');
+        expect(view.method).toBe('meta');
+        await vi.waitFor(() => expect(service.login('muse')?.urls).toEqual(['https://auth.meta.com/oauth/device/?code=ABCD-EFGH']));
+        expect(service.login('muse')).toMatchObject({ codes: ['ABCD-EFGH'], wantsInput: false });
+        await vi.waitFor(() => expect(service.login('muse')?.state).toBe('success'));
+        const login = starts().find((l) => l.argv[0] === 'login')!;
+        expect(login.argv).toEqual(['login']);
+        expect(login.env).toMatchObject(folders);
+        // Another account's sign-in could replace the default one's in the keychain: it runs on its key only.
+        expect(() => service.startLogin('muse', undefined, team)).toThrow(KeyOnlyAccountError);
+        expect(() => service.startLogin('muse', undefined, team)).toThrow(t().museAccountLogin);
+        settings.updateAccount('muse', team, { apiKey: 'meta-team' });
+        service.invalidate('muse');
+        expect((await service.status('muse', true)).accounts[1]).toMatchObject({
+          auth: { loggedIn: true, method: 'API key' },
+          usingStoredApiKey: true,
+        });
+
+        // Signing that account out drops nothing (the Meta sign-in muse keeps is the default account's);
+        // the default account signs out with `muse logout`, in its folders.
+        const count = starts().length;
+        expect(await service.logout('muse', team)).toBe('');
+        expect(starts().length).toBe(count);
+        expect(await service.logout('muse')).toBe('no stored Meta credential to remove');
+        const logout = starts().at(-1)!;
+        expect(logout.argv).toEqual(['logout']);
+        expect(logout.env).toMatchObject(folders);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
 });
 
 describe('accounts of a CLI', () => {
@@ -521,7 +599,10 @@ esac
       settings.update('cursor', { bin: join(root, 'no-such-cursor-models') });
       const work = settings.addAccount('claude', 'Work');
       const team = settings.addAccount('grok', 'Team');
-      writeFileSync(join(settings.env('claude').CLAUDE_CONFIG_DIR!, 'settings.json'), JSON.stringify({ model: 'opus', effortLevel: 'high' }));
+      writeFileSync(
+        join(settings.env('claude').CLAUDE_CONFIG_DIR!, 'settings.json'),
+        JSON.stringify({ model: 'opus', effortLevel: 'high' }),
+      );
       writeFileSync(join(settings.env('claude', work).CLAUDE_CONFIG_DIR!, 'settings.json'), JSON.stringify({ model: 'sonnet' }));
       settings.updateAccount('claude', work, { defaultEffort: 'low' });
       const service = new ProviderService(settings);
@@ -694,7 +775,7 @@ describe("each account's plan usage", () => {
     expect(ask).not.toHaveBeenCalled();
   });
 
-  it("says when the CLI is not there with a code the UI words, no translated text being kept for every browser", async () => {
+  it('says when the CLI is not there with a code the UI words, no translated text being kept for every browser', async () => {
     const settings = new SettingsStore(openDatabase(':memory:'));
     settings.update('codex', { bin: join(root, 'no-such-codex') });
     const usage = await new ProviderService(settings).usage('codex');
@@ -743,33 +824,36 @@ describe("each account's plan usage", () => {
 
   // A stand-in `claude` signed in as the address its home's `who` file names.
   const posixIt = process.platform === 'win32' ? it.skip : it;
-  posixIt('asks again once a status check finds the account signed in as someone else (in a terminal, say), and not otherwise', async () => {
-    const dir = join(root, 'usage-sign-in');
-    mkdirSync(dir, { recursive: true });
-    const who = join(dir, 'who');
-    const bin = join(dir, 'claude');
-    writeFileSync(
-      bin,
-      `#!/usr/bin/env node
+  posixIt(
+    'asks again once a status check finds the account signed in as someone else (in a terminal, say), and not otherwise',
+    async () => {
+      const dir = join(root, 'usage-sign-in');
+      mkdirSync(dir, { recursive: true });
+      const who = join(dir, 'who');
+      const bin = join(dir, 'claude');
+      writeFileSync(
+        bin,
+        `#!/usr/bin/env node
 const fs = require('node:fs');
 if (process.argv.includes('--version')) { console.log('2.1.323 (Claude Code)'); process.exit(0); }
 console.log(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', email: fs.readFileSync(${JSON.stringify(who)}, 'utf8').trim() }));
 `,
-      { mode: 0o755 },
-    );
-    writeFileSync(who, 'me@example.com');
-    const settings = new SettingsStore(openDatabase(':memory:'));
-    settings.update('claude', { bin });
-    let n = 0;
-    const ask = vi.fn<Ask>(async () => ({ plan: `plan ${++n}`, limits: [] }));
-    const service = new ProviderService(settings, ask);
+        { mode: 0o755 },
+      );
+      writeFileSync(who, 'me@example.com');
+      const settings = new SettingsStore(openDatabase(':memory:'));
+      settings.update('claude', { bin });
+      let n = 0;
+      const ask = vi.fn<Ask>(async () => ({ plan: `plan ${++n}`, limits: [] }));
+      const service = new ProviderService(settings, ask);
 
-    await service.status('claude', true);
-    expect((await service.usage('claude')).plan).toBe('plan 1');
-    await service.status('claude', true);
-    expect((await service.usage('claude')).plan).toBe('plan 1');
-    writeFileSync(who, 'someone-else@example.com');
-    await service.status('claude', true);
-    expect((await service.usage('claude')).plan).toBe('plan 2');
-  });
+      await service.status('claude', true);
+      expect((await service.usage('claude')).plan).toBe('plan 1');
+      await service.status('claude', true);
+      expect((await service.usage('claude')).plan).toBe('plan 1');
+      writeFileSync(who, 'someone-else@example.com');
+      await service.status('claude', true);
+      expect((await service.usage('claude')).plan).toBe('plan 2');
+    },
+  );
 });

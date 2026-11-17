@@ -10,7 +10,12 @@ import { DEV_WEB_DIR } from '../support/paths';
  * install) are the test's: `src/server/sandboxSetup.ts` itself is covered by test/sandbox-setup.test.ts.
  */
 
-const PACKAGES = { kind: 'packages' as const, items: ['bubblewrap', 'socat'], for: ['claude' as const, 'open' as const], command: 'sudo apt-get install -y bubblewrap socat' };
+const PACKAGES = {
+  kind: 'packages' as const,
+  items: ['bubblewrap', 'socat'],
+  for: ['claude' as const, 'open' as const],
+  command: 'sudo apt-get install -y bubblewrap socat',
+};
 
 /** Answers the page's questions about the sandboxes' setup with `views` in turn (the last one from then on); records what it was asked to do. */
 async function answer(page: Page, views: SandboxSetupView[], installed: SandboxSetupView = views[views.length - 1]!) {
@@ -22,7 +27,13 @@ async function answer(page: Page, views: SandboxSetupView[], installed: SandboxS
     asked.push(`${req.method()} ${new URL(req.url()).pathname}`);
     if (req.method() === 'POST') {
       after = installed;
-      return route.fulfill({ json: { platform: 'linux', needs: views[0]!.needs, job: { state: 'running', startedAt: Date.now(), log: '$ sudo apt-get install bubblewrap socat\n' } } });
+      return route.fulfill({
+        json: {
+          platform: 'linux',
+          needs: views[0]!.needs,
+          job: { state: 'running', startedAt: Date.now(), log: '$ sudo apt-get install bubblewrap socat\n' },
+        },
+      });
     }
     const view = after ?? views[Math.min(i++, views.length - 1)]!;
     return route.fulfill({ json: view });
@@ -68,7 +79,11 @@ test.describe('what the sandboxes need', () => {
   });
 
   test('installing from the dialog shows its output, then that the sandboxes have everything', async ({ page }) => {
-    const asked = await answer(page, [{ platform: 'linux', needs: [PACKAGES], admin: 'sudo' }], { platform: 'linux', needs: [], job: { state: 'success', startedAt: 1, finishedAt: 2, log: '$ sudo apt-get install bubblewrap socat\nok\n' } });
+    const asked = await answer(page, [{ platform: 'linux', needs: [PACKAGES], admin: 'sudo' }], {
+      platform: 'linux',
+      needs: [],
+      job: { state: 'success', startedAt: 1, finishedAt: 2, log: '$ sudo apt-get install bubblewrap socat\nok\n' },
+    });
     await newChat(page);
     const d = dialog(page);
     await d.getByRole('button', { name: 'Install (strongly recommended)' }).click();
@@ -103,7 +118,11 @@ test.describe('what the sandboxes need', () => {
   test('an install that puts in what it can here says the rest, listed, is the user’s to install', async ({ page }) => {
     const node = { kind: 'node' as const, items: ['26.13.1'], for: ['open' as const], command: '' };
     const blocked = { ...PACKAGES, blocked: 'admin' as const };
-    const asked = await answer(page, [{ platform: 'linux', needs: [node, blocked] }], { platform: 'linux', needs: [blocked], job: { state: 'success', startedAt: 1, finishedAt: 2, log: '$ curl -fsSL https://nodejs.org/…\n' } });
+    const asked = await answer(page, [{ platform: 'linux', needs: [node, blocked] }], {
+      platform: 'linux',
+      needs: [blocked],
+      job: { state: 'success', startedAt: 1, finishedAt: 2, log: '$ curl -fsSL https://nodejs.org/…\n' },
+    });
     await page.goto(page.url().replace(/#.*$/, '#/settings/sandboxes'));
     const card = page.locator('#settings-sandboxes');
     await card.getByRole('button', { name: 'Install', exact: true }).click();

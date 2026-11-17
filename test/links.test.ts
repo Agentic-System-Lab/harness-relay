@@ -14,7 +14,9 @@ function parts(markdown: string): (string | [string, string])[] {
 
 describe('bare URLs written right against Chinese text', () => {
   it('end where the Chinese starts, and the next URL in it is a link of its own', () => {
-    expect(parts('檢查https://github.com/Canner/WrenAI-saas及https://github.com/Canner/wren-agent-stack是否在過去一天內有新的PR，說明')).toEqual([
+    expect(
+      parts('檢查https://github.com/Canner/WrenAI-saas及https://github.com/Canner/wren-agent-stack是否在過去一天內有新的PR，說明'),
+    ).toEqual([
       '檢查',
       ['https://github.com/Canner/WrenAI-saas', 'https://github.com/Canner/WrenAI-saas'],
       '及',
@@ -58,7 +60,10 @@ describe('bare URLs written right against Chinese text', () => {
       expect(urlLength(url), url).toBe(url.length);
       expect(parts(url), url).toEqual([[url, url]]);
     }
-    expect(parts('https://zh.wikipedia.org/wiki/臺灣，見')).toEqual([['https://zh.wikipedia.org/wiki/臺灣', 'https://zh.wikipedia.org/wiki/臺灣'], '，見']);
+    expect(parts('https://zh.wikipedia.org/wiki/臺灣，見')).toEqual([
+      ['https://zh.wikipedia.org/wiki/臺灣', 'https://zh.wikipedia.org/wiki/臺灣'],
+      '，見',
+    ]);
     // Chinese right after an ASCII part of the path is prose.
     expect(urlLength('https://a.example/中文abc及')).toBe('https://a.example/中文abc'.length);
   });

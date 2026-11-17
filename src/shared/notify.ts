@@ -6,7 +6,7 @@ import { splitAsk } from './ask';
 import type { AlertKind, AlertPrefs, ChatMessage, Conversation, ConversationSummary } from './types';
 
 /** The kinds that need the user, in the order the sidebar puts them. */
-export const NEEDS_KINDS: readonly AlertKind[] = ['approval', 'confirm', 'answer'];
+export const NEEDS_KINDS: readonly AlertKind[] = ['approval', 'confirm', 'answer', 'blocked'];
 
 /** Whether `kind` is one `prefs` asks for. */
 export function wanted(kind: AlertKind, prefs: Pick<AlertPrefs, 'done' | 'needs'>): boolean {
@@ -14,15 +14,19 @@ export function wanted(kind: AlertKind, prefs: Pick<AlertPrefs, 'done' | 'needs'
 }
 
 /** What a conversation needs from the user now, the most urgent first (as `convStatus` in the sidebar). */
-export function needsOf(c: Pick<ConversationSummary, 'waiting' | 'confirmTeam' | 'asking' | 'running'>): AlertKind | undefined {
+export function needsOf(c: Pick<ConversationSummary, 'waiting' | 'confirmTeam' | 'asking' | 'blocked' | 'running'>): AlertKind | undefined {
   if (c.waiting) return 'approval';
   if (c.confirmTeam) return 'confirm';
   if (c.asking && !c.running) return 'answer';
+  if (c.blocked && !c.running) return 'blocked';
   return undefined;
 }
 
 /** The parts of a summary the alerts read (`branchFrom`: only whether it is a branch). */
-export type AlertState = Pick<ConversationSummary, 'running' | 'waiting' | 'confirmTeam' | 'asking' | 'lastStatus' | 'lastReplyId' | 'branchFrom'>;
+export type AlertState = Pick<
+  ConversationSummary,
+  'running' | 'waiting' | 'confirmTeam' | 'asking' | 'blocked' | 'lastStatus' | 'lastReplyId' | 'branchFrom'
+>;
 
 /**
  * A conversation as the alerts last saw it: its state and, while it runs, its latest agent reply when
@@ -39,6 +43,7 @@ const stateOf = (c: AlertState): AlertState => ({
   ...(c.waiting ? { waiting: true } : {}),
   ...(c.confirmTeam ? { confirmTeam: true } : {}),
   ...(c.asking ? { asking: true } : {}),
+  ...(c.blocked ? { blocked: true } : {}),
   ...(c.lastStatus ? { lastStatus: c.lastStatus } : {}),
   ...(c.lastReplyId ? { lastReplyId: c.lastReplyId } : {}),
 });
@@ -145,11 +150,13 @@ const textOf = (m: ChatMessage) =>
     .join('\n');
 
 const agentName = (conv: Pick<Conversation, 'agents'>, m: ChatMessage) =>
-  m.agentName ?? (m.author.kind === 'agent' ? conv.agents.find((a) => a.id === (m.author as { agentId: string }).agentId)?.name : undefined);
+  m.agentName ??
+  (m.author.kind === 'agent' ? conv.agents.find((a) => a.id === (m.author as { agentId: string }).agentId)?.name : undefined);
 
 /**
  * The agent an alert is about and what it said: the latest agent reply (its error, for `error`); the
- * approval waiting (its command, file or address); the question asked. Nothing for a team to confirm
+ * approval waiting (its command, file or address), or what waits in the outbox (its card's title); the question asked;
+ * what holds a tracked goal up (the reply's progress block). Nothing for a team to confirm
  * (the lead agent designed it).
  */
 export function alertDetail(conv: Pick<Conversation, 'agents' | 'messages'>, kind: AlertKind): AlertDetail {
@@ -159,10 +166,20 @@ export function alertDetail(conv: Pick<Conversation, 'agents' | 'messages'>, kin
     if (m.author.kind !== 'agent') continue;
     const agent = agentName(conv, m);
     if (kind === 'approval') {
-      const pending = m.parts.find((p) => p.type === 'approval' && p.status === 'pending');
-      if (!pending || pending.type !== 'approval') continue;
-      const what = pending.detail || pending.tool;
+      // An approval waiting (its command, file or address), or what it asked to send waiting in the outbox
+      // for the user's Send (a mail, an invitation: its card's title).
+      const pending = m.parts.find(
+        (p) => (p.type === 'approval' && p.status === 'pending') || (p.type === 'outbox' && p.status === 'pending'),
+      );
+      if (!pending) continue;
+      const what = pending.type === 'approval' ? pending.detail || pending.tool : pending.type === 'outbox' ? pending.title : '';
       return { ...(agent ? { agent } : {}), ...(what ? { text: snippet(what) } : {}) };
+    }
+    if (kind === 'blocked') {
+      // What the reply says holds the goal up: its progress block.
+      const held = m.parts.find((p) => p.type === 'progress' && p.status === 'blocked');
+      if (!held || held.type !== 'progress') continue;
+      return { ...(agent ? { agent } : {}), ...(held.text ? { text: snippet(held.text) } : {}) };
     }
     if (kind === 'answer' && !m.asked) continue;
     const text = snippet(kind === 'error' && m.error ? m.error : textOf(m));

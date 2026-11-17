@@ -102,7 +102,15 @@ const KEY_ENV: Record<SignInCli, string> = {
 };
 
 /** How each CLI's API keys start, as the key box's placeholder. */
-const KEY_PLACEHOLDER: Record<SignInCli, string> = { claude: 'sk-ant-…', codex: 'sk-…', grok: 'xai-…', cursor: 'key_…', antigravity: 'AIza…', copilot: 'github_pat_…', muse: 'meta-…' };
+const KEY_PLACEHOLDER: Record<SignInCli, string> = {
+  claude: 'sk-ant-…',
+  codex: 'sk-…',
+  grok: 'xai-…',
+  cursor: 'key_…',
+  antigravity: 'AIza…',
+  copilot: 'github_pat_…',
+  muse: 'meta-…',
+};
 
 export function SettingsPage({ section, providers, catalog, refreshProviders, onShowTour, update, onCheckUpdate, onInstallUpdate }: Props) {
   const { t, lang, setLang } = useI18n();
@@ -284,7 +292,11 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
             <button
               className="primary"
               onClick={saveCwd}
-              disabled={!settings || !cwds.length || cwds.join('\n') === cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }).join('\n')}
+              disabled={
+                !settings ||
+                !cwds.length ||
+                cwds.join('\n') === cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }).join('\n')
+              }
             >
               {t.common.save}
             </button>
@@ -430,7 +442,8 @@ function statusPill(
   if (!s) return { text: p.checking, cls: '' };
   if (!s.installed) return { text: p.notInstalled, cls: 'off' };
   // An open agent has no sign-in: it is ready once a model backend is set up (and its adapter is done).
-  if (s.provider && isOpenProvider(s.provider)) return s.auth.loggedIn ? { text: p.openReady, cls: 'ok' } : { text: p.openNotReady, cls: 'warn' };
+  if (s.provider && isOpenProvider(s.provider))
+    return s.auth.loggedIn ? { text: p.openReady, cls: 'ok' } : { text: p.openNotReady, cls: 'warn' };
   if (s.usingStoredApiKey) return { text: p.apiKey, cls: 'ok' };
   if (s.auth.loggedIn) return { text: p.loggedIn, cls: 'ok' };
   if (s.auth.loggedIn === false) return { text: p.notLoggedIn, cls: 'warn' };
@@ -702,7 +715,8 @@ function AccountBlock({
   };
 
   const logout = () => {
-    if (!confirm(id ? t.accounts.confirmLogout(name, PROVIDER_LABEL[provider]) : t.settings.confirmLogout(PROVIDER_LABEL[provider]))) return;
+    if (!confirm(id ? t.accounts.confirmLogout(name, PROVIDER_LABEL[provider]) : t.settings.confirmLogout(PROVIDER_LABEL[provider])))
+      return;
     void act(async () => {
       await api.logout(provider, id);
       await onRefresh();
@@ -710,11 +724,14 @@ function AccountBlock({
   };
 
   const saveKey = (remove = false) =>
-    act(async () => {
-      onSettings(await api.updateAccount(provider, id, { apiKey: remove ? null : apiKey }));
-      setApiKey('');
-      await onRefresh();
-    }, remove ? t.settings.keyRemoved : t.settings.keySaved);
+    act(
+      async () => {
+        onSettings(await api.updateAccount(provider, id, { apiKey: remove ? null : apiKey }));
+        setApiKey('');
+        await onRefresh();
+      },
+      remove ? t.settings.keyRemoved : t.settings.keySaved,
+    );
 
   const rename = () =>
     act(async () => {
@@ -785,11 +802,21 @@ function AccountBlock({
         account={id}
         name={name}
         usable={installed && status !== undefined && accountUsable(status)}
-        signIn={status ? [status.auth.loggedIn, status.auth.account, status.auth.method, status.usingStoredApiKey, account?.apiKeyMasked].join('|') : ''}
+        signIn={
+          status
+            ? [status.auth.loggedIn, status.auth.account, status.auth.method, status.usingStoredApiKey, account?.apiKeyMasked].join('|')
+            : ''
+        }
       />
 
       {keyOnly ? (
-        <p className="muted small">{provider === 'antigravity' ? t.settings.keyOnlyAntigravity : provider === 'muse' ? t.settings.keyOnlyMuse : t.settings.keyOnlyAccount}</p>
+        <p className="muted small">
+          {provider === 'antigravity'
+            ? t.settings.keyOnlyAntigravity
+            : provider === 'muse'
+              ? t.settings.keyOnlyMuse
+              : t.settings.keyOnlyAccount}
+        </p>
       ) : (
         <>
           <div className="method-list" role="radiogroup">
@@ -825,7 +852,9 @@ function AccountBlock({
             {t.settings.apiKeyHelp[provider as SignInCli]}
             {account?.apiKeyStorage && t.settings.keyStorage(t.settings.keyStorageName[account.apiKeyStorage])}
             {/* The server's own environment is the default account's only. */}
-            {!id && (account?.apiKeyStorage === 'encrypted' || account?.apiKeyStorage === 'database') && t.settings.keyEnvHint(KEY_ENV[provider as SignInCli])}
+            {!id &&
+              (account?.apiKeyStorage === 'encrypted' || account?.apiKeyStorage === 'database') &&
+              t.settings.keyEnvHint(KEY_ENV[provider as SignInCli])}
           </p>
           <div className="input-row">
             <input
@@ -926,7 +955,11 @@ function AccountDefaults({
           }}
         />
         <div className="button-row">
-          <button className="ghost" onClick={() => void save()} disabled={busy || !account || (model === savedModel && effort === savedEffort)}>
+          <button
+            className="ghost"
+            onClick={() => void save()}
+            disabled={busy || !account || (model === savedModel && effort === savedEffort)}
+          >
             {t.common.save}
           </button>
         </div>
@@ -1050,8 +1083,16 @@ function OpenAgentCard({
               setModel(v.model);
               setEffort(v.effort);
             }}
-            inheritModelLabel={catalog?.cliDefaultModel ? t.settings.cliDefault(catalog.cliDefaultModel) : catalog ? o.noCliDefault : t.settings.cliDefault(t.settings.unknown)}
-            inheritEffortLabel={() => t.settings.cliDefault(catalog?.cliDefaultEffort ? t.effortLabel(catalog.cliDefaultEffort) : t.settings.unknown)}
+            inheritModelLabel={
+              catalog?.cliDefaultModel
+                ? t.settings.cliDefault(catalog.cliDefaultModel)
+                : catalog
+                  ? o.noCliDefault
+                  : t.settings.cliDefault(t.settings.unknown)
+            }
+            inheritEffortLabel={() =>
+              t.settings.cliDefault(catalog?.cliDefaultEffort ? t.effortLabel(catalog.cliDefaultEffort) : t.settings.unknown)
+            }
           />
           <label className="field inline">
             <span>{t.settings.bin}</span>
@@ -1183,7 +1224,9 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
     let frame = 0;
     const update = () => {
       frame = 0;
-      const corner = [...main.querySelectorAll<HTMLElement>(':scope > .menu-button, :scope > .sidebar-tools')].find((el) => el.getClientRects().length > 0);
+      const corner = [...main.querySelectorAll<HTMLElement>(':scope > .menu-button, :scope > .sidebar-tools')].find(
+        (el) => el.getClientRects().length > 0,
+      );
       setStuck(makeRoomForCorner(links.getBoundingClientRect().top, corner?.getBoundingClientRect().bottom));
     };
     const later = () => {
@@ -1324,7 +1367,8 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
     item.focus({ preventScroll: true });
     const pad = 6;
     if (item.offsetTop - pad < list.scrollTop) list.scrollTop = item.offsetTop - pad;
-    else if (item.offsetTop + item.offsetHeight + pad > list.scrollTop + list.clientHeight) list.scrollTop = item.offsetTop + item.offsetHeight + pad - list.clientHeight;
+    else if (item.offsetTop + item.offsetHeight + pad > list.scrollTop + list.clientHeight)
+      list.scrollTop = item.offsetTop + item.offsetHeight + pad - list.clientHeight;
   };
   const openMenu = (focus: 'active' | 'first' | 'last') => {
     focusOnOpen.current = focus;
@@ -1360,7 +1404,15 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
   useEffect(() => {
     if (!menuOpen || !menuAt) return;
     const all = items();
-    const at = focusOnOpen.current === 'first' ? 0 : focusOnOpen.current === 'last' ? all.length - 1 : Math.max(0, all.findIndex((el) => el.dataset.section === active));
+    const at =
+      focusOnOpen.current === 'first'
+        ? 0
+        : focusOnOpen.current === 'last'
+          ? all.length - 1
+          : Math.max(
+              0,
+              all.findIndex((el) => el.dataset.section === active),
+            );
     focusItem(all[at]);
     // Only once, as it opens: the focus is the reader's from then on.
     focusOnOpen.current = 'active';

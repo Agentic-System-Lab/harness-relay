@@ -10,7 +10,7 @@ process.env.RELAY_DATA_DIR = join(root, 'data');
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 const { AuthStore, CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S } = await import('../src/server/auth');
-const { createApp } = await import('../src/server/app');
+const { createApp, hookHash } = await import('../src/server/app');
 const { openDatabase } = await import('../src/server/db');
 const { Hub } = await import('../src/server/hub');
 const { Orchestrator } = await import('../src/server/orchestrator');
@@ -44,7 +44,9 @@ describe('sign-in codes', () => {
   it('name a browser by its User-Agent', () => {
     const mac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
     expect(browserLabel(mac)).toBe('Chrome · macOS');
-    expect(browserLabel('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1')).toBe('Safari · iPhone');
+    expect(
+      browserLabel('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1'),
+    ).toBe('Safari · iPhone');
     expect(browserLabel('Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140.0 Safari/537.36 Edg/140.0')).toBe('Edge · Windows');
     expect(browserLabel('curl/8.7.1')).toBe('curl/8.7.1');
     expect(browserLabel(undefined)).toBe('?');
@@ -151,13 +153,21 @@ describe('the API with sign-in', () => {
   const HOST = { host: '127.0.0.1:8787' };
   let app: ReturnType<typeof createApp>;
   let auth: InstanceType<typeof AuthStore>;
+  let store: InstanceType<typeof Store>;
   beforeEach(() => {
     const db = openDatabase(':memory:');
     const settings = new SettingsStore(db);
-    const store = new Store(db);
+    store = new Store(db);
     const hub = new Hub();
     auth = new AuthStore(db);
-    app = createApp({ auth, store, settings, hub, orchestrator: new Orchestrator(store, hub, settings), providers: new ProviderService(settings) });
+    app = createApp({
+      auth,
+      store,
+      settings,
+      hub,
+      orchestrator: new Orchestrator(store, hub, settings),
+      providers: new ProviderService(settings),
+    });
   });
 
   const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
@@ -165,7 +175,11 @@ describe('the API with sign-in', () => {
 
   /** Signs a browser in with a fresh code: its cookie (as sent back) and key. */
   async function signIn(): Promise<{ cookie: string; key: string; setCookie: string }> {
-    const res = await post('/api/auth/login', { code: auth.createCode(CODE_TTL_MS.device).code }, { 'user-agent': 'Mozilla/5.0 (Macintosh) Firefox/140.0' });
+    const res = await post(
+      '/api/auth/login',
+      { code: auth.createCode(CODE_TTL_MS.device).code },
+      { 'user-agent': 'Mozilla/5.0 (Macintosh) Firefox/140.0' },
+    );
     expect(res.status).toBe(200);
     const setCookie = res.headers.get('set-cookie') ?? '';
     return { cookie: setCookie.split(';')[0]!, key: ((await res.json()) as { key: string }).key, setCookie };
@@ -180,17 +194,67 @@ describe('the API with sign-in', () => {
     expect((await app.request('/api/conversations', { headers: { host: 'evil.test' } })).status).toBe(403);
   });
 
+  it("takes a schedule's webhook token instead of a browser's sign-in on the webhook alone", async () => {
+    const conv = {
+      id: 'c1',
+      title: 't',
+      createdAt: 0,
+      updatedAt: 0,
+      agents: [],
+      settings: { mode: 'roundtable', rounds: 1, maxHops: 1, permission: 'read-only', cwd: tmpdir(), approvals: 'ask' },
+      messages: [],
+      agentState: {},
+      worktrees: {},
+    } as unknown as Parameters<typeof store.create>[0];
+    store.create(conv);
+    conv.schedule = {
+      text: 'x',
+      repeat: { kind: 'daily', time: '09:00' },
+      timeZone: 'UTC',
+      lang: 'en',
+      enabled: false,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+      updatedAt: 0,
+    };
+    store.saveSchedule(conv);
+    store.setHook(conv, hookHash('the-token'), 1);
+    const hook = (token: string) =>
+      app.request('/api/hooks/c1', {
+        method: 'POST',
+        headers: { ...HOST, 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: '{}',
+      });
+    // Not a sign-in problem: the token is checked (a wrong one is a 404), and the team has no members (409).
+    expect((await hook('wrong')).status).toBe(404);
+    expect((await hook('the-token')).status).toBe(409);
+    // Making a token is for a signed-in browser.
+    expect((await post('/api/conversations/c1/schedule/hook', {})).status).toBe(401);
+    expect((await app.request('/api/hooks/c1', { method: 'GET', headers: HOST })).status).toBe(401);
+  });
+
   it("points a browser that is not signed in at the desktop app's menu when the app started the server", async () => {
     const db = openDatabase(':memory:');
     const settings = new SettingsStore(db);
     const store = new Store(db);
     const hub = new Hub();
-    const desktop = createApp({ auth: new AuthStore(db), store, settings, hub, orchestrator: new Orchestrator(store, hub, settings), providers: new ProviderService(settings), desktopApp: true });
+    const desktop = createApp({
+      auth: new AuthStore(db),
+      store,
+      settings,
+      hub,
+      orchestrator: new Orchestrator(store, hub, settings),
+      providers: new ProviderService(settings),
+      desktopApp: true,
+    });
     expect(await (await desktop.request('/api/auth', { headers: HOST })).json()).toEqual({ signedIn: false, desktop: true });
     const res = await desktop.request('/api/conversations', { headers: HOST });
     expect(res.status).toBe(401);
     expect(((await res.json()) as { error: string }).error).toMatch(/desktop app|桌面 app/);
-    expect(((await (await app.request('/api/conversations', { headers: HOST })).json()) as { error: string }).error).toMatch(/npm run login/);
+    expect(((await (await app.request('/api/conversations', { headers: HOST })).json()) as { error: string }).error).toMatch(
+      /npm run login/,
+    );
   });
 
   it('signs a browser in with a code: an HttpOnly, strict cookie for the API, and a key for its requests', async () => {
@@ -242,14 +306,25 @@ describe('the API with sign-in', () => {
     const firstHeaders = { cookie: first.cookie, [AUTH_KEY_HEADER]: first.key };
     const made = await post('/api/auth/codes', {}, firstHeaders);
     const { code } = (await made.json()) as { code: string };
-    const phone = await post('/api/auth/login', { code }, { 'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Safari/604.1' });
+    const phone = await post(
+      '/api/auth/login',
+      { code },
+      { 'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Safari/604.1' },
+    );
     expect(phone.status).toBe(200);
-    const list = (await (await app.request('/api/auth/sessions', { headers: { ...HOST, ...firstHeaders } })).json()) as { id: string; label: string; current: boolean }[];
+    const list = (await (await app.request('/api/auth/sessions', { headers: { ...HOST, ...firstHeaders } })).json()) as {
+      id: string;
+      label: string;
+      current: boolean;
+    }[];
     expect(list.map((s) => s.label).sort()).toEqual(['Firefox · macOS', 'Safari · iPhone']);
     const me = list.find((s) => s.current)!;
     expect(me.label).toBe('Firefox · macOS');
     // Signing this browser out clears its cookie, and it is no longer let in.
-    const out = await app.request(`/api/auth/sessions/${me.id}`, { method: 'DELETE', headers: { ...HOST, 'content-type': 'application/json', ...firstHeaders } });
+    const out = await app.request(`/api/auth/sessions/${me.id}`, {
+      method: 'DELETE',
+      headers: { ...HOST, 'content-type': 'application/json', ...firstHeaders },
+    });
     expect(out.status).toBe(200);
     expect(out.headers.get('set-cookie')).toMatch(new RegExp(`^${SESSION_COOKIE}=;.*Max-Age=0`));
     expect((await app.request('/api/conversations', { headers: { ...HOST, ...firstHeaders } })).status).toBe(401);
@@ -275,7 +350,9 @@ describe('the API with sign-in', () => {
         }),
         duplex: 'half',
       } as RequestInit);
-    const statuses = await Promise.all(Array.from({ length: 30 }, async (_, i) => (await app.request(late(`ZZZZ-${String(i).padStart(4, '0')}`))).status));
+    const statuses = await Promise.all(
+      Array.from({ length: 30 }, async (_, i) => (await app.request(late(`ZZZZ-${String(i).padStart(4, '0')}`))).status),
+    );
     expect(statuses.filter((s) => s === 400)).toHaveLength(10);
     expect(statuses.filter((s) => s === 429)).toHaveLength(20);
   });
@@ -287,7 +364,9 @@ describe('the API with sign-in', () => {
     const cookie = (again.headers.get('set-cookie') ?? '').split(';')[0]!;
     const { key } = (await again.json()) as { key: string };
     expect(auth.sessions()).toHaveLength(1);
-    expect((await app.request('/api/conversations', { headers: { ...HOST, cookie: first.cookie, [AUTH_KEY_HEADER]: first.key } })).status).toBe(401);
+    expect(
+      (await app.request('/api/conversations', { headers: { ...HOST, cookie: first.cookie, [AUTH_KEY_HEADER]: first.key } })).status,
+    ).toBe(401);
     expect((await app.request('/api/conversations', { headers: { ...HOST, cookie, [AUTH_KEY_HEADER]: key } })).status).toBe(200);
   });
 });

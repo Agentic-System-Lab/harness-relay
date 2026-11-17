@@ -167,7 +167,13 @@ export function FileBrowser({ conv, onClose }: { conv: Conversation; onClose: ()
               ))}
             </nav>
             <div className="file-tools">
-              <button className="icon-button" disabled={!dir} onClick={() => setDir(parentPath(dir))} aria-label={t.files.up} title={t.files.up}>
+              <button
+                className="icon-button"
+                disabled={!dir}
+                onClick={() => setDir(parentPath(dir))}
+                aria-label={t.files.up}
+                title={t.files.up}
+              >
                 ↑
               </button>
               <input
@@ -259,7 +265,16 @@ export function FileBrowser({ conv, onClose }: { conv: Conversation; onClose: ()
 
 function FileGlyph() {
   return (
-    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width={16}
+      height={16}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
       <path d="M14 3v5h5" />
     </svg>
@@ -305,7 +320,8 @@ function Preview({
           {preview && (
             <span className="muted small">
               {formatBytes(preview.size)}
-              {preview.kind === 'text' && preview.text ? ` · ${t.files.lines(lineCount(preview.text))}` : ''} · {relativeTime(preview.mtime, t)}
+              {preview.kind === 'text' && preview.text ? ` · ${t.files.lines(lineCount(preview.text))}` : ''} ·{' '}
+              {relativeTime(preview.mtime, t)}
             </span>
           )}
         </div>
@@ -392,10 +408,7 @@ function CodeView({ text, name }: { text: string; name: string }) {
       return null;
     }
   }, [text, name]);
-  const numbers = useMemo(
-    () => Array.from({ length: Math.max(1, lineCount(text)) }, (_, i) => i + 1).join('\n'),
-    [text],
-  );
+  const numbers = useMemo(() => Array.from({ length: Math.max(1, lineCount(text)) }, (_, i) => i + 1).join('\n'), [text]);
   return (
     <div className="code-view">
       <pre className="code-lines" aria-hidden="true">

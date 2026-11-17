@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createReadStream, realpathSync, statSync } from 'node:fs';
 import { readFile, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -29,6 +29,7 @@ import {
   SHARE_FILE_REFUSED,
   SHARE_FILE_URL_MAX,
   SHARE_MAX_BYTES,
+  TRACKING_LIMITS,
   VOICE_MAX_SECONDS,
   cwdsOf,
   pendingPlan,
@@ -38,6 +39,7 @@ import {
   type Conversation,
   type ServerLimits,
   type ConversationSchedule,
+  type NewScheduleHook,
   type Lang,
   type PickedFolders,
   type Provider,
@@ -50,6 +52,11 @@ import {
   type ZipCheck,
 } from '../shared/types';
 import type { AgentsViewSync } from './agentsview';
+import { freshTracking } from '../shared/tracking';
+import { servingPort } from './relaySandbox';
+import { discoverCalendars, listEvents } from './connectors/caldav';
+import { keptPasswordFits } from './connectors/accounts';
+import { testMail } from './connectors/test';
 import { attachmentPath, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
 import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, readPreview, zipPlan, type ZipPlan } from './files';
 import { zipStream } from './zip';
@@ -104,6 +111,9 @@ import {
   validateSchedule,
   validateSettings,
   validateToolLibraryUpdate,
+  validConnectorId,
+  validateMailAccount,
+  validateCalendarAccount,
   validateVoiceUpdate,
   validSkillPath,
 } from './validate';
@@ -208,6 +218,37 @@ function realDir(dir: string): string {
 }
 
 /** The HTTP API (`/api/*`). Static files and the listening server are set up in `index.ts`. */
+/** The SHA-256 (hex) of a webhook's token: all the database keeps of it. */
+export function hookHash(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+/** A request's body as text, or undefined once it is longer than `max` bytes (reading stops there). */
+async function readLimited(req: Request, max: number): Promise<string | undefined> {
+  const reader = req.body?.getReader();
+  if (!reader) return '';
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel().catch(() => undefined);
+      return undefined;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+/** Two hashes compared in constant time. */
+function sameHash(a: string, b: string): boolean {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+}
+
 export function createApp({
   auth,
   store,
@@ -247,7 +288,10 @@ export function createApp({
 
   app.onError((err, c) => {
     if (err instanceof HttpError) {
-      return c.json({ error: err.message, ...(err.code ? { code: err.code } : {}), ...(err.paths ? { paths: err.paths } : {}) }, err.status);
+      return c.json(
+        { error: err.message, ...(err.code ? { code: err.code } : {}), ...(err.paths ? { paths: err.paths } : {}) },
+        err.status,
+      );
     }
     console.error('[server]', err);
     return c.json({ error: err.message || 'Internal error' }, 500);
@@ -279,7 +323,8 @@ export function createApp({
     }
     // User-facing server text follows the UI language — also in runs this request starts.
     return withLang(parseLang(c.req.header('x-relay-lang'), c.req.header('accept-language')), async () => {
-      if (auth && !OPEN.has(`${c.req.method} ${c.req.path}`)) {
+      // A schedule's webhook takes its own token instead (checked by its route), for programs, not browsers.
+      if (auth && !OPEN.has(`${c.req.method} ${c.req.path}`) && !(c.req.method === 'POST' && HOOK_PATH.test(c.req.path))) {
         const session = auth.check(getCookie(c, SESSION_COOKIE), requestKey(c));
         if (!session) return c.json({ error: desktopApp ? t().signedOutDesktop : t().signedOut, code: SIGNED_OUT }, 401);
         sessions.set(c.req.raw, session);
@@ -290,6 +335,10 @@ export function createApp({
 
   /** What a request takes without a signed-in browser: asking whether it is one, and signing in. */
   const OPEN = new Set(['GET /api/auth', 'POST /api/auth/login']);
+  /** A schedule's webhook (`POST /api/hooks/:id`): its route checks the token it was given. */
+  const HOOK_PATH = /^\/api\/hooks\/[^/]+$/;
+  /** When each webhook was last called, by conversation: at most one call per `TRACKING_LIMITS.hookIntervalMs`. */
+  const hookCalls = new Map<string, number>();
   /** The session each request came from. */
   const sessions = new WeakMap<Request, string>();
 
@@ -385,7 +434,6 @@ export function createApp({
       }
     });
 
-
   /** The request's JSON body, which must be an object. */
   async function body<T>(c: Context): Promise<T> {
     let value: unknown;
@@ -450,8 +498,7 @@ export function createApp({
     const cwds =
       b.defaultCwd !== undefined ? validDirectories(b.defaultCwd, b.defaultExtraCwds, b.createCwd === true, 'defaultCwd') : undefined;
     // Not inside Harness Relay's folder or a default working directory (the new ones, when they change too).
-    const home =
-      b.agentHome !== undefined ? validAgentHome(b.agentHome, [process.cwd(), ...cwdsOf(cwds ?? defaultCwds())]) : undefined;
+    const home = b.agentHome !== undefined ? validAgentHome(b.agentHome, [process.cwd(), ...cwdsOf(cwds ?? defaultCwds())]) : undefined;
     // A turn that starts in the new home would find its CLI signed out, and its session elsewhere.
     if (home !== undefined && home !== settings.agentHome && orchestrator.anyRunning()) throw new HttpError(409, t().agentHomeBusy);
     // Created only now that nothing refuses the request.
@@ -514,6 +561,60 @@ export function createApp({
 
   // --- Tool library: MCP servers, skills and memory for the agents --------------
 
+  // Mail accounts and calendars for Harness Relay's mail and calendar tools: their passwords go to the
+  // credential store and come back masked only.
+  app.get('/api/connectors', (c) => c.json(settings.connectors.view()));
+  app.put('/api/connectors/mail/:id', async (c) =>
+    c.json(settings.connectors.saveMail(validConnectorId(c.req.param('id')), validateMailAccount(await body<unknown>(c)))),
+  );
+  app.put('/api/connectors/calendar/:id', async (c) =>
+    c.json(settings.connectors.saveCalendar(validConnectorId(c.req.param('id')), validateCalendarAccount(await body<unknown>(c)))),
+  );
+  app.delete('/api/connectors/:kind/:id', (c) => {
+    const kind = c.req.param('kind');
+    if (kind !== 'mail' && kind !== 'calendar') throw new HttpError(404, t().connectorNotFound(c.req.param('id')));
+    return c.json(settings.connectors.delete(kind, c.req.param('id')));
+  });
+  // The calendars an account has, from its server's address: their names and own addresses, to pick one.
+  app.post('/api/connectors/calendar/discover', async (c) => {
+    const b = await body<Record<string, unknown>>(c);
+    const v = validateCalendarAccount({ ...b, name: 'x' });
+    // The password typed in the form, or the one kept for the account being edited, when the address
+    // is its provider's (the kept one never goes to another server).
+    const kept = typeof b.id === 'string' ? settings.connectors.calendar(b.id) : undefined;
+    const keptFits = kept?.account.id === b.id && kept && keptPasswordFits(kept.account.url, v.url);
+    const password = v.password ?? (keptFits ? kept.password : undefined);
+    if (!password) throw new HttpError(400, kept && !keptFits ? t().connectorPasswordAgain : t().connectorPasswordRequired);
+    try {
+      return c.json({ ok: true, calendars: await discoverCalendars(v.url, { username: v.username, password }) });
+    } catch (err) {
+      // The server's own words (often English) after the request's language's.
+      return c.json({ ok: false, error: t().connectorDiscoverFailed((err as Error).message) });
+    }
+  });
+
+  // Try an account as saved: sign in to its mail server (IMAP, then SMTP's sign-in), or read its calendar.
+  app.post('/api/connectors/:kind/:id/test', async (c) => {
+    const kind = c.req.param('kind');
+    const id = c.req.param('id');
+    try {
+      if (kind === 'mail') {
+        const m = settings.connectors.mail(id);
+        if (!m || m.account.id !== id) throw new HttpError(404, t().connectorNotFound(id));
+        await testMail(m.account, m.password);
+      } else if (kind === 'calendar') {
+        const cal = settings.connectors.calendar(id);
+        if (!cal || cal.account.id !== id) throw new HttpError(404, t().connectorNotFound(id));
+        const now = Date.now();
+        await listEvents(cal.account.url, { username: cal.account.username, password: cal.password }, now, now + 86_400_000);
+      } else throw new HttpError(404, t().connectorNotFound(id));
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      return c.json({ ok: false, error: t().connectorTestFailed((err as Error).message) });
+    }
+    return c.json({ ok: true, message: t().connectorTestOk });
+  });
+
   app.get('/api/tools', (c) => c.json(settings.tools.view()));
 
   app.put('/api/tools', async (c) => c.json(settings.tools.update(validateToolLibraryUpdate(await body<unknown>(c)))));
@@ -553,7 +654,8 @@ export function createApp({
     if (isOpenProvider(p)) throw new HttpError(400, t().openNoLogin(PROVIDER_LABEL[p]));
     const b = await body<{ label?: unknown }>(c);
     const label = validAccountLabel(b.label ?? '');
-    if (settings.accountIds(p).length + 1 >= limits.maxAccounts) throw new HttpError(409, t().tooManyAccounts(PROVIDER_LABEL[p], limits.maxAccounts));
+    if (settings.accountIds(p).length + 1 >= limits.maxAccounts)
+      throw new HttpError(409, t().tooManyAccounts(PROVIDER_LABEL[p], limits.maxAccounts));
     const id = settings.addAccount(p, label);
     if (p === 'grok') {
       // The folders the default account trusts (which Settings shows) are trusted for this one too.
@@ -601,7 +703,10 @@ export function createApp({
     const env = settings.env(p, id);
     const home = settings.removeAccount(p, id);
     await providers.logoutIn(p, env, 15_000, keyOnlyAccount(p, id)).catch(() => {});
-    if (home) await rm(home, { recursive: true, force: true }).catch((err: Error) => console.warn(`[settings] could not delete ${home}: ${err.message}`));
+    if (home)
+      await rm(home, { recursive: true, force: true }).catch((err: Error) =>
+        console.warn(`[settings] could not delete ${home}: ${err.message}`),
+      );
     providers.invalidate(p);
     return c.json(settingsView());
   });
@@ -825,7 +930,9 @@ export function createApp({
 
   app.post('/api/presets', async (c) => {
     const b = await body<Partial<TeamPreset>>(c);
-    const name = String(b.name ?? '').trim().slice(0, 100);
+    const name = String(b.name ?? '')
+      .trim()
+      .slice(0, 100);
     if (!name) throw new HttpError(400, t().presetNameRequired);
     // A template has no working directories: only the default one is checked, as it always was.
     const s = validateSettings({ ...b.settings, cwd: settings.defaultCwd, extraCwds: [] }, defaultCwds());
@@ -833,7 +940,10 @@ export function createApp({
       // Only ids of user templates can be reused (to update one); never a built-in template's.
       id: typeof b.id === 'string' && /^user-[\w-]{1,80}$/.test(b.id) ? b.id : `user-${randomUUID()}`,
       name,
-      description: String(b.description ?? '').trim().slice(0, 2000) || undefined,
+      description:
+        String(b.description ?? '')
+          .trim()
+          .slice(0, 2000) || undefined,
       agents: validateAgents(b.agents, limits.maxTeamAgents),
       settings: { mode: s.mode, rounds: s.rounds, maxHops: s.maxHops, permission: s.permission },
     };
@@ -976,7 +1086,14 @@ export function createApp({
       seen.add(key);
       return true;
     });
-    const isDir = await Promise.all(paths.map((p) => stat(p).then((s) => s.isDirectory(), () => false)));
+    const isDir = await Promise.all(
+      paths.map((p) =>
+        stat(p).then(
+          (s) => s.isDirectory(),
+          () => false,
+        ),
+      ),
+    );
     const dirs = paths.filter((_, i) => isDir[i]).map((path) => (defaults.includes(path) ? { path, default: true as const } : { path }));
     return c.json({ home: homedir(), dirs, ...(canPick(c) ? { pick: true as const } : {}) } satisfies WorkingDirectories);
   });
@@ -1002,7 +1119,11 @@ export function createApp({
     const from = typeof start === 'string' && start.trim() ? start : settings.defaultCwd;
     picking = true;
     try {
-      const paths = await folderPicker.pick({ title: t().pickFolderTitle, start: existingFolder(expandPath(from)), signal: c.req.raw.signal });
+      const paths = await folderPicker.pick({
+        title: t().pickFolderTitle,
+        start: existingFolder(expandPath(from)),
+        signal: c.req.raw.signal,
+      });
       return c.json({ paths } satisfies PickedFolders);
     } catch (err) {
       throw new HttpError(502, t().pickFolderFailed((err as Error).message));
@@ -1050,7 +1171,9 @@ export function createApp({
   // agent designs the team for the schedule's message now. Nothing runs until the schedule sends it;
   // until the team is confirmed, a time that comes due is skipped.
   app.post('/api/schedules', async (c) => {
-    const b = await body<{ title?: unknown; settings?: Record<string, unknown>; createCwd?: unknown; schedule?: unknown }>(c);
+    const b = await body<{ title?: unknown; settings?: Record<string, unknown>; createCwd?: unknown; schedule?: unknown; hook?: unknown }>(
+      c,
+    );
     const now = Date.now();
     // The schedule first: creating a missing working directory is a side effect.
     const update = validateSchedule(b.schedule, now);
@@ -1058,7 +1181,12 @@ export function createApp({
     const s = validateSettings({ ...(b.settings ?? {}), autoTeam: true }, defaultCwds(), b.createCwd === true);
     const conv: Conversation = {
       id: randomUUID(),
-      title: String(b.title ?? '').trim().slice(0, 200) || titleFrom(update.text) || t().defaultTitle,
+      title:
+        String(b.title ?? '')
+          .trim()
+          .slice(0, 200) ||
+        titleFrom(update.text) ||
+        t().defaultTitle,
       createdAt: now,
       updatedAt: now,
       agents: [],
@@ -1082,7 +1210,9 @@ export function createApp({
     }
     // Sorted into the user's sidebar groups by its message, as a new chat is by its first question.
     orchestrator.sortIntoGroup(conv, update.text);
-    return c.json(forClient(conv));
+    // Its webhook too, when asked for (New automation's "Create a webhook too"): the token goes back this once.
+    const newHook = b.hook === true ? makeHook(conv) : undefined;
+    return c.json({ ...forClient(conv), ...(newHook ? { newHook } : {}) });
   });
 
   app.get('/api/conversations/:id', (c) => c.json(forClient(getConv(c.req.param('id')))));
@@ -1171,13 +1301,98 @@ export function createApp({
       ...(prev?.lastResult ? { lastResult: prev.lastResult } : {}),
       ...(prev?.lastError ? { lastError: prev.lastError } : {}),
       ...(prev?.lastChatId ? { lastChatId: prev.lastChatId } : {}),
+      ...(prev?.hook ? { hook: prev.hook } : {}),
     };
+    // The same goal keeps what the agents said of it (and a run still in flight); a reached goal is worked on
+    // again once the schedule is on. A new goal starts afresh, and none drops the notes.
+    if (update.goal) {
+      const kept = prev?.goal === update.goal ? prev.tracking : undefined;
+      const { retry: _retry, inFlight, ...tracking } = kept ?? freshTracking();
+      // A run still going stays the schedule's to try again while the schedule stays on.
+      schedule.tracking = {
+        ...tracking,
+        ...(update.enabled && tracking.status === 'done' ? { status: 'working' as const } : {}),
+        ...(inFlight && update.enabled ? { inFlight } : {}),
+      };
+    }
     const next = update.enabled ? nextRun(schedule, now) : undefined;
     if (next !== undefined) schedule.nextRunAt = next;
     conv.schedule = schedule;
     store.saveSchedule(conv);
     orchestrator.emitConversation(conv);
     return c.json(schedule);
+  });
+
+  // A webhook for the schedule: a new token (replacing the one it had), shown this once; only its hash is kept.
+  const makeHook = (conv: Conversation): NewScheduleHook => {
+    if (!conv.schedule) throw new HttpError(409, t().hookNeedsSchedule);
+    const token = randomBytes(32).toString('base64url');
+    store.setHook(conv, hookHash(token), Date.now());
+    orchestrator.emitConversation(conv);
+    // The server's system: the example to call it is written for that computer's shell.
+    return {
+      token,
+      url: `http://127.0.0.1:${servingPort()}/api/hooks/${conv.id}`,
+      hook: conv.schedule.hook!,
+      platform: process.platform,
+    };
+  };
+  app.post('/api/conversations/:id/schedule/hook', (c) => c.json(makeHook(getConv(c.req.param('id')))));
+
+  app.delete('/api/conversations/:id/schedule/hook', (c) => {
+    const conv = getConv(c.req.param('id'));
+    if (conv.schedule?.hook) {
+      store.setHook(conv, undefined, Date.now());
+      orchestrator.emitConversation(conv);
+    }
+    return c.json({ ok: true });
+  });
+
+  // A program on this computer calls the schedule's webhook: the schedule's message goes now, with the JSON
+  // body it posted in an <event> block. Its token stands in for a browser's sign-in; a wrong one, or none,
+  // is the same 404 as a conversation that does not exist.
+  app.post('/api/hooks/:id', async (c) => {
+    const id = c.req.param('id');
+    const given = /^Bearer\s+(\S+)$/i.exec(c.req.header('authorization') ?? '')?.[1];
+    const stored = store.hookHash(id);
+    if (!given || !stored || !sameHash(hookHash(given), stored)) throw new HttpError(404, t().hookNotFound);
+    const conv = getConv(id);
+    if (!conv.schedule) throw new HttpError(404, t().hookNotFound);
+    // Refused before it is read when it says it is larger, and read no further than the limit when it does not say.
+    const tooLarge = () => new HttpError(413, t().hookBodyTooLarge(TRACKING_LIMITS.eventBytes / 1000));
+    if (Number(c.req.header('content-length') ?? 0) > TRACKING_LIMITS.eventBytes) throw tooLarge();
+    const raw = await readLimited(c.req.raw, TRACKING_LIMITS.eventBytes);
+    if (raw === undefined) throw tooLarge();
+    let event: string;
+    try {
+      // `<` written as JSON's \u003c, the same data: a body cannot close the <event> block it goes in.
+      event = (raw.trim() ? JSON.stringify(JSON.parse(raw), null, 2) : '{}').replace(/</g, '\\u003c');
+    } catch {
+      throw new HttpError(400, 'Invalid JSON body');
+    }
+    // Pretty-printed it may be longer than it came: cut to the limit, as it is only data.
+    if (Buffer.byteLength(event) > TRACKING_LIMITS.eventBytes)
+      event = Buffer.from(event).subarray(0, TRACKING_LIMITS.eventBytes).toString('utf8') + '\n…';
+    const now = Date.now();
+    const last = hookCalls.get(id);
+    if (last !== undefined && now - last < TRACKING_LIMITS.hookIntervalMs)
+      throw new HttpError(429, t().hookTooOften(TRACKING_LIMITS.hookIntervalMs / 1000));
+    if (conv.schedule.goal && conv.schedule.tracking?.status === 'done' && !conv.schedule.enabled)
+      throw new HttpError(409, t().hookGoalReached);
+    hookCalls.set(id, now);
+    const sent = await withLang(conv.schedule.lang, () => orchestrator.sendScheduled(id, now, { event }));
+    const s = store.get(id)?.schedule;
+    if (s?.hook) {
+      s.hook = { ...s.hook, lastAt: now };
+      store.saveSchedule(store.get(id)!);
+      orchestrator.emitConversation(store.get(id)!);
+    }
+    if (sent.result === 'busy' || sent.result === 'skipped' || sent.result === 'failed') {
+      const reason = sent.reason ?? t().scheduleBusy;
+      throw new HttpError(409, reason.charAt(0).toUpperCase() + reason.slice(1));
+    }
+    const chatId = sent.result === 'sent' ? sent.chatId : undefined;
+    return c.json({ ok: true, queued: sent.result === 'queued', ...(chatId ? { chatId } : {}) }, 202);
   });
 
   app.delete('/api/conversations/:id/schedule', (c) => {
@@ -1233,7 +1448,12 @@ export function createApp({
     const upTo = typeof b.upTo === 'string' ? b.upTo : undefined;
     // Measured first, and read only when they can all go along; checked again as read (one may have
     // changed since), never more than the limits in all.
-    const found = await findShareFiles(conv, linked.map((n) => refs[n]!), upTo, (id) => store.get(id));
+    const found = await findShareFiles(
+      conv,
+      linked.map((n) => refs[n]!),
+      upTo,
+      (id) => store.get(id),
+    );
     refuseShareFiles(found);
     await readShareFiles(found);
     refuseShareFiles(found);
@@ -1354,9 +1574,7 @@ export function createApp({
   });
 
   // Take back a message still waiting in the queue; it is returned so the user can edit it.
-  app.delete('/api/conversations/:id/queue/:messageId', (c) =>
-    c.json(orchestrator.withdraw(c.req.param('id'), c.req.param('messageId'))),
-  );
+  app.delete('/api/conversations/:id/queue/:messageId', (c) => c.json(orchestrator.withdraw(c.req.param('id'), c.req.param('messageId'))));
 
   // A file attached to a user message. Only common image types are shown inline; anything else
   // is a download, so an attached HTML or SVG file can never run in this origin.
@@ -1389,7 +1607,12 @@ export function createApp({
   app.get('/api/conversations/:id/messages/:messageId/media', async (c) => {
     const conv = getConv(c.req.param('id'));
     const msg = conv.messages.find((m) => m.id === c.req.param('messageId'));
-    const file = msg && resolveMedia(c.req.query('path') ?? '', mediaRoots(conv, msg, (id) => store.get(id)));
+    const file =
+      msg &&
+      resolveMedia(
+        c.req.query('path') ?? '',
+        mediaRoots(conv, msg, (id) => store.get(id)),
+      );
     if (!file) throw new HttpError(404, t().mediaNotFound);
     return sendFile(c, file);
   });
@@ -1399,7 +1622,12 @@ export function createApp({
   app.get('/api/conversations/:id/messages/:messageId/download', async (c) => {
     const conv = getConv(c.req.param('id'));
     const msg = conv.messages.find((m) => m.id === c.req.param('messageId'));
-    const file = msg && resolveDownload(c.req.query('path') ?? '', mediaRoots(conv, msg, (id) => store.get(id)));
+    const file =
+      msg &&
+      resolveDownload(
+        c.req.query('path') ?? '',
+        mediaRoots(conv, msg, (id) => store.get(id)),
+      );
     if (!file) throw new HttpError(404, t().downloadNotFound);
     return sendFile(c, file, true);
   });
@@ -1515,6 +1743,13 @@ export function createApp({
     const b = await body<{ text?: string }>(c);
     await orchestrator.resend(c.req.param('id'), c.req.param('messageId'), String(b.text ?? ''));
     return c.json({ ok: true }, 202);
+  });
+
+  // The user's Send or Discard on something an agent asked to send (the outbox): only this sends it.
+  app.post('/api/conversations/:id/outbox/:itemId', async (c) => {
+    const { action } = await body<{ action?: unknown }>(c);
+    if (action !== 'send' && action !== 'discard') throw new HttpError(400, t().invalidField('action'));
+    return c.json(await orchestrator.answerOutbox(c.req.param('id'), c.req.param('itemId'), action));
   });
 
   // Answer an agent's request to do something its permission does not cover.

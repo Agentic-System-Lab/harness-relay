@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { reservedMcpName } from './gateway';
 import {
   ACCOUNT_ID_RE,
   API_BACKENDS,
@@ -15,6 +16,7 @@ import {
   MAX_NATIVE_ITEM_ID,
   MAX_NATIVE_ITEMS,
   MEMORY_SCOPES,
+  RELAY_TOOL_GROUPS,
   NATIVE_ITEM_KINDS,
   NATIVE_PARTS,
   PROVIDERS,
@@ -36,6 +38,11 @@ import {
   type Mode,
   type Permission,
   type Provider,
+  type RelayToolGroup,
+  type CalendarAccountUpdate,
+  type MailAccountUpdate,
+  type MailServer,
+  CONNECTOR_LIMITS,
   type ProviderAccountUpdate,
   type ProviderSettingsUpdate,
   type PushSubscriptionJson,
@@ -52,7 +59,8 @@ import { CONFIG } from './config';
 import { HttpError } from './errors';
 import { isOtherGroupName, t } from './i18n';
 import { apiPort } from './ports';
-import { isLocalHost, localAddresses, relayPorts } from './relaySandbox';
+import { isLocalHost, isLoopbackHost, localAddresses, relayPorts } from './relaySandbox';
+import { validAddress } from './connectors/mime';
 import { endpointProblem, subscriptionKeys } from './push';
 
 const MODES: Mode[] = ['roundtable', 'parallel', 'relay'];
@@ -364,7 +372,9 @@ export function validateAgents(input: unknown, max = CONFIG.maxTeamAgents): Agen
   const ids = new Set<string>();
   return input.map((raw, i) => {
     const a = (raw ?? {}) as Partial<AgentConfig>;
-    const name = String(a.name ?? '').trim().replace(/^@/, '');
+    const name = String(a.name ?? '')
+      .trim()
+      .replace(/^@/, '');
     if (!NAME_RE.test(name)) bad(t().badName(i + 1, name));
     if (name.toLowerCase() === 'user' || name.toLowerCase() === 'system') bad(t().reservedName(name));
     if (names.has(name.toLowerCase())) bad(t().duplicateName(name));
@@ -429,6 +439,9 @@ function validVars(input: unknown, field: string): { name: string; value?: strin
 export function validateMcpServer(nameInput: unknown, input: unknown): { name: string; update: McpServerUpdate } {
   const name = String(nameInput ?? '').trim();
   if (!MCP_NAME_RE.test(name)) bad(t().badMcpName(name));
+  // The gateway's own name, or one its tools' names start with (`relay_…`, as OpenCode joins a server's
+  // name and its tool's): a library server called so would be left out of every turn that has the gateway.
+  if (reservedMcpName(name)) bad(t().mcpNameReserved(name));
   const b = (input ?? {}) as Partial<Record<keyof McpServerUpdate, unknown>>;
   const transport = b.transport === 'http' ? 'http' : b.transport === 'stdio' ? 'stdio' : bad(t().invalidField('transport'));
   const update: McpServerUpdate = { transport, providers: validProviders(b.providers, 'providers') };
@@ -491,6 +504,32 @@ export function validateToolLibraryUpdate(input: unknown): ToolLibraryUpdate {
       return { path: expandPath(path), providers: validProviders(s.providers, 'providers') };
     });
   }
+  if (b.relayTools !== undefined) {
+    if (!b.relayTools || typeof b.relayTools !== 'object' || Array.isArray(b.relayTools)) bad(t().invalidField('relayTools'));
+    const groups: Partial<Record<RelayToolGroup, Provider[]>> = {};
+    for (const [group, providers] of Object.entries(b.relayTools)) {
+      if (!(RELAY_TOOL_GROUPS as readonly string[]).includes(group) || !Array.isArray(providers)) bad(t().invalidField('relayTools'));
+      groups[group as RelayToolGroup] = validProviders(providers, 'relayTools');
+    }
+    out.relayTools = groups;
+  }
+  if (b.browser !== undefined) {
+    if (typeof b.browser !== 'string' || b.browser.length > 4000 || b.browser.includes('\0')) bad(t().invalidField('browser'));
+    const path = b.browser.trim();
+    if (!path) out.browser = '';
+    else {
+      // A file there now, as the browser tools will start it; empty finds one by itself again.
+      const full = expandPath(path);
+      let file = false;
+      try {
+        file = statSync(full).isFile();
+      } catch {
+        /* none there */
+      }
+      if (!file) bad(t().browserNotFound(full));
+      out.browser = full;
+    }
+  }
   return out;
 }
 
@@ -524,7 +563,9 @@ export function validateSettings(
  * is the one being renamed) or of the default group in any language, ignoring case.
  */
 export function validGroupName(input: unknown, groups: ConversationGroup[], except?: string): string {
-  const name = String(input ?? '').replace(/\s+/g, ' ').trim();
+  const name = String(input ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!name) bad(t().groupNameRequired);
   if ([...name].length > GROUP_LIMITS.maxName) bad(t().groupNameTooLong(GROUP_LIMITS.maxName));
   const key = name.toLowerCase();
@@ -547,6 +588,8 @@ function validRepeat(input: unknown, enabled: boolean, now: number): ScheduleRep
     return v;
   };
   switch (kind) {
+    case 'manual':
+      return { kind };
     case 'once': {
       const at = Number(r.at);
       if (!Number.isSafeInteger(at) || at <= 0) bad(t().scheduleBadMoment);
@@ -580,6 +623,9 @@ export function validateSchedule(input: unknown, now: number): ScheduleUpdate {
   const enabled = b.enabled !== false;
   const tz = typeof b.timeZone === 'string' && b.timeZone.trim() ? b.timeZone.trim().slice(0, 100) : serverTimeZone();
   if (!validTimeZone(tz)) bad(t().scheduleBadTimeZone(tz));
+  if (b.goal !== undefined && b.goal !== null && typeof b.goal !== 'string') bad(t().invalidField('goal'));
+  const goal = typeof b.goal === 'string' ? b.goal.trim() : '';
+  if (goal.length > SCHEDULE_LIMITS.maxGoal) bad(t().scheduleGoalTooLong(SCHEDULE_LIMITS.maxGoal));
   return {
     text,
     repeat: validRepeat(b.repeat, enabled, now),
@@ -588,6 +634,7 @@ export function validateSchedule(input: unknown, now: number): ScheduleUpdate {
     approvals: b.approvals === 'ask' ? 'ask' : 'deny',
     missed: b.missed === 'run' ? 'run' : 'skip',
     newChat: b.newChat === true,
+    ...(goal ? { goal } : {}),
   };
 }
 
@@ -630,7 +677,16 @@ export function validEndpointUrl(input: unknown, relayPort = apiPort(), own: rea
   } catch {
     bad(t().endpointUrlInvalid(raw));
   }
-  if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.search || url.hash || raw.includes('#') || raw.includes('?')) {
+  if (
+    !['http:', 'https:'].includes(url.protocol) ||
+    !url.hostname ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    raw.includes('#') ||
+    raw.includes('?')
+  ) {
     bad(t().endpointUrlInvalid(raw));
   }
   const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80));
@@ -666,8 +722,13 @@ export const INBOX_READ_MAX = 500;
 export function validateInboxRead(input: unknown): InboxReadRequest {
   const u = (input ?? {}) as { ids?: unknown; conversationId?: unknown; all?: unknown };
   if (u.all === true) return { all: true };
-  if (typeof u.conversationId === 'string' && u.conversationId.length > 0 && u.conversationId.length <= 64) return { conversationId: u.conversationId };
-  if (Array.isArray(u.ids) && u.ids.length <= INBOX_READ_MAX && u.ids.every((id) => typeof id === 'string' && id.length > 0 && id.length <= 64)) {
+  if (typeof u.conversationId === 'string' && u.conversationId.length > 0 && u.conversationId.length <= 64)
+    return { conversationId: u.conversationId };
+  if (
+    Array.isArray(u.ids) &&
+    u.ids.length <= INBOX_READ_MAX &&
+    u.ids.every((id) => typeof id === 'string' && id.length > 0 && id.length <= 64)
+  ) {
     return { ids: u.ids as string[] };
   }
   bad(t().invalidField(u.ids !== undefined ? 'ids' : u.conversationId !== undefined ? 'conversationId' : 'all'));
@@ -695,4 +756,92 @@ export function validatePushSubscription(input: unknown): { subscription: PushSu
     return p[name] as boolean;
   };
   return { subscription: { endpoint, keys: { p256dh, auth } }, prefs: { done: flag('done'), needs: flag('needs'), sound: flag('sound') } };
+}
+
+// --- Mail accounts and calendars (the mail and calendar tools) ------------------------------------
+
+/** An account's id: a short slug the UI makes. */
+export function validConnectorId(input: string): string {
+  if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(input)) bad(t().invalidField('id'));
+  return input;
+}
+
+function connectorName(v: unknown): string {
+  const name = typeof v === 'string' ? v.trim() : '';
+  if (!name || name.length > CONNECTOR_LIMITS.name || /[\r\n]/.test(name)) bad(t().invalidField('name'));
+  return name;
+}
+
+function connectorPassword(v: unknown): string | undefined {
+  if (v === undefined || v === null || v === '') return undefined;
+  if (typeof v !== 'string' || v.length > 1000 || /[\r\n\0]/.test(v)) bad(t().invalidField('password'));
+  return v;
+}
+
+function connectorUser(v: unknown): string {
+  const user = typeof v === 'string' ? v.trim() : '';
+  if (!user || user.length > 320 || /[\r\n\0]/.test(user)) bad(t().invalidField('username'));
+  return user;
+}
+
+/**
+ * A mail server: a host name or address, a port, TLS or STARTTLS (plain only to this computer: a
+ * local bridge), and never one of Harness Relay's own ports on this computer.
+ */
+function mailServer(input: unknown, field: string, own: readonly string[]): MailServer {
+  const b = (input ?? {}) as Record<string, unknown>;
+  const host = typeof b.host === 'string' ? b.host.trim().replace(/^\[|\]$/g, '') : '';
+  if (!/^[A-Za-z0-9.-]{1,253}$/.test(host) && !/^[0-9A-Fa-f:]{2,39}$/.test(host)) bad(t().connectorBadHost(field));
+  const port = Number(b.port);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) bad(t().connectorBadPort(field));
+  const security = b.security === 'starttls' ? 'starttls' : b.security === 'none' ? 'none' : 'tls';
+  if (security === 'none' && !isLoopbackHost(host)) bad(t().connectorPlainRemote(field));
+  if (isLocalHost(host, own) && relayPorts().includes(port)) bad(t().connectorRelayPort(field));
+  return { host, port, security };
+}
+
+export function validateMailAccount(input: unknown, own: readonly string[] = localAddresses()): MailAccountUpdate {
+  const b = (input ?? {}) as Record<string, unknown>;
+  const address = typeof b.address === 'string' ? validAddress(b.address) : undefined;
+  if (!address) bad(t().connectorBadAddress('address'));
+  const password = connectorPassword(b.password);
+  return {
+    name: connectorName(b.name),
+    address,
+    username: connectorUser(b.username),
+    imap: mailServer(b.imap, 'IMAP', own),
+    smtp: mailServer(b.smtp, 'SMTP', own),
+    ...(password !== undefined ? { password } : {}),
+  };
+}
+
+export function validateCalendarAccount(input: unknown, own: readonly string[] = localAddresses()): CalendarAccountUpdate {
+  const b = (input ?? {}) as Record<string, unknown>;
+  let url: URL;
+  try {
+    url = new URL(String(b.url ?? '').trim());
+  } catch {
+    bad(t().connectorBadUrl);
+  }
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  if (
+    url.username ||
+    url.password ||
+    url.hash ||
+    !['https:', 'http:'].includes(url.protocol) ||
+    (url.protocol === 'http:' && !isLoopbackHost(host))
+  )
+    bad(t().connectorBadUrl);
+  const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80));
+  if (isLocalHost(host, own) && relayPorts().includes(port)) bad(t().connectorRelayPort('URL'));
+  const address = typeof b.address === 'string' && b.address.trim() ? validAddress(b.address) : '';
+  if (address === undefined) bad(t().connectorBadAddress('address'));
+  const password = connectorPassword(b.password);
+  return {
+    name: connectorName(b.name),
+    url: url.href,
+    username: connectorUser(b.username),
+    ...(address ? { address } : {}),
+    ...(password !== undefined ? { password } : {}),
+  };
 }

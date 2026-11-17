@@ -63,7 +63,12 @@ function parse(argv: string[]): Options {
     else if (a === '--no-build') o.build = false;
     else if (a === '--dry') o.dry = true;
     else if (a === '--help' || a === '-h') {
-      console.log(readFileSync(new URL(import.meta.url), 'utf8').split('*/')[0].replace(/^\/\*\*\n?/, '').replace(/^ \* ?/gm, ''));
+      console.log(
+        readFileSync(new URL(import.meta.url), 'utf8')
+          .split('*/')[0]
+          .replace(/^\/\*\*\n?/, '')
+          .replace(/^ \* ?/gm, ''),
+      );
       process.exit(0);
     } else throw new Error(`Unknown argument: ${a} (try --help)`);
   }
@@ -82,7 +87,10 @@ function requireTools(steps: Step[]): void {
   if (missing.length) throw new Error(`Missing ${missing.join(', ')}: install FFmpeg and libwebp (macOS: brew install ffmpeg webp).`);
 }
 
-const logger = (lang: DemoLang) => (...a: unknown[]) => console.log(new Date().toTimeString().slice(0, 8), `[${lang}]`, ...a);
+const logger =
+  (lang: DemoLang) =>
+  (...a: unknown[]) =>
+    console.log(new Date().toTimeString().slice(0, 8), `[${lang}]`, ...a);
 
 async function recordOne(o: Options, lang: DemoLang, port: number): Promise<void> {
   const log = logger(lang);
@@ -114,7 +122,9 @@ async function main(): Promise<void> {
     } else if (!existsSync(join(ROOT, 'dist/web/index.html'))) throw new Error('The UI is not built: drop --no-build.');
     // Both languages at once, each with its own server.
     const results = await Promise.allSettled(o.langs.map((lang, i) => recordOne(o, lang, o.port + i)));
-    const failed = results.flatMap((r, i) => (r.status === 'rejected' ? [`${o.langs[i]}: ${r.reason instanceof Error ? r.reason.stack : r.reason}`] : []));
+    const failed = results.flatMap((r, i) =>
+      r.status === 'rejected' ? [`${o.langs[i]}: ${r.reason instanceof Error ? r.reason.stack : r.reason}`] : [],
+    );
     if (failed.length) throw new Error(`Recording failed\n${failed.join('\n')}`);
   }
   if (o.dry) return;

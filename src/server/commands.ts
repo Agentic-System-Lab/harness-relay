@@ -53,7 +53,14 @@ interface Scanned {
  * collected in `bodies`). With `inSubst`, scanning stops at the `)` closing the substitution; returns
  * the index reached.
  */
-function scan(line: string, start: number, inSubst: boolean, parts: string[], depth = 0, notes: Scanned = { bodies: [], piped: false }): number {
+function scan(
+  line: string,
+  start: number,
+  inSubst: boolean,
+  parts: string[],
+  depth = 0,
+  notes: Scanned = { bodies: [], piped: false },
+): number {
   if (depth > MAX_DEPTH) throw new Error('command nesting too deep');
   let cur = '';
   let quote: '"' | "'" | null = null;
@@ -72,7 +79,8 @@ function scan(line: string, start: number, inSubst: boolean, parts: string[], de
       cur += ch;
       if (ch === "'") quote = null;
     } else if (ch === '\\' && i + 1 < line.length) {
-      if (line[i + 1] === '\n') i++; // line continuation
+      if (line[i + 1] === '\n')
+        i++; // line continuation
       else cur += ch + line[++i];
     } else if (quote === null && ch === '#' && (i === 0 || /[\s;|&(){}]/.test(line[i - 1]!))) {
       // A comment runs to the end of the line (quotes, `<<` and `\` in it mean nothing).
@@ -282,8 +290,24 @@ const isAssignment = (w: string) => /^[A-Za-z_]\w*=/.test(w);
  * as a command, which only makes the checks stricter.
  */
 const RESERVED = new Set([
-  '!', 'if', 'then', 'elif', 'else', 'fi', 'do', 'done', 'while', 'until', 'esac', 'in', 'coproc', 'always', 'end',
-  'noglob', 'nocorrect', '-',
+  '!',
+  'if',
+  'then',
+  'elif',
+  'else',
+  'fi',
+  'do',
+  'done',
+  'while',
+  'until',
+  'esac',
+  'in',
+  'coproc',
+  'always',
+  'end',
+  'noglob',
+  'nocorrect',
+  '-',
 ]);
 
 /**
@@ -345,7 +369,12 @@ interface Nested {
  * nothing behind (`sudo -s`) is itself the program; `env -S '…'` runs its string as a command line.
  * With `syntax` (the second reading), what the shell reads itself in front of it is skipped too.
  */
-function command(segmentWords: string[], text: string, nested: Nested[], syntax: boolean): (SimpleCommand & { xargs: boolean }) | undefined {
+function command(
+  segmentWords: string[],
+  text: string,
+  nested: Nested[],
+  syntax: boolean,
+): (SimpleCommand & { xargs: boolean }) | undefined {
   const w = [...segmentWords];
   const privileged: string[] = [];
   const assignments: string[] = [];
@@ -411,7 +440,8 @@ const LAUNCH: { programs: RegExp; code: RegExp; input?: RegExp; valued: RegExp; 
  * xargs running a shell or interpreter, read from the raw text: `xargs -I{} sh -c '…'` is split at
  * the braces, so the command it runs is not in its words.
  */
-const XARGS_RUNS_CODE = /(^|[^\w-])xargs\s[^|;&\n]*?(^|[\s/'"])(sh|bash|zsh|dash|ksh|fish|python[\d.]*|node|nodejs|perl|ruby)(?=$|[\s'";|&)])/m;
+const XARGS_RUNS_CODE =
+  /(^|[^\w-])xargs\s[^|;&\n]*?(^|[\s/'"])(sh|bash|zsh|dash|ksh|fish|python[\d.]*|node|nodejs|perl|ruby)(?=$|[\s'";|&)])/m;
 
 /** Whether one of them is a program that runs what it reads on standard input (`… | sh`, `| python3 -`). */
 function runsInput(args: string[]): boolean {
@@ -433,7 +463,8 @@ function runsInput(args: string[]): boolean {
  * Settings that change what a command runs or how: the loader, the search path, shell and
  * interpreter start-up, git's and npm's configuration. A line that sets one is keyed by its text.
  */
-const RUNS_ENV = /^(LD_\w+|DYLD_\w+|PATH|BASH_ENV|ENV|ZDOTDIR|PYTHONPATH|PYTHONSTARTUP|PYTHONHOME|NODE_OPTIONS|NODE_PATH|PERL5OPT|PERL5LIB|PERLLIB|RUBYOPT|RUBYLIB|GIT_\w+|npm_config_\w+|PROMPT_COMMAND)\+?=/i;
+const RUNS_ENV =
+  /^(LD_\w+|DYLD_\w+|PATH|BASH_ENV|ENV|ZDOTDIR|PYTHONPATH|PYTHONSTARTUP|PYTHONHOME|NODE_OPTIONS|NODE_PATH|PERL5OPT|PERL5LIB|PERLLIB|RUBYOPT|RUBYLIB|GIT_\w+|npm_config_\w+|PROMPT_COMMAND)\+?=/i;
 
 /**
  * Every simple command in `line` (a part of `top`, the whole command line, at `depth` > 0). The first

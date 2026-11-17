@@ -1,0 +1,17 @@
+# What Prettier leaves alone (it also skips what .gitignore lists, and node_modules).
+# The desktop app, a package of its own, has its own list: desktop/.prettierignore.
+
+# Docs: written by hand, their tables and line breaks as they are.
+*.md
+
+# Written by npm, or by a program of ours: never by hand.
+package-lock.json
+src/web/public/manifest.webmanifest
+src/web/public/icons/
+
+# Recorded from the real CLIs: replayed byte for byte.
+test/fixtures/
+
+# The landing page's HTML: its whitespace and JSON-LD as written (site/DESIGN-GUIDELINES.md), and
+# the search engines' verification files, which must stay byte for byte.
+site/**/*.html

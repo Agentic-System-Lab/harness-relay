@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { CliInstallView, ProviderStatus } from '../src/shared/types';
-import { FOLLOW_MS, FOLLOW_TRIES, anyInstalling, cliInstallShown, followInstalls, installsEnded, logTail, statusBeforeInstall, withView } from '../src/web/clis';
+import {
+  FOLLOW_MS,
+  FOLLOW_TRIES,
+  anyInstalling,
+  cliInstallShown,
+  followInstalls,
+  installsEnded,
+  logTail,
+  statusBeforeInstall,
+  withView,
+} from '../src/web/clis';
 
 const status = (o: Partial<ProviderStatus> = {}): ProviderStatus => ({
   provider: 'codex',
@@ -47,8 +57,14 @@ describe('cliInstallShown', () => {
   });
 
   it('offers to remove what Harness Relay installed, and says when another program is in use', () => {
-    expect(cliInstallShown(status({ installed: true }), view({ installed: ours, job: job('success') }))).toEqual({ kind: 'ours', inUse: true });
-    expect(cliInstallShown(status({ installed: true }), view({ installed: { ...ours, inUse: false } }))).toEqual({ kind: 'ours', inUse: false });
+    expect(cliInstallShown(status({ installed: true }), view({ installed: ours, job: job('success') }))).toEqual({
+      kind: 'ours',
+      inUse: true,
+    });
+    expect(cliInstallShown(status({ installed: true }), view({ installed: { ...ours, inUse: false } }))).toEqual({
+      kind: 'ours',
+      inUse: false,
+    });
     // Also when the path set instead is not found: it can still be removed.
     expect(cliInstallShown(status(), view({ installed: { ...ours, inUse: false } }))).toEqual({ kind: 'ours', inUse: false });
   });
@@ -72,7 +88,11 @@ describe('following the installs', () => {
     const before = [view({ job: job('running') }), view({ provider: 'pi', job: job('running') }), view({ provider: 'goose' })];
     expect(anyInstalling(before)).toBe(true);
     expect(anyInstalling([view(), view({ provider: 'pi', job: job('failed') })])).toBe(false);
-    const after = [view({ job: job('success') }), view({ provider: 'pi', job: job('running') }), view({ provider: 'goose', job: job('failed') })];
+    const after = [
+      view({ job: job('success') }),
+      view({ provider: 'pi', job: job('running') }),
+      view({ provider: 'goose', job: job('failed') }),
+    ];
     // Goose's install was never seen running here (another browser started it, say): not named.
     expect(installsEnded(before, after)).toEqual(['codex']);
     expect(installsEnded(after, after)).toEqual([]);
@@ -110,10 +130,20 @@ describe('following the installs', () => {
 
     // Nothing under way: nothing asked.
     let asked = 0;
-    await followInstalls([view()], async () => (asked++, []), () => {}, wait);
+    await followInstalls(
+      [view()],
+      async () => (asked++, []),
+      () => {},
+      wait,
+    );
     expect(asked).toBe(0);
     // Never for longer than an install may take.
-    await followInstalls([view({ job: job('running') })], async () => (asked++, [view({ job: job('running') })]), () => {}, async () => {});
+    await followInstalls(
+      [view({ job: job('running') })],
+      async () => (asked++, [view({ job: job('running') })]),
+      () => {},
+      async () => {},
+    );
     expect(asked).toBe(FOLLOW_TRIES);
     expect(FOLLOW_MS * FOLLOW_TRIES).toBeGreaterThan(22 * 60_000);
   });

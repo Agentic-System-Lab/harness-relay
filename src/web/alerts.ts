@@ -15,8 +15,16 @@
  * the window is open. The DOM-free parts are tested in test/alerts-web.test.ts.
  */
 import { useSyncExternalStore } from 'react';
-import { AlertTracker, alertDetail, alertTag, alertUrl, wanted } from '../shared/notify';
-import { PUSH_GONE, PUSH_TAKEN, type AlertKind, type AlertPrefs, type Conversation, type ConversationSummary, type PushSubscriptionJson } from '../shared/types';
+import { AlertTracker, NEEDS_KINDS, alertDetail, alertTag, alertUrl, wanted } from '../shared/notify';
+import {
+  PUSH_GONE,
+  PUSH_TAKEN,
+  type AlertKind,
+  type AlertPrefs,
+  type Conversation,
+  type ConversationSummary,
+  type PushSubscriptionJson,
+} from '../shared/types';
 import type { Messages } from './i18n';
 import { isAppWindow } from './update';
 
@@ -171,7 +179,8 @@ export function claimAlert(storage: PrefStorage | null | undefined, key: string,
  * An alert's key among the tabs: the same news in every tab, whenever each polled (the conversation,
  * the kind, and the latest reply it is about).
  */
-export const alertKey = (conv: Pick<ConversationSummary, 'id' | 'lastReplyId'>, kind: AlertKind) => `${conv.id}:${kind}:${conv.lastReplyId ?? ''}`;
+export const alertKey = (conv: Pick<ConversationSummary, 'id' | 'lastReplyId'>, kind: AlertKind) =>
+  `${conv.id}:${kind}:${conv.lastReplyId ?? ''}`;
 
 /** A notification's text: the conversation's title, then what happened and what the agent said. */
 export function alertText(
@@ -195,7 +204,12 @@ export function sameKey(key: ArrayBuffer | null | undefined, publicKey: string):
 
 /** A base64url key as the bytes `pushManager.subscribe` takes. */
 export function keyBytes(publicKey: string): Uint8Array<ArrayBuffer> {
-  const raw = atob(publicKey.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(publicKey.length / 4) * 4, '='));
+  const raw = atob(
+    publicKey
+      .replace(/-/g, '+')
+      .replace(/_/g, '/')
+      .padEnd(Math.ceil(publicKey.length / 4) * 4, '='),
+  );
   const out = new Uint8Array(new ArrayBuffer(raw.length));
   for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
   return out;
@@ -463,7 +477,7 @@ export function playChime(kind: AlertKind | 'test'): void {
   // Not allowed yet (nothing done on the page since it loaded): no sound, rather than every sound
   // since then at once on the first click.
   if (!ctx || ctx.state !== 'running') return;
-  const notes = CHIMES[kind === 'approval' || kind === 'confirm' || kind === 'answer' ? 'needs' : 'done'];
+  const notes = CHIMES[kind !== 'test' && NEEDS_KINDS.includes(kind) ? 'needs' : 'done'];
   const start = ctx.currentTime + 0.02;
   for (const [freq, at] of notes) {
     const osc = ctx.createOscillator();
@@ -606,6 +620,8 @@ export class PageAlerts {
   private async show(conv: ConversationSummary, kind: AlertKind): Promise<void> {
     const full = await this.deps.conversation(conv.id).catch(() => undefined);
     const { title, body } = alertText(conv, kind, full, this.deps.messages());
-    await this.env.show(title, body, alertTag(conv.id), alertUrl(conv.id)).catch((err: unknown) => console.warn('[alerts] could not show a notification:', err));
+    await this.env
+      .show(title, body, alertTag(conv.id), alertUrl(conv.id))
+      .catch((err: unknown) => console.warn('[alerts] could not show a notification:', err));
   }
 }

@@ -71,9 +71,17 @@ export function publish(dir: string, lang: DemoLang, log: (...a: unknown[]) => v
 
   writeFileSync(page, html);
   const published = uploadDate ? `published ${uploadDate}` : 'publication date kept';
-  log(`${spec.page}: ${chapters.length} chapters${missing.length ? ` (left out, no mark: ${missing.join(', ')})` : ''}; video ${isoDuration(timeline.length)}, ${published}`);
+  log(
+    `${spec.page}: ${chapters.length} chapters${missing.length ? ` (left out, no mark: ${missing.join(', ')})` : ''}; video ${isoDuration(timeline.length)}, ${published}`,
+  );
 
-  const review = reviewNotes(lang, timeline, conversation, chapters.map((c) => `- ${clock(c.t)} **${c.who}**${c.via ? ` (${c.via})` : ''}: ${c.say}`), at);
+  const review = reviewNotes(
+    lang,
+    timeline,
+    conversation,
+    chapters.map((c) => `- ${clock(c.t)} **${c.who}**${c.via ? ` (${c.via})` : ''}: ${c.say}`),
+    at,
+  );
   writeFileSync(join(dir, 'review.md'), review);
   log(`check the chapter texts against ${join(dir, 'review.md')}`);
 }
@@ -111,9 +119,13 @@ function reviewNotes(lang: DemoLang, timeline: Timeline, conversation: Conversat
     if (m.reason) out.push(`  - Reason: ${oneLine(String(m.reason), 600)}`);
   }
   const approvals = timeline.marks.filter((m) => m.name === 'approval');
-  for (const a of approvals) out.push(`- Approval at ${stamp(a.video)}: ${a.agent} (${label(a.provider)}) asked for \`${oneLine(String(a.detail ?? ''), 200)}\`, declined`);
+  for (const a of approvals)
+    out.push(
+      `- Approval at ${stamp(a.video)}: ${a.agent} (${label(a.provider)}) asked for \`${oneLine(String(a.detail ?? ''), 200)}\`, declined`,
+    );
   if (!approvals.length) out.push('- No approval was asked for (the approval chapter is left out).');
-  for (const a of timeline.marks.filter((m) => m.name === 'asked-user')) out.push(`- An agent asked the user something at ${stamp(a.video)}; skipped`);
+  for (const a of timeline.marks.filter((m) => m.name === 'asked-user'))
+    out.push(`- An agent asked the user something at ${stamp(a.video)}; skipped`);
   out.push(`- Search: “${mark('search')?.term ?? '?'}”`, '', '## The replies', '');
   for (const m of conversation.messages) {
     if (m.author.kind !== 'agent') continue;

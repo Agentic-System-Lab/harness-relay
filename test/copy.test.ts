@@ -1,6 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, Conversation } from '../src/shared/types';
-import { closeFences, conversationMarkdown, copyText, mentionWarning, messageText, planChecksMentions, planHeadline, planWording, teamChangeText } from '../src/web/copy';
+import {
+  closeFences,
+  conversationMarkdown,
+  copyText,
+  mentionWarning,
+  messageText,
+  planChecksMentions,
+  planHeadline,
+  planWording,
+  teamChangeText,
+} from '../src/web/copy';
 import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
 
@@ -55,15 +65,21 @@ const conv: Conversation = {
 describe('a scheduled message that @mentions someone the team does not have', () => {
   it('says that name reaches nobody, and who answers then: the members it does @mention, or the whole team', () => {
     expect(mentionWarning('@Alice look', ['Alice'], en, 'form')).toBeUndefined();
-    expect(mentionWarning('@Zed look', ['Alice'], en, 'form')).toBe('@Zed in the message is not on this team, so it reaches nobody; with no member @mentioned, the whole team answers.');
-    expect(mentionWarning('@Alice and @Zed', ['Alice'], en, 'form')).toBe('@Zed in the message is not on this team, so it reaches nobody; only @Alice answers.');
+    expect(mentionWarning('@Zed look', ['Alice'], en, 'form')).toBe(
+      '@Zed in the message is not on this team, so it reaches nobody; with no member @mentioned, the whole team answers.',
+    );
+    expect(mentionWarning('@Alice and @Zed', ['Alice'], en, 'form')).toBe(
+      '@Zed in the message is not on this team, so it reaches nobody; only @Alice answers.',
+    );
     expect(mentionWarning('@Alice, @Bob, @Zed and @Yan', ['Alice', 'Bob'], en, 'team')).toBe(
-      '@Zed, @Yan in the scheduled message are not on this team, so they reach nobody; only @Alice, @Bob answer.',
+      "@Zed, @Yan in the automation's message are not on this team, so they reach nobody; only @Alice, @Bob answer.",
     );
     expect(mentionWarning('@dddd 看一下', ['Reviewer'], zhTW, 'card')).toBe(
-      '排程訊息裡的 @dddd 不在這個團隊裡，不會傳給任何人；訊息沒有 @ 任何成員，所以由整個團隊回答。可以按「調整團隊」為成員改名。',
+      '自動任務的訊息裡的 @dddd 不在這個團隊裡，不會傳給任何人；訊息沒有 @ 任何成員，所以由整個團隊回答。可以按「調整團隊」為成員改名。',
     );
-    expect(mentionWarning('@Reviewer 和 @dddd', ['Reviewer'], zhTW, 'form')).toBe('訊息裡的 @dddd 不在這個團隊裡，不會傳給任何人；只有 @Reviewer 會回答。');
+    expect(mentionWarning('@Reviewer 和 @dddd', ['Reviewer'], zhTW, 'form')).toBe(
+      '訊息裡的 @dddd 不在這個團隊裡，不會傳給任何人；只有 @Reviewer 會回答。',
+    );
   });
 
   it("checks a team design's members while it waits for confirmation, or when it was used at once and is the latest", () => {
@@ -84,7 +100,7 @@ describe('naming the team the lead agent chose', () => {
     expect(question.aborted).toBe(en.plan.aborted);
     const schedule = planWording({ status: 'planning', lead, forSchedule: true }, zhTW, 'Claude Code');
     expect(schedule).toEqual({
-      planning: '首席 agent（Claude Code）正在為這個排程組隊…',
+      planning: '首席 agent（Claude Code）正在為這個自動任務組隊…',
       confirmHint: zhTW.plan.confirmHintSchedule,
       aborted: zhTW.plan.abortedSchedule,
     });
@@ -107,7 +123,14 @@ describe('naming the team the lead agent chose', () => {
     const declined: Conversation = {
       ...conv,
       messages: [
-        { id: 'p', author: { kind: 'system' }, createdAt: 0, status: 'done', parts: [], plan: { status: 'ready', lead, source: 'custom', name: 'Solo', declinedAt: 1 } },
+        {
+          id: 'p',
+          author: { kind: 'system' },
+          createdAt: 0,
+          status: 'done',
+          parts: [],
+          plan: { status: 'ready', lead, source: 'custom', name: 'Solo', declinedAt: 1 },
+        },
       ],
     };
     expect(conversationMarkdown(declined, en)).toContain('*Team design: Custom team "Solo" (Not used; the current team answered)*');
@@ -172,7 +195,7 @@ describe("the lead agent's review in a copied conversation", () => {
 });
 
 describe('copying a conversation', () => {
-  it('joins a message\'s text blocks and leaves tool activity out', () => {
+  it("joins a message's text blocks and leaves tool activity out", () => {
     expect(messageText(conv.messages[1]!)).toBe('先查資料。\n\n## 重點\n\n- 一\n- 二');
   });
 
@@ -275,7 +298,7 @@ describe('copying code and errors', () => {
     expect(closeFences('    ```\n    code')).toBe('    ```\n    code');
   });
 
-  it('keeps one text block\'s open fence from running into the next', () => {
+  it("keeps one text block's open fence from running into the next", () => {
     const m = agentMsg('x', {
       parts: [
         { type: 'text', text: '```\npartial' },
@@ -293,7 +316,10 @@ describe('copying code and errors', () => {
 
   it('quotes every line of a multi-line error', () => {
     const md = conversationMarkdown(
-      { ...conv, messages: [agentMsg('x', { status: 'error', error: 'exit 1\nstderr: boom\n', parts: [{ type: 'text', text: 'trying' }] })] },
+      {
+        ...conv,
+        messages: [agentMsg('x', { status: 'error', error: 'exit 1\nstderr: boom\n', parts: [{ type: 'text', text: 'trying' }] })],
+      },
       en,
     );
     expect(md).toContain('trying\n\n> ⚠ exit 1\n> stderr: boom\n');

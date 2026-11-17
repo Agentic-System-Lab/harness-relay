@@ -197,7 +197,9 @@ function replyBlock(p: Exclude<MessagePart, { type: 'tool' }>): Record<string, u
     case 'thinking':
       return p.text.trim() ? { type: 'thinking', thinking: p.text.trim() } : undefined;
     case 'plan':
-      return p.entries.length ? { type: 'text', text: ['Plan:', ...p.entries.map((e) => `${PLAN_MARK[e.status]} ${e.text}`)].join('\n') } : undefined;
+      return p.entries.length
+        ? { type: 'text', text: ['Plan:', ...p.entries.map((e) => `${PLAN_MARK[e.status]} ${e.text}`)].join('\n') }
+        : undefined;
     case 'approval': {
       const what = [p.kind === 'other' ? (p.tool ?? 'a tool') : '', p.detail ? `\`${p.detail}\`` : ''].filter(Boolean).join(' ');
       const answer = `${APPROVAL_ANSWER[p.status]}${p.always ? ' for the rest of the conversation' : ''}${p.note ? `: "${p.note}"` : ''}`;
@@ -205,6 +207,13 @@ function replyBlock(p: Exclude<MessagePart, { type: 'tool' }>): Record<string, u
     }
     case 'attachment':
       return { type: 'text', text: `[${p.name}]` };
+    case 'progress':
+      return { type: 'text', text: `[Progress on the tracked goal: ${p.status}${p.text ? ` — ${p.text}` : ''}]` };
+    case 'outbox':
+      return {
+        type: 'text',
+        text: `[Put in the outbox for the user to send: ${p.title} — ${p.status}${p.result ? ` (${p.result})` : ''}]`,
+      };
   }
 }
 
@@ -332,12 +341,19 @@ export function memberTranscript(conv: Conversation, agentId: string): string {
       ...(total !== undefined ? { totalCostUSD: dollars(total) } : {}),
       hasUnknownModelCost: unknownCost,
       modelUsage: Object.fromEntries(
-        [...usage].map(([model, { costUSD, ...tokens }]) => [model, { ...tokens, ...(costUSD !== undefined ? { costUSD: dollars(costUSD) } : {}) }]),
+        [...usage].map(([model, { costUSD, ...tokens }]) => [
+          model,
+          { ...tokens, ...(costUSD !== undefined ? { costUSD: dollars(costUSD) } : {}) },
+        ]),
       ),
     });
   }
   const title = conv.title.trim();
-  records.push({ type: 'custom-title', customTitle: `${last.name} · ${PROVIDER_LABEL[last.provider]}${title ? ` — ${title}` : ''}`, sessionId });
+  records.push({
+    type: 'custom-title',
+    customTitle: `${last.name} · ${PROVIDER_LABEL[last.provider]}${title ? ` — ${title}` : ''}`,
+    sessionId,
+  });
   return toJsonl(records);
 }
 
@@ -566,7 +582,13 @@ export class AgentsViewSync implements TraceSink {
     }
     try {
       // Never follow a redirect: the conversation must not leave this computer.
-      return await this.fetchImpl(`${base}${path}`, { method, headers, body, redirect: 'error', signal: AbortSignal.timeout(this.timeoutMs) });
+      return await this.fetchImpl(`${base}${path}`, {
+        method,
+        headers,
+        body,
+        redirect: 'error',
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
     } catch (err) {
       const cause = (err as { cause?: { code?: string; message?: string } }).cause;
       throw new Error(`${base}: ${cause?.code ?? cause?.message ?? (err as Error).message}`);

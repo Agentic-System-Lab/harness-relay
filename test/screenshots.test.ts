@@ -7,7 +7,16 @@ import { GH_MISSING, REPORT_SCREENSHOT_LIMITS } from '../src/shared/types';
 import { HttpError } from '../src/server/errors';
 import { t } from '../src/server/i18n';
 import { CommandNotFoundError, type SpawnOptions, type SpawnResult } from '../src/server/process';
-import { Kept, SCREENSHOTS_DESCRIPTION, exifOrientation, imageKind, parseScreenshots, tiffOrientation, uploadScreenshots, withoutMetadata } from '../src/server/screenshots';
+import {
+  Kept,
+  SCREENSHOTS_DESCRIPTION,
+  exifOrientation,
+  imageKind,
+  parseScreenshots,
+  tiffOrientation,
+  uploadScreenshots,
+  withoutMetadata,
+} from '../src/server/screenshots';
 import {
   CREATED_JQ,
   FILES_PLACEHOLDER,
@@ -45,7 +54,8 @@ const IHDR = pngChunk('IHDR', Buffer.alloc(13));
 const IDAT = pngChunk('IDAT', Buffer.from('pixels'));
 const IEND = pngChunk('IEND', Buffer.alloc(0));
 const PNG = Buffer.concat([PNG_SIG, IHDR, IDAT, IEND]);
-const segment = (marker: number, payload: Buffer) => Buffer.concat([Buffer.from([0xff, marker]), Buffer.from([(payload.length + 2) >> 8, (payload.length + 2) & 0xff]), payload]);
+const segment = (marker: number, payload: Buffer) =>
+  Buffer.concat([Buffer.from([0xff, marker]), Buffer.from([(payload.length + 2) >> 8, (payload.length + 2) & 0xff]), payload]);
 const SOI = Buffer.from([0xff, 0xd8]);
 const EOI = Buffer.from([0xff, 0xd9]);
 /** A JFIF header: version 1.2, no units, density 1×1, no thumbnail (14 bytes). */
@@ -117,7 +127,7 @@ describe("a screenshot's metadata", () => {
     return Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), tiff]);
   };
 
-  it("keeps of a JPEG only what showing it needs, its scans as they are, up to its end", () => {
+  it('keeps of a JPEG only what showing it needs, its scans as they are, up to its end', () => {
     const icc = segment(0xe2, Buffer.from('ICC_PROFILE\0colors'));
     const adobe = segment(0xee, Buffer.from('Adobe\0\x64'));
     const jpeg = Buffer.concat([
@@ -146,12 +156,17 @@ describe("a screenshot's metadata", () => {
 
   it("keeps a JPEG's JFIF header alone, without the thumbnail it may hold (it may show the image before it was cropped)", () => {
     const thumb = Buffer.concat([Buffer.from('SECRETTHUMB!'), Buffer.alloc(0)]); // 2×2 RGB
-    const withThumb = segment(0xe0, Buffer.concat([Buffer.from([0x4a, 0x46, 0x49, 0x46, 0, 1, 2, 0, 0, 1, 0, 1, 2, 2]), thumb, Buffer.from('and more')]));
+    const withThumb = segment(
+      0xe0,
+      Buffer.concat([Buffer.from([0x4a, 0x46, 0x49, 0x46, 0, 1, 2, 0, 0, 1, 0, 1, 2, 2]), thumb, Buffer.from('and more')]),
+    );
     const clean = withoutMetadata(Buffer.concat([SOI, withThumb, DQT, SOF, DHT, SCAN, EOI]), 'jpg');
     expect(clean).toEqual(Buffer.concat([SOI, JFIF, DQT, SOF, DHT, SCAN, EOI]));
     expect(clean.toString('latin1')).not.toContain('SECRET');
     // A JFIF segment too short for its header is not read through.
-    expect(() => withoutMetadata(Buffer.concat([SOI, segment(0xe0, Buffer.from('JFIF\0\x01')), DQT, SOF, DHT, SCAN, EOI]), 'jpg')).toThrow();
+    expect(() =>
+      withoutMetadata(Buffer.concat([SOI, segment(0xe0, Buffer.from('JFIF\0\x01')), DQT, SOF, DHT, SCAN, EOI]), 'jpg'),
+    ).toThrow();
   });
 
   it("keeps a progressive JPEG's scans and the tables between them", () => {
@@ -170,7 +185,15 @@ describe("a screenshot's metadata", () => {
       expect(exifOrientation(app1.subarray(4))).toBe(6);
     }
     // Many EXIF segments (a crafted file): one minimal EXIF, the first's orientation.
-    const many = Buffer.concat([SOI, ...Array.from({ length: 1000 }, (_, i) => segment(0xe1, exifWith(i % 2 ? 3 : 6))), DQT, SOF, DHT, SCAN, EOI]);
+    const many = Buffer.concat([
+      SOI,
+      ...Array.from({ length: 1000 }, (_, i) => segment(0xe1, exifWith(i % 2 ? 3 : 6))),
+      DQT,
+      SOF,
+      DHT,
+      SCAN,
+      EOI,
+    ]);
     const once = withoutMetadata(many, 'jpg');
     expect(once.length).toBeLessThan(200);
     expect(exifOrientation(once.subarray(6, 6 + once.readUInt16BE(4) - 2))).toBe(6);
@@ -184,7 +207,7 @@ describe("a screenshot's metadata", () => {
     expect(withoutMetadata(jpeg, 'jpg')).toEqual(JPEG);
   });
 
-  it("keeps of a PNG only the chunks showing it needs, up to its IEND", () => {
+  it('keeps of a PNG only the chunks showing it needs, up to its IEND', () => {
     const srgb = pngChunk('sRGB', Buffer.from([0]));
     const png = Buffer.concat([
       PNG_SIG,
@@ -203,11 +226,20 @@ describe("a screenshot's metadata", () => {
     expect(withoutMetadata(png, 'png')).toEqual(Buffer.concat([PNG_SIG, IHDR, srgb, IDAT, IEND]));
   });
 
-  it("keeps of a WebP only the chunks showing it needs, within its RIFF size, its flags and size set again", () => {
+  it('keeps of a WebP only the chunks showing it needs, within its RIFF size, its flags and size set again', () => {
     const vp8x = (flags: number) => webpChunk('VP8X', Buffer.from([flags, 0, 0, 0, 1, 0, 0, 1, 0, 0]));
     const icc = webpChunk('ICCP', Buffer.from('colors'));
     const webp = Buffer.concat([
-      riff(Buffer.concat([vp8x(0x2c), icc, VP8, webpChunk('EXIF', gps), webpChunk('XMP ', Buffer.from('<x:xmpmeta/>')), webpChunk('UNKN', Buffer.from('?'))])),
+      riff(
+        Buffer.concat([
+          vp8x(0x2c),
+          icc,
+          VP8,
+          webpChunk('EXIF', gps),
+          webpChunk('XMP ', Buffer.from('<x:xmpmeta/>')),
+          webpChunk('UNKN', Buffer.from('?')),
+        ]),
+      ),
       Buffer.from('GPS'), // past the RIFF size
     ]);
     expect(withoutMetadata(webp, 'webp')).toEqual(riff(Buffer.concat([vp8x(0x20), icc, VP8])));
@@ -218,13 +250,15 @@ describe("a screenshot's metadata", () => {
     const frame = (...inner: Buffer[]) => webpChunk('ANMF', Buffer.concat([header, ...inner]));
     const anim = webpChunk('ANIM', Buffer.from([0, 0, 0, 0, 0, 0]));
     const vp8x = webpChunk('VP8X', Buffer.from([0x02, 0, 0, 0, 1, 0, 0, 1, 0, 0]));
-    const webp = riff(Buffer.concat([vp8x, anim, frame(VP8, webpChunk('UNKN', Buffer.from('GPS 25.03'))), frame(webpChunk('ALPH', Buffer.from('a')), VP8)]));
+    const webp = riff(
+      Buffer.concat([vp8x, anim, frame(VP8, webpChunk('UNKN', Buffer.from('GPS 25.03'))), frame(webpChunk('ALPH', Buffer.from('a')), VP8)]),
+    );
     const clean = withoutMetadata(webp, 'webp');
     expect(clean).toEqual(riff(Buffer.concat([vp8x, anim, frame(VP8), frame(webpChunk('ALPH', Buffer.from('a')), VP8)])));
     expect(clean.toString('latin1')).not.toContain('GPS');
   });
 
-  it("refuses what it cannot read through before its image begins, rather than letting its metadata go along", () => {
+  it('refuses what it cannot read through before its image begins, rather than letting its metadata go along', () => {
     expect(() => withoutMetadata(Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0xff, 0xff]), 'jpg')).toThrow();
     expect(() => withoutMetadata(Buffer.concat([SOI, JFIF, DQT]), 'jpg')).toThrow(); // no scan
     expect(() => withoutMetadata(Buffer.concat([PNG_SIG, IHDR, pngChunk('eXIf', gps)]), 'png')).toThrow(); // no image data
@@ -236,7 +270,9 @@ describe("a screenshot's metadata", () => {
     const cutJpeg = Buffer.concat([SOI, segment(0xe1, gps), DQT, SOF, DHT, SCAN]);
     expect(withoutMetadata(cutJpeg, 'jpg')).toEqual(Buffer.concat([SOI, DQT, SOF, DHT, SCAN, EOI]));
     // Cut in a segment after the scan: that segment goes too.
-    expect(withoutMetadata(Buffer.concat([SOI, DQT, SOF, DHT, SCAN, DHT.subarray(0, 4)]), 'jpg')).toEqual(Buffer.concat([SOI, DQT, SOF, DHT, SCAN, EOI]));
+    expect(withoutMetadata(Buffer.concat([SOI, DQT, SOF, DHT, SCAN, DHT.subarray(0, 4)]), 'jpg')).toEqual(
+      Buffer.concat([SOI, DQT, SOF, DHT, SCAN, EOI]),
+    );
     // A PNG cut in its image data: its whole chunks, then a real IEND (its CRC as PNG has it).
     const realIend = Buffer.from([0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]);
     const cutPng = Buffer.concat([PNG_SIG, IHDR, IDAT, pngChunk('tEXt', Buffer.from('GPS')), IDAT.subarray(0, 9)]);
@@ -254,7 +290,10 @@ describe("a screenshot's metadata", () => {
     expect(tiffOrientation(clean.subarray(at + 8, at + 8 + length))).toBe(8);
     expect(clean.readUInt32BE(at + 8 + length)).toBe(crc32(clean.subarray(at + 4, at + 8 + length)) >>> 0);
     // Many eXIf chunks: one, the first's orientation.
-    const many = withoutMetadata(Buffer.concat([PNG_SIG, IHDR, ...Array.from({ length: 100 }, () => pngChunk('eXIf', exif)), IDAT, IEND]), 'png');
+    const many = withoutMetadata(
+      Buffer.concat([PNG_SIG, IHDR, ...Array.from({ length: 100 }, () => pngChunk('eXIf', exif)), IDAT, IEND]),
+      'png',
+    );
     expect(many.toString('latin1').split('eXIf').length - 1).toBe(1);
     // Upright already, or no orientation: no EXIF at all.
     expect(withoutMetadata(Buffer.concat([PNG_SIG, IHDR, pngChunk('eXIf', exifWith(1).subarray(6)), IDAT, IEND]), 'png')).toEqual(PNG);
@@ -292,7 +331,6 @@ describe("a screenshot's metadata", () => {
     expect(tiffOrientation(Buffer.from('XX'))).toBeUndefined();
     expect(tiffOrientation(Buffer.alloc(0))).toBeUndefined();
   });
-
 });
 
 describe('the screenshots a request sends', () => {
@@ -329,7 +367,10 @@ describe('the screenshots a request sends', () => {
   });
 
   it('must each be an image, in base64 as a browser writes it, saying which one is not', () => {
-    expect(refused([{ data: b64(PNG) }, { data: b64(Buffer.from('<svg/>')) }])).toEqual({ status: 400, message: t().reportShotNotImage(2) });
+    expect(refused([{ data: b64(PNG) }, { data: b64(Buffer.from('<svg/>')) }])).toEqual({
+      status: 400,
+      message: t().reportShotNotImage(2),
+    });
     // Only the usual kinds for screenshots and photos: not a GIF.
     expect(refused([{ data: b64(GIF) }])).toEqual({ status: 400, message: t().reportShotNotImage(1) });
     expect(refused([{ data: 'not base64!' }])).toEqual({ status: 400, message: t().reportShotNotImage(1) });
@@ -342,7 +383,10 @@ describe('the screenshots a request sends', () => {
     const big = Buffer.concat([PNG, Buffer.alloc(REPORT_SCREENSHOT_LIMITS.maxBytes)]);
     expect(refused([{ data: b64(big) }])).toEqual({ status: 413, message: t().reportShotTooLarge(1, mb) });
     // Measured before it is matched as base64.
-    expect(refused([{ data: '!'.repeat(REPORT_SCREENSHOT_LIMITS.maxBytes * 2) }])).toEqual({ status: 413, message: t().reportShotTooLarge(1, mb) });
+    expect(refused([{ data: '!'.repeat(REPORT_SCREENSHOT_LIMITS.maxBytes * 2) }])).toEqual({
+      status: 413,
+      message: t().reportShotTooLarge(1, mb),
+    });
     const fits = Buffer.concat([PNG, Buffer.alloc(REPORT_SCREENSHOT_LIMITS.maxBytes - PNG.length)]);
     expect(parseScreenshots([{ data: b64(fits) }])).toHaveLength(1);
   });
@@ -371,7 +415,12 @@ describe('uploading the screenshots', () => {
   };
   const oid = (n: number) => n.toString(16).padStart(40, '0');
   const fakeGit = (o: SpawnOptions) =>
-    result({ stdout: { 'symbolic-ref': 'refs/heads/main\n', 'hash-object': `${oid(1)}\n`, mktree: `${oid(2)}\n`, 'commit-tree': `${oid(3)}\n` }[gitCommand(o.args)] ?? '' });
+    result({
+      stdout:
+        { 'symbolic-ref': 'refs/heads/main\n', 'hash-object': `${oid(1)}\n`, mktree: `${oid(2)}\n`, 'commit-tree': `${oid(3)}\n` }[
+          gitCommand(o.args)
+        ] ?? '',
+    });
 
   /** gh's calls answered in turn by `answers`, git's by `git`; gh's calls recorded. */
   function fake(answers: (() => SpawnResult)[], git: (o: SpawnOptions) => SpawnResult = fakeGit) {
@@ -390,7 +439,10 @@ describe('uploading the screenshots', () => {
     };
     return { run, gh, pushed, args: () => gh.map((c) => c.args) };
   }
-  const ok = (stdout = '') => () => result({ stdout });
+  const ok =
+    (stdout = '') =>
+    () =>
+      result({ stdout });
 
   it('puts them in one secret gist, pushed with git, and gives its page on GitHub', async () => {
     const f = fake([ok(created([FILES_PLACEHOLDER]))]);
@@ -399,7 +451,10 @@ describe('uploading the screenshots', () => {
     expect(f.args()).toEqual([createGistArgs()]);
     expect(f.args()).not.toContainEqual(gistFilesArgs(ID));
     expect(gistFilesArgs(ID)).toEqual(['api', `gists/${ID}`, '--jq', CREATED_JQ]);
-    expect(JSON.parse(String(f.gh[0]!.stdin))).toMatchObject({ description: filesGistDescription(SCREENSHOTS_DESCRIPTION, TOKEN), public: false });
+    expect(JSON.parse(String(f.gh[0]!.stdin))).toMatchObject({
+      description: filesGistDescription(SCREENSHOTS_DESCRIPTION, TOKEN),
+      public: false,
+    });
     expect(f.pushed).toEqual(files.map((x) => x.data));
   });
 
@@ -413,7 +468,8 @@ describe('uploading the screenshots', () => {
   });
 
   it('deletes the gist again when the screenshots could not go up, and says so of the screenshots', async () => {
-    const failPush = (o: SpawnOptions) => (gitCommand(o.args) === 'push' ? result({ code: 1, stderr: 'fatal: unable to access\n' }) : fakeGit(o));
+    const failPush = (o: SpawnOptions) =>
+      gitCommand(o.args) === 'push' ? result({ code: 1, stderr: 'fatal: unable to access\n' }) : fakeGit(o);
     const f = fake([ok(created([FILES_PLACEHOLDER])), ok()], failPush);
     const err = (await uploadScreenshots(files, f.run, opts).catch((e: unknown) => e)) as ShareError;
     expect(err.message).toBe(t().reportShotsUndone(t().shareFilesFailed('fatal: unable to access')));
@@ -422,7 +478,9 @@ describe('uploading the screenshots', () => {
     // Nor deleted: the message says where it is, to delete it on GitHub.
     const stuck = fake([ok(created([FILES_PLACEHOLDER])), () => result({ code: 1, stderr: 'HTTP 500' })], failPush);
     const left = (await uploadScreenshots(files, stuck.run, opts).catch((e: unknown) => e)) as ShareError;
-    expect(left.message).toBe(t().reportShotsLeftover(t().shareFilesFailed('fatal: unable to access'), `https://gist.github.com/someone/${ID}`));
+    expect(left.message).toBe(
+      t().reportShotsLeftover(t().shareFilesFailed('fatal: unable to access'), `https://gist.github.com/someone/${ID}`),
+    );
   });
 
   it('looks for the gist by its token when gh could not say it made it, and names the token when it cannot', async () => {

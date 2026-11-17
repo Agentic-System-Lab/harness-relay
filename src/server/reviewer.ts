@@ -118,7 +118,11 @@ export function reviewMaterial(messages: ChatMessage[]): ReviewMaterial {
     if (!reviewable(m)) continue;
     const files = changedFiles(m);
     const ending =
-      m.status === 'error' ? ` status="failed: ${(m.error ?? '').replace(/["\n]/g, ' ').slice(0, 200)}"` : m.status === 'aborted' ? ' status="stopped"' : '';
+      m.status === 'error'
+        ? ` status="failed: ${(m.error ?? '').replace(/["\n]/g, ' ').slice(0, 200)}"`
+        : m.status === 'aborted'
+          ? ' status="stopped"'
+          : '';
     const body = [shorten(textOf(m), REVIEW_MESSAGE_CHARS), files.length ? `(Files this turn changed: ${files.join(', ')})` : '']
       .filter(Boolean)
       .join('\n\n');
@@ -246,7 +250,8 @@ function replyOf(v: unknown, replies: ChatMessage[]): ChatMessage | undefined {
  */
 export function decideReview(raw: Record<string, any>, replies: ChatMessage[]): Pick<LeadReview, 'summary' | 'highlights' | 'nextSteps'> {
   const summary = field(raw.summary, REVIEW_LIMITS.summary);
-  const listed = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === 'object') : []);
+  const listed = (v: unknown) =>
+    Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === 'object') : [];
   const highlights: ReviewHighlight[] = [];
   // Each reply's pieces of text, read once for all the quotes about it.
   const checkers = new Map<string, ((quote: string) => boolean)[]>();

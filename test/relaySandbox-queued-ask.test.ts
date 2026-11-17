@@ -28,12 +28,16 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 /** A run on a fake channel: what the host would send, and what it gets back. */
 function runOnChannel(requestApproval: ConstructorParameters<typeof RelaySandboxRun>[2]['requestApproval']) {
-  const run = new RelaySandboxRun(makeRunDirs(join(root, 'data')), {}, {
-    requestApproval,
-    localAddresses: [],
-    platform: 'linux',
-    arch: 'x64',
-  });
+  const run = new RelaySandboxRun(
+    makeRunDirs(join(root, 'data')),
+    {},
+    {
+      requestApproval,
+      localAddresses: [],
+      platform: 'linux',
+      arch: 'x64',
+    },
+  );
   const back: Record<string, any>[] = [];
   const channel = new Duplex({
     read() {},
@@ -123,7 +127,15 @@ describe.skipIf(process.platform === 'win32')('a network ask queued when the tur
     expect(orchestrator.isWaiting(conv.id)).toBe(false);
 
     // Another conversation can work in that folder: no lock was left behind.
-    const other: Conversation = { ...conv, id: 'conv-edit', title: 'edit chat', settings: { ...conv.settings, permission: 'edit' }, messages: [], agentState: {}, worktrees: {} };
+    const other: Conversation = {
+      ...conv,
+      id: 'conv-edit',
+      title: 'edit chat',
+      settings: { ...conv.settings, permission: 'edit' },
+      messages: [],
+      agentState: {},
+      worktrees: {},
+    };
     store.create(other);
     await expect(orchestrator.send(other.id, 'change a.txt')).resolves.not.toThrow();
     await vi.waitFor(() => expect(orchestrator.isRunning(other.id)).toBe(false), { timeout: 10_000, interval: 20 });

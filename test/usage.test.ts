@@ -22,11 +22,20 @@ const root = mkdtempSync(join(tmpdir(), 'relay-usage-'));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 afterAll(() => removeTree(root));
 
-const { askUsage, parseAntigravityUsage, parseClaudeUsage, parseCopilotUsage, parseCodexUsage, parseCursorAbout, parseGrokUsage, parseMuseUsage, spanOfMinutes } =
-  await import('../src/server/usage');
+const {
+  askUsage,
+  parseAntigravityUsage,
+  parseClaudeUsage,
+  parseCopilotUsage,
+  parseCodexUsage,
+  parseCursorAbout,
+  parseGrokUsage,
+  parseMuseUsage,
+  spanOfMinutes,
+} = await import('../src/server/usage');
 
 describe("Claude Code's get_usage answer", () => {
-  it('gives each limit of a Max plan, a model\'s own weekly limit named after the model', () => {
+  it("gives each limit of a Max plan, a model's own weekly limit named after the model", () => {
     expect(parseClaudeUsage(json('claude-get-usage-max.json'), false)).toEqual({
       plan: 'max',
       limits: [
@@ -44,7 +53,10 @@ describe("Claude Code's get_usage answer", () => {
 
   it('reads the per-window fields when the list of limits is there but empty', () => {
     const r = { subscription_type: 'pro', rate_limits: { limits: [], seven_day: { utilization: 30, resets_at: '2026-11-17T00:00:00Z' } } };
-    expect(parseClaudeUsage(r, false)).toEqual({ plan: 'pro', limits: [{ span: 'week', usedPercent: 30, resetsAt: Date.parse('2026-11-17T00:00:00Z') }] });
+    expect(parseClaudeUsage(r, false)).toEqual({
+      plan: 'pro',
+      limits: [{ span: 'week', usedPercent: 30, resetsAt: Date.parse('2026-11-17T00:00:00Z') }],
+    });
   });
 
   it('reads the per-window fields of a Claude Code without the list of limits', () => {
@@ -69,7 +81,14 @@ describe("Claude Code's get_usage answer", () => {
   });
 
   it('keeps a limit it does not know by its own name, and a percent over 100 at 100', () => {
-    const r = { rate_limits: { limits: [{ kind: 'session', group: 'session', percent: 130 }, { kind: 'burst', group: 'other', percent: 3 }] } };
+    const r = {
+      rate_limits: {
+        limits: [
+          { kind: 'session', group: 'session', percent: 130 },
+          { kind: 'burst', group: 'other', percent: 3 },
+        ],
+      },
+    };
     expect(parseClaudeUsage(r, false)?.limits).toEqual([
       { span: 'fiveHour', usedPercent: 100 },
       { scope: 'burst', usedPercent: 3 },
@@ -77,7 +96,11 @@ describe("Claude Code's get_usage answer", () => {
   });
 
   it('says there is nothing yet when the plan has no limits listed, and nothing at all for an answer that is not one', () => {
-    expect(parseClaudeUsage({ subscription_type: 'max', rate_limits: { limits: [] } }, false)).toEqual({ plan: 'max', limits: [], none: 'noData' });
+    expect(parseClaudeUsage({ subscription_type: 'max', rate_limits: { limits: [] } }, false)).toEqual({
+      plan: 'max',
+      limits: [],
+      none: 'noData',
+    });
     expect(parseClaudeUsage('nope', false)).toBeUndefined();
     expect(parseClaudeUsage(null, false)).toBeUndefined();
   });
@@ -118,7 +141,9 @@ describe("Codex's account and rate limits", () => {
   });
 
   it('reads the limits of a Codex without account/read, and unlimited credits', () => {
-    const r = { rateLimits: { primary: null, secondary: null, credits: { hasCredits: true, unlimited: true, balance: null }, planType: 'enterprise' } };
+    const r = {
+      rateLimits: { primary: null, secondary: null, credits: { hasCredits: true, unlimited: true, balance: null }, planType: 'enterprise' },
+    };
     expect(parseCodexUsage(undefined, r)).toEqual({ plan: 'enterprise', limits: [], credits: { unlimited: true } });
     expect(parseCodexUsage(undefined, undefined)).toBeUndefined();
   });
@@ -139,7 +164,9 @@ describe("Grok's billing", () => {
   });
 
   it('takes the billing period when the current period has no end, and a monthly one', () => {
-    const r = { config: { creditUsagePercent: 81, currentPeriod: { type: 'USAGE_PERIOD_TYPE_MONTHLY' }, billingPeriodEnd: '2026-12-01T00:00:00Z' } };
+    const r = {
+      config: { creditUsagePercent: 81, currentPeriod: { type: 'USAGE_PERIOD_TYPE_MONTHLY' }, billingPeriodEnd: '2026-12-01T00:00:00Z' },
+    };
     expect(parseGrokUsage(r)?.limits).toEqual([{ span: 'month', usedPercent: 81, resetsAt: Date.parse('2026-12-01T00:00:00Z') }]);
   });
 });
@@ -155,7 +182,10 @@ describe("Muse Code's usage --json", () => {
     });
     expect(parseMuseUsage('{"schemaVersion":1,"allowance":null,"reason":"api_key"}')).toEqual({ limits: [], none: 'apiKey' });
     expect(parseMuseUsage('{"schemaVersion":1,"allowance":null,"reason":"server_sent_no_usage"}')).toEqual({ limits: [], none: 'noData' });
-    expect(parseMuseUsage('{"schemaVersion":1,"allowance":null,"reason":"later","hint":"Try again later"}')).toEqual({ limits: [], error: 'Try again later' });
+    expect(parseMuseUsage('{"schemaVersion":1,"allowance":null,"reason":"later","hint":"Try again later"}')).toEqual({
+      limits: [],
+      error: 'Try again later',
+    });
     // Nothing it says: Harness Relay's own reason, for the UI to word.
     expect(parseMuseUsage('{"schemaVersion":1,"allowance":null,"reason":null}')).toEqual({ limits: [], problem: 'noAnswer' });
     expect(parseMuseUsage('not json')).toBeUndefined();
@@ -166,34 +196,71 @@ describe("Copilot's quota", () => {
   it('gives the premium requests of a monthly plan, counted, with the reset its user record names', () => {
     expect(parseCopilotUsage(json('copilot-get-quota.json'), json('copilot-current-auth.json'))).toEqual({
       plan: 'individual',
-      limits: [{ span: 'month', kind: 'premiumRequests', usedPercent: 100 - 41.16666666666667, used: 176, total: 300, resetsAt: 1796083200 * 1000 }],
+      limits: [
+        {
+          span: 'month',
+          kind: 'premiumRequests',
+          usedPercent: 100 - 41.16666666666667,
+          used: 176,
+          total: 300,
+          resetsAt: 1796083200 * 1000,
+        },
+      ],
     });
   });
 
   it("takes the plan's reset date when a kind has none of its own, never getQuota's resetDate (when the snapshot was taken)", () => {
-    const quota = { quotaSnapshots: { premium_interactions: { entitlementRequests: 50, usedRequests: 10, remainingPercentage: 80, resetDate: '2026-11-13T10:00:00Z' } } };
+    const quota = {
+      quotaSnapshots: {
+        premium_interactions: { entitlementRequests: 50, usedRequests: 10, remainingPercentage: 80, resetDate: '2026-11-13T10:00:00Z' },
+      },
+    };
     const auth = { authInfo: { copilotUser: { access_type_sku: 'free_limited_copilot', quota_reset_date_utc: '2026-12-01T00:00:00Z' } } };
     expect(parseCopilotUsage(quota, auth)).toEqual({
       plan: 'free_limited_copilot',
-      limits: [{ span: 'month', kind: 'premiumRequests', usedPercent: 20, used: 10, total: 50, resetsAt: Date.parse('2026-12-01T00:00:00Z') }],
+      limits: [
+        { span: 'month', kind: 'premiumRequests', usedPercent: 20, used: 10, total: 50, resetsAt: Date.parse('2026-12-01T00:00:00Z') },
+      ],
     });
-    expect(parseCopilotUsage(quota, {})?.limits).toEqual([{ span: 'month', kind: 'premiumRequests', usedPercent: 20, used: 10, total: 50 }]);
+    expect(parseCopilotUsage(quota, {})?.limits).toEqual([
+      { span: 'month', kind: 'premiumRequests', usedPercent: 20, used: 10, total: 50 },
+    ]);
   });
 
   it('names a kind it does not know by its key, and says a plan without any limit has none', () => {
     const quota = { quotaSnapshots: { ai_credits: { entitlementRequests: 1000, usedRequests: 250, remainingPercentage: 75 } } };
-    expect(parseCopilotUsage(quota, undefined)?.limits).toEqual([{ span: 'month', scope: 'ai_credits', usedPercent: 25, used: 250, total: 1000 }]);
+    expect(parseCopilotUsage(quota, undefined)?.limits).toEqual([
+      { span: 'month', scope: 'ai_credits', usedPercent: 25, used: 250, total: 1000 },
+    ]);
     const unlimited = { isUnlimitedEntitlement: true, entitlementRequests: 0, usedRequests: 0, remainingPercentage: 100 };
-    expect(parseCopilotUsage({ quotaSnapshots: { chat: unlimited, premium_interactions: { ...unlimited, entitlementRequests: -1 } } }, {})).toEqual({ limits: [], none: 'unlimited' });
+    expect(
+      parseCopilotUsage({ quotaSnapshots: { chat: unlimited, premium_interactions: { ...unlimited, entitlementRequests: -1 } } }, {}),
+    ).toEqual({ limits: [], none: 'unlimited' });
     expect(parseCopilotUsage({}, {})).toBeUndefined();
   });
 });
 
 describe("Antigravity's /usage and /credits", () => {
-  const bucket = (name: string, left: number, window?: string) => ({ name, remaining_fraction: left, ...(window ? { window } : {}), reset_time: '2026-11-13T18:00:00Z' });
+  const bucket = (name: string, left: number, window?: string) => ({
+    name,
+    remaining_fraction: left,
+    ...(window ? { window } : {}),
+    reset_time: '2026-11-13T18:00:00Z',
+  });
 
   it("gives each bucket's share used, its window's span, and the plan and credits", () => {
-    const usage = { groups: [{ name: 'Models', buckets: [bucket('Gemini 3.1 Pro', 0.25, '5h'), bucket('Gemini 3.8 Flash', 1, 'weekly'), { name: 'Off', remaining_fraction: 0, disabled: true }] }] };
+    const usage = {
+      groups: [
+        {
+          name: 'Models',
+          buckets: [
+            bucket('Gemini 3.1 Pro', 0.25, '5h'),
+            bucket('Gemini 3.8 Flash', 1, 'weekly'),
+            { name: 'Off', remaining_fraction: 0, disabled: true },
+          ],
+        },
+      ],
+    };
     expect(parseAntigravityUsage(usage, { remaining_credits: 1500, plan_name: 'Google AI Pro' })).toEqual({
       plan: 'Google AI Pro',
       limits: [
@@ -205,7 +272,12 @@ describe("Antigravity's /usage and /credits", () => {
   });
 
   it("names each bucket after its group when there are several, and keeps a window it does not know as the bucket's own", () => {
-    const usage = { groups: [{ name: 'Pro', buckets: [bucket('Requests', 0.5, 'per-request')] }, { name: 'Flash', buckets: [bucket('Requests', 0.9)] }] };
+    const usage = {
+      groups: [
+        { name: 'Pro', buckets: [bucket('Requests', 0.5, 'per-request')] },
+        { name: 'Flash', buckets: [bucket('Requests', 0.9)] },
+      ],
+    };
     expect(parseAntigravityUsage(usage, undefined)?.limits.map((l) => [l.span, l.scope, Math.round(l.usedPercent)])).toEqual([
       [undefined, 'Pro · Requests', 50],
       [undefined, 'Flash · Requests', 10],
@@ -241,7 +313,9 @@ describe('an account on a key its provider bills by use', () => {
 
   it("but Codex is asked (its account/read says what it runs on), and Copilot's GitHub token belongs to the user's own plan", async () => {
     await expect(askUsage('codex', missing, { OPENAI_API_KEY: 'sk-test' })).rejects.toThrow();
-    await expect(askUsage('copilot', missing, { COPILOT_GITHUB_TOKEN: 'github_pat_test', COPILOT_HOME: join(root, 'copilot-home') })).rejects.toThrow();
+    await expect(
+      askUsage('copilot', missing, { COPILOT_GITHUB_TOKEN: 'github_pat_test', COPILOT_HOME: join(root, 'copilot-home') }),
+    ).rejects.toThrow();
   });
 
   it("and Cursor's key is not reported (its about would describe the computer's one sign-in, not the key's plan)", async () => {
@@ -449,7 +523,16 @@ describe.skipIf(process.platform === 'win32')('asking each CLI (stand-ins)', () 
     const account = join(root, 'copilot-account');
     const expected = {
       plan: 'individual',
-      limits: [{ span: 'month', kind: 'premiumRequests', usedPercent: 100 - 41.16666666666667, used: 176, total: 300, resetsAt: 1796083200 * 1000 }],
+      limits: [
+        {
+          span: 'month',
+          kind: 'premiumRequests',
+          usedPercent: 100 - 41.16666666666667,
+          used: 176,
+          total: 300,
+          resetsAt: 1796083200 * 1000,
+        },
+      ],
     };
     expect(await askUsage('copilot', bin('copilot'), env({ COPILOT_HOME: account }))).toEqual(expected);
     const [start] = started();
@@ -463,7 +546,10 @@ describe.skipIf(process.platform === 'win32')('asking each CLI (stand-ins)', () 
 
   it('says a Copilot without a sign-in is signed out, and passes on its refusal to connect', async () => {
     const account = join(root, 'copilot-account');
-    expect(await askUsage('copilot', bin('copilot'), env({ COPILOT_HOME: account, STAND_SIGNED_OUT: '1' }))).toEqual({ limits: [], none: 'signedOut' });
+    expect(await askUsage('copilot', bin('copilot'), env({ COPILOT_HOME: account, STAND_SIGNED_OUT: '1' }))).toEqual({
+      limits: [],
+      none: 'signedOut',
+    });
     expect(await askUsage('copilot', bin('copilot'), env({ COPILOT_HOME: account, STAND_CONNECT_FAIL: '1' }))).toEqual({
       limits: [],
       error: 'protocol version 9 is not supported',
@@ -486,7 +572,10 @@ describe.skipIf(process.platform === 'win32')('asking each CLI (stand-ins)', () 
   });
 
   it("passes on Antigravity's error for /usage, and shows the limits without the credits when /credits fails", async () => {
-    expect(await askUsage('antigravity', bin('agy'), env({ STAND_FAIL: 'usage' }))).toEqual({ limits: [], error: 'quota service unavailable' });
+    expect(await askUsage('antigravity', bin('agy'), env({ STAND_FAIL: 'usage' }))).toEqual({
+      limits: [],
+      error: 'quota service unavailable',
+    });
     expect(await askUsage('antigravity', bin('agy'), env({ STAND_FAIL: 'credits' }))).toEqual({
       limits: [{ span: 'fiveHour', scope: 'Gemini 3.1 Pro', usedPercent: 60, resetsAt: Date.parse('2026-11-13T18:00:00Z') }],
     });

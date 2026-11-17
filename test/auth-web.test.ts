@@ -208,7 +208,7 @@ describe('a request answered "signed out"', () => {
     expect(readKey()).toBe('k2');
   });
 
-  it("waits for the sign-in also when the page had no key, and a write is sent again with its body", async () => {
+  it('waits for the sign-in also when the page had no key, and a write is sent again with its body', async () => {
     let login!: (r: Response) => void;
     server((path, key) => {
       if (path === '/api/auth/login') return new Promise<Response>((r) => (login = r));
@@ -339,7 +339,9 @@ describe('a request answered "signed out"', () => {
   it('is sent again for a text answer too (a diff)', async () => {
     writeKey('old');
     server((_path, key) =>
-      key === 'new' ? ({ ok: true, status: 200, text: async () => 'diff --git' } as unknown as Response) : answer(401, SIGNED_OUT, () => writeKey('new')),
+      key === 'new'
+        ? ({ ok: true, status: 200, text: async () => 'diff --git' } as unknown as Response)
+        : answer(401, SIGNED_OUT, () => writeKey('new')),
     );
     expect(await api.messageDiff('c1', 'm1')).toBe('diff --git');
     expect(sent['/api/conversations/c1/messages/m1/diff']).toEqual(['old', 'new']);

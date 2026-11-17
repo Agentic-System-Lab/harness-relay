@@ -32,7 +32,9 @@ export function effectiveTheme(choice: ThemeChoice, systemDark: boolean): 'light
 /** The parts of a document `applyTheme` changes (a fake one in the tests). */
 export interface ThemeDocument {
   documentElement: { setAttribute(name: string, value: string): void; removeAttribute(name: string): void };
-  querySelectorAll(selector: string): Iterable<{ getAttribute(name: string): string | null; setAttribute(name: string, value: string): void }>;
+  querySelectorAll(
+    selector: string,
+  ): Iterable<{ getAttribute(name: string): string | null; setAttribute(name: string, value: string): void }>;
 }
 
 /**

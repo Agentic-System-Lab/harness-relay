@@ -45,7 +45,14 @@ describe('/api/notifications', () => {
     store = new Store(db);
     const hub = new Hub();
     auth = new AuthStore(db);
-    app = createApp({ auth, store, settings, hub, orchestrator: new Orchestrator(store, hub, settings), providers: new ProviderService(settings) });
+    app = createApp({
+      auth,
+      store,
+      settings,
+      hub,
+      orchestrator: new Orchestrator(store, hub, settings),
+      providers: new ProviderService(settings),
+    });
     store.create(conversation('c1', 'First'));
     store.create(conversation('c2', 'Second'));
     store.addNotification({ id: 'n1', conversationId: 'c1', kind: 'done', agent: 'Claude', text: 'All tests pass.', createdAt: 1 });
@@ -71,7 +78,11 @@ describe('/api/notifications', () => {
   it('is for signed-in browsers only', async () => {
     expect((await app.request('/api/notifications', { headers: HOST })).status).toBe(401);
     expect((await app.request('/api/notifications/summary', { headers: HOST })).status).toBe(401);
-    const write = await app.request('/api/notifications/read', { method: 'POST', headers: { ...HOST, 'content-type': 'application/json' }, body: '{"all":true}' });
+    const write = await app.request('/api/notifications/read', {
+      method: 'POST',
+      headers: { ...HOST, 'content-type': 'application/json' },
+      body: '{"all":true}',
+    });
     expect(write.status).toBe(401);
     expect(store.notificationSummary().unread).toBe(3);
   });
@@ -98,7 +109,17 @@ describe('/api/notifications', () => {
   });
 
   it('refuses a request that names nothing, or too much', async () => {
-    for (const body of [{}, { all: false }, { ids: 'n1' }, { ids: [1] }, { ids: [''] }, { conversationId: '' }, { conversationId: 'c'.repeat(65) }, { ids: ['n'.repeat(65)] }, { ids: Array(INBOX_READ_MAX + 1).fill('n1') }]) {
+    for (const body of [
+      {},
+      { all: false },
+      { ids: 'n1' },
+      { ids: [1] },
+      { ids: [''] },
+      { conversationId: '' },
+      { conversationId: 'c'.repeat(65) },
+      { ids: ['n'.repeat(65)] },
+      { ids: Array(INBOX_READ_MAX + 1).fill('n1') },
+    ]) {
       expect((await send('POST', '/api/notifications/read', body)).status, JSON.stringify(body).slice(0, 40)).toBe(400);
     }
     expect(store.notificationSummary().unread).toBe(3);

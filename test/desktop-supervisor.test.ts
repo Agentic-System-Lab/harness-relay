@@ -38,7 +38,9 @@ class FakeServer extends EventEmitter implements ServerChild {
   }
 }
 
-function setup(o: { free?: boolean | (() => Promise<boolean>); startTimeoutMs?: number; stopTimeoutMs?: number; killTimeoutMs?: number } = {}) {
+function setup(
+  o: { free?: boolean | (() => Promise<boolean>); startTimeoutMs?: number; stopTimeoutMs?: number; killTimeoutMs?: number } = {},
+) {
   const servers: FakeServer[] = [];
   const states: ServerState['kind'][] = [];
   const supervisor = new Supervisor({
@@ -277,7 +279,8 @@ describe('sign-in links', () => {
     const post = server.postMessage.bind(server);
     server.postMessage = (m) => {
       post(m);
-      if (m.type === 'sign-in-link' && o.answers !== false) setTimeout(() => server.emit('message', { type: 'sign-in-link', link: `http://127.0.0.1:8787/#code=C${++n}` }), 1);
+      if (m.type === 'sign-in-link' && o.answers !== false)
+        setTimeout(() => server.emit('message', { type: 'sign-in-link', link: `http://127.0.0.1:8787/#code=C${++n}` }), 1);
     };
     server.listening();
     await started;
@@ -390,7 +393,10 @@ describe('conversations with agents at work', () => {
 });
 
 describe("the chat's asks about updates", () => {
-  const update = { type: 'update' as const, update: { updates: true, available: { version: '2026-11-12', changes: 'https://github.com/x/y/compare/2026-11-11...2026-11-12' } } };
+  const update = {
+    type: 'update' as const,
+    update: { updates: true, available: { version: '2026-11-12', changes: 'https://github.com/x/y/compare/2026-11-11...2026-11-12' } },
+  };
 
   it('passes on what the running server asks for, and nothing else, and only from it', async () => {
     const { supervisor, servers } = setup();

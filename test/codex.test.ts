@@ -30,7 +30,7 @@ import {
   sharedFolder,
 } from '../src/server/agents/codex';
 import { RpcError } from '../src/server/agents/acp';
-import { AgentRunError, type AgentEvent } from '../src/server/agents/types';
+import { AgentRunError, TURN_TIMEOUT_MS, type AgentEvent } from '../src/server/agents/types';
 import { withLang } from '../src/server/i18n';
 
 // Shapes trimmed from real `codex app-server` traffic (codex-cli 0.167.0).
@@ -50,7 +50,12 @@ describe('codex app-server events', () => {
     const events: AgentEvent[] = [];
     const h = createCodexUpdateHandler((e) => events.push(e));
     h.handle('item/reasoning/summaryTextDelta', { itemId: 'r1', delta: 'Checking the tests.' });
-    h.handle('turn/plan/updated', { plan: [{ step: 'Run tests', status: 'inProgress' }, { step: 'Report', status: 'pending' }] });
+    h.handle('turn/plan/updated', {
+      plan: [
+        { step: 'Run tests', status: 'inProgress' },
+        { step: 'Report', status: 'pending' },
+      ],
+    });
     h.handle('item/started', { item: command({}) });
     h.handle('item/completed', { item: command({ status: 'completed', exitCode: 0, aggregatedOutput: '> test\nALL-TESTS-PASSED\n' }) });
     h.handle('item/agentMessage/delta', { itemId: 'm1', delta: 'Tests pass.' });
@@ -58,19 +63,34 @@ describe('codex app-server events', () => {
     h.handle('item/completed', { item: { type: 'reasoning', id: 'r1', summary: ['Checking the tests.'], content: [] } });
     // As codex sends them: the output already counts the reasoning (total = input + output).
     h.handle('thread/tokenUsage/updated', {
-      tokenUsage: { last: { inputTokens: 100, cachedInputTokens: 80, outputTokens: 10, reasoningOutputTokens: 5, totalTokens: 110 }, total: { totalTokens: 110 } },
+      tokenUsage: {
+        last: { inputTokens: 100, cachedInputTokens: 80, outputTokens: 10, reasoningOutputTokens: 5, totalTokens: 110 },
+        total: { totalTokens: 110 },
+      },
     });
     h.handle('thread/tokenUsage/updated', {
-      tokenUsage: { last: { inputTokens: 50, cachedInputTokens: 0, outputTokens: 2, reasoningOutputTokens: 0, totalTokens: 52 }, total: { totalTokens: 162 } },
+      tokenUsage: {
+        last: { inputTokens: 50, cachedInputTokens: 0, outputTokens: 2, reasoningOutputTokens: 0, totalTokens: 52 },
+        total: { totalTokens: 162 },
+      },
     });
     // The same count again (as Codex sends it with its rate limits): no new call.
     h.handle('thread/tokenUsage/updated', {
-      tokenUsage: { last: { inputTokens: 50, cachedInputTokens: 0, outputTokens: 2, reasoningOutputTokens: 0, totalTokens: 52 }, total: { totalTokens: 162 } },
+      tokenUsage: {
+        last: { inputTokens: 50, cachedInputTokens: 0, outputTokens: 2, reasoningOutputTokens: 0, totalTokens: 52 },
+        total: { totalTokens: 162 },
+      },
     });
 
     expect(events).toEqual([
       { type: 'thinking', text: 'Checking the tests.' },
-      { type: 'plan', entries: [{ text: 'Run tests', status: 'in_progress' }, { text: 'Report', status: 'pending' }] },
+      {
+        type: 'plan',
+        entries: [
+          { text: 'Run tests', status: 'in_progress' },
+          { text: 'Report', status: 'pending' },
+        ],
+      },
       { type: 'tool_start', id: 'exec-1', name: 'Shell', detail: 'npm test' },
       { type: 'tool_end', id: 'exec-1', ok: true, output: '> test\nALL-TESTS-PASSED' },
       { type: 'text', text: 'Tests pass.' },
@@ -82,7 +102,9 @@ describe('codex app-server events', () => {
   it('reports failed and declined commands', () => {
     const events: AgentEvent[] = [];
     const h = createCodexUpdateHandler((e) => events.push(e));
-    h.handle('item/completed', { item: command({ id: 'a', status: 'failed', exitCode: 128, aggregatedOutput: 'fatal: not a git repository' }) });
+    h.handle('item/completed', {
+      item: command({ id: 'a', status: 'failed', exitCode: 128, aggregatedOutput: 'fatal: not a git repository' }),
+    });
     h.handle('item/completed', { item: command({ id: 'b', status: 'declined' }) });
     expect(events.filter((e) => e.type === 'tool_end')).toEqual([
       { type: 'tool_end', id: 'a', ok: false, output: 'fatal: not a git repository', error: 'exit 128' },
@@ -146,14 +168,22 @@ describe('codex app-server events', () => {
       name: 'WebSearch',
       detail: 'https://vitest.dev',
     });
-    expect(describeCodexItem({ type: 'webSearch', query: '', action: { type: 'other' } })).toEqual({ name: 'WebSearch', detail: undefined });
+    expect(describeCodexItem({ type: 'webSearch', query: '', action: { type: 'other' } })).toEqual({
+      name: 'WebSearch',
+      detail: undefined,
+    });
     expect(describeCodexItem({ type: 'agentMessage' })).toBeNull();
   });
 
   it('shows a new file by its path from the start, and keeps it when the item completes', () => {
     const events: AgentEvent[] = [];
     const h = createCodexUpdateHandler((e) => events.push(e));
-    const item = (status: string) => ({ type: 'fileChange', id: 'p1', status, changes: [{ path: '/repo/src/new.ts', kind: { type: 'add' }, diff: '+x' }] });
+    const item = (status: string) => ({
+      type: 'fileChange',
+      id: 'p1',
+      status,
+      changes: [{ path: '/repo/src/new.ts', kind: { type: 'add' }, diff: '+x' }],
+    });
     h.handle('item/started', { item: item('inProgress') });
     h.handle('item/completed', { item: item('completed') });
     expect(events).toEqual([
@@ -166,10 +196,17 @@ describe('codex app-server events', () => {
     const events: AgentEvent[] = [];
     const h = createCodexUpdateHandler((e) => events.push(e));
     h.handle('item/started', { item: { type: 'webSearch', id: 'ws-1', query: '', action: null } });
-    h.handle('item/completed', { item: { type: 'webSearch', id: 'ws-1', query: 'vitest mock timers', action: { type: 'search', query: 'vitest mock timers' } } });
+    h.handle('item/completed', {
+      item: { type: 'webSearch', id: 'ws-1', query: 'vitest mock timers', action: { type: 'search', query: 'vitest mock timers' } },
+    });
     h.handle('item/started', { item: { type: 'webSearch', id: 'ws-2', query: '', action: null } });
     h.handle('item/completed', {
-      item: { type: 'webSearch', id: 'ws-2', query: '', action: { type: 'findInPage', url: 'https://vitest.dev/api', pattern: 'useFakeTimers' } },
+      item: {
+        type: 'webSearch',
+        id: 'ws-2',
+        query: '',
+        action: { type: 'findInPage', url: 'https://vitest.dev/api', pattern: 'useFakeTimers' },
+      },
     });
     expect(events).toEqual([
       { type: 'tool_start', id: 'ws-1', name: 'WebSearch' },
@@ -184,9 +221,16 @@ describe('codex approvals', () => {
   it('turns approval requests into what the user sees, and answers in the shape Codex expects', () => {
     const paths = (id: string) => (id === 'patch-1' ? 'src/a.ts' : undefined);
     expect(
-      codexApprovalRequest('item/commandExecution/requestApproval', { command: "/bin/zsh -lc 'touch ../x'", reason: 'Outside the sandbox' }, paths),
+      codexApprovalRequest(
+        'item/commandExecution/requestApproval',
+        { command: "/bin/zsh -lc 'touch ../x'", reason: 'Outside the sandbox' },
+        paths,
+      ),
     ).toEqual({ kind: 'command', detail: 'touch ../x', command: "/bin/zsh -lc 'touch ../x'", reason: 'Outside the sandbox' });
-    expect(codexApprovalRequest('item/fileChange/requestApproval', { itemId: 'patch-1' }, paths)).toMatchObject({ kind: 'edit', detail: 'src/a.ts' });
+    expect(codexApprovalRequest('item/fileChange/requestApproval', { itemId: 'patch-1' }, paths)).toMatchObject({
+      kind: 'edit',
+      detail: 'src/a.ts',
+    });
     expect(codexApprovalRequest('item/tool/call', {}, paths)).toBeNull();
 
     expect(codexApprovalResponse('item/commandExecution/requestApproval', {}, true)).toEqual({ decision: 'accept' });
@@ -217,7 +261,9 @@ describe('codex approvals', () => {
       requestedSchema: { type: 'object', properties: {} },
     };
     expect(codexMcpToolApproval(ask)).toEqual({ kind: 'other', tool: 'relay-test:relay_secret_word' });
-    expect(codexMcpToolApproval({ ...ask, _meta: { ...ask._meta, tool_params: { repo: 'a/b' } } })).toMatchObject({ detail: '{"repo":"a/b"}' });
+    expect(codexMcpToolApproval({ ...ask, _meta: { ...ask._meta, tool_params: { repo: 'a/b' } } })).toMatchObject({
+      detail: '{"repo":"a/b"}',
+    });
     // A form the server itself wants filled in is not an approval.
     expect(codexMcpToolApproval({ serverName: 'x', mode: 'form', message: 'Your name?', requestedSchema: {} })).toBeNull();
     expect(codexElicitationResponse(true)).toEqual({ action: 'accept', content: {}, _meta: null });
@@ -247,7 +293,13 @@ describe('codex thread config', () => {
       filesystem: { '/docs': 'write', '/x': 'deny', '/docs/secret.db': 'deny' },
     });
     expect(codexProfile('read-only', ['/x'], 'darwin', ['/docs'])).toEqual({ extends: ':read-only', filesystem: { '/x': 'deny' } });
-    const run = { cwd: '/repo', addDirs: ['/docs'], permission: 'edit' as const, systemPrompt: '', requestApproval: async () => ({ allow: true }) };
+    const run = {
+      cwd: '/repo',
+      addDirs: ['/docs'],
+      permission: 'edit' as const,
+      systemPrompt: '',
+      requestApproval: async () => ({ allow: true }),
+    };
     const profiled = codexThreadRequest({ ...run, protectedPaths: ['/x'] }, undefined, 'linux', 'harness-relay-1').params;
     expect(profiled.config).toMatchObject({ permissions: { 'harness-relay-1': { filesystem: { '/docs': 'write', '/x': 'deny' } } } });
     expect(profiled.config).not.toHaveProperty('sandbox_workspace_write');
@@ -260,7 +312,15 @@ describe('codex thread config', () => {
     expect(
       codexConfig('read-only', undefined, [
         { name: 'gh', transport: 'stdio', command: 'npx', args: ['gh'], url: '', env: { TOKEN: 't' }, headers: {} },
-        { name: 'docs', transport: 'http', command: '', args: [], url: 'https://x.test/mcp', env: {}, headers: { Authorization: 'Bearer b' } },
+        {
+          name: 'docs',
+          transport: 'http',
+          command: '',
+          args: [],
+          url: 'https://x.test/mcp',
+          env: {},
+          headers: { Authorization: 'Bearer b' },
+        },
       ]),
     ).toEqual({
       mcp_servers: {
@@ -270,11 +330,23 @@ describe('codex thread config', () => {
     });
   });
 
+  it("gives Harness Relay's own tools a turn's time per call, as they may wait for the user, not Codex's 5 minutes", () => {
+    const relay = { name: 'relay', transport: 'http' as const, command: '', args: [], url: 'http://127.0.0.1:4/mcp', env: {}, headers: {} };
+    const gh = { name: 'gh', transport: 'stdio' as const, command: 'gh-mcp', args: [], url: '', env: {}, headers: {} };
+    const table = codexConfig('edit', undefined, [relay, gh]).mcp_servers as Record<string, Record<string, unknown>>;
+    expect(table.relay!.tool_timeout_sec).toBe(Math.ceil(TURN_TIMEOUT_MS / 1000));
+    expect(table.gh).not.toHaveProperty('tool_timeout_sec');
+  });
+
   it("lets the library's servers approve their own tools in full access, where Codex would refuse every MCP call", () => {
     const gh = { name: 'gh', transport: 'stdio' as const, command: 'gh-mcp', args: [], url: '', env: {}, headers: {} };
-    expect(codexConfig('full', undefined, [gh])).toEqual({ mcp_servers: { gh: { command: 'gh-mcp', args: [], default_tools_approval_mode: 'approve' } } });
+    expect(codexConfig('full', undefined, [gh])).toEqual({
+      mcp_servers: { gh: { command: 'gh-mcp', args: [], default_tools_approval_mode: 'approve' } },
+    });
     // Below full access Codex asks, and the user answers in the chat.
-    expect((codexConfig('edit', undefined, [gh]).mcp_servers as Record<string, object>).gh).not.toHaveProperty('default_tools_approval_mode');
+    expect((codexConfig('edit', undefined, [gh]).mcp_servers as Record<string, object>).gh).not.toHaveProperty(
+      'default_tools_approval_mode',
+    );
   });
 
   it('leaves out what Codex loads by itself; each of its configured MCP servers, whatever its name', () => {
@@ -326,11 +398,19 @@ describe('codex thread config', () => {
   });
 
   it("turns off single MCP servers and tools of the user's own, keeping the tools they already turned off", () => {
-    const user = codexUserMcpConfig({ config: { mcp_servers: { headroom: { command: 'h' }, node: { command: 'n', disabled_tools: ['old'] }, 'a.b': {} } } });
+    const user = codexUserMcpConfig({
+      config: { mcp_servers: { headroom: { command: 'h' }, node: { command: 'n', disabled_tools: ['old'] }, 'a.b': {} } },
+    });
     expect(user).toEqual({ names: ['headroom', 'node', 'a.b'], disabledTools: { node: ['old'] } });
     const items = {
       mcp: ['headroom', 'gone'],
-      mcpTools: [codexMcpToolId('node', 'js_reset'), codexMcpToolId('a.b', 'x/y'), codexMcpToolId('headroom', 'run'), codexMcpToolId('gone', 'z'), 'not json'],
+      mcpTools: [
+        codexMcpToolId('node', 'js_reset'),
+        codexMcpToolId('a.b', 'x/y'),
+        codexMcpToolId('headroom', 'run'),
+        codexMcpToolId('gone', 'z'),
+        'not json',
+      ],
     };
     // Only servers in the user's config (an entry for another would be a server without a command),
     // and no tools of a server that is off anyway.
@@ -363,7 +443,9 @@ describe('codex thread config', () => {
 
   it("sends an effort the user's own endpoint takes, asking Codex's config only when none was given", async () => {
     const asked: string[] = [];
-    const conn = (effort: unknown) => ({ request: async (method: string) => (asked.push(method), { config: { model_reasoning_effort: effort } }) });
+    const conn = (effort: unknown) => ({
+      request: async (method: string) => (asked.push(method), { config: { model_reasoning_effort: effort } }),
+    });
     expect(await codexEndpointEffort('low', conn('xhigh'), '/repo')).toBe('low');
     expect(await codexEndpointEffort('xhigh', conn('high'), '/repo')).toBe('medium');
     expect(asked).toEqual([]);
@@ -382,7 +464,9 @@ describe('codex thread config', () => {
     });
     const ok = conn(async () => ({ config: { mcp_servers: { headroom: { disabled_tools: ['x'] } } } }));
     const none = { names: [], disabledTools: {} };
-    expect(await codexUserMcp(ok, { cwd: '/repo', nativeOff: ['skills', 'memory'], nativeItems: { skills: ['/s/SKILL.md'] } })).toEqual(none);
+    expect(await codexUserMcp(ok, { cwd: '/repo', nativeOff: ['skills', 'memory'], nativeItems: { skills: ['/s/SKILL.md'] } })).toEqual(
+      none,
+    );
     expect(await codexUserMcp(ok, { cwd: '/repo' })).toEqual(none);
     expect(asked).toEqual([]);
     const headroom = { names: ['headroom'], disabledTools: { headroom: ['x'] } };
@@ -398,7 +482,9 @@ describe('codex thread config', () => {
     });
     const failure = withLang('en', () => codexUserMcp(old, { cwd: '/repo', nativeOff: ['mcp'] }));
     await expect(failure).rejects.toBeInstanceOf(AgentRunError);
-    await expect(failure).rejects.toThrow(/^Codex could not list its MCP servers, so they or their tools could not be left out of this run \(config\/read is not supported\)/);
+    await expect(failure).rejects.toThrow(
+      /^Codex could not list its MCP servers, so they or their tools could not be left out of this run \(config\/read is not supported\)/,
+    );
   });
 
   it("starts or resumes the thread with the run's settings and the user's MCP servers turned off", () => {
@@ -429,24 +515,35 @@ describe('codex thread config', () => {
     });
     // With paths to protect, a permission profile instead of the legacy sandbox: the permission's
     // sandbox and a deny entry for each; the profile keeps the network off by itself.
-    const guarded = codexThreadRequest({ ...run, protectedPaths: ['/home/me/.mozilla', '/srv/relay/data/relay.db'] }, user, 'linux', 'harness-relay-1a2b');
+    const guarded = codexThreadRequest(
+      { ...run, protectedPaths: ['/home/me/.mozilla', '/srv/relay/data/relay.db'] },
+      user,
+      'linux',
+      'harness-relay-1a2b',
+    );
     expect(guarded.params).toMatchObject({ permissions: 'harness-relay-1a2b' });
     expect(guarded.params).not.toHaveProperty('sandbox');
     expect(guarded.params.config).toEqual({
       'features.apps': false,
       mcp_servers: { headroom: { enabled: false } },
-      permissions: { 'harness-relay-1a2b': { extends: ':workspace', filesystem: { '/home/me/.mozilla': 'deny', '/srv/relay/data/relay.db': 'deny' } } },
+      permissions: {
+        'harness-relay-1a2b': { extends: ':workspace', filesystem: { '/home/me/.mozilla': 'deny', '/srv/relay/data/relay.db': 'deny' } },
+      },
     });
     // A new name for each run: a profile of the same name in Codex's other config layers (a trusted
     // project's .codex/config.toml) would be merged into it, and could open a denied path again.
     expect(codexProfileId()).toMatch(/^harness-relay-[0-9a-f]{16}$/);
     expect(codexProfileId()).not.toBe(codexProfileId());
     // Codex must say it applied that profile: one that ignores the field would run in the user's sandbox_mode.
-    expect(() => codexCheckProfile(guarded.params, { activePermissionProfile: { id: 'harness-relay-1a2b', extends: ':workspace' } })).not.toThrow();
+    expect(() =>
+      codexCheckProfile(guarded.params, { activePermissionProfile: { id: 'harness-relay-1a2b', extends: ':workspace' } }),
+    ).not.toThrow();
     expect(() => withLang('en', () => codexCheckProfile(guarded.params, { thread: { id: 'thr-1' } }))).toThrow(
       /^Codex did not run this thread in the permission profile Harness Relay gave it \(it answered no profile;/,
     );
-    expect(() => withLang('en', () => codexCheckProfile(guarded.params, { activePermissionProfile: { id: ':workspace' } }))).toThrow(/answered ":workspace"/);
+    expect(() => withLang('en', () => codexCheckProfile(guarded.params, { activePermissionProfile: { id: ':workspace' } }))).toThrow(
+      /answered ":workspace"/,
+    );
     expect(() => codexCheckProfile(start.params, { thread: { id: 'thr-1' } })).not.toThrow();
     expect(codexProfile('read-only', ['/x'], 'darwin')).toEqual({ extends: ':read-only', filesystem: { '/x': 'deny' } });
     // Full access, Windows (its legacy sandbox cannot deny reads everywhere) and nothing to protect: the legacy sandbox.
@@ -460,7 +557,11 @@ describe('codex thread config', () => {
       params: { threadId: 'thr-1', ...start.params },
     });
     // On the user's own endpoint: its model by its own name, through a provider of its own.
-    const lab = { id: 'lab/qwen3', model: 'qwen3', endpoint: { id: 'lab', name: 'Lab', baseUrl: 'http://10.0.0.6:8000/v1', models: ['qwen3'] } };
+    const lab = {
+      id: 'lab/qwen3',
+      model: 'qwen3',
+      endpoint: { id: 'lab', name: 'Lab', baseUrl: 'http://10.0.0.6:8000/v1', models: ['qwen3'] },
+    };
     const onLab = codexThreadRequest({ ...run, model: 'lab/qwen3', sessionId: 'thr-1' }, user, 'linux', 'harness-relay-1a2b', lab);
     expect(onLab.params).toMatchObject({
       threadId: 'thr-1',
@@ -468,7 +569,9 @@ describe('codex thread config', () => {
       modelProvider: 'harness-relay-lab',
       config: {
         model_provider: 'harness-relay-lab',
-        model_providers: { 'harness-relay-lab': { name: 'Harness Relay: Lab', base_url: 'http://10.0.0.6:8000/v1', wire_api: 'responses' } },
+        model_providers: {
+          'harness-relay-lab': { name: 'Harness Relay: Lab', base_url: 'http://10.0.0.6:8000/v1', wire_api: 'responses' },
+        },
       },
     });
     // Full access, or a conversation that refuses automatically, never asks.
@@ -491,7 +594,10 @@ describe('codex thread config', () => {
       },
     });
     const run = { cwd: '/repo', nativeOff: ['hooks' as const, 'plugins' as const] };
-    const took = conn({ 'hooks/list': { data: [{ cwd: '/repo', hooks: [] }] }, 'plugin/installed': { marketplaces: [{ name: 'm', plugins: [] }] } });
+    const took = conn({
+      'hooks/list': { data: [{ cwd: '/repo', hooks: [] }] },
+      'plugin/installed': { marketplaces: [{ name: 'm', plugins: [] }] },
+    });
     await expect(codexConfirmLeftOut(took, run, 'thr-1')).resolves.toBeUndefined();
     expect(asked).toEqual(['hooks/list', 'plugin/installed']);
 
@@ -502,7 +608,17 @@ describe('codex thread config', () => {
 
     // A Codex that ignored the keys still lists them on: the run must not go on quietly.
     const ignored = conn({
-      'hooks/list': { data: [{ cwd: '/repo', hooks: [{ key: 'h', eventName: 'stop', enabled: true }, { key: 'o', eventName: 'stop', enabled: false }] }] },
+      'hooks/list': {
+        data: [
+          {
+            cwd: '/repo',
+            hooks: [
+              { key: 'h', eventName: 'stop', enabled: true },
+              { key: 'o', eventName: 'stop', enabled: false },
+            ],
+          },
+        ],
+      },
       'plugin/installed': { marketplaces: [{ name: 'm', plugins: [{ id: 'deck@m', installed: true, enabled: true }] }] },
     });
     const failure = withLang('en', () => codexConfirmLeftOut(ignored, run, 'thr-1'));
@@ -529,9 +645,36 @@ describe('codex thread config', () => {
   it('checks the single skills, hooks and plugins left out, and only those', async () => {
     const asked: string[] = [];
     const answers: Record<string, unknown> = {
-      'skills/list': { data: [{ skills: [{ name: 'a', path: '/s/a/SKILL.md', enabled: false }, { name: 'b', path: '/s/b/SKILL.md', enabled: true }] }] },
-      'hooks/list': { data: [{ hooks: [{ key: 'h1', eventName: 'stop', enabled: false }, { key: 'h2', eventName: 'stop', enabled: true }] }] },
-      'plugin/installed': { marketplaces: [{ plugins: [{ id: 'pdf@o', installed: true, enabled: false }, { id: 'docs@o', installed: true, enabled: true }] }] },
+      'skills/list': {
+        data: [
+          {
+            skills: [
+              { name: 'a', path: '/s/a/SKILL.md', enabled: false },
+              { name: 'b', path: '/s/b/SKILL.md', enabled: true },
+            ],
+          },
+        ],
+      },
+      'hooks/list': {
+        data: [
+          {
+            hooks: [
+              { key: 'h1', eventName: 'stop', enabled: false },
+              { key: 'h2', eventName: 'stop', enabled: true },
+            ],
+          },
+        ],
+      },
+      'plugin/installed': {
+        marketplaces: [
+          {
+            plugins: [
+              { id: 'pdf@o', installed: true, enabled: false },
+              { id: 'docs@o', installed: true, enabled: true },
+            ],
+          },
+        ],
+      },
     };
     const conn = { request: async (method: string) => (asked.push(method), answers[method]) };
     const took = { cwd: '/repo', nativeItems: { skills: ['/s/a/SKILL.md'], hooks: ['h1'], plugins: ['pdf@o'] } };
@@ -542,11 +685,10 @@ describe('codex thread config', () => {
     await expect(withLang('en', () => codexConfirmLeftOut(conn, still, 'thr-1'))).rejects.toThrow(
       /^Codex still loaded skills and hooks and plugins that are left out of this run/,
     );
-    await expect(withLang('zh-TW', () => codexConfirmLeftOut(conn, { cwd: '/repo', nativeItems: { hooks: ['h2'] } }, 'thr-1'))).rejects.toThrow(
-      /^Codex 仍載入了設為不載入的 hook/,
-    );
+    await expect(
+      withLang('zh-TW', () => codexConfirmLeftOut(conn, { cwd: '/repo', nativeItems: { hooks: ['h2'] } }, 'thr-1')),
+    ).rejects.toThrow(/^Codex 仍載入了設為不載入的 hook/);
   });
-
 });
 
 // The stand-ins are scripts run by their `#!` line, which Windows cannot start.
@@ -637,7 +779,16 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
         .trim()
         .split('\n')
         .filter(Boolean)
-        .map((l) => JSON.parse(l) as { args?: string[]; method?: string; capabilities?: unknown; permissions?: string | null; sandbox?: string | null });
+        .map(
+          (l) =>
+            JSON.parse(l) as {
+              args?: string[];
+              method?: string;
+              capabilities?: unknown;
+              permissions?: string | null;
+              sandbox?: string | null;
+            },
+        );
     return { result, lines, methods: () => lines().flatMap((l) => (l.method ? [l.method] : [])) };
   }
 
@@ -683,7 +834,9 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       // The next run goes to the legacy sandbox at once.
       const next = run({ FAKE_CODEX_PROFILE_FAILS: '1' }, undefined, ['/home/me/.mozilla']);
       await next.result;
-      expect(next.lines().filter((l) => 'permissions' in l)).toEqual([expect.objectContaining({ permissions: null, sandbox: 'read-only' })]);
+      expect(next.lines().filter((l) => 'permissions' in l)).toEqual([
+        expect.objectContaining({ permissions: null, sandbox: 'read-only' }),
+      ]);
     } finally {
       resetCodexProfiles();
     }
@@ -696,7 +849,13 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
   });
 
   it("runs the model of the user's own endpoint there, with its key in a variable and an effort it takes", async () => {
-    const endpoint = (apiKey?: string) => ({ id: 'homelab', name: 'Homelab', baseUrl: 'http://10.0.0.5:11434/v1', models: ['gemma4:e4b'], ...(apiKey ? { apiKey } : {}) });
+    const endpoint = (apiKey?: string) => ({
+      id: 'homelab',
+      name: 'Homelab',
+      baseUrl: 'http://10.0.0.5:11434/v1',
+      models: ['gemma4:e4b'],
+      ...(apiKey ? { apiKey } : {}),
+    });
     const go = async (o: { effort?: string; configEffort?: string; apiKey?: string; model?: string }) => {
       const log = join(dir, `log-${++n}.jsonl`);
       appendFileSync(log, '');
@@ -718,7 +877,10 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
         signal: new AbortController().signal,
         onEvent: () => undefined,
       });
-      const lines = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>);
+      const lines = readFileSync(log, 'utf8')
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l) as Record<string, unknown>);
       return {
         started: lines.find((l) => 'modelProvider' in l)!,
         args: lines[0]!.args as string[],
@@ -730,7 +892,14 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       model: 'gemma4:e4b',
       modelProvider: 'harness-relay-homelab',
       configProvider: 'harness-relay-homelab',
-      providers: { 'harness-relay-homelab': { name: 'Harness Relay: Homelab', base_url: 'http://10.0.0.5:11434/v1', wire_api: 'responses', env_key: 'HARNESS_RELAY_ENDPOINT_API_KEY' } },
+      providers: {
+        'harness-relay-homelab': {
+          name: 'Harness Relay: Homelab',
+          base_url: 'http://10.0.0.5:11434/v1',
+          wire_api: 'responses',
+          env_key: 'HARNESS_RELAY_ENDPOINT_API_KEY',
+        },
+      },
       effort: 'high',
       key: 'lab-key',
     });
@@ -757,7 +926,14 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     expect((await go({})).started.effort).toBeNull();
     // Codex's own models stay as they are.
     const own = await go({ model: 'gpt-6.1-sol', effort: 'xhigh' });
-    expect(own.started).toEqual({ model: 'gpt-6.1-sol', modelProvider: null, configProvider: null, providers: null, effort: 'xhigh', key: 'from-the-shell' });
+    expect(own.started).toEqual({
+      model: 'gpt-6.1-sol',
+      modelProvider: null,
+      configProvider: null,
+      providers: null,
+      effort: 'xhigh',
+      key: 'from-the-shell',
+    });
     expect(own.args.join(' ')).not.toContain('model_provider');
     // A model of an endpoint deleted in Settings fails before Codex starts: its id would go to OpenAI.
     // An id of the user's Codex config with a slash still runs as Codex has it.

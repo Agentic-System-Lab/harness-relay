@@ -175,8 +175,10 @@ export async function checkProviders(base: string, log: (...a: unknown[]) => voi
   // The CLIs its questions name (Cursor is not among them).
   const all = (await api<ProviderStatus[]>(base, '/api/providers?refresh=1')).filter((p) => DEMO_PROVIDERS.includes(p.provider));
   const missing = all.filter((p) => !p.installed || p.auth.loggedIn === false);
-  for (const p of all) log('provider', p.provider, p.version ?? '', p.installed ? (p.auth.loggedIn === false ? 'not signed in' : 'ready') : 'not installed');
-  if (missing.length) throw new Error(`The demo needs all three CLIs, installed and signed in: ${missing.map((p) => p.provider).join(', ')}`);
+  for (const p of all)
+    log('provider', p.provider, p.version ?? '', p.installed ? (p.auth.loggedIn === false ? 'not signed in' : 'ready') : 'not installed');
+  if (missing.length)
+    throw new Error(`The demo needs all three CLIs, installed and signed in: ${missing.map((p) => p.provider).join(', ')}`);
   const trust = await api<{ folder: string; trusted?: boolean }>(base, '/api/providers/grok/folder-trust', { cwd: ROOT });
   if (trust.trusted === false) {
     log('Grok does not trust', trust.folder, 'yet: trusting it, as `grok --trust` would');
@@ -332,7 +334,7 @@ export async function record(opts: RecordOptions, base: string, log: (...a: unkn
         }
         const s = await summary(id);
         const desc = JSON.stringify({ r: s?.running, w: s?.waiting, a: s?.asking, c: s?.confirmTeam, s: s?.sorting, st: s?.lastStatus });
-        if (desc !== last) log('state', desc), (last = desc);
+        if (desc !== last) (log('state', desc), (last = desc));
         if (s?.waiting) {
           // Shown at normal speed, then declined: read-only stays read-only.
           setFast(false);
@@ -378,7 +380,15 @@ export async function record(opts: RecordOptions, base: string, log: (...a: unkn
       await page.locator('.plan-confirm').last().scrollIntoViewIfNeeded();
       await sleep(1500);
       const plan = [...(await conversation(id)).messages].reverse().find((m) => m.plan?.status === 'ready')?.plan;
-      log(label, 'plan', plan?.source, plan?.name, plan?.settings?.mode, plan?.settings?.rounds, plan?.agents?.map((a) => `${a.name}/${a.provider}`).join(' '));
+      log(
+        label,
+        'plan',
+        plan?.source,
+        plan?.name,
+        plan?.settings?.mode,
+        plan?.settings?.rounds,
+        plan?.agents?.map((a) => `${a.name}/${a.provider}`).join(' '),
+      );
       log(label, 'reason', plan?.reason);
       await moveClick('.plan-confirm .primary', { after: 900 });
       mark(`${label}-confirmed`, planFacts(plan));
@@ -390,7 +400,7 @@ export async function record(opts: RecordOptions, base: string, log: (...a: unkn
       mark(`${label}-answering`);
       let quiet = 0;
       await waitWork(id, async (s) => {
-        if (s?.running || s?.waiting || s?.confirmTeam || s?.asking) return (quiet = 0), false;
+        if (s?.running || s?.waiting || s?.confirmTeam || s?.asking) return ((quiet = 0), false);
         quiet++;
         const enough = agentReplies(await conversation(id)) >= replies;
         // Over with fewer replies than expected (one failed, or the team was smaller): go on after a while.
@@ -592,4 +602,3 @@ async function scrollCodeTo(needle: string): Promise<void> {
     requestAnimationFrame(step);
   });
 }
-

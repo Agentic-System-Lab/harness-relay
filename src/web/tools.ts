@@ -42,6 +42,13 @@ export function toolItems(lib: ToolLibraryView): ToolItem[] {
       name: scope,
       providers: scope === 'all' ? [...PROVIDERS] : [scope],
     })),
+    // Harness Relay's own tools, while this server can give them, once a group is given to some CLI: one
+    // given to none is not in the library yet (an empty library still says so).
+    ...(lib.gateway.available
+      ? lib.relayTools
+          .filter((g) => g.providers.length)
+          .map<ToolItem>((g) => ({ key: toolKey('relay', g.group), kind: 'relay', name: g.group, providers: g.providers }))
+      : []),
   ];
 }
 
@@ -68,7 +75,10 @@ export const noneForCliText = (t: Messages, provider: Provider): string => t.tea
 /** The hint over a member's tool library items: they come on top of what its CLI loads by itself. */
 export const toolsHintText = (t: Messages, provider: Provider): string => t.team.toolsHint(ownSetupText(t, provider));
 
-/** The items that apply to an agent of `provider`: all but the memory parts for other CLIs. */
+/**
+ * The items that apply to an agent of `provider`: all but the memory parts for other CLIs. Harness
+ * Relay's own tools apply to every CLI (Grok's and the open agents' in full access only).
+ */
 export function itemsFor(items: ToolItem[], provider: Provider): ToolItem[] {
   return items.filter((i) => i.kind !== 'memory' || i.name === 'all' || i.name === provider);
 }

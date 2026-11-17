@@ -28,13 +28,22 @@ export function packagedApps(dir: string): PackagedApp[] {
     const at = join(dir, entry.name);
     const mac = join(at, 'Harness Relay.app');
     if (entry.name.startsWith('mac') && existsSync(mac)) {
-      apps.push({ fuses: mac, exe: join(mac, 'Contents', 'MacOS', 'Harness Relay'), resources: join(mac, 'Contents', 'Resources'), universal: entry.name === 'mac-universal' });
+      apps.push({
+        fuses: mac,
+        exe: join(mac, 'Contents', 'MacOS', 'Harness Relay'),
+        resources: join(mac, 'Contents', 'Resources'),
+        universal: entry.name === 'mac-universal',
+      });
     } else if (entry.name.startsWith('win') && existsSync(join(at, 'Harness Relay.exe'))) {
-      apps.push({ fuses: join(at, 'Harness Relay.exe'), exe: join(at, 'Harness Relay.exe'), resources: join(at, 'resources'), universal: false });
+      apps.push({
+        fuses: join(at, 'Harness Relay.exe'),
+        exe: join(at, 'Harness Relay.exe'),
+        resources: join(at, 'resources'),
+        universal: false,
+      });
     } else if (entry.name.startsWith('linux') && existsSync(join(at, 'harness-relay'))) {
       apps.push({ fuses: join(at, 'harness-relay'), exe: join(at, 'harness-relay'), resources: join(at, 'resources'), universal: false });
     }
   }
   return apps;
 }
-

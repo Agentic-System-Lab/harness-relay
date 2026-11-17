@@ -31,8 +31,11 @@ export function CliPicker({ value, onPick, label }: { value: Provider; onPick: (
   );
 }
 
-/** Scrolls the row sideways so that its chosen button is in view, with a little room beside it. */
-function revealChosen(row: HTMLElement | null): void {
+/**
+ * Scrolls a row of choices sideways so that its chosen button is in view, with a little room beside it
+ * (the CLI picker's, and the schedule form's kinds).
+ */
+export function revealChosen(row: HTMLElement | null): void {
   const on = row?.querySelector<HTMLElement>('button.on');
   if (!row || !on) return;
   const box = row.getBoundingClientRect();

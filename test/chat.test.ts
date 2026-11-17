@@ -188,7 +188,9 @@ const result = (id: string, agentId: string, base: string, head: string, extra: 
   createdAt: 0,
   status: 'done',
   parts: [],
-  changes: [{ root: '/r', base, head, files: [{ path: 'f', status: 'M', added: 1, deleted: 0 }], isolated: true, branch: `relay/c/${agentId}` }],
+  changes: [
+    { root: '/r', base, head, files: [{ path: 'f', status: 'M', added: 1, deleted: 0 }], isolated: true, branch: `relay/c/${agentId}` },
+  ],
   ...extra,
 });
 
@@ -237,7 +239,12 @@ describe('which worktree result can be applied', () => {
   it('ignores streaming replies, shared-directory changes and agents without a worktree', () => {
     const shared = result('s', 'A', 'S1', 'x');
     shared.changes = [{ ...shared.changes![0]!, isolated: false }];
-    const messages = [result('a1', 'A', 'S1', 'h1'), shared, result('a2', 'A', 'h1', 'h2', { status: 'streaming' }), result('c1', 'C', 'S1', 'z')];
+    const messages = [
+      result('a1', 'A', 'S1', 'h1'),
+      shared,
+      result('a2', 'A', 'h1', 'h2', { status: 'streaming' }),
+      result('c1', 'C', 'S1', 'z'),
+    ];
     const states = applyStates(messages, { A: [worktree('A', 'S1')] });
     expect([...states]).toEqual([['a1', 'available']]);
   });
@@ -267,10 +274,19 @@ const designed: Team = {
 describe('the team the team drawer edits', () => {
   const current = [{ id: 'a', name: 'Alice', provider: 'claude' as const, role: '' }];
   const proposal = [{ id: 'z', name: 'Zed', provider: 'codex' as const, role: 'New.' }];
-  const conv = { agents: current, settings: { mode: 'roundtable' as const, rounds: 1, maxHops: 8, permission: 'edit' as const, cwd: '/p', autoTeam: true } };
+  const conv = {
+    agents: current,
+    settings: { mode: 'roundtable' as const, rounds: 1, maxHops: 8, permission: 'edit' as const, cwd: '/p', autoTeam: true },
+  };
 
   it("is the lead agent's design while it waits for confirmation, with how it takes turns", () => {
-    const pending = { status: 'ready' as const, lead: { provider: 'claude' as const }, agents: proposal, settings: { mode: 'relay' as const, rounds: 1, maxHops: 4 }, awaitingConfirmation: true };
+    const pending = {
+      status: 'ready' as const,
+      lead: { provider: 'claude' as const },
+      agents: proposal,
+      settings: { mode: 'relay' as const, rounds: 1, maxHops: 4 },
+      awaitingConfirmation: true,
+    };
     expect(teamToEdit(conv, pending)).toEqual({
       team: { agents: proposal, settings: { ...conv.settings, mode: 'relay', maxHops: 4 } },
       proposed: true,
@@ -305,12 +321,32 @@ describe('the team drawer draft', () => {
 });
 
 describe("the lead agent's change in the team drawer", () => {
-  const settings = { mode: 'roundtable' as const, rounds: 1, maxHops: 8, permission: 'edit' as const, cwd: '/work', approvals: 'deny' as const };
-  const alice: AgentConfig = { id: 'a', name: 'Alice', provider: 'claude', role: 'Lead.\n', model: '', effort: '', tools: { memory: false } };
+  const settings = {
+    mode: 'roundtable' as const,
+    rounds: 1,
+    maxHops: 8,
+    permission: 'edit' as const,
+    cwd: '/work',
+    approvals: 'deny' as const,
+  };
+  const alice: AgentConfig = {
+    id: 'a',
+    name: 'Alice',
+    provider: 'claude',
+    role: 'Lead.\n',
+    model: '',
+    effort: '',
+    tools: { memory: false },
+  };
   const bob: AgentConfig = { id: 'b', name: 'Bob', provider: 'codex', role: 'Build.', model: 'gpt-5' };
   const draft = { agents: [alice, bob], settings };
   /** The team as the server sends it back: empty values dropped, roles as the lead copied them. */
-  const asServer = (a: AgentConfig): AgentConfig => ({ ...a, role: a.role.trim(), model: a.model || undefined, effort: a.effort || undefined });
+  const asServer = (a: AgentConfig): AgentConfig => ({
+    ...a,
+    role: a.role.trim(),
+    model: a.model || undefined,
+    effort: a.effort || undefined,
+  });
 
   it("sends the members, how they take turns, and the drawer's permission and folder", () => {
     expect(teamTurns(draft)).toEqual({ agents: draft.agents, settings: { mode: 'roundtable', rounds: 1, maxHops: 8 } });
@@ -348,7 +384,9 @@ describe("the lead agent's change in the team drawer", () => {
     const swapped = revisedTeam(draft, { agents: [bob, alice], settings: { mode: 'roundtable', rounds: 3, maxHops: 8 } });
     expect(teamChanges(draft, swapped)).toEqual([{ kind: 'order' }, { kind: 'rounds', rounds: 3 }]);
     // Only what is counted in the mode: hand-offs do not matter in roundtable.
-    expect(teamChanges(draft, revisedTeam(draft, { agents: draft.agents, settings: { mode: 'roundtable', rounds: 1, maxHops: 20 } }))).toEqual([]);
+    expect(
+      teamChanges(draft, revisedTeam(draft, { agents: draft.agents, settings: { mode: 'roundtable', rounds: 1, maxHops: 20 } })),
+    ).toEqual([]);
   });
 
   it('holds the button a moment after it switches, so a double-click or a late click on Stop does nothing', () => {

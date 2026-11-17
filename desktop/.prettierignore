@@ -1,0 +1,6 @@
+# What Prettier leaves alone when it runs in desktop/ (npm --prefix desktop run format): the
+# repository's own list (../.prettierignore) is read only from the repository's root.
+*.md
+package-lock.json
+build/
+release/

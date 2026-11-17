@@ -232,7 +232,9 @@ export function NativeSetupPanel({
           <span className="muted small">{t.native.offNotes[provider][part]}</span>
         </div>
         {canLeaveOutAll(provider, shown) && !canPickIn(provider, shown) && (
-          <p className="muted small">{provider === 'claude' && shown === 'hooks' ? t.native.claudeHooks : t.native.cannotPick(PROVIDER_LABEL[provider])}</p>
+          <p className="muted small">
+            {provider === 'claude' && shown === 'hooks' ? t.native.claudeHooks : t.native.cannotPick(PROVIDER_LABEL[provider])}
+          </p>
         )}
         {picked > 0 &&
           (partOff ? (
@@ -240,7 +242,12 @@ export function NativeSetupPanel({
           ) : (
             <p className="muted small">
               {t.native.picked(picked)}{' '}
-              <button type="button" className="link-button" onClick={() => void save({ nativeItems: withoutTab(items, shown) })} disabled={busy || !account}>
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => void save({ nativeItems: withoutTab(items, shown) })}
+                disabled={busy || !account}
+              >
                 {t.native.clearPicked}
               </button>
             </p>
@@ -248,7 +255,12 @@ export function NativeSetupPanel({
         {unlisted.length > 0 && (
           <p className="muted small">
             {t.native.unlisted(unlisted.length)}{' '}
-            <button type="button" className="link-button" onClick={() => void save({ nativeItems: withoutPicks(items, unlisted) })} disabled={busy || !account}>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => void save({ nativeItems: withoutPicks(items, unlisted) })}
+              disabled={busy || !account}
+            >
               {t.native.clearUnlisted}
             </button>
           </p>
@@ -269,7 +281,13 @@ export function NativeSetupPanel({
         ) : (
           <>
             {shown !== 'memory' && shown !== 'instructions' && (
-              <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t.native.filter} aria-label={t.native.filter} />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t.native.filter}
+                aria-label={t.native.filter}
+              />
             )}
             {shown === 'skills' && (
               <List empty={!setup.skills.length}>
@@ -405,7 +423,12 @@ export function NativeSetupPanel({
                       m.path,
                       box('instructions', m.id, m.path),
                       <span className="native-name">
-                        <button type="button" className="link-button native-file" onClick={() => setViewing(m.path)} title={t.native.preview}>
+                        <button
+                          type="button"
+                          className="link-button native-file"
+                          onClick={() => setViewing(m.path)}
+                          title={t.native.preview}
+                        >
                           <code>{m.path}</code>
                         </button>
                         <StateBadges item={m} still={still(m)} />
@@ -436,7 +459,9 @@ export function NativeSetupPanel({
           {s.status && <span className={`badge ${s.status === 'connected' ? 'ok' : ''}`}>{s.status}</span>}
           <StateBadges item={s} still={still(s)} />
         </span>
-        <span className="native-description">{[s.source && t.native.source(s.source), s.tools && t.native.tools(s.tools.length)].filter(Boolean).join(' · ')}</span>
+        <span className="native-description">
+          {[s.source && t.native.source(s.source), s.tools && t.native.tools(s.tools.length)].filter(Boolean).join(' · ')}
+        </span>
         {tools.length > 0 && (
           <details
             className="native-server-tools"

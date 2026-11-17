@@ -107,7 +107,12 @@ test.describe('notifications and sound', () => {
     await expect(card).toContainText('Test notification shown.');
     const { notes, tones } = await recorded(page);
     expect(notes).toEqual([
-      { title: 'Harness Relay', body: "Notifications are on: you'll be told here when an agent finishes or needs you.", tag: 'relay-test', silent: true },
+      {
+        title: 'Harness Relay',
+        body: "Notifications are on: you'll be told here when an agent finishes or needs you.",
+        tag: 'relay-test',
+        silent: true,
+      },
     ]);
     expect(tones).toBe(4);
 
@@ -117,7 +122,10 @@ test.describe('notifications and sound', () => {
     await expect(card.getByRole('checkbox', { name: 'A reply is done (or ended with an error)' })).toBeChecked();
   });
 
-  test('with its window behind another, a team to confirm and a finished reply each show a notification, and a click opens the chat', async ({ page, relay }) => {
+  test('with its window behind another, a team to confirm and a finished reply each show a notification, and a click opens the chat', async ({
+    page,
+    relay,
+  }) => {
     await recordAlerts(page, { prefs: ON, allowed: true });
     await startChat(page);
     const id = chatId(page);
@@ -192,7 +200,10 @@ test.describe('the notification inbox', () => {
   const bell = (page: Page) => page.locator('.sidebar .brand').getByRole('button', { name: /^Notifications/ });
   const inbox = (page: Page) => page.getByRole('dialog', { name: 'Notifications' });
 
-  test('the bell keeps what the team said: how many are unread, the list, a click opens its chat and reads it, and Clear all', async ({ page, relay }) => {
+  test('the bell keeps what the team said: how many are unread, the list, a click opens its chat and reads it, and Clear all', async ({
+    page,
+    relay,
+  }) => {
     // Notifications and sound off: the inbox keeps them all the same. The window behind another, so the chat on screen reads nothing.
     await recordAlerts(page);
     await startChat(page);
@@ -253,14 +264,19 @@ test.describe('the notification inbox', () => {
     await expect(bell(page)).toBeFocused();
   });
 
-  test('reads at once what comes in the chat on screen; Mark all as read reads the rest; with the sidebar collapsed, the bell is right of the expand button, which keeps the corner', async ({ page, relay }) => {
+  test('reads at once what comes in the chat on screen; Mark all as read reads the rest; with the sidebar collapsed, the bell is right of the expand button, which keeps the corner', async ({
+    page,
+    relay,
+  }) => {
     await startChat(page, { autoConfirm: true });
     const first = chatId(page);
     await send(page, 'First question');
     await finishedReply(page, 'Claude');
     await settled(relay, first);
     // Kept, and read: the user was looking.
-    await expect.poll(async () => (await relay.api<InboxItem[]>('/api/notifications')).map((i) => [i.kind, i.read])).toEqual([['done', true]]);
+    await expect
+      .poll(async () => (await relay.api<InboxItem[]>('/api/notifications')).map((i) => [i.kind, i.read]))
+      .toEqual([['done', true]]);
     await expect(bell(page)).toHaveAccessibleName('Notifications');
 
     // A reply that ends while the user is elsewhere stays unread.

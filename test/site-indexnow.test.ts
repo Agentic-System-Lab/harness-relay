@@ -39,7 +39,13 @@ describe("IndexNow's key", () => {
     expect(deletes).toHaveLength(1);
     const patterns = [...deletes[0].matchAll(/-name '([^']+)'/g)].map((m) => m[1]);
     expect(patterns.length).toBeGreaterThan(0);
-    const glob = (p: string) => new RegExp(`^${p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*').replaceAll('?', '.')}$`);
+    const glob = (p: string) =>
+      new RegExp(
+        `^${p
+          .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+          .replaceAll('*', '.*')
+          .replaceAll('?', '.')}$`,
+      );
     for (const pattern of patterns) expect(glob(pattern).test(`${KEY}.txt`), pattern).toBe(false);
   });
 });
@@ -161,7 +167,12 @@ interface Run {
  */
 function step(
   name: string,
-  { live, changed, code = '200', down = false }: { live?: (dir: string) => void; changed?: string[] | string; code?: string; down?: boolean } = {},
+  {
+    live,
+    changed,
+    code = '200',
+    down = false,
+  }: { live?: (dir: string) => void; changed?: string[] | string; code?: string; down?: boolean } = {},
 ): Run {
   const run = mkdtempSync(join(tmp, 'run-'));
   const temp = join(run, 'runner-temp');
@@ -251,7 +262,9 @@ describe.skipIf(process.platform === 'win32')('finding the pages the deployment 
 
   it('finds a page the live sitemap lists and the new one does not: a removed page', () => {
     const OLD = `${SITE}old/`;
-    const r = step(FIND, { live: (dir) => edit(dir, 'sitemap.xml', (xml) => xml.replace('</urlset>', `  <url>\n    <loc>${OLD}</loc>\n  </url>\n</urlset>`)) });
+    const r = step(FIND, {
+      live: (dir) => edit(dir, 'sitemap.xml', (xml) => xml.replace('</urlset>', `  <url>\n    <loc>${OLD}</loc>\n  </url>\n</urlset>`)),
+    });
     expect(r.status, r.out).toBe(0);
     expect(r.changed).toEqual([OLD]);
   });
@@ -290,7 +303,9 @@ describe.skipIf(process.platform === 'win32')('telling IndexNow', { timeout: slo
     const r = step(TELL, { changed: [EN, ZH] });
     expect(r.status, r.out).toBe(0);
     expect(r.calls).toHaveLength(1);
-    expect(r.calls[0]).toMatch(new RegExp(`^${POST.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\S+indexnow\\.json https://api\\.indexnow\\.org/indexnow$`));
+    expect(r.calls[0]).toMatch(
+      new RegExp(`^${POST.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\S+indexnow\\.json https://api\\.indexnow\\.org/indexnow$`),
+    );
     expect(r.body).toEqual({ host: 'agentic-system-lab.github.io', key: KEY, keyLocation: `${SITE}${KEY}.txt`, urlList: [EN, ZH] });
     expect(r.out).toBe('IndexNow was told of 2 changed page(s) (HTTP 200).\n');
     expect(r.summary).toBe('');

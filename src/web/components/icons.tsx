@@ -226,13 +226,11 @@ export function ClockIcon({ size }: { size?: number }) {
   );
 }
 
-/** A calendar with a plus: a new schedule. */
-export function CalendarPlusIcon({ size }: { size?: number }) {
+/** A lightning bolt: an automation (what runs by itself, once something starts it). */
+export function ZapIcon({ size }: { size?: number }) {
   return (
     <Svg size={size}>
-      <rect x="3" y="5" width="18" height="16" rx="2.5" />
-      <path d="M8 3v4M16 3v4M3 10h18" />
-      <path d="M12 13v5M9.5 15.5h5" />
+      <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" />
     </Svg>
   );
 }

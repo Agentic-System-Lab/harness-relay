@@ -58,7 +58,12 @@ function sessionUpdates(peer, sessionId, cancelled = () => false) {
     },
     /** A tool call's end, done or failed, with a text as its content. */
     toolDone(toolCallId, ok, text) {
-      update({ sessionUpdate: 'tool_call_update', toolCallId, status: ok ? 'completed' : 'failed', content: [{ type: 'content', content: { type: 'text', text } }] });
+      update({
+        sessionUpdate: 'tool_call_update',
+        toolCallId,
+        status: ok ? 'completed' : 'failed',
+        content: [{ type: 'content', content: { type: 'text', text } }],
+      });
     },
     /** Text, streamed in pieces (slowly for a slow reply). False when the session was cancelled on its way. */
     async message(text, slow) {
@@ -81,7 +86,8 @@ function requestPermission(peer, sessionId, toolCall, options) {
 }
 
 /** Whether a permission answer picked the option `optionId`. */
-const picked = (answer, optionId) => Boolean(answer && answer.outcome && answer.outcome.outcome === 'selected' && answer.outcome.optionId === optionId);
+const picked = (answer, optionId) =>
+  Boolean(answer && answer.outcome && answer.outcome.outcome === 'selected' && answer.outcome.optionId === optionId);
 
 /** The message a permission answer carries (`_meta.followup_message`: Harness Relay's note with a refusal), or ''. */
 const followup = (answer) => (answer && answer._meta && answer._meta.followup_message) || '';

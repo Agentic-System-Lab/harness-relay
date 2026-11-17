@@ -18,7 +18,10 @@ export function readyProviders(providers: ProviderStatus[]): Provider[] | undefi
 export function blankAgents(providers: ProviderStatus[]): AgentConfig[] {
   const agents: AgentConfig[] = [];
   for (const p of readyProviders(providers) ?? []) {
-    const agent = newAgent(p, agents.map((a) => a.name));
+    const agent = newAgent(
+      p,
+      agents.map((a) => a.name),
+    );
     const account = readyAccount(providers.find((s) => s.provider === p));
     agents.push(account ? { ...agent, account } : agent);
   }

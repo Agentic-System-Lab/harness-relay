@@ -118,16 +118,27 @@ async function main(): Promise<number> {
       check(wire[Number(option)] === state, `fuse ${name}: ${state === ON ? 'on' : 'off'}`);
     }
     const server = join(app.resources, 'server');
-    check(existsSync(join(server, 'server.mjs')) && existsSync(join(server, 'web', 'index.html')), 'the server and the web app are in its resources');
+    check(
+      existsSync(join(server, 'server.mjs')) && existsSync(join(server, 'web', 'index.html')),
+      'the server and the web app are in its resources',
+    );
     const napi = join(server, 'node_modules', '@napi-rs');
     const keyring = existsSync(napi) ? readdirSync(napi) : [];
-    check(keyring.includes('keyring') && keyring.some((n) => n.startsWith('keyring-')), `the keyring module is in its resources (${keyring.join(', ') || 'none'})`);
+    check(
+      keyring.includes('keyring') && keyring.some((n) => n.startsWith('keyring-')),
+      `the keyring module is in its resources (${keyring.join(', ') || 'none'})`,
+    );
     if (app.universal) {
-      check(keyring.includes('keyring-darwin-arm64') && keyring.includes('keyring-darwin-x64'), 'the keyring module has its native part for Apple Silicon and Intel');
+      check(
+        keyring.includes('keyring-darwin-arm64') && keyring.includes('keyring-darwin-x64'),
+        'the keyring module has its native part for Apple Silicon and Intel',
+      );
     }
     const runtime = join(server, 'node_modules', '@anthropic-ai', 'sandbox-runtime');
     check(
-      existsSync(join(server, 'relaySandboxHost.mjs')) && existsSync(join(server, 'piGate.js')) && existsSync(join(runtime, 'package.json')),
+      existsSync(join(server, 'relaySandboxHost.mjs')) &&
+        existsSync(join(server, 'piGate.js')) &&
+        existsSync(join(runtime, 'package.json')),
       "the relay sandbox's host, Pi's gate and the sandbox runtime are in its resources",
     );
     if (process.platform === 'linux') {
@@ -136,11 +147,19 @@ async function main(): Promise<number> {
     }
     const shipped = join(app.resources, 'LICENSE');
     check(existsSync(shipped) && readFileSync(shipped).equals(license), "the repository's LICENSE is in its resources");
-    check(fromArchive(join(app.resources, 'app.asar'), 'LICENSE')?.equals(license), "the repository's LICENSE is in its archive, beside its package.json");
+    check(
+      fromArchive(join(app.resources, 'app.asar'), 'LICENSE')?.equals(license),
+      "the repository's LICENSE is in its archive, beside its package.json",
+    );
     // The token for the app's updates, if it was built with one, is its main process's alone (desktop/scripts/build.ts).
-    const bundles = ['server.mjs', 'relaySandboxHost.mjs', 'piGate.js'].map((name) => join(server, name)).filter((path) => existsSync(path));
+    const bundles = ['server.mjs', 'relaySandboxHost.mjs', 'piGate.js']
+      .map((name) => join(server, name))
+      .filter((path) => existsSync(path));
     const token = /github_pat_[A-Za-z0-9_]{20,}/;
-    check(bundles.length === 3 && bundles.every((path) => !token.test(readFileSync(path, 'latin1'))), 'no file the server runs holds a GitHub token');
+    check(
+      bundles.length === 3 && bundles.every((path) => !token.test(readFileSync(path, 'latin1'))),
+      'no file the server runs holds a GitHub token',
+    );
     const main = fromArchive(join(app.resources, 'app.asar'), 'main.cjs')?.toString('latin1');
     check(main !== undefined && !token.test(main), "the app's main process holds no GitHub token as text (only encoded)");
     // What it was built to download its updates with, as this environment names it.
@@ -149,7 +168,7 @@ async function main(): Promise<number> {
       const { repo, encodedToken } = encodeUpdateSource(source.value);
       // As the build's define puts it (`repo: "…"`): the default repository's name is in the app's code anyway.
       check(main?.includes(`repo: ${JSON.stringify(repo)}`), `the app downloads its updates from ${repo}`);
-      if (encodedToken) check(main?.includes(JSON.stringify(encodedToken)), "the app holds the read token it was built with, encoded");
+      if (encodedToken) check(main?.includes(JSON.stringify(encodedToken)), 'the app holds the read token it was built with, encoded');
     } else {
       check(false, source.error);
     }

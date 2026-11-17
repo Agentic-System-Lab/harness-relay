@@ -19,7 +19,10 @@ import {
 const setup = (extra: Partial<NativeSetup> = {}): NativeSetup => ({
   provider: 'claude',
   cwd: '/p',
-  skills: [{ name: 'a', description: '', leftOut: true }, { name: 'b', description: '' }],
+  skills: [
+    { name: 'a', description: '', leftOut: true },
+    { name: 'b', description: '' },
+  ],
   mcpServers: [{ name: 'm', leftOut: true }],
   memory: [
     { path: '/p/CLAUDE.md', kind: 'instructions', leftOut: true },
@@ -36,7 +39,16 @@ const setup = (extra: Partial<NativeSetup> = {}): NativeSetup => ({
 
 describe('the panel of what a CLI loads by itself', () => {
   it("shows each CLI's tabs before it is asked, then with their counts", () => {
-    expect(nativeTabs('claude').map((t) => t.tab)).toEqual(['skills', 'mcp', 'tools', 'hooks', 'agents', 'plugins', 'instructions', 'memory']);
+    expect(nativeTabs('claude').map((t) => t.tab)).toEqual([
+      'skills',
+      'mcp',
+      'tools',
+      'hooks',
+      'agents',
+      'plugins',
+      'instructions',
+      'memory',
+    ]);
     // Codex lists no subagents and has no switch for them; only Claude Code lists its built-in tools.
     expect(nativeTabs('codex').map((t) => t.tab)).toEqual(['skills', 'mcp', 'hooks', 'plugins', 'instructions', 'memory']);
     expect(nativeTabs('grok').map((t) => t.tab)).toEqual(['skills', 'mcp', 'hooks', 'agents', 'plugins', 'instructions', 'memory']);
@@ -149,7 +161,9 @@ describe('the panel of what a CLI loads by itself', () => {
 
 describe('single items left out, as stored', () => {
   it('keeps only kinds the CLI can leave out, strings once each, within limits', () => {
-    expect(nativeItemsFor('claude', { skills: ['a', 'a', '', 7, 'b'], hooks: ['h'], bogus: ['x'], tools: [] })).toEqual({ skills: ['a', 'b'] });
+    expect(nativeItemsFor('claude', { skills: ['a', 'a', '', 7, 'b'], hooks: ['h'], bogus: ['x'], tools: [] })).toEqual({
+      skills: ['a', 'b'],
+    });
     expect(nativeItemsFor('codex', { hooks: ['h'], tools: ['Bash'], instructions: ['/p/AGENTS.md'] })).toEqual({ hooks: ['h'] });
     expect(nativeItemsFor('grok', { skills: ['a'] })).toEqual({});
     expect(nativeItemsFor('claude', null)).toEqual({});

@@ -19,6 +19,7 @@ const { exitAfterLog, record } = require('../lib/log.cjs');
 const { declined, noOther, pieceDelay, pieces, plan, recordMcpEnv, wrote } = require('../lib/plan.cjs');
 const { fail, rpcError, rpcPeer, track } = require('../lib/rpc.cjs');
 const { args, has, home, newId, sleep } = require('../lib/self.cjs');
+const { callMcpTool } = require('../lib/mcp.cjs');
 
 /** The verdict on the key `login --with-api-key` kept in its home, or null (signed in otherwise, or out). */
 function keptApiKey() {
@@ -32,7 +33,9 @@ function keptApiKey() {
 function codexStatic() {
   if (has('--version')) return void process.stdout.write(`${module.exports.version}\n`);
   if (args[0] === 'login' && args[1] === 'status') {
-    return void process.stderr.write(signedOut() ? 'Not logged in\n' : keptApiKey() ? 'Logged in using an API key\n' : 'Logged in using ChatGPT\n');
+    return void process.stderr.write(
+      signedOut() ? 'Not logged in\n' : keptApiKey() ? 'Logged in using an API key\n' : 'Logged in using ChatGPT\n',
+    );
   }
   if (args[0] === 'login' && args[1] === '--with-api-key') {
     // The key comes on stdin, as `printenv OPENAI_API_KEY | codex login --with-api-key`.
@@ -55,8 +58,20 @@ function codexStatic() {
     return void process.stdout.write(
       JSON.stringify({
         models: [
-          { slug: 'gpt-fake-codex', display_name: 'GPT Fake Codex', supported_reasoning_levels: levels, default_reasoning_level: 'medium', visibility: 'list' },
-          { slug: 'gpt-fake-mini', display_name: 'GPT Fake Mini', supported_reasoning_levels: levels, default_reasoning_level: 'low', visibility: 'list' },
+          {
+            slug: 'gpt-fake-codex',
+            display_name: 'GPT Fake Codex',
+            supported_reasoning_levels: levels,
+            default_reasoning_level: 'medium',
+            visibility: 'list',
+          },
+          {
+            slug: 'gpt-fake-mini',
+            display_name: 'GPT Fake Mini',
+            supported_reasoning_levels: levels,
+            default_reasoning_level: 'low',
+            visibility: 'list',
+          },
         ],
       }) + '\n',
     );
@@ -123,6 +138,8 @@ function codexAppServer() {
             ...codexWrites(p),
           });
           const given = Object.entries(config.mcp_servers || {}).filter(([, s]) => s && s.enabled !== false && (s.command || s.url));
+          // Held in memory only, as Codex holds them: the servers it calls in an `e2e:mcp` step.
+          threads.get(id).servers = Object.fromEntries(given);
           recordMcpEnv(
             Object.fromEntries(given.map(([name, s]) => [name, s.env || s.http_headers || {}])),
             // A server with a URL (and no command) is a Streamable HTTP one.
@@ -140,9 +157,21 @@ function codexAppServer() {
           const input = p.input || [];
           const prompt = input.map((i) => i.text || '').join('\n');
           const images = input.filter((i) => i.type === 'localImage' && i.path && fs.existsSync(i.path)).length;
-          record({ prompt, briefing: t.briefing, approval: t.approval, dirs: t.dirs, images, mcp: t.mcp, model: t.model, effort: t.effort, skills: t.skills });
+          record({
+            prompt,
+            briefing: t.briefing,
+            approval: t.approval,
+            dirs: t.dirs,
+            images,
+            mcp: t.mcp,
+            model: t.model,
+            effort: t.effort,
+            skills: t.skills,
+          });
           const turnId = newId('turn');
-          const steps = signedOut() ? [{ type: 'error', text: 'Not logged in. Run codex login.' }] : plan(prompt, { cwd: t.cwd, images, mcp: t.mcp, briefing: t.briefing });
+          const steps = signedOut()
+            ? [{ type: 'error', text: 'Not logged in. Run codex login.' }]
+            : plan(prompt, { cwd: t.cwd, images, mcp: t.mcp, briefing: t.briefing });
           track(sleep(5).then(() => codexTurn(peer, p.threadId, turnId, t, steps)));
           return { turn: { id: turnId, items: [], status: 'inProgress', error: null } };
         }
@@ -150,12 +179,21 @@ function codexAppServer() {
           interrupted.add(p.turnId);
           return {};
         case 'skills/list': {
-          const skills = codexSkills(conf).skills.map((s) => ({ name: s.name, description: s.description, path: s.path, scope: 'user', enabled: s.enabled }));
+          const skills = codexSkills(conf).skills.map((s) => ({
+            name: s.name,
+            description: s.description,
+            path: s.path,
+            scope: 'user',
+            enabled: s.enabled,
+          }));
           return { data: (p.cwds || [process.cwd()]).map((cwd) => ({ cwd, skills, errors: [] })) };
         }
         case 'config/read':
           return {
-            config: { mcp_servers: {}, ...(conf['skills.include_instructions'] === false ? { skills: { include_instructions: false } } : {}) },
+            config: {
+              mcp_servers: {},
+              ...(conf['skills.include_instructions'] === false ? { skills: { include_instructions: false } } : {}),
+            },
             origins: {},
           };
         case 'hooks/list':
@@ -205,7 +243,10 @@ function codexWrites(p) {
     const writes = Object.entries(profile.filesystem || {})
       .filter(([, access]) => access === 'write')
       .map(([dir]) => dir);
-    return { dirs: profile.extends === ':workspace' ? [cwd, ...writes] : profile.extends === ':danger-full-access' ? null : [], others: writes };
+    return {
+      dirs: profile.extends === ':workspace' ? [cwd, ...writes] : profile.extends === ':danger-full-access' ? null : [],
+      others: writes,
+    };
   }
   if (p.sandbox === 'danger-full-access') return { dirs: null, others: [] };
   if (p.sandbox === 'workspace-write') {
@@ -257,11 +298,62 @@ async function codexTurn(peer, threadId, turnId, t, steps) {
       const id = `call_${++n}`;
       const base = { type: 'commandExecution', id, command: step.command, cwd: t.cwd, processId: null, commandActions: [] };
       note('item/started', { item: { ...base, status: 'inProgress', aggregatedOutput: null, exitCode: null } });
-      const ran = t.dirs === null || (await approve('item/commandExecution/requestApproval', { itemId: id, command: step.command, cwd: t.cwd, reason: 'Print a line (an e2e check)' }));
+      const ran =
+        t.dirs === null ||
+        (await approve('item/commandExecution/requestApproval', {
+          itemId: id,
+          command: step.command,
+          cwd: t.cwd,
+          reason: 'Print a line (an e2e check)',
+        }));
       note('item/completed', {
-        item: ran ? { ...base, status: 'completed', aggregatedOutput: 'e2e-approval\n', exitCode: 0 } : { ...base, status: 'declined', aggregatedOutput: null, exitCode: null },
+        item: ran
+          ? { ...base, status: 'completed', aggregatedOutput: 'e2e-approval\n', exitCode: 0 }
+          : { ...base, status: 'declined', aggregatedOutput: null, exitCode: null },
       });
       prefix += ran ? 'The command ran: e2e-approval. ' : declined('command');
+    }
+    if (step.type === 'mcp') {
+      // A tool of an MCP server its thread config gave it (a URL with `http_headers`, or a command).
+      // Codex asks before an MCP tool runs (an elicitation marked as a tool-call approval), unless the
+      // server approves its own tools; with the approval policy "never" it refuses the call instead.
+      const id = `mcp_${++n}`;
+      const spec = (t.servers || {})[step.server];
+      const base = { type: 'mcpToolCall', id, server: step.server, tool: step.tool, arguments: step.args };
+      note('item/started', { item: { ...base, status: 'inProgress', result: null, error: null } });
+      const allowed =
+        Boolean(spec) &&
+        (spec.default_tools_approval_mode === 'approve' ||
+          (t.approval !== 'never' &&
+            (
+              (await peer
+                .request('mcpServer/elicitation/request', {
+                  threadId,
+                  turnId,
+                  serverName: step.server,
+                  mode: 'form',
+                  message: `Allow the ${step.server} MCP server to run tool "${step.tool}"?`,
+                  requestedSchema: { type: 'object', properties: {} },
+                  _meta: { codex_approval_kind: 'mcp_tool_call', tool_name: step.tool, tool_params: step.args },
+                })
+                .catch(() => ({}))) || {}
+            ).action === 'accept'));
+      if (!allowed) {
+        note('item/completed', { item: { ...base, status: 'failed', result: null, error: { message: 'user cancelled MCP tool call' } } });
+        prefix += spec ? declined('tool') : `No MCP server ${step.server}. `;
+        continue;
+      }
+      const r = await callMcpTool(
+        spec.url ? { url: spec.url, headers: spec.http_headers } : { command: spec.command, args: spec.args, env: spec.env },
+        step.tool,
+        step.args,
+      );
+      note('item/completed', {
+        item: r.isError
+          ? { ...base, status: 'failed', result: null, error: { message: r.text } }
+          : { ...base, status: 'completed', result: { content: [{ type: 'text', text: r.text }] }, error: null },
+      });
+      prefix += `The ${step.tool} tool said: ${r.text} `;
     }
     if (step.type === 'write') {
       const file = targetOf(step, t.cwd, t.others);
@@ -273,7 +365,9 @@ async function codexTurn(peer, threadId, turnId, t, steps) {
       const changes = [{ path: file, kind: { type: 'add' }, diff: step.content }];
       note('item/started', { item: { type: 'fileChange', id, changes, status: 'inProgress' } });
       // Outside its sandbox's folders, it asks to apply the patch anyway.
-      const ok = inside(file, t.dirs) || (await approve('item/fileChange/requestApproval', { itemId: id, reason: 'Write outside the sandbox (an e2e check)' }));
+      const ok =
+        inside(file, t.dirs) ||
+        (await approve('item/fileChange/requestApproval', { itemId: id, reason: 'Write outside the sandbox (an e2e check)' }));
       if (ok) writeFile(file, step.content);
       note('item/completed', { item: { type: 'fileChange', id, changes, status: ok ? 'completed' : 'declined' } });
       prefix += wrote(step, ok);
@@ -290,7 +384,12 @@ async function codexTurn(peer, threadId, turnId, t, steps) {
       note('item/completed', { item: { type: 'agentMessage', id, text } });
     }
   }
-  note('thread/tokenUsage/updated', { tokenUsage: { last: { inputTokens: 150, cachedInputTokens: 0, outputTokens: 30, reasoningOutputTokens: 5, totalTokens: 180 }, total: {} } });
+  note('thread/tokenUsage/updated', {
+    tokenUsage: {
+      last: { inputTokens: 150, cachedInputTokens: 0, outputTokens: 30, reasoningOutputTokens: 5, totalTokens: 180 },
+      total: {},
+    },
+  });
   note('turn/completed', { turn: { id: turnId, items: [], status: stopped() ? 'interrupted' : 'completed', error: null } });
 }
 

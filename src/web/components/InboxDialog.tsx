@@ -130,12 +130,20 @@ export function InboxDialog({ summary, onClose, onChanged, onOpened }: Props) {
             <ul className="inbox-list">
               {items.map((i) => (
                 <li key={i.id}>
-                  <a className={`inbox-item ${i.read ? '' : 'unread'}`} href={hashFor({ page: 'chat', id: i.conversationId })} onClick={() => open(i)}>
+                  <a
+                    className={`inbox-item ${i.read ? '' : 'unread'}`}
+                    href={hashFor({ page: 'chat', id: i.conversationId })}
+                    onClick={() => open(i)}
+                  >
                     <span className={`inbox-tone ${inboxTone(i.kind)}`} aria-hidden />
                     <span className="inbox-main">
                       <span className="inbox-top">
                         <span className="inbox-title">{i.title}</span>
-                        <time className="inbox-time" dateTime={new Date(i.createdAt).toISOString()} title={new Date(i.createdAt).toLocaleString()}>
+                        <time
+                          className="inbox-time"
+                          dateTime={new Date(i.createdAt).toISOString()}
+                          title={new Date(i.createdAt).toLocaleString()}
+                        >
                           {relativeTime(i.createdAt, t)}
                         </time>
                       </span>

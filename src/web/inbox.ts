@@ -22,7 +22,12 @@ export function badgeText(unread: number): string {
 
 /** Whether two summaries say the same (a poll that changed nothing keeps the page as it is). */
 export function sameSummary(a: InboxSummary, b: InboxSummary): boolean {
-  return a.unread === b.unread && a.newest === b.newest && a.unreadIn.length === b.unreadIn.length && a.unreadIn.every((id, i) => b.unreadIn[i] === id);
+  return (
+    a.unread === b.unread &&
+    a.newest === b.newest &&
+    a.unreadIn.length === b.unreadIn.length &&
+    a.unreadIn.every((id, i) => b.unreadIn[i] === id)
+  );
 }
 
 /**
@@ -30,7 +35,12 @@ export function sameSummary(a: InboxSummary, b: InboxSummary): boolean {
  * the user can see it (the page in front and its window focused, as the alerts count it). Undefined
  * otherwise, also while a mark for it is still on its way (`marking`).
  */
-export function readOnView(route: Route, summary: InboxSummary, page: { visible: boolean; focused: boolean }, marking?: string): string | undefined {
+export function readOnView(
+  route: Route,
+  summary: InboxSummary,
+  page: { visible: boolean; focused: boolean },
+  marking?: string,
+): string | undefined {
   if (route.page !== 'chat' || !page.visible || !page.focused) return undefined;
   if (marking === route.id || !summary.unreadIn.includes(route.id)) return undefined;
   return route.id;
@@ -49,6 +59,7 @@ export function inboxTone(kind: AlertKind): 'needs' | 'error' | 'done' {
 
 /** The list with these marked read, as the server will have it (shown before its answer). */
 export function markedRead(items: InboxItem[], which: { ids?: string[]; conversationId?: string; all?: boolean }): InboxItem[] {
-  const hit = (i: InboxItem) => which.all || which.ids?.includes(i.id) || (which.conversationId !== undefined && i.conversationId === which.conversationId);
+  const hit = (i: InboxItem) =>
+    which.all || which.ids?.includes(i.id) || (which.conversationId !== undefined && i.conversationId === which.conversationId);
   return items.map((i) => (!i.read && hit(i) ? { ...i, read: true } : i));
 }

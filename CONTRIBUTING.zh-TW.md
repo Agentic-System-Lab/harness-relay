@@ -55,6 +55,7 @@ npm run dev        # API 在 :8789（檔案變更時重啟）+ 介面在 http://
 ### 程式碼
 
 - 使用 strict TypeScript 與 ES modules。共用型別只放在 `src/shared/types.ts`。
+- 程式碼由 [Prettier](https://prettier.io) 排版：commit 前執行 `npm run format`（編輯器的 Prettier 擴充套件也用同一份設定 `.prettierrc.json`）。它不動文件（`.prettierignore`）。不要在處理其他事情的 pull request 裡改它的設定：那會重新排版整個 repository。
 - 子程序一律透過 `src/server/process.ts` 啟動，這樣才會被追蹤並在關閉時結束；伺服器等它結束的簡短檢查（`lsof`、`ps`、`chflags`）用它的 `runSync()`，逾時就結束它。Harness Relay 沙箱的 host（`relaySandboxHost.ts`）是獨立的程式，由它自己啟動 agent。程式要直接啟動，不經過 shell；shell 腳本（`runShellScript()`，或交給 `spawnDetached()` 的 `sh -c`）是固定的文字，它需要的值（路徑、名稱、設定）放在它的環境變數裡，絕不放進腳本文字或參數。會替要執行的程式另設環境的程式（`sudo`、`pkexec`）則執行 `env 名稱=值 … /bin/sh -c <固定文字>`，值都是 Harness Relay 自己的（`sandboxSetup.ts`）。在 Windows 上，找到的 CLI 若是 `.cmd`（npm 的包裝檔、Cursor 與 Muse Code 的啟動檔），會改為啟動它執行的程式（`src/server/winLaunch.ts`），絕不經過 `cmd.exe`。
 - CLI 輸出的 parser 保持純函式（輸入一行行文字，輸出 `AgentEvent`），方便用錄下來的輸出測試。
 - 測試在沒有 DOM 的 Node 環境執行。想測試的前端邏輯請放在一般模組（例如 `src/web/chat.ts`），不要寫在元件裡。
@@ -67,6 +68,8 @@ npm run dev        # API 在 :8789（檔案變更時重啟）+ 介面在 http://
 - 絕不把機密傳給前端。API key 放在作業系統的金鑰儲存區（`src/server/secrets.ts`），絕不以原文放進資料庫：沒有金鑰儲存區時，透過同一個 `SecretStore` 加密後存進資料庫（`openSecretStore()`）。
 - 伺服器只綁定 `127.0.0.1`，而且 agent 的回覆不能讓瀏覽器載入遠端內容（圖片以連結顯示；本機媒體要經過媒體端點的路徑檢查）。
 - 開源 agent 的程序只能透過 `startOpenProcess()`（`src/server/agents/open.ts`）啟動：完全存取以外，它會把程序放進 Harness Relay 自己的沙箱，沙箱無法啟動就不執行。模型的金鑰以環境變數交給 CLI（只有這次執行的模型來源那一把），絕不寫進轉接器寫的設定檔；一次執行寫入的一切都放在對話成員自己的狀態資料夾（`home(root, state)`）。沙箱的開口只由一個轉接器為它自己的 CLI 申請，並寫在 [docs/open-agents.zh-TW.md](docs/open-agents.zh-TW.md) 與 [docs/sandboxing.zh-TW.md](docs/sandboxing.zh-TW.md)。
+- Harness Relay 自己的工具（`src/server/gateway.ts`）只能透過 gateway 的 socket 連到伺服器，用只給一回合、存在 `data/tmp` 底下檔案中的權杖；或透過它的本機 HTTP 端點，權杖只留在 CLI 的記憶體中（要等 `scripts/mcp-headers-check.ts` 確認某個 CLI 不會把權杖寫進任何檔案，它才能這樣拿到），絕不經過 HTTP API。它們的憑證留在伺服器中，會送到別人那裡的呼叫絕不在那一回合執行：它會在待送出匣等到使用者按送出。排程的 webhook 是唯一用自己的權杖（只存雜湊）代替瀏覽器登入的路由。
+- 瀏覽器工具的 Chromium 只透過它自己的 proxy（`src/server/browser/proxy.ts`）連線，proxy 會檢查每個連線要去的位址：絕不能不帶那個 proxy 啟動它，也不能讓它載入的任何東西用別的方式連上網路。它在網頁中執行的腳本在 isolated world 中執行，它只拿到 `launchEnv()` 給的環境變數，絕不是伺服器的；它也不在使用者自己瀏覽器的資料夾裡寫任何東西（在 Linux 上，它的設定與快取資料夾都在它的設定檔裡）。
 
 ### 資料庫
 
@@ -109,6 +112,7 @@ Harness Relay 是雙語的：每一段給使用者看的文字都有繁體中文
 請執行和 CI 一樣的檢查：
 
 ```bash
+npm run format:check   # npm run format 會修正它找到的地方
 npm run typecheck
 npm test
 npm run build
@@ -120,7 +124,7 @@ npm run build
 
 發佈只由維護者透過發佈 workflow 進行（**Actions → Release**，從 `main`，以今天的日期為版本）：絕不要手動建立版本 tag。詳見開發者說明的[發佈](docs/developer-guide.zh-TW.md#發佈)。
 
-[CI](.github/workflows/ci.yml) 會在每個 pull request 與每次推送到 `main` 時，以 Node 22 與 24 執行型別檢查、測試與建置，也在 Windows 上以 Node 24 執行。它也會型別檢查並建置桌面 app、像 app 一樣執行打包好的伺服器，並為 Linux 打包它，像檢查發佈一樣檢查。[另一個 workflow](.github/workflows/e2e.yml) 會在 Linux、macOS 與 Windows 上執行端對端測試。在 pull request 上，Windows 上的測試、打包好的 app 與端對端測試，只在它碰到它們依賴的檔案時才會跑（[`scripts/ci-scope.ts`](scripts/ci-scope.ts)），執行摘要會說明哪些跑了、為什麼。推送到 `main` 時全部都會跑。如果你讓其中一個開始讀取、import 或打包它的 `IGNORES` 清單上的檔案，請把那個檔案從清單拿掉。每個 workflow 最後的檢查（**CI passed**、**End-to-end passed**）代表它所有的 job。
+[CI](.github/workflows/ci.yml) 會在每個 pull request 與每次推送到 `main` 時檢查排版，並以 Node 22 與 24 執行型別檢查、測試與建置，也在 Windows 上以 Node 24 執行。它也會型別檢查並建置桌面 app、像 app 一樣執行打包好的伺服器，並為 Linux 打包它，像檢查發佈一樣檢查。[另一個 workflow](.github/workflows/e2e.yml) 會在 Linux、macOS 與 Windows 上執行端對端測試。在 pull request 上，Windows 上的測試、打包好的 app 與端對端測試，只在它碰到它們依賴的檔案時才會跑（[`scripts/ci-scope.ts`](scripts/ci-scope.ts)），執行摘要會說明哪些跑了、為什麼。推送到 `main` 時全部都會跑。如果你讓其中一個開始讀取、import 或打包它的 `IGNORES` 清單上的檔案，請把那個檔案從清單拿掉。每個 workflow 最後的檢查（**CI passed**、**End-to-end passed**）代表它所有的 job。
 
 如果你的修改會影響 agent 看到或做的事，也請在 app 中用至少一個真正的 CLI 試過，並說明用了哪些。
 

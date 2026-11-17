@@ -85,7 +85,16 @@ function StarPicture() {
       </div>
       <div className="star-picture-page">
         <span className="star-picture-repo">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <path d="M5 19.5v-15A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5 1.5 1.5 0 0 0 6.5 21H19v-3" />
           </svg>
           <span>{owner}</span> <span className="muted">/</span> <b>{name}</b>
@@ -102,7 +111,13 @@ function StarPicture() {
             <span className="star-picture-on">Starred</span>
           </span>
           <svg className="star-picture-pointer" width="18" height="18" viewBox="0 0 24 24">
-            <path d="M5 2.5v17l4.4-4.1 2.9 6.6 2.6-1.1-2.9-6.5 6-.4z" fill="#fff" stroke="#18181b" strokeWidth="1.5" strokeLinejoin="round" />
+            <path
+              d="M5 2.5v17l4.4-4.1 2.9 6.6 2.6-1.1-2.9-6.5 6-.4z"
+              fill="#fff"
+              stroke="#18181b"
+              strokeWidth="1.5"
+              strokeLinejoin="round"
+            />
           </svg>
         </span>
       </div>

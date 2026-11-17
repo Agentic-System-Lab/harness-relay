@@ -74,12 +74,21 @@ export interface GooseCall {
  * when it is not there (a subagent's with its parent), its running totals grow, a ledger row is added.
  * `ledgerOnly` adds the ledger row alone (a running total that lost the update).
  */
-export function gooseCalls(file: string, sessionId: string, calls: GooseCall[], opts: { parent?: string; ledgerOnly?: boolean } = {}): void {
+export function gooseCalls(
+  file: string,
+  sessionId: string,
+  calls: GooseCall[],
+  opts: { parent?: string; ledgerOnly?: boolean } = {},
+): void {
   mkdirSync(dirname(file), { recursive: true });
   const db = openSqliteFile(file);
   try {
     db.exec(GOOSE_USAGE_SCHEMA);
-    db.prepare('INSERT OR IGNORE INTO sessions (id, working_dir, parent_session_id) VALUES (?, ?, ?)').run(sessionId, '/p', opts.parent ?? null);
+    db.prepare('INSERT OR IGNORE INTO sessions (id, working_dir, parent_session_id) VALUES (?, ?, ?)').run(
+      sessionId,
+      '/p',
+      opts.parent ?? null,
+    );
     for (const c of calls) {
       const total = c.total ?? c.input + c.output;
       const cost = c.cost ?? null;
@@ -93,15 +102,9 @@ export function gooseCalls(file: string, sessionId: string, calls: GooseCall[], 
            WHERE id = ?`,
         ).run(total, c.input, c.output, cost, cost, sessionId);
       }
-      db.prepare('INSERT INTO usage_ledger (session_id, created_timestamp, model, input_tokens, output_tokens, total_tokens, cost, is_compaction) VALUES (?, 0, ?, ?, ?, ?, ?, ?)').run(
-        sessionId,
-        'm',
-        c.input,
-        c.output,
-        total,
-        cost,
-        c.compaction ? 1 : 0,
-      );
+      db.prepare(
+        'INSERT INTO usage_ledger (session_id, created_timestamp, model, input_tokens, output_tokens, total_tokens, cost, is_compaction) VALUES (?, 0, ?, ?, ?, ?, ?, ?)',
+      ).run(sessionId, 'm', c.input, c.output, total, cost, c.compaction ? 1 : 0);
     }
   } finally {
     db.close();

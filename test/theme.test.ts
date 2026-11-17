@@ -22,14 +22,27 @@ import { zhTW } from '../src/web/locales/zh-TW';
 function fakeDocument() {
   const html = new Map<string, string>();
   const metas = [
-    { attrs: new Map([['media', '(prefers-color-scheme: light)'], ['content', '#ffffff']]) },
-    { attrs: new Map([['media', '(prefers-color-scheme: dark)'], ['content', '#212121']]) },
+    {
+      attrs: new Map([
+        ['media', '(prefers-color-scheme: light)'],
+        ['content', '#ffffff'],
+      ]),
+    },
+    {
+      attrs: new Map([
+        ['media', '(prefers-color-scheme: dark)'],
+        ['content', '#212121'],
+      ]),
+    },
   ];
   const doc: ThemeDocument = {
     documentElement: { setAttribute: (k, v) => void html.set(k, v), removeAttribute: (k) => void html.delete(k) },
     querySelectorAll: (selector) => {
       expect(selector).toBe('meta[name="theme-color"]');
-      return metas.map((m) => ({ getAttribute: (k: string) => m.attrs.get(k) ?? null, setAttribute: (k: string, v: string) => void m.attrs.set(k, v) }));
+      return metas.map((m) => ({
+        getAttribute: (k: string) => m.attrs.get(k) ?? null,
+        setAttribute: (k: string, v: string) => void m.attrs.set(k, v),
+      }));
     },
   };
   return { doc, html, bars: () => metas.map((m) => m.attrs.get('content')) };

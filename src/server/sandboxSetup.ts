@@ -2,7 +2,18 @@ import { accessSync, constants, mkdirSync, readdirSync, readFileSync, rmSync, st
 import { rm } from 'node:fs/promises';
 import { join, posix } from 'node:path';
 import type { SandboxNeedView, SandboxSetupBlock, SandboxSetupView, SandboxUser } from '../shared/types';
-import { INSTALL_CACHE, InstallError, InstallJob, installerEnv, nodeBuildFor, nodeTools, putNode, runStep, type CliInstallHost, type NodeBuild } from './cliInstall';
+import {
+  INSTALL_CACHE,
+  InstallError,
+  InstallJob,
+  installerEnv,
+  nodeBuildFor,
+  nodeTools,
+  putNode,
+  runStep,
+  type CliInstallHost,
+  type NodeBuild,
+} from './cliInstall';
 import { HttpError } from './errors';
 import { t } from './i18n';
 import { runProcess, runShellScript, runSync } from './process';
@@ -69,7 +80,12 @@ export const LINUX_NEEDS: readonly LinuxNeed[] = [
  * always on Fedora). With the packages when missing, the Node.js then put in after them.
  */
 export const CURL_NEED: LinuxNeed = { programs: ['curl'], pkg: 'curl', for: ['open'] };
-export const LIBATOMIC_NEED: LinuxNeed = { programs: [], libs: ['libatomic.so.1'], pkg: { apt: 'libatomic1', dnf: 'libatomic', pacman: 'gcc-libs', zypper: 'libatomic1' }, for: ['open'] };
+export const LIBATOMIC_NEED: LinuxNeed = {
+  programs: [],
+  libs: ['libatomic.so.1'],
+  pkg: { apt: 'libatomic1', dnf: 'libatomic', pacman: 'gcc-libs', zypper: 'libatomic1' },
+  for: ['open'],
+};
 
 /** Where Linux keeps shared libraries, by processor (Debian's multiarch folders, then the others). */
 const libDirs = (arch: string) => {
@@ -360,7 +376,8 @@ export class SandboxSetup {
     if (this.host.electron && (platform === 'darwin' || platform === 'linux') && !this.host.pathNode() && !this.host.installedNode()) {
       const tools = nodeTools(this.host);
       const build = this.host.nodeBuild();
-      const blocked: SandboxSetupBlock | undefined = typeof tools === 'string' ? (tools === 'curl' || tools === 'tar' ? tools : 'node') : undefined;
+      const blocked: SandboxSetupBlock | undefined =
+        typeof tools === 'string' ? (tools === 'curl' || tools === 'tar' ? tools : 'node') : undefined;
       node = {
         kind: 'node',
         items: build ? [build.version] : [],
@@ -381,10 +398,21 @@ export class SandboxSetup {
     if (missing.length) {
       const packages = [...new Set(missing.map((n) => packageName(n, pm)))];
       const command = pm
-        ? { apt: `sudo apt-get install -y ${packages.join(' ')}`, dnf: `sudo dnf install -y ${packages.join(' ')}`, pacman: `sudo pacman -S --needed ${packages.join(' ')}`, zypper: `sudo zypper install ${packages.join(' ')}` }[pm]
+        ? {
+            apt: `sudo apt-get install -y ${packages.join(' ')}`,
+            dnf: `sudo dnf install -y ${packages.join(' ')}`,
+            pacman: `sudo pacman -S --needed ${packages.join(' ')}`,
+            zypper: `sudo zypper install ${packages.join(' ')}`,
+          }[pm]
         : packages.join(' ');
       const blocked = pm ? adminBlock : 'packageManager';
-      needs.push({ kind: 'packages', items: packages, for: users(missing.flatMap((n) => n.for)), command, ...(blocked ? { blocked } : {}) });
+      needs.push({
+        kind: 'packages',
+        items: packages,
+        for: users(missing.flatMap((n) => n.for)),
+        command,
+        ...(blocked ? { blocked } : {}),
+      });
       // The packages bring them: Node.js is put in after them; else it waits for them by hand.
       if (node && nodeWaits.length) {
         if (!blocked) delete node.blocked;
@@ -393,7 +421,13 @@ export class SandboxSetup {
     }
     if (this.apparmorNeeded()) {
       const command = `sudo tee ${APPARMOR_FILE} > /dev/null <<'EOF'\n${APPARMOR_PROFILE}\nEOF\nsudo apparmor_parser -r ${APPARMOR_FILE}`;
-      needs.push({ kind: 'apparmor', items: [APPARMOR_FILE], for: ['claude', 'codex', 'grok', 'copilot', 'open'], command, ...(adminBlock ? { blocked: adminBlock } : {}) });
+      needs.push({
+        kind: 'apparmor',
+        items: [APPARMOR_FILE],
+        for: ['claude', 'codex', 'grok', 'copilot', 'open'],
+        command,
+        ...(adminBlock ? { blocked: adminBlock } : {}),
+      });
     }
     if (!node) return needs;
     return nodeWaits.length ? [...needs, node] : [node, ...needs];
@@ -422,7 +456,9 @@ export class SandboxSetup {
       // What it was to install, checked again.
       const left = this.needs().filter((n) => needs.some((m) => m.kind === n.kind));
       if (left.length) {
-        const items = left.flatMap((n) => (n.kind === 'packages' ? n.items : n.kind === 'apparmor' ? n.items : [`Node.js ${n.items[0] ?? ''}`.trim()]));
+        const items = left.flatMap((n) =>
+          n.kind === 'packages' ? n.items : n.kind === 'apparmor' ? n.items : [`Node.js ${n.items[0] ?? ''}`.trim()],
+        );
         throw new InstallError(() => t().sandboxSetupStillMissing(items.join(', ')));
       }
       job.finish('success');
@@ -441,7 +477,14 @@ export class SandboxSetup {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
     mkdirSync(dir, { recursive: true });
     try {
-      await putNode(this.host, job, dir, base, 'Node.js', (version) => `Harness Relay's own sandbox finds no Node.js on the PATH: Node.js ${version} goes into ${dir}`);
+      await putNode(
+        this.host,
+        job,
+        dir,
+        base,
+        'Node.js',
+        (version) => `Harness Relay's own sandbox finds no Node.js on the PATH: Node.js ${version} goes into ${dir}`,
+      );
     } catch (err) {
       rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
       throw err;
@@ -477,12 +520,20 @@ export class SandboxSetup {
       } else {
         // sudo and pkexec give the script their own environment: `env` sets what it works on.
         const via = this.find(admin)!;
-        const args = [...(admin === 'sudo' ? ['-n'] : []), this.find('env') ?? '/usr/bin/env', ...Object.entries(vars).map(([k, v]) => `${k}=${v}`), '/bin/sh', '-c', ADMIN_SCRIPT];
+        const args = [
+          ...(admin === 'sudo' ? ['-n'] : []),
+          this.find('env') ?? '/usr/bin/env',
+          ...Object.entries(vars).map(([k, v]) => `${k}=${v}`),
+          '/bin/sh',
+          '-c',
+          ADMIN_SCRIPT,
+        ];
         await runStep(this.host, job, shown, { bin: via, args, env: base });
       }
     } catch (err) {
       // pkexec: 126 when the prompt was dismissed, 127 when not allowed or no prompt could be shown.
-      if (admin === 'pkexec' && err instanceof InstallError && (err.code === 126 || err.code === 127)) throw new InstallError(() => t().sandboxSetupAdminRefused, err.code);
+      if (admin === 'pkexec' && err instanceof InstallError && (err.code === 126 || err.code === 127))
+        throw new InstallError(() => t().sandboxSetupAdminRefused, err.code);
       throw err;
     }
   }

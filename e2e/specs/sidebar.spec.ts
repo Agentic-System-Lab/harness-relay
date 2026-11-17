@@ -65,7 +65,9 @@ test.describe('the sidebar', () => {
     await expect.poll(async () => (await relay.api<{ id: string }[]>('/api/conversations')).some((c) => c.id === id)).toBe(false);
   });
 
-  test('Search comes first under New chat, and New group, an icon only beside it as wide as New schedule, still opens the box for a new group', async ({ page }) => {
+  test('Search comes first under New chat, and New group, an icon only beside it, still opens the box for a new group', async ({
+    page,
+  }) => {
     const row = page.locator('.sidebar-actions');
     const buttons = row.getByRole('button');
     await expect(buttons).toHaveCount(2);
@@ -77,11 +79,10 @@ test.describe('the sidebar', () => {
     await expect(newGroup).toHaveText('');
     await expect(newGroup).toHaveAttribute('title', 'New group');
     await expect(newGroup.locator('svg')).toBeVisible();
-    const schedule = page.locator('.new-row').getByRole('button', { name: 'New schedule' });
-    const [s, g, n] = [(await search.boundingBox())!, (await newGroup.boundingBox())!, (await schedule.boundingBox())!];
-    expect(Math.abs(g.width - n.width)).toBeLessThan(1);
-    expect(Math.abs(g.x - n.x)).toBeLessThan(1);
+    // Search takes the row but for New group's narrow column, at its right; both the same height.
+    const [s, g] = [(await search.boundingBox())!, (await newGroup.boundingBox())!];
     expect(s.x + s.width).toBeLessThan(g.x);
+    expect(g.width).toBeLessThan(s.width / 3);
     expect(Math.abs(s.height - g.height)).toBeLessThan(1);
 
     await newGroup.click();
@@ -93,7 +94,7 @@ test.describe('the sidebar', () => {
     await expect(page.getByLabel('Search conversations')).toBeFocused();
   });
 
-  test("search finds a conversation by what an agent wrote in it", async ({ page, relay }) => {
+  test('search finds a conversation by what an agent wrote in it', async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'About pelicans');
     await send(page, 'Tell me about pelicans');
     await finishedReply(page, 'Codex');
@@ -166,14 +167,18 @@ test.describe('the sidebar', () => {
     await expect.poll(groups).toEqual([null, null]);
   });
 
-  test('the pin in a conversation\'s top-left corner shows on hover, lists it under Pinned above the groups, the one pinned last first, and unpins it', async ({ page, relay }) => {
+  test("the pin in a conversation's top-left corner shows on hover, lists it under Pinned above the groups, the one pinned last first, and unpins it", async ({
+    page,
+    relay,
+  }) => {
     test.setTimeout(90_000);
     const older = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], {}, 'Older chat');
     const newer = await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Newer chat');
     const billing = await newGroup(page, 'Billing');
     const other = page.getByRole('region', { name: 'Other', exact: true });
     const pinnedRegion = page.getByRole('region', { name: 'Pinned', exact: true });
-    const pinnedAt = async (id: string) => (await relay.api<ConversationSummary[]>('/api/conversations')).find((c) => c.id === id)?.pinnedAt;
+    const pinnedAt = async (id: string) =>
+      (await relay.api<ConversationSummary[]>('/api/conversations')).find((c) => c.id === id)?.pinnedAt;
     const pin = (scope: Locator, title: string) => row(page, scope, title).locator('.conv-pin');
     await expect(pinnedRegion).toHaveCount(0);
 
@@ -300,7 +305,8 @@ test.describe('the sidebar', () => {
       page.evaluate(() => {
         const row = document.querySelector('.provider-health') as HTMLElement;
         const end = (svg: Element) =>
-          Math.max(...[...svg.querySelectorAll('path')].map((p) => p.getBoundingClientRect().right)) + svg.getBoundingClientRect().width / 24;
+          Math.max(...[...svg.querySelectorAll('path')].map((p) => p.getBoundingClientRect().right)) +
+          svg.getBoundingClientRect().width / 24;
         const settings = document.querySelector('.settings-link') as HTMLElement;
         return {
           overflow: row.scrollWidth - row.clientWidth,
@@ -324,7 +330,9 @@ test.describe('the sidebar', () => {
     await expect.poll(async () => Math.abs((await measure()).chevron - dots.reportIcon)).toBeLessThan(0.5);
   });
 
-  test('the star left of Report a problem asks for a star on GitHub, shows how, and opens the repository in a new tab', async ({ page }) => {
+  test('the star left of Report a problem asks for a star on GitHub, shows how, and opens the repository in a new tab', async ({
+    page,
+  }) => {
     // The repository's page is never loaded: the new tab gets an empty page of the test's instead.
     await page.context().route('https://github.com/**', (route) => route.fulfill({ contentType: 'text/html', body: '<title>e2e</title>' }));
     const star = page.locator('.sidebar').getByRole('button', { name: 'Star us on GitHub' });
@@ -357,7 +365,10 @@ test.describe('the sidebar', () => {
     expect(played.map((a) => a.name).sort()).toEqual(['star-filled', 'star-off', 'star-on', 'star-pointer']);
     for (const a of played) {
       expect(a.iterations, a.name).toBe(3);
-      expect(a.changed.every((p) => p === 'transform' || p === 'opacity'), `${a.name} changes ${a.changed.join(', ')}`).toBe(true);
+      expect(
+        a.changed.every((p) => p === 'transform' || p === 'opacity'),
+        `${a.name} changes ${a.changed.join(', ')}`,
+      ).toBe(true);
     }
 
     const link = dialog.getByRole('link', { name: 'Star it on GitHub' });

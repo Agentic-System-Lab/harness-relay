@@ -129,7 +129,10 @@ test.describe('what each CLI loads by itself', () => {
 });
 
 test.describe("Grok's trust in a folder", () => {
-  test('a team with a Grok member says when Grok does not trust the folder, and trusting it there records the trust', async ({ page, relay }) => {
+  test('a team with a Grok member says when Grok does not trust the folder, and trusting it there records the trust', async ({
+    page,
+    relay,
+  }) => {
     ownRepository(relay);
     await startChat(page);
     await send(page, 'Look at this project e2e:team=grok');

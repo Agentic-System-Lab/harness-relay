@@ -2,7 +2,14 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from '
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { endpointEffort, inheritedEffort, isEndpointCli, parseBackendModel, type ModelBackendsView, type ProviderModels } from '../src/shared/types';
+import {
+  endpointEffort,
+  inheritedEffort,
+  isEndpointCli,
+  parseBackendModel,
+  type ModelBackendsView,
+  type ProviderModels,
+} from '../src/shared/types';
 import type { SecretStore } from '../src/server/secrets';
 import { endpointDraft, endpointProblems, endpointSlug, endpointUpdate, parseModelList, validBaseUrl } from '../src/web/backends';
 
@@ -10,7 +17,8 @@ const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-backends-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
 
 const { openDatabase } = await import('../src/server/db');
-const { ModelBackendStore, ENDPOINT_KEY_ENV, backendEnv, backendRun, endpointKeyEnv, endpointModel, endpointRunModel, urlHost } = await import('../src/server/backends');
+const { ModelBackendStore, ENDPOINT_KEY_ENV, backendEnv, backendRun, endpointKeyEnv, endpointModel, endpointRunModel, urlHost } =
+  await import('../src/server/backends');
 const { discoverModels, withEndpointModels } = await import('../src/server/models');
 const { SettingsStore, OPEN_AGENT_HOME_ENV, OPEN_HOMES_DIR } = await import('../src/server/settings');
 const { createApp } = await import('../src/server/app');
@@ -61,7 +69,11 @@ function fakeKeyring(): SecretStore & { data: Map<string, string> } {
   };
 }
 
-const keyColumn = () => (db.prepare('SELECT id, api_key FROM model_backends ORDER BY id').all() as { id: string; api_key: string }[]).map((r) => [r.id, r.api_key]);
+const keyColumn = () =>
+  (db.prepare('SELECT id, api_key FROM model_backends ORDER BY id').all() as { id: string; api_key: string }[]).map((r) => [
+    r.id,
+    r.api_key,
+  ]);
 const endpoint = { name: 'Homelab', baseUrl: 'http://10.0.0.5:8000/v1', models: ['muse-glimmer-30b-nvfp4'] };
 
 describe('model ids', () => {
@@ -89,7 +101,10 @@ describe('ModelBackendStore', () => {
       deletedEndpoints: [],
     } satisfies ModelBackendsView);
     expect(again.configured()).toEqual(['openai', 'homelab']);
-    expect(again.forRun()).toEqual({ apis: { openai: 'sk-test-openai-1234' }, endpoints: [{ id: 'homelab', ...endpoint, apiKey: 'lab-key-5678' }] });
+    expect(again.forRun()).toEqual({
+      apis: { openai: 'sk-test-openai-1234' },
+      endpoints: [{ id: 'homelab', ...endpoint, apiKey: 'lab-key-5678' }],
+    });
     // Removing a key drops the API backend's row; the endpoint keeps its own.
     again.setApiKey('openai', null);
     again.putEndpoint('homelab', { ...endpoint, models: ['a', 'b'] });
@@ -102,7 +117,10 @@ describe('ModelBackendStore', () => {
     const s = new ModelBackendStore(db, keyring);
     s.setApiKey('anthropic', 'sk-ant-test-0000');
     s.putEndpoint('homelab', { ...endpoint, apiKey: 'lab-key-5678' });
-    expect(Object.fromEntries(keyring.data)).toEqual({ 'backend-anthropic-api-key': 'sk-ant-test-0000', 'endpoint-homelab-api-key': 'lab-key-5678' });
+    expect(Object.fromEntries(keyring.data)).toEqual({
+      'backend-anthropic-api-key': 'sk-ant-test-0000',
+      'endpoint-homelab-api-key': 'lab-key-5678',
+    });
     expect(keyColumn()).toEqual([['homelab', '']]);
     expect(readFileSync(file).includes('sk-ant-test')).toBe(false);
     const again = new ModelBackendStore(reopen(), keyring);
@@ -173,7 +191,12 @@ describe('ModelBackendStore', () => {
     expect(() => s.putEndpoint('one-more', endpoint)).toThrow();
     expect(() => s.deleteEndpoint('nowhere')).toThrow();
     // Order of creation is kept.
-    expect(s.view().endpoints.map((e) => e.id).slice(0, 3)).toEqual(['lab-0', 'lab-1', 'lab-2']);
+    expect(
+      s
+        .view()
+        .endpoints.map((e) => e.id)
+        .slice(0, 3),
+    ).toEqual(['lab-0', 'lab-1', 'lab-2']);
   });
 
   it('remembers a deleted endpoint, also after a restart, until one of its id is added again', () => {
@@ -227,7 +250,9 @@ describe('ModelBackendStore', () => {
     const t2 = new ModelBackendStore(db, keyring);
     t2.putEndpoint('homelab', { ...endpoint, apiKey: 'secret-b' });
     fail();
-    expect(() => t2.putEndpoint('homelab', { name: 'Moved', baseUrl: 'http://10.0.0.7:8000/v1', models: ['m2'], apiKey: 'secret-c' })).toThrow(/disk full/);
+    expect(() =>
+      t2.putEndpoint('homelab', { name: 'Moved', baseUrl: 'http://10.0.0.7:8000/v1', models: ['m2'], apiKey: 'secret-c' }),
+    ).toThrow(/disk full/);
     expect(t2.forRun().endpoints[0]).toEqual({ id: 'homelab', ...endpoint, apiKey: 'secret-b' });
     expect(keyring.data.get('endpoint-homelab-api-key')).toBe('secret-b');
     // A key given to an endpoint that had none: taken out again.
@@ -289,7 +314,9 @@ describe('ModelBackendStore', () => {
       db.exec("CREATE TRIGGER no_endpoints BEFORE INSERT ON model_backends BEGIN SELECT RAISE(ABORT, 'disk full'); END");
       expect(() => s.putEndpoint('homelab', { ...endpoint, apiKey: 'secret-b' })).toThrow(/disk full/);
       expect(keyring.data.get('endpoint-homelab-api-key')).toBe('secret-b');
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('the credential store still holds the key of the change that was not saved'));
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('the credential store still holds the key of the change that was not saved'),
+      );
       expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('is gone'));
       db.exec('DROP TRIGGER no_endpoints');
     } finally {
@@ -336,12 +363,20 @@ describe('a run’s backend', () => {
       backends: { apis: { anthropic: 'sk-a' }, endpoints: keyless },
     });
     const lab = backendRun(backends, 'homelab/muse', 'Goose');
-    expect(lab).toMatchObject({ kind: 'endpoint', model: 'muse', hosts: ['10.0.0.5:8000'], endpoint: { baseUrl: 'http://10.0.0.5:8000/v1', apiKey: 'lab' } });
+    expect(lab).toMatchObject({
+      kind: 'endpoint',
+      model: 'muse',
+      hosts: ['10.0.0.5:8000'],
+      endpoint: { baseUrl: 'http://10.0.0.5:8000/v1', apiKey: 'lab' },
+    });
     // On an endpoint, no API backend's key at all; its own key is not one of the usual variables: the adapter places it.
     expect(lab.env).toEqual({});
     expect(lab.backends).toEqual({ apis: {}, endpoints: backends.endpoints });
     // An adapter that asks for every key (allBackendKeys) gets them all.
-    expect(backendRun(backends, 'homelab/muse', 'Goose', undefined, true).env).toEqual({ OPENAI_API_KEY: 'sk-o', ANTHROPIC_API_KEY: 'sk-a' });
+    expect(backendRun(backends, 'homelab/muse', 'Goose', undefined, true).env).toEqual({
+      OPENAI_API_KEY: 'sk-o',
+      ANTHROPIC_API_KEY: 'sk-a',
+    });
     expect(backendRun(backends, undefined, 'Goose', 'openai/gpt-5.4-nano').model).toBe('gpt-5.4-nano');
   });
 
@@ -372,9 +407,16 @@ describe('Claude Code, Codex and Grok on the user’s own endpoints', () => {
   };
 
   it('runs a model <endpoint id>/<model> on that endpoint, and any other model as the CLI has it', () => {
-    expect(endpointModel(backends, 'homelab/gemma4:e4b')).toEqual({ id: 'homelab/gemma4:e4b', model: 'gemma4:e4b', endpoint: backends.endpoints[0] });
+    expect(endpointModel(backends, 'homelab/gemma4:e4b')).toEqual({
+      id: 'homelab/gemma4:e4b',
+      model: 'gemma4:e4b',
+      endpoint: backends.endpoints[0],
+    });
     // A model name may hold a slash; a model the endpoint does not list still runs there.
-    expect(endpointModel(backends, ' studio/qwen/qwen3-coder ')).toMatchObject({ id: 'studio/qwen/qwen3-coder', model: 'qwen/qwen3-coder' });
+    expect(endpointModel(backends, ' studio/qwen/qwen3-coder ')).toMatchObject({
+      id: 'studio/qwen/qwen3-coder',
+      model: 'qwen/qwen3-coder',
+    });
     expect(endpointModel(backends, 'homelab/other')).toMatchObject({ model: 'other', endpoint: { id: 'homelab' } });
     // The CLI's own models, an id of its own with a slash (a provider of the user's Codex config), an
     // API backend's id (the open agents'), or an endpoint that is not set up: not an endpoint run.
@@ -418,14 +460,25 @@ describe('Claude Code, Codex and Grok on the user’s own endpoints', () => {
   });
 
   it('lists each endpoint’s models after the CLI’s own, with the efforts it may send there', () => {
-    const own = { provider: 'codex' as const, models: [{ id: 'gpt-6.1-sol' }, { id: 'homelab/gemma4:e4b', label: 'Mine' }], efforts: ['low', 'xhigh'], source: 'cli' as const };
+    const own = {
+      provider: 'codex' as const,
+      models: [{ id: 'gpt-6.1-sol' }, { id: 'homelab/gemma4:e4b', label: 'Mine' }],
+      efforts: ['low', 'xhigh'],
+      source: 'cli' as const,
+    };
     const view = backends.endpoints.map(({ apiKey: _, ...e }) => ({ ...e, keyMasked: '', keyStorage: 'keychain' as const }));
     const codex = withEndpointModels('codex', own, view);
     expect(codex.models).toEqual([
       { id: 'gpt-6.1-sol' },
       // An id the CLI lists stays its own.
       { id: 'homelab/gemma4:e4b', label: 'Mine' },
-      { id: 'studio/qwen/qwen3-coder', label: 'qwen/qwen3-coder · LM Studio', endpoint: 'studio', efforts: ['none', 'low', 'medium', 'high'], defaultEffort: 'medium' },
+      {
+        id: 'studio/qwen/qwen3-coder',
+        label: 'qwen/qwen3-coder · LM Studio',
+        endpoint: 'studio',
+        efforts: ['none', 'low', 'medium', 'high'],
+        defaultEffort: 'medium',
+      },
     ]);
     const grok = withEndpointModels('grok', { ...own, provider: 'grok', models: [] }, view);
     expect(grok.models[0]).toEqual({ id: 'homelab/gemma4:e4b', label: 'gemma4:e4b · Homelab', endpoint: 'homelab', efforts: [] });
@@ -474,7 +527,12 @@ describe('an open agent’s environment', () => {
       expect(s.env('claude').ANTHROPIC_API_KEY).toBe('sk-ant-from-the-shell');
       expect(s.env('claude')[OPEN_AGENT_HOME_ENV]).toBeUndefined();
       expect(s.backendsFor('claude')).toEqual({ apis: {}, endpoints: [] });
-      s.backends.putEndpoint('homelab', { name: 'Homelab', baseUrl: 'http://10.0.0.5:11434/v1', models: ['gemma4:e4b'], apiKey: 'lab-key' });
+      s.backends.putEndpoint('homelab', {
+        name: 'Homelab',
+        baseUrl: 'http://10.0.0.5:11434/v1',
+        models: ['gemma4:e4b'],
+        apiKey: 'lab-key',
+      });
       expect(s.backendsFor('codex')).toEqual({
         apis: {},
         endpoints: [{ id: 'homelab', name: 'Homelab', baseUrl: 'http://10.0.0.5:11434/v1', models: ['gemma4:e4b'], apiKey: 'lab-key' }],
@@ -521,7 +579,8 @@ describe('masked keys and endpoint addresses', () => {
       'http://localhost:5173', // the dev server's port, which reaches the API too
       'http://127.0.0.1:8789', // npm run dev's API
     ];
-    for (const url of refused) expect(() => withLang('en', () => validEndpointUrl(url, 8787, own)), url).toThrow(/Harness Relay's own address/);
+    for (const url of refused)
+      expect(() => withLang('en', () => validEndpointUrl(url, 8787, own)), url).toThrow(/Harness Relay's own address/);
     expect(validEndpointUrl('http://10.0.0.5:8787/v1', 8787, own)).toBe('http://10.0.0.5:8787/v1');
     expect(validEndpointUrl('http://localhost:11434/v1', 8787, own)).toBe('http://localhost:11434/v1');
   });
@@ -529,7 +588,11 @@ describe('masked keys and endpoint addresses', () => {
 
 describe('model backends over HTTP, and the open agents in Settings', () => {
   const HOST = { host: '127.0.0.1:8787' };
-  const json = (method: string, body?: unknown) => ({ method, headers: { ...HOST, 'content-type': 'application/json', 'x-relay-lang': 'en' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  const json = (method: string, body?: unknown) => ({
+    method,
+    headers: { ...HOST, 'content-type': 'application/json', 'x-relay-lang': 'en' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
 
   function setup() {
     const keyring = fakeKeyring();
@@ -555,16 +618,36 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
     expect((await app.request('/api/backends/gemini', json('PUT', { apiKey: 'x' }))).status).toBe(404);
     expect((await app.request('/api/backends/openai', json('PUT', { apiKey: 7 }))).status).toBe(400);
     // Writes need JSON, as every write does.
-    expect((await app.request('/api/backends/openai', { method: 'PUT', headers: { ...HOST, 'content-type': 'text/plain' }, body: '{"apiKey":"x"}' })).status).toBe(415);
+    expect(
+      (
+        await app.request('/api/backends/openai', {
+          method: 'PUT',
+          headers: { ...HOST, 'content-type': 'text/plain' },
+          body: '{"apiKey":"x"}',
+        })
+      ).status,
+    ).toBe(415);
   });
 
   it('adds, changes and deletes endpoints, and checks what it is given', async () => {
     const { app } = setup();
     const put = (id: string, body: unknown) => app.request(`/api/backends/endpoints/${id}`, json('PUT', body));
-    const res = await put('homelab', { name: ' Homelab ', baseUrl: 'http://10.0.0.5:8000/v1/', models: ['muse', 'muse', ' other '], apiKey: 'lab-key-1234' });
+    const res = await put('homelab', {
+      name: ' Homelab ',
+      baseUrl: 'http://10.0.0.5:8000/v1/',
+      models: ['muse', 'muse', ' other '],
+      apiKey: 'lab-key-1234',
+    });
     expect(res.status).toBe(200);
     expect(((await res.json()) as ModelBackendsView).endpoints).toEqual([
-      { id: 'homelab', name: 'Homelab', baseUrl: 'http://10.0.0.5:8000/v1', models: ['muse', 'other'], keyMasked: '••••', keyStorage: 'keychain' },
+      {
+        id: 'homelab',
+        name: 'Homelab',
+        baseUrl: 'http://10.0.0.5:8000/v1',
+        models: ['muse', 'other'],
+        keyMasked: '••••',
+        keyStorage: 'keychain',
+      },
     ]);
     const refused = async (id: string, body: unknown, pattern: RegExp) => {
       const r = await put(id, body);
@@ -591,7 +674,7 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
     expect((await app.request('/api/backends/deleted-endpoints/Home_Lab', json('DELETE'))).status).toBe(400);
   });
 
-  it('refreshes the model menus and the agents\' status also after a change that failed part way', async () => {
+  it("refreshes the model menus and the agents' status also after a change that failed part way", async () => {
     const { app, keyring, providers } = setup();
     const changed = vi.spyOn(providers, 'backendsChanged');
     keyring.set = () => {
@@ -608,32 +691,39 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
   });
 
   // POSIX paths, file modes or programs: tried on macOS and Linux.
-  it.skipIf(process.platform === 'win32')('shows an open agent ready once it is installed, its adapter is done and a backend is set up; it has no sign-in', async () => {
-    const { app, settings, providers } = setup();
-    const fake = join(root, 'fake-opencode');
-    writeFileSync(fake, '#!/bin/sh\necho "1.19.5"\n', { mode: 0o755 });
-    settings.update('opencode', { bin: fake });
-    // Asked of this CLI alone (GET /api/providers would ask every CLI on this computer).
-    const status = (refresh = true) => withLang('en', () => providers.status('opencode', refresh));
-    // An adapter that is not done yet.
-    const done = opencodeAcp.implemented;
-    opencodeAcp.implemented = false;
-    try {
-      expect(await status()).toMatchObject({ installed: true, version: '1.19.5', auth: { loggedIn: false, detail: expect.stringMatching(/not implemented yet/) } });
-      opencodeAcp.implemented = true;
-      expect((await status()).auth).toEqual({ loggedIn: false, detail: 'No model backend set up yet (Settings → Model backends)' });
-      await app.request('/api/backends/endpoints/homelab', json('PUT', endpoint));
-      await app.request('/api/backends/xai', json('PUT', { apiKey: 'xai-key-0000' }));
-      // A change of backends is seen at once (the status cache is dropped).
-      expect((await status(false)).auth).toEqual({ loggedIn: true, detail: 'Model backends: xAI, Homelab' });
-    } finally {
-      opencodeAcp.implemented = done;
-    }
-    expect(await (await app.request('/api/providers/opencode/login-methods', { headers: HOST })).json()).toEqual([]);
-    expect((await app.request('/api/providers/opencode/login', json('POST', {}))).status).toBe(400);
-    expect((await app.request('/api/providers/opencode/logout', json('POST', {}))).status).toBe(400);
-    providers.shutdown();
-  });
+  it.skipIf(process.platform === 'win32')(
+    'shows an open agent ready once it is installed, its adapter is done and a backend is set up; it has no sign-in',
+    async () => {
+      const { app, settings, providers } = setup();
+      const fake = join(root, 'fake-opencode');
+      writeFileSync(fake, '#!/bin/sh\necho "1.19.5"\n', { mode: 0o755 });
+      settings.update('opencode', { bin: fake });
+      // Asked of this CLI alone (GET /api/providers would ask every CLI on this computer).
+      const status = (refresh = true) => withLang('en', () => providers.status('opencode', refresh));
+      // An adapter that is not done yet.
+      const done = opencodeAcp.implemented;
+      opencodeAcp.implemented = false;
+      try {
+        expect(await status()).toMatchObject({
+          installed: true,
+          version: '1.19.5',
+          auth: { loggedIn: false, detail: expect.stringMatching(/not implemented yet/) },
+        });
+        opencodeAcp.implemented = true;
+        expect((await status()).auth).toEqual({ loggedIn: false, detail: 'No model backend set up yet (Settings → Model backends)' });
+        await app.request('/api/backends/endpoints/homelab', json('PUT', endpoint));
+        await app.request('/api/backends/xai', json('PUT', { apiKey: 'xai-key-0000' }));
+        // A change of backends is seen at once (the status cache is dropped).
+        expect((await status(false)).auth).toEqual({ loggedIn: true, detail: 'Model backends: xAI, Homelab' });
+      } finally {
+        opencodeAcp.implemented = done;
+      }
+      expect(await (await app.request('/api/providers/opencode/login-methods', { headers: HOST })).json()).toEqual([]);
+      expect((await app.request('/api/providers/opencode/login', json('POST', {}))).status).toBe(400);
+      expect((await app.request('/api/providers/opencode/logout', json('POST', {}))).status).toBe(400);
+      providers.shutdown();
+    },
+  );
 
   it("drops the cached menus of Claude Code, Codex and Grok (every account's) after the endpoints change, not Cursor's", () => {
     const { providers } = setup();
@@ -667,7 +757,12 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
     const plainModels = plain.models;
     plain.models = undefined;
     agent.models = async () => ({
-      models: [{ id: 'openai/gpt-5.4-nano' }, { id: 'anthropic/claude-haiku-5-5' }, { id: 'no-backend' }, { id: 'homelab/muse-glimmer-30b-nvfp4', label: 'Muse' }],
+      models: [
+        { id: 'openai/gpt-5.4-nano' },
+        { id: 'anthropic/claude-haiku-5-5' },
+        { id: 'no-backend' },
+        { id: 'homelab/muse-glimmer-30b-nvfp4', label: 'Muse' },
+      ],
       efforts: ['low', 'high'],
       defaultModel: 'anthropic/claude-haiku-5-5',
     });
@@ -679,7 +774,9 @@ describe('model backends over HTTP, and the open agents in Settings', () => {
       expect(goose.cliDefaultModel).toBeUndefined(); // on a backend that is not set up
       expect(goose.source).toBe('cli');
       // Without a catalog: the endpoints' typed models.
-      expect((await providers.models('cline', true)).models).toEqual([{ id: 'homelab/muse-glimmer-30b-nvfp4', label: 'muse-glimmer-30b-nvfp4 · Homelab' }]);
+      expect((await providers.models('cline', true)).models).toEqual([
+        { id: 'homelab/muse-glimmer-30b-nvfp4', label: 'muse-glimmer-30b-nvfp4 · Homelab' },
+      ]);
       // Relay's own default comes first.
       settings.updateAccount('goose', '', { defaultModel: 'homelab/muse-glimmer-30b-nvfp4' });
       providers.invalidate('goose');

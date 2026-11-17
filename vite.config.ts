@@ -53,7 +53,8 @@ function languagePreload(): Plugin {
           const lang = file.type === 'chunk' ? /[\\/]locales[\\/](zh-TW|en)\.ts$/.exec(file.facadeModuleId ?? '')?.[1] : undefined;
           if (lang) files[lang] = `${base}${file.fileName}`;
         }
-        if (Object.keys(files).length !== 2) throw new Error(`languagePreload: expected the two languages' chunks, found ${JSON.stringify(files)}`);
+        if (Object.keys(files).length !== 2)
+          throw new Error(`languagePreload: expected the two languages' chunks, found ${JSON.stringify(files)}`);
         const script = [
           '(function () {',
           '  try {',

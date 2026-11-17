@@ -1,5 +1,14 @@
 import { useState } from 'react';
-import { PROVIDERS, PROVIDER_LABEL, accountUsable, isOpenProvider, type ConversationGroup, type ConversationSummary, type InboxSummary, type ProviderStatus } from '../../shared/types';
+import {
+  PROVIDERS,
+  PROVIDER_LABEL,
+  accountUsable,
+  isOpenProvider,
+  type ConversationGroup,
+  type ConversationSummary,
+  type InboxSummary,
+  type ProviderStatus,
+} from '../../shared/types';
 import { api } from '../api';
 import { navigate, type Route } from '../App';
 import { hashFor, settingsHref } from '../route';
@@ -7,7 +16,7 @@ import { useT, type Messages } from '../i18n';
 import { branchCount, readHealthNames, readyCount, writeHealthNames } from '../sidebar';
 import { Deferred, lazyPart } from './Deferred';
 import { InboxButton } from './InboxButton';
-import { CalendarPlusIcon, ChevronIcon, FolderPlusIcon, PanelIcon, ReportIcon, SearchIcon, StarIcon } from './icons';
+import { ChevronIcon, FolderPlusIcon, PanelIcon, PlusIcon, ReportIcon, SearchIcon, StarIcon, ZapIcon } from './icons';
 import { Logo } from './Logo';
 import { NewGroupBox, SidebarGroups } from './SidebarGroups';
 import { SearchBox, SearchResults } from './SidebarSearch';
@@ -42,7 +51,19 @@ export function providerState(p?: ProviderStatus): 'ok' | 'warn' | 'off' {
   return 'ok';
 }
 
-export function Sidebar({ route, conversations, groups, seen, providers, onDeleted, onChanged, onCollapse, inbox, onOpenInbox, onHome }: Props) {
+export function Sidebar({
+  route,
+  conversations,
+  groups,
+  seen,
+  providers,
+  onDeleted,
+  onChanged,
+  onCollapse,
+  inbox,
+  onOpenInbox,
+  onHome,
+}: Props) {
   const t = useT();
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
@@ -82,21 +103,34 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
       <div className="sidebar-top">
         <div className="brand">
           {/* The logo and the name lead back to the home page. */}
-          <a className="brand-home" href={hashFor({ page: 'home' })} onClick={onHome} aria-current={route.page === 'home' ? 'page' : undefined}>
+          <a
+            className="brand-home"
+            href={hashFor({ page: 'home' })}
+            onClick={onHome}
+            aria-current={route.page === 'home' ? 'page' : undefined}
+          >
             <Logo />
             Harness Relay
           </a>
           {/* The notification inbox, left of the collapse button (alone at the row's end on a phone). */}
           <InboxButton unread={inbox.unread} onOpen={onOpenInbox} />
-          <button className="icon-button collapse-sidebar" onClick={onCollapse} aria-label={t.app.collapseSidebar} title={t.app.collapseSidebar}>
+          <button
+            className="icon-button collapse-sidebar"
+            onClick={onCollapse}
+            aria-label={t.app.collapseSidebar}
+            title={t.app.collapseSidebar}
+          >
             <PanelIcon />
           </button>
         </div>
         <div className="new-row">
+          {/* Two halves. */}
           <button className="new-chat" data-tour="new-chat" onClick={() => navigate({ page: 'new' })}>
-            <span aria-hidden>＋</span> {t.sidebar.newChat}
+            <PlusIcon size={15} />
+            <span className="new-label">{t.sidebar.newChat}</span>
           </button>
-          {/* An icon only, so New chat keeps the row: a calendar with a plus, unlike Search's magnifier. */}
+          {/* Its label is short where "New automation" does not fit half the row (English); its name says it whole,
+              and holds the label's words. */}
           <button
             className="new-chat new-schedule"
             data-tour="new-schedule"
@@ -104,7 +138,8 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
             aria-label={t.sidebar.newSchedule}
             title={t.sidebar.newSchedule}
           >
-            <CalendarPlusIcon size={18} />
+            <ZapIcon size={15} />
+            <span className="new-label">{t.sidebar.newScheduleLabel}</span>
           </button>
         </div>
         {searching ? (
@@ -116,7 +151,7 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
             <button type="button" className="sidebar-action" onClick={openSearch}>
               <SearchIcon size={16} /> {t.sidebar.search}
             </button>
-            {/* An icon only, so Search keeps the row (as New schedule beside New chat). */}
+            {/* An icon only, so Search keeps the row. */}
             <button
               type="button"
               className="sidebar-action new-group"
@@ -134,24 +169,19 @@ export function Sidebar({ route, conversations, groups, seen, providers, onDelet
         {searching && query.trim() ? (
           <SearchResults query={query} route={route} groups={groups} />
         ) : (
-          <SidebarGroups
-            route={route}
-            conversations={conversations}
-            groups={groups}
-            seen={seen}
-            onChanged={onChanged}
-            onDelete={remove}
-          />
+          <SidebarGroups route={route} conversations={conversations} groups={groups} seen={seen} onChanged={onChanged} onDelete={remove} />
         )}
       </nav>
 
       <div className="sidebar-bottom" data-tour="settings">
         {(() => {
           // The open agents only once installed: most people have only some of them.
-          const shown = PROVIDERS.filter((id) => !isOpenProvider(id) || providers.some((x) => x.provider === id && x.installed)).map((id) => {
-            const p = providers.find((x) => x.provider === id);
-            return { id, p, state: providerState(p) };
-          });
+          const shown = PROVIDERS.filter((id) => !isOpenProvider(id) || providers.some((x) => x.provider === id && x.installed)).map(
+            (id) => {
+              const p = providers.find((x) => x.provider === id);
+              return { id, p, state: providerState(p) };
+            },
+          );
           const { ready, total } = readyCount(shown.map((x) => x.state));
           const toggle = () => {
             writeHealthNames(!healthNames);

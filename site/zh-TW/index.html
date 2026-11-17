@@ -861,14 +861,14 @@
             <li><b>複製、編輯與重試</b>把一則訊息或整段對話複製成 Markdown；編輯自己的訊息或重試某則回覆，團隊就從那裡重新回答。</li>
             <li><b>分支對話</b>回覆下方的「分支對話」會把到這則回覆為止的對話複製成新對話，讓你試另一個方向，原本的對話維持不變。</li>
             <li><b>把對話分享成連結</b>把整段對話，或到某則回覆為止的內容，分享成和對話畫面一樣的頁面，不含工具呼叫和思考過程。它會用你的 GitHub CLI 上傳成 secret gist，在 gistpreview.github.io 打開；設定頁列出所有連結，可以移除不要的。</li>
-            <li><b>排程傳訊息</b>在設定的時間把訊息傳給團隊，在同一個對話裡或每次開新對話：一次、每天、每週選定的星期幾，或每隔幾小時。也可以從「新排程」開始，由首席 agent 挑選團隊。排程執行時可能沒人看著，所以預設會自動拒絕權限範圍以外的動作（設為本對話都允許的除外）。Harness Relay 關閉期間錯過的時間會略過，也可以選擇在開啟後補送一次。</li>
+            <li><b>自動任務</b>在有東西啟動它時把訊息傳給團隊，在同一個對話裡或每次開新對話：你（「立即執行一次」）、設定的時間（一次、每天、每週選定的星期幾，或每隔幾小時），或呼叫它 webhook 的程式。也可以從「新自動任務」開始，由首席 agent 挑選團隊。自動任務執行時可能沒人看著，所以預設會自動拒絕權限範圍以外的動作（設為本對話都允許的除外）。Harness Relay 關閉期間錯過的時間會略過，也可以選擇在開啟後補送一次。可以給它一個追蹤的目標：每次執行都會看到目標與前幾次的回報，說明進度到哪裡，目標達成時自動任務會關閉；失敗的執行會再試。webhook 讓 git hook 或 CI 立刻送出這則訊息，附上它送來的內容。</li>
             <li><b>狀態一目了然</b>側邊欄標示需要你處理、正在回覆或有新回覆的對話；切換到別的對話時，原本的對話會繼續執行。</li>
             <li><b>常用的對話釘在最上面</b>按對話角落的圖釘，它就固定在側邊欄最上面、群組上方；每個瀏覽器和手機上都一樣。</li>
             <li><b>通知與提示音</b>回覆完或 agent 需要你時，跳出系統通知並播放短短的提示音，每個瀏覽器在設定裡各自開啟。把 Harness Relay 加到手機主畫面後，即使 App 沒開著、手機鎖定了，也收得到推播通知。不管開了哪些，側邊欄的鈴鐺都會收著每一則，並標出還沒讀的則數，每個瀏覽器都一樣。</li>
             <li><b>在 app 裡登入</b>Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 和 Muse Code 都能用裝置碼、瀏覽器或貼上授權碼登入，開源 agent 則設定模型來源；也能設定 API key、執行檔路徑與預設模型，並查看各 agent 自己載入的 skill、MCP 工具、內建工具、hook、subagent、plugin、指示與記憶，也能讓 Harness Relay 執行時整類或逐項不載入（Cursor 與 Antigravity 沒辦法，Muse Code 只能用在它的 MCP 伺服器與 hook）。</li>
             <li><b>對話裡的圖片與影片</b>agent 存在工作目錄裡的圖片與影片，會直接顯示在對話中。</li>
             <li><b>瀏覽工作目錄</b>上方的「檔案」列出工作目錄或某位成員的 worktree，並預覽附行號的程式碼、Markdown、圖片與影片。任何檔案都能下載，資料夾也能下載成 ZIP 檔。</li>
-            <li><b>所有成員共用的工具庫</b>MCP 伺服器、skill 與記憶設定一次，不論成員是十二種 agent 中的哪一種都能用，而且加在各 agent 自己的設定之外；每一項可以只給某幾種 agent 或特定成員。</li>
+            <li><b>所有成員共用的工具庫</b>MCP 伺服器、skill 與記憶設定一次，不論成員是十二種 agent 中的哪一種都能用，而且加在各 agent 自己的設定之外；每一項可以只給某幾種 agent 或特定成員。還有 Harness Relay 自己的工具，每一種 agent 都能用（Grok、Muse Code 與 OpenCode 以外的開源 agent 只在完全存取時）：它自己的瀏覽器，以及你的郵件與行事曆。郵件與邀請絕不在那一回合寄出：它會在待送出匣等待，對話中顯示成一張卡片，直到你按「送出」。</li>
             <li><b>在 AgentsView 中看每個 session</b>可以讓各 agent 使用自己的資料夾，並在 <a href="https://www.agentsview.io">AgentsView</a> 中把每個對話看成一個 thread，底下是每位成員自己的 session（工具呼叫、token 與成本），十二種 agent 都有（Cursor 與開源 agent 的是 Harness Relay 記下的 session；Copilot 的在 Windows 上沒有 token 數）。</li>
             <li><b>English 與繁體中文</b>介面跟著瀏覽器的語言，第一次開啟時有使用導覽。</li>
           </ul>
@@ -885,7 +885,7 @@
               <li><svg aria-hidden="true"><use href="#i-shield" /></svg><span>完全存取以外，Claude Code、Codex、Grok、Copilot 和 Muse Code 的指令都在它們各自的作業系統沙箱中執行：只能寫入工作目錄，讀不到你瀏覽器的資料夾與 Harness Relay 的資料。Cursor 沒有沙箱，所以每個指令都會先問你（對話設為自動拒絕時則直接拒絕），你的 Cursor 團隊允許清單上的除外。Antigravity 也沒有沙箱：每個指令都會先問你，而只要被拒絕一次，它就會結束這一輪。Copilot 被拒絕時也會結束這一輪。</span></li>
               <li><svg aria-hidden="true"><use href="#i-box" /></svg><span>五個開源 agent 和它們啟動的一切，都在 Harness Relay 自己的沙箱中執行（sandbox-runtime：macOS 上用 Seatbelt、Linux 上用 bubblewrap，網路經過會過濾的 proxy）：同樣碰不到那些資料夾，每位成員的 session 都是它自己的，不必詢問就能連到的只有這次執行的模型來源。沙箱無法啟動就不執行；在原生 Windows 上只能以完全存取執行，Linux 上的 OpenCode 也是。</span></li>
               <li><svg aria-hidden="true"><use href="#i-branch" /></svg><span>每個改檔的回合都有 git 快照；平行模式的 agent 在各自的 worktree 工作。</span></li>
-              <li><svg aria-hidden="true"><use href="#i-key" /></svg><span>API key 與 MCP 伺服器的 token 存在作業系統的憑證儲存區：macOS 鑰匙圈、Windows 認證管理員或 Secret Service；沒有這些時（例如在 codespace 裡）則加密後存在資料庫。</span></li>
+              <li><svg aria-hidden="true"><use href="#i-key" /></svg><span>API key、MCP 伺服器的 token 與郵件和行事曆的密碼存在作業系統的憑證儲存區：macOS 鑰匙圈、Windows 認證管理員或 Secret Service；沒有這些時（例如在 codespace 裡）則加密後存在資料庫。</span></li>
               <li><svg aria-hidden="true"><use href="#i-db" /></svg><span>所有對話都存在一個 SQLite 檔案裡；只有在你把對話分享成連結時，Harness Relay 才會把它發布出去。</span></li>
             </ul>
           </div>

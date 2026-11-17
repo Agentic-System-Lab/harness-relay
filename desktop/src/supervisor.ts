@@ -25,10 +25,7 @@ export type StartError =
   | { kind: 'timeout'; log: string };
 
 export type ServerState =
-  | { kind: 'stopped'; error?: StartError }
-  | { kind: 'starting' }
-  | { kind: 'running'; url: string; port: number }
-  | { kind: 'stopping' };
+  { kind: 'stopped'; error?: StartError } | { kind: 'starting' } | { kind: 'running'; url: string; port: number } | { kind: 'stopping' };
 
 export interface SupervisorOptions {
   fork(env: NodeJS.ProcessEnv): ServerChild;

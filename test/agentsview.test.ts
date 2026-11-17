@@ -18,7 +18,14 @@ import {
 const BASE = 'http://127.0.0.1:9999';
 
 function message(id: string, author: ChatMessage['author'], text: string, extra: Partial<ChatMessage> = {}): ChatMessage {
-  return { id, author, createdAt: Date.UTC(2026, 10, 8, 12, 0, Number(id.replace(/\D/g, '')) || 0), parts: [{ type: 'text', text }], status: 'done', ...extra };
+  return {
+    id,
+    author,
+    createdAt: Date.UTC(2026, 10, 8, 12, 0, Number(id.replace(/\D/g, '')) || 0),
+    parts: [{ type: 'text', text }],
+    status: 'done',
+    ...extra,
+  };
 }
 
 function conversation(over: Partial<Conversation> = {}): Conversation {
@@ -56,7 +63,11 @@ function conversation(over: Partial<Conversation> = {}): Conversation {
   };
 }
 
-const records = (jsonl: string) => jsonl.trim().split('\n').map((l) => JSON.parse(l) as Record<string, any>);
+const records = (jsonl: string) =>
+  jsonl
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l) as Record<string, any>);
 
 describe('the thread transcript', () => {
   it("is the conversation as a Claude Code transcript: the user's turns, each agent's reply under its name, then the title", () => {
@@ -163,13 +174,29 @@ function recordedTeam(): Conversation {
           { type: 'tool', id: 't2', name: 'Read', detail: 'src/date.ts', kind: 'read', status: 'error', error: 'not found' },
           { type: 'approval', id: 'p1', kind: 'command', detail: 'rm -rf dist', status: 'denied', note: 'not now' },
           { type: 'text', text: 'Claude is right: the parser drops the zone.' },
-          { type: 'plan', entries: [{ text: 'Fix it', status: 'in_progress' }, { text: 'Test it', status: 'pending' }] },
+          {
+            type: 'plan',
+            entries: [
+              { text: 'Fix it', status: 'in_progress' },
+              { text: 'Test it', status: 'pending' },
+            ],
+          },
         ],
       }),
       message('m4', { kind: 'user' }, 'Go ahead'),
-      message('m5', { kind: 'agent', agentId: 'oc' }, 'Done.', { agentName: 'Builder', provider: 'opencode', meta: { inputTokens: 50, outputTokens: 5 } }),
+      message('m5', { kind: 'agent', agentId: 'oc' }, 'Done.', {
+        agentName: 'Builder',
+        provider: 'opencode',
+        meta: { inputTokens: 50, outputTokens: 5 },
+      }),
       message('m6', { kind: 'agent', agentId: 'cur' }, '', { agentName: 'Reviewer', provider: 'cursor', parts: [], passed: true }),
-      message('m7', { kind: 'agent', agentId: 'cur' }, '', { agentName: 'Reviewer', provider: 'cursor', parts: [], status: 'error', error: 'signed out' }),
+      message('m7', { kind: 'agent', agentId: 'cur' }, '', {
+        agentName: 'Reviewer',
+        provider: 'cursor',
+        parts: [],
+        status: 'error',
+        error: 'signed out',
+      }),
       message('m8', { kind: 'agent', agentId: 'oc' }, 'still typing', { provider: 'opencode', status: 'streaming' }),
     ],
     agentState: {
@@ -186,7 +213,17 @@ describe("a member's recorded session", () => {
     const id = memberSessionId(conv.id, 'cur');
     expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     const r = records(memberTranscript(conv, 'cur'));
-    expect(r.map((x) => x.type)).toEqual(['user', 'assistant', 'user', 'assistant', 'user', 'assistant', 'assistant', 'cost-state', 'custom-title']);
+    expect(r.map((x) => x.type)).toEqual([
+      'user',
+      'assistant',
+      'user',
+      'assistant',
+      'user',
+      'assistant',
+      'assistant',
+      'cost-state',
+      'custom-title',
+    ]);
     for (const x of r.filter((x) => x.type === 'user' || x.type === 'assistant')) {
       expect(x).toMatchObject({ sessionId: id, cwd: '/work/chats', isSidechain: false, userType: 'external' });
     }
@@ -246,16 +283,29 @@ describe("a member's recorded session", () => {
     expect(r[0]!.message.content).toBe(
       'Fix the failing test\n\n**Claude** · claude\n\nIt is the date parser.\n\n**Reviewer** · cursor\n\nClaude is right: the parser drops the zone.\n\nGo ahead',
     );
-    expect(r[1]!.message).toMatchObject({ model: 'opencode', content: [{ type: 'text', text: 'Done.' }], usage: { input_tokens: 50, output_tokens: 5 } });
+    expect(r[1]!.message).toMatchObject({
+      model: 'opencode',
+      content: [{ type: 'text', text: 'Done.' }],
+      usage: { input_tokens: 50, output_tokens: 5 },
+    });
     // No cost reported: none claimed (AgentsView would take a 0 as one).
-    expect(r.at(-2)).toEqual({ type: 'cost-state', sessionId: memberSessionId(recordedTeam().id, 'oc'), hasUnknownModelCost: true, modelUsage: { opencode: { inputTokens: 50, outputTokens: 5 } } });
+    expect(r.at(-2)).toEqual({
+      type: 'cost-state',
+      sessionId: memberSessionId(recordedTeam().id, 'oc'),
+      hasUnknownModelCost: true,
+      modelUsage: { opencode: { inputTokens: 50, outputTokens: 5 } },
+    });
     expect(r.at(-1)!.customTitle).toBe('Builder · OpenCode — Plan the release');
   });
 
   it("holds only the member's replies on a CLI AgentsView cannot read: those on another CLI are what it heard", () => {
     const conv = recordedTeam();
     // The Cursor member answered on Claude Code before (its own session there is AgentsView's own).
-    conv.messages.splice(1, 0, message('m1b', { kind: 'agent', agentId: 'cur' }, 'Earlier, on Claude.', { agentName: 'Reviewer', provider: 'claude' }));
+    conv.messages.splice(
+      1,
+      0,
+      message('m1b', { kind: 'agent', agentId: 'cur' }, 'Earlier, on Claude.', { agentName: 'Reviewer', provider: 'claude' }),
+    );
     const r = records(memberTranscript(conv, 'cur'));
     expect(r[0]!.message.content).toContain('**Reviewer** · claude\n\nEarlier, on Claude.');
     expect(memberTranscript(conv, 'a')).toBe('');
@@ -306,7 +356,7 @@ describe("a member's recorded session", () => {
     expect(r.some((x) => x.message?.usage || x.type === 'cost-state')).toBe(false);
   });
 
-  it("names the CLI as the model once the member has left the team or moved to another CLI", () => {
+  it('names the CLI as the model once the member has left the team or moved to another CLI', () => {
     const left = recordedTeam();
     left.agents = left.agents.filter((a) => a.id !== 'cur');
     expect(records(memberTranscript(left, 'cur'))[1]!.message.model).toBe('cursor');
@@ -318,20 +368,41 @@ describe("a member's recorded session", () => {
   });
 
   it("shows each kind of call as Claude Code's tool for it, with the CLI's own name kept, and any other as it is", () => {
-    const call = (over: Partial<Extract<MessagePart, { type: 'tool' }>>): Extract<MessagePart, { type: 'tool' }> => ({ type: 'tool', id: 't', name: 'tool', status: 'done', ...over });
-    expect(toolUse(call({ name: 'developer: shell', kind: 'execute', detail: 'ls -la' }))).toEqual({ name: 'Bash', input: { command: 'ls -la', tool: 'developer: shell' } });
-    expect(toolUse(call({ name: 'file_editor view', kind: 'read', detail: '/w/a.ts' }))).toEqual({ name: 'Read', input: { file_path: '/w/a.ts', tool: 'file_editor view' } });
+    const call = (over: Partial<Extract<MessagePart, { type: 'tool' }>>): Extract<MessagePart, { type: 'tool' }> => ({
+      type: 'tool',
+      id: 't',
+      name: 'tool',
+      status: 'done',
+      ...over,
+    });
+    expect(toolUse(call({ name: 'developer: shell', kind: 'execute', detail: 'ls -la' }))).toEqual({
+      name: 'Bash',
+      input: { command: 'ls -la', tool: 'developer: shell' },
+    });
+    expect(toolUse(call({ name: 'file_editor view', kind: 'read', detail: '/w/a.ts' }))).toEqual({
+      name: 'Read',
+      input: { file_path: '/w/a.ts', tool: 'file_editor view' },
+    });
     expect(toolUse(call({ name: 'Edit', kind: 'edit', detail: '/w/a.ts' }))).toEqual({ name: 'Edit', input: { file_path: '/w/a.ts' } });
     expect(toolUse(call({ name: 'Grep', kind: 'search', detail: 'TODO' }))).toEqual({ name: 'Grep', input: { pattern: 'TODO' } });
     // A search of the web is not one of the files.
-    expect(toolUse(call({ name: 'web_search', kind: 'search', detail: 'node 24 release' }))).toEqual({ name: 'WebSearch', input: { query: 'node 24 release', tool: 'web_search' } });
-    expect(toolUse(call({ name: 'fetch', kind: 'fetch', detail: 'https://example.com' }))).toEqual({ name: 'WebFetch', input: { url: 'https://example.com', tool: 'fetch' } });
+    expect(toolUse(call({ name: 'web_search', kind: 'search', detail: 'node 24 release' }))).toEqual({
+      name: 'WebSearch',
+      input: { query: 'node 24 release', tool: 'web_search' },
+    });
+    expect(toolUse(call({ name: 'fetch', kind: 'fetch', detail: 'https://example.com' }))).toEqual({
+      name: 'WebFetch',
+      input: { url: 'https://example.com', tool: 'fetch' },
+    });
     // A call without a detail has none to show.
     expect(toolUse(call({ name: 'Shell', kind: 'execute' }))).toEqual({ name: 'Bash', input: { tool: 'Shell' } });
     // Kinds Claude Code has no tool for, and calls whose CLI did not say: under the CLI's name.
     expect(toolUse(call({ name: 'Delete', kind: 'delete', detail: 'old.txt' }))).toEqual({ name: 'Delete', input: { detail: 'old.txt' } });
     expect(toolUse(call({ name: 'Think', kind: 'think' }))).toEqual({ name: 'Think', input: {} });
-    expect(toolUse(call({ name: 'mcp__shout__shout', detail: '{"text":"hi"}' }))).toEqual({ name: 'mcp__shout__shout', input: { detail: '{"text":"hi"}' } });
+    expect(toolUse(call({ name: 'mcp__shout__shout', detail: '{"text":"hi"}' }))).toEqual({
+      name: 'mcp__shout__shout',
+      input: { detail: '{"text":"hi"}' },
+    });
   });
 
   it('writes every approval, attachment and plan as text, and leaves out empty text and thinking', () => {
@@ -396,21 +467,39 @@ describe("a member's recorded session", () => {
     const conv = recordedTeam();
     conv.messages = [
       message('m1', { kind: 'user' }, 'Go'),
-      message('m2', { kind: 'agent', agentId: 'oc' }, 'One.', { provider: 'opencode', meta: { inputTokens: 10, outputTokens: 1, costUsd: 0.1 } }),
+      message('m2', { kind: 'agent', agentId: 'oc' }, 'One.', {
+        provider: 'opencode',
+        meta: { inputTokens: 10, outputTokens: 1, costUsd: 0.1 },
+      }),
       message('m3', { kind: 'agent', agentId: 'oc' }, 'Two.', { provider: 'opencode', meta: { costUsd: 0.2 } }),
     ];
     conv.agents[1] = { ...conv.agents[1]!, model: 'openai/gpt-x' };
-    conv.messages.push(message('m4', { kind: 'agent', agentId: 'oc' }, 'Three.', { provider: 'opencode', meta: { inputTokens: 5, outputTokens: 2, costUsd: 0.0000004 } }));
+    conv.messages.push(
+      message('m4', { kind: 'agent', agentId: 'oc' }, 'Three.', {
+        provider: 'opencode',
+        meta: { inputTokens: 5, outputTokens: 2, costUsd: 0.0000004 },
+      }),
+    );
     const r = records(memberTranscript(conv, 'oc'));
     // No tokens: no usage on that reply, its cost still counted.
-    expect(r.filter((x) => x.type === 'assistant').map((x) => x.message.usage)).toEqual([{ input_tokens: 10, output_tokens: 1 }, undefined, { input_tokens: 5, output_tokens: 2 }]);
-    expect(r.at(-2)).toMatchObject({ totalCostUSD: 0.3, hasUnknownModelCost: false, modelUsage: { 'openai/gpt-x': { inputTokens: 15, outputTokens: 3, costUSD: 0.3 } } });
+    expect(r.filter((x) => x.type === 'assistant').map((x) => x.message.usage)).toEqual([
+      { input_tokens: 10, output_tokens: 1 },
+      undefined,
+      { input_tokens: 5, output_tokens: 2 },
+    ]);
+    expect(r.at(-2)).toMatchObject({
+      totalCostUSD: 0.3,
+      hasUnknownModelCost: false,
+      modelUsage: { 'openai/gpt-x': { inputTokens: 15, outputTokens: 3, costUSD: 0.3 } },
+    });
 
     // A reply keeps no model of its own: once the member moved to another CLI, its replies on Cursor are all under the CLI's name, its old one too, and a cost is unknown.
     const moved = recordedTeam();
     const cost = records(memberTranscript(moved, 'cur')).at(-2)!;
     moved.agents[0] = { ...moved.agents[0]!, provider: 'goose' };
-    moved.messages.push(message('m9', { kind: 'agent', agentId: 'cur' }, 'Later.', { provider: 'cursor', meta: { inputTokens: 7, outputTokens: 1 } }));
+    moved.messages.push(
+      message('m9', { kind: 'agent', agentId: 'cur' }, 'Later.', { provider: 'cursor', meta: { inputTokens: 7, outputTokens: 1 } }),
+    );
     expect(cost.modelUsage).toEqual({ 'claude-opus-5-5': { inputTokens: 1200, outputTokens: 300, costUSD: 0.012346 } });
     expect(records(memberTranscript(moved, 'cur')).at(-2)).toMatchObject({
       totalCostUSD: 0.012346,
@@ -499,7 +588,11 @@ describe('sending a conversation to AgentsView', () => {
     const uploads = av.calls.filter((c) => c.method === 'POST');
     const cur = memberSessionId(conv.id, 'cur');
     const oc = memberSessionId(conv.id, 'oc');
-    expect(uploads.map((u) => ((u.body as FormData).get('file') as File).name)).toEqual([`${conv.id}.jsonl`, `${cur}.jsonl`, `${oc}.jsonl`]);
+    expect(uploads.map((u) => ((u.body as FormData).get('file') as File).name)).toEqual([
+      `${conv.id}.jsonl`,
+      `${cur}.jsonl`,
+      `${oc}.jsonl`,
+    ]);
     for (const u of uploads) {
       expect(Object.fromEntries(u.url.searchParams)).toEqual({ project: 'chats', machine: 'm-1234', allow_shorter: 'true' });
       expect(u.headers.Origin).toBe(BASE);
@@ -526,7 +619,9 @@ describe('sending a conversation to AgentsView', () => {
       if (file === `${cur}.jsonl`) return Response.json({ error: 'database is locked' }, { status: 500 });
       return Response.json({ ok: true });
     }) as typeof fetch;
-    await expect(new AgentsViewSync(() => BASE, fetchImpl).send(BASE, conv)).rejects.toThrow('POST /api/v1/sessions/upload: HTTP 500 database is locked');
+    await expect(new AgentsViewSync(() => BASE, fetchImpl).send(BASE, conv)).rejects.toThrow(
+      'POST /api/v1/sessions/upload: HTTP 500 database is locked',
+    );
     expect(calls.filter((c) => !c.startsWith('GET'))).toEqual([
       `POST /api/v1/sessions/upload ${conv.id}.jsonl`,
       `POST /api/v1/sessions/upload ${cur}.jsonl`,
@@ -547,7 +642,8 @@ describe('sending a conversation to AgentsView', () => {
       calls.push(`${method} ${decodeURIComponent(new URL(String(input)).pathname).split('/')[4]} ${file}`.trim());
       if (method === 'GET') return Response.json({ error: 'session not found' }, { status: 404 });
       // The user deleted the Reviewer's session in AgentsView (its trash, or for good).
-      if (file === `${cur}.jsonl`) return Response.json({ detail: 'session upload rejected: session is excluded or trashed' }, { status: 409 });
+      if (file === `${cur}.jsonl`)
+        return Response.json({ detail: 'session upload rejected: session is excluded or trashed' }, { status: 409 });
       return Response.json({ ok: true });
     }) as typeof fetch;
     const sync = new AgentsViewSync(() => BASE, fetchImpl);
@@ -590,7 +686,10 @@ describe('sending a conversation to AgentsView', () => {
 
     // The user writes again and only the Builder answers: the Reviewer's session is the same.
     av.calls.length = 0;
-    conv.messages.push(message('m9', { kind: 'user' }, 'And the docs?'), message('m10', { kind: 'agent', agentId: 'oc' }, 'Updated.', { provider: 'opencode' }));
+    conv.messages.push(
+      message('m9', { kind: 'user' }, 'And the docs?'),
+      message('m10', { kind: 'agent', agentId: 'oc' }, 'Updated.', { provider: 'opencode' }),
+    );
     await sync.send(BASE, conv);
     expect(files()).toEqual([`${conv.id}.jsonl`, oc]);
     // Every session is still linked, the unchanged one too.
@@ -617,14 +716,25 @@ describe('sending a conversation to AgentsView', () => {
     const av = fakeAgentsView(known);
     const sync = new AgentsViewSync(() => BASE, av.fetchImpl);
     const conv = recordedTeam();
-    const placed = () => av.calls.filter((c) => c.method === 'POST').map((c) => `${((c.body as FormData).get('file') as File).name} ${c.url.searchParams.get('project')}`);
+    const placed = () =>
+      av.calls
+        .filter((c) => c.method === 'POST')
+        .map((c) => `${((c.body as FormData).get('file') as File).name} ${c.url.searchParams.get('project')}`);
     await sync.send(BASE, conv);
-    expect(placed()).toEqual([`${conv.id}.jsonl chats`, `${memberSessionId(conv.id, 'cur')}.jsonl chats`, `${memberSessionId(conv.id, 'oc')}.jsonl chats`]);
+    expect(placed()).toEqual([
+      `${conv.id}.jsonl chats`,
+      `${memberSessionId(conv.id, 'cur')}.jsonl chats`,
+      `${memberSessionId(conv.id, 'oc')}.jsonl chats`,
+    ]);
     // AgentsView has read Claude Code's session since: the thread goes to its project, and the recorded sessions with it.
     known['977d79d5-4d98-4e2a-9a1d-20fe70d1417e'] = { project: 'repo', machine: 'host-1' };
     av.calls.length = 0;
     await sync.send(BASE, conv);
-    expect(placed()).toEqual([`${conv.id}.jsonl repo`, `${memberSessionId(conv.id, 'cur')}.jsonl repo`, `${memberSessionId(conv.id, 'oc')}.jsonl repo`]);
+    expect(placed()).toEqual([
+      `${conv.id}.jsonl repo`,
+      `${memberSessionId(conv.id, 'cur')}.jsonl repo`,
+      `${memberSessionId(conv.id, 'oc')}.jsonl repo`,
+    ]);
   });
 
   it('links a recorded session again after its link failed, without sending it again', async () => {
@@ -678,7 +788,10 @@ describe('sending a conversation to AgentsView', () => {
     });
     const av = fakeAgentsView({ 'antigravity-cli:c3471ccd-0000-4000-8000-000000000001': { project: 'web', machine: 'm-7' } });
     await new AgentsViewSync(() => BASE, av.fetchImpl).send(BASE, conv);
-    expect(Object.fromEntries(av.calls.find((c) => c.method === 'POST')!.url.searchParams)).toMatchObject({ project: 'web', machine: 'm-7' });
+    expect(Object.fromEntries(av.calls.find((c) => c.method === 'POST')!.url.searchParams)).toMatchObject({
+      project: 'web',
+      machine: 'm-7',
+    });
     expect(av.calls.filter((c) => c.method === 'PUT').map((c) => decodeURIComponent(c.url.pathname))).toEqual([
       '/api/v1/sessions/antigravity-cli:c3471ccd-0000-4000-8000-000000000001/parent',
     ]);
@@ -813,7 +926,16 @@ describe('sending a conversation to AgentsView', () => {
     sync.schedule(conv);
     await sync.idle();
     const linked = av.calls.filter((c) => c.method === 'PUT').map((c) => decodeURIComponent(c.url.pathname).split('/')[4]);
-    expect(linked).toEqual(['977d79d5-4d98-4e2a-9a1d-20fe70d1417e', 'codex:01a1bb71-4292', 'grok:01a1bb71-42e0', 'grok:lead-1', 'sorter-1', 'antigravity-cli:lead-3', 'muse:lead-4', 'copilot:sorter-3']);
+    expect(linked).toEqual([
+      '977d79d5-4d98-4e2a-9a1d-20fe70d1417e',
+      'codex:01a1bb71-4292',
+      'grok:01a1bb71-42e0',
+      'grok:lead-1',
+      'sorter-1',
+      'antigravity-cli:lead-3',
+      'muse:lead-4',
+      'copilot:sorter-3',
+    ]);
   });
 
   it('drops what still waits to be sent for a conversation being deleted', async () => {

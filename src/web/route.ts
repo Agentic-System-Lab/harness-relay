@@ -145,7 +145,13 @@ export function makeRoomForCorner(linksTop: number, cornerBottom: number | undef
  * half screen of scrolling the line moves down to the bottom of the view, so the short cards at the
  * end of the page, which can never scroll up to the links, are each reached in turn.
  */
-export function readingLine(v: { linksBottom: number; viewBottom: number; scrollTop: number; scrollHeight: number; clientHeight: number }): number {
+export function readingLine(v: {
+  linksBottom: number;
+  viewBottom: number;
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+}): number {
   const line = v.linksBottom + 24;
   const scrollable = v.scrollHeight - v.clientHeight;
   const sweep = Math.min(v.clientHeight / 2, scrollable);

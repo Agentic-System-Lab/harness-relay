@@ -24,7 +24,13 @@ export const VAPID_SUBJECT = 'https://agentic-system-lab.github.io/harness-relay
  * The push services a subscription may point at (a host or one under it). The server only ever sends
  * to these, so a subscription cannot make it send requests elsewhere (into the local network, say).
  */
-export const PUSH_HOSTS = ['fcm.googleapis.com', 'android.googleapis.com', 'push.services.mozilla.com', 'push.apple.com', 'notify.windows.com'];
+export const PUSH_HOSTS = [
+  'fcm.googleapis.com',
+  'android.googleapis.com',
+  'push.services.mozilla.com',
+  'push.apple.com',
+  'notify.windows.com',
+];
 
 /** The longest push service address taken. */
 const MAX_ENDPOINT = 2048;
@@ -58,7 +64,12 @@ const HEADER_BYTES = 16 + 4 + 1 + 65;
  * subscription's keys. `asPrivate` and `salt` are fresh for each message (given in tests only, to
  * check against the RFC's example).
  */
-export function encryptPush(plaintext: Buffer, uaPublic: Buffer, authSecret: Buffer, o: { asPrivate?: Buffer; salt?: Buffer } = {}): Buffer {
+export function encryptPush(
+  plaintext: Buffer,
+  uaPublic: Buffer,
+  authSecret: Buffer,
+  o: { asPrivate?: Buffer; salt?: Buffer } = {},
+): Buffer {
   const ecdh = createECDH('prime256v1');
   if (o.asPrivate) ecdh.setPrivateKey(o.asPrivate);
   else ecdh.generateKeys();
@@ -131,7 +142,13 @@ export type PushSender = (req: PushRequest) => Promise<{ status: number; text: s
 const SEND_TIMEOUT_MS = 15_000;
 
 export const fetchPush: PushSender = async ({ endpoint, headers, body }) => {
-  const res = await fetch(endpoint, { method: 'POST', headers, body: new Uint8Array(body), redirect: 'error', signal: AbortSignal.timeout(SEND_TIMEOUT_MS) });
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers,
+    body: new Uint8Array(body),
+    redirect: 'error',
+    signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+  });
   return { status: res.status, text: (await res.text().catch(() => '')).slice(0, 500) };
 };
 
@@ -304,7 +321,9 @@ export class PushService {
 
   /** Removes a browser's subscription; only its own browser's session (or anyone without sign-in) may. */
   unsubscribe(sessionId: string | undefined, endpoint: string): boolean {
-    return this.db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ? AND session_id IS ?').run(endpoint, nul(sessionId)).changes > 0;
+    return (
+      this.db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ? AND session_id IS ?').run(endpoint, nul(sessionId)).changes > 0
+    );
   }
 
   /**
@@ -341,7 +360,11 @@ export class PushService {
    * Sends a notification to one browser. A subscription its push service says is gone (404, 410), or
    * no longer takes this server's key (401, 403), is removed; its browser subscribes again when opened.
    */
-  async push(sub: PushSubscriptionRecord, payload: AlertPayload, o: { urgency?: 'normal' | 'high'; ttl?: number; topic?: string } = {}): Promise<PushResult> {
+  async push(
+    sub: PushSubscriptionRecord,
+    payload: AlertPayload,
+    o: { urgency?: 'normal' | 'high'; ttl?: number; topic?: string } = {},
+  ): Promise<PushResult> {
     const keys = this.vapid();
     const decoded = subscriptionKeys(sub);
     if (!keys || !decoded || endpointProblem(sub.endpoint)) return 'failed';
@@ -394,7 +417,10 @@ export function fitPayload(payload: AlertPayload): Buffer {
   let p = payload;
   let json = Buffer.from(JSON.stringify(p));
   while (json.length > room && (p.body.length > 0 || p.title.length > 1)) {
-    p = p.body.length > 0 ? { ...p, body: p.body.slice(0, Math.floor(p.body.length / 2)) } : { ...p, title: p.title.slice(0, Math.floor(p.title.length / 2)) };
+    p =
+      p.body.length > 0
+        ? { ...p, body: p.body.slice(0, Math.floor(p.body.length / 2)) }
+        : { ...p, title: p.title.slice(0, Math.floor(p.title.length / 2)) };
     json = Buffer.from(JSON.stringify(p));
   }
   return json;

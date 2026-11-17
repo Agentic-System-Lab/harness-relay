@@ -13,7 +13,19 @@ export const PAGE_LOAD_FAILED = {
  * at the bottom of the screen, over everything (a dialog it stands for), or `inPage` in the page's own
  * place (Settings), leaving the rest of the screen alone.
  */
-export function LoadFailed({ text, reload, close, onClose, inPage }: { text: string; reload: string; close?: string; onClose?: () => void; inPage?: boolean }) {
+export function LoadFailed({
+  text,
+  reload,
+  close,
+  onClose,
+  inPage,
+}: {
+  text: string;
+  reload: string;
+  close?: string;
+  onClose?: () => void;
+  inPage?: boolean;
+}) {
   return (
     <div className={inPage ? 'load-failed in-page' : 'load-failed'} role="alert">
       <span>{text}</span>

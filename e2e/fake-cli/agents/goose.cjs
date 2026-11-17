@@ -42,7 +42,13 @@ const env = process.env;
 const KEY_ENV = { openai: 'OPENAI_API_KEY', anthropic: 'ANTHROPIC_API_KEY', xai: 'XAI_API_KEY' };
 /** Its catalog of the API providers' models (no model API asked). */
 const CATALOG = {
-  openai: { name: 'OpenAI', models: [{ id: 'gpt-e2e-fake', name: 'GPT E2E Fake' }, { id: 'gpt-e2e-fake-mini', name: 'GPT E2E Fake Mini' }] },
+  openai: {
+    name: 'OpenAI',
+    models: [
+      { id: 'gpt-e2e-fake', name: 'GPT E2E Fake' },
+      { id: 'gpt-e2e-fake-mini', name: 'GPT E2E Fake Mini' },
+    ],
+  },
   anthropic: { name: 'Anthropic', models: [{ id: 'claude-e2e-fake', name: 'Claude E2E Fake' }] },
   xai: { name: 'xAI', models: [{ id: 'grok-e2e-fake', name: 'Grok E2E Fake' }] },
 };
@@ -111,7 +117,8 @@ function customProviders() {
 
 /** A provider's models, its default first, and the efforts it offers (a custom provider: `off` only). */
 function providerInfo(provider) {
-  if (CATALOG[provider]) return { name: CATALOG[provider].name, models: CATALOG[provider].models.map((m) => m.id), efforts: EFFORTS, keyEnv: KEY_ENV[provider] };
+  if (CATALOG[provider])
+    return { name: CATALOG[provider].name, models: CATALOG[provider].models.map((m) => m.id), efforts: EFFORTS, keyEnv: KEY_ENV[provider] };
   const custom = customProviders()[provider];
   if (!custom) return undefined;
   return {
@@ -134,11 +141,35 @@ function configOptions(s) {
       name: 'Provider',
       type: 'select',
       currentValue: s.provider,
-      options: [...Object.entries(CATALOG).map(([value, p]) => ({ value, name: p.name })), ...Object.values(custom).map((p) => ({ value: p.name, name: p.display_name || p.name }))],
+      options: [
+        ...Object.entries(CATALOG).map(([value, p]) => ({ value, name: p.name })),
+        ...Object.values(custom).map((p) => ({ value: p.name, name: p.display_name || p.name })),
+      ],
     },
-    { id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: s.mode, options: MODES.map((m) => ({ value: m.id, name: m.name })) },
-    { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: s.model, options: info.models.map((value) => ({ value, name: value })) },
-    { id: 'thinking_effort', name: 'Thinking effort', category: 'thought_level', type: 'select', currentValue: s.effort, options: info.efforts.map((value) => ({ value, name: value })) },
+    {
+      id: 'mode',
+      name: 'Mode',
+      category: 'mode',
+      type: 'select',
+      currentValue: s.mode,
+      options: MODES.map((m) => ({ value: m.id, name: m.name })),
+    },
+    {
+      id: 'model',
+      name: 'Model',
+      category: 'model',
+      type: 'select',
+      currentValue: s.model,
+      options: info.models.map((value) => ({ value, name: value })),
+    },
+    {
+      id: 'thinking_effort',
+      name: 'Thinking effort',
+      category: 'thought_level',
+      type: 'select',
+      currentValue: s.effort,
+      options: info.efforts.map((value) => ({ value, name: value })),
+    },
   ];
 }
 
@@ -158,8 +189,13 @@ function gitRoot(cwd) {
 function gooseSkills(cwd) {
   const home = homeDir();
   const dirs = [
-    ...[path.join(cwd, '.goose', 'skills'), path.join(cwd, '.claude', 'skills'), path.join(cwd, '.agents', 'skills')].map((d) => [d, false]),
-    ...[path.join(home, '.agents', 'skills'), path.join(home, '.claude', 'skills'), path.join(home, '.config', 'agents', 'skills')].map((d) => [d, true]),
+    ...[path.join(cwd, '.goose', 'skills'), path.join(cwd, '.claude', 'skills'), path.join(cwd, '.agents', 'skills')].map((d) => [
+      d,
+      false,
+    ]),
+    ...[path.join(home, '.agents', 'skills'), path.join(home, '.claude', 'skills'), path.join(home, '.config', 'agents', 'skills')].map(
+      (d) => [d, true],
+    ),
   ];
   const found = new Map();
   for (const [dir, global] of dirs) {
@@ -174,7 +210,9 @@ function gooseSkills(cwd) {
       found.set(s.name, { type: 'skill', name: s.name, description: s.description, content, path: s.path, global, writable: true });
     }
   }
-  for (const b of BUILT_IN_SKILLS) if (!found.has(b.name)) found.set(b.name, { type: 'skill', ...b, content: '', path: `builtin://${b.name}`, global: true, writable: false });
+  for (const b of BUILT_IN_SKILLS)
+    if (!found.has(b.name))
+      found.set(b.name, { type: 'skill', ...b, content: '', path: `builtin://${b.name}`, global: true, writable: false });
   return [...found.values()];
 }
 
@@ -186,7 +224,11 @@ function goosePlugins(cwd) {
   for (const dir of [...new Set(dirs)]) {
     let names = [];
     try {
-      names = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
+      names = fs
+        .readdirSync(dir, { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name)
+        .sort();
     } catch {
       continue;
     }
@@ -250,10 +292,15 @@ function staticCommand() {
 // --- The turn ----------------------------------------------------------------------------------
 
 const PERMISSION_OPTIONS = ['allow_always', 'allow_once', 'reject_once', 'reject_always'].map((k) => ({ optionId: k, name: k, kind: k }));
-const DECLINED = 'The user has declined to run this tool. DO NOT attempt to call this tool again. If there are no alternative methods to proceed, clearly explain the situation and STOP.';
+const DECLINED =
+  'The user has declined to run this tool. DO NOT attempt to call this tool again. If there are no alternative methods to proceed, clearly explain the situation and STOP.';
 
 /** Rust's words for a write the file system refused (as Goose says it), by its error code. */
-const RUST_ERROR = { EPERM: 'Operation not permitted (os error 1)', EROFS: 'Read-only file system (os error 30)', EACCES: 'Permission denied (os error 13)' };
+const RUST_ERROR = {
+  EPERM: 'Operation not permitted (os error 1)',
+  EROFS: 'Read-only file system (os error 30)',
+  EACCES: 'Permission denied (os error 13)',
+};
 
 /** Writes `content` to `file`, making its folder first: undefined when written, else Rust's words for why not (a sandbox's refusal). */
 function writeFile(file, content) {
@@ -309,7 +356,9 @@ function gooseAgent() {
       cancelled: false,
       mcp: (p.mcpServers || []).map((m) => m.name),
       // A loaded session keeps the extensions it started with (the tool library's servers come again with the load).
-      extensions: kept.extensions ? [...new Set([...kept.extensions, ...(p.mcpServers || []).map((m) => m.name)])] : gooseExtensions(p, cwd),
+      extensions: kept.extensions
+        ? [...new Set([...kept.extensions, ...(p.mcpServers || []).map((m) => m.name)])]
+        : gooseExtensions(p, cwd),
       steers: [],
     };
     const info = providerInfo(s.provider);
@@ -317,7 +366,9 @@ function gooseAgent() {
     s.model ??= setting('GOOSE_MODEL') || info.models[0];
     agent.sessions.set(id, s);
     recordMcpEnv(
-      Object.fromEntries((p.mcpServers || []).map((m) => [m.name, Object.fromEntries((m.env || m.headers || []).map((v) => [v.name, v.value]))])),
+      Object.fromEntries(
+        (p.mcpServers || []).map((m) => [m.name, Object.fromEntries((m.env || m.headers || []).map((v) => [v.name, v.value]))]),
+      ),
       Object.fromEntries((p.mcpServers || []).filter((m) => m.type === 'http').map((m) => [m.name, m.url])),
     );
     saveSession(id, s);
@@ -348,16 +399,25 @@ function gooseAgent() {
         auth: {},
         _meta: { goose: { recipeParameterScopes: {}, localInference: {} } },
       },
-      authMethods: [{ id: 'goose-provider', name: 'Configure Provider', description: 'Run `goose configure` to set up your AI provider and API key' }],
+      authMethods: [
+        { id: 'goose-provider', name: 'Configure Provider', description: 'Run `goose configure` to set up your AI provider and API key' },
+      ],
       agentInfo: { name: 'goose', version: VERSION },
     }),
     // Outside a turn: its catalog, and its skills for a folder.
     '_goose/unstable/providers/list': (p) => ({
       entries: (Array.isArray(p.providerIds) ? p.providerIds : Object.keys(CATALOG))
         .filter((id) => CATALOG[id])
-        .map((id) => ({ providerId: id, providerName: CATALOG[id].name, defaultModel: CATALOG[id].models[0].id, models: CATALOG[id].models })),
+        .map((id) => ({
+          providerId: id,
+          providerName: CATALOG[id].name,
+          defaultModel: CATALOG[id].models[0].id,
+          models: CATALOG[id].models,
+        })),
     }),
-    '_goose/unstable/sources/list': (p) => ({ sources: p.sourceType === 'skill' || p.sourceType === undefined ? gooseSkills(p.projectDir || process.cwd()) : [] }),
+    '_goose/unstable/sources/list': (p) => ({
+      sources: p.sourceType === 'skill' || p.sourceType === undefined ? gooseSkills(p.projectDir || process.cwd()) : [],
+    }),
     'session/new': (p, agent) => {
       const id = newSessionId();
       sessions.start(id);
@@ -368,8 +428,14 @@ function gooseAgent() {
       const s = open(agent, p.sessionId, p, loadSession(p.sessionId));
       // Its history first (the last turn: `replayTail`), then the answer, with the session's own options.
       for (const turn of s.history.slice(-1)) {
-        agent.peer.notify('session/update', { sessionId: p.sessionId, update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: turn.user } } });
-        agent.peer.notify('session/update', { sessionId: p.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: turn.reply } } });
+        agent.peer.notify('session/update', {
+          sessionId: p.sessionId,
+          update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: turn.user } },
+        });
+        agent.peer.notify('session/update', {
+          sessionId: p.sessionId,
+          update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: turn.reply } },
+        });
       }
       return answer(s);
     },
@@ -392,7 +458,8 @@ function gooseAgent() {
       } else if (p.configId === 'model') {
         s.model = value;
       } else if (p.configId === 'thinking_effort') {
-        if (!(providerInfo(s.provider) || { efforts: [] }).efforts.includes(value)) throw rpcError(`Invalid params: unknown thinking effort ${value}`, -32602);
+        if (!(providerInfo(s.provider) || { efforts: [] }).efforts.includes(value))
+          throw rpcError(`Invalid params: unknown thinking effort ${value}`, -32602);
         s.effort = value;
       } else if (p.configId === 'mode') {
         if (!MODES.some((m) => m.id === value)) throw rpcError(`Invalid params: unknown mode ${value}`, -32602);
@@ -421,7 +488,10 @@ function gooseAgent() {
       const messageId = `steer_${crypto.randomUUID()}`;
       s.steers.push(text);
       if (s.onSteer) s.onSteer();
-      peer.notify('session/update', { sessionId: p.sessionId, update: { sessionUpdate: 'session_info_update', _meta: { goose: { queuedSteer: { messageId, runId: s.activeRunId } } } } });
+      peer.notify('session/update', {
+        sessionId: p.sessionId,
+        update: { sessionUpdate: 'session_info_update', _meta: { goose: { queuedSteer: { messageId, runId: s.activeRunId } } } },
+      });
       return { runId: s.activeRunId, messageId };
     },
     'session/prompt': (p, { peer, sessions: opened }) => gooseTurn(peer, p, session(opened, p.sessionId), next),
@@ -450,7 +520,9 @@ async function gooseTurn(peer, p, s, next) {
     extensions: s.extensions,
     ...(info.baseUrl ? { endpoint: { baseUrl: info.baseUrl, key: Boolean(keyEnv && env[keyEnv]), models: info.models } } : {}),
     // The key variables of other backends it was given (none, when Harness Relay gives it its run's only).
-    otherKeys: [...Object.values(KEY_ENV), ...Object.keys(env).filter((k) => /^HARNESS_RELAY_ENDPOINT_.+_API_KEY$/.test(k))].filter((k) => k !== keyEnv && env[k]),
+    otherKeys: [...Object.values(KEY_ENV), ...Object.keys(env).filter((k) => /^HARNESS_RELAY_ENDPOINT_.+_API_KEY$/.test(k))].filter(
+      (k) => k !== keyEnv && env[k],
+    ),
   });
 
   const update = (u) => peer.notify('session/update', { sessionId, update: u });
@@ -475,7 +547,9 @@ async function gooseTurn(peer, p, s, next) {
   // Its provider's key, as Goose signs in with it; the model, as the provider knows it.
   if ((KEY_ENV[s.provider] || info.requiresAuth) && !(keyEnv && env[keyEnv])) throw failed('Authentication required', -32000);
   if (!info.models.includes(s.model)) {
-    throw failed(`Ran into this error: Request failed: Resource not found (404) at ${info.baseUrl || `https://${s.provider}`}: The model \`${s.model}\` does not exist or you do not have access to it.`);
+    throw failed(
+      `Ran into this error: Request failed: Resource not found (404) at ${info.baseUrl || `https://${s.provider}`}: The model \`${s.model}\` does not exist or you do not have access to it.`,
+    );
   }
 
   const steps = plan(prompt, { cwd: s.cwd, images, mcp: s.mcp, briefing: s.briefing });
@@ -490,7 +564,20 @@ async function gooseTurn(peer, p, s, next) {
   /** A tool call, as Goose announces it: no kind, no status; the tool in `_meta`. */
   const announce = (tool, extension, title, rawInput) => {
     const id = next('call');
-    update({ sessionUpdate: 'tool_call', toolCallId: id, title, rawInput, _meta: { goose: { toolCall: { toolName: tool, extensionName: extension }, created: Math.floor(Date.now() / 1000), messageId: next('resp'), inference } } });
+    update({
+      sessionUpdate: 'tool_call',
+      toolCallId: id,
+      title,
+      rawInput,
+      _meta: {
+        goose: {
+          toolCall: { toolName: tool, extensionName: extension },
+          created: Math.floor(Date.now() / 1000),
+          messageId: next('resp'),
+          inference,
+        },
+      },
+    });
     return id;
   };
 
@@ -501,7 +588,12 @@ async function gooseTurn(peer, p, s, next) {
   const permit = async (id, title, rawInput) => {
     if (s.mode !== 'approve' && s.mode !== 'smart_approve') return { ok: true };
     const steered = s.steers.length;
-    const a = await requestPermission(peer, sessionId, { toolCallId: id, kind: 'other', status: 'pending', title, rawInput }, PERMISSION_OPTIONS);
+    const a = await requestPermission(
+      peer,
+      sessionId,
+      { toolCallId: id, kind: 'other', status: 'pending', title, rawInput },
+      PERMISSION_OPTIONS,
+    );
     const o = a && a.outcome;
     if (o && o.outcome === 'selected' && (o.optionId === 'allow_once' || o.optionId === 'allow_always')) return { ok: true };
     if (s.cancelled || !o || o.outcome === 'cancelled') return { ok: false, note: '' };
@@ -513,12 +605,25 @@ async function gooseTurn(peer, p, s, next) {
 
   /** A refused call's end, and the steer it took in. */
   const refuse = (id, r, extra = {}) => {
-    update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'failed', content: [{ type: 'content', content: { type: 'text', text: DECLINED } }], ...extra });
-    if (r.steer) update({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: r.steer }, _meta: { goose: { steer: true } } });
+    update({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: id,
+      status: 'failed',
+      content: [{ type: 'content', content: { type: 'text', text: DECLINED } }],
+      ...extra,
+    });
+    if (r.steer)
+      update({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: r.steer }, _meta: { goose: { steer: true } } });
   };
 
   const done = (id, ok, text, extra = {}) =>
-    update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: ok ? 'completed' : 'failed', content: [{ type: 'content', content: { type: 'text', text } }], ...extra });
+    update({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: id,
+      status: ok ? 'completed' : 'failed',
+      content: [{ type: 'content', content: { type: 'text', text } }],
+      ...extra,
+    });
 
   for (const step of steps) {
     if (s.cancelled) return cancelled();
@@ -559,10 +664,25 @@ async function gooseTurn(peer, p, s, next) {
       } else {
         // Through GOOSE_SHELL, as Goose runs its commands (on Windows, where it has none, what it would print).
         const out = runCommand(env.GOOSE_SHELL, command, s.cwd);
-        update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'in_progress', _meta: { toolNotification: { type: 'live_output', params: { sequence: 1, chunks: [{ stream: 'stdout', output: out.stdout }], truncated: false } } } });
+        update({
+          sessionUpdate: 'tool_call_update',
+          toolCallId: id,
+          status: 'in_progress',
+          _meta: {
+            toolNotification: {
+              type: 'live_output',
+              params: { sequence: 1, chunks: [{ stream: 'stdout', output: out.stdout }], truncated: false },
+            },
+          },
+        });
         // A command that fails is a failed call.
-        done(id, out.code === 0, out.code === 0 ? out.stdout : `${out.stdout}${out.stderr}\nCommand exited with code ${out.code}`, { rawOutput: { stdout: out.stdout, stderr: out.stderr, exit_code: out.code } });
-        prefix += out.code === 0 ? 'The command ran: e2e-approval. ' : `The command failed (exit ${out.code}): ${(out.stderr || out.stdout).trim()}. `;
+        done(id, out.code === 0, out.code === 0 ? out.stdout : `${out.stdout}${out.stderr}\nCommand exited with code ${out.code}`, {
+          rawOutput: { stdout: out.stdout, stderr: out.stderr, exit_code: out.code },
+        });
+        prefix +=
+          out.code === 0
+            ? 'The command ran: e2e-approval. '
+            : `The command failed (exit ${out.code}): ${(out.stderr || out.stdout).trim()}. `;
       }
     }
     if (step.type === 'fetch' && tools) {
@@ -644,7 +764,11 @@ module.exports = {
   apiKey(e) {
     const provider = e.GOOSE_PROVIDER;
     let name = provider ? KEY_ENV[provider] : Object.values(KEY_ENV).find((k) => e[k]);
-    if (provider && !name && provider.startsWith('relay-')) name = `HARNESS_RELAY_ENDPOINT_${provider.slice('relay-'.length).toUpperCase().replace(/[^A-Z0-9]/g, '_')}_API_KEY`;
+    if (provider && !name && provider.startsWith('relay-'))
+      name = `HARNESS_RELAY_ENDPOINT_${provider
+        .slice('relay-'.length)
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, '_')}_API_KEY`;
     return name && e[name] ? keyVerdict(e[name]) : null;
   },
   main() {

@@ -6,8 +6,12 @@ import type {
   Mode,
   NativePart,
   OpenProvider,
+  OutboxStatus,
+  MailSecurity,
   Permission,
+  ProgressStatus,
   Provider,
+  RelayToolGroup,
   ScheduleRepeat,
   ScheduleResult,
   ToolStatus,
@@ -20,7 +24,7 @@ import type { ReportKind } from '../report';
 import type { ThemeChoice } from '../theme';
 
 /** A conversation's state as the sidebar shows it. */
-export type ConvStatus = 'waiting' | 'confirm' | 'answer' | 'running' | 'error' | 'unread';
+export type ConvStatus = 'waiting' | 'confirm' | 'answer' | 'blocked' | 'running' | 'error' | 'unread';
 
 const EFFORT: Record<string, string> = {
   none: '無',
@@ -82,13 +86,23 @@ export const zhTW = {
 
   sidebar: {
     newChat: '新對話',
-    newSchedule: '新排程',
+    newSchedule: '新自動任務',
+    /** The button's own text, where the whole name does not fit half the sidebar's row: a word of the name. */
+    newScheduleLabel: '新自動任務',
     conversations: '對話列表',
     empty: '還沒有對話',
     replying: '回覆中',
     deleteConversation: '刪除對話',
     waiting: '等你核准',
-    status: { waiting: '等你核准', confirm: '等你確認團隊', answer: '等你回答', running: '回覆中', error: '出錯了', unread: '新回覆' } as Record<ConvStatus, string>,
+    status: {
+      waiting: '等你核准',
+      confirm: '等你確認團隊',
+      answer: '等你回答',
+      blocked: '目標卡住了',
+      running: '回覆中',
+      error: '出錯了',
+      unread: '新回覆',
+    } as Record<ConvStatus, string>,
     confirmDelete: (title: string) => `刪除對話「${title}」？`,
     confirmDeleteBranched: (title: string, n: number) => `刪除對話「${title}」？從它分支出去的 ${n} 個對話會保留。`,
     deleteFailed: (message: string) => `無法刪除對話：${message}`,
@@ -166,7 +180,8 @@ export const zhTW = {
     builtinTitle: (name: string) => `內建範本「${name}」`,
     builtinNote: '內建範本不能直接修改；調整後可以另存成你自己的範本。',
     /** Members whose CLI cannot run here moved to one that can (`fitTemplateAgents`); `names` joined. */
-    moved: (names: string) => `${names} 原本用的 CLI 在這台電腦還不能用（沒有安裝或沒有登入），已改用可以用的 CLI；儲存範本就會照這樣保存。`,
+    moved: (names: string) =>
+      `${names} 原本用的 CLI 在這台電腦還不能用（沒有安裝或沒有登入），已改用可以用的 CLI；儲存範本就會照這樣保存。`,
     name: '範本名稱',
     namePlaceholder: '例如：前後端分工',
     description: '說明',
@@ -251,7 +266,8 @@ export const zhTW = {
      * the user's ~/.agents and ~/Documents/Cline (docs/open-agents.md).
      */
     toolsOwnSetup: {
-      own: (cli: string) => `${cli} 也會載入它自己的設定，例如它的 skill 和 MCP 伺服器：「設定 → ${cli}」列出它在預設工作目錄中會載入哪些。`,
+      own: (cli: string) =>
+        `${cli} 也會載入它自己的設定，例如它的 skill 和 MCP 伺服器：「設定 → ${cli}」列出它在預設工作目錄中會載入哪些。`,
       open: (cli: string) =>
         `${cli} 在 Harness Relay 裡用的是 Harness Relay 自己的設定資料夾，而不是你家目錄裡它自己的那個，所以你在那裡的設定（例如 MCP 伺服器）不會被讀取；它還會自己載入的（例如專案的 AGENTS.md）列在「設定 → ${cli}」，以預設工作目錄為準。`,
     },
@@ -428,20 +444,23 @@ export const zhTW = {
   },
 
   newSchedule: {
-    title: '新排程',
+    title: '新自動任務',
     intro: (lead: string) =>
-      `設定一則在固定時間傳給團隊的訊息。建立後，首席 agent（${lead}）會為這則訊息組隊；你確認團隊後，排程就會在設定的時間執行。建立時不會先執行。`,
-    schedule: '排程',
+      `自動任務會在你執行它、程式呼叫它的 webhook，或到了設定的時間時，把一則訊息傳給團隊。建立後，首席 agent（${lead}）會為這則訊息組隊；你確認團隊後，自動任務就可以執行。建立時不會先執行。`,
+    schedule: '自動任務',
     titlePlaceholder: '對話名稱（選填，預設用訊息的第一行）',
-    create: '建立排程',
+    create: '建立自動任務',
     creating: '建立中…',
+    withHook: '同時建立 webhook',
+    withHookHint: '建立後，自動任務的抽屜會立刻打開，顯示 webhook 的網址與權杖（只顯示這一次），以及呼叫它的指令範例。',
   },
 
   schedule: {
-    button: '排程',
-    buttonTitle: '在設定的時間自動傳訊息給團隊',
-    title: '排程',
-    intro: '在設定的時間，把這則訊息傳給這個對話的團隊（在這裡，或依設定每次開新對話），就像你自己送出的一樣。Harness Relay 要開著才會執行。',
+    button: '自動任務',
+    buttonTitle: '在你執行它、到了設定的時間，或程式呼叫它的 webhook 時，傳訊息給團隊',
+    title: '自動任務',
+    intro:
+      '在你按「立即執行一次」、到了設定的時間，或程式呼叫它的 webhook 時，把這則訊息傳給這個對話的團隊（在這裡，或依設定每次開新對話），就像你自己送出的一樣。Harness Relay 要開著才會執行。',
     message: '要傳給團隊的訊息',
     messagePlaceholder: '例如：@Reviewer 看一下昨天合併的 PR，列出可能的風險。',
     messageHint: '用 @ 指定成員時，只有被 @ 的成員回答，和平常一樣。',
@@ -449,13 +468,20 @@ export const zhTW = {
     /** A name the (scheduled) message @mentions that the team does not have, and who answers then. */
     mentions: {
       notOnTeam: (names: string, _n: number) => `訊息裡的 ${names} 不在這個團隊裡，不會傳給任何人`,
-      notOnTeamScheduled: (names: string, _n: number) => `排程訊息裡的 ${names} 不在這個團隊裡，不會傳給任何人`,
+      notOnTeamScheduled: (names: string, _n: number) => `自動任務的訊息裡的 ${names} 不在這個團隊裡，不會傳給任何人`,
       wholeTeam: '；訊息沒有 @ 任何成員，所以由整個團隊回答。',
       onlyThey: (names: string, _n: number) => `；只有 ${names} 會回答。`,
       adjust: '可以按「調整團隊」為成員改名。',
     },
     repeat: '時間',
-    kinds: { once: '一次', daily: '每天', weekly: '每週', interval: '每隔幾小時' } as Record<ScheduleRepeat['kind'], string>,
+    kinds: { once: '一次', daily: '每天', weekly: '每週', interval: '每隔幾小時', manual: '不定時' } as Record<
+      ScheduleRepeat['kind'],
+      string
+    >,
+    manualHint: '只在你按「立即執行一次」，或程式呼叫它的 webhook 時送出（儲存後就能建立 webhook）。',
+    manualHintNew: '只在你按「立即執行一次」，或程式呼叫它的 webhook 時送出。',
+    manualState: '由「立即執行一次」或 webhook 送出',
+    manualOff: '已關閉：按「儲存」重新啟用。',
     at: '日期與時間',
     time: '時間',
     days: '星期',
@@ -481,10 +507,10 @@ export const zhTW = {
     approvalsDeny: '自動拒絕',
     approvalsAsk: '詢問我',
     approvalsHint: {
-      deny: '排程執行的那一輪，agent 想做權限範圍以外的事時會直接被拒絕，agent 會被告知並改用其他方式。',
+      deny: '自動任務執行的那一輪，agent 想做權限範圍以外的事時會直接被拒絕，agent 會被告知並改用其他方式。',
       ask: (minutes: number) => `和平常一樣在對話中詢問你；你不在時，agent 會一直等（每一回合最多 ${minutes} 分鐘）。`,
     },
-    approvalsTeamDeny: '團隊設定已是自動拒絕，排程執行時也一樣。',
+    approvalsTeamDeny: '團隊設定已是自動拒絕，自動任務執行時也一樣。',
     approvalsFull: '團隊有完全存取權限，不會詢問，這個設定沒有作用。',
     missed: '錯過的時間',
     missedSkip: '略過',
@@ -497,19 +523,19 @@ export const zhTW = {
     editTeam: '修改團隊',
     enabled: '啟用',
     runNow: '立即執行一次',
-    runNowTitle: '現在就照排程送出一次（不影響之後的時間）',
+    runNowTitle: '現在就送出一次（不影響設定的時間）',
     runNowSaveFirst: '先儲存修改，才能立即執行',
     sentNow: '已送出',
     queuedNow: '團隊回覆中，已排入等待',
-    remove: '刪除排程',
-    confirmRemove: '刪除這個排程？',
+    remove: '刪除自動任務',
+    confirmRemove: '刪除這個自動任務？',
     saving: '儲存中…',
-    needsTeam: '先確認團隊才能設定排程：新對話請先提出問題，再確認首席 agent 為它組的團隊；或從側邊欄的「新排程」開始。',
-    confirmTeamFirst: '首席 agent 已為排程組好團隊，請在對話中確認；確認後排程才會執行，也才能修改。',
-    designingTeam: '首席 agent 正在為排程組隊…',
-    noTeamYet: '這個排程還沒有團隊，到時間時會略過。',
+    needsTeam: '先確認團隊才能設定自動任務：新對話請先提出問題，再確認首席 agent 為它組的團隊；或從側邊欄的「新自動任務」開始。',
+    confirmTeamFirst: '首席 agent 已為自動任務組好團隊，請在對話中確認；確認後自動任務才會執行，也才能修改。',
+    designingTeam: '首席 agent 正在為自動任務組隊…',
+    noTeamYet: '這個自動任務還沒有團隊，有團隊之前不會送出。',
     designTeam: '請首席 agent 組隊',
-    currentTeam: '排程的訊息交給目前的團隊回答，首席 agent 不會為它重新組隊。',
+    currentTeam: '自動任務的訊息交給目前的團隊回答，首席 agent 不會為它重新組隊。',
     summary: {
       once: (when: string) => `${when}（一次）`,
       daily: (time: string) => `每天 ${time}`,
@@ -517,6 +543,7 @@ export const zhTW = {
       weekdays: (time: string) => `平日 ${time}`,
       everyDay: (time: string) => `每天 ${time}`,
       interval: (hours: number) => `每 ${hours} 小時`,
+      manual: '不定時',
     },
     daySeparator: '、',
     next: (when: string) => `下次 ${when}`,
@@ -539,18 +566,48 @@ export const zhTW = {
       moment: '請選擇日期與時間',
       past: '這個時間已經過了，請選擇之後的時間',
     },
-    teamNote: (summary: string) => `這個對話有排程（${summary}），這裡的修改會套用到之後的排程執行。`,
-    fullWarning: '排程執行時可能沒人看著，完全存取的成員可以不經詢問執行任何指令。',
+    teamNote: (summary: string) => `這個對話有自動任務（${summary}），這裡的修改會套用到它之後的執行。`,
+    fullWarning: '自動任務執行時可能沒人看著，完全存取的成員可以不經詢問執行任何指令。',
     approvalsOverride: {
-      deny: '排程執行的那一輪：一律自動拒絕（依排程的設定）。',
-      ask: '排程執行的那一輪：也會詢問你，等你回來決定（依排程的設定）。',
+      deny: '自動任務執行的那一輪：一律自動拒絕（依自動任務的設定）。',
+      ask: '自動任務執行的那一輪：也會詢問你，等你回來決定（依自動任務的設定）。',
     } as Record<'deny' | 'ask', string>,
-    tag: '排程',
-    tagTitle: '由這個對話的排程自動送出',
+    tag: '自動任務',
+    tagTitle: '由這個對話的自動任務送出',
     sidebar: {
-      next: (when: string) => `排程：下次 ${when}`,
-      paused: '排程已暫停',
-      problem: (result: string) => `排程上次${result}`,
+      next: (when: string) => `自動任務：下次 ${when}`,
+      paused: '自動任務已暫停',
+      manual: '自動任務：不定時（立即執行一次或 webhook）',
+      problem: (result: string) => `自動任務上次${result}`,
+    },
+    goal: '追蹤的目標（選填）',
+    goalPlaceholder: '例如：main 分支的 CI 全部通過，而且 issue #42 已關閉。',
+    goalHint:
+      '寫下「怎樣算完成」。每次執行時 agent 都會看到目標和前幾次的進度紀錄（每次開新對話也一樣），回報進度；有人回報完成時自動任務會關閉。執行全部失敗時會在 5、30、120 分鐘後重試。',
+    goalTooLong: (max: number) => `目標最多 ${max} 個字`,
+    progress: {
+      label: '目標進度',
+      title: '進度',
+      empty: '還沒有進度紀錄：下次執行後會出現在這裡。',
+      status: { working: '進行中', done: '已達成', blocked: '卡住了' } as Record<ProgressStatus, string>,
+      retry: (when: string) => `執行失敗，${when} 重試`,
+      openChat: '開啟',
+    },
+    hook: {
+      title: '讓其他程式啟動它（Webhook）',
+      intro:
+        '這台電腦上的程式可以帶著權杖呼叫一個網址來啟動這個自動任務，例如 git hook、在這台電腦上執行的 CI 或腳本。它送來的 JSON 會附在訊息後面，當作資料交給 agent。自動任務的時間關閉時也能用。',
+      create: '建立 webhook',
+      replace: '換一個新的權杖',
+      remove: '移除 webhook',
+      confirmRemove: '移除這個 webhook？之後用舊權杖的呼叫都會失敗。',
+      confirmReplace: '換一個新的權杖？舊的權杖會立刻失效。',
+      once: '權杖只會顯示這一次，請現在複製：',
+      created: (when: string) => `已建立（${when}）`,
+      lastCalled: (when: string) => `上次呼叫：${when}`,
+      never: '還沒有被呼叫過',
+      example: '範例',
+      eventTag: 'Webhook 傳來的內容',
     },
   },
 
@@ -605,6 +662,51 @@ export const zhTW = {
     status: { running: '執行中', done: '完成', error: '失敗' } as Record<ToolStatus, string>,
   },
 
+  connectors: {
+    title: '郵件與行事曆帳號',
+    hint: '「郵件」與「行事曆」工具用的帳號，透過 IMAP、SMTP 與 CalDAV，搭配應用程式專用密碼（大多數服務在安全性設定中提供；Gmail 需要先開啟兩步驟驗證）。Google 日曆與 Microsoft 365 需要 Harness Relay 目前還沒有的登入方式。',
+    // 直接接在說明後面（句號之後不加空格）；英文開頭的名稱前留一個空格。
+    passwordsIn: (where: string) => `密碼存放於${/^[A-Za-z]/.test(where) ? ' ' : ''}${where}，畫面上不會顯示，連一部分也不會。`,
+    mail: '郵件',
+    calendar: '行事曆',
+    addMail: '新增郵件帳號',
+    addCalendar: '新增行事曆',
+    editMail: (name: string) => `編輯 ${name}`,
+    editCalendar: (name: string) => `編輯 ${name}`,
+    provider: '服務',
+    otherProvider: '其他（自行填寫伺服器）',
+    address: '你的地址（郵件從這裡寄出）',
+    username: '使用者名稱',
+    usernamePlaceholder: '通常就是你的地址',
+    password: '密碼',
+    appPassword: '應用程式專用密碼',
+    host: '伺服器',
+    port: '連接埠',
+    securityLabel: '加密',
+    security: { tls: 'TLS', starttls: 'STARTTLS', none: '不加密（僅限這台電腦）' } as Record<MailSecurity, string>,
+    mailHint: 'IMAP 用來讀信與存草稿；SMTP 用來寄出你在待送出匣按「送出」的郵件。一定要加密，除非伺服器就在這台電腦上（本機的轉接程式）。',
+    calendarUrl: '行事曆的網址，或它的伺服器網址',
+    inviteFrom: '邀請的寄件人（你的地址）',
+    find: '尋找行事曆',
+    finding: '尋找中…',
+    noneFound: '那裡找不到行事曆。',
+    foundLabel: '找到的行事曆',
+    calendarHint: '填入行事曆伺服器的網址後按「尋找行事曆」選一個，或直接填入行事曆自己的網址。邀請由行事曆伺服器寄出，依它的方式。',
+    test: '測試',
+    testing: '嘗試中…',
+    testOk: '連線成功。',
+    confirmRemove: (name: string) => `移除帳號「${name}」？它的密碼也會一起刪除。`,
+  },
+  outbox: {
+    label: (agent: string) => `@${agent} 要送出的內容`,
+    status: { pending: '等你決定', sending: '送出中…', sent: '已送出', discarded: '已捨棄', failed: '沒有送出' } as Record<
+      OutboxStatus,
+      string
+    >,
+    hint: '還沒有送出任何東西。請檢查每個欄位：按「送出」會用你的帳號照這裡顯示的內容送出；按「捨棄」則丟掉它。',
+    send: '送出',
+    discard: '捨棄',
+  },
   approval: {
     heading: {
       command: '想執行指令',
@@ -619,7 +721,8 @@ export const zhTW = {
     deny: '拒絕',
     notePlaceholder: '拒絕時告訴它該怎麼做（選填）',
     outsideSandbox: '允許的話，這個指令會在沙箱外執行。',
-    readOnlySandbox: '這個對話是唯讀的：即使允許，Harness Relay 的沙箱仍不讓它寫入檔案（只有它自己的暫存與 session 資料夾可以寫），所以檔案的修改不會生效。不過它還是會執行：可以讀檔，也連得到這次執行連得到的主機（模型來源，以及你允許過的主機）。要讓它修改檔案，請把權限改成「可編輯」。',
+    readOnlySandbox:
+      '這個對話是唯讀的：即使允許，Harness Relay 的沙箱仍不讓它寫入檔案（只有它自己的暫存與 session 資料夾可以寫），所以檔案的修改不會生效。不過它還是會執行：可以讀檔，也連得到這次執行連得到的主機（模型來源，以及你允許過的主機）。要讓它修改檔案，請把權限改成「可編輯」。',
     allowed: '已允許',
     allowedAlways: '已允許，本對話都允許',
     allowedAuto: '已依本對話的設定自動允許',
@@ -654,9 +757,9 @@ export const zhTW = {
     decline: '不採用，沿用目前的團隊',
     declined: '未採用，由目前的團隊回答',
     aborted: '團隊設計已中斷；按「繼續」或提出新問題會重新組隊。',
-    planningSchedule: (lead: string) => `首席 agent（${lead}）正在為這個排程組隊…`,
-    confirmHintSchedule: '確認後，這個團隊會在排程的時間收到訊息；現在不會執行。',
-    abortedSchedule: '團隊設計已中斷；在排程視窗按「請首席 agent 組隊」可以重新組隊。',
+    planningSchedule: (lead: string) => `首席 agent（${lead}）正在為這個自動任務組隊…`,
+    confirmHintSchedule: '確認後，自動任務每次執行時，這個團隊都會收到訊息；現在不會執行。',
+    abortedSchedule: '團隊設計已中斷；在自動任務視窗按「請首席 agent 組隊」可以重新組隊。',
   },
 
   review: {
@@ -769,7 +872,10 @@ export const zhTW = {
     hint: '在輸入框按麥克風說話，由這台電腦上的 whisper.cpp 轉成文字，錄音不會離開這台電腦。不需要時可以不安裝。',
     pill: { off: '未安裝', installing: '安裝中', ready: '可使用', needsModel: '需要下載模型', broken: '找不到引擎' },
     engine: '引擎',
-    engineSource: { custom: '自訂路徑', relay: 'Harness Relay 下載', homebrew: 'Homebrew', path: 'PATH' } as Record<VoiceEngineSource, string>,
+    engineSource: { custom: '自訂路徑', relay: 'Harness Relay 下載', homebrew: 'Homebrew', path: 'PATH' } as Record<
+      VoiceEngineSource,
+      string
+    >,
     accel: { metal: 'Metal GPU 加速', cpu: 'CPU', unknown: '' } as Record<VoiceEngineInfo['accel'], string>,
     engineMissingHomebrew: '尚未安裝；安裝時會執行 brew install whisper-cpp。',
     engineMissingDownload: (size: string) => `尚未安裝；安裝時會從 GitHub 下載 whisper.cpp 官方版本（${size}）。`,
@@ -834,7 +940,8 @@ export const zhTW = {
 
   signIn: {
     title: '登入 Harness Relay',
-    intro: '這個瀏覽器還沒登入。Harness Relay 只接受登入過的瀏覽器，所以這台電腦上的其他程式，包括 agent 在沙箱中執行的程式碼，都無法操作它。',
+    intro:
+      '這個瀏覽器還沒登入。Harness Relay 只接受登入過的瀏覽器，所以這台電腦上的其他程式，包括 agent 在沙箱中執行的程式碼，都無法操作它。',
     codeLabel: '登入代碼',
     submit: '登入',
     signingIn: '登入中…',
@@ -843,7 +950,8 @@ export const zhTW = {
     whereTerminal: 'Harness Relay 啟動時在終端機印出的登入連結：直接打開就會登入（一小時內有效，只能用一次）。',
     whereLogin: '或在 Harness Relay 的資料夾執行',
     whereDesktop: '從桌面 app 的選單（選單列或系統匣裡的 Harness Relay 圖示）選「在瀏覽器打開」：它會用新的登入連結在瀏覽器打開對話。',
-    whereDesktopWindow: '從 app 的選單（選單列或系統匣裡的 Harness Relay 圖示）選「打開 Harness Relay」：這個視窗會用新的登入連結重新登入。',
+    whereDesktopWindow:
+      '從 app 的選單（選單列或系統匣裡的 Harness Relay 圖示）選「打開 Harness Relay」：這個視窗會用新的登入連結重新登入。',
     whereOther: '或從另一個已登入的瀏覽器：設定 → 已登入的瀏覽器 → 讓另一個裝置登入（例如手機）。',
   },
 
@@ -878,6 +986,7 @@ export const zhTW = {
       approval: (agent?: string) => (agent ? `${agent} 等你核准` : '有 agent 等你核准'),
       confirm: (_agent?: string) => '首席 agent 設計好團隊了，等你確認',
       answer: (agent?: string) => (agent ? `${agent} 問了你一個問題` : '有 agent 問了你一個問題'),
+      blocked: (agent?: string) => (agent ? `${agent} 回報目標卡住了，需要你處理` : '自動任務的目標卡住了，需要你處理'),
     },
     testTitle: 'Harness Relay',
     testBody: '通知已開啟：agent 回覆完或需要你的時候，會在這裡通知你。',
@@ -891,7 +1000,8 @@ export const zhTW = {
     confirmCurrent: '要登出這個瀏覽器嗎？之後需要新的代碼才能再登入。',
     confirm: (label: string) => `要登出「${label}」嗎？`,
     add: '讓另一個裝置登入',
-    codeHint: (until: string) => `在另一個裝置（例如透過 Tailscale 打開的手機）的登入頁輸入這個代碼，或打開下面的連結。只能用一次，${until} 前有效。`,
+    codeHint: (until: string) =>
+      `在另一個裝置（例如透過 Tailscale 打開的手機）的登入頁輸入這個代碼，或打開下面的連結。只能用一次，${until} 前有效。`,
     link: '連結：',
   },
 
@@ -1041,7 +1151,8 @@ export const zhTW = {
       linuxGuide: '安裝說明',
       login: '在終端機執行這個指令登入 GitHub（選 GitHub.com，再依指示用瀏覽器登入）：',
       signInHere: '在這裡登入：GitHub 會給你一組代碼，到它的頁面輸入即可，不必開終端機。',
-      signInScope: '這會登入那台電腦上的 GitHub CLI，權限是 gh 一般的範圍（repository、組織、gist），那裡每個使用 gh 的程式都能用，包括 agent。',
+      signInScope:
+        '這會登入那台電腦上的 GitHub CLI，權限是 gh 一般的範圍（repository、組織、gist），那裡每個使用 gh 的程式都能用，包括 agent。',
       signIn: '登入 GitHub',
       signedIn: '已登入 GitHub。',
       orTerminal: '或在那台電腦的終端機執行這個指令（選 GitHub.com，再依指示用瀏覽器登入）：',
@@ -1078,8 +1189,31 @@ export const zhTW = {
   },
 
   tools: {
+    relay: {
+      title: 'Harness Relay 的工具',
+      hint: '由 Harness Relay 自己提供的工具，透過它給每個成員的一個 MCP server（relay）使用：每個 CLI 都一樣，密碼留在這裡，不會交給任何 CLI。只讀取的呼叫直接執行；會改變外部東西的呼叫（在網頁上點擊、存郵件草稿）在完全存取以下會詢問你，和其他動作一樣；會送到別人那裡的呼叫（郵件、邀請）絕不在那一回合送出：它會在待送出匣等待，對話中顯示成一張卡片，直到你按「送出」。OpenCode、Codex 與 Copilot 會在這台電腦上直接連上它，用一個只有它們自己持有、只限這一回合的權杖；其他 CLI 則啟動 Harness Relay 的一個小程式來連。Grok、Muse Code、Goose、Cline、OpenHands 與 Pi 只有在完全存取時才能使用：在那以下，裝著它們指令的沙箱也會裝著權杖。',
+      groups: { browser: '瀏覽器', mail: '郵件', calendar: '行事曆' } as Record<RelayToolGroup, string>,
+      groupHints: {
+        browser:
+          '它自己的瀏覽器（Chromium、Chrome 或 Edge，無頭模式，每個對話有自己的設定檔）：開啟網頁、讀取內容、點擊與輸入，截圖會顯示在對話中。',
+        mail: '搜尋與閱讀郵件、存草稿，透過待送出匣寄信：需要在下方設定郵件帳號。',
+        calendar: '列出與新增活動（有邀請對象時透過待送出匣）：需要在下方設定行事曆。',
+      } as Record<RelayToolGroup, string>,
+      browserPath: '要啟動的瀏覽器',
+      browserPathHint: (env: string) =>
+        `Chromium、Chrome 或 Edge 執行檔的完整路徑。留空時${env ? `用 RELAY_BROWSER（${env}）` : ''}${env ? '，否則' : ''}用這台電腦上找到的第一個：Chrome、Chromium 或 Edge，再來是 Playwright 的 Chromium。之後開始的對話才會用新的設定。`,
+      browserUsing: (path: string) => `使用中：${path}`,
+      browserNone: '找不到瀏覽器：設定一個，或安裝 Chrome、Chromium 或 Edge 之前，瀏覽器工具無法啟動。',
+      unavailable: {
+        'not-started': '目前無法使用：伺服器沒能啟動它們（原因見伺服器的紀錄）。',
+        'no-node':
+          '目前只有 OpenCode、Codex 與 Copilot 能使用：其他 CLI 要啟動 Harness Relay 的一個小程式，需要 PATH 上有 Node.js 22.12 以上，或 設定 → 沙箱 安裝的那一個。',
+        'no-node-path':
+          '目前只有 OpenCode、Codex 與 Copilot 能使用：其他 CLI 要啟動 Harness Relay 的一個小程式，需要 PATH 上有 Node.js 22.12 以上。',
+      } as Record<'not-started' | 'no-node' | 'no-node-path', string>,
+    },
     title: '工具庫',
-    hint: '這裡的 MCP 伺服器、skill 和記憶會提供給成員，每種 CLI 都能用（Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 與開源 agent），而且加在各 CLI 自己的設定之外。每一項可以給所有成員，或只給某幾種 CLI 的成員；要針對單一成員調整，在「新對話」或對話上方的「團隊設定」裡，用該成員卡片的「工具」欄位。變更從成員的下一回合開始生效。',
+    hint: '這裡的 MCP 伺服器、skill 和記憶會提供給成員，每種 CLI 都能用（Claude Code、Codex、Grok、Cursor、Antigravity、Copilot、Muse Code 與開源 agent），而且加在各 CLI 自己的設定之外。每一項可以給所有成員，或只給某幾種 CLI 的成員；要針對單一成員調整，在「新對話」或對話上方的「團隊設定」裡，用該成員卡片的「工具」欄位。變更從成員的下一回合開始生效。',
     mcp: 'MCP 伺服器',
     mcpHint: '工具呼叫一樣受對話的權限限制：權限範圍以外的會詢問你，或依設定自動拒絕。',
     addMcp: '新增 MCP 伺服器',
@@ -1107,7 +1241,8 @@ export const zhTW = {
     confirmRemove: (name: string) => `要刪除 MCP 伺服器「${name}」嗎？`,
     secretsIn: (where: string) => `變數和標頭的值存放於${where}，畫面上只顯示遮蔽後的值。`,
     skills: 'Skills',
-    skillsHint: '加入有 SKILL.md 的資料夾，或包含多個 skill 的資料夾（例如 ~/.claude/skills，會列出裡面所有 skill 讓你挑選）。成員的說明會列出每個 skill 的名稱和用途，需要時 agent 會自己讀 SKILL.md。這裡的 skill 是加在各 CLI 自己的 skill 之外：這裡沒加的，CLI 原本會讀的（例如 Claude Code 讀 ~/.claude/skills）照樣能用。',
+    skillsHint:
+      '加入有 SKILL.md 的資料夾，或包含多個 skill 的資料夾（例如 ~/.claude/skills，會列出裡面所有 skill 讓你挑選）。成員的說明會列出每個 skill 的名稱和用途，需要時 agent 會自己讀 SKILL.md。這裡的 skill 是加在各 CLI 自己的 skill 之外：這裡沒加的，CLI 原本會讀的（例如 Claude Code 讀 ~/.claude/skills）照樣能用。',
     skillPath: 'Skill 資料夾路徑',
     addSkill: '加入',
     noSkills: '還沒有 skill。',
@@ -1121,7 +1256,8 @@ export const zhTW = {
     alreadyAdded: '已加入',
     addSelected: (n: number) => `加入 ${n} 個`,
     memory: '記憶',
-    memoryHint: '寫給成員的筆記，例如你的偏好和專案慣例，每個對話都會放進成員的說明裡。「所有成員」每個人都收到；各 CLI 的分頁只給該 CLI 的成員，接在共用記憶後面。',
+    memoryHint:
+      '寫給成員的筆記，例如你的偏好和專案慣例，每個對話都會放進成員的說明裡。「所有成員」每個人都收到；各 CLI 的分頁只給該 CLI 的成員，接在共用記憶後面。',
     memoryFor: (scope: string) => `記憶：${scope}`,
     memoryPlaceholder: '例如：先給結論再說明。程式碼使用 2 個空格縮排。',
     chars: (n: number, max: number) => `${n} / ${max} 字`,
@@ -1132,7 +1268,8 @@ export const zhTW = {
     summary: (s: number, m: number, f: number) => `${s} 個 skill · ${m} 個 MCP · ${f} 個檔案`,
     hint: '這些是 CLI 自己的設定，和工具庫無關，以預設工作目錄為準。查詢時會短暫啟動這個 CLI，不會呼叫模型；Claude Code 與 Codex 會啟動它們的 MCP 伺服器，Claude Code 也會執行你設定的 hook。有設為不載入的項目時，會再依 Harness Relay 啟動它的方式問一次，標出實際不載入的項目。結果保留一分鐘。',
     perAccount: '每個帳號有自己的 CLI 資料夾：這裡列出的是這個帳號載入的項目，「不載入」的設定也只套用在這個帳號。',
-    offHint: '「不載入」只在 Harness Relay 啟動這個 CLI 時生效：不會修改 CLI 自己的設定檔，你在終端機使用它也不受影響。工具庫的項目照常提供。每個分頁可以全部不載入，或在查詢後個別勾選。',
+    offHint:
+      '「不載入」只在 Harness Relay 啟動這個 CLI 時生效：不會修改 CLI 自己的設定檔，你在終端機使用它也不受影響。工具庫的項目照常提供。每個分頁可以全部不載入，或在查詢後個別勾選。',
     load: '查詢',
     reload: '重新查詢',
     loading: '查詢中…',
@@ -1174,11 +1311,13 @@ export const zhTW = {
     claudeHooks: 'Claude Code 的 hook 沒有名稱，所以只能全部不載入。',
     claudeMcp: 'Claude Code：勾選的 MCP 伺服器仍會啟動，只是它的工具不提供給成員；要讓伺服器不啟動，請勾選「全部不載入」。',
     codexMcp: 'Codex：只列出你設定檔裡的 MCP 伺服器；plugin 帶來的伺服器在 Plugins 分頁設定，ChatGPT apps 隨「全部不載入」一起關掉。',
-    claudeTools: 'Claude Code 的內建工具。不載入的工具成員無法使用；Harness Relay 依權限關掉的工具（例如唯讀時的 Edit、Write）不論這裡怎麼設都會關掉。',
+    claudeTools:
+      'Claude Code 的內建工具。不載入的工具成員無法使用；Harness Relay 依權限關掉的工具（例如唯讀時的 Edit、Write）不論這裡怎麼設都會關掉。',
     source: (s: string) => `來源：${s}`,
     tools: (n: number) => `${n} 個工具`,
     claudeSkills: 'Claude Code 只回報名稱與說明：skill、plugin 指令和自訂指令都列在這裡（不含內建指令）。',
-    claudeAgents: 'Claude Code 不回報 subagent 的來源。標示 built-in 的，是在沒有任何設定檔、plugin 與專案時仍然存在的 subagent；「全部不載入」不包括它們，但可以個別勾選。',
+    claudeAgents:
+      'Claude Code 不回報 subagent 的來源。標示 built-in 的，是在沒有任何設定檔、plugin 與專案時仍然存在的 subagent；「全部不載入」不包括它們，但可以個別勾選。',
     hooksNote: '只顯示事件與來源；hook 的指令可能含有 token，所以不顯示。',
     fromFiles: '這個 CLI 沒有提供清單，這裡是依它的讀檔規則找到、目前存在的檔案；是否載入也是依它的設定判斷。',
     fromCli: '由 CLI 回報。',
@@ -1214,25 +1353,31 @@ export const zhTW = {
         memory: '跨對話記憶',
         hooks: '只關掉從 Claude Code、Cursor 設定檔匯入的 hook；plugin 的 hook 與 Grok 自己的 hook 照常執行',
         agents: 'Grok 沒有只略過自訂 subagent 的設定',
-        plugins: 'Grok 的 plugin（包括它載入的 Claude Code plugin）只能在 ~/.grok/config.toml 的 plugins.disabled 關閉（這是 Grok 的全域設定，也會影響你在終端機使用 Grok；Harness Relay 不會修改它）',
+        plugins:
+          'Grok 的 plugin（包括它載入的 Claude Code plugin）只能在 ~/.grok/config.toml 的 plugins.disabled 關閉（這是 Grok 的全域設定，也會影響你在終端機使用 Grok；Harness Relay 不會修改它）',
       },
       cursor: {
-        skills: 'Cursor 沒有能單次略過 skill 的設定（它從工作目錄與家目錄的 .cursor、.claude、.codex、.grok、.agents 底下的 skills 資料夾載入）',
+        skills:
+          'Cursor 沒有能單次略過 skill 的設定（它從工作目錄與家目錄的 .cursor、.claude、.codex、.grok、.agents 底下的 skills 資料夾載入）',
         mcp: 'Cursor 沒有能單次略過 MCP 伺服器的設定：~/.cursor/mcp.json 的照常載入；專案 .cursor/mcp.json 的要先在 Cursor 裡核准，Harness Relay 的執行不會詢問，所以不會載入',
         tools: 'Cursor 不回報它的內建工具',
-        instructions: 'Cursor 沒有能單次略過指示檔的設定（工作目錄與它上層每個資料夾的 AGENTS.md、CLAUDE.md、CLAUDE.local.md 與 .cursor/rules）',
+        instructions:
+          'Cursor 沒有能單次略過指示檔的設定（工作目錄與它上層每個資料夾的 AGENTS.md、CLAUDE.md、CLAUDE.local.md 與 .cursor/rules）',
         memory: 'Cursor 沒有自己的記憶檔',
-        hooks: 'Cursor 沒有能單次略過 hook 的設定：~/.cursor/hooks.json、組織的 hook，以及 ~/.claude/settings.json 裡 Claude Code 的 hook（Cursor 也會載入，不論你讓 Claude Code 的執行不載入哪些）也會在 Harness Relay 的執行中執行',
+        hooks:
+          'Cursor 沒有能單次略過 hook 的設定：~/.cursor/hooks.json、組織的 hook，以及 ~/.claude/settings.json 裡 Claude Code 的 hook（Cursor 也會載入，不論你讓 Claude Code 的執行不載入哪些）也會在 Harness Relay 的執行中執行',
         agents: 'Cursor 沒有能單次略過 subagent 的設定',
         plugins: 'Cursor 在 ACP 模式下不載入 plugin',
       },
       antigravity: {
-        skills: 'Antigravity 沒有能單次略過 skill 的設定（它載入內建的、~/.gemini/config/skills 的，以及工作目錄到 repository 根目錄之間 .agents/skills 的）',
+        skills:
+          'Antigravity 沒有能單次略過 skill 的設定（它載入內建的、~/.gemini/config/skills 的，以及工作目錄到 repository 根目錄之間 .agents/skills 的）',
         mcp: 'Antigravity 沒有能單次略過 MCP 伺服器的設定：~/.gemini/config/mcp_config.json 與專案 .agents/mcp_config.json 的照常載入，而且在沙箱外執行',
         tools: 'Antigravity 不回報它的內建工具',
         instructions: 'Antigravity 沒有能單次略過指示檔的設定（工作目錄到 repository 根目錄之間的 GEMINI.md、AGENTS.md 與 .agents/rules）',
         memory: 'Antigravity 沒有能單次略過記憶的設定',
-        hooks: 'Antigravity 沒有能單次略過 hook 的設定：~/.gemini/config/hooks.json 與專案 .agents/hooks.json 的 hook 也會在 Harness Relay 的執行中執行，而且在沙箱外',
+        hooks:
+          'Antigravity 沒有能單次略過 hook 的設定：~/.gemini/config/hooks.json 與專案 .agents/hooks.json 的 hook 也會在 Harness Relay 的執行中執行，而且在沙箱外',
         agents: 'Antigravity 沒有能單次略過自訂 agent 的設定',
         plugins: 'Antigravity 沒有能單次略過 plugin 的設定（plugin 帶來的 skill、規則、MCP 與 hook 都照常載入）',
       },
@@ -1240,24 +1385,29 @@ export const zhTW = {
         skills: '它的 skill 工具與 skill 清單（內建的、~/.copilot/skills、專案 .github/skills 等）都不提供',
         mcp: '它自己的 MCP 伺服器（~/.copilot/mcp-config.json 與內建的 GitHub MCP）都不啟動；只保留工具庫的，以及 plugin 沒被略過時 plugin 帶的',
         tools: 'Copilot 不回報它的內建工具',
-        instructions: 'Copilot 透過 ACP 執行時不套用 --no-custom-instructions：AGENTS.md、CLAUDE.md、.github/copilot-instructions.md 等照常載入',
+        instructions:
+          'Copilot 透過 ACP 執行時不套用 --no-custom-instructions：AGENTS.md、CLAUDE.md、.github/copilot-instructions.md 等照常載入',
         memory: '它的記憶（memory 設定關閉）',
-        hooks: '你自己的 hook（~/.copilot 的，disableAllHooks）。專案的 hook（.github/hooks，以及專案 .github/copilot 或 .claude 設定裡的）仍會執行，所以低於完整權限時，每次執行前都會先問你',
+        hooks:
+          '你自己的 hook（~/.copilot 的，disableAllHooks）。專案的 hook（.github/hooks，以及專案 .github/copilot 或 .claude 設定裡的）仍會執行，所以低於完整權限時，每次執行前都會先問你',
         agents: 'Copilot 沒有能單次略過自訂 agent 的設定',
         plugins: '每個已安裝的 plugin，連同它的 skill 與 MCP 伺服器',
       },
       muse: {
-        skills: 'Muse Code 沒有能單次略過 skill 的設定（它內建的、~/.config/muse/skills 與 ~/.agents/skills 的，以及你 Claude Code 與 Codex 的 skill 都會載入；專案的 skill 只在完全存取時載入，那時工作區才受信任）',
+        skills:
+          'Muse Code 沒有能單次略過 skill 的設定（它內建的、~/.config/muse/skills 與 ~/.agents/skills 的，以及你 Claude Code 與 Codex 的 skill 都會載入；專案的 skill 只在完全存取時載入，那時工作區才受信任）',
         mcp: '把 Muse Code 設定裡的 MCP 伺服器從這一輪自己的設定中拿掉',
         tools: 'Muse Code 不回報它的內建工具',
-        instructions: 'Muse Code 沒有能單次略過指示檔的設定（會載入它自己的規則，也就是它設定資料夾裡的 AGENTS.md（預設帳號是 ~/.config/muse），沒有的話則是你的 ~/.claude/CLAUDE.md；專案的 AGENTS.md、CLAUDE.md 只在完全存取時載入，那時工作區才受信任）',
+        instructions:
+          'Muse Code 沒有能單次略過指示檔的設定（會載入它自己的規則，也就是它設定資料夾裡的 AGENTS.md（預設帳號是 ~/.config/muse），沒有的話則是你的 ~/.claude/CLAUDE.md；專案的 AGENTS.md、CLAUDE.md 只在完全存取時載入，那時工作區才受信任）',
         memory: 'Muse Code 沒有能單次略過記憶的設定',
         hooks: '把 Muse Code 設定裡的 hook 從這一輪自己的設定中拿掉（專案的 .muse/hooks.json 只在完全存取時載入，那時工作區才受信任）',
         agents: 'Muse Code 沒有能單次略過自訂 agent 的設定',
         plugins: 'Muse Code 沒有能單次略過 plugin 的設定',
       },
       goose: {
-        skills: 'Goose 沒有關掉 skill 的設定：專案裡 .goose/skills、.claude/skills、.agents/skills 的 skill 一定會載入（它的家目錄是 Harness Relay 自己的，所以不會讀你 ~/.claude/skills 等處的 skill）',
+        skills:
+          'Goose 沒有關掉 skill 的設定：專案裡 .goose/skills、.claude/skills、.agents/skills 的 skill 一定會載入（它的家目錄是 Harness Relay 自己的，所以不會讀你 ~/.claude/skills 等處的 skill）',
         mcp: '專案 plugin 的 MCP 伺服器都不啟動，只保留工具庫的；從新的對話開始生效（接續的 session 沿用開始時的清單）',
         tools: 'Goose 不回報它的內建工具',
         instructions: '工作目錄到儲存庫根目錄之間的 .goosehints 與 AGENTS.md（CONTEXT_FILE_NAMES）',
@@ -1292,10 +1442,12 @@ export const zhTW = {
           'OpenHands 沒有排除 skill 的設定：工作目錄與儲存庫根目錄裡 .agents/skills、.openhands/skills 與 .openhands/microagents 的 skill 一定會載入（它從 GitHub 取得的公開 skill 一律關閉）',
         mcp: 'OpenHands 只拿到工具庫的 MCP 伺服器（Harness Relay 每次執行都會寫入它的 mcp.json）',
         tools: 'OpenHands 不回報它的內建工具',
-        instructions: 'OpenHands 沒有排除指示檔的設定：工作目錄與儲存庫根目錄裡的 AGENTS.md、agent.md、CLAUDE.md、GEMINI.md 與 .cursorrules 一定會載入',
+        instructions:
+          'OpenHands 沒有排除指示檔的設定：工作目錄與儲存庫根目錄裡的 AGENTS.md、agent.md、CLAUDE.md、GEMINI.md 與 .cursorrules 一定會載入',
         memory: 'OpenHands 沒有自己的記憶；它的 system prompt 會要模型把 AGENTS.md 當成記憶',
         hooks: 'OpenHands 沒有排除 hook 的設定：專案的 .openhands/hooks.json 照常執行',
-        agents: 'OpenHands 沒有排除 subagent（.agents/agents、.openhands/agents）的設定；完全存取以外不提供它的 subagent 工具，所以它們不會執行',
+        agents:
+          'OpenHands 沒有排除 subagent（.agents/agents、.openhands/agents）的設定；完全存取以外不提供它的 subagent 工具，所以它們不會執行',
         plugins: 'OpenHands 不回報 plugin',
       },
       pi: {
@@ -1390,10 +1542,24 @@ export const zhTW = {
     goSignIn: (p: string) => `前往 ${p} 登入 →`,
     sections: '設定頁的區塊',
     /** The links at the top of the page: short, so they stay on one line. */
-    nav: { version: '版本', language: '介面語言', appearance: '外觀', notifications: '通知', sandboxes: '沙箱', backends: '模型來源', lead: '首席 agent', tools: '工具庫', voice: '語音輸入', cwd: '預設工作目錄', sessions: 'Agent 的 session', shares: '分享', browsers: '已登入的瀏覽器', tour: '使用導覽',
+    nav: {
+      version: '版本',
+      language: '介面語言',
+      appearance: '外觀',
+      notifications: '通知',
+      sandboxes: '沙箱',
+      backends: '模型來源',
+      lead: '首席 agent',
+      tools: '工具庫',
+      voice: '語音輸入',
+      cwd: '預設工作目錄',
+      sessions: 'Agent 的 session',
+      shares: '分享',
+      browsers: '已登入的瀏覽器',
+      tour: '使用導覽',
       /** One entry for every agent's card: a menu of them; while one is read, its name too. */
-      agents: 'Agent',
-      agentsAt: (name: string) => `Agent：${name}`,
+      agents: 'Agents',
+      agentsAt: (name: string) => `Agents：${name}`,
       /** The open-source agents' heading in that menu. */
       openAgents: '開源 agent',
     },
@@ -1406,7 +1572,8 @@ export const zhTW = {
     confirmCreateCwd: (dirs: string) => `目錄不存在：\n${dirs}\n要建立並設為預設工作目錄嗎？`,
     cwdCreated: (dirs: string) => `已建立 ${dirs} 並設為預設工作目錄`,
     sessions: 'Agent 的 session',
-    sessionsHint: 'Harness Relay 啟動 claude、codex、grok、cursor-agent、agy、copilot、muse 時，它們把登入、設定與 session 紀錄放在哪裡，以及是否在 AgentsView 中檢視每個對話。',
+    sessionsHint:
+      'Harness Relay 啟動 claude、codex、grok、cursor-agent、agy、copilot、muse 時，它們把登入、設定與 session 紀錄放在哪裡，以及是否在 AgentsView 中檢視每個對話。',
     agentHome: '各 CLI 自己的資料夾',
     agentHomeHint:
       '設定後，Harness Relay 讓 claude、codex、grok、cursor-agent、agy、copilot、muse 分別用這個資料夾下的 claude、codex、grok、cursor、antigravity、copilot、muse 子資料夾當家目錄：登入、設定和 session 紀錄都放在那裡，和你平常直接使用 CLI 時分開。之後要在上方的各 CLI 重新登入一次（或設定 API key）；它們放在平常家目錄裡的內容不再載入，但有些仍會自己讀你家目錄的部分內容：其他 CLI 的 skill（Codex、Grok、Muse Code 與 Cursor；例如 ~/.agents/skills 的）、MCP 與 hook（Grok 讀 Claude Code 的 plugin，以及 ~/.claude.json 與 ~/.cursor/mcp.json 的伺服器；Cursor 讀 ~/.cursor 裡它自己的，以及 Claude Code 的 hook；專案在家目錄底下時，Claude Code 讀 ~/.mcp.json 的），以及指示檔（Grok 讀 ~/.claude/CLAUDE.md，Muse Code 沒有自己的規則時也讀；專案在家目錄底下時，Claude Code 與 Cursor 讀家目錄裡的）。Cursor 的登入仍留在 Cursor 為你的使用者保存的地方，只有它的設定與 session 紀錄會放到那裡。各 CLI 會讀什麼見使用者說明；上方各 CLI 的卡片列出它會載入的 skill、MCP 與 hook。Harness Relay 工具庫裡的照常提供。Antigravity 的 .gemini 資料夾（設定、skill、MCP、hook 與對話紀錄）會放到那裡，它的 Google 登入則留在系統的 keyring。Muse Code 的設定與資料資料夾（設定、登入與 session）也會放到那裡。留空則使用各 CLI 平常的家目錄。',
@@ -1454,7 +1621,8 @@ export const zhTW = {
       notes: {
         opencode:
           'OpenCode 在 Harness Relay 裡有自己的家目錄，從不讀取專案的 opencode.json 與 .opencode/（它們可能放寬它的權限），但專案的 AGENTS.md（或 CLAUDE.md）仍會交給它。被拒絕的操作，Harness Relay 的理由與你的附註會傳給模型。完全存取以外，它的 subagent 會關閉。',
-        goose: '用 goose acp 執行。唯讀與可編輯模式下 Goose 每個工具呼叫都會先問 Harness Relay；Goose 用 shell 讀檔，唯讀模式下單純讀取的指令（cat、ls、rg…）不會詢問。完全存取用它的 auto 模式。',
+        goose:
+          '用 goose acp 執行。唯讀與可編輯模式下 Goose 每個工具呼叫都會先問 Harness Relay；Goose 用 shell 讀檔，唯讀模式下單純讀取的指令（cat、ls、rg…）不會詢問。完全存取用它的 auto 模式。',
         cline:
           'Cline 透過 ACP（cline --acp）執行，每個工具呼叫都會先問 Harness Relay：讀取與搜尋依權限直接執行，其他的照權限決定或問你。你拒絕時，Cline 的模型只看到它自己固定的「使用者拒絕」訊息，你的說明只顯示在對話裡。它會載入專案的 AGENTS.md、.clinerules、.cline/rules、skill、hook 與 plugin（hook 與 plugin 的程式會執行），以及你家目錄 ~/.agents 裡的 skill。用量由 Cline 的 session 紀錄讀出。',
         openhands:
@@ -1468,7 +1636,8 @@ export const zhTW = {
       hint: 'OpenCode、Goose、Cline、OpenHands 與 Pi 用這裡的模型來源執行：OpenAI、Anthropic、xAI 的 API key，或你自己的 OpenAI 相容端點（vLLM、Ollama、LM Studio、llama.cpp）。Claude Code、Codex 與 Grok 也能用這裡的自訂端點執行（各自需要的 API 寫在它們的卡片上）。每次執行只帶入它用的金鑰，Harness Relay 自己不會呼叫這些 API。',
       noSubscription:
         'Claude 訂閱帳號與 Grok 的登入不能用在開源 agent（Anthropic 不允許在第三方 agent 中使用它的訂閱）。Claude Code 與 Grok 本身的模型照常使用它們的登入。',
-      modelIds: '成員的模型寫成「模型來源/模型」：openai/…、anthropic/…、xai/…，或端點的 id 加上模型名稱，例如 homelab/muse-glimmer-30b-nvfp4。Claude Code、Codex 與 Grok 的模型選單也會列出各端點的模型。',
+      modelIds:
+        '成員的模型寫成「模型來源/模型」：openai/…、anthropic/…、xai/…，或端點的 id 加上模型名稱，例如 homelab/muse-glimmer-30b-nvfp4。Claude Code、Codex 與 Grok 的模型選單也會列出各端點的模型。',
       apiKeys: 'API key',
       notSet: '未設定',
       keySet: (masked: string) => `已設定 ${masked}`,
@@ -1512,8 +1681,7 @@ export const zhTW = {
         'Claude Code 也能在你自己的端點上執行（模型來源）：給成員選一個端點的模型，例如 homelab/gemma4:e4b，或在下方「預設模型與推理強度」選一個，當作它的預設模型（沒有指定模型的成員就用它）。那台伺服器也要提供 Anthropic Messages API（/v1/messages）；這時 Claude Code 不需要登入，你的登入也不會送到那裡。',
       codex:
         'Codex 也能在你自己的端點上執行（模型來源）：給成員選一個端點的模型，例如 homelab/gemma4:e4b，或在下方「預設模型與推理強度」選一個，當作它的預設模型（沒有指定模型的成員就用它）。那台伺服器也要提供 Responses API（/v1/responses）；這時 Codex 不需要登入，你的登入也不會送到那裡。推理強度只送端點都接受的 none、low、medium、high，其他的改送 medium。',
-      grok:
-        'Grok 也能在你自己的端點上執行（模型來源）：給成員選一個端點的模型，例如 homelab/gemma4:e4b，或在下方「預設模型與推理強度」選一個，當作它的預設模型（沒有指定模型的成員就用它）。那台伺服器要提供 Chat Completions（/v1/chat/completions）。Grok 啟動時仍需要登入（或 API key），但不會把它送到那裡；Harness Relay 會把端點的模型寫進 Grok 的 config.toml，不出現在 Grok 自己的模型選單。這些模型不帶推理強度。',
+      grok: 'Grok 也能在你自己的端點上執行（模型來源）：給成員選一個端點的模型，例如 homelab/gemma4:e4b，或在下方「預設模型與推理強度」選一個，當作它的預設模型（沒有指定模型的成員就用它）。那台伺服器要提供 Chat Completions（/v1/chat/completions）。Grok 啟動時仍需要登入（或 API key），但不會把它送到那裡；Harness Relay 會把端點的模型寫進 Grok 的 config.toml，不出現在 Grok 自己的模型選單。這些模型不帶推理強度。',
       copilot:
         'Copilot 也能在你自己的端點上執行（模型來源）：給成員選一個端點的模型，例如 homelab/gemma4:e4b，或在下方「預設模型與推理強度」選一個，當作它的預設模型（沒有指定模型的成員就用它）。那台伺服器要提供 Chat Completions（/v1/chat/completions）；Harness Relay 用 Copilot 自己的 BYOK 變數（COPILOT_PROVIDER_*）指向它，這時 Copilot 不需要 GitHub 登入，你的登入也不會送到那裡。推理強度只送端點都接受的 low、medium、high。',
     },
@@ -1521,7 +1689,8 @@ export const zhTW = {
       claude: '儲存後，Harness Relay 啟動 Claude Code 時會帶入 ANTHROPIC_API_KEY（改用 API 計費，優先於訂閱登入）。',
       codex: '會執行 codex login --with-api-key，金鑰由 Codex 自己保存（取代目前的 ChatGPT 登入）。',
       grok: '儲存後，Harness Relay 啟動 Grok 時會帶入 XAI_API_KEY。',
-      cursor: '儲存後，Harness Relay 啟動 Cursor 時會帶入 CURSOR_API_KEY，並讓 Cursor 只在那次執行中使用它，不會存進 Cursor 的登入（也就不會取代你自己的 Cursor 登入）。',
+      cursor:
+        '儲存後，Harness Relay 啟動 Cursor 時會帶入 CURSOR_API_KEY，並讓 Cursor 只在那次執行中使用它，不會存進 Cursor 的登入（也就不會取代你自己的 Cursor 登入）。',
       antigravity:
         '儲存後，Harness Relay 啟動 Antigravity 時會帶入 GEMINI_API_KEY，並在那次執行自己的設定中加上 modelProvider: "gemini"，讓它改用 Gemini API（依用量計費）而不是 Google 登入；你自己的設定檔不會被改動。',
       copilot:
@@ -1535,14 +1704,17 @@ export const zhTW = {
       cancel: '取消安裝',
       installing: (p: string) => `正在安裝 ${p}…`,
       into: (dir: string) => `裝進 Harness Relay 自己的資料夾 ${dir}，之後也可以在這裡移除。`,
-      scriptHome: '安裝程式會把這個資料夾當作家目錄，它寫進 shell 設定檔或快取的東西也都留在裡面；它若在 PATH 上留下指向這裡的連結或項目，裝完就會拿掉。',
-      withNode: (version: string) => `PATH 上沒有 npm，所以會先把 Node.js ${version}（附 npm）下載進這個資料夾，核對過檢查碼才使用，之後也留在裡面，移除時一起刪除。`,
+      scriptHome:
+        '安裝程式會把這個資料夾當作家目錄，它寫進 shell 設定檔或快取的東西也都留在裡面；它若在 PATH 上留下指向這裡的連結或項目，裝完就會拿掉。',
+      withNode: (version: string) =>
+        `PATH 上沒有 npm，所以會先把 Node.js ${version}（附 npm）下載進這個資料夾，核對過檢查碼才使用，之後也留在裡面，移除時一起刪除。`,
       blocked: {
         npm: (p: string) => `要在這裡安裝 ${p} 需要 npm（隨 Node.js 一起安裝），但 PATH 上找不到。請先安裝 Node.js，再重新整理這頁。`,
         curl: (p: string) => `要在這裡安裝 ${p} 需要 curl，但 PATH 上找不到。`,
         tar: (p: string) => `要在這裡安裝 ${p} 需要 tar（用來解開 Node.js 的下載檔），但找不到。`,
         bash: (p: string) => `要在這裡安裝 ${p} 需要 bash，但 PATH 上找不到。`,
-        gitBash: (p: string) => `在 Windows 上安裝 ${p} 需要 Git for Windows 附的 bash（Git Bash），但找不到。請安裝 Git for Windows（MinGit 沒有附 bash），再重新整理這頁。`,
+        gitBash: (p: string) =>
+          `在 Windows 上安裝 ${p} 需要 Git for Windows 附的 bash（Git Bash），但找不到。請安裝 Git for Windows（MinGit 沒有附 bash），再重新整理這頁。`,
         powershell: (p: string) => `要在這裡安裝 ${p} 需要 Windows PowerShell，但找不到。`,
         system: (p: string) => `Harness Relay 無法在這個系統上替你安裝 ${p}，請到它的官網照說明安裝。`,
       } as Record<CliInstallBlock, (p: string) => string>,
@@ -1632,13 +1804,16 @@ export const zhTW = {
     title: '沙箱',
     hint: '在完全存取以外，agent 執行的指令都在作業系統的沙箱裡跑：只能寫入工作目錄，也碰不到你的瀏覽器資料與 Harness Relay 的資料庫。沙箱少了需要的東西時，Harness Relay 不會讓指令在沙箱外執行，所以那些 agent 的指令就無法執行。',
     allSet: '這台電腦上，沙箱需要的東西都有了。',
-    windows: '在 Windows 上沒有要替沙箱安裝的東西：Codex 與 Copilot 的沙箱不需要另外安裝，其他 agent 在這裡沒有沙箱（開源 agent 只能以完全存取執行；要有沙箱請用 WSL2）。',
+    windows:
+      '在 Windows 上沒有要替沙箱安裝的東西：Codex 與 Copilot 的沙箱不需要另外安裝，其他 agent 在這裡沒有沙箱（開源 agent 只能以完全存取執行；要有沙箱請用 WSL2）。',
     checking: '正在檢查沙箱需要的東西…',
     missing: '這台電腦上，沙箱還缺少：',
     needs: {
       packages: (items: string) => `Linux 套件：${items}`,
-      apparmor: (file: string) => `讓 bubblewrap 能建立 user namespace 的 AppArmor 設定檔（${file}）：Ubuntu 23.10 以後預設不允許，加了之後 Ubuntu 的這項限制就不再管 bubblewrap`,
-      node: (version: string) => `Harness Relay 自己的沙箱要用的 Node.js${version ? ` ${version}` : ''}，放進 Harness Relay 的資料夾，不需要系統管理員權限`,
+      apparmor: (file: string) =>
+        `讓 bubblewrap 能建立 user namespace 的 AppArmor 設定檔（${file}）：Ubuntu 23.10 以後預設不允許，加了之後 Ubuntu 的這項限制就不再管 bubblewrap`,
+      node: (version: string) =>
+        `Harness Relay 自己的沙箱要用的 Node.js${version ? ` ${version}` : ''}，放進 Harness Relay 的資料夾，不需要系統管理員權限`,
     },
     for: (who: string) => `（給 ${who} 的沙箱用）`,
     /** Between the items of a list (whose sandboxes, which packages). */
@@ -1731,11 +1906,7 @@ export const zhTW = {
       {
         title: '三種對話模式',
         body: '團隊成員怎麼輪流發言：',
-        points: [
-          '圓桌：依序發言，後面的人看得到前面說了什麼',
-          '平行：大家同時、獨立回答，方便比較',
-          '接力：一次一位，用 @ 交棒給隊友',
-        ],
+        points: ['圓桌：依序發言，後面的人看得到前面說了什麼', '平行：大家同時、獨立回答，方便比較', '接力：一次一位，用 @ 交棒給隊友'],
       },
       {
         title: '傳送訊息',
@@ -1763,6 +1934,7 @@ export const zhTW = {
         points: [
           '想做檔案權限以外的事（安裝套件、push 程式碼…）時，會在對話中請你核准：允許一次、本對話都允許，或拒絕並告訴它改做什麼',
           '答案取決於只有你知道的事時，agent 會先問你，團隊暫停等你回答；也可以略過問題，讓大家繼續',
+          'agent 想寄出的郵件或邀請會在待送出匣等待：回覆中的一張卡片，要你按「送出」才會寄出（也可以按「捨棄」）',
           '側邊欄的「等你核准」「等你回答」標記告訴你哪個對話在等你',
         ],
       },
@@ -1778,7 +1950,7 @@ export const zhTW = {
       },
       {
         title: '通知收件匣',
-        body: '側邊欄頂端、收合按鈕左邊的鈴鐺是通知收件匣，收著團隊給你的每一則通知，連沒開著頁面時來的也在：回覆完成或出錯、等你核准、等你確認團隊、問你問題。紅色數字是還沒讀的則數：',
+        body: '側邊欄頂端、收合按鈕左邊的鈴鐺是通知收件匣，收著團隊給你的每一則通知，連沒開著頁面時來的也在：回覆完成或出錯、等你核准、等你確認團隊、問你問題、目標卡住了。紅色數字是還沒讀的則數：',
         points: [
           '按鈴鐺打開通知收件匣，最新的在最上面；按一則就開啟那個對話',
           '開啟對話就會把它的通知標為已讀；下方有「全部標為已讀」和「清除全部」',
@@ -1816,13 +1988,15 @@ export const zhTW = {
         ],
       },
       {
-        title: '排程傳訊息',
-        body: '側邊欄左上角「新對話」旁的月曆按鈕是「新排程」：寫好訊息、選好時間，首席 agent 會為它組隊，之後在設定的時間把訊息傳給團隊，就像你自己送出的一樣。現有的對話也可以用上方的「排程」（手機上在 ⋯ 裡）設定：',
+        title: '自動任務',
+        body: '側邊欄左上角「新對話」旁、有閃電圖示的按鈕是「新自動任務」：在有東西啟動它時，把訊息傳給團隊，就像你自己送出的一樣；啟動它的可以是你、設定的時間，或一個程式。寫好訊息、選好啟動方式，首席 agent 會為它組隊。現有的對話也可以用上方的「自動任務」（手機上在 ⋯ 裡）設定：',
         points: [
-          '一次、每天、每週選定的星期幾，或每隔幾小時；儲存後可以按「立即執行一次」先試試看',
+          '你按「立即執行一次」、到了設定的時間（一次、每天、每週選定的星期幾，或每隔幾小時），或程式呼叫它的 webhook 時啟動；新的自動任務預設不定時',
           '勾選「每次開新對話」，每次都在新對話中從乾淨的上下文開始，沿用同樣的團隊與設定',
-          '排程執行時可能沒人看著：預設會拒絕檔案權限以外的動作（已設為「本對話都允許」的除外），agent 會改用其他方式；也可以選「詢問我」',
+          '自動任務執行時可能沒人看著：預設會拒絕檔案權限以外的動作（已設為「本對話都允許」的除外），agent 會改用其他方式；也可以選「詢問我」',
           'Harness Relay 開著才會送出：錯過的時間會略過，也可以選擇在開啟後補送一次',
+          '追蹤目標：每次執行都會看到目標與前幾次的回報，並說明進度；目標達成時自動任務會關閉，失敗的執行會再試',
+          'webhook 讓這台電腦上的程式（git hook、CI）立刻送出訊息，附上它送來的內容',
           '側邊欄的對話旁會出現時鐘；上次沒有送出時會變成琥珀色',
         ],
       },
@@ -1837,12 +2011,13 @@ export const zhTW = {
         ],
       },
       {
-        title: '工具庫：MCP、skill 與記憶',
+        title: '工具庫：MCP、skill、記憶與 Harness Relay 的工具',
         body: '在「設定 → 工具庫」設定一次，每位成員都能用，不管它跑在哪個 CLI，而且加在各 CLI 自己的設定之外：',
         points: [
           'MCP 伺服器：本機指令或網址，token 存在系統的金鑰儲存區',
           'Skills：從資料夾裡挑選要加入的 skill（例如 ~/.claude/skills）',
           '記憶：所有成員共用，加上各 CLI 專屬的一份',
+          'Harness Relay 自己的工具：它自己的瀏覽器，以及你的郵件與行事曆（在那裡用應用程式專用密碼加入帳號）',
           '每一項可以只給某幾種 CLI；團隊設定裡也能針對單一成員調整',
         ],
       },

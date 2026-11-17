@@ -129,7 +129,16 @@ export const nativeOffTotal = (off: readonly NativePart[], items: NativeItemsOff
  */
 export function nativeLeftOutCount(setup: NativeSetup): number {
   const tools = setup.mcpServers.filter((s) => !s.leftOut).flatMap((s) => s.tools ?? []);
-  return [setup.skills, setup.mcpServers, tools, setup.builtinTools ?? [], setup.memory, setup.hooks ?? [], setup.agents ?? [], setup.plugins ?? []]
+  return [
+    setup.skills,
+    setup.mcpServers,
+    tools,
+    setup.builtinTools ?? [],
+    setup.memory,
+    setup.hooks ?? [],
+    setup.agents ?? [],
+    setup.plugins ?? [],
+  ]
     .flat()
     .filter((item) => (item as { leftOut?: boolean }).leftOut).length;
 }

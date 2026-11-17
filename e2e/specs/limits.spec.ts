@@ -16,7 +16,9 @@ test.describe('limits the environment sets', () => {
     for (const label of ['Claude Code', 'Codex', 'Grok']) await expect(drawer.getByRole('button', { name: `＋ ${label}` })).toBeDisabled();
 
     const three = ['A', 'B', 'C'].map((name) => ({ name, provider: 'claude', role: '' }));
-    await expect(relay.api('/api/presets', { body: { name: 'Too big', agents: three } })).rejects.toThrow('400 {"error":"At most 2 agents"}');
+    await expect(relay.api('/api/presets', { body: { name: 'Too big', agents: three } })).rejects.toThrow(
+      '400 {"error":"At most 2 agents"}',
+    );
   });
 
   test('a template larger than the limit says why it cannot be used, and the lead agent does not pick one', async ({ page, relay }) => {
@@ -38,7 +40,7 @@ test.describe('limits the environment sets', () => {
   });
 
   test("a schedule's hint gives the turn timeout RELAY_TURN_TIMEOUT_MIN sets", async ({ page }) => {
-    await page.getByRole('button', { name: 'New schedule' }).click();
+    await page.getByRole('button', { name: 'New automation' }).click();
     // The schedule's own choice (the team's is above it).
     await page.getByRole('radiogroup', { name: 'Actions outside the permission' }).getByRole('radio', { name: 'Ask me' }).click();
     await expect(page.getByText('while you are away the agent waits (up to 90 minutes per turn)')).toBeVisible();

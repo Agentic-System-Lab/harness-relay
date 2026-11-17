@@ -63,7 +63,6 @@ import type { OpenRunContext } from '../src/server/agents/open';
 import { AgentRunError, type AgentEvent, type ApprovalRequest, type McpServerSpec, type RunOptions } from '../src/server/agents/types';
 import { writeFakePi } from './fake-pi';
 
-
 /** The state key of the runs here: their state is in `<home>/private/<key>`. */
 const STATE_KEY = 'conv.c1.a1';
 const FIX = join(import.meta.dirname, 'fixtures', 'pi');
@@ -91,13 +90,22 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 beforeEach(() => {
   piKnownModels.clear();
   // Pi's catalog, as the fake answers it from the recorded one.
-  piKnownModels.ask = async () => new Set(piCatalog(piRecords('available-models').find((m) => m.command === 'get_available_models')!.data.models).models.map((m) => m.id));
+  piKnownModels.ask = async () =>
+    new Set(
+      piCatalog(piRecords('available-models').find((m) => m.command === 'get_available_models')!.data.models).models.map((m) => m.id),
+    );
 });
 
 const backends = {
   apis: { openai: 'sk-test-openai-0000', anthropic: 'sk-ant-test-0000', xai: 'xai-test-0000' },
   endpoints: [
-    { id: 'homelab', name: 'Homelab', baseUrl: 'http://vllm.example:8000/v1', models: ['muse-glimmer-30b-nvfp4'], apiKey: 'endpoint-key-0000' },
+    {
+      id: 'homelab',
+      name: 'Homelab',
+      baseUrl: 'http://vllm.example:8000/v1',
+      models: ['muse-glimmer-30b-nvfp4'],
+      apiKey: 'endpoint-key-0000',
+    },
     { id: 'local', name: 'Local', baseUrl: 'http://127.0.0.1:11434/v1', models: ['qwen2.5-coder:7b'] },
   ],
 };
@@ -112,7 +120,11 @@ interface Run {
 }
 
 /** One turn's options against the fake Pi; `env` adds FAKE_PI_* settings. */
-function run(env: Record<string, string> = {}, over: Partial<RunOptions> = {}, answer?: (req: ApprovalRequest) => ApprovalAnswer | Promise<ApprovalAnswer>): Run {
+function run(
+  env: Record<string, string> = {},
+  over: Partial<RunOptions> = {},
+  answer?: (req: ApprovalRequest) => ApprovalAnswer | Promise<ApprovalAnswer>,
+): Run {
   const dir = join(root, `run-${++n}`);
   mkdirSync(join(dir, 'project'), { recursive: true });
   const logFile = join(dir, 'log.jsonl');
@@ -156,7 +168,10 @@ const sent = (r: Run, type: string) => r.log().filter((m) => m.type === type);
 const uiAnswers = (r: Run) => sent(r, 'extension_ui_response');
 
 /** A relay sandbox that runs the command as it is, recording the spec it was given. */
-function fakeSandbox(specs: RelaySandboxSpec[], failure?: string): Pick<PiTurnDeps, 'sandboxAvailable' | 'sandboxCommand' | 'makeRunDirs' | 'platform'> {
+function fakeSandbox(
+  specs: RelaySandboxSpec[],
+  failure?: string,
+): Pick<PiTurnDeps, 'sandboxAvailable' | 'sandboxCommand' | 'makeRunDirs' | 'platform'> {
   return {
     platform: 'darwin',
     sandboxAvailable: async () => ({ ok: true }),
@@ -168,7 +183,17 @@ function fakeSandbox(specs: RelaySandboxSpec[], failure?: string): Pick<PiTurnDe
     },
     sandboxCommand: async (b, args, env, s) => {
       specs.push(s);
-      return { bin: b, args, env, channel: (() => undefined) as unknown as RelaySandboxCommand['channel'], failure: () => failure, run: {} as RelaySandboxCommand['run'], dispose: async () => { for (const d of [s.dirs?.tmp, s.dirs?.hostTmp]) if (d) rmSync(d, { recursive: true, force: true }); } };
+      return {
+        bin: b,
+        args,
+        env,
+        channel: (() => undefined) as unknown as RelaySandboxCommand['channel'],
+        failure: () => failure,
+        run: {} as RelaySandboxCommand['run'],
+        dispose: async () => {
+          for (const d of [s.dirs?.tmp, s.dirs?.hostTmp]) if (d) rmSync(d, { recursive: true, force: true });
+        },
+      };
     },
   };
 }
@@ -201,11 +226,35 @@ function context(over: Partial<RunOptions> = {}, model = 'openai/gpt-5.4-nano'):
   const tmpDir = join(r.dir, 'tmp');
   mkdirSync(tmpDir, { recursive: true });
   const layout = piHomeLayout(homeRoot);
-  return { o: r.o, run: backendRunOf(model), home: { root: homeRoot, state: homeRoot, ...layout }, env: { ...r.o.env, ...layout.env }, sandboxed: r.o.permission !== 'full', tmpDir, state: {} };
+  return {
+    o: r.o,
+    run: backendRunOf(model),
+    home: { root: homeRoot, state: homeRoot, ...layout },
+    env: { ...r.o.env, ...layout.env },
+    sandboxed: r.o.permission !== 'full',
+    tmpDir,
+    state: {},
+  };
 }
 
-const stdio: McpServerSpec = { name: 'shout', transport: 'stdio', command: 'node', args: ['shout.mjs'], url: '', env: { TOKEN: 'secret-1' }, headers: {} };
-const http: McpServerSpec = { name: 'my docs.v2', transport: 'http', command: '', args: [], url: 'https://docs.example/mcp', env: {}, headers: { Authorization: 'Bearer secret-2' } };
+const stdio: McpServerSpec = {
+  name: 'shout',
+  transport: 'stdio',
+  command: 'node',
+  args: ['shout.mjs'],
+  url: '',
+  env: { TOKEN: 'secret-1' },
+  headers: {},
+};
+const http: McpServerSpec = {
+  name: 'my docs.v2',
+  transport: 'http',
+  command: '',
+  args: [],
+  url: 'https://docs.example/mcp',
+  env: {},
+  headers: { Authorization: 'Bearer secret-2' },
+};
 
 // --- Home, config and arguments -----------------------------------------------------------------
 
@@ -219,7 +268,13 @@ describe('Pi: home and config', () => {
       configPaths: [],
     });
     // No network at start, no telemetry, no code-loading caches.
-    expect(PI_ENV).toEqual({ PI_OFFLINE: '1', PI_SKIP_VERSION_CHECK: '1', PI_TELEMETRY: '0', JITI_FS_CACHE: 'false', NODE_DISABLE_COMPILE_CACHE: '1' });
+    expect(PI_ENV).toEqual({
+      PI_OFFLINE: '1',
+      PI_SKIP_VERSION_CHECK: '1',
+      PI_TELEMETRY: '0',
+      JITI_FS_CACHE: 'false',
+      NODE_DISABLE_COMPILE_CACHE: '1',
+    });
     expect(piProcess.implemented).toBe(true);
     expect(piProcess.proxyEnv).toBeUndefined();
     expect(piProcess.emptyEnv).toContain('PI_PACKAGE_DIR');
@@ -230,7 +285,12 @@ describe('Pi: home and config', () => {
     expect(piProvider(backendRunOf('openai/gpt-5.4-nano'))).toBe('openai');
     expect(piProvider(backendRunOf('homelab/muse-glimmer-30b-nvfp4'))).toBe('relay-homelab');
     expect(piModelRef(backendRunOf('local/qwen2.5-coder:7b'))).toBe('relay-local/qwen2.5-coder:7b');
-    expect(piSettings()).toMatchObject({ defaultProjectTrust: 'never', enableInstallTelemetry: false, cacheWarming: 'off', enableSkillCommands: false });
+    expect(piSettings()).toMatchObject({
+      defaultProjectTrust: 'never',
+      enableInstallTelemetry: false,
+      cacheWarming: 'off',
+      enableSkillCommands: false,
+    });
   });
 
   it('writes an endpoint into models.json with its key by variable, and an API model Pi does not know', () => {
@@ -254,7 +314,20 @@ describe('Pi: home and config', () => {
       ['other', false],
     ]);
     expect(piModelsJson(backendRunOf('xai/grok-4.20-0309-non-reasoning'), undefined, false)).toEqual({
-      providers: { xai: { models: [{ id: 'grok-4.20-0309-non-reasoning', name: 'grok-4.20-0309-non-reasoning', api: 'openai-responses', baseUrl: 'https://api.x.ai/v1', reasoning: false, input: ['text', 'image'] }] } },
+      providers: {
+        xai: {
+          models: [
+            {
+              id: 'grok-4.20-0309-non-reasoning',
+              name: 'grok-4.20-0309-non-reasoning',
+              api: 'openai-responses',
+              baseUrl: 'https://api.x.ai/v1',
+              reasoning: false,
+              input: ['text', 'image'],
+            },
+          ],
+        },
+      },
     });
   });
 
@@ -263,12 +336,16 @@ describe('Pi: home and config', () => {
     expect(json).toEqual({
       mcpServers: {
         shout: { command: 'node', args: ['shout.mjs'], env: { TOKEN: '${HARNESS_RELAY_MCP_0_E_0}' }, exposure: 'direct' },
-        'my_docs_v2': { url: 'https://docs.example/mcp', headers: { Authorization: '${HARNESS_RELAY_MCP_1_H_0}' }, exposure: 'direct' },
+        my_docs_v2: { url: 'https://docs.example/mcp', headers: { Authorization: '${HARNESS_RELAY_MCP_1_H_0}' }, exposure: 'direct' },
         shout_2: { command: 'node', args: ['shout.mjs'], env: { TOKEN: '${HARNESS_RELAY_MCP_2_E_0}' }, exposure: 'direct' },
       },
       autoEnableCodemode: false,
     });
-    expect(env).toEqual({ HARNESS_RELAY_MCP_0_E_0: 'secret-1', HARNESS_RELAY_MCP_1_H_0: 'Bearer secret-2', HARNESS_RELAY_MCP_2_E_0: 'secret-1' });
+    expect(env).toEqual({
+      HARNESS_RELAY_MCP_0_E_0: 'secret-1',
+      HARNESS_RELAY_MCP_1_H_0: 'Bearer secret-2',
+      HARNESS_RELAY_MCP_2_E_0: 'secret-1',
+    });
     expect(JSON.stringify(json)).not.toContain('secret');
     expect(Object.keys(piMcpJson([{ ...stdio, name: '***' }]).json.mcpServers as object)).toEqual(['server']);
   });
@@ -315,7 +392,8 @@ describe('Pi: home and config', () => {
       expect(() => piSessionFile(dir, '../etc', cwd)).toThrow(/is gone/);
       expect(() => piSessionFile(join(root, 'no-dir'), 's-1', cwd)).toThrow(/is gone/);
       for (const id of ['s-2', 's-5']) expect(() => piSessionFile(dir, id, cwd)).toThrow(/the session's working directory is \/elsewhere/);
-      for (const id of ['s-3', 's-4', 's-7', 's-8', 's-9', 's-10', 's-11', 's-12']) expect(() => piSessionFile(dir, id, cwd), id).toThrow(/could not resume the earlier session/);
+      for (const id of ['s-3', 's-4', 's-7', 's-8', 's-9', 's-10', 's-11', 's-12'])
+        expect(() => piSessionFile(dir, id, cwd), id).toThrow(/could not resume the earlier session/);
     });
   });
 
@@ -346,7 +424,9 @@ describe('Pi: home and config', () => {
   it('adds a model Pi does not know to models.json, and leaves one it knows as its catalog says', async () => {
     const unknown = context({}, 'xai/grok-4.20-0309-non-reasoning');
     await preparePi(unknown);
-    expect(JSON.parse(readFileSync(join(unknown.tmpDir, 'pi-agent', 'models.json'), 'utf8')).providers.xai.models[0].id).toBe('grok-4.20-0309-non-reasoning');
+    expect(JSON.parse(readFileSync(join(unknown.tmpDir, 'pi-agent', 'models.json'), 'utf8')).providers.xai.models[0].id).toBe(
+      'grok-4.20-0309-non-reasoning',
+    );
     const known = context({}, 'xai/grok-4.3');
     await preparePi(known);
     expect(JSON.parse(readFileSync(join(known.tmpDir, 'pi-agent', 'models.json'), 'utf8'))).toEqual({ providers: {} });
@@ -391,10 +471,46 @@ describe('Pi: home and config', () => {
     const base = ['--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes', '--no-approve'];
     const brief = ['--append-system-prompt', '<tmp>/pi-agent/harness-relay-briefing.md'];
     expect(got[0]).toEqual(['--mode', 'rpc', '--model', 'openai/gpt-5.4-nano', ...base, '--no-mcp', ...brief]);
-    expect(got[1]).toEqual(['--mode', 'rpc', '--model', 'anthropic/claude-haiku-5-5', ...base, '-e', PI_GATE_PATH, '--no-mcp', ...brief, '--thinking', 'high']);
-    expect(got[2]).toEqual(['--mode', 'rpc', '--model', 'xai/grok-4.3', ...base, '-e', PI_GATE_PATH, '-e', 'builtin:mcp', '--no-context-files', ...brief, '--tools', expect.stringMatching(/^read,.*ls,mcp__\*$/)]);
+    expect(got[1]).toEqual([
+      '--mode',
+      'rpc',
+      '--model',
+      'anthropic/claude-haiku-5-5',
+      ...base,
+      '-e',
+      PI_GATE_PATH,
+      '--no-mcp',
+      ...brief,
+      '--thinking',
+      'high',
+    ]);
+    expect(got[2]).toEqual([
+      '--mode',
+      'rpc',
+      '--model',
+      'xai/grok-4.3',
+      ...base,
+      '-e',
+      PI_GATE_PATH,
+      '-e',
+      'builtin:mcp',
+      '--no-context-files',
+      ...brief,
+      '--tools',
+      expect.stringMatching(/^read,.*ls,mcp__\*$/),
+    ]);
     // An effort that is no Pi level is not passed (Pi would refuse to start); the turn says why.
-    expect(got[3]).toEqual(['--mode', 'rpc', '--model', 'relay-homelab/muse-glimmer-30b-nvfp4', ...base, '-e', PI_GATE_PATH, '--no-mcp', ...brief]);
+    expect(got[3]).toEqual([
+      '--mode',
+      'rpc',
+      '--model',
+      'relay-homelab/muse-glimmer-30b-nvfp4',
+      ...base,
+      '-e',
+      PI_GATE_PATH,
+      '--no-mcp',
+      ...brief,
+    ]);
     // Resuming: the session's file; no briefing when there is none.
     const sessions = join(root, 'sessions-b');
     const ctx = context({ systemPrompt: ' ' });
@@ -402,7 +518,16 @@ describe('Pi: home and config', () => {
     writeFileSync(join(ctx.home.root, 'sessions', 'x_abc.jsonl'), JSON.stringify({ type: 'session', id: 'abc', cwd: ctx.o.cwd }) + '\n');
     ctx.o.sessionId = 'abc';
     await preparePi(ctx);
-    expect(piArgs(ctx)).toEqual(['--mode', 'rpc', '--model', 'openai/gpt-5.4-nano', ...base, '--no-mcp', '--session', join(ctx.home.root, 'sessions', 'x_abc.jsonl')]);
+    expect(piArgs(ctx)).toEqual([
+      '--mode',
+      'rpc',
+      '--model',
+      'openai/gpt-5.4-nano',
+      ...base,
+      '--no-mcp',
+      '--session',
+      join(ctx.home.root, 'sessions', 'x_abc.jsonl'),
+    ]);
     expect(sessions).toBeTruthy();
   });
 });
@@ -456,10 +581,22 @@ describe('Pi: JSONL framing', () => {
 // --- The gate ------------------------------------------------------------------------------------
 
 describe('Pi: the gate', () => {
-  const ui = (placeholder: unknown, extra: Record<string, unknown> = {}) => ({ type: 'extension_ui_request', id: 'u1', method: 'input', title: PI_GATE_TITLE, placeholder: typeof placeholder === 'string' ? placeholder : JSON.stringify(placeholder), ...extra });
+  const ui = (placeholder: unknown, extra: Record<string, unknown> = {}) => ({
+    type: 'extension_ui_request',
+    id: 'u1',
+    method: 'input',
+    title: PI_GATE_TITLE,
+    placeholder: typeof placeholder === 'string' ? placeholder : JSON.stringify(placeholder),
+    ...extra,
+  });
 
   it('reads its requests, and nothing else', () => {
-    expect(piGateRequest(ui({ toolCallId: 't1', toolName: 'bash', input: { command: 'ls' }, parentToolCallId: 'p' }))).toEqual({ toolCallId: 't1', toolName: 'bash', input: { command: 'ls' }, parentToolCallId: 'p' });
+    expect(piGateRequest(ui({ toolCallId: 't1', toolName: 'bash', input: { command: 'ls' }, parentToolCallId: 'p' }))).toEqual({
+      toolCallId: 't1',
+      toolName: 'bash',
+      input: { command: 'ls' },
+      parentToolCallId: 'p',
+    });
     expect(piGateRequest(ui({ toolName: 'read', input: 'x' }))).toEqual({ toolName: 'read', input: {} });
     expect(piGateRequest(ui('not json'))).toBeNull();
     expect(piGateRequest(ui({ input: {} }))).toBeNull();
@@ -468,12 +605,21 @@ describe('Pi: the gate', () => {
     expect(piGateRequest({ type: 'tool_execution_start' })).toBeUndefined();
   });
 
-  it('describes each of Pi\'s tools for the decision, naming the exact call', () => {
-    expect(piCallInfo({ toolName: 'read', input: { path: 'a.txt' } })).toEqual({ kind: 'read', title: 'Read a.txt', tool: 'read', path: 'a.txt' });
+  it("describes each of Pi's tools for the decision, naming the exact call", () => {
+    expect(piCallInfo({ toolName: 'read', input: { path: 'a.txt' } })).toEqual({
+      kind: 'read',
+      title: 'Read a.txt',
+      tool: 'read',
+      path: 'a.txt',
+    });
     expect(piCallInfo({ toolName: 'grep', input: { pattern: 'x', path: 'src' } })).toMatchObject({ kind: 'search', title: 'Grep x · src' });
     expect(piCallInfo({ toolName: 'ls', input: {} })).toMatchObject({ kind: 'search', title: 'List' });
     expect(piCallInfo({ toolName: 'find', input: { pattern: '*.ts' } })).toMatchObject({ kind: 'search', title: 'Find *.ts' });
-    expect(piCallInfo({ toolName: 'bash', input: { command: 'git push' } })).toMatchObject({ kind: 'execute', title: 'Bash git push', command: 'git push' });
+    expect(piCallInfo({ toolName: 'bash', input: { command: 'git push' } })).toMatchObject({
+      kind: 'execute',
+      title: 'Bash git push',
+      command: 'git push',
+    });
     expect(piCallInfo({ toolName: 'bash', input: {} })).toMatchObject({ kind: 'execute', title: 'Bash', command: '' });
     expect(piCallInfo({ toolName: 'edit', input: { path: 'a.txt' } })).toMatchObject({ kind: 'edit', path: 'a.txt', title: 'Edit a.txt' });
     expect(piCallInfo({ toolName: 'write', input: { path: 'b.txt' } })).toMatchObject({ kind: 'edit', title: 'Write b.txt' });
@@ -489,10 +635,21 @@ describe('Pi: the gate', () => {
     expect(piCallDetail({ toolName: 'mcp__fs__read', input: { path: long } })).toBe(long); // whole, for the card
   });
 
-  it('shows an MCP tool\'s input on its approval card, and the read-only boundary', () => {
+  it("shows an MCP tool's input on its approval card, and the read-only boundary", () => {
     const req = { toolName: 'mcp__shmcp__sh', input: { command: 'rm -rf build' } };
-    expect(piApprovalRequest(req, piCallInfo(req), 'read-only')).toEqual({ kind: 'other', tool: 'mcp__shmcp__sh', detail: 'rm -rf build', reason: 'mcp__shmcp__sh', readOnlySandbox: true });
-    expect(piApprovalRequest(req, piCallInfo(req), 'edit')).toEqual({ kind: 'other', tool: 'mcp__shmcp__sh', detail: 'rm -rf build', reason: 'mcp__shmcp__sh' });
+    expect(piApprovalRequest(req, piCallInfo(req), 'read-only')).toEqual({
+      kind: 'other',
+      tool: 'mcp__shmcp__sh',
+      detail: 'rm -rf build',
+      reason: 'mcp__shmcp__sh',
+      readOnlySandbox: true,
+    });
+    expect(piApprovalRequest(req, piCallInfo(req), 'edit')).toEqual({
+      kind: 'other',
+      tool: 'mcp__shmcp__sh',
+      detail: 'rm -rf build',
+      reason: 'mcp__shmcp__sh',
+    });
     const bare = { toolName: 'mcp__x__ping', input: {} };
     expect(piApprovalRequest(bare, piCallInfo(bare), 'edit')).toEqual({ kind: 'other', tool: 'mcp__x__ping', reason: 'mcp__x__ping' });
     const push = { toolName: 'bash', input: { command: 'git push origin main' } };
@@ -510,7 +667,10 @@ describe('Pi: the gate', () => {
               if (answer instanceof Error) throw answer;
               return answer;
             };
-      return en(async () => ({ decision: await piDecide({ permission, ...(requestApproval ? { requestApproval } : {}) }, { toolName, input }), asked }));
+      return en(async () => ({
+        decision: await piDecide({ permission, ...(requestApproval ? { requestApproval } : {}) }, { toolName, input }),
+        asked,
+      }));
     };
     expect((await decide('full', 'bash', { command: 'rm -rf x' })).decision).toEqual({ allow: true });
     expect((await decide('read-only', 'read', { path: 'a' })).decision).toEqual({ allow: true });
@@ -519,18 +679,31 @@ describe('Pi: the gate', () => {
     expect((await decide('edit', 'mcp__x__y', {})).decision).toEqual({ allow: true });
     // Read-only: a command is refused when the conversation refuses on its own…
     const refused = await decide('read-only', 'bash', { command: 'ls' });
-    expect(refused.decision).toMatchObject({ allow: false, reason: expect.stringMatching(/read-only/), label: expect.stringMatching(/read-only/) });
+    expect(refused.decision).toMatchObject({
+      allow: false,
+      reason: expect.stringMatching(/read-only/),
+      label: expect.stringMatching(/read-only/),
+    });
     // …else asked about, with the sandbox's boundary on the card.
     const asked = await decide('read-only', 'edit', { path: 'a.txt' }, { allow: true });
     expect(asked.decision).toEqual({ allow: true });
     expect(asked.asked).toEqual([{ kind: 'edit', detail: 'a.txt', reason: 'Edit', readOnlySandbox: true }]);
     // The refusal names the exact call: in a batch, the model must know which one was not run.
     const publish = await decide('edit', 'bash', { command: 'npm publish --dry-run' }, { allow: false });
-    expect(publish.decision).toMatchObject({ allow: false, reason: expect.stringContaining('the user declined "Bash npm publish --dry-run"') });
+    expect(publish.decision).toMatchObject({
+      allow: false,
+      reason: expect.stringContaining('the user declined "Bash npm publish --dry-run"'),
+    });
     const mcp = await decide('read-only', 'mcp__shout__shout', { text: 'hi' }, { allow: false, note: 'Not now.' });
     // Read-only stays a boundary for its server too.
-    expect(mcp.asked).toEqual([{ kind: 'other', tool: 'mcp__shout__shout', detail: '{"text":"hi"}', reason: 'mcp__shout__shout', readOnlySandbox: true }]);
-    expect(mcp.decision).toMatchObject({ allow: false, reason: expect.stringContaining('Their message: Not now.'), label: 'The user declined this action. Not now.' });
+    expect(mcp.asked).toEqual([
+      { kind: 'other', tool: 'mcp__shout__shout', detail: '{"text":"hi"}', reason: 'mcp__shout__shout', readOnlySandbox: true },
+    ]);
+    expect(mcp.decision).toMatchObject({
+      allow: false,
+      reason: expect.stringContaining('Their message: Not now.'),
+      label: 'The user declined this action. Not now.',
+    });
     // Edit: pushing and publishing ask.
     const push = await decide('edit', 'bash', { command: 'git push origin main' }, { allow: false });
     expect(push.asked).toEqual([{ kind: 'command', detail: 'git push origin main', reason: 'Bash' }]);
@@ -585,12 +758,21 @@ describe('Pi: events from recorded runs', () => {
   it('read, edit (its diff), write and bash rows', () => {
     const read = replay('read-tool').events.filter((e) => e.type.startsWith('tool_'));
     expect(read).toEqual([
-      { type: 'tool_start', id: 'chatcmpl-tool-b1fb53c43c4e60aa', name: 'Read', detail: '…/home/user/project/notes.txt'.slice(1), kind: 'read' },
+      {
+        type: 'tool_start',
+        id: 'chatcmpl-tool-b1fb53c43c4e60aa',
+        name: 'Read',
+        detail: '…/home/user/project/notes.txt'.slice(1),
+        kind: 'read',
+      },
       { type: 'tool_end', id: 'chatcmpl-tool-b1fb53c43c4e60aa', ok: true, output: 'hello from notes\nline two' },
     ]);
     const edit = replay('edit-tool').events.filter((e) => e.type === 'tool_end');
     expect(edit.at(-1)).toMatchObject({ ok: true, output: ' 1 hello from notes\n-2 line two\n+2 line 2' });
-    expect(replay('write-tool').events.find((e) => e.type === 'tool_start')).toMatchObject({ name: 'Write', detail: '/home/user/project/hello.txt' });
+    expect(replay('write-tool').events.find((e) => e.type === 'tool_start')).toMatchObject({
+      name: 'Write',
+      detail: '/home/user/project/hello.txt',
+    });
     const bash = replay('bash-tool').events.filter((e) => e.type.startsWith('tool_'));
     expect(bash[0]).toMatchObject({ name: 'Bash', detail: 'echo out-line && echo err-line 1>&2 && ls' });
     expect(bash[1]).toMatchObject({ ok: true, output: expect.stringContaining('out-line\nerr-line') });
@@ -602,18 +784,28 @@ describe('Pi: events from recorded runs', () => {
     const tools = replay('readonly-tools').events.filter((e) => e.type === 'tool_start');
     expect(tools.map((e) => e.type === 'tool_start' && e.name)).toEqual(['List', 'Grep', 'Find', 'Find', 'Find', 'Read']);
     expect(tools[1]).toMatchObject({ detail: 'hello · /home/user/project' });
-    expect(replay('readonly-tools').events.find((e) => e.type === 'tool_end' && !e.ok)).toMatchObject({ error: 'fd is not available and could not be downloaded' });
+    expect(replay('readonly-tools').events.find((e) => e.type === 'tool_end' && !e.ok)).toMatchObject({
+      error: 'fd is not available and could not be downloaded',
+    });
     expect(piToolDetail('find', { pattern: '*.txt' })).toBe('*.txt');
     expect(piToolDetail('mcp__shout__shout', { text: 'hi' })).toBe('{"text":"hi"}');
     expect(piToolDetail('mcp__x__y', {})).toBeUndefined();
     expect(piToolName('mcp__shout__shout')).toBe('mcp__shout__shout');
   });
 
-  it('a refused call shows Harness Relay\'s label, not the reason the model got', () => {
+  it("a refused call shows Harness Relay's label, not the reason the model got", () => {
     const { events } = replay('approval-rejected', { 'chatcmpl-tool-94319e574bcd7259': 'Declined: just say BANANA' });
-    expect(events.find((e) => e.type === 'tool_end')).toEqual({ type: 'tool_end', id: 'chatcmpl-tool-94319e574bcd7259', ok: false, error: 'Declined: just say BANANA' });
+    expect(events.find((e) => e.type === 'tool_end')).toEqual({
+      type: 'tool_end',
+      id: 'chatcmpl-tool-94319e574bcd7259',
+      ok: false,
+      error: 'Declined: just say BANANA',
+    });
     expect(joined(events, 'text')).toBe('BANANA');
-    expect(replay('anthropic-approval-rejected').events.find((e) => e.type === 'tool_end')).toMatchObject({ ok: false, error: expect.stringContaining('BANANA') });
+    expect(replay('anthropic-approval-rejected').events.find((e) => e.type === 'tool_end')).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('BANANA'),
+    });
   });
 
   it('an MCP tool', () => {
@@ -637,7 +829,10 @@ describe('Pi: events from recorded runs', () => {
     expect(joined(replay('anthropic-thinking-high').events, 'thinking')).not.toBe('');
     expect(joined(replay('openai-thinking-high').events, 'thinking')).toBe(''); // OpenAI sends no summary
     expect(replay('anthropic-read-tool').events.find((e) => e.type === 'tool_start')).toMatchObject({ name: 'Read', detail: 'notes.txt' });
-    expect(replay('anthropic-edit-tool').events.find((e) => e.type === 'tool_end')).toMatchObject({ ok: true, output: expect.stringContaining('+2 line 2') });
+    expect(replay('anthropic-edit-tool').events.find((e) => e.type === 'tool_end')).toMatchObject({
+      ok: true,
+      output: expect.stringContaining('+2 line 2'),
+    });
   });
 
   it('a stopped run leaves its rows not finished', () => {
@@ -672,7 +867,10 @@ describe('Pi: events from recorded runs', () => {
   });
 
   it('turns provider errors into what the user can act on', () => {
-    const errorOf = (name: string) => piRecords(name).filter((m) => m.type === 'message_end' && m.message.role === 'assistant').at(-1)!.message.errorMessage as string;
+    const errorOf = (name: string) =>
+      piRecords(name)
+        .filter((m) => m.type === 'message_end' && m.message.role === 'assistant')
+        .at(-1)!.message.errorMessage as string;
     expect(errorOf('bad-key')).toBe('401 "Unauthorized"');
     for (const name of ['bad-key', 'anthropic-bad-key', 'openai-bad-key', 'xai-bad-key']) expect(piErrorKind(errorOf(name))).toBe('key');
     expect(piErrorKind(errorOf('bad-model-flag'))).toBe('model');
@@ -686,9 +884,15 @@ describe('Pi: events from recorded runs', () => {
     expect(piConnectionDetail('UND_ERR_ABORTED')).toBe('no connection');
     expect(piConnectionDetail('ECONNREFUSED')).toBe('ECONNREFUSED');
     return en(async () => {
-      expect(piErrorText(errorOf('xai-bad-key'), backendRunOf('xai/grok-4.3'))).toMatch(/^xAI rejected the API key \(xai API error \(400\).*Settings → Model backends/);
-      expect(piErrorText(errorOf('bad-model-flag'), backendRunOf('homelab/no-such-model'))).toMatch(/^Homelab has no model "no-such-model"/);
-      expect(piErrorText(errorOf('sandbox-localhost-endpoint-blocked'), backendRunOf('local/qwen2.5-coder:7b'))).toMatch(/^Could not reach the endpoint "Local" \(http:\/\/127\.0\.0\.1:11434\/v1\): Connection error/);
+      expect(piErrorText(errorOf('xai-bad-key'), backendRunOf('xai/grok-4.3'))).toMatch(
+        /^xAI rejected the API key \(xai API error \(400\).*Settings → Model backends/,
+      );
+      expect(piErrorText(errorOf('bad-model-flag'), backendRunOf('homelab/no-such-model'))).toMatch(
+        /^Homelab has no model "no-such-model"/,
+      );
+      expect(piErrorText(errorOf('sandbox-localhost-endpoint-blocked'), backendRunOf('local/qwen2.5-coder:7b'))).toMatch(
+        /^Could not reach the endpoint "Local" \(http:\/\/127\.0\.0\.1:11434\/v1\): Connection error/,
+      );
       expect(piErrorText('ECONNREFUSED', backendRunOf('openai/gpt-5.4-nano'))).toBe('Could not reach OpenAI: ECONNREFUSED');
       expect(piErrorText(proxied, backendRunOf('homelab/muse-glimmer-30b-nvfp4'))).toBe(
         'Could not reach the endpoint "Homelab" (http://vllm.example:8000/v1): HTTP 502. Check that the server is running and the address is right.',
@@ -707,19 +911,31 @@ describe('Pi: prompt, catalog and native', () => {
     const png = join(root, 'tiny.png');
     writeFileSync(png, Buffer.from('89504e470d0a1a0a', 'hex'));
     expect(piPrompt({ prompt: '/harness-relay-gate now' })).toEqual({ type: 'prompt', message: 'Message: /harness-relay-gate now' });
-    expect(piPrompt({ prompt: 'look', images: [{ path: png, mimeType: 'image/png' }, { path: join(root, 'gone.png'), mimeType: 'image/png' }] })).toEqual({
+    expect(
+      piPrompt({
+        prompt: 'look',
+        images: [
+          { path: png, mimeType: 'image/png' },
+          { path: join(root, 'gone.png'), mimeType: 'image/png' },
+        ],
+      }),
+    ).toEqual({
       type: 'prompt',
       message: 'look',
       images: [{ type: 'image', data: 'iVBORw0KGgo=', mimeType: 'image/png' }],
     });
   });
 
-  it('reads the model catalog: OpenAI, Anthropic and xAI, with each model\'s levels', () => {
+  it("reads the model catalog: OpenAI, Anthropic and xAI, with each model's levels", () => {
     const data = piRecords('available-models').find((m) => m.command === 'get_available_models')!.data.models;
     const c = piCatalog(data);
     expect(c.efforts).toEqual(PI_LEVELS);
     expect(c.models.some((m) => m.id.startsWith('homelab/'))).toBe(false);
-    expect(c.models.find((m) => m.id === 'openai/gpt-5.4-mini')).toEqual({ id: 'openai/gpt-5.4-mini', label: 'GPT-5.4 mini', efforts: ['off', 'low', 'medium', 'high', 'xhigh'] });
+    expect(c.models.find((m) => m.id === 'openai/gpt-5.4-mini')).toEqual({
+      id: 'openai/gpt-5.4-mini',
+      label: 'GPT-5.4 mini',
+      efforts: ['off', 'low', 'medium', 'high', 'xhigh'],
+    });
     expect(c.models.find((m) => m.id === 'anthropic/claude-haiku-5-5')?.efforts).toEqual(['off', 'low', 'medium', 'high', 'xhigh', 'max']);
     expect(c.models.find((m) => m.id === 'xai/grok-4.3')).toBeTruthy();
     expect(c.models.find((m) => m.id === 'openai/gpt-4o')?.efforts).toEqual(['off']);
@@ -734,12 +950,26 @@ describe('Pi: prompt, catalog and native', () => {
     const c = await piModels(bin, env);
     expect(c.models.length).toBeGreaterThan(50);
     const s = start(r);
-    expect(s.argv).toEqual(expect.arrayContaining(['--mode', 'rpc', '--no-session', '--no-extensions', '--no-skills', '--no-context-files', '--no-mcp', '--offline']));
+    expect(s.argv).toEqual(
+      expect.arrayContaining([
+        '--mode',
+        'rpc',
+        '--no-session',
+        '--no-extensions',
+        '--no-skills',
+        '--no-context-files',
+        '--no-mcp',
+        '--offline',
+      ]),
+    );
     expect(s.env.PI_CODING_AGENT_DIR).toMatch(/catalog-[0-9a-f]+$/);
     expect(s.env.OPENAI_API_KEY).toBe('harness-relay-catalog');
     expect(existsSync(s.env.PI_CODING_AGENT_DIR)).toBe(false); // removed
     expect(await piAgent.models!(bin, { ...env, FAKE_PI_MODELS_FAIL: 'no catalog' })).toMatchObject({ models: [], error: 'no catalog' });
-    expect(await piModels(bin, { ...env, FAKE_PI_EXIT: '2', FAKE_PI_STDERR: 'cannot start' })).toMatchObject({ models: [], error: expect.stringContaining('cannot start') });
+    expect(await piModels(bin, { ...env, FAKE_PI_EXIT: '2', FAKE_PI_STDERR: 'cannot start' })).toMatchObject({
+      models: [],
+      error: expect.stringContaining('cannot start'),
+    });
     const ids = await realAsk.call(piKnownModels, bin, env);
     expect(ids?.has('openai/gpt-5.4-nano')).toBe(true);
     expect(await realAsk.call(piKnownModels, bin, { ...env, FAKE_PI_MODELS_FAIL: 'x' })).toBeUndefined();
@@ -756,11 +986,22 @@ describe('Pi: prompt, catalog and native', () => {
     const agentDir = join(root, 'ctx-agent');
     mkdirSync(agentDir, { recursive: true });
     writeFileSync(join(agentDir, 'AGENTS.md'), 'x');
-    const files = piContextFiles(proj, agentDir).map((f) => f.path).filter((p) => p.startsWith(root));
-    expect(files).toEqual([join(agentDir, 'AGENTS.md'), join(top, 'CLAUDE.md'), join(top, 'a', 'AGENTS.md'), join(proj, 'AGENTS.override.md')]);
+    const files = piContextFiles(proj, agentDir)
+      .map((f) => f.path)
+      .filter((p) => p.startsWith(root));
+    expect(files).toEqual([
+      join(agentDir, 'AGENTS.md'),
+      join(top, 'CLAUDE.md'),
+      join(top, 'a', 'AGENTS.md'),
+      join(proj, 'AGENTS.override.md'),
+    ]);
     const native = await piAgent.native!(bin, {}, proj);
     expect(native).toMatchObject({ provider: 'pi', cwd: proj, skills: [], mcpServers: [], memoryFromFiles: true, problems: [] });
-    expect(native.memory.filter((f) => f.path.startsWith(root)).map((f) => f.kind)).toEqual(['instructions', 'instructions', 'instructions']);
+    expect(native.memory.filter((f) => f.path.startsWith(root)).map((f) => f.kind)).toEqual([
+      'instructions',
+      'instructions',
+      'instructions',
+    ]);
     expect((await piNative(bin, {}, proj)).memory).toEqual(native.memory);
     expect(NATIVE_OFF_SUPPORT.pi).toEqual(['instructions']);
   });
@@ -782,7 +1023,9 @@ describe('Pi: turns', () => {
     const s = start(r);
     expect(s.env).toMatchObject({ PI_OFFLINE: '1', JITI_FS_CACHE: 'false', NODE_DISABLE_COMPILE_CACHE: '1', PI_PACKAGE_DIR: '' });
     expect(s.env.PI_CODING_AGENT_DIR).toMatch(/pi-agent$/);
-    expect(Object.keys(s.files).sort()).toEqual(expect.arrayContaining(['auth.json', 'models.json', 'settings.json', 'mcp.json', 'harness-relay-briefing.md']));
+    expect(Object.keys(s.files).sort()).toEqual(
+      expect.arrayContaining(['auth.json', 'models.json', 'settings.json', 'mcp.json', 'harness-relay-briefing.md']),
+    );
     // Full access: no gate, no check for it, no thinking level touched; stdin closed at the end.
     expect(s.argv).not.toContain('-e');
     expect(r.log().map((m) => m.type ?? (m.stdinClosed ? 'closed' : 'start'))).toEqual(['start', 'get_state', 'prompt', 'closed']);
@@ -798,21 +1041,30 @@ describe('Pi: turns', () => {
     expect(start(r).files['models.json']).toContain('relay-homelab');
   });
 
-  it.skipIf(process.platform === 'win32')('below full access: the gate loaded, the sandbox given the run\'s paths, Pi\'s config read-only', async () => {
-    const specs: RelaySandboxSpec[] = [];
-    const r = run({ FAKE_PI_FIXTURE: fixture('read-tool') }, { permission: 'edit', model: 'anthropic/claude-haiku-5-5' });
-    await piTurn(r.o, sandboxed(specs));
-    const s = start(r);
-    expect(s.argv).toEqual(expect.arrayContaining(['-e', PI_GATE_PATH]));
-    expect(sent(r, 'get_commands')).toHaveLength(1);
-    const spec = specs[0]!;
-    expect(spec.permission).toBe('edit');
-    expect(spec.allowedHosts).toEqual(['api.anthropic.com']);
-    expect(spec.writable).toEqual([join(r.dir, 'home', 'private', STATE_KEY, 'sessions'), expect.stringMatching(/sandbox-run-.*\/tmp$/)]);
-    expect(spec.readOnly).toEqual(expect.arrayContaining([join(s.env.PI_CODING_AGENT_DIR, 'auth.json'), join(s.env.PI_CODING_AGENT_DIR, 'settings.json'), join(s.env.PI_CODING_AGENT_DIR, 'extensions')]));
-    expect(s.env.PI_CODING_AGENT_DIR.startsWith(spec.writable[1]!)).toBe(true);
-    expect(spec).not.toHaveProperty('localPorts');
-  });
+  it.skipIf(process.platform === 'win32')(
+    "below full access: the gate loaded, the sandbox given the run's paths, Pi's config read-only",
+    async () => {
+      const specs: RelaySandboxSpec[] = [];
+      const r = run({ FAKE_PI_FIXTURE: fixture('read-tool') }, { permission: 'edit', model: 'anthropic/claude-haiku-5-5' });
+      await piTurn(r.o, sandboxed(specs));
+      const s = start(r);
+      expect(s.argv).toEqual(expect.arrayContaining(['-e', PI_GATE_PATH]));
+      expect(sent(r, 'get_commands')).toHaveLength(1);
+      const spec = specs[0]!;
+      expect(spec.permission).toBe('edit');
+      expect(spec.allowedHosts).toEqual(['api.anthropic.com']);
+      expect(spec.writable).toEqual([join(r.dir, 'home', 'private', STATE_KEY, 'sessions'), expect.stringMatching(/sandbox-run-.*\/tmp$/)]);
+      expect(spec.readOnly).toEqual(
+        expect.arrayContaining([
+          join(s.env.PI_CODING_AGENT_DIR, 'auth.json'),
+          join(s.env.PI_CODING_AGENT_DIR, 'settings.json'),
+          join(s.env.PI_CODING_AGENT_DIR, 'extensions'),
+        ]),
+      );
+      expect(s.env.PI_CODING_AGENT_DIR.startsWith(spec.writable[1]!)).toBe(true);
+      expect(spec).not.toHaveProperty('localPorts');
+    },
+  );
 
   it('does not start Pi when it is stopped while it is being got ready (the sandbox check)', async () => {
     const r = run({}, { permission: 'edit' });
@@ -831,13 +1083,16 @@ describe('Pi: turns', () => {
     expect(sent(r, 'prompt')).toHaveLength(0);
   });
 
-  it.skipIf(process.platform === 'win32')('asks about a call through the real gate, and passes the user\'s note to the model', async () => {
+  it.skipIf(process.platform === 'win32')("asks about a call through the real gate, and passes the user's note to the model", async () => {
     const calls = [
       { toolCallId: 't1', toolName: 'read', input: { path: 'notes.txt' } },
       { toolCallId: 't2', toolName: 'bash', input: { command: 'git push origin main' } },
       { toolCallId: 't3', toolName: 'bash', input: { command: 'npm test' } },
     ];
-    const r = run({ FAKE_PI_CALLS: JSON.stringify(calls), FAKE_PI_UI_OTHER: '1' }, { permission: 'edit' }, () => ({ allow: false, note: 'Not yet.' }));
+    const r = run({ FAKE_PI_CALLS: JSON.stringify(calls), FAKE_PI_UI_OTHER: '1' }, { permission: 'edit' }, () => ({
+      allow: false,
+      note: 'Not yet.',
+    }));
     const result = await en(() => piTurn(r.o, sandboxed()));
     expect(result).toMatchObject({ sessionId: 'fake-session-1', inputTokens: 13, outputTokens: 5, costUsd: 0.001 });
     // Only the push was asked about; the other dialog was dismissed.
@@ -856,7 +1111,11 @@ describe('Pi: turns', () => {
   });
 
   it.skipIf(process.platform === 'win32')('a batch of commands: only the declined one is refused, and its refusal names it', async () => {
-    const calls = ['ls', 'npm publish --dry-run', 'npm test'].map((command, i) => ({ toolCallId: `b${i}`, toolName: 'bash', input: { command } }));
+    const calls = ['ls', 'npm publish --dry-run', 'npm test'].map((command, i) => ({
+      toolCallId: `b${i}`,
+      toolName: 'bash',
+      input: { command },
+    }));
     const r = run({ FAKE_PI_CALLS: JSON.stringify(calls) }, { permission: 'edit' }, () => ({ allow: false }));
     await en(() => piTurn(r.o, sandboxed()));
     expect(r.approvals.map((a) => a.detail)).toEqual(['npm publish --dry-run']);
@@ -874,7 +1133,10 @@ describe('Pi: turns', () => {
     const r = run({ FAKE_PI_CALLS: JSON.stringify(calls) }, { permission: 'read-only' });
     await en(() => piTurn(r.o, sandboxed()));
     expect(uiAnswers(r).map((a) => JSON.parse(a.value).allow)).toEqual([true, false]);
-    expect(r.events.find((e) => e.type === 'tool_end' && e.id === 'r2')).toMatchObject({ ok: false, error: expect.stringMatching(/read-only/) });
+    expect(r.events.find((e) => e.type === 'tool_end' && e.id === 'r2')).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/read-only/),
+    });
     expect(start(r).argv).toEqual(expect.arrayContaining(['--tools']));
   });
 
@@ -893,8 +1155,14 @@ describe('Pi: turns', () => {
     expect(await ask('{"allow":"yes"}')).toEqual({ block: true, reason: 'Not run: Harness Relay refused this tool call.' });
     expect(await ask(JSON.stringify({ allow: false, reason: ' Because. ' }))).toEqual({ block: true, reason: 'Because.' });
     expect(await handlers.tool_call(call, { hasUI: false })).toMatchObject({ block: true });
-    expect(await handlers.tool_call(call, { hasUI: true, ui: { input: async () => Promise.reject(new Error('io')) } })).toEqual({ block: true, reason: expect.stringContaining('io') });
-    expect(await handlers.tool_call(call, { hasUI: true, ui: { input: async () => Promise.reject('plain') } })).toEqual({ block: true, reason: expect.stringContaining('plain') });
+    expect(await handlers.tool_call(call, { hasUI: true, ui: { input: async () => Promise.reject(new Error('io')) } })).toEqual({
+      block: true,
+      reason: expect.stringContaining('io'),
+    });
+    expect(await handlers.tool_call(call, { hasUI: true, ui: { input: async () => Promise.reject('plain') } })).toEqual({
+      block: true,
+      reason: expect.stringContaining('plain'),
+    });
   });
 
   it.skipIf(process.platform === 'win32')('a gate request it cannot read is refused', async () => {
@@ -923,11 +1191,17 @@ describe('Pi: turns', () => {
     };
     await expect(en(() => piTurn(r.o, deps()))).rejects.toMatchObject({ aborted: true, message: 'Stopped' });
     expect(sent(r, 'abort')).toHaveLength(1);
-    expect(r.events.filter((e) => e.type === 'tool_end')).toEqual([{ type: 'tool_end', id: 'chatcmpl-tool-87fed63223bc9b02', ok: false, error: 'Command aborted' }]);
+    expect(r.events.filter((e) => e.type === 'tool_end')).toEqual([
+      { type: 'tool_end', id: 'chatcmpl-tool-87fed63223bc9b02', ok: false, error: 'Command aborted' },
+    ]);
 
     // Asked, and stopped before the user answered: nothing is sent to Pi afterwards.
     let release!: (a: ApprovalAnswer) => void;
-    const p = run({ FAKE_PI_CALLS: JSON.stringify([{ toolCallId: 'w1', toolName: 'bash', input: { command: 'git push' } }]) }, { permission: 'edit' }, () => new Promise((res) => (release = res)));
+    const p = run(
+      { FAKE_PI_CALLS: JSON.stringify([{ toolCallId: 'w1', toolName: 'bash', input: { command: 'git push' } }]) },
+      { permission: 'edit' },
+      () => new Promise((res) => (release = res)),
+    );
     p.o.onEvent = (e) => {
       p.events.push(e);
       if (e.type === 'tool_start') setTimeout(() => p.abort.abort(), 50);
@@ -963,7 +1237,14 @@ describe('Pi: turns', () => {
       ['set_thinking_level', { effort: 'high' }],
       ['set_model', {}],
     ] as const) {
-      const r = run({ FAKE_PI_SLOW: slow, ...(slow === 'set_model' ? { FAKE_PI_STATE: JSON.stringify({ model: { provider: 'openai', id: 'gpt-5.4' } }) } : {}), ...(slow === 'set_thinking_level' ? { FAKE_PI_STATE: JSON.stringify({ thinkingLevel: 'low' }) } : {}) }, over);
+      const r = run(
+        {
+          FAKE_PI_SLOW: slow,
+          ...(slow === 'set_model' ? { FAKE_PI_STATE: JSON.stringify({ model: { provider: 'openai', id: 'gpt-5.4' } }) } : {}),
+          ...(slow === 'set_thinking_level' ? { FAKE_PI_STATE: JSON.stringify({ thinkingLevel: 'low' }) } : {}),
+        },
+        over,
+      );
       const asked = r.log;
       const p = en(() => piTurn(r.o, sandboxed()));
       p.catch(() => undefined);
@@ -986,7 +1267,10 @@ describe('Pi: turns', () => {
     // Pi opened another session: the resume failed (the orchestrator then starts afresh).
     const other = run({ FAKE_PI_STATE: JSON.stringify({ sessionId: 'zzz' }) }, { sessionId: 'abc' });
     mkdirSync(join(other.dir, 'home', 'private', STATE_KEY, 'sessions'), { recursive: true });
-    writeFileSync(join(other.dir, 'home', 'private', STATE_KEY, 'sessions', 'x_abc.jsonl'), JSON.stringify({ type: 'session', id: 'abc', cwd: other.o.cwd }) + '\n');
+    writeFileSync(
+      join(other.dir, 'home', 'private', STATE_KEY, 'sessions', 'x_abc.jsonl'),
+      JSON.stringify({ type: 'session', id: 'abc', cwd: other.o.cwd }) + '\n',
+    );
     await expect(en(() => piTurn(other.o, deps()))).rejects.toThrow(/could not resume the earlier session: Pi opened session zzz, not abc/);
     expect(other.events).toEqual([]);
     // A missing one fails before Pi starts.
@@ -1000,12 +1284,14 @@ describe('Pi: turns', () => {
     await piTurn(r.o, deps());
     expect(sent(r, 'set_model')[0]).toMatchObject({ provider: 'openai', modelId: 'gpt-5.4-nano' });
     const bad = run({ FAKE_PI_STATE: JSON.stringify({ model: null }), FAKE_PI_SET_MODEL_FAIL: 'Model not found: openai/gpt-5.4-nano' });
-    await expect(en(() => piTurn(bad.o, deps()))).rejects.toThrow('Pi does not accept the model "openai/gpt-5.4-nano": Model not found: openai/gpt-5.4-nano');
+    await expect(en(() => piTurn(bad.o, deps()))).rejects.toThrow(
+      'Pi does not accept the model "openai/gpt-5.4-nano": Model not found: openai/gpt-5.4-nano',
+    );
     const quiet = run({ FAKE_PI_STATE: JSON.stringify({ model: { provider: 'openai', id: 'x' } }), FAKE_PI_SET_MODEL_FAIL: '' });
     await piTurn(quiet.o, deps());
   });
 
-  it.skipIf(process.platform === 'win32')('checks the effort against the model\'s levels before setting it', async () => {
+  it.skipIf(process.platform === 'win32')("checks the effort against the model's levels before setting it", async () => {
     const r = run({ FAKE_PI_STATE: JSON.stringify({ thinkingLevel: 'medium' }) }, { effort: 'high' });
     await piTurn(r.o, deps());
     expect(sent(r, 'set_thinking_level')).toEqual([expect.objectContaining({ level: 'high' })]);
@@ -1013,7 +1299,9 @@ describe('Pi: turns', () => {
     await piTurn(same.o, deps());
     expect(sent(same, 'set_thinking_level')).toEqual([]); // --thinking low already
     const bad = run({}, { effort: 'xhigh' });
-    await expect(en(() => piTurn(bad.o, deps()))).rejects.toThrow('Pi does not accept the reasoning effort "xhigh": this model takes: off, minimal, low, medium, high');
+    await expect(en(() => piTurn(bad.o, deps()))).rejects.toThrow(
+      'Pi does not accept the reasoning effort "xhigh": this model takes: off, minimal, low, medium, high',
+    );
     expect(sent(bad, 'prompt')).toEqual([]);
     const none = run({ FAKE_PI_LEVELS: '[]' }, { effort: 'off' });
     await expect(en(() => piTurn(none.o, deps()))).rejects.toThrow(/this model takes: —/);
@@ -1031,14 +1319,16 @@ describe('Pi: turns', () => {
       .join('\n');
     writeFileSync(join(root, 'self-aborted.jsonl'), recorded);
     const aborted = run({ FAKE_PI_FIXTURE: join(root, 'self-aborted.jsonl') });
-    await expect(en(() => piTurn(aborted.o, deps()))).rejects.toThrow('Pi ended the turn by itself (stopReason: cancelled) without giving a reason.');
+    await expect(en(() => piTurn(aborted.o, deps()))).rejects.toThrow(
+      'Pi ended the turn by itself (stopReason: cancelled) without giving a reason.',
+    );
     const noSession = run({ FAKE_PI_STATE: JSON.stringify({ sessionId: '' }) });
     await expect(en(() => piTurn(noSession.o, deps()))).rejects.toThrow('Pi returned no session id');
     const handled = run({ FAKE_PI_HANDLED: '1' });
     expect(await piTurn(handled.o, deps())).toEqual({ sessionId: 'fake-session-1' });
   });
 
-  it.skipIf(process.platform === 'win32')('a Pi that will not start: its own words, or the sandbox\'s reason', async () => {
+  it.skipIf(process.platform === 'win32')("a Pi that will not start: its own words, or the sandbox's reason", async () => {
     const r = run({ FAKE_PI_EXIT: '1', FAKE_PI_STDERR: "No session found matching 'x'" });
     await expect(piTurn(r.o, deps())).rejects.toThrow("No session found matching 'x'");
     const s = run({ FAKE_PI_EXIT: '1' }, { permission: 'edit' });

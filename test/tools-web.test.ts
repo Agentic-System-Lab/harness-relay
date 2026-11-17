@@ -2,15 +2,44 @@ import { describe, expect, it } from 'vitest';
 import { OPEN_PROVIDERS, PROVIDERS, PROVIDER_LABEL, isOpenProvider, type ToolLibraryView } from '../src/shared/types';
 import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
-import { defaultOn, emptyLibraryText, hasTool, itemsFor, noneForCliText, ownSetupText, setTool, toolItems, toolsHintText } from '../src/web/tools';
+import {
+  defaultOn,
+  emptyLibraryText,
+  hasTool,
+  itemsFor,
+  noneForCliText,
+  ownSetupText,
+  setTool,
+  toolItems,
+  toolsHintText,
+} from '../src/web/tools';
 
 const lib: ToolLibraryView = {
-  mcpServers: [{ id: 'gh1', name: 'github', transport: 'stdio', command: 'x', args: [], url: '', env: [], headers: [], providers: ['claude'] }],
+  relayTools: [],
+  browser: {},
+  gateway: { available: true },
+  mcpServers: [
+    { id: 'gh1', name: 'github', transport: 'stdio', command: 'x', args: [], url: '', env: [], headers: [], providers: ['claude'] },
+  ],
   skills: [
     { path: '/s/commit', name: 'commit', description: '', providers: ['claude', 'codex', 'grok'] },
     { path: '/s/broken', name: 'broken', description: '', providers: [], problem: 'SKILL.md not found' },
   ],
-  memory: { all: 'Be brief.', claude: '', codex: 'Run tests.', grok: '', cursor: '', antigravity: '', copilot: '', muse: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' },
+  memory: {
+    all: 'Be brief.',
+    claude: '',
+    codex: 'Run tests.',
+    grok: '',
+    cursor: '',
+    antigravity: '',
+    copilot: '',
+    muse: '',
+    opencode: '',
+    goose: '',
+    cline: '',
+    openhands: '',
+    pi: '',
+  },
   secretStorage: 'keychain',
 };
 
@@ -20,6 +49,24 @@ describe('tool picker', () => {
   it('lists servers, skills and the memory parts that have text', () => {
     expect(items.map((i) => i.key)).toEqual(['mcp:gh1', 'skill:/s/commit', 'skill:/s/broken', 'memory', 'memory:codex']);
     expect(items.find((i) => i.key === 'skill:/s/broken')!.problem).toBe('SKILL.md not found');
+  });
+
+  it("lists Harness Relay's tool groups while the server can give them, for every CLI (an open agent's in full access)", () => {
+    const withRelay = toolItems({ ...lib, relayTools: [{ group: 'browser', providers: ['claude'] }] });
+    expect(withRelay.at(-1)).toEqual({ key: 'relay:browser', kind: 'relay', name: 'browser', providers: ['claude'] });
+    expect(hasTool({ provider: 'claude' }, withRelay.at(-1)!)).toBe(true);
+    expect(hasTool({ provider: 'codex' }, withRelay.at(-1)!)).toBe(false);
+    expect(itemsFor(withRelay, 'codex').map((i) => i.key)).toContain('relay:browser');
+    expect(itemsFor(withRelay, OPEN_PROVIDERS[0]!).map((i) => i.key)).toContain('relay:browser');
+    expect(
+      toolItems({
+        ...lib,
+        relayTools: [{ group: 'browser', providers: ['claude'] }],
+        gateway: { available: false, reason: 'no-node' },
+      }).map((i) => i.kind),
+    ).not.toContain('relay');
+    // A group given to no CLI is not in the library yet.
+    expect(toolItems({ ...lib, relayTools: [{ group: 'mail', providers: [] }] }).map((i) => i.kind)).not.toContain('relay');
   });
 
   it("shows an agent only its own CLI's memory part", () => {
@@ -95,12 +142,18 @@ describe("what a member's Tools say about its CLI's own setup", () => {
       }
     }
     // The CLI's own sentence goes between the others, as each language writes sentences.
-    expect(emptyLibraryText(en, 'claude')).toMatch(/^The tool library is empty\. Claude Code also loads .*lists what it loads in the default working directory\. Add MCP servers, skills and memory to the tool library,/);
-    expect(emptyLibraryText(zhTW, 'goose')).toMatch(/^工具庫還是空的。Goose 在 Harness Relay 裡.*「設定 → Goose」，以預設工作目錄為準。工具庫可以加入/);
+    expect(emptyLibraryText(en, 'claude')).toMatch(
+      /^The tool library is empty\. Claude Code also loads .*lists what it loads in the default working directory\. Add MCP servers, skills and memory to the tool library,/,
+    );
+    expect(emptyLibraryText(zhTW, 'goose')).toMatch(
+      /^工具庫還是空的。Goose 在 Harness Relay 裡.*「設定 → Goose」，以預設工作目錄為準。工具庫可以加入/,
+    );
     expect(toolsHintText(en, 'pi')).toMatch(/own setup\. In Harness Relay, Pi runs/);
     expect(toolsHintText(zhTW, 'codex')).toMatch(/自己的設定之外。Codex 也會載入/);
     // A library of other CLIs' memory notes only is not called empty.
-    expect(noneForCliText(en, 'claude')).toMatch(/^The tool library has nothing for this CLI yet, only memory for other CLIs\. Claude Code also loads /);
+    expect(noneForCliText(en, 'claude')).toMatch(
+      /^The tool library has nothing for this CLI yet, only memory for other CLIs\. Claude Code also loads /,
+    );
     expect(noneForCliText(en, 'claude')).not.toContain('is empty');
     expect(noneForCliText(zhTW, 'claude')).toMatch(/^工具庫裡還沒有給這個 CLI 的項目，只有給其他 CLI 的記憶。Claude Code 也會載入/);
     expect(noneForCliText(zhTW, 'claude')).not.toContain('空的');

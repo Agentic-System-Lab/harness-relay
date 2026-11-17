@@ -1,4 +1,11 @@
-import { SCHEDULE_LIMITS, type ConversationSchedule, type ConversationSummary, type ScheduleRepeat, type ScheduleUpdate } from '../shared/types';
+import {
+  SCHEDULE_LIMITS,
+  type ConversationSchedule,
+  type ConversationSummary,
+  type NewScheduleHook,
+  type ScheduleRepeat,
+  type ScheduleUpdate,
+} from '../shared/types';
 import { parseTime, upcomingRuns } from '../shared/schedule';
 import type { Messages } from './i18n';
 
@@ -19,6 +26,8 @@ export interface ScheduleDraft {
   approvals: ConversationSchedule['approvals'];
   missed: ConversationSchedule['missed'];
   newChat: boolean;
+  /** The goal it tracks ('' for none). */
+  goal: string;
 }
 
 /** The time zone of this browser. */
@@ -44,14 +53,17 @@ export function fromLocalInput(value: string): number {
   return new Date(value).getTime(); // without an offset, the browser's time zone
 }
 
-/** The form for a conversation's schedule, or for a new one: weekdays at 09:00. */
+/**
+ * The form for a conversation's schedule, or for a new one: no set times (Run once now and its webhook
+ * send it), with weekdays at 09:00 ready for when another kind is picked.
+ */
 export function draftFrom(s: ConversationSchedule | undefined, now: number, timeZone = browserTimeZone()): ScheduleDraft {
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
   tomorrow.setHours(9, 0, 0, 0);
   const draft: ScheduleDraft = {
     text: '',
-    kind: 'weekly',
+    kind: 'manual',
     at: localInput(tomorrow.getTime()),
     time: '09:00',
     days: [1, 2, 3, 4, 5],
@@ -61,6 +73,7 @@ export function draftFrom(s: ConversationSchedule | undefined, now: number, time
     approvals: 'deny',
     missed: 'skip',
     newChat: false,
+    goal: '',
   };
   if (!s) return draft;
   const r = s.repeat;
@@ -77,6 +90,7 @@ export function draftFrom(s: ConversationSchedule | undefined, now: number, time
     approvals: s.approvals,
     missed: s.missed,
     newChat: s.newChat,
+    goal: s.goal ?? '',
   };
 }
 
@@ -90,6 +104,8 @@ export function repeatOf(d: ScheduleDraft): ScheduleRepeat {
       return { kind: 'weekly', time: d.time, days: [...new Set(d.days)].sort((a, b) => a - b) };
     case 'interval':
       return { kind: 'interval', hours: d.hours };
+    case 'manual':
+      return { kind: 'manual' };
   }
 }
 
@@ -99,17 +115,21 @@ export function toUpdate(d: ScheduleDraft): ScheduleUpdate {
     text: d.text.trim(),
     repeat: repeatOf(d),
     timeZone: d.timeZone,
-    enabled: d.enabled,
+    // No set times is never off: only Run once now and the webhook send it.
+    enabled: d.kind === 'manual' || d.enabled,
     approvals: d.approvals,
     missed: d.missed,
     newChat: d.newChat,
+    ...(d.goal.trim() ? { goal: d.goal.trim() } : {}),
   };
 }
 
 /** Whether the form says something other than the saved schedule. */
 export function draftChanged(d: ScheduleDraft, s: ConversationSchedule | undefined): boolean {
   if (!s) return true;
-  const saved = toUpdate(draftFrom(s, 0));
+  // As it is saved, on or off: a schedule with no set times that its reached goal switched off is
+  // turned on again by saving it.
+  const saved = { ...toUpdate(draftFrom(s, 0)), enabled: s.enabled };
   return JSON.stringify(toUpdate(d)) !== JSON.stringify(saved);
 }
 
@@ -120,6 +140,7 @@ export function draftProblems(d: ScheduleDraft, now: number, t: Messages): strin
   const text = d.text.trim();
   if (!text) out.push(p.text);
   else if (text.length > SCHEDULE_LIMITS.maxText) out.push(p.tooLong(SCHEDULE_LIMITS.maxText));
+  if (d.goal.trim().length > SCHEDULE_LIMITS.maxGoal) out.push(t.schedule.goalTooLong(SCHEDULE_LIMITS.maxGoal));
   switch (d.kind) {
     case 'once': {
       const at = fromLocalInput(d.at);
@@ -199,6 +220,8 @@ export function describeRepeat(r: ScheduleRepeat, t: Messages, lang: string): st
     }
     case 'interval':
       return s.interval(r.hours);
+    case 'manual':
+      return s.manual;
   }
 }
 
@@ -209,6 +232,7 @@ export function scheduleTrouble(s: Pick<ConversationSchedule, 'lastResult'> | un
 
 /** The schedule's state in a few words: when it sends next, paused, or (a one-time schedule that came due) done. */
 export function scheduleState(s: ConversationSchedule, t: Messages, lang: string): string {
+  if (s.repeat.kind === 'manual') return s.enabled ? t.schedule.manualState : t.schedule.paused;
   if (s.enabled && s.nextRunAt !== undefined) return t.schedule.next(formatWhen(s.nextRunAt, lang, shownZone(s)));
   const r = s.repeat;
   return r.kind === 'once' && s.lastRunAt !== undefined && s.lastRunAt >= r.at ? t.schedule.finished : t.schedule.paused;
@@ -217,6 +241,42 @@ export function scheduleState(s: ConversationSchedule, t: Messages, lang: string
 /** The sidebar's tooltip for a conversation's schedule. */
 export function sidebarScheduleTitle(s: NonNullable<ConversationSummary['schedule']>, t: Messages, lang: string): string {
   if (scheduleTrouble(s)) return t.schedule.sidebar.problem(t.schedule.results[s.lastResult!]);
+  if (s.enabled && s.manual) return t.schedule.sidebar.manual;
   if (!s.enabled || s.nextRunAt === undefined) return t.schedule.sidebar.paused;
   return t.schedule.sidebar.next(formatWhen(s.nextRunAt, lang, s.timeZone));
+}
+
+/**
+ * A command that calls a schedule's webhook on the server's computer, with an example body: curl in a
+ * POSIX shell, or on Windows PowerShell's own `Invoke-RestMethod` (its `curl` is another command, and
+ * cmd.exe takes no single quotes). Single-quoted either way: a token is base64url, which needs no escaping.
+ */
+export function hookExample(url: string, token: string, platform = ''): string {
+  const body = '{"event":"ci-failed","branch":"main"}';
+  if (platform === 'win32') {
+    return `Invoke-RestMethod -Method Post -Uri '${url}' -Headers @{ Authorization = 'Bearer ${token}' } -ContentType 'application/json' -Body '${body}'`;
+  }
+  return `curl -X POST -H 'Authorization: Bearer ${token}' -H 'Content-Type: application/json' -d '${body}' '${url}'`;
+}
+
+/*
+ * A webhook New automation made with the automation ("Create a webhook too"): its token goes from that
+ * page to the automation's chat, which opens its drawer to show it there, once. Held in this page's
+ * memory only (never in its address or the browser's storage), and forgotten once shown.
+ */
+const handedHooks = new Map<string, NewScheduleHook>();
+
+/** Hands the chat of `convId` the webhook just made with it. */
+export function handOverHook(convId: string, made: NewScheduleHook): void {
+  handedHooks.set(convId, made);
+}
+
+/** The webhook handed to the chat of `convId`, if any (still there: `forgetHandedHook()` drops it). */
+export function handedHook(convId: string): NewScheduleHook | undefined {
+  return handedHooks.get(convId);
+}
+
+/** Drops it once shown, so the drawer opened again shows no token. */
+export function forgetHandedHook(convId: string): void {
+  handedHooks.delete(convId);
 }

@@ -201,7 +201,10 @@ export function processorHints(nav) {
   if (typeof ask !== 'function') return Promise.resolve({});
   return Promise.resolve()
     .then(() => ask.call(nav.userAgentData, ['architecture', 'bitness']))
-    .then((h) => ({ architecture: typeof h?.architecture === 'string' ? h.architecture : '', bitness: typeof h?.bitness === 'string' ? h.bitness : '' }))
+    .then((h) => ({
+      architecture: typeof h?.architecture === 'string' ? h.architecture : '',
+      bitness: typeof h?.bitness === 'string' ? h.bitness : '',
+    }))
     .catch(() => ({}));
 }
 
@@ -329,7 +332,8 @@ function wireButtons({ doc, root, nav, hints, storage, fetchJson, now, mirror, h
     if (!release || typeof release.tag !== 'string') return;
     shown = release;
     const href = (found) => (!isInstallerUrl(found?.url) ? RELEASES_PAGE : (mirrored && mirrorUrl(found.url, mirror)) || found.url);
-    for (const link of doc.querySelectorAll('[data-download]')) link.setAttribute('href', href(release.installers?.[link.dataset.download]));
+    for (const link of doc.querySelectorAll('[data-download]'))
+      link.setAttribute('href', href(release.installers?.[link.dataset.download]));
     if (primary && system in INSTALLERS) primary.setAttribute('href', href(release.installers?.[system]));
     for (const slot of meta) if (!slot.hasAttribute('data-hero')) slot.textContent = `${words.release} ${release.tag}`;
   };

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useSyncExternalStore, type RefObject } from 'react';
 import { dialogsHeld, dialogsOpen, onDialogsChange, openDialog } from '../dialogs';
 
-const FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex]:not([tabindex="-1"])';
+const FOCUSABLE =
+  'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex]:not([tabindex="-1"])';
 
 /**
  * Basic modal dialog behaviour for the element in `ref` (give it tabIndex={-1}): focus moves into it on

@@ -56,7 +56,13 @@ const notAWorkingDirectory = (dir) => /[\\/]attachments[\\/]/.test(dir + path.se
 /** A folder's entries, one a line (`.git` left out), or why it could not be read. */
 function safeList(dir) {
   try {
-    return fs.readdirSync(dir).filter((n) => n !== '.git').sort().join('\n') || '(empty)';
+    return (
+      fs
+        .readdirSync(dir)
+        .filter((n) => n !== '.git')
+        .sort()
+        .join('\n') || '(empty)'
+    );
   } catch (err) {
     return String(err.message || err);
   }

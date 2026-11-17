@@ -43,7 +43,10 @@ describe('the login shell environment', () => {
   });
 
   it("puts the shell's variables over the app's, without the shell's own", () => {
-    const merged = mergeShellEnv({ PATH: '/usr/bin', HOME: '/h', KEEP: '1' }, { PATH: '/x:/usr/bin', PWD: '/tmp', SHLVL: '2', _: '/usr/bin/env', NEW: 'y' });
+    const merged = mergeShellEnv(
+      { PATH: '/usr/bin', HOME: '/h', KEEP: '1' },
+      { PATH: '/x:/usr/bin', PWD: '/tmp', SHLVL: '2', _: '/usr/bin/env', NEW: 'y' },
+    );
     expect(merged).toEqual({ PATH: '/x:/usr/bin', HOME: '/h', KEEP: '1', NEW: 'y' });
   });
 
@@ -106,7 +109,14 @@ describe("the server's environment", () => {
     ANTHROPIC_API_KEY: 'sk-x',
     NODE_OPTIONS: '--max-old-space-size=4096',
   };
-  const o = { dataDir: '/data', webDir: '/app/web', port: 8787, home: '/home/me', allowedHosts: [] as string[], browserDir: '/support/browser' };
+  const o = {
+    dataDir: '/data',
+    webDir: '/app/web',
+    port: 8787,
+    home: '/home/me',
+    allowedHosts: [] as string[],
+    browserDir: '/support/browser',
+  };
 
   it("binds 127.0.0.1 on the app's port, whatever a profile exports for other programs", () => {
     const env = serverEnv({ ...o, base });
@@ -141,11 +151,18 @@ describe("the server's environment", () => {
     // The key the secrets are encrypted with without a credential store follows the data too: a
     // shell's RELAY_SECRETS_KEY_FILE is the one for its RELAY_DATA_DIR's database, not the app's own.
     expect(serverEnv({ ...o, base: { ...base, RELAY_SECRETS_KEY_FILE: '/etc/relay.key' } })).not.toHaveProperty('RELAY_SECRETS_KEY_FILE');
-    expect(serverEnv({ ...o, base: { ...base, RELAY_DATA_DIR: '/shared/data', RELAY_SECRETS_KEY_FILE: '/etc/relay.key' } }).RELAY_SECRETS_KEY_FILE).toBe('/etc/relay.key');
+    expect(
+      serverEnv({ ...o, base: { ...base, RELAY_DATA_DIR: '/shared/data', RELAY_SECRETS_KEY_FILE: '/etc/relay.key' } })
+        .RELAY_SECRETS_KEY_FILE,
+    ).toBe('/etc/relay.key');
   });
 
   it('adds the tailnet name to the names the user allowed, once', () => {
-    const env = serverEnv({ ...o, base: { ...base, RELAY_ALLOWED_HOSTS: ' Other.example , my-mac.tail1.ts.net' }, allowedHosts: ['my-mac.tail1.ts.net'] });
+    const env = serverEnv({
+      ...o,
+      base: { ...base, RELAY_ALLOWED_HOSTS: ' Other.example , my-mac.tail1.ts.net' },
+      allowedHosts: ['my-mac.tail1.ts.net'],
+    });
     expect(env.RELAY_ALLOWED_HOSTS).toBe('other.example,my-mac.tail1.ts.net');
     expect(allowedHostsOf(env)).toEqual(['other.example', 'my-mac.tail1.ts.net']);
   });
@@ -166,9 +183,15 @@ describe("Windows' current environment, read again at a restart", () => {
   });
 
   it("makes PATH as Windows does (the system's, then the user's), keeping the app's own extras once", () => {
-    const base = { Path: 'C:\\Windows\\system32;C:\\Program Files\\Electron Extra\\;C:\\Windows\\System32\\', USERNAME: 'me', HOMEPATH: '\\Users\\me' };
+    const base = {
+      Path: 'C:\\Windows\\system32;C:\\Program Files\\Electron Extra\\;C:\\Windows\\System32\\',
+      USERNAME: 'me',
+      HOMEPATH: '\\Users\\me',
+    };
     const env = mergeWindowsEnv(base, parseWindowsEnv(answer)!);
-    expect(env.Path).toBe('C:\\Windows\\system32;C:\\Windows;C:\\Users\\王\\AppData\\Roaming\\npm;C:\\Users\\王\\.local\\bin;C:\\Program Files\\Electron Extra\\');
+    expect(env.Path).toBe(
+      'C:\\Windows\\system32;C:\\Windows;C:\\Users\\王\\AppData\\Roaming\\npm;C:\\Users\\王\\.local\\bin;C:\\Program Files\\Electron Extra\\',
+    );
     // One PATH, under the name the app's environment uses.
     expect(Object.keys(env).filter((k) => k.toLowerCase() === 'path')).toEqual(['Path']);
     // The user's new variables come in; the system's defaults do not replace the session's own.

@@ -48,7 +48,11 @@ const env = process.env;
 const MODES = [
   { description: 'Request permission before making any changes', id: 'always-ask', name: 'Always Ask Mode' },
   { description: 'Automatically approve all actions without asking', id: 'always-approve', name: 'Always Approve Mode' },
-  { description: 'Use LLM security analyzer to auto-approve safe actions. Only ask for permission on high risk actions.', id: 'llm-approve', name: 'LLM Approve Mode' },
+  {
+    description: 'Use LLM security analyzer to auto-approve safe actions. Only ask for permission on high risk actions.',
+    id: 'llm-approve',
+    name: 'LLM Approve Mode',
+  },
 ];
 
 const OPTIONS = [
@@ -120,7 +124,9 @@ function readMcp() {
 function homeSkills() {
   const dir = path.join(os.homedir(), '.openhands', 'skills');
   const files = listDir(dir).filter((n) => n.endsWith('.md'));
-  const briefing = files.includes('harness-relay-briefing.md') ? fs.readFileSync(path.join(dir, 'harness-relay-briefing.md'), 'utf8').trim() : '';
+  const briefing = files.includes('harness-relay-briefing.md')
+    ? fs.readFileSync(path.join(dir, 'harness-relay-briefing.md'), 'utf8').trim()
+    : '';
   return { briefing, others: files.filter((n) => n !== 'harness-relay-briefing.md').map((n) => n.replace(/\.md$/, '')) };
 }
 
@@ -136,9 +142,14 @@ function projectRoots(cwd) {
 function loadedSkills(cwd) {
   const names = [];
   for (const root of projectRoots(cwd)) {
-    for (const d of [path.join(root, '.agents', 'skills'), path.join(root, '.openhands', 'skills'), path.join(root, '.openhands', 'microagents')]) {
+    for (const d of [
+      path.join(root, '.agents', 'skills'),
+      path.join(root, '.openhands', 'skills'),
+      path.join(root, '.openhands', 'microagents'),
+    ]) {
       for (const s of ownSkills(d)) names.push(s.name);
-      for (const n of listDir(d)) if (/\.md$/i.test(n) && n.toLowerCase() !== 'readme.md' && isFile(path.join(d, n))) names.push(n.replace(/\.md$/i, ''));
+      for (const n of listDir(d))
+        if (/\.md$/i.test(n) && n.toLowerCase() !== 'readme.md' && isFile(path.join(d, n))) names.push(n.replace(/\.md$/i, ''));
     }
   }
   return [...new Set([...names, ...homeSkills().others])];
@@ -169,7 +180,9 @@ function eventLog(dir) {
 
 /** The actions its log holds that nothing answered (an observation, a rejection, an error after them), oldest first. */
 function unanswered(events) {
-  const answered = new Set(events.filter((e) => e.kind === 'ObservationEvent' || e.kind === 'UserRejectObservation').map((e) => e.action_id));
+  const answered = new Set(
+    events.filter((e) => e.kind === 'ObservationEvent' || e.kind === 'UserRejectObservation').map((e) => e.action_id),
+  );
   const failed = new Set(events.filter((e) => e.kind === 'AgentErrorEvent').map((e) => e.tool_call_id));
   return events.filter((e) => e.kind === 'ActionEvent' && e.action && !answered.has(e.id) && !failed.has(e.tool_call_id));
 }
@@ -189,7 +202,11 @@ function saveState(s, status) {
     workspace: { working_dir: s.cwd, kind: 'LocalWorkspace' },
     execution_status: status,
     confirmation_policy: { kind: s.mode === 'always-approve' ? 'NeverConfirm' : 'AlwaysConfirm' },
-    stats: { usage_to_metrics: { agent: { model_name: s.llm.model, accumulated_cost: s.metrics.cost, accumulated_token_usage: { model: s.llm.model, ...usage } } } },
+    stats: {
+      usage_to_metrics: {
+        agent: { model_name: s.llm.model, accumulated_cost: s.metrics.cost, accumulated_token_usage: { model: s.llm.model, ...usage } },
+      },
+    },
     // The fake's own: how many events its model has read (the rest are new to it at the next prompt).
     e2e_read_events: s.read,
   };
@@ -256,9 +273,15 @@ function openhandsAgent() {
       switch (method) {
         case 'initialize':
           return {
-            agentCapabilities: { loadSession: true, mcpCapabilities: { http: true, sse: true }, promptCapabilities: { audio: false, embeddedContext: true, image: true } },
+            agentCapabilities: {
+              loadSession: true,
+              mcpCapabilities: { http: true, sse: true },
+              promptCapabilities: { audio: false, embeddedContext: true, image: true },
+            },
             agentInfo: { name: 'OpenHands CLI ACP Agent', version: module.exports.version.replace(/^OpenHands CLI /, '') },
-            authMethods: [{ _meta: { type: 'agent' }, description: 'Authenticate through agent', id: 'oauth', name: 'OAuth with OpenHands Cloud' }],
+            authMethods: [
+              { _meta: { type: 'agent' }, description: 'Authenticate through agent', id: 'oauth', name: 'OAuth with OpenHands Cloud' },
+            ],
             protocolVersion: 1,
           };
         case 'session/new':
@@ -275,7 +298,11 @@ function openhandsAgent() {
                 update: {
                   availableCommands: [
                     { description: 'Show available slash commands', input: { hint: 'No arguments' }, name: 'help' },
-                    { description: 'Control confirmation mode (always-ask|always-approve|llm-approve)', input: { hint: 'always-ask | always-approve | llm-approve' }, name: 'confirm' },
+                    {
+                      description: 'Control confirmation mode (always-ask|always-approve|llm-approve)',
+                      input: { hint: 'always-ask | always-approve | llm-approve' },
+                      name: 'confirm',
+                    },
                   ],
                   sessionUpdate: 'available_commands_update',
                 },
@@ -310,7 +337,10 @@ function openhandsAgent() {
     for (const e of eventLog(s.dir).read()) {
       if (e.kind !== 'MessageEvent') continue;
       const text = ((e.llm_message && e.llm_message.content) || []).map((c) => c.text || '').join('');
-      conn.notify('session/update', { sessionId: s.id, update: { content: { text, type: 'text' }, sessionUpdate: e.source === 'user' ? 'user_message_chunk' : 'agent_message_chunk' } });
+      conn.notify('session/update', {
+        sessionId: s.id,
+        update: { content: { text, type: 'text' }, sessionUpdate: e.source === 'user' ? 'user_message_chunk' : 'agent_message_chunk' },
+      });
     }
   }
 }
@@ -318,7 +348,8 @@ function openhandsAgent() {
 /** A session started or loaded: its settings read again (another model, another backend), its files made or read. */
 function openSession(method, p) {
   const settings = settingsOf();
-  if (!settings || !settings.llm) throw rpcError('Authentication required', -32000, { reason: 'Authentication required to create a session' });
+  if (!settings || !settings.llm)
+    throw rpcError('Authentication required', -32000, { reason: 'Authentication required to create a session' });
   let id = method === 'session/load' ? String(p.sessionId || '') : crypto.randomUUID();
   if (!UUID.test(id)) throw rpcError('Invalid params', -32602, { reason: 'Invalid session ID format', sessionId: id });
   if (id.length === 32) id = `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`;
@@ -352,9 +383,14 @@ function openSession(method, p) {
     const { briefing } = homeSkills();
     log.append({
       source: 'agent',
-      system_prompt: { type: 'text', text: 'You are OpenHands agent, a helpful AI assistant that can interact with a computer to solve tasks.' },
+      system_prompt: {
+        type: 'text',
+        text: 'You are OpenHands agent, a helpful AI assistant that can interact with a computer to solve tasks.',
+      },
       tools: (settings.tools || []).map((t) => t.name),
-      ...(briefing ? { dynamic_context: { type: 'text', text: `[BEGIN context from [harness-relay-briefing]]\n${briefing}\n[END Context]` } } : {}),
+      ...(briefing
+        ? { dynamic_context: { type: 'text', text: `[BEGIN context from [harness-relay-briefing]]\n${briefing}\n[END Context]` } }
+        : {}),
       kind: 'SystemPromptEvent',
     });
     s.read = 1;
@@ -421,7 +457,14 @@ function reach(url) {
       let body = '';
       res.setEncoding('utf8');
       res.on('data', (d) => (body = (body + d).slice(0, 2000)));
-      res.on('end', () => done({ ok: res.statusCode < 400, status: res.statusCode, why: `${res.statusCode} ${res.statusMessage || ''}`.trim(), body: body.trim() }));
+      res.on('end', () =>
+        done({
+          ok: res.statusCode < 400,
+          status: res.statusCode,
+          why: `${res.statusCode} ${res.statusMessage || ''}`.trim(),
+          body: body.trim(),
+        }),
+      );
       res.on('error', (err) => done({ ok: false, why: err.code || err.message }));
     };
     // Its own agent: the proxy is asked as named here (an agent of Node's own might send this request to a proxy too).
@@ -430,14 +473,26 @@ function reach(url) {
     if (via) {
       const proxy = new URL(via);
       const auth = proxy.username
-        ? { 'proxy-authorization': `Basic ${Buffer.from(`${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}`).toString('base64')}` }
+        ? {
+            'proxy-authorization': `Basic ${Buffer.from(`${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}`).toString('base64')}`,
+          }
         : {};
       const at = { ...o, host: proxy.hostname.replace(/^\[|\]$/g, ''), port: Number(proxy.port) || 80 };
       if (secure) {
-        req = http.request({ ...at, method: 'CONNECT', path: `${target.hostname}:${target.port || 443}`, headers: { host: `${target.hostname}:${target.port || 443}`, ...auth } });
+        req = http.request({
+          ...at,
+          method: 'CONNECT',
+          path: `${target.hostname}:${target.port || 443}`,
+          headers: { host: `${target.hostname}:${target.port || 443}`, ...auth },
+        });
         req.on('connect', (res, socket) => {
           socket.destroy();
-          done({ ok: res.statusCode === 200, status: res.statusCode, why: `${res.statusCode} ${res.statusMessage || ''}`.trim(), body: '' });
+          done({
+            ok: res.statusCode === 200,
+            status: res.statusCode,
+            why: `${res.statusCode} ${res.statusMessage || ''}`.trim(),
+            body: '',
+          });
         });
       } else {
         req = http.request({ ...at, method: 'GET', path: target.href, headers: { host: target.host, ...auth } }, answer);
@@ -456,14 +511,21 @@ const reached = (url, r) => (r.ok ? `I fetched ${url}. ` : `I could not reach ${
 
 /** Python's words for a refused write (`[Errno 1] Operation not permitted`), from Node's error. */
 function pythonError(err) {
-  const words = { EPERM: '[Errno 1] Operation not permitted', EACCES: '[Errno 13] Permission denied', EROFS: '[Errno 30] Read-only file system' };
+  const words = {
+    EPERM: '[Errno 1] Operation not permitted',
+    EACCES: '[Errno 13] Permission denied',
+    EROFS: '[Errno 30] Read-only file system',
+  };
   return words[err.code] || err.message;
 }
 
 /** A directory as its file editor views it. */
 function viewDir(dir) {
   const lines = [`${dir}/`];
-  for (const name of fs.readdirSync(dir).filter((n) => !n.startsWith('.')).sort()) {
+  for (const name of fs
+    .readdirSync(dir)
+    .filter((n) => !n.startsWith('.'))
+    .sort()) {
     const p = path.join(dir, name);
     const sub = fs.statSync(p).isDirectory();
     lines.push(`${p}${sub ? '/' : ''}`);
@@ -484,7 +546,10 @@ const sameFolder = (a, b) => {
 async function prompt(conn, s, p) {
   if (!s) throw rpcError('Invalid params', -32602, { reason: `Unknown session: ${p.sessionId}` });
   const blocks = p.prompt || [];
-  let text = blocks.filter((b) => b.type === 'text').map((b) => b.text || '').join('\n');
+  let text = blocks
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text || '')
+    .join('\n');
   const images = blocks.filter((b) => b.type === 'image' && b.data).length;
   // A resumed session's system prompt is its start's: a briefing changed since comes before the prompt.
   const block = /^<harness-relay-briefing>\n([\s\S]*?)\n<\/harness-relay-briefing>\n\n/.exec(text);
@@ -524,7 +589,14 @@ async function prompt(conn, s, p) {
   const thought = (t) => update({ content: { text: `**Reasoning**:\n${t}\n`, type: 'text' }, sessionUpdate: 'agent_thought_chunk' });
   const fresh = s.fresh;
   s.fresh = false;
-  if (fresh) update({ content: { text: `System Prompt:\nYou are OpenHands agent, a helpful AI assistant that can interact with a computer to solve tasks.\n\n${briefing}`, type: 'text' }, sessionUpdate: 'agent_thought_chunk' });
+  if (fresh)
+    update({
+      content: {
+        text: `System Prompt:\nYou are OpenHands agent, a helpful AI assistant that can interact with a computer to solve tasks.\n\n${briefing}`,
+        type: 'text',
+      },
+      sessionUpdate: 'agent_thought_chunk',
+    });
 
   // What is new to its model since it last read the log: Harness Relay's rejections of actions left from before.
   const events = log.read();
@@ -547,7 +619,11 @@ async function prompt(conn, s, p) {
     if (s.mode === 'always-approve') return 'accept';
     saveState(s, 'waiting_for_confirmation');
     const answer = await conn
-      .request('session/request_permission', { options: OPTIONS, sessionId: s.id, toolCall: { kind: 'other', status: 'pending', title: 'Confirm Agent Actions', toolCallId: `confirmation-${s.id}` } })
+      .request('session/request_permission', {
+        options: OPTIONS,
+        sessionId: s.id,
+        toolCall: { kind: 'other', status: 'pending', title: 'Confirm Agent Actions', toolCallId: `confirmation-${s.id}` },
+      })
       .catch(() => ({ outcome: { outcome: 'cancelled' } }));
     // A stop (the request cancelled) leaves the action unanswered: the turn is paused.
     const allowed = OPTIONS.some((o) => o.kind.startsWith('allow') && picked(answer, o.optionId));
@@ -558,8 +634,22 @@ async function prompt(conn, s, p) {
 
   /** The rejection of an action, as it records and shows it. */
   const reject = (action, toolCallId, tool) => {
-    const obs = log.append({ source: 'environment', tool_name: tool, tool_call_id: toolCallId, rejection_reason: REJECTED, rejection_source: 'user', action_id: action.id, kind: 'UserRejectObservation' });
-    update({ content: [{ content: { text: `Tool: ${tool}\n\nRejection Reason:\n${REJECTED}`, type: 'text' }, type: 'content' }], rawOutput: obs, status: 'failed', toolCallId, sessionUpdate: 'tool_call_update' });
+    const obs = log.append({
+      source: 'environment',
+      tool_name: tool,
+      tool_call_id: toolCallId,
+      rejection_reason: REJECTED,
+      rejection_source: 'user',
+      action_id: action.id,
+      kind: 'UserRejectObservation',
+    });
+    update({
+      content: [{ content: { text: `Tool: ${tool}\n\nRejection Reason:\n${REJECTED}`, type: 'text' }, type: 'content' }],
+      rawOutput: obs,
+      status: 'failed',
+      toolCallId,
+      sessionUpdate: 'tool_call_update',
+    });
   };
 
   let n = 0;
@@ -570,9 +660,23 @@ async function prompt(conn, s, p) {
   const act = async (tool, rawInput, announce, run, hidden) => {
     llmCall(s);
     const toolCallId = `toolu_e2e_${process.pid}_${++n}`;
-    const action = log.append({ source: 'agent', thought: [], tool_name: tool, tool_call_id: toolCallId, action: rawInput, summary: announce.summary, security_risk: 'LOW', kind: 'ActionEvent' });
+    const action = log.append({
+      source: 'agent',
+      thought: [],
+      tool_name: tool,
+      tool_call_id: toolCallId,
+      action: rawInput,
+      summary: announce.summary,
+      security_risk: 'LOW',
+      kind: 'ActionEvent',
+    });
     update({
-      content: [{ content: { text: `Predicted Security Risk: LOW\n\nSummary: ${announce.summary}\n\n${announce.shows}`, type: 'text' }, type: 'content' }],
+      content: [
+        {
+          content: { text: `Predicted Security Risk: LOW\n\nSummary: ${announce.summary}\n\n${announce.shows}`, type: 'text' },
+          type: 'content',
+        },
+      ],
       kind: announce.kind,
       ...(announce.locations ? { locations: announce.locations } : {}),
       rawInput,
@@ -588,11 +692,24 @@ async function prompt(conn, s, p) {
       return { ran: false };
     }
     const observation = await run();
-    const obs = log.append({ source: 'environment', tool_name: tool, tool_call_id: toolCallId, observation, action_id: action.id, kind: 'ObservationEvent' });
+    const obs = log.append({
+      source: 'environment',
+      tool_name: tool,
+      tool_call_id: toolCallId,
+      observation,
+      action_id: action.id,
+      kind: 'ObservationEvent',
+    });
     // Its task tracker's list comes as a plan, not as the call's result.
     if (!hidden) {
       const said = (observation.content || []).map((c) => c.text).join('\n');
-      update({ content: [{ content: { text: `Tool: ${tool}\nResult:\n${said}`, type: 'text' }, type: 'content' }], rawOutput: obs, status: 'completed', toolCallId, sessionUpdate: 'tool_call_update' });
+      update({
+        content: [{ content: { text: `Tool: ${tool}\nResult:\n${said}`, type: 'text' }, type: 'content' }],
+        rawOutput: obs,
+        status: 'completed',
+        toolCallId,
+        sessionUpdate: 'tool_call_update',
+      });
     }
     return { ran: true, obs: observation };
   };
@@ -604,7 +721,15 @@ async function prompt(conn, s, p) {
     const answer = await confirm();
     if (answer === 'cancelled') return paused();
     if (answer === 'reject') reject(action, action.tool_call_id, action.tool_name);
-    else log.append({ source: 'environment', tool_name: action.tool_name, tool_call_id: action.tool_call_id, observation: { content: textOf('(run when the session was resumed)'), is_error: false, kind: 'Observation' }, action_id: action.id, kind: 'ObservationEvent' });
+    else
+      log.append({
+        source: 'environment',
+        tool_name: action.tool_name,
+        tool_call_id: action.tool_call_id,
+        observation: { content: textOf('(run when the session was resumed)'), is_error: false, kind: 'Observation' },
+        action_id: action.id,
+        kind: 'ObservationEvent',
+      });
   }
 
   // A missing key fails the prompt, as LiteLLM does when it calls the model.
@@ -612,7 +737,12 @@ async function prompt(conn, s, p) {
   const user = lastUserMessage(text);
   const stuck = user !== undefined && directivesIn(user).stuck;
   const steps = missingKey
-    ? [{ type: 'error', text: `litellm.AuthenticationError: Missing ${PROVIDER_NAME[s.llm.model.split('/')[0]] || 'OpenAI'} API Key - ${keyVar(s.llm.model)} is not set` }]
+    ? [
+        {
+          type: 'error',
+          text: `litellm.AuthenticationError: Missing ${PROVIDER_NAME[s.llm.model.split('/')[0]] || 'OpenAI'} API Key - ${keyVar(s.llm.model)} is not set`,
+        },
+      ]
     : plan(text, { cwd: s.cwd, images, mcp: s.mcp, briefing });
 
   if (stuck) {
@@ -624,7 +754,9 @@ async function prompt(conn, s, p) {
     return { stopReason: 'end_turn' };
   }
 
-  let prefix = left.length ? `Harness Relay rejected ${left.length === 1 ? 'an action' : `${left.length} actions`} left from an earlier turn: “${left[0].rejection_reason}” ` : '';
+  let prefix = left.length
+    ? `Harness Relay rejected ${left.length === 1 ? 'an action' : `${left.length} actions`} left from an earlier turn: “${left[0].rejection_reason}” `
+    : '';
   for (const step of steps) {
     if (s.cancelled) return paused();
     if (step.type === 'fail') return fail(step.text);
@@ -650,39 +782,92 @@ async function prompt(conn, s, p) {
       const r = await act(
         'task_tracker',
         { command: 'plan', task_list, kind: 'TaskTrackerAction' },
-        { kind: 'other', title: `task_tracker: ${JSON.stringify({ command: 'plan', task_list: task_list.map(({ title, status: st }) => ({ title, status: st })) })}`, summary: 'Plan the work', shows: `📋 Update Task List (${task_list.length} tasks)` },
-        async () => ({ content: textOf(`Task list has been updated with ${task_list.length} items.`), command: 'plan', task_list, kind: 'TaskTrackerObservation' }),
+        {
+          kind: 'other',
+          title: `task_tracker: ${JSON.stringify({ command: 'plan', task_list: task_list.map(({ title, status: st }) => ({ title, status: st })) })}`,
+          summary: 'Plan the work',
+          shows: `📋 Update Task List (${task_list.length} tasks)`,
+        },
+        async () => ({
+          content: textOf(`Task list has been updated with ${task_list.length} items.`),
+          command: 'plan',
+          task_list,
+          kind: 'TaskTrackerObservation',
+        }),
         true,
       );
       if (r.stopped) return paused();
-      if (r.ran) update({ entries: step.entries.map((e) => ({ content: e.text, priority: 'medium', status: e.status })), sessionUpdate: 'plan' });
+      if (r.ran)
+        update({ entries: step.entries.map((e) => ({ content: e.text, priority: 'medium', status: e.status })), sessionUpdate: 'plan' });
     }
     if (step.type === 'tool') {
-      const rawInput = { command: 'view', path: s.cwd, file_text: null, old_str: null, new_str: null, insert_line: null, view_range: null, kind: 'FileEditorAction' };
+      const rawInput = {
+        command: 'view',
+        path: s.cwd,
+        file_text: null,
+        old_str: null,
+        new_str: null,
+        insert_line: null,
+        view_range: null,
+        kind: 'FileEditorAction',
+      };
       const summary = 'List the working directory';
-      const r = await act('file_editor', rawInput, { kind: 'read', locations: [{ path: s.cwd }], title: `${summary}: Reading ${s.cwd}`, summary, shows: `Reading ${s.cwd}` }, async () => {
-        let listing;
-        try {
-          listing = viewDir(s.cwd);
-        } catch (err) {
-          return { content: textOf(`ERROR:\n${safeList(s.cwd)}`), is_error: true, command: 'view', path: s.cwd, kind: 'FileEditorObservation', error: String(err.message) };
-        }
-        return { content: textOf(listing), is_error: false, command: 'view', path: s.cwd, prev_exist: true, old_content: null, new_content: null, kind: 'FileEditorObservation' };
-      });
+      const r = await act(
+        'file_editor',
+        rawInput,
+        { kind: 'read', locations: [{ path: s.cwd }], title: `${summary}: Reading ${s.cwd}`, summary, shows: `Reading ${s.cwd}` },
+        async () => {
+          let listing;
+          try {
+            listing = viewDir(s.cwd);
+          } catch (err) {
+            return {
+              content: textOf(`ERROR:\n${safeList(s.cwd)}`),
+              is_error: true,
+              command: 'view',
+              path: s.cwd,
+              kind: 'FileEditorObservation',
+              error: String(err.message),
+            };
+          }
+          return {
+            content: textOf(listing),
+            is_error: false,
+            command: 'view',
+            path: s.cwd,
+            prev_exist: true,
+            old_content: null,
+            new_content: null,
+            kind: 'FileEditorObservation',
+          };
+        },
+      );
       if (r.stopped) return paused();
     }
     if (step.type === 'approve') {
       const rawInput = { command: step.command, is_input: false, timeout: null, reset: false, kind: 'TerminalAction' };
       const summary = 'Print a line';
-      const r = await act('terminal', rawInput, { kind: 'execute', title: `${summary}: $ ${step.command}`, summary, shows: `$ ${step.command}` }, async () => ({
-        content: textOf(/^npm publish/.test(step.command) ? '+ e2e-approval@1.0.0' : 'e2e-approval'),
-        is_error: false,
-        command: step.command,
-        exit_code: 0,
-        timeout: false,
-        metadata: { exit_code: 0, pid: -1, working_dir: s.cwd, py_interpreter_path: null, prefix: '', suffix: '\n[The command completed with exit code 0.]' },
-        kind: 'TerminalObservation',
-      }));
+      const r = await act(
+        'terminal',
+        rawInput,
+        { kind: 'execute', title: `${summary}: $ ${step.command}`, summary, shows: `$ ${step.command}` },
+        async () => ({
+          content: textOf(/^npm publish/.test(step.command) ? '+ e2e-approval@1.0.0' : 'e2e-approval'),
+          is_error: false,
+          command: step.command,
+          exit_code: 0,
+          timeout: false,
+          metadata: {
+            exit_code: 0,
+            pid: -1,
+            working_dir: s.cwd,
+            py_interpreter_path: null,
+            prefix: '',
+            suffix: '\n[The command completed with exit code 0.]',
+          },
+          kind: 'TerminalObservation',
+        }),
+      );
       if (r.stopped) return paused();
       prefix += r.ran ? 'The command ran: e2e-approval. ' : declined('command', '');
     }
@@ -693,13 +878,30 @@ async function prompt(conn, s, p) {
       const rawInput = { command, is_input: false, timeout: null, reset: false, kind: 'TerminalAction' };
       const summary = 'Fetch the page';
       let got = { ok: false, why: 'not run' };
-      const r = await act('terminal', rawInput, { kind: 'execute', title: `${summary}: $ ${command}`, summary, shows: `$ ${command}` }, async () => {
-        got = await reach(step.url);
-        const host = (/^\w+:\/\/([^/:]+)/.exec(step.url) || [])[1] || step.url;
-        const code = got.ok ? 0 : got.status ? 22 : 6;
-        const said = got.ok ? got.body : got.status ? `curl: (22) The requested URL returned error: ${got.status}` : `curl: (6) Could not resolve host: ${host} (${got.why})`;
-        return { content: textOf(said), is_error: false, command, exit_code: code, timeout: false, metadata: { exit_code: code, pid: -1, working_dir: s.cwd }, kind: 'TerminalObservation' };
-      });
+      const r = await act(
+        'terminal',
+        rawInput,
+        { kind: 'execute', title: `${summary}: $ ${command}`, summary, shows: `$ ${command}` },
+        async () => {
+          got = await reach(step.url);
+          const host = (/^\w+:\/\/([^/:]+)/.exec(step.url) || [])[1] || step.url;
+          const code = got.ok ? 0 : got.status ? 22 : 6;
+          const said = got.ok
+            ? got.body
+            : got.status
+              ? `curl: (22) The requested URL returned error: ${got.status}`
+              : `curl: (6) Could not resolve host: ${host} (${got.why})`;
+          return {
+            content: textOf(said),
+            is_error: false,
+            command,
+            exit_code: code,
+            timeout: false,
+            metadata: { exit_code: code, pid: -1, working_dir: s.cwd },
+            kind: 'TerminalObservation',
+          };
+        },
+      );
       if (r.stopped) return paused();
       prefix += r.ran ? reached(step.url, got) : declined('fetch', '');
     }
@@ -709,21 +911,50 @@ async function prompt(conn, s, p) {
         prefix += noOther(step);
         continue;
       }
-      const rawInput = { command: 'create', path: file, file_text: step.content, old_str: null, new_str: null, insert_line: null, view_range: null, kind: 'FileEditorAction' };
+      const rawInput = {
+        command: 'create',
+        path: file,
+        file_text: step.content,
+        old_str: null,
+        new_str: null,
+        insert_line: null,
+        view_range: null,
+        kind: 'FileEditorAction',
+      };
       const summary = `Create ${path.basename(file)}`;
       let written = false;
-      const r = await act('file_editor', rawInput, { kind: 'edit', locations: [{ path: file }], title: `${summary}: Editing ${file}`, summary, shows: `Editing ${file}` }, async () => {
-        const existed = fs.existsSync(file);
-        try {
-          fs.mkdirSync(path.dirname(file), { recursive: true });
-          fs.writeFileSync(file, step.content);
-          written = true;
-          return { content: textOf(`File created successfully at: ${file}`), is_error: false, command: 'create', path: file, prev_exist: existed, old_content: null, new_content: step.content, kind: 'FileEditorObservation' };
-        } catch (err) {
-          if (!refused(err)) throw err;
-          return { content: textOf(`Ran into ${pythonError(err)}: '${file}' while trying to write to ${file}`), is_error: true, command: 'create', path: file, kind: 'FileEditorObservation' };
-        }
-      });
+      const r = await act(
+        'file_editor',
+        rawInput,
+        { kind: 'edit', locations: [{ path: file }], title: `${summary}: Editing ${file}`, summary, shows: `Editing ${file}` },
+        async () => {
+          const existed = fs.existsSync(file);
+          try {
+            fs.mkdirSync(path.dirname(file), { recursive: true });
+            fs.writeFileSync(file, step.content);
+            written = true;
+            return {
+              content: textOf(`File created successfully at: ${file}`),
+              is_error: false,
+              command: 'create',
+              path: file,
+              prev_exist: existed,
+              old_content: null,
+              new_content: step.content,
+              kind: 'FileEditorObservation',
+            };
+          } catch (err) {
+            if (!refused(err)) throw err;
+            return {
+              content: textOf(`Ran into ${pythonError(err)}: '${file}' while trying to write to ${file}`),
+              is_error: true,
+              command: 'create',
+              path: file,
+              kind: 'FileEditorObservation',
+            };
+          }
+        },
+      );
       if (r.stopped) return paused();
       prefix += wrote(step, written, '');
     }
@@ -768,7 +999,9 @@ module.exports = {
    * by `keyVerdict`; null for none, or an endpoint's placeholder (`no-key`).
    */
   apiKey: (env) => {
-    const settings = env.OPENHANDS_PERSISTENCE_DIR ? readJson(path.join(env.OPENHANDS_PERSISTENCE_DIR, 'agent_settings.json'), undefined) : undefined;
+    const settings = env.OPENHANDS_PERSISTENCE_DIR
+      ? readJson(path.join(env.OPENHANDS_PERSISTENCE_DIR, 'agent_settings.json'), undefined)
+      : undefined;
     const key = settings && settings.llm ? env[keyVar(settings.llm.model)] : undefined;
     return !key || key === 'no-key' ? null : keyVerdict(key);
   },
@@ -777,12 +1010,23 @@ module.exports = {
    * in its virtual environment), a few of each provider: e2e/support/fake-cli.ts writes it there.
    */
   litellmModels: {
-    'gpt-5.4': { litellm_provider: 'openai', mode: 'responses', supports_function_calling: true, supports_reasoning: true, supports_xhigh_reasoning_effort: true },
+    'gpt-5.4': {
+      litellm_provider: 'openai',
+      mode: 'responses',
+      supports_function_calling: true,
+      supports_reasoning: true,
+      supports_xhigh_reasoning_effort: true,
+    },
     'gpt-5.4-mini': { litellm_provider: 'openai', mode: 'chat', supports_function_calling: true, supports_reasoning: true },
     'gpt-4o': { litellm_provider: 'openai', mode: 'chat', supports_function_calling: true },
     'gpt-4o-audio-preview': { litellm_provider: 'openai', mode: 'chat', supports_function_calling: true },
     'claude-sonnet-5-5': { litellm_provider: 'anthropic', mode: 'chat', supports_function_calling: true, supports_reasoning: true },
-    'anthropic/claude-haiku-5-5': { litellm_provider: 'anthropic', mode: 'chat', supports_function_calling: true, supports_reasoning: true },
+    'anthropic/claude-haiku-5-5': {
+      litellm_provider: 'anthropic',
+      mode: 'chat',
+      supports_function_calling: true,
+      supports_reasoning: true,
+    },
     'xai/grok-4.3': { litellm_provider: 'xai', mode: 'chat', supports_function_calling: true, supports_reasoning: true },
     'xai/grok-code-fast-1': { litellm_provider: 'xai', mode: 'chat', supports_function_calling: true, supports_reasoning: true },
     'text-embedding-3-small': { litellm_provider: 'openai', mode: 'embedding' },

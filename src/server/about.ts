@@ -23,7 +23,13 @@ export function versionText(bundled: string | undefined, commit: string | undefi
 /** The checkout's commit, short, when Harness Relay runs from a git checkout. */
 async function commit(): Promise<string | undefined> {
   try {
-    const r = await runProcess({ bin: 'git', args: ['rev-parse', '--short', 'HEAD'], cwd: RELAY_ROOT, env: { ...process.env }, timeoutMs: 5_000 });
+    const r = await runProcess({
+      bin: 'git',
+      args: ['rev-parse', '--short', 'HEAD'],
+      cwd: RELAY_ROOT,
+      env: { ...process.env },
+      timeoutMs: 5_000,
+    });
     const sha = r.stdout.trim();
     return r.code === 0 && /^[0-9a-f]{4,40}$/.test(sha) ? sha : undefined;
   } catch {

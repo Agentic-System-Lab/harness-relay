@@ -40,6 +40,7 @@ const { acpAgent, picked, requestPermission, sessionUpdates } = require('../lib/
 const { inside, notAWorkingDirectory, ownSkills, targetOf } = require('../lib/files.cjs');
 const { keyVerdict, planResets, planUsedPercent, sessions, signIn, signedOut } = require('../lib/home.cjs');
 const { exitAfterLog, record, tryWrite } = require('../lib/log.cjs');
+const { callMcpTool } = require('../lib/mcp.cjs');
 const { directivesIn, lastUserMessage, noOther, plan, recordMcpEnv, skillsIn, wrote } = require('../lib/plan.cjs');
 const { fail, rpcError } = require('../lib/rpc.cjs');
 const self = require('../lib/self.cjs');
@@ -53,7 +54,11 @@ const MODELS = [
 ];
 const DEFAULT_MODEL = 'claude-fake-sonnet';
 const AGENT = 'https://agentclientprotocol.com/protocol/session-modes#agent';
-const MODES = [AGENT, 'https://agentclientprotocol.com/protocol/session-modes#plan', 'https://agentclientprotocol.com/protocol/session-modes#autopilot'];
+const MODES = [
+  AGENT,
+  'https://agentclientprotocol.com/protocol/session-modes#plan',
+  'https://agentclientprotocol.com/protocol/session-modes#autopilot',
+];
 
 /** A JSON file of its home, which may begin with `//` comment lines; undefined when missing or not JSON. */
 function readJson(file) {
@@ -131,12 +136,19 @@ function login() {
 }
 
 function copilotStatic(args) {
-  if (args.includes('--version') || args[0] === 'version') return void process.stdout.write(`GitHub Copilot CLI ${VERSION}.\nRun 'copilot update' to check for updates.\n`);
+  if (args.includes('--version') || args[0] === 'version')
+    return void process.stdout.write(`GitHub Copilot CLI ${VERSION}.\nRun 'copilot update' to check for updates.\n`);
   if (args[0] === 'login') return login();
   if (args[1] === 'list' && args.includes('--json')) {
     if (args[0] === 'mcp') return void process.stdout.write(`${JSON.stringify({ mcpServers: {} }, null, 2)}\n`);
     if (args[0] === 'skill') {
-      const skills = copilotSkills(process.cwd()).map((s) => ({ name: s.name, description: s.description, source: s.source, path: path.dirname(s.path), enabled: true }));
+      const skills = copilotSkills(process.cwd()).map((s) => ({
+        name: s.name,
+        description: s.description,
+        source: s.source,
+        path: path.dirname(s.path),
+        enabled: true,
+      }));
       return void process.stdout.write(`${JSON.stringify(skills, null, 2)}\n`);
     }
     if (args[0] === 'instruction' || args[0] === 'plugin') return void process.stdout.write('[]\n');
@@ -164,17 +176,42 @@ function copilotHeadless() {
   const answer = (m) => {
     if (m.method === 'connect') return send({ id: m.id, result: { ok: true, protocolVersion: 3, version: VERSION } });
     if (m.method === 'account.getQuota') {
-      if (!authed()) return send({ id: m.id, error: { code: -32603, message: 'Request account.getQuota failed with message: Not authenticated. Please authenticate first.' } });
+      if (!authed())
+        return send({
+          id: m.id,
+          error: { code: -32603, message: 'Request account.getQuota failed with message: Not authenticated. Please authenticate first.' },
+        });
       const used = Math.round((300 * planUsedPercent()) / 100);
       const unlimited = { isUnlimitedEntitlement: true, entitlementRequests: 0, usedRequests: 0, remainingPercentage: 100, hasQuota: true };
       return send({
         id: m.id,
-        result: { quotaSnapshots: { chat: unlimited, completions: unlimited, premium_interactions: { isUnlimitedEntitlement: false, entitlementRequests: 300, usedRequests: used, remainingPercentage: ((300 - used) / 300) * 100, hasQuota: true } } },
+        result: {
+          quotaSnapshots: {
+            chat: unlimited,
+            completions: unlimited,
+            premium_interactions: {
+              isUnlimitedEntitlement: false,
+              entitlementRequests: 300,
+              usedRequests: used,
+              remainingPercentage: ((300 - used) / 300) * 100,
+              hasQuota: true,
+            },
+          },
+        },
       });
     }
     if (m.method === 'account.getCurrentAuth') {
       if (!authed()) return send({ id: m.id, result: {} });
-      return send({ id: m.id, result: { authInfo: { type: process.env.COPILOT_GITHUB_TOKEN ? 'env' : 'user', login: 'e2e', copilotUser: { login: 'e2e', copilot_plan: 'individual', quota_reset_date_utc: new Date(planResets.week()).toISOString() } } } });
+      return send({
+        id: m.id,
+        result: {
+          authInfo: {
+            type: process.env.COPILOT_GITHUB_TOKEN ? 'env' : 'user',
+            login: 'e2e',
+            copilotUser: { login: 'e2e', copilot_plan: 'individual', quota_reset_date_utc: new Date(planResets.week()).toISOString() },
+          },
+        },
+      });
     }
     send({ id: m.id, error: { code: -32601, message: `Unhandled method ${m.method}` } });
   };
@@ -220,7 +257,11 @@ function sandboxOf(cwd) {
     cwdWritable: sb.addCurrentWorkingDirectory !== false,
     userWritable: fsp.readwritePaths || [],
     // Its own temporary folder only (`<temp>/copilot-<uuid>`), not the system's whole temporary folder.
-    writable: [...(sb.addCurrentWorkingDirectory === false ? [] : [cwd]), ...(fsp.readwritePaths || []), path.join(os.tmpdir(), `copilot-${process.pid}`)],
+    writable: [
+      ...(sb.addCurrentWorkingDirectory === false ? [] : [cwd]),
+      ...(fsp.readwritePaths || []),
+      path.join(os.tmpdir(), `copilot-${process.pid}`),
+    ],
     readonly: fsp.readonlyPaths || [],
     denied: fsp.deniedPaths || [],
   };
@@ -228,7 +269,8 @@ function sandboxOf(cwd) {
 
 /** `/sandbox policy`, as Copilot prints it (its headings in bold). */
 function policyText(cwd, sb) {
-  if (!sb.on) return 'Command sandboxing is disabled, so no policy is in force and commands run unrestricted.\n\nUse /sandbox enable to turn it on.';
+  if (!sb.on)
+    return 'Command sandboxing is disabled, so no policy is in force and commands run unrestricted.\n\nUse /sandbox enable to turn it on.';
   const list = (title, paths) => (paths.length ? `  ${title} (${paths.length}):\n${paths.map((p) => `    ${p}\n`).join('')}` : '');
   return [
     `Effective sandbox policy for ${cwd}`,
@@ -253,7 +295,13 @@ function configOptions(s) {
   return [
     { type: 'select', id: 'mode', category: 'mode', currentValue: s.mode, options: MODES.map((value) => ({ value })) },
     { type: 'select', id: 'model', category: 'model', currentValue: s.model, options: MODELS.map((m) => ({ value: m.id, name: m.name })) },
-    { type: 'select', id: 'allow_all', category: 'permissions', currentValue: s.allowAll ? 'on' : 'off', options: [{ value: 'on' }, { value: 'off' }] },
+    {
+      type: 'select',
+      id: 'allow_all',
+      category: 'permissions',
+      currentValue: s.allowAll ? 'on' : 'off',
+      options: [{ value: 'on' }, { value: 'off' }],
+    },
   ];
 }
 
@@ -264,7 +312,10 @@ function copilotAcp() {
     const effort = self.flag('--reasoning-effort');
     const known = MODELS.find((m) => m.id === model);
     if (effort && !process.env.COPILOT_PROVIDER_BASE_URL && known && !known.efforts.includes(effort)) {
-      throw rpcError(`Request sessions.open failed with message: session construction failed: Model '${model}' does not support reasoning effort configuration.`, -32603);
+      throw rpcError(
+        `Request sessions.open failed with message: session construction failed: Model '${model}' does not support reasoning effort configuration.`,
+        -32603,
+      );
     }
     const loading = method === 'session/load';
     const id = loading ? p.sessionId : crypto.randomUUID();
@@ -292,24 +343,36 @@ function copilotAcp() {
       allowAll: self.has('--allow-all'),
       sandbox: sandboxOf(cwd),
       mcp: (p.mcpServers || []).map((x) => x.name),
+      mcpSpecs: Object.fromEntries((p.mcpServers || []).map((x) => [x.name, x])),
       briefing,
       cancelled: false,
     };
     agent.sessions.set(id, s);
     recordMcpEnv(
-      Object.fromEntries((p.mcpServers || []).map((x) => [x.name, Object.fromEntries((x.env || x.headers || []).map((v) => [v.name, v.value]))])),
+      Object.fromEntries(
+        (p.mcpServers || []).map((x) => [x.name, Object.fromEntries((x.env || x.headers || []).map((v) => [v.name, v.value]))]),
+      ),
       Object.fromEntries((p.mcpServers || []).filter((x) => x.type === 'http').map((x) => [x.name, x.url])),
     );
     const hooks = projectHooks([cwd, ...addDirs]);
     if (hooks.length) record({ projectHooks: hooks });
     // A load replays the session's messages before it answers.
     if (loading) {
-      agent.peer.notify('session/update', { sessionId: id, update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: '(an earlier question)' } } });
-      agent.peer.notify('session/update', { sessionId: id, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '(an earlier answer)' } } });
+      agent.peer.notify('session/update', {
+        sessionId: id,
+        update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: '(an earlier question)' } },
+      });
+      agent.peer.notify('session/update', {
+        sessionId: id,
+        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '(an earlier answer)' } },
+      });
     }
     return {
       ...(loading ? {} : { sessionId: id }),
-      models: { availableModels: [{ modelId: 'auto', name: 'Auto' }, ...MODELS.map((m) => ({ modelId: m.id, name: m.name }))], currentModelId: model },
+      models: {
+        availableModels: [{ modelId: 'auto', name: 'Auto' }, ...MODELS.map((m) => ({ modelId: m.id, name: m.name }))],
+        currentModelId: model,
+      },
       modes: { currentModeId: s.mode, availableModes: MODES.map((m) => ({ id: m, name: m.split('#')[1] })) },
       configOptions: configOptions(s),
     };
@@ -348,9 +411,15 @@ function copilotAcp() {
       const s = live.get(p.sessionId);
       if (!s) throw rpcError(`Resource not found: Session ${p.sessionId} not found`, -32002);
       const blocks = p.prompt || [];
-      const prompt = blocks.filter((b) => b.type === 'text').map((b) => b.text || '').join('\n');
+      const prompt = blocks
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text || '')
+        .join('\n');
       if (prompt.trim() === '/sandbox policy') {
-        peer.notify('session/update', { sessionId: p.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: policyText(s.cwd, s.sandbox) } } });
+        peer.notify('session/update', {
+          sessionId: p.sessionId,
+          update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: policyText(s.cwd, s.sandbox) } },
+        });
         return { stopReason: 'end_turn' };
       }
       const images = blocks.filter((b) => b.type === 'image' && b.data).length;
@@ -384,7 +453,8 @@ async function copilotTurn(peer, sessionId, s, steps, skillFiles) {
   let prefix = '';
   let n = 0;
   const callId = () => `call_${++n}_${crypto.randomBytes(3).toString('hex')}`;
-  const report = (call, status, extra = {}) => u.update({ sessionUpdate: 'tool_call_update', toolCallId: call.toolCallId, status, ...extra });
+  const report = (call, status, extra = {}) =>
+    u.update({ sessionUpdate: 'tool_call_update', toolCallId: call.toolCallId, status, ...extra });
 
   /** Asks about `call` (unless allow-all): whether it may run. Refused, cancelled or unanswered, the turn is over. */
   const permit = async (call, asked) => {
@@ -415,21 +485,58 @@ async function copilotTurn(peer, sessionId, s, steps, skillFiles) {
     if (step.type === 'todo') u.plan(step.entries);
     if (step.type === 'tool') {
       // A view of the working directory: a read there asks nothing.
-      const call = { toolCallId: callId(), title: `Viewing ${s.cwd}`, kind: 'read', rawInput: { path: s.cwd }, locations: [{ path: s.cwd }] };
+      const call = {
+        toolCallId: callId(),
+        title: `Viewing ${s.cwd}`,
+        kind: 'read',
+        rawInput: { path: s.cwd },
+        locations: [{ path: s.cwd }],
+      };
       u.toolCall({ ...call, status: 'pending' });
       await self.sleep(20);
       report(call, 'completed', { rawOutput: { content: step.output } });
     }
+    if (step.type === 'mcp') {
+      // A tool of an MCP server it was given: over ACP the real Copilot takes HTTP and SSE servers only
+      // ("Rejecting non-http/sse MCP server"), titles the call `<server>-<tool>`, and runs it.
+      const spec = s.mcpSpecs && s.mcpSpecs[step.server];
+      const call = { toolCallId: callId(), title: `${step.server}-${step.tool}`, kind: 'other', rawInput: step.args };
+      u.toolCall({ ...call, status: 'pending' });
+      if (!spec || spec.type !== 'http') {
+        report(call, 'failed', { rawOutput: { message: `No MCP server ${step.server}` } });
+        prefix += `No MCP server ${step.server}. `;
+      } else {
+        const r = await callMcpTool(
+          { url: spec.url, headers: Object.fromEntries((spec.headers || []).map((v) => [v.name, v.value])) },
+          step.tool,
+          step.args,
+        );
+        report(call, r.isError ? 'failed' : 'completed', { content: [{ type: 'content', content: { type: 'text', text: r.text } }] });
+        prefix += `The ${step.tool} tool said: ${r.text} `;
+      }
+    }
     if (step.type === 'approve') {
-      const call = { toolCallId: callId(), title: 'Print a line', kind: 'execute', rawInput: { command: step.command, description: 'Print a line' } };
+      const call = {
+        toolCallId: callId(),
+        title: 'Print a line',
+        kind: 'execute',
+        rawInput: { command: step.command, description: 'Print a line' },
+      };
       u.toolCall({ ...call, status: 'pending' });
       // `echo` it takes for read-only, and runs without asking.
       const readOnly = /^echo\b/.test(step.command);
-      if (!readOnly && !(await permit(call, { title: step.command, rawInput: { command: step.command, commands: [step.command.split(' ')[0]] } }))) return refused(call);
+      if (
+        !readOnly &&
+        !(await permit(call, { title: step.command, rawInput: { command: step.command, commands: [step.command.split(' ')[0]] } }))
+      )
+        return refused(call);
       const out = 'e2e-approval\n';
       report(call, 'completed', {
         content: [{ type: 'content', content: { type: 'text', text: `${out}<shellId: ${n} completed with exit code 0>` } }],
-        rawOutput: { content: `${out}<shellId: ${n} completed with exit code 0>`, contents: [{ type: 'shell_exit', shellId: String(n), exitCode: 0, cwd: s.cwd }] },
+        rawOutput: {
+          content: `${out}<shellId: ${n} completed with exit code 0>`,
+          contents: [{ type: 'shell_exit', shellId: String(n), exitCode: 0, cwd: s.cwd }],
+        },
       });
       prefix += 'The command ran: e2e-approval. ';
     }
@@ -446,23 +553,47 @@ async function copilotTurn(peer, sessionId, s, steps, skillFiles) {
         prefix += noOther(step);
         continue;
       }
-      const call = { toolCallId: callId(), title: `Creating ${file}`, kind: 'edit', rawInput: { path: file, file_text: step.content }, locations: [{ path: file }] };
+      const call = {
+        toolCallId: callId(),
+        title: `Creating ${file}`,
+        kind: 'edit',
+        rawInput: { path: file, file_text: step.content },
+        locations: [{ path: file }],
+      };
       u.toolCall({ ...call, status: 'pending' });
       // Its file tools keep to its sandbox's policy, refusing without asking.
       if (!mayWrite(file)) {
-        report(call, 'failed', { rawOutput: { message: inside(file, s.sandbox.denied) ? 'Is a sandbox denied path.' : "Outside the sandbox's writable paths.", code: 'failure' } });
+        report(call, 'failed', {
+          rawOutput: {
+            message: inside(file, s.sandbox.denied) ? 'Is a sandbox denied path.' : "Outside the sandbox's writable paths.",
+            code: 'failure',
+          },
+        });
         prefix += wrote(step, false);
         continue;
       }
-      if (!(await permit(call, { title: 'Create file', rawInput: { fileName: file, diff: `+++ ${file}\n+${step.content}` } }))) return refused(call);
+      if (!(await permit(call, { title: 'Create file', rawInput: { fileName: file, diff: `+++ ${file}\n+${step.content}` } })))
+        return refused(call);
       const ok = tryWrite(file, step.content);
-      report(call, ok ? 'completed' : 'failed', ok ? { rawOutput: { content: `Created file ${file} with ${step.content.length} characters` } } : { rawOutput: { message: `permission denied: ${file}` } });
+      report(
+        call,
+        ok ? 'completed' : 'failed',
+        ok
+          ? { rawOutput: { content: `Created file ${file} with ${step.content.length} characters` } }
+          : { rawOutput: { message: `permission denied: ${file}` } },
+      );
       prefix += wrote(step, ok);
     }
     if (step.type === 'text') {
       // The tool library's skills it was asked to read: a read outside the working directories asks first.
       for (const skill of skillFiles) {
-        const call = { toolCallId: callId(), title: `Viewing ${skill}`, kind: 'read', rawInput: { path: skill }, locations: [{ path: skill }] };
+        const call = {
+          toolCallId: callId(),
+          title: `Viewing ${skill}`,
+          kind: 'read',
+          rawInput: { path: skill },
+          locations: [{ path: skill }],
+        };
         u.toolCall({ ...call, status: 'pending' });
         if (!inside(skill, s.workspace) && !inside(skill, [os.tmpdir()]) && !(await permit(call, {}))) return refused(call);
         report(call, 'completed', { rawOutput: { content: '' } });

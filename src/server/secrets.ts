@@ -1,5 +1,17 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync } from 'node:fs';
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import type { KeyStorage } from '../shared/types';
@@ -147,7 +159,8 @@ function keepOwnerOnly(file: string, own: boolean): void {
   const mode = statSync(file).mode & 0o777;
   if (!(mode & 0o077)) return;
   if (own) chmodSync(file, 0o600);
-  else console.warn(`[secrets] ${file} can be read by other users (mode ${mode.toString(8)}): make it readable by its owner only (chmod 600)`);
+  else
+    console.warn(`[secrets] ${file} can be read by other users (mode ${mode.toString(8)}): make it readable by its owner only (chmod 600)`);
 }
 
 /** What binds an encrypted secret to its name, so that one cannot be passed off as another. */
@@ -280,7 +293,9 @@ export function openSecretStore(
     encrypted = openEncryptedStore(db, loadSecretsKey(file, { create: false }), file);
   } catch (err) {
     const why = (err as Error).message;
-    console.warn(`[secrets] ${kept.length} secret(s) kept encrypted in the database (${kept.join(', ')}) cannot be read or moved to the credential store, until each is set again: ${why}`);
+    console.warn(
+      `[secrets] ${kept.length} secret(s) kept encrypted in the database (${kept.join(', ')}) cannot be read or moved to the credential store, until each is set again: ${why}`,
+    );
     encrypted = unreadableStore(db, why);
     movable = false;
   }

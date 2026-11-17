@@ -94,7 +94,9 @@ function install() {
     const deadline = Date.now() + 60_000;
     while (fs.existsSync(path.join(CONTROL, 'hold')) && Date.now() < deadline) sleep(100);
     if (fs.existsSync(path.join(CONTROL, 'fail'))) {
-      fail(`npm error code E404\nnpm error 404 Not Found - GET https://registry.npmjs.org/${name} - Not found\nnpm error 404  '${spec}' is not in this registry.`);
+      fail(
+        `npm error code E404\nnpm error 404 Not Found - GET https://registry.npmjs.org/${name} - Not found\nnpm error 404  '${spec}' is not in this registry.`,
+      );
     }
   }
   const command = COMMANDS[name];

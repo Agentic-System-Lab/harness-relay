@@ -138,7 +138,12 @@ export function parseClaudeUsage(r: unknown, apiKey: boolean): UsageAnswer | und
     const model = text(l.scope?.model?.display_name) ?? text(l.scope?.model?.id);
     const scope = model ?? text(l.scope?.surface?.display_name) ?? (span ? undefined : text(kind));
     const resetsAt = when(l.resets_at);
-    limits.push({ ...(span ? { span } : {}), ...(scope ? { scope } : {}), usedPercent: clampPercent(usedPercent), ...(resetsAt ? { resetsAt } : {}) });
+    limits.push({
+      ...(span ? { span } : {}),
+      ...(scope ? { scope } : {}),
+      usedPercent: clampPercent(usedPercent),
+      ...(resetsAt ? { resetsAt } : {}),
+    });
   }
   if (!limits.length) {
     const windows: [string, UsageSpan, string | undefined][] = [
@@ -247,7 +252,12 @@ async function askCodex(bin: string, env: NodeJS.ProcessEnv, signal?: AbortSigna
     timeoutMs: USAGE_TIMEOUT_MS,
     signal,
     open: (write) =>
-      write({ jsonrpc: '2.0', id: 0, method: 'initialize', params: { clientInfo: { name: 'harness_relay', title: 'Harness Relay', version: '0.1.0' }, capabilities: null } }),
+      write({
+        jsonrpc: '2.0',
+        id: 0,
+        method: 'initialize',
+        params: { clientInfo: { name: 'harness_relay', title: 'Harness Relay', version: '0.1.0' }, capabilities: null },
+      }),
     onMessage: (m, write, finish) => {
       if (m.id === undefined || m.method) return;
       if (m.id === 0) {
@@ -388,7 +398,14 @@ export function parseMuseUsage(stdout: string): UsageAnswer | undefined {
 }
 
 async function askMuse(bin: string, env: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<UsageAnswer> {
-  const r = await runProcess({ bin, args: ['usage', '--json'], env: museProbeEnv(env), signal, timeoutMs: USAGE_TIMEOUT_MS, maxCapture: 1024 * 1024 });
+  const r = await runProcess({
+    bin,
+    args: ['usage', '--json'],
+    env: museProbeEnv(env),
+    signal,
+    timeoutMs: USAGE_TIMEOUT_MS,
+    maxCapture: 1024 * 1024,
+  });
   const out = stripAnsi(`${r.stdout}\n${r.stderr}`).trim();
   if (/not logged in|run `?muse login/i.test(out)) return none('signedOut');
   return parseMuseUsage(r.stdout) ?? failure(undefined, r.timedOut, out);
@@ -438,7 +455,11 @@ export function parseCopilotUsage(quota: unknown, auth: unknown): UsageAnswer | 
       ...(resetsAt ? { resetsAt } : {}),
     });
   }
-  return { ...(plan ? { plan } : {}), limits, ...(limits.length ? {} : { none: unlimited ? ('unlimited' as const) : ('noData' as const) }) };
+  return {
+    ...(plan ? { plan } : {}),
+    limits,
+    ...(limits.length ? {} : { none: unlimited ? ('unlimited' as const) : ('noData' as const) }),
+  };
 }
 
 /** Copilot's words for a question asked without a sign-in. */
@@ -517,7 +538,9 @@ function windowSpan(w: unknown): UsageSpan | undefined {
 export function parseAntigravityUsage(usage: unknown, credits: unknown): UsageAnswer | undefined {
   const u = usage as Record<string, any> | undefined;
   if (!u || typeof u !== 'object') return undefined;
-  const groups = (Array.isArray(u.groups) ? u.groups : []).filter((g: unknown): g is Record<string, any> => Boolean(g) && typeof g === 'object');
+  const groups = (Array.isArray(u.groups) ? u.groups : []).filter(
+    (g: unknown): g is Record<string, any> => Boolean(g) && typeof g === 'object',
+  );
   const several = groups.length > 1;
   const limits: UsageLimit[] = [];
   for (const g of groups) {
@@ -637,7 +660,14 @@ export function parseCursorAbout(stdout: string): UsageAnswer | undefined {
 }
 
 async function askCursor(bin: string, env: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<UsageAnswer> {
-  const r = await runProcess({ bin, args: ['about', '--format', 'json'], env: { ...env, NO_OPEN_BROWSER: '1' }, signal, timeoutMs: USAGE_TIMEOUT_MS, maxCapture: 1024 * 1024 });
+  const r = await runProcess({
+    bin,
+    args: ['about', '--format', 'json'],
+    env: { ...env, NO_OPEN_BROWSER: '1' },
+    signal,
+    timeoutMs: USAGE_TIMEOUT_MS,
+    maxCapture: 1024 * 1024,
+  });
   // Its plan is all it could say: without it, there is still no usage to show.
   return parseCursorAbout(r.stdout) ?? none('notReported');
 }

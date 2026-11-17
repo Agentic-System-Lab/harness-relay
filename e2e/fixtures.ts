@@ -59,7 +59,13 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     } finally {
       if (testInfo.status !== testInfo.expectedStatus) {
         await testInfo.attach('server.log', { body: relay.output(), contentType: 'text/plain' });
-        await testInfo.attach('fake-cli.jsonl', { body: relay.fakeLog().map((e) => JSON.stringify(e)).join('\n'), contentType: 'text/plain' });
+        await testInfo.attach('fake-cli.jsonl', {
+          body: relay
+            .fakeLog()
+            .map((e) => JSON.stringify(e))
+            .join('\n'),
+          contentType: 'text/plain',
+        });
       }
       await relay.stop();
     }

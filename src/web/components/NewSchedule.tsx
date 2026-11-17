@@ -1,9 +1,18 @@
 import { useEffect, useState } from 'react';
-import { PROVIDER_LABEL, cwdsOf, type Conversation, type ConversationSchedule, type LeadAgentSettings, type ProviderModels, type ProviderStatus } from '../../shared/types';
+import {
+  PROVIDER_LABEL,
+  cwdsOf,
+  type Conversation,
+  type ConversationSchedule,
+  type LeadAgentSettings,
+  type ProviderModels,
+  type ProviderStatus,
+} from '../../shared/types';
 import { api, orCreateCwd } from '../api';
+import { loadPart } from '../chunks';
 import { useI18n } from '../i18n';
 import { useLimits } from '../limits';
-import { draftFrom, draftProblems, toUpdate, type ScheduleDraft } from '../schedule';
+import { draftFrom, draftProblems, handOverHook, toUpdate, type ScheduleDraft } from '../schedule';
 import { leadLabel } from '../util';
 import { autoTeam, lastAutoConfirm, rememberAutoConfirm } from './NewChat';
 import { ScheduleForm } from './ScheduleForm';
@@ -29,6 +38,8 @@ export function NewSchedule({ providers, catalog, onCreated }: Props) {
   /** The user changed the form: its problems are shown from then on. */
   const [touched, setTouched] = useState(false);
   const [title, setTitle] = useState('');
+  /** Create a webhook too: its token is shown in the automation's drawer, once, as its chat opens. */
+  const [withHook, setWithHook] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -38,7 +49,9 @@ export function NewSchedule({ providers, catalog, onCreated }: Props) {
       .then((settings) => {
         setLead(settings.lead);
         // The default working directory from Settings; asking first unless the last chat did not.
-        setTeam((current) => current ?? autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm()));
+        setTeam(
+          (current) => current ?? autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm()),
+        );
       })
       .catch((e) => setError(String(e.message ?? e)));
   }, [lang]);
@@ -59,11 +72,22 @@ export function NewSchedule({ providers, catalog, onCreated }: Props) {
     setBusy(true);
     setError('');
     try {
-      const conv = await orCreateCwd(
-        (createCwd) => api.createSchedule({ title: title.trim() || undefined, settings: team.settings, createCwd, schedule: toUpdate(draft) }),
+      // The drawer that shows a webhook's token, loaded before the token is made: in a page open across an
+      // update it cannot be, and the page reloads for it (`loadPart`), which would lose a token made first.
+      if (withHook) await loadPart(() => import('./ScheduleDrawer'));
+      const { newHook, ...conv } = await orCreateCwd(
+        (createCwd) =>
+          api.createSchedule({
+            title: title.trim() || undefined,
+            settings: team.settings,
+            createCwd,
+            schedule: toUpdate(draft),
+            ...(withHook ? { hook: true } : {}),
+          }),
         (missing) => confirm(t.newChat.confirmCreateCwd(missing)),
       );
       rememberAutoConfirm(team.settings.autoConfirm);
+      if (newHook) handOverHook(conv.id, newHook);
       onCreated(conv);
     } catch (e) {
       setError((e as Error).message);
@@ -85,7 +109,7 @@ export function NewSchedule({ providers, catalog, onCreated }: Props) {
             <div className="section-head">
               <h3>{t.newSchedule.schedule}</h3>
             </div>
-            <ScheduleForm draft={draft} onEdit={edit} settings={team.settings} />
+            <ScheduleForm draft={draft} onEdit={edit} settings={team.settings} hook={{ checked: withHook, onChange: setWithHook }} />
           </section>
 
           <TeamEditor value={team} onChange={setTeam} providers={providers} catalog={catalog} leadLabel={leadText} schedule={schedule} />
@@ -95,7 +119,12 @@ export function NewSchedule({ providers, catalog, onCreated }: Props) {
       {/* Outside the scrolling area, so it stays at the bottom of the window. */}
       <footer className="start-dock">
         <div className="start-bar">
-          <input className="title-input" value={title} placeholder={t.newSchedule.titlePlaceholder} onChange={(e) => setTitle(e.target.value)} />
+          <input
+            className="title-input"
+            value={title}
+            placeholder={t.newSchedule.titlePlaceholder}
+            onChange={(e) => setTitle(e.target.value)}
+          />
           <button className="primary" onClick={create} disabled={busy || problems.length > 0}>
             {busy ? t.newSchedule.creating : t.newSchedule.create}
           </button>

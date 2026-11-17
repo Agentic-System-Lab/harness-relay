@@ -112,5 +112,8 @@ require(${JSON.stringify(fake)});
 
 /** `FAKE_OC_ROWS` for `writeOpencodeWithRows`: the steps with their `data` made here. */
 export function rowsEnv(rows: { sessions?: { id: string; parent?: string }[]; steps: StepRow[] }): string {
-  return JSON.stringify({ sessions: rows.sessions ?? [], steps: rows.steps.map((s) => ({ id: s.id, session: s.session, data: stepData(s) })) });
+  return JSON.stringify({
+    sessions: rows.sessions ?? [],
+    steps: rows.steps.map((s) => ({ id: s.id, session: s.session, data: stepData(s) })),
+  });
 }

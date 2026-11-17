@@ -2,7 +2,7 @@ import { expect, test } from '../fixtures';
 import { finishedReply, openTeamChat, send } from '../support/app';
 import { basePermission, chatWith, CLIS, eachCli, listToolAt, showsTodo } from '../support/clis';
 
-test.describe("what an agent does on its way to a reply", () => {
+test.describe('what an agent does on its way to a reply', () => {
   // Each CLI's own tool for the listing (`listTool`), which runs without asking in a read-only chat.
   eachCli(CLIS, (cli) => {
     test(`${cli.provider}: thinking, a tool call and a to-do list are shown with the reply`, async ({ page, relay }) => {
@@ -17,7 +17,9 @@ test.describe("what an agent does on its way to a reply", () => {
       await expect(groups.first().locator(':scope > summary')).toContainText(/action|thought|Thinking/);
       for (const summary of await groups.locator(':scope > summary').all()) await summary.click();
       await expect(reply.locator('.thought-title').first()).toContainText(`${cli.name} is thinking`);
-      const tool = reply.locator('li.tool', { has: page.locator('.tool-name', { hasText: listToolAt(cli, basePermission(cli.provider)) }) });
+      const tool = reply.locator('li.tool', {
+        has: page.locator('.tool-name', { hasText: listToolAt(cli, basePermission(cli.provider)) }),
+      });
       await expect(tool).toHaveClass(/done/);
       // The tool's output: the working directory's entries.
       await tool.locator('summary').click();

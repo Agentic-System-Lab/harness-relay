@@ -5,7 +5,8 @@ import type { Store } from './store';
 
 /*
  * The notification inbox: what the sidebar's bell lists. Each alert the team gives (a reply done or
- * ended with an error, an approval waiting, a team to confirm, a question for the user: the rule the
+ * ended with an error, an approval waiting, a team to confirm, a question for the user, a tracked goal
+ * held up: the rule the
  * system notifications and push follow, `AlertTracker` in src/shared/notify.ts) is kept in the
  * database (`notifications`, `Store.addNotification()`), whether or not a browser was open, and shown
  * to every signed-in browser alike. The text of each line is the browser's own (in its language); the
@@ -24,7 +25,9 @@ export const INBOX_CHECK_MS = 1500;
  * news by its replies): a reply that ended, since it cannot be older than the conversation. Not a
  * branch's (its replies were copied), nor while it runs (the rule follows that run from now on).
  */
-export function newConversationNews(c: Pick<ConversationSummary, 'running' | 'branchFrom' | 'lastReplyId' | 'lastStatus'>): AlertKind | undefined {
+export function newConversationNews(
+  c: Pick<ConversationSummary, 'running' | 'branchFrom' | 'lastReplyId' | 'lastStatus'>,
+): AlertKind | undefined {
   if (c.running || c.branchFrom || !c.lastReplyId) return undefined;
   return c.lastStatus === 'done' || c.lastStatus === 'error' ? c.lastStatus : undefined;
 }

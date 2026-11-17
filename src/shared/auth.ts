@@ -37,11 +37,7 @@ export function codeFromBytes(bytes: Uint8Array): string {
  * letters Crockford's base 32 reads as digits (O as 0, I and L as 1). Undefined when it cannot be one.
  */
 export function normalizeCode(input: string): string | undefined {
-  const raw = input
-    .toUpperCase()
-    .replace(/[\s-]/g, '')
-    .replace(/O/g, '0')
-    .replace(/[IL]/g, '1');
+  const raw = input.toUpperCase().replace(/[\s-]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
   return raw.length === CODE_LENGTH && [...raw].every((ch) => ALPHABET.includes(ch)) ? raw : undefined;
 }
 

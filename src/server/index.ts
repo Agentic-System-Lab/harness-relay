@@ -17,14 +17,28 @@ import { killAll } from './process';
 import { ProviderService } from './providers';
 import { PushService } from './push';
 import { Scheduler } from './scheduler';
+import { ToolGateway, outboxTool } from './gateway';
+import { findBrowser } from './browser/find';
+import { BrowserService } from './browser/session';
+import { browserTools } from './browser/tools';
+import { connectorTools } from './connectors/tools';
+import { Outbox } from './outbox';
 import { clearShareTmp } from './share';
 import { openSecretStore, openSystemKeyring, type SecretStore } from './secrets';
 import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
 import { clearRunTmp, dataDirInTemp, makeCodespaceGhDir, relayTmpDir, voiceDirProblem } from './protect';
-import { CONFIG_PROBLEMS } from './config';
+import { CONFIG, CONFIG_PROBLEMS } from './config';
 import { OPEN_PROVIDERS, type Lang } from '../shared/types';
 import { RUN_TMP_DIR, clearOpenRunLeftovers } from './agents/open';
-import { clearRelaySandboxLeftovers, noteListeningPort, relaySandboxHostRoot, relaySandboxRoot } from './relaySandbox';
+import {
+  clearRelaySandboxLeftovers,
+  gatewayNode,
+  localAddresses,
+  noteListeningPort,
+  relayPorts,
+  relaySandboxHostRoot,
+  relaySandboxRoot,
+} from './relaySandbox';
 import { Store } from './store';
 import { VoiceService } from './voice';
 import { CliInstaller } from './cliInstall';
@@ -105,6 +119,35 @@ const orchestrator = new Orchestrator(
   agentsView,
 );
 
+// Harness Relay's own tools (browser, mail, calendar), which agents reach through one MCP server of
+// Harness Relay's (the gateway), and the outbox of what they asked to send.
+const outbox = new Outbox(db);
+const gateway = new ToolGateway(DATA_DIR, relayTmpDir(), () => gatewayNode());
+const browser = new BrowserService({
+  dataDir: DATA_DIR,
+  // The browser set in Settings, else RELAY_BROWSER's, else one found on this computer.
+  executable: () => findBrowser({ configured: settings.tools.browserPath() ?? CONFIG.browser }),
+  // Harness Relay's own ports, and the gateway's HTTP endpoint: never opened by its browser.
+  relayPorts: () => [...relayPorts(), ...(gateway.httpPort() ? [gateway.httpPort()!] : [])],
+  own: () => localAddresses(),
+});
+gateway.register([outboxTool((id) => outbox.list(id)), ...browserTools(browser), ...connectorTools(settings.connectors)]);
+orchestrator.onDelete = (id) => void browser.close(id, true);
+orchestrator.gateway = gateway;
+orchestrator.outbox = outbox;
+orchestrator.reconcileOutbox();
+settings.tools.browserStatus = () => {
+  const using = findBrowser({ configured: settings.tools.browserPath() ?? CONFIG.browser });
+  return { ...(CONFIG.browser ? { env: CONFIG.browser } : {}), ...(using ? { using } : {}) };
+};
+// Available while it listens (over HTTP no Node.js is needed); without a Node.js, the CLIs that start its
+// program (Claude Code; Cline, OpenHands and Pi in full access) get none, which the reason says.
+settings.tools.gatewayStatus = () => {
+  if (!gateway.listening()) return { available: false, reason: 'not-started' };
+  const why = gateway.unavailable();
+  return { available: true, ...(why && why !== 'not-started' ? { reason: why } : {}) };
+};
+
 // Sends each conversation's scheduled message when it comes due.
 const scheduler = new Scheduler(store, orchestrator);
 
@@ -142,7 +185,10 @@ hub.subscribeAll(() => {
 // The desktop app, when it started this server (desktop/); undefined for `npm start` and `npm run dev`.
 const parent = desktopParent();
 
-const extraHosts = (process.env.RELAY_ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim()).filter(Boolean);
+const extraHosts = (process.env.RELAY_ALLOWED_HOSTS ?? '')
+  .split(',')
+  .map((h) => h.trim())
+  .filter(Boolean);
 // What the desktop app says of its updates, for the chat to show (only the version otherwise).
 const updates = new Updates(parent, relayVersion);
 const clis = new CliInstaller(settings, { changed: (p) => providers.invalidate(p), busy: () => orchestrator.anyRunning() });
@@ -151,7 +197,25 @@ void clis.recover();
 const sandboxSetup = new SandboxSetup({ changed: () => providers.invalidate() });
 // The language the chat in the desktop app's window shows: the app's menus follow it.
 const desktopLang = parent ? (lang: Lang) => parent.send({ type: 'lang', lang }) : undefined;
-const app = createApp({ auth, store, settings, hub, orchestrator, providers, voice, clis, sandboxSetup, agentsView, native, extraHosts, desktopApp: Boolean(parent), updates, desktopLang, push, alerts });
+const app = createApp({
+  auth,
+  store,
+  settings,
+  hub,
+  orchestrator,
+  providers,
+  voice,
+  clis,
+  sandboxSetup,
+  agentsView,
+  native,
+  extraHosts,
+  desktopApp: Boolean(parent),
+  updates,
+  desktopLang,
+  push,
+  alerts,
+});
 
 // --- Static web app (production build) ------------------------------------------
 
@@ -177,7 +241,7 @@ try {
 try {
   clearRunTmp();
 } catch (err) {
-  console.error('[server] could not clear the turns\' temporary folders:', err);
+  console.error("[server] could not clear the turns' temporary folders:", err);
 }
 // The temporary folders of relay-sandbox runs the server was stopped during (none is running yet).
 // Whether nothing of them still runs: only then may permissions be given back to remove what is locked.
@@ -191,8 +255,14 @@ try {
 // is kept from reading other runs' folders in them from the first turn (`privateRoots`).
 // What open agents' runs a stopped server was running left: their temp folders, and the state folders of
 // runs without a key.
-clearOpenRunLeftovers(OPEN_PROVIDERS.flatMap((p) => settings.openAgentHomes(p)), undefined, { restore: swept });
+clearOpenRunLeftovers(
+  OPEN_PROVIDERS.flatMap((p) => settings.openAgentHomes(p)),
+  undefined,
+  { restore: swept },
+);
 for (const dir of [relaySandboxRoot(), relaySandboxHostRoot(), RUN_TMP_DIR]) mkdirSync(dir, { recursive: true, mode: 0o700 });
+// The gateway's socket: agents get Harness Relay's own tools only once it listens.
+await gateway.start().catch((err: unknown) => console.error("[server] could not start the gateway for Harness Relay's own tools:", err));
 
 const port = apiPort();
 const host = process.env.HOST ?? DEFAULT_HOST;
@@ -201,7 +271,9 @@ const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
   noteListeningPort(info.port);
   console.log(`Harness Relay API listening on http://${host}:${info.port}`);
   if (dataDirInTemp()) {
-    console.warn(`[server] The data folder ${DATA_DIR} is in a temp folder, which agents' sandboxes may write in: set RELAY_DATA_DIR to a folder elsewhere.`);
+    console.warn(
+      `[server] The data folder ${DATA_DIR} is in a temp folder, which agents' sandboxes may write in: set RELAY_DATA_DIR to a folder elsewhere.`,
+    );
   }
   if (parent) {
     // The desktop app asks for a link each time it opens the chat (over its port: none goes to the
@@ -242,6 +314,8 @@ async function shutdown(code = 0): Promise<void> {
   alerts.stop();
   inbox.stop();
   orchestrator.stopAll();
+  void gateway.stop();
+  browser.closeAll();
   providers.shutdown();
   voice.shutdown();
   // Installs under way stop; each cleans up after itself (on Windows, the user's PATH put back).

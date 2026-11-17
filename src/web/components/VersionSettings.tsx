@@ -63,7 +63,9 @@ export function VersionCard({ status, onUpdate }: Props) {
           )}
         </div>
       )}
-      {offer && asked === offer.version && <p className="muted small">{isAppWindow(navigator.userAgent) ? v.confirmHere : v.confirmThere}</p>}
+      {offer && asked === offer.version && (
+        <p className="muted small">{isAppWindow(navigator.userAgent) ? v.confirmHere : v.confirmThere}</p>
+      )}
       {error && (
         <p className="small warn-text" role="alert">
           {error}

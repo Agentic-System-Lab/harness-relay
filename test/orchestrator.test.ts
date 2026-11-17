@@ -10,7 +10,33 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { dirname, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { Conversation, ConversationSettings } from '../src/shared/types';
-import { agentMessages, agents, attachmentPath, attachmentsDir, calls, conversation, copying, db, fake, finish, Hub, n, orchestrator, Orchestrator, root, runners, safeFileName, setOrchestrator, settings, stateFolder, stateKeys, store, Store, textOf, withLang } from './orchestrator-harness';
+import {
+  agentMessages,
+  agents,
+  attachmentPath,
+  attachmentsDir,
+  calls,
+  conversation,
+  copying,
+  db,
+  fake,
+  finish,
+  Hub,
+  n,
+  orchestrator,
+  Orchestrator,
+  root,
+  runners,
+  safeFileName,
+  setOrchestrator,
+  settings,
+  stateFolder,
+  stateKeys,
+  store,
+  Store,
+  textOf,
+  withLang,
+} from './orchestrator-harness';
 
 describe('AgentsView', () => {
   /** A sink that records what it was told. */
@@ -43,13 +69,15 @@ describe('AgentsView', () => {
 
   it("links the lead agent's and the group sorter's sessions to the conversation", async () => {
     const traces = sink();
-    setOrchestrator(new Orchestrator(
-      store,
-      new Hub(),
-      settings,
-      { context: async () => ({ available: ['claude'], catalog: [], presets: store.listPresets() }) },
-      traces,
-    ));
+    setOrchestrator(
+      new Orchestrator(
+        store,
+        new Hub(),
+        settings,
+        { context: async () => ({ available: ['claude'], catalog: [], presets: store.listPresets() }) },
+        traces,
+      ),
+    );
     store.createGroup({ id: 'g1', name: 'Docs' });
     const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
     fake.leadReply = '{"template": "general-panel", "reason": "fits"}';
@@ -92,11 +120,13 @@ describe('AgentsView', () => {
 
   it('keeps the run whole when telling fails', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    setOrchestrator(new Orchestrator(store, new Hub(), settings, undefined, {
-      schedule: () => {
-        throw new Error('sink broke');
-      },
-    }));
+    setOrchestrator(
+      new Orchestrator(store, new Hub(), settings, undefined, {
+        schedule: () => {
+          throw new Error('sink broke');
+        },
+      }),
+    );
     try {
       const conv = conversation({ mode: 'roundtable' }); // edit: locks the directory
       await orchestrator.send(conv.id, 'go');
@@ -212,10 +242,12 @@ describe("each member's own state, and a session that ran with less permission",
     const saved = { opencode: runners.opencode, goose: runners.goose };
     runners.opencode = { ...runners.claude, provider: 'opencode' };
     runners.goose = { ...runners.claude, provider: 'goose' };
-    setOrchestrator(new Orchestrator(store, new Hub(), settings, {
-      context: async () => ({ available: ['claude', 'opencode', 'goose'], catalog: [], presets: store.listPresets() }),
-      defaultModel: async () => 'openai/gpt-5.4-nano',
-    }));
+    setOrchestrator(
+      new Orchestrator(store, new Hub(), settings, {
+        context: async () => ({ available: ['claude', 'opencode', 'goose'], catalog: [], presets: store.listPresets() }),
+        defaultModel: async () => 'openai/gpt-5.4-nano',
+      }),
+    );
     try {
       await body();
     } finally {
@@ -280,39 +312,50 @@ describe("each member's own state, and a session that ran with less permission",
   });
 
   // POSIX paths, file modes or programs: tried on macOS and Linux.
-  it.skipIf(process.platform === 'win32')('does not run an open agent whose state folder could not be emptied, and empties it at the next turn', async () => {
-    await withOpenAgents(async () => {
-      const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
-      conv.agents = [{ ...agents[0]!, provider: 'opencode' }];
-      await orchestrator.send(conv.id, 'one');
-      await finish(conv.id);
-      const left = leaveInState('opencode', conv.id);
-      conv.settings.permission = 'edit';
-      store.saveMeta(conv);
-      const folders = dirname(dirname(left));
-      chmodSync(folders, 0o500); // the folder cannot be set aside
-      try {
-        await withLang('en', () => orchestrator.send(conv.id, 'two'));
+  it.skipIf(process.platform === 'win32')(
+    'does not run an open agent whose state folder could not be emptied, and empties it at the next turn',
+    async () => {
+      await withOpenAgents(async () => {
+        const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+        conv.agents = [{ ...agents[0]!, provider: 'opencode' }];
+        await orchestrator.send(conv.id, 'one');
         await finish(conv.id);
-      } finally {
-        chmodSync(folders, 0o700);
-      }
-      expect(existsSync(left)).toBe(true);
-      // What a run may do in its own folder (lock a folder in it) does not keep it from being emptied.
-      mkdirSync(join(dirname(left), 'locked'));
-      chmodSync(join(dirname(left), 'locked'), 0o000);
-      expect(alice()).toHaveLength(1);
-      expect(agentMessages(conv).at(-1)).toMatchObject({ status: 'error' });
-      expect(agentMessages(conv).at(-1)!.error).toMatch(/must be emptied before it runs, but it could not be/);
-      expect(new Store(db).get(conv.id)!.agentState.a!.byCli!.opencode).toEqual({ permission: 'edit', home: settings.openAgentHome('opencode'), mustEmpty: true });
-      // The permission did not go up from the last run's (edit), but the folder still has to be emptied.
-      await orchestrator.send(conv.id, 'three');
-      await finish(conv.id);
-      expect(alice().at(-1)).toMatchObject({ permission: 'edit', freshState: true, sessionId: undefined });
-      expect(existsSync(left)).toBe(false);
-      expect(new Store(db).get(conv.id)!.agentState.a!.byCli!.opencode).toEqual({ permission: 'edit', home: settings.openAgentHome('opencode') });
-    });
-  }, 30_000);
+        const left = leaveInState('opencode', conv.id);
+        conv.settings.permission = 'edit';
+        store.saveMeta(conv);
+        const folders = dirname(dirname(left));
+        chmodSync(folders, 0o500); // the folder cannot be set aside
+        try {
+          await withLang('en', () => orchestrator.send(conv.id, 'two'));
+          await finish(conv.id);
+        } finally {
+          chmodSync(folders, 0o700);
+        }
+        expect(existsSync(left)).toBe(true);
+        // What a run may do in its own folder (lock a folder in it) does not keep it from being emptied.
+        mkdirSync(join(dirname(left), 'locked'));
+        chmodSync(join(dirname(left), 'locked'), 0o000);
+        expect(alice()).toHaveLength(1);
+        expect(agentMessages(conv).at(-1)).toMatchObject({ status: 'error' });
+        expect(agentMessages(conv).at(-1)!.error).toMatch(/must be emptied before it runs, but it could not be/);
+        expect(new Store(db).get(conv.id)!.agentState.a!.byCli!.opencode).toEqual({
+          permission: 'edit',
+          home: settings.openAgentHome('opencode'),
+          mustEmpty: true,
+        });
+        // The permission did not go up from the last run's (edit), but the folder still has to be emptied.
+        await orchestrator.send(conv.id, 'three');
+        await finish(conv.id);
+        expect(alice().at(-1)).toMatchObject({ permission: 'edit', freshState: true, sessionId: undefined });
+        expect(existsSync(left)).toBe(false);
+        expect(new Store(db).get(conv.id)!.agentState.a!.byCli!.opencode).toEqual({
+          permission: 'edit',
+          home: settings.openAgentHome('opencode'),
+        });
+      });
+    },
+    30_000,
+  );
 
   it("keeps each CLI's own permission: back on a CLI whose last run was read-only, its folder is emptied", async () => {
     await withOpenAgents(async () => {
@@ -427,17 +470,19 @@ describe("each member's own state, and a session that ran with less permission",
     expect(keys.size).toBe(4);
   });
 
-  it("runs an open agent with no model on the default its model picker shows; the other CLIs on their own", async () => {
+  it('runs an open agent with no model on the default its model picker shows; the other CLIs on their own', async () => {
     const saved = runners.opencode;
     runners.opencode = { ...runners.claude, provider: 'opencode' };
     const asked: string[] = [];
-    setOrchestrator(new Orchestrator(store, new Hub(), settings, {
-      context: async () => ({ available: ['claude', 'opencode'], catalog: [], presets: store.listPresets() }),
-      defaultModel: async (p) => {
-        asked.push(p);
-        return 'openai/gpt-5.4-nano';
-      },
-    }));
+    setOrchestrator(
+      new Orchestrator(store, new Hub(), settings, {
+        context: async () => ({ available: ['claude', 'opencode'], catalog: [], presets: store.listPresets() }),
+        defaultModel: async (p) => {
+          asked.push(p);
+          return 'openai/gpt-5.4-nano';
+        },
+      }),
+    );
     try {
       const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
       conv.agents = [
@@ -515,7 +560,7 @@ describe('editing a user message', () => {
     expect(reloaded.messages.map((m) => m.id)).toEqual(conv.messages.map((m) => m.id));
   });
 
-  it('refuses while the team is replying, and for messages that are not the user\'s', async () => {
+  it("refuses while the team is replying, and for messages that are not the user's", async () => {
     const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
     let release!: () => void;
     fake.gate = new Promise((r) => (release = r));
@@ -608,18 +653,27 @@ describe('accounts', () => {
     expect((await turn('studio/qwen3', 'seven')).sessionId).toBe('session-Alice');
   });
 
-  it("runs the lead agent as its account, and new members of its team as an account that is signed in", async () => {
+  it('runs the lead agent as its account, and new members of its team as an account that is signed in', async () => {
     const home = join(root, `agents-${n}`);
     settings.setAgentHome(home);
     const work = settings.addAccount('claude', 'Work');
     settings.setLead({ provider: 'claude', account: work });
     // Only the Work account is signed in.
-    setOrchestrator(new Orchestrator(store, new Hub(), settings, {
-      context: async () => ({ available: ['claude'], accounts: { claude: [work] }, catalog: [], presets: store.listPresets() }),
-    }));
+    setOrchestrator(
+      new Orchestrator(store, new Hub(), settings, {
+        context: async () => ({ available: ['claude'], accounts: { claude: [work] }, catalog: [], presets: store.listPresets() }),
+      }),
+    );
     const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
     conv.agents = [];
-    fake.leadReply = JSON.stringify({ choice: 'custom', name: 'Pair', mode: 'roundtable', rounds: 1, agents: [{ name: 'Ann', provider: 'claude', role: 'r' }], reason: 'x' });
+    fake.leadReply = JSON.stringify({
+      choice: 'custom',
+      name: 'Pair',
+      mode: 'roundtable',
+      rounds: 1,
+      agents: [{ name: 'Ann', provider: 'claude', role: 'r' }],
+      reason: 'x',
+    });
     await orchestrator.send(conv.id, 'design one');
     await finish(conv.id);
     expect(calls.map((c) => [c.name, c.home])).toEqual([['lead', join(home, `claude-${work}`)]]);
@@ -632,7 +686,12 @@ describe("each account's own defaults and what its runs leave out", () => {
     settings.setAgentHome(join(root, `agents-${n}`));
     settings.updateAccount('claude', '', { defaultModel: 'opus', defaultEffort: 'high', nativeOff: ['mcp'] });
     const work = settings.addAccount('claude', 'Work');
-    settings.updateAccount('claude', work, { defaultModel: 'sonnet', defaultEffort: 'low', nativeOff: ['hooks'], nativeItems: { skills: ['commit'] } });
+    settings.updateAccount('claude', work, {
+      defaultModel: 'sonnet',
+      defaultEffort: 'low',
+      nativeOff: ['hooks'],
+      nativeItems: { skills: ['commit'] },
+    });
     const gone = settings.addAccount('claude', 'Gone');
     settings.updateAccount('claude', gone, { defaultModel: 'haiku', nativeOff: ['plugins'] });
     settings.removeAccount('claude', gone);
@@ -662,7 +721,12 @@ describe("each account's own defaults and what its runs leave out", () => {
     settings.setAgentHome(join(root, `agents-${n}`));
     settings.updateAccount('claude', '', { defaultModel: 'opus', nativeOff: ['mcp'] });
     const work = settings.addAccount('claude', 'Work');
-    settings.updateAccount('claude', work, { defaultModel: 'sonnet', defaultEffort: 'medium', nativeOff: ['skills'], nativeItems: { tools: ['WebFetch'] } });
+    settings.updateAccount('claude', work, {
+      defaultModel: 'sonnet',
+      defaultEffort: 'medium',
+      nativeOff: ['skills'],
+      nativeItems: { tools: ['WebFetch'] },
+    });
     settings.setLead({ provider: 'claude', account: work });
     store.createGroup({ id: 'g1', name: 'Docs' });
     const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
@@ -687,22 +751,36 @@ describe('approvals', () => {
   };
   const pendingApproval = (conv: Conversation) =>
     conv.messages.flatMap((m) => m.parts).find((p) => p.type === 'approval' && p.status === 'pending') as
-      | Extract<Conversation['messages'][number]['parts'][number], { type: 'approval' }>
-      | undefined;
+      Extract<Conversation['messages'][number]['parts'][number], { type: 'approval' }> | undefined;
   const approvals = (conv: Conversation) =>
     conv.messages.flatMap((m) => m.parts).filter((p) => p.type === 'approval') as Extract<
       Conversation['messages'][number]['parts'][number],
       { type: 'approval' }
     >[];
-  const lastReply = (conv: Conversation) => agentMessages(conv).at(-1)!.parts.find((p) => p.type === 'text');
+  const lastReply = (conv: Conversation) =>
+    agentMessages(conv)
+      .at(-1)!
+      .parts.find((p) => p.type === 'text');
 
   it('asks the user, waits, and remembers "always allow" for the conversation', async () => {
     const conv = solo();
     await orchestrator.send(conv.id, 'please install');
     await vi.waitFor(() => expect(orchestrator.isWaiting(conv.id)).toBe(true));
-    expect(store.list(() => true, (id) => orchestrator.isWaiting(id)).find((c) => c.id === conv.id)?.waiting).toBe(true);
+    expect(
+      store
+        .list(
+          () => true,
+          (id) => orchestrator.isWaiting(id),
+        )
+        .find((c) => c.id === conv.id)?.waiting,
+    ).toBe(true);
     const pending = pendingApproval(conv)!;
-    expect(pending).toMatchObject({ kind: 'command', detail: 'npm install left-pad', ruleLabel: 'npm install', reason: 'Install a dependency' });
+    expect(pending).toMatchObject({
+      kind: 'command',
+      detail: 'npm install left-pad',
+      ruleLabel: 'npm install',
+      reason: 'Install a dependency',
+    });
 
     orchestrator.answerApproval(conv.id, pending.id, { allow: true, always: true });
     await finish(conv.id);
@@ -926,7 +1004,11 @@ describe('conversations with agents at work (what an update of the desktop app w
 
     fake.reviseGate = new Promise(() => {});
     const left = new AbortController();
-    const revising = orchestrator.reviseTeam(conv.id, { request: 'add a tester', agents: conv.agents, settings: { mode: 'roundtable', rounds: 1, maxHops: 5 } }, left.signal);
+    const revising = orchestrator.reviseTeam(
+      conv.id,
+      { request: 'add a tester', agents: conv.agents, settings: { mode: 'roundtable', rounds: 1, maxHops: 5 } },
+      left.signal,
+    );
     await vi.waitFor(() => expect(orchestrator.busy()).toBe(1));
     left.abort();
     await expect(revising).rejects.toMatchObject({ status: 409 });
@@ -1001,7 +1083,9 @@ describe('deleting a conversation', () => {
     const conv = conversation({ mode: 'parallel' });
     await orchestrator.send(conv.id, 'go');
     await vi.waitFor(() => expect(orchestrator.activeAgentIds(conv.id)).toHaveLength(2));
-    const worktrees = Object.values(conv.worktrees).flat().map((w) => w.path);
+    const worktrees = Object.values(conv.worktrees)
+      .flat()
+      .map((w) => w.path);
 
     await orchestrator.deleteConversation(conv.id);
     expect(orchestrator.isRunning(conv.id)).toBe(false);
@@ -1024,7 +1108,7 @@ describe('deleting a conversation', () => {
 });
 
 describe('failed turns', () => {
-  it('keeps an agent\'s session when starting it fresh fails for the same reason', async () => {
+  it("keeps an agent's session when starting it fresh fails for the same reason", async () => {
     const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
     conv.agents = [agents[0]!];
     await orchestrator.send(conv.id, 'first');
@@ -1065,7 +1149,7 @@ describe('failed turns', () => {
     expect(calls.find((c) => c.name === 'Alice')!.prompt).toMatch(/<message from="@Alice"[^>]* status="failed">/);
   });
 
-  it("does not send an agent its own stopped reply when its session holds it", async () => {
+  it('does not send an agent its own stopped reply when its session holds it', async () => {
     const conv = conversation({ mode: 'roundtable' });
     conv.agents = [agents[0]!];
     await orchestrator.send(conv.id, 'first');
@@ -1108,9 +1192,7 @@ describe('failed turns', () => {
 
 describe('approvals and the directory lock', () => {
   const pending = (conv: Conversation) =>
-    conv.messages.flatMap((m) => m.parts).find((p) => p.type === 'approval' && p.status === 'pending') as
-      | { id: string }
-      | undefined;
+    conv.messages.flatMap((m) => m.parts).find((p) => p.type === 'approval' && p.status === 'pending') as { id: string } | undefined;
 
   it('declines an approved action in a read-only conversation while another one writes the directory', async () => {
     const writer = conversation({ mode: 'roundtable' });
@@ -1262,9 +1344,16 @@ describe('messages sent while the team replies', () => {
     await orchestrator.send(conv.id, 'second addition');
     expect(await orchestrator.send(conv.id, 'do this instead', undefined, true)).toEqual({ queued: false });
     expect(said(conv)).toEqual([
-      'question', '@Alice', 'note',
-      'first addition', 'second question', '@Alice', 'note',
-      'second addition', 'do this instead', '@Alice',
+      'question',
+      '@Alice',
+      'note',
+      'first addition',
+      'second question',
+      '@Alice',
+      'note',
+      'second addition',
+      'do this instead',
+      '@Alice',
     ]);
     release();
     await finish(conv.id);
@@ -1317,7 +1406,14 @@ describe('agents asking the user', () => {
     const question = conv.messages[1]!;
     expect(question.asked).toBe(true);
     expect(textOf(question)).toBe('Alice asks: A or B?'); // the marker is not part of the chat
-    expect(conv.pause).toEqual({ mode: 'roundtable', askers: ['a'], rest: [{ agentId: 'b' }], participants: ['a', 'b'], round: 1, rounds: 1 });
+    expect(conv.pause).toEqual({
+      mode: 'roundtable',
+      askers: ['a'],
+      rest: [{ agentId: 'b' }],
+      participants: ['a', 'b'],
+      round: 1,
+      rounds: 1,
+    });
     const reloaded = new Store(db).get(conv.id)!;
     expect(reloaded.pause).toEqual(conv.pause);
     expect(reloaded.messages[1]!.asked).toBe(true);

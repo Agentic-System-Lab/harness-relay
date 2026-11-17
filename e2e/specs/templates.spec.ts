@@ -1,14 +1,29 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
-import { askAndConfirm, awaitingPlan, finishedReply, heightWithoutAddCard, openNewChat, replies, send, settled, startChat } from '../support/app';
+import {
+  askAndConfirm,
+  awaitingPlan,
+  finishedReply,
+  heightWithoutAddCard,
+  openNewChat,
+  replies,
+  send,
+  settled,
+  startChat,
+} from '../support/app';
 import { notInstalledBut } from '../support/fake-cli';
 
 /** The CLI each member of the open template is on, in order. */
 const memberClis = (page: Page) =>
-  page.getByRole('dialog').locator('.agent-card:not(.add-card)').evaluateAll((cards) => cards.map((c) => c.querySelector('.cli-picker [aria-checked="true"]')?.textContent));
+  page
+    .getByRole('dialog')
+    .locator('.agent-card:not(.add-card)')
+    .evaluateAll((cards) => cards.map((c) => c.querySelector('.cli-picker [aria-checked="true"]')?.textContent));
 
 test.describe('templates on the CLIs that can run here', () => {
-  test("a new template has a member for each CLI installed here only, also when opened before the CLIs' statuses came", async ({ page }) => {
+  test("a new template has a member for each CLI installed here only, also when opened before the CLIs' statuses came", async ({
+    page,
+  }) => {
     // The page reloaded and the template opened while the statuses were still on their way.
     let release = () => {};
     const held = new Promise<void>((resolve) => (release = resolve));
@@ -34,7 +49,9 @@ test.describe('templates on the CLIs that can run here', () => {
   test.describe('without Grok', () => {
     test.use({ missingClis: [...notInstalledBut(), 'grok'] });
 
-    test("a template's member on a CLI not installed here moves to one that is, says so, and the template can be saved so", async ({ page }) => {
+    test("a template's member on a CLI not installed here moves to one that is, says so, and the template can be saved so", async ({
+      page,
+    }) => {
       await openNewChat(page);
       // A new template: only the two installed.
       await page.locator('.preset-card.new-template .preset-main').click();
@@ -68,7 +85,9 @@ test.describe('templates', () => {
     await expect(editor).toBeHidden();
   });
 
-  test("in a template's editor, three columns wide, the add card lists every CLI on a row of its own and is as tall as a member beside it", async ({ page }) => {
+  test("in a template's editor, three columns wide, the add card lists every CLI on a row of its own and is as tall as a member beside it", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1280, height: 1300 });
     await openNewChat(page);
     await page.locator('.preset-card', { hasText: 'Architect → Builder → Reviewer' }).locator('.preset-main').click();
@@ -119,7 +138,7 @@ test.describe('templates', () => {
     await expect(page.locator('.msg-agent')).toHaveCount(6);
   });
 
-  test("a team the lead agent designed can be saved as a template", async ({ page }) => {
+  test('a team the lead agent designed can be saved as a template', async ({ page }) => {
     await startChat(page);
     await askAndConfirm(page, 'Plan the release e2e:team=claude,grok e2e:name=Release_crew');
     await finishedReply(page, 'Grok');

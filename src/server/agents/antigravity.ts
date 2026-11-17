@@ -8,7 +8,16 @@ import { t } from '../i18n';
 import { converse, runProcess, runSync, tail } from '../process';
 import { protectedReads, realPath } from '../protect';
 import { ANTIGRAVITY_HOME_ENV, ANTIGRAVITY_KEY_ONLY_ENV } from '../settings';
-import { JsonRpcConnection, RpcError, acpContentText, acpMcpServers, acpPrompt, acpTokens, answerPermission, type AcpDecision } from './acp';
+import {
+  JsonRpcConnection,
+  RpcError,
+  acpContentText,
+  acpMcpServers,
+  acpPrompt,
+  acpTokens,
+  answerPermission,
+  type AcpDecision,
+} from './acp';
 import {
   AgentRunError,
   TURN_TIMEOUT_MS,
@@ -231,7 +240,9 @@ export function prepareAntigravityRun(appDir: string, permission: Permission, ap
     rmSync(dir, { recursive: true, force: true });
   };
   try {
-    writeFileSync(join(dir, 'settings.json'), `${JSON.stringify(antigravityRunSettings(own, permission, apiKey, keyOnly), null, 2)}\n`, { mode: 0o600 });
+    writeFileSync(join(dir, 'settings.json'), `${JSON.stringify(antigravityRunSettings(own, permission, apiKey, keyOnly), null, 2)}\n`, {
+      mode: 0o600,
+    });
   } catch (err) {
     done();
     throw err;
@@ -266,10 +277,12 @@ function upToRepo(dir: string): string[] {
 export function antigravityProjectFiles(dirs: readonly string[]): string[] {
   const out = new Set<string>();
   for (const dir of dirs) {
-    for (const up of upToRepo(dir)) for (const r of AGY_ROOTS) for (const f of AGY_RUNNABLE) {
-      const p = join(up, r, f);
-      if (existsSync(p)) out.add(p);
-    }
+    for (const up of upToRepo(dir))
+      for (const r of AGY_ROOTS)
+        for (const f of AGY_RUNNABLE) {
+          const p = join(up, r, f);
+          if (existsSync(p)) out.add(p);
+        }
   }
   return [...out];
 }
@@ -401,7 +414,10 @@ function listProcs(): AntigravityProc[] {
 async function endStrays(groups: ReadonlySet<number>, startedAt: number): Promise<void> {
   if (!groups.size) return;
   const maxAge = (Date.now() - startedAt) / 1000 + 2;
-  for (const [sig, wait] of [['SIGTERM', 500], ['SIGKILL', 0]] as const) {
+  for (const [sig, wait] of [
+    ['SIGTERM', 500],
+    ['SIGKILL', 0],
+  ] as const) {
     const pids = strayProcs(listProcs(), groups, maxAge);
     if (!pids.length) return;
     for (const pid of pids) {
@@ -428,8 +444,8 @@ const hashOf = (text: string) => createHash('sha256').update(text).digest('hex')
  * nothing), and its own question tool ends the turn without Harness Relay knowing it asked.
  */
 export const ANTIGRAVITY_NOTES =
-  'In this app, a tool call that is refused (by the user, or because the conversation\'s permission does not cover it) ends your turn at once, ' +
-  'and you are not told why. So before a call that may need the user\'s approval (a shell command, a write outside the working directories), ' +
+  "In this app, a tool call that is refused (by the user, or because the conversation's permission does not cover it) ends your turn at once, " +
+  "and you are not told why. So before a call that may need the user's approval (a shell command, a write outside the working directories), " +
   'first say in your reply what you are about to do and why. To ask the user something, ask as these instructions say, not with your ask_question tool.';
 
 /** The briefing as it is added to the system prompt: it replaces any earlier one the session was given. */
@@ -487,13 +503,25 @@ export function antigravityCommand(call: AntigravityToolCall): string {
 }
 
 /** The input keys a tool call names a file or folder by. */
-const PATH_KEYS = ['Path', 'path', 'AbsolutePath', 'SearchPath', 'DirectoryPath', 'TargetFile', 'Source', 'Destination', 'file_path'] as const;
+const PATH_KEYS = [
+  'Path',
+  'path',
+  'AbsolutePath',
+  'SearchPath',
+  'DirectoryPath',
+  'TargetFile',
+  'Source',
+  'Destination',
+  'file_path',
+] as const;
 
 /** Every file or folder a call is about: its input's paths and its locations, each once. */
 export function antigravityPaths(call: AntigravityToolCall): string[] {
   const input = call.rawInput ?? {};
   const fromInput = PATH_KEYS.map((k) => input[k]).filter((p): p is string => typeof p === 'string' && p.length > 0);
-  const fromLocations = Array.isArray(call.locations) ? call.locations.map((l) => l?.path).filter((p): p is string => typeof p === 'string' && p.length > 0) : [];
+  const fromLocations = Array.isArray(call.locations)
+    ? call.locations.map((l) => l?.path).filter((p): p is string => typeof p === 'string' && p.length > 0)
+    : [];
   return [...new Set([...fromInput, ...fromLocations])];
 }
 
@@ -527,8 +555,28 @@ function within(cwd: string, path: string, dir: string): boolean {
 const GITHUB_AGENT_CONFIG = new Set(['hooks', 'copilot', 'mcp.json', 'lsp.json', 'extensions', 'agents']);
 
 const AGENT_CONFIG = new Set([
-  '.agents', '.agent', '_agents', '_agent', '.gemini', '.muse', '.claude', '.codex', '.grok', '.cursor', '.opencode', '.goose', '.cline', '.clinerules', '.openhands', '.pi',
-  '.vscode', '.idea', '.mcp.json', '.gitmodules', '.gitconfig', '.envrc',
+  '.agents',
+  '.agent',
+  '_agents',
+  '_agent',
+  '.gemini',
+  '.muse',
+  '.claude',
+  '.codex',
+  '.grok',
+  '.cursor',
+  '.opencode',
+  '.goose',
+  '.cline',
+  '.clinerules',
+  '.openhands',
+  '.pi',
+  '.vscode',
+  '.idea',
+  '.mcp.json',
+  '.gitmodules',
+  '.gitconfig',
+  '.envrc',
 ]);
 
 /**
@@ -565,7 +613,8 @@ const isWrite = (call: AntigravityToolCall) =>
  * is not known could be of a protected folder, and asks.
  */
 const isRead = (call: AntigravityToolCall) =>
-  (call.kind === 'read' || call.name === 'read_file' || call.name === 'list_dir' || (call.kind === 'search' && !isWeb(call))) && antigravityPaths(call).length > 0;
+  (call.kind === 'read' || call.name === 'read_file' || call.name === 'list_dir' || (call.kind === 'search' && !isWeb(call))) &&
+  antigravityPaths(call).length > 0;
 
 /** What to do with a call Antigravity asks about: run it, ask the user, or refuse it without asking. */
 export type AntigravityDecision = { run: 'allow' } | { run: 'ask' } | { run: 'refuse'; reason: string };
@@ -619,16 +668,17 @@ export function antigravityApprovalRequest(
     const path = antigravityPath(call);
     const dir = path ? [cwd, ...addDirs].find((d) => within(cwd, path, d)) : undefined;
     const reason =
-      permission === 'read-only'
-        ? (summary ?? call.title)
-        : !path || !dir
-          ? t().antigravityOutsideWrite
-          : t().antigravityConfigWrite;
+      permission === 'read-only' ? (summary ?? call.title) : !path || !dir ? t().antigravityOutsideWrite : t().antigravityConfigWrite;
     return { kind: 'edit', detail: path, reason };
   }
   if (call.kind === 'fetch') return { kind: 'fetch', detail: input.Url ?? input.url ?? call.title, reason: call.title };
   const tool = call.name || call.title || call.kind || 'tool';
-  return { kind: 'other', tool, detail: summarizeInput(input, { wholePaths: true }) ?? acpContentText(call.content), reason: summary ?? call.title };
+  return {
+    kind: 'other',
+    tool,
+    detail: summarizeInput(input, { wholePaths: true }) ?? acpContentText(call.content),
+    reason: summary ?? call.title,
+  };
 }
 
 // --- Session updates ---------------------------------------------------------------------------
@@ -656,7 +706,12 @@ export function antigravityCommandOutput(text: string): string {
   if (marker >= 0) return out.slice(marker + 'Command output:\n'.length);
   return out
     .split('\n')
-    .filter((l) => !/^(Created At|Completed At): /.test(l) && !/^Command exited with code -?\d+\.$/.test(l) && l.trim() !== 'No output from the command.')
+    .filter(
+      (l) =>
+        !/^(Created At|Completed At): /.test(l) &&
+        !/^Command exited with code -?\d+\.$/.test(l) &&
+        l.trim() !== 'No output from the command.',
+    )
     .join('\n')
     .trim();
 }
@@ -722,7 +777,9 @@ export function createAntigravityUpdateHandler(emit: (e: AgentEvent) => void) {
     const why = refused.get(id);
     const ok = u.status === 'completed' && !why && (code === undefined || code === 0);
     const output = printed.trim() && (ok || command) ? tailText(printed) : undefined;
-    const error = ok ? undefined : (why ?? (code !== undefined && code !== 0 ? t().antigravityExitCode(code) : printed.trim() ? tailText(printed, 500) : undefined));
+    const error = ok
+      ? undefined
+      : (why ?? (code !== undefined && code !== 0 ? t().antigravityExitCode(code) : printed.trim() ? tailText(printed, 500) : undefined));
     emit({ type: 'tool_end', id, ok, ...(error ? { error } : {}), ...(output ? { output } : {}) });
   };
 
@@ -832,7 +889,8 @@ async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult
     if (method !== 'session/update') return;
     const u = params?.update;
     // A command running (or just backgrounded): its process group, while agy is still its parent.
-    if ((u?.sessionUpdate === 'tool_call' || u?.sessionUpdate === 'tool_call_update') && (u.kind === 'execute' || u.name === 'run_command')) noteGroups();
+    if ((u?.sessionUpdate === 'tool_call' || u?.sessionUpdate === 'tool_call_update') && (u.kind === 'execute' || u.name === 'run_command'))
+      noteGroups();
     if (opening) return;
     if (!sessionId || params?.sessionId !== sessionId) return;
     updates.handle(u);
@@ -854,7 +912,10 @@ async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult
       label = declinedLabel(answer.note);
     } else decision = { allow: false, reason: 'Not covered by the permission' };
     if (!decision.allow && call.toolCallId) updates.refused(call.toolCallId, label);
-    return answerPermission(decision, options.filter((x) => x.kind !== 'allow_always' && x.kind !== 'reject_always'));
+    return answerPermission(
+      decision,
+      options.filter((x) => x.kind !== 'allow_always' && x.kind !== 'reject_always'),
+    );
   };
 
   const onAbort = () => {
@@ -909,7 +970,9 @@ async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult
     let opened: any;
     if (o.sessionId) {
       sessionId = o.sessionId;
-      opened = await conn.request('session/resume', { sessionId, cwd: o.cwd, mcpServers, ...dirs, ...(meta ? { _meta: meta } : {}) }).catch(signIn);
+      opened = await conn
+        .request('session/resume', { sessionId, cwd: o.cwd, mcpServers, ...dirs, ...(meta ? { _meta: meta } : {}) })
+        .catch(signIn);
     } else {
       opened = await conn.request('session/new', { cwd: o.cwd, mcpServers, ...dirs, ...(meta ? { _meta: meta } : {}) }).catch(signIn);
       sessionId = String(opened?.sessionId ?? '');

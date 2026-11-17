@@ -3,7 +3,19 @@ import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
 import type { RelayServer } from '../support/relay';
-import { LEAD_REVIEW, awaitingPlan, composer, finishedReply, openNewChat, openTeamChat, replies, reviewCards, send, settled, startChat } from '../support/app';
+import {
+  LEAD_REVIEW,
+  awaitingPlan,
+  composer,
+  finishedReply,
+  openNewChat,
+  openTeamChat,
+  replies,
+  reviewCards,
+  send,
+  settled,
+  startChat,
+} from '../support/app';
 
 /*
  * Lead review: once the team has answered, the lead agent reads its replies, marks what needs a closer
@@ -51,7 +63,10 @@ test.describe('lead review', () => {
     await expect(card.locator('.review-point')).toContainText('Risk');
     await expect(card.locator('.review-quote')).toHaveText('Hello from Claude (Claude');
     await expect(card).toContainText('The fake lead agent flags what @Claude said first.');
-    await expect(card.locator('.review-step')).toHaveText([/You\s*Try the answer yourself\./, /Team\s*Ask @Claude to go on\.\s*Ask the team/]);
+    await expect(card.locator('.review-step')).toHaveText([
+      /You\s*Try the answer yourself\./,
+      /Team\s*Ask @Claude to go on\.\s*Ask the team/,
+    ]);
 
     // The words it quotes are marked in the reply (CSS Custom Highlight API), and the reply says so.
     await expect
@@ -98,7 +113,10 @@ test.describe('lead review', () => {
     await expect(page.getByRole('checkbox', { name: LEAD_REVIEW })).toBeChecked();
   });
 
-  test("is off unless the chat asks for it, and once turned on in the chat's team settings reads the latest question's replies", async ({ page, relay }) => {
+  test("is off unless the chat asks for it, and once turned on in the chat's team settings reads the latest question's replies", async ({
+    page,
+    relay,
+  }) => {
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
     await send(page, 'First');
     await finishedReply(page, 'Claude');
@@ -134,7 +152,9 @@ test.describe('lead review', () => {
     // The next review reads these replies again, with the new ones.
     await send(page, 'Again e2e:badreview');
     await expect(reviewCards(page)).toHaveCount(2);
-    await expect(reviewCards(page).last()).toContainText('The lead agent could not review these replies (no JSON review found in the reply)');
+    await expect(reviewCards(page).last()).toContainText(
+      'The lead agent could not review these replies (no JSON review found in the reply)',
+    );
     const prompt = relay.fakeLog().findLast((e) => e.prompt?.includes('with your review'))!.prompt!;
     expect(prompt).toContain('<message from="user">\nGo e2e:slowreview\n</message>');
     expect(prompt).toContain('<reply n="2" from="@Claude (Claude Code)">');
@@ -191,7 +211,10 @@ test.describe('lead review', () => {
     expect(await page.evaluate(() => (window as unknown as { trayShown?: boolean }).trayShown)).toBe(false);
   });
 
-  test("a schedule's message that comes due during a review waits for it in the tray, and \"Skip the review and send now\" sends it now", async ({ page, relay }) => {
+  test('a schedule\'s message that comes due during a review waits for it in the tray, and "Skip the review and send now" sends it now', async ({
+    page,
+    relay,
+  }) => {
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { leadReview: true });
     await relay.api(`/api/conversations/${id}/schedule`, {
       method: 'PUT',
@@ -214,7 +237,7 @@ test.describe('lead review', () => {
     await settled(relay, id);
   });
 
-  test("the team design card has the box, which the lead agent leaves alone: ticked there, it holds for the question being answered and the next ones", async ({
+  test('the team design card has the box, which the lead agent leaves alone: ticked there, it holds for the question being answered and the next ones', async ({
     page,
     relay,
   }) => {
@@ -229,7 +252,9 @@ test.describe('lead review', () => {
     expect(designs()).toHaveLength(1);
     expect(designs().some((e) => /leadReview|Lead review/.test(e.prompt!))).toBe(false);
     await box.check();
-    await expect.poll(async () => (await relay.api<{ settings: { leadReview?: boolean } }>(`/api/conversations/${id}`)).settings.leadReview).toBe(true);
+    await expect
+      .poll(async () => (await relay.api<{ settings: { leadReview?: boolean } }>(`/api/conversations/${id}`)).settings.leadReview)
+      .toBe(true);
     await expect(card).toContainText('Each time the team has answered, the lead agent reads the new replies');
     await card.getByRole('button', { name: 'Confirm team' }).click();
     await finishedReply(page, 'Claude');
@@ -250,23 +275,25 @@ test.describe('lead review', () => {
     // Unticked on the latest card, the answers after are not reviewed.
     const latest = page.locator('.plan-card').filter({ has: page.getByRole('checkbox', { name: LEAD_REVIEW }) });
     await latest.getByRole('checkbox', { name: LEAD_REVIEW }).uncheck();
-    await expect.poll(async () => (await relay.api<{ settings: { leadReview?: boolean } }>(`/api/conversations/${id}`)).settings.leadReview).toBeUndefined();
+    await expect
+      .poll(async () => (await relay.api<{ settings: { leadReview?: boolean } }>(`/api/conversations/${id}`)).settings.leadReview)
+      .toBeUndefined();
     await send(page, '@Claude one more thing');
     await expect(await finishedReply(page, 'Claude')).toContainText('one more thing');
     await settled(relay, id);
     await expect(reviewCards(page)).toHaveCount(2);
   });
 
-  test("the New schedule page's box is ticked at first, and the schedule's chat has it as set there", async ({ page, relay }) => {
+  test("the New automation page's box is ticked at first, and the automation's chat has it as set there", async ({ page, relay }) => {
     const create = async (review: boolean) => {
-      await page.getByRole('button', { name: 'New schedule' }).click();
+      await page.getByRole('button', { name: 'New automation' }).click();
       await page.getByRole('textbox', { name: 'Message to send the team' }).fill('Check the build');
       const box = page.getByRole('checkbox', { name: LEAD_REVIEW });
       await expect(box).toBeChecked();
       await box.setChecked(review);
       // The new chats it opens each time copy its setting, as they copy its other settings.
       await page.getByRole('checkbox', { name: 'Start a new chat each time' }).check();
-      await page.getByRole('button', { name: 'Create schedule' }).click();
+      await page.getByRole('button', { name: 'Create automation' }).click();
       await page.waitForURL(/#\/c\//);
       const id = /#\/c\/([^/?]+)/.exec(page.url())![1]!;
       return (await relay.api<{ settings: { leadReview?: boolean } }>(`/api/conversations/${id}`)).settings.leadReview;
@@ -276,7 +303,7 @@ test.describe('lead review', () => {
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     await expect(drawer.getByRole('checkbox', { name: LEAD_REVIEW })).toBeChecked();
     await drawer.getByRole('button', { name: 'Cancel' }).click();
-    // Unticked there: off (and ticked again on the next New schedule page).
+    // Unticked there: off (and ticked again on the next New automation page).
     expect(await create(false)).toBeUndefined();
   });
 
@@ -320,7 +347,10 @@ test.describe('lead review', () => {
     await shared.close();
   });
 
-  test("a point's @name brings the words it quotes to the middle of the chat, at the top of a reply taller than the window", async ({ page, relay }) => {
+  test("a point's @name brings the words it quotes to the middle of the chat, at the top of a reply taller than the window", async ({
+    page,
+    relay,
+  }) => {
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { leadReview: true });
     // A first answer and its review above, so the chat can scroll the next one's first words to its middle.
     await send(page, 'Tell me everything e2e:long');
@@ -336,7 +366,9 @@ test.describe('lead review', () => {
     await settled(relay, id);
     // The words are the reply's first: with the card in view, they are far above it.
     const messages = page.locator('.messages');
-    expect(await reply.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThan(await messages.evaluate((el) => el.clientHeight));
+    expect(await reply.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThan(
+      await messages.evaluate((el) => el.clientHeight),
+    );
     await card.scrollIntoViewIfNeeded();
     expect(await markOffCentre(page, 'risk')).toBeGreaterThan(200);
 
@@ -373,10 +405,15 @@ test.describe('lead review', () => {
       [false, 'second point'],
     ]);
     expect(body).toContain(`<a class="review-reply-link" href="#${marks[0]![1]}">@Claude</a>`);
-    expect(body).toMatch(/<li><mark class="review-quote-mark decision" id="[^"]+">first point<\/mark><\/li>\s*<li><mark class="review-quote-mark decision">second point<\/mark><\/li>/);
+    expect(body).toMatch(
+      /<li><mark class="review-quote-mark decision" id="[^"]+">first point<\/mark><\/li>\s*<li><mark class="review-quote-mark decision">second point<\/mark><\/li>/,
+    );
   });
 
-  test('a point about a reply without words of it goes to the reply, and on a shared page its @name links to the reply', async ({ page, relay }) => {
+  test('a point about a reply without words of it goes to the reply, and on a shared page its @name links to the reply', async ({
+    page,
+    relay,
+  }) => {
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { leadReview: true });
     await send(page, 'Look it over e2e:reviewquote=none');
     const reply = await finishedReply(page, 'Claude');

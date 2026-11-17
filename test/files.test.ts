@@ -42,7 +42,23 @@ describe('resolveInRoot', () => {
   });
 
   it('refuses anything outside the folder, .git, and missing paths', () => {
-    for (const bad of ['..', '../outside/secret.txt', 'src/../../outside', 'leak.txt', 'leak-dir', '.git', '.git/HEAD', '.GIT/HEAD', '.Git', 'src/../.GiT/HEAD', 'Docs/.Git/config', 'Docs/.GIT/config', 'C:/x', 'missing', 'a\0b']) {
+    for (const bad of [
+      '..',
+      '../outside/secret.txt',
+      'src/../../outside',
+      'leak.txt',
+      'leak-dir',
+      '.git',
+      '.git/HEAD',
+      '.GIT/HEAD',
+      '.Git',
+      'src/../.GiT/HEAD',
+      'Docs/.Git/config',
+      'Docs/.GIT/config',
+      'C:/x',
+      'missing',
+      'a\0b',
+    ]) {
       expect(() => resolveInRoot(project, bad), bad).toThrow(notFound);
     }
     expect(() => resolveInRoot(join(root, 'gone'), '')).toThrow();
@@ -147,7 +163,7 @@ describe('fileRoots', () => {
     ]);
   });
 
-  it('offers each working directory, then each worktree of each, the innermost repository\'s for a folder inside another', () => {
+  it("offers each working directory, then each worktree of each, the innermost repository's for a folder inside another", () => {
     // Folders of their own, outside the project the other tests share.
     const outer = join(root, 'outer-project');
     const docs = join(outer, 'docs');
@@ -208,12 +224,15 @@ describe('zipPlan', () => {
   });
 
   // Where the filesystem ignores case (macOS, Windows), a folder asked for in another case.
-  it.skipIf(!existsSync(project.toUpperCase()))('takes the same, by its own name, when the folder is asked for in another letter case', async () => {
-    const plan = await zipPlan(project.toUpperCase(), '');
-    expect(plan!.name).toBe('project');
-    expect(names(plan)).toEqual(names(await zipPlan(project, '')));
-    expect(plan!.files).toBe(6);
-  });
+  it.skipIf(!existsSync(project.toUpperCase()))(
+    'takes the same, by its own name, when the folder is asked for in another letter case',
+    async () => {
+      const plan = await zipPlan(project.toUpperCase(), '');
+      expect(plan!.name).toBe('project');
+      expect(names(plan)).toEqual(names(await zipPlan(project, '')));
+      expect(plan!.files).toBe(6);
+    },
+  );
 
   it('refuses a file, anything outside the folder and .git', async () => {
     for (const bad of ['file2.txt', 'leak-dir', '..', '.git', 'Docs/.Git', 'missing']) {
@@ -302,7 +321,12 @@ describe('zipPlan', () => {
     symlinkSync(join(outside, 'secret.txt'), join(repo, 'leak.txt'));
     symlinkSync(join(repo, '.git', 'config'), join(repo, 'config-link'));
     git(repo, 'add', 'top.txt', 'leak.txt', 'config-link');
-    expect(names(await zipPlan(repo, '', { unignored: true }))).toEqual(['repo2/', 'repo2/nested/.gitignore', 'repo2/nested/n.txt', 'repo2/top.txt']);
+    expect(names(await zipPlan(repo, '', { unignored: true }))).toEqual([
+      'repo2/',
+      'repo2/nested/.gitignore',
+      'repo2/nested/n.txt',
+      'repo2/top.txt',
+    ]);
   });
 });
 
@@ -323,11 +347,20 @@ describe('the files the server holds SQLite locks on', () => {
         expect(() => previewFile(cwd, path), path).toThrow(notFound);
         expect(() => fileInRoot(cwd, path), path).toThrow(notFound);
       }
-      expect((await zipPlan(cwd, ''))!.entries.map((e) => e.name).sort()).toEqual(['with-data/', 'with-data/data/', 'with-data/data/notes.txt']);
+      expect((await zipPlan(cwd, ''))!.entries.map((e) => e.name).sort()).toEqual([
+        'with-data/',
+        'with-data/data/',
+        'with-data/data/notes.txt',
+      ]);
       // Still held after all that: another server is refused.
       const other = spawnSync(
         process.execPath,
-        ['--no-warnings', '-e', "const db = new (require('node:sqlite').DatabaseSync)(process.argv[1]); db.exec('PRAGMA busy_timeout = 0; BEGIN EXCLUSIVE;');", dataLockFile(data)],
+        [
+          '--no-warnings',
+          '-e',
+          "const db = new (require('node:sqlite').DatabaseSync)(process.argv[1]); db.exec('PRAGMA busy_timeout = 0; BEGIN EXCLUSIVE;');",
+          dataLockFile(data),
+        ],
         { encoding: 'utf8' },
       );
       expect(other.stderr).toMatch(/locked|busy/i);

@@ -24,7 +24,7 @@ export const TOUR_TARGETS: (string | undefined)[] = [
   undefined, // file permission
   undefined, // browsing files (the button is in a chat's header)
   undefined, // sharing a conversation (in a chat's header, and under each reply)
-  'new-schedule', // schedules (New schedule, beside New chat)
+  'new-schedule', // automations (New automation, beside New chat)
   'organize', // groups, pins and search
   'settings', // tool library
   'settings', // agent sessions and AgentsView
@@ -79,7 +79,17 @@ function cardPosition(box: Box, cardHeight: number): { top: number; left: number
 }
 
 /** A step's text: the tour's name and where it is, the title, the text and its points. */
-function StepText({ step, label, count, titleId }: { step: Messages['tour']['steps'][number]; label: string; count: string; titleId?: string }) {
+function StepText({
+  step,
+  label,
+  count,
+  titleId,
+}: {
+  step: Messages['tour']['steps'][number];
+  label: string;
+  count: string;
+  titleId?: string;
+}) {
   return (
     <>
       <div className="tour-top">
@@ -239,12 +249,7 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
                 {t.tour.back}
               </button>
             )}
-            <button
-              ref={primary}
-              type="button"
-              className="primary small-button"
-              onClick={() => (last ? finish() : setI(i + 1))}
-            >
+            <button ref={primary} type="button" className="primary small-button" onClick={() => (last ? finish() : setI(i + 1))}>
               {last ? t.tour.done : t.tour.next}
             </button>
           </div>

@@ -8,10 +8,12 @@ import {
   type ChatMessage,
   type MessageMeta,
   type PlanEntry,
+  type ProgressStatus,
   type ReviewHighlight,
 } from '../../shared/types';
 import { mostSerious, type ReplyMarks } from '../../shared/review';
 import { splitAsk } from '../../shared/ask';
+import { withoutProgressTail } from '../../shared/tracking';
 import { api } from '../api';
 import {
   activityCounts,
@@ -24,6 +26,7 @@ import {
   type ActivityItem,
   type ApprovalPart,
   type ToolPart,
+  type OutboxPart,
 } from '../chat';
 import { mentionWarning, messageText, planChecksMentions, planHeadline, planWording, speaker } from '../copy';
 import { useT } from '../i18n';
@@ -151,9 +154,88 @@ function ActivityGroup({ items, live, last }: { items: ActivityItem[]; live: boo
         {busy && items.length > 1 && <span className="activity-count">{counts}</span>}
         {failed > 0 && <span className="tool-failed">{t.message.failed(failed)}</span>}
       </summary>
-      <ul>
-        {items.map((i) => (i.kind === 'tool' ? <ToolStep key={i.key} x={i.part} /> : <ThoughtStep key={i.key} text={i.text} />))}
-      </ul>
+      <ul>{items.map((i) => (i.kind === 'tool' ? <ToolStep key={i.key} x={i.part} /> : <ThoughtStep key={i.key} text={i.text} />))}</ul>
+    </details>
+  );
+}
+
+/**
+ * Something the agent asked to send (an outbox item): what goes where, as it will go out, with Send
+ * and Discard while it waits; then what became of it. Only Send sends it.
+ */
+function OutboxCard({ part, convId, agentName }: { part: OutboxPart; convId: string; agentName: string }) {
+  const t = useT();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const answer = async (action: 'send' | 'discard') => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.answerOutbox(convId, part.id, action);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const waiting = part.status === 'pending';
+  return (
+    <section className={`outbox-card outbox-${part.status}`} aria-label={t.outbox.label(agentName)}>
+      <header className="approval-head">
+        <span className="approval-icon" aria-hidden>
+          ✉
+        </span>
+        <strong>{part.title}</strong>
+        <span className="approval-waiting">{t.outbox.status[part.status]}</span>
+      </header>
+      {part.preview.fields.length > 0 && (
+        <dl className="outbox-fields">
+          {part.preview.fields.map((f, i) => (
+            <div key={i}>
+              <dt>{f.label}</dt>
+              <dd>{f.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {part.preview.body && <pre className="outbox-body">{part.preview.body}</pre>}
+      {part.result && <p className="approval-reason">{part.result}</p>}
+      {error && <p className="error-line">{error}</p>}
+      {waiting && (
+        <>
+          <p className="muted small">{t.outbox.hint}</p>
+          <div className="approval-actions">
+            <button type="button" className="primary small-button" disabled={busy} onClick={() => answer('send')}>
+              {t.outbox.send}
+            </button>
+            <button type="button" className="ghost small-button" disabled={busy} onClick={() => answer('discard')}>
+              {t.outbox.discard}
+            </button>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** What a reply said about the goal its schedule tracks (its `<progress>` block). */
+function ProgressCard({ status, text }: { status: ProgressStatus; text: string }) {
+  const t = useT();
+  return (
+    <div className={`progress-card progress-${status}`} role="note" aria-label={t.schedule.progress.label}>
+      <span className="progress-status">{t.schedule.progress.status[status]}</span>
+      {text && <span className="progress-text">{text}</span>}
+    </div>
+  );
+}
+
+/** The body a program sent through the schedule's webhook with this message: data, shown as it came. */
+function EventBlock({ event }: { event: string }) {
+  const t = useT();
+  return (
+    <details className="event-block">
+      <summary>{t.schedule.hook.eventTag}</summary>
+      <pre>{event}</pre>
     </details>
   );
 }
@@ -786,6 +868,7 @@ function UserMessage({
       <div className="msg-user">
         <Attachments msg={msg} convId={convId} />
         {text && <UserBubble text={text} mentions={mentionNames} />}
+        {msg.event !== undefined && <EventBlock event={msg.event} />}
         <div className="msg-actions">
           <CopyButton className="msg-action icon-action" iconOnly icon={<CopyIcon size={16} />} text={() => text} />
           {canEdit && (
@@ -1022,9 +1105,7 @@ function AgentMessage({
         <div className="msg-head">
           <strong>@{name}</strong>
           <span className="provider-tag">{PROVIDER_LABEL[provider]}</span>
-          {m?.round && showRound && (
-            <span className="round-tag">{t.message.round(m.round)}</span>
-          )}
+          {m?.round && showRound && <span className="round-tag">{t.message.round(m.round)}</span>}
           {live && <span className="live-tag">{t.message.live}</span>}
           {msg.asked && !waitingAnswer && <span className="round-tag">{t.message.askedTag}</span>}
           {marked > 0 && marks && (
@@ -1049,7 +1130,7 @@ function AgentMessage({
                 return (
                   <Markdown
                     key={s.key}
-                    text={live ? splitAsk(s.text).text : s.text}
+                    text={live ? withoutProgressTail(splitAsk(s.text).text) : s.text}
                     mentions={mentionNames}
                     mediaBase={api.mediaBase(convId, msg.id)}
                     downloadBase={api.downloadBase(convId, msg.id)}
@@ -1061,6 +1142,10 @@ function AgentMessage({
                 return <TodoList key={s.key} entries={s.entries} />;
               case 'approval':
                 return <ApprovalCard key={s.key} part={s.part} agentName={name} live={live} onAnswer={onApproval} />;
+              case 'progress':
+                return <ProgressCard key={s.key} status={s.status} text={s.text} />;
+              case 'outbox':
+                return <OutboxCard key={s.key} part={s.part} convId={convId} agentName={name} />;
             }
           })
         )}

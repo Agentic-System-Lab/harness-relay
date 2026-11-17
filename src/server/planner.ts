@@ -125,13 +125,31 @@ export function libraryForLead(view: Pick<ToolLibraryView, 'mcpServers' | 'skill
     ...view.mcpServers.map((m) => ({ name: `mcp:${m.name}`, key: toolKey('mcp', m.id), providers: [...m.providers] })),
     ...view.skills
       .filter((sk) => !sk.problem)
-      .map((sk) => ({ name: `skill:${sk.name}`, key: toolKey('skill', sk.path), about: shorten(sk.description.trim(), TOOL_ABOUT_MAX), providers: [...sk.providers] })),
+      .map((sk) => ({
+        name: `skill:${sk.name}`,
+        key: toolKey('skill', sk.path),
+        about: shorten(sk.description.trim(), TOOL_ABOUT_MAX),
+        providers: [...sk.providers],
+      })),
   ];
   const memory = view.memory.all.trim();
-  if (memory) items.push({ name: 'memory', key: toolKey('memory'), about: shorten(memory.replace(/\s+/g, ' '), TOOL_ABOUT_MAX), providers: [...PROVIDERS] });
+  if (memory)
+    items.push({
+      name: 'memory',
+      key: toolKey('memory'),
+      about: shorten(memory.replace(/\s+/g, ' '), TOOL_ABOUT_MAX),
+      providers: [...PROVIDERS],
+    });
   for (const p of PROVIDERS) {
     const part = view.memory[p].trim();
-    if (part) items.push({ name: `memory:${p}`, key: toolKey('memory', p), about: shorten(part.replace(/\s+/g, ' '), TOOL_ABOUT_MAX), providers: [p], only: p });
+    if (part)
+      items.push({
+        name: `memory:${p}`,
+        key: toolKey('memory', p),
+        about: shorten(part.replace(/\s+/g, ' '), TOOL_ABOUT_MAX),
+        providers: [p],
+        only: p,
+      });
   }
   return items;
 }
@@ -141,7 +159,10 @@ export function libraryForLead(view: Pick<ToolLibraryView, 'mcpServers' | 'skill
  * exceptions applied, as `ToolLibrary.forAgent` gives them (a CLI's memory part only to that CLI's
  * members). Undefined when the library is unknown.
  */
-export function memberLibraryTools(agent: Pick<AgentConfig, 'provider' | 'tools'>, library: LibraryItem[] | undefined): string[] | undefined {
+export function memberLibraryTools(
+  agent: Pick<AgentConfig, 'provider' | 'tools'>,
+  library: LibraryItem[] | undefined,
+): string[] | undefined {
   if (!library) return undefined;
   return library
     .filter((i) => (!i.only || i.only === agent.provider) && (agent.tools?.[i.key] ?? i.providers.includes(agent.provider)))
@@ -266,7 +287,7 @@ const HISTORY_CHARS = 12000;
 
 export const PLANNER_BRIEFING =
   'You are the lead agent of Harness Relay, a task assistant in which coding-agent CLIs (Claude Code, Codex, Grok, Cursor, Antigravity, GitHub Copilot, Muse Code, and open-source ones such as OpenCode, Goose, Cline, OpenHands and Pi) ' +
-  'work together on the user\'s questions in a group chat. Right now your only job is to choose the team for the user\'s new question. ' +
+  "work together on the user's questions in a group chat. Right now your only job is to choose the team for the user's new question. " +
   'Do not answer the question or do the work yourself. Reply with the JSON object you are asked for and nothing else.';
 
 const MODE_HELP: Record<Mode, string> = {
@@ -332,8 +353,7 @@ export function historyForLead(messages: ChatMessage[]): string {
     const files = m.parts.flatMap((p) => (p.type === 'attachment' ? [p.name] : []));
     const text = textOf(m) + (files.length ? `${textOf(m) ? '\n' : ''}(Attached files: ${files.join(', ')})` : '');
     if (!text) continue;
-    const who =
-      m.author.kind === 'user' ? 'User' : `@${m.agentName ?? 'agent'}${m.provider ? ` (${PROVIDER_LABEL[m.provider]})` : ''}`;
+    const who = m.author.kind === 'user' ? 'User' : `@${m.agentName ?? 'agent'}${m.provider ? ` (${PROVIDER_LABEL[m.provider]})` : ''}`;
     lines.push(`[${who}]: ${shorten(text, HISTORY_MESSAGE_CHARS)}`);
   }
   const kept: string[] = [];
@@ -372,7 +392,7 @@ function modelsForLead(p: Provider, c: ProviderModels, guided: boolean): string 
       const family = guided ? familyOf(p, m.id, m) : undefined;
       const notes = [
         m.label && m.label !== m.id ? m.label : '',
-        m.latest ? 'always its family\'s newest' : '',
+        m.latest ? "always its family's newest" : '',
         efforts.length ? `efforts ${efforts.join('/')}` : '',
         m.defaultEffort ? `default effort ${m.defaultEffort}` : '',
         family ? guideMark(family) : '',
@@ -397,7 +417,8 @@ function agentsForLead(ctx: PlannerContext, guided: boolean): string {
       // As its new members run it: in the home of the account they get, with that account's defaults.
       const c = catalogFor(ctx.catalog, p, ctx.accounts?.[p]?.[0]);
       if (c?.models.length) lines.push(`  Models: ${modelsForLead(p, c, guided)}`);
-      const unlisted = guided && c?.defaultModel && !c.models.some((m) => m.id === c.defaultModel) ? familyOf(p, c.defaultModel) : undefined;
+      const unlisted =
+        guided && c?.defaultModel && !c.models.some((m) => m.id === c.defaultModel) ? familyOf(p, c.defaultModel) : undefined;
       const defaults = [
         c?.defaultModel ? `model ${c.defaultModel}${unlisted ? ` (${guideMark(unlisted)})` : ''}` : '',
         c?.defaultEffort ? `effort ${c.defaultEffort}` : '',
@@ -408,10 +429,18 @@ function agentsForLead(ctx: PlannerContext, guided: boolean): string {
       else if (c?.efforts.length && !c.models.length) lines.push(`  Efforts: ${c.efforts.join('/')}`);
       const own = ctx.native?.[p];
       if (own?.unknown) {
-        lines.push(`  Its own tools, skills and MCP servers: unknown (${own.unknown === 'late' ? 'it did not answer in time' : 'it could not be asked'})`);
+        lines.push(
+          `  Its own tools, skills and MCP servers: unknown (${own.unknown === 'late' ? 'it did not answer in time' : 'it could not be asked'})`,
+        );
       } else if (own) {
         if (own.builtinTools?.length) lines.push(`  Built-in tools: ${names(own.builtinTools)}`);
-        if (own.skills.length) lines.push(`  Its own skills: ${own.skills.slice(0, TOOL_NAMES_MAX).map((sk) => (sk.description ? `${sk.name} (${sk.description})` : sk.name)).join('; ')}${own.skills.length > TOOL_NAMES_MAX ? `; … (${own.skills.length - TOOL_NAMES_MAX} more)` : ''}`);
+        if (own.skills.length)
+          lines.push(
+            `  Its own skills: ${own.skills
+              .slice(0, TOOL_NAMES_MAX)
+              .map((sk) => (sk.description ? `${sk.name} (${sk.description})` : sk.name))
+              .join('; ')}${own.skills.length > TOOL_NAMES_MAX ? `; … (${own.skills.length - TOOL_NAMES_MAX} more)` : ''}`,
+          );
         if (own.mcpServers.length) {
           lines.push(
             `  Its own MCP servers: ${own.mcpServers
@@ -421,7 +450,8 @@ function agentsForLead(ctx: PlannerContext, guided: boolean): string {
         }
         if (own.agents?.length) lines.push(`  Its own subagents: ${names(own.agents)}`);
         if (own.plugins?.length) lines.push(`  Its own plugins: ${names(own.plugins)}`);
-        if (!own.builtinTools?.length && !own.skills.length && !own.mcpServers.length) lines.push('  Nothing of its own besides its built-in tools');
+        if (!own.builtinTools?.length && !own.skills.length && !own.mcpServers.length)
+          lines.push('  Nothing of its own besides its built-in tools');
         if (own.incomplete) lines.push('  (It did not answer every question, so these lists may be incomplete.)');
       } else if (ctx.native) {
         lines.push('  Its own tools, skills and MCP servers: unknown (it was not asked)');
@@ -440,7 +470,11 @@ function agentsForLead(ctx: PlannerContext, guided: boolean): string {
 function libraryForPrompt(ctx: PlannerContext): string {
   if (!ctx.library?.length) return '';
   const items = ctx.library.map((i) => {
-    const who = i.only ? `only for ${i.only} members` : i.providers.length ? `${i.providers.join(', ')} members get it` : 'no member gets it unless the user gives it';
+    const who = i.only
+      ? `only for ${i.only} members`
+      : i.providers.length
+        ? `${i.providers.join(', ')} members get it`
+        : 'no member gets it unless the user gives it';
     return `- ${i.name}${i.about ? ` (${i.about})` : ''}: ${who}`;
   });
   return `
@@ -473,7 +507,11 @@ export function buildPlannerPrompt(
 ): string {
   const guides = roleGuidesForLead(familiesForLead(ctx), settings.permission);
   const agents = agentsForLead(ctx, Boolean(guides));
-  const templates = JSON.stringify(usablePresets(ctx).map((p) => templateForLead(p, ctx.library)), null, 2);
+  const templates = JSON.stringify(
+    usablePresets(ctx).map((p) => templateForLead(p, ctx.library)),
+    null,
+    2,
+  );
   const current = conv.current?.agents.length ? conv.current : undefined;
   const history = conv.history?.trim();
   // Like a template, without an id: it is not one.
@@ -522,15 +560,15 @@ ${history}
 `
     : ''
 }${
-  currentTeam
-    ? `
+    currentTeam
+      ? `
 The team that answered so far:
 <current_team>
 ${currentTeam}
 </current_team>
 `
-    : ''
-}
+      : ''
+  }
 ${scheduled ? 'The scheduled message' : 'The new question'}:
 <question>
 ${question}
@@ -563,7 +601,7 @@ Whichever you pick, keep it proportionate: simple work needs 1-2 members and one
 For an adapted or custom team:
 - Mixing coding agents helps: different models catch different things.
 ${STAFFING}
-${ROLE_RULE('each member\'s role', guides)}
+${ROLE_RULE("each member's role", guides)}
 - Member names: letters, digits, _ or - only (no spaces), unique, e.g. Researcher, Backend_Dev. A member who stays on from the current team keeps its name and coding agent, so it keeps what it learned.
 - Give "model" and "effort" (from the lists above) only when the member's work needs other than its coding agent's default.
 ${guides}
@@ -701,7 +739,9 @@ export function decidePlan(
   lead: LeadAgentSettings,
   current?: PlanConversation['current'],
 ): PlanDecision {
-  const reason = String(raw.reason ?? '').trim().slice(0, 800);
+  const reason = String(raw.reason ?? '')
+    .trim()
+    .slice(0, 800);
   if (raw.choice === 'keep') {
     if (!current?.agents.length) throw new Error(t().planNoCurrentTeam);
     return keptDecision(current, 'kept', reason || t().planKeepFits);
@@ -735,8 +775,14 @@ export function decidePlan(
   return {
     source: base ? 'adapted' : 'custom',
     ...(base ? { basedOn: { id: base.id, name: base.name } } : {}),
-    name: String(raw.name ?? '').trim().slice(0, 80) || agents.map((a) => a.name).join(' · '),
-    description: String(raw.description ?? '').trim().slice(0, 200) || undefined,
+    name:
+      String(raw.name ?? '')
+        .trim()
+        .slice(0, 80) || agents.map((a) => a.name).join(' · '),
+    description:
+      String(raw.description ?? '')
+        .trim()
+        .slice(0, 200) || undefined,
     reason,
     settings,
     agents: fitAgents(base ? fromTemplate(agents, base) : agents, ctx, lead, current?.agents),
@@ -744,11 +790,17 @@ export function decidePlan(
 }
 
 /** When planning fails: the current team, or the general-question template when there is none. */
-export function fallbackPlan(ctx: PlannerContext, lead: LeadAgentSettings, why: string, current?: PlanConversation['current']): PlanDecision {
+export function fallbackPlan(
+  ctx: PlannerContext,
+  lead: LeadAgentSettings,
+  why: string,
+  current?: PlanConversation['current'],
+): PlanDecision {
   if (current?.agents.length) return keptDecision(current, 'fallback', t().planFailedKept(why));
   // A template within the team limit, else the general one cut to it.
   const usable = usablePresets(ctx);
-  const preset = usable.find((p) => p.id === FALLBACK_PRESET) ?? usable[0] ?? ctx.presets.find((p) => p.id === FALLBACK_PRESET) ?? ctx.presets[0]!;
+  const preset =
+    usable.find((p) => p.id === FALLBACK_PRESET) ?? usable[0] ?? ctx.presets.find((p) => p.id === FALLBACK_PRESET) ?? ctx.presets[0]!;
   return templateDecision(preset, 'fallback', t().planFailed(why), ctx, lead);
 }
 
@@ -821,8 +873,8 @@ export function fromTemplate(agents: AgentConfig[], template: TeamPreset): Agent
 
 export const REVISER_BRIEFING =
   'You are the lead agent of Harness Relay, a task assistant in which coding-agent CLIs (Claude Code, Codex, Grok, Cursor, Antigravity, GitHub Copilot, Muse Code, and open-source ones such as OpenCode, Goose, Cline, OpenHands and Pi) ' +
-  'work together on the user\'s questions in a group chat. Right now your only job is to change the conversation\'s team the way the user asks. ' +
-  'Do not answer the conversation\'s questions or do the work yourself. Reply with the JSON object you are asked for and nothing else.';
+  "work together on the user's questions in a group chat. Right now your only job is to change the conversation's team the way the user asks. " +
+  "Do not answer the conversation's questions or do the work yourself. Reply with the JSON object you are asked for and nothing else.";
 
 /** A team being edited: its members and how they take turns. */
 export interface TeamDraft {
@@ -848,7 +900,6 @@ export interface ReviseConversation {
   savedCwd?: string;
 }
 
-
 const PERMISSIONS: Permission[] = ['read-only', 'edit', 'full'];
 
 /** "the working directory X", or "the working directories X, Y" for a conversation with several. */
@@ -868,7 +919,10 @@ export function draftPlace(
   const s = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const cwd = typeof s.cwd === 'string' ? s.cwd.trim().slice(0, 4096) : '';
   const extra = Array.isArray(s.extraCwds)
-    ? s.extraCwds.filter((d): d is string => typeof d === 'string' && d.trim() !== '').slice(0, MAX_CWDS - 1).map((d) => d.trim().slice(0, 4096))
+    ? s.extraCwds
+        .filter((d): d is string => typeof d === 'string' && d.trim() !== '')
+        .slice(0, MAX_CWDS - 1)
+        .map((d) => d.trim().slice(0, 4096))
     : [];
   return {
     permission: PERMISSIONS.includes(s.permission as Permission) ? (s.permission as Permission) : saved.permission,
@@ -900,10 +954,10 @@ export function buildRevisePrompt(
     conv.pending === 'schedule' && !conv.schedule
       ? "The user is reviewing the team you designed for the conversation's schedule, which has been deleted since, and asks you to change it. Once the user saves the team, it is the conversation's team."
       : conv.pending === 'schedule'
-      ? "The user is reviewing the team you designed for the conversation's schedule, and asks you to change it. Once the user saves the team, it answers the schedule's message each time the schedule sends it."
-      : conv.pending === 'question'
-        ? "The user is reviewing the team you designed for their latest question, which it has not answered yet, and asks you to change it. Once the user saves the team, it answers that question."
-        : 'The user is editing the team of this conversation and asks you to change it. The changed team answers from the next turn on.';
+        ? "The user is reviewing the team you designed for the conversation's schedule, and asks you to change it. Once the user saves the team, it answers the schedule's message each time the schedule sends it."
+        : conv.pending === 'question'
+          ? 'The user is reviewing the team you designed for their latest question, which it has not answered yet, and asks you to change it. Once the user saves the team, it answers that question.'
+          : 'The user is editing the team of this conversation and asks you to change it. The changed team answers from the next turn on.';
   return `${opening} Change the team the way the user asks, and keep everything else as it is. The user reviews your team before it is used.
 ${
   history
@@ -951,7 +1005,11 @@ The file permission "${settings.permission}" and ${workingDirectories(settings)}
 
 Templates (built-in and saved by the user), in full, in case the user refers to one:
 <templates>
-${JSON.stringify(usablePresets(ctx).map((p) => templateForLead(p, ctx.library)), null, 2)}
+${JSON.stringify(
+  usablePresets(ctx).map((p) => templateForLead(p, ctx.library)),
+  null,
+  2,
+)}
 </templates>
 
 How to change the team:
@@ -996,10 +1054,16 @@ export function decideRevision(
   ctx: PlannerContext,
   lead: LeadAgentSettings,
 ): TeamDraft & { reason: string } {
-  const reason = String(raw.reason ?? '').trim().slice(0, 800);
+  const reason = String(raw.reason ?? '')
+    .trim()
+    .slice(0, 800);
   const settings = teamSettings(raw, draft.settings);
   if (!Array.isArray(raw.agents) || raw.agents.length === 0) return { agents: draft.agents, settings, reason };
-  const handle = (v: unknown) => String(v ?? '').trim().replace(/^@/, '').replace(/\s+/g, '_');
+  const handle = (v: unknown) =>
+    String(v ?? '')
+      .trim()
+      .replace(/^@/, '')
+      .replace(/\s+/g, '_');
   const listed = raw.agents.slice(0, teamLimit(ctx)).map((a: unknown) => {
     const m = a && typeof a === 'object' ? (a as Record<string, unknown>) : {};
     const role = typeof m.role === 'string' && m.role.trim() ? m.role : undefined;
@@ -1023,7 +1087,9 @@ export function decideRevision(
   const keptUnder = (name: string, self: Listed) =>
     listed.some((o: Listed) => o !== self && !o.role && (!o.was || o.was === o.name.toLowerCase()) && o.name.toLowerCase() === name);
   // A "was" misused for a new member based on another: that member stays, listed unchanged.
-  const basedOn = listed.map((l: Listed) => (l.was && keptUnder(l.was, l) ? draft.agents.find((d) => d.name.toLowerCase() === l.was) : undefined));
+  const basedOn = listed.map((l: Listed) =>
+    l.was && keptUnder(l.was, l) ? draft.agents.find((d) => d.name.toLowerCase() === l.was) : undefined,
+  );
   pass((l, d) => Boolean(l.was) && d.name.toLowerCase() === l.was && !keptUnder(l.was, l));
   pass((l, d) => d.provider === l.provider && d.name.toLowerCase() === l.name.toLowerCase());
   pass((l, d) => d.name.toLowerCase() === l.name.toLowerCase());

@@ -1,5 +1,16 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Duplex } from 'node:stream';
@@ -98,7 +109,31 @@ const runDirs = { tmp: join(data, 'relay-sandbox', 'run1'), hostTmp: join(data, 
 // Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
 describe.skipIf(process.platform === 'win32')('relaySandboxPaths', () => {
   it("keeps every agent's project config and hook folders read-only in edit mode, Cline's .clinerules, Antigravity's other spellings of .agents and Copilot's in .github too", () => {
-    for (const name of ['.clinerules', '.cline', 'opencode.json', 'opencode.jsonc', '.opencode', '.openhands', '.pi', '.agents', '.agent', '_agents', '_agent', '.goose', '.claude', '.codex', '.grok', '.cursor', '.mcp.json', '.github/hooks', '.github/copilot', '.github/mcp.json', '.github/lsp.json', '.github/extensions', '.github/agents']) {
+    for (const name of [
+      '.clinerules',
+      '.cline',
+      'opencode.json',
+      'opencode.jsonc',
+      '.opencode',
+      '.openhands',
+      '.pi',
+      '.agents',
+      '.agent',
+      '_agents',
+      '_agent',
+      '.goose',
+      '.claude',
+      '.codex',
+      '.grok',
+      '.cursor',
+      '.mcp.json',
+      '.github/hooks',
+      '.github/copilot',
+      '.github/mcp.json',
+      '.github/lsp.json',
+      '.github/extensions',
+      '.github/agents',
+    ]) {
       expect(PROJECT_AGENT_CONFIG).toContain(name);
     }
     const p = relaySandboxPaths(spec({ permission: 'edit' }), ctx, runDirs);
@@ -110,7 +145,9 @@ describe.skipIf(process.platform === 'win32')('relaySandboxPaths', () => {
     mkdirSync(docs, { recursive: true });
     const edit = relaySandboxPaths(spec({ permission: 'edit', extraCwds: [docs] }), ctx, runDirs);
     expect(edit.allowWrite).toEqual(expect.arrayContaining([cwd, docs]));
-    expect(edit.denyWrite).toEqual(expect.arrayContaining([join(cwd, '.cursor'), join(docs, '.cursor'), join(docs, '.clinerules'), join(docs, '.mcp.json')]));
+    expect(edit.denyWrite).toEqual(
+      expect.arrayContaining([join(cwd, '.cursor'), join(docs, '.cursor'), join(docs, '.clinerules'), join(docs, '.mcp.json')]),
+    );
     const ro = relaySandboxPaths(spec({ extraCwds: [docs] }), ctx, runDirs);
     expect(ro.allowWrite).not.toContain(docs);
     expect(ro.allowWrite).not.toContain(cwd);
@@ -141,7 +178,11 @@ describe.skipIf(process.platform === 'win32')('relaySandboxPaths', () => {
     expect(p.allowRead.some((x) => x.startsWith(other))).toBe(false);
     expect(p.denyRead).toEqual(expect.arrayContaining([priv, root]));
     // A protected path inside a private root is never re-opened.
-    const p2 = relaySandboxPaths(spec({ readOnly: [join(mine, 'config')], protectedPaths: [join(mine, 'config')], privateRoots: [priv] }), ctx, dirsIn);
+    const p2 = relaySandboxPaths(
+      spec({ readOnly: [join(mine, 'config')], protectedPaths: [join(mine, 'config')], privateRoots: [priv] }),
+      ctx,
+      dirsIn,
+    );
     expect(p2.allowRead).not.toContain(join(mine, 'config'));
   });
 
@@ -153,7 +194,9 @@ describe.skipIf(process.platform === 'win32')('relaySandboxPaths', () => {
     expect(p.allowWrite).not.toContain(attachments);
     // Not the system's temporary folders, nor sandbox-runtime's shared one.
     expect(p.allowWrite).not.toContain(tmpdir());
-    expect(p.denyWrite).toEqual(expect.arrayContaining(['/tmp/claude', '/private/tmp/claude', join(home, '.npm/_logs'), join(home, '.claude/debug')]));
+    expect(p.denyWrite).toEqual(
+      expect.arrayContaining(['/tmp/claude', '/private/tmp/claude', join(home, '.npm/_logs'), join(home, '.claude/debug')]),
+    );
     // The project's agent config is only kept in edit mode (in read-only the folder is not writable at all).
     expect(p.denyWrite).not.toContain(join(cwd, '.claude'));
   });
@@ -162,7 +205,9 @@ describe.skipIf(process.platform === 'win32')('relaySandboxPaths', () => {
     const p = relaySandboxPaths(spec({ permission: 'edit' }), ctx, runDirs);
     expect(p.allowWrite).toEqual(expect.arrayContaining([runDirs.tmp, state, cwd, attachments]));
     for (const path of projectAgentConfig(cwd)) expect(p.denyWrite).toContain(path);
-    expect(PROJECT_AGENT_CONFIG).toEqual(expect.arrayContaining(['.claude', '.codex', '.grok', '.cursor', '.opencode', 'opencode.json', '.pi', '.openhands']));
+    expect(PROJECT_AGENT_CONFIG).toEqual(
+      expect.arrayContaining(['.claude', '.codex', '.grok', '.cursor', '.opencode', 'opencode.json', '.pi', '.openhands']),
+    );
   });
 
   it("keeps Copilot's config in .github read-only only where .github exists, so that the folder can still be made", () => {
@@ -171,7 +216,9 @@ describe.skipIf(process.platform === 'win32')('relaySandboxPaths', () => {
       expect(projectAgentConfig(root)).toContain(join(root, '.claude'));
       expect(projectAgentConfig(root).some((p) => p.includes('.github'))).toBe(false);
       mkdirSync(join(root, '.github'));
-      expect(projectAgentConfig(root)).toEqual(expect.arrayContaining([join(root, '.github/hooks'), join(root, '.github/copilot'), join(root, '.github/mcp.json')]));
+      expect(projectAgentConfig(root)).toEqual(
+        expect.arrayContaining([join(root, '.github/hooks'), join(root, '.github/copilot'), join(root, '.github/mcp.json')]),
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -219,7 +266,9 @@ describe.skipIf(process.platform === 'win32')('relaySandboxConfig', () => {
     expect(c.filesystem.allowRead).toEqual([]);
     expect(c.filesystem.allowGitConfig).toBe(false);
     expect(c.network.allowedDomains).toEqual(['api.openai.com']);
-    expect(c.network.deniedDomains).toEqual(expect.arrayContaining(['localhost:8787', '127.0.0.1:8787', '[::1]:8787', '192.168.1.20:8787', 'localhost:5173']));
+    expect(c.network.deniedDomains).toEqual(
+      expect.arrayContaining(['localhost:8787', '127.0.0.1:8787', '[::1]:8787', '192.168.1.20:8787', 'localhost:5173']),
+    );
     expect(c.network.deniedDomainReasons?.['localhost:8787']).toBe(DENY_REASONS.relay);
     expect(c.network.allowLocalBinding).toBe(false);
     expect(c.network.allowAllUnixSockets).toBe(false);
@@ -234,7 +283,7 @@ describe.skipIf(process.platform === 'win32')('relaySandboxConfig', () => {
     expect(c.ripgrep).toEqual({ command: '/usr/bin/rg' });
   });
 
-  it('opts into a pty, the run\'s own unix sockets (macOS only) and the trustd service (macOS only)', () => {
+  it("opts into a pty, the run's own unix sockets (macOS only) and the trustd service (macOS only)", () => {
     const paths = relaySandboxPaths(spec(), ctx, runDirs);
     const hosts = relaySandboxHosts(['api.openai.com'], ctx);
     const mac = { ...ctx, platform: 'darwin' as const, tools: { sh: '/bin/sh', bash: '/bin/bash' } };
@@ -267,7 +316,11 @@ describe.skipIf(process.platform === 'win32')('relaySandboxConfig', () => {
   });
 
   it('names no Linux programs on macOS', () => {
-    const c = relaySandboxConfig(relaySandboxPaths(spec(), ctx, runDirs), relaySandboxHosts([], ctx), { ...ctx, platform: 'darwin', tools: { sh: '/bin/sh', bash: '/bin/bash' } });
+    const c = relaySandboxConfig(relaySandboxPaths(spec(), ctx, runDirs), relaySandboxHosts([], ctx), {
+      ...ctx,
+      platform: 'darwin',
+      tools: { sh: '/bin/sh', bash: '/bin/bash' },
+    });
     expect(c.bwrapPath).toBeUndefined();
     expect(c.ripgrep).toBeUndefined();
   });
@@ -290,10 +343,16 @@ describe.skipIf(process.platform === 'win32')('connect-only ports', () => {
   });
 
   it('are not handed to the host as ports to listen on', async () => {
-    const s = await sandboxCommand('/bin/sh', ['-c', 'true'], { PATH: '/usr/bin:/bin' }, spec({ connectPorts: [7777], localPorts: [4096] }), {
-      ctx: { ...ctx, platform: 'darwin', tools: { sh: '/bin/sh', bash: '/bin/bash' } },
-      available: async () => ({ ok: true }),
-    });
+    const s = await sandboxCommand(
+      '/bin/sh',
+      ['-c', 'true'],
+      { PATH: '/usr/bin:/bin' },
+      spec({ connectPorts: [7777], localPorts: [4096] }),
+      {
+        ctx: { ...ctx, platform: 'darwin', tools: { sh: '/bin/sh', bash: '/bin/bash' } },
+        available: async () => ({ ok: true }),
+      },
+    );
     const { server, host } = channelPair();
     s.run.attach(server, {} as never);
     await until(() => host.lines.length > 0);
@@ -338,20 +397,58 @@ describe.skipIf(process.platform === 'win32')('hosts', () => {
     expect(parseHostEntry('[::1]:11434')).toEqual({ host: '[::1]', port: 11434 });
     expect(parseHostEntry('10.0.0.5:8000')).toEqual({ host: '10.0.0.5', port: 8000 });
     expect(parseHostEntry('*.example.com')).toEqual({ host: '*.example.com' });
-    for (const bad of ['https://api.openai.com', 'api.openai.com/v1', 'a b', 'host:0', 'host:70000', 'user@host', '', '::1', 'a..b', '-a.com']) {
+    for (const bad of [
+      'https://api.openai.com',
+      'api.openai.com/v1',
+      'a b',
+      'host:0',
+      'host:70000',
+      'user@host',
+      '',
+      '::1',
+      'a..b',
+      '-a.com',
+    ]) {
       expect(parseHostEntry(bad)).toBeUndefined();
     }
   });
 
   it('tells loopback and local destinations, in every spelling', () => {
-    for (const h of ['localhost', 'LOCALHOST', 'x.localhost', '127.0.0.1', '127.1.2.3', '::1', '[::1]', '0:0:0:0:0:0:0:1', '::ffff:127.0.0.1', '::ffff:7f00:1', '[::ffff:127.0.0.1]']) {
+    for (const h of [
+      'localhost',
+      'LOCALHOST',
+      'x.localhost',
+      '127.0.0.1',
+      '127.1.2.3',
+      '::1',
+      '[::1]',
+      '0:0:0:0:0:0:0:1',
+      '::ffff:127.0.0.1',
+      '::ffff:7f00:1',
+      '[::ffff:127.0.0.1]',
+    ]) {
       expect(isLoopbackHost(h)).toBe(true);
       expect(isLocalHost(h)).toBe(true);
     }
-    for (const h of ['0.0.0.0', '::', '169.254.169.254', 'fe80::1%en0', 'fe80::abcd', 'ff02::1', '224.0.0.1', '255.255.255.255', '100.100.100.200', '168.63.129.16', 'fd00:ec2::254', '64:ff9b::a9fe:a9fe', '::ffff:169.254.169.254']) {
+    for (const h of [
+      '0.0.0.0',
+      '::',
+      '169.254.169.254',
+      'fe80::1%en0',
+      'fe80::abcd',
+      'ff02::1',
+      '224.0.0.1',
+      '255.255.255.255',
+      '100.100.100.200',
+      '168.63.129.16',
+      'fd00:ec2::254',
+      '64:ff9b::a9fe:a9fe',
+      '::ffff:169.254.169.254',
+    ]) {
       expect(isLocalHost(h)).toBe(true);
     }
-    for (const h of ['api.openai.com', '192.168.1.30', '10.0.0.5', '100.64.1.2', '2001:db8::1', 'fd00::1']) expect(isLocalHost(h)).toBe(false);
+    for (const h of ['api.openai.com', '192.168.1.30', '10.0.0.5', '100.64.1.2', '2001:db8::1', 'fd00::1'])
+      expect(isLocalHost(h)).toBe(false);
     // This computer's own addresses, also as an IPv4-carrying IPv6 address.
     expect(isLocalHost('192.168.1.20', ctx.localAddresses)).toBe(true);
     expect(isLocalHost('::ffff:192.168.1.20', ctx.localAddresses)).toBe(true);
@@ -386,12 +483,19 @@ describe.skipIf(process.platform === 'win32')('hosts', () => {
 
   it('allows the backends, by each loopback name for one on loopback', () => {
     const h = relaySandboxHosts(['api.anthropic.com', 'homelab.example:8000', 'localhost:11434', '192.168.1.20:1234'], ctx);
-    expect(h.allowed).toEqual(['api.anthropic.com', 'homelab.example:8000', 'localhost:11434', '127.0.0.1:11434', '[::1]:11434', '192.168.1.20:1234']);
+    expect(h.allowed).toEqual([
+      'api.anthropic.com',
+      'homelab.example:8000',
+      'localhost:11434',
+      '127.0.0.1:11434',
+      '[::1]:11434',
+      '192.168.1.20:1234',
+    ]);
     expect(h.loopback).toBe(true);
     expect(relaySandboxHosts(['api.anthropic.com'], ctx).loopback).toBe(false);
   });
 
-  it('refuses a local backend without a port, one at Harness Relay\'s port, and entries it cannot read', () => {
+  it("refuses a local backend without a port, one at Harness Relay's port, and entries it cannot read", () => {
     expect(() => relaySandboxHosts(['localhost'], ctx)).toThrow(/port|連接埠/);
     expect(() => relaySandboxHosts(['127.0.0.1:8787'], ctx)).toThrow(/Harness Relay/);
     expect(() => relaySandboxHosts(['[::1]:5173'], ctx)).toThrow(/Harness Relay/);
@@ -400,7 +504,7 @@ describe.skipIf(process.platform === 'win32')('hosts', () => {
     withLang('en', () => expect(() => relaySandboxHosts(['localhost:8787'], ctx)).toThrow("is Harness Relay's own port"));
   });
 
-  it('takes the agent\'s own loopback ports, never Harness Relay\'s, never an out-of-range one', () => {
+  it("takes the agent's own loopback ports, never Harness Relay's, never an out-of-range one", () => {
     expect(relaySandboxLocalPorts([4096, 55000], ctx)).toEqual([4096, 55000]);
     expect(relaySandboxLocalPorts(undefined, ctx)).toEqual([]);
     expect(() => relaySandboxLocalPorts([8787], ctx)).toThrow(/Harness Relay/);
@@ -483,7 +587,7 @@ describe.skipIf(process.platform === 'win32')('relaySandboxRefusal', () => {
     expect(relaySandboxRefusal(spec({ permission: 'read-only', extraCwds: [homedir()] }), ctx)).toBeUndefined();
   });
 
-  it('refuses a writable folder that holds the home folder, Harness Relay, or another CLI\'s folder', () => {
+  it("refuses a writable folder that holds the home folder, Harness Relay, or another CLI's folder", () => {
     expect(relaySandboxRefusal(spec({ writable: [join(dir, 'home')] }), ctx)).toContain(home);
     expect(relaySandboxRefusal(spec({ writable: [dir] }), ctx)).toBeDefined();
     expect(relaySandboxRefusal(spec({ writable: [join(ctx.relayRoot, 'node_modules')] }), ctx)).toBeDefined();
@@ -555,11 +659,19 @@ describe.skipIf(process.platform === 'win32')('relaySandboxEnv', () => {
     expect(() => relaySandboxEnv('/bin/sh', [42 as unknown as string], env, { tmp: '/r/tmp', loopback: false })).toThrow(TypeError);
   });
 
-  it('keeps only loopback out of the proxy, and only the agent\'s own ports when a backend is on loopback', () => {
+  it("keeps only loopback out of the proxy, and only the agent's own ports when a backend is on loopback", () => {
     const run = (loopback: boolean, localPorts?: number[]) => {
       const { outerEnv, command } = relaySandboxEnv('/usr/bin/env', [], { PATH: '/usr/bin:/bin' }, { tmp: '/r/tmp', loopback, localPorts });
-      const r = spawnSync('/bin/sh', ['-c', command], { env: { ...outerEnv, NO_PROXY: 'localhost,10.0.0.0/8,192.168.0.0/16' }, encoding: 'utf8' });
-      return Object.fromEntries(r.stdout.trim().split('\n').map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
+      const r = spawnSync('/bin/sh', ['-c', command], {
+        env: { ...outerEnv, NO_PROXY: 'localhost,10.0.0.0/8,192.168.0.0/16' },
+        encoding: 'utf8',
+      });
+      return Object.fromEntries(
+        r.stdout
+          .trim()
+          .split('\n')
+          .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
+      );
     };
     // sandbox-runtime's own NO_PROXY (private ranges too) would send a LAN backend around the proxy.
     expect(run(false).NO_PROXY).toBe('localhost,127.0.0.1,::1');
@@ -591,7 +703,12 @@ describe.skipIf(process.platform === 'win32')('relaySandboxEnv', () => {
       { mode: 0o755 },
     );
     const [p1, p2] = [await freeLoopbackPort(), await freeLoopbackPort()].sort((a, b) => a - b);
-    const { outerEnv, command } = relaySandboxEnv('/usr/bin/env', [], { PATH: '/usr/bin:/bin' }, { tmp: '/r/tmp', loopback: true, loopbackRelay: { socat, ports: [p1, p2] } });
+    const { outerEnv, command } = relaySandboxEnv(
+      '/usr/bin/env',
+      [],
+      { PATH: '/usr/bin:/bin' },
+      { tmp: '/r/tmp', loopback: true, loopbackRelay: { socat, ports: [p1, p2] } },
+    );
     expect(command).toBe(SANDBOX_EXEC_SCRIPT); // still fixed text: the ports and socat's path are in the environment
     expect(outerEnv).toMatchObject({ [`${SANDBOX_EXEC_PREFIX}RELAY_PORTS`]: `${p1} ${p2}`, [`${SANDBOX_EXEC_PREFIX}SOCAT`]: socat });
     // sandbox-runtime's proxy, with the run's own credentials, percent-encoded as it gives them.
@@ -600,7 +717,8 @@ describe.skipIf(process.platform === 'win32')('relaySandboxEnv', () => {
     const inside = r.stdout.split('\n');
     expect(inside.filter((l) => l.startsWith(SANDBOX_EXEC_PREFIX))).toEqual([]);
     const until = Date.now() + 5000;
-    while (Date.now() < until && (!existsSync(log) || readFileSync(log, 'utf8').trim().split('\n').length < 4)) spawnSync('/bin/sleep', ['0.05']);
+    while (Date.now() < until && (!existsSync(log) || readFileSync(log, 'utf8').trim().split('\n').length < 4))
+      spawnSync('/bin/sleep', ['0.05']);
     const calls = readFileSync(log, 'utf8').trim().split('\n').sort();
     const relay = (listen: string, port: number) => `${listen}|PROXY:localhost:127.0.0.1:${port},proxyport=3128,proxyauth=srt.aGk=:t0k+en|`;
     expect(calls).toEqual(
@@ -612,10 +730,19 @@ describe.skipIf(process.platform === 'win32')('relaySandboxEnv', () => {
       ].sort(),
     );
     // Nothing is relayed without ports, or without a proxy to go through.
-    expect(relaySandboxEnv('/usr/bin/env', [], { PATH: '/usr/bin:/bin' }, { tmp: '/r/tmp', loopback: true, loopbackRelay: { socat, ports: [] } }).outerEnv[`${SANDBOX_EXEC_PREFIX}RELAY_PORTS`]).toBeUndefined();
-    expect(relaySandboxEnv('/usr/bin/env', [], { PATH: '/usr/bin:/bin' }, { tmp: '/r/tmp', loopback: true }).outerEnv[`${SANDBOX_EXEC_PREFIX}RELAY_PORTS`]).toBeUndefined();
+    expect(
+      relaySandboxEnv('/usr/bin/env', [], { PATH: '/usr/bin:/bin' }, { tmp: '/r/tmp', loopback: true, loopbackRelay: { socat, ports: [] } })
+        .outerEnv[`${SANDBOX_EXEC_PREFIX}RELAY_PORTS`],
+    ).toBeUndefined();
+    expect(
+      relaySandboxEnv('/usr/bin/env', [], { PATH: '/usr/bin:/bin' }, { tmp: '/r/tmp', loopback: true }).outerEnv[
+        `${SANDBOX_EXEC_PREFIX}RELAY_PORTS`
+      ],
+    ).toBeUndefined();
     // The loopback ports come from the run's hosts: a backend on loopback and the ports it only connects to.
-    expect(relaySandboxHosts(['api.openai.com', 'localhost:11434', '[::1]:8000', 'localhost:11434'], ctx).loopbackPorts).toEqual([11434, 8000]);
+    expect(relaySandboxHosts(['api.openai.com', 'localhost:11434', '[::1]:8000', 'localhost:11434'], ctx).loopbackPorts).toEqual([
+      11434, 8000,
+    ]);
     expect(relaySandboxHosts(['api.openai.com', '192.168.1.20:1234'], ctx).loopbackPorts).toEqual([]);
   });
 
@@ -658,7 +785,11 @@ async function until(cond: () => boolean): Promise<void> {
 
 function newRun(requestApproval?: (req: ApprovalRequest) => Promise<ApprovalAnswer>) {
   const dirs = makeRunDirs(data);
-  const run = new RelaySandboxRun(dirs, { srt: { marker: 1 } }, { requestApproval, localAddresses: ctx.localAddresses, platform: 'linux', arch: 'x64' });
+  const run = new RelaySandboxRun(
+    dirs,
+    { srt: { marker: 1 } },
+    { requestApproval, localAddresses: ctx.localAddresses, platform: 'linux', arch: 'x64' },
+  );
   const { server, host } = channelPair();
   run.attach(server, {} as never);
   return { run, host, dirs };
@@ -670,20 +801,27 @@ const answers = (lines: string[]) => lines.map((l) => JSON.parse(l)).filter((m) 
 describe.skipIf(process.platform === 'win32')('disposing of a run whose leftovers survive', () => {
   const disposeWith = async (bySandbox: boolean, byMarker: boolean) => {
     const dirs = makeRunDirs(data);
-    const run = new RelaySandboxRun(dirs, {}, {
-      localAddresses: ctx.localAddresses,
-      platform: 'darwin',
-      arch: 'arm64',
-      sweeps: { bySandbox: async () => bySandbox, byMarker: async () => byMarker },
-    });
+    const run = new RelaySandboxRun(
+      dirs,
+      {},
+      {
+        localAddresses: ctx.localAddresses,
+        platform: 'darwin',
+        arch: 'arm64',
+        sweeps: { bySandbox: async () => bySandbox, byMarker: async () => byMarker },
+      },
+    );
     await run.dispose();
     return { tmp: existsSync(dirs.tmp), marker: existsSync(dirs.marker!), host: existsSync(dirs.hostTmp) };
   };
-  it.runIf(process.platform === 'darwin')('keeps the marker and the temp folder for the next start when something is left (or a sweep could not tell)', async () => {
-    expect(await disposeWith(true, true)).toEqual({ tmp: false, marker: false, host: false });
-    expect(await disposeWith(false, true)).toEqual({ tmp: true, marker: true, host: false });
-    expect(await disposeWith(true, false)).toEqual({ tmp: true, marker: true, host: false });
-  });
+  it.runIf(process.platform === 'darwin')(
+    'keeps the marker and the temp folder for the next start when something is left (or a sweep could not tell)',
+    async () => {
+      expect(await disposeWith(true, true)).toEqual({ tmp: false, marker: false, host: false });
+      expect(await disposeWith(false, true)).toEqual({ tmp: true, marker: true, host: false });
+      expect(await disposeWith(true, false)).toEqual({ tmp: true, marker: true, host: false });
+    },
+  );
 });
 
 // Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
@@ -791,7 +929,17 @@ describe.skipIf(process.platform === 'win32')('RelaySandboxRun', () => {
   it('refuses without asking every spelling of a local address, and asks about a name by the name it dials', async () => {
     const seen: string[] = [];
     const { run, host } = newRun(async (req) => (seen.push(req.detail!), { allow: true }));
-    const local = ['127.1', '2130706433', '0x7f.0.0.1', '0177.0.0.1', '127.0.0.1.', 'localhost.', '0', '2852039166', '[::ffff:169.254.169.254]'];
+    const local = [
+      '127.1',
+      '2130706433',
+      '0x7f.0.0.1',
+      '0177.0.0.1',
+      '127.0.0.1.',
+      'localhost.',
+      '0',
+      '2852039166',
+      '[::ffff:169.254.169.254]',
+    ];
     local.forEach((h, i) => host.write({ t: 'ask', id: i + 1, host: h, port: 8000 }));
     await until(() => answers(host.lines).length === local.length);
     for (const a of answers(host.lines)) {
@@ -871,24 +1019,30 @@ describe.skipIf(process.platform === 'win32')('run folders and their markers', (
     // Never in the system's temp folder, where another CLI's sandboxed command could change it: refused.
     const long = join(dir, 'a-data-folder-with-a-name-long-enough-for-its-sockets-to-be-too-long');
     for (const platform of ['darwin', 'linux'] as const) {
-      expect(() => withLang('en', () => makeRunDirs(long, platform))).toThrow(/too long for the sockets its sandbox makes there.*RELAY_DATA_DIR/);
+      expect(() => withLang('en', () => makeRunDirs(long, platform))).toThrow(
+        /too long for the sockets its sandbox makes there.*RELAY_DATA_DIR/,
+      );
     }
-    expect(withLang('zh-TW', () => {
-      try {
-        makeRunDirs(long, 'linux');
-      } catch (err) {
-        return (err as Error).message;
-      }
-    })).toMatch(/太長.*RELAY_DATA_DIR/);
+    expect(
+      withLang('zh-TW', () => {
+        try {
+          makeRunDirs(long, 'linux');
+        } catch (err) {
+          return (err as Error).message;
+        }
+      }),
+    ).toMatch(/太長.*RELAY_DATA_DIR/);
     expect(existsSync(long)).toBe(false);
     // Other systems are refused elsewhere (`sandboxAvailable`), so no limit applies here.
     removeRunDirs(makeRunDirs(join(dir, 'other-system'), 'freebsd'));
     // Told before any sandbox is tried, as the other reasons the sandbox cannot work here are.
     const tools = { sh: '/bin/sh', bash: '/bin/bash', bwrap: '/usr/bin/bwrap', socat: '/usr/bin/socat', rg: '/usr/bin/rg' };
-    await expect(withLang('en', () => sandboxAvailable({ ...ctx, platform: 'linux', arch: 'x64', tools, dataDir: long }))).resolves.toEqual({
-      ok: false,
-      reason: expect.stringMatching(/too long for the sockets.*at most 61 bytes/),
-    });
+    await expect(withLang('en', () => sandboxAvailable({ ...ctx, platform: 'linux', arch: 'x64', tools, dataDir: long }))).resolves.toEqual(
+      {
+        ok: false,
+        reason: expect.stringMatching(/too long for the sockets.*at most 61 bytes/),
+      },
+    );
     expect(existsSync(long)).toBe(false);
     // Counted in bytes, as a socket's path is: a path in Chinese fits in characters, not in bytes.
     const fits = HOST_TMP_MAX.darwin! - '/srt/'.length - 6; // 70, in characters as in bytes for ASCII
@@ -917,7 +1071,9 @@ describe.skipIf(process.platform === 'win32')('run folders and their markers', (
     warn.mockRestore();
     // Once the sweeps find nothing left: all of it goes, the locked folder too.
     const seen: string[][] = [];
-    expect(clearRelaySandboxLeftovers(data, 'darwin', { byMarker: (m) => (seen.push(m), true), bySandbox: (t) => (seen.push(t), true) })).toBe(true);
+    expect(
+      clearRelaySandboxLeftovers(data, 'darwin', { byMarker: (m) => (seen.push(m), true), bySandbox: (t) => (seen.push(t), true) }),
+    ).toBe(true);
     expect(seen).toEqual([[d.marker], [d.tmp]]);
     for (const p of [d.tmp, d.hostTmp, d.marker!]) expect(existsSync(p)).toBe(false);
   });
@@ -929,11 +1085,15 @@ describe.skipIf(process.platform === 'win32')('run folders and their markers', (
   });
 
   it('leaves no marker behind when the command cannot be made', async () => {
-    const markers = () => (existsSync(relaySandboxRoot(data)) ? readdirSync(relaySandboxRoot(data)).filter((n) => n.endsWith('.marker')).length : 0);
+    const markers = () =>
+      existsSync(relaySandboxRoot(data)) ? readdirSync(relaySandboxRoot(data)).filter((n) => n.endsWith('.marker')).length : 0;
     const before = markers();
     // Fails once the run's folders exist (an argument that is not a string breaks the command line).
     await expect(
-      sandboxCommand('/bin/sh', [42 as unknown as string], { PATH: '/usr/bin:/bin' }, spec(), { ctx, available: async () => ({ ok: true }) }),
+      sandboxCommand('/bin/sh', [42 as unknown as string], { PATH: '/usr/bin:/bin' }, spec(), {
+        ctx,
+        available: async () => ({ ok: true }),
+      }),
     ).rejects.toThrow();
     expect(markers()).toBe(before);
   });
@@ -991,7 +1151,11 @@ describe.skipIf(process.platform === 'win32')('leftoverSweepPids (startup sweep 
 // Harness Relay's own sandbox runs on macOS and Linux only (on native Windows the open agents run only with full access).
 describe.skipIf(process.platform === 'win32')('the host', () => {
   it('runs with type stripping where Node does not do it by default', () => {
-    expect(hostArgs({ typescript: false })).toEqual(['--experimental-strip-types', '--disable-warning=ExperimentalWarning', RELAY_SANDBOX_HOST]);
+    expect(hostArgs({ typescript: false })).toEqual([
+      '--experimental-strip-types',
+      '--disable-warning=ExperimentalWarning',
+      RELAY_SANDBOX_HOST,
+    ]);
     expect(hostArgs({ typescript: 'strip' })).toEqual(['--disable-warning=ExperimentalWarning', RELAY_SANDBOX_HOST]);
   });
 
@@ -1029,7 +1193,10 @@ describe.skipIf(process.platform === 'win32')('fail closed', () => {
   it('refuses native Windows, other platforms, missing programs and processors without the seccomp helper', async () => {
     const win = await sandboxAvailable({ ...ctx, platform: 'win32' });
     expect(win.ok).toBe(false);
-    await expect(withLang('en', () => sandboxAvailable({ ...ctx, platform: 'win32' }))).resolves.toEqual({ ok: false, reason: expect.stringMatching(/native Windows.*WSL2/) });
+    await expect(withLang('en', () => sandboxAvailable({ ...ctx, platform: 'win32' }))).resolves.toEqual({
+      ok: false,
+      reason: expect.stringMatching(/native Windows.*WSL2/),
+    });
     expect(platformRefusal({ ...ctx, platform: 'freebsd' })).toEqual({ code: 'platform', detail: 'freebsd' });
     const missing = platformRefusal({ ...ctx, tools: { sh: '/bin/sh', bash: '/bin/bash', bwrap: '/usr/bin/bwrap' } });
     expect(missing).toEqual({ code: 'deps', detail: 'socat, ripgrep (rg) not installed' });
@@ -1046,13 +1213,17 @@ describe.skipIf(process.platform === 'win32')('fail closed', () => {
     const mac = platformRefusal({ ...ctx, platform: 'darwin' });
     const macText = withLang('en', () => failureText(mac ?? { code: 'deps', detail: '/usr/bin/sandbox-exec not found' }, 'darwin'));
     expect(macText).not.toMatch(/apt-get|dnf/);
-    expect(withLang('en', () => failureText({ code: 'deps', detail: '/usr/bin/sandbox-exec not found' }, 'darwin'))).toMatch(/sandbox-exec not found\. sandbox-exec is part of macOS/);
+    expect(withLang('en', () => failureText({ code: 'deps', detail: '/usr/bin/sandbox-exec not found' }, 'darwin'))).toMatch(
+      /sandbox-exec not found\. sandbox-exec is part of macOS/,
+    );
     // A detail that ends in a full stop gets no second one.
     expect(withLang('zh-TW', () => failureText({ code: 'probe', detail: '失敗了。' }, 'linux'))).not.toMatch(/。。/);
     expect(withLang('en', () => failureText({ code: 'probe', detail: 'it failed.' }, 'linux'))).not.toMatch(/\.\./);
     expect(platformRefusal({ ...ctx, arch: 'ia32' })).toEqual({ code: 'seccomp', detail: 'ia32' });
     expect(withLang('en', () => failureText({ code: 'seccomp', detail: '' }, 'linux', 'ia32'))).toMatch(/Unix sockets/);
-    expect(withLang('en', () => failureText({ code: 'probe', detail: 'sandbox_apply: Operation not permitted' }, 'darwin'))).toMatch(/inside one/);
+    expect(withLang('en', () => failureText({ code: 'probe', detail: 'sandbox_apply: Operation not permitted' }, 'darwin'))).toMatch(
+      /inside one/,
+    );
   });
 
   it("runs its host on the Node it was given (the desktop app's: one on PATH), and refuses without one", async () => {
@@ -1061,8 +1232,14 @@ describe.skipIf(process.platform === 'win32')('fail closed', () => {
     for (const platform of ['linux', 'darwin'] as const) {
       const none = { ...ctx, platform, tools: { ...ctx.tools, node: null } };
       expect(platformRefusal(none)).toEqual({ code: 'node', detail: '' });
-      await expect(withLang('en', () => sandboxAvailable(none))).resolves.toEqual({ ok: false, reason: expect.stringMatching(/Node\.js 22\.12 or later.*full access/) });
-      await expect(withLang('zh-TW', () => sandboxAvailable(none))).resolves.toEqual({ ok: false, reason: expect.stringMatching(/Node\.js 22\.12.*完全存取/) });
+      await expect(withLang('en', () => sandboxAvailable(none))).resolves.toEqual({
+        ok: false,
+        reason: expect.stringMatching(/Node\.js 22\.12 or later.*full access/),
+      });
+      await expect(withLang('zh-TW', () => sandboxAvailable(none))).resolves.toEqual({
+        ok: false,
+        reason: expect.stringMatching(/Node\.js 22\.12.*完全存取/),
+      });
     }
     // Native Windows is refused for itself, Node or not.
     expect(platformRefusal({ ...ctx, platform: 'win32', tools: { ...ctx.tools, node: null } })).toEqual({ code: 'windows', detail: '' });
@@ -1070,17 +1247,28 @@ describe.skipIf(process.platform === 'win32')('fail closed', () => {
 
   it('does not make a command when the sandbox cannot start, or the spec leaves a hole', async () => {
     const ok = async () => ({ ok: true }) as const;
-    await expect(sandboxCommand('/bin/sh', [], {}, spec(), { ctx, available: async () => ({ ok: false, reason: 'no sandbox here' }) })).rejects.toThrow('no sandbox here');
-    await expect(sandboxCommand('/bin/sh', [], {}, spec({ allowedHosts: ['localhost:8787'] }), { ctx, available: ok })).rejects.toThrow(/Harness Relay/);
-    await expect(sandboxCommand('/bin/sh', [], {}, spec({ protectedPaths: [join(home, 'a*')] }), { ctx, available: ok })).rejects.toThrow(/a\*/);
-    await expect(sandboxCommand('no-such-agent-cli', [], { PATH: '/usr/bin' }, spec(), { ctx, available: ok })).rejects.toThrow(/no-such-agent-cli/);
+    await expect(
+      sandboxCommand('/bin/sh', [], {}, spec(), { ctx, available: async () => ({ ok: false, reason: 'no sandbox here' }) }),
+    ).rejects.toThrow('no sandbox here');
+    await expect(sandboxCommand('/bin/sh', [], {}, spec({ allowedHosts: ['localhost:8787'] }), { ctx, available: ok })).rejects.toThrow(
+      /Harness Relay/,
+    );
+    await expect(sandboxCommand('/bin/sh', [], {}, spec({ protectedPaths: [join(home, 'a*')] }), { ctx, available: ok })).rejects.toThrow(
+      /a\*/,
+    );
+    await expect(sandboxCommand('no-such-agent-cli', [], { PATH: '/usr/bin' }, spec(), { ctx, available: ok })).rejects.toThrow(
+      /no-such-agent-cli/,
+    );
     await expect(sandboxCommand('/bin/sh', [], {}, { ...spec(), permission: 'full' as never }, { ctx, available: ok })).rejects.toThrow();
     // Nothing was left behind by the refusals.
     clearRelaySandboxLeftovers(data);
   });
 
   it('gives a command for the host, its channel riding on its env', async () => {
-    const s = await sandboxCommand('/bin/sh', ['-c', 'true'], { PATH: '/usr/bin:/bin', SECRET_KEY: 'k' }, spec(), { ctx, available: async () => ({ ok: true }) });
+    const s = await sandboxCommand('/bin/sh', ['-c', 'true'], { PATH: '/usr/bin:/bin', SECRET_KEY: 'k' }, spec(), {
+      ctx,
+      available: async () => ({ ok: true }),
+    });
     expect(s.bin).toBe(process.execPath);
     expect(s.args).toEqual(hostArgs());
     expect(s.env.SECRET_KEY).toBeUndefined(); // the agent's env goes over the channel

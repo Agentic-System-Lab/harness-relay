@@ -112,7 +112,13 @@ function ApiKeyRow({
         {view.keyUnreadable && ` ${b.keyUnreadable}`}
       </p>
       <div className="input-row">
-        <input type="password" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" aria-label={`${API_BACKEND_LABEL[id]} ${b.apiKeys}`} />
+        <input
+          type="password"
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          autoComplete="off"
+          aria-label={`${API_BACKEND_LABEL[id]} ${b.apiKeys}`}
+        />
         <button className="primary" onClick={() => void run(key)} disabled={busy || !key.trim()}>
           {t.common.save}
         </button>
@@ -254,7 +260,13 @@ function EndpointForm({
       </label>
       <label className="field">
         <span>{b.models}</span>
-        <textarea rows={3} value={d.models} placeholder={b.modelsPlaceholder} spellCheck={false} onChange={(e) => set({ models: e.target.value })} />
+        <textarea
+          rows={3}
+          value={d.models}
+          placeholder={b.modelsPlaceholder}
+          spellCheck={false}
+          onChange={(e) => set({ models: e.target.value })}
+        />
       </label>
       <label className="field">
         <span>{b.endpointKey}</span>

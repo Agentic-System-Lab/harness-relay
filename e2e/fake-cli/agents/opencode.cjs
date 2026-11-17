@@ -28,6 +28,7 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const { acpAgent, requestPermission, sessionUpdates } = require('../lib/acp.cjs');
+const { callMcpTool } = require('../lib/mcp.cjs');
 const { ownSkills, safeList, targetOf } = require('../lib/files.cjs');
 const { keyVerdict, sessions } = require('../lib/home.cjs');
 const { exitAfterLog, record, tryWrite } = require('../lib/log.cjs');
@@ -131,7 +132,13 @@ function readConfig(cwd) {
 /** OpenCode's wildcard: `*` any text, `?` one character. */
 function wildcard(pattern, value) {
   const esc = (s) => s.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`^${pattern.split('*').map((p) => p.split('?').map(esc).join('.')).join('.*')}$`, 's').test(value);
+  return new RegExp(
+    `^${pattern
+      .split('*')
+      .map((p) => p.split('?').map(esc).join('.'))
+      .join('.*')}$`,
+    's',
+  ).test(value);
 }
 
 /** A permission config as rules, in order: `{key: action}` or `{key: {pattern: action}}`. */
@@ -162,7 +169,13 @@ function decide(config, permission, pattern = '*') {
 function providerModels(config, provider) {
   const inline = isObject(config.provider) ? config.provider[provider] : undefined;
   if (isObject(inline)) {
-    return Object.entries(isObject(inline.models) ? inline.models : {}).map(([id, m]) => ({ provider, id, name: (isObject(m) && m.name) || id, toolcall: true, inline: true }));
+    return Object.entries(isObject(inline.models) ? inline.models : {}).map(([id, m]) => ({
+      provider,
+      id,
+      name: (isObject(m) && m.name) || id,
+      toolcall: true,
+      inline: true,
+    }));
   }
   return CATALOG.filter((m) => m.provider === provider);
 }
@@ -194,12 +207,31 @@ function configOptions(config, s) {
       category: 'model',
       type: 'select',
       currentValue: s.model,
-      options: modelsOf(config).map((m) => ({ value: `${m.provider}/${m.id}`, name: `${(isObject(config.provider) && config.provider[m.provider]?.name) || PROVIDER_NAME[m.provider] || m.provider}/${m.name}` })),
+      options: modelsOf(config).map((m) => ({
+        value: `${m.provider}/${m.id}`,
+        name: `${(isObject(config.provider) && config.provider[m.provider]?.name) || PROVIDER_NAME[m.provider] || m.provider}/${m.name}`,
+      })),
     },
     ...(efforts.length
-      ? [{ id: 'effort', name: 'Effort', category: 'thought_level', type: 'select', currentValue: s.effort, options: [...efforts, 'default'].map((value) => ({ value })) }]
+      ? [
+          {
+            id: 'effort',
+            name: 'Effort',
+            category: 'thought_level',
+            type: 'select',
+            currentValue: s.effort,
+            options: [...efforts, 'default'].map((value) => ({ value })),
+          },
+        ]
       : []),
-    { id: 'mode', name: 'Session Mode', category: 'mode', type: 'select', currentValue: s.mode, options: ['build', 'plan'].map((value) => ({ value, name: value })) },
+    {
+      id: 'mode',
+      name: 'Session Mode',
+      category: 'mode',
+      type: 'select',
+      currentValue: s.mode,
+      options: ['build', 'plan'].map((value) => ({ value, name: value })),
+    },
   ];
 }
 
@@ -239,7 +271,12 @@ function gitRoot(cwd) {
   return fs.existsSync(path.join(top, '.git')) ? top : undefined;
 }
 
-const BUILT_IN_SKILL = { name: 'customize-opencode', description: "Change OpenCode's own settings", location: '<built-in>', content: 'Edit opencode.json.' };
+const BUILT_IN_SKILL = {
+  name: 'customize-opencode',
+  description: "Change OpenCode's own settings",
+  location: '<built-in>',
+  content: 'Edit opencode.json.',
+};
 
 /**
  * Its skills for a folder: the project's `.claude/skills` and `.agents/skills` (from the folder up to its
@@ -249,7 +286,11 @@ const BUILT_IN_SKILL = { name: 'customize-opencode', description: "Change OpenCo
 function opencodeSkills(cwd, config) {
   if (isObject(config.permission) && config.permission.skill === 'deny') return [];
   const home = env.OPENCODE_TEST_HOME || os.homedir();
-  const dirs = [...upToRoot(cwd).flatMap((d) => [path.join(d, '.claude', 'skills'), path.join(d, '.agents', 'skills')]), path.join(home, '.claude', 'skills'), path.join(home, '.agents', 'skills')];
+  const dirs = [
+    ...upToRoot(cwd).flatMap((d) => [path.join(d, '.claude', 'skills'), path.join(d, '.agents', 'skills')]),
+    path.join(home, '.claude', 'skills'),
+    path.join(home, '.agents', 'skills'),
+  ];
   const found = new Map();
   for (const dir of dirs) {
     for (const s of ownSkills(dir)) {
@@ -268,7 +309,9 @@ function opencodeSkills(cwd, config) {
 
 /** Its subagents (`general`, `explore`), but those its config turns off; none when `task` is denied. */
 function opencodeAgents(config) {
-  return ['general', 'explore'].filter((name) => !(isObject(config.agent) && config.agent[name]?.disable) && decide(config, 'task', name) !== 'deny');
+  return ['general', 'explore'].filter(
+    (name) => !(isObject(config.agent) && config.agent[name]?.disable) && decide(config, 'task', name) !== 'deny',
+  );
 }
 
 // --- The commands outside a turn ---------------------------------------------------------------
@@ -361,7 +404,9 @@ function startServer(port, ready) {
     res.writeHead(404).end();
   });
   // As `opencode acp` does: it does not answer `initialize` when it cannot serve.
-  server.once('error', (err) => process.stderr.write(`ServeError: could not listen on 127.0.0.1:${port}: ${err.message}\n`, () => exitAfterLog(1)));
+  server.once('error', (err) =>
+    process.stderr.write(`ServeError: could not listen on 127.0.0.1:${port}: ${err.message}\n`, () => exitAfterLog(1)),
+  );
   server.listen(port, '127.0.0.1', () => ready(state));
 }
 
@@ -410,7 +455,10 @@ function newSessionId() {
 
 /** What it keeps of a session in its data folder (next to the mark `sessions` keeps). */
 function saveSession(id, s) {
-  fs.writeFileSync(sessions.file(id), JSON.stringify({ cwd: s.cwd, model: s.model, effort: s.effort, mode: s.mode, costTotal: s.costTotal, turns: s.turns }));
+  fs.writeFileSync(
+    sessions.file(id),
+    JSON.stringify({ cwd: s.cwd, model: s.model, effort: s.effort, mode: s.mode, costTotal: s.costTotal, turns: s.turns }),
+  );
 }
 
 function loadSession(id) {
@@ -433,10 +481,23 @@ function opencodeAgent(server) {
     const c = configFor(cwd);
     const model = kept.model || String(c.model || '');
     const effort = kept.effort !== undefined ? kept.effort : variantsOf(findModel(c, model))[0] || null;
-    const s = { cwd, model, effort, mode: kept.mode || 'build', costTotal: kept.costTotal || 0, turns: kept.turns || [], cancelled: false, mcp: (p.mcpServers || []).map((m) => m.name) };
+    const s = {
+      cwd,
+      model,
+      effort,
+      mode: kept.mode || 'build',
+      costTotal: kept.costTotal || 0,
+      turns: kept.turns || [],
+      cancelled: false,
+      mcp: (p.mcpServers || []).map((m) => m.name),
+      // As given for this run (Harness Relay's `relay` gets a new token each turn): never saved.
+      mcpSpecs: Object.fromEntries((p.mcpServers || []).map((m) => [m.name, m])),
+    };
     agent.sessions.set(id, s);
     recordMcpEnv(
-      Object.fromEntries((p.mcpServers || []).map((m) => [m.name, Object.fromEntries((m.env || m.headers || []).map((v) => [v.name, v.value]))])),
+      Object.fromEntries(
+        (p.mcpServers || []).map((m) => [m.name, Object.fromEntries((m.env || m.headers || []).map((v) => [v.name, v.value]))]),
+      ),
       Object.fromEntries((p.mcpServers || []).filter((m) => m.type === 'http').map((m) => [m.name, m.url])),
     );
     saveSession(id, s);
@@ -481,7 +542,8 @@ function opencodeAgent(server) {
         // A new model starts on its own first effort level.
         s.effort = variantsOf(model)[0] || null;
       } else if (p.configId === 'effort') {
-        if (!variantsOf(findModel(c, s.model)).concat('default').includes(value)) throw rpcError(`Invalid params: effort not found: ${value}`, -32602, { effort: value });
+        if (!variantsOf(findModel(c, s.model)).concat('default').includes(value))
+          throw rpcError(`Invalid params: effort not found: ${value}`, -32602, { effort: value });
         s.effort = value;
       } else if (p.configId === 'mode') {
         if (!['build', 'plan'].includes(value)) throw rpcError(`Invalid params: mode not found: ${value}`, -32602, { mode: value });
@@ -542,7 +604,8 @@ async function opencodeTurn(peer, server, p, s, c, next) {
   s.cancelled = false;
   const steps = plan(prompt, { cwd: s.cwd, images, mcp: s.mcp, briefing });
   if (steps[0] && steps[0].type === 'fail') return fail(steps[0].text);
-  if (steps[0] && steps[0].type === 'error') throw rpcError(`Internal error: ${steps[0].text}`, -32603, { service: 'session', errorName: 'APIError' });
+  if (steps[0] && steps[0].type === 'error')
+    throw rpcError(`Internal error: ${steps[0].text}`, -32603, { service: 'session', errorName: 'APIError' });
 
   server.emit('session.status', { sessionID: sessionId, status: { type: 'busy' } });
   const u = sessionUpdates(peer, sessionId, () => s.cancelled);
@@ -560,7 +623,15 @@ async function opencodeTurn(peer, server, p, s, c, next) {
    */
   const ask = async (permission, patterns, toolCall) => {
     const id = next('per');
-    const request = { id, sessionID: sessionId, permission, patterns, metadata: {}, always: [], tool: { messageID, callID: toolCall.toolCallId } };
+    const request = {
+      id,
+      sessionID: sessionId,
+      permission,
+      patterns,
+      metadata: {},
+      always: [],
+      tool: { messageID, callID: toolCall.toolCallId },
+    };
     let settle;
     const replied = new Promise((resolve) => (settle = resolve));
     server.pending.set(id, { request, settle });
@@ -587,7 +658,13 @@ async function opencodeTurn(peer, server, p, s, c, next) {
   /** A refused call's end, as OpenCode says it; without `continue_loop_on_deny` the turn ends there. */
   const refuse = (id, p) => {
     const text = p.denied ? DENIED : p.feedback ? `${REJECTED.slice(0, -1)} with the following feedback: ${p.feedback}` : REJECTED;
-    u.update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'failed', content: [{ type: 'content', content: { type: 'text', text } }], rawOutput: { error: text } });
+    u.update({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: id,
+      status: 'failed',
+      content: [{ type: 'content', content: { type: 'text', text } }],
+      rawOutput: { error: text },
+    });
     if (!p.denied && !continueOnDeny) stoppedOnDeny = true;
   };
 
@@ -598,27 +675,124 @@ async function opencodeTurn(peer, server, p, s, c, next) {
       const id = next('call');
       const todos = step.entries.map((e) => ({ content: e.text, status: e.status, priority: 'medium' }));
       u.toolCall({ toolCallId: id, title: 'todowrite', kind: 'other', status: 'pending', locations: [], rawInput: {} });
-      u.update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'in_progress', kind: 'other', title: 'todowrite', locations: [], rawInput: { todos } });
-      const ok = await permit('todowrite', '*', { toolCallId: id, title: 'todowrite', kind: 'other', status: 'pending', locations: [], rawInput: {} });
+      u.update({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: id,
+        status: 'in_progress',
+        kind: 'other',
+        title: 'todowrite',
+        locations: [],
+        rawInput: { todos },
+      });
+      const ok = await permit('todowrite', '*', {
+        toolCallId: id,
+        title: 'todowrite',
+        kind: 'other',
+        status: 'pending',
+        locations: [],
+        rawInput: {},
+      });
       if (s.cancelled) return cancelled;
       if (!ok.ok) refuse(id, ok);
-      else u.update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'completed', title: `${todos.length} todos`, content: [{ type: 'content', content: { type: 'text', text: JSON.stringify(todos, null, 2) } }] });
+      else
+        u.update({
+          sessionUpdate: 'tool_call_update',
+          toolCallId: id,
+          status: 'completed',
+          title: `${todos.length} todos`,
+          content: [{ type: 'content', content: { type: 'text', text: JSON.stringify(todos, null, 2) } }],
+        });
     }
     if (step.type === 'tool') {
       const id = next('call');
       u.toolCall({ toolCallId: id, title: 'glob', kind: 'search', status: 'pending', locations: [], rawInput: {} });
-      u.update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'in_progress', kind: 'search', title: '*', locations: [], rawInput: { pattern: '*', path: s.cwd } });
-      const ok = await permit('glob', '*', { toolCallId: id, title: '*', kind: 'search', status: 'pending', locations: [{ path: s.cwd }], rawInput: { pattern: '*', path: s.cwd } });
+      u.update({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: id,
+        status: 'in_progress',
+        kind: 'search',
+        title: '*',
+        locations: [],
+        rawInput: { pattern: '*', path: s.cwd },
+      });
+      const ok = await permit('glob', '*', {
+        toolCallId: id,
+        title: '*',
+        kind: 'search',
+        status: 'pending',
+        locations: [{ path: s.cwd }],
+        rawInput: { pattern: '*', path: s.cwd },
+      });
       if (s.cancelled) return cancelled;
       if (!ok.ok) refuse(id, ok);
-      else u.update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'completed', title: s.cwd, content: [{ type: 'content', content: { type: 'text', text: safeList(s.cwd) } }] });
+      else
+        u.update({
+          sessionUpdate: 'tool_call_update',
+          toolCallId: id,
+          status: 'completed',
+          title: s.cwd,
+          content: [{ type: 'content', content: { type: 'text', text: safeList(s.cwd) } }],
+        });
+    }
+    if (step.type === 'mcp') {
+      // A tool of an MCP server it was given (stdio or HTTP), named `<server>_<tool>` as OpenCode
+      // names them; the permission rules decide, as for its own tools.
+      const id = next('call');
+      const name = `${step.server}_${step.tool}`;
+      const spec = s.mcpSpecs && s.mcpSpecs[step.server];
+      const call = { toolCallId: id, title: name, kind: 'other', status: 'pending', locations: [], rawInput: step.args };
+      u.toolCall(call);
+      const ok = spec ? await permit(name, '*', call) : { ok: false, denied: true };
+      if (s.cancelled) return cancelled;
+      if (!ok.ok) {
+        refuse(id, ok);
+        prefix += spec ? '' : `No MCP server ${step.server}. `;
+      } else {
+        const pairs = (list) => Object.fromEntries((list || []).map((v) => [v.name, v.value]));
+        const r = await callMcpTool(
+          spec.type === 'http'
+            ? { url: spec.url, headers: pairs(spec.headers) }
+            : { command: spec.command, args: spec.args, env: pairs(spec.env) },
+          step.tool,
+          step.args,
+        );
+        u.update({
+          sessionUpdate: 'tool_call_update',
+          toolCallId: id,
+          status: r.isError ? 'failed' : 'completed',
+          content: [{ type: 'content', content: { type: 'text', text: r.text } }],
+        });
+        prefix += `The ${step.tool} tool said: ${r.text} `;
+      }
     }
     if (step.type === 'approve') {
       const id = next('call');
       const command = step.command;
-      u.toolCall({ toolCallId: id, title: 'bash', kind: 'execute', status: 'pending', locations: [{ path: s.cwd }], rawInput: { cwd: s.cwd } });
-      u.update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'in_progress', kind: 'execute', title: command, locations: [{ path: s.cwd }], rawInput: { command, cwd: s.cwd } });
-      const ok = await permit('bash', command, { toolCallId: id, title: command, kind: 'execute', status: 'pending', locations: [], rawInput: { command } });
+      u.toolCall({
+        toolCallId: id,
+        title: 'bash',
+        kind: 'execute',
+        status: 'pending',
+        locations: [{ path: s.cwd }],
+        rawInput: { cwd: s.cwd },
+      });
+      u.update({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: id,
+        status: 'in_progress',
+        kind: 'execute',
+        title: command,
+        locations: [{ path: s.cwd }],
+        rawInput: { command, cwd: s.cwd },
+      });
+      const ok = await permit('bash', command, {
+        toolCallId: id,
+        title: command,
+        kind: 'execute',
+        status: 'pending',
+        locations: [],
+        rawInput: { command },
+      });
       if (s.cancelled) return cancelled;
       if (!ok.ok) {
         refuse(id, ok);
@@ -626,10 +800,27 @@ async function opencodeTurn(peer, server, p, s, c, next) {
       } else {
         const r = runCommand(c.shell, command, s.cwd);
         const output = r.stdout + r.stderr;
-        u.update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'in_progress', kind: 'execute', title: command, locations: [{ path: s.cwd }], rawInput: { command, cwd: s.cwd }, content: [{ type: 'content', content: { type: 'text', text: output } }] });
+        u.update({
+          sessionUpdate: 'tool_call_update',
+          toolCallId: id,
+          status: 'in_progress',
+          kind: 'execute',
+          title: command,
+          locations: [{ path: s.cwd }],
+          rawInput: { command, cwd: s.cwd },
+          content: [{ type: 'content', content: { type: 'text', text: output } }],
+        });
         // Done whatever its exit code, as OpenCode says it.
-        u.update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'completed', title: command, content: [{ type: 'content', content: { type: 'text', text: output } }], rawOutput: { output, metadata: { output, exit: r.code, truncated: false } } });
-        prefix += r.code === 0 ? 'The command ran: e2e-approval. ' : `The command failed (exit ${r.code}): ${(r.stderr || r.stdout).trim()}. `;
+        u.update({
+          sessionUpdate: 'tool_call_update',
+          toolCallId: id,
+          status: 'completed',
+          title: command,
+          content: [{ type: 'content', content: { type: 'text', text: output } }],
+          rawOutput: { output, metadata: { output, exit: r.code, truncated: false } },
+        });
+        prefix +=
+          r.code === 0 ? 'The command ran: e2e-approval. ' : `The command failed (exit ${r.code}): ${(r.stderr || r.stdout).trim()}. `;
       }
     }
     if (step.type === 'fetch') {
@@ -637,8 +828,23 @@ async function opencodeTurn(peer, server, p, s, c, next) {
       const id = next('call');
       const url = step.url;
       u.toolCall({ toolCallId: id, title: 'webfetch', kind: 'fetch', status: 'pending', locations: [], rawInput: {} });
-      u.update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'in_progress', kind: 'fetch', title: url, locations: [], rawInput: { url, format: 'markdown' } });
-      const ok = await permit('webfetch', url, { toolCallId: id, title: url, kind: 'fetch', status: 'pending', locations: [], rawInput: { url, format: 'markdown' } });
+      u.update({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: id,
+        status: 'in_progress',
+        kind: 'fetch',
+        title: url,
+        locations: [],
+        rawInput: { url, format: 'markdown' },
+      });
+      const ok = await permit('webfetch', url, {
+        toolCallId: id,
+        title: url,
+        kind: 'fetch',
+        status: 'pending',
+        locations: [],
+        rawInput: { url, format: 'markdown' },
+      });
       if (s.cancelled) return cancelled;
       if (!ok.ok) {
         refuse(id, ok);
@@ -646,8 +852,18 @@ async function opencodeTurn(peer, server, p, s, c, next) {
       } else {
         const r = await reach(url);
         if (s.cancelled) return cancelled;
-        const text = r.status && !r.refused && r.status < 400 ? `Fetched ${url}` : r.error ? `Unable to connect. Is the computer able to access the url? (${r.error})` : `Request failed with status code: ${r.status}`;
-        u.update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: r.status && !r.refused && r.status < 400 ? 'completed' : 'failed', content: [{ type: 'content', content: { type: 'text', text } }] });
+        const text =
+          r.status && !r.refused && r.status < 400
+            ? `Fetched ${url}`
+            : r.error
+              ? `Unable to connect. Is the computer able to access the url? (${r.error})`
+              : `Request failed with status code: ${r.status}`;
+        u.update({
+          sessionUpdate: 'tool_call_update',
+          toolCallId: id,
+          status: r.status && !r.refused && r.status < 400 ? 'completed' : 'failed',
+          content: [{ type: 'content', content: { type: 'text', text } }],
+        });
         prefix += reached(url, r);
       }
     }
@@ -659,12 +875,26 @@ async function opencodeTurn(peer, server, p, s, c, next) {
       }
       const id = next('call');
       u.toolCall({ toolCallId: id, title: 'write', kind: 'edit', status: 'pending', locations: [], rawInput: {} });
-      u.update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'in_progress', kind: 'edit', title: 'write', locations: [{ path: file }], rawInput: { filePath: file, content: step.content } });
+      u.update({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: id,
+        status: 'in_progress',
+        kind: 'edit',
+        title: 'write',
+        locations: [{ path: file }],
+        rawInput: { filePath: file, content: step.content },
+      });
       // A folder outside the project asks first, for that folder.
       let ok = { ok: true, asked: false };
       if (external(file, s.cwd)) {
         const parentDir = path.dirname(file);
-        ok = await permit('external_directory', path.join(parentDir, '*'), { toolCallId: id, kind: 'other', title: parentDir, status: 'pending', rawInput: { filepath: file, parentDir } });
+        ok = await permit('external_directory', path.join(parentDir, '*'), {
+          toolCallId: id,
+          kind: 'other',
+          title: parentDir,
+          status: 'pending',
+          rawInput: { filepath: file, parentDir },
+        });
         if (s.cancelled) return cancelled;
       }
       if (ok.ok) {
@@ -686,11 +916,24 @@ async function opencodeTurn(peer, server, p, s, c, next) {
           const written = tryWrite(file, step.content);
           if (written) {
             const out = 'Wrote file successfully.';
-            u.update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'completed', title: path.basename(file), content: [{ type: 'content', content: { type: 'text', text: out } }], rawOutput: { output: out, metadata: { diagnostics: {}, filepath: file, exists, truncated: false } } });
+            u.update({
+              sessionUpdate: 'tool_call_update',
+              toolCallId: id,
+              status: 'completed',
+              title: path.basename(file),
+              content: [{ type: 'content', content: { type: 'text', text: out } }],
+              rawOutput: { output: out, metadata: { diagnostics: {}, filepath: file, exists, truncated: false } },
+            });
           } else {
             // How OpenCode (Bun's file system) says a write the sandbox refused.
             const text = `Unknown: FileSystem.writeFile (${file})`;
-            u.update({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'failed', content: [{ type: 'content', content: { type: 'text', text } }], rawOutput: { error: text } });
+            u.update({
+              sessionUpdate: 'tool_call_update',
+              toolCallId: id,
+              status: 'failed',
+              content: [{ type: 'content', content: { type: 'text', text } }],
+              rawOutput: { error: text },
+            });
           }
           prefix += wrote(step, written, '');
           continue;

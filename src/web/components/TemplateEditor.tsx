@@ -24,7 +24,11 @@ function teamOf(p: TeamPreset): Team {
 function opening(preset: TeamPreset | undefined, providers: ProviderStatus[]): { team: Team; moved: string[]; known: boolean } {
   const known = providers.length > 0;
   if (!preset) {
-    return { team: { agents: blankAgents(providers), settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'read-only', cwd: '' } }, moved: [], known };
+    return {
+      team: { agents: blankAgents(providers), settings: { mode: 'roundtable', rounds: 1, maxHops: 8, permission: 'read-only', cwd: '' } },
+      moved: [],
+      known,
+    };
   }
   const team = teamOf(preset);
   const fit = fitTemplateAgents(team.agents, providers);
@@ -75,7 +79,10 @@ export function TemplateEditor({ preset, providers, catalog, onSaved, onClose }:
   }, [providers]); // once, when the statuses first come
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const problems = [...(name.trim() ? [] : [t.template.needName]), ...teamProblems(team, t, { members: true, template: true, maxAgents: maxTeamAgents })];
+  const problems = [
+    ...(name.trim() ? [] : [t.template.needName]),
+    ...teamProblems(team, t, { members: true, template: true, maxAgents: maxTeamAgents }),
+  ];
   const title = !preset ? t.template.newTitle : builtin ? t.template.builtinTitle(preset.name) : t.template.editTitle(preset.name);
   const close = () => {
     if (changed && !confirm(t.template.confirmDiscard)) return;

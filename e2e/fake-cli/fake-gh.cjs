@@ -84,7 +84,9 @@ async function login(github) {
   if (args.join(' ') !== 'auth login --web --hostname github.com') fail(`fake gh: not faked: gh ${args.join(' ')}`);
   // Where the test puts its approval, there before any gist is.
   fs.mkdirSync(github, { recursive: true });
-  process.stdout.write('! First copy your one-time code: ABCD-1234\nOpen this URL to continue in your web browser: https://github.com/login/device\n');
+  process.stdout.write(
+    '! First copy your one-time code: ABCD-1234\nOpen this URL to continue in your web browser: https://github.com/login/device\n',
+  );
   const approve = path.join(github, 'approve');
   for (let waited = 0; !fs.existsSync(approve); waited += 100) {
     if (fs.existsSync(path.join(github, 'deny'))) fail('error: authorization was denied by the user');

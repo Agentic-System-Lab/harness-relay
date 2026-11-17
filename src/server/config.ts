@@ -17,6 +17,11 @@ export interface ServerConfig extends ServerLimits {
   voiceEngineBaseUrl?: string;
   /** Where voice input keeps its models and engine; undefined = `voice` in the data folder. */
   voiceDir?: string;
+  /**
+   * The Chromium, Chrome or Edge the browser tools start (`RELAY_BROWSER`), unless Settings sets one; undefined =
+   * the first one found (`browser/find.ts`).
+   */
+  browser?: string;
 }
 
 /** The whole numbers each limit may be set to: from one, and below a value no setup needs, to catch a typo. */
@@ -89,6 +94,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     voiceModelBaseUrl: base('RELAY_VOICE_MODEL_BASE_URL'),
     voiceEngineBaseUrl: base('RELAY_VOICE_ENGINE_BASE_URL'),
     voiceDir: folder('RELAY_VOICE_DIR'),
+    browser: folder('RELAY_BROWSER'),
   };
   return { config, problems };
 }

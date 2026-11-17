@@ -431,7 +431,7 @@ const MIGRATIONS: string[] = [
   ALTER TABLE conversations ADD COLUMN pinned_at INTEGER;
   `,
   // 31: the notification inbox (notifications), what the sidebar's bell lists: each alert the team
-  // gave (kind: done, error, approval, confirm, answer; src/shared/notify.ts), the agent it is about and
+  // gave (kind: done, error, approval, confirm, answer, blocked; src/shared/notify.ts), the agent it is about and
   // what it said as one short line, when, and when it was read (read_at; NULL: unread). Removed with
   // its conversation; only the newest INBOX_KEPT are kept (src/server/store.ts).
   `
@@ -445,6 +445,41 @@ const MIGRATIONS: string[] = [
     read_at         INTEGER
   );
   CREATE INDEX notifications_by_conversation ON notifications(conversation_id);
+  `,
+  // 32: a schedule that tracks a goal (schedules.goal; schedules.tracking, JSON: ScheduleTracking) and its
+  // webhook (schedules.hook, JSON: ScheduleHook; schedules.hook_hash: the SHA-256 of its token, never the
+  // token), and the body a webhook call sent with a scheduled message (messages.event).
+  `
+  ALTER TABLE schedules ADD COLUMN goal TEXT;
+  ALTER TABLE schedules ADD COLUMN tracking TEXT;
+  ALTER TABLE schedules ADD COLUMN hook TEXT;
+  ALTER TABLE schedules ADD COLUMN hook_hash TEXT;
+  ALTER TABLE messages ADD COLUMN event TEXT;
+  `,
+  // 33: the outbox — what agents asked Harness Relay's tools to send to other people, waiting for the
+  // user's Send (args: the call's arguments, JSON; preview: OutboxPreview, JSON).
+  `
+  CREATE TABLE outbox (
+    id              TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    message_id      TEXT NOT NULL,
+    agent_id        TEXT NOT NULL,
+    agent_name      TEXT NOT NULL,
+    tool            TEXT NOT NULL,
+    args            TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    preview         TEXT NOT NULL,
+    status          TEXT NOT NULL,
+    result          TEXT,
+    created_at      INTEGER NOT NULL,
+    decided_at      INTEGER
+  );
+  CREATE INDEX outbox_conversation ON outbox(conversation_id, status);
+  `,
+  // 34: the run of a schedule that tracks a goal a reply belongs to (`ChatMessage.tracked`, JSON), so a
+  // Retry or Continue of it goes on with the goal, also after a restart.
+  `
+  ALTER TABLE messages ADD COLUMN tracked TEXT;
   `,
 ];
 
@@ -502,11 +537,15 @@ export function openSqliteFile(file: string): Database {
  */
 export function openRunDatabase(file: string): Database {
   // A hot journal is played back on opening, and can name another file SQLite then opens.
-  if (!plainDatabaseFiles(file, true)) throw new Error(`${file}: not a plain file (a link, a named pipe…), or a journal beside it is not, is left over or is too large`);
+  if (!plainDatabaseFiles(file, true))
+    throw new Error(`${file}: not a plain file (a link, a named pipe…), or a journal beside it is not, is left over or is too large`);
   const db = new DatabaseSync(file);
   try {
     db.exec('PRAGMA busy_timeout = 3000; PRAGMA trusted_schema = OFF;');
-    const planted = db.prepare("SELECT type, name FROM sqlite_master WHERE type IN ('trigger', 'view')").all() as { type: string; name: string }[];
+    const planted = db.prepare("SELECT type, name FROM sqlite_master WHERE type IN ('trigger', 'view')").all() as {
+      type: string;
+      name: string;
+    }[];
     for (const { type, name } of planted) db.exec(`DROP ${type === 'view' ? 'VIEW' : 'TRIGGER'} IF EXISTS "${name.replaceAll('"', '""')}"`);
     // What a command could add for the server's own writes to run as slowly as it likes: a generated
     // column (run on every read of its row) and an index on an expression or with a condition (run on
@@ -519,7 +558,8 @@ export function openRunDatabase(file: string): Database {
          LIMIT 1`,
       )
       .get();
-    if (slow) throw new Error(`${file}: a table has a generated column or an index on an expression or a condition, which neither CLI makes`);
+    if (slow)
+      throw new Error(`${file}: a table has a generated column or an index on an expression or a condition, which neither CLI makes`);
     db.exec('PRAGMA ignore_check_constraints = ON');
     return db;
   } catch (err) {
@@ -637,7 +677,12 @@ const runDatabaseReads = new Map<string, Worker>();
  * Undefined when the read fails, does not end in time (the worker is asked to stop, and may not), or
  * an earlier read of the same database has not ended.
  */
-export function readRunDatabase(file: string, tables: readonly string[], queries: RunDatabaseQuery[], timeoutMs = RUN_DATABASE_TIMEOUT_MS): Promise<RunDatabaseRead | undefined> {
+export function readRunDatabase(
+  file: string,
+  tables: readonly string[],
+  queries: RunDatabaseQuery[],
+  timeoutMs = RUN_DATABASE_TIMEOUT_MS,
+): Promise<RunDatabaseRead | undefined> {
   return new Promise((resolve) => {
     if (runDatabaseReads.has(file)) return resolve(undefined);
     let worker: Worker;

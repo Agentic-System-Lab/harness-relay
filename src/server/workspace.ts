@@ -20,7 +20,20 @@ import { t } from './i18n';
 // `core.autocrlf=false`: snapshots, worktrees, diffs and applying keep a file's bytes as they are.
 // Git for Windows turns it on by default (in its system config): a file an agent wrote with LF would
 // come back to the user's folder with CRLF, and the diff viewer would not show a CRLF file's CRs.
-const CONFIG = ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', '-c', 'core.quotepath=false', '-c', 'core.fsmonitor=false', '-c', 'core.autocrlf=false', '-c', 'protocol.allow=never'];
+const CONFIG = [
+  '-c',
+  'commit.gpgsign=false',
+  '-c',
+  'core.hooksPath=/dev/null',
+  '-c',
+  'core.quotepath=false',
+  '-c',
+  'core.fsmonitor=false',
+  '-c',
+  'core.autocrlf=false',
+  '-c',
+  'protocol.allow=never',
+];
 
 /** The keys of a repository's config that name a driver which runs a command (git then runs none when it is empty). */
 const DRIVER_KEYS: Record<string, string[]> = {
@@ -46,10 +59,15 @@ const MAX_NESTED = 8;
  * can write theirs, and in a worktree make one where a submodule's folder is empty.
  */
 export async function repoDriverGuards(cwd: string, env: NodeJS.ProcessEnv, nested = false, depth = 0): Promise<string[]> {
-  const r = await capture('git', ['config', '-z', '--includes', '--show-scope', '--get-regexp', '^(filter|diff|merge)\\.|^core\\.worktree$'], env, {
-    cwd,
-    timeoutMs: 30_000,
-  });
+  const r = await capture(
+    'git',
+    ['config', '-z', '--includes', '--show-scope', '--get-regexp', '^(filter|diff|merge)\\.|^core\\.worktree$'],
+    env,
+    {
+      cwd,
+      timeoutMs: 30_000,
+    },
+  );
   // 1: none found. Anything else (a git too old for --show-scope, a config it cannot read): refuse,
   // rather than run the command without knowing what the repository would have it run.
   if (r.code !== 0 && r.code !== 1) throw new GitError(t().gitFailed('config', tail(r.stderr || r.stdout, 500)));
@@ -108,7 +126,11 @@ async function ownWorkTree(cwd: string, env: NodeJS.ProcessEnv): Promise<void> {
 async function submoduleRepos(cwd: string, env: NodeJS.ProcessEnv): Promise<string[]> {
   // `:/` lists the whole index, as `git add -A` takes it, with paths relative to `cwd`. Reading the
   // index would start its fsmonitor: `CONFIG` turns it off.
-  const r = await capture('git', [...CONFIG, 'ls-files', '-z', '--stage', '--', ':/'], env, { cwd, timeoutMs: 120_000, maxCapture: MAX_OUTPUT_BYTES });
+  const r = await capture('git', [...CONFIG, 'ls-files', '-z', '--stage', '--', ':/'], env, {
+    cwd,
+    timeoutMs: 120_000,
+    maxCapture: MAX_OUTPUT_BYTES,
+  });
   if (r.code !== 0) return []; // not a repository: `git add` fails by itself
   if (r.stdoutTruncated) throw new GitError(t().outputTooLarge('ls-files'));
   const out: string[] = [];
@@ -275,9 +297,7 @@ export async function snapshot(root: string, exclude: string[] = []): Promise<{ 
     const skip = excludePathspecs(root, exclude);
     await git(root, ['add', '-A', ...(skip.length ? ['--', '.', ...skip] : [])], { env });
     const tree = out(await git(root, ['write-tree'], { env }));
-    const commit = out(
-      await git(root, ['commit-tree', tree, ...(parent ? ['-p', parent] : []), '-m', 'Harness Relay snapshot']),
-    );
+    const commit = out(await git(root, ['commit-tree', tree, ...(parent ? ['-p', parent] : []), '-m', 'Harness Relay snapshot']));
     return { commit, tree };
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -325,7 +345,10 @@ export async function diffFiles(root: string, base: string, head: string): Promi
   // One git command for the statuses (`--raw`) and the line counts (`--numstat`): each one also reads
   // the repository's config first (`repoDriverGuards`), and on Windows a git process costs about half a
   // second. Twice the output limit, as the two commands this was had one each.
-  const r = await git(root, ['diff', '--no-renames', '-z', '--raw', '--numstat', base, head], { maxCapture: 2 * MAX_OUTPUT_BYTES, complete: true });
+  const r = await git(root, ['diff', '--no-renames', '-z', '--raw', '--numstat', base, head], {
+    maxCapture: 2 * MAX_OUTPUT_BYTES,
+    complete: true,
+  });
   return parseDiffFiles(r.stdout);
 }
 
@@ -406,9 +429,8 @@ export async function checkPatch(root: string, base: string, head: string): Prom
   const files = await diffFiles(root, base, head);
   if (!files.length) return null;
   // The patch as bytes: CRLF line endings and non-UTF-8 content must reach `git apply` unchanged.
-  const patch = (
-    await git(root, ['diff', '--binary', '--no-renames', base, head], { maxCapture: MAX_OUTPUT_BYTES, complete: true })
-  ).stdoutBytes;
+  const patch = (await git(root, ['diff', '--binary', '--no-renames', base, head], { maxCapture: MAX_OUTPUT_BYTES, complete: true }))
+    .stdoutBytes;
   const check = await git(root, ['apply', '--check', '--whitespace=nowarn', '-'], { stdin: patch, allowFail: true });
   if (check.code !== 0) throw new HttpError(409, t().applyConflict(tail(check.stderr, 800)));
   return { root, files, patch };

@@ -57,7 +57,16 @@ async function gesture(on: Locator, steps: TouchStep[], at: [number, number] = [
       for (const step of steps) {
         if (step.wait) await new Promise((done) => setTimeout(done, step.wait));
         const [touches, changed] = [list(step.touches), list(step.changed)];
-        target.dispatchEvent(new TouchEvent(step.type, { bubbles: true, cancelable: true, composed: true, touches, targetTouches: touches, changedTouches: changed }));
+        target.dispatchEvent(
+          new TouchEvent(step.type, {
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+            touches,
+            targetTouches: touches,
+            changedTouches: changed,
+          }),
+        );
       }
     },
     { steps, at },
@@ -65,9 +74,20 @@ async function gesture(on: Locator, steps: TouchStep[], at: [number, number] = [
 }
 
 /** A finger's swipe by (dx, dy) from `at` on `on`, in six moves, then lifted (or cancelled). */
-async function swipe(on: Locator, dx: number, dy = 0, { at, cancel = false }: { at?: [number, number]; cancel?: boolean } = {}): Promise<void> {
-  const moves: TouchStep[] = [1, 2, 3, 4, 5, 6].map((i) => ({ type: 'touchmove', touches: [[0, (dx * i) / 6, (dy * i) / 6]], changed: [[0, (dx * i) / 6, (dy * i) / 6]] }));
-  const last: TouchStep = cancel ? { type: 'touchcancel', touches: [], changed: [[0, dx, dy]] } : { type: 'touchend', touches: [], changed: [[0, dx, dy]] };
+async function swipe(
+  on: Locator,
+  dx: number,
+  dy = 0,
+  { at, cancel = false }: { at?: [number, number]; cancel?: boolean } = {},
+): Promise<void> {
+  const moves: TouchStep[] = [1, 2, 3, 4, 5, 6].map((i) => ({
+    type: 'touchmove',
+    touches: [[0, (dx * i) / 6, (dy * i) / 6]],
+    changed: [[0, (dx * i) / 6, (dy * i) / 6]],
+  }));
+  const last: TouchStep = cancel
+    ? { type: 'touchcancel', touches: [], changed: [[0, dx, dy]] }
+    : { type: 'touchend', touches: [], changed: [[0, dx, dy]] };
   await gesture(on, [{ type: 'touchstart', touches: [[0, 0, 0]], changed: [[0, 0, 0]] }, ...moves, last], at);
 }
 
@@ -81,7 +101,8 @@ async function browserSwipe(page: Page, x: number, y: number, dx: number, { step
   const start = Date.now() / 1000;
   const at = (i: number) => ({ timestamp: start + (i * ms) / 1000 });
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }], ...at(0) });
-  for (let i = 1; i <= steps; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + (dx * i) / steps, y }], ...at(i) });
+  for (let i = 1; i <= steps; i++)
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + (dx * i) / steps, y }], ...at(i) });
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], ...at(steps + 1) });
   await cdp.detach();
 }
@@ -109,7 +130,8 @@ async function tapSend(page: Page, text: string): Promise<void> {
 }
 
 /** A one-second grey WebM, 64×36, for a reply's video (made with ffmpeg; 534 bytes). */
-const CLIP = 'GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAHmEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHYTbuMU6uEElTDZ1OsggEeTbuMU6uEHFO7a1OsggHQ7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsirXsYMPQkBNgI1MYXZmNjAuMTYuMTAwV0GNTGF2ZjYwLjE2LjEwMESJiECPQAAAAAAAFlSua8GuAQAAAAAAADjXgQFzxYhcf7hST/khzpyBACK1nIN1bmSIgQCGhVZfVlA4g4EBI+ODhDuaygDgibCBQLqBJJqBAhJUw2f8c3OgY8CAZ8iaRaOHRU5DT0RFUkSHjUxhdmY2MC4xNi4xMDBzc9ZjwItjxYhcf7hST/khzmfIoUWjh0VOQ09ERVJEh5RMYXZjNjAuMzEuMTAyIGxpYnZweGfIoUWjiERVUkFUSU9ORIeTMDA6MDA6MDEuMDAwMDAwMDAwAB9DtnWs54EAo6eBAACAsAIAnQEqQAAkAABHCIWFiJmEiAICAAaOT8zHm/FYAP7D4AAcU7trkbuPs4EAt4r3gQHxggGf8IED';
+const CLIP =
+  'GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAHmEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHYTbuMU6uEElTDZ1OsggEeTbuMU6uEHFO7a1OsggHQ7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsirXsYMPQkBNgI1MYXZmNjAuMTYuMTAwV0GNTGF2ZjYwLjE2LjEwMESJiECPQAAAAAAAFlSua8GuAQAAAAAAADjXgQFzxYhcf7hST/khzpyBACK1nIN1bmSIgQCGhVZfVlA4g4EBI+ODhDuaygDgibCBQLqBJJqBAhJUw2f8c3OgY8CAZ8iaRaOHRU5DT0RFUkSHjUxhdmY2MC4xNi4xMDBzc9ZjwItjxYhcf7hST/khzmfIoUWjh0VOQ09ERVJEh5RMYXZjNjAuMzEuMTAyIGxpYnZweGfIoUWjiERVUkFUSU9ORIeTMDA6MDA6MDEuMDAwMDAwMDAwAB9DtnWs54EAo6eBAACAsAIAnQEqQAAkAABHCIWFiJmEiAICAAaOT8zHm/FYAP7D4AAcU7trkbuPs4EAt4r3gQHxggGf8IED';
 
 test.describe('on a phone', () => {
   test.use({ viewport, userAgent, deviceScaleFactor, isMobile, hasTouch });
@@ -149,7 +171,10 @@ test.describe('on a phone', () => {
     await expect(page.getByRole('dialog', { name: 'Files' })).toBeVisible();
   });
 
-  test('a swipe right opens the sidebar and a swipe left closes it; a scroll, a swipe in the message box or on a wide screen does not, and a wide screen closes it', async ({ page, relay }) => {
+  test('a swipe right opens the sidebar and a swipe left closes it; a scroll, a swipe in the message box or on a wide screen does not, and a wide screen closes it', async ({
+    page,
+    relay,
+  }) => {
     await openTeamChat(page, relay, [{ name: 'Grok', provider: 'grok' }], {}, 'Swiped open');
     const sidebar = page.locator('.sidebar');
     const messages = page.locator('.messages');
@@ -187,7 +212,11 @@ test.describe('on a phone', () => {
     await expect(sidebar).not.toBeInViewport();
   });
 
-  test('a quick flick opens the sidebar; a slow short drag, a cancelled touch, a long press, a second finger, a dialog or selected text do not', async ({ page, relay, browserName }) => {
+  test('a quick flick opens the sidebar; a slow short drag, a cancelled touch, a long press, a second finger, a dialog or selected text do not', async ({
+    page,
+    relay,
+    browserName,
+  }) => {
     await openTeamChat(page, relay, [{ name: 'Grok', provider: 'grok' }], {}, 'Flicked open');
     const messages = page.locator('.messages');
     const sidebar = page.locator('.sidebar');
@@ -213,7 +242,12 @@ test.describe('on a phone', () => {
     // A long press (450ms) before the finger moves: it selects text.
     await gesture(messages, [
       { type: 'touchstart', touches: [[0, 0, 0]], changed: [[0, 0, 0]] },
-      ...[1, 2, 3, 4, 5, 6].map((i): TouchStep => ({ type: 'touchmove', touches: [[0, 25 * i, 0]], changed: [[0, 25 * i, 0]], wait: i === 1 ? 450 : 0 })),
+      ...[1, 2, 3, 4, 5, 6].map((i): TouchStep => ({
+        type: 'touchmove',
+        touches: [[0, 25 * i, 0]],
+        changed: [[0, 25 * i, 0]],
+        wait: i === 1 ? 450 : 0,
+      })),
       { type: 'touchend', touches: [], changed: [[0, 150, 0]] },
     ]);
     expect(await drawerOpen(page)).toBe(false);
@@ -222,8 +256,25 @@ test.describe('on a phone', () => {
     await gesture(messages, [
       { type: 'touchstart', touches: [[0, 0, 0]], changed: [[0, 0, 0]] },
       { type: 'touchmove', touches: [[0, 20, 0]], changed: [[0, 20, 0]] },
-      { type: 'touchstart', touches: [[0, 20, 0], [1, 0, 120]], changed: [[1, 0, 120]] },
-      { type: 'touchmove', touches: [[0, 150, 0], [1, 130, 120]], changed: [[0, 150, 0], [1, 130, 120]] },
+      {
+        type: 'touchstart',
+        touches: [
+          [0, 20, 0],
+          [1, 0, 120],
+        ],
+        changed: [[1, 0, 120]],
+      },
+      {
+        type: 'touchmove',
+        touches: [
+          [0, 150, 0],
+          [1, 130, 120],
+        ],
+        changed: [
+          [0, 150, 0],
+          [1, 130, 120],
+        ],
+      },
       { type: 'touchend', touches: [[1, 130, 120]], changed: [[0, 150, 0]] },
       { type: 'touchend', touches: [], changed: [[1, 130, 120]] },
     ]);
@@ -305,7 +356,11 @@ test.describe('on a phone', () => {
     expect(await drawerOpen(page)).toBe(false);
   });
 
-  test("with the browser's own touches, a swipe and a flick open and close the sidebar, and a code block scrolled sideways scrolls back instead", async ({ page, relay, browserName }) => {
+  test("with the browser's own touches, a swipe and a flick open and close the sidebar, and a code block scrolled sideways scrolls back instead", async ({
+    page,
+    relay,
+    browserName,
+  }) => {
     test.skip(browserName !== 'chromium', "the browser's own touches are sent through Chromium's DevTools protocol");
     await openTeamChat(page, relay, [{ name: 'Grok', provider: 'grok' }], {}, 'Real touches');
     await tapSend(page, 'Show me e2e:widecode');
@@ -357,7 +412,10 @@ test.describe('on a phone', () => {
     });
   });
 
-  test("the menu button tells of unread notifications; one opened from the drawer's bell closes the drawer, also for the chat on screen", async ({ page, relay }) => {
+  test("the menu button tells of unread notifications; one opened from the drawer's bell closes the drawer, also for the chat on screen", async ({
+    page,
+    relay,
+  }) => {
     await openTeamChat(page, relay, [{ name: 'Grok', provider: 'grok' }], {}, 'On the go');
     // As if the window were behind another: the chat on screen reads nothing of its own.
     await page.evaluate(() => void (document.hasFocus = () => false));
@@ -416,7 +474,10 @@ test.describe('on a phone', () => {
     expect(overflow).toBeLessThanOrEqual(1);
   });
 
-  test('scrolled up, the arrow to the end sits in the middle above the message box, and a tap takes the chat there', async ({ page, relay }) => {
+  test('scrolled up, the arrow to the end sits in the middle above the message box, and a tap takes the chat there', async ({
+    page,
+    relay,
+  }) => {
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
     await tapSend(page, 'Tell me everything e2e:long');
     await finishedReply(page, 'Claude');
@@ -436,15 +497,24 @@ test.describe('on a phone', () => {
     expect(arrow.y + arrow.height).toBeLessThan(box.y);
     // A finger's target of 48px around the 36px circle it shows: 5px outside the circle is still the button.
     expect(arrow.width).toBeGreaterThanOrEqual(48);
-    expect(await toEnd.evaluate((el) => {
-      const circle = getComputedStyle(el, '::before');
-      return parseFloat(circle.width) + parseFloat(circle.borderLeftWidth) + parseFloat(circle.borderRightWidth);
-    })).toBe(36);
-    expect(await toEnd.evaluate((el) => {
-      const r = el.getBoundingClientRect();
-      const [x, y] = [r.left + r.width / 2, r.top + r.height / 2];
-      return [[x - 23, y], [x + 23, y], [x, y - 23], [x, y + 23]].every(([px, py]) => el.contains(document.elementFromPoint(px!, py!)));
-    })).toBe(true);
+    expect(
+      await toEnd.evaluate((el) => {
+        const circle = getComputedStyle(el, '::before');
+        return parseFloat(circle.width) + parseFloat(circle.borderLeftWidth) + parseFloat(circle.borderRightWidth);
+      }),
+    ).toBe(36);
+    expect(
+      await toEnd.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const [x, y] = [r.left + r.width / 2, r.top + r.height / 2];
+        return [
+          [x - 23, y],
+          [x + 23, y],
+          [x, y - 23],
+          [x, y + 23],
+        ].every(([px, py]) => el.contains(document.elementFromPoint(px!, py!)));
+      }),
+    ).toBe(true);
     // A tap leaves the keyboard as it was: shut, the message box does not take the focus…
     await composer(page).blur();
     await toEnd.tap();
@@ -459,7 +529,10 @@ test.describe('on a phone', () => {
     await expect(composer(page)).toBeFocused();
   });
 
-  test("on a narrow phone, a template's editor and the team settings do not scroll sideways, and the add card lists every CLI", async ({ page, relay }) => {
+  test("on a narrow phone, a template's editor and the team settings do not scroll sideways, and the add card lists every CLI", async ({
+    page,
+    relay,
+  }) => {
     /** How far a scrolling box scrolls sideways. */
     const sideways = (box: string) => page.locator(box).evaluate((el) => el.scrollWidth - el.clientWidth);
     // 320px: an iPhone SE (1st generation), or a mini with Display Zoom, narrower than a 290px member card
@@ -493,26 +566,44 @@ test.describe('on a phone', () => {
     }
   });
 
-  test('on a narrow phone, a new schedule of any kind does not scroll sideways, in either language, nor does a chat\'s Schedule', async ({ page, relay }) => {
-    /** The boxes that scroll sideways, and how far. */
+  test("on a narrow phone, a new schedule of any kind does not scroll sideways, in either language, nor does a chat's Automation", async ({
+    page,
+    relay,
+  }) => {
+    /** The boxes that scroll sideways, and how far: not the row of kinds, which does so where it must. */
     const sideways = () =>
       page.evaluate(() =>
         [document.documentElement, ...document.querySelectorAll<HTMLElement>('*')]
-          .filter((el) => el.scrollWidth > el.clientWidth + 1 && (el === document.documentElement || ['auto', 'scroll'].includes(getComputedStyle(el).overflowX)))
+          .filter(
+            (el) =>
+              !el.matches('.schedule-kinds') &&
+              el.scrollWidth > el.clientWidth + 1 &&
+              (el === document.documentElement || ['auto', 'scroll'].includes(getComputedStyle(el).overflowX)),
+          )
           .map((el) => `${el.className || el.tagName} +${el.scrollWidth - el.clientWidth}`),
       );
     /** How many rows the buttons in `box` take. */
     const rows = (box: string) =>
-      page.locator(box).evaluate((g) => new Set([...g.querySelectorAll('button')].map((b) => Math.round(b.getBoundingClientRect().top))).size);
-    // The four kinds of schedule go two by two in English below a 380px column (they need about 340px
-    // on one row, more with a wider font): at 400px (368px) too, not at 430px (398px). In Chinese they
-    // need about 222px: at 250px (a 218px column) they go two by two. The week's seven days need about
-    // 310px in English and 276px in Chinese: below that they go onto two rows.
+      page
+        .locator(box)
+        .evaluate((g) => new Set([...g.querySelectorAll('button')].map((b) => Math.round(b.getBoundingClientRect().top))).size);
+    /** Whether the chosen kind is wholly in the row's view. */
+    const chosenInView = () =>
+      page.locator('.schedule-kinds').evaluate((row) => {
+        const box = row.getBoundingClientRect();
+        const on = row.querySelector('button.on')!.getBoundingClientRect();
+        return on.left >= box.left - 1 && on.right <= box.right + 1;
+      });
+    // The five kinds of schedule stay on one row, which scrolls sideways where they do not fit (they need
+    // about 440px in English and 280px in Chinese). The week's seven days need about 310px in English
+    // and 276px in Chinese: below that they go onto two rows.
     const widths = [320, 280];
-    const widthsOf = { en: [...widths, 400, 430], 'zh-TW': [...widths, 250] };
-    const kindRows = (lang: 'en' | 'zh-TW', width: number) => (lang === 'en' ? (width <= 400 ? 2 : 1) : width <= 250 ? 2 : 1);
+    const widthsOf = { en: [...widths, 400, 430], 'zh-TW': [...widths, 250, 360] };
     const dayRows = (lang: 'en' | 'zh-TW', width: number) => (lang === 'en' ? (width <= 320 ? 2 : 1) : width <= 280 ? 2 : 1);
-    for (const [lang, messages] of [['en', en], ['zh-TW', zhTW]] as const) {
+    for (const [lang, messages] of [
+      ['en', en],
+      ['zh-TW', zhTW],
+    ] as const) {
       const s = messages.schedule;
       await page.evaluate((l) => localStorage.setItem('relay:lang', l), lang);
       await page.setViewportSize(viewport);
@@ -530,13 +621,13 @@ test.describe('on a phone', () => {
         for (const width of widthsOf[lang]) {
           await page.setViewportSize({ width, height: 640 });
           expect(await sideways(), `${lang}, ${kind}, ${width}px`).toEqual([]);
-          expect(await rows('.schedule-repeat [role="radiogroup"]'), `the kinds, ${lang}, ${width}px`).toBe(kindRows(lang, width));
+          expect(await rows('.schedule-kinds'), `the kinds, ${lang}, ${width}px`).toBe(1);
           if (kind === 'weekly') expect(await rows('.day-picker'), `the days, ${lang}, ${width}px`).toBe(dayRows(lang, width));
         }
       }
     }
 
-    // A chat's Schedule drawer, with the week's days.
+    // A chat's Automation drawer, with the week's days.
     await page.evaluate(() => localStorage.setItem('relay:lang', 'en'));
     await page.setViewportSize(viewport);
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
@@ -544,13 +635,23 @@ test.describe('on a phone', () => {
     await page.reload();
     await expect(composer(page)).toBeVisible();
     await page.getByRole('button', { name: 'More' }).tap();
-    await page.locator('.chat-head').getByRole('button', { name: 'Schedule' }).tap();
-    const drawer = page.getByRole('dialog', { name: 'Schedule' });
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).tap();
+    const drawer = page.getByRole('dialog', { name: 'Automation' });
     await drawer.getByRole('radiogroup', { name: 'When' }).getByRole('radio', { name: 'Every week', exact: true }).tap();
     for (const width of widths) {
       await page.setViewportSize({ width, height: 640 });
       expect(await sideways(), `the drawer, ${width}px`).toEqual([]);
     }
+    // Saved as the last kind, the drawer opens again with it in the row's view, though the row scrolls.
+    await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('Check the build');
+    await drawer.getByRole('radiogroup', { name: 'When' }).getByRole('radio', { name: 'Every few hours', exact: true }).tap();
+    await drawer.getByRole('button', { name: 'Save', exact: true }).tap();
+    await expect(drawer).toBeHidden();
+    await page.getByRole('button', { name: 'More' }).tap();
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).tap();
+    await expect(drawer.getByRole('radio', { name: 'Every few hours', exact: true })).toHaveAttribute('aria-checked', 'true');
+    expect(await page.locator('.schedule-kinds').evaluate((row) => row.scrollWidth > row.clientWidth)).toBe(true);
+    expect(await chosenInView()).toBe(true);
   });
 
   test("the home page's tagline is smaller, each of its lines on one line, and the logo closes the sidebar", async ({ page }) => {
@@ -587,4 +688,3 @@ test.describe('on a phone', () => {
     expect(zh.overflow).toBeLessThanOrEqual(1);
   });
 });
-

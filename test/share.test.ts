@@ -172,70 +172,74 @@ describe('shareToGist', () => {
   });
 });
 
-describe.skipIf(process.platform === 'win32')("signing gh in from the share dialog (a stand-in gh started by its #! line)", { timeout: slow(20_000) }, () => {
-  const dir = mkdtempSync(join(tmpdir(), 'relay-gh-login-'));
-  afterAll(() => rmSync(dir, { recursive: true, force: true }));
-  const said = join(dir, 'said');
-  // What gh prints without a terminal: its code and GitHub's device page; then it waits for approval.
-  writeFileSync(
-    join(dir, 'gh'),
-    `#!/bin/sh\necho "$* | token=\${GITHUB_TOKEN:-none} | pid=$$" >> "${said}"\n` +
-      'echo "! First copy your one-time code: ABCD-1234"\n' +
-      'echo "Open this URL to continue in your web browser: https://github.com/login/device"\n' +
-      '[ -n "$GH_WAIT" ] && sleep 30\n' +
-      'echo "✓ Logged in as octocat" >&2\n',
-    { mode: 0o755 },
-  );
-  const env = (more: NodeJS.ProcessEnv = {}) => ({ PATH: `${dir}:${process.env.PATH}`, ...more });
+describe.skipIf(process.platform === 'win32')(
+  'signing gh in from the share dialog (a stand-in gh started by its #! line)',
+  { timeout: slow(20_000) },
+  () => {
+    const dir = mkdtempSync(join(tmpdir(), 'relay-gh-login-'));
+    afterAll(() => rmSync(dir, { recursive: true, force: true }));
+    const said = join(dir, 'said');
+    // What gh prints without a terminal: its code and GitHub's device page; then it waits for approval.
+    writeFileSync(
+      join(dir, 'gh'),
+      `#!/bin/sh\necho "$* | token=\${GITHUB_TOKEN:-none} | pid=$$" >> "${said}"\n` +
+        'echo "! First copy your one-time code: ABCD-1234"\n' +
+        'echo "Open this URL to continue in your web browser: https://github.com/login/device"\n' +
+        '[ -n "$GH_WAIT" ] && sleep 30\n' +
+        'echo "✓ Logged in as octocat" >&2\n',
+      { mode: 0o755 },
+    );
+    const env = (more: NodeJS.ProcessEnv = {}) => ({ PATH: `${dir}:${process.env.PATH}`, ...more });
 
-  const lastSaid = () => readFileSync(said, 'utf8').trim().split('\n').at(-1)!;
-  const alive = (pid: number) => {
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
-  };
+    const lastSaid = () => readFileSync(said, 'utf8').trim().split('\n').at(-1)!;
+    const alive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
 
-  it("runs gh's device sign-in for github.com, without a codespace's own token, and shows its code and page", async () => {
-    const login = new GhLogin();
-    expect(login.view()).toBeNull();
-    // The server's own environment, as the route passes it: GhLogin leaves the codespace's token out itself.
-    login.start(env({ CODESPACES: 'true', GITHUB_TOKEN: 'ghu_codespace' }));
-    await vi.waitFor(() => expect(login.view()?.state).toBe('success'));
-    expect(login.view()).toMatchObject({ codes: ['ABCD-1234'], urls: ['https://github.com/login/device'], exitCode: 0 });
-    expect(GH_LOGIN_ARGS).toEqual(['auth', 'login', '--web', '--hostname', 'github.com']);
-    expect(lastSaid()).toMatch(/^auth login --web --hostname github\.com \| token=none \| pid=\d+$/);
-  });
+    it("runs gh's device sign-in for github.com, without a codespace's own token, and shows its code and page", async () => {
+      const login = new GhLogin();
+      expect(login.view()).toBeNull();
+      // The server's own environment, as the route passes it: GhLogin leaves the codespace's token out itself.
+      login.start(env({ CODESPACES: 'true', GITHUB_TOKEN: 'ghu_codespace' }));
+      await vi.waitFor(() => expect(login.view()?.state).toBe('success'));
+      expect(login.view()).toMatchObject({ codes: ['ABCD-1234'], urls: ['https://github.com/login/device'], exitCode: 0 });
+      expect(GH_LOGIN_ARGS).toEqual(['auth', 'login', '--web', '--hostname', 'github.com']);
+      expect(lastSaid()).toMatch(/^auth login --web --hostname github\.com \| token=none \| pid=\d+$/);
+    });
 
-  it("refuses to start while a token gh would sign in with instead is set, saying which", () => {
-    const login = new GhLogin();
-    expect(() => login.start(env({ GH_TOKEN: 'github_pat_old' }))).toThrow(t().ghLoginTokenSet('GH_TOKEN'));
-    expect(() => login.start(env({ GITHUB_TOKEN: 'ghp_old' }))).toThrow(t().ghLoginTokenSet('GITHUB_TOKEN'));
-    expect(() => login.start(env({ GITHUB_TOKEN: 'ghp_old' }))).toThrow(expect.objectContaining({ status: 409 }));
-    expect(login.view()).toBeNull();
-  });
+    it('refuses to start while a token gh would sign in with instead is set, saying which', () => {
+      const login = new GhLogin();
+      expect(() => login.start(env({ GH_TOKEN: 'github_pat_old' }))).toThrow(t().ghLoginTokenSet('GH_TOKEN'));
+      expect(() => login.start(env({ GITHUB_TOKEN: 'ghp_old' }))).toThrow(t().ghLoginTokenSet('GITHUB_TOKEN'));
+      expect(() => login.start(env({ GITHUB_TOKEN: 'ghp_old' }))).toThrow(expect.objectContaining({ status: 409 }));
+      expect(login.view()).toBeNull();
+    });
 
-  it('stops a sign-in that waits when asked, and a new one stops the one before, process and all', async () => {
-    const login = new GhLogin();
-    login.start(env({ GH_WAIT: '1' }));
-    await vi.waitFor(() => expect(login.view()?.codes).toEqual(['ABCD-1234']));
-    expect(login.view()?.state).toBe('running');
-    login.cancel();
-    expect(login.view()?.state).toBe('cancelled');
+    it('stops a sign-in that waits when asked, and a new one stops the one before, process and all', async () => {
+      const login = new GhLogin();
+      login.start(env({ GH_WAIT: '1' }));
+      await vi.waitFor(() => expect(login.view()?.codes).toEqual(['ABCD-1234']));
+      expect(login.view()?.state).toBe('running');
+      login.cancel();
+      expect(login.view()?.state).toBe('cancelled');
 
-    const first = login.start(env({ GH_WAIT: '1' }));
-    await vi.waitFor(() => expect(login.view()?.codes).toEqual(['ABCD-1234']));
-    const firstPid = Number(lastSaid().split('pid=')[1]);
-    expect(alive(firstPid)).toBe(true);
-    const second = login.start(env({ GH_WAIT: '1' }));
-    expect(second.id).not.toBe(first.id);
-    expect(login.view()?.id).toBe(second.id);
-    await vi.waitFor(() => expect(alive(firstPid)).toBe(false));
-    login.cancel();
-  });
-});
+      const first = login.start(env({ GH_WAIT: '1' }));
+      await vi.waitFor(() => expect(login.view()?.codes).toEqual(['ABCD-1234']));
+      const firstPid = Number(lastSaid().split('pid=')[1]);
+      expect(alive(firstPid)).toBe(true);
+      const second = login.start(env({ GH_WAIT: '1' }));
+      expect(second.id).not.toBe(first.id);
+      expect(login.view()?.id).toBe(second.id);
+      await vi.waitFor(() => expect(alive(firstPid)).toBe(false));
+      login.cancel();
+    });
+  },
+);
 
 describe('unshareGist', () => {
   it('deletes the gist without asking', async () => {
@@ -263,14 +267,16 @@ describe('unshareGist', () => {
     expect(gistExistsArgs(ID)).toEqual(['api', `gists/${ID}`, '--silent']);
   });
 
-  it("keeps a gist of another account: it is still online", async () => {
+  it('keeps a gist of another account: it is still online', async () => {
     let n = 0;
     const run = async () => (++n === 1 ? result({ code: 1, stderr: notFound }) : result());
     await expect(unshareGist(ID, run)).rejects.toMatchObject({ message: t().unshareNotOwner });
   });
 
   it('says why it could not', async () => {
-    await expect(unshareGist(ID, async () => result({ code: 1, stderr: 'HTTP 500: oops\n' }))).rejects.toThrow(t().unshareFailed('HTTP 500: oops'));
+    await expect(unshareGist(ID, async () => result({ code: 1, stderr: 'HTTP 500: oops\n' }))).rejects.toThrow(
+      t().unshareFailed('HTTP 500: oops'),
+    );
     await expect(unshareGist(ID, async () => result({ code: 4, stderr: 'please run:  gh auth login' }))).rejects.toMatchObject({
       message: t().shareSignedOut,
       code: GH_SIGNED_OUT,
@@ -358,7 +364,12 @@ describe('the files a shared page takes along', () => {
   const oid = (n: number) => n.toString(16).padStart(40, '0');
   /** A git that does what it is asked, without a repository: object ids made up, every push taken. */
   const fakeGit = (o: SpawnOptions): SpawnResult => {
-    const said: Record<string, string> = { 'symbolic-ref': 'refs/heads/main\n', 'hash-object': `${oid(1)}\n`, mktree: `${oid(2)}\n`, 'commit-tree': `${oid(3)}\n` };
+    const said: Record<string, string> = {
+      'symbolic-ref': 'refs/heads/main\n',
+      'hash-object': `${oid(1)}\n`,
+      mktree: `${oid(2)}\n`,
+      'commit-tree': `${oid(3)}\n`,
+    };
     return result({ stdout: said[gitCommand(o.args)] ?? '' });
   };
 
@@ -366,7 +377,10 @@ describe('the files a shared page takes along', () => {
    * A fake gh and git: gh's calls answered in turn by `answers`, git's by `git`; every call recorded.
    * `args()`: gh's calls only, `git()`: the git commands run, in order.
    */
-  function fakeGh(answers: ((o: SpawnOptions) => SpawnResult | Promise<SpawnResult>)[], git: (o: SpawnOptions) => SpawnResult | Promise<SpawnResult> = fakeGit) {
+  function fakeGh(
+    answers: ((o: SpawnOptions) => SpawnResult | Promise<SpawnResult>)[],
+    git: (o: SpawnOptions) => SpawnResult | Promise<SpawnResult> = fakeGit,
+  ) {
     const calls: SpawnOptions[] = [];
     let n = 0;
     const run = async (o: SpawnOptions) => {
@@ -378,10 +392,23 @@ describe('the files a shared page takes along', () => {
     };
     const ghCalls = () => calls.filter((c) => c.bin !== 'git');
     const gitCalls = () => calls.filter((c) => c.bin === 'git');
-    return { run, calls, ghCalls, gitCalls, args: () => ghCalls().map((c) => c.args), git: () => gitCalls().map((c) => gitCommand(c.args)) };
+    return {
+      run,
+      calls,
+      ghCalls,
+      gitCalls,
+      args: () => ghCalls().map((c) => c.args),
+      git: () => gitCalls().map((c) => gitCommand(c.args)),
+    };
   }
-  const ok = (stdout = '') => () => result({ stdout });
-  const fail = (stderr: string, o: Partial<SpawnResult> = {}) => () => result({ code: 1, stderr, ...o });
+  const ok =
+    (stdout = '') =>
+    () =>
+      result({ stdout });
+  const fail =
+    (stderr: string, o: Partial<SpawnResult> = {}) =>
+    () =>
+      result({ code: 1, stderr, ...o });
   const missing = () => {
     throw new CommandNotFoundError('gh');
   };
@@ -409,7 +436,12 @@ describe('the files a shared page takes along', () => {
     expect(String(gh.calls[0]!.stdin)).toBe(createGistBody(filesGistDescription('Chat · Harness Relay', TOKEN)));
     // The files go up with git, their bytes as they are.
     expect(gh.git()).toEqual(PUSHED);
-    expect(gh.gitCalls().filter((c) => gitCommand(c.args) === 'hash-object').map((c) => c.stdin)).toEqual(files.map((f) => f.data));
+    expect(
+      gh
+        .gitCalls()
+        .filter((c) => gitCommand(c.args) === 'hash-object')
+        .map((c) => c.stdin),
+    ).toEqual(files.map((f) => f.data));
     // The page alone in its gist, as a share without files is made: gistpreview reads nothing else first.
     expect(gh.ghCalls()[2]!.stdin).toBe(
       `<!doctype html><a class="file-link" href="${raw('report.pdf')}">report</a> <a class="file-link" href="${raw('Q3 & 報告.csv')}">data</a> <a class="file-link" href="${raw('report.pdf')}">again</a>`,
@@ -456,7 +488,12 @@ describe('the files a shared page takes along', () => {
     // git never asks for a password, reaches remotes only over HTTPS, and never works on a repository
     // from the server's environment.
     for (const c of gh.gitCalls()) {
-      expect(c.env).toMatchObject({ GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', GIT_ALLOW_PROTOCOL: 'https', GIT_AUTHOR_NAME: 'Harness Relay' });
+      expect(c.env).toMatchObject({
+        GIT_TERMINAL_PROMPT: '0',
+        GIT_ASKPASS: '',
+        GIT_ALLOW_PROTOCOL: 'https',
+        GIT_AUTHOR_NAME: 'Harness Relay',
+      });
       expect(c.env.GIT_DIR).toBeUndefined();
     }
     expect(gistGitUrl(FILES_ID)).toBe(`https://gist.github.com/${FILES_ID}.git`);
@@ -483,9 +520,17 @@ describe('the files a shared page takes along', () => {
       'push.gpgSign=false',
     ]);
     // A path sh would split or expand stays one word.
-    expect(shellWord("C:\\Program Files\\GitHub CLI\\gh.exe")).toBe("'C:\\Program Files\\GitHub CLI\\gh.exe'");
+    expect(shellWord('C:\\Program Files\\GitHub CLI\\gh.exe')).toBe("'C:\\Program Files\\GitHub CLI\\gh.exe'");
     expect(shellWord("/it's/$HOME/gh")).toBe("'/it'\\''s/$HOME/gh'");
-    const env = gitEnv({ PATH: '/bin', GIT_DIR: '/x/.git', GIT_WORK_TREE: '/x', GIT_INDEX_FILE: 'i', GIT_OBJECT_DIRECTORY: 'o', GIT_ASKPASS: '/askpass', HTTPS_PROXY: 'http://proxy' });
+    const env = gitEnv({
+      PATH: '/bin',
+      GIT_DIR: '/x/.git',
+      GIT_WORK_TREE: '/x',
+      GIT_INDEX_FILE: 'i',
+      GIT_OBJECT_DIRECTORY: 'o',
+      GIT_ASKPASS: '/askpass',
+      HTTPS_PROXY: 'http://proxy',
+    });
     expect(env).toMatchObject({ PATH: '/bin', HTTPS_PROXY: 'http://proxy', GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '' });
     for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY']) expect(env[k], k).toBeUndefined();
     // gh signs git in (`gh auth git-credential`), so git runs without a codespace's token as gh does.
@@ -556,7 +601,7 @@ describe('the files a shared page takes along', () => {
     expect(g(remote, 'log', '-1', '--format=%an <%ae>', 'main')).toBe('Harness Relay <harness-relay@localhost>');
   });
 
-  it("runs nothing a changed configuration of the clone asks for, and reaches GitHub only over HTTPS", async () => {
+  it('runs nothing a changed configuration of the clone asks for, and reaches GitHub only over HTTPS', async () => {
     const remote = gistStandIn('gist-tampered');
     const before = g(remote, 'rev-parse', 'main');
     const ran = join(dir, 'tampered-ran');
@@ -566,7 +611,10 @@ describe('the files a shared page takes along', () => {
     // might add to its configuration right after it is made: a remote by the gist's own address, or
     // by `origin`, that runs a command; or the gist's address rewritten to ssh with a command of its own.
     const tampered = [
-      [`[remote "${gistGitUrl(FILES_ID)}"]\n\turl = ${remote.replaceAll('\\', '/')}\n\treceivepack = ${touch}\n[remote "origin"]\n\treceivepack = ${touch}\n`, /'?file'? not allowed/i],
+      [
+        `[remote "${gistGitUrl(FILES_ID)}"]\n\turl = ${remote.replaceAll('\\', '/')}\n\treceivepack = ${touch}\n[remote "origin"]\n\treceivepack = ${touch}\n`,
+        /'?file'? not allowed/i,
+      ],
       [`[url "ssh://evil.invalid/"]\n\tinsteadOf = ${gistGitUrl(FILES_ID)}\n[core]\n\tsshCommand = ${touch}\n`, /'?ssh'? not allowed/i],
     ] as const;
     for (const [added, refused] of tampered) {
@@ -603,8 +651,16 @@ describe('the files a shared page takes along', () => {
   });
 
   it('takes only names gistFileNames makes, before anything runs', async () => {
-    for (const bad of [[{ name: 'a/b', data: Buffer.alloc(1) }], [{ name: 'a\0b', data: Buffer.alloc(1) }], [{ name: FILES_PLACEHOLDER, data: Buffer.alloc(1) }],
-      [{ name: '.gitmodules', data: Buffer.alloc(1) }], [{ name: 'x.md', data: Buffer.alloc(1) }, { name: 'X.md', data: Buffer.alloc(1) }]]) {
+    for (const bad of [
+      [{ name: 'a/b', data: Buffer.alloc(1) }],
+      [{ name: 'a\0b', data: Buffer.alloc(1) }],
+      [{ name: FILES_PLACEHOLDER, data: Buffer.alloc(1) }],
+      [{ name: '.gitmodules', data: Buffer.alloc(1) }],
+      [
+        { name: 'x.md', data: Buffer.alloc(1) },
+        { name: 'X.md', data: Buffer.alloc(1) },
+      ],
+    ]) {
       const gh = fakeGh([]);
       await expect(pushToGist(FILES_ID, bad, gh.run, tmpRoot), JSON.stringify(bad.map((f) => f.name))).rejects.toThrow(/not a name/);
       expect(gh.calls).toEqual([]);
@@ -614,9 +670,16 @@ describe('the files a shared page takes along', () => {
   it('marks each share with a token of its own', () => {
     expect(shareToken()).toMatch(/^relay-[0-9a-f]{16}$/);
     expect(shareToken()).not.toBe(shareToken());
-    expect(findGistArgs(TOKEN)).toEqual(['api', 'gists?per_page=100', '--jq', `.[] | select((.description // "") | contains("${TOKEN}")) | "\\(.id) \\(.html_url)"`]);
+    expect(findGistArgs(TOKEN)).toEqual([
+      'api',
+      'gists?per_page=100',
+      '--jq',
+      `.[] | select((.description // "") | contains("${TOKEN}")) | "\\(.id) \\(.html_url)"`,
+    ]);
     expect(() => findGistArgs('x") | .[] | ("')).toThrow();
-    expect(parseFoundGists(`${FILES_ID} https://gist.github.com/${FILES_ID}\n--help x\n\n`)).toEqual([{ id: FILES_ID, url: `https://gist.github.com/${FILES_ID}` }]);
+    expect(parseFoundGists(`${FILES_ID} https://gist.github.com/${FILES_ID}\n--help x\n\n`)).toEqual([
+      { id: FILES_ID, url: `https://gist.github.com/${FILES_ID}` },
+    ]);
   });
 
   it('prints only the ids and addresses of what gh created, not the files sent back', () => {
@@ -691,17 +754,38 @@ describe('the files a shared page takes along', () => {
   });
 
   it('deletes the files gist again when git could not push the files, saying why', async () => {
-    const rejected = "remote: error: File big.bin is 120.00 MB; this exceeds GitHub's file size limit of 100.00 MB\nerror: failed to push some refs\n";
+    const rejected =
+      "remote: error: File big.bin is 120.00 MB; this exceeds GitHub's file size limit of 100.00 MB\nerror: failed to push some refs\n";
     for (const [git, reason] of [
-      [(o: SpawnOptions) => (gitCommand(o.args) === 'push' ? result({ code: 1, stderr: rejected }) : fakeGit(o)), t().shareFilesFailed(rejected.trim())],
-      [(o: SpawnOptions) => (gitCommand(o.args) === 'push' ? result({ code: null, timedOut: true }) : fakeGit(o)), t().shareFilesFailed(t().timedOut)],
-      [(o: SpawnOptions) => (gitCommand(o.args) === 'clone' ? result({ code: 128, stderr: 'fatal: could not read Username: terminal prompts disabled\n' }) : fakeGit(o)),
-        t().shareFilesFailed('fatal: could not read Username: terminal prompts disabled')],
-      [(o: SpawnOptions) => (gitCommand(o.args) === 'mktree' ? result({ stdout: 'not an id\n' }) : fakeGit(o)), t().shareFilesFailed('not an id')],
-      [(o: SpawnOptions) => (gitCommand(o.args) === 'symbolic-ref' ? result({ stdout: 'refs/tags/x;rm\n' }) : fakeGit(o)), t().shareFilesFailed('refs/tags/x;rm')],
-      [() => {
-        throw new CommandNotFoundError('git');
-      }, t().shareFilesFailed(t().commandNotFound('git'))],
+      [
+        (o: SpawnOptions) => (gitCommand(o.args) === 'push' ? result({ code: 1, stderr: rejected }) : fakeGit(o)),
+        t().shareFilesFailed(rejected.trim()),
+      ],
+      [
+        (o: SpawnOptions) => (gitCommand(o.args) === 'push' ? result({ code: null, timedOut: true }) : fakeGit(o)),
+        t().shareFilesFailed(t().timedOut),
+      ],
+      [
+        (o: SpawnOptions) =>
+          gitCommand(o.args) === 'clone'
+            ? result({ code: 128, stderr: 'fatal: could not read Username: terminal prompts disabled\n' })
+            : fakeGit(o),
+        t().shareFilesFailed('fatal: could not read Username: terminal prompts disabled'),
+      ],
+      [
+        (o: SpawnOptions) => (gitCommand(o.args) === 'mktree' ? result({ stdout: 'not an id\n' }) : fakeGit(o)),
+        t().shareFilesFailed('not an id'),
+      ],
+      [
+        (o: SpawnOptions) => (gitCommand(o.args) === 'symbolic-ref' ? result({ stdout: 'refs/tags/x;rm\n' }) : fakeGit(o)),
+        t().shareFilesFailed('refs/tags/x;rm'),
+      ],
+      [
+        () => {
+          throw new CommandNotFoundError('git');
+        },
+        t().shareFilesFailed(t().commandNotFound('git')),
+      ],
     ] as const) {
       const gh = fakeGh([made, ok()], git);
       const err = (await shareToGist(page, 'd', gh.run, files, opts).catch((e: unknown) => e)) as ShareError;
@@ -715,7 +799,9 @@ describe('the files a shared page takes along', () => {
       if (clone) expect(existsSync(join(clone, '..'))).toBe(false);
     }
     // Nor deleted: listed, to be removed.
-    const stuck = fakeGh([made, fail('HTTP 500')], (o) => (gitCommand(o.args) === 'push' ? result({ code: 1, stderr: 'fatal: unable to access\n' }) : fakeGit(o)));
+    const stuck = fakeGh([made, fail('HTTP 500')], (o) =>
+      gitCommand(o.args) === 'push' ? result({ code: 1, stderr: 'fatal: unable to access\n' }) : fakeGit(o),
+    );
     const err = (await shareToGist(page, 'd', stuck.run, files, opts).catch((e: unknown) => e)) as ShareError;
     expect(err.message).toBe(t().shareFilesLeftover(t().shareFilesFailed('fatal: unable to access')));
     expect(err.leftover).toEqual({ id: FILES_ID, url: '', gistUrl: `https://gist.github.com/${FILES_ID}` });
@@ -726,15 +812,29 @@ describe('the files a shared page takes along', () => {
     const wait = async (ms: number) => void waits.push(ms);
     const late = fakeGh([made, listed([FILES_PLACEHOLDER]), listed(['report.pdf']), listed(), ok(`https://gist.github.com/me/${ID}\n`)]);
     await expect(shareToGist(page, 'd', late.run, files, { ...opts, wait })).resolves.toEqual({ ...pageLink, filesGist: FILES_ID });
-    expect(late.args()).toEqual([createGistArgs(), gistFilesArgs(FILES_ID), gistFilesArgs(FILES_ID), gistFilesArgs(FILES_ID), gistArgs('d')]);
+    expect(late.args()).toEqual([
+      createGistArgs(),
+      gistFilesArgs(FILES_ID),
+      gistFilesArgs(FILES_ID),
+      gistFilesArgs(FILES_ID),
+      gistArgs('d'),
+    ]);
     expect(waits).toEqual([1000, 2000]);
     // Three times at most: then the files gist goes, for want of an address.
     const never = fakeGh([made, listed(['report.pdf']), listed(['report.pdf']), listed(['report.pdf']), ok()]);
     await expect(shareToGist(page, 'd', never.run, files, opts)).rejects.toThrow(t().shareFilesUndone(t().shareNoFileUrl));
-    expect(never.args()).toEqual([createGistArgs(), gistFilesArgs(FILES_ID), gistFilesArgs(FILES_ID), gistFilesArgs(FILES_ID), deleteGistArgs(FILES_ID)]);
+    expect(never.args()).toEqual([
+      createGistArgs(),
+      gistFilesArgs(FILES_ID),
+      gistFilesArgs(FILES_ID),
+      gistFilesArgs(FILES_ID),
+      deleteGistArgs(FILES_ID),
+    ]);
     // gh could not read it back: the files gist goes too.
     const failed = fakeGh([made, fail('HTTP 502: Bad Gateway\n'), ok()]);
-    await expect(shareToGist(page, 'd', failed.run, files, opts)).rejects.toThrow(t().shareFilesUndone(t().shareFailed('HTTP 502: Bad Gateway')));
+    await expect(shareToGist(page, 'd', failed.run, files, opts)).rejects.toThrow(
+      t().shareFilesUndone(t().shareFailed('HTTP 502: Bad Gateway')),
+    );
     expect(failed.args()).toEqual([createGistArgs(), gistFilesArgs(FILES_ID), deleteGistArgs(FILES_ID)]);
   });
 
@@ -747,7 +847,9 @@ describe('the files a shared page takes along', () => {
       expect(gh.args()).toEqual([createGistArgs(), gistFilesArgs(FILES_ID), gistArgs('d'), deleteGistArgs(FILES_ID)]);
     }
     const gh = fakeGh([made, listed(), fail('HTTP 502: Bad Gateway\n'), ok()]);
-    await expect(shareToGist(page, 'd', gh.run, files, opts)).rejects.toThrow(t().shareFilesUndone(t().shareFailed('HTTP 502: Bad Gateway')));
+    await expect(shareToGist(page, 'd', gh.run, files, opts)).rejects.toThrow(
+      t().shareFilesUndone(t().shareFailed('HTTP 502: Bad Gateway')),
+    );
   });
 
   it('says the files are left on GitHub, and which gist, when they could not be deleted either', async () => {
@@ -862,7 +964,11 @@ describe('the files a shared page takes along', () => {
     // One too large on its own is that, and the rest is not read.
     const big = [file('b1', 10), file('b2', 60), file('b3', 10)];
     await readShareFiles(big, 50, 100);
-    expect(big.map((f) => [f.data?.length, f.info.problem])).toEqual([[10, undefined], [undefined, 'too-large'], [undefined, undefined]]);
+    expect(big.map((f) => [f.data?.length, f.info.problem])).toEqual([
+      [10, undefined],
+      [undefined, 'too-large'],
+      [undefined, undefined],
+    ]);
     // Within both limits: every one read.
     const fine = [file('f1', 50), file('f2', 50)];
     await readShareFiles(fine, 50, 100);
@@ -893,8 +999,22 @@ describe('the files a shared page takes along', () => {
     expect(new Set(twice.map((n) => n.toLowerCase())).size).toBe(4);
   });
 
-  it("knows the names git keeps for itself, however they are spelled", () => {
-    for (const name of ['.git', '.GIT', '.gitmodules', '.GitAttributes', '.gitignore', '.g\u200cit', '\ufeff.git', 'GIT~1', 'git~2', 'GITMOD~1', 'gi7eba~2', 'gitatt~1', 'GI7D29~3']) {
+  it('knows the names git keeps for itself, however they are spelled', () => {
+    for (const name of [
+      '.git',
+      '.GIT',
+      '.gitmodules',
+      '.GitAttributes',
+      '.gitignore',
+      '.g\u200cit',
+      '\ufeff.git',
+      'GIT~1',
+      'git~2',
+      'GITMOD~1',
+      'gi7eba~2',
+      'gitatt~1',
+      'GI7D29~3',
+    ]) {
       expect(gitOwnName(name), JSON.stringify(name)).toBe(true);
     }
     for (const name of ['git.md', 'my.gitignore', '_.git', 'report.pdf', '.env']) expect(gitOwnName(name), name).toBe(false);

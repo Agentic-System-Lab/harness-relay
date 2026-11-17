@@ -64,7 +64,12 @@ interface Present {
 }
 
 /** The text of a notification about `conv`, in the subscriber's language. */
-export function alertPayload(conv: Pick<ConversationSummary, 'id' | 'title'>, kind: AlertKind, full: Conversation | undefined, sub: Pick<PushSubscriptionRecord, 'lang' | 'prefs'>): AlertPayload {
+export function alertPayload(
+  conv: Pick<ConversationSummary, 'id' | 'title'>,
+  kind: AlertKind,
+  full: Conversation | undefined,
+  sub: Pick<PushSubscriptionRecord, 'lang' | 'prefs'>,
+): AlertPayload {
   return withLang(sub.lang, () => {
     const detail = full ? alertDetail(full, kind) : {};
     const line = t().alert[kind](detail.agent);

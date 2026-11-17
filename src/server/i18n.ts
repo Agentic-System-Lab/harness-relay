@@ -51,8 +51,10 @@ const zhTW = {
     `Claude Code 無法啟動它的沙箱（完全存取以外的權限都需要）：${why}。在 Linux 與 WSL2 上請安裝 bubblewrap 與 socat（例如 sudo apt-get install bubblewrap socat），Ubuntu 23.10 以後還需要給 /usr/bin/bwrap 的 AppArmor 設定檔（見 docs/sandboxing.zh-TW.md 的「在 Linux 上」），再試一次；或把權限改成「完全存取」，在沙箱外執行。`,
   sandboxHost: '沙箱中的指令想連到這個主機。',
   commandNotFound: (bin: string) => `找不到指令「${bin}」。請確認已安裝，或在「設定」頁指定執行檔路徑。`,
-  windowsShimBroken: (bin: string, script: string, target: string) => `「${bin}」是 ${script}，它執行的 ${target} 不在了：請重新安裝 ${bin}。`,
-  windowsNoNode: (bin: string, script: string) => `「${bin}」是 ${script}，它要用 Node.js 執行，但 PATH 上找不到 Node.js：請安裝 Node.js，或把它加到 PATH。`,
+  windowsShimBroken: (bin: string, script: string, target: string) =>
+    `「${bin}」是 ${script}，它執行的 ${target} 不在了：請重新安裝 ${bin}。`,
+  windowsNoNode: (bin: string, script: string) =>
+    `「${bin}」是 ${script}，它要用 Node.js 執行，但 PATH 上找不到 Node.js：請安裝 Node.js，或把它加到 PATH。`,
   windowsScript: (bin: string, script: string) =>
     `「${bin}」是腳本 ${script}，Harness Relay 無法啟動它：它只啟動程式，從不透過 shell，而且讀不出這個腳本執行的是哪個程式。請在「設定」頁把執行檔路徑改成它執行的程式（.exe）。`,
   permission: { 'read-only': '唯讀', edit: '可編輯', full: '完全存取' } as Record<Permission, string>,
@@ -61,7 +63,8 @@ const zhTW = {
   grokCancelledNoReason: 'Grok 自行中止了這一輪（stopReason: cancelled），沒有給出原因。',
   grokCancelled: (tool: string, reason: string | undefined) => `Grok 在執行工具「${tool}」時中止了這一輪${reason ? `（${reason}）` : ''}。`,
   grokCancelHint: (permission: string) => `目前的權限是「${permission}」；若這個操作是必要的，可以把權限改成「完全存取」再試。`,
-  grokSandbox: (why: string) => `Grok 無法啟動沙箱（完全存取以外的權限都需要）：${why}。在 Linux 上，它禁止讀取的路徑需要 bubblewrap（例如 sudo apt-get install bubblewrap），Ubuntu 23.10 以後還需要給 /usr/bin/bwrap 的 AppArmor 設定檔（見 docs/sandboxing.zh-TW.md 的「在 Linux 上」）。`,
+  grokSandbox: (why: string) =>
+    `Grok 無法啟動沙箱（完全存取以外的權限都需要）：${why}。在 Linux 上，它禁止讀取的路徑需要 bubblewrap（例如 sudo apt-get install bubblewrap），Ubuntu 23.10 以後還需要給 /usr/bin/bwrap 的 AppArmor 設定檔（見 docs/sandboxing.zh-TW.md 的「在 Linux 上」）。`,
   grokNoSession: 'grok 沒有回傳 session id',
   grokModelsFailed: (path: string, why: string) => `無法把你自己的端點的模型寫進 Grok 的設定（${path}）：${why}`,
   // Harness Relay's own sandbox (relaySandbox.ts), for the CLIs that have none of their own
@@ -69,7 +72,8 @@ const zhTW = {
     'Harness Relay 自己的沙箱無法在原生 Windows 上使用（它用的 sandbox-runtime 在 Windows 上還是 alpha 版），所以這個 agent 在「唯讀」與「可編輯」下不會在這裡執行。請在 WSL2 裡執行 Harness Relay，或把權限改成「完全存取」（不使用沙箱）。',
   relaySandboxPathTooLong: (dataDir: string, max: number) =>
     `Harness Relay 的資料資料夾路徑（${dataDir}）太長，沙箱放不下它要建立的 socket，所以沒有執行：請把 RELAY_DATA_DIR 設成路徑不超過 ${max} 個位元組的資料夾（UTF-8：中文字每個佔 3 個），再重新啟動 Harness Relay；或改用完全存取。`,
-  relaySandboxNoNode: 'Harness Relay 的沙箱需要 Node.js 22.12 或更新版本才能執行它的沙箱程式，而桌面 app 自己的執行環境不能當成 Node 使用：請到「設定 → 沙箱」安裝（放進 Harness Relay 的資料夾），或自行安裝 Node.js，讓它出現在登入 shell 的 PATH 上，再重新開啟 app；或改用完全存取。',
+  relaySandboxNoNode:
+    'Harness Relay 的沙箱需要 Node.js 22.12 或更新版本才能執行它的沙箱程式，而桌面 app 自己的執行環境不能當成 Node 使用：請到「設定 → 沙箱」安裝（放進 Harness Relay 的資料夾），或自行安裝 Node.js，讓它出現在登入 shell 的 PATH 上，再重新開啟 app；或改用完全存取。',
   relaySandboxPlatform: (platform: string) =>
     `Harness Relay 自己的沙箱只能在 macOS 與 Linux 上使用（這裡是 ${platform}），所以這個 agent 在「唯讀」與「可編輯」下不會執行。請把權限改成「完全存取」，或在 macOS 或 Linux 上執行。`,
   relaySandboxMissing: (what: string, packages: string) =>
@@ -101,7 +105,8 @@ const zhTW = {
   grokRejectedEffort: (value: string, err: string) => `Grok 不接受推理強度「${value}」：${err}`,
   cursorRefused: '超出這個對話的權限，已拒絕',
   cursorReadOnlyWrite: '唯讀模式不允許寫入，Cursor 沒有寫入這個檔案',
-  cursorProtectedWrite: 'Cursor 對這類檔案會先詢問：改動這裡可能讓程式碼之後在沙箱外執行（例如 git hook、編輯器的工作設定），或改變 agent 的設定。',
+  cursorProtectedWrite:
+    'Cursor 對這類檔案會先詢問：改動這裡可能讓程式碼之後在沙箱外執行（例如 git hook、編輯器的工作設定），或改變 agent 的設定。',
   cursorOutsideWrite: '這個檔案在工作目錄外：Cursor 寫入工作目錄外的檔案前會先詢問。',
   cursorOtherCwdWrite: '這個檔案在這個對話的另一個工作目錄裡：Cursor 只在第一個工作目錄裡工作，寫入其他工作目錄前會先詢問。',
   cursorCancelled: 'Cursor 自行中止了這一輪（stopReason: cancelled），沒有給出原因。',
@@ -162,7 +167,8 @@ const zhTW = {
   museCommandAsked: '唯讀對話裡每個指令都先詢問。允許後它在 Muse Code 的沙箱裡執行，可以寫入工作目錄。',
   museNetwork: '這個指令要連網：Muse Code 的沙箱讓它連到的每個主機都先詢問。允許後只有這個指令能連網，仍在沙箱裡執行。',
   museSessionGrant: '這個 Muse Code session 是在另一種權限下建立的（Muse 會沿用建立時的權限），所以這一輪開新的 session。',
-  musePublish: '這個指令會推送或發布到這台電腦之外（git push、npm publish 等），或執行它從標準輸入讀到的內容，編輯權限不涵蓋，所以先詢問。允許後它仍在 Muse Code 的沙箱裡執行。',
+  musePublish:
+    '這個指令會推送或發布到這台電腦之外（git push、npm publish 等），或執行它從標準輸入讀到的內容，編輯權限不涵蓋，所以先詢問。允許後它仍在 Muse Code 的沙箱裡執行。',
   museOutsideWrite: '這個檔案不在這個對話的工作目錄裡：編輯權限只涵蓋工作目錄內的寫入。',
   museConfigWrite:
     '這裡是 agent 的設定（例如 .muse/、.agents/、.git/hooks、.vscode/）：寫在這裡可能讓程式碼之後在沒有沙箱的情況下執行，或改變 agent 的行為，所以先詢問。',
@@ -179,7 +185,8 @@ const zhTW = {
   defaultTitle: '新對話',
   conversationNotFound: '找不到對話',
   signedOut: '這個瀏覽器尚未登入 Harness Relay。請打開它啟動時在終端機印出的登入連結，或執行 npm run login。',
-  signedOutDesktop: '這個瀏覽器尚未登入 Harness Relay。請從桌面 app 的選單選「在瀏覽器打開」（app 自己的視窗則選「打開 Harness Relay」），它會用新的登入連結打開。',
+  signedOutDesktop:
+    '這個瀏覽器尚未登入 Harness Relay。請從桌面 app 的選單選「在瀏覽器打開」（app 自己的視窗則選「打開 Harness Relay」），它會用新的登入連結打開。',
   signInWrongCode: '代碼錯誤或已過期。',
   signInTooMany: '錯誤的代碼太多次了，請等一分鐘再試。',
   signInNoSession: '找不到這個已登入的瀏覽器。',
@@ -190,6 +197,7 @@ const zhTW = {
     approval: (agent?: string) => (agent ? `${agent} 等你核准` : '有 agent 等你核准'),
     confirm: (_agent?: string) => '首席 agent 設計好團隊了，等你確認',
     answer: (agent?: string) => (agent ? `${agent} 問了你一個問題` : '有 agent 問了你一個問題'),
+    blocked: (agent?: string) => (agent ? `${agent} 回報目標卡住了，需要你處理` : '自動任務的目標卡住了，需要你處理'),
     testTitle: 'Harness Relay',
     testBody: '通知已開啟：agent 回覆完或需要你的時候，會在這裡通知你。',
   },
@@ -236,7 +244,8 @@ const zhTW = {
   openCannotResume: (cli: string) => `${cli} 沒有提供接續 session 的方法（session/resume 或 session/load）。`,
   openResumeFailed: (cli: string, e: string) => `${cli} 無法接續先前的 session：${e}`,
   openNoSession: (cli: string) => `${cli} 沒有回傳 session id`,
-  openCancelled: (cli: string, tool: string, reason: string | undefined) => `${cli} 在執行工具「${tool}」時中止了這一輪${reason ? `（${reason}）` : ''}。`,
+  openCancelled: (cli: string, tool: string, reason: string | undefined) =>
+    `${cli} 在執行工具「${tool}」時中止了這一輪${reason ? `（${reason}）` : ''}。`,
   openCancelledNoReason: (cli: string) => `${cli} 自行中止了這一輪（stopReason: cancelled），沒有給出原因。`,
   openRefusal: (cli: string) => `${cli} 的模型拒絕回答這一輪（stopReason: refusal）。`,
   openRejectedMode: (cli: string, mode: string, e: string) => `${cli} 不接受 session 模式「${mode}」：${e}`,
@@ -252,27 +261,32 @@ const zhTW = {
     `Harness Relay 無法檢查 Goose 這個 session 存的擴充功能清單（${detail}），所以沒有接續它：先前執行的指令可能在裡面加了不經詢問就會啟動的程式。這一輪改用新的 session。`,
   gooseAuthFailed: (backend: string) => `Goose 無法用 ${backend} 的 API key 登入。請到「設定 → 模型來源」檢查這把 key。`,
   gooseModelNotFound: (backend: string, model: string) => `${backend} 沒有模型「${model}」（404）。請在成員設定換一個模型。`,
-  gooseUnreachable: (backend: string, host: string) => `Goose 連不上 ${backend}（${host}）。請檢查網路，或在「設定 → 模型來源」檢查端點的網址。`,
+  gooseUnreachable: (backend: string, host: string) =>
+    `Goose 連不上 ${backend}（${host}）。請檢查網路，或在「設定 → 模型來源」檢查端點的網址。`,
   // Pi (src/server/agents/pi.ts)
   piSessionMissing: (id: string) => `找不到 session ${id} 的檔案（可能已被刪除）`,
   piSessionMoved: (then: string, now: string) => `這個 session 的工作目錄是 ${then}，這一輪的是 ${now}`,
   piSessionMismatch: (want: string, got: string) => `Pi 開啟的是 session ${got}，不是 ${want}`,
   piGateMissing:
     'Harness Relay 的把關擴充套件沒有在 Pi 裡載入（它負責在每個工具呼叫前詢問），所以這一輪沒有開始。請確認 Harness Relay 的資料夾裡有 src/server/agents/piGate.js。',
-  piGateWritable: (path: string) => `Harness Relay 的把關擴充套件（${path}）在這一輪可以寫入的資料夾裡，所以沒有執行 Pi。請換一個工作目錄。`,
+  piGateWritable: (path: string) =>
+    `Harness Relay 的把關擴充套件（${path}）在這一輪可以寫入的資料夾裡，所以沒有執行 Pi。請換一個工作目錄。`,
   piModelMismatch: (want: string, got: string) => `Pi 選了模型「${got}」，不是指定的「${want}」`,
   piEffortLevels: (levels: string) => `這個模型可用的強度：${levels}`,
   piPromptRejected: (e: string) => `Pi 沒有接受這一輪的訊息：${e}`,
   piKeyRejected: (backend: string, e: string) => `${backend} 拒絕了 API key（${e}）。請到「設定 → 模型來源」檢查金鑰。`,
   piModelRejected: (model: string, backend: string, e: string) => `${backend} 沒有可用的模型「${model}」（${e}）。請改選其他模型。`,
   piUnreachable: (backend: string, e: string) => `連不上 ${backend}：${e}`,
-  piEndpointUnreachable: (name: string, url: string, e: string) => `連不上端點「${name}」（${url}）：${e}。請確認伺服器正在執行，網址正確。`,
+  piEndpointUnreachable: (name: string, url: string, e: string) =>
+    `連不上端點「${name}」（${url}）：${e}。請確認伺服器正在執行，網址正確。`,
   piModelError: (e: string) => `模型回報錯誤：${e}`,
 
   // Cline (src/server/agents/cline.ts)
   clineBadKey: (where: string, e: string) => `Cline 的模型來源「${where}」拒絕了 API key：${e}。請到「設定 → 模型來源」檢查這把 key。`,
-  clineBadModel: (model: string, where: string, e: string) => `模型來源「${where}」沒有 Cline 要用的模型「${model}」：${e}。請改選這個來源提供的模型。`,
-  clineUnreachable: (where: string, e: string) => `Cline 連不上模型來源「${where}」：${e}。請確認端點正在執行、網址正確（設定 → 模型來源）。`,
+  clineBadModel: (model: string, where: string, e: string) =>
+    `模型來源「${where}」沒有 Cline 要用的模型「${model}」：${e}。請改選這個來源提供的模型。`,
+  clineUnreachable: (where: string, e: string) =>
+    `Cline 連不上模型來源「${where}」：${e}。請確認端點正在執行、網址正確（設定 → 模型來源）。`,
   clineFailed: (e: string) => `Cline 沒有完成這一輪：${e}`,
   // OpenHands (agents/openhands.ts)
   openhandsSubagentRefused: '完全存取以外不允許：OpenHands 的 subagent 會不經詢問執行指令與修改檔案',
@@ -291,12 +305,16 @@ const zhTW = {
   openhandsBatch: (n: number, calls: string[]) => `一次回答涵蓋這 ${n} 個動作：\n${calls.map((c) => `• ${c}`).join('\n')}`,
   openhandsNoTerminal:
     '完全存取以外，OpenHands 需要在沙箱裡使用終端機才能執行：請到「設定 → OpenHands」打開「讓 OpenHands 在沙箱裡使用終端機：它的指令因此可以讀寫你其他的終端機視窗」（打開後，它的指令可以在你其他的終端機視窗印出文字、讀取你在那裡輸入的內容、更改它們的設定，但仍無法替你在那些視窗打字），或把這個對話設成完全存取。',
-  openhandsStuck: 'OpenHands 自己停止了這一輪：它的卡住偵測發現它一直重複相同的動作（或得到相同的錯誤）卻沒有進展。請再問一次、換個說法，或為這位成員選另一個模型。',
+  openhandsStuck:
+    'OpenHands 自己停止了這一輪：它的卡住偵測發現它一直重複相同的動作（或得到相同的錯誤）卻沒有進展。請再問一次、換個說法，或為這位成員選另一個模型。',
   openhandsBatchRefused: '跟同一批動作一起被拒絕：OpenHands 對整批只問一次，而其中另一個動作不被允許',
-  openhandsOddLog: '它的 session 紀錄跟 OpenHands 自己寫下的樣子不同（可能被別的程式改過），Harness Relay 無法確定 OpenHands 接續時會不經詢問執行其中哪些動作',
-  openhandsNoEffort: (backend: string, model: string) => `${backend} 的模型「${model}」不接受推理強度。請把這位成員的推理強度設成 none（或預設）。`,
+  openhandsOddLog:
+    '它的 session 紀錄跟 OpenHands 自己寫下的樣子不同（可能被別的程式改過），Harness Relay 無法確定 OpenHands 接續時會不經詢問執行其中哪些動作',
+  openhandsNoEffort: (backend: string, model: string) =>
+    `${backend} 的模型「${model}」不接受推理強度。請把這位成員的推理強度設成 none（或預設）。`,
   openhandsSandboxRefusedReadOnly: 'Harness Relay 的沙箱拒絕了：這個對話是唯讀的。',
-  openhandsSandboxProtected: 'Harness Relay 的沙箱拒絕了：這是受保護的路徑，Harness Relay 不讓代理讀取（它自己的資料庫與暫存檔、瀏覽器的資料）。',
+  openhandsSandboxProtected:
+    'Harness Relay 的沙箱拒絕了：這是受保護的路徑，Harness Relay 不讓代理讀取（它自己的資料庫與暫存檔、瀏覽器的資料）。',
   openhandsSandboxRefused: 'Harness Relay 的沙箱拒絕了：這個位置不在這個對話可以寫入的資料夾內。',
   openSandboxRefusedReadOnly: 'Harness Relay 的沙箱拒絕了：這個對話是唯讀的。',
   openSandboxRefused: 'Harness Relay 的沙箱拒絕了：這個位置不在這個對話可以寫入的資料夾內。',
@@ -333,7 +351,8 @@ const zhTW = {
   // Sharing a conversation (a gist through the GitHub CLI)
   shareEmpty: '沒有可以分享的內容',
   shareTooLarge: (mb: string) => `這個分享頁有 ${mb} MB，超過 gistpreview 能顯示的 1 MB。請改成分享到比較前面的某則回覆。`,
-  shareNoGh: (min: string) => `找不到 GitHub CLI（gh）。請從 https://cli.github.com 安裝 ${min} 以上的版本，並在終端機執行 gh auth login 後再試一次。`,
+  shareNoGh: (min: string) =>
+    `找不到 GitHub CLI（gh）。請從 https://cli.github.com 安裝 ${min} 以上的版本，並在終端機執行 gh auth login 後再試一次。`,
   ghTooOld: (min: string, version?: string) =>
     `GitHub CLI（gh）版本太舊${version ? `（目前是 ${version}）` : ''}：需要 ${min} 以上。請從 https://cli.github.com 更新 gh（用 Homebrew 裝的可以執行 brew upgrade gh）後再試一次。`,
   ghLoginTokenSet: (name: string) =>
@@ -341,10 +360,10 @@ const zhTW = {
   shareSignedOut: 'GitHub CLI（gh）尚未登入。請在這裡登入 GitHub，或在終端機執行 gh auth login，再試一次。',
   shareFailed: (detail: string) => `無法建立 gist：${detail}`,
   shareNoDetail: 'gh 沒有說明原因',
-  shareNoUrl: 'gh 沒有回傳 github.com 上的 gist 網址（gistpreview 只能顯示 github.com 的 gist）。如果已經建立了 gist，可以用 gh gist list 找到它再刪除',
+  shareNoUrl:
+    'gh 沒有回傳 github.com 上的 gist 網址（gistpreview 只能顯示 github.com 的 gist）。如果已經建立了 gist，可以用 gh gist list 找到它再刪除',
   unshareFailed: (detail: string) => `無法刪除 gist：${detail}`,
-  unshareNotOwner:
-    '這個 gist 還在 GitHub 上，但不屬於 gh 目前登入的帳號，所以無法刪除。請用 gh auth switch 切回建立它的帳號，再移除一次。',
+  unshareNotOwner: '這個 gist 還在 GitHub 上，但不屬於 gh 目前登入的帳號，所以無法刪除。請用 gh auth switch 切回建立它的帳號，再移除一次。',
   shareNotFound: '找不到這個分享',
   shareNoFileUrl: 'GitHub 沒有回傳上傳檔案的網址',
   shareNotGithub: 'gist 不在 github.com 上，gistpreview 只能顯示 github.com 的 gist',
@@ -370,7 +389,8 @@ const zhTW = {
   reportShotsTooMany: (max: number) => `一次最多只能上傳 ${max} 張截圖。`,
   reportShotTooLarge: (n: number, mb: number) => `第 ${n} 張截圖超過 ${mb} MB 的上限。`,
   reportShotNotImage: (n: number) => `第 ${n} 張截圖不是 PNG、JPEG 或 WebP 圖片。`,
-  reportShotUnreadable: (n: number) => `第 ${n} 張截圖讀不懂它的檔案結構，沒辦法確定拿掉了中繼資料，所以不上傳：請重新截圖，或另存成 PNG 再試。`,
+  reportShotUnreadable: (n: number) =>
+    `第 ${n} 張截圖讀不懂它的檔案結構，沒辦法確定拿掉了中繼資料，所以不上傳：請重新截圖，或另存成 PNG 再試。`,
   reportShotsUndone: (detail: string) => `無法上傳截圖（${detail}），已經建立的 gist 也刪除了。請再試一次。`,
   reportShotsLeftover: (detail: string, url: string) =>
     `無法上傳截圖（${detail}），已經建立的 gist 也沒能刪除，還在 GitHub 上：${url}。請到 GitHub 刪除它。`,
@@ -400,8 +420,7 @@ const zhTW = {
   queuedNotFound: '這則訊息已經送出或撤回了',
   queueFull: (n: number) => `最多 ${n} 則訊息等待送出，請等團隊回覆後再送`,
   gitInitNote: (root: string) => `工作目錄原本不是 git repository，已自動執行 git init：${root}`,
-  dirLocked: (title: string, root: string) =>
-    `對話「${title}」正在修改 ${root}，請等它結束後再試（或改用唯讀 / 平行模式）。`,
+  dirLocked: (title: string, root: string) => `對話「${title}」正在修改 ${root}，請等它結束後再試（或改用唯讀 / 平行模式）。`,
   noWorktree: '這位成員沒有 worktree',
   resultStale: '工作目錄已經更新過，這份結果已過期；請讓團隊再跑一輪。',
   appliedNote: (name: string, files: number) =>
@@ -434,32 +453,127 @@ const zhTW = {
   reviseFailed: (why: string) => `首席 agent 沒能調整團隊（${why}）。團隊維持原樣，可以換個說法再試一次。`,
 
   // Schedules
-  scheduleNotFound: '這個對話沒有排程',
-  scheduleTextRequired: '請輸入排程要傳給團隊的訊息',
-  scheduleTextTooLong: (max: number) => `排程訊息最多 ${max} 個字`,
-  scheduleBadRepeat: '排程的重複方式無效',
+  scheduleNotFound: '這個對話沒有自動任務',
+  scheduleTextRequired: '請輸入自動任務要傳給團隊的訊息',
+  scheduleTextTooLong: (max: number) => `自動任務的訊息最多 ${max} 個字`,
+  scheduleBadRepeat: '自動任務的時間設定無效',
   scheduleBadTime: '時間的格式應為 HH:MM（24 小時制）',
-  scheduleNeedDays: '每週的排程至少要選一天',
+  scheduleNeedDays: '每週的時間至少要選一天',
   scheduleBadHours: (max: number) => `間隔應為 1 到 ${max} 小時的整數`,
   scheduleBadMoment: '請選擇日期與時間',
   scheduleInPast: '這個時間已經過了，請選擇之後的時間',
   scheduleBadTimeZone: (tz: string) => `不認得時區「${tz}」`,
-  scheduleNeedsTeam: '請先確認團隊，再設定排程',
+  scheduleNeedsTeam: '請先確認團隊，再設定自動任務',
   scheduleNoTeam: '團隊還沒確認',
   scheduleDesigning: '首席 agent 正在為一個問題組隊，稍後再送出',
   scheduleWaitsForAnswer: '團隊在等你回答問題',
-  scheduleStillQueued: '上一則排程訊息還在等待送出',
+  scheduleStillQueued: '自動任務的上一則訊息還在等待送出',
   scheduleBusy: '對話正在更新，請稍後再試',
   scheduleQueueFull: '等待送出的訊息已經滿了',
-  scheduleRefused: '排程執行時可能沒人看著，已自動拒絕',
+  scheduleRefused: '自動任務執行時可能沒人看著，已自動拒絕',
   scheduleConvBusy: '對話正在更新設定或套用結果',
-  scheduleMissedNote: (when: string) => `${when} 的排程訊息沒有送出：當時 Harness Relay 沒有在執行。`,
-  scheduleSkippedNote: (when: string, why: string) => `${when} 的排程訊息沒有送出：${why}。`,
-  scheduleFailedNote: (when: string, why: string) => `${when} 的排程訊息無法送出：${why}`,
-  scheduleChatNote: (title: string) => `這個對話由「${title}」的排程開啟，排程的訊息在這裡送出。`,
+  scheduleMissedNote: (when: string) => `自動任務 ${when} 的訊息沒有送出：當時 Harness Relay 沒有在執行。`,
+  scheduleSkippedNote: (when: string, why: string) => `自動任務 ${when} 的訊息沒有送出：${why}。`,
+  scheduleFailedNote: (when: string, why: string) => `自動任務 ${when} 的訊息無法送出：${why}`,
+  scheduleChatNote: (title: string) => `這個對話由「${title}」的自動任務開啟，自動任務的訊息在這裡送出。`,
   scheduleNoLead: '這個對話沒有讓首席 agent 組隊',
-  scheduleHasTeam: '這個排程已經有團隊了',
-  scheduleCreatedNote: '已建立排程。首席 agent 會為排程的訊息組隊；團隊確認後，排程會在設定的時間把訊息傳給它，現在不會先執行。',
+  scheduleHasTeam: '這個自動任務已經有團隊了',
+  scheduleCreatedNote: '已建立自動任務。首席 agent 會為它的訊息組隊；團隊確認後，每次自動任務執行時都會把訊息傳給它，現在不會先執行。',
+  scheduleGoalTooLong: (max: number) => `目標最多 ${max} 個字`,
+  trackingDoneNote: (agent: string, note: string) => `@${agent} 回報目標已達成，自動任務已關閉${note ? `：${note}` : '。'}`,
+  trackingBlockedNote: (agent: string, note: string) => `@${agent} 回報目標卡住了，需要你處理${note ? `：${note}` : '。'}`,
+  trackingRetryNotNeeded: '之後已經有新的進度回報，不再重試',
+  trackingRetryNote: (when: string, attempt: number, minutes: number) =>
+    `自動任務 ${when} 的執行失敗，${minutes} 分鐘後重試（第 ${attempt} 次重試）。`,
+  trackingGaveUpNote: (when: string, tries: number) => `自動任務 ${when} 的執行失敗，重試 ${tries} 次後仍未成功，等下一個設定的時間。`,
+  trackingRestartNote: (when: string) => `自動任務 ${when} 的執行在 Harness Relay 停止時中斷，馬上重試。`,
+  trackingRunFailed: '這次執行的回覆全都失敗了',
+  hookNotFound: '找不到這個 webhook',
+  hookTooOften: (seconds: number) => `這個 webhook 每 ${seconds} 秒最多呼叫一次`,
+  hookNeedsSchedule: '請先設定自動任務，再建立 webhook',
+  browserNotFound: (path: string) => `「${path}」不是檔案：請填瀏覽器執行檔的完整路徑`,
+  hookGoalReached: '這個自動任務追蹤的目標已經達成；重新開啟它之後才能再呼叫',
+  hookBodyTooLarge: (kb: number) => `webhook 的內容最多 ${kb} KB`,
+  outboxInterrupted: 'Harness Relay 在送出時停止了，不確定有沒有送出；沒有再送一次。',
+  outboxNotFound: '找不到這個待送出的項目',
+  outboxDecided: '這個項目已經處理過了',
+  outboxNoTool: (tool: string) => `沒有工具能送出這個項目（${tool}）`,
+  outboxSentNote: (title: string, result: string) => `已送出「${title}」：${result}`,
+  outboxFailedNote: (title: string, why: string) => `「${title}」沒有送出：${why}`,
+  outboxDiscardedNote: (title: string) => `已捨棄「${title}」，沒有送出。`,
+  outboxTakenBack: '要求送出它的回覆已被收回，所以沒有送出。',
+  // What a call of Harness Relay's own tools shows the user (approval and outbox cards)
+  /** Harness Relay's own mail and calendar clients: what a card, Test or Find calendars shows (a server's own words after it). */
+  conn: {
+    timedOut: (host: string, port: number, seconds: number) => `${host}:${port} 在 ${seconds} 秒內沒有回應`,
+    connectFailed: (host: string, port: number, why: string) => `連不上 ${host}:${port}：${why}`,
+    tlsSlow: (host: string) => `與 ${host} 的 TLS 沒有及時開始`,
+    tlsFailed: (host: string, why: string) => `與 ${host} 的 TLS 失敗：${why}`,
+    mailTooMuch: '郵件伺服器送來的內容超過一個回應能有的大小',
+    mailAnnouncedTooMuch: '郵件伺服器宣告的內容超過一個回應能有的大小',
+    mailReplyTooMuch: '郵件伺服器送來的內容超過一個回覆能有的大小',
+    mailClosed: '郵件伺服器關閉了連線',
+    mailRefused: (text: string) => `郵件伺服器拒絕連線：${text}`,
+    mailLogin: (why: string) => `郵件伺服器不接受這組使用者名稱與密碼：${why}`,
+    mailNoAnswer: (seconds: number) => `郵件伺服器在 ${seconds} 秒內沒有回應`,
+    calTooMuch: '行事曆送來的內容超過一個回應能有的大小',
+    calListFailed: '列出活動失敗',
+    calAddFailed: '新增活動失敗',
+    calFindFailed: '尋找行事曆失敗',
+    calLogin: (what: string, status: number) => `${what}：行事曆不接受這組使用者名稱與密碼（${status}）`,
+    calMoved: (what: string, where: string) => `${what}：行事曆在另一個位址（${where}），請改用那個位址`,
+    calStatus: (what: string, status: string) => `${what}：行事曆回應 ${status}`,
+    accountGone: '卡片顯示的帳號已經不在了：沒有寄出任何東西',
+    noMail: (name?: string) => (name ? `沒有「${name}」這個郵件帳號` : '還沒有設定郵件帳號'),
+    noCalendar: (name?: string) => (name ? `沒有「${name}」這個行事曆` : '還沒有設定行事曆'),
+  },
+  gw: {
+    open: (url: string) => `開啟 ${url}`,
+    openReason: '在它自己的瀏覽器中開啟這個網頁',
+    openNearbyReason: '在它自己的瀏覽器中開啟這個網頁。它在這台電腦或區域網路上：允許之後，它的網頁也能連到這個主機的這個 port。',
+    mailSent: (id: string, host: string, answer: string) => `${host} 已收下 ${id}${answer ? `（${answer}）` : ''}`,
+    inviteSent: (calendar: string) => `已加到「${calendar}」，邀請由行事曆寄出`,
+    click: (what: string) => `在開啟的網頁上點擊${what}`,
+    refLink: (label: string, href: string) => `連結「${label}」（${href}）`,
+    refButton: (label: string) => `按鈕「${label}」`,
+    refField: (name: string, label: string) => `欄位${name ? ` ${name}` : ''}${label ? `「${label}」` : ''}`,
+    refGone: (n: number) => `元素 ${n}（不在最新的快照中）`,
+    type: (field: string, enter: boolean) => `在${field}輸入下面的文字${enter ? '，然後按 Enter' : ''}`,
+    typed: (text: string, length: number) => (text.length < length ? `${text}…（共 ${length} 個字元）` : text),
+    draft: (to: string, subject: string) => `存一封草稿給 ${to}：「${subject}」`,
+    mail: (to: string, subject: string) => `寄信給 ${to}：「${subject}」`,
+    addEvent: (summary: string, when: string) => `把「${summary}」（${when}）加進行事曆`,
+    invite: (who: string, summary: string) => `邀請 ${who} 參加「${summary}」`,
+    noSubject: '（沒有主旨）',
+    fields: {
+      from: '寄件人',
+      to: '收件人',
+      cc: '副本',
+      bcc: '密件副本',
+      subject: '主旨',
+      event: '活動',
+      when: '時間',
+      where: '地點',
+      invites: '邀請',
+      calendar: '行事曆',
+    },
+  },
+  mcpNameReserved: (name: string) => `「${name}」是 Harness Relay 自己工具的名稱（relay，以及 relay_ 開頭的名稱），請換一個`,
+  connectorTooMany: (max: number) => `最多 ${max} 個帳號`,
+  connectorNameTaken: (name: string) => `已經有叫「${name}」的帳號了`,
+  connectorPasswordRequired: '請輸入密碼（建議用應用程式專用密碼）',
+  connectorPasswordAgain: '伺服器的位址換了，請再輸入一次密碼（保存的密碼只會送到原本的伺服器）',
+  connectorPasswordNotSaved: (e: string) => `無法把帳號的密碼存進金鑰儲存區，帳號沒有儲存：${e}`,
+  connectorNotFound: (id: string) => `找不到帳號：${id}`,
+  connectorBadHost: (field: string) => `${field} 的主機名稱無效`,
+  connectorBadPort: (field: string) => `${field} 的連接埠應為 1 到 65535`,
+  connectorPlainRemote: (field: string) => `${field} 只有連到這台電腦時才能不加密`,
+  connectorRelayPort: (field: string) => `${field} 不能是 Harness Relay 自己的連接埠`,
+  connectorBadAddress: (field: string) => `${field} 不是有效的電子郵件地址`,
+  connectorBadUrl: '行事曆網址應為 https（連到這台電腦時可以用 http），而且不能含帳號密碼',
+  connectorTestOk: '連線成功，帳號與密碼可以使用。',
+  connectorTestFailed: (why: string) => `連不上：${why}`,
+  connectorDiscoverFailed: (why: string) => `找不到行事曆：${why}`,
 
   // HTTP
   unknownProvider: (p: string) => `未知的 provider：${p}`,
@@ -504,10 +618,11 @@ const zhTW = {
   agentHomeNotAbsolute: (dir: string) => `請填完整路徑，或以 ~ 開頭的路徑（例如 ~/.relay-agents），不要用 ${dir}`,
   agentHomeInside: (dir: string, folder: string) =>
     `${dir} 在 ${folder} 裡面：那裡的快照會把各 CLI 的登入與 session 紀錄一起收進去。請選這個資料夾以外的位置，例如 ~/.relay-agents`,
-  agentHomeBusy: '有對話正在執行，或首席 agent 正在替對話分群或調整團隊。請等它們結束（或停止對話、關閉團隊設定）再更改各 CLI 自己的資料夾。',
-  agentsViewLinkInvalid: (url: string) => `開啟 AgentsView 的網址無效：${url}。請填 http:// 或 https:// 開頭的網址，例如 https://my-computer.tail1234.ts.net:9999`,
-  agentsViewUrlInvalid: (url: string) =>
-    `AgentsView 網址無效：${url}。只接受這台電腦上的 http(s) 位址，例如 http://127.0.0.1:8080`,
+  agentHomeBusy:
+    '有對話正在執行，或首席 agent 正在替對話分群或調整團隊。請等它們結束（或停止對話、關閉團隊設定）再更改各 CLI 自己的資料夾。',
+  agentsViewLinkInvalid: (url: string) =>
+    `開啟 AgentsView 的網址無效：${url}。請填 http:// 或 https:// 開頭的網址，例如 https://my-computer.tail1234.ts.net:9999`,
+  agentsViewUrlInvalid: (url: string) => `AgentsView 網址無效：${url}。只接受這台電腦上的 http(s) 位址，例如 http://127.0.0.1:8080`,
 
   // Tool library
   badMcpName: (name: string) => `MCP 伺服器名稱「${name}」無效：只能用英文字母、數字、_ 和 -，最多 40 個字`,
@@ -518,7 +633,8 @@ const zhTW = {
   mcpExists: (name: string) => `已經有名為「${name}」的 MCP 伺服器`,
   tooManyMcp: (n: number) => `最多可以設定 ${n} 個 MCP 伺服器`,
   secretsFailed: (e: string) => `無法把 MCP 伺服器的變數存進金鑰儲存區：${e}`,
-  secretsUnreadable: (name: string) => `讀不到 MCP 伺服器「${name}」存在金鑰儲存區的值（可能被鎖住了，或加密它們的金鑰檔不見了），請重新輸入每個值，或解鎖後重新啟動 Harness Relay。`,
+  secretsUnreadable: (name: string) =>
+    `讀不到 MCP 伺服器「${name}」存在金鑰儲存區的值（可能被鎖住了，或加密它們的金鑰檔不見了），請重新輸入每個值，或解鎖後重新啟動 Harness Relay。`,
   memoryTooLong: (n: number) => `記憶最多 ${n} 個字`,
   tooManySkills: (n: number) => `最多可以加入 ${n} 個 skill`,
   noSkillsIn: (path: string) => `${path} 裡沒有 skill（要有 SKILL.md 的資料夾，或包含這種資料夾的資料夾）`,
@@ -536,12 +652,14 @@ const zhTW = {
     part === 'all'
       ? `${cli} 沒有回應。`
       : `${cli} 沒有回報它的${{ skills: ' skill', mcp: ' MCP 伺服器', tools: '內建工具', hooks: ' hook', agents: ' subagent', plugins: ' plugin' }[part]}。`,
-  nativeAsRunFailed: (cli: string, detail: string) => `依 Harness Relay 啟動 ${cli} 的方式再問一次時失敗，所以沒有標示哪些項目不載入：${detail}`,
+  nativeAsRunFailed: (cli: string, detail: string) =>
+    `依 Harness Relay 啟動 ${cli} 的方式再問一次時失敗，所以沒有標示哪些項目不載入：${detail}`,
   nativeAsRunPartial: (cli: string) => `依 Harness Relay 啟動 ${cli} 的方式再問一次時逾時：已回答的部分有標示不載入的項目，其餘沒有標示。`,
 
   // Files
   fileNotFound: '找不到這個檔案或資料夾（只能瀏覽工作目錄裡的內容）',
-  zipTooBig: (items: number, gb: number) => `這個資料夾太大，無法打包成 zip：最多 ${items.toLocaleString('zh-TW')} 個檔案與資料夾、共 ${gb} GB。請下載其中的子資料夾。`,
+  zipTooBig: (items: number, gb: number) =>
+    `這個資料夾太大，無法打包成 zip：最多 ${items.toLocaleString('zh-TW')} 個檔案與資料夾、共 ${gb} GB。請下載其中的子資料夾。`,
   fileRootNotFound: '這個資料夾已經不存在',
 
   // Workspace
@@ -593,8 +711,10 @@ const zhTW = {
   sandboxSetupNone: '目前沒有進行中的沙箱安裝',
   sandboxSetupCannotStop: '系統的套件管理工具正以系統管理員身分安裝中，中途停止可能讓它的資料庫需要修復，所以無法取消；請等它完成。',
   sandboxSetupNothing: '這台電腦上沒有缺少、而且 Harness Relay 能安裝的沙箱元件。',
-  sandboxSetupNoAdmin: '這裡沒辦法取得系統管理員權限（不是 root、sudo 需要密碼、也沒有桌面環境能顯示 pkexec 的密碼視窗），所以沒有安裝套件：請在終端機執行下方的指令。',
-  sandboxSetupAdminRefused: '沒有輸入系統管理員密碼（或不允許、或無法顯示密碼視窗），所以什麼都沒安裝。可以再試一次，或在終端機執行下方的指令。',
+  sandboxSetupNoAdmin:
+    '這裡沒辦法取得系統管理員權限（不是 root、sudo 需要密碼、也沒有桌面環境能顯示 pkexec 的密碼視窗），所以沒有安裝套件：請在終端機執行下方的指令。',
+  sandboxSetupAdminRefused:
+    '沒有輸入系統管理員密碼（或不允許、或無法顯示密碼視窗），所以什麼都沒安裝。可以再試一次，或在終端機執行下方的指令。',
   sandboxSetupStillMissing: (items: string) => `安裝跑完了，但還是缺少：${items}。輸出在下方。`,
   cliNodeDoesNotRun: (linux: boolean): string =>
     linux
@@ -606,7 +726,8 @@ const zhTW = {
   cliRemoveFailed: (dir: string, detail: string) => `無法刪除 ${dir}：${detail}`,
   cliRemoving: (cli: string) => `正在移除 ${cli}，請等它移除完。`,
   cliUserPathUnread: (detail: string) => `無法讀取你的使用者 PATH，所以沒有執行安裝程式（它跑完後，PATH 會還原成執行前的樣子）：${detail}`,
-  cliUserPathNotBack: (detail: string) => `無法把你的使用者 PATH 還原成安裝程式執行前的樣子：${detail}。Harness Relay 下次啟動時，或下次執行安裝程式之前，會再試一次。`,
+  cliUserPathNotBack: (detail: string) =>
+    `無法把你的使用者 PATH 還原成安裝程式執行前的樣子：${detail}。Harness Relay 下次啟動時，或下次執行安裝程式之前，會再試一次。`,
   // Voice input
   voiceNotReady: '語音輸入還沒安裝完成，請到「設定 → 語音輸入」查看。',
   voiceBusy: '語音輸入正在安裝中，請等它完成或先取消。',
@@ -667,7 +788,8 @@ const en: ServerMessages = {
   sandboxHost: 'A command in the sandbox wants to connect to this host.',
   commandNotFound: (bin) => `Command "${bin}" not found. Make sure it is installed, or set its path on the Settings page.`,
   windowsShimBroken: (bin, script, target) => `"${bin}" is ${script}, and ${target}, which it runs, is not there: install ${bin} again.`,
-  windowsNoNode: (bin, script) => `"${bin}" is ${script}, which runs on Node.js, and no Node.js is on the PATH: install Node.js, or add it to the PATH.`,
+  windowsNoNode: (bin, script) =>
+    `"${bin}" is ${script}, which runs on Node.js, and no Node.js is on the PATH: install Node.js, or add it to the PATH.`,
   windowsScript: (bin, script) =>
     `"${bin}" is the script ${script}, which Harness Relay cannot start: it starts programs only, never through a shell, and cannot tell which program this script runs. Set the path to the program it runs (an .exe) on the Settings page.`,
   permission: { 'read-only': 'Read-only', edit: 'Edit', full: 'Full access' },
@@ -677,14 +799,16 @@ const en: ServerMessages = {
   grokCancelled: (tool, reason) => `Grok ended the turn while running "${tool}"${reason ? ` (${reason})` : ''}.`,
   grokCancelHint: (permission) =>
     ` The permission is "${permission}"; if this action is needed, switch the permission to "Full access" and try again.`,
-  grokSandbox: (why) => `Grok could not start its sandbox (needed below full access): ${why}. On Linux, the paths it may not read need bubblewrap (for example sudo apt-get install bubblewrap), and on Ubuntu 23.10 or later an AppArmor profile for /usr/bin/bwrap (see "On Linux" in docs/sandboxing.md).`,
+  grokSandbox: (why) =>
+    `Grok could not start its sandbox (needed below full access): ${why}. On Linux, the paths it may not read need bubblewrap (for example sudo apt-get install bubblewrap), and on Ubuntu 23.10 or later an AppArmor profile for /usr/bin/bwrap (see "On Linux" in docs/sandboxing.md).`,
   grokNoSession: 'grok returned no session id',
   grokModelsFailed: (path, why) => `Could not write your own endpoints' models into Grok's settings (${path}): ${why}`,
   relaySandboxWindows:
     "Harness Relay's own sandbox does not work on native Windows (the sandbox-runtime it uses is alpha there), so this agent does not run here in read-only or edit mode. Run Harness Relay in WSL2, or set the permission to full access (no sandbox).",
   relaySandboxPathTooLong: (dataDir, max) =>
     `The path of Harness Relay's data folder (${dataDir}) is too long for the sockets its sandbox makes there, so this did not run: set RELAY_DATA_DIR to a folder whose path is at most ${max} bytes (UTF-8: a character outside ASCII takes 2 to 4) and restart Harness Relay; or switch to full access.`,
-  relaySandboxNoNode: "Harness Relay's sandbox needs Node.js 22.12 or later to run its sandbox helper, and the desktop app's own runtime cannot be used as Node: install one from Settings → Sandboxes (into Harness Relay's folder), or install Node.js yourself so that it is on your login shell's PATH, then reopen the app; or switch to full access.",
+  relaySandboxNoNode:
+    "Harness Relay's sandbox needs Node.js 22.12 or later to run its sandbox helper, and the desktop app's own runtime cannot be used as Node: install one from Settings → Sandboxes (into Harness Relay's folder), or install Node.js yourself so that it is on your login shell's PATH, then reopen the app; or switch to full access.",
   relaySandboxPlatform: (platform) =>
     `Harness Relay's own sandbox works on macOS and Linux only (this is ${platform}), so this agent does not run in read-only or edit mode. Set the permission to full access, or run it on macOS or Linux.`,
   relaySandboxMissing: (what, packages) =>
@@ -699,7 +823,8 @@ const en: ServerMessages = {
         ? 'bubblewrap needs unprivileged user namespaces: on Ubuntu 23.10 or later, add the AppArmor profile for /usr/bin/bwrap (see "On Linux" in docs/sandboxing.md); in a container, the container must allow user namespaces and mounting a fresh /proc (for example docker run --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined), or use full access and let the container be the sandbox; WSL1 cannot, use WSL2. '
         : '') +
     'Or set the permission to full access.',
-  relaySandboxBadHost: (entry) => `${entry} is not a host the sandbox can connect to (a host name or an IP address, with :port or without), so the agent did not run.`,
+  relaySandboxBadHost: (entry) =>
+    `${entry} is not a host the sandbox can connect to (a host name or an IP address, with :port or without), so the agent did not run.`,
   relaySandboxLocalPort: (entry) =>
     `The model backend ${entry} is on this computer but has no port; the sandbox lets programs reach a port on this computer only when it is named, so the agent did not run. Add the model server's port to its address (for example localhost:11434).`,
   relaySandboxRelayPort: (entry) =>
@@ -711,14 +836,17 @@ const en: ServerMessages = {
     `The program ${path}, which the sandbox runs, is in a folder this run may write, where the agent could replace it and have it run outside the sandbox, so the agent did not run.`,
   relaySandboxNoChannel:
     "Harness Relay's own sandbox did not get its control channel (a bug in Harness Relay: it was started without its channel), so the agent did not run.",
-  relaySandboxHost: 'A program in the sandbox wants to connect to this host. Allowing it lets this run reach it (and later runs too, if you allow it always).',
+  relaySandboxHost:
+    'A program in the sandbox wants to connect to this host. Allowing it lets this run reach it (and later runs too, if you allow it always).',
   grokRejectedModel: (value, err) => `Grok does not accept the model "${value}": ${err}`,
   grokRejectedEffort: (value, err) => `Grok does not accept the reasoning effort "${value}": ${err}`,
   cursorRefused: "Refused: not covered by this conversation's permission",
   cursorReadOnlyWrite: 'Not written: Cursor may not write in read-only mode',
-  cursorProtectedWrite: "Cursor asks before changing files like this one: a change here could make code run later, outside any sandbox (a git hook, an editor task), or change an agent's settings.",
+  cursorProtectedWrite:
+    "Cursor asks before changing files like this one: a change here could make code run later, outside any sandbox (a git hook, an editor task), or change an agent's settings.",
   cursorOutsideWrite: 'This file is outside the working directory: Cursor asks before writing outside it.',
-  cursorOtherCwdWrite: "This file is in another of the chat's working directories: Cursor works in the first one, and asks before writing in the others.",
+  cursorOtherCwdWrite:
+    "This file is in another of the chat's working directories: Cursor works in the first one, and asks before writing in the others.",
   cursorCancelled: 'Cursor ended the turn by itself (stopReason: cancelled) without giving a reason.',
   cursorNoSession: 'cursor-agent returned no session id',
   cursorRejectedModel: (value, err) => `Cursor does not accept the model "${value}": ${err}`,
@@ -731,10 +859,11 @@ const en: ServerMessages = {
   cursorAccountLogin:
     "Cursor keeps one sign-in per computer user (on macOS, in the keychain), so an extra Cursor account cannot sign in with a browser: give it an API key. Only the default account uses Cursor's own sign-in.",
   antigravityRefused: "Refused: not covered by this conversation's permission",
-  antigravityProtected: "Refused: a protected path (browser data, Harness Relay's database…), which agents below full access may not read or write",
+  antigravityProtected:
+    "Refused: a protected path (browser data, Harness Relay's database…), which agents below full access may not read or write",
   antigravityEndsTurn: ' (Antigravity ends its turn after a refusal)',
   antigravityProjectSetup:
-    "This project has setup Antigravity starts or runs by itself (MCP servers, hooks or plugins in a folder such as .agents): agy runs them outside any sandbox as soon as its session opens, without asking, in read-only mode too. Another agent, or whoever made the repository, may have put them there. The turn starts once you allow it; it asks again when the files change.",
+    'This project has setup Antigravity starts or runs by itself (MCP servers, hooks or plugins in a folder such as .agents): agy runs them outside any sandbox as soon as its session opens, without asking, in read-only mode too. Another agent, or whoever made the repository, may have put them there. The turn starts once you allow it; it asks again when the files change.',
   antigravityProjectSetupRefused: (files) =>
     `The turn did not start: this project has setup Antigravity would run by itself outside any sandbox (${files}), and it was not allowed. Check and remove those files, allow them, or use full access.`,
   antigravityOutsideWrite: "This file is not in the chat's working directories: edit mode covers writes in them only.",
@@ -751,7 +880,8 @@ const en: ServerMessages = {
   antigravityAccountLogin:
     "Antigravity keeps its Google sign-in in the system keyring, and Harness Relay cannot be sure that another account's sign-in would not replace the default one's, so an extra Antigravity account runs on a Gemini API key only. Only the default account signs in with Google.",
   copilotRefused: "Refused: not covered by this conversation's permission",
-  copilotProtected: "Refused: a protected path (browser data, Harness Relay's database…), which agents below full access may not read or write",
+  copilotProtected:
+    "Refused: a protected path (browser data, Harness Relay's database…), which agents below full access may not read or write",
   copilotEndsTurn: ' (Copilot ends its turn after a refusal)',
   copilotProjectHooks:
     "This project has hooks Copilot runs by itself (files in .github/hooks, or hooks in its .github/copilot or .claude settings): Copilot runs them when its session opens and before each tool call, without asking, in read-only mode too (below full access inside its sandbox), even when hooks are left out in the account's settings. Another agent, or whoever made the repository, may have put them there. The turn starts once you allow them; if the files change, you are asked again.",
@@ -771,13 +901,18 @@ const en: ServerMessages = {
   copilotKeptWritable: (dir) =>
     `The turn did not start: Copilot's sandbox keeps ${dir} writable by itself (it is a temporary folder), so a read-only chat cannot keep it from being changed. Give this chat another working directory, or another permission.`,
   museRefused: "Refused: not covered by this conversation's permission",
-  museProtected: "Refused: a protected path (browser data, Harness Relay's database…), which agents below full access may not read or write",
+  museProtected:
+    "Refused: a protected path (browser data, Harness Relay's database…), which agents below full access may not read or write",
   museProtectedPattern: (path) =>
     `The turn did not start: the protected path ${path} has *, ? or [ in its name, which Muse Code reads as a pattern, so it cannot be denied as it is. Rename or move it, or use full access.`,
-  museCommandAsked: "In a read-only chat every command asks first. Allowed, it runs in Muse Code's sandbox, which lets it write in the working directories.",
-  museNetwork: "This command wants the network: Muse Code's sandbox asks about every host it reaches. Allowed, only this command may reach it, still in the sandbox.",
-  museSessionGrant: 'This Muse Code session was made with another permission (Muse keeps the one it was made with), so this turn starts a new session.',
-  musePublish: "This command pushes or publishes beyond this computer (git push, npm publish…), or runs what it reads on standard input, which edit mode does not cover, so it asks first. Allowed, it still runs in Muse Code's sandbox.",
+  museCommandAsked:
+    "In a read-only chat every command asks first. Allowed, it runs in Muse Code's sandbox, which lets it write in the working directories.",
+  museNetwork:
+    "This command wants the network: Muse Code's sandbox asks about every host it reaches. Allowed, only this command may reach it, still in the sandbox.",
+  museSessionGrant:
+    'This Muse Code session was made with another permission (Muse keeps the one it was made with), so this turn starts a new session.',
+  musePublish:
+    "This command pushes or publishes beyond this computer (git push, npm publish…), or runs what it reads on standard input, which edit mode does not cover, so it asks first. Allowed, it still runs in Muse Code's sandbox.",
   museOutsideWrite: "This file is not in the chat's working directories: edit mode covers writes in them only.",
   museConfigWrite:
     "This is an agent's configuration (such as .muse/, .agents/, .git/hooks or .vscode/): a change here could make code run later outside any sandbox, or change how an agent works, so it asks first.",
@@ -792,8 +927,10 @@ const en: ServerMessages = {
 
   defaultTitle: 'New chat',
   conversationNotFound: 'Conversation not found',
-  signedOut: 'This browser is not signed in to Harness Relay. Open the sign-in link it printed in its terminal when it started, or run npm run login.',
-  signedOutDesktop: "This browser is not signed in to Harness Relay. Choose Open in browser in the desktop app's menu (for the app's own window, Open Harness Relay): it opens with a new sign-in link.",
+  signedOut:
+    'This browser is not signed in to Harness Relay. Open the sign-in link it printed in its terminal when it started, or run npm run login.',
+  signedOutDesktop:
+    "This browser is not signed in to Harness Relay. Choose Open in browser in the desktop app's menu (for the app's own window, Open Harness Relay): it opens with a new sign-in link.",
   signInWrongCode: 'That code is wrong or has expired.',
   signInTooMany: 'Too many wrong codes. Wait a minute and try again.',
   signInNoSession: 'No such signed-in browser.',
@@ -803,6 +940,8 @@ const en: ServerMessages = {
     approval: (agent?: string) => (agent ? `${agent} is waiting for your approval` : 'An agent is waiting for your approval'),
     confirm: (_agent?: string) => "The lead agent's team is ready for you to confirm",
     answer: (agent?: string) => (agent ? `${agent} asked you something` : 'An agent asked you something'),
+    blocked: (agent?: string) =>
+      agent ? `${agent} says the goal is held up and needs you` : "An automation's goal is held up and needs you",
     testTitle: 'Harness Relay',
     testBody: "Notifications are on: you'll be told here when an agent finishes or needs you.",
   },
@@ -812,7 +951,8 @@ const en: ServerMessages = {
   pushNotSubscribed: 'This browser has not subscribed to push notifications.',
   pushUnavailable: (detail: string) =>
     `This server cannot send push notifications now${detail ? ` (${detail})` : ''}: while Harness Relay is open, the page still tells you.`,
-  pushTestFailed: "The test notification was not sent: the browser's push service did not take it. Turn notifications off and on again, then try once more.",
+  pushTestFailed:
+    "The test notification was not sent: the browser's push service did not take it. Turn notifications off and on again, then try once more.",
   pushTaken: 'This push subscription belongs to another signed-in browser.',
   pushGone: "The browser's push service says this subscription is gone: subscribe again.",
   cwdHoldsAgents: (dir, folder) =>
@@ -864,51 +1004,62 @@ const en: ServerMessages = {
     `Harness Relay could not check the extension list Goose keeps for this session (${detail}), so it did not resume it: an earlier run's command could have added a program there that starts without asking. The turn starts a fresh session instead.`,
   gooseAuthFailed: (backend) => `Goose could not sign in with the ${backend} API key. Check that key under Settings → Model backends.`,
   gooseModelNotFound: (backend, model) => `${backend} has no model "${model}" (404). Pick another model in the member's settings.`,
-  gooseUnreachable: (backend, host) => `Goose could not reach ${backend} (${host}). Check the network, or the endpoint's address under Settings → Model backends.`,
+  gooseUnreachable: (backend, host) =>
+    `Goose could not reach ${backend} (${host}). Check the network, or the endpoint's address under Settings → Model backends.`,
   // Pi (src/server/agents/pi.ts)
   piSessionMissing: (id) => `The file of session ${id} is gone (it may have been deleted)`,
   piSessionMoved: (then, now) => `the session's working directory is ${then}, this turn's is ${now}`,
   piSessionMismatch: (want, got) => `Pi opened session ${got}, not ${want}`,
   piGateMissing:
     "Harness Relay's gate extension did not load in Pi (it asks about every tool call before it runs), so this turn did not start. Check that src/server/agents/piGate.js is in Harness Relay's folder.",
-  piGateWritable: (path) => `Harness Relay's gate extension (${path}) is inside a folder this turn may write, so Pi did not run. Pick another working directory.`,
+  piGateWritable: (path) =>
+    `Harness Relay's gate extension (${path}) is inside a folder this turn may write, so Pi did not run. Pick another working directory.`,
   piModelMismatch: (want, got) => `Pi picked the model "${got}", not "${want}"`,
   piEffortLevels: (levels) => `this model takes: ${levels}`,
   piPromptRejected: (e) => `Pi did not take this turn's message: ${e}`,
   piKeyRejected: (backend, e) => `${backend} rejected the API key (${e}). Check it under Settings → Model backends.`,
   piModelRejected: (model, backend, e) => `${backend} has no model "${model}" it can use (${e}). Pick another model.`,
   piUnreachable: (backend, e) => `Could not reach ${backend}: ${e}`,
-  piEndpointUnreachable: (name, url, e) => `Could not reach the endpoint "${name}" (${url}): ${e}. Check that the server is running and the address is right.`,
+  piEndpointUnreachable: (name, url, e) =>
+    `Could not reach the endpoint "${name}" (${url}): ${e}. Check that the server is running and the address is right.`,
   piModelError: (e) => `The model reported an error: ${e}`,
 
   // Cline (src/server/agents/cline.ts)
   clineBadKey: (where, e) => `The model backend "${where}" refused Cline's API key: ${e}. Check the key in Settings → Model backends.`,
-  clineBadModel: (model, where, e) => `The model backend "${where}" has no model "${model}" for Cline: ${e}. Pick a model this backend offers.`,
-  clineUnreachable: (where, e) => `Cline cannot reach the model backend "${where}": ${e}. Check that the endpoint is running and its URL is right (Settings → Model backends).`,
+  clineBadModel: (model, where, e) =>
+    `The model backend "${where}" has no model "${model}" for Cline: ${e}. Pick a model this backend offers.`,
+  clineUnreachable: (where, e) =>
+    `Cline cannot reach the model backend "${where}": ${e}. Check that the endpoint is running and its URL is right (Settings → Model backends).`,
   clineFailed: (e) => `Cline did not finish this turn: ${e}`,
   // OpenHands (agents/openhands.ts)
   openhandsSubagentRefused: "Not allowed below full access: OpenHands' subagents run commands and edit files without asking",
   openhandsNoSuchSession: 'its session folder holds no such session',
   openhandsBadKey: (backend) => `${backend} refused the API key OpenHands used (401). Check the key under Settings → Model backends.`,
-  openhandsBadModel: (backend, model) => `${backend} has no model "${model}", or this key cannot use it. Pick another model for this member.`,
+  openhandsBadModel: (backend, model) =>
+    `${backend} has no model "${model}", or this key cannot use it. Pick another model for this member.`,
   openhandsUnreachable: (backend, e) => `OpenHands could not reach the model backend ${backend}: ${e}`,
   openhandsRateLimited: (backend, e) => `${backend} turned OpenHands' requests away for now (quota or rate limit): ${e}`,
   openhandsTerminal: (e) => `OpenHands could not start its terminal (tmux): ${e}`,
   openhandsFailed: (e) => `OpenHands did not finish this turn: ${e}`,
   openhandsNoCatalog: "LiteLLM's model list was not found in the OpenHands install",
   openhandsUnknownAction: 'Not allowed by itself: Harness Relay could not tell which OpenHands action this is',
-  openhandsLeftover: (n) => `its session still holds ${n} action(s) left unfinished by an earlier turn (stopped or cut off), which must not run without asking`,
+  openhandsLeftover: (n) =>
+    `its session still holds ${n} action(s) left unfinished by an earlier turn (stopped or cut off), which must not run without asking`,
   openhandsAction: 'OpenHands action',
   openhandsBatchTitle: (title, more) => `${title} (+${more} more)`,
   openhandsBatch: (n, calls) => `One answer covers all ${n} actions:\n${calls.map((c) => `• ${c}`).join('\n')}`,
   openhandsNoTerminal:
     'Below full access OpenHands runs only with a terminal in the sandbox: turn on "Let OpenHands use a terminal in the sandbox: its commands can then read and write your other terminal windows" under Settings → OpenHands (its commands can then print text into your other terminal windows, read what you type there and change their settings, but still cannot type into them), or give this conversation full access.',
-  openhandsStuck: 'OpenHands stopped this turn by itself: its stuck detector found it repeating the same action (or getting the same error) without getting anywhere. Ask again, put it differently, or pick another model for this member.',
+  openhandsStuck:
+    'OpenHands stopped this turn by itself: its stuck detector found it repeating the same action (or getting the same error) without getting anywhere. Ask again, put it differently, or pick another model for this member.',
   openhandsBatchRefused: 'Refused along with the rest of its batch: OpenHands asks once for all of them, and another one is not allowed',
-  openhandsOddLog: "its session's history is not laid out as OpenHands writes it (something else may have changed it), so Harness Relay cannot tell which of its actions OpenHands would run without asking",
-  openhandsNoEffort: (backend, model) => `${backend}'s model "${model}" takes no reasoning effort. Set this member's effort to none (or the default).`,
+  openhandsOddLog:
+    "its session's history is not laid out as OpenHands writes it (something else may have changed it), so Harness Relay cannot tell which of its actions OpenHands would run without asking",
+  openhandsNoEffort: (backend, model) =>
+    `${backend}'s model "${model}" takes no reasoning effort. Set this member's effort to none (or the default).`,
   openhandsSandboxRefusedReadOnly: "Harness Relay's sandbox refused it: this conversation is read-only.",
-  openhandsSandboxProtected: "Harness Relay's sandbox refused it: this is a protected path, which Harness Relay keeps agents from reading (its own database and temporary files, browsers' data).",
+  openhandsSandboxProtected:
+    "Harness Relay's sandbox refused it: this is a protected path, which Harness Relay keeps agents from reading (its own database and temporary files, browsers' data).",
   openhandsSandboxRefused: "Harness Relay's sandbox refused it: that is outside the folders this conversation may write.",
   openSandboxRefusedReadOnly: "Harness Relay's sandbox refused it: this conversation is read-only.",
   openSandboxRefused: "Harness Relay's sandbox refused it: that is outside the folders this conversation may write.",
@@ -916,10 +1067,12 @@ const en: ServerMessages = {
   tooManyEndpoints: (n) => `At most ${n} custom endpoints can be set up.`,
   endpointNotFound: (id) => `No endpoint "${id}"`,
   deletedEndpointNotFound: (id) => `No deleted endpoint "${id}" is remembered`,
-  endpointIdInvalid: (id) => `The endpoint id "${id}" may only hold lowercase letters, digits and - (not first or last; at most 32 characters).`,
+  endpointIdInvalid: (id) =>
+    `The endpoint id "${id}" may only hold lowercase letters, digits and - (not first or last; at most 32 characters).`,
   endpointIdReserved: (id) => `"${id}" is the name of a built-in model backend; give the endpoint another id.`,
   endpointNameMissing: 'Enter a name for the endpoint',
-  endpointUrlInvalid: (url) => `"${url}" is not an endpoint address that can be used: it must start with http:// or https://, without a user name, password, query or #.`,
+  endpointUrlInvalid: (url) =>
+    `"${url}" is not an endpoint address that can be used: it must start with http:// or https://, without a user name, password, query or #.`,
   endpointUrlRelay: (url) => `"${url}" is Harness Relay's own address; it cannot be a model endpoint.`,
   endpointModelsInvalid: (n, chars) => `At most ${n} model names, each at most ${chars} characters, without spaces.`,
   backendUnknown: (id) => `Unknown model backend: ${id}`,
@@ -931,7 +1084,8 @@ const en: ServerMessages = {
     `The working directory ${dir} holds Harness Relay itself (its code or its data). In edit mode agents change files there without asking, so they could change Harness Relay's code or database and get around its sandbox and sign-in. Choose another folder, or read-only; to work on Harness Relay itself, run the copy you use from another folder.`,
   opencodeBackendError: (backend, e) =>
     `The model backend ${backend} answered with an error, so OpenCode could not finish the turn: ${e}. Check the API key, the endpoint's URL and the model name under Settings → Model backends.`,
-  opencodeAuthRequired: (backend) => `OpenCode cannot use the model backend ${backend}: its API key is missing or was refused. Check it under Settings → Model backends.`,
+  opencodeAuthRequired: (backend) =>
+    `OpenCode cannot use the model backend ${backend}: its API key is missing or was refused. Check it under Settings → Model backends.`,
   opencodeForeignControl: (detail) =>
     `Security problem, so this run was stopped: OpenCode's own server was driven by something other than Harness Relay (${detail}). A command the agent ran may have read its server's password. The sandbox's file and network rules still held; check what this turn did.`,
   opencodeNoLinuxSandbox:
@@ -943,7 +1097,8 @@ const en: ServerMessages = {
 
   shareEmpty: 'Nothing to share',
   shareTooLarge: (mb) => `This page is ${mb} MB, over the 1 MB that gistpreview can show. Share up to an earlier reply instead.`,
-  shareNoGh: (min) => `GitHub CLI (gh) not found. Install ${min} or later from https://cli.github.com, run gh auth login in a terminal, then try again.`,
+  shareNoGh: (min) =>
+    `GitHub CLI (gh) not found. Install ${min} or later from https://cli.github.com, run gh auth login in a terminal, then try again.`,
   ghTooOld: (min, version) =>
     `GitHub CLI (gh) is too old${version ? ` (this one is ${version})` : ''}: Harness Relay needs ${min} or later. Update gh from https://cli.github.com (installed with Homebrew: brew upgrade gh), then try again.`,
   ghLoginTokenSet: (name) =>
@@ -951,7 +1106,8 @@ const en: ServerMessages = {
   shareSignedOut: 'GitHub CLI (gh) is not signed in. Sign in to GitHub here, or run gh auth login in a terminal, then try again.',
   shareFailed: (detail) => `Could not create the gist: ${detail}`,
   shareNoDetail: 'gh gave no reason',
-  shareNoUrl: 'gh did not return a gist address on github.com (gistpreview can only show gists on github.com). If a gist was created, find it with gh gist list and delete it',
+  shareNoUrl:
+    'gh did not return a gist address on github.com (gistpreview can only show gists on github.com). If a gist was created, find it with gh gist list and delete it',
   unshareFailed: (detail) => `Could not delete the gist: ${detail}`,
   unshareNotOwner:
     'The gist is still on GitHub, but it belongs to another account than the one gh is signed in to, so it could not be deleted. Switch back with gh auth switch, then remove it again.',
@@ -969,7 +1125,8 @@ const en: ServerMessages = {
   shareFilesFailed: (detail) => `Could not upload the files to include: ${detail}`,
   shareBeingMade: 'This share is still being made: it can be removed once it is done.',
   shareFilesTooLarge: (mb, max) => `The files to include come to ${mb} MB, over the ${max} they may take in all.`,
-  shareFilesUndone: (detail) => `Could not make the shared page (${detail}), so the files uploaded for it were deleted again. Try once more.`,
+  shareFilesUndone: (detail) =>
+    `Could not make the shared page (${detail}), so the files uploaded for it were deleted again. Try once more.`,
   shareFilesLeftover: (detail) =>
     `Could not make the shared page (${detail}), and could not delete the files uploaded for it either: they are still on GitHub, in a secret gist without the page. Remove it under Settings → Shared conversations.`,
   shareFilesUnknown: (detail, token) =>
@@ -980,8 +1137,10 @@ const en: ServerMessages = {
   reportShotsTooMany: (max) => `At most ${max} screenshots can be uploaded.`,
   reportShotTooLarge: (n, mb) => `Screenshot ${n} is over the ${mb} MB limit.`,
   reportShotNotImage: (n) => `Screenshot ${n} is not a PNG, JPEG or WebP image.`,
-  reportShotUnreadable: (n) => `Screenshot ${n} could not be read through, so its metadata could not be left behind: it is not uploaded. Take it again, or save it as a PNG and try again.`,
-  reportShotsUndone: (detail) => `Could not upload the screenshots (${detail}), so the gist made for them was deleted again. Try once more.`,
+  reportShotUnreadable: (n) =>
+    `Screenshot ${n} could not be read through, so its metadata could not be left behind: it is not uploaded. Take it again, or save it as a PNG and try again.`,
+  reportShotsUndone: (detail) =>
+    `Could not upload the screenshots (${detail}), so the gist made for them was deleted again. Try once more.`,
   reportShotsLeftover: (detail, url) =>
     `Could not upload the screenshots (${detail}), and could not delete the gist made for them either: it is still on GitHub, at ${url}. Delete it there.`,
   reportShotsUnknown: (detail, token) =>
@@ -1010,8 +1169,7 @@ const en: ServerMessages = {
   queuedNotFound: 'That message was already delivered or withdrawn',
   queueFull: (n: number) => `Up to ${n} messages can wait to be delivered — wait for the team to reply`,
   gitInitNote: (root) => `The working directory was not a git repository; ran git init: ${root}`,
-  dirLocked: (title, root) =>
-    `Conversation "${title}" is changing ${root}; try again when it finishes (or use read-only / parallel mode).`,
+  dirLocked: (title, root) => `Conversation "${title}" is changing ${root}; try again when it finishes (or use read-only / parallel mode).`,
   noWorktree: 'This member has no worktree',
   resultStale: 'The working directory has changed since; this result is out of date. Let the team run again.',
   appliedNote: (name, files) =>
@@ -1040,32 +1198,128 @@ const en: ServerMessages = {
   reviseStopped: 'Stopped changing the team',
   reviseFailed: (why) => `The lead agent could not change the team (${why}). The team is as it was; try saying it another way.`,
 
-  scheduleNotFound: 'This conversation has no schedule',
-  scheduleTextRequired: 'Type the message the schedule sends the team',
-  scheduleTextTooLong: (max) => `A scheduled message can be at most ${max} characters`,
-  scheduleBadRepeat: 'The schedule does not say when to repeat',
+  scheduleNotFound: 'This conversation has no automation',
+  scheduleTextRequired: 'Type the message the automation sends the team',
+  scheduleTextTooLong: (max) => `An automation's message can be at most ${max} characters`,
+  scheduleBadRepeat: 'The automation does not say when it runs',
   scheduleBadTime: 'Times are HH:MM (24-hour clock)',
-  scheduleNeedDays: 'Pick at least one day for a weekly schedule',
+  scheduleNeedDays: 'Pick at least one day for weekly times',
   scheduleBadHours: (max) => `The interval is a whole number of hours from 1 to ${max}`,
   scheduleBadMoment: 'Pick a date and time',
   scheduleInPast: 'That time has passed; pick a later one',
   scheduleBadTimeZone: (tz) => `Unknown time zone "${tz}"`,
-  scheduleNeedsTeam: 'Confirm the team before you set a schedule',
+  scheduleNeedsTeam: 'Confirm the team before you set up an automation',
   scheduleNoTeam: 'the team is not confirmed yet',
   scheduleDesigning: 'the lead agent is designing a team for a question; sent a little later',
   scheduleWaitsForAnswer: 'the team is waiting for your answer',
-  scheduleStillQueued: 'the previous scheduled message is still waiting to be delivered',
+  scheduleStillQueued: "the automation's previous message is still waiting to be delivered",
   scheduleBusy: 'The conversation is being updated; try again in a moment',
   scheduleQueueFull: 'the queue of waiting messages is full',
-  scheduleRefused: 'Refused automatically: nobody may be watching a scheduled run',
+  scheduleRefused: 'Refused automatically: nobody may be watching an automation run',
   scheduleConvBusy: 'the conversation is busy with a settings change or an apply',
-  scheduleMissedNote: (when) => `The scheduled message of ${when} was not sent: Harness Relay was not running then.`,
-  scheduleSkippedNote: (when, why) => `The scheduled message of ${when} was not sent: ${why}.`,
-  scheduleFailedNote: (when, why) => `The scheduled message of ${when} could not be sent: ${why}`,
-  scheduleChatNote: (title) => `The schedule of "${title}" opened this conversation to send its message here.`,
+  scheduleMissedNote: (when) => `The automation's message of ${when} was not sent: Harness Relay was not running then.`,
+  scheduleSkippedNote: (when, why) => `The automation's message of ${when} was not sent: ${why}.`,
+  scheduleFailedNote: (when, why) => `The automation's message of ${when} could not be sent: ${why}`,
+  scheduleChatNote: (title) => `The automation of "${title}" opened this conversation to send its message here.`,
   scheduleNoLead: 'The lead agent does not design the team in this conversation',
-  scheduleHasTeam: 'This schedule has a team already',
-  scheduleCreatedNote: 'Schedule created. The lead agent designs a team for its message; once the team is confirmed, the schedule sends it the message at the set times. Nothing runs now.',
+  scheduleHasTeam: 'This automation has a team already',
+  scheduleCreatedNote:
+    'Automation created. The lead agent designs a team for its message; once the team is confirmed, the automation sends it the message each time it runs. Nothing runs now.',
+  scheduleGoalTooLong: (max) => `A goal can be at most ${max} characters`,
+  trackingDoneNote: (agent, note) => `@${agent} says the goal is reached; the automation is off now${note ? `: ${note}` : '.'}`,
+  trackingBlockedNote: (agent, note) => `@${agent} says the goal is held up and needs you${note ? `: ${note}` : '.'}`,
+  trackingRetryNotNeeded: 'progress was reported since, so it is not tried again',
+  trackingRetryNote: (when, attempt, minutes) =>
+    `The automation run of ${when} failed; trying again in ${minutes} minutes (retry ${attempt}).`,
+  trackingGaveUpNote: (when, tries) =>
+    `The automation run of ${when} failed, also after ${tries} more tries; the automation waits for its next time.`,
+  trackingRestartNote: (when) => `The automation run of ${when} was cut off when Harness Relay stopped; trying again now.`,
+  trackingRunFailed: 'every reply of the run failed',
+  hookNotFound: 'No such webhook',
+  hookTooOften: (seconds) => `This webhook can be called at most once every ${seconds} seconds`,
+  hookNeedsSchedule: 'Set up an automation before you add a webhook',
+  browserNotFound: (path) => `There is no file at "${path}": give the browser's executable, as a full path`,
+  hookGoalReached: 'The goal this automation tracks is reached; turn it on again before calling it',
+  hookBodyTooLarge: (kb) => `A webhook's body can be at most ${kb} KB`,
+  outboxInterrupted: 'Harness Relay stopped while sending it, so whether it went out is not known; it was not sent again.',
+  outboxNotFound: 'No such outbox item',
+  outboxDecided: 'This item was already answered',
+  outboxNoTool: (tool) => `No tool can send this item (${tool})`,
+  outboxSentNote: (title, result) => `Sent "${title}": ${result}`,
+  outboxFailedNote: (title, why) => `"${title}" was not sent: ${why}`,
+  outboxDiscardedNote: (title) => `Discarded "${title}"; nothing was sent.`,
+  outboxTakenBack: 'The reply that asked for it was taken back, so it was not sent.',
+  conn: {
+    timedOut: (host, port, seconds) => `${host}:${port} did not answer in ${seconds} seconds`,
+    connectFailed: (host, port, why) => `Could not connect to ${host}:${port}: ${why}`,
+    tlsSlow: (host) => `TLS with ${host} did not start in time`,
+    tlsFailed: (host, why) => `TLS with ${host} failed: ${why}`,
+    mailTooMuch: 'The mail server sent more than a response may hold',
+    mailAnnouncedTooMuch: 'The mail server announced more than a response may hold',
+    mailReplyTooMuch: 'The mail server sent more than a reply may hold',
+    mailClosed: 'The mail server closed the connection',
+    mailRefused: (text) => `The mail server refused the connection: ${text}`,
+    mailLogin: (why) => `The mail server did not accept the user name and password: ${why}`,
+    mailNoAnswer: (seconds) => `The mail server did not answer in ${seconds} seconds`,
+    calTooMuch: 'The calendar answered with more than an answer may hold',
+    calListFailed: 'Listing the events failed',
+    calAddFailed: 'Adding the event failed',
+    calFindFailed: 'Finding the calendars failed',
+    calLogin: (what, status) => `${what}: the calendar did not accept the user name and password (${status})`,
+    calMoved: (what, where) => `${what}: the calendar is at another address (${where}); use that one`,
+    calStatus: (what, status) => `${what}: the calendar answered ${status}`,
+    accountGone: 'The account the card showed is gone: nothing was sent',
+    noMail: (name) => (name ? `No mail account "${name}"` : 'No mail account is set up'),
+    noCalendar: (name) => (name ? `No calendar "${name}"` : 'No calendar is set up'),
+  },
+  gw: {
+    open: (url) => `Open ${url}`,
+    openReason: 'Open this page in its own browser',
+    openNearbyReason:
+      'Open this page in its own browser. It is on this computer or the local network: once allowed, its pages can reach this host and port too.',
+    mailSent: (id, host, answer) => `${id} accepted by ${host}${answer ? ` (${answer})` : ''}`,
+    inviteSent: (calendar) => `Added to ${calendar}; the calendar sends the invitations`,
+    click: (what) => `Click ${what} on the open page`,
+    refLink: (label, href) => `link "${label}" (${href})`,
+    refButton: (label) => `button "${label}"`,
+    refField: (name, label) => `field${name ? ` ${name}` : ''}${label ? ` "${label}"` : ''}`,
+    refGone: (n) => `element ${n} (not in the latest snapshot)`,
+    type: (field, enter) => `Type the text below into ${field}${enter ? ', then press Enter' : ''}`,
+    typed: (text, length) => (text.length < length ? `${text}… (${length} characters in all)` : text),
+    draft: (to, subject) => `Save a draft to ${to}: "${subject}"`,
+    mail: (to, subject) => `Mail to ${to}: "${subject}"`,
+    addEvent: (summary, when) => `Add "${summary}" (${when}) to the calendar`,
+    invite: (who, summary) => `Invite ${who} to "${summary}"`,
+    noSubject: '(no subject)',
+    fields: {
+      from: 'From',
+      to: 'To',
+      cc: 'Cc',
+      bcc: 'Bcc',
+      subject: 'Subject',
+      event: 'Event',
+      when: 'When',
+      where: 'Where',
+      invites: 'Invites',
+      calendar: 'Calendar',
+    },
+  },
+  mcpNameReserved: (name) => `"${name}" is taken by Harness Relay's own tools (relay, and names that start with relay_); choose another`,
+  connectorTooMany: (max) => `At most ${max} accounts`,
+  connectorNameTaken: (name) => `There is an account called "${name}" already`,
+  connectorPasswordRequired: 'Enter the password (an app password is best)',
+  connectorPasswordAgain: 'The server changed: enter the password again (the kept one goes only to the server it was given for)',
+  connectorPasswordNotSaved: (e) => `Could not save the account's password to the credential store, so the account was not saved: ${e}`,
+  connectorNotFound: (id) => `No such account: ${id}`,
+  connectorBadHost: (field) => `${field}: not a valid host name`,
+  connectorBadPort: (field) => `${field}: the port is a number from 1 to 65535`,
+  connectorPlainRemote: (field) => `${field}: only a server on this computer may go without encryption`,
+  connectorRelayPort: (field) => `${field} cannot be one of Harness Relay's own ports`,
+  connectorBadAddress: (field) => `${field} is not a valid mail address`,
+  connectorBadUrl: "The calendar's address must be https (http only to this computer), without a user name or password in it",
+  connectorTestOk: 'Connected: the user name and password work.',
+  connectorTestFailed: (why) => `Not connected: ${why}`,
+  connectorDiscoverFailed: (why) => `No calendars found: ${why}`,
 
   unknownProvider: (p) => `Unknown provider: ${p}`,
   dirNotFound: (cwd) => `Directory not found: ${cwd}`,
@@ -1075,7 +1329,8 @@ const en: ServerMessages = {
   tooManyAccounts: (provider, max) => `${provider} can have up to ${max} ${max === 1 ? 'account' : 'accounts'} (the default one included)`,
   badAccountLabel: (max) => `An account name has up to ${max} characters, on one line`,
   defaultAccountStays: 'The default account cannot be removed',
-  accountBusy: 'A conversation is running, or the lead agent is sorting one into a group or changing a team. Wait until they finish (or stop the conversation, or close Team settings) before removing an account.',
+  accountBusy:
+    'A conversation is running, or the lead agent is sorting one into a group or changing a team. Wait until they finish (or stop the conversation, or close Team settings) before removing an account.',
   presetNameRequired: 'Enter a template name',
   otherGroup: 'Other',
   groupNameRequired: 'Enter a group name',
@@ -1108,8 +1363,10 @@ const en: ServerMessages = {
   agentHomeNotAbsolute: (dir) => `Enter a full path, or one that starts with ~ (for example ~/.relay-agents), not ${dir}`,
   agentHomeInside: (dir, folder) =>
     `${dir} is inside ${folder}: its snapshots would take in the CLIs' sign-ins and session records. Pick a place outside it, such as ~/.relay-agents`,
-  agentHomeBusy: 'A conversation is running, or the lead agent is sorting one into a group or changing a team. Wait until they finish (or stop the conversation, or close Team settings) before changing the CLIs\' own folder.',
-  agentsViewLinkInvalid: (url) => `Invalid address to open AgentsView: ${url}. Enter one that starts with http:// or https://, such as https://my-computer.tail1234.ts.net:9999`,
+  agentHomeBusy:
+    "A conversation is running, or the lead agent is sorting one into a group or changing a team. Wait until they finish (or stop the conversation, or close Team settings) before changing the CLIs' own folder.",
+  agentsViewLinkInvalid: (url) =>
+    `Invalid address to open AgentsView: ${url}. Enter one that starts with http:// or https://, such as https://my-computer.tail1234.ts.net:9999`,
   agentsViewUrlInvalid: (url) =>
     `Invalid AgentsView address: ${url}. Only http(s) addresses on this computer are accepted, such as http://127.0.0.1:8080`,
 
@@ -1121,7 +1378,8 @@ const en: ServerMessages = {
   mcpExists: (name) => `There is already an MCP server named "${name}"`,
   tooManyMcp: (n) => `You can set up at most ${n} MCP servers`,
   secretsFailed: (e) => `Could not save the MCP server's values to the credential store: ${e}`,
-  secretsUnreadable: (name) => `The values of MCP server "${name}" could not be read from the credential store (it may be locked, or the key they were encrypted with is gone): enter every value again, or unlock it and restart Harness Relay.`,
+  secretsUnreadable: (name) =>
+    `The values of MCP server "${name}" could not be read from the credential store (it may be locked, or the key they were encrypted with is gone): enter every value again, or unlock it and restart Harness Relay.`,
   memoryTooLong: (n) => `Memory can be at most ${n} characters`,
   tooManySkills: (n) => `You can add at most ${n} skills`,
   noSkillsIn: (path) => `No skills in ${path} (pick a folder with a SKILL.md, or a folder of such folders)`,
@@ -1139,11 +1397,14 @@ const en: ServerMessages = {
     part === 'all'
       ? `${cli} did not answer.`
       : `${cli} did not report its ${{ skills: 'skills', mcp: 'MCP servers', tools: 'built-in tools', hooks: 'hooks', agents: 'subagents', plugins: 'plugins' }[part]}.`,
-  nativeAsRunFailed: (cli, detail) => `Asking ${cli} again the way Harness Relay starts it failed, so what is left out is not marked: ${detail}`,
-  nativeAsRunPartial: (cli) => `Asking ${cli} again the way Harness Relay starts it ran out of time: what it had answered is marked, the rest is not.`,
+  nativeAsRunFailed: (cli, detail) =>
+    `Asking ${cli} again the way Harness Relay starts it failed, so what is left out is not marked: ${detail}`,
+  nativeAsRunPartial: (cli) =>
+    `Asking ${cli} again the way Harness Relay starts it ran out of time: what it had answered is marked, the rest is not.`,
 
   fileNotFound: 'File or folder not found (only what is inside the working directory can be browsed)',
-  zipTooBig: (items, gb) => `This folder is too large for a ZIP file: at most ${items.toLocaleString('en')} files and folders, ${gb} GB in all. Download a folder inside it instead.`,
+  zipTooBig: (items, gb) =>
+    `This folder is too large for a ZIP file: at most ${items.toLocaleString('en')} files and folders, ${gb} GB in all. Download a folder inside it instead.`,
   fileRootNotFound: 'This folder no longer exists',
 
   gitFailed: (cmd, out) => `git ${cmd} failed: ${out}`,
@@ -1171,7 +1432,8 @@ const en: ServerMessages = {
   cliInstallNone: (cli) => `No install of ${cli} is running`,
   cliAlreadyInstalled: (cli) => `Harness Relay has installed ${cli} already. To install it again, remove it first.`,
   cliNotInstalledHere: (cli) => `${cli} was not installed by Harness Relay: there is nothing here to remove.`,
-  cliRemoveBusy: (cli) => `A conversation is running, or the lead agent is sorting one into a group or changing a team. Wait until they finish (or stop the conversation) before removing ${cli}.`,
+  cliRemoveBusy: (cli) =>
+    `A conversation is running, or the lead agent is sorting one into a group or changing a team. Wait until they finish (or stop the conversation) before removing ${cli}.`,
   cliInstallBlocked: (cli, block) =>
     block === 'system'
       ? `Harness Relay cannot install ${cli} on this system. Install it as its own page says.`
@@ -1188,12 +1450,15 @@ const en: ServerMessages = {
   cliInstallTimedOut: (command) => `${command} took too long and was stopped.`,
   cliInstallNoProgram: (path) => `The installer finished, but its program ${path} is not there.`,
   cliInstallDoesNotRun: (detail) => `The program installed does not run (--version): ${detail}`,
-  sandboxSetupRunning: "What the sandboxes need is being installed. Wait for it to finish, or cancel it first.",
+  sandboxSetupRunning: 'What the sandboxes need is being installed. Wait for it to finish, or cancel it first.',
   sandboxSetupNone: 'No install of what the sandboxes need is running',
-  sandboxSetupCannotStop: "The system's package manager is installing as administrator, and stopping it halfway could leave its database to repair, so it cannot be cancelled: wait for it to finish.",
+  sandboxSetupCannotStop:
+    "The system's package manager is installing as administrator, and stopping it halfway could leave its database to repair, so it cannot be cancelled: wait for it to finish.",
   sandboxSetupNothing: 'Nothing the sandboxes need is missing here that Harness Relay can install.',
-  sandboxSetupNoAdmin: "There is no way to get administrator rights here (not root, sudo asks for a password, and no desktop session to show pkexec's password prompt), so no package was installed: run the command below in a terminal.",
-  sandboxSetupAdminRefused: 'The administrator password was not given (or not allowed, or no prompt could be shown), so nothing was installed. Try again, or run the command below in a terminal.',
+  sandboxSetupNoAdmin:
+    "There is no way to get administrator rights here (not root, sudo asks for a password, and no desktop session to show pkexec's password prompt), so no package was installed: run the command below in a terminal.",
+  sandboxSetupAdminRefused:
+    'The administrator password was not given (or not allowed, or no prompt could be shown), so nothing was installed. Try again, or run the command below in a terminal.',
   sandboxSetupStillMissing: (items) => `The install ran, but this is still missing: ${items}. Its output is below.`,
   cliNodeDoesNotRun: (linux) =>
     linux
@@ -1204,8 +1469,10 @@ const en: ServerMessages = {
   cliInstallCancelled: 'Install cancelled',
   cliRemoveFailed: (dir, detail) => `Could not delete ${dir}: ${detail}`,
   cliRemoving: (cli) => `${cli} is being removed. Wait until it is removed.`,
-  cliUserPathUnread: (detail) => `Could not read your user PATH, which is put back as it was once the installer has run, so the installer was not run: ${detail}`,
-  cliUserPathNotBack: (detail) => `Could not put your user PATH back as it was before the installer ran: ${detail}. Harness Relay tries again when it starts next, or before it runs another installer.`,
+  cliUserPathUnread: (detail) =>
+    `Could not read your user PATH, which is put back as it was once the installer has run, so the installer was not run: ${detail}`,
+  cliUserPathNotBack: (detail) =>
+    `Could not put your user PATH back as it was before the installer ran: ${detail}. Harness Relay tries again when it starts next, or before it runs another installer.`,
   voiceNotReady: 'Voice input is not set up yet. See Settings → Voice input.',
   voiceBusy: 'Voice input is being installed. Wait for it to finish, or cancel it first.',
   voiceNoJob: 'No install is running',
@@ -1227,16 +1494,28 @@ const en: ServerMessages = {
   voiceNoSpace: (need, free) => `Not enough disk space: about ${need} is needed, ${free} is free.`,
   voiceCancelled: 'Install cancelled',
   login: {
-    claudeSubscription: ['Claude subscription', 'Sign in with a Claude Pro / Max account. Open the link, authorise, then paste back the code the page shows.'],
+    claudeSubscription: [
+      'Claude subscription',
+      'Sign in with a Claude Pro / Max account. Open the link, authorise, then paste back the code the page shows.',
+    ],
     claudeConsole: ['Anthropic Console', 'Sign in with a Console account (billed by API usage).'],
     codexDevice: ['ChatGPT device code', 'Open the link, sign in to ChatGPT and enter the one-time code below.'],
     codexBrowser: ['ChatGPT browser sign-in', 'Opens a browser on this computer to sign in (needs a localhost callback).'],
     grokDevice: ['xAI device code', 'Open the link and confirm the code below.'],
     grokBrowser: ['xAI browser sign-in', 'Opens a browser on this computer to finish the OAuth sign-in.'],
     cursorBrowser: ['Cursor account', 'Open the link below in a browser on any device, sign in to Cursor and allow the CLI.'],
-    antigravityGoogle: ['Google account', 'Open the link below in a browser on any device, sign in to Google, then paste back the code the page shows (or its whole address).'],
-    copilotDevice: ['GitHub account (device code)', 'Open the GitHub link below in a browser on any device, enter the code shown, and authorize it.'],
-    museMeta: ['Meta account', 'Open the link below in a browser on any device, sign in to your Meta account, and check that the page shows the code below.'],
+    antigravityGoogle: [
+      'Google account',
+      'Open the link below in a browser on any device, sign in to Google, then paste back the code the page shows (or its whole address).',
+    ],
+    copilotDevice: [
+      'GitHub account (device code)',
+      'Open the GitHub link below in a browser on any device, enter the code shown, and authorize it.',
+    ],
+    museMeta: [
+      'Meta account',
+      'Open the link below in a browser on any device, sign in to your Meta account, and check that the page shows the code below.',
+    ],
   },
 };
 

@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type DragEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { REPORT_SCREENSHOT_EXTENSIONS, REPORT_SCREENSHOT_LIMITS, type AboutInfo, type GH_MISSING, type GH_SIGNED_OUT, type ProviderStatus } from '../../shared/types';
+import {
+  REPORT_SCREENSHOT_EXTENSIONS,
+  REPORT_SCREENSHOT_LIMITS,
+  type AboutInfo,
+  type GH_MISSING,
+  type GH_SIGNED_OUT,
+  type ProviderStatus,
+} from '../../shared/types';
 import { ApiError, api } from '../api';
 import { copyText } from '../copy';
 import { useI18n } from '../i18n';
@@ -130,11 +137,14 @@ export function ReportDialog({ providers, onClose }: Props) {
   }, []);
 
   const update = (patch: Partial<ReportDraft>) => setDraft((d) => ({ ...d, ...patch }));
-  const info = useMemo(
-    () => infoLines({ about, providers, userAgent: navigator.userAgent, lang }, t),
-    [about, providers, lang, t],
-  );
-  const { editable, waiting, ready } = reportState({ draft, shots: shots.length, uploaded: !!upload, busy: !!busy, aboutKnown: about !== undefined });
+  const info = useMemo(() => infoLines({ about, providers, userAgent: navigator.userAgent, lang }, t), [about, providers, lang, t]);
+  const { editable, waiting, ready } = reportState({
+    draft,
+    shots: shots.length,
+    uploaded: !!upload,
+    busy: !!busy,
+    aboutKnown: about !== undefined,
+  });
   const subject = reportSubject(draft, t);
   const body = reportBody(draft, info, t, upload?.url);
   const whole = () => reportText(REPORT_EMAIL, subject, body, t);
@@ -226,8 +236,16 @@ export function ReportDialog({ providers, onClose }: Props) {
     if (countsAsSent(went)) uploads.sent();
     setSent(went);
   };
-  const sendMail = () => open(fitLink((s, b) => mailtoUrl(REPORT_EMAIL, s, b), subject, body, r.mail.pasteHere, MAILTO_MAX), 'mail');
-  const sendGmail = () => open(fitLink((s, b) => gmailUrl(REPORT_EMAIL, s, b), subject, body, r.mail.pasteHere, GMAIL_MAX), 'gmail');
+  const sendMail = () =>
+    open(
+      fitLink((s, b) => mailtoUrl(REPORT_EMAIL, s, b), subject, body, r.mail.pasteHere, MAILTO_MAX),
+      'mail',
+    );
+  const sendGmail = () =>
+    open(
+      fitLink((s, b) => gmailUrl(REPORT_EMAIL, s, b), subject, body, r.mail.pasteHere, GMAIL_MAX),
+      'gmail',
+    );
 
   return createPortal(
     <div className="modal-scrim" onClick={close}>
@@ -255,7 +273,13 @@ export function ReportDialog({ providers, onClose }: Props) {
           <span>{r.kind}</span>
           <div className="segmented" role="group" aria-label={r.kind}>
             {REPORT_KINDS.map((k) => (
-              <button key={k} type="button" className={draft.kind === k ? 'on' : ''} aria-pressed={draft.kind === k} onClick={() => update({ kind: k })}>
+              <button
+                key={k}
+                type="button"
+                className={draft.kind === k ? 'on' : ''}
+                aria-pressed={draft.kind === k}
+                onClick={() => update({ kind: k })}
+              >
                 {r.kinds[k]}
               </button>
             ))}

@@ -164,7 +164,9 @@ describe('ToolLibrary', () => {
     lib.saveServer('github', { transport: 'stdio', command: 'x', env: [{ name: 'TOKEN', value: 'ghp_secret' }] });
     lib.saveServer('GitHub', { transport: 'stdio', command: 'x', env: [{ name: 'TOKEN' }], previousName: 'github' });
     // After a restart, the values are read back from the store.
-    expect(new ToolLibrary(db, caseless).forAgent(agent('claude')).mcpServers).toMatchObject([{ name: 'GitHub', env: { TOKEN: 'ghp_secret' } }]);
+    expect(new ToolLibrary(db, caseless).forAgent(agent('claude')).mcpServers).toMatchObject([
+      { name: 'GitHub', env: { TOKEN: 'ghp_secret' } },
+    ]);
   });
 
   it("keeps agents' exceptions when a server or a skill is renamed", () => {
@@ -192,7 +194,12 @@ describe('ToolLibrary', () => {
     expect(en(() => lib.saveServer('two', { transport: 'stdio', command: 'y', previousName: 'nope' }))).toThrow(/No MCP server/);
     expect(en(() => lib.deleteServer('nope'))).toThrow(/No MCP server/);
 
-    const broken: SecretStore = { ...fakeKeyring(), set: () => { throw new Error('locked'); } };
+    const broken: SecretStore = {
+      ...fakeKeyring(),
+      set: () => {
+        throw new Error('locked');
+      },
+    };
     const failing = new ToolLibrary(openDatabase(':memory:'), broken);
     expect(() => failing.saveServer('s', { transport: 'stdio', command: 'x', env: [{ name: 'K', value: 'v' }] })).toThrow(/locked/);
     expect(failing.view().mcpServers).toEqual([]);
@@ -240,7 +247,12 @@ describe('ToolLibrary', () => {
     const first = new ToolLibrary(db, keyring);
     first.saveServer('s', { transport: 'stdio', command: 'x', env: [{ name: 'K', value: 'real' }] });
     const name = entry(first, 's');
-    const locked: SecretStore = { ...keyring, get: () => { throw new Error('locked'); } };
+    const locked: SecretStore = {
+      ...keyring,
+      get: () => {
+        throw new Error('locked');
+      },
+    };
     const lib = new ToolLibrary(db, locked);
     expect(en(() => lib.saveServer('s', { transport: 'stdio', command: 'y', env: [{ name: 'K' }], previousName: 's' }))).toThrow(
       /could not be read/,
@@ -310,6 +322,45 @@ describe('ToolLibrary', () => {
     expect(lib.forAgent(agent('grok', { memory: false })).memory).toBeUndefined();
   });
 
+  it("gives Harness Relay's own tool groups to the CLIs chosen, none at first, with per-agent exceptions, and keeps them", () => {
+    const lib = new ToolLibrary(db);
+    expect(lib.view().relayTools).toEqual([
+      { group: 'browser', providers: [] },
+      { group: 'mail', providers: [] },
+      { group: 'calendar', providers: [] },
+    ]);
+    expect(lib.view().gateway).toEqual({ available: false, reason: 'not-started' });
+    expect(lib.forAgent(agent('claude')).relayGroups).toEqual([]);
+
+    lib.update({ relayTools: { browser: ['codex', 'claude'], mail: ['claude'] } });
+    expect(lib.view().relayTools[0]).toEqual({ group: 'browser', providers: ['claude', 'codex'] });
+    expect(lib.forAgent(agent('claude')).relayGroups).toEqual(['browser', 'mail']);
+    expect(lib.forAgent(agent('codex')).relayGroups).toEqual(['browser']);
+    expect(lib.forAgent(agent('codex', { 'relay:calendar': true, 'relay:browser': false })).relayGroups).toEqual(['calendar']);
+    // Changing one group leaves the others.
+    lib.update({ relayTools: { mail: [] } });
+    expect(new ToolLibrary(db).view().relayTools.map((g) => g.providers)).toEqual([['claude', 'codex'], [], []]);
+    lib.gatewayStatus = () => ({ available: true });
+    expect(lib.view().gateway).toEqual({ available: true });
+  });
+
+  it('keeps the browser set in Settings, shows it beside RELAY_BROWSER and the one in use, and forgets it when emptied', () => {
+    const lib = new ToolLibrary(db);
+    expect(lib.view().browser).toEqual({});
+    expect(lib.browserPath()).toBeUndefined();
+    lib.browserStatus = () => ({ env: '/opt/env-chrome', using: '/opt/my-chrome' });
+    lib.update({ browser: '/opt/my-chrome' });
+    expect(lib.browserPath()).toBe('/opt/my-chrome');
+    expect(lib.view().browser).toEqual({ path: '/opt/my-chrome', env: '/opt/env-chrome', using: '/opt/my-chrome' });
+    expect(new ToolLibrary(db).browserPath()).toBe('/opt/my-chrome');
+    // Other changes keep it; an empty one forgets it.
+    lib.update({ memory: { all: 'notes' } });
+    expect(new ToolLibrary(db).browserPath()).toBe('/opt/my-chrome');
+    lib.update({ browser: '' });
+    expect(new ToolLibrary(db).browserPath()).toBeUndefined();
+    expect(new ToolLibrary(db).view().browser).toEqual({});
+  });
+
   it('checks new skill paths only, and marks skills it cannot use', () => {
     const dir = join(root, 'marks');
     const a = skill(join(dir, 'a'), 'name: same');
@@ -352,6 +403,20 @@ describe('ToolLibrary', () => {
     const view = new ToolLibrary(db).view();
     expect(view.mcpServers[0]!.providers).toEqual([]);
     expect(view.skills[0]!.providers).toEqual(PROVIDERS);
-    expect(view.memory).toEqual({ all: 'old notes', claude: '', codex: '', grok: '', cursor: '', antigravity: '', copilot: '', muse: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' });
+    expect(view.memory).toEqual({
+      all: 'old notes',
+      claude: '',
+      codex: '',
+      grok: '',
+      cursor: '',
+      antigravity: '',
+      copilot: '',
+      muse: '',
+      opencode: '',
+      goose: '',
+      cline: '',
+      openhands: '',
+      pi: '',
+    });
   });
 });

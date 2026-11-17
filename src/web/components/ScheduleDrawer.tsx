@@ -17,6 +17,7 @@ import {
 } from '../schedule';
 import { MemberDots } from './MemberDots';
 import { ScheduleForm } from './ScheduleForm';
+import { ScheduleHookPanel, ScheduleProgress } from './ScheduleTracking';
 import { useDialog } from './useDialog';
 
 /**
@@ -198,6 +199,9 @@ export function ScheduleDrawer({
           </div>
         )}
 
+        {saved?.goal && <ScheduleProgress schedule={saved} />}
+        {saved && <ScheduleHookPanel convId={conv.id} schedule={saved} onError={setError} />}
+
         {!teamReady && (
           <p className="warn-line">
             {waitingPlan && forSchedule
@@ -244,18 +248,19 @@ export function ScheduleDrawer({
           ) : (
             touched && problems[0] && <span className="error-line">{problems[0]}</span>
           )}
-          <label className="check-row schedule-enabled">
-            <input type="checkbox" checked={draft.enabled} onChange={(e) => edit({ enabled: e.target.checked })} />
-            {t.schedule.enabled}
-          </label>
+          {/* No set times: nothing to switch on or off, Run once now and the webhook send it; one its
+              reached goal switched off is turned on again by saving it. */}
+          {draft.kind === 'manual' && saved && !saved.enabled && <span className="small muted">{t.schedule.manualOff}</span>}
+          {draft.kind !== 'manual' && (
+            <label className="check-row schedule-enabled">
+              <input type="checkbox" checked={draft.enabled} onChange={(e) => edit({ enabled: e.target.checked })} />
+              {t.schedule.enabled}
+            </label>
+          )}
           <button className="ghost" onClick={onClose}>
             {t.common.cancel}
           </button>
-          <button
-            className="primary"
-            disabled={saving || problems.length > 0 || !changed || (draft.enabled && !teamReady)}
-            onClick={save}
-          >
+          <button className="primary" disabled={saving || problems.length > 0 || !changed || (draft.enabled && !teamReady)} onClick={save}>
             {saving ? t.schedule.saving : t.common.save}
           </button>
         </footer>

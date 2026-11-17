@@ -1,5 +1,17 @@
 import type { ChildProcess } from 'node:child_process';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import { endpointEffort, PROVIDER_LABEL, type NativeItemsOff, type NativePart, type Permission } from '../../shared/types';
@@ -9,7 +21,16 @@ import { t } from '../i18n';
 import { converse, runProcess, stripAnsi, tail } from '../process';
 import { patternPath, protectedReads, realPath, relayTmpDir, RUN_TMP_PREFIXES } from '../protect';
 import { PROJECT_AGENT_CONFIG } from '../relaySandbox';
-import { JsonRpcConnection, RpcError, acpContentText, acpMcpServers, acpPrompt, acpTokens, answerPermission, type AcpDecision } from './acp';
+import {
+  JsonRpcConnection,
+  RpcError,
+  acpContentText,
+  acpMcpServers,
+  acpPrompt,
+  acpTokens,
+  answerPermission,
+  type AcpDecision,
+} from './acp';
 import { agentConfigPath, antigravityProjectFingerprint } from './antigravity';
 import {
   AgentRunError,
@@ -229,7 +250,8 @@ export function copilotRunSettings(own: unknown, p: CopilotRunPolicy): Record<st
  * settings there, `trusted_folders` and `allowed_urls` among them): the folders it trusts, and what
  * `settings.json` would decide that a run's settings leave out (`KEPT`).
  */
-const CONFIG_DROPPED = /^(trusted_?folders|allowed_?urls|allow_?all|default_?permission_?mode|sandbox|status_?line|telemetry|session_?management_?tools|assisted_?approval)$/i;
+const CONFIG_DROPPED =
+  /^(trusted_?folders|allowed_?urls|allow_?all|default_?permission_?mode|sandbox|status_?line|telemetry|session_?management_?tools|assisted_?approval)$/i;
 
 /**
  * The account's `config.json` as a run takes it: its sign-in state (the users signed in, which name
@@ -284,8 +306,8 @@ export function copilotInstructions(briefing: string, own?: string): string {
  * tool is not how the user is asked.
  */
 export const COPILOT_NOTES =
-  'In this app, a tool call that is refused (by the user, or because the conversation\'s permission does not cover it) ends your turn at once, ' +
-  'and you are not told why. So before a call that may need the user\'s approval (a shell command, a write outside the working directories), ' +
+  "In this app, a tool call that is refused (by the user, or because the conversation's permission does not cover it) ends your turn at once, " +
+  "and you are not told why. So before a call that may need the user's approval (a shell command, a write outside the working directories), " +
   'first say in your reply what you are about to do and why. To ask the user something, ask as these instructions say.';
 
 /** A run's own home, and how to remove it. */
@@ -362,9 +384,17 @@ export function prepareCopilotProbeHome(accountHome: string, tmp = relayTmpDir()
     rmSync(cwd, { recursive: true, force: true });
   };
   try {
-    writeFileSync(join(dir, 'config.json'), `${JSON.stringify(copilotRunConfig(readCopilotJson(join(accountHome, 'config.json'))), null, 2)}\n`, { mode: 0o600 });
+    writeFileSync(
+      join(dir, 'config.json'),
+      `${JSON.stringify(copilotRunConfig(readCopilotJson(join(accountHome, 'config.json'))), null, 2)}\n`,
+      { mode: 0o600 },
+    );
     const own = readCopilotJson(join(accountHome, 'settings.json'));
-    const kept = Object.fromEntries(['model', 'modelProviderId', 'effortLevel', 'proxyUrl', 'storeTokenPlaintext'].filter((k) => own?.[k] !== undefined).map((k) => [k, own![k]]));
+    const kept = Object.fromEntries(
+      ['model', 'modelProviderId', 'effortLevel', 'proxyUrl', 'storeTokenPlaintext']
+        .filter((k) => own?.[k] !== undefined)
+        .map((k) => [k, own![k]]),
+    );
     writeFileSync(join(dir, 'settings.json'), `${JSON.stringify(kept, null, 2)}\n`, { mode: 0o600 });
   } catch (err) {
     done();
@@ -395,7 +425,11 @@ export function prepareCopilotPolicyHome(accountHome: string, policy: CopilotRun
   try {
     const config = copilotRunConfig(readCopilotJson(join(accountHome, 'config.json')), ALL_PARTS);
     writeFileSync(join(dir, 'config.json'), `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
-    const settings = copilotRunSettings(readCopilotJson(join(accountHome, 'settings.json')), { ...policy, nativeOff: ALL_PARTS, nativeItems: {} });
+    const settings = copilotRunSettings(readCopilotJson(join(accountHome, 'settings.json')), {
+      ...policy,
+      nativeOff: ALL_PARTS,
+      nativeItems: {},
+    });
     writeFileSync(join(dir, 'settings.json'), `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
   } catch (err) {
     done();
@@ -552,7 +586,19 @@ export function copilotToolCaches(env: NodeJS.ProcessEnv, home = homedir(), plat
   const cargo = both(env.CARGO_HOME, join(home, '.cargo'));
   const gopath = both(env.GOPATH, join(home, 'go'));
   const sccache = platform === 'darwin' ? 'Mozilla.sccache' : platform === 'win32' ? join('Mozilla', 'sccache') : 'sccache';
-  const moved = ['GOCACHE', 'GOMODCACHE', 'CCACHE_DIR', 'SCCACHE_DIR', 'npm_config_cache', 'PIP_CACHE_DIR', 'UV_CACHE_DIR', 'BUN_INSTALL_CACHE_DIR', 'YARN_CACHE_FOLDER', 'ELECTRON_CACHE', 'PLAYWRIGHT_BROWSERS_PATH']
+  const moved = [
+    'GOCACHE',
+    'GOMODCACHE',
+    'CCACHE_DIR',
+    'SCCACHE_DIR',
+    'npm_config_cache',
+    'PIP_CACHE_DIR',
+    'UV_CACHE_DIR',
+    'BUN_INSTALL_CACHE_DIR',
+    'YARN_CACHE_FOLDER',
+    'ELECTRON_CACHE',
+    'PLAYWRIGHT_BROWSERS_PATH',
+  ]
     .map((k) => env[k])
     .filter((v): v is string => Boolean(v));
   return [
@@ -561,13 +607,30 @@ export function copilotToolCaches(env: NodeJS.ProcessEnv, home = homedir(), plat
       ...cargo.flatMap((c) => ['registry', 'git', '.global-cache', '.package-cache', '.package-cache-mutate'].map((p) => join(c, p))),
       ...gopath.map((g) => join(g, 'pkg', 'mod')),
       ...caches.flatMap((c) =>
-        ['go-build', 'ccache', sccache, 'pip', 'uv', 'pypoetry', 'electron', 'ms-playwright', 'node-gyp', 'node', 'deno', 'Yarn', 'yarn', 'gh'].map((p) => join(c, p)),
+        [
+          'go-build',
+          'ccache',
+          sccache,
+          'pip',
+          'uv',
+          'pypoetry',
+          'electron',
+          'ms-playwright',
+          'node-gyp',
+          'node',
+          'deno',
+          'Yarn',
+          'yarn',
+          'gh',
+        ].map((p) => join(c, p)),
       ),
       ...both(env.CCACHE_DIR, join(home, '.ccache')),
       ...both(env.GRADLE_USER_HOME, join(home, '.gradle')),
       join(home, '.m2', 'repository'),
       join(home, '.npm'),
-      ...(platform === 'win32' ? [join(local, 'npm-cache'), join(local, 'pnpm', 'store'), join(local, 'Yarn', 'Cache'), join(local, 'pypoetry', 'Cache')] : []),
+      ...(platform === 'win32'
+        ? [join(local, 'npm-cache'), join(local, 'pnpm', 'store'), join(local, 'Yarn', 'Cache'), join(local, 'pypoetry', 'Cache')]
+        : []),
       join(home, '.pnpm-store'),
       ...both(env.XDG_DATA_HOME, join(home, '.local', 'share')).flatMap((d) => [join(d, 'pnpm', 'store'), join(d, 'virtualenv')]),
       ...(platform === 'darwin' ? [join(home, 'Library', 'pnpm', 'store')] : []),
@@ -589,7 +652,12 @@ export function copilotToolCaches(env: NodeJS.ProcessEnv, home = homedir(), plat
  * a path that does not exist when its sandbox starts is not protected by it (and bubblewrap refuses to
  * start on one).
  */
-export function copilotReadOnlyPaths(dirs: readonly string[], env: NodeJS.ProcessEnv, home = homedir(), platform: NodeJS.Platform = process.platform): string[] {
+export function copilotReadOnlyPaths(
+  dirs: readonly string[],
+  env: NodeJS.ProcessEnv,
+  home = homedir(),
+  platform: NodeJS.Platform = process.platform,
+): string[] {
   const xdgGit = join(env.XDG_CONFIG_HOME || join(home, '.config'), 'git');
   // git's own files there, not the folder: credential-store may keep `credentials` in it.
   const git = [join(home, '.gitconfig'), ...['config', 'ignore', 'attributes'].map((f) => join(xdgGit, f))];
@@ -691,7 +759,9 @@ export function copilotPolicyProblem(
   }
   if (!/^\s*Allow sandbox bypass:\s*no\s*$/im.test(policy)) return 'a command may leave the sandbox (bypass)';
   // What would give its commands the user's credentials, where it says.
-  for (const m of policy.matchAll(/^\s*(Allow keychain access|Authenticate git(?: \(sandbox setting\))?|Authenticate gh(?: \(sandbox setting\))?):\s*(.*?)\s*$/gim)) {
+  for (const m of policy.matchAll(
+    /^\s*(Allow keychain access|Authenticate git(?: \(sandbox setting\))?|Authenticate gh(?: \(sandbox setting\))?):\s*(.*?)\s*$/gim,
+  )) {
     if (m[2]!.toLowerCase() !== 'off') return `${m[1]}: ${m[2]}`;
   }
   const paths = copilotPolicyPaths(policy);
@@ -720,7 +790,11 @@ const amongReadWrite = (path: string) => `${path} is among its read-write paths`
  * The working directories a read-only run's policy lists read-write besides the run's own read-only
  * paths: a temporary folder, which Copilot's sandbox keeps writable by itself (`/tmp`, `TMPDIR`).
  */
-export function copilotKeptWritable(text: string, dirs: readonly string[], platform: NodeJS.Platform = process.platform): string | undefined {
+export function copilotKeptWritable(
+  text: string,
+  dirs: readonly string[],
+  platform: NodeJS.Platform = process.platform,
+): string | undefined {
   const paths = copilotPolicyPaths(text)['read-write'] ?? [];
   const norm = (path: string) => {
     const p = path.replace(/[\\/]+$/, '');
@@ -753,7 +827,10 @@ export function copilotDevWrites(
   };
   const within = (dirs: readonly string[]) => {
     const all = dirs.flatMap(spellings).map(norm);
-    return (path: string) => spellings(path).map(norm).some((p) => all.some((g) => p === g || p.startsWith(g + sep)));
+    return (path: string) =>
+      spellings(path)
+        .map(norm)
+        .some((p) => all.some((g) => p === g || p.startsWith(g + sep)));
   };
   const covered = within(readOnly);
   // Every CLI's commands may write the temporary folders (pnpm's lock folders are there).
@@ -841,7 +918,10 @@ async function copilotProjectGate(o: RunOptions): Promise<string[]> {
         kind: 'other',
         // Not translated: it names the "always allow" rule, which must be the same in every language.
         // What the hooks run may be beside them (a script in .github/hooks): the folders count, not only their JSON files.
-        tool: `Copilot project hooks ${antigravityProjectFingerprint(files.map((f) => (basename(dirname(f)) === 'hooks' ? dirname(f) : f)), 16)}`,
+        tool: `Copilot project hooks ${antigravityProjectFingerprint(
+          files.map((f) => (basename(dirname(f)) === 'hooks' ? dirname(f) : f)),
+          16,
+        )}`,
         detail: shown.join(', '),
         reason: t().copilotProjectHooks,
       })
@@ -876,7 +956,9 @@ const PATH_KEYS = ['path', 'fileName', 'file_path', 'filePath'] as const;
 export function copilotPaths(call: CopilotToolCall): string[] {
   const input = call.rawInput ?? {};
   const fromInput = PATH_KEYS.map((k) => input[k]).filter((p): p is string => typeof p === 'string' && p.length > 0);
-  const fromLocations = Array.isArray(call.locations) ? call.locations.map((l) => l?.path).filter((p): p is string => typeof p === 'string' && p.length > 0) : [];
+  const fromLocations = Array.isArray(call.locations)
+    ? call.locations.map((l) => l?.path).filter((p): p is string => typeof p === 'string' && p.length > 0)
+    : [];
   return [...new Set([...fromInput, ...fromLocations])];
 }
 
@@ -943,12 +1025,21 @@ export function copilotPermissionDecision(
 }
 
 /** What to show the user when Copilot asks about a call the permission does not cover. */
-export function copilotApprovalRequest(permission: Permission, call: CopilotToolCall, cwd: string, addDirs: readonly string[] = []): ApprovalRequest {
+export function copilotApprovalRequest(
+  permission: Permission,
+  call: CopilotToolCall,
+  cwd: string,
+  addDirs: readonly string[] = [],
+): ApprovalRequest {
   const input = call.rawInput ?? {};
   if (call.kind === 'execute') {
     const description = typeof input.description === 'string' && input.description ? input.description : undefined;
     // Below full access it runs in Copilot's sandbox once allowed: no `outsideSandbox`.
-    return { kind: 'command', detail: copilotCommand(call), reason: description ?? (call.title !== copilotCommand(call) ? call.title : undefined) };
+    return {
+      kind: 'command',
+      detail: copilotCommand(call),
+      reason: description ?? (call.title !== copilotCommand(call) ? call.title : undefined),
+    };
   }
   if (isWrite(call)) {
     const path = copilotPaths(call)[0];
@@ -1067,7 +1158,13 @@ export function createCopilotUpdateHandler(emit: (e: AgentEvent) => void) {
     open.add(id);
     const detail = detailOf(c);
     const kind = toolCallKind(c.kind);
-    emit({ type: 'tool_start', id, name: KIND_NAME[c.kind ?? ''] ?? (c.title || 'tool'), ...(detail ? { detail } : {}), ...(kind ? { kind } : {}) });
+    emit({
+      type: 'tool_start',
+      id,
+      name: KIND_NAME[c.kind ?? ''] ?? (c.title || 'tool'),
+      ...(detail ? { detail } : {}),
+      ...(kind ? { kind } : {}),
+    });
   };
 
   const finish = (id: string, c: CallState, u: Record<string, any>) => {
@@ -1076,7 +1173,8 @@ export function createCopilotUpdateHandler(emit: (e: AgentEvent) => void) {
     const out = u.rawOutput && typeof u.rawOutput === 'object' ? (u.rawOutput as Record<string, any>) : undefined;
     const command = c.kind === 'execute';
     const code = command ? copilotExitCode(out) : undefined;
-    const raw = typeof out?.content === 'string' ? out.content : (acpContentText(u.content) ?? (typeof out?.message === 'string' ? out.message : ''));
+    const raw =
+      typeof out?.content === 'string' ? out.content : (acpContentText(u.content) ?? (typeof out?.message === 'string' ? out.message : ''));
     const printed = raw ? (command ? copilotCommandOutput(raw) : raw) : '';
     const why = refused.get(id);
     const ok = u.status === 'completed' && !why && (code === undefined || code === 0);
@@ -1084,7 +1182,14 @@ export function createCopilotUpdateHandler(emit: (e: AgentEvent) => void) {
     const output = printed.trim() && (ok || command) && !why ? tailText(printed) : undefined;
     const error = ok
       ? undefined
-      : (why ?? (code !== undefined && code !== 0 ? t().copilotExitCode(code) : typeof out?.message === 'string' ? out.message : printed.trim() ? tailText(printed, 500) : undefined));
+      : (why ??
+        (code !== undefined && code !== 0
+          ? t().copilotExitCode(code)
+          : typeof out?.message === 'string'
+            ? out.message
+            : printed.trim()
+              ? tailText(printed, 500)
+              : undefined));
     emit({ type: 'tool_end', id, ok, ...(error ? { error } : {}), ...(output ? { output } : {}) });
   };
 
@@ -1256,10 +1361,15 @@ export const copilotRunner: AgentRunner = {
           const home = prepare(() => prepareCopilotPolicyHome(copilotHome(o.env), p));
           try {
             const bare = { ...o, cwd: home.cwd!, sessionId: undefined, mcpServers: [], images: [] };
-            await copilotTurn(bare, copilotArgs({ permission: o.permission, addDirs: o.addDirs, nativeOff: ALL_PARTS }), copilotEnv(o.env, home.dir, ALL_PARTS, endpoint), {
-              ...how,
-              policyOnly: true,
-            });
+            await copilotTurn(
+              bare,
+              copilotArgs({ permission: o.permission, addDirs: o.addDirs, nativeOff: ALL_PARTS }),
+              copilotEnv(o.env, home.dir, ALL_PARTS, endpoint),
+              {
+                ...how,
+                policyOnly: true,
+              },
+            );
           } finally {
             home.done();
           }
@@ -1322,7 +1432,8 @@ async function copilotTurn(o: RunOptions, args: string[], env: NodeJS.ProcessEnv
     const u = params?.update;
     if (policy) {
       if (u?.sessionUpdate === 'agent_message_chunk' && typeof u.content?.text === 'string') policy.push(u.content.text);
-      if (u?.sessionUpdate === 'tool_call' || u?.sessionUpdate === 'tool_call_update' || u?.sessionUpdate === 'agent_thought_chunk') policyReachedModel = true;
+      if (u?.sessionUpdate === 'tool_call' || u?.sessionUpdate === 'tool_call_update' || u?.sessionUpdate === 'agent_thought_chunk')
+        policyReachedModel = true;
       return;
     }
     updates.handle(u);
@@ -1333,7 +1444,10 @@ async function copilotTurn(o: RunOptions, args: string[], env: NodeJS.ProcessEnv
     // While its sandbox is checked, nothing runs: the check went to the model, which it never should.
     if (policy) {
       policyReachedModel = true;
-      return answerPermission({ allow: false, reason: '' }, options.filter((x) => x.kind !== 'reject_always'));
+      return answerPermission(
+        { allow: false, reason: '' },
+        options.filter((x) => x.kind !== 'reject_always'),
+      );
     }
     const call = (params?.toolCall ?? {}) as CopilotToolCall;
     const verdict = copilotPermissionDecision(o.permission, call, o.cwd, o.addDirs, protectedPaths);
@@ -1350,7 +1464,10 @@ async function copilotTurn(o: RunOptions, args: string[], env: NodeJS.ProcessEnv
     } else decision = { allow: false, reason: 'Not covered by the permission' };
     if (!decision.allow && call.toolCallId) updates.refused(call.toolCallId, label);
     // Never "always": Copilot would save the rule.
-    return answerPermission(decision, options.filter((x) => x.kind !== 'allow_always' && x.kind !== 'reject_always'));
+    return answerPermission(
+      decision,
+      options.filter((x) => x.kind !== 'allow_always' && x.kind !== 'reject_always'),
+    );
   };
 
   const onAbort = () => {
@@ -1431,7 +1548,10 @@ async function copilotTurn(o: RunOptions, args: string[], env: NodeJS.ProcessEnv
     }
     if (how.policyOnly) return { sessionId };
 
-    const result = await conn.request('session/prompt', { sessionId, prompt: acpPrompt(o.prompt, caps.promptCapabilities?.image ? o.images : []) });
+    const result = await conn.request('session/prompt', {
+      sessionId,
+      prompt: acpPrompt(o.prompt, caps.promptCapabilities?.image ? o.images : []),
+    });
     const failed = updates.finish(Boolean(result?.usage));
     if (userAborted) throw new AgentRunError(t().stopped, true);
     if (failed) throw new AgentRunError(failed);
@@ -1480,7 +1600,8 @@ async function setCopilotOptions(conn: JsonRpcConnection, sessionId: string, ope
   const current = option(opts, 'allow_all')?.currentValue;
   // Below full access, an allow-all it does not report could be on (a session resumed from full access):
   // nothing would be asked, so the turn does not run.
-  if (current === undefined && o.permission !== 'full') throw new AgentRunError(t().copilotRejectedMode('its allow-all option is not reported'));
+  if (current === undefined && o.permission !== 'full')
+    throw new AgentRunError(t().copilotRejectedMode('its allow-all option is not reported'));
   if (current !== undefined && current !== allowAll) await set('allow_all', allowAll, (_v, err) => t().copilotRejectedMode(err));
 }
 
@@ -1547,7 +1668,11 @@ export function parseCopilotModels(opened: unknown): { models: CopilotModel[]; c
  * empty folder of a home of its own (`prepareCopilotProbeHome`), so no project's hooks run and the
  * session is not kept.
  */
-export async function askCopilotModels(bin: string, env: NodeJS.ProcessEnv, timeoutMs = 30_000): Promise<{ opened?: unknown; error?: string }> {
+export async function askCopilotModels(
+  bin: string,
+  env: NodeJS.ProcessEnv,
+  timeoutMs = 30_000,
+): Promise<{ opened?: unknown; error?: string }> {
   const probe = prepareCopilotProbeHome(copilotHome(env));
   try {
     let opened: unknown;

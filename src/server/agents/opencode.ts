@@ -22,7 +22,16 @@ import { runProcess } from '../process';
 import { freeLoopbackPort } from '../relaySandbox';
 import { RpcError, type JsonRpcConnection } from './acp';
 import { acpRunner, type AcpAgentSpec, type AcpCallInfo, type AcpSessionState, type AcpToolCall, type AcpTurnDeps } from './acpTurn';
-import { openAgentHome, startStateOver, type OpenAgentDefinition, type OpenCatalog, type OpenHomeLayout, type OpenRunContext, type OpenSandboxNeeds } from './open';
+import {
+  localMcpPorts,
+  openAgentHome,
+  startStateOver,
+  type OpenAgentDefinition,
+  type OpenCatalog,
+  type OpenHomeLayout,
+  type OpenRunContext,
+  type OpenSandboxNeeds,
+} from './open';
 import { AgentRunError, type AgentRunner, type RunOptions, type RunResult } from './types';
 
 /*
@@ -86,14 +95,21 @@ export const OPENCODE_QUIET_HOSTS = ['models.opencode.ai'];
  *   `opencode acp` serves its API on 127.0.0.1 and its ACP side talks to it. Without it, it exits
  *   with `ServeError` before answering `initialize`. Only that port is opened: its commands reach no
  *   other local port, and Harness Relay's never. Its server wants the run's password.
+ * - `connectPorts`: the ports of the HTTP MCP servers on this computer it is given (Harness Relay's
+ *   gateway over HTTP, a library server's), its MCP client being in the sandbox too; those only.
  * - `quietlyDeniedHosts`: `OPENCODE_QUIET_HOSTS`.
  * - The proxy: Bun reads `HTTP_PROXY` / `HTTPS_PROXY` itself (`proxyEnv` is empty).
  * - No PTY, no Unix sockets, no macOS trustd (Bun's TLS goes through the proxy).
  * - Harmless inside the sandbox: "Error starting FSEvents stream" (its file watcher) on stderr.
  */
-export function opencodeSandbox(ctx: Pick<OpenRunContext, 'state'>): OpenSandboxNeeds {
+export function opencodeSandbox(ctx: Pick<OpenRunContext, 'state' | 'o'>): OpenSandboxNeeds {
   const port = (ctx.state as OpencodeState).port;
-  return { ...(port ? { localPorts: [port] } : {}), quietlyDeniedHosts: [...OPENCODE_QUIET_HOSTS] };
+  const mcp = localMcpPorts(ctx.o.mcpServers);
+  return {
+    ...(port ? { localPorts: [port] } : {}),
+    ...(mcp.length ? { connectPorts: mcp } : {}),
+    quietlyDeniedHosts: [...OPENCODE_QUIET_HOSTS],
+  };
 }
 
 // --- Its home -----------------------------------------------------------------------------------
@@ -171,7 +187,7 @@ export const OPENCODE_SHELL_REFUSED = 97;
 export const OPENCODE_SHELL_REFUSAL =
   "Harness Relay refused this command: it hides a command substitution in a form the agent's permission check cannot see " +
   '(an `eval`, or a `$(...)`/backquote quoted or escaped inside a subscript or arithmetic that the shell then re-evaluates, ' +
-  'e.g. x=\'a[$(cmd)]\'; a[x]=1). Run the command plainly, so it can be approved, or ask the user.';
+  "e.g. x='a[$(cmd)]'; a[x]=1). Run the command plainly, so it can be approved, or ask the user.";
 
 /**
  * `relay-shell`: the fixed-text shell OpenCode runs its commands through (`shell` in its config). It is
@@ -228,7 +244,9 @@ export function opencodeShellScript(): string {
   const arithExp = shSingleQuote('[$][(][(]');
   const bracketDollar = shSingleQuote('\\[[^]]*[$`]');
   // A declaration command word whose quoted argument puts a `$` in the name part (before `=`): `declare "a$y=1"`.
-  const declInject = shSingleQuote('(^|[;&|(){}]|&&|\\|\\||[[:space:]])(declare|typeset|export|local|readonly)[[:space:]]+"[^"=]*[$][^"=]*=');
+  const declInject = shSingleQuote(
+    '(^|[;&|(){}]|&&|\\|\\||[[:space:]])(declare|typeset|export|local|readonly)[[:space:]]+"[^"=]*[$][^"=]*=',
+  );
   // A declaration command word, or `let`, at all: its quoted argument is evaluated, subscript included.
   const declWord = shSingleQuote('(^|[;&|(){}]|&&|\\|\\||[[:space:]])(declare|typeset|export|local|readonly|let)([[:space:]]|$)');
   return `#!/bin/sh
@@ -379,11 +397,15 @@ export function scrubOpencodeDatabase(dbPath: string): void {
   if (!existsSync(dbPath)) return;
   const db = openRunDatabase(dbPath);
   try {
-    const tables = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((r) => r.name));
+    const tables = new Set(
+      (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((r) => r.name),
+    );
     const emptied = [...OPENCODE_ACCOUNT_TABLES, OPENCODE_SAVED_PERMISSIONS_TABLE].filter((table) => tables.has(table));
     for (const table of emptied) db.exec(`DELETE FROM "${table}"`);
     // `table_xinfo`, not `table_info`: a generated column (one a command defined) is listed too.
-    const sessionColumns = tables.has('session') ? (db.prepare('PRAGMA table_xinfo("session")').all() as { name: string }[]).map((c) => c.name) : [];
+    const sessionColumns = tables.has('session')
+      ? (db.prepare('PRAGMA table_xinfo("session")').all() as { name: string }[]).map((c) => c.name)
+      : [];
     const rules = sessionColumns.includes('permission');
     if (rules) db.exec('UPDATE "session" SET "permission" = NULL WHERE "permission" IS NOT NULL');
     const left = [
@@ -644,7 +666,10 @@ export async function prepareOpencode(ctx: OpenRunContext, port: () => Promise<n
   // relay-shell is a POSIX shell script, which Windows cannot run: there OpenCode keeps its own shell
   // (it runs only with full access there, where relay-shell's screen is off anyway).
   const windows = (ctx.platform ?? process.platform) === 'win32';
-  env.OPENCODE_CONFIG_CONTENT = opencodeConfigText({ ...opencodeRunConfig(o, run, instructions), ...(windows ? {} : { shell: join(p.configDir, OPENCODE_SHELL) }) });
+  env.OPENCODE_CONFIG_CONTENT = opencodeConfigText({
+    ...opencodeRunConfig(o, run, instructions),
+    ...(windows ? {} : { shell: join(p.configDir, OPENCODE_SHELL) }),
+  });
   if (run.endpoint?.apiKey) env[OPENCODE_ENDPOINT_KEY_ENV] = run.endpoint.apiKey;
   else delete env[OPENCODE_ENDPOINT_KEY_ENV];
   // Its server's password, for this run only (its ACP side uses the same variable).
@@ -687,7 +712,6 @@ export function opencodeBriefing(o: Pick<RunOptions, 'systemPrompt' | 'permissio
   if (o.permission === 'full') return brief;
   return brief ? `${brief}\n\n${OPENCODE_REFUSAL_NOTE}` : OPENCODE_REFUSAL_NOTE;
 }
-
 
 // --- The turn's hooks ---------------------------------------------------------------------------
 
@@ -789,7 +813,10 @@ function patchPath(raw: Record<string, unknown>): Record<string, string> {
  * OpenCode's updates before the turn reads them: a tool call's input comes on its `in_progress`
  * updates and not on its end, so the end gets it back (the row then says what the call did).
  */
-export function filterOpencodeUpdate(params: { update: Record<string, any> }, ctx: Pick<OpenRunContext, 'state' | 'sandboxed'>): Record<string, any> | undefined {
+export function filterOpencodeUpdate(
+  params: { update: Record<string, any> },
+  ctx: Pick<OpenRunContext, 'state' | 'sandboxed'>,
+): Record<string, any> | undefined {
   const u = params.update;
   if (!u || (u.sessionUpdate !== 'tool_call' && u.sessionUpdate !== 'tool_call_update')) return u;
   const id = String(u.toolCallId ?? '');
@@ -899,7 +926,8 @@ export function opencodeRefusalBridge(
       // An allowed call: its approval is expected (`watchOpencode`), before the answer goes out.
       const chosen = (answer as any).outcome?.optionId;
       const options = Array.isArray((params as any)?.options) ? ((params as any).options as { optionId?: string; kind?: string }[]) : [];
-      if (typeof call === 'string' && options.some((o) => o.optionId === chosen && String(o.kind).startsWith('allow'))) st.watch?.allowed(call);
+      if (typeof call === 'string' && options.some((o) => o.optionId === chosen && String(o.kind).startsWith('allow')))
+        st.watch?.allowed(call);
       return answer;
     }
     const { [REASON_KEY]: _reason, ...meta } = _meta as Record<string, unknown>;
@@ -987,7 +1015,8 @@ export function watchOpencode(
       case 'permission.replied': {
         if (p.reply === 'reject') break; // a refusal widens nothing (OpenCode also refuses the session's other requests with it)
         const call = asked.get(String(p.requestID));
-        if (!call || !allowed.has(call)) foreign(`a permission request (${String(p.requestID)}) was answered "${String(p.reply)}" by something other than Harness Relay`);
+        if (!call || !allowed.has(call))
+          foreign(`a permission request (${String(p.requestID)}) was answered "${String(p.reply)}" by something other than Harness Relay`);
         break;
       }
       case 'session.created':
@@ -995,8 +1024,10 @@ export function watchOpencode(
         const info = p.info ?? {};
         if (typeof info.id !== 'string') break;
         if (typeof info.parentID === 'string' && sessions.has(info.parentID)) sessions.add(info.id);
-        if (ev.type === 'session.created' && !sessions.has(info.id)) foreign(`a session Harness Relay did not start was created (${info.id})`);
-        else if (sessions.has(info.id) && Array.isArray(info.permission) && info.permission.length) foreign(`permission rules were set on the session (${info.id})`);
+        if (ev.type === 'session.created' && !sessions.has(info.id))
+          foreign(`a session Harness Relay did not start was created (${info.id})`);
+        else if (sessions.has(info.id) && Array.isArray(info.permission) && info.permission.length)
+          foreign(`permission rules were set on the session (${info.id})`);
         break;
       }
       case 'session.status':
@@ -1068,7 +1099,22 @@ const OPENCODE_CWD_COMMANDS = new Set(['cd', 'chdir', 'popd', 'pushd', 'push-loc
  */
 const OPENCODE_DECLARATION = new Set(['declare', 'typeset', 'export', 'local', 'readonly', 'unset']);
 /** Keywords skipped to reach the real command of a simple command (`time curl …`, `do cat …`, `while cat …`). */
-const OPENCODE_SKIP_KEYWORDS = new Set(['if', 'then', 'elif', 'else', 'do', 'done', 'fi', 'while', 'until', 'case', 'esac', 'in', 'time', '!']);
+const OPENCODE_SKIP_KEYWORDS = new Set([
+  'if',
+  'then',
+  'elif',
+  'else',
+  'do',
+  'done',
+  'fi',
+  'while',
+  'until',
+  'case',
+  'esac',
+  'in',
+  'time',
+  '!',
+]);
 /**
  * Keywords whose words are only a header, not a command (`for NAME in …`, `select NAME in …`, and
  * `function NAME`, whose body's commands come after the `{` that splits it off).
@@ -1102,7 +1148,8 @@ export function segmentCommand(words: string[]): string | undefined {
       const w = words[i];
       if (w === undefined) return;
       if (isAssignment(w)) i++;
-      else if (isRedirection(w)) i += bareRedirection(w) ? 2 : 1; // a bare `>` / `2>` takes the next word as its target
+      else if (isRedirection(w))
+        i += bareRedirection(w) ? 2 : 1; // a bare `>` / `2>` takes the next word as its target
       else return;
     }
   };
@@ -1317,7 +1364,9 @@ async function setOption(
   rejected: (e: string) => string,
 ): Promise<ConfigOption[] | undefined> {
   try {
-    const r = (await conn.request('session/set_config_option', { sessionId, configId, value })) as { configOptions?: ConfigOption[] } | null;
+    const r = (await conn.request('session/set_config_option', { sessionId, configId, value })) as {
+      configOptions?: ConfigOption[];
+    } | null;
     return r?.configOptions;
   } catch (err) {
     throw new AgentRunError(rejected(rpcText(err)));
@@ -1504,7 +1553,10 @@ export async function opencodeTurnCalls(dbPath: string, sessionId: string, skip 
  * price list: no cost there unless OpenCode counted one. Nothing when the calls could not be read, or
  * there were none.
  */
-export function opencodeTurnUsage(calls: OpencodeCalls | undefined, run: Pick<BackendRun, 'kind'>): Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'> {
+export function opencodeTurnUsage(
+  calls: OpencodeCalls | undefined,
+  run: Pick<BackendRun, 'kind'>,
+): Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'> {
   if (!calls?.calls) return {};
   const cost = Math.round(calls.cost * 1e10) / 1e10;
   return {
@@ -1545,7 +1597,8 @@ export function opencodeRunError(err: unknown, o: Pick<RunOptions, 'model' | 'ba
     } catch {
       data = {};
     }
-    if (data.service === 'session' && typeof data.errorName === 'string') return new AgentRunError(t().opencodeBackendError(label, m[1].trim().replace(/[.。]$/, '')));
+    if (data.service === 'session' && typeof data.errorName === 'string')
+      return new AgentRunError(t().opencodeBackendError(label, m[1].trim().replace(/[.。]$/, '')));
   }
   if (/provider authentication required/i.test(err.message)) return new AgentRunError(t().opencodeAuthRequired(label));
   // Another of its errors (a failed resume, say): without the data JSON-RPC appended to its message.
@@ -1611,7 +1664,8 @@ export async function opencodeModels(bin: string, env: NodeJS.ProcessEnv, run = 
   });
   if (res.timedOut) return { models: [], error: t().timedOut };
   const models = parseOpencodeModels(res.stdout);
-  if (res.code !== 0 && !models.length) return { models: [], error: res.stderr.trim().split('\n').slice(-3).join(' ') || t().exitedWithoutTurn(CLI, res.code) };
+  if (res.code !== 0 && !models.length)
+    return { models: [], error: res.stderr.trim().split('\n').slice(-3).join(' ') || t().exitedWithoutTurn(CLI, res.code) };
   return { models };
 }
 
@@ -1659,7 +1713,13 @@ export function parseOpencodeAgents(text: string): NativeAgent[] | undefined {
  * its skills (`opencode debug skill`), its subagents (`opencode agent list`), and the project's
  * instruction files (the files its own lookup finds, which Harness Relay passes on).
  */
-export async function opencodeNative(bin: string, env: NodeJS.ProcessEnv, cwd: string, timeoutMs = 30_000, run = runProcess): Promise<NativeProbe> {
+export async function opencodeNative(
+  bin: string,
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+  timeoutMs = 30_000,
+  run = runProcess,
+): Promise<NativeProbe> {
   const probeEnv = queryEnv(env);
   const ask = (args: string[]) => run({ bin, args, cwd, env: probeEnv, timeoutMs, maxCapture: 8 * 1024 * 1024, keepStart: true });
   const [skillsRes, agentsRes] = await Promise.all([ask(['debug', 'skill']), ask(['agent', 'list'])]);

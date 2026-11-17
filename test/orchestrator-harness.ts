@@ -74,6 +74,8 @@ export interface Call {
   effort?: string;
   /** It was given a way to ask the user's approval (`requestApproval`). */
   asksApproval?: boolean;
+  /** The names of the MCP servers it was given. */
+  mcpServers?: string[];
 }
 
 /** Every fake CLI run, in order (emptied before each test; a test empties it with `calls.length = 0`). */
@@ -132,6 +134,10 @@ export interface Fake {
   fail: ((name: string, sessionId?: string) => Error | undefined) | undefined;
   /** The way to ask the user that a fake CLI run whose prompt says "keep asking" had (kept past its turn). */
   keptAsk: ((req: { kind: 'fetch'; detail: string }) => Promise<unknown>) | undefined;
+  /** What an agent replies instead of "<name> done", when it returns text. */
+  reply: ((name: string, prompt: string) => string | undefined) | undefined;
+  /** Runs inside an agent's turn, awaited, with what the run was given (to ask for approvals, say). */
+  inTurn: ((name: string, o: import('../src/server/agents/types').RunOptions) => Promise<void>) | undefined;
 }
 
 const fresh = (): Fake => ({
@@ -152,6 +158,8 @@ const fresh = (): Fake => ({
   asking: new Set(),
   fail: undefined,
   keptAsk: undefined,
+  reply: undefined,
+  inTurn: undefined,
 });
 
 export const fake: Fake = fresh();
@@ -162,7 +170,16 @@ beforeAll(() => {
     provider: 'claude',
     async run(o) {
       if (o.systemPrompt === GROUPER_BRIEFING) {
-        calls.push({ name: 'sorter', prompt: o.prompt, nativeOff: o.nativeOff, nativeItems: o.nativeItems, sandboxTerminal: o.sandboxTerminal, stateKey: o.stateKey, model: o.model, effort: o.effort });
+        calls.push({
+          name: 'sorter',
+          prompt: o.prompt,
+          nativeOff: o.nativeOff,
+          nativeItems: o.nativeItems,
+          sandboxTerminal: o.sandboxTerminal,
+          stateKey: o.stateKey,
+          model: o.model,
+          effort: o.effort,
+        });
         if (fake.sorterGate && !o.signal?.aborted) {
           await Promise.race([fake.sorterGate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
         }
@@ -193,7 +210,16 @@ beforeAll(() => {
         return { costUsd: 0.03, sessionId: 'reviewer-session' };
       }
       if (o.systemPrompt === REVISER_BRIEFING) {
-        calls.push({ name: 'reviser', prompt: o.prompt, cwd: o.cwd, stateKey: o.stateKey, model: o.model, effort: o.effort, nativeOff: o.nativeOff, home: o.env?.CLAUDE_CONFIG_DIR });
+        calls.push({
+          name: 'reviser',
+          prompt: o.prompt,
+          cwd: o.cwd,
+          stateKey: o.stateKey,
+          model: o.model,
+          effort: o.effort,
+          nativeOff: o.nativeOff,
+          home: o.env?.CLAUDE_CONFIG_DIR,
+        });
         // Only the run that starts while it is set lingers.
         const linger = fake.reviseLinger;
         fake.reviseLinger = undefined;
@@ -245,12 +271,14 @@ beforeAll(() => {
         home: o.env?.CLAUDE_CONFIG_DIR,
         model: o.model,
         effort: o.effort,
+        ...(o.mcpServers?.length ? { mcpServers: o.mcpServers.map((s) => s.name) } : {}),
       });
       writeFileSync(join(o.cwd, 'shared.txt'), `written by ${name}\n`);
       writeFileSync(join(o.cwd, `${name}.txt`), `${name}\n`);
       // In each other working directory too.
       for (const dir of o.addDirs ?? []) writeFileSync(join(dir, `${name}.txt`), `${name} was here\n`);
       fake.during?.(name, o.cwd);
+      await fake.inTurn?.(name, o);
       // Like a real CLI, a run ends when it is stopped.
       if (!o.signal?.aborted) {
         await Promise.race([fake.gates[name] ?? fake.gate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
@@ -287,7 +315,7 @@ beforeAll(() => {
         o.onEvent({ type: 'text_end' });
         return { sessionId: `session-${name}` };
       }
-      o.onEvent({ type: 'text', text: `${name} done` });
+      o.onEvent({ type: 'text', text: fake.reply?.(name, o.prompt) ?? `${name} done` });
       o.onEvent({ type: 'text_end' });
       return { sessionId: `session-${name}` };
     },

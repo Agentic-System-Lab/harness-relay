@@ -47,7 +47,7 @@ function searchable(
       push(32, p, 0, 0);
       space = true;
     }
-    for (let i = 0; i < str.length; ) {
+    for (let i = 0; i < str.length;) {
       const code = str.charCodeAt(i);
       const pair = code >= 0xd800 && code <= 0xdbff && i + 1 < str.length && (str.charCodeAt(i + 1) & 0xfc00) === 0xdc00;
       const size = pair ? 2 : 1;
@@ -202,7 +202,8 @@ function footnotes(lines: readonly string[], kinds: Uint8Array): (text: string) 
  * code first, which is kept as it is. It opens only where a run of backticks starts (after a backtick
  * that is escaped, too), so a long run is tried once, not from each of its backticks.
  */
-const INLINE = /(?<!(?<!\\)`)(`+)[^`\n]{1,2000}?\1(?!`)|\\([!-/:-@[-`{-~])|&([A-Za-z][A-Za-z\d]{1,31});|&#(\d{1,7});|&#[xX]([\da-fA-F]{1,6});/g;
+const INLINE =
+  /(?<!(?<!\\)`)(`+)[^`\n]{1,2000}?\1(?!`)|\\([!-/:-@[-`{-~])|&([A-Za-z][A-Za-z\d]{1,31});|&#(\d{1,7});|&#[xX]([\da-fA-F]{1,6});/g;
 
 /** A run of a reply's text lines as the chat shows them; `notes` reads its footnotes. */
 function inlineText(text: string, notes: (text: string) => string): string {

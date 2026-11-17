@@ -14,7 +14,8 @@ import type { Messages } from './i18n';
 import type { ConvStatus } from './locales/zh-TW';
 
 /**
- * What the sidebar says about a conversation: needs you (an approval, a team to confirm, a question) >
+ * What the sidebar says about a conversation: needs you (an approval, a team to confirm, a question, a
+ * tracked goal held up) >
  * replying > error > new reply > nothing.
  * `seenAt` is the conversation's updatedAt when the user last had it open.
  */
@@ -22,6 +23,7 @@ export function convStatus(c: ConversationSummary, seenAt: number | undefined): 
   if (c.waiting) return 'waiting';
   if (c.confirmTeam) return 'confirm';
   if (c.asking && !c.running) return 'answer';
+  if (c.blocked && !c.running) return 'blocked';
   if (c.running) return 'running';
   if (!c.lastStatus || (seenAt ?? 0) >= c.updatedAt) return undefined;
   if (c.lastStatus === 'error') return 'error';
@@ -76,12 +78,22 @@ export function switchProvider<T extends { provider: Provider } & ModelChoice>(
   next: Provider,
   kept: Partial<Record<Provider, ModelChoice>>,
 ): { value: T; kept: Partial<Record<Provider, ModelChoice>> } {
-  const leaving: ModelChoice = { model: current.model ?? '', effort: current.effort ?? '', ...(current.account ? { account: current.account } : {}) };
+  const leaving: ModelChoice = {
+    model: current.model ?? '',
+    effort: current.effort ?? '',
+    ...(current.account ? { account: current.account } : {}),
+  };
   const remembered = { ...kept, [current.provider]: leaving };
   const back = remembered[next];
   // Accounts belong to a CLI too.
   const { account: _left, ...rest } = current;
-  const value = { ...rest, provider: next, model: back?.model ?? '', effort: back?.effort ?? '', ...(back?.account ? { account: back.account } : {}) };
+  const value = {
+    ...rest,
+    provider: next,
+    model: back?.model ?? '',
+    effort: back?.effort ?? '',
+    ...(back?.account ? { account: back.account } : {}),
+  };
   return { value: value as T, kept: remembered };
 }
 

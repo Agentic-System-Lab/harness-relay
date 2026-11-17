@@ -40,7 +40,9 @@ export function VoiceButton({ onText, onError }: { onText: (text: string) => voi
     } catch (e) {
       setRec('idle');
       const err = e as DOMException;
-      cb.current.onError(err.name === 'NotAllowedError' || err.name === 'SecurityError' ? t.voice.micDenied : t.voice.micFailed(err.message));
+      cb.current.onError(
+        err.name === 'NotAllowedError' || err.name === 'SecurityError' ? t.voice.micDenied : t.voice.micFailed(err.message),
+      );
       return;
     }
     recorder.current = r;

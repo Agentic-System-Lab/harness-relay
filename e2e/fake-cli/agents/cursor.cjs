@@ -126,7 +126,9 @@ function cursorStatic() {
     const email = storedSignIn();
     const about = { cliVersion: module.exports.version, model: 'Auto', subscriptionTier: email ? 'Pro' : null, userEmail: email || null };
     if (args.includes('json')) return void process.stdout.write(JSON.stringify(about, null, 2) + '\n');
-    return void process.stdout.write(`About Cursor CLI\n\nCLI Version         ${about.cliVersion}\nSubscription Tier   ${about.subscriptionTier || 'n/a'}\n`);
+    return void process.stdout.write(
+      `About Cursor CLI\n\nCLI Version         ${about.cliVersion}\nSubscription Tier   ${about.subscriptionTier || 'n/a'}\n`,
+    );
   }
   if (args[0] === 'login') return cursorLogin(store, noBrowser);
   if (args[0] === 'logout') {
@@ -204,7 +206,17 @@ function levelOptions(model, levels) {
     });
   }
   if ('thinking' in model.levels) {
-    out.push({ id: 'thinking', name: 'Thinking', category: 'thought_level', type: 'select', currentValue: levels.thinking, options: [{ value: 'false', name: 'Off' }, { value: 'true', name: 'On' }] });
+    out.push({
+      id: 'thinking',
+      name: 'Thinking',
+      category: 'thought_level',
+      type: 'select',
+      currentValue: levels.thinking,
+      options: [
+        { value: 'false', name: 'Off' },
+        { value: 'true', name: 'On' },
+      ],
+    });
   }
   return out;
 }
@@ -213,7 +225,9 @@ function levelOptions(model, levels) {
 function modelList(picker) {
   if (picker) return MODELS.map((m) => ({ value: m.value, name: m.name, configOptions: levelOptions(m, m.levels) }));
   return MODELS.flatMap((m) =>
-    'effort' in m.levels ? EFFORTS.map((e) => ({ value: `${m.value}-${e}`, name: `${m.name} ${e}`, configOptions: [] })) : [{ value: m.value, name: m.name, configOptions: [] }],
+    'effort' in m.levels
+      ? EFFORTS.map((e) => ({ value: `${m.value}-${e}`, name: `${m.name} ${e}`, configOptions: [] }))
+      : [{ value: m.value, name: m.name, configOptions: [] }],
   );
 }
 
@@ -232,7 +246,14 @@ function sessionOptions(s) {
         { value: 'plan', name: 'Plan' },
       ],
     },
-    { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: s.model, options: MODELS.map((m) => ({ value: m.value, name: m.name })) },
+    {
+      id: 'model',
+      name: 'Model',
+      category: 'model',
+      type: 'select',
+      currentValue: s.model,
+      options: MODELS.map((m) => ({ value: m.value, name: m.name })),
+    },
     ...levelOptions(modelOf(s.model), s.levels),
   ];
 }
@@ -278,7 +299,13 @@ function pathMatch(pattern, file, cwd) {
 /** Whether a `Shell(<prefix>)` rule covers `command`: the prefix itself, or it and its arguments (`*` anything). */
 function shellMatch(pattern, command) {
   const p = pattern.trim();
-  if (p.includes('*')) return new RegExp(`^${p.split('*').map((x) => x.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`).test(command);
+  if (p.includes('*'))
+    return new RegExp(
+      `^${p
+        .split('*')
+        .map((x) => x.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+        .join('.*')}$`,
+    ).test(command);
   return command === p || command.startsWith(`${p} `);
 }
 
@@ -306,7 +333,10 @@ function rulesFor(cwd, cfg) {
     deny = [...deny, ...strings(perms.deny)];
     if (typeof project.approvalMode === 'string') approvalMode = project.approvalMode;
   }
-  const team = (process.env.E2E_FAKE_CURSOR_TEAM_ALLOW || '').split(',').map((x) => x.trim()).filter(Boolean);
+  const team = (process.env.E2E_FAKE_CURSOR_TEAM_ALLOW || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
   const force = has('--force');
   return {
     cwd,
@@ -317,7 +347,8 @@ function rulesFor(cwd, cfg) {
     projectConfig: Boolean(project),
     runEverything: force || approvalMode === 'unrestricted',
     denied: (tool, subject) => deny.some((r) => ruleMatches(r, tool, subject, cwd)),
-    allowed: (tool, subject) => allow.some((r) => ruleMatches(r, tool, subject, cwd)) || (tool === 'Shell' && team.some((t) => shellMatch(t, subject))),
+    allowed: (tool, subject) =>
+      allow.some((r) => ruleMatches(r, tool, subject, cwd)) || (tool === 'Shell' && team.some((t) => shellMatch(t, subject))),
   };
 }
 
@@ -340,7 +371,11 @@ function cursorProtected(file, cwd) {
 function cursorSkills(cwd) {
   const home = os.homedir();
   const kinds = ['.cursor', '.claude', '.codex', '.grok', '.agents'];
-  const places = [...kinds.map((k) => path.join(path.resolve(cwd), k, 'skills')), ...kinds.map((k) => path.join(home, k, 'skills')), path.join(home, '.cursor', 'skills-cursor')];
+  const places = [
+    ...kinds.map((k) => path.join(path.resolve(cwd), k, 'skills')),
+    ...kinds.map((k) => path.join(home, k, 'skills')),
+    path.join(home, '.cursor', 'skills-cursor'),
+  ];
   const found = [];
   for (const dir of places) {
     let names = [];
@@ -399,7 +434,8 @@ function loadSession(id) {
 }
 
 /** The briefing Harness Relay puts at the top of a prompt (`cursorPromptText()`): it has no system prompt over ACP. */
-const BRIEFING_RE = /^<harness-relay-briefing>\nStanding instructions from Harness Relay[^\n]*\n\n([\s\S]*?)\n<\/harness-relay-briefing>\n\n/;
+const BRIEFING_RE =
+  /^<harness-relay-briefing>\nStanding instructions from Harness Relay[^\n]*\n\n([\s\S]*?)\n<\/harness-relay-briefing>\n\n/;
 
 /** The lead agent's prompts (`plan()` answers them with JSON only). */
 const LEAD_PROMPT = /Reply with only one of these JSON objects|Reply with only this JSON object/;
@@ -432,7 +468,9 @@ function cursorAgent() {
     s.rules = rulesFor(s.cwd, cfg);
     s.cancelled = false;
     recordMcpEnv(
-      Object.fromEntries((p.mcpServers || []).map((x) => [x.name, Object.fromEntries((x.env || x.headers || []).map((v) => [v.name, v.value]))])),
+      Object.fromEntries(
+        (p.mcpServers || []).map((x) => [x.name, Object.fromEntries((x.env || x.headers || []).map((v) => [v.name, v.value]))]),
+      ),
       Object.fromEntries((p.mcpServers || []).filter((x) => x.type === 'http').map((x) => [x.name, x.url])),
     );
     record({ session: s.id, resumed });
@@ -459,7 +497,9 @@ function cursorAgent() {
       if (p.methodId !== 'cursor_login') throw rpcError('Invalid params', -32602, { message: `Unknown auth method: ${p.methodId}` });
       authenticated = Boolean(storedSignIn());
       if (!authenticated) {
-        throw rpcError('Invalid params', -32602, { message: 'Failed to open browser for login. Please visit: https://cursor.example.invalid/loginDeepControl?challenge=e2e' });
+        throw rpcError('Invalid params', -32602, {
+          message: 'Failed to open browser for login. Please visit: https://cursor.example.invalid/loginDeepControl?challenge=e2e',
+        });
       }
       return {};
     },
@@ -472,7 +512,15 @@ function cursorAgent() {
       // A session starts on the model in its settings, if it is one of Cursor's.
       const wanted = cfg && cfg.model && typeof cfg.model.modelId === 'string' ? modelOf(cfg.model.modelId) : undefined;
       const model = wanted || modelOf('default');
-      const s = { id, cwd: p.cwd || process.cwd(), briefing: '', mode: 'agent', model: model.value, levels: { ...model.levels }, history: [] };
+      const s = {
+        id,
+        cwd: p.cwd || process.cwd(),
+        briefing: '',
+        mode: 'agent',
+        model: model.value,
+        levels: { ...model.levels },
+        history: [],
+      };
       saveSession(s);
       open.set(id, s);
       openSession(s, p, false);
@@ -527,7 +575,10 @@ function cursorAgent() {
       const s = open.get(p.sessionId);
       if (!s) throw rpcError('Invalid params', -32602, { message: `Session "${p.sessionId}" not found` });
       const blocks = p.prompt || [];
-      const text = blocks.filter((b) => b.type === 'text').map((b) => b.text || '').join('\n');
+      const text = blocks
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text || '')
+        .join('\n');
       const images = blocks.filter((b) => b.type === 'image' && b.data).length;
       const briefed = BRIEFING_RE.exec(text);
       const prompt = briefed ? text.slice(briefed[0].length) : text;
@@ -570,13 +621,13 @@ function cursorAgent() {
       return result;
     },
   });
-
 }
 
 /** The slash commands it has, told just after a session opens (Harness Relay ignores them). */
 function announceCommands(peer, open, id) {
   setImmediate(() => {
-    if (open.has(id)) peer.notify('session/update', { sessionId: id, update: { sessionUpdate: 'available_commands_update', availableCommands: [] } });
+    if (open.has(id))
+      peer.notify('session/update', { sessionId: id, update: { sessionUpdate: 'available_commands_update', availableCommands: [] } });
   });
 }
 
@@ -624,7 +675,8 @@ async function cursorTurn(peer, s, u, steps) {
       const id = nextId();
       u.toolCall({ toolCallId: id, title: `List \`${s.cwd}\``, kind: 'read', status: 'in_progress', rawInput: { path: s.cwd } });
       await sleep(20);
-      if (r.denied('Read', s.cwd)) update(id, { status: 'failed', content: [{ type: 'content', content: { type: 'text', text: 'Access denied by permissions' } }] });
+      if (r.denied('Read', s.cwd))
+        update(id, { status: 'failed', content: [{ type: 'content', content: { type: 'text', text: 'Access denied by permissions' } }] });
       else update(id, { status: 'completed', content: [{ type: 'content', content: { type: 'text', text: step.output } }] });
     }
     if (step.type === 'approve') {
@@ -637,7 +689,16 @@ async function cursorTurn(peer, s, u, steps) {
       else if (r.runEverything || r.allowed('Shell', step.command)) ok = true;
       else {
         const why = r.allow.some((x) => x.startsWith('Shell(')) ? 'Not in the shell allowlist' : 'Shell allowlist is empty';
-        ok = await ask({ toolCallId: id, title, kind: 'execute', status: 'pending', content: [{ type: 'content', content: { type: 'text', text: why } }] }, `Shell(${step.command.split(' ')[0]})`);
+        ok = await ask(
+          {
+            toolCallId: id,
+            title,
+            kind: 'execute',
+            status: 'pending',
+            content: [{ type: 'content', content: { type: 'text', text: why } }],
+          },
+          `Shell(${step.command.split(' ')[0]})`,
+        );
       }
       // A refused call is reported completed, with nothing else. (No command really runs: each prints what `echo e2e-approval` would.)
       update(id, ok ? { status: 'completed', rawOutput: { exitCode: 0, stdout: 'e2e-approval\n', stderr: '' } } : { status: 'completed' });
@@ -649,7 +710,12 @@ async function cursorTurn(peer, s, u, steps) {
       u.toolCall({ toolCallId: id, title, kind: 'fetch', status: 'pending', rawInput: { url: step.url } });
       // Its web fetch asks below full access (Harness Relay's permission covers it); nothing is fetched.
       const ok = s.mode === 'agent' && (r.runEverything || (await ask({ toolCallId: id, title, kind: 'fetch', status: 'pending' })));
-      update(id, ok ? { status: 'completed', content: [{ type: 'content', content: { type: 'text', text: `Fetched ${step.url}` } }] } : { status: 'completed' });
+      update(
+        id,
+        ok
+          ? { status: 'completed', content: [{ type: 'content', content: { type: 'text', text: `Fetched ${step.url}` } }] }
+          : { status: 'completed' },
+      );
       prefix += ok ? `I fetched ${step.url}. ` : `I may not fetch ${step.url} here. `;
     }
     if (step.type === 'write') {
@@ -703,11 +769,16 @@ async function cursorTurn(peer, s, u, steps) {
     }
     if (step.type === 'question') {
       // Asked as a permission request with a skip option, as Cursor does without `cursor/ask_question`.
-      const answer = await requestPermission(peer, s.id, { toolCallId: `question_${++n}`, title: step.text, kind: 'other', status: 'pending' }, [
-        { optionId: 'a', name: 'A', kind: 'allow_once' },
-        { optionId: 'b', name: 'B', kind: 'allow_once' },
-        { optionId: '__ask_question_skip__', name: 'Skip', kind: 'reject_once' },
-      ]);
+      const answer = await requestPermission(
+        peer,
+        s.id,
+        { toolCallId: `question_${++n}`, title: step.text, kind: 'other', status: 'pending' },
+        [
+          { optionId: 'a', name: 'A', kind: 'allow_once' },
+          { optionId: 'b', name: 'B', kind: 'allow_once' },
+          { optionId: '__ask_question_skip__', name: 'Skip', kind: 'reject_once' },
+        ],
+      );
       record({ question: { answer: answer && answer.outcome ? answer.outcome.optionId || answer.outcome.outcome : null } });
     }
     if (step.type === 'text') {

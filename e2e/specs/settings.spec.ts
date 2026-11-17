@@ -14,8 +14,14 @@ test.describe('a CLI that is not signed in', () => {
       test(`${cli.provider}: shows as signed out in Settings and the sidebar, and its reply says why`, async ({ page, relay }) => {
         // Another CLI stays signed in.
         const other = SIGNED_IN.find((c) => c.provider === (cli.provider === 'claude' ? 'codex' : 'claude'))!;
-        await expect(page.locator(`.provider-health a[href="#/settings/${cli.provider}"]`)).toHaveAttribute('title', `${cli.label} · Not signed in`);
-        await expect(page.locator(`.provider-health a[href="#/settings/${other.provider}"]`)).toHaveAttribute('title', new RegExp(`^${escape(other.label)} · Signed in`));
+        await expect(page.locator(`.provider-health a[href="#/settings/${cli.provider}"]`)).toHaveAttribute(
+          'title',
+          `${cli.label} · Not signed in`,
+        );
+        await expect(page.locator(`.provider-health a[href="#/settings/${other.provider}"]`)).toHaveAttribute(
+          'title',
+          new RegExp(`^${escape(other.label)} · Signed in`),
+        );
         await page.getByRole('link', { name: /Settings & sign-in/ }).click();
         const card = page.locator(`#settings-${cli.provider}`);
         const head = card.locator('.account-block').first().locator('.account-head');
@@ -41,7 +47,10 @@ test.describe('a CLI that is not installed', () => {
   test('shows so in Settings and the sidebar', async ({ page }) => {
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
     for (const c of SIGNED_IN.filter((x) => x.provider === 'cursor' || x.provider === 'antigravity')) {
-      await expect(page.locator(`.provider-health .health.off[href="#/settings/${c.provider}"]`)).toHaveAttribute('title', `${c.label} · Not installed`);
+      await expect(page.locator(`.provider-health .health.off[href="#/settings/${c.provider}"]`)).toHaveAttribute(
+        'title',
+        `${c.label} · Not installed`,
+      );
       await expect(page.locator(`#settings-${c.provider} .provider-head .pill`)).toHaveText('Not installed');
     }
   });
@@ -49,12 +58,19 @@ test.describe('a CLI that is not installed', () => {
 
 test.describe('an open agent without a model backend', () => {
   test.use({ openBackend: false });
-  withClis(...faked(OPEN).slice(0, 1).map((c) => c.provider));
+  withClis(
+    ...faked(OPEN)
+      .slice(0, 1)
+      .map((c) => c.provider),
+  );
 
   test('is not ready, and its turn says to set one up', async ({ page, relay }) => {
     const cli = faked(OPEN)[0];
     test.skip(!cli, 'no open agent has a fake written yet');
-    await expect(page.locator(`.provider-health a[href="#/settings/${cli!.provider}"]`)).toHaveAttribute('title', `${cli!.label} · No model backend yet`);
+    await expect(page.locator(`.provider-health a[href="#/settings/${cli!.provider}"]`)).toHaveAttribute(
+      'title',
+      `${cli!.label} · No model backend yet`,
+    );
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
     const card = page.locator(`#settings-${cli!.provider}`);
     await expect(card.locator('.provider-head .pill')).toHaveText('Not ready');
@@ -95,14 +111,18 @@ test.describe('settings', () => {
         if (cli.open) await expect(dot).toHaveAttribute('title', `${cli.label} · Model backends set up`);
       }
       for (const cli of SIGNED_IN.filter((c) => !c.implemented)) {
-        await expect(page.locator(`.provider-health .health.off[href="#/settings/${cli.provider}"]`)).toHaveAttribute('title', `${cli.label} · Not installed`);
+        await expect(page.locator(`.provider-health .health.off[href="#/settings/${cli.provider}"]`)).toHaveAttribute(
+          'title',
+          `${cli.label} · Not installed`,
+        );
       }
       const dots = SIGNED_IN.length + faked(OPEN).length;
       await expect(page.locator('.provider-health .health')).toHaveCount(dots);
       // Dots alone on one line, with how many are ready; their names beside them when asked for, kept after a reload.
       const toggle = page.locator('.provider-health .health-toggle');
       await expect(toggle).toHaveText(`${faked(CLIS).length}/${dots} ready`);
-      const nameWidth = async () => (await page.locator('.provider-health a[href="#/settings/grok"] .health-name').boundingBox())?.width ?? 0;
+      const nameWidth = async () =>
+        (await page.locator('.provider-health a[href="#/settings/grok"] .health-name').boundingBox())?.width ?? 0;
       expect(await nameWidth()).toBeLessThanOrEqual(1);
       await toggle.click();
       await expect(toggle).toHaveAttribute('aria-expanded', 'true');
@@ -136,7 +156,22 @@ test.describe('settings', () => {
     const agents = nav.getByRole('button', { name: /^Agents/ });
     const menu = page.getByRole('menu', { name: 'Agents' });
     // One entry for the twelve agents' cards, where their links were; the other links as they were.
-    await expect(nav.getByRole('link')).toHaveText(['Version', 'Language', 'Appearance', 'Notifications', 'Sandboxes', 'Model backends', 'Lead agent', 'Tools', 'Voice', 'Default folder', 'Agent sessions', 'Shares', 'Browsers', 'Tour']);
+    await expect(nav.getByRole('link')).toHaveText([
+      'Version',
+      'Language',
+      'Appearance',
+      'Notifications',
+      'Sandboxes',
+      'Model backends',
+      'Lead agent',
+      'Tools',
+      'Voice',
+      'Default folder',
+      'Agent sessions',
+      'Shares',
+      'Browsers',
+      'Tour',
+    ]);
     await expect(agents).toHaveAccessibleName('Agents');
     await expect(agents).toHaveAttribute('aria-expanded', 'false');
     await expect(menu).toHaveCount(0);
@@ -145,8 +180,27 @@ test.describe('settings', () => {
     await agents.click();
     await expect(agents).toHaveAttribute('aria-expanded', 'true');
     const items = menu.getByRole('menuitem');
-    await expect(items).toHaveText(['Claude Code', 'Codex', 'Grok', 'Cursor', 'Antigravity', 'Copilot', 'Muse Code', 'OpenCode', 'Goose', 'Cline', 'OpenHands', 'Pi']);
-    await expect(menu.getByRole('group', { name: 'Open-source agents' }).getByRole('menuitem')).toHaveText(['OpenCode', 'Goose', 'Cline', 'OpenHands', 'Pi']);
+    await expect(items).toHaveText([
+      'Claude Code',
+      'Codex',
+      'Grok',
+      'Cursor',
+      'Antigravity',
+      'Copilot',
+      'Muse Code',
+      'OpenCode',
+      'Goose',
+      'Cline',
+      'OpenHands',
+      'Pi',
+    ]);
+    await expect(menu.getByRole('group', { name: 'Open-source agents' }).getByRole('menuitem')).toHaveText([
+      'OpenCode',
+      'Goose',
+      'Cline',
+      'OpenHands',
+      'Pi',
+    ]);
     await expect(items.first()).toBeFocused();
     // The keys move in it, round the ends; Escape closes it back to its button.
     await page.keyboard.press('ArrowDown');
@@ -244,7 +298,9 @@ test.describe('settings', () => {
     expect(first.y).toBeGreaterThanOrEqual(box.y);
   });
 
-  test("on a phone, the agents' button shows whole, its menu stays inside the screen and with its button, and leads to the card", async ({ page }) => {
+  test("on a phone, the agents' button shows whole, its menu stays inside the screen and with its button, and leads to the card", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     // Reached by an agent's address: once the links make room for the menu button (the row narrows), the button naming it shows whole.
     await page.goto(page.url().replace(/#.*$/, '#/settings/codex'));
@@ -280,11 +336,13 @@ test.describe('settings', () => {
     // The row scrolled while it is open: it stays open, and moves with its button.
     await row.evaluate((el) => (el.scrollLeft = el.scrollWidth));
     await expect(menu).toBeVisible();
-    await expect.poll(async () => {
-      const b = (await agents.boundingBox())!;
-      const m = (await menu.boundingBox())!;
-      return Math.round(m.x) === Math.round(Math.max(8, Math.min(b.x, 390 - m.width - 8)));
-    }).toBe(true);
+    await expect
+      .poll(async () => {
+        const b = (await agents.boundingBox())!;
+        const m = (await menu.boundingBox())!;
+        return Math.round(m.x) === Math.round(Math.max(8, Math.min(b.x, 390 - m.width - 8)));
+      })
+      .toBe(true);
     box = (await menu.boundingBox())!;
     expect(box.y).toBeGreaterThan((await agents.boundingBox())!.y);
     await menu.getByRole('menuitem', { name: 'Pi', exact: true }).click();
@@ -311,11 +369,13 @@ test.describe('settings', () => {
     await expect(nav).toHaveClass(/stuck/);
     await expect.poll(async () => (await agents.boundingBox())!.x).toBeGreaterThan(before + 10);
     await expect(menu).toBeVisible();
-    await expect.poll(async () => {
-      const b = (await agents.boundingBox())!;
-      const m = (await menu.boundingBox())!;
-      return Math.abs(m.x - Math.max(8, Math.min(b.x, 900 - m.width - 8))) <= 1;
-    }).toBe(true);
+    await expect
+      .poll(async () => {
+        const b = (await agents.boundingBox())!;
+        const m = (await menu.boundingBox())!;
+        return Math.abs(m.x - Math.max(8, Math.min(b.x, 900 - m.width - 8))) <= 1;
+      })
+      .toBe(true);
   });
 
   test('the language can be switched, and the choice is kept', async ({ page }) => {

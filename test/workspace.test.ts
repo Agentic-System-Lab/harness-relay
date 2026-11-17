@@ -107,7 +107,9 @@ describe('snapshot', () => {
     mkdirSync(join(repo, 'agents-notes'));
     writeFileSync(join(repo, 'agents-notes', 'keep.md'), 'not the folder\n');
     const files = async (exclude: string[]) =>
-      git(repo, 'ls-tree', '-r', '--name-only', (await snapshot(repo, exclude)).commit).split('\n').sort();
+      git(repo, 'ls-tree', '-r', '--name-only', (await snapshot(repo, exclude)).commit)
+        .split('\n')
+        .sort();
 
     expect(await files([])).toContain('agents/codex/auth.json');
     expect(await files([join(repo, 'agents')])).toEqual(['README.md', 'agents-notes/keep.md', 'src/app.ts']);
@@ -150,7 +152,7 @@ describe('worktrees', () => {
     expect(git(repo, 'branch', '--list', 'relay/*')).toBe('');
   });
 
-  it('checks a patch without changing anything, then applies it; and names a diff\'s paths after a folder', async () => {
+  it("checks a patch without changing anything, then applies it; and names a diff's paths after a folder", async () => {
     await ensureRepo(repo);
     const base = (await snapshot(repo)).commit;
     const wt = join(dir, 'wt', 'c');
@@ -244,22 +246,26 @@ describe('changes that are not plain UTF-8 text with LF line endings', () => {
 });
 
 describe('diffFiles', () => {
-  it('lists every changed file, however long the list', async () => {
-    await ensureRepo(repo);
-    const base = (await snapshot(repo)).commit;
-    // Well over 64 KB of `git diff --name-status` output, from long names rather than many files (each
-    // one written and committed takes a while on Windows), but short enough for its 260-character paths.
-    const dirName = 'a-rather-long-directory-name-for-generated-files';
-    const name = (i: number) => `a-generated-file-whose-long-name-makes-the-list-long-with-fewer-files-${i}.txt`;
-    mkdirSync(join(repo, dirName));
-    for (let i = 0; i < 1000; i++) writeFileSync(join(repo, dirName, name(i)), `${i}\n`);
-    const head = (await snapshot(repo)).commit;
-    const files = await diffFiles(repo, base, head);
-    expect(files).toHaveLength(1000);
-    expect(files.every((f) => f.status === 'A' && f.added === 1 && f.deleted === 0)).toBe(true);
-    // "A\0<path>\0" each: about 125 KB.
-    expect(files.reduce((bytes, f) => bytes + Buffer.byteLength(f.path) + 3, 0)).toBeGreaterThan(64 * 1024);
-  }, slow(30_000));
+  it(
+    'lists every changed file, however long the list',
+    async () => {
+      await ensureRepo(repo);
+      const base = (await snapshot(repo)).commit;
+      // Well over 64 KB of `git diff --name-status` output, from long names rather than many files (each
+      // one written and committed takes a while on Windows), but short enough for its 260-character paths.
+      const dirName = 'a-rather-long-directory-name-for-generated-files';
+      const name = (i: number) => `a-generated-file-whose-long-name-makes-the-list-long-with-fewer-files-${i}.txt`;
+      mkdirSync(join(repo, dirName));
+      for (let i = 0; i < 1000; i++) writeFileSync(join(repo, dirName, name(i)), `${i}\n`);
+      const head = (await snapshot(repo)).commit;
+      const files = await diffFiles(repo, base, head);
+      expect(files).toHaveLength(1000);
+      expect(files.every((f) => f.status === 'A' && f.added === 1 && f.deleted === 0)).toBe(true);
+      // "A\0<path>\0" each: about 125 KB.
+      expect(files.reduce((bytes, f) => bytes + Buffer.byteLength(f.path) + 3, 0)).toBeGreaterThan(64 * 1024);
+    },
+    slow(30_000),
+  );
 
   it('gives each file its status and line counts from one diff: added, changed, deleted, binary, a name starting with a colon', async () => {
     await ensureRepo(repo);
@@ -285,7 +291,15 @@ describe('diffFiles', () => {
   });
 
   it('reads the raw entries before the counts, whatever a path holds', () => {
-    const out = [':000000 100644 0000000 1111111 A', ':x', ':100644 100644 2222222 3333333 M', 'tab\tand\nline', '-\t-\t:x', '3\t1\ttab\tand\nline', ''].join('\0');
+    const out = [
+      ':000000 100644 0000000 1111111 A',
+      ':x',
+      ':100644 100644 2222222 3333333 M',
+      'tab\tand\nline',
+      '-\t-\t:x',
+      '3\t1\ttab\tand\nline',
+      '',
+    ].join('\0');
     expect(parseDiffFiles(out)).toEqual([
       { path: ':x', status: 'A', added: null, deleted: null },
       { path: 'tab\tand\nline', status: 'M', added: 3, deleted: 1 },
@@ -297,7 +311,10 @@ describe('diffFiles', () => {
     await ensureRepo(repo);
     const base = (await snapshot(repo)).commit;
     // Windows takes no double quote, tab or backslash in a file name.
-    const names = process.platform === 'win32' ? ["it's (1) & co.txt", '中文 檔名.md'] : ['say "hi".txt', 'tab\there.txt', 'back\\slash.txt', '中文 檔名.md'];
+    const names =
+      process.platform === 'win32'
+        ? ["it's (1) & co.txt", '中文 檔名.md']
+        : ['say "hi".txt', 'tab\there.txt', 'back\\slash.txt', '中文 檔名.md'];
     for (const name of names) writeFileSync(join(repo, name), 'x\n');
     const head = (await snapshot(repo)).commit;
     const files = await diffFiles(repo, base, head);
@@ -340,7 +357,18 @@ describe("a repository's own config that would run commands", () => {
     git(repo, 'config', 'filter.a b.c.clean', sh('spaced'));
 
     const guards = await repoDriverGuards(repo, process.env);
-    expect(guards).toEqual(expect.arrayContaining(['-c', 'filter.evil.clean=', '-c', 'diff.evil.textconv=', '-c', 'filter.inc.clean=', '-c', 'filter.a b.c.clean=']));
+    expect(guards).toEqual(
+      expect.arrayContaining([
+        '-c',
+        'filter.evil.clean=',
+        '-c',
+        'diff.evil.textconv=',
+        '-c',
+        'filter.inc.clean=',
+        '-c',
+        'filter.a b.c.clean=',
+      ]),
+    );
 
     const first = await snapshot(repo);
     writeFileSync(join(repo, 'README.md'), 'changed\n');

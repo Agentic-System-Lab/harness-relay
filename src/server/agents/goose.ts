@@ -1,4 +1,15 @@
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -36,7 +47,17 @@ import {
   type AcpTurnDeps,
   type AcpUsageUpdate,
 } from './acpTurn';
-import { openAgentHome, sealedFolder, startStateOver, type OpenAgentDefinition, type OpenCatalog, type OpenHomeLayout, type OpenRunContext, type OpenSandboxNeeds } from './open';
+import {
+  localMcpPorts,
+  openAgentHome,
+  sealedFolder,
+  startStateOver,
+  type OpenAgentDefinition,
+  type OpenCatalog,
+  type OpenHomeLayout,
+  type OpenRunContext,
+  type OpenSandboxNeeds,
+} from './open';
 import { AgentRunError, type AgentRunner, type McpServerSpec, type RunOptions, type RunResult } from './types';
 
 /*
@@ -144,27 +165,8 @@ export const GOOSE_QUIET_HOSTS = [
   'us.i.posthog.com', // telemetry (off anyway)
 ];
 
-/** Loopback hosts, as a URL names them. */
-function isLoopbackName(host: string): boolean {
-  const h = host.replace(/^\[|\]$/g, '').toLowerCase();
-  return h === 'localhost' || h === '::1' || /^127\./.test(h) || h.endsWith('.localhost');
-}
-
-/** The ports of the tool library's HTTP MCP servers on this computer. */
-export function gooseLocalMcpPorts(servers: readonly McpServerSpec[] = []): number[] {
-  const ports = new Set<number>();
-  for (const s of servers) {
-    if (s.transport !== 'http') continue;
-    try {
-      const u = new URL(s.url);
-      const port = Number(u.port || (u.protocol === 'https:' ? 443 : 80));
-      if (isLoopbackName(u.hostname) && port >= 1 && port <= 65535) ports.add(port);
-    } catch {
-      // not a URL: Goose cannot reach it either
-    }
-  }
-  return [...ports];
-}
+/** The ports of the tool library's HTTP MCP servers on this computer (and the gateway's, over HTTP). */
+export const gooseLocalMcpPorts = localMcpPorts;
 
 /** Whether the run talks HTTPS: its backend, or one of the tool library's HTTP MCP servers. */
 export function gooseUsesHttps(run: Pick<BackendRun, 'kind' | 'endpoint'>, servers: readonly McpServerSpec[] = []): boolean {
@@ -279,12 +281,16 @@ export const GOOSE_TRACING_PREFIXES = ['OTEL_', 'LANGFUSE_'];
 export function cleanGooseEnv(env: NodeJS.ProcessEnv, keep: Record<string, string>): void {
   for (const name of Object.keys(env)) {
     if (name in keep) continue;
-    if (name.startsWith('GOOSE_') || GOOSE_INHERITED_VARS.includes(name) || GOOSE_TRACING_PREFIXES.some((p) => name.startsWith(p))) delete env[name];
+    if (name.startsWith('GOOSE_') || GOOSE_INHERITED_VARS.includes(name) || GOOSE_TRACING_PREFIXES.some((p) => name.startsWith(p)))
+      delete env[name];
   }
 }
 
 /** A custom endpoint as a Goose provider file (`config/custom_providers/<provider>.json`). */
-export function gooseEndpointFile(endpoint: { id: string; name: string; baseUrl: string; models: string[]; apiKey?: string }, extraModel?: string): Record<string, unknown> {
+export function gooseEndpointFile(
+  endpoint: { id: string; name: string; baseUrl: string; models: string[]; apiKey?: string },
+  extraModel?: string,
+): Record<string, unknown> {
   const models = [...new Set([...endpoint.models, ...(extraModel ? [extraModel] : [])].filter(Boolean))];
   return {
     name: gooseEndpointProvider(endpoint.id),
@@ -433,7 +439,8 @@ export function prepareGoose(ctx: OpenRunContext, deps: GoosePrepareDeps = { rea
   writeIfChanged(join(config, 'config.yaml'), GOOSE_CONFIG_YAML);
   writeIfChanged(join(config, 'permission.yaml'), GOOSE_PERMISSION_YAML);
   // Every endpoint as a provider (the same file for every run, so parallel runs agree).
-  for (const e of run.backends.endpoints) writeIfChanged(join(providers, `${gooseEndpointProvider(e.id)}.json`), JSON.stringify(gooseEndpointFile(e), null, 2) + '\n');
+  for (const e of run.backends.endpoints)
+    writeIfChanged(join(providers, `${gooseEndpointProvider(e.id)}.json`), JSON.stringify(gooseEndpointFile(e), null, 2) + '\n');
 
   // The shell wrapper is a POSIX shell script, which Windows cannot run: there Goose keeps its own
   // shell (it runs only with full access there).
@@ -494,7 +501,13 @@ const GOOSE_SESSION_PLATFORMS = new Set(['developer', ...GOOSE_PLATFORM_EXTENSIO
  * never sets (its briefing in `system_prompt_extras_json` is set again after every load): a recipe,
  * with extensions and instructions of its own, the system prompt, a container to run in.
  */
-export const GOOSE_SESSION_CLEARED = ['recipe_json', 'user_recipe_values_json', 'system_prompt_override', 'system_prompt_extras_json', 'container_id'];
+export const GOOSE_SESSION_CLEARED = [
+  'recipe_json',
+  'user_recipe_values_json',
+  'system_prompt_override',
+  'system_prompt_extras_json',
+  'container_id',
+];
 
 type GooseExtension = { type?: unknown; name?: unknown } & Record<string, unknown>;
 
@@ -576,14 +589,22 @@ export function restoreGooseSession(state: string, sealed: string, sessionId: st
       }
       const extensions =
         sealedExtensions(sealed, sessionId) ??
-        (storedExtensions(row.extension_data) ?? []).filter((e) => e.type === 'platform' && typeof e.name === 'string' && GOOSE_SESSION_PLATFORMS.has(e.name));
+        (storedExtensions(row.extension_data) ?? []).filter(
+          (e) => e.type === 'platform' && typeof e.name === 'string' && GOOSE_SESSION_PLATFORMS.has(e.name),
+        );
       data[GOOSE_EXTENSIONS_KEY] = { extensions };
       const written = JSON.stringify(data);
       const cleared = GOOSE_SESSION_CLEARED.filter((c) => columns.has(c));
-      db.prepare(`UPDATE sessions SET extension_data = ?${cleared.map((c) => `, "${c}" = NULL`).join('')} WHERE id = ?`).run(written, sessionId);
+      db.prepare(`UPDATE sessions SET extension_data = ?${cleared.map((c) => `, "${c}" = NULL`).join('')} WHERE id = ?`).run(
+        written,
+        sessionId,
+      );
       // A column a command redefined (generated, say) can keep its value without an error.
-      const after = db.prepare(`SELECT extension_data${cleared.map((c) => `, "${c}"`).join('')} FROM sessions WHERE id = ?`).get(sessionId) as Record<string, unknown> | undefined;
-      if (!after || after.extension_data !== written || cleared.some((c) => after[c] !== null)) throw new Error('the row is not as it was written');
+      const after = db
+        .prepare(`SELECT extension_data${cleared.map((c) => `, "${c}"`).join('')} FROM sessions WHERE id = ?`)
+        .get(sessionId) as Record<string, unknown> | undefined;
+      if (!after || after.extension_data !== written || cleared.some((c) => after[c] !== null))
+        throw new Error('the row is not as it was written');
     } finally {
       db.close();
     }
@@ -631,7 +652,12 @@ export async function gooseAfterSession(
   // A new session's extension list, kept where no run can change it, for the runs that resume it.
   if (session.method === 'new' && o.stateKey) sealGooseExtensions(ctx.home.state, sealedFolder(ctx.home.root, o.stateKey), sessionId);
   // Always, so that a loaded session's earlier briefing is replaced (empty text would clear it).
-  await conn.request('_goose/unstable/session/system-prompt/set', { sessionId, mode: 'append', key: 'harness-relay', text: gooseBriefing(o) });
+  await conn.request('_goose/unstable/session/system-prompt/set', {
+    sessionId,
+    mode: 'append',
+    key: 'harness-relay',
+    text: gooseBriefing(o),
+  });
 
   let options = state.configOptions ?? [];
   const set = async (configId: string, value: string, rejected: (v: string, e: string) => string) => {
@@ -641,7 +667,8 @@ export async function gooseAfterSession(
     if (Array.isArray(r?.configOptions)) options = r.configOptions;
   };
   const provider = gooseProvider(run);
-  if (optionValue(options, 'provider') !== provider) await set('provider', provider, (v, e) => t().openRejectedModel(cli, run.id, `${v}: ${e}`));
+  if (optionValue(options, 'provider') !== provider)
+    await set('provider', provider, (v, e) => t().openRejectedModel(cli, run.id, `${v}: ${e}`));
   if (optionValue(options, 'model') !== run.model) await set('model', run.model, (_v, e) => t().openRejectedModel(cli, run.id, e));
   if (o.effort && optionValue(options, 'thinking_effort') !== o.effort) {
     const offered = optionValues(options, 'thinking_effort');
@@ -692,7 +719,12 @@ export function gooseMcpServers(ctx: Pick<OpenRunContext, 'o' | 'sandboxed' | 't
   const extra: Record<string, string> = {
     HOME: home,
     ...(ctx.sandboxed
-      ? { npm_config_cache: join(caches, 'npm'), XDG_CACHE_HOME: join(caches, 'xdg'), UV_CACHE_DIR: join(caches, 'uv'), PIP_CACHE_DIR: join(caches, 'pip') }
+      ? {
+          npm_config_cache: join(caches, 'npm'),
+          XDG_CACHE_HOME: join(caches, 'xdg'),
+          UV_CACHE_DIR: join(caches, 'uv'),
+          PIP_CACHE_DIR: join(caches, 'pip'),
+        }
       : {}),
   };
   const servers = (ctx.o.mcpServers ?? []).map((s) => (s.transport === 'stdio' ? { ...s, env: { ...extra, ...s.env } } : s));
@@ -703,7 +735,11 @@ export function gooseMcpServers(ctx: Pick<OpenRunContext, 'o' | 'sandboxed' | 't
  * Hands the reason for a refusal to the model: Goose ignores it on the answer, so it goes as a user
  * message into the running turn (`_goose/unstable/session/steer`), right after the declined call.
  */
-export async function gooseAfterRefusal(conn: JsonRpcConnection, refusal: { sessionId: string; reason: string }, ctx: OpenRunContext): Promise<void> {
+export async function gooseAfterRefusal(
+  conn: JsonRpcConnection,
+  refusal: { sessionId: string; reason: string },
+  ctx: OpenRunContext,
+): Promise<void> {
   const runId = ctx.state.activeRunId;
   if (typeof runId !== 'string' || !runId) {
     console.warn('[goose] no running turn to pass a refusal to');
@@ -717,9 +753,13 @@ export async function gooseAfterRefusal(conn: JsonRpcConnection, refusal: { sess
 }
 
 /** Keeps what the updates say about the run: the running turn's id (for steering). */
-export function gooseFilterUpdate(params: { sessionId: string; update: Record<string, any> }, ctx: OpenRunContext): Record<string, any> | undefined {
+export function gooseFilterUpdate(
+  params: { sessionId: string; update: Record<string, any> },
+  ctx: OpenRunContext,
+): Record<string, any> | undefined {
   const u = params.update;
-  if (u?.sessionUpdate === 'session_info_update' && u._meta?.goose && 'activeRunId' in u._meta.goose) ctx.state.activeRunId = u._meta.goose.activeRunId ?? undefined;
+  if (u?.sessionUpdate === 'session_info_update' && u._meta?.goose && 'activeRunId' in u._meta.goose)
+    ctx.state.activeRunId = u._meta.goose.activeRunId ?? undefined;
   return u;
 }
 
@@ -788,10 +828,14 @@ const gooseTotalsSql = (ledger: boolean) => `
  * undefined when it cannot be read. Opened read-only: Goose may be running.
  */
 export async function gooseSessionTotals(file: string, sessionId: string): Promise<GooseTotals | undefined> {
-  const read = await readRunDatabase(file, ['sessions', 'usage_ledger'], [
-    { sql: gooseTotalsSql(true), params: [sessionId], needs: ['sessions', 'usage_ledger'] },
-    { sql: gooseTotalsSql(false), params: [sessionId], needs: ['sessions'], unless: ['usage_ledger'] },
-  ]);
+  const read = await readRunDatabase(
+    file,
+    ['sessions', 'usage_ledger'],
+    [
+      { sql: gooseTotalsSql(true), params: [sessionId], needs: ['sessions', 'usage_ledger'] },
+      { sql: gooseTotalsSql(false), params: [sessionId], needs: ['sessions'], unless: ['usage_ledger'] },
+    ],
+  );
   if (!read) return undefined;
   const row = (read.results[0] ?? read.results[1])?.[0] ?? {};
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
@@ -819,7 +863,11 @@ export async function gooseTotalsBefore(ctx: OpenRunContext): Promise<void> {
  * down (not the same session's); no cost when no model call of the session had a price, nor on the
  * user's own endpoint (`priced` false), whose model Goose prices by its name as a vendor's.
  */
-export function gooseTurnUsage(before: GooseTotals | undefined, after: GooseTotals | undefined, priced = true): Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'> {
+export function gooseTurnUsage(
+  before: GooseTotals | undefined,
+  after: GooseTotals | undefined,
+  priced = true,
+): Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'> {
   if (!before || !after) return {};
   const input = after.input - before.input;
   const output = after.output - before.output;
@@ -898,17 +946,62 @@ const GREP: ReadOptions = {
   flags: 'abcEFGHhIiLlnoPqRrsUuVvwxyZz',
   values: 'ABCDdefm',
   long: [
-    'extended-regexp', 'fixed-strings', 'basic-regexp', 'perl-regexp', 'ignore-case', 'no-ignore-case', 'invert-match', 'word-regexp',
-    'line-regexp', 'count', 'files-with-matches', 'files-without-match', 'line-number', 'no-filename', 'with-filename', 'only-matching',
-    'quiet', 'silent', 'recursive', 'dereference-recursive', 'include=', 'exclude=', 'exclude-dir=', 'exclude-from=', 'color', 'colour',
-    'max-count=', 'after-context=', 'before-context=', 'context=', 'null', 'null-data', 'text', 'binary-files=', 'regexp=', 'file=',
-    'label=', 'line-buffered', 'no-messages', 'devices=', 'directories=', 'byte-offset', 'initial-tab',
+    'extended-regexp',
+    'fixed-strings',
+    'basic-regexp',
+    'perl-regexp',
+    'ignore-case',
+    'no-ignore-case',
+    'invert-match',
+    'word-regexp',
+    'line-regexp',
+    'count',
+    'files-with-matches',
+    'files-without-match',
+    'line-number',
+    'no-filename',
+    'with-filename',
+    'only-matching',
+    'quiet',
+    'silent',
+    'recursive',
+    'dereference-recursive',
+    'include=',
+    'exclude=',
+    'exclude-dir=',
+    'exclude-from=',
+    'color',
+    'colour',
+    'max-count=',
+    'after-context=',
+    'before-context=',
+    'context=',
+    'null',
+    'null-data',
+    'text',
+    'binary-files=',
+    'regexp=',
+    'file=',
+    'label=',
+    'line-buffered',
+    'no-messages',
+    'devices=',
+    'directories=',
+    'byte-offset',
+    'initial-tab',
   ],
 };
-const SUMS: ReadOptions = { flags: 'bctwz0', values: 'a', long: ['check', 'quiet', 'status', 'strict', 'tag', 'binary', 'text', 'warn', 'zero', 'algorithm='] };
+const SUMS: ReadOptions = {
+  flags: 'bctwz0',
+  values: 'a',
+  long: ['check', 'quiet', 'status', 'strict', 'tag', 'binary', 'text', 'warn', 'zero', 'algorithm='],
+};
 
 const READ_PROGRAMS: Record<string, ReadOptions> = {
-  cat: { flags: 'AbeEnstTuv', long: ['number', 'number-nonblank', 'show-all', 'show-ends', 'show-tabs', 'show-nonprinting', 'squeeze-blank'] },
+  cat: {
+    flags: 'AbeEnstTuv',
+    long: ['number', 'number-nonblank', 'show-all', 'show-ends', 'show-tabs', 'show-nonprinting', 'squeeze-blank'],
+  },
   head: { flags: 'qvz', values: 'nc', numeric: true, long: ['lines=', 'bytes=', 'quiet', 'silent', 'verbose', 'zero-terminated'] },
   // Not -f / -F: they follow the file for ever.
   tail: { flags: 'qvrz', values: 'nc', numeric: true, long: ['lines=', 'bytes=', 'quiet', 'silent', 'verbose', 'zero-terminated'] },
@@ -916,9 +1009,35 @@ const READ_PROGRAMS: Record<string, ReadOptions> = {
     flags: '1@aAbBcCdeFfgGhHiklLmnOopqrRsStTuUvwWxX%,',
     values: 'IDw',
     long: [
-      'all', 'almost-all', 'color', 'colour', 'classify', 'directory', 'human-readable', 'si', 'inode', 'recursive', 'reverse', 'size',
-      'sort=', 'time=', 'time-style=', 'group-directories-first', 'ignore=', 'hide=', 'format=', 'full-time', 'no-group',
-      'numeric-uid-gid', 'dereference', 'indicator-style=', 'width=', 'literal', 'quoting-style=', 'author', 'file-type',
+      'all',
+      'almost-all',
+      'color',
+      'colour',
+      'classify',
+      'directory',
+      'human-readable',
+      'si',
+      'inode',
+      'recursive',
+      'reverse',
+      'size',
+      'sort=',
+      'time=',
+      'time-style=',
+      'group-directories-first',
+      'ignore=',
+      'hide=',
+      'format=',
+      'full-time',
+      'no-group',
+      'numeric-uid-gid',
+      'dereference',
+      'indicator-style=',
+      'width=',
+      'literal',
+      'quoting-style=',
+      'author',
+      'file-type',
     ],
   },
   pwd: { flags: 'LP' },
@@ -929,25 +1048,116 @@ const READ_PROGRAMS: Record<string, ReadOptions> = {
   true: { any: true },
   wc: { flags: 'clmwL', long: ['lines', 'words', 'chars', 'bytes', 'max-line-length', 'files0-from='] },
   // Not -C / --compile (writes a compiled magic file), -z / -Z / --uncompress / --uncompress-noreport (run decompression programs).
-  file: { flags: 'bcdhiIkLlNnprsv0', values: 'fF', long: ['brief', 'mime', 'mime-type', 'mime-encoding', 'dereference', 'no-dereference', 'keep-going', 'raw', 'special-files'] },
+  file: {
+    flags: 'bcdhiIkLlNnprsv0',
+    values: 'fF',
+    long: ['brief', 'mime', 'mime-type', 'mime-encoding', 'dereference', 'no-dereference', 'keep-going', 'raw', 'special-files'],
+  },
   stat: { flags: 'FLlnqrstx', values: 'fc', long: ['dereference', 'file-system', 'terse', 'format=', 'printf='] },
-  du: { flags: 'acdhHkLmPsxgA', values: 'dBt', long: ['all', 'apparent-size', 'bytes', 'human-readable', 'si', 'summarize', 'max-depth=', 'total', 'dereference', 'one-file-system', 'block-size=', 'exclude='] },
-  df: { flags: 'ahHiklmPTgn', values: 't', long: ['all', 'human-readable', 'si', 'inodes', 'local', 'portability', 'print-type', 'total', 'output', 'type=', 'block-size='] },
+  du: {
+    flags: 'acdhHkLmPsxgA',
+    values: 'dBt',
+    long: [
+      'all',
+      'apparent-size',
+      'bytes',
+      'human-readable',
+      'si',
+      'summarize',
+      'max-depth=',
+      'total',
+      'dereference',
+      'one-file-system',
+      'block-size=',
+      'exclude=',
+    ],
+  },
+  df: {
+    flags: 'ahHiklmPTgn',
+    values: 't',
+    long: ['all', 'human-readable', 'si', 'inodes', 'local', 'portability', 'print-type', 'total', 'output', 'type=', 'block-size='],
+  },
   // Not -o (writes its output to a file), -R (writes a file in each folder with -H), -H.
-  tree: { flags: 'adfFgilpsuhDCnNqrtvxJ', values: 'LIP', long: ['noreport', 'dirsfirst', 'gitignore', 'charset=', 'filelimit=', 'du', 'prune', 'sort='] },
+  tree: {
+    flags: 'adfFgilpsuhDCnNqrtvxJ',
+    values: 'LIP',
+    long: ['noreport', 'dirsfirst', 'gitignore', 'charset=', 'filelimit=', 'du', 'prune', 'sort='],
+  },
   // Not -z / --search-zip (runs decompression programs), --pre / --pre-glob (runs a given program), --hostname-bin.
   rg: {
     flags: 'iIlLnNoqsSuUvwxF.0HhcP',
     values: 'ABCegmtTjfrEMd',
     long: [
-      'ignore-case', 'smart-case', 'case-sensitive', 'fixed-strings', 'word-regexp', 'line-regexp', 'invert-match', 'count',
-      'count-matches', 'files', 'files-with-matches', 'files-without-match', 'line-number', 'no-line-number', 'column', 'heading',
-      'no-heading', 'hidden', 'no-ignore', 'no-ignore-vcs', 'no-ignore-parent', 'follow', 'glob=', 'iglob=', 'type=', 'type-not=',
-      'type-list', 'max-count=', 'max-depth=', 'max-filesize=', 'context=', 'after-context=', 'before-context=', 'color=', 'colors=',
-      'json', 'vimgrep', 'only-matching', 'replace=', 'sort=', 'sortr=', 'multiline', 'multiline-dotall', 'null', 'null-data', 'trim',
-      'stats', 'unrestricted', 'text', 'binary', 'pcre2', 'engine=', 'threads=', 'max-columns=', 'max-columns-preview', 'passthru',
-      'no-messages', 'quiet', 'regexp=', 'file=', 'encoding=', 'path-separator=', 'ignore-file=', 'no-config', 'with-filename',
-      'no-filename', 'byte-offset', 'crlf', 'one-file-system', 'no-require-git',
+      'ignore-case',
+      'smart-case',
+      'case-sensitive',
+      'fixed-strings',
+      'word-regexp',
+      'line-regexp',
+      'invert-match',
+      'count',
+      'count-matches',
+      'files',
+      'files-with-matches',
+      'files-without-match',
+      'line-number',
+      'no-line-number',
+      'column',
+      'heading',
+      'no-heading',
+      'hidden',
+      'no-ignore',
+      'no-ignore-vcs',
+      'no-ignore-parent',
+      'follow',
+      'glob=',
+      'iglob=',
+      'type=',
+      'type-not=',
+      'type-list',
+      'max-count=',
+      'max-depth=',
+      'max-filesize=',
+      'context=',
+      'after-context=',
+      'before-context=',
+      'color=',
+      'colors=',
+      'json',
+      'vimgrep',
+      'only-matching',
+      'replace=',
+      'sort=',
+      'sortr=',
+      'multiline',
+      'multiline-dotall',
+      'null',
+      'null-data',
+      'trim',
+      'stats',
+      'unrestricted',
+      'text',
+      'binary',
+      'pcre2',
+      'engine=',
+      'threads=',
+      'max-columns=',
+      'max-columns-preview',
+      'passthru',
+      'no-messages',
+      'quiet',
+      'regexp=',
+      'file=',
+      'encoding=',
+      'path-separator=',
+      'ignore-file=',
+      'no-config',
+      'with-filename',
+      'no-filename',
+      'byte-offset',
+      'crlf',
+      'one-file-system',
+      'no-require-git',
     ],
   },
   grep: GREP,
@@ -958,40 +1168,115 @@ const READ_PROGRAMS: Record<string, ReadOptions> = {
     flags: 'bdfgihMnRrsuVcCmz',
     values: 'ktS',
     long: [
-      'numeric-sort', 'general-numeric-sort', 'human-numeric-sort', 'month-sort', 'version-sort', 'random-sort', 'reverse', 'unique',
-      'ignore-case', 'ignore-leading-blanks', 'dictionary-order', 'ignore-nonprinting', 'stable', 'key=', 'field-separator=', 'check',
-      'merge', 'zero-terminated', 'buffer-size=', 'parallel=', 'sort=',
+      'numeric-sort',
+      'general-numeric-sort',
+      'human-numeric-sort',
+      'month-sort',
+      'version-sort',
+      'random-sort',
+      'reverse',
+      'unique',
+      'ignore-case',
+      'ignore-leading-blanks',
+      'dictionary-order',
+      'ignore-nonprinting',
+      'stable',
+      'key=',
+      'field-separator=',
+      'check',
+      'merge',
+      'zero-terminated',
+      'buffer-size=',
+      'parallel=',
+      'sort=',
     ],
   },
-  cut: { flags: 'snzw', values: 'bcdf', long: ['bytes=', 'characters=', 'delimiter=', 'fields=', 'only-delimited', 'complement', 'output-delimiter=', 'zero-terminated'] },
+  cut: {
+    flags: 'snzw',
+    values: 'bcdf',
+    long: ['bytes=', 'characters=', 'delimiter=', 'fields=', 'only-delimited', 'complement', 'output-delimiter=', 'zero-terminated'],
+  },
   nl: { flags: 'p', values: 'bdfhilnsvw' },
   basename: { flags: 'az', values: 's', long: ['multiple', 'suffix=', 'zero'] },
   dirname: { flags: 'z', long: ['zero'] },
-  realpath: { flags: 'eLmPqsz', long: ['canonicalize-existing', 'canonicalize-missing', 'logical', 'physical', 'quiet', 'strip', 'no-symlinks', 'relative-to=', 'relative-base=', 'zero'] },
-  readlink: { flags: 'efmnqsvz', long: ['canonicalize', 'canonicalize-existing', 'canonicalize-missing', 'no-newline', 'quiet', 'silent', 'verbose', 'zero'] },
+  realpath: {
+    flags: 'eLmPqsz',
+    long: [
+      'canonicalize-existing',
+      'canonicalize-missing',
+      'logical',
+      'physical',
+      'quiet',
+      'strip',
+      'no-symlinks',
+      'relative-to=',
+      'relative-base=',
+      'zero',
+    ],
+  },
+  readlink: {
+    flags: 'efmnqsvz',
+    long: ['canonicalize', 'canonicalize-existing', 'canonicalize-missing', 'no-newline', 'quiet', 'silent', 'verbose', 'zero'],
+  },
   which: { flags: 'as' },
   // Not -l / --paginate (runs pr).
   diff: {
     flags: 'abBcdeEfhHiNnpPqrsStTuwyZ',
     values: 'CUDFIxXSL',
     long: [
-      'unified', 'context', 'brief', 'recursive', 'new-file', 'unidirectional-new-file', 'ignore-case', 'ignore-all-space',
-      'ignore-space-change', 'ignore-blank-lines', 'ignore-tab-expansion', 'ignore-trailing-space', 'text', 'side-by-side',
-      'suppress-common-lines', 'color', 'exclude=', 'exclude-from=', 'label=', 'strip-trailing-cr', 'report-identical-files', 'minimal',
-      'speed-large-files', 'normal', 'ifdef=', 'width=', 'tabsize=', 'expand-tabs', 'initial-tab', 'show-c-function',
-      'show-function-line=', 'ignore-matching-lines=', 'starting-file=', 'no-dereference',
+      'unified',
+      'context',
+      'brief',
+      'recursive',
+      'new-file',
+      'unidirectional-new-file',
+      'ignore-case',
+      'ignore-all-space',
+      'ignore-space-change',
+      'ignore-blank-lines',
+      'ignore-tab-expansion',
+      'ignore-trailing-space',
+      'text',
+      'side-by-side',
+      'suppress-common-lines',
+      'color',
+      'exclude=',
+      'exclude-from=',
+      'label=',
+      'strip-trailing-cr',
+      'report-identical-files',
+      'minimal',
+      'speed-large-files',
+      'normal',
+      'ifdef=',
+      'width=',
+      'tabsize=',
+      'expand-tabs',
+      'initial-tab',
+      'show-c-function',
+      'show-function-line=',
+      'ignore-matching-lines=',
+      'starting-file=',
+      'no-dereference',
     ],
   },
   cmp: { flags: 'blsv', values: 'in', long: ['print-bytes', 'quiet', 'silent', 'verbose', 'ignore-initial=', 'bytes='] },
   whoami: {},
-  uname: { flags: 'amnoprsvi', long: ['all', 'kernel-name', 'nodename', 'kernel-release', 'kernel-version', 'machine', 'processor', 'operating-system'] },
+  uname: {
+    flags: 'amnoprsvi',
+    long: ['all', 'kernel-name', 'nodename', 'kernel-release', 'kernel-version', 'machine', 'processor', 'operating-system'],
+  },
   id: { flags: 'aGgnPpru', long: ['groups', 'group', 'name', 'real', 'user', 'zero'] },
   column: { flags: 'tx', values: 'cs' },
   // jq has no option that writes a file or runs a program.
   jq: { any: true },
   od: { flags: 'bcCdDeFfHhIiLlOosvXx', values: 'AjNtw' },
   hexdump: { flags: 'bcCdovx', values: 'efns' },
-  shasum: { flags: 'bcstUp0', values: 'a', long: ['algorithm=', 'binary', 'check', 'text', 'UNIVERSAL', 'portable', 'status', 'quiet', 'warn', 'strict', 'tag'] },
+  shasum: {
+    flags: 'bcstUp0',
+    values: 'a',
+    long: ['algorithm=', 'binary', 'check', 'text', 'UNIVERSAL', 'portable', 'status', 'quiet', 'warn', 'strict', 'tag'],
+  },
   sha256sum: SUMS,
   md5sum: SUMS,
   md5: { flags: 'pqrt', values: 's' },
@@ -1003,13 +1288,77 @@ const READ_PROGRAMS: Record<string, ReadOptions> = {
  * `-fprint`, `-fprint0`, `-fprintf`, `-fls` (write files).
  */
 const FIND_PRIMARIES = new Set([
-  '-E', '-H', '-L', '-P', '-X', '-d', '-s', '-x', '-depth', '-follow', '-xdev', '-mount', '-not', '-and', '-or', '-a', '-o', '-true',
-  '-false', '-prune', '-print', '-print0', '-ls', '-empty', '-nouser', '-nogroup', '-readable', '-writable', '-executable', '-quit',
+  '-E',
+  '-H',
+  '-L',
+  '-P',
+  '-X',
+  '-d',
+  '-s',
+  '-x',
+  '-depth',
+  '-follow',
+  '-xdev',
+  '-mount',
+  '-not',
+  '-and',
+  '-or',
+  '-a',
+  '-o',
+  '-true',
+  '-false',
+  '-prune',
+  '-print',
+  '-print0',
+  '-ls',
+  '-empty',
+  '-nouser',
+  '-nogroup',
+  '-readable',
+  '-writable',
+  '-executable',
+  '-quit',
 ]);
 const FIND_VALUES = new Set([
-  '-f', '-name', '-iname', '-path', '-ipath', '-wholename', '-iwholename', '-regex', '-iregex', '-lname', '-ilname', '-type', '-xtype',
-  '-maxdepth', '-mindepth', '-size', '-mtime', '-mmin', '-atime', '-amin', '-ctime', '-cmin', '-Btime', '-Bmin', '-newer', '-anewer',
-  '-cnewer', '-perm', '-user', '-group', '-uid', '-gid', '-links', '-inum', '-samefile', '-printf', '-regextype', '-fstype', '-flags',
+  '-f',
+  '-name',
+  '-iname',
+  '-path',
+  '-ipath',
+  '-wholename',
+  '-iwholename',
+  '-regex',
+  '-iregex',
+  '-lname',
+  '-ilname',
+  '-type',
+  '-xtype',
+  '-maxdepth',
+  '-mindepth',
+  '-size',
+  '-mtime',
+  '-mmin',
+  '-atime',
+  '-amin',
+  '-ctime',
+  '-cmin',
+  '-Btime',
+  '-Bmin',
+  '-newer',
+  '-anewer',
+  '-cnewer',
+  '-perm',
+  '-user',
+  '-group',
+  '-uid',
+  '-gid',
+  '-links',
+  '-inum',
+  '-samefile',
+  '-printf',
+  '-regextype',
+  '-fstype',
+  '-flags',
 ]);
 
 /** Whether every option of a reading program's arguments is on its allowlist. */
@@ -1241,8 +1590,13 @@ export function gooseError(err: unknown, o: Pick<RunOptions, 'model' | 'backends
   const parsed = parseBackendModel(o.model ?? '');
   const label = parsed && o.backends ? backendLabel(o.backends, parsed.backend) : (parsed?.backend ?? 'the backend');
   // xAI answers a wrong key with 400 "Incorrect API key provided"; OpenAI and Anthropic with 401 (Goose: "Authentication required").
-  if (/^Authentication required\b/.test(message) || /Authentication (failed|error)|Incorrect API key|invalid x-api-key|\(401\)/i.test(message)) return new AgentRunError(t().gooseAuthFailed(label));
-  if (/\(404\)/.test(message) && /model/i.test(message)) return new AgentRunError(t().gooseModelNotFound(label, parsed?.model ?? o.model ?? ''));
+  if (
+    /^Authentication required\b/.test(message) ||
+    /Authentication (failed|error)|Incorrect API key|invalid x-api-key|\(401\)/i.test(message)
+  )
+    return new AgentRunError(t().gooseAuthFailed(label));
+  if (/\(404\)/.test(message) && /model/i.test(message))
+    return new AgentRunError(t().gooseModelNotFound(label, parsed?.model ?? o.model ?? ''));
   const unreachable = message.match(/Could not connect to ([^\s—]+)/);
   if (unreachable) return new AgentRunError(t().gooseUnreachable(label, unreachable[1]!));
   // Through the relay sandbox's proxy, a backend that does not answer (a wrong port, a server that is
@@ -1279,7 +1633,14 @@ export function gooseRunner(deps: Partial<AcpTurnDeps> = {}): AgentRunner {
 // --- Asking Goose outside a run ------------------------------------------------------------------
 
 /** One extension request to `goose acp` after `initialize`, without a session or a model; its result. */
-export async function gooseAsk(bin: string, env: NodeJS.ProcessEnv, cwd: string, method: string, params: unknown, timeoutMs: number): Promise<any> {
+export async function gooseAsk(
+  bin: string,
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+  method: string,
+  params: unknown,
+  timeoutMs: number,
+): Promise<any> {
   let result: any;
   let failure: string | undefined;
   const r = await converse({
@@ -1288,7 +1649,13 @@ export async function gooseAsk(bin: string, env: NodeJS.ProcessEnv, cwd: string,
     cwd,
     env,
     timeoutMs,
-    open: (write) => write({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false } } }),
+    open: (write) =>
+      write({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false } },
+      }),
     onMessage: (msg, write, finish) => {
       if (msg.id === 1) return write({ jsonrpc: '2.0', id: 2, method, params });
       if (msg.id !== 2) return;
@@ -1297,7 +1664,8 @@ export async function gooseAsk(bin: string, env: NodeJS.ProcessEnv, cwd: string,
       finish();
     },
   });
-  if (result === undefined) throw new Error(failure ?? (r.timedOut ? t().timedOut : r.stderr.trim().split('\n').pop() || t().exitedWithoutTurn('Goose', null)));
+  if (result === undefined)
+    throw new Error(failure ?? (r.timedOut ? t().timedOut : r.stderr.trim().split('\n').pop() || t().exitedWithoutTurn('Goose', null)));
   return result;
 }
 
@@ -1353,7 +1721,11 @@ function readJson(path: string): any {
 }
 
 /** What Goose's plugins bring: each plugin, its MCP servers (`.mcp.json`) and hooks (`hooks/hooks.json`). */
-export function goosePluginParts(plugins: readonly GoosePluginDir[]): { plugins: NativePlugin[]; mcpServers: NativeMcpServer[]; hooks: NativeHook[] } {
+export function goosePluginParts(plugins: readonly GoosePluginDir[]): {
+  plugins: NativePlugin[];
+  mcpServers: NativeMcpServer[];
+  hooks: NativeHook[];
+} {
   const out = { plugins: [] as NativePlugin[], mcpServers: [] as NativeMcpServer[], hooks: [] as NativeHook[] };
   for (const p of plugins) {
     const source = `plugin ${p.name}`;
@@ -1396,7 +1768,9 @@ export async function gooseNative(bin: string, env: NodeJS.ProcessEnv, cwd: stri
   const problems: NativeProbe['problems'] = [];
   let skills: NativeSkill[] = [];
   try {
-    skills = parseGooseSkills(await gooseAsk(bin, env, cwd, '_goose/unstable/sources/list', { sourceType: 'skill', projectDir: cwd }, timeoutMs));
+    skills = parseGooseSkills(
+      await gooseAsk(bin, env, cwd, '_goose/unstable/sources/list', { sourceType: 'skill', projectDir: cwd }, timeoutMs),
+    );
   } catch (err) {
     problems.push({ kind: 'failed', detail: (err as Error).message });
   }

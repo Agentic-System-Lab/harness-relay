@@ -63,11 +63,15 @@ function send(line) {
   const sent = new Promise((resolve) => {
     let req;
     try {
-      req = http.request(url, { method: 'POST', headers: { 'content-type': 'application/json', 'content-length': body.length }, timeout: 2000 }, (res) => {
-        res.on('error', resolve);
-        res.on('end', resolve);
-        res.resume();
-      });
+      req = http.request(
+        url,
+        { method: 'POST', headers: { 'content-type': 'application/json', 'content-length': body.length }, timeout: 2000 },
+        (res) => {
+          res.on('error', resolve);
+          res.on('end', resolve);
+          res.resume();
+        },
+      );
     } catch {
       return resolve();
     }

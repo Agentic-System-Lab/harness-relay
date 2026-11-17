@@ -2,7 +2,7 @@
 
 # Scheduled and event-triggered runs
 
-> **Status: step 1 built (schedules), and step 3 as a schedule option; webhook triggers (step 2) are still a proposal.** See [Proposals](README.md).
+> **Status: step 1 built (schedules), step 3 as a schedule option, and step 2 (webhooks) for a conversation's schedule; several named triggers per conversation are still a proposal.** See [Proposals](README.md).
 
 ## What was built
 
@@ -16,7 +16,10 @@ Step 1, schedules in the same conversation, is in the app: see [Architecture →
 - **A new conversation per fire (step 3) is a choice of each schedule** (`newChat`, **Start a new chat each time**), which answers the open question below by leaving it to the user: each time opens a conversation with the same team, settings, "always allow" answers and sidebar group, and sends the message there. See [Architecture → Schedules](../architecture.md#schedules).
 - **A schedule can be where a conversation starts** (**New schedule** in the sidebar): the lead agent designs the team for its message when it is created, while the user is there to confirm it, not each time it fires; nothing runs until then.
 
-Still open: webhook triggers (step 2), several named triggers per conversation, and intervals in minutes.
+- **Webhooks (step 2) belong to the conversation's schedule**, one per schedule, rather than being triggers of their own: `POST /api/hooks/:id` with the schedule's token sends the schedule's message now, with the JSON body as `ChatMessage.event`, which the agents get in an `<event>` block (see [Architecture → Schedules](../architecture.md#schedules)). Since the server now has a sign-in, the token stands in for the browser's sign-in on that route alone. A wrong token is a 404, one call per 10 seconds, the body at most 20 KB, as designed below.
+- **A schedule can track a goal**, which this proposal did not have: its runs are told the goal and the latest progress notes, the agents report on it in a `<progress>` block, the schedule switches off once it is reached, and a run that failed is tried again after 5, 30 and 120 minutes (also one a restart cut off).
+
+Still open: several named triggers per conversation (and a webhook of their own each), and intervals in minutes.
 
 Let a conversation start a run without the user typing: at set times ("every weekday at 9:00, review yesterday's commits"), or when a program on this computer reports an event ("CI failed on `main`").
 
@@ -98,7 +101,7 @@ When the server starts (or the computer wakes) after a fire time has passed:
 `POST /api/triggers/:id/fire` with `Authorization: Bearer <token>` and a JSON body.
 
 - The token is made when the trigger is created and shown once; the database keeps only its SHA-256 hash, compared in constant time. "New token" replaces it. A wrong or missing token gets 404, as an unknown trigger does.
-- The route stays under `/api/`, so the Host, Origin and JSON content-type checks apply. Callers are programs on this computer: a git hook, a CI runner, a file watcher, a cron job, `gh webhook forward`.
+- The route stays under `/api/`, so the Host, Origin and JSON content-type checks apply. Callers are programs on this computer: a git hook, a CI runner, a file watcher, a cron job.
 - The posted message is the trigger's `text` followed by the body inside an `<event>` block, cut to 20 KB. The briefing says an `<event>` block is data from a program, not a request from the user: instructions inside it are not to be followed.
 - At most one fire per trigger every 10 seconds; more get 429. Rule 1 of [Firing](#firing) also applies.
 
@@ -159,7 +162,7 @@ One migration appended to `MIGRATIONS` in `src/server/db.ts`:
 Events from the internet (GitHub, Slack, Linear) cannot reach a server bound to `127.0.0.1`, and it should stay that way: the API has no authentication. Ways to use them without exposing it:
 
 - **Polling with a schedule trigger**, which needs nothing new: "every 15 minutes, check new issues with `gh issue list` and triage them".
-- **A forwarder on this computer** that receives the event and calls the webhook trigger, for example `gh webhook forward` for a GitHub repository.
+- **A forwarder on this computer** that receives the event and calls the webhook trigger with its token (a small script of the user's: `gh webhook forward` sends no `Authorization` header, so it cannot call the webhook itself).
 
 Exposing the server through a tunnel is out of scope. If it is ever done, only `POST /api/triggers/:id/fire` may be reachable that way.
 

@@ -15,6 +15,7 @@ import { api } from '../api';
 import { useT, type Messages } from '../i18n';
 import { PROVIDER_COLOR } from '../util';
 import { sectionId } from '../route';
+import { ConnectorsSettings } from './ConnectorsSettings';
 import { SectionTitle } from './SectionTitle';
 import { useDialog } from './useDialog';
 
@@ -49,6 +50,7 @@ export function ToolsCard() {
         !error && <p className="muted small">{t.common.loading}</p>
       ) : (
         <>
+          <RelaySection lib={lib} change={change} />
           <McpSection lib={lib} change={change} />
           <SkillsSection lib={lib} change={change} />
           <MemorySection lib={lib} change={change} />
@@ -60,18 +62,28 @@ export function ToolsCard() {
 
 type Change = (call: () => Promise<ToolLibraryView>) => Promise<boolean>;
 
-/** Who gets an item by default, in a few words. */
-function givenTo(providers: Provider[], t: Messages): string {
-  if (providers.length === PROVIDERS.length) return t.tools.allMembers;
+/** Who gets an item by default, in a few words (`all`: the CLIs that can get it). */
+function givenTo(providers: Provider[], t: Messages, all: readonly Provider[] = PROVIDERS): string {
+  if (providers.length === all.length) return t.tools.allMembers;
   if (!providers.length) return t.tools.offByDefault;
   return t.tools.onlyFor(providers.map((p) => PROVIDER_LABEL[p]).join(t.common.listSeparator));
 }
 
-/** One toggle per CLI: the CLIs whose agents get an item by default. */
-function ProviderPicks({ value, onChange, label }: { value: Provider[]; onChange: (v: Provider[]) => void; label: string }) {
+/** One toggle per CLI: the CLIs whose agents get an item by default (of `choices`, every CLI unless given). */
+function ProviderPicks({
+  value,
+  onChange,
+  label,
+  choices = PROVIDERS,
+}: {
+  value: Provider[];
+  onChange: (v: Provider[]) => void;
+  label: string;
+  choices?: readonly Provider[];
+}) {
   return (
     <div className="provider-picks" role="group" aria-label={label}>
-      {PROVIDERS.map((p) => {
+      {choices.map((p) => {
         const on = value.includes(p);
         return (
           <button
@@ -80,13 +92,90 @@ function ProviderPicks({ value, onChange, label }: { value: Provider[]; onChange
             aria-pressed={on}
             className={on ? 'on' : ''}
             style={{ ['--accent' as string]: PROVIDER_COLOR[p] }}
-            onClick={() => onChange(on ? value.filter((x) => x !== p) : PROVIDERS.filter((x) => x === p || value.includes(x)))}
+            onClick={() => onChange(on ? value.filter((x) => x !== p) : choices.filter((x) => x === p || value.includes(x)))}
           >
             {PROVIDER_LABEL[p]}
           </button>
         );
       })}
     </div>
+  );
+}
+
+/** Harness Relay's own tool groups (through the gateway), and which CLIs' members get each. */
+function RelaySection({ lib, change }: { lib: ToolLibraryView; change: Change }) {
+  const t = useT();
+  return (
+    <section className="tools-section" aria-label={t.tools.relay.title}>
+      <h4>{t.tools.relay.title}</h4>
+      <p className="muted small">{t.tools.relay.hint}</p>
+      {(!lib.gateway.available || lib.gateway.reason) && (
+        <p className="warn-line small">{t.tools.relay.unavailable[lib.gateway.reason ?? 'not-started']}</p>
+      )}
+      <ul className="lib-list">
+        {lib.relayTools.map((g) => (
+          <li key={g.group} className="lib-row relay-group">
+            <div className="lib-row-main">
+              <span className="lib-name">{t.tools.relay.groups[g.group]}</span>
+              <span className={`tool-scope ${g.providers.length ? '' : 'off'}`}>{givenTo(g.providers, t)}</span>
+            </div>
+            <p className="muted small">{t.tools.relay.groupHints[g.group]}</p>
+            <ProviderPicks
+              value={g.providers}
+              label={`${t.tools.relay.groups[g.group]} · ${t.tools.givenTo}`}
+              onChange={(providers) => change(() => api.updateTools({ relayTools: { [g.group]: providers } }))}
+            />
+            {g.group === 'browser' && <BrowserPath lib={lib} change={change} />}
+          </li>
+        ))}
+      </ul>
+      <ConnectorsSettings />
+    </section>
+  );
+}
+
+/**
+ * Which browser the browser tools start: a path of the user's (`browser` in the library), else
+ * RELAY_BROWSER's, else the first found; and the one in use now, or none found.
+ */
+function BrowserPath({ lib, change }: { lib: ToolLibraryView; change: Change }) {
+  const t = useT();
+  const saved = lib.browser.path ?? '';
+  const [path, setPath] = useState(saved);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setPath(saved), [saved]);
+  const save = async () => {
+    setBusy(true);
+    await change(() => api.updateTools({ browser: path.trim() }));
+    setBusy(false);
+  };
+  const dirty = path.trim() !== saved;
+  return (
+    <details className="sub browser-path" open={Boolean(saved) || !lib.browser.using}>
+      <summary>
+        {t.tools.relay.browserPath}
+        {saved && ` (${saved})`}
+      </summary>
+      <div className="sub-body">
+        <p className="muted small">{t.tools.relay.browserPathHint(lib.browser.env ?? '')}</p>
+        <div className="input-row">
+          <input
+            value={path}
+            placeholder={lib.browser.using ?? ''}
+            aria-label={t.tools.relay.browserPath}
+            onChange={(e) => setPath(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !busy && dirty && void save()}
+            spellCheck={false}
+          />
+          <button className="ghost" onClick={() => void save()} disabled={busy || !dirty}>
+            {t.common.save}
+          </button>
+        </div>
+        <p className={`small ${lib.browser.using ? 'muted' : 'warn-text'}`}>
+          {lib.browser.using ? t.tools.relay.browserUsing(lib.browser.using) : t.tools.relay.browserNone}
+        </p>
+      </div>
+    </details>
   );
 }
 
@@ -188,7 +277,14 @@ function McpForm({ server, change, onDone }: { server?: McpServerView; change: C
         transport,
         ...(http
           ? { url: url.trim(), headers: vars(headers) }
-          : { command: command.trim(), args: args.split('\n').map((a) => a.trim()).filter(Boolean), env: vars(env) }),
+          : {
+              command: command.trim(),
+              args: args
+                .split('\n')
+                .map((a) => a.trim())
+                .filter(Boolean),
+              env: vars(env),
+            }),
         providers,
         ...(server ? { previousName: server.name } : {}),
       }),
@@ -208,7 +304,13 @@ function McpForm({ server, change, onDone }: { server?: McpServerView; change: C
           <span>{t.tools.transport}</span>
           <div className="segmented" role="radiogroup" aria-label={t.tools.transport}>
             {(['stdio', 'http'] as const).map((tr) => (
-              <button key={tr} role="radio" aria-checked={transport === tr} className={transport === tr ? 'on' : ''} onClick={() => setTransport(tr)}>
+              <button
+                key={tr}
+                role="radio"
+                aria-checked={transport === tr}
+                className={transport === tr ? 'on' : ''}
+                onClick={() => setTransport(tr)}
+              >
                 {t.tools[tr]}
               </button>
             ))}
@@ -280,7 +382,11 @@ function McpForm({ server, change, onDone }: { server?: McpServerView; change: C
         <button className="ghost" onClick={onDone}>
           {t.common.cancel}
         </button>
-        {renamed.length > 0 && <span className="warn-line small">{t.tools.renamedNeedsValue(renamed.map((r) => r.name.trim()).join(t.common.listSeparator))}</span>}
+        {renamed.length > 0 && (
+          <span className="warn-line small">
+            {t.tools.renamedNeedsValue(renamed.map((r) => r.name.trim()).join(t.common.listSeparator))}
+          </span>
+        )}
         <button className="primary" disabled={saving || !name.trim() || renamed.length > 0} onClick={save}>
           {t.common.save}
         </button>
@@ -338,7 +444,9 @@ function SkillsSection({ lib, change }: { lib: ToolLibraryView; change: Change }
                 <ProviderPicks
                   value={s.providers}
                   label={`${s.name}: ${t.tools.givenTo}`}
-                  onChange={(providers) => change(() => api.updateTools({ skills: list.map((x, j) => (j === i ? { ...x, providers } : x)) }))}
+                  onChange={(providers) =>
+                    change(() => api.updateTools({ skills: list.map((x, j) => (j === i ? { ...x, providers } : x)) }))
+                  }
                 />
               </div>
             </div>
@@ -431,11 +539,20 @@ function SkillPicker({
         </header>
         <p className="muted small">{t.tools.pickHint(found.skills.length, found.path)}</p>
         <div className="skill-picker-tools">
-          <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t.tools.filterSkills} aria-label={t.tools.filterSkills} />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t.tools.filterSkills}
+            aria-label={t.tools.filterSkills}
+          />
           <button className="link-button" onClick={() => setChosen(new Set([...chosen, ...selectable.map((s) => s.path)]))}>
             {t.tools.selectAll}
           </button>
-          <button className="link-button" onClick={() => setChosen(new Set([...chosen].filter((p) => !selectable.some((s) => s.path === p))))}>
+          <button
+            className="link-button"
+            onClick={() => setChosen(new Set([...chosen].filter((p) => !selectable.some((s) => s.path === p))))}
+          >
             {t.tools.selectNone}
           </button>
         </div>
@@ -443,7 +560,12 @@ function SkillPicker({
           {shown.map((s) => (
             <li key={s.path}>
               <label className={`skill-option ${s.added ? 'added' : ''}`}>
-                <input type="checkbox" disabled={s.added} checked={s.added || chosen.has(s.path)} onChange={(e) => toggle(s.path, e.target.checked)} />
+                <input
+                  type="checkbox"
+                  disabled={s.added}
+                  checked={s.added || chosen.has(s.path)}
+                  onChange={(e) => toggle(s.path, e.target.checked)}
+                />
                 <span className="skill-option-text">
                   <span className="skill-option-head">
                     <strong>{s.name}</strong>

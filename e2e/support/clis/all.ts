@@ -19,4 +19,17 @@ import type { CliFacts } from './types';
 
 export type { CliFacts } from './types';
 
-export const FACTS: Record<Provider, CliFacts> = { claude, codex, grok, cursor, antigravity, copilot, muse, opencode, goose, cline, openhands, pi };
+export const FACTS: Record<Provider, CliFacts> = {
+  claude,
+  codex,
+  grok,
+  cursor,
+  antigravity,
+  copilot,
+  muse,
+  opencode,
+  goose,
+  cline,
+  openhands,
+  pi,
+};

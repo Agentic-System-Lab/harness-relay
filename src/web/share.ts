@@ -33,6 +33,8 @@ export const SHARE_DROP = [
   '.todo',
   '.approval-card',
   '.approval-done',
+  '.outbox-card',
+  '.event-block',
   '.changes-card',
   '.ask-card',
   '.typing',
@@ -478,10 +480,7 @@ export interface ShareAnchor {
  * behind, or a link into the app). A file left behind loses its download icon too (`icon: false`): it
  * cannot be downloaded from the page.
  */
-export type AnchorPlan =
-  | { as: 'gone' }
-  | { as: 'text'; icon?: false }
-  | { as: 'link'; href: string; remove: string[]; file: boolean };
+export type AnchorPlan = { as: 'gone' } | { as: 'text'; icon?: false } | { as: 'link'; href: string; remove: string[]; file: boolean };
 
 /** What the page makes of `a`, `files` being the links to the files that go along, their places their placeholders' numbers. */
 export function anchorPlan(a: ShareAnchor, convId: string, files: ShareFileRef[]): AnchorPlan {

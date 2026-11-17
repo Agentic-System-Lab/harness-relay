@@ -1,8 +1,32 @@
-import { chmodSync, type Dirent, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  type Dirent,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, join, relative } from 'node:path';
-import { API_BACKEND_LABEL, PROVIDER_LABEL, isApiBackend, parseBackendModel, type ModelOption, type NativeAgent, type NativeHook, type NativeMemoryFile, type NativeSkill, type Permission } from '../../shared/types';
+import {
+  API_BACKEND_LABEL,
+  PROVIDER_LABEL,
+  isApiBackend,
+  parseBackendModel,
+  type ModelOption,
+  type NativeAgent,
+  type NativeHook,
+  type NativeMemoryFile,
+  type NativeSkill,
+  type Permission,
+} from '../../shared/types';
 import { backendLabel, type BackendRun } from '../backends';
 import { commandLine, isPublishCommand } from '../commands';
 import { commandPaths, overlaps, protectedReads } from '../protect';
@@ -10,7 +34,17 @@ import { t } from '../i18n';
 import type { NativeProbe } from '../native';
 import { runProcess, stripAnsi } from '../process';
 import { leftoverSweepPids } from '../relaySandbox';
-import { acpBriefing, acpPermissionDecision, acpPromptText, acpRunner, type AcpAgentSpec, type AcpCallInfo, type AcpDecision, type AcpToolCall, type AcpTurnDeps } from './acpTurn';
+import {
+  acpBriefing,
+  acpPermissionDecision,
+  acpPromptText,
+  acpRunner,
+  type AcpAgentSpec,
+  type AcpCallInfo,
+  type AcpDecision,
+  type AcpToolCall,
+  type AcpTurnDeps,
+} from './acpTurn';
 import type { OpenAgentDefinition, OpenCatalog, OpenHomeLayout, OpenRunContext, OpenSandboxNeeds } from './open';
 import { AgentRunError, type AgentRunner, type McpServerSpec, type RunOptions, type RunResult } from './types';
 
@@ -179,7 +213,10 @@ export function openhandsEffort(effort: string | undefined): string | undefined 
 export type LitellmModelInfo = { supports_reasoning?: boolean; supports_xhigh_reasoning_effort?: boolean; [k: string]: unknown };
 
 /** The run's model in LiteLLM's list (`<provider>/<model>` or the bare name); an endpoint's is not there. */
-export function openhandsModelInfo(models: Record<string, unknown> | undefined, run: Pick<BackendRun, 'kind' | 'model'>): LitellmModelInfo | undefined {
+export function openhandsModelInfo(
+  models: Record<string, unknown> | undefined,
+  run: Pick<BackendRun, 'kind' | 'model'>,
+): LitellmModelInfo | undefined {
   if (!models || run.kind === 'endpoint') return undefined;
   const v = models[`${run.kind}/${run.model}`] ?? models[run.model];
   return v && typeof v === 'object' ? (v as LitellmModelInfo) : undefined;
@@ -248,7 +285,7 @@ export function openhandsBashrc(serverEnv: NodeJS.ProcessEnv): string {
     const v = name === 'HOME' ? serverEnv.HOME || homedir() : serverEnv[name];
     return v ? `export ${name}=${shellQuote(v)}` : `unset ${name}`;
   });
-  return ['# Written by Harness Relay for one OpenHands run: commands get the user\'s own HOME back.', ...lines, ''].join('\n');
+  return ["# Written by Harness Relay for one OpenHands run: commands get the user's own HOME back.", ...lines, ''].join('\n');
 }
 
 /** The path of OpenHands' tmux socket under `dir`, as tmux makes it (from the folder's real path). */
@@ -321,7 +358,11 @@ export function openhandsUpdateMetrics(meta: unknown): OpenhandsMetrics | undefi
 }
 
 /** The turn's tokens and cost: what OpenHands counted at its end, less what the conversation had before. */
-export function openhandsUsage(last: OpenhandsMetrics | undefined, before: OpenhandsMetrics | undefined, run: Pick<BackendRun, 'kind'>): Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'> {
+export function openhandsUsage(
+  last: OpenhandsMetrics | undefined,
+  before: OpenhandsMetrics | undefined,
+  run: Pick<BackendRun, 'kind'>,
+): Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'> {
   if (!last || !before) return {};
   const d = (a: number, b: number) => Math.max(0, a - b);
   const cost = d(last.cost, before.cost);
@@ -417,7 +458,8 @@ export function openhandsEventLog(sessionDir: string): OpenhandsEventLog {
       if (typeof e.tool_call_id !== 'string') return unsound;
       failedCalls.add(e.tool_call_id);
     } else if (e.kind === 'ActionEvent') {
-      if (typeof e.tool_call_id !== 'string' || typeof e.tool_name !== 'string' || (e.action != null && !isObject(e.action))) return unsound;
+      if (typeof e.tool_call_id !== 'string' || typeof e.tool_name !== 'string' || (e.action != null && !isObject(e.action)))
+        return unsound;
       if (e.action != null && !answered.has(e.id) && !failedCalls.has(e.tool_call_id)) {
         actions.unshift({ id: e.id, toolCallId: e.tool_call_id, toolName: e.tool_name, action: e.action });
       }
@@ -453,7 +495,9 @@ export function openhandsResumable(log: OpenhandsEventLog): boolean {
 export function openhandsEndTurn(ctx: Pick<OpenRunContext, 'home'>, sessionId: string): void {
   let status: unknown;
   try {
-    const state = JSON.parse(readFileSync(join(openhandsSessionDir(join(ctx.home.state, 'conversations'), sessionId), 'base_state.json'), 'utf8')) as unknown;
+    const state = JSON.parse(
+      readFileSync(join(openhandsSessionDir(join(ctx.home.state, 'conversations'), sessionId), 'base_state.json'), 'utf8'),
+    ) as unknown;
     status = isObject(state) ? state.execution_status : undefined;
   } catch {
     return; // nothing to tell
@@ -471,8 +515,12 @@ export const LEFTOVER_REASON =
  * event for each, at the log's next indexes), so that resuming the session neither runs them nor asks
  * about them; the model reads why. Returns how many it rejected.
  */
-export function openhandsRejectLeftovers(sessionDir: string, log: OpenhandsEventLog = openhandsEventLog(sessionDir), now = new Date()): number {
-  if (!log.sound) throw new Error('the session\'s event log is not as OpenHands writes it');
+export function openhandsRejectLeftovers(
+  sessionDir: string,
+  log: OpenhandsEventLog = openhandsEventLog(sessionDir),
+  now = new Date(),
+): number {
+  if (!log.sound) throw new Error("the session's event log is not as OpenHands writes it");
   log.actions.forEach((a, i) => {
     const id = randomUUID();
     const event = {
@@ -486,7 +534,10 @@ export function openhandsRejectLeftovers(sessionDir: string, log: OpenhandsEvent
       action_id: a.id,
       kind: 'UserRejectObservation',
     };
-    writeFileSync(join(sessionDir, 'events', `event-${String(log.next + i).padStart(5, '0')}-${id}.json`), JSON.stringify(event), { flag: 'wx', mode: 0o600 });
+    writeFileSync(join(sessionDir, 'events', `event-${String(log.next + i).padStart(5, '0')}-${id}.json`), JSON.stringify(event), {
+      flag: 'wx',
+      mode: 0o600,
+    });
   });
   return log.actions.length;
 }
@@ -502,7 +553,11 @@ export function openhandsSessionHas(sessionDir: string, text: string): boolean {
   // user left out since (in the library or a member's Tools) leaves the new briefing a prefix of the old.
   const whole = (s: string) => s.includes(`${want}\n[END Context]`) || s.trimEnd().endsWith(want);
   const found = (x: unknown): boolean =>
-    typeof x === 'string' ? whole(x) : Array.isArray(x) ? x.some(found) : Boolean(x) && typeof x === 'object' && Object.values(x as object).some(found);
+    typeof x === 'string'
+      ? whole(x)
+      : Array.isArray(x)
+        ? x.some(found)
+        : Boolean(x) && typeof x === 'object' && Object.values(x as object).some(found);
   try {
     return found(JSON.parse(readFileSync(join(events, first), 'utf8')));
   } catch {
@@ -703,7 +758,12 @@ export function openhandsCallInfo(call: OpenhandsCall): Partial<AcpCallInfo> & {
     case 'TerminalAction':
       return { kind: 'execute', tool: 'terminal', command: commandLine(input.command) ?? '', ...(title ? { title } : {}) };
     case 'FileEditorAction':
-      return { kind: (input.editor_command ?? input.command) === 'view' ? 'read' : 'edit', tool: 'file_editor', ...(path ? { path } : {}), ...(title ? { title } : {}) };
+      return {
+        kind: (input.editor_command ?? input.command) === 'view' ? 'read' : 'edit',
+        tool: 'file_editor',
+        ...(path ? { path } : {}),
+        ...(title ? { title } : {}),
+      };
     case 'TaskTrackerAction':
       return { kind: 'think', tool: 'task_tracker', title: title ?? 'task_tracker' };
     case 'InvokeSkillAction':
@@ -715,13 +775,24 @@ export function openhandsCallInfo(call: OpenhandsCall): Partial<AcpCallInfo> & {
       return { kind: 'think', title: title ?? 'think' };
     case 'TaskAction':
     case 'DelegateAction':
-      return { kind: 'other', tool: input.kind === 'TaskAction' ? 'task' : 'delegate', title: title ?? 'subagent', ...(typeof input.description === 'string' ? { reason: input.description } : {}) };
+      return {
+        kind: 'other',
+        tool: input.kind === 'TaskAction' ? 'task' : 'delegate',
+        title: title ?? 'subagent',
+        ...(typeof input.description === 'string' ? { reason: input.description } : {}),
+      };
     case 'MCPToolAction': {
       // Its update names no tool (only the model's summary, as its title): the log does (`tool_name`).
       // The card shows the tool and what it is given; "always allow" goes by the tool.
       const name = call.toolName?.trim() || undefined;
-      const data = input.data && typeof input.data === 'object' && !Array.isArray(input.data) ? (input.data as Record<string, unknown>) : undefined;
-      return { kind: 'other', tool: name ?? title ?? 'MCP tool', ...(title || name ? { title: title ?? name } : {}), ...(data ? { input: data } : {}) };
+      const data =
+        input.data && typeof input.data === 'object' && !Array.isArray(input.data) ? (input.data as Record<string, unknown>) : undefined;
+      return {
+        kind: 'other',
+        tool: name ?? title ?? 'MCP tool',
+        ...(title || name ? { title: title ?? name } : {}),
+        ...(data ? { input: data } : {}),
+      };
     }
     default:
       return { kind: call.kind ?? 'other', ...(title ? { title } : {}) };
@@ -748,7 +819,8 @@ export type OpenhandsCallInfo = AcpCallInfo & { calls?: OpenhandsCoveredCall[]; 
 export type OpenhandsCoveredCall = Partial<AcpCallInfo> & { kind: string; id?: string };
 
 /** A call as the card lists it. */
-const callName = (i: Partial<AcpCallInfo>) => (i.command ? `$ ${i.command}` : [i.title ?? i.tool ?? 'action', i.path].filter(Boolean).join(': '));
+const callName = (i: Partial<AcpCallInfo>) =>
+  i.command ? `$ ${i.command}` : [i.title ?? i.tool ?? 'action', i.path].filter(Boolean).join(': ');
 
 /** Calls that only read, plan or think: every permission lets them run. */
 const onlyReads = (i: Partial<AcpCallInfo> & { kind: string }) => (i.kind === 'read' || i.kind === 'think') && !i.command;
@@ -795,19 +867,28 @@ export function openhandsRequestCalls(recent: AcpToolCall[], turn: OpenhandsTurn
  * so that an "always" answer matches only the same calls again. Its title and reason are in the user's
  * language; its rule keys (`tool`) are not.
  */
-export function openhandsDescribeCall(_call: AcpToolCall, _earlier: AcpToolCall | undefined, recent: AcpToolCall[], turn?: OpenhandsTurn): Partial<OpenhandsCallInfo> {
+export function openhandsDescribeCall(
+  _call: AcpToolCall,
+  _earlier: AcpToolCall | undefined,
+  recent: AcpToolCall[],
+  turn?: OpenhandsTurn,
+): Partial<OpenhandsCallInfo> {
   const { calls: covered, unsure } = openhandsRequestCalls(recent, turn);
   const flag = unsure ? { unsure: true } : {};
   // Nothing tells such a request apart: it is allowed once only, never always (`anonymous`: no rule keys).
   if (!covered.length) return { kind: 'other', title: t().openhandsAction, tool: UNKNOWN_TOOL, calls: [], anonymous: true, ...flag };
-  const calls: OpenhandsCoveredCall[] = covered.map((c) => ({ ...openhandsCallInfo(c), ...(c.toolCallId ? { id: String(c.toolCallId) } : {}) }));
+  const calls: OpenhandsCoveredCall[] = covered.map((c) => ({
+    ...openhandsCallInfo(c),
+    ...(c.toolCallId ? { id: String(c.toolCallId) } : {}),
+  }));
   const { id: _, ...pick } = calls.reduce((a, b) => (rank(b) > rank(a) ? b : a));
   const title = pick.title ?? (pick.command || pick.path ? callName(pick) : (pick.tool ?? t().openhandsAction));
   if (calls.length === 1) return { ...pick, title, calls, ...flag };
   const reason = t().openhandsBatch(calls.length, calls.map(callName));
   const acting = calls.filter((i) => !onlyReads(i));
   const head = { title: t().openhandsBatchTitle(title, calls.length - 1), reason, calls, ...flag };
-  if (acting.length && acting.every((i) => i.kind === 'execute')) return { ...head, kind: 'execute', command: acting.map((i) => i.command ?? '').join('\n') };
+  if (acting.length && acting.every((i) => i.kind === 'execute'))
+    return { ...head, kind: 'execute', command: acting.map((i) => i.command ?? '').join('\n') };
   if (acting.length && acting.every((i) => i.kind === 'edit')) {
     const paths = acting.map((i) => i.path).filter((p): p is string => Boolean(p));
     return { ...head, kind: 'edit', ...(paths.length ? { path: [...new Set(paths)].join('\n') } : {}) };
@@ -833,14 +914,16 @@ export function openhandsDecide(permission: Permission, info: OpenhandsCallInfo)
   const calls: OpenhandsCoveredCall[] = info.calls ?? [info];
   // Each row of a batch says why it did not run: its own reason, or that another one held the batch back.
   const rows = (own: (c: OpenhandsCoveredCall) => string | undefined) =>
-    calls.length > 1 ? { labels: Object.fromEntries(calls.filter((c) => c.id).map((c) => [c.id!, own(c) ?? t().openhandsBatchRefused])) } : {};
+    calls.length > 1
+      ? { labels: Object.fromEntries(calls.filter((c) => c.id).map((c) => [c.id!, own(c) ?? t().openhandsBatchRefused])) }
+      : {};
   const subagent = (c: OpenhandsCoveredCall) => c.tool === 'task' || c.tool === 'delegate';
   if (calls.some(subagent)) {
     return {
       allow: false,
       reason:
-        'Not run: OpenHands subagents run their own commands and edits without asking, which this conversation\'s permission ' +
-        '(the user\'s Harness Relay setting) does not allow. Do not retry it; do the work yourself with your own tools.',
+        "Not run: OpenHands subagents run their own commands and edits without asking, which this conversation's permission " +
+        "(the user's Harness Relay setting) does not allow. Do not retry it; do the work yourself with your own tools.",
       label: t().openhandsSubagentRefused,
       ...rows((c) => (subagent(c) ? t().openhandsSubagentRefused : undefined)),
     };
@@ -849,10 +932,14 @@ export function openhandsDecide(permission: Permission, info: OpenhandsCallInfo)
   const decisions = calls.map((c) => acpPermissionDecision(permission, { title: c.title ?? c.tool ?? 'tool', ...c }, CLI));
   const refused = decisions.find((d) => !d.allow);
   if (!refused || refused.allow) return { allow: true };
-  return { ...refused, ask: true, ...rows((c) => {
-    const d = decisions[calls.indexOf(c)]!;
-    return d.allow ? undefined : d.label;
-  }) };
+  return {
+    ...refused,
+    ask: true,
+    ...rows((c) => {
+      const d = decisions[calls.indexOf(c)]!;
+      return d.allow ? undefined : d.label;
+    }),
+  };
 }
 
 // --- Its updates -----------------------------------------------------------------------------------------------
@@ -871,7 +958,11 @@ const TOOL_NAMES: Record<string, string> = {
 export function openhandsToolName(u: Record<string, any>): string {
   const kind = u.rawInput?.kind;
   const editor = kind === 'FileEditorAction' && typeof u.rawInput?.editor_command === 'string' ? ` ${u.rawInput.editor_command}` : '';
-  return TOOL_NAMES[kind] ? `${TOOL_NAMES[kind]}${editor}` : typeof u.title === 'string' && u.title.trim() ? u.title : String(u.kind ?? 'tool');
+  return TOOL_NAMES[kind]
+    ? `${TOOL_NAMES[kind]}${editor}`
+    : typeof u.title === 'string' && u.title.trim()
+      ? u.title
+      : String(u.kind ?? 'tool');
 }
 
 /**
@@ -913,7 +1004,8 @@ export function isOpenhandsErrorNotice(text: string): boolean {
 export function openhandsMessageText(text: string): string {
   if (text.trim() === '[no text content]') return '';
   const finish = text.lastIndexOf(FINISH);
-  if (finish >= 0 && /^(Predicted Security Risk: |Summary: |Reasoning:\n|Thought:\n|$)/.test(text.slice(0, finish))) return text.slice(finish + FINISH.length);
+  if (finish >= 0 && /^(Predicted Security Risk: |Summary: |Reasoning:\n|Thought:\n|$)/.test(text.slice(0, finish)))
+    return text.slice(finish + FINISH.length);
   let out = text;
   const skills = out.lastIndexOf('\n\nActivated Skills: ');
   if (skills >= 0 && !out.slice(skills + 2).includes('\n')) out = out.slice(0, skills);
@@ -947,7 +1039,7 @@ export function withoutEcho(text: string, command: string | undefined): string {
   const want = squash(command);
   if (!want) return text;
   let got = '';
-  for (let at = 0; at < text.length; ) {
+  for (let at = 0; at < text.length;) {
     const nl = text.indexOf('\n', at);
     const line = nl < 0 ? text.slice(at) : text.slice(at, nl);
     got += squash(line);
@@ -998,7 +1090,11 @@ export function openhandsToolResult(
  */
 function sandboxed(text: string, sandbox: 'read-only' | 'edit' | undefined, isProtected: (text: string) => boolean): string {
   if (!sandbox || !/Operation not permitted/.test(text)) return text;
-  const why = isProtected(text) ? t().openhandsSandboxProtected : sandbox === 'read-only' ? t().openhandsSandboxRefusedReadOnly : t().openhandsSandboxRefused;
+  const why = isProtected(text)
+    ? t().openhandsSandboxProtected
+    : sandbox === 'read-only'
+      ? t().openhandsSandboxRefusedReadOnly
+      : t().openhandsSandboxRefused;
   return `${why}\n${text.replace(/^\u274c \[An error occurred during execution\.\]\n/, '')}`;
 }
 
@@ -1061,7 +1157,8 @@ function filterOne(u: Record<string, any>, ctx: FilterContext): Record<string, a
         const commands = (ctx.state.commands ??= {}) as Record<string, string>;
         commands[String(u.toolCallId)] = u.rawInput.command;
       }
-      if (typeof u.rawInput?.path === 'string' && u.toolCallId) ((ctx.state.paths ??= {}) as Record<string, string>)[String(u.toolCallId)] = u.rawInput.path;
+      if (typeof u.rawInput?.path === 'string' && u.toolCallId)
+        ((ctx.state.paths ??= {}) as Record<string, string>)[String(u.toolCallId)] = u.rawInput.path;
       return u.rawInput ? { ...u, rawInput: openhandsInput(u.rawInput) } : u;
     }
     case 'tool_call_update':
@@ -1107,16 +1204,31 @@ export function openhandsError(err: unknown, o: Pick<RunOptions, 'model' | 'back
   if (!(err instanceof AgentRunError) || err.aborted) return err;
   const detail = openhandsErrorDetail(err.message);
   const parsed = parseBackendModel(o.model ?? '');
-  const backend = parsed ? (o.backends ? backendLabel(o.backends, parsed.backend) : isApiBackend(parsed.backend) ? API_BACKEND_LABEL[parsed.backend] : parsed.backend) : CLI;
+  const backend = parsed
+    ? o.backends
+      ? backendLabel(o.backends, parsed.backend)
+      : isApiBackend(parsed.backend)
+        ? API_BACKEND_LABEL[parsed.backend]
+        : parsed.backend
+    : CLI;
   const model = parsed?.model ?? o.model ?? '';
   let message: string | undefined;
-  if (/does not support parameter reasoning|reasoning_?effort.{0,40}(not supported|unsupported|unrecognized|unknown)/i.test(detail)) message = t().openhandsNoEffort(backend, model);
-  else if (/litellm\.AuthenticationError|Error code: 401|invalid x-api-key|Incorrect API key/i.test(detail)) message = t().openhandsBadKey(backend);
-  else if (/litellm\.NotFoundError|model_not_found|does not exist|not_found_error|Model .* not found/i.test(detail)) message = t().openhandsBadModel(backend, model);
-  else if (/litellm\.RateLimitError|Error code: 429|insufficient_quota/i.test(detail)) message = t().openhandsRateLimited(backend, short(detail));
+  if (/does not support parameter reasoning|reasoning_?effort.{0,40}(not supported|unsupported|unrecognized|unknown)/i.test(detail))
+    message = t().openhandsNoEffort(backend, model);
+  else if (/litellm\.AuthenticationError|Error code: 401|invalid x-api-key|Incorrect API key/i.test(detail))
+    message = t().openhandsBadKey(backend);
+  else if (/litellm\.NotFoundError|model_not_found|does not exist|not_found_error|Model .* not found/i.test(detail))
+    message = t().openhandsBadModel(backend, model);
+  else if (/litellm\.RateLimitError|Error code: 429|insufficient_quota/i.test(detail))
+    message = t().openhandsRateLimited(backend, short(detail));
   // Below full access the relay sandbox's proxy answers a backend it cannot reach with 502 Bad Gateway
   // (LiteLLM: `BadGatewayError`; a tunnel it could not open, `Tunnel connection failed`).
-  else if (/litellm\.(APIConnectionError|Timeout|BadGatewayError)|Connection error|ConnectError|nodename nor servname|Name or service not known|Connection refused|ProxyError|Error code: 502|Bad Gateway|Tunnel connection failed/i.test(detail)) message = t().openhandsUnreachable(backend, short(detail));
+  else if (
+    /litellm\.(APIConnectionError|Timeout|BadGatewayError)|Connection error|ConnectError|nodename nor servname|Name or service not known|Connection refused|ProxyError|Error code: 502|Bad Gateway|Tunnel connection failed/i.test(
+      detail,
+    )
+  )
+    message = t().openhandsUnreachable(backend, short(detail));
   else if (/^new-session: |fork failed|tmux/i.test(detail)) message = t().openhandsTerminal(short(detail));
   else if (detail !== err.message) message = t().openhandsFailed(short(detail));
   return message ? new AgentRunError(message) : err;
@@ -1199,7 +1311,10 @@ export function openhandsModelEfforts(info: LitellmModelInfo | undefined): strin
 const LITELLM_LIST = 'model_prices_and_context_window_backup.json';
 let litellmCache: { file: string; mtime: number; data: Record<string, unknown> } | undefined;
 
-export function litellmModelList(bin: string, env: NodeJS.ProcessEnv = process.env): { file: string; data: Record<string, unknown> } | undefined {
+export function litellmModelList(
+  bin: string,
+  env: NodeJS.ProcessEnv = process.env,
+): { file: string; data: Record<string, unknown> } | undefined {
   for (const dir of openhandsSitePackages(bin, env)) {
     const file = join(dir, 'litellm', LITELLM_LIST);
     let mtime: number;
@@ -1353,9 +1468,13 @@ export async function openhandsNative(_bin: string, _env: NodeJS.ProcessEnv, cwd
   const seenAgents = new Set<string>();
   for (const root of roots) {
     const source = root === cwd ? 'project' : 'repository root';
-    for (const name of listDir(root)) if (INSTRUCTION_FILES.includes(name.toLowerCase()) && isFile(join(root, name))) memory.push({ path: join(root, name), kind: 'instructions' });
-    for (const d of SKILL_DIRS) for (const s of openhandsSkillsIn(join(root, d), source)) if (!seenSkills.has(s.name) && seenSkills.add(s.name)) skills.push(s);
-    for (const d of AGENT_DIRS) for (const a of agentsIn(join(root, d), source)) if (!seenAgents.has(a.name) && seenAgents.add(a.name)) agents.push(a);
+    for (const name of listDir(root))
+      if (INSTRUCTION_FILES.includes(name.toLowerCase()) && isFile(join(root, name)))
+        memory.push({ path: join(root, name), kind: 'instructions' });
+    for (const d of SKILL_DIRS)
+      for (const s of openhandsSkillsIn(join(root, d), source)) if (!seenSkills.has(s.name) && seenSkills.add(s.name)) skills.push(s);
+    for (const d of AGENT_DIRS)
+      for (const a of agentsIn(join(root, d), source)) if (!seenAgents.has(a.name) && seenAgents.add(a.name)) agents.push(a);
   }
   const hooksFile = join(cwd, '.openhands', 'hooks.json');
   const hooks = isFile(hooksFile) ? parseOpenhandsHooks(readText(hooksFile), hooksFile, 'project') : [];
@@ -1410,7 +1529,8 @@ export const openhandsAcp: AcpAgentSpec = {
   heldUpdates: openhandsHeldUpdates,
   promptText: openhandsPromptText,
   endTurn: (_result, ctx, sessionId) => openhandsEndTurn(ctx, sessionId),
-  usage: (_result, _last, ctx) => openhandsUsage(ctx.state.metrics as OpenhandsMetrics | undefined, ctx.state.before as OpenhandsMetrics | undefined, ctx.run),
+  usage: (_result, _last, ctx) =>
+    openhandsUsage(ctx.state.metrics as OpenhandsMetrics | undefined, ctx.state.before as OpenhandsMetrics | undefined, ctx.run),
   // It never exits when its stdin closes.
   exitGraceMs: 0,
 };

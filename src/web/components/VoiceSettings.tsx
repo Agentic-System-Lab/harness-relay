@@ -72,7 +72,9 @@ export function VoiceCard() {
             <p className="warn-line">{engine.problem ?? engine.installerNote}</p>
           ) : (
             <span className="muted small">
-              {engine.installer === 'homebrew' ? t.voice.engineMissingHomebrew : t.voice.engineMissingDownload(formatBytes(engine.downloadSize ?? 0))}
+              {engine.installer === 'homebrew'
+                ? t.voice.engineMissingHomebrew
+                : t.voice.engineMissingDownload(formatBytes(engine.downloadSize ?? 0))}
             </span>
           )}
         </div>
@@ -110,21 +112,25 @@ export function VoiceCard() {
                     <div className="muted small">{desc}</div>
                   </div>
                   <div className="button-row">
-                    {m.downloaded
-                      ? !active && (
-                          <button className="ghost small-button" disabled={busy} onClick={() => void act(() => api.updateVoice({ model: m.id }))}>
-                            {t.voice.use}
-                          </button>
-                        )
-                      : (
-                          <button
-                            className="ghost small-button"
-                            disabled={busy || running || !canInstall}
-                            onClick={() => void act(() => api.installVoice(m.id))}
-                          >
-                            {t.voice.downloadAndUse}
-                          </button>
-                        )}
+                    {m.downloaded ? (
+                      !active && (
+                        <button
+                          className="ghost small-button"
+                          disabled={busy}
+                          onClick={() => void act(() => api.updateVoice({ model: m.id }))}
+                        >
+                          {t.voice.use}
+                        </button>
+                      )
+                    ) : (
+                      <button
+                        className="ghost small-button"
+                        disabled={busy || running || !canInstall}
+                        onClick={() => void act(() => api.installVoice(m.id))}
+                      >
+                        {t.voice.downloadAndUse}
+                      </button>
+                    )}
                     {m.downloaded && (
                       <button
                         className="ghost small-button"
@@ -172,7 +178,11 @@ export function VoiceCard() {
           </label>
           <p className="muted small">{t.voice.binHint}</p>
           <div className="button-row">
-            <button className="ghost" disabled={busy || bin.trim() === status.bin} onClick={() => void act(() => api.updateVoice({ bin }), t.settings.saved)}>
+            <button
+              className="ghost"
+              disabled={busy || bin.trim() === status.bin}
+              onClick={() => void act(() => api.updateVoice({ bin }), t.settings.saved)}
+            >
               {t.common.save}
             </button>
           </div>

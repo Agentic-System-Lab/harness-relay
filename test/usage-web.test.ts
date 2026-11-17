@@ -2,7 +2,16 @@ import { describe, expect, it } from 'vitest';
 import type { AccountUsage, UsageLimit } from '../src/shared/types';
 import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
-import { usageCredits, usageLeft, usageLevel, usageLimitLabel, usageLine, usageNoneText, usageProblemText, usageResets } from '../src/web/usage';
+import {
+  usageCredits,
+  usageLeft,
+  usageLevel,
+  usageLimitLabel,
+  usageLine,
+  usageNoneText,
+  usageProblemText,
+  usageResets,
+} from '../src/web/usage';
 
 /* How Settings shows an account's plan usage (`src/web/usage.ts`, for `components/UsagePanel.tsx`). */
 
@@ -15,7 +24,7 @@ describe("a limit's name", () => {
     expect(usageLimitLabel({ span: 'fiveHour', usedPercent: 0 }, zhTW)).toBe('5 小時額度');
   });
 
-  it('names what a limit counts when the UI knows it (Copilot\'s premium requests), in either language', () => {
+  it("names what a limit counts when the UI knows it (Copilot's premium requests), in either language", () => {
     expect(usageLimitLabel({ span: 'month', kind: 'premiumRequests', usedPercent: 0 }, en)).toBe('Monthly limit · Premium requests');
     expect(usageLimitLabel({ span: 'month', kind: 'completions', usedPercent: 0 }, zhTW)).toBe('每月額度 · 程式碼補全');
   });
@@ -76,7 +85,9 @@ describe('the credits and why there are no limits', () => {
 
   it('says why, by CLI when the CLI does not report usage, and nothing when an error says why', () => {
     expect(usageNoneText(usage({ none: 'apiKey' }), en)).toMatch(/^This account runs on an API key/);
-    expect(usageNoneText(usage({ provider: 'cursor', none: 'notReported' }), en)).toMatch(/^Cursor's CLI shows usage only in its own terminal UI/);
+    expect(usageNoneText(usage({ provider: 'cursor', none: 'notReported' }), en)).toMatch(
+      /^Cursor's CLI shows usage only in its own terminal UI/,
+    );
     expect(usageNoneText(usage({ provider: 'opencode', none: 'notReported' }), en)).toBe('This CLI does not report plan usage.');
     expect(usageNoneText(usage({ provider: 'copilot', none: 'unlimited' }), en)).toBe("This account's plan has no usage limits.");
     expect(usageNoneText(usage({ none: 'noData', error: 'boom' }), en)).toBe('');
@@ -89,7 +100,9 @@ describe('the credits and why there are no limits', () => {
   });
 
   it("words what went wrong: the CLI's own words as they are, Harness Relay's in the UI's language", () => {
-    expect(usageProblemText(usage({ error: 'Unsupported control request subtype: get_usage' }), zhTW)).toBe('Unsupported control request subtype: get_usage');
+    expect(usageProblemText(usage({ error: 'Unsupported control request subtype: get_usage' }), zhTW)).toBe(
+      'Unsupported control request subtype: get_usage',
+    );
     expect(usageProblemText(usage({ problem: 'timedOut' }), en)).toBe('The CLI did not answer in time.');
     expect(usageProblemText(usage({ provider: 'codex', problem: 'cliMissing' }), zhTW)).toBe('找不到 Codex 的 CLI。');
     expect(usageProblemText(usage({ provider: 'codex', problem: 'cliMissing' }), en)).toBe("Codex's CLI was not found.");

@@ -8,7 +8,8 @@ function disk(files: Record<string, string>): LaunchFs {
   const key = (p: string) => p.toLowerCase();
   const all = new Map(Object.entries(files).map(([p, text]) => [key(p), text]));
   const dirs = new Set<string>();
-  for (const p of Object.keys(files)) for (let d = p; d.includes('\\'); d = d.slice(0, d.lastIndexOf('\\'))) dirs.add(key(d.slice(0, d.lastIndexOf('\\'))));
+  for (const p of Object.keys(files))
+    for (let d = p; d.includes('\\'); d = d.slice(0, d.lastIndexOf('\\'))) dirs.add(key(d.slice(0, d.lastIndexOf('\\'))));
   return {
     isFile: (p) => all.has(key(p)),
     isDir: (p) => dirs.has(key(p)),
@@ -57,7 +58,10 @@ describe('finding a CLI on Windows', () => {
 describe('starting a CLI on Windows', () => {
   it('starts a program as it is, and leaves a command that is not there for spawn to report missing', () => {
     const fs = disk({ 'C:\\Users\\me\\.grok\\bin\\grok.exe': '' });
-    expect(windowsLaunch('grok', ['agent', 'stdio'], env('C:\\Users\\me\\.grok\\bin'), fs)).toEqual({ file: 'C:\\Users\\me\\.grok\\bin\\grok.exe', args: ['agent', 'stdio'] });
+    expect(windowsLaunch('grok', ['agent', 'stdio'], env('C:\\Users\\me\\.grok\\bin'), fs)).toEqual({
+      file: 'C:\\Users\\me\\.grok\\bin\\grok.exe',
+      args: ['agent', 'stdio'],
+    });
     // Not there: said so, not started bare (Windows would look in the working directory first).
     expect(windowsLaunch('codex', ['app-server'], env('C:\\nowhere'), fs)).toEqual({ file: 'codex', args: ['app-server'], missing: true });
   });
@@ -86,22 +90,31 @@ describe('starting a CLI on Windows', () => {
     const none = disk({ [`${NPM}\\pi.cmd`]: shim, [script]: '' });
     expect(windowsLaunch('pi', [], env(NPM), none, 'C:\\relay\\node.exe')).toEqual({ file: 'C:\\relay\\node.exe', args: [script] });
     // No Node at all (the desktop app is no Node): said so.
-    expect(() => withLang('en', () => windowsLaunch('pi', [], env(NPM), none, null))).toThrow(`"pi" is ${NPM}\\pi.cmd, which runs on Node.js, and no Node.js is on the PATH`);
+    expect(() => withLang('en', () => windowsLaunch('pi', [], env(NPM), none, null))).toThrow(
+      `"pi" is ${NPM}\\pi.cmd, which runs on Node.js, and no Node.js is on the PATH`,
+    );
     // Its script not there: a broken install, said so.
-    expect(() => withLang('en', () => windowsLaunch('pi', [], env(NPM), disk({ [`${NPM}\\pi.cmd`]: shim }), 'C:\\relay\\node.exe'))).toThrow(`and ${script}, which it runs, is not there: install pi again`);
+    expect(() =>
+      withLang('en', () => windowsLaunch('pi', [], env(NPM), disk({ [`${NPM}\\pi.cmd`]: shim }), 'C:\\relay\\node.exe')),
+    ).toThrow(`and ${script}, which it runs, is not there: install pi again`);
     // Older npm: `%~dp0`, node.exe named in the line.
     const old = disk({
-      [`${NPM}\\cline.cmd`]: '@IF EXIST "%~dp0\\node.exe" (\r\n  "%~dp0\\node.exe"  "%~dp0\\node_modules\\cline\\bin\\cline" %*\r\n) ELSE (\r\n  @SETLOCAL\r\n  @SET PATHEXT=%PATHEXT:;.JS;=;%\r\n  node  "%~dp0\\node_modules\\cline\\bin\\cline" %*\r\n)\r\n',
+      [`${NPM}\\cline.cmd`]:
+        '@IF EXIST "%~dp0\\node.exe" (\r\n  "%~dp0\\node.exe"  "%~dp0\\node_modules\\cline\\bin\\cline" %*\r\n) ELSE (\r\n  @SETLOCAL\r\n  @SET PATHEXT=%PATHEXT:;.JS;=;%\r\n  node  "%~dp0\\node_modules\\cline\\bin\\cline" %*\r\n)\r\n',
       [`${NPM}\\node_modules\\cline\\bin\\cline`]: '',
     });
-    expect(windowsLaunch('cline', ['--acp'], env(NPM), old, 'C:\\relay\\node.exe')).toEqual({ file: 'C:\\relay\\node.exe', args: [`${NPM}\\node_modules\\cline\\bin\\cline`, '--acp'] });
+    expect(windowsLaunch('cline', ['--acp'], env(NPM), old, 'C:\\relay\\node.exe')).toEqual({
+      file: 'C:\\relay\\node.exe',
+      args: [`${NPM}\\node_modules\\cline\\bin\\cline`, '--acp'],
+    });
   });
 
   it("starts Cursor's newest version as its launcher does, saying how it was invoked", () => {
     const home = 'C:\\Users\\me\\AppData\\Local\\cursor-agent';
     const version = (name: string) => ({ [`${home}\\versions\\${name}\\node.exe`]: '', [`${home}\\versions\\${name}\\index.js`]: '' });
     const fs = disk({
-      [`${home}\\cursor-agent.cmd`]: '@echo off\r\nset "CURSOR_INVOKED_AS=%~nx0"\r\n%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%\\cursor-agent.ps1" %*\r\n',
+      [`${home}\\cursor-agent.cmd`]:
+        '@echo off\r\nset "CURSOR_INVOKED_AS=%~nx0"\r\n%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%\\cursor-agent.ps1" %*\r\n',
       [`${home}\\versions\\promote-staged.cmd`]: '',
       ...version('2026.9.30-aaaa111'),
       ...version('2026.11.2-bbbb222'),
@@ -116,9 +129,15 @@ describe('starting a CLI on Windows', () => {
       env: { CURSOR_INVOKED_AS: 'cursor-agent.cmd', NODE_COMPILE_CACHE: 'C:\\Users\\me\\AppData\\Local\\cursor-compile-cache' },
     });
     // A compile cache of the user's own is kept.
-    expect(windowsLaunch('cursor-agent', [], env(home, { NODE_COMPILE_CACHE: 'D:\\cache' }), fs).env).toEqual({ CURSOR_INVOKED_AS: 'cursor-agent.cmd' });
+    expect(windowsLaunch('cursor-agent', [], env(home, { NODE_COMPILE_CACHE: 'D:\\cache' }), fs).env).toEqual({
+      CURSOR_INVOKED_AS: 'cursor-agent.cmd',
+    });
     // The newest folder without its files (an update cut short): the newest whole one.
-    const cut = disk({ [`${home}\\cursor-agent.cmd`]: fs.read(`${home}\\cursor-agent.cmd`)!, ...version('2026.11.2-bbbb222'), [`${home}\\versions\\2026.11.11-b912975\\node.exe`]: '' });
+    const cut = disk({
+      [`${home}\\cursor-agent.cmd`]: fs.read(`${home}\\cursor-agent.cmd`)!,
+      ...version('2026.11.2-bbbb222'),
+      [`${home}\\versions\\2026.11.11-b912975\\node.exe`]: '',
+    });
     expect(windowsLaunch('cursor-agent', [], env(home), cut).file).toBe(`${home}\\versions\\2026.11.2-bbbb222\\node.exe`);
     // Another script beside such folders is not taken for Cursor's launcher.
     const other = disk({ [`${home}\\mine.cmd`]: '@echo off\r\nmine.exe %*\r\n', ...version('2026.11.2-bbbb222') });
@@ -128,7 +147,8 @@ describe('starting a CLI on Windows', () => {
   it("starts Muse Code's active binary as its launcher does, the one its .muse-version names", () => {
     const home = 'C:\\Users\\me\\AppData\\Local\\Programs\\muse';
     // `muse.cmd` as Muse's install.ps1 writes it.
-    const shim = '@echo off\r\nsetlocal\r\n"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%~dp0.muse-launcher.ps1" %*\r\nexit /b %ERRORLEVEL%\r\n';
+    const shim =
+      '@echo off\r\nsetlocal\r\n"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%~dp0.muse-launcher.ps1" %*\r\nexit /b %ERRORLEVEL%\r\n';
     const fs = disk({
       [`${home}\\muse.cmd`]: shim,
       [`${home}\\.muse-launcher.ps1`]: '',
@@ -140,7 +160,11 @@ describe('starting a CLI on Windows', () => {
     // No binary for the version it names (an update cut short), or no version: the run fails saying so.
     const cut = disk({ [`${home}\\muse.cmd`]: shim, [`${home}\\.muse-version`]: '1.4.19-R9000' });
     expect(() => windowsLaunch('muse', [], env(home), cut)).toThrow(WindowsScriptError);
-    const odd = disk({ [`${home}\\muse.cmd`]: shim, [`${home}\\.muse-version`]: '..\\..\\evil', [`${home}\\muse-bin-..\\..\\evil.exe`]: '' });
+    const odd = disk({
+      [`${home}\\muse.cmd`]: shim,
+      [`${home}\\.muse-version`]: '..\\..\\evil',
+      [`${home}\\muse-bin-..\\..\\evil.exe`]: '',
+    });
     expect(() => windowsLaunch('muse', [], env(home), odd)).toThrow(WindowsScriptError);
   });
 
@@ -161,11 +185,17 @@ describe('starting a CLI on Windows', () => {
   it('does not start a script whose program it cannot tell, and says why', () => {
     const fs = disk({ 'C:\\Tools\\mycli.bat': '@echo off\r\npowershell -File mycli.ps1 %*\r\n' });
     expect(() => windowsLaunch('mycli', [], env('C:\\Tools'), fs)).toThrow(WindowsScriptError);
-    expect(() => withLang('en', () => windowsLaunch('mycli', [], env('C:\\Tools'), fs))).toThrow('"mycli" is the script C:\\Tools\\mycli.bat, which Harness Relay cannot start');
-    expect(() => windowsLaunch('mycli', [], env('C:\\Tools'), fs)).toThrow('「mycli」是腳本 C:\\Tools\\mycli.bat，Harness Relay 無法啟動它');
+    expect(() => withLang('en', () => windowsLaunch('mycli', [], env('C:\\Tools'), fs))).toThrow(
+      '"mycli" is the script C:\\Tools\\mycli.bat, which Harness Relay cannot start',
+    );
+    expect(() => windowsLaunch('mycli', [], env('C:\\Tools'), fs)).toThrow(
+      '「mycli」是腳本 C:\\Tools\\mycli.bat，Harness Relay 無法啟動它',
+    );
     // Nor a shim whose program is not there: a broken install, said so.
     const gone = disk({ [`${NPM}\\opencode.cmd`]: programShim('node_modules\\opencode-ai\\bin\\opencode.exe') });
-    expect(() => withLang('en', () => windowsLaunch('opencode', [], env(NPM), gone))).toThrow('which it runs, is not there: install opencode again');
+    expect(() => withLang('en', () => windowsLaunch('opencode', [], env(NPM), gone))).toThrow(
+      'which it runs, is not there: install opencode again',
+    );
   });
 
   it('is used on Windows only', () => {
@@ -184,20 +214,32 @@ describe('posixLaunch', () => {
   const fs = posixDisk({ '/clis/codex/bin/codex': NODE_SCRIPT, '/clis/codex/bin/node': '\u007fELF' });
 
   it('starts a Node script with the node beside it when the PATH has none, as npm’s shims and Windows do', () => {
-    expect(posixLaunch('/clis/codex/bin/codex', ['app-server'], { PATH: '/usr/bin:/bin' }, fs)).toEqual({ file: '/clis/codex/bin/node', args: ['/clis/codex/bin/codex', 'app-server'] });
+    expect(posixLaunch('/clis/codex/bin/codex', ['app-server'], { PATH: '/usr/bin:/bin' }, fs)).toEqual({
+      file: '/clis/codex/bin/node',
+      args: ['/clis/codex/bin/codex', 'app-server'],
+    });
     expect(posixLaunch('/clis/codex/bin/codex', [], {}, fs)).toEqual({ file: '/clis/codex/bin/node', args: ['/clis/codex/bin/codex'] });
     const crlf = posixDisk({ '/n/bin/cli': '#!/usr/bin/env node \r\n', '/n/bin/node': '' });
     expect(posixLaunch('/n/bin/cli', [], { PATH: '/usr/bin' }, crlf).file).toBe('/n/bin/node');
   });
 
   it('starts everything else as it is: with a node on the PATH, without one beside it, or another kind of program', () => {
-    const as = (bin: string, env: NodeJS.ProcessEnv, disk: PosixLaunchFs = fs) => expect(posixLaunch(bin, ['-v'], env, disk)).toEqual({ file: bin, args: ['-v'] });
+    const as = (bin: string, env: NodeJS.ProcessEnv, disk: PosixLaunchFs = fs) =>
+      expect(posixLaunch(bin, ['-v'], env, disk)).toEqual({ file: bin, args: ['-v'] });
     // A node on the PATH: `env` finds it, as it always did.
-    as('/clis/codex/bin/codex', { PATH: '/usr/bin:/opt/node/bin' }, posixDisk({ '/clis/codex/bin/codex': NODE_SCRIPT, '/clis/codex/bin/node': '', '/opt/node/bin/node': '' }));
+    as(
+      '/clis/codex/bin/codex',
+      { PATH: '/usr/bin:/opt/node/bin' },
+      posixDisk({ '/clis/codex/bin/codex': NODE_SCRIPT, '/clis/codex/bin/node': '', '/opt/node/bin/node': '' }),
+    );
     // No node beside it.
     as('/usr/local/bin/codex', { PATH: '/usr/bin' }, posixDisk({ '/usr/local/bin/codex': NODE_SCRIPT }));
     // A program, a shell script, or a Node script with flags of its own `env` would read (`-S`).
-    as('/clis/claude/bin/claude', { PATH: '/usr/bin' }, posixDisk({ '/clis/claude/bin/claude': '\u007fELF\u0002', '/clis/claude/bin/node': '' }));
+    as(
+      '/clis/claude/bin/claude',
+      { PATH: '/usr/bin' },
+      posixDisk({ '/clis/claude/bin/claude': '\u007fELF\u0002', '/clis/claude/bin/node': '' }),
+    );
     as('/x/bin/cli', { PATH: '/usr/bin' }, posixDisk({ '/x/bin/cli': '#!/bin/sh\nexec node "$0.js"\n', '/x/bin/node': '' }));
     as('/x/bin/cli', { PATH: '/usr/bin' }, posixDisk({ '/x/bin/cli': '#!/usr/bin/env -S node --no-warnings\n', '/x/bin/node': '' }));
     // A name the PATH finds, or one that cannot be read.

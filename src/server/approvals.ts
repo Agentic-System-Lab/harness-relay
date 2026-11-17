@@ -60,15 +60,14 @@ export function splitChain(line: string): string[] {
 
 /** The first version's keys: whitespace-separated words of each command in a chain. */
 function legacyKeys(detail: string): string[] {
-  return splitChain(unwrapShell(detail))
-    .map((segment) => {
-      const words = segment.trim().split(/\s+/).filter(Boolean);
-      while (words.length && /^\w+=/.test(words[0]!)) words.shift(); // FOO=bar cmd
-      const program = words[0]?.split('/').pop();
-      if (!program) return '';
-      const sub = words[1];
-      return WITH_SUBCOMMANDS.has(program) && sub && /^[a-z][\w:-]*$/i.test(sub) ? `${program} ${sub}` : program;
-    });
+  return splitChain(unwrapShell(detail)).map((segment) => {
+    const words = segment.trim().split(/\s+/).filter(Boolean);
+    while (words.length && /^\w+=/.test(words[0]!)) words.shift(); // FOO=bar cmd
+    const program = words[0]?.split('/').pop();
+    if (!program) return '';
+    const sub = words[1];
+    return WITH_SUBCOMMANDS.has(program) && sub && /^[a-z][\w:-]*$/i.test(sub) ? `${program} ${sub}` : program;
+  });
 }
 
 export function approvalKeys(kind: ApprovalKind, detail?: string, tool?: string): string[] {

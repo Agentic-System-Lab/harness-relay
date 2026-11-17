@@ -8,7 +8,27 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { Conversation, ConversationSchedule } from '../src/shared/types';
-import { agentMessages, agents, calls, conversation, db, fake, finish, firstUserMessage, Hub, n, orchestrator, Orchestrator, project, root, setOrchestrator, settings, store, Store, textOf } from './orchestrator-harness';
+import {
+  agentMessages,
+  agents,
+  calls,
+  conversation,
+  db,
+  fake,
+  finish,
+  firstUserMessage,
+  Hub,
+  n,
+  orchestrator,
+  Orchestrator,
+  project,
+  root,
+  setOrchestrator,
+  settings,
+  store,
+  Store,
+  textOf,
+} from './orchestrator-harness';
 
 describe('a team the lead agent designs', () => {
   it("keeps the tools and account the user set for a member who stays on, and gives new members their CLI's defaults", async () => {
@@ -39,19 +59,21 @@ describe('a team the lead agent designs', () => {
 });
 
 describe("the lead agent's context", () => {
-  it('is gathered for the folder the team works in, and the lead reads each CLI\'s tools from it', async () => {
+  it("is gathered for the folder the team works in, and the lead reads each CLI's tools from it", async () => {
     const folders: (string | undefined)[] = [];
-    setOrchestrator(new Orchestrator(store, new Hub(), settings, {
-      context: async (cwd) => {
-        folders.push(cwd);
-        return {
-          available: ['claude'],
-          catalog: [],
-          presets: store.listPresets(),
-          native: { claude: { builtinTools: ['WebSearch'], skills: [], mcpServers: [{ name: 'github', tools: ['create_issue'] }] } },
-        };
-      },
-    }));
+    setOrchestrator(
+      new Orchestrator(store, new Hub(), settings, {
+        context: async (cwd) => {
+          folders.push(cwd);
+          return {
+            available: ['claude'],
+            catalog: [],
+            presets: store.listPresets(),
+            native: { claude: { builtinTools: ['WebSearch'], skills: [], mcpServers: [{ name: 'github', tools: ['create_issue'] }] } },
+          };
+        },
+      }),
+    );
     const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
     conv.agents = [];
     fake.leadReply = JSON.stringify({ choice: 'template', templateId: 'builtin-general', reason: 'x' });
@@ -119,7 +141,13 @@ describe('auto team', () => {
     const [request, plan] = conv.messages;
     expect(conv.messages).toHaveLength(2);
     expect(request!.author.kind).toBe('user');
-    expect(plan!.plan).toMatchObject({ status: 'ready', source: 'custom', name: 'Research pair', reason: 'Two views beat one.', awaitingConfirmation: true });
+    expect(plan!.plan).toMatchObject({
+      status: 'ready',
+      source: 'custom',
+      name: 'Research pair',
+      reason: 'Two views beat one.',
+      awaitingConfirmation: true,
+    });
     expect(plan!.meta?.costUsd).toBe(0.01);
     // Grok is not available here, so Bob runs on the lead's CLI.
     expect(plan!.plan!.agents!.map((a) => [a.name, a.provider])).toEqual([
@@ -228,7 +256,12 @@ describe('auto team', () => {
   it('keeps the current team while a design waits: the user may decline it, retry or edit an earlier message', async () => {
     const conv = await answered();
     const team = conv.agents.map((a) => a.id);
-    const solo = JSON.stringify({ choice: 'custom', name: 'Solo', agents: [{ name: 'Zed', provider: 'claude', role: 'Alone.' }], reason: 'One is enough.' });
+    const solo = JSON.stringify({
+      choice: 'custom',
+      name: 'Solo',
+      agents: [{ name: 'Zed', provider: 'claude', role: 'Alone.' }],
+      reason: 'One is enough.',
+    });
     fake.leadReply = solo;
     await orchestrator.send(conv.id, 'A small thing');
     await finish(conv.id);
@@ -376,7 +409,7 @@ describe('auto team', () => {
     expect(plans(conv)).toHaveLength(2);
   });
 
-  it('uses the lead agent\'s team at once when the conversation does not ask', async () => {
+  it("uses the lead agent's team at once when the conversation does not ask", async () => {
     const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, autoConfirm: true });
     conv.agents = [];
     fake.leadReply = customTeam;
@@ -561,18 +594,28 @@ describe('asking the lead agent to change the team', () => {
     // Nine members: more than the limit (8 here), as a team saved under a higher one would be.
     const nine = Array.from({ length: 9 }, (_, i) => ({ id: `m${i}`, name: `M${i}`, provider: 'claude' as const, role: 'Help.' }));
     conv.agents = nine;
-    fake.reviseReply = 'Done:\n```json\n' + JSON.stringify({ agents: nine.map((a) => ({ name: a.name, provider: a.provider })), reason: 'Kept.' }) + '\n```';
+    fake.reviseReply =
+      'Done:\n```json\n' + JSON.stringify({ agents: nine.map((a) => ({ name: a.name, provider: a.provider })), reason: 'Kept.' }) + '\n```';
     const r = await orchestrator.reviseTeam(conv.id, { request: 'remove one', agents: nine, settings: draft.settings });
     expect(r.agents.map((a) => a.name)).toEqual(nine.slice(0, 8).map((a) => a.name));
     // A draft larger than both the limit and the saved team is refused as before.
     const ten = [...nine, { id: 'm9', name: 'M9', provider: 'claude' as const, role: '' }];
-    await expect(orchestrator.reviseTeam(conv.id, { request: 'add one', agents: ten, settings: draft.settings })).rejects.toMatchObject({ status: 400 });
+    await expect(orchestrator.reviseTeam(conv.id, { request: 'add one', agents: ten, settings: draft.settings })).rejects.toMatchObject({
+      status: 400,
+    });
   });
 
   it("changes the lead agent's design waiting for confirmation, which keeps waiting", async () => {
     const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
     conv.agents = [];
-    fake.leadReply = JSON.stringify({ choice: 'custom', name: 'Pair', mode: 'roundtable', rounds: 1, agents: draft.agents, reason: 'Two.' });
+    fake.leadReply = JSON.stringify({
+      choice: 'custom',
+      name: 'Pair',
+      mode: 'roundtable',
+      rounds: 1,
+      agents: draft.agents,
+      reason: 'Two.',
+    });
     await orchestrator.send(conv.id, 'Plan the migration');
     await finish(conv.id);
     const plan = conv.messages.find((m) => m.plan)!;
@@ -632,7 +675,11 @@ describe('asking the lead agent to change the team', () => {
   it("reads the drawer's permission and folder, works in the saved folder, and the schedule's message only when it is on", async () => {
     const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
     fake.reviseReply = withTester;
-    await orchestrator.reviseTeam(conv.id, { request: 'more', agents, settings: { ...draft.settings, permission: 'full', cwd: '/not/saved/yet' } });
+    await orchestrator.reviseTeam(conv.id, {
+      request: 'more',
+      agents,
+      settings: { ...draft.settings, permission: 'full', cwd: '/not/saved/yet' },
+    });
     expect(calls.at(-1)!.prompt).toContain('The file permission "full" and the working directory /not/saved/yet');
     expect(calls.at(-1)!.prompt).toContain(`you are running in the one saved now, ${project}.`);
     expect(calls.at(-1)!.cwd).toBe(project);
@@ -683,7 +730,13 @@ describe('asking the lead agent to change the team', () => {
       updatedAt: 0,
       nextRunAt: 0,
     } as ConversationSchedule;
-    fake.reviseReply = JSON.stringify({ agents: [{ name: 'Lead', provider: 'claude', was: 'Alice' }, { name: 'Bob', provider: 'claude' }], reason: 'Renamed.' });
+    fake.reviseReply = JSON.stringify({
+      agents: [
+        { name: 'Lead', provider: 'claude', was: 'Alice' },
+        { name: 'Bob', provider: 'claude' },
+      ],
+      reason: 'Renamed.',
+    });
     const r = await orchestrator.reviseTeam(conv.id, { request: 'rename Alice to Lead', ...draft });
     expect(calls.at(-1)!.prompt).toContain("designed for the conversation's schedule");
     // The design is for the schedule's message: shown although the schedule is off, which is said.
@@ -703,7 +756,11 @@ describe('asking the lead agent to change the team', () => {
     expect(kept.reason).toBe('The permission is yours to set.');
 
     await expect(
-      orchestrator.reviseTeam(conv.id, { request: 'more', agents: [{ id: 'a', name: 'Bad name', provider: 'claude', role: '' }], settings: draft.settings }),
+      orchestrator.reviseTeam(conv.id, {
+        request: 'more',
+        agents: [{ id: 'a', name: 'Bad name', provider: 'claude', role: '' }],
+        settings: draft.settings,
+      }),
     ).rejects.toMatchObject({ status: 400 });
 
     fake.reviseFail = 'rate limited';
@@ -715,13 +772,18 @@ describe('asking the lead agent to change the team', () => {
 
   it("links the lead agent's session to the conversation in AgentsView", async () => {
     const links: string[] = [];
-    setOrchestrator(new Orchestrator(
-      store,
-      new Hub(),
-      settings,
-      { context: async () => ({ available: ['claude'], catalog: [], presets: store.listPresets() }) },
-      { schedule: () => undefined, link: (c: Conversation, provider: string, sessionId: string) => links.push(`${c.id} ${provider}:${sessionId}`) },
-    ));
+    setOrchestrator(
+      new Orchestrator(
+        store,
+        new Hub(),
+        settings,
+        { context: async () => ({ available: ['claude'], catalog: [], presets: store.listPresets() }) },
+        {
+          schedule: () => undefined,
+          link: (c: Conversation, provider: string, sessionId: string) => links.push(`${c.id} ${provider}:${sessionId}`),
+        },
+      ),
+    );
     const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
     fake.reviseReply = withTester;
     await orchestrator.reviseTeam(conv.id, { request: 'more', ...draft });
@@ -805,7 +867,7 @@ describe('auto team and the directory lock', () => {
     await finish(conv.id);
   });
 
-  it('locks the directory by the confirmed team\'s mode once it answers', async () => {
+  it("locks the directory by the confirmed team's mode once it answers", async () => {
     let release!: () => void;
     const plan = async (mode: string) => {
       const conv = conversation({ mode: 'roundtable', autoTeam: true });
@@ -912,7 +974,15 @@ describe('sorting new conversations into sidebar groups', () => {
     fake.sorterReply = '{"group": 2}';
     await orchestrator.send(conv.id, 'Fix the sidebar');
     await vi.waitFor(() => expect(orchestrator.isSorting(conv.id)).toBe(true));
-    expect(store.list(() => false, () => false, (id) => orchestrator.isSorting(id)).find((c) => c.id === conv.id)?.sorting).toBe(true);
+    expect(
+      store
+        .list(
+          () => false,
+          () => false,
+          (id) => orchestrator.isSorting(id),
+        )
+        .find((c) => c.id === conv.id)?.sorting,
+    ).toBe(true);
     store.moveToGroup(conv.id, 'g1');
     release();
     await vi.waitFor(() => expect(orchestrator.isSorting(conv.id)).toBe(false));

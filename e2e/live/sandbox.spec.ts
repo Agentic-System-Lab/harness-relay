@@ -2,7 +2,21 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Provider } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { CLIS, CLOUD, CLOUD_CLIS, ENDPOINTS, ENDPOINT_CLIS, OPEN, editPermission, folder, homeFolder, liveTurn, modelId, ownModel, setUpEndpoints } from './live';
+import {
+  CLIS,
+  CLOUD,
+  CLOUD_CLIS,
+  ENDPOINTS,
+  ENDPOINT_CLIS,
+  OPEN,
+  editPermission,
+  folder,
+  homeFolder,
+  liveTurn,
+  modelId,
+  ownModel,
+  setUpEndpoints,
+} from './live';
 
 test.use({ live: true });
 
@@ -45,7 +59,10 @@ test.describe("a command that writes outside the chat's folders", () => {
         );
         const calls = `tools: ${r.tools.join('; ') || 'none'}; approvals: ${r.approvals.map((a) => `${a.kind} ${a.detail ?? ''}`).join('; ') || 'none'}; reply: ${r.replies[0]?.text.slice(0, 200)}`;
         // A model that did not even try proves nothing either way.
-        test.skip(!r.tools.length && !r.approvals.length && !/outside\.txt/.test(r.replies[0]?.text ?? ''), `the model did not try the command; ${calls}`);
+        test.skip(
+          !r.tools.length && !r.approvals.length && !/outside\.txt/.test(r.replies[0]?.text ?? ''),
+          `the model did not try the command; ${calls}`,
+        );
         expect(existsSync(target), calls).toBe(false);
       } finally {
         outside.remove();

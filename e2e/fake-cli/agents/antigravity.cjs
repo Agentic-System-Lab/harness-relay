@@ -130,10 +130,12 @@ function upToRepo(dir) {
 function projectSetup(dirs) {
   const found = new Set();
   for (const dir of dirs) {
-    for (const up of upToRepo(dir)) for (const r of AGY_ROOTS) for (const f of AGY_RUNNABLE) {
-      const p = path.join(up, r, f);
-      if (fs.existsSync(p)) found.add(p);
-    }
+    for (const up of upToRepo(dir))
+      for (const r of AGY_ROOTS)
+        for (const f of AGY_RUNNABLE) {
+          const p = path.join(up, r, f);
+          if (fs.existsSync(p)) found.add(p);
+        }
   }
   return [...found];
 }
@@ -169,13 +171,34 @@ function printList(command, settings) {
       command: { name, data },
     }) + '\n';
   if (!signedInWith(settings)) {
-    process.stdout.write(JSON.stringify({ conversation_id: '', status: 'ERROR', error: 'Please sign in to use Antigravity. Launch the CLI without arguments to sign in.' }) + '\n');
+    process.stdout.write(
+      JSON.stringify({
+        conversation_id: '',
+        status: 'ERROR',
+        error: 'Please sign in to use Antigravity. Launch the CLI without arguments to sign in.',
+      }) + '\n',
+    );
     process.exitCode = 1;
     return;
   }
   if (command === '/skills') {
-    const builtin = { name: 'antigravity-guide', description: 'A guide to the fake Antigravity, built in.', path: path.join(appDir(), 'builtin', 'skills', 'antigravity-guide', 'SKILL.md'), builtin: true, model_invocable: true };
-    const skills = [builtin, ...agySkills(process.cwd()).map((s) => ({ name: s.name, description: s.description, path: s.path, builtin: false, model_invocable: true }))];
+    const builtin = {
+      name: 'antigravity-guide',
+      description: 'A guide to the fake Antigravity, built in.',
+      path: path.join(appDir(), 'builtin', 'skills', 'antigravity-guide', 'SKILL.md'),
+      builtin: true,
+      model_invocable: true,
+    };
+    const skills = [
+      builtin,
+      ...agySkills(process.cwd()).map((s) => ({
+        name: s.name,
+        description: s.description,
+        path: s.path,
+        builtin: false,
+        model_invocable: true,
+      })),
+    ];
     return void process.stdout.write(answer('skills', { skills }, skills.map((s) => `${s.name}\t${s.description}\n`).join('')));
   }
   if (command === '/hooks') return void process.stdout.write(answer('hooks', { hooks: [] }, ''));
@@ -183,10 +206,18 @@ function printList(command, settings) {
   // The plan's quota, as agy 1.5.8 types it: one group of buckets, each with the fraction left.
   if (command === '/usage') {
     const left = 1 - planUsedPercent() / 100;
-    const bucket = { name: 'Gemini 3.1 Pro', window: '5h', remaining_fraction: left, reset_time: new Date(planResets.fiveHour()).toISOString() };
-    return void process.stdout.write(answer('usage', { groups: [{ name: 'Gemini models', buckets: [bucket] }] }, `Gemini 3.1 Pro\t${Math.round(left * 100)}%\n`));
+    const bucket = {
+      name: 'Gemini 3.1 Pro',
+      window: '5h',
+      remaining_fraction: left,
+      reset_time: new Date(planResets.fiveHour()).toISOString(),
+    };
+    return void process.stdout.write(
+      answer('usage', { groups: [{ name: 'Gemini models', buckets: [bucket] }] }, `Gemini 3.1 Pro\t${Math.round(left * 100)}%\n`),
+    );
   }
-  if (command === '/credits') return void process.stdout.write(answer('credits', { remaining_credits: 1000, plan_name: 'Google AI Pro' }, 'Credits\t1000\n'));
+  if (command === '/credits')
+    return void process.stdout.write(answer('credits', { remaining_credits: 1000, plan_name: 'Google AI Pro' }, 'Credits\t1000\n'));
   // Anything else would be a prompt for a model, which no fake has.
   process.stderr.write(`fake antigravity: print mode runs no model here (${command})\n`);
   process.exitCode = 1;
@@ -275,9 +306,30 @@ function settingsModel(name) {
 function configOptions(s) {
   const model = MODELS.find((m) => m.id === s.model);
   return [
-    { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: s.model, options: MODELS.map((m) => ({ value: m.id, name: m.name })) },
-    { id: 'thought_level', name: 'Thinking Level', category: 'thought_level', type: 'select', currentValue: s.effort, options: model.levels.map((l) => ({ value: l, name: capital(l) })) },
-    { id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: s.mode, options: MODES.map((m) => ({ value: m.id, name: m.name, description: m.description })) },
+    {
+      id: 'model',
+      name: 'Model',
+      category: 'model',
+      type: 'select',
+      currentValue: s.model,
+      options: MODELS.map((m) => ({ value: m.id, name: m.name })),
+    },
+    {
+      id: 'thought_level',
+      name: 'Thinking Level',
+      category: 'thought_level',
+      type: 'select',
+      currentValue: s.effort,
+      options: model.levels.map((l) => ({ value: l, name: capital(l) })),
+    },
+    {
+      id: 'mode',
+      name: 'Mode',
+      category: 'mode',
+      type: 'select',
+      currentValue: s.mode,
+      options: MODES.map((m) => ({ value: m.id, name: m.name, description: m.description })),
+    },
   ];
 }
 
@@ -331,7 +383,9 @@ function agyAcp() {
     agent.sessions.set(id, s);
     saveSession(id, s);
     recordMcpEnv(
-      Object.fromEntries((p.mcpServers || []).map((x) => [x.name, Object.fromEntries((x.env || x.headers || []).map((v) => [v.name, v.value]))])),
+      Object.fromEntries(
+        (p.mcpServers || []).map((x) => [x.name, Object.fromEntries((x.env || x.headers || []).map((v) => [v.name, v.value]))]),
+      ),
       Object.fromEntries((p.mcpServers || []).filter((x) => x.type === 'http').map((x) => [x.name, x.url])),
     );
     // What it would start by itself now, outside any sandbox and without asking (the fake starts nothing).
@@ -349,7 +403,12 @@ function agyAcp() {
   };
 
   acpAgent({
-    initialize: () => ({ protocolVersion: 1, agentCapabilities: CAPABILITIES, agentInfo: { name: 'Antigravity ACP Server', version: VERSION }, authMethods: AUTH_METHODS }),
+    initialize: () => ({
+      protocolVersion: 1,
+      agentCapabilities: CAPABILITIES,
+      agentInfo: { name: 'Antigravity ACP Server', version: VERSION },
+      authMethods: AUTH_METHODS,
+    }),
     logout: () => {
       signIn.logout();
       return {};
@@ -380,7 +439,10 @@ function agyAcp() {
       const s = live.get(p.sessionId);
       if (!s) throw rpcError(`session not found: ${p.sessionId}`, -32002);
       const blocks = p.prompt || [];
-      const prompt = blocks.filter((b) => b.type === 'text').map((b) => b.text || '').join('\n');
+      const prompt = blocks
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text || '')
+        .join('\n');
       const images = blocks.filter((b) => b.type === 'image' && b.data).length;
       record({
         prompt,
@@ -452,7 +514,15 @@ async function agyTurn(peer, sessionId, s, rules, prompt, steps, skillFiles) {
     if (step.type === 'tool') {
       // A listing of the working directory: a read in the workspace, which asks nothing.
       const input = { DirectoryPath: s.cwd };
-      const call = { toolCallId: callId(), name: 'list_dir', args: input, kind: 'read', title: `Directory ${path.basename(s.cwd)}`, locations: [{ path: s.cwd }], rawInput: input };
+      const call = {
+        toolCallId: callId(),
+        name: 'list_dir',
+        args: input,
+        kind: 'read',
+        title: `Directory ${path.basename(s.cwd)}`,
+        locations: [{ path: s.cwd }],
+        rawInput: input,
+      };
       u.toolCall({ ...call, status: 'in_progress' });
       await self.sleep(20);
       report(call, 'completed', { content: [{ type: 'content', content: { type: 'text', text: step.output } }] });
@@ -461,10 +531,14 @@ async function agyTurn(peer, sessionId, s, rules, prompt, steps, skillFiles) {
       const input = { CommandLine: step.command, WaitMsBeforeAsync: 3000, toolSummary: 'Print a line' };
       const call = { toolCallId: callId(), name: 'run_command', args: input, kind: 'execute', title: step.command, rawInput: input };
       u.toolCall({ ...call, status: 'in_progress' });
-      if (rules.commandsAsk && !(await permit(call))) return refused(call, { rawOutput: { output: '' }, content: [{ type: 'content', content: { type: 'text', text: '' } }] });
+      if (rules.commandsAsk && !(await permit(call)))
+        return refused(call, { rawOutput: { output: '' }, content: [{ type: 'content', content: { type: 'text', text: '' } }] });
       const at = new Date().toISOString();
       const output = `Created At: ${at}\nCompleted At: ${at}\nCommand exited with code 0.\n\nCommand output:\ne2e-approval\n`;
-      report(call, 'completed', { rawOutput: { output, exit_code: 0 }, content: [{ type: 'content', content: { type: 'text', text: output } }] });
+      report(call, 'completed', {
+        rawOutput: { output, exit_code: 0 },
+        content: [{ type: 'content', content: { type: 'text', text: output } }],
+      });
       prefix += 'The command ran: e2e-approval. ';
     }
     if (step.type === 'fetch') {
@@ -482,20 +556,42 @@ async function agyTurn(peer, sessionId, s, rules, prompt, steps, skillFiles) {
         continue;
       }
       const input = { Content: step.content, Path: file };
-      const call = { toolCallId: callId(), name: 'write_file', args: input, kind: 'edit', title: `File ${path.relative(s.cwd, file) || path.basename(file)}`, locations: [{ path: file }], rawInput: input };
+      const call = {
+        toolCallId: callId(),
+        name: 'write_file',
+        args: input,
+        kind: 'edit',
+        title: `File ${path.relative(s.cwd, file) || path.basename(file)}`,
+        locations: [{ path: file }],
+        rawInput: input,
+      };
       u.toolCall({ ...call, status: 'in_progress' });
       const asks = rules.writesAsk && !(s.mode === 'accept-edits' && inWorkspace(file));
       if (asks && !(await permit({ ...call, content: [{ type: 'diff', path: file, newText: step.content }] }))) return refused(call);
       // No sandbox: written wherever it points, unless the file system refuses.
       const ok = tryWrite(file, step.content);
-      report(call, ok ? 'completed' : 'failed', ok ? { rawOutput: {}, content: [{ type: 'diff', path: file, newText: step.content }] } : { content: [{ type: 'content', content: { type: 'text', text: `permission denied: ${file}` } }] });
+      report(
+        call,
+        ok ? 'completed' : 'failed',
+        ok
+          ? { rawOutput: {}, content: [{ type: 'diff', path: file, newText: step.content }] }
+          : { content: [{ type: 'content', content: { type: 'text', text: `permission denied: ${file}` } }] },
+      );
       prefix += wrote(step, ok);
     }
     if (step.type === 'text') {
       // The tool library's skills it was asked to read: outside the workspace a read asks first.
       for (const skill of skillFiles) {
         const input = { Path: skill };
-        const call = { toolCallId: callId(), name: 'read_file', args: input, kind: 'read', title: `File ${path.basename(path.dirname(skill))}/${path.basename(skill)}`, locations: [{ path: skill }], rawInput: input };
+        const call = {
+          toolCallId: callId(),
+          name: 'read_file',
+          args: input,
+          kind: 'read',
+          title: `File ${path.basename(path.dirname(skill))}/${path.basename(skill)}`,
+          locations: [{ path: skill }],
+          rawInput: input,
+        };
         u.toolCall({ ...call, status: 'in_progress' });
         if (rules.outsideReadsAsk && !inWorkspace(skill) && !(await permit(call))) return refused(call);
         report(call, 'completed');

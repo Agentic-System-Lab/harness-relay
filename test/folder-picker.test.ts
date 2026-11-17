@@ -2,14 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import {
-  PICK_TIMEOUT_MS,
-  existingFolder,
-  pickedFolders,
-  pickerCommand,
-  pickerKind,
-  systemFolderPicker,
-} from '../src/server/folderPicker';
+import { PICK_TIMEOUT_MS, existingFolder, pickedFolders, pickerCommand, pickerKind, systemFolderPicker } from '../src/server/folderPicker';
 import type { RunOptions, SpawnOptions, SpawnResult } from '../src/server/process';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-picker-')));
@@ -28,7 +21,10 @@ describe('pickerKind', () => {
   });
 
   it('uses zenity, else kdialog, on the PATH of a graphical session elsewhere', () => {
-    const on = (...files: string[]) => (p: string) => files.includes(p);
+    const on =
+      (...files: string[]) =>
+      (p: string) =>
+        files.includes(p);
     const env = { PATH: '/usr/local/bin:/usr/bin', DISPLAY: ':0' };
     expect(pickerKind('linux', env, on('/usr/bin/zenity', '/usr/bin/kdialog'))).toEqual({ kind: 'zenity', bin: '/usr/bin/zenity' });
     expect(pickerKind('linux', env, on('/usr/local/bin/kdialog'))).toEqual({ kind: 'kdialog', bin: '/usr/local/bin/kdialog' });
@@ -59,14 +55,23 @@ describe('pickerCommand', () => {
 
   it('gives zenity and kdialog a UTF-8 character set when the environment has none, for a title in Chinese', () => {
     // No locale (a server a service started): zenity refuses a Chinese title without one.
-    expect(pickerCommand('zenity', '/usr/bin/zenity', '選擇工作目錄', '/home/me', { PATH: '/usr/bin' }).env).toEqual({ PATH: '/usr/bin', LC_CTYPE: 'C.UTF-8' });
-    expect(pickerCommand('kdialog', '/usr/bin/kdialog', '選擇工作目錄', '/home/me', { LANG: 'C' }).env).toEqual({ LANG: 'C', LC_CTYPE: 'C.UTF-8' });
+    expect(pickerCommand('zenity', '/usr/bin/zenity', '選擇工作目錄', '/home/me', { PATH: '/usr/bin' }).env).toEqual({
+      PATH: '/usr/bin',
+      LC_CTYPE: 'C.UTF-8',
+    });
+    expect(pickerCommand('kdialog', '/usr/bin/kdialog', '選擇工作目錄', '/home/me', { LANG: 'C' }).env).toEqual({
+      LANG: 'C',
+      LC_CTYPE: 'C.UTF-8',
+    });
     // One there already is kept, whichever variable names it.
     for (const env of [{ LANG: 'zh_TW.UTF-8' }, { LANG: 'C', LC_CTYPE: 'en_US.utf8' }, { LC_ALL: 'C.UTF-8' }]) {
       expect(pickerCommand('zenity', '/usr/bin/zenity', 'T', '/', env).env).toEqual(env);
     }
     // LC_ALL wins over LC_CTYPE: it is the one changed.
-    expect(pickerCommand('zenity', '/usr/bin/zenity', 'T', '/', { LC_ALL: 'C', LANG: 'zh_TW.UTF-8' }).env).toEqual({ LC_ALL: 'C.UTF-8', LANG: 'zh_TW.UTF-8' });
+    expect(pickerCommand('zenity', '/usr/bin/zenity', 'T', '/', { LC_ALL: 'C', LANG: 'zh_TW.UTF-8' }).env).toEqual({
+      LC_ALL: 'C.UTF-8',
+      LANG: 'zh_TW.UTF-8',
+    });
   });
 
   it('opens zenity inside the folder, for several folders one to a line, and kdialog at it', () => {
@@ -98,9 +103,15 @@ describe('pickerCommand', () => {
 
 describe('pickedFolders', () => {
   it('reads one folder to a line, without the separator AppleScript ends each with', () => {
-    expect(pickedFolders('osascript', result({ stdout: '/Users/me/My Project/\n/Users/me/工作/\n' }))).toEqual(['/Users/me/My Project', '/Users/me/工作']);
+    expect(pickedFolders('osascript', result({ stdout: '/Users/me/My Project/\n/Users/me/工作/\n' }))).toEqual([
+      '/Users/me/My Project',
+      '/Users/me/工作',
+    ]);
     expect(pickedFolders('osascript', result({ stdout: '/\n' }))).toEqual(['/']);
-    expect(pickedFolders('zenity', result({ stdout: '/home/me/trailing space \n/home/me/b\n' }))).toEqual(['/home/me/trailing space ', '/home/me/b']);
+    expect(pickedFolders('zenity', result({ stdout: '/home/me/trailing space \n/home/me/b\n' }))).toEqual([
+      '/home/me/trailing space ',
+      '/home/me/b',
+    ]);
     expect(pickedFolders('kdialog', result({ stdout: '/home/me/工作\n' }))).toEqual(['/home/me/工作']);
     expect(pickedFolders('powershell', result({ stdout: '\uFEFFC:\\Users\\me\\work' }))).toEqual(['C:\\Users\\me\\work']);
     expect(pickedFolders('powershell', result({ stdout: 'D:\\\r\n' }))).toEqual(['D:\\']);
@@ -118,9 +129,9 @@ describe('pickedFolders', () => {
   });
 
   it('is an error, with what the program said, when it failed', () => {
-    expect(() => pickedFolders('osascript', result({ code: 1, stderr: 'execution error: No user interaction allowed. (-1713)\n' }))).toThrow(
-      'execution error: No user interaction allowed. (-1713)',
-    );
+    expect(() =>
+      pickedFolders('osascript', result({ code: 1, stderr: 'execution error: No user interaction allowed. (-1713)\n' })),
+    ).toThrow('execution error: No user interaction allowed. (-1713)');
     expect(() => pickedFolders('zenity', result({ code: 255, stderr: '' }))).toThrow('exit code 255');
   });
 });
@@ -155,7 +166,10 @@ describe('systemFolderPicker', () => {
       calls,
       run: {
         process: async (o: SpawnOptions) => (calls.push({ process: o }), done(answer)),
-        script: async (shell: string, flags: readonly string[], script: string, o: RunOptions) => (calls.push({ script: { shell, flags, script, o } }), done(answer)),
+        script: async (shell: string, flags: readonly string[], script: string, o: RunOptions) => (
+          calls.push({ script: { shell, flags, script, o } }),
+          done(answer)
+        ),
       },
     };
   }

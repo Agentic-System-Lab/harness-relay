@@ -56,7 +56,8 @@ import { quoteElementId, scrollToCenter } from '../src/web/review';
 import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
 
-const msg = (id: string): ChatMessage => ({ id, author: { kind: 'user' }, parts: [], status: 'done', createdAt: 0 }) as unknown as ChatMessage;
+const msg = (id: string): ChatMessage =>
+  ({ id, author: { kind: 'user' }, parts: [], status: 'done', createdAt: 0 }) as unknown as ChatMessage;
 
 describe('what a shared page holds', () => {
   it('is every message, or those up to and including one reply', () => {
@@ -126,7 +127,14 @@ describe('what a shared page holds', () => {
 
 describe("the lead agent's review on a shared page", () => {
   const review = (id: string, status: 'ready' | 'failed', highlights: NonNullable<ChatMessage['review']>['highlights']): ChatMessage =>
-    ({ id, author: { kind: 'system' }, parts: [], status: 'done', createdAt: 0, review: { status, lead: { provider: 'claude' }, highlights } }) as ChatMessage;
+    ({
+      id,
+      author: { kind: 'system' },
+      parts: [],
+      status: 'done',
+      createdAt: 0,
+      review: { status, lead: { provider: 'claude' }, highlights },
+    }) as ChatMessage;
   const messages = [
     msg('q'),
     { ...msg('r1'), author: { kind: 'agent', agentId: 'a' } } as ChatMessage,
@@ -272,7 +280,11 @@ function cssRules(css: string): { at: string[]; selectors: string[]; decls: Reco
           .map((d) => d.split(':'))
           .filter((d) => d.length > 1)
           .map(([k, ...v]) => [k!.trim(), v.join(':').trim().replace(/\s+/g, ' ')]);
-        rules.push({ at: open.filter((o) => o.startsWith('@')), selectors: prelude.split(',').map((x) => x.trim()), decls: Object.fromEntries(decls) });
+        rules.push({
+          at: open.filter((o) => o.startsWith('@')),
+          selectors: prelude.split(',').map((x) => x.trim()),
+          decls: Object.fromEntries(decls),
+        });
       }
       text = '';
     } else {
@@ -312,7 +324,9 @@ describe("a folded role's Show more on a shared page", () => {
   /** A RoleText as it renders: its text, and its button when the role is long. */
   const role = (o: { folded: boolean; button?: 'shut' | 'open'; wrap?: boolean }) => {
     const text = new FakeElement('P', o.folded ? 'folded' : '');
-    const button = o.button ? new FakeElement('BUTTON', 'show-more', { type: 'button', 'aria-expanded': String(o.button === 'open') }) : undefined;
+    const button = o.button
+      ? new FakeElement('BUTTON', 'show-more', { type: 'button', 'aria-expanded': String(o.button === 'open') })
+      : undefined;
     const kids = button ? [o.wrap ? new FakeElement('DIV', '', {}, [button]) : button] : [];
     return { box: new FakeElement('DIV', 'role-text plan-member-role', {}, [text, ...kids]), text, button };
   };
@@ -328,10 +342,16 @@ describe("a folded role's Show more on a shared page", () => {
     expect(shareFold({ open: false, more: 'a', less: 'b' })).not.toMatch(/<script|<button|<input|\son\w+=/i);
   });
 
-  it("takes the place of the button of a role too long for any screen, folded or open as the role was on screen", () => {
+  it('takes the place of the button of a role too long for any screen, folded or open as the role was on screen', () => {
     const shut = role({ folded: true, button: 'shut' });
     const open = role({ folded: false, button: 'open' });
-    shareRoleFolds([{ box: shut.box, long: true }, { box: open.box, long: true }], words);
+    shareRoleFolds(
+      [
+        { box: shut.box, long: true },
+        { box: open.box, long: true },
+      ],
+      words,
+    );
     expect(shut.button!.inserted).toEqual([`afterend ${shareFold({ open: false, ...words })}`]);
     expect(open.button!.inserted).toEqual([`afterend ${shareFold({ open: true, ...words })}`]);
     expect([shut.button!.removed, open.button!.removed]).toEqual([true, true]);
@@ -343,7 +363,13 @@ describe("a folded role's Show more on a shared page", () => {
     // Folded on the sharer's narrow screen, but not at the chat's widest.
     const narrow = role({ folded: true, button: 'shut' });
     const short = role({ folded: true });
-    shareRoleFolds([{ box: narrow.box, long: false }, { box: short.box, long: false }], words);
+    shareRoleFolds(
+      [
+        { box: narrow.box, long: false },
+        { box: short.box, long: false },
+      ],
+      words,
+    );
     expect([narrow.text.classes.has('folded'), short.text.classes.has('folded')]).toEqual([false, false]);
     expect([narrow.button!.inserted, narrow.box.inserted, short.text.inserted]).toEqual([[], [], []]);
   });
@@ -474,7 +500,8 @@ describe('when the GitHub CLI cannot be used', () => {
 
 describe('the files a shared page links to', () => {
   const CONV = 'c-1';
-  const href = (mid: string, path: string, conv = CONV) => `/api/conversations/${conv}/messages/${mid}/download?path=${encodeURIComponent(path)}`;
+  const href = (mid: string, path: string, conv = CONV) =>
+    `/api/conversations/${conv}/messages/${mid}/download?path=${encodeURIComponent(path)}`;
 
   it("reads which reply's file a download link of this conversation names", () => {
     expect(fileRefOf(href('r1', 'out/Q3 報告.md'), CONV)).toEqual({ messageId: 'r1', path: 'out/Q3 報告.md' });
@@ -509,7 +536,12 @@ describe('the files a shared page links to', () => {
   });
 
   it('includes at first each file that can go along, while they fit in the limits', () => {
-    const files = [file('a.md', 10, [0]), file('b.png', 10, [1], 'outside'), file('c.md', 20, [2, 3]), file('big.csv', 2_000_000, [4], 'too-large')];
+    const files = [
+      file('a.md', 10, [0]),
+      file('b.png', 10, [1], 'outside'),
+      file('c.md', 20, [2, 3]),
+      file('big.csv', 2_000_000, [4], 'too-large'),
+    ];
     expect(defaultFileSelection(files)).toEqual([true, false, true, false]);
     expect(fileSelection(files, [true, false, true, false])).toEqual({ count: 2, bytes: 30 });
     // A file that cannot go along never counts, even when checked.
@@ -519,12 +551,22 @@ describe('the files a shared page links to', () => {
     const each = Math.floor(SHARE_FILES_MAX_BYTES / 5);
     const heavy = Array.from({ length: 6 }, (_, i) => file(`${i}.csv`, each, [i]));
     expect(defaultFileSelection(heavy)).toEqual([true, true, true, true, true, false]);
-    expect(fileSelection(heavy, heavy.map(() => true))).toMatchObject({ count: 6, over: 'bytes' });
+    expect(
+      fileSelection(
+        heavy,
+        heavy.map(() => true),
+      ),
+    ).toMatchObject({ count: 6, over: 'bytes' });
     expect(fileSelection(heavy, [true, true, true, true, true, false]).over).toBeUndefined();
 
     const lots = Array.from({ length: SHARE_FILES_MAX + 1 }, (_, i) => file(`${i}.md`, 1, [i]));
     expect(defaultFileSelection(lots).filter(Boolean)).toHaveLength(SHARE_FILES_MAX);
-    expect(fileSelection(lots, lots.map(() => true)).over).toBe('count');
+    expect(
+      fileSelection(
+        lots,
+        lots.map(() => true),
+      ).over,
+    ).toBe('count');
   });
 
   it('sends the links of the files chosen, in the order the replies have them', () => {
@@ -575,10 +617,26 @@ describe('the files a shared page links to', () => {
   });
 
   it('leaves files that may hold secrets unchecked at first', () => {
-    for (const name of ['.env', '.env.local', '.npmrc', '.netrc', 'server.pem', 'tls.key', 'id_rsa', 'id_ed25519.pub', 'client_secret.json', 'credentials.csv', 'passwords.txt', 'api-token.txt', 'API_KEY.md', 'private_key.txt']) {
+    for (const name of [
+      '.env',
+      '.env.local',
+      '.npmrc',
+      '.netrc',
+      'server.pem',
+      'tls.key',
+      'id_rsa',
+      'id_ed25519.pub',
+      'client_secret.json',
+      'credentials.csv',
+      'passwords.txt',
+      'api-token.txt',
+      'API_KEY.md',
+      'private_key.txt',
+    ]) {
       expect(looksSecret(name), name).toBe(true);
     }
-    for (const name of ['report.md', 'data.csv', 'keys.md', 'notes.txt', 'index.html', 'monkey.md']) expect(looksSecret(name), name).toBe(false);
+    for (const name of ['report.md', 'data.csv', 'keys.md', 'notes.txt', 'index.html', 'monkey.md'])
+      expect(looksSecret(name), name).toBe(false);
     const files = [file('report.md', 10, [0]), file('.env', 10, [1]), file('id_rsa', 10, [2]), file('notes.md', 10, [3])];
     expect(defaultFileSelection(files)).toEqual([true, false, false, true]);
     // Still the user's to choose.
@@ -590,7 +648,13 @@ describe('the files a shared page links to', () => {
     // The user leaves data.csv out and takes .env along.
     const chosen = [true, false, true];
     // Checked again (a reply finished, or a share was refused): one more file, one that can no longer go.
-    const again = [file('report.md', 12, [0]), file('data.csv', 10, [1]), file('.env', 10, [2]), file('new.md', 5, [3]), file('.npmrc', 5, [4])];
+    const again = [
+      file('report.md', 12, [0]),
+      file('data.csv', 10, [1]),
+      file('.env', 10, [2]),
+      file('new.md', 5, [3]),
+      file('.npmrc', 5, [4]),
+    ];
     expect(nextFileSelection(again, { list: first, chosen })).toEqual([true, false, true, true, false]);
     // A file that cannot go along any more is not chosen; once it can again, it is new to the user.
     const broken = [file('report.md', 12, [0], 'missing'), file('data.csv', 10, [1])];
@@ -606,7 +670,10 @@ describe('the files a shared page links to', () => {
   });
 
   it('makes each link of the page a placeholder, plain text or a link, and leaves room for the addresses', () => {
-    const files = [{ messageId: 'r1', path: 'out/a.md' }, { messageId: 'r2', path: 'b.md' }];
+    const files = [
+      { messageId: 'r1', path: 'out/a.md' },
+      { messageId: 'r2', path: 'b.md' },
+    ];
     const a = (href: string | null, fileLink = false, dropped = false) => ({ href, fileLink, dropped });
     const plans = [
       anchorPlan(a(href('r2', 'b.md'), true), CONV, files),

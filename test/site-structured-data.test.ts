@@ -139,14 +139,27 @@ describe("the landing page's structured data", () => {
       WebSite: ['@id', '@type', 'inLanguage', 'name', 'publisher', 'url'],
       Organization: ['@id', '@type', 'name', 'sameAs', 'url'],
       SoftwareApplication: [
-        '@id', '@type', 'applicationCategory', 'description', 'downloadUrl', 'image', 'inLanguage', 'license', 'name',
-        'operatingSystem', 'publisher', 'sameAs', 'screenshot', 'url',
+        '@id',
+        '@type',
+        'applicationCategory',
+        'description',
+        'downloadUrl',
+        'image',
+        'inLanguage',
+        'license',
+        'name',
+        'operatingSystem',
+        'publisher',
+        'sameAs',
+        'screenshot',
+        'url',
       ],
       SoftwareSourceCode: ['@id', '@type', 'codeRepository', 'license', 'name', 'targetProduct'],
       VideoObject: ['@id', '@type', 'contentUrl', 'description', 'duration', 'inLanguage', 'name', 'thumbnailUrl', 'uploadDate'],
     };
     for (const { file } of PAGES) {
-      for (const n of page(file).data['@graph']) expect(Object.keys(n).sort(), `${file} ${n['@type']}`).toEqual([...properties[n['@type']]].sort());
+      for (const n of page(file).data['@graph'])
+        expect(Object.keys(n).sort(), `${file} ${n['@type']}`).toEqual([...properties[n['@type']]].sort());
     }
   });
 
@@ -167,7 +180,7 @@ describe("the landing page's structured data", () => {
     expect(read('site/zh-TW/index.html')).toContain('<li><b>English 與繁體中文</b>');
   });
 
-  it("says of the page what its <head> says: address, title, description, language and picture", () => {
+  it('says of the page what its <head> says: address, title, description, language and picture', () => {
     for (const { file, lang } of PAGES) {
       const p = page(file);
       const web = node(p.data, 'WebPage');
@@ -255,8 +268,20 @@ describe("the landing page's structured data", () => {
     // The page reads the version and the stars from GitHub as it loads, shows no installer sizes, has no ratings
     // (DESIGN-GUIDELINES.md, "Facts only") and names no price: it says nothing of one.
     const never = [
-      'softwareVersion', 'version', 'fileSize', 'offers', 'price', 'isAccessibleForFree', 'aggregateRating', 'review',
-      'ratingValue', 'ratingCount', 'reviewCount', 'interactionStatistic', 'userInteractionCount', 'downloadCount',
+      'softwareVersion',
+      'version',
+      'fileSize',
+      'offers',
+      'price',
+      'isAccessibleForFree',
+      'aggregateRating',
+      'review',
+      'ratingValue',
+      'ratingCount',
+      'reviewCount',
+      'interactionStatistic',
+      'userInteractionCount',
+      'downloadCount',
     ];
     for (const { file } of PAGES) {
       const keys = [...entries(page(file).data)].map(([key]) => key);
@@ -333,7 +358,12 @@ describe('site/llms.txt', () => {
         expect([REPO, `${REPO}/releases/latest`], url).toContain(url);
       }
     }
-    expect(links.filter((l) => l.url.startsWith(SITE)).map((l) => l.url).sort()).toEqual([...canonical].sort());
+    expect(
+      links
+        .filter((l) => l.url.startsWith(SITE))
+        .map((l) => l.url)
+        .sort(),
+    ).toEqual([...canonical].sort());
   });
 
   it('is right that each doc it links has a Traditional Chinese copy beside it', () => {
@@ -357,7 +387,13 @@ describe('site/llms.txt', () => {
     expect(deletes).toHaveLength(1);
     const patterns = [...deletes[0].matchAll(/-name '([^']+)'/g)].map((m) => m[1]);
     expect(patterns.length).toBeGreaterThan(0);
-    const glob = (p: string) => new RegExp(`^${p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*').replaceAll('?', '.')}$`);
+    const glob = (p: string) =>
+      new RegExp(
+        `^${p
+          .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+          .replaceAll('*', '.*')
+          .replaceAll('?', '.')}$`,
+      );
     for (const pattern of patterns) expect(glob(pattern).test('llms.txt'), pattern).toBe(false);
     // The patterns are read right: the design guidelines, which are deleted, match one.
     expect(patterns.some((p) => glob(p).test('DESIGN-GUIDELINES.md'))).toBe(true);

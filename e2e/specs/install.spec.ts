@@ -69,7 +69,20 @@ test.describe('installing a CLI from Settings', () => {
     await expect(page.locator('.provider-health .health.off[href="#/settings/copilot"]')).toHaveCount(0);
     const npmRuns = relay.fakeLog().filter((e) => e.cli === 'npm');
     const cache = join(dir, 'install-cache');
-    expect(npmRuns.map((e) => e.args)).toEqual([['install', '--global', '--prefix', dir, '--cache', join(cache, 'npm'), '--no-audit', '--no-fund', '--no-update-notifier', '@github/copilot']]);
+    expect(npmRuns.map((e) => e.args)).toEqual([
+      [
+        'install',
+        '--global',
+        '--prefix',
+        dir,
+        '--cache',
+        join(cache, 'npm'),
+        '--no-audit',
+        '--no-fund',
+        '--no-update-notifier',
+        '@github/copilot',
+      ],
+    ]);
     // npm's cache was the install's own, and went with it.
     expect(existsSync(cache)).toBe(false);
 
@@ -109,7 +122,10 @@ test.describe('installing a CLI from Settings', () => {
     npm.clear('hold');
   });
 
-  test("offers a maker's own installer, its bash script on macOS and Linux and its PowerShell one on Windows, without showing its command", async ({ page, relay }) => {
+  test("offers a maker's own installer, its bash script on macOS and Linux and its PowerShell one on Windows, without showing its command", async ({
+    page,
+    relay,
+  }) => {
     await page.goto(`${relay.base}/#/settings/grok`);
     const card = page.locator('#settings-grok');
     await expect(card.locator('.provider-head .pill')).toHaveText('Not installed');
@@ -117,7 +133,8 @@ test.describe('installing a CLI from Settings', () => {
     await expect(card.getByRole('button', { name: 'Install Grok' })).toBeVisible();
     await expect(card.locator('.cli-install')).toContainText('The installer gets that folder as its home');
     // What it would run, the maker's script for this system, is not shown on the card.
-    const command = process.platform === 'win32' ? 'irm https://x.ai/cli/install.ps1 | iex' : 'curl -fsSL https://x.ai/cli/install.sh | bash';
+    const command =
+      process.platform === 'win32' ? 'irm https://x.ai/cli/install.ps1 | iex' : 'curl -fsSL https://x.ai/cli/install.sh | bash';
     await expect(card.locator('.cli-install')).not.toContainText(command);
     const views = await relay.api<{ provider: string; method: string; command: string }[]>('/api/clis');
     expect(views.find((v) => v.provider === 'grok')).toMatchObject({ method: 'script', command });

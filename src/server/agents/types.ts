@@ -1,5 +1,16 @@
 import { readFileSync, statSync } from 'node:fs';
-import { TOOL_CALL_KINDS, type ApiBackend, type ApprovalAnswer, type ApprovalKind, type NativeItemsOff, type NativePart, type Permission, type PlanEntry, type Provider, type ToolCallKind } from '../../shared/types';
+import {
+  TOOL_CALL_KINDS,
+  type ApiBackend,
+  type ApprovalAnswer,
+  type ApprovalKind,
+  type NativeItemsOff,
+  type NativePart,
+  type Permission,
+  type PlanEntry,
+  type Provider,
+  type ToolCallKind,
+} from '../../shared/types';
 import { CONFIG } from '../config';
 
 /** Normalised events every CLI adapter emits while an agent is working. */
@@ -43,6 +54,8 @@ export interface ApprovalRequest {
   readOnlySandbox?: boolean;
   /** Nothing tells this request from another (a call the agent names in no way): no rule keys, no "always allow". */
   noRule?: boolean;
+  /** Allowing it writes nothing in the working directory (a call of Harness Relay's own tools): it takes no folder lock. */
+  noLock?: boolean;
 }
 
 export interface RunOptions {
@@ -162,6 +175,11 @@ export interface McpServerSpec {
   url: string;
   env: Record<string, string>;
   headers: Record<string, string>;
+  /**
+   * An HTTP server's stdio stand-in, for a CLI that turns out to take no HTTP MCP server (its ACP
+   * `mcpCapabilities.http`): made only when called (Harness Relay's gateway, `GrantOptions.fallback`).
+   */
+  fallback?: () => McpServerSpec | undefined;
 }
 
 /**
@@ -219,7 +237,20 @@ export function toolCallKind(kind: unknown): ToolCallKind | undefined {
 }
 
 // `target_file` / `target_directory`: Grok's read_file and list_dir.
-const DETAIL_KEYS = ['command', 'cmd', 'file_path', 'filePath', 'target_file', 'path', 'target_directory', 'pattern', 'url', 'query', 'description', 'prompt'];
+const DETAIL_KEYS = [
+  'command',
+  'cmd',
+  'file_path',
+  'filePath',
+  'target_file',
+  'path',
+  'target_directory',
+  'pattern',
+  'url',
+  'query',
+  'description',
+  'prompt',
+];
 /** Keys whose value is a file or folder path: too long, it loses its start, not its file name. */
 const PATH_KEYS = new Set(['file_path', 'filePath', 'target_file', 'path', 'target_directory']);
 

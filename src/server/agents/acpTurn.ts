@@ -129,14 +129,21 @@ export interface AcpAgentSpec extends OpenAgentProcess {
    * settings a loaded session keeps from before, applied again in the agent's own order (then set
    * `model` and `effort` to `via: 'config'` so the turn leaves them alone).
    */
-  afterSession?(conn: JsonRpcConnection, session: { sessionId: string; state: AcpSessionState; method: AcpSessionMethod }, ctx: OpenRunContext): Promise<void>;
+  afterSession?(
+    conn: JsonRpcConnection,
+    session: { sessionId: string; state: AcpSessionState; method: AcpSessionMethod },
+    ctx: OpenRunContext,
+  ): Promise<void>;
   /**
    * How the run's model is chosen: in the CLI's config before it starts (`prepare`), with
    * `session/set_model`, or with `session/set_config_option`. `id`: the agent's id for the run's model
    * (default: `<backend>/<model>`); `configId`: the option (default: the one of category `model`,
    * else `model`).
    */
-  model: { via: 'config' } | { via: 'set_model'; id?(run: BackendRun): string } | { via: 'config_option'; configId?: string; id?(run: BackendRun): string };
+  model:
+    | { via: 'config' }
+    | { via: 'set_model'; id?(run: BackendRun): string }
+    | { via: 'config_option'; configId?: string; id?(run: BackendRun): string };
   /**
    * How the reasoning effort is set: not at all, in the CLI's config (`prepare`), or with
    * `session/set_config_option` (default option: the one of category `thought_level`, else
@@ -160,7 +167,12 @@ export interface AcpAgentSpec extends OpenAgentProcess {
    * one: the one the permission covers least. `turn`: the run and its session (OpenHands reads the
    * actions its request is about from the session's own files).
    */
-  describeCall?(call: AcpToolCall, earlier: AcpToolCall | undefined, recent: AcpToolCall[], turn: { ctx: OpenRunContext; sessionId?: string }): Partial<AcpCallInfo>;
+  describeCall?(
+    call: AcpToolCall,
+    earlier: AcpToolCall | undefined,
+    recent: AcpToolCall[],
+    turn: { ctx: OpenRunContext; sessionId?: string },
+  ): Partial<AcpCallInfo>;
   /**
    * The adapter's own decision about a call, before the permission's (`acpPermissionDecision`):
    * undefined leaves it to the permission. A refusal from here is final (the user is not asked, for a
@@ -201,7 +213,11 @@ export interface AcpAgentSpec extends OpenAgentProcess {
    * Called once a refusal was answered, for an agent that takes the reason with a request of its own
    * (Goose: `_goose/unstable/session/steer`). `refusal.sessionId`: the session the turn runs.
    */
-  afterRefusal?(conn: JsonRpcConnection, refusal: { sessionId: string; reason: string; call: AcpToolCall; info: AcpCallInfo }, ctx: OpenRunContext): Promise<void>;
+  afterRefusal?(
+    conn: JsonRpcConnection,
+    refusal: { sessionId: string; reason: string; call: AcpToolCall; info: AcpCallInfo },
+    ctx: OpenRunContext,
+  ): Promise<void>;
   /**
    * The answer to a request of the agent's other than `session/request_permission` (`fs/*`,
    * `terminal/*`…), which some agents send although `initialize` said the client does neither: the
@@ -288,9 +304,7 @@ export function acpCallInfo(call: AcpToolCall, describe?: (call: AcpToolCall) =>
   const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v : undefined);
   // `command` is a shell command only for a call that runs one (a file editor's `command` is its own: `view`, `create`…).
   const shell = call.kind === undefined || call.kind === 'execute';
-  const command = shell
-    ? (commandLine(input.command) ?? commandLine(input.cmd))
-    : undefined;
+  const command = shell ? (commandLine(input.command) ?? commandLine(input.cmd)) : undefined;
   const path = PATH_FIELDS.map((k) => text(input[k])).find(Boolean) ?? call.locations?.find((l) => text(l?.path))?.path;
   const base: AcpCallInfo = {
     kind: text(call.kind) ?? (command ? 'execute' : 'other'),
@@ -302,7 +316,9 @@ export function acpCallInfo(call: AcpToolCall, describe?: (call: AcpToolCall) =>
     ...(Object.keys(input).length ? { input } : {}),
   };
   const info: AcpCallInfo = { ...base, ...(describe?.(call) ?? {}) };
-  const named = Boolean(info.tool || (info.title && (info.title !== 'tool' || text(call.title))) || info.command || info.path || info.url || info.input);
+  const named = Boolean(
+    info.tool || (info.title && (info.title !== 'tool' || text(call.title))) || info.command || info.path || info.url || info.input,
+  );
   return info.anonymous || named ? info : { ...info, anonymous: true };
 }
 
@@ -354,7 +370,8 @@ export function acpApprovalRequest(info: AcpCallInfo, permission: Permission): A
   const boundary = permission === 'read-only' && WRITE_KINDS.has(info.kind) ? { readOnlySandbox: true } : {};
   const reason = info.reason ?? info.title;
   if (info.kind === 'execute' || info.command) return { kind: 'command', detail: info.command ?? '', reason, ...boundary };
-  if (info.kind === 'edit' || info.kind === 'delete' || info.kind === 'move') return { kind: 'edit', detail: info.path, reason: info.title, ...boundary };
+  if (info.kind === 'edit' || info.kind === 'delete' || info.kind === 'move')
+    return { kind: 'edit', detail: info.path, reason: info.title, ...boundary };
   if (info.kind === 'fetch' && info.url) return { kind: 'fetch', detail: info.url, reason: info.title };
   // Any other tool (an MCP server's, say): what it is given, so the user sees what it will do. Its
   // server runs in the relay sandbox too, so in read-only a write it tries fails the same way.
@@ -414,9 +431,11 @@ export function answerAcpPermission(
 export function acpMcpServers(servers: McpServerSpec[], caps: AcpAgentCapabilities | undefined, cli = 'agent'): Record<string, unknown>[] {
   const http = Boolean(caps?.mcpCapabilities?.http);
   const list = (vars: Record<string, string>) => Object.entries(vars).map(([name, value]) => ({ name, value }));
-  const skipped = http ? [] : servers.filter((s) => s.transport === 'http');
+  // An HTTP server it cannot take: its stdio stand-in where it has one (Harness Relay's gateway), else left out.
+  const usable = http ? servers : servers.map((s) => (s.transport === 'http' && s.fallback ? (s.fallback() ?? s) : s));
+  const skipped = usable.filter((s) => !http && s.transport === 'http');
   if (skipped.length) console.warn(`[${cli}] does not take HTTP MCP servers; left out: ${skipped.map((s) => s.name).join(', ')}`);
-  return servers
+  return usable
     .filter((s) => http || s.transport !== 'http')
     .map((s) =>
       s.transport === 'http'
@@ -429,7 +448,10 @@ export function acpMcpServers(servers: McpServerSpec[], caps: AcpAgentCapabiliti
  * Tokens from the prompt's answer (`usage`, or `_meta.usage`; `acpTokens`), and the cost of the last
  * `usage_update` in USD.
  */
-export function acpUsage(result: Record<string, any> | undefined, last: AcpUsageUpdate | undefined): Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'> {
+export function acpUsage(
+  result: Record<string, any> | undefined,
+  last: AcpUsageUpdate | undefined,
+): Pick<RunResult, 'costUsd' | 'inputTokens' | 'outputTokens'> {
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
   const cost = last?.cost;
   return {
@@ -504,7 +526,8 @@ export function createAcpUpdateHandler(
       // The CLI's raw "Operation not permitted": say it was Harness Relay's sandbox, and why (an adapter
       // that already says so, OpenHands', is left as it is).
       const note = hooks.sandboxRefusal?.();
-      if (note && error && !refused.has(id) && SANDBOX_REFUSAL_RE.test(error) && !error.includes('Harness Relay')) error = `${note} ${error}`;
+      if (note && error && !refused.has(id) && SANDBOX_REFUSAL_RE.test(error) && !error.includes('Harness Relay'))
+        error = `${note} ${error}`;
     }
     const output = ok && text ? tailText(text) : undefined;
     const detail = vague.delete(id) ? summarizeInput(u.rawInput) : undefined;
@@ -630,13 +653,16 @@ export function createAcpUpdateHandler(
  * (no `rejection` hook): what a refused tool call means, since the model only sees a generic rejection.
  */
 export const ACP_REFUSAL_NOTE =
-  'When a tool call of yours is rejected, Harness Relay refused it: the conversation\'s permission does not cover it ' +
+  "When a tool call of yours is rejected, Harness Relay refused it: the conversation's permission does not cover it " +
   '(read-only allows reading and searching files and the web, but no edits and no commands; edit allows edits and ' +
   'commands but no pushing or publishing), or the user declined it. Do not retry it or work around it: continue ' +
   'without it, or say in your reply what you would do and why it is needed.';
 
 /** The role briefing to hand an agent: with `ACP_REFUSAL_NOTE` when the agent takes no refusal reasons. */
-export function acpBriefing(o: Pick<RunOptions, 'systemPrompt' | 'permission'>, spec: Pick<AcpAgentSpec, 'rejection' | 'afterRefusal'>): string {
+export function acpBriefing(
+  o: Pick<RunOptions, 'systemPrompt' | 'permission'>,
+  spec: Pick<AcpAgentSpec, 'rejection' | 'afterRefusal'>,
+): string {
   const brief = o.systemPrompt.trim();
   if (spec.rejection || spec.afterRefusal || o.permission === 'full') return brief;
   return brief ? `${brief}\n\n${ACP_REFUSAL_NOTE}` : ACP_REFUSAL_NOTE;
@@ -657,7 +683,9 @@ export function acpPrompt(
   images: boolean,
   promptText: (text: string) => string = acpPromptText,
 ): unknown[] {
-  const text = promptText(briefing?.trim() ? `<harness-relay-briefing>\n${briefing.trim()}\n</harness-relay-briefing>\n\n${o.prompt}` : o.prompt);
+  const text = promptText(
+    briefing?.trim() ? `<harness-relay-briefing>\n${briefing.trim()}\n</harness-relay-briefing>\n\n${o.prompt}` : o.prompt,
+  );
   const blocks: unknown[] = [{ type: 'text', text }];
   if (images) {
     for (const img of o.images ?? []) {
@@ -672,7 +700,9 @@ let relayVersion: string | undefined;
 function version(): string {
   if (relayVersion === undefined) {
     try {
-      relayVersion = String((JSON.parse(readFileSync(join(RELAY_ROOT, 'package.json'), 'utf8')) as { version?: string }).version ?? '0.0.0');
+      relayVersion = String(
+        (JSON.parse(readFileSync(join(RELAY_ROOT, 'package.json'), 'utf8')) as { version?: string }).version ?? '0.0.0',
+      );
     } catch {
       relayVersion = '0.0.0';
     }
@@ -726,7 +756,9 @@ async function acpSession(
   const conn = new JsonRpcConnection((line) => child?.stdin?.write(line + '\n'));
   const updates = createAcpUpdateHandler(o.onEvent, {
     ...spec,
-    ...(ctx.sandboxed ? { sandboxRefusal: () => (o.permission === 'read-only' ? t().openSandboxRefusedReadOnly : t().openSandboxRefused) } : {}),
+    ...(ctx.sandboxed
+      ? { sandboxRefusal: () => (o.permission === 'read-only' ? t().openSandboxRefusedReadOnly : t().openSandboxRefused) }
+      : {}),
   });
   const updateMethods = new Set(['session/update', ...(spec.updateMethods ?? [])]);
   conn.onNotification = (method, params) => {
@@ -754,7 +786,10 @@ async function acpSession(
     const call: AcpToolCall = params?.toolCall ?? {};
     const earlier = call.toolCallId ? updates.call(String(call.toolCallId)) : undefined;
     const recent = updates.takeRecent();
-    const info = acpCallInfo(call, spec.describeCall ? (c) => spec.describeCall!(c, earlier, recent, { ctx, ...(sessionId ? { sessionId } : {}) }) : undefined);
+    const info = acpCallInfo(
+      call,
+      spec.describeCall ? (c) => spec.describeCall!(c, earlier, recent, { ctx, ...(sessionId ? { sessionId } : {}) }) : undefined,
+    );
     const own = spec.decide?.(o.permission, info);
     let decision = own ?? acpPermissionDecision(o.permission, info, cli);
     // Not covered by the permission: the user decides, when the conversation asks.
@@ -766,14 +801,17 @@ async function acpSession(
     if (!decision.allow && call.toolCallId) updates.refused(call.toolCallId, decision.label);
     // A request that names no call it announced covers the calls described to it: their rows show why.
     if (!decision.allow && !earlier && spec.describeCall) {
-      for (const c of recent) if (c.toolCallId) updates.refused(String(c.toolCallId), decision.labels?.[String(c.toolCallId)] ?? decision.label);
+      for (const c of recent)
+        if (c.toolCallId) updates.refused(String(c.toolCallId), decision.labels?.[String(c.toolCallId)] ?? decision.label);
     }
     if (!decision.allow && spec.afterRefusal && sessionId) {
       // After the answer has gone out (it is sent once this handler returns).
       const refusal = { sessionId, reason: decision.reason, call, info };
       setImmediate(() => {
         if (userAborted) return; // the session is being cancelled: nothing to steer
-        spec.afterRefusal!(conn, refusal, ctx).catch((err: Error) => console.warn(`[${spec.provider}] could not pass on a refusal:`, err.message));
+        spec.afterRefusal!(conn, refusal, ctx).catch((err: Error) =>
+          console.warn(`[${spec.provider}] could not pass on a refusal:`, err.message),
+        );
       });
     }
     return answerAcpPermission(decision, Array.isArray(params?.options) ? params.options : [], spec);
@@ -844,7 +882,12 @@ async function acpSession(
       started = method;
       replaying = method === 'load';
       try {
-        state = ((await conn.request(`session/${method}`, { sessionId, cwd: o.cwd, mcpServers: mcpServers(method), ...(spec.sessionParams?.(ctx, method) ?? {}) })) ?? {}) as AcpSessionState;
+        state = ((await conn.request(`session/${method}`, {
+          sessionId,
+          cwd: o.cwd,
+          mcpServers: mcpServers(method),
+          ...(spec.sessionParams?.(ctx, method) ?? {}),
+        })) ?? {}) as AcpSessionState;
       } catch (err) {
         if (userAborted) throw err;
         throw new AgentRunError(t().openResumeFailed(cli, (err as Error).message));
@@ -853,7 +896,11 @@ async function acpSession(
       }
     } else {
       started = 'new';
-      state = ((await conn.request('session/new', { cwd: o.cwd, mcpServers: mcpServers('new'), ...(spec.sessionParams?.(ctx, 'new') ?? {}) })) ?? {}) as AcpSessionState;
+      state = ((await conn.request('session/new', {
+        cwd: o.cwd,
+        mcpServers: mcpServers('new'),
+        ...(spec.sessionParams?.(ctx, 'new') ?? {}),
+      })) ?? {}) as AcpSessionState;
       sessionId = typeof state.sessionId === 'string' ? state.sessionId : '';
       if (!sessionId) throw new AgentRunError(t().openNoSession(cli));
     }
@@ -868,7 +915,12 @@ async function acpSession(
 
     const result = (await conn.request('session/prompt', {
       sessionId,
-      prompt: acpPrompt(o, spec.briefing === 'prompt' ? acpBriefing(o, spec) : undefined, Boolean(caps.promptCapabilities?.image), spec.promptText && ((text) => spec.promptText!(text, ctx))),
+      prompt: acpPrompt(
+        o,
+        spec.briefing === 'prompt' ? acpBriefing(o, spec) : undefined,
+        Boolean(caps.promptCapabilities?.image),
+        spec.promptText && ((text) => spec.promptText!(text, ctx)),
+      ),
     })) as Record<string, any> | undefined;
     for (const u of spec.heldUpdates?.(ctx) ?? []) updates.handle(u);
     updates.finish();
@@ -944,6 +996,8 @@ async function setSessionOptions(
 
   const e = spec.effort;
   if (o.effort && e.via === 'config_option') {
-    await setOption(optionId(e.configId, 'thought_level', 'reasoning_effort'), e.value?.(o.effort) ?? o.effort, (v, err) => t().openRejectedEffort(cli, v, err));
+    await setOption(optionId(e.configId, 'thought_level', 'reasoning_effort'), e.value?.(o.effort) ?? o.effort, (v, err) =>
+      t().openRejectedEffort(cli, v, err),
+    );
   }
 }

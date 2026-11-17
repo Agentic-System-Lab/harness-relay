@@ -8,7 +8,9 @@ import type { RelayServer } from '../support/relay';
 /** A member's card in the open Team settings drawer, by its name. */
 function memberCard(page: Page, name: string) {
   const drawer = page.getByRole('dialog', { name: 'Team settings' });
-  return drawer.locator('.agent-card').filter({ has: page.getByRole('textbox', { name: 'Agent name' }).and(page.locator(`[value="${name}"]`)) });
+  return drawer
+    .locator('.agent-card')
+    .filter({ has: page.getByRole('textbox', { name: 'Agent name' }).and(page.locator(`[value="${name}"]`)) });
 }
 
 /** Picks a member's model and effort in Team settings, and saves the team. */
@@ -55,23 +57,31 @@ test.describe("a member's model and reasoning effort", () => {
   // for it; its fake logs the model and effort its turn ran with (Codex's thread, Grok's session, …).
   // (Codex's and Grok's tests keep the titles they had before the others joined.)
   const reach: Partial<Record<Provider, string>> = { codex: "reach Codex's thread", grok: "are set on Grok's session" };
-  eachCli(CLIS.filter((c) => c.provider !== 'claude'), (cli) => {
-    test(`${cli.provider}: the model and effort chosen for a member ${reach[cli.provider] ?? `reach ${cli.label}`}`, async ({ page, relay }) => {
-      const { model, effort } = cli.pickModel;
-      const id = await chatWith(page, relay, cli);
-      await pickModel(page, cli.name, model, effort);
-      await send(page, 'Which model are you?');
-      await expect(await finishedReply(page, cli.name)).toContainText('You said: “Which model are you?”.');
-      const conv = await settled(relay, id);
-      // No effort (''): the CLI offers none for that model (OpenCode on an endpoint), so none is kept, and its turn runs on its own (null).
-      expect(conv.agents[0]).toMatchObject({ model, ...(effort ? { effort } : {}) });
-      await expect.poll(() => relay.fakeLog().some((e) => e.cli === cli.provider && e.prompt?.includes('Which model are you?'))).toBe(true);
-      const logged = loggedModel(cli);
-      expect(turnFor(relay, cli.provider, 'Which model are you?').turn).toMatchObject({ ...logged, effort: logged.effort || null });
-    });
-  });
+  eachCli(
+    CLIS.filter((c) => c.provider !== 'claude'),
+    (cli) => {
+      test(`${cli.provider}: the model and effort chosen for a member ${reach[cli.provider] ?? `reach ${cli.label}`}`, async ({
+        page,
+        relay,
+      }) => {
+        const { model, effort } = cli.pickModel;
+        const id = await chatWith(page, relay, cli);
+        await pickModel(page, cli.name, model, effort);
+        await send(page, 'Which model are you?');
+        await expect(await finishedReply(page, cli.name)).toContainText('You said: “Which model are you?”.');
+        const conv = await settled(relay, id);
+        // No effort (''): the CLI offers none for that model (OpenCode on an endpoint), so none is kept, and its turn runs on its own (null).
+        expect(conv.agents[0]).toMatchObject({ model, ...(effort ? { effort } : {}) });
+        await expect
+          .poll(() => relay.fakeLog().some((e) => e.cli === cli.provider && e.prompt?.includes('Which model are you?')))
+          .toBe(true);
+        const logged = loggedModel(cli);
+        expect(turnFor(relay, cli.provider, 'Which model are you?').turn).toMatchObject({ ...logged, effort: logged.effort || null });
+      });
+    },
+  );
 
-  test("the default model and effort in Settings are what a member left on Default runs with", async ({ page, relay }) => {
+  test('the default model and effort in Settings are what a member left on Default runs with', async ({ page, relay }) => {
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
     const card = page.locator('#settings-claude');
     await card.locator('summary', { hasText: 'Default model and reasoning effort' }).click();

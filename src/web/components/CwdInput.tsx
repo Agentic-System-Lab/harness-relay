@@ -99,7 +99,8 @@ export function CwdInput({ value, onChange, placeholder, id, ariaLabel }: Props)
     const li = at >= 0 ? (ul?.children[at] as HTMLElement | undefined) : undefined;
     if (!ul || !li) return;
     if (li.offsetTop < ul.scrollTop) ul.scrollTop = li.offsetTop;
-    else if (li.offsetTop + li.offsetHeight > ul.scrollTop + ul.clientHeight) ul.scrollTop = li.offsetTop + li.offsetHeight - ul.clientHeight;
+    else if (li.offsetTop + li.offsetHeight > ul.scrollTop + ul.clientHeight)
+      ul.scrollTop = li.offsetTop + li.offsetHeight - ul.clientHeight;
   }, [shown, at]);
 
   const open = () => setMenu((m) => (m.open ? m : CWD_MENU_ALL));
@@ -194,7 +195,10 @@ export function CwdInput({ value, onChange, placeholder, id, ariaLabel }: Props)
       {/* The text box is as wide as what is typed (the hidden copy of it in `data-value` sets the
           width), so the Enter key right after it follows the last character. */}
       <span className="cwd-entry" onMouseDown={focusBox}>
-        <span className="cwd-typing" data-value={text || (full ? t.team.cwdFull(MAX_CWDS) : value.length ? t.team.cwdAddMore : placeholder) || ''}>
+        <span
+          className="cwd-typing"
+          data-value={text || (full ? t.team.cwdFull(MAX_CWDS) : value.length ? t.team.cwdAddMore : placeholder) || ''}
+        >
           <input
             ref={input}
             id={id}

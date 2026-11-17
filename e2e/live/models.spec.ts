@@ -3,7 +3,22 @@ import type { ChatMessage, Conversation, Provider } from '../../src/shared/types
 import { expect, test } from '../fixtures';
 import { composer, replies, send } from '../support/app';
 import type { RelayServer } from '../support/relay';
-import { CLOUD, CLOUD_CLIS, ENDPOINTS, ENDPOINT_CLIS, OPEN, TYPED_MODEL, askPermission, endpointOf, has, modelId, ownModel, sessionBackend, setUpEndpoints, type LiveEndpoint } from './live';
+import {
+  CLOUD,
+  CLOUD_CLIS,
+  ENDPOINTS,
+  ENDPOINT_CLIS,
+  OPEN,
+  TYPED_MODEL,
+  askPermission,
+  endpointOf,
+  has,
+  modelId,
+  ownModel,
+  sessionBackend,
+  setUpEndpoints,
+  type LiveEndpoint,
+} from './live';
 
 test.use({ live: true });
 
@@ -97,7 +112,9 @@ test.describe("a CLI's default model set to an endpoint's in Settings", () => {
       const defaults = section.locator('summary');
       await defaults.click();
       const select = section.getByRole('combobox', { name: 'Model', exact: true });
-      await expect(select.locator('optgroup[label="Your own endpoints (Settings → Model backends)"]').locator(`option[value="${model}"]`)).toHaveCount(1, { timeout: 120_000 });
+      await expect(
+        select.locator('optgroup[label="Your own endpoints (Settings → Model backends)"]').locator(`option[value="${model}"]`),
+      ).toHaveCount(1, { timeout: 120_000 });
       await select.selectOption(model);
       await section.getByRole('button', { name: 'Save', exact: true }).click();
       await expect(defaults).toContainText(model);
@@ -113,7 +130,9 @@ test.describe("a CLI's default model set to an endpoint's in Settings", () => {
       const reply = replies(page, 'Ada').last();
       await expect(reply).toBeVisible({ timeout: 120_000 });
       await expect(reply.locator('.live-tag')).toHaveCount(0, { timeout: 15 * 60_000 });
-      const last = (await relay.api<Conversation>(`/api/conversations/${conv.id}`)).messages.filter((m) => m.author.kind === 'agent').at(-1);
+      const last = (await relay.api<Conversation>(`/api/conversations/${conv.id}`)).messages
+        .filter((m) => m.author.kind === 'agent')
+        .at(-1);
       expect(last?.error, 'the turn failed').toBeUndefined();
       expect(answer(last)).toMatch(FORTY_TWO);
       expect(sessionBackend(relay, conv.id, 'm1')).toBe(first!.id);
@@ -142,7 +161,10 @@ test.describe('endpoints that are gone', () => {
   // Claude Code, Codex and Grok would otherwise send the model's id to their own service; an open
   // agent has no service of its own, so for it the endpoint is just not there.
   const cases = [
-    { provider: ENDPOINT_CLIS.find(has), error: /custom endpoint "gone" was deleted under Settings → Model backends\. The turn did not run/ },
+    {
+      provider: ENDPOINT_CLIS.find(has),
+      error: /custom endpoint "gone" was deleted under Settings → Model backends\. The turn did not run/,
+    },
     { provider: OPEN.find(has), error: /there is no custom endpoint with the id "gone"/ },
   ].flatMap((c) => (c.provider ? [{ provider: c.provider, error: c.error }] : []));
   test.skip(!first || !cases.length, 'needs an endpoint (E2E_LIVE_OLLAMA or E2E_LIVE_VLLM) and a CLI that runs on one');
@@ -150,12 +172,22 @@ test.describe('endpoints that are gone', () => {
   for (const c of cases) {
     test(`${c.provider}: a member on a deleted endpoint's model fails its turn, saying so`, async ({ relay }) => {
       await setUpEndpoints(relay);
-      await relay.api('/api/backends/endpoints/gone', { method: 'PUT', body: { name: 'Gone', baseUrl: first!.baseUrl, models: [first!.model], ...(first!.apiKey ? { apiKey: first!.apiKey } : {}) } });
+      await relay.api('/api/backends/endpoints/gone', {
+        method: 'PUT',
+        body: { name: 'Gone', baseUrl: first!.baseUrl, models: [first!.model], ...(first!.apiKey ? { apiKey: first!.apiKey } : {}) },
+      });
       const conv = await relay.api<Conversation>('/api/conversations', {
         body: {
           title: 'gone',
           agents: [{ id: 'm1', name: 'Ada', provider: c.provider, role: '', model: `gone/${first!.model}` }],
-          settings: { mode: 'roundtable', rounds: 1, maxHops: 2, permission: askPermission(c.provider), approvals: 'deny', cwd: relay.workDir },
+          settings: {
+            mode: 'roundtable',
+            rounds: 1,
+            maxHops: 2,
+            permission: askPermission(c.provider),
+            approvals: 'deny',
+            cwd: relay.workDir,
+          },
         },
       });
       await relay.api('/api/backends/endpoints/gone', { method: 'DELETE', body: {} });

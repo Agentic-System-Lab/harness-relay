@@ -207,7 +207,11 @@ export function Composer({
       let attachments: AttachmentUpload[];
       try {
         attachments = await Promise.all(
-          files.map(async (f) => ({ name: f.file.name, mimeType: f.file.type || 'application/octet-stream', data: await toBase64(f.file) })),
+          files.map(async (f) => ({
+            name: f.file.name,
+            mimeType: f.file.type || 'application/octet-stream',
+            data: await toBase64(f.file),
+          })),
         );
       } catch {
         setNotice(t.composer.readFailed);
@@ -250,8 +254,20 @@ export function Composer({
 
   const c = t.composer;
   const hint = isTouchScreen()
-    ? locked ? c.hintConfirmTouch : reviewing ? c.hintReviewTouch : running ? c.hintBusyTouch : c.hintTouch
-    : locked ? c.hintConfirm : reviewing ? c.hintReview : running ? c.hintBusy(MOD_KEY) : c.hint;
+    ? locked
+      ? c.hintConfirmTouch
+      : reviewing
+        ? c.hintReviewTouch
+        : running
+          ? c.hintBusyTouch
+          : c.hintTouch
+    : locked
+      ? c.hintConfirm
+      : reviewing
+        ? c.hintReview
+        : running
+          ? c.hintBusy(MOD_KEY)
+          : c.hint;
 
   return (
     <div
@@ -299,7 +315,12 @@ export function Composer({
                     <span className="muted">{formatBytes(f.file.size)}</span>
                   </>
                 )}
-                <button type="button" className="attach-remove" onClick={() => removeFile(f.id)} aria-label={t.composer.removeFile(f.file.name)}>
+                <button
+                  type="button"
+                  className="attach-remove"
+                  onClick={() => removeFile(f.id)}
+                  aria-label={t.composer.removeFile(f.file.name)}
+                >
                   ×
                 </button>
               </li>

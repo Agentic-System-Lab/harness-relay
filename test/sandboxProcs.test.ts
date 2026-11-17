@@ -2,7 +2,22 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, wri
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { SANDBOX_PIDS_PY, answeredPids, deniedPaths, realFolder, aroundPath, runAsync, runSandboxPids, runSandboxPidsAsync, sweepRunSandboxes, sweepRunSandboxesAsync, userPids, type AsyncRunner, type Runner, type SandboxProcsDeps } from '../src/server/sandboxProcs';
+import {
+  SANDBOX_PIDS_PY,
+  answeredPids,
+  deniedPaths,
+  realFolder,
+  aroundPath,
+  runAsync,
+  runSandboxPids,
+  runSandboxPidsAsync,
+  sweepRunSandboxes,
+  sweepRunSandboxesAsync,
+  userPids,
+  type AsyncRunner,
+  type Runner,
+  type SandboxProcsDeps,
+} from '../src/server/sandboxProcs';
 
 const root = mkdtempSync(join(tmpdir(), 'relay-sbprocs-'));
 const runTmp = join(root, 'relay-sandbox', '0123456789abcdef');
@@ -12,7 +27,11 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 const PS = ['    1     0', '  101   501', '  102   501', '  103     0', '  104   501', ' 4242   501', 'junk line', ''].join('\n');
 
 /** A fake system: `ps` lists PS, the Python helper answers with `inSandbox` (those it was given). */
-function deps(over: Partial<SandboxProcsDeps> = {}, inSandbox: number[] = [102], calls: { cmd: string; args: string[]; input?: string }[] = []): SandboxProcsDeps {
+function deps(
+  over: Partial<SandboxProcsDeps> = {},
+  inSandbox: number[] = [102],
+  calls: { cmd: string; args: string[]; input?: string }[] = [],
+): SandboxProcsDeps {
   const run: Runner = (cmd, args, input) => {
     calls.push({ cmd, args, input });
     if (cmd === '/bin/ps') return { status: 0, stdout: PS, error: undefined };
@@ -43,7 +62,8 @@ describe('finding a run’s processes by their sandbox (macOS)', () => {
   });
 
   it('keeps only pids it asked about (a stray line in the answer is ignored)', () => {
-    const run: Runner = (cmd) => (cmd === '/bin/ps' ? { status: 0, stdout: PS, error: undefined } : { status: 0, stdout: '102\n999\nnot-a-pid\n1\n', error: undefined });
+    const run: Runner = (cmd) =>
+      cmd === '/bin/ps' ? { status: 0, stdout: PS, error: undefined } : { status: 0, stdout: '102\n999\nnot-a-pid\n1\n', error: undefined };
     expect(runSandboxPids(runTmp, deps({ run }))).toEqual([102]);
   });
 
@@ -51,9 +71,11 @@ describe('finding a run’s processes by their sandbox (macOS)', () => {
     expect(runSandboxPids(runTmp, deps({ platform: 'linux' }))).toBeUndefined();
     expect(runSandboxPids(runTmp, deps({ pythonReady: () => false }))).toBeUndefined();
     expect(runSandboxPids(runTmp, deps({ uid: -1 }))).toBeUndefined();
-    const psFails: Runner = (cmd) => (cmd === '/bin/ps' ? { status: 1, stdout: '', error: undefined } : { status: 0, stdout: '', error: undefined });
+    const psFails: Runner = (cmd) =>
+      cmd === '/bin/ps' ? { status: 1, stdout: '', error: undefined } : { status: 0, stdout: '', error: undefined };
     expect(runSandboxPids(runTmp, deps({ run: psFails }))).toBeUndefined();
-    const pyFails: Runner = (cmd) => (cmd === '/bin/ps' ? { status: 0, stdout: PS, error: undefined } : { status: 1, stdout: '', error: new Error('no python') });
+    const pyFails: Runner = (cmd) =>
+      cmd === '/bin/ps' ? { status: 0, stdout: PS, error: undefined } : { status: 1, stdout: '', error: new Error('no python') };
     expect(runSandboxPids(runTmp, deps({ run: pyFails }))).toBeUndefined();
   });
 
@@ -93,7 +115,8 @@ describe('finding a run’s processes by their sandbox (macOS)', () => {
   });
 
   it('reports a process it could not kill, and is a no-op where it cannot tell', () => {
-    const run: Runner = (cmd) => (cmd === '/bin/ps' ? { status: 0, stdout: PS, error: undefined } : { status: 0, stdout: '102\n', error: undefined });
+    const run: Runner = (cmd) =>
+      cmd === '/bin/ps' ? { status: 0, stdout: PS, error: undefined } : { status: 0, stdout: '102\n', error: undefined };
     const killed: number[] = [];
     expect(sweepRunSandboxes([runTmp], deps({ run }), (pid) => void killed.push(pid))).toBe(false);
     expect(killed.length).toBe(5); // five rounds of kills, then the sixth look gives up
@@ -104,7 +127,8 @@ describe('finding a run’s processes by their sandbox (macOS)', () => {
     expect(sweepRunSandboxes([runTmp], deps({ pythonReady: () => false }), () => expect.unreachable(), false)).toBe(false);
     expect(sweepRunSandboxes([], deps({ pythonReady: () => false }), () => expect.unreachable(), false)).toBe(true);
     // Available here, but ps (or Python) failed: it could not tell, so it counts as held.
-    const psFails: Runner = (cmd) => (cmd === '/bin/ps' ? { status: 1, stdout: '', error: undefined } : { status: 0, stdout: '', error: undefined });
+    const psFails: Runner = (cmd) =>
+      cmd === '/bin/ps' ? { status: 1, stdout: '', error: undefined } : { status: 0, stdout: '', error: undefined };
     expect(sweepRunSandboxes([runTmp], deps({ run: psFails }), () => expect.unreachable())).toBe(false);
     expect(sweepRunSandboxes([], deps(), () => expect.unreachable())).toBe(true);
   });
@@ -118,7 +142,10 @@ describe('finding a run’s processes by their sandbox (macOS)', () => {
 });
 
 describe('the same sweep without blocking the server (a run’s teardown)', () => {
-  const asyncOf = (run: Runner): AsyncRunner => async (cmd, args, input) => run(cmd, args, input);
+  const asyncOf =
+    (run: Runner): AsyncRunner =>
+    async (cmd, args, input) =>
+      run(cmd, args, input);
 
   it('gives the same answers as the blocking one', async () => {
     const d = deps();
@@ -131,11 +158,16 @@ describe('the same sweep without blocking the server (a run’s teardown)', () =
   it('kills in rounds until none is left, and reports one it could not kill', async () => {
     let alive = [102, 104];
     const run: AsyncRunner = async (cmd, _a, input) =>
-      cmd === '/bin/ps' ? { status: 0, stdout: PS, error: undefined } : { status: 0, stdout: alive.filter((p) => (input ?? '').split('\n').map(Number).includes(p)).join('\n'), error: undefined };
+      cmd === '/bin/ps'
+        ? { status: 0, stdout: PS, error: undefined }
+        : { status: 0, stdout: alive.filter((p) => (input ?? '').split('\n').map(Number).includes(p)).join('\n'), error: undefined };
     const killed: number[] = [];
-    expect(await sweepRunSandboxesAsync([runTmp], deps(), (pid) => (killed.push(pid), (alive = alive.filter((p) => p !== pid))), run)).toBe(true);
+    expect(await sweepRunSandboxesAsync([runTmp], deps(), (pid) => (killed.push(pid), (alive = alive.filter((p) => p !== pid))), run)).toBe(
+      true,
+    );
     expect(killed.sort()).toEqual([102, 104]);
-    const stuck: AsyncRunner = async (cmd) => (cmd === '/bin/ps' ? { status: 0, stdout: PS, error: undefined } : { status: 0, stdout: '102\n', error: undefined });
+    const stuck: AsyncRunner = async (cmd) =>
+      cmd === '/bin/ps' ? { status: 0, stdout: PS, error: undefined } : { status: 0, stdout: '102\n', error: undefined };
     expect(await sweepRunSandboxesAsync([runTmp], deps(), () => undefined, stuck)).toBe(false);
   });
 

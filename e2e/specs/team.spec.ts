@@ -1,7 +1,18 @@
 import type { Locator } from '@playwright/test';
 import { PROVIDERS } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
-import { askAndConfirm, awaitingPlan, finishedReply, heightWithoutAddCard, openTeamChat, replies, reviewCards, send, settled, startChat } from '../support/app';
+import {
+  askAndConfirm,
+  awaitingPlan,
+  finishedReply,
+  heightWithoutAddCard,
+  openTeamChat,
+  replies,
+  reviewCards,
+  send,
+  settled,
+  startChat,
+} from '../support/app';
 
 test.describe("changing a chat's team", () => {
   test('the lead agent changes the team when asked, and the new member answers once it is saved', async ({ page, relay }) => {
@@ -30,7 +41,8 @@ test.describe("changing a chat's team", () => {
     const card = awaitingPlan(page);
     await expect(card).toContainText('Using the template "General-question panel" instead');
     await card.getByRole('button', { name: 'Confirm team' }).click();
-    for (const name of ['Analyst', 'Critic', 'Synthesizer']) await expect(await finishedReply(page, name)).toContainText('You said: “Pick something”.');
+    for (const name of ['Analyst', 'Critic', 'Synthesizer'])
+      await expect(await finishedReply(page, name)).toContainText('You said: “Pick something”.');
   });
 
   test('a team proposed for a new question can be declined, and the current team answers', async ({ page }) => {
@@ -47,7 +59,10 @@ test.describe("changing a chat's team", () => {
     await expect(replies(page, 'Codex')).toHaveCount(0);
   });
 
-  test("the team design card's Adjust team waits while agents are at work (the team answering, the lead agent reviewing), and once the team is adjusted the card shows it", async ({ page, relay }) => {
+  test("the team design card's Adjust team waits while agents are at work (the team answering, the lead agent reviewing), and once the team is adjusted the card shows it", async ({
+    page,
+    relay,
+  }) => {
     const id = await startChat(page, { autoConfirm: true, leadReview: true });
     await send(page, 'Take your time e2e:slow=4 e2e:slowreview');
     // The design's card (a review card is one too).
@@ -82,7 +97,10 @@ test.describe("changing a chat's team", () => {
     await expect(page.locator('.plan-card:not(.review-card)').last().locator('.plan-members strong')).toHaveText(['@Ada']);
   });
 
-  test('the add card is as tall as the members beside it with a shadow while more CLIs are below, lists every CLI on a row of its own, and one tall card stretches only its row', async ({ page, relay }) => {
+  test('the add card is as tall as the members beside it with a shadow while more CLIs are below, lists every CLI on a row of its own, and one tall card stretches only its row', async ({
+    page,
+    relay,
+  }) => {
     // Tall enough to show the whole card above the drawer's buttons.
     await page.setViewportSize({ width: 1280, height: 1300 });
     await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
@@ -156,7 +174,10 @@ test.describe("changing a chat's team", () => {
     expect(Math.abs(beside.shown - beside.hidden)).toBeLessThanOrEqual(1);
     expect(await scrolls()).toBe(true);
     // A role box made taller (its corner dragged) stretches the first row, not the second.
-    await members.first().locator('textarea').evaluate((el) => void ((el as HTMLElement).style.height = '500px'));
+    await members
+      .first()
+      .locator('textarea')
+      .evaluate((el) => void ((el as HTMLElement).style.height = '500px'));
     expect(await height(members.first())).toBeGreaterThan(third + 200);
     expect(Math.abs((await height(members.nth(2))) - third)).toBeLessThanOrEqual(1);
     expect(Math.abs((await height(add)) - third)).toBeLessThanOrEqual(1);

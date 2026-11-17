@@ -91,7 +91,9 @@ function endBareLink(link: LinkNode): LinkNode[] | undefined {
   if (link.position?.start.offset !== child?.position?.start.offset) return undefined;
   const length = urlLength(value);
   if (length === value.length) return undefined;
-  const parts = length ? [{ text: value.slice(0, length), url: href(value.slice(0, length)) }, ...splitUrls(value.slice(length))] : splitUrls(value);
+  const parts = length
+    ? [{ text: value.slice(0, length), url: href(value.slice(0, length)) }, ...splitUrls(value.slice(length))]
+    : splitUrls(value);
   return parts.map(({ text, url }) =>
     url === undefined ? { type: 'text', value: text } : { type: 'link', title: null, url, children: [{ type: 'text', value: text }] },
   );
@@ -102,7 +104,8 @@ function joinTexts(nodes: LinkNode[]): LinkNode[] {
   const out: LinkNode[] = [];
   for (const node of nodes) {
     const last = out[out.length - 1];
-    if (node.type === 'text' && last?.type === 'text') out[out.length - 1] = { type: 'text', value: (last.value ?? '') + (node.value ?? '') };
+    if (node.type === 'text' && last?.type === 'text')
+      out[out.length - 1] = { type: 'text', value: (last.value ?? '') + (node.value ?? '') };
     else out.push(node);
   }
   return out;

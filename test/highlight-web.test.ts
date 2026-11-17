@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { hastToHtml, highlightHtml } from '../src/web/highlight';
 
 /** Every tag in `html`, each of which must be a highlight.js span's start or an end of one. */
-const strayTags = (html: string) => [...html.matchAll(/<[^>]*>/g)].map((m) => m[0]).filter((tag) => !/^<span class="hljs-[a-z_-]+">$|^<\/span>$/.test(tag));
+const strayTags = (html: string) =>
+  [...html.matchAll(/<[^>]*>/g)].map((m) => m[0]).filter((tag) => !/^<span class="hljs-[a-z_-]+">$|^<\/span>$/.test(tag));
 
 describe("the file browser's highlighting", () => {
   it('highlights a language replies know too, as spans with highlight.js classes', () => {
-    expect(highlightHtml('const a = 1;', 'typescript')).toBe('<span class="hljs-keyword">const</span> a = <span class="hljs-number">1</span>;');
+    expect(highlightHtml('const a = 1;', 'typescript')).toBe(
+      '<span class="hljs-keyword">const</span> a = <span class="hljs-number">1</span>;',
+    );
     // By an alias too.
     expect(highlightHtml('x = 1', 'py')).not.toBeNull();
   });
@@ -36,7 +39,12 @@ describe("the file browser's highlighting", () => {
       hastToHtml({
         type: 'root',
         children: [
-          { type: 'element', tagName: 'span', properties: { className: ['hljs-string', 'x"y'] }, children: [{ type: 'text', value: 'a<b' }] },
+          {
+            type: 'element',
+            tagName: 'span',
+            properties: { className: ['hljs-string', 'x"y'] },
+            children: [{ type: 'text', value: 'a<b' }],
+          },
           { type: 'element', tagName: 'script', properties: { src: 'x' }, children: [{ type: 'text', value: 'c' }] },
           { type: 'comment', value: 'gone' },
         ],

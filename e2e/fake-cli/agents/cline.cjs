@@ -40,9 +40,28 @@ const { args, flag, has, home, sleep } = require('../lib/self.cjs');
 
 /** Its catalog per provider: the models a session lists, and the one it takes when CLINE_MODEL is none of them. */
 const CATALOG = {
-  'openai-native': { models: [['gpt-5.4', 'GPT-5.4'], ['gpt-5.4-mini', 'GPT-5.4 mini'], ['gpt-5.4-nano', 'GPT-5.4 nano']], default: 'gpt-5.4' },
-  anthropic: { models: [['claude-haiku-5-5', 'Claude Haiku 5.5'], ['claude-sonnet-5-5', 'Claude Sonnet 5.5']], default: 'claude-haiku-5-5' },
-  xai: { models: [['grok-4.3', 'Grok 4.3'], ['grok-4.20-0309-non-reasoning', 'Grok 4.20 (non-reasoning)']], default: 'grok-4.20-0309-non-reasoning' },
+  'openai-native': {
+    models: [
+      ['gpt-5.4', 'GPT-5.4'],
+      ['gpt-5.4-mini', 'GPT-5.4 mini'],
+      ['gpt-5.4-nano', 'GPT-5.4 nano'],
+    ],
+    default: 'gpt-5.4',
+  },
+  anthropic: {
+    models: [
+      ['claude-haiku-5-5', 'Claude Haiku 5.5'],
+      ['claude-sonnet-5-5', 'Claude Sonnet 5.5'],
+    ],
+    default: 'claude-haiku-5-5',
+  },
+  xai: {
+    models: [
+      ['grok-4.3', 'Grok 4.3'],
+      ['grok-4.20-0309-non-reasoning', 'Grok 4.20 (non-reasoning)'],
+    ],
+    default: 'grok-4.20-0309-non-reasoning',
+  },
   // An OpenAI-compatible endpoint: one model, whatever CLINE_MODEL says.
   'openai-compatible': { models: [['gpt-4o', 'gpt-4o']], default: 'gpt-4o' },
 };
@@ -98,7 +117,12 @@ function readBriefing() {
   const dir = path.join(env.CLINE_DIR || path.join(os.homedir(), '.cline'), 'rules');
   return listDir(dir)
     .filter((n) => n.endsWith('.md'))
-    .map((n) => fs.readFileSync(path.join(dir, n), 'utf8').replace(/^# Harness Relay\n\n/, '').trim())
+    .map((n) =>
+      fs
+        .readFileSync(path.join(dir, n), 'utf8')
+        .replace(/^# Harness Relay\n\n/, '')
+        .trim(),
+    )
     .filter(Boolean)
     .join('\n\n');
 }
@@ -150,7 +174,10 @@ function rulesIn(cwd) {
   const user = os.homedir();
   const out = [];
   const rule = (name, file) => out.push({ name, instructions: fs.readFileSync(file, 'utf8').trim(), path: file });
-  const folder = (dir) => listDir(dir).filter((n) => /\.(md|txt)$/i.test(n) && isFile(path.join(dir, n))).forEach((n) => rule(n.replace(/\.(md|txt)$/i, ''), path.join(dir, n)));
+  const folder = (dir) =>
+    listDir(dir)
+      .filter((n) => /\.(md|txt)$/i.test(n) && isFile(path.join(dir, n)))
+      .forEach((n) => rule(n.replace(/\.(md|txt)$/i, ''), path.join(dir, n)));
   const clinerules = path.join(cwd, '.clinerules');
   if (isFile(clinerules)) rule('.clinerules', clinerules);
   else folder(clinerules);
@@ -162,30 +189,56 @@ function rulesIn(cwd) {
   return out;
 }
 
-const HOOK_EVENTS = { PreToolUse: 'tool_call', PostToolUse: 'tool_result', TaskStart: 'agent_start', TaskComplete: 'agent_end', UserPromptSubmit: 'prompt_submit' };
+const HOOK_EVENTS = {
+  PreToolUse: 'tool_call',
+  PostToolUse: 'tool_result',
+  TaskStart: 'agent_start',
+  TaskComplete: 'agent_end',
+  UserPromptSubmit: 'prompt_submit',
+};
 
 function configOf(kind, cwd) {
   const user = os.homedir();
-  const files = (dirs, re) => dirs.flatMap((d) => listDir(d).filter((n) => re.test(n) && isFile(path.join(d, n))).map((n) => ({ n, file: path.join(d, n) })));
+  const files = (dirs, re) =>
+    dirs.flatMap((d) =>
+      listDir(d)
+        .filter((n) => re.test(n) && isFile(path.join(d, n)))
+        .map((n) => ({ n, file: path.join(d, n) })),
+    );
   switch (kind) {
     case 'rules':
       return rulesIn(cwd);
     case 'skills':
       return skillDirs(cwd).flatMap((d) =>
         ownSkills(d).map((s) => {
-          const body = fs.readFileSync(s.path, 'utf8').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').trim();
-          return { name: s.name, description: s.description, instructions: body, frontmatter: { name: s.name, description: s.description }, path: s.path };
+          const body = fs
+            .readFileSync(s.path, 'utf8')
+            .replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '')
+            .trim();
+          return {
+            name: s.name,
+            description: s.description,
+            instructions: body,
+            frontmatter: { name: s.name, description: s.description },
+            path: s.path,
+          };
         }),
       );
     case 'hooks':
-      return files([path.join(cwd, '.clinerules', 'hooks'), path.join(cwd, '.cline', 'hooks'), path.join(user, 'Documents', 'Cline', 'Hooks')], /^[^.]/).map(({ n, file }) => {
+      return files(
+        [path.join(cwd, '.clinerules', 'hooks'), path.join(cwd, '.cline', 'hooks'), path.join(user, 'Documents', 'Cline', 'Hooks')],
+        /^[^.]/,
+      ).map(({ n, file }) => {
         const fileName = n.replace(/\.[^.]+$/, '');
         return { fileName, hookEventName: HOOK_EVENTS[fileName] || fileName.toLowerCase(), path: file };
       });
     case 'agents':
       return [];
     case 'plugins':
-      return files([path.join(cwd, '.cline', 'plugins'), path.join(user, 'Documents', 'Cline', 'Plugins'), path.join(user, '.agents', 'plugins')], /\.(js|mjs|cjs|ts)$/).map(({ n, file }) => ({
+      return files(
+        [path.join(cwd, '.cline', 'plugins'), path.join(user, 'Documents', 'Cline', 'Plugins'), path.join(user, '.agents', 'plugins')],
+        /\.(js|mjs|cjs|ts)$/,
+      ).map(({ n, file }) => ({
         name: n.replace(/\.[^.]+$/, ''),
         path: file,
       }));
@@ -231,7 +284,14 @@ function stateOf(s) {
           { value: 'openai-codex', name: 'OpenAI ChatGPT Subscription' },
         ],
       },
-      { type: 'select', id: 'model', name: 'Model', category: 'model', currentValue: s.model, options: models.map((m) => ({ value: m.modelId, name: m.name })) },
+      {
+        type: 'select',
+        id: 'model',
+        name: 'Model',
+        category: 'model',
+        currentValue: s.model,
+        options: models.map((m) => ({ value: m.modelId, name: m.name })),
+      },
       {
         type: 'select',
         id: 'mode',
@@ -280,7 +340,10 @@ function openSession(method, p, open) {
   if (!catalog) {
     if (method === 'session/new') {
       fs.mkdirSync(path.dirname(recordFile(id)), { recursive: true });
-      fs.writeFileSync(recordFile(id), JSON.stringify({ session_id: id, metadata: { aggregateUsage: { inputTokens: 0, outputTokens: 0, totalCost: 0 } } }));
+      fs.writeFileSync(
+        recordFile(id),
+        JSON.stringify({ session_id: id, metadata: { aggregateUsage: { inputTokens: 0, outputTokens: 0, totalCost: 0 } } }),
+      );
       fs.writeFileSync(messagesFile(id), '[]');
     }
     record({ session: id, resumed: method === 'session/load' });
@@ -291,7 +354,10 @@ function openSession(method, p, open) {
 /** The history of a loaded session, as it replays it before answering `session/load`. */
 function replay(peer, id) {
   for (const m of readJson(messagesFile(id), [])) {
-    peer.notify('session/update', { sessionId: id, update: { sessionUpdate: m.role === 'user' ? 'user_message_chunk' : 'agent_message_chunk', content: { type: 'text', text: m.text } } });
+    peer.notify('session/update', {
+      sessionId: id,
+      update: { sessionUpdate: m.role === 'user' ? 'user_message_chunk' : 'agent_message_chunk', content: { type: 'text', text: m.text } },
+    });
   }
 }
 
@@ -301,7 +367,14 @@ function saveTurn(id, s, prompt, reply) {
   const u = (rec.metadata && rec.metadata.aggregateUsage) || { inputTokens: 0, outputTokens: 0, totalCost: 0 };
   // An endpoint's model has no price: Cline counts it as 0.
   const cost = s.provider === 'openai-compatible' ? 0 : 0.0012;
-  rec.metadata = { ...rec.metadata, aggregateUsage: { inputTokens: u.inputTokens + 120, outputTokens: u.outputTokens + 30, totalCost: Math.round((u.totalCost + cost) * 1e6) / 1e6 } };
+  rec.metadata = {
+    ...rec.metadata,
+    aggregateUsage: {
+      inputTokens: u.inputTokens + 120,
+      outputTokens: u.outputTokens + 30,
+      totalCost: Math.round((u.totalCost + cost) * 1e6) / 1e6,
+    },
+  };
   fs.writeFileSync(recordFile(id), JSON.stringify(rec));
   const messages = readJson(messagesFile(id), []);
   messages.push({ role: 'user', text: prompt }, ...(reply ? [{ role: 'assistant', text: reply }] : []));
@@ -363,7 +436,10 @@ function clineAgent() {
       const s = open.get(id);
       if (!s) throw rpcError(`Session not found: ${id}`, -32002);
       const blocks = p.prompt || [];
-      const prompt = blocks.filter((b) => b.type === 'text').map((b) => b.text || '').join('\n');
+      const prompt = blocks
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text || '')
+        .join('\n');
       const images = blocks.filter((b) => b.type === 'image' && b.data).length;
       const briefing = readBriefing();
       record({
@@ -391,7 +467,10 @@ function clineAgent() {
         throw rpcError(`Internal error: ${text}`, -32603, { message: text });
       }
       const { result, reply } = await clineTurn(peer, id, s, steps, briefing);
-      peer.notify('session/update', { sessionId: id, update: { sessionUpdate: 'session_info_update', updatedAt: new Date().toISOString() } });
+      peer.notify('session/update', {
+        sessionId: id,
+        update: { sessionUpdate: 'session_info_update', updatedAt: new Date().toISOString() },
+      });
       saveTurn(id, s, prompt, reply);
       await flushLog();
       return result;
@@ -433,7 +512,14 @@ function reach(url) {
       let body = '';
       res.setEncoding('utf8');
       res.on('data', (d) => (body = (body + d).slice(0, 2000)));
-      res.on('end', () => done({ ok: res.statusCode < 400, status: res.statusCode, why: `${res.statusCode} ${res.statusMessage || ''}`.trim(), body: body.trim() }));
+      res.on('end', () =>
+        done({
+          ok: res.statusCode < 400,
+          status: res.statusCode,
+          why: `${res.statusCode} ${res.statusMessage || ''}`.trim(),
+          body: body.trim(),
+        }),
+      );
       res.on('error', (err) => done({ ok: false, why: err.code || err.message }));
     };
     // Its own agent: the proxy is asked as named here (an agent of Node's own might send this request to a proxy too).
@@ -442,14 +528,26 @@ function reach(url) {
     if (via) {
       const proxy = new URL(via);
       const auth = proxy.username
-        ? { 'proxy-authorization': `Basic ${Buffer.from(`${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}`).toString('base64')}` }
+        ? {
+            'proxy-authorization': `Basic ${Buffer.from(`${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}`).toString('base64')}`,
+          }
         : {};
       const at = { ...o, host: proxy.hostname.replace(/^\[|\]$/g, ''), port: Number(proxy.port) || 80 };
       if (secure) {
-        req = http.request({ ...at, method: 'CONNECT', path: `${target.hostname}:${target.port || 443}`, headers: { host: `${target.hostname}:${target.port || 443}`, ...auth } });
+        req = http.request({
+          ...at,
+          method: 'CONNECT',
+          path: `${target.hostname}:${target.port || 443}`,
+          headers: { host: `${target.hostname}:${target.port || 443}`, ...auth },
+        });
         req.on('connect', (res, socket) => {
           socket.destroy();
-          done({ ok: res.statusCode === 200, status: res.statusCode, why: `${res.statusCode} ${res.statusMessage || ''}`.trim(), body: '' });
+          done({
+            ok: res.statusCode === 200,
+            status: res.statusCode,
+            why: `${res.statusCode} ${res.statusMessage || ''}`.trim(),
+            body: '',
+          });
         });
       } else {
         req = http.request({ ...at, method: 'GET', path: target.href, headers: { host: target.host, ...auth } }, answer);
@@ -500,7 +598,12 @@ async function clineTurn(peer, sessionId, s, steps, briefing) {
         const stopped = !answer || !answer.outcome || answer.outcome.outcome === 'cancelled';
         u.update({ sessionUpdate: 'tool_call_update', toolCallId, status: 'failed' });
         u.update({ sessionUpdate: 'tool_call', ...shown });
-        u.update({ sessionUpdate: 'tool_call_update', toolCallId, status: 'failed', rawOutput: JSON.stringify({ error: stopped ? CANCELLED : REJECTED }) });
+        u.update({
+          sessionUpdate: 'tool_call_update',
+          toolCallId,
+          status: 'failed',
+          rawOutput: JSON.stringify({ error: stopped ? CANCELLED : REJECTED }),
+        });
         return { ran: false, cancelled: stopped };
       }
       u.update({ sessionUpdate: 'tool_call_update', toolCallId, status: 'in_progress' });
@@ -527,7 +630,9 @@ async function clineTurn(peer, sessionId, s, steps, briefing) {
     }
     if (step.type === 'approve') {
       const r = await call('execute', { commands: [step.command] }, `run_commands: ${step.command}`, async () => ({
-        raw: [{ query: step.command, result: /^npm publish/.test(step.command) ? '+ e2e-approval@1.0.0\n' : 'e2e-approval\n', success: true }],
+        raw: [
+          { query: step.command, result: /^npm publish/.test(step.command) ? '+ e2e-approval@1.0.0\n' : 'e2e-approval\n', success: true },
+        ],
       }));
       if (r.cancelled) return cancelled();
       prefix += r.ran ? 'The command ran: e2e-approval. ' : declined('command', '');
@@ -539,7 +644,11 @@ async function clineTurn(peer, sessionId, s, steps, briefing) {
       const r = await call('fetch', input, `fetch_web_content: ${step.url}`, async () => {
         got = await reach(step.url);
         return {
-          raw: [got.ok ? { query: step.url, result: got.body || '(an empty page)', success: true } : { query: step.url, result: '', error: `Failed to fetch ${step.url}: ${got.why}`, success: false }],
+          raw: [
+            got.ok
+              ? { query: step.url, result: got.body || '(an empty page)', success: true }
+              : { query: step.url, result: '', error: `Failed to fetch ${step.url}: ${got.why}`, success: false },
+          ],
         };
       });
       if (r.cancelled) return cancelled();
@@ -555,7 +664,9 @@ async function clineTurn(peer, sessionId, s, steps, briefing) {
       const line = step.content.replace(/\n$/, '');
       // OpenAI's models write with apply_patch, the others with its editor.
       const patch = s.provider === 'openai-native';
-      const input = patch ? { input: `*** Begin Patch\n*** Add File: ${file}\n+${line}\n*** End Patch` } : { path: file, new_text: step.content };
+      const input = patch
+        ? { input: `*** Begin Patch\n*** Add File: ${file}\n+${line}\n*** End Patch` }
+        : { path: file, new_text: step.content };
       const tool = patch ? 'apply_patch' : 'editor';
       const r = await call(patch ? 'other' : 'edit', input, `${tool}: ${cut(JSON.stringify(input), 37)}`, async () => {
         const w = writeAt(file, step.content);

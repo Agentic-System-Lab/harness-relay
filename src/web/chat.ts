@@ -8,6 +8,7 @@ import type {
   MessagePart,
   Mode,
   PlanEntry,
+  ProgressStatus,
   Provider,
   ReviseTeamRequest,
   TeamPlan,
@@ -247,7 +248,11 @@ export function teamChanges(before: Team, after: Team): TeamChange[] {
     if (x.model !== y.model || x.effort !== y.effort) out.push({ kind: 'model', name: y.name });
   }
   for (const b of before.agents) if (!now.has(b.id)) out.push({ kind: 'removed', name: b.name });
-  const order = (team: Team, keep: (id: string) => boolean) => team.agents.map((a) => a.id).filter(keep).join('\n');
+  const order = (team: Team, keep: (id: string) => boolean) =>
+    team.agents
+      .map((a) => a.id)
+      .filter(keep)
+      .join('\n');
   if (order(before, (id) => now.has(id)) !== order(after, (id) => was.has(id))) out.push({ kind: 'order' });
   const s = before.settings;
   const t = after.settings;
@@ -322,7 +327,11 @@ export type Segment =
   | { kind: 'text'; text: string; key: number }
   | { kind: 'activity'; items: ActivityItem[]; key: number; last: boolean }
   | { kind: 'todo'; entries: PlanEntry[]; key: number }
-  | { kind: 'approval'; part: ApprovalPart; key: number };
+  | { kind: 'approval'; part: ApprovalPart; key: number }
+  | { kind: 'progress'; status: ProgressStatus; text: string; key: number }
+  | { kind: 'outbox'; part: OutboxPart; key: number };
+
+export type OutboxPart = Extract<MessagePart, { type: 'outbox' }>;
 
 /**
  * Text that comes into the message box (`Composer`'s `restore`): ahead of what is typed there. A
@@ -362,6 +371,12 @@ export function segments(parts: MessagePart[]): Segment[] {
         break;
       case 'approval':
         out.push({ kind: 'approval', part: p, key: i });
+        break;
+      case 'progress':
+        out.push({ kind: 'progress', status: p.status, text: p.text, key: i });
+        break;
+      case 'outbox':
+        out.push({ kind: 'outbox', part: p, key: i });
         break;
     }
   });
@@ -413,6 +428,10 @@ export function thoughtTitle(text: string): string {
 
 /** The latest line of thinking, shown while it streams so you can follow along without opening it. */
 export function thoughtTail(text: string): string {
-  const line = text.split('\n').filter((l) => l.trim()).pop() ?? '';
+  const line =
+    text
+      .split('\n')
+      .filter((l) => l.trim())
+      .pop() ?? '';
   return plainLine(line);
 }

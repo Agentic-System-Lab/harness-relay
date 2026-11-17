@@ -100,7 +100,15 @@ function grokStatic() {
     const root = projectRoot(cwd);
     const skills = grokSkills(cwd).map((s) => ({ name: s.name, description: s.description, source: { type: 'claude', path: s.path } }));
     return void process.stdout.write(
-      JSON.stringify({ cwd: fs.realpathSync(cwd), projectRoot: root, projectTrusted: grokTrusted(root), skills, mcpServers: [], projectInstructions: [], hooks: [] }) + '\n',
+      JSON.stringify({
+        cwd: fs.realpathSync(cwd),
+        projectRoot: root,
+        projectTrusted: grokTrusted(root),
+        skills,
+        mcpServers: [],
+        projectInstructions: [],
+        hooks: [],
+      }) + '\n',
     );
   }
   if (args[0] === 'logout') {
@@ -122,9 +130,18 @@ function openSession(method, p, open) {
   const writes = grokWrites(cwd, Boolean(meta.yoloMode));
   // No sandbox: nothing but the briefing names the other folders.
   if (!writes.dirs) writes.others = briefedOthers(meta.rules || '', cwd);
-  open.set(id, { cwd, briefing: meta.rules || '', yolo: Boolean(meta.yoloMode), cancelled: false, mcp: (p.mcpServers || []).map((s) => s.name), ...writes });
+  open.set(id, {
+    cwd,
+    briefing: meta.rules || '',
+    yolo: Boolean(meta.yoloMode),
+    cancelled: false,
+    mcp: (p.mcpServers || []).map((s) => s.name),
+    ...writes,
+  });
   recordMcpEnv(
-    Object.fromEntries((p.mcpServers || []).map((s) => [s.name, Object.fromEntries((s.env || s.headers || []).map((v) => [v.name, v.value]))])),
+    Object.fromEntries(
+      (p.mcpServers || []).map((s) => [s.name, Object.fromEntries((s.env || s.headers || []).map((v) => [v.name, v.value]))]),
+    ),
     Object.fromEntries((p.mcpServers || []).filter((s) => s.type === 'http').map((s) => [s.name, s.url])),
   );
   // A new session starts on Grok's defaults (a resumed one too: the options are per process).
@@ -140,14 +157,21 @@ function openSession(method, p, open) {
 
 function grokAgent() {
   acpAgent({
-    initialize: () => ({ protocolVersion: 1, agentCapabilities: { loadSession: true, promptCapabilities: { image: true }, mcpCapabilities: { http: true } }, authMethods: [] }),
+    initialize: () => ({
+      protocolVersion: 1,
+      agentCapabilities: { loadSession: true, promptCapabilities: { image: true }, mcpCapabilities: { http: true } },
+      authMethods: [],
+    }),
     'session/new': (p, { sessions: open }) => openSession('session/new', p, open),
     // Its plan's billing (what its /usage shows), read from the grok.com sign-in.
     '_x.ai/billing': () => {
       if (signedOut()) throw rpcError('Authentication required to fetch billing data');
       return {
         subscription_tier: 'SuperGrok',
-        config: { creditUsagePercent: planUsedPercent(), currentPeriod: { type: 'USAGE_PERIOD_TYPE_WEEKLY', end: new Date(planResets.week()).toISOString() } },
+        config: {
+          creditUsagePercent: planUsedPercent(),
+          currentPeriod: { type: 'USAGE_PERIOD_TYPE_WEEKLY', end: new Date(planResets.week()).toISOString() },
+        },
       };
     },
     'session/resume': (p, { sessions: open }) => openSession('session/resume', p, open),
@@ -209,13 +233,27 @@ async function grokTurn(peer, sessionId, s, steps) {
     if (step.type === 'todo') u.plan(step.entries);
     if (step.type === 'tool') {
       const id = `tc_${++n}`;
-      u.toolCall({ toolCallId: id, title: 'list_dir', kind: 'read', status: 'in_progress', rawInput: { path: '.' }, _meta: { 'x.ai/tool': { name: 'list_dir' } } });
+      u.toolCall({
+        toolCallId: id,
+        title: 'list_dir',
+        kind: 'read',
+        status: 'in_progress',
+        rawInput: { path: '.' },
+        _meta: { 'x.ai/tool': { name: 'list_dir' } },
+      });
       await sleep(20);
       u.toolDone(id, true, step.output);
     }
     if (step.type === 'approve') {
       const id = `tc_${++n}`;
-      const call = { toolCallId: id, title: 'run_terminal_cmd', kind: 'execute', status: 'pending', rawInput: { command: step.command }, _meta: { 'x.ai/tool': { name: 'run_terminal_cmd' } } };
+      const call = {
+        toolCallId: id,
+        title: 'run_terminal_cmd',
+        kind: 'execute',
+        status: 'pending',
+        rawInput: { command: step.command },
+        _meta: { 'x.ai/tool': { name: 'run_terminal_cmd' } },
+      };
       u.toolCall(call);
       const p = await permit(call);
       u.toolDone(id, p.ok, p.ok ? 'e2e-approval' : 'Not executed: the user declined it.');
@@ -228,7 +266,14 @@ async function grokTurn(peer, sessionId, s, steps) {
         continue;
       }
       const id = `tc_${++n}`;
-      const call = { toolCallId: id, title: 'write_file', kind: 'edit', status: 'pending', rawInput: { path: file, content: step.content }, _meta: { 'x.ai/tool': { name: 'write_file' } } };
+      const call = {
+        toolCallId: id,
+        title: 'write_file',
+        kind: 'edit',
+        status: 'pending',
+        rawInput: { path: file, content: step.content },
+        _meta: { 'x.ai/tool': { name: 'write_file' } },
+      };
       u.toolCall(call);
       // Asked first, as Grok asks; then its sandbox refuses a folder outside the profile.
       const p = await permit(call);

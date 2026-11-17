@@ -37,8 +37,7 @@
   --pi: #64748b;
 
   --radius: 14px;
-  --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Noto Sans TC',
-    'Microsoft JhengHei', sans-serif;
+  --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   color-scheme: light;
 }
@@ -149,8 +148,7 @@ select {
   min-width: 0;
   width: 100%;
   appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
-    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
   background-position:
     calc(100% - 16px) 55%,
     calc(100% - 11px) 55%;
@@ -377,27 +375,31 @@ p {
   background: var(--surface);
 }
 
-/* New chat, and beside it New schedule as a square icon button. */
+/* New chat and New automation, half the row each; a label too long for a wider font ends in an ellipsis rather
+   than spilling out. */
 .new-row {
   display: flex;
   gap: 6px;
 }
 
 .new-row .new-chat {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
-}
-
-.new-row .new-schedule {
-  flex: none;
-  width: 42px;
-  padding: 0;
   justify-content: center;
-  color: var(--muted);
+  gap: 6px;
+  padding: 9px 8px;
+  font-size: 14px;
 }
 
-.new-row .new-schedule:hover {
-  color: var(--text);
+.new-row .new-chat svg {
+  flex: none;
+}
+
+.new-row .new-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .conv-list {
@@ -499,7 +501,7 @@ p {
   gap: 6px;
 }
 
-/* As wide as New schedule above it. */
+/* An icon only, in the row's narrow column. */
 .sidebar-action.new-group {
   padding: 0;
 }
@@ -561,7 +563,9 @@ p {
 .conv-group {
   border-radius: 10px;
   padding-bottom: 4px;
-  transition: background-color 0.12s ease, box-shadow 0.12s ease;
+  transition:
+    background-color 0.12s ease,
+    box-shadow 0.12s ease;
 }
 
 .conv-group.drop-over {
@@ -1675,9 +1679,10 @@ p {
   color: var(--danger);
 }
 
-/* A choice of CLI (nine of them, `CliPicker`): one row, each name whole, that scrolls sideways where
-   it does not fit its card; the chosen one is scrolled into view. */
-.segmented.cli-picker {
+/* A choice of CLI (nine of them, `CliPicker`), or of a schedule's kind (five, `.schedule-kinds`): one
+   row, each name whole, that scrolls sideways where it does not fit; the chosen one is scrolled into view. */
+.segmented.cli-picker,
+.segmented.schedule-kinds {
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scroll-snap-type: x proximity;
@@ -1685,7 +1690,8 @@ p {
 }
 
 /* Spread over the row where they fit, never narrower than their names. */
-.segmented.cli-picker button {
+.segmented.cli-picker button,
+.segmented.schedule-kinds button {
   flex: 1 0 auto;
   scroll-snap-align: start;
 }
@@ -3966,39 +3972,213 @@ video.chat-media {
   color: var(--danger);
 }
 
+/* An outbox item: what an agent asked to send, waiting for the user's Send. */
+.outbox-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
+  border-radius: 12px;
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+
+.outbox-card.outbox-sent {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--border));
+}
+
+.outbox-card.outbox-discarded,
+.outbox-card.outbox-failed {
+  border-color: var(--border);
+}
+
+.outbox-fields {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.outbox-fields div {
+  display: grid;
+  grid-template-columns: minmax(70px, max-content) 1fr;
+  gap: 8px;
+}
+
+.outbox-fields dt {
+  color: var(--muted);
+}
+
+.outbox-fields dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.outbox-body {
+  max-height: 260px;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+}
+
+/* Mail and calendar accounts (Settings → Tool library). */
+.connectors h5 {
+  margin: 14px 0 6px;
+  font-size: 0.85rem;
+}
+
+.connector-servers {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 5.5em auto;
+  gap: 6px 8px;
+  align-items: center;
+}
+
+.connector-servers input,
+.connector-servers select {
+  min-width: 0;
+}
+
+@media (max-width: 520px) {
+  .connector-servers {
+    grid-template-columns: auto minmax(0, 1fr) 4.5em;
+  }
+
+  .connector-servers select {
+    grid-column: 2 / -1;
+  }
+}
+
+.relay-group {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* A tracked goal: where it stands, what the runs said of it, and the webhook. */
+.schedule-progress,
+.schedule-hook {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.progress-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.78rem;
+  font-weight: 500;
+  vertical-align: middle;
+}
+
+.progress-badge.progress-done,
+.progress-card.progress-done .progress-status {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--border));
+}
+
+.progress-badge.progress-blocked,
+.progress-card.progress-blocked .progress-status {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--border));
+}
+
+.progress-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.progress-note {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--border);
+  background: var(--surface);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+
+.progress-note.progress-done {
+  border-left-color: var(--ok);
+}
+
+.progress-note.progress-blocked {
+  border-left-color: var(--warn);
+}
+
+.progress-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  margin: 8px 0 2px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+
+.progress-card .progress-status {
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.progress-text {
+  white-space: pre-wrap;
+}
+
+.event-block {
+  max-width: 100%;
+  margin-top: 4px;
+  font-size: 0.85rem;
+}
+
+.event-block summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.event-block pre,
+.hook-example {
+  display: block;
+  max-height: 240px;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.hook-token {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
 .schedule-form {
   display: flex;
   flex-direction: column;
   gap: 18px;
-}
-
-/* The four kinds of schedule need about 220px on one row in Chinese and 340px in English (about 366px
-   with a wider font, such as Linux's DejaVu Sans); narrower than that (a phone), they go two by two,
-   as the voice input's languages do, and a label may wrap. */
-.schedule-repeat {
-  container: schedule-repeat / inline-size;
-}
-
-@container schedule-repeat (width < 230px) {
-  .schedule-repeat .segmented {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .schedule-repeat .segmented button {
-    white-space: normal;
-  }
-}
-
-@container schedule-repeat (width < 380px) {
-  :lang(en) .schedule-repeat .segmented {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  :lang(en) .schedule-repeat .segmented button {
-    white-space: normal;
-  }
 }
 
 .schedule-sub {
@@ -6079,7 +6259,8 @@ details.sub summary {
 
 .conv-status.waiting,
 .conv-status.confirm,
-.conv-status.answer {
+.conv-status.answer,
+.conv-status.blocked {
   color: var(--warn);
   background: color-mix(in srgb, var(--warn) 14%, transparent);
 }

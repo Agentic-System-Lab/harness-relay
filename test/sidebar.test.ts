@@ -1,7 +1,30 @@
 import { describe, expect, it } from 'vitest';
 import { families, familyOf } from '../src/shared/family';
 import type { ConversationSummary } from '../src/shared/types';
-import { ancestorsOf, branchCount, descendants, familyIds, familySizes, foldedNow, groupSections, groupStatus, moveFamily, pendingPinTime, pinnedAt, pinnedConversations, revealIn, settleMoves, settlePins, undoMoves, undoPin, type ConvNode, HEALTH_NAMES_KEY, readHealthNames, readyCount, writeHealthNames } from '../src/web/sidebar';
+import {
+  ancestorsOf,
+  branchCount,
+  descendants,
+  familyIds,
+  familySizes,
+  foldedNow,
+  groupSections,
+  groupStatus,
+  moveFamily,
+  pendingPinTime,
+  pinnedAt,
+  pinnedConversations,
+  revealIn,
+  settleMoves,
+  settlePins,
+  undoMoves,
+  undoPin,
+  type ConvNode,
+  HEALTH_NAMES_KEY,
+  readHealthNames,
+  readyCount,
+  writeHealthNames,
+} from '../src/web/sidebar';
 import { convStatus } from '../src/web/util';
 
 const conv = (extra: Partial<ConversationSummary>): ConversationSummary => ({
@@ -20,6 +43,10 @@ describe('sidebar status', () => {
     expect(convStatus(conv({ confirmTeam: true, lastStatus: 'done' }), 100)).toBe('confirm');
     expect(convStatus(conv({ confirmTeam: true, waiting: true }), 0)).toBe('waiting');
     expect(convStatus(conv({ running: true, lastStatus: 'done' }), 100)).toBe('running');
+    // A tracked goal held up needs the user, after a question and before a new reply; not while it runs.
+    expect(convStatus(conv({ blocked: true, lastStatus: 'done' }), 100)).toBe('blocked');
+    expect(convStatus(conv({ blocked: true, asking: true, lastStatus: 'done' }), 100)).toBe('answer');
+    expect(convStatus(conv({ blocked: true, running: true }), 100)).toBe('running');
     expect(convStatus(conv({ asking: true, lastStatus: 'done' }), 100)).toBe('answer');
     expect(convStatus(conv({ asking: true, waiting: true }), 0)).toBe('waiting');
   });
@@ -38,12 +65,7 @@ describe('sidebar groups', () => {
     { id: 'g1', name: 'Frontend' },
     { id: 'g2', name: 'Docs' },
   ];
-  const list = [
-    conv({ id: 'a', groupId: 'g2' }),
-    conv({ id: 'b' }),
-    conv({ id: 'c', groupId: 'gone' }),
-    conv({ id: 'd', groupId: 'g2' }),
-  ];
+  const list = [conv({ id: 'a', groupId: 'g2' }), conv({ id: 'b' }), conv({ id: 'c', groupId: 'gone' }), conv({ id: 'd', groupId: 'g2' })];
   const ids = (sections: ReturnType<typeof groupSections>) =>
     sections.map((s) => [s.group?.id ?? 'other', s.conversations.map((c) => c.id)]);
 
@@ -76,6 +98,7 @@ describe('sidebar groups', () => {
   it('shows the most urgent state of a collapsed group', () => {
     expect(groupStatus([conv({ lastStatus: 'done' }), conv({ running: true }), conv({ waiting: true })], {})).toBe('waiting');
     expect(groupStatus([conv({ lastStatus: 'done' }), conv({ lastStatus: 'error' })], { c: 0 })).toBe('error');
+    expect(groupStatus([conv({ running: true }), conv({ blocked: true, lastStatus: 'done' })], {})).toBe('blocked');
     expect(groupStatus([conv({ lastStatus: 'done' })], { c: 100 })).toBeUndefined();
     expect(groupStatus([], {})).toBeUndefined();
   });
@@ -95,10 +118,13 @@ describe('pinned conversations in the sidebar', () => {
     expect(ids(pinnedConversations(list))).toEqual(['c', 'd', 'a']);
     expect(pinnedConversations([conv({ id: 'x' })])).toEqual([]);
     // Each also stays in its group.
-    expect(groupSections(list, [{ id: 'g1', name: 'G' }]).map((s) => s.conversations.map((c) => c.id))).toEqual([['c', 'd'], ['a', 'b']]);
+    expect(groupSections(list, [{ id: 'g1', name: 'G' }]).map((s) => s.conversations.map((c) => c.id))).toEqual([
+      ['c', 'd'],
+      ['a', 'b'],
+    ]);
   });
 
-  it("shows pins and unpins the server has not reported yet, and forgets them once it has, or the conversation is gone", () => {
+  it('shows pins and unpins the server has not reported yet, and forgets them once it has, or the conversation is gone', () => {
     const pins = { b: 50, a: null };
     expect(pinnedAt(list[0]!, pins)).toBeUndefined();
     expect(pinnedAt(list[1]!, pins)).toBe(50);
@@ -138,8 +164,7 @@ describe('sidebar families of branched conversations', () => {
   /** A tree as text: each node's id (a deleted one's as `(id: title)`), its children in brackets. */
   const shape = (n: ConvNode): string =>
     (n.conv ? n.id : `(${n.id}: ${n.title})`) + (n.children.length ? `[${n.children.map(shape).join(' ')}]` : '');
-  const trees = (sections: ReturnType<typeof groupSections>) =>
-    sections.map((s) => [s.group?.id ?? 'other', s.trees.map(shape)]);
+  const trees = (sections: ReturnType<typeof groupSections>) => sections.map((s) => [s.group?.id ?? 'other', s.trees.map(shape)]);
 
   // Newest first, as the server lists them.
   const list = [
@@ -222,7 +247,13 @@ describe('sidebar families of branched conversations', () => {
       .filter((c) => c.id !== 'A')
       .map((c) => (c.branchFrom?.via ? { ...c, branchFrom: { ...c.branchFrom, via: [via('A', 'A at last')] } } : c));
     expect(trees(groupSections(topGone, []))).toEqual([['other', ['(A: A at last)[(B: B then)[C[E] D]]']]]);
-    expect(familySizes(topGone)).toEqual(new Map([['E', 3], ['D', 3], ['C', 3]]));
+    expect(familySizes(topGone)).toEqual(
+      new Map([
+        ['E', 3],
+        ['D', 3],
+        ['C', 3],
+      ]),
+    );
   });
 
   it('opens what hides the conversation that is opened, and forgets hidden branches no longer there', () => {

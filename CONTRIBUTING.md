@@ -55,6 +55,7 @@ Fork the repository (or create a branch if you have write access), branch off `m
 ### Code
 
 - Strict TypeScript with ES modules. Shared types live only in `src/shared/types.ts`.
+- [Prettier](https://prettier.io) formats the code: run `npm run format` before you commit (your editor's Prettier extension uses the same settings, `.prettierrc.json`). It leaves the docs alone (`.prettierignore`). Don't change its settings in a pull request about something else: that reformats the whole repository.
 - Start child processes only through `src/server/process.ts`, so they are tracked and stopped on shutdown; a quick probe the server waits for (`lsof`, `ps`, `chflags`) goes through its `runSync()`, which kills it after its timeout. The relay sandbox's host (`relaySandboxHost.ts`) is a program of its own and starts the agent itself. Start programs directly, never through a shell; a shell script (`runShellScript()`, or `sh -c` given to `spawnDetached()`) is fixed text, and the values it needs (paths, names, settings) go in its environment, never in its text or its arguments. A program that gives what it runs an environment of its own (`sudo`, `pkexec`) runs `env NAME=value … /bin/sh -c <fixed text>`, the values Harness Relay's own (`sandboxSetup.ts`). On Windows a CLI found as a `.cmd` (npm's shims, Cursor's and Muse Code's launchers) is started as the program it runs (`src/server/winLaunch.ts`), never through `cmd.exe`.
 - Keep CLI output parsers pure (lines in, `AgentEvent`s out) so they can be tested with recorded output.
 - Tests run in Node without a DOM. Put client logic you want to test in plain modules (like `src/web/chat.ts`), not inside components.
@@ -67,6 +68,8 @@ Fork the repository (or create a branch if you have write access), branch off `m
 - Never send secrets to the client. API keys belong in the OS credential store (`src/server/secrets.ts`), never in the database as they are: without a credential store they go to the database encrypted (`openSecretStore()`), through the same `SecretStore`.
 - The server binds to `127.0.0.1`, and agent replies must not make the browser load remote content (images are shown as links; local media goes through the media endpoint's path checks).
 - An open-source agent's process starts only through `startOpenProcess()` (`src/server/agents/open.ts`), which puts it in Harness Relay's own sandbox below full access and fails closed. Model keys reach the CLI in environment variables (only the run's own backend's), never in the config files its adapter writes, and everything a run writes goes in the conversation member's own state folder (`home(root, state)`). A sandbox opening is asked for by one adapter for its own CLI only, and documented in [docs/open-agents.md](docs/open-agents.md) and [docs/sandboxing.md](docs/sandboxing.md).
+- Harness Relay's own tools (`src/server/gateway.ts`) reach the server only over the gateway's socket, with a token for one turn kept in a file under `data/tmp`, or over its loopback HTTP endpoint, with the token only in the CLI's memory (a CLI gets it so only once `scripts/mcp-headers-check.ts` shows it writes the token to no file), never through the HTTP API. Their credentials stay in the server, and a call that reaches other people never runs in the turn: it waits in the outbox until the user's Send. A schedule's webhook is the one route that takes its own token (kept hashed) instead of a browser's sign-in.
+- The browser tools' Chromium connects only through its own proxy (`src/server/browser/proxy.ts`), which checks the address each connection goes to: never start it without that proxy, nor let anything it loads reach the network another way. Its page scripts run in an isolated world, and it gets only the environment `launchEnv()` gives, never the server's; it writes nothing in the user's own browsers' folders (on Linux its config and cache folders are in its profile).
 
 ### Database
 
@@ -109,6 +112,7 @@ Tests also have to pass on Windows, where CI runs them too: build paths with `jo
 Run the same checks as CI:
 
 ```bash
+npm run format:check   # npm run format fixes what it finds
 npm run typecheck
 npm test
 npm run build
@@ -120,7 +124,7 @@ If you changed the desktop app, also run `npm run desktop:typecheck`, and try it
 
 Releases are made by maintainers with the Release workflow only (**Actions → Release**, from `main`, today's date as the version): never tag a version by hand. See [Releasing](docs/developer-guide.md#releasing) in the developer guide.
 
-[CI](.github/workflows/ci.yml) runs the typecheck, the tests and the build on Node 22 and 24 for every pull request and every push to `main`, and on Windows with Node 24. It also typechecks and builds the desktop app, runs its bundled server as the app does, and packages it for Linux to check it as a release is checked. [Another workflow](.github/workflows/e2e.yml) runs the end-to-end tests on Linux, macOS and Windows. On a pull request, the tests on Windows, the packaged app and the end-to-end tests run only when it touches a file they depend on ([`scripts/ci-scope.ts`](scripts/ci-scope.ts)): the run's summary says which ran and why. A push to `main` runs them all. If you make one of them read, import or ship a file its `IGNORES` list names, take the file off the list. Each workflow's last check (**CI passed**, **End-to-end passed**) stands for all its jobs.
+[CI](.github/workflows/ci.yml) checks the formatting, and runs the typecheck, the tests and the build on Node 22 and 24 for every pull request and every push to `main`, and on Windows with Node 24. It also typechecks and builds the desktop app, runs its bundled server as the app does, and packages it for Linux to check it as a release is checked. [Another workflow](.github/workflows/e2e.yml) runs the end-to-end tests on Linux, macOS and Windows. On a pull request, the tests on Windows, the packaged app and the end-to-end tests run only when it touches a file they depend on ([`scripts/ci-scope.ts`](scripts/ci-scope.ts)): the run's summary says which ran and why. A push to `main` runs them all. If you make one of them read, import or ship a file its `IGNORES` list names, take the file off the list. Each workflow's last check (**CI passed**, **End-to-end passed**) stands for all its jobs.
 
 If your change affects what agents see or do, also try it in the app with at least one real CLI, and say which ones you used.
 

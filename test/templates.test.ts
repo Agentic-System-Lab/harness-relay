@@ -17,7 +17,14 @@ function statuses(ready: Provider[], installed: Provider[] = []): ProviderStatus
   });
 }
 
-const member: AgentConfig = { id: 'a', name: 'Architect', provider: 'claude', role: 'Plan it.', model: 'opus', tools: { memory: true, 'mcp:x': false } };
+const member: AgentConfig = {
+  id: 'a',
+  name: 'Architect',
+  provider: 'claude',
+  role: 'Plan it.',
+  model: 'opus',
+  tools: { memory: true, 'mcp:x': false },
+};
 const draft: TemplateDraft = {
   name: 'My team',
   description: 'For plans',
@@ -84,7 +91,13 @@ describe('a template only on CLIs that can run here', () => {
     expect(fit.agents[0]).toBe(debate[0]);
     expect(fit.agents[1]).toEqual({ id: '2', name: 'Pragmatist', provider: 'cursor', role: 'Weigh it.' });
     // Members that shared a CLI move together.
-    const pair = fitTemplateAgents([{ ...debate[1]!, id: 'a' }, { ...debate[1]!, id: 'b', name: 'Second' }], statuses(['claude', 'cursor']));
+    const pair = fitTemplateAgents(
+      [
+        { ...debate[1]!, id: 'a' },
+        { ...debate[1]!, id: 'b', name: 'Second' },
+      ],
+      statuses(['claude', 'cursor']),
+    );
     expect(pair.agents.map((a) => a.provider)).toEqual(['claude', 'claude']);
   });
 

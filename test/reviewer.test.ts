@@ -3,7 +3,17 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { slow } from './timeouts';
 import type { ChatMessage } from '../src/shared/types';
-import { findQuote, hasQuote, highlightsByReply, markdownText, mostSerious, nextReviewStart, quoteChecker, quoteKey, reviewStart } from '../src/shared/review';
+import {
+  findQuote,
+  hasQuote,
+  highlightsByReply,
+  markdownText,
+  mostSerious,
+  nextReviewStart,
+  quoteChecker,
+  quoteKey,
+  reviewStart,
+} from '../src/shared/review';
 import { buildReviewPrompt, decideReview, hasNewReplies, parseReviewReply, reviewMaterial } from '../src/server/reviewer';
 import { Markdown } from '../src/web/components/Markdown';
 import { I18nProvider, currentLang, loadMessages } from '../src/web/i18n';
@@ -13,7 +23,13 @@ import { SHARE_DROP } from '../src/web/share';
 // As the page does before it draws anything: its language's messages.
 beforeAll(() => loadMessages(currentLang()));
 
-const user = (id: string, text: string): ChatMessage => ({ id, author: { kind: 'user' }, createdAt: 0, status: 'done', parts: [{ type: 'text', text }] });
+const user = (id: string, text: string): ChatMessage => ({
+  id,
+  author: { kind: 'user' },
+  createdAt: 0,
+  status: 'done',
+  parts: [{ type: 'text', text }],
+});
 const reply = (id: string, name: string, text: string, more: Partial<ChatMessage> = {}): ChatMessage => ({
   id,
   author: { kind: 'agent', agentId: name.toLowerCase() },
@@ -59,7 +75,10 @@ describe('finding the words a review quotes', () => {
 
   it('starts a new block with a space between text nodes', () => {
     expect(findQuote(['first', 'second'], 'first second')).toBeUndefined();
-    expect(findQuote(['first', 'second'], 'first second', [false, true])).toEqual({ start: { part: 0, offset: 0 }, end: { part: 1, offset: 6 } });
+    expect(findQuote(['first', 'second'], 'first second', [false, true])).toEqual({
+      start: { part: 0, offset: 0 },
+      end: { part: 1, offset: 6 },
+    });
   });
 
   it('finds them across text nodes, giving where they start and end in each', () => {
@@ -73,9 +92,16 @@ describe('finding the words a review quotes', () => {
   });
 });
 
-describe("what a review reads", () => {
+describe('what a review reads', () => {
   it('starts after the last review that was ready, and has something new only when a member answered since', () => {
-    const msgs = [user('u1', 'q'), reply('r1', 'Alice', 'a'), review('v1'), user('u2', 'q2'), reply('r2', 'Bob', 'b'), review('v2', 'failed')];
+    const msgs = [
+      user('u1', 'q'),
+      reply('r1', 'Alice', 'a'),
+      review('v1'),
+      user('u2', 'q2'),
+      reply('r2', 'Bob', 'b'),
+      review('v2', 'failed'),
+    ];
     expect(reviewStart(msgs)).toBe(3);
     expect(hasNewReplies(msgs)).toBe(true);
     expect(hasNewReplies(msgs.slice(0, 3))).toBe(false);
@@ -205,7 +231,12 @@ describe('the marks in the chat', () => {
   it("are the ready reviews' highlights, by reply, with the review that has the latest", () => {
     const msgs = [
       reply('r1', 'Alice', 'a'),
-      review('v1', 'ready', { highlights: [{ kind: 'risk', note: 'x', messageId: 'r1' }, { kind: 'note', note: 'all' }] }),
+      review('v1', 'ready', {
+        highlights: [
+          { kind: 'risk', note: 'x', messageId: 'r1' },
+          { kind: 'note', note: 'all' },
+        ],
+      }),
       review('v2', 'failed', { highlights: [{ kind: 'risk', note: 'y', messageId: 'r1' }] }),
       review('v3', 'ready', { highlights: [{ kind: 'verify', note: 'z', messageId: 'r1' }] }),
     ];
@@ -360,7 +391,7 @@ describe('where a first review starts', () => {
     expect(reviewStart(msgs)).toBe(2);
   });
 
-  it("at the question an answer was for, and a message sent mid-run does not count as one", () => {
+  it('at the question an answer was for, and a message sent mid-run does not count as one', () => {
     const msgs = [
       user('u1', 'old'),
       reply('r1', 'Alice', 'a'),
@@ -377,12 +408,22 @@ describe('where a first review starts', () => {
   it('at the first of the messages no agent answered in between: one question', () => {
     const card: ChatMessage = { id: 'p', author: { kind: 'system' }, createdAt: 0, status: 'done', parts: [] };
     // Written while the team was designed, or its design waited for confirmation.
-    const msgs = [user('u1', 'old'), reply('r1', 'Alice', 'a'), user('u2', 'the question'), card, user('u3', 'also this'), user('u4', 'and this'), reply('r2', 'Alice', 'b')];
+    const msgs = [
+      user('u1', 'old'),
+      reply('r1', 'Alice', 'a'),
+      user('u2', 'the question'),
+      card,
+      user('u3', 'also this'),
+      user('u4', 'and this'),
+      reply('r2', 'Alice', 'b'),
+    ];
     expect(reviewStart(msgs)).toBe(2);
     // Never before the last ready review.
     expect(reviewStart([user('u1', 'old'), review('v1'), user('u2', 'new'), reply('r2', 'Alice', 'b')])).toBe(2);
     // Each question its own, once an agent answered in between.
-    expect(reviewStart([user('u1', 'old'), card, user('u2', 'new'), reply('r2', 'Alice', 'b'), user('u3', 'newer'), reply('r3', 'Alice', 'c')])).toBe(4);
+    expect(
+      reviewStart([user('u1', 'old'), card, user('u2', 'new'), reply('r2', 'Alice', 'b'), user('u3', 'newer'), reply('r3', 'Alice', 'c')]),
+    ).toBe(4);
   });
 
   it('where a review that failed or was stopped started, when that is earlier', () => {
@@ -402,7 +443,11 @@ describe('where a first review starts', () => {
     const msgs = [
       user('u1', 'one'),
       reply('r1', 'Alice', 'a'),
-      review('v1', 'ready', { summary: 'Fine.', highlights: [{ kind: 'verify', note: 'Check it.', agentName: 'Alice' }], nextSteps: [{ text: 'Ship', by: 'user' }] }),
+      review('v1', 'ready', {
+        summary: 'Fine.',
+        highlights: [{ kind: 'verify', note: 'Check it.', agentName: 'Alice' }],
+        nextSteps: [{ text: 'Ship', by: 'user' }],
+      }),
       user('u2', 'two'),
       reply('r2', 'Alice', 'b'),
     ];
@@ -430,7 +475,13 @@ describe('small things of the review', () => {
   });
 
   it("gives a reply's tag the most serious kind among its highlights", () => {
-    expect(mostSerious([{ kind: 'note', note: '' }, { kind: 'verify', note: '' }, { kind: 'decision', note: '' }])).toBe('decision');
+    expect(
+      mostSerious([
+        { kind: 'note', note: '' },
+        { kind: 'verify', note: '' },
+        { kind: 'decision', note: '' },
+      ]),
+    ).toBe('decision');
     expect(mostSerious([])).toBe('note');
   });
 });
@@ -467,7 +518,22 @@ describe('quotes and the pieces of a reply', () => {
   });
 
   it('reads a reply of any size in time proportional to it', () => {
-    for (const unit of ['[a](b', '[', '![a](', '<http://x', ' \t', '| - ', ' >', '\n', '`a', '\\', '&abcdefgh', '```\n', '\n    x\n', '- a\n\n    b\n']) {
+    for (const unit of [
+      '[a](b',
+      '[',
+      '![a](',
+      '<http://x',
+      ' \t',
+      '| - ',
+      ' >',
+      '\n',
+      '`a',
+      '\\',
+      '&abcdefgh',
+      '```\n',
+      '\n    x\n',
+      '- a\n\n    b\n',
+    ]) {
       const text = unit.repeat(Math.ceil(100_000 / unit.length));
       const started = performance.now();
       hasQuote(text, 'nothing like it');
@@ -517,13 +583,23 @@ describe('a review that failed or was stopped, and reading a reply once', () => 
     // Right before the latest question: from its start.
     expect(reviewStart([user('u1', 'one'), reply('r1', 'Alice', 'a'), stopped, user('u2', 'two'), reply('r2', 'Alice', 'b')])).toBe(0);
     // Other questions came after it (the review was off for them): the latest question only.
-    const later = [user('u1', 'one'), reply('r1', 'Alice', 'a'), stopped, user('u2', 'two'), reply('r2', 'Alice', 'b'), user('u3', 'three'), reply('r3', 'Alice', 'c')];
+    const later = [
+      user('u1', 'one'),
+      reply('r1', 'Alice', 'a'),
+      stopped,
+      user('u2', 'two'),
+      reply('r2', 'Alice', 'b'),
+      user('u3', 'three'),
+      reply('r3', 'Alice', 'c'),
+    ];
     expect(reviewStart(later)).toBe(5);
     // A message written into the discussion (queued) is no question of its own.
-    expect(reviewStart([user('u1', 'one'), reply('r1', 'Alice', 'a'), stopped, { ...user('q', 'also'), queued: true }, user('u2', 'two')])).toBe(0);
+    expect(
+      reviewStart([user('u1', 'one'), reply('r1', 'Alice', 'a'), stopped, { ...user('q', 'also'), queued: true }, user('u2', 'two')]),
+    ).toBe(0);
   });
 
-  it("says which stopped or failed reviews the next one reads back over, for their cards", () => {
+  it('says which stopped or failed reviews the next one reads back over, for their cards', () => {
     const stopped = review('s1', 'failed', { fromId: 'u1' });
     // The latest question after it is still being answered (or none yet): read again.
     const waiting = [user('u1', 'one'), reply('r1', 'Alice', 'a'), stopped, user('u2', 'two')];
@@ -542,7 +618,13 @@ describe('a review that failed or was stopped, and reading a reply once', () => 
     }
     // So a stopped review's card still says its replies are read, when the answer after it was stopped
     // too: Continue (or a new question) reads from where it started.
-    const msgs = [user('u1', 'Q'), reply('r1', 'Alice', 'a'), review('s1', 'failed', { fromId: 'u1' }), user('u2', 'N'), reply('r2', 'Alice', 'b', { status: 'aborted' })];
+    const msgs = [
+      user('u1', 'Q'),
+      reply('r1', 'Alice', 'a'),
+      review('s1', 'failed', { fromId: 'u1' }),
+      user('u2', 'N'),
+      reply('r2', 'Alice', 'b', { status: 'aborted' }),
+    ];
     expect(nextReviewStart(msgs)).toBeLessThan(2);
     expect(reviewStart(msgs)).toBe(0);
   });
@@ -559,9 +641,22 @@ describe('a review that failed or was stopped, and reading a reply once', () => 
 describe("a stopped or failed review card's word on the next review", () => {
   const card = (m: ChatMessage, readNext: boolean, leadReview: boolean) =>
     renderToStaticMarkup(
-      createElement(I18nProvider, null, createElement(MessageItem as unknown as FunctionComponent<Record<string, unknown>>, { msg: m, readNext, leadReview, onUseStep: () => {} })),
+      createElement(
+        I18nProvider,
+        null,
+        createElement(MessageItem as unknown as FunctionComponent<Record<string, unknown>>, {
+          msg: m,
+          readNext,
+          leadReview,
+          onUseStep: () => {},
+        }),
+      ),
     );
-  const stopped: ChatMessage = { ...review('s1', 'ready'), status: 'aborted', review: { status: 'reviewing', lead: { provider: 'claude' } } };
+  const stopped: ChatMessage = {
+    ...review('s1', 'ready'),
+    status: 'aborted',
+    review: { status: 'reviewing', lead: { provider: 'claude' } },
+  };
   const failed = review('f1', 'failed', { error: 'quota' });
 
   it('says the next review reads its replies only on a card it reaches, and that it waits for lead review while that is off', () => {

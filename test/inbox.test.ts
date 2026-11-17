@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDatabase, type Database } from '../src/server/db';
 import { INBOX_CHECK_MS, Inbox, newConversationNews } from '../src/server/inbox';
 import { INBOX_KEPT, Store } from '../src/server/store';
-import type { ChatMessage, Conversation, ConversationSummary } from '../src/shared/types';
+import { ALERT_KINDS, type AlertKind, type ChatMessage, type Conversation, type ConversationSummary } from '../src/shared/types';
 
 const conversation = (id: string, title = `Chat ${id}`, messages: ChatMessage[] = []): Conversation => ({
   id,
@@ -43,7 +43,7 @@ describe('notification inbox storage', () => {
   let db: Database;
   let store: Store;
   let n: number;
-  const add = (conversationId: string, kind: 'done' | 'error' | 'approval' | 'confirm' | 'answer' = 'done', at = ++n) =>
+  const add = (conversationId: string, kind: AlertKind = 'done', at = ++n) =>
     store.addNotification({ id: `n${at}`, conversationId, kind, agent: 'Claude', text: 'All tests pass.', createdAt: at });
 
   beforeEach(() => {
@@ -55,7 +55,16 @@ describe('notification inbox storage', () => {
   });
 
   it('keeps notifications unread, the newest first, with their conversation’s title now', () => {
-    expect(add('c1')).toEqual({ id: 'n1', conversationId: 'c1', title: 'First', kind: 'done', agent: 'Claude', text: 'All tests pass.', createdAt: 1, read: false });
+    expect(add('c1')).toEqual({
+      id: 'n1',
+      conversationId: 'c1',
+      title: 'First',
+      kind: 'done',
+      agent: 'Claude',
+      text: 'All tests pass.',
+      createdAt: 1,
+      read: false,
+    });
     add('c2', 'approval');
     expect(store.notifications().map((x) => [x.id, x.kind, x.title])).toEqual([
       ['n2', 'approval', 'Second'],
@@ -68,7 +77,21 @@ describe('notification inbox storage', () => {
     expect(store.notifications()[1]!.title).toBe('Renamed');
     // Without an agent or a text, neither is listed.
     store.addNotification({ id: 'bare', conversationId: 'c1', kind: 'confirm', createdAt: 10 });
-    expect(store.notifications()[0]).toEqual({ id: 'bare', conversationId: 'c1', title: 'Renamed', kind: 'confirm', createdAt: 10, read: false });
+    expect(store.notifications()[0]).toEqual({
+      id: 'bare',
+      conversationId: 'c1',
+      title: 'Renamed',
+      kind: 'confirm',
+      createdAt: 10,
+      read: false,
+    });
+  });
+
+  it('keeps every kind the alerts give, a goal held up too: each listed as it is counted', () => {
+    for (const kind of ALERT_KINDS) expect(add('c1', kind)?.kind).toBe(kind);
+    expect(store.notifications().map((x) => x.kind)).toEqual([...ALERT_KINDS].reverse());
+    expect(store.notificationSummary().unread).toBe(ALERT_KINDS.length);
+    expect(ALERT_KINDS).toContain('blocked');
   });
 
   it('sums up how many are unread, where (the latest first), and the newest one', () => {
@@ -178,7 +201,16 @@ describe('Inbox (the recorder)', () => {
     c1.messages.push({
       ...reply('m3', 'a1', ''),
       status: 'streaming',
-      parts: [{ type: 'approval', id: 'ap1', kind: 'command', tool: 'Bash', detail: 'npm install left-pad', status: 'pending' } as ChatMessage['parts'][number]],
+      parts: [
+        {
+          type: 'approval',
+          id: 'ap1',
+          kind: 'command',
+          tool: 'Bash',
+          detail: 'npm install left-pad',
+          status: 'pending',
+        } as ChatMessage['parts'][number],
+      ],
     });
     list = [summary('c1', { running: true, waiting: true, lastReplyId: 'm3', lastStatus: 'streaming' }), summary('c2')];
     expect(inbox.check().map((x) => [x.kind, x.agent, x.text])).toEqual([['approval', 'Claude', 'npm install left-pad']]);
@@ -218,7 +250,7 @@ describe('Inbox (the recorder)', () => {
     expect(reads).toBe(3);
   });
 
-  it('keeps the reply of a conversation made and answered between two reads, not a branch\'s nor one still running', () => {
+  it("keeps the reply of a conversation made and answered between two reads, not a branch's nor one still running", () => {
     inbox.check();
     store.create(conversation('c3', 'Third', [reply('r1', 'a1', 'Quick answer.')]));
     store.create(conversation('c4', 'Branch', [reply('r2', 'a1', 'Copied.')]));

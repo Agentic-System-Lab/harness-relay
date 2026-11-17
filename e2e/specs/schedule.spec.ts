@@ -1,11 +1,11 @@
 import { expect, test } from '../fixtures';
-import { finishedReply, openTeamChat } from '../support/app';
+import { confirmTeam, finishedReply, openTeamChat, send } from '../support/app';
 
 test.describe('schedules', () => {
   test("a chat's schedule is saved, and running it once sends its message to the team", async ({ page, relay }) => {
     await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Daily check');
-    await page.locator('.chat-head').getByRole('button', { name: 'Schedule' }).click();
-    const drawer = page.getByRole('dialog', { name: 'Schedule' });
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Automation' });
     await expect(drawer).toBeVisible();
     await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('Check the build');
     await drawer.getByRole('radio', { name: 'Every day' }).click();
@@ -14,13 +14,173 @@ test.describe('schedules', () => {
     await expect(drawer).toBeHidden();
     await expect(page.locator('.conv-item.active .conv-schedule')).toBeVisible();
 
-    await page.locator('.chat-head').getByRole('button', { name: 'Schedule' }).click();
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
     await expect(drawer.locator('.schedule-status')).toContainText('Every day at');
     await drawer.getByRole('button', { name: 'Run once now' }).click();
     await drawer.getByRole('button', { name: 'Close' }).click();
     const sent = page.locator('.msg-user', { hasText: 'Check the build' });
     await expect(sent).toBeVisible();
-    await expect(sent).toContainText('Scheduled');
+    await expect(sent).toContainText('Automation');
     await expect(await finishedReply(page, 'Codex')).toContainText('You said: “Check the build”.');
+  });
+
+  test('a schedule that tracks a goal shows the progress a reply reports, and switches off once it is reached', async ({ page, relay }) => {
+    await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Track the build');
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Automation' });
+    await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('Check the build e2e:progress=done');
+    await drawer.getByRole('textbox', { name: 'Goal to track (optional)' }).fill('The build passes');
+    await drawer.getByRole('radio', { name: 'Every day' }).click();
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drawer).toBeHidden();
+
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    const progress = drawer.getByRole('region', { name: 'Progress on the goal' });
+    await expect(progress).toContainText('No progress yet');
+    await drawer.getByRole('button', { name: 'Run once now' }).click();
+    await drawer.getByRole('button', { name: 'Close' }).click();
+
+    // The reply's block is shown as a card, not as text; the agent was told the goal.
+    const reply = await finishedReply(page, 'Codex');
+    const card = reply.getByRole('note', { name: 'Progress on the goal' });
+    await expect(card).toContainText('Done');
+    await expect(card).toContainText('“The build passes”: done (Codex).');
+    await expect(reply).not.toContainText('<progress');
+    await expect(page.locator('.msg-system', { hasText: 'says the goal is reached; the automation is off now' })).toBeVisible();
+
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await expect(progress).toContainText('Done');
+    await expect(progress.locator('.progress-note')).toHaveCount(1);
+    await expect(drawer.getByRole('checkbox', { name: 'On' })).not.toBeChecked();
+  });
+
+  test('a run whose reply says its goal is held up marks the chat as needing the user, and keeps the automation on', async ({
+    page,
+    relay,
+  }) => {
+    await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Held up');
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Automation' });
+    await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('Check the build e2e:progress=blocked');
+    await drawer.getByRole('textbox', { name: 'Goal to track (optional)' }).fill('The build passes');
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drawer).toBeHidden();
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await drawer.getByRole('button', { name: 'Run once now' }).click();
+    await drawer.getByRole('button', { name: 'Close' }).click();
+
+    const reply = await finishedReply(page, 'Codex');
+    await expect(reply.getByRole('note', { name: 'Progress on the goal' })).toContainText('Blocked');
+    await expect(page.locator('.msg-system', { hasText: 'says the goal is held up and needs you' })).toBeVisible();
+    // The sidebar says so, and the tab's title counts it, until a later reply says otherwise.
+    await expect(page.locator('.conv-item.active .conv-status')).toHaveText('Goal held up');
+    await expect(page).toHaveTitle(/\(1\)/);
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await expect(drawer.getByRole('region', { name: 'Progress on the goal' })).toContainText('Blocked');
+    await drawer.getByRole('button', { name: 'Close' }).click();
+
+    await send(page, 'The key is in place now');
+    await finishedReply(page, 'Codex');
+    await expect(page.locator('.conv-item.active .conv-status', { hasText: 'Goal held up' })).toHaveCount(0);
+  });
+
+  test("a schedule's webhook shows its token once, and a program's call sends the message with what it posted", async ({ page, relay }) => {
+    await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], {}, 'Hooked');
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Automation' });
+    await drawer.getByRole('textbox', { name: 'Message to send the team' }).fill('CI reported');
+    // No set times: only Run once now and the webhook send it, so there is nothing to switch on or off,
+    // and no missed times.
+    await drawer.getByRole('radio', { name: 'No set times' }).click();
+    await expect(drawer).toContainText('Sent only when you click Run once now, or a program calls its webhook');
+    await expect(drawer.getByRole('checkbox', { name: 'On' })).toHaveCount(0);
+    await expect(drawer.getByRole('radiogroup', { name: 'Missed times' })).toHaveCount(0);
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drawer).toBeHidden();
+    await expect(page.locator('.conv-item.active .conv-schedule')).toHaveAccessibleName(
+      'Automation: no set times (Run once now or its webhook)',
+    );
+
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await expect(drawer.locator('.schedule-status')).toContainText('No set times · sent by Run once now or its webhook');
+    // Folded away under words anyone can read until there is a webhook.
+    const hook = drawer.getByRole('region', { name: 'Let another program start it (webhook)' });
+    await expect(hook.getByRole('button', { name: 'Add a webhook' })).toBeHidden();
+    await hook.getByText('Let another program start it (webhook)').click();
+    await hook.getByRole('button', { name: 'Add a webhook' }).click();
+    const example = hook.locator('.hook-example');
+    // curl, or on a server on Windows PowerShell's own Invoke-RestMethod (cmd.exe takes no single quotes).
+    await expect(example).toContainText(process.platform === 'win32' ? 'Invoke-RestMethod -Method Post' : 'curl -X POST');
+    const line = (await example.textContent())!;
+    const token = /Bearer ([A-Za-z0-9_-]+)/.exec(line)![1]!;
+    const url = /'(http:\/\/127\.0\.0\.1:\d+\/api\/hooks\/[^']+)'/.exec(line)![1]!;
+    await expect(hook).toContainText('Not called yet');
+
+    // A program on this computer: no browser's sign-in, only the token.
+    const call = (bearer: string) =>
+      fetch(url, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ event: 'ci-failed', branch: 'main' }),
+      });
+    expect((await call('wrong')).status).toBe(404);
+    expect((await call(token)).status).toBe(202);
+    await expect(hook).toContainText('Last called');
+    await drawer.getByRole('button', { name: 'Close' }).click();
+
+    const sent = page.locator('.msg-user', { hasText: 'CI reported' });
+    await expect(sent).toContainText('Automation');
+    await sent.getByText('What the webhook sent').click();
+    await expect(sent.locator('.event-block pre')).toContainText('"event": "ci-failed"');
+    await expect(await finishedReply(page, 'Codex')).toContainText('You said: “CI reported');
+
+    // Shown once: opened again, the drawer has no token, only the way to make a new one.
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await expect(hook.locator('.hook-example')).toHaveCount(0);
+    await expect(hook.getByRole('button', { name: 'New token' })).toBeVisible();
+  });
+
+  test("New automation's Create a webhook too opens the automation's chat with its token shown once, which a program then calls", async ({
+    page,
+  }) => {
+    await page.getByRole('button', { name: 'New automation' }).click();
+    await page.getByRole('textbox', { name: 'Message to send the team' }).fill('Deploy finished');
+    await page.getByRole('radio', { name: 'No set times' }).click();
+    // Folded away at first, under words anyone can read.
+    const withHook = page.getByRole('checkbox', { name: 'Create a webhook too' });
+    await expect(withHook).toBeHidden();
+    await page.getByText('Let another program start it (webhook)').click();
+    await expect(withHook).not.toBeChecked();
+    await withHook.check();
+    await expect(page.getByText("the automation's drawer opens with the webhook's address and token")).toBeVisible();
+    await page.getByRole('button', { name: 'Create automation' }).click();
+    await page.waitForURL(/#\/c\//);
+
+    // Its drawer opens by itself, the token shown there.
+    const drawer = page.getByRole('dialog', { name: 'Automation' });
+    const hook = drawer.getByRole('region', { name: 'Let another program start it (webhook)' });
+    await expect(hook).toContainText('The token is shown only this once');
+    const line = (await hook.locator('.hook-example').textContent())!;
+    const token = /Bearer ([A-Za-z0-9_-]+)/.exec(line)![1]!;
+    const url = /'(http:\/\/127\.0\.0\.1:\d+\/api\/hooks\/[^']+)'/.exec(line)![1]!;
+    await expect(hook.getByRole('button', { name: 'New token' })).toBeVisible();
+    await drawer.getByRole('button', { name: 'Close' }).click();
+    await expect(drawer).toBeHidden();
+    // Shown once: opened again, no token.
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await expect(hook).toContainText('Not called yet');
+    await expect(hook.locator('.hook-example')).toHaveCount(0);
+    await drawer.getByRole('button', { name: 'Close' }).click();
+
+    // Once the team is confirmed, a program's call sends the message.
+    await confirmTeam(page);
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ event: 'deployed' }),
+    });
+    expect(res.status).toBe(202);
+    await expect(page.locator('.msg-user', { hasText: 'Deploy finished' })).toContainText('Automation');
+    await expect(await finishedReply(page, 'Claude')).toContainText('You said: “Deploy finished');
   });
 });

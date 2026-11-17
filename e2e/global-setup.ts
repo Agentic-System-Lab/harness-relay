@@ -50,11 +50,13 @@ export default async function globalSetup(): Promise<void> {
       });
       if (r.status !== 0) throw new Error(`Building the UI into ${b.dir} failed (${r.status ?? r.error})`);
     }
-    if (!existsSync(join(b.dir, 'index.html'))) throw new Error(`The UI is not built in ${b.dir}: run \`npm run test:e2e\` without E2E_BUILD=never.`);
+    if (!existsSync(join(b.dir, 'index.html')))
+      throw new Error(`The UI is not built in ${b.dir}: run \`npm run test:e2e\` without E2E_BUILD=never.`);
   }
   const dir = await installFakeClis();
   // Workers read them (they inherit the environment set here).
   process.env.E2E_FAKE_BIN_DIR = dir;
   process.env.E2E_RELAY_SANDBOX = relaySandboxHere();
-  if (process.env.E2E_RELAY_SANDBOX !== 'ok' && process.platform !== 'win32') console.log(`[e2e] Harness Relay's own sandbox is not available here: ${process.env.E2E_RELAY_SANDBOX}`);
+  if (process.env.E2E_RELAY_SANDBOX !== 'ok' && process.platform !== 'win32')
+    console.log(`[e2e] Harness Relay's own sandbox is not available here: ${process.env.E2E_RELAY_SANDBOX}`);
 }

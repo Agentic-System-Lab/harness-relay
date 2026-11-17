@@ -93,8 +93,7 @@ const zhTW = {
   mClose: '關閉視窗',
 
   tailscaleMissing: '找不到 Tailscale',
-  tailscaleMissingDetail:
-    '要從手機使用，請在這台電腦和手機都安裝 Tailscale，並登入同一個 tailnet。在 Mac 上，裝好 Tailscale app 即可。',
+  tailscaleMissingDetail: '要從手機使用，請在這台電腦和手機都安裝 Tailscale，並登入同一個 tailnet。在 Mac 上，裝好 Tailscale app 即可。',
   tailscaleNotRunning: 'Tailscale 還沒有連線',
   tailscaleNotRunningDetail: '請打開 Tailscale 並登入，再選一次「分享到手機」。',
   tailscaleApproval: '要先為你的 tailnet 開啟 Serve 和 HTTPS',
@@ -123,10 +122,12 @@ const zhTW = {
   updateWaiting: '更新已就緒，等回答結束後切換',
   updateSwitchNow: '立即切換到新版…',
   updateSwitchConfirm: '要立即切換到新版嗎？',
-  updateSwitchDetail: (replying: number | undefined) => (replying ? `有 ${replying} 個對話正在回覆，切換時會被中斷。` : '正在回覆的對話會被中斷。'),
+  updateSwitchDetail: (replying: number | undefined) =>
+    replying ? `有 ${replying} 個對話正在回覆，切換時會被中斷。` : '正在回覆的對話會被中斷。',
   updateSwitch: '立即切換',
   updateConfirm: (version: string) => `要把 Harness Relay 更新到 ${version} 嗎？`,
-  updateConfirmDetail: 'Harness Relay 會下載新版並檢查它，然後結束、換成新版再打開。有對話正在回覆時，會等它們都回答完再切換；也可以從選單立即切換。',
+  updateConfirmDetail:
+    'Harness Relay 會下載新版並檢查它，然後結束、換成新版再打開。有對話正在回覆時，會等它們都回答完再切換；也可以從選單立即切換。',
   updateNow: '立即更新',
   whatChanged: '查看變更內容',
   updateManual: '這個 Harness Relay 無法自己更新',
@@ -135,7 +136,8 @@ const zhTW = {
       'not-packaged': '它是從原始碼執行的（npm run desktop）。請到發布頁下載新版。',
       'no-installer': '新版沒有這個系統的安裝檔。請到發布頁看看。',
       'no-checksum': 'GitHub 沒有提供這個安裝檔的檢查碼，無法確認下載的內容。請到發布頁手動下載。',
-      'read-only': 'Harness Relay 不在可以替換的位置（例如直接從 .dmg 執行，或所在的資料夾不能寫入）。請到發布頁下載新版；在 Mac 上，請把它拖到「應用程式」資料夾。',
+      'read-only':
+        'Harness Relay 不在可以替換的位置（例如直接從 .dmg 執行，或所在的資料夾不能寫入）。請到發布頁下載新版；在 Mac 上，請把它拖到「應用程式」資料夾。',
       'not-appimage': '在 Linux 上只有 AppImage 能自己更新。請到發布頁下載新版。',
     })[why],
   updateFailed: '無法更新 Harness Relay',
@@ -220,13 +222,13 @@ const en: DesktopMessages = {
   tailscaleNotRunningDetail: 'Open Tailscale and sign in, then choose Share with your phone again.',
   tailscaleApproval: 'Serve and HTTPS have to be turned on for your tailnet first',
   tailscaleApprovalDetail: "Tailscale's page is open in your browser. Allow it there, then choose Share with your phone again.",
-  tailscaleAccessDenied: "Tailscale does not let this user change its settings",
+  tailscaleAccessDenied: 'Tailscale does not let this user change its settings',
   tailscaleAccessDeniedDetail: (output) =>
     `Run this once in a terminal:\n\nsudo tailscale set --operator=$USER\n\nThen choose Share with your phone again.\n\nTailscale said:\n${output}`,
   tailscaleFailed: 'Could not share with your tailnet',
   tailscaleFailedDetail: (output) => `Tailscale said:\n${output}`,
   tailscaleStatusUnknown:
-    "Could not read what this computer already shares with the tailnet (tailscale serve status did not answer), so nothing was shared: it could take over another service or Funnel. Check that Tailscale runs, then choose Share with your phone again.",
+    'Could not read what this computer already shares with the tailnet (tailscale serve status did not answer), so nothing was shared: it could take over another service or Funnel. Check that Tailscale runs, then choose Share with your phone again.',
   tailscalePortsTaken:
     "HTTPS ports 443, 8443 and 10000 of this computer's tailnet address already share something else. Share Harness Relay by hand, as in Use it from your phone, or first stop one of them with tailscale serve --https=<port> off.",
   shared: 'Shared with your tailnet',
@@ -260,7 +262,8 @@ const en: DesktopMessages = {
     ({
       'not-packaged': 'It runs from the source code (npm run desktop). Download the new version from the releases page.',
       'no-installer': 'The new version has no installer for this system. See the releases page.',
-      'no-checksum': 'GitHub gives no checksum for its installer, so the download could not be checked. Download it from the releases page.',
+      'no-checksum':
+        'GitHub gives no checksum for its installer, so the download could not be checked. Download it from the releases page.',
       'read-only':
         'Harness Relay cannot be replaced where it is (it runs from the .dmg, say, or from a folder it may not write in). Download the new version from the releases page; on a Mac, drag it into Applications.',
       'not-appimage': 'On Linux, only the AppImage updates itself. Download the new version from the releases page.',
@@ -275,7 +278,8 @@ const en: DesktopMessages = {
       replace: 'The app could not be replaced by the new version: this version stays as it is.',
       start: 'The new version could not be started. Harness Relay runs on as this version.',
     })[failure],
-  updateOpenedInstaller: "The new version's installer is open: drag Harness Relay into Applications, replacing this one (macOS may ask you to allow App Management).",
+  updateOpenedInstaller:
+    "The new version's installer is open: drag Harness Relay into Applications, replacing this one (macOS may ask you to allow App Management).",
 };
 
 export const DESKTOP_MESSAGES: Record<DesktopLang, DesktopMessages> = { 'zh-TW': zhTW, en };

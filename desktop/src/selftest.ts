@@ -86,7 +86,8 @@ export function withFakeClis(env: NodeJS.ProcessEnv, fakeDir: string, root: stri
     CODEX_HOME: join(home, '.codex'),
     GROK_HOME: join(home, '.grok'),
   });
-  for (const dir of [out.XDG_CONFIG_HOME!, out.CLAUDE_CONFIG_DIR!, out.CODEX_HOME!, out.GROK_HOME!, cwd]) mkdirSync(dir, { recursive: true });
+  for (const dir of [out.XDG_CONFIG_HOME!, out.CLAUDE_CONFIG_DIR!, out.CODEX_HOME!, out.GROK_HOME!, cwd])
+    mkdirSync(dir, { recursive: true });
   writeFileSync(join(cwd, 'README.md'), '# Smoke test\n\nThe folder the desktop app check asks its agents a question in.\n');
   return { env: out, cwd };
 }
@@ -114,7 +115,8 @@ export async function checkTurn(base: string, auth: SignedIn, check: Check, o: {
     }
     return { ok: r.ok, status: r.status, json, text };
   };
-  const said = (what: string, r: { ok: boolean; status: number; text: string }) => (r.ok ? what : `${what} (${r.status} ${r.text.slice(0, 500)})`);
+  const said = (what: string, r: { ok: boolean; status: number; text: string }) =>
+    r.ok ? what : `${what} (${r.status} ${r.text.slice(0, 500)})`;
 
   const names = TURN_CLIS.join(', ').replace(/, (?=[^,]*$)/, ' and ');
   const created = await request('/api/conversations', {
@@ -150,6 +152,11 @@ export async function checkTurn(base: string, auth: SignedIn, check: Check, o: {
     const text = (reply?.parts ?? []).map((p) => (p.type === 'text' ? p.text : '')).join('');
     const ok = reply?.status === 'done' && text.includes(question);
     const what = `${provider} answers it`;
-    check(ok, ok ? what : `${what} (${reply ? `${reply.status}${reply.error ? `: ${reply.error}` : ''}: ${JSON.stringify(text.slice(0, 300))}` : 'no reply'})`);
+    check(
+      ok,
+      ok
+        ? what
+        : `${what} (${reply ? `${reply.status}${reply.error ? `: ${reply.error}` : ''}: ${JSON.stringify(text.slice(0, 300))}` : 'no reply'})`,
+    );
   }
 }

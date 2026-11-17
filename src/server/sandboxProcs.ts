@@ -66,7 +66,10 @@ function systemPythonReady(): boolean {
   if (pythonChecked !== undefined) return pythonChecked;
   const tools = runSync('/usr/bin/xcode-select', ['-p'], { timeoutMs: 5000 });
   const dir = tools.status === 0 ? tools.stdout.trim() : '';
-  pythonChecked = Boolean(dir) && existsSync('/usr/bin/python3') && (existsSync(join(dir, 'usr/bin/python3')) || existsSync(join(dir, 'Library/Frameworks/Python3.framework')));
+  pythonChecked =
+    Boolean(dir) &&
+    existsSync('/usr/bin/python3') &&
+    (existsSync(join(dir, 'usr/bin/python3')) || existsSync(join(dir, 'Library/Frameworks/Python3.framework')));
   return pythonChecked;
 }
 
@@ -161,7 +164,11 @@ export function answeredPids(stdout: string, asked: readonly number[]): number[]
 }
 
 /** `Runner`, without blocking the server: for a run's teardown while other runs go on. */
-export type AsyncRunner = (cmd: string, args: string[], input?: string) => Promise<Pick<SpawnSyncReturns<string>, 'status' | 'stdout' | 'error'>>;
+export type AsyncRunner = (
+  cmd: string,
+  args: string[],
+  input?: string,
+) => Promise<Pick<SpawnSyncReturns<string>, 'status' | 'stdout' | 'error'>>;
 
 export const runAsync: AsyncRunner = async (cmd, args, input) => {
   // Through process.ts, like every child process of the server: tracked, and killed on shutdown.
@@ -175,14 +182,20 @@ export const runAsync: AsyncRunner = async (cmd, args, input) => {
       maxCapture: 1 << 22,
       stdin: input ?? '',
     });
-    return r.timedOut ? { status: null, stdout: r.stdout, error: new Error(`${cmd} timed out`) } : { status: r.code, stdout: r.stdout, error: undefined };
+    return r.timedOut
+      ? { status: null, stdout: r.stdout, error: new Error(`${cmd} timed out`) }
+      : { status: r.code, stdout: r.stdout, error: undefined };
   } catch (error) {
     return { status: null, stdout: '', error: error as Error };
   }
 };
 
 /** `runSandboxPids`, without blocking the server. */
-export async function runSandboxPidsAsync(runTmp: string, deps: SandboxProcsDeps = defaultSandboxProcsDeps(), run: AsyncRunner = runAsync): Promise<number[] | undefined> {
+export async function runSandboxPidsAsync(
+  runTmp: string,
+  deps: SandboxProcsDeps = defaultSandboxProcsDeps(),
+  run: AsyncRunner = runAsync,
+): Promise<number[] | undefined> {
   if (deps.platform !== 'darwin' || deps.uid < 0 || !deps.pythonReady()) return undefined;
   if (!realFolder(runTmp)) return undefined;
   const ps = await run('/bin/ps', ['-A', '-o', 'pid=', '-o', 'uid=']);
