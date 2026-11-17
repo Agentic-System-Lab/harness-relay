@@ -16,6 +16,20 @@ A local task assistant: the real **Claude Code, Codex, Grok, Cursor, Antigravity
 
 For each question, a lead agent picks the team from your templates (or adapts one, or designs a new one), and you confirm it. Harness Relay then runs the CLIs with your own sign-ins and tools, passes each agent the messages it hasn't seen yet, and streams everything into one chat.
 
+## Contents
+
+- [Use cases](#use-cases)
+- [Features](#features)
+- [Requirements](#requirements)
+- [Quick start](#quick-start)
+  - [Open-source agents and model backends](#open-source-agents-and-model-backends)
+- [Desktop app](#desktop-app)
+- [Safety](#safety)
+- [Scripts](#scripts)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Use cases
 
 Five tasks to hand the team, each a real run recorded as it happened, with its chapters, on the [website](https://agentic-system-lab.github.io/harness-relay/use-cases/):
