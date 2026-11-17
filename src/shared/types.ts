@@ -1487,8 +1487,8 @@ export interface ScheduleWatch {
   /** `file`: the working directory those files were found in (another one starts afresh). */
   filesIn?: string;
   /**
-   * `file`: a run was writing in the working directory at a check, or the check's message started one:
-   * what changed there is the team's own, so the next check with the folder free only records too.
+   * `file`: a run was writing in the working directory at a check (or a check held or failed while one
+   * did): what changed there is the team's own, so the next check with the folder free only records too.
    */
   teamWrote?: boolean;
   /**

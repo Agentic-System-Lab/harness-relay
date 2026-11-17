@@ -1803,7 +1803,8 @@ export class Orchestrator {
     let n = 0;
     if (conv) {
       const within = (a: string, b: string) => a === b || a.startsWith(b.endsWith(sep) ? b : b + sep);
-      const dirs = cwdsOf(conv.settings).flatMap((d) => {
+      // The working directory a file source watches: another one of the conversation's is not it.
+      const dirs = [conv.settings.cwd].flatMap((d) => {
         try {
           return [realpathSync(d)];
         } catch {
@@ -1840,13 +1841,14 @@ export class Orchestrator {
     const writes = conv.settings.permission !== 'read-only' && conv.settings.mode !== 'parallel';
     const run = this.runs.get(convId);
     if (run?.lockRoots || (writes && (run || this.starting.has(convId))) || this.reserved.has(convId)) return true;
-    return this.lockedFolder(conv) !== undefined;
+    // Only the working directory a file source watches: another chat writing in one of the others is not in it.
+    return this.lockedFolder(conv, [conv.settings.cwd]) !== undefined;
   }
 
   /** Why another conversation's lock covers one of this one's working directories (around it or inside it), or undefined. */
-  private lockedFolder(conv: Conversation): string | undefined {
+  private lockedFolder(conv: Conversation, folders: string[] = cwdsOf(conv.settings)): string | undefined {
     const within = (a: string, b: string) => a === b || a.startsWith(b.endsWith(sep) ? b : b + sep);
-    for (const dir of cwdsOf(conv.settings)) {
+    for (const dir of folders) {
       let cwd: string;
       try {
         cwd = realpathSync(dir);

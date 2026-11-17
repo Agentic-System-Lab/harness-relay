@@ -145,8 +145,9 @@ export class Scheduler {
    *
    * Files in the working directory: what a run writes there is the team's own, never something new to
    * start it. While a run writes there (this conversation's, or another's holding the folder:
-   * `Orchestrator.folderInUse()`), and at the first check once the folder is free again (`teamWrote`,
-   * also set by a check whose message started a run), a check only records the files as they are.
+   * `Orchestrator.folderInUse()`), at the first check once the folder is free again (`teamWrote`), and
+   * at a check after a run wrote there since the last one (the folder's write count, `writes`), a check
+   * only records the files as they are, but for those held for the team or still settling.
    */
   check(convId: string, force = false): Promise<void> {
     const running = this.checks.get(convId);
@@ -169,7 +170,10 @@ export class Scheduler {
     const started = this.now();
     // Something found earlier still waits for a team that cannot take it: the source is not asked
     // again (nor the same mail downloaded) until the team can. The user's own check always asks it.
-    const hold = prev?.held && !force ? withLang(s.lang, () => this.orchestrator.scheduledHold(convId)) : undefined;
+    // Not for files: the folder is looked at all the same (it is on this computer), so that a file that
+    // arrives while one waits for the team is held with it, never taken for the team's later.
+    const hold =
+      prev?.held && !force && trigger.source !== 'file' ? withLang(s.lang, () => this.orchestrator.scheduledHold(convId)) : undefined;
     // The team writes in the folder now, or did since the last check: only recorded.
     const files = trigger.source === 'file';
     const writing = files && this.orchestrator.folderInUse(convId);
@@ -180,7 +184,10 @@ export class Scheduler {
     // A run that wrote there since the last check (began and ended between them): the next check only records too.
     const writes = files ? this.orchestrator.folderWrites(convId) : undefined;
     const sameServer = (a: string, b: string) => a.split(':')[0] === b.split(':')[0];
-    const wroteSince = Boolean(writes && prev?.writes && sameServer(prev.writes, writes) && prev.writes !== writes);
+    // Kept by another start of the server: any write counted since this one started is new.
+    const wroteSince = Boolean(
+      writes && prev?.writes && (sameServer(prev.writes, writes) ? prev.writes !== writes : !writes.endsWith(':0')),
+    );
     const recordOnly = files && (writing || Boolean(prev?.teamWrote) || wroteSince);
     let found: WatchCheck;
     try {
@@ -208,8 +215,8 @@ export class Scheduler {
     }
     // Changed or removed while it was checked: the new one starts afresh.
     if (this.stopped || conv.schedule !== s) return;
-    // A run that began while the files were looked at writes there too.
-    const busy = writing || (files && this.orchestrator.folderInUse(convId));
+    // A run that began while the files were looked at writes there too (or began and ended meanwhile).
+    const busy = writing || (files && (this.orchestrator.folderInUse(convId) || this.orchestrator.folderWrites(convId) !== writes));
     const seen: ScheduleWatch = {
       key,
       ...keptState(found.state),
