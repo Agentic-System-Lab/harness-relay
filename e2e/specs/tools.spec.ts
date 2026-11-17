@@ -607,7 +607,10 @@ test('the browser to start is set in Settings: a path with no file there is refu
   await page.goto(`${relay.base}/#/settings/tools`);
   const field = page.getByRole('textbox', { name: 'Browser to start' });
   const box = page.locator('.browser-path');
-  await box.locator('summary').click();
+  // Open at first where no browser is found (a computer without one, whose Playwright Chromium the test's
+  // home does not have): opened only when closed.
+  await expect(box).toBeVisible();
+  if (!(await box.evaluate((d) => (d as HTMLDetailsElement).open))) await box.locator('summary').click();
   await expect(field).toBeVisible();
   const nowhere = join(relay.workDir, 'no-such-browser');
   await field.fill(nowhere);
