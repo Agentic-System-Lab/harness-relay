@@ -430,6 +430,22 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE conversations ADD COLUMN pinned_at INTEGER;
   `,
+  // 31: the notification inbox (notifications), what the sidebar's bell lists: each alert the team
+  // gave (kind: done, error, approval, confirm, answer; src/shared/notify.ts), the agent it is about and
+  // what it said as one short line, when, and when it was read (read_at; NULL: unread). Removed with
+  // its conversation; only the newest INBOX_KEPT are kept (src/server/store.ts).
+  `
+  CREATE TABLE notifications (
+    id              TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    kind            TEXT NOT NULL,
+    agent           TEXT,
+    text            TEXT,
+    created_at      INTEGER NOT NULL,
+    read_at         INTEGER
+  );
+  CREATE INDEX notifications_by_conversation ON notifications(conversation_id);
+  `,
 ];
 
 /**

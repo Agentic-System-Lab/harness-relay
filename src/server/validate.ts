@@ -45,6 +45,7 @@ import {
   type VoiceLanguage,
   type VoiceModelId,
   type VoiceSettingsUpdate,
+  type InboxReadRequest,
 } from '../shared/types';
 import { parseTime, validTimeZone } from '../shared/schedule';
 import { CONFIG } from './config';
@@ -663,6 +664,20 @@ export function validateEndpoint(input: unknown, relayPort?: number): ModelEndpo
  * service's HTTPS address (one of `PUSH_HOSTS`), and its keys (the browser's P-256 public key and
  * auth secret, base64url); each preference a boolean.
  */
+/** How many notifications one `POST /api/notifications/read` may name. */
+export const INBOX_READ_MAX = 500;
+
+/** Which notifications to mark read: `{ ids }`, `{ conversationId }` or `{ all: true }`. */
+export function validateInboxRead(input: unknown): InboxReadRequest {
+  const u = (input ?? {}) as { ids?: unknown; conversationId?: unknown; all?: unknown };
+  if (u.all === true) return { all: true };
+  if (typeof u.conversationId === 'string' && u.conversationId) return { conversationId: u.conversationId };
+  if (Array.isArray(u.ids) && u.ids.length <= INBOX_READ_MAX && u.ids.every((id) => typeof id === 'string' && id.length > 0 && id.length <= 64)) {
+    return { ids: u.ids as string[] };
+  }
+  bad(t().invalidField(u.ids !== undefined ? 'ids' : u.conversationId !== undefined ? 'conversationId' : 'all'));
+}
+
 export function validatePushSubscription(input: unknown): { subscription: PushSubscriptionJson; prefs: AlertPrefs } {
   const u = (input ?? {}) as { subscription?: unknown; prefs?: unknown };
   const sub = (u.subscription ?? {}) as { endpoint?: unknown; keys?: unknown };

@@ -271,6 +271,16 @@ export function ReportIcon({ size }: { size?: number }) {
   );
 }
 
+/** A bell: the notification inbox, beside the sidebar's collapse button. */
+export function BellIcon({ size }: { size?: number }) {
+  return (
+    <Svg size={size}>
+      <path d="M6 9a6 6 0 0 1 12 0c0 4.5 1.5 6.5 2.5 7.5h-17C4.5 15.5 6 13.5 6 9z" />
+      <path d="M10 20a2.2 2.2 0 0 0 4 0" />
+    </Svg>
+  );
+}
+
 /** A five-pointed star: star Harness Relay on GitHub. */
 export function StarIcon({ size }: { size?: number }) {
   return (

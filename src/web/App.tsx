@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ConversationGroup, ConversationSummary, ProviderModels, ProviderStatus, UpdateStatus } from '../shared/types';
+import type { ConversationGroup, ConversationSummary, InboxSummary, ProviderModels, ProviderStatus, UpdateStatus } from '../shared/types';
 import { SIGNED_OUT_EVENT, api } from './api';
 import { keyArrived } from './auth';
 import { ChatView } from './components/ChatView';
 import { Deferred, lazyPart } from './components/Deferred';
 import { Home } from './components/Home';
+import { InboxButton } from './components/InboxButton';
 import { NewChat } from './components/NewChat';
 import { NewSchedule } from './components/NewSchedule';
 import { SignIn } from './components/SignIn';
@@ -23,6 +24,7 @@ import { Sidebar } from './components/Sidebar';
 import { MenuIcon, PanelIcon } from './components/icons';
 import { useI18n, useT } from './i18n';
 import { PUSH_RESYNC_MS, PageAlerts, SOUND_UNLOCK_EVENTS, alertPrefsNow, listenForClicks, pushActive, syncPush, unlockSound, useAlertPrefs } from './alerts';
+import { EMPTY_INBOX, readOnView, sameSummary } from './inbox';
 import { refreshLimits } from './limits';
 import { latestLoader, newerStatuses } from './refresh';
 import { askOnNewChat, readAsked, writeAsked } from './sandboxSetup';
@@ -36,6 +38,7 @@ import { onboardingDone } from './tour';
 const SettingsPage = lazyPart(() => import('./components/SettingsPage').then((m) => m.SettingsPage));
 const Onboarding = lazyPart(() => import('./components/Onboarding').then((m) => m.Onboarding));
 const SandboxSetupDialog = lazyPart(() => import('./components/SandboxSetupDialog').then((m) => m.SandboxSetupDialog));
+const InboxDialog = lazyPart(() => import('./components/InboxDialog').then((m) => m.InboxDialog));
 
 type SeenMap = Record<string, number>;
 const SEEN_KEY = 'relay:seen';
@@ -198,6 +201,9 @@ function RelayApp() {
   );
 
   const [loaded, setLoaded] = useState(false);
+  /** The notification inbox (the bell): how many are unread and where, with each poll. */
+  const [inbox, setInbox] = useState<InboxSummary>(EMPTY_INBOX);
+  const [inboxOpen, setInboxOpen] = useState(false);
   // The conversations and the groups they are in (the lead agent sorts new ones in the background).
   /** The last refresh failed: the server may be restarting (the desktop app's Restart server…). */
   const unreachable = useRef(false);
@@ -209,7 +215,7 @@ function RelayApp() {
   const refreshConversations = useCallback(() => {
     const n = ++asked.current;
     const askedAt = Date.now();
-    Promise.allSettled([api.listConversations({ id: alerts.id, inFront: alerts.inFront() }), api.listGroups()]).then(([list, g]) => {
+    Promise.allSettled([api.listConversations({ id: alerts.id, inFront: alerts.inFront() }), api.listGroups(), api.notificationSummary()]).then(([list, g, box]) => {
       if (n < shown.current) return;
       if (list.status === 'rejected') {
         unreachable.current = true;
@@ -221,6 +227,8 @@ function RelayApp() {
       setConversations(list.value);
       if (g.status === 'fulfilled') setGroups(g.value);
       else console.error(g.reason);
+      if (box.status === 'fulfilled') setInbox((was) => (sameSummary(was, box.value) ? was : box.value));
+      else console.error(box.reason);
       setLoaded(true);
       // Back after a restart, perhaps with other limits in its environment.
       if (unreachable.current) refreshLimits();
@@ -266,6 +274,22 @@ function RelayApp() {
       writeSeen(next);
     }
   }, [loaded, conversations, route, seen]);
+
+  // The chat on screen: what the team said in it is seen, so its notifications are read (only while
+  // the page is in front and its window focused; checked again with each poll, as on coming back).
+  const marking = useRef<string>(undefined);
+  useEffect(() => {
+    const id = readOnView(route, inbox, { visible: document.visibilityState === 'visible', focused: document.hasFocus() }, marking.current);
+    if (!id) return;
+    marking.current = id;
+    api
+      .readNotifications({ conversationId: id })
+      .catch(() => undefined)
+      .finally(() => {
+        marking.current = undefined;
+        refreshConversations();
+      });
+  }, [route, inbox, conversations, refreshConversations]);
 
   // The tab title tells you when a conversation needs you: an approval, or a team to confirm.
   const waiting = conversations.filter((c) => c.waiting || c.confirmTeam || (c.asking && !c.running)).length;
@@ -417,6 +441,8 @@ function RelayApp() {
     <div className={`app ${sidebarOpen ? 'sidebar-open' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <Sidebar
         onCollapse={() => setCollapsed(true)}
+        inbox={inbox}
+        onOpenInbox={() => setInboxOpen(true)}
         onHome={() => setSidebarOpen(false)}
         route={route}
         conversations={conversations}
@@ -431,11 +457,18 @@ function RelayApp() {
       />
       <div className="sidebar-scrim" onClick={() => setSidebarOpen(false)} />
       <main className="main">
-        <button className="menu-button" aria-label={t.app.openSidebar} onClick={() => setSidebarOpen(true)}>
+        <button
+          className="menu-button"
+          aria-label={inbox.unread ? t.app.openSidebarUnread(inbox.unread) : t.app.openSidebar}
+          onClick={() => setSidebarOpen(true)}
+        >
           <MenuIcon />
+          {/* Notifications unread: the bell is in the sidebar. */}
+          {inbox.unread > 0 && <span className="menu-dot" aria-hidden />}
         </button>
         {collapsed && (
           <div className="sidebar-tools">
+            <InboxButton unread={inbox.unread} onOpen={() => setInboxOpen(true)} />
             <button className="icon-button" onClick={() => setCollapsed(false)} aria-label={t.app.expandSidebar} title={t.app.expandSidebar}>
               <PanelIcon />
             </button>
@@ -487,6 +520,11 @@ function RelayApp() {
           </Deferred>
         )}
       </main>
+      {inboxOpen && (
+        <Deferred onClose={() => setInboxOpen(false)}>
+          <InboxDialog summary={inbox} onClose={() => setInboxOpen(false)} onChanged={refreshConversations} />
+        </Deferred>
+      )}
       {tourOpen && (
         <Deferred onClose={() => setTourOpen(false)}>
           <Onboarding onClose={() => setTourOpen(false)} />
