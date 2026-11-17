@@ -5,6 +5,7 @@ import { createServer, type Socket } from 'node:net';
 import {
   answerText,
   calendarData,
+  elementContents,
   composeEvent,
   contentLine,
   discoverCalendars,
@@ -310,6 +311,22 @@ describe('calendars', () => {
     expect(
       calendarData('<a:calendar-data>A&lt;B&amp;C&#13;</a:calendar-data><calendar-data x="1"><![CDATA[<raw>]]></calendar-data>'),
     ).toEqual(['A<B&C\r', '<raw>']);
+    // In time in proportion to the answer's size, whatever a server sends: elements never closed, and
+    // opening tags never ended, a few MB of each.
+    for (const xml of [
+      '<d:response><c:calendar-data>'.repeat(120_000),
+      '<c:calendar-data x="'.repeat(120_000),
+      '<response '.repeat(300_000),
+    ]) {
+      const started = Date.now();
+      expect(calendarData(xml)).toEqual([]);
+      expect(elementContents(xml, 'response')).toEqual([]);
+      expect(Date.now() - started).toBeLessThan(slow(2000));
+    }
+    expect(elementContents('<d:response><d:href>/a/</d:href></d:response><D:RESPONSE>b</D:RESPONSE>', 'response')).toEqual([
+      '<d:href>/a/</d:href>',
+      'b',
+    ]);
   });
 
   it('writes an event in UTC from a time in a time zone, an all-day one through its last day, and checks the times', () => {

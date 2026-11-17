@@ -27,6 +27,7 @@ describe('what a call of each tier does', () => {
     const names = ['browser_open', 'mail_send'];
     const other = (tool?: string) => ({ kind: 'other' as const, tool });
     expect(gatewayToolNamed(names, other('mcp__relay__browser_open'))).toBe('browser_open');
+    expect(gatewayToolNamed(names, other('relay:mail_send'))).toBe('mail_send');
     expect(gatewayToolNamed(names, other('relay/mail_send'))).toBe('mail_send');
     expect(gatewayToolNamed(names, other('relay__mail_send'))).toBe('mail_send');
     for (const tool of [
@@ -35,6 +36,8 @@ describe('what a call of each tier does', () => {
       'mcp__relay__browser_opener',
       'mcp__x-relay__browser_open',
       'mcp__nonrelay__mail_send',
+      'evil:mail_send',
+      'relay:mail_sender',
       'https://h/relay/mail_send',
       undefined,
     ]) {
@@ -245,9 +248,6 @@ describe('the gateway and the MCP server the CLIs start', () => {
       text: 'The user declined page_click: not that one.',
       isError: true,
     });
-    asked.length = 0;
-    expect(await call('page_click', { target: 'Buy' }, ctx({ justAllowed: (n) => n === 'page_click' }))).toEqual({ text: 'Clicked Buy' });
-    expect(asked).toEqual([]);
     expect(await call('page_click', { target: 'Buy' }, ctx({ permission: 'full' }))).toEqual({ text: 'Clicked Buy' });
     expect((await call('page_click', { target: 'Buy' }, ctx({ ask: undefined }))).isError).toBe(true);
 
@@ -314,6 +314,9 @@ describe('the gateway and the MCP server the CLIs start', () => {
         expect((await thief.request('tools/list')).error.message).toMatch(/in use by its own MCP server already/);
         const call = await thief.request('tools/call', { name: 'page_title', arguments: { url: 'x' } });
         expect(call.result).toMatchObject({ isError: true });
+        // A connection with a token the server does not know is ended too, asking or not, so none stays.
+        const stranger = connect(once.socketPath, () => stranger.write('{"token":"not-one-of-ours"}\n'));
+        await new Promise<void>((resolve) => stranger.on('close', () => resolve()).on('error', () => undefined));
         // A connection that shows no token is ended, and so is one whose first line is longer than a token's.
         const silent = connect(once.socketPath);
         await new Promise<void>((resolve) => silent.on('close', () => resolve()).on('error', () => undefined));

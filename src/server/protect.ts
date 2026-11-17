@@ -181,6 +181,16 @@ export function relayTmpDir(dataDir = DATA_DIR): string {
 }
 
 /**
+ * Where the browser tools keep each conversation's browser profile (`browser/<conversation>`): its
+ * cookies and logins, readable to anything that can read the folder (Chromium keeps them with a fixed
+ * key there, `--password-store=basic`), so no agent may (`protectedReads`). Made at the server's start,
+ * so that it is kept from the sandboxes of turns already running when a browser first starts.
+ */
+export function relayBrowserDir(dataDir = DATA_DIR): string {
+  return join(dataDir, 'browser');
+}
+
+/**
  * How the folders a turn makes in `relayTmpDir` for its own files begin: a Claude Code turn's
  * `--settings` and `--mcp-config` files (the settings hold an endpoint's key when it runs on one, the
  * MCP config the servers' secret values), a Cursor turn's config folder, and a Copilot turn's home
@@ -246,7 +256,7 @@ export function protectedReads(
 ): string[] {
   const platform = o.platform ?? process.platform;
   if (platform === 'win32') return [];
-  const relay = [...relayDatabaseFiles(o.dataDir, o.env), relayTmpDir(o.dataDir)];
+  const relay = [...relayDatabaseFiles(o.dataDir, o.env), relayTmpDir(o.dataDir), relayBrowserDir(o.dataDir)];
   const codespace = platform === 'linux' ? codespaceSecretDirs(o.env, o.home, o.codespaceDir) : [];
   // Where $XDG_CONFIG_HOME is, from the environment given ('' when it names none: undefined would be the server's).
   const xdgConfig = (o.env ?? process.env).XDG_CONFIG_HOME ?? '';

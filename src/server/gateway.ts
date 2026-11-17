@@ -10,6 +10,7 @@ import {
   type OutboxPreview,
   type Lang,
   type Permission,
+  type Provider,
   type RelayToolGroup,
 } from '../shared/types';
 import { withLang } from './i18n';
@@ -51,8 +52,6 @@ export interface GatewayContext {
    * undefined when the conversation refuses automatically.
    */
   ask?: (req: ApprovalRequest) => Promise<ApprovalAnswer>;
-  /** The user allowed this very tool when the CLI asked about it a moment ago: not asked again. */
-  justAllowed?: (tool: string) => boolean;
   /** Puts a `send` call in the outbox, for the user to send; returns the item (an equal one waiting is returned instead). */
   toOutbox?: (item: Pick<OutboxItem, 'tool' | 'title' | 'preview'> & { args: Record<string, unknown> }) => OutboxItem;
   signal: AbortSignal;
@@ -139,8 +138,14 @@ const TOKEN_WAIT_MS = 10_000;
 /** The longest first line (the token's): what a connection may send before it is known. */
 const TOKEN_LINE_MAX = 512;
 
-/** The most connections at once: a few CLIs' shims, many times over. */
+/** The most connections at once with a token of a turn going on: a few CLIs' shims, many times over. */
 const MAX_CONNECTIONS = 256;
+
+/**
+ * The most connections at once that have shown no such token yet (each for `tokenWaitMs` at most, and
+ * one answer once known not to have one), apart from those, so they cannot keep the shims out.
+ */
+const MAX_PENDING = 256;
 
 /** Longest line the server reads from a socket (the shim refuses a call longer than `GATEWAY_MAX_CALL` itself). */
 const MAX_LINE = 4 * 1024 * 1024;
@@ -160,6 +165,8 @@ export class ToolGateway {
   private readonly tokenWaitMs: number;
   /** The shims' connections, ended when the gateway stops. */
   private readonly sockets = new Set<Socket>();
+  /** Of `sockets`, those with no token of a turn going on (yet). */
+  private readonly pending = new Set<Socket>();
 
   constructor(
     /** The data folder: the shim and the socket go in `gateway/` there. */
@@ -282,9 +289,13 @@ export class ToolGateway {
     const reply = (msg: unknown) => {
       if (!sock.destroyed) sock.write(JSON.stringify(msg) + '\n');
     };
-    if (this.sockets.size >= MAX_CONNECTIONS) return void sock.destroy();
+    if (this.pending.size >= MAX_PENDING) return void sock.destroy();
     this.sockets.add(sock);
-    sock.on('close', () => this.sockets.delete(sock));
+    this.pending.add(sock);
+    sock.on('close', () => {
+      this.sockets.delete(sock);
+      this.pending.delete(sock);
+    });
     sock.on('error', () => {
       /* the shim went away */
     });
@@ -294,6 +305,8 @@ export class ToolGateway {
     }, this.tokenWaitMs);
     hello.unref();
     sock.on('data', (chunk: string) => {
+      // Ended after its answer: nothing more is read.
+      if (sock.writableEnded) return;
       buffer += chunk;
       // Before its token, a connection is nobody's: it may send no more than that line.
       if (!authed && buffer.length > TOKEN_LINE_MAX && !buffer.slice(0, TOKEN_LINE_MAX).includes('\n')) return sock.destroy();
@@ -322,7 +335,14 @@ export class ToolGateway {
               rmSync(grant.tokenFile, { force: true });
             }
           }
-          // A token the server does not know (its turn is over) answers every request with an error.
+          if (grant) {
+            this.pending.delete(sock);
+            if (this.sockets.size - this.pending.size > MAX_CONNECTIONS) return sock.destroy();
+          } else {
+            // A token the server does not know (its turn is over) or already serves: its first request is
+            // answered with why, and the connection ends; one that asks nothing ends after the token's wait.
+            setTimeout(() => sock.destroy(), this.tokenWaitMs).unref();
+          }
           continue;
         }
         const req = msg as Request;
@@ -336,7 +356,7 @@ export class ToolGateway {
               ? "This turn's tools are in use by its own MCP server already"
               : 'This turn is over: Harness Relay has no tools for it any more',
           });
-          continue;
+          return void sock.end();
         }
         void this.handle(live, req).then(
           (result) => reply({ id: req.id, result }),
@@ -395,7 +415,7 @@ export class ToolGateway {
         text: `Not sent yet: "${item.title}" is waiting in the user's outbox (item ${item.id}). Only the user can send it, with its Send button in the chat; it may happen later. Do not try to send it another way. Tell the user it is waiting for them.`,
       };
     }
-    if (decision === 'ask' && !ctx.justAllowed?.(tool.name)) {
+    if (decision === 'ask') {
       let described: ReturnType<GatewayTool['describe']>;
       try {
         described = tool.describe(args, ctx);
@@ -430,19 +450,28 @@ function toolResult(r: GatewayResult): { content: unknown[]; isError: boolean } 
   };
 }
 
+/**
+ * The CLIs that get the gateway in full access only: below it their own sandbox covers the MCP servers
+ * they start too, and it denies them the protected paths, Harness Relay's `data/tmp` among them, where
+ * each turn's copy of the program and its token are (Grok's kernel `deny`). There the program could
+ * not even start.
+ */
+export const GATEWAY_FULL_ACCESS_ONLY: readonly Provider[] = ['grok'];
+
 /** How the gateway's own approval names a tool (and keys "always allow" for it): `relay:<tool>`. */
 export const gatewayApprovalTool = (name: string) => `${GATEWAY_SERVER_NAME}:${name}`;
 
 /**
  * The gateway's tool a CLI's own approval request is about, if it is one: a request for a tool (kind
  * `other`) named exactly as the CLI names the gateway's (`mcp__relay__browser_open` in Claude Code,
- * `relay/browser_open`, `relay__browser_open`, `relay.browser_open`), never a command, a path or a URL
- * with such words in it, nor another server's tool of the same name.
+ * `relay:browser_open` in Codex, `relay/browser_open`, `relay__browser_open`, `relay.browser_open`),
+ * never a command, a path or a URL with such words in it, nor another server's tool of the same name.
+ * The turn answers such a request yes, and the gateway decides by the tool's tier (`Orchestrator`).
  */
 export function gatewayToolNamed(names: readonly string[], req: Pick<ApprovalRequest, 'kind' | 'tool'>): string | undefined {
   if (req.kind !== 'other' || !req.tool) return undefined;
   const s = GATEWAY_SERVER_NAME;
-  return names.find((n) => [`mcp__${s}__${n}`, `${s}__${n}`, `${s}/${n}`, `${s}.${n}`].includes(req.tool!));
+  return names.find((n) => [`mcp__${s}__${n}`, `${s}:${n}`, `${s}__${n}`, `${s}/${n}`, `${s}.${n}`].includes(req.tool!));
 }
 
 /** The outbox's own tool, given with any group: what this conversation's outbox holds and what became of it. */

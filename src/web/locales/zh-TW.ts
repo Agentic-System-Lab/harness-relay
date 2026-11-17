@@ -1169,7 +1169,7 @@ export const zhTW = {
   tools: {
     relay: {
       title: 'Harness Relay 的工具',
-      hint: '由 Harness Relay 自己提供的工具，透過它給每個成員的一個 MCP server（relay）使用：每個 CLI 都一樣，密碼留在這裡，不會交給任何 CLI。只讀取的呼叫直接執行；會改變外部東西的呼叫（在網頁上點擊、存郵件草稿）在完全存取以下會詢問你，和其他動作一樣；會送到別人那裡的呼叫（郵件、邀請）絕不在那一回合送出：它會在待送出匣等待，對話中顯示成一張卡片，直到你按「送出」。開源 agent 暫時還不能使用。',
+      hint: '由 Harness Relay 自己提供的工具，透過它給每個成員的一個 MCP server（relay）使用：每個 CLI 都一樣，密碼留在這裡，不會交給任何 CLI。只讀取的呼叫直接執行；會改變外部東西的呼叫（在網頁上點擊、存郵件草稿）在完全存取以下會詢問你，和其他動作一樣；會送到別人那裡的呼叫（郵件、邀請）絕不在那一回合送出：它會在待送出匣等待，對話中顯示成一張卡片，直到你按「送出」。開源 agent 暫時還不能使用；Grok 只有在完全存取時才能使用：在那以下，它的沙箱也會讓它啟動的 MCP server 讀不到 Harness Relay 的資料夾。',
       groups: { browser: '瀏覽器', mail: '郵件', calendar: '行事曆' } as Record<RelayToolGroup, string>,
       groupHints: {
         browser:

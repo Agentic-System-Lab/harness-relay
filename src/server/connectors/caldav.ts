@@ -149,11 +149,31 @@ export function parseEvents(ics: string): CalendarEvent[] {
   return out;
 }
 
+/**
+ * What each `local` element of `xml` holds, whatever prefix its namespace has, in one pass from start to
+ * end: an element never closed ends it, and an opening tag ends at the next `<` at the latest, so an
+ * answer takes time in proportion to its size whatever it holds (a server's answer of 16 MB of opening
+ * tags included).
+ */
+export function elementContents(xml: string, local: string): string[] {
+  const open = new RegExp(`<(?:[A-Za-z0-9_-]+:)?${local}\\b[^<>]*>`, 'gi');
+  const close = new RegExp(`</(?:[A-Za-z0-9_-]+:)?${local}>`, 'gi');
+  const out: string[] = [];
+  for (let m = open.exec(xml); m; m = open.exec(xml)) {
+    close.lastIndex = open.lastIndex;
+    const end = close.exec(xml);
+    if (!end) break;
+    out.push(xml.slice(open.lastIndex, end.index));
+    open.lastIndex = close.lastIndex;
+  }
+  return out;
+}
+
 /** `calendar-data` out of a multistatus answer, with XML's escapes undone (whatever prefix its namespace has). */
 export function calendarData(xml: string): string[] {
   const out: string[] = [];
-  for (const m of xml.matchAll(/<(?:[A-Za-z0-9_-]+:)?calendar-data\b[^>]*>([\s\S]*?)<\/(?:[A-Za-z0-9_-]+:)?calendar-data>/g)) {
-    let v = m[1]!;
+  for (const data of elementContents(xml, 'calendar-data')) {
+    let v = data;
     const cdata = /^\s*<!\[CDATA\[([\s\S]*)\]\]>\s*$/.exec(v);
     v = cdata
       ? cdata[1]!
@@ -350,7 +370,7 @@ export function sameProvider(given: URL | string, next: URL | string): boolean {
 
 /** The first `href` inside an element named `name` (any namespace prefix), resolved against `base`. */
 function hrefIn(xml: string, name: string, base: string): string | undefined {
-  const m = new RegExp(`<(?:[A-Za-z0-9_-]+:)?${name}\\b[^>]*>\\s*<(?:[A-Za-z0-9_-]+:)?href>([^<]+)</`, 'i').exec(xml);
+  const m = new RegExp(`<(?:[A-Za-z0-9_-]+:)?${name}\\b[^<>]*>\\s*<(?:[A-Za-z0-9_-]+:)?href>([^<]+)</`, 'i').exec(xml);
   return m ? new URL(m[1]!.trim(), base).href : undefined;
 }
 
@@ -390,8 +410,7 @@ export async function discoverCalendars(url: string, login: Login, timeoutMs = 2
   }
   const list = await propfind(home, login, '1', '<d:displayname/><d:resourcetype/>', timeoutMs);
   const out: { name: string; url: string }[] = [];
-  for (const m of list.matchAll(/<(?:[A-Za-z0-9_-]+:)?response\b[^>]*>([\s\S]*?)<\/(?:[A-Za-z0-9_-]+:)?response>/gi)) {
-    const r = m[1]!;
+  for (const r of elementContents(list, 'response')) {
     if (!/<(?:[A-Za-z0-9_-]+:)?calendar\s*\/>|<(?:[A-Za-z0-9_-]+:)?calendar>\s*<\//i.test(r)) continue;
     const href = /<(?:[A-Za-z0-9_-]+:)?href>([^<]+)</i.exec(r)?.[1]?.trim();
     if (!href) continue;

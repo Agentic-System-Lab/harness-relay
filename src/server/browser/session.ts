@@ -10,6 +10,7 @@ import { attachmentsDir } from '../attachments';
 import type { GatewayContext } from '../gateway';
 import { runProcess } from '../process';
 import { removeTree } from '../fsRemove';
+import { relayBrowserDir } from '../protect';
 import { isLocalHost, isLoopbackHost } from '../relaySandbox';
 import { CdpConnection } from './cdp';
 import { BrowserProxy, PROXY_USER, type ProxyRoute } from './proxy';
@@ -45,7 +46,7 @@ import { BrowserProxy, PROXY_USER, type ProxyRoute } from './proxy';
  * What a page may do: open without asking, be asked about, or never open (`moved`: a host allowed
  * while it led to the internet that now leads to this computer or the local network).
  */
-export type NavigationVerdict = 'allow' | 'ask' | 'block' | 'moved';
+export type NavigationVerdict = 'allow' | 'ask' | 'block' | 'moved' | 'mixed';
 
 /** The private networks (and the shared address space VPNs such as Tailscale use): the local network, to the browser. */
 const PRIVATE = new BlockList();
@@ -75,6 +76,12 @@ export function leadsNearby(host: string, addresses: readonly string[], own: rea
   const h = host.replace(/^\[|\]$/g, '');
   const list = isIP(h) || isLoopbackHost(h) ? [h] : addresses;
   return list.some((a) => isLoopbackHost(a) || own.some((o) => o.toLowerCase() === a.toLowerCase()) || privateAddress(a));
+}
+
+/** Whether a name's addresses lead both to the internet and to this computer or the local network. */
+function mixedAddresses(addresses: readonly string[], own: readonly string[]): boolean {
+  const near = addresses.map((a) => leadsNearby(a, [], own));
+  return near.some(Boolean) && near.some((n) => !n);
 }
 
 /**
@@ -111,6 +118,9 @@ export function navigationVerdict(
     if (isLocalHost(h, own) && !onThisComputer) return 'block';
     if (onThisComputer && o.relayPorts.includes(port)) return 'block';
   }
+  // A name with addresses both on the internet and here: allowed as one, its page could reach the
+  // other (a connection falls back from one address to the next), so it is never opened.
+  if (!isIP(host) && mixedAddresses(o.addresses ?? [], own)) return 'mixed';
   const key = approvalKeys('fetch', raw)[0];
   if (!key || !o.allowed.has(key)) return 'ask';
   // Allowed while it led to the internet, it now leads here: the user was never asked about that.
@@ -128,7 +138,7 @@ export function navigationVerdict(
 export function requestVerdict(raw: string, o: Parameters<typeof navigationVerdict>[1]): 'allow' | 'block' {
   if (/^(data|blob):/i.test(raw) || raw === 'about:blank' || raw === 'about:srcdoc') return 'allow';
   const verdict = navigationVerdict(raw, o);
-  if (verdict === 'block' || verdict === 'moved') return 'block';
+  if (verdict === 'block' || verdict === 'moved' || verdict === 'mixed') return 'block';
   let url: URL;
   try {
     url = new URL(raw);
@@ -141,13 +151,15 @@ export function requestVerdict(raw: string, o: Parameters<typeof navigationVerdi
 }
 
 /** Why the main frame did not open a page: the user declined, it is never opened, it moved here, or nobody could be asked. */
-export type Refusal = { url: string; why: 'declined' | 'blocked' | 'moved' | 'unasked' };
+export type Refusal = { url: string; why: 'declined' | 'blocked' | 'moved' | 'mixed' | 'unasked' };
 
 /** What the agent is told about a refused page. */
 export function refusalText(r: Refusal): string {
   if (r.why === 'declined') return `The user did not allow opening ${r.url}`;
   if (r.why === 'blocked')
     return `${r.url} cannot be opened: only http and https pages, not this computer's own Harness Relay or its metadata addresses`;
+  if (r.why === 'mixed')
+    return `${r.url} leads both to the internet and to this computer or the local network, so it is not opened: a page there could reach local services`;
   if (r.why === 'moved')
     return `${r.url} now leads to this computer or the local network, not where it led when it was allowed, so it is not opened (a name that changes its address to reach local services)`;
   return `${r.url} is on a host this conversation's browser has not opened, and nobody can be asked now (a scheduled run, or a conversation that refuses requests)`;
@@ -473,6 +485,8 @@ export class BrowserService {
 
   constructor(private o: BrowserServiceOptions) {
     this.idleMs = o.idleMs ?? 10 * 60_000;
+    // Its profiles' folder, a protected path from the first turn on (`relayBrowserDir`).
+    mkdirSync(relayBrowserDir(o.dataDir), { recursive: true, mode: 0o700 });
   }
 
   /** Why the browser tools cannot be used now, or undefined. */
@@ -481,7 +495,7 @@ export class BrowserService {
   }
 
   private profile(convId: string): string {
-    return join(this.o.dataDir, 'browser', convId.replace(/[^A-Za-z0-9_-]/g, '_'));
+    return join(relayBrowserDir(this.o.dataDir), convId.replace(/[^A-Za-z0-9_-]/g, '_'));
   }
 
   /** The conversation's browser, started when it has none. */
@@ -683,12 +697,16 @@ export class BrowserService {
     if (!isMainDocument(s, p, sid)) return void (await go(requestVerdict(url, rules) === 'allow'));
     const verdict = navigationVerdict(url, rules);
     let allow = verdict === 'allow';
-    if (verdict === 'block' || verdict === 'moved') s.denied = { url, why: verdict === 'moved' ? 'moved' : 'blocked' };
+    if (verdict === 'block' || verdict === 'moved' || verdict === 'mixed')
+      s.denied = { url, why: verdict === 'block' ? 'blocked' : verdict };
     if (verdict === 'ask') {
       const ctx = s.current;
+      // The question says when the page is on this computer or the local network: allowing it lets its pages reach there.
+      const nearby = leadsNearby(new URL(url).hostname, rules.addresses ?? [], rules.own ?? []);
       if (ctx?.permission === 'full') allow = true;
       else if (ctx?.ask) {
-        const ask = () => ctx.ask!({ kind: 'fetch', detail: url, reason: t().gw.openReason, noLock: true });
+        const ask = () =>
+          ctx.ask!({ kind: 'fetch', detail: url, reason: nearby ? t().gw.openNearbyReason : t().gw.openReason, noLock: true });
         const answer = await (ctx.lang ? withLang(ctx.lang, ask) : ask()).catch(() => ({ allow: false }));
         allow = answer.allow;
         if (!allow) s.denied = { url, why: 'declined' };
@@ -940,10 +958,11 @@ export class BrowserService {
         format: 'png',
         ...(clip ? { clip, captureBeyondViewport: true } : {}),
       });
+      // Only the user's account may read it, as the attached files.
       const dir = attachmentsDir(ctx.convId);
-      mkdirSync(dir, { recursive: true });
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
       const path = join(dir, `browser-${new Date().toISOString().replace(/[:.]/g, '-')}.png`);
-      writeFileSync(path, Buffer.from(data, 'base64'));
+      writeFileSync(path, Buffer.from(data, 'base64'), { mode: 0o600 });
       return { path, data };
     });
   }

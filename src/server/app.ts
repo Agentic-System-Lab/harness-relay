@@ -586,7 +586,8 @@ export function createApp({
     try {
       return c.json({ ok: true, calendars: await discoverCalendars(v.url, { username: v.username, password }) });
     } catch (err) {
-      return c.json({ ok: false, error: (err as Error).message });
+      // The server's own words (often English) after the request's language's.
+      return c.json({ ok: false, error: t().connectorDiscoverFailed((err as Error).message) });
     }
   });
 
@@ -607,7 +608,7 @@ export function createApp({
       } else throw new HttpError(404, t().connectorNotFound(id));
     } catch (err) {
       if (err instanceof HttpError) throw err;
-      return c.json({ ok: false, error: (err as Error).message });
+      return c.json({ ok: false, error: t().connectorTestFailed((err as Error).message) });
     }
     return c.json({ ok: true, message: t().connectorTestOk });
   });

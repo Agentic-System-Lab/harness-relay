@@ -39,8 +39,8 @@ import {
 } from '../shared/types';
 import { AgentRunError, runners, type AgentEvent, type RunResult } from './agents';
 import { emptyStateFolder, removeConversationState } from './agents/open';
-import { stateKeys, type ApprovalRequest } from './agents/types';
-import { gatewayToolNamed, type ToolGateway } from './gateway';
+import { stateKeys, type ApprovalRequest, type RunOptions } from './agents/types';
+import { GATEWAY_FULL_ACCESS_ONLY, gatewayToolNamed, type ToolGateway } from './gateway';
 import type { Outbox } from './outbox';
 import type { TraceSink } from './agentsview';
 import { approvalKeys, isAllowed } from './approvals';
@@ -70,6 +70,7 @@ import {
 import {
   attachmentsDir,
   copyAttachments,
+  copyShownFiles,
   imageInputs,
   removeAttachments,
   saveAttachments,
@@ -989,11 +990,13 @@ export class Orchestrator {
   }
 
   /**
-   * The conversation whose schedule tracks the goal a run in `conv` works on: the one that started it
-   * (`Run.tracking`), else `conv` itself when its own schedule tracks one and sends its message here.
+   * The conversation whose schedule tracks the goal a run works on: the one whose schedule started it
+   * (`Run.tracking`, here or in a new chat), and none for a run the user's own message started, also
+   * in a chat whose schedule tracks a goal: only the schedule's runs are told the goal, and only their
+   * replies report on it (a reply to "how is CI?" switches nothing off).
    */
-  private trackingSource(conv: Conversation, run: Pick<Run, 'tracking'>): Conversation | undefined {
-    const source = run.tracking ? this.store.get(run.tracking.sourceId) : conv.schedule && !conv.schedule.newChat ? conv : undefined;
+  private trackingSource(run: Pick<Run, 'tracking'>): Conversation | undefined {
+    const source = run.tracking ? this.store.get(run.tracking.sourceId) : undefined;
     return source?.schedule?.goal ? source : undefined;
   }
 
@@ -1334,6 +1337,7 @@ export class Orchestrator {
     let chat: Conversation;
     try {
       await copyAttachments(conv.id, id, copied.flatMap(attachmentsOf));
+      await copyShownFiles(conv.id, id, messages);
       // Worked out again in the same step as it is saved, while the copied messages are still here as
       // they were: a conversation it comes from that was deleted meanwhile, which only this
       // conversation waits for, is then known as deleted, with where it came from (`via`).
@@ -2858,18 +2862,18 @@ export class Orchestrator {
             return { allow: answer.allow, note: part.note };
           };
 
-    // Harness Relay's own tools: a CLI's request about one that the user allowed is not asked again by the
-    // gateway (`justAllowed`), when its name says it is the gateway's (`mcp__relay__browser_open`).
+    // Harness Relay's own tools, in a turn that has them: a CLI's own question about one (its name exactly
+    // the gateway's: `mcp__relay__mail_search`, Codex's `relay:mail_search`) is answered yes, with no card,
+    // also in a run nobody may be watching. The gateway decides as the call reaches it, by the tool's tier:
+    // a read runs, an act is asked about there (with what it will do, as the page or the account says it),
+    // a send waits in the outbox. The CLI's own card would show its arguments only, and a scheduled run
+    // would refuse even a read. Every other question goes on as before.
     const gatewayNames = this.gateway?.toolNames() ?? [];
-    const cliAllowed = new Map<string, number>();
-    const cliApproval =
-      requestApproval &&
-      (async (req: ApprovalRequest): Promise<ApprovalAnswer> => {
-        const answer = await requestApproval(req);
-        const name = answer.allow ? gatewayToolNamed(gatewayNames, req) : undefined;
-        if (name) cliAllowed.set(name, Date.now());
-        return answer;
-      });
+    const cliApproval = (relayOn: boolean): RunOptions['requestApproval'] =>
+      relayOn
+        ? async (req: ApprovalRequest): Promise<ApprovalAnswer> =>
+            gatewayToolNamed(gatewayNames, req) ? { allow: true } : requestApproval ? requestApproval(req) : { allow: false }
+        : requestApproval;
     const toOutbox = (o: { tool: string; title: string; preview: OutboxItem['preview']; args: Record<string, unknown> }): OutboxItem => {
       const { item, existing } = this.outbox!.add(
         { convId: conv.id, messageId: msg.id, agentId: agent.id, agentName: agent.name, tool: o.tool, title: o.title, preview: o.preview },
@@ -2911,9 +2915,14 @@ export class Orchestrator {
       const freshState = emptyState;
       emptyState = false;
       const model = await this.modelFor(agent.provider, agent.model, account);
-      // The open agents run their MCP servers in Harness Relay's own sandbox, which does not open the gateway's socket.
+      // The open agents run their MCP servers in Harness Relay's own sandbox, which does not open the gateway's socket;
+      // Grok's own sandbox covers its MCP servers too below full access (`GATEWAY_FULL_ACCESS_ONLY`).
       const relay =
-        this.gateway && this.outbox && tools.relayGroups.length && !isOpenProvider(agent.provider)
+        this.gateway &&
+        this.outbox &&
+        tools.relayGroups.length &&
+        !isOpenProvider(agent.provider) &&
+        (conv.settings.permission === 'full' || !GATEWAY_FULL_ACCESS_ONLY.includes(agent.provider))
           ? this.gateway.grant(
               {
                 convId: conv.id,
@@ -2925,11 +2934,6 @@ export class Orchestrator {
                 lang: currentLang(),
                 unattended: Boolean(run.refuseApprovals),
                 ...(requestApproval ? { ask: requestApproval } : {}),
-                justAllowed: (name) => {
-                  const at = cliAllowed.get(name);
-                  cliAllowed.delete(name);
-                  return at !== undefined && Date.now() - at < 60_000;
-                },
                 toOutbox,
                 signal: run.abort.signal,
               },
@@ -2953,7 +2957,7 @@ export class Orchestrator {
             nativeOff,
             nativeItems,
             Boolean(run.refuseApprovals),
-            this.trackingSource(conv, run)?.schedule,
+            this.trackingSource(run)?.schedule,
           ),
           sessionId: state.sessionId,
           cwd,
@@ -2965,7 +2969,7 @@ export class Orchestrator {
           effort: agent.effort?.trim() || this.settings.defaultEffort(agent.provider, account) || undefined,
           signal: run.abort.signal,
           onEvent,
-          requestApproval: cliApproval,
+          requestApproval: cliApproval(Boolean(relay)),
           images: imageInputs(conv.id, files),
           attachmentsDir: files.length ? attachmentsDir(conv.id) : undefined,
           mcpServers: relay ? [...tools.mcpServers.filter((s) => s.name !== relay.spec.name), relay.spec] : tools.mcpServers,
@@ -3007,7 +3011,7 @@ export class Orchestrator {
         }
       }
       // A reply about a tracked goal ends with its <progress> block, before or after an ask marker.
-      const tracked = this.trackingSource(conv, run);
+      const tracked = this.trackingSource(run);
       let progress = tracked ? takeProgress(msg) : undefined;
       if (takeAsk(msg)) msg.asked = true;
       if (tracked) progress ??= takeProgress(msg);

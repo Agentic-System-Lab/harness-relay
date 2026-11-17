@@ -18,6 +18,7 @@ import {
   relayDatabaseFiles,
   relayFolderOverlap,
   relayFolderRefusal,
+  relayBrowserDir,
   relayTmpDir,
   RELAY_ROOT,
   dirInTemp,
@@ -58,6 +59,7 @@ describe('what agents may not read', () => {
     writeFileSync(join(data, 'relay.db'), '');
     writeFileSync(join(data, 'secrets.key'), '');
     mkdirSync(join(data, 'tmp'));
+    mkdirSync(join(data, 'browser'));
     // A link to a folder (Windows makes a link to a file of one whose target is not there yet).
     symlinkSync(join(root, 'elsewhere'), join(home, '.zen'), 'dir');
     mkdirSync(join(root, 'elsewhere'));
@@ -70,6 +72,9 @@ describe('what agents may not read', () => {
     // Its own temporary folder too, where a Claude Code turn's settings and MCP config wait.
     expect(paths).toContain(relayTmpDir(data));
     expect(relayTmpDir('/d')).toBe(join('/d', 'tmp'));
+    // The browser tools' profiles: cookies and logins a sandboxed command could read otherwise.
+    expect(paths).toContain(relayBrowserDir(data));
+    expect(relayBrowserDir('/d')).toBe(join('/d', 'browser'));
     // A folder that is a link: both the link and where it leads.
     expect(paths).toContain(join(home, '.zen'));
     expect(paths).toContain(join(root, 'elsewhere'));

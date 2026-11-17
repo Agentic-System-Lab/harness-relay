@@ -503,6 +503,9 @@ const zhTW = {
   gw: {
     open: (url: string) => `開啟 ${url}`,
     openReason: '在它自己的瀏覽器中開啟這個網頁',
+    openNearbyReason: '在它自己的瀏覽器中開啟這個網頁。它在這台電腦或區域網路上：允許之後，它的網頁也能連到這個主機的這個 port。',
+    mailSent: (id: string, host: string, answer: string) => `${host} 已收下 ${id}${answer ? `（${answer}）` : ''}`,
+    inviteSent: (calendar: string) => `已加到「${calendar}」，邀請由行事曆寄出`,
     click: (what: string) => `在開啟的網頁上點擊${what}`,
     refLink: (label: string, href: string) => `連結「${label}」（${href}）`,
     refButton: (label: string) => `按鈕「${label}」`,
@@ -525,6 +528,7 @@ const zhTW = {
       when: '時間',
       where: '地點',
       invites: '邀請',
+      calendar: '行事曆',
     },
   },
   mcpNameReserved: (name: string) => `「${name}」是 Harness Relay 自己工具的名稱，請換一個`,
@@ -540,6 +544,8 @@ const zhTW = {
   connectorBadAddress: (field: string) => `${field} 不是有效的電子郵件地址`,
   connectorBadUrl: '行事曆網址應為 https（連到這台電腦時可以用 http），而且不能含帳號密碼',
   connectorTestOk: '連線成功，帳號與密碼可以使用。',
+  connectorTestFailed: (why: string) => `連不上：${why}`,
+  connectorDiscoverFailed: (why: string) => `找不到行事曆：${why}`,
 
   // HTTP
   unknownProvider: (p: string) => `未知的 provider：${p}`,
@@ -1214,6 +1220,10 @@ const en: ServerMessages = {
   gw: {
     open: (url) => `Open ${url}`,
     openReason: 'Open this page in its own browser',
+    openNearbyReason:
+      'Open this page in its own browser. It is on this computer or the local network: once allowed, its pages can reach this host and port too.',
+    mailSent: (id, host, answer) => `${id} accepted by ${host}${answer ? ` (${answer})` : ''}`,
+    inviteSent: (calendar) => `Added to ${calendar}; the calendar sends the invitations`,
     click: (what) => `Click ${what} on the open page`,
     refLink: (label, href) => `link "${label}" (${href})`,
     refButton: (label) => `button "${label}"`,
@@ -1236,6 +1246,7 @@ const en: ServerMessages = {
       when: 'When',
       where: 'Where',
       invites: 'Invites',
+      calendar: 'Calendar',
     },
   },
   mcpNameReserved: (name) => `"${name}" is the name of Harness Relay's own tools; choose another`,
@@ -1251,6 +1262,8 @@ const en: ServerMessages = {
   connectorBadAddress: (field) => `${field} is not a valid mail address`,
   connectorBadUrl: "The calendar's address must be https (http only to this computer), without a user name or password in it",
   connectorTestOk: 'Connected: the user name and password work.',
+  connectorTestFailed: (why) => `Not connected: ${why}`,
+  connectorDiscoverFailed: (why) => `No calendars found: ${why}`,
 
   unknownProvider: (p) => `Unknown provider: ${p}`,
   dirNotFound: (cwd) => `Directory not found: ${cwd}`,

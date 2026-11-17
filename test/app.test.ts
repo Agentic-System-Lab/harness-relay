@@ -2074,7 +2074,13 @@ describe('mail accounts and calendars', () => {
         app.request(`/api/connectors/${kind}/${id}/test`, json('POST', {}, { 'x-relay-lang': 'en' }));
       expect(await (await test('mail', 'work')).json()).toEqual({ ok: true, message: 'Connected: the user name and password work.' });
       await put('/api/connectors/mail/work', { ...account, password: 'wrong' });
-      expect(await (await test('mail', 'work')).json()).toMatchObject({ ok: false, error: expect.stringMatching(/did not accept/) });
+      expect(await (await test('mail', 'work')).json()).toMatchObject({
+        ok: false,
+        error: expect.stringMatching(/^Not connected: .*did not accept/),
+      });
+      // In the user's language, the server's own words after it.
+      const zh = await app.request('/api/connectors/mail/work/test', json('POST', {}, { 'x-relay-lang': 'zh-TW' }));
+      expect(await zh.json()).toMatchObject({ ok: false, error: expect.stringMatching(/^連不上：/) });
       expect((await test('mail', 'missing')).status).toBe(404);
 
       const root = cal.url.replace('/cal/me/', '/');

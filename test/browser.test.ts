@@ -218,7 +218,15 @@ describe('what the browser may open', () => {
     // A name allowed while it led to the internet that now leads here: refused, also when opened in the tab.
     expect(requestVerdict('https://example.com/steal', { ...near, addresses: ['127.0.0.1'] })).toBe('block');
     expect(navigationVerdict('https://example.com/', { ...near, addresses: ['127.0.0.1'] })).toBe('moved');
-    expect(navigationVerdict('https://example.com/', { ...near, addresses: ['93.184.216.34', '10.1.2.3'] })).toBe('moved');
+    // A name that leads both to the internet and here is never opened, asked about or not: its page could
+    // reach the local address through the public one's name.
+    expect(navigationVerdict('https://example.com/', { ...near, addresses: ['93.184.216.34', '10.1.2.3'] })).toBe('mixed');
+    expect(navigationVerdict('https://evil.example/', { ...near, addresses: ['203.0.113.9', '192.168.1.1'] })).toBe('mixed');
+    expect(requestVerdict('https://evil.example/x', { ...near, addresses: ['203.0.113.9', '192.168.1.1'] })).toBe('block');
+    expect(navigationVerdict('http://localhost:3000/', { ...near, allowed: new Set(), addresses: ['127.0.0.1', '::1'] })).toBe('ask');
+    expect(refusalText({ url: 'https://evil.example/', why: 'mixed' })).toBe(
+      'https://evil.example/ leads both to the internet and to this computer or the local network, so it is not opened: a page there could reach local services',
+    );
     expect(navigationVerdict('https://example.com/', { ...near, addresses: ['93.184.216.34'] })).toBe('allow');
     // One allowed while it led to the local network stays allowed there.
     expect(navigationVerdict('http://nas.lan/', { ...near, addresses: ['192.168.1.9'] })).toBe('allow');
@@ -440,7 +448,14 @@ describe.skipIf(!chromium)('the browser itself', () => {
       const tools = Object.fromEntries(browserTools(browser).map((t) => [t.name, t]));
       const start = await browser.open(ctx(), `http://127.0.0.1:${port}/`);
       expect(asked).toEqual([
-        { kind: 'fetch', detail: `http://127.0.0.1:${port}/`, reason: 'Open this page in its own browser', noLock: true },
+        // This computer: the question says so, as allowing it lets its pages reach that host and port.
+        {
+          kind: 'fetch',
+          detail: `http://127.0.0.1:${port}/`,
+          reason:
+            'Open this page in its own browser. It is on this computer or the local network: once allowed, its pages can reach this host and port too.',
+          noLock: true,
+        },
       ]);
       expect(start).toMatchObject({ title: 'Start', url: `http://127.0.0.1:${port}/`, cut: false });
       expect(start.text).toContain('Welcome');

@@ -5,7 +5,7 @@
  * The fake CLI, and what each test starts with, are in ./orchestrator-harness.ts.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { Conversation, ConversationSettings } from '../src/shared/types';
@@ -13,6 +13,7 @@ import {
   agentMessages,
   agents,
   attachmentPath,
+  attachmentsDir,
   branchAfterCut,
   branchOrigin,
   branchPause,
@@ -38,6 +39,29 @@ describe('branching a conversation', () => {
     execFileSync('git', ['for-each-ref', '--format=%(refname)', 'refs/harness-relay/'], { cwd: project, encoding: 'utf8' })
       .split('\n')
       .filter(Boolean);
+
+  it("copies the browser's screenshots a copied reply shows, and points the reply at the branch's copy", async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    conv.agents = [agents[0]!];
+    store.saveMeta(conv);
+    const shot = join(attachmentsDir(conv.id), 'browser-2026-01-05T09-00-00-000Z.png');
+    mkdirSync(attachmentsDir(conv.id), { recursive: true });
+    writeFileSync(shot, 'PNG');
+    fake.reply = () => `Here it is: ![Screenshot](<${shot}>)`;
+    await orchestrator.send(conv.id, 'show me the page');
+    await finish(conv.id);
+    const reply = agentMessages(conv).at(-1)!;
+    const branch = await orchestrator.branch(conv.id, reply.id);
+    const copy = join(attachmentsDir(branch.id), 'browser-2026-01-05T09-00-00-000Z.png');
+    expect(readFileSync(copy, 'utf8')).toBe('PNG');
+    if (process.platform !== 'win32') expect(statSync(copy).mode & 0o777).toBe(0o600);
+    const copied = agentMessages(branch).at(-1)!;
+    expect(textOf(copied)).toBe(`Here it is: ![Screenshot](<${copy}>)`);
+    // It shows in the branch, also once the conversation it came from is gone; the original is untouched.
+    rmSync(attachmentsDir(conv.id), { recursive: true, force: true });
+    expect(resolveMedia(copy, mediaRoots(branch, copied))).toBe(realpathSync(copy));
+    expect(textOf(agentMessages(conv).at(-1)!)).toBe(`Here it is: ![Screenshot](<${shot}>)`);
+  });
 
   it('copies the messages up to the reply into a new conversation, which goes on from there with fresh sessions', async () => {
     store.createGroup({ id: 'g1', name: 'Docs' });

@@ -118,13 +118,17 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
       body: m.body,
     };
   };
-  /** The arguments kept with an outbox item, the account pinned (by its id) to the one the card shows. */
+  /**
+   * The arguments kept with an outbox item, the account pinned (by its id) to the one the card shows:
+   * an `accountId` the agent gave is never kept, it is Harness Relay's own.
+   */
   const pinned = (kind: 'mail' | 'calendar') => (a: Record<string, unknown>) => {
+    const { accountId: _given, ...rest } = a;
     const found =
       kind === 'mail'
         ? store.mail(typeof a.account === 'string' ? a.account : undefined)
         : store.calendar(typeof a.account === 'string' ? a.account : undefined);
-    return found ? { ...a, accountId: found.account.id } : a;
+    return found ? { ...rest, accountId: found.account.id } : rest;
   };
   /**
    * The account an outbox item goes out from: the one its card showed, by its id alone (never a
@@ -342,7 +346,7 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
           { from: bareAddress(account.address), recipients: [...m.to, ...m.cc, ...m.bcc].map(bareAddress) },
           raw,
         );
-        return `${messageId} accepted by ${account.smtp.host}${answer ? ` (${answer})` : ''}`;
+        return t().gw.mailSent(messageId, account.smtp.host, answer ?? '');
       },
     },
     {
@@ -414,11 +418,14 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
         const e = eventArgs(a);
         const attendees = recipients(a.attendees, 'attendees', true);
         eventTime(e.start, e.timeZone);
+        // The calendar it goes out from, as Send will find it (`pinned`): none, and it never waits in the outbox.
+        const { account } = calendar(a.account);
         const f = t().gw.fields;
         return {
           title: t().gw.invite(attendees.join(', '), e.summary),
           preview: {
             fields: [
+              { label: f.calendar, value: account.name },
               { label: f.event, value: e.summary },
               { label: f.when, value: `${e.start} – ${e.end}${e.timeZone !== 'UTC' ? ` (${e.timeZone})` : ' (UTC)'}` },
               ...(e.location ? [{ label: f.where, value: e.location }] : []),
@@ -440,7 +447,7 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
           ...(account.address ? { organizer: bareAddress(account.address) } : { organizer: account.username }),
         });
         await putEvent(account.url, { username: account.username, password }, ics, uid);
-        return `Added to ${account.name}; the calendar sends the invitations`;
+        return t().gw.inviteSent(account.name);
       },
     },
   ];

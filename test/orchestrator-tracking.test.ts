@@ -105,6 +105,18 @@ describe('a schedule that tracks a goal', () => {
     expect(store.dueSchedules(T0 + 48 * HOUR)).toEqual([]);
   });
 
+  it("leaves the goal to the schedule's own runs: a reply to the user's message reports nothing on it", async () => {
+    const conv = tracked();
+    fake.reply = () => 'Looks done to me.\n<progress status="done">CI passes</progress>';
+    await orchestrator.send(conv.id, 'how is CI?');
+    await finish(conv.id);
+    // Not told the goal, and its block (which nothing asked for) is no report: the schedule stays on.
+    expect(calls[0]!.systemPrompt).not.toContain('<tracked_goal');
+    expect(conv.schedule).toMatchObject({ enabled: true, nextRunAt: T0 + HOUR });
+    expect(conv.schedule!.tracking).toBeUndefined();
+    expect(notes(conv).some((n) => n.includes('goal is reached'))).toBe(false);
+  });
+
   it('says when an agent is held up, and keeps the schedule on', async () => {
     const conv = tracked();
     fake.reply = () => 'Cannot read the CI logs.\n<progress status="blocked">needs a CI token</progress>';

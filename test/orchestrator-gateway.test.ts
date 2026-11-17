@@ -1,6 +1,7 @@
 /*
  * Harness Relay's own tools in a turn: the gateway's grant given to the run (its MCP server among the
- * agent's), ended with the turn; an approval the CLI asked about not asked again by the gateway; and
+ * agent's), ended with the turn; the CLI's own question about one of them answered yes (the gateway
+ * decides by tier); and
  * the outbox: a `send` call's card in the reply, the conversation waiting for the user, and their Send.
  *
  * The fake CLI, and what each test starts with, are in ./orchestrator-harness.ts.
@@ -9,7 +10,20 @@ import { describe, expect, it } from 'vitest';
 import type { OutboxItem, RelayToolGroup } from '../src/shared/types';
 import type { GatewayContext, GatewayTool, ToolGateway } from '../src/server/gateway';
 import { Outbox } from '../src/server/outbox';
-import { agents, calls, conversation, db, fake, finish, orchestrator, settings, store, textOf, withLang } from './orchestrator-harness';
+import {
+  agents,
+  calls,
+  conversation,
+  db,
+  fake,
+  finish,
+  orchestrator,
+  runners,
+  settings,
+  store,
+  textOf,
+  withLang,
+} from './orchestrator-harness';
 
 describe("Harness Relay's own tools in a turn", () => {
   /** A stand-in gateway: it records each grant, and knows one tool that sends. */
@@ -63,32 +77,75 @@ describe("Harness Relay's own tools in a turn", () => {
     expect(grants[0]!.ctx.messageId).toBe(conv.messages.at(-1)!.id);
     expect(grants[0]!.revoked).toBe(true);
 
+    // Grok gets them in full access only: below it, its sandbox keeps its MCP servers out of data/tmp.
+    const saved = runners.grok;
+    runners.grok = { ...runners.claude, provider: 'grok' };
+    try {
+      const grok = conversation({ mode: 'roundtable', permission: 'edit' });
+      grok.agents = [{ ...agents[0]!, provider: 'grok' }];
+      store.saveMeta(grok);
+      settings.tools.update({ relayTools: { browser: ['claude', 'grok'], mail: ['claude'] } });
+      const before = grants.length;
+      await orchestrator.send(grok.id, 'below full access');
+      await finish(grok.id);
+      expect(calls.at(-1)!.mcpServers).toBeUndefined();
+      expect(grants).toHaveLength(before);
+      grok.settings.permission = 'full';
+      store.saveMeta(grok);
+      await orchestrator.send(grok.id, 'in full access');
+      await finish(grok.id);
+      expect(calls.at(-1)!.mcpServers).toEqual(['relay']);
+      expect(grants.at(-1)!.groups).toEqual(['browser']);
+    } finally {
+      runners.grok = saved;
+    }
+
     // A member turned off its groups gets none.
     conv.agents = [{ ...agents[0]!, tools: { 'relay:browser': false, 'relay:mail': false } }];
     store.saveMeta(conv);
     await orchestrator.send(conv.id, 'third');
     await finish(conv.id);
-    expect(calls[2]!.mcpServers).toBeUndefined();
+    expect(calls.at(-1)!.mcpServers).toBeUndefined();
   });
 
-  it('does not ask again for a tool of its own the user just allowed when the CLI asked, and only once', async () => {
+  it("answers a CLI's own question about one of its tools yes, with no card, and leaves every other question as it was", async () => {
     const { grants } = fakeGateway();
-    settings.tools.update({ relayTools: { browser: ['claude'] } });
+    settings.tools.update({ relayTools: { browser: ['claude'], mail: ['claude'] } });
     const conv = solo();
-    conv.allowRules = [{ kind: 'other', key: 'mcp__relay__browser_click' }];
-    store.saveMeta(conv);
-    const seen: boolean[] = [];
+    const answers: boolean[] = [];
     fake.inTurn = async (_name, o) => {
-      await o.requestApproval!({ kind: 'other', tool: 'mcp__relay__browser_click', detail: '{"ref":3}' });
-      seen.push(
-        grants[0]!.ctx.justAllowed!('browser_click'),
-        grants[0]!.ctx.justAllowed!('browser_click'),
-        grants[0]!.ctx.justAllowed!('mail_send'),
-      );
+      // As the CLIs ask: Claude Code's name with no detail, Codex's `relay:<tool>`; the gateway decides by tier then.
+      answers.push((await o.requestApproval!({ kind: 'other', tool: 'mcp__relay__browser_click' })).allow);
+      answers.push((await o.requestApproval!({ kind: 'other', tool: 'relay:mail_send', detail: '{"to":"bob@example.com"}' })).allow);
     };
     await orchestrator.send(conv.id, 'click it');
     await finish(conv.id);
-    expect(seen).toEqual([true, false, false]);
+    expect(answers).toEqual([true, true]);
+    expect(conv.messages.at(-1)!.parts.some((p) => p.type === 'approval')).toBe(false);
+    // The gateway itself still asks about an act below full access, through the turn's own question.
+    expect(grants[0]!.ctx.ask).toBeTypeOf('function');
+  });
+
+  it('answers them in a conversation that refuses every question too, where anything else is refused as before', async () => {
+    fakeGateway();
+    const conv = conversation({ mode: 'roundtable', permission: 'edit', approvals: 'deny' });
+    conv.agents = [agents[0]!];
+    store.saveMeta(conv);
+    const seen: (boolean | undefined)[] = [];
+    fake.inTurn = async (_name, o) => {
+      if (!o.requestApproval) return void seen.push(undefined);
+      seen.push((await o.requestApproval({ kind: 'other', tool: 'mcp__relay__mail_send' })).allow);
+      seen.push((await o.requestApproval({ kind: 'other', tool: 'mcp__evil__mail_send' })).allow);
+      seen.push((await o.requestApproval({ kind: 'command', command: 'npm publish', tool: 'mcp__relay__mail_send' })).allow);
+    };
+    // Without Harness Relay's tools the turn has no one to ask, as before.
+    await orchestrator.send(conv.id, 'first');
+    await finish(conv.id);
+    settings.tools.update({ relayTools: { mail: ['claude'] } });
+    await orchestrator.send(conv.id, 'second');
+    await finish(conv.id);
+    expect(seen).toEqual([undefined, true, false, false]);
+    expect(conv.messages.some((m) => m.parts.some((p) => p.type === 'approval'))).toBe(false);
   });
 
   it("puts a send call's card in the reply, keeps the chat waiting for the user, and sends it on their Send", () =>
