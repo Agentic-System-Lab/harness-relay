@@ -287,10 +287,12 @@ describe('the gateway and the MCP server the CLIs start', () => {
       expect(gateway.grant(ctx(), [])).toBeUndefined();
       const noNode = new ToolGateway(join(root, 'data2'), join(root, 'data2', 'tmp'), () => undefined);
       await noNode.start();
-      expect(noNode.unavailable()).toBe('no-node');
+      expect(noNode.unavailable()).toBe(process.platform === 'win32' ? 'no-node-path' : 'no-node');
       expect(noNode.grant(ctx(), ['browser'])).toBeUndefined();
       await noNode.stop();
-      // On Windows, where Settings installs no Node.js, the hint names the PATH alone.
+      // Node.js is checked first, so neither needs a server: on macOS and Linux Settings can install one;
+      // on Windows, where it installs none, the hint names the PATH alone.
+      expect(new ToolGateway(join(root, 'data6'), join(root, 'data6', 'tmp'), () => undefined, 'linux').unavailable()).toBe('no-node');
       expect(new ToolGateway(join(root, 'data5'), join(root, 'data5', 'tmp'), () => undefined, 'win32').unavailable()).toBe('no-node-path');
       expect(new ToolGateway(join(root, 'data3'), join(root, 'tmp3'), () => process.execPath).unavailable()).toBe('not-started');
     },
