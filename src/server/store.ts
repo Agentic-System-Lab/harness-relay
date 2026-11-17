@@ -1060,10 +1060,6 @@ export class Store {
     ).map((r) => r.conversation_id);
   }
 
-  /**
-   * Conversations whose automation is on and starts when something happens, and whose next check of what
-   * it waits for has come by `now` (or that was never checked), the longest waiting first.
-   */
   /** The automations that are on and wait for new mail, with what they wait for: those IMAP IDLE listens for (`idle.ts`). */
   mailWatches(): { conversationId: string; trigger: Extract<ScheduleTrigger, { source: 'mail' }> }[] {
     const rows = this.db.prepare(`SELECT conversation_id, repeat FROM schedules WHERE enabled = 1`).all() as {
@@ -1078,6 +1074,10 @@ export class Store {
     });
   }
 
+  /**
+   * Conversations whose automation is on and starts when something happens, and whose next check of what
+   * it waits for has come by `now` (or that was never checked), the longest waiting first.
+   */
   watchDue(now: number): string[] {
     return (
       this.db

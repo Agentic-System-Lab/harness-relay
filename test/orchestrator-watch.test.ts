@@ -514,4 +514,52 @@ describe('automations that start when something happens', () => {
     expect(conv.schedule!.watch!.listening).toBeUndefined();
     expect(conv.schedule!.watch!.nextCheckAt).toBe(now + WATCH_LIMITS.checkMinutes * MIN);
   });
+
+  it('checks once more after the check under way when the mail server says mail arrived meanwhile', async () => {
+    reset();
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    watching(conv);
+    let open!: () => void;
+    const gate = new Promise<void>((r) => (open = r));
+    answer = async () => {
+      await gate;
+      return { state: { uidValidity: 1, lastUid: 5 }, total: 0 };
+    };
+    const s = scheduler();
+    const first = s.check(conv.id);
+    // An ordinary second ask joins the check under way; IDLE's asks one more after it, shared.
+    const joined = s.check(conv.id);
+    const again1 = s.check(conv.id, false, true);
+    const again2 = s.check(conv.id, false, true);
+    open();
+    await Promise.all([first, joined, again1, again2]);
+    expect(given).toHaveLength(2);
+  });
+
+  it('checks held mail again in 2 minutes while it listens, and says it listens only while it does', async () => {
+    reset();
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    watching(conv);
+    newMail(5, 6);
+    const s = scheduler();
+    s.listening = () => true;
+    await s.check(conv.id);
+    expect(conv.schedule!.watch).toMatchObject({ listening: true, nextCheckAt: T0 + WATCH_LIMITS.idleCheckMinutes * MIN });
+    let release!: () => void;
+    const held = orchestrator.exclusive(conv.id, 'busy', () => new Promise<void>((r) => (release = r)));
+    now = T0 + WATCH_LIMITS.idleCheckMinutes * MIN;
+    await s.check(conv.id);
+    expect(conv.schedule!.watch).toMatchObject({
+      held: expect.any(String),
+      nextCheckAt: now + WATCH_LIMITS.checkMinutes * MIN,
+      listening: true,
+    });
+    // Not listening any more: the held state says so too.
+    s.listening = () => false;
+    now += WATCH_LIMITS.checkMinutes * MIN;
+    await s.check(conv.id);
+    expect(conv.schedule!.watch!.listening).toBeUndefined();
+    release();
+    await held;
+  });
 });

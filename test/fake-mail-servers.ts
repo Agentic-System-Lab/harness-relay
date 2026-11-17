@@ -30,6 +30,11 @@ export interface FakeImap {
   uidNext: number | null | undefined;
   /** Whether it says IDLE (RFC 2177) in its capabilities, and takes it. */
   idle: boolean;
+  /** How it answers IDLE (`no`: refuses it, although it lists it), and DONE (`no`, or `none`: never). */
+  idleAnswer: 'ok' | 'no';
+  doneAnswer: 'ok' | 'no' | 'none';
+  /** Says BYE to every connection waiting in IDLE (a server shutting down), and closes them. */
+  bye(): void;
   /** The connections waiting in IDLE now. */
   readonly idling: number;
   /** Tells every connection waiting in IDLE that the inbox has this many messages (`* n EXISTS`). */
@@ -48,10 +53,18 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
   const commands: string[] = [];
   const literals: string[] = [];
   const appended: FakeImap['appended'] = [];
-  const fake: { uidValidity: number; uidNext: number | null | undefined; idle: boolean } = {
+  const fake: {
+    uidValidity: number;
+    uidNext: number | null | undefined;
+    idle: boolean;
+    idleAnswer: 'ok' | 'no';
+    doneAnswer: 'ok' | 'no' | 'none';
+  } = {
     uidValidity: 7,
     uidNext: undefined,
     idle: false,
+    idleAnswer: 'ok',
+    doneAnswer: 'ok',
   };
   /** The connections waiting in IDLE, with the tag their DONE answers. */
   const idling = new Map<Socket, string>();
@@ -72,7 +85,8 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
       if (full === 'DONE' && idling.has(sock)) {
         const tag = idling.get(sock)!;
         idling.delete(sock);
-        return send(`${tag} OK IDLE terminated\r\n`);
+        if (fake.doneAnswer === 'none') return;
+        return send(fake.doneAnswer === 'no' ? `${tag} NO not now\r\n` : `${tag} OK IDLE terminated\r\n`);
       }
       const m = /^(\S+) (.*)$/.exec(full);
       if (!m) return;
@@ -90,6 +104,7 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
         return send(`* CAPABILITY IMAP4rev1 LITERAL+ SPECIAL-USE${fake.idle ? ' IDLE' : ''}\r\n${tag} OK\r\n`);
       if (cmd === 'IDLE') {
         if (!fake.idle) return send(`${tag} BAD unknown command\r\n`);
+        if (fake.idleAnswer === 'no') return send(`${tag} NO IDLE is off for this account\r\n`);
         idling.set(sock, tag);
         return send('+ idling\r\n');
       }
@@ -205,6 +220,24 @@ export async function fakeImap(messages: FakeMessage[], login = { user: 'me@exam
     },
     get idling() {
       return idling.size;
+    },
+    get idleAnswer() {
+      return fake.idleAnswer;
+    },
+    set idleAnswer(v: 'ok' | 'no') {
+      fake.idleAnswer = v;
+    },
+    get doneAnswer() {
+      return fake.doneAnswer;
+    },
+    set doneAnswer(v: 'ok' | 'no' | 'none') {
+      fake.doneAnswer = v;
+    },
+    bye: () => {
+      for (const sock of [...idling.keys()]) {
+        sock.write('* BYE shutting down\r\n');
+        sock.end();
+      }
     },
     notify: () => {
       for (const sock of idling.keys()) sock.write(`* ${messages.length} EXISTS\r\n`);

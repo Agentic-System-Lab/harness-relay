@@ -156,7 +156,7 @@ const scheduler = new Scheduler(store, orchestrator, Date.now, checkTrigger(sett
 const idle = new IdleWatcher({
   connectors: settings.connectors,
   watching: () => store.mailWatches(),
-  check: (id) => scheduler.check(id),
+  check: (id) => scheduler.check(id, false, true),
 });
 scheduler.listening = (id) => idle.live(id);
 

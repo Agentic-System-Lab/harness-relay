@@ -68,6 +68,8 @@ export class Scheduler {
   private retrying = new Map<string, { due: number; since: number }>();
   /** The checks of what automations wait for, under way: one at a time for each. */
   private checks = new Map<string, Promise<void>>();
+  /** The one more check asked for after the one under way (`check(…, again)`). */
+  private followUps = new Map<string, Promise<void>>();
   private watching?: Promise<void>;
   /**
    * Whether the mail server tells Harness Relay when mail arrives for this automation (IMAP IDLE,
@@ -147,9 +149,22 @@ export class Scheduler {
    * `Orchestrator.folderInUse()`), and at the first check once the folder is free again (`teamWrote`,
    * also set by a check whose message started a run), a check only records the files as they are.
    */
-  check(convId: string, force = false): Promise<void> {
+  check(convId: string, force = false, again = false): Promise<void> {
     const running = this.checks.get(convId);
-    if (running) return running;
+    if (running) {
+      if (!again) return running;
+      // Asked for something that may have come after the check under way looked (the mail server
+      // said mail arrived): one more check after it, shared by every such ask meanwhile.
+      let next = this.followUps.get(convId);
+      if (!next) {
+        next = running.then(() => {
+          this.followUps.delete(convId);
+          return this.check(convId, force);
+        });
+        this.followUps.set(convId, next);
+      }
+      return next;
+    }
     const p = this.runCheck(convId, force).finally(() => this.checks.delete(convId));
     this.checks.set(convId, p);
     return p;
@@ -169,7 +184,17 @@ export class Scheduler {
     // Something found earlier still waits for a team that cannot take it: the source is not asked
     // again (nor the same mail downloaded) until the team can. The user's own check always asks it.
     const hold = prev?.held && !force ? withLang(s.lang, () => this.orchestrator.scheduledHold(convId)) : undefined;
-    if (prev && hold) return this.keepWatch(conv, s, { ...prev, checkedAt: started, nextCheckAt: nextCheckAt(started), held: hold });
+    if (prev && hold) {
+      const { listening: _l, ...rest } = prev;
+      const listening = this.listening?.(convId) ?? false;
+      return this.keepWatch(conv, s, {
+        ...rest,
+        checkedAt: started,
+        nextCheckAt: nextCheckAt(started),
+        held: hold,
+        ...(listening ? { listening } : {}),
+      });
+    }
     // The team writes in the folder now, or did since the last check: only recorded.
     const files = trigger.source === 'file';
     const writing = files && this.orchestrator.folderInUse(convId);
@@ -180,7 +205,7 @@ export class Scheduler {
     } catch (err) {
       if (this.stopped || conv.schedule !== s) return;
       const failures = (prev?.failures ?? 0) + 1;
-      const { held: _held, ...kept } = prev ?? { key, nextCheckAt: started };
+      const { held: _held, listening: _listening, ...kept } = prev ?? { key, nextCheckAt: started };
       return this.keepWatch(conv, s, {
         ...kept,
         key,
@@ -213,11 +238,13 @@ export class Scheduler {
       if (sent.result === 'busy' || sent.result === 'skipped') {
         if (conv.schedule !== s) return;
         // Not seen yet: a later check finds it again, with what came meanwhile, in one run.
-        const { error: _e, failures: _f, ...kept } = prev ?? { key, nextCheckAt: seen.nextCheckAt };
+        const { error: _e, failures: _f, listening: _l, ...kept } = prev ?? { key, nextCheckAt: seen.nextCheckAt };
+        // Checked again soon, as when no IDLE listens: nothing else says when the team is free.
         return this.keepWatch(conv, s, {
           ...kept,
           checkedAt: started,
-          nextCheckAt: seen.nextCheckAt,
+          nextCheckAt: nextCheckAt(this.now()),
+          ...(listening ? { listening } : {}),
           held: sent.reason ?? t().scheduleBusy,
         });
       }

@@ -33,6 +33,8 @@ interface Stored {
 const KEY = 'connectors';
 
 export class ConnectorStore {
+  /** How many times each mail account was saved (`mailSaves()`). */
+  private saves = new Map<string, number>();
   private data: Stored = { mail: [], calendar: [] };
   private passwords = new Map<string, string>();
 
@@ -110,6 +112,7 @@ export class ConnectorStore {
     // The kept password goes only to the servers it was given for.
     if (i >= 0 && !u.password && !sameMailServers(list[i]!, u)) throw new HttpError(400, t().connectorPasswordAgain);
     this.setPassword(`mail-${id}`, u.password);
+    this.saves.set(id, (this.saves.get(id) ?? 0) + 1);
     const { password: _p, ...rest } = u;
     const account: StoredMail = { id, ...rest };
     if (i < 0) list.push(account);
@@ -201,6 +204,16 @@ export class ConnectorStore {
   calendar(which?: string): { account: StoredCalendar; password: string } | undefined {
     const a = pick(this.data.calendar, which);
     return a && { account: a, password: this.password(`calendar-${a.id}`) };
+  }
+
+  /** The mail account with this id, without reading its password (nothing is asked of the credential store). */
+  mailAccount(id: string): StoredMail | undefined {
+    return this.data.mail.find((m) => m.id === id);
+  }
+
+  /** How many times the mail account was saved since the server started: its password may have changed. */
+  mailSaves(id: string): number {
+    return this.saves.get(id) ?? 0;
   }
 
   /** The mail account with this id (never by name), with its password. */

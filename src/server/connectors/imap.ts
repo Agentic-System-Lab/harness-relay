@@ -29,12 +29,22 @@ export interface ImapResponse {
 }
 
 /** Opens a connection (TLS, or plain upgraded with `upgrade()` after STARTTLS), with a time limit for each step. */
-export async function openSocket(addr: ServerAddress, timeoutMs: number): Promise<Socket | TLSSocket> {
+export async function openSocket(addr: ServerAddress, timeoutMs: number, signal?: AbortSignal): Promise<Socket | TLSSocket> {
   return new Promise((resolve, reject) => {
     const sock =
       addr.security === 'tls'
         ? connectTls({ host: addr.host, port: addr.port, servername: addr.host })
         : connectTcp({ host: addr.host, port: addr.port });
+    // Stopped while it connects (`IdleWatcher`): the socket goes at once.
+    if (signal?.aborted) {
+      sock.destroy();
+      return reject(new Error('stopped'));
+    }
+    signal?.addEventListener('abort', () => {
+      sock.destroy();
+      clearTimeout(timer);
+      reject(new Error('stopped'));
+    });
     const timer = setTimeout(() => {
       sock.destroy();
       reject(new Error(t().conn.timedOut(addr.host, addr.port, Math.round(timeoutMs / 1000))));
@@ -195,6 +205,12 @@ class ResponseReader {
   }
 }
 
+/** The server refused the user name and password (LOGIN): trying again soon will not help. */
+export class ImapLoginError extends Error {}
+
+/** The server refused IDLE although it may list it: waiting for mail that way will not work there. */
+export class IdleRefusedError extends Error {}
+
 /** A string to send as a literal (non-ASCII text, a message): `{n}`, then the bytes once the server says to go on. */
 export class Literal {
   constructor(readonly bytes: Buffer) {}
@@ -208,10 +224,11 @@ export class ImapClient {
 
   private constructor(private timeoutMs: number) {}
 
-  /** Connects, starts TLS when asked, and signs in. */
-  static async open(addr: ServerAddress, login: Login, timeoutMs = 30_000): Promise<ImapClient> {
+  /** Connects, starts TLS when asked, and signs in. `signal`: stops it, closing the connection, whenever it aborts. */
+  static async open(addr: ServerAddress, login: Login, timeoutMs = 30_000, signal?: AbortSignal): Promise<ImapClient> {
     const c = new ImapClient(timeoutMs);
-    c.sock = await openSocket(addr, timeoutMs);
+    c.sock = await openSocket(addr, timeoutMs, signal);
+    signal?.addEventListener('abort', () => c.sock.destroy());
     c.reader = new ResponseReader(c.sock);
     try {
       const greeting = await c.timed(c.reader.next());
@@ -225,7 +242,7 @@ export class ImapClient {
         c.reader.attach(c.sock);
       }
       await c.command(`LOGIN ${quote(login.username)} ${quote(login.password)}`).catch((err: Error) => {
-        throw new Error(t().conn.mailLogin(err.message));
+        throw new ImapLoginError(t().conn.mailLogin(err.message));
       });
       const caps = await c.command('CAPABILITY');
       for (const r of caps.untagged) {
@@ -304,21 +321,27 @@ export class ImapClient {
    * tagged answer. No time limit while it waits: the caller stops it before the server would (most
    * end IDLE after about 29 minutes). A connection that drops, or a server that ends it, is an error.
    */
-  async idle(onResponse: (r: ImapResponse) => void, stop: Promise<void>): Promise<void> {
+  async idle(onResponse: (r: ImapResponse) => void, stop: Promise<void>, onIdling?: () => void): Promise<void> {
     const tag = `R${++this.tag}`;
     this.sock.write(`${tag} IDLE\r\n`);
     for (;;) {
       const r = await this.timed(this.reader.next());
       if (r.text.startsWith('+')) break;
-      if (r.text.startsWith(`${tag} `)) throw new Error(r.text.slice(tag.length + 1));
+      if (r.text.startsWith(`${tag} `)) throw new IdleRefusedError(r.text.slice(tag.length + 1));
       onResponse(r);
     }
+    onIdling?.();
     const stopped = stop.then(() => undefined);
     let next = this.reader.next();
     for (;;) {
       const r = await Promise.race([next, stopped]);
       if (!r) break;
-      if (r.text.startsWith(`${tag} `) || /^\* BYE\b/i.test(r.text)) throw new Error(t().conn.mailIdleEnded(r.text));
+      // The server ended IDLE itself: fine when it says OK (the caller waits in IDLE again).
+      if (r.text.startsWith(`${tag} `)) {
+        if (/^OK/i.test(r.text.slice(tag.length + 1))) return;
+        throw new Error(t().conn.mailIdleEnded(r.text));
+      }
+      if (/^\* BYE\b/i.test(r.text)) throw new Error(t().conn.mailIdleEnded(r.text));
       onResponse(r);
       next = this.reader.next();
     }
@@ -360,6 +383,11 @@ export class ImapClient {
 
   close(): void {
     this.sock.destroy();
+  }
+
+  /** TCP keepalive on the connection: one left open (IDLE) is found dead when the network went. */
+  keepAlive(ms: number): void {
+    this.sock.setKeepAlive(true, ms);
   }
 }
 
