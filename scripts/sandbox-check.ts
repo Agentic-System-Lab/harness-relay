@@ -121,7 +121,7 @@ interface Outcome {
 }
 
 /** Runs one command in a sandbox for `spec` and returns what it printed and what it was asked about. */
-async function run(command: string, spec: Spec, approve?: (r: ApprovalRequest) => ApprovalAnswer): Promise<Outcome> {
+async function run(command: string, spec: Spec, approve?: (r: ApprovalRequest) => ApprovalAnswer, timeoutMs = 60_000): Promise<Outcome> {
   const asked: ApprovalRequest[] = [];
   const cmd = await rs.sandboxCommand('/bin/sh', ['-c', command], env, {
     ...spec,
@@ -129,7 +129,7 @@ async function run(command: string, spec: Spec, approve?: (r: ApprovalRequest) =
     ...(approve ? { requestApproval: async (r: ApprovalRequest) => (asked.push(r), approve(r)) } : { requestApproval: undefined }),
   });
   try {
-    const res = await runProcess({ bin: cmd.bin, args: cmd.args, env: cmd.env, cwd: spec.cwd, timeoutMs: 60_000, maxCapture: 1 << 16 });
+    const res = await runProcess({ bin: cmd.bin, args: cmd.args, env: cmd.env, cwd: spec.cwd, timeoutMs, maxCapture: 1 << 16 });
     return { code: res.code, out: res.stdout, err: res.stderr, asked, failure: cmd.failure() };
   } finally {
     await cmd.dispose();
@@ -592,9 +592,11 @@ async function escapeChecks(want: (n: string) => boolean) {
   }
   if (want('escape-agent-memory')) {
     // A secret the agent holds in memory only (as the gateway's token over loopback HTTP is held, #88):
-    // a command it runs must not read it from the agent's process (`/proc/<pid>/mem`, `environ`). Linux
-    // only (macOS has no /proc; a command there would need the agent's task port).
-    if (process.platform !== 'linux' || !python) skipped.push("the agent's memory (Linux with python3 only)");
+    // a command it runs must not read it from the agent's process: on Linux through `/proc/<pid>/mem`, on
+    // macOS through the agent's task port, which a debugger gets (lldb, with Apple's debugserver).
+    const lldb = process.platform === 'darwin' ? which('lldb') : undefined;
+    if (process.platform === 'darwin' && lldb) await agentMemoryMac(cwdRo, lldb);
+    else if (process.platform !== 'linux' || !python) skipped.push("the agent's memory (Linux with python3, or macOS with lldb)");
     else {
       const dir = join(cwdRo, `mem-${uniq()}`);
       mkdirSync(dir);
@@ -643,6 +645,64 @@ async function escapeChecks(want: (n: string) => boolean) {
       );
     }
   }
+}
+
+/**
+ * The agent's memory on macOS: an agent (node, whose official build lets a debugger attach: it is signed
+ * with `get-task-allow`) holds a secret and runs lldb on itself, which attaches through Apple's
+ * debugserver and searches every readable region for it. The same outside the sandbox is the control:
+ * there it is found, so a refusal in the sandbox is the sandbox's.
+ */
+async function agentMemoryMac(cwd: string, lldb: string) {
+  const dir = join(cwd, `mem-${uniq()}`);
+  mkdirSync(dir);
+  writeFileSync(
+    join(dir, 'reader_lldb.py'),
+    [
+      'import os, lldb',
+      'def __lldb_init_module(debugger, _):',
+      "    want = os.environ.get('READ_WANT', '').encode()",
+      '    p = debugger.GetSelectedTarget().GetProcess()',
+      '    if not want or not p or not p.IsValid():',
+      "        print('REFUSED no process'); return",
+      '    regions, info, found = p.GetMemoryRegions(), lldb.SBMemoryRegionInfo(), False',
+      '    for i in range(regions.GetSize()):',
+      '        regions.GetMemoryRegionAtIndex(i, info)',
+      '        a, b = info.GetRegionBase(), info.GetRegionEnd()',
+      '        if not info.IsReadable() or b - a > 1 << 28: continue',
+      '        err = lldb.SBError()',
+      '        data = p.ReadMemory(a, b - a, err)',
+      '        if err.Success() and data and want in data:',
+      '            found = True; break',
+      "    print('FOUND' if found else 'NOT-FOUND')",
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(dir, 'agent.cjs'),
+    [
+      "const { spawnSync } = require('child_process');",
+      "const token = ['MEM', 'SECRET', Math.random().toString(36).slice(2)].join('-');",
+      'globalThis.kept = Buffer.from(token);',
+      'const [reader, lldb] = process.argv.slice(2);',
+      "const r = spawnSync(lldb, ['--batch', '--no-lldbinit', '-p', String(process.pid), '-o', `command script import ${reader}`], {",
+      "  encoding: 'utf8', env: { ...process.env, READ_WANT: token }, timeout: 150000,",
+      '});',
+      "const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;",
+      'const verdict = /NOT-FOUND|FOUND/.exec(out)?.[0];',
+      'const why = /error: ([^\\n]*)/.exec(out)?.[1];',
+      "process.stdout.write((verdict ?? `REFUSED ${why ?? (r.error?.message || out.trim().slice(-120))}`) + '\\n');",
+    ].join('\n'),
+  );
+  const args = `${join(dir, 'agent.cjs')} ${join(dir, 'reader_lldb.py')} ${lldb}`;
+  const r = await run(`node ${args} 2>&1 || true`, baseSpec('read-only'), undefined, 200_000);
+  const said = /REFUSED.*|NOT-FOUND|FOUND/.exec(r.out)?.[0] ?? r.out.trim().slice(-60);
+  const outside = spawnSync(node, args.split(' '), { encoding: 'utf8', timeout: 200_000 }).stdout ?? '';
+  const control = /REFUSED.*|NOT-FOUND|FOUND/.exec(outside)?.[0] ?? '?';
+  check(
+    "escape: a command cannot read its agent's memory",
+    said.startsWith('REFUSED') || said === 'NOT-FOUND',
+    `${said}; outside the sandbox ${control} (lldb attaching to node, which allows a debugger)`,
+  );
 }
 
 /** Two runs with different rules stay apart, and a killed run leaves nothing behind. */
