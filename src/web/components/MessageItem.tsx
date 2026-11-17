@@ -26,6 +26,7 @@ import {
   type ActivityItem,
   type ApprovalPart,
   type ToolPart,
+  type OutboxPart,
 } from '../chat';
 import { mentionWarning, messageText, planChecksMentions, planHeadline, planWording, speaker } from '../copy';
 import { useT } from '../i18n';
@@ -161,6 +162,65 @@ function ActivityGroup({ items, live, last }: { items: ActivityItem[]; live: boo
 }
 
 /** The agent's plan / to-do list. */
+/**
+ * Something the agent asked to send (an outbox item): what goes where, as it will go out, with Send
+ * and Discard while it waits; then what became of it. Only Send sends it.
+ */
+function OutboxCard({ part, convId, agentName }: { part: OutboxPart; convId: string; agentName: string }) {
+  const t = useT();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const answer = async (action: 'send' | 'discard') => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.answerOutbox(convId, part.id, action);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const waiting = part.status === 'pending';
+  return (
+    <section className={`outbox-card outbox-${part.status}`} aria-label={t.outbox.label(agentName)}>
+      <header className="approval-head">
+        <span className="approval-icon" aria-hidden>
+          ✉
+        </span>
+        <strong>{part.title}</strong>
+        <span className="approval-waiting">{t.outbox.status[part.status]}</span>
+      </header>
+      {part.preview.fields.length > 0 && (
+        <dl className="outbox-fields">
+          {part.preview.fields.map((f, i) => (
+            <div key={i}>
+              <dt>{f.label}</dt>
+              <dd>{f.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {part.preview.body && <pre className="outbox-body">{part.preview.body}</pre>}
+      {part.result && <p className="approval-reason">{part.result}</p>}
+      {error && <p className="error-line">{error}</p>}
+      {waiting && (
+        <>
+          <p className="muted small">{t.outbox.hint}</p>
+          <div className="approval-actions">
+            <button type="button" className="primary small-button" disabled={busy} onClick={() => answer('send')}>
+              {t.outbox.send}
+            </button>
+            <button type="button" className="ghost small-button" disabled={busy} onClick={() => answer('discard')}>
+              {t.outbox.discard}
+            </button>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 /** What a reply said about the goal its schedule tracks (its `<progress>` block). */
 function ProgressCard({ status, text }: { status: ProgressStatus; text: string }) {
   const t = useT();
@@ -1088,6 +1148,8 @@ function AgentMessage({
                 return <ApprovalCard key={s.key} part={s.part} agentName={name} live={live} onAnswer={onApproval} />;
               case 'progress':
                 return <ProgressCard key={s.key} status={s.status} text={s.text} />;
+              case 'outbox':
+                return <OutboxCard key={s.key} part={s.part} convId={convId} agentName={name} />;
             }
           })
         )}

@@ -259,6 +259,11 @@ function toPart(r: PartRow): MessagePart {
       return { type: 'approval', ...parseJson(r.data, { id: '', kind: 'other' as const, status: 'expired' as const }) };
     case 'attachment':
       return { type: 'attachment', ...parseJson(r.data, { id: '', name: 'file', mimeType: 'application/octet-stream', size: 0 }) };
+    case 'outbox':
+      return {
+        type: 'outbox',
+        ...parseJson(r.data, { id: '', tool: '', title: '', preview: { fields: [] }, status: 'failed' as const }),
+      };
     case 'progress': {
       const status = parseJson<{ status?: unknown }>(r.data, {}).status;
       return { type: 'progress', status: PROGRESS_STATUSES.includes(status as never) ? (status as ProgressStatus) : 'working', text: r.text ?? '' };
@@ -281,7 +286,8 @@ function partColumns(p: MessagePart): (string | null)[] {
     case 'progress':
       return [p.text, null, null, null, null, null, null, JSON.stringify({ status: p.status })];
     case 'approval':
-    case 'attachment': {
+    case 'attachment':
+    case 'outbox': {
       const { type: _type, ...data } = p;
       return [null, null, null, null, null, null, null, JSON.stringify(data)];
     }

@@ -10,6 +10,7 @@ import {
   type Provider,
   type SkillCandidate,
   type ToolLibraryView,
+  isOpenProvider,
 } from '../../shared/types';
 import { api } from '../api';
 import { useT, type Messages } from '../i18n';
@@ -49,6 +50,7 @@ export function ToolsCard() {
         !error && <p className="muted small">{t.common.loading}</p>
       ) : (
         <>
+          <RelaySection lib={lib} change={change} />
           <McpSection lib={lib} change={change} />
           <SkillsSection lib={lib} change={change} />
           <MemorySection lib={lib} change={change} />
@@ -60,18 +62,28 @@ export function ToolsCard() {
 
 type Change = (call: () => Promise<ToolLibraryView>) => Promise<boolean>;
 
-/** Who gets an item by default, in a few words. */
-function givenTo(providers: Provider[], t: Messages): string {
-  if (providers.length === PROVIDERS.length) return t.tools.allMembers;
+/** Who gets an item by default, in a few words (`all`: the CLIs that can get it). */
+function givenTo(providers: Provider[], t: Messages, all: readonly Provider[] = PROVIDERS): string {
+  if (providers.length === all.length) return t.tools.allMembers;
   if (!providers.length) return t.tools.offByDefault;
   return t.tools.onlyFor(providers.map((p) => PROVIDER_LABEL[p]).join(t.common.listSeparator));
 }
 
-/** One toggle per CLI: the CLIs whose agents get an item by default. */
-function ProviderPicks({ value, onChange, label }: { value: Provider[]; onChange: (v: Provider[]) => void; label: string }) {
+/** One toggle per CLI: the CLIs whose agents get an item by default (of `choices`, every CLI unless given). */
+function ProviderPicks({
+  value,
+  onChange,
+  label,
+  choices = PROVIDERS,
+}: {
+  value: Provider[];
+  onChange: (v: Provider[]) => void;
+  label: string;
+  choices?: readonly Provider[];
+}) {
   return (
     <div className="provider-picks" role="group" aria-label={label}>
-      {PROVIDERS.map((p) => {
+      {choices.map((p) => {
         const on = value.includes(p);
         return (
           <button
@@ -80,13 +92,45 @@ function ProviderPicks({ value, onChange, label }: { value: Provider[]; onChange
             aria-pressed={on}
             className={on ? 'on' : ''}
             style={{ ['--accent' as string]: PROVIDER_COLOR[p] }}
-            onClick={() => onChange(on ? value.filter((x) => x !== p) : PROVIDERS.filter((x) => x === p || value.includes(x)))}
+            onClick={() => onChange(on ? value.filter((x) => x !== p) : choices.filter((x) => x === p || value.includes(x)))}
           >
             {PROVIDER_LABEL[p]}
           </button>
         );
       })}
     </div>
+  );
+}
+
+/** The CLIs whose agents can get Harness Relay's own tools: all but the open agents. */
+const RELAY_CLIS = PROVIDERS.filter((p) => !isOpenProvider(p));
+
+/** Harness Relay's own tool groups (through the gateway), and which CLIs' members get each. */
+function RelaySection({ lib, change }: { lib: ToolLibraryView; change: Change }) {
+  const t = useT();
+  return (
+    <section className="tools-section" aria-label={t.tools.relay.title}>
+      <h4>{t.tools.relay.title}</h4>
+      <p className="muted small">{t.tools.relay.hint}</p>
+      {!lib.gateway.available && <p className="warn-line small">{t.tools.relay.unavailable(lib.gateway.reason ?? '')}</p>}
+      <ul className="lib-list">
+        {lib.relayTools.map((g) => (
+          <li key={g.group} className="lib-row relay-group">
+            <div className="lib-row-main">
+              <span className="lib-name">{t.tools.relay.groups[g.group]}</span>
+              <span className={`tool-scope ${g.providers.length ? '' : 'off'}`}>{givenTo(g.providers, t, RELAY_CLIS)}</span>
+            </div>
+            <p className="muted small">{t.tools.relay.groupHints[g.group]}</p>
+            <ProviderPicks
+              value={g.providers}
+              choices={RELAY_CLIS}
+              label={`${t.tools.relay.groups[g.group]} · ${t.tools.givenTo}`}
+              onChange={(providers) => change(() => api.updateTools({ relayTools: { [g.group]: providers } }))}
+            />
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

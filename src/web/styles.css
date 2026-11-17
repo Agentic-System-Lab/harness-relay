@@ -3912,6 +3912,65 @@ video.chat-media {
   color: var(--danger);
 }
 
+/* An outbox item: what an agent asked to send, waiting for the user's Send. */
+.outbox-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
+  border-radius: 12px;
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+
+.outbox-card.outbox-sent {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--border));
+}
+
+.outbox-card.outbox-discarded,
+.outbox-card.outbox-failed {
+  border-color: var(--border);
+}
+
+.outbox-fields {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.outbox-fields div {
+  display: grid;
+  grid-template-columns: minmax(70px, max-content) 1fr;
+  gap: 8px;
+}
+
+.outbox-fields dt {
+  color: var(--muted);
+}
+
+.outbox-fields dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.outbox-body {
+  max-height: 260px;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+}
+
+.relay-group {
+  flex-direction: column;
+  align-items: stretch;
+}
+
 /* A tracked goal: where it stands, what the runs said of it, and the webhook. */
 .schedule-progress,
 .schedule-hook {

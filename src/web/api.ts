@@ -37,6 +37,7 @@ import type {
   PushStatus,
   PushSubscriptionJson,
   ReportScreenshots,
+  OutboxItem,
   ScheduleHook,
   ScheduleUpdate,
   SearchResult,
@@ -306,6 +307,9 @@ export const api = {
     request<Conversation>('POST', `/api/conversations/${id}/messages/${messageId}/branch`),
   answerApproval: (id: string, approvalId: string, answer: ApprovalAnswer) =>
     request<{ ok: true }>('POST', `/api/conversations/${id}/approvals/${approvalId}`, answer),
+  /** Send or discard what an agent asked to send (an outbox item); only Send sends it. */
+  answerOutbox: (id: string, itemId: string, action: 'send' | 'discard') =>
+    request<OutboxItem>('POST', `/api/conversations/${id}/outbox/${itemId}`, { action }),
   confirmPlan: (id: string, messageId: string) =>
     request<{ ok: true }>('POST', `/api/conversations/${id}/messages/${messageId}/confirm-plan`),
   declinePlan: (id: string, messageId: string) =>

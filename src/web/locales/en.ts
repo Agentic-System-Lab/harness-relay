@@ -597,6 +597,13 @@ export const en: Messages = {
     status: { running: 'Running', done: 'Done', error: 'Failed' },
   },
 
+  outbox: {
+    label: (agent) => `What @${agent} asked to send`,
+    status: { pending: 'Waiting for you', sending: 'Sending…', sent: 'Sent', discarded: 'Discarded', failed: 'Not sent' },
+    hint: 'Nothing has gone out yet. Check every field: Send sends it as shown, with your account; Discard drops it.',
+    send: 'Send',
+    discard: 'Discard',
+  },
   approval: {
     heading: {
       command: 'wants to run a command',
@@ -1058,6 +1065,17 @@ export const en: Messages = {
   },
 
   tools: {
+    relay: {
+      title: "Harness Relay's tools",
+      hint: 'Tools Harness Relay serves itself, through one MCP server it gives each member (relay): the same for every CLI, with their passwords kept here, never given to a CLI. What a call reads runs; what changes something somewhere (a click on a page, a mail draft) asks you below full access, like any action; what reaches other people (a mail, an invitation) never goes in the turn: it waits in the outbox, a card in the chat, until you click Send. The open-source agents do not get them yet.',
+      groups: { browser: 'Browser', mail: 'Mail', calendar: 'Calendar' },
+      groupHints: {
+        browser: 'A browser of its own (Chromium, Chrome or Edge, headless, with a profile of its own per chat): open pages, read them, click and type, and screenshots shown in the chat.',
+        mail: 'Search and read mail, save drafts, and send through the outbox: needs a mail account below.',
+        calendar: 'List events and add them (with attendees, through the outbox): needs a calendar below.',
+      },
+      unavailable: (why) => `Not available on this server: ${why}.`,
+    },
     title: 'Tool library',
     hint: 'MCP servers, skills and memory here are given to members, the same way for every CLI (Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and the open-source agents), in addition to each CLI\'s own setup. Give each one to every member, or only to the members of some CLIs; to change it for a single member, use the Tools field on that member\'s card under New chat, or Team settings in a chat\'s header. Changes take effect from a member\'s next turn.',
     mcp: 'MCP servers',

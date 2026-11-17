@@ -15,6 +15,7 @@ import {
   MAX_NATIVE_ITEM_ID,
   MAX_NATIVE_ITEMS,
   MEMORY_SCOPES,
+  RELAY_TOOL_GROUPS,
   NATIVE_ITEM_KINDS,
   NATIVE_PARTS,
   PROVIDERS,
@@ -36,6 +37,7 @@ import {
   type Mode,
   type Permission,
   type Provider,
+  type RelayToolGroup,
   type ProviderAccountUpdate,
   type ProviderSettingsUpdate,
   type PushSubscriptionJson,
@@ -489,6 +491,15 @@ export function validateToolLibraryUpdate(input: unknown): ToolLibraryUpdate {
       if (!path || path.length > 4000 || path.includes('\0')) bad(t().invalidField('skills'));
       return { path: expandPath(path), providers: validProviders(s.providers, 'providers') };
     });
+  }
+  if (b.relayTools !== undefined) {
+    if (!b.relayTools || typeof b.relayTools !== 'object' || Array.isArray(b.relayTools)) bad(t().invalidField('relayTools'));
+    const groups: Partial<Record<RelayToolGroup, Provider[]>> = {};
+    for (const [group, providers] of Object.entries(b.relayTools)) {
+      if (!(RELAY_TOOL_GROUPS as readonly string[]).includes(group) || !Array.isArray(providers)) bad(t().invalidField('relayTools'));
+      groups[group as RelayToolGroup] = validProviders(providers, 'relayTools');
+    }
+    out.relayTools = groups;
   }
   return out;
 }

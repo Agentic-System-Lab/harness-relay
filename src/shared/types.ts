@@ -139,10 +139,56 @@ export interface AgentConfig {
 // --- Tool library: MCP servers, skills and memory every agent can be given ------------------
 
 /**
- * Tool keys: `mcp:<server id>`, `skill:<skill folder>`, `memory` (the memory for everyone) or
- * `memory:<provider>` (the memory for one CLI's agents). Ids and folders stay when things are renamed.
+ * Tool keys: `mcp:<server id>`, `skill:<skill folder>`, `memory` (the memory for everyone),
+ * `memory:<provider>` (the memory for one CLI's agents) or `relay:<group>` (one of Harness Relay's own
+ * tool groups). Ids and folders stay when things are renamed.
  */
-export type ToolKind = 'mcp' | 'skill' | 'memory';
+export type ToolKind = 'mcp' | 'skill' | 'memory' | 'relay';
+
+/**
+ * Harness Relay's own tools, which every agent reaches through one MCP server of Harness Relay's (the
+ * gateway, `src/server/gateway.ts`), in groups the user gives to the CLIs they choose.
+ */
+export const RELAY_TOOL_GROUPS = ['browser', 'mail', 'calendar'] as const;
+export type RelayToolGroup = (typeof RELAY_TOOL_GROUPS)[number];
+
+/** The name agents see Harness Relay's gateway under (`mcp__relay__browser_open` in Claude Code). */
+export const GATEWAY_SERVER_NAME = 'relay';
+
+/**
+ * What a call of one of Harness Relay's tools may do without the user: `read` runs; `act` (it changes
+ * something somewhere, as a click on a page does) is asked about below full access; `send` (it reaches
+ * other people: a mail, an invitation) never runs in the turn but waits in the outbox for the user.
+ */
+export type GatewayTier = 'read' | 'act' | 'send';
+
+/** An outbox item: what a `send` call would do, kept until the user sends or discards it. */
+export type OutboxStatus = 'pending' | 'sending' | 'sent' | 'discarded' | 'failed';
+
+/** What an outbox item shows the user before they send it: each field, as it will go out. */
+export interface OutboxPreview {
+  fields: { label: string; value: string }[];
+  /** The text it sends (a mail's body, an event's description). */
+  body?: string;
+}
+
+export interface OutboxItem {
+  id: string;
+  convId: string;
+  /** The reply whose turn put it there, which shows its card. */
+  messageId: string;
+  agentId: string;
+  agentName: string;
+  tool: string;
+  /** In a line: what sending it does. */
+  title: string;
+  preview: OutboxPreview;
+  status: OutboxStatus;
+  /** What happened once it was sent or failed. */
+  result?: string;
+  createdAt: number;
+  decidedAt?: number;
+}
 
 export function toolKey(kind: ToolKind, name = ''): string {
   if (kind === 'memory') return name && name !== 'all' ? `memory:${name}` : 'memory';
@@ -228,6 +274,13 @@ export interface SkillCandidate {
 export interface ToolLibraryView {
   mcpServers: McpServerView[];
   skills: SkillView[];
+  /** Harness Relay's own tool groups and the CLIs whose agents get each (none at first). */
+  relayTools: { group: RelayToolGroup; providers: Provider[] }[];
+  /**
+   * Whether this server can give agents its own tools: it needs a Node.js to run the gateway's MCP
+   * server with (the desktop app's runtime is not one), and the open agents do not get them yet.
+   */
+  gateway: { available: boolean; reason?: string };
   /**
    * Notes agents get in their briefing, in every conversation: `all` for every agent, and a part for
    * each CLI's agents. Empty = none.
@@ -240,6 +293,8 @@ export interface ToolLibraryView {
 export interface ToolLibraryUpdate {
   /** The whole list, replacing the current one. A folder of skills adds each skill in it. */
   skills?: { path: string; providers?: Provider[] }[];
+  /** The CLIs whose agents get each of Harness Relay's tool groups named. */
+  relayTools?: Partial<Record<RelayToolGroup, Provider[]>>;
   /** The parts to change. */
   memory?: Partial<Record<MemoryScope, string>>;
 }
@@ -1045,7 +1100,9 @@ export type MessagePart =
   /** A file the user attached to their message (stored under data/attachments). */
   | { type: 'attachment'; id: string; name: string; mimeType: string; size: number }
   /** What the reply said about the goal its schedule tracks (its `<progress>` block, taken out of its text). */
-  | { type: 'progress'; status: ProgressStatus; text: string };
+  | { type: 'progress'; status: ProgressStatus; text: string }
+  /** Something the agent asked to send (a `send` call of Harness Relay's tools): it waits in the outbox for the user. */
+  | { type: 'outbox'; id: string; tool: string; title: string; preview: OutboxPreview; status: OutboxStatus; result?: string };
 
 /** Limits for files attached to one message. */
 export const ATTACHMENT_LIMITS = { maxFiles: 10, maxBytes: 20 * 1024 * 1024 };

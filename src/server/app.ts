@@ -1582,6 +1582,13 @@ export function createApp({
     return c.json({ ok: true }, 202);
   });
 
+  // The user's Send or Discard on something an agent asked to send (the outbox): only this sends it.
+  app.post('/api/conversations/:id/outbox/:itemId', async (c) => {
+    const { action } = await body<{ action?: unknown }>(c);
+    if (action !== 'send' && action !== 'discard') throw new HttpError(400, t().invalidField('action'));
+    return c.json(await orchestrator.answerOutbox(c.req.param('id'), c.req.param('itemId'), action));
+  });
+
   // Answer an agent's request to do something its permission does not cover.
   app.post('/api/conversations/:id/approvals/:approvalId', async (c) => {
     const b = await body<ApprovalAnswer>(c);

@@ -16,6 +16,8 @@ import { killAll } from './process';
 import { ProviderService } from './providers';
 import { PushService } from './push';
 import { Scheduler } from './scheduler';
+import { ToolGateway, outboxTool } from './gateway';
+import { Outbox } from './outbox';
 import { clearShareTmp } from './share';
 import { openSecretStore, openSystemKeyring, type SecretStore } from './secrets';
 import { DATA_DIR, DB_FILE, SettingsStore } from './settings';
@@ -23,7 +25,7 @@ import { clearRunTmp, dataDirInTemp, makeCodespaceGhDir, relayTmpDir, voiceDirPr
 import { CONFIG_PROBLEMS } from './config';
 import { OPEN_PROVIDERS, type Lang } from '../shared/types';
 import { RUN_TMP_DIR, clearOpenRunLeftovers } from './agents/open';
-import { clearRelaySandboxLeftovers, noteListeningPort, relaySandboxHostRoot, relaySandboxRoot } from './relaySandbox';
+import { clearRelaySandboxLeftovers, gatewayNode, noteListeningPort, relaySandboxHostRoot, relaySandboxRoot } from './relaySandbox';
 import { Store } from './store';
 import { VoiceService } from './voice';
 import { CliInstaller } from './cliInstall';
@@ -104,6 +106,18 @@ const orchestrator = new Orchestrator(
   agentsView,
 );
 
+// Harness Relay's own tools (browser, mail, calendar), which every agent but the open agents reaches through
+// one MCP server of Harness Relay's (the gateway), and the outbox of what they asked to send.
+const outbox = new Outbox(db);
+const gateway = new ToolGateway(DATA_DIR, relayTmpDir(), () => gatewayNode());
+gateway.register([outboxTool((id) => outbox.list(id))]);
+orchestrator.gateway = gateway;
+orchestrator.outbox = outbox;
+settings.tools.gatewayStatus = () => {
+  const why = gateway.unavailable();
+  return why ? { available: false, reason: why } : { available: true };
+};
+
 // Sends each conversation's scheduled message when it comes due.
 const scheduler = new Scheduler(store, orchestrator);
 
@@ -177,6 +191,8 @@ try {
 // runs without a key.
 clearOpenRunLeftovers(OPEN_PROVIDERS.flatMap((p) => settings.openAgentHomes(p)), undefined, { restore: swept });
 for (const dir of [relaySandboxRoot(), relaySandboxHostRoot(), RUN_TMP_DIR]) mkdirSync(dir, { recursive: true, mode: 0o700 });
+// The gateway's socket: agents get Harness Relay's own tools only once it listens.
+await gateway.start().catch((err: unknown) => console.error("[server] could not start the gateway for Harness Relay's own tools:", err));
 
 const port = apiPort();
 const host = process.env.HOST ?? DEFAULT_HOST;
@@ -224,6 +240,7 @@ async function shutdown(code = 0): Promise<void> {
   scheduler.stop();
   alerts.stop();
   orchestrator.stopAll();
+  void gateway.stop();
   providers.shutdown();
   voice.shutdown();
   // Installs under way stop; each cleans up after itself (on Windows, the user's PATH put back).

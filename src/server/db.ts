@@ -440,6 +440,26 @@ const MIGRATIONS: string[] = [
   ALTER TABLE schedules ADD COLUMN hook_hash TEXT;
   ALTER TABLE messages ADD COLUMN event TEXT;
   `,
+  // 32: the outbox — what agents asked Harness Relay's tools to send to other people, waiting for the
+  // user's Send (args: the call's arguments, JSON; preview: OutboxPreview, JSON).
+  `
+  CREATE TABLE outbox (
+    id              TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    message_id      TEXT NOT NULL,
+    agent_id        TEXT NOT NULL,
+    agent_name      TEXT NOT NULL,
+    tool            TEXT NOT NULL,
+    args            TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    preview         TEXT NOT NULL,
+    status          TEXT NOT NULL,
+    result          TEXT,
+    created_at      INTEGER NOT NULL,
+    decided_at      INTEGER
+  );
+  CREATE INDEX outbox_conversation ON outbox(conversation_id, status);
+  `,
 ];
 
 /**

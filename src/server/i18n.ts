@@ -472,6 +472,13 @@ const zhTW = {
   hookNeedsSchedule: '請先設定排程，再建立 webhook',
   hookGoalReached: '這個排程追蹤的目標已經達成；重新開啟排程後才能再呼叫',
   hookBodyTooLarge: (kb: number) => `webhook 的內容最多 ${kb} KB`,
+  outboxInterrupted: 'Harness Relay 在送出時停止了，不確定有沒有送出；沒有再送一次。',
+  outboxNotFound: '找不到這個待送出的項目',
+  outboxDecided: '這個項目已經處理過了',
+  outboxNoTool: (tool: string) => `沒有工具能送出這個項目（${tool}）`,
+  outboxSentNote: (title: string, result: string) => `已送出「${title}」：${result}`,
+  outboxFailedNote: (title: string, why: string) => `「${title}」沒有送出：${why}`,
+  outboxDiscardedNote: (title: string) => `已捨棄「${title}」，沒有送出。`,
 
   // HTTP
   unknownProvider: (p: string) => `未知的 provider：${p}`,
@@ -1090,6 +1097,13 @@ const en: ServerMessages = {
   hookNeedsSchedule: 'Set up a schedule before you add a webhook',
   hookGoalReached: 'The goal this schedule tracks is reached; turn the schedule on again before calling it',
   hookBodyTooLarge: (kb) => `A webhook's body can be at most ${kb} KB`,
+  outboxInterrupted: 'Harness Relay stopped while sending it, so whether it went out is not known; it was not sent again.',
+  outboxNotFound: 'No such outbox item',
+  outboxDecided: 'This item was already answered',
+  outboxNoTool: (tool) => `No tool can send this item (${tool})`,
+  outboxSentNote: (title, result) => `Sent "${title}": ${result}`,
+  outboxFailedNote: (title, why) => `"${title}" was not sent: ${why}`,
+  outboxDiscardedNote: (title) => `Discarded "${title}"; nothing was sent.`,
 
   unknownProvider: (p) => `Unknown provider: ${p}`,
   dirNotFound: (cwd) => `Directory not found: ${cwd}`,

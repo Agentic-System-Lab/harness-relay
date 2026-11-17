@@ -310,6 +310,28 @@ describe('ToolLibrary', () => {
     expect(lib.forAgent(agent('grok', { memory: false })).memory).toBeUndefined();
   });
 
+  it("gives Harness Relay's own tool groups to the CLIs chosen, none at first, with per-agent exceptions, and keeps them", () => {
+    const lib = new ToolLibrary(db);
+    expect(lib.view().relayTools).toEqual([
+      { group: 'browser', providers: [] },
+      { group: 'mail', providers: [] },
+      { group: 'calendar', providers: [] },
+    ]);
+    expect(lib.view().gateway).toEqual({ available: false, reason: 'not started' });
+    expect(lib.forAgent(agent('claude')).relayGroups).toEqual([]);
+
+    lib.update({ relayTools: { browser: ['codex', 'claude'], mail: ['claude'] } });
+    expect(lib.view().relayTools[0]).toEqual({ group: 'browser', providers: ['claude', 'codex'] });
+    expect(lib.forAgent(agent('claude')).relayGroups).toEqual(['browser', 'mail']);
+    expect(lib.forAgent(agent('codex')).relayGroups).toEqual(['browser']);
+    expect(lib.forAgent(agent('codex', { 'relay:calendar': true, 'relay:browser': false })).relayGroups).toEqual(['calendar']);
+    // Changing one group leaves the others.
+    lib.update({ relayTools: { mail: [] } });
+    expect(new ToolLibrary(db).view().relayTools.map((g) => g.providers)).toEqual([['claude', 'codex'], [], []]);
+    lib.gatewayStatus = () => ({ available: true });
+    expect(lib.view().gateway).toEqual({ available: true });
+  });
+
   it('checks new skill paths only, and marks skills it cannot use', () => {
     const dir = join(root, 'marks');
     const a = skill(join(dir, 'a'), 'name: same');

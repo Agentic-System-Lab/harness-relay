@@ -6,9 +6,11 @@ import type {
   Mode,
   NativePart,
   OpenProvider,
+  OutboxStatus,
   Permission,
   ProgressStatus,
   Provider,
+  RelayToolGroup,
   ScheduleRepeat,
   ScheduleResult,
   ToolStatus,
@@ -627,6 +629,13 @@ export const zhTW = {
     status: { running: '執行中', done: '完成', error: '失敗' } as Record<ToolStatus, string>,
   },
 
+  outbox: {
+    label: (agent: string) => `@${agent} 要送出的內容`,
+    status: { pending: '等你決定', sending: '送出中…', sent: '已送出', discarded: '已捨棄', failed: '沒有送出' } as Record<OutboxStatus, string>,
+    hint: '還沒有送出任何東西。請檢查每個欄位：按「送出」會用你的帳號照這裡顯示的內容送出；按「捨棄」則丟掉它。',
+    send: '送出',
+    discard: '捨棄',
+  },
   approval: {
     heading: {
       command: '想執行指令',
@@ -1100,6 +1109,17 @@ export const zhTW = {
   },
 
   tools: {
+    relay: {
+      title: 'Harness Relay 的工具',
+      hint: '由 Harness Relay 自己提供的工具，透過它給每個成員的一個 MCP server（relay）使用：每個 CLI 都一樣，密碼留在這裡，不會交給任何 CLI。只讀取的呼叫直接執行；會改變外部東西的呼叫（在網頁上點擊、存郵件草稿）在完全存取以下會詢問你，和其他動作一樣；會送到別人那裡的呼叫（郵件、邀請）絕不在那一回合送出：它會在待送出匣等待，對話中顯示成一張卡片，直到你按「送出」。開源 agent 暫時還不能使用。',
+      groups: { browser: '瀏覽器', mail: '郵件', calendar: '行事曆' } as Record<RelayToolGroup, string>,
+      groupHints: {
+        browser: '它自己的瀏覽器（Chromium、Chrome 或 Edge，無頭模式，每個對話有自己的設定檔）：開啟網頁、讀取內容、點擊與輸入，截圖會顯示在對話中。',
+        mail: '搜尋與閱讀郵件、存草稿，透過待送出匣寄信：需要在下方設定郵件帳號。',
+        calendar: '列出與新增活動（有邀請對象時透過待送出匣）：需要在下方設定行事曆。',
+      } as Record<RelayToolGroup, string>,
+      unavailable: (why: string) => `這個伺服器目前無法使用：${why}。`,
+    },
     title: '工具庫',
     hint: '這裡的 MCP 伺服器、skill 和記憶會提供給成員，每種 CLI 都能用（Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 與開源 agent），而且加在各 CLI 自己的設定之外。每一項可以給所有成員，或只給某幾種 CLI 的成員；要針對單一成員調整，在「新對話」或對話上方的「團隊設定」裡，用該成員卡片的「工具」欄位。變更從成員的下一回合開始生效。',
     mcp: 'MCP 伺服器',

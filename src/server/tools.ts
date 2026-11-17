@@ -4,6 +4,7 @@ import { basename, dirname, join } from 'node:path';
 import {
   MEMORY_SCOPES,
   PROVIDERS,
+  RELAY_TOOL_GROUPS,
   TOOL_LIMITS,
   agentHasTool,
   toolKey,
@@ -15,6 +16,7 @@ import {
   type McpTransport,
   type MemoryScope,
   type Provider,
+  type RelayToolGroup,
   type SkillCandidate,
   type SkillView,
   type ToolLibraryUpdate,
@@ -63,6 +65,8 @@ interface Stored {
   mcpServers: StoredServer[];
   skills: { path: string; providers: Provider[] }[];
   memory: Record<MemoryScope, string>;
+  /** Harness Relay's own tool groups, by the CLIs whose agents get each (none at first). */
+  relayTools?: Partial<Record<RelayToolGroup, Provider[]>>;
   /** Without a secret store (tests), or saved by an older version: the secret values, by server id. */
   secrets?: Record<string, Secrets>;
 }
@@ -82,6 +86,8 @@ export interface AgentTools {
   skills: SkillInfo[];
   /** The memory parts the agent gets (for everyone, then for its CLI), when there are any. */
   memory?: string;
+  /** Harness Relay's own tool groups the agent gets (through the gateway). */
+  relayGroups: RelayToolGroup[];
 }
 
 const SETTINGS_KEY = 'tool_library';
@@ -235,6 +241,7 @@ export class ToolLibrary {
           })),
           skills: (Array.isArray(v.skills) ? v.skills : []).map((s) => ({ path: s.path, providers: storedProviders(s) })),
           memory,
+          relayTools: storedRelayTools(v.relayTools),
           ...(v.secrets ? { secrets: v.secrets } : {}),
         };
       } catch {
@@ -278,7 +285,7 @@ export class ToolLibrary {
   private unreadable = new Set<string>();
 
   private save(): void {
-    const stored: Stored = { mcpServers: this.data.mcpServers, skills: this.data.skills, memory: this.data.memory };
+    const stored: Stored = { mcpServers: this.data.mcpServers, skills: this.data.skills, memory: this.data.memory, relayTools: this.data.relayTools ?? {} };
     const inDb = this.keyring ? [...this.leftInDb] : [...this.secrets.keys()];
     if (inDb.length) stored.secrets = Object.fromEntries(inDb.map((id) => [id, this.secrets.get(id)!]));
     this.db
@@ -339,9 +346,14 @@ export class ToolLibrary {
         ...(problem ? { problem } : {}),
       })),
       memory: { ...this.data.memory },
+      relayTools: RELAY_TOOL_GROUPS.map((group) => ({ group, providers: [...(this.data.relayTools?.[group] ?? [])] })),
+      gateway: this.gatewayStatus(),
       secretStorage: this.secretStorage,
     };
   }
+
+  /** Whether the gateway can give agents Harness Relay's tools now (set by the server once it runs one). */
+  gatewayStatus: () => { available: boolean; reason?: string } = () => ({ available: false, reason: 'not started' });
 
   /** Adds an MCP server (no `previousName`) or replaces one (renaming it when the names differ). */
   saveServer(name: string, u: McpServerUpdate): ToolLibraryView {
@@ -415,6 +427,14 @@ export class ToolLibrary {
       this.data.skills = next;
     }
     if (u.memory) this.data.memory = { ...this.data.memory, ...u.memory };
+    if (u.relayTools) {
+      const next = { ...(this.data.relayTools ?? {}) };
+      for (const group of RELAY_TOOL_GROUPS) {
+        const providers = u.relayTools[group];
+        if (providers) next[group] = PROVIDERS.filter((p) => providers.includes(p));
+      }
+      this.data.relayTools = next;
+    }
     this.save();
     return this.view();
   }
@@ -486,6 +506,18 @@ export class ToolLibrary {
       .map((scope) => this.data.memory[scope].trim())
       .filter(Boolean)
       .join('\n\n');
-    return { mcpServers, skills, ...(memory ? { memory } : {}) };
+    const relayGroups = RELAY_TOOL_GROUPS.filter((g) => on(toolKey('relay', g), this.data.relayTools?.[g] ?? []));
+    return { mcpServers, skills, ...(memory ? { memory } : {}), relayGroups };
   }
+}
+
+/** The tool groups' CLIs as stored, leaving out what cannot be read. */
+function storedRelayTools(v: unknown): Partial<Record<RelayToolGroup, Provider[]>> {
+  if (!v || typeof v !== 'object') return {};
+  const out: Partial<Record<RelayToolGroup, Provider[]>> = {};
+  for (const group of RELAY_TOOL_GROUPS) {
+    const list = (v as Record<string, unknown>)[group];
+    if (Array.isArray(list)) out[group] = PROVIDERS.filter((p) => list.includes(p));
+  }
+  return out;
 }

@@ -7,6 +7,7 @@ import {
   isOpenProvider,
   inheritedEffort,
   type AgentConfig,
+  type RelayToolGroup,
   type ConversationSchedule,
   type ConversationSettings,
   type Mode,
@@ -431,8 +432,14 @@ function AgentTools({
   const items = itemsFor(all ?? [], agent.provider);
   const given = items.filter((i) => hasTool(agent, i));
   const label = (i: ToolItem) =>
-    i.kind !== 'memory' ? i.name : i.name === 'all' ? t.team.toolMemory : t.team.toolProviderMemory(PROVIDER_LABEL[agent.provider]);
-  const kind = (i: ToolItem) => (i.kind === 'mcp' ? 'MCP' : i.kind === 'skill' ? 'Skill' : '');
+    i.kind === 'relay'
+      ? t.tools.relay.groups[i.name as RelayToolGroup]
+      : i.kind !== 'memory'
+        ? i.name
+        : i.name === 'all'
+          ? t.team.toolMemory
+          : t.team.toolProviderMemory(PROVIDER_LABEL[agent.provider]);
+  const kind = (i: ToolItem) => (i.kind === 'mcp' ? 'MCP' : i.kind === 'skill' ? 'Skill' : i.kind === 'relay' ? 'Relay' : '');
   return (
     <div className="field agent-tools">
       <span>{t.team.tools}</span>

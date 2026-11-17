@@ -207,6 +207,8 @@ function replyBlock(p: Exclude<MessagePart, { type: 'tool' }>): Record<string, u
       return { type: 'text', text: `[${p.name}]` };
     case 'progress':
       return { type: 'text', text: `[Progress on the tracked goal: ${p.status}${p.text ? ` — ${p.text}` : ''}]` };
+    case 'outbox':
+      return { type: 'text', text: `[Put in the outbox for the user to send: ${p.title} — ${p.status}${p.result ? ` (${p.result})` : ''}]` };
   }
 }
 

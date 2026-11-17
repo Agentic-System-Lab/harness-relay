@@ -5,6 +5,8 @@ import { zhTW } from '../src/web/locales/zh-TW';
 import { defaultOn, emptyLibraryText, hasTool, itemsFor, noneForCliText, ownSetupText, setTool, toolItems, toolsHintText } from '../src/web/tools';
 
 const lib: ToolLibraryView = {
+  relayTools: [],
+  gateway: { available: true },
   mcpServers: [{ id: 'gh1', name: 'github', transport: 'stdio', command: 'x', args: [], url: '', env: [], headers: [], providers: ['claude'] }],
   skills: [
     { path: '/s/commit', name: 'commit', description: '', providers: ['claude', 'codex', 'grok'] },
@@ -20,6 +22,16 @@ describe('tool picker', () => {
   it('lists servers, skills and the memory parts that have text', () => {
     expect(items.map((i) => i.key)).toEqual(['mcp:gh1', 'skill:/s/commit', 'skill:/s/broken', 'memory', 'memory:codex']);
     expect(items.find((i) => i.key === 'skill:/s/broken')!.problem).toBe('SKILL.md not found');
+  });
+
+  it("lists Harness Relay's tool groups while the server can give them, and not to an open agent", () => {
+    const withRelay = toolItems({ ...lib, relayTools: [{ group: 'browser', providers: ['claude'] }] });
+    expect(withRelay.at(-1)).toEqual({ key: 'relay:browser', kind: 'relay', name: 'browser', providers: ['claude'] });
+    expect(hasTool({ provider: 'claude' }, withRelay.at(-1)!)).toBe(true);
+    expect(hasTool({ provider: 'codex' }, withRelay.at(-1)!)).toBe(false);
+    expect(itemsFor(withRelay, 'codex').map((i) => i.key)).toContain('relay:browser');
+    expect(itemsFor(withRelay, OPEN_PROVIDERS[0]!).map((i) => i.key)).not.toContain('relay:browser');
+    expect(toolItems({ ...lib, relayTools: [{ group: 'browser', providers: [] }], gateway: { available: false, reason: 'no Node.js' } }).map((i) => i.kind)).not.toContain('relay');
   });
 
   it("shows an agent only its own CLI's memory part", () => {

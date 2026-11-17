@@ -1861,6 +1861,32 @@ describe('the folder dialog', () => {
   });
 });
 
+describe('the outbox', () => {
+  it("sends or discards an item only on the user's answer, and refuses anything else", async () => {
+    const { Outbox } = await import('../src/server/outbox');
+    const conv = await createConversation({ permission: 'read-only' });
+    const db = (store as unknown as { db: ReturnType<typeof import('../src/server/db').openDatabase> }).db;
+    const outbox = new Outbox(db);
+    orchestrator.outbox = outbox;
+    const sent: unknown[] = [];
+    orchestrator.gateway = { tool: () => ({ send: async (a: unknown) => (sent.push(a), 'ok') }) } as never;
+    const { item } = outbox.add({ convId: conv.id, messageId: 'm', agentId: 'a', agentName: 'Alice', tool: 'mail_send', title: 'Mail', preview: { fields: [] } }, { to: 'x' });
+    const answer = (id: string, body: unknown) => app.request(`/api/conversations/${conv.id}/outbox/${id}`, json('POST', body, { 'x-relay-lang': 'en' }));
+    expect((await answer(item.id, { action: 'maybe' })).status).toBe(400);
+    expect((await answer('missing', { action: 'send' })).status).toBe(404);
+    const res = await answer(item.id, { action: 'send' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ id: item.id, status: 'sent', result: 'ok' });
+    expect(sent).toEqual([{ to: 'x' }]);
+    expect((await answer(item.id, { action: 'discard' })).status).toBe(409);
+    const list = (await (await get('/api/conversations')).json()) as { id: string; waiting?: boolean }[];
+    expect(list.find((c) => c.id === conv.id)!.waiting).toBeUndefined();
+    outbox.add({ convId: conv.id, messageId: 'm', agentId: 'a', agentName: 'Alice', tool: 'mail_send', title: 'Mail 2', preview: { fields: [] } }, { to: 'y' });
+    const waiting = (await (await get('/api/conversations')).json()) as { id: string; waiting?: boolean }[];
+    expect(waiting.find((c) => c.id === conv.id)!.waiting).toBe(true);
+  });
+});
+
 describe('tool library', () => {
   it('saves MCP servers with masked values and refuses bad input', async () => {
     const save = (name: string, body: unknown) => app.request(`/api/tools/mcp/${name}`, json('PUT', body, { 'x-relay-lang': 'en' }));
@@ -1901,6 +1927,17 @@ describe('tool library', () => {
     expect(view.skills).toEqual([{ path: skills, name: 'commit', description: 'Commit well.', providers: ['codex'] }]);
     expect(view.memory).toEqual({ all: 'Be brief.', claude: 'Use pnpm.', codex: '', grok: '', cursor: '', antigravity: '', copilot: '', muse: '', opencode: '', goose: '', cline: '', openhands: '', pi: '' });
     expect((await app.request('/api/tools', json('PUT', { memory: { gemini: 'x' } }))).status).toBe(400);
+    // Harness Relay's own tool groups: known groups, each with a list of CLIs.
+    expect((await app.request('/api/tools', json('PUT', { relayTools: { teleport: ['claude'] } }))).status).toBe(400);
+    expect((await app.request('/api/tools', json('PUT', { relayTools: { browser: 'claude' } }))).status).toBe(400);
+    expect((await app.request('/api/tools', json('PUT', { relayTools: { browser: ['gemini'] } }))).status).toBe(400);
+    const relay = (await (await app.request('/api/tools', json('PUT', { relayTools: { browser: ['codex', 'claude'] } }))).json()) as { relayTools: unknown; gateway: unknown };
+    expect(relay.relayTools).toEqual([
+      { group: 'browser', providers: ['claude', 'codex'] },
+      { group: 'mail', providers: [] },
+      { group: 'calendar', providers: [] },
+    ]);
+    expect(relay.gateway).toEqual({ available: false, reason: 'not started' });
     expect((await app.request('/api/tools', json('PUT', { memory: { all: 'x'.repeat(20_001) } }))).status).toBe(400);
     expect((await app.request('/api/tools', json('PUT', { skills: [{ path: join(project, 'nothing-here') }] }))).status).toBe(400);
   });

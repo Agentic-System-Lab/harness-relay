@@ -324,7 +324,10 @@ export type Segment =
   | { kind: 'activity'; items: ActivityItem[]; key: number; last: boolean }
   | { kind: 'todo'; entries: PlanEntry[]; key: number }
   | { kind: 'approval'; part: ApprovalPart; key: number }
-  | { kind: 'progress'; status: ProgressStatus; text: string; key: number };
+  | { kind: 'progress'; status: ProgressStatus; text: string; key: number }
+  | { kind: 'outbox'; part: OutboxPart; key: number };
+
+export type OutboxPart = Extract<MessagePart, { type: 'outbox' }>;
 
 /**
  * Text that comes into the message box (`Composer`'s `restore`): ahead of what is typed there. A
@@ -367,6 +370,9 @@ export function segments(parts: MessagePart[]): Segment[] {
         break;
       case 'progress':
         out.push({ kind: 'progress', status: p.status, text: p.text, key: i });
+        break;
+      case 'outbox':
+        out.push({ kind: 'outbox', part: p, key: i });
         break;
     }
   });

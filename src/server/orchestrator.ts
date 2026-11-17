@@ -16,6 +16,7 @@ import type {
   LeadReview,
   MessageChanges,
   MessagePart,
+  OutboxItem,
   ProgressStatus,
   Provider,
   RunPause,
@@ -39,6 +40,8 @@ import {
 import { AgentRunError, runners, type AgentEvent, type RunResult } from './agents';
 import { emptyStateFolder, removeConversationState } from './agents/open';
 import { stateKeys, type ApprovalRequest } from './agents/types';
+import { gatewayToolIn, type ToolGateway } from './gateway';
+import type { Outbox } from './outbox';
 import type { TraceSink } from './agentsview';
 import { approvalKeys, isAllowed } from './approvals';
 import { CONFIG } from './config';
@@ -548,6 +551,9 @@ export class Orchestrator {
 
   /** The clock tracking schedules' notes and retries go by (the scheduler's, in tests). */
   clock: () => number = Date.now;
+  /** Harness Relay's own tools (`gateway.ts`), when the server runs them, and their outbox. */
+  gateway?: ToolGateway;
+  outbox?: Outbox;
 
   constructor(
     private store: Store,
@@ -701,6 +707,7 @@ export class Orchestrator {
         if (linked) this.emitConversation(linked);
       }
       this.traces?.forget?.(convId);
+      this.outbox?.forget(convId);
     } finally {
       this.deleting.delete(convId);
     }
@@ -724,7 +731,36 @@ export class Orchestrator {
   /** An agent in this conversation is waiting for the user to approve something. */
   isWaiting(id: string): boolean {
     for (const a of this.approvals.values()) if (a.convId === id) return true;
-    return false;
+    // Something an agent asked to send waits in the outbox for the user.
+    return (this.outbox?.waiting(id) ?? 0) > 0;
+  }
+
+  /**
+   * The user's Send or Discard on an outbox item: sent by its tool, in this server, with the
+   * credentials it holds; its card then says what happened, and so does a note in the chat.
+   */
+  async answerOutbox(convId: string, itemId: string, action: 'send' | 'discard'): Promise<OutboxItem> {
+    const conv = this.store.get(convId);
+    if (!conv || !this.outbox) throw new HttpError(404, t().conversationNotFound);
+    const item = await this.outbox.answer(convId, itemId, action, (name) => this.gateway?.tool(name));
+    const msg = conv.messages.find((m) => m.id === item.messageId);
+    const part = msg?.parts.find((p): p is Extract<MessagePart, { type: 'outbox' }> => p.type === 'outbox' && p.id === item.id);
+    if (msg && part) {
+      part.status = item.status;
+      if (item.result !== undefined) part.result = item.result;
+      this.store.saveMessage(conv.id, msg, true);
+      this.hub.emit(conv.id, { type: 'message', message: msg });
+    }
+    this.systemNote(
+      conv,
+      item.status === 'sent'
+        ? t().outboxSentNote(item.title, item.result ?? '')
+        : item.status === 'discarded'
+          ? t().outboxDiscardedNote(item.title)
+          : t().outboxFailedNote(item.title, item.result ?? ''),
+    );
+    this.emitStatus(conv.id);
+    return item;
   }
 
   /** The user's answer to an approval request shown in the chat. */
@@ -2764,6 +2800,32 @@ export class Orchestrator {
             return { allow: answer.allow, note: part.note };
           };
 
+    // Harness Relay's own tools: a CLI's request about one that the user allowed is not asked again by the
+    // gateway (`justAllowed`), when its name says it is the gateway's (`mcp__relay__browser_open`).
+    const gatewayNames = this.gateway?.toolNames() ?? [];
+    const cliAllowed = new Map<string, number>();
+    const cliApproval =
+      requestApproval &&
+      (async (req: ApprovalRequest): Promise<ApprovalAnswer> => {
+        const answer = await requestApproval(req);
+        const name = answer.allow ? gatewayToolIn(gatewayNames, req.tool ?? req.detail) : undefined;
+        if (name) cliAllowed.set(name, Date.now());
+        return answer;
+      });
+    const toOutbox = (o: { tool: string; title: string; preview: OutboxItem['preview']; args: Record<string, unknown> }): OutboxItem => {
+      const { item, existing } = this.outbox!.add(
+        { convId: conv.id, messageId: msg.id, agentId: agent.id, agentName: agent.name, tool: o.tool, title: o.title, preview: o.preview },
+        o.args,
+      );
+      if (!existing) {
+        textOpen = false;
+        msg.parts.push({ type: 'outbox', id: item.id, tool: item.tool, title: item.title, preview: item.preview, status: 'pending' });
+        this.hub.emit(conv.id, { type: 'message', message: msg });
+        this.store.saveMessage(conv.id, msg, true);
+      }
+      return item;
+    };
+
     const attempt = async (fresh: boolean): Promise<RunResult> => {
       if (fresh) {
         state.sessionId = undefined;
@@ -2791,6 +2853,30 @@ export class Orchestrator {
       const freshState = emptyState;
       emptyState = false;
       const model = await this.modelFor(agent.provider, agent.model, account);
+      // The open agents run their MCP servers in Harness Relay's own sandbox, which does not open the gateway's socket.
+      const relay =
+        this.gateway && this.outbox && tools.relayGroups.length && !isOpenProvider(agent.provider)
+          ? this.gateway.grant(
+              {
+                convId: conv.id,
+                agentId: agent.id,
+                agentName: agent.name,
+                messageId: msg.id,
+                cwd,
+                permission: conv.settings.permission,
+                unattended: Boolean(run.refuseApprovals),
+                ...(requestApproval ? { ask: requestApproval } : {}),
+                justAllowed: (name) => {
+                  const at = cliAllowed.get(name);
+                  cliAllowed.delete(name);
+                  return at !== undefined && Date.now() - at < 60_000;
+                },
+                toOutbox,
+                signal: run.abort.signal,
+              },
+              tools.relayGroups,
+            )
+          : undefined;
       try {
         const result = await runners[agent.provider].run({
           bin: this.settings.bin(agent.provider),
@@ -2811,10 +2897,10 @@ export class Orchestrator {
           effort: agent.effort?.trim() || this.settings.defaultEffort(agent.provider, account) || undefined,
           signal: run.abort.signal,
           onEvent,
-          requestApproval,
+          requestApproval: cliApproval,
           images: imageInputs(conv.id, files),
           attachmentsDir: files.length ? attachmentsDir(conv.id) : undefined,
-          mcpServers: tools.mcpServers,
+          mcpServers: relay ? [...tools.mcpServers.filter((s) => s.name !== relay.spec.name), relay.spec] : tools.mcpServers,
           readDirs: tools.skills.map((s) => s.dir),
         });
         if (result.sessionId) state.sessionId = result.sessionId;
@@ -2822,6 +2908,8 @@ export class Orchestrator {
       } catch (err) {
         state.seen = seenBefore; // not delivered; offer it again next turn
         throw err;
+      } finally {
+        relay?.revoke();
       }
     };
 

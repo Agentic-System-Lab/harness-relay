@@ -42,6 +42,10 @@ export function toolItems(lib: ToolLibraryView): ToolItem[] {
       name: scope,
       providers: scope === 'all' ? [...PROVIDERS] : [scope],
     })),
+    // Harness Relay's own tools, while this server can give them (a member can be given one off by default).
+    ...(lib.gateway.available
+      ? lib.relayTools.map<ToolItem>((g) => ({ key: toolKey('relay', g.group), kind: 'relay', name: g.group, providers: g.providers }))
+      : []),
   ];
 }
 
@@ -68,9 +72,12 @@ export const noneForCliText = (t: Messages, provider: Provider): string => t.tea
 /** The hint over a member's tool library items: they come on top of what its CLI loads by itself. */
 export const toolsHintText = (t: Messages, provider: Provider): string => t.team.toolsHint(ownSetupText(t, provider));
 
-/** The items that apply to an agent of `provider`: all but the memory parts for other CLIs. */
+/**
+ * The items that apply to an agent of `provider`: all but the memory parts for other CLIs, and but
+ * Harness Relay's own tools for an open agent, whose sandbox does not reach the gateway yet.
+ */
 export function itemsFor(items: ToolItem[], provider: Provider): ToolItem[] {
-  return items.filter((i) => i.kind !== 'memory' || i.name === 'all' || i.name === provider);
+  return items.filter((i) => (i.kind !== 'memory' || i.name === 'all' || i.name === provider) && !(i.kind === 'relay' && isOpenProvider(provider)));
 }
 
 /** On for an agent of `provider` unless it turns it off. */

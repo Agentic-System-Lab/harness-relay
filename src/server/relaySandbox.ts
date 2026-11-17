@@ -387,6 +387,16 @@ export function hostNode(ctx: Pick<RelaySandboxContext, 'tools'>): string {
   return ctx.tools.node ?? process.execPath;
 }
 
+/**
+ * The Node.js the CLIs start Harness Relay's gateway with (`gateway.ts`): this server's own, or in the
+ * desktop app, whose runtime is not plain Node, the one its sandbox host runs on; undefined when it
+ * has none (the gateway's tools are then not offered).
+ */
+export function gatewayNode(electron = Boolean(process.versions.electron)): string | undefined {
+  if (!electron) return process.execPath;
+  return relaySandboxTools(process.platform, process.env.PATH ?? '', { electron: true }).node ?? undefined;
+}
+
 export function relaySandboxContext(): RelaySandboxContext {
   return {
     platform: process.platform,

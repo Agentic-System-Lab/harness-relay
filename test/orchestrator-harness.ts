@@ -74,6 +74,8 @@ export interface Call {
   effort?: string;
   /** It was given a way to ask the user's approval (`requestApproval`). */
   asksApproval?: boolean;
+  /** The names of the MCP servers it was given. */
+  mcpServers?: string[];
 }
 
 /** Every fake CLI run, in order (emptied before each test; a test empties it with `calls.length = 0`). */
@@ -134,6 +136,8 @@ export interface Fake {
   keptAsk: ((req: { kind: 'fetch'; detail: string }) => Promise<unknown>) | undefined;
   /** What an agent replies instead of "<name> done", when it returns text. */
   reply: ((name: string, prompt: string) => string | undefined) | undefined;
+  /** Runs inside an agent's turn, awaited, with what the run was given (to ask for approvals, say). */
+  inTurn: ((name: string, o: import('../src/server/agents/types').RunOptions) => Promise<void>) | undefined;
 }
 
 const fresh = (): Fake => ({
@@ -155,6 +159,7 @@ const fresh = (): Fake => ({
   fail: undefined,
   keptAsk: undefined,
   reply: undefined,
+  inTurn: undefined,
 });
 
 export const fake: Fake = fresh();
@@ -248,12 +253,14 @@ beforeAll(() => {
         home: o.env?.CLAUDE_CONFIG_DIR,
         model: o.model,
         effort: o.effort,
+        ...(o.mcpServers?.length ? { mcpServers: o.mcpServers.map((s) => s.name) } : {}),
       });
       writeFileSync(join(o.cwd, 'shared.txt'), `written by ${name}\n`);
       writeFileSync(join(o.cwd, `${name}.txt`), `${name}\n`);
       // In each other working directory too.
       for (const dir of o.addDirs ?? []) writeFileSync(join(dir, `${name}.txt`), `${name} was here\n`);
       fake.during?.(name, o.cwd);
+      await fake.inTurn?.(name, o);
       // Like a real CLI, a run ends when it is stopped.
       if (!o.signal?.aborted) {
         await Promise.race([fake.gates[name] ?? fake.gate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
