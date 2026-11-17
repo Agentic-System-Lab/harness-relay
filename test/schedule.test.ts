@@ -208,10 +208,10 @@ describe('the schedule form', () => {
     nextRunAt: MON + DAY,
   };
 
-  it('starts a new schedule on weekdays at 09:00, and reads a saved one back unchanged', () => {
+  it('starts a new schedule with no set times (weekdays at 09:00 ready for another kind), and reads a saved one back unchanged', () => {
     const fresh = draftFrom(undefined, MON, 'UTC');
     expect(fresh).toMatchObject({
-      kind: 'weekly',
+      kind: 'manual',
       time: '09:00',
       days: [1, 2, 3, 4, 5],
       enabled: true,
@@ -307,7 +307,9 @@ describe('the schedule form', () => {
     const draft = draftFrom(undefined, MON, 'UTC');
     const p = en.schedule.problems;
     expect(draftProblems(draft, MON, en)).toEqual([p.text]);
-    expect(draftProblems({ ...draft, text: 'go', days: [], time: '' }, MON, en)).toEqual([p.days, p.time]);
+    expect(draftProblems({ ...draft, text: 'go', kind: 'weekly', days: [], time: '' }, MON, en)).toEqual([p.days, p.time]);
+    // No set times: no days nor time to check.
+    expect(draftProblems({ ...draft, text: 'go', days: [], time: '' }, MON, en)).toEqual([]);
     expect(draftProblems({ ...draft, text: 'go', kind: 'interval', hours: 200 }, MON, en)).toEqual([p.hours(168)]);
     expect(draftProblems({ ...draft, text: 'go', kind: 'once', at: localInput(MON - HOUR) }, MON, en)).toEqual([p.past]);
     expect(draftProblems({ ...draft, text: 'go', kind: 'once', at: localInput(MON - HOUR), enabled: false }, MON, en)).toEqual([]);

@@ -418,7 +418,7 @@ export const en: Messages = {
   newSchedule: {
     title: 'New schedule',
     intro: (lead) =>
-      `Set a message the team is sent at set times. Once you create it, the lead agent (${lead}) designs a team for the message; after you confirm the team, the schedule runs at the set times. Nothing runs when you create it.`,
+      `Set a message the team is sent when you run it, its webhook is called, or at set times. Once you create it, the lead agent (${lead}) designs a team for the message; after you confirm the team, the schedule can run. Nothing runs when you create it.`,
     schedule: 'Schedule',
     titlePlaceholder: 'Chat name (optional; the first line of the message by default)',
     create: 'Create schedule',

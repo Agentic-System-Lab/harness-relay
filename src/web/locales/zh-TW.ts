@@ -437,7 +437,7 @@ export const zhTW = {
   newSchedule: {
     title: '新排程',
     intro: (lead: string) =>
-      `設定一則在固定時間傳給團隊的訊息。建立後，首席 agent（${lead}）會為這則訊息組隊；你確認團隊後，排程就會在設定的時間執行。建立時不會先執行。`,
+      `設定一則傳給團隊的訊息，在你執行它、程式呼叫它的 webhook，或設定的時間送出。建立後，首席 agent（${lead}）會為這則訊息組隊；你確認團隊後，排程就可以執行。建立時不會先執行。`,
     schedule: '排程',
     titlePlaceholder: '對話名稱（選填，預設用訊息的第一行）',
     create: '建立排程',

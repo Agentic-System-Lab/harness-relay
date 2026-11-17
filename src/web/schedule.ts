@@ -52,14 +52,17 @@ export function fromLocalInput(value: string): number {
   return new Date(value).getTime(); // without an offset, the browser's time zone
 }
 
-/** The form for a conversation's schedule, or for a new one: weekdays at 09:00. */
+/**
+ * The form for a conversation's schedule, or for a new one: no set times (Run once now and its webhook
+ * send it), with weekdays at 09:00 ready for when another kind is picked.
+ */
 export function draftFrom(s: ConversationSchedule | undefined, now: number, timeZone = browserTimeZone()): ScheduleDraft {
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
   tomorrow.setHours(9, 0, 0, 0);
   const draft: ScheduleDraft = {
     text: '',
-    kind: 'weekly',
+    kind: 'manual',
     at: localInput(tomorrow.getTime()),
     time: '09:00',
     days: [1, 2, 3, 4, 5],
