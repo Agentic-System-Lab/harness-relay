@@ -9,6 +9,7 @@ import {
   type ProviderStatus,
 } from '../../shared/types';
 import { api, orCreateCwd } from '../api';
+import { loadPart } from '../chunks';
 import { useI18n } from '../i18n';
 import { useLimits } from '../limits';
 import { draftFrom, draftProblems, handOverHook, toUpdate, type ScheduleDraft } from '../schedule';
@@ -71,6 +72,9 @@ export function NewSchedule({ providers, catalog, onCreated }: Props) {
     setBusy(true);
     setError('');
     try {
+      // The drawer that shows a webhook's token, loaded before the token is made: in a page open across an
+      // update it cannot be, and the page reloads for it (`loadPart`), which would lose a token made first.
+      if (withHook) await loadPart(() => import('./ScheduleDrawer'));
       const { newHook, ...conv } = await orCreateCwd(
         (createCwd) =>
           api.createSchedule({

@@ -161,6 +161,8 @@ describe("Harness Relay's own tools in a turn", () => {
       seen.push((await o.requestApproval({ kind: 'other', tool: 'relay_mail_send' })).allow);
       seen.push((await o.requestApproval({ kind: 'other', tool: 'mcp__evil__mail_send' })).allow);
       seen.push((await o.requestApproval({ kind: 'command', command: 'npm publish', tool: 'mcp__relay__mail_send' })).allow);
+      // Antigravity's name for it, from another CLI: a library server `mcp`'s tool `relay_mail_send` there.
+      seen.push((await o.requestApproval({ kind: 'other', tool: 'mcp_relay_mail_send' })).allow);
     };
     // Without Harness Relay's tools the turn has no one to ask, as before.
     await orchestrator.send(conv.id, 'first');
@@ -168,8 +170,24 @@ describe("Harness Relay's own tools in a turn", () => {
     settings.tools.update({ relayTools: { mail: ['claude'] } });
     await orchestrator.send(conv.id, 'second');
     await finish(conv.id);
-    expect(seen).toEqual([undefined, true, true, false, false]);
+    expect(seen).toEqual([undefined, true, true, false, false, false]);
     expect(conv.messages.some((m) => m.parts.some((p) => p.type === 'approval'))).toBe(false);
+
+    // From Antigravity, that name is the gateway's tool: answered.
+    const saved = runners.antigravity;
+    runners.antigravity = { ...runners.claude, provider: 'antigravity' };
+    try {
+      conv.agents = [{ ...agents[0]!, provider: 'antigravity' }];
+      store.saveMeta(conv);
+      settings.tools.update({ relayTools: { mail: ['antigravity'] } });
+      const asked: boolean[] = [];
+      fake.inTurn = async (_name, o) => void asked.push((await o.requestApproval!({ kind: 'other', tool: 'mcp_relay_mail_send' })).allow);
+      await orchestrator.send(conv.id, 'third');
+      await finish(conv.id);
+      expect(asked).toEqual([true]);
+    } finally {
+      runners.antigravity = saved;
+    }
   });
 
   it("puts a send call's card in the reply, keeps the chat waiting for the user, and sends it on their Send", () =>

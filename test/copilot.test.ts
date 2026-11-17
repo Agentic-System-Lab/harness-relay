@@ -1639,6 +1639,31 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
     expect(prompt.map((b: any) => b.type)).toEqual(['text', 'image']);
   });
 
+  it("gives Harness Relay's gateway as an HTTP server, its token in a header over stdin alone, in a new session and a resumed one", async () => {
+    // Copilot takes only HTTP and SSE MCP servers over ACP: the gateway reaches it over loopback HTTP.
+    const relay = {
+      name: 'relay',
+      transport: 'http' as const,
+      command: '',
+      args: [],
+      url: 'http://127.0.0.1:41234/mcp',
+      env: {},
+      headers: { Authorization: 'Bearer TURN-TOKEN-1' },
+    };
+    const given = [{ type: 'http', name: 'relay', url: relay.url, headers: [{ name: 'Authorization', value: 'Bearer TURN-TOKEN-1' }] }];
+    const fresh = run(undefined, { mcpServers: [relay] });
+    await copilotRunner.run(fresh.o);
+    expect(fresh.log().find((l) => l.method === 'session/new')?.params.mcpServers).toEqual(given);
+    const resumed = run(undefined, { sessionId: 'old-1', mcpServers: [relay] });
+    await copilotRunner.run(resumed.o);
+    expect(resumed.log().find((l) => l.method === 'session/load')?.params.mcpServers).toEqual(given);
+    // Not in its arguments, nor in a file of the run's home.
+    for (const r of [fresh, resumed]) {
+      expect(r.log()[0]!.argv.join(' ')).not.toContain('TURN-TOKEN-1');
+      expect(JSON.stringify(r.log()[0]!.files)).not.toContain('TURN-TOKEN-1');
+    }
+  });
+
   it('makes every working directory, and its repository, read-only in a read-only run, and checks that its sandbox says so', async () => {
     const repo = join(root, `repo-${n}`);
     const other = join(repo, 'other');

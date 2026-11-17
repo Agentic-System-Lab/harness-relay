@@ -36,7 +36,7 @@ import type {
   SearchResult,
   SharedPage,
 } from '../shared/types';
-import { PERMISSION_ORDER, PROGRESS_STATUSES, PROVIDERS, TOOL_CALL_KINDS, cwdSettings, pendingPlan } from '../shared/types';
+import { ALERT_KINDS, PERMISSION_ORDER, PROGRESS_STATUSES, PROVIDERS, TOOL_CALL_KINDS, cwdSettings, pendingPlan } from '../shared/types';
 import { byAge, familyOf, type FamilyMember } from '../shared/family';
 import { searchTerms, snippetAround, termsIn } from '../shared/search';
 import { nul, transaction, type Database } from './db';
@@ -62,8 +62,6 @@ interface ShareRow {
 
 /** How many notifications the inbox keeps: past them, the oldest go. */
 export const INBOX_KEPT = 200;
-
-const ALERT_KINDS: readonly AlertKind[] = ['done', 'error', 'approval', 'confirm', 'answer'];
 
 interface NotificationRow {
   id: string;
@@ -1636,7 +1634,7 @@ export class Store {
       )
       .all() as unknown as NotificationRow[];
     return rows
-      .filter((r) => (ALERT_KINDS as string[]).includes(r.kind))
+      .filter((r) => (ALERT_KINDS as readonly string[]).includes(r.kind))
       .map((r) => ({
         id: r.id,
         conversationId: r.conversation_id,

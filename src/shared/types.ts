@@ -725,9 +725,11 @@ export interface AuthSessionView {
 /**
  * What a browser is alerted to (`src/shared/notify.ts`): the team's reply ended (`done`) or ended with
  * an error (`error`); an agent asks to do something its permission does not cover (`approval`), the
- * lead agent's team waits to be confirmed (`confirm`), or an agent asked the user something (`answer`).
+ * lead agent's team waits to be confirmed (`confirm`), an agent asked the user something (`answer`), or a
+ * tracked goal is held up and needs the user (`blocked`). The notification inbox keeps these kinds alone.
  */
-export type AlertKind = 'done' | 'error' | 'approval' | 'confirm' | 'answer' | 'blocked';
+export const ALERT_KINDS = ['done', 'error', 'approval', 'confirm', 'answer', 'blocked'] as const;
+export type AlertKind = (typeof ALERT_KINDS)[number];
 
 /**
  * A notification in the inbox (the bell beside the sidebar's collapse button): an alert the team gave

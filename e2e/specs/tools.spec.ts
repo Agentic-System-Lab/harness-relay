@@ -727,6 +727,45 @@ test("below full access, Codex reaches Harness Relay's own tools over loopback H
   for (const e of relay.fakeLog().filter((x) => x.cli === 'codex' && x.args)) expect(JSON.stringify(e.args)).not.toContain(token);
 });
 
+// Copilot's fake installed for it: it takes HTTP MCP servers only, as the real one does.
+test.describe(() => {
+  withClis('copilot');
+
+  test("below full access, Copilot reaches Harness Relay's own tools over loopback HTTP, the token in a header alone, and its mail waits in the outbox", async ({
+    page,
+    relay,
+  }) => {
+    await relay.api('/api/connectors/mail/work', {
+      method: 'PUT',
+      body: {
+        name: 'Work',
+        address: 'Me <me@example.com>',
+        username: 'me@example.com',
+        password: 'app-pass',
+        imap: { host: '127.0.0.1', port: 9, security: 'none' },
+        smtp: { host: '127.0.0.1', port: 9, security: 'none' },
+      },
+    });
+    await relay.api('/api/tools', { method: 'PUT', body: { relayTools: { mail: ['copilot'] } } });
+    await openTeamChat(page, relay, [{ name: 'Copilot', provider: 'copilot' }], { permission: 'edit' }, 'Mail Fay');
+    await send(page, 'Tell Fay it shipped: {"to": "fay@example.com", "subject": "Shipped", "body": "It is out."} e2e:mcp=mail_send');
+
+    const reply = await finishedReply(page, 'Copilot');
+    await expect(reply).toContainText(
+      'The mail_send tool said: Not sent yet: "Mail to fay@example.com: "Shipped"" is waiting in the user\'s outbox',
+    );
+    await expect(reply.getByRole('region', { name: 'What @Copilot asked to send' })).toContainText('fay@example.com');
+    await expect(page.locator('.approval-card')).toHaveCount(0);
+    // Given as an HTTP server on loopback, its token in the header only, in no argument Copilot was started with.
+    const given = await logged(relay, (e) => e.cli === 'copilot' && e.mcpEnv?.relay);
+    expect(given[0]!.mcpHttp?.relay).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
+    const auth = String(given[0]!.mcpEnv!.relay!.Authorization);
+    expect(auth).toMatch(/^Bearer \S{20,}$/);
+    const token = auth.slice('Bearer '.length);
+    for (const e of relay.fakeLog().filter((x) => x.cli === 'copilot' && x.args)) expect(JSON.stringify(e.args)).not.toContain(token);
+  });
+});
+
 test("below full access, the CLI's own question about Harness Relay's tool is answered for the user, and the gateway asks about an act with what it will do", async ({
   page,
   relay,

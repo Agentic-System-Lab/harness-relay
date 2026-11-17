@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDatabase, type Database } from '../src/server/db';
 import { INBOX_CHECK_MS, Inbox, newConversationNews } from '../src/server/inbox';
 import { INBOX_KEPT, Store } from '../src/server/store';
-import type { ChatMessage, Conversation, ConversationSummary } from '../src/shared/types';
+import { ALERT_KINDS, type AlertKind, type ChatMessage, type Conversation, type ConversationSummary } from '../src/shared/types';
 
 const conversation = (id: string, title = `Chat ${id}`, messages: ChatMessage[] = []): Conversation => ({
   id,
@@ -43,7 +43,7 @@ describe('notification inbox storage', () => {
   let db: Database;
   let store: Store;
   let n: number;
-  const add = (conversationId: string, kind: 'done' | 'error' | 'approval' | 'confirm' | 'answer' = 'done', at = ++n) =>
+  const add = (conversationId: string, kind: AlertKind = 'done', at = ++n) =>
     store.addNotification({ id: `n${at}`, conversationId, kind, agent: 'Claude', text: 'All tests pass.', createdAt: at });
 
   beforeEach(() => {
@@ -85,6 +85,13 @@ describe('notification inbox storage', () => {
       createdAt: 10,
       read: false,
     });
+  });
+
+  it('keeps every kind the alerts give, a goal held up too: each listed as it is counted', () => {
+    for (const kind of ALERT_KINDS) expect(add('c1', kind)?.kind).toBe(kind);
+    expect(store.notifications().map((x) => x.kind)).toEqual([...ALERT_KINDS].reverse());
+    expect(store.notificationSummary().unread).toBe(ALERT_KINDS.length);
+    expect(ALERT_KINDS).toContain('blocked');
   });
 
   it('sums up how many are unread, where (the latest first), and the newest one', () => {

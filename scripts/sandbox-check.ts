@@ -693,15 +693,22 @@ async function agentMemoryMac(cwd: string, lldb: string) {
       "process.stdout.write((verdict ?? `REFUSED ${why ?? (r.error?.message || out.trim().slice(-120))}`) + '\\n');",
     ].join('\n'),
   );
-  const args = `${join(dir, 'agent.cjs')} ${join(dir, 'reader_lldb.py')} ${lldb}`;
-  const r = await run(`node ${args} 2>&1 || true`, baseSpec('read-only'), undefined, 200_000);
+  const args = [join(dir, 'agent.cjs'), join(dir, 'reader_lldb.py'), lldb];
+  // The control first: only where lldb reads the agent's memory outside the sandbox (developer mode on, a
+  // node a debugger may attach to) does a refusal inside it say anything about the sandbox.
+  const outside = spawnSync(node, args, { encoding: 'utf8', timeout: 200_000 }).stdout ?? '';
+  const control = /REFUSED.*|NOT-FOUND|FOUND/.exec(outside)?.[0] ?? (outside.trim().slice(-60) || '?');
+  if (control !== 'FOUND') {
+    skipped.push(`the agent's memory on macOS (lldb cannot read it outside the sandbox either: ${control})`);
+    return;
+  }
+  const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+  const r = await run(`node ${args.map(quote).join(' ')} 2>&1 || true`, baseSpec('read-only'), undefined, 200_000);
   const said = /REFUSED.*|NOT-FOUND|FOUND/.exec(r.out)?.[0] ?? r.out.trim().slice(-60);
-  const outside = spawnSync(node, args.split(' '), { encoding: 'utf8', timeout: 200_000 }).stdout ?? '';
-  const control = /REFUSED.*|NOT-FOUND|FOUND/.exec(outside)?.[0] ?? '?';
   check(
     "escape: a command cannot read its agent's memory",
     said.startsWith('REFUSED') || said === 'NOT-FOUND',
-    `${said}; outside the sandbox ${control} (lldb attaching to node, which allows a debugger)`,
+    `${said}; outside the sandbox FOUND (lldb attaching to node, which allows a debugger)`,
   );
 }
 

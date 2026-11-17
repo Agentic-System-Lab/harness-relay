@@ -738,19 +738,32 @@ export const gatewayApprovalTool = (name: string) => `${GATEWAY_SERVER_NAME}:${n
 /**
  * The gateway's tool a CLI's own approval request is about, if it is one: a request for a tool (kind
  * `other`) named exactly as the CLI names the gateway's (`mcp__relay__browser_open` in Claude Code,
- * `relay:browser_open` in Codex, `relay_browser_open` in OpenCode, `mcp_relay_browser_open` in
- * Antigravity (its `session/request_permission`, seen with agy 1.5.10), `relay/browser_open`,
- * `relay__browser_open`, `relay.browser_open`), never a command, a path or a URL with such words in it,
+ * `relay:browser_open` in Codex, `relay_browser_open` in OpenCode, `relay/browser_open`,
+ * `relay__browser_open`, `relay.browser_open`; and only from Antigravity, `mcp_relay_browser_open`, as
+ * agy 1.5.10 names it in its `session/request_permission`: in OpenCode's `<server>_<tool>` that name is a
+ * library server `mcp`'s tool `relay_browser_open`), never a command, a path or a URL with such words in it,
  * nor another server's tool of the same name. OpenCode's one underscore could join a library server's
  * name and its tool into the same words (`relay_mail` and `search`), so no library server may be named
  * so (`reservedMcpName()`), and a run that has the gateway is given none that is. The turn answers such
  * a request yes, and the gateway decides by the tool's tier (`Orchestrator`).
  */
-export function gatewayToolNamed(names: readonly string[], req: Pick<ApprovalRequest, 'kind' | 'tool'>): string | undefined {
+export function gatewayToolNamed(
+  names: readonly string[],
+  req: Pick<ApprovalRequest, 'kind' | 'tool'>,
+  provider?: Provider,
+): string | undefined {
   if (req.kind !== 'other' || !req.tool) return undefined;
   const s = GATEWAY_SERVER_NAME;
   return names.find((n) =>
-    [`mcp__${s}__${n}`, `mcp_${s}_${n}`, `${s}:${n}`, `${s}_${n}`, `${s}__${n}`, `${s}/${n}`, `${s}.${n}`].includes(req.tool!),
+    [
+      `mcp__${s}__${n}`,
+      `${s}:${n}`,
+      `${s}_${n}`,
+      `${s}__${n}`,
+      `${s}/${n}`,
+      `${s}.${n}`,
+      ...(provider === 'antigravity' ? [`mcp_${s}_${n}`] : []),
+    ].includes(req.tool!),
   );
 }
 

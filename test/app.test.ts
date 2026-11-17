@@ -3149,6 +3149,16 @@ describe('schedules', () => {
     const plain = (await (await create({ settings: { cwd: project }, schedule: valid })).json()) as Conversation & { newHook?: unknown };
     expect(plain.newHook).toBeUndefined();
     expect(plain.schedule!.hook).toBeUndefined();
+    // Only a real `true` makes one: a string or a number does not.
+    for (const hook of ['true', 1]) {
+      const other = (await (await create({ settings: { cwd: project }, schedule: valid, hook })).json()) as Conversation & {
+        newHook?: unknown;
+      };
+      expect(other.newHook).toBeUndefined();
+      expect(other.schedule!.hook).toBeUndefined();
+      orchestrator.stop(other.id);
+      await vi.waitFor(() => expect(orchestrator.isRunning(other.id)).toBe(false));
+    }
     const res = await create({ settings: { cwd: project }, schedule: { ...valid, manual: true }, hook: true });
     expect(res.status).toBe(200);
     const conv = (await res.json()) as Conversation & {

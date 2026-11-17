@@ -2924,7 +2924,11 @@ export class Orchestrator {
     const cliApproval = (relayOn: boolean): RunOptions['requestApproval'] =>
       relayOn
         ? async (req: ApprovalRequest): Promise<ApprovalAnswer> =>
-            gatewayToolNamed(gatewayNames, req) ? { allow: true } : requestApproval ? requestApproval(req) : { allow: false }
+            gatewayToolNamed(gatewayNames, req, agent.provider)
+              ? { allow: true }
+              : requestApproval
+                ? requestApproval(req)
+                : { allow: false }
         : requestApproval;
     const toOutbox = (o: { tool: string; title: string; preview: OutboxItem['preview']; args: Record<string, unknown> }): OutboxItem => {
       const { item, existing } = this.outbox!.add(

@@ -40,6 +40,7 @@ const { acpAgent, picked, requestPermission, sessionUpdates } = require('../lib/
 const { inside, notAWorkingDirectory, ownSkills, targetOf } = require('../lib/files.cjs');
 const { keyVerdict, planResets, planUsedPercent, sessions, signIn, signedOut } = require('../lib/home.cjs');
 const { exitAfterLog, record, tryWrite } = require('../lib/log.cjs');
+const { callMcpTool } = require('../lib/mcp.cjs');
 const { directivesIn, lastUserMessage, noOther, plan, recordMcpEnv, skillsIn, wrote } = require('../lib/plan.cjs');
 const { fail, rpcError } = require('../lib/rpc.cjs');
 const self = require('../lib/self.cjs');
@@ -342,6 +343,7 @@ function copilotAcp() {
       allowAll: self.has('--allow-all'),
       sandbox: sandboxOf(cwd),
       mcp: (p.mcpServers || []).map((x) => x.name),
+      mcpSpecs: Object.fromEntries((p.mcpServers || []).map((x) => [x.name, x])),
       briefing,
       cancelled: false,
     };
@@ -493,6 +495,25 @@ async function copilotTurn(peer, sessionId, s, steps, skillFiles) {
       u.toolCall({ ...call, status: 'pending' });
       await self.sleep(20);
       report(call, 'completed', { rawOutput: { content: step.output } });
+    }
+    if (step.type === 'mcp') {
+      // A tool of an MCP server it was given: over ACP the real Copilot takes HTTP and SSE servers only
+      // ("Rejecting non-http/sse MCP server"), titles the call `<server>-<tool>`, and runs it.
+      const spec = s.mcpSpecs && s.mcpSpecs[step.server];
+      const call = { toolCallId: callId(), title: `${step.server}-${step.tool}`, kind: 'other', rawInput: step.args };
+      u.toolCall({ ...call, status: 'pending' });
+      if (!spec || spec.type !== 'http') {
+        report(call, 'failed', { rawOutput: { message: `No MCP server ${step.server}` } });
+        prefix += `No MCP server ${step.server}. `;
+      } else {
+        const r = await callMcpTool(
+          { url: spec.url, headers: Object.fromEntries((spec.headers || []).map((v) => [v.name, v.value])) },
+          step.tool,
+          step.args,
+        );
+        report(call, r.isError ? 'failed' : 'completed', { content: [{ type: 'content', content: { type: 'text', text: r.text } }] });
+        prefix += `The ${step.tool} tool said: ${r.text} `;
+      }
     }
     if (step.type === 'approve') {
       const call = {
