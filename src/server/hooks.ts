@@ -322,13 +322,13 @@ export function shellWords(words: readonly string[]): string {
  */
 export function commandHookHandler(
   hooks: TurnHooks,
-  toCall: (payload: Record<string, any>) => HookResult,
+  toCall: (payload: Record<string, any>, when: CheckHook['when']) => HookResult,
   afterReply: (said: string, call: HookResult) => Record<string, unknown>,
   /** The longest the CLI waits for its hooks (seconds), when that may be less than the hooks need: Harness Relay answers before it. */
   limitSec?: (when: CheckHook['when']) => number,
 ): HookHandler {
   return async (when, payload) => {
-    const call = toCall(payload && typeof payload === 'object' && !Array.isArray(payload) ? (payload as Record<string, any>) : {});
+    const call = toCall(payload && typeof payload === 'object' && !Array.isArray(payload) ? (payload as Record<string, any>) : {}, when);
     if (when === 'before') {
       const said = await hooks.before(call, limitSec?.('before'));
       if (!said) return { code: 0 };

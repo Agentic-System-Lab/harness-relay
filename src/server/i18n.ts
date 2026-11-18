@@ -38,6 +38,10 @@ const zhTW = {
     `Codex 無法列出它的 MCP 伺服器，因此無法在這次執行中不載入它們或它們的工具（${detail}）。請更新 Codex，或在「設定」裡 Codex 的「這個 CLI 自己載入的…」中，取消「MCP 工具」分頁的不載入勾選。`,
   codexLeftOutUnchecked: (detail: string) =>
     `無法確認 Codex 在這次執行中沒有載入設為不載入的 skill、hook 或 plugin（${detail}），所以沒有執行。請再試一次，或在「設定」裡 Codex 的「這個 CLI 自己載入的…」中取消這些不載入勾選。`,
+  codexHookShell: 'Codex 的團隊 hook 需要 POSIX shell，PowerShell 帳號的這個回合未開始。',
+  codexHooksUnprotected: 'Codex 的編輯沙箱無法保護團隊的 hook 程式，因此未開始這個回合。',
+  codexHooksUnchecked:
+    '無法確認 Codex 已載入並信任團隊的 hook，因此未開始這個回合。請確認 Codex 已啟用 hook 並更新到 0.167.0 或以上，再試一次。',
   codexNoProfile: (active: string | undefined) =>
     `Codex 沒有在 Harness Relay 給它的權限設定檔中執行這個 thread（它回報的是${active ? `「${active}」` : '沒有設定檔'}，可能是不認得這個欄位的舊版 Codex），它的沙箱就擋不住你瀏覽器的資料夾與 Harness Relay 的資料庫，所以沒有執行。請更新 Codex（0.167 可以）再試一次。`,
   codexStillLoaded: (parts: ('skills' | 'hooks' | 'plugins')[]) =>
@@ -941,6 +945,10 @@ const en: ServerMessages = {
     `Codex could not list its MCP servers, so they or their tools could not be left out of this run (${detail}). Update Codex, or clear what is left out on the MCP tools tab of "…this CLI loads by itself" in Codex's settings.`,
   codexLeftOutUnchecked: (detail) =>
     `Could not check that Codex left out the skills, hooks or plugins this run leaves out (${detail}), so it did not run. Try again, or clear them in "…this CLI loads by itself" in Codex's settings.`,
+  codexHookShell: 'Codex team hooks require a POSIX shell. This turn did not start with PowerShell as the account shell.',
+  codexHooksUnprotected: "The Codex edit sandbox cannot protect the team's hook program. The turn did not start.",
+  codexHooksUnchecked:
+    "Codex could not confirm that the team's hooks are loaded and trusted. The turn did not start. Enable hooks in Codex and use Codex 0.167.0 or newer.",
   codexNoProfile: (active) =>
     `Codex did not run this thread in the permission profile Harness Relay gave it (it answered ${active ? `"${active}"` : 'no profile'}; an older Codex that does not know the field, say), so its sandbox would not keep it out of your browsers' folders and Harness Relay's database, and it did not run. Update Codex (0.167 works) and try again.`,
   codexStillLoaded: (parts) =>

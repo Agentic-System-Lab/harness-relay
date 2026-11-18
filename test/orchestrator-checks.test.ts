@@ -1018,19 +1018,19 @@ describe("the team's hooks", () => {
 
   // No hooks run on native Windows, whatever the CLI: nothing to say there.
   it.skipIf(process.platform === 'win32')('gives none to a member on a CLI that cannot run them, and says so in its reply', async () => {
-    const before = runners.codex;
+    const before = runners.grok;
     const given: boolean[] = [];
-    runners.codex = {
-      provider: 'codex',
+    runners.grok = {
+      provider: 'grok',
       async run(o) {
         given.push(Boolean(o.hooks));
         o.onEvent({ type: 'text', text: 'done' });
-        return { sessionId: 'codex-session' };
+        return { sessionId: 'grok-session' };
       },
     };
     try {
       const conv = hooked('full');
-      conv.agents = [{ id: 'c', name: 'Cody', provider: 'codex', role: '' }];
+      conv.agents = [{ id: 'c', name: 'Grok', provider: 'grok', role: '' }];
       store.saveMeta(conv);
       await withLang('en', async () => {
         await orchestrator.send(conv.id, 'go');
@@ -1038,9 +1038,9 @@ describe("the team's hooks", () => {
       });
       expect(given).toEqual([false]);
       const reply = agentMessages(conv)[0]!;
-      expect(reply.parts).toContainEqual({ type: 'notice', text: expect.stringContaining("Codex cannot run the team's hooks yet") });
+      expect(reply.parts).toContainEqual({ type: 'notice', text: expect.stringContaining("Grok cannot run the team's hooks yet") });
     } finally {
-      runners.codex = before;
+      runners.grok = before;
     }
   });
 });

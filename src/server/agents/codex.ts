@@ -18,6 +18,7 @@ import { t } from '../i18n';
 import { runProcess, tail } from '../process';
 import { patternPath, protectedReads } from '../protect';
 import { JsonRpcConnection, RpcError } from './acp';
+import { codexBindTeamHooks, codexListTeamHooks, codexTeamHooks, codexVerifyTeamHooks } from './codexHooks';
 import {
   AgentRunError,
   TURN_TIMEOUT_MS,
@@ -350,6 +351,7 @@ export async function codexConfirmLeftOut(
   conn: { request(method: string, params?: unknown): Promise<unknown> },
   o: Pick<RunOptions, 'cwd' | 'nativeOff' | 'nativeItems'>,
   threadId: string,
+  team?: { list: Awaited<ReturnType<typeof codexListTeamHooks>>; keys: ReadonlySet<string> },
 ): Promise<void> {
   const off = o.nativeOff ?? [];
   const items = o.nativeItems ?? {};
@@ -370,7 +372,11 @@ export async function codexConfirmLeftOut(
   }
   if (
     (!hookKeys || hookKeys.size) &&
-    anyOn((await ask('hooks/list', { threadId }))?.data, 'hooks', (h) => !hookKeys || hookKeys.has(String(h.key)))
+    anyOn(
+      (team?.list ?? (await ask('hooks/list', { threadId })))?.data,
+      'hooks',
+      (h) => (!hookKeys || hookKeys.has(String(h.key))) && !team?.keys.has(String(h.key)),
+    )
   ) {
     still.push('hooks');
   }
@@ -770,11 +776,17 @@ const codexTurnRunner: AgentRunner = {
     // none of these carries a secret, unlike the MCP servers, which only go in the thread's config.
     // The endpoint's model provider neither (its key is in a variable): Codex takes a thread's
     // `modelProvider` only when it is the app-server's own (codex 0.167).
+    const deniedPaths = o.permission === 'edit' ? (profile ? o.protectedPaths : []) : undefined;
+    const team = o.hooks && codexTeamHooks(o.hooks, o.cwd, deniedPaths, o.env.SHELL);
+    // Leaving out native hooks is per-hook while Relay's hooks are installed. Keep Codex's own
+    // feature setting as it is, and fail before starting the turn if Codex cannot load these hooks.
+    const nativeOff = team ? o.nativeOff?.filter((part) => part !== 'hooks') : o.nativeOff;
     const args = [
       'app-server',
       '-c',
       'model_reasoning_summary="auto"',
-      ...codexOverrideArgs(codexNativeConfig(o.nativeOff ?? [], o.nativeItems)),
+      ...codexOverrideArgs(codexNativeConfig(nativeOff ?? [], o.nativeItems)),
+      ...(team ? codexOverrideArgs(team.config) : []),
       ...(endpoint ? codexOverrideArgs(codexEndpointProviderConfig(endpoint)) : []),
     ];
 
@@ -855,20 +867,29 @@ const codexTurnRunner: AgentRunner = {
       });
       conn.notify('initialized');
       const effort = endpoint ? await codexEndpointEffort(o.effort, conn, o.cwd) : o.effort;
+      const bound =
+        team &&
+        codexBindTeamHooks(await codexListTeamHooks(conn, { cwds: [o.cwd] }), team.definitions, o.nativeOff?.includes('hooks') ?? false);
       const { method, params } = codexThreadRequest(
-        { ...o, effort },
+        { ...o, effort, nativeOff },
         await codexUserMcp(conn, o),
         process.platform,
         codexProfileId(),
         endpoint,
       );
+      if (bound) {
+        const config = params.config as Record<string, unknown>;
+        config['hooks.state'] = { ...(config['hooks.state'] as Record<string, unknown> | undefined), ...bound.state };
+      }
       const thread = await conn.request(method, params);
       codexCheckProfile(params, thread);
       threadId = String(thread?.thread?.id ?? o.sessionId ?? '');
       if (!threadId) throw new AgentRunError(t().exitedWithoutTurn('codex', null));
       o.onEvent({ type: 'session', sessionId: threadId });
       if (userAborted) throw new AgentRunError(t().stopped, true);
-      await codexConfirmLeftOut(conn, o, threadId);
+      const list = bound && (await codexListTeamHooks(conn, { threadId }));
+      const checked = bound && list ? { list, keys: codexVerifyTeamHooks(list, bound.bindings) } : undefined;
+      await codexConfirmLeftOut(conn, o, threadId, checked);
       // Stopped during the check: there is no turn to interrupt yet, so do not start one.
       if (userAborted) throw new AgentRunError(t().stopped, true);
 
@@ -926,6 +947,7 @@ export const codexRunner: AgentRunner = {
       const profiled = codexProfile(o.permission, o.protectedPaths ?? protectedReads(), process.platform, o.addDirs, o.guard);
       if (!profiled || !(err instanceof AgentRunError) || err.aborted || !CODEX_PROFILE_LOAD_FAILED.test(err.message)) throw err;
       profilesUnavailable = true;
+      if (o.hooks && o.permission === 'edit') throw new AgentRunError(t().codexHooksUnprotected);
       console.warn(`[codex] it cannot load a permission profile here (${err.message}): using its legacy sandbox, without the deny list`);
       return codexTurnRunner.run(legacy);
     }
