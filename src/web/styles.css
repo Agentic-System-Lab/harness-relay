@@ -5506,11 +5506,6 @@ details.sub summary {
   overflow-wrap: anywhere;
 }
 
-.checks-commands-title {
-  font-weight: 500;
-  margin-top: 6px;
-}
-
 .checks-commands {
   list-style: none;
   margin: 0;
@@ -5556,6 +5551,16 @@ details.sub summary {
   min-width: 0;
 }
 
+/* An opening's long note wraps beside its checkbox, which keeps its size, at the first line. */
+.checks-command-row .check-row {
+  align-items: flex-start;
+}
+
+.checks-command-row .check-row input {
+  flex: none;
+  margin-top: 2px;
+}
+
 .checks-try {
   display: flex;
   align-items: center;
@@ -5567,11 +5572,11 @@ details.sub summary {
   align-self: flex-start;
 }
 
-/* Team settings and the template editor: folded away until it is opened or has rules. */
+/* Team settings and the template editor: folded away until it is opened or has rules. The layout
+   lives on a wrapper: some browsers ignore display: flex on <details>. */
+/* Apart from what follows it (the modes, the working directories), as those rows are apart from each other. */
 .checks-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  margin-bottom: 16px;
 }
 
 .checks-editor summary {
@@ -5579,8 +5584,31 @@ details.sub summary {
   font-weight: 500;
 }
 
-.checks-editor[open] summary {
-  margin-bottom: 4px;
+.checks-editor-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 8px;
+  min-width: 0;
+}
+
+.checks-editor-body > p {
+  margin: 0;
+}
+
+/* One rule: its name, what is typed and what it means, together. */
+.checks-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.checks-field > label,
+.checks-field > .checks-commands-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
 }
 
 .checks-editor textarea {

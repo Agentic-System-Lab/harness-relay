@@ -986,7 +986,7 @@ export const en: Messages = {
       `This run changed settings the checks read:\n${files}\n\nRun the command checks, now that you have looked at them?`,
     commands: 'Commands',
     commandsHint:
-      "Commands that must succeed once the team has answered, such as npm test or npm run lint. Below full access they run in Harness Relay's sandbox: no network, writing only in the working directories, with only basic variables (PATH, HOME…) and CI=1. With full access without it, as the agents run. Only in roundtable and relay mode, after a run that changed something.",
+      "Commands that must succeed once the team has answered, such as npm test or npm run lint, with only basic variables (PATH, HOME…) and CI=1. In roundtable and relay mode, after a run that changed something: below full access in Harness Relay's sandbox (no network, writing only in the working directories), with full access as the agents run. In parallel mode, when you apply a member's result: on a copy of the working directories with it in them, in the sandbox whenever it can start.",
     addCommand: 'Add a command',
     commandRun: 'Command',
     commandFolder: 'Folder (relative to the first working directory; optional)',

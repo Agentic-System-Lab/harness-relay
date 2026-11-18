@@ -172,7 +172,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | CLI | 檢查什麼 |
 | --- | --- | --- |
 | 團隊寫入受保護檔案時檢查未通過，擋住使用者這段時間寫的訊息，略過後才送出 | Claude Code | 在保護 `secret.txt`（透過 API 設定）的編輯對話裡，一則很慢的回覆寫入它，同時使用者再送出一則訊息。回覆後，**Team checks** 卡片顯示 **Failed**、**Protected paths**、「secret.txt added · in @Claude's turn」，以及不會撤銷任何修改；佇列說等待的訊息還沒送出，並提供 **Send anyway**。按 **Skip**（確認）後卡片標為已略過，佇列消失、訊息送出；卡片仍顯示 **Failed**，也不再有 **Skip**。 |
-| 在團隊設定設定；檔案移除後重新檢查會通過，也能請成員修正 | Claude Code | 在 **Team settings** 的 **Team checks** 裡，`../outside` 會被拒絕並說明原因，接著存下 `*.key`（對話設定裡有它）。寫入 `deploy.key` 的回覆未通過；**Ask @Claude to fix it** 會把使用者的訊息傳給 @Claude，卡片顯示已請 @Claude 修正。把檔案移走後，**Check again** 會貼出第二張顯示 **Passed** 和 **Checked again** 的卡片。 |
+| 在團隊設定設定；檔案移除後重新檢查會通過，也能請成員修正 | Claude Code | 在 **Team settings** 的 **Team checks** 裡，版面是一欄（每條規則的名稱在輸入框上方，**Add a command** 和下一列分開；有些瀏覽器不理會 `<details>` 上的 `display: flex`），`../outside` 會被拒絕並說明原因，接著存下 `*.key`（對話設定裡有它）。寫入 `deploy.key` 的回覆未通過；**Ask @Claude to fix it** 會把使用者的訊息傳給 @Claude，卡片顯示已請 @Claude 修正。把檔案移走後，**Check again** 會貼出第二張顯示 **Passed** 和 **Checked again** 的卡片。 |
 | 唯讀對話不檢查 | Claude Code | 唯讀對話設了同樣的清單，想寫入的回覆不會有卡片。 |
 | 未通過的指令顯示它怎麼結束和它的輸出；團隊設定可以試跑指令 | Claude Code | 在完整權限的對話裡，指令在 `broken.txt` 存在時會失敗；寫入它的回覆後，卡片顯示 **Failed**、指令列、「exit 3」、沒有在沙箱裡執行，以及 **Output (the end)** 裡它印出的內容。在 **Team settings** 按 **Add a command**、再按 **Try it**，顯示 **Passed**；存檔後對話有兩條指令。Windows 上略過（那裡還不能執行指令）。 |
 | 低於完整權限時，指令在 Harness Relay 自己的沙箱裡執行，不能寫到工作目錄以外 | Claude Code | 在編輯對話裡，寫入工作目錄的指令通過，並說明它自己改了 `inside.txt`；寫到家目錄的指令無法執行（被沙箱擋下），整份結果也是無法執行，絕不是 **Failed**。Harness Relay 自己的沙箱不能用的地方略過。 |

@@ -1002,7 +1002,7 @@ export const zhTW = {
     // Commands: the editor.
     commands: '指令',
     commandsHint:
-      '團隊回答後要成功的指令，例如 npm test 或 npm run lint。低於完整權限時在 Harness Relay 的沙箱裡執行：沒有網路，只能寫工作目錄，環境變數只有 PATH、HOME 等基本的，加上 CI=1。完整權限時不經過沙箱，和 agent 一樣。只在圓桌和接力模式、這一輪改了東西時執行。',
+      '團隊回答後要成功的指令，例如 npm test 或 npm run lint，環境變數只有 PATH、HOME 等基本的，加上 CI=1。圓桌和接力模式在這一輪改了東西後執行：低於完整權限時在 Harness Relay 的沙箱裡（沒有網路，只能寫工作目錄），完整權限時和 agent 一樣不經過沙箱。平行模式在你套用某位成員的結果時執行：在加上那個結果的工作目錄副本上，只要沙箱能啟動就在沙箱裡。',
     addCommand: '新增指令',
     commandRun: '指令',
     commandFolder: '資料夾（相對於第一個工作目錄，可留空）',

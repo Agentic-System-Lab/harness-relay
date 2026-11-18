@@ -55,6 +55,18 @@ test.describe('team checks', () => {
     await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     await drawer.locator('.checks-editor summary').click();
+    // Laid out in a column (some browsers ignore display: flex on <details>): each rule's name above
+    // what is typed, and Add a command apart from the row after the editor.
+    const editor = drawer.locator('.checks-editor');
+    const gaps = await editor.evaluate((el) => {
+      const rect = (q: string) => el.querySelector(q)!.getBoundingClientRect();
+      return {
+        label: rect('textarea').top - rect('.checks-field > label').bottom,
+        after: el.nextElementSibling!.getBoundingClientRect().top - rect('.checks-add').bottom,
+      };
+    });
+    expect(gaps.label).toBeGreaterThanOrEqual(0);
+    expect(gaps.after).toBeGreaterThanOrEqual(12);
     await drawer.getByLabel('Protected paths').fill('../outside');
     await expect(drawer.locator('.checks-editor')).toContainText('"../outside" cannot be used');
     await drawer.getByLabel('Protected paths').fill('*.key\n');
