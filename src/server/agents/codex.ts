@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -83,7 +84,7 @@ export function codexProfile(
   now?: readonly string[],
 ): Record<string, unknown> | undefined {
   if (permission === 'full' || platform === 'win32') return undefined;
-  const reads = permission === 'edit' ? codexGuardReads(guard, now) : [];
+  const reads = permission === 'edit' ? codexGuardReads(guard, now, platform) : [];
   if (!protectedPaths.length && !reads.length) return undefined;
   const writes = permission === 'edit' ? addDirs : [];
   return {
@@ -102,13 +103,40 @@ export function codexProfile(
  * (a more specific entry wins): each pattern with no wildcard at its place in each working directory
  * (one without a `/` at the top), and what matches when the run starts, by name. Codex takes no glob
  * with `read`, so a path made later that only a wildcard or a deeper folder matches is not among them;
- * nor is a name holding `*`, `?` or `[`, which it would read as one.
+ * nor is a name holding `*`, `?` or `[`, which it would read as one. On Linux only a path that is there:
+ * its sandbox (bubblewrap) would put a stand-in in the working directory for one that is not.
  */
-export function codexGuardReads(g: WriteGuard | undefined, now?: readonly string[]): string[] {
+export function codexGuardReads(
+  g: WriteGuard | undefined,
+  now?: readonly string[],
+  platform: NodeJS.Platform = process.platform,
+  exists: (path: string) => boolean = existsSync,
+): string[] {
   if (!g) return [];
   const plain = (p: string) => !/[*?[\]]/.test(p);
   const literal = g.dirs.flatMap((dir) => g.patterns.filter(plain).map((p) => join(dir, ...p.replace(/^\/+|\/+$/g, '').split('/'))));
-  return [...new Set([...literal, ...(now ?? guardedNow(g))])].filter(plain);
+  return [...new Set([...literal, ...(now ?? guardedNow(g))])].filter((p) => plain(p) && (platform !== 'linux' || exists(p)));
+}
+
+/**
+ * Whether Codex asks to change one of the team's protected paths (a file change, a move's either end),
+ * which is refused without asking.
+ */
+export function codexGuardRefuses(
+  method: string,
+  params: Record<string, any>,
+  changes: readonly Record<string, any>[],
+  guard: WriteGuard | undefined,
+  cwd: string,
+): boolean {
+  if (!guard) return false;
+  const paths =
+    method === 'item/fileChange/requestApproval'
+      ? changes.flatMap((c) => [c.path, c.movePath, c.move_path, c.kind?.move_path, c.kind?.movePath])
+      : method === 'applyPatchApproval'
+        ? Object.entries(params.fileChanges ?? {}).flatMap(([path, c]: [string, any]) => [path, c?.move_path, c?.movePath])
+        : [];
+  return paths.some((p) => typeof p === 'string' && p.length > 0 && isGuarded(guard, resolve(cwd, p)));
 }
 
 /**
@@ -553,7 +581,7 @@ export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
   const streamedThinking = new Set<string>();
   /** File paths of file-change items, to show what an approval request is about. */
   const filePaths = new Map<string, string>();
-  const changed = new Map<string, string[]>();
+  const changed = new Map<string, Record<string, any>[]>();
   let usage = { input: 0, output: 0, seen: false };
   let threadTotal: number | undefined; // the thread's total tokens at the last update
 
@@ -562,9 +590,9 @@ export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
     if (!d || !item.id || started.has(item.id)) return;
     started.set(item.id, d.detail);
     if (item.type === 'fileChange') {
-      const paths = (item.changes ?? []).map((c: any) => String(c.path));
-      filePaths.set(item.id, paths.join(', '));
-      changed.set(item.id, paths);
+      const changes: Record<string, any>[] = Array.isArray(item.changes) ? item.changes : [];
+      filePaths.set(item.id, changes.map((c) => c.path).join(', '));
+      changed.set(item.id, changes);
     }
     emit({ type: 'tool_start', id: item.id, ...d });
   };
@@ -648,7 +676,7 @@ export function createCodexUpdateHandler(emit: (e: AgentEvent) => void) {
     filePaths(itemId: string): string | undefined {
       return filePaths.get(itemId);
     },
-    changedPaths(itemId: string): string[] {
+    changes(itemId: string): Record<string, any>[] {
       return changed.get(itemId) ?? [];
     },
     get usage() {
@@ -733,7 +761,8 @@ const codexTurnRunner: AgentRunner = {
       ...(endpoint ? { env: endpointKeyEnv(given.env, endpoint) } : {}),
     };
     // A permission profile is an experimental thread field, which the client opts into.
-    const profile = codexProfile(o.permission, o.protectedPaths, process.platform, [], o.guard, []);
+    // As the thread's request makes it (`codexThreadRequest`): whether there is one decides the opt-in.
+    const profile = codexProfile(o.permission, o.protectedPaths, process.platform, o.addDirs, o.guard);
     // A path its sandbox would read as a pattern would be left unprotected: the run does not start.
     const pattern = profile ? patternPath(o.protectedPaths) : undefined;
     if (pattern) throw new AgentRunError(t().protectedPattern(pattern));
@@ -780,13 +809,7 @@ const codexTurnRunner: AgentRunner = {
       const req = codexApprovalRequest(method, params ?? {}, (id) => updates.filePaths(id));
       if (!req) throw new RpcError(-32601, `${method} is not supported`);
       // A change to one of the team's protected paths: refused without asking.
-      const touched =
-        method === 'item/fileChange/requestApproval'
-          ? updates.changedPaths(String(params?.itemId))
-          : method === 'applyPatchApproval'
-            ? Object.keys(params?.fileChanges ?? {})
-            : [];
-      if (touched.some((path) => isGuarded(o.guard, resolve(o.cwd, path)))) {
+      if (codexGuardRefuses(method, params ?? {}, updates.changes(String(params?.itemId)), o.guard, o.cwd)) {
         return codexApprovalResponse(method, params ?? {}, false, t().guardRefused);
       }
       const answer = o.requestApproval ? await o.requestApproval(req) : { allow: false };
@@ -894,12 +917,13 @@ export const CODEX_PROFILE_LOAD_FAILED = /failed to load workspace requirements/
 export const codexRunner: AgentRunner = {
   provider: 'codex',
   async run(o): Promise<RunResult> {
-    const legacy = { ...o, protectedPaths: [] };
+    // Codex's legacy sandbox mode: no profile, so neither the deny list nor the team's protected paths.
+    const legacy = { ...o, protectedPaths: [], guard: undefined };
     if (profilesUnavailable) return codexTurnRunner.run(legacy);
     try {
       return await codexTurnRunner.run(o);
     } catch (err) {
-      const profiled = codexProfile(o.permission, o.protectedPaths ?? protectedReads());
+      const profiled = codexProfile(o.permission, o.protectedPaths ?? protectedReads(), process.platform, o.addDirs, o.guard);
       if (!profiled || !(err instanceof AgentRunError) || err.aborted || !CODEX_PROFILE_LOAD_FAILED.test(err.message)) throw err;
       profilesUnavailable = true;
       console.warn(`[codex] it cannot load a permission profile here (${err.message}): using its legacy sandbox, without the deny list`);

@@ -971,6 +971,7 @@ describe("layer 3: the scenarios' checks (scripts/cli-check/scenarios.ts)", () =
     expect(guardsShell('goose', 'full', 'darwin')).toBe(false);
     expect(guardsShell('codex', 'edit', 'darwin')).toBe(true);
     expect(guardsShell('codex', 'full', 'darwin')).toBe(false);
+    expect(guardsShell('codex', 'edit', 'linux')).toBe(false);
     expect(guardsShell('copilot', 'edit', 'darwin')).toBe(false);
   });
 

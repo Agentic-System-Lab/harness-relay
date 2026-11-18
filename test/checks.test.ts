@@ -8,6 +8,7 @@ import {
   checksHold,
   commitPatternError,
   compilePattern,
+  hasTextSet,
   hasChecks,
   isProtected,
   latestChecks,
@@ -79,6 +80,16 @@ describe('protected path patterns', () => {
     expect(compilePattern('a/b/*/c')!.base).toBe('a/b');
     expect(compilePattern('*.pem')!.base).toBe('');
     expect(compilePattern('**/x')!.base).toBe('');
+  });
+
+  it('reads a set a regular expression refuses as the text it is (a Next.js route), never throwing', () => {
+    expect(matches('app/api/[user-id]/route.ts', 'app/api/[user-id]/route.ts')).toBe(true);
+    expect(matches('app/api/[user-id]/route.ts', 'app/api/u/route.ts')).toBe(false);
+    expect(matches('pages/[post-id].tsx', 'pages/[post-id].tsx')).toBe(true);
+    expect(hasTextSet('pages/[post-id].tsx')).toBe(true);
+    expect(hasTextSet('*.[ch]')).toBe(false);
+    expect(hasTextSet('[!a].txt')).toBe(false);
+    expect(matches('*.[ch]', 'a.c')).toBe(true);
   });
 
   it('tells whether a path is protected by any pattern', () => {

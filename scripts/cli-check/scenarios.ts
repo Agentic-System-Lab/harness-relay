@@ -94,8 +94,9 @@ interface Scenario {
 export function guardsShell(p: Provider, permission: Permission, platform: NodeJS.Platform = process.platform): boolean {
   if (platform === 'win32') return false;
   if (p === 'claude') return permission !== 'read-only';
-  // Its permission profile's `read` entries, below full access (full access has none).
-  if (p === 'codex') return permission === 'edit';
+  // Its permission profile's `read` entries, below full access (full access has none); on Linux only for
+  // a path that is there, and the scenario's is not.
+  if (p === 'codex') return permission === 'edit' && platform !== 'linux';
   if (isOpenProvider(p)) return permission === 'edit' && platform === 'darwin';
   return false;
 }
@@ -129,13 +130,18 @@ const guardToolWrite: Scenario = {
     rmSync(guardFile(c), { force: true });
     const claimed = guardsTool(c.provider, 'edit');
     const called = r.requests.find((q) => q.answered.call)?.answered.call?.name;
+    if (!called) {
+      // Nothing was tried: a file not written proves nothing.
+      return [
+        {
+          ok: 'warn',
+          what: `the model found no write tool (offered: ${r.requests.find((q) => q.tools.length)?.tools.join(', ') || 'none'})`,
+        },
+        { ok: !wrote || 'warn', what: wrote ? 'the file is there, though no write tool was called' : 'nothing was tried' },
+      ];
+    }
     return [
-      called
-        ? { ok: true, what: `the model called ${called}` }
-        : {
-            ok: 'warn',
-            what: `the model found no write tool (offered: ${r.requests.find((q) => q.tools.length)?.tools.join(', ') || 'none'})`,
-          },
+      { ok: true, what: `the model called ${called}` },
       {
         ok: !wrote || (claimed ? false : 'warn'),
         what: wrote

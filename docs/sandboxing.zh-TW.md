@@ -151,17 +151,18 @@ Harness Relay 啟動真正的 `claude`、`codex`、`grok`、`cursor-agent`、`ag
 | CLI | 怎麼做 | 它自己的檔案工具 | 它的指令 | 完整權限 |
 | --- | --- | --- | --- | --- |
 | Claude Code | 這一輪 `--settings` 裡的 `Edit` deny 規則：每條樣式在每個工作目錄各寫成絕對 glob，加上這一輪開始時符合的路徑本身 | 拒絕 | 它能看出目標時拒絕（重新導向、`rm`、`mv`、`cp`、`tee`、`sed -i`）；低於完整權限時在 macOS 上每個指令都擋（它的沙箱會採用這些規則） | 同樣的規則 |
-| Codex | 編輯模式下，thread 權限 profile 裡的 `read` 項目：沒有萬用字元的樣式放在它的位置，加上這一輪開始時符合的路徑；它來問的檔案修改直接拒絕 | 拒絕 | 拒絕（它的沙箱） | 沒有（沒有 profile） |
+| Codex | 編輯模式下，thread 權限 profile 裡的 `read` 項目：沒有萬用字元的樣式放在它的位置，加上這一輪開始時符合的路徑（Linux 上只給已存在的）；它來問的檔案修改、搬入或搬出受保護路徑，直接拒絕 | 拒絕（它的 patch，由它的沙箱擋下：研究時試過，`cli-check` 沒試，因為 Codex 沒給它的模型 patch 工具） | 拒絕（它的沙箱） | 沒有（沒有 profile；它無法載入 profile、改用舊沙箱模式時也沒有） |
 | Cursor | 這一輪 `cli-config.json` 裡的 `Write` deny 規則，用每個工作目錄的真實路徑（Cursor 的 `*` 會跨資料夾，`?` 和 `[…]` 照字面比對，所以改成 `*`：可能擋得比檢查保護的多，絕不會少） | 拒絕（寫入和刪除） | 沒有涵蓋（沒有沙箱：低於完整權限時每個指令都會問） | 同樣的規則 |
 | Copilot | 命令列上的 `--deny-tool=write(<glob>)`，以及它來問的寫入直接拒絕 | 拒絕 | 沒有涵蓋 | 同樣的規則 |
 | Antigravity | 它來問的寫入直接拒絕（低於完整權限時每次寫入前都會問） | 低於完整權限時拒絕 | 低於完整權限時每個指令都會問 | 沒有 |
 | OpenCode、Goose、Cline、OpenHands、Pi | 低於完整權限時用 [Harness Relay 自己的沙箱](#harness-relay-自己的沙箱)：macOS 上每條樣式一個 glob（之後才建立的路徑也擋），加上符合的路徑本身；Linux 上只有執行開始時符合的路徑本身 | 拒絕（CLI 在沙箱裡執行） | 拒絕 | 沒有（沒有沙箱） |
 | Grok、Muse Code | 還沒有 | — | — | — |
 
-- **Linux 上**，沙箱（Harness Relay 自己的、Claude Code 的）不接受 glob，而且指令執行時會在工作目錄裡替不存在的名稱放一個替身（會讓 `git add -A` 失敗，執行被強制結束時還會留下來）：所以那裡只給這一輪開始時已存在的路徑，這一輪中途建立的受保護路徑要等團隊回答後才會找到。Claude Code 自己的規則仍會擋下它的檔案工具和它看得懂的指令。
+- **Linux 上**，沙箱（Harness Relay 自己的、Claude Code 的、Codex 的）不接受 glob，而且指令執行時會在工作目錄裡替不存在的名稱放一個替身（會讓 `git add -A` 失敗，執行被強制結束時還會留下來）：所以那裡只給這一輪開始時已存在的路徑，這一輪中途建立的受保護路徑要等團隊回答後才會找到。Claude Code 自己的規則仍會擋下它的檔案工具和它看得懂的指令。
 - **macOS 上**，名稱比對不分大小寫。在別處建好、裡面有受保護名稱的資料夾，搬進來時不會被擋；指令執行時，受保護路徑上層的資料夾不能改名或刪除。
 - **Grok** 只在它自己的 `config.toml` 接受這類規則，不能只針對單次執行設定，它沙箱的 `deny` 清單也會連讀取一起擋；**Muse Code** 在它的工作目錄裡寫入時不會問，它 profile 的 `deny` 也會連讀取一起擋。下一步是各 CLI 能只針對單次執行設定的 hook（Grok 每個 session 的 plugin、Muse Code 的 `PreToolUse`、Codex 每個 thread 的 hook），也能涵蓋完整權限。
-- 原生 Windows 上沒有（沒在那裡試過）。
+- **一輪開始時符合的路徑**是逐一查看每個工作目錄找出來的：先看淺層資料夾，每個工作目錄最多 20,000 個項目，總共最多 200 個路徑，不看 `.git`、安裝的依賴和建置快取（`node_modules`、`.venv`、`venv`、`__pycache__`、`.tox`、`target`、`.next`、`.gradle`），也不算指向不存在之處的連結（沙箱會在它的目標放替身）。含有正規表示式不接受的集合（例如 Next.js 路由資料夾的 `[user-id]`）的樣式，會照字面讀，也不會以 glob 交給任何 CLI，因為 glob 會把它當集合。
+- 原生 Windows 上沒有（沒在那裡試過），所以很長的清單也不會超過那裡命令列的長度上限。
 - **試過的版本**：2026 年 11 月 18 日在這台 Mac（macOS 26.6，arm64）上，用 `scripts/cli-check.ts` 的 `guard-write`、`guard-write-full` 和 `guard-tool-write` 情境在腳本化的模型上試過：Claude Code 2.1.327、Codex 0.167.0、Copilot 1.0.112、Antigravity 1.5.10、OpenCode 1.19.5、Goose 1.58.1、Cline 3.0.74、OpenHands 1.16.0 和 Pi 1.5.1。Cursor 的規則是對照它的比對程式碼檢查的，沒有實際執行（它只能在自己的服務上跑）。Linux 上（DGX Spark，bubblewrap 0.9），沙箱的規則用 sandbox-runtime 0.0.82 試過，Claude Code 的則用它自己的沙箱試過。
 
 ## 各平台

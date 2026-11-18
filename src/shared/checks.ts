@@ -35,6 +35,25 @@ export function tidyPattern(input: string): string | undefined {
   return p;
 }
 
+const escapeText = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+function validSet(set: string): boolean {
+  try {
+    new RegExp(set);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether a pattern has a `[…]` set a regular expression refuses: it is then read as text, never a set. */
+export function hasTextSet(pattern: string): boolean {
+  for (const m of pattern.matchAll(/\[([!^]?)([^\]]+)\]/g)) {
+    if (!validSet(`[${m[1] ? '^/' : ''}${m[2]!.replace(/[\\\]^]/g, '\\$&')}]`)) return true;
+  }
+  return false;
+}
+
 /** A pattern's regular expression for one name (no `/`): `*`, `?` and `[…]` (`[!…]` excludes). */
 function nameRegex(name: string): string {
   let out = '';
@@ -53,7 +72,10 @@ function nameRegex(name: string): string {
       let body = name.slice(i + 1, end);
       const negate = body.startsWith('!') || body.startsWith('^');
       if (negate) body = body.slice(1);
-      out += `[${negate ? '^/' : ''}${body.replace(/[\\\]^]/g, '\\$&')}]`;
+      const set = `[${negate ? '^/' : ''}${body.replace(/[\\\]^]/g, '\\$&')}]`;
+      // A set a regular expression refuses (`[user-id]`, a backwards range) is the text it is, as
+      // sandbox-runtime reads it: a Next.js route's folder, say.
+      out += validSet(set) ? set : escapeText(name.slice(i, end + 1));
       i = end;
     } else out += c.replace(/[.+^${}()|\\]/g, '\\$&');
   }

@@ -170,6 +170,47 @@ async function main() {
     check('ro: can read the working directory', r.out.includes('read me'), r.out.trim().slice(0, 40));
   }
 
+  // The team's protected paths in edit mode: what is there is never written (on both systems), a new
+  // one is refused on macOS (globs), and nothing is left in the working directory for a name that is not
+  // there (on Linux it would be a stand-in); reading stays allowed.
+  if (want('guard')) {
+    const { writeGuard } = await import('../src/server/writeGuard');
+    const there = join(cwdEdit, `guard-${uniq()}.pem`);
+    writeFileSync(there, 'KEEP\n');
+    const fresh = join(cwdEdit, 'sub', '.env');
+    mkdirSync(join(cwdEdit, 'sub'), { recursive: true });
+    const guard = writeGuard({ protectedPaths: ['*.pem', '.env'] }, [cwdEdit])!;
+    const r = await run(
+      [
+        `cat ${there}`,
+        `(echo x > ${there} 2>/dev/null && echo OVERWROTE || echo KEPT)`,
+        `(rm -f ${there} 2>/dev/null; test -f ${there} && echo STAYED || echo REMOVED)`,
+        `(echo x > ${fresh} 2>/dev/null && echo NEW-WROTE || echo NEW-REFUSED)`,
+        `(echo ok > ${join(cwdEdit, `plain-${uniq()}.txt`)} && echo PLAIN-WROTE)`,
+      ].join('; '),
+      baseSpec('edit', { guard }),
+    );
+    const mac = process.platform === 'darwin';
+    check(
+      'guard: a protected file there is read but never written nor removed',
+      r.out.includes('KEEP') && r.out.includes('KEPT') && r.out.includes('STAYED') && readFileSync(there, 'utf8') === 'KEEP\n',
+      r.out.trim().replace(/\n/g, ' | '),
+    );
+    check(
+      mac ? 'guard: a new protected file is refused (macOS)' : 'guard: a new protected file is left to the checks after the team (Linux)',
+      mac ? r.out.includes('NEW-REFUSED') && !existsSync(fresh) : r.out.includes('NEW-WROTE'),
+      r.out.trim().replace(/\n/g, ' | '),
+    );
+    check('guard: other files are written as before', r.out.includes('PLAIN-WROTE'));
+    const left = spawnSync('git', ['-C', cwdEdit, 'status', '--porcelain', '--ignored'], { encoding: 'utf8' }).stdout;
+    check(
+      'guard: no stand-in is left in the working directory',
+      !/\.env\b/.test(left) || existsSync(fresh),
+      left.trim().replace(/\n/g, ' | '),
+    );
+    rmSync(join(cwdEdit, 'sub'), { recursive: true, force: true });
+  }
+
   // Filesystem: edit.
   const editTargets: [string, string, boolean][] = [
     ['working directory', join(cwdEdit, `w-${uniq()}`), true],
