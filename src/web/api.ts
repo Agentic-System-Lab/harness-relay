@@ -384,6 +384,12 @@ export const api = {
     request<{ ok: true }>('POST', `/api/conversations/${id}/messages/${messageId}/decline-plan`),
   /** Lead review on or off (at any time); returns whether it is on now. */
   setLeadReview: (id: string, on: boolean) => request<{ leadReview: boolean }>('PUT', `/api/conversations/${id}/lead-review`, { on }),
+  /** Team checks: the latest result's card. */
+  recheckChecks: (id: string, messageId: string) =>
+    request<ChatMessage>('POST', `/api/conversations/${id}/checks/${messageId}/recheck`, {}),
+  skipChecks: (id: string, messageId: string) => request<ChatMessage>('POST', `/api/conversations/${id}/checks/${messageId}/skip`, {}),
+  fixChecks: (id: string, messageId: string, agentId: string) =>
+    request<{ ok: true }>('POST', `/api/conversations/${id}/checks/${messageId}/fix`, { agentId }),
   savePlan: (id: string, messageId: string, name?: string) =>
     request<TeamPreset>('POST', `/api/conversations/${id}/messages/${messageId}/save-plan`, { name }),
   /** Ask the lead agent to change the team being edited (nothing is saved); aborting `signal` stops it. */

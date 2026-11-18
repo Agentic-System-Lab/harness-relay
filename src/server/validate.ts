@@ -3,10 +3,12 @@ import { homedir } from 'node:os';
 import { isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { reservedMcpName } from './gateway';
+import { commitPatternError, tidyPattern } from '../shared/checks';
 import {
   ACCOUNT_ID_RE,
   API_BACKENDS,
   BACKEND_LIMITS,
+  CHECK_LIMITS,
   CWD_MISSING,
   ENDPOINT_ID_RE,
   GROUP_LIMITS,
@@ -32,6 +34,7 @@ import {
   type AgentConfig,
   type AlertPrefs,
   type ApiBackend,
+  type CheckList,
   type ConversationGroup,
   type ConversationSettings,
   type LeadAgentSettings,
@@ -568,7 +571,42 @@ export function validateSettings(
     ...(s.autoConfirm === true ? { autoConfirm: true } : {}),
     ...(s.leadReview === true ? { leadReview: true } : {}),
     ...(s.approvals === 'deny' ? { approvals: 'deny' as const } : {}),
+    ...(s.checks !== undefined && s.checks !== null ? { checks: validateChecks(s.checks) } : {}),
   };
+}
+
+/**
+ * A team check list (`ConversationSettings.checks`): protected path patterns, each tidied and once
+ * (`tidyPattern`), and a commit pattern JavaScript can read. Refuses what cannot be used, rather than
+ * leave a rule out unseen. An empty list is kept: the conversation then has none, and a template's is
+ * not copied into it.
+ */
+export function validateChecks(input: unknown): CheckList {
+  if (typeof input !== 'object' || Array.isArray(input)) bad(t().invalidField('checks'));
+  const c = input as Record<string, unknown>;
+  const out: CheckList = {};
+  if (c.protectedPaths !== undefined) {
+    if (!Array.isArray(c.protectedPaths)) bad(t().invalidField('checks.protectedPaths'));
+    const paths: string[] = [];
+    for (const raw of c.protectedPaths) {
+      if (typeof raw !== 'string') bad(t().invalidField('checks.protectedPaths'));
+      if (!raw.trim()) continue;
+      const tidy = tidyPattern(raw);
+      if (!tidy) bad(t().checksBadPath(raw.trim().slice(0, CHECK_LIMITS.pattern)));
+      if (!paths.includes(tidy)) paths.push(tidy);
+    }
+    if (paths.length > CHECK_LIMITS.protectedPaths) bad(t().checksTooManyPaths(CHECK_LIMITS.protectedPaths));
+    if (paths.length) out.protectedPaths = paths;
+  }
+  if (c.commitPattern !== undefined) {
+    if (typeof c.commitPattern !== 'string') bad(t().invalidField('checks.commitPattern'));
+    const pattern = c.commitPattern.trim();
+    if (pattern.length > CHECK_LIMITS.commitPattern) bad(t().checksCommitPatternTooLong(CHECK_LIMITS.commitPattern));
+    const why = pattern ? commitPatternError(pattern) : undefined;
+    if (why) bad(t().checksBadCommitPattern(why));
+    if (pattern) out.commitPattern = pattern;
+  }
+  return out;
 }
 
 /**

@@ -1042,7 +1042,104 @@ export interface ConversationSettings {
    * ask the user in the chat (default), or refuse automatically.
    */
   approvals?: 'ask' | 'deny';
+  /**
+   * Team checks: what Harness Relay itself checks the team's work against once the team has answered,
+   * whichever CLI each member runs on (`CheckList`). Copied from a template with the team; once the
+   * conversation has a list, a new team or template leaves it as it is.
+   */
+  checks?: CheckList;
 }
+
+/**
+ * The rules of a conversation's team checks (`ConversationSettings.checks`), each one optional. Harness
+ * Relay checks them itself, after the team's turns (and before the lead agent's review), in runs that
+ * may write (edit or full access); it reports what it found and never undoes anything.
+ */
+export interface CheckList {
+  /**
+   * Files the team may not change, in each working directory, as gitignore-like patterns: `*` and `?`
+   * within a name, `**` across folders, a pattern without `/` matching a name at any depth, a trailing
+   * `/` a whole folder. Ignored files count too (`.env`, `*.pem`): they are compared on disk.
+   */
+  protectedPaths?: string[];
+  /**
+   * A regular expression (JavaScript) every commit's subject the team makes must match. Checked in
+   * roundtable and relay mode only (parallel mode applies its results without their commits).
+   */
+  commitPattern?: string;
+}
+
+/** How many protected path patterns a list may have, and the longest pattern and commit pattern. */
+export const CHECK_LIMITS = { protectedPaths: 50, pattern: 300, commitPattern: 500 };
+
+/** The commit pattern the Conventional Commits button fills in. */
+export const CONVENTIONAL_COMMIT_PATTERN = '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\\([\\w./-]+\\))?!?: \\S';
+
+/**
+ * Where a check stands: `running`; `passed`; `failed`, the team broke the rule; `error`, it could not be
+ * checked (a git error, a working directory that is gone: never a pass); `na`, there was nothing to
+ * check (no commit was made, the mode does not keep commits).
+ */
+export type CheckStatus = 'running' | 'passed' | 'failed' | 'error' | 'na';
+
+/** The rules a team check result reports on. */
+export type CheckRuleKind = 'paths' | 'commits';
+
+/** Something a check found: a protected file changed, or a commit whose subject does not match. */
+export interface CheckFinding {
+  /** paths: the file, relative to its working directory (`/`-separated). */
+  path?: string;
+  /** paths: added, changed or removed. */
+  change?: 'added' | 'changed' | 'removed';
+  /** The working directory it is in (its folder name), when the conversation has more than one. */
+  folder?: string;
+  /** commits: the commit (abbreviated) and its subject. */
+  commit?: string;
+  subject?: string;
+  /** The member whose turn it happened in, as named then; absent: it cannot be told (parallel mode, between turns). */
+  by?: string;
+  /** paths: in the member's own worktree (parallel mode), not in the working directory yet: applying its result brings it. */
+  worktree?: boolean;
+}
+
+/** One rule's result. */
+export interface CheckOutcome {
+  rule: CheckRuleKind;
+  status: CheckStatus;
+  /** Why it could not be checked (`error`) or why there was nothing to check (`na`), in the user's language. */
+  reason?: string;
+  /** What it found (at most `CHECK_RESULT_LIMITS.findings`; `more` counts the rest). */
+  findings?: CheckFinding[];
+  more?: number;
+}
+
+/**
+ * The team checks' result a system message carries (`ChatMessage.checks`), shown as a card after the
+ * team's replies. `when`: after the team's turns (`run`), when the team stopped to ask the user
+ * something (`pause`, what was done until then), or the user checked again (`recheck`).
+ */
+export interface ChecksResult {
+  status: CheckStatus;
+  when: 'run' | 'pause' | 'recheck';
+  outcomes: CheckOutcome[];
+  /** The replies whose work it checked (message ids), oldest first. */
+  replyIds?: string[];
+  /** When it was checked, and how long that took. */
+  checkedAt: number;
+  durationMs?: number;
+  /**
+   * The working directories changed after it was checked (Harness Relay saw them changed: a later
+   * turn, an applied result): it says nothing about them as they are now.
+   */
+  stale?: boolean;
+  /** The user went on without it passing: queued messages go, and agents are not told of it any more. Still not a pass. */
+  skippedAt?: number;
+  /** The user asked a member to fix it (the member's name then). */
+  fixBy?: string;
+}
+
+/** Most findings one rule's result keeps. */
+export const CHECK_RESULT_LIMITS = { findings: 20 };
 
 /**
  * The working directories the working directory box offers (`GET /api/cwds`): the default one (Settings)
@@ -1411,6 +1508,8 @@ export interface ChatMessage {
   plan?: TeamPlan;
   /** A system message carrying the lead agent's review of the team's replies (`ConversationSettings.leadReview`). */
   review?: LeadReview;
+  /** A system message carrying the team checks' result (`ConversationSettings.checks`). */
+  checks?: ChecksResult;
   /** A user message sent while the team was replying: it waited in the queue for a later turn. */
   queued?: boolean;
   /** An agent reply that asks the user something (it ended with `ASK_TOKEN`): the team waited for the answer. */

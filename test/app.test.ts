@@ -556,6 +556,64 @@ describe('settings', () => {
     expect(store.get(on.id)!.settings.leadReview).toBeUndefined();
   });
 
+  it('keeps team checks as given, tidied, refuses one that cannot be used, and keeps them with a template', async () => {
+    const post = (body: Record<string, unknown>) => app.request('/api/conversations', json('POST', body, { 'x-relay-lang': 'en' }));
+    const agents = [{ name: 'Alice', provider: 'claude', role: '' }];
+    const made = await post({
+      agents,
+      settings: { cwd: project, checks: { protectedPaths: [' ./.env ', '.env', '', 'secrets\\keys/'], commitPattern: ' ^feat ' } },
+    });
+    expect(made.status).toBe(200);
+    const conv = (await made.json()) as Conversation;
+    expect(conv.settings.checks).toEqual({ protectedPaths: ['.env', 'secrets/keys/'], commitPattern: '^feat' });
+    expect(store.get(conv.id)!.settings.checks).toEqual(conv.settings.checks);
+
+    const refused = async (checks: unknown) => {
+      const res = await post({ agents, settings: { cwd: project, checks } });
+      expect(res.status).toBe(400);
+      return ((await res.json()) as { error: string }).error;
+    };
+    expect(await refused({ protectedPaths: ['../outside'] })).toContain('../outside');
+    expect(await refused({ protectedPaths: Array.from({ length: 51 }, (_, i) => `f${i}`) })).toContain('50');
+    expect(await refused({ commitPattern: '(' })).toMatch(/not a valid regular expression/);
+    expect(await refused({ commitPattern: 'x'.repeat(501) })).toContain('500');
+    expect(await refused({ protectedPaths: '.env' })).toContain('checks.protectedPaths');
+    expect(await refused([])).toContain('checks');
+
+    // A PATCH that leaves them out has none (the team drawer sends the settings whole).
+    const { checks: _gone, ...rest } = conv.settings;
+    const patched = await app.request(`/api/conversations/${conv.id}`, json('PATCH', { settings: rest }));
+    expect(((await patched.json()) as Conversation).settings.checks).toBeUndefined();
+
+    const preset = await app.request(
+      '/api/presets',
+      json('POST', { name: 'Checked', agents, settings: { mode: 'roundtable', permission: 'edit', checks: { protectedPaths: ['.env'] } } }),
+    );
+    expect(((await preset.json()) as TeamPreset).settings.checks).toEqual({ protectedPaths: ['.env'] });
+  });
+
+  it('checks the latest team checks result again, skips it, or asks a member to fix it', async () => {
+    const recheck = vi.spyOn(orchestrator, 'recheckChecks').mockResolvedValue({ id: 'c2' } as ChatMessage);
+    const skip = vi.spyOn(orchestrator, 'skipChecks').mockReturnValue({ id: 'c1' } as ChatMessage);
+    const fix = vi.spyOn(orchestrator, 'fixChecks').mockResolvedValue();
+    try {
+      const at = (what: string, body: unknown = {}) => app.request(`/api/conversations/conv/checks/c1/${what}`, json('POST', body));
+      expect(await (await at('recheck')).json()).toEqual({ id: 'c2' });
+      expect(recheck).toHaveBeenCalledWith('conv', 'c1');
+      expect(await (await at('skip')).json()).toEqual({ id: 'c1' });
+      expect(skip).toHaveBeenCalledWith('conv', 'c1');
+      expect((await at('fix', { agentId: 'a' })).status).toBe(202);
+      expect(fix).toHaveBeenCalledWith('conv', 'c1', 'a');
+      expect((await at('fix', {})).status).toBe(400);
+    } finally {
+      recheck.mockRestore();
+      skip.mockRestore();
+      fix.mockRestore();
+    }
+    // Without the mock: a result that is not there.
+    expect((await app.request('/api/conversations/nope/checks/c1/skip', json('POST', {}))).status).toBe(404);
+  });
+
   it('takes several working directories, each once and at most eight, and names all those missing', async () => {
     const post = (body: Record<string, unknown>) => app.request('/api/conversations', json('POST', body, { 'x-relay-lang': 'en' }));
     const agents = [{ name: 'Alice', provider: 'claude', role: '' }];

@@ -34,7 +34,9 @@ import {
   switchProvider,
   type ModelChoice,
 } from '../util';
+import { badCommitPattern, badPath } from '../checks';
 import { AccountPicker } from './AccountPicker';
+import { ChecksEditor } from './ChecksEditor';
 import { CwdInput } from './CwdInput';
 import { GrokTrustNote } from './GrokTrust';
 import { CliPicker } from './CliPicker';
@@ -88,6 +90,12 @@ export function teamProblems(team: Team, t: Messages, opts: { members?: boolean;
     }
   }
   if (!opts.template && !team.settings.cwd.trim()) out.push(p.needCwd);
+  // Team checks the server would refuse.
+  const checks = team.settings.checks;
+  const path = badPath((checks?.protectedPaths ?? []).join('\n'));
+  if (path) out.push(t.checks.badPath(path));
+  const pattern = badCommitPattern(checks?.commitPattern ?? '');
+  if (pattern) out.push(t.checks.badPattern(pattern));
   return out;
 }
 
@@ -312,6 +320,14 @@ export function TeamEditor({
             </span>
           </div>
         )}
+        <ChecksEditor
+          value={settings.checks}
+          permission={settings.permission}
+          onChange={(checks) => {
+            const { checks: _old, ...rest } = settings;
+            onChange({ ...value, settings: checks === undefined ? rest : { ...rest, checks } });
+          }}
+        />
         {showMembers && (
           <div className="option-row">
             {MODES.map((m) => (

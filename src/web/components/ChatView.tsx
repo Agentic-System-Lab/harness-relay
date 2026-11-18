@@ -15,6 +15,7 @@ import {
 } from '../../shared/types';
 import { api, orCreateCwd, type AttachmentUpload } from '../api';
 import { highlightsByReply, nextReviewStart } from '../../shared/review';
+import { checksHold, latestChecks } from '../../shared/checks';
 import {
   afterStreamError,
   applyStates as findApplyStates,
@@ -493,6 +494,22 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
     }
   }, []);
 
+  // Team checks: the latest result's card. Errors show on the card itself (it rethrows them).
+  const onRecheckChecks = useCallback(async (messageId: string) => {
+    const c = convRef.current;
+    if (c) await api.recheckChecks(c.id, messageId);
+  }, []);
+  const onSkipChecks = useCallback(async (messageId: string) => {
+    const c = convRef.current;
+    if (c) await api.skipChecks(c.id, messageId);
+  }, []);
+  const onFixChecks = useCallback(async (messageId: string, agentId: string) => {
+    const c = convRef.current;
+    if (!c) return;
+    stick.current = true;
+    await api.fixChecks(c.id, messageId, agentId);
+  }, []);
+
   const { conv, running, active } = state;
   if (!conv) return <div className="page-center muted">{error || t.common.loading}</div>;
 
@@ -516,6 +533,9 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   // replies are read then, the others nothing of a next review.
   const nextReview = conv.messages.some((m) => m.review && m.review.status !== 'ready') ? nextReviewStart(conv.messages) : Infinity;
   const latestPlanId = conv.messages.findLast((m) => m.plan?.status === 'ready')?.id;
+  const latestChecksId = latestChecks(conv.messages)?.id;
+  // Team checks that did not pass hold what the user wrote meanwhile, until they decide.
+  const checksHeld = !running && Boolean(checksHold(conv.messages)) && (conv.queue ?? []).some((m) => !m.scheduled);
   const leadText = leadLabel(lead ?? { provider: 'claude' });
   // An agent asked the user something and the team waits: its latest questions, and who asked.
   const lastUser = conv.messages.findLastIndex((m) => m.author.kind === 'user');
@@ -727,6 +747,10 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
                 leadReview={m.plan || m.review ? Boolean(conv.settings.leadReview) : undefined}
                 readNext={m.review && m.review.status !== 'ready' ? i > nextReview : undefined}
                 onLeadReview={onLeadReview}
+                latestChecks={m.checks ? m.id === latestChecksId : undefined}
+                onRecheckChecks={onRecheckChecks}
+                onSkipChecks={onSkipChecks}
+                onFixChecks={onFixChecks}
               />
             );
             // A branch: a line after the messages copied from the conversation it comes from (a shared
@@ -794,7 +818,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
         )}
         <QueueTray
           queue={conv.queue ?? []}
-          state={awaitingConfirm || designing ? 'confirm' : reviewing ? 'review' : running ? 'busy' : 'stopped'}
+          state={awaitingConfirm || designing ? 'confirm' : reviewing ? 'review' : running ? 'busy' : checksHeld ? 'checks' : 'stopped'}
           onSendNow={() => send('', [], running)}
           onWithdraw={withdraw}
         />

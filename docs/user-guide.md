@@ -451,6 +451,21 @@ The lead agent reads what was said since your latest question (or since its last
 
 **What it costs.** As it is on in every new chat, keep in mind that each answer is then followed by a run of the lead agent's CLI, one more run to pay for (also in an automation's runs, with nobody watching), and that the chat stays busy until the review ends (above). If the lead agent's CLI cannot run in the project (it is signed out, or refuses the project's setup), the card says it could not review: turn lead review off in that chat, or choose another lead agent in Settings (see [Lead agent](#lead-agent)).
 
+### Team checks
+
+One set of rules for the whole team, whichever CLI each member runs on: Harness Relay checks them itself once the team has answered, whatever each member's permission, full access too. Set them in **Team settings** or in a template, under **Team checks** (a new chat gets its template's; once a chat has its own, a new team or template leaves them as they are):
+
+- **Protected paths**: files the team may not create, change or delete, one pattern per line, written as in `.gitignore` (`.env`, `*.pem`, `secrets/`, `config/prod.yml`), in every working directory. Files git ignores are checked too: Harness Relay compares the files on disk, not git's view of them.
+- **Commit format**: a regular expression every commit's subject must match (**Use Conventional Commits** fills one in). Checked in roundtable and relay mode; parallel mode applies its results without their commits.
+
+The agents are told the rules from the start. Once the team has answered (or stopped to ask you something), in a chat that may change files, a **Team checks** card after the replies says how each rule went: **Passed**, **Failed** (with the files, or the commits, and whose turn it was in), **Could not run** (never a pass: why is on the card) or **Not applicable** (no commit was made). A run that changed nothing the rules cover gets no card. While the latest result fails:
+
+- The next turn of each member is shown what failed, and asked to fix it.
+- What you wrote while the team replied waits, in the tray: **Send anyway** sends it.
+- **Check again** checks once more, from where that run started: a file put back passes. **Ask a member to fix it** sends that member a message from you and gives it a turn. **Skip** lets the waiting messages go and stops asking the agents: the failure is kept, and never becomes a pass.
+
+The next runs are compared with where the failing one started, so a member that puts a protected file back passes. A card the working directory changed after is marked out of date. In an automation's run that nobody watched, a failure is how that time went (the automation shows it), and nothing waits for you. These are checks after the fact: they report, and undo nothing; what a command does as it runs is for a permission below full access to stop.
+
 ### Templates
 
 Templates are where you design teams; the lead agent picks, adapts or replaces them for each question. The built-in ones:

@@ -935,6 +935,43 @@ export const en: Messages = {
     marksTitle: (n) => `The lead agent points out ${n} ${n === 1 ? 'thing' : 'things'} in this reply to look at closely; click to see why`,
   },
 
+  checks: {
+    title: 'Team checks',
+    status: { running: 'Checking', passed: 'Passed', failed: 'Failed', error: 'Could not run', na: 'Not applicable' },
+    whenPause: 'Checked when the team stopped to ask you: what it did until then',
+    whenRecheck: 'Checked again',
+    rules: { paths: 'Protected paths', commits: 'Commit format' },
+    change: { added: 'added', changed: 'changed', removed: 'removed' },
+    by: (name) => `in @${name}'s turn`,
+    inWorktree: (name) => `in @${name}'s worktree: applying its result brings it into the working directory`,
+    more: (n) => `${n} more`,
+    stale: 'Out of date: the working directory changed after this check, so it does not describe it as it is now',
+    skipped: 'Skipped: the failure is kept, and agents are no longer asked to fix it',
+    skippedTag: 'skipped',
+    fixBy: (name) => `@${name} was asked to fix it`,
+    afterFact: 'Checked after the fact: nothing is undone.',
+    recheck: 'Check again',
+    fix: 'Ask a member to fix it',
+    fixAs: (name) => `Ask @${name} to fix it`,
+    skip: 'Skip',
+    skipConfirm:
+      'Skip this failed check? The waiting messages are sent, and agents are no longer asked to fix it. The failure is kept: it does not become a pass.',
+    failedAction: (why) => `That did not work: ${why}`,
+    editorTitle: 'Team checks',
+    editorHint:
+      'Once the team has answered, Harness Relay checks these rules itself, whichever CLI each member runs on and whatever its permission. Only when the team may change files; it reports, and undoes nothing.',
+    protectedPaths: 'Protected paths',
+    protectedPathsHint:
+      'One per line, written as in .gitignore: .env, *.pem, secrets/, config/prod.yml. Files git ignores are checked too.',
+    commitPattern: 'Commit format (regular expression)',
+    commitPatternHint: "Every commit's subject the team makes must match it. Checked in roundtable and relay mode only.",
+    conventional: 'Use Conventional Commits',
+    readOnlyNote: 'The permission is read-only: the team changes no files, so nothing is checked.',
+    badPattern: (why) => `Not a valid regular expression: ${why}`,
+    badPath: (p) => `"${p}" cannot be used: write a path relative to the working directory, without ..`,
+    count: (n) => (n === 1 ? '1 rule' : `${n} rules`),
+  },
+
   changes: {
     status: { A: 'Added', M: 'Modified', D: 'Deleted' },
     confirmApply: (name) =>
@@ -1067,6 +1104,9 @@ export const en: Messages = {
     skipReview: 'Skip the review and send now',
     confirm: 'Sent once the team is set',
     stopped: 'Not delivered yet',
+    checks: 'The team checks failed: these are not delivered yet',
+    checksNote: 'Handle the check card first, or send them as they are',
+    sendAnyway: 'Send anyway',
     sendNow: 'Stop and send now',
     send: 'Send',
     edit: 'Edit',

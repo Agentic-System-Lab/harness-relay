@@ -34,6 +34,7 @@ import { mentionWarning, messageText, planChecksMentions, planHeadline, planWord
 import { useT } from '../i18n';
 import { PROVIDER_COLOR, formatBytes, formatDuration, formatTokens, initials, leadLabel } from '../util';
 import { ChangesCard, type ApplyState } from './ChangesCard';
+import { ChecksCard } from './ChecksCard';
 import { CopyButton } from './CopyButton';
 import { GrokTrustNote, asksGrokTrust } from './GrokTrust';
 import { BranchIcon, ClockIcon, CopyIcon, PaperclipIcon, PencilIcon, RetryIcon, ShareIcon } from './icons';
@@ -438,6 +439,12 @@ interface Props {
   onUseStep?: (text: string) => void;
   /** Branch the conversation from this reply: a new one with the messages up to and including it. */
   onBranch?: (messageId: string) => void;
+  /** A team checks card: whether it is the conversation's latest result (only it offers anything). */
+  latestChecks?: boolean;
+  /** Team checks: check the latest result again, go on without it, or ask a member to fix it. */
+  onRecheckChecks?: (messageId: string) => Promise<unknown>;
+  onSkipChecks?: (messageId: string) => Promise<unknown>;
+  onFixChecks?: (messageId: string, agentId: string) => Promise<unknown>;
 }
 
 /** Names the conversation's scheduled message @mentions that a team design does not have. */
@@ -990,11 +997,29 @@ export const MessageItem = memo(function MessageItem({
   leadReview,
   readNext,
   onLeadReview,
+  latestChecks,
+  onRecheckChecks,
+  onSkipChecks,
+  onFixChecks,
 }: Props) {
   const t = useT();
 
   if (msg.author.kind === 'system') {
     if (msg.review) return <ReviewCard msg={msg} onUseStep={onUseStep} leadReview={leadReview} readNext={readNext} />;
+    if (msg.checks) {
+      const none = async () => undefined;
+      return (
+        <ChecksCard
+          msg={msg}
+          latest={Boolean(latestChecks)}
+          agents={agents}
+          running={running}
+          onRecheck={onRecheckChecks ?? none}
+          onSkip={onSkipChecks ?? none}
+          onFix={onFixChecks ?? none}
+        />
+      );
+    }
     if (msg.plan) {
       return (
         <PlanCard

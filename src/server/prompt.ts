@@ -4,6 +4,9 @@ import {
   isInlineImage,
   type AgentConfig,
   type ChatMessage,
+  type CheckFinding,
+  type CheckList,
+  type ChecksResult,
   type EventSource,
   type Conversation,
   type ConversationSchedule,
@@ -15,6 +18,7 @@ import {
   cwdsOf,
 } from '../shared/types';
 import { ASK_TOKEN } from '../shared/ask';
+import { checksFailed, hasChecks } from '../shared/checks';
 import { mentionsInMarkdown } from '../shared/mentions';
 import { attachmentPath } from './attachments';
 import { dataBody, dataLine } from './gateway';
@@ -66,7 +70,36 @@ export type BriefingWorkspace =
       teammates: { name: string; branch: string; bases: { folder: string; base: string }[] }[];
     };
 
+/**
+ * The team checks, for agents that may write: what Harness Relay checks once the team has answered, so
+ * that they keep to it from the start.
+ */
+function checksRules(conv: Conversation): string {
+  const list = conv.settings.checks;
+  if (conv.settings.permission === 'read-only' || !hasChecks(list)) return '';
+  const lines = checkRuleLines(list, conv.settings.mode);
+  return `\n- Team checks: once the team has answered, Harness Relay checks the team's work against these rules and tells the team what failed:\n${lines.map((l) => `  - ${l}`).join('\n')}`;
+}
+
+/** Each rule of a check list, in a line. */
+function checkRuleLines(list: CheckList, mode: Mode): string[] {
+  const lines: string[] = [];
+  if (list.protectedPaths?.length) {
+    lines.push(
+      `Do not create, change or delete files matching these patterns (gitignore-like, in every working directory, ignored files too): ${list.protectedPaths.join(', ')}`,
+    );
+  }
+  if (list.commitPattern && mode !== 'parallel') {
+    lines.push(`Every commit's subject must match this regular expression: /${list.commitPattern}/`);
+  }
+  return lines;
+}
+
 function workspaceRules(conv: Conversation, ws: BriefingWorkspace): string {
+  return workspaceAccess(conv, ws) + checksRules(conv);
+}
+
+function workspaceAccess(conv: Conversation, ws: BriefingWorkspace): string {
   const cwds = cwdsOf(conv.settings);
   // Edit mode covers every working directory, not only the one the agent starts in.
   const text = PERMISSION_TEXT[conv.settings.permission];
@@ -310,7 +343,8 @@ function changeLog(m: ChatMessage): string {
  * or were stopped but said something or changed files (the files changed anyway).
  */
 export function isForwardable(m: ChatMessage): boolean {
-  if (m.author.kind === 'system') return false;
+  // Of Harness Relay's own messages, only team checks that did not pass, which the team is to fix.
+  if (m.author.kind === 'system') return Boolean(m.checks && checksFailed(m.checks) && !m.checks.skippedAt);
   if (m.status === 'done') return true;
   if (m.status !== 'error' && m.status !== 'aborted') return false;
   return Boolean(m.changes?.some((c) => c.files.length)) || m.parts.some((p) => p.type === 'text' && p.text.trim());
@@ -358,6 +392,7 @@ function formatSize(bytes: number): string {
 }
 
 export function renderMessage(conv: Conversation, m: ChatMessage): string {
+  if (m.checks) return renderChecks(conv, m.checks);
   const from = senderName(conv, m);
   if (m.author.kind === 'user') {
     const via = m.scheduled ? ' via="schedule"' : '';
@@ -369,6 +404,41 @@ export function renderMessage(conv: Conversation, m: ChatMessage): string {
   // A [PASS] still reports the files its turn changed.
   const body = m.passed ? PASS_TOKEN + changeLog(m) : forwardText(m);
   return `<message from="@${from}"${via}${status}>\n${body}\n</message>`;
+}
+
+const RULE_NAME: Record<ChecksResult['outcomes'][number]['rule'], string> = {
+  paths: 'Protected paths',
+  commits: 'Commit format',
+};
+
+/** Where a finding is, for agents. */
+function findingText(f: CheckFinding): string {
+  const where = f.folder ? ` in ${f.folder}` : '';
+  const by = f.by ? (f.worktree ? ` in @${f.by}'s worktree (applying its result would bring it)` : ` (in @${f.by}'s turn)`) : '';
+  if (f.commit) return `commit ${f.commit}${where} "${f.subject ?? ''}"${by}`;
+  return `${f.path}${where}: ${f.change}${by}`;
+}
+
+/** A team checks result that did not pass, as agents read it: what failed, and that the team is to fix it. */
+export function renderChecks(conv: Conversation, c: ChecksResult): string {
+  const list = conv.settings.checks;
+  const rules = list ? checkRuleLines(list, conv.settings.mode) : [];
+  const lines: string[] = [];
+  for (const o of c.outcomes) {
+    if (o.status === 'passed' || o.status === 'na') continue;
+    const head = o.status === 'failed' ? 'failed' : `could not be checked${o.reason ? ` (${o.reason})` : ''}`;
+    lines.push(`- ${RULE_NAME[o.rule]}: ${head}`);
+    for (const f of o.findings ?? []) lines.push(`  - ${findingText(f)}`);
+    if (o.more) lines.push(`  - … and ${o.more} more`);
+  }
+  const when = c.when === 'pause' ? ' (checked when the team stopped to ask the user something)' : '';
+  return `<team_checks status="${c.status}"${c.stale ? ' stale="true"' : ''}>
+Harness Relay checked the team's work against the team checks${when}. The rules:
+${rules.map((r) => `- ${r}`).join('\n') || '- (none now)'}
+What did not pass:
+${lines.join('\n')}
+Fix it so that the whole result passes, unless the user says otherwise. Do not weaken a check to make it pass.
+</team_checks>`;
 }
 
 export interface TurnInfo {

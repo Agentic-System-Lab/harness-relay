@@ -428,6 +428,26 @@ const zhTW = {
   noChanges: '這則訊息沒有檔案修改',
   relayLimit: (hops: number) => `已達接力上限（${hops} 棒），交還給使用者。可按「繼續」讓團隊接著做。`,
 
+  // Team checks
+  checksTooManyFiles: (max: number) =>
+    `要比對的檔案超過 ${max} 個，無法檢查受保護路徑；請把路徑寫得更明確（例如 config/*.pem，而不是 *.pem）。`,
+  checksListChanged: '檢查清單在這一輪開始後改過，這一輪的受保護路徑無法用新清單比對；下一輪會照新清單檢查。',
+  checksNoBaseline: '找不到這一輪開始時的狀態，無法重新比對。',
+  checksCommitsParallel: '平行模式套用結果時不帶 commit 歷史，所以不檢查 commit 格式。',
+  checksNoCommits: '這一輪沒有新的 commit。',
+  checksPatternSlow: 'commit 格式的正規表示式跑太久，已中止；請改寫得簡單一點。',
+  checksTooManyCommits: (n: number) => `新的 commit 超過 ${n} 個，只檢查了最新的 ${n} 個。`,
+  checksBadPath: (p: string) => `受保護路徑「${p}」無法使用：請寫工作目錄裡的相對路徑，不能有 ..`,
+  checksTooManyPaths: (n: number) => `受保護路徑最多 ${n} 條`,
+  checksBadCommitPattern: (why: string) => `commit 格式不是有效的正規表示式：${why}`,
+  checksCommitPatternTooLong: (n: number) => `commit 格式最長 ${n} 個字元`,
+  checksNotFound: '找不到這份檢查結果',
+  checksNotLatest: '只有最新的一份檢查結果可以這樣處理',
+  checksPassedAlready: '這份檢查結果沒有未通過的項目',
+  checksFixMessage: (name: string) => `@${name} 請修正上一份團隊檢查未通過的項目（整份結果都要通過）。`,
+  checksScheduleFailed: '團隊檢查未通過',
+  checksScheduleError: '團隊檢查無法執行',
+
   // Approvals
   approvalNotFound: '這個請求已經處理過或已失效',
   approvalDeclined: '使用者拒絕了這個操作。',
@@ -1275,6 +1295,26 @@ const en: ServerMessages = {
     `Applied @${name}'s changes to the working directory (${files} files, not committed). The next parallel round starts from the new state.`,
   noChanges: 'This message changed no files',
   relayLimit: (hops) => `Reached the relay limit (${hops} hand-offs); back to you. Press Continue to let the team keep going.`,
+
+  checksTooManyFiles: (max) =>
+    `More than ${max} files to compare: the protected paths could not be checked. Make the paths more specific (config/*.pem rather than *.pem, say).`,
+  checksListChanged:
+    'The check list changed after this run started, so its protected paths cannot be compared with the new list; the next run is checked with it.',
+  checksNoBaseline: 'Where this run started from is not known any more, so it cannot be compared again.',
+  checksCommitsParallel: 'Parallel mode applies its results without their commits, so the commit format is not checked.',
+  checksNoCommits: 'No new commit in this run.',
+  checksPatternSlow: 'The commit format’s regular expression took too long and was stopped; make it simpler.',
+  checksTooManyCommits: (n) => `More than ${n} new commits: only the newest ${n} were checked.`,
+  checksBadPath: (p) => `The protected path "${p}" cannot be used: write a path relative to the working directory, without ..`,
+  checksTooManyPaths: (n) => `At most ${n} protected paths`,
+  checksBadCommitPattern: (why) => `The commit format is not a valid regular expression: ${why}`,
+  checksCommitPatternTooLong: (n) => `The commit format can be at most ${n} characters`,
+  checksNotFound: 'Check result not found',
+  checksNotLatest: 'Only the latest check result can be handled this way',
+  checksPassedAlready: 'Nothing in this check result failed',
+  checksFixMessage: (name) => `@${name} please fix what failed in the latest team checks (the whole result has to pass).`,
+  checksScheduleFailed: 'The team checks did not pass',
+  checksScheduleError: 'The team checks could not run',
 
   approvalNotFound: 'This request was already answered or has expired',
   approvalDeclined: 'The user declined this action.',

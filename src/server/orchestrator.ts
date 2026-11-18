@@ -1,8 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, realpathSync, rmSync } from 'node:fs';
-import { basename, join, sep } from 'node:path';
+import { basename, isAbsolute, join, relative, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type {
+  CheckOutcome,
+  ChecksResult,
+  ConversationSettings,
+  TeamPlan,
   AgentConfig,
   AgentSessionState,
   ApprovalAnswer,
@@ -90,6 +94,8 @@ import {
 import { buildBriefing, buildTurnPrompt, isForwardable, isPass, parseMentions, type BriefingWorkspace, type TurnInfo } from './prompt';
 import { endpointModel } from './backends';
 import { REVIEWER_BRIEFING, buildReviewPrompt, hasNewReplies, parseReviewReply, reviewMaterial } from './reviewer';
+import { RunCheck, checksResult, recheck as recheckFrom, type CheckFolders, type StoredBaseline, type WorktreeChange } from './checks';
+import { checksFailed, checksHold, hasChecks, latestChecks } from '../shared/checks';
 import { DATA_DIR, OPEN_HOMES_DIR, type SettingsStore } from './settings';
 import type { Store } from './store';
 import {
@@ -204,6 +210,19 @@ interface Run {
   done: Promise<void>;
   /** A schedule that tracks a goal started this run (`StartOptions.tracking`): `from` is where its replies begin in the chat. */
   tracking?: TrackedRun & { from: number };
+  /** Where this run's replies begin in the chat (the team checks' card reads them from there). */
+  from: number;
+  /** The team checks of this run (`ConversationSettings.checks`): where its folders started, who changed what since. */
+  checks?: RunCheck;
+  /** The team checks could not start (why): the run's card says so; never a pass. */
+  checksError?: string;
+  /**
+   * A schedule started it and none of the user's own messages has reached it: team checks that do not
+   * pass are a failure of the schedule of this conversation (its id).
+   */
+  unattended?: string;
+  /** The user asked a member to fix this team checks result (its message id): the member is shown it, seen or not. */
+  fixChecks?: string;
 }
 
 interface StartOptions {
@@ -231,6 +250,10 @@ interface StartOptions {
   eventSource?: EventSource;
   /** A schedule that tracks a goal starts the run. */
   tracking?: TrackedRun;
+  /** The conversation whose schedule sends the message, when it is not this one (a new chat each time). */
+  scheduleSource?: string;
+  /** The user asked a member (`only`) to fix this team checks result (its message id). */
+  fixChecks?: string;
   /** The lead agent designs the team for the conversation's schedule, and nobody answers (`designForSchedule`). */
   designSchedule?: boolean;
   /**
@@ -1066,6 +1089,7 @@ export class Orchestrator {
       await this.start(chat, s.text, {
         keepTeam: true,
         scheduled: true,
+        scheduleSource: conv.id,
         ...event,
         refuseApprovals: s.approvals !== 'ask',
         ...(tracking ? { tracking } : {}),
@@ -1332,6 +1356,8 @@ export class Orchestrator {
     if (!conv.queue?.length || !this.mayStart(conv)) return false;
     // An agent asked the user something: what was written before the question waits for the answer.
     if (conv.pause) return false;
+    // Team checks that did not pass hold what the user wrote meanwhile: they decide (Send, Skip, Fix).
+    if (checksHold(conv.messages) && conv.queue.some((m) => !m.scheduled)) return false;
     // Only the schedule's message waits: nobody may be watching this run either.
     const unattended = conv.queue.every((m) => m.scheduled) && conv.schedule?.approvals !== 'ask';
     this.startInBackground(conv, { queue: true, keepTeam: true, refuseApprovals: unattended });
@@ -1640,6 +1666,9 @@ export class Orchestrator {
         ...(planning ? { designs: true } : {}),
         ...(planning && opts.designSchedule && conv.schedule ? { designFor: conv.schedule.text } : {}),
         ...(tracking ? { tracking: { ...tracking, from: conv.messages.length } } : {}),
+        from: conv.messages.length,
+        ...(posted.length && posted.every((m) => m.scheduled) ? { unattended: opts.scheduleSource ?? convId } : {}),
+        ...(opts.fixChecks ? { fixChecks: opts.fixChecks } : {}),
         done: Promise.resolve(),
       };
       this.runs.set(convId, run);
@@ -2019,6 +2048,7 @@ export class Orchestrator {
         const files = checked.flatMap((p) => p.files);
         resetAll();
         const name = conv.agents.find((a) => a.id === agentId)?.name ?? agentId;
+        this.markChecksStale(conv);
         this.systemNote(conv, t().appliedNote(name, files.length));
         this.emitConversation(conv);
         return files;
@@ -2276,6 +2306,250 @@ export class Orchestrator {
     return out;
   }
 
+  // Team checks ---------------------------------------------------------------
+
+  /** Where team checks look: the working directories with their repositories, never in the CLIs' homes. */
+  private checkFolders(folders: { cwd: string; root: string }[], isolated: boolean): CheckFolders {
+    return { folders, exclude: this.snapshotExcludes(), commits: !isolated };
+  }
+
+  /** The conversation's working directories now, each with the root of its repository (itself when it is in none). */
+  private async foldersNow(conv: Conversation): Promise<{ cwd: string; root: string }[]> {
+    return Promise.all(cwdsOf(conv.settings).map(async (cwd) => ({ cwd, root: (await repoRoot(cwd).catch(() => null)) ?? cwd })));
+  }
+
+  /**
+   * What the members changed in their worktrees so far (parallel mode), as paths in the working
+   * directories: what applying their results would bring. A worktree whose result was applied is left
+   * out: what it brought is in the working directory, where the checks look anyway.
+   */
+  private async worktreeChanges(conv: Conversation, folders: { cwd: string; root: string }[]): Promise<WorktreeChange[]> {
+    const out: WorktreeChange[] = [];
+    const status = { A: 'added', M: 'changed', D: 'removed' } as const;
+    for (const agentId of Object.keys(conv.worktrees)) {
+      const by = conv.agents.find((a) => a.id === agentId)?.name ?? agentId;
+      for (const wt of await this.currentWorktrees(conv, agentId)) {
+        if (wt.needsReset) continue;
+        const files = await diffFiles(wt.root, wt.base, await worktreeHead(wt.path));
+        for (const folder of folders.filter((f) => f.root === wt.root)) {
+          for (const f of files) {
+            const rel = relative(folder.cwd, join(wt.root, f.path));
+            if (!rel || rel.startsWith('..') || isAbsolute(rel)) continue;
+            out.push({ cwd: folder.cwd, path: rel.split(sep).join('/'), change: status[f.status], by });
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  /** Every rule of the conversation's list, as one that could not be checked (`why`): never a pass. */
+  private unchecked(conv: Conversation, why: string): CheckOutcome[] {
+    const list = conv.settings.checks;
+    const rules: CheckOutcome['rule'][] = [
+      ...(list?.protectedPaths?.length ? ['paths' as const] : []),
+      ...(list?.commitPattern ? ['commits' as const] : []),
+    ];
+    return rules.map((rule) => ({ rule, status: 'error' as const, reason: why }));
+  }
+
+  /** Post a team checks result after the team's replies. */
+  private postChecks(conv: Conversation, checks: ChecksResult): ChatMessage {
+    const msg: ChatMessage = { id: randomUUID(), author: { kind: 'system' }, createdAt: Date.now(), parts: [], status: 'done', checks };
+    conv.messages.push(msg);
+    this.hub.emit(conv.id, { type: 'message', message: msg });
+    this.store.saveMessage(conv.id, msg, true);
+    return msg;
+  }
+
+  /**
+   * Before the first turn of a run that may write (edit or full access), in a conversation with team
+   * checks: where its folders stand (`RunCheck.start`). While the latest result has not passed and the
+   * user has not gone on without it, the run is checked from where that result's run started, so that
+   * what it puts back passes. One that cannot start says so in the run's card.
+   */
+  private async startChecks(conv: Conversation, run: Run): Promise<void> {
+    const list = conv.settings.checks;
+    if (!hasChecks(list) || !run.ws.folders?.length) return;
+    const held = checksHold(conv.messages);
+    const carried = held ? this.store.checksBaseline<StoredBaseline>(conv.id, held.id) : undefined;
+    try {
+      run.checks = await RunCheck.start(list, this.checkFolders(run.ws.folders, run.ws.isolated), this.clock(), carried);
+    } catch (err) {
+      run.checksError = (err as Error).message;
+    }
+  }
+
+  /**
+   * Once the team has answered, or stopped to ask the user something: check its work and post the
+   * result after its replies, when the run changed anything the checks cover (files, protected files,
+   * commits); nothing after Stop, nor for a conversation being deleted. One that did not pass in a run
+   * nobody watches is the schedule's failure. The run still holds its folders: nothing else writes there
+   * while they are checked.
+   */
+  private async finishChecks(conv: Conversation, run: Run): Promise<void> {
+    if ((!run.checks && !run.checksError) || run.abort.signal.aborted || this.closing) return;
+    if (this.deleting.has(conv.id) || this.store.get(conv.id) !== conv) return;
+    const replies = conv.messages.slice(run.from).filter((m) => m.author.kind === 'agent');
+    const started = Date.now();
+    let outcomes: CheckOutcome[];
+    let touched = true;
+    try {
+      if (!run.checks) throw new Error(run.checksError);
+      const worktrees = run.ws.isolated ? await this.worktreeChanges(conv, run.ws.folders ?? []) : [];
+      ({ outcomes, touched } = await run.checks.finish(worktrees));
+    } catch (err) {
+      outcomes = this.unchecked(conv, (err as Error).message);
+    }
+    if (!touched && !replies.some((m) => m.changes?.some((c) => c.files.length))) return;
+    const msg = this.postChecks(
+      conv,
+      checksResult(outcomes, {
+        when: conv.pause ? 'pause' : 'run',
+        replyIds: replies.map((m) => m.id),
+        checkedAt: started,
+        durationMs: Date.now() - started,
+      }),
+    );
+    if (run.checks) this.store.saveChecksBaseline(conv.id, msg.id, run.checks.baseline);
+    if (run.unattended && checksFailed(msg.checks!)) this.scheduleChecksFailed(run.unattended, conv, msg.checks!);
+  }
+
+  /**
+   * Team checks did not pass in a run a schedule started that nobody watched: that is how the schedule's
+   * time went (`lastResult`, `lastError`). Only its latest time, the one that started this run, here or
+   * in the new chat it opened.
+   */
+  private scheduleChecksFailed(sourceId: string, conv: Conversation, checks: ChecksResult): void {
+    const source = this.store.get(sourceId);
+    const s = source?.schedule;
+    if (!source || !s || this.deleting.has(source.id)) return;
+    if ((s.lastResult !== 'sent' && s.lastResult !== 'queued') || (source !== conv && s.lastChatId !== conv.id)) return;
+    source.schedule = {
+      ...s,
+      lastResult: 'failed',
+      lastError: checks.status === 'error' ? t().checksScheduleError : t().checksScheduleFailed,
+    };
+    this.store.saveSchedule(source);
+    this.emitConversation(source);
+  }
+
+  /**
+   * The working directories changed after the latest team checks result (a turn changed files, a result
+   * was applied): it says nothing about them as they are now.
+   */
+  private markChecksStale(conv: Conversation): void {
+    const latest = latestChecks(conv.messages);
+    if (!latest?.checks || latest.checks.stale) return;
+    latest.checks = { ...latest.checks, stale: true };
+    this.hub.emit(conv.id, { type: 'message', message: latest });
+    this.store.saveMessage(conv.id, latest, true);
+  }
+
+  /**
+   * The check list of the template the lead agent's team comes from, for a conversation that has none
+   * yet: once it has one (an empty one too), a new team or template leaves it as it is.
+   */
+  private templateChecks(conv: Conversation, plan: TeamPlan): Pick<ConversationSettings, 'checks'> {
+    if (conv.settings.checks !== undefined) return {};
+    const id = plan.presetId ?? plan.basedOn?.id;
+    const checks = id ? this.store.listPresets().find((p) => p.id === id)?.settings.checks : undefined;
+    return checks ? { checks: structuredClone(checks) } : {};
+  }
+
+  /** The conversation's latest team checks result, by its message id: another one cannot be handled. */
+  private latestChecksMessage(conv: Conversation, messageId: string): ChatMessage {
+    const msg = conv.messages.find((m) => m.id === messageId);
+    if (!msg?.checks) throw new HttpError(404, t().checksNotFound);
+    if (latestChecks(conv.messages) !== msg) throw new HttpError(409, t().checksNotLatest);
+    return msg;
+  }
+
+  /**
+   * Check the latest result again (its card's "Check again"), from where its run started, with the list
+   * and the folders as they are now: a new result after it. What waits in the queue then goes, if it passes.
+   */
+  async recheckChecks(convId: string, messageId: string): Promise<ChatMessage> {
+    const conv = this.store.get(convId);
+    if (!conv) throw new HttpError(404, t().conversationNotFound);
+    const msg = await this.exclusive(convId, t().busy, async () => {
+      const old = this.latestChecksMessage(conv, messageId);
+      const list = conv.settings.checks;
+      const baseline = this.store.checksBaseline<StoredBaseline>(conv.id, old.id);
+      const started = Date.now();
+      let outcomes: CheckOutcome[] = [];
+      if (hasChecks(list)) {
+        if (!baseline) outcomes = this.unchecked(conv, t().checksNoBaseline);
+        else {
+          try {
+            const folders = await this.foldersNow(conv);
+            const isolated = conv.settings.mode === 'parallel' && conv.settings.permission !== 'read-only';
+            const worktrees = isolated ? await this.worktreeChanges(conv, folders) : [];
+            outcomes = await recheckFrom(list, this.checkFolders(folders, isolated), baseline, worktrees);
+          } catch (err) {
+            outcomes = this.unchecked(conv, (err as Error).message);
+          }
+        }
+      }
+      const replyIds = old.checks!.replyIds;
+      const next = this.postChecks(
+        conv,
+        checksResult(outcomes, {
+          when: 'recheck',
+          ...(replyIds ? { replyIds } : {}),
+          checkedAt: started,
+          durationMs: Date.now() - started,
+        }),
+      );
+      if (baseline) this.store.saveChecksBaseline(conv.id, next.id, baseline);
+      return next;
+    });
+    this.startQueued(conv);
+    return msg;
+  }
+
+  /**
+   * Go on without the latest result passing (its card's "Skip"): what waits in the queue goes, and agents
+   * are not told of it any more. It stays as it was: not a pass.
+   */
+  skipChecks(convId: string, messageId: string): ChatMessage {
+    const conv = this.store.get(convId);
+    if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
+    const msg = this.latestChecksMessage(conv, messageId);
+    if (!checksFailed(msg.checks!)) throw new HttpError(409, t().checksPassedAlready);
+    if (!msg.checks!.skippedAt) {
+      msg.checks = { ...msg.checks!, skippedAt: Date.now() };
+      this.hub.emit(conv.id, { type: 'message', message: msg });
+      this.store.saveMessage(conv.id, msg, true);
+    }
+    this.startQueued(conv);
+    return msg;
+  }
+
+  /**
+   * Ask one member to fix the latest result (its card's "Ask … to fix"): a message from the user to it
+   * (in the user's language), and a turn of its own, in which it is shown the result, seen or not. The
+   * messages waiting stay in the queue until the result passes or the user decides.
+   */
+  async fixChecks(convId: string, messageId: string, agentId: string): Promise<void> {
+    const conv = this.getIdle(convId);
+    const msg = this.latestChecksMessage(conv, messageId);
+    if (!checksFailed(msg.checks!)) throw new HttpError(409, t().checksPassedAlready);
+    const agent = conv.agents.find((a) => a.id === agentId);
+    if (!agent) throw new HttpError(404, t().invalidField('agentId'));
+    if (pendingPlan(conv.messages)) throw new HttpError(409, t().planAwaitingConfirm);
+    await this.start(conv, t().checksFixMessage(agent.name), {
+      only: [agent],
+      keepTeam: true,
+      fixChecks: msg.id,
+      beforePost: () => {
+        msg.checks = { ...msg.checks!, fixBy: agent.name };
+        this.hub.emit(conv.id, { type: 'message', message: msg });
+        this.store.saveMessage(conv.id, msg, true);
+      },
+    });
+  }
+
   /**
    * Turn lead review on or off (the team design card's box, or Team settings' while the team replies).
    * Any time, also while the team replies: whether the lead agent reviews is decided when the team has
@@ -2300,7 +2574,7 @@ export class Orchestrator {
   private applyPlan(conv: Conversation, plan: NonNullable<ChatMessage['plan']>): void {
     if (!plan.agents?.length || !plan.settings) return;
     conv.agents = plan.agents.map((a) => ({ ...a }));
-    conv.settings = { ...conv.settings, ...plan.settings };
+    conv.settings = { ...conv.settings, ...plan.settings, ...this.templateChecks(conv, plan) };
     this.store.saveMeta(conv);
     this.emitConversation(conv);
   }
@@ -2561,7 +2835,10 @@ export class Orchestrator {
       await this.designTeam(conv, run);
       return;
     }
+    await this.startChecks(conv, run);
     await this.teamTurns(conv, posted, run, only, resume);
+    // Before the review, and while the folders are still locked: the review reads the result too.
+    await this.finishChecks(conv, run);
     if (!this.reviewsNow(conv, run)) return;
     run.reviewing = true;
     // The review writes nothing: other conversations may write in these folders meanwhile.
@@ -2611,6 +2888,7 @@ export class Orchestrator {
         hopsLeft--;
         this.deliverBefore(conv, run, [agent]);
         const msg = await this.turn(conv, agent, run, { mode, round: 1, rounds: 1, handedBy, hopsLeft, answered: answered(agent) });
+        await run.checks?.checkpoint(agent.name);
         if (msg.asked) {
           const rest = queue.map((q) => ({ agentId: q.agent.id, handedBy: q.handedBy }));
           this.pauseFor(conv, { mode, askers: [agent.id], rest, participants: [], round: 1, rounds: 1, hopsLeft }, run);
@@ -2651,6 +2929,8 @@ export class Orchestrator {
         const settled = await Promise.allSettled(speakers.map((a) => this.turn(conv, a, run, info(a))));
         const failed = settled.find((r) => r.status === 'rejected');
         if (failed) throw failed.reason;
+        // Side by side, a change cannot be put down to one of them.
+        await run.checks?.checkpoint(undefined);
         msgs.push(...settled.map((r) => (r as PromiseFulfilledResult<ChatMessage>).value));
         // The others answered already; the ones that asked answer again once the user replied.
         const askers = speakers.filter((_, i) => msgs[i]!.asked);
@@ -2660,6 +2940,7 @@ export class Orchestrator {
           if (aborted()) break;
           this.deliverBefore(conv, run, [a]);
           const msg = await this.turn(conv, a, run, info(a));
+          await run.checks?.checkpoint(a.name);
           msgs.push(msg);
           if (msg.asked) return pause([a], speakers.slice(i + 1));
         }
@@ -2673,7 +2954,10 @@ export class Orchestrator {
    * wrote means they are here: the run asks for approvals again, even if a schedule started it.
    */
   private deliverBefore(conv: Conversation, run: Run, recipients: AgentConfig[]): void {
-    if (this.deliverQueued(conv, { recipients }).some((m) => !m.scheduled)) run.refuseApprovals = false;
+    if (this.deliverQueued(conv, { recipients }).some((m) => !m.scheduled)) {
+      run.refuseApprovals = false;
+      run.unattended = undefined;
+    }
   }
 
   /** Who speaks in a run the user's `posted` messages (or Continue, or a retry of `only`) start. */
@@ -3090,14 +3374,19 @@ export class Orchestrator {
       const seen = new Set(state.seen);
       // Everything this agent hasn't been shown yet, including its own earlier replies when starting fresh.
       // Messages still streaming (parallel peers) stay unseen and are delivered next turn.
-      const delta = conv.messages.filter((m) => m.id !== msg.id && isForwardable(m) && !seen.has(m.id));
+      // Of the team checks' results, only the latest: one that later checks replaced is not the team's to fix.
+      // The one the user asked this member to fix is shown again, also when it was seen.
+      const latest = latestChecks(conv.messages)?.id;
+      const delta = conv.messages.filter(
+        (m) => m.id !== msg.id && isForwardable(m) && (!m.checks || m.id === latest) && (!seen.has(m.id) || m.id === run.fixChecks),
+      );
       const prompt = buildTurnPrompt(conv, agent, delta, !state.sessionId, info);
       const files = delta.flatMap((m) =>
         m.author.kind === 'user' ? m.parts.filter((p): p is AttachmentPart => p.type === 'attachment') : [],
       );
       const seenBefore = state.seen;
       committedSeen = seenBefore;
-      state.seen = [...state.seen, ...delta.map((m) => m.id)];
+      state.seen = [...state.seen, ...delta.map((m) => m.id).filter((id) => !seen.has(id))];
       // Read on every turn, so library changes reach agents at their next turn. Its MCP servers that
       // signed in themselves get an access token each, good for a while yet; one whose sign-in needs
       // renewing is left out, with a note the agent (its briefing) and the user (the reply) see.
@@ -3246,6 +3535,7 @@ export class Orchestrator {
       if (before) {
         try {
           msg.changes = await this.captureChanges(conv.id, before, run.ws.isolated ? wts : undefined, agent);
+          if (msg.changes?.some((c) => !c.isolated && c.files.length)) this.markChecksStale(conv);
         } catch (err) {
           console.warn('[orchestrator] could not record changes:', (err as Error).message);
         }

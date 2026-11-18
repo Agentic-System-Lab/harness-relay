@@ -1,0 +1,274 @@
+/*
+ * Team checks (`ConversationSettings.checks`): Harness Relay checking the team's work itself once the
+ * team has answered — the card after the replies, who changed what, when there is none, the result in
+ * the next turn's prompt, what waits in the queue while it fails, Check again, Skip and Fix, a result
+ * gone stale, the lead review reading it, parallel mode, a run that stopped to ask, and a schedule's run.
+ *
+ * The fake CLI, and what each test starts with, are in ./orchestrator-harness.ts.
+ */
+import { execFileSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
+import type { ChatMessage, Conversation } from '../src/shared/types';
+import { calls, conversation, db, fake, finish, orchestrator, project, store, Store, textOf, withLang } from './orchestrator-harness';
+
+const cards = (conv: Conversation) => conv.messages.filter((m) => m.checks);
+const lastCard = (conv: Conversation) => cards(conv).at(-1)!;
+const git = (...args: string[]) =>
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd: project, encoding: 'utf8' });
+const promptOf = (name: string, nth = -1) => calls.filter((c) => c.name === name).at(nth)!.prompt;
+
+/** A conversation whose team may not change `.env` (ignored by git), and must commit as `feat: …`. */
+function checked(settings: Parameters<typeof conversation>[0] = {}): Conversation {
+  writeFileSync(join(project, '.gitignore'), '.env\n');
+  writeFileSync(join(project, '.env'), 'A=1\n');
+  return conversation({
+    mode: 'roundtable',
+    permission: 'edit',
+    checks: { protectedPaths: ['.env'], commitPattern: '^feat' },
+    ...settings,
+  });
+}
+
+describe('team checks', () => {
+  it('checks the team’s work once it has answered, and puts each change down to the turn it happened in', async () => {
+    const conv = checked();
+    fake.during = (name) => {
+      if (name === 'Bob') writeFileSync(join(project, '.env'), 'A=2\n');
+      if (name === 'Alice') {
+        git('add', 'Alice.txt');
+        git('commit', '-q', '-m', 'Add Alice');
+      }
+    };
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+
+    const card = lastCard(conv);
+    expect(conv.messages.at(-1)).toBe(card);
+    expect(card.author.kind).toBe('system');
+    const checks = card.checks!;
+    expect(checks.status).toBe('failed');
+    expect(checks.when).toBe('run');
+    expect(checks.replyIds).toEqual(conv.messages.filter((m) => m.author.kind === 'agent').map((m) => m.id));
+    expect(checks.outcomes).toEqual([
+      { rule: 'paths', status: 'failed', findings: [{ path: '.env', change: 'changed', by: 'Bob' }] },
+      { rule: 'commits', status: 'failed', findings: [expect.objectContaining({ subject: 'Add Alice', by: 'Alice' })] },
+    ]);
+    // Saved, with where the run started from (the server's only).
+    const saved = new Store(db).get(conv.id)!;
+    expect(saved.messages.at(-1)!.checks).toEqual(checks);
+    expect(store.checksBaseline(conv.id, card.id)).toMatchObject({ patterns: ['.env'] });
+  });
+
+  it('tells the agents the rules in their briefing, and what failed in their next turn, once', async () => {
+    const conv = checked();
+    fake.during = (name) => name === 'Bob' && writeFileSync(join(project, '.env'), 'A=2\n');
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const briefing = calls.find((c) => c.name === 'Alice')!.systemPrompt!;
+    expect(briefing).toContain('Team checks: once the team has answered, Harness Relay checks');
+    expect(briefing).toContain('matching these patterns (gitignore-like, in every working directory, ignored files too): .env');
+    expect(briefing).toContain("Every commit's subject must match this regular expression: /^feat/");
+
+    fake.during = undefined;
+    await orchestrator.send(conv.id, 'again');
+    await finish(conv.id);
+    const prompt = promptOf('Alice');
+    expect(prompt).toContain('<team_checks status="failed">');
+    expect(prompt).toContain(".env: changed (in @Bob's turn)");
+    expect(prompt).toContain('Fix it so that the whole result passes');
+    // Nobody put the file back: that run's own result still fails, and replaces the first. The next
+    // turns are shown the latest only, once.
+    expect(cards(conv).map((m) => m.checks!.status)).toEqual(['failed', 'failed']);
+    await orchestrator.send(conv.id, 'third');
+    await finish(conv.id);
+    const third = promptOf('Bob');
+    expect(third.match(/<team_checks/g)).toHaveLength(1);
+    expect(third).toContain(".env: changed (in @Bob's turn)");
+  });
+
+  it('posts nothing when the run cannot write, or the list is empty', async () => {
+    const quiet = checked({ permission: 'read-only' });
+    await orchestrator.send(quiet.id, 'go');
+    await finish(quiet.id);
+    expect(cards(quiet)).toEqual([]);
+    const none = conversation({ mode: 'roundtable', permission: 'edit', checks: {} });
+    await orchestrator.send(none.id, 'go');
+    await finish(none.id);
+    expect(cards(none)).toEqual([]);
+  });
+
+  it('passes a run that kept to the rules, with nothing to check where no commit was made', async () => {
+    const conv = checked();
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect(lastCard(conv).checks).toMatchObject({
+      status: 'passed',
+      outcomes: [
+        { rule: 'paths', status: 'passed' },
+        { rule: 'commits', status: 'na', reason: expect.any(String) },
+      ],
+    });
+  });
+
+  it('holds what the user wrote meanwhile while it fails: Send sends it, Skip lets it go', async () => {
+    const conv = checked();
+    let open!: () => void;
+    // Written during the last turn: no turn of this run is left to take it.
+    fake.gates.Bob = new Promise((r) => (open = r));
+    fake.during = (name) => name === 'Bob' && writeFileSync(join(project, '.env'), 'A=2\n');
+    await orchestrator.send(conv.id, 'go');
+    await vi.waitFor(() => expect(calls.some((c) => c.name === 'Bob')).toBe(true));
+    expect((await orchestrator.send(conv.id, 'and then this')).queued).toBe(true);
+    open();
+    await finish(conv.id);
+    expect(lastCard(conv).checks!.status).toBe('failed');
+    // It waits for the user.
+    expect(conv.queue?.map(textOf)).toEqual(['and then this']);
+    expect(orchestrator.isRunning(conv.id)).toBe(false);
+
+    const skipped = orchestrator.skipChecks(conv.id, lastCard(conv).id);
+    expect(skipped.checks!.skippedAt).toBeGreaterThan(0);
+    expect(skipped.checks!.status).toBe('failed'); // not a pass
+    await finish(conv.id);
+    expect(conv.queue ?? []).toEqual([]);
+    expect(conv.messages.some((m) => m.author.kind === 'user' && textOf(m) === 'and then this')).toBe(true);
+    // Skipped, it is not the team's to fix any more.
+    expect(promptOf('Alice')).not.toContain('<team_checks');
+  });
+
+  it('checks the latest result again from where its run started, and refuses another one', async () => {
+    const conv = checked();
+    fake.during = (name) => name === 'Bob' && writeFileSync(join(project, '.env'), 'A=2\n');
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const failed = lastCard(conv);
+    // The user puts the file back.
+    writeFileSync(join(project, '.env'), 'A=1\n');
+    const again = await orchestrator.recheckChecks(conv.id, failed.id);
+    expect(again).toBe(lastCard(conv));
+    expect(again.checks).toMatchObject({ status: 'passed', when: 'recheck', replyIds: failed.checks!.replyIds });
+    await expect(orchestrator.recheckChecks(conv.id, failed.id)).rejects.toMatchObject({ status: 409 });
+    await expect(orchestrator.recheckChecks(conv.id, 'nope')).rejects.toThrow();
+    expect(() => orchestrator.skipChecks(conv.id, again.id)).toThrow();
+  });
+
+  it('asks one member to fix it: a message from the user, and a turn of its own that is shown the result', async () => {
+    const conv = checked();
+    fake.during = (name) => name === 'Bob' && writeFileSync(join(project, '.env'), 'A=2\n');
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const card = lastCard(conv);
+    fake.during = (name) => name === 'Bob' && writeFileSync(join(project, '.env'), 'A=1\n');
+    calls.length = 0;
+    await withLang('en', () => orchestrator.fixChecks(conv.id, card.id, 'b'));
+    await finish(conv.id);
+    expect(calls.map((c) => c.name)).toEqual(['Bob']);
+    expect(calls[0]!.prompt).toContain('<team_checks status="failed">');
+    const asked = conv.messages.filter((m) => m.author.kind === 'user').at(-1)!;
+    expect(textOf(asked)).toBe('@Bob please fix what failed in the latest team checks (the whole result has to pass).');
+    expect(card.checks!.fixBy).toBe('Bob');
+    // Bob put it back: the run's own result passes.
+    expect(lastCard(conv).checks!.status).toBe('passed');
+    await expect(orchestrator.fixChecks(conv.id, lastCard(conv).id, 'b')).rejects.toThrow();
+  });
+
+  it('marks the latest result stale once a later turn changes the working directory', async () => {
+    const conv = checked();
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const first = lastCard(conv);
+    expect(first.checks!.stale).toBeUndefined();
+    await orchestrator.send(conv.id, 'more');
+    await finish(conv.id);
+    expect(first.checks!.stale).toBe(true);
+    expect(lastCard(conv).checks!.stale).toBeUndefined();
+  });
+
+  it('lets the lead review read how the checks went', async () => {
+    const conv = checked({ leadReview: true });
+    fake.during = (name) => name === 'Bob' && writeFileSync(join(project, '.env'), 'A=2\n');
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const review = calls.find((c) => c.name === 'reviewer')!;
+    expect(review.prompt).toContain('<team_checks status="failed">');
+    expect(review.prompt).toContain('- protected paths: failed (.env changed by @Bob)');
+    // The card comes before the review's.
+    const at = (m?: ChatMessage) => conv.messages.indexOf(m!);
+    expect(at(lastCard(conv))).toBeLessThan(at(conv.messages.find((m) => m.review)));
+  });
+
+  it('in parallel mode, finds a protected file in a member’s worktree and checks no commit format', async () => {
+    const conv = checked({ mode: 'parallel', checks: { protectedPaths: ['Bob.txt'], commitPattern: '^feat' } });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect(lastCard(conv).checks!.outcomes).toEqual([
+      { rule: 'paths', status: 'failed', findings: [{ path: 'Bob.txt', change: 'added', worktree: true, by: 'Bob' }] },
+      { rule: 'commits', status: 'na', reason: expect.any(String) },
+    ]);
+  });
+
+  it('checks what was done when the team stops to ask the user something', async () => {
+    const conv = checked();
+    fake.asking.add('Alice');
+    fake.during = (name) => name === 'Alice' && writeFileSync(join(project, '.env'), 'A=2\n');
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect(conv.pause).toBeDefined();
+    expect(lastCard(conv).checks).toMatchObject({ status: 'failed', when: 'pause' });
+  });
+
+  it('makes a failure in a run a schedule started, that nobody watched, the schedule’s failure', async () => {
+    const conv = checked();
+    conv.schedule = {
+      text: 'nightly',
+      repeat: { kind: 'interval', hours: 1 },
+      timeZone: 'UTC',
+      lang: 'en',
+      enabled: true,
+      approvals: 'deny',
+      missed: 'skip',
+      newChat: false,
+      updatedAt: Date.now(),
+      nextRunAt: Date.now() + 3_600_000,
+    };
+    store.saveSchedule(conv);
+    let open!: () => void;
+    fake.gate = new Promise((r) => (open = r));
+    fake.during = (name) => name === 'Bob' && writeFileSync(join(project, '.env'), 'A=2\n');
+    await withLang('en', async () => {
+      expect((await orchestrator.sendScheduled(conv.id)).result).toBe('sent');
+      // As the scheduler records it once the message went.
+      conv.schedule = { ...conv.schedule!, lastResult: 'sent', lastRunAt: Date.now() };
+      open();
+      await finish(conv.id);
+    });
+    expect(lastCard(conv).checks!.status).toBe('failed');
+    expect(conv.schedule).toMatchObject({ lastResult: 'failed', lastError: 'The team checks did not pass' });
+  });
+
+  it('copies a template’s list into a conversation that has none, and never over one it has', async () => {
+    const preset = {
+      id: 'user-t',
+      name: 'T',
+      agents: conversation({}).agents,
+      settings: { mode: 'roundtable' as const, rounds: 1, maxHops: 5, permission: 'edit' as const, checks: { protectedPaths: ['.env'] } },
+    };
+    store.savePreset(preset);
+    const apply = (conv: Conversation) =>
+      (orchestrator as unknown as { applyPlan: (c: Conversation, p: object) => void }).applyPlan(conv, {
+        status: 'ready',
+        source: 'template',
+        presetId: 'user-t',
+        agents: preset.agents,
+        settings: { mode: 'roundtable', rounds: 1, maxHops: 5 },
+      });
+    const fresh = conversation({});
+    apply(fresh);
+    expect(fresh.settings.checks).toEqual({ protectedPaths: ['.env'] });
+    const own = conversation({ checks: {} });
+    apply(own);
+    expect(own.settings.checks).toEqual({});
+  });
+});

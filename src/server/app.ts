@@ -1105,7 +1105,7 @@ export function createApp({
           .trim()
           .slice(0, 2000) || undefined,
       agents: validateAgents(b.agents, limits.maxTeamAgents),
-      settings: { mode: s.mode, rounds: s.rounds, maxHops: s.maxHops, permission: s.permission },
+      settings: { mode: s.mode, rounds: s.rounds, maxHops: s.maxHops, permission: s.permission, ...(s.checks ? { checks: s.checks } : {}) },
     };
     store.savePreset(preset);
     return c.json(preset);
@@ -1951,6 +1951,23 @@ export function createApp({
   // Let an agent answer again: its reply and everything after it are dropped.
   app.post('/api/conversations/:id/messages/:messageId/retry', async (c) => {
     await orchestrator.retry(c.req.param('id'), c.req.param('messageId'));
+    return c.json({ ok: true }, 202);
+  });
+
+  // Team checks: the latest result's card. Check it again (a new result after it), go on without it
+  // passing (what waits in the queue goes), or ask a member to fix it (a turn of its own).
+  app.post('/api/conversations/:id/checks/:messageId/recheck', async (c) =>
+    c.json(await orchestrator.recheckChecks(c.req.param('id'), c.req.param('messageId'))),
+  );
+
+  app.post('/api/conversations/:id/checks/:messageId/skip', (c) =>
+    c.json(orchestrator.skipChecks(c.req.param('id'), c.req.param('messageId'))),
+  );
+
+  app.post('/api/conversations/:id/checks/:messageId/fix', async (c) => {
+    const b = await body<{ agentId?: unknown }>(c);
+    if (typeof b.agentId !== 'string' || !b.agentId) throw new HttpError(400, t().invalidField('agentId'));
+    await orchestrator.fixChecks(c.req.param('id'), c.req.param('messageId'), b.agentId);
     return c.json({ ok: true }, 202);
   });
 

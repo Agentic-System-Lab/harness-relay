@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 37 個 spec 檔、475 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 38 個 spec 檔、478 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -41,6 +41,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [範本](#範本) | [`templates.spec.ts`](specs/templates.spec.ts) | 6 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本) |
 | [修改對話的團隊](#修改對話的團隊) | [`team.spec.ts`](specs/team.spec.ts) | 5 | [使用者說明 → 對話中修改團隊](../docs/user-guide.zh-TW.md#對話中修改團隊) |
 | [首席 agent 的審閱](#首席-agent-的審閱) | [`review.spec.ts`](specs/review.spec.ts) | 13 | [使用者說明 → 首席 agent 審閱](../docs/user-guide.zh-TW.md#首席-agent-審閱)、[架構 → 首席 agent 審閱](../docs/architecture.zh-TW.md#首席-agent-審閱) |
+| [團隊檢查](#團隊檢查) | [`checks.spec.ts`](specs/checks.spec.ts) | 3 | [使用者說明 → 團隊檢查](../docs/user-guide.zh-TW.md#團隊檢查)、[架構 → 團隊檢查](../docs/architecture.zh-TW.md#團隊檢查) |
 | [成員的模型與推理強度](#成員的模型與推理強度) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [使用者說明 → 預設模型與推理強度](../docs/user-guide.zh-TW.md#預設模型與推理強度)、[團隊成員](../docs/user-guide.zh-TW.md#團隊成員) |
 | [成員如何輪流發言](#成員如何輪流發言) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式)、[agent 之間如何共享上下文](../docs/architecture.zh-TW.md#agent-之間如何共享上下文) |
 | [agent 回答前做了什麼](#agent-回答前做了什麼) | [`activity.spec.ts`](specs/activity.spec.ts) | 13 | [架構 → agent 活動](../docs/architecture.zh-TW.md#agent-活動) |
@@ -163,6 +164,16 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 針對回覆但沒有引用文字的重點會跳到回覆，在分享頁上它的 @名稱 連到回覆 | Claude Code | 用 `e2e:reviewquote=none`，那一點不引用任何文字：它的 **@Claude** 讓回覆閃一下並取得焦點，不加強顯示任何文字；在分享頁上它連到回覆（`#msg-…`），也沒有任何標記。 |
 | 伺服器拒絕變更時，設計卡片的勾選框會恢復原狀並說明原因 | Claude Code | 變更被拒絕時（以替代的回應模擬），勾選框恢復為未勾選，錯誤列說明原因。 |
 | 中文、窄手機上的審閱卡片 | Claude Code | 在 320px、中文介面下，卡片有標題、類型（風險）、下一步、讀了幾則回覆與 **交給團隊**，頁面不會左右捲動。 |
+
+## 團隊檢查
+
+[`checks.spec.ts`](specs/checks.spec.ts)：**團隊檢查**（Team checks），團隊回答後由 Harness Relay 自己檢查。假 CLI 會寫入對話保護的檔案（`e2e:write=…`）。
+
+| 情境 | CLI | 檢查什麼 |
+| --- | --- | --- |
+| 團隊寫入受保護檔案時檢查未通過，擋住使用者這段時間寫的訊息，略過後才送出 | Claude Code | 在保護 `secret.txt`（透過 API 設定）的編輯對話裡，一則很慢的回覆寫入它，同時使用者再送出一則訊息。回覆後，**Team checks** 卡片顯示 **Failed**、**Protected paths**、「secret.txt added · in @Claude's turn」，以及不會撤銷任何修改；佇列說等待的訊息還沒送出，並提供 **Send anyway**。按 **Skip**（確認）後卡片標為已略過，佇列消失、訊息送出；卡片仍顯示 **Failed**，也不再有 **Skip**。 |
+| 在團隊設定設定；檔案移除後重新檢查會通過，也能請成員修正 | Claude Code | 在 **Team settings** 的 **Team checks** 裡，`../outside` 會被拒絕並說明原因，接著存下 `*.key`（對話設定裡有它）。寫入 `deploy.key` 的回覆未通過；**Ask @Claude to fix it** 會把使用者的訊息傳給 @Claude，卡片顯示已請 @Claude 修正。把檔案移走後，**Check again** 會貼出第二張顯示 **Passed** 和 **Checked again** 的卡片。 |
+| 唯讀對話不檢查 | Claude Code | 唯讀對話設了同樣的清單，想寫入的回覆不會有卡片。 |
 
 ## 成員的模型與推理強度
 
@@ -599,6 +610,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 工具庫的 MCP 伺服器，秘密不在命令列上 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | HTTP MCP 伺服器與它的標頭 | ✓ | ✓ | ✓ | ✓ | —（不提供） | ✓ | ✓ |
 | 工具庫 HTTP MCP 伺服器自己的登入（登入頁面在另一台主機時先經過確認）：存取權杖放在伺服器的 `Authorization` 標頭，登入失效後那一回合不給它 | ✓ | — | — | — | — | — | — |
+| 團隊檢查：找出受保護檔案和是誰發言時改的、擋住等待的訊息、略過、重新檢查、請成員修正 | ✓ | — | — | — | — | — | — |
 | 透過 gateway 使用 Harness Relay 自己的工具：郵件在待送出匣等到使用者按送出；完全存取以下，CLI 自己的詢問被代為回答、gateway 對 act 的卡片 | ✓ | ✓（透過本機 HTTP，完全存取以下） | — | — | — | ✓（透過本機 HTTP，完全存取以下） | — |
 | 附加的圖片 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | 停止回答；協定之內的錯誤；失敗的回答與重試 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -664,6 +676,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 沒有測到的部分
 
+- **團隊檢查的大部分。**端對端只測受保護路徑，而且只用 Claude Code 的假 CLI：commit 格式、平行模式成員的 worktree、停下來問使用者的一輪、首席 agent 審閱讀到結果、沒人看著的自動任務那一輪、範本的清單複製進對話，都在離線測試裡（`test/orchestrator-checks.test.ts`、`test/checks.test.ts`），各 CLI 寫入受保護檔案也是（檢查讀的是磁碟，不管是誰寫的）。
 - **CLI 本身。**假 CLI 檢查的是 Harness Relay 這一端的協定；[實機測試](#實機測試)會手動試用真正的 CLI。CLI 改變它的輸出時，由轉接器測試錄下來的訊息（`test/claude.test.ts`、`test/codex.test.ts`、`test/grok.test.ts`、`test/cursor.test.ts`、`test/antigravity.test.ts`、`test/copilot.test.ts`、`test/muse.test.ts` 與開源 agent 的測試，後面這些重播從真正的 CLI 錄下的訊息）以及在 app 中試用真正的 CLI 發現。真的 CLI 是否只把 gateway 的權杖（HTTP MCP server 的 header）留在記憶體中，要用 `scripts/mcp-headers-check.ts` 手動檢查，不在這裡：假 CLI 只顯示 Harness Relay 把它放在 header 裡、不在任何參數中。
 - **CLI 自己的沙箱。**Claude Code、Codex、Grok、Copilot 與 Muse Code 的假 CLI 是從 Harness Relay 給它們的設定，推算它們 CLI 的沙箱會允許什麼（Copilot 的從這次執行的設定推算，並且像 Copilot 那樣，用這些設定給的政策回答 `/sandbox policy`）；只有包住開源 agent 的 Harness Relay 自己的沙箱是真的。真正的 CLI 在完全存取以外不會寫到對話的資料夾之外，由實機測試（`live/sandbox.spec.ts`）試用。
 - **AgentsView 本身。**它是 [`sessions.spec.ts`](specs/sessions.spec.ts) 中的替身伺服器，只回應 Harness Relay 的請求，從不讀 session 檔。真正的 AgentsView 是否在 Harness Relay 的執行留下 session 的地方讀到各 CLI 自己的 session、用的是不是 Harness Relay 連結的 id（包括 Copilot 的 `session-state` 與 Muse Code 的資料資料夾，在各 CLI 平常的家目錄，以及透過使用者說明中專用 AgentsView 的 `config.toml`），並把它們放在討論串底下，是用 AgentsView 0.46.1 手動試過的（Copilot 與 Muse Code 也用 copilot 1.0.109 與 muse 1.4.18 透過它們的 adapter 在 Linux 與 Windows 上寫的 session 試過）。
