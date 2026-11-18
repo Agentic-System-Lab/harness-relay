@@ -25,6 +25,7 @@ import type {
   TeamRevision,
 } from '../shared/types';
 import { splitAsk } from '../shared/ask';
+import { nextRun } from '../shared/schedule';
 import { freshTracking, retryDelayMs, splitProgress, withNote } from '../shared/tracking';
 import {
   OPEN_PROVIDERS,
@@ -563,7 +564,7 @@ export class Orchestrator {
    */
   private skipNotes = new Map<
     string,
-    { messageId: string; schedule: ConversationSchedule | undefined; first: number; count: number; why: string }
+    { messageId: string; schedule: ConversationSchedule | undefined; first: number; last: number; count: number; why: string }
   >();
 
   /** The clock tracking schedules' notes and retries go by (the scheduler's, in tests). */
@@ -3231,20 +3232,23 @@ export class Orchestrator {
    * take the schedule's message (a run goes on, which may take many turns; it waits for the user's
    * answer, for as long as the user takes), every time that comes due is skipped. One that follows the
    * conversation's latest note of skipped times (`skipNotes`), of the same schedule (`s`, as the scheduler
-   * left it then: not saved since) and for the same reason, with nothing written in the chat since nor
-   * any time between them that was not skipped, is added to that note instead of leaving one of its own.
+   * left it then: not saved since) and for the same reason, with nothing written in the chat since, and
+   * the time right after the latest it counts (`nextRun()`: none came between them that was not skipped,
+   * nor any missed while Harness Relay was not running and dropped), is added to that note instead of
+   * leaving one of its own.
    */
   noteSkipped(conv: Conversation, s: ConversationSchedule, due: number, why: string): void {
     const prev = this.skipNotes.get(conv.id);
     const last = conv.messages.at(-1);
-    if (prev && last?.id === prev.messageId && last.author.kind === 'system' && prev.schedule === s && prev.why === why) {
+    if (prev && last?.id === prev.messageId && prev.schedule === s && prev.why === why && nextRun(s, prev.last) === due) {
       prev.count++;
+      prev.last = due;
       prev.schedule = conv.schedule;
       this.rewriteNote(conv, last, t().scheduleSkippedNotes(scheduleTime(prev.first, s), scheduleTime(due, s), prev.count, why));
       return;
     }
     const note = this.systemNote(conv, t().scheduleSkippedNote(scheduleTime(due, s), why));
-    this.skipNotes.set(conv.id, { messageId: note.id, schedule: conv.schedule, first: due, count: 1, why });
+    this.skipNotes.set(conv.id, { messageId: note.id, schedule: conv.schedule, first: due, last: due, count: 1, why });
   }
 
   private emitStatus(id: string): void {

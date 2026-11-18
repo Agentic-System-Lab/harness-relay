@@ -425,7 +425,7 @@ describe('schedules', () => {
     ]);
   });
 
-  it('starts a note of its own after Run now sent the message, also in a new chat, which writes nothing here', async () => {
+  it('starts a note of its own after Run now or the webhook sent the message, also in a new chat, which writes nothing here', async () => {
     const app = createApp({ auth: null, store, settings, hub: new Hub(), orchestrator, providers: new ProviderService(settings) });
     const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
     const team = conv.agents;
@@ -434,23 +434,88 @@ describe('schedules', () => {
     schedule(conv, { newChat: true });
     const at = (hours: number) => scheduleTime(T0 + hours * HOUR, { lang: 'en', timeZone: 'UTC' });
     const one = (hours: number) => `The automation's message of ${at(hours)} was not sent: the team is not confirmed yet.`;
+    const post = (path: string, headers: Record<string, string> = {}) =>
+      app.request(path, {
+        method: 'POST',
+        headers: { host: '127.0.0.1:8787', 'content-type': 'application/json', 'x-relay-lang': 'en', ...headers },
+        body: '{}',
+      });
     const running = scheduler();
+    const sentBy = async (send: () => Response | Promise<Response>, hours: number) => {
+      conv.agents = team;
+      store.saveMeta(conv);
+      const res = await send();
+      expect(res.status).toBe(202);
+      await finish(((await res.json()) as { chatId: string }).chatId);
+      teamless();
+      now = T0 + hours * HOUR;
+      await running.tick();
+    };
     now = T0 + HOUR;
     await running.tick();
-    conv.agents = team;
-    store.saveMeta(conv);
-    const res = await app.request(`/api/conversations/${conv.id}/schedule/run`, {
-      method: 'POST',
-      headers: { host: '127.0.0.1:8787', 'content-type': 'application/json', 'x-relay-lang': 'en' },
-      body: '{}',
-    });
-    expect(res.status).toBe(202);
-    await finish(((await res.json()) as { chatId: string }).chatId);
-    teamless();
-    now = T0 + 2 * HOUR;
+    await sentBy(() => post(`/api/conversations/${conv.id}/schedule/run`), 2);
+    const { token } = (await (await post(`/api/conversations/${conv.id}/schedule/hook`)).json()) as { token: string };
+    await sentBy(() => post(`/api/hooks/${conv.id}`, { authorization: `Bearer ${token}` }), 3);
+    expect(conv.messages.map((m) => m.author.kind)).toEqual(['system', 'system', 'system']);
+    expect(notes(conv)).toEqual([one(1), one(2), one(3)]);
+  });
+
+  it('ends the note at any time not skipped, whatever came of it, and forgets it with its conversation', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    schedule(conv);
+    fake.asking = new Set(['Alice']);
+    await orchestrator.send(conv.id, 'which one?');
+    await finish(conv.id);
+    const at = (hours: number) => scheduleTime(T0 + hours * HOUR, { lang: 'en', timeZone: 'UTC' });
+    const one = (hours: number) => `The automation's message of ${at(hours)} was not sent: the team is waiting for your answer.`;
+    const running = scheduler();
+    // What Run now or the webhook got, writing nothing in this chat: the next skipped time then.
+    const inner = orchestrator as unknown as { trySendScheduled: () => Promise<{ result: string }> };
+    const after = async (result: string, hours: number) => {
+      vi.spyOn(inner, 'trySendScheduled').mockResolvedValueOnce({ result });
+      await orchestrator.sendScheduled(conv.id);
+      now = T0 + hours * HOUR;
+      await running.tick();
+    };
+    now = T0 + HOUR;
     await running.tick();
-    expect(conv.messages.map((m) => m.author.kind)).toEqual(['system', 'system']);
-    expect(notes(conv)).toEqual([one(1), one(2)]);
+    await after('sent', 2);
+    await after('queued', 3);
+    await after('failed', 4);
+    await after('busy', 5);
+    await after('skipped', 6);
+    expect(notes(conv)).toEqual([
+      one(1),
+      one(2),
+      one(3),
+      `The automation's messages from ${at(4)} to ${at(6)} (3 times) were not sent: the team is waiting for your answer.`,
+    ]);
+    // Memory only, so nothing else shows it.
+    const skipNotes = (orchestrator as unknown as { skipNotes: Map<string, unknown> }).skipNotes;
+    expect(skipNotes.has(conv.id)).toBe(true);
+    await orchestrator.deleteConversation(conv.id);
+    expect(skipNotes.has(conv.id)).toBe(false);
+  });
+
+  it('starts a note of its own after times dropped while Harness Relay was not running', async () => {
+    // Missed times sent once late: the first is the one after the note's latest, the rest dropped.
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    schedule(conv, { missed: 'run' });
+    fake.asking = new Set(['Alice']);
+    await orchestrator.send(conv.id, 'which one?');
+    await finish(conv.id);
+    const at = (hours: number) => scheduleTime(T0 + hours * HOUR, { lang: 'en', timeZone: 'UTC' });
+    const why = 'the team is waiting for your answer';
+    const running = scheduler();
+    for (const hours of [1, 2, 5.5, 6]) {
+      now = T0 + hours * HOUR;
+      await running.tick();
+    }
+    // 3:00 sent late (and skipped), 4:00 and 5:00 dropped: 6:00 does not follow it.
+    expect(notes(conv)).toEqual([
+      `The automation's messages from ${at(1)} to ${at(3)} (3 times) were not sent: ${why}.`,
+      `The automation's message of ${at(6)} was not sent: ${why}.`,
+    ]);
   });
 
   it('skips a time missed while it was not running, or sends it once late, as the schedule says', async () => {

@@ -408,6 +408,10 @@ describe.skipIf(!chromium)('the browser itself', () => {
         );
       }
       if (url.pathname === '/hang-link') return res.end('<title>Hang link</title><a href="/hang?from=click">Hang</a>');
+      // A page that is there at once but never finishes loading (its image never comes), a link to it, and a button that opens nothing.
+      if (url.pathname === '/never-loads') return res.end('<title>Never loads</title><p>Here</p><img src="/hang?from=img">');
+      if (url.pathname === '/never-loads-link') return res.end('<title>Never loads link</title><a href="/never-loads">Never loads</a>');
+      if (url.pathname === '/stay') return res.end(`<title>Stay</title><button onclick="fetch('/noop-click')">Stay</button>`);
       if (url.pathname === '/hang') {
         // A server that takes the request and never answers.
         hung.push(res);
@@ -781,6 +785,63 @@ describe.skipIf(!chromium)('the browser itself', () => {
       expect((await browser.snapshot(ctx(own))).title).toBe('Hang link');
       expect((await browser.open(ctx(own), `http://127.0.0.1:${port}/next`)).title).toBe('Next');
       await browser.close('conv-hang-click', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    'ends a click with its turn also before the page it opens starts loading, or while it has not finished loading',
+    async () => {
+      const own = { convId: 'conv-turn-ends', permission: 'full' as const };
+      // A button that opens nothing: the turn ends while the click waits to see whether a page comes.
+      const stay = await browser.open(ctx(own), `http://127.0.0.1:${port}/stay`);
+      let turn = new AbortController();
+      let clicking = browser.click(ctx({ ...own, signal: turn.signal }), refIn(stay.text, 'button "Stay"'));
+      await vi.waitFor(() => expect(hits).toContain('/noop-click'), { timeout: slow(5000) });
+      turn.abort();
+      await expect(clicking).rejects.toThrow('The turn ended');
+      // A page that is there, but never finishes loading.
+      const link = await browser.open(ctx(own), `http://127.0.0.1:${port}/never-loads-link`);
+      turn = new AbortController();
+      clicking = browser.click(ctx({ ...own, signal: turn.signal }), refIn(link.text, 'link "Never loads"'));
+      await vi.waitFor(() => expect(hits).toContain('/hang?from=img'), { timeout: slow(20_000) });
+      turn.abort();
+      await expect(clicking).rejects.toThrow('The turn ended');
+      expect((await browser.snapshot(ctx(own))).title).toBe('Never loads');
+      await browser.close('conv-turn-ends', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    "gives a page's server two minutes to answer (two seconds here), not counting the time the user takes to answer about its host",
+    async () => {
+      const brief = new BrowserService({
+        dataDir: join(root, 'data'),
+        executable: () => chromium,
+        relayPorts: () => [9],
+        answerMs: 2000,
+      });
+      try {
+        const own = { convId: 'answer-1', permission: 'full' as const };
+        const failed = brief.open(ctx(own), `http://127.0.0.1:${port}/hang?from=open`);
+        await expect(failed).rejects.toThrow(`http://127.0.0.1:${port}/hang?from=open did not answer in 2 seconds, and was stopped`);
+        // The tab let go of it: the next page opens at once.
+        expect((await brief.open(ctx(own), `http://127.0.0.1:${port}/next`)).title).toBe('Next');
+
+        // A click into such a page too: it fails, and the tab reads its page.
+        const page = await brief.open(ctx(own), `http://127.0.0.1:${port}/hang-link`);
+        await expect(brief.click(ctx(own), refIn(page.text, 'link "Hang"'))).rejects.toThrow(
+          'The page it opened did not answer in 2 seconds, and was stopped',
+        );
+        expect((await brief.snapshot(ctx(own))).title).toBe('Hang link');
+
+        // The user answers about the host after twice that time, and its server a little later: it opens.
+        const slowAnswer = ctx({ convId: 'answer-2', ask: async () => (await new Promise((r) => setTimeout(r, 4000)), { allow: true }) });
+        expect((await brief.open(slowAnswer, `http://127.0.0.1:${port}/slow`)).title).toBe('Slow');
+      } finally {
+        brief.closeAll();
+      }
     },
     slow(60_000),
   );

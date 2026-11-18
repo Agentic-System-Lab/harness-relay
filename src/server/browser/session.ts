@@ -308,6 +308,8 @@ export interface BrowserServiceOptions {
   /** This computer's own addresses. */
   own?: () => readonly string[];
   idleMs?: number;
+  /** How long a page's server may take to answer (`PAGE_ANSWER_MS`; tests give a shorter one). */
+  answerMs?: number;
   /** A host name's addresses (tests give their own; else the system's lookup). */
   lookUp?: (host: string) => Promise<string[]>;
 }
@@ -328,6 +330,8 @@ class BrowserSession {
   current?: GatewayContext;
   private timer?: NodeJS.Timeout;
   mainFrame = '';
+  /** Questions about a host the main frame would open that wait for the user's answer: time the page's server is not given. */
+  asking = 0;
   /** The page the main frame did not open during the current call, and why. */
   denied?: Refusal;
   /** The sessions whose requests are gated: the tab's own, and its frames and workers in processes of their own. */
@@ -490,12 +494,45 @@ function isMainDocument(s: BrowserSession, p: Record<string, unknown>, sid: stri
 }
 
 /**
- * `answer` (a page being opened), unless the turn ends first: then the tab stops loading, and the call
- * fails. A page whose server never answers would otherwise hold the conversation's browser, and every
- * later call waiting for it, for as long as a turn may last (`with()`). Its answer, should it come, goes
- * unheard.
+ * How long a page's server may take to answer, from when the page is let through: the time a question
+ * about its host waits for the user's answer does not count, which may be as long as the turn lasts.
  */
-async function untilTurnEnds<T>(s: BrowserSession, signal: AbortSignal, answer: Promise<T>): Promise<T> {
+export const PAGE_ANSWER_MS = 2 * 60_000;
+
+/**
+ * Counts the time the tab's page is given to answer: `ms` of it, not counting the time a question about
+ * a host waits for the user (`asking`), looked at every second at most. `over` once it has had them.
+ */
+function answerClock(s: BrowserSession, ms: number): { done: Promise<void>; over: () => boolean; stop: () => void } {
+  let used = 0;
+  let last = Date.now();
+  let over = false;
+  let timer: NodeJS.Timeout | undefined;
+  const done = new Promise<void>((resolve) => {
+    const tick = () => {
+      const now = Date.now();
+      if (s.asking === 0) used += now - last;
+      last = now;
+      if (used >= ms) return void ((over = true), resolve());
+      timer = setTimeout(tick, Math.min(1000, ms - used));
+      timer.unref?.();
+    };
+    timer = setTimeout(tick, Math.min(1000, ms));
+    timer.unref?.();
+  });
+  return { done, over: () => over, stop: () => clearTimeout(timer) };
+}
+
+/** What the agent is told of a page whose server did not answer in time (`answerClock()`). */
+const silentText = (ms: number) => `did not answer in ${Math.round(ms / 1000)} seconds, and was stopped`;
+
+/**
+ * `answer` (a page being opened), unless the turn ends first or the page's server takes longer than
+ * `ms` to answer (`answerClock()`): then the tab stops loading, and the call fails. A page whose server
+ * never answers would otherwise hold the conversation's browser, and every later call waiting for it,
+ * for as long as a turn may last (`with()`). Its answer, should it come, goes unheard.
+ */
+async function untilAnswered<T>(s: BrowserSession, signal: AbortSignal, ms: number, url: string, answer: Promise<T>): Promise<T> {
   answer.catch(() => undefined);
   let off = () => {};
   const ended = new Promise<never>((_, reject) => {
@@ -504,13 +541,18 @@ async function untilTurnEnds<T>(s: BrowserSession, signal: AbortSignal, answer: 
     signal.addEventListener('abort', end, { once: true });
     off = () => signal.removeEventListener('abort', end);
   });
+  const clock = answerClock(s, ms);
+  const silent = clock.done.then((): never => {
+    throw new Error(`${url} ${silentText(ms)}`);
+  });
   try {
-    return await Promise.race([answer, ended]);
+    return await Promise.race([answer, ended, silent]);
   } catch (err) {
-    if (signal.aborted) await s.send('Page.stopLoading').catch(() => undefined);
+    if (signal.aborted || clock.over()) await s.send('Page.stopLoading').catch(() => undefined);
     throw err;
   } finally {
     off();
+    clock.stop();
   }
 }
 
@@ -521,12 +563,14 @@ export class BrowserService {
   /** The sessions by the password their browser gives the proxy. */
   private readonly byPassword = new Map<string, BrowserSession>();
   private readonly idleMs: number;
+  private readonly answerMs: number;
   private readonly proxy = new BrowserProxy((password, host, port, secure) => this.route(password, host, port, secure));
   /** Host names' addresses, looked up again after a minute. */
   private readonly addressCache = new Map<string, { at: number; addresses: Promise<string[]> }>();
 
   constructor(private o: BrowserServiceOptions) {
     this.idleMs = o.idleMs ?? 10 * 60_000;
+    this.answerMs = o.answerMs ?? PAGE_ANSWER_MS;
     // Its profiles' folder, a protected path from the first turn on (`relayBrowserDir`).
     mkdirSync(relayBrowserDir(o.dataDir), { recursive: true, mode: 0o700 });
   }
@@ -770,7 +814,14 @@ export class BrowserService {
       else if (ctx?.ask) {
         const ask = () =>
           ctx.ask!({ kind: 'fetch', detail: url, reason: nearby ? t().gw.openNearbyReason : t().gw.openReason, noLock: true });
-        const answer = await (ctx.lang ? withLang(ctx.lang, ask) : ask()).catch(() => ({ allow: false }));
+        // The page's server is not waited for meanwhile (`answerClock()`).
+        s.asking++;
+        let answer: { allow: boolean };
+        try {
+          answer = await (ctx.lang ? withLang(ctx.lang, ask) : ask()).catch(() => ({ allow: false }));
+        } finally {
+          s.asking--;
+        }
         allow = answer.allow;
         if (!allow) s.denied = { url, why: 'declined' };
       } else s.denied = { url, why: 'unasked' };
@@ -899,9 +950,9 @@ export class BrowserService {
    * there (then until it has loaded, at most 15 s) or the main frame stops loading without one (a
    * download, an answer with no page, a page refused). Watching only for the new page to be there,
    * as before, read a page whose server took longer than that to answer before it had come.
-   * Resolves with whether a new page is there. Once the turn ends (`signal`), the tab stops loading and
-   * the call fails, as `open()`'s does: the page on its way would hold the tab (a snapshot of it waits
-   * for it), and the calls after it.
+   * Resolves with whether a new page is there. Once the turn ends (`signal`), or the page's server has
+   * had `answerMs` (`answerClock()`), the tab stops loading and the call fails, as `open()`'s does: the
+   * page on its way would hold the tab (a snapshot of it waits for it), and the calls after it.
    */
   private async afterInput(s: BrowserSession, startMs: number, signal: AbortSignal, input: () => Promise<void>): Promise<boolean> {
     const seen = { started: false, navigated: false, stopped: false, loaded: false };
@@ -930,18 +981,26 @@ export class BrowserService {
       }
       return true;
     };
-    const ended = async (): Promise<never> => {
+    const stop = async (why: string): Promise<never> => {
       await s.send('Page.stopLoading').catch(() => undefined);
-      throw new Error('The turn ended');
+      throw new Error(why);
     };
+    const ended = () => stop('The turn ended');
     for (const [event, on] of handlers) s.cdp.on(event, on);
     try {
       await input();
       const started = await until(() => seen.started || seen.navigated, startMs);
       if (signal.aborted) return await ended();
       if (!started) return false;
-      await until(() => seen.navigated || seen.stopped, CONFIG.turnTimeoutMs);
+      // As long as the user takes to answer about its host, then what its server is given (`answerMs`).
+      const clock = answerClock(s, this.answerMs);
+      try {
+        await until(() => seen.navigated || seen.stopped || clock.over(), CONFIG.turnTimeoutMs);
+      } finally {
+        clock.stop();
+      }
       if (signal.aborted) return await ended();
+      if (!seen.navigated && !seen.stopped && clock.over()) return await stop(`The page it opened ${silentText(this.answerMs)}`);
       if (!seen.navigated) return false;
       await until(() => seen.loaded || seen.stopped, 15_000);
       if (signal.aborted) return await ended();
@@ -961,11 +1020,13 @@ export class BrowserService {
     });
     if (verdict === 'block') throw new Error(refusalText({ url, why: 'blocked' }));
     return this.with(ctx, async (s) => {
-      // The answer comes once the page is let through, which may wait for the user's answer, and its
-      // server answers: as long as the turn lasts.
-      const r = await untilTurnEnds(
+      // The answer comes once the page is let through, which may wait for the user's answer (as long as
+      // the turn lasts), and its server answers (`answerMs`).
+      const r = await untilAnswered(
         s,
         ctx.signal,
+        this.answerMs,
+        url,
         s.send<{ errorText?: string; loaderId?: string }>('Page.navigate', { url }, CONFIG.turnTimeoutMs),
       );
       if (r.errorText) {

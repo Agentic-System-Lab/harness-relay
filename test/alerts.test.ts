@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { AlertWatcher, PRESENT_MS, alertPayload, pushTtlS, testPayload } from '../src/server/alerts';
+import { CONFIG } from '../src/server/config';
 import { openDatabase } from '../src/server/db';
 import { PushService, type PushRequest, type PushSubscriptionRecord } from '../src/server/push';
 import type { AlertPayload, AlertPrefs, Conversation, ConversationSummary } from '../src/shared/types';
@@ -136,6 +137,22 @@ describe('AlertWatcher', () => {
     expect(pushTtlS(true, 3 * 24 * 60 * 60_000 + 1)).toBe(3 * 24 * 60 * 60 + 1);
     expect(pushTtlS(true, 7 * 24 * 60 * 60_000)).toBe(7 * 24 * 60 * 60);
     expect(pushTtlS(false, 7 * 24 * 60 * 60_000)).toBe(6 * 60 * 60);
+  });
+
+  it("keeps a need pushed as long as the server's turn timeout when that is longer than a day", async () => {
+    const config = CONFIG as { turnTimeoutMs: number };
+    const saved = config.turnTimeoutMs;
+    config.turnTimeoutMs = 3 * 24 * 60 * 60_000;
+    try {
+      push.subscribe('phone', { endpoint: PHONE, keys: key(1) }, { done: true, needs: true, sound: false }, 'en');
+      list = [done('c2', 'x')];
+      await watcher.check();
+      list = [summary('c2', { confirmTeam: true, lastReplyId: 'x' })];
+      await watcher.check();
+      expect(push.payloads.map((p) => [p.payload.kind, p.ttl])).toEqual([['confirm', 3 * 24 * 60 * 60]]);
+    } finally {
+      config.turnTimeoutMs = saved;
+    }
   });
 
   it('tells of a run that started and ended between two checks, and of nothing for one that left no reply', async () => {
