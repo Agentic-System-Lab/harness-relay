@@ -1263,6 +1263,24 @@ html:not(.js) .theme-toggle {
   line-height: 1.55;
 }
 
+/* Under what was asked: the conversation as it was shared, and the files attached to the question. */
+.usecase-links {
+  display: grid;
+  gap: 6px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.usecase-links a {
+  color: var(--text);
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+
 .usecase-shows ul {
   display: grid;
   gap: 10px;

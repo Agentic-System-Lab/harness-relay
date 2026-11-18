@@ -7,7 +7,9 @@ import { buildChapters, replaceRail } from '../scripts/demo/chapters';
 import type { Timeline } from '../scripts/demo/common';
 import { retimeVideoData } from '../scripts/demo/publish';
 import { USE_CASES, useCase } from '../scripts/demo/use-cases/cases';
-import { posterTime, useCaseRail } from '../scripts/demo/use-cases/publish';
+import { posterTime, replaceLinks, useCaseLinks, useCaseRail } from '../scripts/demo/use-cases/publish';
+import { shareUpTo } from '../scripts/demo/use-cases/share';
+import type { ChatMessage } from '../src/shared/types';
 import {
   BOOKS_OPENING,
   COMPETITORS,
@@ -192,6 +194,61 @@ describe('the use cases', () => {
     expect(posterTime(uc, { ...t, marks: [{ name: 'q1-answered', video: 40 }] })).toBe(41);
     expect(posterTime(uc, { ...t, length: 51, marks: [{ name: 'review', video: 50 }] })).toBe(50.5);
     expect(() => posterTime(uc, { ...t, marks: [] })).toThrow(/No review or q1-answered mark/);
+  });
+});
+
+describe('sharing a use case', () => {
+  const reply = (id: string, status: ChatMessage['status']) => ({ id, author: { kind: 'agent' }, status }) as unknown as ChatMessage;
+  const user = (id: string) => ({ id, author: { kind: 'user' }, status: 'done' }) as unknown as ChatMessage;
+
+  it('shares the whole conversation, review and notes after the replies included, unless its last reply did not finish', () => {
+    const note = (id: string) => ({ id, author: { kind: 'system' }, status: 'done' }) as unknown as ChatMessage;
+    expect(shareUpTo({ messages: [user('u'), reply('a', 'done'), reply('b', 'done')] })).toBeUndefined();
+    expect(shareUpTo({ messages: [user('u'), reply('a', 'done'), note('review')] })).toBeUndefined();
+    // A reply still running when the recording ended (stopped since) is left out, with what came after it.
+    expect(shareUpTo({ messages: [user('u'), reply('a', 'done'), reply('b', 'error')] })).toBe('a');
+    expect(shareUpTo({ messages: [user('u'), reply('a', 'done'), reply('b', 'streaming'), note('n')] })).toBe('a');
+    expect(shareUpTo({ messages: [user('u')] })).toBeUndefined();
+  });
+
+  it('links the conversation as shared, with how many files went along, and the attached files in the site', () => {
+    const share = { url: 'https://gistpreview.github.io/?abc123', files: 2, attachments: ['notes.md', '銀行對帳單 10月.csv'] };
+    const en = useCaseLinks('reconcile-accounts', 'en', share, 14);
+    expect(en).toBe(
+      [
+        '<ul class="usecase-links">',
+        '                <li><a href="https://gistpreview.github.io/?abc123">Read the whole conversation</a>, as Harness Relay’s Share made it, with the 2 files its replies link to.</li>',
+        '                <li>Attached to the question: <a href="../assets/media/use-cases/files/reconcile-accounts/en/notes.md" download>notes.md</a>, <a href="../assets/media/use-cases/files/reconcile-accounts/en/%E9%8A%80%E8%A1%8C%E5%B0%8D%E5%B8%B3%E5%96%AE%2010%E6%9C%88.csv" download>銀行對帳單 10月.csv</a>.</li>',
+        '              </ul>',
+      ].join('\n'),
+    );
+    const zh = useCaseLinks('fix-a-bug', 'zh-TW', { ...share, files: 1, attachments: [] }, 0);
+    expect(zh).toBe(
+      '<ul class="usecase-links">\n  <li><a href="https://gistpreview.github.io/?abc123">看完整對話</a>：Harness Relay 的「分享」做出的頁面，附上回覆連到的 1 個檔案。</li>\n</ul>',
+    );
+    expect(useCaseLinks('fix-a-bug', 'en', { ...share, files: 1, attachments: [] }, 0)).toContain('with the file its replies link to.');
+    expect(useCaseLinks('fix-a-bug', 'en', { ...share, files: 0, attachments: [] }, 0)).toContain('as Harness Relay’s Share made it.</li>');
+  });
+
+  it('puts the links under what was asked in its own section, and replaces them there the next time', () => {
+    const page = [
+      '<section id="a">',
+      '              <blockquote>A</blockquote>',
+      '</section>',
+      '<section id="b">',
+      '              <blockquote>B</blockquote>',
+      '</section>',
+    ].join('\n');
+    const links = (text: string) => (indent: number) =>
+      `<ul class="usecase-links">\n${' '.repeat(indent + 2)}<li>${text}</li>\n${' '.repeat(indent)}</ul>`;
+    const once = replaceLinks(page, 'b', links('one'));
+    expect(once).toContain(
+      '<blockquote>B</blockquote>\n              <ul class="usecase-links">\n                <li>one</li>\n              </ul>\n</section>',
+    );
+    expect(once).toContain('<blockquote>A</blockquote>\n</section>');
+    const twice = replaceLinks(once, 'b', links('two'));
+    expect(twice).toBe(once.replace('<li>one</li>', '<li>two</li>'));
+    expect(() => replaceLinks(page, 'c', links('x'))).toThrow(/no element with the id c/);
   });
 });
 

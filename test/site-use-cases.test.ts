@@ -1,7 +1,7 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { USE_CASES } from '../scripts/demo/use-cases/cases';
-import { USE_CASE_PAGES, useCaseMedia } from '../scripts/demo/use-cases/publish';
+import { USE_CASE_PAGES, useCaseFiles, useCaseMedia } from '../scripts/demo/use-cases/publish';
 
 // The website's use cases: the use-cases page in each language (site/use-cases/, site/zh-TW/use-cases/), each
 // use case's section with its recording, chapters and what was asked, the home pages' list of them, the
@@ -196,6 +196,30 @@ describe('the use-cases pages', () => {
       expect(html, lang).toContain(`<script type="module" src="${lang === 'en' ? '../' : '../../'}assets/downloads.js"></script>`);
       // The page's last section.
       expect(html.indexOf(cta) + cta.length, lang).toBe(html.indexOf('</section>\n    </main>') + '</section>'.length);
+    }
+  });
+
+  it('link each use case’s conversation as it was shared, and the files attached to its question, all in the site', () => {
+    for (const lang of LANGS) {
+      const p = page(lang);
+      for (const uc of USE_CASES) {
+        const s = p.sections.get(uc.slug)!;
+        const links = s.match(/<ul class="usecase-links">([\s\S]*?)<\/ul>/)?.[1];
+        expect(links, `${uc.slug} ${lang}`).toBeTruthy();
+        // Right under what was asked.
+        expect(s, `${uc.slug} ${lang}`).toMatch(/<\/blockquote>\s*<ul class="usecase-links">/);
+        const shared = [...links!.matchAll(/href="(https:\/\/gistpreview\.github\.io\/\?[0-9a-f]{20,})"/g)];
+        expect(shared, `${uc.slug} ${lang}`).toHaveLength(1);
+        // Every attached file it links to is in the site, and nothing else is in its folder.
+        const files = [...links!.matchAll(/href="([^"]+)" download>/g)].map((m) => published(p.url(m[1]!)));
+        const folder = useCaseFiles(uc.slug, lang);
+        for (const f of files) {
+          expect(decodeURIComponent(f).startsWith(`${folder}/`), f).toBe(true);
+          expect(exists(decodeURIComponent(f)), f).toBe(true);
+        }
+        const held = exists(folder) ? readdirSync(new URL(`../${folder}`, import.meta.url)) : [];
+        expect(held.sort(), `${uc.slug} ${lang}`).toEqual(files.map((f) => decodeURIComponent(f).split('/').pop()!).sort());
+      }
     }
   });
 

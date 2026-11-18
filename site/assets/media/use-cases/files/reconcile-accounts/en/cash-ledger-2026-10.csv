@@ -1,0 +1,29 @@
+date,entry,memo,account,amount
+2026-10-01,JE-5100,Opening balance,Cash at bank,18420.35
+2026-10-01,JE-5101,Card sales,Cash at bank,2860.40
+2026-10-01,JE-5102,"Rent, Pier 9 Properties",Cash at bank,-3200.00
+2026-10-02,JE-5103,"Flour Mill Supply, invoice 2291",Cash at bank,-1840.00
+2026-10-04,JE-5104,"Flour Mill Supply, invoice 2291",Cash at bank,-1840.00
+2026-10-03,JE-5105,Card sales,Cash at bank,2415.75
+2026-10-05,JE-5106,Payroll,Cash at bank,-6980.00
+2026-10-06,JE-5107,Card sales,Cash at bank,3102.20
+2026-10-07,JE-5108,Green Valley Produce,Cash at bank,-486.30
+2026-10-08,JE-5109,Harbor Electric,Cash at bank,-415.60
+2026-10-09,JE-5110,Card sales,Cash at bank,2288.90
+2026-10-10,JE-5111,Blackbird Roasters,Cash at bank,-912.00
+2026-10-12,JE-5112,Card sales,Cash at bank,3540.10
+2026-10-13,JE-5113,"Coastline Mutual, insurance",Cash at bank,-640.00
+2026-10-14,JE-5114,Bright Meadow Dairy,Cash at bank,-733.45
+2026-10-15,JE-5115,"Catering deposit, Lin wedding",Cash at bank,1500.00
+2026-10-16,JE-5116,Card sales,Cash at bank,2977.65
+2026-10-19,JE-5117,Payroll,Cash at bank,-6980.00
+2026-10-20,JE-5118,Card sales,Cash at bank,3215.30
+2026-10-21,JE-5119,Boxwell Packaging,Cash at bank,-388.20
+2026-10-22,JE-5120,"Flour Mill Supply, invoice 2318",Cash at bank,-1912.50
+2026-10-23,JE-5121,Card sales,Cash at bank,2654.80
+2026-10-26,JE-5122,Card sales,Cash at bank,3390.45
+2026-10-27,JE-5123,City Water,Cash at bank,-142.80
+2026-10-28,JE-5124,"Oven Pros, repair",Cash at bank,-1075.00
+2026-10-29,JE-5125,"Cheque 1047, Green Valley Produce",Cash at bank,-620.00
+2026-10-30,JE-5126,Card sales,Cash at bank,2840.15
+2026-10-31,JE-5127,Weekend card sales,Cash at bank,3280.50
