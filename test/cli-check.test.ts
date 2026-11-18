@@ -400,6 +400,7 @@ describe("layer 1: the CLI versions workflow's issues", () => {
     expect(wf).toContain('workflow_dispatch:');
     expect(wf).toContain("if: github.repository == 'Agentic-System-Lab/harness-relay'");
     expect(wf).toMatch(/permissions:\s*\n\s*contents: read\s*\n\s*issues: write/);
+    expect(wf).toMatch(/uses: actions\/checkout@v\d+\s*\n\s*with:\s*\n\s*persist-credentials: false/);
     // Exactly this: a --dry-run left in would keep no issue.
     expect(wf).toMatch(/run: npx tsx scripts\/cli-check\.ts versions --issues\s*$/m);
   });
