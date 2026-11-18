@@ -42,7 +42,7 @@ import {
   prepareAntigravityRun,
   type AntigravityToolCall,
 } from '../src/server/agents/antigravity';
-import { AgentRunError, type AgentEvent, type ApprovalRequest, type RunOptions } from '../src/server/agents/types';
+import { AgentRunError, TURN_TIMEOUT_MS, type AgentEvent, type ApprovalRequest, type RunOptions } from '../src/server/agents/types';
 import { t, withLang } from '../src/server/i18n';
 import { antigravityDefaultModel, parseAntigravityModels } from '../src/server/models';
 import { antigravityMcpServers, antigravityMemoryFiles, parseAntigravityProbe } from '../src/server/native';
@@ -417,7 +417,7 @@ describe("Antigravity's settings and home for one run", () => {
       const recent = join(app, `${ANTIGRAVITY_RUN_PREFIX}111111111111`);
       mkdirSync(old, { recursive: true });
       mkdirSync(recent, { recursive: true });
-      const long = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+      const long = new Date(Date.now() - TURN_TIMEOUT_MS - 2 * 60_000); // older than a turn may last, and the minute after it
       utimesSync(old, long, long);
       const run = prepareAntigravityRun(app, 'edit', false);
       expect(existsSync(old)).toBe(false);

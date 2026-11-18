@@ -70,7 +70,7 @@ import {
   removeEmptyMountPoints,
   type MuseToolCall,
 } from '../src/server/agents/muse';
-import { AgentRunError, type AgentEvent, type ApprovalRequest, type RunOptions } from '../src/server/agents/types';
+import { AgentRunError, TURN_TIMEOUT_MS, type AgentEvent, type ApprovalRequest, type RunOptions } from '../src/server/agents/types';
 import { t, withLang } from '../src/server/i18n';
 import { discoverModels, discoverMuse, MUSE_CATALOG } from '../src/server/models';
 import { museHooks, museMcpServers, parseMuseSkills } from '../src/server/native';
@@ -1135,7 +1135,7 @@ describe("Muse Code's config folder for one run", () => {
 
   it('removes the folders of runs the server was stopped during, once older than a turn may last, never one under way', () => {
     const a = account();
-    const long = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    const long = new Date(Date.now() - TURN_TIMEOUT_MS - 2 * 60_000); // older than a turn may last, and the minute after it
     mkdirSync(a.root, { recursive: true });
     const old = join(a.root, `${MUSE_RUN_PREFIX}old`);
     const recent = join(a.root, `${MUSE_RUN_PREFIX}recent`);

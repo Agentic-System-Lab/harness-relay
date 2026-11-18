@@ -24,11 +24,14 @@ export interface ServerConfig extends ServerLimits {
   browser?: string;
 }
 
-/** The whole numbers each limit may be set to: from one, and below a value no setup needs, to catch a typo. */
+/**
+ * The whole numbers each limit may be set to: from one, and below a value no setup needs, to catch a typo.
+ * The turn timeout goes up to 7 days, well below the 24.8 days a timer can wait (`setTimeout`).
+ */
 const RANGES = {
   RELAY_MAX_ACCOUNTS: [1, 100],
   RELAY_MAX_TEAM_AGENTS: [1, 32],
-  RELAY_TURN_TIMEOUT_MIN: [1, 24 * 60],
+  RELAY_TURN_TIMEOUT_MIN: [1, 7 * 24 * 60],
 } as const;
 
 /** The configuration `env` sets, and what in it is not valid (each such value left at its default). */

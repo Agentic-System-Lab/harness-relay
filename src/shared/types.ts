@@ -1898,8 +1898,8 @@ export function keyOnlyAccount(p: Provider, account: string | undefined): boolea
  * API key of its own.
  */
 export const DEFAULT_MAX_ACCOUNTS = 10;
-/** Each agent turn's safety timeout in minutes, unless `RELAY_TURN_TIMEOUT_MIN` says otherwise. */
-export const DEFAULT_TURN_TIMEOUT_MIN = 45;
+/** Each agent turn's safety timeout in minutes (1 day), unless `RELAY_TURN_TIMEOUT_MIN` says otherwise. */
+export const DEFAULT_TURN_TIMEOUT_MIN = 24 * 60;
 
 /** `GET /api/limits`: what the server's environment sets that the UI keeps to or shows. */
 export interface ServerLimits {

@@ -225,7 +225,7 @@ export class AgentRunError extends Error {
 }
 
 /**
- * Per-turn safety net; long coding tasks are fine, a hung CLI is not. 45 minutes unless
+ * Per-turn safety net; long coding tasks are fine, a hung CLI is not. 1 day unless
  * `RELAY_TURN_TIMEOUT_MIN` says otherwise (`config.ts`); a turn waiting for the user's answer counts too.
  */
 export const TURN_TIMEOUT_MS = CONFIG.turnTimeoutMs;
