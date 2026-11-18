@@ -1074,6 +1074,12 @@ export interface CheckList {
    * as the agents ran. Not on Windows yet.
    */
   commands?: CheckCommand[];
+  /**
+   * The default from Settings (`SettingsView.checksDefault`), copied into a new chat or automation as it
+   * was made and not changed since: a template the lead agent picks that has a list of its own replaces
+   * it. Any change to the list drops it; a default, a template and an empty list never have it.
+   */
+  fromDefault?: true;
 }
 
 /** A command a check list runs (`CheckList.commands`). */
@@ -2545,6 +2551,11 @@ export interface SettingsView {
   agentsViewLink: string;
   /** Why the last update of AgentsView failed; absent after a success. */
   agentsViewError?: string;
+  /**
+   * The team checks a new chat or automation starts with (Settings → Tool library), there to change or
+   * remove; absent: none. Chats and automations made before keep their own.
+   */
+  checksDefault?: CheckList;
 }
 
 /** `PUT /api/settings`: only the fields given change. */
@@ -2561,6 +2572,8 @@ export interface SettingsUpdate {
   agentsViewUrl?: string;
   /** Empty = the link opens `agentsViewUrl`. */
   agentsViewLink?: string;
+  /** The team checks new chats and automations start with; `null` or a list without rules: none. */
+  checksDefault?: CheckList | null;
 }
 
 /** Suggested folder for the CLIs' own homes. */

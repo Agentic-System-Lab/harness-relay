@@ -50,7 +50,9 @@ export function NewSchedule({ providers, catalog, onCreated }: Props) {
         setLead(settings.lead);
         // The default working directory from Settings; asking first unless the last chat did not.
         setTeam(
-          (current) => current ?? autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm()),
+          (current) =>
+            current ??
+            autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm(), settings.checksDefault),
         );
       })
       .catch((e) => setError(String(e.message ?? e)));

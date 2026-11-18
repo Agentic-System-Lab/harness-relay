@@ -100,6 +100,7 @@ import {
   RunCheck,
   checksResult,
   listPatterns,
+  mergeDefaultChecks,
   recheck as recheckFrom,
   type CheckFolders,
   type StoredBaseline,
@@ -2898,13 +2899,19 @@ export class Orchestrator {
 
   /**
    * The check list of the template the lead agent's team comes from, for a conversation that has none
-   * yet: once it has one (an empty one too), a new team or template leaves it as it is.
+   * yet: once it has one (an empty one too), a new team or template leaves it as it is. Settings' default
+   * as it was copied in (`fromDefault`) takes the template's rules in with its own (`mergeDefaultChecks()`);
+   * a template without rules leaves it.
    */
   private templateChecks(conv: Conversation, plan: TeamPlan): Pick<ConversationSettings, 'checks'> {
-    if (conv.settings.checks !== undefined) return {};
+    const copy = conv.settings.checks?.fromDefault ? conv.settings.checks : undefined;
+    if (conv.settings.checks !== undefined && !copy) return {};
     const id = plan.presetId ?? plan.basedOn?.id;
     const checks = id ? this.store.listPresets().find((p) => p.id === id)?.settings.checks : undefined;
-    return checks ? { checks: structuredClone(checks) } : {};
+    if (!checks) return {};
+    const { fromDefault: _copied, ...own } = structuredClone(checks);
+    if (!copy) return { checks: own };
+    return hasChecks(own) ? { checks: mergeDefaultChecks(copy, own) } : {};
   }
 
   /** The conversation's latest team checks result, by its message id: another one cannot be handled. */

@@ -2,8 +2,9 @@ import { blocking, checksFailed, commitPatternError, needsFix, tidyFolder, tidyP
 import { CHECK_LIMITS, type AgentConfig, type ChatMessage, type CheckCommand, type CheckList } from '../shared/types';
 
 /*
- * Team checks in the page: the editor's fields (Team settings, the template editor) and what the card
- * after the team's replies offers. Kept apart from the components so that it can be tested.
+ * Team checks in the page: the editor's fields (Team settings, the template editor, and Settings → Tool
+ * library's default, which New chat and New automation start with) and what the card after the team's
+ * replies offers. Kept apart from the components so that it can be tested.
  */
 
 /** The protected paths box's text: a pattern a line. */
@@ -74,6 +75,28 @@ export function listFrom(
     ...(pattern ? { commitPattern: pattern } : {}),
     ...(kept.length ? { commands: kept } : {}),
   };
+}
+
+/**
+ * Settings' default as a new chat or automation starts with it: a copy, marked (`fromDefault`) so that a
+ * template the lead agent picks with a list of its own replaces it; none without rules.
+ */
+export function startingChecks(list: CheckList | undefined): CheckList | undefined {
+  return list && ruleCount(list) > 0 ? { ...structuredClone(list), fromDefault: true } : undefined;
+}
+
+/** Whether two lists have the same rules: what the server keeps as they are (command ids and the default's mark aside). */
+export function sameChecks(a: CheckList | undefined, b: CheckList | undefined): boolean {
+  const key = (l: CheckList | undefined) =>
+    JSON.stringify([
+      l?.protectedPaths ?? [],
+      l?.commitPattern ?? '',
+      (l?.commands ?? []).map((c) => {
+        const k = keptCommand(c);
+        return [k.run, k.cwd ?? '', k.timeoutMin ?? 0, Boolean(k.localPorts), Boolean(k.unixSockets)];
+      }),
+    ]);
+  return key(a) === key(b);
 }
 
 /** How many rules a list has (the editor's summary). */

@@ -1,11 +1,13 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Stats } from 'node:fs';
 import { lstat, readFile, readdir, readlink, stat } from 'node:fs/promises';
 import { basename, join, sep } from 'node:path';
 import vm from 'node:vm';
 import { compilePattern, hasChecks, isProtected, overallStatus, type CompiledPattern } from '../shared/checks';
 import {
+  CHECK_LIMITS,
   CHECK_RESULT_LIMITS,
+  type CheckCommand,
   type CheckFinding,
   type CheckList,
   type CheckOutcome,
@@ -209,6 +211,60 @@ export interface WorktreeChange {
   path: string;
   change: NonNullable<CheckFinding['change']>;
   by: string;
+}
+
+/**
+ * Settings' default as a chat has it, still marked (`fromDefault`), with the rules of a template the lead
+ * agent picked: the protected paths of both (each once), the commands of both (one per command line and
+ * folder), the template's commit format when it has one (else the default's), within the list's limits,
+ * the default's rules first, so that a full list keeps all of the user's own. A command both have keeps
+ * the template's time limit, and a sandbox opening (`localPorts`, `unixSockets`) only when both open it:
+ * a template never opens more for a command the user set. Each command keeps an id of its own. Still the
+ * default's (marked) when the template added nothing; otherwise no longer.
+ */
+export function mergeDefaultChecks(copy: CheckList, template: CheckList): CheckList {
+  const own = copy.protectedPaths ?? [];
+  const paths = [...new Set([...own, ...(template.protectedPaths ?? [])])].slice(0, CHECK_LIMITS.protectedPaths);
+  const key = (c: CheckCommand) => `${c.run}\u0000${c.cwd ?? ''}`;
+  const theirs = new Map((template.commands ?? []).map((c) => [key(c), c]));
+  const commands: CheckCommand[] = [];
+  const ids = new Set<string>();
+  const add = (c: CheckCommand) => {
+    if (commands.length >= CHECK_LIMITS.commands || commands.some((x) => key(x) === key(c))) return;
+    const id = ids.has(c.id) ? randomUUID().slice(0, 8) : c.id;
+    ids.add(id);
+    commands.push({ ...c, id });
+  };
+  for (const c of copy.commands ?? []) {
+    const t = theirs.get(key(c));
+    if (!t) {
+      add(c);
+      continue;
+    }
+    const { localPorts: _p, unixSockets: _s, timeoutMin: _m, ...rest } = c;
+    add({
+      ...rest,
+      ...(t.timeoutMin !== undefined ? { timeoutMin: t.timeoutMin } : c.timeoutMin !== undefined ? { timeoutMin: c.timeoutMin } : {}),
+      ...(c.localPorts && t.localPorts ? { localPorts: true } : {}),
+      ...(c.unixSockets && t.unixSockets ? { unixSockets: true } : {}),
+    });
+  }
+  for (const c of template.commands ?? []) add(c);
+  const pattern = template.commitPattern || copy.commitPattern;
+  const merged: CheckList = {
+    ...(paths.length ? { protectedPaths: paths } : {}),
+    ...(pattern ? { commitPattern: pattern } : {}),
+    ...(commands.length ? { commands } : {}),
+  };
+  // Nothing added: every path and command is the default's own, as it was, and so is the commit format.
+  const sameCommand = (c: CheckCommand) =>
+    (copy.commands ?? []).some((d) => key(d) === key(c) && JSON.stringify({ ...d, id: '' }) === JSON.stringify({ ...c, id: '' }));
+  const same =
+    paths.every((p) => own.includes(p)) &&
+    pattern === copy.commitPattern &&
+    commands.length === (copy.commands ?? []).length &&
+    commands.every(sameCommand);
+  return same ? { ...merged, fromDefault: true } : merged;
 }
 
 /** The patterns of a list, read; those that cannot be read were refused when it was saved. */

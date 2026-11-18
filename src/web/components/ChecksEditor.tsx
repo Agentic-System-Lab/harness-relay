@@ -72,12 +72,14 @@ export function ChecksEditor({ value, onChange, permission, convId }: Props) {
   const wrongPath = badPath(paths);
   const wrongPattern = badCommitPattern(pattern);
   const rules = ruleCount(value);
+  // Open when it starts with rules, and stays as the user leaves it: deleting the last rule does not fold it away.
+  const [openAtStart] = useState(() => ruleCount(value) > 0);
   // The opening each system has; both while the server's system is not known yet.
   const mac = !env || env.platform === 'darwin';
   const linux = !env || env.platform === 'linux';
 
   return (
-    <details className="field checks-editor" open={rules > 0}>
+    <details className="field checks-editor" open={openAtStart}>
       <summary>
         <span>{t.checks.editorTitle}</span>
         {rules > 0 && <span className="muted small"> · {t.checks.count(rules)}</span>}
