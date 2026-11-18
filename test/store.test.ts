@@ -1034,7 +1034,7 @@ describe('Store shares', () => {
     id,
     conversationId: 'c1',
     title: 'Plan',
-    url: `https://gistpreview.github.io/?${id}`,
+    url: `https://agentic-system-lab.github.io/harness-relay/share/#me/${id}`,
     gistUrl: `https://gist.github.com/me/${id}`,
     createdAt,
   });

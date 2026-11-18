@@ -350,7 +350,7 @@ const zhTW = {
 
   // Sharing a conversation (a gist through the GitHub CLI)
   shareEmpty: '沒有可以分享的內容',
-  shareTooLarge: (mb: string) => `這個分享頁有 ${mb} MB，超過 gistpreview 能顯示的 1 MB。請改成分享到比較前面的某則回覆。`,
+  shareTooLarge: (mb: string, max: string) => `這個分享頁有 ${mb} MB，超過分享頁能放的 ${max}。請改成分享到比較前面的某則回覆。`,
   shareNoGh: (min: string) =>
     `找不到 GitHub CLI（gh）。請從 https://cli.github.com 安裝 ${min} 以上的版本，並在終端機執行 gh auth login 後再試一次。`,
   ghTooOld: (min: string, version?: string) =>
@@ -361,12 +361,12 @@ const zhTW = {
   shareFailed: (detail: string) => `無法建立 gist：${detail}`,
   shareNoDetail: 'gh 沒有說明原因',
   shareNoUrl:
-    'gh 沒有回傳 github.com 上的 gist 網址（gistpreview 只能顯示 github.com 的 gist）。如果已經建立了 gist，可以用 gh gist list 找到它再刪除',
+    'gh 沒有回傳 github.com 上的 gist 網址（分享頁只能顯示 github.com 的 gist）。如果已經建立了 gist，可以用 gh gist list 找到它再刪除',
   unshareFailed: (detail: string) => `無法刪除 gist：${detail}`,
   unshareNotOwner: '這個 gist 還在 GitHub 上，但不屬於 gh 目前登入的帳號，所以無法刪除。請用 gh auth switch 切回建立它的帳號，再移除一次。',
   shareNotFound: '找不到這個分享',
   shareNoFileUrl: 'GitHub 沒有回傳上傳檔案的網址',
-  shareNotGithub: 'gist 不在 github.com 上，gistpreview 只能顯示 github.com 的 gist',
+  shareNotGithub: 'gist 不在 github.com 上，分享頁只能顯示 github.com 的 gist',
   shareBadFiles: '要附上的檔案清單格式不對',
   shareFileProblem: {
     missing: '找不到這個檔案（或它是資料夾）',
@@ -1195,7 +1195,7 @@ const en: ServerMessages = {
   opencodeWriteRefused: (path) => `The sandbox does not allow writing ${path} (read-only, or outside the folders this run may write)`,
 
   shareEmpty: 'Nothing to share',
-  shareTooLarge: (mb) => `This page is ${mb} MB, over the 1 MB that gistpreview can show. Share up to an earlier reply instead.`,
+  shareTooLarge: (mb, max) => `This page is ${mb} MB, over the ${max} a shared page can hold. Share up to an earlier reply instead.`,
   shareNoGh: (min) =>
     `GitHub CLI (gh) not found. Install ${min} or later from https://cli.github.com, run gh auth login in a terminal, then try again.`,
   ghTooOld: (min, version) =>
@@ -1206,13 +1206,13 @@ const en: ServerMessages = {
   shareFailed: (detail) => `Could not create the gist: ${detail}`,
   shareNoDetail: 'gh gave no reason',
   shareNoUrl:
-    'gh did not return a gist address on github.com (gistpreview can only show gists on github.com). If a gist was created, find it with gh gist list and delete it',
+    'gh did not return a gist address on github.com (a shared page can only show gists on github.com). If a gist was created, find it with gh gist list and delete it',
   unshareFailed: (detail) => `Could not delete the gist: ${detail}`,
   unshareNotOwner:
     'The gist is still on GitHub, but it belongs to another account than the one gh is signed in to, so it could not be deleted. Switch back with gh auth switch, then remove it again.',
   shareNotFound: 'Share not found',
   shareNoFileUrl: 'GitHub returned no address for the uploaded files',
-  shareNotGithub: 'the gist is not on github.com, the only place gistpreview can show gists from',
+  shareNotGithub: 'the gist is not on github.com, the only place a shared page can show gists from',
   shareBadFiles: 'The list of files to include is not valid',
   shareFileProblem: {
     missing: 'it is not there (or it is a folder)',

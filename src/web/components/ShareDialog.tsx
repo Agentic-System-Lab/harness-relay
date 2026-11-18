@@ -4,6 +4,7 @@ import {
   SHARE_FILES_MAX_BYTES,
   SHARE_FILE_MAX_BYTES,
   SHARE_FILE_REFUSED,
+  SHARE_MAX_BYTES,
   type Conversation,
   type GH_MISSING,
   type GH_SIGNED_OUT,
@@ -15,7 +16,7 @@ import { ApiError, api } from '../api';
 import { conversationMarkdown, speaker } from '../copy';
 import { useI18n } from '../i18n';
 import { settingsHref } from '../route';
-import { shareSize } from '../../shared/share';
+import { megabytesOver, shareSize } from '../../shared/share';
 import { chosenFileRefs, fileSelection, ghProblem, looksSecret, messagesUpTo, nextFileSelection, stillStreaming } from '../share';
 import { ShareTooLargeError, linkedFiles, sharePage } from '../sharePage';
 import { CopyButton } from './CopyButton';
@@ -55,7 +56,7 @@ const NO_FILES: LinkedFiles = { refs: [], list: [], chosen: [] };
 
 /**
  * Share the conversation, or the part of it up to one reply, without tool calls and thinking: copy it
- * as Markdown, or put it on the web as a page that looks like the chat (a secret gist, on gistpreview).
+ * as Markdown, or put it on the web as a page that looks like the chat (a secret gist, on Harness Relay's viewer).
  * The text files its replies link to can go along, in a second secret gist, for anyone with the link to download.
  */
 export function ShareDialog({ conv, upTo, chat, onClose }: Props) {
@@ -139,8 +140,8 @@ export function ShareDialog({ conv, upTo, chat, onClose }: Props) {
       const take = files && !files.error ? chosenFileRefs(files.refs, files.list, files.chosen) : [];
       const page = await sharePage({ chat: el, messages: conv.messages, title: conv.title, upTo, t, lang, convId: conv.id, files: take });
       const said: string[] = [];
-      if (page.shrunk) said.push(t.share.shrunk);
-      if (page.dropped > 0) said.push(t.share.dropped(page.dropped));
+      if (page.shrunk) said.push(t.share.shrunk(shareSize(SHARE_MAX_BYTES)));
+      if (page.dropped > 0) said.push(t.share.dropped(page.dropped, shareSize(SHARE_MAX_BYTES)));
       setNotes(said);
       setPhase('uploading');
       const shared = await api.share(conv.id, page.html, upTo, take);
@@ -150,7 +151,10 @@ export function ShareDialog({ conv, upTo, chat, onClose }: Props) {
     } catch (e) {
       const problem = ghProblem(e);
       if (problem) setGh(problem);
-      else setError(e instanceof ShareTooLargeError ? t.share.tooLarge((e.bytes / 1_000_000).toFixed(1)) : (e as Error).message);
+      else
+        setError(
+          e instanceof ShareTooLargeError ? t.share.tooLarge(megabytesOver(e.bytes), shareSize(SHARE_MAX_BYTES)) : (e as Error).message,
+        );
       // A file changed since it was checked: check them all again.
       if (e instanceof ApiError && e.code === SHARE_FILE_REFUSED) setRecheck((n) => n + 1);
       setPhase('idle');

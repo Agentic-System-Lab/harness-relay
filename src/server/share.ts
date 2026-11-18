@@ -1,5 +1,6 @@
 // Sharing a conversation: the page the web app made of it goes up to GitHub as a secret gist, created
-// with the user's own GitHub CLI (`gh`), and is read through gistpreview.github.io. The files its
+// with the user's own GitHub CLI (`gh`), and is read on Harness Relay's website (`site/share/`, which
+// reads the gist's raw file: SHARE_VIEWER_URL). The files its
 // replies link to can go along, of any kind (text, PDF, slides, images…), in a second secret gist that
 // git pushes them into, the page's links pointing at them there.
 
@@ -8,7 +9,7 @@ import { constants } from 'node:fs';
 import { lstat, mkdir, mkdtemp, open, readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileName } from '../shared/media';
-import { replaceFileLinks } from '../shared/share';
+import { megabytesOver, replaceFileLinks, shareSize, shareViewerUrl } from '../shared/share';
 import {
   GH_MIN_VERSION,
   GH_MISSING,
@@ -32,12 +33,13 @@ import { CommandNotFoundError, runProcess, tail, type SpawnOptions, type SpawnRe
 import { BREW_DIRS, findOnPath } from './voice';
 
 /**
- * The page's file in its gist. gistpreview.github.io (main.js) shows a gist's `index.html` when it has
- * one, else its first file; no file that goes along may take this name either.
+ * The page's file in its gist, which the viewer reads (`SHARE_FILE` in site/assets/share.js; as
+ * gistpreview.github.io, where shares made before it are read, shows a gist's `index.html` first); no
+ * file that goes along may take this name either.
  */
 export const SHARE_FILE = 'index.html';
 
-const GIST_URL = /https:\/\/gist\.github\.com\/(?:[A-Za-z0-9-]+\/)?([0-9a-f]{20,})\b/;
+const GIST_URL = /https:\/\/gist\.github\.com\/(?:([A-Za-z0-9-]+)\/)?([0-9a-f]{20,})\b/;
 
 /** `gh gist create` for a page on stdin: a secret gist (the default) with one HTML file. */
 export function gistArgs(description: string): string[] {
@@ -51,13 +53,16 @@ export function gistDescription(title: string): string {
 }
 
 /**
- * The links for the gist `gh gist create` printed. Only github.com gists: gistpreview reads them from
- * api.github.com, so one on a GitHub Enterprise host could not be shown.
+ * The links for the gist `gh gist create` printed. Only github.com gists: the viewer reads them from
+ * gist.githubusercontent.com, so one on a GitHub Enterprise host could not be shown. The viewer's
+ * address names the gist's owner, which gh prints in it (`https://gist.github.com/<owner>/<id>`); for
+ * an address without one, the id alone, whose owner the viewer asks GitHub's API for.
  */
 export function parseGistUrl(stdout: string): ShareLink | undefined {
   const m = GIST_URL.exec(stdout);
   if (!m) return undefined;
-  return { id: m[1]!, url: `https://gistpreview.github.io/?${m[1]}`, gistUrl: m[0] };
+  const [gistUrl, owner, id] = [m[0], m[1], m[2]!];
+  return { id, url: shareViewerUrl(owner, id), gistUrl };
 }
 
 /** A gist's id as `gh` takes it (hex only: nothing else can reach its command line). */
@@ -298,7 +303,7 @@ export function rawUrl(url: string): string | undefined {
 
 /**
  * The gist `gh api` created, from what CREATED_JQ printed: its links (`link`, only for a github.com
- * gist, which gistpreview can show), the address GitHub gave for it (`htmlUrl`, whatever the host),
+ * gist, which the viewer can show), the address GitHub gave for it (`htmlUrl`, whatever the host),
  * and each file's raw URL by name. `id` alone when that is all that can be read of it (so it can
  * still be deleted).
  */
@@ -353,9 +358,15 @@ const shareWords = (): FilesGistWords => ({
   notGithub: t().shareNotGithub,
 });
 
+/**
+ * How long gh may take to put the page up: up to SHARE_MAX_BYTES of it, sent as JSON (a 9.9 MB page of
+ * tags alone took 9 seconds on a fast line, and would take minutes on a slow one).
+ */
+export const PAGE_TIMEOUT_MS = 300_000;
+
 /** Creates the page's gist: one index.html, read from stdin. */
 async function createPageGist(html: string, description: string, run: (o: SpawnOptions) => Promise<SpawnResult>): Promise<ShareLink> {
-  const r = await gh(run, gistArgs(description), html);
+  const r = await gh(run, gistArgs(description), html, PAGE_TIMEOUT_MS);
   const link = r.code === 0 ? parseGistUrl(r.stdout) : undefined;
   if (link) return link;
   throw r.code === 0 ? new ShareError(t().shareFailed(t().shareNoUrl)) : await ghFailure(run, r);
@@ -671,11 +682,12 @@ export async function filesToGist(
  * 1. the files (filesToGist), with each file's raw URL;
  * 2. the page, as without files, its links pointing at those raw URLs.
  *
- * They are kept apart because GitHub's API, which gistpreview reads, gives a gist's files only so much
- * content in all (about 900 KB in a real test), in name order: in one gist, a large file named before
- * index.html left the page's content empty, and gistpreview showed a blank page. If the files or the
- * page cannot go up, the files gist is deleted again; if that fails too, the error says so and carries
- * it (`leftover`).
+ * They are kept apart so that the page's gist holds the page alone, as a share without files does
+ * (they came apart for gistpreview.github.io, which shares were read on before the viewer: it reads
+ * GitHub's API, which gives a gist's files only so much content in all, about 900 KB in a real test,
+ * in name order, so that a large file named before index.html left it a blank page). If the files or
+ * the page cannot go up, the files gist is deleted again; if that fails too, the error says so and
+ * carries it (`leftover`).
  */
 export async function shareToGist(
   html: string,
@@ -689,7 +701,8 @@ export async function shareToGist(
   const { gist, urls } = await filesToGist(description, files, run, o, words);
   const page = replaceFileLinks(html, (n) => urls[n]);
   const bytes = Buffer.byteLength(page);
-  if (bytes > SHARE_MAX_BYTES) return dropFilesGist(run, gist, new ShareError(t().shareTooLarge((bytes / 1_000_000).toFixed(1))), words);
+  if (bytes > SHARE_MAX_BYTES)
+    return dropFilesGist(run, gist, new ShareError(t().shareTooLarge(megabytesOver(bytes), shareSize(SHARE_MAX_BYTES))), words);
   try {
     return { ...(await createPageGist(page, description, run)), filesGist: gist.id };
   } catch (err) {

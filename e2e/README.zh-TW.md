@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 37 個 spec 檔、477 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 37 個 spec 檔、481 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -54,7 +54,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [用 OAuth 登入的帳號](#用-oauth-登入的帳號) | [`oauth.spec.ts`](specs/oauth.spec.ts) | 2 | [使用者說明 → Harness Relay 的工具](../docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)、[提案 → OAuth](../docs/proposals/oauth.zh-TW.md) |
 | [需要登入的 MCP 伺服器](#需要登入的-mcp-伺服器) | [`mcp-oauth.spec.ts`](specs/mcp-oauth.spec.ts) | 2 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 自己登入的 MCP 伺服器](../docs/architecture.zh-TW.md#自己登入的-mcp-伺服器) |
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
-| [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 11 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
+| [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 15 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 12 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
 | [自動任務](#自動任務) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 9 | [使用者說明 → 自動任務](../docs/user-guide.zh-TW.md#自動任務)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
 | [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 17 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席-agent)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
@@ -158,7 +158,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 團隊設計卡片上有勾選框，首席 agent 不會去動它：在卡片上勾選後，正在回答的問題與之後的問題都會被審閱 | Claude Code | 在以未勾選開始的新對話中，設計卡片顯示未勾選的勾選框與說明，首席 agent 組隊的 prompt 完全不提它。在卡片上勾選後對話就開啟審閱；確認團隊後，回答會被審閱。下一個問題的設計卡片上勾選框仍是勾選的（第一張卡片已經沒有勾選框），它的回答也會被審閱；在最新的卡片上取消勾選後，下一個回答就不審閱。 |
 | 新自動任務頁的勾選框一開始是勾選的，排程的對話照那裡的設定 | — | 在**新自動任務**，勾選框一開始是勾選的。保持勾選並勾選**每次開新對話**（Start a new chat each time；它開的新對話會像複製其他設定一樣複製這個設定）後，**建立自動任務**（Create schedule）開的對話有開啟審閱，它的**團隊設定**中勾選框是勾選的；再建立一次、把（一開始又是勾選的）勾選框取消，對話就是關閉的。 |
 | 重點上的 @名稱 把它引用的文字帶到對話中間，即使在比視窗還高的回覆開頭 | Claude Code | 用 `e2e:long`（回覆多了四十段），卡片引用回覆開頭的幾個字，在畫面中的卡片上方很遠處；按它的 **@Claude** 會捲動對話，直到那段標記離中間不到 30px，並在標記上加強顯示（`review-focus`），對話停在那裡。 |
-| 分享的對話保留審閱與它的標記，每個重點的 @名稱 連到它引用的文字，但不含 app 的按鈕與設計卡片的勾選框 | Claude Code | 分享頁面（假 `gh` 的 gist）有審閱的摘要、那一點與下一步；引用的文字在回覆中是 `<mark class="review-quote-mark risk">`，那一點的 **@Claude** 變成連結（`#quote-…`），指向它的 id。以網頁開啟（離線攔截）並捲到底後，點連結會把標記帶進畫面，成為頁面的 `:target` 並加上底線。沒有設計卡片的勾選框、**交給團隊**（Ask the team）、回覆的標籤，也沒有任何按鈕。 |
+| 分享的對話保留審閱與它的標記，每個重點的 @名稱 連到它引用的文字，但不含 app 的按鈕與設計卡片的勾選框 | Claude Code | 分享頁面（假 `gh` 的 gist）有審閱的摘要、那一點與下一步；引用的文字在回覆中是 `<mark class="review-quote-mark risk">`，那一點的 **@Claude** 變成連結（`#quote-…`），指向它的 id。在 Harness Relay 的分享頁開啟（離線攔截），在它不執行腳本的框架裡捲到底後，點連結會把標記帶進畫面，成為框架的 `:target`（`about:srcdoc#quote-…`）並加上底線，分享頁本身的網址不變。沒有設計卡片的勾選框、**交給團隊**（Ask the team）、回覆的標籤，也沒有任何按鈕。 |
 | 標出回覆中跨越清單項目的引用，用它類型的顏色 | Claude Code | 用 `e2e:markdown`、`e2e:reviewquote=list` 與 `e2e:reviewkind=decision`，卡片以**待你決定**（Your call）引用「first point second point」，`CSS.highlights` 中（`review-decision`）有一個範圍從第一個項目延伸到第二個（聊天畫面在區塊之間視為有空白）。在分享頁上它們是兩個標記，每個項目各一個、項目之間沒有，那一點的 **@Claude** 連到第一個。 |
 | 針對回覆但沒有引用文字的重點會跳到回覆，在分享頁上它的 @名稱 連到回覆 | Claude Code | 用 `e2e:reviewquote=none`，那一點不引用任何文字：它的 **@Claude** 讓回覆閃一下並取得焦點，不加強顯示任何文字；在分享頁上它連到回覆（`#msg-…`），也沒有任何標記。 |
 | 伺服器拒絕變更時，設計卡片的勾選框會恢復原狀並說明原因 | Claude Code | 變更被拒絕時（以替代的回應模擬），勾選框恢復為未勾選，錯誤列說明原因。 |
@@ -331,13 +331,13 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 ## 複製與分享
 
-[`share.spec.ts`](specs/share.spec.ts)：分享透過使用者自己的 `gh`，這裡是假的那個。
+[`share.spec.ts`](specs/share.spec.ts)：分享透過使用者自己的 `gh`，這裡是假的那個。分享在 Harness Relay 的分享頁（`site/share/`）閱讀，以儲存庫裡的樣子放在網站的網址打開，GitHub 的原始檔與 API 由測試代替（`e2e/support/share.ts`）；分享頁自己的測試打開它們自己寫的 gist，不需要伺服器。
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 回答的複製按鈕複製的是 Markdown，而不是畫面上的文字 | Codex | 剪貼簿裡是原始內容（標題、表格的直線、程式碼區塊的圍欄），按鈕顯示已複製。只在 Chromium。 |
 | 分享對話框把整個對話，或到某則回答為止的部分，複製成 Markdown | Claude Code | 標題列的對話框複製整段對話；某則回答自己的**分享**只複製到它為止。只在 Chromium。 |
-| 分享的對話是瀏覽器產生的頁面做成的 secret gist，在設定中列出直到移除 | Claude Code | `gh gist create --filename index.html …` 存下一個 secret gist，頁面有問題與回答，但沒有中間的步驟（思考、工具）；連結是 gistpreview 的，旁邊是 gist 本身的連結；**設定 → 分享**列出它，按**移除**會刪掉 gist（`gist delete <id> --yes`）。 |
+| 分享的對話是瀏覽器產生的頁面做成的 secret gist，在 Harness Relay 的網站上打開，在設定中列出直到移除 | Claude Code | `gh gist create --filename index.html …` 存下一個 secret gist，頁面有問題與回答，但沒有中間的步驟（思考、工具）；連結是 Harness Relay 的分享頁（`…/harness-relay/share/#relay-e2e/<id>`），旁邊是 gist 本身的連結。打開時（儲存庫的 `site/` 放在網站的網址、假 `gh` 的 gist 放在 GitHub 原始檔的網址，都由測試攔截，離線進行），分享頁只讀一次 gist 的原始 `index.html`，完全不呼叫 GitHub 的 API，說明這是誰的 gist 並附上它在 GitHub 上的連結，使用頁面的標題，並把回覆顯示在只允許彈出視窗的 sandbox 框架裡。**設定 → 分享**列出它，按**移除**會刪掉 gist（`gist delete <id> --yes`）；之後它的連結會在問過一次 GitHub 的 API 它是否在別處（這裡被拒絕）後，說 GitHub 上沒有這個對話。 |
 | gh 未登入時，分享會說明如何登入，什麼都不分享 | Grok | `E2E_FAKE_SIGNED_OUT=gh`：說明中寫著 `gh auth login`，可以再按一次**建立連結**，也沒有存下任何東西。 |
 | gh 未登入時，對話框用 GitHub 的代碼登入它，再建立連結 | Grok | **登入 GitHub** 在伺服器上執行 `gh auth login --web --hostname github.com`；對話框顯示 GitHub 的代碼和它的裝置頁面（終端機的指令仍保留，作為另一種方法）；測試核准之後（假 `gh` 的 `fake-github/approve`），gh 就登入了，對話框會自己建立連結。 |
 | 從對話框開始的登入可以取消，也能再開始 | Grok | **取消**會停止 gh 的登入（對話框顯示已取消，代碼消失），什麼都沒分享，**登入 GitHub** 會開始新的登入並顯示它的代碼。 |
@@ -346,6 +346,10 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | gh 未登入時，在設定移除分享會在那裡登入，再移除 | Grok | 先透過對話框的登入建立一個分享，再讓 gh 登出（刪掉假 gh 的 `signed-in`）：在設定按**移除**會顯示同樣的說明，在那裡登入（說明接著只寫已登入 GitHub。與接下來怎麼做，卡片上也不再說 gh 沒有登入），下一次就移除成功（移除會先詢問，所以不會自己重做）。 |
 | 網路很慢時，登入後仍只建立一個連結，而且只建立一次 | Grok | 每次詢問登入狀態都要 2.5 秒（比兩次詢問的間隔一秒還久）：核准後對話框只建立一個連結，還在路上的回應不會再建立第二個。 |
 | 沒有 gh 時，分享會說明如何安裝並登入 | Claude Code | 無法啟動的 `gh` 得到含安裝指令與重新啟動提醒的說明。Windows 上跳過，因為那裡不能用 `#!` 行代替不存在的程式。 |
+| 分享頁：一起附上的檔案在新分頁下載 | — | 一個 gist 頁面（由測試寫入，沒有伺服器）連到第二個 gist 裡不是文字的檔案，GitHub 會以下載提供：在分享頁的框架裡點它會完整下載（框架的 `allow-downloads`）。不在 WebKit 執行，Playwright 下的 WebKit 不會下載連結打開的任何東西。 |
+| 分享頁：gist 的頁面不執行、不載入任何東西，也不能把頁面導到別處 | — | 一個惡意的 gist 頁面：它的腳本和圖片的 `onerror` 什麼都加不進去，別處的圖片與重新整理都連不到；它指向最上層、帶 `rel="opener"` 與沒有 target 的連結，都在新分頁打開，新分頁的頁面拿不到 `opener`（所以不能把分享頁的分頁導走），表單也送不出去；分享頁的網址保持不變。 |
+| 分享頁用頁面或瀏覽器的語言說明它不能顯示的情況 | — | 中文頁面的上方列也是中文，並使用它的標題；`#` 後面換成另一個 gist（不重新載入）、而它沒說是 Harness Relay 做的，就不顯示，也不用它的標題；沒有指向 gist 的網址不會問 GitHub，並有回首頁的連結；GitHub 回 503 時會說明，也不問它的 API。 |
+| 擁有者改了名稱或連結沒寫擁有者時，分享頁透過 GitHub 的 API 找到 gist | — | 原始檔在舊名稱底下回 404：問一次（替身）API，它指出新名稱底下的原始檔，上方列寫出新的擁有者；只有 id 的連結先問 API；在現在的擁有者底下則完全不問 API。 |
 
 ## 側邊欄
 
@@ -661,7 +665,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - Copilot 在 macOS、Linux 與 Windows 上都以完全存取以外的權限執行，就像它自己的沙箱一樣：它的假 CLI 遵守這次執行的設定給的政策，所以它的測試不需要執行測試的電腦上有沙箱。
 - [在手機上](#在手機上)在 Firefox 中跳過；其中用瀏覽器自己的觸控的測試只在 Chromium 執行（觸控透過它的 DevTools 協定送出）。
 - [修改對話的團隊](#修改對話的團隊)的新增成員卡測試，只在支援捲動驅動動畫的瀏覽器（Chromium、WebKit）檢查清單的陰影，因為其他瀏覽器沒有陰影：在 Firefox 中只檢查其餘部分。
-- [複製與分享](#複製與分享)的兩個複製測試只在 Chromium 執行（要讀剪貼簿），「沒有 gh」則在 Windows 上跳過。
+- [複製與分享](#複製與分享)的兩個複製測試只在 Chromium 執行（要讀剪貼簿），「沒有 gh」在 Windows 上跳過，分享頁的下載測試則在 WebKit 中跳過：Playwright 下的 WebKit 不會下載連結打開的任何東西（在沒有框架的頁面、以附件送出也一樣）。
 - [回報問題](#回報問題)中讀取郵件連結的四個測試，在沒有 Navigation API 的瀏覽器中跳過。
 
 ## 沒有測到的部分
@@ -670,7 +674,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **CLI 自己的沙箱。**Claude Code、Codex、Grok、Copilot 與 Muse Code 的假 CLI 是從 Harness Relay 給它們的設定，推算它們 CLI 的沙箱會允許什麼（Copilot 的從這次執行的設定推算，並且像 Copilot 那樣，用這些設定給的政策回答 `/sandbox policy`）；只有包住開源 agent 的 Harness Relay 自己的沙箱是真的。真正的 CLI 在完全存取以外不會寫到對話的資料夾之外，由實機測試（`live/sandbox.spec.ts`）試用。
 - **AgentsView 本身。**它是 [`sessions.spec.ts`](specs/sessions.spec.ts) 中的替身伺服器，只回應 Harness Relay 的請求，從不讀 session 檔。真正的 AgentsView 是否在 Harness Relay 的執行留下 session 的地方讀到各 CLI 自己的 session、用的是不是 Harness Relay 連結的 id（包括 Copilot 的 `session-state` 與 Muse Code 的資料資料夾，在各 CLI 平常的家目錄，以及透過使用者說明中專用 AgentsView 的 `config.toml`），並把它們放在討論串底下，是用 AgentsView 0.46.1 手動試過的（Copilot 與 Muse Code 也用 copilot 1.0.109 與 muse 1.4.18 透過它們的 adapter 在 Linux 與 Windows 上寫的 session 試過）。
 - **GitHub 對 gh 的真正登入。** 分享對話框的登入跑的是假的 `gh`，它印出一組代碼後等測試核准；gh 真正的裝置登入只用手動檢查過（沒有終端機時它會印出代碼與 `github.com/login/device`，不會開瀏覽器），沒有經過 GitHub 的核准。
-- **gistpreview.github.io 上的分享頁。**測試開啟的是假 `gh` 存下的頁面，由測試自己的網址提供：gistpreview 自己那個把 gist 寫進自身的頁面沒有測。
+- **真正的 GitHub 與網站上的分享頁。**測試從儲存庫的 `site/` 與測試自己的 gist 打開分享頁，都用真正的網址但由測試攔截：GitHub 原始檔主機與 API 本身（它們的快取與限制、改了名稱的帳號）和發布出去的網站沒有測，WebKit 中的下載也沒有；分享頁曾用使用情境的分享在 Chromium、Firefox 與 WebKit 中對真正的 GitHub 手動試過。gistpreview.github.io 上的連結（分享頁出現之前的分享）沒有打開。
 - **長時間追蹤的目標。**執行失敗後的重試（5、30、120 分鐘）、被重新啟動中斷的執行，以及排程本身的時間，是在單元測試中用假時鐘測的（`test/orchestrator-tracking.test.ts`）；端對端測試只用**立即執行一次**跑一次追蹤目標的排程。
 - **真的 OAuth 服務，以及在瀏覽器裡的 Google 登入。** 瀏覽器裡的登入只對 Microsoft 頁面與 Graph 的替身測試（[用 OAuth 登入的帳號](#用-oauth-登入的帳號)）；裝置代碼、貼上網址、被拒或過期的登入、權杖代理的更新、帳號移除後才回來的更新，以及透過 Graph 和用權杖透過 Google 的 CalDAV 使用的行事曆工具（對 Google 登入與 CalDAV 的替身），在 `test/oauth.test.ts` 中測試；透過 XOAUTH2 的郵件工具、郵件觸發與 IDLE、被拒的權杖的更新、為郵件登入的權限範圍、Google 的漸進式同意與 Gmail，在 `test/oauth-mail.test.ts` 中測試。在瀏覽器裡，透過登入的郵件只有登入與測試（沒有 agent 讀信或寄信），而且是以純 TCP 連到替身。這些測試不登入真的帳號：真的 Google 帳號（它的行事曆，以及 Gmail 接受它的權杖）是手動試過的，見架構文件的已知限制；Microsoft 的還沒有。
 - **真正需要登入的 MCP 伺服器，以及它們登入的其他方式。** [需要登入的 MCP 伺服器](#需要登入的-mcp-伺服器)只對替身登入，而且只把權杖交給 Claude Code 的假 CLI（每個 CLI 怎麼拿 HTTP 伺服器的標頭，是[除了 prompt 之外交給各 CLI 的東西](#除了-prompt-之外交給各-cli-的東西)測的）。探索的其他形式（well-known 網址、OpenID 的中繼資料、challenge 的權限範圍）與它失敗的情形、各種拒絕（沒有 S256 的 PKCE、沒有註冊、別的資源或伺服器路徑上層的中繼資料、別的發行者、連到別台電腦的純 http、不要求登入的伺服器）、不在這台電腦上的伺服器（只連網際網路上的位址，用替身查詢位址，並固定連到查過的位址）、RFC 9207 的 `iss`、對兩個替身的混淆攻擊（冒充伺服器的中繼資料指向另一台授權伺服器的頁面：先經過確認，它的授權碼也絕不會送到冒充的權杖端點）、為另一個重新導向網址或在更新拒絕用戶端後重新註冊、用戶端密碼（登入、更新與撤銷時用 Basic 或放在表單）、貼上網址、沒有更新權杖的登入、其他原因的更新失敗、十分鐘以內的權杖、沒有拿到伺服器或用 Antigravity 的成員、主機規則、太大的回應或太長的權杖、撤銷失敗、登入取代舊登入時撤銷舊的更新權杖、移除伺服器或改網址、探索進行中時的等待上限，以及重新啟動，都在單元測試中測試（`test/mcp-oauth.test.ts`、`test/orchestrator-mcp-oauth.test.ts`）。

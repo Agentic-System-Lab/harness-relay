@@ -2,7 +2,7 @@
  * Shares each recorded use case as a person would with Harness Relay's own Share: the recording's
  * server started again on its data folder, its conversation opened in a headless browser, Share → Create
  * link pressed, with the files the replies link to going along (the dialog's default). The page goes up
- * as a secret gist with your own `gh`, read on gistpreview.github.io. `share.json` keeps the link beside
+ * as a secret gist with your own `gh`, read on Harness Relay's viewer (site/share/). `share.json` keeps the link beside
  * the recording, and the files attached to the question are copied next to it (`attachments/`), for
  * publish to put both on the use-cases page. A use case shared again has its last share's gists deleted.
  */
@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
+import { SHARE_VIEWER_URL } from '../../../src/shared/share';
 import type { Conversation, SharedPage } from '../../../src/shared/types';
 import type { DemoLang } from '../common';
 import { api, signInCode, sleep, startServer, VIEW, type Log } from '../recorder';
@@ -17,7 +18,7 @@ import { UI, type UseCase } from './cases';
 
 /** What a use case's share was, as `share.json` keeps it. */
 export interface ShareRecord {
-  /** The page, on gistpreview.github.io. */
+  /** The page, on Harness Relay's viewer (`shareViewerUrl()`). */
   url: string;
   /** The page's gist, and the gist of the files that went along (if any), to delete them. */
   gist: string;
@@ -121,7 +122,7 @@ export async function shareUseCase(
         .catch(() => log('no files the replies link to'));
       await sleep(800);
       await dialog.locator('button.primary.share-action').click();
-      const link = dialog.locator('.share-result a[href^="https://gistpreview.github.io/"]');
+      const link = dialog.locator(`.share-result a[href^="${SHARE_VIEWER_URL}"]`);
       await link.waitFor({ timeout: 5 * 60_000 });
       const url = (await link.getAttribute('href'))!;
       const shared = (await api<SharedPage[]>(server.base, '/api/shares')).find((s) => s.url === url);

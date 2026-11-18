@@ -1,7 +1,24 @@
-// A shared page's links to the files that go along with it, into a secret gist of their own. The page
-// is made in the browser before that gist exists, so each such link holds a placeholder
-// (`relay-share-file:<n>`, the n-th file), and the server puts the file's address on GitHub in its
-// place once the gist has one.
+// Where a shared page is read (Harness Relay's viewer on its website), and its links to the files that
+// go along with it, into a secret gist of their own. The page is made in the browser before that gist
+// exists, so each such link holds a placeholder (`relay-share-file:<n>`, the n-th file), and the server
+// puts the file's address on GitHub in its place once the gist has one.
+
+/**
+ * Harness Relay's own page that shows a shared conversation, on its website (`site/share/`). It reads
+ * the gist's page from GitHub's raw files, not through GitHub's API, which lets a browser that is not
+ * signed in ask only 60 times an hour (gistpreview.github.io, which shares were read on before, does):
+ * the API only when the raw files cannot say where the gist is.
+ */
+export const SHARE_VIEWER_URL = 'https://agentic-system-lab.github.io/harness-relay/share/';
+
+/**
+ * The address of a gist's shared page on the viewer: its owner and id after the `#` (which the browser
+ * never sends to a server), as `gistOf()` in `site/assets/share.js` reads them. Without the owner, the
+ * id alone: the viewer then asks GitHub's API where the gist is.
+ */
+export function shareViewerUrl(owner: string | undefined, id: string): string {
+  return `${SHARE_VIEWER_URL}#${owner ? `${encodeURIComponent(owner)}/` : ''}${encodeURIComponent(id)}`;
+}
 
 /**
  * A placeholder link: only as the href of a real <a> tag. Text of the chat cannot open a tag (`<` is
@@ -35,6 +52,14 @@ export function replaceFileLinks(html: string, href: (n: number) => string | und
     const to = href(Number(n));
     return to === undefined ? whole : `${tag}href="${attr(to)}"`;
   });
+}
+
+/**
+ * A size over a share's limit, in MB to one decimal, rounded up (as the limits count it: 1 MB =
+ * 1,000,000 bytes), so that one just over 10 MB reads 10.1, never 10.0.
+ */
+export function megabytesOver(bytes: number): string {
+  return (Math.ceil(bytes / 100_000) / 10).toFixed(1);
 }
 
 /** A size as the share limits count it (1 MB = 1,000,000 bytes): bytes, KB under 1 MB, else MB to one decimal. */

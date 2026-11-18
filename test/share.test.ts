@@ -38,6 +38,7 @@ import {
   measureShareFile,
   parseCreatedGist,
   parseGhVersion,
+  PAGE_TIMEOUT_MS,
   parseGistUrl,
   parseFoundGists,
   parseShareFileRefs,
@@ -55,7 +56,7 @@ import {
   type FoundShareFile,
   type GistUpload,
 } from '../src/server/share';
-import { shareFileHref } from '../src/shared/share';
+import { shareFileHref, shareViewerUrl } from '../src/shared/share';
 import { SHARE_FILE_LINKS_MAX, SHARE_FILE_MAX_BYTES, SHARE_MAX_BYTES } from '../src/shared/types';
 
 const ID = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
@@ -80,7 +81,7 @@ describe('the gist a shared conversation goes into', () => {
     const args = gistArgs('Plan · Harness Relay');
     expect(args).toEqual(['gist', 'create', '--filename', SHARE_FILE, '--desc', 'Plan · Harness Relay', '-']);
     expect(args).not.toContain('--public');
-    expect(SHARE_FILE).toBe('index.html'); // what gistpreview shows first
+    expect(SHARE_FILE).toBe('index.html'); // what the viewer reads, and gistpreview shows first
   });
 
   it('is described by the conversation title, on one line', () => {
@@ -88,18 +89,24 @@ describe('the gist a shared conversation goes into', () => {
     expect(gistDescription('   ')).toBe('Harness Relay');
   });
 
-  it('gives a gistpreview link for a github.com gist', () => {
-    expect(parseGistUrl(`https://gist.github.com/someone/${ID}\n`)).toEqual({
+  it("gives the viewer's link for a github.com gist, by its owner and id, as gh prints them", () => {
+    expect(parseGistUrl(`- Creating gist index.html\n✓ Created secret gist index.html\nhttps://gist.github.com/some-one/${ID}\n`)).toEqual({
       id: ID,
-      url: `https://gistpreview.github.io/?${ID}`,
-      gistUrl: `https://gist.github.com/someone/${ID}`,
+      url: `https://agentic-system-lab.github.io/harness-relay/share/#some-one/${ID}`,
+      gistUrl: `https://gist.github.com/some-one/${ID}`,
     });
-    expect(parseGistUrl(`- Creating gist index.html\n✓ Created secret gist index.html\nhttps://gist.github.com/${ID}`)?.url).toBe(
-      `https://gistpreview.github.io/?${ID}`,
-    );
+    expect(parseGistUrl(`https://gist.github.com/me/${ID}`)?.url).toBe(shareViewerUrl('me', ID));
   });
 
-  it('gives no link for a gist gistpreview cannot read', () => {
+  it("gives the viewer's link by the id alone for an address without its owner (the viewer asks GitHub for it)", () => {
+    expect(parseGistUrl(`- Creating gist index.html\n✓ Created secret gist index.html\nhttps://gist.github.com/${ID}`)).toEqual({
+      id: ID,
+      url: `https://agentic-system-lab.github.io/harness-relay/share/#${ID}`,
+      gistUrl: `https://gist.github.com/${ID}`,
+    });
+  });
+
+  it('gives no link for a gist the viewer cannot read', () => {
     expect(parseGistUrl(`https://github.example.com/gist/someone/${ID}`)).toBeUndefined();
     expect(parseGistUrl('')).toBeUndefined();
   });
@@ -116,7 +123,10 @@ describe('shareToGist', () => {
     expect(seen?.bin).toMatch(/(^|[\\/])gh(\.exe)?$/i);
     expect(seen?.args).toEqual(gistArgs('Chat · Harness Relay'));
     expect(seen?.stdin).toBe('<!doctype html>…');
-    expect(link).toEqual({ id: ID, url: `https://gistpreview.github.io/?${ID}`, gistUrl: `https://gist.github.com/me/${ID}` });
+    // Time enough for a page of up to 10 MB on a slow line.
+    expect(seen?.timeoutMs).toBe(PAGE_TIMEOUT_MS);
+    expect(PAGE_TIMEOUT_MS).toBeGreaterThanOrEqual(300_000);
+    expect(link).toEqual({ id: ID, url: shareViewerUrl('me', ID), gistUrl: `https://gist.github.com/me/${ID}` });
   });
 
   it("leaves out a GitHub codespace's own token, which GitHub refuses a gist, for the sign-in gh keeps", async () => {
@@ -351,7 +361,7 @@ describe('the files a shared page takes along', () => {
     { name: 'report.pdf', data: Buffer.from('%PDF-1.7\n\x00\x01\xff binary\r\n') },
     { name: 'Q3 & 報告.csv', data: Buffer.from('a,b\n1,2\n') },
   ];
-  const pageLink = { id: ID, url: `https://gistpreview.github.io/?${ID}`, gistUrl: `https://gist.github.com/me/${ID}` };
+  const pageLink = { id: ID, url: shareViewerUrl('me', ID), gistUrl: `https://gist.github.com/me/${ID}` };
 
   /** The git command `args` runs (past the `-c` settings and `--git-dir`). */
   function gitCommand(args: string[]): string {
@@ -442,7 +452,7 @@ describe('the files a shared page takes along', () => {
         .filter((c) => gitCommand(c.args) === 'hash-object')
         .map((c) => c.stdin),
     ).toEqual(files.map((f) => f.data));
-    // The page alone in its gist, as a share without files is made: gistpreview reads nothing else first.
+    // The page alone in its gist, as a share without files is made.
     expect(gh.ghCalls()[2]!.stdin).toBe(
       `<!doctype html><a class="file-link" href="${raw('report.pdf')}">report</a> <a class="file-link" href="${raw('Q3 & 報告.csv')}">data</a> <a class="file-link" href="${raw('report.pdf')}">again</a>`,
     );
@@ -687,7 +697,7 @@ describe('the files a shared page takes along', () => {
     expect(CREATED_JQ).not.toContain('content');
     expect(parseCreatedGist(created(['a.md']))).toEqual({
       id: FILES_ID,
-      link: { id: FILES_ID, url: `https://gistpreview.github.io/?${FILES_ID}`, gistUrl: `https://gist.github.com/${FILES_ID}` },
+      link: { id: FILES_ID, url: shareViewerUrl(undefined, FILES_ID), gistUrl: `https://gist.github.com/${FILES_ID}` },
       htmlUrl: `https://gist.github.com/${FILES_ID}`,
       raw: new Map([['a.md', raw('a.md')]]),
     });

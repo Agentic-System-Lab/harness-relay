@@ -94,6 +94,12 @@ describe('needsOf', () => {
     expect(runs('LICENSE')).toEqual(['desktop']);
   });
 
+  it("runs the end-to-end tests for the website's viewer of shared conversations, which they open shares on", () => {
+    expect(runs('site/share/index.html')).toEqual(['e2e']);
+    expect(runs('site/assets/share.js')).toEqual(['e2e']);
+    expect(runs('site/assets/share.d.ts', 'site/assets/site.css')).toEqual([]);
+  });
+
   it('runs the end-to-end tests for the specs, and the packaged app too for the fake CLIs its checks start', () => {
     expect(runs('e2e/specs/chat.spec.ts', 'playwright.config.ts', 'e2e/global-setup.ts')).toEqual(['windows', 'e2e']);
     expect(runs('e2e/fake-cli/agents/claude.cjs')).toEqual(['windows', 'desktop', 'e2e']);
