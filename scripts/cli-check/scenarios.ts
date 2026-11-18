@@ -15,7 +15,7 @@
  * Imported only once `isolate()` made the scratch environment this process's own.
  */
 import { randomBytes } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isOpenProvider, type ApprovalAnswer, type Permission, type Provider } from '../../src/shared/types';
 import type { AgentEvent, ApprovalRequest, RunOptions, RunResult } from '../../src/server/agents/types';
@@ -27,7 +27,7 @@ import type { CliScratch, Scratch } from './scratch';
 import { flagsIn, flagsOf, memoryRecorder, shapeOf, type Shape, type Spawned } from './shape';
 
 /** The scenarios of what a CLI may not do below full access: they say nothing of a CLI that runs only with full access. */
-export const BELOW_FULL = ['read-only-write', 'outside-write', 'protected-read'];
+export const BELOW_FULL = ['read-only-write', 'outside-write', 'protected-read', 'guard-write'];
 
 /** Why a CLI has no layer 3. */
 export const NO_RUN: Partial<Record<Provider, string>> = {
@@ -75,10 +75,49 @@ interface Scenario {
   answer: 'allow' | 'reject';
   /** Stop the turn once the command started. */
   stop?: boolean;
+  /** More for the turn's options (the team's protected paths). */
+  extra?: (c: Ctx) => Partial<RunOptions>;
   checks: (r: Outcome, c: Ctx) => Check[];
 }
 
+/**
+ * The CLIs whose adapter refuses a shell command's write to one of the team's protected paths before it
+ * happens (`RunOptions.guard`), with each permission: the `guard-write` scenarios fail when such a write
+ * goes through for one of them, and only warn for the others, which find it once the team has answered.
+ */
+export const GUARD_SHELL: Partial<Record<Provider, Permission[]>> = {
+  claude: ['edit', 'full'],
+};
+
+/** The file the `guard-write` scenarios try to write: a protected `.env` in the working directory. */
+const guardFile = (c: Ctx) => join(c.cli.work, '.env');
+
+const guardWrite = (permission: Permission): Scenario => ({
+  name: permission === 'full' ? 'guard-write-full' : 'guard-write',
+  permission,
+  command: (c) => `echo x > ${guardFile(c)}`,
+  answer: 'reject',
+  extra: (c) => ({ guard: { dirs: [realpathSync(c.cli.work)], patterns: ['.env'] } }),
+  checks: (r, c) => {
+    const wrote = existsSync(guardFile(c));
+    rmSync(guardFile(c), { force: true });
+    const claimed = GUARD_SHELL[c.provider]?.includes(permission);
+    return [
+      calledShell(r),
+      {
+        ok: !wrote || (claimed ? false : 'warn'),
+        what: wrote
+          ? claimed
+            ? "the team's protected path was written, though its adapter says it refuses that"
+            : "the team's protected path was written: this CLI does not refuse it before (the team checks find it after)"
+          : "the team's protected path was refused before it was written",
+      },
+    ];
+  },
+});
+
 export interface Ctx {
+  provider: Provider;
   nonce: string;
   scratch: Scratch;
   cli: CliScratch;
@@ -289,6 +328,8 @@ export const SCENARIOS: Scenario[] = [
       },
     ],
   },
+  guardWrite('edit'),
+  guardWrite('full'),
 ];
 
 /** The scripted model's scenarios: which name runs which command. */
@@ -329,7 +370,7 @@ export async function runScenarios(
   const secretFile = join(scratch.data, 'relay.db');
   const secret = `RELAY-DB-${randomBytes(6).toString('hex')}`;
   writeFileSync(secretFile, secret);
-  const ctx: Ctx = { nonce, scratch, cli, secret, secretFile };
+  const ctx: Ctx = { provider: p, nonce, scratch, cli, secret, secretFile };
 
   const model = await startModel(modelScenarios(ctx));
   const place = placement(p, model.url, scratch);
@@ -467,7 +508,7 @@ export async function runScenarios(
         fullOnly ? 'full' : sc.permission,
         sc.answer,
         `${marker(sc.name, nonce)} Please do the task of this check.`,
-        {},
+        sc.extra?.(ctx) ?? {},
         sc.stop,
       );
       report(sc.name, sc.checks(outcome, ctx), spawned, [outcome]);

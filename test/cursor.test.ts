@@ -34,6 +34,7 @@ import {
   cursorCommand,
   cursorConfigDir,
   cursorDenyRules,
+  cursorGuardRules,
   cursorEnv,
   cursorHomePath,
   cursorPath,
@@ -407,6 +408,35 @@ describe("Cursor's settings for one run", () => {
       'Write(/relay/data/relay.db/**)',
     ]);
     expect(cursorDenyRules('edit', ['/p/'])).toEqual(['Read(/p)', 'Read(/p/**)', 'Write(/p)', 'Write(/p/**)']);
+  });
+
+  it('refuses writing the team checks’ protected paths with any permission, as Cursor matches its rules', () => {
+    const guard = { dirs: ['/w/app'], patterns: ['.env', '*.pem', 'secrets', 'config/prod.yml', 'a?[bc].txt'] };
+    const rules = cursorGuardRules(guard);
+    expect(rules).toEqual([
+      'Write(/w/app/.env)',
+      'Write(/w/app/.env/*)',
+      'Write(/w/app/*/.env)',
+      'Write(/w/app/*/.env/*)',
+      'Write(/w/app/*.pem)',
+      'Write(/w/app/*.pem/*)',
+      'Write(/w/app/*/*.pem)',
+      'Write(/w/app/*/*.pem/*)',
+      'Write(/w/app/secrets)',
+      'Write(/w/app/secrets/*)',
+      'Write(/w/app/*/secrets)',
+      'Write(/w/app/*/secrets/*)',
+      'Write(/w/app/config/prod.yml)',
+      'Write(/w/app/config/prod.yml/*)',
+      // Cursor takes `?` and `[…]` as themselves: any text instead, so as to refuse more, never less.
+      'Write(/w/app/a**.txt)',
+      'Write(/w/app/a**.txt/*)',
+      'Write(/w/app/*/a**.txt)',
+      'Write(/w/app/*/a**.txt/*)',
+    ]);
+    expect(cursorDenyRules('full', ['/relay/data/relay.db'], guard)).toEqual(rules);
+    expect(cursorDenyRules('edit', ['/p'], guard)).toEqual(['Read(/p)', 'Read(/p/**)', 'Write(/p)', 'Write(/p/**)', ...rules]);
+    expect(cursorDenyRules('full', [])).toEqual([]);
     expect(cursorDenyRules('full', ['/p'])).toEqual([]);
   });
 

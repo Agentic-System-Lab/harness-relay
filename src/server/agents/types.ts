@@ -12,6 +12,7 @@ import {
   type ToolCallKind,
 } from '../../shared/types';
 import { CONFIG } from '../config';
+import type { WriteGuard } from '../writeGuard';
 
 /** Normalised events every CLI adapter emits while an agent is working. */
 export type AgentEvent =
@@ -101,6 +102,12 @@ export interface RunOptions {
    * adapter when not given).
    */
   protectedPaths?: string[];
+  /**
+   * The team checks' protected paths in this run's working directories, for the CLI to refuse writing
+   * them before it happens, each adapter as its CLI allows (`src/server/writeGuard.ts`); what it does not
+   * refuse is still found once the team has answered.
+   */
+  guard?: WriteGuard;
   /**
    * The model backends set up in Settings, with their keys (`SettingsStore.backendsFor()`): an open
    * agent's run reads it with `backendRun()`, and a run of Claude Code, Codex or Grok, which gets the

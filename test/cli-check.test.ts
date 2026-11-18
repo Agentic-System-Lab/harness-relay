@@ -800,7 +800,16 @@ describe('layers 2 and 3: what they run', () => {
   it('asks every CLI for its help, and runs the scenarios on every CLI that can be put on a model of its own', () => {
     expect(Object.keys(HELP_ARGS).sort()).toEqual([...PROVIDERS].sort());
     expect(Object.keys(NO_RUN).sort()).toEqual(['cursor', 'grok']);
-    expect(SCENARIOS.map((s) => s.name)).toEqual(['reply', 'command', 'read-only-write', 'outside-write', 'protected-read', 'stop']);
+    expect(SCENARIOS.map((s) => s.name)).toEqual([
+      'reply',
+      'command',
+      'read-only-write',
+      'outside-write',
+      'protected-read',
+      'stop',
+      'guard-write',
+      'guard-write-full',
+    ]);
   });
 
   it('tells only Antigravity it is over SSH (Cursor refuses to start so where the keychain is out of reach)', () => {
@@ -880,6 +889,7 @@ describe("layer 3: the scenarios' checks (scripts/cli-check/scenarios.ts)", () =
     dirs.push(root);
     for (const d of ['work', 'outside', 'data']) mkdirSync(join(root, d));
     return {
+      provider: 'claude',
       nonce: 'n0nce',
       scratch: { data: join(root, 'data') } as unknown as Ctx['scratch'],
       cli: { work: join(root, 'work'), outside: join(root, 'outside') },
@@ -920,6 +930,23 @@ describe("layer 3: the scenarios' checks (scripts/cli-check/scenarios.ts)", () =
     expect(
       failed(sc('read-only-write').checks(outcome({ error: 'unknown flag --sandbox', requests: [request('{}', ['read'])] }), c)),
     ).toEqual([expect.stringContaining('the turn failed')]);
+  });
+
+  it("guard-write gives the team's protected path to the run, fails a write a CLI says it refuses, warns for the others, and removes the file", () => {
+    const c = ctx();
+    expect(sc('guard-write').extra!(c)).toEqual({ guard: { dirs: [realpathSync(c.cli.work)], patterns: ['.env'] } });
+    expect(sc('guard-write').command!(c)).toBe(`echo x > ${join(c.cli.work, '.env')}`);
+    expect(failed(sc('guard-write').checks(outcome({ requests: [call()] }), c))).toEqual([]);
+    writeFileSync(join(c.cli.work, '.env'), 'x');
+    expect(failed(sc('guard-write-full').checks(outcome({ requests: [call()] }), c))).toEqual([
+      "the team's protected path was written, though its adapter says it refuses that",
+    ]);
+    expect(existsSync(join(c.cli.work, '.env'))).toBe(false);
+    const other = { ...ctx(), provider: 'goose' as const };
+    writeFileSync(join(other.cli.work, '.env'), 'x');
+    const checks = sc('guard-write').checks(outcome({ requests: [call()] }), other);
+    expect(failed(checks)).toEqual([]);
+    expect(checks.find((x) => x.ok === 'warn')?.what).toContain('does not refuse it before');
   });
 
   it('fails outside-write on a file outside the working directory, and says when its own refusal, not a sandbox, kept the command in', () => {
