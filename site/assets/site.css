@@ -2397,6 +2397,34 @@ html:not(.js) .theme-toggle {
   }
 }
 
+/* Where the use cases' grid would leave one column (under some 718px), they become one row that is swiped
+   sideways, card by card, the next card showing at the edge. The row runs to the screen's edges and its
+   first card lines up with the text; it scrolls inside itself, never the page, and a swipe at either end
+   goes no further (no browser back). */
+@media (max-width: 720px) {
+  .cases {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: min(84%, 360px);
+    gap: 16px;
+    margin-inline: calc(-1 * var(--gutter));
+    padding: 4px var(--gutter) 14px;
+    scroll-padding-inline: var(--gutter);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: thin;
+  }
+
+  .case {
+    scroll-snap-align: start;
+  }
+
+  .cases-more {
+    margin-top: 18px;
+  }
+}
+
 @media (max-width: 680px) {
   /* Hidden from sight only: screen readers still hear "GitHub". */
   .header-tools .btn .gh-label {
