@@ -335,6 +335,13 @@
             What each sandbox covers differs by agent and by system. On native Windows only Codex and Copilot have one that
             works, and Claude Code runs its commands without one there. The technical docs list it agent by agent.
           </p>
+          <p>
+            The files you list as protected paths in <a href="../teams/#checks">team checks</a> are fenced off too: Claude
+            Code, Codex, Cursor, Copilot, Antigravity and the open-source agents refuse to write them before it happens, each
+            as far as it can (fewer of them with full access, and on Linux not always a file made during the turn). Reading
+            them stays allowed. Grok and Muse Code do not refuse them yet; whatever gets through is found once the team has
+            answered.
+          </p>
         </section>
 
         <section id="outbox" aria-labelledby="outbox-title">
@@ -392,6 +399,11 @@
             folder. If your folder changed in a way that conflicts with the result, nothing is applied and you are told
             why: ask an agent to redo the work on top of the current state.
           </p>
+          <p>
+            When the chat has <a href="../teams/#checks">team checks</a>, a result is checked before it is applied, on your
+            folder with that result in it. A result that fails is not applied until you click <b>Apply anyway</b> on its
+            card.
+          </p>
           <h3>How your folder stays safe</h3>
           <ul>
             <li>
@@ -424,6 +436,7 @@
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#approvals">Approvals</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#reviewing-and-applying-changes">Reviewing and applying changes</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/sandboxing.md">OS sandboxes by platform</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/sandboxing.md#the-teams-protected-paths">The team's protected paths, agent by agent</a></li>
             </ul>
           </div>
         </aside>

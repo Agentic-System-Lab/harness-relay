@@ -309,6 +309,11 @@
             每個沙箱涵蓋的範圍依 agent 與作業系統而不同。在原生 Windows 上，只有 Codex 與 Copilot 的沙箱能用，Claude Code
             在那裡執行指令時沒有沙箱。技術文件逐一列出各個 agent 的情況。
           </p>
+          <p>
+            你在<a href="../teams/#checks">團隊檢查</a>列為受保護路徑的檔案也會被擋：Claude Code、Codex、Cursor、Copilot、Antigravity
+            和開源 agent 會在寫入前就拒絕，各自擋得到的範圍不同（完全存取時較少；Linux 上一輪中途才建立的檔案不一定擋得到）。讀取仍然可以。Grok 和 Muse Code
+            還不會拒絕；沒擋下的，團隊回答後仍會找到。
+          </p>
         </section>
 
         <section id="outbox" aria-labelledby="outbox-title">
@@ -356,6 +361,9 @@
           <p>
             套用其中一份結果後，其他結果會標示為過時，下一輪會從更新後的資料夾開始。如果你的資料夾改過的地方和這份結果衝突，就什麼都不會套用，並告訴你原因：請 agent 依目前的狀態重做一次。
           </p>
+          <p>
+            對話有<a href="../teams/#checks">團隊檢查</a>時，結果會在套用前先檢查，對象是你的資料夾加上那個結果。沒通過的結果不會套用，除非你在它的卡片上按<b>仍要套用</b>。
+          </p>
           <h3>你的資料夾怎麼保持安全</h3>
           <ul>
             <li>
@@ -384,6 +392,7 @@
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#核准">核准</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#檢視與套用修改">檢視與套用修改</a></li>
               <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/sandboxing.zh-TW.md">各平台的 OS 沙箱</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/sandboxing.zh-TW.md#團隊的受保護路徑">團隊的受保護路徑，逐一列出各 agent</a></li>
             </ul>
           </div>
         </aside>

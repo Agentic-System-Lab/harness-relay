@@ -997,14 +997,14 @@ export const zhTW = {
     exit: (code: number | null) => (code === null ? '已停止' : `exit ${code}`),
     took: (s: string) => `花了 ${s}`,
     output: '輸出（結尾）',
-    unsandboxed: '完整權限：沒有在沙箱裡執行',
+    unsandboxed: '完全存取：沒有在沙箱裡執行',
     wrote: (files: string) => `檢查自己改了這些檔案：${files}`,
     confirmRun: '確認後執行指令',
     confirmRunAsk: (files: string) => `這一輪改到了檢查會讀的設定：\n${files}\n\n確認這些修改沒有問題，再執行指令檢查？`,
     // Commands: the editor.
     commands: '指令',
     commandsHint:
-      '團隊回答後要成功的指令，例如 npm test 或 npm run lint，環境變數只有 PATH、HOME 等基本的，加上 CI=1。圓桌和接力模式在這一輪改了東西後執行：低於完整權限時在 Harness Relay 的沙箱裡（沒有網路，只能寫工作目錄），完整權限時和 agent 一樣不經過沙箱。平行模式在你套用某位成員的結果時執行：在加上那個結果的工作目錄副本上，只要沙箱能啟動就在沙箱裡。',
+      '團隊回答後要成功的指令，例如 npm test 或 npm run lint，環境變數只有 PATH、HOME 等基本的，加上 CI=1。圓桌和接力模式在這一輪改了東西後執行：低於完全存取時在 Harness Relay 的沙箱裡（沒有網路，只能寫工作目錄），完全存取時和 agent 一樣不經過沙箱。平行模式在你套用某位成員的結果時執行：在加上那個結果的工作目錄副本上，只要沙箱能啟動就在沙箱裡。',
     addCommand: '新增指令',
     commandRun: '指令',
     commandFolder: '資料夾（相對於第一個工作目錄，可留空）',
@@ -1018,7 +1018,7 @@ export const zhTW = {
     trying: '執行中…',
     tryFirst: '在目前的工作目錄試跑一次，確認它在檢查裡能跑。',
     windowsNote: '原生 Windows 上還不能執行指令檢查。',
-    noSandbox: (why: string) => `這台電腦目前不能用 Harness Relay 的沙箱，低於完整權限時指令會顯示無法執行：${why}`,
+    noSandbox: (why: string) => `這台電腦目前不能用 Harness Relay 的沙箱，低於完全存取時指令會顯示無法執行：${why}`,
     badCommand: '指令不能是空的',
     badFolder: (f: string) => `無法使用資料夾「${f}」：不能有 ..`,
     badTimeout: (max: number) => `時間上限是 1 到 ${max} 分鐘`,
@@ -2221,6 +2221,17 @@ export const zhTW = {
           '在你的家目錄與 Harness Relay 自己的資料夾中，不能使用可編輯模式：請選專案的資料夾',
           '提高權限時，每個 agent 下一輪都會帶著完整的歷史開始新的 session',
           '每回合改了哪些檔案都會列出來，可以看 diff；平行模式再選擇要套用誰的結果',
+        ],
+      },
+      {
+        title: '團隊檢查',
+        body: '一份給整個團隊的規則，在團隊設定或範本裡設定，不論成員用哪個 agent、什麼權限都一樣：',
+        points: [
+          '受保護路徑：寫法同 .gitignore，例如 .env、*.pem，團隊不能新增、修改或刪除',
+          'commit 格式：每個 commit 的標題都要符合的正規表示式',
+          '指令：例如 npm test，要成功才算通過',
+          '團隊回答後，Harness Relay 自己檢查，回覆後面的卡片寫出每條的結果；沒通過時，成員下一次發言會被要求修正，你也可以重新檢查、請成員修正或略過',
+          '只回報，不會撤銷修改；設定 → 工具庫 → 團隊檢查預設，是每個新對話一開始帶著的規則',
         ],
       },
       {

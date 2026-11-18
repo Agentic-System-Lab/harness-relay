@@ -2225,6 +2225,17 @@ export const en: Messages = {
         ],
       },
       {
+        title: 'Team checks',
+        body: 'One set of rules for the whole team, in Team settings or a template, the same whatever agent or permission each member has:',
+        points: [
+          'Protected paths: written as in .gitignore, such as .env or *.pem; the team may not create, change or delete them',
+          "Commit format: a regular expression every commit's subject must match",
+          'Commands: such as npm test, which must succeed',
+          "Once the team has answered, Harness Relay checks them itself, and a card after the replies says how each went; while one fails, the members' next turns are asked to fix it, and you can Check again, Ask a member to fix it or Skip",
+          'It reports and undoes nothing; Settings → Tool library → Default team checks are the rules every new chat starts with',
+        ],
+      },
+      {
         title: 'Browse the working directory',
         body: "Files in a chat's header (under ⋯ on a phone) opens its working directory, so you can see what the agents made without leaving the chat:",
         points: [

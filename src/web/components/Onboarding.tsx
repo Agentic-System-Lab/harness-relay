@@ -22,6 +22,7 @@ export const TOUR_TARGETS: (string | undefined)[] = [
   'settings', // notifications and sound
   'inbox', // the notification inbox (the bell beside the sidebar's collapse button)
   undefined, // file permission
+  undefined, // team checks (in Team settings, a chat's header)
   undefined, // browsing files (the button is in a chat's header)
   undefined, // sharing a conversation (in a chat's header, and under each reply)
   'new-schedule', // automations (New automation, beside New chat)

@@ -111,7 +111,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 | 5 | The agents you installed (`#agents`) | How each signed-in CLI is driven (Claude Code, Codex, Grok, then Cursor, Antigravity, Copilot and Muse Code, with their colours on their dots only); the mark at page scale |
 | 6 | Open agents (`#open`) | The five open-source CLIs and how each is driven, the model backends they run on (API keys, your own endpoint, `backend/model`, no subscription) beside an excerpt of Settings → Model backends, and Harness Relay's own sandbox around them |
 | 7 | Modes (`#modes`) | Roundtable, Parallel, Relay as animated diagrams in tabs |
-| 8 | Teams (`#teams`) | A team for every question: the lead agent picks it and writes each role for the model its member runs on, reads the answers too (lead review), you design the templates; the five built-in templates |
+| 8 | Teams (`#teams`) | A team for every question: the lead agent picks it and writes each role for the model its member runs on, reads the answers too (lead review), team checks hold every member to your rules, you design the templates; the five built-in templates |
 | 9 | You stay in charge (`#control`) | Approvals, questions, diffs, the message tray: two excerpts a row, each its card and its text in two rows of the grid shared with the one beside it (`grid-template-rows: subgrid`), so the two cards are as tall as each other and their texts start on the same line |
 | 10 | Also in every chat (`#more`) | The remaining features as a two-column list, each a few lines at most: two items in a row are about as long (within a line of each other, at every width and in both languages), so a long one sits beside a long one and no row leaves a gap; a feature that needs more says less here and leaves the rest to the user guide |
 | 11 | Safety (`#safety`) | Local-only facts (sign-in, the CLIs' own sandboxes, Harness Relay's own sandbox around the open agents) and the permission table, with a link to the sandboxing doc |
@@ -141,8 +141,8 @@ Its order is the landing page's list's. Each language's page shows its own recor
 | 2 | Install (`install/`) | The download cards (the quick start's, through `downloads.js`), opening it the first time on each system, the window and the menu, what else it needs, updates, uninstalling |
 | 3 | Connect your agents (`agents/`) | Settings & sign-in, signing in to each agent, API keys, the open-source agents' model backends, more than one account, models and the lead agent |
 | 4 | Your first chat (`first-chat/`) | New chat, asking, the team design card, while they work, their questions, lead review |
-| 5 | Teams and modes (`teams/`) | Auto team, the templates, members, the three modes (`#modes`), changing the team, writing roles |
-| 6 | Permissions and approvals (`permissions/`) | The three levels (`#levels`), what goes beyond them, approval cards, the sandboxes in plain words, the outbox, reviewing and applying changes |
+| 5 | Teams and modes (`teams/`) | Auto team, the templates, members, the three modes (`#modes`), team checks (`#checks`), changing the team, writing roles |
+| 6 | Permissions and approvals (`permissions/`) | The three levels (`#levels`), what goes beyond them, approval cards, the sandboxes in plain words (the team's protected paths too), the outbox, reviewing and applying changes (checked before a parallel result is applied) |
 | 7 | Conversations (`conversations/`) | The list and its badges, groups, pins and search, branching, copying and editing, files, sharing, notifications |
 | 8 | Automations (`automations/`) | What starts one, its times and the things it waits for, runs nobody watches, a goal to track, the webhook |
 | 9 | Tools (`tools/`) | Harness Relay's browser, mail and calendar, the outbox, accounts you sign in to, the tool library, a member's tools, what each agent loads by itself |
