@@ -4302,6 +4302,15 @@ video.chat-media {
   gap: 6px;
 }
 
+/* A form's or a sign-in's buttons (Cancel and Save; Sign in with …, and the link to its app): side by
+   side, apart, wrapping on a narrow screen. */
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
 /* What a new sign-in is for (the calendar tools, the mail tools): side by side, under its legend. */
 .oauth-uses {
   display: flex;
