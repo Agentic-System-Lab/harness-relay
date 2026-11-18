@@ -1884,7 +1884,7 @@ export const en: Messages = {
         tar: (p) => `Installing ${p} here takes tar (to unpack Node.js's download), which was not found.`,
         bash: (p) => `Installing ${p} here takes bash, which is not on the PATH.`,
         gitBash: (p) =>
-          `Installing ${p} on Windows takes the bash that comes with Git for Windows (Git Bash), which was not found. Install Git for Windows (MinGit has no bash), then reload this page.`,
+          `Installing ${p} on Windows takes the bash that comes with Git for Windows (Git Bash), which was not found. Choose Install Git to set it up.`,
         powershell: (p) => `Installing ${p} here takes Windows PowerShell, which was not found.`,
         system: (p) => `Harness Relay cannot install ${p} for you on this system: install it as its website says.`,
       },
@@ -1968,6 +1968,25 @@ export const en: Messages = {
     thanks: 'Thank you for your support!',
   },
 
+  gitInstall: {
+    title: 'Git is required',
+    body: 'This action needs Git on the computer running Harness Relay.',
+    bash: 'This CLI installer needs the Bash that comes with Git for Windows.',
+    methods: {
+      apple: 'macOS will ask you to install the Apple Command Line Tools, which include Git.',
+      winget: 'Windows Package Manager will install Git for Windows. Windows may ask you for permission.',
+      linux: 'Your system package manager will install Git. You may be asked for the administrator password.',
+    },
+    appleWaiting: 'Finish installing the Command Line Tools in the macOS dialog, then choose Check again.',
+    installing: 'Installing Git…',
+    ready: 'Git is ready. Close this dialog and try your action again.',
+    manual: 'This computer has no supported automatic installer. Install Git on the Harness Relay host, then choose Check again.',
+    instructions: 'Git installation instructions',
+    install: 'Install Git',
+    retry: 'Try installing again',
+    check: 'Check again',
+    later: 'Not now',
+  },
   sandboxSetup: {
     title: 'Sandboxes',
     hint: "Below full access, the commands agents run go in the operating system's sandbox: they write only in the working directories, and cannot reach your browsers' data or Harness Relay's database. When a sandbox lacks what it needs, Harness Relay does not let commands run outside it, so those agents' commands cannot run.",

@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 37 個 spec 檔、481 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 38 個 spec 檔、483 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -59,6 +59,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [自動任務](#自動任務) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 9 | [使用者說明 → 自動任務](../docs/user-guide.zh-TW.md#自動任務)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
 | [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 17 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席-agent)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
 | [安裝 CLI](#安裝-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [使用者說明 → 從設定頁安裝 CLI](../docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[架構 → 從設定頁安裝 CLI](../docs/architecture.zh-TW.md#從設定頁安裝-cli) |
+| [安裝 Git](#安裝-git) | [`git-install.spec.ts`](specs/git-install.spec.ts) | 2 | [使用者說明 → 對話設定](../docs/user-guide.zh-TW.md#3-開始對話新對話與範本) |
 | [沙箱需要的元件](#沙箱需要的元件) | [`sandbox-setup.spec.ts`](specs/sandbox-setup.spec.ts) | 6 | [使用者說明 → 安裝沙箱需要的元件](../docs/user-guide.zh-TW.md#安裝沙箱需要的元件)、[各平台的 OS 沙箱 → 由 Harness Relay 安裝它們需要的東西](../docs/sandboxing.zh-TW.md#由-harness-relay-安裝它們需要的東西) |
 | [在 Windows 上是腳本的 CLI](#在-windows-上是腳本的-cli) | [`windows.spec.ts`](specs/windows.spec.ts) | 5 | [架構 → CLI 轉接器](../docs/architecture.zh-TW.md#cli-轉接器) |
 | [帳號](#帳號) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 35 | [使用者說明 → 多個帳號](../docs/user-guide.zh-TW.md#多個帳號)、[API key](../docs/user-guide.zh-TW.md#api-key選用)、[架構 → 帳號](../docs/architecture.zh-TW.md#帳號) |
@@ -413,6 +414,10 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 找不到的 CLI 裝進專屬的資料夾，再移除 | Copilot | 卡片顯示**未安裝**（Not installed，沒有「找不到」那一行，也沒有官網連結），有 **Install Copilot** 與資料夾（`<data>/clis/copilot`），不顯示會執行的指令。安裝中（`fake-npm/hold`）：**Installing Copilot…**、目前為止 npm 的輸出（第一行是它的指令），以及 **Cancel install**；這時關掉設定頁，裝好後側欄的紅點一樣會消失。完成：「Installed by Harness Relay in …」、標題顯示版本且沒有狀態標籤、**執行檔**是裝好的程式、側邊欄的圓點不再是紅色，而 npm 收到的是 `install --global --prefix <資料夾> --cache <資料夾>/install-cache/npm … @github/copilot`，裝完後那個快取（假的 npm 會寫入它）已經不在。**Remove**（確認後）刪掉資料夾，卡片又提供安裝，顯示**未安裝**（執行檔設定改回安裝前的）。 |
 | 安裝失敗會說明原因且不留下任何東西；安裝中可以取消 | Cline | `fake-npm/fail`：**Install failed**、「npm install -g --prefix … cline@3.0.74 failed (exit 1)」、安裝程式的輸出裡有 npm 自己的 404，而且沒有資料夾。用 `fake-npm/hold` 按 **Try again**，再按 **Cancel install**：「Install cancelled; nothing was left behind.」、**Try again**，且沒有資料夾。 |
 | 提供官方安裝程式：macOS 與 Linux 上是 bash 腳本，Windows 上是 PowerShell 版，但不顯示它的指令 | Grok | **Install Grok** 與安裝程式會以那個資料夾當家目錄的說明（不按：那是官方在網路上的腳本），不顯示它的指令；`GET /api/clis` 說那是 `curl -fsSL https://x.ai/cli/install.sh \| bash`（Windows 上是 `irm https://x.ai/cli/install.ps1 \| iex`），沒有「找不到」那一行，也沒有官網連結。 |
+
+## 安裝 Git
+
+[`git-install.spec.ts`](specs/git-install.spec.ts) 模擬伺服器的 Git 安裝與狀態回應，確認需要 Git 時會開啟對話框、可以先關閉、安裝後會保留新對話的輸入，以及無法自動安裝時可查看手動指令並重新檢查。測試可在各平台上執行，使用模擬安裝程式。
 
 ## 沙箱需要的元件
 

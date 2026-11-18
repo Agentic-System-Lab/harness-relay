@@ -12,6 +12,7 @@ import { CODE_TTL_MS, SESSION_COOKIE, SESSION_MAX_AGE_S, type AuthStore } from '
 import { aboutInfo, relayVersion } from './about';
 import { CliInstaller } from './cliInstall';
 import { SandboxSetup } from './sandboxSetup';
+import { GitInstall } from './gitInstall';
 import { CONFIG, limitsOf } from './config';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import {
@@ -150,6 +151,7 @@ export interface AppDeps {
   clis?: CliInstaller;
   /** What the agents' sandboxes need that is missing here, and installing it; created when not given. */
   sandboxSetup?: SandboxSetup;
+  gitInstall?: GitInstall;
   /** Asks each CLI what it loads by itself; created when not given. */
   native?: NativeSetupService;
   /** Sends conversations to AgentsView; its last failure is shown with the settings. */
@@ -287,6 +289,7 @@ export function createApp({
   voice = new VoiceService(settings),
   clis = new CliInstaller(settings, { changed: (p) => providers.invalidate(p), busy: () => orchestrator.anyRunning() }),
   sandboxSetup = new SandboxSetup({ changed: () => providers.invalidate() }),
+  gitInstall = new GitInstall(sandboxSetup.linux),
   native = new NativeSetupService(settings),
   agentsView,
   extraHosts = [],
@@ -1052,6 +1055,9 @@ export function createApp({
   // Stop the install under way.
   app.delete('/api/sandbox-setup/install', (c) => c.json(sandboxSetup.cancel()));
 
+  app.get('/api/git-install', async (c) => c.json(await gitInstall.view(c.req.query('bash') === '1' ? 'gitBash' : 'git')));
+  app.post('/api/git-install', async (c) => c.json(await gitInstall.install(c.req.query('bash') === '1' ? 'gitBash' : 'git')));
+
   // --- Voice input -------------------------------------------------------------------
 
   app.get('/api/voice', (c) => c.json(voice.status()));
@@ -1607,7 +1613,7 @@ export function createApp({
     const sent = await orchestrator.sendScheduled(c.req.param('id'));
     if (sent.result === 'busy' || sent.result === 'skipped' || sent.result === 'failed') {
       const reason = sent.reason ?? t().scheduleBusy;
-      throw new HttpError(409, reason.charAt(0).toUpperCase() + reason.slice(1));
+      throw new HttpError(409, reason.charAt(0).toUpperCase() + reason.slice(1), sent.result === 'failed' ? sent.code : undefined);
     }
     const chatId = sent.result === 'sent' ? sent.chatId : undefined;
     return c.json({ ok: true, queued: sent.result === 'queued', ...(chatId ? { chatId } : {}) }, 202);

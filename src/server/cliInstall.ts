@@ -35,7 +35,8 @@ import { runProcess, runShellScript, stripAnsi, tail, type RunOptions, type Spaw
 import { cliFolder } from './protect';
 import { parseVersion } from './providers';
 import type { SettingsStore } from './settings';
-import { BREW_DIRS, findOnPath } from './voice';
+import { windowsGitRoots } from './gitProcess';
+import { BREW_DIRS, findOnPath } from './executable';
 
 /*
  * Installing a CLI from Settings, for anyone who does not have it yet (a GitHub codespace has the
@@ -399,9 +400,7 @@ export function gitBash(env: NodeJS.ProcessEnv, isFile: (path: string) => boolea
     const dir = win32.dirname(git);
     roots.push(/\\mingw(32|64)\\bin$/i.test(dir) ? win32.dirname(win32.dirname(dir)) : win32.dirname(dir));
   }
-  for (const base of [env.ProgramFiles, env.ProgramW6432, env.LOCALAPPDATA && win32.join(env.LOCALAPPDATA, 'Programs')]) {
-    if (base) roots.push(win32.join(base, 'Git'));
-  }
+  roots.push(...windowsGitRoots(env));
   return [...new Set(roots)]
     .flatMap((root) => [win32.join(root, 'bin', 'bash.exe'), win32.join(root, 'usr', 'bin', 'bash.exe')])
     .find(isFile);

@@ -56,7 +56,7 @@ Muse Code 在 macOS 與 Linux 上用 `curl -fsSL https://dev.meta.ai/install.sh 
 - 用它官方的安裝腳本，以 `curl` 下載，並把那個資料夾當作它的家目錄執行，所以它在程式旁邊寫的東西（shell 設定檔、快取）也都留在裡面：Grok、Cursor、Antigravity 與 Muse Code（最新版），以及 Goose（1.58.1）。在 macOS 與 Linux 上執行各自的 `bash` 腳本；在 Windows 上 Grok、Cursor、Antigravity 與 Muse Code 執行它們的 PowerShell 安裝程式（`irm … | iex`），Goose 則在 Git for Windows 附的 bash（Git Bash）裡執行它的 `bash` 腳本，它本來就支援。
 - 用 [uv](https://docs.astral.sh/uv/)（`uv tool install`），它替這個工具下載的 Python 也放在那個資料夾裡：OpenHands。在 Windows 上它用 x64 的 Python 3.12，在 Windows on Arm 上也一樣（在那裡以模擬方式執行），因為它的一些套件沒有給 Arm 的版本。你的 `PATH` 上沒有 uv 時，會先用 uv 自己的安裝程式把 uv 裝進那個資料夾，移除 OpenHands 時一起刪掉。
 
-找不到安裝需要的程式（開源 agent 需要的、隨 Node.js 一起安裝的 npm；`curl`；解開 Node.js 下載檔用的 `tar`（在 Windows 上是 System32 裡的那個）；`bash`，或在 Windows 上的 Git for Windows bash 或 Windows PowerShell）時，卡片會說明缺了什麼，而不顯示按鈕。安裝失敗或取消都不會留下任何檔案；失敗的原因與輸出會留在卡片上，直到你再試一次。要等沒有 agent 在工作時才能移除，桌面 app 的更新也會等到沒有 CLI 正在安裝。會自行更新的 CLI（Claude Code、Cursor、Muse Code 的啟動器、Grok）照它官方更新程式的方式更新，可能寫到那個更新程式會寫的地方；在 Windows 上，Grok 會到你自己的 `%LOCALAPPDATA%` 找它安裝程式下載的那份 Git，而不是到資料夾裡找，所以請讓你的 `PATH` 上有 Git for Windows 給它用。[GitHub codespace](codespaces.zh-TW.md) 裡已經裝好七個非開源的 CLI；開源的那幾個在那裡也一樣從設定頁安裝。Node.js 不會替你裝到 `PATH` 上：從原始碼執行時你已經有了（`npm start` 就是用它跑的），[桌面 app](#桌面-app) 則從你登入 shell 的 `PATH` 找它；沒有的話，只有上面說的、放在 CLI 資料夾裡的那一份。
+找不到安裝需要的程式（開源 agent 需要的、隨 Node.js 一起安裝的 npm；`curl`；解開 Node.js 下載檔用的 `tar`（在 Windows 上是 System32 裡的那個）；`bash`，或在 Windows 上的 Git for Windows bash 或 Windows PowerShell）時，卡片會說明缺了什麼。在 Windows 上缺少 Git Bash 時，卡片會提供「**安裝 Git**」。安裝失敗或取消都不會留下任何檔案；失敗的原因與輸出會留在卡片上，直到你再試一次。要等沒有 agent 在工作時才能移除，桌面 app 的更新也會等到沒有 CLI 正在安裝。會自行更新的 CLI（Claude Code、Cursor、Muse Code 的啟動器、Grok）照它官方更新程式的方式更新，可能寫到那個更新程式會寫的地方；在 Windows 上，Grok 會到你自己的 `%LOCALAPPDATA%` 找它安裝程式下載的那份 Git，而不是到資料夾裡找，所以請讓你的 `PATH` 上有 Git for Windows 給它用。[GitHub codespace](codespaces.zh-TW.md) 裡已經裝好七個非開源的 CLI；開源的那幾個在那裡也一樣從設定頁安裝。Node.js 不會替你裝到 `PATH` 上：從原始碼執行時你已經有了（`npm start` 就是用它跑的），[桌面 app](#桌面-app) 則從你登入 shell 的 `PATH` 找它；沒有的話，只有上面說的、放在 CLI 資料夾裡的那一份。
 
 完全存取以外，它們在 Harness Relay 自己的沙箱中執行（[開源 agent → Harness Relay 的沙箱](open-agents.zh-TW.md#harness-relay-的沙箱)）。macOS 上不需要另外安裝（在[桌面 app](#桌面-app) 裡則需要 `PATH` 上有 Node.js 22.12 以上，或設定頁裝的那一份）；Linux 上請安裝 `bubblewrap`、`socat` 與 `ripgrep`（`sudo apt-get install bubblewrap socat ripgrep`），Ubuntu 23.10 以上還要加上[各平台的作業系統沙箱 → 在 Linux 上](sandboxing.zh-TW.md#在-linux-上)裡 `/usr/bin/bwrap` 的 AppArmor 設定檔。這些 Harness Relay 都能替你安裝：見[安裝沙箱需要的元件](#安裝沙箱需要的元件)。在原生 Windows 上它們只能以完全存取執行（要有沙箱請用 WSL2），Linux 上的 OpenCode 也一樣（Harness Relay 在那裡無法監看它的伺服器）。
 
@@ -520,6 +520,8 @@ app 打開時是首頁：只有 logo 與一句標語。點側邊欄最上面的 
 - **平行**：每個 agent 在**自己的副本**（git worktree）中工作，不會互相覆蓋。直到你選定一份結果並套用之前，工作目錄都不會被改動（見[檢視與套用修改](#檢視與套用修改)）。
 
 有多個工作目錄時，每一個都各自這樣處理：每一個都會變成 repository（同一個 repository 裡的兩個資料夾共用它），回覆會依資料夾列出改了哪些檔案，這個對話在修改時其他對話無法寫入其中任何一個，平行模式下每位 agent 也會各有每一個的副本。
+
+**需要 Git 時安裝。** 建立或修改可寫入的對話，或使用差異檢視等需要 Git 的功能時，如果找不到 Git，Harness Relay 會顯示「**需要 Git**」對話框。按「**安裝 Git**」可在執行 Harness Relay 的電腦上安裝。macOS 會顯示系統對話框，請完成 Apple 命令列工具安裝，再按「**重新檢查**」。Windows 使用 WinGet 安裝 Git for Windows，系統可能會要求確認權限。Linux 上能取得管理員權限時，會使用 apt、dnf、pacman 或 zypper。無法自動安裝時，對話框會提供手動安裝說明。Git 可用後，再試一次原本的操作。沒有 Git 也能建立唯讀對話。
 
 ## 4. 對話
 

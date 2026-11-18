@@ -1,3 +1,4 @@
+import { findOnPath } from '../src/server/executable';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -23,7 +24,6 @@ import {
   VoiceService,
   cleanTranscript,
   engineUrl,
-  findOnPath,
   modelUrl,
   recommendedModel,
   wavSeconds,

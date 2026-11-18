@@ -1,4 +1,4 @@
-import { accessSync, constants, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { join, posix } from 'node:path';
 import type { SandboxNeedView, SandboxSetupBlock, SandboxSetupView, SandboxUser } from '../shared/types';
@@ -15,6 +15,7 @@ import {
   type NodeBuild,
 } from './cliInstall';
 import { HttpError } from './errors';
+import { isProgram } from './executable';
 import { t } from './i18n';
 import { runProcess, runShellScript, runSync } from './process';
 import { pathHostNode, sandboxNode, sandboxNodeFolder } from './relaySandbox';
@@ -50,6 +51,16 @@ const PACKAGE_MANAGERS: readonly { pm: PackageManager; program: string }[] = [
   { pm: 'pacman', program: 'pacman' },
   { pm: 'zypper', program: 'zypper' },
 ];
+
+export function linuxPackageCommand(pm: PackageManager, packages: string[]): string {
+  const names = packages.join(' ');
+  return {
+    apt: `sudo apt-get install -y ${names}`,
+    dnf: `sudo dnf install -y ${names}`,
+    pacman: `sudo pacman -S --needed ${names}`,
+    zypper: `sudo zypper install ${names}`,
+  }[pm];
+}
 
 /** One Linux package the sandboxes need: the programs (or libraries) that tell it is there, its name for each package manager, and whose sandboxes run it. */
 export interface LinuxNeed {
@@ -195,16 +206,6 @@ export interface SandboxSetupHost extends Pick<CliInstallHost, 'platform' | 'arc
   nodeDir: string;
 }
 
-function isProgram(p: string): boolean {
-  try {
-    if (!statSync(p).isFile()) return false;
-    accessSync(p, constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function readSmall(p: string): string | undefined {
   try {
     const st = statSync(p);
@@ -226,12 +227,97 @@ function list(dir: string): string[] {
 /** How long a `sudo -n true` answer is kept: it changes only when the user changes sudo's settings or signs in again. */
 const SUDO_CHECK_MS = 60_000;
 
+type LinuxPackageHost = Pick<SandboxSetupHost, 'env' | 'uid' | 'isProgram' | 'sudoWorks' | 'run' | 'runScript'>;
+
+/** The system package installer shared by sandbox setup and Git setup. */
+export class LinuxPackages {
+  private sudoChecked?: { sudo: string; at: number; ok: boolean };
+
+  constructor(private host: LinuxPackageHost) {}
+
+  find(name: string): string | undefined {
+    const path = (this.host.env.PATH ?? '').split(':').filter((d) => posix.isAbsolute(d));
+    for (const dir of [...SYSTEM_DIRS, ...path]) {
+      const p = posix.join(dir, name);
+      if (this.host.isProgram(p)) return p;
+    }
+    return undefined;
+  }
+
+  packageManager(): PackageManager | undefined {
+    return PACKAGE_MANAGERS.find((m) => this.find(m.program))?.pm;
+  }
+
+  /**
+   * How an install gets administrator rights here: as root; through sudo when it asks no password;
+   * through pkexec when the server runs in a desktop session, whose password prompt it shows.
+   */
+  adminWay(): SandboxSetupView['admin'] {
+    if (this.host.uid === 0) return 'root';
+    const sudo = this.find('sudo');
+    if (sudo) {
+      const at = Date.now();
+      if (!this.sudoChecked || this.sudoChecked.sudo !== sudo || at - this.sudoChecked.at > SUDO_CHECK_MS) {
+        this.sudoChecked = { sudo, at, ok: this.host.sudoWorks(sudo) };
+      }
+      if (this.sudoChecked.ok) return 'sudo';
+    }
+    const env = this.host.env;
+    const desktop = Boolean(env.WAYLAND_DISPLAY || env.DISPLAY) || /^(x11|wayland)$/i.test(env.XDG_SESSION_TYPE ?? '');
+    return this.find('pkexec') && desktop ? 'pkexec' : undefined;
+  }
+
+  /** The packages and the AppArmor profile, in one run of `ADMIN_SCRIPT` with administrator rights (one password prompt at most). */
+  async install(job: InstallJob, packages: string[], apparmor = false): Promise<void> {
+    const admin = this.adminWay();
+    if (!admin) throw new InstallError(() => t().sandboxSetupNoAdmin);
+    const pm = this.packageManager();
+    if (packages.some((p) => !PACKAGE_NAME.test(p))) throw new Error(`Not a package name: ${packages.join(' ')}`);
+    const base = installerEnv(this.host.env);
+    const vars: Record<string, string> = {
+      PATH: ADMIN_PATH,
+      HARNESS_RELAY_PM: pm ?? '',
+      HARNESS_RELAY_PACKAGES: packages.join(' '),
+      HARNESS_RELAY_APPARMOR: apparmor ? APPARMOR_PROFILE : '',
+      HARNESS_RELAY_APPARMOR_FILE: APPARMOR_FILE,
+    };
+    const what = [
+      ...(packages.length ? [`${PACKAGE_MANAGERS.find((m) => m.pm === pm)?.program ?? pm} install ${packages.join(' ')}`] : []),
+      ...(apparmor ? [`${APPARMOR_FILE}, apparmor_parser -r`] : []),
+    ].join('; ');
+    const shown = `${admin === 'root' ? '' : `${admin} `}${what}`;
+    if (admin === 'pkexec') job.append('Asking for the administrator password: the desktop shows its prompt\n');
+    try {
+      if (admin === 'root') {
+        await runStep(this.host, job, shown, { bin: this.find('sh') ?? '/bin/sh', args: [], env: { ...base, ...vars } }, ADMIN_SCRIPT);
+      } else {
+        // sudo and pkexec give the script their own environment: `env` sets what it works on.
+        const via = this.find(admin)!;
+        const args = [
+          ...(admin === 'sudo' ? ['-n'] : []),
+          this.find('env') ?? '/usr/bin/env',
+          ...Object.entries(vars).map(([k, v]) => `${k}=${v}`),
+          '/bin/sh',
+          '-c',
+          ADMIN_SCRIPT,
+        ];
+        await runStep(this.host, job, shown, { bin: via, args, env: base });
+      }
+    } catch (err) {
+      // pkexec: 126 when the prompt was dismissed, 127 when not allowed or no prompt could be shown.
+      if (admin === 'pkexec' && err instanceof InstallError && (err.code === 126 || err.code === 127))
+        throw new InstallError(() => t().sandboxSetupAdminRefused, err.code);
+      throw err;
+    }
+  }
+}
+
 export class SandboxSetup {
   private host: SandboxSetupHost;
   private job?: InstallJob;
   /** What the setup under way does: the administrator's step cannot be stopped safely (`cancel`). */
   private stage?: 'node' | 'admin';
-  private sudoChecked?: { sudo: string; at: number; ok: boolean };
+  readonly linux: LinuxPackages;
 
   constructor(
     private hooks: {
@@ -265,12 +351,13 @@ export class SandboxSetup {
       nodeBuild: () => nodeBuildFor(this.host.platform, this.host.arch, this.host.isFile),
       ...host,
     };
+    this.linux = new LinuxPackages(this.host);
   }
 
   /** What is missing here, what installs each, and the install under way or the last one. */
   view(): SandboxSetupView {
     const needs = this.needs();
-    const admin = needs.some((n) => n.kind !== 'node') ? this.adminWay() : undefined;
+    const admin = needs.some((n) => n.kind !== 'node') ? this.linux.adminWay() : undefined;
     const running = this.job?.state === 'running';
     return {
       platform: this.host.platform,
@@ -317,50 +404,18 @@ export class SandboxSetup {
     return job.ended;
   }
 
-  private find(name: string): string | undefined {
-    const path = (this.host.env.PATH ?? '').split(':').filter((d) => posix.isAbsolute(d));
-    for (const dir of [...SYSTEM_DIRS, ...path]) {
-      const p = posix.join(dir, name);
-      if (this.host.isProgram(p)) return p;
-    }
-    return undefined;
-  }
-
   private hasLib(name: string): boolean {
     return libDirs(this.host.arch).some((dir) => this.host.isFile(posix.join(dir, name)));
   }
 
   /** Whether a package's programs or libraries are missing here. */
   private lacks(n: LinuxNeed): boolean {
-    return n.programs.some((p) => !this.find(p)) || (n.libs ?? []).some((l) => !this.hasLib(l));
-  }
-
-  private packageManager(): PackageManager | undefined {
-    return PACKAGE_MANAGERS.find((m) => this.find(m.program))?.pm;
-  }
-
-  /**
-   * How an install gets administrator rights here: as root; through sudo when it asks no password;
-   * through pkexec when the server runs in a desktop session, whose password prompt it shows.
-   */
-  private adminWay(): SandboxSetupView['admin'] {
-    if (this.host.uid === 0) return 'root';
-    const sudo = this.find('sudo');
-    if (sudo) {
-      const at = Date.now();
-      if (!this.sudoChecked || this.sudoChecked.sudo !== sudo || at - this.sudoChecked.at > SUDO_CHECK_MS) {
-        this.sudoChecked = { sudo, at, ok: this.host.sudoWorks(sudo) };
-      }
-      if (this.sudoChecked.ok) return 'sudo';
-    }
-    const env = this.host.env;
-    const desktop = Boolean(env.WAYLAND_DISPLAY || env.DISPLAY) || /^(x11|wayland)$/i.test(env.XDG_SESSION_TYPE ?? '');
-    return this.find('pkexec') && desktop ? 'pkexec' : undefined;
+    return n.programs.some((p) => !this.linux.find(p)) || (n.libs ?? []).some((l) => !this.hasLib(l));
   }
 
   /** Whether AppArmor keeps bubblewrap from making user namespaces here, with no profile that lets it. */
   private apparmorNeeded(): boolean {
-    if (this.host.read(USERNS_RESTRICTION)?.trim() !== '1' || !this.find('apparmor_parser')) return false;
+    if (this.host.read(USERNS_RESTRICTION)?.trim() !== '1' || !this.linux.find('apparmor_parser')) return false;
     return !this.host.list(APPARMOR_DIR).some((name) => letsBwrap(this.host.read(posix.join(APPARMOR_DIR, name)) ?? ''));
   }
 
@@ -387,24 +442,17 @@ export class SandboxSetup {
       };
     }
     if (platform !== 'linux') return node ? [node] : [];
-    const pm = this.packageManager();
+    const pm = this.linux.packageManager();
     // What Node.js waits for, with the packages: curl when its download lacks only it, libatomic when
     // its build would not run without it.
     const nodeWaits = node && (!node.blocked || node.blocked === 'curl') ? [CURL_NEED, LIBATOMIC_NEED].filter((n) => this.lacks(n)) : [];
     const missing = [...nodeWaits, ...LINUX_NEEDS.filter((n) => this.lacks(n))];
-    const admin = this.adminWay();
+    const admin = this.linux.adminWay();
     const adminBlock: SandboxSetupBlock | undefined = admin ? undefined : 'admin';
     const needs: SandboxNeedView[] = [];
     if (missing.length) {
       const packages = [...new Set(missing.map((n) => packageName(n, pm)))];
-      const command = pm
-        ? {
-            apt: `sudo apt-get install -y ${packages.join(' ')}`,
-            dnf: `sudo dnf install -y ${packages.join(' ')}`,
-            pacman: `sudo pacman -S --needed ${packages.join(' ')}`,
-            zypper: `sudo zypper install ${packages.join(' ')}`,
-          }[pm]
-        : packages.join(' ');
+      const command = pm ? linuxPackageCommand(pm, packages) : packages.join(' ');
       const blocked = pm ? adminBlock : 'packageManager';
       needs.push({
         kind: 'packages',
@@ -446,7 +494,11 @@ export class SandboxSetup {
       }
       if (admin.length && !job.abort.signal.aborted) {
         this.stage = 'admin';
-        await this.runAdmin(job, admin, base);
+        await this.linux.install(
+          job,
+          admin.find((n) => n.kind === 'packages')?.items ?? [],
+          admin.some((n) => n.kind === 'apparmor'),
+        );
       }
       if (node >= 0 && !nodeFirst && !job.abort.signal.aborted) {
         this.stage = 'node';
@@ -490,51 +542,6 @@ export class SandboxSetup {
       throw err;
     } finally {
       rmSync(join(dir, INSTALL_CACHE), { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
-    }
-  }
-
-  /** The packages and the AppArmor profile, in one run of `ADMIN_SCRIPT` with administrator rights (one password prompt at most). */
-  private async runAdmin(job: InstallJob, needs: SandboxNeedView[], base: NodeJS.ProcessEnv): Promise<void> {
-    const admin = this.adminWay();
-    if (!admin) throw new InstallError(() => t().sandboxSetupNoAdmin);
-    const pm = this.packageManager();
-    const packages = needs.find((n) => n.kind === 'packages')?.items ?? [];
-    if (packages.some((p) => !PACKAGE_NAME.test(p))) throw new Error(`Not a package name: ${packages.join(' ')}`);
-    const apparmor = needs.some((n) => n.kind === 'apparmor');
-    const vars: Record<string, string> = {
-      PATH: ADMIN_PATH,
-      HARNESS_RELAY_PM: pm ?? '',
-      HARNESS_RELAY_PACKAGES: packages.join(' '),
-      HARNESS_RELAY_APPARMOR: apparmor ? APPARMOR_PROFILE : '',
-      HARNESS_RELAY_APPARMOR_FILE: APPARMOR_FILE,
-    };
-    const what = [
-      ...(packages.length ? [`${PACKAGE_MANAGERS.find((m) => m.pm === pm)?.program ?? pm} install ${packages.join(' ')}`] : []),
-      ...(apparmor ? [`${APPARMOR_FILE}, apparmor_parser -r`] : []),
-    ].join('; ');
-    const shown = `${admin === 'root' ? '' : `${admin} `}${what}`;
-    if (admin === 'pkexec') job.append('Asking for the administrator password: the desktop shows its prompt\n');
-    try {
-      if (admin === 'root') {
-        await runStep(this.host, job, shown, { bin: this.find('sh') ?? '/bin/sh', args: [], env: { ...base, ...vars } }, ADMIN_SCRIPT);
-      } else {
-        // sudo and pkexec give the script their own environment: `env` sets what it works on.
-        const via = this.find(admin)!;
-        const args = [
-          ...(admin === 'sudo' ? ['-n'] : []),
-          this.find('env') ?? '/usr/bin/env',
-          ...Object.entries(vars).map(([k, v]) => `${k}=${v}`),
-          '/bin/sh',
-          '-c',
-          ADMIN_SCRIPT,
-        ];
-        await runStep(this.host, job, shown, { bin: via, args, env: base });
-      }
-    } catch (err) {
-      // pkexec: 126 when the prompt was dismissed, 127 when not allowed or no prompt could be shown.
-      if (admin === 'pkexec' && err instanceof InstallError && (err.code === 126 || err.code === 127))
-        throw new InstallError(() => t().sandboxSetupAdminRefused, err.code);
-      throw err;
     }
   }
 }

@@ -30,7 +30,7 @@ import { CliLogin } from './login';
 import { downloadProblem, mediaRoots, resolveDownload } from './media';
 import { DATA_DIR } from './settings';
 import { CommandNotFoundError, runProcess, tail, type SpawnOptions, type SpawnResult } from './process';
-import { BREW_DIRS, findOnPath } from './voice';
+import { BREW_DIRS, findOnPath } from './executable';
 
 /**
  * The page's file in its gist, which the viewer reads (`SHARE_FILE` in site/assets/share.js; as

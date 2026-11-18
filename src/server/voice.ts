@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, createWriteStream, mkdirSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, statfsSync } from 'node:fs';
 import { createServer, type AddressInfo } from 'node:net';
 import { availableParallelism } from 'node:os';
-import { join, posix, win32 } from 'node:path';
+import { join, win32 } from 'node:path';
 import { Readable, Transform, type TransformCallback } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
@@ -19,6 +19,7 @@ import {
   type VoiceSettingsUpdate,
   type VoiceStatus,
 } from '../shared/types';
+import { BREW_DIRS, fileExists, findOnPath } from './executable';
 import { CONFIG } from './config';
 import { HttpError } from './errors';
 import { voiceFolder } from './protect';
@@ -119,9 +120,6 @@ export function relayEnginePath(dir: string, platform: string, arch: string): st
   return build && join(dir, 'engine', ENGINE_TAG, build.server);
 }
 
-/** Where Homebrew puts its commands; a server started outside a terminal may not have them on PATH. */
-export const BREW_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', '/home/linuxbrew/.linuxbrew/bin'];
-
 /** The engine stops after this long without use, which frees the memory the model takes. */
 const IDLE_MS = 10 * 60 * 1000;
 /** Loading a large model the first time (and compiling Metal shaders) can take a while. */
@@ -162,35 +160,6 @@ export function cleanTranscript(text: string): string {
   }
   // Whisper puts spaces between segments; keep them only where a Latin word meets another.
   return out.replace(new RegExp(`(?<=${CJK.source}) +(?=${CJK.source})`, 'gu'), '');
-}
-
-/** `name` on PATH (with PATHEXT on Windows), then in `extra` directories. */
-export function findOnPath(
-  name: string,
-  env: NodeJS.ProcessEnv,
-  platform: string,
-  extra: string[] = [],
-  isFile: (p: string) => boolean = fileExists,
-): string | undefined {
-  // `platform`'s own separators, whichever system this runs on.
-  const { delimiter, join: joinPath } = platform === 'win32' ? win32 : posix;
-  const dirs = [...(env.PATH ?? env.Path ?? '').split(delimiter), ...extra].filter(Boolean);
-  const exts = platform === 'win32' ? (env.PATHEXT ?? '.EXE;.CMD;.BAT').split(';').filter(Boolean) : [''];
-  for (const dir of dirs) {
-    for (const ext of exts) {
-      const file = joinPath(dir, name + ext);
-      if (isFile(file)) return file;
-    }
-  }
-  return undefined;
-}
-
-function fileExists(p: string): boolean {
-  try {
-    return statSync(p).isFile();
-  } catch {
-    return false;
-  }
 }
 
 /** Bytes as the user reads them (server messages). */

@@ -496,6 +496,35 @@ describe('settings', () => {
     expect((await put({ defaultCwd: join(file, 'sub'), createCwd: true })).status).toBe(400);
   });
 
+  it('offers to install missing Git only when the conversation needs it, then allows a retry', async () => {
+    const process = await import('../src/server/process');
+    const capture = process.capture;
+    const spy = vi.spyOn(process, 'capture').mockImplementation(async (bin, args, env, opts) => {
+      if (args.includes('--show-scope')) throw new process.CommandNotFoundError(bin);
+      return capture(bin, args, env, opts);
+    });
+    const post = (permission: string) =>
+      app.request(
+        '/api/conversations',
+        json('POST', {
+          agents: [{ name: 'Alice', provider: 'claude', role: '' }],
+          settings: { cwd: project, permission },
+        }),
+      );
+    try {
+      const missing = await post('edit');
+      expect(missing.status).toBe(400);
+      expect(await missing.json()).toMatchObject({ code: 'git-missing' });
+      expect(store.list(() => false)).toHaveLength(0);
+      expect(existsSync(join(project, '.git'))).toBe(false);
+      expect((await post('read-only')).status).toBe(200);
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await post('edit')).status).toBe(200);
+    expect(existsSync(join(project, '.git'))).toBe(true);
+  });
+
   it('creates a missing conversation directory only when asked to, after checking the team', async () => {
     const post = (body: Record<string, unknown>) => app.request('/api/conversations', json('POST', body));
     const agents = [{ name: 'Alice', provider: 'claude', role: '' }];

@@ -762,6 +762,9 @@ const zhTW = {
   fileRootNotFound: '這個資料夾已經不存在',
 
   // Workspace
+  gitMissing: '這個操作需要 Git。請安裝 Git 後再試一次。',
+  gitInstallUnavailable: '這台電腦目前無法自動安裝 Git。',
+  gitInstallStillMissing: '安裝程式結束後，Harness Relay 仍找不到可用的 Git。',
   gitFailed: (cmd: string, out: string) => `git ${cmd} 失敗：${out}`,
   noAutoRepo: (dir: string) => `不會在 ${dir} 自動建立 git repository，請改選一個專案資料夾作為工作目錄。`,
   repoTooBroad: (root: string) =>
@@ -1614,6 +1617,9 @@ const en: ServerMessages = {
     `This folder is too large for a ZIP file: at most ${items.toLocaleString('en')} files and folders, ${gb} GB in all. Download a folder inside it instead.`,
   fileRootNotFound: 'This folder no longer exists',
 
+  gitMissing: 'This action needs Git. Install Git and try again.',
+  gitInstallUnavailable: 'Automatic Git installation is unavailable on this computer.',
+  gitInstallStillMissing: 'The installer exited and Harness Relay still cannot run Git.',
   gitFailed: (cmd, out) => `git ${cmd} failed: ${out}`,
   noAutoRepo: (dir) => `Will not create a git repository in ${dir}; pick a project folder as the working directory.`,
   repoTooBroad: (root) =>

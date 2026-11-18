@@ -29,6 +29,7 @@ import { splitAsk } from '../shared/ask';
 import { nextRun } from '../shared/schedule';
 import { freshTracking, retryDelayMs, splitProgress, withNote } from '../shared/tracking';
 import {
+  GIT_MISSING,
   OPEN_PROVIDERS,
   PROVIDER_LABEL,
   REVISE_REQUEST_MAX,
@@ -249,7 +250,8 @@ export type ScheduledSend =
   | { result: 'sent'; chatId?: string }
   | { result: 'queued' }
   | { result: 'busy'; reason?: string }
-  | { result: 'skipped' | 'failed'; reason: string };
+  | { result: 'skipped'; reason: string }
+  | { result: 'failed'; reason: string; code?: string };
 
 /** What a scheduled message carries of the event that sent it: its body, and where it came from when not the webhook. */
 type ScheduledEvent = Pick<ChatMessage, 'event' | 'eventSource'>;
@@ -257,7 +259,7 @@ type ScheduledEvent = Pick<ChatMessage, 'event' | 'eventSource'>;
 /** A run that could not start: another conversation is writing in the same folder (409) or the server is stopping (503), or else it failed. */
 function sendFailure(err: unknown): ScheduledSend {
   if (err instanceof HttpError && (err.status === 409 || err.status === 503)) return { result: 'busy', reason: err.message };
-  return { result: 'failed', reason: (err as Error).message };
+  return { result: 'failed', reason: (err as Error).message, ...(err instanceof HttpError && err.code ? { code: err.code } : {}) };
 }
 
 /** A conversation's name taken from a message: its first line, shortened to 40 characters. */
@@ -2034,8 +2036,19 @@ export class Orchestrator {
    * applied nor shown.
    */
   private async currentWorktrees(conv: Conversation, agentId: string): Promise<AgentWorktree[]> {
-    const roots = new Set(await Promise.all(cwdsOf(conv.settings).map((cwd) => repoRoot(cwd).catch(() => null))));
-    return (conv.worktrees[agentId] ?? []).filter((w) => roots.has(w.root));
+    const worktrees = conv.worktrees[agentId] ?? [];
+    if (!worktrees.length) return [];
+    const roots = new Set(
+      await Promise.all(
+        cwdsOf(conv.settings).map((cwd) =>
+          repoRoot(cwd).catch((err) => {
+            if (err instanceof HttpError && err.code === GIT_MISSING) throw err;
+            return null;
+          }),
+        ),
+      ),
+    );
+    return worktrees.filter((w) => roots.has(w.root));
   }
 
   /** The diffs of several repositories, one after another; with more than one, their paths start with their folders' names. */

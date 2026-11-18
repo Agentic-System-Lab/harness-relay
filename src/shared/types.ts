@@ -59,6 +59,17 @@ export function endpointEffort(p: EndpointCli, effort: string | undefined): stri
 /** The error `code` (with a 404) for a working directory that does not exist; resend with `createCwd: true` to create it. */
 export const CWD_MISSING = 'cwd-missing';
 
+/** Git needed by a user action is missing on the Harness Relay host. */
+export const GIT_MISSING = 'git-missing';
+export type GitRequirement = 'git' | 'gitBash';
+
+export interface GitInstallView {
+  available: boolean;
+  method?: 'apple' | 'winget' | 'linux';
+  command?: string;
+  job?: CliInstallJobView;
+}
+
 /**
  * The error `code` (with a 502) of the share routes when the GitHub CLI cannot be used: not installed
  * (`GH_MISSING`) or not signed in (`GH_SIGNED_OUT`). The UI then says what to do about it.

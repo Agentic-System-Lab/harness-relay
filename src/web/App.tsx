@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { needsOf } from '../shared/notify';
-import type { ConversationGroup, ConversationSummary, InboxSummary, ProviderModels, ProviderStatus, UpdateStatus } from '../shared/types';
-import { SIGNED_OUT_EVENT, api } from './api';
+import type {
+  ConversationGroup,
+  ConversationSummary,
+  GitRequirement,
+  InboxSummary,
+  ProviderModels,
+  ProviderStatus,
+  UpdateStatus,
+} from '../shared/types';
+import { GIT_INSTALL_EVENT, SIGNED_OUT_EVENT, api } from './api';
 import { keyArrived } from './auth';
 import { ChatView } from './components/ChatView';
 import { Deferred, lazyPart } from './components/Deferred';
@@ -50,6 +58,7 @@ import { onboardingDone } from './tour';
 // Loaded when first opened, not with the page: Settings and its panels, and the guided tour.
 const SettingsPage = lazyPart(() => import('./components/SettingsPage').then((m) => m.SettingsPage));
 const Onboarding = lazyPart(() => import('./components/Onboarding').then((m) => m.Onboarding));
+const GitInstallDialog = lazyPart(() => import('./components/GitInstallDialog').then((m) => m.GitInstallDialog));
 const SandboxSetupDialog = lazyPart(() => import('./components/SandboxSetupDialog').then((m) => m.SandboxSetupDialog));
 const InboxDialog = lazyPart(() => import('./components/InboxDialog').then((m) => m.InboxDialog));
 
@@ -442,6 +451,17 @@ function RelayApp() {
     setOffer((showing) => offerShows(showing, { offerable, tourOpen, dialogsOpen: dialogs, typing, held }));
   }, [offerable, tourOpen, dialogs, typing, held]);
 
+  const [gitRequirement, setGitRequirement] = useState<GitRequirement>();
+  useEffect(() => {
+    const request = (event: Event) => {
+      const requirement = (event as CustomEvent<GitRequirement>).detail;
+      setGitRequirement((previous) => (previous === 'gitBash' ? previous : requirement));
+    };
+    window.addEventListener(GIT_INSTALL_EVENT, request);
+    return () => window.removeEventListener(GIT_INSTALL_EVENT, request);
+  }, []);
+  const closeGitInstall = () => setGitRequirement(undefined);
+
   // What the sandboxes lack here, asked as New chat opens, once in this browser (src/web/sandboxSetup.ts):
   // Not now or Install answers it for good, Escape or × for this page only; Settings → Sandboxes keeps it.
   const [sandboxAsked, setSandboxAsked] = useState(readAsked);
@@ -586,6 +606,11 @@ function RelayApp() {
               setSandboxOpen(false);
             }}
           />
+        </Deferred>
+      )}
+      {gitRequirement && (
+        <Deferred onClose={closeGitInstall}>
+          <GitInstallDialog key={gitRequirement} requirement={gitRequirement} onClose={closeGitInstall} />
         </Deferred>
       )}
       {offer && update?.available && (

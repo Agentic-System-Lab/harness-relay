@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 481 tests in 37 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 483 tests in 38 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -59,6 +59,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Automations](#automations) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 9 | [User guide → Automations](../docs/user-guide.md#automations), [Architecture → Schedules](../docs/architecture.md#schedules) |
 | [Settings](#settings) | [`settings.spec.ts`](specs/settings.spec.ts) | 17 | [User guide → Signing in](../docs/user-guide.md#signing-in), [Lead agent](../docs/user-guide.md#lead-agent), [Open agents → Model backends](../docs/open-agents.md#model-backends) |
 | [Installing a CLI](#installing-a-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [User guide → Installing a CLI from Settings](../docs/user-guide.md#installing-a-cli-from-settings), [Architecture → Installing a CLI from Settings](../docs/architecture.md#installing-a-cli-from-settings) |
+| [Installing Git](#installing-git) | [`git-install.spec.ts`](specs/git-install.spec.ts) | 2 | [User guide → Git and file safety](../docs/user-guide.md#3-start-a-chat--new-chat-and-templates) |
 | [What the sandboxes need](#what-the-sandboxes-need) | [`sandbox-setup.spec.ts`](specs/sandbox-setup.spec.ts) | 6 | [User guide → Setting up the sandboxes](../docs/user-guide.md#setting-up-the-sandboxes), [OS sandboxes by platform → Installing what they need from Harness Relay](../docs/sandboxing.md#installing-what-they-need-from-harness-relay) |
 | [CLIs that are scripts on Windows](#clis-that-are-scripts-on-windows) | [`windows.spec.ts`](specs/windows.spec.ts) | 5 | [Architecture → CLI adapters](../docs/architecture.md#cli-adapters) |
 | [Accounts](#accounts) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 35 | [User guide → More than one account](../docs/user-guide.md#more-than-one-account), [API keys](../docs/user-guide.md#api-keys-optional), [Architecture → Accounts](../docs/architecture.md#accounts) |
@@ -411,6 +412,10 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | A CLI that is not found is installed into a folder of its own, and removed again | Copilot | Its card says **Not installed** (and no "not found" line nor link to its website), with **Install Copilot** and the folder (`<data>/clis/copilot`), not the command it runs. Under way (`fake-npm/hold`): **Installing Copilot…**, npm's output so far (its command first) and **Cancel install**; Settings closed meanwhile, the sidebar's red dot goes once it is done. Done: "Installed by Harness Relay in …", its version in the head and no pill, its **Executable** the program installed, the sidebar's dot no longer red, and npm was given `install --global --prefix <folder> --cache <folder>/install-cache/npm … @github/copilot`, whose cache (the fake npm writes in it) is gone once it is done. **Remove** (confirmed) deletes the folder and the card offers to install it again, **Not installed** (its executable path back to the one before). |
 | A failed install says why and leaves nothing; one under way can be cancelled | Cline | `fake-npm/fail`: **Install failed**, "npm install -g --prefix … cline@3.0.74 failed (exit 1)", npm's own 404 in the installer's output, and no folder. **Try again** with `fake-npm/hold`, then **Cancel install**: "Install cancelled; nothing was left behind.", **Try again**, and no folder. |
 | A maker's own installer is offered, its bash script on macOS and Linux and its PowerShell one on Windows, without showing its command | Grok | **Install Grok** and the note that the installer gets that folder as its home (not clicked: the script is the maker's, on the network), not its command, which `GET /api/clis` says is `curl -fsSL https://x.ai/cli/install.sh \| bash` (on Windows `irm https://x.ai/cli/install.ps1 \| iex`), and no "not found" line nor link to its website. |
+
+## Installing Git
+
+[`git-install.spec.ts`](specs/git-install.spec.ts) intercepts the server’s Git status and installer responses. It checks the dialog opens on a Git-dependent action, can be dismissed, preserves the New chat form after installation, and offers a manual command and recheck when automatic installation is unavailable. These tests run on every platform with no real package installation.
 
 ## What the sandboxes need
 

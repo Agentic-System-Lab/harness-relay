@@ -554,6 +554,8 @@ Cursor 和 Grok 不同，任何一類都沒有開關，連它從其他 CLI 的�
 
 ## 工作區與檔案修改
 
+需要執行 Git 的請求若找不到執行檔，伺服器會回傳 `git-missing`，網頁便會開啟 Git 安裝對話框。安裝必須由已登入的瀏覽器明確啟動。伺服器會使用 Apple 命令列工具安裝程式、WinGet 的 `Git.Git` 套件，或與沙箱設定共用的 Linux 套件安裝程式。網頁確認 Git 可用後，才請使用者重試原本的操作。
+
 **唯讀**權限時，agent 直接在工作目錄（`cwd`）執行，不做其他處理。**可編輯**或**完全存取**時，Harness Relay 用 git 避免 agent 互相覆蓋，並記錄每個人改了什麼（`src/server/workspace.ts`）：
 
 - **自動建立 repository**：若 `cwd` 不在任何 git repository 中，Harness Relay 會在該處執行 `git init`，並把常見的產生物資料夾（`node_modules/`、`.venv/`、`target/`……）加進 `.git/info/exclude`。在家目錄、檔案系統或磁碟區的根目錄（`/Volumes/<名稱>`），或家目錄的上層資料夾則會拒絕這麼做；若既有的 repository 以家目錄或檔案系統根目錄為根目錄（例如 dotfiles repository）也會拒絕，因為每一輪都得替整個資料夾做快照。絕不會 commit 到使用者的分支。
