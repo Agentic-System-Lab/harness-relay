@@ -14,6 +14,7 @@ import {
   type NativeTool,
   type NativeAgent,
 } from '../../shared/types';
+import { applyPatchFiles } from '../commands';
 import type { BackendRun } from '../backends';
 import { API_BACKEND_ENV } from '../backends';
 import { commandLine } from '../commands';
@@ -311,13 +312,6 @@ export function clineToolOf(call: { title?: unknown; kind?: unknown }): string {
   return text(call.kind) ?? 'tool';
 }
 
-/** The files an `apply_patch` patch adds, changes, deletes or moves to. */
-export function clinePatchFiles(patch: unknown): string[] {
-  if (typeof patch !== 'string') return [];
-  const files = [...patch.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$/gm)].map((m) => (m[1] ?? m[2]).trim());
-  return [...new Set(files.filter(Boolean))];
-}
-
 /** The paths of `read_files`' `files` (`[{path}]`, or plain strings). */
 function readPaths(files: unknown): string[] {
   if (!Array.isArray(files)) return [];
@@ -344,7 +338,7 @@ function inputFacts(
       return { path: paths[0], paths };
     }
     case 'apply_patch': {
-      const paths = clinePatchFiles(input.input);
+      const paths = applyPatchFiles(input.input);
       return { path: paths[0], paths };
     }
     case 'editor':

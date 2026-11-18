@@ -1,6 +1,6 @@
 import { appendFileSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { isPathDetail } from '../src/web/chat';
 import {
@@ -34,6 +34,8 @@ import {
 import { RpcError } from '../src/server/agents/acp';
 import { AgentRunError, TURN_TIMEOUT_MS, type AgentEvent } from '../src/server/agents/types';
 import { withLang } from '../src/server/i18n';
+import { turnHooks } from '../src/server/hooks';
+import { codexHookCall } from '../src/server/agents/codexHooks';
 
 // Shapes trimmed from real `codex app-server` traffic (codex-cli 0.167.0).
 const command = (extra: Record<string, unknown>) => ({
@@ -693,6 +695,39 @@ describe('codex thread config', () => {
   });
 });
 
+describe('Codex team hook payloads', () => {
+  it('preserves a shell command and the result Codex gives the hook', () => {
+    expect(codexHookCall({ tool_name: 'Bash', tool_input: { command: 'echo hello; exit 2' }, tool_response: 'hello' }, '/repo')).toEqual({
+      kind: 'command',
+      tool: 'Bash',
+      command: 'echo hello; exit 2',
+      input: { command: 'echo hello; exit 2' },
+      output: 'hello',
+    });
+  });
+
+  it('resolves the old and new patch paths against the tool working directory', () => {
+    const command = '*** Begin Patch\n*** Update File: old.txt\n*** Move to: new.txt\n*** End Patch';
+    const cwd = resolve('repo', 'other');
+    expect(codexHookCall({ tool_name: 'apply_patch', cwd, tool_input: { command } }, resolve('repo'))).toEqual({
+      kind: 'edit',
+      tool: 'apply_patch',
+      files: [join(cwd, 'old.txt'), join(cwd, 'new.txt')],
+      input: { command },
+    });
+  });
+
+  it('preserves an MCP error for an after hook', () => {
+    expect(codexHookCall({ tool_name: 'mcp__a__b', tool_input: { query: 'a' }, tool_response: { isError: true } }, '/repo')).toEqual({
+      kind: 'other',
+      tool: 'mcp__a__b',
+      input: { query: 'a' },
+      output: '{"isError":true}',
+      failed: true,
+    });
+  });
+});
+
 // The stand-ins are scripts run by their `#!` line, which Windows cannot start.
 describe.skipIf(process.platform === 'win32')('a Codex run that leaves out hooks and plugins (stand-in codex app-server)', () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'relay-codex-')));
@@ -712,6 +747,7 @@ const off = (key) => !process.env.FAKE_CODEX_IGNORE && set.includes(key + '=fals
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
 let init = {};
 let profiled = false;
+let hookState = {};
 require('node:readline').createInterface({ input: process.stdin }).on('line', (line) => {
   const m = JSON.parse(line);
   if (m.id === undefined) return;
@@ -720,7 +756,10 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
   const reply = (result) => out({ id: m.id, result });
   switch (m.method) {
     case 'initialize': init = m.params; return reply({});
+    case 'thread/resume':
     case 'thread/start': {
+      hookState = m.params.config?.['hooks.state'] || {};
+      if (process.env.FAKE_CODEX_TEAM_HOOKS) log({ hookState });
       const profile = m.params.permissions && !process.env.FAKE_CODEX_NO_PROFILE ? { activePermissionProfile: { id: m.params.permissions } } : {};
       profiled = Boolean(m.params.permissions);
       log({ capabilities: init.capabilities ?? null, permissions: m.params.permissions ?? null, sandbox: m.params.sandbox ?? null });
@@ -735,6 +774,19 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       return reply({ thread: { id: 'thr-1' }, ...profile });
     }
     case 'hooks/list': {
+      if (process.env.FAKE_CODEX_TEAM_HOOKS) {
+        const cfg = set.find((arg) => arg.startsWith('hooks.PreToolUse='));
+        const command = cfg?.match(/"command" = ("(?:[^"\\\\]|\\\\.)*")/)?.[1];
+        const hook = { key: 'relay-hook', eventName: 'preToolUse', enabled: true, source: 'sessionFlags',
+          handlerType: 'command', async: false, matcher: '^(?:Bash)$', timeoutSec: 150,
+          command: command && JSON.parse(command), currentHash: 'relay-hash',
+          trustStatus: hookState['relay-hook']?.trusted_hash === 'relay-hash' && !process.env.FAKE_CODEX_IGNORE ? 'trusted' : 'untrusted' };
+        // Identical command from an unrelated source must never be trusted by Relay.
+        const native = { ...hook, key: 'own-hook', source: 'user', currentHash: 'own-hash',
+          trustStatus: 'untrusted', enabled: hookState['own-hook']?.enabled !== false };
+        const hooks = command ? [hook, native] : [native];
+        return reply({ data: [{ hooks }] });
+      }
       const r = { data: [{ hooks: off('features.hooks') ? [] : [{ key: 'h', eventName: 'stop', enabled: true }] }] };
       return process.env.FAKE_CODEX_SLOW ? setTimeout(() => reply(r), 2000) : reply(r);
     }
@@ -795,10 +847,47 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
               capabilities?: unknown;
               permissions?: string | null;
               sandbox?: string | null;
+              hookState?: Record<string, unknown>;
             },
         );
     return { result, lines, methods: () => lines().flatMap((l) => (l.method ? [l.method] : [])) };
   }
+
+  const teamHooks = (program = true) =>
+    turnHooks([{ id: 'before', when: 'before', tools: 'command', run: 'exit 1' }], {
+      agent: 'Codex',
+      provider: 'codex',
+      notice: () => undefined,
+      place: { cwds: [dir], unsandboxed: true, protectedPaths: [], privateRoots: [] },
+      ...(program ? { program: () => ({ program: { bin: '/node', args: ['/relay-hook.mjs'] }, revoke: () => undefined }) } : {}),
+    });
+
+  it('trusts only the Relay hook on a resumed thread and keeps native hooks left out', async () => {
+    const r = run({ FAKE_CODEX_TEAM_HOOKS: '1' }, undefined, [], { permission: 'full', sessionId: 'thr-1', hooks: teamHooks() });
+    await expect(r.result).resolves.toMatchObject({ sessionId: 'thr-1' });
+    expect(r.lines().find((l) => l.hookState)?.hookState).toEqual({
+      'relay-hook': { enabled: true, trusted_hash: 'relay-hash' },
+      'own-hook': { enabled: false },
+    });
+    expect(r.lines()[0]?.args).not.toContain('features.hooks=false');
+    expect(r.methods()).toEqual(['initialize', 'hooks/list', 'thread/resume', 'hooks/list', 'plugin/installed', 'turn/start']);
+  });
+
+  it('does not start when Codex did not apply trust to a team hook', async () => {
+    const r = run({ FAKE_CODEX_TEAM_HOOKS: '1', FAKE_CODEX_IGNORE: '1' }, undefined, [], {
+      permission: 'full',
+      nativeOff: [],
+      hooks: teamHooks(),
+    });
+    await expect(r.result).rejects.toThrow(/team's hooks/i);
+    expect(r.methods()).toEqual(['initialize', 'hooks/list', 'thread/start', 'hooks/list']);
+  });
+
+  it('does not launch Codex when the hook program is unavailable', async () => {
+    const r = run({}, undefined, [], { permission: 'full', hooks: teamHooks(false) });
+    await expect(r.result).rejects.toThrow(/team's hooks/i);
+    expect(r.lines()).toEqual([]);
+  });
 
   it('gives its app-server the switches too, and checks them before the turn starts', async () => {
     const r = run();

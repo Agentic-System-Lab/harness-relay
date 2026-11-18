@@ -872,3 +872,10 @@ export function commandLine(v: unknown): string | undefined {
   if (Array.isArray(v) && v.length && v.every((x) => typeof x === 'string')) return v.map(shellArgument).join(' ');
   return undefined;
 }
+
+/** The files an `apply_patch` patch adds, changes, deletes or moves to. */
+export function applyPatchFiles(patch: unknown): string[] {
+  if (typeof patch !== 'string') return [];
+  const files = [...patch.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$/gm)].map((m) => (m[1] ?? m[2]).trim());
+  return [...new Set(files.filter(Boolean))];
+}

@@ -1,3 +1,4 @@
+import { applyPatchFiles } from '../src/server/commands';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -36,7 +37,6 @@ import {
   CLINE_HOME_VARS,
   clineMcpSettings,
   clineOutput,
-  clinePatchFiles,
   clineProbeEnv,
   clineProviderSettings,
   clineSandbox,
@@ -501,11 +501,11 @@ describe('its tool calls', () => {
     expect(clineToolOf({ title: 'Something else entirely', kind: 'read' })).toBe('read');
     expect(clineToolOf({})).toBe('tool');
     expect(
-      clinePatchFiles(
+      applyPatchFiles(
         '*** Begin Patch\n*** Update File: /p/a.txt\n@@\n-x\n+y\n*** Add File: /p/b.txt\n+z\n*** Delete File: /p/c.txt\n*** Update File: /p/d.txt\n*** Move to: /p/e.txt\n*** Update File: /p/a.txt\n*** End Patch',
       ),
     ).toEqual(['/p/a.txt', '/p/b.txt', '/p/c.txt', '/p/d.txt', '/p/e.txt']);
-    expect(clinePatchFiles(undefined)).toEqual([]);
+    expect(applyPatchFiles(undefined)).toEqual([]);
     // What a call without a title says: its kind, else nothing.
     expect(clineCallInfo({ toolCallId: 'c', kind: 'read', rawInput: { files: 'not a list' } })).toEqual({ tool: 'read', title: 'read' });
     expect(clineCallInfo({ toolCallId: 'c', title: 'search_codebase: x', kind: 'search', rawInput: { query: 'one' } })).toMatchObject({
