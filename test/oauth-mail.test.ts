@@ -121,7 +121,10 @@ const closers: (() => Promise<unknown>)[] = [];
 /** Exchange Online's IMAP and SMTP take a good token for its own resource, for the account's address. */
 const outlookToken = (user: string, token: string) =>
   !refuseAll && user === 'ming@contoso.com' && fake.accessTokens.get(token) === true && fake.resources.get(token) === 'outlook';
-/** Gmail's take a good Google token that carries Gmail's scope (one of its scopes exactly, never a part of one). */
+/**
+ * Gmail's take a good Google token that carries Gmail's scope. Each scope is compared whole with
+ * `===`: CodeQL reads `includes()` with a URL as a substring check on a URL (code scanning alert 27).
+ */
 const gmailToken = (user: string, token: string) =>
   user === 'ming@gmail.com' && fake.accessTokens.get(token) === true && (fake.scopesOf.get(token) ?? []).some((scope) => scope === GMAIL);
 
