@@ -82,10 +82,16 @@ const providersIn = (list) =>
     .map((p) => p.trim().toLowerCase())
     .filter((p) => self.agents().some((a) => a.provider === p));
 
-/** The lead agent's answer: the team for a question (not JSON at all with `e2e:badplan`). */
+/**
+ * The lead agent's answer: the team for a question (not JSON at all with `e2e:badplan`), and slow (about
+ * ten seconds, to be stopped or watched while it designs; `=<seconds>` for another time) with `e2e:slowplan`.
+ */
 function planReply(prompt) {
-  const question = tag(prompt, 'question');
-  const d = directivesIn(question);
+  const d = directivesIn(tag(prompt, 'question'));
+  return { text: planText(d), slow: slowMs(d.slowplan) };
+}
+
+function planText(d) {
   if (d.badplan) return 'I would rather not choose a team for this one.';
   if (typeof d.template === 'string') {
     return json({ choice: 'template', templateId: d.template, reason: 'The fake lead agent picked this template, as the question asked.' });
@@ -198,7 +204,7 @@ const json = (value) => '```json\n' + JSON.stringify(value, null, 2) + '\n```';
  * `briefing`), and `mayRead(file)` where the CLI reads only some folders without asking (Claude Code).
  */
 function plan(prompt, turn) {
-  if (/Reply with only one of these JSON objects/.test(prompt)) return [{ type: 'text', text: planReply(prompt) }];
+  if (/Reply with only one of these JSON objects/.test(prompt)) return [{ type: 'text', ...planReply(prompt) }];
   if (/Reply with only this JSON object: \{"group"/.test(prompt)) return [{ type: 'text', text: groupReply(prompt) }];
   if (/Reply with only this JSON object, in a ```json code block, with the whole team/.test(prompt)) {
     return [{ type: 'text', text: reviseReply(prompt) }];
