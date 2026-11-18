@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DOC_PAGES, PAGE_FILES, SITE, SITE_PAGES, VIEWER_FILE, type SitePage } from './site-pages';
+import { DOC_PAGES, markupText, PAGE_FILES, SITE, SITE_PAGES, VIEWER_FILE, type SitePage } from './site-pages';
 
 // The docs (site/docs/ and site/zh-TW/docs/; site/DESIGN-GUIDELINES.md, "The docs"): a page per task for people who
 // use Harness Relay, written by hand like the rest of the site. This keeps what the pages share the same on each of
@@ -15,17 +15,8 @@ const REPO = 'https://github.com/Agentic-System-Lab/harness-relay';
 const BLOB = `${REPO}/blob/main/`;
 /** Columns in a search result: a Chinese character takes two. */
 const columns = (s: string) => [...s].reduce((n, c) => n + (/[\u2E80-\u9FFF\u3000-\u303F\uFF00-\uFFEF]/.test(c) ? 2 : 1), 0);
-/** HTML as text: tags dropped, the entities the pages use read, white space as one space. */
-const text = (html: string) =>
-  html
-    .replace(/<[^>]+>/g, '')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, '&')
-    .replace(/\s+/g, ' ')
-    .trim();
+/** HTML as text: tags dropped, the entities the pages use read (`markupText`), white space as one space. */
+const text = (html: string) => markupText(html).replace(/\s+/g, ' ').trim();
 /** The part of `html` from `start` to the first `end` after it, both included. */
 const slice = (html: string, start: string, end: string) => {
   const at = html.indexOf(start);

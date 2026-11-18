@@ -42,6 +42,33 @@ export const SITE_PAGES: SitePage[] = PATHS.flatMap((path) =>
   }),
 );
 
+/** The entities the pages' text is written with, read back; `&amp;` last, so that `&amp;lt;` reads `&lt;`. */
+export const unescapeHtml = (s: string) =>
+  s
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#x27;', "'")
+    .replaceAll('&#39;', "'")
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&amp;', '&');
+
+/**
+ * Markup's text: every tag dropped, from its `<` to the `>` that ends it, in one walk (a pattern removed
+ * once could leave a tag that its removal put together, as `<scr<b>ipt>` would `<script>`: CodeQL's
+ * "Incomplete multi-character sanitization"), then the entities read. No `<` of the markup is left: one
+ * in the text is the `&lt;` it was written as.
+ */
+export function markupText(html: string): string {
+  let text = '';
+  let inTag = false;
+  for (const c of html) {
+    if (inTag) inTag = c !== '>';
+    else if (c === '<') inTag = true;
+    else text += c;
+  }
+  return unescapeHtml(text);
+}
+
 /** Every page's file. */
 export const PAGE_FILES = SITE_PAGES.map((page) => page.file);
 
