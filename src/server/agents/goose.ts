@@ -1,9 +1,14 @@
 import {
   chmodSync,
+  closeSync,
+  constants as fsConstants,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  readSync,
   readdirSync,
   renameSync,
   rmSync,
@@ -32,6 +37,7 @@ import { commandLine, parseCommandLine, parseShellSyntax } from '../commands';
 import { t } from '../i18n';
 import type { NativeProbe } from '../native';
 import { openRunDatabase, openSqliteFile, plainDatabaseFiles, readRunDatabase, transaction } from '../db';
+import { removeTree } from '../fsRemove';
 import { converse } from '../process';
 import type { JsonRpcConnection } from './acp';
 import {
@@ -482,6 +488,9 @@ function checkGooseSessions(ctx: OpenRunContext): void {
   const { o, home } = ctx;
   const sealed = o.stateKey ? sealedFolder(home.root, o.stateKey) : undefined;
   try {
+    // A link a command made in place of one of the database's folders would lead what follows to a database elsewhere.
+    const link = gooseDbFolderLink(home.state);
+    if (link) throw new Error(`${link}: not a folder (a link, a file…)`);
     const pending = sealed ? pendingGooseSignIns(sealed) : [];
     if (pending.length) stripGooseSignIns(home.state, { names: pending, secrets: [] });
     if (o.sessionId && sealed) restoreGooseSession(home.state, sealed, o.sessionId);
@@ -594,6 +603,31 @@ function pendingGooseSignIns(sealed: string): string[] {
  */
 export const GOOSE_REBUILD_MAX_BYTES = 128 * 1024 * 1024;
 
+/**
+ * The first of the sessions database's folders (`data`, `data/sessions` in the state folder) that is
+ * not a real folder, or undefined: a run's commands may write there, and a link in place of one would
+ * lead a rewrite or a removal to a database elsewhere (the user's own Goose sessions, another member's).
+ * A folder that is not there is none: there is nothing in it.
+ */
+function gooseDbFolderLink(state: string): string | undefined {
+  for (const dir of [join(state, 'data'), join(state, 'data', 'sessions')]) {
+    try {
+      if (!lstatSync(dir).isDirectory()) return dir;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      return dir;
+    }
+  }
+  return undefined;
+}
+
+/** Removes the sessions database's files; through a folder that is a link (`gooseDbFolderLink`), only that link. */
+function removeGooseDb(state: string): void {
+  const link = gooseDbFolderLink(state);
+  if (link) return removeTree(link);
+  for (const f of gooseDbFiles(state)) rmSync(f, { force: true });
+}
+
 /** The sessions database's files: the database, and the journals SQLite keeps beside it. */
 function gooseDbFiles(state: string): string[] {
   const file = gooseSessionsDb(state);
@@ -614,14 +648,35 @@ export function secretPieces(secret: string): string[] {
   return [...pieces];
 }
 
-/** Whether a file holds any of the tokens (`secretPieces`); a missing file holds none. */
+/**
+ * Whether a file holds any of the tokens (`secretPieces`); a missing file holds none. A run's commands
+ * may have made it: it is opened without following a link nor waiting (a named pipe would hold the
+ * server's thread forever), and read only when it is a plain file of a size a database could have;
+ * anything else throws, and the database is then removed.
+ */
 function holdsSecret(file: string, secrets: readonly string[]): boolean {
-  let bytes: Buffer;
+  let fd: number;
   try {
-    bytes = readFileSync(file);
+    fd = openSync(file, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
     throw err;
+  }
+  let bytes: Buffer;
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile()) throw new Error(`${file}: not a plain file`);
+    if (st.size > GOOSE_REBUILD_MAX_BYTES) throw new Error(`${file}: too large to read (${st.size} bytes)`);
+    bytes = Buffer.alloc(st.size);
+    let read = 0;
+    while (read < st.size) {
+      const n = readSync(fd, bytes, read, st.size - read, read);
+      if (n === 0) break;
+      read += n;
+    }
+    bytes = bytes.subarray(0, read);
+  } finally {
+    closeSync(fd);
   }
   return secrets.some((secret) => secretPieces(secret).some((piece) => bytes.includes(piece)));
 }
@@ -638,6 +693,8 @@ function holdsSecret(file: string, secrets: readonly string[]): boolean {
  */
 export function stripGooseSignIns(state: string, s: GooseSignIns): void {
   if (!s.names.length && !s.secrets.length) return;
+  const link = gooseDbFolderLink(state);
+  if (link) throw new Error(`${link}: not a folder (a link, a file…)`);
   const files = gooseDbFiles(state);
   const file = files[0]!;
   if (!existsSync(file)) {
@@ -683,7 +740,7 @@ export function cleanupGoose(ctx: Pick<OpenRunContext, 'o' | 'home'>): void {
     stripGooseSignIns(ctx.home.state, s);
   } catch (err) {
     console.warn("[goose] could not take the signed-in MCP servers' tokens out of its sessions; removing them:", (err as Error).message);
-    for (const f of gooseDbFiles(ctx.home.state)) rmSync(f, { force: true });
+    removeGooseDb(ctx.home.state);
   }
   if (ctx.o.stateKey) rmSync(join(sealedFolder(ctx.home.root, ctx.o.stateKey), GOOSE_SIGNINS_PENDING), { force: true });
 }

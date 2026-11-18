@@ -2304,6 +2304,52 @@ describe("a signed-in MCP server's access token in Goose's sessions", () => {
     expect(existsSync(join(sealed, GOOSE_SIGNINS_PENDING))).toBe(false);
     warn.mockRestore();
   });
+
+  // Named pipes and links to folders: macOS and Linux.
+  it.skipIf(process.platform === 'win32')(
+    "reads nothing a command put in place of the database's files or folders: a named pipe, or a link to a folder elsewhere",
+    () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      // A named pipe at the journal of a database that is gone: not read (it would hold the server's thread forever), and removed.
+      const piped = context({ stateKey: 'conv.oauth.p1', mcpServers: [linear(ONE)] });
+      const file = gooseSessionsDb(piped.home.state);
+      mkdirSync(dirname(file), { recursive: true });
+      expect(spawnSync('mkfifo', [`${file}-journal`]).status).toBe(0);
+      cleanupGoose(piped);
+      expect(existsSync(`${file}-journal`)).toBe(false);
+
+      // The sessions folder a link to another one (the user's own Goose sessions, another member's):
+      // that database is neither rewritten nor removed; only the link goes.
+      const elsewhere = mkdtempSync(join(root, 'elsewhere-'));
+      const outside = join(elsewhere, 'sessions.db');
+      const o = openSqliteFile(outside);
+      o.exec(GOOSE_USAGE_SCHEMA);
+      o.prepare('INSERT INTO sessions (id, working_dir, extension_data) VALUES (?, ?, ?)').run(
+        's1',
+        '/p',
+        JSON.stringify({ 'enabled_extensions.v0': { extensions: [{ type: 'streamable_http', name: 'linear', headers: {} }] } }),
+      );
+      o.close();
+      const bytes = readFileSync(outside);
+      const linked = context({ stateKey: 'conv.oauth.p2', mcpServers: [linear(ONE)] });
+      const sessions = join(linked.home.state, 'data', 'sessions');
+      mkdirSync(dirname(sessions), { recursive: true });
+      symlinkSync(elsewhere, sessions);
+      cleanupGoose(linked);
+      expect(readFileSync(outside).equals(bytes)).toBe(true);
+      expect(existsSync(sessions)).toBe(false);
+
+      // At a turn's start, the same: the state starts over, the database elsewhere not opened.
+      const starting = context({ stateKey: 'conv.oauth.p3', mcpServers: [linear(ONE)] });
+      const at = join(starting.home.state, 'data', 'sessions');
+      mkdirSync(dirname(at), { recursive: true });
+      symlinkSync(elsewhere, at);
+      prepareGoose(starting, { realHome: '/h', bash: '/bin/bash' });
+      expect(readFileSync(outside).equals(bytes)).toBe(true);
+      expect(existsSync(at)).toBe(false);
+      warn.mockRestore();
+    },
+  );
 });
 
 // Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
