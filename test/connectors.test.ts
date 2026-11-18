@@ -238,10 +238,12 @@ describe('calendars', () => {
         location: 'Room 3',
         description: 'Bring notes\nand coffee',
         attendees: ['bob@example.com'],
+        // The moment it starts, for an automation that starts before it: 09:30 in Taipei.
+        at: Date.UTC(2026, 0, 5, 1, 30),
       },
-      // iCalendar's end is the day after the last: shown as the last day, as calendar_create takes it.
+      // iCalendar's end is the day after the last: shown as the last day, as calendar_create takes it. No moment: all day.
       { uid: '2@x', summary: 'Holiday', start: '2026-01-06 (all day)', end: '2026-01-06 (all day)', attendees: [] },
-      { uid: '3@x', summary: 'Long call', start: '2026-01-07 01:00 UTC', attendees: [] },
+      { uid: '3@x', summary: 'Long call', start: '2026-01-07 01:00 UTC', attendees: [], at: Date.UTC(2026, 0, 7, 1, 0) },
     ]);
   });
 
@@ -260,6 +262,11 @@ describe('calendars', () => {
     const ics =
       'BEGIN:VEVENT\r\nUID:q\r\nSUMMARY:Sync\r\nDTSTART:20260105T010000Z\r\nATTENDEE;CN="Lee: Ann";PARTSTAT=ACCEPTED:mailto:ann@example.com\r\nEND:VEVENT';
     expect(parseEvents(ics)[0]!.attendees).toEqual(['ann@example.com']);
+    // A cancelled meeting says so (an automation leaves it out); a VALARM's STATUS is not the event's.
+    expect(parseEvents('BEGIN:VEVENT\r\nUID:c\r\nSTATUS:CANCELLED\r\nDTSTART:20260105T010000Z\r\nEND:VEVENT')[0]!.cancelled).toBe(true);
+    expect(
+      parseEvents('BEGIN:VEVENT\r\nUID:d\r\nSTATUS:CONFIRMED\r\nBEGIN:VALARM\r\nSTATUS:CANCELLED\r\nEND:VALARM\r\nEND:VEVENT')[0],
+    ).not.toHaveProperty('cancelled');
   });
 
   it('escapes every line break in text, a bare CR too, so nothing an agent writes becomes a property of its own', () => {
@@ -655,6 +662,12 @@ describe('the mail and calendar tools against servers on this computer', () => {
         isError: true,
       });
 
+      // The card names the calendar it goes to (by the account the call names, else the first one).
+      const focus = { summary: 'Focus', start: '2026-01-07T14:00', end: '2026-01-07T16:00', timeZone: 'Asia/Taipei' };
+      expect(tools.calendar_create!.describe(focus).title).toBe(
+        'Add "Focus" (2026-01-07T14:00 – 2026-01-07T16:00, Asia/Taipei) to the calendar "Home"',
+      );
+      expect(() => tools.calendar_create!.describe({ ...focus, account: 'Work' })).toThrow('No calendar "Work"');
       const added = await tools.calendar_create!.run!(
         { summary: 'Focus', start: '2026-01-07T14:00', end: '2026-01-07T16:00', timeZone: 'Asia/Taipei' },
         ctx,

@@ -150,7 +150,7 @@ const IDENTITY: NodeJS.ProcessEnv = {
 };
 
 /** Added to .git/info/exclude of repositories we create, so snapshots skip bulky generated folders. */
-const DEFAULT_EXCLUDES = ['node_modules/', '.venv/', 'venv/', '__pycache__/', '.DS_Store', '.next/', '.turbo/', 'target/'];
+export const DEFAULT_EXCLUDES = ['node_modules/', '.venv/', 'venv/', '__pycache__/', '.DS_Store', '.next/', '.turbo/', 'target/'];
 
 const MAX_DIFF_BYTES = 1024 * 1024;
 /** Output limit for file lists and patches; larger output is refused rather than silently cut. */

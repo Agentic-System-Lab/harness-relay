@@ -1,17 +1,23 @@
 import { dataAttr, dataBody, dataLine, type GatewayTool } from '../gateway';
 import { t } from '../i18n';
 import type { ConnectorStore } from './accounts';
-import { composeEvent, eventTime, listEvents, putEvent, rangeTime, type CalendarEvent } from './caldav';
+import { calendarBackend, type CalendarOAuth } from './calendar';
+import { eventTime, rangeTime, type CalendarEvent } from './caldav';
 import { ImapClient, Literal, imapDate, parseFetch, quote } from './imap';
+import { mailLogin, openImap, sendMailAs, type MailOAuth } from './mailLogin';
 import { bareAddress, composeMail, parseHeaders, readMail, validAddress } from './mime';
-import { sendMail } from './smtp';
 
 /*
  * The mail and calendar groups' tools on the gateway (`gateway.ts`), for the accounts in Settings
  * (`accounts.ts`): search and read mail (read), save a draft (act), send (send: the outbox), list
  * events (read), add one (act) or invite people to one (send). What a mail or an event says comes
- * back marked as data, never instructions.
+ * back marked as data, never instructions. A calendar is reached with its password, or through an
+ * account that signs in with OAuth (`oauth`: Microsoft's over Graph, Google's over CalDAV); a mail
+ * account with its password, or through one (its provider's IMAP and SMTP, with XOAUTH2: `mailLogin`).
  */
+
+/** How the calendars and mail accounts of accounts that sign in with OAuth are reached (`OAuthService`). */
+export type ConnectorOAuth = CalendarOAuth & MailOAuth;
 
 /** Longest text of one message the agent gets. */
 const READ_MAX = 50_000;
@@ -73,6 +79,7 @@ function eventLine(e: CalendarEvent): string {
   return dataBody(
     [
       `- ${dataLine(e.start)}${dataLine(end)}: ${dataLine(e.summary) || '(no title)'}`,
+      ...(e.cancelled ? ['  cancelled'] : []),
       ...(e.location ? [`  at ${dataLine(e.location)}`] : []),
       ...(e.repeats ? [`  repeats: ${dataLine(e.repeats)}`] : []),
       ...(e.attendees.length ? [`  with ${dataLine(e.attendees.join(', '))}`] : []),
@@ -82,9 +89,21 @@ function eventLine(e: CalendarEvent): string {
   );
 }
 
-export function connectorTools(store: ConnectorStore): GatewayTool[] {
-  const noMail = () => (store.hasMail() ? undefined : 'no mail account is set up (Settings → Tool library → Mail and calendar)');
-  const noCalendar = () => (store.hasCalendar() ? undefined : 'no calendar is set up (Settings → Tool library → Mail and calendar)');
+export function connectorTools(store: ConnectorStore, oauth?: ConnectorOAuth): GatewayTool[] {
+  const noMail = () => {
+    if (!store.hasMail()) return 'no mail account is set up (Settings → Tool library → Mail and calendar)';
+    // Every mail account is reached through a sign-in that needs renewing: none can be used until the user signs in again.
+    const problems = store.mailAccounts().map((m) => (m.oauth ? (oauth ? oauth.problem(m.oauth) : t().oauthNotHere(m.name)) : undefined));
+    return problems.every(Boolean) ? problems[0] : undefined;
+  };
+  const noCalendar = () => {
+    if (!store.hasCalendar()) return 'no calendar is set up (Settings → Tool library → Mail and calendar)';
+    // Every calendar is reached through a sign-in that needs renewing: none can be used until the user signs in again.
+    const problems = store
+      .calendarAccounts()
+      .map((c) => (c.oauth ? (oauth ? oauth.problem(c.oauth) : t().oauthNotHere(c.name)) : undefined));
+    return problems.every(Boolean) ? problems[0] : undefined;
+  };
   const mailbox = (which: unknown) => {
     const m = store.mail(typeof which === 'string' ? which : undefined);
     if (!m) throw new Error(t().conn.noMail(typeof which === 'string' ? which : undefined));
@@ -97,7 +116,7 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
   };
   const withImap = async <T>(which: unknown, fn: (c: ImapClient) => Promise<T>): Promise<T> => {
     const { account, password } = mailbox(which);
-    const c = await ImapClient.open(account.imap, { username: account.username, password });
+    const c = await openImap(mailLogin(account, password, oauth));
     try {
       return await fn(c);
     } finally {
@@ -340,13 +359,13 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
         const m = mailArgs(a, true);
         const { account, password } = sendsFrom(a, (id) => store.mailById(id), mailbox);
         const { raw, messageId } = composeMail({ from: account.address, ...m });
-        const answer = await sendMail(
-          account.smtp,
-          { username: account.username, password },
+        const login = mailLogin(account, password, oauth);
+        const answer = await sendMailAs(
+          login,
           { from: bareAddress(account.address), recipients: [...m.to, ...m.cc, ...m.bcc].map(bareAddress) },
           raw,
         );
-        return t().gw.mailSent(messageId, account.smtp.host, answer ?? '');
+        return t().gw.mailSent(messageId, login.smtp.host, answer ?? '');
       },
     },
     {
@@ -374,7 +393,7 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
         if (end <= from) return { text: 'to must come after from', isError: true };
         if (end - from > 62 * 86_400_000) return { text: 'At most 62 days at a time', isError: true };
         const { account, password } = calendar(a.account);
-        const events = await listEvents(account.url, { username: account.username, password }, from, end);
+        const events = await calendarBackend(account, password, oauth).events(from, end);
         if (!events.length) return { text: 'No events in that time.' };
         return {
           text: [`<calendar name="${dataAttr(account.name)}">`, CAL_NOTE, '', ...events.slice(0, 200).map(eventLine), '</calendar>'].join(
@@ -391,14 +410,17 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
       inputSchema: { type: 'object', properties: eventProps, required: ['summary', 'start', 'end'], additionalProperties: false },
       describe: (a) => {
         const e = eventArgs(a);
-        return { title: t().gw.addEvent(e.summary, `${e.start} – ${e.end}${e.timeZone !== 'UTC' ? `, ${e.timeZone}` : ''}`) };
+        // The calendar it goes to, by name: an account may have several (one signed in with OAuth lists its others).
+        const { account } = calendar(a.account);
+        return {
+          title: t().gw.addEvent(e.summary, `${e.start} – ${e.end}${e.timeZone !== 'UTC' ? `, ${e.timeZone}` : ''}`, account.name),
+        };
       },
       unavailable: noCalendar,
       run: async (a) => {
         const e = eventArgs(a);
         const { account, password } = calendar(a.account);
-        const { uid, ics } = composeEvent(e);
-        await putEvent(account.url, { username: account.username, password }, ics, uid);
+        await calendarBackend(account, password, oauth).add(e);
         return { text: `Added "${e.summary}" to ${account.name}.` };
       },
     },
@@ -441,12 +463,11 @@ export function connectorTools(store: ConnectorStore): GatewayTool[] {
         const e = eventArgs(a);
         const attendees = recipients(a.attendees, 'attendees', true).map(bareAddress);
         const { account, password } = sendsFrom(a, (id) => store.calendarById(id), calendar);
-        const { uid, ics } = composeEvent({
+        await calendarBackend(account, password, oauth).add({
           ...e,
           attendees,
           ...(account.address ? { organizer: bareAddress(account.address) } : { organizer: account.username }),
         });
-        await putEvent(account.url, { username: account.username, password }, ics, uid);
         return t().gw.inviteSent(account.name);
       },
     },

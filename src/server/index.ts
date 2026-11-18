@@ -17,6 +17,8 @@ import { killAll } from './process';
 import { ProviderService } from './providers';
 import { PushService } from './push';
 import { Scheduler } from './scheduler';
+import { checkTrigger } from './watch';
+import { IdleWatcher } from './idle';
 import { ToolGateway, outboxTool } from './gateway';
 import { findBrowser } from './browser/find';
 import { BrowserService } from './browser/session';
@@ -131,7 +133,7 @@ const browser = new BrowserService({
   relayPorts: () => [...relayPorts(), ...(gateway.httpPort() ? [gateway.httpPort()!] : [])],
   own: () => localAddresses(),
 });
-gateway.register([outboxTool((id) => outbox.list(id)), ...browserTools(browser), ...connectorTools(settings.connectors)]);
+gateway.register([outboxTool((id) => outbox.list(id)), ...browserTools(browser), ...connectorTools(settings.connectors, settings.oauth)]);
 orchestrator.onDelete = (id) => void browser.close(id, true);
 orchestrator.gateway = gateway;
 orchestrator.outbox = outbox;
@@ -149,7 +151,16 @@ settings.tools.gatewayStatus = () => {
 };
 
 // Sends each conversation's scheduled message when it comes due.
-const scheduler = new Scheduler(store, orchestrator);
+const scheduler = new Scheduler(store, orchestrator, Date.now, checkTrigger(settings.connectors, settings.oauth));
+// IMAP IDLE for the automations that wait for new mail: their mail servers say at once when mail arrives,
+// and only the trigger on that folder is checked then.
+const idle = new IdleWatcher({
+  connectors: settings.connectors,
+  oauth: settings.oauth,
+  watching: () => store.mailWatches(),
+  check: (id, key) => scheduler.mailArrived(id, key),
+});
+scheduler.listening = (id, trigger) => idle.live(id, trigger);
 
 // Push notifications to the browsers that turned them on (a phone, say), when agents finish or need the user.
 const push = new PushService(db);
@@ -215,6 +226,7 @@ const app = createApp({
   desktopLang,
   push,
   alerts,
+  scheduler,
 });
 
 // --- Static web app (production build) ------------------------------------------
@@ -289,6 +301,7 @@ const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
   }
   // Times missed while the server was not running are handled now, by each schedule's choice.
   scheduler.start();
+  idle.start();
   alerts.start();
   inbox.start();
 });
@@ -311,6 +324,7 @@ async function shutdown(code = 0): Promise<void> {
   }, 10_000).unref();
   server.close();
   scheduler.stop();
+  void idle.stop();
   alerts.stop();
   inbox.stop();
   orchestrator.stopAll();

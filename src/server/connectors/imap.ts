@@ -3,10 +3,11 @@ import { connect as connectTls, type TLSSocket } from 'node:tls';
 import { t } from '../i18n';
 
 /*
- * A small IMAP4rev1 client, enough for the mail tools: sign in (LOGIN), list the folders (to find the
- * drafts), search a folder, fetch headers and messages, and append a draft. A connection serves one
- * tool call and is closed after it. TLS from the start (port 993) or STARTTLS; plain only to this
- * computer (a local bridge, the tests' stand-in server).
+ * A small IMAP4rev1 client, enough for the mail tools: sign in (LOGIN with a password, or SASL XOAUTH2
+ * with an OAuth account's token), list the folders (to find the drafts), search a folder, fetch headers
+ * and messages, and append a draft. A connection serves one tool call and is closed after it. TLS from
+ * the start (port 993) or STARTTLS; plain only to this computer (a local bridge, the tests' stand-in
+ * server).
  */
 
 export type MailSecurity = 'tls' | 'starttls' | 'none';
@@ -17,9 +18,35 @@ export interface ServerAddress {
   security: MailSecurity;
 }
 
-export interface Login {
-  username: string;
-  password: string;
+/** How a mail server is signed in to: a user name with its password, or with an OAuth access token (SASL XOAUTH2). */
+export type Login = { username: string; password: string } | { username: string; token: string };
+
+/**
+ * SASL XOAUTH2's initial response (Google's and Microsoft's IMAP and SMTP): the user and the token, in
+ * base64. Neither may hold a line break or the ^A that separates them.
+ */
+export function xoauth2(username: string, token: string): string {
+  if (/[\x00-\x1f\x7f]/.test(username) || /[\x00-\x1f\x7f\s]/.test(token))
+    throw new Error('A line break cannot be sent to the mail server');
+  return Buffer.from(`user=${username}\x01auth=Bearer ${token}\x01\x01`).toString('base64');
+}
+
+/**
+ * What a server's XOAUTH2 refusal says (base64 JSON, `{"status":"401","schemes":"bearer","scope":…}`),
+ * in a few words: its status, or its text when it is not JSON.
+ */
+export function xoauth2Detail(b64: string): string {
+  const text = Buffer.from(b64.trim(), 'base64').toString('utf8');
+  try {
+    const v = JSON.parse(text) as { status?: unknown };
+    if (typeof v.status === 'string' || typeof v.status === 'number') return `status ${String(v.status).slice(0, 20)}`;
+  } catch {
+    /* not JSON */
+  }
+  return text
+    .replace(/[^\x20-\x7e]+/g, ' ')
+    .trim()
+    .slice(0, 200);
 }
 
 /** One response: its text (literals left as `{n}`) and the literals in it, in order. */
@@ -29,22 +56,38 @@ export interface ImapResponse {
 }
 
 /** Opens a connection (TLS, or plain upgraded with `upgrade()` after STARTTLS), with a time limit for each step. */
-export async function openSocket(addr: ServerAddress, timeoutMs: number): Promise<Socket | TLSSocket> {
+export async function openSocket(addr: ServerAddress, timeoutMs: number, signal?: AbortSignal): Promise<Socket | TLSSocket> {
   return new Promise((resolve, reject) => {
     const sock =
       addr.security === 'tls'
         ? connectTls({ host: addr.host, port: addr.port, servername: addr.host })
         : connectTcp({ host: addr.host, port: addr.port });
+    // Stopped while it connects (`IdleWatcher`): the socket goes at once.
+    if (signal?.aborted) {
+      sock.destroy();
+      return reject(new Error('stopped'));
+    }
+    const onAbort = () => {
+      sock.destroy();
+      clearTimeout(timer);
+      reject(new Error('stopped'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    const settled = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+    };
     const timer = setTimeout(() => {
+      settled();
       sock.destroy();
       reject(new Error(t().conn.timedOut(addr.host, addr.port, Math.round(timeoutMs / 1000))));
     }, timeoutMs);
     sock.once(addr.security === 'tls' ? 'secureConnect' : 'connect', () => {
-      clearTimeout(timer);
+      settled();
       resolve(sock);
     });
     sock.once('error', (err) => {
-      clearTimeout(timer);
+      settled();
       reject(new Error(t().conn.connectFailed(addr.host, addr.port, err.message)));
     });
   });
@@ -195,6 +238,31 @@ class ResponseReader {
   }
 }
 
+/** The server refused the user name and password (LOGIN), or the token (XOAUTH2): trying again soon with the same will not help. */
+export class ImapLoginError extends Error {}
+
+/** A command answered NO or BAD: `status` is the whole answer after the tag. */
+export class ImapStatusError extends Error {
+  constructor(
+    message: string,
+    readonly status: string,
+  ) {
+    super(message);
+  }
+}
+
+/** The server refused IDLE although it may list it: waiting for mail that way will not work there. */
+export class IdleRefusedError extends Error {}
+
+/**
+ * The server said BYE while the connection waited in IDLE: it ended the session (shutting down, or,
+ * Exchange Online's `AccessTokenExpired`, the token it signed in with ran out).
+ */
+export class IdleByeError extends Error {}
+
+/** The server answered AUTHENTICATE XOAUTH2 with NO or BAD before the token was sent: it does not take one, so none is tried again. */
+class NoXoauth2Error extends Error {}
+
 /** A string to send as a literal (non-ASCII text, a message): `{n}`, then the bytes once the server says to go on. */
 export class Literal {
   constructor(readonly bytes: Buffer) {}
@@ -208,10 +276,11 @@ export class ImapClient {
 
   private constructor(private timeoutMs: number) {}
 
-  /** Connects, starts TLS when asked, and signs in. */
-  static async open(addr: ServerAddress, login: Login, timeoutMs = 30_000): Promise<ImapClient> {
+  /** Connects, starts TLS when asked, and signs in. `signal`: stops it, closing the connection, whenever it aborts. */
+  static async open(addr: ServerAddress, login: Login, timeoutMs = 30_000, signal?: AbortSignal): Promise<ImapClient> {
     const c = new ImapClient(timeoutMs);
-    c.sock = await openSocket(addr, timeoutMs);
+    c.sock = await openSocket(addr, timeoutMs, signal);
+    signal?.addEventListener('abort', () => c.sock.destroy(), { once: true });
     c.reader = new ResponseReader(c.sock);
     try {
       const greeting = await c.timed(c.reader.next());
@@ -224,9 +293,20 @@ export class ImapClient {
         c.sock = await upgrade(c.sock as Socket, addr.host, timeoutMs);
         c.reader.attach(c.sock);
       }
-      await c.command(`LOGIN ${quote(login.username)} ${quote(login.password)}`).catch((err: Error) => {
-        throw new Error(t().conn.mailLogin(err.message));
-      });
+      // Refused (a tagged NO, but not "try later"): trying again soon will not help. A time-out or a
+      // dropped connection is no refusal.
+      const refused = (err: Error) => err instanceof ImapStatusError && /^NO\b/i.test(err.status) && !/\[UNAVAILABLE\]/i.test(err.status);
+      if ('token' in login)
+        await c.authenticate(addr.host, login.username, login.token).catch((err: Error) => {
+          if (err instanceof NoXoauth2Error) throw err;
+          const msg = t().conn.mailTokenRefused(err.message);
+          throw refused(err) ? new ImapLoginError(msg) : new Error(msg);
+        });
+      else
+        await c.command(`LOGIN ${quote(login.username)} ${quote(login.password)}`).catch((err: Error) => {
+          const msg = t().conn.mailLogin(err.message);
+          throw refused(err) ? new ImapLoginError(msg) : new Error(msg);
+        });
       const caps = await c.command('CAPABILITY');
       for (const r of caps.untagged) {
         const m = /^\* CAPABILITY (.*)$/i.exec(r.text);
@@ -236,6 +316,41 @@ export class ImapClient {
     } catch (err) {
       c.sock.destroy();
       throw err;
+    }
+  }
+
+  /**
+   * Signs in with SASL XOAUTH2 (RFC 3501 AUTHENTICATE): the command, the server's go-ahead (`+`, with
+   * nothing: a request for the response), then the user and token in one base64 line. A server that
+   * refuses the token says why in a `+` line of its own first (base64 JSON), answered with an empty
+   * line, and then its tagged NO. A NO or BAD before the token was sent is no refusal of it: the
+   * server does not take XOAUTH2.
+   */
+  private async authenticate(host: string, username: string, token: string): Promise<void> {
+    const initial = xoauth2(username, token);
+    const tag = `R${++this.tag}`;
+    this.sock.write(`${tag} AUTHENTICATE XOAUTH2\r\n`);
+    for (;;) {
+      const r = await this.timed(this.reader.next());
+      if (r.text.startsWith('+')) break;
+      if (r.text.startsWith(`${tag} `)) throw new NoXoauth2Error(t().conn.mailNoXoauth2(host, r.text.slice(tag.length + 1)));
+    }
+    this.sock.write(`${initial}\r\n`);
+    let detail = '';
+    for (let asked = 0; ;) {
+      const r = await this.timed(this.reader.next());
+      if (r.text.startsWith('+')) {
+        // Once: a server that keeps asking is not one that takes the token.
+        if (++asked > 1) throw new Error(detail || r.text);
+        detail = xoauth2Detail(r.text.slice(1));
+        this.sock.write('\r\n');
+        continue;
+      }
+      // Untagged responses before the answer (a CAPABILITY) are read past.
+      if (!r.text.startsWith(`${tag} `)) continue;
+      const status = r.text.slice(tag.length + 1);
+      if (/^OK/i.test(status)) return;
+      throw new ImapStatusError([status.replace(/^(NO|BAD)\s*/i, '') || status, detail && `(${detail})`].filter(Boolean).join(' '), status);
     }
   }
 
@@ -293,8 +408,51 @@ export class ImapClient {
         continue;
       }
       const status = r.text.slice(tag.length + 1);
-      if (!/^OK/i.test(status)) throw new Error(status.replace(/^(NO|BAD)\s*/i, '') || status);
+      if (!/^OK/i.test(status)) throw new ImapStatusError(status.replace(/^(NO|BAD)\s*/i, '') || status, status);
       return { untagged, status };
+    }
+  }
+
+  /**
+   * Waits in IDLE (RFC 2177) until `stop` resolves, passing each untagged response the server sends
+   * meanwhile (`* 12 EXISTS` when mail arrives) to `onResponse`; then ends it (DONE) and reads its
+   * tagged answer. No time limit while it waits: the caller stops it before the server would (most
+   * end IDLE after about 29 minutes). A connection that drops, or a server that ends it, is an error.
+   */
+  async idle(onResponse: (r: ImapResponse) => void, stop: Promise<void>, onIdling?: () => void): Promise<void> {
+    const tag = `R${++this.tag}`;
+    this.sock.write(`${tag} IDLE\r\n`);
+    for (;;) {
+      const r = await this.timed(this.reader.next());
+      if (r.text.startsWith('+')) break;
+      if (r.text.startsWith(`${tag} `)) throw new IdleRefusedError(r.text.slice(tag.length + 1));
+      onResponse(r);
+    }
+    onIdling?.();
+    const stopped = stop.then(() => undefined);
+    let next = this.reader.next();
+    for (;;) {
+      const r = await Promise.race([next, stopped]);
+      if (!r) break;
+      // The server ended IDLE itself: fine when it says OK (the caller waits in IDLE again).
+      if (r.text.startsWith(`${tag} `)) {
+        if (/^OK/i.test(r.text.slice(tag.length + 1))) return;
+        throw new Error(t().conn.mailIdleEnded(r.text));
+      }
+      if (/^\* BYE\b/i.test(r.text)) throw new IdleByeError(t().conn.mailIdleEnded(r.text));
+      onResponse(r);
+      next = this.reader.next();
+    }
+    this.sock.write('DONE\r\n');
+    for (;;) {
+      const r = await this.timed(next);
+      if (r.text.startsWith(`${tag} `)) {
+        const status = r.text.slice(tag.length + 1);
+        if (!/^OK/i.test(status)) throw new Error(status);
+        return;
+      }
+      onResponse(r);
+      next = this.reader.next();
     }
   }
 
@@ -323,6 +481,11 @@ export class ImapClient {
 
   close(): void {
     this.sock.destroy();
+  }
+
+  /** TCP keepalive on the connection: one left open (IDLE) is found dead when the network went. */
+  keepAlive(ms: number): void {
+    this.sock.setKeepAlive(true, ms);
   }
 }
 

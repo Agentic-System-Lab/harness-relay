@@ -182,6 +182,12 @@ export interface MailAccountView {
   smtp: MailServer;
   /** The password, masked ('' when none is kept). */
   password: string;
+  /**
+   * The account that signs in with OAuth this mail account is reached through (its id, `OAuthAccountView`),
+   * instead of a password: its provider's own IMAP and SMTP servers, fixed, signed in to with the
+   * account's token (SASL XOAUTH2), its address as the user name.
+   */
+  oauth?: string;
 }
 
 /** A calendar the calendar tools use (CalDAV), as the UI sees it. */
@@ -194,7 +200,107 @@ export interface CalendarAccountView {
   /** The address invitations are sent from (the calendar's owner). */
   address?: string;
   password: string;
+  /**
+   * The account that signs in with OAuth this calendar is reached through (its id, `OAuthAccountView`),
+   * instead of a password: Microsoft's calendars over Graph, Google's over CalDAV with its token.
+   */
+  oauth?: string;
 }
+
+/** The providers whose accounts sign in with OAuth (`src/server/oauth/`). */
+export const OAUTH_PROVIDERS = ['microsoft', 'google'] as const;
+export type OAuthProviderId = (typeof OAUTH_PROVIDERS)[number];
+
+/**
+ * What an account that signs in with OAuth is used for: each use asks for its own scopes (the
+ * calendar tools; the mail tools and the mail trigger, over IMAP and SMTP with XOAUTH2).
+ */
+export const OAUTH_USES = ['calendar', 'mail'] as const;
+export type OAuthUse = (typeof OAUTH_USES)[number];
+
+/**
+ * The OAuth app (client) Harness Relay signs in to a provider with, as the UI sees it: its id, the
+ * user's own or Harness Relay's (`builtIn`), the tenant for Microsoft, whether a client secret is kept
+ * (Google's "secret" for desktop apps, masked), and the redirect addresses the app must allow.
+ */
+export interface OAuthClientView {
+  provider: OAuthProviderId;
+  clientId: string;
+  builtIn: boolean;
+  /** Microsoft: `common` (work, school and personal accounts), `organizations`, `consumers`, or a tenant's id. */
+  tenant?: string;
+  /** The client secret, masked ('' when none is kept). */
+  secret: string;
+  /** The provider has a sign-in on another device, with a code to type at its address (the device code flow): Microsoft does; Google takes no Calendar or Gmail scope there. */
+  device: boolean;
+}
+
+/** Saving a provider's OAuth app: an empty client id goes back to Harness Relay's own (none yet); without `secret`, the kept one stays. */
+export interface OAuthClientUpdate {
+  clientId: string;
+  tenant?: string;
+  secret?: string;
+}
+
+/** An account that signs in with OAuth, as the UI sees it: never a token. */
+export interface OAuthAccountView {
+  id: string;
+  provider: OAuthProviderId;
+  email: string;
+  /** Its name, when the provider says it. */
+  name?: string;
+  uses: OAuthUse[];
+  /** `reauth`: its sign-in no longer works (revoked, expired, its password changed): sign in again. */
+  status: 'connected' | 'reauth';
+  connectedAt: number;
+  /** Why it needs signing in again. */
+  error?: string;
+}
+
+export interface OAuthView {
+  clients: OAuthClientView[];
+  accounts: OAuthAccountView[];
+  /** Where the sign-ins' refresh tokens are kept. */
+  secretStorage: KeyStorage;
+}
+
+/**
+ * A sign-in under way, as the page that started it sees it: the provider's page to open (or, on
+ * another device, a code to type at an address), the redirect address that page goes back to, and
+ * how it went. `done` brings the account it signed in. A tool library MCP server's own sign-in
+ * (`provider` `mcp`) names the server instead, and brings no account.
+ */
+export interface OAuthSignInView {
+  id: string;
+  provider: OAuthProviderId | 'mcp';
+  /** An MCP server's own sign-in: the server, by its id and name in the tool library. */
+  server?: { id: string; name: string };
+  status: 'waiting' | 'done' | 'failed';
+  expiresAt: number;
+  /** The provider's page to open: not given while `confirm` waits. */
+  authorizeUrl?: string;
+  /**
+   * An MCP server's sign-in whose page (`host`) or token endpoint (`tokenHost`) is not on its
+   * authorization server's own origin (`issuer`, its host): the user is shown where they will sign in,
+   * and the page is given only once they confirm (`POST /api/oauth/signins/:id/confirm`).
+   */
+  confirm?: { host: string; issuer: string; tokenHost?: string };
+  redirectUri?: string;
+  device?: { userCode: string; verificationUri: string };
+  account?: OAuthAccountView;
+  error?: string;
+}
+
+/** A calendar an account that signs in with OAuth has, to add to the calendar tools. */
+export interface OAuthCalendar {
+  name: string;
+  url: string;
+  /** The calendar tools use it already: as this calendar (its id in Settings). */
+  addedAs?: string;
+}
+
+/** The longest a sign-in waits for the provider's page to send the browser back, and how many may wait at once. */
+export const OAUTH_LIMITS = { signInMinutes: 10, pending: 10 };
 
 export interface ConnectorsView {
   mail: MailAccountView[];
@@ -282,6 +388,18 @@ export interface McpServerView {
    * (none = no agent by default).
    */
   providers: Provider[];
+  /**
+   * An HTTP server's own sign-in (MCP's authorization, OAuth), once it signed in: `signed-in` (since
+   * `signedInAt`), or `reauth`, its sign-in no longer works (`error`: why): sign in again. Never a token.
+   */
+  oauth?: McpOAuthState;
+}
+
+/** An HTTP MCP server's own sign-in, as the UI sees it (`McpServerView.oauth`). */
+export interface McpOAuthState {
+  status: 'signed-in' | 'reauth';
+  signedInAt: number;
+  error?: string;
 }
 
 export interface McpServerUpdate {
@@ -1192,7 +1310,12 @@ export type MessagePart =
   /** What the reply said about the goal its schedule tracks (its `<progress>` block, taken out of its text). */
   | { type: 'progress'; status: ProgressStatus; text: string }
   /** Something the agent asked to send (a `send` call of Harness Relay's tools): it waits in the outbox for the user. */
-  | { type: 'outbox'; id: string; tool: string; title: string; preview: OutboxPreview; status: OutboxStatus; result?: string };
+  | { type: 'outbox'; id: string; tool: string; title: string; preview: OutboxPreview; status: OutboxStatus; result?: string }
+  /**
+   * What Harness Relay noted about the turn, not the agent's words (never forwarded as them): a tool
+   * library MCP server left out of it, its sign-in needing renewal.
+   */
+  | { type: 'notice'; text: string };
 
 /** Limits for files attached to one message. */
 export const ATTACHMENT_LIMITS = { maxFiles: 10, maxBytes: 20 * 1024 * 1024 };
@@ -1300,6 +1423,11 @@ export interface ChatMessage {
    */
   event?: string;
   /**
+   * Where `event` came from when it was not the schedule's webhook: an automation that starts when
+   * something happens found it (`ScheduleTrigger`), such as new mail. Absent: the webhook.
+   */
+  eventSource?: EventSource;
+  /**
    * The run of a schedule that tracks a goal this message belongs to (`TrackedRun`): a scheduled message
    * that waited in the queue carries it to the run that sends it; a reply written in such a run keeps it,
    * so a Retry or Continue after it goes on with the goal.
@@ -1331,10 +1459,126 @@ export type ScheduleRepeat =
   | { kind: 'weekly'; time: string; days: number[] }
   | { kind: 'interval'; hours: number }
   /** No set times: sent only when the user clicks Run once now, or a program calls the schedule's webhook. */
-  | { kind: 'manual' };
+  | { kind: 'manual' }
+  /**
+   * When something happens: Harness Relay checks each trigger's source itself, apart from the others,
+   * and sends the message when one finds something new (1 to `WATCH_LIMITS.triggers`, no two with the
+   * same `triggerKey()`: any of them starts it).
+   */
+  | { kind: 'event'; triggers: ScheduleTrigger[] };
 
-/** In the order the schedule form offers them: no set times first. */
-export const SCHEDULE_KINDS: ScheduleRepeat['kind'][] = ['manual', 'once', 'daily', 'weekly', 'interval'];
+/** In the order the schedule form offers them: no set times first, something happening last. */
+export const SCHEDULE_KINDS: ScheduleRepeat['kind'][] = ['manual', 'once', 'daily', 'weekly', 'interval', 'event'];
+
+/**
+ * What an automation that starts when something happens watches (`ScheduleRepeat` `event`), checked by
+ * Harness Relay itself: no address, no token, and the server still listens on 127.0.0.1 only.
+ * - `mail`: a new mail in a folder of an account from Settings (by its id), whose sender and subject
+ *   contain the words given (any case), when given.
+ * - `calendar`: an event of a calendar from Settings (by its id) about to begin, `minutes` before it
+ *   does, whose title contains the words given, when given; all-day events are left out.
+ * - `github`: in a repository (`owner/name`), through the user's own `gh`: a pull request opened
+ *   (`pr`), or a CI run that failed, timed out or could not start (`ci`, on `branch` when given).
+ * - `file`: a file in the conversation's working directory, whose path there matches `pattern` (`*`
+ *   within a folder, `**` across folders, `?` one character), appearing or changing; not while a run
+ *   writes in that folder (what the team writes is its own).
+ */
+export type ScheduleTrigger =
+  | { source: 'mail'; account: string; folder: string; from?: string; subject?: string }
+  | { source: 'calendar'; account: string; minutes: number; title?: string }
+  | { source: 'github'; repo: string; on: 'pr' | 'ci'; branch?: string }
+  | { source: 'file'; pattern: string };
+
+/** The sources an automation can wait for, in the order the form offers them. */
+export const TRIGGER_SOURCES: ScheduleTrigger['source'][] = ['mail', 'calendar', 'github', 'file'];
+
+/** Where a scheduled message's `<event>` block came from: the schedule's webhook, or what a trigger found. */
+export type EventSource = 'webhook' | ScheduleTrigger['source'];
+
+/**
+ * What an automation that starts when something happens keeps of one trigger's source between checks,
+ * with the schedule (so a restart never fires twice): for which trigger (`key`, `triggerKey()`; another
+ * trigger starts afresh), what it has seen of the source, when it was checked and is checked next, and
+ * the last check's error. Each trigger of an automation has its own (`ConversationSchedule.watches`),
+ * checked on its own schedule. The first check only records what is there.
+ */
+export interface ScheduleWatch {
+  key: string;
+  nextCheckAt: number;
+  checkedAt?: number;
+  /**
+   * When what it keeps of its source (`lastUid`) was last recorded as seen: a check that found nothing
+   * new, or whose message went. Held or failing checks leave it, so mail they could not send is still
+   * new mail later, however long it waited.
+   */
+  seenAt?: number;
+  /** `mail`: the folder's UIDVALIDITY, and the highest UID seen. */
+  uidValidity?: number;
+  lastUid?: number;
+  /** `github` pull requests: the highest number seen. */
+  lastId?: number;
+  /**
+   * `calendar`: the events already seen about to begin (`<uid>@<start>`), those not long past.
+   * `github` CI runs: the failed runs seen (`<run id>:<attempt>`), those still among the newest first.
+   */
+  seen?: string[];
+  /** `calendar`: when its last check that worked was (its window starts there, an hour back at most). */
+  lookedAt?: number;
+  /** `file`: each matching file's path in the working directory, with its size and when it changed (`<mtime>:<size>`). */
+  files?: Record<string, string>;
+  /** `file`: the working directory those files were found in (another one starts afresh). */
+  filesIn?: string;
+  /**
+   * `file`: a run was writing in the working directory at a check (or a check held or failed while one
+   * did): what changed there is the team's own, so the next check with the folder free only records too.
+   */
+  teamWrote?: boolean;
+  /**
+   * `file`: the files a check found and held for the team (it could not take them), as they were
+   * then: while they stay so, a check that only records (the team writes) keeps them unseen, so that
+   * they are still listed once the folder is free. No clock is compared: what the team moves, renames
+   * or extracts keeps an old time, and is its own all the same.
+   */
+  heldFiles?: Record<string, string>;
+  /**
+   * `file`: how often its folder had been locked for writing at the last check (`Orchestrator.folderWrites()`):
+   * changed since, a run wrote there between the checks, and the next check only records.
+   */
+  writes?: string;
+  /** The last check failed: why, and how many checks failed in a row (they come slower). */
+  error?: string;
+  failures?: number;
+  /** Something new was found but the team could not take it: why. Sent at a later check, with what came since. */
+  held?: string;
+  /** At its last check, the mail server was telling Harness Relay when mail arrives (IMAP IDLE): checked at once then. */
+  listening?: boolean;
+}
+
+/** What a check keeps of an automation's source (`ScheduleWatch`), apart from when and how it went. */
+export type WatchState = Pick<ScheduleWatch, 'uidValidity' | 'lastUid' | 'lastId' | 'seen' | 'lookedAt' | 'files' | 'filesIn'>;
+
+/**
+ * The checks of an automation that starts when something happens: every `checkMinutes`, slower after
+ * errors (`backoffMinutes`, one more step for each in a row), at most `items` new items listed in the
+ * run's message (the newest; how many more came is said), `excerptChars` of each mail's text, a
+ * condition or other text field of at most `field` characters, an event's `minutes` before it begins
+ * from 1 to `maxMinutes`, at most `files` files matching a file trigger's pattern, and a file listed
+ * once it has not changed for `settleSeconds` (it may still be being written).
+ */
+export const WATCH_LIMITS = {
+  /** The most things one automation waits for (`ScheduleRepeat` `event`'s `triggers`). */
+  triggers: 5,
+  checkMinutes: 2,
+  /** While the mail server tells Harness Relay when mail arrives (IMAP IDLE), checks come this often all the same. */
+  idleCheckMinutes: 15,
+  backoffMinutes: [5, 15, 30, 60],
+  items: 10,
+  excerptChars: 500,
+  field: 200,
+  maxMinutes: 1440,
+  files: 2000,
+  settleSeconds: 30,
+};
 
 /**
  * How the last time a schedule came due went: its message started a run (`sent`), waited in the queue
@@ -1453,6 +1697,11 @@ export interface ConversationSchedule {
   tracking?: ScheduleTracking;
   /** The schedule's webhook, when it has one: a program on this computer can send its message now. */
   hook?: ScheduleHook;
+  /**
+   * An automation that starts when something happens: what it keeps of each trigger's source between
+   * checks, one for each trigger by its key (in the triggers' order; a trigger not checked yet has none).
+   */
+  watches?: ScheduleWatch[];
 }
 
 /** A moment's wall-clock date and time in a time zone (`zonedParts()`). */
@@ -1632,6 +1881,10 @@ export interface ConversationSummary {
     timeZone?: string;
     /** No set times: only Run once now and the webhook send it (`ScheduleRepeat` `manual`). */
     manual?: boolean;
+    /** It starts when something happens: what it waits for (`ScheduleRepeat` `event`), any of them. */
+    triggers?: ScheduleTrigger[];
+    /** The last check of something it waits for failed. */
+    watchError?: boolean;
   };
 }
 

@@ -1807,6 +1807,30 @@ details.sub .model-picker {
   font-weight: 600;
 }
 
+.msg-notice {
+  margin: 6px 0;
+}
+
+/* An HTTP MCP server's own sign-in, under its row in the tool library. */
+.lib-row.mcp-http {
+  flex-wrap: wrap;
+}
+
+.mcp-signin {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mcp-signin-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .option-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -4197,6 +4221,134 @@ video.chat-media {
   max-width: 240px;
 }
 
+/* What an automation that starts when something happens waits for: two fields a row where there is room. */
+.schedule-trigger {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+  gap: 10px 14px;
+  margin-top: 4px;
+  min-width: 0;
+}
+
+.schedule-trigger > p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+/* Its source, a field like the others while it is the only thing it waits for. */
+.schedule-trigger-head {
+  display: contents;
+}
+
+/* Several things to wait for: each in a box of its own, its source and its Remove on one row. */
+.schedule-trigger.several {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.schedule-trigger.several .schedule-trigger-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.schedule-trigger.several .schedule-trigger-head > .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.schedule-trigger.several select {
+  max-width: 100%;
+}
+
+/* "or" between two of them: any of them starts it. */
+.schedule-trigger-or {
+  align-self: center;
+  margin-top: 4px;
+}
+
+.schedule-trigger-add {
+  align-self: flex-start;
+  margin-top: 6px;
+}
+
+/* Settings → Tool library → Accounts you sign in to (OAuth). */
+.oauth-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.oauth-accounts .ok-text {
+  color: var(--ok, var(--text));
+}
+
+.oauth-waiting {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.oauth-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* A form's or a sign-in's buttons (Cancel and Save; Sign in with …, and the link to its app): side by
+   side, apart, wrapping on a narrow screen. */
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+/* What a new sign-in is for (the calendar tools, the mail tools): side by side, under its legend. */
+.oauth-uses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.oauth-uses legend {
+  padding: 0;
+  margin-bottom: 4px;
+  color: var(--muted);
+}
+
+.oauth-calendars {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* The callback page's address, when another Harness Relay started the sign-in: to copy and paste there. */
+.oauth-callback-address code {
+  word-break: break-all;
+}
+
+.oauth-calendars li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .day-picker {
   display: flex;
   /* The seven days need about 310px in English: on a narrower phone they go on two rows rather
@@ -4270,6 +4422,15 @@ video.chat-media {
   gap: 5px;
   background: transparent;
   cursor: pointer;
+  /* What an automation waits for can be long: the chat's title keeps its room. */
+  max-width: 36ch;
+  min-width: 0;
+}
+
+.schedule-badge-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .schedule-badge:hover {

@@ -40,6 +40,7 @@ import {
   type ServerLimits,
   type ConversationSchedule,
   type NewScheduleHook,
+  type ScheduleUpdate,
   type Lang,
   type PickedFolders,
   type Provider,
@@ -54,9 +55,13 @@ import {
 import type { AgentsViewSync } from './agentsview';
 import { freshTracking } from '../shared/tracking';
 import { servingPort } from './relaySandbox';
-import { discoverCalendars, listEvents } from './connectors/caldav';
+import { discoverCalendars } from './connectors/caldav';
+import { calendarBackend } from './connectors/calendar';
+import type { McpOAuth } from './oauth/mcp';
+import type { OAuthService } from './oauth/service';
 import { keptPasswordFits } from './connectors/accounts';
 import { testMail } from './connectors/test';
+import type { Scheduler } from './scheduler';
 import { attachmentPath, isInlineImage, type AttachmentPart, type AttachmentUpload } from './attachments';
 import { fileInRoot, fileRoots, listFolder, mediaInRoot, previewFile, readPreview, zipPlan, type ZipPlan } from './files';
 import { zipStream } from './zip';
@@ -64,7 +69,7 @@ import { copyGrokTrust, restoreGrokTrustAll, trustGrokFolderAll } from './grokTr
 import { NativeSetupService, listedFile, nativeForClient } from './native';
 import type { Hub } from './hub';
 import { byteRange, contentDisposition, mediaRoots, mediaType, resolveDownload, resolveMedia } from './media';
-import { HttpError, forClient, titleFrom, type Orchestrator } from './orchestrator';
+import { HttpError, forClient, scheduleForClient, titleFrom, type Orchestrator } from './orchestrator';
 import { KeyOnlyAccountError, type ProviderService } from './providers';
 import type { SettingsStore } from './settings';
 import { fileLinkCount, fileLinksIn, replaceFileLinks, shareFileHref, shareSize } from '../shared/share';
@@ -112,6 +117,10 @@ import {
   validateSettings,
   validateToolLibraryUpdate,
   validConnectorId,
+  validOAuthProvider,
+  validOAuthUses,
+  validateOAuthCalendar,
+  validateOAuthClient,
   validateMailAccount,
   validateCalendarAccount,
   validateVoiceUpdate,
@@ -119,7 +128,7 @@ import {
 } from './validate';
 import { VoiceService } from './voice';
 import { existingFolder, systemFolderPicker, type FolderPicker } from './folderPicker';
-import { nextRun } from '../shared/schedule';
+import { nextRun, watchOf } from '../shared/schedule';
 import { currentLang, parseLang, t, withLang } from './i18n';
 import { testPayload, type AlertWatcher } from './alerts';
 import type { PushService } from './push';
@@ -185,6 +194,12 @@ export interface AppDeps {
   push?: PushService;
   /** Tells subscribed browsers when agents finish or need the user, unless their page is in front (`alerts.ts`). */
   alerts?: AlertWatcher;
+  /** Checks what an automation that starts when something happens waits for, on the user's Check now (`scheduler.ts`). */
+  scheduler?: Pick<Scheduler, 'check'>;
+  /** Accounts that sign in with OAuth (`oauth/service.ts`); Settings' own when not given (stand-in providers in tests). */
+  oauth?: OAuthService;
+  /** The tool library MCP servers' own sign-ins (`oauth/mcp.ts`), with `oauth`'s sign-ins; Settings' own when not given. */
+  mcpOAuth?: McpOAuth;
 }
 
 /** A recording of the longest allowed length (16 kHz, 16-bit mono WAV) in base64, with room to spare. */
@@ -221,6 +236,19 @@ function realDir(dir: string): string {
 /** The SHA-256 (hex) of a webhook's token: all the database keeps of it. */
 export function hookHash(token: string): string {
   return createHash('sha256').update(token).digest('hex');
+}
+
+/**
+ * What a saved automation keeps of what it waits for when it is saved again: each trigger's, all of
+ * it, while it stays (the same source, by its key: its conditions may change) and the automation stays
+ * on; nothing of a trigger removed or whose source changed (a new one starts afresh), nor of any when
+ * it is turned on again, so that what came while it was off does not start it.
+ */
+function keptWatches(prev: ConversationSchedule | undefined, update: ScheduleUpdate): Pick<ConversationSchedule, 'watches'> {
+  if (!prev?.watches || prev.repeat.kind !== 'event' || update.repeat.kind !== 'event') return {};
+  if (!prev.enabled && update.enabled) return {};
+  const watches = update.repeat.triggers.flatMap((t) => watchOf(prev, t) ?? []);
+  return watches.length ? { watches } : {};
 }
 
 /** A request's body as text, or undefined once it is longer than `max` bytes (reading stops there). */
@@ -276,6 +304,9 @@ export function createApp({
   limits = limitsOf(CONFIG),
   push,
   alerts,
+  scheduler,
+  oauth = settings.oauth,
+  mcpOAuth = settings.mcpOAuth,
 }: AppDeps): Hono {
   const app = new Hono();
   /** The gists of report screenshots uploaded since the server started: only these can be deleted here. */
@@ -333,8 +364,14 @@ export function createApp({
     });
   });
 
-  /** What a request takes without a signed-in browser: asking whether it is one, and signing in. */
-  const OPEN = new Set(['GET /api/auth', 'POST /api/auth/login']);
+  /**
+   * What a request takes without a signed-in browser: asking whether it is one, signing in, and the page
+   * an OAuth provider sent the browser back to posting what it got (its state is the proof: the
+   * redirect brings no key, and in the desktop app it comes to the system browser, never signed in).
+   */
+  const OPEN = new Set(['GET /api/auth', 'POST /api/auth/login', 'POST /api/oauth/callback']);
+  /** The OAuth callbacks that named no sign-in lately: after too many, those that name none are refused a while. */
+  const callbackMisses: number[] = [];
   /** A schedule's webhook (`POST /api/hooks/:id`): its route checks the token it was given. */
   const HOOK_PATH = /^\/api\/hooks\/[^/]+$/;
   /** When each webhook was last called, by conversation: at most one call per `TRACKING_LIMITS.hookIntervalMs`. */
@@ -593,26 +630,127 @@ export function createApp({
     }
   });
 
-  // Try an account as saved: sign in to its mail server (IMAP, then SMTP's sign-in), or read its calendar.
+  // Try an account as saved: sign in to its mail server (IMAP, then SMTP's sign-in; with its password or its sign-in's token), or read its calendar.
   app.post('/api/connectors/:kind/:id/test', async (c) => {
     const kind = c.req.param('kind');
     const id = c.req.param('id');
+    /** Reached through an account that signs in (its token), not a password. */
+    let signedIn = false;
     try {
       if (kind === 'mail') {
         const m = settings.connectors.mail(id);
         if (!m || m.account.id !== id) throw new HttpError(404, t().connectorNotFound(id));
-        await testMail(m.account, m.password);
+        signedIn = Boolean(m.account.oauth);
+        await testMail(m.account, m.password, oauth);
       } else if (kind === 'calendar') {
         const cal = settings.connectors.calendar(id);
         if (!cal || cal.account.id !== id) throw new HttpError(404, t().connectorNotFound(id));
+        signedIn = Boolean(cal.account.oauth);
         const now = Date.now();
-        await listEvents(cal.account.url, { username: cal.account.username, password: cal.password }, now, now + 86_400_000);
+        await calendarBackend(cal.account, cal.password, oauth).events(now, now + 86_400_000);
       } else throw new HttpError(404, t().connectorNotFound(id));
     } catch (err) {
       if (err instanceof HttpError) throw err;
       return c.json({ ok: false, error: t().connectorTestFailed((err as Error).message) });
     }
-    return c.json({ ok: true, message: t().connectorTestOk });
+    return c.json({ ok: true, message: signedIn ? t().connectorTestOkSignedIn : t().connectorTestOk });
+  });
+
+  // --- Accounts that sign in with OAuth (Microsoft, Google), for the calendar and mail tools --------
+  // The server runs each sign-in; the page starts it and shows how it went. Tokens never leave the
+  // server: the page sees an account's address and state only.
+
+  app.get('/api/oauth', (c) => c.json(oauth.view()));
+  app.put('/api/oauth/clients/:provider', async (c) =>
+    c.json(oauth.saveClient(validOAuthProvider(c.req.param('provider')), validateOAuthClient(await body<unknown>(c)))),
+  );
+  // A sign-in for its uses (the calendar, mail), its provider's page to open, which sends the browser back
+  // to this page's own web app when it is on this computer (`origin`), or a code to type on another device (`device`).
+  // `account`: an account signing in again, or for another use: its uses are asked for too, and its address is the page's login hint.
+  app.post('/api/oauth/signins', async (c) => {
+    const b = await body<{ provider?: unknown; uses?: unknown; account?: unknown; origin?: unknown; device?: unknown }>(c);
+    const provider = validOAuthProvider(String(b.provider ?? ''));
+    const uses = validOAuthUses(b.uses);
+    if (b.account !== undefined && (typeof b.account !== 'string' || !b.account || b.account.length > 64))
+      throw new HttpError(400, t().invalidField('account'));
+    const session = sessions.get(c.req.raw);
+    return c.json(
+      await oauth.startSignIn({
+        provider,
+        uses,
+        ...(typeof b.account === 'string' ? { account: b.account } : {}),
+        ...(session ? { session } : {}),
+        ...(typeof b.origin === 'string' ? { origin: b.origin } : {}),
+        port: servingPort(),
+        device: b.device === true,
+      }),
+    );
+  });
+  app.get('/api/oauth/signins/:id', (c) => c.json(oauth.signIn(c.req.param('id'), sessions.get(c.req.raw))));
+  // The address the provider's page sent the browser to, pasted (a browser on another computer).
+  app.post('/api/oauth/signins/:id/address', async (c) => {
+    const b = await body<{ address?: unknown }>(c);
+    if (typeof b.address !== 'string' || b.address.length > 8000) throw new HttpError(400, t().oauthBadAddress);
+    return c.json(await oauth.signIns.pasted(c.req.param('id'), b.address, sessions.get(c.req.raw)));
+  });
+  app.delete('/api/oauth/signins/:id', (c) => {
+    oauth.signIns.cancel(c.req.param('id'), sessions.get(c.req.raw));
+    return c.json({ ok: true });
+  });
+  // The user confirmed a sign-in whose page or token endpoint is not on its authorization server's own
+  // origin (an MCP server's, `confirm`), having been shown where: only now is its page given.
+  app.post('/api/oauth/signins/:id/confirm', (c) => c.json(oauth.signIns.confirm(c.req.param('id'), sessions.get(c.req.raw))));
+  // The page the provider sent the browser back to (`/oauth/callback`) posts the code and state it got:
+  // the state is the proof (OPEN above). It answers how that sign-in went, and whose account it is.
+  app.post('/api/oauth/callback', async (c) => {
+    const now = Date.now();
+    while (callbackMisses.length && callbackMisses[0]! < now - 10 * 60_000) callbackMisses.shift();
+    const b = await body<{ state?: unknown; code?: unknown; error?: unknown; iss?: unknown }>(c);
+    const field = (v: unknown) => (typeof v === 'string' && v.length <= 4096 ? v : undefined);
+    const state = field(b.state);
+    // Guessing states is what the limit stops: a state a sign-in here gave always goes through.
+    if (callbackMisses.length >= 20 && !oauth.signIns.knows(state)) throw new HttpError(429, t().oauthCallbackTooOften);
+    try {
+      const code = field(b.code);
+      const error = field(b.error);
+      // The issuer the redirect named (RFC 9207), even empty: one there that is not the sign-in's is refused.
+      const iss = typeof b.iss === 'string' ? (field(b.iss) ?? '') : undefined;
+      const v = await oauth.signIns.callback({
+        ...(state ? { state } : {}),
+        ...(code ? { code } : {}),
+        ...(error ? { error } : {}),
+        ...(iss !== undefined ? { iss } : {}),
+      });
+      return c.json({
+        status: v.status,
+        provider: v.provider,
+        ...(v.account ? { email: v.account.email } : {}),
+        ...(v.server ? { server: v.server.name } : {}),
+        ...(v.error ? { error: v.error } : {}),
+      });
+    } catch (err) {
+      if (err instanceof HttpError && err.status === 404) callbackMisses.push(now);
+      throw err;
+    }
+  });
+  // An account's calendars, to add to the calendar tools.
+  app.get('/api/oauth/accounts/:id/calendars', async (c) => {
+    try {
+      return c.json(await oauth.calendars(c.req.param('id')));
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      throw new HttpError(502, t().connectorDiscoverFailed((err as Error).message));
+    }
+  });
+  app.post('/api/oauth/accounts/:id/calendars', async (c) =>
+    c.json(oauth.addCalendar(c.req.param('id'), validateOAuthCalendar(await body<unknown>(c)))),
+  );
+  // Its mail account, for the mail tools: at its provider's own servers, signed in to with its token.
+  app.post('/api/oauth/accounts/:id/mail', (c) => c.json(oauth.addMail(c.req.param('id'))));
+  // Removes the account, its tokens (Google's revoked), its calendars and mail accounts; Microsoft's pages to take the app's access away come back.
+  app.delete('/api/oauth/accounts/:id', async (c) => {
+    const removed = await oauth.removeAccount(c.req.param('id'));
+    return c.json({ ...oauth.view(), connectors: settings.connectors.view(), ...removed });
   });
 
   app.get('/api/tools', (c) => c.json(settings.tools.view()));
@@ -626,6 +764,28 @@ export function createApp({
   });
 
   app.delete('/api/tools/mcp/:name', (c) => c.json(settings.tools.deleteServer(c.req.param('name'))));
+
+  // An HTTP server's own sign-in (MCP's authorization): discovery, a client registered at its
+  // authorization server, then that server's page to open, followed, finished from a pasted address and
+  // cancelled as an account's sign-in is (`/api/oauth/signins/:id`, `/api/oauth/callback`). Its tokens
+  // never come here: the library says whether it is signed in.
+  app.post('/api/tools/mcp/:name/signin', async (c) => {
+    const b = await body<{ origin?: unknown }>(c);
+    const session = sessions.get(c.req.raw);
+    return c.json(
+      await mcpOAuth.startSignIn({
+        name: c.req.param('name'),
+        ...(session ? { session } : {}),
+        ...(typeof b.origin === 'string' ? { origin: b.origin } : {}),
+        port: servingPort(),
+      }),
+    );
+  });
+  // Signs it out: its tokens are deleted, and revoked at its authorization server when it has a revocation endpoint.
+  app.delete('/api/tools/mcp/:name/signin', async (c) => {
+    await mcpOAuth.signOut(c.req.param('name'));
+    return c.json(settings.tools.view());
+  });
 
   // The skills under a folder, to pick from before adding them (nothing is saved).
   app.get('/api/tools/skills/scan', (c) => {
@@ -1177,6 +1337,8 @@ export function createApp({
     const now = Date.now();
     // The schedule first: creating a missing working directory is a side effect.
     const update = validateSchedule(b.schedule, now);
+    // A new automation names an account that is there, on or off.
+    refuseMissingTrigger(update, true);
     refuseRelayFolderFirst(b.settings, defaultCwds());
     const s = validateSettings({ ...(b.settings ?? {}), autoTeam: true }, defaultCwds(), b.createCwd === true);
     const conv: Conversation = {
@@ -1286,6 +1448,7 @@ export function createApp({
     const conv = getConv(c.req.param('id'));
     const now = Date.now();
     const update = validateSchedule(await body<unknown>(c), now);
+    refuseMissingTrigger(update);
     // Scheduled messages go to the current team: there must be one, and not one waiting for confirmation.
     if (update.enabled && (conv.agents.length === 0 || pendingPlan(conv.messages))) {
       throw new HttpError(409, t().scheduleNeedsTeam);
@@ -1302,6 +1465,7 @@ export function createApp({
       ...(prev?.lastError ? { lastError: prev.lastError } : {}),
       ...(prev?.lastChatId ? { lastChatId: prev.lastChatId } : {}),
       ...(prev?.hook ? { hook: prev.hook } : {}),
+      ...keptWatches(prev, update),
     };
     // The same goal keeps what the agents said of it (and a run still in flight); a reached goal is worked on
     // again once the schedule is on. A new goal starts afresh, and none drops the notes.
@@ -1320,7 +1484,32 @@ export function createApp({
     conv.schedule = schedule;
     store.saveSchedule(conv);
     orchestrator.emitConversation(conv);
-    return c.json(schedule);
+    return c.json(scheduleForClient(schedule));
+  });
+
+  /**
+   * An automation that starts when something happens, when it is on, waits for things that are there:
+   * each mail account or calendar from Settings that one of its triggers names.
+   */
+  const refuseMissingTrigger = (update: ScheduleUpdate, always = false) => {
+    // Turned off, it checks nothing: an automation whose account went can still be paused.
+    if ((!update.enabled && !always) || update.repeat.kind !== 'event') return;
+    for (const trigger of update.repeat.triggers) {
+      if (trigger.source === 'mail' && !settings.connectors.mailById(trigger.account)) throw new HttpError(400, t().watchNoAccount);
+      if (trigger.source === 'calendar' && !settings.connectors.calendarById(trigger.account))
+        throw new HttpError(400, t().watchNoCalendar);
+    }
+  };
+
+  // Check what the automation waits for now (Check now), as its next check would, even while it is off;
+  // answers the schedule as it is then. The first check only records what is there.
+  app.post('/api/conversations/:id/schedule/check', async (c) => {
+    const conv = getConv(c.req.param('id'));
+    if (conv.schedule?.repeat.kind !== 'event') throw new HttpError(409, t().watchNotEvent);
+    if (!scheduler) throw new HttpError(503, t().watchNoScheduler);
+    await scheduler.check(conv.id, true);
+    const s = store.get(conv.id)?.schedule;
+    return c.json(s ? scheduleForClient(s) : null);
   });
 
   // A webhook for the schedule: a new token (replacing the one it had), shown this once; only its hash is kept.

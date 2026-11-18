@@ -184,7 +184,7 @@ describe('Store (SQLite)', () => {
     db.exec(`ALTER TABLE conversations DROP COLUMN auto_confirm;
              ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
              DROP TABLE shares; ALTER TABLE conversations DROP COLUMN branch;
-             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; DROP TABLE outbox; DROP TABLE auth_sessions; DROP TABLE auth_codes;
+             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; DROP TABLE outbox; DROP TABLE auth_sessions; DROP TABLE auth_codes;
              DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label;
              ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
              ALTER TABLE agent_sessions DROP COLUMN account;
@@ -518,7 +518,7 @@ describe('Store (SQLite)', () => {
              INSERT INTO agent_worktrees VALUES ('conv-1', 'a1', '/tmp', '/wt/a1', 'relay/c/Architect', 'b0', 1);
              ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
              DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
-             DROP TABLE deleted_endpoints; DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; DROP TABLE outbox; ALTER TABLE agent_sessions DROP COLUMN backend;
+             DROP TABLE deleted_endpoints; DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; DROP TABLE outbox; ALTER TABLE agent_sessions DROP COLUMN backend;
              PRAGMA user_version = 20;`);
     const migrated = new Store(reopen()).get(conv.id)!;
     expect(migrated.worktrees).toEqual({
@@ -543,7 +543,7 @@ describe('Store (SQLite)', () => {
                  PRIMARY KEY (conversation_id, agent_id));
                INSERT INTO agent_worktrees VALUES ('${conv.id}', 'a1', '/tmp', '/wt/a1', 'relay/c/Architect', 'b0', 0);
                ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
-               DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; DROP TABLE outbox;
+               DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; DROP TABLE outbox;
                ${upTo}
                PRAGMA user_version = ${version};`);
     const version = () => (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
@@ -551,7 +551,7 @@ describe('Store (SQLite)', () => {
     db.prepare("INSERT INTO deleted_endpoints (id, deleted_at) VALUES ('oldlab', 1)").run();
     early(25, '');
     reopen();
-    expect(version()).toBe(34);
+    expect(version()).toBe(35);
     expect(has("SELECT 1 FROM pragma_table_info('conversations') WHERE name = 'extra_cwds'")).toBe(true);
     expect(db.prepare('SELECT id FROM deleted_endpoints').all()).toEqual([{ id: 'oldlab' }]);
     expect(new Store(db).get(conv.id)!.worktrees).toEqual({
@@ -562,7 +562,7 @@ describe('Store (SQLite)', () => {
       'ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;',
     );
     reopen();
-    expect(version()).toBe(34);
+    expect(version()).toBe(35);
     expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'by_cli'")).toBe(true);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'deleted_endpoints'")).toBe(true);
     // Builds from before the accounts numbered the model backends 19–22: without the accounts or several
@@ -575,7 +575,7 @@ describe('Store (SQLite)', () => {
       );
     beforeAccounts(22, '');
     reopen();
-    expect(version()).toBe(34);
+    expect(version()).toBe(35);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'provider_accounts'")).toBe(true);
     expect(has("SELECT 1 FROM pragma_table_info('provider_accounts') WHERE name = 'native_items'")).toBe(true);
     expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'account'")).toBe(true);
@@ -588,20 +588,20 @@ describe('Store (SQLite)', () => {
       'ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;',
     );
     reopen();
-    expect(version()).toBe(34);
+    expect(version()).toBe(35);
     expect(has("SELECT 1 FROM pragma_table_info('agent_sessions') WHERE name = 'permission'")).toBe(true);
     expect(has("SELECT 1 FROM pragma_table_info('provider_settings') WHERE name = 'sandbox_terminal'")).toBe(true);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'provider_accounts'")).toBe(true);
     // A database of main's own at 21 (several working directories, no model backends) is left as it is.
     db.exec(`DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli;
              ALTER TABLE provider_settings DROP COLUMN sandbox_terminal; DROP TABLE deleted_endpoints; ALTER TABLE agent_sessions DROP COLUMN backend;
-             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; DROP TABLE outbox; PRAGMA user_version = 21;`);
+             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; DROP TABLE outbox; PRAGMA user_version = 21;`);
     reopen();
-    expect(version()).toBe(34);
+    expect(version()).toBe(35);
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'model_backends'")).toBe(true);
   });
 
-  it("keeps a schedule's goal, its tracking state and its webhook (never the token), and a webhook's body on its message", () => {
+  it("keeps a schedule's goal, its tracking state and its webhook (never the token), a webhook's body on its message, and a reply's notice", () => {
     const store = new Store(db);
     const conv = sampleConversation();
     store.create(conv);
@@ -638,6 +638,8 @@ describe('Store (SQLite)', () => {
       ...agentMsg,
       id: 'r1',
       parts: [
+        // What Harness Relay noted about the turn, kept with the reply as well.
+        { type: 'notice', text: 'The MCP server "linear" was left out of this turn' },
         { type: 'text', text: 'ok' },
         { type: 'progress', status: 'done', text: 'green' },
       ],
@@ -1059,7 +1061,7 @@ describe('Store shares', () => {
     // Shares from before schema version 16 took no files along.
     db.exec(`ALTER TABLE shares DROP COLUMN files; ALTER TABLE shares DROP COLUMN files_gist; ALTER TABLE shares DROP COLUMN unfinished;
              ALTER TABLE conversations DROP COLUMN branch;
-             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; DROP TABLE outbox; DROP TABLE auth_sessions; DROP TABLE auth_codes;
+             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; DROP TABLE outbox; DROP TABLE auth_sessions; DROP TABLE auth_codes;
              DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label;
              ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
              ALTER TABLE agent_sessions DROP COLUMN account;
@@ -1639,7 +1641,7 @@ describe('SettingsStore accounts', () => {
              ALTER TABLE provider_accounts DROP COLUMN native_off; ALTER TABLE provider_accounts DROP COLUMN native_items;
              ALTER TABLE conversations DROP COLUMN extra_cwds; ALTER TABLE messages DROP COLUMN more_changes;
              DROP TABLE model_backends; ALTER TABLE agent_sessions DROP COLUMN permission; ALTER TABLE agent_sessions DROP COLUMN by_cli; ALTER TABLE provider_settings DROP COLUMN sandbox_terminal;
-             DROP TABLE deleted_endpoints; DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; DROP TABLE outbox; ALTER TABLE agent_sessions DROP COLUMN backend;
+             DROP TABLE deleted_endpoints; DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; DROP TABLE outbox; ALTER TABLE agent_sessions DROP COLUMN backend;
              PRAGMA user_version = 19;`);
     const migrated = new SettingsStore(reopen());
     // They run as before: as the CLI did, for every account.
@@ -1857,6 +1859,174 @@ describe('Store schedules', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM schedules').get()).toEqual({ n: 1 }); // only the one switched off
   });
 
+  it("keeps what an automation that starts when something happens saw of its source, and where a message's event came from (schema 35)", () => {
+    const store = new Store(db);
+    const watch = { key: '["mail","work","INBOX"]', nextCheckAt: 200, checkedAt: 80, uidValidity: 7, lastUid: 42, held: 'busy' };
+    const conv = {
+      ...sampleConversation(),
+      schedule: {
+        ...schedule,
+        repeat: { kind: 'event' as const, triggers: [{ source: 'mail' as const, account: 'work', folder: 'INBOX', from: 'carol' }] },
+        nextRunAt: undefined,
+        watches: [watch],
+      },
+    };
+    delete (conv.schedule as { nextRunAt?: number }).nextRunAt;
+    store.create(conv);
+    store.saveSchedule(conv);
+    // A new mail's message, and a webhook's.
+    conv.messages.push(
+      {
+        id: 'm1',
+        author: { kind: 'user' },
+        createdAt: 1,
+        parts: [{ type: 'text', text: 'new mail' }],
+        status: 'done',
+        scheduled: true,
+        event: '{"source":"mail"}',
+        eventSource: 'mail',
+      },
+      {
+        id: 'm2',
+        author: { kind: 'user' },
+        createdAt: 2,
+        parts: [{ type: 'text', text: 'hooked' }],
+        status: 'done',
+        scheduled: true,
+        event: '{}',
+      },
+    );
+    // What each other source found, read back as that source (never as the webhook's).
+    for (const source of ['calendar', 'github', 'file'] as const)
+      conv.messages.push({
+        id: `m-${source}`,
+        author: { kind: 'user' },
+        createdAt: 3,
+        parts: [{ type: 'text', text: source }],
+        status: 'done',
+        scheduled: true,
+        event: `{"source":"${source}"}`,
+        eventSource: source,
+      });
+    for (const m of conv.messages) store.saveMessage(conv.id, m, true);
+    // A source this version does not know (written by a newer one) reads as the webhook's.
+    db.prepare("UPDATE messages SET event_source = 'rss' WHERE id = 'm2'").run();
+    const reopened = new Store(reopen());
+    const back = reopened.get(conv.id)!;
+    expect(back.schedule).toEqual(conv.schedule);
+    expect(back.messages.map((m) => m.eventSource)).toEqual(['mail', undefined, 'calendar', 'github', 'file']);
+    // Only an automation that watches something keeps a watch.
+    back.schedule = { ...back.schedule!, repeat: { kind: 'daily', time: '09:00' } };
+    reopened.saveSchedule(back);
+    expect(new Store(reopen()).get(conv.id)!.schedule!.watches).toBeUndefined();
+  });
+
+  it('reads an automation saved when it waited for one thing as waiting for that one, and writes each trigger and what its checks keep', () => {
+    const store = new Store(db);
+    const inbox = { source: 'mail' as const, account: 'work', folder: 'INBOX' };
+    const alerts = { ...inbox, folder: 'Alerts' };
+    const csv = { source: 'file' as const, pattern: '*.csv' };
+    const conv = { ...sampleConversation(), schedule: { ...schedule, repeat: { kind: 'event' as const, triggers: [inbox] } } };
+    delete (conv.schedule as { nextRunAt?: number }).nextRunAt;
+    store.create(conv);
+    store.saveSchedule(conv);
+    // As a version that waited for one thing wrote it: its trigger alone, and one watch.
+    const one = { key: '["mail","work","INBOX"]', nextCheckAt: 200, lastUid: 42 };
+    db.prepare('UPDATE schedules SET repeat = ?, watch = ? WHERE conversation_id = ?').run(
+      JSON.stringify({ kind: 'event', trigger: inbox }),
+      JSON.stringify(one),
+      conv.id,
+    );
+    const old = new Store(reopen());
+    const back = old.get(conv.id)!;
+    expect(back.schedule).toMatchObject({ repeat: { kind: 'event', triggers: [inbox] }, watches: [one] });
+    expect(old.list(() => false).find((c) => c.id === conv.id)!.schedule!.triggers).toEqual([inbox]);
+    expect(old.mailWatches()).toEqual([{ conversationId: conv.id, trigger: inbox }]);
+    expect(old.watchDue(199)).toEqual([]);
+    expect(old.watchDue(200)).toEqual([conv.id]);
+    // Saved again with more to wait for: written as a list, each trigger's state by its key, and the
+    // first trigger also alone, as the version before reads it (as waiting for that one).
+    const two = { key: '["mail","work","Alerts"]', nextCheckAt: 500, lastUid: 7, error: 'down' };
+    back.schedule = { ...back.schedule!, repeat: { kind: 'event', triggers: [inbox, csv, alerts] }, watches: [one, two] };
+    old.saveSchedule(back);
+    const row = db.prepare('SELECT repeat, watch FROM schedules WHERE conversation_id = ?').get(conv.id) as {
+      repeat: string;
+      watch: string;
+    };
+    expect(JSON.parse(row.repeat)).toEqual({ kind: 'event', triggers: [inbox, csv, alerts], trigger: inbox });
+    expect(JSON.parse(row.watch)).toEqual([one, two]);
+    // In memory, and for browsers, `triggers` only.
+    expect(back.schedule.repeat).not.toHaveProperty('trigger');
+    const again = new Store(reopen());
+    expect(again.get(conv.id)!.schedule!.repeat).toEqual({ kind: 'event', triggers: [inbox, csv, alerts] });
+    expect(again.get(conv.id)!.schedule!.watches).toEqual([one, two]);
+    // Each mail trigger for IDLE; due when any trigger is (the file one, never checked, at once); a check failed.
+    expect(again.mailWatches()).toEqual([
+      { conversationId: conv.id, trigger: inbox },
+      { conversationId: conv.id, trigger: alerts },
+    ]);
+    expect(again.watchDue(0)).toEqual([conv.id]);
+    expect(again.list(() => false).find((c) => c.id === conv.id)!.schedule).toMatchObject({
+      triggers: [inbox, csv, alerts],
+      watchError: true,
+    });
+    // `triggers` is read first: the first one alone, as an older version wrote it beside them, is not another.
+    db.prepare('UPDATE schedules SET repeat = ? WHERE conversation_id = ?').run(
+      JSON.stringify({ kind: 'event', trigger: alerts, triggers: [inbox, csv] }),
+      conv.id,
+    );
+    expect(new Store(reopen()).get(conv.id)!.schedule!.repeat).toEqual({ kind: 'event', triggers: [inbox, csv] });
+    db.prepare('UPDATE schedules SET repeat = ? WHERE conversation_id = ?').run(
+      JSON.stringify({ kind: 'event', triggers: [inbox, csv, alerts], trigger: inbox }),
+      conv.id,
+    );
+    // What it keeps of a trigger it no longer waits for (or of one twice) is not read back.
+    db.prepare('UPDATE schedules SET watch = ? WHERE conversation_id = ?').run(
+      JSON.stringify([one, { ...one, lastUid: 1 }, { key: '["file","*.txt"]', nextCheckAt: 0 }, 'junk']),
+      conv.id,
+    );
+    expect(new Store(reopen()).get(conv.id)!.schedule!.watches).toEqual([one]);
+    // The inbox kept in another letter case (saved before the inbox was one folder in any case) is read
+    // as INBOX, what its checks kept with it, and the same inbox twice as once; other folders keep theirs.
+    db.prepare('UPDATE schedules SET repeat = ?, watch = ? WHERE conversation_id = ?').run(
+      JSON.stringify({
+        kind: 'event',
+        triggers: [
+          { ...inbox, folder: 'inbox' },
+          { ...inbox, folder: 'Inbox' },
+          { ...alerts, folder: 'alerts' },
+        ],
+      }),
+      JSON.stringify([{ ...one, key: '["mail","work","inbox"]' }]),
+      conv.id,
+    );
+    const cased = new Store(reopen());
+    expect(cased.get(conv.id)!.schedule).toMatchObject({
+      repeat: { kind: 'event', triggers: [inbox, { ...alerts, folder: 'alerts' }] },
+      watches: [one],
+    });
+    expect(cased.mailWatches()).toEqual([
+      { conversationId: conv.id, trigger: inbox },
+      { conversationId: conv.id, trigger: { ...alerts, folder: 'alerts' } },
+    ]);
+    // One saved by an older version: its trigger alone, in another case.
+    db.prepare('UPDATE schedules SET repeat = ?, watch = ? WHERE conversation_id = ?').run(
+      JSON.stringify({ kind: 'event', trigger: { ...inbox, folder: 'inbox' } }),
+      JSON.stringify({ ...one, key: '["mail","work","inbox"]' }),
+      conv.id,
+    );
+    expect(new Store(reopen()).get(conv.id)!.schedule).toMatchObject({ repeat: { kind: 'event', triggers: [inbox] }, watches: [one] });
+    // Waiting for nothing it can read: no schedule there, and never due nor listened for.
+    db.prepare('UPDATE schedules SET repeat = ? WHERE conversation_id = ?').run(
+      JSON.stringify({ kind: 'event', triggers: [{ source: 'rss' }] }),
+      conv.id,
+    );
+    const unread = new Store(reopen());
+    expect(unread.get(conv.id)!.schedule).toBeUndefined();
+    expect(unread.watchDue(Number.MAX_SAFE_INTEGER)).toEqual([]);
+    expect(unread.mailWatches()).toEqual([]);
+  });
+
   it('keeps whether a schedule opens a new chat each time, and the chat it last opened', () => {
     const store = new Store(db);
     const conv = { ...sampleConversation(), schedule: { ...schedule, newChat: true, lastResult: 'sent' as const, lastChatId: 'chat-9' } };
@@ -1868,7 +2038,7 @@ describe('Store schedules', () => {
     // Schedules from before schema version 14 send in their own conversation.
     db.exec(`ALTER TABLE schedules DROP COLUMN new_chat; ALTER TABLE schedules DROP COLUMN last_chat_id;
              DROP TABLE shares; ALTER TABLE conversations DROP COLUMN branch;
-             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; DROP TABLE outbox; DROP TABLE auth_sessions; DROP TABLE auth_codes;
+             DROP TABLE push_subscriptions; DROP TABLE secrets; ALTER TABLE conversations DROP COLUMN lead_review; ALTER TABLE messages DROP COLUMN review; ALTER TABLE conversations DROP COLUMN pinned_at; DROP TABLE notifications; ALTER TABLE schedules DROP COLUMN goal; ALTER TABLE schedules DROP COLUMN tracking; ALTER TABLE schedules DROP COLUMN hook; ALTER TABLE schedules DROP COLUMN hook_hash; ALTER TABLE messages DROP COLUMN event; ALTER TABLE messages DROP COLUMN tracked; ALTER TABLE schedules DROP COLUMN watch; ALTER TABLE messages DROP COLUMN event_source; DROP TABLE outbox; DROP TABLE auth_sessions; DROP TABLE auth_codes;
              DROP TABLE provider_accounts; ALTER TABLE provider_settings DROP COLUMN account_label;
              ALTER TABLE conversation_agents DROP COLUMN account; ALTER TABLE preset_agents DROP COLUMN account;
              ALTER TABLE agent_sessions DROP COLUMN account;

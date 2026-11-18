@@ -1,4 +1,4 @@
-import type { ConversationSchedule, ZonedParts } from './types';
+import type { ConversationSchedule, ScheduleTrigger, ScheduleWatch, ZonedParts } from './types';
 
 /*
  * When a conversation's schedule sends its message. Pure functions, used by the server (to decide when
@@ -90,6 +90,8 @@ export function nextRun(s: Pick<ConversationSchedule, 'repeat' | 'timeZone' | 'u
   switch (r.kind) {
     case 'manual':
       return undefined; // only Run once now and the webhook send it
+    case 'event':
+      return undefined; // sent when its checks find something new (`Scheduler`)
     case 'once':
       return r.at > after ? r.at : undefined;
     case 'interval': {
@@ -123,4 +125,97 @@ export function upcomingRuns(s: Pick<ConversationSchedule, 'repeat' | 'timeZone'
   const out: number[] = [];
   for (let at = nextRun(s, after); at !== undefined && out.length < count; at = nextRun(s, at)) out.push(at);
   return out;
+}
+
+/*
+ * What an automation that starts when something happens waits for, as the form and the server both
+ * check it (`draftProblems()` in the browser, `validTrigger()` on the server), so that they agree.
+ */
+
+/**
+ * A mail folder as it is kept: `INBOX` in any letter case is the inbox (IMAP's one name that is not
+ * case-sensitive), written `INBOX`; any other folder's name as it is.
+ */
+export function mailFolder(folder: string): string {
+  return folder.toUpperCase() === 'INBOX' ? 'INBOX' : folder;
+}
+
+/**
+ * For which source a trigger's checks keep what they saw (`ScheduleWatch.key`): another one (account
+ * and folder, calendar, repository and what to watch there, the branch of CI runs, pattern) starts
+ * afresh. Changing a trigger's conditions (sender, subject, title, minutes) keeps its place: what comes
+ * next is matched against the new ones. (Another branch lists other runs, among them failures that are
+ * not new: so it starts afresh.) Two triggers of one automation never have the same key. The inbox is
+ * one folder in any letter case (`mailFolder()`).
+ */
+export function triggerKey(trigger: ScheduleTrigger): string {
+  switch (trigger.source) {
+    case 'mail':
+      return JSON.stringify([trigger.source, trigger.account, mailFolder(trigger.folder)]);
+    case 'calendar':
+      return JSON.stringify([trigger.source, trigger.account]);
+    case 'github':
+      return JSON.stringify([
+        trigger.source,
+        trigger.repo.toLowerCase(),
+        trigger.on,
+        ...(trigger.on === 'ci' ? [trigger.branch ?? ''] : []),
+      ]);
+    case 'file':
+      return JSON.stringify([trigger.source, trigger.pattern]);
+  }
+}
+
+/** What an automation's checks keep of one of its triggers (by its key), if it was checked. */
+export function watchOf<W extends Pick<ScheduleWatch, 'key'>>(s: { watches?: W[] }, trigger: ScheduleTrigger): W | undefined {
+  const key = triggerKey(trigger);
+  return s.watches?.find((w) => w.key === key);
+}
+
+/** Whether two of the triggers wait for the same source (`triggerKey()`): an automation waits for each thing once. */
+export function sameTriggers(triggers: ScheduleTrigger[]): boolean {
+  const keys = triggers.map(triggerKey);
+  return new Set(keys).size !== keys.length;
+}
+
+/** A GitHub repository as it is kept: `owner/name`, from that or its address on github.com. */
+export function repoName(v: string): string {
+  return v
+    .trim()
+    .replace(/^https:\/\/github\.com\//i, '')
+    .replace(/(\.git)?\/?$/, '');
+}
+
+/** Whether `owner/name` can be a GitHub repository: an owner of at most 39 characters, a name of at most 100 (never `.` or `..`). */
+export function validRepo(repo: string): boolean {
+  const m = /^([A-Za-z0-9][A-Za-z0-9-]{0,38})\/([A-Za-z0-9_.][A-Za-z0-9_.-]{0,99})$/.exec(repo);
+  return Boolean(m) && m![2] !== '.' && m![2] !== '..';
+}
+
+/**
+ * Whether git allows a branch's name, as far as `gh run list --branch` needs: no spaces or control
+ * characters, none of `~^:?*[\`, no `..` or `@{`, and not starting with `-` (it would read as an option)
+ * or `/`, nor ending with `/`, `.` or `.lock`.
+ */
+export function validBranch(branch: string): boolean {
+  if (!branch || branch.startsWith('-') || branch.startsWith('/') || branch.endsWith('/') || branch.endsWith('.')) return false;
+  if (branch.endsWith('.lock') || branch.includes('..') || branch.includes('@{') || branch.includes('//')) return false;
+  return !/[\s~^:?*[\\\u0000-\u001f\u007f]/.test(branch);
+}
+
+/**
+ * A file pattern as it is kept: `/` between folders, without the `./` it may start with; undefined when
+ * it does not stay inside the working directory (a full path, a drive, `..`) or is empty (`./` too).
+ */
+export function filePattern(v: string): string | undefined {
+  const pattern = v
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^(?:\.\/)+/, '');
+  if (!pattern || pattern === '.' || pattern.startsWith('/') || /^[A-Za-z]:/.test(pattern)) return undefined;
+  const parts = pattern.split('/');
+  if (parts.some((p) => p === '..')) return undefined;
+  // A folder alone (`reports/`) names no file, and `.git` is never looked in: neither could ever match.
+  if (pattern.endsWith('/') || parts.some((p) => p.toLowerCase() === '.git')) return undefined;
+  return pattern;
 }

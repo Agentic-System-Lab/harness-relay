@@ -1,6 +1,6 @@
 import { lookup } from 'node:dns/promises';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { BlockList, isIP, isIPv6 } from 'node:net';
+import { isIP, isIPv6 } from 'node:net';
 import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
 import { approvalKeys } from '../approvals';
@@ -11,7 +11,7 @@ import type { GatewayContext } from '../gateway';
 import { runProcess } from '../process';
 import { removeTree } from '../fsRemove';
 import { relayBrowserDir } from '../protect';
-import { isLocalHost, isLoopbackHost } from '../relaySandbox';
+import { isLocalHost, isLoopbackHost, isPrivateAddress } from '../relaySandbox';
 import { CdpConnection } from './cdp';
 import { BrowserProxy, PROXY_USER, type ProxyRoute } from './proxy';
 
@@ -50,26 +50,6 @@ import { BrowserProxy, PROXY_USER, type ProxyRoute } from './proxy';
  */
 export type NavigationVerdict = 'allow' | 'ask' | 'block' | 'moved' | 'mixed';
 
-/** The private networks (and the shared address space VPNs such as Tailscale use): the local network, to the browser. */
-const PRIVATE = new BlockList();
-PRIVATE.addSubnet('10.0.0.0', 8, 'ipv4');
-PRIVATE.addSubnet('172.16.0.0', 12, 'ipv4');
-PRIVATE.addSubnet('192.168.0.0', 16, 'ipv4');
-PRIVATE.addSubnet('100.64.0.0', 10, 'ipv4');
-PRIVATE.addSubnet('198.18.0.0', 15, 'ipv4');
-PRIVATE.addSubnet('fc00::', 7, 'ipv6');
-
-/** Whether an address is on a private network (an IPv4 one written as IPv6, `::ffff:10.0.0.1`, too). */
-function privateAddress(a: string): boolean {
-  const kind = isIP(a);
-  if (!kind) return false;
-  try {
-    return PRIVATE.check(a, kind === 6 ? 'ipv6' : 'ipv4');
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Whether a host leads to this computer or the local network: a loopback name, one of this
  * computer's addresses, a private one, or a name with one of those among its `addresses`.
@@ -77,7 +57,7 @@ function privateAddress(a: string): boolean {
 export function leadsNearby(host: string, addresses: readonly string[], own: readonly string[] = []): boolean {
   const h = host.replace(/^\[|\]$/g, '');
   const list = isIP(h) || isLoopbackHost(h) ? [h] : addresses;
-  return list.some((a) => isLoopbackHost(a) || own.some((o) => o.toLowerCase() === a.toLowerCase()) || privateAddress(a));
+  return list.some((a) => isLoopbackHost(a) || own.some((o) => o.toLowerCase() === a.toLowerCase()) || isPrivateAddress(a));
 }
 
 /** Whether a name's addresses lead both to the internet and to this computer or the local network. */

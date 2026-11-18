@@ -22,10 +22,12 @@ import {
   type ToolLibraryUpdate,
   type ToolLibraryView,
 } from '../shared/types';
+import { NO_HTTP_MCP } from './agents/acp';
 import type { McpServerSpec } from './agents/types';
 import type { Database } from './db';
 import { HttpError } from './errors';
 import { t } from './i18n';
+import { canonicalResource } from './oauth/mcp';
 import type { SecretStore } from './secrets';
 
 /*
@@ -40,6 +42,13 @@ import type { SecretStore } from './secrets';
  * keys, and the UI only ever sees them masked.
  * They are kept by the server's id, not its name, so a rename never touches them (a store with
  * case-insensitive names, like Windows', would otherwise see `github` → `GitHub` as one entry).
+ *
+ * An HTTP server can also sign in itself (MCP's authorization: OAuth, `oauth/mcp.ts`): where it signs in
+ * and the client registered there are kept with the server (`oauth`); its refresh token (and a client
+ * secret, when its authorization server gave one) go to the credential store as `mcp-oauth.<id>` (a dot,
+ * which no server's name has, so no entry of a server named `oauth-…` can be it), and its access token is
+ * kept in memory only, by the token broker. Removing the server, changing its URL, or signing it out
+ * deletes them (`onMcpOAuthDropped`).
  */
 
 interface StoredServer {
@@ -54,6 +63,54 @@ interface StoredServer {
   env: string[];
   headers: string[];
   providers: Provider[];
+  /** An HTTP server's own sign-in, once it signed in. */
+  oauth?: StoredMcpOAuth;
+}
+
+/**
+ * An HTTP server's own sign-in (MCP's authorization), as discovery found it and the sign-in left it:
+ * its authorization server and the endpoints it publishes, the client registered there (RFC 7591), what
+ * its tokens are for, the host they go to, and its state. Its secrets are in the credential store.
+ */
+export interface StoredMcpOAuth {
+  issuer: string;
+  authorize: string;
+  token: string;
+  revoke?: string;
+  /** The registration endpoint the client was registered at. */
+  registration: string;
+  /** The resource its tokens are for (RFC 8707), and the scopes asked for. */
+  resource: string;
+  scopes: string[];
+  clientId: string;
+  /** The redirect addresses the client was registered with: a sign-in needing another registers again. */
+  redirectUris: string[];
+  /** Its client secret goes in a Basic header (`client_secret_basic`), else in the form. */
+  secretBasic?: boolean;
+  /** The only host its access token goes to: the server's own, when it signed in. */
+  host: string;
+  status: 'signed-in' | 'reauth';
+  signedInAt: number;
+  /** Why it needs a new sign-in. */
+  error?: string;
+  /** Its sign-in brought no refresh token: it lasts as long as its access token. */
+  noRefresh?: boolean;
+  /** Its authorization server's redirects bring back `iss` (RFC 9207): one without it is refused. */
+  issParameter?: boolean;
+  /** Its client was refused at a refresh (`invalid_client`, `unauthorized_client`): the next sign-in registers again. */
+  clientRefused?: boolean;
+}
+
+/** An HTTP server's sign-in secrets, in the credential store as one entry. */
+export interface McpOAuthSecrets {
+  refresh?: string;
+  clientSecret?: string;
+}
+
+/** What signing a server out (or removing it, or changing its URL) took away: to revoke at its authorization server. */
+export interface DroppedMcpOAuth {
+  oauth: StoredMcpOAuth;
+  secrets: McpOAuthSecrets;
 }
 
 interface Secrets {
@@ -69,6 +126,8 @@ interface Stored {
   relayTools?: Partial<Record<RelayToolGroup, Provider[]>>;
   /** Without a secret store (tests), or saved by an older version: the secret values, by server id. */
   secrets?: Record<string, Secrets>;
+  /** Without a secret store (tests): the servers' sign-in secrets, by server id. */
+  oauthSecrets?: Record<string, McpOAuthSecrets>;
   /** The browser the browser tools start (Settings), before `RELAY_BROWSER` and the ones found. */
   browser?: string;
 }
@@ -90,11 +149,20 @@ export interface AgentTools {
   memory?: string;
   /** Harness Relay's own tool groups the agent gets (through the gateway). */
   relayGroups: RelayToolGroup[];
+  /**
+   * Its HTTP servers that signed in themselves (by name, and id in the library): each turn gives them an
+   * access token in their `Authorization` header (`McpOAuth.forTurn()`).
+   */
+  oauthServers?: { name: string; id: string }[];
+  /** The servers left out of this turn, their sign-in needing a new one or not renewed now, with the user's note. */
+  leftOut?: { name: string; reason: 'reauth' | 'failed'; note: string }[];
 }
 
 const SETTINGS_KEY = 'tool_library';
 /** A server's entry in the credential store, named after its id. */
 const secretName = (serverId: string) => `mcp-${serverId}`;
+/** A server's sign-in secrets' entry: a dot no server's id has (ids are names or hex), so never another server's `mcp-<id>`. */
+const oauthSecretName = (serverId: string) => `mcp-oauth.${serverId}`;
 const SKILL_FILE = 'SKILL.md';
 const MAX_DESCRIPTION = 1024;
 
@@ -104,6 +172,15 @@ const emptyMemory = (): Record<MemoryScope, string> => Object.fromEntries(MEMORY
 function storedProviders(v: { providers?: unknown; enabled?: unknown }): Provider[] {
   if (Array.isArray(v.providers)) return PROVIDERS.filter((p) => (v.providers as unknown[]).includes(p));
   return v.enabled === false ? [] : [...PROVIDERS];
+}
+
+/** Whether two URLs name the same MCP server: the same canonical URL (`canonicalResource()`), else the same text. */
+function sameMcpUrl(a: string, b: string): boolean {
+  try {
+    return canonicalResource(a) === canonicalResource(b);
+  } catch {
+    return a === b;
+  }
 }
 
 function mask(value: string): string {
@@ -218,6 +295,8 @@ export class ToolLibrary {
   private data: Stored = { mcpServers: [], skills: [], memory: emptyMemory() };
   /** The secret values, by server id. */
   private secrets = new Map<string, Secrets>();
+  /** Without a credential store: the servers' sign-in secrets, by server id. */
+  private oauthSecrets = new Map<string, McpOAuthSecrets>();
 
   constructor(
     private db: Database,
@@ -247,6 +326,8 @@ export class ToolLibrary {
           ...(v.secrets ? { secrets: v.secrets } : {}),
           ...(typeof v.browser === 'string' && v.browser ? { browser: v.browser } : {}),
         };
+        if (!keyring && v.oauthSecrets && typeof v.oauthSecrets === 'object')
+          for (const [id, secrets] of Object.entries(v.oauthSecrets)) this.oauthSecrets.set(id, secrets);
       } catch {
         /* keep it empty */
       }
@@ -297,6 +378,7 @@ export class ToolLibrary {
     };
     const inDb = this.keyring ? [...this.leftInDb] : [...this.secrets.keys()];
     if (inDb.length) stored.secrets = Object.fromEntries(inDb.map((id) => [id, this.secrets.get(id)!]));
+    if (!this.keyring && this.oauthSecrets.size) stored.oauthSecrets = Object.fromEntries(this.oauthSecrets);
     this.db
       .prepare('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
       .run(SETTINGS_KEY, JSON.stringify(stored));
@@ -345,6 +427,9 @@ export class ToolLibrary {
           env: masked(s.env, secrets.env),
           headers: masked(s.headers, secrets.headers),
           providers: [...s.providers],
+          ...(s.oauth
+            ? { oauth: { status: s.oauth.status, signedInAt: s.oauth.signedInAt, ...(s.oauth.error ? { error: s.oauth.error } : {}) } }
+            : {}),
         };
       }),
       skills: this.skills().map(({ dir, providers, name, description, problem }) => ({
@@ -405,6 +490,11 @@ export class ToolLibrary {
       headers: Object.keys(secrets.headers),
       providers: u.providers ?? [...PROVIDERS],
     };
+    // Its sign-in stays while it is the same server (renamed, its headers or CLIs changed); another URL,
+    // or no longer HTTP, is another server: its tokens go.
+    const before = index >= 0 ? servers[index]! : undefined;
+    const sameServer = Boolean(before && http && before.transport === 'http' && sameMcpUrl(before.url, server.url));
+    if (sameServer && before?.oauth) server.oauth = before.oauth;
 
     // First: when the credential store fails, nothing changes. A rename keeps the same entry.
     this.writeSecrets(id, secrets);
@@ -413,7 +503,9 @@ export class ToolLibrary {
     this.unreadable.delete(id);
     if (index < 0) servers.push(server);
     else servers[index] = server;
+    const dropped = before && !sameServer ? this.dropOAuth(before) : undefined;
     this.save();
+    if (before && !sameServer) this.onMcpOAuthDropped(id, dropped);
     return this.view();
   }
 
@@ -422,8 +514,114 @@ export class ToolLibrary {
     if (index < 0) throw new HttpError(404, t().mcpNotFound(name));
     const [server] = this.data.mcpServers.splice(index, 1);
     this.deleteSecrets(server!.id);
+    const dropped = this.dropOAuth(server!);
     this.save();
+    this.onMcpOAuthDropped(server!.id, dropped);
     return this.view();
+  }
+
+  /**
+   * Told when a server's sign-in is gone (it was removed, its URL changed, or it signed out), with what it
+   * had, if it had signed in: its access token is forgotten, its sign-ins under way end, and its tokens are
+   * revoked (set by `McpOAuth`). Also for a server that never signed in, whose sign-in may be under way.
+   */
+  onMcpOAuthDropped: (serverId: string, dropped: DroppedMcpOAuth | undefined) => void = () => undefined;
+
+  /** Takes a server's sign-in off it, and its secrets out of the credential store; what it had, to revoke. */
+  private dropOAuth(server: StoredServer): DroppedMcpOAuth | undefined {
+    const oauth = server.oauth;
+    const secrets = this.mcpOAuthSecrets(server.id);
+    delete server.oauth;
+    this.oauthSecrets.delete(server.id);
+    try {
+      this.keyring?.delete(oauthSecretName(server.id));
+    } catch {
+      /* nothing stored */
+    }
+    return oauth ? { oauth, secrets } : undefined;
+  }
+
+  /** A server, by its name. */
+  mcpServer(name: string): Readonly<StoredServer> | undefined {
+    return this.data.mcpServers.find((s) => s.name === name);
+  }
+
+  /** A server, by its id. */
+  mcpServerById(id: string): Readonly<StoredServer> | undefined {
+    return this.data.mcpServers.find((s) => s.id === id);
+  }
+
+  /** A server's sign-in secrets (none when it has none, or the credential store cannot be read now). */
+  mcpOAuthSecrets(id: string): McpOAuthSecrets {
+    if (!this.keyring) return { ...this.oauthSecrets.get(id) };
+    try {
+      const raw = this.keyring.get(oauthSecretName(id));
+      return raw ? (JSON.parse(raw) as McpOAuthSecrets) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  /** Writes a server's sign-in secrets (none: deletes them); a credential store that refuses is a 503 that says so. */
+  private setMcpOAuthSecrets(id: string, secrets: McpOAuthSecrets): void {
+    const kept: McpOAuthSecrets = {
+      ...(secrets.refresh ? { refresh: secrets.refresh } : {}),
+      ...(secrets.clientSecret ? { clientSecret: secrets.clientSecret } : {}),
+    };
+    const empty = !kept.refresh && !kept.clientSecret;
+    if (!this.keyring) {
+      if (empty) this.oauthSecrets.delete(id);
+      else this.oauthSecrets.set(id, kept);
+      return;
+    }
+    try {
+      if (empty) this.keyring.delete(oauthSecretName(id));
+      else this.keyring.set(oauthSecretName(id), JSON.stringify(kept));
+    } catch (err) {
+      throw new HttpError(503, t().oauthTokenNotSaved((err as Error).message));
+    }
+  }
+
+  /**
+   * A server's sign-in that worked: where it signed in, its client and state, and its secrets. The
+   * secrets are written first: when the credential store refuses them, nothing changes.
+   */
+  mcpSignedIn(id: string, oauth: StoredMcpOAuth, secrets: McpOAuthSecrets): void {
+    const server = this.data.mcpServers.find((s) => s.id === id);
+    if (!server) throw new HttpError(404, t().mcpNotFound(id));
+    this.setMcpOAuthSecrets(id, secrets);
+    server.oauth = oauth;
+    this.save();
+  }
+
+  /** The provider's new refresh token (it rotates them), in place of the one kept. */
+  setMcpRefreshToken(id: string, token: string): void {
+    this.setMcpOAuthSecrets(id, { ...this.mcpOAuthSecrets(id), refresh: token });
+  }
+
+  /** Its sign-in no longer works: it needs a new one (Settings and the turns' notes say so). */
+  mcpNeedsSignIn(id: string, why: string): void {
+    const server = this.data.mcpServers.find((s) => s.id === id);
+    if (!server?.oauth) return;
+    server.oauth = { ...server.oauth, status: 'reauth', error: why };
+    this.save();
+  }
+
+  /** Its client was refused (expired, purged): it needs a new sign-in, which registers a client again. */
+  mcpClientRefused(id: string, why: string): void {
+    const server = this.data.mcpServers.find((s) => s.id === id);
+    if (!server?.oauth) return;
+    server.oauth = { ...server.oauth, status: 'reauth', error: why, clientRefused: true };
+    this.save();
+  }
+
+  /** Signs a server out: its sign-in and its secrets go; what it had comes back, for the caller to revoke (`McpOAuth.signOut()`). */
+  mcpSignOut(id: string): DroppedMcpOAuth | undefined {
+    const server = this.data.mcpServers.find((s) => s.id === id);
+    if (!server) throw new HttpError(404, t().mcpNotFound(id));
+    const dropped = this.dropOAuth(server);
+    this.save();
+    return dropped;
   }
 
   /** Replaces the skill list and / or the memory. New skill paths are checked; known ones are kept as they are. */
@@ -506,20 +704,23 @@ export class ToolLibrary {
   forAgent(agent: Pick<AgentConfig, 'tools' | 'provider'>): AgentTools {
     this.readAgain();
     const on = (key: string, providers: Provider[]) => agentHasTool(agent, key, providers.includes(agent.provider));
-    const mcpServers = this.data.mcpServers
-      .filter((s) => !this.unreadable.has(s.id) && on(toolKey('mcp', s.id), s.providers))
-      .map<McpServerSpec>((s) => {
-        const secrets = this.secrets.get(s.id) ?? { env: {}, headers: {} };
-        return {
-          name: s.name,
-          transport: s.transport,
-          command: s.command,
-          args: [...s.args],
-          url: s.url,
-          env: { ...secrets.env },
-          headers: { ...secrets.headers },
-        };
-      });
+    const given = this.data.mcpServers.filter((s) => !this.unreadable.has(s.id) && on(toolKey('mcp', s.id), s.providers));
+    // Not for a CLI that takes no HTTP MCP server (they are left out of its runs): no token, no refresh, no note.
+    const oauthServers = NO_HTTP_MCP.includes(agent.provider)
+      ? []
+      : given.filter((s) => s.transport === 'http' && s.oauth).map((s) => ({ name: s.name, id: s.id }));
+    const mcpServers = given.map<McpServerSpec>((s) => {
+      const secrets = this.secrets.get(s.id) ?? { env: {}, headers: {} };
+      return {
+        name: s.name,
+        transport: s.transport,
+        command: s.command,
+        args: [...s.args],
+        url: s.url,
+        env: { ...secrets.env },
+        headers: { ...secrets.headers },
+      };
+    });
     const skills = this.skills()
       .filter((s) => !s.problem && on(toolKey('skill', s.dir), s.providers))
       .map(({ name, description, dir, file }) => ({ name, description, dir, file }));
@@ -529,7 +730,7 @@ export class ToolLibrary {
       .filter(Boolean)
       .join('\n\n');
     const relayGroups = RELAY_TOOL_GROUPS.filter((g) => on(toolKey('relay', g), this.data.relayTools?.[g] ?? []));
-    return { mcpServers, skills, ...(memory ? { memory } : {}), relayGroups };
+    return { mcpServers, skills, ...(memory ? { memory } : {}), relayGroups, ...(oauthServers.length ? { oauthServers } : {}) };
   }
 }
 

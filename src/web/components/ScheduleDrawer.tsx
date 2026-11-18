@@ -4,12 +4,12 @@ import { api } from '../api';
 import { useI18n } from '../i18n';
 import { hashFor } from '../route';
 import {
-  describeRepeat,
+  combinedWatch,
   draftChanged,
   draftFrom,
   draftProblems,
   formatWhen,
-  scheduleState,
+  scheduleStatus,
   scheduleTrouble,
   shownZone,
   toUpdate,
@@ -43,6 +43,7 @@ export function ScheduleDrawer({
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   /** The conversation "Run now" just opened (a schedule that opens a new one each time). */
@@ -64,6 +65,7 @@ export function ScheduleDrawer({
   };
 
   const problems = draftProblems(draft, Date.now(), t);
+  const status = saved && scheduleStatus(saved, t, lang);
   const changed = draftChanged(draft, saved);
   // Scheduled messages go to the current team (the lead agent designs none when one comes due).
   const waitingPlan = Boolean(pendingPlan(conv.messages));
@@ -129,6 +131,28 @@ export function ScheduleDrawer({
     }
   };
 
+  const checkNow = async () => {
+    setChecking(true);
+    setError('');
+    setInfo('');
+    setRanIn(undefined);
+    try {
+      // What the check found shows, also while the automation is off (its state then says paused only).
+      const after = await api.checkSchedule(conv.id);
+      // Every trigger was checked: as one (the first error, the last check).
+      const w = after ? combinedWatch(after) : undefined;
+      // On, the status line above says how it went (its error too); off, it says only paused.
+      if (after?.enabled) setInfo(t.schedule.watch.done);
+      else if (w?.error) setError(t.schedule.watch.error(w.error));
+      else if (w?.checkedAt) setInfo(t.schedule.watch.checked(formatWhen(w.checkedAt, lang)));
+      else setInfo(t.schedule.watch.done);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setChecking(false);
+    }
+  };
+
   return (
     <div className="drawer-scrim" onClick={onClose}>
       <aside
@@ -148,12 +172,16 @@ export function ScheduleDrawer({
         </header>
         <p className="muted small">{t.schedule.intro}</p>
 
-        {saved && (
+        {saved && status && (
           <div className={`schedule-status ${scheduleTrouble(saved) ? 'warn' : ''}`}>
             <div className="schedule-status-text">
-              <strong>
-                {describeRepeat(saved.repeat, t, lang)} · {scheduleState(saved, t, lang)}
-              </strong>
+              <strong>{status.title}</strong>
+              {/* Several things to wait for: how each one's checks go, one line each. */}
+              {status.lines.map((line, i) => (
+                <span key={i} className="small schedule-trigger-state">
+                  {line}
+                </span>
+              ))}
               {saved.lastResult && saved.lastRunAt !== undefined && (
                 <span className="small">
                   {t.schedule.last(formatWhen(saved.lastRunAt, lang, shownZone(saved)), t.schedule.results[saved.lastResult])}
@@ -183,6 +211,17 @@ export function ScheduleDrawer({
               )}
             </div>
             <div className="schedule-status-actions">
+              {saved.repeat.kind === 'event' && (
+                <button
+                  type="button"
+                  className="ghost small-button"
+                  disabled={checking || changed}
+                  title={changed ? t.schedule.watch.checkSaveFirst : t.schedule.watch.checkNowTitle}
+                  onClick={checkNow}
+                >
+                  {t.schedule.watch.checkNow}
+                </button>
+              )}
               <button
                 type="button"
                 className="ghost small-button"

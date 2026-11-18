@@ -1,10 +1,32 @@
-import { useEffect, useId, useMemo, useRef } from 'react';
-import { SCHEDULE_KINDS, SCHEDULE_LIMITS, type ConversationSchedule, type ConversationSettings } from '../../shared/types';
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react';
+import {
+  SCHEDULE_KINDS,
+  SCHEDULE_LIMITS,
+  TRIGGER_SOURCES,
+  WATCH_LIMITS,
+  type CalendarAccountView,
+  type ConversationSchedule,
+  type ConversationSettings,
+  type MailAccountView,
+  type ScheduleTrigger,
+} from '../../shared/types';
+import { api } from '../api';
 import { mentionWarning } from '../copy';
 import { useI18n } from '../i18n';
 import { useLimits } from '../limits';
+import { hashFor } from '../route';
 import { revealChosen } from './CliPicker';
-import { browserTimeZone, draftProblems, formatWhen, localInput, previewRuns, shownZone, type ScheduleDraft } from '../schedule';
+import {
+  browserTimeZone,
+  draftProblems,
+  editTriggers,
+  formatWhen,
+  localInput,
+  previewRuns,
+  shownZone,
+  type ScheduleDraft,
+  type TriggerDraft,
+} from '../schedule';
 
 /** Monday first, as a week is read. */
 const WEEK = [1, 2, 3, 4, 5, 6, 0];
@@ -33,6 +55,7 @@ export function ScheduleForm({
   hook?: { checked: boolean; onChange: (on: boolean) => void };
 }) {
   const { t, lang } = useI18n();
+  const w = t.schedule.watch;
   const { turnTimeoutMinutes } = useLimits();
   const intervalHintId = useId();
   const kindsRow = useRef<HTMLDivElement>(null);
@@ -52,6 +75,47 @@ export function ScheduleForm({
 
   const toggleDay = (day: number) =>
     onEdit({ days: draft.days.includes(day) ? draft.days.filter((d) => d !== day) : [...draft.days, day] });
+
+  // The mail accounts and calendars from Settings, once the automation is to wait for something.
+  const [accounts, setAccounts] = useState<{ mail: MailAccountView[]; calendar: CalendarAccountView[] }>();
+  const watching = draft.kind === 'event';
+  useEffect(() => {
+    if (!watching || accounts) return;
+    let live = true;
+    api.connectors().then(
+      (v) => live && setAccounts({ mail: v.mail, calendar: v.calendar }),
+      () => live && setAccounts({ mail: [], calendar: [] }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [watching, accounts]);
+  const mailAccounts = accounts?.mail;
+  const calendars = accounts?.calendar;
+  // The first account (and calendar) until another is picked, for each thing it waits for.
+  useEffect(() => {
+    if (!watching) return;
+    const account = mailAccounts?.[0]?.id;
+    const calendar = calendars?.[0]?.id;
+    const filled = draft.triggers.map((tr) => ({
+      ...tr,
+      ...(account && !tr.account ? { account } : {}),
+      ...(calendar && !tr.calendar ? { calendar } : {}),
+    }));
+    if (filled.some((tr, i) => tr.account !== draft.triggers[i]!.account || tr.calendar !== draft.triggers[i]!.calendar))
+      onEdit({ triggers: filled });
+  }, [watching, mailAccounts, calendars, draft.triggers, onEdit]);
+  const editTrigger = (index: number, patch: Partial<TriggerDraft>) =>
+    onEdit({ triggers: draft.triggers.map((tr, i) => (i === index ? { ...tr, ...patch } : tr)) });
+  const several = draft.triggers.length > 1;
+  // Each source's hint once, in the order they come.
+  const hints = [...new Set(draft.triggers.map((tr) => tr.source))].map((source) =>
+    ({ mail: w.hint, calendar: w.calendarHint, github: w.githubHint, file: w.fileHint })[source](
+      WATCH_LIMITS.checkMinutes,
+      WATCH_LIMITS.settleSeconds,
+    ),
+  );
+  const sourceHint = [...(several ? [w.severalHint] : []), ...hints].join(' ');
 
   return (
     <section className="schedule-form">
@@ -160,14 +224,49 @@ export function ScheduleForm({
           </>
         )}
 
+        {watching && (
+          <>
+            {draft.triggers.map((trigger, i) => (
+              <Fragment key={i}>
+                {i > 0 && (
+                  <span className="schedule-trigger-or small muted" aria-hidden="true">
+                    {w.or}
+                  </span>
+                )}
+                <TriggerFields
+                  trigger={trigger}
+                  index={i}
+                  several={several}
+                  mailAccounts={mailAccounts}
+                  calendars={calendars}
+                  onEdit={(patch) => editTrigger(i, patch)}
+                  onRemove={() => onEdit({ triggers: editTriggers(draft, { remove: i }) })}
+                />
+              </Fragment>
+            ))}
+            {draft.triggers.length < WATCH_LIMITS.triggers && (
+              <button
+                type="button"
+                className="ghost small-button schedule-trigger-add"
+                title={w.addTitle(WATCH_LIMITS.triggers)}
+                onClick={() => onEdit({ triggers: editTriggers(draft, { add: true }) })}
+              >
+                <span aria-hidden="true">+</span> {w.add}
+              </button>
+            )}
+          </>
+        )}
+
         <span className="small muted schedule-preview">
           {problems.length
             ? problems[0]
-            : draft.kind === 'manual'
-              ? manualHint
-              : upcoming.length
-                ? `${t.schedule.upcoming} ${upcoming.map((at) => formatWhen(at, lang, draftZone)).join(t.common.listSeparator)}`
-                : t.schedule.never}
+            : watching
+              ? sourceHint
+              : draft.kind === 'manual'
+                ? manualHint
+                : upcoming.length
+                  ? `${t.schedule.upcoming} ${upcoming.map((at) => formatWhen(at, lang, draftZone)).join(t.common.listSeparator)}`
+                  : t.schedule.never}
           {draftZone && (
             <>
               {' · '}
@@ -242,8 +341,9 @@ export function ScheduleForm({
         </span>
       </div>
 
-      {/* No set times: nothing comes due while Harness Relay is closed, so nothing is missed. */}
-      {draft.kind !== 'manual' && (
+      {/* No set times: nothing comes due while Harness Relay is closed, so nothing is missed (new mail
+          that came meanwhile is found at the first check). */}
+      {draft.kind !== 'manual' && !watching && (
         <div className="field">
           <span>{t.schedule.missed}</span>
           <div className="segmented wide" role="radiogroup" aria-label={t.schedule.missed}>
@@ -264,5 +364,207 @@ export function ScheduleForm({
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * One thing an automation waits for, in the form: its source and that source's fields. With several,
+ * a group named by its number, which can be removed.
+ */
+function TriggerFields({
+  trigger,
+  index,
+  several,
+  mailAccounts,
+  calendars,
+  onEdit,
+  onRemove,
+}: {
+  trigger: TriggerDraft;
+  index: number;
+  several: boolean;
+  /** The mail accounts and calendars from Settings (absent while they load). */
+  mailAccounts?: MailAccountView[];
+  calendars?: CalendarAccountView[];
+  onEdit: (patch: Partial<TriggerDraft>) => void;
+  onRemove: () => void;
+}) {
+  const { t } = useI18n();
+  const w = t.schedule.watch;
+  const source = trigger.source;
+  return (
+    <div
+      className={`schedule-trigger ${several ? 'several' : ''}`}
+      role={several ? 'group' : undefined}
+      aria-label={several ? w.group(index + 1) : undefined}
+    >
+      <div className="schedule-trigger-head">
+        <label className="field">
+          <span>{w.source}</span>
+          <select value={source} onChange={(e) => onEdit({ source: e.target.value as ScheduleTrigger['source'] })}>
+            {TRIGGER_SOURCES.map((s) => (
+              <option key={s} value={s}>
+                {w.sources[s]}
+              </option>
+            ))}
+          </select>
+        </label>
+        {several && (
+          <button type="button" className="ghost small-button" aria-label={w.removeLabel(index + 1)} onClick={onRemove}>
+            {w.remove}
+          </button>
+        )}
+      </div>
+      {source === 'mail' && (
+        <>
+          {mailAccounts && !mailAccounts.length ? (
+            <p className="small warn-text">
+              {w.noAccounts}{' '}
+              <a className="link-button" href={hashFor({ page: 'settings', section: 'tools' })}>
+                {w.openSettings}
+              </a>
+            </p>
+          ) : (
+            <label className="field">
+              <span>{w.account}</span>
+              <select value={trigger.account} onChange={(e) => onEdit({ account: e.target.value })}>
+                {!trigger.account && <option value="">…</option>}
+                {/* An account removed since: kept until another is picked, so saving says what is wrong. */}
+                {trigger.account && mailAccounts && !mailAccounts.some((m) => m.id === trigger.account) && (
+                  <option value={trigger.account}>{trigger.account}</option>
+                )}
+                {(mailAccounts ?? []).map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} · {m.address}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="field">
+            <span>{w.folder}</span>
+            <input
+              value={trigger.folder}
+              maxLength={WATCH_LIMITS.field}
+              placeholder="INBOX"
+              onChange={(e) => onEdit({ folder: e.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span>{w.from}</span>
+            <input
+              value={trigger.from}
+              maxLength={WATCH_LIMITS.field}
+              placeholder={w.fromPlaceholder}
+              onChange={(e) => onEdit({ from: e.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span>{w.subject}</span>
+            <input
+              value={trigger.subject}
+              maxLength={WATCH_LIMITS.field}
+              placeholder={w.subjectPlaceholder}
+              onChange={(e) => onEdit({ subject: e.target.value })}
+            />
+          </label>
+        </>
+      )}
+      {source === 'calendar' && (
+        <>
+          {calendars && !calendars.length ? (
+            <p className="small warn-text">
+              {w.noCalendars}{' '}
+              <a className="link-button" href={hashFor({ page: 'settings', section: 'tools' })}>
+                {w.openSettings}
+              </a>
+            </p>
+          ) : (
+            <label className="field">
+              <span>{w.calendarAccount}</span>
+              <select value={trigger.calendar} onChange={(e) => onEdit({ calendar: e.target.value })}>
+                {!trigger.calendar && <option value="">…</option>}
+                {trigger.calendar && calendars && !calendars.some((c) => c.id === trigger.calendar) && (
+                  <option value={trigger.calendar}>{trigger.calendar}</option>
+                )}
+                {(calendars ?? []).map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="field">
+            <span>{w.minutes}</span>
+            <input
+              type="number"
+              min={1}
+              max={WATCH_LIMITS.maxMinutes}
+              step={1}
+              value={Number.isFinite(trigger.minutes) ? trigger.minutes : ''}
+              onChange={(e) => onEdit({ minutes: e.target.value === '' ? NaN : Number(e.target.value) })}
+            />
+          </label>
+          <label className="field">
+            <span>{w.title}</span>
+            <input
+              value={trigger.title}
+              maxLength={WATCH_LIMITS.field}
+              placeholder={w.titlePlaceholder}
+              onChange={(e) => onEdit({ title: e.target.value })}
+            />
+          </label>
+        </>
+      )}
+      {source === 'github' && (
+        <>
+          <label className="field">
+            <span>{w.repo}</span>
+            <input
+              value={trigger.repo}
+              maxLength={WATCH_LIMITS.field}
+              placeholder={w.repoPlaceholder}
+              spellCheck={false}
+              autoCapitalize="off"
+              onChange={(e) => onEdit({ repo: e.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span>{w.what}</span>
+            <select value={trigger.on} onChange={(e) => onEdit({ on: e.target.value === 'ci' ? 'ci' : 'pr' })}>
+              <option value="pr">{w.on.pr}</option>
+              <option value="ci">{w.on.ci}</option>
+            </select>
+          </label>
+          {trigger.on === 'ci' && (
+            <label className="field">
+              <span>{w.branch}</span>
+              <input
+                value={trigger.branch}
+                maxLength={WATCH_LIMITS.field}
+                placeholder={w.branchPlaceholder}
+                spellCheck={false}
+                autoCapitalize="off"
+                onChange={(e) => onEdit({ branch: e.target.value })}
+              />
+            </label>
+          )}
+        </>
+      )}
+      {source === 'file' && (
+        <label className="field">
+          <span>{w.pattern}</span>
+          <input
+            value={trigger.pattern}
+            maxLength={WATCH_LIMITS.field}
+            placeholder={w.patternPlaceholder}
+            spellCheck={false}
+            autoCapitalize="off"
+            onChange={(e) => onEdit({ pattern: e.target.value })}
+          />
+        </label>
+      )}
+    </div>
   );
 }

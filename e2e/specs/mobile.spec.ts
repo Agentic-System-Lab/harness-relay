@@ -624,6 +624,16 @@ test.describe('on a phone', () => {
           expect(await rows('.schedule-kinds'), `the kinds, ${lang}, ${width}px`).toBe(1);
           if (kind === 'weekly') expect(await rows('.day-picker'), `the days, ${lang}, ${width}px`).toBe(dayRows(lang, width));
         }
+        // Waiting for several things: each in a box of its own, with its Remove, still within the page.
+        if (kind === 'event') {
+          await page.setViewportSize(viewport);
+          await page.getByRole('button', { name: s.watch.add }).tap();
+          await expect(page.getByRole('group', { name: s.watch.group(2) })).toBeVisible();
+          for (const width of widthsOf[lang]) {
+            await page.setViewportSize({ width, height: 640 });
+            expect(await sideways(), `${lang}, two things to wait for, ${width}px`).toEqual([]);
+          }
+        }
       }
     }
 
