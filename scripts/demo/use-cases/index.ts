@@ -22,7 +22,7 @@
  * agent step (default 25), --parallel <n> (use cases recorded at once, default 1), --no-build, --dry.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { removeTree } from '../../../src/server/fsRemove';
 import { DEMO_LANGS, ROOT, type DemoLang } from '../common';
@@ -110,6 +110,13 @@ const logger =
 /** Each use case and language has a port of its own, so that any of them can record beside the others. */
 const portFor = (o: Options, uc: UseCase, lang: DemoLang) => o.port + USE_CASES.indexOf(uc) * DEMO_LANGS.length + DEMO_LANGS.indexOf(lang);
 
+/**
+ * The built UI this run's servers serve: a copy of `dist/web` made once, so that a build while it records
+ * (another `npm run build` in this checkout) never swaps the files under an open page, which would reload
+ * it when it next loads a part of itself (a drawer, the Files panel).
+ */
+let webCopy = '';
+
 async function recordOne(o: Options, uc: UseCase, lang: DemoLang): Promise<void> {
   const log = logger(uc.slug, lang);
   const dir = join(o.out, uc.slug, lang);
@@ -123,7 +130,10 @@ async function recordOne(o: Options, uc: UseCase, lang: DemoLang): Promise<void>
   if (existsSync(dataDir)) throw new Error(`Could not remove the last recording's data in ${dataDir}`);
   const prepared = await uc.prepare(lang, work);
   try {
-    const server = await startServer(portFor(o, uc, lang), dataDir, join(dir, 'server.log'), { cwd: prepared.cwd });
+    const server = await startServer(portFor(o, uc, lang), dataDir, join(dir, 'server.log'), {
+      cwd: prepared.cwd,
+      env: { RELAY_WEB_DIR: webCopy },
+    });
     log('Harness Relay on', server.base, 'in', prepared.cwd);
     try {
       await checkProviders(server.base, log, uc.providers, prepared.cwd);
@@ -182,17 +192,26 @@ async function main(): Promise<void> {
       const r = spawnSync(join(ROOT, 'node_modules/.bin/vite'), ['build', '--logLevel', 'warn'], { cwd: ROOT, stdio: 'inherit' });
       if (r.status !== 0) throw new Error('vite build failed');
     } else if (!existsSync(join(ROOT, 'dist/web/index.html'))) throw new Error('The UI is not built: drop --no-build.');
-    // A use case's languages at once (each with its own server), `parallel` use cases at a time.
+    webCopy = join(o.out, `.web-${process.pid}`);
+    rmSync(webCopy, { recursive: true, force: true });
+    cpSync(join(ROOT, 'dist/web'), webCopy, { recursive: true });
+    // A use case's languages at once (each with its own server), `parallel` use cases at a time; then each
+    // one that records alone (`UseCase.alone`), one language after the other, with nothing else running.
+    const reason = (e: unknown) => (e instanceof Error ? e.stack : String(e));
     const failed = await limited(
       o.parallel,
-      o.cases.map((uc) => async () => {
-        const results = await Promise.allSettled(o.langs.map((lang) => recordOne(o, uc, lang)));
-        const errors = results.flatMap((r, i) =>
-          r.status === 'rejected' ? [`${uc.slug} ${o.langs[i]}: ${r.reason instanceof Error ? r.reason.stack : r.reason}`] : [],
-        );
-        if (errors.length) throw new Error(errors.join('\n'));
-      }),
+      o.cases
+        .filter((uc) => !uc.alone)
+        .map((uc) => async () => {
+          const results = await Promise.allSettled(o.langs.map((lang) => recordOne(o, uc, lang)));
+          const errors = results.flatMap((r, i) => (r.status === 'rejected' ? [`${uc.slug} ${o.langs[i]}: ${reason(r.reason)}`] : []));
+          if (errors.length) throw new Error(errors.join('\n'));
+        }),
     );
+    for (const uc of o.cases.filter((u) => u.alone)) {
+      for (const lang of o.langs) await recordOne(o, uc, lang).catch((e: unknown) => failed.push(`${uc.slug} ${lang}: ${reason(e)}`));
+    }
+    rmSync(webCopy, { recursive: true, force: true });
     if (failed.length) throw new Error(`Recording failed\n${failed.join('\n')}`);
   }
   if (o.dry) return;
