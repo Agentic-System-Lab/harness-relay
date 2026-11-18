@@ -130,7 +130,7 @@ Releases are made by maintainers with the Release workflow only (**Actions → R
 
 If your change affects what agents see or do, also try it in the app with at least one real CLI, and say which ones you used.
 
-If your change moves an agent CLI to a newer version (`src/shared/cliVersions.ts`), check that version first with `npx tsx scripts/cli-check.ts <cli> --bin <the new one>`, say what it reported, and save the new version's shapes with it (`--accept`): see [Checking a CLI's new version](docs/developer-guide.md#checking-a-clis-new-version). The CLI versions workflow opens an issue (label `cli-check`) for each CLI that has one out.
+If your change moves an agent CLI to a newer version (`src/shared/cliVersions.ts`), check that version first with `npx tsx scripts/cli-check.ts <cli> --bin <the new one>` and run its live tests, say what they reported, and in the same commit save the new version's shapes (`--accept`) and update the user guide's line, in both languages, with the other docs that say which version a behaviour was seen with once you tried it again with it: see [Checking a CLI's new version](docs/developer-guide.md#checking-a-clis-new-version). The CLI versions workflow opens an issue (label `cli-check`) for each CLI that has one out.
 
 ## Commit messages
 

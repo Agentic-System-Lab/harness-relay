@@ -9,6 +9,7 @@
  * with what went through its stdin and stdout: JSON lines (ACP, Codex's app-server, Claude Code's
  * stream-json, Pi's RPC) or Content-Length frames (Copilot's headless server).
  */
+import { StringDecoder } from 'node:string_decoder';
 import type { SpawnRecorder } from '../../src/server/process';
 
 export interface Spawned {
@@ -21,18 +22,23 @@ export interface Spawned {
   exit?: { code: number | null; signal: string | null };
 }
 
-/** A recorder that keeps every process's stdio as text. */
+/**
+ * A recorder that keeps every process's stdio as text, each stream decoded as one (a character split
+ * between two chunks is kept whole: Content-Length frames count bytes).
+ */
 export function memoryRecorder(): { recorder: SpawnRecorder; spawned: Spawned[] } {
   const spawned: Spawned[] = [];
   const recorder: SpawnRecorder = {
     start: (o) => {
       const s: Spawned = { bin: o.bin, args: [...o.args], ...(o.cwd ? { cwd: o.cwd } : {}), stdin: '', stdout: '', stderr: '' };
+      const decoders = { stdin: new StringDecoder('utf8'), stdout: new StringDecoder('utf8'), stderr: new StringDecoder('utf8') };
       spawned.push(s);
       return {
         data: (stream, chunk) => {
-          s[stream] += chunk.toString('utf8');
+          s[stream] += decoders[stream].write(chunk);
         },
         exit: (code, signal) => {
+          for (const stream of ['stdin', 'stdout', 'stderr'] as const) s[stream] += decoders[stream].end();
           s.exit = { code, signal };
         },
       };

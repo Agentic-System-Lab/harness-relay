@@ -2,7 +2,7 @@ import type { Provider } from './types';
 
 /**
  * The version of each agent CLI that Harness Relay was last checked with, end to end, against the
- * real CLI (docs/sandboxing.md, "Checked", has the systems and dates). The one place it is written:
+ * real CLI (docs/sandboxing.md, "What was tested", has the systems and dates). The one place it is written:
  * Settings installs the open agents' versions from it (`CLI_RECIPES` in `src/server/cliInstall.ts`),
  * the user guide's list of CLIs says the same (`test/cli-check.test.ts` holds them equal), and
  * `scripts/cli-check.ts` compares it with what each maker has published since.

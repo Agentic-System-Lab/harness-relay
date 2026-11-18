@@ -29,6 +29,8 @@ export const HELP_ARGS: Record<Provider, string[][]> = {
 
 export interface ProbeResult {
   shape: Shape;
+  /** Any of its accounts said it is signed in: in a scratch home, it found a sign-in elsewhere. */
+  signedIn: boolean;
   spawned: Spawned[];
   /** What the server made of the answers, in a few words, for the report. */
   facts: string[];
@@ -55,7 +57,9 @@ export async function probeCli(p: Provider, bin: string, cli: CliScratch): Promi
     version = status.version;
     results.status = status;
     facts.push(`installed: ${status.installed}`, `version: ${status.version ?? '?'}`, `signed in: ${String(status.auth.loggedIn)}`);
-    if (!status.installed) return { shape: { kinds: {} }, spawned, facts, ...(version ? { version } : {}) };
+    const signedIn = status.accounts.some((a) => a.auth.loggedIn === true);
+    // Signed in, or not there: nothing more is asked (a signed-in CLI's answers would be about that account).
+    if (!status.installed || signedIn) return { shape: { kinds: {} }, signedIn, spawned, facts, ...(version ? { version } : {}) };
     const models = await service.models(p, true);
     results.models = models;
     facts.push(`models: ${models.models.length} (${models.source}${models.error ? `, ${models.error.slice(0, 80)}` : ''})`);
@@ -83,7 +87,7 @@ export async function probeCli(p: Provider, bin: string, cli: CliScratch): Promi
     const shape = shapeOf(spawned);
     shape.flags = flagsOf(help.join('\n'));
     shape.results = Object.fromEntries(Object.entries(results).map(([k, v]) => [k, [...resultPaths(k, v)].sort()]));
-    return { shape, spawned, facts, ...(version ? { version } : {}) };
+    return { shape, signedIn, spawned, facts, ...(version ? { version } : {}) };
   } finally {
     recordSpawns(undefined);
   }

@@ -67,19 +67,21 @@
           "agents[].description:string",
           "agents[].id:string",
           "agents[].name=explore",
+          "agents[].name=general",
           "agents[].source:string",
           "asRun:boolean",
           "cwd:string",
-          "fact:problem=no-answer",
           "mcpServers:[]",
           "memory:[]",
           "memoryFromFiles:boolean",
           "nativeItems:{}",
           "nativeOff:[]",
-          "problems[].kind=no-answer",
-          "problems[].part:string",
+          "problems:[]",
           "provider:string",
-          "skills:[]"
+          "skills[].description:string",
+          "skills[].id:string",
+          "skills[].name=customize-opencode",
+          "skills[].source:string"
         ]
       }
     }

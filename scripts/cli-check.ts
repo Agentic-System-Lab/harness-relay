@@ -16,82 +16,53 @@
  *                 the CLI needs (sandbox-check, mcp-headers-check), with their commands
  *   5.            the live tests for it, named with what they need (npm run test:e2e:live)
  *
- *   npx tsx scripts/cli-check.ts                       every CLI that is behind: layers 1 to 4
+ *   npx tsx scripts/cli-check.ts                       every CLI here newer than the version it was
+ *                                                      checked with: layers 1 to 4, and 5's commands
  *   npx tsx scripts/cli-check.ts <cli> [--bin <path>]  one CLI, layers 1 to 4, whatever its version
- *   npx tsx scripts/cli-check.ts versions [--json] [--issues [--dry-run]]
+ *   npx tsx scripts/cli-check.ts versions [<cli>] [--json] [--issues [--dry-run]]
  *   npx tsx scripts/cli-check.ts probe <cli> [--bin <path>] [--accept]
  *   npx tsx scripts/cli-check.ts run <cli> [--bin <path>] [--only <scenario>] [--accept]
  *   npx tsx scripts/cli-check.ts changelog <cli> [--from <version>] [--to <version>] [--bin <path>]
  *
  * --bin: the CLI to check (default: its name on the PATH). --accept: save what was recorded as the
  * shapes of the version checked (test/fixtures/cli-check/<cli>/), once what changed was looked at.
+ * --only: the scenarios whose name holds the text. --from, --to: the release notes' versions.
  * --keep: keep the scratch folders (their paths are printed). --json: the versions as JSON. --issues:
  * keep the workflow's issues, through gh (the CLI versions workflow, .github/workflows/cli-versions.yml);
- * with --dry-run, only say what it would do with them. An option it does not know is refused.
+ * with --dry-run, only say what it would do with them. An option it does not know is refused
+ * (`scripts/cli-check/args.ts`).
  *
- * Every CLI runs in a scratch folder of its own (scripts/cli-check/scratch.ts): a home, the XDG
- * folders, Harness Relay's data folder, none of your variables but the PATH and the locale, no
- * auto-update, no browser. It is never signed in and never reaches a model service: layer 3's model
- * is on 127.0.0.1. macOS and Linux only.
+ * Every CLI runs in scratch folders of its own (scripts/cli-check/scratch.ts): a home, the XDG
+ * folders, Harness Relay's data folder, working directories outside the home and the temporary
+ * folders, of your variables only the PATH, the locale and the terminal's and user's names, no
+ * auto-update, no browser. It is never signed in (a CLI that says it is stops the check) and never
+ * reaches a model service: layer 3's model is on 127.0.0.1. Layers 2 and 3 on macOS and Linux only.
  */
+import { resolve } from 'node:path';
 import { CHECKED_VERSIONS } from '../src/shared/cliVersions';
-import { PROVIDERS, PROVIDER_LABEL, type Provider } from '../src/shared/types';
+import { PROVIDERS, type Provider } from '../src/shared/types';
+import { USAGE, parseArgs } from './cli-check/args';
+import { keepIssues, type Gh } from './cli-check/issues';
 import { cliEnv, isolate, makeScratch, type Scratch } from './cli-check/scratch';
-import {
-  ISSUE_LABEL,
-  planIssues,
-  versionRows,
-  versionTable,
-  type IssueAction,
-  type OpenIssue,
-  type VersionRow,
-} from './cli-check/versions';
+import { versionRows, versionStatus, versionTable, type VersionRow } from './cli-check/versions';
 
-const argv = process.argv.slice(2);
-const flag = (name: string) => argv.includes(name);
-const option = (name: string): string | undefined => {
-  const i = argv.indexOf(name);
-  return i >= 0 ? argv[i + 1] : undefined;
-};
-const positional = argv.filter((a, i) => !a.startsWith('--') && !['--bin', '--only', '--from', '--to'].includes(argv[i - 1] ?? ''));
-const COMMANDS = ['versions', 'probe', 'run', 'changelog'] as const;
-type Command = (typeof COMMANDS)[number] | 'all';
-const command: Command = (COMMANDS as readonly string[]).includes(positional[0] ?? '') ? (positional.shift() as Command) : 'all';
-const cliArg = positional[0];
-
-function usage(message?: string): never {
-  if (message) console.error(message);
-  console.error(
-    [
-      'Usage:',
-      '  npx tsx scripts/cli-check.ts [<cli>] [--bin <path>] [--keep]',
-      '  npx tsx scripts/cli-check.ts versions [--json] [--issues [--dry-run]]',
-      '  npx tsx scripts/cli-check.ts probe <cli> [--bin <path>] [--accept] [--keep]',
-      '  npx tsx scripts/cli-check.ts run <cli> [--bin <path>] [--only <scenario>] [--accept] [--keep]',
-      '  npx tsx scripts/cli-check.ts changelog <cli> [--from <version>] [--to <version>] [--bin <path>]',
-      `<cli>: ${PROVIDERS.join(', ')}`,
-    ].join('\n'),
-  );
+const parsed = parseArgs(process.argv.slice(2));
+if ('error' in parsed) {
+  console.error(`${parsed.error}\n${USAGE}`);
   process.exit(2);
 }
-
-// A flag it does not know is refused, never passed over: a mistyped --dry-run must not keep the issues for real.
-const FLAGS = ['--bin', '--only', '--from', '--to', '--accept', '--keep', '--json', '--issues', '--dry-run'];
-const unknownFlag = argv.find((a) => a.startsWith('--') && !FLAGS.includes(a));
-if (unknownFlag) usage(`Unknown option: ${unknownFlag}`);
-if (flag('--dry-run') && !flag('--issues')) usage('--dry-run goes with versions --issues.');
-const provider = cliArg as Provider | undefined;
-if (provider && !(PROVIDERS as readonly string[]).includes(provider)) usage(`Unknown CLI: ${provider}`);
-if ((command === 'probe' || command === 'run' || command === 'changelog') && !provider) usage(`${command} needs a CLI.`);
-if (process.platform === 'win32' && command !== 'versions' && command !== 'changelog') usage('Layers 2 and 3 run on macOS and Linux only.');
+const args = parsed;
+const provider = args.provider;
+// A path given to --bin is taken from where the script was started: the script then works in its
+// scratch folder. A bare name is looked up on the PATH, as the CLI's own name is.
+const givenBin = args.bin && /[\\/]/.test(args.bin) ? resolve(args.bin) : args.bin;
 
 // ---------------------------------------------------------------------------
 // Layer 1
 
 /** The CLI to check: `--bin`, else its name on the PATH (`DEFAULT_BIN`, imported once isolated). */
 async function binOf(p: Provider): Promise<string> {
-  const given = option('--bin');
-  if (given && provider === p) return given;
+  if (givenBin && provider === p) return givenBin;
   const { DEFAULT_BIN } = await import('../src/server/settings');
   return DEFAULT_BIN[p];
 }
@@ -121,108 +92,97 @@ async function layerVersions(only: readonly Provider[], scratch?: Scratch): Prom
   return rows;
 }
 
+/** A version `--version` said, as a version: not "? (…)" nor "error: …". */
+const said = (v: string | undefined): v is string => !!v && /^\d/.test(v);
+
 /** gh, with this process's environment (its token), started directly. */
-async function gh(args: string[], stdin?: string): Promise<string> {
+const gh: Gh = async (ghArgs, stdin) => {
   const { runProcess } = await import('../src/server/process');
   const repo = process.env.GITHUB_REPOSITORY ? ['--repo', process.env.GITHUB_REPOSITORY] : [];
   const r = await runProcess({
     bin: 'gh',
-    args: [...args, ...repo],
+    args: [...ghArgs, ...repo],
     env: process.env,
     timeoutMs: 60_000,
     ...(stdin !== undefined ? { stdin } : {}),
   });
-  if (r.code !== 0) throw new Error(`gh ${args.slice(0, 2).join(' ')}: ${(r.stderr || r.stdout).trim()}`);
+  if (r.code !== 0) throw new Error(`gh ${ghArgs.slice(0, 2).join(' ')}: ${(r.stderr || r.stdout).trim()}`);
   return r.stdout;
-}
-
-/** Keeps the workflow's issues; `dryRun`: only says what it would do (it reads the open issues and changes nothing). */
-async function keepIssues(rows: readonly VersionRow[], dryRun: boolean): Promise<void> {
-  // `gh label create --force` makes the label or updates it: the first run has none yet.
-  if (!dryRun) {
-    await gh(['label', 'create', ISSUE_LABEL, '--color', '5319E7', '--description', 'A newer version of an agent CLI to check', '--force']);
-  }
-  const open = JSON.parse(
-    await gh(['issue', 'list', '--label', ISSUE_LABEL, '--state', 'open', '--json', 'number,title,body', '--limit', '200']),
-  ) as OpenIssue[];
-  const actions = planIssues(rows, open);
-  if (!dryRun) for (const a of actions) await applyIssue(a);
-  const say = (a: IssueAction) => (dryRun ? `Would have: ${describeIssue(a)}` : describeIssue(a));
-  console.log(actions.length ? actions.map(say).join('\n') : 'Issues: nothing to change.');
-}
-
-async function applyIssue(a: IssueAction): Promise<void> {
-  if (a.kind === 'create') await gh(['issue', 'create', '--title', a.title, '--label', ISSUE_LABEL, '--body-file', '-'], a.body);
-  else if (a.kind === 'update') {
-    await gh(['issue', 'edit', String(a.number), '--title', a.title, '--body-file', '-'], a.body);
-    await gh(['issue', 'comment', String(a.number), '--body-file', '-'], a.comment);
-  } else await gh(['issue', 'close', String(a.number), '--comment', a.comment]);
-}
-
-function describeIssue(a: IssueAction): string {
-  if (a.kind === 'create') return `Opened an issue: ${a.title}`;
-  if (a.kind === 'update') return `Updated #${a.number}: ${a.title}`;
-  return `Closed #${a.number} (${PROVIDER_LABEL[a.provider]})`;
-}
+};
 
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<number> {
-  if (command === 'versions' && flag('--issues')) {
+  if (args.command === 'versions' && args.issues) {
     // As the workflow runs it: no CLI started, this process's environment (its token) kept for gh.
     const rows = await layerVersions(provider ? [provider] : PROVIDERS);
     console.log(versionTable(rows));
-    await keepIssues(rows, flag('--dry-run'));
+    for (const line of await keepIssues(rows, args.dryRun, gh)) console.log(line);
     return 0;
   }
   // Everything else starts CLIs: the scratch folder becomes this process's environment before the
-  // server's modules are imported, and the server speaks English.
-  const scratch = makeScratch(flag('--keep'));
+  // server's modules are imported, the script works in it, and the server speaks English.
+  const scratch = makeScratch(args.keep);
   isolate(scratch.env);
-  if (flag('--keep')) console.log(`Scratch folders (kept): ${scratch.root} and ${scratch.place}`);
+  process.chdir(scratch.place);
+  if (args.keep) console.log(`Scratch folders (kept): ${scratch.root} and ${scratch.place}`);
   const { withLang } = await import('../src/server/i18n');
   const { killAll } = await import('../src/server/process');
+  // Stopped (Ctrl-C): the CLIs it started, in process groups of their own, and its folders go too.
+  const stop = () => {
+    void (async () => {
+      await killAll();
+      await scratch.dispose();
+      process.exit(130);
+    })();
+  };
+  process.once('SIGINT', stop);
+  process.once('SIGTERM', stop);
   try {
     return await withLang('en', async () => {
-      if (command === 'versions') {
+      if (args.command === 'versions') {
         const rows = await layerVersions(provider ? [provider] : PROVIDERS, scratch);
-        console.log(flag('--json') ? JSON.stringify(rows, null, 2) : versionTable(rows));
+        console.log(args.json ? JSON.stringify(rows, null, 2) : versionTable(rows));
         return 0;
       }
       const layers = await import('./cli-check/layers');
-      if (command === 'changelog') {
-        const to = option('--to');
-        const bin = option('--bin');
+      if (args.command === 'changelog') {
         return layers.changelog(provider!, {
-          from: option('--from') ?? CHECKED_VERSIONS[provider!],
-          ...(to ? { to } : {}),
-          ...(bin ? { bin } : {}),
+          from: args.from ?? CHECKED_VERSIONS[provider!],
+          ...(args.to ? { to: args.to } : {}),
+          ...(givenBin ? { bin: givenBin } : {}),
         });
       }
-      const o = { accept: flag('--accept'), ...(option('--only') ? { only: option('--only')! } : {}) };
-      if (command === 'probe') return layers.probe(provider!, await binOf(provider!), o, scratch);
-      if (command === 'run') return layers.run(provider!, await binOf(provider!), o, scratch);
+      const o = { accept: args.accept, ...(args.only ? { only: args.only } : {}) };
+      if (args.command === 'probe') return layers.probe(provider!, await binOf(provider!), o, scratch);
+      if (args.command === 'run') return layers.run(provider!, await binOf(provider!), o, scratch);
 
-      // Every layer, for one CLI or for every CLI that is behind.
+      // Every layer, for one CLI, or for every CLI here whose version is newer than the one checked.
       const rows = await layerVersions(provider ? [provider] : PROVIDERS, scratch);
       console.log(versionTable(rows));
-      const targets = provider ? [provider] : rows.filter((r) => r.status === 'behind' && r.installed).map((r) => r.provider);
+      const newer = (r: VersionRow) => said(r.installed) && versionStatus(r.provider, r.checked, r.installed) === 'behind';
+      const targets = provider ? [provider] : rows.filter(newer).map((r) => r.provider);
       if (!targets.length) {
-        console.log('\nNo CLI here is behind the newest version: nothing to check.');
+        console.log(
+          '\nNo CLI here is newer than the version it was checked with: nothing to check. Install a new one apart and name it: <cli> --bin <path>.',
+        );
         return 0;
       }
       let found = 0;
-      for (const p of targets)
-        found += await layers.all(
-          p,
-          await binOf(p),
-          rows.find((r) => r.provider === p),
-          o,
-          scratch,
-        );
+      for (const p of targets) {
+        const row = rows.find((r) => r.provider === p);
+        if (provider && row && !newer(row)) {
+          console.log(
+            `\n${p} here is ${row.installed ?? 'not installed'}, not newer than ${row.checked}: its layers show what the version checked does.`,
+          );
+        }
+        found += await layers.all(p, await binOf(p), row, o, scratch);
+      }
       return found ? 1 : 0;
     });
   } finally {
+    process.off('SIGINT', stop);
+    process.off('SIGTERM', stop);
     await killAll();
     await scratch.dispose();
   }

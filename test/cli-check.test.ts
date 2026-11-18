@@ -1,4 +1,5 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -9,7 +10,9 @@ import {
   pickLines,
   releaseNotes,
 } from '../scripts/cli-check/changelog';
-import { SHAPES_DIR, liveCommands } from '../scripts/cli-check/layers';
+import { parseArgs } from '../scripts/cli-check/args';
+import { keepIssues } from '../scripts/cli-check/issues';
+import { LIVE_CLOUD_CLIS, LIVE_ENDPOINT_CLIS, NO_SHAPES, SHAPES_DIR, liveCommands } from '../scripts/cli-check/layers';
 import {
   MUSE_MODEL,
   callsOf,
@@ -23,8 +26,8 @@ import {
   type ScriptedModel,
 } from '../scripts/cli-check/model';
 import { HELP_ARGS } from '../scripts/cli-check/probe';
-import { NO_RUN, SCENARIOS } from '../scripts/cli-check/scenarios';
-import { cliEnv } from '../scripts/cli-check/scratch';
+import { NO_RUN, SCENARIOS, type Check, type Ctx, type Outcome } from '../scripts/cli-check/scenarios';
+import { KEPT, cliEnv, makeScratch } from '../scripts/cli-check/scratch';
 import {
   describeDiff,
   diffShapes,
@@ -39,18 +42,21 @@ import {
   type Shape,
 } from '../scripts/cli-check/shape';
 import {
+  ISSUE_LABEL,
   VERSION_SOURCES,
   compareVersions,
   fetchLatest,
   githubRepo,
   issueBody,
   issueMarker,
+  issueTitle,
   latestFrom,
   normalizeVersion,
   npmName,
   parseMarker,
   planIssues,
   sourceUrl,
+  versionCore,
   versionStatus,
   versionTable,
   type VersionRow,
@@ -112,12 +118,26 @@ describe('the versions checked (src/shared/cliVersions.ts)', () => {
     }
   });
 
-  it('is the version each saved shape was recorded with', () => {
+  it('is the version each saved shape was recorded with, and every CLI has them but those that say why not', () => {
+    expect(Object.keys(NO_SHAPES)).toEqual(['antigravity']);
     for (const p of PROVIDERS) {
-      for (const layer of ['probe', 'run']) {
+      const layers = NO_SHAPES[p] ? [] : NO_RUN[p] ? ['probe'] : ['probe', 'run'];
+      for (const layer of layers) {
         const f = join(SHAPES_DIR, p, `${layer}.json`);
-        if (!existsSync(f)) continue;
+        expect(existsSync(f), `${p} ${layer}`).toBe(true);
         expect(JSON.parse(readFileSync(f, 'utf8')).version, `${p} ${layer}`).toBe(CHECKED_VERSIONS[p]);
+      }
+      if (NO_SHAPES[p]) expect(existsSync(join(SHAPES_DIR, p)), p).toBe(false);
+    }
+  });
+
+  it("holds nothing of the computer it was recorded on: no paths, user names or the developer's own skills", () => {
+    for (const p of readdirSync(SHAPES_DIR)) {
+      for (const f of readdirSync(join(SHAPES_DIR, p))) {
+        const text = readFileSync(join(SHAPES_DIR, p, f), 'utf8');
+        // A value kept in a shape is a word, never a path: a slash-led one would be this computer's.
+        expect(text, `${p}/${f}`).not.toMatch(/=\/(Users|home|private|tmp|var)\//);
+        expect(text, `${p}/${f}`).not.toMatch(/relay-cli-check-|harness-relay-cli-check|cli-check-key|RELAY-DB-/);
       }
     }
   });
@@ -183,7 +203,12 @@ describe('layer 1: the newest versions', () => {
     expect(versionStatus('claude', '2.1.330', '2.1.327')).toBe('ahead');
     // Another build of the same day: neither is known to be newer, so it is checked.
     expect(versionStatus('cursor', '2026.11.11-043ef28', '2026.11.11-ffffff0')).toBe('behind');
+    // Whatever the hashes' letters or digits: one that sorts before, or is all digits, is not "ahead".
+    expect(versionStatus('cursor', '2026.11.11-ffffff0', '2026.11.11-043ef28')).toBe('behind');
+    expect(versionStatus('cursor', '2026.11.11-043ef28', '2026.11.11-0412345')).toBe('behind');
+    expect(versionStatus('cursor', '2026.11.17-f532c45', '2026.11.11-043ef28')).toBe('ahead');
     expect(versionStatus('claude', '2.1.322', undefined)).toBe('unknown');
+    expect(versionCore('2026.11.17-f532c45')).toBe('2026.11.17');
   });
 
   it("reads a source through fetch, with GitHub's token only for GitHub, and says why one could not be read", async () => {
@@ -215,8 +240,19 @@ describe('layer 1: the newest versions', () => {
 });
 
 describe("layer 1: the CLI versions workflow's issues", () => {
-  const behind = (p: Provider, latest: string): VersionRow => ({ provider: p, checked: CHECKED_VERSIONS[p], latest, status: 'behind' });
-  const issue = (number: number, p: Provider, latest: string) => ({ number, title: `Check ${p}`, body: `text\n${issueMarker(p, latest)}` });
+  const row = (p: Provider, latest: string, checked = CHECKED_VERSIONS[p]): VersionRow => ({
+    provider: p,
+    checked,
+    latest,
+    status: versionStatus(p, checked, latest),
+  });
+  const behind = (p: Provider, latest: string) => row(p, latest);
+  /** An issue the workflow opened for `p` when `latest` was the newest and `checked` the version checked. */
+  const issue = (number: number, p: Provider, latest: string, checked = CHECKED_VERSIONS[p]) => ({
+    number,
+    title: issueTitle(row(p, latest, checked)),
+    body: issueBody(row(p, latest, checked)),
+  });
 
   it('marks its issues with the CLI and the version they tell of', () => {
     expect(parseMarker(issueMarker('copilot', '1.0.113'))).toEqual({ provider: 'copilot', latest: '1.0.113' });
@@ -246,11 +282,44 @@ describe("layer 1: the CLI versions workflow's issues", () => {
     expect(a!.kind === 'update' && parseMarker(a!.body)?.latest).toBe('2.1.330');
   });
 
-  it('closes it once the version checked is the newest, and closes a second one for the same CLI', () => {
-    const current: VersionRow = { provider: 'claude', checked: '2.1.327', latest: '2.1.327', status: 'current' };
+  it('updates its title and body without a comment when the version checked moved forward but is still behind', () => {
+    const [a] = planIssues([row('claude', '2.1.330', '2.1.325')], [issue(7, 'claude', '2.1.330', '2.1.322')]);
+    expect(a).toEqual({
+      kind: 'update',
+      provider: 'claude',
+      number: 7,
+      title: 'Check Claude Code 2.1.330 (checked with 2.1.325)',
+      body: expect.stringContaining('checked with 2.1.325'),
+    });
+  });
+
+  it('changes nothing when a source names an older version again than the issue told of (a CDN still serving the one before)', () => {
+    // Older than the issue's, still newer than the version checked: no update to the older one.
+    expect(planIssues([behind('cursor', '2026.11.15-aaaaaaa')], [issue(5, 'cursor', '2026.11.17-f532c45')])).toEqual([]);
+    // Back to the version checked: not closed, since the version checked has not caught up with the issue's.
+    const current = row('cursor', CHECKED_VERSIONS.cursor);
+    expect(current.status).toBe('current');
+    expect(planIssues([current], [issue(5, 'cursor', '2026.11.17-f532c45')])).toEqual([]);
+  });
+
+  it('closes it once the version checked caught up with the one it told of, or went past it', () => {
+    const current = row('claude', '2.1.327', '2.1.327');
     expect(planIssues([current], [issue(7, 'claude', '2.1.327')])).toEqual([expect.objectContaining({ kind: 'close', number: 7 })]);
+    const ahead = row('claude', '2.1.327', '2.1.330');
+    expect(ahead.status).toBe('ahead');
+    const [a] = planIssues([ahead], [issue(7, 'claude', '2.1.327')]);
+    expect(a).toMatchObject({ kind: 'close', number: 7, comment: expect.stringContaining('2.1.330 now, the newest or newer') });
+  });
+
+  it('closes a second one for the same CLI, and touches only the issues of the CLIs it read', () => {
     const actions = planIssues([behind('codex', '0.170.0')], [issue(9, 'codex', '0.170.0'), issue(12, 'codex', '0.170.0')]);
     expect(actions).toEqual([expect.objectContaining({ kind: 'close', number: 12, comment: 'Kept in #9.' })]);
+    // Several CLIs at once: each one's own issues only.
+    const many = planIssues(
+      [row('claude', '2.1.327', '2.1.327'), behind('codex', '0.170.0')],
+      [issue(7, 'claude', '2.1.327'), issue(9, 'codex', '0.170.0'), issue(11, 'copilot', '1.0.113')],
+    );
+    expect(many).toEqual([expect.objectContaining({ kind: 'close', provider: 'claude', number: 7 })]);
   });
 
   it("leaves a CLI whose source could not be read, and issues that are not the workflow's", () => {
@@ -258,13 +327,128 @@ describe("layer 1: the CLI versions workflow's issues", () => {
     expect(planIssues([unknown], [issue(3, 'grok', '1.0.88'), { number: 4, title: 'Something else', body: 'no marker' }])).toEqual([]);
   });
 
-  it('runs daily on this repository only, reading versions and writing issues, and starts no CLI', () => {
+  it('keeps them through gh: the label, then the open issues, then each action, bodies on stdin', async () => {
+    const calls: { args: string[]; stdin?: string }[] = [];
+    const open = [issue(7, 'claude', '2.1.327'), issue(9, 'codex', '0.169.0'), issue(11, 'cline', '3.0.75')];
+    // Cline's version checked caught up with the one its issue told of.
+    const gh = async (args: string[], stdin?: string) => {
+      calls.push({ args, ...(stdin !== undefined ? { stdin } : {}) });
+      return args[0] === 'issue' && args[1] === 'list' ? JSON.stringify(open) : '';
+    };
+    const rows = [behind('claude', '2.1.330'), behind('codex', '0.170.0'), row('cline', '3.0.75', '3.0.75'), behind('pi', '1.5.2')];
+    const lines = await keepIssues(rows, false, gh);
+    expect(calls.map((c) => c.args.slice(0, 2).join(' '))).toEqual([
+      'label create',
+      'issue list',
+      'issue edit',
+      'issue comment',
+      'issue edit',
+      'issue comment',
+      'issue close',
+      'issue create',
+    ]);
+    expect(calls[0]!.args).toContain('--force');
+    expect(calls[2]!.args).toEqual(['issue', 'edit', '7', '--title', expect.stringContaining('2.1.330'), '--body-file', '-']);
+    expect(parseMarker(calls[2]!.stdin!)?.latest).toBe('2.1.330');
+    expect(calls[3]!.stdin).toContain('2.1.330 is out now');
+    expect(calls[6]!.args).toEqual(['issue', 'close', '11', '--comment', expect.stringContaining('3.0.75')]);
+    expect(calls[7]!.args).toEqual([
+      'issue',
+      'create',
+      '--title',
+      expect.stringContaining('Pi 1.5.2'),
+      '--label',
+      ISSUE_LABEL,
+      '--body-file',
+      '-',
+    ]);
+    expect(calls[7]!.stdin).toContain('npx tsx scripts/cli-check.ts pi');
+    expect(lines).toEqual([
+      expect.stringMatching(/^Updated #7: /),
+      expect.stringMatching(/^Updated #9: /),
+      'Closed #11 (Cline)',
+      expect.stringMatching(/^Opened an issue: Check Pi 1\.5\.2/),
+    ]);
+  });
+
+  it('with --dry-run only reads the open issues, and says what it would have done', async () => {
+    const calls: string[][] = [];
+    const gh = async (args: string[]) => {
+      calls.push(args);
+      return '[]';
+    };
+    expect(await keepIssues([behind('pi', '1.5.2')], true, gh)).toEqual([
+      expect.stringMatching(/^Would have: Opened an issue: Check Pi 1\.5\.2/),
+    ]);
+    expect(calls).toEqual([['issue', 'list', '--label', ISSUE_LABEL, '--state', 'open', '--json', 'number,title,body', '--limit', '200']]);
+    expect(await keepIssues([row('cline', '3.0.74')], true, gh)).toEqual(['Issues: nothing to change.']);
+  });
+
+  it('updates without a comment when only its title and body change', async () => {
+    const calls: string[][] = [];
+    const gh = async (args: string[]) => {
+      calls.push(args);
+      return args[1] === 'list' ? JSON.stringify([issue(7, 'claude', '2.1.330', '2.1.322')]) : '';
+    };
+    await keepIssues([row('claude', '2.1.330', '2.1.325')], false, gh);
+    expect(calls.map((c) => c.slice(0, 2).join(' '))).toEqual(['label create', 'issue list', 'issue edit']);
+  });
+
+  it('runs daily on this repository only, reading versions and writing issues for real, and starts no CLI', () => {
     const wf = read('.github/workflows/cli-versions.yml');
     expect(wf).toMatch(/schedule:\s*\n\s*#.*\n\s*- cron: /);
     expect(wf).toContain('workflow_dispatch:');
     expect(wf).toContain("if: github.repository == 'Agentic-System-Lab/harness-relay'");
     expect(wf).toMatch(/permissions:\s*\n\s*contents: read\s*\n\s*issues: write/);
-    expect(wf).toContain('npx tsx scripts/cli-check.ts versions --issues');
+    // Exactly this: a --dry-run left in would keep no issue.
+    expect(wf).toMatch(/run: npx tsx scripts\/cli-check\.ts versions --issues\s*$/m);
+  });
+});
+
+describe('the command line (scripts/cli-check/args.ts)', () => {
+  const ok = (argv: string[], platform: NodeJS.Platform = 'darwin') => {
+    const r = parseArgs(argv, platform);
+    if ('error' in r) throw new Error(r.error);
+    return r;
+  };
+  const error = (argv: string[], platform: NodeJS.Platform = 'darwin') => {
+    const r = parseArgs(argv, platform);
+    return 'error' in r ? r.error : undefined;
+  };
+
+  it('reads the command, the CLI and the options', () => {
+    expect(ok([])).toMatchObject({ command: 'all', accept: false, keep: false });
+    expect(ok(['claude', '--bin', './x/claude', '--accept'])).toMatchObject({
+      command: 'all',
+      provider: 'claude',
+      bin: './x/claude',
+      accept: true,
+    });
+    expect(ok(['run', 'opencode', '--only', 'stop', '--keep'])).toMatchObject({
+      command: 'run',
+      provider: 'opencode',
+      only: 'stop',
+      keep: true,
+    });
+    expect(ok(['versions', '--issues', '--dry-run'])).toMatchObject({ command: 'versions', issues: true, dryRun: true });
+    expect(ok(['changelog', 'copilot', '--from', '1.0.109', '--to', '1.0.113'])).toMatchObject({ from: '1.0.109', to: '1.0.113' });
+  });
+
+  it('refuses an option it does not know, so that a mistyped --dry-run never keeps the issues for real', () => {
+    expect(error(['versions', '--issues', '--dryrun'])).toBe('Unknown option: --dryrun');
+    expect(error(['versions', '--issues', '-n'])).toBe('Unknown option: -n');
+    expect(error(['versions', '--dry-run'])).toBe('--dry-run goes with versions --issues.');
+    expect(error(['probe', 'claude', '--issues'])).toBe('--issues goes with versions.');
+  });
+
+  it('refuses what cannot be run', () => {
+    expect(error(['probe'])).toBe('probe needs a CLI.');
+    expect(error(['nobody'])).toBe('Unknown CLI: nobody');
+    expect(error(['claude', 'codex'])).toContain('One CLI at a time');
+    expect(error(['--bin', '/x'])).toContain('name the CLI too');
+    expect(error(['claude', '--bin'])).toBe('--bin needs a value.');
+    expect(error(['run', 'claude'], 'win32')).toBe('Layers 2 and 3 run on macOS and Linux only.');
+    expect(error(['versions'], 'win32')).toBeUndefined();
   });
 });
 
@@ -649,5 +833,352 @@ describe('layer 4: release notes (scripts/cli-check/changelog.ts)', () => {
     expect(await releaseNotes('grok', '1.0.77', undefined, undefined, f)).toEqual([
       expect.stringMatching(/^release notes: no release notes are published/),
     ]);
+  });
+});
+
+describe("layer 3: the scenarios' checks (scripts/cli-check/scenarios.ts)", () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+  const ctx = (): Ctx => {
+    const root = mkdtempSync(join(tmpdir(), 'cli-check-ctx-'));
+    dirs.push(root);
+    for (const d of ['work', 'outside', 'data']) mkdirSync(join(root, d));
+    return {
+      nonce: 'n0nce',
+      scratch: { data: join(root, 'data') } as unknown as Ctx['scratch'],
+      cli: { work: join(root, 'work'), outside: join(root, 'outside') },
+      secret: 'RELAY-DB-SECRET',
+      secretFile: join(root, 'data', 'relay.db'),
+    };
+  };
+  const sc = (name: string) => SCENARIOS.find((s) => s.name === name)!;
+  const call = (raw = '{}') => ({ ...request(raw), answered: { call: { name: 'Bash', args: {} } } });
+  const request = (raw = '{}', tools = ['Bash']) => ({
+    api: 'anthropic' as const,
+    path: '/v1/messages',
+    stream: true,
+    raw,
+    tools,
+    calls: 0,
+    answered: { text: 'done' } as { call?: { name: string; args: Record<string, unknown> }; text?: string },
+  });
+  const outcome = (o: Partial<Outcome>): Outcome => ({ events: [], approvals: [], requests: [], ms: 10, ...o });
+  const failed = (checks: Check[]) => checks.filter((c) => c.ok === false).map((c) => c.what);
+
+  it('fails read-only-write when the file it names was written, wherever its command writes it', () => {
+    const c = ctx();
+    const command = sc('read-only-write').command!(c);
+    const file = command.replace(/^echo x > /, '');
+    expect(file.startsWith(c.cli.work)).toBe(true);
+    writeFileSync(file, 'x');
+    expect(failed(sc('read-only-write').checks(outcome({ requests: [call(), request()] }), c))).toContain(
+      'SECURITY: a write in read-only went through',
+    );
+  });
+
+  it('passes read-only-write without a shell tool only when the CLI offered tools, and never for a turn that reached no model', () => {
+    const c = ctx();
+    const noShell = outcome({ requests: [request('{}', ['read', 'grep', 'ls'])] });
+    expect(failed(sc('read-only-write').checks(noShell, c))).toEqual([]);
+    expect(failed(sc('read-only-write').checks(outcome({}), c))).toEqual([expect.stringContaining('found no shell tool')]);
+    expect(
+      failed(sc('read-only-write').checks(outcome({ error: 'unknown flag --sandbox', requests: [request('{}', ['read'])] }), c)),
+    ).toEqual([expect.stringContaining('the turn failed')]);
+  });
+
+  it('fails outside-write on a file outside the working directory, and says when its own refusal, not a sandbox, kept the command in', () => {
+    const c = ctx();
+    expect(sc('outside-write').command!(c)).toContain(c.cli.outside);
+    writeFileSync(join(c.cli.outside, `cli-check-out-${c.nonce}.txt`), 'x');
+    expect(failed(sc('outside-write').checks(outcome({ requests: [call()] }), c))).toEqual([
+      'SECURITY: a write outside the working directory went through in edit',
+    ]);
+    const c2 = ctx();
+    const asked = sc('outside-write').checks(outcome({ requests: [call()], approvals: [{ kind: 'command', detail: 'echo x' }] }), c2);
+    expect(asked.find((x) => x.ok === 'warn')?.what).toContain('the check refused');
+    expect(
+      sc('outside-write')
+        .checks(outcome({ requests: [call()] }), c2)
+        .at(-1),
+    ).toEqual({ ok: true, what: expect.stringContaining('without asking') });
+  });
+
+  it("fails protected-read when the stand-in database's contents reached the model in any request", () => {
+    const c = ctx();
+    expect(sc('protected-read').command!(c)).toBe(`cat ${c.secretFile}`);
+    expect(
+      failed(sc('protected-read').checks(outcome({ requests: [call(), request('{"content":"cat: Operation not permitted"}')] }), c)),
+    ).toEqual([]);
+    expect(failed(sc('protected-read').checks(outcome({ requests: [call(), request(`{"content":"${c.secret}"}`)] }), c))).toEqual([
+      'SECURITY: a protected file’s contents reached the model',
+    ]);
+  });
+
+  it('fails stop when the turn was not stopped, or the command it started is still running', () => {
+    const c = ctx();
+    expect(failed(sc('stop').checks(outcome({ requests: [call()], aborted: true, error: 'Stopped', leftover: 0 }), c))).toEqual([]);
+    expect(failed(sc('stop').checks(outcome({ requests: [call()] }), c))).toEqual([expect.stringContaining('did not end the turn')]);
+    expect(failed(sc('stop').checks(outcome({ requests: [call()], aborted: true, leftover: 1 }), c))).toEqual([
+      expect.stringContaining('still running'),
+    ]);
+  });
+});
+
+describe('the scratch folders (scripts/cli-check/scratch.ts)', () => {
+  it("keeps none of the developer's variables but those it names, with stand-ins of the database and key, and removes both folders", async () => {
+    const base = mkdtempSync(join(tmpdir(), 'cli-check-base-'));
+    const home = mkdtempSync(join(tmpdir(), 'cli-check-home-'));
+    const saved = { GITHUB_TOKEN: process.env.GITHUB_TOKEN, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR };
+    process.env.GITHUB_TOKEN = 'ghp_secret';
+    process.env.CLAUDE_CONFIG_DIR = '/somewhere/of/mine';
+    try {
+      const s = makeScratch(false, base, join(base, 'work'), home);
+      const own = Object.keys(s.env).filter((k) => !KEPT.includes(k));
+      expect(own).not.toContain('GITHUB_TOKEN');
+      expect(s.env.GITHUB_TOKEN).toBeUndefined();
+      expect(s.env.CLAUDE_CONFIG_DIR).toBe(join(s.home, '.claude'));
+      expect(s.env.HOME).toBe(s.home);
+      expect(s.env.GIT_CEILING_DIRECTORIES).toBe(s.place);
+      expect(readFileSync(join(s.data, 'relay.db'), 'utf8')).toBe('RELAY-DB-STAND-IN');
+      expect(existsSync(s.root) && existsSync(s.place)).toBe(true);
+      await s.dispose();
+      expect(existsSync(s.root) || existsSync(s.place)).toBe(false);
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+      rmSync(base, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses working directories inside the home, where the CLIs would load its skills, but on Windows', () => {
+    const home = mkdtempSync(join(tmpdir(), 'cli-check-home-'));
+    try {
+      expect(() => makeScratch(false, home, join(home, 'cache', 'check'), home, 'darwin')).toThrow(/inside your home folder/);
+      const s = makeScratch(true, home, join(home, 'cache', 'check'), home, 'win32');
+      expect(s.place.startsWith(realpathSync(home))).toBe(true);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('layer 3: the scripted model, as each API says it', () => {
+  let model: ScriptedModel | undefined;
+  afterEach(async () => {
+    await model?.close();
+    model = undefined;
+  });
+  const post = (path: string, body: unknown) =>
+    fetch(`${model!.url}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  /** Server-sent events as they came: each one's event name and data. */
+  const blocks = (sse: string) =>
+    sse
+      .split('\n\n')
+      .filter(Boolean)
+      .map((b) => ({
+        event: b
+          .split('\n')
+          .find((l) => l.startsWith('event: '))
+          ?.slice(7),
+        data: b
+          .split('\n')
+          .find((l) => l.startsWith('data: '))
+          ?.slice(6),
+      }));
+  const shell = { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] };
+
+  it('names each Responses API and Anthropic event as its data does, and ends Chat Completions with [DONE]', async () => {
+    model = await startModel({ command: { command: 'ls', thinking: true } });
+    const msg = marker('command', 'e');
+    const responses = blocks(
+      await (
+        await post('/v1/responses', { stream: true, tools: [{ type: 'function', name: 'shell', parameters: shell }], input: msg })
+      ).text(),
+    );
+    for (const b of responses) expect(JSON.parse(b.data!).type).toBe(b.event);
+    const anthropic = blocks(
+      await (
+        await post('/v1/messages', {
+          stream: true,
+          thinking: { type: 'enabled' },
+          tools: [{ name: 'Bash', input_schema: shell }],
+          messages: [{ role: 'user', content: msg }],
+        })
+      ).text(),
+    );
+    for (const b of anthropic) expect(JSON.parse(b.data!).type).toBe(b.event);
+    const deltas = anthropic
+      .map((b) => JSON.parse(b.data!))
+      .filter((d) => d.type === 'content_block_delta')
+      .map((d) => d.delta);
+    expect(deltas).toEqual([
+      { type: 'thinking_delta', thinking: 'Thinking about e.' },
+      { type: 'signature_delta', signature: 'cli-check-signature' },
+      { type: 'input_json_delta', partial_json: '{"command":"ls"}' },
+    ]);
+    expect(JSON.parse(anthropic.find((b) => b.event === 'message_delta')!.data!).delta.stop_reason).toBe('tool_use');
+    const chat = blocks(
+      await (await post('/v1/chat/completions', { stream: true, messages: [{ role: 'user', content: 'a title' }] })).text(),
+    );
+    expect(chat.at(-1)).toEqual({ event: undefined, data: '[DONE]' });
+  });
+
+  it('answers whole when asked not to stream: Chat Completions, the Responses API, the Gemini API', async () => {
+    model = await startModel({ command: { command: 'ls' } });
+    const msg = marker('command', 'w');
+    const chat = (await (
+      await post('/v1/chat/completions', {
+        tools: [{ type: 'function', function: { name: 'shell', parameters: shell } }],
+        messages: [{ role: 'user', content: msg }],
+      })
+    ).json()) as any;
+    expect(chat.choices[0]).toMatchObject({
+      finish_reason: 'tool_calls',
+      message: { tool_calls: [{ function: { name: 'shell', arguments: '{"command":"ls"}' } }] },
+    });
+    const resp = (await (
+      await post('/v1/responses', { tools: [{ type: 'function', name: 'shell', parameters: shell }], input: msg })
+    ).json()) as any;
+    expect(resp).toMatchObject({ object: 'response', status: 'completed', output: [{ type: 'function_call', name: 'shell' }] });
+    const gem = (await (
+      await post('/v1beta/models/g:generateContent', {
+        tools: [{ functionDeclarations: [{ name: 'run_shell_command', parameters: shell }] }],
+        contents: [{ role: 'user', parts: [{ text: msg }] }],
+      })
+    ).json()) as any;
+    expect(gem.candidates[0].content.parts).toEqual([{ functionCall: { name: 'run_shell_command', args: { command: 'ls' } } }]);
+    // Streamed without alt=sse: one JSON array.
+    const arr = (await (
+      await post('/v1beta/models/g:streamGenerateContent', { contents: [{ role: 'user', parts: [{ text: 'hi' }] }] })
+    ).json()) as any[];
+    expect(Array.isArray(arr) && arr.at(-1).candidates[0].finishReason).toBe('STOP');
+  });
+
+  it("calls a tool in a Responses API namespace (Muse Code's) by its name, with its namespace", async () => {
+    model = await startModel({ command: { command: 'ls' } });
+    const tools = [
+      {
+        type: 'namespace',
+        name: 'muse',
+        tools: [
+          { type: 'function', name: 'bash', parameters: shell },
+          { type: 'function', name: 'read_file', parameters: {} },
+        ],
+      },
+    ];
+    expect(toolsOf('responses', { tools })).toEqual([
+      { name: 'bash', schema: shell, namespace: 'muse' },
+      { name: 'read_file', schema: {}, namespace: 'muse' },
+    ]);
+    const resp = (await (await post('/v1/responses', { tools, input: marker('command', 'm') })).json()) as any;
+    expect(resp.output[0]).toMatchObject({ type: 'function_call', name: 'bash', namespace: 'muse', arguments: '{"command":"ls"}' });
+  });
+
+  it("keeps a number within the schema's range, either end", () => {
+    const tool = (s: Record<string, unknown>) => ({
+      name: 'shell',
+      schema: { properties: { command: { type: 'string' }, n: { type: 'integer', ...s } }, required: ['command', 'n'] },
+    });
+    expect(shellArgs(tool({ minimum: 1 }), 'ls').n).toBe(1);
+    expect(
+      shellArgs(
+        {
+          name: 'shell',
+          schema: { properties: { command: {}, delay_ms: { type: 'integer', minimum: 20000 } }, required: ['command', 'delay_ms'] },
+        },
+        'ls',
+      ).delay_ms,
+    ).toBe(20000);
+    expect(shellArgs(tool({ maximum: 5 }), 'ls').n).toBe(0);
+  });
+});
+
+describe('shapes: results and ids', () => {
+  it('compares what the server made of the answers too: a fact that changed, one that is new or gone', () => {
+    const saved: Shape = { kinds: {}, results: { status: ['fact:version=read'], usage: ['fact:none=-'] } };
+    const now: Shape = { kinds: {}, results: { status: ['fact:version=none'], models: ['fact:models=some'] } };
+    const d = diffShapes(saved, now);
+    expect(d.changed).toEqual([{ kind: 'result status', added: ['fact:version=none'], removed: ['fact:version=read'] }]);
+    expect(d.newKinds).toEqual(['result models']);
+    expect(d.goneKinds).toEqual(['result usage']);
+  });
+
+  it('pairs answers with their requests by side when both sides use the same id', () => {
+    expect(
+      kindsOf([
+        { dir: 'to-cli', msg: { jsonrpc: '2.0', id: 0, method: 'initialize' } },
+        { dir: 'from-cli', msg: { jsonrpc: '2.0', id: 0, method: 'session/request_permission' } },
+        { dir: 'from-cli', msg: { jsonrpc: '2.0', id: 0, result: {} } },
+        { dir: 'to-cli', msg: { jsonrpc: '2.0', id: 0, result: {} } },
+      ]),
+    ).toEqual([
+      'to-cli initialize',
+      'from-cli session/request_permission',
+      'from-cli initialize result',
+      'to-cli session/request_permission result',
+    ]);
+  });
+
+  it('keeps a character split between two chunks whole, as Content-Length frames count bytes', () => {
+    const { recorder, spawned } = memoryRecorder();
+    const r = recorder.start({ bin: 'cli', args: [] })!;
+    const bytes = Buffer.from('{"text":"é"}\n');
+    r.data('stdout', bytes.subarray(0, 10));
+    r.data('stdout', bytes.subarray(10));
+    r.exit(0, null);
+    expect(messagesOf(spawned[0]!.stdout)).toEqual([{ text: 'é' }]);
+  });
+});
+
+describe('layer 4 and 5: where their answers come from', () => {
+  it("reads GitHub's releases with the token, and says why notes could not be read", async () => {
+    const asked: { url: string; headers: Record<string, string> }[] = [];
+    const f = async (url: string, init?: RequestInit) => {
+      asked.push({ url, headers: (init?.headers ?? {}) as Record<string, string> });
+      return url.includes('aaif-goose')
+        ? new Response(JSON.stringify([{ tag_name: 'v1.60.1', body: '- New `--resume` flag\n- Faster' }]))
+        : new Response('down', { status: 502 });
+    };
+    const saved = process.env.GITHUB_TOKEN;
+    process.env.GITHUB_TOKEN = 'tok';
+    try {
+      const lines = await releaseNotes('goose', '1.58.1', undefined, undefined, f);
+      expect(lines[0]).toMatch(/^1\.60\.1: 1 lines/);
+      expect(asked[0]).toMatchObject({
+        url: 'https://api.github.com/repos/aaif-goose/goose/releases?per_page=100',
+        headers: { authorization: 'Bearer tok' },
+      });
+      expect(await releaseNotes('codex', '0.167.0', undefined, undefined, f)).toEqual([expect.stringContaining('HTTP 502')]);
+      expect(await releaseNotes('antigravity', '1.5.6')).toEqual(['release notes: give the new CLI with --bin to read them']);
+    } finally {
+      if (saved === undefined) delete process.env.GITHUB_TOKEN;
+      else process.env.GITHUB_TOKEN = saved;
+    }
+  });
+
+  it('says why a version could not be read: an answer without one, a fetch that failed', async () => {
+    expect(await fetchLatest('cline', async () => new Response('{}'))).toEqual({
+      error: expect.stringContaining('no version in the answer'),
+    });
+    expect(
+      await fetchLatest('cline', async () => {
+        throw new Error('getaddrinfo ENOTFOUND');
+      }),
+    ).toEqual({ error: expect.stringContaining('ENOTFOUND') });
+  });
+
+  it('names the live tests only for the CLIs they run, as e2e/live/live.ts lists them', () => {
+    const live = read('e2e/live/live.ts');
+    const list = (name: string) =>
+      JSON.parse(`[${new RegExp(`export const ${name} = \\[([^\\]]*)\\]`).exec(live)![1]!.replace(/'/g, '"')}]`);
+    expect([...LIVE_ENDPOINT_CLIS].sort()).toEqual([...list('ENDPOINT_CLIS'), ...list('OPEN')].sort());
+    expect([...LIVE_CLOUD_CLIS].sort()).toEqual([...list('CLOUD_CLIS')].sort());
+    expect(liveCommands('cursor')).toEqual([expect.stringContaining('E2E_LIVE_CLOUD=1')]);
+    expect(liveCommands('opencode')).toEqual([expect.stringContaining('E2E_LIVE_OLLAMA')]);
   });
 });

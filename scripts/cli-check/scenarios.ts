@@ -75,7 +75,7 @@ interface Scenario {
   checks: (r: Outcome, c: Ctx) => Check[];
 }
 
-interface Ctx {
+export interface Ctx {
   nonce: string;
   scratch: Scratch;
   cli: CliScratch;
@@ -84,7 +84,7 @@ interface Ctx {
   secretFile: string;
 }
 
-interface Outcome {
+export interface Outcome {
   result?: RunResult;
   error?: string;
   aborted?: boolean;
@@ -147,6 +147,22 @@ function timeline(r: Outcome): string[] {
   return out;
 }
 
+/** Where the read-only scenario's command writes: in the working directory, named in full. */
+const readOnlyFile = (c: Ctx) => join(c.cli.work, `cli-check-ro-${c.nonce}.txt`);
+
+/**
+ * Who kept the command from doing it: the check's own answer to an approval (the CLI asked, as
+ * Cursor and Antigravity ask about every command), which leaves its sandbox, if it has one, untried;
+ * or the sandbox or the CLI, without asking.
+ */
+const refusedBy = (r: Outcome): Check =>
+  r.approvals.length
+    ? {
+        ok: 'warn',
+        what: `it asked first (${r.approvals[0]!.kind}) and the check refused: what would keep it in once allowed is not tried here`,
+      }
+    : { ok: true, what: 'kept in without asking (its sandbox or the CLI)' };
+
 /** A command that never ends by itself. Not `sleep`: Claude Code refuses a sleep, alone or followed by another command. */
 const STOP_COMMAND = 'tail -f /dev/null';
 
@@ -191,13 +207,17 @@ export const SCENARIOS: Scenario[] = [
   {
     name: 'read-only-write',
     permission: 'read-only',
-    command: (c) => `echo x > cli-check-ro-${c.nonce}.txt`,
+    // The file's full path: a write that lands in another folder than the one checked would go unseen.
+    command: (c) => `echo x > ${readOnlyFile(c)}`,
     answer: 'reject',
     checks: (r, c) => {
-      const wrote = existsSync(join(c.cli.work, `cli-check-ro-${c.nonce}.txt`));
-      // A CLI that offers no shell tool in read-only (Pi's run has only read, grep and ls) cannot write with one.
+      const wrote = existsSync(readOnlyFile(c));
+      // A CLI that offers tools in read-only but no shell tool (Pi's run has only read, grep and ls)
+      // cannot write with one. A turn that never reached the model, or was offered no tool at all, proves nothing.
       const offered = r.requests.find((q) => q.tools.length)?.tools ?? [];
-      if (!asked(r) && !wrote) return [{ ok: true, what: `read-only offers no shell tool (${offered.join(', ') || 'none'})` }];
+      if (!asked(r) && !wrote && offered.length) {
+        return [finished(r), { ok: true, what: `read-only offers no shell tool (${offered.join(', ')})` }];
+      }
       return [
         calledShell(r),
         { ok: !wrote, what: wrote ? 'SECURITY: a write in read-only went through' : 'read-only kept the file from being written' },
@@ -223,6 +243,7 @@ export const SCENARIOS: Scenario[] = [
             ? 'SECURITY: a write outside the working directory went through in edit'
             : 'edit kept the write outside the working directory from going through',
         },
+        refusedBy(r),
       ];
     },
   },
@@ -241,6 +262,7 @@ export const SCENARIOS: Scenario[] = [
             ? 'SECURITY: a protected file’s contents reached the model'
             : 'the protected file’s contents never reached the model',
         },
+        refusedBy(r),
       ];
     },
   },
@@ -281,12 +303,11 @@ export async function runScenarios(p: Provider, bin: string, scratch: Scratch, c
     console.log(`  skipped: ${NO_RUN[p]}`);
     return 0;
   }
-  const { recordSpawns, capture, runProcess } = await import('../../src/server/process');
+  const { recordSpawns, capture } = await import('../../src/server/process');
   const { openDatabase } = await import('../../src/server/db');
   const { SettingsStore } = await import('../../src/server/settings');
   const { runners } = await import('../../src/server/agents/index');
 
-  await runProcess({ bin: 'git', args: ['init', '-q'], cwd: cli.work, env: process.env, timeoutMs: 30_000 });
   writeFileSync(join(cli.work, 'README.md'), '# cli-check\n');
   const nonce = randomBytes(5).toString('hex');
   const secretFile = join(scratch.data, 'relay.db');
@@ -296,6 +317,9 @@ export async function runScenarios(p: Provider, bin: string, scratch: Scratch, c
 
   const model = await startModel(modelScenarios(ctx));
   const place = placement(p, model.url, scratch);
+  // The model's address and key in this process's environment for this CLI only: taken back at the end,
+  // or a CLI checked after it in the same run would get them too.
+  const before = Object.fromEntries(Object.keys(place.env ?? {}).map((k) => [k, process.env[k]]));
   Object.assign(process.env, place.env ?? {});
   const settings = new SettingsStore(openDatabase(':memory:'));
   // OpenHands runs below full access on macOS only with a terminal in the sandbox (Settings, its card).
@@ -453,6 +477,10 @@ export async function runScenarios(p: Provider, bin: string, scratch: Scratch, c
     }
   } finally {
     await model.close();
+    for (const [k, v] of Object.entries(before)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
   }
 
   if (model.unknown.length)

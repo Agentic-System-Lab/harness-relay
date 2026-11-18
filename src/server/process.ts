@@ -224,7 +224,6 @@ export function posixLaunch(bin: string, args: readonly string[], env: NodeJS.Pr
 /** The CLI's environment with what its launch needs besides. */
 const withLaunchEnv = (env: NodeJS.ProcessEnv, launch: WindowsLaunch): NodeJS.ProcessEnv => (launch.env ? { ...env, ...launch.env } : env);
 
-/** How runProcess and runShellScript run what they start: everything but the program and its arguments. */
 /**
  * Told of every process `runProcess()` and `runShellScript()` start, and of what passes through their
  * stdin, stdout and stderr. Only `scripts/cli-check.ts` sets one (`recordSpawns`), to record what a
@@ -245,6 +244,15 @@ let recorder: SpawnRecorder | undefined;
 /** Sets the recorder every process started from now on is told of (undefined: none). */
 export function recordSpawns(r: SpawnRecorder | undefined): void {
   recorder = r;
+}
+
+/** The recording of a process just started, if a recorder is set; a recorder that throws records nothing. */
+function recordingOf(bin: string, args: readonly string[], cwd: string | undefined): SpawnRecording | undefined {
+  try {
+    return recorder?.start({ bin, args, ...(cwd ? { cwd } : {}) });
+  } catch {
+    return undefined;
+  }
 }
 
 /** Passes what goes through a child's stdio to a recording, as it goes: what is written to its stdin too. */
@@ -273,6 +281,7 @@ function tap(child: ChildProcess, recording: SpawnRecording): void {
   }) as typeof stdin.end;
 }
 
+/** How runProcess and runShellScript run what they start: everything but the program and its arguments. */
 export type RunOptions = Omit<SpawnOptions, 'bin' | 'args'>;
 
 /** Spawn a CLI, stream its stdout line by line, and resolve when it exits. It never runs through a shell. */
@@ -354,7 +363,7 @@ function supervise(
       ],
     });
     live.add(child);
-    const recording = recorder?.start({ bin: name, args, cwd: o.cwd });
+    const recording = recordingOf(name, args, o.cwd);
     if (recording) tap(child, recording);
     if (o.pipes && !channel) {
       const [write, read] = [child.stdio[3] as Duplex | null | undefined, child.stdio[4] as Duplex | null | undefined];
@@ -454,7 +463,11 @@ function supervise(
     });
     child.on('close', (code, signal) => {
       cleanup();
-      recording?.exit(code, signal);
+      try {
+        recording?.exit(code, signal);
+      } catch {
+        /* a recording never stops the run */
+      }
       const bytes = stdout.bytes();
       done({
         code,

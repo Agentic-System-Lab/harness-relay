@@ -145,12 +145,14 @@ export function versionStatus(p: Provider, checked: string, latest: string | und
   if (!latest) return 'unknown';
   const [c, l] = [normalizeVersion(p, checked), normalizeVersion(p, latest)];
   if (c === l) return 'current';
-  // Two builds of one day (Cursor's) compare as their hashes do, which says nothing: behind.
-  return compareVersions(l, c) < 0 && !sameNumbers(l, c) ? 'ahead' : 'behind';
+  // Only the numbers say which is newer. Another build of the same numbers (Cursor's hash after its
+  // date) says nothing, whatever its letters or digits: it is checked. The sources name released
+  // versions only (npm's `latest`, GitHub's latest release), never a prerelease.
+  return compareVersions(versionCore(l), versionCore(c)) < 0 ? 'ahead' : 'behind';
 }
 
-const numbers = (v: string) => v.split(/[.-]/).filter((x) => /^\d+$/.test(x));
-const sameNumbers = (a: string, b: string) => numbers(a).join('.') === numbers(b).join('.');
+/** A version's numbers, before any `-` suffix: `2026.11.17` of Cursor's `2026.11.17-f532c45`. */
+export const versionCore = (v: string): string => v.split('-')[0]!;
 
 export interface VersionRow {
   provider: Provider;
@@ -172,14 +174,15 @@ export async function fetchLatest(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ latest?: string; error?: string }> {
   const s = VERSION_SOURCES[p];
-  const url = sourceUrl(s);
   const headers: Record<string, string> = { 'user-agent': 'harness-relay-cli-check' };
   const token = env.GITHUB_TOKEN || env.GH_TOKEN;
   if (s.kind === 'github') {
     headers.accept = 'application/vnd.github+json';
     if (token) headers.authorization = `Bearer ${token}`;
   }
+  let url = '';
   try {
+    url = sourceUrl(s);
     const res = await fetchImpl(url, { headers, redirect: 'follow', signal: AbortSignal.timeout(20_000) });
     if (!res.ok) return { error: `${url}: HTTP ${res.status}` };
     const latest = latestFrom(s, await res.text());
@@ -257,7 +260,7 @@ export function issueBody(r: VersionRow): string {
     '```',
     '',
     'What each layer does and what to do when one finds something: [the developer guide, "Checking a CLI\'s new version"](https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/developer-guide.md#checking-a-clis-new-version).',
-    "Once nothing is left to fix, move the version forward with the shapes it saved (`--accept`) and the user guide's line, and close this issue from that pull request.",
+    "Once nothing is left to fix and its live tests ran, move the version forward in one commit with the shapes it saved (`--accept`), the user guide's line in both languages, and the other docs that say which version a behaviour was seen with, once tried again with it; close this issue from that pull request.",
     '',
     'This issue is kept by the CLI versions workflow (`.github/workflows/cli-versions.yml`): it says so here when a newer version comes out, and closes the issue once the version checked is the newest.',
     '',
@@ -273,15 +276,20 @@ export interface OpenIssue {
 
 export type IssueAction =
   | { kind: 'create'; provider: Provider; title: string; body: string }
-  /** A newer version than the issue told of: its title and body change, and a comment says so. */
-  | { kind: 'update'; provider: Provider; number: number; title: string; body: string; comment: string }
+  /**
+   * Its title and body change: a newer version than the issue told of, which a comment says (`comment`),
+   * or the version checked moved forward and is still behind.
+   */
+  | { kind: 'update'; provider: Provider; number: number; title: string; body: string; comment?: string }
   /** The version checked caught up (or went past): the issue is closed with a comment. */
   | { kind: 'close'; provider: Provider; number: number; comment: string };
 
 /**
  * What the workflow does with the open issues it keeps (`open`, the label's): one open issue for each
- * CLI that is behind, updated when a newer version comes out, closed once it is not behind. A CLI
- * whose source could not be read is left as it is.
+ * CLI that is behind, updated when a newer version comes out or the version checked moved, closed
+ * once the version checked has caught up with the one the issue told of. A CLI whose source could not
+ * be read is left as it is, and so is one not in `rows`. A source that names an older version again
+ * (a CDN still serving the one before) closes nothing: the version checked has not caught up.
  */
 export function planIssues(rows: readonly VersionRow[], open: readonly OpenIssue[]): IssueAction[] {
   const actions: IssueAction[] = [];
@@ -294,7 +302,8 @@ export function planIssues(rows: readonly VersionRow[], open: readonly OpenIssue
     const mine = (byProvider.get(r.provider) ?? []).sort((a, b) => a.issue.number - b.issue.number);
     if (r.status === 'unknown') continue;
     if (r.status !== 'behind') {
-      for (const { issue } of mine) {
+      for (const { issue, latest } of mine) {
+        if (compareVersions(versionCore(r.checked), versionCore(normalizeVersion(r.provider, latest))) < 0) continue;
         actions.push({
           kind: 'close',
           provider: r.provider,
@@ -305,9 +314,15 @@ export function planIssues(rows: readonly VersionRow[], open: readonly OpenIssue
       continue;
     }
     const [first, ...extra] = mine;
+    // What the source names now against what the issue told of: newer (or another build of the same
+    // numbers), the same, or older (a source still serving the one before: the issue stays as it is).
+    const told = first && normalizeVersion(r.provider, first.latest);
+    const order = told ? compareVersions(versionCore(r.latest!), versionCore(told)) : 0;
     if (!first) {
       actions.push({ kind: 'create', provider: r.provider, title: issueTitle(r), body: issueBody(r) });
-    } else if (normalizeVersion(r.provider, first.latest) !== r.latest) {
+    } else if (order < 0) {
+      // Older than the issue's: nothing changes.
+    } else if (told !== r.latest) {
       actions.push({
         kind: 'update',
         provider: r.provider,
@@ -316,6 +331,9 @@ export function planIssues(rows: readonly VersionRow[], open: readonly OpenIssue
         body: issueBody(r),
         comment: `${PROVIDER_LABEL[r.provider]} ${r.latest} is out now (this issue told of ${first.latest}): check that one instead.`,
       });
+    } else if (first.issue.title !== issueTitle(r)) {
+      // The version checked moved forward, not yet to the newest: the issue says so, without a comment.
+      actions.push({ kind: 'update', provider: r.provider, number: first.issue.number, title: issueTitle(r), body: issueBody(r) });
     }
     // Two open for one CLI (one opened by hand with the marker, say): the later ones are closed.
     for (const { issue } of extra) {

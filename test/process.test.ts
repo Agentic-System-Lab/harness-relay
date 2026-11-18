@@ -203,22 +203,48 @@ describe('recordSpawns (scripts/cli-check.ts)', () => {
 
   it('records nothing once it is unset, and a recorder that throws never stops the process', async () => {
     let calls = 0;
-    recordSpawns({
-      start: () => ({
-        data: () => {
-          calls++;
-          throw new Error('a broken recorder');
-        },
-        exit: () => undefined,
-      }),
-    });
-    const res = await capture(process.execPath, ['-e', 'console.log("still here")'], process.env);
-    expect(res.stdout.trim()).toBe('still here');
-    expect(calls).toBeGreaterThan(0);
-    recordSpawns(undefined);
+    try {
+      recordSpawns({
+        start: () => ({
+          data: () => {
+            calls++;
+            throw new Error('a broken recorder');
+          },
+          exit: () => undefined,
+        }),
+      });
+      const res = await capture(process.execPath, ['-e', 'console.log("still here")'], process.env);
+      expect(res.stdout.trim()).toBe('still here');
+      expect(calls).toBeGreaterThan(0);
+    } finally {
+      recordSpawns(undefined);
+    }
     const before = calls;
     await capture(process.execPath, ['-e', 'console.log("again")'], process.env);
     expect(calls).toBe(before);
+  });
+
+  it('runs a process to its end when the recorder throws as it starts or as it ends', async () => {
+    try {
+      recordSpawns({
+        start: () => {
+          throw new Error('no recording');
+        },
+      });
+      expect((await capture(process.execPath, ['-e', 'console.log("started")'], process.env)).stdout.trim()).toBe('started');
+      recordSpawns({
+        start: () => ({
+          data: () => undefined,
+          exit: () => {
+            throw new Error('no end');
+          },
+        }),
+      });
+      const res = await capture(process.execPath, ['-e', 'console.log("ended")'], process.env);
+      expect(res).toMatchObject({ code: 0, stdout: 'ended\n' });
+    } finally {
+      recordSpawns(undefined);
+    }
   });
 });
 

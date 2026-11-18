@@ -119,7 +119,9 @@ function fill(name: string, s: any): unknown {
   if (type === 'integer' || type === 'number') {
     // Milliseconds or seconds to wait (Antigravity's `WaitMsBeforeAsync` takes 500 to 10000), within the schema's range.
     const want = /ms|milli/i.test(name) ? 10_000 : /timeout|wait/i.test(name) ? 120 : 0;
-    return Math.min(typeof s.maximum === 'number' ? s.maximum : want, Math.max(typeof s.minimum === 'number' ? s.minimum : want, want));
+    const min = typeof s.minimum === 'number' ? s.minimum : -Infinity;
+    const max = typeof s.maximum === 'number' ? s.maximum : Infinity;
+    return Math.min(max, Math.max(min, want));
   }
   if (type === 'array') return [];
   if (type === 'object') return {};
