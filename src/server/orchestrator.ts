@@ -2975,6 +2975,9 @@ export class Orchestrator {
       // program; below full access, a CLI whose sandbox holds its MCP servers gets no stdio stand-in
       // (`GATEWAY_SANDBOXED_MCP`), and one with no HTTP way at all none (`GATEWAY_FULL_ACCESS_ONLY`).
       const full = conv.settings.permission === 'full';
+      // Ends the gateway's calls with the turn, however the turn ends (its CLI done, failed or timed out),
+      // not only when the run is stopped: a page still opening then lets the next call have the browser.
+      const turnEnd = new AbortController();
       const relay =
         this.gateway && this.outbox && tools.relayGroups.length && (full || !GATEWAY_FULL_ACCESS_ONLY.includes(agent.provider))
           ? this.gateway.grant(
@@ -2989,7 +2992,7 @@ export class Orchestrator {
                 unattended: Boolean(run.refuseApprovals),
                 ...(requestApproval ? { ask: requestApproval } : {}),
                 toOutbox,
-                signal: run.abort.signal,
+                signal: AbortSignal.any([run.abort.signal, turnEnd.signal]),
               },
               tools.relayGroups,
               { http: GATEWAY_OVER_HTTP.includes(agent.provider), fallback: full || !GATEWAY_SANDBOXED_MCP.includes(agent.provider) },
@@ -3036,6 +3039,7 @@ export class Orchestrator {
         state.seen = seenBefore; // not delivered; offer it again next turn
         throw err;
       } finally {
+        turnEnd.abort();
         relay?.revoke();
       }
     };

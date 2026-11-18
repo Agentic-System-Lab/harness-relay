@@ -260,7 +260,7 @@ describe('schedules', () => {
       await running.tick();
     }
     expect(said(conv)).toEqual(['which one?', '@Alice', 'note']);
-    expect(notes(conv)).toEqual([`The automation's messages of ${at(1)} to ${at(3)} (3 times) ${waits}`]);
+    expect(notes(conv)).toEqual([`The automation's messages from ${at(1)} to ${at(3)} (3 times) ${waits}`]);
     expect(notes(new Store(db).get(conv.id)!)).toEqual(notes(conv)); // saved as it reads now
 
     // Something written in the chat since: the next time leaves a note of its own, and so does one
@@ -290,11 +290,63 @@ describe('schedules', () => {
     }
     expect(queued.schedule).toMatchObject({ lastResult: 'skipped' });
     expect(notes(queued)).toEqual([
-      `The automation's messages of ${at(7)} to ${at(8)} (2 times) were not sent: the automation's previous message is still waiting to be delivered.`,
+      `The automation's messages from ${at(7)} to ${at(8)} (2 times) were not sent: the automation's previous message is still waiting to be delivered.`,
     ]);
     orchestrator.stop(queued.id);
     alice();
     await finish(queued.id);
+  });
+
+  it('leaves a note of its own after a time that was sent, once the schedule is saved again, and for another reason', async () => {
+    // A new chat each time: a time sent there writes nothing in this chat.
+    const conv = conversation({ mode: 'roundtable', permission: 'edit' });
+    const team = conv.agents;
+    const teamless = () => ((conv.agents = []), store.saveMeta(conv));
+    teamless();
+    schedule(conv, { newChat: true });
+    const at = (hours: number) => scheduleTime(T0 + hours * HOUR, { lang: 'en', timeZone: 'UTC' });
+    const one = (hours: number, why = 'the team is not confirmed yet') => `The automation's message of ${at(hours)} was not sent: ${why}.`;
+    const running = scheduler();
+    const tickAt = async (hours: number) => {
+      now = T0 + hours * HOUR;
+      await running.tick();
+    };
+
+    await tickAt(1);
+    conv.agents = team;
+    store.saveMeta(conv);
+    await tickAt(2); // sent, in a chat of its own
+    expect(conv.schedule).toMatchObject({ lastResult: 'sent' });
+    await finish(conv.schedule!.lastChatId!);
+    teamless();
+    await tickAt(3);
+    expect(notes(conv)).toEqual([one(1), one(3)]);
+
+    // Saved again (its times set anew): the note before was another schedule's.
+    conv.schedule = { ...conv.schedule!, updatedAt: T0 - 24 * HOUR };
+    store.saveSchedule(conv);
+    await tickAt(4);
+    await tickAt(5);
+    expect(notes(conv).slice(2)).toEqual([
+      `The automation's messages from ${at(4)} to ${at(5)} (2 times) were not sent: the team is not confirmed yet.`,
+    ]);
+
+    // Another reason, with nothing between: another conversation is changing the folder.
+    conv.agents = team;
+    store.saveMeta(conv);
+    const writer = conversation({ mode: 'roundtable', permission: 'edit' });
+    hold('Alice');
+    const before = calls.length;
+    await orchestrator.send(writer.id, 'go');
+    await vi.waitFor(() => expect(calls.length).toBe(before + 1));
+    await tickAt(6); // busy: tried again for a while
+    now = T0 + 6 * HOUR + BUSY_RETRY_MS + 1000;
+    await running.tick();
+    expect(conv.schedule).toMatchObject({ lastResult: 'skipped', lastError: expect.stringMatching(/is changing/) });
+    expect(notes(conv)).toHaveLength(4);
+    expect(notes(conv)[3]).toMatch(new RegExp(`^The automation's message of ${at(6)} was not sent: .*is changing`));
+    orchestrator.stop(writer.id);
+    await finish(writer.id);
   });
 
   it('skips a time missed while it was not running, or sends it once late, as the schedule says', async () => {

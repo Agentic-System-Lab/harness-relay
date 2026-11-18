@@ -1222,7 +1222,7 @@ const en: ServerMessages = {
   scheduleMissedNote: (when) => `The automation's message of ${when} was not sent: Harness Relay was not running then.`,
   scheduleSkippedNote: (when, why) => `The automation's message of ${when} was not sent: ${why}.`,
   scheduleSkippedNotes: (first, last, count, why) =>
-    `The automation's messages of ${first} to ${last} (${count} times) were not sent: ${why}.`,
+    `The automation's messages from ${first} to ${last} (${count} times) were not sent: ${why}.`,
   scheduleFailedNote: (when, why) => `The automation's message of ${when} could not be sent: ${why}`,
   scheduleChatNote: (title) => `The automation of "${title}" opened this conversation to send its message here.`,
   scheduleNoLead: 'The lead agent does not design the team in this conversation',
