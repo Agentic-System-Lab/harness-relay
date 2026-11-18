@@ -140,39 +140,143 @@ export function isProtected(path: string, patterns: readonly CompiledPattern[]):
   return patterns.some((p) => p.regex.test(path));
 }
 
+/** Programs that run the script named after them (their options skipped). */
+const HOOK_INTERPRETERS = new Set([
+  'sh',
+  'bash',
+  'zsh',
+  'dash',
+  'ksh',
+  'node',
+  'nodejs',
+  'tsx',
+  'bun',
+  'deno',
+  'python',
+  'python3',
+  'ruby',
+  'perl',
+  'php',
+]);
+/** Programs that run the command named after them. */
+const HOOK_WRAPPERS = new Set(['env', 'exec', 'command', 'time', 'nice', 'nohup']);
+
 /**
- * The files the hooks' command lines name in the working directory (`./scripts/allow.sh`, `node
- * tools/check.js`, `--config=ci/rules.json`), as protected path patterns anchored there: a member that
- * could change a hook's own script could switch the hook off. Its words with a folder in them or a
- * script's ending, from the hook's folder; not a full path (outside the folders, or not told from
- * here), one that leaves the folder, or one the shell makes (a variable, a wildcard, `~`).
+ * A hook's command line as a shell reads its words, as far as needed here: quotes and backslashes taken
+ * off; `null` where one command ends and another starts (`;`, `&&`, `|`, a line break, a bracket);
+ * `undefined` for a word only the shell knows (it holds a variable, a substitution or a wildcard), or
+ * the file of a redirection.
+ */
+function hookWords(run: string): (string | null | undefined)[] {
+  const out: (string | null | undefined)[] = [];
+  let word = '';
+  let open = false;
+  let dynamic = false;
+  let quote: '"' | "'" | undefined;
+  let redirect = false;
+  const end = () => {
+    if (open) out.push(dynamic || redirect ? undefined : word);
+    if (open) redirect = false;
+    word = '';
+    open = false;
+    dynamic = false;
+  };
+  for (let i = 0; i < run.length; i++) {
+    const c = run[i]!;
+    if (quote === "'") {
+      if (c === "'") quote = undefined;
+      else word += c;
+    } else if (quote === '"') {
+      if (c === '"') quote = undefined;
+      else if (c === '$' || c === '`') dynamic = true;
+      else if (c === '\\' && i + 1 < run.length) word += run[++i];
+      else word += c;
+    } else if (c === "'" || c === '"') {
+      quote = c;
+      open = true;
+    } else if (c === '\\' && i + 1 < run.length) {
+      word += run[++i];
+      open = true;
+    } else if (/\s/.test(c)) {
+      end();
+      if (c === '\n') out.push(null);
+    } else if (';|&(){}'.includes(c)) {
+      end();
+      out.push(null);
+    } else if (c === '<' || c === '>') {
+      end();
+      redirect = true;
+    } else {
+      if ('$`*?[~'.includes(c)) dynamic = true;
+      word += c;
+      open = true;
+    }
+  }
+  end();
+  return out;
+}
+
+/**
+ * The scripts the hooks' command lines run from the working directory, as protected path patterns
+ * anchored there: a member that could change a hook's own script could switch the hook off. Only what a
+ * command line runs: the program of each command when it is named by a path (`./scripts/allow.sh`,
+ * `tools/check`), and the script an interpreter is given (`sh ci/check.sh`, `node tools/check.js`,
+ * `python3 lint.py`), from the hook's folder. Never its other arguments (a folder to lint, a pattern),
+ * a full path (not told from here), one that leaves the folder, or a word only the shell knows. What
+ * else a hook reads (a script run through `npm run` or `make`, what a script loads) is the user's to
+ * list under protected paths.
  */
 export function hookFilePatterns(hooks: readonly Pick<CheckHook, 'run' | 'cwd'>[] | undefined): string[] {
   const out: string[] = [];
+  const name = (word: string) => word.slice(word.lastIndexOf('/') + 1);
   for (const h of hooks ?? []) {
     const base = (h.cwd ?? '').replace(/\\/g, '/');
     if (base.startsWith('/') || /^[A-Za-z]:\//.test(base)) continue;
-    for (const word of h.run.split(/[\s;&|()<>'"`=]+/)) {
-      if (!word || word.startsWith('/') || word.startsWith('-') || /[$*?[\]{}~\\:]/.test(word)) continue;
-      if (!word.includes('/') && !/\.(?:sh|bash|js|mjs|cjs|ts|mts|cts|py|rb|pl)$/.test(word)) continue;
+    const add = (word: string) => {
+      if (word.startsWith('/') || /^[A-Za-z]:/.test(word) || word.includes('\\')) return;
       const names: string[] = [];
-      let outside = false;
       for (const n of [...base.split('/'), ...word.split('/')]) {
         if (!n || n === '.') continue;
         if (n !== '..') names.push(n);
         else if (names.length) names.pop();
-        else outside = true;
+        else return;
       }
-      if (outside || !names.length) continue;
-      const tidy = tidyPattern(`/${names.join('/')}`);
+      const tidy = names.length ? tidyPattern(`/${names.join('/')}`) : undefined;
       if (tidy && !out.includes(tidy)) out.push(tidy);
+    };
+    // Where in a command a word is: its program (`command`), the script an interpreter runs (`script`), or neither.
+    let at: 'command' | 'script' | 'rest' = 'command';
+    let shell = false;
+    for (const word of hookWords(h.run)) {
+      if (word === null) at = 'command';
+      else if (word === undefined) at = 'rest';
+      else if (at === 'command') {
+        if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) continue; // a variable set for the command
+        if (HOOK_WRAPPERS.has(name(word))) continue;
+        if (HOOK_INTERPRETERS.has(name(word))) {
+          at = 'script';
+          shell = /^(?:sh|bash|zsh|dash|ksh)$/.test(name(word));
+        } else {
+          if (word.includes('/')) add(word);
+          at = 'rest';
+        }
+      } else if (at === 'script') {
+        if (word.startsWith('-')) {
+          // An option that takes the program itself (`sh -c '…'`, `node -e '…'`, `python -m mod`): no script follows.
+          if (shell ? /^-[a-zA-Z]*c$/.test(word) : /^-[cemp]$/.test(word) || word === '--eval' || word === '--print') at = 'rest';
+          continue;
+        }
+        if (word === 'run') continue; // `deno run`, `bun run`
+        add(word);
+        at = 'rest';
+      }
     }
   }
   return out;
 }
 
 /**
- * Every protected path pattern of a list: its own, and the files its hooks' command lines name
+ * Every protected path pattern of a list: its own, and the scripts its hooks' command lines run
  * (`hookFilePatterns()`), each once. What the checks compare, what a CLI is to refuse writing, and what
  * the members are told.
  */

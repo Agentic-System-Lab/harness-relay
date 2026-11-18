@@ -712,7 +712,9 @@ export function piGateAnswer(decision: AcpDecision): Record<string, unknown> {
 /** A call as the team's hooks see it: a command, a file Pi's own tools change (a full path), or another call. */
 export function piHookCall(req: Pick<PiGateRequest, 'toolName' | 'input'>, cwd: string): HookCall {
   const input = req.input ?? {};
-  if (req.toolName === 'bash') return { kind: 'command', tool: req.toolName, command: String(input.command ?? ''), input };
+  // Its shell tools: `bash`, and `powershell` where it is switched on.
+  if (req.toolName === 'bash' || req.toolName === 'powershell')
+    return { kind: 'command', tool: req.toolName, command: String(input.command ?? ''), input };
   if (req.toolName === 'edit' || req.toolName === 'write') {
     const path = text(input.path);
     return { kind: 'edit', tool: req.toolName, files: path ? [isAbsolute(path) ? path : resolve(cwd, path)] : [], input };

@@ -265,11 +265,12 @@ const MUSE_HOOK_TOOLS: Record<'command' | 'edit', string[]> = {
 /**
  * The longest Harness Relay has Muse wait for a hook, in seconds: Muse caps a hook's time limit at a
  * boundary of its own, whatever the settings declare, and lets the call go on past it. A hook was seen
- * to run 519 s with a longer limit declared (muse 1.4.23), so everything stays under that: Muse's limit
+ * to run 1,523 s with a longer limit declared, and its refusal after that still held (muse 1.4.23), so
+ * everything stays under that: Muse's limit
  * for the program, the program's own half a minute less, Harness Relay's deadline a minute less. Hooks
  * whose time limits add up to more are stopped at that deadline, and a call before them refused.
  */
-export const MUSE_HOOK_MAX_WAIT = 480;
+export const MUSE_HOOK_MAX_WAIT = 1200;
 
 /** A command tool's command line, as a hook reads it: its `command`, what `bash_input` types, else its arguments as JSON. */
 function museCommandText(input: Record<string, any>): string {

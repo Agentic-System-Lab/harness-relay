@@ -1399,6 +1399,7 @@ describe("Pi: the team's hooks", () => {
     });
     expect(piHookCall({ toolName: 'edit', input: {} }, '/w')).toMatchObject({ kind: 'edit', files: [] });
     expect(piHookCall({ toolName: 'mcp__docs__search', input: { q: 'x' } }, '/w').kind).toBe('other');
+    expect(piHookCall({ toolName: 'powershell', input: { command: 'rm x' } }, '/w')).toMatchObject({ kind: 'command', command: 'rm x' });
   });
 
   it("reads the gate's results, and nothing else", () => {

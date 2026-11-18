@@ -1045,7 +1045,7 @@ describe("the team's hooks", () => {
   });
 });
 
-describe("the files a hook's command names", () => {
+describe("the script a hook's command runs", () => {
   it.skipIf(process.platform === 'win32')(
     'are protected like protected paths: a member that changes one is found once the team has answered, and each turn is told to refuse writing it',
     async () => {

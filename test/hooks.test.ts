@@ -75,23 +75,26 @@ describe('a list with hooks', () => {
     expect(hasRules({})).toBe(false);
   });
 
-  it("protects the files a hook's command names in the working directory, which a member could otherwise change to switch it off", () => {
-    expect(hookFilePatterns([hook({ run: './scripts/allow.sh "$RELAY_HOOK_COMMAND"' })])).toEqual(['/scripts/allow.sh']);
-    expect(hookFilePatterns([hook({ run: 'node tools/check.js --config=ci/rules.json && python lint.py', cwd: 'web' })])).toEqual([
-      '/web/tools/check.js',
-      '/web/ci/rules.json',
-      '/web/lint.py',
-    ]);
-    // Not a program on the PATH, a full path, one that leaves the folder, one the shell makes, a URL or an option.
-    expect(
-      hookFilePatterns([
-        hook({
-          run: 'npx prettier --check $RELAY_HOOK_FILES; /usr/bin/true ../up/x.sh ~/x.sh src/*.ts https://example.com/a -I/inc "$DIR/x.sh"',
-        }),
-        hook({ run: './x.sh', cwd: '/abs/folder' }),
-      ]),
-    ).toEqual([]);
-    expect(hookFilePatterns([hook({ run: '../shared/x.sh', cwd: 'web' })])).toEqual(['/shared/x.sh']);
+  it("protects the scripts a hook's command runs from the working directory, which a member could otherwise change to switch it off", () => {
+    const of = (run: string, cwd?: string) => hookFilePatterns([hook({ run, ...(cwd ? { cwd } : {}) })]);
+    // The program of a command named by a path, and the script an interpreter is given, from the hook's folder.
+    expect(of('./scripts/allow.sh "$RELAY_HOOK_COMMAND"')).toEqual(['/scripts/allow.sh']);
+    expect(of('node tools/check.js --config=ci/rules.json && python3 lint.py', 'web')).toEqual(['/web/tools/check.js', '/web/lint.py']);
+    expect(of("sh './my scripts/allow.sh'")).toEqual(['/my scripts/allow.sh']);
+    expect(of('FOO=1 env BAR=2 bash -eu ci/a.sh src/')).toEqual(['/ci/a.sh']);
+    expect(of('test -f a/b || ./bin/fail; cat list.txt | ./filter.py > out/log.txt')).toEqual(['/bin/fail', '/filter.py']);
+    expect(of('bun run tools/x.ts')).toEqual(['/tools/x.ts']);
+    expect(of('../shared/x.sh', 'web')).toEqual(['/shared/x.sh']);
+    // Never a command's other arguments: a folder to lint or a pattern would protect what the team works on.
+    expect(of('npx eslint src/ --max-warnings 0')).toEqual([]);
+    expect(of('grep -v "^docs/"')).toEqual([]);
+    expect(of('npx prettier --check $RELAY_HOOK_FILES')).toEqual([]);
+    expect(of('echo "lint: $(basename $RELAY_HOOK_FILES)"; exit 1')).toEqual([]);
+    // Nor a program on the PATH, a full path, one that leaves the folder, one only the shell knows, or a program given as text.
+    expect(of('npm run allow; /usr/bin/true; ~/x.sh; ../up.sh; sh "$PWD/scripts/allow.sh"; sh -c "scripts/x.sh"; node -e "a/b"')).toEqual(
+      [],
+    );
+    expect(of('./x.sh', '/abs/folder')).toEqual([]);
     const list = {
       protectedPaths: ['.env', '/scripts/allow.sh'],
       hooks: [hook({ run: './scripts/allow.sh' }), hook({ run: 'sh ci/a.sh' })],
