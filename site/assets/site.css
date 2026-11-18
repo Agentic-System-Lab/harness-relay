@@ -272,7 +272,6 @@ p {
   font-size: clamp(1.06rem, 1rem + 0.3vw, 1.22rem);
   line-height: 1.55;
   color: var(--muted);
-  max-width: 38em;
 }
 
 .skip {
@@ -620,7 +619,7 @@ html:not(.js) .theme-toggle {
 
 .hero-grid {
   display: grid;
-  /* The buttons take what they need; the lead, the rest (up to its 38em). */
+  /* The buttons take what they need; the lead, the rest. */
   grid-template-columns: minmax(0, 1fr) auto;
   /* The headline, the download row, the GitHub row. A lead taller than the two rows beside it grows
      the last one only, so the GitHub button stays right under the download button in every language. */
@@ -820,7 +819,6 @@ html:not(.js) .theme-toggle {
 .downloads {
   display: grid;
   gap: 12px;
-  max-width: 560px;
   padding-top: 8px;
 }
 
@@ -1203,7 +1201,6 @@ html:not(.js) .theme-toggle {
 .usecase-head {
   display: grid;
   gap: 16px;
-  max-width: 52rem;
   margin-bottom: clamp(28px, 3vw, 40px);
 }
 
@@ -1312,7 +1309,6 @@ html:not(.js) .theme-toggle {
 .section-head {
   display: grid;
   gap: 18px;
-  max-width: 46rem;
   margin-bottom: clamp(36px, 4.5vw, 60px);
 }
 
@@ -1799,11 +1795,19 @@ html:not(.js) .theme-toggle {
   color: var(--muted);
 }
 
-/* You stay in charge: excerpts of the app's own UI. */
+/* You stay in charge: excerpts of the app's own UI. Each excerpt takes two rows of the grid (its card,
+   its text), so the two side by side share them: the cards are as tall as each other and the texts
+   start on the same line. */
 .control-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: clamp(28px, 4vw, 56px) clamp(24px, 3vw, 40px);
+}
+
+.control-grid > .excerpt {
+  grid-row: span 2;
+  grid-template-rows: subgrid;
+  row-gap: 18px;
 }
 
 .excerpt {
@@ -1815,11 +1819,11 @@ html:not(.js) .theme-toggle {
 .excerpt-text {
   display: grid;
   gap: 6px;
+  align-content: start;
 }
 
 .excerpt-text p {
   color: var(--muted);
-  max-width: 34em;
 }
 
 .ui {
@@ -2034,6 +2038,16 @@ html:not(.js) .theme-toggle {
   background: currentColor;
 }
 
+/* You stay in charge: a card taller than its content (as tall as the one beside it) keeps the content at
+   its top, and the message tray's composer at its bottom. */
+.control-grid .ui {
+  align-content: start;
+}
+
+.control-grid .ui-tray {
+  align-content: space-between;
+}
+
 .excerpt-note {
   margin-top: clamp(28px, 3vw, 40px);
   font-size: 13.5px;
@@ -2055,6 +2069,7 @@ html:not(.js) .theme-toggle {
   padding: 18px 0;
   border-bottom: 1px solid var(--border);
   color: var(--muted);
+  text-wrap: pretty;
 }
 
 .more li b {
