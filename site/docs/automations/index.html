@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Automations · Harness Relay docs</title>
+    <meta
+      name="description"
+      content="Harness Relay docs: send your team a message at set times, or when a mail, an event, a pull request or a file comes in, and track a goal across runs."
+    />
+    <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/docs/automations/" />
+    <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/automations/" />
+    <link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/automations/" />
+    <link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/automations/" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141415" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Harness Relay" />
+    <meta property="og:title" content="Automations · Harness Relay docs" />
+    <meta
+      property="og:description"
+      content="How to have Harness Relay send your team a message at set times, when a new mail, an event, a pull request, a failed CI run or a file comes in, or when a program calls its webhook, and follow a goal across runs until it is reached."
+    />
+    <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/automations/" />
+    <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="zh_TW" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="../../favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="../../assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="../../assets/site.css" />
+    <script>
+      document.documentElement.classList.add('js');
+      // The theme the visitor picked with the theme button (assets/theme.js), set before anything is drawn
+      // so that it does not flash. Until they pick one, the page follows the system's light or dark mode.
+      try {
+        var theme = localStorage.getItem('harness-relay.theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {}
+      // Show the language the visitor picked last time. Before they pick one, follow the
+      // browser like the app does: Chinese gets the Traditional Chinese page.
+      try {
+        var lang = localStorage.getItem('harness-relay.lang');
+        var browserZh = /^zh/i.test((navigator.languages || [])[0] || navigator.language || '');
+        if (lang === 'zh-TW' || (!lang && browserZh)) location.replace('../../zh-TW/docs/automations/' + location.hash);
+      } catch (e) {}
+    </script>
+    <script src="../../assets/site.js" defer></script>
+    <script type="module" src="../../assets/theme.js"></script>
+    <!-- What search and answer engines read about the page (test/site-docs.test.ts keeps it in step with the page). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "@id": "https://agentic-system-lab.github.io/harness-relay/docs/automations/#webpage",
+        "url": "https://agentic-system-lab.github.io/harness-relay/docs/automations/",
+        "name": "Automations · Harness Relay docs",
+        "description": "Harness Relay docs: send your team a message at set times, or when a mail, an event, a pull request or a file comes in, and track a goal across runs.",
+        "inLanguage": "en",
+        "isPartOf": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
+        },
+        "about": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#app"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-github" viewBox="0 0 16 16">
+          <path
+            fill="currentColor"
+            d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+          />
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+          <path d="M12 3.86 14.22 9.8l6.34.28-4.97 3.95 1.7 6.11L12 16.64l-5.29 3.5 1.7-6.11-4.97-3.95 6.34-.28Z" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2.75v1.5M12 19.75v1.5M2.75 12h1.5M19.75 12h1.5M5.46 5.46l1.06 1.06M17.48 17.48l1.06 1.06M5.46 18.54l1.06-1.06M17.48 6.52l1.06-1.06" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 13.6A8 8 0 1 1 10.4 4a6.25 6.25 0 0 0 9.6 9.6Z" />
+        </symbol>
+        <symbol id="i-mark" viewBox="0 0 32 32">
+          <circle cx="9" cy="16" r="6" fill="#d97757" />
+          <circle cx="23" cy="10" r="5" fill="#10a37f" />
+          <circle cx="23" cy="23" r="5" fill="#7c5cff" />
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6.5 9.5 5.5 5.5 5.5-5.5" />
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.75" />
+          <path d="M12 11v5.5M12 7.6v.1" />
+        </symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M12 2.5c.8 5.9 3.6 8.7 9.5 9.5-5.9.8-8.7 3.6-9.5 9.5-.8-5.9-3.6-8.7-9.5-9.5 5.9-.8 8.7-3.6 9.5-9.5Z" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.7 7 9 4.1-1.3 7-4.7 7-9V6.2Z" />
+          <path d="m9 12 2.2 2.2L15.2 10" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
+        </symbol>
+        <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+        </symbol>
+        <symbol id="i-os-win" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+          <path d="M12 4.5v15M3.5 12h17" />
+        </symbol>
+        <symbol id="i-os-linux" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3c-2.3 0-3.6 1.9-3.6 4.4 0 1.5.4 2.4-.7 3.8C6.4 12.9 5.4 14.8 5.4 17c0 2.6 2.9 4 6.6 4s6.6-1.4 6.6-4c0-2.2-1-4.1-2.3-5.8-1.1-1.4-.7-2.3-.7-3.8C15.6 4.9 14.3 3 12 3Z" />
+          <path d="M9.6 14.6c0-1.6 1-2.7 2.4-2.7s2.4 1.1 2.4 2.7v1.6c0 1.5-1 2.6-2.4 2.6s-2.4-1.1-2.4-2.6Z" />
+          <path d="M10.6 9.2 12 10.3l1.4-1.1" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="wrap header-row">
+        <a class="brand" href="../../" aria-label="Harness Relay, home">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="site-nav" aria-label="Sections">
+          <a href="../../#demo">Demo</a>
+          <a href="../../use-cases/">Use cases</a>
+          <a href="../../#modes">Modes</a>
+          <a href="../../#teams">Teams</a>
+          <a href="../../#safety">Safety</a>
+          <a href="../../#start">Quick start</a>
+          <a href="../" aria-current="true">Docs</a>
+        </nav>
+        <div class="header-tools">
+          <nav class="lang" aria-label="Language">
+            <a href="./" hreflang="en" lang="en" aria-current="page" data-lang="en">EN</a>
+            <a href="../../zh-TW/docs/automations/" hreflang="zh-TW" lang="zh-Hant-TW" data-lang="zh-TW">中文</a>
+          </nav>
+          <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            <span class="gh-label">GitHub</span>
+            <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> stars</span></span>
+          </a>
+          <button class="btn btn-ghost theme-toggle" type="button" data-theme-toggle data-to-dark="Switch to dark theme" data-to-light="Switch to light theme" aria-label="Switch to dark theme">
+            <svg class="i-moon" aria-hidden="true"><use href="#i-moon" /></svg>
+            <svg class="i-sun" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="wrap doc-layout">
+      <nav class="doc-nav" aria-label="Docs" data-doc-nav>
+        <button class="doc-nav-toggle" type="button" aria-expanded="false" aria-controls="doc-pages" data-doc-nav-toggle>
+          <span>Docs</span>
+          <b>Automations</b>
+          <svg aria-hidden="true"><use href="#i-chevron" /></svg>
+        </button>
+        <div class="doc-nav-list" id="doc-pages">
+          <p class="doc-nav-title">Get started</p>
+          <ul>
+            <li><a href="../">Overview</a></li>
+            <li><a href="../install/">Install</a></li>
+            <li><a href="../agents/">Connect your agents</a></li>
+            <li><a href="../first-chat/">Your first chat</a></li>
+          </ul>
+          <p class="doc-nav-title">Work with the team</p>
+          <ul>
+            <li><a href="../teams/">Teams and modes</a></li>
+            <li><a href="../permissions/">Permissions and approvals</a></li>
+            <li><a href="../conversations/">Conversations</a></li>
+            <li><a href="../automations/" aria-current="page">Automations</a></li>
+            <li><a href="../tools/">Tools</a></li>
+          </ul>
+          <p class="doc-nav-title">More</p>
+          <ul>
+            <li><a href="../phone/">Use it from your phone</a></li>
+            <li><a href="../troubleshooting/">Troubleshooting</a></li>
+          </ul>
+          <a class="doc-nav-out" href="https://github.com/Agentic-System-Lab/harness-relay#documentation">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            Technical docs on GitHub
+          </a>
+        </div>
+      </nav>
+
+      <header class="doc-head">
+        <h1>Automations</h1>
+        <p class="lead">
+          An automation sends the team a message as if you had sent it: at the times you set, when something happens, or
+          when you click to run it. The team works while you are away, and you read what it did when you are back.
+        </p>
+      </header>
+
+      <nav class="doc-toc" aria-label="On this page">
+        <p class="doc-toc-title">On this page</p>
+        <ol>
+          <li><a href="#what">What an automation does</a></li>
+          <li><a href="#create">Create one</a></li>
+          <li><a href="#when">When it runs</a></li>
+          <li><a href="#unattended">While nobody is watching</a></li>
+          <li><a href="#goal">Track a goal</a></li>
+          <li><a href="#webhook">Let a program start it</a></li>
+        </ol>
+      </nav>
+
+      <div class="doc-body">
+        <section id="what" aria-labelledby="what-title">
+          <h2 id="what-title">What an automation does</h2>
+          <p>Some examples of what to hand over:</p>
+          <ul>
+            <li>Every weekday at 09:00: “@Reviewer look at the pull requests merged yesterday and list the risks.”</li>
+            <li>When a mail from a customer arrives: “Triage this mail and draft a reply.”</li>
+            <li>When a CI run fails: “CI failed: find out why.”</li>
+          </ul>
+          <p>There are two ways to start one:</p>
+          <ul>
+            <li>
+              <b>New automation</b>, the button with a lightning bolt beside <b>New chat</b> in the sidebar (it reads
+              <b>Automation</b> where the whole name does not fit). It opens a chat for the automation, and the lead agent
+              designs a team for its message.
+            </li>
+            <li>
+              <b>Automation</b> at the top of a chat you already have. Its message then goes to that chat's team, which
+              you must have confirmed first.
+            </li>
+          </ul>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-info" /></svg>
+            <div>
+              <p>
+                Harness Relay sends only while it is running, on a computer that is awake. A conversation has one
+                automation.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="create" aria-labelledby="create-title">
+          <h2 id="create-title">Create one</h2>
+          <ol class="doc-steps">
+            <li>Click <b>New automation</b> in the sidebar.</li>
+            <li>
+              Write the <b>Message to send the team</b>. As in a chat, members you <code>@mention</code> answer it alone;
+              the lead agent names the team's members after the names you mention.
+            </li>
+            <li>Choose <b>When</b> it runs (see below), and, if you like, a <b>Goal to track</b>.</li>
+            <li>
+              Choose the working directory and the permission, as for a new chat, and whether the lead agent reviews the
+              team's replies.
+            </li>
+            <li>
+              Click <b>Create automation</b>. Its chat opens and the lead agent designs a team for the message: confirm
+              it on its card. Nothing runs yet: the team gets the message at the times you set.
+            </li>
+          </ol>
+          <figure class="doc-figure">
+            <img
+              src="../../assets/media/docs/automations-new-en.webp"
+              width="1280"
+              height="800"
+              alt="The New automation page: the message to send the team, a goal to track (each overdue invoice paid, or a date agreed in writing), When set to Every week on Monday to Friday at 09:00 with the next three times shown, and Create automation at the bottom."
+              loading="lazy"
+            />
+            <figcaption>
+              A new automation, every weekday at 09:00, with a goal to track. A frame of the use case
+              <a href="../../use-cases/#collect-payments">Chase overdue invoices until they are settled</a>.
+            </figcaption>
+          </figure>
+          <h3>Run it now, pause it, delete it</h3>
+          <p>
+            <b>Automation</b> at the top of its chat opens the automation again. There, <b>Run once now</b> sends the
+            message at once, to try it before its first time; untick <b>On</b> to pause it without deleting it (one with
+            no set times has nothing to pause); and <b>Delete automation</b> removes it.
+          </p>
+          <p>
+            A clock next to the conversation in the sidebar shows it has an automation (point at it for the next time).
+            It turns amber when the last time was not sent, or the last check of what it waits for failed. The messages it
+            sends are marked <b>Automation</b> in the chat. If the team is still replying when a time comes, the message
+            waits its turn, like one you send then.
+          </p>
+        </section>
+
+        <section id="when" aria-labelledby="when-title">
+          <h2 id="when-title">When it runs</h2>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">When</th>
+                <th scope="col">What sends the message</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">No set times</th>
+                <td>Only <b>Run once now</b>, or a program calling its webhook. For a task you start yourself now and then.</td>
+              </tr>
+              <tr>
+                <th scope="row">Once</th>
+                <td>A date and time.</td>
+              </tr>
+              <tr>
+                <th scope="row">Every day</th>
+                <td>A time of day.</td>
+              </tr>
+              <tr>
+                <th scope="row">Every week</th>
+                <td>The days you pick, at a time.</td>
+              </tr>
+              <tr>
+                <th scope="row">Every few hours</th>
+                <td>Every so many hours, counted from when you set it.</td>
+              </tr>
+              <tr>
+                <th scope="row">When something happens</th>
+                <td>Something new that it waits for (below).</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>Before you save, the next three times are shown, in the automation's time zone.</p>
+          <h3>When something happens</h3>
+          <p>Under <b>What to wait for</b>, choose what starts it. Harness Relay checks for it itself, every few minutes:</p>
+          <ul>
+            <li>
+              <b>A new mail arrives</b> in one of your mail accounts, in a folder you pick (the inbox at first),
+              optionally only from a sender or with words in the subject. Where the mail server can say at once that mail
+              arrived, as Gmail and iCloud can, it starts within seconds.
+            </li>
+            <li><b>An event is about to begin</b> in one of your calendars, a number of minutes before it begins.</li>
+            <li>
+              <b>A pull request or a failed CI run on GitHub</b>, in a repository you name, checked with your own GitHub
+              CLI (<code>gh</code>), signed in.
+            </li>
+            <li>
+              <b>A file appears or changes in the working directory</b>, matching a pattern such as
+              <code>reports/*.csv</code>. Files the team itself changes there do not start it again.
+            </li>
+          </ul>
+          <p>
+            The mail accounts and calendars are the ones you add under <b>Settings → Tool library</b> (see
+            <a href="../tools/">Tools</a>). The first check only notes what is already there: what comes after it starts
+            the automation, with a list of what is new for the agents to read. <b>Add another</b> waits for one more
+            thing, up to five, and any of them starts it. <b>Check now</b> checks at once and says what it found. When a
+            check fails, say a wrong password, the automation says why.
+          </p>
+        </section>
+
+        <section id="unattended" aria-labelledby="unattended-title">
+          <h2 id="unattended-title">While nobody is watching</h2>
+          <p>An automation's runs may happen while you are away, so three choices say what happens then:</p>
+          <dl class="doc-terms">
+            <dt>Actions outside the permission</dt>
+            <dd>
+              <b>Refuse automatically</b>, at first: whatever an agent wants to do beyond the chat's permission is refused,
+              except what you already allowed always in this chat; the agent is told and works around it, and the chat
+              shows what was refused. Choose <b>Ask me</b> to be asked in the chat as usual; the agent then waits for you,
+              up to a day per turn.
+            </dd>
+            <dt>Missed times</dt>
+            <dd>
+              A time missed while Harness Relay was closed or the computer slept is skipped, with a note in the chat
+              (<b>Skip</b>), or sent once when Harness Relay runs again (<b>Send once when it starts</b>), however many
+              were missed.
+            </dd>
+            <dt>Start a new chat each time</dt>
+            <dd>
+              Instead of this chat, each run opens a new one with the same team and settings. Every run starts clean and
+              this chat does not keep growing, but the agents do not remember earlier runs: have them keep what must carry
+              over in a file in the working directory.
+            </dd>
+          </dl>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-shield" /></svg>
+            <div>
+              <p>
+                With full access, an automation's agents can run any command without asking, with nobody there to see it.
+                Team settings warns you when a chat with an automation has full access. See
+                <a href="../permissions/">Permissions and approvals</a>.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="goal" aria-labelledby="goal-title">
+          <h2 id="goal-title">Track a goal</h2>
+          <p>
+            A <b>Goal to track</b> says, in your words, what done means: for example “CI on main passes and issue #42 is
+            closed”. The automation then follows the task across runs and days:
+          </p>
+          <ul>
+            <li>
+              Each run, the agents are told the goal and what earlier runs reported, and end their reply with where it
+              stands. That shows as a small <b>Progress</b> card in the reply, and in the automation's <b>Progress</b>
+              list.
+            </li>
+            <li>Once an agent says the goal is reached, the automation switches itself off, with a note in the chat.</li>
+            <li>
+              When an agent says it is held up, the conversation is marked <b>Goal held up</b> and you are notified, until
+              a later reply says otherwise.
+            </li>
+            <li>When every reply of a run fails, say on a usage limit, the same run is tried again after 5, 30 and 120 minutes.</li>
+          </ul>
+          <figure class="doc-figure">
+            <img
+              src="../../assets/media/docs/automations-progress-en.webp"
+              width="1280"
+              height="800"
+              alt="The automation's Progress list, marked Done: each run's notes from @Mail_Reader and @Tally_Keeper, newest first, the latest two saying the goal is met; On is unticked at the bottom, since the automation switched itself off."
+              loading="lazy"
+            />
+            <figcaption>
+              Progress run by run, until the goal was reached and the automation switched itself off. A frame of the use
+              case <a href="../../use-cases/#collect-payments">Chase overdue invoices until they are settled</a>.
+            </figcaption>
+          </figure>
+        </section>
+
+        <section id="webhook" aria-labelledby="webhook-title">
+          <h2 id="webhook-title">Let a program start it</h2>
+          <p>
+            Most automations never need this, so it is folded away under <b>Let another program start it (webhook)</b>.
+            A webhook is an address a program on this computer can call to send the automation's message at once: a git
+            hook, a CI runner on this computer or a script, say. It works while the automation's times are off too.
+          </p>
+          <ul>
+            <li>
+              On the <b>New automation</b> page, tick <b>Create a webhook too</b>; for an automation already saved, click
+              <b>Add a webhook</b>.
+            </li>
+            <li>
+              The program must send the webhook's token, which is shown <b>only once</b>, with an example of the call:
+              copy it then. <b>New token</b> replaces it; <b>Remove webhook</b> takes the webhook away.
+            </li>
+            <li>
+              What the program sends goes after the message, under <b>What the webhook sent</b>, as data the agents read
+              but never take as instructions.
+            </li>
+          </ul>
+          <p>
+            Harness Relay takes these calls only from programs on this computer. To pass on events from the internet, run
+            a program here that receives them and calls the webhook.
+          </p>
+        </section>
+
+        <aside class="doc-more" aria-label="Technical details">
+          <svg aria-hidden="true"><use href="#i-github" /></svg>
+          <div>
+            <p>How each kind of event is checked, how runs queue and retry, and how to call a webhook are in the user guide:</p>
+            <ul>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#automations">Automations</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#harness-relays-tools-browser-mail-and-calendar">Mail and calendar accounts</a></li>
+            </ul>
+          </div>
+        </aside>
+
+        <nav class="doc-pager" aria-label="Pages">
+          <a href="../conversations/" rel="prev"><span>Previous</span><b>Conversations</b></a>
+          <a href="../tools/" rel="next"><span>Next</span><b>Tools</b></a>
+        </nav>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-row">
+        <a class="brand" href="../../" aria-label="Harness Relay, home">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="footer-links" aria-label="Footer">
+          <a href="../">Docs</a>
+          <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE">Sustainable Use License</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

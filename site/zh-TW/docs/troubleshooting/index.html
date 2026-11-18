@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>疑難排解 · Harness Relay 文件</title>
+    <meta
+      name="description"
+      content="Harness Relay 文件：找不到 agent、回覆停住、資料夾被拒絕、app 或手機出狀況時可以試什麼，以及怎麼回報問題。"
+    />
+    <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/troubleshooting/" />
+    <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/troubleshooting/" />
+    <link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/troubleshooting/" />
+    <link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/troubleshooting/" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141415" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Harness Relay" />
+    <meta property="og:title" content="疑難排解 · Harness Relay 文件" />
+    <meta
+      property="og:description"
+      content="Harness Relay 使用者最常遇到的狀況與快速解法：agent 未登入或找不到、回覆停住或在等你、資料夾被佔用或被拒絕、桌面 app、語音輸入與手機；以及資料存在哪裡、怎麼回報問題。"
+    />
+    <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/troubleshooting/" />
+    <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="zh_TW" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="../../../favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="../../../assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="../../../assets/site.css" />
+    <script>
+      document.documentElement.classList.add('js');
+      // The theme the visitor picked with the theme button (assets/theme.js), set before anything is drawn
+      // so that it does not flash. Until they pick one, the page follows the system's light or dark mode.
+      try {
+        var theme = localStorage.getItem('harness-relay.theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {}
+      // The visitor picked English last time: show the English page.
+      try {
+        if (localStorage.getItem('harness-relay.lang') === 'en') location.replace('../../../docs/troubleshooting/' + location.hash);
+      } catch (e) {}
+    </script>
+    <script src="../../../assets/site.js" defer></script>
+    <script type="module" src="../../../assets/theme.js"></script>
+    <!-- What search and answer engines read about the page (test/site-docs.test.ts keeps it in step with the page). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/troubleshooting/#webpage",
+        "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/troubleshooting/",
+        "name": "疑難排解 · Harness Relay 文件",
+        "description": "Harness Relay 文件：找不到 agent、回覆停住、資料夾被拒絕、app 或手機出狀況時可以試什麼，以及怎麼回報問題。",
+        "inLanguage": "zh-TW",
+        "isPartOf": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
+        },
+        "about": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#app"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-github" viewBox="0 0 16 16">
+          <path
+            fill="currentColor"
+            d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+          />
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+          <path d="M12 3.86 14.22 9.8l6.34.28-4.97 3.95 1.7 6.11L12 16.64l-5.29 3.5 1.7-6.11-4.97-3.95 6.34-.28Z" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2.75v1.5M12 19.75v1.5M2.75 12h1.5M19.75 12h1.5M5.46 5.46l1.06 1.06M17.48 17.48l1.06 1.06M5.46 18.54l1.06-1.06M17.48 6.52l1.06-1.06" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 13.6A8 8 0 1 1 10.4 4a6.25 6.25 0 0 0 9.6 9.6Z" />
+        </symbol>
+        <symbol id="i-mark" viewBox="0 0 32 32">
+          <circle cx="9" cy="16" r="6" fill="#d97757" />
+          <circle cx="23" cy="10" r="5" fill="#10a37f" />
+          <circle cx="23" cy="23" r="5" fill="#7c5cff" />
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6.5 9.5 5.5 5.5 5.5-5.5" />
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.75" />
+          <path d="M12 11v5.5M12 7.6v.1" />
+        </symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M12 2.5c.8 5.9 3.6 8.7 9.5 9.5-5.9.8-8.7 3.6-9.5 9.5-.8-5.9-3.6-8.7-9.5-9.5 5.9-.8 8.7-3.6 9.5-9.5Z" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.7 7 9 4.1-1.3 7-4.7 7-9V6.2Z" />
+          <path d="m9 12 2.2 2.2L15.2 10" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
+        </symbol>
+        <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+        </symbol>
+        <symbol id="i-os-win" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+          <path d="M12 4.5v15M3.5 12h17" />
+        </symbol>
+        <symbol id="i-os-linux" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3c-2.3 0-3.6 1.9-3.6 4.4 0 1.5.4 2.4-.7 3.8C6.4 12.9 5.4 14.8 5.4 17c0 2.6 2.9 4 6.6 4s6.6-1.4 6.6-4c0-2.2-1-4.1-2.3-5.8-1.1-1.4-.7-2.3-.7-3.8C15.6 4.9 14.3 3 12 3Z" />
+          <path d="M9.6 14.6c0-1.6 1-2.7 2.4-2.7s2.4 1.1 2.4 2.7v1.6c0 1.5-1 2.6-2.4 2.6s-2.4-1.1-2.4-2.6Z" />
+          <path d="M10.6 9.2 12 10.3l1.4-1.1" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <a class="skip" href="#main">跳到主要內容</a>
+
+    <header class="site-header">
+      <div class="wrap header-row">
+        <a class="brand" href="../../" aria-label="Harness Relay 首頁">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="site-nav" aria-label="頁面段落">
+          <a href="../../#demo">示範</a>
+          <a href="../../use-cases/">使用情境</a>
+          <a href="../../#modes">對話模式</a>
+          <a href="../../#teams">團隊</a>
+          <a href="../../#safety">安全</a>
+          <a href="../../#start">快速開始</a>
+          <a href="../" aria-current="true">文件</a>
+        </nav>
+        <div class="header-tools">
+          <nav class="lang" aria-label="語言">
+            <a href="../../../docs/troubleshooting/" hreflang="en" lang="en" data-lang="en">EN</a>
+            <a href="./" hreflang="zh-TW" lang="zh-Hant-TW" aria-current="page" data-lang="zh-TW">中文</a>
+          </nav>
+          <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            <span class="gh-label">GitHub</span>
+            <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> 顆星</span></span>
+          </a>
+          <button class="btn btn-ghost theme-toggle" type="button" data-theme-toggle data-to-dark="切換成深色主題" data-to-light="切換成淺色主題" aria-label="切換成深色主題">
+            <svg class="i-moon" aria-hidden="true"><use href="#i-moon" /></svg>
+            <svg class="i-sun" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="wrap doc-layout">
+      <nav class="doc-nav" aria-label="文件" data-doc-nav>
+        <button class="doc-nav-toggle" type="button" aria-expanded="false" aria-controls="doc-pages" data-doc-nav-toggle>
+          <span>文件</span>
+          <b>疑難排解</b>
+          <svg aria-hidden="true"><use href="#i-chevron" /></svg>
+        </button>
+        <div class="doc-nav-list" id="doc-pages">
+          <p class="doc-nav-title">開始使用</p>
+          <ul>
+            <li><a href="../">總覽</a></li>
+            <li><a href="../install/">安裝</a></li>
+            <li><a href="../agents/">連接你的 agent</a></li>
+            <li><a href="../first-chat/">第一個對話</a></li>
+          </ul>
+          <p class="doc-nav-title">和團隊一起工作</p>
+          <ul>
+            <li><a href="../teams/">團隊與對話模式</a></li>
+            <li><a href="../permissions/">權限與核准</a></li>
+            <li><a href="../conversations/">對話</a></li>
+            <li><a href="../automations/">自動任務</a></li>
+            <li><a href="../tools/">工具</a></li>
+          </ul>
+          <p class="doc-nav-title">更多</p>
+          <ul>
+            <li><a href="../phone/">在手機上使用</a></li>
+            <li><a href="../troubleshooting/" aria-current="page">疑難排解</a></li>
+          </ul>
+          <a class="doc-nav-out" href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/README.zh-TW.md#文件">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            GitHub 上的技術文件
+          </a>
+        </div>
+      </nav>
+
+      <header class="doc-head">
+        <h1>疑難排解</h1>
+        <p class="lead">
+          大多數問題都能很快解決。在下面找找你看到的狀況；這裡沒有的，使用者說明裡的完整清單涵蓋每一種 agent，你也可以直接從 app 回報問題。
+        </p>
+      </header>
+
+      <nav class="doc-toc" aria-label="本頁內容">
+        <p class="doc-toc-title">本頁內容</p>
+        <ol>
+          <li><a href="#agents">登入與找不到 agent</a></li>
+          <li><a href="#replies">回覆與核准</a></li>
+          <li><a href="#files">檔案與工作目錄</a></li>
+          <li><a href="#desktop-app">桌面 app</a></li>
+          <li><a href="#voice">語音輸入</a></li>
+          <li><a href="#phone">在手機上</a></li>
+          <li><a href="#your-data">資料存在哪裡</a></li>
+          <li><a href="#report">回報問題</a></li>
+        </ol>
+      </nav>
+
+      <div class="doc-body">
+        <section id="agents" aria-labelledby="agents-title">
+          <h2 id="agents-title">登入與找不到 agent</h2>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">你看到的狀況</th>
+                <th scope="col">可以試試</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">agent 顯示<b>未登入</b></th>
+                <td>在<b>設定與登入</b>它的卡片上登入，或給它一把 API key，再按<b>重新檢查狀態</b>。</td>
+              </tr>
+              <tr>
+                <th scope="row">agent 顯示「找不到指令」</th>
+                <td>從設定頁它的卡片安裝，或把它的<b>執行檔</b>（在各帳號下方）設成程式的完整路徑。</td>
+              </tr>
+              <tr>
+                <th scope="row">桌面 app 找不到在終端機裡能用的 agent</th>
+                <td>安裝 agent 之後，在 app 的選單選<b>重新啟動伺服器…</b>，讓它重新讀取你的設定。還是找不到的話，在設定頁指定那個 agent 的<b>執行檔</b>。</td>
+              </tr>
+              <tr>
+                <th scope="row">agent 卡片上的<b>安裝</b>失敗</th>
+                <td>打開卡片上的安裝程式輸出看原因（網路擋住了下載、磁碟滿了…）。再試一次，或照 agent 官網的說明自己安裝。</td>
+              </tr>
+              <tr>
+                <th scope="row">開源 agent 顯示<b>尚未就緒</b></th>
+                <td>在<b>設定 → 模型來源</b>加上 API key 或你自己的端點，並確認這個 agent 已經安裝。</td>
+              </tr>
+              <tr>
+                <th scope="row">agent 的模型清單是空的或過時</th>
+                <td>按設定頁上方的<b>重新檢查狀態</b>。也可以隨時選<b>自訂…</b>，自己輸入模型名稱。</td>
+              </tr>
+              <tr>
+                <th scope="row">儲存 API key 失敗</th>
+                <td>系統的鑰匙圈被鎖住，或存取被拒絕。解鎖（或在詢問時允許存取）後再儲存一次。</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>一步一步的登入說明在<a href="../agents/">連接你的 agent</a>。</p>
+        </section>
+
+        <section id="replies" aria-labelledby="replies-title">
+          <h2 id="replies-title">回覆與核准</h2>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">你看到的狀況</th>
+                <th scope="col">可以試試</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">agent 好像卡住了</th>
+                <td>看看有沒有<b>等你核准</b>標籤或核准卡片：它可能正在等你回應。</td>
+              </tr>
+              <tr>
+                <th scope="row">回覆最後出現錯誤框</th>
+                <td>讀一下內容：那是 agent 自己的錯誤，例如用量限制、登入，或模型不存在。處理好之後按<b>繼續</b>，或再送一次訊息。</td>
+              </tr>
+              <tr>
+                <th scope="row">首席 agent 總是沿用同一個團隊，或改用「一般問題智囊團」</th>
+                <td>團隊設計卡片上會說明原因。確認首席 agent 已登入（<b>設定 → 首席 agent</b>），或改選另一個。</td>
+              </tr>
+              <tr>
+                <th scope="row">agent 好像忘了之前的對話</th>
+                <td>agent 無法接著原本的進度時，Harness Relay 會帶著整段對話讓它重新開始。更換工作目錄或它用的 agent，或提高權限之後，這是正常的。</td>
+              </tr>
+              <tr>
+                <th scope="row">Cursor 或 Antigravity 每個指令都要問，連測試也是</th>
+                <td>正常現象：兩者在 Harness Relay 裡都沒有沙箱，所以在完全存取以外的權限，它們的指令都會問你。選<b>本對話都允許</b>可以涵蓋之後類似的指令。</td>
+              </tr>
+              <tr>
+                <th scope="row">一拒絕某件事，Antigravity 或 Copilot 就停了</th>
+                <td>正常現象：它們在任何拒絕之後都會結束這一輪，也看不到你的說明。請在下一則訊息裡說要它改做什麼。</td>
+              </tr>
+              <tr>
+                <th scope="row"><b>連線中斷，重新連線中…</b>一直不消失</th>
+                <td>Harness Relay 的伺服器停了或正在重新啟動；恢復後頁面會自動重新連線。用桌面 app 時，在選單選<b>啟動伺服器</b>就會再啟動它。</td>
+              </tr>
+              <tr>
+                <th scope="row">有些訊息是另一種語言</th>
+                <td>說明與錯誤會用當時的介面語言寫成；切換語言不會翻譯它們。</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="files" aria-labelledby="files-title">
+          <h2 id="files-title">檔案與工作目錄</h2>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">你看到的狀況</th>
+                <th scope="col">可以試試</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">送出時說另一個對話「正在修改」這個資料夾</th>
+                <td>另一個對話正在寫入同一個工作目錄。等它結束、停止它，或改用唯讀或平行模式。</td>
+              </tr>
+              <tr>
+                <th scope="row">套用結果時說有衝突</th>
+                <td>agent 開始之後，你的工作目錄有了變動，所以什麼都沒套用。送出一則新訊息，agent 就會從資料夾目前的狀態重新開始。</td>
+              </tr>
+              <tr>
+                <th scope="row">平行模式的 agent 無法跑測試</th>
+                <td>它們的資料夾副本沒有 git 忽略的檔案，例如 <code>node_modules</code>：請它們先安裝專案的相依套件。</td>
+              </tr>
+              <tr>
+                <th scope="row">選工作目錄時說「範圍太大」</th>
+                <td>這個資料夾位在一個包含整個家目錄的 git repository 裡。請改選專案資料夾，或在專案資料夾裡執行 <code>git init</code>。</td>
+              </tr>
+              <tr>
+                <th scope="row">某個資料夾不能用可編輯模式</th>
+                <td>家目錄本身、決定 agent 怎麼執行的設定資料夾，以及含有 Harness Relay 的資料夾，都不允許可編輯模式。請改選專案資料夾，或用唯讀。</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="desktop-app" aria-labelledby="desktop-app-title">
+          <h2 id="desktop-app-title">桌面 app</h2>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">你看到的狀況</th>
+                <th scope="col">可以試試</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">macOS 說無法驗證 Harness Relay</th>
+                <td>打開<b>系統設定 → 隱私權與安全性</b>，按<b>強制打開</b>。安裝檔還沒有簽章，所以第一次會這樣。</td>
+              </tr>
+              <tr>
+                <th scope="row">Windows 說它已保護你的電腦</th>
+                <td>按<b>其他資訊</b>，再按<b>仍要執行</b>。</td>
+              </tr>
+              <tr>
+                <th scope="row">Linux 的 AppImage 一啟動就結束</th>
+                <td>加上 <code>--no-sandbox</code> 啟動；之後<b>登入時自動啟動</b>也會用同樣的方式啟動它。</td>
+              </tr>
+              <tr>
+                <th scope="row">app 說連接埠已經有其他程式在使用</th>
+                <td>另一個 Harness Relay（例如從終端機啟動的那個）或其他程式佔用了它。結束那一個，再按<b>再試一次</b>。</td>
+              </tr>
+              <tr>
+                <th scope="row">視窗或瀏覽器顯示登入頁</th>
+                <td>在 app 的選單選<b>打開 Harness Relay</b>（視窗），或<b>在瀏覽器打開</b>（瀏覽器）：都會重新登入。</td>
+              </tr>
+              <tr>
+                <th scope="row">更新之後，伺服器太久沒有啟動完成</th>
+                <td>macOS 可能正在詢問 Harness Relay 能否使用鑰匙圈裡它的金鑰。回答之後，在選單選<b>啟動伺服器</b>。</td>
+              </tr>
+              <tr>
+                <th scope="row">macOS 上<b>登入時自動啟動</b>沒有作用</th>
+                <td>在<b>系統設定 → 一般 → 登入項目與延伸功能</b>允許 Harness Relay。</td>
+              </tr>
+              <tr>
+                <th scope="row">更新說 Harness Relay 無法自己更新，或更新失敗</th>
+                <td>對話框會說明原因，並附上那個版本的頁面：照第一次的方式安裝。在 Mac 上，請先把 app 移到「應用程式」。更新失敗時不會改變任何東西。</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="voice" aria-labelledby="voice-title">
+          <h2 id="voice-title">語音輸入</h2>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">你看到的狀況</th>
+                <th scope="col">可以試試</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row"><span class="keep">無法使用麥克風</span></th>
+                <td>允許這個網頁使用麥克風（網址列旁的網站設定），並在系統的隱私權設定允許你的瀏覽器。在手機上，請打開 <code>https://</code> 開頭的網址。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">語音輸入裝不起來</span></th>
+                <td>打開<b>設定 → 語音輸入</b>，看錯誤與安裝紀錄。macOS 請先安裝 <a href="https://brew.sh">Homebrew</a>。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">語音轉文字很慢</span></th>
+                <td>在<b>設定 → 語音輸入</b>改用較小的模型（Small 或 Base）。隔一段時間後的第一次錄音也要先載入模型。</td>
+              </tr>
+              <tr>
+                <th scope="row">辨識出簡體字，或語言不對</th>
+                <td>把<b>辨識語言</b>從自動偵測改成「中文（繁體）」或 English；較大的模型也會比較準。</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="phone" aria-labelledby="phone-title">
+          <h2 id="phone-title">在手機上</h2>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">你看到的狀況</th>
+                <th scope="col">可以試試</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">手機打不開那個網址</th>
+                <td>確認手機的 Tailscale 已開啟，並登入跟電腦同一個 tailnet，也確認電腦醒著。</td>
+              </tr>
+              <tr>
+                <th scope="row">主畫面圖示打開後是空白頁</th>
+                <td>開啟手機的 Tailscale，再點一次圖示。</td>
+              </tr>
+              <tr>
+                <th scope="row">在 iPhone 或 iPad 上無法開啟<b>顯示系統通知</b></th>
+                <td>從主畫面的圖示打開 Harness Relay，不要在 Safari 裡打開，而且要 iOS 16.4 以上。如果通知被封鎖，請在手機的<b>設定 → 通知</b>允許。</td>
+              </tr>
+              <tr>
+                <th scope="row">手機鎖定時收不到通知</th>
+                <td>在手機上按<b>傳送測試通知</b>；失敗的話，把<b>顯示系統通知</b>關掉再打開。確認電腦醒著、連得上網路，也沒有被專注模式擋住。</td>
+              </tr>
+              <tr>
+                <th scope="row"><b>分享到手機</b>說讀不到這台電腦分享了什麼</th>
+                <td>確認電腦上的 Tailscale 正在執行並已登入，再選一次<b>分享到手機</b>。</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>設定方式在<a href="../phone/">在手機上使用</a>。</p>
+        </section>
+
+        <section id="your-data" aria-labelledby="your-data-title">
+          <h2 id="your-data-title">資料存在哪裡</h2>
+          <p>
+            Harness Relay 把所有東西都存在你的電腦上。桌面 app 把你的對話、範本、設定與附加的檔案，放在它自己資料夾裡的 <code>data</code> 資料夾；在它的選單選<b>打開資料夾</b>就會打開它。
+          </p>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">系統</th>
+                <th scope="col">app 的資料夾</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row"><span class="keep">macOS</span></th>
+                <td><code>~/Library/Application Support/Harness Relay</code></td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">Windows</span></th>
+                <td><code>%APPDATA%\Harness Relay</code></td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">Linux</span></th>
+                <td><code>~/.config/Harness Relay</code></td>
+              </tr>
+            </tbody>
+          </table>
+          <ul>
+            <li><b>API key 與密碼</b>不在那個資料夾裡：它們在系統的金鑰儲存區（macOS 的鑰匙圈、Windows 的認證管理員、Linux 的 keyring）。</li>
+            <li>
+              <b>需要登入的 agent</b> 照樣把自己的 session 紀錄放在它平常放的地方，就像你自己執行它時一樣；多出來的帳號與開源 agent
+              則放在 <code>data</code> 資料夾裡。
+            </li>
+            <li><b>備份</b>：先結束 app，再複製它的 <code>data</code> 資料夾。</li>
+            <li><b>伺服器的記錄檔</b>：在 app 的選單選<b>查看記錄檔</b>就會打開，出問題時很有幫助。</li>
+          </ul>
+          <p>
+            從原始碼執行 Harness Relay 時，同樣的檔案放在專案的 <code>data</code> 資料夾。要解除安裝 app 並刪除資料，請見<a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#桌面-app">使用者說明</a>。
+          </p>
+        </section>
+
+        <section id="report" aria-labelledby="report-title">
+          <h2 id="report-title">回報問題</h2>
+          <ol class="doc-steps">
+            <li>點側邊欄底部<b>設定與登入</b>右邊的對話框圖示：它會打開<b>回報問題</b>。</li>
+            <li>選<b>問題</b>、<b>建議</b>或<b>其他</b>，寫下發生了什麼事。</li>
+            <li>按<b>寄出</b>：你的郵件程式會打開，回報內容都已填好。把截圖拖進信裡，再寄出。</li>
+          </ol>
+          <p>
+            在你寄出那封信之前，除了你選擇上傳的截圖（選用：以 secret gist 透過你的 GitHub CLI 上傳，讓信連過去），什麼都不會離開你的電腦。信裡一律會附上 Harness Relay 的版本、你的系統與瀏覽器、各 agent 的版本與語言，比較容易找出問題；你的檔案、資料夾與帳號都不會附上。沒有郵件程式？用<b>用
+            Gmail 寄</b>，或按<b>複製內容</b>，用任何郵件寄出。
+          </p>
+          <p>如果你覺得 Harness Relay 好用，那個圖示旁邊的星星會打開一個小對話框，讓你到 GitHub 給這個專案一顆星星。</p>
+        </section>
+
+        <aside class="doc-more" aria-label="技術細節">
+          <svg aria-hidden="true"><use href="#i-github" /></svg>
+          <div>
+            <p>每種 agent 自己的訊息，以及從原始碼或在伺服器上執行時的問題，都在 GitHub 上的文件裡：</p>
+            <ul>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#7-疑難排解">完整的疑難排解</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#6-資料存在哪裡">資料存在哪裡</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.zh-TW.md#疑難排解">手機連線的疑難排解</a></li>
+            </ul>
+          </div>
+        </aside>
+
+        <nav class="doc-pager" aria-label="頁面">
+          <a href="../phone/" rel="prev"><span>上一頁</span><b>在手機上使用</b></a>
+        </nav>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-row">
+        <a class="brand" href="../../" aria-label="Harness Relay 首頁">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="footer-links" aria-label="頁尾">
+          <a href="../">文件</a>
+          <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE">Sustainable Use License</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

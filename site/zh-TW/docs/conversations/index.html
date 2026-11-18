@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>你的對話 · Harness Relay 文件</title>
+    <meta
+      name="description"
+      content="Harness Relay 文件：用釘選、群組與搜尋整理對話，分支對話、瀏覽檔案、分享對話，並在團隊完成或需要你時收到通知。"
+    />
+    <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/conversations/" />
+    <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/conversations/" />
+    <link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/conversations/" />
+    <link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/conversations/" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141415" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Harness Relay" />
+    <meta property="og:title" content="你的對話 · Harness Relay 文件" />
+    <meta
+      property="og:description"
+      content="怎麼找到、釘選、分組與搜尋你的 Harness Relay 對話，分支對話換個方式再試，瀏覽與下載 agent 做出來的檔案，把對話分享成連結，並在團隊完成或需要你時收到通知。"
+    />
+    <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/conversations/" />
+    <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="zh_TW" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="../../../favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="../../../assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="../../../assets/site.css" />
+    <script>
+      document.documentElement.classList.add('js');
+      // The theme the visitor picked with the theme button (assets/theme.js), set before anything is drawn
+      // so that it does not flash. Until they pick one, the page follows the system's light or dark mode.
+      try {
+        var theme = localStorage.getItem('harness-relay.theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {}
+      // The visitor picked English last time: show the English page.
+      try {
+        if (localStorage.getItem('harness-relay.lang') === 'en') location.replace('../../../docs/conversations/' + location.hash);
+      } catch (e) {}
+    </script>
+    <script src="../../../assets/site.js" defer></script>
+    <script type="module" src="../../../assets/theme.js"></script>
+    <!-- What search and answer engines read about the page (test/site-docs.test.ts keeps it in step with the page). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/conversations/#webpage",
+        "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/conversations/",
+        "name": "你的對話 · Harness Relay 文件",
+        "description": "Harness Relay 文件：用釘選、群組與搜尋整理對話，分支對話、瀏覽檔案、分享對話，並在團隊完成或需要你時收到通知。",
+        "inLanguage": "zh-TW",
+        "isPartOf": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
+        },
+        "about": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#app"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-github" viewBox="0 0 16 16">
+          <path
+            fill="currentColor"
+            d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+          />
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+          <path d="M12 3.86 14.22 9.8l6.34.28-4.97 3.95 1.7 6.11L12 16.64l-5.29 3.5 1.7-6.11-4.97-3.95 6.34-.28Z" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2.75v1.5M12 19.75v1.5M2.75 12h1.5M19.75 12h1.5M5.46 5.46l1.06 1.06M17.48 17.48l1.06 1.06M5.46 18.54l1.06-1.06M17.48 6.52l1.06-1.06" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 13.6A8 8 0 1 1 10.4 4a6.25 6.25 0 0 0 9.6 9.6Z" />
+        </symbol>
+        <symbol id="i-mark" viewBox="0 0 32 32">
+          <circle cx="9" cy="16" r="6" fill="#d97757" />
+          <circle cx="23" cy="10" r="5" fill="#10a37f" />
+          <circle cx="23" cy="23" r="5" fill="#7c5cff" />
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6.5 9.5 5.5 5.5 5.5-5.5" />
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.75" />
+          <path d="M12 11v5.5M12 7.6v.1" />
+        </symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M12 2.5c.8 5.9 3.6 8.7 9.5 9.5-5.9.8-8.7 3.6-9.5 9.5-.8-5.9-3.6-8.7-9.5-9.5 5.9-.8 8.7-3.6 9.5-9.5Z" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.7 7 9 4.1-1.3 7-4.7 7-9V6.2Z" />
+          <path d="m9 12 2.2 2.2L15.2 10" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
+        </symbol>
+        <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+        </symbol>
+        <symbol id="i-os-win" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+          <path d="M12 4.5v15M3.5 12h17" />
+        </symbol>
+        <symbol id="i-os-linux" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3c-2.3 0-3.6 1.9-3.6 4.4 0 1.5.4 2.4-.7 3.8C6.4 12.9 5.4 14.8 5.4 17c0 2.6 2.9 4 6.6 4s6.6-1.4 6.6-4c0-2.2-1-4.1-2.3-5.8-1.1-1.4-.7-2.3-.7-3.8C15.6 4.9 14.3 3 12 3Z" />
+          <path d="M9.6 14.6c0-1.6 1-2.7 2.4-2.7s2.4 1.1 2.4 2.7v1.6c0 1.5-1 2.6-2.4 2.6s-2.4-1.1-2.4-2.6Z" />
+          <path d="M10.6 9.2 12 10.3l1.4-1.1" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <a class="skip" href="#main">跳到主要內容</a>
+
+    <header class="site-header">
+      <div class="wrap header-row">
+        <a class="brand" href="../../" aria-label="Harness Relay 首頁">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="site-nav" aria-label="頁面段落">
+          <a href="../../#demo">示範</a>
+          <a href="../../use-cases/">使用情境</a>
+          <a href="../../#modes">對話模式</a>
+          <a href="../../#teams">團隊</a>
+          <a href="../../#safety">安全</a>
+          <a href="../../#start">快速開始</a>
+          <a href="../" aria-current="true">文件</a>
+        </nav>
+        <div class="header-tools">
+          <nav class="lang" aria-label="語言">
+            <a href="../../../docs/conversations/" hreflang="en" lang="en" data-lang="en">EN</a>
+            <a href="./" hreflang="zh-TW" lang="zh-Hant-TW" aria-current="page" data-lang="zh-TW">中文</a>
+          </nav>
+          <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            <span class="gh-label">GitHub</span>
+            <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> 顆星</span></span>
+          </a>
+          <button class="btn btn-ghost theme-toggle" type="button" data-theme-toggle data-to-dark="切換成深色主題" data-to-light="切換成淺色主題" aria-label="切換成深色主題">
+            <svg class="i-moon" aria-hidden="true"><use href="#i-moon" /></svg>
+            <svg class="i-sun" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="wrap doc-layout">
+      <nav class="doc-nav" aria-label="文件" data-doc-nav>
+        <button class="doc-nav-toggle" type="button" aria-expanded="false" aria-controls="doc-pages" data-doc-nav-toggle>
+          <span>文件</span>
+          <b>對話</b>
+          <svg aria-hidden="true"><use href="#i-chevron" /></svg>
+        </button>
+        <div class="doc-nav-list" id="doc-pages">
+          <p class="doc-nav-title">開始使用</p>
+          <ul>
+            <li><a href="../">總覽</a></li>
+            <li><a href="../install/">安裝</a></li>
+            <li><a href="../agents/">連接你的 agent</a></li>
+            <li><a href="../first-chat/">第一個對話</a></li>
+          </ul>
+          <p class="doc-nav-title">和團隊一起工作</p>
+          <ul>
+            <li><a href="../teams/">團隊與對話模式</a></li>
+            <li><a href="../permissions/">權限與核准</a></li>
+            <li><a href="../conversations/" aria-current="page">對話</a></li>
+            <li><a href="../automations/">自動任務</a></li>
+            <li><a href="../tools/">工具</a></li>
+          </ul>
+          <p class="doc-nav-title">更多</p>
+          <ul>
+            <li><a href="../phone/">在手機上使用</a></li>
+            <li><a href="../troubleshooting/">疑難排解</a></li>
+          </ul>
+          <a class="doc-nav-out" href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/README.zh-TW.md#文件">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            GitHub 上的技術文件
+          </a>
+        </div>
+      </nav>
+
+      <header class="doc-head">
+        <h1>你的對話</h1>
+        <p class="lead">
+          團隊說過的每句話都留在它的對話裡，列在側邊欄。這一頁說明怎麼整理對話、回頭換個方式再試、查看 agent 做出來的檔案、分享對話，以及在團隊完成或需要你時收到通知。
+        </p>
+      </header>
+
+      <nav class="doc-toc" aria-label="本頁內容">
+        <p class="doc-toc-title">本頁內容</p>
+        <ol>
+          <li><a href="#list">對話列表</a></li>
+          <li><a href="#organize">釘選、群組與搜尋</a></li>
+          <li><a href="#messages">複製、編輯、重試與分支</a></li>
+          <li><a href="#files">瀏覽檔案</a></li>
+          <li><a href="#share">分享對話</a></li>
+          <li><a href="#notifications">通知</a></li>
+        </ol>
+      </nav>
+
+      <div class="doc-body">
+        <section id="list" aria-labelledby="list-title">
+          <h2 id="list-title">對話列表</h2>
+          <p>側邊欄列出你的對話，最新的在最上面。切換到別的對話或關掉分頁時，對話會繼續執行；標題下方的標籤會告訴你它現在的狀態：</p>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">標籤</th>
+                <th scope="col">意思</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row"><span class="keep">等你核准</span></th>
+                <td>有 agent 在等你核准。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">等你確認團隊</span></th>
+                <td>首席 agent 為你的問題設計好團隊了。確認後團隊就會回答。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">等你回答</span></th>
+                <td>有 agent 問了你問題，團隊在等你回答。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">目標卡住了</span></th>
+                <td><a href="../automations/">自動任務</a>追蹤的目標卡住了，最新的回覆說明需要你做什麼。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">回覆中</span></th>
+                <td>團隊正在工作。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">新回覆</span></th>
+                <td>你在看其他畫面時，它已經回覆完成。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">出錯了</span></th>
+                <td>最後一則回覆以錯誤結束，而你還沒看過。</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>時間前面的時鐘代表這個對話有自動任務。滑過它可以看下一次的時間；上次沒有送出，或上次檢查失敗時，它會變成琥珀色。</p>
+          <ul>
+            <li><b>重新命名</b>對話：點聊天畫面上方的標題。</li>
+            <li><b>刪除</b>對話：在側邊欄滑過它，按 ×。從它分支出去的對話會保留。</li>
+            <li>
+              <b>騰出空間</b>：側邊欄頂端 <b>Harness Relay</b> 旁的側邊欄按鈕可以收合側邊欄，留在角落的按鈕可以再展開它。這個選擇會記在這個瀏覽器裡。
+            </li>
+          </ul>
+          <p>在手機上，側邊欄是一個抽屜：按選單按鈕，或在頁面任何地方向右滑就會打開，向左滑就會收起。見<a href="../phone/">在手機上使用</a>。</p>
+        </section>
+
+        <section id="organize" aria-labelledby="organize-title">
+          <h2 id="organize-title">釘選、群組與搜尋</h2>
+          <h3>釘選對話</h3>
+          <p>
+            滑過對話，按它左上角的圖釘（手機與平板上圖釘一直顯示）。它會列在群組上方的 <b>已釘選</b>，同時也留在原本的群組裡。按黃色的圖釘就會取消釘選。你用的每個瀏覽器看到的釘選都一樣。
+          </p>
+          <h3>群組</h3>
+          <ul>
+            <li><b>建立群組</b>：按 <b>搜尋</b> 旁邊的資料夾按鈕 <b>新群組</b>，輸入名稱後按 <kbd>Enter</kbd>。</li>
+            <li><b>移動對話</b>：把對話拖到群組上，或滑過對話、按它的資料夾按鈕再選群組。手機與平板上請用資料夾按鈕。</li>
+            <li><b>其他</b> 排在最後，一定存在：不屬於任何群組的對話都在這裡。刪除群組時，裡面的對話會移到 <b>其他</b>，不會被刪除。</li>
+            <li>按群組名稱可以收合它。要重新命名或刪除群組，滑過名稱，按鉛筆或 ×。</li>
+          </ul>
+          <p>
+            有了群組之後，首席 agent 會幫你分類新對話：它讀第一則訊息，把對話放進最適合的群組（決定前會顯示 <b>分類中…</b>），都不適合就留在 <b>其他</b>。每個對話只分類一次，你自己移動過的對話不會被移走。
+          </p>
+          <h3>搜尋</h3>
+          <p>
+            按 <b>新對話</b> 下方的 <b>搜尋</b>，輸入要找的內容。標題或訊息包含你輸入的每個詞的對話都會列出來，不分大小寫，並標出關鍵字；標題符合的排在前面。點結果即可打開，按 <kbd>Esc</kbd> 回到群組。中文不必空格。
+          </p>
+        </section>
+
+        <section id="messages" aria-labelledby="messages-title">
+          <h2 id="messages-title">複製、編輯、重試與分支</h2>
+          <p>訊息下方的小按鈕都是圖示，指著按鈕就會顯示名稱。agent 回覆下方的按鈕一直顯示；你自己的訊息要滑過才會出現（手機與平板上一直顯示）。</p>
+          <ul>
+            <li><b>複製</b>：把這則訊息照原樣複製成 Markdown，連結與表格都保留。</li>
+            <li>
+              <b>編輯</b>（在你自己的訊息下方）：修改後重新送出。這則之後的內容都會被刪除，團隊從這裡重新回答。被刪除的回覆改過的檔案<b>不會</b>還原：如果有回覆改過檔案，會先請你確認。
+            </li>
+            <li><b>重試</b>（在回覆下方）：讓這位 agent 重新回答。它的回覆與之後的所有內容都會被刪除；不是接力模式時，同一輪排在它後面的成員也會重新回答。</li>
+          </ul>
+          <h3>分支對話</h3>
+          <p>
+            想試另一個方向、又不想失去目前的進度，就按 agent 回覆下方的 <b>分支對話</b>。新對話會打開，名稱是 <b>分支 · </b>加上原本的標題，裡面有到這則回覆為止每則訊息的副本，以及原本的對話現在的團隊、設定與群組。原本的對話完全不變，之後兩邊各走各的。
+          </p>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-info" /></svg>
+            <div>
+              <p><b>檔案不會倒回去。</b>兩個對話在同一個資料夾工作，檔案是原本的對話留下的樣子，不是你分支的那則回覆當時的樣子。分支裡的 agent 會被告知這一點。</p>
+            </div>
+          </div>
+          <p>
+            分支會列在它分出來的對話底下，兩者一起待在同一個群組：移動其中一個，另一個也會跟著移動。你在分支裡送出的第一則訊息會成為它的名稱。想在自己的某個問題之後改問別的，可以從它前一則回覆分支，或直接編輯這個問題。
+          </p>
+          <figure class="doc-figure">
+            <img
+              src="../../../assets/media/docs/conversations-branch-zh-TW.webp"
+              width="1280"
+              height="800"
+              alt="Harness Relay 打開了一個分支：側邊欄裡，分支「再寫一版 Instagram 用的…」列在對話「我們的 Studio 方案 12 月 1…」底下，後者顯示有一個分支；聊天標題旁寫著「延續自 我們的 Studio 方案…」。"
+              loading="lazy"
+            />
+            <figcaption>列在原本對話底下的分支。取自使用情境<a href="../../use-cases/#launch-copy">讀完競品，再寫上市文案</a>的一個畫面。</figcaption>
+          </figure>
+        </section>
+
+        <section id="files" aria-labelledby="files-title">
+          <h2 id="files-title">瀏覽檔案</h2>
+          <p>聊天畫面上方的 <b>檔案</b> 會打開這個對話的工作目錄。點檔案就能預覽：程式碼附行號，Markdown 可以看排好的樣子（或原始內容），也能看圖片和影片。</p>
+          <ul>
+            <li><b>下載</b>：把任何檔案存到你正在用的裝置，手機也可以，包括無法預覽的檔案，例如 PDF 或簡報。</li>
+            <li><b>複製路徑</b>：複製檔案的完整路徑。</li>
+            <li>
+              工具列最右邊的下載鈕會把目前所在的資料夾下載成 ZIP 檔；列表中資料夾旁的下載鈕也一樣。資料夾太大無法打包時（通常是因為 <code>node_modules</code> 這類資料夾），如果它在 git repository 裡，會改成只下載沒被 git 忽略的檔案。
+            </li>
+            <li>平行模式下，也可以選某位 agent 自己的那份資料夾，在套用前先看它的結果。</li>
+          </ul>
+          <p>agent 為你做出的檔案，也會在它的回覆裡顯示成附有下載箭頭的連結：點一下就能存下檔案。在手機上，列表和預覽輪流顯示，按 <b>返回列表</b> 回去。</p>
+        </section>
+
+        <section id="share" aria-labelledby="share-title">
+          <h2 id="share-title">分享對話</h2>
+          <p>
+            聊天畫面上方的 <b>分享</b> 會分享整段對話；回覆下方的 <b>分享</b> 會分享到這則回覆為止的所有內容。工具呼叫、思考過程、待辦清單、核准與變更的檔案都不包含在內。對話框提供兩種方式：
+          </p>
+          <ul>
+            <li><b>複製成 Markdown</b>：複製文字，每則都標明是誰說的。</li>
+            <li>
+              <b>建立連結</b>：做出一個和畫面上聊天室一樣的頁面，再用你的 GitHub CLI（<code>gh</code>）放上網路，成為一個 <i>secret gist</i>。有連結的人都能打開，但它不會被列出，也搜尋不到。
+            </li>
+          </ul>
+          <p>
+            建立連結需要 <a href="https://cli.github.com">GitHub CLI</a>，並登入你的 GitHub 帳號。還沒安裝時，對話框會說明怎麼安裝；還沒登入時，按那裡的 <b>登入 GitHub</b> 會顯示一組一次性代碼，到 GitHub 的頁面輸入即可，不必開終端機。這會登入執行 Harness Relay 那台電腦上的 <code>gh</code>，那裡每個使用 gh 的程式都能用，包括 agent。
+          </p>
+          <p>回覆連到你電腦上的檔案時（例如 agent 寫的報告），對話框會列出這些檔案，由你決定附上哪些。檔名看起來可能含有機密的，例如 <code>.env</code> 或金鑰，一開始不會勾選。</p>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-shield" /></svg>
+            <div>
+              <p>secret gist 只是不公開列出，並不是私人的：任何拿到連結的人，都能打開頁面並下載一起附上的檔案。</p>
+            </div>
+          </div>
+          <p><b>設定 → 分享的對話</b> 會列出你建立的每個連結。移除連結會在 GitHub 上刪除它，連結和附上的檔案都會失效。</p>
+        </section>
+
+        <section id="notifications" aria-labelledby="notifications-title">
+          <h2 id="notifications-title">通知</h2>
+          <p>
+            Harness Relay 可以在團隊回覆完、以及需要你（核准、確認團隊、回答問題）的時候告訴你。在 <b>設定與登入 → 通知與提示音</b> 開啟；你用的每個瀏覽器、每支手機各自設定：
+          </p>
+          <ul>
+            <li><b>顯示系統通知</b>：跳出系統通知，寫著對話標題、誰回覆了，以及回覆的開頭。點一下就會打開那個對話。</li>
+            <li><b>播放提示音</b>：回覆完是兩個音，需要你時是三個音。</li>
+            <li><b>通知我</b> 選擇要知道哪一種；<b>傳送測試通知</b> 可以試試看。</li>
+          </ul>
+          <p>
+            視窗在前景時，你正在看的對話不會通知。在手機上，即使螢幕鎖定也能收到通知：見<a href="../phone/">在手機上使用</a>。在桌面 app 裡，視窗開著時才會跳出通知；想在關掉視窗後也收到回覆的通知，請同時在瀏覽器裡打開 Harness Relay，並在那裡開啟通知。
+          </p>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-shield" /></svg>
+            <div>
+              <p>通知會顯示回覆的開頭，或核准要執行的指令，所以可能出現在鎖定的手機上。若要保密，請在手機的設定裡選擇在鎖定畫面隱藏通知預覽。</p>
+            </div>
+          </div>
+          <h3>鈴鐺</h3>
+          <p>
+            側邊欄頂端的鈴鐺會收著每一則通知，不管你在上面怎麼選：回覆完成或出錯、等你核准或處理的項目、等你確認的團隊、問你的問題，以及卡住的目標。紅色數字是還沒讀的則數，每個登入的瀏覽器看到的都是同一份。點一則就會打開它的對話；打開對話也會把它的通知標為已讀。列表下方有 <b>全部標為已讀</b> 與 <b>清除全部</b>。
+          </p>
+          <figure class="doc-figure">
+            <img
+              src="../../../assets/media/docs/conversations-inbox-zh-TW.webp"
+              width="1280"
+              height="800"
+              alt="從側邊欄頂端的鈴鐺打開的「通知收件匣」：一則未讀通知寫著 LogAnalyst 回覆完了，附上回覆的開頭；較早的一則寫著首席 agent 設計好團隊了，等你確認。下方有「清除全部」與「全部標為已讀」。"
+              loading="lazy"
+            />
+            <figcaption>團隊完成後，鈴鐺裡的通知。取自使用情境<a href="../../use-cases/#triage-an-alert">告警一響，就開始排查</a>的一個畫面。</figcaption>
+          </figure>
+        </section>
+
+        <aside class="doc-more" aria-label="技術細節">
+          <svg aria-hidden="true"><use href="#i-github" /></svg>
+          <div>
+            <p>每個標籤的細節、分支在側邊欄怎麼排列、分享頁面與檔案的限制，以及推播通知怎麼運作，都在使用者說明裡：</p>
+            <ul>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#對話列表">對話列表</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#分支對話">分支對話</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#分享對話">分享對話</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#通知與提示音">通知與提示音</a></li>
+            </ul>
+          </div>
+        </aside>
+
+        <nav class="doc-pager" aria-label="頁面">
+          <a href="../permissions/" rel="prev"><span>上一頁</span><b>權限與核准</b></a>
+          <a href="../automations/" rel="next"><span>下一頁</span><b>自動任務</b></a>
+        </nav>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-row">
+        <a class="brand" href="../../" aria-label="Harness Relay 首頁">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="footer-links" aria-label="頁尾">
+          <a href="../">文件</a>
+          <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE">Sustainable Use License</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

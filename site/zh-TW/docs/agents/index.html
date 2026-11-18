@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>連接你的 agent · Harness Relay 文件</title>
+    <meta
+      name="description"
+      content="Harness Relay 文件：登入 Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 與 Muse Code，或給開源 agent 一個模型來源。"
+    />
+    <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/agents/" />
+    <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/agents/" />
+    <link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/agents/" />
+    <link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/agents/" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141415" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Harness Relay" />
+    <meta property="og:title" content="連接你的 agent · Harness Relay 文件" />
+    <meta
+      property="og:description"
+      content="怎麼把你的 coding agent 接上 Harness Relay：登入七個 agent，或改用 API key、替開源 agent 設定模型來源（API key 或你自己的模型伺服器）、新增更多帳號、查看方案用量，以及選擇首席 agent。"
+    />
+    <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/agents/" />
+    <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="zh_TW" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="../../../favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="../../../assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="../../../assets/site.css" />
+    <script>
+      document.documentElement.classList.add('js');
+      // The theme the visitor picked with the theme button (assets/theme.js), set before anything is drawn
+      // so that it does not flash. Until they pick one, the page follows the system's light or dark mode.
+      try {
+        var theme = localStorage.getItem('harness-relay.theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {}
+      // The visitor picked English last time: show the English page.
+      try {
+        if (localStorage.getItem('harness-relay.lang') === 'en') location.replace('../../../docs/agents/' + location.hash);
+      } catch (e) {}
+    </script>
+    <script src="../../../assets/site.js" defer></script>
+    <script type="module" src="../../../assets/theme.js"></script>
+    <!-- What search and answer engines read about the page (test/site-docs.test.ts keeps it in step with the page). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/agents/#webpage",
+        "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/agents/",
+        "name": "連接你的 agent · Harness Relay 文件",
+        "description": "Harness Relay 文件：登入 Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 與 Muse Code，或給開源 agent 一個模型來源。",
+        "inLanguage": "zh-TW",
+        "isPartOf": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
+        },
+        "about": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#app"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-github" viewBox="0 0 16 16">
+          <path
+            fill="currentColor"
+            d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+          />
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+          <path d="M12 3.86 14.22 9.8l6.34.28-4.97 3.95 1.7 6.11L12 16.64l-5.29 3.5 1.7-6.11-4.97-3.95 6.34-.28Z" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2.75v1.5M12 19.75v1.5M2.75 12h1.5M19.75 12h1.5M5.46 5.46l1.06 1.06M17.48 17.48l1.06 1.06M5.46 18.54l1.06-1.06M17.48 6.52l1.06-1.06" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 13.6A8 8 0 1 1 10.4 4a6.25 6.25 0 0 0 9.6 9.6Z" />
+        </symbol>
+        <symbol id="i-mark" viewBox="0 0 32 32">
+          <circle cx="9" cy="16" r="6" fill="#d97757" />
+          <circle cx="23" cy="10" r="5" fill="#10a37f" />
+          <circle cx="23" cy="23" r="5" fill="#7c5cff" />
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6.5 9.5 5.5 5.5 5.5-5.5" />
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.75" />
+          <path d="M12 11v5.5M12 7.6v.1" />
+        </symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M12 2.5c.8 5.9 3.6 8.7 9.5 9.5-5.9.8-8.7 3.6-9.5 9.5-.8-5.9-3.6-8.7-9.5-9.5 5.9-.8 8.7-3.6 9.5-9.5Z" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.7 7 9 4.1-1.3 7-4.7 7-9V6.2Z" />
+          <path d="m9 12 2.2 2.2L15.2 10" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
+        </symbol>
+        <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+        </symbol>
+        <symbol id="i-os-win" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+          <path d="M12 4.5v15M3.5 12h17" />
+        </symbol>
+        <symbol id="i-os-linux" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3c-2.3 0-3.6 1.9-3.6 4.4 0 1.5.4 2.4-.7 3.8C6.4 12.9 5.4 14.8 5.4 17c0 2.6 2.9 4 6.6 4s6.6-1.4 6.6-4c0-2.2-1-4.1-2.3-5.8-1.1-1.4-.7-2.3-.7-3.8C15.6 4.9 14.3 3 12 3Z" />
+          <path d="M9.6 14.6c0-1.6 1-2.7 2.4-2.7s2.4 1.1 2.4 2.7v1.6c0 1.5-1 2.6-2.4 2.6s-2.4-1.1-2.4-2.6Z" />
+          <path d="M10.6 9.2 12 10.3l1.4-1.1" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <a class="skip" href="#main">跳到主要內容</a>
+
+    <header class="site-header">
+      <div class="wrap header-row">
+        <a class="brand" href="../../" aria-label="Harness Relay 首頁">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="site-nav" aria-label="頁面段落">
+          <a href="../../#demo">示範</a>
+          <a href="../../use-cases/">使用情境</a>
+          <a href="../../#modes">對話模式</a>
+          <a href="../../#teams">團隊</a>
+          <a href="../../#safety">安全</a>
+          <a href="../../#start">快速開始</a>
+          <a href="../" aria-current="true">文件</a>
+        </nav>
+        <div class="header-tools">
+          <nav class="lang" aria-label="語言">
+            <a href="../../../docs/agents/" hreflang="en" lang="en" data-lang="en">EN</a>
+            <a href="./" hreflang="zh-TW" lang="zh-Hant-TW" aria-current="page" data-lang="zh-TW">中文</a>
+          </nav>
+          <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            <span class="gh-label">GitHub</span>
+            <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> 顆星</span></span>
+          </a>
+          <button class="btn btn-ghost theme-toggle" type="button" data-theme-toggle data-to-dark="切換成深色主題" data-to-light="切換成淺色主題" aria-label="切換成深色主題">
+            <svg class="i-moon" aria-hidden="true"><use href="#i-moon" /></svg>
+            <svg class="i-sun" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="wrap doc-layout">
+      <nav class="doc-nav" aria-label="文件" data-doc-nav>
+        <button class="doc-nav-toggle" type="button" aria-expanded="false" aria-controls="doc-pages" data-doc-nav-toggle>
+          <span>文件</span>
+          <b>連接你的 agent</b>
+          <svg aria-hidden="true"><use href="#i-chevron" /></svg>
+        </button>
+        <div class="doc-nav-list" id="doc-pages">
+          <p class="doc-nav-title">開始使用</p>
+          <ul>
+            <li><a href="../">總覽</a></li>
+            <li><a href="../install/">安裝</a></li>
+            <li><a href="../agents/" aria-current="page">連接你的 agent</a></li>
+            <li><a href="../first-chat/">第一個對話</a></li>
+          </ul>
+          <p class="doc-nav-title">和團隊一起工作</p>
+          <ul>
+            <li><a href="../teams/">團隊與對話模式</a></li>
+            <li><a href="../permissions/">權限與核准</a></li>
+            <li><a href="../conversations/">對話</a></li>
+            <li><a href="../automations/">自動任務</a></li>
+            <li><a href="../tools/">工具</a></li>
+          </ul>
+          <p class="doc-nav-title">更多</p>
+          <ul>
+            <li><a href="../phone/">在手機上使用</a></li>
+            <li><a href="../troubleshooting/">疑難排解</a></li>
+          </ul>
+          <a class="doc-nav-out" href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/README.zh-TW.md#文件">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            GitHub 上的技術文件
+          </a>
+        </div>
+      </nav>
+
+      <header class="doc-head">
+        <h1>連接你的 agent</h1>
+        <p class="lead">
+          Harness Relay 以你的登入身分，使用你原本就在用的 coding agent。在「設定與登入」把每個 agent 登入一次，或給開源 agent 一把 API key 或你自己的模型伺服器，它們就能加入任何團隊。
+        </p>
+      </header>
+
+      <nav class="doc-toc" aria-label="本頁內容">
+        <p class="doc-toc-title">本頁內容</p>
+        <ol>
+          <li><a href="#settings">設定與登入</a></li>
+          <li><a href="#sign-in">登入 agent</a></li>
+          <li><a href="#api-keys">或使用 API key</a></li>
+          <li><a href="#open-agents">開源 agent 與模型來源</a></li>
+          <li><a href="#accounts">帳號與方案用量</a></li>
+          <li><a href="#models">預設模型與首席 agent</a></li>
+        </ol>
+      </nav>
+
+      <div class="doc-body">
+        <section id="settings" aria-labelledby="settings-title">
+          <h2 id="settings-title">設定與登入</h2>
+          <p>
+            點側邊欄底部的<b>設定與登入</b>。最上方的連結會跳到各個區塊。<b>模型來源</b>排在各個 agent 之前，接著每個 agent 都有一張卡片。卡片會顯示 agent 的版本；Harness Relay
+            在你電腦上找不到它時，則顯示<a href="../install/#what-else">安裝它</a>的按鈕。它的每個帳號都有自己的框，裡面是那個帳號的登入、API key 與預設模型。
+          </p>
+          <p>側邊欄底部的圓點，讓你一眼看出哪些 agent 可以使用：</p>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">圓點</th>
+                <th scope="col">意思</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row"><span class="keep">綠色</span></th>
+                <td>可以使用。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">橘色</span></th>
+                <td>還沒登入；開源 agent 則是還沒有模型來源。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">紅色</span></th>
+                <td>這台電腦上找不到這個 agent 的程式。</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>旁邊會寫出有幾個可以使用（<i>4/12 可用</i>）。把滑鼠移到圓點上可以看到 agent 的名稱，點它則會打開那個 agent 的設定。</p>
+        </section>
+
+        <section id="sign-in" aria-labelledby="sign-in-title">
+          <h2 id="sign-in-title">登入 agent</h2>
+          <p>在 agent 的卡片上選一種登入方式，按<b>登入</b>。Harness Relay 會執行那個 agent 自己的登入流程，並告訴你要做什麼：</p>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">Agent</th>
+                <th scope="col">怎麼登入</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Claude Code</th>
+                <td>用 Claude 訂閱帳號或 Anthropic Console：打開連結並授權，再把頁面顯示的授權碼貼到輸入框，按<b>送出</b>。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">Codex</span></th>
+                <td>用 ChatGPT 的裝置碼：打開連結、登入 ChatGPT，輸入畫面上的一次性代碼（點一下即可複製）。也可以在瀏覽器登入，瀏覽器會在這台電腦打開。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">Grok</span></th>
+                <td>用 xAI 的裝置碼或在瀏覽器登入：打開連結並確認代碼。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">Cursor</span></th>
+                <td>用你的 Cursor 帳號：在任何一台裝置的瀏覽器打開連結，登入 Cursor 並允許。</td>
+              </tr>
+              <tr>
+                <th scope="row">Antigravity</th>
+                <td>用你的 Google 帳號：在任何一台裝置打開連結並登入 Google，再把頁面顯示的授權碼貼到輸入框，按<b>送出</b>。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">Copilot</span></th>
+                <td>用你的 GitHub 帳號：在任何一台裝置打開 <code>github.com/login/device</code>，輸入畫面上的代碼（點一下即可複製）並授權。</td>
+              </tr>
+              <tr>
+                <th scope="row">Muse Code</th>
+                <td>用你的 Meta 帳號：在任何一台裝置打開連結，登入你的 Meta 帳號，並確認頁面上的代碼和畫面上的一樣。</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            agent 完成後，面板會變成綠色的<b>登入成功 ✓</b>。出了問題時，展開 <b>CLI 輸出</b>可以看到 agent 說了什麼。設定頁最上方的<b>重新檢查狀態</b>會重新檢查每個 agent，例如你在終端機登入了某個
+            agent 之後。
+          </p>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-info" /></svg>
+            <div>
+              <p>
+                這就是 agent 自己的登入，和你在終端機用的是同一個。所以<b>登出</b>會讓這台電腦上的那個 agent 全面登出；新的 Codex 登入也會先登出目前的 Codex 帳號（頁面會先問你）。
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="api-keys" aria-labelledby="api-keys-title">
+          <h2 id="api-keys-title">或使用 API key</h2>
+          <p>不登入的話，七個 agent 都可以在帳號框的 <b>API key</b> 填一把金鑰。Claude Code、Codex、Grok、Antigravity 與 Muse Code 的金鑰由 agent 的供應商依用量計費，而不是算在訂閱方案裡：</p>
+          <ul>
+            <li><b>Claude Code</b>：Anthropic API key。它優先於你的 Claude 訂閱。</li>
+            <li><b>Codex</b>：OpenAI API key。Codex 會保存它，並取代你的 ChatGPT 登入。</li>
+            <li><b>Grok</b>：xAI API key。</li>
+            <li><b>Cursor</b>：Cursor API key，只用在 Harness Relay 的執行；你自己的 Cursor 登入維持原樣。</li>
+            <li><b>Antigravity</b>：Gemini API key。之後 Antigravity 改用 Gemini API 執行，而不是你的 Google 登入。</li>
+            <li><b>Copilot</b>：具有「Copilot Requests」權限的 fine-grained GitHub token（classic token 不能用）。它用的是那個 GitHub 帳號的方案。</li>
+            <li><b>Muse Code</b>：Meta API key。</li>
+          </ul>
+          <p>Harness Relay 把其他金鑰存在系統的金鑰儲存區（macOS 鑰匙圈、Windows 認證管理員，或 Linux 的 keyring），畫面上只會顯示遮蔽過的內容。</p>
+        </section>
+
+        <section id="open-agents" aria-labelledby="open-agents-title">
+          <h2 id="open-agents-title">開源 agent 與模型來源</h2>
+          <p>OpenCode、Goose、Cline、OpenHands 與 Pi 沒有登入流程。它們只用你在<b>設定 → 模型來源</b>設定的模型來源執行：</p>
+          <ul>
+            <li>
+              <b>API key</b>：<b>OpenAI</b>、<b>Anthropic</b>、<b>xAI</b> 各一把。貼上後按<b>儲存</b>。這裡不能用你的 Claude 訂閱或 Grok 登入：Anthropic 不允許在其他 agent 中使用它的訂閱。
+            </li>
+            <li>
+              <b>自訂端點</b>：你自己的、提供 OpenAI API 的模型伺服器，例如 vLLM、Ollama、LM Studio 或 llama.cpp。<b>新增端點</b>會請你填名稱、一個簡短的 id（例如
+              <code>homelab</code>）、它的網址（這台電腦上的 Ollama 是 <code>http://localhost:11434/v1</code>）與模型名稱（一行一個），伺服器需要的話再加上它的 API key。
+            </li>
+          </ul>
+          <figure class="doc-figure">
+            <img
+              src="../../../assets/media/docs/agents-backends-zh-TW.webp"
+              width="1280"
+              height="800"
+              alt="設定頁捲到「模型來源」：先說明哪些 agent 用它們執行，接著是 OpenAI、Anthropic 與 xAI 的 API key，都尚未設定、各有儲存按鈕，下方是「自訂端點」的開頭，有一個名為「自家 vLLM」的端點。"
+              loading="lazy"
+            />
+            <figcaption>
+              設定 → 模型來源，有一個 vLLM 伺服器的自訂端點：取自使用情境<a href="../../use-cases/#contract-review">在自己的模型伺服器上修訂合約</a>的一個畫面。
+            </figcaption>
+          </figure>
+          <p>
+            開源 agent 的成員，模型寫成「模型來源/模型」：<code>openai/…</code>、<code>anthropic/…</code>、<code>xai/…</code>，或你的端點 id 加上模型，例如
+            <code>homelab/muse-glimmer-30b-nvfp4</code>。agent 裝好、且至少設定一個模型來源後，它在設定頁的卡片會顯示<b>可使用</b>。
+          </p>
+          <h3>其他 agent 也能用你自己的伺服器</h3>
+          <p>
+            Claude Code、Codex、Grok 與 Copilot 也能在你的自訂端點上執行：它們的模型選單會在自己的模型後面列出端點的模型。給成員選其中一個，那個 agent 就在你的伺服器上工作，而不是用它供應商的服務。你的伺服器要提供那個
+            agent 用的 API；vLLM、Ollama、LM Studio 與 llama.cpp 都提供。這時 Claude Code、Codex 與 Copilot 不需要登入；Grok 仍需要它自己的登入。Cursor、Antigravity 與 Muse Code
+            只能用它們自己的服務。
+          </p>
+        </section>
+
+        <section id="accounts" aria-labelledby="accounts-title">
+          <h2 id="accounts-title">帳號與方案用量</h2>
+          <h3>多個帳號</h3>
+          <p>
+            每個 agent 都能同時登入好幾個帳號，例如公司和個人的 Claude 訂閱：打開 agent 帳號下方的<b>新增帳號</b>，取個名稱，按<b>新增帳號</b>。每個帳號各自登入，也有自己的 API key
+            與預設模型。在團隊裡，用成員卡片上的<b>帳號</b>選擇它用哪個帳號；沒有選的成員使用預設帳號。按<b>移除</b>會登出並刪除多出來的帳號。
+          </p>
+          <p>Cursor、Antigravity 與 Muse Code 在整個電腦使用者只存一個登入，所以它們多出來的帳號改用 API key（Cursor API key、Gemini API key、Meta API key）。</p>
+          <h3>方案用量</h3>
+          <p>
+            帳號登入後，它的框會顯示<b>方案用量</b>：agent 回報的方案還剩多少，每個額度一條長條，以及何時重置（例如 Claude Code 的 5 小時與每週額度，或 Copilot 這個月的 premium 請求）。Harness
+            Relay 查詢時不會送出 prompt，所以查看不會用掉額度。按<b>重新查詢</b>會再問一次。用 API key 的帳號（Claude Code、Codex、Grok、Antigravity、Muse
+            Code）沒有方案額度：供應商依用量向金鑰計費，餘額請到供應商的主控台查看。用 GitHub token 的 Copilot 會顯示那個 GitHub
+            帳號的方案。Cursor 的框只會寫出方案名稱；用 Cursor API key 的帳號則什麼都不顯示。
+          </p>
+        </section>
+
+        <section id="models" aria-labelledby="models-title">
+          <h2 id="models-title">預設模型與首席 agent</h2>
+          <h3>預設模型與推理強度</h3>
+          <p>
+            每個帳號框都有<b>預設模型與推理強度</b>：成員的模型維持<i>預設</i>時用的模型。維持 <b>CLI 預設</b>時，agent 用它自己的設定，和在終端機一樣。在團隊裡，你隨時可以給單一成員指定別的模型。
+          </p>
+          <h3>選擇首席 agent</h3>
+          <p>
+            設定頁的<b>首席 agent</b> 決定由哪個 agent（以及選填的模型與推理強度）為每個問題設計團隊、審閱團隊的回覆，並把新對話歸進你的群組。請選一個已登入的 agent，或已有模型來源的開源
+            agent。通常小而快的模型就夠用。
+          </p>
+          <figure class="doc-figure">
+            <img
+              src="../../../assets/media/docs/agents-lead-zh-TW.webp"
+              width="1280"
+              height="800"
+              alt="設定頁：上方是 Pi 的卡片，顯示可使用，模型來源是自家 vLLM；下方是「首席 agent」，選了 Claude Code，模型設為「自訂…」，推理強度為「預設：CLI 決定」。"
+              loading="lazy"
+            />
+            <figcaption>首席 agent 用 Claude Code，搭配你自己伺服器上的模型：取自使用情境<a href="../../use-cases/#contract-review">在自己的模型伺服器上修訂合約</a>的一個畫面。</figcaption>
+          </figure>
+        </section>
+
+        <aside class="doc-more" aria-label="技術細節">
+          <svg aria-hidden="true"><use href="#i-github" /></svg>
+          <div>
+            <p>使用者說明有更多細節：每個 agent 的登入與它特別的地方、每個 agent 需要你的伺服器提供哪種 API、各帳號分開保存了什麼，以及每個 agent 自己會載入哪些東西。</p>
+            <ul>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#2-分別登入各個-agent設定與登入">分別登入各個 agent</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#開源-agent-與模型來源">開源 agent 與模型來源</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#多個帳號">多個帳號</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/open-agents.zh-TW.md">開源 agent</a></li>
+            </ul>
+          </div>
+        </aside>
+
+        <nav class="doc-pager" aria-label="頁面">
+          <a href="../install/" rel="prev"><span>上一頁</span><b>安裝</b></a>
+          <a href="../first-chat/" rel="next"><span>下一頁</span><b>第一個對話</b></a>
+        </nav>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-row">
+        <a class="brand" href="../../" aria-label="Harness Relay 首頁">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="footer-links" aria-label="頁尾">
+          <a href="../">文件</a>
+          <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE">Sustainable Use License</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

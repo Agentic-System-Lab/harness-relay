@@ -9,19 +9,29 @@ import { retimeVideoData } from '../scripts/demo/publish';
 import { USE_CASES, useCase } from '../scripts/demo/use-cases/cases';
 import { posterTime, replaceLinks, useCaseLinks, useCaseRail } from '../scripts/demo/use-cases/publish';
 import { shareUpTo } from '../scripts/demo/use-cases/share';
-import type { ChatMessage } from '../src/shared/types';
+import { parseEvents } from '../src/server/connectors/caldav';
+import { PROVIDERS, type ChatMessage } from '../src/shared/types';
 import {
   BOOKS_OPENING,
+  CALL_TITLE,
   COMPETITORS,
   ME,
+  NEW_STRINGS,
+  REP,
+  addReminderStrings,
   bakeryBooks,
   billSplit,
   checkoutAlert,
   checkoutService,
   competitorPage,
   competitorUrl,
+  fernwayStrings,
   interviews,
   launchBrief,
+  renewalCalendar,
+  renewalCall,
+  renewalMailbox,
+  renewals,
   signupScreens,
   studioLaterMail,
   studioMailbox,
@@ -104,24 +114,26 @@ function csvFields(line: string): string[] {
 }
 
 describe('the use cases', () => {
-  it('are ten, each with a slug of its own, the CLIs it needs and what it types in both languages', () => {
+  it('are twelve, each with a slug of its own, the CLIs it needs and what it types in both languages', () => {
     expect(USE_CASES.map((u) => u.slug)).toEqual([
       'fix-a-bug',
       'product-spec',
       'launch-copy',
       'reconcile-accounts',
       'collect-payments',
+      'call-brief',
       'literature-review',
       'write-a-quiz',
       'contract-review',
       'triage-an-alert',
       'design-review',
+      'translate-strings',
     ]);
     for (const uc of USE_CASES) {
       expect(uc.slug, uc.slug).toMatch(/^[a-z]+(-[a-z]+)*$/);
       expect(uc.providers.length, uc.slug).toBeGreaterThan(0);
       expect(
-        uc.providers.every((p) => ['claude', 'codex', 'grok'].includes(p)),
+        uc.providers.every((p) => PROVIDERS.includes(p)),
         uc.slug,
       ).toBe(true);
       expect(Object.keys(uc.text['zh-TW']), uc.slug).toEqual(Object.keys(uc.text.en));
@@ -134,7 +146,7 @@ describe('the use cases', () => {
   });
 
   it('check, before they record, each CLI that what they ask names', () => {
-    const names = { claude: 'Claude Code', codex: 'Codex', grok: 'Grok' } as const;
+    const names = { claude: 'Claude Code', codex: 'Codex', grok: 'Grok', antigravity: 'Antigravity', copilot: 'Copilot' } as const;
     for (const uc of USE_CASES) {
       for (const lang of LANGS) {
         const said = Object.values(uc.text[lang]).join(' ');
@@ -146,6 +158,9 @@ describe('the use cases', () => {
     // Their agents need Harness Relay's browser or mail tools, which Grok gets in full access only.
     expect(useCase('launch-copy').providers).toEqual(['claude', 'codex']);
     expect(useCase('collect-payments').providers).toEqual(['claude', 'codex']);
+    // The call brief's Grok gets no tools there: it argues from what the others found.
+    expect(useCase('call-brief').providers).toEqual(['claude', 'codex', 'grok']);
+    expect(useCase('translate-strings').providers).toEqual(['antigravity', 'copilot', 'claude']);
     // What each one quotes on the page: the question, or an automation's message.
     for (const uc of USE_CASES) for (const lang of LANGS) expect(uc.text[lang].question ?? uc.text[lang].message, uc.slug).toBeTruthy();
   });
@@ -365,6 +380,74 @@ describe('the use cases’ workspaces', { timeout: slow(30_000) }, () => {
         expect(text, lang).toMatch(new RegExp(`^Date: .+\\r\\nFrom: .+ <[^>]+\\.example>\\r\\nTo: .+ <${ME.address}>\\r\\nSubject: `));
         for (const address of text.match(/[\w.-]+@[\w.-]+/g) ?? []) expect(address, lang).toMatch(/\.example$/);
       }
+    }
+  });
+
+  it('the renewal: four mails before the call, all on made-up domains, and the calendar before and when it is near', () => {
+    const now = Date.now();
+    for (const lang of LANGS) {
+      const mail = renewalMailbox(lang);
+      expect(mail.map((m) => m.uid)).toEqual([1, 2, 3, 4]);
+      for (const m of mail) {
+        const text = Buffer.from(m.raw, 'latin1').toString('utf8');
+        expect(text, lang).toMatch(new RegExp(`^Date: .+\\r\\nFrom: .+ <[^>]+\\.example>\\r\\nTo: .+ <${REP.address}>\\r\\n`));
+        for (const address of text.match(/[\w.-]+@[\w.-]+/g) ?? []) expect(address, lang).toMatch(/\.example$/);
+      }
+      expect(Object.keys(renewals(lang)).sort()).toEqual([
+        'PRICING.md',
+        'accounts/harbor-pine-usage.csv',
+        'accounts/harbor-pine.md',
+        'accounts/kestrel-labs.md',
+      ]);
+      // Before: the last review with the customer, weeks ago, and an internal meeting soon, no customer call.
+      const before = renewalCalendar(lang).flatMap(parseEvents);
+      expect(before).toHaveLength(2);
+      const [qbr, internal] = before;
+      expect(qbr!.summary, lang).toContain(CALL_TITLE[lang]);
+      expect(qbr!.at!, lang).toBeLessThan(now - 30 * 86_400_000);
+      expect(qbr!.description, lang).toBeTruthy();
+      expect(internal!.summary, lang).not.toContain(CALL_TITLE[lang]);
+      expect(internal!.at! - now, lang).toBeLessThan(30 * 60_000);
+      // Then the call, less than half an hour away, with the customer's two people.
+      const [call] = parseEvents(renewalCall(lang));
+      expect(call!.summary, lang).toContain(CALL_TITLE[lang]);
+      expect(call!.at! - now, lang).toBeGreaterThanOrEqual(24 * 60_000 - 1000);
+      expect(call!.at! - now, lang).toBeLessThanOrEqual(29 * 60_000 + 1000);
+      expect(
+        call!.attendees.filter((a) => a.endsWith('@harborpine.example')),
+        lang,
+      ).toHaveLength(2);
+      for (const e of [...before, call!]) for (const a of e.attendees) expect(a, lang).toMatch(/\.example$/);
+    }
+  });
+
+  it('fernway-app: the strings in three languages, committed, each translation with the same keys, placeholders and tags', () => {
+    const tokens = (s: string) => (s.match(/\{[^{}]*\}|<\/?\w+>/g) ?? []).sort();
+    for (const lang of LANGS) {
+      const dir = join(scratch(), `fernway-${lang}`);
+      fernwayStrings(dir, lang);
+      expect(git(dir, ['ls-files']).split('\n')).toEqual([
+        'GLOSSARY.md',
+        'README.md',
+        'locales/en.json',
+        'locales/ja.json',
+        'locales/zh-TW.json',
+      ]);
+      expect(git(dir, ['status', '--porcelain'])).toBe('');
+      const read = (l: string) => JSON.parse(readFileSync(join(dir, `locales/${l}.json`), 'utf8')) as Record<string, string>;
+      const en = read('en');
+      for (const l of ['zh-TW', 'ja']) {
+        const t = read(l);
+        expect(Object.keys(t), l).toEqual(Object.keys(en));
+        for (const k of Object.keys(en)) expect(tokens(t[k]!), `${l} ${k}`).toEqual(tokens(en[k]!));
+      }
+      // You add the new screen's strings: en.json alone changes, the old strings as they were.
+      addReminderStrings(dir);
+      expect(git(dir, ['status', '--porcelain'])).toBe('M locales/en.json');
+      const added = read('en');
+      expect(Object.keys(added)).toHaveLength(Object.keys(en).length + NEW_STRINGS);
+      expect(added).toMatchObject(en);
+      expect(Object.values(added).some((v) => v.includes('plural'))).toBe(true);
     }
   });
 

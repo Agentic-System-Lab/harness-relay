@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>安裝 Harness Relay · Harness Relay 文件</title>
+    <meta
+      name="description"
+      content="Harness Relay 文件：下載 macOS、Windows 或 Linux 的桌面 app，第一次打開它、保持最新版本，以及解除安裝。"
+    />
+    <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/install/" />
+    <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/install/" />
+    <link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/install/" />
+    <link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/install/" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141415" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Harness Relay" />
+    <meta property="og:title" content="安裝 Harness Relay · Harness Relay 文件" />
+    <meta
+      property="og:description"
+      content="怎麼安裝 Harness Relay：macOS、Windows 與 Linux 的桌面 app、第一次打開時要做什麼、還需要什麼（agent、Git、沙箱需要的東西）、它怎麼自己更新，以及怎麼解除安裝。也可以在 GitHub Codespaces 試用。"
+    />
+    <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/install/" />
+    <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="zh_TW" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="../../../favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="../../../assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="../../../assets/site.css" />
+    <script>
+      document.documentElement.classList.add('js');
+      // The theme the visitor picked with the theme button (assets/theme.js), set before anything is drawn
+      // so that it does not flash. Until they pick one, the page follows the system's light or dark mode.
+      try {
+        var theme = localStorage.getItem('harness-relay.theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {}
+      // The visitor picked English last time: show the English page.
+      try {
+        if (localStorage.getItem('harness-relay.lang') === 'en') location.replace('../../../docs/install/' + location.hash);
+      } catch (e) {}
+    </script>
+    <script src="../../../assets/site.js" defer></script>
+    <script type="module" src="../../../assets/theme.js"></script>
+    <script type="module" src="../../../assets/downloads.js"></script>
+    <!-- What search and answer engines read about the page (test/site-docs.test.ts keeps it in step with the page). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/install/#webpage",
+        "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/install/",
+        "name": "安裝 Harness Relay · Harness Relay 文件",
+        "description": "Harness Relay 文件：下載 macOS、Windows 或 Linux 的桌面 app，第一次打開它、保持最新版本，以及解除安裝。",
+        "inLanguage": "zh-TW",
+        "isPartOf": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
+        },
+        "about": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#app"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-github" viewBox="0 0 16 16">
+          <path
+            fill="currentColor"
+            d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+          />
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+          <path d="M12 3.86 14.22 9.8l6.34.28-4.97 3.95 1.7 6.11L12 16.64l-5.29 3.5 1.7-6.11-4.97-3.95 6.34-.28Z" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2.75v1.5M12 19.75v1.5M2.75 12h1.5M19.75 12h1.5M5.46 5.46l1.06 1.06M17.48 17.48l1.06 1.06M5.46 18.54l1.06-1.06M17.48 6.52l1.06-1.06" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 13.6A8 8 0 1 1 10.4 4a6.25 6.25 0 0 0 9.6 9.6Z" />
+        </symbol>
+        <symbol id="i-mark" viewBox="0 0 32 32">
+          <circle cx="9" cy="16" r="6" fill="#d97757" />
+          <circle cx="23" cy="10" r="5" fill="#10a37f" />
+          <circle cx="23" cy="23" r="5" fill="#7c5cff" />
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6.5 9.5 5.5 5.5 5.5-5.5" />
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.75" />
+          <path d="M12 11v5.5M12 7.6v.1" />
+        </symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M12 2.5c.8 5.9 3.6 8.7 9.5 9.5-5.9.8-8.7 3.6-9.5 9.5-.8-5.9-3.6-8.7-9.5-9.5 5.9-.8 8.7-3.6 9.5-9.5Z" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.7 7 9 4.1-1.3 7-4.7 7-9V6.2Z" />
+          <path d="m9 12 2.2 2.2L15.2 10" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
+        </symbol>
+        <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+        </symbol>
+        <symbol id="i-os-win" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+          <path d="M12 4.5v15M3.5 12h17" />
+        </symbol>
+        <symbol id="i-os-linux" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3c-2.3 0-3.6 1.9-3.6 4.4 0 1.5.4 2.4-.7 3.8C6.4 12.9 5.4 14.8 5.4 17c0 2.6 2.9 4 6.6 4s6.6-1.4 6.6-4c0-2.2-1-4.1-2.3-5.8-1.1-1.4-.7-2.3-.7-3.8C15.6 4.9 14.3 3 12 3Z" />
+          <path d="M9.6 14.6c0-1.6 1-2.7 2.4-2.7s2.4 1.1 2.4 2.7v1.6c0 1.5-1 2.6-2.4 2.6s-2.4-1.1-2.4-2.6Z" />
+          <path d="M10.6 9.2 12 10.3l1.4-1.1" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <a class="skip" href="#main">跳到主要內容</a>
+
+    <header class="site-header">
+      <div class="wrap header-row">
+        <a class="brand" href="../../" aria-label="Harness Relay 首頁">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="site-nav" aria-label="頁面段落">
+          <a href="../../#demo">示範</a>
+          <a href="../../use-cases/">使用情境</a>
+          <a href="../../#modes">對話模式</a>
+          <a href="../../#teams">團隊</a>
+          <a href="../../#safety">安全</a>
+          <a href="../../#start">快速開始</a>
+          <a href="../" aria-current="true">文件</a>
+        </nav>
+        <div class="header-tools">
+          <nav class="lang" aria-label="語言">
+            <a href="../../../docs/install/" hreflang="en" lang="en" data-lang="en">EN</a>
+            <a href="./" hreflang="zh-TW" lang="zh-Hant-TW" aria-current="page" data-lang="zh-TW">中文</a>
+          </nav>
+          <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            <span class="gh-label">GitHub</span>
+            <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> 顆星</span></span>
+          </a>
+          <button class="btn btn-ghost theme-toggle" type="button" data-theme-toggle data-to-dark="切換成深色主題" data-to-light="切換成淺色主題" aria-label="切換成深色主題">
+            <svg class="i-moon" aria-hidden="true"><use href="#i-moon" /></svg>
+            <svg class="i-sun" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="wrap doc-layout">
+      <nav class="doc-nav" aria-label="文件" data-doc-nav>
+        <button class="doc-nav-toggle" type="button" aria-expanded="false" aria-controls="doc-pages" data-doc-nav-toggle>
+          <span>文件</span>
+          <b>安裝</b>
+          <svg aria-hidden="true"><use href="#i-chevron" /></svg>
+        </button>
+        <div class="doc-nav-list" id="doc-pages">
+          <p class="doc-nav-title">開始使用</p>
+          <ul>
+            <li><a href="../">總覽</a></li>
+            <li><a href="../install/" aria-current="page">安裝</a></li>
+            <li><a href="../agents/">連接你的 agent</a></li>
+            <li><a href="../first-chat/">第一個對話</a></li>
+          </ul>
+          <p class="doc-nav-title">和團隊一起工作</p>
+          <ul>
+            <li><a href="../teams/">團隊與對話模式</a></li>
+            <li><a href="../permissions/">權限與核准</a></li>
+            <li><a href="../conversations/">對話</a></li>
+            <li><a href="../automations/">自動任務</a></li>
+            <li><a href="../tools/">工具</a></li>
+          </ul>
+          <p class="doc-nav-title">更多</p>
+          <ul>
+            <li><a href="../phone/">在手機上使用</a></li>
+            <li><a href="../troubleshooting/">疑難排解</a></li>
+          </ul>
+          <a class="doc-nav-out" href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/README.zh-TW.md#文件">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            GitHub 上的技術文件
+          </a>
+        </div>
+      </nav>
+
+      <header class="doc-head">
+        <h1>安裝 Harness Relay</h1>
+        <p class="lead">
+          Harness Relay 是 macOS、Windows 與 Linux 上的桌面 app。它在你的電腦背景執行，對話則顯示在它自己的視窗裡，一打開就已登入。下載、打開一次，之後它會自己保持最新版本。
+        </p>
+      </header>
+
+      <nav class="doc-toc" aria-label="本頁內容">
+        <p class="doc-toc-title">本頁內容</p>
+        <ol>
+          <li><a href="#download">下載 app</a></li>
+          <li><a href="#first-open">第一次打開</a></li>
+          <li><a href="#menu">視窗與選單</a></li>
+          <li><a href="#what-else">還需要什麼</a></li>
+          <li><a href="#updates">更新</a></li>
+          <li><a href="#uninstall">解除安裝</a></li>
+        </ol>
+      </nav>
+
+      <div class="doc-body">
+        <section id="download" aria-labelledby="download-title">
+          <h2 id="download-title">下載 app</h2>
+          <p>選擇適合你電腦的安裝檔。你目前所用系統的那張卡片會標示出來。</p>
+          <div
+            class="downloads"
+            data-downloads
+            data-mac="下載 macOS 版"
+            data-win="下載 Windows 版"
+            data-win-arm64="下載 Windows（Arm）版"
+            data-linux="下載 Linux 版"
+            data-linux-arm64="下載 Linux（Arm）版"
+            data-release="正式版本"
+            data-mobile="Harness Relay 在電腦上執行：請在電腦上打開這個頁面。"
+          >
+            <a class="dl" href="https://github.com/Agentic-System-Lab/harness-relay/releases" data-download="mac">
+              <svg class="dl-os" aria-hidden="true"><use href="#i-os-mac" /></svg>
+              <span class="dl-text"><span class="dl-name">macOS</span><span class="dl-detail">macOS 13 以上 · Apple Silicon · .dmg</span></span>
+              <span class="dl-yours">你的系統</span>
+              <svg class="dl-get" aria-hidden="true"><use href="#i-download" /></svg>
+            </a>
+            <a class="dl" href="https://github.com/Agentic-System-Lab/harness-relay/releases" data-download="win">
+              <svg class="dl-os" aria-hidden="true"><use href="#i-os-win" /></svg>
+              <span class="dl-text"><span class="dl-name">Windows</span><span class="dl-detail">Windows 10 以上，x64 · .exe</span></span>
+              <span class="dl-yours">你的系統</span>
+              <svg class="dl-get" aria-hidden="true"><use href="#i-download" /></svg>
+            </a>
+            <a class="dl" href="https://github.com/Agentic-System-Lab/harness-relay/releases" data-download="win-arm64">
+              <svg class="dl-os" aria-hidden="true"><use href="#i-os-win" /></svg>
+              <span class="dl-text"><span class="dl-name">Windows（Arm）</span><span class="dl-detail">Windows 10 以上，Arm64 · .exe</span></span>
+              <span class="dl-yours">你的系統</span>
+              <svg class="dl-get" aria-hidden="true"><use href="#i-download" /></svg>
+            </a>
+            <a class="dl" href="https://github.com/Agentic-System-Lab/harness-relay/releases" data-download="linux">
+              <svg class="dl-os" aria-hidden="true"><use href="#i-os-linux" /></svg>
+              <span class="dl-text"><span class="dl-name">Linux</span><span class="dl-detail">x64 · .AppImage</span></span>
+              <span class="dl-yours">你的系統</span>
+              <svg class="dl-get" aria-hidden="true"><use href="#i-download" /></svg>
+            </a>
+            <a class="dl" href="https://github.com/Agentic-System-Lab/harness-relay/releases" data-download="linux-arm64">
+              <svg class="dl-os" aria-hidden="true"><use href="#i-os-linux" /></svg>
+              <span class="dl-text"><span class="dl-name">Linux（Arm）</span><span class="dl-detail">Arm64（aarch64）· .AppImage</span></span>
+              <span class="dl-yours">你的系統</span>
+              <svg class="dl-get" aria-hidden="true"><use href="#i-download" /></svg>
+            </a>
+          </div>
+          <p class="release-line"><span data-release-meta></span>所有安裝檔都在 <a href="https://github.com/Agentic-System-Lab/harness-relay/releases">Releases 頁面</a>。</p>
+          <ul>
+            <li><b>macOS</b>：給 Apple Silicon 的 Mac，macOS 13 Ventura 以上。Intel Mac 沒有 app。</li>
+            <li>
+              <b>Windows</b>：Windows 10 以上。Windows on Arm 請用 Arm64 安裝檔，它在那裡原生執行；Windows 11 on Arm 也能執行 x64 版，Windows 10 on Arm 則不行。它只安裝給你的帳號，不需要系統管理員權限。
+            </li>
+            <li><b>Linux</b>：有桌面環境的 Linux，x64 或 64 位元 Arm。App 就是一個 AppImage 檔案。</li>
+          </ul>
+          <h3>手邊沒有能安裝它的電腦？</h3>
+          <p>
+            可以在 GitHub Codespaces 試用：GitHub 雲端上一台屬於你的 Linux 機器，在瀏覽器裡就能用，已經裝好七個非開源的 agent 並啟動 Harness Relay。它用你的 GitHub
+            帳號執行：免費的個人帳號每月大約包含 60 小時。請從<a href="../../#start">首頁的快速開始</a>進入，那裡會先說明要注意什麼，或閱讀<a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/codespaces.zh-TW.md">在 GitHub Codespaces 試用</a>。
+          </p>
+          <p>
+            在 Intel Mac 或沒有桌面環境的伺服器上，請改從原始碼執行 Harness Relay：見 <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/README.zh-TW.md#快速開始">README 的快速開始</a>。
+          </p>
+        </section>
+
+        <section id="first-open" aria-labelledby="first-open-title">
+          <h2 id="first-open-title">第一次打開</h2>
+          <p>安裝檔還沒有為發佈簽章，所以第一次打開 app 時，系統會跳出警告。各系統的處理方式如下：</p>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">系統</th>
+                <th scope="col">先安裝，再第一次打開</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row"><span class="keep">macOS</span></th>
+                <td>打開 <code>.dmg</code>，把 Harness Relay 拖到「應用程式」。第一次打開時，macOS 顯示「Apple 無法驗證『Harness Relay』」。打開<b>系統設定 → 隱私權與安全性</b>，在 Harness Relay 旁按<b>強制打開</b>。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">Windows</span></th>
+                <td>執行 <code>.exe</code>，它會安裝給你的帳號。第一次打開時，SmartScreen 顯示「Windows 已保護您的電腦」。按<b>其他資訊</b>，再按<b>仍要執行</b>。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">Linux</span></th>
+                <td>把 AppImage 加上執行權限（<code>chmod +x</code>，或在檔案內容裡設定），再執行它。在 Ubuntu 24.04 這類限制 user namespace 的系統上，它可能一啟動就結束，並提到 <i>SUID sandbox helper</i>。請加上 <code>--no-sandbox</code> 啟動；之後<b>登入時自動啟動</b>也會這樣啟動它。</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            接著 Harness Relay 會在它自己的視窗打開對話，已經登入，不用輸入代碼。在 Mac 上，之後 agent 第一次在「文件」或「桌面」等資料夾工作，或你第一次使用語音輸入時，macOS
+            會詢問 Harness Relay 能否這樣做。詢問裡寫的是這個 app 的名稱，因為 agent 在它裡面執行：請選<b>允許</b>。
+          </p>
+          <h3>介面語言、外觀與使用導覽</h3>
+          <ul>
+            <li>
+              介面提供 <b>English</b> 與<b>繁體中文</b>。第一次會跟著瀏覽器的語言，之後可以在<b>設定與登入 → 介面語言</b>切換。App 自己的選單會跟著它視窗裡的介面語言。
+            </li>
+            <li>顏色會跟著系統的淺色／深色模式。想固定其中一種，就在<b>設定與登入 → 外觀</b>選<b>淺色</b>或<b>深色</b>；選<b>跟隨系統</b>則改回來。</li>
+            <li>
+              第一次打開時，會有簡短的使用導覽介紹主要功能（<kbd>←</kbd> 與 <kbd>→</kbd> 切換，<kbd>Esc</kbd> 跳過）。想再看一次，到<b>設定與登入 → 使用導覽</b>按<b>重新觀看導覽</b>。
+            </li>
+          </ul>
+        </section>
+
+        <section id="menu" aria-labelledby="menu-title">
+          <h2 id="menu-title">視窗與選單</h2>
+          <p>
+            關掉視窗不會停止 Harness Relay：它會繼續執行，圖示（三個圓點）留在 macOS 的選單列，或 Windows 與 Linux 的系統匣。這樣團隊可以把工作做完，手機也還連得到。要停止它，就在那個選單選<b>結束
+            Harness Relay</b>（macOS 上按 <kbd>⌘Q</kbd>）：它會先停止所有 agent。在 Windows 上，點一下圖示會打開對話，按右鍵則會開啟選單。
+          </p>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">選單項目</th>
+                <th scope="col">作用</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">打開 Harness Relay</th>
+                <td>顯示對話視窗。從 Dock 或「開始」選單再次打開 app 也一樣。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">在瀏覽器打開</span></th>
+                <td>改用預設瀏覽器打開已登入的對話。</td>
+              </tr>
+              <tr>
+                <th scope="row">分享到手機（Tailscale）…</th>
+                <td>讓手機也能使用 Harness Relay：見<a href="../phone/">在手機上使用</a>。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">登入時自動啟動</span></th>
+                <td>登入電腦時啟動 app，但不打開視窗。</td>
+              </tr>
+              <tr>
+                <th scope="row">執行時不讓電腦睡著</th>
+                <td>讓電腦不會自己進入睡眠，手機才連得到。MacBook 闔上蓋子還是會睡眠。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">重新啟動伺服器…</span></th>
+                <td>重新啟動 Harness Relay，例如在終端機裝好一個 agent 之後。正在進行的回覆會停止。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">更新到 …</span></th>
+                <td>有新版本時出現：見<a href="#updates">更新</a>。</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-info" /></svg>
+            <div>
+              <p>
+                有些 Linux 桌面會隱藏系統匣圖示（例如沒有 AppIndicator 擴充套件的 GNOME）。在那裡，再次打開 app 會顯示它的視窗，視窗的選單列（<kbd>Alt</kbd>）裡有<b>在瀏覽器打開</b>與<b>結束</b>。要用選單的其他項目，請安裝
+                AppIndicator 擴充套件。
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="what-else" aria-labelledby="what-else-title">
+          <h2 id="what-else-title">還需要什麼</h2>
+          <h3>至少一個 agent</h3>
+          <p>
+            Harness Relay 使用你手上的 coding agent：七個要登入的（Claude Code、Codex、Grok、Cursor、Antigravity、Copilot 與 Muse Code），或五個開源的（OpenCode、Goose、Cline、OpenHands
+            與 Pi），任意組合都可以。有一個就能開始。怎麼登入各個 agent，見<a href="../agents/">連接你的 agent</a>。
+          </p>
+          <p>
+            不必自己安裝。Harness Relay 找不到某個 agent 時，它在<b>設定與登入</b>的卡片會出現安裝按鈕。按一下就會把它裝進專屬的資料夾、只給 Harness Relay 用，一邊安裝一邊顯示安裝程式的輸出，並確認它能執行；按<b>移除</b>就會再拿掉。Claude
+            Code、Codex 與 Copilot 即使電腦上沒有 Node.js 也能這樣安裝。如果你在 app 開著時自己在終端機裝了 agent，請在選單選<b>重新啟動伺服器…</b>，它才找得到。
+          </p>
+          <h3>Git，給可編輯與平行模式用</h3>
+          <p>
+            agent 可以修改檔案時，Harness Relay 用 <a href="https://git-scm.com/downloads">Git</a> 記錄每則回覆改了什麼，並在平行模式下給每個 agent 一份自己的副本。還沒有的話請安裝。你不需要會用
+            Git：Harness Relay 絕不會 commit 到你的分支。
+          </p>
+          <h3>沙箱需要的東西</h3>
+          <p>
+            除非你給對話完全存取，大多數 agent 執行的指令都在系統的沙箱裡，只能寫入對話的資料夾。這台電腦缺少沙箱需要的東西時，按<b>新對話</b>會先跳出一個列出缺少項目的對話框。請選<b>安裝（強烈建議）</b>：在
+            Linux 上它會詢問系統管理員密碼（或給你一行在終端機執行的指令），再安裝套件；按<b>先不要</b>則關掉它。同樣的清單與<b>安裝</b>按鈕，一直都在<b>設定與登入 → 沙箱</b>。在 Windows
+            上不需要安裝任何東西：那裡只有 Codex 與 Copilot 有沙箱，而且它們什麼都不需要。
+          </p>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-shield" /></svg>
+            <div>
+              <p>
+                缺少需要的東西時，agent 的指令會直接失敗，而不是在沙箱外執行。開源 agent 在 Harness Relay 自己的沙箱裡執行；在原生 Windows 上它們只能以完全存取執行。見<a href="../permissions/">權限與核准</a>。
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="updates" aria-labelledby="updates-title">
+          <h2 id="updates-title">更新</h2>
+          <p>App 啟動後不久，以及之後每小時，會到 GitHub 查有沒有新版本。有新版本時：</p>
+          <ol class="doc-steps">
+            <li>
+              選單會出現<b>更新到</b>加上新版本，對話介面也會跳出一次對話框，並顯示在<b>設定與登入</b>最上方的<b>版本</b>卡片。<b>變更內容</b>會列出你的版本之後的每一項變更；按<b>稍後再說</b>就不再為那個版本跳出。
+            </li>
+            <li>選<b>更新</b>。App 會下載新版本，並用 GitHub 公布的檢查碼檢查它。</li>
+            <li>
+              它會等到沒有任何對話有 agent 在工作（在等你回答的對話不算），然後結束、以新版本重新打開。選單裡的<b>立即切換到新版…</b>會立刻切換，並中斷正在進行的回覆。
+            </li>
+          </ol>
+          <p>
+            在 Mac 上，請把 app 放在「應用程式」：直接從 <code>.dmg</code> 執行的 app 無法取代自己。如果 macOS 不讓它這樣做，會打開新版本的 <code>.dmg</code>：再把 Harness Relay
+            拖到「應用程式」即可。
+          </p>
+          <p>
+            版本就是發佈的日期（台灣時區），例如 <code>2026-11-10</code>；同一天再發佈的修正會加上編號，例如 <code>2026-11-10.1</code>。結尾是 <code>-rc</code>
+            的是候選版本，在正式版本之前先給大家試用：網站只提供正式版本，候選版本的 app 也會更新到下一個候選版本。
+          </p>
+        </section>
+
+        <section id="uninstall" aria-labelledby="uninstall-title">
+          <h2 id="uninstall-title">解除安裝</h2>
+          <ol class="doc-steps">
+            <li>關掉<b>登入時自動啟動</b>；如果分享過到手機，先停止分享：在終端機執行 <code>tailscale serve --https=443 off</code>（手機網址結尾有連接埠時，例如
+              <code>8443</code>，就換成那個連接埠）。再結束 app。</li>
+            <li>
+              移除 app：macOS 上把它從「應用程式」拖到垃圾桶；Windows 上到<b>設定 → 應用程式 → 已安裝的應用程式</b>（Windows 10 是<b>應用程式與功能</b>）→ Harness Relay →
+              <b>解除安裝</b>；Linux 上刪除 AppImage。
+            </li>
+            <li>
+              要連對話與設定一起移除，刪除 app 的資料夾：macOS 的 <code>~/Library/Application Support/Harness Relay</code>（還有 <code>~/Library/Logs/Harness Relay</code>）、Windows 的
+              <code>%APPDATA%\Harness Relay</code>、Linux 的 <code>~/.config/Harness Relay</code>。你的 API key 在系統金鑰儲存區的 <code>harness-relay-desktop</code>
+              名下（macOS 的「鑰匙圈存取」、Windows 的認證管理員，或 Linux 的 keyring）：刪除這些項目。
+            </li>
+          </ol>
+        </section>
+
+        <aside class="doc-more" aria-label="技術細節">
+          <svg aria-hidden="true"><use href="#i-github" /></svg>
+          <div>
+            <p>其他細節都在使用者說明裡：每個選單項目、怎麼檢查更新、和從原始碼執行有什麼不同，以及 app 保存哪些資料。</p>
+            <ul>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#桌面-app">桌面 app</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#從設定頁安裝-cli">從設定頁安裝 agent</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#安裝沙箱需要的元件">安裝沙箱需要的元件</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/codespaces.zh-TW.md">在 GitHub Codespaces 試用</a></li>
+            </ul>
+          </div>
+        </aside>
+
+        <nav class="doc-pager" aria-label="頁面">
+          <a href="../" rel="prev"><span>上一頁</span><b>總覽</b></a>
+          <a href="../agents/" rel="next"><span>下一頁</span><b>連接你的 agent</b></a>
+        </nav>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-row">
+        <a class="brand" href="../../" aria-label="Harness Relay 首頁">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="footer-links" aria-label="頁尾">
+          <a href="../">文件</a>
+          <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE">Sustainable Use License</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

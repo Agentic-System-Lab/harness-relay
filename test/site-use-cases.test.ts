@@ -324,6 +324,36 @@ describe('the use cases on the home pages and in the READMEs', () => {
     }
   });
 
+  it('are one row swiped sideways on a phone, card by card, which scrolls inside itself and never the page', () => {
+    const css = read('site/assets/site.css');
+    // Under some 718px the grid would leave one column: there the cards are one row instead.
+    const block = css
+      .split('@media (max-width: 720px) {')
+      .slice(1)
+      .find((b) => b.includes('\n  .cases {'));
+    expect(block).toBeDefined();
+    const rule = (selector: string) => {
+      const start = block!.indexOf(`\n  ${selector} {`);
+      expect(start, selector).toBeGreaterThanOrEqual(0);
+      return block!.slice(start, block!.indexOf('}', start));
+    };
+    const row = rule('.cases');
+    for (const decl of [
+      'grid-template-columns: none;',
+      'grid-auto-flow: column;',
+      // The next card shows at the edge, so the row reads as one to swipe.
+      'grid-auto-columns: min(84%, 360px);',
+      // It runs to the screen's edges, its first card lined up with the text, in its own scroller.
+      'margin-inline: calc(-1 * var(--gutter));',
+      'scroll-padding-inline: var(--gutter);',
+      'overflow-x: auto;',
+      'overscroll-behavior-x: contain;',
+      'scroll-snap-type: x mandatory;',
+    ])
+      expect(row).toContain(decl);
+    expect(rule('.case')).toContain('scroll-snap-align: start;');
+  });
+
   it('are linked from each README, to its section on the page in the README’s language', () => {
     for (const lang of LANGS) {
       const md = read(README[lang]);

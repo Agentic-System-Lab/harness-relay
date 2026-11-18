@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { slow } from './timeouts';
+import { PAGE_FILES, SITE_PAGES } from './site-pages';
 import { pagesStep, pagesWorkflow } from './workflow-steps';
 
 // What search engines are told about the landing page: the sitemap (named by the robots.txt at the domain's root,
@@ -14,7 +15,7 @@ import { pagesStep, pagesWorkflow } from './workflow-steps';
 // wrote it.
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
-const PAGES = ['site/index.html', 'site/zh-TW/index.html', 'site/use-cases/index.html', 'site/zh-TW/use-cases/index.html'];
+const PAGES = PAGE_FILES;
 const sitemap = read('site/sitemap.xml');
 
 /** A page's canonical address and its language alternates, from its <head>. */
@@ -45,6 +46,10 @@ describe("the landing page's sitemap", () => {
       expect(entry, page).toBeDefined();
       expect(entry!.alternates, page).toEqual(alternates);
     }
+  });
+
+  it("lists the pages in the site's order: the home page, the use cases, then the docs, each in English then Chinese", () => {
+    expect(entries(sitemap).map((e) => e.loc)).toEqual(SITE_PAGES.map((p) => p.url));
   });
 
   it('is valid sitemap XML with the xhtml namespace for the alternates', () => {
@@ -105,9 +110,10 @@ const git = (cwd: string, args: string[], date?: string) =>
 
 const EN = 'https://agentic-system-lab.github.io/harness-relay/';
 const ZH = 'https://agentic-system-lab.github.io/harness-relay/zh-TW/';
-/** The use-cases pages: in the first commit only. */
-const EN_UC = `${EN}use-cases/`;
-const ZH_UC = `${ZH}use-cases/`;
+/** The date of the checkout's first commit, in UTC: every page's but the Chinese home page's. */
+const FIRST = '2026-01-01T19:04:05Z';
+/** Each page's address and the date the step gives it, in the sitemap's order. */
+const DATES = SITE_PAGES.map((p) => [p.url, p.url === ZH ? '2026-02-03T00:00:00Z' : FIRST] as const);
 
 /**
  * A checkout of the site with three commits: the site (in Taiwan's time), the Chinese page changed, and the
@@ -162,17 +168,9 @@ describe.skipIf(process.platform === 'win32')('dating the pages in the sitemap',
   it('dates each page by the last commit that changed its HTML, in UTC, right after its address', () => {
     const r = date(checkout());
     expect(r.status, r.out).toBe(0);
-    expect(r.sitemap).toBe(
-      dated({
-        [EN]: '2026-01-01T19:04:05Z',
-        [ZH]: '2026-02-03T00:00:00Z',
-        [EN_UC]: '2026-01-01T19:04:05Z',
-        [ZH_UC]: '2026-01-01T19:04:05Z',
-      }),
-    );
-    expect(r.out).toBe(
-      `${EN} 2026-01-01T19:04:05Z\n${ZH} 2026-02-03T00:00:00Z\n${EN_UC} 2026-01-01T19:04:05Z\n${ZH_UC} 2026-01-01T19:04:05Z\n`,
-    );
+    expect(r.sitemap).toBe(dated(Object.fromEntries(DATES)));
+    expect(DATES[0]).toEqual([EN, FIRST]);
+    expect(r.out).toBe(DATES.map(([url, date]) => `${url} ${date}\n`).join(''));
     expect(r.summary).toBe('');
     // Still the sitemap the first test checks, with a date for each page.
     expect(entries(r.sitemap).map((e) => [e.loc, e.alternates])).toEqual(entries(sitemap).map((e) => [e.loc, e.alternates]));
@@ -192,13 +190,7 @@ describe.skipIf(process.platform === 'win32')('dating the pages in the sitemap',
     const message = `No commit has site/missing/index.html, the page at ${MISSING}: the sitemap lists it without its <lastmod>.`;
     expect(r.out).toContain(`::warning::${message}\n`);
     expect(r.summary).toBe(`${message}\n`);
-    expect(entries(r.sitemap).map((e) => [e.loc, e.lastmod])).toEqual([
-      [EN, '2026-01-01T19:04:05Z'],
-      [ZH, '2026-02-03T00:00:00Z'],
-      [EN_UC, '2026-01-01T19:04:05Z'],
-      [ZH_UC, '2026-01-01T19:04:05Z'],
-      [MISSING, undefined],
-    ]);
+    expect(entries(r.sitemap).map((e) => [e.loc, e.lastmod])).toEqual([...DATES, [MISSING, undefined]]);
   });
 
   it('dates no page in a shallow checkout, which would date them all at its one commit, and only warns', () => {

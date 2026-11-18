@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Permissions and approvals · Harness Relay docs</title>
+    <meta
+      name="description"
+      content="Harness Relay docs: what agents may do without asking, how approvals work, what the sandboxes keep out, and how to review and apply the changes agents make."
+    />
+    <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/docs/permissions/" />
+    <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/permissions/" />
+    <link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/permissions/" />
+    <link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/permissions/" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141415" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Harness Relay" />
+    <meta property="og:title" content="Permissions and approvals · Harness Relay docs" />
+    <meta
+      property="og:description"
+      content="Stay in charge of what the agents do in Harness Relay: choose read-only, edit or full access, answer approval cards, send what waits in the outbox yourself, and review each reply's changes before you keep them."
+    />
+    <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/permissions/" />
+    <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="zh_TW" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="../../favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="../../assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="../../assets/site.css" />
+    <script>
+      document.documentElement.classList.add('js');
+      // The theme the visitor picked with the theme button (assets/theme.js), set before anything is drawn
+      // so that it does not flash. Until they pick one, the page follows the system's light or dark mode.
+      try {
+        var theme = localStorage.getItem('harness-relay.theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {}
+      // Show the language the visitor picked last time. Before they pick one, follow the
+      // browser like the app does: Chinese gets the Traditional Chinese page.
+      try {
+        var lang = localStorage.getItem('harness-relay.lang');
+        var browserZh = /^zh/i.test((navigator.languages || [])[0] || navigator.language || '');
+        if (lang === 'zh-TW' || (!lang && browserZh)) location.replace('../../zh-TW/docs/permissions/' + location.hash);
+      } catch (e) {}
+    </script>
+    <script src="../../assets/site.js" defer></script>
+    <script type="module" src="../../assets/theme.js"></script>
+    <!-- What search and answer engines read about the page (test/site-docs.test.ts keeps it in step with the page). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "@id": "https://agentic-system-lab.github.io/harness-relay/docs/permissions/#webpage",
+        "url": "https://agentic-system-lab.github.io/harness-relay/docs/permissions/",
+        "name": "Permissions and approvals · Harness Relay docs",
+        "description": "Harness Relay docs: what agents may do without asking, how approvals work, what the sandboxes keep out, and how to review and apply the changes agents make.",
+        "inLanguage": "en",
+        "isPartOf": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
+        },
+        "about": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#app"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-github" viewBox="0 0 16 16">
+          <path
+            fill="currentColor"
+            d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+          />
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+          <path d="M12 3.86 14.22 9.8l6.34.28-4.97 3.95 1.7 6.11L12 16.64l-5.29 3.5 1.7-6.11-4.97-3.95 6.34-.28Z" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2.75v1.5M12 19.75v1.5M2.75 12h1.5M19.75 12h1.5M5.46 5.46l1.06 1.06M17.48 17.48l1.06 1.06M5.46 18.54l1.06-1.06M17.48 6.52l1.06-1.06" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 13.6A8 8 0 1 1 10.4 4a6.25 6.25 0 0 0 9.6 9.6Z" />
+        </symbol>
+        <symbol id="i-mark" viewBox="0 0 32 32">
+          <circle cx="9" cy="16" r="6" fill="#d97757" />
+          <circle cx="23" cy="10" r="5" fill="#10a37f" />
+          <circle cx="23" cy="23" r="5" fill="#7c5cff" />
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6.5 9.5 5.5 5.5 5.5-5.5" />
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.75" />
+          <path d="M12 11v5.5M12 7.6v.1" />
+        </symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M12 2.5c.8 5.9 3.6 8.7 9.5 9.5-5.9.8-8.7 3.6-9.5 9.5-.8-5.9-3.6-8.7-9.5-9.5 5.9-.8 8.7-3.6 9.5-9.5Z" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.7 7 9 4.1-1.3 7-4.7 7-9V6.2Z" />
+          <path d="m9 12 2.2 2.2L15.2 10" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
+        </symbol>
+        <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+        </symbol>
+        <symbol id="i-os-win" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+          <path d="M12 4.5v15M3.5 12h17" />
+        </symbol>
+        <symbol id="i-os-linux" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3c-2.3 0-3.6 1.9-3.6 4.4 0 1.5.4 2.4-.7 3.8C6.4 12.9 5.4 14.8 5.4 17c0 2.6 2.9 4 6.6 4s6.6-1.4 6.6-4c0-2.2-1-4.1-2.3-5.8-1.1-1.4-.7-2.3-.7-3.8C15.6 4.9 14.3 3 12 3Z" />
+          <path d="M9.6 14.6c0-1.6 1-2.7 2.4-2.7s2.4 1.1 2.4 2.7v1.6c0 1.5-1 2.6-2.4 2.6s-2.4-1.1-2.4-2.6Z" />
+          <path d="M10.6 9.2 12 10.3l1.4-1.1" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="wrap header-row">
+        <a class="brand" href="../../" aria-label="Harness Relay, home">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="site-nav" aria-label="Sections">
+          <a href="../../#demo">Demo</a>
+          <a href="../../use-cases/">Use cases</a>
+          <a href="../../#modes">Modes</a>
+          <a href="../../#teams">Teams</a>
+          <a href="../../#safety">Safety</a>
+          <a href="../../#start">Quick start</a>
+          <a href="../" aria-current="true">Docs</a>
+        </nav>
+        <div class="header-tools">
+          <nav class="lang" aria-label="Language">
+            <a href="./" hreflang="en" lang="en" aria-current="page" data-lang="en">EN</a>
+            <a href="../../zh-TW/docs/permissions/" hreflang="zh-TW" lang="zh-Hant-TW" data-lang="zh-TW">中文</a>
+          </nav>
+          <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            <span class="gh-label">GitHub</span>
+            <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> stars</span></span>
+          </a>
+          <button class="btn btn-ghost theme-toggle" type="button" data-theme-toggle data-to-dark="Switch to dark theme" data-to-light="Switch to light theme" aria-label="Switch to dark theme">
+            <svg class="i-moon" aria-hidden="true"><use href="#i-moon" /></svg>
+            <svg class="i-sun" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="wrap doc-layout">
+      <nav class="doc-nav" aria-label="Docs" data-doc-nav>
+        <button class="doc-nav-toggle" type="button" aria-expanded="false" aria-controls="doc-pages" data-doc-nav-toggle>
+          <span>Docs</span>
+          <b>Permissions and approvals</b>
+          <svg aria-hidden="true"><use href="#i-chevron" /></svg>
+        </button>
+        <div class="doc-nav-list" id="doc-pages">
+          <p class="doc-nav-title">Get started</p>
+          <ul>
+            <li><a href="../">Overview</a></li>
+            <li><a href="../install/">Install</a></li>
+            <li><a href="../agents/">Connect your agents</a></li>
+            <li><a href="../first-chat/">Your first chat</a></li>
+          </ul>
+          <p class="doc-nav-title">Work with the team</p>
+          <ul>
+            <li><a href="../teams/">Teams and modes</a></li>
+            <li><a href="../permissions/" aria-current="page">Permissions and approvals</a></li>
+            <li><a href="../conversations/">Conversations</a></li>
+            <li><a href="../automations/">Automations</a></li>
+            <li><a href="../tools/">Tools</a></li>
+          </ul>
+          <p class="doc-nav-title">More</p>
+          <ul>
+            <li><a href="../phone/">Use it from your phone</a></li>
+            <li><a href="../troubleshooting/">Troubleshooting</a></li>
+          </ul>
+          <a class="doc-nav-out" href="https://github.com/Agentic-System-Lab/harness-relay#documentation">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            Technical docs on GitHub
+          </a>
+        </div>
+      </nav>
+
+      <header class="doc-head">
+        <h1>Permissions and approvals</h1>
+        <p class="lead">
+          You decide what the agents may do on their own. Anything beyond that comes to you as a card in the chat, and
+          every change they make to your files is listed, ready to review.
+        </p>
+      </header>
+
+      <nav class="doc-toc" aria-label="On this page">
+        <p class="doc-toc-title">On this page</p>
+        <ol>
+          <li><a href="#levels">The three permission levels</a></li>
+          <li><a href="#beyond-the-permission">Actions beyond the permission</a></li>
+          <li><a href="#approvals">Approval cards</a></li>
+          <li><a href="#sandboxes">What the sandboxes do</a></li>
+          <li><a href="#outbox">The outbox</a></li>
+          <li><a href="#changes">Review and apply changes</a></li>
+        </ol>
+      </nav>
+
+      <div class="doc-body">
+        <section id="levels" aria-labelledby="levels-title">
+          <h2 id="levels-title">The three permission levels</h2>
+          <p>
+            Each conversation has one <b>File permission</b>, shared by all its members. You choose it on the
+            <b>New chat</b> page, and can change it later in <b>Team settings</b>.
+          </p>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">Level</th>
+                <th scope="col">What agents do without asking</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Read-only</th>
+                <td>Read, search, and look things up on the web. They change no file.</td>
+              </tr>
+              <tr>
+                <th scope="row">Edit</th>
+                <td>
+                  Also change files in the working directory and run project commands such as tests and builds. Pushing
+                  and publishing are not included.
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">Full access</th>
+                <td>Everything, without asking. Use it only in folders you trust.</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            Exactly what runs without asking differs a little from one agent to another: an agent that has no sandbox
+            asks you before every command below full access, tests and builds too.
+          </p>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-shield" /></svg>
+            <div>
+              <p>
+                In edit mode, tests, builds and project scripts run code the agents can change. Use edit for code you
+                trust; for code or instructions you don't trust, use read-only. Edit mode is not allowed in your home
+                folder itself: choose a project folder.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="beyond-the-permission" aria-labelledby="beyond-the-permission-title">
+          <h2 id="beyond-the-permission-title">Actions beyond the permission</h2>
+          <p>
+            When an agent wants to do something its permission does not cover, such as installing a package, pushing
+            code or writing outside the working directory, the chat setting <b>Actions beyond the permission</b> decides
+            what happens:
+          </p>
+          <ul>
+            <li><b>Ask me</b> (the default): the chat asks you, and the agent waits for your answer.</li>
+            <li>
+              <b>Refuse automatically</b>: the action is refused right away; the agent is told, and tries another way.
+            </li>
+          </ul>
+          <p>With full access there is nothing beyond the permission, so the setting is not shown.</p>
+        </section>
+
+        <section id="approvals" aria-labelledby="approvals-title">
+          <h2 id="approvals-title">Approval cards</h2>
+          <p>
+            With <b>Ask me</b>, the agent's reply shows a card: what it wants to do (the exact command, file, address
+            or host) and why. When allowing it would run a command outside the sandbox, the card says so.
+          </p>
+          <figure class="doc-figure">
+            <img
+              src="../../assets/media/docs/permissions-approval-en.webp"
+              width="1280"
+              height="800"
+              alt="An approval card in @Claude's reply: @Claude wants to run a command, Waiting for you. It shows the command (git ls-files, then cat of the project's files), the reason List files and show source, a box to tell it what to do instead, and the buttons Allow, Always allow &quot;git ls-files, cat, grep&quot; in this chat, and Decline. The sidebar marks the chat Needs you, and a bar above the message box says @Claude is waiting for you."
+              loading="lazy"
+            />
+            <figcaption>
+              An agent asks before running a command, from the use case
+              <a href="../../use-cases/#fix-a-bug">Fix a bug three ways, keep the best one</a>.
+            </figcaption>
+          </figure>
+          <ul>
+            <li><b>Allow</b>: just this once.</li>
+            <li>
+              <b>Always allow "…" in this chat</b>: this and later requests like it, for the rest of the conversation. For
+              a command, that means the same program and subcommand, such as <code>npm install</code>.
+            </li>
+            <li>
+              <b>Decline</b>: you can first type what the agent should do instead. Some agents get your note and carry
+              on; others only learn that you declined, or end their turn, so then say what to do in your next message.
+            </li>
+          </ul>
+          <p>
+            While a card waits, a bar above the message box points to it, the sidebar marks the conversation
+            <b>Needs you</b>, and the browser tab's title counts the conversations that need you. Pressing <b>Stop</b>
+            declines everything still waiting.
+          </p>
+        </section>
+
+        <section id="sandboxes" aria-labelledby="sandboxes-title">
+          <h2 id="sandboxes-title">What the sandboxes do</h2>
+          <p>
+            Below full access, most agents run their commands inside a sandbox, a fence your operating system puts around
+            a program. It lets them write only in the working directories and temporary folders, and keeps them out of
+            your browsers' data and Harness Relay's own database. Depending on the agent, it also keeps commands off the
+            network or asks you before they reach a new host.
+          </p>
+          <ul>
+            <li>The open-source agents run in Harness Relay's own sandbox.</li>
+            <li>An agent that has no sandbox asks you before every command instead.</li>
+            <li>
+              When a sandbox lacks what it needs, the command fails: it never runs outside the sandbox. Harness Relay
+              can install what is missing for you: see <a href="../install/">Install</a>.
+            </li>
+          </ul>
+          <p>
+            What each sandbox covers differs by agent and by system. On native Windows only Codex and Copilot have one that
+            works, and Claude Code runs its commands without one there. The technical docs list it agent by agent.
+          </p>
+        </section>
+
+        <section id="outbox" aria-labelledby="outbox-title">
+          <h2 id="outbox-title">The outbox</h2>
+          <p>
+            When an agent uses Harness Relay's own tools to send something to other people, such as a mail, or an event
+            with attendees, nothing goes out in its turn, whatever the permission. Its reply shows a card with what would
+            be sent, field by field, as it will go out:
+          </p>
+          <ul>
+            <li><b>Send</b> sends it as shown, from your account.</li>
+            <li><b>Discard</b> drops it.</li>
+          </ul>
+          <p>
+            Until you answer, the conversation is marked <b>Needs you</b> and you are notified, as for an approval; the
+            agent does not wait, so you can send it later. <a href="../tools/">Tools: browser, mail and calendar</a>
+          </p>
+        </section>
+
+        <section id="changes" aria-labelledby="changes-title">
+          <h2 id="changes-title">Review and apply changes</h2>
+          <p>
+            When an agent changes files, its reply ends with a card listing them, each marked A (added), M (modified) or
+            D (deleted), with the lines added and removed. <b>View this turn's diff</b> shows exactly what the agent
+            changed in that turn.
+          </p>
+          <h3>Parallel mode: pick a result</h3>
+          <p>
+            In parallel mode each agent works in a copy of its own (a git worktree), so they cannot overwrite each other,
+            and your working directory is not touched. Its card says <b>in worktree</b>, and the agent's latest card
+            also has:
+          </p>
+          <ul>
+            <li><b>View @name's full result</b>: everything that agent changed since the round started.</li>
+            <li>
+              <b>Apply to working directory</b>: copies that result into your folder. Nothing is committed: check the
+              changes with your usual tools and commit them yourself.
+            </li>
+          </ul>
+          <figure class="doc-figure">
+            <img
+              src="../../assets/media/docs/permissions-changes-en.webp"
+              width="1280"
+              height="800"
+              alt="The end of @Claude's reply in parallel mode: a card says Changed 1 file, +3 −2, in worktree, and lists src/split.js as modified, with the buttons View this turn's diff, View @Claude's full result and Apply to working directory."
+              loading="lazy"
+            />
+            <figcaption>
+              One agent's result, ready to apply, from the use case
+              <a href="../../use-cases/#fix-a-bug">Fix a bug three ways, keep the best one</a>.
+            </figcaption>
+          </figure>
+          <p>
+            Once you apply one result, the others are marked out of date, and the next round starts from your updated
+            folder. If your folder changed in a way that conflicts with the result, nothing is applied and you are told
+            why: ask an agent to redo the work on top of the current state.
+          </p>
+          <h3>How your folder stays safe</h3>
+          <ul>
+            <li>
+              In edit mode and full access, a working directory that is not a git repository yet becomes one
+              (<code>git init</code>), so every change can be recorded. Harness Relay never commits to your branch.
+            </li>
+            <li>
+              In roundtable and relay mode the agents change your folder directly, in turn, and each reply records which
+              files it changed. Meanwhile, no other conversation can write to the same folder: sending there says the
+              folder is changing, until this one is done (or you stop it).
+            </li>
+          </ul>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-info" /></svg>
+            <div>
+              <p>
+                Harness Relay records what changed, but does not undo it: editing an earlier message or retrying a reply
+                does not restore the files its replies changed. Commit what you want to keep.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <aside class="doc-more" aria-label="Technical details">
+          <svg aria-hidden="true"><use href="#i-github" /></svg>
+          <div>
+            <p>What each agent's sandbox allows on each system, and every rule of approvals, are in the docs on GitHub:</p>
+            <ul>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#conversation-rules">Conversation rules</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#approvals">Approvals</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#reviewing-and-applying-changes">Reviewing and applying changes</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/sandboxing.md">OS sandboxes by platform</a></li>
+            </ul>
+          </div>
+        </aside>
+
+        <nav class="doc-pager" aria-label="Pages">
+          <a href="../teams/" rel="prev"><span>Previous</span><b>Teams and modes</b></a>
+          <a href="../conversations/" rel="next"><span>Next</span><b>Conversations</b></a>
+        </nav>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-row">
+        <a class="brand" href="../../" aria-label="Harness Relay, home">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="footer-links" aria-label="Footer">
+          <a href="../">Docs</a>
+          <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE">Sustainable Use License</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

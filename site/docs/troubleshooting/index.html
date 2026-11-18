@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Troubleshooting · Harness Relay docs</title>
+    <meta
+      name="description"
+      content="Harness Relay docs: what to try when an agent is not found, a reply stops, a folder is refused, the app or your phone misbehaves, and how to report it."
+    />
+    <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/docs/troubleshooting/" />
+    <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/troubleshooting/" />
+    <link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/troubleshooting/" />
+    <link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/troubleshooting/" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141415" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Harness Relay" />
+    <meta property="og:title" content="Troubleshooting · Harness Relay docs" />
+    <meta
+      property="og:description"
+      content="Quick fixes for what Harness Relay's users meet most: agents not signed in or not found, replies that stop or wait, folders that are busy or refused, the desktop app, voice input and the phone; where your data is, and how to report a problem."
+    />
+    <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/troubleshooting/" />
+    <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="zh_TW" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="../../favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="../../assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="../../assets/site.css" />
+    <script>
+      document.documentElement.classList.add('js');
+      // The theme the visitor picked with the theme button (assets/theme.js), set before anything is drawn
+      // so that it does not flash. Until they pick one, the page follows the system's light or dark mode.
+      try {
+        var theme = localStorage.getItem('harness-relay.theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {}
+      // Show the language the visitor picked last time. Before they pick one, follow the
+      // browser like the app does: Chinese gets the Traditional Chinese page.
+      try {
+        var lang = localStorage.getItem('harness-relay.lang');
+        var browserZh = /^zh/i.test((navigator.languages || [])[0] || navigator.language || '');
+        if (lang === 'zh-TW' || (!lang && browserZh)) location.replace('../../zh-TW/docs/troubleshooting/' + location.hash);
+      } catch (e) {}
+    </script>
+    <script src="../../assets/site.js" defer></script>
+    <script type="module" src="../../assets/theme.js"></script>
+    <!-- What search and answer engines read about the page (test/site-docs.test.ts keeps it in step with the page). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "@id": "https://agentic-system-lab.github.io/harness-relay/docs/troubleshooting/#webpage",
+        "url": "https://agentic-system-lab.github.io/harness-relay/docs/troubleshooting/",
+        "name": "Troubleshooting · Harness Relay docs",
+        "description": "Harness Relay docs: what to try when an agent is not found, a reply stops, a folder is refused, the app or your phone misbehaves, and how to report it.",
+        "inLanguage": "en",
+        "isPartOf": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
+        },
+        "about": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#app"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-github" viewBox="0 0 16 16">
+          <path
+            fill="currentColor"
+            d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+          />
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+          <path d="M12 3.86 14.22 9.8l6.34.28-4.97 3.95 1.7 6.11L12 16.64l-5.29 3.5 1.7-6.11-4.97-3.95 6.34-.28Z" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2.75v1.5M12 19.75v1.5M2.75 12h1.5M19.75 12h1.5M5.46 5.46l1.06 1.06M17.48 17.48l1.06 1.06M5.46 18.54l1.06-1.06M17.48 6.52l1.06-1.06" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 13.6A8 8 0 1 1 10.4 4a6.25 6.25 0 0 0 9.6 9.6Z" />
+        </symbol>
+        <symbol id="i-mark" viewBox="0 0 32 32">
+          <circle cx="9" cy="16" r="6" fill="#d97757" />
+          <circle cx="23" cy="10" r="5" fill="#10a37f" />
+          <circle cx="23" cy="23" r="5" fill="#7c5cff" />
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6.5 9.5 5.5 5.5 5.5-5.5" />
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.75" />
+          <path d="M12 11v5.5M12 7.6v.1" />
+        </symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M12 2.5c.8 5.9 3.6 8.7 9.5 9.5-5.9.8-8.7 3.6-9.5 9.5-.8-5.9-3.6-8.7-9.5-9.5 5.9-.8 8.7-3.6 9.5-9.5Z" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.7 7 9 4.1-1.3 7-4.7 7-9V6.2Z" />
+          <path d="m9 12 2.2 2.2L15.2 10" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
+        </symbol>
+        <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+        </symbol>
+        <symbol id="i-os-win" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+          <path d="M12 4.5v15M3.5 12h17" />
+        </symbol>
+        <symbol id="i-os-linux" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3c-2.3 0-3.6 1.9-3.6 4.4 0 1.5.4 2.4-.7 3.8C6.4 12.9 5.4 14.8 5.4 17c0 2.6 2.9 4 6.6 4s6.6-1.4 6.6-4c0-2.2-1-4.1-2.3-5.8-1.1-1.4-.7-2.3-.7-3.8C15.6 4.9 14.3 3 12 3Z" />
+          <path d="M9.6 14.6c0-1.6 1-2.7 2.4-2.7s2.4 1.1 2.4 2.7v1.6c0 1.5-1 2.6-2.4 2.6s-2.4-1.1-2.4-2.6Z" />
+          <path d="M10.6 9.2 12 10.3l1.4-1.1" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="wrap header-row">
+        <a class="brand" href="../../" aria-label="Harness Relay, home">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="site-nav" aria-label="Sections">
+          <a href="../../#demo">Demo</a>
+          <a href="../../use-cases/">Use cases</a>
+          <a href="../../#modes">Modes</a>
+          <a href="../../#teams">Teams</a>
+          <a href="../../#safety">Safety</a>
+          <a href="../../#start">Quick start</a>
+          <a href="../" aria-current="true">Docs</a>
+        </nav>
+        <div class="header-tools">
+          <nav class="lang" aria-label="Language">
+            <a href="./" hreflang="en" lang="en" aria-current="page" data-lang="en">EN</a>
+            <a href="../../zh-TW/docs/troubleshooting/" hreflang="zh-TW" lang="zh-Hant-TW" data-lang="zh-TW">中文</a>
+          </nav>
+          <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            <span class="gh-label">GitHub</span>
+            <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> stars</span></span>
+          </a>
+          <button class="btn btn-ghost theme-toggle" type="button" data-theme-toggle data-to-dark="Switch to dark theme" data-to-light="Switch to light theme" aria-label="Switch to dark theme">
+            <svg class="i-moon" aria-hidden="true"><use href="#i-moon" /></svg>
+            <svg class="i-sun" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="wrap doc-layout">
+      <nav class="doc-nav" aria-label="Docs" data-doc-nav>
+        <button class="doc-nav-toggle" type="button" aria-expanded="false" aria-controls="doc-pages" data-doc-nav-toggle>
+          <span>Docs</span>
+          <b>Troubleshooting</b>
+          <svg aria-hidden="true"><use href="#i-chevron" /></svg>
+        </button>
+        <div class="doc-nav-list" id="doc-pages">
+          <p class="doc-nav-title">Get started</p>
+          <ul>
+            <li><a href="../">Overview</a></li>
+            <li><a href="../install/">Install</a></li>
+            <li><a href="../agents/">Connect your agents</a></li>
+            <li><a href="../first-chat/">Your first chat</a></li>
+          </ul>
+          <p class="doc-nav-title">Work with the team</p>
+          <ul>
+            <li><a href="../teams/">Teams and modes</a></li>
+            <li><a href="../permissions/">Permissions and approvals</a></li>
+            <li><a href="../conversations/">Conversations</a></li>
+            <li><a href="../automations/">Automations</a></li>
+            <li><a href="../tools/">Tools</a></li>
+          </ul>
+          <p class="doc-nav-title">More</p>
+          <ul>
+            <li><a href="../phone/">Use it from your phone</a></li>
+            <li><a href="../troubleshooting/" aria-current="page">Troubleshooting</a></li>
+          </ul>
+          <a class="doc-nav-out" href="https://github.com/Agentic-System-Lab/harness-relay#documentation">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            Technical docs on GitHub
+          </a>
+        </div>
+      </nav>
+
+      <header class="doc-head">
+        <h1>Troubleshooting</h1>
+        <p class="lead">
+          Most problems have a quick fix. Find what you see below. If it is not here, the full list in the user guide covers
+          every agent, and you can report the problem from the app itself.
+        </p>
+      </header>
+
+      <nav class="doc-toc" aria-label="On this page">
+        <p class="doc-toc-title">On this page</p>
+        <ol>
+          <li><a href="#agents">Signing in and finding agents</a></li>
+          <li><a href="#replies">Replies and approvals</a></li>
+          <li><a href="#files">Files and working directories</a></li>
+          <li><a href="#desktop-app">The desktop app</a></li>
+          <li><a href="#voice">Voice input</a></li>
+          <li><a href="#phone">On your phone</a></li>
+          <li><a href="#your-data">Where your data is</a></li>
+          <li><a href="#report">Report a problem</a></li>
+        </ol>
+      </nav>
+
+      <div class="doc-body">
+        <section id="agents" aria-labelledby="agents-title">
+          <h2 id="agents-title">Signing in and finding agents</h2>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">What you see</th>
+                <th scope="col">What to try</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">An agent shows <b>Not signed in</b></th>
+                <td>Sign it in on its card under <b>Settings &amp; sign-in</b>, or give it an API key, then click <b>Check again</b>.</td>
+              </tr>
+              <tr>
+                <th scope="row">An agent says <i>Command not found</i></th>
+                <td>Install it from its card in Settings, or set its <b>Executable</b> (under its accounts) to the program's full path.</td>
+              </tr>
+              <tr>
+                <th scope="row">The desktop app does not find an agent that works in your terminal</th>
+                <td>After installing an agent, choose <b>Restart server…</b> in the app's menu, so it reads your setup again. If it is still not found, set the agent's <b>Executable</b> in Settings.</td>
+              </tr>
+              <tr>
+                <th scope="row"><b>Install</b> on an agent's card fails</th>
+                <td>Open the installer's output on the card to see why (a network that blocks the download, a full disk…). Try again, or install the agent as its maker's page says.</td>
+              </tr>
+              <tr>
+                <th scope="row">An open-source agent shows <b>Not ready</b></th>
+                <td>Add an API key or your own endpoint under <b>Settings → Model backends</b>, and check that the agent is installed.</td>
+              </tr>
+              <tr>
+                <th scope="row">An agent's model list is empty or old</th>
+                <td>Click <b>Check again</b> at the top of Settings. You can always pick <b>Custom…</b> and type a model's name.</td>
+              </tr>
+              <tr>
+                <th scope="row">Saving an API key fails</th>
+                <td>Your system's keychain is locked, or access was refused. Unlock it (or allow access when asked), then save again.</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>Signing in step by step is on <a href="../agents/">Connect your agents</a>.</p>
+        </section>
+
+        <section id="replies" aria-labelledby="replies-title">
+          <h2 id="replies-title">Replies and approvals</h2>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">What you see</th>
+                <th scope="col">What to try</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">An agent seems stuck</th>
+                <td>Look for a <b>Needs you</b> badge or an approval card: it may be waiting for your answer.</td>
+              </tr>
+              <tr>
+                <th scope="row">A reply ends in an error box</th>
+                <td>Read it: it is the agent's own error, such as a usage limit, a sign-in or a model that does not exist. Fix that, then press <b>Continue</b> or send your message again.</td>
+              </tr>
+              <tr>
+                <th scope="row">The lead agent always keeps the same team, or uses the General-question panel</th>
+                <td>The team design card says why. Check that the lead agent is signed in (<b>Settings → Lead agent</b>), or choose another one.</td>
+              </tr>
+              <tr>
+                <th scope="row">An agent seems to have forgotten the conversation</th>
+                <td>When an agent cannot pick up where it was, Harness Relay starts it afresh with the whole conversation. That is expected after you change the working directory or its agent, or raise the permission.</td>
+              </tr>
+              <tr>
+                <th scope="row">Cursor or Antigravity asks about every command, even tests</th>
+                <td>Expected: neither has a sandbox in Harness Relay, so below full access their commands ask you. <b>Always allow</b> covers the next ones like it.</td>
+              </tr>
+              <tr>
+                <th scope="row">Antigravity or Copilot stops as soon as you decline something</th>
+                <td>Expected: they end their turn after any refusal, and never see your note. Say what to do instead in your next message.</td>
+              </tr>
+              <tr>
+                <th scope="row"><b>Connection lost, reconnecting…</b> does not go away</th>
+                <td>Harness Relay's server stopped or is restarting; the page reconnects by itself once it is back. In the desktop app, <b>Start server</b> in its menu starts it again.</td>
+              </tr>
+              <tr>
+                <th scope="row">Some messages are in the other language</th>
+                <td>Notes and errors are written in the language the app had when they happened; switching the language does not translate them.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="files" aria-labelledby="files-title">
+          <h2 id="files-title">Files and working directories</h2>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">What you see</th>
+                <th scope="col">What to try</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Sending says another conversation <i>is changing</i> the folder</th>
+                <td>Another chat is writing in the same working directory. Wait until it finishes, stop it, or use read-only or parallel mode.</td>
+              </tr>
+              <tr>
+                <th scope="row">Applying a result says there is a conflict</th>
+                <td>Your working directory changed since the agents started, so nothing was applied. Send a new message, and the agents start again from the folder as it is now.</td>
+              </tr>
+              <tr>
+                <th scope="row">Agents in parallel mode cannot run the tests</th>
+                <td>Their copies of the folder lack what git ignores, such as <code>node_modules</code>: ask them to install the project's dependencies first.</td>
+              </tr>
+              <tr>
+                <th scope="row">A folder is <i>too broad</i> for a working directory</th>
+                <td>It is inside a git repository that holds your whole home folder. Choose a project folder, or run <code>git init</code> in it.</td>
+              </tr>
+              <tr>
+                <th scope="row">Edit mode is refused for a folder</th>
+                <td>Edit mode is never allowed in your home folder itself, in the settings folders that decide how the agents run, or in a folder that holds Harness Relay. Choose a project folder, or use read-only.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="desktop-app" aria-labelledby="desktop-app-title">
+          <h2 id="desktop-app-title">The desktop app</h2>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">What you see</th>
+                <th scope="col">What to try</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">macOS says Apple could not verify Harness Relay</th>
+                <td>Open <b>System Settings → Privacy &amp; Security</b> and click <b>Open Anyway</b>. The installers are not signed yet, so this happens the first time.</td>
+              </tr>
+              <tr>
+                <th scope="row">Windows says it protected your PC</th>
+                <td>Click <b>More info</b>, then <b>Run anyway</b>.</td>
+              </tr>
+              <tr>
+                <th scope="row">The Linux AppImage stops at once</th>
+                <td>Start it with <code>--no-sandbox</code>; <b>Open at login</b> then starts it the same way.</td>
+              </tr>
+              <tr>
+                <th scope="row">The app says the port is already in use</th>
+                <td>Another Harness Relay (one started from a terminal, say) or another program uses it. Quit that one, then click <b>Try again</b>.</td>
+              </tr>
+              <tr>
+                <th scope="row">The window or your browser shows the sign-in page</th>
+                <td>Choose <b>Open Harness Relay</b> in the app's menu for its window, or <b>Open in browser</b> for your browser: each signs in again.</td>
+              </tr>
+              <tr>
+                <th scope="row">The server took too long to start, after an update</th>
+                <td>macOS may be asking whether Harness Relay may use its keys in your keychain. Answer, then choose <b>Start server</b> in the menu.</td>
+              </tr>
+              <tr>
+                <th scope="row"><b>Open at login</b> does nothing on macOS</th>
+                <td>Allow Harness Relay in <b>System Settings → General → Login Items &amp; Extensions</b>.</td>
+              </tr>
+              <tr>
+                <th scope="row">An update says Harness Relay cannot update itself, or it failed</th>
+                <td>The dialog says why and links to the release: install it as you did the first time. On a Mac, move the app into Applications first. A failed update changes nothing.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="voice" aria-labelledby="voice-title">
+          <h2 id="voice-title">Voice input</h2>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">What you see</th>
+                <th scope="col">What to try</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">The microphone is not available</th>
+                <td>Allow this page to use the microphone (the site settings beside the address bar), and allow your browser in the system's privacy settings. On a phone, open the <code>https://</code> address.</td>
+              </tr>
+              <tr>
+                <th scope="row">Voice input does not install</th>
+                <td>Open <b>Settings → Voice input</b> and read the error and the install log. On macOS, install <a href="https://brew.sh">Homebrew</a> first.</td>
+              </tr>
+              <tr>
+                <th scope="row">Speech turns into text slowly</th>
+                <td>Choose a smaller model (Small or Base) in <b>Settings → Voice input</b>. The first recording after a while also loads the model.</td>
+              </tr>
+              <tr>
+                <th scope="row">Chinese comes out in Simplified characters, or the wrong language</th>
+                <td>Set <b>Spoken language</b> to Chinese (Traditional) or English instead of detecting it; a larger model also helps.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="phone" aria-labelledby="phone-title">
+          <h2 id="phone-title">On your phone</h2>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">What you see</th>
+                <th scope="col">What to try</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">The address does not open on the phone</th>
+                <td>Check that Tailscale is on in the phone, signed in to the same tailnet as the computer, and that the computer is awake.</td>
+              </tr>
+              <tr>
+                <th scope="row">The home-screen icon opens a blank page</th>
+                <td>Turn Tailscale on in the phone, then open the icon again.</td>
+              </tr>
+              <tr>
+                <th scope="row"><b>Show notifications</b> cannot be turned on on an iPhone or iPad</th>
+                <td>Open Harness Relay from its icon on the home screen, not in Safari, on iOS 16.4 or later. If notifications are blocked, allow them in the phone's <b>Settings → Notifications</b>.</td>
+              </tr>
+              <tr>
+                <th scope="row">No notifications arrive while the phone is locked</th>
+                <td>Press <b>Send a test notification</b> on the phone; if it fails, turn <b>Show notifications</b> off and on again. Check that the computer is awake and online, and that no Focus mode holds them back.</td>
+              </tr>
+              <tr>
+                <th scope="row"><b>Share with your phone</b> says it could not read what the computer shares</th>
+                <td>Check that Tailscale runs on the computer and is signed in, then choose <b>Share with your phone</b> again.</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>Setting it up is on <a href="../phone/">Use it from your phone</a>.</p>
+        </section>
+
+        <section id="your-data" aria-labelledby="your-data-title">
+          <h2 id="your-data-title">Where your data is</h2>
+          <p>
+            Harness Relay stores everything on your computer. The desktop app keeps your conversations, templates, settings and attached
+            files in a <code>data</code> folder inside its own folder; <b>Open data folder</b> in its menu opens it.
+          </p>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">System</th>
+                <th scope="col">The app's folder</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">macOS</th>
+                <td><code>~/Library/Application Support/Harness Relay</code></td>
+              </tr>
+              <tr>
+                <th scope="row">Windows</th>
+                <td><code>%APPDATA%\Harness Relay</code></td>
+              </tr>
+              <tr>
+                <th scope="row">Linux</th>
+                <td><code>~/.config/Harness Relay</code></td>
+              </tr>
+            </tbody>
+          </table>
+          <ul>
+            <li>
+              <b>API keys and passwords</b> are not in that folder: they are in your system's credential store (Keychain on
+              macOS, Credential Manager on Windows, your keyring on Linux).
+            </li>
+            <li>
+              <b>Each agent you sign in to</b> keeps its own session history where it always does, as when you run it
+              yourself; extra accounts and the open-source agents keep theirs in the <code>data</code> folder.
+            </li>
+            <li><b>To back up</b>, quit the app, then copy its <code>data</code> folder.</li>
+            <li>
+              <b>The server's log</b> opens with <b>Show log</b> in the app's menu: it helps when something goes wrong.
+            </li>
+          </ul>
+          <p>
+            Running Harness Relay from its source, the same files are in the <code>data</code> folder of the project. To
+            uninstall the app and remove your data, see the
+            <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#desktop-app">user guide</a>.
+          </p>
+        </section>
+
+        <section id="report" aria-labelledby="report-title">
+          <h2 id="report-title">Report a problem</h2>
+          <ol class="doc-steps">
+            <li>
+              Click the speech-bubble icon right of <b>Settings &amp; sign-in</b>, at the foot of the sidebar: it opens
+              <b>Report a problem</b>.
+            </li>
+            <li>Choose <b>Problem</b>, <b>Idea</b> or <b>Other</b>, and write what happened.</li>
+            <li>Press <b>Send</b>: your mail app opens with the report filled in. Drag screenshots into the mail, then send it.</li>
+          </ol>
+          <p>
+            Nothing leaves your computer until you send the mail, but screenshots you choose to upload (optional: they go up as a secret gist with your GitHub CLI, for the mail to link to). It always includes Harness Relay's version, your system and
+            browser, each agent's version and your language, so the problem is easier to track down; none of your files,
+            folders or accounts go with it. No mail app? Use <b>Send with Gmail</b>, or <b>Copy report</b> and send it from
+            any mail.
+          </p>
+          <p>
+            If Harness Relay works well for you, the star beside that icon opens a short dialog to star the project on GitHub.
+          </p>
+        </section>
+
+        <aside class="doc-more" aria-label="Technical details">
+          <svg aria-hidden="true"><use href="#i-github" /></svg>
+          <div>
+            <p>Every agent's own messages, and the problems of running from source or on a server, are in the docs on GitHub:</p>
+            <ul>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#7-troubleshooting">Troubleshooting, in full</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#6-where-data-is-stored">Where data is stored</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.md#troubleshooting">Phone troubleshooting</a></li>
+            </ul>
+          </div>
+        </aside>
+
+        <nav class="doc-pager" aria-label="Pages">
+          <a href="../phone/" rel="prev"><span>Previous</span><b>Use it from your phone</b></a>
+        </nav>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-row">
+        <a class="brand" href="../../" aria-label="Harness Relay, home">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="footer-links" aria-label="Footer">
+          <a href="../">Docs</a>
+          <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE">Sustainable Use License</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

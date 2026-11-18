@@ -1,5 +1,5 @@
 /**
- * The ten use cases the website shows (`site/use-cases/`), one for each kind of work, each recorded by
+ * The twelve use cases the website shows (`site/use-cases/`), one for each kind of work, each recorded by
  * `npm run use-cases` with the real CLIs: what each one sets up, types and clicks, in both languages, and
  * the chapters of its rail. Every recording starts on a fresh server and in a fresh working directory
  * (`workspaces.ts`).
@@ -9,16 +9,20 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { chromium, type Locator } from 'playwright-core';
-import type { ChatMessage, Conversation, Permission, Provider, TeamPlan } from '../../../src/shared/types';
+import type { ChatMessage, Conversation, ConversationSummary, Permission, Provider, TeamPlan } from '../../../src/shared/types';
 import { en } from '../../../src/web/locales/en';
 import { zhTW, type Messages } from '../../../src/web/locales/zh-TW';
 import type { ChapterSpec } from '../chapters';
 import type { DemoLang } from '../common';
-import { api, firstRound, sleep, type ApprovalPolicy, type Session } from '../recorder';
+import { api, firstRound, scrollCodeTo, sleep, type ApprovalPolicy, type Session } from '../recorder';
 import {
+  CALL_TITLE,
   COMPETITORS,
   ME,
+  NEW_STRINGS,
+  REP,
   SCREEN,
+  addReminderStrings,
   bakeryBooks,
   bakeryNotes,
   billSplit,
@@ -27,10 +31,15 @@ import {
   checkoutService,
   classNotes,
   competitorPage,
+  fernwayStrings,
   interviews,
   invoices,
   launchBrief,
   productNotes,
+  renewalCalendar,
+  renewalCall,
+  renewalMailbox,
+  renewals,
   researchBrief,
   signupScreens,
   studioLaterMail,
@@ -229,7 +238,21 @@ async function showReview(s: Session): Promise<Locator | undefined> {
 /** On the New automation page: types the message (and a goal), sets when it runs, and creates it. Returns its chat. */
 async function newAutomation(
   s: Session,
-  o: { message: string; goal?: string; weekdaysAt?: string; webhook?: boolean; newChat?: boolean },
+  o: {
+    message: string;
+    goal?: string;
+    weekdaysAt?: string;
+    /** When something happens: an event about to begin (this many minutes before, its title with these words), or a file changing. */
+    calendar?: { minutes: number; title: string };
+    file?: string;
+    webhook?: boolean;
+    newChat?: boolean;
+    /** Ask, rather than refuse, what an agent wants beyond its permission in the runs it starts (someone is watching this one). */
+    askUnwatched?: boolean;
+    permission?: Permission;
+    /** The chat's name, instead of the message's first line. */
+    title?: string;
+  },
 ): Promise<string> {
   const { page, moveClick, mark, typeSlow } = s;
   const T = M(s);
@@ -265,6 +288,30 @@ async function newAutomation(
     await sleep(1200);
     mark('when', { repeat: 'weekly' });
   }
+  if (o.calendar || o.file) {
+    const w = T.schedule.watch;
+    await moveClick(page.locator('.schedule-kinds button', { hasText: T.schedule.kinds.event }), { after: 900 });
+    const trigger = page.locator('.schedule-form .schedule-trigger').first();
+    const source = trigger.locator('.schedule-trigger-head select');
+    await moveClick(source, { after: 300 });
+    await source.selectOption(o.calendar ? 'calendar' : 'file');
+    await sleep(900);
+    const field = (label: string) => trigger.locator('label.field', { has: page.getByText(label, { exact: true }) }).locator('input');
+    if (o.calendar) {
+      // The calendar from Settings is picked by itself, the only one there.
+      const minutes = field(w.minutes);
+      await moveClick(minutes, { after: 200 });
+      await minutes.fill(String(o.calendar.minutes));
+      await sleep(600);
+      await moveClick(field(w.title), { after: 200 });
+      await typeSlow(o.calendar.title, 60);
+    } else {
+      await moveClick(field(w.pattern), { after: 200 });
+      await typeSlow(o.file!, 60);
+    }
+    await sleep(1500);
+    mark('when', { repeat: 'event', source: o.calendar ? 'calendar' : 'file' });
+  }
   if (o.webhook) {
     await moveClick(page.locator('.schedule-form details.sub > summary', { hasText: T.schedule.hook.title }), { after: 700 });
     await moveClick(page.locator('.schedule-form label.check-row', { hasText: T.newSchedule.withHook }).locator('input'), { after: 700 });
@@ -274,11 +321,27 @@ async function newAutomation(
     await moveClick(page.locator('.schedule-form label.check-row', { hasText: T.schedule.newChat }).locator('input'), { after: 900 });
     mark('new-chat-each');
   }
+  if (o.askUnwatched) {
+    const approvals = page.getByRole('radiogroup', { name: T.schedule.approvals, exact: true });
+    await moveClick(approvals.getByRole('radio', { name: T.schedule.approvalsAsk, exact: true }), { after: 900 });
+    mark('ask-unwatched');
+  }
+  if (o.permission && o.permission !== 'read-only') {
+    await moveClick(page.locator('.new-chat-page').getByRole('button', { name: T.permissions[o.permission].label, exact: true }), {
+      after: 900,
+    });
+    mark('permission', { permission: o.permission });
+  }
   // Without lead review: the automations' runs are read when they come.
   await page
     .locator('.lead-review input[type="checkbox"]')
     .uncheck()
     .catch(() => {});
+  if (o.title) {
+    await moveClick('.start-bar .title-input', { after: 200 });
+    await typeSlow(o.title, 45);
+    await sleep(600);
+  }
   await moveClick('.start-bar .primary', { after: 900 });
   await page.waitForURL(/#\/c\//);
   const id = idFromUrl(page.url());
@@ -298,6 +361,64 @@ async function runNow(s: Session, mark: string): Promise<void> {
   await moveClick(page.locator('.schedule-drawer').getByRole('button', { name: T.schedule.runNow }), { after: 1200 });
   await page.keyboard.press('Escape');
   await sleep(500);
+}
+
+/** Opens the automation's drawer and clicks Check now (an automation that waits for something), then closes it once checked. */
+async function checkNow(s: Session, mark: string): Promise<void> {
+  const { page, moveClick } = s;
+  const T = M(s);
+  await moveClick(page.getByRole('button', { name: new RegExp(`^${re(T.schedule.button)}$`) }), { after: 900 });
+  await page.waitForSelector('.schedule-drawer');
+  await sleep(1200);
+  s.mark(mark);
+  const button = page.locator('.schedule-drawer').getByRole('button', { name: T.schedule.watch.checkNow, exact: true });
+  await moveClick(button, { after: 600 });
+  // Checked once the button takes a click again.
+  for (let i = 0; i < 60 && !(await button.isEnabled().catch(() => true)); i++) await sleep(500);
+  await sleep(2500);
+  await page.keyboard.press('Escape');
+  await sleep(600);
+}
+
+/** Waits until the conversation's team is at work (an automation's run, started by a check). */
+async function waitRunning(s: Session, id: string, limitMs = 120_000): Promise<boolean> {
+  const until = Date.now() + limitMs;
+  while (Date.now() < until) {
+    if ((await s.summary(id))?.running) return true;
+    await sleep(500);
+  }
+  s.log(`WARNING: ${id} did not start in ${limitMs / 1000} s`);
+  return false;
+}
+
+/** Waits for a conversation that was not there before (one an automation's run opened); its id. */
+async function waitNewChat(s: Session, before: Set<string>, limitMs = 60_000): Promise<string> {
+  const until = Date.now() + limitMs;
+  while (Date.now() < until) {
+    const fresh = (await api<ConversationSummary[]>(s.base, '/api/conversations')).find((c) => !before.has(c.id));
+    if (fresh) return fresh.id;
+    await sleep(500);
+  }
+  throw new Error(`No new chat opened in ${limitMs / 1000} s`);
+}
+
+/** The first reply that changed this file, scrolled to: its diff opened and read, then closed. */
+async function showDiff(s: Session, id: string, file: RegExp, mark: string): Promise<boolean> {
+  const { page, moveClick } = s;
+  const by = changedBy(await s.conversation(id), file);
+  if (!by) {
+    s.log(`WARNING: no reply changed ${file}`);
+    return false;
+  }
+  const card = page.locator(`[id="msg-${by.id}"] .changes-card`).last();
+  await s.scrollToElement(card, 1600, 160);
+  await sleep(1000);
+  s.mark(mark, { agent: by.agentName, provider: by.provider });
+  await moveClick(card.getByRole('button', { name: M(s).changes.turnDiff }), { after: 1200 });
+  await sleep(5000);
+  await page.keyboard.press('Escape');
+  await sleep(900);
+  return true;
 }
 
 /** Sends what waits in the outbox, each card as it is shown; how many went. */
@@ -822,7 +943,158 @@ const collectPayments: UseCase = {
   },
 };
 
-// --- 6. Researcher: what the studies say, with sources --------------------------------------------
+// --- 6. Account manager: a brief before each customer call ----------------------------------------
+
+/** Where each run's stand-in mail servers and calendar are, by its working directory. */
+const renewalServers = new Map<string, { imap: number; smtp: number; calendar: string }>();
+
+const callBrief: UseCase = {
+  slug: 'call-brief',
+  providers: ['claude', 'codex', 'grok'],
+  approvals: 'allow',
+  length: 85,
+  poster: { at: 'q1-answered', offset: 2, fallback: 'opened' },
+  async prepare(lang, root) {
+    const cwd = fresh(join(root, 'renewals'));
+    writeAll(cwd, renewals(lang));
+    const { fakeCalDav, fakeImap, fakeSmtp } = await import('../../../test/fake-mail-servers');
+    const login = { user: REP.user, pass: REP.pass };
+    const events = renewalCalendar(lang);
+    const [imap, smtp, calendar] = await Promise.all([fakeImap(renewalMailbox(lang), login), fakeSmtp(login), fakeCalDav(events, login)]);
+    renewalServers.set(cwd, { imap: imap.port, smtp: smtp.port, calendar: calendar.url });
+    return {
+      cwd,
+      // The renewal call comes within half an hour: the stand-in calendar serves the same list.
+      later: () => events.push(renewalCall(lang)),
+      close: async () => {
+        await Promise.all([imap.close(), smtp.close(), calendar.close()]);
+      },
+      notes: () => [
+        `The stand-in calendar answered ${calendar.reports.length} report(s); events written: ${calendar.puts.length}`,
+        ...smtp.sent.map((m) => `Sent through the stand-in SMTP server to ${m.to.join(', ')}`),
+      ],
+    };
+  },
+  async setup(base, p, lang) {
+    const at = renewalServers.get(p.cwd)!;
+    await api(
+      base,
+      '/api/connectors/mail/work',
+      {
+        name: 'Brightdesk',
+        address: `${REP.name} <${REP.address}>`,
+        username: REP.user,
+        password: REP.pass,
+        imap: { host: '127.0.0.1', port: at.imap, security: 'none' },
+        smtp: { host: '127.0.0.1', port: at.smtp, security: 'none' },
+      },
+      'PUT',
+    );
+    await api(
+      base,
+      '/api/connectors/calendar/work',
+      { name: lang === 'en' ? 'Work' : '工作', url: at.calendar, username: REP.user, password: REP.pass },
+      'PUT',
+    );
+    // Grok has Harness Relay's tools in full access only: it argues from what the others found.
+    await api(base, '/api/tools', { relayTools: { mail: ['claude', 'codex'], calendar: ['claude', 'codex'] } }, 'PUT');
+  },
+  start: NEW_CHAT,
+  text: {
+    en: {
+      message:
+        'Thirty minutes before each customer call on my calendar: with Harness Relay’s calendar and mail tools, see who is coming, the notes of our last meeting with them and our latest mail with them; then read their notes and weekly usage in accounts/, and PRICING.md. Give me a one-page brief: what they asked for last time, how their usage is trending, the three hardest questions they are likely to ask, each with an answer PRICING.md allows, and the one thing to ask for on this call. Claude Code reads the calendar and the mail, Codex works out the usage numbers, and Grok plays their CFO in the second round and asks the hard questions.',
+    },
+    'zh-TW': {
+      message:
+        '行事曆上每場客戶會議開始前 30 分鐘：用 Harness Relay 的行事曆和郵件工具，看這場有誰參加、我們和他們上次開會的紀錄，以及最近和他們往來的信；再讀 accounts/ 裡這家客戶的筆記和每週使用量，以及 PRICING.md。給我一頁會前簡報：他們上次要什麼、使用量怎麼走、他們最可能問的三個難題，每題附上 PRICING.md 允許的回答，以及這場會議我該爭取的一件事。Claude Code 讀行事曆和信，Codex 算使用量，Grok 在第二輪扮演他們的財務長，提出難題。',
+    },
+  },
+  async drive(s, p) {
+    const { page, moveClick, mark } = s;
+    const id = await newAutomation(s, {
+      message: this.text[s.lang]!.message!,
+      calendar: { minutes: 30, title: CALL_TITLE[s.lang] },
+      newChat: true,
+      title: s.lang === 'en' ? 'Customer call briefs' : '客戶會議簡報',
+    });
+    const plan = await s.designAndConfirm(id, 'q1');
+    await sleep(1500);
+    // The first check only notes the events about to begin then: an internal meeting, no customer call.
+    await checkNow(s, 'first-check');
+    // Later that day: the renewal call is less than half an hour away.
+    p.later?.();
+    mark('call-soon');
+    const before = new Set((await api<ConversationSummary[]>(s.base, '/api/conversations')).map((c) => c.id));
+    await checkNow(s, 'check-now');
+    // The check starts a new chat for the call, with the event as data: opened from the sidebar.
+    const chat = await waitNewChat(s, before);
+    s.log('call chat', chat);
+    await sleep(1500);
+    await moveClick(page.locator(`.conv-item a.conv-link[href="#/c/${chat}"]`), { after: 1200 });
+    await page.waitForURL((u) => idFromUrl(u.href) === chat, { timeout: 15_000 }).catch(() => {});
+    mark('opened');
+    await sleep(1500);
+    // What the check found goes with the message as data: the event, opened.
+    const event = page.locator('details.event-block > summary').first();
+    if (await event.count()) {
+      await moveClick(event, { after: 600 });
+      mark('event');
+      await sleep(4000);
+      await moveClick(event, { after: 600 });
+    }
+    await s.waitAnswered(chat, 'q1', firstRound(plan));
+    await sleep(800);
+    await readBack(s, 2000);
+    mark('q1-read');
+    return chat;
+  },
+  rail: {
+    en: [
+      { at: 'start', kind: 'you', say: 'New automation: what to hand the team before each customer call, read-only.' },
+      { at: 'when', kind: 'you', say: 'It waits for the calendar: 30 minutes before each event whose title has “Customer call”.' },
+      { at: 'new-chat-each', kind: 'you', say: 'A new chat for each call, so that each brief starts afresh.' },
+      { at: 'q1-plan', kind: 'lead', team: 'q1', say: 'Designs the team for the message: {names}, {rounds} of roundtable, and says why.' },
+      { at: 'first-check', kind: 'you', say: 'Check now: the first check only notes what is about to begin, so nothing starts.' },
+      { at: 'call-soon', kind: 'you', say: 'Later: the renewal call with Harbor & Pine is less than half an hour away. Check again.' },
+      { at: 'opened', kind: 'you', say: 'The check finds the call and starts a new chat for it: open it from the sidebar.' },
+      { at: 'event', kind: 'you', say: 'The event goes with the message as data: its title, time, place and attendees.' },
+      {
+        at: 'q1-answering',
+        kind: 'team',
+        team: 'q1',
+        say: 'They read the last meeting’s notes and the mail with Harness Relay’s tools, then the notes and the usage.',
+      },
+      { at: 'approval', kind: 'agent', say: 'Asks before running a command read-only does not cover by itself: you allow it.' },
+      {
+        at: 'q1-answered',
+        kind: 'team',
+        team: 'q1',
+        say: 'Their CFO asks the three hardest questions, the brief answers each from PRICING.md, and the CFO flags one answer that goes beyond it.',
+      },
+    ],
+    'zh-TW': [
+      { at: 'start', kind: 'you', say: '新自動任務：每場客戶會議之前要交給團隊的事，權限唯讀。' },
+      { at: 'when', kind: 'you', say: '它等行事曆：標題有「客戶會議」的活動，開始前 30 分鐘。' },
+      { at: 'new-chat-each', kind: 'you', say: '每場會議都開新對話，每份簡報都從頭開始。' },
+      { at: 'q1-plan', kind: 'lead', team: 'q1', say: '為這則訊息設計團隊：{names}，以接力進行，並說明原因。' },
+      { at: 'first-check', kind: 'you', say: '按「立即檢查」：第一次檢查只記下快開始的活動，不會啟動。' },
+      { at: 'call-soon', kind: 'you', say: '稍後：和港松診所的續約會議不到半小時就要開始。再檢查一次。' },
+      { at: 'opened', kind: 'you', say: '檢查找到這場會議，為它開一段新對話：從側邊欄打開。' },
+      { at: 'event', kind: 'you', say: '活動隨訊息當作資料交給團隊：標題、時間、地點和與會者。' },
+      {
+        at: 'q1-answering',
+        kind: 'team',
+        team: 'q1',
+        say: '他們用 Harness Relay 的工具讀上次會議的紀錄和往來的信，再讀筆記和使用量。',
+      },
+      { at: 'approval', kind: 'agent', say: '要執行唯讀權限本身不涵蓋的指令前先問你：你選擇允許。' },
+      { at: 'q1-answered', kind: 'team', team: 'q1', say: '他們的財務長提出最難的問題；簡報依 PRICING.md 一一回答。' },
+    ],
+  },
+};
+
+// --- 7. Researcher: what the studies say, with sources --------------------------------------------
 
 const literatureReview: UseCase = {
   slug: 'literature-review',
@@ -898,7 +1170,7 @@ const literatureReview: UseCase = {
   },
 };
 
-// --- 7. Teacher: a quiz, tried out on a student first ---------------------------------------------
+// --- 8. Teacher: a quiz, tried out on a student first ---------------------------------------------
 
 const writeAQuiz: UseCase = {
   slug: 'write-a-quiz',
@@ -976,7 +1248,7 @@ const writeAQuiz: UseCase = {
   },
 };
 
-// --- 8. Lawyer: redline a contract on your own model server -------------------------------------
+// --- 9. Lawyer: redline a contract on your own model server -------------------------------------
 
 /**
  * The model server the contract review runs on, every agent and the lead agent: an OpenAI-compatible
@@ -1055,19 +1327,8 @@ const contractReview: UseCase = {
     await readBack(s, 1800);
     mark('q1-read');
     // The first reply that changed the contract: its diff is the redline.
-    const c = await s.conversation(id);
-    const by = changedBy(c, /contract\.md$/i);
-    if (by) {
-      const card = page.locator(`[id="msg-${by.id}"] .changes-card`).last();
-      await s.scrollToElement(card, 1600, 160);
-      await sleep(1000);
-      mark('redline', { agent: by.agentName, provider: by.provider });
-      await moveClick(card.getByRole('button', { name: T.changes.turnDiff }), { after: 1200 });
-      await sleep(5000);
-      await page.keyboard.press('Escape');
-      await sleep(900);
-    } else s.log('WARNING: no reply changed contract.md');
-    const memo = changedFile(c, /REDLINE-MEMO\.md$/i);
+    await showDiff(s, id, /contract\.md$/i, 'redline');
+    const memo = changedFile(await s.conversation(id), /REDLINE-MEMO\.md$/i);
     if (memo) {
       mark('files', { file: memo });
       await openFile(s, memo.split('/'), 3000);
@@ -1111,7 +1372,7 @@ const contractReview: UseCase = {
   },
 };
 
-// --- 9. On-call engineer: an alert starts the team ------------------------------------------------
+// --- 10. On-call engineer: an alert starts the team -----------------------------------------------
 
 const triageAlert: UseCase = {
   slug: 'triage-an-alert',
@@ -1208,7 +1469,7 @@ const triageAlert: UseCase = {
   },
 };
 
-// --- 10. Designer: review the screens before the usability test -----------------------------------
+// --- 11. Designer: review the screens before the usability test ----------------------------------
 
 const designReview: UseCase = {
   slug: 'design-review',
@@ -1292,17 +1553,137 @@ const designReview: UseCase = {
   },
 };
 
+// --- 12. Localization: translate the strings the moment the English changes ---------------------
+
+const translateStrings: UseCase = {
+  slug: 'translate-strings',
+  providers: ['antigravity', 'copilot', 'claude'],
+  approvals: 'allow',
+  length: 85,
+  poster: { at: 'diff', offset: 2.4, fallback: 'q1-answered' },
+  async prepare(lang, root) {
+    const cwd = fresh(join(root, 'fernway-app'));
+    fernwayStrings(cwd, lang);
+    return { cwd, later: () => addReminderStrings(cwd) };
+  },
+  start: NEW_CHAT,
+  text: {
+    en: {
+      message:
+        'When locales/en.json changes: translate each string that was added or changed into locales/zh-TW.json and locales/ja.json, following GLOSSARY.md, and keep every {placeholder}, plural and tag as it is. As a relay: Antigravity translates; Copilot reads only the two translations, never en.json, and translates them back into English; Claude Code compares the back-translations with en.json, checks the placeholders and the button lengths, and sends any string whose meaning drifted back to Antigravity to fix.',
+      note: 'One more thing: Snooze is 稍後提醒 in zh-TW and あとで in Japanese, as in our iOS app.',
+    },
+    'zh-TW': {
+      message:
+        'locales/en.json 一有變動：把新增或改過的字串翻成 locales/zh-TW.json 和 locales/ja.json，遵守 GLOSSARY.md，每個 {placeholder}、複數規則和標籤都原樣保留。用接力的方式：Antigravity 翻譯；Copilot 只讀兩份譯文、不打開 en.json，把它們回譯成英文；Claude Code 比對回譯和 en.json，檢查 placeholder 和按鈕長度，意思跑掉的字串退回給 Antigravity 修正。',
+      note: '補充一下：Snooze 在繁中用「稍後提醒」，日文用「あとで」，跟我們的 iOS 版一致。',
+    },
+  },
+  async drive(s, p) {
+    const { page, mark } = s;
+    const text = this.text[s.lang]!;
+    const id = await newAutomation(s, {
+      message: text.message!,
+      file: 'locales/en.json',
+      askUnwatched: true,
+      permission: 'edit',
+      title: s.lang === 'en' ? 'Fernway strings' : 'Fernway 字串',
+    });
+    const plan = await s.designAndConfirm(id, 'q1');
+    await sleep(1500);
+    // The first check only notes the files as they are.
+    await checkNow(s, 'first-check');
+    // You add the new screen's strings to en.json, in your editor.
+    p.later?.();
+    mark('edited', { strings: NEW_STRINGS });
+    await openFile(s, ['locales', 'en.json'], 1500);
+    await page.evaluate(scrollCodeTo, 'reminders.title');
+    await sleep(3500);
+    // The Files panel is a dialog: closed as the diff is.
+    await page.keyboard.press('Escape');
+    await page
+      .locator('.file-browser')
+      .waitFor({ state: 'hidden', timeout: 10_000 })
+      .catch(() => {});
+    await sleep(800);
+    // A file counts once it has not changed for 30 seconds (one still being written starts it once).
+    s.setFast(true);
+    await sleep(33_000);
+    s.setFast(false);
+    await checkNow(s, 'check-now');
+    // The check starts the team in this chat. While the first agent works, you add a note.
+    if (await waitRunning(s, id)) {
+      s.setFast(true);
+      await sleep(6000);
+      s.setFast(false);
+      await s.ask(text.note!);
+      mark('queued');
+      await sleep(3000);
+    }
+    await s.waitAnswered(id, 'q1', allOf(plan));
+    await sleep(800);
+    await readBack(s, 1800);
+    mark('q1-read');
+    await showDiff(s, id, /locales\/ja\.json$/i, 'diff');
+    return id;
+  },
+  rail: {
+    en: [
+      { at: 'start', kind: 'you', say: 'New automation: what to do each time the English strings change.' },
+      { at: 'when', kind: 'you', say: 'It waits for a file: locales/en.json, in the working directory.' },
+      {
+        at: 'permission',
+        kind: 'you',
+        say: 'With Edit, so the agents may write the translations; what goes beyond it is asked, not refused.',
+      },
+      { at: 'q1-plan', kind: 'lead', team: 'q1', say: 'Designs the team for the message: {names}, in relay, and says why.' },
+      { at: 'first-check', kind: 'you', say: 'Check now: the first check only notes the files as they are.' },
+      { at: 'edited', kind: 'you', say: `You add the new screen’s ${NEW_STRINGS} strings to en.json, with a plural and tags.` },
+      { at: 'check-now', kind: 'you', say: 'Once the file has been still for 30 seconds, check again: the change starts the team.' },
+      { at: 'queued', kind: 'you', say: 'While they work, add a note: it waits above the box and reaches the next agent before its turn.' },
+      { at: 'approval', kind: 'agent', say: 'Asks before running a command its permission does not cover: you allow it.' },
+      {
+        at: 'q1-answered',
+        kind: 'team',
+        team: 'q1',
+        say: 'Translated, translated back without the English, then checked: your note fixes the Japanese Snooze.',
+      },
+      { at: 'diff', kind: 'you', say: 'Open @{diff:agent}’s diff: only the new strings, each placeholder kept.' },
+    ],
+    'zh-TW': [
+      { at: 'start', kind: 'you', say: '新自動任務：每次英文字串一變，要團隊做的事。' },
+      { at: 'when', kind: 'you', say: '它等一個檔案：工作目錄裡的 locales/en.json。' },
+      { at: 'permission', kind: 'you', say: '權限選「可編輯」，agent 才能寫譯文；超出權限的動作會問你，不自動拒絕。' },
+      { at: 'q1-plan', kind: 'lead', team: 'q1', say: '為這則訊息設計團隊：{names}，以接力進行，並說明原因。' },
+      { at: 'first-check', kind: 'you', say: '按「立即檢查」：第一次檢查只記下檔案現在的樣子。' },
+      { at: 'edited', kind: 'you', say: `你在 en.json 加上新畫面的 ${NEW_STRINGS} 個字串，含複數規則和標籤。` },
+      { at: 'check-now', kind: 'you', say: '檔案靜止 30 秒後再檢查一次：這次變動啟動了團隊。' },
+      { at: 'queued', kind: 'you', say: '他們還在做，你補一句：訊息先在輸入框上方等著，下一位開始前就會收到。' },
+      { at: 'approval', kind: 'agent', say: '要執行權限之外的指令前先問你：你選擇允許。' },
+      {
+        at: 'q1-answered',
+        kind: 'team',
+        team: 'q1',
+        say: '翻譯、不看英文回譯，再檢查：日文兩個字串退回重翻，其中一個就是你補充的 Snooze。',
+      },
+      { at: 'diff', kind: 'you', say: '打開 @{diff:agent} 的差異：只動了新字串，每個 placeholder 都保留。' },
+    ],
+  },
+};
+
 export const USE_CASES: readonly UseCase[] = [
   fixABug,
   productSpec,
   launchCopy,
   reconcile,
   collectPayments,
+  callBrief,
   literatureReview,
   writeAQuiz,
   contractReview,
   triageAlert,
   designReview,
+  translateStrings,
 ];
 
 export function useCase(slug: string): UseCase {

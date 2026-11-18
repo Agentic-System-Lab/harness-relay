@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Connect your agents · Harness Relay docs</title>
+    <meta
+      name="description"
+      content="Harness Relay docs: sign in to Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and Muse Code, or give the open-source agents a model backend."
+    />
+    <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/docs/agents/" />
+    <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/agents/" />
+    <link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/agents/" />
+    <link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/agents/" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141415" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Harness Relay" />
+    <meta property="og:title" content="Connect your agents · Harness Relay docs" />
+    <meta
+      property="og:description"
+      content="How to connect your coding agents to Harness Relay: sign in to each of the seven, or use an API key, set up model backends for the open-source agents (API keys or your own model server), add more accounts, see your plan usage, and choose the lead agent."
+    />
+    <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/agents/" />
+    <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="zh_TW" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="../../favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="../../assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="../../assets/site.css" />
+    <script>
+      document.documentElement.classList.add('js');
+      // The theme the visitor picked with the theme button (assets/theme.js), set before anything is drawn
+      // so that it does not flash. Until they pick one, the page follows the system's light or dark mode.
+      try {
+        var theme = localStorage.getItem('harness-relay.theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {}
+      // Show the language the visitor picked last time. Before they pick one, follow the
+      // browser like the app does: Chinese gets the Traditional Chinese page.
+      try {
+        var lang = localStorage.getItem('harness-relay.lang');
+        var browserZh = /^zh/i.test((navigator.languages || [])[0] || navigator.language || '');
+        if (lang === 'zh-TW' || (!lang && browserZh)) location.replace('../../zh-TW/docs/agents/' + location.hash);
+      } catch (e) {}
+    </script>
+    <script src="../../assets/site.js" defer></script>
+    <script type="module" src="../../assets/theme.js"></script>
+    <!-- What search and answer engines read about the page (test/site-docs.test.ts keeps it in step with the page). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "@id": "https://agentic-system-lab.github.io/harness-relay/docs/agents/#webpage",
+        "url": "https://agentic-system-lab.github.io/harness-relay/docs/agents/",
+        "name": "Connect your agents · Harness Relay docs",
+        "description": "Harness Relay docs: sign in to Claude Code, Codex, Grok, Cursor, Antigravity, Copilot and Muse Code, or give the open-source agents a model backend.",
+        "inLanguage": "en",
+        "isPartOf": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
+        },
+        "about": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#app"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-github" viewBox="0 0 16 16">
+          <path
+            fill="currentColor"
+            d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+          />
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+          <path d="M12 3.86 14.22 9.8l6.34.28-4.97 3.95 1.7 6.11L12 16.64l-5.29 3.5 1.7-6.11-4.97-3.95 6.34-.28Z" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2.75v1.5M12 19.75v1.5M2.75 12h1.5M19.75 12h1.5M5.46 5.46l1.06 1.06M17.48 17.48l1.06 1.06M5.46 18.54l1.06-1.06M17.48 6.52l1.06-1.06" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 13.6A8 8 0 1 1 10.4 4a6.25 6.25 0 0 0 9.6 9.6Z" />
+        </symbol>
+        <symbol id="i-mark" viewBox="0 0 32 32">
+          <circle cx="9" cy="16" r="6" fill="#d97757" />
+          <circle cx="23" cy="10" r="5" fill="#10a37f" />
+          <circle cx="23" cy="23" r="5" fill="#7c5cff" />
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6.5 9.5 5.5 5.5 5.5-5.5" />
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.75" />
+          <path d="M12 11v5.5M12 7.6v.1" />
+        </symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M12 2.5c.8 5.9 3.6 8.7 9.5 9.5-5.9.8-8.7 3.6-9.5 9.5-.8-5.9-3.6-8.7-9.5-9.5 5.9-.8 8.7-3.6 9.5-9.5Z" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.7 7 9 4.1-1.3 7-4.7 7-9V6.2Z" />
+          <path d="m9 12 2.2 2.2L15.2 10" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
+        </symbol>
+        <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+        </symbol>
+        <symbol id="i-os-win" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+          <path d="M12 4.5v15M3.5 12h17" />
+        </symbol>
+        <symbol id="i-os-linux" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3c-2.3 0-3.6 1.9-3.6 4.4 0 1.5.4 2.4-.7 3.8C6.4 12.9 5.4 14.8 5.4 17c0 2.6 2.9 4 6.6 4s6.6-1.4 6.6-4c0-2.2-1-4.1-2.3-5.8-1.1-1.4-.7-2.3-.7-3.8C15.6 4.9 14.3 3 12 3Z" />
+          <path d="M9.6 14.6c0-1.6 1-2.7 2.4-2.7s2.4 1.1 2.4 2.7v1.6c0 1.5-1 2.6-2.4 2.6s-2.4-1.1-2.4-2.6Z" />
+          <path d="M10.6 9.2 12 10.3l1.4-1.1" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="wrap header-row">
+        <a class="brand" href="../../" aria-label="Harness Relay, home">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="site-nav" aria-label="Sections">
+          <a href="../../#demo">Demo</a>
+          <a href="../../use-cases/">Use cases</a>
+          <a href="../../#modes">Modes</a>
+          <a href="../../#teams">Teams</a>
+          <a href="../../#safety">Safety</a>
+          <a href="../../#start">Quick start</a>
+          <a href="../" aria-current="true">Docs</a>
+        </nav>
+        <div class="header-tools">
+          <nav class="lang" aria-label="Language">
+            <a href="./" hreflang="en" lang="en" aria-current="page" data-lang="en">EN</a>
+            <a href="../../zh-TW/docs/agents/" hreflang="zh-TW" lang="zh-Hant-TW" data-lang="zh-TW">中文</a>
+          </nav>
+          <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            <span class="gh-label">GitHub</span>
+            <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> stars</span></span>
+          </a>
+          <button class="btn btn-ghost theme-toggle" type="button" data-theme-toggle data-to-dark="Switch to dark theme" data-to-light="Switch to light theme" aria-label="Switch to dark theme">
+            <svg class="i-moon" aria-hidden="true"><use href="#i-moon" /></svg>
+            <svg class="i-sun" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="wrap doc-layout">
+      <nav class="doc-nav" aria-label="Docs" data-doc-nav>
+        <button class="doc-nav-toggle" type="button" aria-expanded="false" aria-controls="doc-pages" data-doc-nav-toggle>
+          <span>Docs</span>
+          <b>Connect your agents</b>
+          <svg aria-hidden="true"><use href="#i-chevron" /></svg>
+        </button>
+        <div class="doc-nav-list" id="doc-pages">
+          <p class="doc-nav-title">Get started</p>
+          <ul>
+            <li><a href="../">Overview</a></li>
+            <li><a href="../install/">Install</a></li>
+            <li><a href="../agents/" aria-current="page">Connect your agents</a></li>
+            <li><a href="../first-chat/">Your first chat</a></li>
+          </ul>
+          <p class="doc-nav-title">Work with the team</p>
+          <ul>
+            <li><a href="../teams/">Teams and modes</a></li>
+            <li><a href="../permissions/">Permissions and approvals</a></li>
+            <li><a href="../conversations/">Conversations</a></li>
+            <li><a href="../automations/">Automations</a></li>
+            <li><a href="../tools/">Tools</a></li>
+          </ul>
+          <p class="doc-nav-title">More</p>
+          <ul>
+            <li><a href="../phone/">Use it from your phone</a></li>
+            <li><a href="../troubleshooting/">Troubleshooting</a></li>
+          </ul>
+          <a class="doc-nav-out" href="https://github.com/Agentic-System-Lab/harness-relay#documentation">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            Technical docs on GitHub
+          </a>
+        </div>
+      </nav>
+
+      <header class="doc-head">
+        <h1>Connect your agents</h1>
+        <p class="lead">
+          Harness Relay drives the coding agents you already use, signed in as you are. Sign each one in once under
+          Settings &amp; sign-in, or give the open-source agents an API key or a model server of your own, and they are
+          ready for any team.
+        </p>
+      </header>
+
+      <nav class="doc-toc" aria-label="On this page">
+        <p class="doc-toc-title">On this page</p>
+        <ol>
+          <li><a href="#settings">Settings &amp; sign-in</a></li>
+          <li><a href="#sign-in">Sign in to an agent</a></li>
+          <li><a href="#api-keys">Or use an API key</a></li>
+          <li><a href="#open-agents">Open-source agents and model backends</a></li>
+          <li><a href="#accounts">Accounts and plan usage</a></li>
+          <li><a href="#models">Default models and the lead agent</a></li>
+        </ol>
+      </nav>
+
+      <div class="doc-body">
+        <section id="settings" aria-labelledby="settings-title">
+          <h2 id="settings-title">Settings &amp; sign-in</h2>
+          <p>
+            Click <b>Settings &amp; sign-in</b> at the foot of the sidebar. The links at the top jump to each part.
+            <b>Model backends</b> comes before the agents, then each agent has a card. A card shows the agent's version, or, when Harness
+            Relay does not find it on your computer, a button that <a href="../install/#what-else">installs it</a>. Each of its
+            accounts has a box of its own, with its sign-in, its API key and its default model.
+          </p>
+          <p>The dots at the bottom of the sidebar show at a glance which agents are ready:</p>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">Dot</th>
+                <th scope="col">Means</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Green</th>
+                <td>Ready to use.</td>
+              </tr>
+              <tr>
+                <th scope="row">Orange</th>
+                <td>Not signed in yet; for an open-source agent, no model backend yet.</td>
+              </tr>
+              <tr>
+                <th scope="row">Red</th>
+                <td>The agent's program was not found on this computer.</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            Beside them, how many are ready (<i>4/12 ready</i>). Point at a dot to see its agent's name, or click it to open
+            that agent's settings.
+          </p>
+        </section>
+
+        <section id="sign-in" aria-labelledby="sign-in-title">
+          <h2 id="sign-in-title">Sign in to an agent</h2>
+          <p>
+            On the agent's card, pick a way to sign in and click <b>Sign in</b>. Harness Relay runs the agent's own sign-in
+            and shows you what to do:
+          </p>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">Agent</th>
+                <th scope="col">How to sign in</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Claude Code</th>
+                <td>With your Claude subscription or Anthropic Console: open the link, allow it, then paste the code the page shows into the box and click <b>Submit</b>.</td>
+              </tr>
+              <tr>
+                <th scope="row">Codex</th>
+                <td>With ChatGPT, by a device code: open the link, sign in to ChatGPT and enter the one-time code shown (click it to copy). Or sign in in a browser, which opens on this computer.</td>
+              </tr>
+              <tr>
+                <th scope="row">Grok</th>
+                <td>With xAI, by a device code or in the browser: open the link and confirm the code.</td>
+              </tr>
+              <tr>
+                <th scope="row">Cursor</th>
+                <td>With your Cursor account: open the link in a browser on any device, sign in to Cursor and allow it.</td>
+              </tr>
+              <tr>
+                <th scope="row">Antigravity</th>
+                <td>With your Google account: open the link on any device and sign in to Google, then paste the code the page shows into the box and click <b>Submit</b>.</td>
+              </tr>
+              <tr>
+                <th scope="row">Copilot</th>
+                <td>With your GitHub account: open <code>github.com/login/device</code> on any device, enter the code shown (click it to copy) and authorize it.</td>
+              </tr>
+              <tr>
+                <th scope="row">Muse Code</th>
+                <td>With your Meta account: open the link on any device, sign in to your Meta account and check that the page shows the same code.</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            The panel turns green with <b>Signed in ✓</b> when the agent is done. If something goes wrong, open <b>CLI output</b>
+            to see what the agent said. <b>Check again</b> at the top of Settings looks at every agent anew, for example after
+            you signed one in in a terminal.
+          </p>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-info" /></svg>
+            <div>
+              <p>
+                It is the agent's own sign-in, the same one you use in a terminal. So <b>Sign out</b> signs the agent out on this
+                computer everywhere, and a new Codex sign-in first signs the current Codex account out (the page asks first).
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="api-keys" aria-labelledby="api-keys-title">
+          <h2 id="api-keys-title">Or use an API key</h2>
+          <p>
+            Instead of signing in, each of the seven takes a key under <b>API key</b> in its account's box. Claude Code's, Codex's,
+            Grok's, Antigravity's and Muse Code's are billed by use, by the agent's maker, rather than counted against a
+            subscription:
+          </p>
+          <ul>
+            <li><b>Claude Code</b>: an Anthropic API key. It takes precedence over your Claude subscription.</li>
+            <li><b>Codex</b>: an OpenAI API key. Codex keeps it, and it replaces your ChatGPT sign-in.</li>
+            <li><b>Grok</b>: an xAI API key.</li>
+            <li><b>Cursor</b>: a Cursor API key, for Harness Relay's runs only; your own Cursor sign-in stays as it was.</li>
+            <li><b>Antigravity</b>: a Gemini API key. Antigravity then runs on the Gemini API instead of your Google sign-in.</li>
+            <li><b>Copilot</b>: a fine-grained GitHub token with the “Copilot Requests” permission (classic tokens don't work). It uses that GitHub account's plan.</li>
+            <li><b>Muse Code</b>: a Meta API key.</li>
+          </ul>
+          <p>
+            Harness Relay keeps the other keys in your system's credential store (the macOS Keychain, Windows Credential Manager, or your
+            keyring on Linux), and only ever shows them masked.
+          </p>
+        </section>
+
+        <section id="open-agents" aria-labelledby="open-agents-title">
+          <h2 id="open-agents-title">Open-source agents and model backends</h2>
+          <p>
+            OpenCode, Goose, Cline, OpenHands and Pi have no sign-in. They run on the model backends you set up under
+            <b>Settings → Model backends</b>, and on nothing else:
+          </p>
+          <ul>
+            <li>
+              <b>API keys</b>: one each for <b>OpenAI</b>, <b>Anthropic</b> and <b>xAI</b>. Paste it and click <b>Save</b>.
+              Your Claude subscription and Grok sign-in cannot be used here: Anthropic does not allow its subscription in other
+              agents.
+            </li>
+            <li>
+              <b>Custom endpoints</b>: a model server of your own that speaks OpenAI's API, such as vLLM, Ollama, LM Studio or
+              llama.cpp. <b>Add endpoint</b> asks for a name, a short id (such as <code>homelab</code>), its address (for
+              Ollama on this computer, <code>http://localhost:11434/v1</code>) and the names of its models, one per line, plus
+              its API key if it needs one.
+            </li>
+          </ul>
+          <figure class="doc-figure">
+            <img
+              src="../../assets/media/docs/agents-backends-en.webp"
+              width="1280"
+              height="800"
+              alt="Settings, scrolled to Model backends: a note on which agents run on them, then API keys for OpenAI, Anthropic and xAI, each not set with a Save button, and the start of Custom endpoints, with one named Homelab vLLM."
+              loading="lazy"
+            />
+            <figcaption>
+              Settings → Model backends, with a custom endpoint for a vLLM server: a frame of the use case
+              <a href="../../use-cases/#contract-review">Redline a contract, on your own model server</a>.
+            </figcaption>
+          </figure>
+          <p>
+            A member of an open-source agent then gets a model written as backend and name: <code>openai/…</code>,
+            <code>anthropic/…</code>, <code>xai/…</code>, or your endpoint's id and a model, such as
+            <code>homelab/muse-glimmer-30b-nvfp4</code>. Its card in Settings says <b>Ready</b> once the agent is installed and at least one
+            backend is set up.
+          </p>
+          <h3>The other agents on your own server</h3>
+          <p>
+            Claude Code, Codex, Grok and Copilot can run on your custom endpoints too: their model menus list your endpoints'
+            models after their own. Give a member one of them, and that agent works on your server instead of its maker's
+            service. Your server must speak the API that agent uses; vLLM, Ollama, LM Studio and llama.cpp serve them all.
+            Claude Code, Codex and Copilot then need no sign-in; Grok still needs its own. Cursor, Antigravity and Muse Code
+            run on their own services only.
+          </p>
+        </section>
+
+        <section id="accounts" aria-labelledby="accounts-title">
+          <h2 id="accounts-title">Accounts and plan usage</h2>
+          <h3>More than one account</h3>
+          <p>
+            Each agent can be signed in to several accounts at once, such as a work and a personal Claude subscription: open
+            <b>Add an account</b> under the agent's accounts, name it and click <b>Add an account</b>. Each account signs in on
+            its own, and has its own API key and default model. In a team, choose which account each member runs on with
+            <b>Account</b> on its card; a member with none chosen uses the default account. <b>Remove</b> signs an extra account
+            out and deletes it.
+          </p>
+          <p>
+            Cursor, Antigravity and Muse Code keep their sign-in in one place for your whole computer user, so their extra
+            accounts take an API key instead (a Cursor API key, a Gemini API key, a Meta API key).
+          </p>
+          <h3>Plan usage</h3>
+          <p>
+            Once an account is signed in, its box shows <b>Plan usage</b>: how much of its plan is left, as the agent reports
+            it, with a bar for each limit and when it starts over (Claude Code's 5-hour and weekly limits, say, or Copilot's
+            premium requests this month). Harness Relay asks without sending a prompt, so checking uses nothing up.
+            <b>Check again</b> asks anew. An account on an API key (Claude Code, Codex, Grok, Antigravity, Muse Code) has no plan
+            limits: its provider bills the key by use, so see the balance in the provider's console. Copilot on a GitHub
+            token shows that GitHub account's plan. For Cursor, the box names the plan only, and nothing for an account on a
+            Cursor API key.
+          </p>
+        </section>
+
+        <section id="models" aria-labelledby="models-title">
+          <h2 id="models-title">Default models and the lead agent</h2>
+          <h3>Default model and reasoning effort</h3>
+          <p>
+            Each account's box has <b>Default model and reasoning effort</b>: what its members use when their own model is left
+            on <i>Default</i>. Left on <b>CLI default</b>, the agent uses its own settings, as in a terminal. You can always
+            give a single member another model in the team.
+          </p>
+          <h3>Choose the lead agent</h3>
+          <p>
+            <b>Lead agent</b> in Settings picks the agent, and optionally its model and effort, that designs a team for each
+            question, reviews the team's replies, and sorts new chats into your groups. Choose one that is signed in, or an
+            open-source agent with a model backend. A small, fast model is usually enough.
+          </p>
+          <figure class="doc-figure">
+            <img
+              src="../../assets/media/docs/agents-lead-en.webp"
+              width="1280"
+              height="800"
+              alt="Settings, scrolled to Lead agent: a row of agents with Claude Code chosen, the model set to Custom… with a model of the user's own server, and the reasoning effort left to the agent; the Tool library starts below."
+              loading="lazy"
+            />
+            <figcaption>
+              The lead agent, on Claude Code with a model of your own server: a frame of the use case
+              <a href="../../use-cases/#contract-review">Redline a contract, on your own model server</a>.
+            </figcaption>
+          </figure>
+        </section>
+
+        <aside class="doc-more" aria-label="Technical details">
+          <svg aria-hidden="true"><use href="#i-github" /></svg>
+          <div>
+            <p>The user guide has the details: each agent's sign-in and its quirks, which APIs each agent needs from your server, what each account keeps apart, and what each agent loads by itself.</p>
+            <ul>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#2-sign-in-to-each-agent--settings--sign-in">Sign in to each agent</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#open-source-agents-and-model-backends">Open-source agents and model backends</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#more-than-one-account">More than one account</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/open-agents.md">Open agents</a></li>
+            </ul>
+          </div>
+        </aside>
+
+        <nav class="doc-pager" aria-label="Pages">
+          <a href="../install/" rel="prev"><span>Previous</span><b>Install</b></a>
+          <a href="../first-chat/" rel="next"><span>Next</span><b>Your first chat</b></a>
+        </nav>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-row">
+        <a class="brand" href="../../" aria-label="Harness Relay, home">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="footer-links" aria-label="Footer">
+          <a href="../">Docs</a>
+          <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE">Sustainable Use License</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

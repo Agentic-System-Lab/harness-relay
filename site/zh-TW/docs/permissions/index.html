@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>權限與核准 · Harness Relay 文件</title>
+    <meta
+      name="description"
+      content="Harness Relay 文件：agent 不必問就能做什麼、核准怎麼運作、沙箱擋住什麼，以及怎麼檢視與套用 agent 的修改。"
+    />
+    <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/permissions/" />
+    <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/permissions/" />
+    <link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/permissions/" />
+    <link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/permissions/" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141415" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Harness Relay" />
+    <meta property="og:title" content="權限與核准 · Harness Relay 文件" />
+    <meta
+      property="og:description"
+      content="在 Harness Relay 掌握 agent 做的每件事：選擇唯讀、可編輯或完全存取，回應核准卡片，由你親自送出待送出匣裡的東西，並在保留之前檢視每則回覆的修改。"
+    />
+    <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/permissions/" />
+    <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="zh_TW" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="../../../favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="../../../assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="../../../assets/site.css" />
+    <script>
+      document.documentElement.classList.add('js');
+      // The theme the visitor picked with the theme button (assets/theme.js), set before anything is drawn
+      // so that it does not flash. Until they pick one, the page follows the system's light or dark mode.
+      try {
+        var theme = localStorage.getItem('harness-relay.theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {}
+      // The visitor picked English last time: show the English page.
+      try {
+        if (localStorage.getItem('harness-relay.lang') === 'en') location.replace('../../../docs/permissions/' + location.hash);
+      } catch (e) {}
+    </script>
+    <script src="../../../assets/site.js" defer></script>
+    <script type="module" src="../../../assets/theme.js"></script>
+    <!-- What search and answer engines read about the page (test/site-docs.test.ts keeps it in step with the page). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/permissions/#webpage",
+        "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/permissions/",
+        "name": "權限與核准 · Harness Relay 文件",
+        "description": "Harness Relay 文件：agent 不必問就能做什麼、核准怎麼運作、沙箱擋住什麼，以及怎麼檢視與套用 agent 的修改。",
+        "inLanguage": "zh-TW",
+        "isPartOf": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
+        },
+        "about": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#app"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-github" viewBox="0 0 16 16">
+          <path
+            fill="currentColor"
+            d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+          />
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+          <path d="M12 3.86 14.22 9.8l6.34.28-4.97 3.95 1.7 6.11L12 16.64l-5.29 3.5 1.7-6.11-4.97-3.95 6.34-.28Z" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2.75v1.5M12 19.75v1.5M2.75 12h1.5M19.75 12h1.5M5.46 5.46l1.06 1.06M17.48 17.48l1.06 1.06M5.46 18.54l1.06-1.06M17.48 6.52l1.06-1.06" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 13.6A8 8 0 1 1 10.4 4a6.25 6.25 0 0 0 9.6 9.6Z" />
+        </symbol>
+        <symbol id="i-mark" viewBox="0 0 32 32">
+          <circle cx="9" cy="16" r="6" fill="#d97757" />
+          <circle cx="23" cy="10" r="5" fill="#10a37f" />
+          <circle cx="23" cy="23" r="5" fill="#7c5cff" />
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6.5 9.5 5.5 5.5 5.5-5.5" />
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.75" />
+          <path d="M12 11v5.5M12 7.6v.1" />
+        </symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M12 2.5c.8 5.9 3.6 8.7 9.5 9.5-5.9.8-8.7 3.6-9.5 9.5-.8-5.9-3.6-8.7-9.5-9.5 5.9-.8 8.7-3.6 9.5-9.5Z" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.7 7 9 4.1-1.3 7-4.7 7-9V6.2Z" />
+          <path d="m9 12 2.2 2.2L15.2 10" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
+        </symbol>
+        <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+        </symbol>
+        <symbol id="i-os-win" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+          <path d="M12 4.5v15M3.5 12h17" />
+        </symbol>
+        <symbol id="i-os-linux" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3c-2.3 0-3.6 1.9-3.6 4.4 0 1.5.4 2.4-.7 3.8C6.4 12.9 5.4 14.8 5.4 17c0 2.6 2.9 4 6.6 4s6.6-1.4 6.6-4c0-2.2-1-4.1-2.3-5.8-1.1-1.4-.7-2.3-.7-3.8C15.6 4.9 14.3 3 12 3Z" />
+          <path d="M9.6 14.6c0-1.6 1-2.7 2.4-2.7s2.4 1.1 2.4 2.7v1.6c0 1.5-1 2.6-2.4 2.6s-2.4-1.1-2.4-2.6Z" />
+          <path d="M10.6 9.2 12 10.3l1.4-1.1" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <a class="skip" href="#main">跳到主要內容</a>
+
+    <header class="site-header">
+      <div class="wrap header-row">
+        <a class="brand" href="../../" aria-label="Harness Relay 首頁">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="site-nav" aria-label="頁面段落">
+          <a href="../../#demo">示範</a>
+          <a href="../../use-cases/">使用情境</a>
+          <a href="../../#modes">對話模式</a>
+          <a href="../../#teams">團隊</a>
+          <a href="../../#safety">安全</a>
+          <a href="../../#start">快速開始</a>
+          <a href="../" aria-current="true">文件</a>
+        </nav>
+        <div class="header-tools">
+          <nav class="lang" aria-label="語言">
+            <a href="../../../docs/permissions/" hreflang="en" lang="en" data-lang="en">EN</a>
+            <a href="./" hreflang="zh-TW" lang="zh-Hant-TW" aria-current="page" data-lang="zh-TW">中文</a>
+          </nav>
+          <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            <span class="gh-label">GitHub</span>
+            <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> 顆星</span></span>
+          </a>
+          <button class="btn btn-ghost theme-toggle" type="button" data-theme-toggle data-to-dark="切換成深色主題" data-to-light="切換成淺色主題" aria-label="切換成深色主題">
+            <svg class="i-moon" aria-hidden="true"><use href="#i-moon" /></svg>
+            <svg class="i-sun" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="wrap doc-layout">
+      <nav class="doc-nav" aria-label="文件" data-doc-nav>
+        <button class="doc-nav-toggle" type="button" aria-expanded="false" aria-controls="doc-pages" data-doc-nav-toggle>
+          <span>文件</span>
+          <b>權限與核准</b>
+          <svg aria-hidden="true"><use href="#i-chevron" /></svg>
+        </button>
+        <div class="doc-nav-list" id="doc-pages">
+          <p class="doc-nav-title">開始使用</p>
+          <ul>
+            <li><a href="../">總覽</a></li>
+            <li><a href="../install/">安裝</a></li>
+            <li><a href="../agents/">連接你的 agent</a></li>
+            <li><a href="../first-chat/">第一個對話</a></li>
+          </ul>
+          <p class="doc-nav-title">和團隊一起工作</p>
+          <ul>
+            <li><a href="../teams/">團隊與對話模式</a></li>
+            <li><a href="../permissions/" aria-current="page">權限與核准</a></li>
+            <li><a href="../conversations/">對話</a></li>
+            <li><a href="../automations/">自動任務</a></li>
+            <li><a href="../tools/">工具</a></li>
+          </ul>
+          <p class="doc-nav-title">更多</p>
+          <ul>
+            <li><a href="../phone/">在手機上使用</a></li>
+            <li><a href="../troubleshooting/">疑難排解</a></li>
+          </ul>
+          <a class="doc-nav-out" href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/README.zh-TW.md#文件">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            GitHub 上的技術文件
+          </a>
+        </div>
+      </nav>
+
+      <header class="doc-head">
+        <h1>權限與核准</h1>
+        <p class="lead">
+          agent 自己能做什麼，由你決定。超出範圍的事會以卡片出現在對話中，等你決定；它們對檔案的每項修改也都會列出來，方便你檢視。
+        </p>
+      </header>
+
+      <nav class="doc-toc" aria-label="本頁內容">
+        <p class="doc-toc-title">本頁內容</p>
+        <ol>
+          <li><a href="#levels">三種權限</a></li>
+          <li><a href="#beyond-the-permission">權限範圍以外的動作</a></li>
+          <li><a href="#approvals">核准卡片</a></li>
+          <li><a href="#sandboxes">沙箱做了什麼</a></li>
+          <li><a href="#outbox">待送出匣</a></li>
+          <li><a href="#changes">檢視與套用修改</a></li>
+        </ol>
+      </nav>
+
+      <div class="doc-body">
+        <section id="levels" aria-labelledby="levels-title">
+          <h2 id="levels-title">三種權限</h2>
+          <p>
+            每個對話有一個<b>檔案權限</b>，所有成員共用。在<b>新對話</b>頁選擇，之後也可以在<b>團隊設定</b>修改。
+          </p>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">權限</th>
+                <th scope="col">agent 不必問就能做的事</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row"><span class="keep">唯讀</span></th>
+                <td>讀檔、搜尋與上網查資料。不會修改任何檔案。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">可編輯</span></th>
+                <td>再加上修改工作目錄裡的檔案，以及執行測試、建置等專案指令。不包括推送與發佈。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">完全存取</span></th>
+                <td>什麼都能做，不再詢問。請只在你信任的資料夾使用。</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>確切哪些事不必問，各個 agent 稍有不同：沒有沙箱的 agent，在完全存取以下執行任何指令前都會先問你，連測試與建置也一樣。</p>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-shield" /></svg>
+            <div>
+              <p>
+                在可編輯模式下，測試、建置與專案腳本執行的程式碼，是 agent 改得到的。可編輯只用在你信任的程式碼；不信任的程式碼或指示，請用唯讀。你的家目錄本身不能用可編輯模式：請選一個專案資料夾。
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="beyond-the-permission" aria-labelledby="beyond-the-permission-title">
+          <h2 id="beyond-the-permission-title">權限範圍以外的動作</h2>
+          <p>
+            agent 想做權限沒涵蓋的事，例如安裝套件、推送程式碼，或寫到工作目錄以外的地方時，由對話的<b>權限範圍以外的動作</b>設定決定怎麼處理：
+          </p>
+          <ul>
+            <li><b>詢問我</b>（預設）：在對話中問你，agent 會等你回答。</li>
+            <li><b>自動拒絕</b>：動作會直接被拒絕；agent 會被告知，並改用其他方式。</li>
+          </ul>
+          <p>完全存取沒有權限範圍以外的事，所以不會顯示這個設定。</p>
+        </section>
+
+        <section id="approvals" aria-labelledby="approvals-title">
+          <h2 id="approvals-title">核准卡片</h2>
+          <p>
+            選<b>詢問我</b>時，agent 的回覆會出現一張卡片：它想做什麼（確切的指令、檔案、網址或主機），以及為什麼。如果允許它會讓指令在沙箱外執行，卡片也會註明。
+          </p>
+          <figure class="doc-figure">
+            <img
+              src="../../../assets/media/docs/permissions-approval-zh-TW.webp"
+              width="1280"
+              height="800"
+              alt="@Claude 回覆中的核准卡片：「@Claude 想執行指令」，等你決定。卡片列出指令（git ls-files，接著逐一 cat 專案檔案）、理由 List and show project files、一個告訴它該怎麼做的輸入框，以及三個按鈕：允許、本對話都允許「git ls-files, cat, grep, echo, for, do, done」、拒絕。側邊欄把這個對話標為「等你核准」，輸入框上方也有一列提示 @Claude 在等你決定。"
+              loading="lazy"
+            />
+            <figcaption>
+              agent 執行指令前先問你，取自使用情境「<a href="../../use-cases/#fix-a-bug">一個 bug 三種修法，留下最好的</a>」。
+            </figcaption>
+          </figure>
+          <ul>
+            <li><b>允許</b>：只允許這一次。</li>
+            <li>
+              <b>本對話都允許「…」</b>：這次以及之後類似的請求，在這個對話裡都直接允許。指令的話，指的是同一個程式與子指令，例如 <code>npm install</code>。
+            </li>
+            <li>
+              <b>拒絕</b>：可以先寫下 agent 該改做什麼。有些 agent 會收到你的說明並繼續；其他的只知道你拒絕了，或會直接結束這一回合，這時請在下一則訊息說明要怎麼做。
+            </li>
+          </ul>
+          <p>
+            卡片等待時，輸入框上方會有一列提示指向它，側邊欄把對話標為<b>等你核准</b>，瀏覽器分頁標題也會顯示有幾個對話在等你。按<b>停止</b>會拒絕所有還在等待的請求。
+          </p>
+        </section>
+
+        <section id="sandboxes" aria-labelledby="sandboxes-title">
+          <h2 id="sandboxes-title">沙箱做了什麼</h2>
+          <p>
+            在完全存取以下，大多數 agent 會在沙箱裡執行指令；沙箱是作業系統圍在程式外面的一道圍欄。它只讓指令寫入工作目錄與暫存資料夾，也擋住它們碰你的瀏覽器資料和
+            Harness Relay 自己的資料庫。依 agent 不同，沙箱也會讓指令連不上網路，或在連到新主機前先問你。
+          </p>
+          <ul>
+            <li>開源 agent 在 Harness Relay 自己的沙箱裡執行。</li>
+            <li>沒有沙箱的 agent，改成每個指令執行前都先問你。</li>
+            <li>
+              沙箱缺少需要的元件時，指令會失敗，絕不會改到沙箱外執行。Harness Relay 可以幫你安裝缺少的元件：見<a href="../install/">安裝</a>。
+            </li>
+          </ul>
+          <p>
+            每個沙箱涵蓋的範圍依 agent 與作業系統而不同。在原生 Windows 上，只有 Codex 與 Copilot 的沙箱能用，Claude Code
+            在那裡執行指令時沒有沙箱。技術文件逐一列出各個 agent 的情況。
+          </p>
+        </section>
+
+        <section id="outbox" aria-labelledby="outbox-title">
+          <h2 id="outbox-title">待送出匣</h2>
+          <p>
+            agent 用 Harness Relay 自己的工具把東西送給別人時，例如一封郵件，或有邀請對象的行程，不管權限是什麼，都不會在它那一回合送出。它的回覆會出現一張卡片，一個欄位一個欄位列出要送出的內容，和實際送出的一樣：
+          </p>
+          <ul>
+            <li><b>送出</b>：照顯示的內容，用你的帳號送出。</li>
+            <li><b>捨棄</b>：丟掉它。</li>
+          </ul>
+          <p>
+            在你決定之前，這個對話會標為<b>等你核准</b>，你也會收到通知，和核准一樣；agent 不會停下來等，所以你可以晚點再送出。<a href="../tools/">工具：瀏覽器、郵件與行事曆</a>
+          </p>
+        </section>
+
+        <section id="changes" aria-labelledby="changes-title">
+          <h2 id="changes-title">檢視與套用修改</h2>
+          <p>
+            agent 修改檔案時，它的回覆最後會有一張卡片列出這些檔案，各自標示 A（新增）、M（修改）或 D（刪除），以及增減的行數。<b>查看這回合 diff</b> 會顯示 agent
+            在這一回合確切改了什麼。
+          </p>
+          <h3>平行模式：挑一份結果</h3>
+          <p>
+            平行模式中，每個 agent 都在自己的副本（git worktree）裡工作，不會互相覆蓋，你的工作目錄也不會被動到。卡片上會標示<b>在 worktree</b>，該 agent 最新的卡片還有：
+          </p>
+          <ul>
+            <li><b>查看 @名稱 的完整結果</b>：這個 agent 從這一輪開始以來改的所有東西。</li>
+            <li>
+              <b>套用到工作目錄</b>：把這份結果複製到你的資料夾。不會 commit：請用你慣用的工具檢查修改，再自己 commit。
+            </li>
+          </ul>
+          <figure class="doc-figure">
+            <img
+              src="../../../assets/media/docs/permissions-changes-zh-TW.webp"
+              width="1280"
+              height="800"
+              alt="平行模式下 @Claude 回覆的結尾：卡片寫著「改了 1 個檔案」、+5 −2、在 worktree，列出修改過的 src/split.js，下方有「查看這回合 diff」、「查看 @Claude 的完整結果」與「套用到工作目錄」按鈕。"
+              loading="lazy"
+            />
+            <figcaption>
+              一個 agent 的結果，可以套用了，取自使用情境「<a href="../../use-cases/#fix-a-bug">一個 bug 三種修法，留下最好的</a>」。
+            </figcaption>
+          </figure>
+          <p>
+            套用其中一份結果後，其他結果會標示為過時，下一輪會從更新後的資料夾開始。如果你的資料夾改過的地方和這份結果衝突，就什麼都不會套用，並告訴你原因：請 agent 依目前的狀態重做一次。
+          </p>
+          <h3>你的資料夾怎麼保持安全</h3>
+          <ul>
+            <li>
+              在可編輯與完全存取模式下，還不是 git repository 的工作目錄會先變成一個（<code>git init</code>），每項修改才記錄得下來。Harness Relay 從不 commit 到你的分支。
+            </li>
+            <li>
+              圓桌與接力模式中，agent 輪流直接修改你的資料夾，每則回覆都記錄它改了哪些檔案。這段期間，其他對話不能寫入同一個資料夾：在那裡送出訊息時，會告訴你這個資料夾正在修改中，直到這個對話做完（或你停止它）。
+            </li>
+          </ul>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-info" /></svg>
+            <div>
+              <p>
+                Harness Relay 會記錄改了什麼，但不會幫你復原：編輯先前的訊息或重試回覆，都不會還原那些回覆改過的檔案。想保留的修改請 commit。
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <aside class="doc-more" aria-label="技術細節">
+          <svg aria-hidden="true"><use href="#i-github" /></svg>
+          <div>
+            <p>每個 agent 的沙箱在各系統上允許什麼，以及核准的每條規則，都在 GitHub 上的文件裡：</p>
+            <ul>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#對話規則">對話規則</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#核准">核准</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#檢視與套用修改">檢視與套用修改</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/sandboxing.zh-TW.md">各平台的 OS 沙箱</a></li>
+            </ul>
+          </div>
+        </aside>
+
+        <nav class="doc-pager" aria-label="頁面">
+          <a href="../teams/" rel="prev"><span>上一頁</span><b>團隊與對話模式</b></a>
+          <a href="../conversations/" rel="next"><span>下一頁</span><b>對話</b></a>
+        </nav>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-row">
+        <a class="brand" href="../../" aria-label="Harness Relay 首頁">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="footer-links" aria-label="頁尾">
+          <a href="../">文件</a>
+          <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE">Sustainable Use License</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

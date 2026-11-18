@@ -1,6 +1,6 @@
 # Landing page design guidelines
 
-How the Harness Relay landing page (`site/`) looks, reads and behaves, and what to keep when you change it. The page is published to GitHub Pages by [`.github/workflows/pages.yml`](../.github/workflows/pages.yml); this file stays in the repository and is never served (the workflow drops every `*.md` file and the `*.webp.json` provenance sidecars).
+How the Harness Relay landing page (`site/`), its use-cases page and its docs look, read and behave, and what to keep when you change them. The page is published to GitHub Pages by [`.github/workflows/pages.yml`](../.github/workflows/pages.yml); this file stays in the repository and is never served (the workflow drops every `*.md` file and the `*.webp.json` provenance sidecars).
 
 ## Goal
 
@@ -38,8 +38,10 @@ Agent colours, each in four strengths:
 | Claude Code | `#d97757` | `#b2502c` / dark `#e8906f` | `#e8906f` | `#b2502c` |
 | Codex | `#10a37f` | `#0b7a5f` / dark `#34c79d` | `#34c79d` | `#0b7a5f` |
 | Grok | `#7c5cff` | `#6440f0` / dark `#a593ff` | `#a593ff` | `#6440f0` |
+| Antigravity | `#65a30d` | `#3f6212` / dark `#84cc16` | `#84cc16` | `#3f6212` |
+| Copilot | `#0f766e` | `#0f766e` / dark `#2dd4bf` | `#2dd4bf` | `#0f766e` |
 
-The other nine take only their brand colour, the same in both themes as in the app (`src/web/styles.css`), for the dot in their list:
+Antigravity and Copilot have the four because a use case shows them (its pills and its rail's avatars). All nine below have their brand colour, the same in both themes as in the app (`src/web/styles.css`), for the dot in their list:
 
 | Agent | Token | Colour |
 | --- | --- | --- |
@@ -57,7 +59,7 @@ Rules:
 
 - Brand colours as text only at large sizes, 3:1 or better (none is on the page now: the headline names no agent). Small coloured text uses `-ink` on the page and `-lit` on the band.
 - On the big discs, Claude Code and Codex take dark text (`#18181b`); Grok takes white, and only at large bold sizes.
-- Set the agent with a helper class: `.t-claude`, `.t-codex` or `.t-grok` define `--agent`, `--agent-ink`, `--agent-lit` and `--agent-deep` for everything inside. `.t-cursor`, `.t-antigravity`, `.t-copilot`, `.t-muse`, `.t-opencode`, `.t-goose`, `.t-cline`, `.t-openhands` and `.t-pi` define `--agent` only, for their list's dot; keep them changed with the app's colours.
+- Set the agent with a helper class: `.t-claude`, `.t-codex`, `.t-grok`, `.t-antigravity` or `.t-copilot` define `--agent`, `--agent-ink`, `--agent-lit` and `--agent-deep` for everything inside. `.t-cursor`, `.t-muse`, `.t-opencode`, `.t-goose`, `.t-cline`, `.t-openhands` and `.t-pi` define `--agent` only, for their list's dot; keep them changed with the app's colours.
 - When all three act together (`.t-team`), show all three: stacked avatars, and a progress bar split in three. The headline's "coding agent(s)" takes the same split as its underline (`.team-mark`), for the agents together.
 - Body text meets 4.5:1, large text 3:1. Check new pairs before shipping.
 
@@ -76,7 +78,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 
 - Radius: 14px for UI excerpts (the app's `--radius`), 12px for command blocks and the video, 20–22px for large panels, full pills for buttons, tabs and chips.
 - Container: max 1200px, side gutter `clamp(16px, 4vw, 32px)` (12px at 360px and below). Text fills the column it is in: a section's head, a lead paragraph, a use case's head and an excerpt's text have no width of their own, on a wide screen as on a phone.
-- **No page scrolls sideways**, at any width from 280px (the narrowest phones', folded), in both languages, with the Codespaces dialog open or not (`test/site-header.test.ts`; check every width in Chromium after a change to the layout). At 480px and below a long command or package name in the text (`@earendil-works/pi-coding-agent`) breaks where it must, and the approval card's buttons wrap; at 380px and below the headline scales with the screen (`min(2.6rem, 11.4vw)`), so that the phrases it keeps whole (`.phrase`) fit; at 360px and below the header's controls draw closer (and again at 300px). Something wider than the screen wraps or shrinks; it never widens the page.
+- **No page scrolls sideways**, at any width from 280px (the narrowest phones', folded), in both languages, with the Codespaces dialog open or not (`test/site-header.test.ts`; check every width in Chromium after a change to the layout). At 480px and below a long command or package name in the text (`@earendil-works/pi-coding-agent`) breaks where it must, and the approval card's buttons wrap; at 380px and below the headline scales with the screen (`min(2.6rem, 11.4vw)`), so that the phrases it keeps whole (`.phrase`) fit; at 360px and below the header's controls draw closer (and again at 300px). Something wider than the screen wraps or shrinks; it never widens the page. The one row that scrolls sideways, the use-case cards' on a phone, scrolls inside itself.
 - Section rhythm: `clamp(72px, 9vw, 132px)` top and bottom, the screening band around the demo included, a hairline between sections, more space above a heading than below it.
 - Shadows always have a vertical offset and a soft blur (`--shadow`). No glow, no hard offset shadows, no glass.
 
@@ -94,7 +96,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 - **Quick start step:** a step with more than one block (the download cards, text) wraps them in `.step-body`, so they stay together in the right-hand column.
 - **Command block** (`.cmd`, not on the page now): `$` prompts are not copied; the copy button copies the commands only and confirms with a check. One command per line, never joined with `&&`: Windows PowerShell 5.1, still the default shell on Windows, rejects `&&`, while separate lines run in every shell.
 - **UI excerpts** (`.ui`): approval card, question, changed files, waiting message tray, and Settings → Model backends (`.ui-backends`, from `src/web/components/BackendsSettings.tsx`). They recreate the app's components with sample content, and the page says so under them. Keep them faithful to the app when the app changes.
-- **Use-case card** (`.case`, on the landing page): whose work it is (`.case-role`, muted, small), the use case's poster (the frame `npm run use-cases` cuts, 16:10, the excerpts' radius and shadow) and name in one link to its section, then one sentence and its facts row. Its pills are the agents that ran, over the page's background, so they keep the pill's contrast (`test/site-theme.test.ts`). Cards fill a grid of columns at least 320px wide (three, then two, on a wide screen; one on a phone).
+- **Use-case card** (`.case`, on the landing page): whose work it is (`.case-role`, muted, small), the use case's poster (the frame `npm run use-cases` cuts, 16:10, the excerpts' radius and shadow) and name in one link to its section, then one sentence and its facts row. Its pills are the agents that ran, over the page's background, so they keep the pill's contrast (`test/site-theme.test.ts`). Cards fill a grid of columns at least 320px wide (three, then two, on a wide screen). Where the grid would leave one column (720px and narrower, a phone's), they are one row swiped sideways instead: each card 84% of the column (at most 360px), so the next one shows at the edge; a swipe stops at a card's start (scroll snap), lined up with the text; the row runs to the screen's edges and scrolls inside itself, never the page, and a swipe past either end does not go back a page (`overscroll-behavior-x: contain`).
 - **Use-case screen** (`.usecase-screen`): the screening's grid (`.screening-grid`) on a dark panel (`--band`, 22px radius) inside the section, the rail's heading an h3 (`.rail-title`). `site.js` gives every screen on a page its own rail, following its own video.
 - **Icons:** drawn inline SVG symbols in one 1.8px stroke. No emoji or Unicode glyphs as icons, and no company logos: the systems are a command key (macOS), a four-pane window (Windows) and a penguin (Linux), and GitHub Codespaces is a cloud (`#i-cloud`). The GitHub button keeps GitHub's mark.
 
@@ -102,10 +104,10 @@ The font file only covers Latin; Chinese always comes from the system stack.
 
 | # | Section | Purpose |
 | --- | --- | --- |
-| 1 | Header | Mark, section links, EN / 中文 switch, GitHub with the star count, the theme button. Each stays on one line at any width (`test/site-header.test.ts`): the switch is never squeezed, so 中文 never breaks between its characters, and at 500px and below the mark shows without its name, which does not fit beside the rest under some 481px (the link keeps the name as its label) |
+| 1 | Header | Mark, section links (the docs' last), EN / 中文 switch, GitHub with the star count, the theme button. The section links go at 980px and narrower, where the English ones no longer fit beside the rest (a long star count included; measured in Chromium at every width); there, on the home and use-cases pages, a Docs / 文件 link (`.header-docs`) shows left of the language switch instead, and the GitHub button drops its star count to make room (the docs' pages keep the count: their own menu sits under the header). Each stays on one line at any width (`test/site-header.test.ts`): the switch is never squeezed, so 中文 never breaks between its characters, and at 500px and below the mark shows without its name, which does not fit beside the rest under some 481px (the link keeps the name as its label) |
 | 2 | Hero | Headline about the reader's own agents in any mix (no agent names, so it never reads as a list to have), a lead that names the demo's three and says there are twelve to mix, says one kind of agent is enough and that the lead agent designs the team for each question with each model's own traits in mind, the download button for the visitor's system with the link to the requirements beside it, the Codespaces button, GitHub button with the star count |
 | 3 | Screening (`#demo`) | Demo video and the chapter rail on the dark band |
-| 4 | Use cases (`#use-cases`) | *Hand it a task*: the ten use cases as cards, one for each kind of work, (each one's poster, name, one sentence, and its agents and how they ran), each linking to its section on the use-cases page, and a link to the whole page |
+| 4 | Use cases (`#use-cases`) | *Hand it a task*: the twelve use cases as cards, one for each kind of work, (each one's poster, name, one sentence, and its agents and how they ran), each linking to its section on the use-cases page, and a link to the whole page |
 | 5 | The agents you installed (`#agents`) | How each signed-in CLI is driven (Claude Code, Codex, Grok, then Cursor, Antigravity, Copilot and Muse Code, with their colours on their dots only); the mark at page scale |
 | 6 | Open agents (`#open`) | The five open-source CLIs and how each is driven, the model backends they run on (API keys, your own endpoint, `backend/model`, no subscription) beside an excerpt of Settings → Model backends, and Harness Relay's own sandbox around them |
 | 7 | Modes (`#modes`) | Roundtable, Parallel, Relay as animated diagrams in tabs |
@@ -115,11 +117,11 @@ The font file only covers Latin; Chinese always comes from the system stack.
 | 11 | Safety (`#safety`) | Local-only facts (sign-in, the CLIs' own sandboxes, Harness Relay's own sandbox around the open agents) and the permission table, with a link to the sandboxing doc |
 | 12 | Quick start (`#start`) | One row per step (title left, content right): requirements (the CLIs, the open-source ones with the versions tested), the three installers with the newest version and how to open them the first time, first steps, then (optional) opening it on a phone with the app's *Share with your phone*; then trying it in GitHub Codespaces and running from source, in one paragraph, and links to the docs |
 
-The header's section links: Demo, Use cases (`#use-cases`), Modes, Teams, Safety, Quick start; on the use-cases page they lead back to the landing page's sections, and Use cases is the page itself (`aria-current`).
+The header's section links: Demo, Use cases (`#use-cases`), Modes, Teams, Safety, Quick start, Docs (`docs/`); on the use-cases page and the docs they lead back to the landing page's sections, Use cases is the use-cases page, and the current one is marked (`aria-current`: the page itself, or `true` for Docs on a docs page other than the overview). The footer links the docs too, before the license, so that a phone, which has no section links, reaches them; and the quick start's list of docs starts with them.
 
 ### The use-cases page
 
-`use-cases/index.html` and `zh-TW/use-cases/index.html`: ten kinds of work, from software engineers to designers, each a real recording (`npm run use-cases`, [Recording the use cases](../docs/developer-guide.md#recording-the-use-cases)), so the page shows the run first, as the landing page does. The same header and footer as the landing page, its language switch to the other language's use-cases page, and the same `<head>` scripts (the theme, and the language preference, which sends a visitor to the use-cases page in their language).
+`use-cases/index.html` and `zh-TW/use-cases/index.html`: twelve kinds of work, from software engineers to localization teams, each a real recording (`npm run use-cases`, [Recording the use cases](../docs/developer-guide.md#recording-the-use-cases)), so the page shows the run first, as the landing page does. The same header and footer as the landing page, its language switch to the other language's use-cases page, and the same `<head>` scripts (the theme, and the language preference, which sends a visitor to the use-cases page in their language).
 
 | # | Section | Purpose |
 | --- | --- | --- |
@@ -128,6 +130,30 @@ The header's section links: Demo, Use cases (`#use-cases`), Modes, Teams, Safety
 | 12 | Hand it a task of your own (`.uc-cta`) | The download button for the visitor's system (`downloads.js`), with the link to the landing page's quick start (requirements, the other systems, Codespaces), so the page never ends on a dead end |
 
 Its order is the landing page's list's. Each language's page shows its own recording, as the demo does, so a use case's team, mode and a chapter sentence may differ between the languages; everything else is the same. A use case's words and facts are the recording's: re-record it, and check the lead paragraph, the facts row, the home page's card and the READMEs' line against `review.md`.
+
+### The docs
+
+`docs/` and `zh-TW/docs/`: how to use Harness Relay, a page per task, for people who use the app rather than work on it. They are the landing page's world at reading scale: the same header and footer, tokens, type and hairlines, the same `<head>` scripts (the theme, and the language preference, which sends a visitor to the page at the same place in their language). Every claim is true of the code, as on the landing page, in plain words: the technical details (each setting's every case, environment variables, files, the sandboxes system by system) stay in the repository's `docs/`, which every page links at its end (`.doc-more`), in the page's language.
+
+| # | Page | What it covers |
+| --- | --- | --- |
+| 1 | Overview (`docs/`) | What happens to a question, step by step, with the demo's poster; every page, a line each (`.doc-index`); the app's words (`.doc-terms`) |
+| 2 | Install (`install/`) | The download cards (the quick start's, through `downloads.js`), opening it the first time on each system, the window and the menu, what else it needs, updates, uninstalling |
+| 3 | Connect your agents (`agents/`) | Settings & sign-in, signing in to each agent, API keys, the open-source agents' model backends, more than one account, models and the lead agent |
+| 4 | Your first chat (`first-chat/`) | New chat, asking, the team design card, while they work, their questions, lead review |
+| 5 | Teams and modes (`teams/`) | Auto team, the templates, members, the three modes (`#modes`), changing the team, writing roles |
+| 6 | Permissions and approvals (`permissions/`) | The three levels (`#levels`), what goes beyond them, approval cards, the sandboxes in plain words, the outbox, reviewing and applying changes |
+| 7 | Conversations (`conversations/`) | The list and its badges, groups, pins and search, branching, copying and editing, files, sharing, notifications |
+| 8 | Automations (`automations/`) | What starts one, its times and the things it waits for, runs nobody watches, a goal to track, the webhook |
+| 9 | Tools (`tools/`) | Harness Relay's browser, mail and calendar, the outbox, accounts you sign in to, the tool library, a member's tools, what each agent loads by itself |
+| 10 | Use it from your phone (`phone/`) | Sharing it with the phone through Tailscale, signing the phone in, the home screen, notifications, keeping it running, security |
+| 11 | Troubleshooting (`troubleshooting/`) | Symptoms and what to try, by topic, where your data is, reporting a problem |
+
+Layout (`.doc-layout`): three columns on a wide screen, the docs' menu (`.doc-nav`: the pages in three groups, the current one marked, GitHub's technical docs under them), the page (`.doc-head`, then `.doc-body`), and its contents (`.doc-toc`, every section's `h2`, the one being read marked by `site.js`), the menu and the contents sticky under the header. At 1180px and narrower the contents go above the page's text, in a box; at 920px and narrower the menu folds behind a button that names the page and stays at the top, under the header, as the page scrolls (with JavaScript; without it, the menu shows in full above the page and scrolls away with it): opened, its pages scroll inside the screen that is left, and a tap beside them or Esc closes them, and a section a link leads to starts below the button. The menu scrolls by itself, so it keeps the current page's highlight inside its padding: it reaches 10px left of the column, so that the links' text lines up with the page.
+
+A page is one `h1` and its lead, then sections (`<section id>` with an `h2`; `h3` inside), the same section ids in both languages, in the same order. Then the technical docs (`.doc-more`) and the pages before and after (`.doc-pager`, named as in the menu), so a page never ends on a dead end. Its pieces: numbered steps (`.doc-steps`, the quick start's discs), tables (`.doc-table`, the permission table's hairlines; their cells break a long address or command where they must, so a table fits a 280px screen, while a row's name stays whole: a short Chinese one, which could break between any two characters, in `<span class="keep">`), notes (`.doc-note`, neutral, their icon saying what kind: `#i-spark` a tip, `#i-shield` safety, `#i-info` a fact worth knowing), the app's words (`.doc-terms`), and pictures (`.doc-figure`): frames of the use cases' recordings, each language its own, at most two a page, their caption naming the use case and linking it. UI labels are the app's own, in bold, in each language as its locale has them.
+
+To add a page: its two files (one folder deeper than the overview: its paths, its redirect and its language switch), a line in every page's menu, its neighbours' previous and next links, the overview's list, the sitemap, and `DOC_SLUGS` in `test/site-pages.ts`; `test/site-docs.test.ts` checks the rest (the head, the shared icons and menu, the sections and contents, and that every link and picture goes somewhere that is there, GitHub's headings included).
 
 Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numbers, gradient text, stat counters.
 
@@ -159,6 +185,7 @@ Avoid: icon-plus-heading card grids, eyebrow labels above headings, section numb
 | `assets/media/poster-en.webp` | Frame at 0:28.7 of `docs/media/demo-en.mp4` |
 | `assets/media/poster-zh-TW.webp` | Frame at 0:24.2 of `docs/media/demo-zh-TW.mp4` |
 | `assets/media/og-en.png`, `og-zh-TW.png` | Social preview cards (1200×630) rendered from the page's own styles |
+| `assets/media/docs/<page>-<what>-<lang>.webp` | The docs' pictures: frames of the use cases' recordings (`assets/media/use-cases/`), cut with ffmpeg and encoded with `cwebp -q 80`, each frame's origin in a `.webp.json` sidecar |
 | `assets/media/use-cases/<case>-<lang>.mp4`, `.webp` | Each use case's recording and its poster, written by `npm run use-cases` (the poster from the frame its use case names, its origin in a `.webp.json` sidecar); the use-cases pages share the landing page's social cards |
 | `assets/fonts/bricolage-grotesque-latin.woff2` | Google Fonts, SIL Open Font License (`assets/fonts/OFL.txt`) |
 | `favicon.svg` | Same drawing as the app's favicon |
@@ -195,7 +222,7 @@ The origin of each raster is also embedded in the file (PNG text chunk) or in a 
 ## Previewing locally
 
 ```bash
-npm run site:preview   # http://127.0.0.1:4180/ and /zh-TW/ (SITE_PORT changes the port)
+npm run site:preview   # http://127.0.0.1:4180/ and /zh-TW/, the docs at /docs/ (SITE_PORT changes the port)
 ```
 
 [`scripts/preview-site.ts`](../scripts/preview-site.ts) serves `site/` the way GitHub Pages will (the use-cases pages at `/use-cases/` and `/zh-TW/use-cases/`): the demo videos come from `docs/media/` under `/media/`, and Markdown files and `*.webp.json` sidecars are not served. To see the first-visit language redirect again, remove the `harness-relay.lang` key from the browser's local storage; to have the page follow the system's light or dark mode again, remove `harness-relay.theme` (or press the theme button until it shows the system's theme).

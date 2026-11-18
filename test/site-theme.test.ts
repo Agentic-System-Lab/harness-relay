@@ -1,15 +1,17 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { applyTheme, BAR_COLOR, nextChoice, parseTheme, shownTheme, THEME_KEY, wire } from '../site/assets/theme.js';
+import { PAGE_FILES, SITE_PAGES } from './site-pages';
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
-const PAGES = ['site/index.html', 'site/zh-TW/index.html', 'site/use-cases/index.html', 'site/zh-TW/use-cases/index.html'];
-const WORDS = {
-  'site/index.html': ['Switch to dark theme', 'Switch to light theme'],
-  'site/zh-TW/index.html': ['切換成深色主題', '切換成淺色主題'],
-  'site/use-cases/index.html': ['Switch to dark theme', 'Switch to light theme'],
-  'site/zh-TW/use-cases/index.html': ['切換成深色主題', '切換成淺色主題'],
-} as const;
+const PAGES = PAGE_FILES;
+/** The theme button's words on each page, in its language. */
+const WORDS = Object.fromEntries(
+  SITE_PAGES.map(({ file, lang }) => [
+    file,
+    lang === 'en' ? ['Switch to dark theme', 'Switch to light theme'] : ['切換成深色主題', '切換成淺色主題'],
+  ]),
+);
 /** How far a page is below the site's top: its path back to `assets/`. */
 const up = (page: string) => '../'.repeat(page.split('/').length - 2);
 
@@ -274,8 +276,9 @@ describe("the landing page's theme in its styles and pages", () => {
       const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
       return (hi + 0.05) / (lo + 0.05);
     };
-    // Every pill on the pages is in a message's head, in the card of one of the three agents, or in a use case's
-    // list of what ran (`.usecase-facts`, on the page itself), its agent's helper class on its item...
+    // Every pill on the pages is in a message's head, in the card of one of the three agents (the home pages have one
+    // of each), or in a use case's list of what ran (`.usecase-facts`, on the page itself), its agent's helper class on
+    // its item...
     for (const page of PAGES) {
       const html = read(page);
       const placed = [
@@ -284,11 +287,12 @@ describe("the landing page's theme in its styles and pages", () => {
         ),
       ];
       const facts = [...html.matchAll(/<ul class="usecase-facts"[^>]*>(.*?)<\/ul>/g)].flatMap((m) => [
-        ...m[1].matchAll(/<li class="t-(claude|codex|grok)"><span class="pill">/g),
+        ...m[1].matchAll(/<li class="t-(claude|codex|grok|antigravity|copilot)"><span class="pill">/g),
       ]);
-      if (page.includes('use-cases')) expect(placed, page).toEqual([]);
-      else expect(placed.map((m) => m[1]).sort(), page).toEqual(['claude', 'codex', 'grok']);
-      expect(html.match(/class="pill[" ]/g), page).toHaveLength(placed.length + facts.length);
+      const home = SITE_PAGES.find((p) => p.file === page)?.path === '';
+      if (home) expect(placed.map((m) => m[1]).sort(), page).toEqual(['claude', 'codex', 'grok']);
+      else if (page.includes('use-cases')) expect(placed, page).toEqual([]);
+      expect(html.match(/class="pill[" ]/g) ?? [], page).toHaveLength(placed.length + facts.length);
     }
     // ...so its tint is over the card's background (`.ui`, the page's), or the page's, with nothing in between.
     expect(block('.ui {')).toContain('background: var(--bg);');
@@ -303,7 +307,7 @@ describe("the landing page's theme in its styles and pages", () => {
     const tint = pill.join('\n').match(/^background: color-mix\(in srgb, var\(--agent, var\(--muted\)\) (\d+)%, transparent\);$/m);
     expect(tint).not.toBeNull();
     const share = Number(tint![1]) / 100;
-    for (const agent of ['claude', 'codex', 'grok']) {
+    for (const agent of ['claude', 'codex', 'grok', 'antigravity', 'copilot']) {
       // Which tokens the agent's helper class gives the pill.
       const helper = block(`.t-${agent} {`);
       const token = (name: string) => {
@@ -358,7 +362,7 @@ describe("the landing page's theme in its styles and pages", () => {
       // After the GitHub button, and the last thing in the header.
       expect(tools.indexOf(button![0]), page).toBeGreaterThan(tools.indexOf('href="https://github.com/Agentic-System-Lab/harness-relay"'));
       expect(tools.slice(tools.indexOf(button![0]) + button![0].length).trim(), page).toMatch(/^<\/div>\s*<\/div>\s*$/);
-      const [toDark, toLight] = WORDS[page as keyof typeof WORDS];
+      const [toDark, toLight] = WORDS[page];
       expect(button![1], page).toBe(`data-to-dark="${toDark}" data-to-light="${toLight}" aria-label="${toDark}"`);
       expect(button![2], page).toContain('<use href="#i-moon" />');
       expect(button![2], page).toContain('<use href="#i-sun" />');

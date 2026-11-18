@@ -2,7 +2,7 @@
 
 # Harness Relay
 
-**網站：** https://agentic-system-lab.github.io/harness-relay/zh-TW/
+**網站：** https://agentic-system-lab.github.io/harness-relay/zh-TW/ · **文件：** https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1)
 
@@ -32,18 +32,20 @@
 
 ## 使用情境
 
-交給團隊的十種工作，每件都是實際執行的錄影，附章節，放在[官網](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/)：
+交給團隊的十二種工作，每件都是實際執行的錄影，附章節，放在[官網](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/)：
 
 - **[一個 bug 三種修法，留下最好的](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#fix-a-bug)**：在平行模式下，Claude Code、Codex 和 Grok 各在自己的 git worktree 裡修好失敗的測試；你看過差異，把其中一個套用到工作目錄。
 - **[把客戶訪談變成產品規格](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#product-spec)**：附上五份客戶訪談；在接力模式下，一位整理痛點，下一位寫 PRD，最後一位挑戰它；動筆之前，他們會先問你要先為哪一群客戶做。
 - **[讀完競品，再寫上市文案](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#launch-copy)**：在唯讀模式下，agent 用 Harness Relay 自己的瀏覽器讀三家競品的價格頁，輪流寫出標語和上市貼文；再分支對話試另一種語氣。
 - **[月結對帳：三份各自對，再比對](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#reconcile-accounts)**：附上銀行對帳單和現金帳；在平行模式下，三位 agent 各自唯讀對帳，首席 agent 審閱比對每位的結果，標出該由你親自確認的事。
 - **[追逾期帳款，追到收齊為止](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#collect-payments)**：每個工作日 09:00 的自動任務，設定了要追蹤的目標，用 Harness Relay 自己的工具讀你的信、寫提醒信，信在待送出匣等你按「送出」；每張發票都處理完，它就停下。
+- **[每場客戶會議，都有備而來](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#call-brief)**：行事曆上每場客戶會議開始前半小時，自動任務開一段新對話，把活動當作資料交給團隊；agent 唯讀地用 Harness Relay 自己的工具讀上次會議的紀錄和客戶的信，算出使用量，其中一位扮演客戶的財務長。
 - **[研究怎麼說，每個來源都附上](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#literature-review)**：在唯讀模式下，agent 上網搜尋、讀研究，以圓桌辯論證據，寫出每個來源都附連結的摘要；首席 agent 審閱會標出意見不同之處。
 - **[出一份小考，先讓學生試考](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#write-a-quiz)**：附上課文；在接力模式下，一位寫考卷和解答，下一位像學生一樣作答，最後一位批改，不清楚的題目會退回改寫。
 - **[用自己的模型伺服器修訂合約](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#contract-review)**：每位 agent，連首席 agent 在內，都跑在你自己 vLLM 上的 Qwen3.8 27B；在接力模式下，一位改掉廠商草稿中每一條偏離審閱準則的條款，下一位檢查每處修改，最後一位寫說明，回覆的差異就是修訂紀錄。
 - **[告警一響，就開始排查](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#triage-an-alert)**：有 webhook 的自動任務，每次監控系統呼叫就開一段新對話；agent 唯讀地讀告警、log 和部署紀錄，找出最可能的原因，完成時鈴鐺會通知你。
 - **[易用性測試前，先審一輪畫面](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#design-review)**：附上三張截圖；在平行模式下，每位 agent 從自己的角度（無障礙、版面、文字）唯讀審查，列出最該先改的問題。
+- **[英文一改，譯文就跟上](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#translate-strings)**：自動任務等 `locales/en.json` 變動；在接力模式下，Antigravity 把新字串翻成繁體中文和日文，Copilot 不看英文把它們翻回英文，Claude Code 對照檢查，你在回覆中途補充的訊息也會送到他們手上。
 
 ## 功能
 
@@ -119,6 +121,8 @@ agent 會修改你的檔案、執行指令，所以 Harness Relay 讓它們只�
 其他指令（端對端測試、桌面 app、網站、示範影片、[檢查 agent CLI 的新版本](docs/developer-guide.zh-TW.md#檢查-cli-的新版本)）都在[開發者說明](docs/developer-guide.zh-TW.md#執行)，也說明了 [CI](docs/developer-guide.zh-TW.md#持續整合ci) 會執行什麼。
 
 ## 文件
+
+想學會使用 Harness Relay，從[網站上的文件](https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/)開始，每項工作一頁。下面的文件則說明每個細節，以及它怎麼運作。
 
 | | English | 繁體中文 |
 | --- | --- | --- |

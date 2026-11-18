@@ -2,7 +2,7 @@
  * Records the website's use cases again (`npm run use-cases`). See "Recording the use cases" in
  * docs/developer-guide.md.
  *
- *   npm run use-cases                                  record, share, cut and publish all ten, both languages
+ *   npm run use-cases                                  record, share, cut and publish all twelve, both languages
  *   npm run use-cases -- record --case fix-a-bug       one step, one use case (repeatable), or one language
  *   npm run use-cases -- record --dry                  check each start page and setup, without agents
  *

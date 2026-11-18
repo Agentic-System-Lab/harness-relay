@@ -7,6 +7,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { escapeText, foldLine } from '../../../src/server/connectors/caldav';
 import type { DemoLang } from '../common';
 
 /** Writes `files` (path → text) under `dir`. */
@@ -665,16 +666,22 @@ interface Mail {
   subject: string;
   body: string;
   sent: Date;
+  /** Others it went to besides the mailbox's owner. */
+  cc?: [string, string][];
 }
 
-/** A message as the IMAP server sends it: UTF-8 bytes in a latin1 string, as the stand-in server keeps them. */
-function raw(uid: number, m: Mail): { uid: number; raw: string } {
+/**
+ * A message as the IMAP server sends it: UTF-8 bytes in a latin1 string, as the stand-in server keeps them.
+ * `to`: the mailbox's owner (the studio's by default); `id`: what its Message-IDs start with.
+ */
+function raw(uid: number, m: Mail, to: { name: string; address: string } = ME, id = 'studio'): { uid: number; raw: string } {
   const text = [
     `Date: ${m.sent.toUTCString().replace('GMT', '+0000')}`,
     `From: ${person(...m.from)}`,
-    `To: ${person(ME.name, ME.address)}`,
+    `To: ${person(to.name, to.address)}`,
+    ...(m.cc?.length ? [`Cc: ${m.cc.map((c) => person(...c)).join(', ')}`] : []),
     `Subject: ${header(m.subject)}`,
-    `Message-ID: <studio-${uid}@lumenoak.example>`,
+    `Message-ID: <${id}-${uid}@${to.address.split('@')[1]}>`,
     'MIME-Version: 1.0',
     'Content-Type: text/plain; charset=utf-8',
     'Content-Transfer-Encoding: 8bit',
@@ -796,6 +803,268 @@ export function studioLaterMail(lang: DemoLang): { uid: number; raw: string }[] 
     },
   ];
   return by(lang, en, zh).map((m, i) => raw(i + 4, m));
+}
+
+// --- A call brief: a renewal call with a customer who wants fewer seats ---------------------------
+
+/** The account manager whose mail and calendar the stand-in servers hold. */
+export const REP = {
+  name: 'Jordan Lee',
+  address: 'jordan@brightdesk.example',
+  user: 'jordan@brightdesk.example',
+  pass: 'demo-app-password',
+};
+
+const DANA = 'dana@harborpine.example';
+const SAM = 'sam@harborpine.example';
+
+/** A date as the account notes write it. */
+const longDate = (lang: DemoLang, d: Date) =>
+  by(
+    lang,
+    `${d.getDate()} ${d.toLocaleString('en-GB', { month: 'long' })} ${d.getFullYear()}`,
+    `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日`,
+  );
+
+/** When the last quarterly review with Harbor & Pine was. */
+const QBR = () => at(-43, 10);
+
+/** The account manager's folder: each customer's notes and weekly usage, and what may be offered at a renewal. */
+export function renewals(lang: DemoLang): Record<string, string> {
+  const qbr = longDate(lang, QBR());
+  const weeks = ['08-24', '08-31', '09-07', '09-14', '09-21', '09-28', '10-05', '10-12', '10-19', '10-26', '11-02', '11-09'];
+  const active = [41, 40, 41, 39, 40, 38, 36, 33, 32, 31, 31, 31];
+  const resolved = [1180, 1205, 1192, 1240, 1228, 1251, 1262, 1270, 1288, 1301, 1295, 1310];
+  const reply = [92, 90, 88, 87, 86, 85, 85, 84, 85, 84, 85, 84];
+  const usage = [
+    by(
+      lang,
+      'week_starting,seats,weekly_active_users,conversations_resolved,median_first_reply_min',
+      '週起始日,席次,每週活躍人數,已解決對話,首次回覆中位數（分鐘）',
+    ),
+    ...weeks.map((w, i) => `2026-${w},42,${active[i]},${resolved[i]},${reply[i]}`),
+    '',
+  ].join('\n');
+  return {
+    'PRICING.md': by(
+      lang,
+      [
+        '# Pricing, and what you may offer at a renewal',
+        '',
+        '- **Team plan**: USD 40.50 per seat a month from 1 December 2026 (USD 37.50 before: +8 %, announced on 1 September). No SSO.',
+        '- **Business plan**: USD 46 per seat a month: the Team plan, plus SSO (SAML, Microsoft 365, Google) and audit logs.',
+        '',
+        'At a renewal you may offer, without asking your manager:',
+        '',
+        '- up to 10 % off the list price for a two-year term;',
+        '- last year’s price for one more year to a customer who moves up to the Business plan;',
+        '- fewer seats, down to the weekly active users plus 10 % (rounded up), no lower.',
+        '',
+        'Anything else goes to Morgan (sales manager) first.',
+        '',
+      ],
+      [
+        '# 價格，以及續約時可以給的條件',
+        '',
+        '- **Team 方案**：2026 年 12 月 1 日起每席每月 NT$1,350（之前 NT$1,250：漲 8%，9 月 1 日已公告）。不含 SSO。',
+        '- **Business 方案**：每席每月 NT$1,550：Team 方案的全部，加上 SSO（SAML、Microsoft 365、Google）和稽核紀錄。',
+        '',
+        '續約時，不必先問主管就可以給：',
+        '',
+        '- 簽兩年約，最多打九折；',
+        '- 升級到 Business 方案的客戶，再維持一年去年的價格；',
+        '- 減少席次，最少到每週活躍人數加 10%（無條件進位），不能再少。',
+        '',
+        '其他條件都要先找業務主管 Morgan。',
+        '',
+      ],
+    ).join('\n'),
+    'accounts/harbor-pine.md': by(
+      lang,
+      [
+        '# Harbor & Pine Clinics',
+        '',
+        'Four family clinics in Portland. A Brightdesk customer since December 2024: their front desks answer patients’ messages and calls in it.',
+        '',
+        '- **Plan**: Team, 42 seats at USD 37.50 per seat a month, billed yearly (USD 18,900 a year)',
+        '- **Renews**: 15 December 2026, for one year, at the new list price unless we agree otherwise',
+        `- **People**: Dana Ortiz, operations lead, our champion (${DANA}); Sam Whitaker, CFO, who signs (${SAM})`,
+        '- **Open tickets**: #4471 SSO with their Microsoft 365; #4502 the monthly reports export times out',
+        '',
+        '## Notes',
+        '',
+        `- ${qbr}, quarterly review: Dana is happy with the response times. Sam joined for ten minutes. Notes in the calendar event.`,
+        '- Early November: Dana mentioned that two of the clinics merged their front desks in October.',
+        '',
+      ],
+      [
+        '# 港松診所',
+        '',
+        '台北四家家醫科診所。2024 年 12 月起使用 Brightdesk：各診所櫃台用它回覆病患的訊息和電話。',
+        '',
+        '- **方案**：Team，42 席，每席每月 NT$1,250，年繳（每年 NT$630,000）',
+        '- **續約**：2026 年 12 月 15 日，一年，除非另有約定，否則用新的牌價',
+        `- **聯絡人**：陳怡君，營運主管，最支持我們的人（${DANA}）；黃志明，財務長，簽約的人（${SAM}）`,
+        '- **未結案工單**：#4471 用他們的 Microsoft 365 做 SSO；#4502 每月報表匯出逾時',
+        '',
+        '## 筆記',
+        '',
+        `- ${qbr}，季度檢討：怡君對回覆速度很滿意。志明參加了十分鐘。會議紀錄在行事曆的活動裡。`,
+        '- 11 月初：怡君提到 10 月有兩家診所的櫃台合併了。',
+        '',
+      ],
+    ).join('\n'),
+    'accounts/harbor-pine-usage.csv': usage,
+    'accounts/kestrel-labs.md': by(
+      lang,
+      [
+        '# Kestrel Labs',
+        '',
+        'A 60-person hardware start-up. Business plan, 18 seats, renews on 3 March 2027. Happy; asked about the new AI replies.',
+        '',
+      ],
+      ['# 紅隼實驗室', '', '60 人的硬體新創。Business 方案，18 席，2027 年 3 月 3 日續約。滿意；問過新的 AI 自動回覆。', ''],
+    ).join('\n'),
+  };
+}
+
+/** The account manager's mailbox: the customer's two mails before the call, support's, and one about something else. */
+export function renewalMailbox(lang: DemoLang): { uid: number; raw: string }[] {
+  const en: Mail[] = [
+    {
+      from: ['Dana Ortiz', DANA],
+      subject: 'Before our renewal call',
+      body: 'Hi Jordan,\n\nThanks for setting up the renewal call. Sam, our CFO, will join this time: he wants to understand why the price goes up 8 % in December.\n\nAlso, SSO is a must for us before our HIPAA audit in February. Is it part of our plan?\n\nDana\nOperations, Harbor & Pine Clinics',
+      sent: at(-21, 9, 14),
+    },
+    {
+      from: ['Sam Whitaker', SAM],
+      cc: [['Dana Ortiz', DANA]],
+      subject: 'Brightdesk renewal: our position',
+      body: 'Jordan,\n\nOur numbers show 31 people using Brightdesk each week, not 42. We would like to renew 30 seats at this year’s price.\n\nIf that is not possible, we will look at other options before 15 December.\n\nSam Whitaker\nCFO, Harbor & Pine Clinics',
+      sent: at(-8, 16, 3),
+    },
+    {
+      from: ['Priya Nair', 'priya@brightdesk.example'],
+      subject: 'Fixed: #4502, the reports export for Harbor & Pine',
+      body: 'Hi Jordan,\n\nThe monthly reports export no longer times out: the fix went out in today’s release, and Dana confirmed her October report downloaded.\n\nSSO (#4471) stays a Business plan feature.\n\nPriya\nBrightdesk Support',
+      sent: at(-6, 11, 30),
+    },
+    {
+      from: ['Sales Weekly', 'news@salesweekly.example'],
+      subject: 'This week: five ways to open a renewal call',
+      body: 'Five ways to open a renewal call, and the one question to never ask first.',
+      sent: at(-1, 8, 0),
+    },
+  ];
+  const zh: Mail[] = [
+    {
+      from: ['陳怡君', DANA],
+      subject: '續約會議之前',
+      body: 'Jordan 你好：\n\n謝謝你安排續約會議。這次我們的財務長黃志明也會參加：他想知道為什麼 12 月起價格要漲 8%。\n\n另外，2 月的醫療資安稽核之前，我們一定要有 SSO。我們的方案有包含嗎？\n\n怡君\n港松診所 營運',
+      sent: at(-21, 9, 14),
+    },
+    {
+      from: ['黃志明', SAM],
+      cc: [['陳怡君', DANA]],
+      subject: 'Brightdesk 續約：我們的立場',
+      body: 'Jordan：\n\n我們的數字顯示，每週使用 Brightdesk 的是 31 人，不是 42 人。我們希望用今年的價格續約 30 席。\n\n如果做不到，我們會在 12 月 15 日之前看看其他選擇。\n\n黃志明\n港松診所 財務長',
+      sent: at(-8, 16, 3),
+    },
+    {
+      from: ['蔡佩琪', 'priya@brightdesk.example'],
+      subject: '已修好：#4502，港松診所的報表匯出',
+      body: 'Jordan 你好：\n\n每月報表匯出不會再逾時了：修正已經在今天的版本上線，怡君也確認她 10 月的報表下載成功。\n\nSSO（#4471）仍然是 Business 方案的功能。\n\n佩琪\nBrightdesk 客服',
+      sent: at(-6, 11, 30),
+    },
+    {
+      from: ['業務週報', 'news@salesweekly.example'],
+      subject: '本週：開場續約會議的五種方法',
+      body: '開場續約會議的五種方法，以及千萬別第一個問的問題。',
+      sent: at(-1, 8, 0),
+    },
+  ];
+  return by(lang, en, zh).map((m, i) => raw(i + 1, m, REP, 'renewals'));
+}
+
+/** A moment in iCalendar's UTC form. */
+const icsUtc = (d: Date) =>
+  d
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d{3}/, '');
+
+/** One event as a calendar file, as a CalDAV server holds it. */
+function vevent(e: {
+  uid: string;
+  summary: string;
+  start: Date;
+  minutes: number;
+  location?: string;
+  description?: string;
+  attendees: string[];
+}): string {
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Brightdesk demo//Calendar//EN',
+    'BEGIN:VEVENT',
+    `UID:${e.uid}`,
+    `DTSTAMP:${icsUtc(new Date())}`,
+    `DTSTART:${icsUtc(e.start)}`,
+    `DTEND:${icsUtc(new Date(e.start.getTime() + e.minutes * 60_000))}`,
+    `SUMMARY:${escapeText(e.summary)}`,
+    ...(e.location ? [`LOCATION:${escapeText(e.location)}`] : []),
+    ...(e.description ? [`DESCRIPTION:${escapeText(e.description)}`] : []),
+    `ORGANIZER:mailto:${REP.address}`,
+    ...e.attendees.map((a) => `ATTENDEE;PARTSTAT=ACCEPTED:mailto:${a}`),
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ];
+  return lines.map(foldLine).join('\r\n') + '\r\n';
+}
+
+/** What the title of a customer call starts with: the automation waits for the events whose title has it. */
+export const CALL_TITLE = { en: 'Customer call', 'zh-TW': '客戶會議' } as const;
+
+/** The calendar before the renewal call is near: the last quarterly review with the customer, and an internal meeting soon. */
+export function renewalCalendar(lang: DemoLang): string[] {
+  const soon = new Date(Math.ceil((Date.now() + 10 * 60_000) / 300_000) * 300_000);
+  return [
+    vevent({
+      uid: 'qbr-harbor-pine@brightdesk.example',
+      summary: by(lang, `${CALL_TITLE.en}: Harbor & Pine quarterly review`, `${CALL_TITLE['zh-TW']}：港松診所季度檢討`),
+      start: QBR(),
+      minutes: 45,
+      location: by(lang, 'Video call', '視訊會議'),
+      description: by(
+        lang,
+        'Dana: median first reply down from 3 h 10 min to 1 h 25 min since they started; the front desks like the shared inbox. Needs SSO before their HIPAA audit in February. Sam (CFO) joined for ten minutes and asked why the price goes up in December. Next step: a renewal call with both of them.',
+        '怡君：開始使用後，首次回覆中位數從 3 小時 10 分降到 1 小時 25 分；櫃台很喜歡共用收件匣。2 月醫療資安稽核前需要 SSO。財務長志明參加了十分鐘，問 12 月為什麼漲價。下一步：和他們兩位開續約會議。',
+      ),
+      attendees: [DANA, SAM, REP.address],
+    }),
+    vevent({
+      uid: 'pipeline-review@brightdesk.example',
+      summary: by(lang, 'Pipeline review', '業績檢討'),
+      start: soon,
+      minutes: 30,
+      attendees: ['morgan@brightdesk.example', REP.address],
+    }),
+  ];
+}
+
+/** The renewal call, 24 to 29 minutes from now: added once the automation has checked the calendar once. */
+export function renewalCall(lang: DemoLang): string {
+  return vevent({
+    uid: 'renewal-harbor-pine@brightdesk.example',
+    summary: by(lang, `${CALL_TITLE.en}: Harbor & Pine renewal`, `${CALL_TITLE['zh-TW']}：港松診所續約`),
+    start: new Date(Math.ceil((Date.now() + 24 * 60_000) / 300_000) * 300_000),
+    minutes: 30,
+    location: by(lang, 'Video call', '視訊會議'),
+    description: by(lang, 'Renewal on 15 December: seats, price, SSO.', '12 月 15 日續約：席次、價格、SSO。'),
+    attendees: [DANA, SAM, REP.address],
+  });
 }
 
 // --- A literature review: the question leadership asked -------------------------------------------
@@ -1267,4 +1536,129 @@ export function signupScreens(lang: DemoLang): Record<string, string> {
     [T.file[1]!]: page(form('', false)),
     [T.file[2]!]: page(form(T.typed, true)),
   };
+}
+
+// --- Localization: Fernway's strings, in English, Traditional Chinese and Japanese -----------------
+
+/** Fernway's strings as they are before the new screen: the welcome and sign-up screens, in each language. */
+const FERNWAY_STRINGS = {
+  en: {
+    'welcome.title': 'Every plant, thriving',
+    'welcome.body': 'Fernway reminds you when to water, feed and repot each of your plants, and tells you why a leaf turns yellow.',
+    'welcome.start': 'Get started',
+    'welcome.signIn': 'I already have an account',
+    'signup.title': 'Create your account',
+    'signup.name': 'Full name',
+    'signup.email': 'Email',
+    'signup.password': 'Password',
+    'signup.terms': 'I agree to the <terms>Terms</terms> and the <privacy>Privacy Policy</privacy>',
+    'signup.create': 'Create account',
+    'signup.google': 'Continue with Google',
+    'signup.emailInvalid': 'Enter an email address like name@example.com',
+  },
+  'zh-TW': {
+    'welcome.title': '每一盆植物，都長得好',
+    'welcome.body': 'Fernway 會提醒你每盆植物該澆水、施肥和換盆的時間，也告訴你葉子為什麼變黃。',
+    'welcome.start': '開始使用',
+    'welcome.signIn': '我已經有帳號',
+    'signup.title': '建立帳號',
+    'signup.name': '姓名',
+    'signup.email': '電子郵件',
+    'signup.password': '密碼',
+    'signup.terms': '我同意<terms>服務條款</terms>與<privacy>隱私權政策</privacy>',
+    'signup.create': '建立帳號',
+    'signup.google': '使用 Google 帳號繼續',
+    'signup.emailInvalid': '請輸入電子郵件地址，例如 name@example.com',
+  },
+  ja: {
+    'welcome.title': 'どの植物も、元気に',
+    'welcome.body': 'Fernway は植物ごとに水やり・肥料・植え替えのタイミングをお知らせし、葉が黄色くなる理由も教えます。',
+    'welcome.start': 'はじめる',
+    'welcome.signIn': 'アカウントをお持ちの方',
+    'signup.title': 'アカウントを作成',
+    'signup.name': '氏名',
+    'signup.email': 'メールアドレス',
+    'signup.password': 'パスワード',
+    'signup.terms': '<terms>利用規約</terms>と<privacy>プライバシーポリシー</privacy>に同意します',
+    'signup.create': 'アカウントを作成',
+    'signup.google': 'Google で続ける',
+    'signup.emailInvalid': 'name@example.com のような形式でメールアドレスを入力してください',
+  },
+};
+
+/** The strings of the new screen, today's reminders: added to locales/en.json, as a person would. */
+const REMINDER_STRINGS = {
+  'reminders.title': 'Today',
+  'reminders.due': '{count, plural, one {# plant needs you today} other {# plants need you today}}',
+  'reminders.water': 'Water',
+  'reminders.feed': 'Feed',
+  'reminders.snooze': 'Snooze',
+  'reminders.doctor': 'Ask Plant Doctor why {plant}’s leaves are turning yellow',
+  'reminders.done': 'All done for today. See you <b>{day}</b>!',
+};
+
+/** How many strings the new screen adds. */
+export const NEW_STRINGS = Object.keys(REMINDER_STRINGS).length;
+
+const json = (o: Record<string, string>) => JSON.stringify(o, null, 2) + '\n';
+
+/** Fernway's app, its strings in three languages and the glossary they follow, in a git repository. */
+export function fernwayStrings(dir: string, lang: DemoLang): void {
+  init(dir);
+  commit(dir, 'Translate the welcome and sign-up screens', ANA('2026-11-10T15:20:00+08:00'), {
+    'README.md': by(
+      lang,
+      '# Fernway\n\nThe plant-care app. Its strings are in `locales/`: `en.json` is the source, `zh-TW.json` and `ja.json` follow it. Translators follow GLOSSARY.md.\n',
+      '# Fernway\n\n照顧植物的 app。字串在 `locales/`：`en.json` 是原文，`zh-TW.json` 和 `ja.json` 跟著它。翻譯請遵守 GLOSSARY.md。\n',
+    ),
+    'GLOSSARY.md': by(
+      lang,
+      [
+        '# Glossary and style',
+        '',
+        '## Names',
+        '',
+        '- **Fernway**: never translated.',
+        '- **Plant Doctor**: the feature that tells you why a leaf turns yellow. Its name stays in English in every language.',
+        '',
+        '## Voice',
+        '',
+        '- zh-TW: Taiwan’s usage and characters; 你, never 您.',
+        '- ja: です・ます; a button is a noun or a short verb, never 〜してください.',
+        '',
+        '## Rules',
+        '',
+        '- A button (keys ending in `.start`, `.create`, `.water`, `.feed`, `.snooze`) fits in 6 characters in zh-TW and ja.',
+        '- Keep every `{placeholder}` and `<tag>` exactly as in en.json. In an ICU plural, zh-TW and ja keep `other` only.',
+        '',
+      ],
+      [
+        '# 詞彙與風格',
+        '',
+        '## 名稱',
+        '',
+        '- **Fernway**：一律不翻。',
+        '- **Plant Doctor**：告訴你葉子為什麼變黃的功能。名稱在每種語言都保留英文。',
+        '',
+        '## 語氣',
+        '',
+        '- zh-TW：台灣用語與用字；用「你」，不用「您」。',
+        '- ja：です・ます體；按鈕用名詞或簡短動詞，不用「〜してください」。',
+        '',
+        '## 規則',
+        '',
+        '- 按鈕（key 結尾是 `.start`、`.create`、`.water`、`.feed`、`.snooze`）在 zh-TW 和 ja 都要在 6 個字以內。',
+        '- 每個 `{placeholder}` 和 `<tag>` 都要和 en.json 一模一樣。ICU 複數規則在 zh-TW 和 ja 只保留 `other`。',
+        '',
+      ],
+    ).join('\n'),
+    'locales/en.json': json(FERNWAY_STRINGS.en),
+    'locales/zh-TW.json': json(FERNWAY_STRINGS['zh-TW']),
+    'locales/ja.json': json(FERNWAY_STRINGS.ja),
+  });
+}
+
+/** You add the new screen's strings to locales/en.json, as in an editor (not committed). */
+export function addReminderStrings(dir: string): void {
+  writeFileSync(join(dir, 'locales/en.json'), json({ ...FERNWAY_STRINGS.en, ...REMINDER_STRINGS }));
 }

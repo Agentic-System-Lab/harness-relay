@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { PAGE_FILES } from './site-pages';
 
 // The landing page's header on a narrow screen: the name, the language switch and the buttons each stay on
 // one line (measured in Chromium at every width from 320px to 1300px, in both languages), and where the
@@ -28,7 +29,7 @@ describe("the landing page's header", () => {
     expect(css.match(/\.brand span \{\s*display: none;/g)).toHaveLength(1);
     // Screen readers still hear the name: the rule hides it in every one of the mark's links (the header's and
     // the footer's), so each has a label, one per language, that starts with the name it shows (WCAG's label in name).
-    for (const page of ['site/index.html', 'site/zh-TW/index.html', 'site/use-cases/index.html', 'site/zh-TW/use-cases/index.html']) {
+    for (const page of PAGE_FILES) {
       const html = read(page);
       const links = [...html.matchAll(/<a\b([^>]*\bclass="(?:[^"]*\s)?brand(?:\s[^"]*)?"[^>]*)>([\s\S]*?)<\/a>/g)].map((m) => ({
         label: m[1].match(/\baria-label="([^"]*)"/)?.[1],
@@ -66,6 +67,8 @@ describe("the landing page's header", () => {
     expect(inside(480, ':not(pre) > code')).toContain('overflow-wrap: anywhere;');
     // The approval card's buttons ("Always allow “npx tsx” in this chat") wrap.
     expect(inside(480, '.ui-approval .ui-btn')).toContain('white-space: normal;');
+    // So do the changes card's ("Apply to working directory").
+    expect(inside(480, '.ui-changes .ui-btn')).toContain('white-space: normal;');
     // The headline scales with the screen, so that the phrases it keeps whole fit.
     expect(rule('.phrase')).toContain('white-space: nowrap;');
     expect(inside(380, 'h1')).toContain('font-size: min(2.6rem, 11.4vw);');

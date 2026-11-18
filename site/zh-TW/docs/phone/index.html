@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>在手機上使用 · Harness Relay 文件</title>
+    <meta
+      name="description"
+      content="Harness Relay 文件：透過 Tailscale 在任何地方用手機打開你的對話，加到主畫面，也收得到通知。"
+    />
+    <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/phone/" />
+    <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/phone/" />
+    <link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/phone/" />
+    <link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/phone/" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141415" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Harness Relay" />
+    <meta property="og:title" content="在手機上使用 · Harness Relay 文件" />
+    <meta
+      property="og:description"
+      content="Harness Relay 在你的電腦上執行；有了 Tailscale，手機、平板或另一台電腦在任何地方都能打開同樣的對話，走 HTTPS，而且只在你自己的 tailnet 裡。從桌面 app 的選單分享、讓手機登入、加到主畫面，再開啟通知。"
+    />
+    <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/phone/" />
+    <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="zh_TW" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="../../../favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="../../../assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="../../../assets/site.css" />
+    <script>
+      document.documentElement.classList.add('js');
+      // The theme the visitor picked with the theme button (assets/theme.js), set before anything is drawn
+      // so that it does not flash. Until they pick one, the page follows the system's light or dark mode.
+      try {
+        var theme = localStorage.getItem('harness-relay.theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {}
+      // The visitor picked English last time: show the English page.
+      try {
+        if (localStorage.getItem('harness-relay.lang') === 'en') location.replace('../../../docs/phone/' + location.hash);
+      } catch (e) {}
+    </script>
+    <script src="../../../assets/site.js" defer></script>
+    <script type="module" src="../../../assets/theme.js"></script>
+    <!-- What search and answer engines read about the page (test/site-docs.test.ts keeps it in step with the page). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/phone/#webpage",
+        "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/phone/",
+        "name": "在手機上使用 · Harness Relay 文件",
+        "description": "Harness Relay 文件：透過 Tailscale 在任何地方用手機打開你的對話，加到主畫面，也收得到通知。",
+        "inLanguage": "zh-TW",
+        "isPartOf": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
+        },
+        "about": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#app"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-github" viewBox="0 0 16 16">
+          <path
+            fill="currentColor"
+            d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+          />
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+          <path d="M12 3.86 14.22 9.8l6.34.28-4.97 3.95 1.7 6.11L12 16.64l-5.29 3.5 1.7-6.11-4.97-3.95 6.34-.28Z" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2.75v1.5M12 19.75v1.5M2.75 12h1.5M19.75 12h1.5M5.46 5.46l1.06 1.06M17.48 17.48l1.06 1.06M5.46 18.54l1.06-1.06M17.48 6.52l1.06-1.06" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 13.6A8 8 0 1 1 10.4 4a6.25 6.25 0 0 0 9.6 9.6Z" />
+        </symbol>
+        <symbol id="i-mark" viewBox="0 0 32 32">
+          <circle cx="9" cy="16" r="6" fill="#d97757" />
+          <circle cx="23" cy="10" r="5" fill="#10a37f" />
+          <circle cx="23" cy="23" r="5" fill="#7c5cff" />
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6.5 9.5 5.5 5.5 5.5-5.5" />
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.75" />
+          <path d="M12 11v5.5M12 7.6v.1" />
+        </symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M12 2.5c.8 5.9 3.6 8.7 9.5 9.5-5.9.8-8.7 3.6-9.5 9.5-.8-5.9-3.6-8.7-9.5-9.5 5.9-.8 8.7-3.6 9.5-9.5Z" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.7 7 9 4.1-1.3 7-4.7 7-9V6.2Z" />
+          <path d="m9 12 2.2 2.2L15.2 10" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
+        </symbol>
+        <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+        </symbol>
+        <symbol id="i-os-win" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+          <path d="M12 4.5v15M3.5 12h17" />
+        </symbol>
+        <symbol id="i-os-linux" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3c-2.3 0-3.6 1.9-3.6 4.4 0 1.5.4 2.4-.7 3.8C6.4 12.9 5.4 14.8 5.4 17c0 2.6 2.9 4 6.6 4s6.6-1.4 6.6-4c0-2.2-1-4.1-2.3-5.8-1.1-1.4-.7-2.3-.7-3.8C15.6 4.9 14.3 3 12 3Z" />
+          <path d="M9.6 14.6c0-1.6 1-2.7 2.4-2.7s2.4 1.1 2.4 2.7v1.6c0 1.5-1 2.6-2.4 2.6s-2.4-1.1-2.4-2.6Z" />
+          <path d="M10.6 9.2 12 10.3l1.4-1.1" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <a class="skip" href="#main">跳到主要內容</a>
+
+    <header class="site-header">
+      <div class="wrap header-row">
+        <a class="brand" href="../../" aria-label="Harness Relay 首頁">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="site-nav" aria-label="頁面段落">
+          <a href="../../#demo">示範</a>
+          <a href="../../use-cases/">使用情境</a>
+          <a href="../../#modes">對話模式</a>
+          <a href="../../#teams">團隊</a>
+          <a href="../../#safety">安全</a>
+          <a href="../../#start">快速開始</a>
+          <a href="../" aria-current="true">文件</a>
+        </nav>
+        <div class="header-tools">
+          <nav class="lang" aria-label="語言">
+            <a href="../../../docs/phone/" hreflang="en" lang="en" data-lang="en">EN</a>
+            <a href="./" hreflang="zh-TW" lang="zh-Hant-TW" aria-current="page" data-lang="zh-TW">中文</a>
+          </nav>
+          <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            <span class="gh-label">GitHub</span>
+            <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> 顆星</span></span>
+          </a>
+          <button class="btn btn-ghost theme-toggle" type="button" data-theme-toggle data-to-dark="切換成深色主題" data-to-light="切換成淺色主題" aria-label="切換成深色主題">
+            <svg class="i-moon" aria-hidden="true"><use href="#i-moon" /></svg>
+            <svg class="i-sun" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="wrap doc-layout">
+      <nav class="doc-nav" aria-label="文件" data-doc-nav>
+        <button class="doc-nav-toggle" type="button" aria-expanded="false" aria-controls="doc-pages" data-doc-nav-toggle>
+          <span>文件</span>
+          <b>在手機上使用</b>
+          <svg aria-hidden="true"><use href="#i-chevron" /></svg>
+        </button>
+        <div class="doc-nav-list" id="doc-pages">
+          <p class="doc-nav-title">開始使用</p>
+          <ul>
+            <li><a href="../">總覽</a></li>
+            <li><a href="../install/">安裝</a></li>
+            <li><a href="../agents/">連接你的 agent</a></li>
+            <li><a href="../first-chat/">第一個對話</a></li>
+          </ul>
+          <p class="doc-nav-title">和團隊一起工作</p>
+          <ul>
+            <li><a href="../teams/">團隊與對話模式</a></li>
+            <li><a href="../permissions/">權限與核准</a></li>
+            <li><a href="../conversations/">對話</a></li>
+            <li><a href="../automations/">自動任務</a></li>
+            <li><a href="../tools/">工具</a></li>
+          </ul>
+          <p class="doc-nav-title">更多</p>
+          <ul>
+            <li><a href="../phone/" aria-current="page">在手機上使用</a></li>
+            <li><a href="../troubleshooting/">疑難排解</a></li>
+          </ul>
+          <a class="doc-nav-out" href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/README.zh-TW.md#文件">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            GitHub 上的技術文件
+          </a>
+        </div>
+      </nav>
+
+      <header class="doc-head">
+        <h1>在手機上使用</h1>
+        <p class="lead">
+          Harness Relay 在你的電腦上執行，你的 agent、專案與登入都在那裡。透過
+          <a href="https://tailscale.com">Tailscale</a>（只連接你自己裝置的私人網路），你可以在任何地方用手機、平板或另一台電腦打開同樣的對話，不必把
+          Harness Relay 開放到 Wi-Fi 或網際網路。
+        </p>
+      </header>
+
+      <nav class="doc-toc" aria-label="本頁內容">
+        <p class="doc-toc-title">本頁內容</p>
+        <ol>
+          <li><a href="#share">分享到手機</a></li>
+          <li><a href="#sign-in">讓手機登入</a></li>
+          <li><a href="#home-screen">加到主畫面</a></li>
+          <li><a href="#notifications">手機上的通知</a></li>
+          <li><a href="#keep-running">讓它一直連得到</a></li>
+          <li><a href="#security">誰連得到它</a></li>
+        </ol>
+      </nav>
+
+      <div class="doc-body">
+        <section id="share" aria-labelledby="share-title">
+          <h2 id="share-title">分享到手機</h2>
+          <p>需要準備：</p>
+          <ul>
+            <li>執行 Harness Relay 的電腦與手機都裝好 Tailscale（手機用 Tailscale App），並登入同一個 tailnet。</li>
+            <li>在 Tailscale 管理後台的 <b>DNS</b> 頁開啟 MagicDNS 與 HTTPS 憑證。</li>
+          </ul>
+          <p>接著用桌面 app：</p>
+          <ol class="doc-steps">
+            <li>打開 Harness Relay 的選單（macOS 在選單列，Windows 與 Linux 在系統匣，圖示是三個圓點），選<b>分享到手機（Tailscale）…</b>。</li>
+            <li>第一次分享時，如果你的 tailnet 還不允許分享或 HTTPS，app 會在瀏覽器打開 Tailscale 的對應頁面。在那裡允許之後，再選一次<b>分享到手機</b>。</li>
+            <li>app 會顯示手機要打開的網址，例如 <code>https://my-computer.tail1234.ts.net</code>。之後在同一個選單選<b>複製手機網址</b>就能複製它。</li>
+          </ol>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-info" /></svg>
+            <div>
+              <p>
+                在 Mac 上，裝好 Tailscale App 就夠了。在 Linux 上，如果 Tailscale 不允許你的帳號修改設定，app 會顯示要先執行一次的指令。這台電腦原本分享到 tailnet 的其他服務都不受影響。
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="sign-in" aria-labelledby="sign-in-title">
+          <h2 id="sign-in-title">讓手機登入</h2>
+          <p>
+            在手機上開啟 Tailscale，打開那個網址。第一次會顯示登入頁：在電腦上打開<b>設定 → 已登入的瀏覽器 → 讓另一個裝置登入</b>，把它顯示的代碼輸入手機（或在手機上打開它的連結）。之後對話、設定與語音輸入都和在電腦上一樣，版面會配合小螢幕調整。
+          </p>
+          <ul>
+            <li><b>工作目錄</b>是那台電腦上的資料夾，不是手機上的。</li>
+            <li><b>agent 做的檔案</b>（PDF、簡報、試算表）：點回覆裡的連結，或在<b>檔案</b>裡按<b>下載</b>，檔案就會存到手機上。</li>
+            <li><b>對話會繼續跑</b>：手機鎖定或關掉頁面時，對話仍在電腦上進行。回來後頁面會補上進度。</li>
+            <li><b>用手機登入 agent</b>：選會顯示連結或代碼的方式。Codex 的 <b>ChatGPT 瀏覽器登入</b>會在電腦上開瀏覽器，請改用 <b>ChatGPT 裝置碼</b>。</li>
+          </ul>
+        </section>
+
+        <section id="home-screen" aria-labelledby="home-screen-title">
+          <h2 id="home-screen-title">加到主畫面</h2>
+          <p>把圖示（Harness Relay 的三個圓點）放到主畫面，點一下就會像 App 一樣全螢幕打開對話。手機的 Tailscale 要開著、而且連得到那台電腦，圖示才能用。</p>
+          <h3>iPhone 與 iPad</h3>
+          <ol class="doc-steps">
+            <li>用 Safari 打開網址。</li>
+            <li>點<b>分享</b>（看不到的話，先點有三個點的按鈕），再點<b>加入主畫面</b>。</li>
+            <li>如果有<b>以網頁 App 開啟</b>，保持開啟，然後點<b>加入</b>。</li>
+          </ol>
+          <h3>Android</h3>
+          <ol class="doc-steps">
+            <li>用 Chrome 打開網址。</li>
+            <li>點右上角的選單按鈕（三個點），再點<b>安裝應用程式</b>（有些版本叫<b>加到主畫面</b>或<b>安裝並建立捷徑</b>）。</li>
+            <li>點<b>安裝</b>。</li>
+          </ol>
+        </section>
+
+        <section id="notifications" aria-labelledby="notifications-title">
+          <h2 id="notifications-title">手機上的通知</h2>
+          <p>
+            想把手機放在口袋裡也知道團隊回覆完或需要你：在手機上打開<b>設定與登入 → 通知與提示音</b>，開啟<b>顯示系統通知</b>。iPhone 與 iPad 要在主畫面的圖示裡設定（iOS 16.4
+            以上）：Safari 自己的分頁收不到通知。按<b>傳送測試通知</b>可以試試看。
+          </p>
+          <p>之後即使手機鎖定、頁面關掉，手機也收得到通知，只要電腦在執行 Harness Relay 而且連得上網路。收通知不需要手機開著 Tailscale，打開對話才需要。</p>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-shield" /></svg>
+            <div>
+              <p>通知會顯示回覆的開頭，或 agent 要你核准的指令，所以可能出現在鎖定畫面上。若要保密，可以在手機的通知設定裡選擇在鎖定畫面隱藏預覽。</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="keep-running" aria-labelledby="keep-running-title">
+          <h2 id="keep-running-title">讓它一直連得到</h2>
+          <p>
+            只有電腦醒著、Harness Relay 在執行時，手機才連得到它。在 app 的選單開啟<b>登入時自動啟動</b>，重新開機後它就會再啟動；再開啟<b>執行時不讓電腦睡著</b>。MacBook 闔上螢幕時仍會睡著。
+          </p>
+          <h3>不用桌面 app 時</h3>
+          <p>
+            如果你從原始碼執行 Harness Relay，或在沒有桌面的伺服器上執行，就要自己用 <code>tailscale serve</code> 分享，再用那個網址的名稱啟動 Harness Relay。
+            <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.zh-TW.md">GitHub 上的手機連線說明</a>有這些指令，以及怎麼讓它在 Mac 或 Linux 伺服器上一直執行。
+          </p>
+        </section>
+
+        <section id="security" aria-labelledby="security-title">
+          <h2 id="security-title">誰連得到它</h2>
+          <ul>
+            <li><b>只有你 tailnet 裡的裝置</b>，而且走 HTTPS。Harness Relay 本身仍只在那台電腦上接收連線（<code>127.0.0.1</code>）；由 Tailscale 把你裝置的請求轉給它。</li>
+            <li>
+              <b>只有你登入過的瀏覽器</b>能使用它。不再使用的手機，請在<b>設定 → 已登入的瀏覽器</b>登出。如果你的 tailnet 裡還有其他人，請用 Tailscale 的存取控制，只讓你自己的裝置連到那台電腦。
+            </li>
+            <li><b>絕不要用 Tailscale Funnel</b>：它會把頁面公開到整個網際網路。</li>
+            <li>
+              <b>電腦的名稱會被公開</b>：開啟 HTTPS 後，Tailscale 會把完整名稱（例如 <code>my-computer.tail1234.ts.net</code>）記錄在公開的憑證紀錄中。不要用你想保密的電腦名稱。
+            </li>
+          </ul>
+        </section>
+
+        <aside class="doc-more" aria-label="技術細節">
+          <svg aria-hidden="true"><use href="#i-github" /></svg>
+          <div>
+            <p>手動分享、在伺服器上一直執行、用手機瀏覽 AgentsView，以及更多疑難排解，都在 GitHub 上的手機連線說明裡：</p>
+            <ul>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.zh-TW.md">用手機連線（Tailscale）</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.zh-TW.md#疑難排解">疑難排解</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#通知與提示音">通知與提示音</a></li>
+            </ul>
+          </div>
+        </aside>
+
+        <nav class="doc-pager" aria-label="頁面">
+          <a href="../tools/" rel="prev"><span>上一頁</span><b>工具</b></a>
+          <a href="../troubleshooting/" rel="next"><span>下一頁</span><b>疑難排解</b></a>
+        </nav>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-row">
+        <a class="brand" href="../../" aria-label="Harness Relay 首頁">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="footer-links" aria-label="頁尾">
+          <a href="../">文件</a>
+          <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE">Sustainable Use License</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>
