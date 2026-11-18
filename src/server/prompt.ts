@@ -82,8 +82,8 @@ function checksRules(conv: Conversation): string {
   return `\n- Team checks: once the team has answered, Harness Relay checks the team's work against these rules and tells the team what failed:\n${lines.map((l) => `  - ${l}`).join('\n')}`;
 }
 
-/** Each rule of a check list, in a line. */
-function checkRuleLines(list: CheckList, mode: Mode): string[] {
+/** Each rule of a check list, in a line (commands not on native Windows, which runs none). */
+export function checkRuleLines(list: CheckList, mode: Mode, platform: NodeJS.Platform = process.platform): string[] {
   const lines: string[] = [];
   if (list.protectedPaths?.length) {
     lines.push(
@@ -93,7 +93,7 @@ function checkRuleLines(list: CheckList, mode: Mode): string[] {
   if (list.commitPattern && mode !== 'parallel') {
     lines.push(`Every commit's subject must match this regular expression: /${list.commitPattern}/`);
   }
-  if (list.commands?.length && mode !== 'parallel') {
+  if (list.commands?.length && mode !== 'parallel' && platform !== 'win32') {
     const each = list.commands.map((c) => `\`${c.run}\`${c.cwd ? ` (in ${c.cwd})` : ''}`).join(', ');
     lines.push(
       `These commands must succeed, run by Harness Relay in the working directory with CI=1 and, below full access, without network: ${each}`,

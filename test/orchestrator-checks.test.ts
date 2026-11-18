@@ -475,6 +475,15 @@ describe('team checks: commands', () => {
     await orchestrator.send(conv.id, 'ask me');
     await finish(conv.id);
     expect(commandOf(conv).status).toBe('na');
+    // That card shows the gate, and offers to confirm it; Check again on it without confirming runs nothing.
+    expect(commandOf(conv).configChanged).toEqual(['vitest.config.ts']);
+    let ran = false;
+    orchestrator.checkCommandDeps = gated(Promise.resolve(), () => (ran = true));
+    await orchestrator.recheckChecks(conv.id, lastCard(conv).id);
+    await vi.waitFor(() => expect(commandOf(conv).status).toBe('error'));
+    expect(commandOf(conv).configChanged).toEqual(['vitest.config.ts']);
+    expect(ran).toBe(false);
+    orchestrator.checkCommandDeps = defaultCheckCommandDeps;
     fake.asking.clear();
     await orchestrator.send(conv.id, 'ANSWER: go on');
     await finish(conv.id);

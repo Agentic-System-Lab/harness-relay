@@ -471,6 +471,7 @@ const zhTW = {
   checksConfigChanged: (files: string) =>
     `團隊改到了檢查會讀的設定（${files}），還沒確認，所以先不執行；確認沒問題後按「確認後執行指令」執行。`,
   checksNetworkRefused: (hosts: string) => `沙箱裡沒有網路，它要連的主機被擋下了：${hosts}。`,
+  checksAlsoRefused: (hosts: string) => `沙箱也擋下了它要連的主機（${hosts}），但輸出看不出它是因此失敗。`,
   checksCommandsReadOnly: '唯讀權限下不執行指令檢查。',
   checksTryReadOnly: '唯讀權限下不能試跑指令：檢查不會執行指令。',
   checksInterrupted: '伺服器在指令執行中停止了，這條沒有跑完。',
@@ -1377,6 +1378,8 @@ const en: ServerMessages = {
   checksConfigChanged: (files) =>
     `The team changed settings the checks read (${files}), not confirmed yet, so they were not run: once you have looked, Confirm and run the commands runs them.`,
   checksNetworkRefused: (hosts) => `There is no network in the sandbox: the hosts it wanted were refused (${hosts}).`,
+  checksAlsoRefused: (hosts) =>
+    `The sandbox also refused hosts it wanted (${hosts}), though its output does not show that it failed for it.`,
   checksCommandsReadOnly: 'Commands are not run with read-only permission.',
   checksTryReadOnly: 'Commands cannot be tried with read-only permission: the checks run none.',
   checksInterrupted: 'The server stopped while it ran: it did not finish.',

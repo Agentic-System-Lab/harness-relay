@@ -118,7 +118,11 @@ export function sandboxDenial(output: string, platform: NodeJS.Platform): Sandbo
   }
   if (/: Operation not permitted\s*$/m.test(output)) return 'denied';
   // Python's, Go's and Rust's words for the same.
-  if (/\[Errno 1\] Operation not permitted|\S\/\S*: operation not permitted\b|Operation not permitted \(os error 1\)/.test(output))
+  if (
+    /\[Errno 1\] Operation not permitted|\b(?:open|openat|mkdir|mkdirat|remove|unlinkat|rename|stat|lstat|chmod|symlink|link|write) \/\S*: operation not permitted\b|Operation not permitted \(os error 1\)/.test(
+      output,
+    )
+  )
     return 'denied';
   return undefined;
 }
@@ -166,10 +170,13 @@ export function commandOutcome(
     ...(o.sandboxed ? {} : { unsandboxed: true }),
   };
   // The hosts the sandbox refused it say so better than its output, where a client shows a status at most.
+  // Only when its output shows a network error too: a suite's tooling may call home (telemetry) and be
+  // refused, while its tests fail for reasons of their own.
   const refused = o.sandboxed && o.refusedHosts?.length ? o.refusedHosts : undefined;
-  const denial = refused ? 'network' : o.sandboxed ? sandboxDenial(res.output, o.platform) : undefined;
-  const denialText = refused
-    ? t().checksNetworkRefused(refused.join(', '))
+  const offline = refused && NETWORK_ERROR.test(res.output) ? refused : undefined;
+  const denial = offline ? 'network' : o.sandboxed ? sandboxDenial(res.output, o.platform) : undefined;
+  const denialText = offline
+    ? t().checksNetworkRefused(offline.join(', '))
     : denial &&
       t().checksSandboxDenial(
         denial,
@@ -184,8 +191,12 @@ export function commandOutcome(
   if (res.code === 0) return base;
   if (res.code === 127) return { ...base, status: 'error', reason: t().checksCommandNotFound };
   if (denialText) return { ...base, status: 'error', reason: denialText };
-  return { ...base, status: 'failed' };
+  return { ...base, status: 'failed', ...(refused ? { reason: t().checksAlsoRefused(refused.join(', ')) } : {}) };
 }
+
+/** What a client prints when it could not reach a host (through the sandbox's proxy, or with no name service). */
+const NETWORK_ERROR =
+  /\b(?:ECONNREFUSED|ECONNRESET|EAI_AGAIN|ENOTFOUND|ETIMEDOUT|EHOSTUNREACH|E403|getaddrinfo|socket hang up|fetch failed|tunneling socket|CONNECT tunnel failed|Proxy response|proxy error|403 Forbidden|status code 403)\b/i;
 
 /** What `runCheckCommand` needs (swapped in tests). */
 export interface CheckCommandDeps {

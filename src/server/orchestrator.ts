@@ -2623,12 +2623,22 @@ export class Orchestrator {
     const skipped = conv.pause ? t().checksCommandsAtEnd : run.ws.isolated ? t().checksCommandsParallel : undefined;
     const msg = this.postChecks(
       conv,
-      checksResult([...outcomes, ...commands.map((c) => this.commandPending(c, skipped ? 'na' : 'running', skipped))], {
-        when: conv.pause ? 'pause' : 'run',
-        replyIds: replies.map((m) => m.id),
-        checkedAt: started,
-        durationMs: Date.now() - started,
-      }),
+      checksResult(
+        [
+          ...outcomes,
+          // Not run while the team waits for the user: a gate carried on shows on the card, which then offers to confirm it.
+          ...commands.map((c) => ({
+            ...this.commandPending(c, skipped ? 'na' : 'running', skipped),
+            ...(conv.pause && carried.length ? { configChanged: carried } : {}),
+          })),
+        ],
+        {
+          when: conv.pause ? 'pause' : 'run',
+          replyIds: replies.map((m) => m.id),
+          checkedAt: started,
+          durationMs: Date.now() - started,
+        },
+      ),
     );
     if (run.checks) this.store.saveChecksBaseline(conv.id, msg.id, run.checks.baseline);
     if (commands.length && !skipped) {
@@ -2753,7 +2763,8 @@ export class Orchestrator {
         }
       }
       // Still kept from running by the run's changes, until the user confirms.
-      const gated = o.confirm ? [] : [...new Set(old.checks!.outcomes.flatMap((x) => x.configChanged ?? []))];
+      // Not only the card's own: a gate an earlier result carries on holds them back as well.
+      const gated = o.confirm ? [] : this.heldGate(conv);
       const replyIds = old.checks!.replyIds;
       next = this.postChecks(
         conv,

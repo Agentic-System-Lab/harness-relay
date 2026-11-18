@@ -93,6 +93,7 @@ describe('what the sandbox refused, from the output', () => {
     expect(sandboxDenial("Error: EPERM: operation not permitted, open '/Users/u/.npmrc'", 'darwin')).toBe('denied');
     expect(sandboxDenial("PermissionError: [Errno 1] Operation not permitted: '/Users/u/x'", 'darwin')).toBe('denied');
     expect(sandboxDenial('open /Users/u/go/x: operation not permitted', 'darwin')).toBe('denied');
+    expect(sandboxDenial("expected '/admin/users: operation not permitted' to be 'ok'", 'darwin')).toBeUndefined();
     expect(sandboxDenial('Error: Operation not permitted (os error 1)', 'linux')).toBe('denied');
     expect(sandboxDenial('FAIL src/a.test.ts\nexpected 1 to be 2', 'darwin')).toBeUndefined();
     // A test's own words about a host or a permission are its own failure, not the sandbox's.
@@ -334,6 +335,25 @@ describe('running a command', () => {
     expect(await withLang('en', () => runCheckCommand({ id: 'a', run: 'npm ci' }, place({ unsandboxed: false }), offline))).toMatchObject({
       status: 'error',
       reason: expect.stringContaining('registry.npmjs.org'),
+    });
+    // A host its tooling called (telemetry, say) was refused, but its tests failed for reasons of their own.
+    const telemetry = deps({
+      sandboxCommand: vi.fn(async () => ({
+        bin: 'h',
+        args: [],
+        env: {},
+        channel: {},
+        failure: () => undefined,
+        dispose: async () => undefined,
+        run: { refusedHosts: ['telemetry.example'] },
+      })) as never,
+      runProcess: vi.fn(async () => result({ code: 1, stdout: 'FAIL src/a.test.ts\nexpected 1 to be 2' })) as never,
+    });
+    expect(
+      await withLang('en', () => runCheckCommand({ id: 'a', run: 'npm test' }, place({ unsandboxed: false }), telemetry)),
+    ).toMatchObject({
+      status: 'failed',
+      reason: expect.stringContaining('telemetry.example'),
     });
     await withLang('en', async () => {
       expect(await runCheckCommand({ id: 'a', run: 'x' }, place(), deps({ platform: 'win32' }))).toMatchObject({
