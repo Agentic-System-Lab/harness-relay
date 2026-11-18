@@ -185,6 +185,8 @@ test.describe('team checks', () => {
     await expect(card).toContainText("Checked before applying: the working directory with @Claude's result in it");
     await expect(card.locator('.plan-head .checks-status')).toHaveText('Failed');
     await expect(card).toContainText('It did not pass, so it was not applied');
+    // Checked before anything happened: not "after the fact".
+    await expect(card).not.toContainText('Checked after the fact');
     expect(existsSync(join(relay.workDir, 'secret.txt'))).toBe(false);
 
     acceptNextDialog(page);

@@ -196,7 +196,8 @@ export function ChecksCard({ msg, latest, agents, running, onRecheck, onSkip, on
             {t.checks.skip}
           </button>
         )}
-        <span className="msg-meta muted small">{t.checks.afterFact}</span>
+        {/* Before applying, nothing happened yet: the card says whether it was applied. */}
+        {c.when !== 'apply' && <span className="msg-meta muted small">{t.checks.afterFact}</span>}
       </div>
       {error && (
         <p className="small warn-text plan-note" role="alert">
