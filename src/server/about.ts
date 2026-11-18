@@ -3,7 +3,7 @@
 
 import { arch, platform, release } from 'node:os';
 import type { AboutInfo } from '../shared/types';
-import { runProcess } from './process';
+import { captureGit } from './gitProcess';
 import { RELAY_ROOT } from './protect';
 
 /** Set in the desktop app's server bundle (desktop/scripts/build.ts); not defined when run from source. */
@@ -23,13 +23,7 @@ export function versionText(bundled: string | undefined, commit: string | undefi
 /** The checkout's commit, short, when Harness Relay runs from a git checkout. */
 async function commit(): Promise<string | undefined> {
   try {
-    const r = await runProcess({
-      bin: 'git',
-      args: ['rev-parse', '--short', 'HEAD'],
-      cwd: RELAY_ROOT,
-      env: { ...process.env },
-      timeoutMs: 5_000,
-    });
+    const r = await captureGit(['rev-parse', '--short', 'HEAD'], process.env, { cwd: RELAY_ROOT, timeoutMs: 5000 });
     const sha = r.stdout.trim();
     return r.code === 0 && /^[0-9a-f]{4,40}$/.test(sha) ? sha : undefined;
   } catch {

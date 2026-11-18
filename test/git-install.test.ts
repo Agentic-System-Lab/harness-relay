@@ -33,7 +33,10 @@ function setup(platform: NodeJS.Platform, initial = false) {
   });
   const host = {
     platform,
-    env: platform === 'win32' ? { LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local', Path: 'C:\\Windows' } : { PATH: '/usr/bin:/bin' },
+    env:
+      platform === 'win32'
+        ? { LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local', Path: 'C:\\Users\\me\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Windows' }
+        : { PATH: '/usr/bin:/bin' },
     hasProgram: (path: string) => path === '/usr/bin/xcode-select' || /\\Microsoft\\WindowsApps\\winget\.exe$/i.test(path),
     hasGit,
     run,
@@ -84,6 +87,68 @@ describe('installing Git on request', () => {
     expect(await git.view('gitBash')).toMatchObject({ available: true, job: { state: 'success' } });
   });
 
+  it('runs the WinGet App Execution Alias through Windows PowerShell when Node cannot stat it', async () => {
+    const { host, linux, ready, run } = setup('win32');
+    const systemPowerShell = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+    const alias = 'C:\\Users\\me\\AppData\\Local\\Microsoft\\WindowsApps\\winget.exe';
+    const runScript = vi.fn(async () => {
+      ready();
+      return result();
+    });
+    const git = new GitInstall(linux, {
+      ...host,
+      hasProgram: (p) => p === systemPowerShell,
+      hasAlias: (p) => p === alias,
+      runScript,
+    });
+    expect(await git.view('git')).toMatchObject({ available: false, method: 'winget' });
+    await git.install('git');
+    expect(run).not.toHaveBeenCalled();
+    expect(runScript).toHaveBeenCalledExactlyOnceWith(
+      systemPowerShell,
+      ['-NoProfile', '-NonInteractive'],
+      expect.stringContaining('Git.Git'),
+      expect.objectContaining({ env: expect.objectContaining({ HARNESS_RELAY_WINGET: alias }) }),
+    );
+    await vi.waitFor(async () => expect(await git.view('git')).toMatchObject({ available: true }));
+  });
+
+  it('reports a single job to concurrent callers and waits for the installer to exit before reporting readiness', async () => {
+    const { host, linux, ready } = setup('win32');
+    let done!: (value: SpawnResult) => void;
+    const installer = new Promise<SpawnResult>((resolve) => {
+      done = resolve;
+    });
+    const run = vi.fn<typeof runProcess>(() => installer);
+    const git = new GitInstall(linux, { ...host, run });
+    const [a, b] = await Promise.all([git.install('git'), git.install('git')]);
+    expect(a.job?.state).toBe('running');
+    expect(b.job?.state).toBe('running');
+    expect(run).toHaveBeenCalledTimes(1);
+    ready();
+    expect(await git.view('git')).toMatchObject({ available: false, job: { state: 'running' } });
+    done(result());
+    await vi.waitFor(async () => expect(await git.view('git')).toMatchObject({ available: true, job: { state: 'success' } }));
+  });
+
+  it('stops a pending availability check from launching an installer during shutdown', async () => {
+    const { host, linux, run } = setup('win32');
+    let checked!: (available: boolean) => void;
+    const hasGit = () =>
+      new Promise<boolean>((resolve) => {
+        checked = resolve;
+      });
+    const git = new GitInstall(linux, { ...host, hasGit });
+    const starting = git.install('git');
+    const rejected = expect(starting).rejects.toMatchObject({ status: 503 });
+    const stopping = git.shutdown();
+    checked(false);
+    await rejected;
+    await stopping;
+    expect(run).not.toHaveBeenCalled();
+    expect(git.running()).toBe(0);
+  });
+
   it('hands off to the macOS dialog and reports Git as ready only when available', async () => {
     const { setup: git, run, ready } = setup('darwin');
     await git.install('git');
@@ -121,7 +186,9 @@ describe('installing Git on request', () => {
     const { setup: retryable, run } = setup('win32');
     run.mockResolvedValueOnce(result(1));
     await retryable.install('git');
-    expect(await retryable.view('git')).toMatchObject({ available: false, method: 'winget', job: { state: 'failed' } });
+    await vi.waitFor(async () =>
+      expect(await retryable.view('git')).toMatchObject({ available: false, method: 'winget', job: { state: 'failed' } }),
+    );
   });
 });
 
@@ -146,6 +213,15 @@ describe('finding Git without a restart or an unsolicited native installer', () 
       async () => '',
     );
     await expect(locate).resolves.toBe('/opt/homebrew/bin/git');
+  });
+
+  it('finds a newly installed Linux system Git when the server PATH omits system directories', async () => {
+    const paths = new Set(['/usr/bin/git']);
+    const env = { PATH: '/opt/relay/bin' };
+    const locate = () => gitCommand(env, 'linux', (path) => paths.has(path));
+    await expect(locate()).resolves.toBe('/usr/bin/git');
+    paths.add('/opt/relay/bin/git');
+    await expect(locate()).resolves.toBe('git');
   });
 
   it('finds a new Windows installation even before Windows updates the server process PATH', async () => {

@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 483 tests in 38 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 484 tests in 38 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -36,7 +36,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | Area | Spec | Tests | Related docs |
 | --- | --- | --- | --- |
 | [Signing in](#signing-in) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [Architecture → Signing in](../docs/architecture.md#signing-in) |
-| [The home page](#the-home-page) | [`home.spec.ts`](specs/home.spec.ts) | 5 | [User guide → Start a chat](../docs/user-guide.md#3-start-a-chat--new-chat-and-templates) |
+| [The home page](#the-home-page) | [`home.spec.ts`](specs/home.spec.ts) | 5 | [User guide → Start a chat](../docs/user-guide.md#conversation-rules) |
 | [A new chat and the lead agent's team](#a-new-chat-and-the-lead-agents-team) | [`chat.spec.ts`](specs/chat.spec.ts) | 6 | [User guide → Auto team](../docs/user-guide.md#auto-team), [Architecture → Auto team](../docs/architecture.md#auto-team) |
 | [Templates](#templates) | [`templates.spec.ts`](specs/templates.spec.ts) | 6 | [User guide → Templates](../docs/user-guide.md#templates) |
 | [Changing a chat's team](#changing-a-chats-team) | [`team.spec.ts`](specs/team.spec.ts) | 5 | [User guide → Editing the team mid-chat](../docs/user-guide.md#editing-the-team-mid-chat) |
@@ -59,7 +59,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Automations](#automations) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 9 | [User guide → Automations](../docs/user-guide.md#automations), [Architecture → Schedules](../docs/architecture.md#schedules) |
 | [Settings](#settings) | [`settings.spec.ts`](specs/settings.spec.ts) | 17 | [User guide → Signing in](../docs/user-guide.md#signing-in), [Lead agent](../docs/user-guide.md#lead-agent), [Open agents → Model backends](../docs/open-agents.md#model-backends) |
 | [Installing a CLI](#installing-a-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [User guide → Installing a CLI from Settings](../docs/user-guide.md#installing-a-cli-from-settings), [Architecture → Installing a CLI from Settings](../docs/architecture.md#installing-a-cli-from-settings) |
-| [Installing Git](#installing-git) | [`git-install.spec.ts`](specs/git-install.spec.ts) | 2 | [User guide → Git and file safety](../docs/user-guide.md#3-start-a-chat--new-chat-and-templates) |
+| [Installing Git](#installing-git) | [`git-install.spec.ts`](specs/git-install.spec.ts) | 3 | [User guide → Git and file safety](../docs/user-guide.md#conversation-rules) |
 | [What the sandboxes need](#what-the-sandboxes-need) | [`sandbox-setup.spec.ts`](specs/sandbox-setup.spec.ts) | 6 | [User guide → Setting up the sandboxes](../docs/user-guide.md#setting-up-the-sandboxes), [OS sandboxes by platform → Installing what they need from Harness Relay](../docs/sandboxing.md#installing-what-they-need-from-harness-relay) |
 | [CLIs that are scripts on Windows](#clis-that-are-scripts-on-windows) | [`windows.spec.ts`](specs/windows.spec.ts) | 5 | [Architecture → CLI adapters](../docs/architecture.md#cli-adapters) |
 | [Accounts](#accounts) | [`accounts.spec.ts`](specs/accounts.spec.ts) | 35 | [User guide → More than one account](../docs/user-guide.md#more-than-one-account), [API keys](../docs/user-guide.md#api-keys-optional), [Architecture → Accounts](../docs/architecture.md#accounts) |
@@ -415,7 +415,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 
 ## Installing Git
 
-[`git-install.spec.ts`](specs/git-install.spec.ts) intercepts the server’s Git status and installer responses. It checks the dialog opens on a Git-dependent action, can be dismissed, preserves the New chat form after installation, and offers a manual command and recheck when automatic installation is unavailable. These tests run on every platform with no real package installation.
+[`git-install.spec.ts`](specs/git-install.spec.ts) intercepts the server’s Git status and installer responses. It checks the dialog opens on a Git-dependent action, can be dismissed, preserves the New chat form after installation, offers a manual command and recheck when automatic installation is unavailable, and refreshes the Git Bash requirement in Settings even after the modal is closed. These tests run on every platform with no real package installation.
 
 ## What the sandboxes need
 
@@ -649,13 +649,14 @@ The open agents, in Harness Relay's own sandbox below full access:
 | The next turn resumes its own session | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Version and "Ready" in Settings, on the fake endpoint | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Not ready without a model backend | ✓ | — | — | — | — |
-| Installed from its card in Settings | — | — | its install failing, and cancelled (the fake npm) | — | — |
+| Installed from its card in Settings | — | Git Bash offer and refresh after Git installs (simulated) | its install failing, and cancelled (the fake npm) | — | — |
 | A member's model (the endpoint's) and effort | ✓ (no effort) | ✓ (`off`) | ✓ | ✓ | ✓ |
 | In a team of the five: answering in turn, edit mode's changes, the tool library, the CLIs' own folder for sessions | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Started through a `.cmd` launcher on Windows | ✓ (npm's, for a program) | — | ✓ (npm's, for a Node script) | — | ✓ (npm's, for a Node script) |
 
 ## Platforms and browsers
 
+- [Installing Git](#installing-git) exercises the missing-Git and Windows Git Bash flows on every tested platform through simulated API responses.
 - [`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml) runs every spec in Chromium on Ubuntu, macOS and Windows with Node 24, and on Ubuntu with Node 22, for each push to `main`, and for each pull request that touches a file they depend on (`scripts/ci-scope.ts`: not for one that changes the docs, the unit tests, the desktop app or the landing page alone; a run by hand always runs them): each in two jobs, half the tests each (Playwright's `--shard=1/2` and `2/2`), so that no job runs much over seven minutes. Run it by hand to choose other browsers; locally, `E2E_BROWSERS=chromium,firefox,webkit` ([`playwright.config.ts`](../playwright.config.ts)). On Ubuntu it installs what Harness Relay's own sandbox needs (bubblewrap, socat and ripgrep, and the AppArmor profile that lets `/usr/bin/bwrap` make its namespaces), on Ubuntu it runs the sandbox's own checks (`scripts/sandbox-check.ts`) first, and it sets `E2E_REQUIRE_RELAY_SANDBOX=1` there, so a test that needs the sandbox fails rather than skips.
 - The open agents run below full access on macOS and Linux only (Linux with bubblewrap, socat and ripgrep): on Windows, which Harness Relay's own sandbox does not cover, they run with full access only, and so does OpenCode on Linux. There the tests about permissions skip them, saying why, the others run them with full access, and [Harness Relay's own sandbox](#harness-relays-own-sandbox) checks that a chat below full access does not start them. Without the sandbox on a Mac or Linux computer, the tests that need it are skipped, saying why (`E2E_RELAY_SANDBOX`, which `global-setup.ts` works out once).
 - On CI (`E2E_SYSTEM_CLIS=1`) each CLI's own tests run on Linux for all twelve, and on macOS and Windows only for the CLIs Harness Relay runs differently there than on Linux in a way their fakes can tell (`testedOn` in `support/clis/<cli>.ts`, which says why); elsewhere they are skipped, saying where they run. **macOS**: the five open agents (Harness Relay's own sandbox as Seatbelt makes it, OpenCode below full access there only, OpenHands' terminal switch) and Claude Code, for the seven with a sign-in, whose fakes do there what they do on Linux. **Windows**: the seven with a sign-in (Claude Code without sandbox settings, Codex without a permission profile, Grok's `workspace` profile, Cursor's sessions linked as a junction, Antigravity's home given as `USERPROFILE`, Copilot's folders linked as junctions, Muse Code's sign-in copied and its PowerShell), OpenCode and Goose (their own shell) and OpenHands (its PowerShell terminal); not Cline or Pi, which run there with full access only, as on Linux with full access ([CLIs that are scripts on Windows](#clis-that-are-scripts-on-windows) still starts them there). Locally, without the variable, every CLI's tests run on every system; run the workflow by hand with **every_cli** for all twelve on macOS and Windows too.
@@ -673,6 +674,7 @@ The open agents, in Harness Relay's own sandbox below full access:
 
 ## What they do not cover
 
+- **Native Git installation.** The Git dialog tests simulate missing Git and installer responses. `test/git-install.test.ts` checks platform-specific installer choices with fake processes.
 - **The CLIs themselves.** The fakes check Harness Relay's side of each protocol; the [live tests](#the-live-tests) try the real ones, by hand. A CLI that changes what it writes is caught by the adapter tests' recorded messages (`test/claude.test.ts`, `test/codex.test.ts`, `test/grok.test.ts`, `test/cursor.test.ts`, `test/antigravity.test.ts`, `test/copilot.test.ts`, `test/muse.test.ts` and the open agents', the last ones replaying messages recorded from the real CLIs) and by trying the real CLI in the app; those recordings are of the versions the adapters were written against, so a new version of a CLI is checked by hand with `scripts/cli-check.ts`, against the real CLI ([developer guide, "Checking a CLI's new version"](../docs/developer-guide.md#checking-a-clis-new-version)). Whether a real CLI keeps the gateway's token, an HTTP MCP server's header, in memory only is checked by hand with `scripts/mcp-headers-check.ts`, not here: the fakes only show that Harness Relay gives it in the header and in no argument.
 - **The CLIs' own sandboxes.** The fakes of Claude Code, Codex, Grok, Copilot and Muse Code work out from what Harness Relay gave them what their CLI's sandbox would allow (Copilot's from its run's settings, and it answers `/sandbox policy` with the policy they give, as Copilot prints it); only Harness Relay's own sandbox, around the open agents, is the real one. That the real CLIs below full access write nowhere outside the chat's folders is tried by the live tests (`live/sandbox.spec.ts`).
 - **AgentsView itself.** It is a stand-in server in [`sessions.spec.ts`](specs/sessions.spec.ts) that answers Harness Relay's requests and never reads a session file. That the real AgentsView reads each CLI's own sessions where Harness Relay's runs leave them, under the ids Harness Relay links (Copilot's `session-state` and Muse Code's data folder among them, in the CLIs' usual homes and through the user guide's `config.toml` for an AgentsView of its own), and files them under the thread, was tried by hand, with AgentsView 0.46.1 (for Copilot and Muse Code also on the sessions copilot 1.0.109 and muse 1.4.18 wrote on Linux and Windows through their adapters).

@@ -289,7 +289,7 @@ export function createApp({
   voice = new VoiceService(settings),
   clis = new CliInstaller(settings, { changed: (p) => providers.invalidate(p), busy: () => orchestrator.anyRunning() }),
   sandboxSetup = new SandboxSetup({ changed: () => providers.invalidate() }),
-  gitInstall = new GitInstall(sandboxSetup.linux),
+  gitInstall = new GitInstall(sandboxSetup.linux, {}, clis),
   native = new NativeSetupService(settings),
   agentsView,
   extraHosts = [],

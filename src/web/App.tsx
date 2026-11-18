@@ -15,6 +15,7 @@ import { ChatView } from './components/ChatView';
 import { Deferred, lazyPart } from './components/Deferred';
 import { Home } from './components/Home';
 import { InboxButton } from './components/InboxButton';
+import { GitInstallDialog } from './components/GitInstallDialog';
 import { NewChat } from './components/NewChat';
 import { NewSchedule } from './components/NewSchedule';
 import { SignIn } from './components/SignIn';
@@ -58,7 +59,6 @@ import { onboardingDone } from './tour';
 // Loaded when first opened, not with the page: Settings and its panels, and the guided tour.
 const SettingsPage = lazyPart(() => import('./components/SettingsPage').then((m) => m.SettingsPage));
 const Onboarding = lazyPart(() => import('./components/Onboarding').then((m) => m.Onboarding));
-const GitInstallDialog = lazyPart(() => import('./components/GitInstallDialog').then((m) => m.GitInstallDialog));
 const SandboxSetupDialog = lazyPart(() => import('./components/SandboxSetupDialog').then((m) => m.SandboxSetupDialog));
 const InboxDialog = lazyPart(() => import('./components/InboxDialog').then((m) => m.InboxDialog));
 
@@ -424,9 +424,24 @@ function RelayApp() {
     fastUntil.current = Date.now() + AFTER_UPDATE_MS;
     pollUpdate.current();
   }, [update]);
+  const [gitOffer, setGitOffer] = useState<{ requirement: GitRequirement; open: boolean; revision: number }>();
+  useEffect(() => {
+    const request = (event: Event) => {
+      const requirement = (event as CustomEvent<GitRequirement>).detail;
+      setGitOffer((previous) => ({
+        requirement: previous?.open && previous.requirement === 'gitBash' ? previous.requirement : requirement,
+        open: true,
+        revision: previous?.open ? previous.revision : (previous?.revision ?? 0) + 1,
+      }));
+    };
+    window.addEventListener(GIT_INSTALL_EVENT, request);
+    return () => window.removeEventListener(GIT_INSTALL_EVENT, request);
+  }, []);
+  const closeGitInstall = () => setGitOffer((previous) => previous && { ...previous, open: false });
+
   // Shown only while no other dialog is open (it would take that one's keys), then kept while on offer.
   const dialogs = useDialogsOpen();
-  const held = useDialogsHeld() > 0;
+  const held = useDialogsHeld() > 0 || gitOffer?.open === true;
   // Closed without Later (Escape, ×): not offered again while the page is open.
   const [closedFor, setClosedFor] = useState<string>();
   const offerable = shouldOffer(update, dismissed, isAppWindow(navigator.userAgent), closedFor);
@@ -450,17 +465,6 @@ function RelayApp() {
   useEffect(() => {
     setOffer((showing) => offerShows(showing, { offerable, tourOpen, dialogsOpen: dialogs, typing, held }));
   }, [offerable, tourOpen, dialogs, typing, held]);
-
-  const [gitRequirement, setGitRequirement] = useState<GitRequirement>();
-  useEffect(() => {
-    const request = (event: Event) => {
-      const requirement = (event as CustomEvent<GitRequirement>).detail;
-      setGitRequirement((previous) => (previous === 'gitBash' ? previous : requirement));
-    };
-    window.addEventListener(GIT_INSTALL_EVENT, request);
-    return () => window.removeEventListener(GIT_INSTALL_EVENT, request);
-  }, []);
-  const closeGitInstall = () => setGitRequirement(undefined);
 
   // What the sandboxes lack here, asked as New chat opens, once in this browser (src/web/sandboxSetup.ts):
   // Not now or Install answers it for good, Escape or × for this page only; Settings → Sandboxes keeps it.
@@ -608,11 +612,6 @@ function RelayApp() {
           />
         </Deferred>
       )}
-      {gitRequirement && (
-        <Deferred onClose={closeGitInstall}>
-          <GitInstallDialog key={gitRequirement} requirement={gitRequirement} onClose={closeGitInstall} />
-        </Deferred>
-      )}
       {offer && update?.available && (
         <UpdateDialog
           version={update.available.version}
@@ -621,6 +620,14 @@ function RelayApp() {
           onUpdate={installUpdate}
           onLater={() => dismiss(update.available!.version)}
           onClose={() => setClosedFor(update.available!.version)}
+        />
+      )}
+      {gitOffer && (
+        <GitInstallDialog
+          key={`${gitOffer.requirement}:${gitOffer.revision}`}
+          requirement={gitOffer.requirement}
+          open={gitOffer.open}
+          onClose={closeGitInstall}
         />
       )}
     </div>

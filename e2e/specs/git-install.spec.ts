@@ -65,3 +65,39 @@ test('shows a manual installation command and can check again', async ({ page })
   await dialog.getByRole('button', { name: 'Check again' }).click();
   await expect(dialog).toContainText('Git is ready.');
 });
+
+test.describe('Git Bash in Settings', () => {
+  test.use({ missingClis: ['goose'] });
+
+  test('refreshes the blocked CLI card when Git finishes after the modal was closed', async ({ page, relay }) => {
+    let available = false;
+    let installing = false;
+    await page.route('**/api/clis', (route) =>
+      route.fulfill({
+        json: [{ provider: 'goose', method: 'script', dir: relay.workDir, ...(available ? {} : { blocked: 'gitBash' }) }],
+      }),
+    );
+    await page.route('**/api/git-install?bash=1', (route) => {
+      if (route.request().method() === 'POST') installing = true;
+      return route.fulfill({
+        json: {
+          available,
+          method: 'winget',
+          ...(installing && !available ? { job: { state: 'running', startedAt: 1, log: 'Installing Git for Windows' } } : {}),
+        },
+      });
+    });
+
+    await page.goto(`${relay.base}/#/settings/goose`);
+    const card = page.locator('#settings-goose');
+    await card.getByRole('button', { name: 'Install Git', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Git is required' });
+    await expect(dialog).toContainText('Bash that comes with Git for Windows');
+    await dialog.getByRole('button', { name: 'Install Git', exact: true }).click();
+    await expect(dialog).toContainText('Installing Git…');
+    await dialog.locator('footer').getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    available = true;
+    await expect(card.getByRole('button', { name: 'Install Goose', exact: true })).toBeVisible();
+  });
+});

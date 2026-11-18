@@ -6,19 +6,20 @@ import { logTail } from '../clis';
 import { useT } from '../i18n';
 import { useDialog } from './useDialog';
 
-export function GitInstallDialog({ requirement, onClose }: { requirement: GitRequirement; onClose: () => void }) {
+export function GitInstallDialog({ requirement, open, onClose }: { requirement: GitRequirement; open: boolean; onClose: () => void }) {
   const t = useT();
   const d = t.gitInstall;
   const dialog = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<GitInstallView>();
   const [error, setError] = useState('');
+  const [installError, setInstallError] = useState('');
   const [starting, setStarting] = useState(false);
   const [check, setCheck] = useState(0);
   const running = view?.job?.state === 'running';
-  useDialog(dialog, onClose);
+  useDialog(dialog, onClose, open);
 
   useEffect(() => {
-    if (starting || view?.available) return;
+    if (starting || view?.available || (!open && !running)) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
@@ -40,7 +41,7 @@ export function GitInstallDialog({ requirement, onClose }: { requirement: GitReq
       controller.abort();
       clearTimeout(timer);
     };
-  }, [requirement, check, running, starting, view?.available]);
+  }, [requirement, check, open, running, starting, view?.available]);
 
   useEffect(() => {
     if (view?.available) window.dispatchEvent(new Event(GIT_AVAILABLE_EVENT));
@@ -48,16 +49,17 @@ export function GitInstallDialog({ requirement, onClose }: { requirement: GitReq
 
   const install = async () => {
     setStarting(true);
-    setError('');
+    setInstallError('');
     try {
       setView(await api.installGit(requirement));
     } catch (err) {
-      setError((err as Error).message);
+      setInstallError((err as Error).message);
     } finally {
       setStarting(false);
     }
   };
 
+  if (!open) return null;
   const job = view?.job;
   const appleWaiting = view?.method === 'apple' && job?.state === 'success';
 
@@ -96,9 +98,9 @@ export function GitInstallDialog({ requirement, onClose }: { requirement: GitReq
               </p>
             )}
             {view?.command && <pre className="cli-install-log">{view.command}</pre>}
-            {(error || job?.error) && (
+            {(installError || error || job?.error) && (
               <p className="error-line" role="alert">
-                {error || job?.error}
+                {installError || error || job?.error}
               </p>
             )}
             {job?.log && <pre className="cli-install-log">{logTail(job.log)}</pre>}
@@ -110,7 +112,15 @@ export function GitInstallDialog({ requirement, onClose }: { requirement: GitReq
               {view?.available || running ? t.common.close : d.later}
             </button>
             {!view?.available && !running && (
-              <button type="button" className="ghost" disabled={starting} onClick={() => setCheck((count) => count + 1)}>
+              <button
+                type="button"
+                className="ghost"
+                disabled={starting}
+                onClick={() => {
+                  setInstallError('');
+                  setCheck((count) => count + 1);
+                }}
+              >
                 {d.check}
               </button>
             )}

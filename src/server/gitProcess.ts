@@ -55,6 +55,10 @@ export async function gitCommand(
     const onPath = findOnPath('git', env, platform, [], hasProgram);
     return onPath ?? windowsGitOutsidePath(env, hasProgram) ?? 'git';
   }
+  if (platform === 'linux' && !findOnPath('git', env, platform, [], hasProgram)) {
+    // The system package manager may have just installed Git outside this process's PATH.
+    return ['/usr/bin/git', '/bin/git'].find(hasProgram) ?? 'git';
+  }
   if (platform !== 'darwin') return 'git';
   const onPath = findOnPath('git', env, platform, [], hasProgram);
   if (onPath && onPath !== '/usr/bin/git' && !appleShim(onPath)) return posix.resolve(onPath);

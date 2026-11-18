@@ -1,6 +1,7 @@
+import { lstatSync } from 'node:fs';
 import { win32 } from 'node:path';
 import type { GitInstallView, GitRequirement } from '../shared/types';
-import { gitBash, InstallError, InstallJob, installerEnv, runStep } from './cliInstall';
+import { gitBash, InstallError, InstallJob, installerEnv, runStep, windowsPowerShell, type CliInstaller } from './cliInstall';
 import { HttpError } from './errors';
 import { captureGit } from './gitProcess';
 import { t } from './i18n';
@@ -9,23 +10,29 @@ import { linuxPackageCommand, type LinuxPackages } from './sandboxSetup';
 import { findOnPath, isProgram } from './executable';
 
 const APPLE = '/usr/bin/xcode-select';
-const WINGET_ARGS = [
-  'install',
-  '--exact',
-  '--id',
-  'Git.Git',
-  '--source',
-  'winget',
-  '--accept-source-agreements',
-  '--accept-package-agreements',
-  '--silent',
-  '--disable-interactivity',
-];
+const WINGET_PACKAGE = ['install', '--exact', '--id', 'Git.Git', '--source', 'winget'];
+const WINGET_ARGS = [...WINGET_PACKAGE, '--accept-source-agreements', '--accept-package-agreements', '--silent', '--disable-interactivity'];
+const WINGET_COMMAND = ['winget', ...WINGET_PACKAGE].join(' ');
+/** PowerShell can start an App Execution Alias which Node cannot stat or launch directly. */
+const WINGET_SCRIPT = [
+  "$ErrorActionPreference = 'Stop'",
+  '& $env:HARNESS_RELAY_WINGET ' + WINGET_ARGS.join(' '),
+  'exit $LASTEXITCODE',
+].join('\n');
+
+function aliasExists(path: string): boolean {
+  try {
+    return !lstatSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
 
 interface GitInstallHost {
   platform: NodeJS.Platform;
   env: NodeJS.ProcessEnv;
   hasProgram: typeof isProgram;
+  hasAlias: typeof aliasExists;
   run: typeof runProcess;
   runScript: typeof runShellScript;
   hasGit: (requirement: GitRequirement) => Promise<boolean>;
@@ -40,17 +47,21 @@ interface InstallPlan {
 /** One installation at a time on the server host, regardless of which browser requested it. */
 export class GitInstall {
   private job?: InstallJob;
-  private starting = false;
+  private method?: GitInstallView['method'];
+  private starting?: Promise<GitInstallView>;
+  private stopping = false;
   private host: GitInstallHost;
 
   constructor(
     private linux: Pick<LinuxPackages, 'packageManager' | 'adminWay' | 'install'>,
     host: Partial<GitInstallHost> = {},
+    private clis?: Pick<CliInstaller, 'withWindowsUserPath'>,
   ) {
     this.host = {
       platform: process.platform,
       env: process.env,
       hasProgram: isProgram,
+      hasAlias: aliasExists,
       run: runProcess,
       runScript: runShellScript,
       hasGit: async (requirement) => {
@@ -70,15 +81,35 @@ export class GitInstall {
       };
     }
     if (platform === 'win32') {
-      const alias = env.LOCALAPPDATA && win32.join(env.LOCALAPPDATA, 'Microsoft', 'WindowsApps');
-      const winget = findOnPath('winget', env, platform, alias ? [alias] : [], hasProgram);
-      const command = 'winget install --exact --id Git.Git --source winget';
-      return winget
-        ? {
-            method: 'winget',
-            install: (job) => runStep(this.host, job, command, { bin: winget, args: WINGET_ARGS, env: installerEnv(env) }),
-          }
-        : {};
+      const winget = findOnPath('winget', env, platform, [], (path) => path.toLowerCase().endsWith('.exe') && hasProgram(path));
+      const alias = env.LOCALAPPDATA && win32.join(env.LOCALAPPDATA, 'Microsoft', 'WindowsApps', 'winget.exe');
+      const shell = !winget && alias && this.host.hasAlias(alias) ? windowsPowerShell(env, hasProgram) : undefined;
+      if (winget || shell)
+        return {
+          method: 'winget',
+          install: (job) => {
+            const run = async () => {
+              const base = installerEnv(env);
+              if (winget) {
+                await runStep(this.host, job, WINGET_COMMAND, { bin: winget, args: WINGET_ARGS, env: base });
+              } else {
+                await runStep(
+                  this.host,
+                  job,
+                  WINGET_COMMAND,
+                  {
+                    bin: shell!,
+                    args: ['-NoProfile', '-NonInteractive'],
+                    env: { ...base, HARNESS_RELAY_WINGET: alias },
+                  },
+                  WINGET_SCRIPT,
+                );
+              }
+            };
+            return this.clis ? this.clis.withWindowsUserPath(job, run) : run();
+          },
+        };
+      return {};
     }
     if (platform === 'linux') {
       const pm = this.linux.packageManager();
@@ -91,8 +122,12 @@ export class GitInstall {
   }
 
   async view(requirement: GitRequirement): Promise<GitInstallView> {
+    const running = this.runningView();
+    if (running) return running;
     const available = await this.host.hasGit(requirement);
     const { method, command } = available ? {} : this.plan();
+    const meanwhile = this.runningView();
+    if (meanwhile) return meanwhile;
     return {
       available,
       ...(method ? { method } : {}),
@@ -101,31 +136,49 @@ export class GitInstall {
     };
   }
 
+  private runningView(): GitInstallView | undefined {
+    if (this.job?.state !== 'running') return undefined;
+    return { available: false, method: this.method, job: this.job.view() };
+  }
+
   running(): number {
     return this.starting || this.job?.state === 'running' ? 1 : 0;
   }
 
   async install(requirement: GitRequirement): Promise<GitInstallView> {
-    if (this.running()) return this.view(requirement);
-    this.starting = true;
+    if (this.stopping) throw new HttpError(503, t().shuttingDown);
+    if (this.starting) {
+      await this.starting;
+      return this.view(requirement);
+    }
+    const running = this.runningView();
+    if (running) return running;
+    this.starting = this.begin(requirement);
     try {
-      if (await this.host.hasGit(requirement)) return { available: true };
-      const plan = this.plan();
-      if (!plan.install) throw new HttpError(400, t().gitInstallUnavailable);
-      const job = new InstallJob();
-      this.job = job;
-      job.ended = this.run(job, plan.method, plan.install, requirement);
-      return { available: false, method: plan.method, job: job.view() };
+      return await this.starting;
     } finally {
-      this.starting = false;
+      this.starting = undefined;
     }
   }
 
+  private async begin(requirement: GitRequirement): Promise<GitInstallView> {
+    if (await this.host.hasGit(requirement)) return { available: true };
+    if (this.stopping) throw new HttpError(503, t().shuttingDown);
+    const plan = this.plan();
+    if (!plan.install) throw new HttpError(400, t().gitInstallUnavailable);
+    const job = new InstallJob();
+    this.job = job;
+    this.method = plan.method;
+    job.ended = this.run(job, plan.method, plan.install, requirement);
+    return { available: false, method: plan.method, job: job.view() };
+  }
+
   /** A quit or shutdown stops the managed process as it does for other installers. */
-  shutdown(): Promise<void> {
-    if (this.job?.state !== 'running') return Promise.resolve();
-    this.job.abort.abort();
-    return this.job.ended;
+  async shutdown(): Promise<void> {
+    this.stopping = true;
+    const job = this.job;
+    if (job?.state === 'running') job.abort.abort();
+    await Promise.allSettled([this.starting, job?.ended]);
   }
 
   private async run(

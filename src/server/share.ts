@@ -14,6 +14,7 @@ import {
   GH_MIN_VERSION,
   GH_MISSING,
   GH_SIGNED_OUT,
+  GIT_MISSING,
   SHARE_FILE_LINKS_MAX,
   SHARE_FILE_MAX_BYTES,
   SHARE_FILES_MAX_BYTES,
@@ -25,6 +26,7 @@ import {
   type ShareLink,
 } from '../shared/types';
 import { HttpError } from './errors';
+import { gitCommand } from './gitProcess';
 import { t } from './i18n';
 import { CliLogin } from './login';
 import { downloadProblem, mediaRoots, resolveDownload } from './media';
@@ -108,7 +110,7 @@ export function gistError(r: Pick<SpawnResult, 'stderr' | 'timedOut'>, failed: (
 export class ShareError extends Error {
   constructor(
     message: string,
-    public code?: typeof GH_MISSING | typeof GH_SIGNED_OUT,
+    public code?: typeof GH_MISSING | typeof GH_SIGNED_OUT | typeof GIT_MISSING,
     public leftover?: ShareLink,
   ) {
     super(message);
@@ -482,21 +484,23 @@ export function gitEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv 
   return out;
 }
 
-/** Runs git for a share: what it printed, trimmed, or a ShareError saying why it failed. */
-async function git(
-  run: (o: SpawnOptions) => Promise<SpawnResult>,
-  args: string[],
-  o: { stdin?: string | Buffer; timeoutMs?: number } = {},
-): Promise<string> {
-  let r: SpawnResult;
-  try {
-    r = await run({ bin: 'git', args, env: gitEnv(), stdin: o.stdin, timeoutMs: o.timeoutMs ?? 60_000 });
-  } catch (err) {
-    if (err instanceof CommandNotFoundError) throw new ShareError(t().shareFilesFailed(err.message));
-    throw err;
-  }
-  if (r.code === 0) return r.stdout.trim();
-  throw new ShareError(t().shareFilesFailed(r.timedOut ? t().timedOut : tail(r.stderr, 300) || t().shareNoDetail));
+type GistGit = (args: string[], o?: { stdin?: string | Buffer; timeoutMs?: number }) => Promise<string>;
+
+/** Resolve Git once and use the same executable for the preflight and all commands of a share. */
+async function gistGit(run: (o: SpawnOptions) => Promise<SpawnResult>): Promise<GistGit> {
+  const env = gitEnv();
+  const bin = await gitCommand(env);
+  return async (args, o = {}) => {
+    let r: SpawnResult;
+    try {
+      r = await run({ bin, args, env, stdin: o.stdin, timeoutMs: o.timeoutMs ?? 60_000 });
+    } catch (err) {
+      if (err instanceof CommandNotFoundError) throw new ShareError(t().gitMissing, GIT_MISSING);
+      throw err;
+    }
+    if (r.code === 0) return r.stdout.trim();
+    throw new ShareError(t().shareFilesFailed(r.timedOut ? t().timedOut : tail(r.stderr, 300) || t().shareNoDetail));
+  };
 }
 
 /** A git object id (SHA-1, or SHA-256). */
@@ -565,29 +569,31 @@ export async function pushToGist(
   files: GistUpload[],
   run: (o: SpawnOptions) => Promise<SpawnResult> = runProcess,
   root: string = shareTmpRoot(),
+  resolvedGit?: GistGit,
 ): Promise<void> {
   checkNames(files);
+  const git = resolvedGit ?? (await gistGit(run));
   await mkdir(root, { recursive: true, mode: 0o700 });
   const dir = await mkdtemp(join(root, CLONE_PREFIX));
   try {
     const repo = join(dir, 'gist.git');
     const config = gitConfig(ghBin());
     // `--template=`: no hooks or other files from the user's templates.
-    await git(run, [...config, 'clone', '--bare', '--quiet', '--template=', gistGitUrl(id), repo], { timeoutMs: 120_000 });
+    await git([...config, 'clone', '--bare', '--quiet', '--template=', gistGitUrl(id), repo], { timeoutMs: 120_000 });
     const at = [...config, '--git-dir', repo];
-    const branch = checked(await git(run, [...at, 'symbolic-ref', 'HEAD']), BRANCH);
+    const branch = checked(await git([...at, 'symbolic-ref', 'HEAD']), BRANCH);
     let tree = '';
     for (const f of files) {
-      const blob = checked(await git(run, [...at, 'hash-object', '-w', '--no-filters', '--stdin'], { stdin: f.data }), OBJECT_ID);
+      const blob = checked(await git([...at, 'hash-object', '-w', '--no-filters', '--stdin'], { stdin: f.data }), OBJECT_ID);
       // `mktree -z` takes each name as it is (gistFileNames leaves no slash, control character or NUL in one).
       tree += `100644 blob ${blob}\t${f.name}\0`;
     }
-    const treeId = checked(await git(run, [...at, 'mktree', '-z'], { stdin: tree }), OBJECT_ID);
+    const treeId = checked(await git([...at, 'mktree', '-z'], { stdin: tree }), OBJECT_ID);
     const commit = checked(
-      await git(run, [...at, 'commit-tree', treeId, '-p', 'HEAD', '-m', 'Files shared with a Harness Relay page']),
+      await git([...at, 'commit-tree', treeId, '-p', 'HEAD', '-m', 'Files shared with a Harness Relay page']),
       OBJECT_ID,
     );
-    await git(run, [...at, 'push', '--quiet', '--no-verify', gistGitUrl(id), `${commit}:${branch}`], { timeoutMs: PUSH_TIMEOUT_MS });
+    await git([...at, 'push', '--quiet', '--no-verify', gistGitUrl(id), `${commit}:${branch}`], { timeoutMs: PUSH_TIMEOUT_MS });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -651,6 +657,8 @@ export async function filesToGist(
   words: FilesGistWords = shareWords(),
 ): Promise<{ gist: { id: string; url?: string }; urls: string[] }> {
   checkNames(files); // before anything is made
+  const git = await gistGit(run);
+  await git(['--version'], { timeoutMs: 4000 });
   const token = o.token ?? shareToken();
 
   const r = await gh(run, createGistArgs(), createGistBody(filesGistDescription(description, token)));
@@ -665,7 +673,7 @@ export async function filesToGist(
   try {
     o.onFilesGist?.(leftoverLink(gist.id, gist.url));
     if (!created.link) throw new ShareError(words.notGithub);
-    await pushToGist(created.id, files, run, o.tmpRoot);
+    await pushToGist(created.id, files, run, o.tmpRoot, git);
     urls = o.readBack === false ? [] : await pushedUrls(run, created.id, files, o.wait ?? sleep);
   } catch (err) {
     return dropFilesGist(run, gist, err instanceof ShareError ? err : new ShareError((err as Error).message), words);

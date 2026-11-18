@@ -207,7 +207,7 @@ const clis = new CliInstaller(settings, { changed: (p) => providers.invalidate(p
 // On Windows: the user's PATH put back, as it was before an install this server's last run did not see end.
 void clis.recover();
 const sandboxSetup = new SandboxSetup({ changed: () => providers.invalidate() });
-const gitInstall = new GitInstall(sandboxSetup.linux);
+const gitInstall = new GitInstall(sandboxSetup.linux, {}, clis);
 // The language the chat in the desktop app's window shows: the app's menus follow it.
 const desktopLang = parent ? (lang: Lang) => parent.send({ type: 'lang', lang }) : undefined;
 const app = createApp({

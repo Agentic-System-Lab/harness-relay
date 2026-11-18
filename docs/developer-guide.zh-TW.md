@@ -112,6 +112,8 @@ src/
     voice.ts               語音輸入：安裝 whisper.cpp 引擎與模型（固定版本、檢查 SHA-256）、引擎程序、語音轉文字
     cliInstall.ts          從設定頁把 CLI 裝進專屬的資料夾（資料資料夾中的 clis/<provider>）：用 npm（Claude Code、Codex 與 Copilot 沒有 npm 時，先把 Node.js 官方版本放進資料夾，核對過檢查碼）、官方腳本（bash，或 Windows 上的 PowerShell 或 Git Bash，以那個資料夾當家目錄）或 uv（缺少時先裝進資料夾）（CLI_RECIPES），在背景安裝、確認能執行、拿掉它在資料夾外留下指向資料夾的連結（Windows 上則把使用者的 PATH 還原成腳本執行前的樣子），也能再移除
     sandboxSetup.ts        agent 的作業系統沙箱在這台電腦上缺什麼（用套件管理工具裝的 Linux 套件、Ubuntu 給 bwrap 的 AppArmor 設定檔、桌面 app 給 Harness Relay 自己沙箱用的 Node.js），以系統管理員權限（root、sudo -n、pkexec）執行一次固定的腳本來安裝，不行時給出要自己執行的指令
+    gitInstall.ts          依使用者要求安裝 Git，使用 Apple 命令列工具、WinGet，或與沙箱設定共用的 Linux 套件安裝程式
+    gitProcess.ts          尋找與執行 Git，支援 Windows 的舊 PATH 與剛安裝的 Git，也避免透過 macOS 的 Git stub 意外啟動安裝程式
     workspace.ts           git：自動 init、快照、worktree、diff、套用
     errors.ts              HttpError（帶狀態碼、給使用者看的錯誤）
     hub.ts                 SSE 廣播

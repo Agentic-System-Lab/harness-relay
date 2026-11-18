@@ -76,7 +76,7 @@ Muse Code 在 macOS 與 Linux 上用 `curl -fsSL https://dev.meta.ai/install.sh 
 
 ### 桌面 app
 
-除了在終端機執行 `npm start`，也可以把 Harness Relay 安裝成桌面 app，支援 macOS（13 Ventura 以上，Apple Silicon）、Windows 10 以上（x64 或 Arm64），以及有桌面環境的 Linux（x64 或 Arm64）。它在背景執行同一個伺服器，並在它自己的視窗裡顯示已登入的對話，沒有網址列。關掉視窗後，伺服器會繼續執行，選單列或系統匣留著一個圖示，所以手機照常能用。跟 `npm start` 一樣，它需要 agent 的 CLI（可以[從設定頁安裝](#從設定頁安裝-cli)，Claude Code、Codex 與 Copilot 不需要 Node.js 也能裝），編輯與平行模式也需要 Git；但不需要 Node.js，只有開源 agent 在完全存取以外執行時例外：它們所在的 Harness Relay 自己的沙箱，需要登入 shell 的 `PATH` 上有 Node.js 22.12 以上，或[設定 → 沙箱](#安裝沙箱需要的元件)裝進 app 資料夾的那一份（兩者都沒有的話，它們只能以完全存取執行）。
+除了在終端機執行 `npm start`，也可以把 Harness Relay 安裝成桌面 app，支援 macOS（13 Ventura 以上，Apple Silicon）、Windows 10 以上（x64 或 Arm64），以及有桌面環境的 Linux（x64 或 Arm64）。它在背景執行同一個伺服器，並在它自己的視窗裡顯示已登入的對話，沒有網址列。關掉視窗後，伺服器會繼續執行，選單列或系統匣留著一個圖示，所以手機照常能用。跟 `npm start` 一樣，它需要 agent 的 CLI（可以[從設定頁安裝](#從設定頁安裝-cli)，Claude Code、Codex 與 Copilot 不需要 Node.js 也能裝），編輯與平行模式需要 Git，缺少時會提供安裝按鈕。但不需要 Node.js，只有開源 agent 在完全存取以外執行時例外：它們所在的 Harness Relay 自己的沙箱，需要登入 shell 的 `PATH` 上有 Node.js 22.12 以上，或[設定 → 沙箱](#安裝沙箱需要的元件)裝進 app 資料夾的那一份（兩者都沒有的話，它們只能以完全存取執行）。
 
 **安裝。** 從[網站](https://agentic-system-lab.github.io/harness-relay/zh-TW/)（提供最新的正式版本，不提供候選版本：版本結尾是 `-rc` 的，見[版本](#版本)）或 [Releases](https://github.com/Agentic-System-Lab/harness-relay/releases)（也有候選版本）下載你系統的安裝檔。安裝之後，app 會自己更新：正式版本只更新到下一個正式版本，候選版本則會更新到之後的候選版本或正式版本（見下方 **更新**）。
 
@@ -521,7 +521,7 @@ app 打開時是首頁：只有 logo 與一句標語。點側邊欄最上面的 
 
 有多個工作目錄時，每一個都各自這樣處理：每一個都會變成 repository（同一個 repository 裡的兩個資料夾共用它），回覆會依資料夾列出改了哪些檔案，這個對話在修改時其他對話無法寫入其中任何一個，平行模式下每位 agent 也會各有每一個的副本。
 
-**需要 Git 時安裝。** 建立或修改可寫入的對話，或使用差異檢視等需要 Git 的功能時，如果找不到 Git，Harness Relay 會顯示「**需要 Git**」對話框。按「**安裝 Git**」可在執行 Harness Relay 的電腦上安裝。macOS 會顯示系統對話框，請完成 Apple 命令列工具安裝，再按「**重新檢查**」。Windows 使用 WinGet 安裝 Git for Windows，系統可能會要求確認權限。Linux 上能取得管理員權限時，會使用 apt、dnf、pacman 或 zypper。無法自動安裝時，對話框會提供手動安裝說明。Git 可用後，再試一次原本的操作。沒有 Git 也能建立唯讀對話。
+**需要 Git 時安裝。** 建立或修改可寫入的對話，或使用 Git 檢視差異、分享檔案或上傳問題回報的截圖時，如果找不到 Git，Harness Relay 會顯示「**需要 Git**」對話框。按「**安裝 Git**」可在執行 Harness Relay 的電腦上安裝。macOS 會顯示系統對話框，請完成 Apple 命令列工具安裝，再按「**重新檢查**」。Windows 使用 WinGet 安裝 Git for Windows，系統可能會要求確認權限。Linux 上能取得管理員權限時，會使用 apt、dnf、pacman 或 zypper。無法自動安裝時，對話框會提供手動安裝說明。Git 可用後，再試一次原本的操作。沒有 Git 也能建立唯讀對話。
 
 ## 4. 對話
 

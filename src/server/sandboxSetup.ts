@@ -233,6 +233,8 @@ type LinuxPackageHost = Pick<SandboxSetupHost, 'env' | 'uid' | 'isProgram' | 'su
 export class LinuxPackages {
   private sudoChecked?: { sudo: string; at: number; ok: boolean };
 
+  private queue: Promise<void> = Promise.resolve();
+
   constructor(private host: LinuxPackageHost) {}
 
   find(name: string): string | undefined {
@@ -267,8 +269,18 @@ export class LinuxPackages {
     return this.find('pkexec') && desktop ? 'pkexec' : undefined;
   }
 
+  /** Package managers own system-wide state. Git and sandbox setup wait for one another. */
+  install(job: InstallJob, packages: string[], apparmor = false): Promise<void> {
+    const next = this.queue.then(() => {
+      if (job.abort.signal.aborted) throw new Error('aborted');
+      return this.run(job, packages, apparmor);
+    });
+    this.queue = next.catch(() => {});
+    return next;
+  }
+
   /** The packages and the AppArmor profile, in one run of `ADMIN_SCRIPT` with administrator rights (one password prompt at most). */
-  async install(job: InstallJob, packages: string[], apparmor = false): Promise<void> {
+  private async run(job: InstallJob, packages: string[], apparmor: boolean): Promise<void> {
     const admin = this.adminWay();
     if (!admin) throw new InstallError(() => t().sandboxSetupNoAdmin);
     const pm = this.packageManager();

@@ -1,3 +1,4 @@
+import { basename } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -392,16 +393,18 @@ describe('the files a shared page takes along', () => {
     git: (o: SpawnOptions) => SpawnResult | Promise<SpawnResult> = fakeGit,
   ) {
     const calls: SpawnOptions[] = [];
+    const checkGit = (o: SpawnOptions) => /^git(?:\.exe)?$/i.test(basename(o.bin));
     let n = 0;
     const run = async (o: SpawnOptions) => {
+      if (checkGit(o) && o.args[0] === '--version') return git(o);
       calls.push(o);
-      if (o.bin === 'git') return git(o);
+      if (checkGit(o)) return git(o);
       const answer = answers[n++];
       if (!answer) throw new Error(`unexpected gh ${o.args.join(' ')}`);
       return answer(o);
     };
-    const ghCalls = () => calls.filter((c) => c.bin !== 'git');
-    const gitCalls = () => calls.filter((c) => c.bin === 'git');
+    const ghCalls = () => calls.filter((c) => !checkGit(c));
+    const gitCalls = () => calls.filter(checkGit);
     return {
       run,
       calls,
@@ -763,6 +766,14 @@ describe('the files a shared page takes along', () => {
     expect(unknown.leftover).toBeUndefined();
   });
 
+  it('asks to install Git before making a files gist when the executable is missing', async () => {
+    const gh = fakeGh([], () => {
+      throw new CommandNotFoundError('git');
+    });
+    await expect(shareToGist(page, 'd', gh.run, files, opts)).rejects.toMatchObject({ code: 'git-missing' });
+    expect(gh.ghCalls()).toEqual([]);
+  });
+
   it('deletes the files gist again when git could not push the files, saying why', async () => {
     const rejected =
       "remote: error: File big.bin is 120.00 MB; this exceeds GitHub's file size limit of 100.00 MB\nerror: failed to push some refs\n";
@@ -791,10 +802,11 @@ describe('the files a shared page takes along', () => {
         t().shareFilesFailed('refs/tags/x;rm'),
       ],
       [
-        () => {
-          throw new CommandNotFoundError('git');
+        (o: SpawnOptions) => {
+          if (o.args[0] !== '--version') throw new CommandNotFoundError('git');
+          return fakeGit(o);
         },
-        t().shareFilesFailed(t().commandNotFound('git')),
+        t().gitMissing,
       ],
     ] as const) {
       const gh = fakeGh([made, ok()], git);

@@ -112,6 +112,8 @@ src/
     voice.ts               voice input: whisper.cpp engine and model installs (pinned, SHA-256 checked), the engine process, transcription
     cliInstall.ts          installing a CLI from Settings into a folder of its own (clis/<provider> in the data folder): with npm (for Claude Code, Codex and Copilot without one, Node.js's own build put in the folder first, its checksum checked), its maker's script (bash, or on Windows PowerShell or Git Bash, with that folder as its home) or uv (installed into the folder first when missing) (CLI_RECIPES), in the background, checked to run, the links it left outside leading into the folder taken out (on Windows the user's PATH put back as it was before its script), and removed again
     sandboxSetup.ts        what the agents' OS sandboxes need that this computer lacks (Linux packages with the package manager, Ubuntu's AppArmor profile for bwrap, the desktop app's Node.js for Harness Relay's own sandbox), installed in one run of a fixed script with administrator rights (root, sudo -n, pkexec), else the command to run by hand
+    gitInstall.ts          Git installation on request, through Apple Command Line Tools, WinGet or the Linux package runner shared with sandbox setup
+    gitProcess.ts          finding and running Git, including fresh Git for Windows installs on an older PATH and Apple Git without opening its installer stub
     workspace.ts           git: auto init, snapshots, worktrees, diffs, apply
     errors.ts              HttpError (user-facing errors with a status)
     hub.ts                 SSE fan-out
