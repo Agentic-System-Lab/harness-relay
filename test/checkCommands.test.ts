@@ -371,3 +371,41 @@ describe('running a command', () => {
     expect(slow.runShellScript).toHaveBeenCalledWith('/bin/sh', [], expect.any(String), expect.objectContaining({ timeoutMs: 120_000 }));
   });
 });
+
+describe('the dependencies a check tree is given', () => {
+  it.skipIf(process.platform === 'win32')(
+    'links each package of every node_modules, and a venv, only where the tree has the folder, its caches left out',
+    async () => {
+      const { linkDependencies } = await import('../src/server/checkCommands');
+      const { lstatSync, readlinkSync, existsSync } = await import('node:fs');
+      const real = join(dir, 'real');
+      const tree = join(dir, 'tree');
+      for (const p of [
+        'node_modules/vitest',
+        'node_modules/@scope/pkg',
+        'node_modules/.vite',
+        'packages/a/node_modules/x',
+        '.venv/bin',
+        'dist/node_modules/y',
+        'home/node_modules/z',
+      ])
+        mkdirSync(join(real, p), { recursive: true });
+      // The tree has the project's folders, not the ignored ones (dist), and a node_modules of its own in b.
+      mkdirSync(join(tree, 'packages', 'a'), { recursive: true });
+      mkdirSync(join(tree, 'packages', 'b', 'node_modules'), { recursive: true });
+      mkdirSync(join(real, 'packages', 'b', 'node_modules', 'own'), { recursive: true });
+      mkdirSync(join(tree, 'home'), { recursive: true });
+      expect(linkDependencies(real, tree, [join(real, 'home')])).toBe(3);
+      expect(lstatSync(join(tree, 'node_modules')).isDirectory()).toBe(true);
+      expect(readlinkSync(join(tree, 'node_modules', 'vitest'))).toBe(join(real, 'node_modules', 'vitest'));
+      expect(readlinkSync(join(tree, 'node_modules', '@scope'))).toBe(join(real, 'node_modules', '@scope'));
+      expect(existsSync(join(tree, 'node_modules', '.vite'))).toBe(false);
+      expect(readlinkSync(join(tree, 'packages', 'a', 'node_modules', 'x'))).toBe(join(real, 'packages', 'a', 'node_modules', 'x'));
+      expect(readlinkSync(join(tree, '.venv'))).toBe(join(real, '.venv'));
+      // Its own node_modules is left as it is; nothing in folders it has not, nor in the excluded.
+      expect(existsSync(join(tree, 'packages', 'b', 'node_modules', 'own'))).toBe(false);
+      expect(existsSync(join(tree, 'dist'))).toBe(false);
+      expect(existsSync(join(tree, 'home', 'node_modules'))).toBe(false);
+    },
+  );
+});

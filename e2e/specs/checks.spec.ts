@@ -1,4 +1,4 @@
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
@@ -153,5 +153,32 @@ test.describe('team checks', () => {
     await expect(rows.filter({ hasText: 'outside.txt' }).locator('.checks-status')).toHaveText('Could not run');
     await expect(card.locator('.plan-head .checks-status')).toHaveText('Could not run');
     await settled(relay, id);
+  });
+
+  test('in parallel mode, a result that breaks a check is not applied until the user applies it anyway', async ({ page, relay }) => {
+    const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], {
+      permission: 'edit',
+      mode: 'parallel',
+      checks: { protectedPaths: ['secret.txt'] },
+    });
+    await send(page, 'Write it e2e:write=secret.txt');
+    const reply = await finishedReply(page, 'Claude');
+    // Checked once the team answered: found in the member's worktree.
+    await expect(checkCards(page).last().locator('.checks-findings')).toContainText("in @Claude's worktree");
+    await settled(relay, id);
+
+    acceptNextDialog(page);
+    await reply.getByRole('button', { name: 'Apply to working directory' }).click();
+    const card = checkCards(page).last();
+    await expect(card).toContainText("Checked before applying: the working directory with @Claude's result in it");
+    await expect(card.locator('.plan-head .checks-status')).toHaveText('Failed');
+    await expect(card).toContainText('It did not pass, so it was not applied');
+    expect(existsSync(join(relay.workDir, 'secret.txt'))).toBe(false);
+
+    acceptNextDialog(page);
+    await card.getByRole('button', { name: 'Apply anyway' }).click();
+    await expect.poll(() => existsSync(join(relay.workDir, 'secret.txt'))).toBe(true);
+    expect(readFileSync(join(relay.workDir, 'secret.txt'), 'utf8')).toContain('Claude');
+    await expect(card.getByRole('button', { name: 'Apply anyway' })).toHaveCount(0);
   });
 });

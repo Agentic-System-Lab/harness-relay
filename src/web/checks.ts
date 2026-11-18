@@ -99,10 +99,23 @@ export function cardActions(
   const c = msg.checks;
   if (!c || running || c.status === 'running' || !latest) return none;
   const open = checksFailed(c) && !c.skippedAt;
+  // Checked before applying: applying it again checks it again, so the card has no Check again of its own.
+  if (c.when === 'apply')
+    return { recheck: false, fix: open && c.outcomes.some(needsFix), skip: open && c.outcomes.some(blocking), confirm: false };
   // Commands the run's changes kept from running: Check again runs them once the user confirms; they
   // are nothing for a member to fix, nor is a command that was stopped or cannot run here.
   const confirm = gatedFiles(msg).length > 0;
   return { recheck: true, fix: open && c.outcomes.some(needsFix), skip: open && c.outcomes.some(blocking), confirm };
+}
+
+/**
+ * A result checked before a parallel-mode result was applied, that held it back: the member whose result
+ * the user may apply anyway (its id), on the latest result, while nobody replies.
+ */
+export function applyAnyway(msg: ChatMessage, latest: boolean, running: boolean): string | undefined {
+  const c = msg.checks;
+  if (!c || c.when !== 'apply' || !c.applyOf || c.applied || running || !latest || c.status === 'running') return undefined;
+  return c.outcomes.some(blocking) ? c.applyOf.agentId : undefined;
 }
 
 /** The members a fix can be asked of: those a finding names first (in the order found), then the others. */

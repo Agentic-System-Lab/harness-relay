@@ -626,6 +626,25 @@ describe('settings', () => {
     expect(await refused('npm test')).toContain('checks.commands');
   });
 
+  it('applies a parallel result with the team checks first, says which card held it, and applies it anyway with force', async () => {
+    const apply = vi.spyOn(orchestrator, 'applyAgentWork');
+    try {
+      apply.mockResolvedValueOnce({ files: [], held: 'card' });
+      const at = (body?: unknown) =>
+        app.request(
+          '/api/conversations/conv/agents/b/apply',
+          body === undefined ? { method: 'POST', headers: { ...HOST, 'content-type': 'application/json' } } : json('POST', body),
+        );
+      expect(await (await at()).json()).toEqual({ ok: true, files: [], held: 'card' });
+      expect(apply).toHaveBeenLastCalledWith('conv', 'b', { force: false });
+      apply.mockResolvedValueOnce({ files: [{ path: 'a', status: 'A', added: 1, deleted: 0 }] });
+      expect(await (await at({ force: true })).json()).toEqual({ ok: true, files: [{ path: 'a', status: 'A', added: 1, deleted: 0 }] });
+      expect(apply).toHaveBeenLastCalledWith('conv', 'b', { force: true });
+    } finally {
+      apply.mockRestore();
+    }
+  });
+
   it("tries a command of the list being edited, and says what this computer's sandbox can do", async () => {
     const tried = vi.spyOn(orchestrator, 'tryCheckCommand').mockResolvedValue({ rule: 'command', status: 'passed', commandId: 'x' });
     const recheck = vi.spyOn(orchestrator, 'recheckChecks').mockResolvedValue({ id: 'c2' } as ChatMessage);

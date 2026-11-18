@@ -503,6 +503,10 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
     const c = convRef.current;
     if (c) await api.skipChecks(c.id, messageId);
   }, []);
+  const onApplyAnyway = useCallback(async (agentId: string) => {
+    const c = convRef.current;
+    if (c) await api.applyAgent(c.id, agentId, true);
+  }, []);
   const onFixChecks = useCallback(async (messageId: string, agentId: string) => {
     const c = convRef.current;
     if (!c) return;
@@ -751,6 +755,7 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
                 onRecheckChecks={onRecheckChecks}
                 onSkipChecks={onSkipChecks}
                 onFixChecks={onFixChecks}
+                onApplyAnyway={onApplyAnyway}
               />
             );
             // A branch: a line after the messages copied from the conversation it comes from (a shared

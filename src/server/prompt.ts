@@ -468,7 +468,12 @@ export function renderChecks(conv: Conversation, c: ChecksResult): string {
     for (const f of o.findings ?? []) lines.push(`  - ${findingText(f)}`);
     if (o.more) lines.push(`  - … and ${o.more} more`);
   }
-  const when = c.when === 'pause' ? ' (checked when the team stopped to ask the user something)' : '';
+  const when =
+    c.when === 'pause'
+      ? ' (checked when the team stopped to ask the user something)'
+      : c.when === 'apply' && c.applyOf
+        ? ` (checked before @${c.applyOf.name}'s parallel-mode result was applied, on the working directory with it in it${c.applied ? '' : '; it was not applied'})`
+        : '';
   return `<team_checks status="${c.status}"${c.stale ? ' stale="true"' : ''}>
 Harness Relay checked the team's work against the team checks${when}. The rules:
 ${rules.map((r) => `- ${r}`).join('\n') || '- (none now)'}

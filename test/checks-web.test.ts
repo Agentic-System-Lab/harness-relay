@@ -164,3 +164,23 @@ describe('team checks: what cannot be fixed', () => {
     expect(cardActions(stopped, true, false)).toEqual({ recheck: true, fix: false, skip: false, confirm: false });
   });
 });
+
+describe('team checks: before applying a parallel result', async () => {
+  const { applyAnyway } = await import('../src/web/checks');
+  it('offers to apply anyway a result the checks held, once, on the latest card, and no Check again of its own', () => {
+    const held = card({ when: 'apply', applyOf: { agentId: 'b', name: 'Bob' } });
+    expect(applyAnyway(held, true, false)).toBe('b');
+    expect(applyAnyway(held, false, false)).toBeUndefined();
+    expect(applyAnyway(held, true, true)).toBeUndefined();
+    expect(applyAnyway(card({ when: 'apply', applyOf: { agentId: 'b', name: 'Bob' }, applied: true }), true, false)).toBeUndefined();
+    expect(
+      applyAnyway(
+        card({ when: 'apply', status: 'passed', outcomes: [{ rule: 'paths', status: 'passed' }], applyOf: { agentId: 'b', name: 'Bob' } }),
+        true,
+        false,
+      ),
+    ).toBeUndefined();
+    expect(applyAnyway(card(), true, false)).toBeUndefined();
+    expect(cardActions(held, true, false)).toEqual({ recheck: false, fix: true, skip: true, confirm: false });
+  });
+});

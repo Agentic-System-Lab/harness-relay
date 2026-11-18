@@ -2042,9 +2042,21 @@ export function createApp({
     c.text(await orchestrator.agentDiff(c.req.param('id'), c.req.param('agentId'))),
   );
 
+  // Team checks run first, on the folders with the result in them: one that does not pass is not
+  // applied (`held`: its card's id), unless `force` (the card's "Apply anyway").
   app.post('/api/conversations/:id/agents/:agentId/apply', async (c) => {
-    const files = await orchestrator.applyAgentWork(c.req.param('id'), c.req.param('agentId'));
-    return c.json({ ok: true, files });
+    // No body at all (as before `force`) is an apply with the checks.
+    const text = await c.req.text();
+    let force = false;
+    if (text.trim()) {
+      try {
+        force = (JSON.parse(text) as { force?: unknown } | null)?.force === true;
+      } catch {
+        throw new HttpError(400, 'Invalid JSON body');
+      }
+    }
+    const { files, held } = await orchestrator.applyAgentWork(c.req.param('id'), c.req.param('agentId'), { force });
+    return c.json({ ok: true, files, ...(held ? { held } : {}) });
   });
 
   app.post('/api/conversations/:id/stop', (c) => {

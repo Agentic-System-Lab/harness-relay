@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync } from 'node:fs';
-import { basename, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, symlinkSync, type Dirent } from 'node:fs';
+import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { CHECK_LIMITS, CHECK_RESULT_LIMITS, type CheckCommand, type CheckOutcome } from '../shared/types';
 import { AgentRunError } from './agents/types';
 import { t } from './i18n';
@@ -394,6 +394,51 @@ export function namedFiles(run: string, dir: string): string[] {
  */
 export function checkConfigFiles(changed: readonly string[], named: ReadonlySet<string>): string[] {
   return changed.filter((p) => CONFIG_FILE.test(basename(p)) || named.has(p));
+}
+
+/** The folders a project's dependencies are installed in, which a checkout has not (they are ignored). */
+const DEPENDENCY_DIRS = new Set(['node_modules', '.venv', 'venv']);
+/** What tools keep in `node_modules` of their own (caches), which a check tree makes afresh. */
+const DEPENDENCY_CACHES = new Set(['.cache', '.vite', '.vite-temp', '.vitest', '.vitest-cache']);
+
+/**
+ * Give a check tree (a checkout of `real`'s repository at `tree`) the dependencies `real` has installed,
+ * so that its commands find them: `.venv` and `venv` as links, and each `node_modules` as a folder of
+ * links, one to each package, so that what a tool writes there (its caches) stays in the tree, never in
+ * the user's own. Only in folders the tree has (as deep as `depth`), never over what it has itself, and
+ * never in `exclude` (the CLIs' homes). Returns how many it linked.
+ */
+export function linkDependencies(real: string, tree: string, exclude: readonly string[] = [], depth = 4): number {
+  let linked = 0;
+  const walk = (rel: string, level: number) => {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(join(real, rel), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (!e.isDirectory() || e.name === '.git') continue;
+      const r = rel ? join(rel, e.name) : e.name;
+      const abs = join(real, r);
+      if (exclude.some((ex) => abs === ex || abs.startsWith(ex.endsWith(sep) ? ex : ex + sep))) continue;
+      const target = join(tree, r);
+      if (DEPENDENCY_DIRS.has(e.name)) {
+        // The tree has it (tracked), or not the folder it is in: left alone.
+        if (existsSync(target) || !existsSync(dirname(target))) continue;
+        if (e.name === 'node_modules') {
+          mkdirSync(target);
+          for (const name of readdirSync(abs)) if (!DEPENDENCY_CACHES.has(name)) symlinkSync(join(abs, name), join(target, name));
+        } else symlinkSync(abs, target, 'dir');
+        linked++;
+        continue;
+      }
+      // Only into folders the tree has: an ignored one (a build's output) is not walked.
+      if (level < depth && existsSync(target)) walk(r, level + 1);
+    }
+  };
+  walk('', 0);
+  return linked;
 }
 
 /** A path relative to `dir`, `/`-separated, or undefined when it is outside it. */

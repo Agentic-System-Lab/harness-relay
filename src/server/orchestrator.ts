@@ -96,13 +96,22 @@ import {
 import { buildBriefing, buildTurnPrompt, isForwardable, isPass, parseMentions, type BriefingWorkspace, type TurnInfo } from './prompt';
 import { endpointModel } from './backends';
 import { REVIEWER_BRIEFING, buildReviewPrompt, hasNewReplies, parseReviewReply, reviewMaterial } from './reviewer';
-import { RunCheck, checksResult, recheck as recheckFrom, type CheckFolders, type StoredBaseline, type WorktreeChange } from './checks';
-import { blocking, checksFailed, checksHold, hasChecks, latestChecks, overallStatus } from '../shared/checks';
+import {
+  RunCheck,
+  checksResult,
+  listPatterns,
+  recheck as recheckFrom,
+  type CheckFolders,
+  type StoredBaseline,
+  type WorktreeChange,
+} from './checks';
+import { blocking, checksFailed, checksHold, hasChecks, isProtected, latestChecks, overallStatus } from '../shared/checks';
 import {
   PACKAGE_JSON_KEYS,
   checkConfigFiles,
   commandCwd,
   defaultCheckCommandDeps,
+  linkDependencies,
   namedFiles,
   relativeInside,
   runCheckCommand,
@@ -115,6 +124,9 @@ import { DATA_DIR, OPEN_HOMES_DIR, type SettingsStore } from './settings';
 import type { Store } from './store';
 import {
   applyPatch,
+  addCheckTree,
+  applyPatchIn,
+  type CheckedPatch,
   checkPatch,
   commitWorktree,
   fileAt,
@@ -2029,27 +2041,50 @@ export class Orchestrator {
 
   /**
    * Apply everything an agent did in its worktrees to the real working directories (uncommitted):
-   * every patch is checked before any is applied, so a conflict in one changes nothing anywhere.
+   * every patch is checked before any is applied, so a conflict in one changes nothing anywhere. With
+   * team checks, the result is checked first, on the working directories as they are with it in them
+   * (`checkBeforeApply()`): what does not pass is not applied (`held`, the card's id), until the user
+   * applies it anyway (`force`). Stop stops the checks, and nothing is applied then. What was sent
+   * meanwhile goes once it is done.
    */
-  async applyAgentWork(convId: string, agentId: string): Promise<FileChange[]> {
+  async applyAgentWork(convId: string, agentId: string, o: { force?: boolean } = {}): Promise<{ files: FileChange[]; held?: string }> {
     const conv = this.store.get(convId);
     if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
     if (!conv.worktrees[agentId]?.length) throw new HttpError(404, t().noWorktree);
     if (conv.worktrees[agentId]!.some((w) => w.needsReset)) throw new HttpError(409, t().resultStale);
+    const abort = new AbortController();
     // Reserved at once (before anything is awaited), so the team cannot start writing (and take over
-    // these locks) while the patches are applied.
-    return this.exclusive(convId, t().busyApply, async () => {
+    // these locks) while the patches are checked and applied.
+    const done = await this.exclusive(convId, t().busyApply, async () => {
       const wts = await this.currentWorktrees(conv, agentId);
       if (!wts.length) throw new HttpError(400, t().nothingToApply);
       const roots = wts.map((w) => w.root);
       this.lockDirs(roots, conv);
       try {
-        const checked = [];
+        const checked: CheckedPatch[] = [];
         for (const wt of wts) {
           const patch = await checkPatch(wt.root, wt.base, await worktreeHead(wt.path));
           if (patch) checked.push(patch);
         }
         if (!checked.length) throw new HttpError(400, t().nothingToApply);
+        const name = conv.agents.find((a) => a.id === agentId)?.name ?? agentId;
+        let card: ChatMessage | undefined;
+        // Applied anyway: the card that held it back says it was applied (it still did not pass).
+        if (o.force) {
+          const latest = latestChecks(conv.messages);
+          if (latest?.checks?.when === 'apply' && latest.checks.applyOf?.agentId === agentId && !latest.checks.applied) card = latest;
+        }
+        if (!o.force && hasChecks(conv.settings.checks)) {
+          this.checking.set(convId, abort);
+          this.emitStatus(convId);
+          try {
+            card = await this.checkBeforeApply(conv, { agentId, name }, checked, abort.signal);
+          } finally {
+            this.checking.delete(convId);
+            this.emitStatus(convId);
+          }
+          if (abort.signal.aborted || card.checks!.outcomes.some(blocking)) return { files: [], held: card.id };
+        }
         const resetAll = () => {
           for (const [id, list] of Object.entries(conv.worktrees)) {
             for (const w of list) {
@@ -2075,15 +2110,110 @@ export class Orchestrator {
         }
         const files = checked.flatMap((p) => p.files);
         resetAll();
-        const name = conv.agents.find((a) => a.id === agentId)?.name ?? agentId;
-        this.markChecksStale(conv);
+        // The result that checked what was just applied still says how the folders are.
+        this.markChecksStale(conv, card);
+        if (card?.checks) {
+          card.checks = { ...card.checks, applied: true };
+          this.hub.emit(conv.id, { type: 'message', message: card });
+          this.store.saveMessage(conv.id, card, true);
+        }
         this.systemNote(conv, t().appliedNote(name, files.length));
         this.emitConversation(conv);
-        return files;
+        return { files };
       } finally {
         this.unlockDirs(roots, conv.id);
       }
     });
+    if (!abort.signal.aborted) this.startQueued(conv);
+    return done;
+  }
+
+  /**
+   * Team checks of a member's parallel-mode result before it is applied, posted as a card: the
+   * protected paths among the files it changes, and the commands, run in check trees (each repository's
+   * working tree as it is now, its result applied on top, the installed dependencies linked in:
+   * `linkDependencies()`), never in the working directories, which still hold the code before it. The
+   * trees are removed afterwards.
+   */
+  private async checkBeforeApply(
+    conv: Conversation,
+    of: { agentId: string; name: string },
+    checked: CheckedPatch[],
+    signal: AbortSignal,
+  ): Promise<ChatMessage> {
+    const list = conv.settings.checks!;
+    const started = Date.now();
+    const folders = await this.foldersNow(conv);
+    const real = (p: string) => {
+      try {
+        return realpathSync(p);
+      } catch {
+        return p;
+      }
+    };
+    const outcomes: CheckOutcome[] = [];
+    const patterns = listPatterns(list);
+    if (patterns.length) {
+      const status = { A: 'added', M: 'changed', D: 'removed' } as const;
+      const many = folders.length > 1;
+      const findings = checked.flatMap((p) =>
+        folders
+          .filter((f) => f.root === p.root)
+          .flatMap((f) =>
+            p.files.flatMap((file: FileChange) => {
+              const rel = relativeInside(real(f.cwd), join(p.root, ...file.path.split('/')));
+              return rel && isProtected(rel, patterns)
+                ? [{ path: rel, change: status[file.status], by: of.name, ...(many ? { folder: basename(f.cwd) } : {}) }]
+                : [];
+            }),
+          ),
+      );
+      outcomes.push({ rule: 'paths', status: findings.length ? 'failed' : 'passed', ...(findings.length ? { findings } : {}) });
+    }
+    if (list.commitPattern) outcomes.push({ rule: 'commits', status: 'na', reason: t().checksCommitsParallel });
+    const commands = list.commands ?? [];
+    const msg = this.postChecks(
+      conv,
+      checksResult([...outcomes, ...commands.map((c) => this.commandPending(c))], {
+        when: 'apply',
+        applyOf: of,
+        checkedAt: started,
+        durationMs: Date.now() - started,
+      }),
+    );
+    if (!commands.length) return msg;
+    const trees = join(DATA_DIR, 'check-trees', `${conv.id.slice(0, 8)}-${randomUUID().slice(0, 8)}`);
+    const made: { root: string; path: string }[] = [];
+    let why: string | undefined;
+    try {
+      const paths = new Map<string, string>();
+      for (const root of [...new Set(folders.map((f) => f.root))]) {
+        const path = join(trees, String(paths.size));
+        await addCheckTree(root, path, (await snapshot(root, this.snapshotExcludes())).commit);
+        made.push({ root, path });
+        const patch = checked.find((p) => p.root === root);
+        if (patch) await applyPatchIn(path, patch);
+        if (this.checkCommandDeps.platform !== 'win32') linkDependencies(root, path, this.snapshotExcludes());
+        paths.set(root, path);
+      }
+      const cwds = folders.map((f) => worktreeCwd(f.root, f.cwd, paths.get(f.root)!));
+      // A command's folder given as a full path in a working directory: the same folder in its tree.
+      const mapCommand = (c: CheckCommand): CheckCommand => {
+        if (!c.cwd || !isAbsolute(c.cwd)) return c;
+        const at = folders.findIndex((f) => relativeInside(real(f.cwd), real(c.cwd!)) !== undefined || real(f.cwd) === real(c.cwd!));
+        if (at < 0) return c;
+        const rel = relativeInside(real(folders[at]!.cwd), real(c.cwd)) ?? '';
+        return { ...c, cwd: rel ? join(cwds[at]!, ...rel.split('/')) : cwds[at]! };
+      };
+      await this.runResultCommands(conv, msg, commands, { signal, startedAt: started, cwds, mapCommand });
+    } catch (err) {
+      why = (err as Error).message;
+    } finally {
+      this.settleCommands(conv, msg, started, why);
+      for (const t of made) await removeWorktree(t.root, t.path).catch(() => undefined);
+      rmSync(trees, { recursive: true, force: true });
+    }
+    return msg;
   }
 
   /**
@@ -2511,7 +2641,14 @@ export class Orchestrator {
     conv: Conversation,
     msg: ChatMessage,
     commands: CheckCommand[],
-    o: { signal: AbortSignal; startedAt: number; gate?: { files: string[]; unattended: boolean } },
+    o: {
+      signal: AbortSignal;
+      startedAt: number;
+      gate?: { files: string[]; unattended: boolean };
+      /** Where they run instead of the working directories (a check tree's), and each command as it runs there. */
+      cwds?: string[];
+      mapCommand?: (c: CheckCommand) => CheckCommand;
+    },
   ): Promise<void> {
     const set = (outcome: CheckOutcome) => {
       const outcomes = msg.checks!.outcomes.map((x) => (x.rule === 'command' && x.commandId === outcome.commandId ? outcome : x));
@@ -2529,7 +2666,7 @@ export class Orchestrator {
       }
       return;
     }
-    const place = this.commandPlace(conv, o.signal);
+    const place = { ...this.commandPlace(conv, o.signal), ...(o.cwds ? { cwds: o.cwds } : {}) };
     const roots = [...new Set(await Promise.all(place.cwds.map(async (cwd) => (await repoRoot(cwd).catch(() => null)) ?? cwd)))];
     const snap = async () => {
       const out = new Map<string, string>();
@@ -2546,7 +2683,7 @@ export class Orchestrator {
     for (const c of commands) {
       if (o.signal.aborted) break;
       const before = await snap();
-      const outcome = await runCheckCommand(c, place, this.checkCommandDeps);
+      const outcome = { ...(await runCheckCommand(o.mapCommand ? o.mapCommand(c) : c, place, this.checkCommandDeps)), command: c.run };
       const wrote: string[] = [];
       for (const [root, commit] of await snap()) {
         const was = before.get(root);
@@ -2684,11 +2821,12 @@ export class Orchestrator {
 
   /**
    * The working directories changed after the latest team checks result (a turn changed files, a result
-   * was applied): it says nothing about them as they are now.
+   * was applied): it says nothing about them as they are now. Not `except`, the result that checked what
+   * was just applied.
    */
-  private markChecksStale(conv: Conversation): void {
+  private markChecksStale(conv: Conversation, except?: ChatMessage): void {
     const latest = latestChecks(conv.messages);
-    if (!latest?.checks || latest.checks.stale) return;
+    if (!latest?.checks || latest.checks.stale || latest === except) return;
     latest.checks = { ...latest.checks, stale: true };
     this.hub.emit(conv.id, { type: 'message', message: latest });
     this.store.saveMessage(conv.id, latest, true);
