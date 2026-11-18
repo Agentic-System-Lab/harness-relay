@@ -46,10 +46,25 @@ function validSet(set: string): boolean {
   }
 }
 
-/** Whether a pattern has a `[…]` set a regular expression refuses: it is then read as text, never a set. */
+/**
+ * Whether a pattern has a `[` the checks read as text, which a glob would read otherwise: one whose `]`
+ * is not in the same name (a glob's set may cross a `/`), a set a regular expression refuses
+ * (`[user-id]`), and a set that starts with `]` (`[]x]`, which sandbox-runtime reads as text). Name by
+ * name, as `nameRegex()` reads them.
+ */
 export function hasTextSet(pattern: string): boolean {
-  for (const m of pattern.matchAll(/\[([!^]?)([^\]]+)\]/g)) {
-    if (!validSet(`[${m[1] ? '^/' : ''}${m[2]!.replace(/[\\\]^]/g, '\\$&')}]`)) return true;
+  for (const name of pattern.split('/')) {
+    for (let i = 0; i < name.length; i++) {
+      if (name[i] !== '[') continue;
+      const end = name.indexOf(']', i + 2);
+      if (end < 0) return true;
+      let body = name.slice(i + 1, end);
+      const negate = body.startsWith('!') || body.startsWith('^');
+      if (negate) body = body.slice(1);
+      if (!body || body.startsWith(']')) return true;
+      if (!validSet(`[${negate ? '^/' : ''}${body.replace(/[\\\]^]/g, '\\$&')}]`)) return true;
+      i = end;
+    }
   }
   return false;
 }

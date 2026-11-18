@@ -116,7 +116,9 @@ const found = new WeakMap<WriteGuard, string[]>();
  * looking at most `budget` entries in each working directory. Worked out once for a guard.
  */
 export function guardedNow(g: WriteGuard, limit = 200, budget = 20_000): string[] {
-  const known = found.get(g);
+  // Kept only for the usual limits: another call's limits look again.
+  const usual = limit === 200 && budget === 20_000;
+  const known = usual ? found.get(g) : undefined;
   if (known) return known;
   const patterns = compiled(g);
   const out: string[] = [];
@@ -142,7 +144,7 @@ export function guardedNow(g: WriteGuard, limit = 200, budget = 20_000): string[
       }
     }
   }
-  found.set(g, out);
+  if (usual) found.set(g, out);
   return out;
 }
 

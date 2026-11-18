@@ -457,7 +457,7 @@ export function claudeGuardRules(
   const dirs = g.dirs.filter(plain);
   if (!dirs.length) return [];
   const guard = { ...g, dirs };
-  const named = (now ?? guardedNow(guard)).filter(plain).flatMap((p) => [p, `${p.split('\\').join('/')}/**`]);
+  const named = (now ?? guardedNow(g)).filter(plain).flatMap((p) => [p, `${p.split('\\').join('/')}/**`]);
   const rules = [...guardGlobs(guard), ...named].filter((glob) => {
     if (platform !== 'linux') return true;
     const name = glob.replace(/\/\*\*$/, '');

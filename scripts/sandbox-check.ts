@@ -203,9 +203,10 @@ async function main() {
     );
     check('guard: other files are written as before', r.out.includes('PLAIN-WROTE'));
     const left = spawnSync('git', ['-C', cwdEdit, 'status', '--porcelain', '--ignored'], { encoding: 'utf8' }).stdout;
+    // A protected name the command never writes (the top-level `.env`): nothing may stand in for it.
     check(
       'guard: no stand-in is left in the working directory',
-      !/\.env\b/.test(left) || existsSync(fresh),
+      !existsSync(join(cwdEdit, '.env')) && !/^\?\? \.env$/m.test(left),
       left.trim().replace(/\n/g, ' | '),
     );
     rmSync(join(cwdEdit, 'sub'), { recursive: true, force: true });

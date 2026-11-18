@@ -89,6 +89,9 @@ describe('protected path patterns', () => {
     expect(hasTextSet('pages/[post-id].tsx')).toBe(true);
     expect(hasTextSet('*.[ch]')).toBe(false);
     expect(hasTextSet('[!a].txt')).toBe(false);
+    // As the checks read them, name by name: a `[` whose `]` is in another name, a set starting with `]`.
+    expect(hasTextSet('a[b/c]d')).toBe(true);
+    expect(hasTextSet('[]x].pem')).toBe(true);
     expect(matches('*.[ch]', 'a.c')).toBe(true);
   });
 
