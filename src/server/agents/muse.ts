@@ -19,7 +19,10 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import type { NativeItemsOff, NativePart, Permission } from '../../shared/types';
+import { CHECK_RESULT_LIMITS, PROVIDER_LABEL, type NativeItemsOff, type NativePart, type Permission } from '../../shared/types';
+import { keptOutput } from '../checkCommands';
+import type { HookHandler, HookProgram } from '../gateway';
+import { HOOK_WAIT, commandHookHandler, shellWords, type HookResult, type TurnHooks } from '../hooks';
 import { t } from '../i18n';
 import { isPublishCommand } from '../commands';
 import { runProcess, tail } from '../process';
@@ -238,6 +241,117 @@ export function museRunSettings(
   return { ...out, schema_version: 1, run: { ...MUSE_RUN_RUN_SETTINGS }, permissions: musePermissions(permission, protectedPaths) };
 }
 
+/*
+ * The team's hooks (`RunOptions.hooks`): Muse runs the hooks in its settings' `hooks`, also in a
+ * workspace it does not trust and with any permission, outside its sandbox, with an environment of its
+ * own (none of the run's variables). Each run's settings get a `PreToolUse` and a `PostToolUse` entry
+ * for the tools the hooks cover, which run Harness Relay's hook program (`hookShim.ts`), its socket and
+ * token file as arguments, beside the account's own hooks. A before hook's refusal comes back as
+ * `permissionDecision: deny`; after a call, Muse gives the model a `decision: block`'s reason in place
+ * of the call's result, so the reason carries that result too. Muse lets the call go on when a hook
+ * fails otherwise, so the program answers itself when it cannot reach the server (tried with muse 1.4.23).
+ */
+
+/**
+ * Muse's tools each kind of call is, for its hooks' matcher: every tool that runs a command line or
+ * feeds one that runs (`bash_input` types into a shell `bash` started; `monitor` watches a command it
+ * starts; PowerShell's on Windows), and its file tools.
+ */
+const MUSE_HOOK_TOOLS: Record<'command' | 'edit', string[]> = {
+  command: ['bash', 'bash_input', 'monitor', 'powershell', 'powershell_input'],
+  edit: ['write_file', 'edit_file'],
+};
+
+/**
+ * The longest Harness Relay has Muse wait for a hook, in seconds: Muse caps a hook's time limit at a
+ * boundary of its own, whatever the settings declare, and lets the call go on past it. A hook was seen
+ * to run 1,523 s with a longer limit declared, and its refusal after that still held (muse 1.4.23), so
+ * everything stays under that: Muse's limit
+ * for the program, the program's own half a minute less, Harness Relay's deadline a minute less. Hooks
+ * whose time limits add up to more are stopped at that deadline, and a call before them refused.
+ */
+export const MUSE_HOOK_MAX_WAIT = 1200;
+
+/** A command tool's command line, as a hook reads it: its `command`, what `bash_input` types, else its arguments as JSON. */
+function museCommandText(input: Record<string, any>): string {
+  for (const key of ['command', 'input', 'text', 'keys']) if (typeof input[key] === 'string' && input[key]) return input[key];
+  return Object.keys(input).length ? JSON.stringify(input) : '';
+}
+
+/** Whether a command's result says it failed (bash's `exit_code`, in a JSON string). */
+function museFailed(response: unknown): boolean {
+  try {
+    const r = typeof response === 'string' ? JSON.parse(response) : response;
+    return isObject(r) && typeof r.exit_code === 'number' && r.exit_code !== 0;
+  } catch {
+    return false;
+  }
+}
+
+/** A call as the team's hooks see it, from what Muse gives a hook (`tool_name`, `tool_input`, `tool_response`). */
+export function museHookCall(payload: Record<string, any>): HookResult {
+  const tool = String(payload.tool_name ?? '');
+  const input = isObject(payload.tool_input) ? payload.tool_input : {};
+  const cwd = typeof payload.cwd === 'string' ? payload.cwd : undefined;
+  const r = payload.tool_response;
+  const output = r === undefined ? undefined : typeof r === 'string' ? r : JSON.stringify(r);
+  const done = output === undefined ? {} : { output, ...(museFailed(r) ? { failed: true } : {}) };
+  if (MUSE_HOOK_TOOLS.command.includes(tool)) return { kind: 'command', tool, command: museCommandText(input), input, ...done };
+  if (MUSE_HOOK_TOOLS.edit.includes(tool)) {
+    const path = typeof input.path === 'string' && input.path ? input.path : undefined;
+    return { kind: 'edit', tool, files: path ? [cwd && !isAbsolute(path) ? resolve(cwd, path) : path] : [], input, ...done };
+  }
+  return { kind: 'other', tool, input, ...done };
+}
+
+/** The answer to Muse's hook program: Claude Code's, after a call the call's result with what the hooks said. */
+export function museHookHandler(hooks: TurnHooks): HookHandler {
+  return commandHookHandler(
+    hooks,
+    museHookCall,
+    (said, call) => {
+      const out = call.output ? keptOutput(call.output, CHECK_RESULT_LIMITS.promptOutput) : '';
+      return { decision: 'block', reason: out ? [out, said].join('\n\n') : said };
+    },
+    () => MUSE_HOOK_MAX_WAIT - 60,
+  );
+}
+
+/**
+ * The settings' `hooks` with Harness Relay's: the account's own (as the run keeps them), then a
+ * `PreToolUse` and a `PostToolUse` entry for the kinds of call the team's hooks cover (`*`: every tool),
+ * each running the hook program, waiting long enough for every hook it may run.
+ */
+export function museHooksWith(own: unknown, program: HookProgram, hooks: TurnHooks): Record<string, unknown> {
+  const out: Record<string, unknown> = isObject(own) ? { ...own } : {};
+  for (const [event, when] of [
+    ['PreToolUse', 'before'],
+    ['PostToolUse', 'after'],
+  ] as const) {
+    const kinds = hooks.kinds(when);
+    if (!kinds.size) continue;
+    const matcher = kinds.has('any') ? '*' : [...kinds].flatMap((k) => MUSE_HOOK_TOOLS[k as 'command' | 'edit']).join('|');
+    const entry = {
+      matcher,
+      hooks: [
+        {
+          type: 'command',
+          // The program refuses on its own before Muse's time limit for it ends (Muse would let the call go on).
+          command: shellWords([
+            program.bin,
+            ...program.args,
+            when,
+            String(Math.min(hooks.budgetSec(when) + HOOK_WAIT.program, MUSE_HOOK_MAX_WAIT - 30)),
+          ]),
+          timeout: Math.min(hooks.budgetSec(when) + HOOK_WAIT.cli, MUSE_HOOK_MAX_WAIT),
+        },
+      ],
+    };
+    out[event] = [...(Array.isArray(out[event]) ? (out[event] as unknown[]) : []), entry];
+  }
+  return out;
+}
+
 /** A run's own config folder (`XDG_CONFIG_HOME`), and how to put things back and remove it. */
 export interface MuseRun {
   /** The folder given as `XDG_CONFIG_HOME`: Muse's config folder is its `muse`. */
@@ -336,6 +450,8 @@ export function prepareMuseRun(
     platform?: NodeJS.Platform;
     /** The user's own XDG config folder, whose other entries are linked (`XDG_CONFIG_HOME`, else `~/.config`). */
     userConfig?: string;
+    /** The team's hooks, and the program that runs them (`museHooksWith`). */
+    hooks?: { turn: TurnHooks; program: HookProgram };
   } = {},
 ): MuseRun {
   const platform = opts.platform ?? process.platform;
@@ -376,11 +492,9 @@ export function prepareMuseRun(
     // Read in here, so that a sign-in it cannot read leaves no folder behind.
     if (authLinked || authCopied) original = readFileSync(auth);
     mkdirSync(cfg, { mode: 0o700 });
-    writeFileSync(
-      join(cfg, 'settings.json'),
-      `${JSON.stringify(museRunSettings(settings, permission, protectedPaths, opts.nativeOff, opts.nativeItems), null, 2)}\n`,
-      { mode: 0o600 },
-    );
+    const runSettings = museRunSettings(settings, permission, protectedPaths, opts.nativeOff, opts.nativeItems);
+    if (opts.hooks) runSettings.hooks = museHooksWith(runSettings.hooks, opts.hooks.program, opts.hooks.turn);
+    writeFileSync(join(cfg, 'settings.json'), `${JSON.stringify(runSettings, null, 2)}\n`, { mode: 0o600 });
     if (authLinked) symlinkSync(auth, runAuth, 'file');
     if (authCopied) copyFileSync(auth, runAuth);
     // What Muse loads by itself from its own config folder besides its settings: its skills and its own
@@ -936,12 +1050,17 @@ export const museRunner: AgentRunner = {
     const grant = museGrant(o.permission, denied);
     // Before anything is said, so that the orchestrator starts a fresh session.
     if (o.sessionId && grants.get(o.sessionId) !== grant) throw new AgentRunError(t().museSessionGrant);
+    // The team's hooks, through Harness Relay's hook program. Without one the turn does not start: its
+    // calls would go without the hooks the team set (it fails closed, as Pi's run without its gate).
+    const program = o.hooks?.program(museHookHandler(o.hooks));
+    if (o.hooks && !program) throw new AgentRunError(t().hooksNoProgram(PROVIDER_LABEL.muse));
     let run: MuseRun;
     try {
       run = prepareMuseRun(o.env, o.permission, denied, {
         nativeOff: o.nativeOff,
         nativeItems: o.nativeItems,
         dirs: [o.cwd, ...(o.addDirs ?? [])],
+        ...(o.hooks && program ? { hooks: { turn: o.hooks, program } } : {}),
       });
     } catch (err) {
       throw new AgentRunError(t().museConfigFailed((err as Error).message));

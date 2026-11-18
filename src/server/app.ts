@@ -57,7 +57,7 @@ import {
 } from '../shared/types';
 import type { AgentsViewSync } from './agentsview';
 import { freshTracking } from '../shared/tracking';
-import { hasChecks } from '../shared/checks';
+import { hasRules } from '../shared/checks';
 import { servingPort } from './relaySandbox';
 import { checksEnvironment } from './checkCommands';
 import { discoverCalendars } from './connectors/caldav';
@@ -541,7 +541,7 @@ export function createApp({
     if (b.checksDefault === null) checksDefault = null;
     else if (b.checksDefault !== undefined) {
       const { fromDefault: _copied, ...list } = validateChecks(b.checksDefault);
-      checksDefault = hasChecks(list) ? list : null;
+      checksDefault = hasRules(list) ? list : null;
     }
     const viewUrl = b.agentsViewUrl !== undefined ? validAgentsViewUrl(b.agentsViewUrl) : undefined;
     const viewLink = b.agentsViewLink !== undefined ? validAgentsViewLink(b.agentsViewLink) : undefined;

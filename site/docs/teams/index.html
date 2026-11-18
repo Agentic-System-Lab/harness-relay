@@ -424,6 +424,15 @@
               each with its folder and a time limit; <b>Try it</b> runs one now, to see that it works. Below full access they
               run in Harness Relay's own sandbox, with no network. They do not run on native Windows yet.
             </dd>
+            <dt>Hooks</dt>
+            <dd>
+              Commands that run around each member's own tool calls as they happen (<b>Add a hook</b>): <b>Before</b> a
+              command, a file change or every call, where a hook that does not succeed refuses the call and its output is the
+              reason the agent gets; or <b>After</b> one, where its output goes back to the agent to fix. A hook reads the call
+              from variables such as <code>RELAY_HOOK_COMMAND</code> and <code>RELAY_HOOK_FILES</code>, and the script it names in
+              your folder is protected like a protected path. For members on Claude
+              Code, Muse Code and Pi for now: another member's reply says its calls went without them.
+            </dd>
           </dl>
           <p>
             The agents are told the rules from the start. In a chat that can change files, a <b>Team checks</b> card after

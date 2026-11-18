@@ -1,5 +1,5 @@
 import { blocking, checksFailed, commitPatternError, needsFix, tidyFolder, tidyPattern } from '../shared/checks';
-import { CHECK_LIMITS, type AgentConfig, type ChatMessage, type CheckCommand, type CheckList } from '../shared/types';
+import { CHECK_LIMITS, type AgentConfig, type ChatMessage, type CheckCommand, type CheckHook, type CheckList } from '../shared/types';
 
 /*
  * Team checks in the page: the editor's fields (Team settings, the template editor, and Settings → Tool
@@ -42,6 +42,28 @@ export function commandProblem(c: Pick<CheckCommand, 'run' | 'cwd' | 'timeoutMin
   return undefined;
 }
 
+/** What is wrong with a hook row, if anything: no command line, a folder that leaves the working directory, a time limit out of range. */
+export function hookProblem(h: Pick<CheckHook, 'run' | 'cwd' | 'timeoutSec'>): 'run' | 'folder' | 'timeout' | undefined {
+  if (!h.run.trim()) return 'run';
+  if (h.cwd && tidyFolder(h.cwd) === undefined) return 'folder';
+  const s = h.timeoutSec;
+  if (s !== undefined && (!Number.isInteger(s) || s < 1 || s > CHECK_LIMITS.maxHookTimeoutSec)) return 'timeout';
+  return undefined;
+}
+
+/** A hook row as the list keeps it: trimmed, the defaults left out. */
+function keptHook(h: CheckHook): CheckHook {
+  const cwd = h.cwd?.trim();
+  return {
+    id: h.id,
+    when: h.when,
+    tools: h.tools,
+    run: h.run.trim(),
+    ...(cwd ? { cwd } : {}),
+    ...(h.timeoutSec !== undefined && h.timeoutSec !== CHECK_LIMITS.hookTimeoutSec ? { timeoutSec: h.timeoutSec } : {}),
+  };
+}
+
 /** A command row as the list keeps it: trimmed, the defaults left out. */
 function keptCommand(c: CheckCommand): CheckCommand {
   const cwd = c.cwd?.trim();
@@ -56,24 +78,27 @@ function keptCommand(c: CheckCommand): CheckCommand {
 }
 
 /**
- * The list the editor's fields make (a command row without a command line is left out). With all of
- * them empty: none for a conversation or template that had none (a template's is then copied in), an
- * empty one for one that had a list (it stays without).
+ * The list the editor's fields make (a command or hook row without a command line is left out). With
+ * all of them empty: none for a conversation or template that had none (a template's is then copied
+ * in), an empty one for one that had a list (it stays without).
  */
 export function listFrom(
   paths: string,
   commitPattern: string,
   before: CheckList | undefined,
   commands: readonly CheckCommand[] = [],
+  hooks: readonly CheckHook[] = [],
 ): CheckList | undefined {
   const protectedPaths = pathsFromText(paths);
   const pattern = commitPattern.trim();
   const kept = commands.filter((c) => c.run.trim()).map(keptCommand);
-  if (!protectedPaths.length && !pattern && !kept.length) return before === undefined ? undefined : {};
+  const keptHooks = hooks.filter((h) => h.run.trim()).map(keptHook);
+  if (!protectedPaths.length && !pattern && !kept.length && !keptHooks.length) return before === undefined ? undefined : {};
   return {
     ...(protectedPaths.length ? { protectedPaths } : {}),
     ...(pattern ? { commitPattern: pattern } : {}),
     ...(kept.length ? { commands: kept } : {}),
+    ...(keptHooks.length ? { hooks: keptHooks } : {}),
   };
 }
 
@@ -95,13 +120,17 @@ export function sameChecks(a: CheckList | undefined, b: CheckList | undefined): 
         const k = keptCommand(c);
         return [k.run, k.cwd ?? '', k.timeoutMin ?? 0, Boolean(k.localPorts), Boolean(k.unixSockets)];
       }),
+      (l?.hooks ?? []).map((h) => {
+        const k = keptHook(h);
+        return [k.when, k.tools, k.run, k.cwd ?? '', k.timeoutSec ?? 0];
+      }),
     ]);
   return key(a) === key(b);
 }
 
 /** How many rules a list has (the editor's summary). */
 export function ruleCount(list: CheckList | undefined): number {
-  return (list?.protectedPaths?.length ?? 0) + (list?.commitPattern ? 1 : 0) + (list?.commands?.length ?? 0);
+  return (list?.protectedPaths?.length ?? 0) + (list?.commitPattern ? 1 : 0) + (list?.commands?.length ?? 0) + (list?.hooks?.length ?? 0);
 }
 
 /** The files a result's commands were kept from running for (the run changed what they read), if any. */

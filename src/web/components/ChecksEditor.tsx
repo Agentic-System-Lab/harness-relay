@@ -2,13 +2,16 @@ import { useEffect, useId, useRef, useState } from 'react';
 import {
   CHECK_LIMITS,
   CONVENTIONAL_COMMIT_PATTERN,
+  HOOK_PROVIDERS,
+  PROVIDER_LABEL,
   type CheckCommand,
+  type CheckHook,
   type CheckList,
   type CheckOutcome,
   type Permission,
 } from '../../shared/types';
 import { api } from '../api';
-import { badCommitPattern, badPath, commandProblem, listFrom, pathsText, ruleCount } from '../checks';
+import { badCommitPattern, badPath, commandProblem, hookProblem, listFrom, pathsText, ruleCount } from '../checks';
 import { useT } from '../i18n';
 import { CommandOutcome } from './ChecksCard';
 
@@ -28,8 +31,8 @@ const newId = () => Math.random().toString(36).slice(2, 10);
 
 /**
  * Team checks in Team settings and the template editor (`ConversationSettings.checks`): protected paths,
- * a line each, the commit format, and commands that must succeed. Folded away until it is opened, or
- * while it has rules.
+ * a line each, the commit format, commands that must succeed, and hooks around the members' tool calls.
+ * Folded away until it is opened, or while it has rules.
  */
 export function ChecksEditor({ value, onChange, permission, convId }: Props) {
   const t = useT();
@@ -38,27 +41,33 @@ export function ChecksEditor({ value, onChange, permission, convId }: Props) {
   const patternId = useId();
   const patternHint = useId();
   const commandsHint = useId();
+  const hooksHint = useId();
   // What the conversation or template had when the editor opened: emptied, a list stays an empty one.
   const before = useRef(value);
   const [paths, setPaths] = useState(() => pathsText(value));
   const [pattern, setPattern] = useState(() => value?.commitPattern ?? '');
   const [commands, setCommands] = useState<CheckCommand[]>(() => value?.commands ?? []);
+  const [hooks, setHooks] = useState<CheckHook[]>(() => value?.hooks ?? []);
   const [env, setEnv] = useState<Environment>();
   const [tried, setTried] = useState<Record<string, CheckOutcome | 'running' | string>>({});
   useEffect(() => {
     api.checksEnvironment().then(setEnv, () => undefined);
   }, []);
-  const update = (next: { paths?: string; pattern?: string; commands?: CheckCommand[] }) => {
+  const update = (next: { paths?: string; pattern?: string; commands?: CheckCommand[]; hooks?: CheckHook[] }) => {
     const p = next.paths ?? paths;
     const c = next.pattern ?? pattern;
     const cmds = next.commands ?? commands;
+    const hks = next.hooks ?? hooks;
     setPaths(p);
     setPattern(c);
     setCommands(cmds);
-    onChange(listFrom(p, c, before.current, cmds));
+    setHooks(hks);
+    onChange(listFrom(p, c, before.current, cmds, hks));
   };
   const setCommand = (id: string, patch: Partial<CheckCommand>) =>
     update({ commands: commands.map((c) => (c.id === id ? Object.assign({}, c, patch) : c)) });
+  const setHook = (id: string, patch: Partial<CheckHook>) =>
+    update({ hooks: hooks.map((h) => (h.id === id ? Object.assign({}, h, patch) : h)) });
   const tryIt = async (c: CheckCommand) => {
     if (!convId || tried[c.id] === 'running') return;
     setTried((x) => ({ ...x, [c.id]: 'running' }));
@@ -239,6 +248,98 @@ export function ChecksEditor({ value, onChange, permission, convId }: Props) {
               onClick={() => update({ commands: [...commands, { id: newId(), run: '' }] })}
             >
               {t.checks.addCommand}
+            </button>
+          )}
+        </div>
+        <div className="checks-field">
+          <span className="checks-commands-title">{t.checks.hooks}</span>
+          <span className="small muted" id={hooksHint}>
+            {t.checks.hooksHint} {t.checks.hooksWho(HOOK_PROVIDERS.map((p) => PROVIDER_LABEL[p]))}
+          </span>
+          {env?.platform === 'win32' && <span className="small warn-text">{t.checks.hooksWindowsNote}</span>}
+          {env?.sandbox && env.platform !== 'win32' && permission !== 'full' && permission !== 'read-only' && hooks.length > 0 && (
+            <span className="small warn-text">{t.checks.noSandbox(env.sandbox)}</span>
+          )}
+          <ul className="checks-commands checks-hooks">
+            {hooks.map((h) => {
+              const problem = h.run.trim() ? hookProblem(h) : undefined;
+              return (
+                <li key={h.id} className="checks-hook-row">
+                  <div className="checks-command-options">
+                    <label>
+                      <span className="small muted">{t.checks.hookWhen}</span>
+                      <select value={h.when} onChange={(e) => setHook(h.id, { when: e.target.value as CheckHook['when'] })}>
+                        <option value="before">{t.checks.hookBefore}</option>
+                        <option value="after">{t.checks.hookAfter}</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span className="small muted">{t.checks.hookTools}</span>
+                      <select value={h.tools} onChange={(e) => setHook(h.id, { tools: e.target.value as CheckHook['tools'] })}>
+                        {(['command', 'edit', 'any'] as const).map((k) => (
+                          <option key={k} value={k}>
+                            {t.checks.hookToolsLabel[k]}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="checks-command-line">
+                    <input
+                      type="text"
+                      spellCheck={false}
+                      aria-label={t.checks.hookRun}
+                      aria-describedby={hooksHint}
+                      placeholder={h.when === 'before' ? './scripts/allow-call.sh' : 'npx prettier --check $RELAY_HOOK_FILES'}
+                      value={h.run}
+                      onChange={(e) => setHook(h.id, { run: e.target.value })}
+                    />
+                    <button
+                      type="button"
+                      className="ghost small-button"
+                      aria-label={t.checks.removeHook}
+                      title={t.checks.removeHook}
+                      onClick={() => update({ hooks: hooks.filter((x) => x.id !== h.id) })}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div className="checks-command-options">
+                    <label>
+                      <span className="small muted">{t.checks.commandFolder}</span>
+                      <input
+                        type="text"
+                        spellCheck={false}
+                        value={h.cwd ?? ''}
+                        onChange={(e) => setHook(h.id, { cwd: e.target.value || undefined })}
+                      />
+                    </label>
+                    <label>
+                      <span className="small muted">{t.checks.hookTimeout}</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={CHECK_LIMITS.maxHookTimeoutSec}
+                        value={h.timeoutSec ?? CHECK_LIMITS.hookTimeoutSec}
+                        onChange={(e) => setHook(h.id, { timeoutSec: e.target.value === '' ? undefined : Number(e.target.value) })}
+                      />
+                    </label>
+                  </div>
+                  {problem === 'folder' && <span className="small warn-text">{t.checks.badFolder(h.cwd ?? '')}</span>}
+                  {problem === 'timeout' && (
+                    <span className="small warn-text">{t.checks.badHookTimeout(CHECK_LIMITS.maxHookTimeoutSec)}</span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          {hooks.length < CHECK_LIMITS.hooks && (
+            <button
+              type="button"
+              className="ghost small-button checks-add checks-add-hook"
+              onClick={() => update({ hooks: [...hooks, { id: newId(), when: 'before', tools: 'command', run: '' }] })}
+            >
+              {t.checks.addHook}
             </button>
           )}
         </div>

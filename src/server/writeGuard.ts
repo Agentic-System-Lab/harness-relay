@@ -1,7 +1,7 @@
 import { readdirSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import type { CheckList } from '../shared/types';
-import { compilePattern, hasTextSet, isProtected, type CompiledPattern } from '../shared/checks';
+import { compilePattern, hasTextSet, isProtected, protectedPatterns, type CompiledPattern } from '../shared/checks';
 
 /**
  * The team checks' protected paths, for a CLI to refuse writing them before it happens (each adapter in
@@ -29,7 +29,7 @@ export function writeGuard(
 ): WriteGuard | undefined {
   if (platform === 'win32') return undefined;
   // Tidied (`./a` is `a`), as every translation reads them.
-  const patterns = [...new Set((list?.protectedPaths ?? []).flatMap((p) => compilePattern(p)?.source ?? []))];
+  const patterns = [...new Set(protectedPatterns(list).flatMap((p) => compilePattern(p)?.source ?? []))];
   if (!patterns.length || !dirs.length) return undefined;
   return { dirs: [...new Set(dirs.flatMap((d) => [d, realPath(d)]))], patterns };
 }

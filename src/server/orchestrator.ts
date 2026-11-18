@@ -35,6 +35,7 @@ import { splitAsk } from '../shared/ask';
 import { nextRun } from '../shared/schedule';
 import { freshTracking, retryDelayMs, splitProgress, withNote } from '../shared/tracking';
 import {
+  HOOK_PROVIDERS,
   OPEN_PROVIDERS,
   PROVIDER_LABEL,
   REVISE_REQUEST_MAX,
@@ -55,6 +56,7 @@ import {
   GATEWAY_SANDBOXED_MCP,
   gatewayToolNamed,
   reservedMcpName,
+  type HookHandler,
   type ToolGateway,
 } from './gateway';
 import type { Outbox } from './outbox';
@@ -106,7 +108,17 @@ import {
   type StoredBaseline,
   type WorktreeChange,
 } from './checks';
-import { blocking, checksFailed, checksHold, hasChecks, isProtected, latestChecks, overallStatus } from '../shared/checks';
+import {
+  blocking,
+  checksFailed,
+  checksHold,
+  hasChecks,
+  hasRules,
+  isProtected,
+  latestChecks,
+  overallStatus,
+  protectedPatterns,
+} from '../shared/checks';
 import {
   PACKAGE_JSON_KEYS,
   checkConfigFiles,
@@ -150,6 +162,7 @@ import { sameFolder, validateAgents } from './validate';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import { scheduleTime } from './scheduler';
 import { writeGuard, type WriteGuard } from './writeGuard';
+import { turnHooks, type TurnHooks } from './hooks';
 
 /** A member's turn's `guard` (the team's protected paths, for its CLI to refuse writing), none when there is none. */
 function guardOf(list: ConversationSettings['checks'], dirs: string[]): { guard?: WriteGuard } {
@@ -2575,7 +2588,7 @@ export class Orchestrator {
   private unchecked(conv: Conversation, why: string, withCommands = true): CheckOutcome[] {
     const list = conv.settings.checks;
     const rules: CheckOutcome['rule'][] = [
-      ...(list?.protectedPaths?.length ? ['paths' as const] : []),
+      ...(protectedPatterns(list).length ? ['paths' as const] : []),
       ...(list?.commitPattern ? ['commits' as const] : []),
     ];
     return [
@@ -2677,6 +2690,36 @@ export class Orchestrator {
       privateRoots: unsandboxed ? [] : privateRoots(this.settings.openAgentHome('opencode'), undefined, this.settings.openAgentRoots()),
       signal,
     };
+  }
+
+  /**
+   * A member's turn's hooks (`turnHooks()`), in a run that may write, on a system that runs commands:
+   * where its CLI can run them (`HOOK_PROVIDERS`); on another CLI none, with a note in the reply. They run
+   * in the turn's own working directories (its worktrees in parallel mode), as the commands do.
+   */
+  private turnHooksOf(
+    conv: Conversation,
+    agent: AgentConfig,
+    cwds: string[],
+    signal: AbortSignal,
+    notice: (text: string) => void,
+  ): TurnHooks | undefined {
+    const list = conv.settings.checks?.hooks;
+    if (!list?.length || conv.settings.permission === 'read-only' || this.checkCommandDeps.platform === 'win32') return undefined;
+    if (!HOOK_PROVIDERS.includes(agent.provider)) {
+      notice(t().hooksUnsupported(PROVIDER_LABEL[agent.provider]));
+      return undefined;
+    }
+    const place = { ...this.commandPlace(conv, signal), cwds };
+    const gateway = this.gateway;
+    return turnHooks(list, {
+      place,
+      agent: agent.name,
+      provider: agent.provider,
+      notice,
+      ...(gateway ? { program: (handle: HookHandler) => gateway.hookProgram(handle) } : {}),
+      deps: this.checkCommandDeps,
+    });
   }
 
   /**
@@ -2924,7 +2967,7 @@ export class Orchestrator {
     if (!checks) return {};
     const { fromDefault: _copied, ...own } = structuredClone(checks);
     if (!copy) return { checks: own };
-    return hasChecks(own) ? { checks: mergeDefaultChecks(copy, own) } : {};
+    return hasRules(own) ? { checks: mergeDefaultChecks(copy, own) } : {};
   }
 
   /** The conversation's latest team checks result, by its message id: another one cannot be handled. */
@@ -3962,6 +4005,15 @@ export class Orchestrator {
         this.hub.emit(conv.id, { type: 'message', message: msg });
         this.store.saveMessage(conv.id, msg, true);
       }
+      // The team's hooks, for a CLI whose adapter can run them around its calls; a member on another is
+      // told about in the reply, as its calls go without them.
+      const notice = (text: string) => {
+        textOpen = false;
+        msg.parts.push({ type: 'notice', text });
+        this.hub.emit(conv.id, { type: 'message', message: msg });
+        this.store.saveMessage(conv.id, msg, true);
+      };
+      const hooks = this.turnHooksOf(conv, agent, [cwd, ...addDirs], run.abort.signal, notice);
       // The account's own: its home has its own skills, MCP servers and hooks.
       const nativeOff = this.settings.nativeOff(agent.provider, account);
       const nativeItems = this.settings.nativeItems(agent.provider, account);
@@ -4018,6 +4070,7 @@ export class Orchestrator {
           cwd,
           ...(addDirs.length ? { addDirs } : {}),
           ...guardOf(conv.settings.checks, [cwd, ...addDirs]),
+          ...(hooks ? { hooks } : {}),
           permission: conv.settings.permission,
           stateKey: stateKeys.member(conv.id, agent.id),
           freshState,
@@ -4039,6 +4092,7 @@ export class Orchestrator {
       } finally {
         turnEnd.abort();
         relay?.revoke();
+        hooks?.dispose();
       }
     };
 

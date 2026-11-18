@@ -981,7 +981,7 @@ export const zhTW = {
     // Team settings and the template editor.
     editorTitle: '團隊檢查',
     editorHint:
-      '團隊回答後，Harness Relay 會自己檢查這些規則，不論成員用哪個 CLI、什麼權限。只在可以修改檔案時檢查；只回報，不會撤銷修改。',
+      '團隊回答後，Harness Relay 會自己檢查這些規則，不論成員用哪個 CLI、什麼權限；hook 則在成員使用工具的當下執行。只在可以修改檔案時檢查；檢查只回報，不會撤銷修改。',
     protectedPaths: '受保護路徑',
     protectedPathsHint: '一行一條，寫法同 .gitignore，例如 .env、*.pem、secrets/、config/prod.yml。被 git 忽略的檔案也會檢查。',
     protectedPathsBefore:
@@ -1022,6 +1022,22 @@ export const zhTW = {
     badCommand: '指令不能是空的',
     badFolder: (f: string) => `無法使用資料夾「${f}」：不能有 ..`,
     badTimeout: (max: number) => `時間上限是 1 到 ${max} 分鐘`,
+    // Hooks: the editor.
+    hooks: 'Hook',
+    hooksHint:
+      '成員每次使用工具的前後，Harness Relay 執行的指令。「執行前」的 hook 沒有成功（exit 0）就拒絕那次呼叫，它的輸出就是 agent 收到的原因；「執行後」的 hook 沒有成功，輸出會交給 agent。指令從環境變數讀這次呼叫：RELAY_HOOK_COMMAND、RELAY_HOOK_FILES（一行一個完整路徑）、RELAY_HOOK_TOOL、RELAY_HOOK_INPUT（JSON）。和指令一樣，低於完全存取時在 Harness Relay 的沙箱裡執行；每次呼叫都會等它跑完。它從工作目錄執行的腳本（例如 ./scripts/allow.sh、sh ci/check.sh）會像受保護路徑一樣受保護；其他它會讀的檔案請自己列進受保護路徑。',
+    hooksWho: (clis: string[]) => `目前由 ${clis.join('、')} 執行；其他 agent 的成員，工具呼叫不經過 hook，對話中會註明。`,
+    hooksWindowsNote: '原生 Windows 上還不能執行 hook。',
+    hookWhen: '何時',
+    hookBefore: '執行前',
+    hookAfter: '執行後',
+    hookTools: '哪些呼叫',
+    hookToolsLabel: { command: '指令', edit: '檔案修改', any: '所有工具呼叫' },
+    hookRun: 'Hook 指令',
+    hookTimeout: '時間上限（秒）',
+    addHook: '新增 hook',
+    removeHook: '移除這個 hook',
+    badHookTimeout: (max: number) => `時間上限是 1 到 ${max} 秒`,
   },
 
   changes: {
@@ -2230,6 +2246,7 @@ export const zhTW = {
           '受保護路徑：寫法同 .gitignore，例如 .env、*.pem，團隊不能新增、修改或刪除',
           'commit 格式：每個 commit 的標題都要符合的正規表示式',
           '指令：例如 npm test，要成功才算通過',
+          'Hook：成員每次使用工具前後執行的指令，「執行前」的 hook 沒成功就拒絕那次呼叫（目前限 Claude Code、Muse Code 和 Pi）',
           '團隊回答後，Harness Relay 自己檢查，回覆後面的卡片寫出每條的結果；沒通過時，成員下一次發言會被要求修正，你也可以重新檢查、請成員修正或略過',
           '只回報，不會撤銷修改；設定 → 工具庫 → 團隊檢查預設，是每個新對話一開始帶著的規則',
         ],

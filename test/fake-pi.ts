@@ -15,7 +15,9 @@ import { writeFileSync } from 'node:fs';
  *   records after the first prompt up to `agent_settled`, waiting for the client's answer where the
  *   recording has one, and for `abort` where the recording was aborted); with `FAKE_PI_CALLS` (JSON
  *   tool calls) it loads the real gate extension given with `-e` and runs each call through its
- *   `tool_call` handler, the gate's dialogs going over the RPC as Pi sends them; else says "hi".
+ *   `tool_call` handler, and each call that ran through its `tool_result` handler when it has one
+ *   (`HARNESS_RELAY_PI_AFTER`), the gate's dialogs going over the RPC as Pi sends them and a
+ *   handler's `content` replacing the result's, as Pi 1.5.1 does; else says "hi".
  *   `FAKE_PI_UI_OTHER` first sends a notification and a dialog of another extension.
  * `FAKE_PI_CHUNKED` writes each record in three pieces (cut inside multi-byte characters);
  * `FAKE_PI_NOISE` writes lines that are no records first; `FAKE_PI_SLOW` (a command's type) answers that
@@ -101,7 +103,14 @@ async function gateRun(cmd) {
     }
     if (ac.signal.aborted) { send({ type: 'tool_execution_end', toolCallId: call.toolCallId, toolName: call.toolName, result: { content: [{ type: 'text', text: 'Operation aborted' }] }, isError: true }); break; }
     if (result && result.block) send({ type: 'tool_execution_end', toolCallId: call.toolCallId, toolName: call.toolName, result: { content: [{ type: 'text', text: result.reason }], details: {} }, isError: true });
-    else send({ type: 'tool_execution_end', toolCallId: call.toolCallId, toolName: call.toolName, result: { content: [{ type: 'text', text: 'ran ' + call.toolName }] }, isError: false, durationMs: 1 });
+    else {
+      let content = [{ type: 'text', text: 'ran ' + call.toolName }];
+      if (handlers.tool_result) {
+        const patch = await handlers.tool_result({ type: 'tool_result', toolName: call.toolName, toolCallId: call.toolCallId, input: call.input, content, isError: false }, { hasUI: true, signal: ac.signal, ui });
+        if (patch && patch.content) content = patch.content;
+      }
+      send({ type: 'tool_execution_end', toolCallId: call.toolCallId, toolName: call.toolName, result: { content }, isError: false, durationMs: 1 });
+    }
   }
   const aborted = ac.signal.aborted;
   send({ type: 'message_end', message: { role: 'assistant', content: aborted ? [] : [{ type: 'text', text: 'done' }], stopReason: aborted ? 'aborted' : 'stop', usage: { input: 10, output: 5, cacheRead: 2, cacheWrite: 1, cost: { total: 0.001 } } } });

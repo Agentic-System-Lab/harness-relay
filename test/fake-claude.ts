@@ -41,6 +41,10 @@ import { writeFileSync } from 'node:fs';
  * subagent's tokens are in `modelUsage`), and a `cost-state` record of the new totals is written as it
  * ends, also when the run fails (`fail`). With `perRun`, as Claude Code 2.1.323, the result also has
  * `model_usage_since_last_result`: every model's usage of the run alone, with its cost.
+ * FAKE_CLAUDE_HOOK_CALL (JSON `{tool_name, tool_input, tool_response?}`) makes a user message's run make
+ * that one tool call as Claude Code does with the hooks `initialize` registered (claude 2.1.327): a
+ * `hook_callback` for its `PreToolUse` entry whose matcher names the tool (or has none), waiting for the
+ * answer; unless that refused it, one for its `PostToolUse` entry; each answer logged (`hook`).
  */
 export const FAKE_CLAUDE = `#!/usr/bin/env node
 const fs = require('node:fs');
@@ -90,13 +94,39 @@ record({
   },
 });
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+let hooks = null;
+const waiting = new Map();
+const callback = (event, input) => {
+  const entry = ((hooks || {})[event] || []).find((e) => !e.matcher || e.matcher.split('|').includes(input.tool_name));
+  if (!entry) return Promise.resolve(undefined);
+  const id = 'hook-' + event;
+  out({ type: 'control_request', request_id: id, request: { subtype: 'hook_callback', callback_id: process.env.FAKE_CLAUDE_HOOK_ID || entry.hookCallbackIds[0], input: { hook_event_name: event, cwd: process.cwd(), ...input }, tool_use_id: 'toolu_1' } });
+  return new Promise((resolve) => waiting.set(id, resolve));
+};
+async function hookRun(call) {
+  const before = await callback('PreToolUse', { tool_name: call.tool_name, tool_input: call.tool_input });
+  record({ hook: 'before', answer: before === undefined ? null : before });
+  const denied = before && before.hookSpecificOutput && before.hookSpecificOutput.permissionDecision === 'deny';
+  if (!denied) {
+    const after = await callback('PostToolUse', { tool_name: call.tool_name, tool_input: call.tool_input, tool_response: call.tool_response || { stdout: 'ran', stderr: '' } });
+    record({ hook: 'after', answer: after === undefined ? null : after });
+  }
+  out({ type: 'result', subtype: 'success', is_error: false, result: 'done', session_id: 'fake-session', total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1 } });
+}
 require('node:readline').createInterface({ input: process.stdin }).on('line', (line) => {
   const m = JSON.parse(line);
+  if (m.type === 'control_response' && waiting.has(m.response.request_id)) {
+    const done = waiting.get(m.response.request_id);
+    waiting.delete(m.response.request_id);
+    return done(m.response.response);
+  }
   if (m.type === 'control_request') {
     const ok = (response) => out({ type: 'control_response', response: { subtype: 'success', request_id: m.request_id, response } });
     const no = (error) => out({ type: 'control_response', response: { subtype: 'error', request_id: m.request_id, error } });
     switch (m.request.subtype) {
       case 'initialize':
+        hooks = m.request.hooks || null;
+        record({ hooks });
         return ok({
           claude_code_version: '9.9.9',
           commands: commands.filter((c) => !pluginOff(c)).map((name) => ({ name, description: name + ' it', argumentHint: '' })).concat(noCommands ? [] : [{ name: 'compact', description: 'Compact', builtin: true }, { name: 'usage', description: 'Usage', builtin: true }]),
@@ -129,6 +159,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       .concat(strictMcp ? [] : ['mcp__local__search', 'mcp__local__fetch'])
       .filter((name) => !rules.some((r) => r === name || (r.startsWith('mcp__') && name.startsWith(r + '__'))));
     if (process.env.FAKE_CLAUDE_RUN_USAGE) return usageRun(JSON.parse(process.env.FAKE_CLAUDE_RUN_USAGE), tools);
+    if (process.env.FAKE_CLAUDE_HOOK_CALL) return void hookRun(JSON.parse(process.env.FAKE_CLAUDE_HOOK_CALL));
     out({ type: 'system', subtype: 'init', session_id: 'fake-session', tools, mcp_servers: strictMcp ? [] : [{ name: 'local', status: 'connected' }] });
     out({ type: 'result', subtype: 'success', is_error: false, result: 'done', session_id: 'fake-session', total_cost_usd: 0.25, usage: { input_tokens: 1, output_tokens: 1 } });
   }

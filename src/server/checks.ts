@@ -3,11 +3,12 @@ import type { Stats } from 'node:fs';
 import { lstat, readFile, readdir, readlink, stat } from 'node:fs/promises';
 import { basename, join, sep } from 'node:path';
 import vm from 'node:vm';
-import { compilePattern, hasChecks, isProtected, overallStatus, type CompiledPattern } from '../shared/checks';
+import { compilePattern, hasChecks, isProtected, overallStatus, protectedPatterns, type CompiledPattern } from '../shared/checks';
 import {
   CHECK_LIMITS,
   CHECK_RESULT_LIMITS,
   type CheckCommand,
+  type CheckHook,
   type CheckFinding,
   type CheckList,
   type CheckOutcome,
@@ -250,26 +251,56 @@ export function mergeDefaultChecks(copy: CheckList, template: CheckList): CheckL
     });
   }
   for (const c of template.commands ?? []) add(c);
+  // The hooks of both, the default's first: one for each moment, kind of call, command line and folder,
+  // with the template's time limit when both have it.
+  const hookKey = (h: CheckHook) => `${h.when}\u0000${h.tools}\u0000${h.run}\u0000${h.cwd ?? ''}`;
+  const theirHooks = new Map((template.hooks ?? []).map((h) => [hookKey(h), h]));
+  const hooks: CheckHook[] = [];
+  const hookIds = new Set<string>();
+  const addHook = (h: CheckHook) => {
+    if (hooks.length >= CHECK_LIMITS.hooks || hooks.some((x) => hookKey(x) === hookKey(h))) return;
+    const id = hookIds.has(h.id) ? randomUUID().slice(0, 8) : h.id;
+    hookIds.add(id);
+    hooks.push({ ...h, id });
+  };
+  for (const h of copy.hooks ?? []) {
+    const t = theirHooks.get(hookKey(h));
+    const { timeoutSec: _s, ...rest } = h;
+    addHook(
+      t
+        ? {
+            ...rest,
+            ...(t.timeoutSec !== undefined ? { timeoutSec: t.timeoutSec } : h.timeoutSec !== undefined ? { timeoutSec: h.timeoutSec } : {}),
+          }
+        : h,
+    );
+  }
+  for (const h of template.hooks ?? []) addHook(h);
   const pattern = template.commitPattern || copy.commitPattern;
   const merged: CheckList = {
     ...(paths.length ? { protectedPaths: paths } : {}),
     ...(pattern ? { commitPattern: pattern } : {}),
     ...(commands.length ? { commands } : {}),
+    ...(hooks.length ? { hooks } : {}),
   };
   // Nothing added: every path and command is the default's own, as it was, and so is the commit format.
   const sameCommand = (c: CheckCommand) =>
     (copy.commands ?? []).some((d) => key(d) === key(c) && JSON.stringify({ ...d, id: '' }) === JSON.stringify({ ...c, id: '' }));
+  const sameHook = (h: CheckHook) =>
+    (copy.hooks ?? []).some((d) => hookKey(d) === hookKey(h) && JSON.stringify({ ...d, id: '' }) === JSON.stringify({ ...h, id: '' }));
   const same =
     paths.every((p) => own.includes(p)) &&
     pattern === copy.commitPattern &&
     commands.length === (copy.commands ?? []).length &&
-    commands.every(sameCommand);
+    commands.every(sameCommand) &&
+    hooks.length === (copy.hooks ?? []).length &&
+    hooks.every(sameHook);
   return same ? { ...merged, fromDefault: true } : merged;
 }
 
 /** The patterns of a list, read; those that cannot be read were refused when it was saved. */
 export function listPatterns(list: CheckList | undefined): CompiledPattern[] {
-  return (list?.protectedPaths ?? []).flatMap((p) => compilePattern(p) ?? []);
+  return protectedPatterns(list).flatMap((p) => compilePattern(p) ?? []);
 }
 
 /**

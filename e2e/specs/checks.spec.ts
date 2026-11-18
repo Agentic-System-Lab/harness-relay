@@ -57,13 +57,13 @@ test.describe('team checks', () => {
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
     await drawer.locator('.checks-editor summary').click();
     // Laid out in a column (some browsers ignore display: flex on <details>): each rule's name above
-    // what is typed, and Add a command apart from the row after the editor.
+    // what is typed, and its last button (Add a hook) apart from the row after the editor.
     const editor = drawer.locator('.checks-editor');
     const gaps = await editor.evaluate((el) => {
       const rect = (q: string) => el.querySelector(q)!.getBoundingClientRect();
       return {
         label: rect('textarea').top - rect('.checks-field > label').bottom,
-        after: el.nextElementSibling!.getBoundingClientRect().top - rect('.checks-add').bottom,
+        after: el.nextElementSibling!.getBoundingClientRect().top - rect('.checks-add-hook').bottom,
       };
     });
     expect(gaps.label).toBeGreaterThanOrEqual(0);
@@ -95,6 +95,44 @@ test.describe('team checks', () => {
     await expect(again.locator('.plan-head .checks-status')).toHaveText('Passed');
     await expect(again).toContainText('Checked again');
     await expect(checkCards(page)).toHaveCount(2);
+  });
+
+  test("hooks set in Team settings run around a member's calls: a before hook refuses a command, an after hook's failure goes back to it", async ({
+    page,
+    relay,
+  }) => {
+    test.skip(process.platform === 'win32', 'Hooks do not run on native Windows yet');
+    const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'full' });
+    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Team settings' });
+    await drawer.locator('.checks-editor summary').click();
+    await drawer.getByRole('button', { name: 'Add a hook' }).click();
+    const before = drawer.locator('.checks-hook-row').last();
+    await before.getByRole('textbox', { name: 'Hook command' }).fill('echo "not $RELAY_HOOK_COMMAND"; exit 1');
+    await drawer.getByRole('button', { name: 'Add a hook' }).click();
+    const after = drawer.locator('.checks-hook-row').last();
+    await after.getByRole('combobox', { name: 'When' }).selectOption({ label: 'After' });
+    await after.getByRole('combobox', { name: 'Which calls' }).selectOption({ label: 'File changes' });
+    await after.getByRole('textbox', { name: 'Hook command' }).fill('echo "lint: $(basename $RELAY_HOOK_FILES) has 1 problem"; exit 1');
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drawer).toHaveCount(0);
+    expect((await settled(relay, id)).settings.checks!.hooks!.map((h) => [h.when, h.tools])).toEqual([
+      ['before', 'command'],
+      ['after', 'edit'],
+    ]);
+
+    await send(page, 'Run it e2e:approve');
+    const refused = await finishedReply(page, 'Claude');
+    await expect(refused).toContainText("The team's hook refused the command: not echo e2e-approval");
+    await expect(refused.locator('.msg-notice')).toContainText('refused `echo e2e-approval`');
+    await settled(relay, id);
+
+    await send(page, 'Write it e2e:write=notes.txt');
+    const told = await finishedReply(page, 'Claude');
+    await expect(told).toContainText("The team's after hook said: lint: notes.txt has 1 problem");
+    await expect(told.locator('.msg-notice')).toContainText('did not pass');
+    // The call ran: an after hook reports, and undoes nothing.
+    expect(existsSync(join(relay.workDir, 'notes.txt'))).toBe(true);
   });
 
   test('a read-only chat is not checked', async ({ page, relay }) => {

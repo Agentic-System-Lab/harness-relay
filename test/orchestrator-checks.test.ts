@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, Conversation } from '../src/shared/types';
 import { checksHold } from '../src/shared/checks';
 import {
+  agentMessages,
   calls,
   defaultCheckCommandDeps,
   RunCheck,
@@ -23,6 +24,7 @@ import {
   orchestrator,
   project,
   root,
+  runners,
   store,
   Store,
   textOf,
@@ -968,4 +970,107 @@ describe('team checks: applying a parallel result', () => {
     expect(sandboxed).toBe(1);
     expect(outcome.unsandboxed).toBeUndefined();
   });
+});
+
+describe("the team's hooks", () => {
+  const hooked = (permission: 'read-only' | 'edit' | 'full') =>
+    conversation({
+      mode: 'roundtable',
+      permission,
+      checks: {
+        hooks: [{ id: 'h', when: 'before', tools: 'command', run: 'echo "no: $RELAY_HOOK_COMMAND by $RELAY_HOOK_AGENT"; exit 1' }],
+      },
+    });
+
+  it.skipIf(process.platform === 'win32')(
+    "gives a member on a CLI that runs them the team's hooks, in its own folder; a refusal goes to the agent and into the reply",
+    async () => {
+      const conv = hooked('full');
+      const said: (string | undefined)[] = [];
+      fake.inTurn = async (_name, o) => {
+        said.push(await o.hooks?.before({ kind: 'command', tool: 'Bash', command: 'rm -rf build' }));
+      };
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+      expect(said).toHaveLength(2);
+      expect(said[0]).toContain('no: rm -rf build by Alice');
+      expect(said[1]).toContain('no: rm -rf build by Bob');
+      const notes = agentMessages(conv).map((m) => m.parts.filter((p) => p.type === 'notice'));
+      expect(notes[0]).toEqual([{ type: 'notice', text: expect.stringContaining('`rm -rf build`') }]);
+      // Told about in the briefing, as rules to keep to.
+      expect(calls.find((c) => c.name === 'Alice')!.systemPrompt).toContain(
+        'Team hooks: Harness Relay runs these commands around your tool calls',
+      );
+    },
+  );
+
+  it('gives none in a read-only run', async () => {
+    const conv = hooked('read-only');
+    const given: boolean[] = [];
+    fake.inTurn = async (_name, o) => {
+      given.push(Boolean(o.hooks));
+    };
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect(given).toEqual([false, false]);
+    expect(calls.find((c) => c.name === 'Alice')!.systemPrompt).not.toContain('Team hooks');
+  });
+
+  // No hooks run on native Windows, whatever the CLI: nothing to say there.
+  it.skipIf(process.platform === 'win32')('gives none to a member on a CLI that cannot run them, and says so in its reply', async () => {
+    const before = runners.codex;
+    const given: boolean[] = [];
+    runners.codex = {
+      provider: 'codex',
+      async run(o) {
+        given.push(Boolean(o.hooks));
+        o.onEvent({ type: 'text', text: 'done' });
+        return { sessionId: 'codex-session' };
+      },
+    };
+    try {
+      const conv = hooked('full');
+      conv.agents = [{ id: 'c', name: 'Cody', provider: 'codex', role: '' }];
+      store.saveMeta(conv);
+      await withLang('en', async () => {
+        await orchestrator.send(conv.id, 'go');
+        await finish(conv.id);
+      });
+      expect(given).toEqual([false]);
+      const reply = agentMessages(conv)[0]!;
+      expect(reply.parts).toContainEqual({ type: 'notice', text: expect.stringContaining("Codex cannot run the team's hooks yet") });
+    } finally {
+      runners.codex = before;
+    }
+  });
+});
+
+describe("the script a hook's command runs", () => {
+  it.skipIf(process.platform === 'win32')(
+    'are protected like protected paths: a member that changes one is found once the team has answered, and each turn is told to refuse writing it',
+    async () => {
+      mkdirSync(join(project, 'scripts'), { recursive: true });
+      writeFileSync(join(project, 'scripts', 'allow.sh'), 'exit 0\n');
+      const conv = conversation({
+        mode: 'roundtable',
+        permission: 'edit',
+        checks: { hooks: [{ id: 'h', when: 'before', tools: 'command', run: './scripts/allow.sh' }] },
+      });
+      const guards: (string[] | undefined)[] = [];
+      fake.inTurn = async (_name, o) => {
+        guards.push(o.guard?.patterns);
+      };
+      fake.during = (name) => {
+        if (name === 'Bob') writeFileSync(join(project, 'scripts', 'allow.sh'), 'exit 0 # always\n');
+      };
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+      expect(guards).toEqual([['/scripts/allow.sh'], ['/scripts/allow.sh']]);
+      expect(lastCard(conv).checks).toMatchObject({
+        status: 'failed',
+        outcomes: [{ rule: 'paths', status: 'failed', findings: [{ path: 'scripts/allow.sh', change: 'changed', by: 'Bob' }] }],
+      });
+      expect(calls.find((c) => c.name === 'Alice')!.systemPrompt).toContain('/scripts/allow.sh');
+    },
+  );
 });

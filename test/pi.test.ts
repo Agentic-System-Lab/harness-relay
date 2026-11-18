@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { join, resolve } from 'node:path';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApprovalAnswer, Permission } from '../src/shared/types';
 import { NATIVE_OFF_SUPPORT } from '../src/shared/types';
 import type { BackendRun } from '../src/server/backends';
@@ -36,6 +36,12 @@ import {
   piGateAnswer,
   piGateLoaded,
   piGateRequest,
+  piGated,
+  piHookCall,
+  piHookDecide,
+  piHookResult,
+  piResultRequest,
+  PI_RESULT_TITLE,
   piHomeLayout,
   piKnownModels,
   piMcpJson,
@@ -60,6 +66,7 @@ import {
   type PiTurnDeps,
 } from '../src/server/agents/pi';
 import type { OpenRunContext } from '../src/server/agents/open';
+import type { TurnHooks } from '../src/server/hooks';
 import { AgentRunError, type AgentEvent, type ApprovalRequest, type McpServerSpec, type RunOptions } from '../src/server/agents/types';
 import { writeFakePi } from './fake-pi';
 
@@ -1350,4 +1357,127 @@ describe('Pi: turns', () => {
     expect(piAgent.efforts).toEqual(PI_LEVELS);
     expect(piAgent.process).toBe(piProcess);
   });
+});
+
+describe("Pi: the team's hooks", () => {
+  const fake = (refuse?: string, after = false): TurnHooks => ({
+    kinds: (when) => new Set(when === 'after' && !after ? [] : (['command'] as never)),
+    budgetSec: () => 60,
+    before: async () => refuse,
+    after: async () => undefined,
+    program: () => undefined,
+    dispose: () => undefined,
+  });
+
+  it('loads the gate below full access, and with full access only when the turn has hooks', () => {
+    expect(piGated({ permission: 'full' })).toBe(false);
+    expect(piGated({ permission: 'full', hooks: fake() })).toBe(true);
+    expect(piGated({ permission: 'edit' })).toBe(true);
+  });
+
+  // POSIX paths: tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')('has the gate show results only when the turn has after hooks', async () => {
+    const plain = context({ permission: 'full', hooks: fake() });
+    await preparePi(plain);
+    expect(plain.env.HARNESS_RELAY_PI_AFTER).toBeUndefined();
+    expect(piArgs(plain)).toContain(PI_GATE_PATH);
+    const after = context({ permission: 'full', hooks: fake(undefined, true) });
+    await preparePi(after);
+    expect(after.env.HARNESS_RELAY_PI_AFTER).toBe('1');
+  });
+
+  it('reads a call as the hooks see it: a command, a file its own tools change (a full path), or another tool', () => {
+    expect(piHookCall({ toolName: 'bash', input: { command: 'npm test' } }, '/w')).toEqual({
+      kind: 'command',
+      tool: 'bash',
+      command: 'npm test',
+      input: { command: 'npm test' },
+    });
+    expect(piHookCall({ toolName: 'write', input: { path: 'src/a.ts' } }, '/w')).toMatchObject({
+      kind: 'edit',
+      files: [resolve('/w', 'src/a.ts')],
+    });
+    expect(piHookCall({ toolName: 'edit', input: {} }, '/w')).toMatchObject({ kind: 'edit', files: [] });
+    expect(piHookCall({ toolName: 'mcp__docs__search', input: { q: 'x' } }, '/w').kind).toBe('other');
+    expect(piHookCall({ toolName: 'powershell', input: { command: 'rm x' } }, '/w')).toMatchObject({ kind: 'command', command: 'rm x' });
+  });
+
+  it("reads the gate's results, and nothing else", () => {
+    const ui = (placeholder: unknown, title = PI_RESULT_TITLE) => ({
+      type: 'extension_ui_request',
+      id: 'u2',
+      method: 'input',
+      title,
+      placeholder: typeof placeholder === 'string' ? placeholder : JSON.stringify(placeholder),
+    });
+    expect(piResultRequest(ui({ toolCallId: 't1', toolName: 'bash', input: { command: 'ls' }, isError: true, output: 'boom' }))).toEqual({
+      toolCallId: 't1',
+      toolName: 'bash',
+      input: { command: 'ls' },
+      isError: true,
+      output: 'boom',
+    });
+    expect(piResultRequest(ui('not json'))).toBeNull();
+    expect(piResultRequest(ui({ toolName: 'bash' }, PI_GATE_TITLE))).toBeUndefined();
+    expect(piHookResult({ toolName: 'bash', input: { command: 'ls' }, isError: true, output: 'boom' }, '/w')).toMatchObject({
+      kind: 'command',
+      output: 'boom',
+      failed: true,
+    });
+  });
+
+  it("refuses a call a before hook refuses, with the hook's reason, before the permission is asked; else the permission decides", async () => {
+    const ask = vi.fn(async () => ({ allow: true }));
+    const refused = await en(() =>
+      piHookDecide(
+        { permission: 'edit', cwd: '/w', hooks: fake('no network'), requestApproval: ask },
+        { toolName: 'bash', input: { command: 'curl x' } },
+      ),
+    );
+    expect(refused).toEqual({ allow: false, reason: 'no network', label: "Refused by the team's hook" });
+    expect(ask).not.toHaveBeenCalled();
+    expect(await piHookDecide({ permission: 'full', cwd: '/w', hooks: fake() }, { toolName: 'bash', input: { command: 'ls' } })).toEqual({
+      allow: true,
+    });
+    const broken: TurnHooks = { ...fake(), before: async () => Promise.reject(new Error('boom')) };
+    expect(
+      await piHookDecide({ permission: 'full', cwd: '/w', hooks: broken }, { toolName: 'bash', input: { command: 'ls' } }),
+    ).toMatchObject({
+      allow: false,
+      reason: expect.stringContaining('boom'),
+    });
+  });
+});
+
+describe("Pi: a turn with the team's hooks", () => {
+  it.skipIf(process.platform === 'win32')(
+    'with full access too: the gate loaded and checked, a call a before hook refuses not run, what after hooks said added to the result',
+    async () => {
+      const seen: string[] = [];
+      const hooks: TurnHooks = {
+        kinds: () => new Set(['command'] as never),
+        budgetSec: () => 60,
+        before: async (call) => (call.command?.startsWith('rm') ? 'Refused by the team hook: no rm' : undefined),
+        after: async (call) => {
+          seen.push(`${call.command}: ${call.output}`);
+          return 'lint: 1 problem';
+        },
+        program: () => undefined,
+        dispose: () => undefined,
+      };
+      const calls = [
+        { toolCallId: 'h1', toolName: 'bash', input: { command: 'rm -rf build' } },
+        { toolCallId: 'h2', toolName: 'bash', input: { command: 'npm test' } },
+      ];
+      const r = run({ FAKE_PI_CALLS: JSON.stringify(calls) }, { permission: 'full', hooks });
+      await en(() => piTurn(r.o, deps()));
+      expect(start(r).argv).toEqual(expect.arrayContaining(['-e', PI_GATE_PATH]));
+      expect(sent(r, 'get_commands')).toHaveLength(1);
+      expect(r.events.filter((e) => e.type === 'tool_end')).toEqual([
+        { type: 'tool_end', id: 'h1', ok: false, error: "Refused by the team's hook" },
+        { type: 'tool_end', id: 'h2', ok: true, output: 'ran bash\nlint: 1 problem' },
+      ]);
+      expect(seen).toEqual(['npm test: ran bash']);
+    },
+  );
 });

@@ -424,6 +424,32 @@ describe("a template's rules with Settings' default", () => {
     expect(merged.fromDefault).toBeUndefined();
   });
 
+  it('takes in the hooks of both: the default’s first, each once, with the template’s time limit; the mark only when nothing was added', () => {
+    const own = { id: 'a', when: 'before' as const, tools: 'command' as const, run: './allow.sh' };
+    const merged = mergeDefaultChecks(
+      { hooks: [own, { id: 'b', when: 'after' as const, tools: 'edit' as const, run: 'fmt' }], fromDefault: true },
+      {
+        hooks: [
+          { id: 'a', when: 'before', tools: 'command', run: './allow.sh', timeoutSec: 20 },
+          { id: 'c', when: 'before', tools: 'any', run: './allow.sh' },
+        ],
+      },
+    );
+    expect(merged.hooks!.map((h) => [h.when, h.tools, h.run, h.timeoutSec ?? 0])).toEqual([
+      ['before', 'command', './allow.sh', 20],
+      ['after', 'edit', 'fmt', 0],
+      ['before', 'any', './allow.sh', 0],
+    ]);
+    expect(new Set(merged.hooks!.map((h) => h.id)).size).toBe(3);
+    expect(merged.fromDefault).toBeUndefined();
+    expect(mergeDefaultChecks({ hooks: [own], fromDefault: true }, { hooks: [{ ...own, id: 'x' }] })).toEqual({
+      hooks: [own],
+      fromDefault: true,
+    });
+    const many = Array.from({ length: CHECK_LIMITS.hooks }, (_, i) => ({ ...own, id: `h${i}`, run: `h${i}` }));
+    expect(mergeDefaultChecks({ hooks: many, fromDefault: true }, { hooks: [{ ...own, run: 'more' }] }).hooks).toEqual(many);
+  });
+
   it('opens the sandbox for a command both have only where both open it', () => {
     const merged = mergeDefaultChecks(
       { commands: [{ id: 'a', run: 'npm test', unixSockets: true }], fromDefault: true },

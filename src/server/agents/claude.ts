@@ -24,6 +24,7 @@ import {
 } from './types';
 import { t } from '../i18n';
 import { overlaps, patternPath, protectedReads, relayTmpDir, RUN_TMP_PREFIXES } from '../protect';
+import { HOOK_WAIT, type HookCall, type TurnHooks } from '../hooks';
 import { guardGlobs, guardedNow, type WriteGuard } from '../writeGuard';
 
 /*
@@ -1058,6 +1059,92 @@ function declinedNote(text: string): string | undefined {
   return text.match(/Their message: ([\s\S]*?) Do not retry it;/)?.[1] ?? '';
 }
 
+/*
+ * The team's hooks (`RunOptions.hooks`), through Claude Code's own hook callbacks: the turn's
+ * `initialize` registers a `PreToolUse` and a `PostToolUse` callback for the tools they cover, and
+ * Claude Code sends a `hook_callback` control request for each such call, which waits for the answer.
+ * These run with any permission mode, full access included, and `disableAllHooks` (the account's own
+ * hooks left out) leaves them on (tried with claude 2.1.327).
+ */
+
+/** The callbacks' ids, as `initialize` registers them and `hook_callback` names them. */
+export const CLAUDE_HOOK_IDS = { before: 'relay-hook-before', after: 'relay-hook-after' } as const;
+
+/**
+ * Claude Code's tools each kind of call is, for a hook's matcher: every tool that runs a command line
+ * (`Monitor` runs its `command` in a shell of its own, in the background), and every one that changes a file.
+ */
+const CLAUDE_HOOK_TOOLS: Record<'command' | 'edit', string[]> = {
+  command: ['Bash', 'Monitor'],
+  edit: ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'],
+};
+
+/**
+ * The `hooks` of the turn's `initialize`: a callback for each of `PreToolUse` and `PostToolUse` that a
+ * hook needs, for the tools its kinds cover (none named: every tool), waiting long enough for every
+ * hook it may run (`budgetSec`, their time limits one after another, and `HOOK_WAIT.cli` more: Harness
+ * Relay's own deadline refuses first). Null when there are none.
+ */
+export function claudeHooksConfig(hooks: TurnHooks | undefined): Record<string, unknown> | null {
+  if (!hooks) return null;
+  const entry = (when: 'before' | 'after') => {
+    const kinds = hooks.kinds(when);
+    if (!kinds.size) return undefined;
+    const tools = kinds.has('any') ? undefined : [...kinds].flatMap((k) => CLAUDE_HOOK_TOOLS[k as 'command' | 'edit']);
+    return [
+      {
+        ...(tools ? { matcher: tools.join('|') } : {}),
+        hookCallbackIds: [CLAUDE_HOOK_IDS[when]],
+        timeout: hooks.budgetSec(when) + HOOK_WAIT.cli,
+      },
+    ];
+  };
+  const before = entry('before');
+  const after = entry('after');
+  if (!before && !after) return null;
+  return { ...(before ? { PreToolUse: before } : {}), ...(after ? { PostToolUse: after } : {}) };
+}
+
+/** A `hook_callback`'s call as the team's hooks see it (`HookCall`), from its `tool_name` and `tool_input`. */
+export function claudeHookCall(input: Record<string, any>): HookCall {
+  const tool = String(input.tool_name ?? '');
+  const args = (input.tool_input ?? {}) as Record<string, any>;
+  const cwd = typeof input.cwd === 'string' ? input.cwd : undefined;
+  if (CLAUDE_HOOK_TOOLS.command.includes(tool)) return { kind: 'command', tool, command: String(args.command ?? ''), input: args };
+  if (CLAUDE_HOOK_TOOLS.edit.includes(tool)) {
+    const file = args.file_path ?? args.notebook_path;
+    const files = typeof file === 'string' && file ? [cwd && !isAbsolute(file) ? resolve(cwd, file) : file] : [];
+    return { kind: 'edit', tool, files, input: args };
+  }
+  return { kind: 'other', tool, input: args };
+}
+
+/** What a `PostToolUse` callback's call returned, as text: a command's output, else its response as JSON. */
+export function claudeHookOutput(input: Record<string, any>): string {
+  const r = input.tool_response;
+  if (typeof r === 'string') return r;
+  if (r && typeof r === 'object' && ('stdout' in r || 'stderr' in r))
+    return [r.stdout, r.stderr].filter((x) => typeof x === 'string' && x).join('\n');
+  try {
+    return JSON.stringify(r ?? '');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The answer to a `hook_callback`: before a call, a refusal with its reason (`permissionDecision:
+ * deny`, which the model reads), or nothing, so that the call goes on as it would (never an allow,
+ * which would skip the approval the permission asks for); after it, what the hooks said, which Claude
+ * Code gives the model (`decision: block`, its `reason`), or nothing.
+ */
+export function claudeHookAnswer(when: 'before' | 'after', said: string | undefined): Record<string, unknown> {
+  if (!said) return {};
+  return when === 'before'
+    ? { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: said } }
+    : { decision: 'block', reason: said };
+}
+
 /** A `control_request` Claude Code sends on stdout (e.g. `can_use_tool`). */
 export interface ClaudeControlRequest {
   requestId: string;
@@ -1301,6 +1388,28 @@ async function runClaudeTurn(
     send({ type: 'control_response', response: { subtype: 'success', request_id: requestId, response } });
 
   const onControl = (req: ClaudeControlRequest) => {
+    if (req.subtype === 'hook_callback') {
+      const id = req.request.callback_id;
+      const when = id === CLAUDE_HOOK_IDS.before ? 'before' : id === CLAUDE_HOOK_IDS.after ? 'after' : undefined;
+      const hooks = o.hooks;
+      if (!when || !hooks) {
+        respond(req.requestId, {});
+        return;
+      }
+      const input = (req.request.input ?? {}) as Record<string, any>;
+      const call = claudeHookCall(input);
+      const asked = when === 'before' ? hooks.before(call) : hooks.after({ ...call, output: claudeHookOutput(input) });
+      // A hook that cannot be asked refuses the call before it (it fails closed), and says nothing after it.
+      void asked.then(
+        (said) => respond(req.requestId, claudeHookAnswer(when, said)),
+        (err) =>
+          respond(
+            req.requestId,
+            claudeHookAnswer(when, when === 'before' ? `Refused: the team's hook could not run (${(err as Error).message}).` : undefined),
+          ),
+      );
+      return;
+    }
     if (req.subtype !== 'can_use_tool') {
       send({ type: 'control_response', response: { subtype: 'error', request_id: req.requestId, error: 'not supported' } });
       return;
@@ -1355,7 +1464,7 @@ async function runClaudeTurn(
     keepStdinOpen: true,
     onSpawn: (c) => {
       child = c;
-      send({ type: 'control_request', request_id: initId, request: { subtype: 'initialize', hooks: null } });
+      send({ type: 'control_request', request_id: initId, request: { subtype: 'initialize', hooks: claudeHooksConfig(o.hooks) } });
       if (!gate) sendPrompt();
     },
     signal: stop.signal,

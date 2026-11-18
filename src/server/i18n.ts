@@ -482,6 +482,19 @@ const zhTW = {
   checksCommandTooLong: (n: number) => `一條指令最長 ${n} 個字元`,
   checksBadFolder: (f: string) => `無法使用資料夾「${f}」：請寫第一個工作目錄裡的相對路徑（不能有 ..），或工作目錄裡的完整路徑`,
   checksBadTimeout: (max: number) => `時間上限是 1 到 ${max} 分鐘`,
+  hooksTooMany: (n: number) => `hook 最多 ${n} 個`,
+  hookTimedOut: (sec: number) => `超過 ${sec} 秒的時間上限，已停止。`,
+  hooksBadTimeout: (max: number) => `hook 的時間上限是 1 到 ${max} 秒`,
+  hookRefused: (hook: string, call: string, why: string) => `團隊的 hook「${hook}」拒絕了 ${call}：${why}`,
+  hookFailed: (hook: string, call: string, why: string) => `${call} 之後，團隊的 hook「${hook}」沒有通過，已告訴 agent：${why}`,
+  hookNoOutput: '（沒有輸出）',
+  hooksTooLate: '沒有在時間內跑完，已停止',
+  hookCallTooLong: (call: string) => `團隊的 hook 拒絕了 ${call}：這次呼叫太長，hook 讀不完`,
+  hookRefusedLabel: '團隊的 hook 拒絕了這次呼叫',
+  hooksNoProgram: (cli: string) =>
+    `這一輪沒有開始：不能把團隊的 hook 交給 ${cli}（找不到可以啟動 hook 程式的 Node.js，或 Harness Relay 的 gateway 沒有在執行）。請安裝 Node.js 22.12 以上（設定 → 沙箱可以安裝），或在團隊檢查裡拿掉 hook。`,
+  hookMoreNotices: '這一輪之後的 hook 拒絕或沒有通過，不再一一列出。',
+  hooksUnsupported: (cli: string) => `${cli} 還不能執行團隊的 hook：這位成員這一輪的工具呼叫不經過它們，團隊答完後的檢查照常。`,
 
   // Approvals
   approvalNotFound: '這個請求已經處理過或已失效',
@@ -1393,6 +1406,20 @@ const en: ServerMessages = {
   checksBadFolder: (f) =>
     `The folder "${f}" cannot be used: write a path relative to the first working directory (without ..), or a full path inside a working directory`,
   checksBadTimeout: (max) => `The time limit is 1 to ${max} minutes`,
+  hooksTooMany: (n) => `At most ${n} hooks`,
+  hookTimedOut: (sec) => `Stopped at its time limit of ${sec} seconds.`,
+  hooksBadTimeout: (max) => `A hook's time limit is 1 to ${max} seconds`,
+  hookRefused: (hook, call, why) => `The team's hook \`${hook}\` refused ${call}: ${why}`,
+  hookFailed: (hook, call, why) => `After ${call}, the team's hook \`${hook}\` did not pass, and the agent was told: ${why}`,
+  hookNoOutput: '(no output)',
+  hooksTooLate: 'they did not finish in time, and were stopped',
+  hookCallTooLong: (call) => `The team's hooks refused ${call}: the call is too long for them to read`,
+  hookRefusedLabel: "Refused by the team's hook",
+  hooksNoProgram: (cli) =>
+    `This turn did not start: the team's hooks could not be given to ${cli} (no Node.js to start their program with, or Harness Relay's gateway is not running). Install Node.js 22.12 or later (Settings → Sandboxes can), or take the hooks out of the team checks.`,
+  hookMoreNotices: 'Later hook refusals or failures in this turn are not listed.',
+  hooksUnsupported: (cli) =>
+    `${cli} cannot run the team's hooks yet: this member's tool calls in this turn go without them; the checks once the team has answered run as usual.`,
 
   approvalNotFound: 'This request was already answered or has expired',
   approvalDeclined: 'The user declined this action.',
