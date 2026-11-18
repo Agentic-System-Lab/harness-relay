@@ -6,9 +6,10 @@
  *
  * The fake CLI, and what each test starts with, are in ./orchestrator-harness.ts.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { slow } from './timeouts';
 import type { OutboxItem, Permission, Provider, RelayToolGroup } from '../src/shared/types';
+import { AgentRunError } from '../src/server/agents/types';
 import type { GatewayContext, GatewayTool, GrantOptions, ToolGateway } from '../src/server/gateway';
 import { Outbox } from '../src/server/outbox';
 import {
@@ -294,4 +295,24 @@ describe("Harness Relay's own tools in a turn", () => {
       await expect(orchestrator.answerOutbox(conv.id, items[0]!.id, 'send')).rejects.toMatchObject({ status: 409 });
       expect(sent).toEqual([]);
     }));
+
+  it("ends a turn's calls with its turn, however the turn ends, while the run goes on", async () => {
+    const { grants } = fakeGateway();
+    settings.tools.update({ relayTools: { browser: ['claude'] } });
+    const conv = conversation({ mode: 'roundtable', permission: 'edit' }); // Alice, then Bob
+    // Alice's CLI times out, which stops nothing: the run goes on with Bob.
+    fake.fail = (name) => (name === 'Alice' ? new AgentRunError('Timed out') : undefined);
+    let bob!: () => void;
+    fake.gates.Bob = new Promise((r) => (bob = r));
+    await orchestrator.send(conv.id, 'look it up');
+    await vi.waitFor(() => expect(grants.map((g) => g.ctx.agentName)).toEqual(['Alice', 'Bob']));
+    expect(orchestrator.isRunning(conv.id)).toBe(true);
+    // A page Alice's call was still opening lets go of the browser, for Bob's calls.
+    expect(grants[0]!.ctx.signal.aborted).toBe(true);
+    expect(grants[1]!.ctx.signal.aborted).toBe(false);
+    bob();
+    await finish(conv.id);
+    expect(grants[1]!.ctx.signal.aborted).toBe(true); // a turn that ends well too
+    expect(conv.messages.find((m) => m.agentName === 'Alice')!.error).toMatch(/Timed out/);
+  });
 });

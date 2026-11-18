@@ -1,5 +1,6 @@
 import { AlertTracker, NEEDS_KINDS, alertDetail, alertTag, alertUrl, needsOf, wanted } from '../shared/notify';
 import type { AlertKind, AlertPayload, Conversation, ConversationSummary } from '../shared/types';
+import { CONFIG } from './config';
 import { t, withLang } from './i18n';
 import { pushTopic, type PushService, type PushSubscriptionRecord } from './push';
 
@@ -26,8 +27,14 @@ export const CHECK_MS = 1500;
  */
 export const PRESENT_MS = 7000;
 
-/** How long a push service keeps a notification for a browser that is offline. */
-const TTL_S: Record<'needs' | 'done', number> = { needs: 24 * 60 * 60, done: 6 * 60 * 60 };
+/**
+ * How long a push service keeps a notification for a browser that is offline, in seconds: a need at least
+ * a day, and as long as a turn may wait for an approval when that is longer (`RELAY_TURN_TIMEOUT_MIN`, up
+ * to 7 days); a reply six hours.
+ */
+export function pushTtlS(needs: boolean, turnTimeoutMs = CONFIG.turnTimeoutMs): number {
+  return needs ? Math.max(24 * 60 * 60, Math.ceil(turnTimeoutMs / 1000)) : 6 * 60 * 60;
+}
 
 /** A page's id as it sends it (`?page=`): made up by the page; anything else counts as none. */
 export const PAGE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -200,7 +207,7 @@ export class AlertWatcher {
     const needs = isNeeds(h.kind);
     return this.deps.push.push(h.sub, h.payload, {
       urgency: needs ? 'high' : 'normal',
-      ttl: TTL_S[needs ? 'needs' : 'done'],
+      ttl: pushTtlS(needs),
       topic: pushTopic(h.convId),
     });
   }

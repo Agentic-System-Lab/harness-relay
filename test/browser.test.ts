@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { createServer, type Server, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, posix, win32 } from 'node:path';
 import { PassThrough, type Duplex } from 'node:stream';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { ApprovalRequest } from '../src/server/agents/types';
 import type { GatewayContext } from '../src/server/gateway';
 import { slow } from './timeouts';
@@ -17,7 +17,7 @@ const userHome = join(root, 'user-home');
 
 const { CdpConnection, NulDecoder } = await import('../src/server/browser/cdp');
 const { browserCandidates, findBrowser } = await import('../src/server/browser/find');
-const { BrowserService, browserEnv, launchEnv, leadsNearby, navigationVerdict, refusalText, requestVerdict } =
+const { BrowserService, PAGE_ANSWER_MS, browserEnv, launchEnv, leadsNearby, navigationVerdict, refusalText, requestVerdict } =
   await import('../src/server/browser/session');
 const { browserTools, pageText } = await import('../src/server/browser/tools');
 const { removeTree } = await import('../src/server/fsRemove');
@@ -322,6 +322,11 @@ describe.skipIf(!chromium)('the browser itself', () => {
   const relayHits: string[] = [];
   const hits: string[] = [];
   const upgraded: Duplex[] = [];
+  // What `/hang` took and never answered, and whether the browser gave it up.
+  const hung: ServerResponse[] = [];
+  /** Told of each request the test server gets, as it comes. */
+  let onRequest: ((url: string) => void) | undefined;
+  let hangClosed = false;
   let browser: InstanceType<typeof BrowserService>;
   const asked: ApprovalRequest[] = [];
   let allow = true;
@@ -355,6 +360,7 @@ describe.skipIf(!chromium)('the browser itself', () => {
     relayPort = (relay.address() as { port: number }).port;
     server = createServer((req, res) => {
       hits.push(req.url ?? '');
+      onRequest?.(req.url ?? '');
       res.setHeader('content-type', 'text/html; charset=utf-8');
       const url = new URL(req.url ?? '/', 'http://x');
       const r = `http://127.0.0.1:${relayPort}`;
@@ -411,6 +417,16 @@ describe.skipIf(!chromium)('the browser itself', () => {
             `<script>Array.prototype.join = () => 'hacked'; String.prototype.replace = function () { return 'hacked'; }; Map.prototype.get = () => document.getElementById('under'); Element.prototype.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1, height: 1 });</script>`,
         );
       }
+      if (url.pathname === '/hang-link') return res.end('<title>Hang link</title><a href="/hang?from=click">Hang</a>');
+      // A page that is there at once but never finishes loading (its image never comes), a link to it, and a button that opens nothing.
+      if (url.pathname === '/never-loads') return res.end('<title>Never loads</title><p>Here</p><img src="/hang?from=img">');
+      if (url.pathname === '/never-loads-link') return res.end('<title>Never loads link</title><a href="/never-loads">Never loads</a>');
+      if (url.pathname === '/stay') return res.end(`<title>Stay</title><button onclick="fetch('/noop-click')">Stay</button>`);
+      if (url.pathname === '/hang') {
+        // A server that takes the request and never answers.
+        hung.push(res);
+        return void req.on('close', () => (hangClosed = true));
+      }
       if (url.pathname === '/bought') return res.end('<title>Bought</title>');
       if (url.pathname === '/host') return res.end(`<title>Host</title><p>Asked for ${escapeHtml(req.headers.host ?? '')}</p>`);
       if (url.pathname === '/next') return res.end('<title>Next</title><h1>The next page</h1>');
@@ -454,6 +470,7 @@ describe.skipIf(!chromium)('the browser itself', () => {
     else process.env.HOME = savedHome;
     browser?.closeAll();
     for (const sock of upgraded) sock.destroy();
+    for (const res of hung) res.destroy();
     await new Promise((r) => server?.close(r));
     await new Promise((r) => relay?.close(r));
   });
@@ -503,7 +520,7 @@ describe.skipIf(!chromium)('the browser itself', () => {
   );
 
   it(
-    'waits for the page a click or Enter opens however late its server answers, and reads all of it',
+    'waits for the page a click or Enter opens though its server answers late, and reads all of it',
     async () => {
       const full = ctx({ permission: 'full', convId: 'late-1' });
       const links = await browser.open(full, `http://127.0.0.1:${port}/late-links`);
@@ -742,6 +759,121 @@ describe.skipIf(!chromium)('the browser itself', () => {
       await browser.open(ctx({ convId: 'conv-5', permission: 'full' }), `http://127.0.0.1:${port}/next`);
       expect(existsSync(join(userHome, '.config'))).toBe(false);
       await browser.close('conv-5', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    'stops opening a page whose server never answers once the turn ends, and the next call does not wait behind it',
+    async () => {
+      const turn = new AbortController();
+      const own = { convId: 'conv-hang', permission: 'full' as const };
+      const opening = browser.open(ctx({ ...own, signal: turn.signal }), `http://127.0.0.1:${port}/hang`);
+      await vi.waitFor(() => expect(hits).toContain('/hang'), { timeout: slow(20_000) });
+      turn.abort();
+      await expect(opening).rejects.toThrow('The turn ended');
+      // The tab stopped loading it: the request was given up, not left to its server.
+      await vi.waitFor(() => expect(hangClosed).toBe(true), { timeout: slow(5000) });
+      const next = await browser.open(ctx(own), `http://127.0.0.1:${port}/next`);
+      expect(next.title).toBe('Next');
+      await browser.close('conv-hang', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    'stops waiting for the page a click opens once the turn ends, though its server never answers',
+    async () => {
+      const own = { convId: 'conv-hang-click', permission: 'full' as const };
+      const page = await browser.open(ctx(own), `http://127.0.0.1:${port}/hang-link`);
+      const turn = new AbortController();
+      const clicking = browser.click(ctx({ ...own, signal: turn.signal }), refIn(page.text, 'link "Hang"'));
+      await vi.waitFor(() => expect(hits).toContain('/hang?from=click'), { timeout: slow(20_000) });
+      turn.abort();
+      // The call ends with its turn, and the tab with it: the next call reads its page at once.
+      await expect(clicking).rejects.toThrow('The turn ended');
+      expect((await browser.snapshot(ctx(own))).title).toBe('Hang link');
+      expect((await browser.open(ctx(own), `http://127.0.0.1:${port}/next`)).title).toBe('Next');
+      await browser.close('conv-hang-click', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    'ends a click with its turn also before the page it opens starts loading, or while it has not finished loading',
+    async () => {
+      const own = { convId: 'conv-turn-ends', permission: 'full' as const };
+      // A button that opens nothing: the turn ends while the click waits to see whether a page comes.
+      const stay = await browser.open(ctx(own), `http://127.0.0.1:${port}/stay`);
+      let turn = new AbortController();
+      // Ended as the button's request comes, well inside the second and a half a click waits for a page.
+      onRequest = (url) => url === '/noop-click' && turn.abort();
+      let clicking = browser.click(ctx({ ...own, signal: turn.signal }), refIn(stay.text, 'button "Stay"'));
+      await vi.waitFor(() => expect(turn.signal.aborted).toBe(true), { timeout: slow(5000) });
+      onRequest = undefined;
+      await expect(clicking).rejects.toThrow('The turn ended');
+      // A page that is there, but never finishes loading.
+      const link = await browser.open(ctx(own), `http://127.0.0.1:${port}/never-loads-link`);
+      turn = new AbortController();
+      clicking = browser.click(ctx({ ...own, signal: turn.signal }), refIn(link.text, 'link "Never loads"'));
+      await vi.waitFor(() => expect(hits).toContain('/hang?from=img'), { timeout: slow(20_000) });
+      turn.abort();
+      await expect(clicking).rejects.toThrow('The turn ended');
+      expect((await browser.snapshot(ctx(own))).title).toBe('Never loads');
+      await browser.close('conv-turn-ends', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    "gives a page's server two minutes to answer (two seconds here), not counting the time the user takes to answer about its host",
+    async () => {
+      const brief = new BrowserService({
+        dataDir: join(root, 'data'),
+        executable: () => chromium,
+        relayPorts: () => [9],
+        answerMs: 2000,
+      });
+      expect(PAGE_ANSWER_MS).toBe(2 * 60_000);
+      try {
+        const own = { convId: 'answer-1', permission: 'full' as const };
+        expect((await brief.open(ctx(own), `http://127.0.0.1:${port}/next`)).title).toBe('Next');
+        const failed = brief.open(ctx(own), `http://127.0.0.1:${port}/hang?from=open`);
+        await expect(failed).rejects.toThrow(`http://127.0.0.1:${port}/hang?from=open did not answer in 2 seconds, and was stopped`);
+        // The tab let go of it: it reads the page it was on at once, and opens the next.
+        expect((await brief.snapshot(ctx(own))).title).toBe('Next');
+        expect((await brief.open(ctx(own), `http://127.0.0.1:${port}/next`)).title).toBe('Next');
+
+        // A click into such a page too: it fails, and the tab reads its page.
+        const page = await brief.open(ctx(own), `http://127.0.0.1:${port}/hang-link`);
+        await expect(brief.click(ctx(own), refIn(page.text, 'link "Hang"'))).rejects.toThrow(
+          'The page it opened did not answer in 2 seconds, and was stopped',
+        );
+        expect((await brief.snapshot(ctx(own))).title).toBe('Hang link');
+
+        // The user answers about the host after three times that time: the page opens, and so does the
+        // page a click leads to on another host.
+        const slowAnswer = ctx({ convId: 'answer-2', ask: async () => (await new Promise((r) => setTimeout(r, 6000)), { allow: true }) });
+        expect((await brief.open(slowAnswer, `http://127.0.0.1:${port}/next`)).title).toBe('Next');
+        const other = await brief.open(slowAnswer, `http://127.0.0.1:${port}/other`);
+        expect((await brief.click(slowAnswer, refIn(other.text, 'link "Elsewhere"'))).title).toBe('Next');
+
+        // A question a call left waiting when its turn ended counts for no call after it.
+        const left = new AbortController();
+        let asked = false;
+        const unanswered = ctx({ convId: 'answer-3', signal: left.signal, ask: () => ((asked = true), new Promise(() => {})) });
+        const leaving = brief.open(unanswered, `http://localhost:${port}/next`);
+        await vi.waitFor(() => expect(asked).toBe(true), { timeout: slow(20_000) });
+        left.abort();
+        await expect(leaving).rejects.toThrow('The turn ended');
+        const started = Date.now();
+        await expect(
+          brief.open(ctx({ convId: 'answer-3', ask: async () => ({ allow: true }) }), `http://127.0.0.1:${port}/hang?from=after`),
+        ).rejects.toThrow('did not answer in 2 seconds');
+        expect(Date.now() - started).toBeLessThan(slow(15_000));
+      } finally {
+        brief.closeAll();
+      }
     },
     slow(60_000),
   );

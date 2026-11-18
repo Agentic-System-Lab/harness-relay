@@ -68,7 +68,9 @@ export const MISSED_AFTER_MS = 10 * 60_000;
 
 /**
  * How long a time the conversation cannot take yet (`busy`) is tried again, from the first try: long
- * enough for another conversation's run in the same folder to end.
+ * enough for a settings change, an apply or the lead agent's design to end, and for many a run of
+ * another conversation in the same folder; a run that goes on longer (it may take many turns, each up
+ * to the turn timeout) has the time skipped, with a note.
  */
 export const BUSY_RETRY_MS = 30 * 60_000;
 
@@ -100,7 +102,8 @@ export function scheduleTime(at: number, s: Pick<ConversationSchedule, 'lang' | 
  * the schedule says; either way only once, however many times were missed. When the conversation
  * cannot take it right now (`busy`), it is tried again at each look for up to `BUSY_RETRY_MS` from the
  * first try, then skipped. What happened is kept with the schedule (`lastResult`), and a time that was
- * not sent leaves a note in the chat.
+ * not sent leaves a note in the chat; times skipped one after another for the same reason share one
+ * (`Orchestrator.noteSkipped()`).
  */
 export class Scheduler {
   private timer?: NodeJS.Timeout;
@@ -506,8 +509,8 @@ export class Scheduler {
     const when = scheduleTime(due, s);
     // The note ends the sentence itself.
     const why = (outcome.reason ?? '').replace(/[.。]\s*$/, '');
-    if (outcome.result === 'missed') this.orchestrator.systemNote(conv, t().scheduleMissedNote(when));
-    else if (outcome.result === 'skipped') this.orchestrator.systemNote(conv, t().scheduleSkippedNote(when, why));
+    if (outcome.result === 'skipped') this.orchestrator.noteSkipped(conv, s, due, why);
+    else if (outcome.result === 'missed') this.orchestrator.systemNote(conv, t().scheduleMissedNote(when));
     else if (outcome.result === 'failed') this.orchestrator.systemNote(conv, t().scheduleFailedNote(when, outcome.reason ?? ''));
   }
 }

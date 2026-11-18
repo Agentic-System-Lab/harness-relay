@@ -11,8 +11,8 @@ describe('server configuration from the environment', () => {
     expect(config).toEqual({
       maxAccounts: 10,
       maxTeamAgents: 8,
-      turnTimeoutMinutes: 45,
-      turnTimeoutMs: 45 * 60_000,
+      turnTimeoutMinutes: 24 * 60,
+      turnTimeoutMs: 24 * 60 * 60_000,
       voiceModelBaseUrl: undefined,
       voiceEngineBaseUrl: undefined,
       voiceDir: undefined,
@@ -75,11 +75,12 @@ describe('server configuration from the environment', () => {
     expect(problems).toEqual([]);
     expect(limitsOf(config)).toEqual({ maxAccounts: 20, maxTeamAgents: 16, turnTimeoutMinutes: 90 });
     expect(config.turnTimeoutMs).toBe(90 * 60_000);
-    expect(limitsOf(readConfig({ RELAY_MAX_ACCOUNTS: '1', RELAY_MAX_TEAM_AGENTS: '32', RELAY_TURN_TIMEOUT_MIN: '1440' }).config)).toEqual({
+    expect(limitsOf(readConfig({ RELAY_MAX_ACCOUNTS: '1', RELAY_MAX_TEAM_AGENTS: '32', RELAY_TURN_TIMEOUT_MIN: '10080' }).config)).toEqual({
       maxAccounts: 1,
       maxTeamAgents: 32,
-      turnTimeoutMinutes: 1440,
+      turnTimeoutMinutes: 10080,
     });
+    expect(readConfig({ RELAY_TURN_TIMEOUT_MIN: '1' }).config.turnTimeoutMs).toBe(60_000);
   });
 
   it('reports a value that is not valid, and keeps the default for it', () => {
@@ -90,7 +91,7 @@ describe('server configuration from the environment', () => {
       ['RELAY_MAX_TEAM_AGENTS', '33'],
       ['RELAY_MAX_TEAM_AGENTS', '-1'],
       ['RELAY_TURN_TIMEOUT_MIN', '1.5'],
-      ['RELAY_TURN_TIMEOUT_MIN', '1441'],
+      ['RELAY_TURN_TIMEOUT_MIN', '10081'],
       ['RELAY_TURN_TIMEOUT_MIN', '1e3'],
     ] as const) {
       const { config, problems } = readConfig({ [name]: value });

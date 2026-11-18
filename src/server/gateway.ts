@@ -681,7 +681,7 @@ export class ToolGateway {
       if (!answer.allow) return { text: `The user declined ${tool.name}${answer.note ? `: ${answer.note}` : ''}.`, isError: true };
       if (gone?.()) return { text: `${tool.name} was not done: its caller stopped waiting before the user answered.`, isError: true };
     }
-    if (ctx.signal.aborted) return { text: 'The turn was stopped.', isError: true };
+    if (ctx.signal.aborted) return { text: 'The turn ended.', isError: true };
     try {
       return await tool.run!(args, ctx);
     } catch (err) {

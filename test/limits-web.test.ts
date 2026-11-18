@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_LIMITS, type ServerLimits } from '../src/shared/types';
 import { limitsStore } from '../src/web/limits';
+import { en } from '../src/web/locales/en';
+import { zhTW } from '../src/web/locales/zh-TW';
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
@@ -76,5 +78,19 @@ describe("the server's limits in the UI", () => {
     const offC = store.subscribe(() => {});
     expect(load).toHaveBeenCalledTimes(2);
     for (const off of [offA, offB, offC]) off();
+  });
+
+  it("gives a schedule's hint the turn timeout in whole days, else hours, else minutes", () => {
+    const wait = (m: number) => en.schedule.approvalsHint.ask(m).match(/up to (.+) per turn/)?.[1];
+    expect([10080, DEFAULT_LIMITS.turnTimeoutMinutes, 120, 60, 90, 1].map(wait)).toEqual([
+      '7 days',
+      '1 day',
+      '2 hours',
+      '1 hour',
+      '90 minutes',
+      '1 minute',
+    ]);
+    const zh = (m: number) => zhTW.schedule.approvalsHint.ask(m).match(/每一回合最多 (.+)）/)?.[1];
+    expect([10080, DEFAULT_LIMITS.turnTimeoutMinutes, 120, 90].map(zh)).toEqual(['7 天', '1 天', '2 小時', '90 分鐘']);
   });
 });

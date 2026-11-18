@@ -115,7 +115,7 @@ A note on what the token protects: any process on this computer can already call
 
 ### Unattended approvals
 
-A run started by a trigger may have nobody watching. When a trigger is created or enabled on a conversation whose permission is `edit` or `full` and whose approvals are `ask`, the UI warns that approval requests will wait until someone answers them (up to the 45-minute turn timeout), and offers to switch the conversation to refusing them automatically. Webhook triggers on conversations with `full` permission get a stronger warning, since the event data comes from outside.
+A run started by a trigger may have nobody watching. When a trigger is created or enabled on a conversation whose permission is `edit` or `full` and whose approvals are `ask`, the UI warns that approval requests will wait until someone answers them (up to the turn timeout), and offers to switch the conversation to refusing them automatically. Webhook triggers on conversations with `full` permission get a stronger warning, since the event data comes from outside.
 
 ### Notifications
 

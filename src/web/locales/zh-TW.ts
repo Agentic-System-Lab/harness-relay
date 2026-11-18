@@ -40,6 +40,9 @@ const EFFORT: Record<string, string> = {
   ultra: 'Ultra',
 };
 
+/** A length of time in minutes, as whole days, else hours, else minutes. */
+const duration = (m: number) => (m % 1440 === 0 ? `${m / 1440} 天` : m % 60 === 0 ? `${m / 60} 小時` : `${m} 分鐘`);
+
 export const zhTW = {
   langName: '繁體中文',
   common: {
@@ -512,7 +515,7 @@ export const zhTW = {
     approvalsAsk: '詢問我',
     approvalsHint: {
       deny: '自動任務執行的那一輪，agent 想做權限範圍以外的事時會直接被拒絕，agent 會被告知並改用其他方式。',
-      ask: (minutes: number) => `和平常一樣在對話中詢問你；你不在時，agent 會一直等（每一回合最多 ${minutes} 分鐘）。`,
+      ask: (minutes: number) => `和平常一樣在對話中詢問你；你不在時，agent 會一直等（每一回合最多 ${duration(minutes)}）。`,
     },
     approvalsTeamDeny: '團隊設定已是自動拒絕，自動任務執行時也一樣。',
     approvalsFull: '團隊有完全存取權限，不會詢問，這個設定沒有作用。',

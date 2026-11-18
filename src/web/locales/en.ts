@@ -11,6 +11,14 @@ const EFFORT: Record<string, string> = {
   ultra: 'Ultra',
 };
 
+/** A length of time in minutes, as whole days, else hours, else minutes. */
+const duration = (m: number) =>
+  m % 1440 === 0
+    ? `${m / 1440} ${m === 1440 ? 'day' : 'days'}`
+    : m % 60 === 0
+      ? `${m / 60} ${m === 60 ? 'hour' : 'hours'}`
+      : `${m} ${m === 1 ? 'minute' : 'minutes'}`;
+
 export const en: Messages = {
   langName: 'English',
   common: {
@@ -497,7 +505,7 @@ export const en: Messages = {
     approvalsAsk: 'Ask me',
     approvalsHint: {
       deny: 'In a run the automation starts, anything an agent wants to do outside its permission is refused; the agent is told and works around it.',
-      ask: (minutes) => `Asked in the chat as usual; while you are away the agent waits (up to ${minutes} minutes per turn).`,
+      ask: (minutes) => `Asked in the chat as usual; while you are away the agent waits (up to ${duration(minutes)} per turn).`,
     },
     approvalsTeamDeny: 'The team already refuses them automatically; so do the runs the automation starts.',
     approvalsFull: 'The team has full access and is never asked, so this has no effect.',
