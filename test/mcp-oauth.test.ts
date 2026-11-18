@@ -5,7 +5,8 @@
  * metadata for an issuer with a path, no PKCE with S256 or no registration refused, another resource's
  * metadata refused (one above the server's path too), the issuer exactly, a server that asks for none,
  * every way it fails, no redirect followed), a server elsewhere (`net.ts`: only addresses on the
- * internet, checked with a stand-in lookup and pinned; plain http and this computer's ports refused),
+ * internet, checked with a stand-in lookup and pinned, also by the real requests to a name that resolves
+ * nowhere; IPv4 carried in IPv6 and site-local addresses; plain http and this computer's ports refused),
  * registration (a public client with the exact redirect address, again for another one, its failures),
  * the sign-in through the shared sign-ins (PKCE, the resource, the scopes, a pasted address, RFC 9207's
  * `iss`, a page off the issuer's origin confirmed first, the mix-up attack against two stand-ins, its
@@ -18,6 +19,8 @@
  */
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
+import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
+import { createServer as createNetServer, type Server as NetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -383,6 +386,9 @@ describe('the token a turn gets', () => {
     expect(linear.headers.Authorization).toMatch(/^Bearer mcp-access-/);
     expect(fake.accessTokens.get(linear.headers.Authorization!.slice(7))).toBe(true);
     expect(given.mcpServers.find((s) => s.name === 'docs')!.headers).toEqual({ Authorization: 'Bearer own' });
+    // Marked, for a CLI that keeps a session's servers on disk to take the token out after the turn (Goose).
+    expect(linear.signedIn).toBe(true);
+    expect(given.mcpServers.find((s) => s.name === 'docs')!.signedIn).toBeUndefined();
     expect(given.leftOut).toBeUndefined();
     // The stand-in takes it.
     const res = await fetch(fake.mcpUrl, { method: 'POST', headers: { authorization: linear.headers.Authorization! }, body: '{}' });
@@ -446,10 +452,12 @@ describe('the token a turn gets', () => {
     await signIn();
     expect(keyring.values.has(`mcp-oauth.${serverId()}`)).toBe(false);
     expect((await mcp.forTurn(tools.forAgent(agent))).mcpServers).toHaveLength(1);
-    // Given for what it has left, then no more.
+    // Given for what it has left, to its last minute (no margin: it cannot be renewed early), then no more.
     now += 55 * MIN;
     expect((await mcp.forTurn(tools.forAgent(agent))).mcpServers).toHaveLength(1);
-    now += 4 * MIN;
+    now += 4 * MIN + 30_000;
+    expect((await mcp.forTurn(tools.forAgent(agent))).mcpServers).toHaveLength(1);
+    now += 30_000;
     const given = await en(() => mcp.forTurn(tools.forAgent(agent)));
     expect(given.leftOut?.[0]?.reason).toBe('reauth');
     expect(tools.view().mcpServers[0]!.oauth?.error).toMatch(/no refresh token/);
@@ -706,12 +714,75 @@ describe('a server that is not on this computer', () => {
       'fd00::1',
       '0.0.0.0',
       '::',
+      // An IPv4 address on the local network or this computer, carried in IPv6: compatible, NAT64 (its
+      // well-known prefix, and its local-use one), 6to4; and site-local ones.
+      '::10.0.0.1',
+      '64:ff9b::a00:1',
+      '64:ff9b::7f00:1',
+      '64:ff9b:1::a00:1',
+      '2002:a00:1::',
+      '2002:7f00:1::1',
+      '2002:a9fe:a9fe::',
+      'fec0::1',
     ])
       expect(nearbyAddress(a, []), a).toBe(true);
-    for (const a of ['203.0.113.10', '8.8.8.8', '2606:4700::1111']) expect(nearbyAddress(a, []), a).toBe(false);
+    for (const a of ['203.0.113.10', '8.8.8.8', '2606:4700::1111', '64:ff9b::cb00:710a', '2002:cb00:710a::1', '::ffff:203.0.113.10'])
+      expect(nearbyAddress(a, []), a).toBe(false);
     // This computer's own addresses too.
     expect(nearbyAddress('198.51.100.7', ['198.51.100.7'])).toBe(true);
     await expect(checkedAddresses(new URL('https://198.51.100.7/'), elsewhere({}).net, ['198.51.100.7'])).rejects.toThrow();
+  });
+
+  // The real requests (`pinnedSend()`), with no stand-in `send`: to a name that resolves nowhere
+  // (`.invalid`, RFC 6761), given the addresses checked for it, a stand-in on this computer's.
+  const listening = (server: HttpServer | NetServer) =>
+    new Promise<number>((resolve) => server.listen(0, '127.0.0.1', () => resolve((server.address() as { port: number }).port)));
+  const GET = { method: 'GET' as const, headers: {}, timeoutMs: 5000 };
+
+  it('connects to the addresses checked, never to where the name leads, with a connection of its own each time', async () => {
+    const connections: number[] = [];
+    const server = createHttpServer((req, res) => res.end(`${req.headers.host} ${req.url}`));
+    server.on('connection', () => connections.push(Date.now()));
+    const port = await listening(server);
+    try {
+      for (let i = 0; i < 2; i++) {
+        const res = await pinnedSend(new URL(`http://mcp.invalid:${port}/mcp`), GET, ['127.0.0.1']);
+        expect(res.status).toBe(200);
+        // The name it was asked for, at the address it was checked for.
+        expect(await res.text()).toBe(`mcp.invalid:${port} /mcp`);
+        await new Promise((r) => setImmediate(r));
+      }
+      // None kept for the next request, which may have been checked for other addresses.
+      expect(connections).toHaveLength(2);
+    } finally {
+      server.closeAllConnections();
+      server.close();
+    }
+  });
+
+  it('goes to the addresses checked over https too, asking for the name it was given (SNI)', async () => {
+    // No key needed: a plain TCP stand-in reads the TLS ClientHello, then hangs up.
+    const hellos: Buffer[] = [];
+    const server = createNetServer((socket) =>
+      socket.once('data', (chunk: Buffer) => {
+        hellos.push(chunk);
+        socket.destroy();
+      }),
+    );
+    const port = await listening(server);
+    try {
+      const err = await pinnedSend(new URL(`https://mcp.invalid:${port}/mcp`), GET, ['127.0.0.1']).then(
+        () => undefined,
+        (e: NodeJS.ErrnoException) => e,
+      );
+      expect(err).toBeInstanceOf(Error);
+      expect(err!.code).not.toBe('ENOTFOUND');
+      expect(hellos).toHaveLength(1);
+      expect(hellos[0]![0]).toBe(0x16); // a TLS handshake
+      expect(hellos[0]!.includes('mcp.invalid')).toBe(true);
+    } finally {
+      server.close();
+    }
   });
 });
 

@@ -235,6 +235,13 @@ describe('what the browser may open', () => {
     expect(leadsNearby('mine.example', ['192.168.1.20'], ['192.168.1.20'])).toBe(true);
     expect(leadsNearby('203.0.113.5', [])).toBe(false);
     expect(leadsNearby('example.com', ['93.184.216.34'])).toBe(false);
+    // A private or loopback IPv4 address carried in IPv6 (compatible, NAT64, 6to4), and site-local ones.
+    for (const a of ['::10.0.0.1', '64:ff9b::a00:1', '64:ff9b:1::a00:1', '2002:a00:1::1', '2002:7f00:1::1', 'fec0::1']) {
+      expect(leadsNearby(a, []), a).toBe(true);
+      expect(requestVerdict(`http://[${a}]/`, near), a).toBe('block');
+    }
+    expect(leadsNearby('nat64.example', ['64:ff9b::c0a8:101'])).toBe(true);
+    for (const a of ['64:ff9b::5db8:d822', '2002:5db8:d822::1', '::ffff:93.184.216.34']) expect(leadsNearby(a, []), a).toBe(false);
   });
 });
 

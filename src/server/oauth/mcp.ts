@@ -594,6 +594,7 @@ export class McpOAuth {
           const token = await this.turnToken(id, spec.url);
           for (const k of Object.keys(spec.headers)) if (k.toLowerCase() === 'authorization') delete spec.headers[k];
           spec.headers.Authorization = `Bearer ${token}`;
+          spec.signedIn = true;
         } catch (err) {
           const o = this.tools.mcpServerById(id)?.oauth;
           leftOut.push(
@@ -623,6 +624,6 @@ export class McpOAuth {
     const safe = u && (u.protocol === 'https:' || (u.protocol === 'http:' && LOOPBACK.test(u.hostname)));
     if (!o || !u || !safe || tokenHost(url) !== o.host) return Promise.reject(new Error(t().oauthHostRefused(u?.host ?? url)));
     // One that cannot be renewed is given for what it has left.
-    return this.broker.accessToken(id, false, o.noRefresh ? undefined : TURN_EARLY);
+    return this.broker.accessToken(id, false, o.noRefresh ? 0 : TURN_EARLY);
   }
 }

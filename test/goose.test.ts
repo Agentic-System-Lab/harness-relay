@@ -77,6 +77,10 @@ import {
   gooseTurnUsage,
   gooseUsage,
   GOOSE_NOTHING_USED,
+  GOOSE_SIGNINS_PENDING,
+  cleanupGoose,
+  gooseSignIns,
+  secretPieces,
   isReadOnlyCommand,
   parseGooseCatalog,
   parseGooseSkills,
@@ -89,7 +93,14 @@ import {
 import { emptyStateFolder, sealedFolder, stateFolder, type OpenRunContext } from '../src/server/agents/open';
 import { openSqliteFile } from '../src/server/db';
 import { GOOSE_USAGE_SCHEMA, gooseCalls } from './goose-usage-db';
-import { AgentRunError, type AgentEvent, type ApprovalRequest, type RunBackends, type RunOptions } from '../src/server/agents/types';
+import {
+  AgentRunError,
+  type AgentEvent,
+  type ApprovalRequest,
+  type McpServerSpec,
+  type RunBackends,
+  type RunOptions,
+} from '../src/server/agents/types';
 import { backendRun } from '../src/server/backends';
 import { withLang } from '../src/server/i18n';
 import type { RelaySandboxCommand, RelaySandboxSpec } from '../src/server/relaySandbox';
@@ -1372,7 +1383,11 @@ describe("Goose's catalog and what it loads by itself", () => {
  *   permission requests, waiting for each answer), `hang` (a shell call, until `session/cancel`) or
  *   `auth` (Goose's error turn for a bad key); before it answers, it records the model calls of
  *   `FAKE_GOOSE_CALLS` (JSON `[{input, output, total?, cost?, session?, parent?}]`) in its sessions
- *   database as Goose does (`data/sessions/sessions.db` under `GOOSE_PATH_ROOT`).
+ *   database as Goose does (`data/sessions/sessions.db` under `GOOSE_PATH_ROOT`);
+ * - with `FAKE_GOOSE_KEEP_MCP`, keeps a session's MCP servers in that database's row as Goose 1.58.1 does
+ *   (checked with the real one: an HTTP server's headers as given; a load's server replaces the kept one
+ *   of its name, one it does not give starts as kept), logging what it starts (`started`); and during
+ *   the prompt writes the row again, shorter each time, and a subagent's session with the same list.
  * Every message it gets is logged to `FAKE_GOOSE_LOG`, with the variables it started with.
  */
 const FAKE_GOOSE = `#!/usr/bin/env node
@@ -1416,6 +1431,7 @@ async function prompt(id, p) {
   }
   // A loaded session's prompt starts with the session's cost so far, as Goose's does.
   if (env.FAKE_GOOSE_COST) update({ sessionUpdate: 'usage_update', used: 10, size: 100, cost: { amount: Number(env.FAKE_GOOSE_COST), currency: 'USD' } });
+  keepDuringTurn(s);
   const all = lines(env.FAKE_GOOSE_REPLAY);
   const at = all.findIndex((l) => l.from === 'client' && l.msg.method === 'session/prompt');
   const pid = all[at].msg.id;
@@ -1429,6 +1445,48 @@ async function prompt(id, p) {
     if (m.method === 'session/update') send({ method: m.method, params: { ...m.params, sessionId: s } });
     else if (m.method === 'session/request_permission') log({ answered: await ask(m.method, { ...m.params, sessionId: s }) });
   }
+}
+
+// FAKE_GOOSE_KEEP_MCP: a session's extensions kept in its row as Goose 1.58.1 keeps them (checked with
+// the real one): an HTTP server with its headers as given; a load's server replaces the kept one of its
+// name, and one the load does not give is started as kept. What it starts is logged.
+function openDb() {
+  const file = path.join(env.GOOSE_PATH_ROOT, 'data', 'sessions', 'sessions.db');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const { DatabaseSync } = require('node:sqlite');
+  const db = new DatabaseSync(file);
+  db.exec('PRAGMA journal_mode = WAL');
+  db.exec(\`${GOOSE_USAGE_SCHEMA}\`);
+  return db;
+}
+const asKept = (s) => s.type === 'http'
+  ? { type: 'streamable_http', name: s.name, description: '', uri: s.url, envs: {}, env_keys: [], headers: Object.fromEntries((s.headers || []).map((h) => [h.name, h.value])), timeout: null, socket: null, bundled: false }
+  : { type: 'stdio', name: s.name, description: '', cmd: s.command, args: s.args || [], envs: {}, env_keys: [], timeout: 300, bundled: null };
+const keptList = (db, s) => {
+  const row = db.prepare('SELECT extension_data FROM sessions WHERE id = ?').get(s);
+  try { return JSON.parse(row.extension_data)['enabled_extensions.v0'].extensions; } catch { return undefined; }
+};
+const writeRow = (db, s, list, notes) => db.prepare('UPDATE sessions SET extension_data = ? WHERE id = ?').run(JSON.stringify({ 'enabled_extensions.v0': { extensions: list }, 'todo.v0': { notes } }), s);
+function keep(s, servers) {
+  if (!env.FAKE_GOOSE_KEEP_MCP) return;
+  const db = openDb();
+  db.prepare('INSERT OR IGNORE INTO sessions (id, working_dir) VALUES (?, ?)').run(s, '/p');
+  const given = servers.map(asKept);
+  const list = [...(keptList(db, s) || [{ type: 'platform', name: 'developer', description: '', display_name: null, bundled: true }]).filter((e) => !given.some((g) => g.name === e.name)), ...given];
+  log({ started: list.filter((e) => e.type !== 'platform').map((e) => ({ name: e.name, authorization: (e.headers || {}).Authorization })) });
+  writeRow(db, s, list, '');
+  db.close();
+}
+// During the prompt: its todo notes written again as they change, the row shorter each time (so the
+// earlier rows' bytes are left in the file's free space), and a subagent's session with its parent's list.
+function keepDuringTurn(s) {
+  if (!env.FAKE_GOOSE_KEEP_MCP) return;
+  const db = openDb();
+  const list = keptList(db, s) || [];
+  for (const n of [6000, 4000, 2000, 10]) writeRow(db, s, list, 'n'.repeat(n));
+  db.prepare('INSERT OR IGNORE INTO sessions (id, working_dir, parent_session_id) VALUES (?, ?, ?)').run(s + '_sub', '/p', s);
+  writeRow(db, s + '_sub', list, '');
+  db.close();
 }
 
 function record(s, calls) {
@@ -1457,6 +1515,7 @@ readline.createInterface({ input: process.stdin }).on('line', async (line) => {
   if (method === 'initialize') return send({ id, result: answer('initialize', 1) });
   if (method === 'session/new') {
     state = { provider: env.GOOSE_PROVIDER, model: env.GOOSE_MODEL, mode: env.GOOSE_MODE || 'auto', effort: 'off' };
+    keep('20261110_1', p.mcpServers || []);
     return send({ id, result: { sessionId: '20261110_1', ...session() } });
   }
   if (method === 'session/load') {
@@ -1464,6 +1523,7 @@ readline.createInterface({ input: process.stdin }).on('line', async (line) => {
     send({ method: 'session/update', params: { sessionId: p.sessionId, update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'old question' } } } });
     send({ method: 'session/update', params: { sessionId: p.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'old reply' } } } });
     state = JSON.parse(env.FAKE_GOOSE_STORED || '{}');
+    keep(p.sessionId, p.mcpServers || []);
     return send({ id, result: session() });
   }
   if (method === 'session/set_config_option') {
@@ -2065,6 +2125,183 @@ describe("a resumed Goose session's own row", () => {
     expect(existsSync(g)).toBe(false);
     expect(readdirSync(generated.home.state)).toEqual([]);
     expect(existsSync(sealed)).toBe(false);
+    warn.mockRestore();
+  });
+});
+
+describe("a signed-in MCP server's access token in Goose's sessions", () => {
+  const ONE = `mcp-access-${'1'.repeat(40)}`;
+  const TWO = `mcp-access-${'2'.repeat(40)}`;
+  const linear = (token: string): McpServerSpec => ({
+    name: 'linear',
+    transport: 'http',
+    command: '',
+    args: [],
+    url: 'https://mcp.linear.app/mcp',
+    env: {},
+    headers: { Authorization: `Bearer ${token}`, 'X-Team': 'core' },
+    signedIn: true,
+  });
+  const docs: McpServerSpec = {
+    name: 'docs',
+    transport: 'http',
+    command: '',
+    args: [],
+    url: 'https://docs.example.com/mcp',
+    env: {},
+    headers: { Authorization: 'Bearer typed-by-hand' },
+  };
+  /** Every file under `dir` that holds `text`. */
+  const holding = (dir: string, text: string): string[] =>
+    readdirSync(dir, { recursive: true, withFileTypes: true })
+      .filter((d) => d.isFile())
+      .map((d) => join(d.parentPath, d.name))
+      .filter((f) => readFileSync(f).includes(text));
+  const lists = (file: string) => {
+    const db = openSqliteFile(file);
+    try {
+      return Object.fromEntries(
+        (db.prepare('SELECT id, extension_data FROM sessions').all() as { id: string; extension_data: string }[]).map((r) => [
+          r.id,
+          (JSON.parse(r.extension_data)['enabled_extensions.v0'].extensions as { name: string }[]).map((e) => e.name),
+        ]),
+      );
+    } finally {
+      db.close();
+    }
+  };
+  const started = (log: Record<string, any>[]) => log.filter((m) => m.started).map((m) => m.started);
+
+  it('knows them by their mark, and finds a token in a file even split across pages', () => {
+    expect(gooseSignIns({ mcpServers: [linear(ONE), docs] })).toEqual({ names: ['linear'], secrets: [ONE] });
+    expect(gooseSignIns({})).toEqual({ names: [], secrets: [] });
+    // However a token is cut into SQLite's pages (4 bytes between them, every 4092), a piece is whole.
+    for (const length of [12, 40, 1500, 5000, 16_000]) {
+      const token = Array.from({ length }, (_, i) => String.fromCharCode(97 + ((i * 7) % 26))).join('');
+      for (const start of [0, 1, 100, 2046, 4000, 4091]) {
+        let laid = '';
+        let room = 4092 - start;
+        for (let i = 0; i < token.length;) {
+          const part = token.slice(i, i + room);
+          laid += part;
+          i += part.length;
+          if (i < token.length) laid += '\0\0\0\0';
+          room = 4092;
+        }
+        if (length >= 32) expect(secretPieces(token).some((p) => laid.includes(p))).toBe(true);
+      }
+    }
+    expect(secretPieces('short')).toEqual(['short']);
+  });
+
+  // Its stand-in CLI is a script, and Windows starts only real programs (`.exe`): tried on macOS and Linux.
+  it.skipIf(process.platform === 'win32')(
+    'leaves none in its database or the sealed list after the turn, and a resume starts the server with the fresh one only',
+    async () => {
+      const key = 'conv.oauth.a1';
+      const fake = { FAKE_GOOSE_REPLAY: 'text-openai', FAKE_GOOSE_KEEP_MCP: '1' };
+      const first = turn(fake, { stateKey: key, mcpServers: [linear(ONE), docs] });
+      const home = first.o.env[OPEN_AGENT_HOME_ENV]!;
+      const db = gooseSessionsDb(stateFolder(home, key));
+      await gooseRunner(deps()).run(first.o);
+      // Goose was given it, and kept it while the turn ran (and wrote its row again, a subagent's too).
+      expect(started(first.log())).toEqual([
+        [
+          { name: 'linear', authorization: `Bearer ${ONE}` },
+          { name: 'docs', authorization: 'Bearer typed-by-hand' },
+        ],
+      ]);
+      // Now no file of its home holds it: not the database (nor an earlier version of a row in its free
+      // space), nor the list sealed for resuming. The session and the other servers are kept.
+      expect(holding(home, ONE)).toEqual([]);
+      expect(lists(db)).toEqual({ '20261110_1': ['developer', 'docs'], '20261110_1_sub': ['developer', 'docs'] });
+      const sealed = sealedFolder(home, key);
+      const kept = JSON.parse(readFileSync(join(sealed, 'goose-extensions.json'), 'utf8')) as { extensions: { name: string }[] };
+      expect(kept.extensions.map((e) => e.name)).toEqual(['developer', 'docs']);
+      expect(existsSync(join(sealed, GOOSE_SIGNINS_PENDING))).toBe(false);
+
+      // Resumed with a fresh token: the load gives it, and only it is started (the kept one went).
+      const before = first.log().length;
+      const second = turn(fake, { stateKey: key, sessionId: '20261110_1', mcpServers: [linear(TWO), docs], env: first.o.env });
+      await gooseRunner(deps()).run(second.o);
+      expect(started(first.log().slice(before))).toEqual([
+        [
+          { name: 'linear', authorization: `Bearer ${TWO}` },
+          { name: 'docs', authorization: 'Bearer typed-by-hand' },
+        ],
+      ]);
+      expect(holding(home, TWO)).toEqual([]);
+      expect(holding(home, ONE)).toEqual([]);
+
+      // Left out of a turn (its sign-in needs renewing): nothing kept starts it with an old token.
+      const after = first.log().length;
+      const third = turn(fake, { stateKey: key, sessionId: '20261110_1', mcpServers: [docs], env: first.o.env });
+      await gooseRunner(deps()).run(third.o);
+      expect(started(first.log().slice(after))).toEqual([[{ name: 'docs', authorization: 'Bearer typed-by-hand' }]]);
+    },
+  );
+
+  it('removes the database when they cannot be taken out of it, and takes out those of a run the server stopped during', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const kept = (token: string) =>
+      JSON.stringify({
+        'enabled_extensions.v0': {
+          extensions: [{ type: 'streamable_http', name: 'linear', headers: { Authorization: `Bearer ${token}` } }],
+        },
+      });
+    // A table a command made that the server does not open (a generated column): the database goes.
+    const ctx = context({ stateKey: 'conv.oauth.a2', mcpServers: [linear(ONE)] });
+    const file = gooseSessionsDb(ctx.home.state);
+    mkdirSync(dirname(file), { recursive: true });
+    const d = openSqliteFile(file);
+    d.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, extension_data TEXT, planted TEXT GENERATED ALWAYS AS (extension_data) VIRTUAL);`);
+    d.prepare('INSERT INTO sessions (id, extension_data) VALUES (?, ?)').run('s1', kept(ONE));
+    d.close();
+    cleanupGoose(ctx);
+    expect(existsSync(file)).toBe(false);
+    expect(holding(ctx.home.root, ONE)).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not take the signed-in MCP servers'), expect.any(String));
+
+    // Kept under another name (a subagent's session, say): it holds the token, so it goes too, and
+    // the database stays. The token anywhere else in it (another table): the database goes.
+    const other = context({ stateKey: 'conv.oauth.a4', mcpServers: [linear(ONE)] });
+    const renamed = gooseSessionsDb(other.home.state);
+    mkdirSync(dirname(renamed), { recursive: true });
+    const r = openSqliteFile(renamed);
+    r.exec(GOOSE_USAGE_SCHEMA);
+    r.prepare('INSERT INTO sessions (id, working_dir, extension_data) VALUES (?, ?, ?)').run(
+      's1',
+      '/p',
+      kept(ONE).replace('"linear"', '"linear-2"'),
+    );
+    r.close();
+    cleanupGoose(other);
+    expect(lists(renamed)).toEqual({ s1: [] });
+    expect(holding(other.home.root, ONE)).toEqual([]);
+    const r2 = openSqliteFile(renamed);
+    r2.exec(`CREATE TABLE messages (content TEXT); INSERT INTO messages VALUES ('the header was Bearer ${ONE}')`);
+    r2.close();
+    cleanupGoose(other);
+    expect(existsSync(renamed)).toBe(false);
+    expect(holding(other.home.root, ONE)).toEqual([]);
+
+    // A run noted its signed-in servers before it started, and the server stopped before it took them
+    // out: the member's next run takes them out first, whatever its own servers.
+    const stopped = context({ stateKey: 'conv.oauth.a3', mcpServers: [linear(ONE)] });
+    prepareGoose(stopped, { realHome: '/h', bash: '/bin/bash' });
+    const sealed = sealedFolder(stopped.home.root, 'conv.oauth.a3');
+    expect(JSON.parse(readFileSync(join(sealed, GOOSE_SIGNINS_PENDING), 'utf8'))).toEqual({ names: ['linear'] });
+    const left = gooseSessionsDb(stopped.home.state);
+    mkdirSync(dirname(left), { recursive: true });
+    const g = openSqliteFile(left);
+    g.exec(GOOSE_USAGE_SCHEMA);
+    g.prepare('INSERT INTO sessions (id, working_dir, extension_data) VALUES (?, ?, ?)').run('s1', '/p', kept(ONE));
+    g.close();
+    const next = { ...stopped, o: { ...stopped.o, mcpServers: [docs] } };
+    prepareGoose(next, { realHome: '/h', bash: '/bin/bash' });
+    expect(lists(left)).toEqual({ s1: [] });
+    expect(holding(next.home.root, ONE)).toEqual([]);
+    expect(existsSync(join(sealed, GOOSE_SIGNINS_PENDING))).toBe(false);
     warn.mockRestore();
   });
 });

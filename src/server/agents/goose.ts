@@ -31,7 +31,7 @@ import { API_BACKEND_HOST, backendLabel, urlHost, type BackendRun } from '../bac
 import { commandLine, parseCommandLine, parseShellSyntax } from '../commands';
 import { t } from '../i18n';
 import type { NativeProbe } from '../native';
-import { openRunDatabase, openSqliteFile, plainDatabaseFiles, readRunDatabase } from '../db';
+import { openRunDatabase, openSqliteFile, plainDatabaseFiles, readRunDatabase, transaction } from '../db';
 import { converse } from '../process';
 import type { JsonRpcConnection } from './acp';
 import {
@@ -91,6 +91,11 @@ import { AgentRunError, type AgentRunner, type McpServerSpec, type RunOptions, t
  *   (`cat`, `ls`, `rg`… without redirection or substitution) count as reading.
  * - A turn's tokens and cost are what the session's totals in Goose's sessions database (its subagents'
  *   sessions included) grew by: the prompt's answer gives the last model call's tokens only.
+ * - It keeps a session's extensions in that database (`sessions.extension_data`), an HTTP server's
+ *   headers as they were given: a signed-in server's access token too. A `session/load` that gives a
+ *   server of the same name replaces the kept one (only the load's header is sent, and kept); one the
+ *   load does not give is started as kept. So the signed-in servers are taken out of the list sealed for
+ *   resuming, and out of the database once the turn is over (`stripGooseSignIns`).
  */
 
 /** The goose provider id of a Harness Relay endpoint (kept apart from Goose's own providers, such as `ollama`). */
@@ -468,16 +473,28 @@ export function prepareGoose(ctx: OpenRunContext, deps: GoosePrepareDeps = { rea
  * left in Goose's sessions database. A resumed session gets back only what Harness Relay gave it
  * (`restoreGooseSession`; a keyless run never resumes); before a new session, the triggers and views
  * are dropped (`openRunDatabase`), since one could change the new session's row before it is sealed
- * (`sealGooseExtensions`). When that fails the state starts over, empty (`startStateOver`).
+ * (`sealGooseExtensions`). Before either, the signed-in servers of an earlier run that could not take
+ * them out itself (the server stopped during it) are taken out (`stripGooseSignIns`). When that fails
+ * the state starts over, empty (`startStateOver`). Then this run's signed-in servers are noted, for
+ * the same reason (`GOOSE_SIGNINS_PENDING`).
  */
 function checkGooseSessions(ctx: OpenRunContext): void {
   const { o, home } = ctx;
+  const sealed = o.stateKey ? sealedFolder(home.root, o.stateKey) : undefined;
   try {
-    if (o.sessionId && o.stateKey) restoreGooseSession(home.state, sealedFolder(home.root, o.stateKey), o.sessionId);
+    const pending = sealed ? pendingGooseSignIns(sealed) : [];
+    if (pending.length) stripGooseSignIns(home.state, { names: pending, secrets: [] });
+    if (o.sessionId && sealed) restoreGooseSession(home.state, sealed, o.sessionId);
     else if (existsSync(gooseSessionsDb(home.state))) openRunDatabase(gooseSessionsDb(home.state)).close();
   } catch (err) {
     startStateOver(ctx, err as Error);
   }
+  if (!sealed) return;
+  const { names } = gooseSignIns(o);
+  if (names.length) {
+    mkdirSync(sealed, { recursive: true, mode: 0o700 });
+    writeFileSync(join(sealed, GOOSE_SIGNINS_PENDING), JSON.stringify({ names }), { mode: 0o600 });
+  } else rmSync(join(sealed, GOOSE_SIGNINS_PENDING), { force: true });
 }
 
 // --- The session ------------------------------------------------------------------------------
@@ -523,12 +540,168 @@ function storedExtensions(extensionData: unknown): GooseExtension[] | undefined 
 }
 
 /**
+ * The tool library's servers that signed in themselves in a run (`McpServerSpec.signedIn`): their
+ * names, and the access tokens in their `Authorization` headers.
+ */
+export interface GooseSignIns {
+  names: string[];
+  secrets: string[];
+}
+
+/** A run's signed-in servers (`GooseSignIns`). */
+export function gooseSignIns(o: Pick<RunOptions, 'mcpServers'>): GooseSignIns {
+  const servers = (o.mcpServers ?? []).filter((s) => s.signedIn && s.transport === 'http');
+  return {
+    names: servers.map((s) => s.name),
+    secrets: servers.flatMap((s) =>
+      Object.entries(s.headers)
+        .filter(([name]) => name.toLowerCase() === 'authorization')
+        .map(([, value]) => value.replace(/^Bearer\s+/i, '').trim())
+        .filter(Boolean),
+    ),
+  };
+}
+
+/** An extension list without the signed-in servers: those of their names, and any that holds one of their tokens. */
+function withoutSignIns(extensions: GooseExtension[], s: GooseSignIns): GooseExtension[] {
+  return extensions.filter((e) => {
+    if (e?.type !== 'platform' && typeof e?.name === 'string' && s.names.includes(e.name)) return false;
+    const text = JSON.stringify(e) ?? '';
+    return !s.secrets.some((secret) => text.includes(secret));
+  });
+}
+
+/**
+ * The file in a state key's sealed folder naming the signed-in servers of the run under way, until it
+ * has taken them out of Goose's database (`cleanupGoose`); a run that finds it there takes them out
+ * first (the server stopped during the earlier one).
+ */
+export const GOOSE_SIGNINS_PENDING = 'goose-signins.json';
+
+/** The signed-in servers' names an earlier run left noted (`GOOSE_SIGNINS_PENDING`). */
+function pendingGooseSignIns(sealed: string): string[] {
+  try {
+    const kept = JSON.parse(readFileSync(join(sealed, GOOSE_SIGNINS_PENDING), 'utf8')) as { names?: unknown };
+    return Array.isArray(kept.names) ? kept.names.filter((n): n is string => typeof n === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The largest sessions database (with its write-ahead log) `stripGooseSignIns` rebuilds, on the
+ * server's own thread; a larger one (a command's doing: no member's sessions come near it) is removed.
+ */
+export const GOOSE_REBUILD_MAX_BYTES = 128 * 1024 * 1024;
+
+/** The sessions database's files: the database, and the journals SQLite keeps beside it. */
+function gooseDbFiles(state: string): string[] {
+  const file = gooseSessionsDb(state);
+  return [file, `${file}-wal`, `${file}-shm`, `${file}-journal`];
+}
+
+/**
+ * Pieces of a token, at least one of which is whole in a file that holds the token, even split across
+ * SQLite's pages (an overflow page's content starts after 4 bytes of its own, every 4092 bytes or so):
+ * its halves, or 1000 characters at most, end to end and at its end. A short token is looked for whole.
+ */
+export function secretPieces(secret: string): string[] {
+  if (secret.length < 32) return [secret];
+  const size = Math.min(Math.ceil(secret.length / 2), 1000);
+  const pieces = new Set<string>();
+  for (let at = 0; at + size <= secret.length; at += size) pieces.add(secret.slice(at, at + size));
+  pieces.add(secret.slice(secret.length - size));
+  return [...pieces];
+}
+
+/** Whether a file holds any of the tokens (`secretPieces`); a missing file holds none. */
+function holdsSecret(file: string, secrets: readonly string[]): boolean {
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(file);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw err;
+  }
+  return secrets.some((secret) => secretPieces(secret).some((piece) => bytes.includes(piece)));
+}
+
+/**
+ * Takes the signed-in servers out of every session's extension list in Goose's sessions database (a
+ * subagent's too), so that their access tokens stay nowhere once the turn is over: Goose keeps an HTTP
+ * server's headers there as it was given them. The database is then rebuilt (`VACUUM`), since a row
+ * written again leaves its earlier versions in the file's free space (Goose writes a session's row again
+ * as its todo notes change, and so does this), and its files are read back once it is closed: none may
+ * hold a token (`secrets`), anywhere (a part of a row not looked at, a log a process still holds open).
+ * What a run's commands could have put in it is dropped first (`openRunDatabase`). Throws when any of
+ * it fails; `cleanupGoose` then removes the database.
+ */
+export function stripGooseSignIns(state: string, s: GooseSignIns): void {
+  if (!s.names.length && !s.secrets.length) return;
+  const files = gooseDbFiles(state);
+  const file = files[0]!;
+  if (!existsSync(file)) {
+    // No database, nothing kept, but a journal could hold a token all the same.
+    if (files.slice(1).some((f) => holdsSecret(f, s.secrets))) throw new Error('a journal of a database that is gone holds a token');
+    return;
+  }
+  const size = files.slice(0, 2).reduce((sum, f) => sum + (existsSync(f) ? lstatSync(f).size : 0), 0);
+  if (size > GOOSE_REBUILD_MAX_BYTES) throw new Error(`${file}: too large to rebuild (${size} bytes)`);
+  const db = openRunDatabase(file);
+  try {
+    const rows = db.prepare('SELECT rowid AS at, extension_data FROM sessions').all() as { at: number; extension_data: unknown }[];
+    const update = db.prepare('UPDATE sessions SET extension_data = ? WHERE rowid = ?');
+    transaction(db, () => {
+      for (const row of rows) {
+        const extensions = storedExtensions(row.extension_data);
+        if (!extensions) continue;
+        const kept = withoutSignIns(extensions, s);
+        if (kept.length === extensions.length) continue;
+        const data = JSON.parse(String(row.extension_data)) as Record<string, unknown>;
+        data[GOOSE_EXTENSIONS_KEY] = { ...(data[GOOSE_EXTENSIONS_KEY] as object), extensions: kept };
+        update.run(JSON.stringify(data), row.at);
+      }
+    });
+    db.exec('VACUUM');
+  } finally {
+    // The last connection's close writes the write-ahead log into the database, and removes it.
+    db.close();
+  }
+  const holding = files.filter((f) => holdsSecret(f, s.secrets));
+  if (holding.length) throw new Error(`${holding.join(', ')} still holds a signed-in server's token`);
+}
+
+/**
+ * Once Goose's process is gone: its sessions database without the run's signed-in servers
+ * (`stripGooseSignIns`), else (that failed) without the database: the member's next turn then starts a
+ * fresh session, with the whole history. The run's note of its signed-in servers goes once either is done.
+ */
+export function cleanupGoose(ctx: Pick<OpenRunContext, 'o' | 'home'>): void {
+  const s = gooseSignIns(ctx.o);
+  if (!s.names.length) return;
+  try {
+    stripGooseSignIns(ctx.home.state, s);
+  } catch (err) {
+    console.warn("[goose] could not take the signed-in MCP servers' tokens out of its sessions; removing them:", (err as Error).message);
+    for (const f of gooseDbFiles(ctx.home.state)) rmSync(f, { force: true });
+  }
+  if (ctx.o.stateKey) rmSync(join(sealedFolder(ctx.home.root, ctx.o.stateKey), GOOSE_SIGNINS_PENDING), { force: true });
+}
+
+/**
  * Keeps the extension list Goose stored for a session it just started, in the key's sealed folder.
  * Called right after `session/new`, before the prompt: nothing of the run has run a command yet, so
- * the list is what Goose made of the run's own extensions, plugins and the tool library's servers.
+ * the list is what Goose made of the run's own extensions, plugins and the tool library's servers,
+ * but the servers that signed in themselves (`signIns`): their tokens are for this turn only, and a
+ * resumed session gets them again from the load (`mcpServers`), with a fresh token.
  * Best-effort: without it a resumed session gets its platform extensions only.
  */
-export function sealGooseExtensions(state: string, sealed: string, sessionId: string): void {
+export function sealGooseExtensions(
+  state: string,
+  sealed: string,
+  sessionId: string,
+  signIns: GooseSignIns = { names: [], secrets: [] },
+): void {
   const file = gooseSessionsDb(state);
   if (!plainDatabaseFiles(file)) return;
   try {
@@ -536,8 +709,9 @@ export function sealGooseExtensions(state: string, sealed: string, sessionId: st
     try {
       db.exec('PRAGMA busy_timeout = 3000');
       const row = db.prepare('SELECT extension_data FROM sessions WHERE id = ?').get(sessionId) as { extension_data?: unknown } | undefined;
-      const extensions = storedExtensions(row?.extension_data);
-      if (!extensions) return;
+      const stored = storedExtensions(row?.extension_data);
+      if (!stored) return;
+      const extensions = withoutSignIns(stored, signIns);
       mkdirSync(sealed, { recursive: true, mode: 0o700 });
       writeFileSync(join(sealed, SEALED_EXTENSIONS), JSON.stringify({ sessionId, extensions }), { mode: 0o600 });
     } finally {
@@ -650,7 +824,8 @@ export async function gooseAfterSession(
   ctx.state.method = session.method;
   ctx.state.sessionId = sessionId;
   // A new session's extension list, kept where no run can change it, for the runs that resume it.
-  if (session.method === 'new' && o.stateKey) sealGooseExtensions(ctx.home.state, sealedFolder(ctx.home.root, o.stateKey), sessionId);
+  if (session.method === 'new' && o.stateKey)
+    sealGooseExtensions(ctx.home.state, sealedFolder(ctx.home.root, o.stateKey), sessionId, gooseSignIns(o));
   // Always, so that a loaded session's earlier briefing is replaced (empty text would clear it).
   await conn.request('_goose/unstable/session/system-prompt/set', {
     sessionId,
@@ -1567,6 +1742,8 @@ export const gooseAcp: AcpAgentSpec = {
     await gooseTotalsBefore(ctx);
   },
   sandbox: gooseSandbox,
+  // The signed-in servers' tokens out of its sessions database.
+  cleanup: cleanupGoose,
   // Set again after every session/load, in Goose's order (`gooseAfterSession`).
   model: { via: 'config' },
   effort: { via: 'config' },
