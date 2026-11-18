@@ -42,10 +42,12 @@ import {
   VERSION_SOURCES,
   compareVersions,
   fetchLatest,
+  githubRepo,
   issueBody,
   issueMarker,
   latestFrom,
   normalizeVersion,
+  npmName,
   parseMarker,
   planIssues,
   sourceUrl,
@@ -140,6 +142,18 @@ describe('layer 1: the newest versions', () => {
     expect(latestFrom(VERSION_SOURCES.antigravity, JSON.stringify({ version: '1.5.10', url: 'https://x', sha512: 'f1' }))).toBe('1.5.10');
     expect(latestFrom(VERSION_SOURCES.muse, JSON.stringify({ channel: 'muse-stable', version: '1.4.23-R8977.1' }))).toBe('1.4.23-R8977.1');
     expect(latestFrom(VERSION_SOURCES.claude, 'not json')).toBeUndefined();
+  });
+
+  it('encodes every name it puts in an address, a scoped npm package as npm asks for it', () => {
+    expect(npmName('@anthropic-ai/claude-code')).toBe('@anthropic-ai%2Fclaude-code');
+    // Every slash and anything else an address would read, not only the first slash.
+    expect(npmName('@a/b/c?d#e')).toBe('@a%2Fb%2Fc%3Fd%23e');
+    expect(npmName('../x')).toBe('..%2Fx');
+    expect(githubRepo('aaif-goose/goose')).toBe('aaif-goose/goose');
+    expect(githubRepo('a b/c?d')).toBe('a%20b/c%3Fd');
+    expect(() => githubRepo('a/b/c')).toThrow('not a GitHub repository');
+    expect(() => githubRepo('a')).toThrow('not a GitHub repository');
+    expect(sourceUrl({ kind: 'pypi', package: 'open hands' })).toBe('https://pypi.org/pypi/open%20hands/json');
   });
 
   it('asks npm for a scoped package with its slash escaped', () => {

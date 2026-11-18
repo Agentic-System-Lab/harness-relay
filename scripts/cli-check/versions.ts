@@ -46,15 +46,30 @@ export const VERSION_SOURCES: Record<Provider, VersionSource> = {
   pi: { kind: 'npm', package: '@earendil-works/pi-coding-agent' },
 };
 
+/**
+ * An npm package's name as one segment of a registry address: every character encoded, the scope's
+ * `@` kept (`@scope%2Fname`, as npm itself asks for it).
+ */
+export function npmName(name: string): string {
+  return encodeURIComponent(name).replace(/^%40/, '@');
+}
+
+/** A GitHub repository (`owner/name`) as two segments of an API address, each encoded. */
+export function githubRepo(repo: string): string {
+  const parts = repo.split('/');
+  if (parts.length !== 2 || parts.some((p) => !p)) throw new Error(`not a GitHub repository: ${repo}`);
+  return parts.map(encodeURIComponent).join('/');
+}
+
 /** The address a source is read at. */
 export function sourceUrl(s: VersionSource): string {
   switch (s.kind) {
     case 'npm':
-      return `https://registry.npmjs.org/${s.package.replace('/', '%2F')}/latest`;
+      return `https://registry.npmjs.org/${npmName(s.package)}/latest`;
     case 'pypi':
-      return `https://pypi.org/pypi/${s.package}/json`;
+      return `https://pypi.org/pypi/${encodeURIComponent(s.package)}/json`;
     case 'github':
-      return `https://api.github.com/repos/${s.repo}/releases/latest`;
+      return `https://api.github.com/repos/${githubRepo(s.repo)}/releases/latest`;
     default:
       return s.url;
   }

@@ -65,6 +65,7 @@ npm run dev        # API 在 :8789（檔案變更時重啟）+ 介面在 http://
 ### 安全性
 
 - 新的路由放在 `/api/` 底下，才會經過 Host/Origin 檢查、寫入請求的 JSON content-type 檢查、登入檢查，並取得請求的語言。請不要放寬這些檢查。只有瀏覽器自己載入的唯讀路由（圖片、下載連結）可以只憑 cookie、不帶金鑰（`src/server/app.ts` 的 `BROWSER_LOADS`）。
+- 每個值放到哪裡，就用那個地方專用的方式完整地跳脫或編碼：URL 的路徑片段或查詢參數用 `encodeURIComponent()`（每個片段分開編碼），放進正規表達式的文字用涵蓋所有特殊字元的 `g` 表達式（`/[.*+?^${}()|[\]\\]/g`），自己加引號的字串連跳脫字元本身也要跳脫。絕不用傳入字串的 `replace()`，它只換掉第一個符合的地方：CodeQL 會回報（「Incomplete string escaping or encoding」），pull request 的 CodeQL 檢查會失敗。
 - 絕不把機密傳給前端。API key 放在作業系統的金鑰儲存區（`src/server/secrets.ts`），絕不以原文放進資料庫：沒有金鑰儲存區時，透過同一個 `SecretStore` 加密後存進資料庫（`openSecretStore()`）。
 - 伺服器只綁定 `127.0.0.1`，而且 agent 的回覆不能讓瀏覽器載入遠端內容（圖片以連結顯示；本機媒體要經過媒體端點的路徑檢查）。
 - 開源 agent 的程序只能透過 `startOpenProcess()`（`src/server/agents/open.ts`）啟動：完全存取以外，它會把程序放進 Harness Relay 自己的沙箱，沙箱無法啟動就不執行。模型的金鑰以環境變數交給 CLI（只有這次執行的模型來源那一把），絕不寫進轉接器寫的設定檔；一次執行寫入的一切都放在對話成員自己的狀態資料夾（`home(root, state)`）。沙箱的開口只由一個轉接器為它自己的 CLI 申請，並寫在 [docs/open-agents.zh-TW.md](docs/open-agents.zh-TW.md) 與 [docs/sandboxing.zh-TW.md](docs/sandboxing.zh-TW.md)。

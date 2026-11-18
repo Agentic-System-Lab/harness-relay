@@ -6,7 +6,7 @@
  * checks the CLI needs before its version moves forward, with their commands.
  */
 import type { Provider } from '../../src/shared/types';
-import { compareVersions, normalizeVersion, type Fetch } from './versions';
+import { compareVersions, githubRepo, normalizeVersion, type Fetch } from './versions';
 
 export type NotesSource =
   /** A CHANGELOG.md, a heading per version (its first group). */
@@ -139,7 +139,7 @@ export async function releaseNotes(p: Provider, from: string, to?: string, bin?:
       const r = await capture(bin, s.args, process.env, { timeoutMs: 60_000, maxCapture: 2_000_000 });
       notes = notesFromText(r.stdout, f, t);
     } else {
-      const url = s.kind === 'markdown' ? s.url : `https://api.github.com/repos/${s.repo}/releases?per_page=100`;
+      const url = s.kind === 'markdown' ? s.url : `https://api.github.com/repos/${githubRepo(s.repo)}/releases?per_page=100`;
       const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
       const res = await fetchImpl(url, {
         headers: {
