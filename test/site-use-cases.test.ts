@@ -2,6 +2,8 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { USE_CASES } from '../scripts/demo/use-cases/cases';
 import { USE_CASE_PAGES, useCaseFiles, useCaseMedia } from '../scripts/demo/use-cases/publish';
+import { SHARE_VIEWER_URL } from '../src/shared/share';
+import { gistOf } from '../site/assets/share.js';
 
 // The website's use cases: the use-cases page in each language (site/use-cases/, site/zh-TW/use-cases/), each
 // use case's section with its recording, chapters and what was asked, the home pages' list of them, the
@@ -208,8 +210,11 @@ describe('the use-cases pages', () => {
         expect(links, `${uc.slug} ${lang}`).toBeTruthy();
         // Right under what was asked.
         expect(s, `${uc.slug} ${lang}`).toMatch(/<\/blockquote>\s*<ul class="usecase-links">/);
-        const shared = [...links!.matchAll(/href="(https:\/\/gistpreview\.github\.io\/\?[0-9a-f]{20,})"/g)];
+        // On Harness Relay's own viewer, which reads GitHub's raw files: never gistpreview's, which reads GitHub's API (60 times an hour for each reader).
+        const shared = [...links!.matchAll(/href="([^"]*)">(?:Read the whole conversation|看完整對話)</g)].map((m) => m[1]!);
         expect(shared, `${uc.slug} ${lang}`).toHaveLength(1);
+        expect(shared[0]!.startsWith(SHARE_VIEWER_URL), shared[0]).toBe(true);
+        expect(gistOf(new URL(shared[0]!).hash), shared[0]).toBeDefined();
         // Every attached file it links to is in the repository, shown on GitHub (never a download), and nothing else is in its folder.
         expect(links!, `${uc.slug} ${lang}`).not.toContain(' download');
         const files = [...links!.matchAll(/href="https:\/\/github\.com\/Agentic-System-Lab\/harness-relay\/blob\/main\/([^"]+)"/g)].map(

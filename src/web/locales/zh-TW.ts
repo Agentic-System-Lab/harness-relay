@@ -1251,7 +1251,7 @@ export const zhTW = {
     copy: '複製',
     linkHeading: '公開連結',
     linkHint:
-      '用你的 GitHub CLI（gh）帳號把這個頁面上傳成 secret gist，透過 gistpreview.github.io 顯示。有連結的人都能打開，但不會被列出，也搜尋不到。',
+      '用你的 GitHub CLI（gh）帳號把這個頁面上傳成 secret gist，在 Harness Relay 的網站上顯示。有連結的人都能打開，但不會被列出，也搜尋不到。',
     create: '建立連結',
     preparing: '正在製作頁面…',
     uploading: '正在上傳到 GitHub…',
@@ -2156,7 +2156,7 @@ export const zhTW = {
         title: '分享對話',
         body: '對話上方的「分享」（手機上在 ⋯ 裡）會分享整段對話；agent 回覆下方的分享圖示會分享到這則回覆為止的內容。工具呼叫和思考過程都不會放進去：',
         points: [
-          '可以複製成 Markdown，或建立公開連結：一個和聊天室一樣的頁面，用你的 GitHub CLI（gh）上傳成 GitHub 上的 secret gist，在 gistpreview.github.io 打開',
+          '可以複製成 Markdown，或建立公開連結：一個和聊天室一樣的頁面，用你的 GitHub CLI（gh）上傳成 GitHub 上的 secret gist，在 Harness Relay 的網站上打開',
           '「設定 → 分享的對話」列出所有連結；移除不要的，它的 gist 就會被刪除',
         ],
       },

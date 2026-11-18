@@ -1,5 +1,6 @@
 // Sharing a conversation: the page the web app made of it goes up to GitHub as a secret gist, created
-// with the user's own GitHub CLI (`gh`), and is read through gistpreview.github.io. The files its
+// with the user's own GitHub CLI (`gh`), and is read on Harness Relay's website (`site/share/`, which
+// reads the gist's raw file: SHARE_VIEWER_URL). The files its
 // replies link to can go along, of any kind (text, PDF, slides, images…), in a second secret gist that
 // git pushes them into, the page's links pointing at them there.
 
@@ -8,7 +9,7 @@ import { constants } from 'node:fs';
 import { lstat, mkdir, mkdtemp, open, readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileName } from '../shared/media';
-import { replaceFileLinks } from '../shared/share';
+import { replaceFileLinks, shareViewerUrl } from '../shared/share';
 import {
   GH_MIN_VERSION,
   GH_MISSING,
@@ -32,12 +33,13 @@ import { CommandNotFoundError, runProcess, tail, type SpawnOptions, type SpawnRe
 import { BREW_DIRS, findOnPath } from './voice';
 
 /**
- * The page's file in its gist. gistpreview.github.io (main.js) shows a gist's `index.html` when it has
- * one, else its first file; no file that goes along may take this name either.
+ * The page's file in its gist, which the viewer reads (`SHARE_FILE` in site/assets/share.js; as
+ * gistpreview.github.io, which read shares made before, shows a gist's `index.html` first); no file
+ * that goes along may take this name either.
  */
 export const SHARE_FILE = 'index.html';
 
-const GIST_URL = /https:\/\/gist\.github\.com\/(?:[A-Za-z0-9-]+\/)?([0-9a-f]{20,})\b/;
+const GIST_URL = /https:\/\/gist\.github\.com\/(?:([A-Za-z0-9-]+)\/)?([0-9a-f]{20,})\b/;
 
 /** `gh gist create` for a page on stdin: a secret gist (the default) with one HTML file. */
 export function gistArgs(description: string): string[] {
@@ -51,13 +53,17 @@ export function gistDescription(title: string): string {
 }
 
 /**
- * The links for the gist `gh gist create` printed. Only github.com gists: gistpreview reads them from
- * api.github.com, so one on a GitHub Enterprise host could not be shown.
+ * The links for the gist `gh gist create` printed. Only github.com gists: the viewer reads them from
+ * gist.githubusercontent.com, so one on a GitHub Enterprise host could not be shown. The viewer's
+ * address names the gist's owner, which gh prints in it (`https://gist.github.com/<owner>/<id>`); for
+ * an address without one, the link is gistpreview's, which needs the id alone (and reads GitHub's API,
+ * 60 times an hour for each reader's address).
  */
 export function parseGistUrl(stdout: string): ShareLink | undefined {
   const m = GIST_URL.exec(stdout);
   if (!m) return undefined;
-  return { id: m[1]!, url: `https://gistpreview.github.io/?${m[1]}`, gistUrl: m[0] };
+  const [gistUrl, owner, id] = [m[0], m[1], m[2]!];
+  return { id, url: owner ? shareViewerUrl(owner, id) : `https://gistpreview.github.io/?${id}`, gistUrl };
 }
 
 /** A gist's id as `gh` takes it (hex only: nothing else can reach its command line). */
@@ -298,7 +304,7 @@ export function rawUrl(url: string): string | undefined {
 
 /**
  * The gist `gh api` created, from what CREATED_JQ printed: its links (`link`, only for a github.com
- * gist, which gistpreview can show), the address GitHub gave for it (`htmlUrl`, whatever the host),
+ * gist, which the viewer can show), the address GitHub gave for it (`htmlUrl`, whatever the host),
  * and each file's raw URL by name. `id` alone when that is all that can be read of it (so it can
  * still be deleted).
  */
@@ -671,11 +677,12 @@ export async function filesToGist(
  * 1. the files (filesToGist), with each file's raw URL;
  * 2. the page, as without files, its links pointing at those raw URLs.
  *
- * They are kept apart because GitHub's API, which gistpreview reads, gives a gist's files only so much
- * content in all (about 900 KB in a real test), in name order: in one gist, a large file named before
- * index.html left the page's content empty, and gistpreview showed a blank page. If the files or the
- * page cannot go up, the files gist is deleted again; if that fails too, the error says so and carries
- * it (`leftover`).
+ * They are kept apart so that the page's gist holds the page alone, as a share without files does: a
+ * link on gistpreview.github.io (for a gist address without its owner, see parseGistUrl) reads it
+ * through GitHub's API, which gives a gist's files only so much content in all (about 900 KB in a real
+ * test), in name order: in one gist, a large file named before index.html left the page's content
+ * empty, and gistpreview showed a blank page. If the files or the page cannot go up, the files gist is
+ * deleted again; if that fails too, the error says so and carries it (`leftover`).
  */
 export async function shareToGist(
   html: string,

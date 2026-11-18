@@ -361,12 +361,12 @@ const zhTW = {
   shareFailed: (detail: string) => `無法建立 gist：${detail}`,
   shareNoDetail: 'gh 沒有說明原因',
   shareNoUrl:
-    'gh 沒有回傳 github.com 上的 gist 網址（gistpreview 只能顯示 github.com 的 gist）。如果已經建立了 gist，可以用 gh gist list 找到它再刪除',
+    'gh 沒有回傳 github.com 上的 gist 網址（分享頁只能顯示 github.com 的 gist）。如果已經建立了 gist，可以用 gh gist list 找到它再刪除',
   unshareFailed: (detail: string) => `無法刪除 gist：${detail}`,
   unshareNotOwner: '這個 gist 還在 GitHub 上，但不屬於 gh 目前登入的帳號，所以無法刪除。請用 gh auth switch 切回建立它的帳號，再移除一次。',
   shareNotFound: '找不到這個分享',
   shareNoFileUrl: 'GitHub 沒有回傳上傳檔案的網址',
-  shareNotGithub: 'gist 不在 github.com 上，gistpreview 只能顯示 github.com 的 gist',
+  shareNotGithub: 'gist 不在 github.com 上，分享頁只能顯示 github.com 的 gist',
   shareBadFiles: '要附上的檔案清單格式不對',
   shareFileProblem: {
     missing: '找不到這個檔案（或它是資料夾）',
@@ -1206,13 +1206,13 @@ const en: ServerMessages = {
   shareFailed: (detail) => `Could not create the gist: ${detail}`,
   shareNoDetail: 'gh gave no reason',
   shareNoUrl:
-    'gh did not return a gist address on github.com (gistpreview can only show gists on github.com). If a gist was created, find it with gh gist list and delete it',
+    'gh did not return a gist address on github.com (a shared page can only show gists on github.com). If a gist was created, find it with gh gist list and delete it',
   unshareFailed: (detail) => `Could not delete the gist: ${detail}`,
   unshareNotOwner:
     'The gist is still on GitHub, but it belongs to another account than the one gh is signed in to, so it could not be deleted. Switch back with gh auth switch, then remove it again.',
   shareNotFound: 'Share not found',
   shareNoFileUrl: 'GitHub returned no address for the uploaded files',
-  shareNotGithub: 'the gist is not on github.com, the only place gistpreview can show gists from',
+  shareNotGithub: 'the gist is not on github.com, the only place a shared page can show gists from',
   shareBadFiles: 'The list of files to include is not valid',
   shareFileProblem: {
     missing: 'it is not there (or it is a folder)',

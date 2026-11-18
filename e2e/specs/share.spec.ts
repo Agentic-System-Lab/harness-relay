@@ -5,6 +5,13 @@ import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
 import { acceptNextDialog, finishedReply, openTeamChat, replies, send, settled } from '../support/app';
 import type { RelayServer } from '../support/relay';
+import { openShared } from '../support/share';
+
+/** A share's link: the viewer on Harness Relay's website, naming the gist the fake gh made (its owner, relay-e2e, and id). */
+const VIEWER_LINK = /^https:\/\/agentic-system-lab\.github\.io\/harness-relay\/share\/#relay-e2e\/[0-9a-f]{32}$/;
+
+/** The gist a share's link names. */
+const gistOfLink = (link: string) => link.split('/').pop()!;
 
 /** Opens the share dialog of the whole conversation, from the chat's header. */
 async function shareChat(page: Page) {
@@ -104,7 +111,10 @@ test.describe('copying', () => {
 });
 
 test.describe('sharing as a secret gist', () => {
-  test('a shared chat is a secret gist of the page the browser made, listed in Settings until removed', async ({ page, relay }) => {
+  test("a shared chat is a secret gist of the page the browser made, opened on Harness Relay's website, listed in Settings until removed", async ({
+    page,
+    relay,
+  }) => {
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], {}, 'Pelican facts');
     await send(page, 'What do pelicans eat? e2e:think e2e:tool');
     const reply = await finishedReply(page, 'Claude');
@@ -114,10 +124,11 @@ test.describe('sharing as a secret gist', () => {
 
     const dialog = await shareChat(page);
     await dialog.getByRole('button', { name: 'Create link' }).click();
-    // The link is gistpreview's page of the gist gh made.
+    // The link is Harness Relay's viewer of the gist gh made, on its website.
     const link = dialog.getByRole('textbox', { name: 'Public link' });
-    await expect(link).toHaveValue(/^https:\/\/gistpreview\.github\.io\/\?[0-9a-f]{32}$/);
-    const gistId = (await link.inputValue()).split('?')[1]!;
+    await expect(link).toHaveValue(VIEWER_LINK);
+    const url = await link.inputValue();
+    const gistId = gistOfLink(url);
     await expect(dialog.getByRole('link', { name: 'View the gist on GitHub' })).toHaveAttribute(
       'href',
       `https://gist.github.com/relay-e2e/${gistId}`,
@@ -139,11 +150,26 @@ test.describe('sharing as a secret gist', () => {
     expect(body).not.toContain('is thinking about');
     expect(body).not.toContain('README.md');
 
+    // Opened as its reader opens it: the viewer reads the gist's raw file (never GitHub's API, 60 times
+    // an hour for each reader), says whose gist it is, and shows the page in a frame that runs nothing.
+    const shared = await openShared(page.context(), relay, url);
+    await expect(shared.page.locator('#share-bar')).toHaveText(/Shared by @relay-e2e as a secret GitHub gist\s*View on GitHub/);
+    await expect(shared.page.getByRole('link', { name: 'View on GitHub' })).toHaveAttribute(
+      'href',
+      `https://gist.github.com/relay-e2e/${gistId}`,
+    );
+    await expect(shared.page).toHaveTitle('Pelican facts · Harness Relay');
+    await expect(shared.frame.getByText('Hello from Claude (Claude Code). You said: “What do pelicans eat?”.')).toBeVisible();
+    expect(await shared.page.locator('#share-frame').getAttribute('sandbox')).toBe('allow-popups allow-popups-to-escape-sandbox');
+    expect(shared.rawCalls).toEqual([`https://gist.githubusercontent.com/relay-e2e/${gistId}/raw/index.html`]);
+    expect(shared.apiCalls).toEqual([]);
+    await shared.page.close();
+
     // Settings lists it; removing it there deletes the gist.
     await dialog.getByRole('link', { name: 'Manage or remove shares in Settings' }).click();
     const card = page.locator('section', { has: page.getByRole('heading', { name: 'Shared conversations' }) });
     const row = card.getByRole('listitem').filter({ hasText: 'Pelican facts' });
-    await expect(row.getByRole('link', { name: 'Pelican facts' })).toHaveAttribute('href', `https://gistpreview.github.io/?${gistId}`);
+    await expect(row.getByRole('link', { name: 'Pelican facts' })).toHaveAttribute('href', url);
     await expect(row).toContainText('Whole conversation');
     await expect(row.getByRole('link', { name: 'Open the gist on GitHub' })).toHaveAttribute(
       'href',
@@ -158,6 +184,17 @@ test.describe('sharing as a secret gist', () => {
     expect(ghCalls(relay).at(-1)).toEqual(['gist', 'delete', gistId, '--yes']);
     expect(existsSync(gist.dir)).toBe(false);
     expect(await relay.api('/api/shares')).toEqual([]);
+    // Its link now says so.
+    const gone = await openShared(page.context(), relay, url);
+    await expect(
+      gone.page.getByText('This shared conversation is not on GitHub: it was removed, or the link was not copied whole.'),
+    ).toBeVisible();
+    await expect(gone.page.locator('#share-frame')).toBeHidden();
+    await expect(gone.page.getByRole('link', { name: 'View on GitHub' })).toHaveAttribute(
+      'href',
+      `https://gist.github.com/relay-e2e/${gistId}`,
+    );
+    await gone.page.close();
   });
 
   test.describe('with gh signed out', () => {
@@ -207,7 +244,7 @@ test.describe('sharing as a secret gist', () => {
       // Approved on GitHub: gh is signed in, and the dialog makes the link by itself.
       writeFileSync(join(relay.root, 'fake-github', 'approve'), '');
       const link = dialog.getByRole('textbox', { name: 'Public link' });
-      await expect(link).toHaveValue(/^https:\/\/gistpreview\.github\.io\/\?[0-9a-f]{32}$/);
+      await expect(link).toHaveValue(VIEWER_LINK);
       await expect(dialog.getByRole('alert').filter({ hasText: 'GitHub CLI (gh) is not signed in' })).toHaveCount(0);
       expect(ghCalls(relay).filter((a) => a[0] === 'gist')).toEqual([
         ['gist', 'create', '--filename', 'index.html', '--desc', 'Signed in here · Harness Relay', '-'],
@@ -229,8 +266,8 @@ test.describe('sharing as a secret gist', () => {
       await expect(help.getByRole('button', { name: /ABCD-1234/ })).toBeVisible();
       writeFileSync(join(relay.root, 'fake-github', 'approve'), '');
       const link = dialog.getByRole('textbox', { name: 'Public link' });
-      await expect(link).toHaveValue(/\?[0-9a-f]{32}$/);
-      const gistId = (await link.inputValue()).split('?')[1]!;
+      await expect(link).toHaveValue(VIEWER_LINK);
+      const gistId = gistOfLink(await link.inputValue());
       rmSync(join(relay.root, 'fake-github', 'signed-in'));
       rmSync(join(relay.root, 'fake-github', 'approve'));
 
@@ -296,7 +333,7 @@ test.describe('sharing as a secret gist', () => {
 
       // Approved: the picked-up sign-in makes the link, once.
       writeFileSync(join(relay.root, 'fake-github', 'approve'), '');
-      await expect(dialog.getByRole('textbox', { name: 'Public link' })).toHaveValue(/^https:\/\/gistpreview\.github\.io\/\?[0-9a-f]{32}$/);
+      await expect(dialog.getByRole('textbox', { name: 'Public link' })).toHaveValue(VIEWER_LINK);
       expect(await relay.api('/api/shares')).toHaveLength(1);
     });
 
@@ -358,7 +395,7 @@ test.describe('sharing as a secret gist', () => {
       await help.getByRole('button', { name: 'Sign in to GitHub' }).click();
       await expect(help.getByRole('button', { name: /ABCD-1234/ })).toBeVisible();
       writeFileSync(join(relay.root, 'fake-github', 'approve'), '');
-      await expect(dialog.getByRole('textbox', { name: 'Public link' })).toHaveValue(/^https:\/\/gistpreview\.github\.io\/\?[0-9a-f]{32}$/);
+      await expect(dialog.getByRole('textbox', { name: 'Public link' })).toHaveValue(VIEWER_LINK);
       // Answers still on their way when it was signed in make no second link.
       await page.waitForTimeout(6000);
       expect(await relay.api('/api/shares')).toHaveLength(1);

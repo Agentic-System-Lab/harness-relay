@@ -55,7 +55,7 @@ const NO_FILES: LinkedFiles = { refs: [], list: [], chosen: [] };
 
 /**
  * Share the conversation, or the part of it up to one reply, without tool calls and thinking: copy it
- * as Markdown, or put it on the web as a page that looks like the chat (a secret gist, on gistpreview).
+ * as Markdown, or put it on the web as a page that looks like the chat (a secret gist, on Harness Relay's viewer).
  * The text files its replies link to can go along, in a second secret gist, for anyone with the link to download.
  */
 export function ShareDialog({ conv, upTo, chat, onClose }: Props) {

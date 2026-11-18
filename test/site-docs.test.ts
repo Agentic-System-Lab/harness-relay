@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DOC_PAGES, PAGE_FILES, SITE, SITE_PAGES, type SitePage } from './site-pages';
+import { DOC_PAGES, PAGE_FILES, SITE, SITE_PAGES, VIEWER_FILE, type SitePage } from './site-pages';
 
 // The docs (site/docs/ and site/zh-TW/docs/; site/DESIGN-GUIDELINES.md, "The docs"): a page per task for people who
 // use Harness Relay, written by hand like the rest of the site. This keeps what the pages share the same on each of
@@ -99,13 +99,13 @@ const docs = DOC_PAGES.map((page) => {
 const doc = (page: SitePage) => docs.find((d) => d.file === page.file)!;
 
 describe('the docs', () => {
-  it('are pages of the site: every index.html under site/ is listed, the docs among them, in both languages', () => {
+  it('are pages of the site: every index.html under site/ is listed (but the viewer of shared conversations), the docs among them, in both languages', () => {
     const onDisk = (readdirSync(new URL('../site/', import.meta.url), { recursive: true }) as string[])
       .map((f) => f.split(sep).join('/'))
       .filter((f) => f === 'index.html' || f.endsWith('/index.html'))
       .map((f) => `site/${f}`)
       .sort();
-    expect(onDisk).toEqual([...PAGE_FILES].sort());
+    expect(onDisk).toEqual([...PAGE_FILES, VIEWER_FILE].sort());
     expect(DOC_PAGES.filter((p) => p.lang === 'en').length).toBeGreaterThan(1);
     for (const page of DOC_PAGES) expect(exists(counterpart(page).file), page.file).toBe(true);
   });

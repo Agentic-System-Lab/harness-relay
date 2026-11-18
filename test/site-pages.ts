@@ -1,6 +1,7 @@
 // The website's pages (site/), in the sitemap's order: the home page, the use cases, then the docs, each in
 // English and then in Traditional Chinese. The site tests read them from here; test/site-docs.test.ts checks
-// that every index.html under site/ is listed, and the sitemap that it lists them all in this order.
+// that every index.html under site/ is listed (or is the shared conversations' viewer, VIEWER_FILE), and the
+// sitemap that it lists them all in this order.
 
 /** The site's address, where each page's canonical address starts. */
 export const SITE = 'https://agentic-system-lab.github.io/harness-relay/';
@@ -43,6 +44,13 @@ export const SITE_PAGES: SitePage[] = PATHS.flatMap((path) =>
 
 /** Every page's file. */
 export const PAGE_FILES = SITE_PAGES.map((page) => page.file);
+
+/**
+ * The viewer of a shared conversation (`site/share/`, test/site-share.test.ts): a page of the site's
+ * own address, but not one of its pages: never in a search engine's results, so in neither the
+ * sitemap nor a menu, and in one file for both languages.
+ */
+export const VIEWER_FILE = 'site/share/index.html';
 
 /** The docs' pages. */
 export const DOC_PAGES = SITE_PAGES.filter((page) => page.path.startsWith('docs/'));

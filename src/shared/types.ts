@@ -817,10 +817,11 @@ export interface ZipCheck {
 export const SHARE_MAX_BYTES = 1_000_000;
 
 /**
- * Where a shared conversation can be read: the page (`url`, on gistpreview) and its gist (`id`, and
- * `gistUrl` on GitHub). `filesGist`: the id of the second secret gist that holds the files the page
- * links to, when files went along (GitHub's API cuts a gist's content off in all, in name order, so a
- * large file next to the page would leave gistpreview a blank page: the files are kept apart).
+ * Where a shared conversation can be read: the page (`url`, on Harness Relay's viewer, `shareViewerUrl()`
+ * in src/shared/share.ts; on gistpreview.github.io for a share made before it, or a gist address gh
+ * printed without its owner) and its gist (`id`, and `gistUrl` on GitHub). `filesGist`: the id of the
+ * second secret gist that holds the files the page links to, when files went along (kept apart from the
+ * page: see shareToGist() in src/server/share.ts).
  */
 export interface ShareLink {
   id: string;

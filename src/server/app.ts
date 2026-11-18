@@ -1620,7 +1620,7 @@ export function createApp({
   });
 
   // Share the conversation: the web app makes the page (what it shows, without tool calls and
-  // thinking); it goes up to GitHub as a secret gist with the user's GitHub CLI, read on gistpreview.
+  // thinking); it goes up to GitHub as a secret gist with the user's GitHub CLI, read on Harness Relay's viewer.
   // `upTo`: the agent reply it ends with (recorded, for the list in Settings). `files`: the links of
   // the files to take along (each placeholder link on the page names one by its place here): the
   // files go into a second secret gist, read only as the replies' download links would serve them.

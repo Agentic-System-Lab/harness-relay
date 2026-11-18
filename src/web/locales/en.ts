@@ -1237,7 +1237,7 @@ export const en: Messages = {
     copy: 'Copy',
     linkHeading: 'Public link',
     linkHint:
-      'Uploads this page to GitHub as a secret gist with your GitHub CLI (gh) account, shown through gistpreview.github.io. Anyone with the link can open it; it is not listed or searchable.',
+      "Uploads this page to GitHub as a secret gist with your GitHub CLI (gh) account, shown on Harness Relay's website. Anyone with the link can open it; it is not listed or searchable.",
     create: 'Create link',
     preparing: 'Making the page…',
     uploading: 'Uploading to GitHub…',
@@ -2155,7 +2155,7 @@ export const en: Messages = {
         title: 'Share a conversation',
         body: "Share in a chat's header (under ⋯ on a phone) shares the whole chat; the share icon under an agent's reply shares everything up to that reply. Tool calls and thinking are left out:",
         points: [
-          'Copy it as Markdown, or create a public link: a page that looks like the chat, put on GitHub as a secret gist with your GitHub CLI (gh) and opened on gistpreview.github.io',
+          "Copy it as Markdown, or create a public link: a page that looks like the chat, put on GitHub as a secret gist with your GitHub CLI (gh) and opened on Harness Relay's website",
           'Settings → Shared conversations lists every link; remove the ones that should go, and their gists are deleted',
         ],
       },

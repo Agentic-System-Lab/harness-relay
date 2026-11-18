@@ -1,7 +1,22 @@
-// A shared page's links to the files that go along with it, into a secret gist of their own. The page
-// is made in the browser before that gist exists, so each such link holds a placeholder
-// (`relay-share-file:<n>`, the n-th file), and the server puts the file's address on GitHub in its
-// place once the gist has one.
+// Where a shared page is read (Harness Relay's viewer on its website), and its links to the files that
+// go along with it, into a secret gist of their own. The page is made in the browser before that gist
+// exists, so each such link holds a placeholder (`relay-share-file:<n>`, the n-th file), and the server
+// puts the file's address on GitHub in its place once the gist has one.
+
+/**
+ * Harness Relay's own page that shows a shared conversation, on its website (`site/share/`). It reads
+ * the gist's page from GitHub's raw files, never through GitHub's API, which lets a browser that is not
+ * signed in ask only 60 times an hour (gistpreview.github.io, which shares were read on before, does).
+ */
+export const SHARE_VIEWER_URL = 'https://agentic-system-lab.github.io/harness-relay/share/';
+
+/**
+ * The address of a gist's shared page on the viewer: its owner and id after the `#` (which the browser
+ * never sends to a server), as `gistOf()` in `site/assets/share.js` reads them.
+ */
+export function shareViewerUrl(owner: string, id: string): string {
+  return `${SHARE_VIEWER_URL}#${encodeURIComponent(owner)}/${encodeURIComponent(id)}`;
+}
 
 /**
  * A placeholder link: only as the href of a real <a> tag. Text of the chat cannot open a tag (`<` is

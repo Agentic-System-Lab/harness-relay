@@ -40,7 +40,7 @@ import {
   type TeamRevision,
   type WorkingDirectories,
 } from '../src/shared/types';
-import { shareFileHref } from '../src/shared/share';
+import { shareFileHref, shareViewerUrl } from '../src/shared/share';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-app-')));
 process.env.RELAY_DATA_DIR = join(root, 'data');
@@ -3482,7 +3482,7 @@ describe('schedules', () => {
 
 describe('sharing conversations', () => {
   const ID = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
-  const link = (id = ID) => ({ id, url: `https://gistpreview.github.io/?${id}`, gistUrl: `https://gist.github.com/me/${id}` });
+  const link = (id = ID) => ({ id, url: shareViewerUrl('me', id), gistUrl: `https://gist.github.com/me/${id}` });
 
   type Upload = { name: string; data: Buffer };
   type Link = ReturnType<typeof link> & { filesGist?: string };

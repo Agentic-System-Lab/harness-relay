@@ -108,14 +108,18 @@ export const IGNORES: Record<Scope, readonly string[]> = {
     '.github/workflows/release.yml',
     '.github/workflows/cli-versions.yml',
   ],
-  // The end-to-end tests are the server and the UI (src/), the specs and the fake CLIs (e2e/), and
-  // the check of Harness Relay's own sandbox the workflow runs first (scripts/sandbox-check.ts).
+  // The end-to-end tests are the server and the UI (src/), the specs and the fake CLIs (e2e/), the
+  // website's viewer of shared conversations, which they open shares on (site/share/,
+  // site/assets/share.js), and the check of Harness Relay's own sandbox the workflow runs first
+  // (scripts/sandbox-check.ts).
   e2e: [
     ...PROSE,
     'LICENSE',
     'test/**',
     'desktop/**',
     'site/**',
+    '!site/share/**',
+    '!site/assets/share.js',
     'mirror/**',
     '.devcontainer/**',
     // The live tests never run on CI (npm run test:e2e:live).
