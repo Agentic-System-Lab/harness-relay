@@ -794,7 +794,7 @@ test("below full access, the CLI's own question about Harness Relay's tool is an
     // Claude Code asked about mcp__relay__calendar_create: answered without a card. The gateway's own card
     // says what the call will do, and nothing is added before Allow.
     const card = page.getByRole('region', { name: '@Claude wants to use a tool relay:calendar_create' });
-    await expect(card).toContainText('Add "Standup" (2026-03-02T09:00 – 2026-03-02T09:15) to the calendar');
+    await expect(card).toContainText('Add "Standup" (2026-03-02T09:00 – 2026-03-02T09:15) to the calendar "Home"');
     await expect(page.getByRole('region', { name: /wants to use a tool mcp__relay__calendar_create/ })).toHaveCount(0);
     await expect(page.locator('.approval-card')).toHaveCount(1);
     expect(puts).toEqual([]);

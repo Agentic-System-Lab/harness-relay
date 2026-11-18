@@ -638,7 +638,7 @@ const zhTW = {
     typed: (text: string, length: number) => (text.length < length ? `${text}…（共 ${length} 個字元）` : text),
     draft: (to: string, subject: string) => `存一封草稿給 ${to}：「${subject}」`,
     mail: (to: string, subject: string) => `寄信給 ${to}：「${subject}」`,
-    addEvent: (summary: string, when: string) => `把「${summary}」（${when}）加進行事曆`,
+    addEvent: (summary: string, when: string, calendar: string) => `把「${summary}」（${when}）加進行事曆「${calendar}」`,
     invite: (who: string, summary: string) => `邀請 ${who} 參加「${summary}」`,
     noSubject: '（沒有主旨）',
     fields: {
@@ -1490,7 +1490,7 @@ const en: ServerMessages = {
     typed: (text, length) => (text.length < length ? `${text}… (${length} characters in all)` : text),
     draft: (to, subject) => `Save a draft to ${to}: "${subject}"`,
     mail: (to, subject) => `Mail to ${to}: "${subject}"`,
-    addEvent: (summary, when) => `Add "${summary}" (${when}) to the calendar`,
+    addEvent: (summary, when, calendar) => `Add "${summary}" (${when}) to the calendar "${calendar}"`,
     invite: (who, summary) => `Invite ${who} to "${summary}"`,
     noSubject: '(no subject)',
     fields: {

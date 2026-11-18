@@ -297,7 +297,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 完全存取以下，在 Harness Relay 自己的沙箱中，OpenCode 連到 gateway 的本機連接埠（只對它開放），它對工具的詢問由 Harness Relay 代為回答，它的郵件在待送出匣等待 | OpenCode | 在唯讀模式下做同樣的事，經過 Harness Relay 自己的沙箱，沙箱只對 OpenCode 開放 gateway 的連接埠（`connectPorts`）；OpenCode 會用它的名稱（`relay_mail_send`）詢問這次 MCP 呼叫，由 Harness Relay 代為回答：沒有卡片。只在 OpenCode 能在完全存取以下執行的地方：macOS。 |
 | 完全存取以下，Codex 透過本機 HTTP 使用 Harness Relay 自己的工具，不啟動任何程式，它的郵件在待送出匣等待 | Codex | 在可編輯模式下，把**郵件**給 Codex：假 Codex 在 thread 設定中拿到 gateway，是 `127.0.0.1` 上的 HTTP server，這一回合的權杖放在 `http_headers`；它像 Codex 一樣詢問 `relay:mail_send`（由 Harness Relay 代為回答：沒有卡片），再連過去呼叫，回覆說郵件在待送出匣等待，並有它的卡片。權杖不在 Codex 啟動時的任何參數中。 |
 | 完全存取以下，Copilot 透過本機 HTTP 使用 Harness Relay 自己的工具，權杖只在 header 裡，它的郵件在待送出匣等待 | Copilot | 在可編輯模式下，把**郵件**給 Copilot：假 Copilot（和真的一樣只接受 HTTP 與 SSE 的 MCP server）在 `session/new` 拿到 gateway，是 `127.0.0.1` 上的 HTTP server，這一回合的權杖放在 `Authorization` header；它在那裡呼叫 `mail_send`，沒有卡片：回覆說郵件在待送出匣等待，並附上它的卡片。啟動 Copilot 的參數中都沒有這個權杖。 |
-| 完全存取以下，CLI 自己對 Harness Relay 工具的詢問由 Harness Relay 代為回答，gateway 則對 act 呼叫說明它會做什麼並詢問 | Claude Code | 在可編輯模式下，這台電腦上有一個行事曆（收下放進來的活動的替身），並把 **行事曆** 給 Claude Code，假 CLI 呼叫 `calendar_create`：它自己對 `mcp__relay__calendar_create` 的詢問沒有卡片；gateway 的卡片（"wants to use a tool relay:calendar_create"）寫出要加的活動與時間，按 **允許**（Allow）之前什麼都不會加入；允許後替身收到活動，回覆說已經加入。 |
+| 完全存取以下，CLI 自己對 Harness Relay 工具的詢問由 Harness Relay 代為回答，gateway 則對 act 呼叫說明它會做什麼並詢問 | Claude Code | 在可編輯模式下，這台電腦上有一個行事曆（收下放進來的活動的替身），並把 **行事曆** 給 Claude Code，假 CLI 呼叫 `calendar_create`：它自己對 `mcp__relay__calendar_create` 的詢問沒有卡片；gateway 的卡片（"wants to use a tool relay:calendar_create"）寫出要加的活動、時間與加進哪個行事曆，按 **允許**（Allow）之前什麼都不會加入；允許後替身收到活動，回覆說已經加入。 |
 
 ## 用 OAuth 登入的帳號
 

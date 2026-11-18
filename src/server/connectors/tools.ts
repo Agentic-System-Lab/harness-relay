@@ -410,7 +410,11 @@ export function connectorTools(store: ConnectorStore, oauth?: ConnectorOAuth): G
       inputSchema: { type: 'object', properties: eventProps, required: ['summary', 'start', 'end'], additionalProperties: false },
       describe: (a) => {
         const e = eventArgs(a);
-        return { title: t().gw.addEvent(e.summary, `${e.start} – ${e.end}${e.timeZone !== 'UTC' ? `, ${e.timeZone}` : ''}`) };
+        // The calendar it goes to, by name: an account may have several (one signed in with OAuth lists its others).
+        const { account } = calendar(a.account);
+        return {
+          title: t().gw.addEvent(e.summary, `${e.start} – ${e.end}${e.timeZone !== 'UTC' ? `, ${e.timeZone}` : ''}`, account.name),
+        };
       },
       unavailable: noCalendar,
       run: async (a) => {

@@ -662,6 +662,12 @@ describe('the mail and calendar tools against servers on this computer', () => {
         isError: true,
       });
 
+      // The card names the calendar it goes to (by the account the call names, else the first one).
+      const focus = { summary: 'Focus', start: '2026-01-07T14:00', end: '2026-01-07T16:00', timeZone: 'Asia/Taipei' };
+      expect(tools.calendar_create!.describe(focus).title).toBe(
+        'Add "Focus" (2026-01-07T14:00 – 2026-01-07T16:00, Asia/Taipei) to the calendar "Home"',
+      );
+      expect(() => tools.calendar_create!.describe({ ...focus, account: 'Work' })).toThrow('No calendar "Work"');
       const added = await tools.calendar_create!.run!(
         { summary: 'Focus', start: '2026-01-07T14:00', end: '2026-01-07T16:00', timeZone: 'Asia/Taipei' },
         ctx,
