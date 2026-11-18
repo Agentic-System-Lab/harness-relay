@@ -2283,7 +2283,18 @@ describe('tool library', () => {
             name: 'Alice',
             provider: 'claude',
             role: '',
-            tools: { 'mcp:github': false, memory: true, 'memory:codex': true, bogus: true, 'mcp:x': 'yes' },
+            tools: {
+              'mcp:github': false,
+              memory: true,
+              'memory:codex': true,
+              // Harness Relay's own tool groups, as the member's tool picker offers them; not a group it has.
+              'relay:mail': true,
+              'relay:browser': false,
+              'relay:calendar': true,
+              'relay:files': true,
+              bogus: true,
+              'mcp:x': 'yes',
+            },
           },
         ],
         settings: { mode: 'roundtable', permission: 'read-only', cwd: project },
@@ -2291,7 +2302,14 @@ describe('tool library', () => {
     );
     expect(res.status).toBe(200);
     const conv = (await res.json()) as Conversation;
-    expect(conv.agents[0]!.tools).toEqual({ 'mcp:github': false, memory: true, 'memory:codex': true });
+    expect(conv.agents[0]!.tools).toEqual({
+      'mcp:github': false,
+      memory: true,
+      'memory:codex': true,
+      'relay:mail': true,
+      'relay:browser': false,
+      'relay:calendar': true,
+    });
   });
 
   it('hands each agent its library items when it runs', async () => {

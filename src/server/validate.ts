@@ -403,8 +403,14 @@ export function validateAgents(input: unknown, max = CONFIG.maxTeamAgents): Agen
   });
 }
 
-/** A member's tool library exception: the memory for everyone or for its CLI (any of PROVIDERS), an MCP server, a skill. */
-const TOOL_KEY_RE = new RegExp(`^(memory|memory:(${PROVIDERS.join('|')})|mcp:[A-Za-z0-9_-]{1,40}|skill:[^\\0]{1,4000})$`);
+/**
+ * A member's tool library exception: the memory for everyone or for its CLI (any of PROVIDERS), an MCP
+ * server, a skill, or one of Harness Relay's own tool groups (`relay:mail`, as the member's tool picker
+ * offers them).
+ */
+const TOOL_KEY_RE = new RegExp(
+  `^(memory|memory:(${PROVIDERS.join('|')})|mcp:[A-Za-z0-9_-]{1,40}|skill:[^\\0]{1,4000}|relay:(${RELAY_TOOL_GROUPS.join('|')}))$`,
+);
 
 /** The CLIs a library item is on for by default; absent = all of them. */
 function validProviders(input: unknown, field: string): Provider[] {
