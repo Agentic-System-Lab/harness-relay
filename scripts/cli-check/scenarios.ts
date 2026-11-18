@@ -15,19 +15,19 @@
  * Imported only once `isolate()` made the scratch environment this process's own.
  */
 import { randomBytes } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isOpenProvider, type ApprovalAnswer, type Permission, type Provider } from '../../src/shared/types';
 import type { AgentEvent, ApprovalRequest, RunOptions, RunResult } from '../../src/server/agents/types';
 import { loadShapes } from './layers';
 import type { LayerOptions } from './layers';
-import { MODEL, MUSE_MODEL, marker, startModel, type ScriptedModel } from './model';
+import { MODEL, MUSE_MODEL, marker, startModel, type ScriptedModel, type Scenarios } from './model';
 import { HELP_ARGS } from './probe';
 import type { CliScratch, Scratch } from './scratch';
 import { flagsIn, flagsOf, memoryRecorder, shapeOf, type Shape, type Spawned } from './shape';
 
 /** The scenarios of what a CLI may not do below full access: they say nothing of a CLI that runs only with full access. */
-export const BELOW_FULL = ['read-only-write', 'outside-write', 'protected-read'];
+export const BELOW_FULL = ['read-only-write', 'outside-write', 'protected-read', 'guard-write', 'guard-tool-write'];
 
 /** Why a CLI has no layer 3. */
 export const NO_RUN: Partial<Record<Provider, string>> = {
@@ -71,14 +71,115 @@ interface Scenario {
   permission: Permission;
   /** The shell command the model asks to run, `{nonce}` and the scratch folders filled in. */
   command?: (c: Ctx) => string;
+  /** Or the file the model asks the CLI's own write tool to write. */
+  write?: (c: Ctx) => { path: string; content: string };
   /** What each approval is answered. */
   answer: 'allow' | 'reject';
   /** Stop the turn once the command started. */
   stop?: boolean;
+  /** More for the turn's options (the team's protected paths). */
+  extra?: (c: Ctx) => Partial<RunOptions>;
   checks: (r: Outcome, c: Ctx) => Check[];
 }
 
+/**
+ * Whether a CLI's adapter refuses a shell command's write of a new file at one of the team's protected
+ * paths before it happens (`RunOptions.guard`), with this permission on this system: the `guard-write`
+ * scenarios fail when such a write goes through where it says so, and only warn elsewhere (the team
+ * checks find it once the team has answered). Claude Code: its `Edit` deny rules, which it keeps with
+ * any permission and which take a redirect it can read. Codex: its profile's `read` entries, in edit
+ * mode. The open agents: Harness Relay's own sandbox,
+ * below full access, on macOS only (on Linux it can keep only files that are there from being written).
+ */
+export function guardsShell(p: Provider, permission: Permission, platform: NodeJS.Platform = process.platform): boolean {
+  if (platform === 'win32') return false;
+  if (p === 'claude') return permission !== 'read-only';
+  // Its permission profile's `read` entries, below full access (full access has none); on Linux only for
+  // a path that is there, and the scenario's is not.
+  if (p === 'codex') return permission === 'edit' && platform !== 'linux';
+  if (isOpenProvider(p)) return permission === 'edit' && platform === 'darwin';
+  return false;
+}
+
+/**
+ * Whether a CLI's adapter refuses its own write tool's write of a new file at one of the team's protected
+ * paths: the `guard-tool-write` scenario fails when such a write goes through where it says so. Claude
+ * Code and Copilot: rules they keep with any permission. Codex: its profile, in edit mode. Antigravity:
+ * Harness Relay refuses the write when it asks about it, below full access. The open agents: Harness
+ * Relay's own sandbox, as for their commands. Muse Code writes in its working directories without asking
+ * (none). Cursor runs on no scripted model.
+ */
+export function guardsTool(p: Provider, permission: Permission, platform: NodeJS.Platform = process.platform): boolean {
+  if (permission === 'read-only') return false;
+  if (p === 'copilot') return true;
+  if (p === 'antigravity') return permission === 'edit';
+  return guardsShell(p, permission, platform);
+}
+
+/** The file the `guard-write` scenarios try to write: a protected `.env` in the working directory. */
+const guardFile = (c: Ctx) => join(c.cli.work, '.env');
+
+const guardToolWrite: Scenario = {
+  name: 'guard-tool-write',
+  permission: 'edit',
+  write: (c) => ({ path: guardFile(c), content: 'x' }),
+  answer: 'reject',
+  extra: (c) => ({ guard: { dirs: [realpathSync(c.cli.work)], patterns: ['.env'] } }),
+  checks: (r, c) => {
+    const wrote = existsSync(guardFile(c));
+    rmSync(guardFile(c), { force: true });
+    const claimed = guardsTool(c.provider, 'edit');
+    const called = r.requests.find((q) => q.answered.call)?.answered.call?.name;
+    if (!called) {
+      // Nothing was tried: a file not written proves nothing.
+      return [
+        {
+          ok: 'warn',
+          what: `the model found no write tool (offered: ${r.requests.find((q) => q.tools.length)?.tools.join(', ') || 'none'})`,
+        },
+        { ok: !wrote || 'warn', what: wrote ? 'the file is there, though no write tool was called' : 'nothing was tried' },
+      ];
+    }
+    return [
+      { ok: true, what: `the model called ${called}` },
+      {
+        ok: !wrote || (claimed ? false : 'warn'),
+        what: wrote
+          ? claimed
+            ? "the team's protected path was written by its own tool, though its adapter says it refuses that"
+            : "the team's protected path was written by its own tool: this CLI does not refuse it before (the team checks find it after)"
+          : "the team's protected path was refused before its own tool wrote it",
+      },
+    ];
+  },
+};
+
+const guardWrite = (permission: Permission): Scenario => ({
+  name: permission === 'full' ? 'guard-write-full' : 'guard-write',
+  permission,
+  command: (c) => `echo x > ${guardFile(c)}`,
+  answer: 'reject',
+  extra: (c) => ({ guard: { dirs: [realpathSync(c.cli.work)], patterns: ['.env'] } }),
+  checks: (r, c) => {
+    const wrote = existsSync(guardFile(c));
+    rmSync(guardFile(c), { force: true });
+    const claimed = guardsShell(c.provider, permission);
+    return [
+      calledShell(r),
+      {
+        ok: !wrote || (claimed ? false : 'warn'),
+        what: wrote
+          ? claimed
+            ? "the team's protected path was written, though its adapter says it refuses that"
+            : "the team's protected path was written: this CLI does not refuse it before (the team checks find it after)"
+          : "the team's protected path was refused before it was written",
+      },
+    ];
+  },
+});
+
 export interface Ctx {
+  provider: Provider;
   nonce: string;
   scratch: Scratch;
   cli: CliScratch;
@@ -289,12 +390,21 @@ export const SCENARIOS: Scenario[] = [
       },
     ],
   },
+  guardWrite('edit'),
+  guardWrite('full'),
+  guardToolWrite,
 ];
 
 /** The scripted model's scenarios: which name runs which command. */
-function modelScenarios(ctx: Ctx): Record<string, { command?: string; thinking?: boolean }> {
+function modelScenarios(ctx: Ctx): Scenarios {
   return Object.fromEntries([
-    ...SCENARIOS.map((s) => [s.name, { ...(s.command ? { command: s.command(ctx) } : {}), thinking: true }] as const),
+    ...SCENARIOS.map(
+      (s) =>
+        [
+          s.name,
+          { ...(s.command ? { command: s.command(ctx) } : {}), ...(s.write ? { write: s.write(ctx) } : {}), thinking: true },
+        ] as const,
+    ),
     ['resume', { thinking: false }],
   ]);
 }
@@ -329,7 +439,7 @@ export async function runScenarios(
   const secretFile = join(scratch.data, 'relay.db');
   const secret = `RELAY-DB-${randomBytes(6).toString('hex')}`;
   writeFileSync(secretFile, secret);
-  const ctx: Ctx = { nonce, scratch, cli, secret, secretFile };
+  const ctx: Ctx = { provider: p, nonce, scratch, cli, secret, secretFile };
 
   const model = await startModel(modelScenarios(ctx));
   const place = placement(p, model.url, scratch);
@@ -467,7 +577,7 @@ export async function runScenarios(
         fullOnly ? 'full' : sc.permission,
         sc.answer,
         `${marker(sc.name, nonce)} Please do the task of this check.`,
-        {},
+        sc.extra?.(ctx) ?? {},
         sc.stop,
       );
       report(sc.name, sc.checks(outcome, ctx), spawned, [outcome]);

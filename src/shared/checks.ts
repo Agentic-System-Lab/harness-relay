@@ -35,6 +35,40 @@ export function tidyPattern(input: string): string | undefined {
   return p;
 }
 
+const escapeText = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+function validSet(set: string): boolean {
+  try {
+    new RegExp(set);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether a pattern has a `[` the checks read as text, which a glob would read otherwise: one whose `]`
+ * is not in the same name (a glob's set may cross a `/`), a set a regular expression refuses
+ * (`[user-id]`), and a set that starts with `]` (`[]x]`, which sandbox-runtime reads as text). Name by
+ * name, as `nameRegex()` reads them.
+ */
+export function hasTextSet(pattern: string): boolean {
+  for (const name of pattern.split('/')) {
+    for (let i = 0; i < name.length; i++) {
+      if (name[i] !== '[') continue;
+      const end = name.indexOf(']', i + 2);
+      if (end < 0) return true;
+      let body = name.slice(i + 1, end);
+      const negate = body.startsWith('!') || body.startsWith('^');
+      if (negate) body = body.slice(1);
+      if (!body || body.startsWith(']')) return true;
+      if (!validSet(`[${negate ? '^/' : ''}${body.replace(/[\\\]^]/g, '\\$&')}]`)) return true;
+      i = end;
+    }
+  }
+  return false;
+}
+
 /** A pattern's regular expression for one name (no `/`): `*`, `?` and `[…]` (`[!…]` excludes). */
 function nameRegex(name: string): string {
   let out = '';
@@ -53,7 +87,10 @@ function nameRegex(name: string): string {
       let body = name.slice(i + 1, end);
       const negate = body.startsWith('!') || body.startsWith('^');
       if (negate) body = body.slice(1);
-      out += `[${negate ? '^/' : ''}${body.replace(/[\\\]^]/g, '\\$&')}]`;
+      const set = `[${negate ? '^/' : ''}${body.replace(/[\\\]^]/g, '\\$&')}]`;
+      // A set a regular expression refuses (`[user-id]`, a backwards range) is the text it is, as
+      // sandbox-runtime reads it: a Next.js route's folder, say.
+      out += validSet(set) ? set : escapeText(name.slice(i, end + 1));
       i = end;
     } else out += c.replace(/[.+^${}()|\\]/g, '\\$&');
   }

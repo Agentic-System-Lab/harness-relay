@@ -969,6 +969,8 @@ export const en: Messages = {
     protectedPaths: 'Protected paths',
     protectedPathsHint:
       'One per line, written as in .gitignore: .env, *.pem, secrets/, config/prod.yml. Files git ignores are checked too.',
+    protectedPathsBefore:
+      'Claude Code, Codex, Cursor, Copilot, Antigravity and the open-source agents also refuse writing them before it happens, each as far as it can (see the user guide); with Grok and Muse Code they are found once the team has answered.',
     commitPattern: 'Commit format (regular expression)',
     commitPatternHint: "Every commit's subject the team makes must match it. Checked in roundtable and relay mode only.",
     conventional: 'Use Conventional Commits',

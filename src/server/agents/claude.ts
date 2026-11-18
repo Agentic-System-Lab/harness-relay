@@ -24,6 +24,7 @@ import {
 } from './types';
 import { t } from '../i18n';
 import { overlaps, patternPath, protectedReads, relayTmpDir, RUN_TMP_PREFIXES } from '../protect';
+import { guardGlobs, guardedNow, type WriteGuard } from '../writeGuard';
 
 /*
  * Claude Code runs as `claude -p` with stream-json in both directions. The prompt goes in as a
@@ -413,16 +414,56 @@ export function claudeRunSettings(
   platform: NodeJS.Platform = process.platform,
   denyRead: readonly string[] = [],
   env?: Record<string, string>,
+  guard?: WriteGuard,
 ): Record<string, unknown> | undefined {
   const native = claudeNativeSettings(off, pluginIds, items);
   const sandbox = claudeSandboxSettings(permission, platform, denyRead);
+  const guarded = claudeGuardRules(guard, platform);
+  const withGuard = (settings: Record<string, unknown> | undefined): Record<string, unknown> | undefined => {
+    if (!guarded.length) return settings;
+    const rules = (settings?.permissions ?? {}) as { deny?: string[] };
+    return { ...settings, permissions: { ...rules, deny: [...(rules.deny ?? []), ...guarded] } };
+  };
   const withEnv = (settings: Record<string, unknown> | undefined) => (env ? { ...settings, env: { ...env } } : settings);
-  if (!native || !sandbox) return withEnv(native ?? sandbox);
+  if (!native || !sandbox) return withEnv(withGuard(native ?? sandbox));
   type Rules = { deny?: string[]; ask?: string[] };
   const a = (native.permissions ?? {}) as Rules;
   const b = sandbox.permissions as Rules;
   const deny = [...(a.deny ?? []), ...(b.deny ?? [])];
-  return withEnv({ ...native, ...sandbox, permissions: { ...(deny.length ? { deny } : {}), ask: [...(a.ask ?? []), ...(b.ask ?? [])] } });
+  return withEnv(
+    withGuard({ ...native, ...sandbox, permissions: { ...(deny.length ? { deny } : {}), ask: [...(a.ask ?? []), ...(b.ask ?? [])] } }),
+  );
+}
+
+/**
+ * The team's protected paths as Claude Code's `Edit` deny rules (`//` and an absolute glob), which it
+ * keeps with any permission, full access included: they refuse its file tools and the shell commands
+ * whose target it can tell (a redirect, `rm`, `mv`, `sed -i`…), and below full access its sandbox takes
+ * them too (on macOS for every command). With them, what matches when the turn starts, by name
+ * (`guardedNow()`), so that moving the folder above one does not take it out of reach. Its sandbox on
+ * Linux takes only a name (a rule ending in `/**` as the name before it) and puts a stand-in on a name
+ * that is not there while a command runs: there a rule is given for a name only when it is there. None
+ * on native Windows (not tried there), and none for a folder or name holding `*`, `?` or `[`, which a
+ * rule would read as a pattern.
+ */
+export function claudeGuardRules(
+  g: WriteGuard | undefined,
+  platform: NodeJS.Platform = process.platform,
+  exists: (path: string) => boolean = existsSync,
+  now?: readonly string[],
+): string[] {
+  if (!g || platform === 'win32') return [];
+  const plain = (p: string) => !/[*?[\]]/.test(p);
+  const dirs = g.dirs.filter(plain);
+  if (!dirs.length) return [];
+  const guard = { ...g, dirs };
+  const named = (now ?? guardedNow(g)).filter(plain).flatMap((p) => [p, `${p.split('\\').join('/')}/**`]);
+  const rules = [...guardGlobs(guard), ...named].filter((glob) => {
+    if (platform !== 'linux') return true;
+    const name = glob.replace(/\/\*\*$/, '');
+    return /[*?[]/.test(name) || exists(name);
+  });
+  return [...new Set(rules)].map((glob) => `Edit(/${glob})`);
 }
 
 /**
@@ -871,6 +912,8 @@ export function claudeArgs(o: {
   protectedPaths?: readonly string[];
   /** On the user's own endpoint: its variables (`claudeEndpointEnv`), in the turn's `--settings`. */
   endpointEnv?: Record<string, string>;
+  /** The team's protected paths, refused as `Edit` deny rules (`claudeGuardRules`). */
+  guard?: WriteGuard;
   skip?: ReadonlySet<OptionalFlag>;
 }): string[] {
   const optional = (Object.keys(OPTIONAL_FLAGS) as OptionalFlag[]).filter((f) => !o.skip?.has(f));
@@ -903,7 +946,7 @@ export function claudeArgs(o: {
       o.pluginIds,
       o.nativeItems,
       o.settingsFile,
-      claudeRunSettings(o.permission, o.nativeOff, o.pluginIds, o.nativeItems, o.platform, o.protectedPaths, o.endpointEnv),
+      claudeRunSettings(o.permission, o.nativeOff, o.pluginIds, o.nativeItems, o.platform, o.protectedPaths, o.endpointEnv, o.guard),
     ),
     '--permission-mode',
     PERMISSION_MODE[o.permission][o.ask ? 'ask' : 'deny'],
@@ -1198,7 +1241,7 @@ async function runClaude(given: Parameters<AgentRunner['run']>[0], mcpConfig?: s
   }
   // The endpoint's key goes in this private file, never on the command line.
   const settings = claudeSettingsFile(
-    claudeRunSettings(o.permission, o.nativeOff, pluginIds, nativeItems, process.platform, protectedPaths, endpointEnv),
+    claudeRunSettings(o.permission, o.nativeOff, pluginIds, nativeItems, process.platform, protectedPaths, endpointEnv, o.guard),
   );
   try {
     const result = await runClaudeTurn(o, { mcpConfig, pluginIds, nativeItems, settingsFile: settings?.file, protectedPaths, endpointEnv });
@@ -1246,6 +1289,7 @@ async function runClaudeTurn(
     settingsFile: run.settingsFile,
     protectedPaths: run.protectedPaths,
     endpointEnv: run.endpointEnv,
+    ...(o.guard ? { guard: o.guard } : {}),
     skip: unsupported,
   });
 

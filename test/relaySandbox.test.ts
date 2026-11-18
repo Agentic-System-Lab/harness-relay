@@ -20,6 +20,7 @@ import type { ApprovalRequest } from '../src/server/agents/types';
 import { withLang } from '../src/server/i18n';
 import { CONTROL_CHANNEL, runProcess } from '../src/server/process';
 import { RELAY_ROOT, agentFolders, cliFolder } from '../src/server/protect';
+import { sandboxGuardGlobs } from '../src/server/writeGuard';
 import {
   DENY_REASONS,
   canonicalHost,
@@ -283,6 +284,25 @@ describe.skipIf(process.platform === 'win32')('relaySandboxConfig', () => {
     expect(c.bwrapPath).toBe('/usr/bin/bwrap');
     expect(c.socatPath).toBe('/usr/bin/socat');
     expect(c.ripgrep).toEqual({ command: '/usr/bin/rg' });
+  });
+
+  it("keeps the team's protected paths from being written: what is there by name on both systems, and globs on macOS only", () => {
+    mkdirSync(join(cwd, 'sub'), { recursive: true });
+    writeFileSync(join(cwd, 'sub', 'k.pem'), 'x');
+    const guard = { dirs: [cwd], patterns: ['*.pem', '.env'] };
+    const paths = relaySandboxPaths(spec({ permission: 'edit', guard }), ctx, runDirs);
+    expect(paths.denyWrite).toContain(join(cwd, 'sub', 'k.pem'));
+    // A name that is not there is never given (on Linux it would get a stand-in in the folder).
+    expect(paths.denyWrite).not.toContain(join(cwd, '.env'));
+    expect(paths.denyRead).not.toContain(join(cwd, 'sub', 'k.pem'));
+    const hosts = relaySandboxHosts(['api.openai.com'], ctx);
+    const globs = sandboxGuardGlobs(guard);
+    const mac = { ...ctx, platform: 'darwin' as const, tools: { sh: '/bin/sh' } };
+    const cm = relaySandboxConfig(paths, hosts, mac, { guardGlobs: globs });
+    expect(cm.filesystem.denyWrite).toEqual(expect.arrayContaining([{ path: join(cwd, 'sub', 'k.pem'), literal: true }, ...globs]));
+    const cl = relaySandboxConfig(paths, hosts, ctx, { guardGlobs: globs });
+    for (const entry of cl.filesystem.denyWrite) expect(entry).toEqual({ path: expect.any(String), literal: true });
+    rmSync(join(cwd, 'sub'), { recursive: true, force: true });
   });
 
   it("opts into a pty, the run's own unix sockets (macOS only) and the trustd service (macOS only)", () => {

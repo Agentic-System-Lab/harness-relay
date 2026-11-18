@@ -22,6 +22,7 @@ import {
   type RunOptions,
   type RunResult,
 } from './types';
+import type { WriteGuard } from '../writeGuard';
 
 /*
  * Cursor runs as an ACP agent (`cursor-agent acp`: JSON-RPC over stdin/stdout), like Grok. What its ACP
@@ -69,13 +70,41 @@ export function cursorPathRule(tool: 'Read' | 'Write', path: string): string {
  * path itself, for the database's files, and everything under it); in read-only mode, any write by
  * its write tool.
  */
-export function cursorDenyRules(permission: Permission, protectedPaths: readonly string[]): string[] {
-  if (permission === 'full') return [];
+export function cursorDenyRules(permission: Permission, protectedPaths: readonly string[], guard?: WriteGuard): string[] {
+  const guarded = cursorGuardRules(guard);
+  if (permission === 'full') return guarded;
   const paths = protectedPaths.map((p) => p.replace(/\\/g, '/').replace(/\/+$/, ''));
   return [
     ...(permission === 'read-only' ? ['Write(**)'] : []),
     ...(['Read', 'Write'] as const).flatMap((tool) => paths.flatMap((p) => [`${tool}(${p})`, cursorPathRule(tool, p)])),
+    ...guarded,
   ];
+}
+
+/**
+ * The team's protected paths as Cursor's `Write` deny rules, which it keeps with full access too (its
+ * write and delete tools; never its commands). Cursor matches a rule against the real absolute path,
+ * case-sensitively, with `*` for any text, `/` included (`**` is the same), and `?` and `[…]` as
+ * themselves: so a rule names each working directory's real path, and `?` and `[…]` become `*`, which
+ * may refuse more than the team checks protect, never less. Each pattern is that path itself and what is
+ * under it, at the top (or where it is anchored) and, for one without a `/`, in any folder below.
+ */
+export function cursorGuardRules(g: WriteGuard | undefined): string[] {
+  if (!g) return [];
+  const out = new Set<string>();
+  for (const dir of g.dirs) {
+    const base = dir.replace(/\\/g, '/').replace(/\/+$/, '');
+    for (const pattern of g.patterns) {
+      const body = pattern
+        .replace(/\\/g, '/')
+        .replace(/^\/+|\/+$/g, '')
+        .replace(/\[[^\]]*\]|\?|\*\*/g, '*');
+      const anchored = pattern.replace(/\/+$/, '').includes('/');
+      const tops = anchored ? [`${base}/${body}`] : [`${base}/${body}`, `${base}/*/${body}`];
+      for (const t of tops) out.add(`Write(${t})`).add(`Write(${t}/*)`);
+    }
+  }
+  return [...out];
 }
 
 /**
@@ -484,12 +513,13 @@ export const cursorRunner: AgentRunner = {
   async run(o): Promise<RunResult> {
     if (o.signal.aborted) throw new AgentRunError(t().stopped, true);
     const deny = o.permission === 'full' ? [] : (o.protectedPaths ?? protectedReads());
+    // The team's protected paths (with full access too) are patterns of its own, never checked as names.
     // A path Cursor would read as a pattern would be left unprotected: the run does not start.
     const pattern = patternPath(deny);
     if (pattern) throw new AgentRunError(t().protectedPattern(pattern));
     let run: CursorRun;
     try {
-      run = prepareCursorRun(cursorConfigDir(o.env), o.permission, cursorDenyRules(o.permission, deny));
+      run = prepareCursorRun(cursorConfigDir(o.env), o.permission, cursorDenyRules(o.permission, deny, o.guard));
     } catch (err) {
       throw new AgentRunError(t().cursorConfigFailed((err as Error).message));
     }

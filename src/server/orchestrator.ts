@@ -149,6 +149,19 @@ import { currentLang, isBranchTitle, isDefaultTitle, t } from './i18n';
 import { sameFolder, validateAgents } from './validate';
 import { agentFolderOptions, relayFolderRefusal } from './protect';
 import { scheduleTime } from './scheduler';
+import { writeGuard, type WriteGuard } from './writeGuard';
+
+/** A member's turn's `guard` (the team's protected paths, for its CLI to refuse writing), none when there is none. */
+function guardOf(list: ConversationSettings['checks'], dirs: string[]): { guard?: WriteGuard } {
+  // Never a reason for a turn to fail: without it, the checks after the team has answered still find them.
+  try {
+    const guard = writeGuard(list, dirs);
+    return guard ? { guard } : {};
+  } catch (err) {
+    console.warn(`[checks] could not give the team's protected paths to the turn: ${(err as Error).message}`);
+    return {};
+  }
+}
 
 export { HttpError };
 
@@ -4004,6 +4017,7 @@ export class Orchestrator {
           sessionId: state.sessionId,
           cwd,
           ...(addDirs.length ? { addDirs } : {}),
+          ...guardOf(conv.settings.checks, [cwd, ...addDirs]),
           permission: conv.settings.permission,
           stateKey: stateKeys.member(conv.id, agent.id),
           freshState,

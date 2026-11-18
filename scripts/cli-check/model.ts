@@ -16,7 +16,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 export type Api = 'chat' | 'responses' | 'anthropic' | 'gemini';
 
 /** The shell command a scenario's model asks the CLI to run; none: it only replies. */
-export type Scenarios = Record<string, { command?: string; thinking?: boolean }>;
+export type Scenarios = Record<string, { command?: string; write?: { path: string; content: string }; thinking?: boolean }>;
 
 export interface ToolDef {
   name: string;
@@ -90,6 +90,63 @@ function commandKey(t: ToolDef): string | undefined {
   for (const want of ['command', 'cmd', 'commandline', 'command_line', 'commands']) {
     const k = keys.find((x) => x.toLowerCase() === want);
     if (k) return k;
+  }
+  return undefined;
+}
+
+/** The CLIs' own tools that write a file, by name, most likely first. */
+const WRITE_NAMES = [
+  'write',
+  'write_file',
+  'create',
+  'create_file',
+  'write_to_file',
+  'writefile',
+  'file_editor',
+  'str_replace_based_edit_tool',
+  'text_editor',
+  'developer__text_editor',
+  'editor',
+  'edit',
+  'apply_patch',
+];
+
+const PATH_KEYS = ['file_path', 'filepath', 'path', 'absolutepath', 'targetfile', 'target_file', 'filename'];
+const CONTENT_KEYS = ['content', 'contents', 'file_text', 'text', 'new_text', 'codecontent', 'code_content'];
+
+/**
+ * A call of the CLI's own tool that writes `path` with `content`, or undefined: a write tool by name
+ * with a path and a content parameter (an editor tool's `command` set to make the file), or Codex's
+ * `apply_patch` with a patch that adds it.
+ */
+export function writeCall(
+  tools: readonly ToolDef[],
+  path: string,
+  content: string,
+): { tool: ToolDef; args: Record<string, unknown> } | undefined {
+  const named = (t: ToolDef) => t.name.toLowerCase().replace(/^.*__/, '');
+  const keyOf = (t: ToolDef, want: string[]) => Object.keys(t.schema?.properties ?? {}).find((k) => want.includes(k.toLowerCase()));
+  for (const n of WRITE_NAMES) {
+    const t = tools.find((x) => x.name.toLowerCase() === n) ?? tools.find((x) => named(x) === n);
+    if (!t) continue;
+    const props: Record<string, any> = t.schema?.properties ?? {};
+    if (n === 'apply_patch') {
+      const key = Object.keys(props)[0] ?? 'input';
+      return { tool: t, args: { [key]: `*** Begin Patch\n*** Add File: ${path}\n+${content}\n*** End Patch\n` } };
+    }
+    const pathKey = keyOf(t, PATH_KEYS);
+    const contentKey = keyOf(t, CONTENT_KEYS);
+    if (!pathKey || !contentKey) continue;
+    const args: Record<string, unknown> = { [pathKey]: path, [contentKey]: content };
+    // An editor tool (Goose's, OpenHands'): its command that makes a file.
+    const command = Object.keys(props).find((k) => k.toLowerCase() === 'command');
+    if (command) {
+      const options: string[] = Array.isArray(props[command]?.enum) ? props[command].enum : [];
+      args[command] = options.find((o) => o === 'create' || o === 'write') ?? 'create';
+    }
+    const required: string[] = Array.isArray(t.schema?.required) ? t.schema.required : [];
+    for (const k of required) if (!(k in args)) args[k] = fill(k, props[k] ?? {});
+    return { tool: t, args };
   }
   return undefined;
 }
@@ -188,6 +245,18 @@ export function decide(
   const sc = req.scenario && scenarios[req.scenario.name];
   if (!req.scenario || !sc) return { text: 'cli-check' };
   const thinking = sc.thinking ? `Thinking about ${req.scenario.nonce}.` : undefined;
+  if (sc.write && req.calls === 0) {
+    const w = writeCall(tools, sc.write.path, sc.write.content);
+    if (w) {
+      return {
+        call: { name: w.tool.name, ...(w.tool.namespace ? { namespace: w.tool.namespace } : {}), args: w.args },
+        ...(thinking ? { thinking } : {}),
+      };
+    }
+    return {
+      text: `cli-check ${req.scenario.name} ${req.scenario.nonce}: no write tool among ${tools.map((t) => t.name).join(', ') || 'none'}`,
+    };
+  }
   if (sc.command && req.calls === 0) {
     const tool = shellTool(tools);
     if (tool) {

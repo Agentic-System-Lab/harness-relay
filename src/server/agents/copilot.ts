@@ -46,6 +46,7 @@ import {
   type RunOptions,
   type RunResult,
 } from './types';
+import { guardGlobs, isGuarded, type WriteGuard } from '../writeGuard';
 
 /*
  * GitHub Copilot CLI runs as an ACP agent (`copilot --acp`: JSON-RPC over stdin/stdout), like Grok,
@@ -470,11 +471,14 @@ export function copilotArgs(o: {
   /** The model, but on an endpoint (`COPILOT_MODEL` names it there). */
   model?: string;
   effort?: string;
+  /** The team's protected paths, which its own write tools may not write (`copilotGuardArgs`). */
+  guard?: WriteGuard;
 }): string[] {
   const off = new Set(o.nativeOff ?? []);
   return [
     '--acp',
     ...(o.permission === 'full' ? ['--allow-all'] : ['--sandbox']),
+    ...copilotGuardArgs(o.guard),
     ...(o.addDirs ?? []).flatMap((d) => ['--add-dir', d]),
     `--secret-env-vars=${COPILOT_SECRET_VARS.join(',')}`,
     ...(off.has('skills') ? ['--excluded-tools', 'skill'] : []),
@@ -483,6 +487,20 @@ export function copilotArgs(o: {
     ...(o.model ? ['--model', o.model] : []),
     ...(o.effort ? ['--reasoning-effort', o.effort] : []),
   ];
+}
+
+/**
+ * The team's protected paths as `--deny-tool=write(<glob>)`, which Copilot keeps with any permission,
+ * full access included: its own write and edit tools refuse such a path, new or there, by any spelling
+ * (another letter case, a link). Its commands are not covered (below full access its sandbox runs them,
+ * which these do not reach). Its globs take `*`, `?`, `**` and `[ab]`: a pattern with a negated set is
+ * left to the checks once the team has answered.
+ */
+export function copilotGuardArgs(g: WriteGuard | undefined): string[] {
+  if (!g) return [];
+  return guardGlobs(g)
+    .filter((glob) => !/\[[!^]/.test(glob))
+    .map((glob) => `--deny-tool=write(${glob})`);
 }
 
 /** The variables that would widen what runs without asking, or point Copilot at a model service the run did not choose. */
@@ -1004,10 +1022,13 @@ export function copilotPermissionDecision(
   cwd: string,
   addDirs: readonly string[] = [],
   protectedPaths: readonly string[] = [],
+  guard?: WriteGuard,
 ): CopilotDecision {
   if (permission === 'full') return { run: 'allow' };
   const paths = copilotPaths(call);
   if (paths.some((path) => protectedPaths.some((p) => within(cwd, path, p)))) return { run: 'refuse', reason: t().copilotProtected };
+  // A write it asks about to one of the team's protected paths (its own tools mostly refuse them first).
+  if (isWrite(call) && paths.some((path) => isGuarded(guard, resolve(cwd, path)))) return { run: 'refuse', reason: t().guardRefused };
   if (call.kind === 'fetch') return { run: 'allow' };
   if (call.kind === 'read' || call.kind === 'search') return { run: 'allow' };
   if (permission === 'read-only') return { run: 'ask' };
@@ -1340,6 +1361,7 @@ export const copilotRunner: AgentRunner = {
         nativeItems: o.nativeItems,
         model: endpoint ? undefined : o.model?.trim() || undefined,
         effort: withEffort ? effort : undefined,
+        ...(o.guard ? { guard: o.guard } : {}),
       });
     const prepare = (prep: () => CopilotRun): CopilotRun => {
       try {
@@ -1450,7 +1472,7 @@ async function copilotTurn(o: RunOptions, args: string[], env: NodeJS.ProcessEnv
       );
     }
     const call = (params?.toolCall ?? {}) as CopilotToolCall;
-    const verdict = copilotPermissionDecision(o.permission, call, o.cwd, o.addDirs, protectedPaths);
+    const verdict = copilotPermissionDecision(o.permission, call, o.cwd, o.addDirs, protectedPaths, o.guard);
     let decision: AcpDecision;
     let label = `${t().copilotRefused}${t().copilotEndsTurn}`;
     if (verdict.run === 'allow') decision = { allow: true };

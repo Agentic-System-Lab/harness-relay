@@ -28,6 +28,8 @@ import {
   describeCodexItem,
   folderTail,
   sharedFolder,
+  codexGuardReads,
+  codexGuardRefuses,
 } from '../src/server/agents/codex';
 import { RpcError } from '../src/server/agents/acp';
 import { AgentRunError, TURN_TIMEOUT_MS, type AgentEvent } from '../src/server/agents/types';
@@ -757,7 +759,12 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
   const bin = join(dir, 'codex');
   writeFileSync(bin, FAKE_CODEX, { mode: 0o755 });
   let n = 0;
-  function run(extra: Record<string, string> = {}, signal = new AbortController().signal, protectedPaths: string[] = []) {
+  function run(
+    extra: Record<string, string> = {},
+    signal = new AbortController().signal,
+    protectedPaths: string[] = [],
+    more: Partial<Parameters<typeof codexRunner.run>[0]> = {},
+  ) {
     const log = join(dir, `log-${++n}.jsonl`);
     appendFileSync(log, '');
     const result = withLang('en', () =>
@@ -772,6 +779,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
         onEvent: () => undefined,
         nativeOff: ['hooks', 'plugins'],
         protectedPaths,
+        ...more,
       }),
     );
     const lines = () =>
@@ -838,6 +846,22 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
         expect.objectContaining({ permissions: null, sandbox: 'read-only' }),
       ]);
     } finally {
+      resetCodexProfiles();
+    }
+  });
+
+  it("falls back to the legacy sandbox without the team's protected paths too, when Codex cannot load a profile", async () => {
+    // There, so that Linux too names it (only a path that is there).
+    writeFileSync(join(dir, '.env'), 'x');
+    try {
+      const guard = { dirs: [dir], patterns: ['.env'] };
+      const r = run({ FAKE_CODEX_PROFILE_FAILS: '1' }, undefined, [], { permission: 'edit', guard });
+      await expect(r.result).resolves.toMatchObject({ sessionId: 'thr-1' });
+      const starts = r.lines().filter((l) => 'permissions' in l);
+      expect(starts[0]).toMatchObject({ permissions: expect.stringMatching(/^harness-relay-/), sandbox: null });
+      expect(starts[1]).toMatchObject({ permissions: null, sandbox: 'workspace-write' });
+    } finally {
+      rmSync(join(dir, '.env'), { force: true });
       resetCodexProfiles();
     }
   });
@@ -965,5 +989,43 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     stop.abort();
     await expect(r.result).rejects.toMatchObject({ message: 'Stopped' });
     expect(r.methods()).not.toContain('turn/start');
+  });
+});
+
+describe.skipIf(process.platform === 'win32')("Codex and the team checks' protected paths", () => {
+  // The team checks' protected paths (a guard's folders are real paths; these are not on disk, and on Windows a path is another shape).
+  const guard = { dirs: ['/w/app'], patterns: ['.env', 'config/prod.yml', '*.pem'] };
+  it('makes them read-only in its profile in edit mode: each plain pattern where it is anchored, and what matches now', () => {
+    expect(codexGuardReads(guard, ['/w/app/sub/k.pem'], 'darwin')).toEqual(['/w/app/.env', '/w/app/config/prod.yml', '/w/app/sub/k.pem']);
+    expect(codexGuardReads(guard, ['/w/app/k[1].pem'], 'darwin')).not.toContain('/w/app/k[1].pem');
+    expect(codexProfile('edit', ['/x'], 'darwin', [], guard, [])).toEqual({
+      extends: ':workspace',
+      filesystem: { '/w/app/.env': 'read', '/w/app/config/prod.yml': 'read', '/x': 'deny' },
+    });
+    // Read-only writes nothing anyway, and full access has no profile.
+    expect(codexProfile('read-only', ['/x'], 'darwin', [], guard, [])).toEqual({ extends: ':read-only', filesystem: { '/x': 'deny' } });
+    expect(codexProfile('full', ['/x'], 'darwin', [], guard, [])).toBeUndefined();
+    expect(codexProfile('edit', [], 'darwin', [], guard, [])).toMatchObject({ filesystem: { '/w/app/.env': 'read' } });
+  });
+});
+
+describe.skipIf(process.platform === 'win32')("Codex's refusals and Linux entries for the team checks' protected paths", () => {
+  const guard = { dirs: ['/w/app'], patterns: ['.env'] };
+  it('refuses a file change or a patch that writes, moves to or moves away one of them, and nothing else', () => {
+    const fc = 'item/fileChange/requestApproval';
+    expect(codexGuardRefuses(fc, {}, [{ path: '/w/app/.env' }], guard, '/w/app')).toBe(true);
+    expect(codexGuardRefuses(fc, {}, [{ path: '/w/app/a.ts', kind: { type: 'update', move_path: '/w/app/.env' } }], guard, '/w/app')).toBe(
+      true,
+    );
+    expect(codexGuardRefuses(fc, {}, [{ path: 'sub/.env' }], guard, '/w/app')).toBe(true);
+    expect(codexGuardRefuses(fc, {}, [{ path: '/w/app/a.ts' }], guard, '/w/app')).toBe(false);
+    expect(codexGuardRefuses('applyPatchApproval', { fileChanges: { '/w/app/.env': {} } }, [], guard, '/w/app')).toBe(true);
+    expect(codexGuardRefuses('item/commandExecution/requestApproval', {}, [{ path: '/w/app/.env' }], guard, '/w/app')).toBe(false);
+    expect(codexGuardRefuses(fc, {}, [{ path: '/w/app/.env' }], undefined, '/w/app')).toBe(false);
+  });
+
+  it('gives Linux only the paths that are there (its sandbox would put a stand-in on one that is not)', () => {
+    expect(codexGuardReads(guard, ['/w/app/sub/.env'], 'linux', (p) => p === '/w/app/sub/.env')).toEqual(['/w/app/sub/.env']);
+    expect(codexGuardReads(guard, [], 'darwin', () => false)).toEqual(['/w/app/.env']);
   });
 });

@@ -29,6 +29,7 @@ import {
 import { runAsync, sweepRunSandboxes, sweepRunSandboxesAsync } from './sandboxProcs';
 import { clearUserFlags, removeTree } from './fsRemove';
 import { DATA_DIR } from './settings';
+import { guardedNow, sandboxGuardGlobs, type WriteGuard } from './writeGuard';
 
 /*
  * Harness Relay's own OS sandbox, for the agent CLIs that bring none (the open agents: OpenCode,
@@ -75,6 +76,14 @@ export interface RelaySandboxSpec {
    * database and its own temporary folder are added in any case.
    */
   protectedPaths: string[];
+  /**
+   * The team checks' protected paths, which the run may not write (reading them stays allowed): on
+   * macOS as globs, which cover a path made later too, and on both systems what matches them when the
+   * run starts, as names (`guardedNow()`). On Linux the sandbox takes no glob, and would put a stand-in
+   * on a path that is not there, so a protected path made during the run is found only once the team
+   * has answered.
+   */
+  guard?: WriteGuard;
   /** Hosts the run may reach without asking: "host" or "host:port" (the model backends it uses). */
   allowedHosts: string[];
   /**
@@ -813,7 +822,7 @@ function withReal(paths: Iterable<string>): string[] {
 export function relaySandboxPaths(
   spec: Pick<
     RelaySandboxSpec,
-    'permission' | 'cwd' | 'extraCwds' | 'writable' | 'readOnly' | 'protectedPaths' | 'attachmentsDir' | 'privateRoots'
+    'permission' | 'cwd' | 'extraCwds' | 'writable' | 'readOnly' | 'protectedPaths' | 'attachmentsDir' | 'privateRoots' | 'guard'
   >,
   ctx: Pick<RelaySandboxContext, 'home' | 'dataDir'>,
   run: RelaySandboxRunDirs & { programs?: readonly string[] },
@@ -833,6 +842,7 @@ export function relaySandboxPaths(
     ...(edit ? cwds.flatMap((cwd) => projectAgentConfig(cwd)) : []),
     ...(run.programs ?? []).map((p) => dirname(p)),
     ...srtDefaultWrites(ctx.home),
+    ...(spec.guard ? guardedNow(spec.guard) : []),
   ]);
   // Other runs' folders: not readable; the run's own parts of them still are, except anything
   // protected: what it may write, its own config (read-only: Goose keeps its config in its private
@@ -1037,6 +1047,8 @@ export function relaySandboxConfig(
     localPorts?: readonly number[];
     allowLocalBinding?: boolean;
     allowAllUnixSockets?: boolean;
+    /** The team's protected paths as globs (`sandboxGuardGlobs()`): macOS only. */
+    guardGlobs?: readonly string[];
   } = {},
 ): SandboxRuntimeConfig {
   // Only on macOS, and only sockets inside the run's own temporary folder (a `subpath` rule); its
@@ -1068,7 +1080,7 @@ export function relaySandboxConfig(
       denyRead: paths.denyRead.map(literal),
       allowRead: paths.allowRead.map(literal),
       allowWrite: paths.allowWrite.map(literal),
-      denyWrite: paths.denyWrite.map(literal),
+      denyWrite: [...paths.denyWrite.map(literal), ...(ctx.platform === 'darwin' ? (o.guardGlobs ?? []) : [])],
       allowGitConfig: false,
     },
     allowPty: Boolean(o.allowPty),
@@ -1674,6 +1686,7 @@ export async function sandboxCommand(
           unixSocketDir: spec.allowUnixSocketsInTmp ? dirs.tmp : undefined,
           allowLocalBinding: spec.allowLocalBinding,
           allowAllUnixSockets: spec.allowAllUnixSockets,
+          ...(spec.guard && ctx.platform === 'darwin' ? { guardGlobs: sandboxGuardGlobs(spec.guard) } : {}),
         }),
         command,
         binShell: sandboxShell(ctx),
