@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
 import {
   askAndConfirm,
@@ -15,6 +16,84 @@ import { eachHalf, sharedPermission, teamOf } from '../support/clis';
 
 /** The most members the lead agent puts in a team it designs for a new question (`newTeamLimit` in src/server/planner.ts). */
 const LEAD_TEAM_MAX = 5;
+
+/** The animations in the team design cards: each one's name, element (its classes), timing, what it changes and its keyframes' transforms. */
+const cardAnimations = (page: Page) =>
+  page.evaluate(() =>
+    document
+      .getAnimations()
+      .filter((a) => ((a.effect as KeyframeEffect).target as Element | null)?.closest('.plan-card'))
+      .map((a) => {
+        const effect = a.effect as KeyframeEffect;
+        const timing = effect.getComputedTiming();
+        const keyframes = effect.getKeyframes();
+        const changed = new Set(keyframes.flatMap((k) => Object.keys(k)));
+        for (const key of ['offset', 'computedOffset', 'easing', 'composite']) changed.delete(key);
+        return {
+          name: (a as CSSAnimation).animationName,
+          on: (effect.target as Element).className,
+          delay: Number(timing.delay),
+          duration: Number(timing.duration),
+          iterations: timing.iterations,
+          playState: a.playState,
+          changed: [...changed].sort(),
+          // Each keyframe's turn in degrees (`rotate(0deg)`, or `rotate(0)` as some browsers write it).
+          frames: keyframes.map((k) => ({
+            at: Number(k.computedOffset),
+            deg: parseFloat(/rotate\(([-\d.]+)/.exec(String(k.transform))?.[1] ?? 'NaN'),
+          })),
+        };
+      }),
+  );
+
+/**
+ * The card's mark's angle, in degrees, at each time given (milliseconds since it appeared): its
+ * animations paused and sought there, then the turns of the mark and of its orbit (the first turn is
+ * the mark's, the next ones the orbit's) read together.
+ */
+const angles = (page: Page, times: number[]) =>
+  page.evaluate((times) => {
+    const mark = document.querySelector('.plan-card .logo-motion')!;
+    const orbit = mark.querySelector('.logo-motion-orbit')!;
+    const parts = document.getAnimations().filter((a) => ((a.effect as KeyframeEffect).target as Element | null)?.closest('.plan-card'));
+    for (const a of parts) a.pause();
+    const matrix = (el: Element) => {
+      const transform = getComputedStyle(el).transform;
+      return new DOMMatrix(transform === 'none' ? undefined : transform);
+    };
+    return times.map((t) => {
+      for (const a of parts) a.currentTime = t;
+      const m = matrix(mark).multiply(matrix(orbit));
+      return Math.round((Math.atan2(m.b, m.a) * 180) / Math.PI);
+    });
+  }, times);
+
+/**
+ * The card's mark once still (its animations paused and sought to 1.6 s, between turns): its size, and
+ * each dot's place and size within it, in pixels.
+ */
+const markDrawing = (page: Page) =>
+  page.evaluate(() => {
+    const mark = document.querySelector('.plan-card .logo-motion')!;
+    for (const a of document.getAnimations()) {
+      if (!((a.effect as KeyframeEffect).target as Element | null)?.closest('.plan-card')) continue;
+      a.pause();
+      a.currentTime = 1600;
+    }
+    const box = mark.getBoundingClientRect();
+    const dots = [...mark.querySelectorAll('.logo-dot')].map((d) => {
+      const r = d.getBoundingClientRect();
+      return { x: r.left - box.left, y: r.top - box.top, size: r.width, height: r.height };
+    });
+    return { width: box.width, height: box.height, dots };
+  });
+
+/** The Logo's three circles (Claude's, Codex's, Grok's: `Logo.tsx`), in its 32 units. */
+const LOGO_DOTS = [
+  { cx: 9, cy: 16, r: 6 },
+  { cx: 23, cy: 10, r: 5 },
+  { cx: 23, cy: 23, r: 5 },
+];
 
 test.describe('a new chat', () => {
   test('the lead agent proposes a team, and once it is confirmed the team answers', async ({ page, relay }) => {
@@ -37,6 +116,83 @@ test.describe('a new chat', () => {
     await expect(page.locator('.conv-link', { hasText: 'What does this project do?' })).toBeVisible();
     const conv = await settled(relay, chatId(page));
     expect(conv.messages.filter((m) => m.author.kind === 'agent').map((m) => m.status)).toEqual(['done']);
+  });
+
+  test("while the lead agent designs the team, its card shows the home page's logo, turning again and again with half a second still after each turn, and still with reduced motion", async ({
+    page,
+  }) => {
+    await startChat(page);
+    await send(page, 'Take your time e2e:slowplan');
+    const card = page.locator('.plan-card.planning').last();
+    await expect(card).toContainText('is choosing a team for this question');
+    const mark = card.locator('.logo-motion');
+    await expect(mark).toBeVisible();
+
+    // The dots spiral in once while the mark turns (as on the home page), then it turns again and
+    // again: 1.4 s, as eased as the first turn, in each 1.9 s, from half a second after the first one
+    // ends. Transform and opacity alone, and one transform animation an element at most (Chrome
+    // composites neither of two that turn the same element, and would recalculate the mark's style
+    // on every frame instead), so the compositor runs it all.
+    const parts = await cardAnimations(page);
+    expect(parts.map((a) => a.name).sort()).toEqual(['logo-join-claude', 'logo-join-codex', 'logo-join-grok', 'logo-orbit', 'logo-turn']);
+    for (const a of parts) {
+      expect(a.duration, a.name).toBeGreaterThan(0);
+      expect(a.iterations, a.name).toBe(a.name === 'logo-turn' ? Infinity : 1);
+      expect(
+        a.changed.every((p) => p === 'transform' || p === 'opacity'),
+        `${a.name} changes ${a.changed.join(', ')}`,
+      ).toBe(true);
+    }
+    const turned = parts.filter((a) => a.changed.includes('transform')).map((a) => a.on);
+    expect(new Set(turned).size, `elements turned: ${turned.join(' / ')}`).toBe(turned.length);
+    const orbit = parts.find((a) => a.name === 'logo-orbit')!;
+    const turn = parts.find((a) => a.name === 'logo-turn')!;
+    expect(orbit.duration).toBe(1400);
+    expect(turn).toMatchObject({ delay: 1900, duration: 1900 });
+    expect(turn.frames.map((f) => f.deg)).toEqual([0, 360, 360]);
+    expect(turn.frames[1]!.at).toBeCloseTo(1400 / 1900, 4);
+    // It keeps turning while the lead agent works.
+    await expect.poll(async () => (await cardAnimations(page)).find((a) => a.name === 'logo-turn')?.playState).toBe('running');
+    // Its angle over time: turning, then still for half a second after each turn (1.4–1.9 s, 3.3–3.8 s), then turning again.
+    const [first, ...rest] = await angles(page, [300, 1500, 1800, 2200, 3400, 3700, 4100]);
+    expect(first).not.toBe(0);
+    expect(rest.map((a) => (Math.abs(a) <= 1 ? 'still' : 'turning'))).toEqual(['still', 'still', 'turning', 'still', 'still', 'turning']);
+
+    // The home page's drawing, at the 18px of the card's Logo once the design is in: each dot where
+    // the Logo draws its circle.
+    const drawing = await markDrawing(page);
+    expect(drawing).toMatchObject({ width: 18, height: 18 });
+    drawing.dots.forEach((dot, i) => {
+      const { cx, cy, r } = LOGO_DOTS[i]!;
+      const unit = 18 / 32;
+      expect(dot.x).toBeCloseTo((cx - r) * unit, 1);
+      expect(dot.y).toBeCloseTo((cy - r) * unit, 1);
+      expect(dot.size).toBeCloseTo(2 * r * unit, 1);
+      expect(dot.height).toBeCloseTo(2 * r * unit, 1);
+    });
+
+    // Stopped, the card says so, with its mark and animations gone, and its ✦ in the mark's place: the
+    // text stays where it was.
+    const text = card.locator(':scope > span').last();
+    const before = (await text.boundingBox())!.x;
+    await page.getByRole('button', { name: 'Stop', exact: true }).click();
+    await expect(card).toContainText('Team design was stopped');
+    await expect(mark).toHaveCount(0);
+    expect(await cardAnimations(page)).toEqual([]);
+    expect((await text.boundingBox())!.x).toBeCloseTo(before, 0);
+
+    // With reduced motion the mark is there, standing still; and in forced colors (a high-contrast
+    // theme) its dots keep their own colours, as the SVG Logo's circles do, where the page's would hide them.
+    await page.emulateMedia({ reducedMotion: 'reduce', forcedColors: 'active' });
+    await send(page, 'Once more e2e:slowplan');
+    await expect(page.locator('.plan-card.planning')).toHaveCount(2);
+    const still = page.locator('.plan-card.planning').last().locator('.logo-motion');
+    await expect(still).toBeVisible();
+    expect(await cardAnimations(page)).toEqual([]);
+    const colors = await still.locator('.logo-dot').evaluateAll((dots) => dots.map((d) => getComputedStyle(d).backgroundColor));
+    expect(new Set(colors).size, colors.join(' / ')).toBe(3);
+    await page.getByRole('button', { name: 'Stop', exact: true }).click();
+    await expect(page.locator('.plan-card.planning').last()).toContainText('Team design was stopped');
   });
 
   test("with the lead agent's teams used without asking, the team answers right away", async ({ page }) => {

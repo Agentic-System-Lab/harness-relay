@@ -8,3 +8,22 @@ export function Logo({ size = 24 }: { size?: number }) {
     </svg>
   );
 }
+
+/**
+ * The Logo's drawing in motion: made of three elements rather than an SVG, so that its animation runs
+ * on the compositor (styles.css, `.logo-motion`). As it appears, the dots spiral in and meet while the
+ * mark turns once; with `turning` it then turns again and again, half a second still after each turn.
+ * Its size is the class's (`--u`, pixels a unit of the Logo's 32): the home page's (`home-logo`) and a
+ * team design's card while the lead agent designs it (`plan-logo`).
+ */
+export function AnimatedLogo({ className, turning = false }: { className: string; turning?: boolean }) {
+  return (
+    <div className={`logo-motion ${className}${turning ? ' turning' : ''}`} aria-hidden="true">
+      <div className="logo-motion-orbit">
+        <span className="logo-dot logo-dot-claude" />
+        <span className="logo-dot logo-dot-codex" />
+        <span className="logo-dot logo-dot-grok" />
+      </div>
+    </div>
+  );
+}

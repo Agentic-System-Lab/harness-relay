@@ -37,7 +37,7 @@ import { ChangesCard, type ApplyState } from './ChangesCard';
 import { CopyButton } from './CopyButton';
 import { GrokTrustNote, asksGrokTrust } from './GrokTrust';
 import { BranchIcon, ClockIcon, CopyIcon, PaperclipIcon, PencilIcon, RetryIcon, ShareIcon } from './icons';
-import { Logo } from './Logo';
+import { AnimatedLogo, Logo } from './Logo';
 import { Markdown } from './Markdown';
 import { RoleText } from './RoleText';
 import { markQuotes, replyElementId, revealMessage, revealQuote, reviewElementId } from '../review';
@@ -487,9 +487,14 @@ function PlanCard({
     const live = msg.status === 'streaming';
     return (
       <div className="plan-card planning" role="status">
-        <span className={`tool-icon ${live ? 'spin' : ''}`} aria-hidden>
-          {live ? '◌' : '✦'}
-        </span>
+        {/* While the lead agent designs the team: the home page's mark, turning until the design is in. */}
+        {live ? (
+          <AnimatedLogo className="plan-logo" turning />
+        ) : (
+          <span className="tool-icon plan-logo-stopped" aria-hidden>
+            ✦
+          </span>
+        )}
         <span>{live ? wording.planning : wording.aborted}</span>
       </div>
     );
