@@ -61,7 +61,11 @@ async function fakeMicrosoft(): Promise<{ fake: FakeMicrosoft; server: Server }>
         const issue = () => {
           const access = `access-${randomUUID()}`;
           const refresh = `refresh-${randomUUID()}`;
-          fake.tokens.set(access, (form.get('scope') ?? '').includes('https://outlook.office.com/') ? 'outlook' : 'graph');
+          // Exchange Online's token, by a scope on its host (each scope a URL, or a word such as `openid`).
+          const outlook = (form.get('scope') ?? '')
+            .split(/\s+/)
+            .some((scope) => URL.canParse(scope) && new URL(scope).host === 'outlook.office.com');
+          fake.tokens.set(access, outlook ? 'outlook' : 'graph');
           refreshTokens.add(refresh);
           return json(200, { access_token: access, refresh_token: refresh, expires_in: 3600 });
         };

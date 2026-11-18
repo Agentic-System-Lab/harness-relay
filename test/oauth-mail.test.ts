@@ -538,6 +538,10 @@ describe('a Microsoft sign-in for mail', () => {
       await expect(service.broker.accessToken(id, 'calendar')).rejects.toThrow(
         'ming@contoso.com was not signed in for calendars: click Use for calendars for it in Settings → Tool library first',
       );
+      // Nor one for no use (an MCP server's way): not the sign-in's own token (Graph's User.Read, which serves none of its uses), nor a refresh.
+      await expect(service.broker.accessToken(id, undefined)).rejects.toThrow(
+        'A token of ming@contoso.com is given only for one of its uses (calendars or mail)',
+      );
       await expect(service.calendars(id)).rejects.toMatchObject({
         status: 409,
         message: expect.stringContaining('not signed in for calendars'),

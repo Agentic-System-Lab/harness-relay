@@ -303,7 +303,10 @@ export class TokenBroker {
    */
   signedIn(accountId: string, tokens: readonly AccessToken[]): void {
     this.forget(accountId);
+    // A token for no use is an MCP server's: an account's sign-in token that serves none of its uses is not kept.
+    const account = Boolean(this.store.grant(accountId)?.uses.length);
     for (const t of tokens) {
+      if (account && !t.uses.length) continue;
       const slots = t.uses.length ? new Set(t.uses.map((u) => this.slot(accountId, u))) : [EVERY_USE];
       for (const slot of slots) this.keep(accountId, slot, t.token, t.expiresIn);
     }
@@ -330,6 +333,9 @@ export class TokenBroker {
   accessToken(accountId: string, use: OAuthUse | undefined, fresh = false, early: EarlyMargin = EARLY_MS): Promise<string> {
     const grant = this.store.grant(accountId);
     if (grant && use && !grant.uses.includes(use)) return Promise.reject(new OAuthSignInError(t().oauthNotFor(grant.label, use)));
+    // An account's tokens are each for its uses: asked with none (a caller's mistake), not one of them,
+    // nor a refresh with no scope, whose refusal would mark the whole account.
+    if (grant && !use && grant.uses.length) return Promise.reject(new OAuthSignInError(t().oauthNoUse(grant.label)));
     const slot = this.slot(accountId, use);
     const kept = this.tokens.get(accountId)?.get(slot);
     const margin = kept ? (typeof early === 'function' ? early(kept.lifetimeMs) : early) : 0;

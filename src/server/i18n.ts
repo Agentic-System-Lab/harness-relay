@@ -513,6 +513,7 @@ const zhTW = {
   oauthAppChanged: '登入時用的 app 在「設定」裡換掉了',
   oauthNoCalendarAccess: (provider: string) => `${provider} 沒有給行事曆的存取權限：請重新登入，並在登入頁面上允許存取你的行事曆`,
   oauthNoMailAccess: (provider: string) => `${provider} 沒有給郵件的存取權限：請重新登入，並在登入頁面上允許存取你的郵件`,
+  oauthNoUse: (label: string) => `${label} 的權杖要指定用途（行事曆或郵件）才能取得`,
   oauthNotFor: (email: string, use: OAuthUse) =>
     `${email} 登入時沒有允許${use === 'mail' ? '郵件' : '行事曆'}：請先在「設定 → 工具庫」為它按「${use === 'mail' ? '用於郵件' : '用於行事曆'}」`,
   oauthMailFixed: '這個郵件帳號是透過登入的帳號使用的，用的是該服務自己的伺服器，不能改成用密碼或其他伺服器：請移除它，再重新加入',
@@ -1360,6 +1361,7 @@ const en: ServerMessages = {
     `${provider} did not give access to the calendar: sign in again, and allow access to your calendar on the sign-in page`,
   oauthNoMailAccess: (provider) =>
     `${provider} did not give access to mail: sign in again, and allow access to your mail on the sign-in page`,
+  oauthNoUse: (label) => `A token of ${label} is given only for one of its uses (calendars or mail)`,
   oauthNotFor: (email, use) =>
     `${email} was not signed in for ${use === 'mail' ? 'mail' : 'calendars'}: click ${use === 'mail' ? 'Use for mail' : 'Use for calendars'} for it in Settings → Tool library first`,
   oauthMailFixed:
