@@ -76,6 +76,28 @@ export function listFrom(
   };
 }
 
+/**
+ * Settings' default as a new chat or automation starts with it: a copy, marked (`fromDefault`) so that a
+ * template the lead agent picks with a list of its own replaces it; none without rules.
+ */
+export function startingChecks(list: CheckList | undefined): CheckList | undefined {
+  return list && ruleCount(list) > 0 ? { ...structuredClone(list), fromDefault: true } : undefined;
+}
+
+/** Whether two lists have the same rules: what the server keeps as they are (command ids and the default's mark aside). */
+export function sameChecks(a: CheckList | undefined, b: CheckList | undefined): boolean {
+  const key = (l: CheckList | undefined) =>
+    JSON.stringify([
+      l?.protectedPaths ?? [],
+      l?.commitPattern ?? '',
+      (l?.commands ?? []).map((c) => {
+        const k = keptCommand(c);
+        return [k.run, k.cwd ?? '', k.timeoutMin ?? 0, Boolean(k.localPorts), Boolean(k.unixSockets)];
+      }),
+    ]);
+  return key(a) === key(b);
+}
+
 /** How many rules a list has (the editor's summary). */
 export function ruleCount(list: CheckList | undefined): number {
   return (list?.protectedPaths?.length ?? 0) + (list?.commitPattern ? 1 : 0) + (list?.commands?.length ?? 0);

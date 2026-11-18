@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 484 tests in 38 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 485 tests in 38 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -41,7 +41,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | [Templates](#templates) | [`templates.spec.ts`](specs/templates.spec.ts) | 6 | [User guide → Templates](../docs/user-guide.md#templates) |
 | [Changing a chat's team](#changing-a-chats-team) | [`team.spec.ts`](specs/team.spec.ts) | 5 | [User guide → Editing the team mid-chat](../docs/user-guide.md#editing-the-team-mid-chat) |
 | [The lead agent's review](#the-lead-agents-review) | [`review.spec.ts`](specs/review.spec.ts) | 13 | [User guide → Lead review](../docs/user-guide.md#lead-review), [Architecture → Lead review](../docs/architecture.md#lead-review) |
-| [Team checks](#team-checks) | [`checks.spec.ts`](specs/checks.spec.ts) | 7 | [User guide → Team checks](../docs/user-guide.md#team-checks), [Architecture → Team checks](../docs/architecture.md#team-checks) |
+| [Team checks](#team-checks) | [`checks.spec.ts`](specs/checks.spec.ts) | 8 | [User guide → Team checks](../docs/user-guide.md#team-checks), [Architecture → Team checks](../docs/architecture.md#team-checks) |
 | [A member's model and reasoning effort](#a-members-model-and-reasoning-effort) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [User guide → Default model and reasoning effort](../docs/user-guide.md#default-model-and-reasoning-effort), [Team members](../docs/user-guide.md#team-members) |
 | [How members take turns](#how-members-take-turns) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [Architecture → Turn scheduling](../docs/architecture.md#turn-scheduling-modes), [How agents share context](../docs/architecture.md#how-agents-share-context) |
 | [What an agent does on its way to a reply](#what-an-agent-does-on-its-way-to-a-reply) | [`activity.spec.ts`](specs/activity.spec.ts) | 14 | [Architecture → Agent activity](../docs/architecture.md#agent-activity) |
@@ -176,6 +176,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | Below full access, a command runs in Harness Relay's own sandbox, where it cannot write outside the working directory | Claude Code | In an edit chat, a command that writes in the working directory passes and says it changed `inside.txt` itself; one that writes in the home folder could not run (the sandbox refused it), and so does the result as a whole, never **Failed**. Skipped where Harness Relay's own sandbox does not work. |
 | In parallel mode, a result that breaks a check is not applied until the user applies it anyway | Claude Code | In a parallel edit chat protecting `secret.txt`, the reply writes it in its worktree, and the card after the reply finds it there. **Apply to working directory** posts a card checked before applying (the working directory with @Claude's result in it) that says **Failed** and that it was not applied (not that it was checked after the fact), and the file is not in the working directory; **Apply anyway** (confirmed) applies it and the button goes. |
 | In parallel mode, a result's command runs in Harness Relay's own sandbox on the working directory with the result in it | Claude Code | In a parallel edit chat whose command needs `result.txt`, applying the reply's result checks it in a check tree, in the real sandbox: the card says **Passed** and applied, the file reaches the working directory, and the file the command wrote does not. Skipped where Harness Relay's own sandbox does not work. |
+| A default set in Settings starts each new chat and automation, which can change or remove it | — | In **Settings → Tool library → Default team checks**, `.env` and `*.pem` are saved (the server's settings have them). **New chat** starts with them, and the chat it starts has them, marked as the default; **New automation** starts with them too, and with them removed there its chat has an empty list; the chat made before keeps its own. |
 
 ## A member's model and reasoning effort
 

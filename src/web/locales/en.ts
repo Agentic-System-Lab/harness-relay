@@ -1495,6 +1495,9 @@ export const en: Messages = {
       "Notes for members, such as your preferences and project conventions, put in members' briefings in every conversation. Everyone gets \"All members\"; each CLI's tab goes only to that CLI's members, after the shared part.",
     memoryFor: (scope) => `Memory: ${scope}`,
     memoryPlaceholder: 'For example: Lead with the conclusion. Indent code with 2 spaces.',
+    checksDefault: 'Default team checks',
+    checksDefaultHint:
+      'New chats and automations start with these team checks, which you can change or remove there. Changing them here later leaves the chats and automations made before as they are. When the lead agent picks a template with team checks of its own, they replace these if they were not changed.',
     chars: (n, max) => `${n} / ${max} characters`,
     saved: 'Saved',
   },

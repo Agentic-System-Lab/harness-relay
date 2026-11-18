@@ -10,6 +10,8 @@ import {
   pathsFromText,
   pathsText,
   ruleCount,
+  sameChecks,
+  startingChecks,
 } from '../src/web/checks';
 import type { AgentConfig, ChatMessage, ChecksResult } from '../src/shared/types';
 
@@ -182,5 +184,36 @@ describe('team checks: before applying a parallel result', async () => {
     ).toBeUndefined();
     expect(applyAnyway(card(), true, false)).toBeUndefined();
     expect(cardActions(held, true, false)).toEqual({ recheck: false, fix: true, skip: true, confirm: false });
+  });
+});
+
+describe("Settings' default team checks", () => {
+  it('starts a new chat with a marked copy of the default, and none without rules', () => {
+    const def = { protectedPaths: ['.env'], commands: [{ id: 'a', run: 'npm test' }] };
+    const start = startingChecks(def)!;
+    expect(start).toEqual({ ...def, fromDefault: true });
+    // A copy: changing it in the form leaves the default as it is.
+    start.protectedPaths!.push('x');
+    expect(def.protectedPaths).toEqual(['.env']);
+    expect(startingChecks(undefined)).toBeUndefined();
+    expect(startingChecks({})).toBeUndefined();
+  });
+
+  it('drops the mark once the list is changed in the editor', () => {
+    const start = startingChecks({ protectedPaths: ['.env'] });
+    expect(listFrom('.env\n*.pem', '', start)).toEqual({ protectedPaths: ['.env', '*.pem'] });
+    // Emptied: an empty list of the chat's own (a template's is then not copied in).
+    expect(listFrom('', '', start)).toEqual({});
+  });
+
+  it('tells whether the rules changed, ids, the mark and the default time limit aside', () => {
+    const saved = { protectedPaths: ['.env'], commands: [{ id: 'server-id', run: 'npm test' }] };
+    expect(
+      sameChecks(saved, { protectedPaths: ['.env'], commands: [{ id: 'other', run: ' npm test ', timeoutMin: 10 }], fromDefault: true }),
+    ).toBe(true);
+    expect(sameChecks(saved, { protectedPaths: ['.env'], commands: [{ id: 'x', run: 'npm test', localPorts: true }] })).toBe(false);
+    expect(sameChecks(saved, { protectedPaths: ['.env', 'secrets/'], commands: saved.commands })).toBe(false);
+    expect(sameChecks(undefined, {})).toBe(true);
+    expect(sameChecks(undefined, { commitPattern: '^feat' })).toBe(false);
   });
 });

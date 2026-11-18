@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  type CheckList,
   MEMORY_SCOPES,
   PROVIDERS,
   PROVIDER_LABEL,
@@ -12,10 +13,12 @@ import {
   type ToolLibraryView,
 } from '../../shared/types';
 import { api } from '../api';
+import { ruleCount, sameChecks } from '../checks';
 import { useT, type Messages } from '../i18n';
 import { sameServerUrl } from '../oauth';
 import { PROVIDER_COLOR } from '../util';
 import { sectionId } from '../route';
+import { ChecksEditor } from './ChecksEditor';
 import { ConnectorsSettings } from './ConnectorsSettings';
 import { McpSignIn } from './McpSignIn';
 import { SectionTitle } from './SectionTitle';
@@ -56,6 +59,7 @@ export function ToolsCard() {
           <McpSection lib={lib} change={change} />
           <SkillsSection lib={lib} change={change} />
           <MemorySection lib={lib} change={change} />
+          <ChecksDefaultSection />
         </>
       )}
     </section>
@@ -667,6 +671,74 @@ function MemorySection({ lib, change }: { lib: ToolLibraryView; change: Change }
           {t.common.save}
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The team checks new chats and automations start with (`SettingsView.checksDefault`), in the same editor
+ * as a template's (no command to try: there is no conversation yet). Saved on the server, for every
+ * browser; chats and automations made before keep their own.
+ */
+function ChecksDefaultSection() {
+  const t = useT();
+  /** What the server keeps (undefined: none); `loaded` once it answered. */
+  const [saved, setSaved] = useState<CheckList | undefined>();
+  const [loaded, setLoaded] = useState(false);
+  const [list, setList] = useState<CheckList | undefined>();
+  /** Starts the editor afresh from what was saved, as the server tidied it. */
+  const [opened, setOpened] = useState(0);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.getSettings().then(
+      (s) => {
+        setSaved(s.checksDefault);
+        setList(s.checksDefault);
+        setLoaded(true);
+      },
+      (e: Error) => setError(e.message),
+    );
+  }, []);
+
+  const changed = !sameChecks(list, saved);
+  const save = async () => {
+    setError('');
+    try {
+      const s = await api.updateSettings({ checksDefault: list && ruleCount(list) > 0 ? list : null });
+      setSaved(s.checksDefault);
+      setList(s.checksDefault);
+      setOpened((n) => n + 1);
+      setDone(true);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  return (
+    <div className="tools-section checks-default">
+      <h4>{t.tools.checksDefault}</h4>
+      <p className="muted small">{t.tools.checksDefaultHint}</p>
+      {loaded && (
+        <ChecksEditor
+          key={opened}
+          value={saved}
+          onChange={(next) => {
+            setList(next);
+            setDone(false);
+          }}
+        />
+      )}
+      {error && <p className="error-line">{error}</p>}
+      {loaded && (
+        <div className="button-row">
+          <span className="muted small">{done && !changed ? t.tools.saved : ''}</span>
+          <button className="primary" disabled={!changed} onClick={() => void save()}>
+            {t.common.save}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

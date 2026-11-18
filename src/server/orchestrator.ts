@@ -2898,13 +2898,19 @@ export class Orchestrator {
 
   /**
    * The check list of the template the lead agent's team comes from, for a conversation that has none
-   * yet: once it has one (an empty one too), a new team or template leaves it as it is.
+   * yet, or only Settings' default as it was copied in (`fromDefault`): once it has one of its own (an
+   * empty one too), a new team or template leaves it as it is. A template without a list leaves the
+   * default.
    */
   private templateChecks(conv: Conversation, plan: TeamPlan): Pick<ConversationSettings, 'checks'> {
-    if (conv.settings.checks !== undefined) return {};
+    const copied = conv.settings.checks?.fromDefault === true;
+    if (conv.settings.checks !== undefined && !copied) return {};
     const id = plan.presetId ?? plan.basedOn?.id;
     const checks = id ? this.store.listPresets().find((p) => p.id === id)?.settings.checks : undefined;
-    return checks ? { checks: structuredClone(checks) } : {};
+    // The default gives way only to rules.
+    if (!checks || (copied && !hasChecks(checks))) return {};
+    const { fromDefault: _copied, ...own } = structuredClone(checks);
+    return { checks: own };
   }
 
   /** The conversation's latest team checks result, by its message id: another one cannot be handled. */

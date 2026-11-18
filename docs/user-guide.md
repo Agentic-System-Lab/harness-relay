@@ -453,7 +453,7 @@ The lead agent reads what was said since your latest question (or since its last
 
 ### Team checks
 
-One set of rules for the whole team, whichever CLI each member runs on: Harness Relay checks them itself once the team has answered, whatever each member's permission, full access too. Set them in **Team settings** or in a template, under **Team checks** (a new chat gets its template's; once a chat has its own, a new team or template leaves them as they are):
+One set of rules for the whole team, whichever CLI each member runs on: Harness Relay checks them itself once the team has answered, whatever each member's permission, full access too. Set them in **Team settings** or in a template, under **Team checks** (a new chat gets its template's; once a chat has its own, a new team or template leaves them as they are). **Settings → Tool library → Default team checks** sets the rules every new chat and automation starts with, which you can change or remove there; a template the lead agent picks with rules of its own replaces them while you have not changed them, and changing the default later leaves the chats and automations made before as they are:
 
 - **Protected paths**: files the team may not create, change or delete, one pattern per line, written as in `.gitignore` (`.env`, `*.pem`, `secrets/`, `config/prod.yml`), in every working directory. Files git ignores are checked too: Harness Relay compares the files on disk, not git's view of them.
 - **Commit format**: a regular expression every commit's subject must match (**Use Conventional Commits** fills one in). Checked in roundtable and relay mode; parallel mode applies its results without their commits.

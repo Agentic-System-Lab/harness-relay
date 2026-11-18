@@ -2,7 +2,8 @@ import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
-import { acceptNextDialog, composer, finishedReply, openTeamChat, send, settled } from '../support/app';
+import type { Conversation, SettingsView } from '../../src/shared/types';
+import { acceptNextDialog, chatId, composer, finishedReply, openNewChat, openTeamChat, send, settled } from '../support/app';
 import { relaySandbox } from '../support/clis';
 
 /*
@@ -217,5 +218,38 @@ test.describe('team checks', () => {
     await expect.poll(() => existsSync(join(relay.workDir, 'result.txt'))).toBe(true);
     // What the check wrote stayed in its own tree.
     expect(existsSync(join(relay.workDir, 'from-check.txt'))).toBe(false);
+  });
+
+  test('a default set in Settings starts each new chat and automation, which can change or remove it', async ({ page, relay }) => {
+    await page.goto(`${relay.base}/#/settings/tools`);
+    const section = page.locator('.checks-default');
+    await section.locator('.checks-editor summary').click();
+    await section.getByLabel('Protected paths').fill('.env\n*.pem');
+    await section.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(section).toContainText('Saved');
+    // On the server, for every browser.
+    expect((await relay.api<SettingsView>('/api/settings')).checksDefault).toEqual({ protectedPaths: ['.env', '*.pem'] });
+
+    // A new chat starts with it, marked as the default (a template's own list replaces it).
+    await openNewChat(page);
+    const editor = page.locator('.checks-editor');
+    await expect(editor.getByLabel('Protected paths')).toHaveValue('.env\n*.pem');
+    await page.getByRole('button', { name: 'Start chat →' }).click();
+    await page.waitForURL(/#\/c\//);
+    const chat = await relay.api<Conversation>(`/api/conversations/${chatId(page)}`);
+    expect(chat.settings.checks).toEqual({ protectedPaths: ['.env', '*.pem'], fromDefault: true });
+
+    // So does a new automation; removed there, it has none.
+    await page.getByRole('button', { name: 'New automation' }).click();
+    await expect(editor.getByLabel('Protected paths')).toHaveValue('.env\n*.pem');
+    await editor.getByLabel('Protected paths').fill('');
+    await page.getByRole('textbox', { name: 'Message to send the team' }).fill('Check the build');
+    await page.getByRole('radio', { name: 'No set times' }).click();
+    await page.getByRole('button', { name: 'Create automation' }).click();
+    await page.waitForURL(/#\/c\//);
+    const automation = await relay.api<Conversation>(`/api/conversations/${chatId(page)}`);
+    expect(automation.settings.checks).toEqual({});
+    // The chat made before keeps its own.
+    expect((await relay.api<Conversation>(`/api/conversations/${chat.id}`)).settings.checks).toEqual(chat.settings.checks);
   });
 });
