@@ -2,9 +2,7 @@
 
 # Harness Relay
 
-**Website:** https://agentic-system-lab.github.io/harness-relay/ 
-
-**Docs:** https://agentic-system-lab.github.io/harness-relay/docs/
+**Website:** https://agentic-system-lab.github.io/harness-relay/
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1)
 
