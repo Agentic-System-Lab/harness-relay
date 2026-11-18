@@ -18,7 +18,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest';
 
@@ -2197,7 +2197,7 @@ describe("the team's hooks, through Muse Code's own hooks", () => {
     });
     expect(museHookCall({ tool_name: 'write_file', cwd: '/w', tool_input: { path: 'a.ts', content: 'x' } })).toMatchObject({
       kind: 'edit',
-      files: [join('/w', 'a.ts')],
+      files: [resolve('/w', 'a.ts')],
     });
     expect(museHookCall({ tool_name: 'edit_file', tool_input: { path: '/w/b.ts' }, tool_response: { filePath: '/w/b.ts' } })).toMatchObject(
       {

@@ -1016,7 +1016,8 @@ describe("the team's hooks", () => {
     expect(calls.find((c) => c.name === 'Alice')!.systemPrompt).not.toContain('Team hooks');
   });
 
-  it('gives none to a member on a CLI that cannot run them, and says so in its reply', async () => {
+  // No hooks run on native Windows, whatever the CLI: nothing to say there.
+  it.skipIf(process.platform === 'win32')('gives none to a member on a CLI that cannot run them, and says so in its reply', async () => {
     const before = runners.codex;
     const given: boolean[] = [];
     runners.codex = {
