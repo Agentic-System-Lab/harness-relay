@@ -717,6 +717,26 @@ describe('Codex team hook payloads', () => {
     });
   });
 
+  it('follows Codex patch header indentation and preserves spaces that are part of the filename', () => {
+    const command = [
+      '*** Begin Patch',
+      '  *** Add File:  new file.txt',
+      '+contents',
+      '  *** Update File: old name.txt',
+      '*** End of File',
+      '*** Move to:  moved file.txt',
+      '@@',
+      ' *** Add File: this is context.txt',
+      '-old line',
+      '+new line',
+      '*** Delete File: delete.txt',
+      '*** End Patch',
+    ].join('\n');
+    const cwd = resolve('repo');
+    const call = codexHookCall({ tool_name: 'apply_patch', cwd, tool_input: { command } }, cwd);
+    expect(call.files).toEqual([' new file.txt', 'old name.txt', ' moved file.txt', 'delete.txt'].map((name) => join(cwd, name)));
+  });
+
   it('preserves an MCP error for an after hook', () => {
     expect(codexHookCall({ tool_name: 'mcp__a__b', tool_input: { query: 'a' }, tool_response: { isError: true } }, '/repo')).toEqual({
       kind: 'other',
@@ -859,7 +879,14 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       provider: 'codex',
       notice: () => undefined,
       place: { cwds: [dir], unsandboxed: true, protectedPaths: [], privateRoots: [] },
-      ...(program ? { program: () => ({ program: { bin: '/node', args: ['/relay-hook.mjs'] }, revoke: () => undefined }) } : {}),
+      ...(program
+        ? {
+            program: () => ({
+              program: { bin: '/node', args: [join(dir, 'team-hook.mjs'), join(dir, 'socket'), join(dir, 'team-hook.token')] },
+              revoke: () => undefined,
+            }),
+          }
+        : {}),
     });
 
   it('trusts only the Relay hook on a resumed thread and keeps native hooks left out', async () => {
@@ -887,6 +914,27 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     const r = run({}, undefined, [], { permission: 'full', hooks: teamHooks(false) });
     await expect(r.result).rejects.toThrow(/team's hooks/i);
     expect(r.lines()).toEqual([]);
+  });
+
+  it('refuses hooked edits unless the permission profile protects the program and token', async () => {
+    const r = run({ FAKE_CODEX_TEAM_HOOKS: '1' }, undefined, ['/unrelated'], { permission: 'edit', hooks: teamHooks() });
+    await expect(r.result).rejects.toThrow(/cannot protect the team's hook program/i);
+    expect(r.lines()).toEqual([]);
+  });
+
+  it('never retries a hooked edit in the legacy sandbox when the permission profile fails', async () => {
+    try {
+      const opts = { permission: 'edit', hooks: teamHooks() } as const;
+      const r = run({ FAKE_CODEX_TEAM_HOOKS: '1', FAKE_CODEX_PROFILE_FAILS: '1' }, undefined, [dir], opts);
+      await expect(r.result).rejects.toThrow(/cannot protect the team's hook program/i);
+      expect(r.methods().filter((method) => method === 'turn/start')).toHaveLength(1);
+      expect(r.lines().filter((line) => line.args)).toHaveLength(1);
+      const next = run({ FAKE_CODEX_TEAM_HOOKS: '1' }, undefined, [dir], opts);
+      await expect(next.result).rejects.toThrow(/cannot protect the team's hook program/i);
+      expect(next.lines()).toEqual([]);
+    } finally {
+      resetCodexProfiles();
+    }
   });
 
   it('gives its app-server the switches too, and checks them before the turn starts', async () => {

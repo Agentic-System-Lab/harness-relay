@@ -1,6 +1,6 @@
-import { resolve } from 'node:path';
+import { userInfo } from 'node:os';
+import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
 import { PROVIDER_LABEL } from '../../shared/types';
-import { applyPatchFiles } from '../commands';
 import { HOOK_WAIT, commandHookHandler, shellWords, type HookResult, type TurnHooks } from '../hooks';
 import { t } from '../i18n';
 import { AgentRunError } from './types';
@@ -9,6 +9,32 @@ const EVENTS = [
   { name: 'PreToolUse', eventName: 'preToolUse', when: 'before' },
   { name: 'PostToolUse', eventName: 'postToolUse', when: 'after' },
 ] as const;
+
+/** Read the file headers of a patch that Codex parses with StreamingPatchParser. */
+function codexPatchFiles(patch: unknown, cwd: string): string[] {
+  if (typeof patch !== 'string') return [];
+  const files = new Set<string>();
+  const moveMarker = '*** Move to: ';
+  let inUpdate = false;
+  let canMove = false;
+  for (const raw of patch.split('\n')) {
+    // Inside Update File, leading spaces mark context lines. Elsewhere Codex trims the header
+    // before reading its marker. Neither case trims the path following the marker.
+    const endTrimmed = raw.replace(/\p{White_Space}+$/u, '');
+    const line = inUpdate ? endTrimmed : endTrimmed.replace(/^\p{White_Space}+/u, '');
+    const header = /^\*\*\* (Add|Delete|Update) File: (.+)$/su.exec(line);
+    if (line === '*** End Patch') break;
+    if (header) {
+      files.add(resolve(cwd, header[2]!));
+      inUpdate = header[1] === 'Update';
+      canMove = inUpdate;
+      continue;
+    }
+    if (canMove && line.startsWith(moveMarker)) files.add(resolve(cwd, line.slice(moveMarker.length)));
+    if (line !== '*** End of File') canMove = false;
+  }
+  return [...files];
+}
 
 export function codexHookCall(payload: Record<string, any>, cwd: string): HookResult {
   const tool = payload.tool_name;
@@ -22,12 +48,20 @@ export function codexHookCall(payload: Record<string, any>, cwd: string): HookRe
   if (tool === 'Bash') return { ...result, kind: 'command', command: typeof input?.command === 'string' ? input.command : undefined };
   if (tool === 'apply_patch') {
     const dir = typeof payload.cwd === 'string' ? resolve(cwd, payload.cwd) : cwd;
-    return { ...result, kind: 'edit', files: applyPatchFiles(input?.command).map((file) => resolve(dir, file)) };
+    return { ...result, kind: 'edit', files: codexPatchFiles(input?.command, dir) };
   }
   return { ...result, kind: 'other' };
 }
 
-export function codexTeamHooks(hooks: TurnHooks, cwd: string) {
+export function codexTeamHooks(hooks: TurnHooks, cwd: string, deniedPaths?: readonly string[], fallbackShell = '') {
+  let shell = fallbackShell;
+  try {
+    shell = userInfo().shell ?? fallbackShell;
+  } catch {
+    // Accounts without a passwd entry fall back to the process environment or Codex's default.
+  }
+  if (/^(?:powershell|pwsh)(?:\.exe)?$/.test(basename(shell))) throw new AgentRunError(t().codexHookShell);
+
   const handle = commandHookHandler(
     hooks,
     (payload, when) => {
@@ -40,6 +74,19 @@ export function codexTeamHooks(hooks: TurnHooks, cwd: string) {
   );
   const program = hooks.program(handle);
   if (!program) throw new AgentRunError(t().hooksNoProgram(PROVIDER_LABEL.codex));
+  if (deniedPaths) {
+    // The out-of-sandbox program is invoked with its script, socket and token file in that order.
+    // A sandboxed command must not be able to change the script or read the token.
+    const protectedFile = (file: string | undefined) =>
+      !!file &&
+      deniedPaths.some((dir) => {
+        const rel = relative(dir, file);
+        return !isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + sep);
+      });
+    if (!protectedFile(program.args[0]) || !protectedFile(program.args[2])) {
+      throw new AgentRunError(t().codexHooksUnprotected);
+    }
+  }
   const definitions = EVENTS.flatMap(({ name, eventName, when }) => {
     const kinds = hooks.kinds(when);
     if (!kinds.size) return [];

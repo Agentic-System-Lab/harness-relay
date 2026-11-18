@@ -1015,7 +1015,7 @@ describe("layer 3: the scenarios' checks (scripts/cli-check/scenarios.ts)", () =
         "the hook's reason never reached the model",
       ]);
       expect(existsSync(file)).toBe(false);
-      const other = { ...ctx(), provider: 'codex' as const };
+      const other = { ...ctx(), provider: 'grok' as const };
       const checks = sc('hook-before').checks(outcome({ requests: [call()] }), other);
       expect(failed(checks)).toEqual([]);
       expect(checks.find((x) => x.ok === 'warn')?.what).toContain('runs no hooks');

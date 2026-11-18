@@ -1,6 +1,6 @@
 /*
  * The program a CLI runs as its own hook command for the team's hooks (`src/server/hooks.ts`), for a CLI
- * whose hooks are commands (Muse Code): the server writes a copy for each turn into its own temporary
+ * whose hooks are commands (Codex and Muse Code): the server writes a copy for each turn into its own temporary
  * folder, beside the turn's token (`ToolGateway.hookProgram()`), where sandboxed commands can neither
  * read nor change it. It takes the gateway's socket, the token's file, when it runs (`before` or
  * `after`) and how many seconds it waits for an answer as its arguments, since a CLI may give its

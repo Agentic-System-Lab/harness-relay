@@ -776,7 +776,8 @@ const codexTurnRunner: AgentRunner = {
     // none of these carries a secret, unlike the MCP servers, which only go in the thread's config.
     // The endpoint's model provider neither (its key is in a variable): Codex takes a thread's
     // `modelProvider` only when it is the app-server's own (codex 0.167).
-    const team = o.hooks && codexTeamHooks(o.hooks, o.cwd);
+    const deniedPaths = o.permission === 'edit' ? (profile ? o.protectedPaths : []) : undefined;
+    const team = o.hooks && codexTeamHooks(o.hooks, o.cwd, deniedPaths, o.env.SHELL);
     // Leaving out native hooks is per-hook while Relay's hooks are installed. Keep Codex's own
     // feature setting as it is, and fail before starting the turn if Codex cannot load these hooks.
     const nativeOff = team ? o.nativeOff?.filter((part) => part !== 'hooks') : o.nativeOff;
@@ -946,6 +947,7 @@ export const codexRunner: AgentRunner = {
       const profiled = codexProfile(o.permission, o.protectedPaths ?? protectedReads(), process.platform, o.addDirs, o.guard);
       if (!profiled || !(err instanceof AgentRunError) || err.aborted || !CODEX_PROFILE_LOAD_FAILED.test(err.message)) throw err;
       profilesUnavailable = true;
+      if (o.hooks && o.permission === 'edit') throw new AgentRunError(t().codexHooksUnprotected);
       console.warn(`[codex] it cannot load a permission profile here (${err.message}): using its legacy sandbox, without the deny list`);
       return codexTurnRunner.run(legacy);
     }
