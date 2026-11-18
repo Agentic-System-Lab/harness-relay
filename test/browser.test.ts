@@ -520,7 +520,7 @@ describe.skipIf(!chromium)('the browser itself', () => {
   );
 
   it(
-    'waits for the page a click or Enter opens however late its server answers, and reads all of it',
+    'waits for the page a click or Enter opens though its server answers late, and reads all of it',
     async () => {
       const full = ctx({ permission: 'full', convId: 'late-1' });
       const links = await browser.open(full, `http://127.0.0.1:${port}/late-links`);
@@ -851,9 +851,12 @@ describe.skipIf(!chromium)('the browser itself', () => {
         );
         expect((await brief.snapshot(ctx(own))).title).toBe('Hang link');
 
-        // The user answers about the host after three times that time: the page opens.
+        // The user answers about the host after three times that time: the page opens, and so does the
+        // page a click leads to on another host.
         const slowAnswer = ctx({ convId: 'answer-2', ask: async () => (await new Promise((r) => setTimeout(r, 6000)), { allow: true }) });
         expect((await brief.open(slowAnswer, `http://127.0.0.1:${port}/next`)).title).toBe('Next');
+        const other = await brief.open(slowAnswer, `http://127.0.0.1:${port}/other`);
+        expect((await brief.click(slowAnswer, refIn(other.text, 'link "Elsewhere"'))).title).toBe('Next');
 
         // A question a call left waiting when its turn ended counts for no call after it.
         const left = new AbortController();

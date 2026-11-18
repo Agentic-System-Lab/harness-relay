@@ -478,8 +478,10 @@ function isMainDocument(s: BrowserSession, p: Record<string, unknown>, sid: stri
 }
 
 /**
- * How long a page's server may take to answer, from when the page is let through: the time a question
- * about its host waits for the user's answer does not count, which may be as long as the turn lasts.
+ * How long a page's server may take to answer, counted from when the page is asked for (`Page.navigate`,
+ * or the main frame starting to load after a click or a key): finding its addresses and connecting count
+ * too, but not the time a question about its host waits for the user's answer, which may be as long as
+ * the turn lasts.
  */
 export const PAGE_ANSWER_MS = 2 * 60_000;
 
