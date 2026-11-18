@@ -790,7 +790,8 @@ describe('automations that start when something happens', () => {
       // The inbox's server listens; the Alerts folder's does not.
       s.listening = (_id, t) => t.source === 'mail' && t.folder === 'INBOX';
       await s.check(conv.id);
-      expect(checked).toEqual(['INBOX', '*.csv', 'Alerts']);
+      // The files first, then the others in their order.
+      expect(checked).toEqual(['*.csv', 'INBOX', 'Alerts']);
       expect(watchFor(conv, trigger)).toMatchObject({ listening: true, nextCheckAt: T0 + WATCH_LIMITS.idleCheckMinutes * MIN });
       expect(watchFor(conv, alerts)!.listening).toBeUndefined();
       expect(watchFor(conv, alerts)!.nextCheckAt).toBe(T0 + WATCH_LIMITS.checkMinutes * MIN);
@@ -816,7 +817,8 @@ describe('automations that start when something happens', () => {
       const one = s.mailArrived(conv.id, triggerKey(alerts));
       const all = s.check(conv.id, true);
       await Promise.all([one, all]);
-      expect(checked).toEqual(['Alerts', 'INBOX', '*.csv', 'Alerts']);
+      // (Every one: the files first.)
+      expect(checked).toEqual(['Alerts', '*.csv', 'INBOX', 'Alerts']);
     });
 
     it('drops what it kept of a trigger removed meanwhile, starts one added afresh, and never writes a removed one back', async () => {
@@ -856,7 +858,7 @@ describe('automations that start when something happens', () => {
       checked.length = 0;
       given.length = 0;
       await several().watchTick();
-      expect(checked).toEqual(['INBOX', '*.csv']);
+      expect(checked).toEqual(['*.csv', 'INBOX']);
       expect(conv.schedule.watches!.map((x) => x.key)).toEqual([triggerKey(trigger), triggerKey(csv)]);
       expect(watchFor(conv, trigger)!.lastUid).toBe(5);
       // What a row keeps of a trigger it no longer waits for is not read back either.
@@ -915,7 +917,7 @@ describe('automations that start when something happens', () => {
       expect(scheduled(conv).map((m) => JSON.parse(m.event!).files[0].path)).toEqual(['a.csv', 'b.pdf']);
     });
 
-    it("takes the folder as it was just before a message started a run: the user's own run during a slow mail check writes the team's files", async () => {
+    it("checks the files first, and takes what the user's own run wrote during a slow mail check for the team's", async () => {
       resetSeveral();
       now = Date.now();
       const conv = conversation({ mode: 'roundtable', permission: 'edit' });
@@ -956,9 +958,66 @@ describe('automations that start when something happens', () => {
       await finish(conv.id);
       counted.mockRestore();
       inUse.mockRestore();
-      // The mail's message went; team.pdf, the run's, is only recorded, never sent as something new.
+      // The mail's message went; the folder was looked at before the slow mail check, so team.pdf, the
+      // run's, is found at the next check, after the count went up: only recorded, never sent as something new.
       expect(scheduled(conv).map((m) => JSON.parse(m.event!).source)).toEqual(['mail']);
+      now += 2 * MIN;
+      await s.check(conv.id);
       expect(Object.keys(watchFor(conv, pdf)!.files!)).toContain('team.pdf');
+      await finish(conv.id);
+      expect(scheduled(conv).map((m) => JSON.parse(m.event!).source)).toEqual(['mail']);
+    });
+
+    it("never sends a file a run that another trigger's message started moves in with its old time during a slower check", async () => {
+      resetSeveral();
+      now = Date.now();
+      const conv = conversation({ mode: 'roundtable', permission: 'edit' });
+      const github = { source: 'github' as const, repo: 'a/b', on: 'pr' as const };
+      const pdf = { source: 'file' as const, pattern: '*.pdf' };
+      // The order saved: the mail, then GitHub, then the files.
+      watching(conv, { repeat: { kind: 'event', triggers: [trigger, github, pdf] } });
+      let writes = 0;
+      let inUse = false;
+      const counted = vi.spyOn(orchestrator, 'folderWrites').mockImplementation(() => `run:${writes}`);
+      const used = vi.spyOn(orchestrator, 'folderInUse').mockImplementation(() => inUse);
+      let second = false;
+      const s = new Scheduler(
+        store,
+        orchestrator,
+        () => now,
+        async (t, prev, ctx) => {
+          if (t.source === 'file') return checkFiles(t, prev, ctx.cwd, ctx.now, ctx.recordOnly, ctx.held);
+          if (t.source === 'github') {
+            // GitHub slow to answer: meanwhile the run the mail's message started moves an old pdf in (mv keeps its time).
+            if (second && conv.messages.some((m) => m.scheduled)) {
+              inUse = true;
+              writes = 1;
+              writeFileSync(join(project, 'moved.pdf'), 'the team moved this');
+              utimesSync(join(project, 'moved.pdf'), (now - 3_600_000) / 1000, (now - 3_600_000) / 1000);
+            }
+            return { state: { lastId: 1 }, total: 0 };
+          }
+          if (!prev || !second) return { state: { uidValidity: 1, lastUid: 5 }, total: 0 };
+          if (prev.lastUid === 6) return { state: prev, total: 0 };
+          return {
+            state: { uidValidity: 1, lastUid: 6 },
+            total: 1,
+            event: mailEvent('Work', 'INBOX', [{ uid: 6, from: 'a', subject: 's', date: 'd', excerpt: 'x' }], 1),
+          };
+        },
+      );
+      await s.check(conv.id);
+      second = true;
+      now += 2 * MIN;
+      await s.check(conv.id);
+      inUse = false;
+      now += 2 * MIN;
+      await s.check(conv.id);
+      await finish(conv.id);
+      counted.mockRestore();
+      used.mockRestore();
+      expect(scheduled(conv).map((m) => JSON.parse(m.event!).source)).toEqual(['mail']);
+      expect(Object.keys(watchFor(conv, pdf)!.files!)).toContain('moved.pdf');
     });
 
     it('stops checking the rest when the conversation is deleted during a check', async () => {

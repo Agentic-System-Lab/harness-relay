@@ -247,8 +247,12 @@ export class Scheduler {
       which === 'all' ? true : which === 'due' ? (watchOf(s, t)?.nextCheckAt ?? 0) <= now : which.has(triggerKey(t)),
     );
     const round: Round = { files: picked.some((t) => t.source === 'file') };
+    // The files first: they are on this computer, so no slow server's check (mail, a calendar, GitHub)
+    // comes between a message another trigger sent, whose run may move a file in with its old time
+    // (\`mv\`, \`tar x\`: settled at once, never told from one that came from outside), and their look.
+    const files = picked.filter((t) => t.source === 'file');
     let failed: unknown;
-    for (const key of picked.map(triggerKey)) {
+    for (const key of [...files, ...picked.filter((t) => t.source !== 'file')].map(triggerKey)) {
       // Deleted meanwhile (or shutting down): nothing more to check.
       if (this.stopped || this.store.get(convId) !== conv) return;
       try {
