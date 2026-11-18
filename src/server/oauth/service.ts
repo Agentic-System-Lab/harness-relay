@@ -147,6 +147,8 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
     // The uses it had (the store updates the same account), for its first sign-in for one: what that use reaches is added by itself.
     const had = new Set(before?.uses ?? []);
     const first = (use: OAuthUse) => s.uses.includes(use) && !had.has(use);
+    // Removed while the earlier uses' tokens were asked for: not brought back.
+    if (s.forAccount && !this.store.account(s.forAccount.id)) throw new Error(t().oauthAccountRemoved);
     const account = this.store.signedIn(s.provider, who, s.uses, s.scopes, s.refreshToken, (this.opts.now ?? Date.now)());
     this.broker.signedIn(account.id, s.access);
     if (first('mail') && !this.connectors.oauthMail(account.id).length) {

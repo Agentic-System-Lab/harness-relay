@@ -649,6 +649,29 @@ describe('a Microsoft sign-in for mail', () => {
       expect(connectors.view().mail).toEqual([]);
     }));
 
+  it('does not bring back an account removed while a sign-in for it asked the tokens of its earlier uses', () =>
+    withLang('en', async () => {
+      const id = (await signIn(['calendar'])).account!.id;
+      // Sign in again for the calendar, and meanwhile a sign-in for mail picks the same account: it has both now.
+      const started = await service.startSignIn({ provider: 'microsoft', uses: ['calendar'], account: id, session: 's1', port: 8787 });
+      expect((await signIn(['mail'])).account).toMatchObject({ id, uses: ['calendar', 'mail'] });
+      // The first page finishes; mail's token, asked with the new refresh token, is held; the account is removed then.
+      const g = gate();
+      fake.hold = { grant: 'refresh_token', until: g.until };
+      const asked = grants('refresh_token').length;
+      const finishing = service.signIns.callback(callbackParams(fake.allow(started.authorizeUrl!)));
+      await vi.waitFor(() => expect(grants('refresh_token').length).toBeGreaterThan(asked));
+      await service.removeAccount(id);
+      fake.hold = undefined;
+      g.open();
+      expect(await finishing).toMatchObject({
+        status: 'failed',
+        error: 'The account this sign-in was for was removed meanwhile, so nothing was changed',
+      });
+      expect(service.view().accounts).toEqual([]);
+      expect([...keyring.values.keys()].filter((k) => k.startsWith('oauth-'))).toEqual([]);
+    }));
+
   it('adds the mail account and the calendar only at the first sign-in for them: one removed since stays removed, and is added by hand under a free name', async () => {
     const id = (await signIn(['mail'])).account!.id;
     expect(connectors.view().mail.map((m) => m.oauth)).toEqual([id]);
