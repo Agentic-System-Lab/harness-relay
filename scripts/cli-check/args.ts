@@ -9,7 +9,7 @@ export const COMMANDS = ['versions', 'probe', 'run', 'changelog'] as const;
 export type Command = (typeof COMMANDS)[number] | 'all';
 
 /** The options that take a value, and those that are switches. */
-const VALUED = ['--bin', '--only', '--from', '--to'] as const;
+const VALUED = ['--bin', '--only', '--from', '--to', '--against', '--record'] as const;
 const SWITCHES = ['--accept', '--keep', '--json', '--issues', '--dry-run'] as const;
 
 export interface Args {
@@ -19,6 +19,10 @@ export interface Args {
   only?: string;
   from?: string;
   to?: string;
+  /** A file another version's layers 2 and 3 were recorded into (`--record`), to compare with. */
+  against?: string;
+  /** Record layers 2 and 3 into this file instead of comparing them. */
+  record?: string;
   accept: boolean;
   keep: boolean;
   json: boolean;
@@ -29,6 +33,8 @@ export interface Args {
 export const USAGE = [
   'Usage:',
   '  npx tsx scripts/cli-check.ts [<cli>] [--bin <path>] [--accept] [--keep]',
+  '  npx tsx scripts/cli-check.ts <cli> --bin <path> --record <file>        (layers 2 and 3 into a file)',
+  '  npx tsx scripts/cli-check.ts <cli> --bin <path> --against <file>       (compared with that file)',
   '  npx tsx scripts/cli-check.ts versions [<cli>] [--json] [--issues [--dry-run]]',
   '  npx tsx scripts/cli-check.ts probe <cli> [--bin <path>] [--accept] [--keep]',
   '  npx tsx scripts/cli-check.ts run <cli> [--bin <path>] [--only <scenario>] [--accept] [--keep]',
@@ -61,6 +67,16 @@ export function parseArgs(argv: readonly string[], platform: NodeJS.Platform = p
     return { error: '--dry-run goes with versions --issues.' };
   if (switches.has('--issues') && command !== 'versions') return { error: '--issues goes with versions.' };
   if (values['--bin'] && !provider) return { error: '--bin names the program of one CLI: name the CLI too.' };
+  if (values['--record'] && (command !== 'all' || !provider))
+    return { error: '--record goes with one CLI: <cli> --bin <path> --record <file>.' };
+  if (values['--against'] && (!['all', 'probe', 'run'].includes(command) || !provider)) {
+    return { error: '--against goes with one CLI, for layers 2 and 3.' };
+  }
+  if (values['--against'] && values['--record'])
+    return { error: '--against and --record go apart: record one version, then compare another with it.' };
+  if ((values['--against'] || values['--record']) && switches.has('--accept')) {
+    return { error: '--accept saves the shapes this repository keeps, never with --against or --record.' };
+  }
   if (platform === 'win32' && command !== 'versions' && command !== 'changelog')
     return { error: 'Layers 2 and 3 run on macOS and Linux only.' };
   return {
@@ -70,6 +86,8 @@ export function parseArgs(argv: readonly string[], platform: NodeJS.Platform = p
     ...(values['--only'] ? { only: values['--only'] } : {}),
     ...(values['--from'] ? { from: values['--from'] } : {}),
     ...(values['--to'] ? { to: values['--to'] } : {}),
+    ...(values['--against'] ? { against: values['--against'] } : {}),
+    ...(values['--record'] ? { record: values['--record'] } : {}),
     accept: switches.has('--accept'),
     keep: switches.has('--keep'),
     json: switches.has('--json'),

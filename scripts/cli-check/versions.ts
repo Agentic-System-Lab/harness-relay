@@ -262,7 +262,7 @@ export function issueBody(r: VersionRow): string {
     'What each layer does and what to do when one finds something: [the developer guide, "Checking a CLI\'s new version"](https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/developer-guide.md#checking-a-clis-new-version).',
     "Once nothing is left to fix and its live tests ran, move the version forward in one commit with the shapes it saved (`--accept`), the user guide's line in both languages, and the other docs that say which version a behaviour was seen with, once tried again with it; close this issue from that pull request.",
     '',
-    'This issue is kept by the CLI versions workflow (`.github/workflows/cli-versions.yml`): it says so here when a newer version comes out, and closes the issue once the version checked is the newest.',
+    'This issue is kept by the CLI versions workflow (`.github/workflows/cli-versions.yml`): it checks each new version on Linux against the version checked and posts the report here, says so here when a newer version comes out, and closes the issue once the version checked is the newest.',
     '',
     issueMarker(r.provider, r.latest!),
   ].join('\n');

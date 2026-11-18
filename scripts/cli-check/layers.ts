@@ -15,6 +15,30 @@ import type { VersionRow } from './versions';
 export interface LayerOptions {
   accept: boolean;
   only?: string;
+  /**
+   * What the version checked said on this system (`--against <file>`, recorded by `--record`): layers 2
+   * and 3 compare with it instead of with the shapes saved, which were recorded on another system and
+   * would show its differences too. Nothing is saved then.
+   */
+  against?: Recorded;
+  /** Record what layers 2 and 3 say into this file (`--record <file>`) instead of comparing it. */
+  record?: string;
+}
+
+/** What a version said in layers 2 and 3 on one system (`--record`), to compare another with (`--against`). */
+export interface Recorded {
+  provider: Provider;
+  version: string;
+  probe?: Shape;
+  run: Record<string, Shape>;
+  /** How many scenarios failed (and whether the probe found nothing) when it was recorded. */
+  failures: number;
+}
+
+export function readRecorded(file: string, p: Provider): Recorded {
+  const r = JSON.parse(readFileSync(file, 'utf8')) as Recorded;
+  if (r.provider !== p) throw new Error(`${file} was recorded for ${r.provider}, not ${p}`);
+  return r;
 }
 
 /** Where the shapes of each CLI's version checked are kept. */
@@ -55,16 +79,21 @@ export function compareShapes(
   version: string | undefined,
   shapes: Record<string, Shape>,
   accept: boolean,
+  against?: { version: string; shapes: Record<string, Shape> },
 ): boolean {
-  const saved = loadShapes(p, layer);
+  const saved: SavedShapes | undefined = against
+    ? { provider: p, version: `${against.version}, run here just now`, shapes: against.shapes }
+    : loadShapes(p, layer);
   let changed = false;
   for (const [name, shape] of Object.entries(shapes)) {
     const before = saved?.shapes[name];
     if (!before) {
       changed = true;
-      const why = NO_SHAPES[p]
-        ? `none saved for ${PROVIDER_LABEL[p]}: ${NO_SHAPES[p]}; --accept saves this version's once it passed`
-        : `none saved yet (--accept on the version checked, ${CHECKED_VERSIONS[p]}, saves it)`;
+      const why = against
+        ? `the version checked, ${against.version}, gave none here`
+        : NO_SHAPES[p]
+          ? `none saved for ${PROVIDER_LABEL[p]}: ${NO_SHAPES[p]}; --accept saves this version's once it passed`
+          : `none saved yet (--accept on the version checked, ${CHECKED_VERSIONS[p]}, saves it)`;
       console.log(`    ${name}: ${why}`);
       continue;
     }
@@ -73,7 +102,7 @@ export function compareShapes(
     console.log(`    ${name}: ${sameShape(d) ? `same as ${saved!.version}` : `differs from ${saved!.version}:`}`);
     for (const l of describeDiff(d)) console.log(`      ${l}`);
   }
-  if (accept) {
+  if (accept && !against) {
     const f = shapeFile(p, layer);
     mkdirSync(dirname(f), { recursive: true });
     const out: SavedShapes = { provider: p, version: version ?? '?', shapes: { ...(saved?.shapes ?? {}), ...shapes } };
@@ -106,7 +135,18 @@ export async function assertSignedOut(p: Provider, bin: string): Promise<void> {
   if (status.accounts.some((a) => a.auth.loggedIn === true)) throw new SignedInError(signedInMessage(p));
 }
 
-export async function probe(p: Provider, bin: string, o: LayerOptions, scratch: Scratch): Promise<number> {
+/**
+ * Layer 2: 1 when it found something (a shape that differs, a CLI that is not there). With `recorded`,
+ * the version checked's answers to compare with; with `keep`, nothing is compared: its shape is kept there.
+ */
+export async function probe(
+  p: Provider,
+  bin: string,
+  o: LayerOptions,
+  scratch: Scratch,
+  recorded?: Recorded,
+  keep?: Partial<Recorded>,
+): Promise<number> {
   const { probeCli } = await import('./probe');
   console.log(`\n== 2. ${PROVIDER_LABEL[p]}: probes without a model (${bin})`);
   const r = await probeCli(p, bin, await scratch.forCli(p));
@@ -116,18 +156,42 @@ export async function probe(p: Provider, bin: string, o: LayerOptions, scratch: 
     console.log('  not installed, or it did not say its version: nothing more to ask');
     return 1;
   }
+  if (keep) {
+    Object.assign(keep, { version: r.version, probe: r.shape });
+    return 0;
+  }
   console.log('  shape:');
-  return compareShapes(p, 'probe', r.version, { probe: r.shape }, o.accept) ? 1 : 0;
+  const against = recorded?.probe ? { version: recorded.version, shapes: { probe: recorded.probe } } : undefined;
+  return compareShapes(p, 'probe', r.version, { probe: r.shape }, o.accept, against) ? 1 : 0;
 }
 
 // ---------------------------------------------------------------------------
 // Layer 3
 
-export async function run(p: Provider, bin: string, o: LayerOptions, scratch: Scratch): Promise<number> {
+/** Layer 3: 1 when a scenario failed or a shape differs. `recorded` and `keep` as for `probe`. */
+export async function run(
+  p: Provider,
+  bin: string,
+  o: LayerOptions,
+  scratch: Scratch,
+  recorded?: Recorded,
+  keep?: Partial<Recorded>,
+): Promise<number> {
   const { runScenarios } = await import('./scenarios');
   console.log(`\n== 3. ${PROVIDER_LABEL[p]}: the real CLI on a scripted model (${bin})`);
   await assertSignedOut(p, bin);
-  return runScenarios(p, bin, scratch, await scratch.forCli(p), o);
+  const r = await runScenarios(p, bin, scratch, await scratch.forCli(p), o);
+  if (!r) return 0;
+  if (keep) {
+    keep.run = r.shapes;
+    return r.failures ? 1 : 0;
+  }
+  console.log('  shapes:');
+  // Shapes are saved only from a run that passed: a failed one would be what later versions are held to.
+  const against = recorded ? { version: recorded.version, shapes: recorded.run } : undefined;
+  const changed = compareShapes(p, 'run', r.version, r.shapes, o.accept && !r.failures, against);
+  if (o.accept && r.failures) console.log('    not saved: a scenario failed');
+  return r.failures || changed ? 1 : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,12 +234,42 @@ export function liveCommands(p: Provider): string[] {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * Layers 2 and 3 for one CLI, recorded into `o.record` to compare another version with (`--against`):
+ * the scenarios' results printed, nothing compared. How many layers failed.
+ */
+export async function record(p: Provider, bin: string, o: LayerOptions, scratch: Scratch): Promise<number> {
+  const keep: Partial<Recorded> = { run: {} };
+  const plain = { accept: false, ...(o.only ? { only: o.only } : {}) };
+  let failures = 0;
+  try {
+    failures += await probe(p, bin, plain, scratch, undefined, keep);
+    failures += await run(p, bin, plain, scratch, undefined, keep);
+  } catch (err) {
+    if (!(err instanceof SignedInError)) throw err;
+    console.log(`\n  STOPPED: ${err.message}`);
+    return 1;
+  }
+  const out: Recorded = {
+    provider: p,
+    version: keep.version ?? '?',
+    ...(keep.probe ? { probe: keep.probe } : {}),
+    run: keep.run ?? {},
+    failures,
+  };
+  mkdirSync(dirname(o.record!), { recursive: true });
+  writeFileSync(o.record!, JSON.stringify(out, null, 2) + '\n');
+  console.log(`\nRecorded ${PROVIDER_LABEL[p]} ${out.version} into ${o.record}${failures ? ` (${failures} layer(s) did not pass)` : ''}.`);
+  return failures;
+}
+
 /** Layers 2 to 4 for one CLI, then layer 5's commands: how many layers found something. */
 export async function all(p: Provider, bin: string, row: VersionRow | undefined, o: LayerOptions, scratch: Scratch): Promise<number> {
   let found = 0;
+  if (o.record) return record(p, bin, o, scratch);
   try {
-    found += await probe(p, bin, o, scratch);
-    found += await run(p, bin, o, scratch);
+    found += await probe(p, bin, o, scratch, o.against);
+    found += await run(p, bin, o, scratch, o.against);
   } catch (err) {
     if (!(err instanceof SignedInError)) throw err;
     console.log(`\n  STOPPED: ${err.message}`);
@@ -188,7 +282,7 @@ export async function all(p: Provider, bin: string, row: VersionRow | undefined,
   console.log(
     found
       ? `\n${PROVIDER_LABEL[p]}: ${found} layer(s) found something to look at (above).`
-      : `\n${PROVIDER_LABEL[p]} ${to ?? '?'}: layers 2 and 3 found nothing new against ${CHECKED_VERSIONS[p]}. Read the release notes' lines above and run the live tests; then move it forward to ${to ?? 'this version'} in src/shared/cliVersions.ts.`,
+      : `\n${PROVIDER_LABEL[p]} ${to ?? '?'}: layers 2 and 3 found nothing new against ${o.against ? `${o.against.version}, run on this system` : CHECKED_VERSIONS[p]}. Read the release notes' lines above and run the live tests; then move it forward to ${to ?? 'this version'} in src/shared/cliVersions.ts.`,
   );
   return found;
 }

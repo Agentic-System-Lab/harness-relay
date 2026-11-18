@@ -11,6 +11,9 @@ import {
   releaseNotes,
 } from '../scripts/cli-check/changelog';
 import { parseArgs } from '../scripts/cli-check/args';
+import { ciMatrix, fenced, postReports, reportComment, reportMarker, type Report } from '../scripts/cli-check/ci';
+import { MUSE_BUILDS, artifactFor, manifestDownload, obtain, thisSystem } from '../scripts/cli-check/obtain';
+import { jobsIn } from './workflow-steps';
 import { keepIssues } from '../scripts/cli-check/issues';
 import { LIVE_CLOUD_CLIS, LIVE_ENDPOINT_CLIS, NO_SHAPES, SHAPES_DIR, liveCommands } from '../scripts/cli-check/layers';
 import {
@@ -416,6 +419,16 @@ describe('the command line (scripts/cli-check/args.ts)', () => {
     const r = parseArgs(argv, platform);
     return 'error' in r ? r.error : undefined;
   };
+
+  it('records one version to compare another with, never saving either', () => {
+    expect(ok(['pi', '--bin', '/a/pi', '--record', 'r.json'])).toMatchObject({ provider: 'pi', record: 'r.json' });
+    expect(ok(['pi', '--bin', '/b/pi', '--against', 'r.json'])).toMatchObject({ against: 'r.json' });
+    expect(ok(['run', 'pi', '--against', 'r.json'])).toMatchObject({ command: 'run', against: 'r.json' });
+    expect(error(['pi', '--record', 'r.json', '--accept'])).toContain('never with --against or --record');
+    expect(error(['pi', '--record', 'r.json', '--against', 'q.json'])).toContain('go apart');
+    expect(error(['--record', 'r.json'])).toContain('--record goes with one CLI');
+    expect(error(['changelog', 'pi', '--against', 'r.json'])).toContain('--against goes with one CLI');
+  });
 
   it('reads the command, the CLI and the options', () => {
     expect(ok([])).toMatchObject({ command: 'all', accept: false, keep: false });
@@ -1181,5 +1194,208 @@ describe('layer 4 and 5: where their answers come from', () => {
     expect([...LIVE_CLOUD_CLIS].sort()).toEqual([...list('CLOUD_CLIS')].sort());
     expect(liveCommands('cursor')).toEqual([expect.stringContaining('E2E_LIVE_CLOUD=1')]);
     expect(liveCommands('opencode')).toEqual([expect.stringContaining('E2E_LIVE_OLLAMA')]);
+  });
+});
+
+describe('getting a version apart (scripts/cli-check/obtain.ts)', () => {
+  it("names where each CLI's version is for each system, from its maker", () => {
+    expect(artifactFor('claude', '2.1.327', 'linux', 'x64')).toEqual({
+      kind: 'npm',
+      spec: '@anthropic-ai/claude-code@2.1.327',
+      bin: 'node_modules/@anthropic-ai/claude-code-linux-x64/claude',
+    });
+    expect(artifactFor('copilot', '1.0.113', 'darwin', 'arm64')).toMatchObject({
+      bin: 'node_modules/@github/copilot-darwin-arm64/copilot',
+    });
+    expect(artifactFor('opencode', '1.19.6', 'linux', 'x64')).toMatchObject({ bin: 'node_modules/opencode-linux-x64/bin/opencode' });
+    expect(artifactFor('codex', '0.170.0', 'linux', 'x64')).toMatchObject({ bin: 'node_modules/.bin/codex' });
+    expect(artifactFor('openhands', '1.16.0', 'linux', 'x64')).toEqual({
+      kind: 'uv',
+      spec: 'openhands==1.16.0',
+      command: 'openhands',
+      python: '3.12',
+    });
+    expect(artifactFor('cline', '3.0.74', 'linux', 'x64')).toMatchObject({ bin: 'node_modules/@cline/cli-linux-x64/bin/cline' });
+    expect(artifactFor('goose', '1.60.1', 'linux', 'x64')).toMatchObject({
+      url: 'https://github.com/aaif-goose/goose/releases/download/v1.60.1/goose-x86_64-unknown-linux-gnu.tar.bz2',
+    });
+    expect(artifactFor('goose', '1.60.1', 'darwin', 'arm64')).toMatchObject({
+      url: expect.stringContaining('goose-aarch64-apple-darwin.tar.bz2'),
+    });
+    expect(artifactFor('grok', '1.0.89', 'linux', 'x64')).toMatchObject({
+      url: 'https://x.ai/cli/grok-1.0.89-linux-x86_64.gz',
+      format: 'gz',
+    });
+    expect(artifactFor('grok', '1.0.89', 'darwin', 'arm64')).toMatchObject({ url: 'https://x.ai/cli/grok-1.0.89-macos-aarch64.gz' });
+    expect(artifactFor('cursor', '2026.11.17-f532c45', 'linux', 'x64')).toMatchObject({
+      url: 'https://downloads.cursor.com/lab/2026.11.17-f532c45/linux/x64/agent-cli-package.tar.gz',
+      strip: 1,
+    });
+    expect(artifactFor('muse', '1.4.18', 'linux', 'x64')).toEqual({ kind: 'manifest', provider: 'muse', version: '1.4.18' });
+    for (const p of PROVIDERS) expect(() => artifactFor(p, CHECKED_VERSIONS[p], 'linux', 'x64')).not.toThrow();
+  });
+
+  it('runs on macOS and Linux, x64 and arm64 only', () => {
+    expect(thisSystem('linux', 'x64')).toEqual({ os: 'linux', arch: 'x64' });
+    expect(() => thisSystem('win32', 'x64')).toThrow('macOS and Linux only');
+    expect(() => thisSystem('linux', 'ia32')).toThrow('x64 and arm64 only');
+  });
+
+  it("reads Antigravity's manifest, which names only the newest, and Muse Code's by its build", async () => {
+    const answers: Record<string, unknown> = {
+      'https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_amd64.json': {
+        version: '1.5.10',
+        url: 'https://g/agy.tgz',
+        sha512: 'AB',
+      },
+      'https://api.meta.ai/muse-code/channels/muse-stable': { version: '1.4.23-R8977.1' },
+      'https://lookaside.facebook.com/lookaside/muse/download/?channel=muse&version=1.4.23-R8977.1&file=manifest.json': {
+        artifacts: { x86_linux: { url: 'https://m/new', checksum: 'c1' } },
+      },
+      'https://lookaside.facebook.com/lookaside/muse/download/?channel=muse&version=1.4.18-R8587.1&file=manifest.json': {
+        artifacts: { x86_linux: { url: 'https://m/old', checksum: 'c0' } },
+      },
+    };
+    const f = async (url: string) => (url in answers ? new Response(JSON.stringify(answers[url])) : new Response('no', { status: 404 }));
+    expect(await manifestDownload({ kind: 'manifest', provider: 'antigravity', version: '1.5.10' }, 'linux', 'x64', f)).toEqual({
+      url: 'https://g/agy.tgz',
+      hash: 'sha512',
+      checksum: 'AB',
+      format: 'tar.gz',
+      bin: 'antigravity',
+    });
+    await expect(manifestDownload({ kind: 'manifest', provider: 'antigravity', version: '1.5.6' }, 'linux', 'x64', f)).rejects.toThrow(
+      'names only the newest, 1.5.10',
+    );
+    expect(await manifestDownload({ kind: 'manifest', provider: 'muse', version: '1.4.23' }, 'linux', 'x64', f)).toMatchObject({
+      url: 'https://m/new',
+      hash: 'sha256',
+    });
+    expect(MUSE_BUILDS['1.4.18']).toBe('1.4.18-R8587.1');
+    expect(await manifestDownload({ kind: 'manifest', provider: 'muse', version: '1.4.18' }, 'linux', 'x64', f)).toMatchObject({
+      url: 'https://m/old',
+      checksum: 'c0',
+    });
+    await expect(manifestDownload({ kind: 'manifest', provider: 'muse', version: '1.4.20' }, 'linux', 'x64', f)).rejects.toThrow(
+      'full build is not known',
+    );
+    // Every version checked can be had, but Antigravity's (NO_SHAPES says why).
+    expect(MUSE_BUILDS[CHECKED_VERSIONS.muse]).toBeDefined();
+  });
+
+  it("refuses a download whose checksum is not its manifest's", async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cli-check-obtain-'));
+    try {
+      const f = async (url: string) =>
+        url.includes('manifests')
+          ? new Response(JSON.stringify({ version: '1.5.10', url: 'https://g/agy.tgz', sha512: '00' }))
+          : new Response('not the archive');
+      await expect(obtain('antigravity', '1.5.10', dir, { os: 'linux', arch: 'x64' }, f)).rejects.toThrow(
+        'its sha512 is not the one its manifest names',
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("the workflow's checks (scripts/cli-check/ci.ts)", () => {
+  const row = (p: Provider, latest: string): VersionRow => ({
+    provider: p,
+    checked: CHECKED_VERSIONS[p],
+    latest,
+    status: versionStatus(p, CHECKED_VERSIONS[p], latest),
+  });
+  const withComments = (n: number, p: Provider, latest: string, comments: string[] = []) => ({
+    number: n,
+    title: issueTitle(row(p, latest)),
+    body: issueBody(row(p, latest)),
+    comments: comments.map((body) => ({ body })),
+  });
+
+  it("checks each CLI that is behind once its issue is open, until its issue holds that version's report", () => {
+    const rows = [row('claude', '2.1.327'), row('cline', CHECKED_VERSIONS.cline), row('pi', '1.5.2'), row('codex', '0.170.0')];
+    const issues = [
+      withComments(1, 'claude', '2.1.327'),
+      withComments(2, 'pi', '1.5.2', [`old\n${reportMarker('pi', '1.5.2')}`]),
+      // Codex's issue tells of an older version: its newest has no report yet.
+      withComments(3, 'codex', '0.169.0', [reportMarker('codex', '0.169.0')]),
+    ];
+    expect(ciMatrix(rows, issues)).toEqual([
+      { cli: 'claude', version: '2.1.327' },
+      { cli: 'codex', version: '0.170.0' },
+    ]);
+    // A CLI with no open issue (its source fails, say) is not checked: there is nowhere to report.
+    expect(ciMatrix([row('grok', '1.0.89')], [])).toEqual([]);
+    // On a pull request: every CLI's newest, behind or not.
+    expect(
+      ciMatrix(
+        [row('claude', '2.1.327'), row('cline', CHECKED_VERSIONS.cline), { provider: 'muse', checked: '1.4.18', status: 'unknown' }],
+        'pull_request',
+      ),
+    ).toEqual([
+      { cli: 'claude', version: '2.1.327' },
+      { cli: 'cline', version: CHECKED_VERSIONS.cline },
+    ]);
+  });
+
+  const report = (o: Partial<Report> = {}): Report => ({
+    cli: 'codex',
+    version: '0.170.0',
+    checked: '0.167.0',
+    against: true,
+    exit: 0,
+    text: '== 2. Codex\n  same shape\n- #60848 Enable tool declarations @akira-oai\n```js\nx\n```\n\u001b[31mred\u001b[0m',
+    system: 'Linux (x64)',
+    ...o,
+  });
+
+  it('posts a report in a fence nothing in it can end, so that its @names notify nobody, with its marker', () => {
+    const c = reportComment(report());
+    expect(c.startsWith('### Codex 0.170.0, checked on Linux (x64)')).toBe(true);
+    expect(c).toContain('against 0.167.0, which it ran there too');
+    expect(c).toContain('found nothing new');
+    expect(c).toContain('````text\n== 2. Codex');
+    expect(c).toContain('@akira-oai\n```js');
+    expect(c).not.toContain('\u001b[');
+    expect(c.trimEnd().endsWith(reportMarker('codex', '0.170.0'))).toBe(true);
+    expect(fenced('a ````` b')).toMatch(/^``````text\n/);
+    expect(reportComment(report({ exit: 1 }))).toContain('found something to look at');
+    expect(reportComment(report({ error: 'HTTP 404', exit: undefined, text: '' }))).toContain('could not be checked: HTTP 404');
+    expect(reportComment(report({ against: false, againstError: 'cannot be had' }))).toContain(
+      'recorded on another system (0.167.0 could not be compared with here: cannot be had)',
+    );
+    expect(reportComment(report({ text: 'x'.repeat(70_000) })).length).toBeLessThan(65_536);
+  });
+
+  it("posts each report to its CLI's open issue once", async () => {
+    const calls: { args: string[]; stdin?: string }[] = [];
+    const issues = [withComments(9, 'codex', '0.170.0'), withComments(7, 'claude', '2.1.327', [reportMarker('claude', '2.1.327')])];
+    const gh = async (args: string[], stdin?: string) => {
+      calls.push({ args, ...(stdin !== undefined ? { stdin } : {}) });
+      return args[1] === 'list' ? JSON.stringify(issues) : '';
+    };
+    const lines = await postReports([report(), report({ cli: 'claude', version: '2.1.327' }), report({ cli: 'pi', version: '1.5.2' })], gh);
+    expect(lines).toEqual([
+      'Codex 0.170.0: reported in #9',
+      'Claude Code 2.1.327: already reported in #7',
+      'Pi 1.5.2: no open issue to report to',
+    ]);
+    expect(calls.map((c) => c.args.slice(0, 3).join(' '))).toEqual(['issue list --label', 'issue comment 9']);
+    expect(calls[1]!.stdin).toContain(reportMarker('codex', '0.170.0'));
+  });
+
+  it('runs what it downloads with a token that reads only, and posts from another job', () => {
+    const wf = read('.github/workflows/cli-versions.yml');
+    const jobs = jobsIn(wf);
+    expect([...jobs.keys()]).toEqual(['versions', 'newest', 'check', 'report']);
+    expect(jobs.get('check')).toMatch(/permissions:\s*\n\s*contents: read\s*\n\s*strategy:/);
+    expect(jobs.get('check')).not.toMatch(/issues: write|GH_TOKEN|GITHUB_TOKEN|secrets\./);
+    expect(jobs.get('newest')).not.toMatch(/issues: write/);
+    expect(jobs.get('report')).toMatch(/issues: write/);
+    expect(jobs.get('report')).toMatch(/needs\.versions\.result == 'success'/);
+    expect(jobs.get('check')).toContain('run: npx tsx scripts/cli-check/ci.ts check "$CLI" "$VERSION"');
+    expect(wf).toMatch(/^permissions: \{\}$/m);
+    for (const [name, text] of jobs) expect(text, name).toMatch(/persist-credentials: false/);
   });
 });

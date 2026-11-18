@@ -19,7 +19,7 @@ import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ApprovalAnswer, Permission, Provider } from '../../src/shared/types';
 import type { AgentEvent, ApprovalRequest, RunOptions, RunResult } from '../../src/server/agents/types';
-import { compareShapes, loadShapes } from './layers';
+import { loadShapes } from './layers';
 import type { LayerOptions } from './layers';
 import { MODEL, MUSE_MODEL, marker, startModel, type ScriptedModel } from './model';
 import { HELP_ARGS } from './probe';
@@ -298,10 +298,23 @@ function modelScenarios(ctx: Ctx): Record<string, { command?: string; thinking?:
 
 // ---------------------------------------------------------------------------
 
-export async function runScenarios(p: Provider, bin: string, scratch: Scratch, cli: CliScratch, o: LayerOptions): Promise<number> {
+/** The scenarios' results: how many failed, and each one's shape. Undefined for a CLI that has no layer 3 (`NO_RUN`). */
+export interface ScenarioRun {
+  failures: number;
+  shapes: Record<string, Shape>;
+  version?: string;
+}
+
+export async function runScenarios(
+  p: Provider,
+  bin: string,
+  scratch: Scratch,
+  cli: CliScratch,
+  o: LayerOptions,
+): Promise<ScenarioRun | undefined> {
   if (NO_RUN[p]) {
     console.log(`  skipped: ${NO_RUN[p]}`);
-    return 0;
+    return undefined;
   }
   const { recordSpawns, capture } = await import('../../src/server/process');
   const { openDatabase } = await import('../../src/server/db');
@@ -487,13 +500,8 @@ export async function runScenarios(p: Provider, bin: string, scratch: Scratch, c
     console.log(`  ! the CLI asked the scripted model for what it does not serve: ${[...new Set(model.unknown)].join(', ')}`);
   console.log(`  ${passed.length} of ${passed.length + failures} scenarios passed`);
 
-  // The recordings' shapes, against those saved for the version checked.
   const version = await capture(bin, ['--version'], env, { timeoutMs: 30_000 })
     .then((r) => (r.stdout || r.stderr).match(/\d+\.\d+\.\d+[\w.-]*/)?.[0]?.replace(/[.-]+$/, ''))
     .catch(() => undefined);
-  console.log('  shapes:');
-  // Shapes are saved only from a run that passed: a failed one would be what later versions are held to.
-  const changed = compareShapes(p, 'run', version, shapes, o.accept && !failures);
-  if (o.accept && failures) console.log('    not saved: a scenario failed');
-  return failures || changed ? 1 : 0;
+  return { failures, shapes, ...(version ? { version } : {}) };
 }

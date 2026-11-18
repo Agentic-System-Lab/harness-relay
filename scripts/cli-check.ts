@@ -56,6 +56,8 @@ const provider = args.provider;
 // A path given to --bin is taken from where the script was started: the script then works in its
 // scratch folder. A bare name is looked up on the PATH, as the CLI's own name is.
 const givenBin = args.bin && /[\\/]/.test(args.bin) ? resolve(args.bin) : args.bin;
+const againstFile = args.against ? resolve(args.against) : undefined;
+const recordFile = args.record ? resolve(args.record) : undefined;
 
 // ---------------------------------------------------------------------------
 // Layer 1
@@ -153,9 +155,15 @@ async function main(): Promise<number> {
           ...(givenBin ? { bin: givenBin } : {}),
         });
       }
-      const o = { accept: args.accept, ...(args.only ? { only: args.only } : {}) };
-      if (args.command === 'probe') return layers.probe(provider!, await binOf(provider!), o, scratch);
-      if (args.command === 'run') return layers.run(provider!, await binOf(provider!), o, scratch);
+      const o = {
+        accept: args.accept,
+        ...(args.only ? { only: args.only } : {}),
+        ...(againstFile ? { against: layers.readRecorded(againstFile, provider!) } : {}),
+        ...(recordFile ? { record: recordFile } : {}),
+      };
+      if (args.command === 'probe') return layers.probe(provider!, await binOf(provider!), o, scratch, o.against);
+      if (args.command === 'run') return layers.run(provider!, await binOf(provider!), o, scratch, o.against);
+      if (recordFile) return layers.record(provider!, await binOf(provider!), o, scratch);
 
       // Every layer, for one CLI, or for every CLI here whose version is newer than the one checked.
       const rows = await layerVersions(provider ? [provider] : PROVIDERS, scratch);
