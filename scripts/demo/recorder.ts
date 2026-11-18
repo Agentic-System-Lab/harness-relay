@@ -174,12 +174,20 @@ export interface Session {
   conversation(id: string): Promise<Conversation>;
   summary(id: string): Promise<ConversationSummary | undefined>;
   agentReplies(c: Conversation): number;
-  /** Waits, sped up, until `done()`; answers approvals and skips the agents' questions on the way. */
-  waitWork(id: string, done: (s: ConversationSummary | undefined) => Promise<boolean>): Promise<void>;
+  /**
+   * Waits, sped up, until `done()`; answers approvals on the way, and the agents' questions with `answer`
+   * (typed into the message box, as a person would), or skips them without one.
+   */
+  waitWork(id: string, done: (s: ConversationSummary | undefined) => Promise<boolean>, o?: WaitOptions): Promise<void>;
   /** The lead agent designs the team: shows its card, then confirms it. `poster` leaves the poster mark on it. */
   designAndConfirm(id: string, label: string, o?: { poster?: boolean }): Promise<TeamPlan | undefined>;
   /** Waits until the team has given at least `replies` replies in all and its run (and a lead review) stays over. */
-  waitAnswered(id: string, label: string, replies: number): Promise<void>;
+  waitAnswered(id: string, label: string, replies: number, o?: WaitOptions): Promise<void>;
+}
+
+export interface WaitOptions {
+  /** What to answer an agent's question with (the first one; any after it is skipped). */
+  answer?: string;
 }
 
 export interface SessionOptions {
@@ -342,7 +350,8 @@ export async function recordSession(
     };
 
     let approvalsShown = 0;
-    const waitWork: Session['waitWork'] = async (id, done) => {
+    const waitWork: Session['waitWork'] = async (id, done, wo = {}) => {
+      let answer = wo.answer;
       setFast(true);
       const until = Date.now() + limitMin * 60_000;
       let last = '';
@@ -396,8 +405,18 @@ export async function recordSession(
         }
         if (s?.asking && !s.running) {
           setFast(false);
-          mark('asked-user');
-          await moveClick(page.locator('.composer-actions button', { hasText: opts.skip }), { after: 1000 });
+          const by = [...(await conversation(id)).messages].reverse().find((m) => m.asked);
+          mark('asked-user', { agent: by?.agentName, provider: by?.provider });
+          if (answer) {
+            // The question, then the answer typed into the message box and sent.
+            const question = page.locator('[id^="ask-"]').last();
+            await question.scrollIntoViewIfNeeded({ timeout: 10_000 }).catch(() => {});
+            await sleep(3000);
+            await ask(answer);
+            mark('answered-user', { answer });
+            answer = undefined;
+            await sleep(1500);
+          } else await moveClick(page.locator('.composer-actions button', { hasText: opts.skip }), { after: 1000 });
           setFast(true);
           continue;
         }
@@ -440,20 +459,24 @@ export async function recordSession(
       return plan;
     };
 
-    const waitAnswered: Session['waitAnswered'] = async (id, label, replies) => {
+    const waitAnswered: Session['waitAnswered'] = async (id, label, replies, wo) => {
       mark(`${label}-answering`);
       let quiet = 0;
-      await waitWork(id, async (s) => {
-        if (s?.running || s?.confirmTeam || s?.asking) return ((quiet = 0), false);
-        const c = await conversation(id);
-        if (s?.waiting && pendingApproval(c)) return ((quiet = 0), false);
-        if (c.messages.some((m) => m.review?.status === 'reviewing')) return ((quiet = 0), false);
-        quiet++;
-        const enough = agentReplies(c) >= replies;
-        // Over with fewer replies than expected (one failed, or the team was smaller): go on after a while.
-        if (!enough && quiet === 40) log(`WARNING: ${label}: the run is over with fewer than ${replies} replies; going on`);
-        return (enough && quiet >= 3) || quiet >= 40;
-      });
+      await waitWork(
+        id,
+        async (s) => {
+          if (s?.running || s?.confirmTeam || s?.asking) return ((quiet = 0), false);
+          const c = await conversation(id);
+          if (s?.waiting && pendingApproval(c)) return ((quiet = 0), false);
+          if (c.messages.some((m) => m.review?.status === 'reviewing')) return ((quiet = 0), false);
+          quiet++;
+          const enough = agentReplies(c) >= replies;
+          // Over with fewer replies than expected (one failed, or the team was smaller): go on after a while.
+          if (!enough && quiet === 40) log(`WARNING: ${label}: the run is over with fewer than ${replies} replies; going on`);
+          return (enough && quiet >= 3) || quiet >= 40;
+        },
+        wo,
+      );
       mark(`${label}-answered`);
     };
 

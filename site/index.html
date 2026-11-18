@@ -406,11 +406,12 @@
         <div class="wrap">
           <div class="section-head">
             <h2 id="use-cases-title">Hand it a task</h2>
-            <p class="lead">A task assistant is more than one question. Five tasks, each a real run recorded as it happened, with the agents that ran it:</p>
+            <p class="lead">A task assistant is more than one question, and more than code. Ten kinds of work, each a real run recorded as it happened, with the agents that ran it:</p>
           </div>
           <ul class="cases">
             <li class="case">
               <a class="case-link" href="use-cases/#fix-a-bug">
+                <span class="case-role">For software engineers</span>
                 <img src="assets/media/use-cases/fix-a-bug-en.webp" alt="" width="1280" height="800" loading="lazy" decoding="async" />
                 <span class="case-title">Fix a bug three ways, keep the best one</span>
               </a>
@@ -418,39 +419,88 @@
               <ul class="usecase-facts"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">Parallel</span></li><li><span class="chip">Edit</span></li></ul>
             </li>
             <li class="case">
-              <a class="case-link" href="use-cases/#research">
-                <img src="assets/media/use-cases/research-en.webp" alt="" width="1280" height="800" loading="lazy" decoding="async" />
-                <span class="case-title">Research a choice, with sources</span>
+              <a class="case-link" href="use-cases/#product-spec">
+                <span class="case-role">For product managers</span>
+                <img src="assets/media/use-cases/product-spec-en.webp" alt="" width="1280" height="800" loading="lazy" decoding="async" />
+                <span class="case-title">Turn customer interviews into a spec</span>
               </a>
-              <p class="case-text">They search the web, read the docs, debate and pick one, with links; the lead agent marks where they disagree.</p>
-              <ul class="usecase-facts"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">Roundtable × 2</span></li><li><span class="chip">Read-only</span></li></ul>
-            </li>
-            <li class="case">
-              <a class="case-link" href="use-cases/#release-notes">
-                <img src="assets/media/use-cases/release-notes-en.webp" alt="" width="1280" height="800" loading="lazy" decoding="async" />
-                <span class="case-title">Write release notes as a relay</span>
-              </a>
-              <p class="case-text">One drafts, one rewrites it in plain words, one checks every line against the commits.</p>
+              <p class="case-text">Attach five interviews: one pulls out the pain points, one writes the PRD, one challenges it; first they ask you which customers come first.</p>
               <ul class="usecase-facts"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">Relay</span></li><li><span class="chip">Edit</span></li></ul>
             </li>
             <li class="case">
-              <a class="case-link" href="use-cases/#analyze-data">
-                <img src="assets/media/use-cases/analyze-data-en.webp" alt="" width="1280" height="800" loading="lazy" decoding="async" />
-                <span class="case-title">Turn a spreadsheet into answers and a chart</span>
+              <a class="case-link" href="use-cases/#launch-copy">
+                <span class="case-role">For marketers</span>
+                <img src="assets/media/use-cases/launch-copy-en.webp" alt="" width="1280" height="800" loading="lazy" decoding="async" />
+                <span class="case-title">Read the competition, then write the launch</span>
               </a>
-              <p class="case-text">Attach a CSV export: they count with scripts of their own, rank what to fix first and draw a chart in the reply.</p>
-              <ul class="usecase-facts"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li><span class="chip">Relay</span></li><li><span class="chip">Edit</span></li></ul>
+              <p class="case-text">They read three competitors’ pricing pages in Harness Relay’s browser and write the launch copy; a branch tries another voice.</p>
+              <ul class="usecase-facts"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li><span class="chip">Roundtable × 2</span></li><li><span class="chip">Read-only</span></li></ul>
             </li>
             <li class="case">
-              <a class="case-link" href="use-cases/#morning-briefing">
-                <img src="assets/media/use-cases/morning-briefing-en.webp" alt="" width="1280" height="800" loading="lazy" decoding="async" />
-                <span class="case-title">A morning briefing from your mail and calendar</span>
+              <a class="case-link" href="use-cases/#reconcile-accounts">
+                <span class="case-role">For accountants</span>
+                <img src="assets/media/use-cases/reconcile-accounts-en.webp" alt="" width="1280" height="800" loading="lazy" decoding="async" />
+                <span class="case-title">Close the month: three reconciliations, compared</span>
               </a>
-              <p class="case-text">An automation reads your mail and calendar every weekday at 08:30; replies wait in the outbox until you send them.</p>
-              <ul class="usecase-facts"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li><span class="chip">Relay</span></li><li><span class="chip">Read-only</span></li><li><span class="chip">Every weekday 08:30</span></li></ul>
+              <p class="case-text">Three agents reconcile the same bank statement on their own; the lead agent compares what each one found.</p>
+              <ul class="usecase-facts"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">Parallel × 2</span></li><li><span class="chip">Read-only</span></li><li><span class="chip">Lead review</span></li></ul>
+            </li>
+            <li class="case">
+              <a class="case-link" href="use-cases/#collect-payments">
+                <span class="case-role">For business owners</span>
+                <img src="assets/media/use-cases/collect-payments-en.webp" alt="" width="1280" height="800" loading="lazy" decoding="async" />
+                <span class="case-title">Chase overdue invoices until they are settled</span>
+              </a>
+              <p class="case-text">An automation with a goal reads your mail each weekday and sends reminders through the outbox until every invoice is settled.</p>
+              <ul class="usecase-facts"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li><span class="chip">Relay</span></li><li><span class="chip">Read-only</span></li><li><span class="chip">Every weekday 09:00</span></li></ul>
+            </li>
+            <li class="case">
+              <a class="case-link" href="use-cases/#literature-review">
+                <span class="case-role">For researchers</span>
+                <img src="assets/media/use-cases/literature-review-en.webp" alt="" width="1280" height="800" loading="lazy" decoding="async" />
+                <span class="case-title">What the research says, with every source</span>
+              </a>
+              <p class="case-text">They search the web, read the studies and debate the evidence; the lead agent marks where they disagree.</p>
+              <ul class="usecase-facts"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">Roundtable × 2</span></li><li><span class="chip">Read-only</span></li><li><span class="chip">Lead review</span></li></ul>
+            </li>
+            <li class="case">
+              <a class="case-link" href="use-cases/#write-a-quiz">
+                <span class="case-role">For teachers</span>
+                <img src="assets/media/use-cases/write-a-quiz-en.webp" alt="" width="1280" height="800" loading="lazy" decoding="async" />
+                <span class="case-title">Write a quiz, and try it on a student first</span>
+              </a>
+              <p class="case-text">One writes the quiz, one takes it as a student, one marks it, ready to send unclear questions back.</p>
+              <ul class="usecase-facts"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">Relay</span></li><li><span class="chip">Edit</span></li></ul>
+            </li>
+            <li class="case">
+              <a class="case-link" href="use-cases/#contract-review">
+                <span class="case-role">For lawyers</span>
+                <img src="assets/media/use-cases/contract-review-en.webp" alt="" width="1280" height="800" loading="lazy" decoding="async" />
+                <span class="case-title">Redline a contract, on your own model server</span>
+              </a>
+              <p class="case-text">On Qwen3.8 served by your own vLLM: one edits the vendor’s draft against your playbook, one checks each edit, one writes the memo.</p>
+              <ul class="usecase-facts"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">Relay</span></li><li><span class="chip">Edit</span></li><li><span class="chip">Qwen3.8 27B on vLLM</span></li></ul>
+            </li>
+            <li class="case">
+              <a class="case-link" href="use-cases/#triage-an-alert">
+                <span class="case-role">For on-call engineers</span>
+                <img src="assets/media/use-cases/triage-an-alert-en.webp" alt="" width="1280" height="800" loading="lazy" decoding="async" />
+                <span class="case-title">Triage an alert the moment it fires</span>
+              </a>
+              <p class="case-text">Your monitoring calls a webhook; a new chat reads the logs and deploys, and the bell tells you once the cause is found.</p>
+              <ul class="usecase-facts"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">Relay</span></li><li><span class="chip">Read-only</span></li><li><span class="chip">Webhook</span></li></ul>
+            </li>
+            <li class="case">
+              <a class="case-link" href="use-cases/#design-review">
+                <span class="case-role">For designers</span>
+                <img src="assets/media/use-cases/design-review-en.webp" alt="" width="1280" height="800" loading="lazy" decoding="async" />
+                <span class="case-title">Review the screens before the usability test</span>
+              </a>
+              <p class="case-text">Attach three screenshots: each agent reviews them from its own angle, and you get the issues to fix first.</p>
+              <ul class="usecase-facts"><li class="t-claude"><span class="pill">Claude Code</span></li><li class="t-codex"><span class="pill">Codex</span></li><li class="t-grok"><span class="pill">Grok</span></li><li><span class="chip">Parallel × 2</span></li><li><span class="chip">Read-only</span></li></ul>
             </li>
           </ul>
-          <p class="cases-more"><a class="text-link" href="use-cases/">All five, with their recordings and what each shows</a></p>
+          <p class="cases-more"><a class="text-link" href="use-cases/">All ten, with their recordings and what each shows</a></p>
         </div>
       </section>
 

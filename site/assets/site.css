@@ -1212,6 +1212,20 @@ html:not(.js) .theme-toggle {
   color: var(--muted);
 }
 
+/* Whose work a use case is, above its name: on its section and on its card. */
+.usecase-role,
+.case-role {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+.usecase-role {
+  margin-bottom: -8px;
+}
+
 /* The screening, as a panel of its own in the page. */
 .usecase-screen {
   padding: clamp(12px, 2vw, 24px);
