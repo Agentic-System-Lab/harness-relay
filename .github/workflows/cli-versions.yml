@@ -1,0 +1,48 @@
+name: CLI versions
+
+# Every day, whether a newer version of an agent CLI than the one Harness Relay was checked with
+# (src/shared/cliVersions.ts) is out: layer 1 of scripts/cli-check.ts, which reads the makers' own
+# public sources (npm, PyPI, GitHub's releases, the installers' channel files and manifests) and runs
+# no CLI. It keeps one open issue labelled cli-check for each CLI that is behind, says so there when a
+# newer one comes out, and closes it once the version checked is the newest. Checking the new version
+# (layers 2 to 5) is done by hand, as the issue says (docs/developer-guide.md, "Checking a CLI's new
+# version").
+on:
+  schedule:
+    # 09:23 in Taiwan.
+    - cron: '23 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+# One run at a time, so that two never open the same issue.
+concurrency:
+  group: cli-versions
+  cancel-in-progress: false
+
+jobs:
+  versions:
+    name: Agent CLIs' newest versions
+    # Not in a fork: its issues are not the project's.
+    if: github.repository == 'Agentic-System-Lab/harness-relay'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # The token reads GitHub's releases (a higher rate limit) and keeps the issues, through gh.
+      - name: Compare and keep the issues
+        run: npx tsx scripts/cli-check.ts versions --issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}

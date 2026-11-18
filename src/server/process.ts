@@ -225,6 +225,54 @@ export function posixLaunch(bin: string, args: readonly string[], env: NodeJS.Pr
 const withLaunchEnv = (env: NodeJS.ProcessEnv, launch: WindowsLaunch): NodeJS.ProcessEnv => (launch.env ? { ...env, ...launch.env } : env);
 
 /** How runProcess and runShellScript run what they start: everything but the program and its arguments. */
+/**
+ * Told of every process `runProcess()` and `runShellScript()` start, and of what passes through their
+ * stdin, stdout and stderr. Only `scripts/cli-check.ts` sets one (`recordSpawns`), to record what a
+ * CLI and the server's own code say to each other; the server never does. It is told nothing of the
+ * environment, where the keys are.
+ */
+export interface SpawnRecorder {
+  start(o: { bin: string; args: readonly string[]; cwd?: string }): SpawnRecording | undefined;
+}
+
+export interface SpawnRecording {
+  data(stream: 'stdin' | 'stdout' | 'stderr', chunk: Buffer): void;
+  exit(code: number | null, signal: NodeJS.Signals | null): void;
+}
+
+let recorder: SpawnRecorder | undefined;
+
+/** Sets the recorder every process started from now on is told of (undefined: none). */
+export function recordSpawns(r: SpawnRecorder | undefined): void {
+  recorder = r;
+}
+
+/** Passes what goes through a child's stdio to a recording, as it goes: what is written to its stdin too. */
+function tap(child: ChildProcess, recording: SpawnRecording): void {
+  const safe = (stream: 'stdin' | 'stdout' | 'stderr', chunk: unknown) => {
+    try {
+      if (chunk == null) return;
+      recording.data(stream, Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string | Uint8Array));
+    } catch {
+      /* a recording never stops the process */
+    }
+  };
+  child.stdout?.on('data', (chunk: Buffer) => safe('stdout', chunk));
+  child.stderr?.on('data', (chunk: Buffer) => safe('stderr', chunk));
+  const stdin = child.stdin;
+  if (!stdin) return;
+  const write = stdin.write.bind(stdin) as (...a: unknown[]) => boolean;
+  const end = stdin.end.bind(stdin) as (...a: unknown[]) => typeof stdin;
+  stdin.write = ((chunk: unknown, ...rest: unknown[]) => {
+    safe('stdin', chunk);
+    return write(chunk, ...rest);
+  }) as typeof stdin.write;
+  stdin.end = ((chunk?: unknown, ...rest: unknown[]) => {
+    if (typeof chunk !== 'function') safe('stdin', chunk);
+    return end(chunk, ...rest);
+  }) as typeof stdin.end;
+}
+
 export type RunOptions = Omit<SpawnOptions, 'bin' | 'args'>;
 
 /** Spawn a CLI, stream its stdout line by line, and resolve when it exits. It never runs through a shell. */
@@ -238,7 +286,7 @@ export function runProcess(o: SpawnOptions): Promise<SpawnResult> {
   // Not found on Windows: started bare, it would be looked for in the working directory (the agent's
   // project) first. A missing working directory is still said first (by `supervise`).
   if (launch.missing && !(o.cwd && !existsSync(o.cwd))) return Promise.reject(new CommandNotFoundError(o.bin));
-  return supervise(o.bin, { ...o, env: withLaunchEnv(o.env, launch) }, (options) => spawn(launch.file, launch.args, options));
+  return supervise(o.bin, { ...o, env: withLaunchEnv(o.env, launch) }, (options) => spawn(launch.file, launch.args, options), o.args);
 }
 
 /**
@@ -248,7 +296,7 @@ export function runProcess(o: SpawnOptions): Promise<SpawnResult> {
  * other program is ever started through one.
  */
 export function runShellScript(shell: string, flags: readonly string[], script: string, o: RunOptions): Promise<SpawnResult> {
-  return supervise(shell, o, (options) => spawn(shell, [...flags, '-c', script], options));
+  return supervise(shell, o, (options) => spawn(shell, [...flags, '-c', script], options), [...flags, '-c', script]);
 }
 
 /**
@@ -263,7 +311,12 @@ export function needsConsole(bin: string, platform: NodeJS.Platform = process.pl
 }
 
 /** Starts the child with `start`, follows it to its end, and stops it when asked; `name` is what a missing command is reported as. */
-function supervise(name: string, o: RunOptions, start: (options: ChildOptions) => ChildProcess): Promise<SpawnResult> {
+function supervise(
+  name: string,
+  o: RunOptions,
+  start: (options: ChildOptions) => ChildProcess,
+  args: readonly string[],
+): Promise<SpawnResult> {
   return new Promise((done, reject) => {
     if (o.signal?.aborted) {
       done({
@@ -301,6 +354,8 @@ function supervise(name: string, o: RunOptions, start: (options: ChildOptions) =
       ],
     });
     live.add(child);
+    const recording = recorder?.start({ bin: name, args, cwd: o.cwd });
+    if (recording) tap(child, recording);
     if (o.pipes && !channel) {
       const [write, read] = [child.stdio[3] as Duplex | null | undefined, child.stdio[4] as Duplex | null | undefined];
       if (write && read) {
@@ -399,6 +454,7 @@ function supervise(name: string, o: RunOptions, start: (options: ChildOptions) =
     });
     child.on('close', (code, signal) => {
       cleanup();
+      recording?.exit(code, signal);
       const bytes = stdout.bytes();
       done({
         code,
