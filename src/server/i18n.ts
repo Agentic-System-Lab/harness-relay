@@ -488,9 +488,11 @@ const zhTW = {
   hookRefused: (hook: string, call: string, why: string) => `團隊的 hook「${hook}」拒絕了 ${call}：${why}`,
   hookFailed: (hook: string, call: string, why: string) => `${call} 之後，團隊的 hook「${hook}」沒有通過，已告訴 agent：${why}`,
   hookNoOutput: '（沒有輸出）',
+  hooksTooLate: '沒有在時間內跑完，已停止',
+  hookCallTooLong: (call: string) => `團隊的 hook 拒絕了 ${call}：這次呼叫太長，hook 讀不完`,
   hookRefusedLabel: '團隊的 hook 拒絕了這次呼叫',
   hooksNoProgram: (cli: string) =>
-    `這一輪不能把團隊的 hook 交給 ${cli}（找不到可以啟動 hook 程式的 Node.js，或 Harness Relay 的 gateway 沒有在執行）：它的工具呼叫不經過 hook。`,
+    `這一輪沒有開始：不能把團隊的 hook 交給 ${cli}（找不到可以啟動 hook 程式的 Node.js，或 Harness Relay 的 gateway 沒有在執行）。請安裝 Node.js 22.12 以上（設定 → 沙箱可以安裝），或在團隊檢查裡拿掉 hook。`,
   hookMoreNotices: '這一輪之後的 hook 拒絕或沒有通過，不再一一列出。',
   hooksUnsupported: (cli: string) => `${cli} 還不能執行團隊的 hook：這位成員這一輪的工具呼叫不經過它們，團隊答完後的檢查照常。`,
 
@@ -1410,9 +1412,11 @@ const en: ServerMessages = {
   hookRefused: (hook, call, why) => `The team's hook \`${hook}\` refused ${call}: ${why}`,
   hookFailed: (hook, call, why) => `After ${call}, the team's hook \`${hook}\` did not pass, and the agent was told: ${why}`,
   hookNoOutput: '(no output)',
+  hooksTooLate: 'they did not finish in time, and were stopped',
+  hookCallTooLong: (call) => `The team's hooks refused ${call}: the call is too long for them to read`,
   hookRefusedLabel: "Refused by the team's hook",
   hooksNoProgram: (cli) =>
-    `The team's hooks could not be given to ${cli} in this turn (no Node.js to start their program with, or Harness Relay's gateway is not running): its tool calls go without them.`,
+    `This turn did not start: the team's hooks could not be given to ${cli} (no Node.js to start their program with, or Harness Relay's gateway is not running). Install Node.js 22.12 or later (Settings → Sandboxes can), or take the hooks out of the team checks.`,
   hookMoreNotices: 'Later hook refusals or failures in this turn are not listed.',
   hooksUnsupported: (cli) =>
     `${cli} cannot run the team's hooks yet: this member's tool calls in this turn go without them; the checks once the team has answered run as usual.`,

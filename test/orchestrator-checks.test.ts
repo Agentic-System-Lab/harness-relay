@@ -1044,3 +1044,33 @@ describe("the team's hooks", () => {
     }
   });
 });
+
+describe("the files a hook's command names", () => {
+  it.skipIf(process.platform === 'win32')(
+    'are protected like protected paths: a member that changes one is found once the team has answered, and each turn is told to refuse writing it',
+    async () => {
+      mkdirSync(join(project, 'scripts'), { recursive: true });
+      writeFileSync(join(project, 'scripts', 'allow.sh'), 'exit 0\n');
+      const conv = conversation({
+        mode: 'roundtable',
+        permission: 'edit',
+        checks: { hooks: [{ id: 'h', when: 'before', tools: 'command', run: './scripts/allow.sh' }] },
+      });
+      const guards: (string[] | undefined)[] = [];
+      fake.inTurn = async (_name, o) => {
+        guards.push(o.guard?.patterns);
+      };
+      fake.during = (name) => {
+        if (name === 'Bob') writeFileSync(join(project, 'scripts', 'allow.sh'), 'exit 0 # always\n');
+      };
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+      expect(guards).toEqual([['/scripts/allow.sh'], ['/scripts/allow.sh']]);
+      expect(lastCard(conv).checks).toMatchObject({
+        status: 'failed',
+        outcomes: [{ rule: 'paths', status: 'failed', findings: [{ path: 'scripts/allow.sh', change: 'changed', by: 'Bob' }] }],
+      });
+      expect(calls.find((c) => c.name === 'Alice')!.systemPrompt).toContain('/scripts/allow.sh');
+    },
+  );
+});

@@ -3,7 +3,7 @@ import type { Stats } from 'node:fs';
 import { lstat, readFile, readdir, readlink, stat } from 'node:fs/promises';
 import { basename, join, sep } from 'node:path';
 import vm from 'node:vm';
-import { compilePattern, hasChecks, isProtected, overallStatus, type CompiledPattern } from '../shared/checks';
+import { compilePattern, hasChecks, isProtected, overallStatus, protectedPatterns, type CompiledPattern } from '../shared/checks';
 import {
   CHECK_LIMITS,
   CHECK_RESULT_LIMITS,
@@ -300,7 +300,7 @@ export function mergeDefaultChecks(copy: CheckList, template: CheckList): CheckL
 
 /** The patterns of a list, read; those that cannot be read were refused when it was saved. */
 export function listPatterns(list: CheckList | undefined): CompiledPattern[] {
-  return (list?.protectedPaths ?? []).flatMap((p) => compilePattern(p) ?? []);
+  return protectedPatterns(list).flatMap((p) => compilePattern(p) ?? []);
 }
 
 /**

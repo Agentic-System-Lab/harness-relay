@@ -108,7 +108,17 @@ import {
   type StoredBaseline,
   type WorktreeChange,
 } from './checks';
-import { blocking, checksFailed, checksHold, hasChecks, hasRules, isProtected, latestChecks, overallStatus } from '../shared/checks';
+import {
+  blocking,
+  checksFailed,
+  checksHold,
+  hasChecks,
+  hasRules,
+  isProtected,
+  latestChecks,
+  overallStatus,
+  protectedPatterns,
+} from '../shared/checks';
 import {
   PACKAGE_JSON_KEYS,
   checkConfigFiles,
@@ -2578,7 +2588,7 @@ export class Orchestrator {
   private unchecked(conv: Conversation, why: string, withCommands = true): CheckOutcome[] {
     const list = conv.settings.checks;
     const rules: CheckOutcome['rule'][] = [
-      ...(list?.protectedPaths?.length ? ['paths' as const] : []),
+      ...(protectedPatterns(list).length ? ['paths' as const] : []),
       ...(list?.commitPattern ? ['commits' as const] : []),
     ];
     return [

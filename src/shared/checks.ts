@@ -140,9 +140,49 @@ export function isProtected(path: string, patterns: readonly CompiledPattern[]):
   return patterns.some((p) => p.regex.test(path));
 }
 
-/** Whether a list has any rule to check once the team has answered (its hooks run during the turns instead). */
+/**
+ * The files the hooks' command lines name in the working directory (`./scripts/allow.sh`, `node
+ * tools/check.js`, `--config=ci/rules.json`), as protected path patterns anchored there: a member that
+ * could change a hook's own script could switch the hook off. Its words with a folder in them or a
+ * script's ending, from the hook's folder; not a full path (outside the folders, or not told from
+ * here), one that leaves the folder, or one the shell makes (a variable, a wildcard, `~`).
+ */
+export function hookFilePatterns(hooks: readonly Pick<CheckHook, 'run' | 'cwd'>[] | undefined): string[] {
+  const out: string[] = [];
+  for (const h of hooks ?? []) {
+    const base = (h.cwd ?? '').replace(/\\/g, '/');
+    if (base.startsWith('/') || /^[A-Za-z]:\//.test(base)) continue;
+    for (const word of h.run.split(/[\s;&|()<>'"`=]+/)) {
+      if (!word || word.startsWith('/') || word.startsWith('-') || /[$*?[\]{}~\\:]/.test(word)) continue;
+      if (!word.includes('/') && !/\.(?:sh|bash|js|mjs|cjs|ts|mts|cts|py|rb|pl)$/.test(word)) continue;
+      const names: string[] = [];
+      let outside = false;
+      for (const n of [...base.split('/'), ...word.split('/')]) {
+        if (!n || n === '.') continue;
+        if (n !== '..') names.push(n);
+        else if (names.length) names.pop();
+        else outside = true;
+      }
+      if (outside || !names.length) continue;
+      const tidy = tidyPattern(`/${names.join('/')}`);
+      if (tidy && !out.includes(tidy)) out.push(tidy);
+    }
+  }
+  return out;
+}
+
+/**
+ * Every protected path pattern of a list: its own, and the files its hooks' command lines name
+ * (`hookFilePatterns()`), each once. What the checks compare, what a CLI is to refuse writing, and what
+ * the members are told.
+ */
+export function protectedPatterns(list: CheckList | undefined): string[] {
+  return [...new Set([...(list?.protectedPaths ?? []), ...hookFilePatterns(list?.hooks)])];
+}
+
+/** Whether a list has any rule to check once the team has answered (its hooks run during the turns instead; the files they name are checked). */
 export function hasChecks(list: CheckList | undefined): list is CheckList {
-  return Boolean(list && (list.protectedPaths?.length || list.commitPattern || list.commands?.length));
+  return Boolean(list && (protectedPatterns(list).length || list.commitPattern || list.commands?.length));
 }
 
 /** Whether a list has anything at all: a rule to check, or a hook. */

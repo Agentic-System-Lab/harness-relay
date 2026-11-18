@@ -24,7 +24,7 @@ import {
 } from './types';
 import { t } from '../i18n';
 import { overlaps, patternPath, protectedReads, relayTmpDir, RUN_TMP_PREFIXES } from '../protect';
-import type { HookCall, TurnHooks } from '../hooks';
+import { HOOK_WAIT, type HookCall, type TurnHooks } from '../hooks';
 import { guardGlobs, guardedNow, type WriteGuard } from '../writeGuard';
 
 /*
@@ -1070,17 +1070,20 @@ function declinedNote(text: string): string | undefined {
 /** The callbacks' ids, as `initialize` registers them and `hook_callback` names them. */
 export const CLAUDE_HOOK_IDS = { before: 'relay-hook-before', after: 'relay-hook-after' } as const;
 
-/** Claude Code's tools each kind of call is, for a hook's matcher. */
+/**
+ * Claude Code's tools each kind of call is, for a hook's matcher: every tool that runs a command line
+ * (`Monitor` runs its `command` in a shell of its own, in the background), and every one that changes a file.
+ */
 const CLAUDE_HOOK_TOOLS: Record<'command' | 'edit', string[]> = {
-  command: ['Bash'],
+  command: ['Bash', 'Monitor'],
   edit: ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'],
 };
 
 /**
  * The `hooks` of the turn's `initialize`: a callback for each of `PreToolUse` and `PostToolUse` that a
  * hook needs, for the tools its kinds cover (none named: every tool), waiting long enough for every
- * hook it may run (`budgetSec`, their time limits one after another, and a minute more): an answer
- * that comes too late would let the call go on. Null when there are none.
+ * hook it may run (`budgetSec`, their time limits one after another, and `HOOK_WAIT.cli` more: Harness
+ * Relay's own deadline refuses first). Null when there are none.
  */
 export function claudeHooksConfig(hooks: TurnHooks | undefined): Record<string, unknown> | null {
   if (!hooks) return null;
@@ -1089,7 +1092,11 @@ export function claudeHooksConfig(hooks: TurnHooks | undefined): Record<string, 
     if (!kinds.size) return undefined;
     const tools = kinds.has('any') ? undefined : [...kinds].flatMap((k) => CLAUDE_HOOK_TOOLS[k as 'command' | 'edit']);
     return [
-      { ...(tools ? { matcher: tools.join('|') } : {}), hookCallbackIds: [CLAUDE_HOOK_IDS[when]], timeout: hooks.budgetSec(when) + 60 },
+      {
+        ...(tools ? { matcher: tools.join('|') } : {}),
+        hookCallbackIds: [CLAUDE_HOOK_IDS[when]],
+        timeout: hooks.budgetSec(when) + HOOK_WAIT.cli,
+      },
     ];
   };
   const before = entry('before');

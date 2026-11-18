@@ -2,28 +2,35 @@
  * The program a CLI runs as its own hook command for the team's hooks (`src/server/hooks.ts`), for a CLI
  * whose hooks are commands (Muse Code): the server writes a copy for each turn into its own temporary
  * folder, beside the turn's token (`ToolGateway.hookProgram()`), where sandboxed commands can neither
- * read nor change it. It takes the gateway's socket, the token's file and when it runs (`before` or
- * `after`) as its arguments, since a CLI may give its hooks no environment of its own; reads the call
- * the CLI gives it on stdin; passes it to the server over the socket; and prints what the server
- * answers, exiting with its code. It decides nothing itself.
+ * read nor change it. It takes the gateway's socket, the token's file, when it runs (`before` or
+ * `after`) and how many seconds it waits for an answer as its arguments, since a CLI may give its
+ * hooks no environment of its own; reads the call the CLI gives it on stdin; passes it to the server
+ * over the socket; and prints what the server answers, exiting with its code. It decides nothing itself.
  *
  * It fails closed: before a call, anything that keeps it from an answer (no token, no server, a bad
- * answer) refuses the call, with exit 2 and the reason on stderr, which a CLI with hooks in Claude
+ * answer, none within its time limit, a call too large to pass on whole) refuses the call, with exit 2 and the reason on stderr, which a CLI with hooks in Claude
  * Code's manner takes as a refusal (a CLI may let the call go on when a hook fails otherwise). After
  * a call it says nothing then. Plain JavaScript with Node's built-ins only, as Node runs it directly.
  */
 
-/** The most of the call (as JSON) the program passes on: a large file's content is cut before it is sent. */
-export const HOOK_SHIM_MAX = 512 * 1024;
+/**
+ * The most of the call (as JSON) the program passes on. A call larger than this is refused before it
+ * runs, never cut: a hook that decides about a command must see all of it. After a call, its result
+ * and then its arguments are left out to fit.
+ */
+export const HOOK_SHIM_MAX = 3 * 1024 * 1024;
 
 export const HOOK_SHIM_SOURCE = `// Harness Relay's hook program (written by the server; do not edit).
 import { readFileSync } from 'node:fs';
 import { connect } from 'node:net';
 
-const [socketPath, tokenFile, when] = process.argv.slice(2);
+const [socketPath, tokenFile, when, limitSec] = process.argv.slice(2);
 const MAX = ${HOOK_SHIM_MAX};
 
+let over = false;
 function done(code, stdout, stderr) {
+  if (over) return;
+  over = true;
   if (stdout) process.stdout.write(stdout);
   if (stderr) process.stderr.write(stderr);
   process.exitCode = code;
@@ -32,28 +39,30 @@ function failed(why) {
   if (when === 'before') done(2, '', "Refused: the team's hook could not be asked (" + why + ').');
   else done(0);
 }
-
-// A long string is cut, so that a large file's content does not keep the call from going.
-function cut(v, depth) {
-  if (typeof v === 'string') return v.length > 20000 ? v.slice(0, 20000) + '…' : v;
-  if (depth > 8 || v === null || typeof v !== 'object') return v;
-  if (Array.isArray(v)) return v.slice(0, 200).map((x) => cut(x, depth + 1));
-  const out = {};
-  for (const k of Object.keys(v).slice(0, 200)) out[k] = cut(v[k], depth + 1);
-  return out;
+// Its own time limit (seconds, its fourth argument): no answer by then is a refusal, before the CLI's
+// time limit for its hook ends (a CLI may let the call go on then). It exits, whatever is still open.
+const limit = Number(limitSec);
+if (limit > 0) {
+  setTimeout(() => {
+    failed('no answer in time');
+    process.exit(when === 'before' ? 2 : 0);
+  }, limit * 1000).unref();
 }
 
 let input = '';
+let tooLarge = false;
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {
-  if (input.length < 8 * MAX) input += chunk;
+  if (input.length <= 4 * MAX) input += chunk;
+  else tooLarge = true;
 });
 process.stdin.on('end', () => {
   let payload;
   try {
-    payload = cut(JSON.parse(input || '{}'), 0);
+    if (tooLarge) throw new Error('too large');
+    payload = JSON.parse(input || '{}');
   } catch {
-    return failed('its input is not JSON');
+    return failed(tooLarge ? 'the call is too large for it to read' : 'its input is not JSON');
   }
   let token = '';
   try {
@@ -61,8 +70,15 @@ process.stdin.on('end', () => {
   } catch {
     return failed('the turn is over');
   }
-  let line = JSON.stringify({ id: 1, method: 'hook', when, payload });
-  if (line.length > MAX) line = JSON.stringify({ id: 1, method: 'hook', when, payload: { ...payload, tool_input: {}, tool_response: '' } });
+  const lineOf = (p) => JSON.stringify({ id: 1, method: 'hook', when, payload: p });
+  let line = lineOf(payload);
+  if (line.length > MAX) {
+    // Before a call, nothing is left out: the hooks would decide about what they did not see.
+    if (when === 'before') return failed('the call is too large for it to read');
+    line = lineOf({ ...payload, tool_response: '' });
+    if (line.length > MAX) line = lineOf({ ...payload, tool_response: '', tool_input: {} });
+    if (line.length > MAX) return failed('the call is too large for it to read');
+  }
   let buffer = '';
   let answered = false;
   const sock = connect(socketPath || '');

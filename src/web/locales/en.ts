@@ -1011,7 +1011,7 @@ export const en: Messages = {
     badTimeout: (max) => `The time limit is 1 to ${max} minutes`,
     hooks: 'Hooks',
     hooksHint:
-      'Commands Harness Relay runs before and after each tool call a member makes. A Before hook that does not succeed (exit 0) refuses the call, its output the reason the agent gets; an After hook that does not succeed sends its output to the agent. A hook reads the call from its environment: RELAY_HOOK_COMMAND, RELAY_HOOK_FILES (a full path a line), RELAY_HOOK_TOOL, RELAY_HOOK_INPUT (JSON). Like the commands, below full access they run in Harness Relay’s sandbox; each call waits for them.',
+      'Commands Harness Relay runs before and after each tool call a member makes. A Before hook that does not succeed (exit 0) refuses the call, its output the reason the agent gets; an After hook that does not succeed sends its output to the agent. A hook reads the call from its environment: RELAY_HOOK_COMMAND, RELAY_HOOK_FILES (a full path a line), RELAY_HOOK_TOOL, RELAY_HOOK_INPUT (JSON). Like the commands, below full access they run in Harness Relay’s sandbox; each call waits for them. The files a hook’s command names in the working directory (./scripts/allow.sh, say) are protected like protected paths.',
     hooksWho: (clis) =>
       `Run for ${clis.join(', ')} for now; members on other agents make their tool calls without them, and the chat says so.`,
     hooksWindowsNote: 'Hooks do not run on native Windows yet.',

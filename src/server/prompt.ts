@@ -21,7 +21,7 @@ import {
   cwdsOf,
 } from '../shared/types';
 import { ASK_TOKEN } from '../shared/ask';
-import { checksFailed, hasChecks, needsFix } from '../shared/checks';
+import { checksFailed, hasChecks, needsFix, protectedPatterns } from '../shared/checks';
 import { mentionsInMarkdown } from '../shared/mentions';
 import { attachmentPath } from './attachments';
 import { dataBody, dataLine } from './gateway';
@@ -87,9 +87,10 @@ function checksRules(conv: Conversation): string {
 /** Each rule of a check list, in a line (commands not on native Windows, which runs none). */
 export function checkRuleLines(list: CheckList, mode: Mode, platform: NodeJS.Platform = process.platform): string[] {
   const lines: string[] = [];
-  if (list.protectedPaths?.length) {
+  const paths = protectedPatterns(list);
+  if (paths.length) {
     lines.push(
-      `Do not create, change or delete files matching these patterns (gitignore-like, in every working directory, ignored files too): ${list.protectedPaths.join(', ')}`,
+      `Do not create, change or delete files matching these patterns (gitignore-like, in every working directory, ignored files too): ${paths.join(', ')}`,
     );
   }
   if (list.commitPattern && mode !== 'parallel') {

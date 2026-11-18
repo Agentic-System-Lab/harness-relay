@@ -3,14 +3,17 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { hasChecks, hasRules, hookApplies } from '../src/shared/checks';
+import { hasChecks, hasRules, hookApplies, hookFilePatterns, protectedPatterns } from '../src/shared/checks';
 import type { CheckHook } from '../src/shared/types';
 import type { CheckCommandDeps } from '../src/server/checkCommands';
 import { ToolGateway, type HookHandler } from '../src/server/gateway';
+import { HOOK_SHIM_MAX } from '../src/server/hookShim';
 import {
+  HOOK_CALL_MAX,
   HOOK_INPUT_LIMITS,
   HOOK_NOTICES,
   callLabel,
+  callTooLong,
   commandHookHandler,
   hookEnv,
   hookInput,
@@ -72,6 +75,33 @@ describe('a list with hooks', () => {
     expect(hasRules({})).toBe(false);
   });
 
+  it("protects the files a hook's command names in the working directory, which a member could otherwise change to switch it off", () => {
+    expect(hookFilePatterns([hook({ run: './scripts/allow.sh "$RELAY_HOOK_COMMAND"' })])).toEqual(['/scripts/allow.sh']);
+    expect(hookFilePatterns([hook({ run: 'node tools/check.js --config=ci/rules.json && python lint.py', cwd: 'web' })])).toEqual([
+      '/web/tools/check.js',
+      '/web/ci/rules.json',
+      '/web/lint.py',
+    ]);
+    // Not a program on the PATH, a full path, one that leaves the folder, one the shell makes, a URL or an option.
+    expect(
+      hookFilePatterns([
+        hook({
+          run: 'npx prettier --check $RELAY_HOOK_FILES; /usr/bin/true ../up/x.sh ~/x.sh src/*.ts https://example.com/a -I/inc "$DIR/x.sh"',
+        }),
+        hook({ run: './x.sh', cwd: '/abs/folder' }),
+      ]),
+    ).toEqual([]);
+    expect(hookFilePatterns([hook({ run: '../shared/x.sh', cwd: 'web' })])).toEqual(['/shared/x.sh']);
+    const list = {
+      protectedPaths: ['.env', '/scripts/allow.sh'],
+      hooks: [hook({ run: './scripts/allow.sh' }), hook({ run: 'sh ci/a.sh' })],
+    };
+    expect(protectedPatterns(list)).toEqual(['.env', '/scripts/allow.sh', '/ci/a.sh']);
+    // With such a file, a list of hooks alone has something to check once the team has answered.
+    expect(hasChecks({ hooks: [hook({ run: './scripts/allow.sh' })] })).toBe(true);
+    expect(hasChecks({ hooks: [hook({ run: 'npm test' })] })).toBe(false);
+  });
+
   it("runs a hook around the calls of its kind: commands, its CLI's own file changes, or every call", () => {
     expect(hookApplies({ tools: 'command' }, 'command')).toBe(true);
     expect(hookApplies({ tools: 'command' }, 'edit')).toBe(false);
@@ -113,8 +143,22 @@ describe('what a hook is given', () => {
     const one = JSON.parse(hookInput({ content: long, path: 'a' }));
     expect(one.content).toHaveLength(HOOK_INPUT_LIMITS.value + 1);
     expect(one.path).toBe('a');
-    expect(hookInput(Array.from({ length: 40 }, () => long)).length).toBeLessThanOrEqual(HOOK_INPUT_LIMITS.total);
+    // Too long as a whole: its values are cut shorter, never the JSON itself, which a hook must be able to read.
+    const many = hookInput({ edits: Array.from({ length: 40 }, () => ({ old: long, new: long })) });
+    expect(many.length).toBeLessThanOrEqual(HOOK_INPUT_LIMITS.total);
+    expect(JSON.parse(many).edits).toHaveLength(40);
+    const huge = hookInput(Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`k${i}`, Array.from({ length: 50 }, () => long)])));
+    expect(JSON.parse(huge)).toEqual({ truncated: true });
     expect(hookInput(undefined)).toBe('{}');
+  });
+
+  it('cuts a command too long for one variable after the call, and says before it that it is too long', () => {
+    const long = 'x'.repeat(HOOK_CALL_MAX + 10);
+    expect(callTooLong({ kind: 'command', tool: 'Bash', command: long })).toBe(true);
+    expect(callTooLong({ kind: 'edit', tool: 'Edit', files: [long] })).toBe(true);
+    expect(callTooLong({ kind: 'command', tool: 'Bash', command: 'ls' })).toBe(false);
+    const env = hookEnv('after', { kind: 'command', tool: 'Bash', command: `${long}é` }, 'a', 'claude');
+    expect(Buffer.byteLength(env.RELAY_HOOK_COMMAND!)).toBe(HOOK_CALL_MAX);
   });
 
   it('names a call in a few words for the user: its command, its files or its tool', () => {
@@ -170,6 +214,49 @@ describe.skipIf(process.platform === 'win32')('running the hooks of a turn', () 
     expect(await windows.hooks.before({ kind: 'command', tool: 'Bash', command: 'ls' })).toContain('Refused');
   });
 
+  it.skipIf(process.platform === 'win32')(
+    'refuses a call too long for a hook to read, without running one, rather than deciding about part of it',
+    async () => {
+      const ran = join(dir, 'ran');
+      const { hooks, notes } = hooksOf([hook({ run: `touch ${ran}` })]);
+      const said = await withLang('en', () =>
+        hooks.before({ kind: 'command', tool: 'Bash', command: `echo ${'x'.repeat(HOOK_CALL_MAX)}; git push` }),
+      );
+      expect(said).toContain("too long for the team's hooks to read");
+      expect(existsSync(ran)).toBe(false);
+      expect(notes).toEqual([expect.stringContaining('too long')]);
+      // No hook covers an edit here: such a call goes on, whatever its length.
+      expect(await hooks.before({ kind: 'edit', tool: 'Write', files: ['x'.repeat(HOOK_CALL_MAX + 1)] })).toBeUndefined();
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'has a deadline of its own: hooks still running then are stopped, a call before them refused, one after them left alone',
+    async () => {
+      const notes: string[] = [];
+      const late = turnHooks([hook({ run: 'sleep 30' }), hook({ run: 'sleep 30', when: 'after' })], {
+        place: { cwds: [dir], unsandboxed: true, protectedPaths: [], privateRoots: [] },
+        agent: 'a',
+        provider: 'muse',
+        notice: (t) => notes.push(t),
+        deps: deps(),
+        // The hooks' 60 s and the 30 s after them, as 0.9 s.
+        deadlineScale: 0.01,
+      })!;
+      const started = Date.now();
+      const said = await withLang('en', () => late.before({ kind: 'command', tool: 'bash', command: 'ls' }));
+      expect(said).toBe("Refused: the team's hooks did not finish in time.");
+      expect(notes).toEqual([expect.stringContaining('did not finish in time')]);
+      expect(await late.after({ kind: 'command', tool: 'bash', command: 'ls', output: '' })).toBeUndefined();
+      // A CLI that waits less gives a shorter deadline (10 s here, as 0.1 s).
+      const t0 = Date.now();
+      expect(await late.before({ kind: 'command', tool: 'bash', command: 'ls' }, 10)).toContain('did not finish in time');
+      expect(Date.now() - t0).toBeLessThan(800);
+      expect(Date.now() - started).toBeLessThan(10_000);
+    },
+    slow(20_000),
+  );
+
   it('tells the agent what each after hook that failed said, and the user in a note', async () => {
     const { hooks, notes } = hooksOf([
       hook({ when: 'after', tools: 'any', run: 'echo "lint: 2 problems in $RELAY_HOOK_FILES"; exit 1' }),
@@ -222,7 +309,6 @@ describe('the answers to a hook program of a CLI that takes Claude Code’s', ()
     after: async () => tell,
     program: () => undefined,
     dispose: () => undefined,
-    note: () => undefined,
   });
   const toCall = (p: Record<string, any>) => ({
     kind: 'command' as const,
@@ -258,7 +344,7 @@ describe.skipIf(process.platform === 'win32')('the hook program through the gate
   /** Runs the program as a CLI runs its hook command: the call on stdin, `when` after its arguments. */
   const runProgram = (args: string[], when: string, input: string) =>
     new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
-      const child = spawn(process.execPath, [...args, when], { stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = spawn(process.execPath, when ? [...args, when] : args, { stdio: ['pipe', 'pipe', 'pipe'] });
       let stdout = '';
       let stderr = '';
       child.stdout.on('data', (d) => (stdout += d));
@@ -317,6 +403,35 @@ describe.skipIf(process.platform === 'win32')('the hook program through the gate
       expect(await runProgram([kept, args[1]!, token], 'after', '{}')).toEqual({ code: 0, stdout: '', stderr: '' });
     },
     slow(20_000),
+  );
+
+  it(
+    'refuses on its own when no answer comes within its time limit, before the CLI gives up on it; and a call too large before it runs',
+    async () => {
+      const grant = gateway.hookProgram(() => new Promise(() => undefined))!;
+      const started = Date.now();
+      const late = await runProgram([...grant.program.args, 'before', '1'], '', '{"tool_name":"bash"}');
+      expect(late.code).toBe(2);
+      expect(late.stderr).toContain('no answer in time');
+      expect(Date.now() - started).toBeLessThan(8_000);
+      expect((await runProgram([...grant.program.args, 'after', '1'], '', '{}')).code).toBe(0);
+      // Never cut before a call: the hooks would decide about a command they did not see all of.
+      const seen: unknown[] = [];
+      const real = gateway.hookProgram(async (_when, payload) => {
+        seen.push(payload);
+        return { code: 0 };
+      })!;
+      const big = JSON.stringify({ tool_name: 'bash', tool_input: { command: 'x'.repeat(HOOK_SHIM_MAX) } });
+      const refused = await runProgram(real.program.args, 'before', big);
+      expect(refused.code).toBe(2);
+      expect(refused.stderr).toContain('too large');
+      expect(seen).toEqual([]);
+      // A long command within the limit arrives whole.
+      const long = 'y'.repeat(200_000);
+      expect((await runProgram(real.program.args, 'before', JSON.stringify({ tool_input: { command: long } }))).code).toBe(0);
+      expect(seen).toEqual([{ tool_input: { command: long } }]);
+    },
+    slow(30_000),
   );
 
   it('gives no program while it is not listening, or without Node.js', async () => {

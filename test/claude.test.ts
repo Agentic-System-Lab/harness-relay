@@ -1434,7 +1434,6 @@ describe("the team's hooks, through Claude Code's hook callbacks", () => {
       },
       program: () => undefined,
       dispose: () => undefined,
-      note: () => undefined,
     };
     return { hooks, seen };
   };
@@ -1443,8 +1442,9 @@ describe("the team's hooks, through Claude Code's hook callbacks", () => {
     expect(claudeHooksConfig(undefined)).toBeNull();
     expect(claudeHooksConfig(fake({}).hooks)).toBeNull();
     expect(claudeHooksConfig(fake({ before: ['command', 'edit'], after: ['any'] }).hooks)).toEqual({
-      PreToolUse: [{ matcher: 'Bash|Edit|Write|MultiEdit|NotebookEdit', hookCallbackIds: [CLAUDE_HOOK_IDS.before], timeout: 150 }],
-      PostToolUse: [{ hookCallbackIds: [CLAUDE_HOOK_IDS.after], timeout: 90 }],
+      // Every tool that runs a command line (Monitor too), and its file tools; longer than Harness Relay's own deadline.
+      PreToolUse: [{ matcher: 'Bash|Monitor|Edit|Write|MultiEdit|NotebookEdit', hookCallbackIds: [CLAUDE_HOOK_IDS.before], timeout: 180 }],
+      PostToolUse: [{ hookCallbackIds: [CLAUDE_HOOK_IDS.after], timeout: 120 }],
     });
   });
 
@@ -1454,6 +1454,11 @@ describe("the team's hooks, through Claude Code's hook callbacks", () => {
       tool: 'Bash',
       command: 'npm test',
       input: { command: 'npm test' },
+    });
+    // Monitor runs its command in a shell of its own: a command, as Bash's.
+    expect(claudeHookCall({ tool_name: 'Monitor', tool_input: { command: 'git push --force' } })).toMatchObject({
+      kind: 'command',
+      command: 'git push --force',
     });
     expect(claudeHookCall({ tool_name: 'Write', cwd: '/w', tool_input: { file_path: 'src/a.ts', content: 'x' } })).toMatchObject({
       kind: 'edit',
@@ -1479,11 +1484,11 @@ describe("the team's hooks, through Claude Code's hook callbacks", () => {
     afterAll(() => rmSync(dir, { recursive: true, force: true }));
     const bin = writeFakeClaude(join(dir, 'claude'));
     let n = 0;
-    const run = async (hooks: TurnHooks | undefined, call: Record<string, unknown>) => {
+    const run = async (hooks: TurnHooks | undefined, call: Record<string, unknown>, extra: Record<string, string> = {}) => {
       const log = join(dir, `log-${++n}.jsonl`);
       await claudeRunner.run({
         bin,
-        env: { ...process.env, FAKE_CLAUDE_LOG: log, FAKE_CLAUDE_HOOK_CALL: JSON.stringify(call) },
+        env: { ...process.env, FAKE_CLAUDE_LOG: log, FAKE_CLAUDE_HOOK_CALL: JSON.stringify(call), ...extra },
         prompt: 'hello',
         systemPrompt: 'briefing',
         cwd: dir,
@@ -1502,7 +1507,7 @@ describe("the team's hooks, through Claude Code's hook callbacks", () => {
       const refused = fake({ before: ['command'] }, 'not allowed');
       const lines = await run(refused.hooks, { tool_name: 'Bash', tool_input: { command: 'rm -rf build' } });
       expect(lines.find((l) => 'hooks' in l)?.hooks).toEqual({
-        PreToolUse: [{ matcher: 'Bash', hookCallbackIds: [CLAUDE_HOOK_IDS.before], timeout: 150 }],
+        PreToolUse: [{ matcher: 'Bash|Monitor', hookCallbackIds: [CLAUDE_HOOK_IDS.before], timeout: 180 }],
       });
       expect(lines.find((l) => l.hook === 'before')?.answer).toEqual(claudeHookAnswer('before', 'not allowed'));
       expect(refused.seen).toEqual([
@@ -1520,6 +1525,15 @@ describe("the team's hooks, through Claude Code's hook callbacks", () => {
       const lines = await run(undefined, { tool_name: 'Bash', tool_input: { command: 'ls' } });
       expect(lines.find((l) => 'hooks' in l)?.hooks).toBeNull();
       expect(lines.find((l) => l.hook === 'before')?.answer).toBeNull();
+      // A callback id that is not Harness Relay's: answered with nothing, and no hook is asked.
+      const other = fake({ before: ['command'] }, 'not allowed');
+      const unknown = await run(
+        other.hooks,
+        { tool_name: 'Bash', tool_input: { command: 'ls' } },
+        { FAKE_CLAUDE_HOOK_ID: 'someone-elses' },
+      );
+      expect(unknown.find((l) => l.hook === 'before')?.answer).toEqual({});
+      expect(other.seen).toEqual([]);
     });
   });
 });

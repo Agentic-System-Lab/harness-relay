@@ -1367,7 +1367,6 @@ describe("Pi: the team's hooks", () => {
     after: async () => undefined,
     program: () => undefined,
     dispose: () => undefined,
-    note: () => undefined,
   });
 
   it('loads the gate below full access, and with full access only when the turn has hooks', () => {
@@ -1464,7 +1463,6 @@ describe("Pi: a turn with the team's hooks", () => {
         },
         program: () => undefined,
         dispose: () => undefined,
-        note: () => undefined,
       };
       const calls = [
         { toolCallId: 'h1', toolName: 'bash', input: { command: 'rm -rf build' } },

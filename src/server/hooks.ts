@@ -46,10 +46,17 @@ export interface TurnHooks {
   kinds(when: CheckHook['when']): Set<HookTools>;
   /** The longest a call may wait for its `before` (or `after`) hooks: all their time limits, one after another, in seconds. */
   budgetSec(when: CheckHook['when']): number;
-  /** Before a call: why it is refused (the reason the agent gets), or undefined to let it go on as it would. */
-  before(call: HookCall): Promise<string | undefined>;
-  /** After a call: what to tell the agent (an `after` hook that did not pass), or undefined. */
-  after(call: HookResult): Promise<string | undefined>;
+  /**
+   * Before a call: why it is refused (the reason the agent gets), or undefined to let it go on as it
+   * would. Answers within `budgetSec('before') + HOOK_WAIT.server` seconds: hooks still running then
+   * are stopped, and the call is refused.
+   */
+  before(call: HookCall, limitSec?: number): Promise<string | undefined>;
+  /**
+   * After a call: what to tell the agent (an `after` hook that did not pass), or undefined. `limitSec`,
+   * for both: a shorter deadline, for a CLI that waits no longer for its hooks.
+   */
+  after(call: HookResult, limitSec?: number): Promise<string | undefined>;
   /**
    * For a CLI whose hooks are commands: the program it runs as one (`hookShim.ts`), which passes each
    * call to `handle` over Harness Relay's gateway, good until the turn is over. Undefined when it
@@ -58,8 +65,6 @@ export interface TurnHooks {
   program(handle: HookHandler): HookProgram | undefined;
   /** The turn is over: its programs' grants end. */
   dispose(): void;
-  /** Adds a note to the reply, for the user (the hooks could not be given to the CLI). */
-  note(text: string): void;
 }
 
 /** The longest value of the call's arguments in `RELAY_HOOK_INPUT` (a file's whole content is cut), and of all of it. */
@@ -68,25 +73,45 @@ export const HOOK_INPUT_LIMITS = { value: 2000, total: 16_000 };
 /** The most notes about hooks one reply gets: the rest are counted in a last one. */
 export const HOOK_NOTICES = 10;
 
+/**
+ * The longest command line, and list of files, a hook is given (bytes): one variable of a program's
+ * environment holds no more than some 128 KB on Linux. A longer one is refused before the call when a
+ * hook covers it, with that reason, never cut (a hook that reads the command must see all of it); after
+ * the call, which has run, it is cut.
+ */
+export const HOOK_CALL_MAX = 100_000;
+
+/**
+ * How long everyone waits for a call's hooks, in seconds beyond their own time limits one after another
+ * (`budgetSec()`), each a little longer than the one before, so that the answer that refuses comes
+ * first: Harness Relay stops them and refuses (`server`), the hook program refuses on its own
+ * (`program`), and only then does the CLI's own time limit for its hook end (`cli`), which for some
+ * CLIs lets the call go on.
+ */
+export const HOOK_WAIT = { server: 30, program: 60, cli: 90 };
+
 /** The call's arguments as `RELAY_HOOK_INPUT` has them: JSON, each string cut, the whole within its limit. */
 export function hookInput(input: unknown): string {
-  const cut = (v: unknown, depth: number): unknown => {
-    if (typeof v === 'string') return v.length > HOOK_INPUT_LIMITS.value ? `${v.slice(0, HOOK_INPUT_LIMITS.value)}…` : v;
+  const cut = (v: unknown, depth: number, max: number): unknown => {
+    if (typeof v === 'string') return v.length > max ? `${v.slice(0, max)}…` : v;
     if (depth > 6 || v === null || typeof v !== 'object') return v;
-    if (Array.isArray(v)) return v.slice(0, 50).map((x) => cut(x, depth + 1));
+    if (Array.isArray(v)) return v.slice(0, 50).map((x) => cut(x, depth + 1, max));
     return Object.fromEntries(
       Object.entries(v as Record<string, unknown>)
         .slice(0, 50)
-        .map(([k, x]) => [k, cut(x, depth + 1)]),
+        .map(([k, x]) => [k.slice(0, 200), cut(x, depth + 1, max)]),
     );
   };
-  let json: string;
-  try {
-    json = JSON.stringify(cut(input ?? {}, 0)) ?? '{}';
-  } catch {
-    json = '{}';
+  // Always JSON a hook can read: when the whole is too long, its values are cut shorter, then left out.
+  for (const max of [HOOK_INPUT_LIMITS.value, 400, 80, 16]) {
+    try {
+      const json = JSON.stringify(cut(input ?? {}, 0, max)) ?? '{}';
+      if (json.length <= HOOK_INPUT_LIMITS.total) return json;
+    } catch {
+      break;
+    }
   }
-  return json.length > HOOK_INPUT_LIMITS.total ? json.slice(0, HOOK_INPUT_LIMITS.total) : json;
+  return '{"truncated":true}';
 }
 
 /**
@@ -101,13 +126,27 @@ export function hookEnv(when: CheckHook['when'], call: HookCall | HookResult, ag
     RELAY_HOOK_WHEN: when,
     RELAY_HOOK_KIND: call.kind,
     RELAY_HOOK_TOOL: call.tool,
-    RELAY_HOOK_COMMAND: call.command ?? '',
-    RELAY_HOOK_FILES: (call.files ?? []).join('\n'),
+    RELAY_HOOK_COMMAND: fitted(call.command ?? ''),
+    RELAY_HOOK_FILES: fitted((call.files ?? []).join('\n')),
     RELAY_HOOK_INPUT: hookInput(call.input),
     RELAY_HOOK_AGENT: agent,
     RELAY_HOOK_CLI: provider,
     ...(when === 'after' ? { RELAY_HOOK_OUTPUT: keptOutput(r.output ?? ''), RELAY_HOOK_FAILED: r.failed ? '1' : '0' } : {}),
   };
+}
+
+/** Text within `HOOK_CALL_MAX` bytes, cut when it is longer. */
+function fitted(text: string): string {
+  if (Buffer.byteLength(text) <= HOOK_CALL_MAX) return text;
+  return Buffer.from(text)
+    .subarray(0, HOOK_CALL_MAX)
+    .toString('utf8')
+    .replace(/\uFFFD+$/, '');
+}
+
+/** Whether a call's command line or its list of files is longer than a hook can be given. */
+export function callTooLong(call: HookCall): boolean {
+  return Buffer.byteLength(call.command ?? '') > HOOK_CALL_MAX || Buffer.byteLength((call.files ?? []).join('\n')) > HOOK_CALL_MAX;
 }
 
 /** A call in a few words, for the user's note: its command, the files it changes, or its tool. */
@@ -149,6 +188,8 @@ export interface TurnHooksOptions {
   provider: Provider;
   /** Adds a note to the reply, for the user. */
   notice: (text: string) => void;
+  /** For tests: the deadline's seconds as this many (a fraction makes it come at once). */
+  deadlineScale?: number;
   /** A hook program's grant from the gateway (`ToolGateway.hookProgram()`), when it has one. */
   program?: (handle: HookHandler) => { program: HookProgram; revoke: () => void } | undefined;
   deps?: CheckCommandDeps;
@@ -164,16 +205,47 @@ export function turnHooks(hooks: readonly CheckHook[] | undefined, o: TurnHooksO
     if (notes <= HOOK_NOTICES) o.notice(text);
     else if (notes === HOOK_NOTICES + 1) o.notice(t().hookMoreNotices);
   };
-  const run = (hook: CheckHook, call: HookCall | HookResult) =>
+  const run = (hook: CheckHook, call: HookCall | HookResult, signal?: AbortSignal) =>
     runCheckCommand(
       { id: hook.id, run: hook.run, ...(hook.cwd ? { cwd: hook.cwd } : {}) },
       {
         ...o.place,
+        ...(signal ? { signal } : {}),
         env: hookEnv(hook.when, call, o.agent, o.provider),
         timeoutMs: (hook.timeoutSec ?? CHECK_LIMITS.hookTimeoutSec) * 1000,
       },
       deps,
     );
+  const budgetSec = (when: CheckHook['when']) =>
+    hooks.filter((h) => h.when === when).reduce((n, h) => n + (h.timeoutSec ?? CHECK_LIMITS.hookTimeoutSec), 0);
+  /**
+   * `work` with a deadline of its own, whatever keeps a hook from ending (a program of its that holds
+   * its output open, a sandbox slow to end): at the deadline the hooks are stopped and `late` is the answer.
+   */
+  const within = async <T>(
+    when: CheckHook['when'],
+    limitSec: number | undefined,
+    late: T,
+    work: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> => {
+    const stop = new AbortController();
+    const signal = o.place.signal ? AbortSignal.any([o.place.signal, stop.signal]) : stop.signal;
+    let timer: NodeJS.Timeout | undefined;
+    const deadline = new Promise<T>((resolve) => {
+      timer = setTimeout(
+        () => {
+          stop.abort();
+          resolve(late);
+        },
+        Math.min(budgetSec(when) + HOOK_WAIT.server, limitSec ?? Infinity) * 1000 * (o.deadlineScale ?? 1),
+      );
+    });
+    try {
+      return await Promise.race([work(signal), deadline]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   const applying = (when: CheckHook['when'], kind: HookCall['kind']) => hooks.filter((h) => h.when === when && hookApplies(h, kind));
   const revokes: (() => void)[] = [];
   let over = false;
@@ -189,30 +261,49 @@ export function turnHooks(hooks: readonly CheckHook[] | undefined, o: TurnHooksO
       over = true;
       for (const revoke of revokes.splice(0)) revoke();
     },
-    note: (text) => o.notice(text),
     kinds: (when) => new Set(hooks.filter((h) => h.when === when).map((h) => h.tools)),
-    budgetSec: (when) => hooks.filter((h) => h.when === when).reduce((n, h) => n + (h.timeoutSec ?? CHECK_LIMITS.hookTimeoutSec), 0),
-    async before(call) {
-      // In the list's order; the first that does not pass refuses the call, and the rest are not run.
-      for (const hook of applying('before', call.kind)) {
-        const outcome = await run(hook, call);
-        if (outcome.status === 'passed') continue;
-        const said = hookSaid(outcome);
-        notice(t().hookRefused(hook.run, callLabel(call), firstLine(said)));
-        return `Refused by the team's hook \`${hook.run}\`, which Harness Relay runs before this kind of call:\n${said}`;
+    budgetSec,
+    async before(call, limitSec) {
+      const list = applying('before', call.kind);
+      if (!list.length) return undefined;
+      // A hook must see all of the command it decides about: one too long to give it is refused, not cut.
+      if (callTooLong(call)) {
+        notice(t().hookCallTooLong(callLabel(call)));
+        return `Refused: this call is too long for the team's hooks to read (more than ${HOOK_CALL_MAX} bytes). Put the long part in a file and run that instead.`;
       }
-      return undefined;
+      const late = (): string => {
+        notice(t().hookRefused(list[0]!.run, callLabel(call), t().hooksTooLate));
+        return "Refused: the team's hooks did not finish in time.";
+      };
+      const LATE = Symbol('late');
+      const answer = await within<string | undefined | typeof LATE>('before', limitSec, LATE, async (signal) => {
+        // In the list's order; the first that does not pass refuses the call, and the rest are not run.
+        for (const hook of list) {
+          const outcome = await run(hook, call, signal);
+          if (outcome.status === 'passed') continue;
+          if (signal.aborted && !o.place.signal?.aborted) return LATE;
+          const said = hookSaid(outcome);
+          notice(t().hookRefused(hook.run, callLabel(call), firstLine(said)));
+          return `Refused by the team's hook \`${hook.run}\`, which Harness Relay runs before this kind of call:\n${said}`;
+        }
+        return undefined;
+      });
+      return answer === LATE ? late() : answer;
     },
-    async after(call) {
-      const told: string[] = [];
-      for (const hook of applying('after', call.kind)) {
-        const outcome = await run(hook, call);
-        if (outcome.status === 'passed') continue;
-        const said = hookSaid(outcome);
-        notice(t().hookFailed(hook.run, callLabel(call), firstLine(said)));
-        told.push(`The team's hook \`${hook.run}\` ran after this call and did not pass:\n${said}`);
-      }
-      return told.length ? told.join('\n\n') : undefined;
+    async after(call, limitSec) {
+      const list = applying('after', call.kind);
+      if (!list.length) return undefined;
+      return within<string | undefined>('after', limitSec, undefined, async (signal) => {
+        const told: string[] = [];
+        for (const hook of list) {
+          const outcome = await run(hook, call, signal);
+          if (outcome.status === 'passed' || signal.aborted) continue;
+          const said = hookSaid(outcome);
+          notice(t().hookFailed(hook.run, callLabel(call), firstLine(said)));
+          told.push(`The team's hook \`${hook.run}\` ran after this call and did not pass:\n${said}`);
+        }
+        return told.length ? told.join('\n\n') : undefined;
+      });
     },
   };
 }
@@ -233,11 +324,13 @@ export function commandHookHandler(
   hooks: TurnHooks,
   toCall: (payload: Record<string, any>) => HookResult,
   afterReply: (said: string, call: HookResult) => Record<string, unknown>,
+  /** The longest the CLI waits for its hooks (seconds), when that may be less than the hooks need: Harness Relay answers before it. */
+  limitSec?: (when: CheckHook['when']) => number,
 ): HookHandler {
   return async (when, payload) => {
     const call = toCall(payload && typeof payload === 'object' && !Array.isArray(payload) ? (payload as Record<string, any>) : {});
     if (when === 'before') {
-      const said = await hooks.before(call);
+      const said = await hooks.before(call, limitSec?.('before'));
       if (!said) return { code: 0 };
       return {
         code: 0,
@@ -246,7 +339,7 @@ export function commandHookHandler(
         }),
       };
     }
-    const said = await hooks.after(call);
+    const said = await hooks.after(call, limitSec?.('after'));
     return said ? { code: 0, stdout: JSON.stringify(afterReply(said, call)) } : { code: 0 };
   };
 }

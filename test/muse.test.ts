@@ -69,6 +69,7 @@ import {
   rememberMuseSession,
   removeEmptyMountPoints,
   type MuseToolCall,
+  MUSE_HOOK_MAX_WAIT,
   museHookCall,
   museHookHandler,
   museHooksWith,
@@ -2184,7 +2185,6 @@ describe("the team's hooks, through Muse Code's own hooks", () => {
     after: async () => tell,
     program: () => undefined,
     dispose: () => undefined,
-    note: () => undefined,
   });
   const program = { bin: '/usr/bin/node', args: ['/data/tmp/hook-1.mjs', '/data/gateway/relay.sock', '/data/tmp/hook-1.token'] };
 
@@ -2206,6 +2206,15 @@ describe("the team's hooks, through Muse Code's own hooks", () => {
       },
     );
     expect(museHookCall({ tool_name: 'web_fetch', tool_input: {} }).kind).toBe('other');
+    // What is typed into a shell bash started is a command too, and so is a command another tool starts.
+    expect(museHookCall({ tool_name: 'bash_input', tool_input: { input: 'rm -rf build\n' } })).toMatchObject({
+      kind: 'command',
+      command: 'rm -rf build\n',
+    });
+    expect(museHookCall({ tool_name: 'monitor', tool_input: { id: 3 } })).toMatchObject({ kind: 'command', command: '{"id":3}' });
+    // A command that exited with an error is told to the after hooks as failed.
+    expect(museHookCall({ tool_name: 'bash', tool_input: { command: 'false' }, tool_response: '{"exit_code":1}' }).failed).toBe(true);
+    expect(museHookCall({ tool_name: 'bash', tool_input: { command: 'true' }, tool_response: '{"exit_code":0}' }).failed).toBeUndefined();
   });
 
   it("adds an entry for each moment after the account's own, for the tools the hooks cover, running the hook program", () => {
@@ -2214,20 +2223,57 @@ describe("the team's hooks, through Muse Code's own hooks", () => {
       PreToolUse: [
         own.PreToolUse[0],
         {
-          matcher: 'bash|write_file|edit_file',
-          hooks: [{ type: 'command', command: shellWords([program.bin, ...program.args, 'before']), timeout: 90 }],
+          // Every tool that runs a command line or feeds one, and its file tools.
+          matcher: 'bash|bash_input|monitor|powershell|powershell_input|write_file|edit_file',
+          // The program's own limit (the hooks' 30 s and a minute) ends before Muse's for it (90 s more).
+          hooks: [{ type: 'command', command: shellWords([program.bin, ...program.args, 'before', '90']), timeout: 120 }],
         },
       ],
       PostToolUse: [
-        { matcher: '*', hooks: [{ type: 'command', command: shellWords([program.bin, ...program.args, 'after']), timeout: 120 }] },
+        { matcher: '*', hooks: [{ type: 'command', command: shellWords([program.bin, ...program.args, 'after', '120']), timeout: 150 }] },
       ],
       SessionStart: [],
     });
     expect(museHooksWith(undefined, program, fake({ after: ['command'] }))).toEqual({
       PostToolUse: [
-        { matcher: 'bash', hooks: [{ type: 'command', command: shellWords([program.bin, ...program.args, 'after']), timeout: 120 }] },
+        {
+          matcher: 'bash|bash_input|monitor|powershell|powershell_input',
+          hooks: [{ type: 'command', command: shellWords([program.bin, ...program.args, 'after', '120']), timeout: 150 }],
+        },
       ],
     });
+  });
+
+  it('does not start a turn it cannot give the hooks to (no hook program): its calls would go without them', async () => {
+    const run = () =>
+      museRunner.run({
+        bin: 'muse',
+        env: {},
+        prompt: 'hi',
+        systemPrompt: '',
+        cwd: tmpdir(),
+        permission: 'full',
+        signal: new AbortController().signal,
+        onEvent: () => undefined,
+        hooks: fake({ before: ['command'] }),
+      });
+    await expect(withLang('en', run)).rejects.toThrow(/did not start: the team's hooks could not be given to Muse Code/);
+  });
+
+  it("never has Muse wait longer for a hook than it was seen to: the program's limit and Harness Relay's deadline end before Muse's", async () => {
+    const long: TurnHooks = { ...fake({ before: ['command'] }), budgetSec: () => 6000 };
+    const entry = (museHooksWith(undefined, program, long).PreToolUse as { hooks: { command: string; timeout: number }[] }[])[0]!.hooks[0]!;
+    expect(entry.timeout).toBe(MUSE_HOOK_MAX_WAIT);
+    expect(entry.command).toBe(shellWords([program.bin, ...program.args, 'before', String(MUSE_HOOK_MAX_WAIT - 30)]));
+    const limits: (number | undefined)[] = [];
+    const asked: TurnHooks = {
+      ...long,
+      before: async (_call, limitSec) => void limits.push(limitSec),
+      after: async (_call, limitSec) => void limits.push(limitSec),
+    };
+    await museHookHandler(asked)('before', {});
+    await museHookHandler(asked)('after', {});
+    expect(limits).toEqual([MUSE_HOOK_MAX_WAIT - 60, MUSE_HOOK_MAX_WAIT - 60]);
   });
 
   it("answers its hook program: a refusal before the call, after it the call's result with what the hooks said in place of it", async () => {

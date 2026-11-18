@@ -1025,7 +1025,7 @@ export const zhTW = {
     // Hooks: the editor.
     hooks: 'Hook',
     hooksHint:
-      '成員每次使用工具的前後，Harness Relay 執行的指令。「執行前」的 hook 沒有成功（exit 0）就拒絕那次呼叫，它的輸出就是 agent 收到的原因；「執行後」的 hook 沒有成功，輸出會交給 agent。指令從環境變數讀這次呼叫：RELAY_HOOK_COMMAND、RELAY_HOOK_FILES（一行一個完整路徑）、RELAY_HOOK_TOOL、RELAY_HOOK_INPUT（JSON）。和指令一樣，低於完全存取時在 Harness Relay 的沙箱裡執行；每次呼叫都會等它跑完。',
+      '成員每次使用工具的前後，Harness Relay 執行的指令。「執行前」的 hook 沒有成功（exit 0）就拒絕那次呼叫，它的輸出就是 agent 收到的原因；「執行後」的 hook 沒有成功，輸出會交給 agent。指令從環境變數讀這次呼叫：RELAY_HOOK_COMMAND、RELAY_HOOK_FILES（一行一個完整路徑）、RELAY_HOOK_TOOL、RELAY_HOOK_INPUT（JSON）。和指令一樣，低於完全存取時在 Harness Relay 的沙箱裡執行；每次呼叫都會等它跑完。指令提到的、在工作目錄裡的檔案（例如 ./scripts/allow.sh）會像受保護路徑一樣受保護。',
     hooksWho: (clis: string[]) => `目前由 ${clis.join('、')} 執行；其他 agent 的成員，工具呼叫不經過 hook，對話中會註明。`,
     hooksWindowsNote: '原生 Windows 上還不能執行 hook。',
     hookWhen: '何時',

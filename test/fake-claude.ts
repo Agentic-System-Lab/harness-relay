@@ -100,7 +100,7 @@ const callback = (event, input) => {
   const entry = ((hooks || {})[event] || []).find((e) => !e.matcher || e.matcher.split('|').includes(input.tool_name));
   if (!entry) return Promise.resolve(undefined);
   const id = 'hook-' + event;
-  out({ type: 'control_request', request_id: id, request: { subtype: 'hook_callback', callback_id: entry.hookCallbackIds[0], input: { hook_event_name: event, cwd: process.cwd(), ...input }, tool_use_id: 'toolu_1' } });
+  out({ type: 'control_request', request_id: id, request: { subtype: 'hook_callback', callback_id: process.env.FAKE_CLAUDE_HOOK_ID || entry.hookCallbackIds[0], input: { hook_event_name: event, cwd: process.cwd(), ...input }, tool_use_id: 'toolu_1' } });
   return new Promise((resolve) => waiting.set(id, resolve));
 };
 async function hookRun(call) {
