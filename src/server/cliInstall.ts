@@ -26,6 +26,7 @@ import {
   type LoginState,
   type Provider,
 } from '../shared/types';
+import { CHECKED_VERSIONS } from '../shared/cliVersions';
 import { openAgents } from './agents/index';
 import { openHomeEnv } from './agents/open';
 import { HttpError } from './errors';
@@ -64,8 +65,8 @@ import { BREW_DIRS, findOnPath } from './voice';
  *   while it installs, its cache in the folder: OpenHands. Without uv on the PATH, uv's own installer
  *   puts one in the folder first (`UV_UNMANAGED_INSTALL`: no PATH change, no updater), removed with
  *   OpenHands.
- * The open agents get the versions the user guide says they were checked with; the others their
- * newest, as their makers' installers give them.
+ * The open agents get the versions they were checked with (`CHECKED_VERSIONS`, which the user guide
+ * lists too); the others their newest, as their makers' installers give them.
  *
  * Some installers add to the user's PATH anyway: a link in a folder on the PATH that it may write in
  * (Grok's bash script, into /usr/local/bin), or on Windows the user's PATH in the registry (Cursor's,
@@ -104,7 +105,7 @@ const MAX_LOG = 32_000;
 /** Goose's own installer (it moved to this repository; the old address redirects here). */
 const GOOSE_SCRIPT = 'https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh';
 /** Goose's: the version checked, into the folder's `bin`, without its interactive `goose configure`. */
-const gooseEnv = (dir: string) => ({ GOOSE_BIN_DIR: join(dir, 'bin'), GOOSE_VERSION: 'v1.58.1', CONFIGURE: 'false' });
+const gooseEnv = (dir: string) => ({ GOOSE_BIN_DIR: join(dir, 'bin'), GOOSE_VERSION: `v${CHECKED_VERSIONS.goose}`, CONFIGURE: 'false' });
 
 /** A maker's installer script: where it is, what runs it, and where its program ends up. */
 export interface ScriptInstaller {
@@ -220,7 +221,7 @@ export const CLI_RECIPES: Record<Provider, CliRecipe> = {
       env: (dir) => ({ MUSE_INSTALL_DIR: join(dir, 'bin'), MUSE_NO_MODIFY_PATH: '1' }),
     },
   },
-  opencode: { method: 'npm', package: 'opencode-ai@1.19.5', command: 'opencode' },
+  opencode: { method: 'npm', package: `opencode-ai@${CHECKED_VERSIONS.opencode}`, command: 'opencode' },
   // Goose's own installer, of the version checked (Homebrew's formula would go outside the folder);
   // on Windows the same script, which supports Git for Windows' bash, makes `goose.exe`.
   goose: {
@@ -228,12 +229,17 @@ export const CLI_RECIPES: Record<Provider, CliRecipe> = {
     posix: { url: GOOSE_SCRIPT, shell: 'bash', bin: ['bin', 'goose'], env: gooseEnv },
     windows: { url: GOOSE_SCRIPT, shell: 'bash', bin: ['bin', 'goose.exe'], env: gooseEnv },
   },
-  cline: { method: 'npm', package: 'cline@3.0.74', command: 'cline' },
+  cline: { method: 'npm', package: `cline@${CHECKED_VERSIONS.cline}`, command: 'cline' },
   // On Windows on the x64 Python 3.12 (the only one it runs on), also on Arm: some of its packages
   // (tiktoken) have no wheels for Windows on Arm, and building them takes Rust. Windows runs it
   // emulated there; on an x64 computer it is the Python uv would pick anyway.
-  openhands: { method: 'uv', package: 'openhands==1.16.0', command: 'openhands', windowsPython: 'cpython-3.12-windows-x86_64-none' },
-  pi: { method: 'npm', package: '@earendil-works/pi-coding-agent@1.5.1', command: 'pi' },
+  openhands: {
+    method: 'uv',
+    package: `openhands==${CHECKED_VERSIONS.openhands}`,
+    command: 'openhands',
+    windowsPython: 'cpython-3.12-windows-x86_64-none',
+  },
+  pi: { method: 'npm', package: `@earendil-works/pi-coding-agent@${CHECKED_VERSIONS.pi}`, command: 'pi' },
 };
 
 /** The script of a recipe's maker for `platform`: bash on macOS and Linux, its Windows one there, none elsewhere. */

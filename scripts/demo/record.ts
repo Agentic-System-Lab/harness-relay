@@ -168,7 +168,10 @@ export async function record(opts: RecordOptions, base: string, log: Log): Promi
       await moveClick(page.getByRole('button', { name: L.files }), { after: 900 });
       await page.waitForSelector('.file-browser');
       for (const name of ['src', 'server', 'orchestrator.ts']) {
-        await moveClick(page.locator('.file-list .file-name', { hasText: new RegExp(`^${name.replace('.', '\\.')}$`) }), { after: 700 });
+        await moveClick(
+          page.locator('.file-list .file-name', { hasText: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }),
+          { after: 700 },
+        );
       }
       await sleep(1200);
       // Relay mode's hand-off (`if (mode === 'relay')`), a third of the way down the preview.

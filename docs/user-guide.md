@@ -28,10 +28,10 @@ You don't need them all: Harness Relay works with any of them. Install the ones 
 
 The seven you sign in to:
 
-- [Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude`)
-- [Codex CLI](https://github.com/openai/codex) (`codex`)
-- [Grok CLI](https://github.com/xai-org/grok-build) (`grok`)
-- [Cursor CLI](https://cursor.com/cli) (`cursor-agent`)
+- [Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude`; checked with 2.1.322)
+- [Codex CLI](https://github.com/openai/codex) (`codex`; checked with 0.167.0)
+- [Grok CLI](https://github.com/xai-org/grok-build) (`grok`; checked with 1.0.77)
+- [Cursor CLI](https://cursor.com/cli) (`cursor-agent`; checked with 2026.11.11-043ef28)
 - [Antigravity CLI](https://antigravity.google/download) (`agy`; checked with 1.5.6 on macOS, Linux and Windows), signed in with your Google account or a Gemini API key
 - [GitHub Copilot CLI](https://github.com/features/copilot/cli) (`copilot`, npm `@github/copilot`; checked with 1.0.109 on macOS, Linux and Windows), signed in with your GitHub account or a GitHub token. Below full access on Linux its sandbox needs bubblewrap, slirp4netns and unprivileged user and network namespaces (see [OS sandboxes by platform → Linux](sandboxing.md#linux)).
 - [Muse Code](https://dev.meta.ai/products/muse-code/) (`muse`; checked with 1.4.18 on macOS and Linux, and on Windows), signed in with your Meta account or a Meta API key

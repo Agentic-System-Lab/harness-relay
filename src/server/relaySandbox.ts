@@ -193,9 +193,16 @@ export interface RelaySandboxContext {
 }
 
 export interface RelaySandboxTools {
-  /** The shell that starts the sandbox, and the one sandbox-runtime runs the command with in it. */
+  /**
+   * The shell that starts the sandbox, and the one sandbox-runtime runs the command with in it
+   * (`binShell`, `sandboxShell`). Never bash: a bash at the top level (no `SHLVL`, as in the desktop
+   * app's server or one a service manager starts) whose stdin is a socket, as every agent's is (Node's
+   * pipes are socket pairs), takes itself for a remote login and reads `~/.bashrc` of the agent's home
+   * before the command (and on Debian and Ubuntu `/etc/bash.bashrc` too). OpenHands' run home has a
+   * `.bashrc` for its terminal, which gives commands the user's own `HOME` back: read there, it gave
+   * OpenHands itself the user's home, read-only in the sandbox (#117). `sh` reads no startup file.
+   */
   sh: string;
-  bash: string;
   /** Linux only. */
   bwrap?: string;
   socat?: string;
@@ -364,7 +371,6 @@ export function relaySandboxTools(
   const find = (name: string) => findProgram(name, dirs);
   return {
     sh: find('sh') ?? '/bin/sh',
-    bash: find('bash') ?? '/bin/bash',
     ...(platform === 'linux' ? { bwrap: find('bwrap'), socat: find('socat'), rg: find('rg') } : {}),
     ...((o.electron ?? Boolean(process.versions.electron)) ? { node: hostNodeOnPath(find) ?? sandboxNode(o.dataDir) } : {}),
   };
@@ -1509,7 +1515,6 @@ function hostPrograms(ctx: Pick<RelaySandboxContext, 'tools' | 'relayRoot'>): st
     RELAY_SANDBOX_HOST,
     sandboxRuntimeDir() ?? join(ctx.relayRoot, 'node_modules', '@anthropic-ai', 'sandbox-runtime'),
     t.sh,
-    t.bash,
     ...[t.bwrap, t.socat, t.rg].filter((p): p is string => Boolean(p)),
   ];
 }
@@ -1529,22 +1534,30 @@ export function resetSandboxAvailability(): void {
  * Starts a sandbox for a trivial command, the way a run does (sandbox-runtime, its proxy, on Linux
  * bubblewrap, its network bridge and the seccomp helper), and reports why it did not work.
  */
-async function probe(ctx: RelaySandboxContext): Promise<HostFailure | undefined> {
-  const dirs = makeRunDirs(ctx.dataDir);
+/** The shell sandbox-runtime runs its command with, in runs and in the probe: `sh`, never bash (`RelaySandboxTools.sh`). */
+export const sandboxShell = (ctx: Pick<RelaySandboxContext, 'tools'>): string => ctx.tools.sh;
+
+/** What the host is told for the probe: a trivial command, the way a run's is given. */
+export function probeHostConfig(ctx: RelaySandboxContext, dirs: RelaySandboxRunDirs): Record<string, unknown> {
   const paths = { allowWrite: withReal([dirs.tmp]), denyWrite: withReal(srtDefaultWrites(ctx.home)), denyRead: [], allowRead: [] };
   const hosts = { allowed: ['relay-sandbox-probe.invalid'], denied: [], quietReasons: {}, loopback: false, loopbackPorts: [] };
-  const run = new RelaySandboxRun(
-    dirs,
-    {
-      srt: relaySandboxConfig(paths, hosts, ctx),
-      command: `printf '%s\\n' ${PROBE_EXPECT}`,
-      binShell: ctx.tools.bash,
-      outerEnv: { PATH: SYSTEM_PATH.join(':'), HOME: ctx.home },
-      tmpdir: dirs.tmp,
-      probe: { expect: PROBE_EXPECT },
-    },
-    { localAddresses: ctx.localAddresses, platform: ctx.platform, arch: ctx.arch },
-  );
+  return {
+    srt: relaySandboxConfig(paths, hosts, ctx),
+    command: `printf '%s\\n' ${PROBE_EXPECT}`,
+    binShell: sandboxShell(ctx),
+    outerEnv: { PATH: SYSTEM_PATH.join(':'), HOME: ctx.home },
+    tmpdir: dirs.tmp,
+    probe: { expect: PROBE_EXPECT },
+  };
+}
+
+async function probe(ctx: RelaySandboxContext): Promise<HostFailure | undefined> {
+  const dirs = makeRunDirs(ctx.dataDir);
+  const run = new RelaySandboxRun(dirs, probeHostConfig(ctx, dirs), {
+    localAddresses: ctx.localAddresses,
+    platform: ctx.platform,
+    arch: ctx.arch,
+  });
   try {
     const res = await runProcess({
       bin: hostNode(ctx),
@@ -1644,7 +1657,7 @@ export async function sandboxCommand(
           allowAllUnixSockets: spec.allowAllUnixSockets,
         }),
         command,
-        binShell: ctx.tools.bash,
+        binShell: sandboxShell(ctx),
         outerEnv,
         tmpdir: dirs.tmp,
         localPorts,

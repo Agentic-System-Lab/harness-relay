@@ -1,0 +1,127 @@
+{
+  "provider": "cursor",
+  "version": "2026.11.11-043ef28",
+  "shapes": {
+    "probe": {
+      "kinds": {
+        "from-cli authenticate error": [
+          "error.code:number",
+          "error.data.message:string",
+          "error.message:string",
+          "id:number",
+          "jsonrpc:string"
+        ],
+        "from-cli initialize result": [
+          "id:number",
+          "jsonrpc:string",
+          "result.agentCapabilities.loadSession:boolean",
+          "result.agentCapabilities.mcpCapabilities.http:boolean",
+          "result.agentCapabilities.mcpCapabilities.sse:boolean",
+          "result.agentCapabilities.promptCapabilities.audio:boolean",
+          "result.agentCapabilities.promptCapabilities.embeddedContext:boolean",
+          "result.agentCapabilities.promptCapabilities.image:boolean",
+          "result.agentCapabilities.sessionCapabilities.list:{}",
+          "result.authMethods[].description:string",
+          "result.authMethods[].id:string",
+          "result.authMethods[].name:string",
+          "result.protocolVersion:number"
+        ],
+        "to-cli authenticate": [
+          "id:number",
+          "jsonrpc:string",
+          "method=authenticate",
+          "params.methodId:string"
+        ],
+        "to-cli initialize": [
+          "id:number",
+          "jsonrpc:string",
+          "method=initialize",
+          "params.clientCapabilities._meta.parameterizedModelPicker:boolean",
+          "params.clientCapabilities.fs.readTextFile:boolean",
+          "params.clientCapabilities.fs.writeTextFile:boolean",
+          "params.clientCapabilities.terminal:boolean",
+          "params.protocolVersion:number"
+        ]
+      },
+      "flags": [
+        "--add-dir",
+        "--api-key",
+        "--approve-mcps",
+        "--auto-review",
+        "--continue",
+        "--endpoint",
+        "--force",
+        "--header",
+        "--help",
+        "--list-models",
+        "--mode",
+        "--model",
+        "--output-format",
+        "--plan",
+        "--plugin-dir",
+        "--pool",
+        "--print",
+        "--resume",
+        "--sandbox",
+        "--skip-worktree-setup",
+        "--stream-partial-output",
+        "--trust",
+        "--version",
+        "--workspace",
+        "--worktree",
+        "--worktree-base",
+        "--yolo"
+      ],
+      "results": {
+        "status": [
+          "accounts[].auth.loggedIn:boolean",
+          "accounts[].id:string",
+          "accounts[].label:string",
+          "accounts[].usingStoredApiKey:boolean",
+          "auth.loggedIn:boolean",
+          "bin:string",
+          "fact:installed=true",
+          "fact:loggedIn=false",
+          "fact:version=read",
+          "installed:boolean",
+          "provider:string",
+          "usingStoredApiKey:boolean",
+          "version:string"
+        ],
+        "models": [
+          "efforts[]:string",
+          "error:string",
+          "fact:error=yes",
+          "fact:models=none",
+          "fact:source=builtin",
+          "models:[]",
+          "provider:string",
+          "source:string"
+        ],
+        "usage": [
+          "account:string",
+          "fact:error=no",
+          "fact:none=notReported",
+          "fact:problem=-",
+          "limits:[]",
+          "none:string",
+          "provider:string"
+        ],
+        "native": [
+          "agents:[]",
+          "asRun:boolean",
+          "cwd:string",
+          "hooks:[]",
+          "mcpServers:[]",
+          "memory:[]",
+          "memoryFromFiles:boolean",
+          "nativeItems:{}",
+          "nativeOff:[]",
+          "problems:[]",
+          "provider:string",
+          "skills:[]"
+        ]
+      }
+    }
+  }
+}

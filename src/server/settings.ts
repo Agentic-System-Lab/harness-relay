@@ -110,7 +110,8 @@ export const CREDENTIAL_ENV: Record<Provider, readonly string[]> = {
   pi: [],
 };
 
-const DEFAULT_BIN: Record<Provider, string> = {
+/** The program each CLI is started as when Settings names no executable path: its name on the PATH. */
+export const DEFAULT_BIN: Record<Provider, string> = {
   claude: 'claude',
   codex: 'codex',
   grok: 'grok',

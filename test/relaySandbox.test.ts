@@ -56,7 +56,9 @@ import {
   relaySandboxHostRoot,
   HOST_TMP_MAX,
   sandboxAvailable,
+  probeHostConfig,
   sandboxCommand,
+  sandboxShell,
   shellQuote,
   type RelaySandboxContext,
   type RelaySandboxSpec,
@@ -88,7 +90,7 @@ const ctx: RelaySandboxContext = {
   relayRoot: join(dir, 'relay'),
   relayPorts: [8787, 5173],
   localAddresses: ['127.0.0.1', '::1', '192.168.1.20', 'fe80::1'],
-  tools: { sh: '/bin/sh', bash: '/bin/bash', bwrap: '/usr/bin/bwrap', socat: '/usr/bin/socat', rg: '/usr/bin/rg' },
+  tools: { sh: '/bin/sh', bwrap: '/usr/bin/bwrap', socat: '/usr/bin/socat', rg: '/usr/bin/rg' },
 };
 
 function spec(over: Partial<RelaySandboxSpec> = {}): RelaySandboxSpec {
@@ -286,7 +288,7 @@ describe.skipIf(process.platform === 'win32')('relaySandboxConfig', () => {
   it("opts into a pty, the run's own unix sockets (macOS only) and the trustd service (macOS only)", () => {
     const paths = relaySandboxPaths(spec(), ctx, runDirs);
     const hosts = relaySandboxHosts(['api.openai.com'], ctx);
-    const mac = { ...ctx, platform: 'darwin' as const, tools: { sh: '/bin/sh', bash: '/bin/bash' } };
+    const mac = { ...ctx, platform: 'darwin' as const, tools: { sh: '/bin/sh' } };
     const cm = relaySandboxConfig(paths, hosts, mac, { allowPty: true, unixSocketDir: runDirs.tmp, allowTlsTrustd: true });
     expect(cm.allowPty).toBe(true);
     expect(cm.network.allowUnixSockets).toEqual([runDirs.tmp]);
@@ -336,7 +338,7 @@ describe.skipIf(process.platform === 'win32')('relaySandboxConfig', () => {
     const c = relaySandboxConfig(relaySandboxPaths(spec(), ctx, runDirs), relaySandboxHosts([], ctx), {
       ...ctx,
       platform: 'darwin',
-      tools: { sh: '/bin/sh', bash: '/bin/bash' },
+      tools: { sh: '/bin/sh' },
     });
     expect(c.bwrapPath).toBeUndefined();
     expect(c.ripgrep).toBeUndefined();
@@ -366,7 +368,7 @@ describe.skipIf(process.platform === 'win32')('connect-only ports', () => {
       { PATH: '/usr/bin:/bin' },
       spec({ connectPorts: [7777], localPorts: [4096] }),
       {
-        ctx: { ...ctx, platform: 'darwin', tools: { sh: '/bin/sh', bash: '/bin/bash' } },
+        ctx: { ...ctx, platform: 'darwin', tools: { sh: '/bin/sh' } },
         available: async () => ({ ok: true }),
       },
     );
@@ -376,7 +378,43 @@ describe.skipIf(process.platform === 'win32')('connect-only ports', () => {
     const config = JSON.parse(host.lines[0]!);
     expect(config.localPorts).toEqual([4096]);
     expect(config.srt.network.allowedDomains).toEqual(expect.arrayContaining(['127.0.0.1:7777', '127.0.0.1:4096']));
+    // sandbox-runtime runs its command with sh, never bash, which reads the agent home's .bashrc (#117).
+    expect(config.binShell).toBe('/bin/sh');
     await s.dispose();
+  });
+
+  it("runs no startup file of the agent's home before the agent, with the shell runs and the probe are given (#117)", async () => {
+    // OpenHands' run home has a .bashrc that gives its terminal's commands the user's own HOME back. A
+    // top-level bash (no SHLVL, as in the desktop app's server) whose stdin is a socket, as every agent's
+    // is, reads it before its command: the agent then got the user's HOME. The shell the host is given
+    // runs the sandbox's command here as it does inside the sandbox, with a pipe of Node's as stdin (a
+    // socket pair on macOS and Linux) and no SHLVL: with bash back, this fails on Linux.
+    const agentHome = join(dir, 'agent-home-with-rc');
+    mkdirSync(agentHome, { recursive: true });
+    writeFileSync(join(agentHome, '.bashrc'), 'export HOME=/the/users/own/home\nexport RAN_BASHRC=1\n');
+    const s = await sandboxCommand('/usr/bin/env', [], { PATH: '/usr/bin:/bin', HOME: agentHome }, spec(), {
+      ctx: { ...ctx, platform: 'darwin', tools: { sh: '/bin/sh' } },
+      available: async () => ({ ok: true }),
+    });
+    const { server, host } = channelPair();
+    s.run.attach(server, {} as never);
+    await until(() => host.lines.length > 0);
+    const config = JSON.parse(host.lines[0]!) as { binShell: string; command: string; outerEnv: Record<string, string> };
+    await s.dispose();
+    expect(config.outerEnv.SHLVL).toBeUndefined();
+    const r = await runProcess({
+      bin: config.binShell,
+      args: ['-c', config.command],
+      env: config.outerEnv,
+      keepStdinOpen: true,
+      onSpawn: (c) => c.stdin!.end(),
+    });
+    const inside = r.stdout.split('\n');
+    expect(inside).toContain(`HOME=${agentHome}`);
+    expect(inside.some((l) => l.startsWith('RAN_BASHRC='))).toBe(false);
+    // The probe that tells whether the sandbox works here starts it with the same shell.
+    expect(sandboxShell(ctx)).toBe(ctx.tools.sh);
+    expect(probeHostConfig(ctx, makeRunDirs(data)).binShell).toBe(ctx.tools.sh);
   });
 });
 
@@ -535,7 +573,7 @@ describe.skipIf(process.platform === 'win32')('hosts', () => {
   it("lets the agent's own ports through the proxy on macOS only, next to a loopback backend, nothing else local", () => {
     const paths = relaySandboxPaths(spec(), ctx, runDirs);
     const hosts = relaySandboxHosts(['127.0.0.1:11434'], ctx);
-    const mac = { ...ctx, platform: 'darwin' as const, tools: { sh: '/bin/sh', bash: '/bin/bash' } };
+    const mac = { ...ctx, platform: 'darwin' as const, tools: { sh: '/bin/sh' } };
     const cm = relaySandboxConfig(paths, hosts, mac, { localPorts: [4096] });
     expect(cm.network.allowedDomains).toEqual(
       expect.arrayContaining(['127.0.0.1:11434', 'localhost:11434', '[::1]:11434', '127.0.0.1:4096', 'localhost:4096', '[::1]:4096']),
@@ -1053,7 +1091,7 @@ describe.skipIf(process.platform === 'win32')('run folders and their markers', (
     // Other systems are refused elsewhere (`sandboxAvailable`), so no limit applies here.
     removeRunDirs(makeRunDirs(join(dir, 'other-system'), 'freebsd'));
     // Told before any sandbox is tried, as the other reasons the sandbox cannot work here are.
-    const tools = { sh: '/bin/sh', bash: '/bin/bash', bwrap: '/usr/bin/bwrap', socat: '/usr/bin/socat', rg: '/usr/bin/rg' };
+    const tools = { sh: '/bin/sh', bwrap: '/usr/bin/bwrap', socat: '/usr/bin/socat', rg: '/usr/bin/rg' };
     await expect(withLang('en', () => sandboxAvailable({ ...ctx, platform: 'linux', arch: 'x64', tools, dataDir: long }))).resolves.toEqual(
       {
         ok: false,
@@ -1215,7 +1253,7 @@ describe.skipIf(process.platform === 'win32')('fail closed', () => {
       reason: expect.stringMatching(/native Windows.*WSL2/),
     });
     expect(platformRefusal({ ...ctx, platform: 'freebsd' })).toEqual({ code: 'platform', detail: 'freebsd' });
-    const missing = platformRefusal({ ...ctx, tools: { sh: '/bin/sh', bash: '/bin/bash', bwrap: '/usr/bin/bwrap' } });
+    const missing = platformRefusal({ ...ctx, tools: { sh: '/bin/sh', bwrap: '/usr/bin/bwrap' } });
     expect(missing).toEqual({ code: 'deps', detail: 'socat, ripgrep (rg) not installed' });
     // Said once, naming exactly what is missing and the packages to install for it.
     const en = withLang('en', () => failureText(missing!, 'linux'));
@@ -1244,8 +1282,8 @@ describe.skipIf(process.platform === 'win32')('fail closed', () => {
   });
 
   it("runs its host on the Node it was given (the desktop app's: one on PATH), and refuses without one", async () => {
-    expect(hostNode({ tools: { sh: '/bin/sh', bash: '/bin/bash' } })).toBe(process.execPath);
-    expect(hostNode({ tools: { sh: '/bin/sh', bash: '/bin/bash', node: '/opt/node/bin/node' } })).toBe('/opt/node/bin/node');
+    expect(hostNode({ tools: { sh: '/bin/sh' } })).toBe(process.execPath);
+    expect(hostNode({ tools: { sh: '/bin/sh', node: '/opt/node/bin/node' } })).toBe('/opt/node/bin/node');
     for (const platform of ['linux', 'darwin'] as const) {
       const none = { ...ctx, platform, tools: { ...ctx.tools, node: null } };
       expect(platformRefusal(none)).toEqual({ code: 'node', detail: '' });
