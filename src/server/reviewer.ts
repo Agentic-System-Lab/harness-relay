@@ -163,7 +163,7 @@ export function reviewMaterial(messages: ChatMessage[]): ReviewMaterial {
   };
 }
 
-const CHECK_RULE: Record<CheckOutcome['rule'], string> = { paths: 'protected paths', commits: 'commit format' };
+const CHECK_RULE: Record<CheckOutcome['rule'], string> = { paths: 'protected paths', commits: 'commit format', command: 'command' };
 
 /** A team checks result as the lead reads it: each rule's status, and what failed. */
 export function checksForReview(c: ChecksResult): string {
@@ -175,7 +175,11 @@ export function checksForReview(c: ChecksResult): string {
     );
     const more = o.more ? [`… and ${o.more} more`] : [];
     const detail = [...found, ...more].join('; ');
-    return `- ${CHECK_RULE[o.rule]}: ${o.status === 'na' ? 'nothing to check' : o.status === 'error' ? 'could not be checked' : o.status}${detail ? ` (${detail})` : ''}`;
+    const rule = o.rule === 'command' ? `command \`${o.command ?? ''}\`` : CHECK_RULE[o.rule];
+    const status =
+      o.status === 'na' ? 'nothing to check' : o.status === 'error' ? `could not be checked${o.reason ? `: ${o.reason}` : ''}` : o.status;
+    const exit = o.rule === 'command' && o.status === 'failed' ? `, exit ${o.exitCode ?? '?'}` : '';
+    return `- ${rule}: ${status}${exit}${detail ? ` (${detail})` : ''}`;
   });
   return `<team_checks status="${c.status}"${c.skippedAt ? ' skipped_by_user="yes"' : ''}>\nHarness Relay's own checks of the team's work:\n${lines.join('\n')}\n</team_checks>`;
 }

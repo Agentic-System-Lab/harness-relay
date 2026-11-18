@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
 import { acceptNextDialog, composer, finishedReply, openTeamChat, send, settled } from '../support/app';
+import { relaySandbox } from '../support/clis';
 
 /*
  * Team checks: Harness Relay checks the team's work itself once the team has answered, whichever CLI
@@ -92,5 +93,65 @@ test.describe('team checks', () => {
     await finishedReply(page, 'Claude');
     await settled(relay, id);
     await expect(checkCards(page)).toHaveCount(0);
+  });
+
+  test('a command that fails shows how it ended and its output; Team settings tries one', async ({ page, relay }) => {
+    test.skip(process.platform === 'win32', 'Commands are not checked on native Windows yet');
+    const check = `node -e "if (require('fs').existsSync('broken.txt')) { console.log('broken.txt is not allowed'); process.exit(3) }"`;
+    const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], {
+      permission: 'full',
+      checks: { commands: [{ id: 'node', run: check }] },
+    });
+    await send(page, 'Break it e2e:write=broken.txt');
+    await finishedReply(page, 'Claude');
+    const card = checkCards(page).last();
+    await expect(card.locator('.plan-head .checks-status')).toHaveText('Failed');
+    const row = card.locator('.checks-outcomes > li').filter({ has: page.locator('.checks-command') });
+    await expect(row.locator('.checks-command')).toHaveText(check);
+    await expect(row).toContainText('exit 3');
+    await expect(row).toContainText('Full access: run without the sandbox');
+    await row.getByText('Output (the end)').click();
+    await expect(row.locator('pre')).toHaveText('broken.txt is not allowed');
+    await settled(relay, id);
+
+    // Team settings: a second command, tried on the working directory as it is.
+    await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Team settings' });
+    await drawer.getByRole('button', { name: 'Add a command' }).click();
+    const added = drawer.locator('.checks-command-row').last();
+    await added.getByRole('textbox', { name: 'Command' }).fill('echo tried && exit 0');
+    await added.getByRole('button', { name: 'Try it' }).click();
+    await expect(added.locator('.checks-tried .checks-status')).toHaveText('Passed');
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drawer).toHaveCount(0);
+    expect((await settled(relay, id)).settings.checks!.commands!.map((c) => c.run)).toEqual([check, 'echo tried && exit 0']);
+  });
+
+  test("below full access, a command runs in Harness Relay's own sandbox, where it cannot write outside the working directory", async ({
+    page,
+    relay,
+  }) => {
+    const sandbox = relaySandbox();
+    test.skip(!sandbox.ok, `Harness Relay's own sandbox does not work here: ${sandbox.reason}`);
+    const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], {
+      permission: 'edit',
+      checks: {
+        commands: [
+          { id: 'in', run: 'echo inside > inside.txt' },
+          { id: 'out', run: 'echo outside > "$HOME/outside.txt"' },
+        ],
+      },
+    });
+    await send(page, 'Change something e2e:write=notes.md');
+    await finishedReply(page, 'Claude');
+    const card = checkCards(page).last();
+    await expect(card.locator('.plan-head .checks-status')).not.toHaveText('Checking', { timeout: 60_000 });
+    const rows = card.locator('.checks-outcomes > li');
+    await expect(rows.filter({ hasText: 'inside.txt' }).locator('.checks-status')).toHaveText('Passed');
+    await expect(rows.filter({ hasText: 'inside.txt' })).toContainText('The check changed these files itself: inside.txt');
+    // Refused by the sandbox: it could not run, never "the team's work failed".
+    await expect(rows.filter({ hasText: 'outside.txt' }).locator('.checks-status')).toHaveText('Could not run');
+    await expect(card.locator('.plan-head .checks-status')).toHaveText('Could not run');
+    await settled(relay, id);
   });
 });

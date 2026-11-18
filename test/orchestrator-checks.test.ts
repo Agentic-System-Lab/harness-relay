@@ -11,6 +11,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, Conversation } from '../src/shared/types';
+import { defaultCheckCommandDeps } from '../src/server/checkCommands';
 import { calls, conversation, db, fake, finish, orchestrator, project, store, Store, textOf, withLang } from './orchestrator-harness';
 
 const cards = (conv: Conversation) => conv.messages.filter((m) => m.checks);
@@ -270,5 +271,165 @@ describe('team checks', () => {
     const own = conversation({ checks: {} });
     apply(own);
     expect(own.settings.checks).toEqual({});
+  });
+});
+
+describe('team checks: commands', () => {
+  const commandOf = (conv: Conversation, id = 'c') =>
+    lastCard(conv).checks!.outcomes.find((o) => o.rule === 'command' && o.commandId === id)!;
+  const commanded = (run: string, settings: Parameters<typeof conversation>[0] = {}) =>
+    conversation({ mode: 'roundtable', permission: 'full', checks: { commands: [{ id: 'c', run }] }, ...settings });
+  /** Runs a command's script as the real shell would, waiting for `gate` first when it is set (and for Stop). */
+  const gated = (gate: Promise<void>) =>
+    ({
+      ...defaultCheckCommandDeps,
+      runShellScript: async (_sh: string, _flags: readonly string[], _script: string, o: { signal?: AbortSignal }) => {
+        await Promise.race([gate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
+        const aborted = Boolean(o.signal?.aborted);
+        return {
+          code: aborted ? null : 0,
+          signal: null,
+          stdout: '',
+          stdoutBytes: Buffer.alloc(0),
+          stdoutTruncated: false,
+          stdoutSize: 0,
+          stderr: '',
+          aborted,
+          timedOut: false,
+        };
+      },
+    }) as typeof defaultCheckCommandDeps;
+
+  it.skipIf(process.platform === 'win32')(
+    'runs them once the team has finished, and shows the next turn the end of what a failing one printed',
+    async () => {
+      const conv = commanded('if [ -e Bob.txt ]; then echo "Bob.txt should not be here"; exit 1; fi');
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+      expect(lastCard(conv).checks!.status).toBe('failed');
+      expect(commandOf(conv)).toMatchObject({ status: 'failed', exitCode: 1, unsandboxed: true, output: 'Bob.txt should not be here' });
+      const briefing = calls.find((c) => c.name === 'Alice')!.systemPrompt!;
+      expect(briefing).toContain('These commands must succeed');
+      await orchestrator.send(conv.id, 'fix it');
+      await finish(conv.id);
+      const prompt = promptOf('Alice');
+      expect(prompt).toContain('- Command `if [ -e Bob.txt ]');
+      expect(prompt).toContain('<command_output>\nBob.txt should not be here\n</command_output>');
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'passes one that succeeds, and says what it changed in the working directory itself',
+    async () => {
+      const conv = commanded('echo snapshot > __snapshot.txt');
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+      expect(commandOf(conv)).toMatchObject({ status: 'passed', exitCode: 0, wroteFiles: ['__snapshot.txt'] });
+    },
+  );
+
+  it('below full access, runs them in Harness Relay’s sandbox, with no network', async () => {
+    const conv = commanded('npm test', { permission: 'edit' });
+    const specs: { permission: string; allowedHosts: string[]; cwd: string }[] = [];
+    orchestrator.checkCommandDeps = {
+      ...defaultCheckCommandDeps,
+      platform: 'linux',
+      makeRunDirs: () => ({ tmp: join(project, '.run-tmp'), hostTmp: join(project, '.run-host') }),
+      sandboxCommand: (async (_bin: string, _args: string[], env: NodeJS.ProcessEnv, spec: (typeof specs)[number]) => {
+        specs.push(spec);
+        return { bin: 'host', args: [], env, channel: {}, failure: () => undefined, dispose: async () => undefined, run: {} };
+      }) as never,
+      runProcess: (async () => ({
+        code: 0,
+        signal: null,
+        stdout: 'ok',
+        stdoutBytes: Buffer.alloc(0),
+        stdoutTruncated: false,
+        stdoutSize: 2,
+        stderr: '',
+        aborted: false,
+        timedOut: false,
+      })) as never,
+    };
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect(commandOf(conv)).toMatchObject({ status: 'passed', output: 'ok' });
+    expect(commandOf(conv).unsandboxed).toBeUndefined();
+    expect(specs).toEqual([expect.objectContaining({ permission: 'edit', allowedHosts: [], cwd: project })]);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'keeps them from running when the run changed what they read, until the user confirms; in a run nobody watched, that fails',
+    async () => {
+      const conv = commanded('true');
+      fake.during = (name) => name === 'Alice' && writeFileSync(join(project, 'vitest.config.ts'), 'export default {};\n');
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+      expect(commandOf(conv)).toMatchObject({ status: 'error', configChanged: ['vitest.config.ts'] });
+      expect(commandOf(conv).exitCode).toBeUndefined();
+      // Checked again without confirming: still kept from running.
+      await orchestrator.recheckChecks(conv.id, lastCard(conv).id);
+      await vi.waitFor(() => expect(commandOf(conv).status).toBe('error'));
+      expect(commandOf(conv).configChanged).toEqual(['vitest.config.ts']);
+      // Confirmed: it runs.
+      await orchestrator.recheckChecks(conv.id, lastCard(conv).id, { confirm: true });
+      await vi.waitFor(() => expect(commandOf(conv).status).toBe('passed'));
+      await finish(conv.id);
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')('counts package.json only when its scripts or test settings changed', async () => {
+    writeFileSync(join(project, 'package.json'), JSON.stringify({ scripts: { test: 'vitest' }, dependencies: {} }));
+    const conv = commanded('true');
+    fake.during = (name) =>
+      name === 'Alice' &&
+      writeFileSync(join(project, 'package.json'), JSON.stringify({ scripts: { test: 'vitest' }, dependencies: { a: '1' } }));
+    await orchestrator.send(conv.id, 'deps');
+    await finish(conv.id);
+    expect(commandOf(conv).status).toBe('passed');
+    fake.during = (name) => name === 'Alice' && writeFileSync(join(project, 'package.json'), JSON.stringify({ scripts: { test: 'true' } }));
+    await orchestrator.send(conv.id, 'scripts');
+    await finish(conv.id);
+    expect(commandOf(conv)).toMatchObject({ status: 'error', configChanged: ['package.json'] });
+  });
+
+  it('runs none when the team stopped to ask, nor in parallel mode', async () => {
+    const asked = commanded('true');
+    fake.asking.add('Alice');
+    await orchestrator.send(asked.id, 'go');
+    await finish(asked.id);
+    expect(commandOf(asked)).toMatchObject({ status: 'na', reason: expect.any(String) });
+    fake.asking.clear();
+    const parallel = commanded('true', { mode: 'parallel', permission: 'edit' });
+    await orchestrator.send(parallel.id, 'go');
+    await finish(parallel.id);
+    expect(commandOf(parallel)).toMatchObject({ status: 'na' });
+  });
+
+  it('Check again runs them in the background: the chat is busy meanwhile, a message waits, and Stop stops them', async () => {
+    const conv = commanded('true');
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    let open!: () => void;
+    orchestrator.checkCommandDeps = gated(new Promise((r) => (open = r)));
+    const again = await orchestrator.recheckChecks(conv.id, lastCard(conv).id);
+    expect(again.checks!.status).toBe('running');
+    expect(orchestrator.isRunning(conv.id)).toBe(true);
+    expect((await orchestrator.send(conv.id, 'meanwhile')).queued).toBe(true);
+    orchestrator.stop(conv.id);
+    await finish(conv.id);
+    expect(commandOf(conv)).toMatchObject({ status: 'error', reason: expect.any(String) });
+    // Stopped: what waits stays, as after a run's Stop.
+    expect(conv.queue?.map(textOf)).toEqual(['meanwhile']);
+    open();
+  });
+
+  it('tries a command on the working directory as it is, posting nothing', async () => {
+    const conv = commanded('true');
+    orchestrator.checkCommandDeps = gated(Promise.resolve());
+    const outcome = await orchestrator.tryCheckCommand(conv.id, { id: 'x', run: 'npm test' });
+    expect(outcome).toMatchObject({ rule: 'command', status: 'passed', commandId: 'x' });
+    expect(cards(conv)).toEqual([]);
+    expect(orchestrator.isRunning(conv.id)).toBe(false);
   });
 });

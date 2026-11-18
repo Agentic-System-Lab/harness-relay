@@ -495,9 +495,9 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
   }, []);
 
   // Team checks: the latest result's card. Errors show on the card itself (it rethrows them).
-  const onRecheckChecks = useCallback(async (messageId: string) => {
+  const onRecheckChecks = useCallback(async (messageId: string, confirm?: boolean) => {
     const c = convRef.current;
-    if (c) await api.recheckChecks(c.id, messageId);
+    if (c) await api.recheckChecks(c.id, messageId, confirm);
   }, []);
   const onSkipChecks = useCallback(async (messageId: string) => {
     const c = convRef.current;
@@ -1134,6 +1134,7 @@ function TeamDrawer({
             proposed={proposed}
             leadLabel={leadText}
             schedule={conv.schedule}
+            convId={conv.id}
           />
         </fieldset>
         <footer className="drawer-foot">

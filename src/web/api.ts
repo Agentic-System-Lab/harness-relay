@@ -11,6 +11,8 @@ import type {
   ApprovalAnswer,
   AuthSessionView,
   ChatMessage,
+  CheckCommand,
+  CheckOutcome,
   Conversation,
   ConversationGroup,
   ConversationSchedule,
@@ -385,8 +387,10 @@ export const api = {
   /** Lead review on or off (at any time); returns whether it is on now. */
   setLeadReview: (id: string, on: boolean) => request<{ leadReview: boolean }>('PUT', `/api/conversations/${id}/lead-review`, { on }),
   /** Team checks: the latest result's card. */
-  recheckChecks: (id: string, messageId: string) =>
-    request<ChatMessage>('POST', `/api/conversations/${id}/checks/${messageId}/recheck`, {}),
+  recheckChecks: (id: string, messageId: string, confirm = false) =>
+    request<ChatMessage>('POST', `/api/conversations/${id}/checks/${messageId}/recheck`, confirm ? { confirm } : {}),
+  tryCheck: (id: string, command: CheckCommand) => request<CheckOutcome>('POST', `/api/conversations/${id}/checks/try`, { command }),
+  checksEnvironment: () => request<{ platform: string; sandbox?: string }>('GET', '/api/checks/environment'),
   skipChecks: (id: string, messageId: string) => request<ChatMessage>('POST', `/api/conversations/${id}/checks/${messageId}/skip`, {}),
   fixChecks: (id: string, messageId: string, agentId: string) =>
     request<{ ok: true }>('POST', `/api/conversations/${id}/checks/${messageId}/fix`, { agentId }),

@@ -97,7 +97,25 @@ export function isProtected(path: string, patterns: readonly CompiledPattern[]):
 
 /** Whether a list has any rule to check. */
 export function hasChecks(list: CheckList | undefined): list is CheckList {
-  return Boolean(list && (list.protectedPaths?.length || list.commitPattern));
+  return Boolean(list && (list.protectedPaths?.length || list.commitPattern || list.commands?.length));
+}
+
+/**
+ * A command's folder as it is kept: trimmed, `\` read as `/`; empty for the first working directory.
+ * Undefined for one that cannot be one: a relative path that leaves the folder (`..`), or too long.
+ */
+export function tidyFolder(input: string): string | undefined {
+  const f = input.trim();
+  if (!f) return '';
+  if (f.length > CHECK_LIMITS.folder) return undefined;
+  // A full path is checked against the working directories when the command runs.
+  if (f.startsWith('/') || /^[A-Za-z]:[\\/]/.test(f)) return f;
+  const names = f
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((n) => n && n !== '.');
+  if (names.some((n) => n === '..')) return undefined;
+  return names.join('/');
 }
 
 /** A commit pattern that JavaScript can read, or the reason it cannot. */

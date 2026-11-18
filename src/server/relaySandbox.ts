@@ -128,6 +128,21 @@ export interface RelaySandboxSpec {
    */
   allowUnixSocketsInTmp?: boolean;
   /**
+   * macOS only: let the run listen on and connect to every local port (sandbox-runtime's
+   * `allowLocalBinding`), which a test that starts a server of its own needs. It then reaches every
+   * service on this computer's loopback, Harness Relay's own API among them (which still wants a signed-in
+   * browser's key). For a team check's command that the user turned it on for (`CheckCommand.localPorts`),
+   * never for an agent. Ignored on Linux, where the sandbox has a loopback of its own.
+   */
+  allowLocalBinding?: boolean;
+  /**
+   * Linux only: let the run open any Unix socket (sandbox-runtime's `allowAllUnixSockets`: its seccomp
+   * filter cannot allow one path). It then reaches every socket it can name: Docker's (as good as root),
+   * an ssh agent's, the session bus. For a team check's command that the user turned it on for
+   * (`CheckCommand.unixSockets`), never for an agent. Ignored on macOS (`allowUnixSocketsInTmp` there).
+   */
+  allowAllUnixSockets?: boolean;
+  /**
    * The run's folders, made beforehand with `makeRunDirs()` by a caller that needs the temporary
    * folder before the command is wrapped (an adapter writes its config and relocates its caches there).
    * Absent: they are made here. Either way `dispose()` removes them.
@@ -1009,7 +1024,14 @@ export function relaySandboxConfig(
   paths: ReturnType<typeof relaySandboxPaths>,
   hosts: ReturnType<typeof relaySandboxHosts>,
   ctx: Pick<RelaySandboxContext, 'platform' | 'tools'>,
-  o: { allowPty?: boolean; unixSocketDir?: string; allowTlsTrustd?: boolean; localPorts?: readonly number[] } = {},
+  o: {
+    allowPty?: boolean;
+    unixSocketDir?: string;
+    allowTlsTrustd?: boolean;
+    localPorts?: readonly number[];
+    allowLocalBinding?: boolean;
+    allowAllUnixSockets?: boolean;
+  } = {},
 ): SandboxRuntimeConfig {
   // Only on macOS, and only sockets inside the run's own temporary folder (a `subpath` rule); its
   // seccomp filter cannot allow one socket path on Linux, so there they stay blocked.
@@ -1027,8 +1049,10 @@ export function relaySandboxConfig(
       ],
       deniedDomains: hosts.denied,
       deniedDomainReasons: Object.fromEntries(hosts.denied.map((d) => [d, hosts.quietReasons[d] ?? DENY_REASONS.relay])),
-      allowLocalBinding: false,
-      allowAllUnixSockets: false,
+      // A team check's own openings (`RelaySandboxSpec.allowLocalBinding`, `allowAllUnixSockets`), each
+      // on its own system only; never an agent's.
+      allowLocalBinding: Boolean(o.allowLocalBinding) && ctx.platform === 'darwin',
+      allowAllUnixSockets: Boolean(o.allowAllUnixSockets) && ctx.platform === 'linux',
       allowUnixSockets,
       // The one mach service `enableWeakerNetworkIsolation` opens, named on its own so nothing else is
       // (sandbox-runtime reads it from `network`).
@@ -1616,6 +1640,8 @@ export async function sandboxCommand(
           allowTlsTrustd: spec.allowTlsTrustd,
           localPorts,
           unixSocketDir: spec.allowUnixSocketsInTmp ? dirs.tmp : undefined,
+          allowLocalBinding: spec.allowLocalBinding,
+          allowAllUnixSockets: spec.allowAllUnixSockets,
         }),
         command,
         binShell: ctx.tools.bash,

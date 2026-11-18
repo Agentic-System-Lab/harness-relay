@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { badCommitPattern, badPath, cardActions, fixCandidates, listFrom, pathsFromText, pathsText, ruleCount } from '../src/web/checks';
+import {
+  badCommitPattern,
+  badPath,
+  cardActions,
+  commandProblem,
+  fixCandidates,
+  gatedFiles,
+  listFrom,
+  pathsFromText,
+  pathsText,
+  ruleCount,
+} from '../src/web/checks';
 import type { AgentConfig, ChatMessage, ChecksResult } from '../src/shared/types';
 
 const card = (checks: Partial<ChecksResult> = {}): ChatMessage => ({
@@ -38,16 +49,16 @@ describe('team checks editor', () => {
 
 describe('team checks card', () => {
   it('offers something on the latest result only, and nothing while the team replies', () => {
-    expect(cardActions(card(), true, false)).toEqual({ recheck: true, fix: true, skip: true });
-    expect(cardActions(card(), false, false)).toEqual({ recheck: false, fix: false, skip: false });
-    expect(cardActions(card(), true, true)).toEqual({ recheck: false, fix: false, skip: false });
+    expect(cardActions(card(), true, false)).toEqual({ recheck: true, fix: true, skip: true, confirm: false });
+    expect(cardActions(card(), false, false)).toEqual({ recheck: false, fix: false, skip: false, confirm: false });
+    expect(cardActions(card(), true, true)).toEqual({ recheck: false, fix: false, skip: false, confirm: false });
     expect(cardActions(card({ status: 'running' }), true, false).recheck).toBe(false);
   });
 
   it('offers Fix and Skip only while it fails and was not skipped; Check again always', () => {
-    expect(cardActions(card({ status: 'passed' }), true, false)).toEqual({ recheck: true, fix: false, skip: false });
-    expect(cardActions(card({ status: 'error' }), true, false)).toEqual({ recheck: true, fix: true, skip: true });
-    expect(cardActions(card({ skippedAt: 1 }), true, false)).toEqual({ recheck: true, fix: false, skip: false });
+    expect(cardActions(card({ status: 'passed' }), true, false)).toEqual({ recheck: true, fix: false, skip: false, confirm: false });
+    expect(cardActions(card({ status: 'error' }), true, false)).toEqual({ recheck: true, fix: true, skip: true, confirm: false });
+    expect(cardActions(card({ skippedAt: 1 }), true, false)).toEqual({ recheck: true, fix: false, skip: false, confirm: false });
   });
 
   it('lists the members its findings name first', () => {
@@ -108,5 +119,39 @@ describe('team checks as Markdown', async () => {
         '- **Commit format**: Not applicable · No new commit in this run.',
       ].join('\n'),
     );
+  });
+});
+
+describe('team checks: commands in the page', () => {
+  it('keeps the rows with a command line, trimmed, the defaults left out', () => {
+    expect(
+      listFrom('', '', undefined, [
+        { id: 'a', run: ' npm test ', cwd: ' app ', timeoutMin: 10, localPorts: false },
+        { id: 'b', run: '  ' },
+        { id: 'c', run: 'make lint', timeoutMin: 3, unixSockets: true },
+      ]),
+    ).toEqual({
+      commands: [
+        { id: 'a', run: 'npm test', cwd: 'app' },
+        { id: 'c', run: 'make lint', timeoutMin: 3, unixSockets: true },
+      ],
+    });
+    expect(ruleCount({ commands: [{ id: 'a', run: 'x' }], commitPattern: 'y' })).toBe(2);
+  });
+
+  it('says what is wrong with a row', () => {
+    expect(commandProblem({ run: ' ' })).toBe('run');
+    expect(commandProblem({ run: 'x', cwd: '../up' })).toBe('folder');
+    expect(commandProblem({ run: 'x', timeoutMin: 0 })).toBe('timeout');
+    expect(commandProblem({ run: 'x', timeoutMin: 61 })).toBe('timeout');
+    expect(commandProblem({ run: 'x', cwd: '/abs/ok', timeoutMin: 60 })).toBeUndefined();
+  });
+
+  it('offers to confirm and run the commands a run kept from running', () => {
+    const gated = card({
+      outcomes: [{ rule: 'command', status: 'error', commandId: 'a', configChanged: ['package.json', 'eslint.config.js'] }],
+    });
+    expect(gatedFiles(gated)).toEqual(['package.json', 'eslint.config.js']);
+    expect(cardActions(gated, true, false)).toEqual({ recheck: true, fix: true, skip: true, confirm: true });
   });
 });

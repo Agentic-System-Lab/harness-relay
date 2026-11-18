@@ -1067,10 +1067,54 @@ export interface CheckList {
    * roundtable and relay mode only (parallel mode applies its results without their commits).
    */
   commitPattern?: string;
+  /**
+   * Commands that must succeed (a test suite, a linter, a team script), each run once the team has
+   * answered, in roundtable and relay mode, after a run that changed something. Below full access they
+   * run in Harness Relay's own sandbox (no network), which fails closed; with full access without one,
+   * as the agents ran. Not on Windows yet.
+   */
+  commands?: CheckCommand[];
 }
 
-/** How many protected path patterns a list may have, and the longest pattern and commit pattern. */
-export const CHECK_LIMITS = { protectedPaths: 50, pattern: 300, commitPattern: 500 };
+/** A command a check list runs (`CheckList.commands`). */
+export interface CheckCommand {
+  /** Stable within its list, for its results. */
+  id: string;
+  /** What to run: a shell command line (`sh -c`), such as `npm test` or `npm run lint && npm test`. */
+  run: string;
+  /** Where to run it: a folder relative to the first working directory (absent: that directory), or a full path inside one of them. */
+  cwd?: string;
+  /** Minutes before it is stopped (`CHECK_LIMITS.timeoutMin` when absent). */
+  timeoutMin?: number;
+  /**
+   * In the sandbox (below full access) on macOS: let it listen on and connect to every local port, which
+   * a test with a server of its own needs. It then reaches every service on this computer's own address,
+   * Harness Relay's API among them. Off by default; nothing changes on Linux, where the sandbox has a
+   * loopback of its own.
+   */
+  localPorts?: boolean;
+  /**
+   * In the sandbox on Linux: let it open any Unix socket, which a test with a socket of its own needs. It
+   * then reaches every socket it can name (Docker's, an ssh agent's, the session bus). Off by default; on
+   * macOS its own temporary folder's sockets are always allowed.
+   */
+  unixSockets?: boolean;
+}
+
+/**
+ * How many protected path patterns a list may have, the longest pattern and commit pattern, how many
+ * commands, the longest command line and folder, and a command's time limit in minutes (default, most).
+ */
+export const CHECK_LIMITS = {
+  protectedPaths: 50,
+  pattern: 300,
+  commitPattern: 500,
+  commands: 10,
+  command: 1000,
+  folder: 500,
+  timeoutMin: 10,
+  maxTimeoutMin: 60,
+};
 
 /** The commit pattern the Conventional Commits button fills in. */
 export const CONVENTIONAL_COMMIT_PATTERN = '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\\([\\w./-]+\\))?!?: \\S';
@@ -1083,7 +1127,7 @@ export const CONVENTIONAL_COMMIT_PATTERN = '^(feat|fix|docs|style|refactor|perf|
 export type CheckStatus = 'running' | 'passed' | 'failed' | 'error' | 'na';
 
 /** The rules a team check result reports on. */
-export type CheckRuleKind = 'paths' | 'commits';
+export type CheckRuleKind = 'paths' | 'commits' | 'command';
 
 /** Something a check found: a protected file changed, or a commit whose subject does not match. */
 export interface CheckFinding {
@@ -1111,6 +1155,23 @@ export interface CheckOutcome {
   /** What it found (at most `CHECK_RESULT_LIMITS.findings`; `more` counts the rest). */
   findings?: CheckFinding[];
   more?: number;
+  /** command: which one (`CheckCommand.id`), and its command line as it was run. */
+  commandId?: string;
+  command?: string;
+  /** command: how it ended (`exitCode` null: it was stopped), and how long it took. */
+  exitCode?: number | null;
+  durationMs?: number;
+  /** command: the end of what it printed, stdout and stderr together (at most `CHECK_RESULT_LIMITS.output` characters). */
+  output?: string;
+  /** command: it ran without Harness Relay's sandbox (full access). */
+  unsandboxed?: boolean;
+  /**
+   * command: not run, because the run changed files the checks read (a test configuration, a script
+   * the command names): which. The user runs it anyway with Check again; in a run nobody watched it fails.
+   */
+  configChanged?: string[];
+  /** command: files in the working directory it changed itself (not ignored by git): new snapshots, formatted files. */
+  wroteFiles?: string[];
 }
 
 /**
@@ -1138,8 +1199,8 @@ export interface ChecksResult {
   fixBy?: string;
 }
 
-/** Most findings one rule's result keeps. */
-export const CHECK_RESULT_LIMITS = { findings: 20 };
+/** Most findings one rule's result keeps, the most of a command's output it keeps, and the most of it agents are shown. */
+export const CHECK_RESULT_LIMITS = { findings: 20, output: 8000, promptOutput: 3000 };
 
 /**
  * The working directories the working directory box offers (`GET /api/cwds`): the default one (Settings)

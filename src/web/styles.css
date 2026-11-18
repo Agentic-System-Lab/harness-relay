@@ -5518,6 +5518,97 @@ details.sub summary {
   margin: 0;
 }
 
+.checks-command {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.checks-output {
+  margin-top: 4px;
+  min-width: 0;
+}
+
+.checks-output summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.checks-output pre {
+  margin: 6px 0 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.checks-commands-title {
+  font-weight: 500;
+  margin-top: 6px;
+}
+
+.checks-commands {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.checks-command-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-width: 0;
+}
+
+.checks-command-line {
+  display: flex;
+  gap: 8px;
+}
+
+.checks-command-line input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.checks-command-options {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.checks-command-options label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.checks-try {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.checks-add {
+  align-self: flex-start;
+}
+
 /* Team settings and the template editor: folded away until it is opened or has rules. */
 .checks-editor {
   display: flex;

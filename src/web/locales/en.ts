@@ -940,7 +940,7 @@ export const en: Messages = {
     status: { running: 'Checking', passed: 'Passed', failed: 'Failed', error: 'Could not run', na: 'Not applicable' },
     whenPause: 'Checked when the team stopped to ask you: what it did until then',
     whenRecheck: 'Checked again',
-    rules: { paths: 'Protected paths', commits: 'Commit format' },
+    rules: { paths: 'Protected paths', commits: 'Commit format', command: 'Command' },
     change: { added: 'added', changed: 'changed', removed: 'removed' },
     by: (name) => `in @${name}'s turn`,
     inWorktree: (name) => `in @${name}'s worktree: applying its result brings it into the working directory`,
@@ -970,6 +970,38 @@ export const en: Messages = {
     badPattern: (why) => `Not a valid regular expression: ${why}`,
     badPath: (p) => `"${p}" cannot be used: write a path relative to the working directory, without ..`,
     count: (n) => (n === 1 ? '1 rule' : `${n} rules`),
+    exit: (code) => (code === null ? 'stopped' : `exit ${code}`),
+    took: (s) => `took ${s}`,
+    output: 'Output (the end)',
+    unsandboxed: 'Full access: run without the sandbox',
+    wrote: (files) => `The check changed these files itself: ${files}`,
+    confirmRun: 'Confirm and run the commands',
+    confirmRunAsk: (files) =>
+      `This run changed settings the checks read:\n${files}\n\nRun the command checks, now that you have looked at them?`,
+    commands: 'Commands',
+    commandsHint:
+      "Commands that must succeed once the team has answered, such as npm test or npm run lint. Below full access they run in Harness Relay's sandbox: no network, writing only in the working directories, with only basic variables (PATH, HOME…) and CI=1. With full access without it, as the agents run. Only in roundtable and relay mode, after a run that changed something.",
+    addCommand: 'Add a command',
+    commandRun: 'Command',
+    commandFolder: 'Folder (relative to the first working directory; optional)',
+    commandTimeout: 'Time limit (minutes)',
+    removeCommand: 'Remove this command',
+    localPorts: 'Allow every local port (macOS)',
+    localPortsHint:
+      "Only for tests that start a server of their own. With it, the command reaches every service on this computer, Harness Relay's API among them.",
+    unixSockets: 'Allow every Unix socket (Linux)',
+    unixSocketsHint:
+      "Only for tests that open a socket of their own. With it, the command reaches every socket it can find, Docker's (as good as root) and an ssh agent's among them.",
+    tryIt: 'Try it',
+    trying: 'Running…',
+    tryFirst: 'Run it once on the working directory as it is, to see that it runs in a check.',
+    tryResult: (status) => `Tried: ${status}`,
+    windowsNote: 'Commands cannot be checked on native Windows yet.',
+    noSandbox: (why) =>
+      `Harness Relay's sandbox cannot start on this computer now, so below full access the commands show "Could not run": ${why}`,
+    badCommand: 'A command cannot be empty',
+    badFolder: (f) => `The folder "${f}" cannot be used: no ..`,
+    badTimeout: (max) => `The time limit is 1 to ${max} minutes`,
   },
 
   changes: {
