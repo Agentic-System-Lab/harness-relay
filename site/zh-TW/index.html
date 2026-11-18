@@ -901,6 +901,30 @@
             </article>
 
             <article class="excerpt">
+              <div class="ui ui-msg t-codex">
+                <span class="av" aria-hidden="true">B</span>
+                <div class="ui-head">@Builder <span class="pill">Codex</span> <span class="chip">在 worktree</span></div>
+                <div class="ui-body">
+                  <div class="ui-changes">
+                    <div class="ui-changes-head">
+                      <b>改了 3 個檔案</b><span class="n"><span class="add">+142</span> <span class="del">−10</span></span>
+                    </div>
+                    <ul class="files">
+                      <li><span class="st m">M</span><span class="path">src/server/orchestrator.ts</span><span class="n"><span class="add">+42</span> <span class="del">−7</span></span></li>
+                      <li><span class="st m">M</span><span class="path">src/server/prompt.ts</span><span class="n"><span class="add">+12</span> <span class="del">−3</span></span></li>
+                      <li><span class="st a">A</span><span class="path">test/relay.test.ts</span><span class="n"><span class="add">+88</span></span></li>
+                    </ul>
+                    <div class="ui-actions"><span class="ui-btn">查看這回合 diff</span><span class="ui-btn dark">套用到工作目錄</span></div>
+                  </div>
+                </div>
+              </div>
+              <div class="excerpt-text">
+                <h3>每次改檔都是一份 diff</h3>
+                <p>工作目錄會自動成為 git repository，每則回覆都列出該 agent 改了哪些檔案。平行模式中每個 agent 都有自己的 worktree，直到你選擇套用其中一份。</p>
+              </div>
+            </article>
+
+            <article class="excerpt">
               <div class="ui ui-msg t-claude">
                 <span class="av" aria-hidden="true">A</span>
                 <div class="ui-head">@Architect <span class="pill">Claude Code</span></div>
@@ -912,25 +936,6 @@
               <div class="excerpt-text">
                 <h3>先問你，不亂猜</h3>
                 <p>好答案取決於只有你知道的事時，agent 會先問你，團隊停下來等；你回覆後，提問的 agent 先依你的回答作答。</p>
-              </div>
-            </article>
-
-            <article class="excerpt">
-              <div class="ui ui-msg t-codex">
-                <span class="av" aria-hidden="true">B</span>
-                <div class="ui-head">@Builder <span class="pill">Codex</span> <span class="chip">在 worktree</span></div>
-                <div class="ui-body">
-                  <ul class="files">
-                    <li><span class="st m">M</span><span class="path">src/server/orchestrator.ts</span><span class="n"><span class="add">+42</span> <span class="del">−7</span></span></li>
-                    <li><span class="st m">M</span><span class="path">src/server/prompt.ts</span><span class="n"><span class="add">+12</span> <span class="del">−3</span></span></li>
-                    <li><span class="st a">A</span><span class="path">test/relay.test.ts</span><span class="n"><span class="add">+88</span></span></li>
-                  </ul>
-                  <div class="ui-actions"><span class="ui-btn">查看這回合 diff</span><span class="ui-btn">套用到工作目錄</span></div>
-                </div>
-              </div>
-              <div class="excerpt-text">
-                <h3>每次改檔都是一份 diff</h3>
-                <p>工作目錄會自動成為 git repository，每則回覆都列出該 agent 改了哪些檔案。平行模式中每個 agent 都有自己的 worktree，直到你選擇套用其中一份。</p>
               </div>
             </article>
 

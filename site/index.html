@@ -921,6 +921,33 @@
             </article>
 
             <article class="excerpt">
+              <div class="ui ui-msg t-codex">
+                <span class="av" aria-hidden="true">B</span>
+                <div class="ui-head">@Builder <span class="pill">Codex</span> <span class="chip">in worktree</span></div>
+                <div class="ui-body">
+                  <div class="ui-changes">
+                    <div class="ui-changes-head">
+                      <b>Changed 3 files</b><span class="n"><span class="add">+142</span> <span class="del">−10</span></span>
+                    </div>
+                    <ul class="files">
+                      <li><span class="st m">M</span><span class="path">src/server/orchestrator.ts</span><span class="n"><span class="add">+42</span> <span class="del">−7</span></span></li>
+                      <li><span class="st m">M</span><span class="path">src/server/prompt.ts</span><span class="n"><span class="add">+12</span> <span class="del">−3</span></span></li>
+                      <li><span class="st a">A</span><span class="path">test/relay.test.ts</span><span class="n"><span class="add">+88</span></span></li>
+                    </ul>
+                    <div class="ui-actions"><span class="ui-btn">View this turn’s diff</span><span class="ui-btn dark">Apply to working directory</span></div>
+                  </div>
+                </div>
+              </div>
+              <div class="excerpt-text">
+                <h3>Every edit is a diff</h3>
+                <p>
+                  The working directory becomes a git repository, and each reply lists the files that agent changed. In
+                  parallel mode every agent has its own worktree until you apply one result.
+                </p>
+              </div>
+            </article>
+
+            <article class="excerpt">
               <div class="ui ui-msg t-claude">
                 <span class="av" aria-hidden="true">A</span>
                 <div class="ui-head">@Architect <span class="pill">Claude Code</span></div>
@@ -934,28 +961,6 @@
                 <p>
                   When a good answer depends on something only you know, an agent asks and the team waits. Once you reply,
                   that agent answers first, with your answer in hand.
-                </p>
-              </div>
-            </article>
-
-            <article class="excerpt">
-              <div class="ui ui-msg t-codex">
-                <span class="av" aria-hidden="true">B</span>
-                <div class="ui-head">@Builder <span class="pill">Codex</span> <span class="chip">in worktree</span></div>
-                <div class="ui-body">
-                  <ul class="files">
-                    <li><span class="st m">M</span><span class="path">src/server/orchestrator.ts</span><span class="n"><span class="add">+42</span> <span class="del">−7</span></span></li>
-                    <li><span class="st m">M</span><span class="path">src/server/prompt.ts</span><span class="n"><span class="add">+12</span> <span class="del">−3</span></span></li>
-                    <li><span class="st a">A</span><span class="path">test/relay.test.ts</span><span class="n"><span class="add">+88</span></span></li>
-                  </ul>
-                  <div class="ui-actions"><span class="ui-btn">View this turn’s diff</span><span class="ui-btn">Apply to working directory</span></div>
-                </div>
-              </div>
-              <div class="excerpt-text">
-                <h3>Every edit is a diff</h3>
-                <p>
-                  The working directory becomes a git repository, and each reply lists the files that agent changed. In
-                  parallel mode every agent has its own worktree until you apply one result.
                 </p>
               </div>
             </article>

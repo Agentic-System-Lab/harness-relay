@@ -1939,6 +1939,29 @@ html:not(.js) .theme-toggle {
   font-size: 13px;
 }
 
+/* You stay in charge: the files a reply changed, in a card of their own as the app shows them, headed by
+   how many and the lines added and removed. */
+.ui-changes {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.ui-changes-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.ui-changes-head .n {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
 .files {
   list-style: none;
   margin: 0;
@@ -1979,11 +2002,13 @@ html:not(.js) .theme-toggle {
   white-space: nowrap;
 }
 
-.files .add {
+.files .add,
+.ui-changes-head .add {
   color: var(--codex-ink);
 }
 
-.files .del {
+.files .del,
+.ui-changes-head .del {
   color: var(--danger);
 }
 
@@ -2468,8 +2493,8 @@ html:not(.js) .theme-toggle {
 
 /* No page scrolls sideways, down to a 280px screen (the narrowest phones', folded; measured in Chromium
    at every width from 280px, test/site-header.test.ts): a long command or package name in the text
-   breaks where it must, the approval card's buttons wrap, the headline scales with the screen so that
-   the phrases it keeps whole fit, and the header's controls draw closer. */
+   breaks where it must, the approval and changes cards' buttons wrap, the headline scales with the
+   screen so that the phrases it keeps whole fit, and the header's controls draw closer. */
 @media (max-width: 480px) {
   :not(pre) > code {
     white-space: normal;
@@ -2477,6 +2502,10 @@ html:not(.js) .theme-toggle {
   }
 
   .ui-approval .ui-btn {
+    white-space: normal;
+  }
+
+  .ui-changes .ui-btn {
     white-space: normal;
   }
 }

@@ -66,6 +66,8 @@ describe("the landing page's header", () => {
     expect(inside(480, ':not(pre) > code')).toContain('overflow-wrap: anywhere;');
     // The approval card's buttons ("Always allow “npx tsx” in this chat") wrap.
     expect(inside(480, '.ui-approval .ui-btn')).toContain('white-space: normal;');
+    // So do the changes card's ("Apply to working directory").
+    expect(inside(480, '.ui-changes .ui-btn')).toContain('white-space: normal;');
     // The headline scales with the screen, so that the phrases it keeps whole fit.
     expect(rule('.phrase')).toContain('white-space: nowrap;');
     expect(inside(380, 'h1')).toContain('font-size: min(2.6rem, 11.4vw);');
