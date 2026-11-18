@@ -17,7 +17,7 @@
 import { randomBytes } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ApprovalAnswer, Permission, Provider } from '../../src/shared/types';
+import { isOpenProvider, type ApprovalAnswer, type Permission, type Provider } from '../../src/shared/types';
 import type { AgentEvent, ApprovalRequest, RunOptions, RunResult } from '../../src/server/agents/types';
 import { loadShapes } from './layers';
 import type { LayerOptions } from './layers';
@@ -25,6 +25,9 @@ import { MODEL, MUSE_MODEL, marker, startModel, type ScriptedModel } from './mod
 import { HELP_ARGS } from './probe';
 import type { CliScratch, Scratch } from './scratch';
 import { flagsIn, flagsOf, memoryRecorder, shapeOf, type Shape, type Spawned } from './shape';
+
+/** The scenarios of what a CLI may not do below full access: they say nothing of a CLI that runs only with full access. */
+export const BELOW_FULL = ['read-only-write', 'outside-write', 'protected-read'];
 
 /** Why a CLI has no layer 3. */
 export const NO_RUN: Partial<Record<Provider, string>> = {
@@ -319,7 +322,7 @@ export async function runScenarios(
   const { recordSpawns, capture } = await import('../../src/server/process');
   const { openDatabase } = await import('../../src/server/db');
   const { SettingsStore } = await import('../../src/server/settings');
-  const { runners } = await import('../../src/server/agents/index');
+  const { runners, openAgents } = await import('../../src/server/agents/index');
 
   writeFileSync(join(cli.work, 'README.md'), '# cli-check\n');
   const nonce = randomBytes(5).toString('hex');
@@ -449,11 +452,19 @@ export async function runScenarios(
   };
 
   try {
+    // A CLI Harness Relay runs only with full access on this system (OpenCode on Linux: its adapter's
+    // `sandboxUnsupported`): its scenarios run with full access, and those below it say nothing.
+    const fullOnly = isOpenProvider(p) ? openAgents[p].process.sandboxUnsupported?.(process.platform) : undefined;
+    if (fullOnly) console.log(`  ! ${fullOnly.split(':')[0]}: its scenarios run with full access, and those below it are not run`);
     for (const sc of SCENARIOS) {
       if (!want(sc.name)) continue;
+      if (fullOnly && BELOW_FULL.includes(sc.name)) {
+        console.log(`  --   ${sc.name}: not run (it runs only with full access here)`);
+        continue;
+      }
       const { outcome, spawned } = await turn(
         sc.name,
-        sc.permission,
+        fullOnly ? 'full' : sc.permission,
         sc.answer,
         `${marker(sc.name, nonce)} Please do the task of this check.`,
         {},
@@ -464,10 +475,12 @@ export async function runScenarios(
     }
     if (want('resume')) {
       // Two turns of one member: the second resumes the first's session, and its request to the model holds the first turn.
-      const first = await turn('resume', 'edit', 'reject', `${marker('reply', `${nonce}a`)} Remember this.`);
+      const first = await turn('resume', fullOnly ? 'full' : 'edit', 'reject', `${marker('reply', `${nonce}a`)} Remember this.`);
       const id = first.outcome.result?.sessionId;
       const second = id
-        ? await turn('resume', 'edit', 'reject', `${marker('resume', `${nonce}b`)} What did I say first?`, { sessionId: id })
+        ? await turn('resume', fullOnly ? 'full' : 'edit', 'reject', `${marker('resume', `${nonce}b`)} What did I say first?`, {
+            sessionId: id,
+          })
         : undefined;
       const checks: Check[] = [
         {

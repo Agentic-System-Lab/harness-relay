@@ -132,7 +132,9 @@ jobs:
 
       # The sandboxes the CLIs run in below full access (docs/sandboxing.md): Harness Relay's own
       # (bubblewrap, socat, ripgrep), with the AppArmor profile Ubuntu 23.10 and later need for
-      # /usr/bin/bwrap, and Copilot's (slirp4netns); uv for OpenHands.
+      # /usr/bin/bwrap; Copilot's and Muse Code's, which bring a bubblewrap of their own and need
+      # unprivileged user and network namespaces, which Ubuntu restricts by default (Copilot's also
+      # slirp4netns); uv for OpenHands.
       - name: Set up the sandboxes
         run: |
           missing=$(for p in bubblewrap socat ripgrep slirp4netns; do dpkg -s "$p" >/dev/null 2>&1 || echo "$p"; done)
@@ -150,6 +152,9 @@ jobs:
             sudo apparmor_parser -r /etc/apparmor.d/bwrap
           fi
           bwrap --ro-bind / / true && echo "bubblewrap works"
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
           pipx install uv
 
       # The values go through the environment, never into the script's text.
