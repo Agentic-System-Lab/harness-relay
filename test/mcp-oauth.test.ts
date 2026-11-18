@@ -744,17 +744,24 @@ describe('a server that is not on this computer', () => {
 
   it('connects to the addresses checked, never to where the name leads, with a connection of its own each time', async () => {
     const connections: number[] = [];
-    const server = createHttpServer((req, res) => res.end(`${req.headers.host} ${req.url}`));
+    // What each request asked for, kept here rather than written back into the answer.
+    const asked: string[] = [];
+    const server = createHttpServer((req, res) => {
+      asked.push(`${req.headers.host} ${req.url}`);
+      res.end('ok');
+    });
     server.on('connection', () => connections.push(Date.now()));
     const port = await listening(server);
     try {
       for (let i = 0; i < 2; i++) {
         const res = await pinnedSend(new URL(`http://mcp.invalid:${port}/mcp`), GET, ['127.0.0.1']);
         expect(res.status).toBe(200);
+        expect(await res.text()).toBe('ok');
         // The name it was asked for, at the address it was checked for.
-        expect(await res.text()).toBe(`mcp.invalid:${port} /mcp`);
+        expect(asked[i]).toBe(`mcp.invalid:${port} /mcp`);
         await new Promise((r) => setImmediate(r));
       }
+      expect(asked).toHaveLength(2);
       // None kept for the next request, which may have been checked for other addresses.
       expect(connections).toHaveLength(2);
     } finally {
