@@ -2083,21 +2083,23 @@ export class Orchestrator {
         const name = conv.agents.find((a) => a.id === agentId)?.name ?? agentId;
         const of = { agentId, name, heads: heads.join(' ') };
         let card: ChatMessage | undefined;
-        // Applied anyway: the card that held this very result back says it was applied (it still did not
-        // pass). A result that changed since that card is checked again.
-        let force = Boolean(o.force);
-        if (force) {
-          const latest = latestChecks(conv.messages);
-          const held = latest?.checks?.when === 'apply' && latest.checks.applyOf?.agentId === agentId ? latest : undefined;
-          if (held && held.checks!.applyOf!.heads !== of.heads) force = false;
-          else if (held && !held.checks!.applied) card = held;
-        }
+        // Applied anyway, or its commands confirmed: only for the result the latest card held back (this
+        // member's, as it was then), whose card then says it was applied (it still did not pass). Any other
+        // (a result changed since, another member's card latest) is checked again, from the start.
+        const latest = latestChecks(conv.messages);
+        const mine =
+          latest?.checks?.when === 'apply' && latest.checks.applyOf?.agentId === agentId && latest.checks.applyOf.heads === of.heads
+            ? latest
+            : undefined;
+        const force = Boolean(o.force && mine);
+        const confirm = Boolean(o.confirm && mine);
+        if (force && !mine!.checks!.applied) card = mine;
         if (!force && hasChecks(conv.settings.checks)) {
           checkedFirst = true;
           this.checking.set(convId, abort);
           this.emitStatus(convId);
           try {
-            card = await this.checkBeforeApply(conv, of, checked, span, abort.signal, Boolean(o.confirm));
+            card = await this.checkBeforeApply(conv, of, checked, span, abort.signal, confirm);
           } finally {
             this.checking.delete(convId);
             this.emitStatus(convId);
@@ -3034,7 +3036,9 @@ export class Orchestrator {
       this.checking.set(convId, abort);
       this.emitStatus(convId);
       try {
-        return await runCheckCommand(cmd, this.commandPlace(conv, abort.signal, as), this.checkCommandDeps);
+        // In parallel mode as the checks before applying run: in the sandbox with full access too, when it starts.
+        const sandboxFirst = as === 'full' && conv.settings.mode === 'parallel' && (await this.checkCommandDeps.sandboxAvailable()).ok;
+        return await runCheckCommand(cmd, this.commandPlace(conv, abort.signal, sandboxFirst ? 'edit' : as), this.checkCommandDeps);
       } finally {
         this.unlockDirs(roots, conv.id);
         this.checking.delete(convId);

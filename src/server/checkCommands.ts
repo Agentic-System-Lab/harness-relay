@@ -424,7 +424,9 @@ export function linkDependencies(real: string, tree: string, exclude: readonly s
   const targetOf = (src: string): string => {
     try {
       const rel = relativeInside(realRoot, realpathSync(src));
-      if (rel !== undefined && !rel.split('/').includes('node_modules')) return join(tree, ...rel.split('/'));
+      // Only when the tree has it: a link into an ignored folder of the repository (a built package) keeps the user's.
+      const inTree = rel !== undefined && !rel.split('/').includes('node_modules') ? join(tree, ...rel.split('/')) : undefined;
+      if (inTree && existsSync(inTree)) return inTree;
     } catch {
       /* a link that leads nowhere: as it is */
     }

@@ -425,11 +425,19 @@ describe('the dependencies a check tree is given', () => {
       symlinkSync(join('..', 'packages', 'a'), join(real, 'node_modules', 'a'));
       symlinkSync(join('..', '..', 'packages', 'b'), join(real, 'node_modules', '@scope', 'b'));
       mkdirSync(join(tree, 'packages', 'a'), { recursive: true });
+      mkdirSync(join(tree, 'packages', 'b'), { recursive: true });
       linkDependencies(real, tree);
       const realRoot = realpathSync(real);
       expect(readlinkSync(join(tree, 'node_modules', 'a'))).toBe(join(tree, 'packages', 'a'));
       expect(readlinkSync(join(tree, 'node_modules', '@scope', 'b'))).toBe(join(tree, 'packages', 'b'));
       expect(readlinkSync(join(tree, 'node_modules', 'dep'))).toBe(join(realRoot, 'node_modules', 'dep'));
+      // A link into an ignored folder of the repository (a built package), which the tree has not, keeps the user's.
+      mkdirSync(join(real, 'built-lib'), { recursive: true });
+      const tree2 = join(dir, 'tree2');
+      mkdirSync(tree2, { recursive: true });
+      symlinkSync(join('..', 'built-lib'), join(real, 'node_modules', 'built'));
+      linkDependencies(real, tree2);
+      expect(readlinkSync(join(tree2, 'node_modules', 'built'))).toBe(join(realRoot, 'node_modules', 'built'));
       // A stopped server's trees go, and what they link to stays.
       const data = join(dir, 'data');
       const left = join(checkTreesDir(data), 'x', '0');

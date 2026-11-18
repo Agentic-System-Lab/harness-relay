@@ -913,4 +913,46 @@ describe('team checks: applying a parallel result', () => {
     expect(ran).toBe(false);
     expect(existsSync(trees) ? readdirSync(trees).length : 0).toBe(before);
   });
+
+  it('checks again a result applied anyway when the latest card is another member’s', async () => {
+    const conv = parallel({ protectedPaths: ['Alice.txt', 'Bob.txt'] });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect((await orchestrator.applyAgentWork(conv.id, 'a')).held).toBeDefined();
+    expect((await orchestrator.applyAgentWork(conv.id, 'b')).held).toBeDefined();
+    // Bob's card is the latest: Alice's result is not the one it held, so it is checked again.
+    const again = await orchestrator.applyAgentWork(conv.id, 'a', { force: true });
+    expect(again.held).toBeDefined();
+    expect(applyCard(conv).checks!.applyOf!.agentId).toBe('a');
+    expect(existsSync(join(project, 'Alice.txt'))).toBe(false);
+  });
+
+  it('Try it in a parallel chat with full access runs in the sandbox when it starts, as the checks before applying do', async () => {
+    const conv = parallel({ commands: [{ id: 'c', run: 'npm test' }] });
+    let sandboxed = 0;
+    orchestrator.checkCommandDeps = {
+      ...defaultCheckCommandDeps,
+      platform: 'linux',
+      sandboxAvailable: async () => ({ ok: true }),
+      makeRunDirs: () => ({ tmp: join(project, '.run-tmp'), hostTmp: join(project, '.run-host') }),
+      sandboxCommand: (async (_b: string, _a: string[], env: NodeJS.ProcessEnv) => {
+        sandboxed++;
+        return { bin: 'host', args: [], env, channel: {}, failure: () => undefined, dispose: async () => undefined, run: {} };
+      }) as never,
+      runProcess: (async () => ({
+        code: 0,
+        signal: null,
+        stdout: '',
+        stdoutBytes: Buffer.alloc(0),
+        stdoutTruncated: false,
+        stdoutSize: 0,
+        stderr: '',
+        aborted: false,
+        timedOut: false,
+      })) as never,
+    };
+    const outcome = await orchestrator.tryCheckCommand(conv.id, { id: 'c', run: 'npm test' });
+    expect(sandboxed).toBe(1);
+    expect(outcome.unsandboxed).toBeUndefined();
+  });
 });
