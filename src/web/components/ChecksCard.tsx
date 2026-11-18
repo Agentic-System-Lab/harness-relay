@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
-import type { AgentConfig, ChatMessage, CheckFinding } from '../../shared/types';
-import { cardActions, fixCandidates } from '../checks';
+import type { AgentConfig, ChatMessage, CheckFinding, CheckOutcome } from '../../shared/types';
+import { cardActions, fixCandidates, gatedFiles } from '../checks';
 import { useT } from '../i18n';
+import { formatDuration } from '../util';
 
 interface Props {
   msg: ChatMessage;
@@ -9,7 +10,8 @@ interface Props {
   latest: boolean;
   agents: readonly AgentConfig[];
   running: boolean;
-  onRecheck: (messageId: string) => Promise<unknown>;
+  /** `confirm`: run the commands the run's changes kept from running. */
+  onRecheck: (messageId: string, confirm?: boolean) => Promise<unknown>;
   onSkip: (messageId: string) => Promise<unknown>;
   onFix: (messageId: string, agentId: string) => Promise<unknown>;
 }
@@ -30,6 +32,34 @@ function Finding({ f }: { f: CheckFinding }) {
         </span>
       )}
     </li>
+  );
+}
+
+/** A command's result: its command line, how it ended, why it could not run, what it changed itself, and the end of its output. */
+export function CommandOutcome({ o }: { o: CheckOutcome }) {
+  const t = useT();
+  const ended = [
+    o.exitCode !== undefined ? t.checks.exit(o.exitCode) : '',
+    o.durationMs !== undefined ? t.checks.took(formatDuration(o.durationMs)) : '',
+  ].filter(Boolean);
+  return (
+    <>
+      <div className="checks-rule">
+        <span className={`checks-status ${o.status}`}>{t.checks.status[o.status]}</span>
+        <span>{t.checks.rules.command}</span>
+        <code className="checks-command">{o.command}</code>
+        {ended.length > 0 && <span className="muted small">{ended.join(' · ')}</span>}
+      </div>
+      {o.reason && <p className="small muted checks-reason">{o.reason}</p>}
+      {o.wroteFiles?.length ? <p className="small warn-text checks-reason">{t.checks.wrote(o.wroteFiles.join(', '))}</p> : null}
+      {o.unsandboxed && <p className="small muted checks-reason">{t.checks.unsandboxed}</p>}
+      {o.output && (
+        <details className="checks-output small">
+          <summary>{t.checks.output}</summary>
+          <pre>{o.output}</pre>
+        </details>
+      )}
+    </>
   );
 }
 
@@ -67,23 +97,29 @@ export function ChecksCard({ msg, latest, agents, running, onRecheck, onSkip, on
         {c.when === 'recheck' && <span className="muted small">{t.checks.whenRecheck}</span>}
       </header>
       <ul className="checks-outcomes">
-        {c.outcomes.map((o) => (
-          <li key={o.rule}>
-            <div className="checks-rule">
-              <span className={`checks-status ${o.status}`}>{t.checks.status[o.status]}</span>
-              <span>{t.checks.rules[o.rule]}</span>
-            </div>
-            {o.reason && <p className="small muted checks-reason">{o.reason}</p>}
-            {Boolean(o.findings?.length) && (
-              <ul className="checks-findings small">
-                {o.findings!.map((f, i) => (
-                  <Finding key={i} f={f} />
-                ))}
-                {Boolean(o.more) && <li className="muted">{t.checks.more(o.more!)}</li>}
-              </ul>
-            )}
-          </li>
-        ))}
+        {c.outcomes.map((o) =>
+          o.rule === 'command' ? (
+            <li key={`command:${o.commandId}`}>
+              <CommandOutcome o={o} />
+            </li>
+          ) : (
+            <li key={o.rule}>
+              <div className="checks-rule">
+                <span className={`checks-status ${o.status}`}>{t.checks.status[o.status]}</span>
+                <span>{t.checks.rules[o.rule]}</span>
+              </div>
+              {o.reason && <p className="small muted checks-reason">{o.reason}</p>}
+              {Boolean(o.findings?.length) && (
+                <ul className="checks-findings small">
+                  {o.findings!.map((f, i) => (
+                    <Finding key={i} f={f} />
+                  ))}
+                  {Boolean(o.more) && <li className="muted">{t.checks.more(o.more!)}</li>}
+                </ul>
+              )}
+            </li>
+          ),
+        )}
       </ul>
       {c.stale && <p className="small warn-text checks-note">{t.checks.stale}</p>}
       {c.skippedAt ? (
@@ -92,9 +128,18 @@ export function ChecksCard({ msg, latest, agents, running, onRecheck, onSkip, on
         c.fixBy && <p className="small muted checks-note">{t.checks.fixBy(c.fixBy)}</p>
       )}
       <div className="plan-actions">
-        {actions.recheck && (
+        {actions.recheck && !actions.confirm && (
           <button type="button" className="ghost small-button" onClick={() => void act(() => onRecheck(msg.id))}>
             {t.checks.recheck}
+          </button>
+        )}
+        {actions.confirm && (
+          <button
+            type="button"
+            className="ghost small-button"
+            onClick={() => confirm(t.checks.confirmRunAsk(gatedFiles(msg).join('\n'))) && void act(() => onRecheck(msg.id, true))}
+          >
+            {t.checks.confirmRun}
           </button>
         )}
         {candidates.length > 0 && (

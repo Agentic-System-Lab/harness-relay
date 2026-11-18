@@ -447,6 +447,40 @@ const zhTW = {
   checksFixMessage: (name: string) => `@${name} 請修正上一份團隊檢查未通過的項目（整份結果都要通過）。`,
   checksScheduleFailed: '團隊檢查未通過',
   checksScheduleError: '團隊檢查無法執行',
+  checksSandboxDenial: (kind: string, on: boolean) =>
+    ({
+      localPorts: on
+        ? '沙箱擋下了本機連接埠。'
+        : '沙箱擋下了它要開的本機連接埠（macOS）。如果這個指令的測試需要自己的伺服器，可以在這條指令開啟「允許所有本機連接埠」，但它就能連到這台電腦所有本機服務，包括 Harness Relay 的 API。',
+      unixSockets: on
+        ? '沙箱擋下了 Unix socket。'
+        : '沙箱擋下了它要開的 Unix socket（Linux）。如果這個指令需要，可以在這條指令開啟「允許所有 Unix socket」，但它就能連到 Docker、ssh agent 等所有 socket。',
+      readOnly: '它要寫入工作目錄以外的地方（例如 /tmp），沙箱只讓它寫工作目錄和它自己的暫存資料夾。',
+      phantom: '它讀到沙箱在工作目錄最上層放的保護項目（例如 .zshrc、.vscode；Linux）。請讓指令略過這些名稱，或只檢查需要的資料夾。',
+      browser: '沙箱裡無法啟動瀏覽器，端對端測試請在沙箱外執行。',
+      network: '沙箱裡沒有網路，指令要連的主機無法連線。',
+      denied: '沙箱擋下了它要做的事（Operation not permitted）。',
+    })[kind] ?? '沙箱擋下了它要做的事。',
+  checksCommandTimedOut: (min: number) => `超過 ${min} 分鐘還沒結束，已停止。`,
+  checksCommandNotFound: '找不到要執行的程式（exit 127）。Harness Relay 不會自己安裝缺少的東西。',
+  checksCommandWindows: '原生 Windows 上還不能執行指令檢查（沒有 Harness Relay 的沙箱）；只檢查受保護路徑和 commit 格式。',
+  checksCommandNoFolder: (cwd: string) =>
+    cwd ? `找不到要執行指令的資料夾「${cwd}」，或它不在對話的工作目錄裡。` : '找不到對話的工作目錄。',
+  checksCommandsAtEnd: '團隊做完這一輪後才會執行指令檢查。',
+  checksCommandsParallel: '平行模式的結果套用到工作目錄之前不在工作目錄裡，所以不執行指令檢查。',
+  checksConfigChanged: (files: string) =>
+    `團隊改到了檢查會讀的設定（${files}），還沒確認，所以先不執行；確認沒問題後按「確認後執行指令」執行。`,
+  checksNetworkRefused: (hosts: string) => `沙箱裡沒有網路，它要連的主機被擋下了：${hosts}。`,
+  checksAlsoRefused: (hosts: string) => `沙箱也擋下了它要連的主機（${hosts}），但輸出看不出它是因此失敗。`,
+  checksCommandsReadOnly: '唯讀權限下不執行指令檢查。',
+  checksTryReadOnly: '唯讀權限下不能試跑指令：檢查不會執行指令。',
+  checksInterrupted: '伺服器在指令執行中停止了，這條沒有跑完。',
+  checksConfigChangedUnattended: (files: string) => `團隊改到了檢查會讀的設定（${files}），沒有人確認，所以算未通過。`,
+  checksTooManyCommands: (n: number) => `指令檢查最多 ${n} 條`,
+  checksCommandEmpty: '指令檢查不能是空的',
+  checksCommandTooLong: (n: number) => `一條指令最長 ${n} 個字元`,
+  checksBadFolder: (f: string) => `無法使用資料夾「${f}」：請寫第一個工作目錄裡的相對路徑（不能有 ..），或工作目錄裡的完整路徑`,
+  checksBadTimeout: (max: number) => `時間上限是 1 到 ${max} 分鐘`,
 
   // Approvals
   approvalNotFound: '這個請求已經處理過或已失效',
@@ -1315,6 +1349,47 @@ const en: ServerMessages = {
   checksFixMessage: (name) => `@${name} please fix what failed in the latest team checks (the whole result has to pass).`,
   checksScheduleFailed: 'The team checks did not pass',
   checksScheduleError: 'The team checks could not run',
+  checksSandboxDenial: (kind, on) =>
+    ({
+      localPorts: on
+        ? 'The sandbox refused a local port.'
+        : 'The sandbox refused a local port it opened (macOS). If its tests need a server of their own, turn on "Allow every local port" for this command; it then reaches every service on this computer, Harness Relay\'s API among them.',
+      unixSockets: on
+        ? 'The sandbox refused a Unix socket.'
+        : 'The sandbox refused a Unix socket it opened (Linux). If it needs one, turn on "Allow every Unix socket" for this command; it then reaches every socket, Docker\'s and an ssh agent\'s among them.',
+      readOnly:
+        'It wrote outside the working directory (/tmp, say): in the sandbox it may write only there and in its own temporary folder.',
+      phantom:
+        'It read one of the entries the sandbox puts at the top of the working directory to protect it (.zshrc, .vscode…; Linux). Have the command skip those names, or check only the folders it needs.',
+      browser: 'A browser cannot start in the sandbox: run end-to-end tests outside it.',
+      network: 'There is no network in the sandbox: the host it wanted could not be reached.',
+      denied: 'The sandbox refused something it did (Operation not permitted).',
+    })[kind] ?? 'The sandbox refused something it did.',
+  checksCommandTimedOut: (min) => `It had not finished after ${min} ${min === 1 ? 'minute' : 'minutes'}, and was stopped.`,
+  checksCommandNotFound: 'The program it runs was not found (exit 127). Harness Relay never installs what is missing.',
+  checksCommandWindows:
+    'Commands cannot be checked on native Windows yet (Harness Relay has no sandbox there): only the protected paths and the commit format are.',
+  checksCommandNoFolder: (cwd) =>
+    cwd
+      ? `The folder "${cwd}" to run it in is not there, or not in the chat's working directories.`
+      : "The chat's working directory is not there.",
+  checksCommandsAtEnd: 'Commands are run once the team has finished.',
+  checksCommandsParallel: "Parallel mode's results are not in the working directory until they are applied, so no command is run.",
+  checksConfigChanged: (files) =>
+    `The team changed settings the checks read (${files}), not confirmed yet, so they were not run: once you have looked, Confirm and run the commands runs them.`,
+  checksNetworkRefused: (hosts) => `There is no network in the sandbox: the hosts it wanted were refused (${hosts}).`,
+  checksAlsoRefused: (hosts) =>
+    `The sandbox also refused hosts it wanted (${hosts}), though its output does not show that it failed for it.`,
+  checksCommandsReadOnly: 'Commands are not run with read-only permission.',
+  checksTryReadOnly: 'Commands cannot be tried with read-only permission: the checks run none.',
+  checksInterrupted: 'The server stopped while it ran: it did not finish.',
+  checksConfigChangedUnattended: (files) => `The team changed settings the checks read (${files}), and nobody confirmed them: a failure.`,
+  checksTooManyCommands: (n) => `At most ${n} commands`,
+  checksCommandEmpty: 'A command cannot be empty',
+  checksCommandTooLong: (n) => `A command can be at most ${n} characters`,
+  checksBadFolder: (f) =>
+    `The folder "${f}" cannot be used: write a path relative to the first working directory (without ..), or a full path inside a working directory`,
+  checksBadTimeout: (max) => `The time limit is 1 to ${max} minutes`,
 
   approvalNotFound: 'This request was already answered or has expired',
   approvalDeclined: 'The user declined this action.',

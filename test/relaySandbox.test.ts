@@ -306,6 +306,23 @@ describe.skipIf(process.platform === 'win32')('relaySandboxConfig', () => {
     expect(off.network.allowMachLookup).toBeUndefined();
   });
 
+  it("opens every local port (macOS) or every unix socket (Linux) only when a team check's command asks, each on its own system", () => {
+    const paths = relaySandboxPaths(spec(), ctx, runDirs);
+    const hosts = relaySandboxHosts([], ctx);
+    const mac = { ...ctx, platform: 'darwin' as const, tools: { sh: '/bin/sh', bash: '/bin/bash' } };
+    const both = { allowLocalBinding: true, allowAllUnixSockets: true };
+    const cm = relaySandboxConfig(paths, hosts, mac, both);
+    expect(cm.network.allowLocalBinding).toBe(true);
+    expect(cm.network.allowAllUnixSockets).toBe(false);
+    const cl = relaySandboxConfig(paths, hosts, { ...ctx, platform: 'linux' as const }, both);
+    expect(cl.network.allowLocalBinding).toBe(false);
+    expect(cl.network.allowAllUnixSockets).toBe(true);
+    for (const off of [relaySandboxConfig(paths, hosts, mac), relaySandboxConfig(paths, hosts, { ...ctx, platform: 'linux' as const })]) {
+      expect(off.network.allowLocalBinding).toBe(false);
+      expect(off.network.allowAllUnixSockets).toBe(false);
+    }
+  });
+
   it('denies the quietly-denied hosts with a reason, winning over allow, never asked', () => {
     const hosts = relaySandboxHosts(['api.openai.com'], ctx, ['models.dev', 'api.openai.com']);
     expect(hosts.denied).toEqual(expect.arrayContaining(['models.dev', 'api.openai.com', 'localhost:8787']));
@@ -1019,6 +1036,9 @@ describe.skipIf(process.platform === 'win32')('RelaySandboxRun', () => {
     expect(answers(host.lines)[0].allow).toBe(false);
     await run.dispose();
     await expect(run.decide('late.example', 443)).resolves.toEqual({ allow: false, reason: DENY_REASONS.refused('late.example') });
+    // Each host it was refused, once, as a card names it (a team check's command says it needed the network).
+    await run.decide('late.example', 443);
+    expect(run.refusedHosts).toEqual(['example.org', 'late.example']);
   });
 
   it('reports why the sandbox did not start, in the language asked for', async () => {

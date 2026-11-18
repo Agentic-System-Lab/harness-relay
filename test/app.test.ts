@@ -592,6 +592,75 @@ describe('settings', () => {
     expect(((await preset.json()) as TeamPreset).settings.checks).toEqual({ protectedPaths: ['.env'] });
   });
 
+  it('keeps team checks commands as given, each with an id, and refuses one that cannot be used', async () => {
+    const post = (checks: unknown) =>
+      app.request(
+        '/api/conversations',
+        json(
+          'POST',
+          { agents: [{ name: 'Alice', provider: 'claude', role: '' }], settings: { cwd: project, checks } },
+          { 'x-relay-lang': 'en' },
+        ),
+      );
+    const made = (await (
+      await post({
+        commands: [
+          { run: ' npm test ', cwd: 'apps\\web', timeoutMin: 10, localPorts: true, unixSockets: 'yes' },
+          { id: 'lint', run: 'npm run lint', timeoutMin: 3 },
+        ],
+      })
+    ).json()) as Conversation;
+    const [test, lint] = made.settings.checks!.commands!;
+    expect(test).toEqual({ id: expect.stringMatching(/^[\w-]{8}$/), run: 'npm test', cwd: 'apps/web', localPorts: true });
+    expect(lint).toEqual({ id: 'lint', run: 'npm run lint', timeoutMin: 3 });
+    const refused = async (commands: unknown) => {
+      const res = await post({ commands });
+      expect(res.status).toBe(400);
+      return ((await res.json()) as { error: string }).error;
+    };
+    expect(await refused([{ run: '  ' }])).toContain('cannot be empty');
+    expect(await refused([{ run: 'x'.repeat(1001) }])).toContain('1000');
+    expect(await refused([{ run: 'x', cwd: '../up' }])).toContain('"../up"');
+    expect(await refused([{ run: 'x', timeoutMin: 61 }])).toContain('60');
+    expect(await refused(Array.from({ length: 11 }, () => ({ run: 'x' })))).toContain('10');
+    expect(await refused('npm test')).toContain('checks.commands');
+  });
+
+  it("tries a command of the list being edited, and says what this computer's sandbox can do", async () => {
+    const tried = vi.spyOn(orchestrator, 'tryCheckCommand').mockResolvedValue({ rule: 'command', status: 'passed', commandId: 'x' });
+    const recheck = vi.spyOn(orchestrator, 'recheckChecks').mockResolvedValue({ id: 'c2' } as ChatMessage);
+    try {
+      const res = await app.request('/api/conversations/conv/checks/try', json('POST', { command: { id: 'x', run: ' npm test ' } }));
+      expect(await res.json()).toEqual({ rule: 'command', status: 'passed', commandId: 'x' });
+      expect(tried).toHaveBeenCalledWith('conv', { id: 'x', run: 'npm test' }, undefined);
+      // With the permission the drawer shows, which the route checks.
+      await app.request('/api/conversations/conv/checks/try', json('POST', { command: { id: 'x', run: 'true' }, permission: 'edit' }));
+      expect(tried).toHaveBeenLastCalledWith('conv', { id: 'x', run: 'true' }, 'edit');
+      expect(
+        (await app.request('/api/conversations/conv/checks/try', json('POST', { command: { run: 'true' }, permission: 'root' }))).status,
+      ).toBe(400);
+      expect((await app.request('/api/conversations/conv/checks/try', json('POST', { command: { run: '' } }))).status).toBe(400);
+      expect((await app.request('/api/conversations/conv/checks/try', json('POST', {}))).status).toBe(400);
+      await app.request('/api/conversations/conv/checks/c1/recheck', json('POST', { confirm: true }));
+      expect(recheck).toHaveBeenLastCalledWith('conv', 'c1', { confirm: true });
+      await app.request('/api/conversations/conv/checks/c1/recheck', json('POST', { confirm: 'yes' }));
+      expect(recheck).toHaveBeenLastCalledWith('conv', 'c1', { confirm: false });
+    } finally {
+      tried.mockRestore();
+      recheck.mockRestore();
+    }
+    // The sandbox is never started by a test: what it would answer is stood in for.
+    const saved = orchestrator.checkCommandDeps;
+    orchestrator.checkCommandDeps = { ...saved, platform: 'linux', sandboxAvailable: async () => ({ ok: false, reason: 'no bubblewrap' }) };
+    try {
+      expect(await (await get('/api/checks/environment')).json()).toEqual({ platform: 'linux', sandbox: 'no bubblewrap' });
+      orchestrator.checkCommandDeps = { ...saved, platform: 'darwin', sandboxAvailable: async () => ({ ok: true }) };
+      expect(await (await get('/api/checks/environment')).json()).toEqual({ platform: 'darwin' });
+    } finally {
+      orchestrator.checkCommandDeps = saved;
+    }
+  });
+
   it('checks the latest team checks result again, skips it, or asks a member to fix it', async () => {
     const recheck = vi.spyOn(orchestrator, 'recheckChecks').mockResolvedValue({ id: 'c2' } as ChatMessage);
     const skip = vi.spyOn(orchestrator, 'skipChecks').mockReturnValue({ id: 'c1' } as ChatMessage);
@@ -599,7 +668,7 @@ describe('settings', () => {
     try {
       const at = (what: string, body: unknown = {}) => app.request(`/api/conversations/conv/checks/c1/${what}`, json('POST', body));
       expect(await (await at('recheck')).json()).toEqual({ id: 'c2' });
-      expect(recheck).toHaveBeenCalledWith('conv', 'c1');
+      expect(recheck).toHaveBeenCalledWith('conv', 'c1', { confirm: false });
       expect(await (await at('skip')).json()).toEqual({ id: 'c1' });
       expect(skip).toHaveBeenCalledWith('conv', 'c1');
       expect((await at('fix', { agentId: 'a' })).status).toBe(202);

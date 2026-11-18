@@ -1972,6 +1972,29 @@ describe('Store schedules', () => {
     expect(new Store(db).checksBaseline(conv.id, 'c2')).toBeUndefined();
   });
 
+  it('settles a team checks command a stopped server left running: it could not run, and the card can be checked again', () => {
+    const store = new Store(db);
+    const conv = sampleConversation();
+    store.create(conv);
+    const checks = {
+      status: 'running' as const,
+      when: 'run' as const,
+      checkedAt: 1,
+      outcomes: [
+        { rule: 'paths' as const, status: 'passed' as const },
+        { rule: 'command' as const, status: 'passed' as const, commandId: 'a', command: 'npm run lint' },
+        { rule: 'command' as const, status: 'running' as const, commandId: 'b', command: 'npm test' },
+      ],
+    };
+    const msg: ChatMessage = { id: 'c1', author: { kind: 'system' }, createdAt: 3, parts: [], status: 'done', checks };
+    conv.messages.push(msg);
+    store.saveMessage(conv.id, msg, true);
+    const back = new Store(reopen()).get(conv.id)!.messages[0]!.checks!;
+    expect(back.status).toBe('error');
+    expect(back.outcomes[1]).toMatchObject({ status: 'passed' });
+    expect(back.outcomes[2]).toMatchObject({ status: 'error', commandId: 'b', reason: expect.any(String) });
+  });
+
   it('reads an automation saved when it waited for one thing as waiting for that one, and writes each trigger and what its checks keep', () => {
     const store = new Store(db);
     const inbox = { source: 'mail' as const, account: 'work', folder: 'INBOX' };

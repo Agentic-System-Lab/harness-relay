@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
+  CHECK_LIMITS,
   PROVIDERS,
   PROVIDER_LABEL,
   catalogFor,
@@ -34,7 +35,7 @@ import {
   switchProvider,
   type ModelChoice,
 } from '../util';
-import { badCommitPattern, badPath } from '../checks';
+import { badCommitPattern, badPath, commandProblem } from '../checks';
 import { AccountPicker } from './AccountPicker';
 import { ChecksEditor } from './ChecksEditor';
 import { CwdInput } from './CwdInput';
@@ -65,6 +66,8 @@ interface Props {
   leadLabel?: string;
   /** The conversation's schedule: its runs may have nobody watching. */
   schedule?: ConversationSchedule;
+  /** The conversation being edited (Team settings): its team checks' commands can be tried there. */
+  convId?: string;
 }
 
 const NAME_RE = /^[\p{L}\p{N}_-]{1,32}$/u;
@@ -96,6 +99,12 @@ export function teamProblems(team: Team, t: Messages, opts: { members?: boolean;
   if (path) out.push(t.checks.badPath(path));
   const pattern = badCommitPattern(checks?.commitPattern ?? '');
   if (pattern) out.push(t.checks.badPattern(pattern));
+  for (const c of checks?.commands ?? []) {
+    const problem = commandProblem(c);
+    if (problem === 'run') out.push(t.checks.badCommand);
+    else if (problem === 'folder') out.push(t.checks.badFolder(c.cwd ?? ''));
+    else if (problem === 'timeout') out.push(t.checks.badTimeout(CHECK_LIMITS.maxTimeoutMin));
+  }
   return out;
 }
 
@@ -109,6 +118,7 @@ export function TeamEditor({
   proposed = false,
   leadLabel,
   schedule,
+  convId,
 }: Props) {
   const t = useT();
   const { maxTeamAgents } = useLimits();
@@ -322,7 +332,8 @@ export function TeamEditor({
         )}
         <ChecksEditor
           value={settings.checks}
-          permission={settings.permission}
+          permission={template ? undefined : settings.permission}
+          convId={template ? undefined : convId}
           onChange={(checks) => {
             const { checks: _old, ...rest } = settings;
             onChange({ ...value, settings: checks === undefined ? rest : { ...rest, checks } });

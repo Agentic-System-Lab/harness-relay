@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { reservedMcpName } from './gateway';
-import { commitPatternError, tidyPattern } from '../shared/checks';
+import { commitPatternError, tidyFolder, tidyPattern } from '../shared/checks';
 import {
   ACCOUNT_ID_RE,
   API_BACKENDS,
@@ -34,6 +34,7 @@ import {
   type AgentConfig,
   type AlertPrefs,
   type ApiBackend,
+  type CheckCommand,
   type CheckList,
   type ConversationGroup,
   type ConversationSettings,
@@ -605,6 +606,37 @@ export function validateChecks(input: unknown): CheckList {
     const why = pattern ? commitPatternError(pattern) : undefined;
     if (why) bad(t().checksBadCommitPattern(why));
     if (pattern) out.commitPattern = pattern;
+  }
+  if (c.commands !== undefined) {
+    if (!Array.isArray(c.commands)) bad(t().invalidField('checks.commands'));
+    if (c.commands.length > CHECK_LIMITS.commands) bad(t().checksTooManyCommands(CHECK_LIMITS.commands));
+    const commands: CheckCommand[] = [];
+    for (const raw of c.commands) {
+      const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+      const run = typeof r.run === 'string' ? r.run.trim() : '';
+      if (!run) bad(t().checksCommandEmpty);
+      if (run.length > CHECK_LIMITS.command) bad(t().checksCommandTooLong(CHECK_LIMITS.command));
+      const cwd = r.cwd === undefined ? '' : typeof r.cwd === 'string' ? tidyFolder(r.cwd) : undefined;
+      if (cwd === undefined) bad(t().checksBadFolder(String(r.cwd).slice(0, CHECK_LIMITS.folder)));
+      let timeoutMin: number | undefined;
+      if (r.timeoutMin !== undefined) {
+        timeoutMin = Number(r.timeoutMin);
+        if (!Number.isInteger(timeoutMin) || timeoutMin < 1 || timeoutMin > CHECK_LIMITS.maxTimeoutMin)
+          bad(t().checksBadTimeout(CHECK_LIMITS.maxTimeoutMin));
+      }
+      // An id the list keeps for the command's results; a new command gets one (each once).
+      const given = typeof r.id === 'string' && /^[\w-]{1,40}$/.test(r.id) ? r.id : undefined;
+      const id = given && !commands.some((x) => x.id === given) ? given : randomUUID().slice(0, 8);
+      commands.push({
+        id,
+        run,
+        ...(cwd ? { cwd } : {}),
+        ...(timeoutMin !== undefined && timeoutMin !== CHECK_LIMITS.timeoutMin ? { timeoutMin } : {}),
+        ...(r.localPorts === true ? { localPorts: true } : {}),
+        ...(r.unixSockets === true ? { unixSockets: true } : {}),
+      });
+    }
+    if (commands.length) out.commands = commands;
   }
   return out;
 }

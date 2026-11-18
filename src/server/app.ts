@@ -51,10 +51,13 @@ import {
   type TeamPreset,
   type WorkingDirectories,
   type ZipCheck,
+  PERMISSION_ORDER,
+  type Permission,
 } from '../shared/types';
 import type { AgentsViewSync } from './agentsview';
 import { freshTracking } from '../shared/tracking';
 import { servingPort } from './relaySandbox';
+import { checksEnvironment } from './checkCommands';
 import { discoverCalendars } from './connectors/caldav';
 import { calendarBackend } from './connectors/calendar';
 import type { McpOAuth } from './oauth/mcp';
@@ -114,6 +117,7 @@ import {
   validateInboxRead,
   validatePushSubscription,
   validateSchedule,
+  validateChecks,
   validateSettings,
   validateToolLibraryUpdate,
   validConnectorId,
@@ -1956,9 +1960,27 @@ export function createApp({
 
   // Team checks: the latest result's card. Check it again (a new result after it), go on without it
   // passing (what waits in the queue goes), or ask a member to fix it (a turn of its own).
-  app.post('/api/conversations/:id/checks/:messageId/recheck', async (c) =>
-    c.json(await orchestrator.recheckChecks(c.req.param('id'), c.req.param('messageId'))),
-  );
+  // `confirm`: run the commands the run's changes kept from running (it changed what they read).
+  app.post('/api/conversations/:id/checks/:messageId/recheck', async (c) => {
+    const b = await body<{ confirm?: unknown }>(c);
+    return c.json(await orchestrator.recheckChecks(c.req.param('id'), c.req.param('messageId'), { confirm: b.confirm === true }));
+  });
+
+  // Run one command of the list being edited on the working directories as they are now, as the
+  // checks would with the permission Team settings shows (`permission`), and say how it went (Team
+  // settings' "Try it"); nothing is posted.
+  app.post('/api/conversations/:id/checks/try', async (c) => {
+    const b = await body<{ command?: unknown; permission?: unknown }>(c);
+    const [command] = validateChecks({ commands: [b.command] }).commands ?? [];
+    if (!command) throw new HttpError(400, t().invalidField('command'));
+    if (b.permission !== undefined && !PERMISSION_ORDER.includes(b.permission as Permission))
+      throw new HttpError(400, t().invalidField('permission'));
+    return c.json(await orchestrator.tryCheckCommand(c.req.param('id'), command, b.permission as Permission | undefined));
+  });
+
+  // What team checks' commands can do on this computer: its system, and why Harness Relay's sandbox
+  // cannot start here, if it cannot (below full access they then cannot run).
+  app.get('/api/checks/environment', async (c) => c.json(await checksEnvironment(orchestrator.checkCommandDeps)));
 
   app.post('/api/conversations/:id/checks/:messageId/skip', (c) =>
     c.json(orchestrator.skipChecks(c.req.param('id'), c.req.param('messageId'))),

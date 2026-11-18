@@ -356,6 +356,12 @@ export async function branchTips(root: string): Promise<string[]> {
   return [...tips];
 }
 
+/** A file's content at a commit (team checks: `package.json` before and after a run), or undefined when it is not there. */
+export async function fileAt(root: string, commit: string, path: string): Promise<string | undefined> {
+  const r = await git(root, ['show', `${commit}:${path.split(sep).join('/')}`], { allowFail: true, maxCapture: 4 * 1024 * 1024 });
+  return r.code === 0 ? r.stdout : undefined;
+}
+
 /** A commit the team made (team checks), with its subject. */
 export interface MadeCommit {
   sha: string;

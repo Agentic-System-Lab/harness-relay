@@ -442,7 +442,7 @@ interface Props {
   /** A team checks card: whether it is the conversation's latest result (only it offers anything). */
   latestChecks?: boolean;
   /** Team checks: check the latest result again, go on without it, or ask a member to fix it. */
-  onRecheckChecks?: (messageId: string) => Promise<unknown>;
+  onRecheckChecks?: (messageId: string, confirm?: boolean) => Promise<unknown>;
   onSkipChecks?: (messageId: string) => Promise<unknown>;
   onFixChecks?: (messageId: string, agentId: string) => Promise<unknown>;
 }

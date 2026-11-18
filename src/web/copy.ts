@@ -151,7 +151,9 @@ export function reviewMarkdown(review: LeadReview, t: Messages): string {
 export function checksMarkdown(c: ChecksResult, t: Messages): string {
   const lines = [`*${t.checks.title}: ${t.checks.status[c.status]}*${c.skippedAt ? ` (${t.checks.skippedTag})` : ''}`];
   for (const o of c.outcomes) {
-    lines.push(`- **${t.checks.rules[o.rule]}**: ${t.checks.status[o.status]}${o.reason ? ` · ${o.reason}` : ''}`);
+    const command = o.command ? ` \`${o.command}\`` : '';
+    const exit = o.rule === 'command' && o.status === 'failed' && o.exitCode !== undefined ? ` (${t.checks.exit(o.exitCode)})` : '';
+    lines.push(`- **${t.checks.rules[o.rule]}**${command}: ${t.checks.status[o.status]}${exit}${o.reason ? ` · ${o.reason}` : ''}`);
     for (const f of o.findings ?? []) {
       const what = f.commit ? `\`${f.commit}\` ${f.subject ?? ''}` : `\`${f.path}\` ${f.change ? t.checks.change[f.change] : ''}`;
       const by = f.by ? ` · ${f.worktree ? t.checks.inWorktree(f.by) : t.checks.by(f.by)}` : '';
