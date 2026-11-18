@@ -158,7 +158,7 @@ const idle = new IdleWatcher({
   connectors: settings.connectors,
   oauth: settings.oauth,
   watching: () => store.mailWatches(),
-  check: (id, key) => scheduler.check(id, false, true, [key]),
+  check: (id, key) => scheduler.mailArrived(id, key),
 });
 scheduler.listening = (id, trigger) => idle.live(id, trigger);
 

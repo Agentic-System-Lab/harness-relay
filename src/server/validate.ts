@@ -61,7 +61,7 @@ import {
   type VoiceSettingsUpdate,
   type InboxReadRequest,
 } from '../shared/types';
-import { filePattern, parseTime, repoName, sameTriggers, validBranch, validRepo, validTimeZone } from '../shared/schedule';
+import { filePattern, mailFolder, parseTime, repoName, sameTriggers, validBranch, validRepo, validTimeZone } from '../shared/schedule';
 import { CONFIG } from './config';
 import { HttpError } from './errors';
 import { isOtherGroupName, t } from './i18n';
@@ -634,8 +634,9 @@ function validRepeat(input: unknown, enabled: boolean, now: number): ScheduleRep
  * One of the things an automation that starts when something happens waits for (`ScheduleTrigger`;
  * 1 to `WATCH_LIMITS.triggers` of them, no two for the same source: `sameTriggers()`), each text a line
  * of at most `WATCH_LIMITS.field`:
- * - a new mail in a folder (the inbox when none is given) of a mail account, by its id (that it exists
- *   is checked where the accounts are), with the words its sender and subject contain, when given;
+ * - a new mail in a folder (the inbox when none is given, `INBOX` in any letter case: `mailFolder()`)
+ *   of a mail account, by its id (that it exists is checked where the accounts are), with the words
+ *   its sender and subject contain, when given;
  * - an event of a calendar, by its id, about to begin: 1 to `WATCH_LIMITS.maxMinutes` minutes before,
  *   with the words its title contains, when given;
  * - in a GitHub repository (`owner/name`): a pull request opened, or a CI run that failed (on a branch,
@@ -658,7 +659,8 @@ function validTrigger(input: unknown): ScheduleTrigger {
   switch (r.source) {
     case 'mail': {
       const account = id(r.account);
-      const folder = line(r.folder, 'folder') || 'INBOX';
+      // The inbox in any letter case is the one inbox, written as IMAP names it.
+      const folder = mailFolder(line(r.folder, 'folder') || 'INBOX');
       const from = line(r.from, 'from');
       const subject = line(r.subject, 'subject');
       return { source: 'mail', account, folder, ...(from ? { from } : {}), ...(subject ? { subject } : {}) };

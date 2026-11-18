@@ -10,7 +10,17 @@ import {
   type ScheduleUpdate,
   type ScheduleWatch,
 } from '../shared/types';
-import { filePattern, parseTime, repoName, sameTriggers, upcomingRuns, validBranch, validRepo, watchOf } from '../shared/schedule';
+import {
+  filePattern,
+  mailFolder,
+  parseTime,
+  repoName,
+  sameTriggers,
+  upcomingRuns,
+  validBranch,
+  validRepo,
+  watchOf,
+} from '../shared/schedule';
 import type { Messages } from './i18n';
 
 /** The schedule drawer's form: every kind's fields are kept, so switching kinds and back loses nothing. */
@@ -95,7 +105,7 @@ export function triggerOf(d: TriggerDraft): ScheduleTrigger {
       return {
         source: 'mail',
         account: d.account,
-        folder: d.folder.trim() || 'INBOX',
+        folder: mailFolder(d.folder.trim() || 'INBOX'),
         ...opt('from', d.from),
         ...opt('subject', d.subject),
       };
@@ -448,6 +458,17 @@ export function combinedWatch(s: Pick<ConversationSchedule, 'repeat' | 'watches'
 export function triggerStates(s: Pick<ConversationSchedule, 'repeat' | 'watches'>, t: Messages, lang: string): string[] {
   if (s.repeat.kind !== 'event') return [];
   return s.repeat.triggers.map((tr) => `${describeTrigger(tr, t)} · ${watchState(watchOf(s, tr), t, lang)}`);
+}
+
+/**
+ * The automation window's status: what the schedule does and how it goes (`title`), and, for an
+ * automation that waits for several things, how each one's checks go, one line each (`lines`, only
+ * while it is on: off, the title says paused, and no check comes).
+ */
+export function scheduleStatus(s: ConversationSchedule, t: Messages, lang: string): { title: string; lines: string[] } {
+  const what = describeRepeat(s.repeat, t, lang);
+  if (s.repeat.kind !== 'event' || s.repeat.triggers.length < 2) return { title: `${what} · ${scheduleState(s, t, lang)}`, lines: [] };
+  return s.enabled ? { title: what, lines: triggerStates(s, t, lang) } : { title: `${what} · ${t.schedule.paused}`, lines: [] };
 }
 
 /** The schedule's state in a few words: when it sends next, paused, or (a one-time schedule that came due) done. */

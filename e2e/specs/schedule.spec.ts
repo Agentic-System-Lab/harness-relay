@@ -322,6 +322,7 @@ test.describe('schedules', () => {
     const second = drawer.getByRole('group', { name: 'Thing 2 to wait for' });
     // Another of the same kind, still to fill in; the same pattern twice is one thing.
     await expect(second.getByRole('combobox', { name: 'What to wait for' })).toHaveValue('file');
+    await expect(second.getByRole('textbox', { name: 'File pattern' })).toHaveValue('');
     await second.getByRole('textbox', { name: 'File pattern' }).fill('./reports/*.csv');
     await expect(drawer.locator('.drawer-foot .error-line')).toHaveText(/^Two of the things to wait for are the same/);
     await expect(drawer.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
@@ -374,6 +375,27 @@ test.describe('schedules', () => {
     const reply = await finishedReply(page, 'Codex');
     await expect(reply).toContainText('<event source="file">');
     await expect(reply).toContainText('invoices/inv-7.pdf');
+
+    // Turned off: the status says paused, with no line for each.
+    const both =
+      'When a file matching reports/*.csv appears or changes in the working directory, or when a file matching invoices/*.pdf appears or changes in the working directory';
+    const status = drawer.locator('.schedule-status-text strong');
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await drawer.getByRole('checkbox', { name: 'On' }).uncheck();
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drawer).toBeHidden();
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await expect(status).toHaveText(`${both} · paused`);
+    await expect(states).toHaveCount(0);
+    // Remove takes that one away and leaves the other, alone, with nothing to remove.
+    await drawer.getByRole('button', { name: 'Remove thing 1 to wait for' }).click();
+    await expect(drawer.getByRole('group', { name: /^Thing \d to wait for$/ })).toHaveCount(0);
+    await expect(drawer.getByRole('textbox', { name: 'File pattern' })).toHaveValue('invoices/*.pdf');
+    await expect(drawer.getByRole('button', { name: /^Remove thing/ })).toHaveCount(0);
+    await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(drawer).toBeHidden();
+    await page.locator('.chat-head').getByRole('button', { name: 'Automation' }).click();
+    await expect(status).toHaveText('When a file matching invoices/*.pdf appears or changes in the working directory · paused');
   });
 
   test('an automation that starts when a pull request opens on GitHub: checked through gh, the first check notes those there, and a new one reaches the team as data', async ({

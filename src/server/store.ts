@@ -49,7 +49,7 @@ import {
   type ScheduleTrigger,
 } from '../shared/types';
 import { byAge, familyOf, type FamilyMember } from '../shared/family';
-import { watchOf } from '../shared/schedule';
+import { mailFolder, triggerKey, watchOf } from '../shared/schedule';
 import { searchTerms, snippetAround, termsIn } from '../shared/search';
 import { nul, transaction, type Database } from './db';
 import { reviewText } from '../shared/review';
@@ -440,19 +440,50 @@ function toSchedule(r: ScheduleRow): ConversationSchedule | undefined {
 
 /**
  * A schedule's times as stored, when they can be read. An automation saved before it could wait for
- * several things kept its one trigger as `trigger`: it is read as the only one of `triggers` (and
- * written so when it is saved next). One that waits for nothing it can read cannot be read.
+ * several things kept its one trigger as `trigger`: it is read as the only one of `triggers`. One saved
+ * since keeps both (`storedRepeat()`), and `triggers` is what this version reads. A mail folder kept as
+ * the inbox in another letter case is read as `INBOX` (`mailFolder()`), and a trigger that waits for
+ * what an earlier one does is left out; one that waits for nothing it can read cannot be read.
  */
 function parseRepeat(json: string | null): ScheduleRepeat | undefined {
   const r = parseJson<(ScheduleRepeat & { trigger?: unknown; triggers?: unknown }) | null>(json, null);
   if (!r || typeof r !== 'object') return undefined;
   if (r.kind !== 'event') return r;
   const listed: unknown[] = Array.isArray(r.triggers) ? r.triggers : r.trigger ? [r.trigger] : [];
-  const triggers = listed.filter(
-    (t): t is ScheduleTrigger =>
-      Boolean(t) && typeof t === 'object' && (TRIGGER_SOURCES as unknown[]).includes((t as { source?: unknown }).source),
-  );
+  const keys = new Set<string>();
+  const triggers = listed.flatMap((t): ScheduleTrigger[] => {
+    if (!t || typeof t !== 'object' || !(TRIGGER_SOURCES as unknown[]).includes((t as { source?: unknown }).source)) return [];
+    const tr = t as ScheduleTrigger;
+    const read = tr.source === 'mail' ? { ...tr, folder: typeof tr.folder === 'string' ? mailFolder(tr.folder) : 'INBOX' } : tr;
+    let key: string;
+    try {
+      key = triggerKey(read);
+    } catch {
+      return []; // its fields cannot be read
+    }
+    if (keys.has(key)) return [];
+    keys.add(key);
+    return [read];
+  });
   return triggers.length ? { kind: 'event', triggers } : undefined;
+}
+
+/**
+ * A schedule's times as they are written: an automation that starts when something happens keeps its
+ * first trigger as `trigger` too, beside `triggers`, which a version from before it could wait for
+ * several things reads (as waiting for that one, its checks starting afresh: it reads no object in
+ * `watch`). Browsers get `triggers` only.
+ */
+function storedRepeat(r: ScheduleRepeat): string {
+  return JSON.stringify(r.kind === 'event' ? { ...r, trigger: r.triggers[0] } : r);
+}
+
+/** A kept watch's key as `triggerKey()` writes it now: one from when the inbox's letter case still counted names `INBOX`. */
+function currentKey(key: string): string {
+  const k = parseJson<unknown>(key, null);
+  return Array.isArray(k) && k.length === 3 && k[0] === 'mail' && typeof k[2] === 'string'
+    ? JSON.stringify([k[0], k[1], mailFolder(k[2])])
+    : key;
 }
 
 /**
@@ -462,13 +493,18 @@ function parseRepeat(json: string | null): ScheduleRepeat | undefined {
  */
 function parseWatches(json: string | null, triggers: ScheduleTrigger[]): ScheduleWatch[] | undefined {
   const v = parseJson<unknown>(json, null);
-  const kept = (Array.isArray(v) ? v : v ? [v] : []).filter(
-    (w): w is ScheduleWatch =>
-      Boolean(w) &&
-      typeof w === 'object' &&
-      typeof (w as ScheduleWatch).key === 'string' &&
-      typeof (w as ScheduleWatch).nextCheckAt === 'number',
-  );
+  const kept = (Array.isArray(v) ? v : v ? [v] : [])
+    .filter(
+      (w): w is ScheduleWatch =>
+        Boolean(w) &&
+        typeof w === 'object' &&
+        typeof (w as ScheduleWatch).key === 'string' &&
+        typeof (w as ScheduleWatch).nextCheckAt === 'number',
+    )
+    .map((w) => {
+      const key = currentKey(w.key);
+      return key === w.key ? w : { ...w, key };
+    });
   const watches = triggers.flatMap((t) => watchOf({ watches: kept }, t) ?? []);
   return watches.length ? watches : undefined;
 }
@@ -1040,7 +1076,7 @@ export class Store {
       .run(
         conv.id,
         s.text,
-        JSON.stringify(s.repeat),
+        storedRepeat(s.repeat),
         s.timeZone,
         s.lang,
         s.enabled ? 1 : 0,

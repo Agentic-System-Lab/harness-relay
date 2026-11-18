@@ -133,16 +133,25 @@ export function upcomingRuns(s: Pick<ConversationSchedule, 'repeat' | 'timeZone'
  */
 
 /**
+ * A mail folder as it is kept: `INBOX` in any letter case is the inbox (IMAP's one name that is not
+ * case-sensitive), written `INBOX`; any other folder's name as it is.
+ */
+export function mailFolder(folder: string): string {
+  return folder.toUpperCase() === 'INBOX' ? 'INBOX' : folder;
+}
+
+/**
  * For which source a trigger's checks keep what they saw (`ScheduleWatch.key`): another one (account
  * and folder, calendar, repository and what to watch there, the branch of CI runs, pattern) starts
  * afresh. Changing a trigger's conditions (sender, subject, title, minutes) keeps its place: what comes
  * next is matched against the new ones. (Another branch lists other runs, among them failures that are
- * not new: so it starts afresh.) Two triggers of one automation never have the same key.
+ * not new: so it starts afresh.) Two triggers of one automation never have the same key. The inbox is
+ * one folder in any letter case (`mailFolder()`).
  */
 export function triggerKey(trigger: ScheduleTrigger): string {
   switch (trigger.source) {
     case 'mail':
-      return JSON.stringify([trigger.source, trigger.account, trigger.folder]);
+      return JSON.stringify([trigger.source, trigger.account, mailFolder(trigger.folder)]);
     case 'calendar':
       return JSON.stringify([trigger.source, trigger.account]);
     case 'github':

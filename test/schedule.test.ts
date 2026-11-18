@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import type { ConversationSchedule, ScheduleRepeat, ScheduleTrigger } from '../src/shared/types';
+import type { ConversationSchedule, ScheduleRepeat, ScheduleTrigger, ScheduleWatch } from '../src/shared/types';
 import { nextRun, parseTime, triggerKey, upcomingRuns, validTimeZone, zonedParts, zonedTime } from '../src/shared/schedule';
 import { validateSchedule } from '../src/server/validate';
 import { withLang } from '../src/server/i18n';
 import { en } from '../src/web/locales/en';
 import { zhTW } from '../src/web/locales/zh-TW';
 import {
+  combinedWatch,
   describeRepeat,
   describeTriggers,
   editTriggers,
+  scheduleStatus,
+  triggerOf,
   triggerStates,
   scheduleBadgeTitle,
   shownEvent,
@@ -262,6 +265,28 @@ describe('validateSchedule', () => {
         },
       }),
     ).toMatch(same);
+    // The inbox in any letter case is the one inbox, written INBOX (its key too): twice is the same
+    // thing. Any other folder keeps its case, and another case is another folder.
+    expect(several([{ ...inbox, folder: ' inbox ' }])).toEqual({
+      kind: 'event',
+      triggers: [{ source: 'mail', account: 'work', folder: 'INBOX' }],
+    });
+    expect(message({ ...valid, repeat: { kind: 'event', triggers: [inbox, { ...inbox, folder: 'Inbox' }] } })).toMatch(same);
+    expect(triggerKey({ source: 'mail', account: 'work', folder: 'inbox' })).toBe(
+      triggerKey({ source: 'mail', account: 'work', folder: 'INBOX' }),
+    );
+    expect(
+      several([
+        { ...inbox, folder: 'Alerts' },
+        { ...inbox, folder: 'alerts' },
+      ]),
+    ).toEqual({
+      kind: 'event',
+      triggers: [
+        { source: 'mail', account: 'work', folder: 'Alerts' },
+        { source: 'mail', account: 'work', folder: 'alerts' },
+      ],
+    });
     // Another folder, or pull requests beside failed runs, are other things.
     expect(several([inbox, { ...inbox, folder: 'Alerts' }]).kind).toBe('event');
     expect(
@@ -453,6 +478,16 @@ describe('the schedule form', () => {
     expect(five).toHaveLength(5);
     expect(editTriggers({ triggers: [inbox] }, { remove: 0 })).toEqual([inbox]);
     expect(editTriggers({ triggers: [inbox, { ...inbox, folder: 'Alerts' }] }, { remove: 0 })).toEqual([{ ...inbox, folder: 'Alerts' }]);
+    // The new box once the others are filled in: the last one's source with every field empty (not a
+    // copy of it), the mail account and calendar the first one's.
+    const filled = [
+      { ...EMPTY_TRIGGER, account: 'work', folder: 'Alerts', from: 'bank', subject: 'due', calendar: 'home' },
+      { ...EMPTY_TRIGGER, source: 'file' as const, account: 'other', calendar: 'team', minutes: 30, pattern: 'invoices/*.pdf' },
+    ];
+    const added = editTriggers({ triggers: filled }, { add: true });
+    expect(added).toEqual([...filled, { ...EMPTY_TRIGGER, source: 'file', account: 'work', calendar: 'home' }]);
+    // Remove takes away that one alone, wherever it is.
+    expect(editTriggers({ triggers: added }, { remove: 1 })).toEqual([filled[0], added[2]]);
     // The same folder twice is one thing; each problem says which thing it is about.
     expect(draftProblems(two, MON, en)).toEqual([
       'Two of the things to wait for are the same (the same source, such as the same mail account and folder, or the same file pattern): change or remove one',
@@ -533,6 +568,63 @@ describe('the schedule form', () => {
     expect(scheduleTrouble(failing)).toBe(true);
     expect(scheduleBadgeTitle(failing, en, 'en')).toMatch(/, or when a file matching invoices\/\* .* · The check failed: disk gone$/);
     expect(triggerStates(failing, en, 'en')[1]).toMatch(/ · The check failed: disk gone$/);
+
+    // As one: by the triggers' order (not the order they are kept in), the first error and held item of
+    // any, the last check and the next one of any, listening when any mail server does; one alone as it is.
+    const asOne = (mail: Partial<ScheduleWatch>, file: Partial<ScheduleWatch>) =>
+      combinedWatch({
+        ...twoOf,
+        watches: [
+          { ...fileWatch, ...file },
+          { ...mailWatch, ...mail },
+        ],
+      });
+    expect(asOne({}, {})).toEqual({ key: '', checkedAt: MON + 60_000, nextCheckAt: MON + 120_000 });
+    expect(asOne({ error: 'mail down' }, { error: 'disk gone' })).toMatchObject({ error: 'mail down' });
+    expect(asOne({}, { error: 'disk gone' })).toMatchObject({ error: 'disk gone' });
+    expect(asOne({}, { held: 'waits for your answer' })).toMatchObject({ held: 'waits for your answer' });
+    expect(asOne({ held: 'the queue is full' }, { held: 'waits for your answer' })).toMatchObject({ held: 'the queue is full' });
+    expect(asOne({ listening: true }, {})).toMatchObject({ listening: true });
+    expect(asOne({}, {})).not.toHaveProperty('listening');
+    const alone = { key: triggerKey(mailTr), checkedAt: MON, nextCheckAt: MON + 900_000, listening: true, held: 'x' };
+    expect(combinedWatch({ repeat: { kind: 'event', triggers: [mailTr] }, watches: [alone] })).toBe(alone);
+    expect(combinedWatch({ repeat: { kind: 'event', triggers: [mailTr] } })).toBeUndefined();
+    expect(combinedWatch({ ...twoOf, watches: [{ ...mailWatch, error: 'x' }] })).toBeUndefined();
+
+    // The automation window: one line for each while it is on, only paused while it is off.
+    const status = scheduleStatus(failing, en, 'en');
+    expect(status.title).toBe(describeRepeat(twoOf.repeat, en, 'en'));
+    expect(status.lines).toEqual(triggerStates(failing, en, 'en'));
+    expect(scheduleStatus({ ...failing, enabled: false }, en, 'en')).toEqual({
+      title: `${describeRepeat(twoOf.repeat, en, 'en')} · paused`,
+      lines: [],
+    });
+    expect(scheduleStatus({ ...failing, enabled: false }, zhTW, 'zh-TW').title).toBe(
+      `${describeRepeat(twoOf.repeat, zhTW, 'zh-TW')} · 已暫停`,
+    );
+    // One thing to wait for, or another kind: one line, how it goes beside what it does.
+    const one = { ...twoOf, repeat: { kind: 'event' as const, triggers: [mailTr] }, watches: [mailWatch] };
+    expect(scheduleStatus(one, en, 'en')).toEqual({
+      title: `When a new mail from bank arrives · ${scheduleState(one, en, 'en')}`,
+      lines: [],
+    });
+    expect(scheduleStatus(saved, en, 'en')).toEqual({
+      title: `${describeRepeat(saved.repeat, en, 'en')} · ${scheduleState(saved, en, 'en')}`,
+      lines: [],
+    });
+
+    // The inbox in any letter case is the one inbox, written INBOX; other folders keep their case.
+    expect(triggerOf({ ...inbox, folder: ' inbox ' })).toEqual({ source: 'mail', account: 'work', folder: 'INBOX' });
+    expect(triggerOf({ ...inbox, folder: 'Alerts' })).toEqual({ source: 'mail', account: 'work', folder: 'Alerts' });
+    const inboxes = (a: string, b: string) => ({
+      ...draft,
+      triggers: [
+        { ...inbox, folder: a },
+        { ...inbox, folder: b },
+      ],
+    });
+    expect(draftProblems(inboxes('INBOX', 'Inbox'), MON, en)).toEqual([en.schedule.problems.sameTrigger]);
+    expect(draftProblems(inboxes('Alerts', 'alerts'), MON, en)).toEqual([]);
   });
 
   it('waits for an event about to begin, a pull request or failed run, or a file: each source in the form and in a few words', () => {

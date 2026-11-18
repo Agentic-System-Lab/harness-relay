@@ -39,13 +39,18 @@ function withWatch(s: ConversationSchedule, watch: ScheduleWatch): ScheduleWatch
 }
 
 /**
- * One round of checks of an automation's triggers: whether its folder was in use before the round
- * (`inUse`), and whether a message one of them sent started or queued a run (`started`).
+ * One round of checks of an automation's triggers: whether a message one of them sent started or
+ * queued a run (`started`), and the folder as it was just before that message went (`inUse`,
+ * `writes`), for the file triggers checked after it: the run it starts writes there, but what they
+ * find was there before it, while a run that began before it (the user's own, during a slow check of
+ * another trigger) is seen as it is.
  */
 interface Round {
-  /** Whether the folder was in use when the round began (for its file triggers). */
-  inUse: boolean;
-  /** The folder's write count when the round began (`Orchestrator.folderWrites()`, for its file triggers). */
+  /** Some of the triggers it checks look at files: the folder's state is taken before the message that starts a run. */
+  files: boolean;
+  /** Whether the folder was in use just before the message that started a run went. */
+  inUse?: boolean;
+  /** The folder's write count then (`Orchestrator.folderWrites()`). */
   writes?: string;
   /** One of its triggers' messages started a run (or was queued for one). */
   started?: boolean;
@@ -224,6 +229,14 @@ export class Scheduler {
     return done;
   }
 
+  /**
+   * The mail server said mail arrived in a folder (IMAP IDLE, `idle.ts`): check the automation's
+   * trigger on it (by its key) now, and only that one, once more after a check under way.
+   */
+  mailArrived(convId: string, key: string): Promise<void> {
+    return this.check(convId, false, true, [key]);
+  }
+
   private async runCheck(convId: string, force: boolean, which: Set<string> | 'all' | 'due'): Promise<void> {
     if (this.stopped || !this.checkTrigger) return;
     const conv = this.store.get(convId);
@@ -233,16 +246,11 @@ export class Scheduler {
     const picked = s.repeat.triggers.filter((t) =>
       which === 'all' ? true : which === 'due' ? (watchOf(s, t)?.nextCheckAt ?? 0) <= now : which.has(triggerKey(t)),
     );
-    // Whether the folder was in use before any of these checks sent a message: a run one of them
-    // started writes there now, but what the next ones find was there before it.
-    const anyFile = picked.some((t) => t.source === 'file');
-    const round: Round = {
-      inUse: anyFile && this.orchestrator.folderInUse(convId),
-      ...(anyFile ? { writes: this.orchestrator.folderWrites(convId) } : {}),
-    };
+    const round: Round = { files: picked.some((t) => t.source === 'file') };
     let failed: unknown;
     for (const key of picked.map(triggerKey)) {
-      if (this.stopped) return;
+      // Deleted meanwhile (or shutting down): nothing more to check.
+      if (this.stopped || this.store.get(convId) !== conv) return;
       try {
         await this.checkOne(conv, key, force, round);
       } catch (err) {
@@ -274,9 +282,9 @@ export class Scheduler {
       prev?.held && !force && trigger.source !== 'file' ? withLang(s.lang, () => this.orchestrator.scheduledHold(convId)) : undefined;
     // The team writes in the folder now, or did since the last check: only recorded. (A run another
     // trigger's message just started writes there too, but what was there before it is not its own:
-    // the folder is taken as it was when the round began, its write count too.)
+    // the folder is taken as it was just before that message went, its write count too.)
     const files = trigger.source === 'file';
-    const writing = files && (round.started ? round.inUse : this.orchestrator.folderInUse(convId));
+    const writing = files && (round.started ? Boolean(round.inUse) : this.orchestrator.folderInUse(convId));
     /** Someone writes in the folder while nothing is recorded (held, a failed check): what is written is the team's. */
     const wrote = writing ? { teamWrote: true } : {};
     if (prev && hold) {
@@ -356,6 +364,12 @@ export class Scheduler {
     // changed for a while): sent all the same, queued for the team.
     if (!found.event || recordOnly) return this.keepWatch(conv, s, seen);
     const now = this.now();
+    // The folder as it is just before this message goes, for the file triggers checked after it once
+    // it starts a run (taken again before the next message while none has).
+    if (round.files && !round.started) {
+      round.inUse = this.orchestrator.folderInUse(convId);
+      round.writes = this.orchestrator.folderWrites(convId);
+    }
     await withLang(s.lang, async () => {
       const sent = await this.orchestrator.sendScheduled(convId, now, { event: found.event, eventSource: trigger.source });
       // Shutting down: nothing was recorded, so the next start finds the same mail.
