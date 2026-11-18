@@ -41,7 +41,7 @@ test.describe('what an agent does on its way to a reply', () => {
     // Codex reports its command before it asks about it: the step runs while the approval card waits.
     needsBelowFull('codex');
     await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], { permission: 'read-only' });
-    await send(page, 'Print a line e2e:approve');
+    await send(page, 'Print a line e2e:approve e2e:slow=4');
     const card = page.getByRole('region', { name: '@Codex wants to run a command' });
     await expect(card).toBeVisible();
     const summary = replies(page, 'Codex').last().locator('details.tool-group > summary');
@@ -64,8 +64,16 @@ test.describe('what an agent does on its way to a reply', () => {
     const box = (await summary.locator('.logo-spinner').boundingBox())!;
     expect(box.width).toBeCloseTo(14, 0);
     expect(box.height).toBeCloseTo(14, 0);
+    const textAt = async () => (await summary.locator('.tool-summary').boundingBox())!.x;
+    const runningAt = await textAt();
 
+    // Allowed, the step is done while the reply still streams: its ⚙ in the loader's place (the
+    // loader is for a step at work, not for the reply), and the text where it was.
     await card.getByRole('button', { name: 'Allow', exact: true }).click();
+    await expect(summary.locator('.tool-icon')).toHaveText('⚙');
+    await expect(summary.locator('.logo-spinner')).toHaveCount(0);
+    await expect(replies(page, 'Codex').last().locator('.live-tag')).toBeVisible();
+    expect(await textAt()).toBeCloseTo(runningAt, 0);
     const reply = await finishedReply(page, 'Codex');
     await expect(reply.locator('.logo-spinner')).toHaveCount(0);
     await expect(reply.locator('details.tool-group > summary .tool-icon')).toHaveText('⚙');

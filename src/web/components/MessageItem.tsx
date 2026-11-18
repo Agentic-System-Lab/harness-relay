@@ -130,13 +130,9 @@ function ActivityGroup({ items, live, last }: { items: ActivityItem[]; live: boo
   return (
     <details className="tool-group">
       <summary>
-        {busy ? (
-          <LogoSpinner />
-        ) : (
-          <span className="tool-icon" aria-hidden>
-            {actions > 0 ? '⚙' : '💭'}
-          </span>
-        )}
+        <span className="tool-icon" aria-hidden>
+          {busy ? <LogoSpinner /> : actions > 0 ? '⚙' : '💭'}
+        </span>
         {thinking !== undefined ? (
           <span className="tool-summary">
             <span className="thinking-label">{t.activity.thinking}</span> <span className="thinking-tail">{thoughtTail(thinking)}</span>

@@ -124,7 +124,10 @@ function groupReply(prompt) {
   return JSON.stringify({ group: hit ? hit.n : 0 });
 }
 
-/** The lead agent's answer to "change the team": the team, with a member of each CLI `e2e:add` names. */
+/**
+ * The lead agent's answer to "change the team": the team, with a member of each CLI `e2e:add` names;
+ * slow with `e2e:slowrevise` (about ten seconds, `=<seconds>` for another time), read from the request.
+ */
 function reviseReply(prompt) {
   let team = {};
   try {
@@ -207,7 +210,8 @@ function plan(prompt, turn) {
   if (/Reply with only one of these JSON objects/.test(prompt)) return [{ type: 'text', ...planReply(prompt) }];
   if (/Reply with only this JSON object: \{"group"/.test(prompt)) return [{ type: 'text', text: groupReply(prompt) }];
   if (/Reply with only this JSON object, in a ```json code block, with the whole team/.test(prompt)) {
-    return [{ type: 'text', text: reviseReply(prompt) }];
+    const d = directivesIn(tag(prompt, 'request'));
+    return [{ type: 'text', text: reviseReply(prompt), slow: slowMs(d.slowrevise) }];
   }
   if (/Reply with only this JSON object, in a ```json code block, with your review/.test(prompt)) {
     const { text, slow } = reviewReply(prompt);

@@ -2816,7 +2816,7 @@ a.branch-source:hover {
   color: var(--muted);
 }
 
-/* A reply about to begin: the app's loader (`LogoSpinner`), as tall as the dots it replaced with their padding. */
+/* A reply about to begin: the app's loader (`LogoSpinner`, 16px), about as tall as the dots it replaced with their padding (24px, from 23). */
 .typing {
   display: flex;
   padding: 4px 0;
@@ -2847,6 +2847,14 @@ a.branch-source:hover {
 
 .tool-group summary::-webkit-details-marker {
   display: none;
+}
+
+/* The row's icon: one slot for the loader and the glyphs after it, so that the text stays where it is as a step starts and ends. */
+.tool-group summary > .tool-icon {
+  flex: none;
+  display: inline-flex;
+  justify-content: center;
+  width: 16px;
 }
 
 .tool-summary {
@@ -3706,15 +3714,12 @@ video.chat-media {
   position: relative;
 }
 
+/* Voice input installing: the app's loader (`LogoSpinner`, 12px) at the microphone's top right. */
 .mic-badge {
   position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--warn);
-  animation: breathe 1.2s ease-in-out infinite;
+  top: 2px;
+  right: 2px;
+  display: flex;
 }
 
 .voice-recording {
@@ -6387,9 +6392,15 @@ details.sub summary {
   display: inline-block;
 }
 
+/* While agents reply: the app's loader (`LogoSpinner`, 12px), centred on the dot's 8px place, so that the title next to it never moves. */
 .status-dot.running {
-  background: var(--info);
-  animation: breathe 1.2s ease-in-out infinite;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.status-dot.running > .logo-spinner {
+  flex: none;
 }
 
 .status-dot.waiting,

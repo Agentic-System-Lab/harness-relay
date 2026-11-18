@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import type { VoiceJobView, VoiceStatus } from '../../src/shared/types';
 import { expect, test } from '../fixtures';
+import { openTeamChat } from '../support/app';
 
 const MB = 1024 * 1024;
 
@@ -79,6 +80,17 @@ test.describe("voice input's install", () => {
     await expect(bar).toHaveAttribute('aria-valuenow', '39');
     await expect(bar.locator('span')).toHaveCSS('transform', 'matrix(0.39, 0, 0, 1, 0, 0)');
     await expect(page.locator('.voice-progress')).toContainText('39% · 228 MB / 574 MB');
+    // While it runs, the app's loader (the Logo turning) beside its state; and in a chat, at the
+    // microphone's top right, 12px.
+    await expect(page.locator('.voice-job .login-state .logo-spinner')).toBeVisible();
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
+    const badge = page.locator('.composer .mic-button .mic-badge .logo-spinner');
+    await expect(badge).toBeVisible();
+    const box = (await badge.boundingBox())!;
+    const mic = (await page.locator('.composer .mic-button').boundingBox())!;
+    expect(box.width).toBeCloseTo(12, 0);
+    expect(box.x + box.width).toBeCloseTo(mic.x + mic.width - 2, 0);
+    expect(box.y).toBeCloseTo(mic.y + 2, 0);
   });
 
   test('says which step stopped a failed install', async ({ page, relay }) => {

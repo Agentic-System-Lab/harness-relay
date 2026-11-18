@@ -154,7 +154,11 @@ export function VoiceButton({ onText, onError }: { onText: (text: string) => voi
           title={label}
         >
           {rec === 'idle' ? <MicIcon /> : <LogoSpinner size={16} />}
-          {mode === 'installing' && <span className="mic-badge" aria-hidden="true" />}
+          {mode === 'installing' && (
+            <span className="mic-badge" aria-hidden="true">
+              <LogoSpinner size={12} />
+            </span>
+          )}
         </button>
       )}
       {dialog && <VoiceSetupDialog status={status} onStatus={setStatus} onClose={() => setDialog(false)} />}
