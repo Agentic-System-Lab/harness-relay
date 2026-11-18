@@ -120,6 +120,7 @@ const zhTW = {
   cursorConfigFailed: (err: string) => `無法替這一輪準備 Cursor 的設定資料夾：${err}`,
   cursorAccountLogin:
     'Cursor 在每個電腦使用者只保留一個登入（macOS 上存在鑰匙圈裡），所以額外的 Cursor 帳號不能用瀏覽器登入：請替它設定 API key。預設帳號才用 Cursor 自己的登入。',
+  guardRefused: '這是團隊檢查的受保護路徑，已在寫入前拒絕',
   antigravityRefused: '超出這個對話的權限，已拒絕',
   antigravityProtected: '這是受保護的路徑（瀏覽器資料、Harness Relay 的資料庫等），低於完整權限時不能讀寫，已拒絕',
   antigravityEndsTurn: '（Antigravity 在拒絕後會結束這一輪）',
@@ -1011,6 +1012,7 @@ const en: ServerMessages = {
   cursorConfigFailed: (err) => `Could not prepare Cursor's config folder for this turn: ${err}`,
   cursorAccountLogin:
     "Cursor keeps one sign-in per computer user (on macOS, in the keychain), so an extra Cursor account cannot sign in with a browser: give it an API key. Only the default account uses Cursor's own sign-in.",
+  guardRefused: "Refused before writing: one of the team checks' protected paths",
   antigravityRefused: "Refused: not covered by this conversation's permission",
   antigravityProtected:
     "Refused: a protected path (browser data, Harness Relay's database…), which agents below full access may not read or write",

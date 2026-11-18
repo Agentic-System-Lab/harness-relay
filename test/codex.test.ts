@@ -28,6 +28,7 @@ import {
   describeCodexItem,
   folderTail,
   sharedFolder,
+  codexGuardReads,
 } from '../src/server/agents/codex';
 import { RpcError } from '../src/server/agents/acp';
 import { AgentRunError, TURN_TIMEOUT_MS, type AgentEvent } from '../src/server/agents/types';
@@ -965,5 +966,22 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     stop.abort();
     await expect(r.result).rejects.toMatchObject({ message: 'Stopped' });
     expect(r.methods()).not.toContain('turn/start');
+  });
+});
+
+describe.skipIf(process.platform === 'win32')("Codex and the team checks' protected paths", () => {
+  // The team checks' protected paths (a guard's folders are real paths; these are not on disk, and on Windows a path is another shape).
+  const guard = { dirs: ['/w/app'], patterns: ['.env', 'config/prod.yml', '*.pem'] };
+  it('makes them read-only in its profile in edit mode: each plain pattern where it is anchored, and what matches now', () => {
+    expect(codexGuardReads(guard, ['/w/app/sub/k.pem'])).toEqual(['/w/app/.env', '/w/app/config/prod.yml', '/w/app/sub/k.pem']);
+    expect(codexGuardReads(guard, ['/w/app/k[1].pem'])).not.toContain('/w/app/k[1].pem');
+    expect(codexProfile('edit', ['/x'], 'darwin', [], guard, [])).toEqual({
+      extends: ':workspace',
+      filesystem: { '/w/app/.env': 'read', '/w/app/config/prod.yml': 'read', '/x': 'deny' },
+    });
+    // Read-only writes nothing anyway, and full access has no profile.
+    expect(codexProfile('read-only', ['/x'], 'darwin', [], guard, [])).toEqual({ extends: ':read-only', filesystem: { '/x': 'deny' } });
+    expect(codexProfile('full', ['/x'], 'darwin', [], guard, [])).toBeUndefined();
+    expect(codexProfile('edit', [], 'darwin', [], guard, [])).toMatchObject({ filesystem: { '/w/app/.env': 'read' } });
   });
 });

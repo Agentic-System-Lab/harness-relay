@@ -31,6 +31,7 @@ import {
   type RunOptions,
   type RunResult,
 } from './types';
+import { isGuarded, type WriteGuard } from '../writeGuard';
 
 /*
  * Antigravity runs as an ACP agent (`agy acp`: JSON-RPC over stdin/stdout), like Grok and Cursor. What
@@ -632,11 +633,14 @@ export function antigravityPermissionDecision(
   cwd: string,
   addDirs: readonly string[] = [],
   protectedPaths: readonly string[] = [],
+  guard?: WriteGuard,
 ): AntigravityDecision {
   if (permission === 'full') return { run: 'allow' };
   // Every path it names: a move or a call with several locations is about all of them.
   const paths = antigravityPaths(call);
   if (paths.some((path) => protectedPaths.some((p) => within(cwd, path, p)))) return { run: 'refuse', reason: t().antigravityProtected };
+  // A write to one of the team's protected paths: below full access agy asks before every write.
+  if (isWrite(call) && paths.some((path) => isGuarded(guard, resolve(cwd, path)))) return { run: 'refuse', reason: t().guardRefused };
   if (isWeb(call)) return { run: 'allow' };
   if (isRead(call)) return { run: 'allow' };
   if (permission === 'edit' && isWrite(call) && paths.length) {
@@ -899,7 +903,7 @@ async function antigravityTurn(o: RunOptions, runDir: string): Promise<RunResult
     if (method !== 'session/request_permission') throw new RpcError(-32601, `${method} is not supported`);
     const options: { optionId: string; kind: string }[] = Array.isArray(params?.options) ? params.options : [];
     const call = (params?.toolCall ?? {}) as AntigravityToolCall;
-    const verdict = antigravityPermissionDecision(o.permission, call, o.cwd, o.addDirs, protectedPaths);
+    const verdict = antigravityPermissionDecision(o.permission, call, o.cwd, o.addDirs, protectedPaths, o.guard);
     let decision: AcpDecision;
     let label = `${t().antigravityRefused}${t().antigravityEndsTurn}`;
     if (verdict.run === 'allow') decision = { allow: true };

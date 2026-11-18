@@ -112,3 +112,33 @@ export function guardedNow(g: WriteGuard, limit = 200, budget = 20_000): string[
   for (const dir of g.dirs) walk(dir, dir);
   return out;
 }
+
+/** The longest glob given to a sandbox: Seatbelt refuses a string over about 1000 bytes and would not start. */
+const MAX_SANDBOX_GLOB = 900;
+
+/**
+ * The guard as sandbox-runtime's `denyWrite` globs, for macOS only (on Linux it skips them, and Harness
+ * Relay's sandbox host refuses to start with one): each working directory's own `[`, `*` and `?` as a
+ * set of one, `**` inside a name as `*` (sandbox-runtime would cross folders), the path itself and what
+ * is under it, at the top and, for a pattern without a `/`, in any folder below. A pattern with a negated
+ * set (`[!x]`), which it cannot read, and a glob too long for Seatbelt are left to `guardedNow()`.
+ */
+export function sandboxGuardGlobs(g: WriteGuard): string[] {
+  const out = new Set<string>();
+  for (const dir of g.dirs) {
+    const base = dir.replace(/[[*?]/g, (c) => `[${c}]`).replace(/\/+$/, '');
+    for (const p of compiled(g)) {
+      const trimmed = p.source.replace(/^\/+/, '').replace(/\/+$/, '');
+      if (/\[[!^]/.test(trimmed)) continue;
+      const body = trimmed
+        .split('/')
+        .map((n) => (n === '**' ? n : n.replace(/\*{2,}/g, '*')))
+        .join('/');
+      const anchored = p.source.startsWith('/') || trimmed.includes('/');
+      for (const top of anchored ? [`${base}/${body}`] : [`${base}/${body}`, `${base}/**/${body}`]) {
+        for (const glob of [top, `${top}/**`]) if (glob.length <= MAX_SANDBOX_GLOB) out.add(glob);
+      }
+    }
+  }
+  return [...out];
+}

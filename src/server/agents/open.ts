@@ -560,6 +560,7 @@ export async function startOpenProcess(
         : privateRoots(root, undefined, openAgentRootsBefore(o.env)),
       readOnly: [...home.configPaths],
       protectedPaths,
+      ...(o.guard ? { guard: o.guard } : {}),
       allowedHosts: [...run.hosts],
       ...(o.attachmentsDir ? { attachmentsDir: o.attachmentsDir } : {}),
       ...(o.requestApproval ? { requestApproval: o.requestApproval } : {}),

@@ -99,7 +99,7 @@ export function ChecksEditor({ value, onChange, permission, convId }: Props) {
             onChange={(e) => update({ paths: e.target.value })}
           />
           <span className="small muted" id={pathsHint}>
-            {t.checks.protectedPathsHint}
+            {t.checks.protectedPathsHint} {t.checks.protectedPathsBefore}
           </span>
           {wrongPath && <span className="small warn-text">{t.checks.badPath(wrongPath)}</span>}
         </div>

@@ -1362,7 +1362,7 @@ describe("a turn's cost and tokens", () => {
     const guard = { dirs: ['/w/app', '/w/lib'], patterns: ['.env', 'config/prod.yml'] };
 
     it('are Edit deny rules with absolute globs, with any permission, full access included', () => {
-      const rules = claudeGuardRules(guard, 'darwin');
+      const rules = claudeGuardRules(guard, 'darwin', () => false, []);
       expect(rules).toEqual(
         expect.arrayContaining([
           'Edit(//w/app/.env)',
@@ -1373,7 +1373,13 @@ describe("a turn's cost and tokens", () => {
         ]),
       );
       expect(rules.some((r) => r.includes('/**/config'))).toBe(false);
+      // What matches when the turn starts, by name too (none here: the folders are not there).
       expect(claudeRunSettings('full', [], [], {}, 'darwin', [], undefined, guard)).toEqual({ permissions: { deny: rules } });
+      expect(claudeGuardRules(guard, 'darwin', () => false, ['/w/app/sub/.env'])).toEqual([
+        ...rules,
+        'Edit(//w/app/sub/.env)',
+        'Edit(//w/app/sub/.env/**)',
+      ]);
       const edit = claudeRunSettings('edit', [], [], {}, 'darwin', ['/data/relay.db'], undefined, guard) as {
         permissions: { deny: string[] };
       };
@@ -1382,17 +1388,25 @@ describe("a turn's cost and tokens", () => {
     });
 
     it('on Linux name a path with no wildcard only when it is there (its sandbox puts a stand-in on one that is not)', () => {
-      const rules = claudeGuardRules(guard, 'linux', (p) => p === '/w/app/.env');
+      const rules = claudeGuardRules(guard, 'linux', (p) => p === '/w/app/.env' || p === '/w/app/sub/.env', ['/w/app/sub/.env']);
       expect(rules).toContain('Edit(//w/app/.env)');
+      expect(rules).toContain('Edit(//w/app/.env/**)');
+      expect(rules).toContain('Edit(//w/app/sub/.env)');
       expect(rules).not.toContain('Edit(//w/lib/.env)');
+      // A rule ending in `/**` is the name before it to that sandbox: not given for a name that is not there.
+      expect(rules).not.toContain('Edit(//w/lib/.env/**)');
       expect(rules).not.toContain('Edit(//w/lib/config/prod.yml)');
+      expect(rules).not.toContain('Edit(//w/lib/config/prod.yml/**)');
       expect(rules).toContain('Edit(//w/lib/**/.env)');
-      expect(rules).toContain('Edit(//w/lib/config/prod.yml/**)');
+      expect(rules).toContain('Edit(//w/lib/**/.env/**)');
     });
 
     it('are none on native Windows, and none for a folder a rule would read as a pattern', () => {
       expect(claudeGuardRules(guard, 'win32')).toEqual([]);
       expect(claudeGuardRules({ dirs: ['/w/a[1]'], patterns: ['.env'] }, 'darwin')).toEqual([]);
+      expect(claudeGuardRules({ dirs: ['/w/a'], patterns: ['*.pem'] }, 'darwin', () => true, ['/w/a/k[1].pem'])).not.toContain(
+        'Edit(//w/a/k[1].pem)',
+      );
       expect(claudeGuardRules(undefined, 'darwin')).toEqual([]);
     });
   });

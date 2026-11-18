@@ -984,6 +984,8 @@ export const zhTW = {
       '團隊回答後，Harness Relay 會自己檢查這些規則，不論成員用哪個 CLI、什麼權限。只在可以修改檔案時檢查；只回報，不會撤銷修改。',
     protectedPaths: '受保護路徑',
     protectedPathsHint: '一行一條，寫法同 .gitignore，例如 .env、*.pem、secrets/、config/prod.yml。被 git 忽略的檔案也會檢查。',
+    protectedPathsBefore:
+      'Claude Code、Codex、Cursor、Copilot、Antigravity 和開源 agent 也會在寫入前就拒絕，各自擋得到的範圍不同（見使用說明）；Grok 和 Muse Code 則在團隊回答後才會找到。',
     commitPattern: 'commit 格式（正規表示式）',
     commitPatternHint: '團隊每個 commit 的標題都要符合。只在圓桌和接力模式檢查。',
     conventional: '填入 Conventional Commits',

@@ -64,6 +64,7 @@ import {
   prepareCopilotRun,
   readCopilotJson,
   type CopilotToolCall,
+  copilotGuardArgs,
 } from '../src/server/agents/copilot';
 import { AgentRunError, type AgentEvent, type ApprovalRequest, type RunOptions } from '../src/server/agents/types';
 import { t, withLang } from '../src/server/i18n';
@@ -1800,5 +1801,25 @@ describe.skipIf(process.platform === 'win32')('a Copilot turn (with a stand-in c
     expect(methods(r)).toEqual(['initialize', 'logout']);
     const bad = run(undefined, {}, undefined, { FAKE_COPILOT_LOGOUT_FAIL: '1' });
     await expect(copilotLogout(bin, bad.o.env)).rejects.toThrow('keychain locked');
+  });
+});
+
+describe.skipIf(process.platform === 'win32')("Copilot and the team checks' protected paths", () => {
+  // The team checks' protected paths (a guard's folders are real paths; these are not on disk, and on Windows a path is another shape).
+  const guard = { dirs: ['/work/app'], patterns: ['.env', '[!a].txt'] };
+  it('denies its write tool them with any permission, and refuses a write it asks about below full access', () => {
+    const args = copilotGuardArgs(guard);
+    expect(args).toEqual(expect.arrayContaining(['--deny-tool=write(/work/app/.env)', '--deny-tool=write(/work/app/**/.env)']));
+    // Copilot's globs have no negated set: that one is left to the checks after the turn.
+    expect(args.some((a) => a.includes('[!a]'))).toBe(false);
+    expect(copilotArgs({ permission: 'full', guard })).toEqual(expect.arrayContaining(args));
+    expect(copilotGuardArgs(undefined)).toEqual([]);
+    withLang('en', () => {
+      expect(copilotPermissionDecision('edit', call('edit', { path: '/work/app/.env' }), CWD, [], [], guard)).toEqual({
+        run: 'refuse',
+        reason: t().guardRefused,
+      });
+      expect(copilotPermissionDecision('edit', call('read', { path: '/work/app/.env' }), CWD, [], [], guard)).toEqual({ run: 'allow' });
+    });
   });
 });

@@ -24,7 +24,7 @@ import {
 } from './types';
 import { t } from '../i18n';
 import { overlaps, patternPath, protectedReads, relayTmpDir, RUN_TMP_PREFIXES } from '../protect';
-import { guardGlobs, type WriteGuard } from '../writeGuard';
+import { guardGlobs, guardedNow, type WriteGuard } from '../writeGuard';
 
 /*
  * Claude Code runs as `claude -p` with stream-json in both directions. The prompt goes in as a
@@ -439,22 +439,31 @@ export function claudeRunSettings(
  * The team's protected paths as Claude Code's `Edit` deny rules (`//` and an absolute glob), which it
  * keeps with any permission, full access included: they refuse its file tools and the shell commands
  * whose target it can tell (a redirect, `rm`, `mv`, `sed -i`…), and below full access its sandbox takes
- * them too (on macOS for every command). Its sandbox on Linux takes only a rule with no wildcard, and
- * puts a stand-in on a path that is not there while a command runs: there a rule with no wildcard is
- * given only for a path that is. None on native Windows (not tried there), and none for a working
- * directory whose own name holds `*`, `?` or `[`, which a rule would read as a pattern.
+ * them too (on macOS for every command). With them, what matches when the turn starts, by name
+ * (`guardedNow()`), so that moving the folder above one does not take it out of reach. Its sandbox on
+ * Linux takes only a name (a rule ending in `/**` as the name before it) and puts a stand-in on a name
+ * that is not there while a command runs: there a rule is given for a name only when it is there. None
+ * on native Windows (not tried there), and none for a folder or name holding `*`, `?` or `[`, which a
+ * rule would read as a pattern.
  */
 export function claudeGuardRules(
   g: WriteGuard | undefined,
   platform: NodeJS.Platform = process.platform,
   exists: (path: string) => boolean = existsSync,
+  now?: readonly string[],
 ): string[] {
   if (!g || platform === 'win32') return [];
-  const dirs = g.dirs.filter((d) => !/[*?[\]]/.test(d));
+  const plain = (p: string) => !/[*?[\]]/.test(p);
+  const dirs = g.dirs.filter(plain);
   if (!dirs.length) return [];
-  return guardGlobs({ ...g, dirs })
-    .filter((glob) => platform !== 'linux' || /[*?[]/.test(glob) || exists(glob))
-    .map((glob) => `Edit(/${glob})`);
+  const guard = { ...g, dirs };
+  const named = (now ?? guardedNow(guard)).filter(plain).flatMap((p) => [p, `${p.split('\\').join('/')}/**`]);
+  const rules = [...guardGlobs(guard), ...named].filter((glob) => {
+    if (platform !== 'linux') return true;
+    const name = glob.replace(/\/\*\*$/, '');
+    return /[*?[]/.test(name) || exists(name);
+  });
+  return [...new Set(rules)].map((glob) => `Edit(/${glob})`);
 }
 
 /**

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { guardGlobs, guardedNow, isGuarded, writeGuard } from '../src/server/writeGuard';
+import { guardGlobs, guardedNow, isGuarded, sandboxGuardGlobs, writeGuard } from '../src/server/writeGuard';
 
 let dir: string;
 beforeEach(() => {
@@ -70,5 +70,21 @@ describe('write guard', () => {
     const g = writeGuard({ protectedPaths: ['.env', '*.pem', 'secrets/'] }, [dir])!;
     expect(guardedNow(g).sort()).toEqual([join(dir, '.env'), join(dir, 'sub', 'a.pem'), join(dir, 'sub', 'secrets')].sort());
     expect(guardedNow(g, 1)).toHaveLength(1);
+  });
+
+  it("gives sandbox-runtime's globs: the folder's own wildcards as sets of one, `**` in a name as `*`, no negated set, none too long", () => {
+    const g = { dirs: ['/w/a[1]*?'], patterns: ['.env', 'config/*.yml', 'x**y', '[!a].txt', `${'n'.repeat(950)}`] };
+    expect(sandboxGuardGlobs(g)).toEqual([
+      '/w/a[[]1][*][?]/.env',
+      '/w/a[[]1][*][?]/.env/**',
+      '/w/a[[]1][*][?]/**/.env',
+      '/w/a[[]1][*][?]/**/.env/**',
+      '/w/a[[]1][*][?]/config/*.yml',
+      '/w/a[[]1][*][?]/config/*.yml/**',
+      '/w/a[[]1][*][?]/x*y',
+      '/w/a[[]1][*][?]/x*y/**',
+      '/w/a[[]1][*][?]/**/x*y',
+      '/w/a[[]1][*][?]/**/x*y/**',
+    ]);
   });
 });
