@@ -2493,7 +2493,10 @@ export class Orchestrator {
    * ends it.
    */
   private heldGate(conv: Conversation): string[] {
-    const last = conv.messages.findLast((m) => m.checks?.outcomes.some((o) => o.rule === 'command' && o.status !== 'na' && !o.notRun));
+    // A card that ran none but shows the gate it carries on counts too: skipping it ends the gate.
+    const last = conv.messages.findLast((m) =>
+      m.checks?.outcomes.some((o) => o.rule === 'command' && ((o.status !== 'na' && !o.notRun) || Boolean(o.configChanged?.length))),
+    );
     if (!last?.checks || last.checks.skippedAt) return [];
     return [...new Set(last.checks.outcomes.flatMap((o) => o.configChanged ?? []))];
   }

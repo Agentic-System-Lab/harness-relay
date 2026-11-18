@@ -656,4 +656,34 @@ describe('team checks: commands', () => {
     expect(outcomes.filter((o) => o.rule === 'command')).toHaveLength(1);
     expect(outcomes.find((o) => o.rule === 'paths')).toMatchObject({ status: 'error', reason: 'git broke' });
   });
+
+  it.skipIf(process.platform === 'win32')('skipping the card of a run that stopped to ask, which shows the gate, ends it', async () => {
+    writeFileSync(join(project, '.gitignore'), '.env\n');
+    writeFileSync(join(project, '.env'), 'A=1\n');
+    const conv = conversation({
+      mode: 'roundtable',
+      permission: 'full',
+      checks: { protectedPaths: ['.env'], commands: [{ id: 'c', run: 'true' }] },
+    });
+    fake.during = (name) => name === 'Alice' && writeFileSync(join(project, 'vitest.config.ts'), 'export default {};\n');
+    await orchestrator.send(conv.id, 'change the config');
+    await finish(conv.id);
+    expect(commandOf(conv).configChanged).toEqual(['vitest.config.ts']);
+    // The next run stops to ask, and changes a protected file: its card fails, and shows the gate.
+    fake.during = (name) => name === 'Alice' && writeFileSync(join(project, '.env'), 'A=2\n');
+    fake.asking.add('Alice');
+    await orchestrator.send(conv.id, 'ask me');
+    await finish(conv.id);
+    expect(commandOf(conv)).toMatchObject({ status: 'na', configChanged: ['vitest.config.ts'] });
+    orchestrator.skipChecks(conv.id, lastCard(conv).id);
+    await finish(conv.id);
+    fake.asking.clear();
+    fake.during = undefined;
+    let ran = false;
+    orchestrator.checkCommandDeps = gated(Promise.resolve(), () => (ran = true));
+    await orchestrator.send(conv.id, 'ANSWER: go on');
+    await finish(conv.id);
+    expect(ran).toBe(true);
+    expect(commandOf(conv).configChanged).toBeUndefined();
+  });
 });
