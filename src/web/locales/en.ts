@@ -965,7 +965,7 @@ export const en: Messages = {
     failedAction: (why) => `That did not work: ${why}`,
     editorTitle: 'Team checks',
     editorHint:
-      'Once the team has answered, Harness Relay checks these rules itself, whichever CLI each member runs on and whatever its permission. Only when the team may change files; it reports, and undoes nothing.',
+      'Once the team has answered, Harness Relay checks these rules itself, whichever CLI each member runs on and whatever its permission; hooks run as members use their tools. Only when the team may change files; the checks report, and undo nothing.',
     protectedPaths: 'Protected paths',
     protectedPathsHint:
       'One per line, written as in .gitignore: .env, *.pem, secrets/, config/prod.yml. Files git ignores are checked too.',
@@ -1009,6 +1009,22 @@ export const en: Messages = {
     badCommand: 'A command cannot be empty',
     badFolder: (f) => `The folder "${f}" cannot be used: no ..`,
     badTimeout: (max) => `The time limit is 1 to ${max} minutes`,
+    hooks: 'Hooks',
+    hooksHint:
+      'Commands Harness Relay runs before and after each tool call a member makes. A Before hook that does not succeed (exit 0) refuses the call, its output the reason the agent gets; an After hook that does not succeed sends its output to the agent. A hook reads the call from its environment: RELAY_HOOK_COMMAND, RELAY_HOOK_FILES (a full path a line), RELAY_HOOK_TOOL, RELAY_HOOK_INPUT (JSON). Like the commands, below full access they run in Harness Relay’s sandbox; each call waits for them.',
+    hooksWho: (clis) =>
+      `Run for ${clis.join(', ')} for now; members on other agents make their tool calls without them, and the chat says so.`,
+    hooksWindowsNote: 'Hooks do not run on native Windows yet.',
+    hookWhen: 'When',
+    hookBefore: 'Before',
+    hookAfter: 'After',
+    hookTools: 'Which calls',
+    hookToolsLabel: { command: 'Commands', edit: 'File changes', any: 'Every tool call' },
+    hookRun: 'Hook command',
+    hookTimeout: 'Time limit (seconds)',
+    addHook: 'Add a hook',
+    removeHook: 'Remove this hook',
+    badHookTimeout: (max) => `The time limit is 1 to ${max} seconds`,
   },
 
   changes: {
@@ -2231,6 +2247,7 @@ export const en: Messages = {
           'Protected paths: written as in .gitignore, such as .env or *.pem; the team may not create, change or delete them',
           "Commit format: a regular expression every commit's subject must match",
           'Commands: such as npm test, which must succeed',
+          'Hooks: commands run before and after each tool call a member makes; a Before hook that fails refuses the call (Claude Code, Muse Code and Pi for now)',
           "Once the team has answered, Harness Relay checks them itself, and a card after the replies says how each went; while one fails, the members' next turns are asked to fix it, and you can Check again, Ask a member to fix it or Skip",
           'It reports and undoes nothing; Settings → Tool library → Default team checks are the rules every new chat starts with',
         ],

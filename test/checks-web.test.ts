@@ -6,6 +6,7 @@ import {
   commandProblem,
   fixCandidates,
   gatedFiles,
+  hookProblem,
   listFrom,
   pathsFromText,
   pathsText,
@@ -184,6 +185,45 @@ describe('team checks: before applying a parallel result', async () => {
     ).toBeUndefined();
     expect(applyAnyway(card(), true, false)).toBeUndefined();
     expect(cardActions(held, true, false)).toEqual({ recheck: false, fix: true, skip: true, confirm: false });
+  });
+});
+
+describe('team checks: hooks in the page', () => {
+  it('keeps the rows with a command line, trimmed, the default time limit left out, and counts them as rules', () => {
+    const list = listFrom(
+      '',
+      '',
+      undefined,
+      [],
+      [
+        { id: 'a', when: 'before', tools: 'command', run: ' ./allow.sh ', cwd: ' tools ', timeoutSec: 60 },
+        { id: 'b', when: 'after', tools: 'edit', run: '   ' },
+        { id: 'c', when: 'after', tools: 'any', run: 'fmt', timeoutSec: 5 },
+      ],
+    );
+    expect(list).toEqual({
+      hooks: [
+        { id: 'a', when: 'before', tools: 'command', run: './allow.sh', cwd: 'tools' },
+        { id: 'c', when: 'after', tools: 'any', run: 'fmt', timeoutSec: 5 },
+      ],
+    });
+    expect(ruleCount(list)).toBe(2);
+    expect(startingChecks(list)).toEqual({ ...list, fromDefault: true });
+  });
+
+  it('says what is wrong with a row', () => {
+    expect(hookProblem({ run: ' ' })).toBe('run');
+    expect(hookProblem({ run: 'x', cwd: '../up' })).toBe('folder');
+    expect(hookProblem({ run: 'x', timeoutSec: 0 })).toBe('timeout');
+    expect(hookProblem({ run: 'x', timeoutSec: 601 })).toBe('timeout');
+    expect(hookProblem({ run: 'x', timeoutSec: 600 })).toBeUndefined();
+  });
+
+  it('tells whether the hooks changed, ids and the default time limit aside', () => {
+    const saved = { hooks: [{ id: 'server', when: 'before' as const, tools: 'command' as const, run: 'x' }] };
+    expect(sameChecks(saved, { hooks: [{ id: 'page', when: 'before', tools: 'command', run: ' x ', timeoutSec: 60 }] })).toBe(true);
+    expect(sameChecks(saved, { hooks: [{ id: 'page', when: 'after', tools: 'command', run: 'x' }] })).toBe(false);
+    expect(sameChecks(saved, { hooks: [{ id: 'page', when: 'before', tools: 'any', run: 'x' }] })).toBe(false);
   });
 });
 

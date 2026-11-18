@@ -1,11 +1,13 @@
 import {
   CHECK_RESULT_LIMITS,
+  HOOK_PROVIDERS,
   PROVIDER_LABEL,
   TRACKING_LIMITS,
   isInlineImage,
   type AgentConfig,
   type ChatMessage,
   type CheckFinding,
+  type CheckHook,
   type CheckList,
   type ChecksResult,
   type EventSource,
@@ -104,8 +106,29 @@ export function checkRuleLines(list: CheckList, mode: Mode, platform: NodeJS.Pla
   return lines;
 }
 
-function workspaceRules(conv: Conversation, ws: BriefingWorkspace): string {
-  return workspaceAccess(conv, ws) + checksRules(conv);
+function workspaceRules(conv: Conversation, ws: BriefingWorkspace, provider: Provider): string {
+  return workspaceAccess(conv, ws) + checksRules(conv) + hooksRules(conv, provider);
+}
+
+const HOOK_KINDS: Record<CheckHook['tools'], string> = {
+  command: 'each command you run',
+  edit: 'each file change your own tools make',
+  any: 'each of your tool calls',
+};
+
+/**
+ * The team's hooks, for a member whose CLI runs them (`HOOK_PROVIDERS`), in a run that may write, on a
+ * system that runs commands: so that a refusal is taken as the team's rule, not worked around.
+ */
+export function hooksRules(conv: Conversation, provider: Provider, platform: NodeJS.Platform = process.platform): string {
+  const hooks = conv.settings.checks?.hooks;
+  if (!hooks?.length || conv.settings.permission === 'read-only' || platform === 'win32' || !HOOK_PROVIDERS.includes(provider)) return '';
+  const lines = hooks.map((h) =>
+    h.when === 'before'
+      ? `before ${HOOK_KINDS[h.tools]}: \`${h.run}\`, which refuses the call unless it succeeds`
+      : `after ${HOOK_KINDS[h.tools]}: \`${h.run}\`, whose output comes back to you when it fails`,
+  );
+  return `\n- Team hooks: Harness Relay runs these commands around your tool calls. A refusal comes with the hook's reason: keep to it, and do not try to get around it another way; an after hook's failure is for you to fix:\n${lines.map((l) => `  - ${l}`).join('\n')}`;
 }
 
 function workspaceAccess(conv: Conversation, ws: BriefingWorkspace): string {
@@ -327,7 +350,7 @@ ${team}
 - To hand the user a file you made (a PDF, slides, a document, a spreadsheet, an archive…), save it inside your working directory and link it with a path relative to that directory, e.g. \`[Q3 report](out/report.pdf)\`, or \`[Deck](<out/Q3 deck.pptx>)\` when the path has spaces. The user downloads it from that link, on this computer or another device; only files inside your working directory can be downloaded.
 
 # Workspace
-${workspaceRules(conv, ws)}${toolSections(tools, !nativeOff.includes('skills'), canReadFiles(agent.provider, nativeOff, nativeItems))}`;
+${workspaceRules(conv, ws, agent.provider)}${toolSections(tools, !nativeOff.includes('skills'), canReadFiles(agent.provider, nativeOff, nativeItems))}`;
 }
 
 /**

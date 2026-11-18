@@ -17,8 +17,17 @@
 import { randomBytes } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isOpenProvider, type ApprovalAnswer, type Permission, type Provider } from '../../src/shared/types';
+import {
+  HOOK_PROVIDERS,
+  isOpenProvider,
+  type ApprovalAnswer,
+  type CheckHook,
+  type Permission,
+  type Provider,
+} from '../../src/shared/types';
 import type { AgentEvent, ApprovalRequest, RunOptions, RunResult } from '../../src/server/agents/types';
+import type { ToolGateway } from '../../src/server/gateway';
+import { turnHooks } from '../../src/server/hooks';
 import { loadShapes } from './layers';
 import type { LayerOptions } from './layers';
 import { MODEL, MUSE_MODEL, marker, startModel, type ScriptedModel, type Scenarios } from './model';
@@ -27,7 +36,7 @@ import type { CliScratch, Scratch } from './scratch';
 import { flagsIn, flagsOf, memoryRecorder, shapeOf, type Shape, type Spawned } from './shape';
 
 /** The scenarios of what a CLI may not do below full access: they say nothing of a CLI that runs only with full access. */
-export const BELOW_FULL = ['read-only-write', 'outside-write', 'protected-read', 'guard-write', 'guard-tool-write'];
+export const BELOW_FULL = ['read-only-write', 'outside-write', 'protected-read', 'guard-write', 'guard-tool-write', 'hook-before'];
 
 /** Why a CLI has no layer 3. */
 export const NO_RUN: Partial<Record<Provider, string>> = {
@@ -178,7 +187,73 @@ const guardWrite = (permission: Permission): Scenario => ({
   },
 });
 
+/** The file the `hook-before` scenarios try to write, which the team's before hook refuses. */
+const hookFile = (c: Ctx) => join(c.cli.work, `cli-check-hook-${c.nonce}.txt`);
+/** What the scenarios' hooks print: it reaches the model only through the CLI's hooks. */
+const hookMark = (c: Ctx, when: CheckHook['when']) => `HOOK-${when === 'before' ? 'REFUSED' : 'AFTER'}-${c.nonce}`;
+
+/**
+ * The team's hooks for a hook scenario (`RunOptions.hooks`): one hook on commands that prints its mark
+ * and fails, run without a sandbox (what is checked is the CLI's way of asking, not Harness Relay's
+ * sandbox), with this check's own gateway for a CLI that runs a hook program.
+ */
+function hookOptions(c: Ctx, when: CheckHook['when']): Partial<RunOptions> {
+  const gateway = c.gateway;
+  const hooks = turnHooks([{ id: 'check', when, tools: 'command', run: `echo ${hookMark(c, when)}; exit 1` }], {
+    place: { cwds: [realpathSync(c.cli.work)], unsandboxed: true, protectedPaths: [], privateRoots: [] },
+    agent: 'cli-check',
+    provider: c.provider,
+    notice: () => undefined,
+    ...(gateway ? { program: (h) => gateway.hookProgram(h) } : {}),
+  });
+  return hooks ? { hooks } : {};
+}
+
+const hookBefore = (permission: Permission): Scenario => ({
+  name: permission === 'full' ? 'hook-before-full' : 'hook-before',
+  permission,
+  command: (c) => `echo x > ${hookFile(c)}`,
+  answer: 'allow',
+  extra: (c) => hookOptions(c, 'before'),
+  checks: (r, c) => {
+    const wrote = existsSync(hookFile(c));
+    rmSync(hookFile(c), { force: true });
+    const runs = HOOK_PROVIDERS.includes(c.provider);
+    const told = reached(r, hookMark(c, 'before'));
+    if (!runs)
+      return [calledShell(r), { ok: 'warn', what: wrote ? 'its adapter runs no hooks: the command ran' : 'its adapter runs no hooks' }];
+    return [
+      calledShell(r),
+      {
+        ok: !wrote,
+        what: wrote ? "the command ran, though the team's before hook refused it" : "the team's before hook refused the command",
+      },
+      { ok: told, what: told ? "the hook's reason reached the model" : "the hook's reason never reached the model" },
+    ];
+  },
+});
+
+const hookAfter: Scenario = {
+  name: 'hook-after',
+  permission: 'edit',
+  command: (c) => ECHO(c),
+  answer: 'allow',
+  extra: (c) => hookOptions(c, 'after'),
+  checks: (r, c) => {
+    const ran = reached(r, `cli-check-42-${c.nonce}`);
+    const told = reached(r, hookMark(c, 'after'));
+    if (!HOOK_PROVIDERS.includes(c.provider)) return [calledShell(r), { ok: 'warn', what: 'its adapter runs no hooks' }];
+    return [
+      calledShell(r),
+      { ok: ran, what: ran ? 'the command ran, and its output reached the model' : "the command's output never reached the model" },
+      { ok: told, what: told ? "the after hook's output reached the model" : "the after hook's output never reached the model" },
+    ];
+  },
+};
+
 export interface Ctx {
+  /** A gateway of this check's own, for the hook scenarios of a CLI that runs a hook program. */
+  gateway?: ToolGateway;
   provider: Provider;
   nonce: string;
   scratch: Scratch;
@@ -393,6 +468,9 @@ export const SCENARIOS: Scenario[] = [
   guardWrite('edit'),
   guardWrite('full'),
   guardToolWrite,
+  hookBefore('edit'),
+  hookBefore('full'),
+  hookAfter,
 ];
 
 /** The scripted model's scenarios: which name runs which command. */
@@ -440,6 +518,13 @@ export async function runScenarios(
   const secret = `RELAY-DB-${randomBytes(6).toString('hex')}`;
   writeFileSync(secretFile, secret);
   const ctx: Ctx = { provider: p, nonce, scratch, cli, secret, secretFile };
+  // The hook scenarios' gateway, for a CLI that runs Harness Relay's hook program: in the scratch data folder.
+  if (SCENARIOS.some((sc) => sc.name.startsWith('hook-') && (!o.only || sc.name.includes(o.only)))) {
+    const { ToolGateway } = await import('../../src/server/gateway');
+    const gateway = new ToolGateway(scratch.data, join(scratch.data, 'tmp'), () => process.execPath);
+    await gateway.start();
+    ctx.gateway = gateway;
+  }
 
   const model = await startModel(modelScenarios(ctx));
   const place = placement(p, model.url, scratch);
@@ -613,6 +698,7 @@ export async function runScenarios(
     }
   } finally {
     await model.close();
+    await ctx.gateway?.stop();
     for (const [k, v] of Object.entries(before)) {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;

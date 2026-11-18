@@ -381,6 +381,12 @@
               必須成功的指令，例如 <code>npm test</code> 或 <code>npm run lint</code>（<b>新增指令</b>），各有要執行的資料夾和時間上限；<b>試跑</b>會現在跑一次，確認它能跑。低於完全存取時，指令在
               Harness Relay 自己的沙箱裡執行，沒有網路。原生 Windows 上還不能執行。
             </dd>
+            <dt>Hook</dt>
+            <dd>
+              成員每次使用自己的工具時，在前後執行的指令（<b>新增 hook</b>）：<b>執行前</b>的 hook 對指令、檔案修改或所有呼叫執行，沒有成功就拒絕那次呼叫，它的輸出就是
+              agent 收到的原因；<b>執行後</b>的 hook 沒有成功，輸出會交回給 agent 修正。hook 從 <code>RELAY_HOOK_COMMAND</code>、<code>RELAY_HOOK_FILES</code>
+              這類變數讀這次呼叫。目前只給用 Claude Code、Muse Code 和 Pi 的成員：其他成員的回覆會註明它的呼叫沒有經過 hook。
+            </dd>
           </dl>
           <p>
             agent 一開始就會知道這些規則。在可以修改檔案的對話裡，回覆後面會有一張<b>團隊檢查</b>卡片，說明每條規則的結果：<b>通過</b>、<b>未通過</b>（附上檔案或

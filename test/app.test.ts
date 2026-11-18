@@ -626,6 +626,52 @@ describe('settings', () => {
     expect(await refused('npm test')).toContain('checks.commands');
   });
 
+  it("keeps the team's hooks as given, each with an id, the default time limit left out, and refuses one that cannot be used", async () => {
+    const post = (checks: unknown) =>
+      app.request(
+        '/api/conversations',
+        json(
+          'POST',
+          { agents: [{ name: 'Alice', provider: 'claude', role: '' }], settings: { cwd: project, checks } },
+          { 'x-relay-lang': 'en' },
+        ),
+      );
+    const made = (await (
+      await post({
+        hooks: [
+          { when: 'before', tools: 'command', run: ' ./allow.sh ', cwd: 'tools\\hooks', timeoutSec: 60 },
+          { id: 'fmt', when: 'after', tools: 'edit', run: 'npx prettier --check "$RELAY_HOOK_FILES"', timeoutSec: 20 },
+        ],
+      })
+    ).json()) as Conversation;
+    const [allow, fmt] = made.settings.checks!.hooks!;
+    expect(allow).toEqual({
+      id: expect.stringMatching(/^[\w-]{8}$/),
+      when: 'before',
+      tools: 'command',
+      run: './allow.sh',
+      cwd: 'tools/hooks',
+    });
+    expect(fmt).toEqual({ id: 'fmt', when: 'after', tools: 'edit', run: 'npx prettier --check "$RELAY_HOOK_FILES"', timeoutSec: 20 });
+    const refused = async (hooks: unknown) => {
+      const res = await post({ hooks });
+      expect(res.status).toBe(400);
+      return ((await res.json()) as { error: string }).error;
+    };
+    const ok = { when: 'before', tools: 'command', run: 'x' };
+    expect(await refused([{ ...ok, run: ' ' }])).toContain('cannot be empty');
+    expect(await refused([{ ...ok, when: 'during' }])).toContain('checks.hooks.when');
+    expect(await refused([{ ...ok, tools: 'reads' }])).toContain('checks.hooks.tools');
+    expect(await refused([{ ...ok, cwd: '../up' }])).toContain('"../up"');
+    expect(await refused([{ ...ok, timeoutSec: 601 }])).toContain('600 seconds');
+    expect(await refused(Array.from({ length: 11 }, () => ok))).toContain('10 hooks');
+    expect(await refused('x')).toContain('checks.hooks');
+    // A list with hooks alone is a list: Settings keeps it as the default.
+    const settings = await app.request('/api/settings', json('PUT', { checksDefault: { hooks: [ok] } }));
+    expect(settings.status).toBe(200);
+    expect(((await settings.json()) as { checksDefault?: { hooks?: unknown[] } }).checksDefault?.hooks).toHaveLength(1);
+  });
+
   it('applies a parallel result with the team checks first, says which card held it, and applies it anyway with force', async () => {
     const apply = vi.spyOn(orchestrator, 'applyAgentWork');
     try {

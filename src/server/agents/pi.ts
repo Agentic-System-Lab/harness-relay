@@ -1,12 +1,13 @@
 import type { ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { closeSync, existsSync, mkdirSync, openSync, readSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
 import { API_BACKENDS, PROVIDER_LABEL, type ModelOption, type NativeMemoryFile, type ToolCallKind } from '../../shared/types';
 import { commandLine } from '../commands';
 import { backendLabel, type BackendRun } from '../backends';
+import type { HookCall, HookResult } from '../hooks';
 import { t } from '../i18n';
 import type { NativeProbe } from '../native';
 import { converse, runProcess, tail } from '../process';
@@ -75,6 +76,14 @@ export const PI_GATE_PATH = fileURLToPath(new URL('./piGate.js', import.meta.url
 export const PI_GATE_TITLE = 'harness-relay:tool_call';
 /** The command the gate registers: its presence in `get_commands` proves the gate loaded. */
 export const PI_GATE_COMMAND = 'harness-relay-gate';
+/** The title of the gate's `input` dialogs about a call's result (the team's after hooks). */
+export const PI_RESULT_TITLE = 'harness-relay:tool_result';
+
+/**
+ * Whether a run loads the gate: below full access, and with full access when the turn has the team's
+ * hooks, which it asks before and after each call.
+ */
+export const piGated = (o: Pick<RunOptions, 'permission' | 'hooks'>): boolean => o.permission !== 'full' || Boolean(o.hooks);
 
 /** Pi's thinking levels (`--thinking`, `set_thinking_level`), Harness Relay's efforts for it. */
 export const PI_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
@@ -417,6 +426,8 @@ export async function preparePi(ctx: OpenRunContext): Promise<void> {
   ];
   if (o.permission !== 'full' && writable.some((dir) => overlaps(PI_GATE_PATH, dir)))
     throw new AgentRunError(t().piGateWritable(PI_GATE_PATH));
+  // The team's after hooks: the gate shows each call's result too.
+  if (o.hooks?.kinds('after').size) ctx.env.HARNESS_RELAY_PI_AFTER = '1';
 
   const state: PiRunState = { agentDir, mcp: false };
   if (o.sessionId) state.sessionFile = piSessionFile(sessions, o.sessionId, o.cwd);
@@ -451,7 +462,7 @@ export function piArgs(ctx: Pick<OpenRunContext, 'o' | 'run' | 'state'>): string
   const s = piState(ctx);
   const { o } = ctx;
   const args = ['--mode', 'rpc', '--model', piModelRef(ctx.run), ...PI_FLAGS];
-  if (o.permission !== 'full') args.push('-e', PI_GATE_PATH);
+  if (piGated(o)) args.push('-e', PI_GATE_PATH);
   if (s.mcp) args.push('-e', 'builtin:mcp');
   else args.push('--no-mcp');
   if (o.nativeOff?.includes('instructions')) args.push('--no-context-files');
@@ -696,6 +707,69 @@ export function piApprovalRequest(req: PiGateRequest, info: AcpCallInfo, permiss
 /** The gate's answer: `{"allow":true}`, or a refusal with the reason the model gets. */
 export function piGateAnswer(decision: AcpDecision): Record<string, unknown> {
   return decision.allow ? { allow: true } : { allow: false, reason: decision.reason };
+}
+
+/** A call as the team's hooks see it: a command, a file Pi's own tools change (a full path), or another call. */
+export function piHookCall(req: Pick<PiGateRequest, 'toolName' | 'input'>, cwd: string): HookCall {
+  const input = req.input ?? {};
+  if (req.toolName === 'bash') return { kind: 'command', tool: req.toolName, command: String(input.command ?? ''), input };
+  if (req.toolName === 'edit' || req.toolName === 'write') {
+    const path = text(input.path);
+    return { kind: 'edit', tool: req.toolName, files: path ? [isAbsolute(path) ? path : resolve(cwd, path)] : [], input };
+  }
+  return { kind: 'other', tool: req.toolName, input };
+}
+
+/** A call's result the gate shows (`harness-relay:tool_result`). */
+export interface PiResultRequest {
+  toolCallId?: string;
+  toolName: string;
+  input: Record<string, any>;
+  isError: boolean;
+  output: string;
+}
+
+/** The gate's result in an `extension_ui_request`, or undefined when the record is not one (or unreadable: `null`). */
+export function piResultRequest(msg: Record<string, any>): PiResultRequest | null | undefined {
+  if (msg.type !== 'extension_ui_request' || msg.method !== 'input' || msg.title !== PI_RESULT_TITLE) return undefined;
+  try {
+    const req = JSON.parse(String(msg.placeholder)) as Record<string, any>;
+    if (typeof req?.toolName !== 'string' || !req.toolName) return null;
+    return {
+      toolName: req.toolName,
+      input: req.input && typeof req.input === 'object' ? req.input : {},
+      isError: req.isError === true,
+      output: typeof req.output === 'string' ? req.output : '',
+      ...(typeof req.toolCallId === 'string' ? { toolCallId: req.toolCallId } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** A result as the team's after hooks see it. */
+export function piHookResult(req: PiResultRequest, cwd: string): HookResult {
+  return { ...piHookCall(req, cwd), output: req.output, failed: req.isError };
+}
+
+/**
+ * The decision about one call with the team's hooks: their before hooks first, whose refusal stands
+ * (its reason goes to the model), then the permission's (`piDecide`).
+ */
+export async function piHookDecide(
+  o: Pick<RunOptions, 'permission' | 'requestApproval' | 'hooks' | 'cwd'>,
+  req: PiGateRequest,
+): Promise<AcpDecision> {
+  if (o.hooks) {
+    let refused: string | undefined;
+    try {
+      refused = await o.hooks.before(piHookCall(req, o.cwd));
+    } catch (err) {
+      refused = `Refused: the team's hook could not run (${(err as Error).message}).`;
+    }
+    if (refused) return { allow: false, reason: refused, label: t().hookRefusedLabel };
+  }
+  return piDecide(o, req);
 }
 
 /**
@@ -979,6 +1053,17 @@ async function piSession(
   settled.catch(() => undefined);
 
   const onUiRequest = (msg: Record<string, any>) => {
+    const result = piResultRequest(msg);
+    if (result !== undefined) {
+      // The team's after hooks: what they said goes to the model with the result.
+      const reply = (text?: string) => {
+        if (over || userAborted) return;
+        write({ type: 'extension_ui_response', id: msg.id, value: JSON.stringify(text ? { text } : {}) });
+      };
+      if (!result || !o.hooks) return reply();
+      void o.hooks.after(piHookResult(result, o.cwd)).then(reply, () => reply());
+      return;
+    }
     const req = piGateRequest(msg);
     if (req === undefined) {
       // Another dialog (none of Harness Relay's): dismissed. Notifications and status need no answer.
@@ -997,7 +1082,7 @@ async function piSession(
       answer({ allow: false, reason: 'Not run: Harness Relay could not read this tool call.', label: t().openToolNotRun });
       return;
     }
-    void piDecide(o, req).then((d) => answer(d, req.toolCallId));
+    void piHookDecide(o, req).then((d) => answer(d, req.toolCallId));
   };
 
   const lines = new PiLines((line) => {
@@ -1086,7 +1171,7 @@ async function piSession(
     o.onEvent({ type: 'session', sessionId });
     stopped();
 
-    if (o.permission !== 'full') {
+    if (piGated(o)) {
       const commands = ok(await rpc.request({ type: 'get_commands' }));
       stopped();
       if (!piGateLoaded(commands)) throw new AgentRunError(t().piGateMissing);

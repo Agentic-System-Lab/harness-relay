@@ -69,7 +69,11 @@ import {
   rememberMuseSession,
   removeEmptyMountPoints,
   type MuseToolCall,
+  museHookCall,
+  museHookHandler,
+  museHooksWith,
 } from '../src/server/agents/muse';
+import { shellWords, type TurnHooks } from '../src/server/hooks';
 import { AgentRunError, TURN_TIMEOUT_MS, type AgentEvent, type ApprovalRequest, type RunOptions } from '../src/server/agents/types';
 import { t, withLang } from '../src/server/i18n';
 import { discoverModels, discoverMuse, MUSE_CATALOG } from '../src/server/models';
@@ -2171,3 +2175,95 @@ describe.skipIf(process.platform === 'win32')(
     });
   },
 );
+
+describe("the team's hooks, through Muse Code's own hooks", () => {
+  const fake = (kinds: { before?: string[]; after?: string[] }, refuse?: string, tell?: string): TurnHooks => ({
+    kinds: (when) => new Set((kinds[when] ?? []) as never),
+    budgetSec: (when) => (when === 'before' ? 30 : 60),
+    before: async () => refuse,
+    after: async () => tell,
+    program: () => undefined,
+    dispose: () => undefined,
+    note: () => undefined,
+  });
+  const program = { bin: '/usr/bin/node', args: ['/data/tmp/hook-1.mjs', '/data/gateway/relay.sock', '/data/tmp/hook-1.token'] };
+
+  it('reads a call as the hooks see it: a command, a file its own tools write (a full path), or another tool; with its result after it', () => {
+    expect(museHookCall({ tool_name: 'bash', tool_input: { command: 'npm test', workdir: '/w' } })).toEqual({
+      kind: 'command',
+      tool: 'bash',
+      command: 'npm test',
+      input: { command: 'npm test', workdir: '/w' },
+    });
+    expect(museHookCall({ tool_name: 'write_file', cwd: '/w', tool_input: { path: 'a.ts', content: 'x' } })).toMatchObject({
+      kind: 'edit',
+      files: [join('/w', 'a.ts')],
+    });
+    expect(museHookCall({ tool_name: 'edit_file', tool_input: { path: '/w/b.ts' }, tool_response: { filePath: '/w/b.ts' } })).toMatchObject(
+      {
+        kind: 'edit',
+        output: '{"filePath":"/w/b.ts"}',
+      },
+    );
+    expect(museHookCall({ tool_name: 'web_fetch', tool_input: {} }).kind).toBe('other');
+  });
+
+  it("adds an entry for each moment after the account's own, for the tools the hooks cover, running the hook program", () => {
+    const own = { PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: 'mine' }] }], SessionStart: [] };
+    expect(museHooksWith(own, program, fake({ before: ['command', 'edit'], after: ['any'] }))).toEqual({
+      PreToolUse: [
+        own.PreToolUse[0],
+        {
+          matcher: 'bash|write_file|edit_file',
+          hooks: [{ type: 'command', command: shellWords([program.bin, ...program.args, 'before']), timeout: 90 }],
+        },
+      ],
+      PostToolUse: [
+        { matcher: '*', hooks: [{ type: 'command', command: shellWords([program.bin, ...program.args, 'after']), timeout: 120 }] },
+      ],
+      SessionStart: [],
+    });
+    expect(museHooksWith(undefined, program, fake({ after: ['command'] }))).toEqual({
+      PostToolUse: [
+        { matcher: 'bash', hooks: [{ type: 'command', command: shellWords([program.bin, ...program.args, 'after']), timeout: 120 }] },
+      ],
+    });
+  });
+
+  it("answers its hook program: a refusal before the call, after it the call's result with what the hooks said in place of it", async () => {
+    expect(await museHookHandler(fake({}, 'no'))('before', { tool_name: 'bash', tool_input: { command: 'rm x' } })).toEqual({
+      code: 0,
+      stdout: JSON.stringify({
+        hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'no' },
+      }),
+    });
+    const after = await museHookHandler(fake({}, undefined, 'lint failed'))('after', {
+      tool_name: 'bash',
+      tool_input: { command: 'ls' },
+      tool_response: '{"stdout":"a.ts","exit_code":0}',
+    });
+    expect(JSON.parse(after.stdout!)).toEqual({ decision: 'block', reason: '{"stdout":"a.ts","exit_code":0}\n\nlint failed' });
+    expect(await museHookHandler(fake({}))('after', { tool_name: 'bash' })).toEqual({ code: 0 });
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    "writes them into the run's settings, after the account's own hooks are taken out when left out",
+    () => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), 'relay-muse-hooks-')));
+      onTestFinished(() => rmSync(root, { recursive: true, force: true }));
+      const xdg = join(root, 'xdg');
+      mkdirSync(join(xdg, 'muse'), { recursive: true });
+      writeFileSync(join(xdg, 'muse', 'settings.json'), JSON.stringify({ hooks: { PreToolUse: [{ matcher: '*', hooks: [] }] } }));
+      const hooks = { turn: fake({ before: ['command'] }), program };
+      const run = prepareMuseRun({ XDG_CONFIG_HOME: xdg }, 'edit', [], {
+        root: join(root, 'runs'),
+        dirs: [root],
+        nativeOff: ['hooks'],
+        hooks,
+      });
+      const settings = JSON.parse(readFileSync(join(run.dir, 'muse', 'settings.json'), 'utf8'));
+      expect(settings.hooks).toEqual(museHooksWith(undefined, program, hooks.turn));
+      run.done();
+    },
+  );
+});

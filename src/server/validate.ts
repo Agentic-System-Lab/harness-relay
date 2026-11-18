@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { reservedMcpName } from './gateway';
-import { commitPatternError, tidyFolder, tidyPattern } from '../shared/checks';
+import { commitPatternError, hasRules, tidyFolder, tidyPattern } from '../shared/checks';
 import {
   ACCOUNT_ID_RE,
   API_BACKENDS,
@@ -35,6 +35,7 @@ import {
   type AlertPrefs,
   type ApiBackend,
   type CheckCommand,
+  type CheckHook,
   type CheckList,
   type ConversationGroup,
   type ConversationSettings,
@@ -638,8 +639,40 @@ export function validateChecks(input: unknown): CheckList {
     }
     if (commands.length) out.commands = commands;
   }
+  if (c.hooks !== undefined) {
+    if (!Array.isArray(c.hooks)) bad(t().invalidField('checks.hooks'));
+    if (c.hooks.length > CHECK_LIMITS.hooks) bad(t().hooksTooMany(CHECK_LIMITS.hooks));
+    const hooks: CheckHook[] = [];
+    for (const raw of c.hooks) {
+      const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+      if (r.when !== 'before' && r.when !== 'after') bad(t().invalidField('checks.hooks.when'));
+      if (r.tools !== 'command' && r.tools !== 'edit' && r.tools !== 'any') bad(t().invalidField('checks.hooks.tools'));
+      const run = typeof r.run === 'string' ? r.run.trim() : '';
+      if (!run) bad(t().checksCommandEmpty);
+      if (run.length > CHECK_LIMITS.command) bad(t().checksCommandTooLong(CHECK_LIMITS.command));
+      const cwd = r.cwd === undefined ? '' : typeof r.cwd === 'string' ? tidyFolder(r.cwd) : undefined;
+      if (cwd === undefined) bad(t().checksBadFolder(String(r.cwd).slice(0, CHECK_LIMITS.folder)));
+      let timeoutSec: number | undefined;
+      if (r.timeoutSec !== undefined) {
+        timeoutSec = Number(r.timeoutSec);
+        if (!Number.isInteger(timeoutSec) || timeoutSec < 1 || timeoutSec > CHECK_LIMITS.maxHookTimeoutSec)
+          bad(t().hooksBadTimeout(CHECK_LIMITS.maxHookTimeoutSec));
+      }
+      const given = typeof r.id === 'string' && /^[\w-]{1,40}$/.test(r.id) ? r.id : undefined;
+      const id = given && !hooks.some((x) => x.id === given) ? given : randomUUID().slice(0, 8);
+      hooks.push({
+        id,
+        when: r.when,
+        tools: r.tools,
+        run,
+        ...(cwd ? { cwd } : {}),
+        ...(timeoutSec !== undefined && timeoutSec !== CHECK_LIMITS.hookTimeoutSec ? { timeoutSec } : {}),
+      });
+    }
+    if (hooks.length) out.hooks = hooks;
+  }
   // Settings' default, unchanged since it was copied in (a list with rules only).
-  if (c.fromDefault === true && (out.protectedPaths || out.commitPattern || out.commands)) out.fromDefault = true;
+  if (c.fromDefault === true && hasRules(out)) out.fromDefault = true;
   return out;
 }
 

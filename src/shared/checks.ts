@@ -1,4 +1,12 @@
-import { CHECK_LIMITS, type ChatMessage, type CheckList, type CheckOutcome, type CheckStatus, type ChecksResult } from './types';
+import {
+  CHECK_LIMITS,
+  type ChatMessage,
+  type CheckHook,
+  type CheckList,
+  type CheckOutcome,
+  type CheckStatus,
+  type ChecksResult,
+} from './types';
 
 /*
  * Team checks (`ConversationSettings.checks`): the parts the server and the chat share. The patterns of
@@ -132,9 +140,19 @@ export function isProtected(path: string, patterns: readonly CompiledPattern[]):
   return patterns.some((p) => p.regex.test(path));
 }
 
-/** Whether a list has any rule to check. */
+/** Whether a list has any rule to check once the team has answered (its hooks run during the turns instead). */
 export function hasChecks(list: CheckList | undefined): list is CheckList {
   return Boolean(list && (list.protectedPaths?.length || list.commitPattern || list.commands?.length));
+}
+
+/** Whether a list has anything at all: a rule to check, or a hook. */
+export function hasRules(list: CheckList | undefined): list is CheckList {
+  return Boolean(list && (list.protectedPaths?.length || list.commitPattern || list.commands?.length || list.hooks?.length));
+}
+
+/** Whether a hook runs around a call of this kind (`other`: neither a command nor a file change). */
+export function hookApplies(hook: Pick<CheckHook, 'tools'>, kind: 'command' | 'edit' | 'other'): boolean {
+  return hook.tools === 'any' || hook.tools === kind;
 }
 
 /**

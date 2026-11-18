@@ -811,6 +811,9 @@ describe('layers 2 and 3: what they run', () => {
       'guard-write',
       'guard-write-full',
       'guard-tool-write',
+      'hook-before',
+      'hook-before-full',
+      'hook-after',
     ]);
   });
 
@@ -992,6 +995,37 @@ describe("layer 3: the scenarios' checks (scripts/cli-check/scenarios.ts)", () =
       const checks = sc('guard-write').checks(outcome({ requests: [call()] }), other);
       expect(failed(checks)).toEqual([]);
       expect(checks.find((x) => x.ok === 'warn')?.what).toContain('does not refuse it before');
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'hook-before gives the run a hook that refuses commands, fails a write that went through or a reason that never reached the model, and warns for a CLI without hooks',
+    async () => {
+      const c = ctx();
+      const { hooks } = sc('hook-before').extra!(c);
+      expect([...hooks!.kinds('before')]).toEqual(['command']);
+      const said = await hooks!.before({ kind: 'command', tool: 'Bash', command: 'ls' });
+      const mark = `HOOK-REFUSED-${c.nonce}`;
+      expect(said).toContain(mark);
+      const file = sc('hook-before').command!(c).replace(/^echo x > /, '');
+      expect(failed(sc('hook-before').checks(outcome({ requests: [call(), request(mark)] }), c))).toEqual([]);
+      writeFileSync(file, 'x');
+      expect(failed(sc('hook-before-full').checks(outcome({ requests: [call()] }), c))).toEqual([
+        "the command ran, though the team's before hook refused it",
+        "the hook's reason never reached the model",
+      ]);
+      expect(existsSync(file)).toBe(false);
+      const other = { ...ctx(), provider: 'codex' as const };
+      const checks = sc('hook-before').checks(outcome({ requests: [call()] }), other);
+      expect(failed(checks)).toEqual([]);
+      expect(checks.find((x) => x.ok === 'warn')?.what).toContain('runs no hooks');
+      const after = sc('hook-after');
+      expect(failed(after.checks(outcome({ requests: [call(), request(`cli-check-42-${c.nonce} HOOK-AFTER-${c.nonce}`)] }), c))).toEqual(
+        [],
+      );
+      expect(failed(after.checks(outcome({ requests: [call(), request(`cli-check-42-${c.nonce}`)] }), c))).toEqual([
+        "the after hook's output never reached the model",
+      ]);
     },
   );
 

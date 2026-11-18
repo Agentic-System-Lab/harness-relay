@@ -159,7 +159,7 @@ export function commandCwd(cmd: Pick<CheckCommand, 'cwd'>, cwds: readonly string
 export function commandOutcome(
   cmd: CheckCommand,
   res: Pick<SpawnResult, 'code' | 'timedOut'> & { output: string; aborted?: boolean },
-  o: { sandboxed: boolean; platform: NodeJS.Platform; durationMs: number; refusedHosts?: readonly string[] },
+  o: { sandboxed: boolean; platform: NodeJS.Platform; durationMs: number; refusedHosts?: readonly string[]; timeoutSec?: number },
 ): CheckOutcome {
   const base: CheckOutcome = {
     rule: 'command',
@@ -187,7 +187,7 @@ export function commandOutcome(
   // Stopped (Stop, the server shutting down, the chat deleted): it did not finish, and says nothing of the team's work.
   if (res.aborted) return { ...base, status: 'error', reason: t().stoppedNote, notRun: 'stopped' };
   if (res.timedOut) {
-    const reason = t().checksCommandTimedOut(cmd.timeoutMin ?? CHECK_LIMITS.timeoutMin);
+    const reason = o.timeoutSec ? t().hookTimedOut(o.timeoutSec) : t().checksCommandTimedOut(cmd.timeoutMin ?? CHECK_LIMITS.timeoutMin);
     return { ...base, status: 'error', reason: denialText ? `${reason} ${denialText}` : reason };
   }
   if (res.code === 0) return base;
@@ -245,6 +245,10 @@ export interface CheckCommandPlace {
   /** Below full access: other runs' own folders (`privateRoots()`), not readable. */
   privateRoots: string[];
   signal?: AbortSignal;
+  /** More variables for the command (a hook's call, `hookEnv()`), over its own. */
+  env?: Record<string, string>;
+  /** Its time limit, when not the command's minutes (a hook's seconds). */
+  timeoutMs?: number;
 }
 
 /**
@@ -260,20 +264,27 @@ export async function runCheckCommand(
   if (deps.platform === 'win32') return { ...unrun(t().checksCommandWindows), notRun: 'platform' };
   const cwd = commandCwd(cmd, place.cwds);
   if (!cwd) return unrun(t().checksCommandNoFolder(cmd.cwd ?? ''));
-  const timeoutMs = (cmd.timeoutMin ?? CHECK_LIMITS.timeoutMin) * 60_000;
+  const timeoutMs = place.timeoutMs ?? (cmd.timeoutMin ?? CHECK_LIMITS.timeoutMin) * 60_000;
   const started = Date.now();
   const outcome = (res: SpawnResult, sandboxed: boolean, refusedHosts?: readonly string[]) =>
     commandOutcome(
       cmd,
       { code: res.code, timedOut: res.timedOut, aborted: res.aborted, output: res.stdout },
-      { sandboxed, platform: deps.platform, durationMs: Date.now() - started, ...(refusedHosts ? { refusedHosts } : {}) },
+      {
+        sandboxed,
+        platform: deps.platform,
+        durationMs: Date.now() - started,
+        ...(refusedHosts ? { refusedHosts } : {}),
+        ...(place.timeoutMs ? { timeoutSec: Math.round(place.timeoutMs / 1000) } : {}),
+      },
     );
+  const env = (tmp?: string) => ({ ...checkEnv(deps.env, cmd.run, tmp), ...place.env });
 
   if (place.unsandboxed) {
     try {
       const res = await deps.runShellScript('/bin/sh', [], SCRIPT, {
         cwd,
-        env: checkEnv(deps.env, cmd.run),
+        env: env(),
         signal: place.signal,
         timeoutMs,
         maxCapture: CHECK_RESULT_LIMITS.output * 4,
@@ -303,7 +314,7 @@ export async function runCheckCommand(
       ...(cmd.localPorts && deps.platform === 'darwin' ? { allowLocalBinding: true } : {}),
       ...(cmd.unixSockets && deps.platform === 'linux' ? { allowAllUnixSockets: true } : {}),
     };
-    const sandboxed = await deps.sandboxCommand('/bin/sh', ['-c', SCRIPT], checkEnv(deps.env, cmd.run, dirs.tmp), spec);
+    const sandboxed = await deps.sandboxCommand('/bin/sh', ['-c', SCRIPT], env(dirs.tmp), spec);
     try {
       const res = await deps.runProcess({
         bin: sandboxed.bin,

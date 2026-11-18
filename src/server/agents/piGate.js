@@ -11,8 +11,15 @@
 // - MCP tools go through the same `tool_call` event, so they are asked about too.
 // - It registers the command `harness-relay-gate`, which Harness Relay looks for (`get_commands`)
 //   before it sends a prompt: a run where the gate did not load does not start.
+// - With the team's after hooks in the turn (`HARNESS_RELAY_PI_AFTER=1` in Pi's environment), each
+//   call's result is shown too, as an `input` dialog titled `harness-relay:tool_result` with
+//   `{toolCallId,toolName,input,isError,output}`; an answer `{"text":"…"}` is added to the result the
+//   model gets. Anything else, a cancelled dialog or an error, leaves the result as it was.
 
 const TITLE = 'harness-relay:tool_call';
+const RESULT_TITLE = 'harness-relay:tool_result';
+/** The most of a result's text shown to Harness Relay. */
+const RESULT_MAX = 16000;
 
 export default function harnessRelayGate(pi) {
   pi.registerCommand('harness-relay-gate', {
@@ -42,5 +49,25 @@ export default function harnessRelayGate(pi) {
         ? answer.reason.trim()
         : 'Not run: Harness Relay refused this tool call.';
     return { block: true, reason };
+  });
+
+  if (process.env.HARNESS_RELAY_PI_AFTER !== '1') return;
+  pi.on('tool_result', async (event, ctx) => {
+    if (!ctx.hasUI) return undefined;
+    const content = Array.isArray(event.content) ? event.content : [];
+    const output = content
+      .filter((c) => c && c.type === 'text' && typeof c.text === 'string')
+      .map((c) => c.text)
+      .join('\n')
+      .slice(-RESULT_MAX);
+    const request = { toolCallId: event.toolCallId, toolName: event.toolName, input: event.input, isError: Boolean(event.isError), output };
+    let answer;
+    try {
+      answer = JSON.parse(await ctx.ui.input(RESULT_TITLE, JSON.stringify(request), { signal: ctx.signal }));
+    } catch {
+      return undefined;
+    }
+    if (!answer || typeof answer.text !== 'string' || !answer.text.trim()) return undefined;
+    return { content: [...content, { type: 'text', text: answer.text }] };
   });
 }

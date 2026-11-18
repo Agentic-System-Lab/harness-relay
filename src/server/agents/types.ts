@@ -12,6 +12,7 @@ import {
   type ToolCallKind,
 } from '../../shared/types';
 import { CONFIG } from '../config';
+import type { TurnHooks } from '../hooks';
 import type { WriteGuard } from '../writeGuard';
 
 /** Normalised events every CLI adapter emits while an agent is working. */
@@ -108,6 +109,12 @@ export interface RunOptions {
    * refuse is still found once the team has answered.
    */
   guard?: WriteGuard;
+  /**
+   * The team's hooks for this turn (`src/server/hooks.ts`): an adapter whose CLI can (`HOOK_PROVIDERS`)
+   * has it ask `before` each tool call the hooks cover, refusing it when told why, and pass the result
+   * `after`, telling the agent what comes back. Absent when the team has none for this turn.
+   */
+  hooks?: TurnHooks;
   /**
    * The model backends set up in Settings, with their keys (`SettingsStore.backendsFor()`): an open
    * agent's run reads it with `backendRun()`, and a run of Claude Code, Codex or Grok, which gets the

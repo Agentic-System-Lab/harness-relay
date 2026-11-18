@@ -1075,6 +1075,13 @@ export interface CheckList {
    */
   commands?: CheckCommand[];
   /**
+   * Commands Harness Relay runs around the members' own tool calls, as they happen (`CheckHook`): before
+   * a call, which a failing one refuses, and after it, whose failure goes back to the agent. Each CLI's
+   * adapter has its CLI call them as far as it can (`HOOK_PROVIDERS`); below full access they run in
+   * Harness Relay's own sandbox, as the commands do. In runs that may write; not on Windows yet.
+   */
+  hooks?: CheckHook[];
+  /**
    * The default from Settings (`SettingsView.checksDefault`), copied into a new chat or automation as it
    * was made and not changed since: a template the lead agent picks that has a list of its own replaces
    * it. Any change to the list drops it; a default, a template and an empty list never have it.
@@ -1107,9 +1114,39 @@ export interface CheckCommand {
   unixSockets?: boolean;
 }
 
+/** Which of a member's tool calls a hook runs around: its commands, its own file changes, or every call. */
+export type HookTools = 'command' | 'edit' | 'any';
+
+/**
+ * A hook a check list runs around the members' tool calls (`CheckList.hooks`): a shell command line,
+ * given the call in its environment (`RELAY_HOOK_*`, `hookEnv()`) and run as a check's command is.
+ * `before`: exit 0 lets the call run; anything else (a non-zero exit, a time limit, a sandbox that
+ * cannot start) refuses it, its output the reason the agent gets. `after`: the call has run; a non-zero
+ * exit sends its output back to the agent, to act on.
+ */
+export interface CheckHook {
+  /** Stable within its list. */
+  id: string;
+  when: 'before' | 'after';
+  tools: HookTools;
+  /** What to run (`sh -c`), such as `./scripts/allow-command.sh` or `npx prettier --check "$RELAY_HOOK_FILES"`. */
+  run: string;
+  /** Where to run it: a folder relative to the first working directory (absent: that directory). */
+  cwd?: string;
+  /** Seconds before it is stopped (`CHECK_LIMITS.hookTimeoutSec` when absent). */
+  timeoutSec?: number;
+}
+
+/**
+ * The CLIs whose adapters run the team's hooks around their tool calls (`RunOptions.hooks`): the others'
+ * members work without them, and the chat says so.
+ */
+export const HOOK_PROVIDERS: readonly Provider[] = ['claude', 'muse', 'pi'];
+
 /**
  * How many protected path patterns a list may have, the longest pattern and commit pattern, how many
- * commands, the longest command line and folder, and a command's time limit in minutes (default, most).
+ * commands, the longest command line and folder, and a command's time limit in minutes (default, most);
+ * how many hooks, and a hook's time limit in seconds (default, most).
  */
 export const CHECK_LIMITS = {
   protectedPaths: 50,
@@ -1120,6 +1157,9 @@ export const CHECK_LIMITS = {
   folder: 500,
   timeoutMin: 10,
   maxTimeoutMin: 60,
+  hooks: 10,
+  hookTimeoutSec: 60,
+  maxHookTimeoutSec: 600,
 };
 
 /** The commit pattern the Conventional Commits button fills in. */

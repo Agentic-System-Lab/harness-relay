@@ -5515,7 +5515,8 @@ details.sub summary {
   gap: 10px;
 }
 
-.checks-command-row {
+.checks-command-row,
+.checks-hook-row {
   display: flex;
   flex-direction: column;
   gap: 6px;
