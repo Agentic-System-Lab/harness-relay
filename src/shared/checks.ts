@@ -221,8 +221,9 @@ function hookWords(run: string): (string | null | undefined)[] {
  * anchored there: a member that could change a hook's own script could switch the hook off. Only what a
  * command line runs: the program of each command when it is named by a path (`./scripts/allow.sh`,
  * `tools/check`), and the script an interpreter is given (`sh ci/check.sh`, `node tools/check.js`,
- * `python3 lint.py`), from the hook's folder. Never its other arguments (a folder to lint, a pattern),
- * a full path (not told from here), one that leaves the folder, or a word only the shell knows. What
+ * `python3 lint.py`), from the hook's folder or the one a `cd` before it names. Never its other
+ * arguments (a folder to lint, a pattern), a subcommand (`bun test`), a full path (not told from here),
+ * one that leaves the folder, or a word only the shell knows. What
  * else a hook reads (a script run through `npm run` or `make`, what a script loads) is the user's to
  * list under protected paths.
  */
@@ -232,28 +233,44 @@ export function hookFilePatterns(hooks: readonly Pick<CheckHook, 'run' | 'cwd'>[
   for (const h of hooks ?? []) {
     const base = (h.cwd ?? '').replace(/\\/g, '/');
     if (base.startsWith('/') || /^[A-Za-z]:\//.test(base)) continue;
-    const add = (word: string) => {
-      if (word.startsWith('/') || /^[A-Za-z]:/.test(word) || word.includes('\\')) return;
-      const names: string[] = [];
-      for (const n of [...base.split('/'), ...word.split('/')]) {
+    // The folder the commands run in: the hook's, until a `cd`; unknown after one that cannot be followed.
+    let dir: string[] | undefined = base.split('/').filter((n) => n && n !== '.');
+    /** `word` from the folder the commands are in, as names; undefined when it leaves the working directory or cannot be told. */
+    const from = (word: string): string[] | undefined => {
+      if (!dir || word.startsWith('/') || /^[A-Za-z]:/.test(word) || word.includes('\\')) return undefined;
+      const names = [...dir];
+      for (const n of word.split('/')) {
         if (!n || n === '.') continue;
         if (n !== '..') names.push(n);
         else if (names.length) names.pop();
-        else return;
+        else return undefined;
       }
-      const tidy = names.length ? tidyPattern(`/${names.join('/')}`) : undefined;
+      return names;
+    };
+    const add = (word: string) => {
+      // A file, never a folder: a word that ends in `/` names what the program works on.
+      if (word.endsWith('/')) return;
+      const names = from(word);
+      const tidy = names?.length ? tidyPattern(`/${names.join('/')}`) : undefined;
       if (tidy && !out.includes(tidy)) out.push(tidy);
     };
-    // Where in a command a word is: its program (`command`), the script an interpreter runs (`script`), or neither.
-    let at: 'command' | 'script' | 'rest' = 'command';
+    // Where in a command a word is: its program (`command`), a `cd`'s folder, the script an interpreter runs (`script`), or neither.
+    let at: 'command' | 'cd' | 'script' | 'rest' = 'command';
     let shell = false;
     for (const word of hookWords(h.run)) {
-      if (word === null) at = 'command';
-      else if (word === undefined) at = 'rest';
+      if (word === null) {
+        // `cd` with no folder goes home: where the next commands run is not known.
+        if (at === 'cd') dir = undefined;
+        at = 'command';
+      } else if (at === 'cd') {
+        dir = word === undefined ? undefined : from(word);
+        at = 'rest';
+      } else if (word === undefined) at = 'rest';
       else if (at === 'command') {
         if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) continue; // a variable set for the command
         if (HOOK_WRAPPERS.has(name(word))) continue;
-        if (HOOK_INTERPRETERS.has(name(word))) {
+        if (word === 'cd') at = 'cd';
+        else if (HOOK_INTERPRETERS.has(name(word))) {
           at = 'script';
           shell = /^(?:sh|bash|zsh|dash|ksh)$/.test(name(word));
         } else {
@@ -262,12 +279,15 @@ export function hookFilePatterns(hooks: readonly Pick<CheckHook, 'run' | 'cwd'>[
         }
       } else if (at === 'script') {
         if (word.startsWith('-')) {
-          // An option that takes the program itself (`sh -c '…'`, `node -e '…'`, `python -m mod`): no script follows.
-          if (shell ? /^-[a-zA-Z]*c$/.test(word) : /^-[cemp]$/.test(word) || word === '--eval' || word === '--print') at = 'rest';
+          // An option after which no script follows: the program itself as text (`sh -c '…'`, `node -e '…'`), a
+          // module (`python -m`), or a test runner's files (`node --test`).
+          if (shell ? /^-[a-zA-Z]*c$/.test(word) : /^-[cemp]$/.test(word) || /^--(?:eval|print|test)$/.test(word)) at = 'rest';
           continue;
         }
         if (word === 'run') continue; // `deno run`, `bun run`
-        add(word);
+        // Only a word that reads as a file: a script's ending, or a path. A subcommand (`bun test`, `deno
+        // lint`) or an option's value (`--tsconfig tsconfig.json`) is not the script.
+        if (/\.(?:sh|bash|zsh|js|mjs|cjs|jsx|ts|mts|cts|tsx|py|rb|pl|php)$/.test(word) || word.includes('/')) add(word);
         at = 'rest';
       }
     }

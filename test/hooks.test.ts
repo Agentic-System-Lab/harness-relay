@@ -90,6 +90,14 @@ describe('a list with hooks', () => {
     expect(of('grep -v "^docs/"')).toEqual([]);
     expect(of('npx prettier --check $RELAY_HOOK_FILES')).toEqual([]);
     expect(of('echo "lint: $(basename $RELAY_HOOK_FILES)"; exit 1')).toEqual([]);
+    // Nor an interpreter's subcommand, an option's value, or the folder or files a test runner is given.
+    expect(of('bun test; deno test; deno lint; bun run lint; node --test test/; node --test test/a.test.js')).toEqual([]);
+    expect(of('tsx --tsconfig tsconfig.json scripts/c.ts; python3 -m pytest tests/; ./tools/ x')).toEqual([]);
+    // A cd before it is followed; after one that cannot be, nothing is told.
+    expect(of('cd tools && ./check.sh; sh ../ci/a.sh')).toEqual(['/tools/check.sh', '/ci/a.sh']);
+    expect(of('cd "$DIR" && ./check.sh')).toEqual([]);
+    expect(of('cd && ./check.sh')).toEqual([]);
+    expect(of('cd ../.. && ./check.sh')).toEqual([]);
     // Nor a program on the PATH, a full path, one that leaves the folder, one only the shell knows, or a program given as text.
     expect(of('npm run allow; /usr/bin/true; ~/x.sh; ../up.sh; sh "$PWD/scripts/allow.sh"; sh -c "scripts/x.sh"; node -e "a/b"')).toEqual(
       [],
