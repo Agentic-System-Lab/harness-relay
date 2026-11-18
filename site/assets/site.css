@@ -31,11 +31,16 @@
   --claude-ink: #b2502c;
   --codex-ink: #0b7a5f;
   --grok-ink: #6440f0;
+  --antigravity-ink: #3f6212;
+  --copilot-ink: #0f766e;
   /* Fills that keep white initials legible (5:1 or better) in both colour schemes. */
   --claude-deep: #b2502c;
   --codex-deep: #0b7a5f;
   --grok-deep: #6440f0;
-  /* The other eight CLIs' colours, as in the app (the same in both themes): only the dots in their lists. */
+  --antigravity-deep: #3f6212;
+  --copilot-deep: #0f766e;
+  /* The other nine CLIs' brand colours, as in the app (the same in both themes): the dots in their lists, and the
+     tint of Antigravity's and Copilot's pills, which a use case shows. */
   --cursor: #d6409f;
   --antigravity: #65a30d;
   --copilot: #0f766e;
@@ -55,6 +60,8 @@
   --claude-lit: #e8906f;
   --codex-lit: #34c79d;
   --grok-lit: #a593ff;
+  --antigravity-lit: #84cc16;
+  --copilot-lit: #2dd4bf;
 
   /* The GitHub star on the GitHub buttons, the page's only yellow. On a light button it gets a
      darker edge to stand out; --star-inverse is for the primary button, which is the other way round. */
@@ -96,6 +103,8 @@
     --claude-ink: #e8906f;
     --codex-ink: #34c79d;
     --grok-ink: #a593ff;
+    --antigravity-ink: #84cc16;
+    --copilot-ink: #2dd4bf;
     --band: #0a0a0b;
     --band-2: #18181a;
     --star: #e3b341;
@@ -123,6 +132,8 @@
   --claude-ink: #e8906f;
   --codex-ink: #34c79d;
   --grok-ink: #a593ff;
+  --antigravity-ink: #84cc16;
+  --copilot-ink: #2dd4bf;
   --band: #0a0a0b;
   --band-2: #18181a;
   --star: #e3b341;
@@ -322,17 +333,24 @@ p {
   --agent-deep: var(--grok-deep);
 }
 
-/* The other eight: their brand colour only, for the dot in their list. */
-.t-cursor {
-  --agent: var(--cursor);
-}
-
+/* Antigravity and Copilot, which a use case shows: their pill, avatar and rail colours too. */
 .t-antigravity {
   --agent: var(--antigravity);
+  --agent-ink: var(--antigravity-ink);
+  --agent-lit: var(--antigravity-lit);
+  --agent-deep: var(--antigravity-deep);
 }
 
 .t-copilot {
   --agent: var(--copilot);
+  --agent-ink: var(--copilot-ink);
+  --agent-lit: var(--copilot-lit);
+  --agent-deep: var(--copilot-deep);
+}
+
+/* The other seven: their brand colour only, for the dot in their list. */
+.t-cursor {
+  --agent: var(--cursor);
 }
 
 .t-muse {

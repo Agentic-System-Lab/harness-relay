@@ -38,8 +38,10 @@ Agent colours, each in four strengths:
 | Claude Code | `#d97757` | `#b2502c` / dark `#e8906f` | `#e8906f` | `#b2502c` |
 | Codex | `#10a37f` | `#0b7a5f` / dark `#34c79d` | `#34c79d` | `#0b7a5f` |
 | Grok | `#7c5cff` | `#6440f0` / dark `#a593ff` | `#a593ff` | `#6440f0` |
+| Antigravity | `#65a30d` | `#3f6212` / dark `#84cc16` | `#84cc16` | `#3f6212` |
+| Copilot | `#0f766e` | `#0f766e` / dark `#2dd4bf` | `#2dd4bf` | `#0f766e` |
 
-The other nine take only their brand colour, the same in both themes as in the app (`src/web/styles.css`), for the dot in their list:
+Antigravity and Copilot have the four because a use case shows them (its pills and its rail's avatars). All nine below have their brand colour, the same in both themes as in the app (`src/web/styles.css`), for the dot in their list:
 
 | Agent | Token | Colour |
 | --- | --- | --- |
@@ -57,7 +59,7 @@ Rules:
 
 - Brand colours as text only at large sizes, 3:1 or better (none is on the page now: the headline names no agent). Small coloured text uses `-ink` on the page and `-lit` on the band.
 - On the big discs, Claude Code and Codex take dark text (`#18181b`); Grok takes white, and only at large bold sizes.
-- Set the agent with a helper class: `.t-claude`, `.t-codex` or `.t-grok` define `--agent`, `--agent-ink`, `--agent-lit` and `--agent-deep` for everything inside. `.t-cursor`, `.t-antigravity`, `.t-copilot`, `.t-muse`, `.t-opencode`, `.t-goose`, `.t-cline`, `.t-openhands` and `.t-pi` define `--agent` only, for their list's dot; keep them changed with the app's colours.
+- Set the agent with a helper class: `.t-claude`, `.t-codex`, `.t-grok`, `.t-antigravity` or `.t-copilot` define `--agent`, `--agent-ink`, `--agent-lit` and `--agent-deep` for everything inside. `.t-cursor`, `.t-muse`, `.t-opencode`, `.t-goose`, `.t-cline`, `.t-openhands` and `.t-pi` define `--agent` only, for their list's dot; keep them changed with the app's colours.
 - When all three act together (`.t-team`), show all three: stacked avatars, and a progress bar split in three. The headline's "coding agent(s)" takes the same split as its underline (`.team-mark`), for the agents together.
 - Body text meets 4.5:1, large text 3:1. Check new pairs before shipping.
 
@@ -105,7 +107,7 @@ The font file only covers Latin; Chinese always comes from the system stack.
 | 1 | Header | Mark, section links, EN / 中文 switch, GitHub with the star count, the theme button. Each stays on one line at any width (`test/site-header.test.ts`): the switch is never squeezed, so 中文 never breaks between its characters, and at 500px and below the mark shows without its name, which does not fit beside the rest under some 481px (the link keeps the name as its label) |
 | 2 | Hero | Headline about the reader's own agents in any mix (no agent names, so it never reads as a list to have), a lead that names the demo's three and says there are twelve to mix, says one kind of agent is enough and that the lead agent designs the team for each question with each model's own traits in mind, the download button for the visitor's system with the link to the requirements beside it, the Codespaces button, GitHub button with the star count |
 | 3 | Screening (`#demo`) | Demo video and the chapter rail on the dark band |
-| 4 | Use cases (`#use-cases`) | *Hand it a task*: the ten use cases as cards, one for each kind of work, (each one's poster, name, one sentence, and its agents and how they ran), each linking to its section on the use-cases page, and a link to the whole page |
+| 4 | Use cases (`#use-cases`) | *Hand it a task*: the twelve use cases as cards, one for each kind of work, (each one's poster, name, one sentence, and its agents and how they ran), each linking to its section on the use-cases page, and a link to the whole page |
 | 5 | The agents you installed (`#agents`) | How each signed-in CLI is driven (Claude Code, Codex, Grok, then Cursor, Antigravity, Copilot and Muse Code, with their colours on their dots only); the mark at page scale |
 | 6 | Open agents (`#open`) | The five open-source CLIs and how each is driven, the model backends they run on (API keys, your own endpoint, `backend/model`, no subscription) beside an excerpt of Settings → Model backends, and Harness Relay's own sandbox around them |
 | 7 | Modes (`#modes`) | Roundtable, Parallel, Relay as animated diagrams in tabs |
@@ -119,7 +121,7 @@ The header's section links: Demo, Use cases (`#use-cases`), Modes, Teams, Safety
 
 ### The use-cases page
 
-`use-cases/index.html` and `zh-TW/use-cases/index.html`: ten kinds of work, from software engineers to designers, each a real recording (`npm run use-cases`, [Recording the use cases](../docs/developer-guide.md#recording-the-use-cases)), so the page shows the run first, as the landing page does. The same header and footer as the landing page, its language switch to the other language's use-cases page, and the same `<head>` scripts (the theme, and the language preference, which sends a visitor to the use-cases page in their language).
+`use-cases/index.html` and `zh-TW/use-cases/index.html`: twelve kinds of work, from software engineers to localization teams, each a real recording (`npm run use-cases`, [Recording the use cases](../docs/developer-guide.md#recording-the-use-cases)), so the page shows the run first, as the landing page does. The same header and footer as the landing page, its language switch to the other language's use-cases page, and the same `<head>` scripts (the theme, and the language preference, which sends a visitor to the use-cases page in their language).
 
 | # | Section | Purpose |
 | --- | --- | --- |
