@@ -102,12 +102,15 @@ describe('needsOf', () => {
     expect(runs('scripts/sandbox-check.ts')).toEqual(['windows', 'e2e']);
     // The live tests never run on CI; the typecheck takes them in.
     expect(runs('e2e/live/ollama.spec.ts', 'playwright.live.config.ts')).toEqual(['windows']);
+    // A CLI's new version is checked by hand; its tests run on Windows too.
+    expect(runs('scripts/cli-check.ts', 'scripts/cli-check/model.ts')).toEqual(['windows']);
   });
 
   it("runs each workflow's own jobs for a change to it", () => {
     expect(runs('.github/workflows/ci.yml')).toEqual(['windows', 'desktop']);
     expect(runs('.github/workflows/e2e.yml')).toEqual(['e2e']);
     expect(runs('.github/workflows/release.yml')).toEqual([]);
+    expect(runs('.github/workflows/cli-versions.yml')).toEqual([]);
   });
 
   it('runs everything for a change to the rules, or of no files', () => {

@@ -28,10 +28,10 @@ npm start
 
 要登入的七個：
 
-- [Claude Code](https://docs.claude.com/en/docs/claude-code)（`claude`）
-- [Codex CLI](https://github.com/openai/codex)（`codex`）
-- [Grok CLI](https://github.com/xai-org/grok-build)（`grok`）
-- [Cursor CLI](https://cursor.com/cli)（`cursor-agent`）
+- [Claude Code](https://docs.claude.com/en/docs/claude-code)（`claude`；以 2.1.322 驗證過）
+- [Codex CLI](https://github.com/openai/codex)（`codex`；以 0.167.0 驗證過）
+- [Grok CLI](https://github.com/xai-org/grok-build)（`grok`；以 1.0.77 驗證過）
+- [Cursor CLI](https://cursor.com/cli)（`cursor-agent`；以 2026.11.11-043ef28 驗證過）
 - [Antigravity CLI](https://antigravity.google/download)（`agy`；在 macOS、Linux 與 Windows 上以 1.5.6 驗證過），用你的 Google 帳號或 Gemini API key 登入
 - [GitHub Copilot CLI](https://github.com/features/copilot/cli)（`copilot`，npm `@github/copilot`；在 macOS、Linux 與 Windows 上以 1.0.109 驗證過），用你的 GitHub 帳號或 GitHub token 登入。在 Linux 上，完全存取以外它的沙箱需要 bubblewrap、slirp4netns，以及 unprivileged user namespace 與 network namespace（見[各平台的作業系統沙箱 → Linux](sandboxing.zh-TW.md#linux)）。
 - [Muse Code](https://dev.meta.ai/products/muse-code/)（`muse`；在 macOS 與 Linux 上以 1.4.18 驗證過，Windows 上也驗證過），用你的 Meta 帳號或 Meta API key 登入

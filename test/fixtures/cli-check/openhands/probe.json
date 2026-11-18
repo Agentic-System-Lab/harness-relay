@@ -1,0 +1,79 @@
+{
+  "provider": "openhands",
+  "version": "1.16.0",
+  "shapes": {
+    "probe": {
+      "kinds": {},
+      "flags": [
+        "--always-approve",
+        "--cloud",
+        "--cloud-url",
+        "--exit-without-confirmation",
+        "--file",
+        "--gpu",
+        "--headless",
+        "--help",
+        "--json",
+        "--last",
+        "--llm-approve",
+        "--override-with-envs",
+        "--port",
+        "--resume",
+        "--task",
+        "--version",
+        "--yolo"
+      ],
+      "results": {
+        "status": [
+          "accounts[].auth.detail:string",
+          "accounts[].auth.loggedIn:boolean",
+          "accounts[].id:string",
+          "accounts[].label:string",
+          "accounts[].usingStoredApiKey:boolean",
+          "auth.detail:string",
+          "auth.loggedIn:boolean",
+          "bin:string",
+          "fact:installed=true",
+          "fact:loggedIn=false",
+          "fact:version=read",
+          "installed:boolean",
+          "provider:string",
+          "usingStoredApiKey:boolean",
+          "version:string"
+        ],
+        "models": [
+          "efforts[]:string",
+          "fact:error=no",
+          "fact:models=none",
+          "fact:source=cli",
+          "models:[]",
+          "provider:string",
+          "source:string"
+        ],
+        "usage": [
+          "account:string",
+          "fact:error=no",
+          "fact:none=notReported",
+          "fact:problem=-",
+          "limits:[]",
+          "none:string",
+          "provider:string"
+        ],
+        "native": [
+          "agents:[]",
+          "asRun:boolean",
+          "cwd:string",
+          "hooks:[]",
+          "mcpServers:[]",
+          "memory:[]",
+          "memoryFromFiles:boolean",
+          "nativeItems:{}",
+          "nativeOff:[]",
+          "problems:[]",
+          "provider:string",
+          "skills:[]"
+        ]
+      }
+    }
+  }
+}
