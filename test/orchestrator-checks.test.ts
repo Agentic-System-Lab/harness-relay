@@ -279,10 +279,14 @@ describe('team checks: commands', () => {
     lastCard(conv).checks!.outcomes.find((o) => o.rule === 'command' && o.commandId === id)!;
   const commanded = (run: string, settings: Parameters<typeof conversation>[0] = {}) =>
     conversation({ mode: 'roundtable', permission: 'full', checks: { commands: [{ id: 'c', run }] }, ...settings });
-  /** Runs a command's script as the real shell would, waiting for `gate` first when it is set (and for Stop). */
+  /**
+   * Stands in for the shell a command runs in, which waits for `gate` (or Stop) and exits 0; as on Linux,
+   * so that it runs on every system the tests do (commands are not run on Windows).
+   */
   const gated = (gate: Promise<void>) =>
     ({
       ...defaultCheckCommandDeps,
+      platform: 'linux',
       runShellScript: async (_sh: string, _flags: readonly string[], _script: string, o: { signal?: AbortSignal }) => {
         await Promise.race([gate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
         const aborted = Boolean(o.signal?.aborted);
