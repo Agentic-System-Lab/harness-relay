@@ -27,3 +27,22 @@ export function AnimatedLogo({ className, turning = false }: { className: string
     </div>
   );
 }
+
+/**
+ * The app's loader: the Logo's drawing turning as the team design card's mark does (1.4 s turning in
+ * each 1.9 s), wherever something is in progress (a step running, the lead agent revising the team,
+ * an install, a sign-in, a voice download, a reply about to begin). It turns from the first moment,
+ * without the dots spiralling in, since it comes and goes as steps start and end (styles.css,
+ * `.logo-spinner`), and stands still with reduced motion. Inline, `size` pixels square.
+ */
+export function LogoSpinner({ size = 14 }: { size?: number }) {
+  return (
+    <span className="logo-motion logo-spinner" style={{ ['--u' as string]: `${size / 32}px` }} aria-hidden="true">
+      <span className="logo-motion-orbit">
+        <span className="logo-dot logo-dot-claude" />
+        <span className="logo-dot logo-dot-codex" />
+        <span className="logo-dot logo-dot-grok" />
+      </span>
+    </span>
+  );
+}

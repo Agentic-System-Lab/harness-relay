@@ -19,14 +19,38 @@ test.describe("changing a chat's team", () => {
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }]);
     await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
-    await drawer.getByRole('textbox', { name: 'Ask the lead agent' }).fill('Add a second opinion e2e:add=grok');
+    await drawer.getByRole('textbox', { name: 'Ask the lead agent' }).fill('Add a second opinion e2e:add=grok e2e:slowrevise=2');
     await drawer.getByRole('button', { name: 'Ask the lead agent' }).click();
+    // While the lead agent works, the app's loader (the Logo turning) leads what it says: inline in
+    // the line, 14px, centred on the text that follows it.
+    const working = drawer.getByRole('status').filter({ hasText: 'is changing the team' });
+    await expect(working.locator('.logo-spinner')).toBeVisible();
+    const place = await working.evaluate((s) => {
+      const spin = s.querySelector('.logo-spinner')!.getBoundingClientRect();
+      const words = [...s.childNodes].find((n) => n.nodeType === Node.TEXT_NODE && n.textContent!.includes('is changing the team'))!;
+      const range = document.createRange();
+      range.selectNodeContents(words);
+      const text = range.getBoundingClientRect();
+      return {
+        width: spin.width,
+        height: spin.height,
+        after: text.left - spin.right,
+        offCentre: Math.abs((spin.top + spin.bottom) / 2 - (text.top + text.bottom) / 2),
+      };
+    });
+    expect(place.width).toBeCloseTo(14, 0);
+    expect(place.height).toBeCloseTo(14, 0);
+    expect(place.after).toBeGreaterThan(0);
+    expect(place.offCentre).toBeLessThan(3);
     await expect(drawer).toContainText('added @Grok (Grok)');
+    await expect(working).toHaveCount(0);
     await expect(drawer).toContainText('The team below is changed. Review it, then press Save to use it.');
     await drawer.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(drawer).toBeHidden();
     // The lead agent got the team and the request.
-    expect(relay.fakeLog().some((e) => e.prompt?.includes('<request>\nAdd a second opinion e2e:add=grok\n</request>'))).toBe(true);
+    expect(
+      relay.fakeLog().some((e) => e.prompt?.includes('<request>\nAdd a second opinion e2e:add=grok e2e:slowrevise=2\n</request>')),
+    ).toBe(true);
 
     await send(page, 'What do you both think?');
     await expect(await finishedReply(page, 'Claude')).toContainText('You said: “What do you both think?”.');

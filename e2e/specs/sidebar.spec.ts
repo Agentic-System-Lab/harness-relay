@@ -118,6 +118,33 @@ test.describe('the sidebar', () => {
     await expect(page.locator('.conv-link', { hasText: 'My named chat' })).toBeVisible();
   });
 
+  test("while its agents reply, a conversation's row shows the app's loader in its state dot's place, and none once they are done", async ({
+    page,
+    relay,
+  }) => {
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], {}, 'Busy chat');
+    await send(page, 'Take your time e2e:slow=3');
+    const dot = row(page, page, 'Busy chat').locator('.status-dot.running');
+    // The Logo turning, 12px, centred on the dot's 8px place: the title beside it stays where a dot leaves it.
+    await expect(dot.locator('.logo-spinner .logo-dot')).toHaveCount(3);
+    const place = await dot.evaluate((d) => {
+      const box = d.getBoundingClientRect();
+      const spin = d.querySelector('.logo-spinner')!.getBoundingClientRect();
+      return {
+        width: box.width,
+        size: spin.width,
+        dx: spin.left + spin.width / 2 - (box.left + box.width / 2),
+        dy: spin.top + spin.height / 2 - (box.top + box.height / 2),
+      };
+    });
+    expect(place.width).toBeCloseTo(8, 0);
+    expect(place.size).toBeCloseTo(12, 0);
+    expect(Math.abs(place.dx)).toBeLessThan(0.5);
+    expect(Math.abs(place.dy)).toBeLessThan(0.5);
+    await finishedReply(page, 'Claude');
+    await expect(dot).toHaveCount(0);
+  });
+
   test('a conversation dragged into a group is kept there, and dragged out goes back to Other', async ({ page, relay }) => {
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], {}, 'Invoice totals');
     const billing = await newGroup(page, 'Billing');
