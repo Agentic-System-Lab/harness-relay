@@ -1147,6 +1147,60 @@ describe('accounts', () => {
   });
 });
 
+describe('default team checks', () => {
+  it('keeps the list new chats start with in Settings, tidied, for every browser and after a restart, and none when emptied', async () => {
+    const db = openDatabase(':memory:');
+    const s = new SettingsStore(db);
+    const store = new Store(db);
+    const hub = new Hub();
+    const orchestrator = new Orchestrator(store, hub, s);
+    const app = createApp({ auth: null, store, settings: s, hub, orchestrator, providers: new ProviderService(s) });
+    const put = async (body: unknown) => app.request('/api/settings', json('PUT', body));
+    const view = async () => (await (await app.request('/api/settings', { headers: HOST })).json()) as SettingsView;
+    expect((await view()).checksDefault).toBeUndefined();
+
+    const set = await put({
+      checksDefault: { protectedPaths: ['  .env ', '.env', '/secrets/'], commands: [{ run: ' npm test ' }], fromDefault: true },
+    });
+    expect(set.status).toBe(200);
+    const list = ((await set.json()) as SettingsView).checksDefault!;
+    // Tidied as a chat's list is; never marked as a copy of itself.
+    expect(list).toMatchObject({ protectedPaths: ['.env', '/secrets/'], commands: [{ run: 'npm test' }] });
+    expect(list.fromDefault).toBeUndefined();
+    expect((await view()).checksDefault).toEqual(list);
+    // Kept in the database: another server on it has it too.
+    expect(new SettingsStore(db).view().checksDefault).toEqual(list);
+
+    // A list that cannot be used changes nothing.
+    expect((await put({ checksDefault: { protectedPaths: ['../outside'] } })).status).toBe(400);
+    expect((await put({ checksDefault: 'npm test' })).status).toBe(400);
+    expect((await view()).checksDefault).toEqual(list);
+    // Emptied, or null: none.
+    expect(((await (await put({ checksDefault: {} })).json()) as SettingsView).checksDefault).toBeUndefined();
+    await put({ checksDefault: { commitPattern: '^feat' } });
+    expect(((await (await put({ checksDefault: null })).json()) as SettingsView).checksDefault).toBeUndefined();
+    expect(new SettingsStore(db).view().checksDefault).toBeUndefined();
+  });
+
+  it('keeps the mark of a copied default in a new chat, and never in a template', async () => {
+    const conv = await createConversation({ checks: { protectedPaths: ['.env'], fromDefault: true } });
+    expect(store.get(conv.id)!.settings.checks).toEqual({ protectedPaths: ['.env'], fromDefault: true });
+    // Without rules there is nothing to replace: no mark.
+    const empty = await createConversation({ checks: { fromDefault: true } });
+    expect(store.get(empty.id)!.settings.checks).toEqual({});
+    const res = await app.request(
+      '/api/presets',
+      json('POST', {
+        name: 'From a chat',
+        agents: [{ name: 'A', provider: 'claude', role: '' }],
+        settings: { mode: 'roundtable', permission: 'edit', checks: { protectedPaths: ['.env'], fromDefault: true } },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as TeamPreset).settings.checks).toEqual({ protectedPaths: ['.env'] });
+  });
+});
+
 describe('POST /api/presets', () => {
   it('never takes the id of a built-in template', async () => {
     const res = await app.request(

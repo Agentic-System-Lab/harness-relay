@@ -1510,6 +1510,9 @@ export const zhTW = {
       '寫給成員的筆記，例如你的偏好和專案慣例，每個對話都會放進成員的說明裡。「所有成員」每個人都收到；各 CLI 的分頁只給該 CLI 的成員，接在共用記憶後面。',
     memoryFor: (scope: string) => `記憶：${scope}`,
     memoryPlaceholder: '例如：先給結論再說明。程式碼使用 2 個空格縮排。',
+    checksDefault: '團隊檢查預設',
+    checksDefaultHint:
+      '新對話和新自動任務一開始就帶著這份團隊檢查，在那裡可以修改或拿掉。之後再改這裡，不會動到已經建立的對話和自動任務。這份預設沒改過時，首席 agent 選用的範本若有自己的團隊檢查，會加進來（範本有 commit 格式時以範本的為準）。',
     chars: (n: number, max: number) => `${n} / ${max} 字`,
     saved: '已儲存',
   },

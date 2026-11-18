@@ -286,6 +286,19 @@ describe('team checks', () => {
     const own = conversation({ checks: {} });
     apply(own);
     expect(own.settings.checks).toEqual({});
+    // Settings' default as it was copied in takes the template's rules in with its own, unmarked from then on.
+    const copied = conversation({ checks: { protectedPaths: ['*.pem'], commitPattern: '^feat', fromDefault: true } });
+    apply(copied);
+    expect(copied.settings.checks).toEqual({ protectedPaths: ['*.pem', '.env'], commitPattern: '^feat' });
+    // Once changed it is the chat's own, and stays.
+    const changed = conversation({ checks: { commitPattern: '^fix' } });
+    apply(changed);
+    expect(changed.settings.checks).toEqual({ commitPattern: '^fix' });
+    // A template without rules leaves the default.
+    store.savePreset({ ...preset, id: 'user-t', settings: { ...preset.settings, checks: {} } });
+    const kept = conversation({ checks: { commitPattern: '^feat', fromDefault: true } });
+    apply(kept);
+    expect(kept.settings.checks).toEqual({ commitPattern: '^feat', fromDefault: true });
   });
 });
 

@@ -638,6 +638,8 @@ export function validateChecks(input: unknown): CheckList {
     }
     if (commands.length) out.commands = commands;
   }
+  // Settings' default, unchanged since it was copied in (a list with rules only).
+  if (c.fromDefault === true && (out.protectedPaths || out.commitPattern || out.commands)) out.fromDefault = true;
   return out;
 }
 

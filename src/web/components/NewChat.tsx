@@ -3,6 +3,7 @@ import {
   PROVIDER_LABEL,
   cwdSettings,
   cwdsOf,
+  type CheckList,
   type Conversation,
   type LeadAgentSettings,
   type ProviderModels,
@@ -10,6 +11,7 @@ import {
   type TeamPreset,
 } from '../../shared/types';
 import { api, orCreateCwd } from '../api';
+import { startingChecks } from '../checks';
 import { useI18n } from '../i18n';
 import { useLimits } from '../limits';
 import { leadLabel } from '../util';
@@ -49,9 +51,11 @@ export const rememberAutoConfirm = (on: boolean | undefined) => write(AUTO_CONFI
 /**
  * A new conversation: the lead agent designs the team for each question, so only the settings are
  * chosen here. It starts in the default working directories (`cwds`, the first where agents start),
- * with lead review on (the box ticked each time: only the user turns it off, here or later in the chat).
+ * with lead review on (the box ticked each time: only the user turns it off, here or later in the chat),
+ * and with Settings' default team checks (`checksDefault`), there to change or remove.
  */
-export function autoTeam(cwds: string[], autoConfirm: boolean): Team {
+export function autoTeam(cwds: string[], autoConfirm: boolean, checksDefault?: CheckList): Team {
+  const checks = startingChecks(checksDefault);
   return {
     agents: [],
     settings: {
@@ -63,6 +67,7 @@ export function autoTeam(cwds: string[], autoConfirm: boolean): Team {
       autoTeam: true,
       ...(autoConfirm ? { autoConfirm } : {}),
       leadReview: true,
+      ...(checks ? { checks } : {}),
     },
   };
 }
@@ -98,7 +103,9 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
         if (initialized.current) return;
         initialized.current = true;
         // The default working directory from Settings; asking first unless the last chat did not.
-        setTeam(autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm()));
+        setTeam(
+          autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm(), settings.checksDefault),
+        );
       })
       .catch((e) => setError(String(e.message ?? e)));
   }, [lang]);

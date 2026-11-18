@@ -36,6 +36,7 @@ import {
   PUSH_GONE,
   PUSH_TAKEN,
   type ApprovalAnswer,
+  type CheckList,
   type Conversation,
   type ServerLimits,
   type ConversationSchedule,
@@ -56,6 +57,7 @@ import {
 } from '../shared/types';
 import type { AgentsViewSync } from './agentsview';
 import { freshTracking } from '../shared/tracking';
+import { hasChecks } from '../shared/checks';
 import { servingPort } from './relaySandbox';
 import { checksEnvironment } from './checkCommands';
 import { discoverCalendars } from './connectors/caldav';
@@ -530,9 +532,17 @@ export function createApp({
       agentHome?: unknown;
       agentsViewUrl?: unknown;
       agentsViewLink?: unknown;
+      checksDefault?: unknown;
     }>(c);
     // Validate everything before saving anything; the folders last, since creating them is a side effect.
     const lead = b.lead !== undefined ? validateLead(b.lead) : undefined;
+    // The team checks new chats start with: `null`, or a list without rules, for none.
+    let checksDefault: CheckList | null | undefined;
+    if (b.checksDefault === null) checksDefault = null;
+    else if (b.checksDefault !== undefined) {
+      const { fromDefault: _copied, ...list } = validateChecks(b.checksDefault);
+      checksDefault = hasChecks(list) ? list : null;
+    }
     const viewUrl = b.agentsViewUrl !== undefined ? validAgentsViewUrl(b.agentsViewUrl) : undefined;
     const viewLink = b.agentsViewLink !== undefined ? validAgentsViewLink(b.agentsViewLink) : undefined;
     // The default working directories: `defaultCwd`, then the others (none when not given with it).
@@ -548,6 +558,7 @@ export function createApp({
     if (lead !== undefined) settings.setLead(lead);
     if (viewUrl !== undefined) settings.setAgentsViewUrl(viewUrl);
     if (viewLink !== undefined) settings.setAgentsViewLink(viewLink);
+    if (checksDefault !== undefined) settings.setChecksDefault(checksDefault ?? undefined);
     if (home !== undefined && home !== settings.agentHome) {
       settings.setAgentHome(home);
       // Another home (for every account): another sign-in, other models and other parts of its own.
@@ -1109,7 +1120,8 @@ export function createApp({
           .trim()
           .slice(0, 2000) || undefined,
       agents: validateAgents(b.agents, limits.maxTeamAgents),
-      settings: { mode: s.mode, rounds: s.rounds, maxHops: s.maxHops, permission: s.permission, ...(s.checks ? { checks: s.checks } : {}) },
+      // A template's own list: never marked as Settings' default (`fromDefault`), which it would replace.
+      settings: { mode: s.mode, rounds: s.rounds, maxHops: s.maxHops, permission: s.permission, ...ownChecks(s.checks) },
     };
     store.savePreset(preset);
     return c.json(preset);
@@ -2097,4 +2109,11 @@ export function createApp({
   });
 
   return app;
+}
+
+/** A list kept as a template's own, without the mark of Settings' default it may have been copied from. */
+function ownChecks(list: CheckList | undefined): { checks?: CheckList } {
+  if (!list) return {};
+  const { fromDefault: _copied, ...own } = list;
+  return { checks: own };
 }
