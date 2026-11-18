@@ -995,7 +995,6 @@ export const en: Messages = {
     tryIt: 'Try it',
     trying: 'Running…',
     tryFirst: 'Run it once on the working directory as it is, to see that it runs in a check.',
-    tryResult: (status) => `Tried: ${status}`,
     windowsNote: 'Commands cannot be checked on native Windows yet.',
     noSandbox: (why) =>
       `Harness Relay's sandbox cannot start on this computer now, so below full access the commands show "Could not run": ${why}`,

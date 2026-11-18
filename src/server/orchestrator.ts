@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type {
   CheckCommand,
   CheckOutcome,
+  Permission,
   ChecksResult,
   ConversationSettings,
   TeamPlan,
@@ -102,6 +103,7 @@ import {
   checkConfigFiles,
   commandCwd,
   defaultCheckCommandDeps,
+  namedFiles,
   relativeInside,
   runCheckCommand,
   type CheckCommandDeps,
@@ -642,6 +644,8 @@ export class Orchestrator {
   checkCommandDeps: CheckCommandDeps = defaultCheckCommandDeps;
   /** Conversations whose team checks' commands run by themselves (Check again, Try it): Stop stops them. */
   private checking = new Map<string, AbortController>();
+  /** That work, until it has finished its clean-up (`settled()` waits for it). */
+  private checkWork = new Set<Promise<unknown>>();
   /** Harness Relay's own tools (`gateway.ts`), when the server runs them, and their outbox. */
   gateway?: ToolGateway;
   outbox?: Outbox;
@@ -775,6 +779,8 @@ export class Orchestrator {
     try {
       // A branch being made from it is still copying its attached files.
       await Promise.allSettled([...(this.branching.get(convId) ?? [])]);
+      // A team checks' command running by itself is stopped: its reservation then ends at once.
+      this.checking.get(convId)?.abort();
       // A run being set up gives up when it sees the delete; a settings change or an apply finishes.
       for (let pending = this.reserved.get(convId); pending; pending = this.reserved.get(convId)) await pending;
       const run = this.runs.get(convId);
@@ -818,6 +824,7 @@ export class Orchestrator {
       ...[...this.runs.values()].map((r) => r.done),
       ...[...this.revisions.values()].flatMap((set) => [...set].map((r) => r.done)),
       ...[...this.branching.values()].flatMap((set) => [...set]),
+      ...this.checkWork,
       this.grouper.settled(),
     ]);
     await Promise.race([all, new Promise((r) => setTimeout(r, ms).unref())]);
@@ -2364,8 +2371,11 @@ export class Orchestrator {
     return out;
   }
 
-  /** Every rule of the conversation's list, as one that could not be checked (`why`): never a pass. */
-  private unchecked(conv: Conversation, why: string): CheckOutcome[] {
+  /**
+   * Every rule of the conversation's list, as one that could not be checked (`why`): never a pass. Its
+   * commands too, unless the caller posts them itself (`withCommands` false).
+   */
+  private unchecked(conv: Conversation, why: string, withCommands = true): CheckOutcome[] {
     const list = conv.settings.checks;
     const rules: CheckOutcome['rule'][] = [
       ...(list?.protectedPaths?.length ? ['paths' as const] : []),
@@ -2373,7 +2383,7 @@ export class Orchestrator {
     ];
     return [
       ...rules.map((rule) => ({ rule, status: 'error' as const, reason: why })),
-      ...(list?.commands ?? []).map((c) => ({
+      ...(withCommands ? (list?.commands ?? []) : []).map((c) => ({
         rule: 'command' as const,
         status: 'error' as const,
         commandId: c.id,
@@ -2397,12 +2407,20 @@ export class Orchestrator {
 
   /**
    * The files a run changed that the checks' commands read (`checkConfigFiles()`): test and lint
-   * configuration, the files a command names, and `package.json` when its scripts or the test and lint
-   * settings in it changed. Paths relative to the first working directory (`/`-separated).
+   * configuration, the files a command line names (from the folder it runs in), and `package.json` when
+   * its scripts or the test and lint settings in it changed. Compared as full paths (links resolved),
+   * shown relative to the first working directory when they are in it.
    */
   private async changedCheckConfig(conv: Conversation, replies: ChatMessage[], commands: CheckCommand[]): Promise<string[]> {
+    const real = (p: string) => {
+      try {
+        return realpathSync(p);
+      } catch {
+        return p;
+      }
+    };
     const cwds = cwdsOf(conv.settings);
-    const first = cwds[0]!;
+    const first = real(cwds[0]!);
     const span = new Map<string, { base: string; head: string; files: Set<string> }>();
     for (const m of replies) {
       for (const c of m.changes ?? []) {
@@ -2413,28 +2431,18 @@ export class Orchestrator {
         span.set(c.root, s);
       }
     }
-    // The files a command names, relative to its own folder, as paths from the first working directory.
-    const named = commands.map((c) => {
-      const dir = commandCwd(c, cwds) ?? first;
-      const run = c.run
-        .split(/([\s;&|()<>'"`]+)/)
-        .map((word: string) => {
-          if (!/[\/]/.test(word) && !/\.(?:sh|bash|js|mjs|cjs|ts|mts|py|rb|pl)$/.test(word)) return word;
-          return relativeInside(first, join(dir, word.replace(/^\.\//, ''))) ?? word;
-        })
-        .join('');
-      return { run };
-    });
+    const named = new Set(commands.flatMap((c) => namedFiles(c.run, real(commandCwd(c, cwds) ?? cwds[0]!))));
+    const shown = (abs: string) => relativeInside(first, abs) ?? abs;
     const out: string[] = [];
     for (const [root, s] of span) {
-      const paths = [...s.files].map((p) => ({ p, rel: relativeInside(first, join(root, p)) ?? p }));
+      const paths = [...s.files].map((p) => ({ p, abs: join(real(root), ...p.split('/')) }));
       out.push(
         ...checkConfigFiles(
-          paths.map((x) => x.rel),
+          paths.map((x) => x.abs),
           named,
-        ),
+        ).map(shown),
       );
-      for (const { p, rel } of paths) {
+      for (const { p, abs } of paths) {
         if (basename(p) !== 'package.json') continue;
         const read = async (commit: string) => {
           try {
@@ -2444,15 +2452,18 @@ export class Orchestrator {
             return ['unreadable'];
           }
         };
-        if (!isDeepStrictEqual(await read(s.base), await read(s.head))) out.push(rel);
+        if (!isDeepStrictEqual(await read(s.base), await read(s.head))) out.push(shown(abs));
       }
     }
     return [...new Set(out)];
   }
 
-  /** Where the team checks' commands run, and what they may not reach (`runCheckCommand()`). */
-  private commandPlace(conv: Conversation, signal: AbortSignal): CheckCommandPlace {
-    const unsandboxed = conv.settings.permission === 'full';
+  /**
+   * Where the team checks' commands run, and what they may not reach (`runCheckCommand()`), with the
+   * conversation's permission, or the one Team settings is being changed to (Try it).
+   */
+  private commandPlace(conv: Conversation, signal: AbortSignal, permission: Permission = conv.settings.permission): CheckCommandPlace {
+    const unsandboxed = permission === 'full';
     return {
       cwds: cwdsOf(conv.settings),
       unsandboxed,
@@ -2460,6 +2471,22 @@ export class Orchestrator {
       privateRoots: unsandboxed ? [] : privateRoots(this.settings.openAgentHome('opencode'), undefined, this.settings.openAgentRoots()),
       signal,
     };
+  }
+
+  /**
+   * A result's commands still running once they can run no more (an error, Stop): could not run, with
+   * why. A card never stays "checking" with nothing left to finish it.
+   */
+  private settleCommands(conv: Conversation, msg: ChatMessage, startedAt: number, why: string): void {
+    if (!msg.checks?.outcomes.some((o) => o.status === 'running')) return;
+    const outcomes = msg.checks.outcomes.map((o) => (o.status === 'running' ? { ...o, status: 'error' as const, reason: why } : o));
+    this.updateChecks(conv, msg, outcomes, startedAt);
+  }
+
+  /** What the latest result's commands were kept from running for (a run changed what they read), while it holds. */
+  private heldGate(conv: Conversation): string[] {
+    const held = checksHold(conv.messages);
+    return [...new Set((held?.checks?.outcomes ?? []).flatMap((o) => o.configChanged ?? []))];
   }
 
   /**
@@ -2574,9 +2601,12 @@ export class Orchestrator {
       const worktrees = run.ws.isolated ? await this.worktreeChanges(conv, run.ws.folders ?? []) : [];
       ({ outcomes, touched } = await run.checks.finish(worktrees));
     } catch (err) {
-      outcomes = this.unchecked(conv, (err as Error).message);
+      outcomes = this.unchecked(conv, (err as Error).message, false);
     }
     if (!touched && !replies.some((m) => m.changes?.some((c) => c.files.length))) return;
+    // Commands the latest result was kept from running for stay kept from it until the user confirms
+    // or skips it: a later run that did not touch the settings again does not run them unconfirmed.
+    const carried = this.heldGate(conv);
     // Commands once the team has finished, in the working directories: not when it stopped to ask the
     // user something, nor in parallel mode, whose results are in the members' worktrees.
     const commands = run.checks ? (conv.settings.checks?.commands ?? []) : [];
@@ -2592,12 +2622,19 @@ export class Orchestrator {
     );
     if (run.checks) this.store.saveChecksBaseline(conv.id, msg.id, run.checks.baseline);
     if (commands.length && !skipped) {
-      const files = await this.changedCheckConfig(conv, replies, commands);
-      await this.runResultCommands(conv, msg, commands, {
-        signal: run.abort.signal,
-        startedAt: started,
-        ...(files.length ? { gate: { files, unattended: Boolean(run.unattended) } } : {}),
-      });
+      let why = t().stoppedNote;
+      try {
+        const files = [...new Set([...carried, ...(await this.changedCheckConfig(conv, replies, commands))])];
+        await this.runResultCommands(conv, msg, commands, {
+          signal: run.abort.signal,
+          startedAt: started,
+          ...(files.length ? { gate: { files, unattended: Boolean(run.unattended) } } : {}),
+        });
+      } catch (err) {
+        why = (err as Error).message;
+      } finally {
+        this.settleCommands(conv, msg, started, why);
+      }
     }
     if (run.unattended && checksFailed(msg.checks!)) this.scheduleChecksFailed(run.unattended, conv, msg.checks!);
   }
@@ -2656,8 +2693,9 @@ export class Orchestrator {
    * Check the latest result again (its card's "Check again"), from where its run started, with the list
    * and the folders as they are now: a new result after it. Its commands run after it is posted, in
    * the background (Stop stops them; what is sent meanwhile waits, as during a run), holding the
-   * folders. A command the run's changes kept from running (`configChanged`) runs only once the user
-   * has confirmed (`confirm`). What waits in the queue goes once it is done, if it passes.
+   * folders; as after a run, none in a read-only conversation or in parallel mode. A command the run's
+   * changes kept from running (`configChanged`) runs only once the user has confirmed (`confirm`). What
+   * waits in the queue goes once it is done, if it passes.
    */
   async recheckChecks(convId: string, messageId: string, o: { confirm?: boolean } = {}): Promise<ChatMessage> {
     const conv = this.store.get(convId);
@@ -2666,6 +2704,13 @@ export class Orchestrator {
     const old = this.latestChecksMessage(conv, messageId);
     const list = conv.settings.checks;
     const commands = list?.commands ?? [];
+    const skipped =
+      conv.settings.permission === 'read-only'
+        ? t().checksCommandsReadOnly
+        : conv.settings.mode === 'parallel'
+          ? t().checksCommandsParallel
+          : undefined;
+    const runs = commands.length > 0 && !skipped;
     // The paths and commits are checked here; the commands after the card is posted.
     const builtIn = list ? { ...list, commands: [] } : undefined;
     const release = this.reserve(convId);
@@ -2674,7 +2719,7 @@ export class Orchestrator {
     let next: ChatMessage;
     const started = Date.now();
     try {
-      if (commands.length) {
+      if (runs) {
         roots = [...new Set((await this.foldersNow(conv)).map((f) => f.root))];
         this.lockDirs(roots, conv);
         this.checking.set(convId, abort);
@@ -2701,7 +2746,7 @@ export class Orchestrator {
       const replyIds = old.checks!.replyIds;
       next = this.postChecks(
         conv,
-        checksResult([...outcomes, ...commands.map((c) => this.commandPending(c))], {
+        checksResult([...outcomes, ...commands.map((c) => this.commandPending(c, runs ? 'running' : 'na', skipped))], {
           when: 'recheck',
           ...(replyIds ? { replyIds } : {}),
           checkedAt: started,
@@ -2711,8 +2756,9 @@ export class Orchestrator {
       if (baseline) this.store.saveChecksBaseline(conv.id, next.id, baseline);
       const posted = next;
       const work = (async () => {
+        let why = t().stoppedNote;
         try {
-          if (commands.length) {
+          if (runs) {
             await this.runResultCommands(conv, posted, commands, {
               signal: abort.signal,
               startedAt: started,
@@ -2720,8 +2766,10 @@ export class Orchestrator {
             });
           }
         } catch (err) {
+          why = (err as Error).message;
           console.error('[orchestrator] team checks failed:', err);
         } finally {
+          this.settleCommands(conv, posted, started, why);
           if (roots.length) this.unlockDirs(roots, conv.id);
           this.checking.delete(convId);
           release();
@@ -2729,7 +2777,9 @@ export class Orchestrator {
           if (!abort.signal.aborted) this.startQueued(conv);
         }
       })();
-      if (!commands.length) await work;
+      this.checkWork.add(work);
+      void work.finally(() => this.checkWork.delete(work));
+      if (!runs) await work;
     } catch (err) {
       if (roots.length && this.checking.get(convId) === abort) this.unlockDirs(roots, conv.id);
       if (this.checking.get(convId) === abort) this.checking.delete(convId);
@@ -2742,26 +2792,37 @@ export class Orchestrator {
 
   /**
    * Run one command of a list being edited (Team settings' "Try it"), on the working directories as they
-   * are now, as the checks would (in the sandbox below full access), and say how it went: nothing is
-   * posted. Holds the folders while it runs; Stop stops it.
+   * are now, as the checks would with `permission` (the one Team settings is being changed to, else the
+   * conversation's: in the sandbox below full access), and say how it went: nothing is posted. Not in
+   * read-only, which runs no command. Holds the folders while it runs; Stop stops it, and what is sent
+   * meanwhile goes once it is done.
    */
-  async tryCheckCommand(convId: string, cmd: CheckCommand): Promise<CheckOutcome> {
+  async tryCheckCommand(convId: string, cmd: CheckCommand, permission?: Permission): Promise<CheckOutcome> {
     const conv = this.store.get(convId);
     if (!conv) throw new HttpError(404, t().conversationNotFound);
-    return this.exclusive(convId, t().busy, async () => {
+    const as = permission ?? conv.settings.permission;
+    if (as === 'read-only') throw new HttpError(409, t().checksTryReadOnly);
+    const abort = new AbortController();
+    const work = this.exclusive(convId, t().busy, async () => {
       const roots = [...new Set((await this.foldersNow(conv)).map((f) => f.root))];
       this.lockDirs(roots, conv);
-      const abort = new AbortController();
       this.checking.set(convId, abort);
       this.emitStatus(convId);
       try {
-        return await runCheckCommand(cmd, this.commandPlace(conv, abort.signal), this.checkCommandDeps);
+        return await runCheckCommand(cmd, this.commandPlace(conv, abort.signal, as), this.checkCommandDeps);
       } finally {
         this.unlockDirs(roots, conv.id);
         this.checking.delete(convId);
         this.emitStatus(convId);
       }
     });
+    this.checkWork.add(work);
+    try {
+      return await work;
+    } finally {
+      this.checkWork.delete(work);
+      if (!abort.signal.aborted) this.startQueued(conv);
+    }
   }
 
   /**

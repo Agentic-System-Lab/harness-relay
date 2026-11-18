@@ -632,7 +632,13 @@ describe('settings', () => {
     try {
       const res = await app.request('/api/conversations/conv/checks/try', json('POST', { command: { id: 'x', run: ' npm test ' } }));
       expect(await res.json()).toEqual({ rule: 'command', status: 'passed', commandId: 'x' });
-      expect(tried).toHaveBeenCalledWith('conv', { id: 'x', run: 'npm test' });
+      expect(tried).toHaveBeenCalledWith('conv', { id: 'x', run: 'npm test' }, undefined);
+      // With the permission the drawer shows, which the route checks.
+      await app.request('/api/conversations/conv/checks/try', json('POST', { command: { id: 'x', run: 'true' }, permission: 'edit' }));
+      expect(tried).toHaveBeenLastCalledWith('conv', { id: 'x', run: 'true' }, 'edit');
+      expect(
+        (await app.request('/api/conversations/conv/checks/try', json('POST', { command: { run: 'true' }, permission: 'root' }))).status,
+      ).toBe(400);
       expect((await app.request('/api/conversations/conv/checks/try', json('POST', { command: { run: '' } }))).status).toBe(400);
       expect((await app.request('/api/conversations/conv/checks/try', json('POST', {}))).status).toBe(400);
       await app.request('/api/conversations/conv/checks/c1/recheck', json('POST', { confirm: true }));

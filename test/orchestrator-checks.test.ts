@@ -11,6 +11,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, Conversation } from '../src/shared/types';
+import { RunCheck } from '../src/server/checks';
 import { defaultCheckCommandDeps } from '../src/server/checkCommands';
 import { calls, conversation, db, fake, finish, orchestrator, project, store, Store, textOf, withLang } from './orchestrator-harness';
 
@@ -280,15 +281,17 @@ describe('team checks: commands', () => {
   const commanded = (run: string, settings: Parameters<typeof conversation>[0] = {}) =>
     conversation({ mode: 'roundtable', permission: 'full', checks: { commands: [{ id: 'c', run }] }, ...settings });
   /**
-   * Stands in for the shell a command runs in, which waits for `gate` (or Stop) and exits 0; as on Linux,
-   * so that it runs on every system the tests do (commands are not run on Windows).
+   * Stands in for the shell a command runs in, which says it started (`entered`), waits for `gate` (or
+   * Stop) and exits 0; as on Linux, so that it runs on every system the tests do (commands are not run
+   * on Windows).
    */
-  const gated = (gate: Promise<void>) =>
+  const gated = (gate: Promise<void>, entered?: () => void) =>
     ({
       ...defaultCheckCommandDeps,
       platform: 'linux',
       runShellScript: async (_sh: string, _flags: readonly string[], _script: string, o: { signal?: AbortSignal }) => {
-        await Promise.race([gate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
+        entered?.();
+        if (!o.signal?.aborted) await Promise.race([gate, new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }))]);
         const aborted = Boolean(o.signal?.aborted);
         return {
           code: aborted ? null : 0,
@@ -435,5 +438,134 @@ describe('team checks: commands', () => {
     expect(outcome).toMatchObject({ rule: 'command', status: 'passed', commandId: 'x' });
     expect(cards(conv)).toEqual([]);
     expect(orchestrator.isRunning(conv.id)).toBe(false);
+  });
+
+  it('Stop while a command runs: it could not run, never failed, and nothing is held for it', async () => {
+    const conv = commanded('npm test');
+    let started!: () => void;
+    const entered = new Promise<void>((r) => (started = r));
+    orchestrator.checkCommandDeps = gated(new Promise(() => undefined), started);
+    await withLang('en', async () => {
+      await orchestrator.send(conv.id, 'go');
+      await entered;
+      orchestrator.stop(conv.id);
+      await finish(conv.id);
+    });
+    expect(commandOf(conv)).toMatchObject({ status: 'error', reason: 'Stopped.' });
+    expect(lastCard(conv).checks!.status).toBe('error');
+    expect(lastCard(conv).checks!.outcomes.some((o) => o.status === 'running')).toBe(false);
+  });
+
+  it('a message sent while Try it runs goes once it is done', async () => {
+    const conv = commanded('true');
+    await orchestrator.send(conv.id, 'first');
+    await finish(conv.id);
+    let open!: () => void;
+    let started!: () => void;
+    const entered = new Promise<void>((r) => (started = r));
+    orchestrator.checkCommandDeps = gated(new Promise((r) => (open = r)), started);
+    const trying = orchestrator.tryCheckCommand(conv.id, { id: 'x', run: 'npm test' });
+    await entered;
+    expect((await orchestrator.send(conv.id, 'meanwhile')).queued).toBe(true);
+    open();
+    expect((await trying).status).toBe('passed');
+    await vi.waitFor(() => expect(conv.messages.some((m) => m.author.kind === 'user' && textOf(m) === 'meanwhile')).toBe(true));
+    await finish(conv.id);
+    expect(conv.queue ?? []).toEqual([]);
+  });
+
+  it('refuses Try it with read-only permission, as the drawer shows it or as saved', async () => {
+    const conv = commanded('true', { permission: 'read-only' });
+    await expect(orchestrator.tryCheckCommand(conv.id, { id: 'x', run: 'true' })).rejects.toMatchObject({ status: 409 });
+    const full = commanded('true');
+    await expect(orchestrator.tryCheckCommand(full.id, { id: 'x', run: 'true' }, 'read-only')).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('deleting the chat stops a command Check again runs, rather than waiting for it', async () => {
+    const conv = commanded('true');
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    let started!: () => void;
+    const entered = new Promise<void>((r) => (started = r));
+    orchestrator.checkCommandDeps = gated(new Promise(() => undefined), started);
+    await orchestrator.recheckChecks(conv.id, lastCard(conv).id);
+    await entered;
+    const deleted = orchestrator.deleteConversation(conv.id);
+    await expect(Promise.race([deleted.then(() => 'deleted'), new Promise((r) => setTimeout(() => r('waiting'), 5000))])).resolves.toBe(
+      'deleted',
+    );
+  });
+
+  it('Check again runs no command in parallel mode or with read-only permission, as after a run', async () => {
+    for (const settings of [{ mode: 'parallel' as const, permission: 'edit' as const }, { permission: 'read-only' as const }]) {
+      const conv = commanded('true', { permission: 'edit' });
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+      conv.settings = { ...conv.settings, ...settings };
+      let ran = false;
+      orchestrator.checkCommandDeps = gated(Promise.resolve(), () => (ran = true));
+      const again = await orchestrator.recheckChecks(conv.id, lastCard(conv).id);
+      expect(again.checks!.outcomes.find((o) => o.rule === 'command')).toMatchObject({ status: 'na', reason: expect.any(String) });
+      expect(ran).toBe(false);
+      expect(orchestrator.isRunning(conv.id)).toBe(false);
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'keeps the commands held back in later runs until the user confirms, and tells agents nothing to fix for it',
+    async () => {
+      const conv = commanded('true');
+      fake.during = (name) => name === 'Alice' && writeFileSync(join(project, 'vitest.config.ts'), 'export default {};\n');
+      await orchestrator.send(conv.id, 'change the config');
+      await finish(conv.id);
+      expect(commandOf(conv).configChanged).toEqual(['vitest.config.ts']);
+      // The next run touches only its own files: the settings are still unconfirmed, so it still waits.
+      fake.during = undefined;
+      await orchestrator.send(conv.id, 'something else');
+      await finish(conv.id);
+      expect(commandOf(conv)).toMatchObject({ status: 'error', configChanged: ['vitest.config.ts'] });
+      // What only waits for the user's confirmation is nothing for the agents to fix.
+      expect(promptOf('Alice')).not.toContain('<team_checks');
+      await orchestrator.recheckChecks(conv.id, lastCard(conv).id, { confirm: true });
+      await vi.waitFor(() => expect(commandOf(conv).status).toBe('passed'));
+      await finish(conv.id);
+      fake.during = undefined;
+      await orchestrator.send(conv.id, 'after confirming');
+      await finish(conv.id);
+      expect(commandOf(conv).status).toBe('passed');
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')('holds back a command whose script changed, found from the folder it runs in', async () => {
+    const conv = conversation({
+      mode: 'roundtable',
+      permission: 'full',
+      checks: { commands: [{ id: 'c', run: 'sh ./check.sh', cwd: 'app' }] },
+    });
+    execFileSync('mkdir', ['-p', join(project, 'app')]);
+    writeFileSync(join(project, 'app', 'check.sh'), 'exit 0\n');
+    fake.during = (name) => name === 'Bob' && writeFileSync(join(project, 'app', 'check.sh'), 'exit 0 # weaker\n');
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect(commandOf(conv)).toMatchObject({ status: 'error', configChanged: ['app/check.sh'] });
+  });
+
+  it('lists each command once when the paths could not be checked', async () => {
+    const conv = conversation({
+      mode: 'roundtable',
+      permission: 'full',
+      checks: { protectedPaths: ['.env'], commands: [{ id: 'c', run: 'true' }] },
+    });
+    orchestrator.checkCommandDeps = gated(Promise.resolve());
+    const broken = vi.spyOn(RunCheck.prototype, 'finish').mockRejectedValueOnce(new Error('git broke'));
+    try {
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+    } finally {
+      broken.mockRestore();
+    }
+    const outcomes = lastCard(conv).checks!.outcomes;
+    expect(outcomes.filter((o) => o.rule === 'command')).toHaveLength(1);
+    expect(outcomes.find((o) => o.rule === 'paths')).toMatchObject({ status: 'error', reason: 'git broke' });
   });
 });

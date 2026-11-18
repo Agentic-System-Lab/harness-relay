@@ -1009,7 +1009,6 @@ export const zhTW = {
     tryIt: '試跑',
     trying: '執行中…',
     tryFirst: '在目前的工作目錄試跑一次，確認它在檢查裡能跑。',
-    tryResult: (status: string) => `試跑結果：${status}`,
     windowsNote: '原生 Windows 上還不能執行指令檢查。',
     noSandbox: (why: string) => `這台電腦目前不能用 Harness Relay 的沙箱，低於完整權限時指令會顯示無法執行：${why}`,
     badCommand: '指令不能是空的',

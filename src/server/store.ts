@@ -56,7 +56,8 @@ import { mailFolder, triggerKey, watchOf } from '../shared/schedule';
 import { searchTerms, snippetAround, termsIn } from '../shared/search';
 import { nul, transaction, type Database } from './db';
 import { reviewText } from '../shared/review';
-import { currentLang } from './i18n';
+import { currentLang, t } from './i18n';
+import { overallStatus } from '../shared/checks';
 import { builtinPresets } from './presets';
 
 interface ShareRow {
@@ -726,6 +727,20 @@ export class Store {
            AND message_id IN (SELECT id FROM messages WHERE status IN ('streaming', 'aborted'))`,
       ).run();
       db.prepare("UPDATE messages SET status = 'aborted' WHERE status = 'streaming'").run();
+      // A team checks command it was still running did not finish: the card can be checked again.
+      const checking = db.prepare(`SELECT id, checks FROM messages WHERE checks LIKE '%"running"%'`).all() as {
+        id: string;
+        checks: string;
+      }[];
+      const settle = db.prepare('UPDATE messages SET checks = ? WHERE id = ?');
+      for (const r of checking) {
+        const c = parseJson<ChecksResult | null>(r.checks, null);
+        if (!c || !Array.isArray(c.outcomes) || !c.outcomes.some((o) => o.status === 'running')) continue;
+        const outcomes = c.outcomes.map((o) =>
+          o.status === 'running' ? { ...o, status: 'error' as const, reason: t().checksInterrupted } : o,
+        );
+        settle.run(JSON.stringify({ ...c, outcomes, status: overallStatus(outcomes) }), r.id);
+      }
     });
   }
 

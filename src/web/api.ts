@@ -13,6 +13,7 @@ import type {
   ChatMessage,
   CheckCommand,
   CheckOutcome,
+  Permission,
   Conversation,
   ConversationGroup,
   ConversationSchedule,
@@ -389,7 +390,8 @@ export const api = {
   /** Team checks: the latest result's card. */
   recheckChecks: (id: string, messageId: string, confirm = false) =>
     request<ChatMessage>('POST', `/api/conversations/${id}/checks/${messageId}/recheck`, confirm ? { confirm } : {}),
-  tryCheck: (id: string, command: CheckCommand) => request<CheckOutcome>('POST', `/api/conversations/${id}/checks/try`, { command }),
+  tryCheck: (id: string, command: CheckCommand, permission?: Permission) =>
+    request<CheckOutcome>('POST', `/api/conversations/${id}/checks/try`, { command, ...(permission ? { permission } : {}) }),
   checksEnvironment: () => request<{ platform: string; sandbox?: string }>('GET', '/api/checks/environment'),
   skipChecks: (id: string, messageId: string) => request<ChatMessage>('POST', `/api/conversations/${id}/checks/${messageId}/skip`, {}),
   fixChecks: (id: string, messageId: string, agentId: string) =>

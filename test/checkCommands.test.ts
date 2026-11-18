@@ -8,6 +8,7 @@ import {
   commandCwd,
   commandOutcome,
   keptOutput,
+  namedFiles,
   runCheckCommand,
   sandboxDenial,
   type CheckCommandDeps,
@@ -85,8 +86,15 @@ describe('what the sandbox refused, from the output', () => {
     expect(sandboxDenial("[error] EACCES: permission denied, open '/work/p/.zshrc'", 'darwin')).toBeUndefined();
     expect(sandboxDenial('browserType.launch: Target page, context or browser has been closed', 'darwin')).toBe('browser');
     expect(sandboxDenial('getaddrinfo EAI_AGAIN registry.npmjs.org', 'linux')).toBe('network');
+    expect(sandboxDenial('example.com is not among the hosts this run may reach, and this conversation refuses…', 'darwin')).toBe(
+      'network',
+    );
     expect(sandboxDenial('cp: /etc/x: Operation not permitted', 'darwin')).toBe('denied');
+    expect(sandboxDenial("Error: EPERM: operation not permitted, open '/Users/u/.npmrc'", 'darwin')).toBe('denied');
     expect(sandboxDenial('FAIL src/a.test.ts\nexpected 1 to be 2', 'darwin')).toBeUndefined();
+    // A test's own words about a host or a permission are its own failure, not the sandbox's.
+    expect(sandboxDenial('getaddrinfo ENOTFOUND no-such-host.invalid', 'linux')).toBeUndefined();
+    expect(sandboxDenial("expected 'Operation not permitted for guests' to be 'ok'", 'darwin')).toBeUndefined();
   });
 
   it('keeps the end of the output, without the noise the sandbox’s proxy makes in Node', () => {
@@ -140,26 +148,56 @@ describe('how a command went', () => {
     expect(of({ code: 1, output: 'listen EPERM 127.0.0.1' }, false).status).toBe('failed');
     // A pass is a pass, whatever it printed.
     expect(of({ code: 0, output: 'listen EPERM 127.0.0.1' }).status).toBe('passed');
+    // Stopped (Stop, shutdown, a deleted chat): it did not finish, which says nothing of the team's work.
+    expect(
+      withLang('en', () =>
+        commandOutcome(
+          cmd,
+          { code: null, timedOut: false, aborted: true, output: '1 failed' },
+          { sandboxed: true, platform: 'darwin', durationMs: 1 },
+        ),
+      ),
+    ).toMatchObject({
+      status: 'error',
+      reason: 'Stopped.',
+    });
   });
 });
 
 describe('the settings checks read', () => {
-  it('finds test and lint configuration anywhere, and the files a command names', () => {
+  it('finds test and lint configuration anywhere, and the files a command names, as full paths', () => {
+    const app = join(dir, 'app');
+    const named = new Set(namedFiles('./scripts/check.sh && npm test -- --config=ci/vitest.ts', app));
+    expect([...named]).toEqual([join(app, 'scripts', 'check.sh'), join(app, 'ci', 'vitest.ts')]);
+    const at = (...p: string[]) => join(dir, ...p);
     expect(
       checkConfigFiles(
         [
-          'src/app.ts',
-          'eslint.config.js',
-          'apps/web/vitest.config.ts',
-          'tsconfig.build.json',
-          'scripts/check.sh',
-          'package.json',
-          'pyproject.toml',
-          'README.md',
+          at('src', 'app.ts'),
+          at('eslint.config.js'),
+          at('apps', 'web', 'vitest.config.ts'),
+          at('tsconfig.build.json'),
+          at('app', 'scripts', 'check.sh'),
+          at('scripts', 'check.sh'),
+          at('app', 'ci', 'vitest.ts'),
+          at('.npmrc'),
+          at('jest.config.json'),
+          at('src', 'setupTests.ts'),
+          at('package.json'),
+          at('README.md'),
         ],
-        [{ run: './scripts/check.sh && npm test' }],
+        named,
       ),
-    ).toEqual(['eslint.config.js', 'apps/web/vitest.config.ts', 'tsconfig.build.json', 'scripts/check.sh', 'pyproject.toml']);
+    ).toEqual([
+      at('eslint.config.js'),
+      at('apps', 'web', 'vitest.config.ts'),
+      at('tsconfig.build.json'),
+      at('app', 'scripts', 'check.sh'),
+      at('app', 'ci', 'vitest.ts'),
+      at('.npmrc'),
+      at('jest.config.json'),
+      at('src', 'setupTests.ts'),
+    ]);
   });
 });
 

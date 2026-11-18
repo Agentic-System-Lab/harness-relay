@@ -63,7 +63,7 @@ export function ChecksEditor({ value, onChange, permission, convId }: Props) {
     if (!convId || tried[c.id] === 'running') return;
     setTried((x) => ({ ...x, [c.id]: 'running' }));
     try {
-      const outcome = await api.tryCheck(convId, { ...c, run: c.run.trim() });
+      const outcome = await api.tryCheck(convId, { ...c, run: c.run.trim() }, permission);
       setTried((x) => ({ ...x, [c.id]: outcome }));
     } catch (err) {
       setTried((x) => ({ ...x, [c.id]: (err as Error).message }));
@@ -202,7 +202,7 @@ export function ChecksEditor({ value, onChange, permission, convId }: Props) {
               )}
               {problem === 'folder' && <span className="small warn-text">{t.checks.badFolder(c.cwd ?? '')}</span>}
               {problem === 'timeout' && <span className="small warn-text">{t.checks.badTimeout(CHECK_LIMITS.maxTimeoutMin)}</span>}
-              {convId && c.run.trim() && !problem && (
+              {convId && c.run.trim() && !problem && permission !== 'read-only' && (
                 <div className="checks-try">
                   <button type="button" className="ghost small-button" disabled={result === 'running'} onClick={() => void tryIt(c)}>
                     {result === 'running' ? t.checks.trying : t.checks.tryIt}

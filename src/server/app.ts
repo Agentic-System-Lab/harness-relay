@@ -51,6 +51,8 @@ import {
   type TeamPreset,
   type WorkingDirectories,
   type ZipCheck,
+  PERMISSION_ORDER,
+  type Permission,
 } from '../shared/types';
 import type { AgentsViewSync } from './agentsview';
 import { freshTracking } from '../shared/tracking';
@@ -1965,12 +1967,15 @@ export function createApp({
   });
 
   // Run one command of the list being edited on the working directories as they are now, as the
-  // checks would, and say how it went (Team settings' "Try it"); nothing is posted.
+  // checks would with the permission Team settings shows (`permission`), and say how it went (Team
+  // settings' "Try it"); nothing is posted.
   app.post('/api/conversations/:id/checks/try', async (c) => {
-    const b = await body<{ command?: unknown }>(c);
+    const b = await body<{ command?: unknown; permission?: unknown }>(c);
     const [command] = validateChecks({ commands: [b.command] }).commands ?? [];
     if (!command) throw new HttpError(400, t().invalidField('command'));
-    return c.json(await orchestrator.tryCheckCommand(c.req.param('id'), command));
+    if (b.permission !== undefined && !PERMISSION_ORDER.includes(b.permission as Permission))
+      throw new HttpError(400, t().invalidField('permission'));
+    return c.json(await orchestrator.tryCheckCommand(c.req.param('id'), command, b.permission as Permission | undefined));
   });
 
   // What team checks' commands can do on this computer: its system, and why Harness Relay's sandbox

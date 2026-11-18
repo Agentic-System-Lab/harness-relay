@@ -665,6 +665,7 @@ The open agents, in Harness Relay's own sandbox below full access:
 - OpenHands below full access needs a terminal in the sandbox on macOS: the test servers turn its switch on, and the test with it off runs on macOS only.
 - OpenCode reaching Harness Relay's own tools below full access, through the sandbox's opening to the gateway's port, runs on macOS only, where OpenCode runs below full access.
 - [CLIs that are scripts on Windows](#clis-that-are-scripts-on-windows) runs on Windows only.
+- In [Team checks](#team-checks), the test of a command that fails is skipped on Windows, where commands are not checked yet, and the one in Harness Relay's own sandbox runs only where that sandbox works (macOS, Linux with bubblewrap, socat and ripgrep).
 - In [Installing a CLI](#installing-a-cli), Grok's card offers its maker's bash script on macOS and Linux and its PowerShell installer on Windows; the fake npm installs as npm does on each system (a link on macOS and Linux, npm's `.cmd` shim for a program on Windows).
 - The folder dialog tests run on Linux only: Linux finds its dialog on the PATH, where the fake one stands in; macOS and Windows open their own by their full paths.
 - "A folder the chat was not given stays out of reach" is skipped for Grok on Windows, which has no sandbox there ([OS sandboxes by platform](../docs/sandboxing.md)).

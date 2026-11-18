@@ -667,6 +667,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - OpenHands 在 macOS 上要在完全存取以外執行，需要沙箱裡的終端機：測試的伺服器會打開它的開關，而關掉開關的測試只在 macOS 上執行。
 - OpenCode 在完全存取以下、經由沙箱對 gateway 連接埠的開放使用 Harness Relay 自己的工具，這個測試只在 macOS 上執行，也就是 OpenCode 能在完全存取以下執行的地方。
 - [在 Windows 上是腳本的 CLI](#在-windows-上是腳本的-cli)只在 Windows 上執行。
+- [團隊檢查](#團隊檢查)裡，未通過指令的測試在 Windows 上略過（那裡還不能執行指令檢查），在 Harness Relay 自己沙箱裡執行的測試只在那個沙箱能用的地方執行（macOS，以及裝了 bubblewrap、socat 和 ripgrep 的 Linux）。
 - 在[安裝 CLI](#安裝-cli)中，Grok 的卡片在 macOS 與 Linux 上提供官方 bash 腳本，在 Windows 上提供它的 PowerShell 安裝程式；假的 npm 在每個系統上都照 npm 的方式安裝（macOS 與 Linux 上是連結，Windows 上是 npm 給程式的 `.cmd` shim）。
 - 選擇資料夾視窗的測試只在 Linux 上執行：Linux 從 PATH 找它的視窗，假的視窗可以替代；macOS 與 Windows 以完整路徑開啟自己的視窗。
 - 「對話沒有的資料夾碰不到」在 Windows 上跳過 Grok，因為它在那裡沒有沙箱（[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md)）。

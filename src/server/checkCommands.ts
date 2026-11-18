@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from 'node:fs';
-import { basename, isAbsolute, join, normalize, relative, sep } from 'node:path';
+import { basename, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { CHECK_LIMITS, CHECK_RESULT_LIMITS, type CheckCommand, type CheckOutcome } from '../shared/types';
 import { AgentRunError } from './agents/types';
 import { t } from './i18n';
@@ -100,8 +100,23 @@ export function sandboxDenial(output: string, platform: NodeJS.Platform): Sandbo
     )
   )
     return 'browser';
-  if (/\b(?:getaddrinfo )?(?:EAI_AGAIN|ENOTFOUND)\b/.test(output)) return 'network';
-  if (/Operation not permitted/.test(output)) return 'denied';
+  // The sandbox's own words for a host it refused (`DENY_REASONS`), or no name service at all (Linux).
+  if (
+    /is not among the hosts this run may reach|not reachable from Harness Relay's sandbox|Harness Relay's sandbox does not let programs reach|\bEAI_AGAIN\b/.test(
+      output,
+    )
+  ) {
+    return 'network';
+  }
+  // A file system call refused: Node's words for one, or a shell's (`sh: <path>: Operation not permitted`).
+  if (
+    /\bEPERM: operation not permitted, (?:open|mkdir|rmdir|unlink|rename|scandir|copyfile|symlink|link|utime|chmod|access|write|lstat|stat)\b/.test(
+      output,
+    )
+  ) {
+    return 'denied';
+  }
+  if (/: Operation not permitted\s*$/m.test(output)) return 'denied';
   return undefined;
 }
 
@@ -134,7 +149,7 @@ export function commandCwd(cmd: Pick<CheckCommand, 'cwd'>, cwds: readonly string
  */
 export function commandOutcome(
   cmd: CheckCommand,
-  res: Pick<SpawnResult, 'code' | 'timedOut'> & { output: string },
+  res: Pick<SpawnResult, 'code' | 'timedOut'> & { output: string; aborted?: boolean },
   o: { sandboxed: boolean; platform: NodeJS.Platform; durationMs: number },
 ): CheckOutcome {
   const base: CheckOutcome = {
@@ -151,6 +166,8 @@ export function commandOutcome(
   const denialText =
     denial &&
     t().checksSandboxDenial(denial, Boolean(denial === 'localPorts' ? cmd.localPorts : denial === 'unixSockets' ? cmd.unixSockets : false));
+  // Stopped (Stop, the server shutting down, the chat deleted): it did not finish, and says nothing of the team's work.
+  if (res.aborted) return { ...base, status: 'error', reason: t().stoppedNote };
   if (res.timedOut) {
     const reason = t().checksCommandTimedOut(cmd.timeoutMin ?? CHECK_LIMITS.timeoutMin);
     return { ...base, status: 'error', reason: denialText ? `${reason} ${denialText}` : reason };
@@ -226,7 +243,7 @@ export async function runCheckCommand(
   const outcome = (res: SpawnResult, sandboxed: boolean) =>
     commandOutcome(
       cmd,
-      { code: res.code, timedOut: res.timedOut, output: res.stdout },
+      { code: res.code, timedOut: res.timedOut, aborted: res.aborted, output: res.stdout },
       { sandboxed, platform: deps.platform, durationMs: Date.now() - started },
     );
 
@@ -292,30 +309,71 @@ export async function runCheckCommand(
 }
 
 /** File names a test or lint run reads its settings from, wherever they are in the working directory. */
-const CONFIG_FILE =
-  /^(?:\.eslintrc(?:\..+)?|eslint\.config\.[cm]?[jt]s|\.eslintignore|\.prettierrc(?:\..+)?|prettier\.config\.[cm]?[jt]s|\.prettierignore|tsconfig(?:\..+)?\.json|jsconfig\.json|(?:vitest|vite|jest|playwright|babel|karma|mocha|ava)\.config\.[cm]?[jt]s|\.mocharc(?:\..+)?|\.babelrc(?:\..+)?|pytest\.ini|pyproject\.toml|setup\.cfg|tox\.ini|conftest\.py|\.flake8|ruff\.toml|\.ruff\.toml|mypy\.ini|Makefile|justfile|Justfile|Taskfile\.ya?ml|Cargo\.toml|go\.mod|\.golangci\.ya?ml|deno\.jsonc?|biome\.jsonc?)$/;
+const CONFIG_FILE = new RegExp(
+  '^(?:' +
+    [
+      '\\.eslintrc(?:\\..+)?',
+      'eslint\\.config\\.[cm]?[jt]s',
+      '\\.eslintignore',
+      '\\.prettierrc(?:\\..+)?',
+      'prettier\\.config\\.[cm]?[jt]s',
+      '\\.prettierignore',
+      'tsconfig(?:\\..+)?\\.json',
+      'jsconfig\\.json',
+      '(?:vitest|vite|jest|playwright|babel|karma|mocha|ava)\\.config\\.(?:[cm]?[jt]s|json)',
+      'vitest\\.workspace\\.(?:[cm]?[jt]s|json)',
+      'karma\\.conf\\.[cm]?js',
+      '(?:jest|vitest)\\.setup\\.[cm]?[jt]sx?',
+      'setupTests\\.[cm]?[jt]sx?',
+      '\\.mocharc(?:\\..+)?',
+      '\\.babelrc(?:\\..+)?',
+      '\\.c8rc(?:\\..+)?',
+      '\\.nycrc(?:\\..+)?',
+      // What runs a package's scripts: npm's `script-shell`, Yarn's and Bun's settings.
+      '\\.npmrc',
+      '\\.yarnrc(?:\\.yml)?',
+      'bunfig\\.toml',
+      'pytest\\.ini',
+      'pyproject\\.toml',
+      'setup\\.cfg',
+      'tox\\.ini',
+      'conftest\\.py',
+      '\\.flake8',
+      '\\.?ruff\\.toml',
+      'mypy\\.ini',
+      'Makefile',
+      '[Jj]ustfile',
+      'Taskfile\\.ya?ml',
+      'Cargo\\.toml',
+      'go\\.mod',
+      '\\.golangci\\.ya?ml',
+      'deno\\.jsonc?',
+      'biome\\.jsonc?',
+    ].join('|') +
+    ')$',
+);
 
 /** The keys of `package.json` a check reads (its scripts, and test and lint settings kept there). */
 export const PACKAGE_JSON_KEYS = ['scripts', 'jest', 'eslintConfig', 'prettier', 'ava', 'mocha', 'c8', 'nyc'];
 
 /**
- * Of the files a run changed (paths relative to a command's folder), those its checks read: test and
- * lint configuration anywhere, and the files the command lines name (`./scripts/check.sh`). `package.json`
- * is the caller's to judge (only its `PACKAGE_JSON_KEYS` count).
+ * The files a command line names (`./scripts/check.sh`, `--config=ci/vitest.ts`): its words with a
+ * folder in them or a script's ending, as full paths from the folder it runs in.
  */
-export function checkConfigFiles(changed: readonly string[], commands: readonly Pick<CheckCommand, 'run'>[]): string[] {
-  const named = new Set(
-    commands.flatMap((c) =>
-      c.run
-        .split(/[\s;&|()<>'"`]+/)
-        .filter((w) => /[/\\]/.test(w) || /\.(?:sh|bash|js|mjs|cjs|ts|mts|py|rb|pl)$/.test(w))
-        .map((w) => w.replace(/^\.\//, '').replace(/\\/g, '/')),
-    ),
-  );
-  return changed.filter((p) => {
-    const posix = p.split(sep).join('/');
-    return CONFIG_FILE.test(basename(posix)) || named.has(posix);
-  });
+export function namedFiles(run: string, dir: string): string[] {
+  return run
+    .split(/[\s;&|()<>'"`=]+/)
+    .filter((w) => /[/\\]/.test(w) || /\.(?:sh|bash|js|mjs|cjs|ts|mts|cts|py|rb|pl)$/.test(w))
+    .map((w) => resolve(dir, w));
+}
+
+/**
+ * Of the files a run changed (full paths), those its checks read: test and lint configuration anywhere,
+ * and the files the command lines name (`named`, full paths). `package.json` is the caller's to judge
+ * (only its `PACKAGE_JSON_KEYS` count).
+ */
+export function checkConfigFiles(changed: readonly string[], named: ReadonlySet<string>): string[] {
+  return changed.filter((p) => CONFIG_FILE.test(basename(p)) || named.has(p));
 }
 
 /** A path relative to `dir`, `/`-separated, or undefined when it is outside it. */
