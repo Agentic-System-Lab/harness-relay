@@ -135,12 +135,13 @@ describe('the viewer page', () => {
       'form-action': "'none'",
     });
     // Its one script, a module of the site's: no script written into the page, which the policy would refuse.
-    expect([...html.matchAll(/<script\b[^>]*>/g)].map((m) => m[0])).toEqual(['<script type="module" src="../assets/share.js">']);
+    // Any case: HTML's tag names have none, and `<SCRIPT>` would be one more.
+    expect([...html.matchAll(/<script\b[^>]*>/gi)].map((m) => m[0])).toEqual(['<script type="module" src="../assets/share.js">']);
     expect(exists('site/assets/share.js')).toBe(true);
   });
 
   it('shows the gist in a frame that runs nothing it holds, with an origin of its own', () => {
-    const frames = [...html.matchAll(/<iframe\b[^>]*>/g)].map((m) => m[0]);
+    const frames = [...html.matchAll(/<iframe\b[^>]*>/gi)].map((m) => m[0]);
     expect(frames).toHaveLength(1);
     const sandbox = /\ssandbox="([^"]*)"/.exec(frames[0]!)?.[1];
     // Its links open in a tab of their own, as a normal page: nothing else (no scripts, forms,
