@@ -114,7 +114,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 首席 agent 提議團隊，確認後團隊回答 | Claude Code | 團隊卡片寫出團隊、理由與成員；按**確認團隊**（Confirm team）後，回答帶著它的 CLI 標籤；對話以第一個問題列在側邊欄，回答存成已完成。 |
-| 首席 agent 組隊時，卡片顯示首頁的 logo，轉一圈後停半秒再轉下一圈，不停地轉；減少動態效果時則靜止不動 | Claude Code | 首席 agent 慢慢組隊時（`e2e:slowplan`），寫著它正在組隊的卡片會顯示首頁的 logo，大小是設計完成後卡片上 Logo 的 18px：三個圓點先旋轉著聚合一次（`logo-join-*`、`logo-orbit`），之後不停地轉（`logo-turn`，執行中）：每 1.9 秒轉 1.4 秒，從第一圈轉完半秒後開始，全部只改變 `transform` 與 `opacity`。把它的旋轉暫停並跳到各個時間點，logo 在 0.3、2.2、4.1 秒時正在轉，在 1.5、1.8、3.4、3.7 秒時靜止。按 **■ 停止**後，卡片顯示已中斷，logo 不見了，也沒有任何動畫；減少動態效果時，下一次組隊的卡片顯示靜止的 logo。 |
+| 首席 agent 組隊時，卡片顯示首頁的 logo，轉一圈後停半秒再轉下一圈，不停地轉；減少動態效果時則靜止不動 | Claude Code | 首席 agent 慢慢組隊時（`e2e:slowplan`），寫著它正在組隊的卡片會顯示首頁的 logo：三個圓點先旋轉著聚合一次（`logo-join-*`、`logo-orbit`），之後不停地轉（`logo-turn`，執行中）：每 1.9 秒轉 1.4 秒，從第一圈轉完半秒後開始，全部只改變 `transform` 與 `opacity`，而且沒有任何元素同時有兩個 `transform` 動畫（那樣 Chrome 兩個都不會交給 compositor）。把它的動畫暫停並跳到各個時間點，logo 在 0.3、2.2、4.1 秒時正在轉，在 1.5、1.8、3.4、3.7 秒時靜止；靜止時大小是 18px，也就是設計完成後卡片上 Logo 的大小，每個圓點都在 Logo 畫它那個圓的位置。按 **■ 停止**後，卡片顯示已中斷，logo 不見了，也沒有任何動畫，✦ 佔著 logo 原本的位置（文字不會移動）；減少動態效果並使用強制色彩時，下一次組隊的卡片顯示靜止的 logo，三個圓點保持各自的顏色。 |
 | 不詢問直接採用首席 agent 組的團隊 | Claude Code | 卡片寫著**已直接採用**（Used without asking），團隊不必等待就回答。 |
 | 所有 CLI 組成的團隊依序回答 | 兩個團隊 | 每位成員帶著自己 CLI 的標籤回答，依圓桌順序：Claude Code、Codex、Grok、Cursor；Antigravity、Copilot、Muse Code；以及 OpenCode、Goose、Cline、OpenHands、Pi（團隊裡有在這裡只能以完全存取執行的 CLI 時，對話以完全存取執行）。首席 agent 為新問題組的團隊最多五位成員，所以有登入的七個分成四人與三人的兩個團隊，各在自己的對話中回答。 |
 | 追問時再組一次團隊 | Claude Code、Codex | 第二個問題有自己的團隊，只有那位成員回答。 |
@@ -678,7 +678,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **CLI 真正的方案用量。**[方案用量](#方案用量)用替身的回答檢查 Harness Relay 這一邊；真正 CLI 的回答由 `test/usage.test.ts` 中從它們錄下的回答涵蓋（Antigravity 只照 agy 1.5.8 的型別：沒有看過真正 Google 帳號的回答），沒有 live 測試問真正的 CLI。未登入時替身 agy 會立刻以錯誤回答 `/usage`，真正的則會在 stderr 要求登入並等待（單元測試的替身會這樣做）。錯誤訊息與面板的 zh-TW 文字由 `test/usage-web.test.ts` 涵蓋，不在這裡。
 - **捲到對話最後的平滑捲動。**[捲動對話](#捲動對話)檢查箭頭把對話帶到哪裡，以及減少動態效果時立刻到達，不檢查平滑捲動途中的樣子。在最後展開訊息的某個部分、底下又多了內容時出現的箭頭，只有 `test/chat.test.ts` 測到；手機上的對話是用程式捲動，不是用手指。
 - **使用導覽歡迎圖的樣子。**[使用導覽與主題](#使用導覽與主題)檢查它的各個部分、尺寸、動畫與最後的狀態；它在淺色與深色、兩種語言、桌面與手機上的樣子，以及逐格的動畫，則是用眼睛確認的。
-- **首頁 logo 動畫的流暢度。**[首頁](#首頁)檢查它只動 `transform` 與 `opacity`、只播一次；它由 Chrome 的 compositor 執行、頁面畫好之後不再重新排版或繪製，則是在 Chrome 的 trace 中手動確認的。
+- **首頁 logo 動畫的流暢度。**[首頁](#首頁)檢查它只動 `transform` 與 `opacity`、只播一次；它由 Chrome 的 compositor 執行、頁面畫好之後不再重新排版或繪製，則是在 Chrome 的 trace 中手動確認的。團隊設計卡片上、組隊完成前不停旋轉的 logo 也一樣（[新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊)檢查它沒有任何元素同時有兩個 `transform` 動畫，那樣 Chrome 兩個都不會交給 compositor）：它不再每一格都重新計算樣式，是手動量測的（Chrome 的 `RecalcStyleCount`，兩圈旋轉放在同一個元素上時每秒約 60 次）。
 - **推播通知與系統本身的通知。**[通知與提示音](#通知與提示音)用替身記錄它們；推播需要真正的推播服務（Google、Apple 的…），所以伺服器這一端（訂閱、加密、簽章、送出與保留什麼）由單元測試涵蓋（`test/push.test.ts`、`test/alerts.test.ts`、`test/push-api.test.ts`），頁面這一端由 `test/alerts-web.test.ts` 涵蓋，service worker 的處理程序則以替身的 `self` 由 `test/sw.test.ts` 涵蓋；瀏覽器向推播服務訂閱、真正的推播送到手機，則沒有任何測試走過。
 - **OpenCode 與 Goose 的 token 和費用。** Harness Relay 從這兩個 CLI 自己的 SQLite 資料庫（`opencode.db`、`sessions.db`）讀取，它們的假 CLI 不保存這些資料庫，所以在這裡它們的回覆不顯示用量；轉接器的測試（`test/opencode.test.ts`、`test/goose.test.ts`）會對照真正 CLI 寫法寫成的資料庫跑完整的回合。
 - **真正的首席 agent 會指出什麼。** 假首席 agent 的審閱總是標出第一則回覆開頭的幾個字；真正的模型給的 highlight 與下一步值不值得讀，這裡沒有測。它的 prompt，以及怎麼檢查它的回答（回覆裡沒有的引用會被拿掉、不認得的類型、上限），在單元測試中（`test/reviewer.test.ts`、`test/orchestrator-review.test.ts`）。

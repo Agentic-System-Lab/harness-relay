@@ -1141,8 +1141,10 @@ p {
  * appears, the three dots spiral in from outside and meet, one after another, while the mark turns
  * once (about 1.4 s); the card's (`.turning`) then turns again and again, each turn as long and eased
  * as the first, half a second still after each one, until the design is in. Transform and opacity
- * only, so it runs on the compositor (no layout, no paint), and not at all with reduced motion (the
- * prefers-reduced-motion rule further down: the mark stands still). Filled both ways: a finished
+ * only, and one transform animation an element at most (Chrome composites neither of two that turn
+ * the same element), so it runs on the compositor (no layout, no paint, no style recalculated each
+ * frame), and not at all with reduced motion (the prefers-reduced-motion rule further down: the mark
+ * stands still). Filled both ways: a finished
  * animation stays applied and costs nothing more, where dropping it would lay out and paint again as
  * each one ends (measured in a Chrome trace).
  */
@@ -1160,17 +1162,27 @@ p {
   animation: logo-orbit 1.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* The next turn starts half a second after the first one ends, and so on: 1.4 s turning in each 1.9 s. */
-.logo-motion.turning .logo-motion-orbit {
-  animation:
-    logo-orbit 1.4s cubic-bezier(0.22, 1, 0.36, 1) both,
-    logo-turn 1.9s cubic-bezier(0.22, 1, 0.36, 1) 1.9s infinite;
+/*
+ * Turning: the first turn is the mark's own, and the next ones its orbit's, each starting half a
+ * second after the one before ends: 1.4 s turning in each 1.9 s. Both turn about the same centre.
+ */
+.logo-motion.turning {
+  animation: logo-orbit 1.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* Longhands, not the `animation` shorthand: without a name in it, the minifier turns it into `animation: none`. */
+.logo-motion.turning .logo-motion-orbit {
+  animation: logo-turn 1.9s cubic-bezier(0.22, 1, 0.36, 1) 1.9s infinite;
+}
+
+/*
+ * Longhands, not the `animation` shorthand: without a name in it, the minifier turns it into
+ * `animation: none`. Their own colours in forced colors too, where a background would take the
+ * page's and hide them (as the SVG Logo keeps its fills).
+ */
 .logo-dot {
   position: absolute;
   border-radius: 50%;
+  forced-color-adjust: none;
   animation-duration: 0.9s;
   animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
   animation-fill-mode: both;
@@ -5314,6 +5326,13 @@ details.sub summary {
 /* While the lead agent designs the team, the home page's mark turning (`.logo-motion`), at the 18px of the card's Logo once the design is in. */
 .logo-motion.plan-logo {
   --u: calc(18px / 32);
+}
+
+/* A stopped design's ✦ in the mark's place, so that its text stays where it was. */
+.plan-logo-stopped {
+  flex: none;
+  width: 18px;
+  text-align: center;
 }
 
 /* The app mark leads the plan card: the lead agent speaks for the whole team. */

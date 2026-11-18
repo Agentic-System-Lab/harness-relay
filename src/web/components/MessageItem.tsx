@@ -491,7 +491,7 @@ function PlanCard({
         {live ? (
           <AnimatedLogo className="plan-logo" turning />
         ) : (
-          <span className="tool-icon" aria-hidden>
+          <span className="tool-icon plan-logo-stopped" aria-hidden>
             ✦
           </span>
         )}
