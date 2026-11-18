@@ -899,7 +899,9 @@ export class BrowserService {
    * there (then until it has loaded, at most 15 s) or the main frame stops loading without one (a
    * download, an answer with no page, a page refused). Watching only for the new page to be there,
    * as before, read a page whose server took longer than that to answer before it had come.
-   * Resolves with whether a new page is there.
+   * Resolves with whether a new page is there. Once the turn ends (`signal`), the tab stops loading and
+   * the call fails, as `open()`'s does: the page on its way would hold the tab (a snapshot of it waits
+   * for it), and the calls after it.
    */
   private async afterInput(s: BrowserSession, startMs: number, signal: AbortSignal, input: () => Promise<void>): Promise<boolean> {
     const seen = { started: false, navigated: false, stopped: false, loaded: false };
@@ -928,13 +930,21 @@ export class BrowserService {
       }
       return true;
     };
+    const ended = async (): Promise<never> => {
+      await s.send('Page.stopLoading').catch(() => undefined);
+      throw new Error('The turn ended');
+    };
     for (const [event, on] of handlers) s.cdp.on(event, on);
     try {
       await input();
-      if (!(await until(() => seen.started || seen.navigated, startMs))) return false;
+      const started = await until(() => seen.started || seen.navigated, startMs);
+      if (signal.aborted) return await ended();
+      if (!started) return false;
       await until(() => seen.navigated || seen.stopped, CONFIG.turnTimeoutMs);
+      if (signal.aborted) return await ended();
       if (!seen.navigated) return false;
       await until(() => seen.loaded || seen.stopped, 15_000);
+      if (signal.aborted) return await ended();
       await new Promise((r) => setTimeout(r, 300));
       return true;
     } finally {

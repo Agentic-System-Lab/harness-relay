@@ -525,6 +525,13 @@ describe('the gateway and the MCP server the CLIs start', () => {
       text: expect.stringMatching(/was not done: its caller stopped waiting/),
     });
     expect((await gateway.call(tool, { target: 'Buy' }, ctx(), () => false)).text).toBe('ran');
+    // Its turn ended meanwhile, however it ended (stopped, or its CLI done or timed out): not done either.
+    const ended = new AbortController();
+    ended.abort();
+    expect(await gateway.call(tool, { target: 'Buy' }, ctx({ signal: ended.signal }), () => false)).toEqual({
+      isError: true,
+      text: 'The turn ended.',
+    });
   });
 
   it('answers a request too large with 413 before it ends the connection, and connections that never show a token keep no CLI out', async () => {

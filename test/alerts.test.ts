@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { AlertWatcher, PRESENT_MS, alertPayload, testPayload } from '../src/server/alerts';
+import { AlertWatcher, PRESENT_MS, alertPayload, pushTtlS, testPayload } from '../src/server/alerts';
 import { openDatabase } from '../src/server/db';
 import { PushService, type PushRequest, type PushSubscriptionRecord } from '../src/server/push';
 import type { AlertPayload, AlertPrefs, Conversation, ConversationSummary } from '../src/shared/types';
@@ -35,12 +35,12 @@ const conversation = (id: string): Conversation =>
 
 /** A push service that records what was sent (as the payloads it carried, not encrypted). */
 class RecordingPush extends PushService {
-  readonly payloads: { endpoint: string; payload: AlertPayload; urgency?: string }[] = [];
+  readonly payloads: { endpoint: string; payload: AlertPayload; urgency?: string; ttl?: number }[] = [];
   /** A push service that does not answer for this endpoint (until each of `waiting` is called). */
   hanging?: { endpoint: string; waiting: (() => void)[] };
-  override async push(sub: PushSubscriptionRecord, payload: AlertPayload, o: { urgency?: 'normal' | 'high' } = {}) {
+  override async push(sub: PushSubscriptionRecord, payload: AlertPayload, o: { urgency?: 'normal' | 'high'; ttl?: number } = {}) {
     if (this.hanging?.endpoint === sub.endpoint) await new Promise<void>((r) => this.hanging!.waiting.push(r));
-    this.payloads.push({ endpoint: sub.endpoint, payload, urgency: o.urgency });
+    this.payloads.push({ endpoint: sub.endpoint, payload, urgency: o.urgency, ttl: o.ttl });
     return 'sent' as const;
   }
 }
@@ -126,6 +126,16 @@ describe('AlertWatcher', () => {
     const phone = push.payloads.find((p) => p.endpoint.endsWith('phone'))!;
     expect(phone.payload).toMatchObject({ body: '首席 agent 設計好團隊了，等你確認', silent: true });
     expect(phone.urgency).toBe('high');
+    // Kept for a browser that is offline: a need a day (the turn timeout's default), a reply six hours.
+    expect(phone.ttl).toBe(24 * 60 * 60);
+    expect(push.payloads.find((p) => p.endpoint.endsWith('laptop'))!.ttl).toBe(6 * 60 * 60);
+  });
+
+  it('keeps a need for an offline browser as long as a turn may wait for an approval, a day at least', () => {
+    expect(pushTtlS(true, 45 * 60_000)).toBe(24 * 60 * 60);
+    expect(pushTtlS(true, 3 * 24 * 60 * 60_000 + 1)).toBe(3 * 24 * 60 * 60 + 1);
+    expect(pushTtlS(true, 7 * 24 * 60 * 60_000)).toBe(7 * 24 * 60 * 60);
+    expect(pushTtlS(false, 7 * 24 * 60 * 60_000)).toBe(6 * 60 * 60);
   });
 
   it('tells of a run that started and ended between two checks, and of nothing for one that left no reply', async () => {

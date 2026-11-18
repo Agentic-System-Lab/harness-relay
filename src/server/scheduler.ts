@@ -10,7 +10,9 @@ export const MISSED_AFTER_MS = 10 * 60_000;
 
 /**
  * How long a time the conversation cannot take yet (`busy`) is tried again, from the first try: long
- * enough for another conversation's run in the same folder to end.
+ * enough for a settings change, an apply or the lead agent's design to end, and for many a run of
+ * another conversation in the same folder; a run that goes on longer (it may take many turns, each up
+ * to the turn timeout) has the time skipped, with a note.
  */
 export const BUSY_RETRY_MS = 30 * 60_000;
 
@@ -42,7 +44,8 @@ export function scheduleTime(at: number, s: Pick<ConversationSchedule, 'lang' | 
  * the schedule says; either way only once, however many times were missed. When the conversation
  * cannot take it right now (`busy`), it is tried again at each look for up to `BUSY_RETRY_MS` from the
  * first try, then skipped. What happened is kept with the schedule (`lastResult`), and a time that was
- * not sent leaves a note in the chat; times skipped one after another for the same reason share one.
+ * not sent leaves a note in the chat; times skipped one after another for the same reason share one
+ * (`Orchestrator.noteSkipped()`).
  */
 export class Scheduler {
   private timer?: NodeJS.Timeout;
@@ -51,16 +54,6 @@ export class Scheduler {
   private stopped = false;
   /** Conversations whose due time was found busy: that time, and when it was first tried. Retried, not missed. */
   private retrying = new Map<string, { due: number; since: number }>();
-  /**
-   * Each conversation's latest note of skipped times (`skipNote()`): the note; the schedule as `record()`
-   * left it, which any save of the user's (and switching it off or on, and deleting it) replaces with
-   * another object, whatever it changed; the first time, how many and why. Kept in memory only: after a
-   * restart the next skipped time starts a note.
-   */
-  private skips = new Map<
-    string,
-    { messageId: string; schedule: ConversationSchedule | undefined; first: number; count: number; why: string }
-  >();
 
   constructor(
     private store: Store,
@@ -183,34 +176,8 @@ export class Scheduler {
     const when = scheduleTime(due, s);
     // The note ends the sentence itself.
     const why = (outcome.reason ?? '').replace(/[.。]\s*$/, '');
-    if (outcome.result === 'skipped') return this.skipNote(conv, s, due, why);
-    this.skips.delete(conv.id);
-    if (outcome.result === 'missed') this.orchestrator.systemNote(conv, t().scheduleMissedNote(when));
+    if (outcome.result === 'skipped') this.orchestrator.noteSkipped(conv, s, due, why);
+    else if (outcome.result === 'missed') this.orchestrator.systemNote(conv, t().scheduleMissedNote(when));
     else if (outcome.result === 'failed') this.orchestrator.systemNote(conv, t().scheduleFailedNote(when, outcome.reason ?? ''));
-  }
-
-  /**
-   * The note of a skipped time. While the team cannot take the schedule's message (a run goes on, which
-   * may take many turns; it waits for the user's answer, for as long as the user takes), every time
-   * that comes due is skipped. One that follows the conversation's latest note of skipped times, of the
-   * same schedule (`s`, the one `record()` left then: not saved since) and for the same reason, with
-   * nothing written in the chat since nor any time between them that was not skipped, is added to that
-   * note instead of leaving one of its own.
-   */
-  private skipNote(conv: Conversation, s: ConversationSchedule, due: number, why: string): void {
-    const prev = this.skips.get(conv.id);
-    const last = conv.messages.at(-1);
-    if (prev && last?.id === prev.messageId && last.author.kind === 'system' && prev.schedule === s && prev.why === why) {
-      prev.count++;
-      prev.schedule = conv.schedule;
-      this.orchestrator.rewriteNote(
-        conv,
-        last,
-        t().scheduleSkippedNotes(scheduleTime(prev.first, s), scheduleTime(due, s), prev.count, why),
-      );
-      return;
-    }
-    const note = this.orchestrator.systemNote(conv, t().scheduleSkippedNote(scheduleTime(due, s), why));
-    this.skips.set(conv.id, { messageId: note.id, schedule: conv.schedule, first: due, count: 1, why });
   }
 }

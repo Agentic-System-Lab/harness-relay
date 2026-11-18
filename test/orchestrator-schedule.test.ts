@@ -250,6 +250,9 @@ describe('schedules', () => {
   });
 
   it('adds each later time skipped for the same reason to the note the first one left, until something else is written', async () => {
+    // A hub of the test's own, to hear what the chat is told.
+    const hub = new Hub();
+    setOrchestrator(new Orchestrator(store, hub, settings));
     const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
     schedule(conv);
     fake.asking = new Set(['Alice']);
@@ -257,7 +260,12 @@ describe('schedules', () => {
     await finish(conv.id);
     const at = (hours: number) => scheduleTime(T0 + hours * HOUR, { lang: 'en', timeZone: 'UTC' });
     const waits = 'were not sent: the team is waiting for your answer.';
-    // One server's scheduler: the notes it left are in its memory.
+    const one = (hours: number) => `The automation's message of ${at(hours)} was not sent: the team is waiting for your answer.`;
+    const told: { id: string; text: string }[] = [];
+    hub.subscribe(conv.id, (e) => {
+      if (e.type === 'message' && e.message.author.kind === 'system') told.push({ id: e.message.id, text: textOf(e.message) });
+    });
+    // One server: the notes it left are in its memory (its orchestrator's).
     const running = scheduler();
     for (const hours of [1, 2, 3]) {
       now = T0 + hours * HOUR;
@@ -266,15 +274,23 @@ describe('schedules', () => {
     expect(said(conv)).toEqual(['which one?', '@Alice', 'note']);
     expect(notes(conv)).toEqual([`The automation's messages from ${at(1)} to ${at(3)} (3 times) ${waits}`]);
     expect(notes(new Store(db).get(conv.id)!)).toEqual(notes(conv)); // saved as it reads now
+    // The chat is told of the note each time, as the same message.
+    expect(told.map((m) => m.text)).toEqual([
+      one(1),
+      `The automation's messages from ${at(1)} to ${at(2)} (2 times) ${waits}`,
+      `The automation's messages from ${at(1)} to ${at(3)} (3 times) ${waits}`,
+    ]);
+    expect(new Set(told.map((m) => m.id))).toEqual(new Set([conv.messages.at(-1)!.id]));
 
     // Something written in the chat since: the next time leaves a note of its own, and so does one
-    // after a restart, whose scheduler has noted nothing yet.
+    // after a restart, whose orchestrator has noted nothing yet.
     orchestrator.systemNote(conv, 'Something else.');
     now = T0 + 4 * HOUR;
     await running.tick();
+    setOrchestrator(new Orchestrator(store, new Hub(), settings));
+    const restarted = scheduler();
     now = T0 + 5 * HOUR;
-    await scheduler().tick();
-    const one = (hours: number) => `The automation's message of ${at(hours)} was not sent: the team is waiting for your answer.`;
+    await restarted.tick();
     expect(notes(conv).slice(1)).toEqual(['Something else.', one(4), one(5)]);
 
     // While a run goes on (which may take many turns): the first time waits in the queue, and the
@@ -290,7 +306,7 @@ describe('schedules', () => {
     await vi.waitFor(() => expect(calls.length).toBe(before + 1));
     for (const hours of [6, 7, 8]) {
       now = T0 + hours * HOUR;
-      await running.tick();
+      await restarted.tick();
     }
     expect(queued.schedule).toMatchObject({ lastResult: 'skipped' });
     expect(notes(queued)).toEqual([
@@ -407,6 +423,34 @@ describe('schedules', () => {
       `The automation's messages from ${at(3)} to ${at(4)} (2 times) ${why}`,
       `The automation's message of ${at(5)} ${why.replace('were', 'was')}`,
     ]);
+  });
+
+  it('starts a note of its own after Run now sent the message, also in a new chat, which writes nothing here', async () => {
+    const app = createApp({ auth: null, store, settings, hub: new Hub(), orchestrator, providers: new ProviderService(settings) });
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    const team = conv.agents;
+    const teamless = () => ((conv.agents = []), store.saveMeta(conv));
+    teamless();
+    schedule(conv, { newChat: true });
+    const at = (hours: number) => scheduleTime(T0 + hours * HOUR, { lang: 'en', timeZone: 'UTC' });
+    const one = (hours: number) => `The automation's message of ${at(hours)} was not sent: the team is not confirmed yet.`;
+    const running = scheduler();
+    now = T0 + HOUR;
+    await running.tick();
+    conv.agents = team;
+    store.saveMeta(conv);
+    const res = await app.request(`/api/conversations/${conv.id}/schedule/run`, {
+      method: 'POST',
+      headers: { host: '127.0.0.1:8787', 'content-type': 'application/json', 'x-relay-lang': 'en' },
+      body: '{}',
+    });
+    expect(res.status).toBe(202);
+    await finish(((await res.json()) as { chatId: string }).chatId);
+    teamless();
+    now = T0 + 2 * HOUR;
+    await running.tick();
+    expect(conv.messages.map((m) => m.author.kind)).toEqual(['system', 'system']);
+    expect(notes(conv)).toEqual([one(1), one(2)]);
   });
 
   it('skips a time missed while it was not running, or sends it once late, as the schedule says', async () => {

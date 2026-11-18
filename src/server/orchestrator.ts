@@ -553,6 +553,18 @@ export class Orchestrator {
   private revisions = new Map<string, Set<{ abort: AbortController; done: Promise<unknown> }>>();
   /** Branches being made, by the conversation they come from: deleting it, and shutdown, wait for them. */
   private branching = new Map<string, Set<Promise<Conversation>>>();
+  /**
+   * Each conversation's latest note of its schedule's skipped times (`noteSkipped()`): the note; the
+   * schedule as the scheduler left it, which any save of the user's (and switching it off or on, and
+   * deleting it) replaces with another object, whatever it changed; the first time, how many and why. A
+   * time the schedule did not skip ends it (`sendScheduled()`: from the scheduler, Run now or the
+   * webhook), and so does deleting the conversation. Kept in memory only: after a restart the next
+   * skipped time starts a note.
+   */
+  private skipNotes = new Map<
+    string,
+    { messageId: string; schedule: ConversationSchedule | undefined; first: number; count: number; why: string }
+  >();
 
   /** The clock tracking schedules' notes and retries go by (the scheduler's, in tests). */
   clock: () => number = Date.now;
@@ -719,6 +731,7 @@ export class Orchestrator {
       }
       this.traces?.forget?.(convId);
       this.outbox?.forget(convId);
+      this.skipNotes.delete(convId);
       this.onDelete?.(convId);
     } finally {
       this.deleting.delete(convId);
@@ -877,11 +890,23 @@ export class Orchestrator {
    * runs (the team was stopped, or the server restarted) is sent now instead, once. The run it starts
    * refuses approval requests unless the schedule asks. A schedule that opens a new conversation each
    * time sends it there (`sendInNewChat`); `at` is the time it came due, which names that conversation.
+   * A time not skipped (sent, queued, failed) ends the note of the times skipped before it, also when it
+   * wrote nothing in this chat (a new chat each time).
    */
   async sendScheduled(
     convId: string,
     at = Date.now(),
     opts: { event?: string; attempt?: number; retries?: boolean } = {},
+  ): Promise<ScheduledSend> {
+    const sent = await this.trySendScheduled(convId, at, opts);
+    if (sent.result !== 'skipped' && sent.result !== 'busy') this.skipNotes.delete(convId);
+    return sent;
+  }
+
+  private async trySendScheduled(
+    convId: string,
+    at: number,
+    opts: { event?: string; attempt?: number; retries?: boolean },
   ): Promise<ScheduledSend> {
     const conv = this.store.get(convId);
     if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
@@ -3195,10 +3220,31 @@ export class Orchestrator {
   }
 
   /** Gives a system note already in the chat new text (a schedule's later skipped times added to it). */
-  rewriteNote(conv: Conversation, msg: ChatMessage, text: string): void {
+  private rewriteNote(conv: Conversation, msg: ChatMessage, text: string): void {
     msg.parts = [{ type: 'text', text }];
     this.hub.emit(conv.id, { type: 'message', message: msg });
     this.store.saveMessage(conv.id, msg, true);
+  }
+
+  /**
+   * The note of a time the scheduler skipped (`why`, its reason, ends the sentence). While the team cannot
+   * take the schedule's message (a run goes on, which may take many turns; it waits for the user's
+   * answer, for as long as the user takes), every time that comes due is skipped. One that follows the
+   * conversation's latest note of skipped times (`skipNotes`), of the same schedule (`s`, as the scheduler
+   * left it then: not saved since) and for the same reason, with nothing written in the chat since nor
+   * any time between them that was not skipped, is added to that note instead of leaving one of its own.
+   */
+  noteSkipped(conv: Conversation, s: ConversationSchedule, due: number, why: string): void {
+    const prev = this.skipNotes.get(conv.id);
+    const last = conv.messages.at(-1);
+    if (prev && last?.id === prev.messageId && last.author.kind === 'system' && prev.schedule === s && prev.why === why) {
+      prev.count++;
+      prev.schedule = conv.schedule;
+      this.rewriteNote(conv, last, t().scheduleSkippedNotes(scheduleTime(prev.first, s), scheduleTime(due, s), prev.count, why));
+      return;
+    }
+    const note = this.systemNote(conv, t().scheduleSkippedNote(scheduleTime(due, s), why));
+    this.skipNotes.set(conv.id, { messageId: note.id, schedule: conv.schedule, first: due, count: 1, why });
   }
 
   private emitStatus(id: string): void {

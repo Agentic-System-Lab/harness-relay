@@ -407,6 +407,7 @@ describe.skipIf(!chromium)('the browser itself', () => {
             `<script>Array.prototype.join = () => 'hacked'; String.prototype.replace = function () { return 'hacked'; }; Map.prototype.get = () => document.getElementById('under'); Element.prototype.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1, height: 1 });</script>`,
         );
       }
+      if (url.pathname === '/hang-link') return res.end('<title>Hang link</title><a href="/hang?from=click">Hang</a>');
       if (url.pathname === '/hang') {
         // A server that takes the request and never answers.
         hung.push(res);
@@ -762,6 +763,24 @@ describe.skipIf(!chromium)('the browser itself', () => {
       const next = await browser.open(ctx(own), `http://127.0.0.1:${port}/next`);
       expect(next.title).toBe('Next');
       await browser.close('conv-hang', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    'stops waiting for the page a click opens once the turn ends, though its server never answers',
+    async () => {
+      const own = { convId: 'conv-hang-click', permission: 'full' as const };
+      const page = await browser.open(ctx(own), `http://127.0.0.1:${port}/hang-link`);
+      const turn = new AbortController();
+      const clicking = browser.click(ctx({ ...own, signal: turn.signal }), refIn(page.text, 'link "Hang"'));
+      await vi.waitFor(() => expect(hits).toContain('/hang?from=click'), { timeout: slow(20_000) });
+      turn.abort();
+      // The call ends with its turn, and the tab with it: the next call reads its page at once.
+      await expect(clicking).rejects.toThrow('The turn ended');
+      expect((await browser.snapshot(ctx(own))).title).toBe('Hang link');
+      expect((await browser.open(ctx(own), `http://127.0.0.1:${port}/next`)).title).toBe('Next');
+      await browser.close('conv-hang-click', true);
     },
     slow(60_000),
   );
