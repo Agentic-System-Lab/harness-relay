@@ -14,12 +14,13 @@ import {
   overallStatus,
   tidyPattern,
 } from '../src/shared/checks';
-import { CONVENTIONAL_COMMIT_PATTERN, type ChatMessage } from '../src/shared/types';
+import { CHECK_LIMITS, CONVENTIONAL_COMMIT_PATTERN, type ChatMessage } from '../src/shared/types';
 import {
   RunCheck,
   TooManyFiles,
   diffManifests,
   listPatterns,
+  mergeDefaultChecks,
   recheck,
   takeManifest,
   unmatchedSubjects,
@@ -374,5 +375,57 @@ describe('RunCheck', () => {
   it('starts nothing without a rule or a folder to write in', async () => {
     expect(await RunCheck.start({}, where(), 0)).toBeUndefined();
     expect(await RunCheck.start({ protectedPaths: ['.env'] }, { folders: [], exclude: [], commits: true }, 0)).toBeUndefined();
+  });
+});
+
+describe("a template's rules with Settings' default", () => {
+  const copy = {
+    protectedPaths: ['.env', '*.pem'],
+    commitPattern: '^feat',
+    commands: [
+      { id: 'test', run: 'npm test' },
+      { id: 'lint', run: 'npm run lint', cwd: 'web' },
+    ],
+    fromDefault: true as const,
+  };
+
+  it('takes in both lists: paths and commands each once (the template’s on a tie), the template’s commit format, no mark', () => {
+    const merged = mergeDefaultChecks(copy, {
+      protectedPaths: ['secrets/', '.env'],
+      commitPattern: '^fix',
+      commands: [
+        { id: 'test', run: 'npm test', timeoutMin: 20 },
+        { id: 'lint', run: 'npm run lint' },
+      ],
+    });
+    expect(merged.protectedPaths).toEqual(['secrets/', '.env', '*.pem']);
+    expect(merged.commitPattern).toBe('^fix');
+    // `npm test` once, as the template has it; `npm run lint` twice (other folders), each with an id of its own.
+    expect(merged.commands!.map((c) => [c.run, c.cwd ?? '', c.timeoutMin ?? 0])).toEqual([
+      ['npm test', '', 20],
+      ['npm run lint', '', 0],
+      ['npm run lint', 'web', 0],
+    ]);
+    expect(new Set(merged.commands!.map((c) => c.id)).size).toBe(3);
+    expect(merged.fromDefault).toBeUndefined();
+  });
+
+  it('keeps the default’s commit format when the template has none, and the mark when the template adds nothing', () => {
+    const merged = mergeDefaultChecks(copy, { protectedPaths: ['*.pem'], commands: [{ id: 'x', run: 'npm test' }] });
+    expect(merged.commitPattern).toBe('^feat');
+    expect(merged.fromDefault).toBe(true);
+    expect(mergeDefaultChecks(copy, { protectedPaths: ['secrets/'] }).fromDefault).toBeUndefined();
+  });
+
+  it('stays within the list’s limits, the template’s rules first', () => {
+    const many = (n: number, p: string) => Array.from({ length: n }, (_, i) => `${p}${i}`);
+    const merged = mergeDefaultChecks(
+      { protectedPaths: many(40, 'd'), commands: many(8, 'd').map((run) => ({ id: run, run })), fromDefault: true },
+      { protectedPaths: many(20, 't'), commands: many(5, 't').map((run) => ({ id: run, run })) },
+    );
+    expect(merged.protectedPaths).toHaveLength(CHECK_LIMITS.protectedPaths);
+    expect(merged.protectedPaths!.slice(0, 20)).toEqual(many(20, 't'));
+    expect(merged.commands).toHaveLength(CHECK_LIMITS.commands);
+    expect(merged.commands!.slice(0, 5).map((c) => c.run)).toEqual(many(5, 't'));
   });
 });

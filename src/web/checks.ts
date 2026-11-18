@@ -2,8 +2,9 @@ import { blocking, checksFailed, commitPatternError, needsFix, tidyFolder, tidyP
 import { CHECK_LIMITS, type AgentConfig, type ChatMessage, type CheckCommand, type CheckList } from '../shared/types';
 
 /*
- * Team checks in the page: the editor's fields (Team settings, the template editor) and what the card
- * after the team's replies offers. Kept apart from the components so that it can be tested.
+ * Team checks in the page: the editor's fields (Team settings, the template editor, and Settings → Tool
+ * library's default, which New chat and New automation start with) and what the card after the team's
+ * replies offers. Kept apart from the components so that it can be tested.
  */
 
 /** The protected paths box's text: a pattern a line. */

@@ -1497,7 +1497,7 @@ export const en: Messages = {
     memoryPlaceholder: 'For example: Lead with the conclusion. Indent code with 2 spaces.',
     checksDefault: 'Default team checks',
     checksDefaultHint:
-      'New chats and automations start with these team checks, which you can change or remove there. Changing them here later leaves the chats and automations made before as they are. When the lead agent picks a template with team checks of its own, they replace these if they were not changed.',
+      'New chats and automations start with these team checks, which you can change or remove there. Changing them here later leaves the chats and automations made before as they are. While these are unchanged, a template the lead agent picks with team checks of its own adds them (its commit format, when it has one, takes the place of this one).',
     chars: (n, max) => `${n} / ${max} characters`,
     saved: 'Saved',
   },

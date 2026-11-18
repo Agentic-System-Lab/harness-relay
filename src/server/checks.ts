@@ -1,11 +1,13 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Stats } from 'node:fs';
 import { lstat, readFile, readdir, readlink, stat } from 'node:fs/promises';
 import { basename, join, sep } from 'node:path';
 import vm from 'node:vm';
 import { compilePattern, hasChecks, isProtected, overallStatus, type CompiledPattern } from '../shared/checks';
 import {
+  CHECK_LIMITS,
   CHECK_RESULT_LIMITS,
+  type CheckCommand,
   type CheckFinding,
   type CheckList,
   type CheckOutcome,
@@ -209,6 +211,41 @@ export interface WorktreeChange {
   path: string;
   change: NonNullable<CheckFinding['change']>;
   by: string;
+}
+
+/**
+ * Settings' default as a chat has it, still marked (`fromDefault`), with the rules of a template the lead
+ * agent picked: the protected paths of both (each once), the commands of both (one per command line and
+ * folder, the template's where both have it, each with an id of its own), the template's commit format
+ * when it has one (else the default's), within the list's limits, the template's rules first. Still the
+ * default's (marked) when the template added nothing; otherwise no longer.
+ */
+export function mergeDefaultChecks(copy: CheckList, template: CheckList): CheckList {
+  const paths = [...new Set([...(template.protectedPaths ?? []), ...(copy.protectedPaths ?? [])])].slice(0, CHECK_LIMITS.protectedPaths);
+  const key = (c: CheckCommand) => `${c.run}\u0000${c.cwd ?? ''}`;
+  const commands: CheckCommand[] = [];
+  const ids = new Set<string>();
+  for (const c of [...(template.commands ?? []), ...(copy.commands ?? [])]) {
+    if (commands.length >= CHECK_LIMITS.commands || commands.some((x) => key(x) === key(c))) continue;
+    const id = ids.has(c.id) ? randomUUID().slice(0, 8) : c.id;
+    ids.add(id);
+    commands.push({ ...c, id });
+  }
+  const pattern = template.commitPattern || copy.commitPattern;
+  const merged: CheckList = {
+    ...(paths.length ? { protectedPaths: paths } : {}),
+    ...(pattern ? { commitPattern: pattern } : {}),
+    ...(commands.length ? { commands } : {}),
+  };
+  // What the default had, in any order: nothing added.
+  const same =
+    new Set(paths).size === new Set(copy.protectedPaths ?? []).size &&
+    pattern === copy.commitPattern &&
+    commands.length === (copy.commands ?? []).length &&
+    commands.every((c) =>
+      (copy.commands ?? []).some((d) => key(d) === key(c) && JSON.stringify({ ...d, id: '' }) === JSON.stringify({ ...c, id: '' })),
+    );
+  return same ? { ...merged, fromDefault: true } : merged;
 }
 
 /** The patterns of a list, read; those that cannot be read were refused when it was saved. */

@@ -249,7 +249,13 @@ test.describe('team checks', () => {
     await page.waitForURL(/#\/c\//);
     const automation = await relay.api<Conversation>(`/api/conversations/${chatId(page)}`);
     expect(automation.settings.checks).toEqual({});
-    // The chat made before keeps its own.
+    // Another default changes none made before.
+    await page.goto(`${relay.base}/#/settings/tools`);
+    await section.getByLabel('Protected paths').fill('*.key');
+    await section.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(section).toContainText('Saved');
+    expect((await relay.api<SettingsView>('/api/settings')).checksDefault).toEqual({ protectedPaths: ['*.key'] });
     expect((await relay.api<Conversation>(`/api/conversations/${chat.id}`)).settings.checks).toEqual(chat.settings.checks);
+    expect((await relay.api<Conversation>(`/api/conversations/${automation.id}`)).settings.checks).toEqual({});
   });
 });

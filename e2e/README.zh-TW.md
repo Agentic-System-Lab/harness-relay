@@ -178,7 +178,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 低於完整權限時，指令在 Harness Relay 自己的沙箱裡執行，不能寫到工作目錄以外 | Claude Code | 在編輯對話裡，寫入工作目錄的指令通過，並說明它自己改了 `inside.txt`；寫到家目錄的指令無法執行（被沙箱擋下），整份結果也是無法執行，絕不是 **Failed**。Harness Relay 自己的沙箱不能用的地方略過。 |
 | 平行模式下，沒通過檢查的結果不會套用，直到使用者仍要套用 | Claude Code | 在保護 `secret.txt` 的平行編輯對話裡，回覆在它的 worktree 裡寫入它，回覆後的卡片在那裡找到它。按 **Apply to working directory** 會貼出套用前檢查的卡片（目前的工作目錄加上 @Claude 的結果），顯示 **Failed** 和沒有套用（不說是事後檢查），工作目錄裡也沒有這個檔案；按 **Apply anyway**（確認）會套用它，按鈕也隨之消失。 |
 | 平行模式下，結果的指令在 Harness Relay 自己的沙箱裡、在加上結果的工作目錄上執行 | Claude Code | 在平行編輯對話裡，指令需要 `result.txt`；套用回覆的結果時，會在真正的沙箱裡、在檢查樹上檢查它：卡片顯示 **Passed** 和已套用，檔案進了工作目錄，指令寫出的檔案則沒有。Harness Relay 自己的沙箱不能用的地方略過。 |
-| 設定裡的預設讓每個新對話和新自動任務一開始就帶著，可以修改或拿掉 | — | 在 **Settings → Tool library → Default team checks** 存下 `.env` 和 `*.pem`（伺服器的設定裡有它們）。**New chat** 一開始就帶著它們，開出來的對話也有，並標記為預設；**New automation** 也一開始帶著，在那裡拿掉後，它的對話是空清單；之前建立的對話保留自己的。 |
+| 設定裡的預設讓每個新對話和新自動任務一開始就帶著，可以修改或拿掉 | — | 在 **Settings → Tool library → Default team checks** 存下 `.env` 和 `*.pem`（伺服器的設定裡有它們）。**New chat** 一開始就帶著它們，開出來的對話也有，並標記為預設；**New automation** 也一開始帶著，在那裡拿掉後，它的對話是空清單。之後再存另一份預設（`*.key`），兩個之前建立的對話都不受影響。 |
 
 ## 成員的模型與推理強度
 
