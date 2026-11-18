@@ -4,6 +4,7 @@ import {
   SHARE_FILES_MAX_BYTES,
   SHARE_FILE_MAX_BYTES,
   SHARE_FILE_REFUSED,
+  SHARE_MAX_BYTES,
   type Conversation,
   type GH_MISSING,
   type GH_SIGNED_OUT,
@@ -139,8 +140,8 @@ export function ShareDialog({ conv, upTo, chat, onClose }: Props) {
       const take = files && !files.error ? chosenFileRefs(files.refs, files.list, files.chosen) : [];
       const page = await sharePage({ chat: el, messages: conv.messages, title: conv.title, upTo, t, lang, convId: conv.id, files: take });
       const said: string[] = [];
-      if (page.shrunk) said.push(t.share.shrunk);
-      if (page.dropped > 0) said.push(t.share.dropped(page.dropped));
+      if (page.shrunk) said.push(t.share.shrunk(shareSize(SHARE_MAX_BYTES)));
+      if (page.dropped > 0) said.push(t.share.dropped(page.dropped, shareSize(SHARE_MAX_BYTES)));
       setNotes(said);
       setPhase('uploading');
       const shared = await api.share(conv.id, page.html, upTo, take);
@@ -150,7 +151,12 @@ export function ShareDialog({ conv, upTo, chat, onClose }: Props) {
     } catch (e) {
       const problem = ghProblem(e);
       if (problem) setGh(problem);
-      else setError(e instanceof ShareTooLargeError ? t.share.tooLarge((e.bytes / 1_000_000).toFixed(1)) : (e as Error).message);
+      else
+        setError(
+          e instanceof ShareTooLargeError
+            ? t.share.tooLarge((e.bytes / 1_000_000).toFixed(1), shareSize(SHARE_MAX_BYTES))
+            : (e as Error).message,
+        );
       // A file changed since it was checked: check them all again.
       if (e instanceof ApiError && e.code === SHARE_FILE_REFUSED) setRecheck((n) => n + 1);
       setPhase('idle');

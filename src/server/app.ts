@@ -1633,7 +1633,7 @@ export function createApp({
     if (!refs || linked.some((n) => n >= refs.length)) throw new HttpError(400, t().shareBadFiles);
     // Each link to a file grows to its address on GitHub.
     const bytes = Buffer.byteLength(b.html) + fileLinkCount(b.html) * SHARE_FILE_URL_MAX;
-    if (bytes > SHARE_MAX_BYTES) throw new HttpError(413, t().shareTooLarge((bytes / 1_000_000).toFixed(1)));
+    if (bytes > SHARE_MAX_BYTES) throw new HttpError(413, t().shareTooLarge((bytes / 1_000_000).toFixed(1), shareSize(SHARE_MAX_BYTES)));
     const upTo = typeof b.upTo === 'string' ? b.upTo : undefined;
     // Measured first, and read only when they can all go along; checked again as read (one may have
     // changed since), never more than the limits in all.

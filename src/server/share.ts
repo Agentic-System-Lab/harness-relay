@@ -9,7 +9,7 @@ import { constants } from 'node:fs';
 import { lstat, mkdir, mkdtemp, open, readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileName } from '../shared/media';
-import { replaceFileLinks, shareViewerUrl } from '../shared/share';
+import { replaceFileLinks, shareSize, shareViewerUrl } from '../shared/share';
 import {
   GH_MIN_VERSION,
   GH_MISSING,
@@ -696,7 +696,8 @@ export async function shareToGist(
   const { gist, urls } = await filesToGist(description, files, run, o, words);
   const page = replaceFileLinks(html, (n) => urls[n]);
   const bytes = Buffer.byteLength(page);
-  if (bytes > SHARE_MAX_BYTES) return dropFilesGist(run, gist, new ShareError(t().shareTooLarge((bytes / 1_000_000).toFixed(1))), words);
+  if (bytes > SHARE_MAX_BYTES)
+    return dropFilesGist(run, gist, new ShareError(t().shareTooLarge((bytes / 1_000_000).toFixed(1), shareSize(SHARE_MAX_BYTES))), words);
   try {
     return { ...(await createPageGist(page, description, run)), filesGist: gist.id };
   } catch (err) {

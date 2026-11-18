@@ -350,7 +350,7 @@ const zhTW = {
 
   // Sharing a conversation (a gist through the GitHub CLI)
   shareEmpty: '沒有可以分享的內容',
-  shareTooLarge: (mb: string) => `這個分享頁有 ${mb} MB，超過 gistpreview 能顯示的 1 MB。請改成分享到比較前面的某則回覆。`,
+  shareTooLarge: (mb: string, max: string) => `這個分享頁有 ${mb} MB，超過分享頁能放的 ${max}。請改成分享到比較前面的某則回覆。`,
   shareNoGh: (min: string) =>
     `找不到 GitHub CLI（gh）。請從 https://cli.github.com 安裝 ${min} 以上的版本，並在終端機執行 gh auth login 後再試一次。`,
   ghTooOld: (min: string, version?: string) =>
@@ -1195,7 +1195,7 @@ const en: ServerMessages = {
   opencodeWriteRefused: (path) => `The sandbox does not allow writing ${path} (read-only, or outside the folders this run may write)`,
 
   shareEmpty: 'Nothing to share',
-  shareTooLarge: (mb) => `This page is ${mb} MB, over the 1 MB that gistpreview can show. Share up to an earlier reply instead.`,
+  shareTooLarge: (mb, max) => `This page is ${mb} MB, over the ${max} a shared page can hold. Share up to an earlier reply instead.`,
   shareNoGh: (min) =>
     `GitHub CLI (gh) not found. Install ${min} or later from https://cli.github.com, run gh auth login in a terminal, then try again.`,
   ghTooOld: (min, version) =>

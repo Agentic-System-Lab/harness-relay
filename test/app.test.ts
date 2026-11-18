@@ -3608,13 +3608,17 @@ describe('sharing conversations', () => {
     }
   });
 
-  it('refuses an empty page, one too large for gistpreview, and an unknown conversation', async () => {
+  it('refuses an empty page, one over the 10 MB a shared page can hold, and an unknown conversation', async () => {
     const conv = await createConversation();
     const own = shareApp({});
     const send = (id: string, body: unknown) => own.request(`/api/conversations/${id}/share`, json('POST', body));
     expect((await send(conv.id, { html: '  ' })).status).toBe(400);
     expect((await send(conv.id, { html: 42 })).status).toBe(400);
-    expect((await send(conv.id, { html: 'é'.repeat(SHARE_MAX_BYTES / 2 + 1) })).status).toBe(413);
+    // The raw file the viewer reads is whole up to 10 MB; counted in UTF-8 bytes (é is two).
+    expect(SHARE_MAX_BYTES).toBe(10_000_000);
+    const big = await send(conv.id, { html: 'é'.repeat(SHARE_MAX_BYTES / 2 + 1) });
+    expect(big.status).toBe(413);
+    expect((await big.json()).error).toBe('這個分享頁有 10.0 MB，超過分享頁能放的 10 MB。請改成分享到比較前面的某則回覆。');
     expect((await send('missing', { html: '<p>hi</p>' })).status).toBe(404);
     expect(store.listShares()).toEqual([]);
   });
