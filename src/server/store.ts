@@ -305,6 +305,8 @@ function toPart(r: PartRow): MessagePart {
         type: 'outbox',
         ...parseJson(r.data, { id: '', tool: '', title: '', preview: { fields: [] }, status: 'failed' as const }),
       };
+    case 'notice':
+      return { type: 'notice', text: r.text ?? '' };
     case 'progress': {
       const status = parseJson<{ status?: unknown }>(r.data, {}).status;
       return {
@@ -323,6 +325,7 @@ function partColumns(p: MessagePart): (string | null)[] {
   switch (p.type) {
     case 'text':
     case 'thinking':
+    case 'notice':
       return [p.text, null, null, null, null, null, null, null];
     case 'tool':
       return [null, p.id, p.name, nul(p.detail), p.status, nul(p.error), nul(p.output), p.kind ? JSON.stringify({ kind: p.kind }) : null];

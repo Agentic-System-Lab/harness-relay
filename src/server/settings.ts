@@ -31,6 +31,7 @@ import { t } from './i18n';
 import { maskSecret, type SecretStore } from './secrets';
 import { ToolLibrary } from './tools';
 import { ConnectorStore } from './connectors/accounts';
+import { McpOAuth } from './oauth/mcp';
 import { OAuthService } from './oauth/service';
 import { OAuthStore } from './oauth/store';
 
@@ -277,6 +278,8 @@ export class SettingsStore {
   readonly connectors: ConnectorStore;
   /** Accounts that sign in with OAuth (Microsoft, Google), for the calendar tools so far. */
   readonly oauth: OAuthService;
+  /** The tool library HTTP MCP servers' own sign-ins (MCP's authorization), through the same sign-ins. */
+  readonly mcpOAuth: McpOAuth;
   /** The open agents' model backends (API keys and the user's own endpoints). */
   readonly backends: ModelBackendStore;
 
@@ -397,6 +400,7 @@ export class SettingsStore {
     this.tools = new ToolLibrary(db, keyring);
     this.connectors = new ConnectorStore(db, keyring);
     this.oauth = new OAuthService(new OAuthStore(db, keyring), this.connectors);
+    this.mcpOAuth = new McpOAuth(this.tools, this.oauth.signIns);
     this.backends = new ModelBackendStore(db, keyring);
   }
 

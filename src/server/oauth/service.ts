@@ -14,8 +14,8 @@ import type { CalendarOAuth } from '../connectors/calendar';
 import type { MailOAuth } from '../connectors/mailLogin';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
-import { TokenBroker } from './broker';
-import { missingUse, oauthProvider, tokenHost, type OAuthClient, type OAuthProvider } from './providers';
+import { TokenBroker, type TokenGrants } from './broker';
+import { missingUse, oauthProvider, tokenHost, type AccountProvider, type OAuthClient } from './providers';
 import { noAccess, SignIns, signInFetch, type SignedIn } from './signin';
 import type { OAuthStore } from './store';
 
@@ -25,7 +25,8 @@ import type { OAuthStore } from './store';
  * sign-ins (`signin.ts`). They serve the calendar tools and the mail tools: a sign-in for calendars
  * adds the account's own calendar (and others it has can be added), one for mail adds its mail
  * account, at its provider's own IMAP and SMTP servers. They are reached through the account
- * (`CalendarOAuth`, `MailOAuth`), with its token, which never leaves the server.
+ * (`CalendarOAuth`, `MailOAuth`), with its token, which never leaves the server. The sign-ins are
+ * shared with the tool library MCP servers' own (`mcp.ts`), which keep their tokens with the server.
  */
 export class OAuthService implements CalendarOAuth, MailOAuth {
   readonly broker: TokenBroker;
@@ -36,24 +37,33 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
     private connectors: ConnectorStore,
     private opts: {
       /** A provider's description (stand-ins in tests). */
-      provider?: (id: OAuthProviderId, client: OAuthClient) => OAuthProvider;
+      provider?: (id: OAuthProviderId, client: OAuthClient) => AccountProvider;
       now?: () => number;
       pollMs?: (interval: number) => number;
     } = {},
   ) {
     const now = opts.now ?? Date.now;
-    this.broker = new TokenBroker(store, (id) => this.providerOfAccount(id), now);
-    this.signIns = new SignIns((s) => this.keep(s), now, opts.pollMs);
+    const grants: TokenGrants = {
+      grant: (id) => {
+        const a = store.account(id);
+        return a && { label: a.email, status: a.status, ...(a.error ? { error: a.error } : {}), uses: a.uses };
+      },
+      refreshToken: (id) => store.refreshToken(id),
+      setRefreshToken: (id, token) => store.setRefreshToken(id, token),
+      needsSignIn: (id, why) => store.needsSignIn(id, why),
+    };
+    this.broker = new TokenBroker(grants, (id) => this.providerOfAccount(id), now);
+    this.signIns = new SignIns(now, opts.pollMs);
   }
 
   /** A provider, with the app Settings has for it; none set up is a 400 that says so. */
-  provider(id: OAuthProviderId): OAuthProvider {
+  provider(id: OAuthProviderId): AccountProvider {
     const client = this.store.client(id);
     if (!client) throw new HttpError(400, t().oauthNoClient(id === 'microsoft' ? 'Microsoft' : 'Google'));
     return (this.opts.provider ?? oauthProvider)(id, client);
   }
 
-  private providerOfAccount(accountId: string): OAuthProvider {
+  private providerOfAccount(accountId: string): AccountProvider {
     const a = this.store.account(accountId);
     if (!a) throw new Error(t().oauthAccountGone);
     return this.provider(a.provider);
@@ -106,28 +116,35 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
   }): Promise<OAuthSignInView> {
     const provider = this.provider(o.provider);
     const { account: accountId, ...rest } = o;
-    if (!accountId) return this.signIns.start({ ...rest, provider });
+    if (!accountId) return this.signIns.start({ ...rest, provider, keep: (s) => this.keep(provider, o.uses, s) });
     const a = this.account(accountId);
     if (a.provider !== o.provider) throw new HttpError(400, t().invalidField('account'));
     const uses = OAUTH_USES.filter((u) => o.uses.includes(u) || a.uses.includes(u));
-    return this.signIns.start({ ...rest, provider, uses, loginHint: a.email, forAccount: { id: a.id, subject: a.subject } });
+    const forAccount = { id: a.id, subject: a.subject };
+    return this.signIns.start({ ...rest, provider, uses, loginHint: a.email, keep: (s) => this.keep(provider, uses, s, forAccount) });
   }
 
   /**
    * Keeps a sign-in that worked: who it is, its refresh token, its access tokens, and, at its first
    * sign-in for the calendar tools, its own calendar, at its first for the mail tools, its mail account
    * (one the user removed since is not added again: a sign-in again or for another use adds nothing).
+   * `forAccount`: the account it was started for (Sign in again, Use for …), the only one it may sign in.
    */
-  private async keep(s: SignedIn): Promise<OAuthAccountView> {
-    const who = await s.whoami(signInFetch(s));
+  private async keep(
+    provider: AccountProvider,
+    uses: OAuthUse[],
+    s: SignedIn,
+    forAccount?: { id: string; subject: string },
+  ): Promise<OAuthAccountView> {
+    const who = await provider.whoami(signInFetch(s));
     // Cancelled, or its app changed, while who signed in was asked: nothing is kept.
     if (!s.live()) throw new Error(t().oauthSignInCancelled);
     // Started for one account (Sign in again, Use for …): another one picked on the provider's page, or
     // this one removed meanwhile, changes nothing (its uses would go to another account, or bring it back).
-    if (s.forAccount) {
-      const meant = this.store.account(s.forAccount.id);
+    if (forAccount) {
+      const meant = this.store.account(forAccount.id);
       if (!meant) throw new Error(t().oauthAccountRemoved);
-      if (who.subject !== s.forAccount.subject) throw new Error(t().oauthOtherAccount(who.email, meant.email));
+      if (who.subject !== forAccount.subject) throw new Error(t().oauthOtherAccount(who.email, meant.email));
     }
     // The account signed in before, for other uses: each of them must still work with the new refresh
     // token, or it would fail at its next request, and mark the whole account as needing a new sign-in.
@@ -135,10 +152,9 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
     // its access checked (consent taken away, another app); where one token covers every scope granted
     // (Google, with include_granted_scopes), that token must still have theirs. Else nothing is kept:
     // the account stays as it was.
-    const before = this.store.bySubject(s.provider, who.subject);
-    const provider = this.provider(s.provider);
+    const before = this.store.bySubject(provider.id, who.subject);
     if (before && provider.tokenScopes) {
-      for (const use of before.uses) if (!s.uses.includes(use)) await s.tokenFor(use);
+      for (const use of before.uses) if (!uses.includes(use)) await s.tokenFor(use);
       if (!s.live()) throw new Error(t().oauthSignInCancelled);
     } else if (before && s.granted !== undefined) {
       const lost = missingUse(provider, before.uses, s.granted);
@@ -146,10 +162,11 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
     }
     // The uses it had (the store updates the same account), for its first sign-in for one: what that use reaches is added by itself.
     const had = new Set(before?.uses ?? []);
-    const first = (use: OAuthUse) => s.uses.includes(use) && !had.has(use);
+    const first = (use: OAuthUse) => uses.includes(use) && !had.has(use);
     // Removed while the earlier uses' tokens were asked for: not brought back.
-    if (s.forAccount && !this.store.account(s.forAccount.id)) throw new Error(t().oauthAccountRemoved);
-    const account = this.store.signedIn(s.provider, who, s.uses, s.scopes, s.refreshToken, (this.opts.now ?? Date.now)());
+    if (forAccount && !this.store.account(forAccount.id)) throw new Error(t().oauthAccountRemoved);
+    // Always one here: a provider whose sign-in may bring none (`refreshOptional`) is an MCP server's.
+    const account = this.store.signedIn(provider.id, who, uses, s.scopes, s.refreshToken ?? '', (this.opts.now ?? Date.now)());
     this.broker.signedIn(account.id, s.access);
     if (first('mail') && !this.connectors.oauthMail(account.id).length) {
       try {
@@ -160,10 +177,10 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
       }
     }
     if (first('calendar') && !this.connectors.oauthCalendars(account.id).length) {
-      const own = this.provider(s.provider).defaultCalendar(who.email);
+      const own = provider.defaultCalendar(who.email);
       try {
         this.addCalendar(account.id, {
-          name: `${s.provider === 'microsoft' ? 'Outlook' : 'Google'} · ${who.email}`.slice(0, 60),
+          name: `${provider.id === 'microsoft' ? 'Outlook' : 'Google'} · ${who.email}`.slice(0, 60),
           url: own.url,
         });
       } catch (err) {
@@ -250,7 +267,7 @@ export class OAuthService implements CalendarOAuth, MailOAuth {
    */
   async removeAccount(accountId: string): Promise<{ permissionsPages?: string[] }> {
     const a = this.account(accountId);
-    let provider: OAuthProvider | undefined;
+    let provider: AccountProvider | undefined;
     try {
       provider = this.provider(a.provider);
     } catch {

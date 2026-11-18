@@ -1,9 +1,17 @@
 // Accounts that sign in with OAuth, in the page, without React: the redirect addresses a provider's
 // app must allow, what the provider's page sent back to /oauth/callback and what that page then does,
-// a sign-in's next step, whether a sign-in page that did not open was blocked, and what each account
-// offers for the calendar and mail tools.
+// a sign-in's next step, whether a sign-in page that did not open was blocked, what each account
+// offers for the calendar and mail tools, and a tool library MCP server's own sign-in.
 
-import { OAUTH_USES, type OAuthAccountView, type OAuthProviderId, type OAuthSignInView, type OAuthUse } from '../shared/types';
+import {
+  OAUTH_USES,
+  type McpOAuthState,
+  type OAuthAccountView,
+  type OAuthProviderId,
+  type OAuthSignInView,
+  type OAuthUse,
+} from '../shared/types';
+import type { Messages } from './i18n';
 
 /** Where the provider's page sends the browser back: this web app's own page for it. */
 export const CALLBACK_PATH = '/oauth/callback';
@@ -27,27 +35,32 @@ export function redirectAddresses(provider: OAuthProviderId, origin: string): st
   return [...new Set([...(own ? [own] : []), `http://localhost${CALLBACK_PATH}`])];
 }
 
-/** What the provider's page sent the browser back with: the code and state, or its error. */
-export function callbackFrom(search: string): { state?: string; code?: string; error?: string } {
+/**
+ * What the provider's page sent the browser back with: the code and state, or its error (capped), and
+ * the issuer it names (`iss`, RFC 9207: the server refuses one that is not the sign-in's own).
+ */
+export function callbackFrom(search: string): { state?: string; code?: string; error?: string; iss?: string } {
   const q = new URLSearchParams(search);
   const error = q.get('error');
   return {
     ...(q.get('state') ? { state: q.get('state')! } : {}),
     ...(q.get('code') ? { code: q.get('code')! } : {}),
-    ...(error ? { error: [error, q.get('error_description')].filter(Boolean).join(': ') } : {}),
+    ...(error ? { error: [error.slice(0, 100), q.get('error_description')?.slice(0, 300)].filter(Boolean).join(': ') } : {}),
+    ...(q.get('iss') !== null ? { iss: q.get('iss')! } : {}),
   };
 }
 
-/** What the callback page shows once the server answered. */
+/** What the callback page shows once the server answered: an account signed in, or a tool library MCP server (`server`). */
 export type CallbackOutcome =
-  | { kind: 'done'; email: string }
+  | { kind: 'done'; email: string; server?: string }
   | { kind: 'failed'; error: string }
   /** No sign-in here has its state: another Harness Relay's (on another computer), or one long over. */
   | { kind: 'elsewhere' };
 
 /** The server's answer to the callback page's post: how the sign-in went, or the error and its HTTP status. */
 export type CallbackAnswer =
-  { ok: true; status: OAuthSignInView['status']; email?: string; error?: string } | { ok: false; httpStatus: number; error: string };
+  | { ok: true; status: OAuthSignInView['status']; email?: string; server?: string; error?: string }
+  | { ok: false; httpStatus: number; error: string };
 
 /**
  * What the callback page shows for the server's answer, and whether its address then loses its code
@@ -58,7 +71,10 @@ export type CallbackAnswer =
 export function callbackOutcome(answer: CallbackAnswer, hasState: boolean): { outcome: CallbackOutcome; clearAddress: boolean } {
   if (answer.ok)
     return {
-      outcome: answer.status === 'done' ? { kind: 'done', email: answer.email ?? '' } : { kind: 'failed', error: answer.error ?? '' },
+      outcome:
+        answer.status === 'done'
+          ? { kind: 'done', email: answer.email ?? '', ...(answer.server ? { server: answer.server } : {}) }
+          : { kind: 'failed', error: answer.error ?? '' },
       clearAddress: true,
     };
   if (answer.httpStatus === 404 && hasState) return { outcome: { kind: 'elsewhere' }, clearAddress: false };
@@ -108,4 +124,44 @@ export function accountActions(
 /** The uses a new sign-in asks for, with one ticked or unticked, in their usual order. */
 export function toggleUse(uses: readonly OAuthUse[], use: OAuthUse, on: boolean): OAuthUse[] {
   return OAUTH_USES.filter((u) => (u === use ? on : uses.includes(u)));
+}
+
+/**
+ * Whether two URLs name the same MCP server as the server tells them apart (its canonical URL: scheme and
+ * host in lower case, no default port, no fragment, no slash at the end of its path): another one signs
+ * a server out.
+ */
+export function sameServerUrl(a: string, b: string): boolean {
+  const canonical = (url: string) => {
+    try {
+      const u = new URL(url.trim());
+      return `${u.protocol}//${u.host}${u.pathname.replace(/\/+$/, '')}${u.search}`;
+    } catch {
+      return url.trim();
+    }
+  };
+  return canonical(a) === canonical(b);
+}
+
+/**
+ * What an MCP server's sign-in asks the user to confirm before its page opens, a line each: its page is
+ * on another host than its authorization server's, and (or) its token endpoint is.
+ */
+export function confirmLines(confirm: NonNullable<OAuthSignInView['confirm']>, t: Messages): string[] {
+  const m = t.tools.signIn;
+  return [
+    ...(confirm.host !== confirm.issuer ? [m.confirmPage(confirm.host, confirm.issuer)] : []),
+    ...(confirm.tokenHost ? [m.confirmToken(confirm.tokenHost, confirm.issuer)] : []),
+  ];
+}
+
+/**
+ * What an HTTP MCP server's row says of its own sign-in: signed in (since when, in the page's language),
+ * or needing a new one (and why); nothing when it has not signed in.
+ */
+export function mcpSignInLine(oauth: McpOAuthState | undefined, t: Messages, lang: string): { text: string; warn: boolean } | undefined {
+  if (!oauth) return undefined;
+  if (oauth.status === 'reauth') return { text: t.tools.signIn.needsAgain(oauth.error ?? ''), warn: true };
+  const at = new Date(oauth.signedInAt).toLocaleString(lang, { dateStyle: 'medium', timeStyle: 'short' });
+  return { text: t.tools.signIn.signedInAt(at), warn: false };
 }

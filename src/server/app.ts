@@ -57,6 +57,7 @@ import { freshTracking } from '../shared/tracking';
 import { servingPort } from './relaySandbox';
 import { discoverCalendars } from './connectors/caldav';
 import { calendarBackend } from './connectors/calendar';
+import type { McpOAuth } from './oauth/mcp';
 import type { OAuthService } from './oauth/service';
 import { keptPasswordFits } from './connectors/accounts';
 import { testMail } from './connectors/test';
@@ -197,6 +198,8 @@ export interface AppDeps {
   scheduler?: Pick<Scheduler, 'check'>;
   /** Accounts that sign in with OAuth (`oauth/service.ts`); Settings' own when not given (stand-in providers in tests). */
   oauth?: OAuthService;
+  /** The tool library MCP servers' own sign-ins (`oauth/mcp.ts`), with `oauth`'s sign-ins; Settings' own when not given. */
+  mcpOAuth?: McpOAuth;
 }
 
 /** A recording of the longest allowed length (16 kHz, 16-bit mono WAV) in base64, with room to spare. */
@@ -303,6 +306,7 @@ export function createApp({
   alerts,
   scheduler,
   oauth = settings.oauth,
+  mcpOAuth = settings.mcpOAuth,
 }: AppDeps): Hono {
   const app = new Hono();
   /** The gists of report screenshots uploaded since the server started: only these can be deleted here. */
@@ -693,12 +697,15 @@ export function createApp({
     oauth.signIns.cancel(c.req.param('id'), sessions.get(c.req.raw));
     return c.json({ ok: true });
   });
+  // The user confirmed a sign-in whose page or token endpoint is not on its authorization server's own
+  // origin (an MCP server's, `confirm`), having been shown where: only now is its page given.
+  app.post('/api/oauth/signins/:id/confirm', (c) => c.json(oauth.signIns.confirm(c.req.param('id'), sessions.get(c.req.raw))));
   // The page the provider sent the browser back to (`/oauth/callback`) posts the code and state it got:
   // the state is the proof (OPEN above). It answers how that sign-in went, and whose account it is.
   app.post('/api/oauth/callback', async (c) => {
     const now = Date.now();
     while (callbackMisses.length && callbackMisses[0]! < now - 10 * 60_000) callbackMisses.shift();
-    const b = await body<{ state?: unknown; code?: unknown; error?: unknown }>(c);
+    const b = await body<{ state?: unknown; code?: unknown; error?: unknown; iss?: unknown }>(c);
     const field = (v: unknown) => (typeof v === 'string' && v.length <= 4096 ? v : undefined);
     const state = field(b.state);
     // Guessing states is what the limit stops: a state a sign-in here gave always goes through.
@@ -706,11 +713,19 @@ export function createApp({
     try {
       const code = field(b.code);
       const error = field(b.error);
-      const v = await oauth.signIns.callback({ ...(state ? { state } : {}), ...(code ? { code } : {}), ...(error ? { error } : {}) });
+      // The issuer the redirect named (RFC 9207), even empty: one there that is not the sign-in's is refused.
+      const iss = typeof b.iss === 'string' ? (field(b.iss) ?? '') : undefined;
+      const v = await oauth.signIns.callback({
+        ...(state ? { state } : {}),
+        ...(code ? { code } : {}),
+        ...(error ? { error } : {}),
+        ...(iss !== undefined ? { iss } : {}),
+      });
       return c.json({
         status: v.status,
         provider: v.provider,
         ...(v.account ? { email: v.account.email } : {}),
+        ...(v.server ? { server: v.server.name } : {}),
         ...(v.error ? { error: v.error } : {}),
       });
     } catch (err) {
@@ -749,6 +764,28 @@ export function createApp({
   });
 
   app.delete('/api/tools/mcp/:name', (c) => c.json(settings.tools.deleteServer(c.req.param('name'))));
+
+  // An HTTP server's own sign-in (MCP's authorization): discovery, a client registered at its
+  // authorization server, then that server's page to open, followed, finished from a pasted address and
+  // cancelled as an account's sign-in is (`/api/oauth/signins/:id`, `/api/oauth/callback`). Its tokens
+  // never come here: the library says whether it is signed in.
+  app.post('/api/tools/mcp/:name/signin', async (c) => {
+    const b = await body<{ origin?: unknown }>(c);
+    const session = sessions.get(c.req.raw);
+    return c.json(
+      await mcpOAuth.startSignIn({
+        name: c.req.param('name'),
+        ...(session ? { session } : {}),
+        ...(typeof b.origin === 'string' ? { origin: b.origin } : {}),
+        port: servingPort(),
+      }),
+    );
+  });
+  // Signs it out: its tokens are deleted, and revoked at its authorization server when it has a revocation endpoint.
+  app.delete('/api/tools/mcp/:name/signin', async (c) => {
+    await mcpOAuth.signOut(c.req.param('name'));
+    return c.json(settings.tools.view());
+  });
 
   // The skills under a folder, to pick from before adding them (nothing is saved).
   app.get('/api/tools/skills/scan', (c) => {

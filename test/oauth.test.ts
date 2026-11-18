@@ -870,6 +870,22 @@ describe('Google Calendar through a sign-in', () => {
   }
   const primary = () => `${fake.google.urls.caldav}/ming%40gmail.com/events/`;
 
+  it("is not refused for the issuer its redirect names (Google's names https://accounts.google.com, RFC 9207; Microsoft's none)", async () => {
+    service.saveClient('google', { clientId: fake.google.clientId, secret: fake.google.secret });
+    const started = await service.startSignIn({ provider: 'google', uses: ['calendar'], session: 's1', port: 8787 });
+    expect(started.confirm).toBeUndefined();
+    const back = new URL(fake.allow(started.authorizeUrl!));
+    back.searchParams.set('iss', 'https://accounts.google.com');
+    // As the callback page and a pasted address forward it.
+    expect(callbackParams(back.href).iss).toBe('https://accounts.google.com');
+    expect((await service.signIns.callback(callbackParams(back.href))).status).toBe('done');
+    // Microsoft's redirect names no issuer: its sign-in is not refused either.
+    const microsoft = await service.startSignIn({ provider: 'microsoft', uses: ['calendar'], session: 's1', port: 8787 });
+    const plain = fake.allow(microsoft.authorizeUrl!);
+    expect(new URL(plain).searchParams.has('iss')).toBe(false);
+    expect((await service.signIns.callback(callbackParams(plain))).status).toBe('done');
+  });
+
   it("signs in with the app's client secret, asks who signed in, and adds the primary calendar over CalDAV", async () => {
     expect((await googleSignIn('GOCSPX-wrong')).error).toContain('invalid_client');
     const done = await googleSignIn();

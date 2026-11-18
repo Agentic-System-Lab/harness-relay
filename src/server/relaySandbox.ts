@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { accessSync, closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { homedir, networkInterfaces } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { createServer } from 'node:net';
+import { BlockList, createServer, isIP } from 'node:net';
 import { createInterface } from 'node:readline';
 import type { Duplex } from 'node:stream';
 import { createRequire } from 'node:module';
@@ -542,6 +542,51 @@ export function isLocalHost(host: string, own: readonly string[] = []): boolean 
   if (g.every((x) => x === 0)) return true; // unspecified
   if ((g[0]! & 0xffc0) === 0xfe80 || (g[0]! & 0xff00) === 0xff00) return true; // link-local, multicast
   return METADATA_V6.includes(h);
+}
+
+/**
+ * The private networks (and the shared address space VPNs such as Tailscale use, and the one kept for
+ * benchmarks): the local network, to the browser tools and to an MCP server's sign-in.
+ */
+const PRIVATE = new BlockList();
+PRIVATE.addSubnet('10.0.0.0', 8, 'ipv4');
+PRIVATE.addSubnet('172.16.0.0', 12, 'ipv4');
+PRIVATE.addSubnet('192.168.0.0', 16, 'ipv4');
+PRIVATE.addSubnet('100.64.0.0', 10, 'ipv4');
+PRIVATE.addSubnet('198.18.0.0', 15, 'ipv4');
+PRIVATE.addSubnet('fc00::', 7, 'ipv6');
+// Site-local (deprecated, RFC 3879, but still routed on some networks) and NAT64's local-use prefix (RFC 8215).
+PRIVATE.addSubnet('fec0::', 10, 'ipv6');
+PRIVATE.addSubnet('64:ff9b:1::', 48, 'ipv6');
+
+/**
+ * The IPv4 address an IPv6 one carries, to be reached at: `embeddedIpv4()`'s (mapped, compatible,
+ * NAT64's well-known prefix), or 6to4's (`2002:a.b.c.d::/48`, RFC 3056).
+ */
+function carriedIpv4(g: number[]): number[] | undefined {
+  return embeddedIpv4(g) ?? (g[0] === 0x2002 ? [g[1]! >> 8, g[1]! & 255, g[2]! >> 8, g[2]! & 255] : undefined);
+}
+
+/**
+ * Whether an address is on a private network: an IPv4 one, a unique-local or site-local IPv6 one, or
+ * an IPv6 address that carries an IPv4 one on a private network or on this computer (loopback, link-
+ * local…: `isLocalHost()`), mapped (`::ffff:10.0.0.1`), compatible (`::10.0.0.1`), through NAT64
+ * (`64:ff9b::a00:1`) or 6to4 (`2002:a00:1::`).
+ */
+export function isPrivateAddress(a: string): boolean {
+  const kind = isIP(a);
+  if (!kind) return false;
+  const g = kind === 6 ? ipv6Groups(a.replace(/%.*$/, '')) : undefined;
+  const v4 = g && carriedIpv4(g);
+  if (v4) {
+    const dotted = v4.join('.');
+    return isPrivateAddress(dotted) || isLocalHost(dotted);
+  }
+  try {
+    return PRIVATE.check(a, kind === 6 ? 'ipv6' : 'ipv4');
+  } catch {
+    return false;
+  }
 }
 
 const bracket = (host: string) => (host.includes(':') && !host.startsWith('[') ? `[${host}]` : host);

@@ -1,5 +1,6 @@
 import type { MailServer, OAuthProviderId, OAuthUse } from '../../shared/types';
 import { CONFIG } from '../config';
+import type { ProviderRequest } from './broker';
 import { discoverCalendars } from '../connectors/caldav';
 import { graphCalendars } from '../connectors/graph';
 
@@ -42,13 +43,21 @@ export interface MailServers {
   smtp: MailServer;
 }
 
+/**
+ * Where a sign-in signs in, and what its tokens are for: a provider's accounts (`AccountProvider`), or a
+ * tool library MCP server's own sign-in (`mcp`), whose description is built from what the server and its
+ * authorization server publish (`oauth/mcp.ts`). The sign-ins (`signin.ts`) and the token broker
+ * (`broker.ts`) take either.
+ */
 export interface OAuthProvider {
-  id: OAuthProviderId;
+  id: OAuthProviderId | 'mcp';
   label: string;
   endpoints: { authorize: string; token: string; revoke?: string; device?: string };
   clientId: string;
   /** Google's "secret" for a desktop app, which is not one (it ships with the app); none for Microsoft's public clients. */
   clientSecret?: string;
+  /** The client secret goes in an `Authorization: Basic` header (`client_secret_basic`) rather than in the form. */
+  clientSecretBasic?: boolean;
   flows: OAuthFlow[];
   /** What the sign-in page asks for, for these uses (with no use: only signing in, and who it is). */
   scopes(uses: readonly OAuthUse[]): string[];
@@ -66,10 +75,32 @@ export interface OAuthProvider {
   signInToken?(uses: readonly OAuthUse[]): { scopes: string[]; uses: OAuthUse[] };
   /** The only hosts (with their port when not the usual one) the access token is sent to. */
   hosts: string[];
+  /** What the sign-in page is asked for besides the usual: Google's refresh token (`access_type=offline`), an MCP server's `resource`. */
+  extraParams?: Record<string, string>;
+  /** What every token request sends besides the usual: an MCP server's `resource` (RFC 8707). */
+  tokenParams?: Record<string, string>;
+  /**
+   * A sign-in that brings no refresh token is kept all the same (an MCP server's authorization server
+   * may give none): its access token works until it expires, and it then needs a new sign-in.
+   */
+  refreshOptional?: boolean;
+  /**
+   * Its authorization server's issuer, as its metadata names it (an MCP server's): the `iss` a redirect
+   * brings back must be it (RFC 9207), and must be there when `issParameter` (the metadata's
+   * `authorization_response_iss_parameter_supported`). None for the built-in providers, whose endpoints
+   * are fixed: a code of theirs can only go to their own token endpoint.
+   */
+  issuer?: string;
+  issParameter?: boolean;
+  /** How its token requests go (an MCP server's: only to addresses checked for it); this process's fetch otherwise. */
+  send?: (url: string, r: ProviderRequest) => Promise<Response>;
+}
+
+/** A provider whose accounts sign in (Microsoft, Google): who signed in, their calendars, and their own mail servers. */
+export interface AccountProvider extends OAuthProvider {
+  id: OAuthProviderId;
   /** Its own IMAP and SMTP servers: the only ones a token for mail goes to. */
   mail: MailServers;
-  /** What the sign-in page is asked for besides the usual: Google's refresh token (`access_type=offline`). */
-  extraParams?: Record<string, string>;
   whoami(fetch: AuthorizedFetch): Promise<OAuthIdentity>;
   /** Its calendars, by name, at the addresses the calendar tools use. */
   calendars(fetch: AuthorizedFetch, email: string): Promise<{ name: string; url: string }[]>;
@@ -159,7 +190,7 @@ function microsoftUrls(): { login: string; graph: string; mail: MailServers } {
 export function microsoftProvider(
   client: OAuthClient,
   urls: { login: string; graph: string; mail?: MailServers } = microsoftUrls(),
-): OAuthProvider {
+): AccountProvider {
   const { login, graph } = urls;
   const tenant = encodeURIComponent(client.tenant?.trim() || 'common');
   // Graph's scopes by their short names in the global cloud; in another, by its own address.
@@ -229,7 +260,7 @@ const GOOGLE: GoogleUrls = {
  * Google Calendar and Gmail: Google's sign-in, its CalDAV with the token, and Gmail's IMAP and SMTP
  * (`urls` and `mail`: a stand-in's, in tests). One access token covers every scope granted.
  */
-export function googleProvider(client: OAuthClient, urls: GoogleUrls = GOOGLE, mail: MailServers = GOOGLE_MAIL): OAuthProvider {
+export function googleProvider(client: OAuthClient, urls: GoogleUrls = GOOGLE, mail: MailServers = GOOGLE_MAIL): AccountProvider {
   const defaultCalendar = (email: string) => ({ name: email, url: `${urls.caldav}/${encodeURIComponent(email)}/events/` });
   return {
     id: 'google',
@@ -275,6 +306,6 @@ export function googleProvider(client: OAuthClient, urls: GoogleUrls = GOOGLE, m
 }
 
 /** A provider's description, with the app it signs in with. */
-export function oauthProvider(id: OAuthProviderId, client: OAuthClient): OAuthProvider {
+export function oauthProvider(id: OAuthProviderId, client: OAuthClient): AccountProvider {
   return id === 'microsoft' ? microsoftProvider(client) : googleProvider(client);
 }

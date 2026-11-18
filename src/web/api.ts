@@ -359,9 +359,11 @@ export const api = {
   oauthSignIn: (id: string) => request<OAuthSignInView>('GET', `/api/oauth/signins/${id}`),
   pasteOAuthAddress: (id: string, address: string) => request<OAuthSignInView>('POST', `/api/oauth/signins/${id}/address`, { address }),
   cancelOAuthSignIn: (id: string) => request<{ ok: true }>('DELETE', `/api/oauth/signins/${id}`),
+  /** The user confirmed where a sign-in's page is (`OAuthSignInView.confirm`): the page comes back to open. */
+  confirmOAuthSignIn: (id: string) => request<OAuthSignInView>('POST', `/api/oauth/signins/${id}/confirm`, {}),
   /** The page the provider sent the browser back to posts what it got: its state is the proof (no sign-in needed). */
-  oauthCallback: (b: { state?: string; code?: string; error?: string }) =>
-    request<{ status: OAuthSignInView['status']; provider: OAuthProviderId; email?: string; error?: string }>(
+  oauthCallback: (b: { state?: string; code?: string; error?: string; iss?: string }) =>
+    request<{ status: OAuthSignInView['status']; provider: OAuthSignInView['provider']; email?: string; server?: string; error?: string }>(
       'POST',
       '/api/oauth/callback',
       b,
@@ -418,6 +420,10 @@ export const api = {
   updateTools: (b: ToolLibraryUpdate) => request<ToolLibraryView>('PUT', '/api/tools', b),
   saveMcpServer: (name: string, b: McpServerUpdate) => request<ToolLibraryView>('PUT', `/api/tools/mcp/${encodeURIComponent(name)}`, b),
   deleteMcpServer: (name: string) => request<ToolLibraryView>('DELETE', `/api/tools/mcp/${encodeURIComponent(name)}`),
+  /** An HTTP server's own sign-in, followed as an account's is (`oauthSignIn`, `pasteOAuthAddress`, `cancelOAuthSignIn`). */
+  startMcpSignIn: (name: string) =>
+    request<OAuthSignInView>('POST', `/api/tools/mcp/${encodeURIComponent(name)}/signin`, { origin: location.origin }),
+  signOutMcp: (name: string) => request<ToolLibraryView>('DELETE', `/api/tools/mcp/${encodeURIComponent(name)}/signin`),
   scanSkills: (path: string) =>
     request<{ path: string; skills: SkillCandidate[] }>('GET', `/api/tools/skills/scan?path=${encodeURIComponent(path)}`),
 

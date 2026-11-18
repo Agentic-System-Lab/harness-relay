@@ -116,8 +116,19 @@ export function canReadFiles(provider: Provider, off: readonly NativePart[] = []
  * `ownSkills`: the agent's CLI still loads its own skills (the user did not leave them out). `reads`:
  * it can read files; skills are read from their SKILL.md, so without that they are not listed.
  */
-function toolSections(tools: Pick<AgentTools, 'memory' | 'skills'>, ownSkills: boolean, reads = true): string {
+function toolSections(tools: Pick<AgentTools, 'memory' | 'skills' | 'leftOut'>, ownSkills: boolean, reads = true): string {
   const out: string[] = [];
+  if (tools.leftOut?.length) {
+    const list = tools.leftOut
+      .map(
+        (l) =>
+          `- ${l.name}: ${l.reason === 'reauth' ? 'its sign-in no longer works; the user can sign in to it again in Settings → Tool library' : 'its sign-in could not be renewed just now'}`,
+      )
+      .join('\n');
+    out.push(`# Tool library: left out of this turn
+These MCP servers from the user's tool library sign in themselves, and could not be given to you this turn. If the task needs one of them, say so to the user rather than working around it.
+${list}`);
+  }
   if (tools.memory) {
     out.push(`# Memory
 Notes the user keeps for every agent in Harness Relay, shared by all conversations. Use them as background; what the user says in this chat takes precedence.
@@ -239,7 +250,7 @@ export function buildBriefing(
   conv: Conversation,
   agent: AgentConfig,
   ws: BriefingWorkspace = { kind: 'shared' },
-  tools: Pick<AgentTools, 'memory' | 'skills'> = { skills: [] },
+  tools: Pick<AgentTools, 'memory' | 'skills' | 'leftOut'> = { skills: [] },
   /** What the user left out of this agent's CLI in Harness Relay's runs, all of a kind and single items. */
   nativeOff: readonly NativePart[] = [],
   nativeItems: NativeItemsOff = {},

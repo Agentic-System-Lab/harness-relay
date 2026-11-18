@@ -601,7 +601,7 @@ describe('Store (SQLite)', () => {
     expect(has("SELECT 1 FROM sqlite_master WHERE name = 'model_backends'")).toBe(true);
   });
 
-  it("keeps a schedule's goal, its tracking state and its webhook (never the token), and a webhook's body on its message", () => {
+  it("keeps a schedule's goal, its tracking state and its webhook (never the token), a webhook's body on its message, and a reply's notice", () => {
     const store = new Store(db);
     const conv = sampleConversation();
     store.create(conv);
@@ -638,6 +638,8 @@ describe('Store (SQLite)', () => {
       ...agentMsg,
       id: 'r1',
       parts: [
+        // What Harness Relay noted about the turn, kept with the reply as well.
+        { type: 'notice', text: 'The MCP server "linear" was left out of this turn' },
         { type: 'text', text: 'ok' },
         { type: 'progress', status: 'done', text: 'green' },
       ],

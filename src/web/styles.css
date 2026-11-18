@@ -1807,6 +1807,30 @@ details.sub .model-picker {
   font-weight: 600;
 }
 
+.msg-notice {
+  margin: 6px 0;
+}
+
+/* An HTTP MCP server's own sign-in, under its row in the tool library. */
+.lib-row.mcp-http {
+  flex-wrap: wrap;
+}
+
+.mcp-signin {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mcp-signin-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .option-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
