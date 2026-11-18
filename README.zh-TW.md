@@ -2,7 +2,7 @@
 
 # Harness Relay
 
-**網站：** https://agentic-system-lab.github.io/harness-relay/zh-TW/ · **文件：** https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/
+**網站：** https://agentic-system-lab.github.io/harness-relay/zh-TW/
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1)
 
