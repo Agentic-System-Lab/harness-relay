@@ -389,7 +389,7 @@ describe("a template's rules with Settings' default", () => {
     fromDefault: true as const,
   };
 
-  it('takes in both lists: paths and commands each once (the template’s on a tie), the template’s commit format, no mark', () => {
+  it('takes in both lists: the default’s first, paths and commands each once, the template’s commit format, no mark', () => {
     const merged = mergeDefaultChecks(copy, {
       protectedPaths: ['secrets/', '.env'],
       commitPattern: '^fix',
@@ -398,16 +398,24 @@ describe("a template's rules with Settings' default", () => {
         { id: 'lint', run: 'npm run lint' },
       ],
     });
-    expect(merged.protectedPaths).toEqual(['secrets/', '.env', '*.pem']);
+    expect(merged.protectedPaths).toEqual(['.env', '*.pem', 'secrets/']);
     expect(merged.commitPattern).toBe('^fix');
-    // `npm test` once, as the template has it; `npm run lint` twice (other folders), each with an id of its own.
+    // `npm test` once, with the template's time limit; `npm run lint` twice (other folders), each with an id of its own.
     expect(merged.commands!.map((c) => [c.run, c.cwd ?? '', c.timeoutMin ?? 0])).toEqual([
       ['npm test', '', 20],
-      ['npm run lint', '', 0],
       ['npm run lint', 'web', 0],
+      ['npm run lint', '', 0],
     ]);
     expect(new Set(merged.commands!.map((c) => c.id)).size).toBe(3);
     expect(merged.fromDefault).toBeUndefined();
+  });
+
+  it('opens the sandbox for a command both have only where both open it', () => {
+    const merged = mergeDefaultChecks(
+      { commands: [{ id: 'a', run: 'npm test', unixSockets: true }], fromDefault: true },
+      { commands: [{ id: 'b', run: 'npm test', localPorts: true, unixSockets: true }] },
+    );
+    expect(merged.commands).toEqual([{ id: 'a', run: 'npm test', unixSockets: true }]);
   });
 
   it('keeps the default’s commit format when the template has none, and the mark when the template adds nothing', () => {
@@ -417,15 +425,18 @@ describe("a template's rules with Settings' default", () => {
     expect(mergeDefaultChecks(copy, { protectedPaths: ['secrets/'] }).fromDefault).toBeUndefined();
   });
 
-  it('stays within the list’s limits, the template’s rules first', () => {
+  it('stays within the list’s limits, all of the default’s rules kept first; at the limit nothing is the default’s alone', () => {
     const many = (n: number, p: string) => Array.from({ length: n }, (_, i) => `${p}${i}`);
     const merged = mergeDefaultChecks(
       { protectedPaths: many(40, 'd'), commands: many(8, 'd').map((run) => ({ id: run, run })), fromDefault: true },
       { protectedPaths: many(20, 't'), commands: many(5, 't').map((run) => ({ id: run, run })) },
     );
     expect(merged.protectedPaths).toHaveLength(CHECK_LIMITS.protectedPaths);
-    expect(merged.protectedPaths!.slice(0, 20)).toEqual(many(20, 't'));
+    expect(merged.protectedPaths!.slice(0, 40)).toEqual(many(40, 'd'));
     expect(merged.commands).toHaveLength(CHECK_LIMITS.commands);
-    expect(merged.commands!.slice(0, 5).map((c) => c.run)).toEqual(many(5, 't'));
+    expect(merged.commands!.slice(0, 8).map((c) => c.run)).toEqual(many(8, 'd'));
+    // A full default that a template adds to: the template's rule does not fit, so nothing was added.
+    const full = { protectedPaths: many(CHECK_LIMITS.protectedPaths, 'd'), fromDefault: true as const };
+    expect(mergeDefaultChecks(full, { protectedPaths: ['t'] })).toEqual(full);
   });
 });

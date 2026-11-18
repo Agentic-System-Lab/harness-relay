@@ -289,7 +289,7 @@ describe('team checks', () => {
     // Settings' default as it was copied in takes the template's rules in with its own, unmarked from then on.
     const copied = conversation({ checks: { protectedPaths: ['*.pem'], commitPattern: '^feat', fromDefault: true } });
     apply(copied);
-    expect(copied.settings.checks).toEqual({ protectedPaths: ['.env', '*.pem'], commitPattern: '^feat' });
+    expect(copied.settings.checks).toEqual({ protectedPaths: ['*.pem', '.env'], commitPattern: '^feat' });
     // Once changed it is the chat's own, and stays.
     const changed = conversation({ checks: { commitPattern: '^fix' } });
     apply(changed);

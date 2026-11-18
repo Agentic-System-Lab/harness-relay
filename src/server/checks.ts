@@ -216,35 +216,54 @@ export interface WorktreeChange {
 /**
  * Settings' default as a chat has it, still marked (`fromDefault`), with the rules of a template the lead
  * agent picked: the protected paths of both (each once), the commands of both (one per command line and
- * folder, the template's where both have it, each with an id of its own), the template's commit format
- * when it has one (else the default's), within the list's limits, the template's rules first. Still the
+ * folder), the template's commit format when it has one (else the default's), within the list's limits,
+ * the default's rules first, so that a full list keeps all of the user's own. A command both have keeps
+ * the template's time limit, and a sandbox opening (`localPorts`, `unixSockets`) only when both open it:
+ * a template never opens more for a command the user set. Each command keeps an id of its own. Still the
  * default's (marked) when the template added nothing; otherwise no longer.
  */
 export function mergeDefaultChecks(copy: CheckList, template: CheckList): CheckList {
-  const paths = [...new Set([...(template.protectedPaths ?? []), ...(copy.protectedPaths ?? [])])].slice(0, CHECK_LIMITS.protectedPaths);
+  const own = copy.protectedPaths ?? [];
+  const paths = [...new Set([...own, ...(template.protectedPaths ?? [])])].slice(0, CHECK_LIMITS.protectedPaths);
   const key = (c: CheckCommand) => `${c.run}\u0000${c.cwd ?? ''}`;
+  const theirs = new Map((template.commands ?? []).map((c) => [key(c), c]));
   const commands: CheckCommand[] = [];
   const ids = new Set<string>();
-  for (const c of [...(template.commands ?? []), ...(copy.commands ?? [])]) {
-    if (commands.length >= CHECK_LIMITS.commands || commands.some((x) => key(x) === key(c))) continue;
+  const add = (c: CheckCommand) => {
+    if (commands.length >= CHECK_LIMITS.commands || commands.some((x) => key(x) === key(c))) return;
     const id = ids.has(c.id) ? randomUUID().slice(0, 8) : c.id;
     ids.add(id);
     commands.push({ ...c, id });
+  };
+  for (const c of copy.commands ?? []) {
+    const t = theirs.get(key(c));
+    if (!t) {
+      add(c);
+      continue;
+    }
+    const { localPorts: _p, unixSockets: _s, timeoutMin: _m, ...rest } = c;
+    add({
+      ...rest,
+      ...(t.timeoutMin !== undefined ? { timeoutMin: t.timeoutMin } : c.timeoutMin !== undefined ? { timeoutMin: c.timeoutMin } : {}),
+      ...(c.localPorts && t.localPorts ? { localPorts: true } : {}),
+      ...(c.unixSockets && t.unixSockets ? { unixSockets: true } : {}),
+    });
   }
+  for (const c of template.commands ?? []) add(c);
   const pattern = template.commitPattern || copy.commitPattern;
   const merged: CheckList = {
     ...(paths.length ? { protectedPaths: paths } : {}),
     ...(pattern ? { commitPattern: pattern } : {}),
     ...(commands.length ? { commands } : {}),
   };
-  // What the default had, in any order: nothing added.
+  // Nothing added: every path and command is the default's own, as it was, and so is the commit format.
+  const sameCommand = (c: CheckCommand) =>
+    (copy.commands ?? []).some((d) => key(d) === key(c) && JSON.stringify({ ...d, id: '' }) === JSON.stringify({ ...c, id: '' }));
   const same =
-    new Set(paths).size === new Set(copy.protectedPaths ?? []).size &&
+    paths.every((p) => own.includes(p)) &&
     pattern === copy.commitPattern &&
     commands.length === (copy.commands ?? []).length &&
-    commands.every((c) =>
-      (copy.commands ?? []).some((d) => key(d) === key(c) && JSON.stringify({ ...d, id: '' }) === JSON.stringify({ ...c, id: '' })),
-    );
+    commands.every(sameCommand);
   return same ? { ...merged, fromDefault: true } : merged;
 }
 
