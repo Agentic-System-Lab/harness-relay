@@ -199,7 +199,7 @@ describe('the use-cases pages', () => {
     }
   });
 
-  it('link each use case’s conversation as it was shared, and the files attached to its question, all in the site', () => {
+  it('link each use case’s conversation as it was shared, and the files attached to its question as GitHub shows them', () => {
     for (const lang of LANGS) {
       const p = page(lang);
       for (const uc of USE_CASES) {
@@ -210,15 +210,18 @@ describe('the use-cases pages', () => {
         expect(s, `${uc.slug} ${lang}`).toMatch(/<\/blockquote>\s*<ul class="usecase-links">/);
         const shared = [...links!.matchAll(/href="(https:\/\/gistpreview\.github\.io\/\?[0-9a-f]{20,})"/g)];
         expect(shared, `${uc.slug} ${lang}`).toHaveLength(1);
-        // Every attached file it links to is in the site, and nothing else is in its folder.
-        const files = [...links!.matchAll(/href="([^"]+)" download>/g)].map((m) => published(p.url(m[1]!)));
+        // Every attached file it links to is in the repository, shown on GitHub (never a download), and nothing else is in its folder.
+        expect(links!, `${uc.slug} ${lang}`).not.toContain(' download');
+        const files = [...links!.matchAll(/href="https:\/\/github\.com\/Agentic-System-Lab\/harness-relay\/blob\/main\/([^"]+)"/g)].map(
+          (m) => decodeURIComponent(m[1]!),
+        );
         const folder = useCaseFiles(uc.slug, lang);
         for (const f of files) {
-          expect(decodeURIComponent(f).startsWith(`${folder}/`), f).toBe(true);
-          expect(exists(decodeURIComponent(f)), f).toBe(true);
+          expect(f.startsWith(`${folder}/`), f).toBe(true);
+          expect(exists(f), f).toBe(true);
         }
         const held = exists(folder) ? readdirSync(new URL(`../${folder}`, import.meta.url)) : [];
-        expect(held.sort(), `${uc.slug} ${lang}`).toEqual(files.map((f) => decodeURIComponent(f).split('/').pop()!).sort());
+        expect(held.sort(), `${uc.slug} ${lang}`).toEqual(files.map((f) => f.split('/').pop()!).sort());
       }
     }
   });

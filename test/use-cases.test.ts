@@ -211,14 +211,14 @@ describe('sharing a use case', () => {
     expect(shareUpTo({ messages: [user('u')] })).toBeUndefined();
   });
 
-  it('links the conversation as shared, with how many files went along, and the attached files in the site', () => {
+  it('links the conversation as shared, with how many files went along, and the attached files as GitHub shows them', () => {
     const share = { url: 'https://gistpreview.github.io/?abc123', files: 2, attachments: ['notes.md', '銀行對帳單 10月.csv'] };
     const en = useCaseLinks('reconcile-accounts', 'en', share, 14);
     expect(en).toBe(
       [
         '<ul class="usecase-links">',
         '                <li><a href="https://gistpreview.github.io/?abc123">Read the whole conversation</a>, as Harness Relay’s Share made it, with the 2 files its replies link to.</li>',
-        '                <li>Attached to the question: <a href="../assets/media/use-cases/files/reconcile-accounts/en/notes.md" download>notes.md</a>, <a href="../assets/media/use-cases/files/reconcile-accounts/en/%E9%8A%80%E8%A1%8C%E5%B0%8D%E5%B8%B3%E5%96%AE%2010%E6%9C%88.csv" download>銀行對帳單 10月.csv</a>.</li>',
+        '                <li>Attached to the question: <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/site/assets/media/use-cases/files/reconcile-accounts/en/notes.md">notes.md</a>, <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/site/assets/media/use-cases/files/reconcile-accounts/en/%E9%8A%80%E8%A1%8C%E5%B0%8D%E5%B8%B3%E5%96%AE%2010%E6%9C%88.csv">銀行對帳單 10月.csv</a>.</li>',
         '              </ul>',
       ].join('\n'),
     );

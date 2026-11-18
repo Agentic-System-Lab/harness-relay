@@ -23,14 +23,17 @@ export const useCaseMedia = (slug: string, lang: DemoLang) => ({
   poster: `site/assets/media/use-cases/${slug}-${lang}.webp`,
 });
 
-/** Where the files attached to a use case's question are in the site, from the repository root. */
+/** Where the files attached to a use case's question are kept, from the repository root (shown on GitHub). */
 export const useCaseFiles = (slug: string, lang: DemoLang) => `site/assets/media/use-cases/files/${slug}/${lang}`;
+
+/** A file of the repository as GitHub shows it (Markdown rendered, a CSV file as a table, an image), never a download. */
+export const REPO_FILES = 'https://github.com/Agentic-System-Lab/harness-relay/blob/main';
 
 const escapeHtml = (s: string) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 
 /**
  * A use case's links, under what was asked: its conversation as Harness Relay's Share put it on the web,
- * and the files attached to its question, in the site. `indent`: the list's own line's.
+ * and the files attached to its question, on GitHub. `indent`: the list's own line's.
  */
 export function useCaseLinks(
   slug: string,
@@ -39,7 +42,6 @@ export function useCaseLinks(
   indent: number,
 ): string {
   const I = ' '.repeat(indent);
-  const up = lang === 'en' ? '../' : '../../';
   const files = (n: number) =>
     lang === 'en' ? `, with the ${n === 1 ? 'file' : `${n} files`} its replies link to` : `，附上回覆連到的 ${n} 個檔案`;
   const items = [
@@ -49,8 +51,7 @@ export function useCaseLinks(
   ];
   if (share.attachments.length) {
     const links = share.attachments.map(
-      (name) =>
-        `<a href="${up}${useCaseFiles(slug, lang).replace(/^site\//, '')}/${encodeURIComponent(name)}" download>${escapeHtml(name)}</a>`,
+      (name) => `<a href="${REPO_FILES}/${useCaseFiles(slug, lang)}/${encodeURIComponent(name)}">${escapeHtml(name)}</a>`,
     );
     items.push(lang === 'en' ? `Attached to the question: ${links.join(', ')}.` : `問題附上的檔案：${links.join('、')}。`);
   }
