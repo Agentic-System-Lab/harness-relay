@@ -52,11 +52,15 @@ export class Scheduler {
   /** Conversations whose due time was found busy: that time, and when it was first tried. Retried, not missed. */
   private retrying = new Map<string, { due: number; since: number }>();
   /**
-   * Each conversation's latest note of skipped times (`skipNote()`): the note, the schedule's times it
-   * counts (`updatedAt`, which saving the schedule sets anew), the first time, how many and why. Kept in
-   * memory only: after a restart the next skipped time starts a note.
+   * Each conversation's latest note of skipped times (`skipNote()`): the note; the schedule as `record()`
+   * left it, which any save of the user's (and switching it off or on, and deleting it) replaces with
+   * another object, whatever it changed; the first time, how many and why. Kept in memory only: after a
+   * restart the next skipped time starts a note.
    */
-  private skips = new Map<string, { messageId: string; schedule: number; first: number; count: number; why: string }>();
+  private skips = new Map<
+    string,
+    { messageId: string; schedule: ConversationSchedule | undefined; first: number; count: number; why: string }
+  >();
 
   constructor(
     private store: Store,
@@ -186,18 +190,19 @@ export class Scheduler {
   }
 
   /**
-   * The note of a skipped time. While the team cannot take the schedule's message (its run goes on, for
-   * as long as a turn may last; it waits for the user's answer, for as long as the user takes), every
-   * time that comes due is skipped: one that follows the conversation's latest note of skipped times, of
-   * the same schedule (not saved again since) and for the same reason, with nothing written in the chat
-   * since nor any time between them that was not skipped, is added to that note instead of leaving one
-   * of its own.
+   * The note of a skipped time. While the team cannot take the schedule's message (a run goes on, which
+   * may take many turns; it waits for the user's answer, for as long as the user takes), every time
+   * that comes due is skipped. One that follows the conversation's latest note of skipped times, of the
+   * same schedule (`s`, the one `record()` left then: not saved since) and for the same reason, with
+   * nothing written in the chat since nor any time between them that was not skipped, is added to that
+   * note instead of leaving one of its own.
    */
   private skipNote(conv: Conversation, s: ConversationSchedule, due: number, why: string): void {
     const prev = this.skips.get(conv.id);
     const last = conv.messages.at(-1);
-    if (prev && last?.id === prev.messageId && last.author.kind === 'system' && prev.schedule === s.updatedAt && prev.why === why) {
+    if (prev && last?.id === prev.messageId && last.author.kind === 'system' && prev.schedule === s && prev.why === why) {
       prev.count++;
+      prev.schedule = conv.schedule;
       this.orchestrator.rewriteNote(
         conv,
         last,
@@ -206,6 +211,6 @@ export class Scheduler {
       return;
     }
     const note = this.orchestrator.systemNote(conv, t().scheduleSkippedNote(scheduleTime(due, s), why));
-    this.skips.set(conv.id, { messageId: note.id, schedule: s.updatedAt, first: due, count: 1, why });
+    this.skips.set(conv.id, { messageId: note.id, schedule: conv.schedule, first: due, count: 1, why });
   }
 }

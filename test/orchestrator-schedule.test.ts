@@ -32,6 +32,10 @@ import {
   textOf,
 } from './orchestrator-harness';
 
+// After the harness, which gives the server's modules their data folder before they load.
+const { createApp } = await import('../src/server/app');
+const { ProviderService } = await import('../src/server/providers');
+
 describe('schedules', () => {
   const HOUR = 3_600_000;
   /** Monday 5 January 2026, 08:00 UTC. */
@@ -273,7 +277,7 @@ describe('schedules', () => {
     const one = (hours: number) => `The automation's message of ${at(hours)} was not sent: the team is waiting for your answer.`;
     expect(notes(conv).slice(1)).toEqual(['Something else.', one(4), one(5)]);
 
-    // While a run goes on (as long as a turn may last): the first time waits in the queue, and the
+    // While a run goes on (which may take many turns): the first time waits in the queue, and the
     // times after it share one note.
     conv.schedule!.enabled = false;
     store.saveSchedule(conv);
@@ -322,7 +326,8 @@ describe('schedules', () => {
     await tickAt(3);
     expect(notes(conv)).toEqual([one(1), one(3)]);
 
-    // Saved again (its times set anew): the note before was another schedule's.
+    // Saved again with new times (another schedule object, as every save is): the note before was the
+    // schedule's as it was. A save through the HTTP API that keeps the times is the next test's.
     conv.schedule = { ...conv.schedule!, updatedAt: T0 - 24 * HOUR };
     store.saveSchedule(conv);
     await tickAt(4);
@@ -347,6 +352,61 @@ describe('schedules', () => {
     expect(notes(conv)[3]).toMatch(new RegExp(`^The automation's message of ${at(6)} was not sent: .*is changing`));
     orchestrator.stop(writer.id);
     await finish(writer.id);
+  });
+
+  it('starts a note of its own once the user saves the schedule, with its times kept too, or switches it off and on', async () => {
+    const app = createApp({ auth: null, store, settings, hub: new Hub(), orchestrator, providers: new ProviderService(settings) });
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    schedule(conv);
+    fake.asking = new Set(['Alice']);
+    await orchestrator.send(conv.id, 'which one?');
+    await finish(conv.id);
+    const at = (hours: number) => scheduleTime(T0 + hours * HOUR, { lang: 'en', timeZone: 'UTC' });
+    const why = 'were not sent: the team is waiting for your answer.';
+    const running = scheduler();
+    const tickAt = async (hours: number) => {
+      now = T0 + hours * HOUR;
+      await running.tick();
+    };
+    // Saved as the schedule drawer saves it, the server's clock at the test's.
+    const save = async (hours: number, b: Record<string, unknown>) => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(T0 + hours * HOUR);
+      try {
+        const res = await app.request(`/api/conversations/${conv.id}/schedule`, {
+          method: 'PUT',
+          headers: { host: '127.0.0.1:8787', 'content-type': 'application/json', 'x-relay-lang': 'en' },
+          body: JSON.stringify({
+            text: 'scheduled check',
+            repeat: { kind: 'interval', hours: 1 },
+            timeZone: 'UTC',
+            approvals: 'deny',
+            ...b,
+          }),
+        });
+        expect(res.status).toBe(200);
+      } finally {
+        vi.useRealTimers();
+      }
+    };
+
+    await tickAt(1);
+    await tickAt(2);
+    // Another message and approvals, the same times (which keeps `updatedAt`, the interval's cadence).
+    const kept = conv.schedule!.updatedAt;
+    await save(2.5, { text: 'a new message', approvals: 'ask' });
+    expect(conv.schedule).toMatchObject({ updatedAt: kept, nextRunAt: T0 + 3 * HOUR });
+    await tickAt(3);
+    await tickAt(4);
+    // Switched off, then on again.
+    await save(4.5, { enabled: false });
+    await save(4.6, {});
+    await tickAt(5);
+    expect(notes(conv)).toEqual([
+      `The automation's messages from ${at(1)} to ${at(2)} (2 times) ${why}`,
+      `The automation's messages from ${at(3)} to ${at(4)} (2 times) ${why}`,
+      `The automation's message of ${at(5)} ${why.replace('were', 'was')}`,
+    ]);
   });
 
   it('skips a time missed while it was not running, or sends it once late, as the schedule says', async () => {
