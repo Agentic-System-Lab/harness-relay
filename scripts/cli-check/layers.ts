@@ -10,7 +10,7 @@ import { CHECKED_VERSIONS } from '../../src/shared/cliVersions';
 import { PROVIDER_LABEL, type Provider } from '../../src/shared/types';
 import type { Scratch } from './scratch';
 import { describeDiff, diffShapes, sameShape, type Shape } from './shape';
-import type { VersionRow } from './versions';
+import { versionStatus, type VersionRow } from './versions';
 
 export interface LayerOptions {
   accept: boolean;
@@ -279,10 +279,19 @@ export async function all(p: Provider, bin: string, row: VersionRow | undefined,
   found += await changelog(p, { from: CHECKED_VERSIONS[p], ...(to ? { to } : {}), bin });
   console.log(`\n== 5. ${PROVIDER_LABEL[p]}: the live tests, on a real model`);
   for (const l of liveCommands(p)) console.log(`  ${l}`);
-  console.log(
-    found
-      ? `\n${PROVIDER_LABEL[p]}: ${found} layer(s) found something to look at (above).`
-      : `\n${PROVIDER_LABEL[p]} ${to ?? '?'}: layers 2 and 3 found nothing new against ${o.against ? `${o.against.version}, run on this system` : CHECKED_VERSIONS[p]}. Read the release notes' lines above and run the live tests; then move it forward to ${to ?? 'this version'} in src/shared/cliVersions.ts.`,
-  );
+  console.log(`\n${verdict(p, found, to, o.against?.version)}`);
   return found;
+}
+
+/**
+ * The report's last line: what layers 2 to 4 found, and what comes next. A version that is not newer
+ * than the one checked (its layers show what the version checked does) has nothing to move forward to.
+ */
+export function verdict(p: Provider, found: number, to: string | undefined, against?: string): string {
+  if (found) return `${PROVIDER_LABEL[p]}: ${found} layer(s) found something to look at (above).`;
+  const checked = CHECKED_VERSIONS[p];
+  const nothing = `${PROVIDER_LABEL[p]} ${to ?? '?'}: layers 2 and 3 found nothing new against ${against ? `${against}, run on this system` : checked}.`;
+  if (to && versionStatus(p, checked, to) !== 'behind')
+    return `${nothing} It is not newer than the version checked, ${checked}: nothing to move forward.`;
+  return `${nothing} Read the release notes' lines above and run the live tests; then move it forward to ${to ?? 'this version'} in src/shared/cliVersions.ts.`;
 }

@@ -15,7 +15,7 @@ import { ciMatrix, fenced, postReports, reportComment, reportMarker, type Report
 import { MUSE_BUILDS, artifactFor, manifestDownload, obtain, thisSystem } from '../scripts/cli-check/obtain';
 import { jobsIn } from './workflow-steps';
 import { keepIssues } from '../scripts/cli-check/issues';
-import { LIVE_CLOUD_CLIS, LIVE_ENDPOINT_CLIS, NO_SHAPES, SHAPES_DIR, liveCommands } from '../scripts/cli-check/layers';
+import { LIVE_CLOUD_CLIS, LIVE_ENDPOINT_CLIS, NO_SHAPES, SHAPES_DIR, liveCommands, verdict } from '../scripts/cli-check/layers';
 import {
   MUSE_MODEL,
   callsOf,
@@ -773,6 +773,26 @@ describe('layer 3: the scripted model (scripts/cli-check/model.ts)', () => {
     expect((await fetch(`${model.url}/api/hello`, { method: 'HEAD' })).status).toBe(200);
     expect((await fetch(`${model.url}/nothing`)).status).toBe(404);
     expect(model.unknown).toEqual(['GET /nothing']);
+  });
+});
+
+describe("the report's last line", () => {
+  it('says to move a newer version forward only when it is newer than the version checked', () => {
+    const checked = CHECKED_VERSIONS.openhands;
+    // The version checked, run against its own recording on this system (as CI runs a CLI that is current).
+    const same = verdict('openhands', 0, checked, checked);
+    expect(same).toContain(`found nothing new against ${checked}, run on this system`);
+    expect(same).toContain('nothing to move forward');
+    expect(same).not.toContain('cliVersions.ts');
+    // Another build of the same numbers (Cursor's hash after its date) is checked as a new one, as layer 1 says.
+    expect(verdict('cursor', 0, `${CHECKED_VERSIONS.cursor.split('-')[0]}-0000000`)).toContain('move it forward to');
+    // A newer one is moved forward once its release notes are read and the live tests run.
+    const newer = verdict('openhands', 0, '999.0.0');
+    expect(newer).toContain(`found nothing new against ${checked}.`);
+    expect(newer).toContain('move it forward to 999.0.0 in src/shared/cliVersions.ts');
+    expect(verdict('openhands', 0, undefined)).toContain('move it forward to this version');
+    // What a layer found comes first, whatever the version.
+    expect(verdict('openhands', 2, checked)).toBe('OpenHands: 2 layer(s) found something to look at (above).');
   });
 });
 
