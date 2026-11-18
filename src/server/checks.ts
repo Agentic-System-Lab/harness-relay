@@ -465,7 +465,7 @@ function withFindings(o: CheckOutcome, findings: CheckFinding[], errors: string[
 /** A result for a system message, from its outcomes. */
 export function checksResult(
   outcomes: CheckOutcome[],
-  o: Pick<ChecksResult, 'when' | 'replyIds' | 'checkedAt' | 'durationMs'>,
+  o: Pick<ChecksResult, 'when' | 'replyIds' | 'checkedAt' | 'durationMs' | 'applyOf'>,
 ): ChecksResult {
   return { status: overallStatus(outcomes), outcomes, ...o };
 }

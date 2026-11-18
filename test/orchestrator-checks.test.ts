@@ -7,14 +7,27 @@
  * The fake CLI, and what each test starts with, are in ./orchestrator-harness.ts.
  */
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, Conversation } from '../src/shared/types';
-import { RunCheck } from '../src/server/checks';
 import { checksHold } from '../src/shared/checks';
-import { defaultCheckCommandDeps } from '../src/server/checkCommands';
-import { calls, conversation, db, fake, finish, orchestrator, project, store, Store, textOf, withLang } from './orchestrator-harness';
+import {
+  calls,
+  defaultCheckCommandDeps,
+  RunCheck,
+  conversation,
+  db,
+  fake,
+  finish,
+  orchestrator,
+  project,
+  root,
+  store,
+  Store,
+  textOf,
+  withLang,
+} from './orchestrator-harness';
 
 const cards = (conv: Conversation) => conv.messages.filter((m) => m.checks);
 const lastCard = (conv: Conversation) => cards(conv).at(-1)!;
@@ -685,5 +698,261 @@ describe('team checks: commands', () => {
     await finish(conv.id);
     expect(ran).toBe(true);
     expect(commandOf(conv).configChanged).toBeUndefined();
+  });
+});
+
+describe('team checks: applying a parallel result', () => {
+  const applyCard = (conv: Conversation) => conv.messages.findLast((m) => m.checks?.when === 'apply')!;
+  const parallel = (checks: NonNullable<Parameters<typeof conversation>[0]['checks']>, permission: 'edit' | 'full' = 'full') =>
+    conversation({ mode: 'parallel', permission, checks });
+  const commandOf = (conv: Conversation) => applyCard(conv).checks!.outcomes.find((o) => o.rule === 'command')!;
+
+  it('holds a result that changes a protected file, and applies it anyway when asked', async () => {
+    const conv = parallel({ protectedPaths: ['Bob.txt'] });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const held = await orchestrator.applyAgentWork(conv.id, 'b');
+    expect(held.files).toEqual([]);
+    expect(held.held).toBe(applyCard(conv).id);
+    expect(existsSync(join(project, 'Bob.txt'))).toBe(false);
+    expect(applyCard(conv).checks).toMatchObject({
+      status: 'failed',
+      when: 'apply',
+      applyOf: { agentId: 'b', name: 'Bob' },
+      outcomes: [{ rule: 'paths', status: 'failed', findings: [{ path: 'Bob.txt', change: 'added', by: 'Bob' }] }],
+    });
+    expect(applyCard(conv).checks!.applied).toBeUndefined();
+    const forced = await orchestrator.applyAgentWork(conv.id, 'b', { force: true });
+    expect(forced.files.map((f) => f.path).sort()).toEqual(['Bob.txt', 'shared.txt']);
+    expect(readFileSync(join(project, 'Bob.txt'), 'utf8')).toBe('Bob\n');
+    // The card that held it says it was applied anyway: still not a pass, and nothing more to apply.
+    expect(applyCard(conv).checks).toMatchObject({ status: 'failed', applied: true });
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'runs the commands on the working directory with the result in it, never in the working directory itself',
+    async () => {
+      const conv = parallel({
+        commands: [{ id: 'c', run: 'test -e Bob.txt && test "$(cat shared.txt)" = "written by Bob" && touch check-marker && echo ok' }],
+      });
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+      const done = await orchestrator.applyAgentWork(conv.id, 'b');
+      expect(done.held).toBeUndefined();
+      expect(commandOf(conv)).toMatchObject({ status: 'passed', output: 'ok', command: conv.settings.checks!.commands![0]!.run });
+      expect(applyCard(conv).checks).toMatchObject({ status: 'passed', applied: true });
+      expect(applyCard(conv).checks!.stale).toBeUndefined();
+      // Applied: the result is there, and what the check wrote in its own tree is not.
+      expect(readFileSync(join(project, 'Bob.txt'), 'utf8')).toBe('Bob\n');
+      expect(existsSync(join(project, 'check-marker'))).toBe(false);
+      expect(readdirSync(join(root, 'data', 'check-trees'))).toEqual([]);
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')('gives the commands the installed dependencies, their caches kept apart', async () => {
+    writeFileSync(join(project, '.gitignore'), 'node_modules/\n');
+    mkdirSync(join(project, 'node_modules', 'pkg'), { recursive: true });
+    writeFileSync(join(project, 'node_modules', 'pkg', 'index.js'), 'module.exports = 1;\n');
+    const conv = parallel({
+      commands: [{ id: 'c', run: 'test -f node_modules/pkg/index.js && mkdir -p node_modules/.vite && echo x > node_modules/.vite/cache' }],
+    });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    await orchestrator.applyAgentWork(conv.id, 'a');
+    expect(commandOf(conv).status).toBe('passed');
+    expect(existsSync(join(project, 'node_modules', '.vite'))).toBe(false);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'holds a result whose command fails, says so to the next turn, and applies it anyway when asked',
+    async () => {
+      const conv = parallel({ commands: [{ id: 'c', run: 'if [ -e Bob.txt ]; then echo "no Bob.txt please"; exit 1; fi' }] });
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+      const held = await orchestrator.applyAgentWork(conv.id, 'b');
+      expect(held.held).toBeDefined();
+      expect(commandOf(conv)).toMatchObject({ status: 'failed', output: 'no Bob.txt please' });
+      expect(existsSync(join(project, 'Bob.txt'))).toBe(false);
+      // Alice's result passes, and is applied.
+      expect((await orchestrator.applyAgentWork(conv.id, 'a')).held).toBeUndefined();
+      expect(existsSync(join(project, 'Alice.txt'))).toBe(true);
+    },
+  );
+
+  it('Stop during the checks applies nothing; on native Windows the commands do not run and the result is applied', async () => {
+    const conv = parallel({ commands: [{ id: 'c', run: 'npm test' }] });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    let started!: () => void;
+    const entered = new Promise<void>((r) => (started = r));
+    orchestrator.checkCommandDeps = {
+      ...defaultCheckCommandDeps,
+      platform: 'linux',
+      runShellScript: (async (_sh: string, _f: readonly string[], _s: string, o: { signal?: AbortSignal }) => {
+        started();
+        if (!o.signal?.aborted) await new Promise((r) => o.signal?.addEventListener('abort', r, { once: true }));
+        return {
+          code: null,
+          signal: null,
+          stdout: '',
+          stdoutBytes: Buffer.alloc(0),
+          stdoutTruncated: false,
+          stdoutSize: 0,
+          stderr: '',
+          aborted: true,
+          timedOut: false,
+        };
+      }) as never,
+    };
+    const applying = orchestrator.applyAgentWork(conv.id, 'b');
+    await entered;
+    expect(orchestrator.isRunning(conv.id)).toBe(true);
+    orchestrator.stop(conv.id);
+    expect((await applying).held).toBeDefined();
+    expect(existsSync(join(project, 'Bob.txt'))).toBe(false);
+    orchestrator.checkCommandDeps = { ...defaultCheckCommandDeps, platform: 'win32' };
+    expect((await orchestrator.applyAgentWork(conv.id, 'b')).held).toBeUndefined();
+    expect(commandOf(conv)).toMatchObject({ status: 'error', notRun: 'platform' });
+    expect(existsSync(join(project, 'Bob.txt'))).toBe(true);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'holds back a result that changes what the commands read until the user confirms, then runs them and applies it',
+    async () => {
+      const conv = parallel({ commands: [{ id: 'c', run: 'true' }] });
+      fake.during = (name, cwd) => name === 'Bob' && writeFileSync(join(cwd, '.npmrc'), 'script-shell=true\n');
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+      fake.during = undefined;
+      const held = await orchestrator.applyAgentWork(conv.id, 'b');
+      expect(held.held).toBeDefined();
+      expect(commandOf(conv)).toMatchObject({ status: 'error', configChanged: ['.npmrc'] });
+      expect(existsSync(join(project, '.npmrc'))).toBe(false);
+      const confirmed = await orchestrator.applyAgentWork(conv.id, 'b', { confirm: true });
+      expect(confirmed.held).toBeUndefined();
+      expect(commandOf(conv)).toMatchObject({ status: 'passed' });
+      expect(existsSync(join(project, '.npmrc'))).toBe(true);
+    },
+  );
+
+  it('runs the commands in the sandbox with full access too when it can start here, and without it only when it cannot', async () => {
+    const conv = parallel({ commands: [{ id: 'c', run: 'npm test' }] });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const ok = {
+      code: 0,
+      signal: null,
+      stdout: '',
+      stdoutBytes: Buffer.alloc(0),
+      stdoutTruncated: false,
+      stdoutSize: 0,
+      stderr: '',
+      aborted: false,
+      timedOut: false,
+    };
+    let sandboxed = 0;
+    let bare = 0;
+    const deps = (available: boolean) => ({
+      ...defaultCheckCommandDeps,
+      platform: 'linux' as const,
+      sandboxAvailable: async () => (available ? { ok: true as const } : { ok: false as const, reason: 'no bubblewrap' }),
+      makeRunDirs: () => ({ tmp: join(project, '.run-tmp'), hostTmp: join(project, '.run-host') }),
+      sandboxCommand: (async (_b: string, _a: string[], env: NodeJS.ProcessEnv) => {
+        sandboxed++;
+        return { bin: 'host', args: [], env, channel: {}, failure: () => undefined, dispose: async () => undefined, run: {} };
+      }) as never,
+      runProcess: (async () => ok) as never,
+      runShellScript: (async () => {
+        bare++;
+        return ok;
+      }) as never,
+    });
+    orchestrator.checkCommandDeps = deps(true);
+    expect((await orchestrator.applyAgentWork(conv.id, 'b')).held).toBeUndefined();
+    expect([sandboxed, bare]).toEqual([1, 0]);
+    expect(commandOf(conv).unsandboxed).toBeUndefined();
+    await orchestrator.send(conv.id, 'again');
+    await finish(conv.id);
+    orchestrator.checkCommandDeps = deps(false);
+    expect((await orchestrator.applyAgentWork(conv.id, 'a')).held).toBeUndefined();
+    expect([sandboxed, bare]).toEqual([1, 1]);
+    expect(commandOf(conv).unsandboxed).toBe(true);
+  });
+
+  it('applies anyway only the result its card checked: one that changed since is checked again', async () => {
+    const conv = parallel({ protectedPaths: ['Bob.txt'] });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const first = (await orchestrator.applyAgentWork(conv.id, 'b')).held;
+    expect(first).toBeDefined();
+    // The member worked on in its worktree since.
+    const wt = conv.worktrees.b![0]!;
+    writeFileSync(join(wt.path, 'more.txt'), 'more\n');
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'add', '-A'], { cwd: wt.path });
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', 'more'], { cwd: wt.path });
+    const again = await orchestrator.applyAgentWork(conv.id, 'b', { force: true });
+    expect(again.held).toBeDefined();
+    expect(again.held).not.toBe(first);
+    expect(existsSync(join(project, 'Bob.txt'))).toBe(false);
+  });
+
+  it('makes no check tree on native Windows, where no command runs', async () => {
+    const conv = parallel({ commands: [{ id: 'c', run: 'npm test' }] });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    let ran = false;
+    orchestrator.checkCommandDeps = {
+      ...defaultCheckCommandDeps,
+      platform: 'win32',
+      runShellScript: (async () => ((ran = true), {})) as never,
+    };
+    const trees = join(root, 'data', 'check-trees');
+    const before = existsSync(trees) ? readdirSync(trees).length : 0;
+    expect((await orchestrator.applyAgentWork(conv.id, 'b')).held).toBeUndefined();
+    expect(commandOf(conv)).toMatchObject({ status: 'error', notRun: 'platform' });
+    expect(ran).toBe(false);
+    expect(existsSync(trees) ? readdirSync(trees).length : 0).toBe(before);
+  });
+
+  it('checks again a result applied anyway when the latest card is another member’s', async () => {
+    const conv = parallel({ protectedPaths: ['Alice.txt', 'Bob.txt'] });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    expect((await orchestrator.applyAgentWork(conv.id, 'a')).held).toBeDefined();
+    expect((await orchestrator.applyAgentWork(conv.id, 'b')).held).toBeDefined();
+    // Bob's card is the latest: Alice's result is not the one it held, so it is checked again.
+    const again = await orchestrator.applyAgentWork(conv.id, 'a', { force: true });
+    expect(again.held).toBeDefined();
+    expect(applyCard(conv).checks!.applyOf!.agentId).toBe('a');
+    expect(existsSync(join(project, 'Alice.txt'))).toBe(false);
+  });
+
+  it('Try it in a parallel chat with full access runs in the sandbox when it starts, as the checks before applying do', async () => {
+    const conv = parallel({ commands: [{ id: 'c', run: 'npm test' }] });
+    let sandboxed = 0;
+    orchestrator.checkCommandDeps = {
+      ...defaultCheckCommandDeps,
+      platform: 'linux',
+      sandboxAvailable: async () => ({ ok: true }),
+      makeRunDirs: () => ({ tmp: join(project, '.run-tmp'), hostTmp: join(project, '.run-host') }),
+      sandboxCommand: (async (_b: string, _a: string[], env: NodeJS.ProcessEnv) => {
+        sandboxed++;
+        return { bin: 'host', args: [], env, channel: {}, failure: () => undefined, dispose: async () => undefined, run: {} };
+      }) as never,
+      runProcess: (async () => ({
+        code: 0,
+        signal: null,
+        stdout: '',
+        stdoutBytes: Buffer.alloc(0),
+        stdoutTruncated: false,
+        stdoutSize: 0,
+        stderr: '',
+        aborted: false,
+        timedOut: false,
+      })) as never,
+    };
+    const outcome = await orchestrator.tryCheckCommand(conv.id, { id: 'c', run: 'npm test' });
+    expect(sandboxed).toBe(1);
+    expect(outcome.unsandboxed).toBeUndefined();
   });
 });

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import type { AgentConfig, ChatMessage, CheckFinding, CheckOutcome } from '../../shared/types';
-import { cardActions, fixCandidates, gatedFiles } from '../checks';
+import { applyAnyway, cardActions, fixCandidates, gatedFiles } from '../checks';
 import { useT } from '../i18n';
 import { formatDuration } from '../util';
 
@@ -14,6 +14,11 @@ interface Props {
   onRecheck: (messageId: string, confirm?: boolean) => Promise<unknown>;
   onSkip: (messageId: string) => Promise<unknown>;
   onFix: (messageId: string, agentId: string) => Promise<unknown>;
+  /**
+   * Apply a member's parallel-mode result that the checks held back: without checking (`force`, its
+   * card's "Apply anyway"), or having the commands run that its changed settings held back (`confirm`).
+   */
+  onApplyAnyway: (agentId: string, how: 'force' | 'confirm') => Promise<unknown>;
 }
 
 /** One finding: the file and what happened to it, or the commit and its subject; and whose turn it was in. */
@@ -67,10 +72,11 @@ export function CommandOutcome({ o }: { o: CheckOutcome }) {
  * The team checks' result after the team's replies (`ChatMessage.checks`): each rule and what it found.
  * The latest result offers Check again, and while it fails, Ask a member to fix it and Skip.
  */
-export function ChecksCard({ msg, latest, agents, running, onRecheck, onSkip, onFix }: Props) {
+export function ChecksCard({ msg, latest, agents, running, onRecheck, onSkip, onFix, onApplyAnyway }: Props) {
   const t = useT();
   const c = msg.checks!;
   const actions = cardActions(msg, latest, running);
+  const heldFor = applyAnyway(msg, latest, running);
   // A ref, not state: a quick double click arrives before React re-renders.
   const busy = useRef(false);
   const [error, setError] = useState('');
@@ -95,6 +101,7 @@ export function ChecksCard({ msg, latest, agents, running, onRecheck, onSkip, on
         <span className={`checks-status ${c.status}`}>{t.checks.status[c.status]}</span>
         {c.when === 'pause' && <span className="muted small">{t.checks.whenPause}</span>}
         {c.when === 'recheck' && <span className="muted small">{t.checks.whenRecheck}</span>}
+        {c.when === 'apply' && c.applyOf && <span className="muted small">{t.checks.whenApply(c.applyOf.name)}</span>}
       </header>
       <ul className="checks-outcomes">
         {c.outcomes.map((o) =>
@@ -122,6 +129,8 @@ export function ChecksCard({ msg, latest, agents, running, onRecheck, onSkip, on
         )}
       </ul>
       {c.stale && <p className="small warn-text checks-note">{t.checks.stale}</p>}
+      {c.when === 'apply' && c.applied && <p className="small muted checks-note">{t.checks.applied}</p>}
+      {heldFor && <p className="small warn-text checks-note">{t.checks.held}</p>}
       {c.skippedAt ? (
         <p className="small muted checks-note">{t.checks.skipped}</p>
       ) : (
@@ -159,6 +168,24 @@ export function ChecksCard({ msg, latest, agents, running, onRecheck, onSkip, on
               </option>
             ))}
           </select>
+        )}
+        {heldFor && (
+          <button
+            type="button"
+            className="ghost small-button"
+            onClick={() => confirm(t.checks.applyAnywayAsk(c.applyOf!.name)) && void act(() => onApplyAnyway(heldFor, 'force'))}
+          >
+            {t.checks.applyAnyway}
+          </button>
+        )}
+        {heldFor && gatedFiles(msg).length > 0 && (
+          <button
+            type="button"
+            className="ghost small-button"
+            onClick={() => confirm(t.checks.confirmRunAsk(gatedFiles(msg).join('\n'))) && void act(() => onApplyAnyway(heldFor, 'confirm'))}
+          >
+            {t.checks.confirmApply}
+          </button>
         )}
         {actions.skip && (
           <button

@@ -1184,11 +1184,23 @@ export interface CheckOutcome {
 /**
  * The team checks' result a system message carries (`ChatMessage.checks`), shown as a card after the
  * team's replies. `when`: after the team's turns (`run`), when the team stopped to ask the user
- * something (`pause`, what was done until then), or the user checked again (`recheck`).
+ * something (`pause`, what was done until then), the user checked again (`recheck`), or before a
+ * parallel-mode result was applied (`apply`).
  */
 export interface ChecksResult {
   status: CheckStatus;
-  when: 'run' | 'pause' | 'recheck';
+  when: 'run' | 'pause' | 'recheck' | 'apply';
+  /**
+   * `apply`: checked before a member's parallel-mode result was applied, on the working directories as
+   * they were with that result in them: whose, and whether it was then applied (not when it did not pass,
+   * until the user applies it anyway).
+   */
+  applyOf?: {
+    agentId: string;
+    name: string;
+    /** The member's worktree heads it checked: Apply anyway applies only that result. */ heads?: string;
+  };
+  applied?: boolean;
   outcomes: CheckOutcome[];
   /** The replies whose work it checked (message ids), oldest first. */
   replyIds?: string[];

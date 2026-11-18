@@ -445,6 +445,8 @@ interface Props {
   onRecheckChecks?: (messageId: string, confirm?: boolean) => Promise<unknown>;
   onSkipChecks?: (messageId: string) => Promise<unknown>;
   onFixChecks?: (messageId: string, agentId: string) => Promise<unknown>;
+  /** Apply a member's parallel-mode result the team checks held back. */
+  onApplyAnyway?: (agentId: string, how: 'force' | 'confirm') => Promise<unknown>;
 }
 
 /** Names the conversation's scheduled message @mentions that a team design does not have. */
@@ -1001,6 +1003,7 @@ export const MessageItem = memo(function MessageItem({
   onRecheckChecks,
   onSkipChecks,
   onFixChecks,
+  onApplyAnyway,
 }: Props) {
   const t = useT();
 
@@ -1017,6 +1020,7 @@ export const MessageItem = memo(function MessageItem({
           onRecheck={onRecheckChecks ?? none}
           onSkip={onSkipChecks ?? none}
           onFix={onFixChecks ?? none}
+          onApplyAnyway={onApplyAnyway ?? none}
         />
       );
     }

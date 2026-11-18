@@ -418,8 +418,13 @@ export const api = {
   deleteShare: (id: string) => request<{ ok: true }>('DELETE', `/api/shares/${id}`),
   messageDiff: (id: string, messageId: string) => requestText(`/api/conversations/${id}/messages/${messageId}/diff`),
   agentDiff: (id: string, agentId: string) => requestText(`/api/conversations/${id}/agents/${agentId}/diff`),
-  applyAgent: (id: string, agentId: string) =>
-    request<{ ok: true; files: FileChange[] }>('POST', `/api/conversations/${id}/agents/${agentId}/apply`),
+  /** Team checks run first: one that does not pass applies nothing (`held`, its card's id), unless `force`. */
+  applyAgent: (id: string, agentId: string, o: { force?: boolean; confirm?: boolean } = {}) =>
+    request<{ ok: true; files: FileChange[]; held?: string }>(
+      'POST',
+      `/api/conversations/${id}/agents/${agentId}/apply`,
+      o.force || o.confirm ? o : undefined,
+    ),
 
   // presets
   listPresets: () => request<TeamPreset[]>('GET', '/api/presets'),

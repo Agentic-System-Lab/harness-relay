@@ -465,6 +465,23 @@ export async function removeWorktree(root: string, path: string, branch?: string
   rmSync(path, { recursive: true, force: true });
 }
 
+/**
+ * A worktree of `commit` with no branch, at `path` (team checks: a parallel result checked on the
+ * working directory as it is, before it is applied). Remove it with `removeWorktree()`.
+ */
+export async function addCheckTree(root: string, path: string, commit: string): Promise<void> {
+  // A tree a stopped server left is gone (removed at startup), but still registered: pruned first.
+  await git(root, ['worktree', 'prune'], { allowFail: true });
+  if (existsSync(path)) await removeWorktree(root, path);
+  mkdirSync(join(path, '..'), { recursive: true });
+  await git(root, ['worktree', 'add', '-q', '-f', '--detach', path, commit]);
+}
+
+/** Applies a checked patch onto another checkout of its repository (a check tree). */
+export async function applyPatchIn(dir: string, p: CheckedPatch): Promise<void> {
+  await git(dir, ['apply', '--whitespace=nowarn', '-'], { stdin: p.patch });
+}
+
 export async function worktreeHead(path: string): Promise<string> {
   return out(await git(path, ['rev-parse', 'HEAD']));
 }

@@ -371,3 +371,82 @@ describe('running a command', () => {
     expect(slow.runShellScript).toHaveBeenCalledWith('/bin/sh', [], expect.any(String), expect.objectContaining({ timeoutMs: 120_000 }));
   });
 });
+
+describe('the dependencies a check tree is given', () => {
+  it.skipIf(process.platform === 'win32')(
+    'links each package of every node_modules, and a venv, only where the tree has the folder, its caches left out',
+    async () => {
+      const { linkDependencies } = await import('../src/server/checkCommands');
+      const { lstatSync, readlinkSync, existsSync } = await import('node:fs');
+      const real = join(dir, 'real');
+      const tree = join(dir, 'tree');
+      for (const p of [
+        'node_modules/vitest',
+        'node_modules/@scope/pkg',
+        'node_modules/.vite',
+        'packages/a/node_modules/x',
+        '.venv/bin',
+        'dist/node_modules/y',
+        'home/node_modules/z',
+      ])
+        mkdirSync(join(real, p), { recursive: true });
+      // The tree has the project's folders, not the ignored ones (dist), and a node_modules of its own in b.
+      mkdirSync(join(tree, 'packages', 'a'), { recursive: true });
+      mkdirSync(join(tree, 'packages', 'b', 'node_modules'), { recursive: true });
+      mkdirSync(join(real, 'packages', 'b', 'node_modules', 'own'), { recursive: true });
+      mkdirSync(join(tree, 'home'), { recursive: true });
+      expect(linkDependencies(real, tree, [join(real, 'home')])).toBe(3);
+      expect(lstatSync(join(tree, 'node_modules')).isDirectory()).toBe(true);
+      expect(readlinkSync(join(tree, 'node_modules', 'vitest'))).toBe(join(real, 'node_modules', 'vitest'));
+      // A scope's folder is the tree's own, with a link for each of its packages.
+      expect(lstatSync(join(tree, 'node_modules', '@scope')).isDirectory()).toBe(true);
+      expect(readlinkSync(join(tree, 'node_modules', '@scope', 'pkg'))).toBe(join(real, 'node_modules', '@scope', 'pkg'));
+      expect(existsSync(join(tree, 'node_modules', '.vite'))).toBe(false);
+      expect(readlinkSync(join(tree, 'packages', 'a', 'node_modules', 'x'))).toBe(join(real, 'packages', 'a', 'node_modules', 'x'));
+      expect(readlinkSync(join(tree, '.venv'))).toBe(join(real, '.venv'));
+      // Its own node_modules is left as it is; nothing in folders it has not, nor in the excluded.
+      expect(existsSync(join(tree, 'packages', 'b', 'node_modules', 'own'))).toBe(false);
+      expect(existsSync(join(tree, 'dist'))).toBe(false);
+      expect(existsSync(join(tree, 'home', 'node_modules'))).toBe(false);
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'links a workspace’s own packages to the tree, which has the result, and removes leftover trees without following links',
+    async () => {
+      const { linkDependencies, clearCheckTrees, checkTreesDir } = await import('../src/server/checkCommands');
+      const { readlinkSync, symlinkSync, writeFileSync, existsSync } = await import('node:fs');
+      const real = join(dir, 'repo');
+      const tree = join(dir, 'tree');
+      mkdirSync(join(real, 'packages', 'a'), { recursive: true });
+      mkdirSync(join(real, 'packages', 'b'), { recursive: true });
+      mkdirSync(join(real, 'node_modules', '@scope'), { recursive: true });
+      mkdirSync(join(real, 'node_modules', 'dep'), { recursive: true });
+      symlinkSync(join('..', 'packages', 'a'), join(real, 'node_modules', 'a'));
+      symlinkSync(join('..', '..', 'packages', 'b'), join(real, 'node_modules', '@scope', 'b'));
+      mkdirSync(join(tree, 'packages', 'a'), { recursive: true });
+      mkdirSync(join(tree, 'packages', 'b'), { recursive: true });
+      linkDependencies(real, tree);
+      const realRoot = realpathSync(real);
+      expect(readlinkSync(join(tree, 'node_modules', 'a'))).toBe(join(tree, 'packages', 'a'));
+      expect(readlinkSync(join(tree, 'node_modules', '@scope', 'b'))).toBe(join(tree, 'packages', 'b'));
+      expect(readlinkSync(join(tree, 'node_modules', 'dep'))).toBe(join(realRoot, 'node_modules', 'dep'));
+      // A link into an ignored folder of the repository (a built package), which the tree has not, keeps the user's.
+      mkdirSync(join(real, 'built-lib'), { recursive: true });
+      const tree2 = join(dir, 'tree2');
+      mkdirSync(tree2, { recursive: true });
+      symlinkSync(join('..', 'built-lib'), join(real, 'node_modules', 'built'));
+      linkDependencies(real, tree2);
+      expect(readlinkSync(join(tree2, 'node_modules', 'built'))).toBe(join(realRoot, 'node_modules', 'built'));
+      // A stopped server's trees go, and what they link to stays.
+      const data = join(dir, 'data');
+      const left = join(checkTreesDir(data), 'x', '0');
+      mkdirSync(join(left, 'node_modules'), { recursive: true });
+      writeFileSync(join(real, 'node_modules', 'dep', 'keep.txt'), 'keep');
+      symlinkSync(join(real, 'node_modules', 'dep'), join(left, 'node_modules', 'dep'));
+      clearCheckTrees(data);
+      expect(existsSync(checkTreesDir(data))).toBe(false);
+      expect(existsSync(join(real, 'node_modules', 'dep', 'keep.txt'))).toBe(true);
+    },
+  );
+});

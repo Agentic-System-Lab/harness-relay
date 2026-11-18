@@ -467,7 +467,7 @@ const zhTW = {
   checksCommandNoFolder: (cwd: string) =>
     cwd ? `找不到要執行指令的資料夾「${cwd}」，或它不在對話的工作目錄裡。` : '找不到對話的工作目錄。',
   checksCommandsAtEnd: '團隊做完這一輪後才會執行指令檢查。',
-  checksCommandsParallel: '平行模式的結果套用到工作目錄之前不在工作目錄裡，所以不執行指令檢查。',
+  checksCommandsParallel: '平行模式的結果套用到工作目錄之前不在工作目錄裡，所以指令會在套用時檢查。',
   checksConfigChanged: (files: string) =>
     `團隊改到了檢查會讀的設定（${files}），還沒確認，所以先不執行；確認沒問題後按「確認後執行指令」執行。`,
   checksNetworkRefused: (hosts: string) => `沙箱裡沒有網路，它要連的主機被擋下了：${hosts}。`,
@@ -1374,7 +1374,8 @@ const en: ServerMessages = {
       ? `The folder "${cwd}" to run it in is not there, or not in the chat's working directories.`
       : "The chat's working directory is not there.",
   checksCommandsAtEnd: 'Commands are run once the team has finished.',
-  checksCommandsParallel: "Parallel mode's results are not in the working directory until they are applied, so no command is run.",
+  checksCommandsParallel:
+    "Parallel mode's results are not in the working directory until they are applied: commands are checked when one is.",
   checksConfigChanged: (files) =>
     `The team changed settings the checks read (${files}), not confirmed yet, so they were not run: once you have looked, Confirm and run the commands runs them.`,
   checksNetworkRefused: (hosts) => `There is no network in the sandbox: the hosts it wanted were refused (${hosts}).`,

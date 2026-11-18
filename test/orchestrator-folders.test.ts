@@ -187,7 +187,7 @@ describe('several working directories', () => {
     const diff = await orchestrator.agentDiff(conv.id, 'b');
     expect(diff).toContain('+++ b/Bob.txt');
     expect(diff).not.toContain(basename(docs));
-    const files = await orchestrator.applyAgentWork(conv.id, 'b');
+    const { files } = await orchestrator.applyAgentWork(conv.id, 'b');
     expect(files.map((f) => f.path).sort()).toEqual(['Bob.txt', 'shared.txt']);
     expect(readFileSync(join(project, 'shared.txt'), 'utf8')).toBe('written by Bob\n');
     await orchestrator.cleanupWorktrees(conv);
@@ -235,7 +235,7 @@ describe('several working directories', () => {
     expect(readFileSync(join(project, 'shared.txt'), 'utf8')).toBe('original\n');
     rmSync(join(docs, 'Bob.txt'));
 
-    const files = await orchestrator.applyAgentWork(conv.id, 'b');
+    const { files } = await orchestrator.applyAgentWork(conv.id, 'b');
     expect(files.map((f) => f.path).sort()).toEqual(['Bob.txt', 'Bob.txt', 'shared.txt']);
     expect(readFileSync(join(project, 'shared.txt'), 'utf8')).toBe('written by Bob\n');
     expect(readFileSync(join(docs, 'Bob.txt'), 'utf8')).toBe('Bob was here\n');
