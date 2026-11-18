@@ -1,3 +1,4 @@
+import type { Provider } from '../../shared/types';
 import { imageData, parseJsonLine, type McpServerSpec, type RunOptions } from './types';
 
 /** A JSON-RPC error, either received from the peer or thrown by one of our request handlers. */
@@ -103,6 +104,12 @@ export function acpPrompt(prompt: string, images: RunOptions['images']): unknown
   }
   return blocks;
 }
+
+/**
+ * The CLIs that take no HTTP MCP server, which `acpMcpServers()` leaves out of their runs: agy 1.5.6
+ * advertises no `mcpCapabilities.http`. A library server's own sign-in gives them no token (`forAgent()`).
+ */
+export const NO_HTTP_MCP: readonly Provider[] = ['antigravity'];
 
 /**
  * The tool library's MCP servers in ACP's form (`env` and `headers` as name/value lists). HTTP servers

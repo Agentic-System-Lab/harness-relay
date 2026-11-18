@@ -20,6 +20,7 @@ import {
   revisionOutcome,
   scrollSpot,
   segments,
+  shownSegments,
   showsToEnd,
   teamChanges,
   teamToEdit,
@@ -490,6 +491,23 @@ describe("an agent's work between its words", () => {
     ]);
     expect(segs.map((s) => s.kind)).toEqual(['activity', 'todo', 'activity', 'approval', 'activity']);
     expect(segs.map((s) => (s.kind === 'activity' ? s.items.length : 0))).toEqual([2, 0, 1, 0, 1]);
+  });
+
+  it("shows what Harness Relay noted about the turn (an MCP server left out of it) apart from the agent's words", () => {
+    const segs = segments([{ type: 'notice', text: 'The MCP server "linear" was left out of this turn' }, tool('a'), text('Done.')]);
+    expect(segs.map((s) => s.kind)).toEqual(['notice', 'activity', 'text']);
+    expect(segs[0]).toEqual({ kind: 'notice', text: 'The MCP server "linear" was left out of this turn', key: 0 });
+  });
+
+  it('keeps those notes shown on a reply whose agent passed, and shows the agent thinking while only they are there', () => {
+    const note = { type: 'notice' as const, text: 'The MCP server "linear" was left out of this turn' };
+    const segs = segments([note, tool('a'), text('PASS')]);
+    expect(shownSegments(segs, true, false).shown.map((s) => s.kind)).toEqual(['notice']);
+    expect(shownSegments(segs, false, false).shown).toBe(segs);
+    expect(shownSegments(segments([note]), false, true).typing).toBe(true);
+    expect(shownSegments(segments([]), false, true).typing).toBe(true);
+    expect(shownSegments(segs, false, true).typing).toBe(false);
+    expect(shownSegments(segments([note]), false, false).typing).toBe(false);
   });
 
   it('keeps its key while steps stream in, and marks the row that ends the message', () => {

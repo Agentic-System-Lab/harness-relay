@@ -12,6 +12,7 @@ import type {
   Conversation,
   ConversationBranch,
   ConversationSchedule,
+  EventSource,
   FileChange,
   LeadReview,
   MessageChanges,
@@ -117,7 +118,18 @@ export { HttpError };
 
 /** A conversation as sent to the browser: without the agents' CLI session bookkeeping (it grows with the chat). */
 export function forClient(conv: Conversation): Conversation {
-  return { ...conv, agentState: {} };
+  const { schedule, ...rest } = conv;
+  return { ...rest, agentState: {}, ...(schedule ? { schedule: scheduleForClient(schedule) } : {}) };
+}
+
+/**
+ * A schedule as browsers get it (in a conversation, its `conversation` event, the schedule routes'
+ * answers): what an automation's checks keep of every event and file they saw (each trigger's
+ * `seen`, `files`) stays in the server, where only the checks read it.
+ */
+export function scheduleForClient(s: ConversationSchedule): ConversationSchedule {
+  if (!s.watches) return s;
+  return { ...s, watches: s.watches.map(({ seen: _seen, files: _files, heldFiles: _held, ...watch }) => watch) };
 }
 
 /** Where agents of one run write. */
@@ -215,6 +227,8 @@ interface StartOptions {
   scheduled?: boolean;
   /** The body a program sent through the schedule's webhook, kept with the scheduled message (`ChatMessage.event`). */
   event?: string;
+  /** Where `event` came from when it was not the webhook: what an automation's trigger found (`ChatMessage.eventSource`). */
+  eventSource?: EventSource;
   /** A schedule that tracks a goal starts the run. */
   tracking?: TrackedRun;
   /** The lead agent designs the team for the conversation's schedule, and nobody answers (`designForSchedule`). */
@@ -236,6 +250,9 @@ export type ScheduledSend =
   | { result: 'queued' }
   | { result: 'busy'; reason?: string }
   | { result: 'skipped' | 'failed'; reason: string };
+
+/** What a scheduled message carries of the event that sent it: its body, and where it came from when not the webhook. */
+type ScheduledEvent = Pick<ChatMessage, 'event' | 'eventSource'>;
 
 /** A run that could not start: another conversation is writing in the same folder (409) or the server is stopping (503), or else it failed. */
 function sendFailure(err: unknown): ScheduledSend {
@@ -472,6 +489,11 @@ function questionOf(m: ChatMessage): string {
   return textOf(m) + (files.length ? `\n\n(Attached files: ${files.join(', ')})` : '');
 }
 
+/** Whether the agent said or did anything in its reply yet: Harness Relay's own notes (`notice`) are not its words. */
+function agentSaid(msg: ChatMessage): boolean {
+  return msg.parts.some((p) => p.type !== 'notice');
+}
+
 /**
  * A finished reply that ends with the ask marker asks the user something: the marker is taken out of
  * the message. Returns whether it asks.
@@ -543,6 +565,14 @@ export class Orchestrator {
   private closing = false;
   /** Repository root → conversation currently writing to its working tree. */
   private dirLocks = new Map<string, string>();
+  /**
+   * How many times each folder was locked for writing since the server started (a run that writes, an
+   * action allowed in a read-only run, an apply): an automation that waits for files compares it
+   * between checks (`folderWrites()`), so a run that began and ended between two checks is the team's too.
+   */
+  private writeCounts = new Map<string, number>();
+  /** This server's own: counts from another start are not compared. */
+  private readonly writesEpoch = randomUUID();
   /** Approval requests waiting for the user, by approval part id. */
   private approvals = new Map<string, { convId: string; resolve: (a: ApprovalAnswer & { expired?: boolean }) => void }>();
   /** Sorts new conversations into the user's sidebar groups. */
@@ -557,10 +587,12 @@ export class Orchestrator {
   /**
    * Each conversation's latest note of its schedule's skipped times (`noteSkipped()`): the note; the
    * schedule as the scheduler left it, which any save of the user's (and switching it off or on, and
-   * deleting it) replaces with another object, whatever it changed; the first time, how many and why. A
-   * time the schedule did not skip ends it (`sendScheduled()`: from the scheduler, Run now or the
-   * webhook), and so does deleting the conversation. Kept in memory only: after a restart the next
-   * skipped time starts a note.
+   * deleting it) replaces with another object, whatever it changed; the first and the latest time it
+   * counts, how many and why. The scheduler's own writes replace the schedule too: `record()`'s after
+   * each time, whose object this keeps, and an automation's watches, whose schedule (it starts when
+   * something happens) leaves no such note. A time the schedule did not skip ends the note
+   * (`sendScheduled()`: from the scheduler, Run now, the webhook or a trigger), and so does deleting the
+   * conversation. Kept in memory only: after a restart the next skipped time starts a note.
    */
   private skipNotes = new Map<
     string,
@@ -883,6 +915,29 @@ export class Orchestrator {
   }
 
   /**
+   * Why the team could not take a scheduled message now (`sendScheduled` would answer busy or
+   * skipped), or undefined when it could: asked before an automation that starts when something
+   * happens reads again what it holds for the team, so that a team waiting for the user is not the
+   * cause of the same mail being downloaded at every check. Nothing is started or changed.
+   */
+  scheduledHold(convId: string): string | undefined {
+    const conv = this.store.get(convId);
+    const s = conv?.schedule;
+    if (!conv || !s) return undefined;
+    if (this.closing) return t().shuttingDown;
+    if (conv.agents.length === 0 || pendingPlan(conv.messages)) return t().scheduleNoTeam;
+    if (s.newChat) return this.folderLockedBy({ ...conv, id: '' });
+    const replying = this.runs.has(convId) || this.starting.has(convId);
+    if (conv.pause && !replying) return t().scheduleWaitsForAnswer;
+    if (replying && conv.queue?.some((m) => m.scheduled)) return t().scheduleStillQueued;
+    if (this.designing.has(convId) && !conv.settings.autoConfirm) return t().scheduleDesigning;
+    if (replying && (conv.queue?.length ?? 0) >= MAX_QUEUE) return t().scheduleQueueFull;
+    if (replying) return undefined;
+    if (this.isBusy(convId)) return t().scheduleConvBusy;
+    return this.folderLockedBy(conv);
+  }
+
+  /**
    * The conversation's schedule came due (or the user ran it now): send its message to the team as if
    * the user had, marked `scheduled`. While the team replies it waits in the queue like any message.
    * It is held back (`skipped`) when the team cannot take it: no confirmed team, an agent's question
@@ -897,7 +952,7 @@ export class Orchestrator {
   async sendScheduled(
     convId: string,
     at = Date.now(),
-    opts: { event?: string; attempt?: number; retries?: boolean } = {},
+    opts: { event?: string; eventSource?: EventSource; attempt?: number; retries?: boolean } = {},
   ): Promise<ScheduledSend> {
     const sent = await this.trySendScheduled(convId, at, opts);
     if (sent.result !== 'skipped' && sent.result !== 'busy') this.skipNotes.delete(convId);
@@ -907,7 +962,7 @@ export class Orchestrator {
   private async trySendScheduled(
     convId: string,
     at: number,
-    opts: { event?: string; attempt?: number; retries?: boolean },
+    opts: { event?: string; eventSource?: EventSource; attempt?: number; retries?: boolean },
   ): Promise<ScheduledSend> {
     const conv = this.store.get(convId);
     if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
@@ -927,7 +982,8 @@ export class Orchestrator {
     const tracking = s.goal
       ? { sourceId: convId, due: at, attempt: opts.attempt ?? 0, retries: Boolean(opts.retries) && opts.event === undefined }
       : undefined;
-    if (s.newChat) return this.sendInNewChat(conv, s, at, opts.event, tracking);
+    const event = opts.event !== undefined ? { event: opts.event, ...(opts.eventSource ? { eventSource: opts.eventSource } : {}) } : {};
+    if (s.newChat) return this.sendInNewChat(conv, s, at, event, tracking);
     const replying = this.runs.has(convId) || this.starting.has(convId);
     // A run being set up may be the user's answer: the message then waits for its next turn instead.
     if (conv.pause && !replying) return { result: 'skipped', reason: t().scheduleWaitsForAnswer };
@@ -940,7 +996,7 @@ export class Orchestrator {
     if (replying && (conv.queue?.length ?? 0) >= MAX_QUEUE) return { result: 'skipped', reason: t().scheduleQueueFull };
     try {
       if (replying) {
-        this.enqueue(conv, s.text, undefined, true, opts.event, tracking);
+        this.enqueue(conv, s.text, undefined, true, event, tracking);
         return { result: 'queued' };
       }
       // A settings change or an apply holds the conversation for a moment.
@@ -955,7 +1011,7 @@ export class Orchestrator {
         queue: true,
         keepTeam: true,
         scheduled: own,
-        ...(own && opts.event !== undefined ? { event: opts.event } : {}),
+        ...(own ? event : {}),
         refuseApprovals: s.approvals !== 'ask',
         ...(tracking ? { tracking } : {}),
       });
@@ -979,7 +1035,7 @@ export class Orchestrator {
     conv: Conversation,
     s: ConversationSchedule,
     at: number,
-    event?: string,
+    event: ScheduledEvent,
     tracking?: TrackedRun,
   ): Promise<ScheduledSend> {
     const id = randomUUID();
@@ -1010,7 +1066,7 @@ export class Orchestrator {
       await this.start(chat, s.text, {
         keepTeam: true,
         scheduled: true,
-        ...(event !== undefined ? { event } : {}),
+        ...event,
         refuseApprovals: s.approvals !== 'ask',
         ...(tracking ? { tracking } : {}),
       });
@@ -1198,7 +1254,7 @@ export class Orchestrator {
     text: string,
     uploads?: AttachmentUpload[],
     scheduled = false,
-    event?: string,
+    event: ScheduledEvent = {},
     tracked?: TrackedRun,
   ): void {
     const queue = (conv.queue ??= []);
@@ -1215,7 +1271,7 @@ export class Orchestrator {
       status: 'done',
       ...(midReply ? { queued: true } : {}),
       ...(scheduled ? { scheduled: true } : {}),
-      ...(scheduled && event !== undefined ? { event } : {}),
+      ...(scheduled ? event : {}),
       // A tracking schedule's message: the run that sends it is that time's run (`carriedTracking`).
       ...(scheduled && tracked ? { tracked } : {}),
     });
@@ -1565,7 +1621,10 @@ export class Orchestrator {
       if (lockRoots) this.lockDirs(lockRoots, conv);
       beforePost?.();
       if (ahead) posted = this.deliverQueued(conv, { ids: ahead });
-      const own = this.postUserMessage(conv, text, files, opts.scheduled, opts.event);
+      const own = this.postUserMessage(conv, text, files, opts.scheduled, {
+        ...(opts.event !== undefined ? { event: opts.event } : {}),
+        ...(opts.event !== undefined && opts.eventSource ? { eventSource: opts.eventSource } : {}),
+      });
       if (own) posted.push(own);
       const pausedTracked = conv.pause?.tracked;
       resume = this.takePause(conv, posted, only, planning);
@@ -1664,7 +1723,7 @@ export class Orchestrator {
     text: string,
     files: AttachmentPart[],
     scheduled = false,
-    event?: string,
+    event: ScheduledEvent = {},
   ): ChatMessage | undefined {
     let msg: ChatMessage | undefined;
     if (text || files.length) {
@@ -1675,7 +1734,7 @@ export class Orchestrator {
         parts: [...(text ? [{ type: 'text' as const, text }] : []), ...files],
         status: 'done',
         ...(scheduled ? { scheduled: true } : {}),
-        ...(scheduled && event !== undefined ? { event } : {}),
+        ...(scheduled ? event : {}),
       };
       conv.messages.push(msg);
       this.store.saveMessage(conv.id, msg, true);
@@ -1722,7 +1781,7 @@ export class Orchestrator {
       settings: conv.settings,
       worktrees: conv.worktrees,
       pause: conv.pause,
-      schedule: conv.schedule,
+      schedule: conv.schedule && scheduleForClient(conv.schedule),
     });
   }
 
@@ -1760,7 +1819,33 @@ export class Orchestrator {
         }
       }
     }
-    for (const root of roots) this.dirLocks.set(root, conv.id);
+    for (const root of roots) {
+      this.dirLocks.set(root, conv.id);
+      this.writeCounts.set(root, (this.writeCounts.get(root) ?? 0) + 1);
+    }
+  }
+
+  /**
+   * How often the conversation's working directories (or a folder around or inside one) were locked
+   * for writing, as `<this server's id>:<count>`: changed since the last check, someone wrote there.
+   * Nothing is started or changed.
+   */
+  folderWrites(convId: string): string {
+    const conv = this.store.get(convId);
+    let n = 0;
+    if (conv) {
+      const within = (a: string, b: string) => a === b || a.startsWith(b.endsWith(sep) ? b : b + sep);
+      // The working directory a file source watches: another one of the conversation's is not it.
+      const dirs = [conv.settings.cwd].flatMap((d) => {
+        try {
+          return [realpathSync(d)];
+        } catch {
+          return [];
+        }
+      });
+      for (const [root, count] of this.writeCounts) if (dirs.some((d) => within(d, root) || within(root, d))) n += count;
+    }
+    return `${this.writesEpoch}:${n}`;
   }
 
   /**
@@ -1770,8 +1855,32 @@ export class Orchestrator {
    */
   private folderLockedBy(conv: Conversation): string | undefined {
     if (conv.settings.permission === 'read-only' || conv.settings.mode === 'parallel') return undefined;
+    return this.lockedFolder(conv);
+  }
+
+  /**
+   * Whether a run may be writing in the conversation's working directories now: one of its own
+   * (replying, being set up, or a change being made to it, such as a reply applied), or another
+   * conversation's that holds a lock on a folder around or inside one of them, whatever this one's mode.
+   * Nothing is started or changed: an automation that waits for files there asks, so that what the team
+   * writes never starts it again (`Scheduler.check()`).
+   */
+  folderInUse(convId: string): boolean {
+    const conv = this.store.get(convId);
+    if (!conv) return false;
+    // Its own run writes in the folder in edit mode outside parallel (whose members work in worktrees), or
+    // once it holds the folder's lock (an action allowed in a read-only run); a change being applied does.
+    const writes = conv.settings.permission !== 'read-only' && conv.settings.mode !== 'parallel';
+    const run = this.runs.get(convId);
+    if (run?.lockRoots || (writes && (run || this.starting.has(convId))) || this.reserved.has(convId)) return true;
+    // Only the working directory a file source watches: another chat writing in one of the others is not in it.
+    return this.lockedFolder(conv, [conv.settings.cwd]) !== undefined;
+  }
+
+  /** Why another conversation's lock covers one of this one's working directories (around it or inside it), or undefined. */
+  private lockedFolder(conv: Conversation, folders: string[] = cwdsOf(conv.settings)): string | undefined {
     const within = (a: string, b: string) => a === b || a.startsWith(b.endsWith(sep) ? b : b + sep);
-    for (const dir of cwdsOf(conv.settings)) {
+    for (const dir of folders) {
       let cwd: string;
       try {
         cwd = realpathSync(dir);
@@ -2989,8 +3098,15 @@ export class Orchestrator {
       const seenBefore = state.seen;
       committedSeen = seenBefore;
       state.seen = [...state.seen, ...delta.map((m) => m.id)];
-      // Read on every turn, so library changes reach agents at their next turn.
-      const tools = this.settings.tools.forAgent(agent);
+      // Read on every turn, so library changes reach agents at their next turn. Its MCP servers that
+      // signed in themselves get an access token each, good for a while yet; one whose sign-in needs
+      // renewing is left out, with a note the agent (its briefing) and the user (the reply) see.
+      const tools = await this.settings.mcpOAuth.forTurn(this.settings.tools.forAgent(agent));
+      if (tools.leftOut?.length) {
+        for (const l of tools.leftOut) msg.parts.push({ type: 'notice', text: l.note });
+        this.hub.emit(conv.id, { type: 'message', message: msg });
+        this.store.saveMessage(conv.id, msg, true);
+      }
       // The account's own: its home has its own skills, MCP servers and hooks.
       const nativeOff = this.settings.nativeOff(agent.provider, account);
       const nativeItems = this.settings.nativeItems(agent.provider, account);
@@ -3080,7 +3196,7 @@ export class Orchestrator {
       } catch (err) {
         // A stale or missing CLI session (e.g. the working directory changed): start over with full history.
         const aborted = err instanceof AgentRunError && err.aborted;
-        if (!hadSession || aborted || msg.parts.length > 0) throw err;
+        if (!hadSession || aborted || agentSaid(msg)) throw err;
         console.warn(`[orchestrator] resume failed for @${agent.name}, retrying fresh:`, (err as Error).message);
         const kept = { sessionId: state.sessionId, seen: state.seen };
         try {
@@ -3088,7 +3204,7 @@ export class Orchestrator {
         } catch (freshErr) {
           // The fresh session failed too before saying anything (rate limit, sign-in, network…): the
           // problem was not the session, so keep it for the next turn.
-          if (msg.parts.length === 0) {
+          if (!agentSaid(msg)) {
             Object.assign(state, kept);
             keptOldSession = true;
           }
@@ -3234,7 +3350,7 @@ export class Orchestrator {
    * conversation's latest note of skipped times (`skipNotes`), of the same schedule (`s`, as the scheduler
    * left it then: not saved since) and for the same reason, with nothing written in the chat since, and
    * the time right after the latest it counts (`nextRun()`: none came between them that was not skipped,
-   * nor any missed while Harness Relay was not running and dropped), is added to that note instead of
+   * nor any dropped as missed, while the computer slept, say), is added to that note instead of
    * leaving one of its own.
    */
   noteSkipped(conv: Conversation, s: ConversationSchedule, due: number, why: string): void {

@@ -1,4 +1,6 @@
 import type {
+  OAuthProviderId,
+  OAuthUse,
   ApprovalKind,
   CliInstallBlock,
   KeyStorage,
@@ -14,6 +16,7 @@ import type {
   RelayToolGroup,
   ScheduleRepeat,
   ScheduleResult,
+  ScheduleTrigger,
   ToolStatus,
   VoiceEngineInfo,
   VoiceEngineSource,
@@ -449,7 +452,7 @@ export const zhTW = {
   newSchedule: {
     title: '新自動任務',
     intro: (lead: string) =>
-      `自動任務會在你執行它、程式呼叫它的 webhook，或到了設定的時間時，把一則訊息傳給團隊。建立後，首席 agent（${lead}）會為這則訊息組隊；你確認團隊後，自動任務就可以執行。建立時不會先執行。`,
+      `自動任務會在你執行它、到了設定的時間、某件事發生（收到新郵件、行程即將開始、GitHub 上的新動態、檔案變動），或程式呼叫它的 webhook 時，把一則訊息傳給團隊。建立後，首席 agent（${lead}）會為這則訊息組隊；你確認團隊後，自動任務就可以執行。建立時不會先執行。`,
     schedule: '自動任務',
     titlePlaceholder: '對話名稱（選填，預設用訊息的第一行）',
     create: '建立自動任務',
@@ -460,10 +463,11 @@ export const zhTW = {
 
   schedule: {
     button: '自動任務',
-    buttonTitle: '在你執行它、到了設定的時間，或程式呼叫它的 webhook 時，傳訊息給團隊',
+    buttonTitle:
+      '在你執行它、到了設定的時間、某件事發生（收到新郵件、行程即將開始、新的 pull request、檔案變動），或程式呼叫它的 webhook 時，傳訊息給團隊',
     title: '自動任務',
     intro:
-      '在你按「立即執行一次」、到了設定的時間，或程式呼叫它的 webhook 時，把這則訊息傳給這個對話的團隊（在這裡，或依設定每次開新對話），就像你自己送出的一樣。Harness Relay 要開著才會執行。',
+      '在你按「立即執行一次」、到了設定的時間、某件事發生（收到新郵件、行程即將開始、新的 pull request 或失敗的 CI、檔案變動），或程式呼叫它的 webhook 時，把這則訊息傳給這個對話的團隊（在這裡，或依設定每次開新對話），就像你自己送出的一樣。Harness Relay 要開著才會執行。',
     message: '要傳給團隊的訊息',
     messagePlaceholder: '例如：@Reviewer 看一下昨天合併的 PR，列出可能的風險。',
     messageHint: '用 @ 指定成員時，只有被 @ 的成員回答，和平常一樣。',
@@ -477,7 +481,7 @@ export const zhTW = {
       adjust: '可以按「調整團隊」為成員改名。',
     },
     repeat: '時間',
-    kinds: { once: '一次', daily: '每天', weekly: '每週', interval: '每隔幾小時', manual: '不定時' } as Record<
+    kinds: { once: '一次', daily: '每天', weekly: '每週', interval: '每隔幾小時', manual: '不定時', event: '當某件事發生時' } as Record<
       ScheduleRepeat['kind'],
       string
     >,
@@ -547,6 +551,16 @@ export const zhTW = {
       everyDay: (time: string) => `每天 ${time}`,
       interval: (hours: number) => `每 ${hours} 小時`,
       manual: '不定時',
+      /** An automation that starts when a new mail comes: from whom, with what in its subject, in which account. */
+      mail: (o: { folder?: string; from?: string; subject?: string }) =>
+        `${o.folder ? `「${o.folder}」` : ''}收到${o.from ? ` ${o.from} 寄來` : ''}${o.subject ? `${o.from ? '、' : ''}主旨含「${o.subject}」` : ''}的新郵件時`,
+      /** Before each event of a calendar begins (whose title contains the words, when given). */
+      calendar: (minutes: number, title?: string) => `${title ? `標題含「${title}」的` : '每個'}行程開始前 ${minutes} 分鐘`,
+      pullRequest: (repo: string) => `${repo} 有新的 pull request 時`,
+      failedRun: (repo: string, branch?: string) => `${repo}${branch ? ` 的 ${branch} 分支` : ' '}有 CI 執行失敗時`,
+      file: (pattern: string) => `工作目錄中符合 ${pattern} 的檔案出現或變動時`,
+      /** An automation that waits for several things: any of them starts it. */
+      any: (parts: string[]) => parts.join('，或'),
     },
     daySeparator: '、',
     next: (when: string) => `下次 ${when}`,
@@ -568,6 +582,16 @@ export const zhTW = {
       hours: (max: number) => `間隔為 1 到 ${max} 小時的整數`,
       moment: '請選擇日期與時間',
       past: '這個時間已經過了，請選擇之後的時間',
+      account: '請選擇要檢查的郵件帳號',
+      calendar: '請選擇要檢查的行事曆',
+      minutes: (max: number) => `行程開始前的分鐘數要是 1 到 ${max} 的整數`,
+      repo: '請填 GitHub 儲存庫，格式是「擁有者/名稱」（擁有者最多 39 個字元，名稱最多 100 個）',
+      branch: '分支名稱不是 git 接受的名稱：不能有空白或 ~^:?*[\\，不能有 ..，也不能以 - 開頭',
+      pattern: '請填工作目錄中的檔案樣式（不能是絕對路徑，也不能有 ..）',
+      /** A problem of one of the several things an automation waits for. */
+      ofTrigger: (n: number, problem: string) => `要等的第 ${n} 件事：${problem}`,
+      triggers: (max: number) => `一個自動任務可以等 1 到 ${max} 件事`,
+      sameTrigger: '有兩件要等的事一樣（同一個來源，例如同一個郵件帳號和資料夾、同一個檔案樣式）：請修改或移除其中一件',
     },
     teamNote: (summary: string) => `這個對話有自動任務（${summary}），這裡的修改會套用到它之後的執行。`,
     fullWarning: '自動任務執行時可能沒人看著，完全存取的成員可以不經詢問執行任何指令。',
@@ -582,6 +606,73 @@ export const zhTW = {
       paused: '自動任務已暫停',
       manual: '自動任務：不定時（立即執行一次或 webhook）',
       problem: (result: string) => `自動任務上次${result}`,
+      watch: (what: string) => `自動任務：${what}`,
+      watchError: '自動任務：上次檢查失敗',
+    },
+    /** An automation that starts when something happens (When something happens): what it waits for, and its checks. */
+    watch: {
+      source: '要等的事',
+      /** One of the things an automation waits for, when it waits for several (the group's name). */
+      group: (n: number) => `要等的第 ${n} 件事`,
+      /** Between two of them: any of them starts it. */
+      or: '或',
+      add: '再等一件事',
+      addTitle: (max: number) => `也等另一件事：任何一件發生時都會啟動它（最多 ${max} 件）`,
+      remove: '移除',
+      removeLabel: (n: number) => `移除要等的第 ${n} 件事`,
+      severalHint: '每件事各自檢查；哪一件找到新的東西，就送一次訊息，附上它找到的。',
+      sources: {
+        mail: '收到新郵件',
+        calendar: '行程即將開始',
+        github: 'GitHub 上有新的 pull request 或 CI 失敗',
+        file: '工作目錄中的檔案出現或變動',
+      } as Record<ScheduleTrigger['source'], string>,
+      account: '郵件帳號',
+      noAccounts:
+        '還沒有郵件帳號：請先到「設定 → 工具庫 → 郵件與行事曆」新增一個（用應用程式專用密碼，或在瀏覽器裡登入 Microsoft 365、Outlook.com 或 Gmail）。',
+      openSettings: '前往設定',
+      folder: '資料夾',
+      from: '寄件者包含（選填）',
+      fromPlaceholder: '例如：alerts@github.com',
+      subject: '主旨包含（選填）',
+      subjectPlaceholder: '例如：發票',
+      hint: (minutes: number) =>
+        `Harness Relay 自己每 ${minutes} 分鐘檢查一次，不需要網址或權杖。第一次檢查只記下已經在的郵件，之後收到的才會啟動它；同一次檢查找到幾封，都只送一次訊息，列出寄件者、主旨和開頭幾行。Harness Relay 沒開著時收到的郵件，開啟後的第一次檢查會找到。郵件伺服器能在收到郵件時馬上通知時（IMAP IDLE，Gmail、iCloud 和大多數服務都可以），Harness Relay 會等它通知，並在那時檢查。`,
+      checked: (when: string) => `上次檢查 ${when}`,
+      notYet: '還沒檢查過：馬上會第一次檢查，只記下已經在的東西',
+      nextCheck: (when: string) => `下次檢查 ${when}`,
+      error: (why: string) => `檢查失敗：${why}`,
+      held: (why: string) => `找到新的東西，等團隊能接手時再送（${why}）`,
+      listening: '郵件伺服器收到郵件時會馬上通知',
+      checkNow: '立即檢查',
+      checkNowTitle: '現在就檢查一次（第一次只記下已經在的東西）',
+      checkSaveFirst: '先儲存修改，才能立即檢查',
+      done: '已檢查',
+      eventTags: {
+        mail: '新郵件',
+        calendar: '即將開始的行程',
+        github: 'GitHub 上的新動態',
+        file: '出現或變動的檔案',
+      } as Record<ScheduleTrigger['source'], string>,
+      calendarAccount: '行事曆',
+      noCalendars: '還沒有行事曆：請先到「設定 → 工具庫 → 郵件與行事曆」新增一個。',
+      minutes: '開始前幾分鐘',
+      title: '標題包含（選填）',
+      titlePlaceholder: '例如：站會',
+      calendarHint: (minutes: number) =>
+        `Harness Relay 自己每 ${minutes} 分鐘檢查一次行事曆。每個行程（重複的行程每一次各算一個）在開始前這麼多分鐘時啟動一次，訊息裡有它的標題、時間、地點與參加者；全天的行程、取消的行程，以及時區這台電腦不認得的行程都不算。檢查失敗或延後時，期間開始的行程（最多一小時內）之後仍會送出，並註明已經開始。不會展開重複行程的 CalDAV 伺服器只給第一次的時間，之後幾次不會啟動它。第一次檢查只記下已經快開始的行程。`,
+      repo: 'GitHub 儲存庫',
+      repoPlaceholder: '擁有者/名稱，例如 octocat/hello-world',
+      on: { pr: '有人開了 pull request', ci: '有 CI 執行失敗' },
+      what: '要等的動態',
+      branch: '分支（選填）',
+      branchPlaceholder: '例如：main',
+      githubHint: (minutes: number) =>
+        `Harness Relay 自己每 ${minutes} 分鐘用你自己的 GitHub CLI（gh，用 gh auth login 登入）檢查一次，不需要 webhook。第一次檢查只記下現有的；之後新開的 pull request（或失敗、逾時、無法開始的 CI 執行，重新執行後又失敗的也算）才會啟動它，一次檢查不管找到幾個都只送一次訊息。`,
+      pattern: '檔案樣式',
+      patternPlaceholder: '例如：reports/*.csv、**/*.log',
+      fileHint: (minutes: number, seconds: number) =>
+        `在這個對話的工作目錄中，每 ${minutes} 分鐘看一次符合樣式的檔案（* 是一層資料夾裡的任何字，** 是任何幾層資料夾，? 是一個字元；不分大小寫；不看 .git，樣式沒寫出來時也不看 node_modules 這類套件與建置資料夾）。第一次只記下現有的；之後新出現或大小、修改時間變了的檔案，停止變動 ${seconds} 秒後才會啟動它，訊息裡只有檔名、大小與時間，沒有內容。團隊在這個資料夾工作時變動的檔案算是團隊自己的，不會再啟動它。`,
     },
     goal: '追蹤的目標（選填）',
     goalPlaceholder: '例如：main 分支的 CI 全部通過，而且 issue #42 已關閉。',
@@ -665,9 +756,21 @@ export const zhTW = {
     status: { running: '執行中', done: '完成', error: '失敗' } as Record<ToolStatus, string>,
   },
 
+  /** The page an OAuth provider's sign-in sends the browser back to. */
+  oauthCallback: {
+    title: '登入',
+    working: '完成登入中…',
+    done: (email: string) => `已登入 ${email}。`,
+    doneServer: (name: string) => `已登入 MCP 伺服器 ${name}。`,
+    failed: (why: string) => `沒有完成登入：${why}`,
+    close: '可以關閉這個分頁了。',
+    back: '回到 Harness Relay 的設定',
+    elsewhere:
+      '這裡沒有等待中的登入用這個網址。它可能已經結束了：之前就完成了（這個頁面是再次打開的）、取消了、過期了，或是在 Harness Relay 重新啟動時遺失了；這樣的話，請到「設定」重新登入。也可能是另一台電腦上的 Harness Relay 開始的（例如在 codespace 裡）：這樣的話，請複製這個完整網址，貼到那個 Harness Relay 的「設定」顯示的欄位：',
+  },
   connectors: {
     title: '郵件與行事曆帳號',
-    hint: '「郵件」與「行事曆」工具用的帳號，透過 IMAP、SMTP 與 CalDAV，搭配應用程式專用密碼（大多數服務在安全性設定中提供；Gmail 需要先開啟兩步驟驗證）。Google 日曆與 Microsoft 365 需要 Harness Relay 目前還沒有的登入方式。',
+    hint: '「郵件」與「行事曆」工具用的帳號，透過 IMAP、SMTP 與 CalDAV，搭配應用程式專用密碼（大多數服務在安全性設定中提供；Gmail 需要先開啟兩步驟驗證）。Microsoft 365 與 Outlook.com 的郵件，以及 Microsoft 與 Google 的行事曆，不接受應用程式專用密碼：請用下方的「登入的帳號」（Gmail 兩種都可以）。',
     // 直接接在說明後面（句號之後不加空格）；英文開頭的名稱前留一個空格。
     passwordsIn: (where: string) => `密碼存放於${/^[A-Za-z]/.test(where) ? ' ' : ''}${where}，畫面上不會顯示，連一部分也不會。`,
     mail: '郵件',
@@ -699,6 +802,54 @@ export const zhTW = {
     testing: '嘗試中…',
     testOk: '連線成功。',
     confirmRemove: (name: string) => `移除帳號「${name}」？它的密碼也會一起刪除。`,
+    /** Accounts that sign in with OAuth (Microsoft, Google), instead of an app password. */
+    oauth: {
+      title: '登入的帳號',
+      hint: (where: string) =>
+        `Microsoft 365、Outlook.com 與 Google（Gmail、Google 日曆）在瀏覽器裡登入，而不是用密碼，用於行事曆、郵件或兩者。登入由 Harness Relay 自己進行，權杖存放於${/^[A-Za-z]/.test(where) ? ' ' : ''}${where}，只送到該帳號的服務與它自己的郵件伺服器，agent 永遠拿不到。`,
+      providers: { microsoft: 'Microsoft 365 / Outlook.com', google: 'Google' } as Record<OAuthProviderId, string>,
+      uses: { calendar: '行事曆', mail: '郵件' } as Record<OAuthUse, string>,
+      signInFor: '新的登入用於：',
+      usedFor: (uses: string) => `用於：${uses}`,
+      useFor: { calendar: '用於行事曆', mail: '用於郵件' } as Record<OAuthUse, string>,
+      mailAdded: (email: string) => `已把 ${email} 的郵件加入郵件工具。`,
+      signIn: (provider: string) => `用 ${provider} 登入`,
+      onAnotherDevice: '在另一台裝置上登入',
+      signInAgain: '重新登入',
+      connected: '已連線',
+      reauth: '需要重新登入',
+      calendars: '行事曆',
+      add: '加入',
+      added: '已加入',
+      loadingCalendars: '讀取行事曆中…',
+      remove: '移除',
+      confirmRemove: (email: string) => `移除 ${email}？它的權杖，以及透過它使用的行事曆與郵件帳號，都會一起移除。`,
+      removedMicrosoft: (pages: string) =>
+        `已移除。Microsoft 不能撤銷單一個權杖：要讓 Harness Relay 完全失去存取權，請到 ${pages} 移除它。`,
+      app: '要用的 app',
+      setUp: '設定 app',
+      needsApp: (provider: string) =>
+        `要用 ${provider} 登入，需要先在 ${provider} 註冊一個 app（Harness Relay 目前還沒有自己的），再把它的用戶端 ID 填在這裡。`,
+      clientId: '用戶端 ID（Client ID）',
+      tenant: '租用戶（Tenant）',
+      tenantHint: 'common（公司、學校與個人帳號）、organizations、consumers，或你的租用戶 ID 或網域。',
+      secret: '用戶端密碼（Client secret）',
+      secretHint: 'Google 給桌面 app 的「密碼」其實不是秘密，但仍需要；它存放在憑證儲存區。',
+      redirects: '在 app 的設定裡允許這些重新導向網址：',
+      microsoftApp:
+        '在 Microsoft Entra 系統管理中心註冊一個 app：支援「任何組織目錄中的帳戶及個人 Microsoft 帳戶」，平台選「行動與桌面應用程式」，開啟「允許公用用戶端流程」（要在另一台裝置上登入時），API 權限加上 Microsoft Graph 的 Calendars.ReadWrite 與 offline_access；用於郵件時，再加上 Office 365 Exchange Online 的 IMAP.AccessAsUser.All 與 SMTP.Send（信箱的 SMTP AUTH 也要開啟）。',
+      googleApp:
+        '在 Google Cloud Console 建立一個「電腦版應用程式」類型的 OAuth 用戶端，啟用 Google Calendar API 與 CalDAV API，並在 OAuth 同意畫面加入 …/auth/calendar 範圍；用於郵件時，再加入 https://mail.google.com/ 範圍。app 還在「測試」階段時，要在同意畫面的「測試使用者」加入你自己的 Google 帳號，否則 Google 會拒絕登入；而且登入每 7 天會失效一次。',
+      waiting: (provider: string) => `等待 ${provider} 的登入頁面…`,
+      openAgain: '再開一次登入頁面',
+      pasteHint: '沒有回到這裡？如果瀏覽器說網頁打不開（例如 Harness Relay 在另一台電腦上），把那個網頁的完整網址貼在這裡：',
+      pastePlaceholder: 'http://localhost:8787/oauth/callback?code=…',
+      finish: '完成登入',
+      device: (address: string, code: string) => `在任何裝置上打開 ${address}，輸入代碼 ${code}。`,
+      done: (email: string) => `已登入 ${email}。`,
+      cancel: '取消',
+      popupBlocked: '瀏覽器擋下了登入頁面：請按「再開一次登入頁面」。',
+    },
   },
   outbox: {
     label: (agent: string) => `@${agent} 要送出的內容`,
@@ -1243,6 +1394,25 @@ export const zhTW = {
     edit: '編輯',
     confirmRemove: (name: string) => `要刪除 MCP 伺服器「${name}」嗎？`,
     secretsIn: (where: string) => `變數和標頭的值存放於${where}，畫面上只顯示遮蔽後的值。`,
+    signIn: {
+      hint: '要求登入的 HTTP 伺服器（MCP 的 OAuth 授權），可以在這裡登入，不必把 token 手動填進標頭。它的更新權杖（refresh token）存放於金鑰儲存區；每一回合，拿到它的成員會在 Authorization 標頭收到一個還能用一陣子的存取權杖。',
+      signIn: '登入',
+      signInAgain: '重新登入',
+      signOut: '登出',
+      signedIn: '已登入',
+      reauth: '需要重新登入',
+      signedInAt: (when: string) => `${when} 登入。`,
+      needsAgain: (why: string) => `它的登入已經失效${why ? `（${why}）` : ''}：在重新登入之前，成員的回合不會拿到它。`,
+      confirmSignOut: (name: string) => `要登出 ${name} 嗎？它的權杖會被刪除，授權伺服器能撤銷的話也會撤銷。`,
+      done: (name: string) => `已登入 ${name}。`,
+      signedOut: (name: string) => `已登出 ${name}。`,
+      confirmPage: (host: string, issuer: string) => `你會在 ${host} 登入，它不是 ${issuer}。`,
+      confirmToken: (host: string, issuer: string) => `登入會在 ${host} 完成，它不是 ${issuer}。`,
+      confirmHint:
+        '這些位址是這台 MCP 伺服器的中繼資料寫的。一台冒充的伺服器可以藉此拿到你在別的服務的登入：只有在你預期是這樣、也信任它們時才繼續。',
+      confirmContinue: '繼續',
+      changeSignsOut: '它已經登入了：改了它的網址或傳輸方式，就會登出它（刪除並撤銷它的權杖）。',
+    },
     skills: 'Skills',
     skillsHint:
       '加入有 SKILL.md 的資料夾，或包含多個 skill 的資料夾（例如 ~/.claude/skills，會列出裡面所有 skill 讓你挑選）。成員的說明會列出每個 skill 的名稱和用途，需要時 agent 會自己讀 SKILL.md。這裡的 skill 是加在各 CLI 自己的 skill 之外：這裡沒加的，CLI 原本會讀的（例如 Claude Code 讀 ~/.claude/skills）照樣能用。',
@@ -1992,15 +2162,15 @@ export const zhTW = {
       },
       {
         title: '自動任務',
-        body: '側邊欄左上角「新對話」旁、有閃電圖示的按鈕是「新自動任務」：在有東西啟動它時，把訊息傳給團隊，就像你自己送出的一樣；啟動它的可以是你、設定的時間，或一個程式。寫好訊息、選好啟動方式，首席 agent 會為它組隊。現有的對話也可以用上方的「自動任務」（手機上在 ⋯ 裡）設定：',
+        body: '側邊欄左上角「新對話」旁、有閃電圖示的按鈕是「新自動任務」：在有東西啟動它時，把訊息傳給團隊，就像你自己送出的一樣；啟動它的可以是你、設定的時間、某件事發生，或一個程式。寫好訊息、選好啟動方式，首席 agent 會為它組隊。現有的對話也可以用上方的「自動任務」（手機上在 ⋯ 裡）設定：',
         points: [
-          '你按「立即執行一次」、到了設定的時間（一次、每天、每週選定的星期幾，或每隔幾小時），或程式呼叫它的 webhook 時啟動；新的自動任務預設不定時',
+          '你按「立即執行一次」、到了設定的時間（一次、每天、每週選定的星期幾，或每隔幾小時）、某件事發生時（新郵件、行程、pull request 或失敗的 CI、檔案），或程式呼叫它的 webhook 時啟動；新的自動任務預設不定時',
           '勾選「每次開新對話」，每次都在新對話中從乾淨的上下文開始，沿用同樣的團隊與設定',
           '自動任務執行時可能沒人看著：預設會拒絕檔案權限以外的動作（已設為「本對話都允許」的除外），agent 會改用其他方式；也可以選「詢問我」',
           'Harness Relay 開著才會送出：錯過的時間會略過，也可以選擇在開啟後補送一次',
           '追蹤目標：每次執行都會看到目標與前幾次的回報，並說明進度；目標達成時自動任務會關閉，失敗的執行會再試',
           'webhook 讓這台電腦上的程式（git hook、CI）立刻送出訊息，附上它送來的內容',
-          '側邊欄的對話旁會出現時鐘；上次沒有送出時會變成琥珀色',
+          '側邊欄的對話旁會出現時鐘；上次沒有送出或上次檢查失敗時會變成琥珀色',
         ],
       },
       {
@@ -2017,10 +2187,10 @@ export const zhTW = {
         title: '工具庫：MCP、skill、記憶與 Harness Relay 的工具',
         body: '在「設定 → 工具庫」設定一次，每位成員都能用，不管它跑在哪個 CLI，而且加在各 CLI 自己的設定之外：',
         points: [
-          'MCP 伺服器：本機指令或網址，token 存在系統的金鑰儲存區',
+          'MCP 伺服器：本機指令或網址，token 存在系統的金鑰儲存區；要求 OAuth 登入的伺服器直接在這裡登入',
           'Skills：從資料夾裡挑選要加入的 skill（例如 ~/.claude/skills）',
           '記憶：所有成員共用，加上各 CLI 專屬的一份',
-          'Harness Relay 自己的工具：它自己的瀏覽器，以及你的郵件與行事曆（在那裡用應用程式專用密碼加入帳號）',
+          'Harness Relay 自己的工具：它自己的瀏覽器，以及你的郵件與行事曆（在那裡用應用程式專用密碼加入帳號；Microsoft 365、Outlook.com 與 Google 的郵件和日曆也可以改在瀏覽器裡登入，權杖存在系統的憑證儲存區）',
           '每一項可以只給某幾種 CLI；團隊設定裡也能針對單一成員調整',
         ],
       },

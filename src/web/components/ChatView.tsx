@@ -29,7 +29,7 @@ import {
 import { useI18n, useT } from '../i18n';
 import { refreshLimits, useLimits } from '../limits';
 import { hashFor } from '../route';
-import { describeRepeat, handedHook, scheduleState, scheduleTrouble } from '../schedule';
+import { describeRepeat, handedHook, scheduleBadgeTitle, scheduleState, scheduleTrouble } from '../schedule';
 import { PROVIDER_COLOR, initials, leadLabel, modelSummary } from '../util';
 import { DiffView } from './ChangesCard';
 import { Composer } from './Composer';
@@ -658,16 +658,17 @@ export function ChatView({ id, providers, catalog, conversations, onChanged }: P
                 type="button"
                 className={`badge schedule-badge ${scheduleTrouble(conv.schedule) ? 'warn' : ''} ${conv.schedule.enabled ? '' : 'off'}`}
                 onClick={() => setScheduleOpen(true)}
-                title={
-                  scheduleTrouble(conv.schedule) && conv.schedule.lastResult
-                    ? t.schedule.sidebar.problem(t.schedule.results[conv.schedule.lastResult])
-                    : scheduleState(conv.schedule, t, lang)
-                }
+                title={scheduleBadgeTitle(conv.schedule, t, lang)}
               >
                 <ClockIcon size={12} />
-                {describeRepeat(conv.schedule.repeat, t, lang)}
-                {/* The next time is in the title: the header has little room. */}
-                {!(conv.schedule.enabled && conv.schedule.nextRunAt !== undefined) && ` · ${scheduleState(conv.schedule, t, lang)}`}
+                {/* Cut with an ellipsis when long (a condition can be): the whole of it is in the title. */}
+                <span className="schedule-badge-text">
+                  {describeRepeat(conv.schedule.repeat, t, lang)}
+                  {/* The next time, and how the checks of what it waits for go, are in the title: the header has little room. */}
+                  {conv.schedule.repeat.kind === 'event'
+                    ? !conv.schedule.enabled && ` · ${t.schedule.paused}`
+                    : !(conv.schedule.enabled && conv.schedule.nextRunAt !== undefined) && ` · ${scheduleState(conv.schedule, t, lang)}`}
+                </span>
               </button>
             )}
           </div>

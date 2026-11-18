@@ -17,7 +17,7 @@ const userHome = join(root, 'user-home');
 
 const { CdpConnection, NulDecoder } = await import('../src/server/browser/cdp');
 const { browserCandidates, findBrowser } = await import('../src/server/browser/find');
-const { BrowserService, browserEnv, launchEnv, leadsNearby, navigationVerdict, refusalText, requestVerdict } =
+const { BrowserService, PAGE_ANSWER_MS, browserEnv, launchEnv, leadsNearby, navigationVerdict, refusalText, requestVerdict } =
   await import('../src/server/browser/session');
 const { browserTools, pageText } = await import('../src/server/browser/tools');
 const { removeTree } = await import('../src/server/fsRemove');
@@ -235,6 +235,13 @@ describe('what the browser may open', () => {
     expect(leadsNearby('mine.example', ['192.168.1.20'], ['192.168.1.20'])).toBe(true);
     expect(leadsNearby('203.0.113.5', [])).toBe(false);
     expect(leadsNearby('example.com', ['93.184.216.34'])).toBe(false);
+    // A private or loopback IPv4 address carried in IPv6 (compatible, NAT64, 6to4), and site-local ones.
+    for (const a of ['::10.0.0.1', '64:ff9b::a00:1', '64:ff9b:1::a00:1', '2002:a00:1::1', '2002:7f00:1::1', 'fec0::1']) {
+      expect(leadsNearby(a, []), a).toBe(true);
+      expect(requestVerdict(`http://[${a}]/`, near), a).toBe('block');
+    }
+    expect(leadsNearby('nat64.example', ['64:ff9b::c0a8:101'])).toBe(true);
+    for (const a of ['64:ff9b::5db8:d822', '2002:5db8:d822::1', '::ffff:93.184.216.34']) expect(leadsNearby(a, []), a).toBe(false);
   });
 });
 
@@ -317,6 +324,8 @@ describe.skipIf(!chromium)('the browser itself', () => {
   const upgraded: Duplex[] = [];
   // What `/hang` took and never answered, and whether the browser gave it up.
   const hung: ServerResponse[] = [];
+  /** Told of each request the test server gets, as it comes. */
+  let onRequest: ((url: string) => void) | undefined;
   let hangClosed = false;
   let browser: InstanceType<typeof BrowserService>;
   const asked: ApprovalRequest[] = [];
@@ -351,6 +360,7 @@ describe.skipIf(!chromium)('the browser itself', () => {
     relayPort = (relay.address() as { port: number }).port;
     server = createServer((req, res) => {
       hits.push(req.url ?? '');
+      onRequest?.(req.url ?? '');
       res.setHeader('content-type', 'text/html; charset=utf-8');
       const url = new URL(req.url ?? '/', 'http://x');
       const r = `http://127.0.0.1:${relayPort}`;
@@ -796,9 +806,11 @@ describe.skipIf(!chromium)('the browser itself', () => {
       // A button that opens nothing: the turn ends while the click waits to see whether a page comes.
       const stay = await browser.open(ctx(own), `http://127.0.0.1:${port}/stay`);
       let turn = new AbortController();
+      // Ended as the button's request comes, well inside the second and a half a click waits for a page.
+      onRequest = (url) => url === '/noop-click' && turn.abort();
       let clicking = browser.click(ctx({ ...own, signal: turn.signal }), refIn(stay.text, 'button "Stay"'));
-      await vi.waitFor(() => expect(hits).toContain('/noop-click'), { timeout: slow(5000) });
-      turn.abort();
+      await vi.waitFor(() => expect(turn.signal.aborted).toBe(true), { timeout: slow(5000) });
+      onRequest = undefined;
       await expect(clicking).rejects.toThrow('The turn ended');
       // A page that is there, but never finishes loading.
       const link = await browser.open(ctx(own), `http://127.0.0.1:${port}/never-loads-link`);
@@ -822,11 +834,14 @@ describe.skipIf(!chromium)('the browser itself', () => {
         relayPorts: () => [9],
         answerMs: 2000,
       });
+      expect(PAGE_ANSWER_MS).toBe(2 * 60_000);
       try {
         const own = { convId: 'answer-1', permission: 'full' as const };
+        expect((await brief.open(ctx(own), `http://127.0.0.1:${port}/next`)).title).toBe('Next');
         const failed = brief.open(ctx(own), `http://127.0.0.1:${port}/hang?from=open`);
         await expect(failed).rejects.toThrow(`http://127.0.0.1:${port}/hang?from=open did not answer in 2 seconds, and was stopped`);
-        // The tab let go of it: the next page opens at once.
+        // The tab let go of it: it reads the page it was on at once, and opens the next.
+        expect((await brief.snapshot(ctx(own))).title).toBe('Next');
         expect((await brief.open(ctx(own), `http://127.0.0.1:${port}/next`)).title).toBe('Next');
 
         // A click into such a page too: it fails, and the tab reads its page.
@@ -836,9 +851,23 @@ describe.skipIf(!chromium)('the browser itself', () => {
         );
         expect((await brief.snapshot(ctx(own))).title).toBe('Hang link');
 
-        // The user answers about the host after twice that time, and its server a little later: it opens.
-        const slowAnswer = ctx({ convId: 'answer-2', ask: async () => (await new Promise((r) => setTimeout(r, 4000)), { allow: true }) });
-        expect((await brief.open(slowAnswer, `http://127.0.0.1:${port}/slow`)).title).toBe('Slow');
+        // The user answers about the host after three times that time: the page opens.
+        const slowAnswer = ctx({ convId: 'answer-2', ask: async () => (await new Promise((r) => setTimeout(r, 6000)), { allow: true }) });
+        expect((await brief.open(slowAnswer, `http://127.0.0.1:${port}/next`)).title).toBe('Next');
+
+        // A question a call left waiting when its turn ended counts for no call after it.
+        const left = new AbortController();
+        let asked = false;
+        const unanswered = ctx({ convId: 'answer-3', signal: left.signal, ask: () => ((asked = true), new Promise(() => {})) });
+        const leaving = brief.open(unanswered, `http://localhost:${port}/next`);
+        await vi.waitFor(() => expect(asked).toBe(true), { timeout: slow(20_000) });
+        left.abort();
+        await expect(leaving).rejects.toThrow('The turn ended');
+        const started = Date.now();
+        await expect(
+          brief.open(ctx({ convId: 'answer-3', ask: async () => ({ allow: true }) }), `http://127.0.0.1:${port}/hang?from=after`),
+        ).rejects.toThrow('did not answer in 2 seconds');
+        expect(Date.now() - started).toBeLessThan(slow(15_000));
       } finally {
         brief.closeAll();
       }

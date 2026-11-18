@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
-import { DEFAULT_LIMITS, type ServerLimits } from '../shared/types';
+import { DEFAULT_LIMITS, type MailServer, type ServerLimits } from '../shared/types';
 
 /**
  * What the server's environment sets at startup besides its port, host and data folder
@@ -22,6 +22,25 @@ export interface ServerConfig extends ServerLimits {
    * the first one found (`browser/find.ts`).
    */
   browser?: string;
+  /**
+   * Where accounts that sign in with Microsoft do (`RELAY_MICROSOFT_LOGIN_URL`) and their calendars are
+   * reached (`RELAY_MICROSOFT_GRAPH_URL`): another cloud than Microsoft's global one (a national one,
+   * `https://login.microsoftonline.us` and `https://graph.microsoft.us`, say), or a stand-in on this
+   * computer in the end-to-end tests. undefined = `https://login.microsoftonline.com` and
+   * `https://graph.microsoft.com`.
+   */
+  microsoftLoginUrl?: string;
+  microsoftGraphUrl?: string;
+  /**
+   * The mail servers an account that signs in with Microsoft is reached at for the mail tools
+   * (`RELAY_MICROSOFT_IMAP`, `RELAY_MICROSOFT_SMTP`, as `host:port`): a stand-in on this computer in
+   * the end-to-end tests, the only place plain TCP goes to. Not for a national cloud: its mail is not
+   * supported yet, as the token for mail is asked for the global cloud's Exchange Online
+   * (`https://outlook.office.com/…`), which another cloud's servers do not take. undefined =
+   * `outlook.office365.com:993` (TLS) and `smtp.office365.com:587` (STARTTLS).
+   */
+  microsoftImap?: MailServer;
+  microsoftSmtp?: MailServer;
 }
 
 /**
@@ -88,6 +107,33 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     return undefined;
   };
 
+  // Tokens go there: https, or plain http to this computer only (a stand-in).
+  const secure = (name: string): string | undefined => {
+    const url = base(name);
+    if (!url) return undefined;
+    const { protocol, hostname } = new URL(url);
+    if (protocol === 'https:' || /^(127\.0\.0\.1|localhost|\[::1\])$/.test(hostname)) return url;
+    problems.push(`${name} must be an https URL (plain http only to this computer).`);
+    return undefined;
+  };
+
+  // A mail server a token goes to, as `host:port`: TLS, or STARTTLS on the port that asks for it
+  // (IMAP's 143, SMTP's 587 and 25); plain TCP to this computer only (a stand-in).
+  const mailServer = (name: string, kind: 'imap' | 'smtp'): MailServer | undefined => {
+    const raw = env[name]?.trim();
+    if (!raw) return undefined;
+    const m = /^(\[[0-9A-Fa-f:]+\]|[A-Za-z0-9.-]{1,253}):(\d{1,5})$/.exec(raw);
+    const port = m ? Number(m[2]) : NaN;
+    if (!m || port < 1 || port > 65535) {
+      problems.push(`${name} must be a mail server's host:port.`);
+      return undefined;
+    }
+    const host = m[1]!.replace(/^\[|\]$/g, '').toLowerCase();
+    if (/^(127\.0\.0\.1|localhost|::1)$/.test(host)) return { host, port, security: 'none' };
+    const starttls = kind === 'imap' ? port === 143 : port === 587 || port === 25;
+    return { host, port, security: starttls ? 'starttls' : 'tls' };
+  };
+
   const turnTimeoutMinutes = whole('RELAY_TURN_TIMEOUT_MIN', DEFAULT_LIMITS.turnTimeoutMinutes);
   const config: ServerConfig = {
     maxAccounts: whole('RELAY_MAX_ACCOUNTS', DEFAULT_LIMITS.maxAccounts),
@@ -98,6 +144,10 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): { config: Serv
     voiceEngineBaseUrl: base('RELAY_VOICE_ENGINE_BASE_URL'),
     voiceDir: folder('RELAY_VOICE_DIR'),
     browser: folder('RELAY_BROWSER'),
+    microsoftLoginUrl: secure('RELAY_MICROSOFT_LOGIN_URL'),
+    microsoftGraphUrl: secure('RELAY_MICROSOFT_GRAPH_URL'),
+    microsoftImap: mailServer('RELAY_MICROSOFT_IMAP', 'imap'),
+    microsoftSmtp: mailServer('RELAY_MICROSOFT_SMTP', 'smtp'),
   };
   return { config, problems };
 }

@@ -1,18 +1,44 @@
 /**
- * The five use cases the website shows (`site/use-cases/`), each recorded by `npm run use-cases` with the
- * real CLIs: what each one sets up, types and clicks, in both languages, and the chapters of its rail.
- * Every recording starts on a fresh server and in a fresh working directory (`workspaces.ts`).
+ * The ten use cases the website shows (`site/use-cases/`), one for each kind of work, each recorded by
+ * `npm run use-cases` with the real CLIs: what each one sets up, types and clicks, in both languages, and
+ * the chapters of its rail. Every recording starts on a fresh server and in a fresh working directory
+ * (`workspaces.ts`).
  */
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
-import type { Locator } from 'playwright-core';
-import type { ChatMessage, Conversation, Permission, Provider } from '../../../src/shared/types';
+import { chromium, type Locator } from 'playwright-core';
+import type { ChatMessage, Conversation, Permission, Provider, TeamPlan } from '../../../src/shared/types';
 import { en } from '../../../src/web/locales/en';
 import { zhTW, type Messages } from '../../../src/web/locales/zh-TW';
 import type { ChapterSpec } from '../chapters';
 import type { DemoLang } from '../common';
 import { api, firstRound, sleep, type ApprovalPolicy, type Session } from '../recorder';
-import { ME, billSplit, calendar, mailbox, pocketBudget, tickets } from './workspaces';
+import {
+  COMPETITORS,
+  ME,
+  SCREEN,
+  bakeryBooks,
+  bakeryNotes,
+  billSplit,
+  chapter,
+  checkoutAlert,
+  checkoutService,
+  classNotes,
+  competitorPage,
+  interviews,
+  invoices,
+  launchBrief,
+  productNotes,
+  researchBrief,
+  signupScreens,
+  studioLaterMail,
+  studioMailbox,
+  vendorContract,
+  writeAll,
+  type Competitor,
+} from './workspaces';
 
 export const UI: Record<DemoLang, Messages> = { en, 'zh-TW': zhTW };
 
@@ -21,10 +47,12 @@ export interface Prepared {
   cwd: string;
   /** Files to attach to the question. */
   attach?: string[];
-  /** Run once the recording is over (the stand-in mail servers stopped). */
+  /** Run once the recording is over (the stand-in servers stopped). */
   close?: () => Promise<void>;
   /** What the stand-in servers saw, for the review notes. */
   notes?: () => string[];
+  /** What happens between two runs of an automation (new mail comes in). */
+  later?: () => void;
 }
 
 export interface UseCase {
@@ -42,14 +70,21 @@ export interface UseCase {
   setup?(base: string, prepared: Prepared, lang: DemoLang): Promise<void>;
   /** Where the recording starts, and what to wait for there. */
   start: { hash: string; ready: string };
-  /** What is typed, per language. */
+  /** What is typed, per language: `question` (or an automation's `message`) is what the page quotes. */
   text: Record<DemoLang, Record<string, string>>;
   drive(s: Session, p: Prepared): Promise<string>;
   /** The chapter rail, per language. */
   rail: Record<DemoLang, ChapterSpec[]>;
+  /**
+   * Why it records on its own, after the others and one language at a time, when it must: a run of its
+   * that shares something of the user's with any other recording's.
+   */
+  alone?: string;
 }
 
 const M = (s: Session) => UI[s.lang];
+const NEW_CHAT = { hash: '#/new', ready: '.new-chat-page .preset-card' };
+const re = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** A working directory made anew: the last recording's left nothing behind. */
 function fresh(dir: string): string {
@@ -58,6 +93,16 @@ function fresh(dir: string): string {
   return dir;
 }
 const idFromUrl = (url: string) => decodeURIComponent(/#\/c\/([^/?]+)/.exec(url)?.[1] ?? '');
+
+/** Files to attach, written to an uploads folder of the use case's own beside its working directory: their paths. */
+function uploads(cwd: string, files: Record<string, string | Buffer>): string[] {
+  const dir = fresh(`${cwd}-uploads`);
+  return Object.entries(files).map(([name, data]) => {
+    const file = join(dir, name);
+    writeFileSync(file, data);
+    return file;
+  });
+}
 
 /** On the New chat page: picks the permission, sets lead review, starts the chat. Returns its id. */
 async function startChat(s: Session, o: { permission: Permission; leadReview: boolean }): Promise<string> {
@@ -88,20 +133,29 @@ async function attach(s: Session, files: string[]): Promise<void> {
   await (await chooser).setFiles(files);
   await s.page
     .locator('.attach-tray li')
-    .first()
+    .nth(files.length - 1)
     .waitFor({ timeout: 10_000 })
     .catch(() => {});
-  await sleep(900);
+  await sleep(1200);
   s.mark('attached', { files: files.length });
 }
 
-/** Asks, then has the lead agent's team confirmed and its answers waited for. */
-async function askTeam(s: Session, id: string, question: string): Promise<void> {
+/** Replies a team gives before the run is over: everyone in relay mode, as each takes the file from the last. */
+const allOf = (plan: TeamPlan | undefined) => plan?.agents?.length ?? 1;
+
+/** Asks, then has the lead agent's team confirmed and its answers waited for (`replies` from its plan). */
+async function askTeam(
+  s: Session,
+  id: string,
+  question: string,
+  o: { replies?: (plan: TeamPlan | undefined) => number; answer?: string } = {},
+): Promise<TeamPlan | undefined> {
   await s.ask(question);
   s.mark('asked', { question });
   const plan = await s.designAndConfirm(id, 'q1', { poster: false });
-  await s.waitAnswered(id, 'q1', firstRound(plan));
+  await s.waitAnswered(id, 'q1', (o.replies ?? firstRound)(plan), { answer: o.answer });
   await sleep(800);
+  return plan;
 }
 
 /** Reads back over the replies: up, then down to the end. */
@@ -117,14 +171,23 @@ async function readBack(s: Session, up = 1400): Promise<void> {
 /** Opens a file in the Files panel by the folders on its path, and holds on its preview. */
 async function openFile(s: Session, path: string[], hold = 3500): Promise<void> {
   const { page, moveClick } = s;
-  await moveClick(page.getByRole('button', { name: new RegExp(`^${M(s).chat.files}$`) }), { after: 900 });
+  await moveClick(page.getByRole('button', { name: new RegExp(`^${re(M(s).chat.files)}$`) }), { after: 900 });
   await page.waitForSelector('.file-browser');
   for (const name of path) {
-    await moveClick(page.locator('.file-list .file-name', { hasText: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }), {
-      after: 800,
-    });
+    await moveClick(page.locator('.file-list .file-name', { hasText: new RegExp(`^${re(name)}$`) }), { after: 800 });
   }
   await sleep(hold);
+}
+
+/** Scrolls the Files panel's rendered Markdown down slowly, as a person reads it. */
+async function readMarkdown(s: Session, steps = 60): Promise<void> {
+  await s.page.evaluate(async (n) => {
+    const box = document.querySelector('.file-browser .preview-markdown');
+    for (let i = 0; i < n && box; i++) {
+      box.scrollTop += 5;
+      await new Promise((r) => setTimeout(r, 16));
+    }
+  }, steps);
 }
 
 /** The replies that changed files, each with how many lines it changed. */
@@ -147,7 +210,118 @@ function changedFile(c: Conversation, ext: RegExp): string | undefined {
   return undefined;
 }
 
-// --- 1. Fix a bug three ways ----------------------------------------------------------------------
+/** The first reply that changed this file. */
+const changedBy = (c: Conversation, file: RegExp) =>
+  c.messages.find((m) => m.changes?.some((ch) => ch.files.some((f) => file.test(f.path))));
+
+/** The lead agent's review of the answers, at the end of the chat: scrolled to and read. */
+async function showReview(s: Session): Promise<Locator | undefined> {
+  const review = s.page.locator('.review-card').last();
+  if (!(await review.count())) return undefined;
+  await s.scrollToElement(review, 1600, 80);
+  s.mark('review');
+  await sleep(4500);
+  await s.scrollMessages(500, 1600);
+  await sleep(2500);
+  return review;
+}
+
+/** On the New automation page: types the message (and a goal), sets when it runs, and creates it. Returns its chat. */
+async function newAutomation(
+  s: Session,
+  o: { message: string; goal?: string; weekdaysAt?: string; webhook?: boolean; newChat?: boolean },
+): Promise<string> {
+  const { page, moveClick, mark, typeSlow } = s;
+  const T = M(s);
+  await s.moveTo(700, 420, 300);
+  await sleep(1000);
+  // New automation, beside New chat.
+  await moveClick(page.getByRole('button', { name: T.sidebar.newSchedule, exact: true }), { after: 900 });
+  await page.waitForSelector('.new-chat-page .schedule-form');
+  await sleep(1200);
+  await moveClick(page.locator('.schedule-form textarea').first(), { after: 250 });
+  await typeSlow(o.message, 22);
+  await sleep(700);
+  if (o.goal) {
+    await moveClick(page.locator('.schedule-form textarea').nth(1), { after: 250 });
+    await typeSlow(o.goal, 26);
+    await sleep(900);
+    mark('goal');
+  }
+  if (o.weekdaysAt) {
+    await moveClick(page.locator('.schedule-kinds button', { hasText: T.schedule.kinds.weekly }), { after: 700 });
+    // Monday to Friday, by each day's name (the picker starts on Monday, and may start with some days on).
+    const weekdays = new Set([1, 2, 3, 4, 5].map((d) => T.schedule.weekdayNames[d]));
+    const days = page.locator('.day-picker button');
+    for (let i = 0; i < (await days.count()); i++) {
+      const day = days.nth(i);
+      const want = weekdays.has((await day.getAttribute('aria-label')) ?? '');
+      const on = (await day.getAttribute('aria-pressed')) === 'true';
+      if (want !== on) await moveClick(day, { after: 250, ms: 300 });
+    }
+    const time = page.locator('.schedule-when input[type="time"]');
+    await moveClick(time, { after: 200 });
+    await time.fill(o.weekdaysAt);
+    await sleep(1200);
+    mark('when', { repeat: 'weekly' });
+  }
+  if (o.webhook) {
+    await moveClick(page.locator('.schedule-form details.sub > summary', { hasText: T.schedule.hook.title }), { after: 700 });
+    await moveClick(page.locator('.schedule-form label.check-row', { hasText: T.newSchedule.withHook }).locator('input'), { after: 700 });
+    mark('webhook-on');
+  }
+  if (o.newChat) {
+    await moveClick(page.locator('.schedule-form label.check-row', { hasText: T.schedule.newChat }).locator('input'), { after: 900 });
+    mark('new-chat-each');
+  }
+  // Without lead review: the automations' runs are read when they come.
+  await page
+    .locator('.lead-review input[type="checkbox"]')
+    .uncheck()
+    .catch(() => {});
+  await moveClick('.start-bar .primary', { after: 900 });
+  await page.waitForURL(/#\/c\//);
+  const id = idFromUrl(page.url());
+  s.log('conversation', id);
+  mark('created');
+  return id;
+}
+
+/** Opens the automation's drawer and clicks Run once now. */
+async function runNow(s: Session, mark: string): Promise<void> {
+  const { page, moveClick } = s;
+  const T = M(s);
+  s.mark(mark);
+  await moveClick(page.getByRole('button', { name: new RegExp(`^${re(T.schedule.button)}$`) }), { after: 900 });
+  await page.waitForSelector('.schedule-drawer');
+  await sleep(1200);
+  await moveClick(page.locator('.schedule-drawer').getByRole('button', { name: T.schedule.runNow }), { after: 1200 });
+  await page.keyboard.press('Escape');
+  await sleep(500);
+}
+
+/** Sends what waits in the outbox, each card as it is shown; how many went. */
+async function sendOutbox(s: Session, max: number): Promise<number> {
+  const { page, moveClick, mark } = s;
+  const pending = page.locator('.outbox-card.outbox-pending');
+  const count = await pending.count();
+  if (!count) return 0;
+  await s.scrollToElement(pending.first(), 1600, 120);
+  mark('outbox', { items: count });
+  await sleep(3500);
+  let sent = 0;
+  for (; sent < Math.min(max, count); sent++) {
+    const card = page.locator('.outbox-card.outbox-pending').first();
+    if (!(await card.count())) break;
+    await card.scrollIntoViewIfNeeded().catch(() => {});
+    await moveClick(card.getByRole('button', { name: M(s).outbox.send, exact: true }), { after: 1500 });
+  }
+  mark('sent', { sent });
+  await sleep(2500);
+  return sent;
+}
+
+// --- 1. Software engineer: fix a bug three ways ---------------------------------------------------
 
 const fixABug: UseCase = {
   slug: 'fix-a-bug',
@@ -160,7 +334,7 @@ const fixABug: UseCase = {
     billSplit(cwd);
     return { cwd };
   },
-  start: { hash: '#/new', ready: '.new-chat-page .preset-card' },
+  start: NEW_CHAT,
   text: {
     en: {
       question:
@@ -242,250 +416,286 @@ const fixABug: UseCase = {
   },
 };
 
-// --- 2. Research a decision ------------------------------------------------------------------------
+// --- 2. Product manager: from interviews to a spec ------------------------------------------------
 
-const research: UseCase = {
-  slug: 'research',
+const productSpec: UseCase = {
+  slug: 'product-spec',
   providers: ['claude', 'codex', 'grok'],
   approvals: 'allow',
-  length: 70,
-  poster: { at: 'review', offset: 2, fallback: 'q1-answered' },
+  length: 80,
+  poster: { at: 'files', offset: 4, fallback: 'q1-answered' },
   async prepare(lang, root) {
-    const cwd = fresh(join(root, 'date-library'));
-    writeFileSync(
-      join(cwd, 'NOTES.md'),
-      lang === 'en'
-        ? '# Choosing a date library\n\nOur web app (TypeScript, React) shows times in each user’s time zone and schedules reminders across time zones.\nToday it uses Moment.js, which is in maintenance mode.\n'
-        : '# 選擇日期函式庫\n\n我們的網頁 app（TypeScript、React）要依每位使用者的時區顯示時間，也要跨時區排程提醒。\n目前用的是 Moment.js，它已進入維護模式。\n',
-    );
-    return { cwd };
+    const cwd = fresh(join(root, 'shiftbell'));
+    writeAll(cwd, productNotes(lang));
+    return { cwd, attach: uploads(cwd, interviews(lang)) };
   },
-  start: { hash: '#/new', ready: '.new-chat-page .preset-card' },
+  start: NEW_CHAT,
   text: {
     en: {
       question:
-        'Read NOTES.md. Should we replace Moment.js with date-fns, Day.js or Luxon? Have Claude Code, Codex and Grok look up each one’s docs and npm page, compare time-zone support, size and upkeep, debate it, and give us one pick with links to the sources.',
+        'Attached are five customer interviews; PRODUCT.md says who our customers are. Write a one-page PRD for next quarter’s feature in PRD.md, as a relay: Claude Code pulls out the pain points with quotes, Codex writes the PRD, Grok challenges its assumptions. Before anyone writes the PRD, ask me which customers to build for first.',
+      answer: 'Restaurants and cafés first: they are 141 of our 182 customers, and they leave four times as often as clinics.',
     },
     'zh-TW': {
       question:
-        '先讀 NOTES.md。我們該用 date-fns、Day.js 還是 Luxon 取代 Moment.js？請 Claude Code、Codex 和 Grok 查各自的文件和 npm 頁面，比較時區支援、大小和維護狀況，彼此辯論後給我們一個選擇，並附上來源連結。',
+        '附件是五份客戶訪談，PRODUCT.md 寫了我們的客戶是誰。請用接力的方式，為下一季的功能寫一頁 PRD，存成 PRD.md：Claude Code 整理痛點並附上原話，Codex 寫 PRD，Grok 挑戰其中的假設。寫 PRD 之前，先問我要先為哪一群客戶做。',
+      answer: '先做餐廳和咖啡店：182 家客戶裡有 141 家是他們，而且他們流失的比例是診所的四倍。',
     },
   },
-  async drive(s) {
-    const { page, mark } = s;
-    const id = await startChat(s, { permission: 'read-only', leadReview: true });
-    await askTeam(s, id, this.text[s.lang]!.question!);
-    await readBack(s, 2200);
-    mark('q1-read');
-    // The lead agent's review of the answers, at the end of the chat.
-    const review = page.locator('.review-card').last();
-    if (await review.count()) {
-      await s.scrollToElement(review, 1600, 80);
-      mark('review');
-      await sleep(4500);
-      await s.scrollMessages(500, 1600);
-      await sleep(2500);
-    }
-    return id;
-  },
-  rail: {
-    en: [
-      { at: 'start', kind: 'you', say: 'Start a new conversation, read-only, with lead review on.' },
-      { at: 'chat-open', kind: 'you', say: 'Ask which library should replace Moment.js: date-fns, Day.js or Luxon, with sources.' },
-      { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{Plan}: {names}, {rounds}, and says why.' },
-      { at: 'q1-confirmed', kind: 'team', team: 'q1', say: 'Each searches the web and reads the docs, then answers the others’ points.' },
-      { at: 'approval', kind: 'agent', say: 'Asks before running a command read-only does not cover by itself: you allow it.' },
-      { at: 'q1-answered', kind: 'team', team: 'q1', say: 'One pick, with the trade-offs and the links they read.' },
-      { at: 'review', kind: 'lead', team: 'q1', say: 'Reviews the replies: where they disagree, and what you should check yourself.' },
-    ],
-    'zh-TW': [
-      { at: 'start', kind: 'you', say: '開新對話，權限維持唯讀，首席 agent 審閱保持開啟。' },
-      { at: 'chat-open', kind: 'you', say: '提問：date-fns、Day.js、Luxon，哪個該取代 Moment.js？要附來源。' },
-      { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{plan}：{names}，{rounds}，並說明原因。' },
-      { at: 'q1-confirmed', kind: 'team', team: 'q1', say: '每位上網搜尋、讀文件，再回應其他人的論點。' },
-      { at: 'approval', kind: 'agent', say: '要執行唯讀權限本身不涵蓋的指令前先問你：你選擇允許。' },
-      { at: 'q1-answered', kind: 'team', team: 'q1', say: '建議與取捨，附上他們讀過的連結；第二輪裡有成員改變了立場。' },
-      { at: 'review', kind: 'lead', team: 'q1', say: '審閱回覆：哪裡意見不同、哪些該由你親自確認。' },
-    ],
-  },
-};
-
-// --- 3. Write in relay -----------------------------------------------------------------------------
-
-const writeInRelay: UseCase = {
-  slug: 'release-notes',
-  providers: ['claude', 'codex', 'grok'],
-  approvals: 'allow',
-  length: 70,
-  poster: { at: 'files', offset: 5, fallback: 'q1-answered' },
-  async prepare(lang, root) {
-    const cwd = fresh(join(root, 'pocket-budget'));
-    pocketBudget(cwd);
-    return { cwd };
-  },
-  start: { hash: '#/new', ready: '.new-chat-page .preset-card' },
-  text: {
-    en: {
-      question:
-        'Write the release notes for 1.4.0 in RELEASE_NOTES.md, for our users, from the commits since v1.3.0. Pass it along as a relay: Claude Code drafts, Codex edits it into plain words, Grok checks every line against the commits.',
-    },
-    'zh-TW': {
-      question:
-        '根據 v1.3.0 之後的 commit，幫使用者寫 1.4.0 的版本說明，存成 RELEASE_NOTES.md。用接力的方式：Claude Code 起草，Codex 改成白話，Grok 逐行對照 commit 查核。',
-    },
-  },
-  async drive(s) {
+  async drive(s, p) {
     const { mark } = s;
     const id = await startChat(s, { permission: 'edit', leadReview: false });
-    await askTeam(s, id, this.text[s.lang]!.question!);
+    await attach(s, p.attach ?? []);
+    await askTeam(s, id, this.text[s.lang]!.question!, { replies: allOf, answer: this.text[s.lang]!.answer });
     await readBack(s, 1800);
     mark('q1-read');
-    const notes = changedFile(await s.conversation(id), /RELEASE_NOTES\.md$/i) ?? 'RELEASE_NOTES.md';
-    mark('files', { file: notes });
-    await openFile(s, notes.split('/'), 3000);
-    await s.page.evaluate(async () => {
-      const box = document.querySelector('.file-browser .preview-markdown');
-      for (let i = 0; i < 60 && box; i++) {
-        box.scrollTop += 5;
-        await new Promise((r) => setTimeout(r, 16));
-      }
-    });
+    const prd = changedFile(await s.conversation(id), /PRD\.md$/i) ?? 'PRD.md';
+    mark('files', { file: prd });
+    await openFile(s, prd.split('/'), 3000);
+    await readMarkdown(s, 80);
     await sleep(2500);
     return id;
   },
   rail: {
     en: [
-      { at: 'start', kind: 'you', say: 'Start a new conversation in pocket-budget with Edit, so the agents may write the file.' },
-      { at: 'chat-open', kind: 'you', say: 'Ask for 1.4.0’s release notes from the commits since v1.3.0, as a relay.' },
+      { at: 'start', kind: 'you', say: 'Start a new conversation with Edit, so the agents may write the PRD.' },
+      { at: 'attached', kind: 'you', say: 'Attach the five customer interviews, and ask for a one-page PRD, as a relay.' },
       { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{Plan}: {names}, in relay, and says why.' },
-      {
-        at: 'q1-confirmed',
-        kind: 'team',
-        team: 'q1',
-        say: 'Each takes the file from the last and hands it on with an @mention: draft, plain words, fact check.',
-      },
-      { at: 'approval', kind: 'agent', say: 'Asks before running a command its permission does not cover: you allow it.' },
-      {
-        at: 'q1-answered',
-        kind: 'team',
-        team: 'q1',
-        say: 'A line that fails the check goes back to the editor, then passes; each reply lists the file it changed.',
-      },
-      { at: 'files', kind: 'you', say: 'Open RELEASE_NOTES.md in Files, rendered as it will read.' },
+      { at: 'q1-confirmed', kind: 'team', team: 'q1', say: 'The first reads the interviews and pulls out each pain point with its quote.' },
+      { at: 'asked-user', kind: 'agent', say: 'Stops to ask you which customers to build for first, as you said it should.' },
+      { at: 'answered-user', kind: 'you', say: 'Answer in the message box: restaurants and cafés first, and why.' },
+      { at: 'q1-answered', kind: 'team', team: 'q1', say: 'The PRD is written for your answer, then challenged assumption by assumption.' },
+      { at: 'files', kind: 'you', say: 'Open PRD.md in Files, rendered as it will read.' },
     ],
     'zh-TW': [
-      { at: 'start', kind: 'you', say: '在 pocket-budget 開新對話，權限選「可編輯」，agent 才能寫檔案。' },
-      { at: 'chat-open', kind: 'you', say: '請他們用接力的方式，根據 v1.3.0 之後的 commit 寫 1.4.0 的版本說明。' },
+      { at: 'start', kind: 'you', say: '開新對話，權限選「可編輯」，agent 才能寫 PRD。' },
+      { at: 'attached', kind: 'you', say: '附上五份客戶訪談，請他們用接力的方式寫一頁 PRD。' },
       { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{plan}：{names}，以接力進行，並說明原因。' },
-      { at: 'q1-confirmed', kind: 'team', team: 'q1', say: '每位接過上一位的檔案，再用 @ 交棒：起草、改白話、查核。' },
-      { at: 'approval', kind: 'agent', say: '要執行權限之外的指令前先問你：你選擇允許。' },
-      { at: 'q1-answered', kind: 'team', team: 'q1', say: '查核沒過的句子退回改寫，再通過查核；每則回覆都列出它改了哪個檔案。' },
-      { at: 'files', kind: 'you', say: '在「檔案」打開 RELEASE_NOTES.md，看排版後的樣子。' },
+      { at: 'q1-confirmed', kind: 'team', team: 'q1', say: '第一位讀完訪談，整理出每個痛點和客戶的原話。' },
+      { at: 'asked-user', kind: 'agent', say: '依你的要求停下來問你：要先為哪一群客戶做。' },
+      { at: 'answered-user', kind: 'you', say: '在訊息框回答：先做餐廳和咖啡店，並說明原因。' },
+      { at: 'q1-answered', kind: 'team', team: 'q1', say: '依你的回答寫出 PRD，再逐一挑戰其中的假設。' },
+      { at: 'files', kind: 'you', say: '在「檔案」打開 PRD.md，看排版後的樣子。' },
     ],
   },
 };
 
-// --- 4. Analyze a spreadsheet ----------------------------------------------------------------------
+// --- 3. Marketer: read the competitors' pages, write the launch copy ------------------------------
 
-const analyzeData: UseCase = {
-  slug: 'analyze-data',
-  providers: ['claude', 'codex', 'grok'],
+const launchCopy: UseCase = {
+  slug: 'launch-copy',
+  providers: ['claude', 'codex'],
   approvals: 'allow',
-  length: 70,
-  poster: { at: 'chart', offset: 2, fallback: 'q1-answered' },
+  length: 85,
+  poster: { at: 'q1-answered', offset: 2, fallback: 'q1-answered' },
   async prepare(lang, root) {
-    const cwd = fresh(join(root, 'support-report'));
-    writeFileSync(
-      join(cwd, 'README.md'),
-      lang === 'en' ? '# Support report\n\nThe weekly support update.\n' : '# 客服報告\n\n每週的客服更新。\n',
-    );
-    const uploads = fresh(join(root, 'uploads'));
-    const csv = join(uploads, 'tickets-2026-q3.csv');
-    writeFileSync(csv, tickets(lang));
-    return { cwd, attach: [csv] };
+    const cwd = fresh(join(root, 'plotline'));
+    // The competitors' pricing pages, each under a name of its own on this computer (name.localhost).
+    const seen: string[] = [];
+    const server = createServer((req, res) => {
+      const host = (req.headers.host ?? '').split(':')[0]!.replace(/\.localhost$/, '') as Competitor;
+      seen.push(`${host}${req.url}`);
+      if (!COMPETITORS.includes(host) || !/^\/(pricing\/?)?(\?.*)?$/.test(req.url ?? '')) {
+        res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(competitorPage(lang, host));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    writeAll(cwd, launchBrief(lang, port));
+    return {
+      cwd,
+      close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+      notes: () => [`The stand-in web server served: ${[...new Set(seen)].join(', ') || 'nothing'}`],
+    };
   },
-  start: { hash: '#/new', ready: '.new-chat-page .preset-card' },
+  async setup(base) {
+    await api(base, '/api/tools', { relayTools: { browser: ['claude', 'codex'] } }, 'PUT');
+  },
+  start: NEW_CHAT,
   text: {
     en: {
       question:
-        'Here are last quarter’s support tickets. What changed, what is driving it, and what should we fix first? Save a chart I can paste into the weekly update, and show it here.',
+        'Our Studio plan launches on 1 December; LAUNCH.md says what it does and costs. With Harness Relay’s browser, Claude Code and Codex read the three competitors’ pricing pages listed there, then take turns on three taglines and a 100-word launch post that say what we do that they don’t.',
+      followUp: 'Now the Instagram version of the launch post: playful, under 60 words, three hashtags, for podcasters just starting out.',
     },
-    'zh-TW': { question: '這是上一季的客服工單。哪裡變了、原因是什麼、我們該先修什麼？存一張可以貼進週報的圖表，並在這裡顯示。' },
+    'zh-TW': {
+      question:
+        '我們的 Studio 方案 12 月 1 日上市，LAUNCH.md 寫了它的功能和價格。請 Claude Code 和 Codex 用 Harness Relay 的瀏覽器讀完裡面列的三個競品價格頁，再輪流寫出三句標語和一篇 150 字的上市貼文，說出我們有、他們沒有的地方。',
+      followUp: '再寫一版 Instagram 用的上市貼文：輕鬆有趣、80 字以內、三個 hashtag，給剛開始做 podcast 的人看。',
+    },
+  },
+  async drive(s) {
+    const { page, moveClick, mark } = s;
+    const T = M(s);
+    const id = await startChat(s, { permission: 'read-only', leadReview: false });
+    await askTeam(s, id, this.text[s.lang]!.question!);
+    await readBack(s, 1800);
+    mark('q1-read');
+
+    // Branch from the last reply, to try another voice without losing this one.
+    const c = await s.conversation(id);
+    const last = [...c.messages].reverse().find((m) => m.author.kind === 'agent' && m.status === 'done');
+    if (!last) {
+      s.log('WARNING: no finished reply to branch from');
+      return id;
+    }
+    const reply = page.locator(`[id="msg-${last.id}"]`);
+    await s.scrollToElement(reply, 1400, 60);
+    await sleep(800);
+    mark('branch');
+    await moveClick(reply.getByRole('button', { name: T.message.branch, exact: true }).last(), { after: 600 });
+    await page.waitForURL((u) => /#\/c\//.test(u.hash) && idFromUrl(u.href) !== id, { timeout: 30_000 });
+    const branch = idFromUrl(page.url());
+    s.log('branch', branch);
+    await sleep(1800);
+    mark('branched');
+    const before = s.agentReplies(await s.conversation(branch));
+    await s.ask(this.text[s.lang]!.followUp!);
+    mark('asked-2');
+    const plan = await s.designAndConfirm(branch, 'q2', { poster: false });
+    await s.waitAnswered(branch, 'q2', before + firstRound(plan));
+    await sleep(800);
+    await s.scrollMessages(-900, 2200);
+    await sleep(1400);
+    await s.scrollMessages(4000, 1500);
+    mark('q2-read');
+    // The branch sits under the conversation it came from, in the sidebar.
+    await s.moveTo(150, 260, 900);
+    mark('sidebar');
+    await sleep(3000);
+    return branch;
+  },
+  rail: {
+    en: [
+      { at: 'start', kind: 'you', say: 'Start a new conversation, read-only: the agents only read pages and write in the chat.' },
+      { at: 'chat-open', kind: 'you', say: 'Ask for three taglines and a launch post, from the competitors’ pricing pages.' },
+      { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{Plan}: {names}, {rounds}, and says why.' },
+      {
+        at: 'q1-confirmed',
+        kind: 'team',
+        team: 'q1',
+        say: 'They open each pricing page in Harness Relay’s own browser and read it, then write in turn.',
+      },
+      { at: 'approval', kind: 'agent', say: 'Asks before the browser opens a site it has not opened before: you allow it.' },
+      { at: 'q1-answered', kind: 'team', team: 'q1', say: 'Three taglines and a launch post, each claim set against a competitor’s plan.' },
+      { at: 'branch', kind: 'you', say: 'Branch from the last reply: a new conversation to try another voice, this one kept.' },
+      { at: 'asked-2', kind: 'you', say: 'Ask the branch for a playful Instagram version.' },
+      { at: 'q2-answered', kind: 'team', team: 'q2', say: 'The Instagram post, written from what the first conversation found.' },
+      { at: 'sidebar', kind: 'you', say: 'In the sidebar the branch sits under the conversation it came from.' },
+    ],
+    'zh-TW': [
+      { at: 'start', kind: 'you', say: '開新對話，權限維持唯讀：agent 只讀網頁、在對話裡寫。' },
+      { at: 'chat-open', kind: 'you', say: '請他們根據競品的價格頁，寫三句標語和一篇上市貼文。' },
+      { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{plan}：{names}，{rounds}，並說明原因。' },
+      { at: 'q1-confirmed', kind: 'team', team: 'q1', say: '他們用 Harness Relay 自己的瀏覽器打開每個價格頁讀完，再輪流寫。' },
+      { at: 'approval', kind: 'agent', say: '瀏覽器要開沒開過的網站之前先問你：你選擇允許。' },
+      { at: 'q1-answered', kind: 'team', team: 'q1', say: '三句標語和一篇上市貼文，每個賣點都對照了競品的方案。' },
+      { at: 'branch', kind: 'you', say: '從最後一則回覆分支：開一段新對話試另一種語氣，原本的保留不動。' },
+      { at: 'asked-2', kind: 'you', say: '在分支裡要一版輕鬆的 Instagram 貼文。' },
+      { at: 'q2-answered', kind: 'team', team: 'q2', say: 'Instagram 貼文，根據第一段對話查到的內容寫成。' },
+      { at: 'sidebar', kind: 'you', say: '側邊欄裡，分支就列在它分出來的對話底下。' },
+    ],
+  },
+};
+
+// --- 4. Accountant: close the month, two pairs of eyes --------------------------------------------
+
+const reconcile: UseCase = {
+  slug: 'reconcile-accounts',
+  providers: ['claude', 'codex', 'grok'],
+  approvals: 'allow',
+  length: 75,
+  poster: { at: 'review', offset: 2, fallback: 'q1-answered' },
+  async prepare(lang, root) {
+    const cwd = fresh(join(root, 'harbor-bakery'));
+    writeAll(cwd, bakeryNotes(lang));
+    return { cwd, attach: uploads(cwd, bakeryBooks(lang)) };
+  },
+  start: NEW_CHAT,
+  text: {
+    en: {
+      question:
+        'Close October for Harbor Bakery: reconcile the attached bank statement against the cash ledger. Have Claude Code, Codex and Grok each reconcile it on their own, then list every difference with its amount, whether it is a timing difference or an error, and the entry that fixes it.',
+    },
+    'zh-TW': {
+      question:
+        '幫港邊烘焙坊做 10 月的月結：把附件的銀行對帳單和現金帳對起來。請 Claude Code、Codex 和 Grok 各自獨立對帳，再列出每一筆差異：金額、是時間差還是錯誤，以及要做的調整分錄。',
+    },
   },
   async drive(s, p) {
-    const { page, mark } = s;
-    const id = await startChat(s, { permission: 'edit', leadReview: false });
+    const id = await startChat(s, { permission: 'read-only', leadReview: true });
     await attach(s, p.attach ?? []);
     await askTeam(s, id, this.text[s.lang]!.question!);
-    await readBack(s, 1600);
-    // The chart a reply shows.
-    const chart = page.locator('.messages img.chat-media').last();
-    if (await chart.count()) {
-      await s.scrollToElement(chart, 1800, 140);
-      mark('chart');
-      await sleep(4500);
-    }
-    mark('q1-read');
-    const file = changedFile(await s.conversation(id), /\.(svg|png)$/i);
-    if (file) {
-      mark('files', { file });
-      await openFile(s, file.split('/'), 4000);
-    }
+    await readBack(s, 2200);
+    s.mark('q1-read');
+    await showReview(s);
     return id;
   },
   rail: {
     en: [
-      { at: 'start', kind: 'you', say: 'Start a new conversation with Edit, so the agents may save files.' },
-      { at: 'chat-open', kind: 'you', say: 'Attach the quarter’s tickets, a CSV file, and ask what changed and what to fix first.' },
-      { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{Plan}: {names}, and says why.' },
+      { at: 'start', kind: 'you', say: 'Start a new conversation, read-only, with lead review on.' },
+      { at: 'attached', kind: 'you', say: 'Attach the bank statement and the cash ledger, and ask for October’s reconciliation.' },
+      { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{Plan}: {names}, each on its own, and says why.' },
       {
         at: 'q1-confirmed',
         kind: 'team',
         team: 'q1',
-        say: 'They read the file, count with scripts of their own and check each other’s numbers.',
+        say: 'Each matches the two files line by line with scripts of its own, without seeing the others.',
       },
-      { at: 'approval', kind: 'agent', say: 'Asks before running a command its permission does not cover: you allow it.' },
-      { at: 'q1-answered', kind: 'team', team: 'q1', say: 'What changed and why, ranked by what to fix first.' },
-      { at: 'chart', kind: 'you', say: 'The chart they drew, shown right in the reply.' },
-      { at: 'files', kind: 'you', say: 'Open it in Files, saved in the working directory for the weekly update.' },
+      { at: 'approval', kind: 'agent', say: 'Asks before running a command read-only does not cover by itself: you allow it.' },
+      {
+        at: 'q1-answered',
+        kind: 'team',
+        team: 'q1',
+        say: 'Three reconciliations: each difference, timing or error, and its adjusting entry.',
+      },
+      {
+        at: 'review',
+        kind: 'lead',
+        team: 'q1',
+        say: 'Reviews the three: the same differences found, the balances re-checked, and what to confirm yourself.',
+      },
     ],
     'zh-TW': [
-      { at: 'start', kind: 'you', say: '開新對話，權限選「可編輯」，agent 才能存檔。' },
-      { at: 'chat-open', kind: 'you', say: '附上這一季的工單 CSV 檔，問哪裡變了、該先修什麼。' },
-      { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{plan}：{names}，並說明原因。' },
-      { at: 'q1-confirmed', kind: 'team', team: 'q1', say: '他們讀檔案、自己寫程式計算，並互相核對數字。' },
-      { at: 'approval', kind: 'agent', say: '要執行權限之外的指令前先問你：你選擇允許。' },
-      { at: 'q1-answered', kind: 'team', team: 'q1', say: '哪裡變了、為什麼，依該先修的順序排好。' },
-      { at: 'chart', kind: 'you', say: '他們畫的圖表，直接顯示在回覆裡。' },
-      { at: 'files', kind: 'you', say: '在「檔案」打開它：已存在工作目錄，可以貼進週報。' },
+      { at: 'start', kind: 'you', say: '開新對話，權限維持唯讀，首席 agent 審閱保持開啟。' },
+      { at: 'attached', kind: 'you', say: '附上銀行對帳單和現金帳，請他們做 10 月的銀行調節。' },
+      { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{plan}：{names}，各自處理，並說明原因。' },
+      { at: 'q1-confirmed', kind: 'team', team: 'q1', say: '每位自己寫程式逐筆比對兩份檔案，看不到其他人的結果。' },
+      { at: 'approval', kind: 'agent', say: '要執行唯讀權限本身不涵蓋的指令前先問你：你選擇允許。' },
+      { at: 'q1-answered', kind: 'team', team: 'q1', say: '三份調節表：每筆差異、是時間差還是錯誤，以及調整分錄。' },
+      { at: 'review', kind: 'lead', team: 'q1', say: '審閱三份結果：找到的差異相同、重算餘額，並列出該由你親自確認的事。' },
     ],
   },
 };
 
-// --- 5. A morning briefing, every weekday ----------------------------------------------------------
+// --- 5. Business owner: follow up on overdue invoices until they are settled ----------------------
 
-const morningBriefing: UseCase = {
-  slug: 'morning-briefing',
+/** Where each run's stand-in mail servers listen, by its working directory. */
+const mailServers = new Map<string, { imap: number; smtp: number }>();
+
+const collectPayments: UseCase = {
+  slug: 'collect-payments',
   providers: ['claude', 'codex'],
   approvals: 'allow',
-  length: 75,
-  poster: { at: 'outbox', offset: 2, fallback: 'q1-answered' },
+  length: 90,
+  poster: { at: 'progress', offset: 1.5, fallback: 'q1-answered' },
   async prepare(lang, root) {
-    const cwd = fresh(join(root, 'assistant'));
-    writeFileSync(
-      join(cwd, 'README.md'),
-      lang === 'en' ? '# Assistant\n\nNotes the morning briefing keeps.\n' : '# 助理\n\n晨間簡報留下的筆記。\n',
-    );
-    const { fakeImap, fakeSmtp, fakeCalDav } = await import('../../../test/fake-mail-servers');
+    const cwd = fresh(join(root, 'studio'));
+    writeAll(cwd, invoices(lang));
+    const { fakeImap, fakeSmtp } = await import('../../../test/fake-mail-servers');
     const login = { user: ME.user, pass: ME.pass };
-    const imap = await fakeImap(mailbox(lang), login);
+    const messages = studioMailbox(lang);
+    const imap = await fakeImap(messages, login);
     const smtp = await fakeSmtp(login);
-    const cal = await fakeCalDav(calendar(lang), login);
-    servers.set(cwd, { imap: imap.port, smtp: smtp.port, cal: cal.url });
+    mailServers.set(cwd, { imap: imap.port, smtp: smtp.port });
     return {
       cwd,
+      // The mail that comes in before the next run: the stand-in server serves the same list.
+      later: () => messages.push(...studioLaterMail(lang)),
       close: async () => {
-        await Promise.all([imap.close(), smtp.close(), cal.close()]);
+        await Promise.all([imap.close(), smtp.close()]);
       },
       notes: () =>
         smtp.sent.map(
@@ -500,13 +710,12 @@ const morningBriefing: UseCase = {
     };
   },
   async setup(base, p, lang) {
-    const at = servers.get(p.cwd)!;
-    const name = lang === 'en' ? 'Work' : '工作';
+    const at = mailServers.get(p.cwd)!;
     await api(
       base,
       '/api/connectors/mail/work',
       {
-        name,
+        name: lang === 'en' ? 'Studio' : '工作室',
         address: `${ME.name} <${ME.address}>`,
         username: ME.user,
         password: ME.pass,
@@ -515,95 +724,63 @@ const morningBriefing: UseCase = {
       },
       'PUT',
     );
-    await api(
-      base,
-      '/api/connectors/calendar/work',
-      { name, url: at.cal, username: ME.user, address: ME.address, password: ME.pass },
-      'PUT',
-    );
-    await api(base, '/api/tools', { relayTools: { mail: ['claude', 'codex'], calendar: ['claude', 'codex'] } }, 'PUT');
+    await api(base, '/api/tools', { relayTools: { mail: ['claude', 'codex'] } }, 'PUT');
   },
-  start: { hash: '#/new', ready: '.new-chat-page .preset-card' },
+  start: NEW_CHAT,
   text: {
     en: {
       message:
-        'Every weekday morning, with Harness Relay’s mail and calendar tools: read the mail that came in since yesterday and today’s calendar, and tell me what needs me today. Answer each mail that needs a reply with mail_send: it sends nothing by itself, each reply waits in my outbox until I press Send (an unattended run cannot save drafts). For each meeting request, propose a free time in the reply. Claude Code reads the mail, Codex checks the calendar.',
+        'Every weekday at 09:00, with Harness Relay’s mail tools: check the mail since the last run for payments and replies about the overdue invoices in INVOICES.md. Write each client whose invoice is still unpaid, with no date agreed, a short and friendly reminder with mail_send; answer any client who proposed a plan, agreeing to it. Each mail waits in my outbox until I press Send. Claude Code reads the mail, Codex keeps the tally against INVOICES.md.',
+      goal: 'Each overdue invoice in INVOICES.md is paid in full, or its client agreed in writing to a date to pay it.',
     },
     'zh-TW': {
       message:
-        '每個工作日早上，用 Harness Relay 的郵件和行事曆工具：讀昨天以來的新信和今天的行事曆，告訴我今天有哪些事需要我。需要回覆的信，用 mail_send 寫好簡短的回信：它不會自己寄出，每封回信都在待送出匣等我按「送出」（無人值守的執行不能存草稿）。每個會議邀約，都在回信裡提一個空檔。Claude Code 讀信，Codex 看行事曆。',
+        '每個工作日 09:00，用 Harness Relay 的郵件工具：從上次執行以來的信裡，找 INVOICES.md 裡逾期發票的入帳通知和客戶回覆。還沒付款、也還沒約好日期的客戶，用 mail_send 寫一封簡短友善的提醒；有客戶提出付款方式的，回信同意。每封信都在我的待送出匣等我按「送出」。Claude Code 讀信，Codex 對照 INVOICES.md 記帳。',
+      goal: 'INVOICES.md 裡的每張逾期發票都已經付清，或是客戶已經用書面同意了付款的日期。',
     },
   },
-  async drive(s) {
-    const { page, moveClick, mark, typeSlow } = s;
+  async drive(s, p) {
+    const { page, moveClick, mark } = s;
     const T = M(s);
-    await s.moveTo(700, 420, 300);
-    await sleep(1000);
-    // New automation, beside New chat.
-    await moveClick(page.getByRole('button', { name: T.sidebar.newSchedule, exact: true }), { after: 900 });
-    await page.waitForSelector('.new-chat-page .schedule-form');
-    await sleep(1200);
-    // The message, then every weekday at 08:30.
-    await moveClick(page.locator('.schedule-form textarea').first(), { after: 250 });
-    await typeSlow(this.text[s.lang]!.message!, 22);
-    await sleep(700);
-    await moveClick(page.locator('.schedule-kinds button', { hasText: T.schedule.kinds.weekly }), { after: 700 });
-    // Monday to Friday, by each day's name (the picker starts on Monday, and may start with some days on).
-    const weekdays = new Set([1, 2, 3, 4, 5].map((d) => T.schedule.weekdayNames[d]));
-    const days = page.locator('.day-picker button');
-    for (let i = 0; i < (await days.count()); i++) {
-      const day = days.nth(i);
-      const want = weekdays.has((await day.getAttribute('aria-label')) ?? '');
-      const on = (await day.getAttribute('aria-pressed')) === 'true';
-      if (want !== on) await moveClick(day, { after: 250, ms: 300 });
-    }
-    const time = page.locator('.schedule-when input[type="time"]');
-    await moveClick(time, { after: 200 });
-    await time.fill('08:30');
-    await sleep(1200);
-    mark('when', { repeat: 'weekly' });
-    // Without lead review, as in the other recordings but one.
-    await page
-      .locator('.lead-review input[type="checkbox"]')
-      .uncheck()
-      .catch(() => {});
-    await moveClick('.start-bar .primary', { after: 900 });
-    await page.waitForURL(/#\/c\//);
-    const id = idFromUrl(page.url());
-    s.log('conversation', id);
-    mark('created');
-
+    const id = await newAutomation(s, { message: this.text[s.lang]!.message!, goal: this.text[s.lang]!.goal!, weekdaysAt: '09:00' });
     // The lead agent designs the team for the message; nothing runs until it is due, or run now.
     const plan = await s.designAndConfirm(id, 'q1');
     await sleep(800);
-    mark('run-now');
-    await moveClick(page.getByRole('button', { name: new RegExp(`^${T.schedule.button}$`) }), { after: 900 });
-    await page.waitForSelector('.schedule-drawer');
-    await sleep(1200);
-    await moveClick(page.locator('.schedule-drawer').getByRole('button', { name: T.schedule.runNow }), { after: 1200 });
-    await page.keyboard.press('Escape');
-    await sleep(500);
+    await runNow(s, 'run-now');
     await s.waitAnswered(id, 'q1', firstRound(plan));
     await sleep(800);
-    await readBack(s, 1800);
+    await readBack(s, 1600);
     mark('q1-read');
+    await sendOutbox(s, 3);
 
-    // What waits in the outbox: send one, as it is shown.
-    const outbox = page.locator('.outbox-card.outbox-pending');
-    if (await outbox.count()) {
-      const first = outbox.first();
-      await s.scrollToElement(first, 1600, 120);
-      mark('outbox', { items: await outbox.count() });
-      await sleep(3500);
-      await moveClick(first.getByRole('button', { name: T.outbox.send, exact: true }), { after: 1500 });
-      mark('sent');
-      await sleep(3000);
+    // The next morning: a payment and a promise came in. The second run reads them.
+    p.later?.();
+    mark('next-day');
+    const before = s.agentReplies(await s.conversation(id));
+    await runNow(s, 'run-again');
+    await s.waitAnswered(id, 'q2', before + firstRound(plan));
+    await sleep(800);
+    await s.scrollMessages(-1200, 2400);
+    await sleep(1400);
+    await s.scrollMessages(4000, 1500);
+    mark('q2-read');
+
+    // What the automation keeps of the goal, run by run.
+    await moveClick(page.getByRole('button', { name: new RegExp(`^${re(T.schedule.button)}$`) }), { after: 900 });
+    const progress = page.locator('.schedule-drawer .schedule-progress');
+    if (await progress.count()) {
+      await progress.scrollIntoViewIfNeeded().catch(() => {});
+      mark('progress');
+      await sleep(5000);
     }
+    await page.keyboard.press('Escape');
+    await sleep(800);
     return id;
   },
   rail: {
     en: [
-      { at: 'start', kind: 'you', say: 'New automation: what to send the team every weekday at 08:30, read-only.' },
+      { at: 'start', kind: 'you', say: 'New automation: what to send the team every weekday at 09:00, read-only.' },
+      { at: 'goal', kind: 'you', say: 'And the goal to track: every overdue invoice paid, or a date agreed in writing.' },
       { at: 'created', kind: 'you', say: 'Create it: a conversation opens for it, and nothing runs yet.' },
       { at: 'q1-plan', kind: 'lead', team: 'q1', say: 'Designs the team for the message: {names}, and says why.' },
       { at: 'run-now', kind: 'you', say: 'Run once now, to try it before its first morning.' },
@@ -611,29 +788,522 @@ const morningBriefing: UseCase = {
         at: 'q1-answering',
         kind: 'team',
         team: 'q1',
-        say: 'They search and read the mail and the day’s events with Harness Relay’s mail and calendar tools.',
+        say: 'They read the mail with Harness Relay’s mail tools and tally it against the invoices.',
       },
-      { at: 'q1-answered', kind: 'team', team: 'q1', say: 'What needs you today, and the replies they put in your outbox.' },
-      { at: 'outbox', kind: 'you', say: 'Nothing went out in their turn: each reply waits in the outbox, field by field.' },
-      { at: 'sent', kind: 'you', say: 'Send one as shown, from your own account; Discard would drop it.' },
+      {
+        at: 'q1-answered',
+        kind: 'team',
+        team: 'q1',
+        say: 'One invoice paid, one client asking to pay in two parts, one with no word yet.',
+      },
+      { at: 'outbox', kind: 'you', say: 'Their mails wait in the outbox: you read each one, then send it from your account.' },
+      { at: 'next-day', kind: 'you', say: 'The next morning a payment and a promised date have come in. Run it again.' },
+      {
+        at: 'q2-answered',
+        kind: 'team',
+        team: 'q1',
+        say: 'They read the new mail, knowing what the last run found: nothing left to chase.',
+      },
+      { at: 'progress', kind: 'you', say: 'The automation’s progress, run by run: the goal is reached.' },
     ],
     'zh-TW': [
-      { at: 'start', kind: 'you', say: '新自動任務：每個工作日 08:30 要交給團隊的事，權限唯讀。' },
+      { at: 'start', kind: 'you', say: '新自動任務：每個工作日 09:00 要交給團隊的事，權限唯讀。' },
+      { at: 'goal', kind: 'you', say: '再寫上要追蹤的目標：每張逾期發票都付清，或已書面約好日期。' },
       { at: 'created', kind: 'you', say: '建立後會開一段它的對話，這時還不會執行。' },
       { at: 'q1-plan', kind: 'lead', team: 'q1', say: '為這則訊息設計團隊：{names}，並說明原因。' },
       { at: 'run-now', kind: 'you', say: '按「立即執行一次」，在第一個早上之前先試跑。' },
-      { at: 'q1-answering', kind: 'team', team: 'q1', say: '他們用 Harness Relay 的郵件和行事曆工具搜尋、讀信，查看當天行程。' },
-      { at: 'q1-answered', kind: 'team', team: 'q1', say: '今天需要你處理的事，以及他們放進待送出匣的回覆。' },
-      { at: 'outbox', kind: 'you', say: '他們的回合裡什麼都沒送出：每封回覆都在待送出匣等你，逐欄列出。' },
-      { at: 'sent', kind: 'you', say: '按「送出」，照所示用你自己的帳號寄出一封；「捨棄」會丟掉它。' },
+      { at: 'q1-answering', kind: 'team', team: 'q1', say: '他們用 Harness Relay 的郵件工具讀信，對照發票記帳。' },
+      { at: 'q1-answered', kind: 'team', team: 'q1', say: '一張已付款，一位客戶想分兩期，一位還沒消息。' },
+      { at: 'outbox', kind: 'you', say: '他們寫的信都在待送出匣：你一封封看過，再用自己的帳號寄出。' },
+      { at: 'next-day', kind: 'you', say: '隔天早上，來了一筆款項和一個約好的付款日。再執行一次。' },
+      { at: 'q2-answered', kind: 'team', team: 'q1', say: '他們讀新來的信，也知道上次查到什麼：已經沒有要追的了。' },
+      { at: 'progress', kind: 'you', say: '自動任務每次執行的進度：目標已達成。' },
     ],
   },
 };
 
-/** Where each briefing's stand-in mail servers listen, by its working directory. */
-const servers = new Map<string, { imap: number; smtp: number; cal: string }>();
+// --- 6. Researcher: what the studies say, with sources --------------------------------------------
 
-export const USE_CASES: readonly UseCase[] = [fixABug, research, writeInRelay, analyzeData, morningBriefing];
+const literatureReview: UseCase = {
+  slug: 'literature-review',
+  providers: ['claude', 'codex', 'grok'],
+  approvals: 'allow',
+  length: 75,
+  poster: { at: 'review', offset: 2, fallback: 'q1-answered' },
+  async prepare(lang, root) {
+    const cwd = fresh(join(root, 'four-day-week'));
+    writeAll(cwd, researchBrief(lang));
+    return { cwd };
+  },
+  start: NEW_CHAT,
+  text: {
+    en: {
+      question:
+        'Read BRIEF.md. What does the research say about four-day weeks: output, burnout and teams that serve customers every day? Have Claude Code, Codex and Grok each find the trials and studies themselves, debate how strong the evidence is, and give leadership a one-page summary with a link to every source.',
+    },
+    'zh-TW': {
+      question:
+        '先讀 BRIEF.md。關於四天工作週的產出、過勞，以及每天服務客戶的團隊，研究怎麼說？請 Claude Code、Codex 和 Grok 各自找試行計畫和研究，辯論證據有多可靠，再給主管一頁摘要，每個來源都附上連結。',
+    },
+  },
+  async drive(s) {
+    const { moveClick, mark } = s;
+    const id = await startChat(s, { permission: 'read-only', leadReview: true });
+    await askTeam(s, id, this.text[s.lang]!.question!);
+    await readBack(s, 2200);
+    mark('q1-read');
+    const review = await showReview(s);
+    // From a point in the review to the words it quotes, marked in the reply.
+    const link = review?.locator('.review-reply-link').first();
+    if (link && (await link.count())) {
+      await link.scrollIntoViewIfNeeded().catch(() => {});
+      await sleep(600);
+      mark('jump');
+      await moveClick(link, { after: 1200 });
+      await sleep(3500);
+    }
+    return id;
+  },
+  rail: {
+    en: [
+      { at: 'start', kind: 'you', say: 'Start a new conversation, read-only, with lead review on.' },
+      { at: 'chat-open', kind: 'you', say: 'Ask what the research says about four-day weeks, with a link to every source.' },
+      { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{Plan}: {names}, {rounds}, and says why.' },
+      {
+        at: 'q1-confirmed',
+        kind: 'team',
+        team: 'q1',
+        say: 'Each searches the web and reads the studies, then answers the others’ points.',
+      },
+      { at: 'approval', kind: 'agent', say: 'Asks before running a command read-only does not cover by itself: you allow it.' },
+      {
+        at: 'q1-answered',
+        kind: 'team',
+        team: 'q1',
+        say: 'One summary for leadership: what holds up, what is thin, and the links they read.',
+      },
+      { at: 'review', kind: 'lead', team: 'q1', say: 'Reviews the replies: where they disagree, and which claims to check yourself.' },
+      { at: 'jump', kind: 'you', say: 'Click a point of the review: the reply opens at the words it quotes, marked.' },
+    ],
+    'zh-TW': [
+      { at: 'start', kind: 'you', say: '開新對話，權限維持唯讀，首席 agent 審閱保持開啟。' },
+      { at: 'chat-open', kind: 'you', say: '提問：四天工作週的研究怎麼說？每個來源都要附連結。' },
+      { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{plan}：{names}，{rounds}，並說明原因。' },
+      { at: 'q1-confirmed', kind: 'team', team: 'q1', say: '每位上網搜尋、讀研究，再回應其他人的論點。' },
+      { at: 'approval', kind: 'agent', say: '要執行唯讀權限本身不涵蓋的指令前先問你：你選擇允許。' },
+      { at: 'q1-answered', kind: 'team', team: 'q1', say: '給主管的一頁摘要：哪些證據站得住、哪些還薄弱，附上他們讀過的連結。' },
+      { at: 'review', kind: 'lead', team: 'q1', say: '審閱回覆：哪裡意見不同、哪些說法該由你親自確認。' },
+      { at: 'jump', kind: 'you', say: '點審閱裡的一點：回覆隨即捲到它引用的文字，並標示出來。' },
+    ],
+  },
+};
+
+// --- 7. Teacher: a quiz, tried out on a student first ---------------------------------------------
+
+const writeAQuiz: UseCase = {
+  slug: 'write-a-quiz',
+  providers: ['claude', 'codex', 'grok'],
+  approvals: 'allow',
+  length: 80,
+  poster: { at: 'files', offset: 4, fallback: 'q1-answered' },
+  async prepare(lang, root) {
+    const cwd = fresh(join(root, 'class-8b'));
+    writeAll(cwd, classNotes(lang));
+    return { cwd, attach: uploads(cwd, chapter(lang)) };
+  },
+  start: NEW_CHAT,
+  text: {
+    en: {
+      question:
+        'Attached is chapter 5 for my grade 8 class. Make a 10-question quiz from it, as a relay: Claude Code writes quiz.md (4 easy, 4 medium, 2 hard) and answer-key.md; Grok takes the quiz as a student would, without opening the answer key; Codex marks Grok’s answers and sends any question a student could misread back to Claude Code to rewrite.',
+    },
+    'zh-TW': {
+      question:
+        '附件是我八年級班上的第五章。請用接力的方式出一份 10 題的小考：Claude Code 寫 quiz.md（4 題簡單、4 題中等、2 題難）和 answer-key.md；Grok 像學生一樣作答，不打開解答；Codex 批改 Grok 的答案，學生可能誤解的題目退回給 Claude Code 改寫。',
+    },
+  },
+  async drive(s, p) {
+    const { page, moveClick, mark } = s;
+    const id = await startChat(s, { permission: 'edit', leadReview: false });
+    await attach(s, p.attach ?? []);
+    await askTeam(s, id, this.text[s.lang]!.question!, { replies: allOf });
+    await readBack(s, 1800);
+    mark('q1-read');
+    const quiz = changedFile(await s.conversation(id), /quiz\.md$/i) ?? 'quiz.md';
+    mark('files', { file: quiz });
+    await openFile(s, quiz.split('/'), 3000);
+    await readMarkdown(s, 90);
+    await sleep(1500);
+    // The whole folder, quiz and answer key, as one ZIP file.
+    const zip = page.getByRole('button', { name: new RegExp(`^${re(M(s).files.downloadFolder('\u0000')).replace('\u0000', '.+')}$`) });
+    if (await zip.count()) {
+      mark('zip');
+      await moveClick(zip.first(), { after: 2500 });
+    }
+    return id;
+  },
+  rail: {
+    en: [
+      { at: 'start', kind: 'you', say: 'Start a new conversation with Edit, so the agents may write the quiz and its key.' },
+      { at: 'attached', kind: 'you', say: 'Attach the chapter, and ask for a 10-question quiz, tried on a student first.' },
+      { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{Plan}: {names}, in relay, and says why.' },
+      { at: 'q1-confirmed', kind: 'team', team: 'q1', say: 'One writes the quiz, one takes it as a student would, one marks it.' },
+      { at: 'approval', kind: 'agent', say: 'Asks before running a command its permission does not cover: you allow it.' },
+      {
+        at: 'q1-answered',
+        kind: 'team',
+        team: 'q1',
+        say: 'The student scores full marks and the marker finds no question to misread, so nothing goes back; each lists its files.',
+      },
+      { at: 'files', kind: 'you', say: 'Open quiz.md in Files, rendered as the class will read it.' },
+      { at: 'zip', kind: 'you', say: 'Download the folder as a ZIP file: the quiz and its answer key together.' },
+    ],
+    'zh-TW': [
+      { at: 'start', kind: 'you', say: '開新對話，權限選「可編輯」，agent 才能寫考卷和解答。' },
+      { at: 'attached', kind: 'you', say: '附上課文，請他們出一份 10 題的小考，先讓「學生」試考。' },
+      { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{plan}：{names}，以接力進行，並說明原因。' },
+      { at: 'q1-confirmed', kind: 'team', team: 'q1', say: '一位出題、一位像學生一樣作答、一位批改。' },
+      { at: 'approval', kind: 'agent', say: '要執行權限之外的指令前先問你：你選擇允許。' },
+      {
+        at: 'q1-answered',
+        kind: 'team',
+        team: 'q1',
+        say: '學生拿到滿分，批改也沒找到會讓人誤解的題目，所以沒有退回；每則回覆都列出它的檔案。',
+      },
+      { at: 'files', kind: 'you', say: '在「檔案」打開 quiz.md，看學生拿到時的樣子。' },
+      { at: 'zip', kind: 'you', say: '把資料夾下載成 ZIP 檔：考卷和解答一起帶走。' },
+    ],
+  },
+};
+
+// --- 8. Lawyer: redline a contract on your own model server -------------------------------------
+
+/**
+ * The model server the contract review runs on, every agent and the lead agent: an OpenAI-compatible
+ * endpoint of the user's own (vLLM), named by the environment, so that its address and key are never in
+ * the repository. USE_CASES_ENDPOINT_URL (such as `http://homelab:8000/v1`), USE_CASES_ENDPOINT_MODEL (as
+ * the server serves it) and USE_CASES_ENDPOINT_KEY (when it needs one).
+ */
+export const ENDPOINT = {
+  id: 'homelab',
+  model: () => process.env.USE_CASES_ENDPOINT_MODEL || 'qwen3.8-27b-nvfp4-unsloth',
+  /** A member's model on it, as Harness Relay names it. */
+  member: () => `homelab/${ENDPOINT.model()}`,
+};
+
+const contractReview: UseCase = {
+  slug: 'contract-review',
+  providers: ['claude', 'codex', 'grok'],
+  // Grok on an endpoint has it in its own config.toml, in your Grok home, which every Grok run (another
+  // recording's, without endpoints, takes it out) writes: two at once would each see the other's change.
+  alone: 'Grok’s own config.toml holds the endpoint’s model while it runs',
+  approvals: 'allow',
+  length: 85,
+  poster: { at: 'redline', offset: 2.4, fallback: 'q1-answered' },
+  async prepare(lang, root) {
+    if (!process.env.USE_CASES_ENDPOINT_URL)
+      throw new Error('contract-review runs on your own model server: set USE_CASES_ENDPOINT_URL (and _MODEL, _KEY)');
+    const cwd = fresh(join(root, 'vendor-contract'));
+    vendorContract(cwd, lang);
+    return { cwd };
+  },
+  async setup(base, _p, lang) {
+    await api(
+      base,
+      `/api/backends/endpoints/${ENDPOINT.id}`,
+      {
+        name: lang === 'en' ? 'Homelab vLLM' : '自家 vLLM',
+        baseUrl: process.env.USE_CASES_ENDPOINT_URL,
+        models: [ENDPOINT.model()],
+        ...(process.env.USE_CASES_ENDPOINT_KEY ? { apiKey: process.env.USE_CASES_ENDPOINT_KEY } : {}),
+      },
+      'PUT',
+    );
+    // Every member on it by default, and the lead agent too: nothing of the contract goes to anyone's cloud.
+    for (const p of this.providers)
+      await api(base, `/api/settings/providers/${p}/accounts/default`, { defaultModel: ENDPOINT.member() }, 'PUT');
+    await api(base, '/api/settings', { lead: { provider: 'claude', model: ENDPOINT.member() } }, 'PUT');
+  },
+  start: { hash: '#/settings/backends', ready: '#settings-backends' },
+  text: {
+    en: {
+      question: `Redline contract.md against our playbook.md, as a relay: Claude Code edits each clause that departs from the playbook, right in contract.md; Codex checks every edit against the playbook and the original wording; Grok writes REDLINE-MEMO.md: each change, the rule behind it, and what to tell the vendor. The contract is confidential: every member runs on ${ENDPOINT.member()}, our own vLLM server.`,
+    },
+    'zh-TW': {
+      question: `依我們的 playbook.md 修訂 contract.md，用接力的方式：Claude Code 直接在 contract.md 裡改掉每一條偏離準則的條款；Codex 對照準則和原文檢查每一處修改；Grok 寫 REDLINE-MEMO.md：每處修改、依據的準則，以及要怎麼跟廠商說。合約是機密：每位成員都用我們自己的 vLLM 伺服器上的 ${ENDPOINT.member()}。`,
+    },
+  },
+  async drive(s) {
+    const { page, moveClick, mark } = s;
+    const T = M(s);
+    // Settings → Model backends: the server of your own, then the lead agent on it.
+    await s.moveTo(700, 420, 300);
+    await page.locator('#settings-backends').scrollIntoViewIfNeeded();
+    await sleep(3500);
+    const lead = page.locator('#settings-lead');
+    if (await lead.count()) {
+      await lead.evaluate((el) => el.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+      mark('lead-model');
+      await sleep(3000);
+    }
+    await moveClick(page.getByRole('button', { name: T.sidebar.newChat, exact: true }), { after: 900 });
+    await page.waitForSelector('.new-chat-page .preset-card');
+    const id = await startChat(s, { permission: 'edit', leadReview: false });
+    const plan = await askTeam(s, id, this.text[s.lang]!.question!, { replies: allOf });
+    const off = (plan?.agents ?? []).filter((a) => a.model && a.model !== ENDPOINT.member());
+    if (off.length) s.log('WARNING: members not on the endpoint:', off.map((a) => `${a.name} ${a.model}`).join(', '));
+    await readBack(s, 1800);
+    mark('q1-read');
+    // The first reply that changed the contract: its diff is the redline.
+    const c = await s.conversation(id);
+    const by = changedBy(c, /contract\.md$/i);
+    if (by) {
+      const card = page.locator(`[id="msg-${by.id}"] .changes-card`).last();
+      await s.scrollToElement(card, 1600, 160);
+      await sleep(1000);
+      mark('redline', { agent: by.agentName, provider: by.provider });
+      await moveClick(card.getByRole('button', { name: T.changes.turnDiff }), { after: 1200 });
+      await sleep(5000);
+      await page.keyboard.press('Escape');
+      await sleep(900);
+    } else s.log('WARNING: no reply changed contract.md');
+    const memo = changedFile(c, /REDLINE-MEMO\.md$/i);
+    if (memo) {
+      mark('files', { file: memo });
+      await openFile(s, memo.split('/'), 3000);
+      await readMarkdown(s, 70);
+      await sleep(2000);
+    }
+    return id;
+  },
+  rail: {
+    en: [
+      { at: 'start', kind: 'you', say: 'Settings → Model backends: your own vLLM server, serving Qwen3.8 27B.' },
+      { at: 'lead-model', kind: 'you', say: 'The lead agent runs on it too, as every member’s default model does.' },
+      {
+        at: 'chat-open',
+        kind: 'you',
+        say: 'In vendor-contract, with Edit: ask for a redline of the vendor’s draft against your playbook.',
+      },
+      { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{Plan}: {names}, in relay, each on your server, and says why.' },
+      {
+        at: 'q1-confirmed',
+        kind: 'team',
+        team: 'q1',
+        say: 'One edits the clauses, one checks each edit, one writes the memo for the vendor.',
+      },
+      { at: 'approval', kind: 'agent', say: 'Asks before running a command its permission does not cover: you allow it.' },
+      { at: 'q1-answered', kind: 'team', team: 'q1', say: 'Each reply lists the files it changed: the contract, then the memo.' },
+      { at: 'redline', kind: 'you', say: 'Open @{redline:agent}’s diff of contract.md: the redline, clause by clause.' },
+      { at: 'files', kind: 'you', say: 'Open REDLINE-MEMO.md in Files: each change, its rule, and what to tell the vendor.' },
+    ],
+    'zh-TW': [
+      { at: 'start', kind: 'you', say: '設定 → 模型來源：你自己的 vLLM 伺服器，跑的是 Qwen3.8 27B。' },
+      { at: 'lead-model', kind: 'you', say: '首席 agent 也用它，每位成員的預設模型也是它。' },
+      { at: 'chat-open', kind: 'you', say: '在 vendor-contract 開新對話、權限選「可編輯」：請他們依你的審閱準則修訂廠商的草稿。' },
+      { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{plan}：{names}，以接力進行、都用你的伺服器，並說明原因。' },
+      { at: 'q1-confirmed', kind: 'team', team: 'q1', say: '一位改條款、一位檢查每處修改、一位寫給廠商的說明。' },
+      { at: 'approval', kind: 'agent', say: '要執行權限之外的指令前先問你：你選擇允許。' },
+      { at: 'q1-answered', kind: 'team', team: 'q1', say: '每則回覆都列出它改了哪些檔案：先是合約，再是說明。' },
+      { at: 'redline', kind: 'you', say: '打開 @{redline:agent} 改 contract.md 的差異：逐條的修訂紀錄。' },
+      { at: 'files', kind: 'you', say: '在「檔案」打開 REDLINE-MEMO.md：每處修改、依據的準則，以及要跟廠商說什麼。' },
+    ],
+  },
+};
+
+// --- 9. On-call engineer: an alert starts the team ------------------------------------------------
+
+const triageAlert: UseCase = {
+  slug: 'triage-an-alert',
+  providers: ['claude', 'codex', 'grok'],
+  approvals: 'allow',
+  length: 80,
+  poster: { at: 'inbox', offset: 1.5, fallback: 'q1-answered' },
+  async prepare(lang, root) {
+    const cwd = fresh(join(root, 'checkout-service'));
+    checkoutService(cwd, lang);
+    return { cwd };
+  },
+  start: NEW_CHAT,
+  text: {
+    en: {
+      message:
+        'Our monitoring calls this automation’s webhook when an alert fires. Read the alert, then logs/, DEPLOYS.md and RUNBOOK.md, and tell the on-call engineer the likely cause, how sure you are, and the first thing to do. Claude Code reads the logs, Codex checks the deploys, Grok argues against their conclusion before they settle on one.',
+    },
+    'zh-TW': {
+      message:
+        '告警觸發時，我們的監控系統會呼叫這個自動任務的 webhook。請讀告警內容，再讀 logs/、DEPLOYS.md 和 RUNBOOK.md，告訴值班工程師最可能的原因、有多確定，以及第一步該做什麼。Claude Code 讀 log，Codex 查部署紀錄，Grok 在他們定案前先唱反調。',
+    },
+  },
+  async drive(s) {
+    const { page, moveClick, mark } = s;
+    const id = await newAutomation(s, { message: this.text[s.lang]!.message!, webhook: true, newChat: true });
+    // The drawer shows the webhook's address and token, this once, with a command to call it.
+    const example = page.locator('.schedule-drawer .hook-example');
+    await example.waitFor({ timeout: 30_000 });
+    await example.scrollIntoViewIfNeeded().catch(() => {});
+    mark('token');
+    await sleep(3500);
+    const command = (await example.textContent()) ?? '';
+    const url = /https?:\/\/127\.0\.0\.1:\d+\/api\/hooks\/[^\s'"]+/.exec(command)?.[0];
+    const token = /Bearer ([\w-]+)/.exec(command)?.[1];
+    if (!url || !token) throw new Error(`No webhook address or token in: ${command}`);
+    await page.keyboard.press('Escape');
+    await sleep(600);
+    const plan = await s.designAndConfirm(id, 'q1');
+    await sleep(1500);
+
+    // The alert fires: the monitoring system calls the webhook, and a new chat starts with the team.
+    mark('alert');
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(checkoutAlert()),
+    });
+    const sent = (await r.json()) as { chatId?: string };
+    if (!r.ok || !sent.chatId) throw new Error(`The webhook answered ${r.status}: ${JSON.stringify(sent)}`);
+    s.log('webhook chat', sent.chatId);
+    await sleep(2500);
+    // The team works in the new chat while you are elsewhere; the bell says when it is done.
+    await s.waitAnswered(sent.chatId, 'q1', firstRound(plan));
+    await sleep(1500);
+    const bell = page.locator('.inbox-button');
+    await bell.waitFor({ timeout: 30_000 }).catch(() => {});
+    mark('inbox');
+    await moveClick(bell, { after: 1500 });
+    await sleep(1800);
+    const title = (await s.summary(sent.chatId))?.title ?? '';
+    const item = page.locator('.inbox-item', { hasText: title }).first();
+    await moveClick((await item.count()) ? item : page.locator('.inbox-item').first(), { after: 1200 });
+    await page.waitForURL((u) => idFromUrl(u.href) === sent.chatId, { timeout: 15_000 }).catch(() => {});
+    await sleep(1500);
+    mark('opened');
+    await readBack(s, 1600);
+    mark('q1-read');
+    return sent.chatId;
+  },
+  rail: {
+    en: [
+      { at: 'start', kind: 'you', say: 'New automation with no set times: what to tell the team when an alert fires, read-only.' },
+      { at: 'webhook-on', kind: 'you', say: 'Let another program start it: a webhook, and a new chat for each alert.' },
+      { at: 'token', kind: 'you', say: 'Its address and token, shown this once, with a command to call it.' },
+      { at: 'q1-plan', kind: 'lead', team: 'q1', say: 'Designs the team for the message: {names}, and says why.' },
+      { at: 'alert', kind: 'you', say: 'The checkout error rate passes 1 %: the monitoring calls the webhook with the alert.' },
+      { at: 'q1-answering', kind: 'team', team: 'q1', say: 'A new chat starts by itself: they read the alert, the logs and the deploys.' },
+      { at: 'approval', kind: 'agent', say: 'Asks before running a command read-only does not cover by itself: you allow it.' },
+      { at: 'inbox', kind: 'you', say: 'The bell says the team is done; its notification opens the chat.' },
+      { at: 'opened', kind: 'team', team: 'q1', say: 'The likely cause, how sure they are, and the first step from the runbook.' },
+    ],
+    'zh-TW': [
+      { at: 'start', kind: 'you', say: '新自動任務，不設時間：告警觸發時要交給團隊的事，權限唯讀。' },
+      { at: 'webhook-on', kind: 'you', say: '讓別的程式啟動它：建立 webhook，每次告警都開新對話。' },
+      { at: 'token', kind: 'you', say: '它的網址和 token 只顯示這一次，附上呼叫它的指令。' },
+      { at: 'q1-plan', kind: 'lead', team: 'q1', say: '為這則訊息設計團隊：{names}，並說明原因。' },
+      { at: 'alert', kind: 'you', say: '結帳錯誤率超過 1%：監控系統帶著告警呼叫 webhook。' },
+      { at: 'q1-answering', kind: 'team', team: 'q1', say: '新對話自動開始：他們讀告警、log 和部署紀錄。' },
+      { at: 'approval', kind: 'agent', say: '要執行唯讀權限本身不涵蓋的指令前先問你：你選擇允許。' },
+      { at: 'inbox', kind: 'you', say: '鈴鐺通知團隊完成了；點通知就打開那段對話。' },
+      { at: 'opened', kind: 'team', team: 'q1', say: '最可能的原因、有多確定，以及處理手冊裡的第一步。' },
+    ],
+  },
+};
+
+// --- 10. Designer: review the screens before the usability test -----------------------------------
+
+const designReview: UseCase = {
+  slug: 'design-review',
+  providers: ['claude', 'codex', 'grok'],
+  approvals: 'allow',
+  length: 75,
+  poster: { at: 'asked', offset: 2, fallback: 'q1-answered' },
+  async prepare(lang, root) {
+    const cwd = fresh(join(root, 'fernway'));
+    writeAll(cwd, {
+      'README.md':
+        lang === 'en'
+          ? '# Fernway\n\nThe sign-up flow, before Thursday’s usability test.\n'
+          : '# Fernway\n\n註冊流程，星期四易用性測試之前。\n',
+    });
+    // The three screens, drawn by a headless browser at a phone's size.
+    const browser = await chromium.launch({ executablePath: process.env.DEMO_CHROME || undefined });
+    const shots: Record<string, Buffer> = {};
+    try {
+      const page = await browser.newPage({ viewport: SCREEN, deviceScaleFactor: 2 });
+      for (const [name, html] of Object.entries(signupScreens(lang))) {
+        await page.setContent(html);
+        shots[name] = await page.screenshot({ type: 'png' });
+      }
+    } finally {
+      await browser.close();
+    }
+    return { cwd, attach: uploads(cwd, shots) };
+  },
+  start: NEW_CHAT,
+  text: {
+    en: {
+      question:
+        'Here are the three sign-up screens of our app, before Thursday’s usability test. Have Claude Code look at accessibility, Codex at layout and visual hierarchy, and Grok at the words on screen, each on its own; then give me the five issues to fix first, each with its screen and a fix.',
+    },
+    'zh-TW': {
+      question:
+        '這是我們 app 的三張註冊畫面，星期四要做易用性測試。請 Claude Code 看無障礙、Codex 看版面與視覺層次、Grok 看畫面上的文字，各自獨立看；最後給我最該先改的五個問題，每個都標出是哪張畫面，並附上改法。',
+    },
+  },
+  async drive(s, p) {
+    const { page, mark } = s;
+    const id = await startChat(s, { permission: 'read-only', leadReview: false });
+    await attach(s, p.attach ?? []);
+    await s.ask(this.text[s.lang]!.question!);
+    mark('asked');
+    // The screens, as they went with the question: on screen while the lead agent designs the team.
+    await page
+      .locator('.msg-attachments img')
+      .first()
+      .waitFor({ timeout: 10_000 })
+      .catch(() => {});
+    await sleep(3000);
+    const plan = await s.designAndConfirm(id, 'q1', { poster: false });
+    await s.waitAnswered(id, 'q1', firstRound(plan));
+    await sleep(800);
+    await readBack(s, 2200);
+    mark('q1-read');
+    await sleep(1500);
+    return id;
+  },
+  rail: {
+    en: [
+      { at: 'start', kind: 'you', say: 'Start a new conversation, read-only: the agents only look and answer.' },
+      { at: 'attached', kind: 'you', say: 'Attach the three sign-up screens, and ask for a review from three angles.' },
+      { at: 'asked', offset: 1, kind: 'you', say: 'The screenshots go with the question, as images each agent sees.' },
+      { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{Plan}: {names}, each on its own, and says why.' },
+      { at: 'q1-confirmed', kind: 'team', team: 'q1', say: 'Each looks at the screens for its own angle, without seeing the others.' },
+      { at: 'approval', kind: 'agent', say: 'Asks before running a command read-only does not cover by itself: you allow it.' },
+      { at: 'q1-answered', kind: 'team', team: 'q1', say: 'Three reviews side by side, each issue with its screen and a fix.' },
+    ],
+    'zh-TW': [
+      { at: 'start', kind: 'you', say: '開新對話，權限維持唯讀：agent 只看、只回答。' },
+      { at: 'attached', kind: 'you', say: '附上三張註冊畫面，請他們從三個角度審查。' },
+      { at: 'asked', offset: 1, kind: 'you', say: '截圖隨問題一起送出，每位 agent 都看得到圖。' },
+      { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{plan}：{names}，各自處理，並說明原因。' },
+      { at: 'q1-confirmed', kind: 'team', team: 'q1', say: '每位從自己的角度看畫面，看不到其他人的答案。' },
+      { at: 'approval', kind: 'agent', say: '要執行唯讀權限本身不涵蓋的指令前先問你：你選擇允許。' },
+      { at: 'q1-answered', kind: 'team', team: 'q1', say: '三份審查並排，每個問題都標出畫面並附上改法。' },
+    ],
+  },
+};
+
+export const USE_CASES: readonly UseCase[] = [
+  fixABug,
+  productSpec,
+  launchCopy,
+  reconcile,
+  collectPayments,
+  literatureReview,
+  writeAQuiz,
+  contractReview,
+  triageAlert,
+  designReview,
+];
 
 export function useCase(slug: string): UseCase {
   const found = USE_CASES.find((u) => u.slug === slug);

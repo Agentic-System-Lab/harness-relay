@@ -1,13 +1,27 @@
 import type { Socket } from 'node:net';
 import type { TLSSocket } from 'node:tls';
-import { openSocket, STARTTLS_EXTRA, upgrade, type Login, type ServerAddress } from './imap';
+import { openSocket, STARTTLS_EXTRA, upgrade, xoauth2, xoauth2Detail, type Login, type ServerAddress } from './imap';
 import { t } from '../i18n';
 
 /*
  * A small SMTP client for the outbox's mail: EHLO, STARTTLS (port 587) or TLS from the start (465),
- * AUTH PLAIN (or LOGIN), MAIL FROM, RCPT TO for each recipient (Bcc included, never in the message),
- * DATA with dot-stuffing, QUIT. Only the user's Send runs it (`outbox.ts`).
+ * AUTH PLAIN (or LOGIN) with a password, or AUTH XOAUTH2 with an OAuth account's token, MAIL FROM,
+ * RCPT TO for each recipient (Bcc included, never in the message), DATA with dot-stuffing, QUIT. Only
+ * the user's Send runs it (`outbox.ts`).
  */
+
+/** The server refused the sign-in (the user name and password, or the token): nothing was sent. */
+export class SmtpLoginError extends Error {}
+
+/**
+ * The answers to AUTH XOAUTH2 that refuse the token itself (RFC 4954: 530 authentication required,
+ * 534 the mechanism is too weak, 535 the credentials are not valid), which a new token may mend. A 4xx
+ * (454, 421: try later) or another 5xx (504: not offered) is no refusal of the token: it is not renewed.
+ */
+const TOKEN_REFUSED = [530, 534, 535];
+
+/** The server answered with another reply than the one wanted. */
+class SmtpReplyError extends Error {}
 
 /** The most the replies waiting to be read may hold. */
 export const SMTP_MAX_REPLY = 256 * 1024;
@@ -98,16 +112,19 @@ export interface Envelope {
 /** A line to the server, and the reply codes it must answer with. */
 type Say = (line: string, codes: number[], what: string) => Promise<{ code: number; lines: string[] }>;
 
+/** What runs once signed in: lines to the server, raw text, and replies to wait for. */
+export type SmtpSession<T> = (
+  say: Say,
+  write: (raw: string) => void,
+  expect: (codes: number[], what: string) => Promise<unknown>,
+) => Promise<T>;
+
 /**
  * Connects, says EHLO, starts TLS when asked, signs in (AUTH PLAIN, or LOGIN when only that is
- * offered), then runs `fn`, and says QUIT.
+ * offered; AUTH XOAUTH2 with a token, only when EHLO lists it), then runs `fn`, and says QUIT. A
+ * refused sign-in is a `SmtpLoginError`, before anything is sent.
  */
-export async function withSmtp<T>(
-  addr: ServerAddress,
-  login: Login,
-  fn: (say: Say, write: (raw: string) => void, expect: (codes: number[], what: string) => Promise<unknown>) => Promise<T>,
-  timeoutMs = 30_000,
-): Promise<T> {
+export async function withSmtp<T>(addr: ServerAddress, login: Login, fn: SmtpSession<T>, timeoutMs = 30_000): Promise<T> {
   let sock: Socket | TLSSocket = await openSocket(addr, timeoutMs);
   const reader = new ReplyReader(sock);
   const timed = <V>(p: Promise<V>): Promise<V> =>
@@ -123,7 +140,7 @@ export async function withSmtp<T>(
     });
   const expect = async (codes: number[], what: string) => {
     const r = await timed(reader.next());
-    if (!codes.includes(r.code)) throw new Error(`${what}: ${r.code} ${r.lines.join(' ')}`.trim());
+    if (!codes.includes(r.code)) throw new SmtpReplyError(`${what}: ${r.code} ${r.lines.join(' ')}`.trim());
     return r;
   };
   const say: Say = async (line, codes, what) => {
@@ -142,13 +159,52 @@ export async function withSmtp<T>(
       ehlo = await say('EHLO harness-relay.local', [250], 'EHLO');
     }
     const auth = ehlo.lines.find((l) => /^AUTH\b/i.test(l))?.toUpperCase() ?? '';
-    if (auth.includes('PLAIN') || !auth.includes('LOGIN')) {
-      const token = Buffer.from(`\0${login.username}\0${login.password}`).toString('base64');
-      await say(`AUTH PLAIN ${token}`, [235], 'The mail server did not accept the user name and password');
+    if ('token' in login) {
+      // XOAUTH2 among the mechanisms EHLO offers (`AUTH PLAIN XOAUTH2`, or the older `AUTH=…`), or the token is not tried.
+      if (!ehlo.lines.some((l) => /^AUTH[\s=](?:.*\s)?XOAUTH2(?:\s|$)/i.test(l))) throw new Error(t().conn.mailNoXoauth2(addr.host));
+      // RFC 4954 with XOAUTH2's initial response. An empty 334 asks for the response (a server that did
+      // not take it with the command): it is sent then, once. A refusal says why in a 334 of its own
+      // (base64 JSON), answered with an empty line, and then its 5xx.
+      const response = xoauth2(login.username, login.token);
+      sock.write(`AUTH XOAUTH2 ${response}\r\n`);
+      let r = await timed(reader.next());
+      let resent = false;
+      let detail: string | undefined;
+      while (r.code === 334) {
+        const challenge = r.lines.join('').trim();
+        if (!challenge && !resent && detail === undefined) {
+          resent = true;
+          sock.write(`${response}\r\n`);
+        } else if (detail === undefined) {
+          detail = xoauth2Detail(challenge);
+          sock.write('\r\n');
+        }
+        // Once: a server that keeps asking is not one that takes the token.
+        else throw new Error(t().conn.mailTokenFailed(detail || `334 ${challenge}`.trim()));
+        r = await timed(reader.next());
+      }
+      if (r.code !== 235) {
+        const said = `${r.code} ${r.lines.join(' ')}${detail ? ` (${detail})` : ''}`.trim();
+        throw TOKEN_REFUSED.includes(r.code)
+          ? new SmtpLoginError(t().conn.mailTokenRefused(said))
+          : new Error(t().conn.mailTokenFailed(said));
+      }
     } else {
-      await say('AUTH LOGIN', [334], 'AUTH LOGIN');
-      await say(Buffer.from(login.username).toString('base64'), [334], 'AUTH LOGIN');
-      await say(Buffer.from(login.password).toString('base64'), [235], 'The mail server did not accept the user name and password');
+      const password = login.password;
+      const signIn = async () => {
+        if (auth.includes('PLAIN') || !auth.includes('LOGIN')) {
+          const token = Buffer.from(`\0${login.username}\0${password}`).toString('base64');
+          await say(`AUTH PLAIN ${token}`, [235], 'The mail server did not accept the user name and password');
+        } else {
+          await say('AUTH LOGIN', [334], 'AUTH LOGIN');
+          await say(Buffer.from(login.username).toString('base64'), [334], 'AUTH LOGIN');
+          await say(Buffer.from(password).toString('base64'), [235], 'The mail server did not accept the user name and password');
+        }
+      };
+      // Refused (not a connection that dropped, nor a server that went quiet).
+      await signIn().catch((err: Error) => {
+        throw err instanceof SmtpReplyError ? new SmtpLoginError(err.message) : err;
+      });
     }
     const result = await fn(say, (raw) => sock.write(raw), expect);
     await say('QUIT', [221], 'QUIT').catch(() => undefined);
@@ -158,19 +214,19 @@ export async function withSmtp<T>(
   }
 }
 
+/** One message, once signed in: the envelope, then DATA. Resolves with the server's last answer (its queue id, often). */
+export function deliver(envelope: Envelope, raw: string): SmtpSession<string> {
+  return async (say, write, expect) => {
+    await say(`MAIL FROM:<${envelope.from}>`, [250], 'The mail server refused the sender');
+    for (const rcpt of envelope.recipients) await say(`RCPT TO:<${rcpt}>`, [250, 251], `The mail server refused ${rcpt}`);
+    await say('DATA', [354], 'DATA');
+    write(dotStuff(raw));
+    const done = (await expect([250], 'The mail server did not take the message')) as { lines: string[] };
+    return done.lines.join(' ').trim() || 'accepted';
+  };
+}
+
 /** Sends one message. Resolves with the server's last answer (its queue id, often). */
 export async function sendMail(addr: ServerAddress, login: Login, envelope: Envelope, raw: string, timeoutMs = 30_000): Promise<string> {
-  return withSmtp(
-    addr,
-    login,
-    async (say, write, expect) => {
-      await say(`MAIL FROM:<${envelope.from}>`, [250], 'The mail server refused the sender');
-      for (const rcpt of envelope.recipients) await say(`RCPT TO:<${rcpt}>`, [250, 251], `The mail server refused ${rcpt}`);
-      await say('DATA', [354], 'DATA');
-      write(dotStuff(raw));
-      const done = (await expect([250], 'The mail server did not take the message')) as { lines: string[] };
-      return done.lines.join(' ').trim() || 'accepted';
-    },
-    timeoutMs,
-  );
+  return withSmtp(addr, login, deliver(envelope, raw), timeoutMs);
 }

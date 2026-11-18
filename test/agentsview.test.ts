@@ -405,7 +405,7 @@ describe("a member's recorded session", () => {
     });
   });
 
-  it('writes every approval, attachment and plan as text, and leaves out empty text and thinking', () => {
+  it("writes every approval, attachment, plan and Harness Relay's notice as text, and leaves out empty text and thinking", () => {
     const conv = conversation({
       title: '',
       agents: [{ id: 'g', name: 'Goose', provider: 'goose', role: '' }],
@@ -424,6 +424,7 @@ describe("a member's recorded session", () => {
             { type: 'attachment', id: 'f1', name: 'chart.png', mimeType: 'image/png', size: 9 },
             { type: 'plan', entries: [] },
             { type: 'plan', entries: [{ text: 'Ship', status: 'completed' }] },
+            { type: 'notice', text: 'The MCP server "linear" was left out of this turn' },
           ],
         }),
       ],
@@ -436,6 +437,7 @@ describe("a member's recorded session", () => {
       { type: 'text', text: '[Asked to fetch `https://example.com`: allowed]' },
       { type: 'text', text: '[chart.png]' },
       { type: 'text', text: 'Plan:\n[x] Ship' },
+      { type: 'text', text: '[Harness Relay: The MCP server "linear" was left out of this turn]' },
     ]);
     // An untitled conversation: the member's name and CLI alone.
     expect(r.at(-1)!.customTitle).toBe('Goose · Goose');

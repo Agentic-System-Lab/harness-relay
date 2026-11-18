@@ -6,6 +6,7 @@ import {
   type AgentConfig,
   type ApprovalAnswer,
   type ChatMessage,
+  type EventSource,
   type MessageMeta,
   type PlanEntry,
   type ProgressStatus,
@@ -21,6 +22,7 @@ import {
   isPathDetail,
   isTouchScreen,
   segments,
+  shownSegments,
   thoughtTail,
   thoughtTitle,
   type ActivityItem,
@@ -39,6 +41,7 @@ import { Logo } from './Logo';
 import { Markdown } from './Markdown';
 import { RoleText } from './RoleText';
 import { markQuotes, replyElementId, revealMessage, revealQuote, reviewElementId } from '../review';
+import { shownEvent } from '../schedule';
 
 /**
  * A tool call's detail on one line. A path too long for it loses its start, not its file name: it is
@@ -230,12 +233,12 @@ function ProgressCard({ status, text }: { status: ProgressStatus; text: string }
 }
 
 /** The body a program sent through the schedule's webhook with this message: data, shown as it came. */
-function EventBlock({ event }: { event: string }) {
+function EventBlock({ event, source }: { event: string; source?: EventSource }) {
   const t = useT();
   return (
     <details className="event-block">
-      <summary>{t.schedule.hook.eventTag}</summary>
-      <pre>{event}</pre>
+      <summary>{source && source !== 'webhook' ? t.schedule.watch.eventTags[source] : t.schedule.hook.eventTag}</summary>
+      <pre>{shownEvent(event, source)}</pre>
     </details>
   );
 }
@@ -868,7 +871,7 @@ function UserMessage({
       <div className="msg-user">
         <Attachments msg={msg} convId={convId} />
         {text && <UserBubble text={text} mentions={mentionNames} />}
-        {msg.event !== undefined && <EventBlock event={msg.event} />}
+        {msg.event !== undefined && <EventBlock event={msg.event} source={msg.eventSource} />}
         <div className="msg-actions">
           <CopyButton className="msg-action icon-action" iconOnly icon={<CopyIcon size={16} />} text={() => text} />
           {canEdit && (
@@ -1090,6 +1093,8 @@ function AgentMessage({
   const name = who.name;
   const provider = who.provider ?? 'claude';
   const segs = segments(msg.parts);
+  const passed = Boolean(msg.passed && msg.status === 'done');
+  const { shown, typing } = shownSegments(segs, passed, live);
   const marked = marks?.highlights.length ?? 0;
   const m = msg.meta;
   const copyable = !msg.passed && messageText(msg).length > 0;
@@ -1120,37 +1125,40 @@ function AgentMessage({
           )}
         </div>
 
-        {msg.passed && msg.status === 'done' ? (
-          <p className="muted small">{t.message.passed}</p>
-        ) : (
-          segs.map((s) => {
-            switch (s.kind) {
-              case 'text':
-                // A question's closing marker is taken out when the reply ends; hide it while it streams.
-                return (
-                  <Markdown
-                    key={s.key}
-                    text={live ? withoutProgressTail(splitAsk(s.text).text) : s.text}
-                    mentions={mentionNames}
-                    mediaBase={api.mediaBase(convId, msg.id)}
-                    downloadBase={api.downloadBase(convId, msg.id)}
-                  />
-                );
-              case 'activity':
-                return <ActivityGroup key={s.key} items={s.items} live={live} last={s.last} />;
-              case 'todo':
-                return <TodoList key={s.key} entries={s.entries} />;
-              case 'approval':
-                return <ApprovalCard key={s.key} part={s.part} agentName={name} live={live} onAnswer={onApproval} />;
-              case 'progress':
-                return <ProgressCard key={s.key} status={s.status} text={s.text} />;
-              case 'outbox':
-                return <OutboxCard key={s.key} part={s.part} convId={convId} agentName={name} />;
-            }
-          })
-        )}
+        {shown.map((s) => {
+          switch (s.kind) {
+            case 'text':
+              // A question's closing marker is taken out when the reply ends; hide it while it streams.
+              return (
+                <Markdown
+                  key={s.key}
+                  text={live ? withoutProgressTail(splitAsk(s.text).text) : s.text}
+                  mentions={mentionNames}
+                  mediaBase={api.mediaBase(convId, msg.id)}
+                  downloadBase={api.downloadBase(convId, msg.id)}
+                />
+              );
+            case 'activity':
+              return <ActivityGroup key={s.key} items={s.items} live={live} last={s.last} />;
+            case 'todo':
+              return <TodoList key={s.key} entries={s.entries} />;
+            case 'approval':
+              return <ApprovalCard key={s.key} part={s.part} agentName={name} live={live} onAnswer={onApproval} />;
+            case 'progress':
+              return <ProgressCard key={s.key} status={s.status} text={s.text} />;
+            case 'outbox':
+              return <OutboxCard key={s.key} part={s.part} convId={convId} agentName={name} />;
+            case 'notice':
+              return (
+                <p key={s.key} className="warn-line small msg-notice" role="note">
+                  {s.text}
+                </p>
+              );
+          }
+        })}
+        {passed && <p className="muted small">{t.message.passed}</p>}
 
-        {live && segs.length === 0 && (
+        {typing && (
           <div className="typing" aria-label={t.message.thinking}>
             <i />
             <i />

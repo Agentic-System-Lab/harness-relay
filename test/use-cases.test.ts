@@ -7,8 +7,26 @@ import { buildChapters, replaceRail } from '../scripts/demo/chapters';
 import type { Timeline } from '../scripts/demo/common';
 import { retimeVideoData } from '../scripts/demo/publish';
 import { USE_CASES, useCase } from '../scripts/demo/use-cases/cases';
-import { posterTime, useCaseRail } from '../scripts/demo/use-cases/publish';
-import { billSplit, calendar, mailbox, pocketBudget, tickets } from '../scripts/demo/use-cases/workspaces';
+import { posterTime, replaceLinks, useCaseLinks, useCaseRail } from '../scripts/demo/use-cases/publish';
+import { shareUpTo } from '../scripts/demo/use-cases/share';
+import type { ChatMessage } from '../src/shared/types';
+import {
+  BOOKS_OPENING,
+  COMPETITORS,
+  ME,
+  bakeryBooks,
+  billSplit,
+  checkoutAlert,
+  checkoutService,
+  competitorPage,
+  competitorUrl,
+  interviews,
+  launchBrief,
+  signupScreens,
+  studioLaterMail,
+  studioMailbox,
+  vendorContract,
+} from '../scripts/demo/use-cases/workspaces';
 import { slow } from './timeouts';
 
 // The website's use cases (`npm run use-cases`, scripts/demo/use-cases/): what each recording types, where it
@@ -29,7 +47,9 @@ const git = (dir: string, args: string[]) => execFileSync('git', args, { cwd: di
 /** A timeline with every mark a use case's chapters start at, five seconds apart, and its team. */
 function timelineFor(slug: string): Timeline {
   const uc = useCase(slug);
-  const names = [...new Set(['q1-confirmed', ...LANGS.flatMap((l) => uc.rail[l].map((c) => c.at))])];
+  const chapters = LANGS.flatMap((l) => uc.rail[l]);
+  const teams = [...new Set(['q1', ...chapters.flatMap((c) => (c.team ? [c.team] : []))])].map((t) => `${t}-confirmed`);
+  const names = [...new Set([...teams, ...chapters.map((c) => c.at)])];
   const team = {
     source: 'adapted',
     team: 'Team',
@@ -46,9 +66,9 @@ function timelineFor(slug: string): Timeline {
   const marks = names.map((name, i) => ({
     name,
     video: i * 5,
-    ...(name === 'q1-confirmed' ? team : {}),
-    ...(name === 'approval' ? { agent: 'Checker', provider: 'grok' } : {}),
-    ...(name === 'diff' || name === 'apply' ? { agent: 'Codex', provider: 'codex' } : {}),
+    ...(teams.includes(name) ? team : {}),
+    ...(name === 'approval' || name === 'asked-user' ? { agent: 'Checker', provider: 'grok' } : {}),
+    ...(['diff', 'apply', 'redline'].includes(name) ? { agent: 'Codex', provider: 'codex' } : {}),
   }));
   return { speed: 3, length: 120, marks };
 }
@@ -84,8 +104,19 @@ function csvFields(line: string): string[] {
 }
 
 describe('the use cases', () => {
-  it('are five, each with a slug of its own, the CLIs it needs and what it types in both languages', () => {
-    expect(USE_CASES.map((u) => u.slug)).toEqual(['fix-a-bug', 'research', 'release-notes', 'analyze-data', 'morning-briefing']);
+  it('are ten, each with a slug of its own, the CLIs it needs and what it types in both languages', () => {
+    expect(USE_CASES.map((u) => u.slug)).toEqual([
+      'fix-a-bug',
+      'product-spec',
+      'launch-copy',
+      'reconcile-accounts',
+      'collect-payments',
+      'literature-review',
+      'write-a-quiz',
+      'contract-review',
+      'triage-an-alert',
+      'design-review',
+    ]);
     for (const uc of USE_CASES) {
       expect(uc.slug, uc.slug).toMatch(/^[a-z]+(-[a-z]+)*$/);
       expect(uc.providers.length, uc.slug).toBeGreaterThan(0);
@@ -112,8 +143,11 @@ describe('the use cases', () => {
         }
       }
     }
-    // The briefing's agents need Harness Relay's mail and calendar tools, which Grok gets in full access only.
-    expect(useCase('morning-briefing').providers).toEqual(['claude', 'codex']);
+    // Their agents need Harness Relay's browser or mail tools, which Grok gets in full access only.
+    expect(useCase('launch-copy').providers).toEqual(['claude', 'codex']);
+    expect(useCase('collect-payments').providers).toEqual(['claude', 'codex']);
+    // What each one quotes on the page: the question, or an automation's message.
+    for (const uc of USE_CASES) for (const lang of LANGS) expect(uc.text[lang].question ?? uc.text[lang].message, uc.slug).toBeTruthy();
   });
 
   it('have the same chapters in both languages, every placeholder filled in from the recording', () => {
@@ -147,19 +181,74 @@ describe('the use cases', () => {
   });
 
   it('take the poster from their mark, or the answers when it never came, inside the video', () => {
-    const uc = useCase('analyze-data');
+    const uc = useCase('reconcile-accounts');
     const t: Timeline = {
       speed: 3,
       length: 70,
       marks: [
         { name: 'q1-answered', video: 40 },
-        { name: 'chart', video: 50 },
+        { name: 'review', video: 50 },
       ],
     };
     expect(posterTime(uc, t)).toBe(50 + uc.poster.offset);
     expect(posterTime(uc, { ...t, marks: [{ name: 'q1-answered', video: 40 }] })).toBe(41);
-    expect(posterTime(uc, { ...t, length: 51, marks: [{ name: 'chart', video: 50 }] })).toBe(50.5);
-    expect(() => posterTime(uc, { ...t, marks: [] })).toThrow(/No chart or q1-answered mark/);
+    expect(posterTime(uc, { ...t, length: 51, marks: [{ name: 'review', video: 50 }] })).toBe(50.5);
+    expect(() => posterTime(uc, { ...t, marks: [] })).toThrow(/No review or q1-answered mark/);
+  });
+});
+
+describe('sharing a use case', () => {
+  const reply = (id: string, status: ChatMessage['status']) => ({ id, author: { kind: 'agent' }, status }) as unknown as ChatMessage;
+  const user = (id: string) => ({ id, author: { kind: 'user' }, status: 'done' }) as unknown as ChatMessage;
+
+  it('shares the whole conversation, review and notes after the replies included, unless its last reply did not finish', () => {
+    const note = (id: string) => ({ id, author: { kind: 'system' }, status: 'done' }) as unknown as ChatMessage;
+    expect(shareUpTo({ messages: [user('u'), reply('a', 'done'), reply('b', 'done')] })).toBeUndefined();
+    expect(shareUpTo({ messages: [user('u'), reply('a', 'done'), note('review')] })).toBeUndefined();
+    // A reply still running when the recording ended (stopped since) is left out, with what came after it.
+    expect(shareUpTo({ messages: [user('u'), reply('a', 'done'), reply('b', 'error')] })).toBe('a');
+    expect(shareUpTo({ messages: [user('u'), reply('a', 'done'), reply('b', 'streaming'), note('n')] })).toBe('a');
+    expect(shareUpTo({ messages: [user('u')] })).toBeUndefined();
+  });
+
+  it('links the conversation as shared, with how many files went along, and the attached files as GitHub shows them', () => {
+    const share = { url: 'https://gistpreview.github.io/?abc123', files: 2, attachments: ['notes.md', '銀行對帳單 10月.csv'] };
+    const en = useCaseLinks('reconcile-accounts', 'en', share, 14);
+    expect(en).toBe(
+      [
+        '<ul class="usecase-links">',
+        '                <li><a href="https://gistpreview.github.io/?abc123">Read the whole conversation</a>, as Harness Relay’s Share made it, with the 2 files its replies link to.</li>',
+        '                <li>Attached to the question: <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/site/assets/media/use-cases/files/reconcile-accounts/en/notes.md">notes.md</a>, <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/site/assets/media/use-cases/files/reconcile-accounts/en/%E9%8A%80%E8%A1%8C%E5%B0%8D%E5%B8%B3%E5%96%AE%2010%E6%9C%88.csv">銀行對帳單 10月.csv</a>.</li>',
+        '              </ul>',
+      ].join('\n'),
+    );
+    const zh = useCaseLinks('fix-a-bug', 'zh-TW', { ...share, files: 1, attachments: [] }, 0);
+    expect(zh).toBe(
+      '<ul class="usecase-links">\n  <li><a href="https://gistpreview.github.io/?abc123">看完整對話</a>：Harness Relay 的「分享」做出的頁面，附上回覆連到的 1 個檔案。</li>\n</ul>',
+    );
+    expect(useCaseLinks('fix-a-bug', 'en', { ...share, files: 1, attachments: [] }, 0)).toContain('with the file its replies link to.');
+    expect(useCaseLinks('fix-a-bug', 'en', { ...share, files: 0, attachments: [] }, 0)).toContain('as Harness Relay’s Share made it.</li>');
+  });
+
+  it('puts the links under what was asked in its own section, and replaces them there the next time', () => {
+    const page = [
+      '<section id="a">',
+      '              <blockquote>A</blockquote>',
+      '</section>',
+      '<section id="b">',
+      '              <blockquote>B</blockquote>',
+      '</section>',
+    ].join('\n');
+    const links = (text: string) => (indent: number) =>
+      `<ul class="usecase-links">\n${' '.repeat(indent + 2)}<li>${text}</li>\n${' '.repeat(indent)}</ul>`;
+    const once = replaceLinks(page, 'b', links('one'));
+    expect(once).toContain(
+      '<blockquote>B</blockquote>\n              <ul class="usecase-links">\n                <li>one</li>\n              </ul>\n</section>',
+    );
+    expect(once).toContain('<blockquote>A</blockquote>\n</section>');
+    const twice = replaceLinks(once, 'b', links('two'));
+    expect(twice).toBe(once.replace('<li>one</li>', '<li>two</li>'));
+    expect(() => replaceLinks(page, 'c', links('x'))).toThrow(/no element with the id c/);
   });
 });
 
@@ -218,59 +307,95 @@ describe('the use cases’ workspaces', { timeout: slow(30_000) }, () => {
     expect(run.stdout).toMatch(/# fail 3\b/);
   });
 
-  it('pocket-budget: the commits since v1.3.0 that the release notes are written from', () => {
-    const dir = join(scratch(), 'pocket-budget');
-    pocketBudget(dir);
-    expect(git(dir, ['tag']).split('\n')).toEqual(['v1.2.0', 'v1.3.0']);
-    const since = git(dir, ['log', '--format=%s', 'v1.3.0..HEAD']).split('\n');
-    expect(since).toHaveLength(10);
-    expect(since[0]).toBe('Set the version to 1.4.0');
-    expect(since.at(-1)).toBe('Add --month to the report command, to report one month only');
-    expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))).toMatchObject({ version: '1.4.0', engines: { node: '>=20' } });
-    expect(git(dir, ['show', 'v1.3.0:package.json'])).toContain('"version": "1.3.0"');
-    // Each commit changed something, by the three people named, at its own time.
-    expect(new Set(git(dir, ['log', '--format=%an']).split('\n'))).toEqual(new Set(['Ana Lima', 'Ken Watanabe', 'Mei Chen']));
-    expect(
-      git(dir, ['log', '--format=%H', '--diff-filter=d', '--name-only', 'v1.3.0..HEAD']).split('\n').filter(Boolean).length,
-    ).toBeGreaterThan(20);
+  it('the interviews: five, the same files in both languages, two kinds of customer', () => {
+    const [en, zh] = [interviews('en'), interviews('zh-TW')];
+    expect(Object.keys(en)).toHaveLength(5);
+    expect(Object.keys(zh)).toEqual(Object.keys(en));
+    for (const text of [...Object.values(en), ...Object.values(zh)]) expect(text).toMatch(/^# .+\n\n.*2026/);
+    expect(Object.values(en).join('\n')).toMatch(/caf[eé]/i);
+    expect(Object.values(en).join('\n')).toMatch(/clinic/i);
   });
 
-  it('the tickets: the same every time, in both languages, with the quarter’s story in them', () => {
-    expect(tickets('en')).toBe(tickets('en'));
-    const rows = (lang: (typeof LANGS)[number]) => tickets(lang).trim().split('\n').map(csvFields);
-    const [en, zh] = [rows('en'), rows('zh-TW')];
-    expect(en[0]).toEqual(['id', 'opened_at', 'area', 'channel', 'priority', 'subject', 'first_response_hours', 'resolved']);
-    expect(zh[0]).toEqual(en[0]);
-    expect(en.length).toBe(zh.length);
-    expect(en.length).toBeGreaterThan(300);
-    for (const r of [...en, ...zh]) expect(r).toHaveLength(8);
-    // The same tickets: the numbers and dates agree, only the words differ.
-    for (let i = 1; i < en.length; i++) {
-      for (const col of [0, 1, 3, 4, 6, 7]) expect(zh[i]![col], `${i} ${col}`).toBe(en[i]![col]);
-    }
-    const billing = (from: string, to: string) => en.filter((r) => r[2] === 'Billing' && r[1]! >= from && r[1]! < to).length;
-    // Four weeks before the invoice layout shipped, four weeks after: at least twice as many.
-    expect(billing('2026-08-18', '2026-09-15')).toBeGreaterThan(2 * billing('2026-07-21', '2026-08-18'));
-    expect(en.slice(1).every((r) => r[1]! >= '2026-07-01' && r[1]! < '2026-10-01')).toBe(true);
-  });
-
-  it('the mailbox and calendar: six mails and seven events, made up, in each language', () => {
+  it('the launch: a brief that links each competitor’s pricing page, each page its own', () => {
     for (const lang of LANGS) {
-      const mail = mailbox(lang);
-      expect(mail.map((m) => m.uid)).toEqual([1, 2, 3, 4, 5, 6]);
+      const brief = launchBrief(lang, 4321)['LAUNCH.md']!;
+      for (const c of COMPETITORS) {
+        expect(brief, lang).toContain(competitorUrl(c, 4321));
+        const page = competitorPage(lang, c);
+        expect(page, `${lang} ${c}`).toMatch(/^<!doctype html>/);
+        expect(page, `${lang} ${c}`).not.toMatch(/<script/i);
+      }
+    }
+    expect(competitorUrl('wavecut', 4321)).toBe('http://wavecut.localhost:4321/pricing');
+  });
+
+  it('the books: a bank statement and a ledger that reconcile once the four differences are found', () => {
+    for (const lang of LANGS) {
+      const [bankFile, ledgerFile] = Object.values(bakeryBooks(lang));
+      const rows = (text: string) => text.trim().split('\n').slice(1).map(csvFields);
+      const bank = rows(bankFile!);
+      const ledger = rows(ledgerFile!);
+      const cents = (v: string) => Math.round(Number(v) * 100);
+      // The statement's balance runs from the opening one.
+      let balance = cents(bank[0]![3]!);
+      for (const r of bank.slice(1)) {
+        balance += cents(r[2]!);
+        expect(cents(r[3]!), `${lang} ${r.join(',')}`).toBe(balance);
+      }
+      const book = ledger.reduce((n, r) => n + cents(r[4]!), 0);
+      expect(cents(bank[0]![3]!), lang).toBe(Math.round(BOOKS_OPENING[lang] * 100));
+      // Bank + deposit in transit − outstanding cheque = book − bank fees + the duplicate − the swapped digits.
+      const d =
+        lang === 'en'
+          ? { transit: 3280.5, cheque: 620, fees: 35 + 268.42, twice: 1840, swapped: 36 }
+          : { transit: 32805, cheque: 6200, fees: 350 + 2684, twice: 18400, swapped: 360 };
+      const adjustedBank = balance + cents(String(d.transit)) - cents(String(d.cheque));
+      const adjustedBook = book - cents(String(d.fees)) + cents(String(d.twice)) - cents(String(d.swapped));
+      expect(adjustedBank, lang).toBe(adjustedBook);
+      expect(balance, lang).not.toBe(book);
+    }
+  });
+
+  it('the studio’s mail: three before the first run, two more before the second, all on made-up domains', () => {
+    for (const lang of LANGS) {
+      const mail = [...studioMailbox(lang), ...studioLaterMail(lang)];
+      expect(mail.map((m) => m.uid)).toEqual([1, 2, 3, 4, 5]);
       for (const m of mail) {
         const text = Buffer.from(m.raw, 'latin1').toString('utf8');
-        expect(text, lang).toMatch(
-          /^Date: .+\r\nFrom: .+ <[^>]+@([a-z]+\.)?example(\.com)?>\r\nTo: Alex Rivera <alex@example\.com>\r\nSubject: /,
-        );
-        expect(text, lang).toContain('\r\nContent-Type: text/plain; charset=utf-8\r\n');
-        // Every address is on example.com or a .example domain, which nobody owns.
-        for (const address of text.match(/[\w.-]+@[\w.-]+/g) ?? []) expect(address, lang).toMatch(/@([\w-]+\.)?example(\.com)?$/);
+        expect(text, lang).toMatch(new RegExp(`^Date: .+\\r\\nFrom: .+ <[^>]+\\.example>\\r\\nTo: .+ <${ME.address}>\\r\\nSubject: `));
+        for (const address of text.match(/[\w.-]+@[\w.-]+/g) ?? []) expect(address, lang).toMatch(/\.example$/);
       }
-      const events = calendar(lang);
-      expect(events).toHaveLength(7);
-      for (const e of events)
-        expect(e, lang).toMatch(/^BEGIN:VCALENDAR\r\n[\s\S]*DTSTART:\d{8}T\d{6}Z\r\nDTEND:\d{8}T\d{6}Z\r\nSUMMARY:.+\r\n/);
     }
+  });
+
+  it('vendor-contract: the draft and the playbook, committed as they came', () => {
+    const dir = join(scratch(), 'vendor-contract');
+    vendorContract(dir, 'en');
+    expect(git(dir, ['ls-files']).split('\n')).toEqual(['contract.md', 'playbook.md']);
+    expect(git(dir, ['status', '--porcelain'])).toBe('');
+    expect(readFileSync(join(dir, 'contract.md'), 'utf8')).toContain('three months');
+  });
+
+  it('checkout-service: errors only after the deploy, the log in time order, and the alert it fires', () => {
+    const dir = join(scratch(), 'checkout-service');
+    checkoutService(dir, 'en');
+    const logs = join(dir, 'logs');
+    const file = execFileSync('ls', [logs], { encoding: 'utf8' }).trim();
+    const lines = readFileSync(join(logs, file), 'utf8').trim().split('\n');
+    const times = lines.map((l) => Date.parse(l.split(' ')[0]!));
+    expect([...times].sort((a, b) => a - b)).toEqual(times);
+    const deploy = lines.findIndex((l) => l.includes('v2.31.0 starting'));
+    expect(deploy).toBeGreaterThan(0);
+    expect(lines.slice(0, deploy).some((l) => l.includes('ERROR'))).toBe(false);
+    expect(lines.slice(deploy).filter((l) => l.includes('pool')).length).toBeGreaterThan(5);
+    expect(readFileSync(join(dir, 'DEPLOYS.md'), 'utf8')).toContain('v2.31.0');
+    expect(checkoutAlert()).toMatchObject({ alert: 'CheckoutErrorRate', status: 'firing' });
+  });
+
+  it('the sign-up screens: three pages, the same in both languages but for their words', () => {
+    const [en, zh] = [signupScreens('en'), signupScreens('zh-TW')];
+    expect(Object.keys(en)).toHaveLength(3);
+    expect(Object.keys(zh)).toHaveLength(3);
+    for (const html of [...Object.values(en), ...Object.values(zh)]) expect(html).not.toMatch(/<script|https?:/i);
   });
 });

@@ -28,6 +28,48 @@ describe('server configuration from the environment', () => {
     expect(blank).toEqual({ config, problems: [] });
   });
 
+  it("takes another cloud's Microsoft sign-in and Graph over https, or a stand-in's over http on this computer only", () => {
+    const national = readConfig({
+      RELAY_MICROSOFT_LOGIN_URL: 'https://login.microsoftonline.us/',
+      RELAY_MICROSOFT_GRAPH_URL: ' https://graph.microsoft.us ',
+    });
+    expect(national.problems).toEqual([]);
+    expect(national.config).toMatchObject({
+      microsoftLoginUrl: 'https://login.microsoftonline.us',
+      microsoftGraphUrl: 'https://graph.microsoft.us',
+    });
+    expect(readConfig({ RELAY_MICROSOFT_LOGIN_URL: 'http://127.0.0.1:9000' }).config.microsoftLoginUrl).toBe('http://127.0.0.1:9000');
+    const plain = readConfig({ RELAY_MICROSOFT_LOGIN_URL: 'http://login.example.com', RELAY_MICROSOFT_GRAPH_URL: 'graph' });
+    expect(plain.config.microsoftLoginUrl).toBeUndefined();
+    expect(plain.config.microsoftGraphUrl).toBeUndefined();
+    expect(plain.problems).toEqual([
+      'RELAY_MICROSOFT_LOGIN_URL must be an https URL (plain http only to this computer).',
+      'RELAY_MICROSOFT_GRAPH_URL is not a URL.',
+    ]);
+  });
+
+  it("takes Microsoft's mail servers as host:port, TLS or STARTTLS as the port says, plain TCP only to this computer", () => {
+    const other = readConfig({ RELAY_MICROSOFT_IMAP: 'outlook.office365.us:993', RELAY_MICROSOFT_SMTP: ' smtp.office365.us:587 ' });
+    expect(other.problems).toEqual([]);
+    expect(other.config).toMatchObject({
+      microsoftImap: { host: 'outlook.office365.us', port: 993, security: 'tls' },
+      microsoftSmtp: { host: 'smtp.office365.us', port: 587, security: 'starttls' },
+    });
+    expect(readConfig({ RELAY_MICROSOFT_IMAP: 'imap.example.com:143' }).config.microsoftImap!.security).toBe('starttls');
+    expect(readConfig({ RELAY_MICROSOFT_SMTP: 'smtp.example.com:465' }).config.microsoftSmtp!.security).toBe('tls');
+    // A stand-in on this computer: plain TCP.
+    const stand = readConfig({ RELAY_MICROSOFT_IMAP: '127.0.0.1:1143', RELAY_MICROSOFT_SMTP: '[::1]:1025' });
+    expect(stand.config.microsoftImap).toEqual({ host: '127.0.0.1', port: 1143, security: 'none' });
+    expect(stand.config.microsoftSmtp).toEqual({ host: '::1', port: 1025, security: 'none' });
+    const bad = readConfig({ RELAY_MICROSOFT_IMAP: 'imaps://outlook.office365.com', RELAY_MICROSOFT_SMTP: 'smtp.example.com:70000' });
+    expect(bad.config.microsoftImap).toBeUndefined();
+    expect(bad.config.microsoftSmtp).toBeUndefined();
+    expect(bad.problems).toEqual([
+      "RELAY_MICROSOFT_IMAP must be a mail server's host:port.",
+      "RELAY_MICROSOFT_SMTP must be a mail server's host:port.",
+    ]);
+  });
+
   it('reads the limits and the turn timeout as whole numbers in their ranges', () => {
     const { config, problems } = readConfig({ RELAY_MAX_ACCOUNTS: '20', RELAY_MAX_TEAM_AGENTS: ' 16 ', RELAY_TURN_TIMEOUT_MIN: '90' });
     expect(problems).toEqual([]);

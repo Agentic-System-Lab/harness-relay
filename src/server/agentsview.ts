@@ -214,6 +214,8 @@ function replyBlock(p: Exclude<MessagePart, { type: 'tool' }>): Record<string, u
         type: 'text',
         text: `[Put in the outbox for the user to send: ${p.title} — ${p.status}${p.result ? ` (${p.result})` : ''}]`,
       };
+    case 'notice':
+      return { type: 'text', text: `[Harness Relay: ${p.text}]` };
   }
 }
 

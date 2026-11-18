@@ -14,11 +14,13 @@ import {
   type MailForm,
 } from '../connectors';
 import { useT } from '../i18n';
+import { OAuthAccounts } from './OAuthAccounts';
 
 /**
  * Settings → Tool library → Mail and calendar: the accounts Harness Relay's mail and calendar tools
  * use. Passwords go to the credential store and only come back masked; Test signs in without sending
- * anything.
+ * anything. A mail account or calendar reached through an account you sign in to (`oauth`) has no
+ * password nor servers to edit: it is removed, and added again from its account.
  */
 export function ConnectorsSettings() {
   const t = useT();
@@ -27,6 +29,8 @@ export function ConnectorsSettings() {
   /** The form open: a kind, and the account edited ('' for a new one). */
   const [editing, setEditing] = useState<{ kind: 'mail' | 'calendar'; id: string } | null>(null);
   const [tested, setTested] = useState<Record<string, string>>({});
+  /** One more after each test of a mail account or calendar reached through a sign-in, which may find that it needs a new one: the accounts are read again. */
+  const [oauthTested, setOauthTested] = useState(0);
 
   useEffect(() => {
     api.connectors().then(setView, (e: Error) => setError(e.message));
@@ -47,6 +51,7 @@ export function ConnectorsSettings() {
     setTested((x) => ({ ...x, [`${kind}:${id}`]: t.connectors.testing }));
     const r = await api.testConnector(kind, id).catch((e: Error) => ({ ok: false, error: e.message }));
     setTested((x) => ({ ...x, [`${kind}:${id}`]: r.ok ? ('message' in r && r.message) || t.connectors.testOk : `✗ ${r.error ?? ''}` }));
+    if ((kind === 'calendar' ? view?.calendar : view?.mail)?.some((a) => a.id === id && a.oauth)) setOauthTested((n) => n + 1);
   };
 
   if (!view) return error ? <p className="error-line">{error}</p> : null;
@@ -61,9 +66,12 @@ export function ConnectorsSettings() {
         <button type="button" className="ghost small-button" onClick={() => test(kind, a.id)}>
           {t.connectors.test}
         </button>
-        <button type="button" className="ghost small-button" onClick={() => setEditing({ kind, id: a.id })}>
-          {t.tools.edit}
-        </button>
+        {/* One reached through a sign-in has no password nor servers to edit: removed and added again from its account. */}
+        {!a.oauth && (
+          <button type="button" className="ghost small-button" onClick={() => setEditing({ kind, id: a.id })}>
+            {t.tools.edit}
+          </button>
+        )}
         <button
           type="button"
           className="icon-button danger"
@@ -113,7 +121,7 @@ export function ConnectorsSettings() {
               <CalendarEditor account={c} taken={view.calendar.map((x) => x.id)} change={change} onDone={() => setEditing(null)} />
             </li>
           ) : (
-            row('calendar', c, c.url)
+            row('calendar', c, c.oauth ? `${c.address ?? c.username} · ${c.oauth}` : c.url)
           ),
         )}
       </ul>
@@ -124,6 +132,8 @@ export function ConnectorsSettings() {
           {t.connectors.addCalendar}
         </button>
       )}
+
+      <OAuthAccounts connectors={view} onConnectors={setView} refresh={oauthTested} />
     </div>
   );
 }

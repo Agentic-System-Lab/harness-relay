@@ -1,14 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { validTimeZone, zonedTime } from '../../shared/schedule';
-import type { Login } from './imap';
 import { t } from '../i18n';
+import type { AuthorizedFetch } from '../oauth/providers';
 
 /*
  * A calendar over CalDAV (RFC 4791), enough for the calendar tools: the events in a time range
  * (`REPORT calendar-query`) and a new event (`PUT` of an iCalendar file, never over one that is
  * there). The calendar's address is its collection's own (iCloud, Fastmail, Nextcloud and most others
  * show it); redirects are not followed, so the password goes nowhere else. Times are written in UTC,
- * from a wall-clock time in a time zone, so no VTIMEZONE is needed.
+ * from a wall-clock time in a time zone, so no VTIMEZONE is needed. A calendar is reached with its
+ * password (Basic), or with an OAuth account's token (Google's), through that account's fetch, which
+ * sends it only to its provider's hosts (`CalDavAuth`).
  */
 
 export interface CalendarEvent {
@@ -21,6 +23,25 @@ export interface CalendarEvent {
   /** How it repeats (its RRULE), when it does: the range shows its first time only. */
   repeats?: string;
   attendees: string[];
+  /**
+   * The moment it starts, for an event at a time (not all day) whose time can be read: in UTC, in a
+   * time zone this computer knows, or (floating) in this computer's own. For an automation that starts
+   * before an event (`watch.ts`); the tools show `start`.
+   */
+  at?: number;
+  /** It was cancelled (iCalendar's `STATUS:CANCELLED`, Graph's `isCancelled`): an automation leaves it out. */
+  cancelled?: boolean;
+}
+
+/** The moment a DTSTART at a time starts (`at`), or undefined for a date, or a time zone not known here. */
+export function startMoment(value: string, params: Record<string, string>): number | undefined {
+  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})?(Z)?$/.exec(value);
+  if (!m || params.VALUE?.toUpperCase() === 'DATE') return undefined;
+  const [y, mo, d, h, mi, s] = [+m[1]!, +m[2]!, +m[3]!, +m[4]!, +m[5]!, +(m[6] ?? 0)];
+  if (m[7]) return Date.UTC(y, mo - 1, d, h, mi, s);
+  const tz = params.TZID?.replace(/^"|"$/g, '');
+  if (tz) return validTimeZone(tz) ? zonedTime(y, mo, d, h, mi, tz) + s * 1000 : undefined;
+  return new Date(y, mo - 1, d, h, mi, s).getTime();
 }
 
 /** iCalendar text unescaped. */
@@ -140,11 +161,15 @@ export function parseEvents(ics: string): CalendarEvent[] {
     const { name, params, value } = cl;
     if (name === 'UID') ev.uid = value;
     else if (name === 'SUMMARY') ev.summary = unescapeText(value);
-    else if (name === 'DTSTART') ev.start = showTime(value, params);
-    else if (name === 'DTEND') ev.end = showTime(value, params, true);
+    else if (name === 'DTSTART') {
+      ev.start = showTime(value, params);
+      const at = startMoment(value, params);
+      if (at !== undefined) ev.at = at;
+    } else if (name === 'DTEND') ev.end = showTime(value, params, true);
     else if (name === 'LOCATION') ev.location = unescapeText(value);
     else if (name === 'DESCRIPTION') ev.description = unescapeText(value).slice(0, 2000);
     else if (name === 'RRULE') ev.repeats = value;
+    else if (name === 'STATUS' && value.trim().toUpperCase() === 'CANCELLED') ev.cancelled = true;
     else if (name === 'ATTENDEE') ev.attendees.push(value.replace(/^mailto:/i, ''));
   }
   return out;
@@ -306,9 +331,17 @@ export async function answerText(res: Response, max = CALDAV_MAX_ANSWER): Promis
   return Buffer.concat(chunks).toString('utf8');
 }
 
-/** The headers of a request to the calendar: its password as Basic authentication. */
-function auth(login: Login): Record<string, string> {
-  return { authorization: `Basic ${Buffer.from(`${login.username}:${login.password}`).toString('base64')}` };
+/**
+ * How the requests to a calendar are signed: its user name and password (Basic authentication), or an
+ * OAuth account's token, by that account's fetch (`TokenBroker.fetch`: only to its provider's hosts).
+ */
+export type CalDavAuth = { username: string; password: string } | { fetch: AuthorizedFetch };
+
+/** A request to the calendar, signed as `auth` says; never following a redirect, so the password or token goes nowhere else. */
+function send(auth: CalDavAuth, url: string, init: RequestInit & { headers: Record<string, string> }): Promise<Response> {
+  if ('fetch' in auth) return auth.fetch(url, init);
+  const basic = `Basic ${Buffer.from(`${auth.username}:${auth.password}`).toString('base64')}`;
+  return fetch(url, { ...init, headers: { ...init.headers, authorization: basic }, redirect: 'manual' });
 }
 
 /** A calendar's answer that is not what was asked: why, in a line. */
@@ -318,33 +351,53 @@ async function failure(res: Response, what: string): Promise<Error> {
   return new Error(t().conn.calStatus(what, `${res.status} ${res.statusText}`.trim()));
 }
 
-/** The events between two moments. */
-export async function listEvents(url: string, login: Login, from: number, to: number, timeoutMs = 30_000): Promise<CalendarEvent[]> {
-  const body = `<?xml version="1.0" encoding="utf-8"?>
+/** The answers a server that cannot expand recurring events gives a REPORT asking it to: asked again without. */
+const NO_EXPAND = new Set([400, 403, 415, 501]);
+
+/**
+ * The events between two moments. `expand`: each time of a recurring event on its own, as the server
+ * expands it (RFC 4791's `expand`, in UTC); a server that refuses that (`NO_EXPAND`) is asked once more
+ * without it, and one that does not expand gives a recurring event's first time only.
+ */
+export async function listEvents(
+  url: string,
+  login: CalDavAuth,
+  from: number,
+  to: number,
+  timeoutMs = 30_000,
+  expand = false,
+): Promise<CalendarEvent[]> {
+  const report = (expanded: boolean) => {
+    const data = expanded ? `<c:calendar-data><c:expand start="${utc(from)}" end="${utc(to)}"/></c:calendar-data>` : '<c:calendar-data/>';
+    const body = `<?xml version="1.0" encoding="utf-8"?>
 <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
-  <d:prop><d:getetag/><c:calendar-data/></d:prop>
+  <d:prop><d:getetag/>${data}</d:prop>
   <c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT"><c:time-range start="${utc(from)}" end="${utc(to)}"/></c:comp-filter></c:comp-filter></c:filter>
 </c:calendar-query>`;
-  const res = await fetch(url, {
-    method: 'REPORT',
-    headers: { ...auth(login), depth: '1', 'content-type': 'application/xml; charset=utf-8' },
-    body,
-    redirect: 'manual',
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+    return send(login, url, {
+      method: 'REPORT',
+      headers: { depth: '1', 'content-type': 'application/xml; charset=utf-8' },
+      body,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  };
+  let res = await report(expand);
+  if (expand && NO_EXPAND.has(res.status)) {
+    await res.body?.cancel().catch(() => undefined);
+    res = await report(false);
+  }
   if (res.status !== 207 && res.status !== 200) throw await failure(res, t().conn.calListFailed);
   const xml = await answerText(res);
   return calendarData(xml).flatMap(parseEvents);
 }
 
 /** Adds an event, never over one that is there; resolves with its address. */
-export async function putEvent(url: string, login: Login, ics: string, uid: string, timeoutMs = 30_000): Promise<string> {
+export async function putEvent(url: string, login: CalDavAuth, ics: string, uid: string, timeoutMs = 30_000): Promise<string> {
   const target = `${url.replace(/\/+$/, '')}/${encodeURIComponent(uid.replace(/@.*$/, ''))}.ics`;
-  const res = await fetch(target, {
+  const res = await send(login, target, {
     method: 'PUT',
-    headers: { ...auth(login), 'content-type': 'text/calendar; charset=utf-8', 'if-none-match': '*' },
+    headers: { 'content-type': 'text/calendar; charset=utf-8', 'if-none-match': '*' },
     body: ics,
-    redirect: 'manual',
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (res.status !== 201 && res.status !== 204 && res.status !== 200) throw await failure(res, t().conn.calAddFailed);
@@ -380,12 +433,11 @@ function hrefIn(xml: string, name: string, base: string): string | undefined {
   return m ? new URL(xmlText(m[1]!.trim()), base).href : undefined;
 }
 
-async function propfind(url: string, login: Login, depth: '0' | '1', props: string, timeoutMs: number): Promise<string> {
-  const res = await fetch(url, {
+async function propfind(url: string, login: CalDavAuth, depth: '0' | '1', props: string, timeoutMs: number): Promise<string> {
+  const res = await send(login, url, {
     method: 'PROPFIND',
-    headers: { ...auth(login), depth, 'content-type': 'application/xml; charset=utf-8' },
+    headers: { depth, 'content-type': 'application/xml; charset=utf-8' },
     body: `<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop>${props}</d:prop></d:propfind>`,
-    redirect: 'manual',
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (res.status !== 207) throw await failure(res, t().conn.calFindFailed);
@@ -399,7 +451,7 @@ async function propfind(url: string, login: Login, depth: '0' | '1', props: stri
  * that says which kinds of items it holds, none of them events (iCloud's Reminders lists hold to-dos
  * only), is left out: the calendar tools could not add an event to it.
  */
-export async function discoverCalendars(url: string, login: Login, timeoutMs = 20_000): Promise<{ name: string; url: string }[]> {
+export async function discoverCalendars(url: string, login: CalDavAuth, timeoutMs = 20_000): Promise<{ name: string; url: string }[]> {
   const follow = (next: string | undefined) => {
     if (!next) return undefined;
     if (!sameProvider(url, next))

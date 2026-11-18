@@ -32,13 +32,18 @@
 
 ## 使用情境
 
-交給團隊的五件事，每件都是實際執行的錄影，附章節，放在[官網](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/)：
+交給團隊的十種工作，每件都是實際執行的錄影，附章節，放在[官網](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/)：
 
 - **[一個 bug 三種修法，留下最好的](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#fix-a-bug)**：在平行模式下，Claude Code、Codex 和 Grok 各在自己的 git worktree 裡修好失敗的測試；你看過差異，把其中一個套用到工作目錄。
-- **[查資料做決定，附上來源](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#research)**：在唯讀模式下，agent 上網搜尋、讀文件，以圓桌辯論後附上讀過的連結給出選擇；首席 agent 審閱會標出意見不同之處。
-- **[接力寫版本說明](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#release-notes)**：一位根據上個標籤之後的 commit 起草，下一位改寫給使用者看，最後一位逐行對照 commit 查核，彼此用 `@` 交棒。
-- **[把試算表變成結論和圖表](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#analyze-data)**：附上 CSV 匯出檔；agent 自己寫程式計算、排出該先修的事，並在回覆裡顯示他們存下的圖表。
-- **[每天早上，整理信件和行事曆](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#morning-briefing)**：每個工作日 08:30 的自動任務，用 Harness Relay 自己的工具讀你的信和行事曆；回信在待送出匣等你按「送出」。
+- **[把客戶訪談變成產品規格](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#product-spec)**：附上五份客戶訪談；在接力模式下，一位整理痛點，下一位寫 PRD，最後一位挑戰它；動筆之前，他們會先問你要先為哪一群客戶做。
+- **[讀完競品，再寫上市文案](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#launch-copy)**：在唯讀模式下，agent 用 Harness Relay 自己的瀏覽器讀三家競品的價格頁，輪流寫出標語和上市貼文；再分支對話試另一種語氣。
+- **[月結對帳：三份各自對，再比對](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#reconcile-accounts)**：附上銀行對帳單和現金帳；在平行模式下，三位 agent 各自唯讀對帳，首席 agent 審閱比對每位的結果，標出該由你親自確認的事。
+- **[追逾期帳款，追到收齊為止](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#collect-payments)**：每個工作日 09:00 的自動任務，設定了要追蹤的目標，用 Harness Relay 自己的工具讀你的信、寫提醒信，信在待送出匣等你按「送出」；每張發票都處理完，它就停下。
+- **[研究怎麼說，每個來源都附上](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#literature-review)**：在唯讀模式下，agent 上網搜尋、讀研究，以圓桌辯論證據，寫出每個來源都附連結的摘要；首席 agent 審閱會標出意見不同之處。
+- **[出一份小考，先讓學生試考](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#write-a-quiz)**：附上課文；在接力模式下，一位寫考卷和解答，下一位像學生一樣作答，最後一位批改，不清楚的題目會退回改寫。
+- **[用自己的模型伺服器修訂合約](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#contract-review)**：每位 agent，連首席 agent 在內，都跑在你自己 vLLM 上的 Qwen3.8 27B；在接力模式下，一位改掉廠商草稿中每一條偏離審閱準則的條款，下一位檢查每處修改，最後一位寫說明，回覆的差異就是修訂紀錄。
+- **[告警一響，就開始排查](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#triage-an-alert)**：有 webhook 的自動任務，每次監控系統呼叫就開一段新對話；agent 唯讀地讀告警、log 和部署紀錄，找出最可能的原因，完成時鈴鐺會通知你。
+- **[易用性測試前，先審一輪畫面](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#design-review)**：附上三張截圖；在平行模式下，每位 agent 從自己的角度（無障礙、版面、文字）唯讀審查，列出最該先改的問題。
 
 ## 功能
 
@@ -48,11 +53,11 @@
 - **用 git 安全地改檔**：每個工作目錄（一個對話最多八個）都會成為 git repository，每則回覆都列出它改了哪些檔案並附上 diff，平行模式中每個 agent 在自己的 worktree 工作。（[檢視與套用修改](docs/user-guide.zh-TW.md#檢視與套用修改)）
 - **由你掌控**：每個對話有自己的權限（唯讀、可編輯、完全存取），超出範圍的動作在對話中請你核准；agent 不確定時先問你而不亂猜；團隊回覆時你也能插話。（[核准](docs/user-guide.zh-TW.md#核准)、[對話](docs/user-guide.zh-TW.md#4-對話)）
 - **一切即時呈現**：回覆、推理、計畫與工具動作即時串流；Mermaid 圖表、圖片與 agent 做出的檔案直接顯示在對話中；任何一則回覆都能複製、編輯、重試或分支。（[複製、編輯與重試](docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](docs/user-guide.zh-TW.md#分支對話)）
-- **Harness Relay 自己的工具**：給每個 CLI 的 agent（Grok、Muse Code 與 OpenCode 以外的開源 agent 只在完全存取時）一個它自己的瀏覽器、郵件與行事曆，透過同一個 MCP server；會送到別人那裡的東西在待送出匣等你送出。（[Harness Relay 的工具](docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)）
-- **自動任務**：在你執行它、到了設定的時間（例如每個平日 9:00 審查昨天的 commit），或這台電腦上的程式呼叫它的 webhook 時，把訊息傳給團隊；自動任務可以跨天追蹤一個目標，直到 agent 回報已達成，失敗的執行也會重試。（[自動任務](docs/user-guide.zh-TW.md#自動任務)）
+- **Harness Relay 自己的工具**：給每個 CLI 的 agent（Grok、Muse Code 與 OpenCode 以外的開源 agent 只在完全存取時）一個它自己的瀏覽器、郵件與行事曆，透過同一個 MCP server；會送到別人那裡的東西在待送出匣等你送出。Microsoft 365、Outlook.com 與 Google 的行事曆與郵件在瀏覽器中登入（OAuth），權杖不會交給 agent。（[Harness Relay 的工具](docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆)）
+- **自動任務**：在你執行它、到了設定的時間（例如每個平日 9:00 審查昨天的 commit）、某件事發生時（新郵件、即將開始的行程、pull request 或失敗的 CI、檔案；由 Harness Relay 自己檢查），或這台電腦上的程式呼叫它的 webhook 時，把訊息傳給團隊；自動任務可以跨天追蹤一個目標，直到 agent 回報已達成，失敗的執行也會重試。（[自動任務](docs/user-guide.zh-TW.md#自動任務)）
 - **檔案、語音與分享**：附加檔案與截圖、瀏覽工作目錄、用只在你電腦上執行的語音輸入說話，並把對話分享成 Markdown 或連結。（[瀏覽檔案](docs/user-guide.zh-TW.md#瀏覽檔案)、[語音輸入](docs/user-guide.zh-TW.md#語音輸入)、[分享對話](docs/user-guide.zh-TW.md#分享對話)）
 - **井然有序**：群組、釘選在最上面的對話、搜尋、側邊欄上每個對話的狀態、通知與提示音（手機上是推播通知），以及收著每一則通知的鈴鐺（每個瀏覽器都一樣）。（[群組](docs/user-guide.zh-TW.md#群組)、[釘選](docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](docs/user-guide.zh-TW.md#搜尋)、[通知與提示音](docs/user-guide.zh-TW.md#通知與提示音)、[通知收件匣](docs/user-guide.zh-TW.md#通知收件匣)）
-- **設定一次，每個 CLI 都適用**：找不到的 CLI 在它的卡片上一鍵安裝（也能再移除），MCP 伺服器、skill 與記憶的工具庫，每個 CLI 多個帳號、每個帳號的方案用量、各 CLI 自己載入的內容，以及在 [AgentsView](https://www.agentsview.io) 中檢視 agent 的 session。（[安裝 CLI](docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[工具庫](docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[多個帳號](docs/user-guide.zh-TW.md#多個帳號)、[方案用量](docs/user-guide.zh-TW.md#方案用量)、[AgentsView](docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)）
+- **設定一次，每個 CLI 都適用**：找不到的 CLI 在它的卡片上一鍵安裝（也能再移除），MCP 伺服器（用 OAuth 登入的也在這裡登入）、skill 與記憶的工具庫，每個 CLI 多個帳號、每個帳號的方案用量、各 CLI 自己載入的內容，以及在 [AgentsView](https://www.agentsview.io) 中檢視 agent 的 session。（[安裝 CLI](docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[工具庫](docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[多個帳號](docs/user-guide.zh-TW.md#多個帳號)、[方案用量](docs/user-guide.zh-TW.md#方案用量)、[AgentsView](docs/user-guide.zh-TW.md#agent-的-session各-cli-自己的資料夾與-agentsview)）
 - **完全在本機，你的裝置都能用**：所有資料存在單一 SQLite 檔案，伺服器只監聽 `127.0.0.1`；透過 Tailscale 用手機連線；選用的桌面 app；English 與繁體中文。（[用手機連線](docs/remote-access.zh-TW.md#1-把伺服器分享到-tailnet)、[桌面 app](#桌面-app)）
 
 每個功能的詳細步驟都在[使用者說明](docs/user-guide.zh-TW.md)。

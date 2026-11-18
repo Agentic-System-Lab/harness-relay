@@ -176,6 +176,12 @@ export interface McpServerSpec {
   env: Record<string, string>;
   headers: Record<string, string>;
   /**
+   * Its `Authorization` header holds the access token of the server's own sign-in, given for this turn
+   * only (`McpOAuth.forTurn()`): a CLI that keeps a session's servers on disk (Goose) has it taken out
+   * once the turn is over.
+   */
+  signedIn?: boolean;
+  /**
    * An HTTP server's stdio stand-in, for a CLI that turns out to take no HTTP MCP server (its ACP
    * `mcpCapabilities.http`): made only when called (Harness Relay's gateway, `GrantOptions.fallback`).
    */

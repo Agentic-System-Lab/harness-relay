@@ -1,6 +1,6 @@
 import { lookup } from 'node:dns/promises';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { BlockList, isIP, isIPv6 } from 'node:net';
+import { isIP, isIPv6 } from 'node:net';
 import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
 import { approvalKeys } from '../approvals';
@@ -11,7 +11,7 @@ import type { GatewayContext } from '../gateway';
 import { runProcess } from '../process';
 import { removeTree } from '../fsRemove';
 import { relayBrowserDir } from '../protect';
-import { isLocalHost, isLoopbackHost } from '../relaySandbox';
+import { isLocalHost, isLoopbackHost, isPrivateAddress } from '../relaySandbox';
 import { CdpConnection } from './cdp';
 import { BrowserProxy, PROXY_USER, type ProxyRoute } from './proxy';
 
@@ -50,26 +50,6 @@ import { BrowserProxy, PROXY_USER, type ProxyRoute } from './proxy';
  */
 export type NavigationVerdict = 'allow' | 'ask' | 'block' | 'moved' | 'mixed';
 
-/** The private networks (and the shared address space VPNs such as Tailscale use): the local network, to the browser. */
-const PRIVATE = new BlockList();
-PRIVATE.addSubnet('10.0.0.0', 8, 'ipv4');
-PRIVATE.addSubnet('172.16.0.0', 12, 'ipv4');
-PRIVATE.addSubnet('192.168.0.0', 16, 'ipv4');
-PRIVATE.addSubnet('100.64.0.0', 10, 'ipv4');
-PRIVATE.addSubnet('198.18.0.0', 15, 'ipv4');
-PRIVATE.addSubnet('fc00::', 7, 'ipv6');
-
-/** Whether an address is on a private network (an IPv4 one written as IPv6, `::ffff:10.0.0.1`, too). */
-function privateAddress(a: string): boolean {
-  const kind = isIP(a);
-  if (!kind) return false;
-  try {
-    return PRIVATE.check(a, kind === 6 ? 'ipv6' : 'ipv4');
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Whether a host leads to this computer or the local network: a loopback name, one of this
  * computer's addresses, a private one, or a name with one of those among its `addresses`.
@@ -77,7 +57,7 @@ function privateAddress(a: string): boolean {
 export function leadsNearby(host: string, addresses: readonly string[], own: readonly string[] = []): boolean {
   const h = host.replace(/^\[|\]$/g, '');
   const list = isIP(h) || isLoopbackHost(h) ? [h] : addresses;
-  return list.some((a) => isLoopbackHost(a) || own.some((o) => o.toLowerCase() === a.toLowerCase()) || privateAddress(a));
+  return list.some((a) => isLoopbackHost(a) || own.some((o) => o.toLowerCase() === a.toLowerCase()) || isPrivateAddress(a));
 }
 
 /** Whether a name's addresses lead both to the internet and to this computer or the local network. */
@@ -330,8 +310,12 @@ class BrowserSession {
   current?: GatewayContext;
   private timer?: NodeJS.Timeout;
   mainFrame = '';
-  /** Questions about a host the main frame would open that wait for the user's answer: time the page's server is not given. */
-  asking = 0;
+  /**
+   * The call going on (`with()`): its questions about a host the main frame would open that wait for the
+   * user's answer, time its page's server is not given (`answerClock()`). A question a call that ended
+   * left waiting counts for no call after it.
+   */
+  call: { asking: number } = { asking: 0 };
   /** The page the main frame did not open during the current call, and why. */
   denied?: Refusal;
   /** The sessions whose requests are gated: the tab's own, and its frames and workers in processes of their own. */
@@ -500,10 +484,11 @@ function isMainDocument(s: BrowserSession, p: Record<string, unknown>, sid: stri
 export const PAGE_ANSWER_MS = 2 * 60_000;
 
 /**
- * Counts the time the tab's page is given to answer: `ms` of it, not counting the time a question about
- * a host waits for the user (`asking`), looked at every second at most. `over` once it has had them.
+ * Counts the time the tab's page is given to answer: `ms` of it, not counting the time a question of the
+ * call's about a host waits for the user (`call.asking`), looked at every second at most. `over` once it
+ * has had them.
  */
-function answerClock(s: BrowserSession, ms: number): { done: Promise<void>; over: () => boolean; stop: () => void } {
+function answerClock(call: { asking: number }, ms: number): { done: Promise<void>; over: () => boolean; stop: () => void } {
   let used = 0;
   let last = Date.now();
   let over = false;
@@ -511,7 +496,7 @@ function answerClock(s: BrowserSession, ms: number): { done: Promise<void>; over
   const done = new Promise<void>((resolve) => {
     const tick = () => {
       const now = Date.now();
-      if (s.asking === 0) used += now - last;
+      if (call.asking === 0) used += now - last;
       last = now;
       if (used >= ms) return void ((over = true), resolve());
       timer = setTimeout(tick, Math.min(1000, ms - used));
@@ -541,7 +526,7 @@ async function untilAnswered<T>(s: BrowserSession, signal: AbortSignal, ms: numb
     signal.addEventListener('abort', end, { once: true });
     off = () => signal.removeEventListener('abort', end);
   });
-  const clock = answerClock(s, ms);
+  const clock = answerClock(s.call, ms);
   const silent = clock.done.then((): never => {
     throw new Error(`${url} ${silentText(ms)}`);
   });
@@ -814,13 +799,14 @@ export class BrowserService {
       else if (ctx?.ask) {
         const ask = () =>
           ctx.ask!({ kind: 'fetch', detail: url, reason: nearby ? t().gw.openNearbyReason : t().gw.openReason, noLock: true });
-        // The page's server is not waited for meanwhile (`answerClock()`).
-        s.asking++;
+        // The page's server is not waited for meanwhile (`answerClock()`): counted on the call that asks.
+        const call = s.call;
+        call.asking++;
         let answer: { allow: boolean };
         try {
           answer = await (ctx.lang ? withLang(ctx.lang, ask) : ask()).catch(() => ({ allow: false }));
         } finally {
-          s.asking--;
+          call.asking--;
         }
         allow = answer.allow;
         if (!allow) s.denied = { url, why: 'declined' };
@@ -883,6 +869,7 @@ export class BrowserService {
     const turn = s.queue.then(async () => {
       if (ctx.signal.aborted) throw new Error('The turn ended');
       s.current = ctx;
+      s.call = { asking: 0 };
       s.denied = undefined;
       s.popups = [];
       s.callGranted.clear();
@@ -945,14 +932,15 @@ export class BrowserService {
 
   /**
    * Runs `input` (a click, Enter) and waits for the page it opens, if it opens one. A page starts
-   * loading at once (within `startMs`), but its server may answer much later, and the user may be
-   * asked about its host first: so it waits, for as long as the turn lasts, until the new page is
-   * there (then until it has loaded, at most 15 s) or the main frame stops loading without one (a
-   * download, an answer with no page, a page refused). Watching only for the new page to be there,
-   * as before, read a page whose server took longer than that to answer before it had come.
-   * Resolves with whether a new page is there. Once the turn ends (`signal`), or the page's server has
-   * had `answerMs` (`answerClock()`), the tab stops loading and the call fails, as `open()`'s does: the
-   * page on its way would hold the tab (a snapshot of it waits for it), and the calls after it.
+   * loading at once (within `startMs`), but the user may be asked about its host first, and its server
+   * may answer later: so it waits, while the user is asked for as long as the turn lasts and then for
+   * its server up to `answerMs`, until the new page is there (then until it has loaded, at most 15 s)
+   * or the main frame stops loading without one (a download, an answer with no page, a page refused).
+   * Watching only for the new page to be there, as before, read a page whose server took longer than
+   * that to answer before it had come. Resolves with whether a new page is there. Once the turn ends
+   * (`signal`), or the page's server has had `answerMs` (`answerClock()`), the tab stops loading and
+   * the call fails, as `open()`'s does: the page on its way would hold the tab (a snapshot of it waits
+   * for it), and the calls after it.
    */
   private async afterInput(s: BrowserSession, startMs: number, signal: AbortSignal, input: () => Promise<void>): Promise<boolean> {
     const seen = { started: false, navigated: false, stopped: false, loaded: false };
@@ -974,9 +962,19 @@ export class BrowserService {
       while (!done()) {
         const left = end - Date.now();
         if (left <= 0 || signal.aborted || s.cdp.isClosed) return done();
+        // Woken by the page's next event, else in a second: then it goes from `waiting`, which would
+        // otherwise grow by one a second for as long as the user takes to answer about a host.
         await new Promise<void>((resolve) => {
-          const timer = setTimeout(resolve, Math.min(left, 1000));
-          waiting.push(() => (clearTimeout(timer), resolve()));
+          const wake = () => (clearTimeout(timer), resolve());
+          const timer = setTimeout(
+            () => {
+              const i = waiting.indexOf(wake);
+              if (i >= 0) waiting.splice(i, 1);
+              resolve();
+            },
+            Math.min(left, 1000),
+          );
+          waiting.push(wake);
         });
       }
       return true;
@@ -993,7 +991,7 @@ export class BrowserService {
       if (signal.aborted) return await ended();
       if (!started) return false;
       // As long as the user takes to answer about its host, then what its server is given (`answerMs`).
-      const clock = answerClock(s, this.answerMs);
+      const clock = answerClock(s.call, this.answerMs);
       try {
         await until(() => seen.navigated || seen.stopped || clock.over(), CONFIG.turnTimeoutMs);
       } finally {

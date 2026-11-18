@@ -497,7 +497,7 @@ describe('schedules', () => {
     expect(skipNotes.has(conv.id)).toBe(false);
   });
 
-  it('starts a note of its own after times dropped while Harness Relay was not running', async () => {
+  it('starts a note of its own after times dropped as missed (the computer slept, say)', async () => {
     // Missed times sent once late: the first is the one after the note's latest, the rest dropped.
     const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
     schedule(conv, { missed: 'run' });

@@ -43,6 +43,12 @@ import type {
   OutboxItem,
   CalendarAccountUpdate,
   ConnectorsView,
+  OAuthCalendar,
+  OAuthClientUpdate,
+  OAuthProviderId,
+  OAuthSignInView,
+  OAuthUse,
+  OAuthView,
   MailAccountUpdate,
   NewScheduleHook,
   ScheduleUpdate,
@@ -294,6 +300,8 @@ export const api = {
   designSchedule: (id: string) => request<{ ok: true }>('POST', `/api/conversations/${id}/schedule/design`),
   /** Send the schedule's message now; `queued` while the team replies, `chatId` when it opened a new conversation. */
   runSchedule: (id: string) => request<{ ok: true; queued: boolean; chatId?: string }>('POST', `/api/conversations/${id}/schedule/run`),
+  /** Check what an automation that starts when something happens waits for, now: the schedule as it is then. */
+  checkSchedule: (id: string) => request<ConversationSchedule | null>('POST', `/api/conversations/${id}/schedule/check`, {}),
   /** A webhook for the schedule (a new token replaces the one it had): the token, shown this once, and the address to call. */
   createScheduleHook: (id: string) => request<NewScheduleHook>('POST', `/api/conversations/${id}/schedule/hook`, {}),
   deleteScheduleHook: (id: string) => request<{ ok: true }>('DELETE', `/api/conversations/${id}/schedule/hook`),
@@ -335,6 +343,38 @@ export const api = {
     request<{ ok: boolean; message?: string; error?: string }>('POST', `/api/connectors/${kind}/${id}/test`, {}),
   discoverCalendars: (b: { url: string; username: string; password?: string; id?: string }) =>
     request<{ ok: boolean; calendars?: { name: string; url: string }[]; error?: string }>('POST', '/api/connectors/calendar/discover', b),
+  /** Accounts that sign in with OAuth, and the apps they sign in with: never a token. */
+  oauth: () => request<OAuthView>('GET', '/api/oauth'),
+  saveOAuthClient: (provider: OAuthProviderId, b: OAuthClientUpdate) => request<OAuthView>('PUT', `/api/oauth/clients/${provider}`, b),
+  /** A sign-in for its uses: the provider's page sends the browser back to this page's own origin when it is on this computer. */
+  /** `account`: the account signing in again, or for another use (its uses are asked for too, its address is the page's hint). */
+  startOAuthSignIn: (provider: OAuthProviderId, uses: OAuthUse[], device = false, account?: string) =>
+    request<OAuthSignInView>('POST', '/api/oauth/signins', {
+      provider,
+      uses,
+      origin: location.origin,
+      device,
+      ...(account ? { account } : {}),
+    }),
+  oauthSignIn: (id: string) => request<OAuthSignInView>('GET', `/api/oauth/signins/${id}`),
+  pasteOAuthAddress: (id: string, address: string) => request<OAuthSignInView>('POST', `/api/oauth/signins/${id}/address`, { address }),
+  cancelOAuthSignIn: (id: string) => request<{ ok: true }>('DELETE', `/api/oauth/signins/${id}`),
+  /** The user confirmed where a sign-in's page is (`OAuthSignInView.confirm`): the page comes back to open. */
+  confirmOAuthSignIn: (id: string) => request<OAuthSignInView>('POST', `/api/oauth/signins/${id}/confirm`, {}),
+  /** The page the provider sent the browser back to posts what it got: its state is the proof (no sign-in needed). */
+  oauthCallback: (b: { state?: string; code?: string; error?: string; iss?: string }) =>
+    request<{ status: OAuthSignInView['status']; provider: OAuthSignInView['provider']; email?: string; server?: string; error?: string }>(
+      'POST',
+      '/api/oauth/callback',
+      b,
+    ),
+  oauthCalendars: (id: string) => request<OAuthCalendar[]>('GET', `/api/oauth/accounts/${id}/calendars`),
+  addOAuthCalendar: (id: string, b: { name: string; url: string }) =>
+    request<ConnectorsView>('POST', `/api/oauth/accounts/${id}/calendars`, b),
+  /** An account's mail account, for the mail tools (it must have signed in for mail). */
+  addOAuthMail: (id: string) => request<ConnectorsView>('POST', `/api/oauth/accounts/${id}/mail`, {}),
+  removeOAuthAccount: (id: string) =>
+    request<OAuthView & { connectors: ConnectorsView; permissionsPages?: string[] }>('DELETE', `/api/oauth/accounts/${id}`),
   /** Send or discard what an agent asked to send (an outbox item); only Send sends it. */
   answerOutbox: (id: string, itemId: string, action: 'send' | 'discard') =>
     request<OutboxItem>('POST', `/api/conversations/${id}/outbox/${itemId}`, { action }),
@@ -380,6 +420,10 @@ export const api = {
   updateTools: (b: ToolLibraryUpdate) => request<ToolLibraryView>('PUT', '/api/tools', b),
   saveMcpServer: (name: string, b: McpServerUpdate) => request<ToolLibraryView>('PUT', `/api/tools/mcp/${encodeURIComponent(name)}`, b),
   deleteMcpServer: (name: string) => request<ToolLibraryView>('DELETE', `/api/tools/mcp/${encodeURIComponent(name)}`),
+  /** An HTTP server's own sign-in, followed as an account's is (`oauthSignIn`, `pasteOAuthAddress`, `cancelOAuthSignIn`). */
+  startMcpSignIn: (name: string) =>
+    request<OAuthSignInView>('POST', `/api/tools/mcp/${encodeURIComponent(name)}/signin`, { origin: location.origin }),
+  signOutMcp: (name: string) => request<ToolLibraryView>('DELETE', `/api/tools/mcp/${encodeURIComponent(name)}/signin`),
   scanSkills: (path: string) =>
     request<{ path: string; skills: SkillCandidate[] }>('GET', `/api/tools/skills/scan?path=${encodeURIComponent(path)}`),
 

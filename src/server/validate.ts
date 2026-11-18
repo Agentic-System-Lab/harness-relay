@@ -22,6 +22,9 @@ import {
   PROVIDERS,
   SCHEDULE_KINDS,
   SCHEDULE_LIMITS,
+  WATCH_LIMITS,
+  OAUTH_PROVIDERS,
+  OAUTH_USES,
   TOOL_LIMITS,
   VOICE_LANGUAGES,
   cwdSettings,
@@ -47,6 +50,10 @@ import {
   type ProviderSettingsUpdate,
   type PushSubscriptionJson,
   type ScheduleRepeat,
+  type ScheduleTrigger,
+  type OAuthClientUpdate,
+  type OAuthProviderId,
+  type OAuthUse,
   type ScheduleUpdate,
   type ToolLibraryUpdate,
   type VoiceLanguage,
@@ -54,7 +61,7 @@ import {
   type VoiceSettingsUpdate,
   type InboxReadRequest,
 } from '../shared/types';
-import { parseTime, validTimeZone } from '../shared/schedule';
+import { filePattern, mailFolder, parseTime, repoName, sameTriggers, validBranch, validRepo, validTimeZone } from '../shared/schedule';
 import { CONFIG } from './config';
 import { HttpError } from './errors';
 import { isOtherGroupName, t } from './i18n';
@@ -396,8 +403,14 @@ export function validateAgents(input: unknown, max = CONFIG.maxTeamAgents): Agen
   });
 }
 
-/** A member's tool library exception: the memory for everyone or for its CLI (any of PROVIDERS), an MCP server, a skill. */
-const TOOL_KEY_RE = new RegExp(`^(memory|memory:(${PROVIDERS.join('|')})|mcp:[A-Za-z0-9_-]{1,40}|skill:[^\\0]{1,4000})$`);
+/**
+ * A member's tool library exception: the memory for everyone or for its CLI (any of PROVIDERS), an MCP
+ * server, a skill, or one of Harness Relay's own tool groups (`relay:mail`, as the member's tool picker
+ * offers them).
+ */
+const TOOL_KEY_RE = new RegExp(
+  `^(memory|memory:(${PROVIDERS.join('|')})|mcp:[A-Za-z0-9_-]{1,40}|skill:[^\\0]{1,4000}|relay:(${RELAY_TOOL_GROUPS.join('|')}))$`,
+);
 
 /** The CLIs a library item is on for by default; absent = all of them. */
 function validProviders(input: unknown, field: string): Provider[] {
@@ -611,6 +624,76 @@ function validRepeat(input: unknown, enabled: boolean, now: number): ScheduleRep
       if (!Number.isInteger(hours) || hours < 1 || hours > SCHEDULE_LIMITS.maxHours) bad(t().scheduleBadHours(SCHEDULE_LIMITS.maxHours));
       return { kind, hours };
     }
+    case 'event': {
+      // One trigger alone, as automations were saved before they could wait for several things.
+      const listed = Array.isArray(r.triggers) ? r.triggers : r.triggers === undefined && r.trigger !== undefined ? [r.trigger] : undefined;
+      if (!listed) bad(t().watchBadTrigger);
+      if (!listed.length || listed.length > WATCH_LIMITS.triggers) bad(t().watchTriggerCount(WATCH_LIMITS.triggers));
+      const triggers = listed.map(validTrigger);
+      if (sameTriggers(triggers)) bad(t().watchSameTrigger);
+      return { kind, triggers };
+    }
+  }
+}
+
+/**
+ * One of the things an automation that starts when something happens waits for (`ScheduleTrigger`;
+ * 1 to `WATCH_LIMITS.triggers` of them, no two for the same source: `sameTriggers()`), each text a line
+ * of at most `WATCH_LIMITS.field`:
+ * - a new mail in a folder (the inbox when none is given, `INBOX` in any letter case: `mailFolder()`)
+ *   of a mail account, by its id (that it exists is checked where the accounts are), with the words
+ *   its sender and subject contain, when given;
+ * - an event of a calendar, by its id, about to begin: 1 to `WATCH_LIMITS.maxMinutes` minutes before,
+ *   with the words its title contains, when given;
+ * - in a GitHub repository (`owner/name`): a pull request opened, or a CI run that failed (on a branch,
+ *   when given, one git allows);
+ * - a file in the working directory matching a pattern: relative, inside it (no `..`), not empty.
+ * The browser's form checks the same (`src/shared/schedule.ts`).
+ */
+function validTrigger(input: unknown): ScheduleTrigger {
+  const r = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+  const line = (v: unknown, field: string): string => {
+    if (v === undefined || v === null) return '';
+    if (typeof v !== 'string' || v.length > WATCH_LIMITS.field || /[\r\n\0]/.test(v)) bad(t().invalidField(field));
+    return v.trim();
+  };
+  const id = (v: unknown): string => {
+    const account = line(v, 'account');
+    if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(account)) bad(t().watchBadTrigger);
+    return account;
+  };
+  switch (r.source) {
+    case 'mail': {
+      const account = id(r.account);
+      // The inbox in any letter case is the one inbox, written as IMAP names it.
+      const folder = mailFolder(line(r.folder, 'folder') || 'INBOX');
+      const from = line(r.from, 'from');
+      const subject = line(r.subject, 'subject');
+      return { source: 'mail', account, folder, ...(from ? { from } : {}), ...(subject ? { subject } : {}) };
+    }
+    case 'calendar': {
+      const account = id(r.account);
+      const minutes = r.minutes;
+      if (typeof minutes !== 'number' || !Number.isInteger(minutes) || minutes < 1 || minutes > WATCH_LIMITS.maxMinutes)
+        bad(t().watchBadMinutes(WATCH_LIMITS.maxMinutes));
+      const title = line(r.title, 'title');
+      return { source: 'calendar', account, minutes, ...(title ? { title } : {}) };
+    }
+    case 'github': {
+      const repo = repoName(line(r.repo, 'repo'));
+      if (!validRepo(repo)) bad(t().watchBadRepo);
+      if (r.on !== 'pr' && r.on !== 'ci') bad(t().invalidField('on'));
+      const branch = r.on === 'ci' ? line(r.branch, 'branch') : '';
+      if (branch && !validBranch(branch)) bad(t().watchBadBranch);
+      return { source: 'github', repo, on: r.on, ...(branch ? { branch } : {}) };
+    }
+    case 'file': {
+      const pattern = filePattern(line(r.pattern, 'pattern'));
+      if (!pattern) bad(t().watchBadPattern);
+      return { source: 'file', pattern };
+    }
+    default:
+      bad(t().watchBadTrigger);
   }
 }
 
@@ -759,6 +842,57 @@ export function validatePushSubscription(input: unknown): { subscription: PushSu
 }
 
 // --- Mail accounts and calendars (the mail and calendar tools) ------------------------------------
+
+/** A provider of accounts that sign in with OAuth; any other is a 404. */
+export function validOAuthProvider(input: string): OAuthProviderId {
+  if (!(OAUTH_PROVIDERS as readonly string[]).includes(input)) throw new HttpError(404, t().invalidField('provider'));
+  return input as OAuthProviderId;
+}
+
+/** What a sign-in is for: some of the uses, each once (the calendar when none is said, as before mail). */
+export function validOAuthUses(input: unknown): OAuthUse[] {
+  if (input === undefined) return ['calendar'];
+  if (!Array.isArray(input) || !input.length || input.some((u) => !(OAUTH_USES as readonly unknown[]).includes(u)))
+    bad(t().invalidField('uses'));
+  return OAUTH_USES.filter((u) => (input as unknown[]).includes(u));
+}
+
+/**
+ * A provider's OAuth app: its client id (empty: none of the user's own), Microsoft's tenant (`common`,
+ * `organizations`, `consumers`, a tenant's id or domain), and a client secret (none: the kept one stays;
+ * empty: none).
+ */
+export function validateOAuthClient(input: unknown): OAuthClientUpdate {
+  const b = (input ?? {}) as Record<string, unknown>;
+  const clientId = typeof b.clientId === 'string' ? b.clientId.trim() : '';
+  if (clientId && !/^[A-Za-z0-9._:-]{1,200}$/.test(clientId)) bad(t().invalidField('clientId'));
+  const tenant = typeof b.tenant === 'string' ? b.tenant.trim() : '';
+  if (tenant && !/^[A-Za-z0-9.-]{1,100}$/.test(tenant)) bad(t().invalidField('tenant'));
+  if (b.secret !== undefined && b.secret !== null && (typeof b.secret !== 'string' || b.secret.length > 500 || /[\r\n\0]/.test(b.secret)))
+    bad(t().invalidField('secret'));
+  return {
+    clientId,
+    ...(tenant ? { tenant } : {}),
+    ...(typeof b.secret === 'string' ? { secret: b.secret.trim() } : {}),
+  };
+}
+
+/** One of an OAuth account's calendars to add to the calendar tools: a name, and its address (https). */
+export function validateOAuthCalendar(input: unknown): { name: string; url: string } {
+  const b = (input ?? {}) as Record<string, unknown>;
+  const raw = typeof b.url === 'string' ? b.url.trim() : '';
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    bad(t().connectorBadUrl);
+  }
+  // https, as the token goes (plain http only to a stand-in on this computer): one it could never be sent to is refused.
+  const loopback = /^(127\.0\.0\.1|localhost|\[::1\])$/.test(url.hostname);
+  if (url.username || url.password || url.hash || !(url.protocol === 'https:' || (url.protocol === 'http:' && loopback)))
+    bad(t().connectorBadUrl);
+  return { name: connectorName(b.name), url: url.href };
+}
 
 /** An account's id: a short slug the UI makes. */
 export function validConnectorId(input: string): string {

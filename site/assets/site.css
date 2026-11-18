@@ -1212,6 +1212,20 @@ html:not(.js) .theme-toggle {
   color: var(--muted);
 }
 
+/* Whose work a use case is, above its name: on its section and on its card. */
+.usecase-role,
+.case-role {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+.usecase-role {
+  margin-bottom: -8px;
+}
+
 /* The screening, as a panel of its own in the page. */
 .usecase-screen {
   padding: clamp(12px, 2vw, 24px);
@@ -1247,6 +1261,24 @@ html:not(.js) .theme-toggle {
   background: var(--surface);
   font-size: 15px;
   line-height: 1.55;
+}
+
+/* Under what was asked: the conversation as it was shared, and the files attached to the question. */
+.usecase-links {
+  display: grid;
+  gap: 6px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.usecase-links a {
+  color: var(--text);
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
 }
 
 .usecase-shows ul {

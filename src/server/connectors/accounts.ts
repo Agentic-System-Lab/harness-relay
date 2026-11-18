@@ -6,6 +6,7 @@ import {
   type KeyStorage,
   type MailAccountUpdate,
   type MailAccountView,
+  type MailServer,
 } from '../../shared/types';
 import type { Database } from '../db';
 import { HttpError } from '../errors';
@@ -17,7 +18,9 @@ import { sameProvider } from './caldav';
  * The mail accounts and calendars the mail and calendar tools use (Settings → Tool library), kept
  * under `connectors` in `app_settings` without their passwords, which go to the OS credential store
  * (or the database encrypted, `secrets.ts`), one entry each: `mail-<id>`, `calendar-<id>`. The UI only
- * sees them masked, and no CLI ever gets them: the tools run in the server.
+ * sees them masked, and no CLI ever gets them: the tools run in the server. A mail account or calendar
+ * reached through an account that signs in with OAuth (`oauth`) has no password: its token comes from
+ * the token broker (`oauth/broker.ts`), and its servers are its provider's own, fixed.
  */
 
 type StoredMail = Omit<MailAccountView, 'password'>;
@@ -33,6 +36,8 @@ interface Stored {
 const KEY = 'connectors';
 
 export class ConnectorStore {
+  /** How many times each mail account was saved (`mailSaves()`). */
+  private saves = new Map<string, number>();
   private data: Stored = { mail: [], calendar: [] };
   private passwords = new Map<string, string>();
 
@@ -103,6 +108,8 @@ export class ConnectorStore {
   saveMail(id: string, u: MailAccountUpdate): ConnectorsView {
     const list = this.data.mail;
     const i = list.findIndex((m) => m.id === id);
+    // One reached through a sign-in never takes a password or other servers: its token goes only to its provider's.
+    if (i >= 0 && list[i]!.oauth) throw new HttpError(409, t().oauthMailFixed);
     if (i < 0 && list.length >= CONNECTOR_LIMITS.accounts) throw new HttpError(400, t().connectorTooMany(CONNECTOR_LIMITS.accounts));
     if (list.some((m) => m.id !== id && m.name.toLowerCase() === u.name.toLowerCase()))
       throw new HttpError(409, t().connectorNameTaken(u.name));
@@ -110,6 +117,7 @@ export class ConnectorStore {
     // The kept password goes only to the servers it was given for.
     if (i >= 0 && !u.password && !sameMailServers(list[i]!, u)) throw new HttpError(400, t().connectorPasswordAgain);
     this.setPassword(`mail-${id}`, u.password);
+    this.saves.set(id, (this.saves.get(id) ?? 0) + 1);
     const { password: _p, ...rest } = u;
     const account: StoredMail = { id, ...rest };
     if (i < 0) list.push(account);
@@ -121,6 +129,8 @@ export class ConnectorStore {
   saveCalendar(id: string, u: CalendarAccountUpdate): ConnectorsView {
     const list = this.data.calendar;
     const i = list.findIndex((c) => c.id === id);
+    // A calendar reached through a sign-in never turns into one with a password: it is removed and added again.
+    if (i >= 0 && list[i]!.oauth) throw new HttpError(409, t().oauthCalendarFixed);
     if (i < 0 && list.length >= CONNECTOR_LIMITS.accounts) throw new HttpError(400, t().connectorTooMany(CONNECTOR_LIMITS.accounts));
     if (list.some((c) => c.id !== id && c.name.toLowerCase() === u.name.toLowerCase()))
       throw new HttpError(409, t().connectorNameTaken(u.name));
@@ -133,6 +143,83 @@ export class ConnectorStore {
     else list[i] = account;
     this.save();
     return this.view();
+  }
+
+  /**
+   * A calendar reached through an account that signs in with OAuth (`oauth`, its id): its name and its
+   * address at the provider, with no password; the account's address as its user name. Added, or
+   * renamed when it is there already.
+   */
+  saveOAuthCalendar(id: string, c: { name: string; url: string; oauth: string; email: string }): ConnectorsView {
+    const list = this.data.calendar;
+    const i = list.findIndex((x) => x.id === id);
+    if (i >= 0 && list[i]!.oauth !== c.oauth) throw new HttpError(409, t().connectorNameTaken(id));
+    if (i < 0 && list.length >= CONNECTOR_LIMITS.accounts) throw new HttpError(400, t().connectorTooMany(CONNECTOR_LIMITS.accounts));
+    if (list.some((x) => x.id !== id && x.name.toLowerCase() === c.name.toLowerCase()))
+      throw new HttpError(409, t().connectorNameTaken(c.name));
+    const account: StoredCalendar = { id, name: c.name, url: c.url, username: c.email, address: c.email, oauth: c.oauth };
+    if (i < 0) list.push(account);
+    else list[i] = account;
+    this.save();
+    return this.view();
+  }
+
+  /**
+   * A mail account reached through an account that signs in with OAuth (`oauth`, its id): its name, the
+   * account's address as its sender and user name, and its provider's own servers, with no password.
+   * Added, or renamed when it is there already.
+   */
+  saveOAuthMail(id: string, m: { name: string; oauth: string; email: string; imap: MailServer; smtp: MailServer }): ConnectorsView {
+    const list = this.data.mail;
+    const i = list.findIndex((x) => x.id === id);
+    if (i >= 0 && list[i]!.oauth !== m.oauth) throw new HttpError(409, t().connectorNameTaken(id));
+    if (i < 0 && list.length >= CONNECTOR_LIMITS.accounts) throw new HttpError(400, t().connectorTooMany(CONNECTOR_LIMITS.accounts));
+    if (list.some((x) => x.id !== id && x.name.toLowerCase() === m.name.toLowerCase()))
+      throw new HttpError(409, t().connectorNameTaken(m.name));
+    const account: StoredMail = { id, name: m.name, address: m.email, username: m.email, imap: m.imap, smtp: m.smtp, oauth: m.oauth };
+    this.saves.set(id, (this.saves.get(id) ?? 0) + 1);
+    if (i < 0) list.push(account);
+    else list[i] = account;
+    this.save();
+    return this.view();
+  }
+
+  /** The mail accounts reached through an account that signs in with OAuth (its id). */
+  oauthMail(oauth: string): StoredMail[] {
+    return this.data.mail.filter((m) => m.oauth === oauth);
+  }
+
+  /** The mail account ids taken (a new one's is not one of them). */
+  mailIds(): string[] {
+    return this.data.mail.map((m) => m.id);
+  }
+
+  /** Every mail account, without its password. */
+  mailAccounts(): StoredMail[] {
+    return [...this.data.mail];
+  }
+
+  /** The calendars reached through an account that signs in with OAuth (its id). */
+  oauthCalendars(oauth: string): StoredCalendar[] {
+    return this.data.calendar.filter((c) => c.oauth === oauth);
+  }
+
+  /** The account is gone: so are the calendars and mail accounts reached through it. */
+  removeOAuth(oauth: string): void {
+    const before = this.data.calendar.length + this.data.mail.length;
+    this.data.calendar = this.data.calendar.filter((c) => c.oauth !== oauth);
+    this.data.mail = this.data.mail.filter((m) => m.oauth !== oauth);
+    if (this.data.calendar.length + this.data.mail.length !== before) this.save();
+  }
+
+  /** Every calendar, without its password. */
+  calendarAccounts(): StoredCalendar[] {
+    return [...this.data.calendar];
+  }
+
+  /** The calendar ids taken (a new one's is not one of them). */
+  calendarIds(): string[] {
+    return this.data.calendar.map((c) => c.id);
   }
 
   delete(kind: 'mail' | 'calendar', id: string): ConnectorsView {
@@ -158,6 +245,16 @@ export class ConnectorStore {
   calendar(which?: string): { account: StoredCalendar; password: string } | undefined {
     const a = pick(this.data.calendar, which);
     return a && { account: a, password: this.password(`calendar-${a.id}`) };
+  }
+
+  /** The mail account with this id, without reading its password (nothing is asked of the credential store). */
+  mailAccount(id: string): StoredMail | undefined {
+    return this.data.mail.find((m) => m.id === id);
+  }
+
+  /** How many times the mail account was saved since the server started: its password may have changed. */
+  mailSaves(id: string): number {
+    return this.saves.get(id) ?? 0;
   }
 
   /** The mail account with this id (never by name), with its password. */

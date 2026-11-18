@@ -4,6 +4,8 @@ import 'highlight.js/styles/github-dark.css';
 import './styles.css';
 import { App } from './App';
 import { LoadFailed, PAGE_LOAD_FAILED } from './components/Deferred';
+import { OAuthCallback } from './components/OAuthCallback';
+import { CALLBACK_PATH } from './oauth';
 import { I18nProvider, currentLang, loadMessages } from './i18n';
 import { startTheme } from './theme';
 import { api } from './api';
@@ -32,7 +34,8 @@ loadMessages(currentLang()).then(
     root.render(
       <StrictMode>
         <I18nProvider>
-          <App />
+          {/* The page an OAuth provider's sign-in comes back to: no sign-in of its own, nothing else of the app. */}
+          {location.pathname === CALLBACK_PATH ? <OAuthCallback /> : <App />}
         </I18nProvider>
       </StrictMode>,
     ),

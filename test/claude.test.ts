@@ -815,6 +815,13 @@ describe('claude and the tool library', () => {
       },
     });
   });
+
+  it("writes an HTTP server's headers, a signed-in server's access token among them, into the document", () => {
+    const headers = { Authorization: 'Bearer mcp-access-123', 'X-Team': 'core' };
+    expect(
+      claudeMcpConfig([{ name: 'linear', transport: 'http', command: '', args: [], url: 'https://mcp.linear.app/mcp', env: {}, headers }]),
+    ).toEqual({ mcpServers: { linear: { type: 'http', url: 'https://mcp.linear.app/mcp', headers } } });
+  });
 });
 
 describe("Claude Code's sandbox below full access", () => {
