@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { createServer, type Server, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, posix, win32 } from 'node:path';
 import { PassThrough, type Duplex } from 'node:stream';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { ApprovalRequest } from '../src/server/agents/types';
 import type { GatewayContext } from '../src/server/gateway';
 import { slow } from './timeouts';
@@ -315,6 +315,9 @@ describe.skipIf(!chromium)('the browser itself', () => {
   const relayHits: string[] = [];
   const hits: string[] = [];
   const upgraded: Duplex[] = [];
+  // What `/hang` took and never answered, and whether the browser gave it up.
+  const hung: ServerResponse[] = [];
+  let hangClosed = false;
   let browser: InstanceType<typeof BrowserService>;
   const asked: ApprovalRequest[] = [];
   let allow = true;
@@ -404,6 +407,11 @@ describe.skipIf(!chromium)('the browser itself', () => {
             `<script>Array.prototype.join = () => 'hacked'; String.prototype.replace = function () { return 'hacked'; }; Map.prototype.get = () => document.getElementById('under'); Element.prototype.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1, height: 1 });</script>`,
         );
       }
+      if (url.pathname === '/hang') {
+        // A server that takes the request and never answers.
+        hung.push(res);
+        return void req.on('close', () => (hangClosed = true));
+      }
       if (url.pathname === '/bought') return res.end('<title>Bought</title>');
       if (url.pathname === '/host') return res.end(`<title>Host</title><p>Asked for ${escapeHtml(req.headers.host ?? '')}</p>`);
       if (url.pathname === '/next') return res.end('<title>Next</title><h1>The next page</h1>');
@@ -447,6 +455,7 @@ describe.skipIf(!chromium)('the browser itself', () => {
     else process.env.HOME = savedHome;
     browser?.closeAll();
     for (const sock of upgraded) sock.destroy();
+    for (const res of hung) res.destroy();
     await new Promise((r) => server?.close(r));
     await new Promise((r) => relay?.close(r));
   });
@@ -735,6 +744,24 @@ describe.skipIf(!chromium)('the browser itself', () => {
       await browser.open(ctx({ convId: 'conv-5', permission: 'full' }), `http://127.0.0.1:${port}/next`);
       expect(existsSync(join(userHome, '.config'))).toBe(false);
       await browser.close('conv-5', true);
+    },
+    slow(60_000),
+  );
+
+  it(
+    'stops opening a page whose server never answers once the turn ends, and the next call does not wait behind it',
+    async () => {
+      const turn = new AbortController();
+      const own = { convId: 'conv-hang', permission: 'full' as const };
+      const opening = browser.open(ctx({ ...own, signal: turn.signal }), `http://127.0.0.1:${port}/hang`);
+      await vi.waitFor(() => expect(hits).toContain('/hang'), { timeout: slow(20_000) });
+      turn.abort();
+      await expect(opening).rejects.toThrow('The turn ended');
+      // The tab stopped loading it: the request was given up, not left to its server.
+      await vi.waitFor(() => expect(hangClosed).toBe(true), { timeout: slow(5000) });
+      const next = await browser.open(ctx(own), `http://127.0.0.1:${port}/next`);
+      expect(next.title).toBe('Next');
+      await browser.close('conv-hang', true);
     },
     slow(60_000),
   );

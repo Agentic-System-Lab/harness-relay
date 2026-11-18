@@ -3176,7 +3176,7 @@ export class Orchestrator {
     return { root, base: before.commit, head: after.commit, files, isolated: false };
   }
 
-  systemNote(conv: Conversation, text: string): void {
+  systemNote(conv: Conversation, text: string): ChatMessage {
     const msg: ChatMessage = {
       id: randomUUID(),
       author: { kind: 'system' },
@@ -3185,6 +3185,14 @@ export class Orchestrator {
       status: 'done',
     };
     conv.messages.push(msg);
+    this.hub.emit(conv.id, { type: 'message', message: msg });
+    this.store.saveMessage(conv.id, msg, true);
+    return msg;
+  }
+
+  /** Gives a system note already in the chat new text (a schedule's later skipped times added to it). */
+  rewriteNote(conv: Conversation, msg: ChatMessage, text: string): void {
+    msg.parts = [{ type: 'text', text }];
     this.hub.emit(conv.id, { type: 'message', message: msg });
     this.store.saveMessage(conv.id, msg, true);
   }

@@ -245,6 +245,58 @@ describe('schedules', () => {
     expect(withTeam.messages.some((m) => m.plan)).toBe(false);
   });
 
+  it('adds each later time skipped for the same reason to the note the first one left, until something else is written', async () => {
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only' });
+    schedule(conv);
+    fake.asking = new Set(['Alice']);
+    await orchestrator.send(conv.id, 'which one?');
+    await finish(conv.id);
+    const at = (hours: number) => scheduleTime(T0 + hours * HOUR, { lang: 'en', timeZone: 'UTC' });
+    const waits = 'were not sent: the team is waiting for your answer.';
+    // One server's scheduler: the notes it left are in its memory.
+    const running = scheduler();
+    for (const hours of [1, 2, 3]) {
+      now = T0 + hours * HOUR;
+      await running.tick();
+    }
+    expect(said(conv)).toEqual(['which one?', '@Alice', 'note']);
+    expect(notes(conv)).toEqual([`The automation's messages of ${at(1)} to ${at(3)} (3 times) ${waits}`]);
+    expect(notes(new Store(db).get(conv.id)!)).toEqual(notes(conv)); // saved as it reads now
+
+    // Something written in the chat since: the next time leaves a note of its own, and so does one
+    // after a restart, whose scheduler has noted nothing yet.
+    orchestrator.systemNote(conv, 'Something else.');
+    now = T0 + 4 * HOUR;
+    await running.tick();
+    now = T0 + 5 * HOUR;
+    await scheduler().tick();
+    const one = (hours: number) => `The automation's message of ${at(hours)} was not sent: the team is waiting for your answer.`;
+    expect(notes(conv).slice(1)).toEqual(['Something else.', one(4), one(5)]);
+
+    // While a run goes on (as long as a turn may last): the first time waits in the queue, and the
+    // times after it share one note.
+    conv.schedule!.enabled = false;
+    store.saveSchedule(conv);
+    const queued = conversation({ mode: 'roundtable', permission: 'read-only' });
+    schedule(queued, { nextRunAt: now + HOUR });
+    fake.asking = new Set();
+    const alice = hold('Alice');
+    const before = calls.length;
+    await orchestrator.send(queued.id, 'question');
+    await vi.waitFor(() => expect(calls.length).toBe(before + 1));
+    for (const hours of [6, 7, 8]) {
+      now = T0 + hours * HOUR;
+      await running.tick();
+    }
+    expect(queued.schedule).toMatchObject({ lastResult: 'skipped' });
+    expect(notes(queued)).toEqual([
+      `The automation's messages of ${at(7)} to ${at(8)} (2 times) were not sent: the automation's previous message is still waiting to be delivered.`,
+    ]);
+    orchestrator.stop(queued.id);
+    alice();
+    await finish(queued.id);
+  });
+
   it('skips a time missed while it was not running, or sends it once late, as the schedule says', async () => {
     const skips = conversation({ mode: 'roundtable', permission: 'read-only' });
     const nine = Date.UTC(2026, 0, 5, 9, 0);

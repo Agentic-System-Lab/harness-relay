@@ -42,7 +42,7 @@ export function scheduleTime(at: number, s: Pick<ConversationSchedule, 'lang' | 
  * the schedule says; either way only once, however many times were missed. When the conversation
  * cannot take it right now (`busy`), it is tried again at each look for up to `BUSY_RETRY_MS` from the
  * first try, then skipped. What happened is kept with the schedule (`lastResult`), and a time that was
- * not sent leaves a note in the chat.
+ * not sent leaves a note in the chat; times skipped one after another for the same reason share one.
  */
 export class Scheduler {
   private timer?: NodeJS.Timeout;
@@ -51,6 +51,11 @@ export class Scheduler {
   private stopped = false;
   /** Conversations whose due time was found busy: that time, and when it was first tried. Retried, not missed. */
   private retrying = new Map<string, { due: number; since: number }>();
+  /**
+   * Each conversation's latest note of skipped times (`skipNote()`): the note, the first time it
+   * counts, how many and why. Kept in memory only: after a restart the next skipped time starts a note.
+   */
+  private skips = new Map<string, { messageId: string; first: number; count: number; why: string }>();
 
   constructor(
     private store: Store,
@@ -173,8 +178,31 @@ export class Scheduler {
     const when = scheduleTime(due, s);
     // The note ends the sentence itself.
     const why = (outcome.reason ?? '').replace(/[.。]\s*$/, '');
+    if (outcome.result === 'skipped') return this.skipNote(conv, s, due, why);
+    this.skips.delete(conv.id);
     if (outcome.result === 'missed') this.orchestrator.systemNote(conv, t().scheduleMissedNote(when));
-    else if (outcome.result === 'skipped') this.orchestrator.systemNote(conv, t().scheduleSkippedNote(when, why));
     else if (outcome.result === 'failed') this.orchestrator.systemNote(conv, t().scheduleFailedNote(when, outcome.reason ?? ''));
+  }
+
+  /**
+   * The note of a skipped time. While the team cannot take the schedule's message (its run goes on,
+   * or it waits for the user's answer, up to a turn's timeout), every time that comes due is skipped:
+   * one that follows the conversation's latest note of skipped times, for the same reason, with nothing
+   * written in the chat since, is added to that note instead of leaving one of its own.
+   */
+  private skipNote(conv: Conversation, s: ConversationSchedule, due: number, why: string): void {
+    const prev = this.skips.get(conv.id);
+    const last = conv.messages.at(-1);
+    if (prev && last?.id === prev.messageId && last.author.kind === 'system' && prev.why === why) {
+      prev.count++;
+      this.orchestrator.rewriteNote(
+        conv,
+        last,
+        t().scheduleSkippedNotes(scheduleTime(prev.first, s), scheduleTime(due, s), prev.count, why),
+      );
+      return;
+    }
+    const note = this.orchestrator.systemNote(conv, t().scheduleSkippedNote(scheduleTime(due, s), why));
+    this.skips.set(conv.id, { messageId: note.id, first: due, count: 1, why });
   }
 }

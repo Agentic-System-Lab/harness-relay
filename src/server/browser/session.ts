@@ -489,6 +489,31 @@ function isMainDocument(s: BrowserSession, p: Record<string, unknown>, sid: stri
   return sid === s.sessionId && p.resourceType === 'Document' && p.frameId === s.mainFrame;
 }
 
+/**
+ * `answer` (a page being opened), unless the turn ends first: then the tab stops loading, and the call
+ * fails. A page whose server never answers would otherwise hold the conversation's browser, and every
+ * later call waiting for it, for as long as a turn may last (`with()`). Its answer, should it come, goes
+ * unheard.
+ */
+async function untilTurnEnds<T>(s: BrowserSession, signal: AbortSignal, answer: Promise<T>): Promise<T> {
+  answer.catch(() => undefined);
+  let off = () => {};
+  const ended = new Promise<never>((_, reject) => {
+    const end = () => reject(new Error('The turn ended'));
+    if (signal.aborted) return end();
+    signal.addEventListener('abort', end, { once: true });
+    off = () => signal.removeEventListener('abort', end);
+  });
+  try {
+    return await Promise.race([answer, ended]);
+  } catch (err) {
+    if (signal.aborted) await s.send('Page.stopLoading').catch(() => undefined);
+    throw err;
+  } finally {
+    off();
+  }
+}
+
 export class BrowserService {
   private readonly sessions = new Map<string, Promise<BrowserSession>>();
   /** Each conversation's latest snapshot's elements, for the questions about clicking and typing (asked before the call runs). */
@@ -926,8 +951,13 @@ export class BrowserService {
     });
     if (verdict === 'block') throw new Error(refusalText({ url, why: 'blocked' }));
     return this.with(ctx, async (s) => {
-      // The answer comes once the page is let through, which may wait for the user's answer.
-      const r = await s.send<{ errorText?: string; loaderId?: string }>('Page.navigate', { url }, CONFIG.turnTimeoutMs);
+      // The answer comes once the page is let through, which may wait for the user's answer, and its
+      // server answers: as long as the turn lasts.
+      const r = await untilTurnEnds(
+        s,
+        ctx.signal,
+        s.send<{ errorText?: string; loaderId?: string }>('Page.navigate', { url }, CONFIG.turnTimeoutMs),
+      );
       if (r.errorText) {
         const denied = s.denied;
         await this.backFromRefused(s);

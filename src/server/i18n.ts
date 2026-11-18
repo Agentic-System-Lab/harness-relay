@@ -474,6 +474,8 @@ const zhTW = {
   scheduleConvBusy: '對話正在更新設定或套用結果',
   scheduleMissedNote: (when: string) => `自動任務 ${when} 的訊息沒有送出：當時 Harness Relay 沒有在執行。`,
   scheduleSkippedNote: (when: string, why: string) => `自動任務 ${when} 的訊息沒有送出：${why}。`,
+  scheduleSkippedNotes: (first: string, last: string, count: number, why: string) =>
+    `自動任務 ${first} 到 ${last} 的訊息（共 ${count} 次）都沒有送出：${why}。`,
   scheduleFailedNote: (when: string, why: string) => `自動任務 ${when} 的訊息無法送出：${why}`,
   scheduleChatNote: (title: string) => `這個對話由「${title}」的自動任務開啟，自動任務的訊息在這裡送出。`,
   scheduleNoLead: '這個對話沒有讓首席 agent 組隊',
@@ -1219,6 +1221,8 @@ const en: ServerMessages = {
   scheduleConvBusy: 'the conversation is busy with a settings change or an apply',
   scheduleMissedNote: (when) => `The automation's message of ${when} was not sent: Harness Relay was not running then.`,
   scheduleSkippedNote: (when, why) => `The automation's message of ${when} was not sent: ${why}.`,
+  scheduleSkippedNotes: (first, last, count, why) =>
+    `The automation's messages of ${first} to ${last} (${count} times) were not sent: ${why}.`,
   scheduleFailedNote: (when, why) => `The automation's message of ${when} could not be sent: ${why}`,
   scheduleChatNote: (title) => `The automation of "${title}" opened this conversation to send its message here.`,
   scheduleNoLead: 'The lead agent does not design the team in this conversation',
