@@ -33,8 +33,10 @@ import {
   type GroupSection,
   type PendingPins,
 } from '../sidebar';
+import type { ConvStatus } from '../locales/zh-TW';
 import { convStatus, relativeTime } from '../util';
 import { BranchIcon, ChevronIcon, ClockIcon, FolderIcon, FolderPlusIcon, PencilIcon, PinIcon } from './icons';
+import { LogoSpinner } from './Logo';
 import { MemberDots } from './MemberDots';
 
 interface Props {
@@ -336,7 +338,7 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
       >
         <BranchIcon size={12} />
         <span className="conv-fold-count">{below.length}</span>
-        {status && <span className={`status-dot ${status}`} aria-hidden />}
+        {status && <StatusDot status={status} />}
       </button>
     );
   };
@@ -374,7 +376,7 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
                 ↳
               </span>
             )}
-            {s && <span className={`status-dot ${s}`} aria-hidden />}
+            {s && <StatusDot status={s} />}
             {/* Its own element: the text of a flex row cannot end in an ellipsis. */}
             <span className="conv-title-text">{c.title}</span>
           </span>
@@ -467,7 +469,7 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
                   </span>
                   <span className="group-name">{t.sidebar.pinned}</span>
                   <span className="group-count">{pinned.length}</span>
-                  {status && <span className={`status-dot ${status}`} title={t.sidebar.status[status]} />}
+                  {status && <StatusDot status={status} title={t.sidebar.status[status]} />}
                 </button>
               </div>
               {!isCollapsed &&
@@ -498,7 +500,7 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
                     </span>
                     <span className="group-name">{name}</span>
                     <span className="group-count">{section.conversations.length}</span>
-                    {status && <span className={`status-dot ${status}`} title={t.sidebar.status[status]} />}
+                    {status && <StatusDot status={status} title={t.sidebar.status[status]} />}
                   </button>
                   {group && (
                     <>
@@ -534,5 +536,18 @@ export function SidebarGroups({ route, conversations, groups, seen, onChanged, o
           );
         })}
     </>
+  );
+}
+
+/**
+ * A conversation's state in the sidebar, or the most urgent of a folded group's or branch's: a dot in
+ * its colour, or while agents reply, the app's loader (the Logo turning) in the dot's place. With a
+ * `title` it says the state on hover; without one, the row says it.
+ */
+function StatusDot({ status, title }: { status: ConvStatus; title?: string }) {
+  return (
+    <span className={`status-dot ${status}`} title={title} aria-hidden={title === undefined ? true : undefined}>
+      {status === 'running' && <LogoSpinner size={12} />}
+    </span>
   );
 }

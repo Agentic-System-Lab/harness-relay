@@ -71,6 +71,7 @@ import { ToolsCard } from './ToolsSettings';
 import { VersionCard } from './VersionSettings';
 import { VoiceCard } from './VoiceSettings';
 import { CheckIcon, ChevronIcon } from './icons';
+import { LogoSpinner } from './Logo';
 
 interface Props {
   /** The card to scroll to (#/settings/<section>). */
@@ -1167,7 +1168,7 @@ function LoginPanel({
   return (
     <div className={`login-panel ${login.state}`}>
       <div className="login-state">
-        {running && <span className="pulse" />}
+        {running && <LogoSpinner />}
         <strong>{t.settings.loginState[login.state]}</strong>
         {running && (
           <button className="ghost small-button" onClick={cancel}>

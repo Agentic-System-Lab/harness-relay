@@ -145,8 +145,13 @@ test.describe('lead review', () => {
     await finishedReply(page, 'Claude');
     await expect(reviewCards(page).last()).toContainText("The lead agent (Claude Code) is reviewing the team's replies…");
     await expect(composer(page)).toHaveAttribute('placeholder', /The lead agent is reviewing the replies/);
+    // While it reviews, its card shows the team design card's mark, turning; stopped, its ✦ instead.
+    const mark = reviewCards(page).last().locator('.logo-motion.plan-logo.turning');
+    await expect(mark).toBeVisible();
     await page.getByRole('button', { name: 'Stop', exact: true }).click();
     await expect(reviewCards(page).last()).toContainText('The review was stopped');
+    await expect(mark).toHaveCount(0);
+    await expect(reviewCards(page).last().locator('.plan-logo-stopped')).toHaveText('✦');
     await settled(relay, id);
 
     // The next review reads these replies again, with the new ones.

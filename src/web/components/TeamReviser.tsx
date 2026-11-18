@@ -4,7 +4,7 @@ import { api } from '../api';
 import { BUTTON_HOLD_MS, buttonHeld, focusBoxAfterAnswer, reviseRequest, revisionOutcome, sameTeam, type TeamChange } from '../chat';
 import { teamChangeText } from '../copy';
 import { useT } from '../i18n';
-import { Logo } from './Logo';
+import { Logo, LogoSpinner } from './Logo';
 import { MetaText, hasMeta } from './MessageItem';
 import type { Team } from './TeamEditor';
 
@@ -160,10 +160,7 @@ export function TeamReviser({ convId, team, base, blocked, leadText, onChange, o
       <div className="team-reviser-actions">
         {busy && (
           <span className="muted small" role="status">
-            <span className="tool-icon spin" aria-hidden>
-              ◌
-            </span>{' '}
-            {t.revise.working(leadText)}
+            <LogoSpinner /> {t.revise.working(leadText)}
           </span>
         )}
         {/* One button for asking and stopping, so the focus stays on it while the lead agent works.

@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 37 個 spec 檔、475 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 37 個 spec 檔、477 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -43,7 +43,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [首席 agent 的審閱](#首席-agent-的審閱) | [`review.spec.ts`](specs/review.spec.ts) | 13 | [使用者說明 → 首席 agent 審閱](../docs/user-guide.zh-TW.md#首席-agent-審閱)、[架構 → 首席 agent 審閱](../docs/architecture.zh-TW.md#首席-agent-審閱) |
 | [成員的模型與推理強度](#成員的模型與推理強度) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [使用者說明 → 預設模型與推理強度](../docs/user-guide.zh-TW.md#預設模型與推理強度)、[團隊成員](../docs/user-guide.zh-TW.md#團隊成員) |
 | [成員如何輪流發言](#成員如何輪流發言) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式)、[agent 之間如何共享上下文](../docs/architecture.zh-TW.md#agent-之間如何共享上下文) |
-| [agent 回答前做了什麼](#agent-回答前做了什麼) | [`activity.spec.ts`](specs/activity.spec.ts) | 13 | [架構 → agent 活動](../docs/architecture.zh-TW.md#agent-活動) |
+| [agent 回答前做了什麼](#agent-回答前做了什麼) | [`activity.spec.ts`](specs/activity.spec.ts) | 14 | [架構 → agent 活動](../docs/architecture.zh-TW.md#agent-活動) |
 | [捲動對話](#捲動對話) | [`scroll.spec.ts`](specs/scroll.spec.ts) | 3 | [使用手冊 → 對話](../docs/user-guide.zh-TW.md#4-對話) |
 | [核准](#核准) | [`approvals.spec.ts`](specs/approvals.spec.ts) | 39 | [使用者說明 → 核准](../docs/user-guide.zh-TW.md#核准)、[架構 → 核准](../docs/architecture.zh-TW.md#核准)、[權限對應](../docs/architecture.zh-TW.md#權限對應) |
 | [檔案與修改](#檔案與修改) | [`files.spec.ts`](specs/files.spec.ts) | 20 | [使用者說明 → 檢視與套用修改](../docs/user-guide.zh-TW.md#檢視與套用修改)、[瀏覽檔案](../docs/user-guide.zh-TW.md#瀏覽檔案)、[架構 → 工作區與檔案修改](../docs/architecture.zh-TW.md#工作區與檔案修改) |
@@ -55,7 +55,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [需要登入的 MCP 伺服器](#需要登入的-mcp-伺服器) | [`mcp-oauth.spec.ts`](specs/mcp-oauth.spec.ts) | 2 | [使用者說明 → 工具庫](../docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶)、[架構 → 自己登入的 MCP 伺服器](../docs/architecture.zh-TW.md#自己登入的-mcp-伺服器) |
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 11 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
-| [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 11 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
+| [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 12 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
 | [自動任務](#自動任務) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 9 | [使用者說明 → 自動任務](../docs/user-guide.zh-TW.md#自動任務)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
 | [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 17 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席-agent)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
 | [安裝 CLI](#安裝-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [使用者說明 → 從設定頁安裝 CLI](../docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[架構 → 從設定頁安裝 CLI](../docs/architecture.zh-TW.md#從設定頁安裝-cli) |
@@ -138,7 +138,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
-| 請首席 agent 調整團隊，儲存後新成員回答 | Claude Code、Grok | 在**團隊設定 → 請首席 agent 調整**（Team settings → Ask the lead agent）中，要求會交給首席 agent，抽屜顯示它加入的成員，按**儲存**後兩位成員都回答。 |
+| 請首席 agent 調整團隊，儲存後新成員回答 | Claude Code、Grok | 在**團隊設定 → 請首席 agent 調整**（Team settings → Ask the lead agent）中，要求會交給首席 agent；它工作時（`e2e:slowrevise=2`），app 的載入標示排在它說的話前面，在同一行裡：14px，在文字之前並對齊文字的中線；之後抽屜顯示它加入的成員，按**儲存**後兩位成員都回答。 |
 | 首席 agent 的回答無法解讀時，改用範本 | Claude Code | 回答不是 JSON 時改用「一般問題智囊團」（General-question panel），由它的三位成員回答。 |
 | 拒絕為新問題提議的團隊 | Claude Code、Codex | 按**不採用，沿用目前的團隊**（No, keep the current team）：卡片顯示沒有採用，由目前的團隊回答，提議的成員不回答。 |
 | agent 工作時（團隊回答中、首席 agent 審閱中）團隊設計卡片的「調整團隊」不能按，調整團隊後卡片顯示調整後的團隊 | Claude Code | 回覆緩慢串流時，卡片的**調整團隊**（Adjust team）是停用的，提示說明原因，審閱很慢時也一樣；按 **■ 停止**停止審閱後可以按。在它開啟的抽屜中為成員改名並儲存：卡片列出 **@Ada** 而不是 **@Claude**，寫著*你調整過這個團隊*（You adjusted this team），伺服器保存的設計（`adjustedAt`）與重新載入後的卡片也是。 |
@@ -152,7 +152,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | --- | --- | --- |
 | 首席 agent 審閱團隊的回覆，把它引用的文字標在回覆中，給團隊的下一步可以放進輸入框 | Claude Code | 勾選後開始的新對話，回覆之後出現**首席 agent 的審閱**（Lead agent's review）卡片：摘要、一個**風險**（Risk）及回覆的原文與說明，以及下一步（**你**，與附上**交給團隊**的**團隊**）。引用的文字標在回覆中（`CSS.highlights` 的 `review-risk` 裡有一個範圍），回覆標頭顯示 **⚑ 1 處注意**（1 to note）：點它跳到卡片（卡片會閃一下），點卡片上的 **@Claude** 跳到引用的那段話，那段話會在標記上短暫加強顯示（`review-focus`），焦點移到那則回覆。**交給團隊**（Ask the team）會把那一步的訊息放進輸入框；送出後團隊回答並再次被審閱，每則回覆各有一個標記範圍（第一則回覆不會重複標記）。首席 agent 拿到了編號的回覆；設定有保存，以未勾選開始一個對話之後，新對話頁面又會是勾選的。 |
 | 對話沒要求就不審閱；在團隊設定開啟後，讀的是最新一個問題的回覆 | Claude Code | 透過 API 建立、沒開啟的對話沒有卡片；在**團隊設定**勾選並儲存後，下一次回答的卡片只讀了那次的回答（**讀了 1 則回覆**，Read 1 reply），第一個問題則作為背景放在首席 agent 的 prompt 中。 |
-| 「停止」會停止它，讀不懂首席 agent 的回答時也會說明 | Claude Code | 審閱很慢時，卡片顯示首席 agent 正在審閱，輸入框也這樣說明；**■ 停止**讓卡片顯示已中斷。下一次回答的審閱會再讀那些回覆（prompt 中有被停止的那次審閱的問題，並編了兩則回覆），回答不是 JSON 時卡片會說明無法審閱，以及原因。 |
+| 「停止」會停止它，讀不懂首席 agent 的回答時也會說明 | Claude Code | 審閱很慢時，卡片顯示首席 agent 正在審閱，並有團隊設計卡片那個旋轉中的標誌（`.plan-logo.turning`），輸入框也這樣說明；**■ 停止**讓卡片顯示已中斷，標誌消失，原處換成 ✦。下一次回答的審閱會再讀那些回覆（prompt 中有被停止的那次審閱的問題，並編了兩則回覆），回答不是 JSON 時卡片會說明無法審閱，以及原因。 |
 | 審閱期間送出的訊息會停止審閱並立刻送出，下一次審閱從被停止的那次開始讀的地方讀起，團隊設定也能在審閱途中關閉它 | Claude Code | 審閱很慢時，輸入框的提示說明按 Enter 會停止審閱並立刻送出（Enter to stop the review and send it now），提示文字也說明送出訊息會停止審閱。這時按 Enter 送出的訊息讓卡片顯示已中斷，並立刻送出：佇列區從頭到尾都不會出現。它的回答有第二次審閱，同樣很慢，因為它從被停止的那次開始讀的地方讀起（prompt 中有第一個問題和新的訊息）。這段期間 **團隊設定** 會說明只改首席 agent 審閱的話現在就能儲存（lead review alone can be saved now）：**儲存**（Save）在取消勾選之前是停用的，之後就能儲存，那次審閱也隨之停止。之後兩張被停止的卡片都說明 *審閱已中斷。首席 agent 審閱目前已關閉…*（The review was stopped. Lead review is off now…），對話的審閱是關閉的、沒有等待中的訊息，也沒有多出 *已停止*（Stopped.）的說明。 |
 | 審閱期間到期的排程訊息會在佇列區等審閱，「略過審閱並立即送出」會立刻送出它 | Claude Code | 對話裡有排程（透過 API 設定），審閱很慢時執行排程（`POST …/schedule/run`，和到期時一樣）：佇列區顯示 **1 則等待送出**（1 waiting）與 *首席 agent 審閱完回覆後送出*（Sent once the lead agent has reviewed the replies）。**略過審閱並立即送出**（Skip the review and send now）讓卡片顯示已中斷，佇列區消失，由團隊回答排程訊息。 |
 | 團隊設計卡片上有勾選框，首席 agent 不會去動它：在卡片上勾選後，正在回答的問題與之後的問題都會被審閱 | Claude Code | 在以未勾選開始的新對話中，設計卡片顯示未勾選的勾選框與說明，首席 agent 組隊的 prompt 完全不提它。在卡片上勾選後對話就開啟審閱；確認團隊後，回答會被審閱。下一個問題的設計卡片上勾選框仍是勾選的（第一張卡片已經沒有勾選框），它的回答也會被審閱；在最新的卡片上取消勾選後，下一個回答就不審閱。 |
@@ -199,6 +199,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 思考、工具呼叫與待辦清單和回答一起顯示 | 各一 | 這些步驟收合成列；展開後可看到思考、CLI 自己列出工作目錄的工具已完成與它的輸出（Claude 的 `Bash`、Codex 的 `Shell`、Grok 的 `list_dir`、Cursor、Antigravity 與 Copilot 的 `Read`、Muse Code 的 `Search`、OpenCode 的 `glob`、Goose 的 `tree`、Cline 的 `read_files`、OpenHands 的 `file_editor`、Pi 的 `List`，完全存取時是 `Bash`），以及三項中完成一項、進行中一項的待辦清單（Cline 與 Pi 沒有待辦清單可顯示）。 |
+| 進行中的步驟在它的列中顯示 app 的載入標示（旋轉的標誌），完成後換回步驟的圖示 | Codex | Codex 在詢問之前就先回報它的指令，所以批准卡片等待時，它的步驟（`Shell`）正在執行：列中顯示標誌的三個圓點（`.logo-spinner`），14px，只有一個動畫：團隊設計卡片的旋轉（`logo-turn`，1.9 秒，一次又一次），從一開始就在軌道上轉，圓點本身沒有動畫（沒有旋入，否則步驟開始、結束時會閃動）。允許後，步驟在回覆仍在串流時完成（`e2e:slow=4`）：載入標示消失，原處換成 ⚙（載入標示代表步驟正在做事，不代表回覆），列中的文字沒有移動；回覆完成後仍是 ⚙。 |
 | Markdown 回答會轉成格式 | Claude Code | 標題、清單、表格與上色的程式碼。 |
 
 ## 捲動對話
@@ -357,6 +358,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 「新對話」下方先是搜尋，旁邊的新群組只有圖示，按下仍會打開新群組的欄位 | — | 這一列的按鈕依序是**搜尋**（Search，有文字）和**新群組**（New group，沒有文字：只有名稱與提示，和資料夾圖示），新群組在這一列右邊的窄欄，兩個按鈕一樣高；按**新群組**會打開群組名稱欄位並取得焦點，按 Escape 回到原本那一列；按**搜尋**則讓搜尋欄位取得焦點。 |
 | 依 agent 寫的內容搜尋對話 | Codex | 搜尋回答中的文字，找到那一個對話，點了就打開。 |
 | 在 UI 開始的對話保留一開始給的標題 | Claude Code | 第一個問題之後標題不變。 |
+| agent 回覆時，對話那一列在狀態圓點的位置顯示 app 的載入標示，回覆完就消失 | Claude Code | 回覆很慢時（`e2e:slow=3`），這一列的「回覆中」狀態是旋轉的標誌（`.logo-spinner`，三個圓點），12px，置中在圓點 8px 的位置上（所以標題留在圓點會讓它在的地方）；回覆完成後就消失。 |
 | 拖進群組的對話會留在那裡，拖出來則回到「其他」 | — | 伺服器存下群組，重新載入後仍在；拖到「其他」後群組被清除，群組裡又顯示可以把對話拖到這裡。 |
 | 分支對話的家族在群組之間一起移動 | Codex | 拖動分支時，原本的對話跟著移動，分支仍在它底下；把原本的對話拖回來時兩個都回來。 |
 | 對話左上角的釘選按鈕在滑過時出現，把對話列在群組上方的「已釘選」，最後釘選的在最上面，也能取消釘選 | — | 游標移到對話上之前，釘選按鈕是隱藏的（opacity 0），之後出現，中心落在對話列的左上角，不碰到標題，圖示在圓圈正中央，圖釘是斜的（`rotate(-45…)`）、沒有填色；按下後對話列在群組上方的**已釘選**（Pinned），也仍在「其他」，游標移開後釘選按鈕仍顯示，圖釘立起來、變成黃色，名稱是**取消釘選**（Unpin）；伺服器回報 `pinnedAt`。第二個用鍵盤釘選的對話（從對話按 Tab 會到它的釘選按鈕，按鈕隨之出現；按 Enter）排在前面，重新載入後也一樣，它的 `pinnedAt` 較晚。已釘選那一列的資料夾選單顯示它的群組（在別處移到 Billing），也能把它移回「其他」。從箭頭收合**已釘選**（也包括箭頭左下角、第一列釘選按鈕旁邊）後只顯示數量，重新載入後仍收合，再打開。伺服器拒絕釘選（500）時顯示**無法變更釘選**，什麼都沒改。一個從「已釘選」取消、另一個從它的群組取消後，「已釘選」區消失，兩個都仍在「其他」；從「已釘選」刪除釘選的對話，它也會離開那裡。 |
@@ -439,7 +441,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 新增的帳號有自己的資料夾，設定使用它的成員在那裡執行 | 有登入的各一 | 帳號放在 `<資料>/accounts/<cli>-<id>`，卡片上顯示這個資料夾，並在那裡登入（Cursor、Antigravity 與 Muse Code 用給它的 key：「Using an API key」；Copilot 的登入狀態在這次詢問自己的家目錄中詢問，放在資料資料夾的 `tmp` 裡，帶著帳號登入狀態的副本）；使用它的成員以這個家目錄執行（`CLAUDE_CONFIG_DIR`、`CODEX_HOME`、`GROK_HOME`、Cursor 的帳號資料夾、裡面 Antigravity 的 `.gemini`、Copilot 這次執行自己的家目錄，它的 session 連到那個資料夾、裡面 Muse Code 的資料資料夾 `data/muse`，它的設定資料夾則是那個回合自己的），使用預設帳號的成員則用預設的。 |
-| 每個帳號各自登入與登出 | Claude Code | **登出**只在新增帳號的家目錄執行 `auth logout`；**登入**走 CLI 自己的流程（一個連結，再貼上代碼），之後顯示這個帳號已登入。 |
+| 每個帳號各自登入與登出 | Claude Code | **登出**只在新增帳號的家目錄執行 `auth logout`；**登入**走 CLI 自己的流程（一個連結，再貼上代碼），等待時狀態旁有 app 的載入標示（旋轉的標誌），之後顯示這個帳號已登入，載入標示消失。 |
 | 登出新增的帳號，只會登出那個帳號 | Codex、Grok、Copilot | `logout`（Copilot 的透過 ACP）只在那個帳號的資料夾執行；它的卡片顯示**未登入**，預設帳號仍然登入。 |
 | 金鑰儲存區關閉時，帳號的 API key 加密存在資料庫、遮蔽顯示，並只交給它的 CLI | Claude Code、Grok、Cursor、Antigravity、Copilot、Muse Code | API key 欄位說明金鑰存在哪裡（加密存在資料庫；只能用 key 登入的帳號，欄位一開始就展開）；儲存後顯示遮蔽的值與「Using an API key」，`/api/settings` 裡從沒有它，`relay.db` 和它的 WAL 裡也沒有它的原文，資料夾裡則有金鑰檔 `secrets.key`；那個帳號的執行拿到它（`ANTHROPIC_API_KEY`、`XAI_API_KEY`、`CURSOR_API_KEY`、`GEMINI_API_KEY`、`COPILOT_GITHUB_TOKEN`、`META_API_KEY`），不在任何參數裡，預設帳號的執行則沒有。 |
 | 帳號的 API key 用 Codex 自己的登入讓那個帳號登入 | Codex | Codex 不從環境變數拿 key：key 經由 stdin 交給只在那個帳號資料夾執行的 `codex login --with-api-key`，Harness Relay 不保存它，只有那個帳號的執行拿得到。 |
@@ -505,7 +507,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | 檢查的內容 |
 | --- | --- |
-| 安裝的步驟排成一列，向螢幕閱讀器說明狀態，下載顯示在進度條上 | 步驟排成一列、目前的步驟標為 `aria-current`、下載百分比與進度條的填色。 |
+| 安裝的步驟排成一列，向螢幕閱讀器說明狀態，下載顯示在進度條上 | 步驟排成一列、目前的步驟標為 `aria-current`、下載百分比與進度條的填色；安裝狀態旁有 app 的載入標示，對話中麥克風的右上角也有，12px。 |
 | 安裝失敗時說明停在哪一步 | 停下的步驟顯示為失敗。 |
 
 ## 使用導覽與主題
@@ -678,7 +680,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - **CLI 真正的方案用量。**[方案用量](#方案用量)用替身的回答檢查 Harness Relay 這一邊；真正 CLI 的回答由 `test/usage.test.ts` 中從它們錄下的回答涵蓋（Antigravity 只照 agy 1.5.8 的型別：沒有看過真正 Google 帳號的回答），沒有 live 測試問真正的 CLI。未登入時替身 agy 會立刻以錯誤回答 `/usage`，真正的則會在 stderr 要求登入並等待（單元測試的替身會這樣做）。錯誤訊息與面板的 zh-TW 文字由 `test/usage-web.test.ts` 涵蓋，不在這裡。
 - **捲到對話最後的平滑捲動。**[捲動對話](#捲動對話)檢查箭頭把對話帶到哪裡，以及減少動態效果時立刻到達，不檢查平滑捲動途中的樣子。在最後展開訊息的某個部分、底下又多了內容時出現的箭頭，只有 `test/chat.test.ts` 測到；手機上的對話是用程式捲動，不是用手指。
 - **使用導覽歡迎圖的樣子。**[使用導覽與主題](#使用導覽與主題)檢查它的各個部分、尺寸、動畫與最後的狀態；它在淺色與深色、兩種語言、桌面與手機上的樣子，以及逐格的動畫，則是用眼睛確認的。
-- **首頁 logo 動畫的流暢度。**[首頁](#首頁)檢查它只動 `transform` 與 `opacity`、只播一次；它由 Chrome 的 compositor 執行、頁面畫好之後不再重新排版或繪製，則是在 Chrome 的 trace 中手動確認的。團隊設計卡片上、組隊完成前不停旋轉的 logo 也一樣（[新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊)檢查它沒有任何元素同時有兩個 `transform` 動畫，那樣 Chrome 兩個都不會交給 compositor）：它不再每一格都重新計算樣式，是手動量測的（Chrome 的 `RecalcStyleCount`，兩圈旋轉放在同一個元素上時每秒約 60 次）。
+- **首頁 logo 動畫的流暢度。**[首頁](#首頁)檢查它只動 `transform` 與 `opacity`、只播一次；它由 Chrome 的 compositor 執行、頁面畫好之後不再重新排版或繪製，則是在 Chrome 的 trace 中手動確認的。團隊設計卡片上、組隊完成前不停旋轉的 logo 也一樣（[新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊)檢查它沒有任何元素同時有兩個 `transform` 動畫，那樣 Chrome 兩個都不會交給 compositor）：它不再每一格都重新計算樣式，是手動量測的（Chrome 的 `RecalcStyleCount`，兩圈旋轉放在同一個元素上時每秒約 60 次）。app 的載入標示（`LogoSpinner`）也一樣：[agent 回答前做了什麼](#agent-回答前做了什麼)檢查只有它軌道的旋轉在動；同時十個時，頁面重新計算樣式的次數和沒有時差不多、也不重新排版，是手動量測的（兩秒內的 `RecalcStyleCount` 與 `LayoutCount`）。
 - **推播通知與系統本身的通知。**[通知與提示音](#通知與提示音)用替身記錄它們；推播需要真正的推播服務（Google、Apple 的…），所以伺服器這一端（訂閱、加密、簽章、送出與保留什麼）由單元測試涵蓋（`test/push.test.ts`、`test/alerts.test.ts`、`test/push-api.test.ts`），頁面這一端由 `test/alerts-web.test.ts` 涵蓋，service worker 的處理程序則以替身的 `self` 由 `test/sw.test.ts` 涵蓋；瀏覽器向推播服務訂閱、真正的推播送到手機，則沒有任何測試走過。
 - **OpenCode 與 Goose 的 token 和費用。** Harness Relay 從這兩個 CLI 自己的 SQLite 資料庫（`opencode.db`、`sessions.db`）讀取，它們的假 CLI 不保存這些資料庫，所以在這裡它們的回覆不顯示用量；轉接器的測試（`test/opencode.test.ts`、`test/goose.test.ts`）會對照真正 CLI 寫法寫成的資料庫跑完整的回合。
 - **真正的首席 agent 會指出什麼。** 假首席 agent 的審閱總是標出第一則回覆開頭的幾個字；真正的模型給的 highlight 與下一步值不值得讀，這裡沒有測。它的 prompt，以及怎麼檢查它的回答（回覆裡沒有的引用會被拿掉、不認得的類型、上限），在單元測試中（`test/reviewer.test.ts`、`test/orchestrator-review.test.ts`）。

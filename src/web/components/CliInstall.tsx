@@ -3,6 +3,7 @@ import { PROVIDER_LABEL, type CliInstallView, type Provider, type ProviderStatus
 import { api } from '../api';
 import { cliInstallShown, logTail } from '../clis';
 import { useT } from '../i18n';
+import { LogoSpinner } from './Logo';
 
 /**
  * A CLI's install from its card in Settings: an Install button when the CLI is not found (or why it
@@ -78,7 +79,7 @@ export function CliInstall({
     return (
       <div className="cli-install login-panel running" aria-live="polite">
         <div className="login-state">
-          <span className="pulse" />
+          <LogoSpinner />
           <strong>{i.installing(label)}</strong>
           <button className="ghost small-button" disabled={busy} onClick={() => void act(() => api.cancelCliInstall(provider))}>
             {i.cancel}

@@ -37,7 +37,7 @@ import { ChangesCard, type ApplyState } from './ChangesCard';
 import { CopyButton } from './CopyButton';
 import { GrokTrustNote, asksGrokTrust } from './GrokTrust';
 import { BranchIcon, ClockIcon, CopyIcon, PaperclipIcon, PencilIcon, RetryIcon, ShareIcon } from './icons';
-import { AnimatedLogo, Logo } from './Logo';
+import { AnimatedLogo, Logo, LogoSpinner } from './Logo';
 import { Markdown } from './Markdown';
 import { RoleText } from './RoleText';
 import { markQuotes, replyElementId, revealMessage, revealQuote, reviewElementId } from '../review';
@@ -130,8 +130,8 @@ function ActivityGroup({ items, live, last }: { items: ActivityItem[]; live: boo
   return (
     <details className="tool-group">
       <summary>
-        <span className={`tool-icon ${busy ? 'spin' : ''}`} aria-hidden>
-          {busy ? '◌' : actions > 0 ? '⚙' : '💭'}
+        <span className="tool-icon" aria-hidden>
+          {busy ? <LogoSpinner /> : actions > 0 ? '⚙' : '💭'}
         </span>
         {thinking !== undefined ? (
           <span className="tool-summary">
@@ -625,9 +625,14 @@ function ReviewCard({ msg, onUseStep, leadReview, readNext }: Pick<Props, 'msg' 
     const live = msg.status === 'streaming';
     return (
       <div className="plan-card planning review-card" role="status" id={reviewElementId(msg.id)}>
-        <span className={`tool-icon ${live ? 'spin' : ''}`} aria-hidden>
-          {live ? '◌' : '✦'}
-        </span>
+        {/* While the lead agent reviews: the team design card's mark, turning until the review is in. */}
+        {live ? (
+          <AnimatedLogo className="plan-logo" turning />
+        ) : (
+          <span className="tool-icon plan-logo-stopped" aria-hidden>
+            ✦
+          </span>
+        )}
         <span>
           {live ? t.review.reviewing(lead) : t.review.aborted}
           {!live && later}
@@ -639,7 +644,7 @@ function ReviewCard({ msg, onUseStep, leadReview, readNext }: Pick<Props, 'msg' 
   if (review.status === 'failed') {
     return (
       <div className="plan-card planning review-card failed" id={reviewElementId(msg.id)}>
-        <span className="tool-icon" aria-hidden>
+        <span className="tool-icon plan-logo-stopped" aria-hidden>
           ✦
         </span>
         <span>
@@ -1165,9 +1170,7 @@ function AgentMessage({
 
         {typing && (
           <div className="typing" aria-label={t.message.thinking}>
-            <i />
-            <i />
-            <i />
+            <LogoSpinner size={16} />
           </div>
         )}
         {msg.changes?.some((c) => c.files.length > 0) && (
