@@ -23,8 +23,24 @@ const escaped = (s: string) =>
 const unescaped = (s: string) =>
   s.replaceAll('&quot;', '"').replaceAll('&#x27;', "'").replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&');
 
+/**
+ * Markup's text: every tag dropped, from its `<` to the `>` that ends it, in one walk (a pattern removed
+ * once could leave a tag that its removal put together, as `<scr<b>ipt>` would `<script>`), then the
+ * entities read. No `<` of the markup is left: one in the text is the `&lt;` it was written as.
+ */
+function textOf(html: string): string {
+  let text = '';
+  let inTag = false;
+  for (const c of html) {
+    if (inTag) inTag = c !== '>';
+    else if (c === '<') inTag = true;
+    else text += c;
+  }
+  return unescaped(text);
+}
+
 /** A use case section's heading, as text (its phrase spans dropped). */
-const h2Text = (section: string) => unescaped(section.match(/<h2 id="[^"]+">([\s\S]*?)<\/h2>/)![1]!.replace(/<[^>]+>/g, ''));
+const h2Text = (section: string) => textOf(section.match(/<h2 id="[^"]+">([\s\S]*?)<\/h2>/)![1]!);
 
 /** A video file's length in seconds, from its MP4 movie header. */
 function mp4Seconds(path: string): number {
@@ -66,6 +82,12 @@ function page(lang: (typeof LANGS)[number]) {
 const published = (url: string) => `site/${new URL(url).pathname.replace(/^\/harness-relay\//, '')}`;
 
 describe('the use-cases pages', () => {
+  it("read a heading's text with no tag left, also one that dropping another would put together", () => {
+    expect(textOf('Read <span class="phrase">the mail</span>')).toBe('Read the mail');
+    expect(textOf('<scr<b>ipt>alert(1)</scr</b>ipt>')).toBe('ipt>alert(1)ipt>');
+    expect(textOf('a &lt;b&gt; tag &amp; more')).toBe('a <b> tag & more');
+  });
+
   it('are at their canonical addresses, each naming the other as its language alternate, as the sitemap lists them', () => {
     const sitemap = read('site/sitemap.xml');
     for (const lang of LANGS) {
