@@ -1,4 +1,4 @@
-import { checksFailed, commitPatternError, tidyFolder, tidyPattern } from '../shared/checks';
+import { blocking, checksFailed, commitPatternError, needsFix, tidyFolder, tidyPattern } from '../shared/checks';
 import { CHECK_LIMITS, type AgentConfig, type ChatMessage, type CheckCommand, type CheckList } from '../shared/types';
 
 /*
@@ -99,9 +99,10 @@ export function cardActions(
   const c = msg.checks;
   if (!c || running || c.status === 'running' || !latest) return none;
   const open = checksFailed(c) && !c.skippedAt;
-  // Commands the run's changes kept from running: Check again runs them once the user confirms.
+  // Commands the run's changes kept from running: Check again runs them once the user confirms; they
+  // are nothing for a member to fix, nor is a command that was stopped or cannot run here.
   const confirm = gatedFiles(msg).length > 0;
-  return { recheck: true, fix: open, skip: open, confirm };
+  return { recheck: true, fix: open && c.outcomes.some(needsFix), skip: open && c.outcomes.some(blocking), confirm };
 }
 
 /** The members a fix can be asked of: those a finding names first (in the order found), then the others. */

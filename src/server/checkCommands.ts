@@ -117,6 +117,9 @@ export function sandboxDenial(output: string, platform: NodeJS.Platform): Sandbo
     return 'denied';
   }
   if (/: Operation not permitted\s*$/m.test(output)) return 'denied';
+  // Python's, Go's and Rust's words for the same.
+  if (/\[Errno 1\] Operation not permitted|\S\/\S*: operation not permitted\b|Operation not permitted \(os error 1\)/.test(output))
+    return 'denied';
   return undefined;
 }
 
@@ -150,7 +153,7 @@ export function commandCwd(cmd: Pick<CheckCommand, 'cwd'>, cwds: readonly string
 export function commandOutcome(
   cmd: CheckCommand,
   res: Pick<SpawnResult, 'code' | 'timedOut'> & { output: string; aborted?: boolean },
-  o: { sandboxed: boolean; platform: NodeJS.Platform; durationMs: number },
+  o: { sandboxed: boolean; platform: NodeJS.Platform; durationMs: number; refusedHosts?: readonly string[] },
 ): CheckOutcome {
   const base: CheckOutcome = {
     rule: 'command',
@@ -162,12 +165,18 @@ export function commandOutcome(
     ...(res.output ? { output: keptOutput(res.output) } : {}),
     ...(o.sandboxed ? {} : { unsandboxed: true }),
   };
-  const denial = o.sandboxed ? sandboxDenial(res.output, o.platform) : undefined;
-  const denialText =
-    denial &&
-    t().checksSandboxDenial(denial, Boolean(denial === 'localPorts' ? cmd.localPorts : denial === 'unixSockets' ? cmd.unixSockets : false));
+  // The hosts the sandbox refused it say so better than its output, where a client shows a status at most.
+  const refused = o.sandboxed && o.refusedHosts?.length ? o.refusedHosts : undefined;
+  const denial = refused ? 'network' : o.sandboxed ? sandboxDenial(res.output, o.platform) : undefined;
+  const denialText = refused
+    ? t().checksNetworkRefused(refused.join(', '))
+    : denial &&
+      t().checksSandboxDenial(
+        denial,
+        Boolean(denial === 'localPorts' ? cmd.localPorts : denial === 'unixSockets' ? cmd.unixSockets : false),
+      );
   // Stopped (Stop, the server shutting down, the chat deleted): it did not finish, and says nothing of the team's work.
-  if (res.aborted) return { ...base, status: 'error', reason: t().stoppedNote };
+  if (res.aborted) return { ...base, status: 'error', reason: t().stoppedNote, notRun: 'stopped' };
   if (res.timedOut) {
     const reason = t().checksCommandTimedOut(cmd.timeoutMin ?? CHECK_LIMITS.timeoutMin);
     return { ...base, status: 'error', reason: denialText ? `${reason} ${denialText}` : reason };
@@ -235,16 +244,16 @@ export async function runCheckCommand(
   deps: CheckCommandDeps = defaultCheckCommandDeps,
 ): Promise<CheckOutcome> {
   const unrun = (reason: string): CheckOutcome => ({ rule: 'command', status: 'error', commandId: cmd.id, command: cmd.run, reason });
-  if (deps.platform === 'win32') return unrun(t().checksCommandWindows);
+  if (deps.platform === 'win32') return { ...unrun(t().checksCommandWindows), notRun: 'platform' };
   const cwd = commandCwd(cmd, place.cwds);
   if (!cwd) return unrun(t().checksCommandNoFolder(cmd.cwd ?? ''));
   const timeoutMs = (cmd.timeoutMin ?? CHECK_LIMITS.timeoutMin) * 60_000;
   const started = Date.now();
-  const outcome = (res: SpawnResult, sandboxed: boolean) =>
+  const outcome = (res: SpawnResult, sandboxed: boolean, refusedHosts?: readonly string[]) =>
     commandOutcome(
       cmd,
       { code: res.code, timedOut: res.timedOut, aborted: res.aborted, output: res.stdout },
-      { sandboxed, platform: deps.platform, durationMs: Date.now() - started },
+      { sandboxed, platform: deps.platform, durationMs: Date.now() - started, ...(refusedHosts ? { refusedHosts } : {}) },
     );
 
   if (place.unsandboxed) {
@@ -295,7 +304,7 @@ export async function runCheckCommand(
       });
       const failure = sandboxed.failure();
       if (failure) return unrun(failure);
-      return outcome(res, true);
+      return outcome(res, true, sandboxed.run?.refusedHosts);
     } finally {
       disposed = true;
       await sandboxed.dispose();

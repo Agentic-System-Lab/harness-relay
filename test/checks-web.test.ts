@@ -19,7 +19,7 @@ const card = (checks: Partial<ChecksResult> = {}): ChatMessage => ({
   createdAt: 0,
   parts: [],
   status: 'done',
-  checks: { status: 'failed', when: 'run', outcomes: [], checkedAt: 0, ...checks },
+  checks: { status: 'failed', when: 'run', outcomes: [{ rule: 'paths', status: 'failed' }], checkedAt: 0, ...checks },
 });
 
 describe('team checks editor', () => {
@@ -152,6 +152,15 @@ describe('team checks: commands in the page', () => {
       outcomes: [{ rule: 'command', status: 'error', commandId: 'a', configChanged: ['package.json', 'eslint.config.js'] }],
     });
     expect(gatedFiles(gated)).toEqual(['package.json', 'eslint.config.js']);
-    expect(cardActions(gated, true, false)).toEqual({ recheck: true, fix: true, skip: true, confirm: true });
+    expect(cardActions(gated, true, false)).toEqual({ recheck: true, fix: false, skip: true, confirm: true });
+  });
+});
+
+describe('team checks: what cannot be fixed', () => {
+  it('asks no member to fix commands held back by changed settings, nor commands stopped or not run here', () => {
+    const gated = card({ outcomes: [{ rule: 'command', status: 'error', commandId: 'a', configChanged: ['vitest.config.ts'] }] });
+    expect(cardActions(gated, true, false)).toEqual({ recheck: true, fix: false, skip: true, confirm: true });
+    const stopped = card({ status: 'error', outcomes: [{ rule: 'command', status: 'error', commandId: 'a', notRun: 'stopped' }] });
+    expect(cardActions(stopped, true, false)).toEqual({ recheck: true, fix: false, skip: false, confirm: false });
   });
 });

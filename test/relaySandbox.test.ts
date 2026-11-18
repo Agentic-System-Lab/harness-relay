@@ -1036,6 +1036,9 @@ describe.skipIf(process.platform === 'win32')('RelaySandboxRun', () => {
     expect(answers(host.lines)[0].allow).toBe(false);
     await run.dispose();
     await expect(run.decide('late.example', 443)).resolves.toEqual({ allow: false, reason: DENY_REASONS.refused('late.example') });
+    // Each host it was refused, once, as a card names it (a team check's command says it needed the network).
+    await run.decide('late.example', 443);
+    expect(run.refusedHosts).toEqual(['example.org', 'late.example']);
   });
 
   it('reports why the sandbox did not start, in the language asked for', async () => {

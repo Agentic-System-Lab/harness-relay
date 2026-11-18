@@ -737,7 +737,7 @@ export class Store {
         const c = parseJson<ChecksResult | null>(r.checks, null);
         if (!c || !Array.isArray(c.outcomes) || !c.outcomes.some((o) => o.status === 'running')) continue;
         const outcomes = c.outcomes.map((o) =>
-          o.status === 'running' ? { ...o, status: 'error' as const, reason: t().checksInterrupted } : o,
+          o.status === 'running' ? { ...o, status: 'error' as const, reason: t().checksInterrupted, notRun: 'interrupted' as const } : o,
         );
         settle.run(JSON.stringify({ ...c, outcomes, status: overallStatus(outcomes) }), r.id);
       }

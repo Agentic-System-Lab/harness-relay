@@ -146,16 +146,31 @@ export function checksFailed(result: Pick<ChecksResult, 'status'>): boolean {
   return result.status === 'failed' || result.status === 'error';
 }
 
+/**
+ * An outcome that keeps the result from going on by itself: it failed or could not be checked, unless
+ * all it says is that a command could not run for no fault of the team's (`notRun`).
+ */
+export function blocking(o: Pick<CheckOutcome, 'status' | 'notRun'>): boolean {
+  return (o.status === 'failed' || o.status === 'error') && !o.notRun;
+}
+
+/** An outcome the team is to fix: a blocking one that is not only commands held back by changed settings (the user decides those). */
+export function needsFix(o: Pick<CheckOutcome, 'status' | 'notRun' | 'configChanged'>): boolean {
+  return blocking(o) && !o.configChanged?.length;
+}
+
 /** The conversation's latest team checks result (its message), if any. */
 export function latestChecks(messages: readonly ChatMessage[]): ChatMessage | undefined {
   return messages.findLast((m) => m.checks);
 }
 
 /**
- * The latest result holds what waits in the queue: it did not pass and the user has not gone on
- * without it. The user's own Send still sends.
+ * The latest result holds what waits in the queue: it did not pass, something in it blocks (`blocking`:
+ * not only commands stopped or not run here), and the user has not gone on without it. The user's own
+ * Send still sends.
  */
 export function checksHold(messages: readonly ChatMessage[]): ChatMessage | undefined {
   const latest = latestChecks(messages);
-  return latest?.checks && checksFailed(latest.checks) && !latest.checks.skippedAt ? latest : undefined;
+  const c = latest?.checks;
+  return c && checksFailed(c) && !c.skippedAt && c.outcomes.some(blocking) ? latest : undefined;
 }

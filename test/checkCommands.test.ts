@@ -91,6 +91,9 @@ describe('what the sandbox refused, from the output', () => {
     );
     expect(sandboxDenial('cp: /etc/x: Operation not permitted', 'darwin')).toBe('denied');
     expect(sandboxDenial("Error: EPERM: operation not permitted, open '/Users/u/.npmrc'", 'darwin')).toBe('denied');
+    expect(sandboxDenial("PermissionError: [Errno 1] Operation not permitted: '/Users/u/x'", 'darwin')).toBe('denied');
+    expect(sandboxDenial('open /Users/u/go/x: operation not permitted', 'darwin')).toBe('denied');
+    expect(sandboxDenial('Error: Operation not permitted (os error 1)', 'linux')).toBe('denied');
     expect(sandboxDenial('FAIL src/a.test.ts\nexpected 1 to be 2', 'darwin')).toBeUndefined();
     // A test's own words about a host or a permission are its own failure, not the sandbox's.
     expect(sandboxDenial('getaddrinfo ENOTFOUND no-such-host.invalid', 'linux')).toBeUndefined();
@@ -315,8 +318,28 @@ describe('running a command', () => {
       status: 'error',
       reason: 'seatbelt said no',
     });
+    // A host the sandbox refused says it needed the network, whatever its client printed.
+    const offline = deps({
+      sandboxCommand: vi.fn(async () => ({
+        bin: 'h',
+        args: [],
+        env: {},
+        channel: {},
+        failure: () => undefined,
+        dispose: async () => undefined,
+        run: { refusedHosts: ['registry.npmjs.org'] },
+      })) as never,
+      runProcess: vi.fn(async () => result({ code: 1, stdout: 'npm error code E403' })) as never,
+    });
+    expect(await withLang('en', () => runCheckCommand({ id: 'a', run: 'npm ci' }, place({ unsandboxed: false }), offline))).toMatchObject({
+      status: 'error',
+      reason: expect.stringContaining('registry.npmjs.org'),
+    });
     await withLang('en', async () => {
-      expect((await runCheckCommand({ id: 'a', run: 'x' }, place(), deps({ platform: 'win32' }))).reason).toContain('Windows');
+      expect(await runCheckCommand({ id: 'a', run: 'x' }, place(), deps({ platform: 'win32' }))).toMatchObject({
+        reason: expect.stringContaining('Windows'),
+        notRun: 'platform',
+      });
       expect((await runCheckCommand({ id: 'a', run: 'x', cwd: 'nope' }, place(), deps())).reason).toContain('"nope"');
     });
   });

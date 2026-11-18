@@ -1172,6 +1172,13 @@ export interface CheckOutcome {
   configChanged?: string[];
   /** command: files in the working directory it changed itself (not ignored by git): new snapshots, formatted files. */
   wroteFiles?: string[];
+  /**
+   * command: it could not run for a reason that says nothing of the team's work: stopped (Stop, the
+   * server shutting down, the chat deleted), interrupted (the server stopped while it ran), or this
+   * system runs no command (native Windows). Never a pass, but it holds nothing, agents are not told to
+   * fix it, and a schedule's run does not fail for it.
+   */
+  notRun?: 'stopped' | 'interrupted' | 'platform';
 }
 
 /**

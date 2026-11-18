@@ -1209,14 +1209,33 @@ export class RelaySandboxRun {
    */
   decide(host: string, port: number | undefined): Promise<HostAnswer> {
     const canonical = canonicalHost(host);
-    if (!canonical) return Promise.resolve({ allow: false, reason: DENY_REASONS.refused(hostLabel(host, port)) });
+    if (!canonical) {
+      this.noteRefused(hostLabel(host, port));
+      return Promise.resolve({ allow: false, reason: DENY_REASONS.refused(hostLabel(host, port)) });
+    }
     const key = `${canonical}:${port ?? ''}`;
     let answer = this.answers.get(key);
     if (!answer) {
       answer = this.ask(canonical, port);
       this.answers.set(key, answer);
+      const where = hostLabel(canonical, port);
+      void answer.then(
+        (a) => a.allow || this.noteRefused(where),
+        () => this.noteRefused(where),
+      );
     }
     return answer;
+  }
+
+  /**
+   * The hosts the run was refused (at most 20), as the cards name them: a team check's command that
+   * failed after one is said to have needed the network, which a client often shows only as a status
+   * (`CONNECT tunnel failed, response 403`).
+   */
+  readonly refusedHosts: string[] = [];
+
+  private noteRefused(where: string): void {
+    if (this.refusedHosts.length < 20 && !this.refusedHosts.includes(where)) this.refusedHosts.push(where);
   }
 
   private async ask(host: string, port: number | undefined): Promise<HostAnswer> {

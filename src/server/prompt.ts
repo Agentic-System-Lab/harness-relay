@@ -19,7 +19,7 @@ import {
   cwdsOf,
 } from '../shared/types';
 import { ASK_TOKEN } from '../shared/ask';
-import { checksFailed, hasChecks } from '../shared/checks';
+import { checksFailed, hasChecks, needsFix } from '../shared/checks';
 import { mentionsInMarkdown } from '../shared/mentions';
 import { attachmentPath } from './attachments';
 import { dataBody, dataLine } from './gateway';
@@ -353,7 +353,7 @@ export function isForwardable(m: ChatMessage): boolean {
   // Of Harness Relay's own messages, only team checks that did not pass, which the team is to fix: not
   // when all that is left is commands a run's changed settings kept from running, which the user decides.
   if (m.author.kind === 'system') {
-    return Boolean(m.checks && checksFailed(m.checks) && !m.checks.skippedAt && m.checks.outcomes.some(toFix));
+    return Boolean(m.checks && checksFailed(m.checks) && !m.checks.skippedAt && m.checks.outcomes.some(needsFix));
   }
   if (m.status === 'done') return true;
   if (m.status !== 'error' && m.status !== 'aborted') return false;
@@ -430,17 +430,12 @@ function findingText(f: CheckFinding): string {
   return `${f.path}${where}: ${f.change}${by}`;
 }
 
-/** A command's outcome that did not pass, as agents read it: how it ended, and the end of its output, as data. */
-/** An outcome the team is to fix: it failed or could not be checked, and was not only kept from running by changed settings. */
-function toFix(o: ChecksResult['outcomes'][number]): boolean {
-  return (o.status === 'failed' || o.status === 'error') && !o.configChanged?.length;
-}
-
 /** Text from elsewhere (a command's output) put in a block: the block's own tags in it cannot end it. */
 function asData(text: string): string {
   return text.replace(/<(\s*\/?\s*(?:command_output|team_checks)\b)/gi, '&lt;$1');
 }
 
+/** A command's outcome that did not pass, as agents read it: how it ended, and the end of its output, as data. */
 function commandLines(o: ChecksResult['outcomes'][number]): string[] {
   if (o.configChanged?.length) {
     return [

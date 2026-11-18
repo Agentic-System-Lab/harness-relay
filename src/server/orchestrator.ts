@@ -97,7 +97,7 @@ import { buildBriefing, buildTurnPrompt, isForwardable, isPass, parseMentions, t
 import { endpointModel } from './backends';
 import { REVIEWER_BRIEFING, buildReviewPrompt, hasNewReplies, parseReviewReply, reviewMaterial } from './reviewer';
 import { RunCheck, checksResult, recheck as recheckFrom, type CheckFolders, type StoredBaseline, type WorktreeChange } from './checks';
-import { checksFailed, checksHold, hasChecks, latestChecks, overallStatus } from '../shared/checks';
+import { blocking, checksFailed, checksHold, hasChecks, latestChecks, overallStatus } from '../shared/checks';
 import {
   PACKAGE_JSON_KEYS,
   checkConfigFiles,
@@ -2477,16 +2477,25 @@ export class Orchestrator {
    * A result's commands still running once they can run no more (an error, Stop): could not run, with
    * why. A card never stays "checking" with nothing left to finish it.
    */
-  private settleCommands(conv: Conversation, msg: ChatMessage, startedAt: number, why: string): void {
+  private settleCommands(conv: Conversation, msg: ChatMessage, startedAt: number, why?: string): void {
     if (!msg.checks?.outcomes.some((o) => o.status === 'running')) return;
-    const outcomes = msg.checks.outcomes.map((o) => (o.status === 'running' ? { ...o, status: 'error' as const, reason: why } : o));
+    // No error: they were stopped, which says nothing of the team's work.
+    const settled = why ? { reason: why } : { reason: t().stoppedNote, notRun: 'stopped' as const };
+    const outcomes = msg.checks.outcomes.map((o) => (o.status === 'running' ? { ...o, status: 'error' as const, ...settled } : o));
     this.updateChecks(conv, msg, outcomes, startedAt);
   }
 
-  /** What the latest result's commands were kept from running for (a run changed what they read), while it holds. */
+  /**
+   * What the commands were last kept from running for (a run changed what they read): the latest result
+   * whose commands ran or were held back says, unless the user skipped it. A result in between that ran
+   * none (the team stopped to ask, Check again in parallel mode or read-only, the commands stopped)
+   * carries it on, so only the user's confirmation (Check again with `confirm`, which runs them) or Skip
+   * ends it.
+   */
   private heldGate(conv: Conversation): string[] {
-    const held = checksHold(conv.messages);
-    return [...new Set((held?.checks?.outcomes ?? []).flatMap((o) => o.configChanged ?? []))];
+    const last = conv.messages.findLast((m) => m.checks?.outcomes.some((o) => o.rule === 'command' && o.status !== 'na' && !o.notRun));
+    if (!last?.checks || last.checks.skippedAt) return [];
+    return [...new Set(last.checks.outcomes.flatMap((o) => o.configChanged ?? []))];
   }
 
   /**
@@ -2550,7 +2559,7 @@ export class Orchestrator {
     if (o.signal.aborted) {
       for (const c of commands) {
         const now = msg.checks!.outcomes.find((x) => x.rule === 'command' && x.commandId === c.id);
-        if (now?.status === 'running') set({ ...now, status: 'error', reason: t().stoppedNote });
+        if (now?.status === 'running') set({ ...now, status: 'error', reason: t().stoppedNote, notRun: 'stopped' });
       }
     }
   }
@@ -2601,7 +2610,8 @@ export class Orchestrator {
       const worktrees = run.ws.isolated ? await this.worktreeChanges(conv, run.ws.folders ?? []) : [];
       ({ outcomes, touched } = await run.checks.finish(worktrees));
     } catch (err) {
-      outcomes = this.unchecked(conv, (err as Error).message, false);
+      // The commands are posted below when they can run; when the checks could not start, as these.
+      outcomes = this.unchecked(conv, (err as Error).message, !run.checks);
     }
     if (!touched && !replies.some((m) => m.changes?.some((c) => c.files.length))) return;
     // Commands the latest result was kept from running for stay kept from it until the user confirms
@@ -2622,7 +2632,7 @@ export class Orchestrator {
     );
     if (run.checks) this.store.saveChecksBaseline(conv.id, msg.id, run.checks.baseline);
     if (commands.length && !skipped) {
-      let why = t().stoppedNote;
+      let why: string | undefined;
       try {
         const files = [...new Set([...carried, ...(await this.changedCheckConfig(conv, replies, commands))])];
         await this.runResultCommands(conv, msg, commands, {
@@ -2636,7 +2646,8 @@ export class Orchestrator {
         this.settleCommands(conv, msg, started, why);
       }
     }
-    if (run.unattended && checksFailed(msg.checks!)) this.scheduleChecksFailed(run.unattended, conv, msg.checks!);
+    // Not for commands stopped (the server shutting down, say), which say nothing of the team's work.
+    if (run.unattended && msg.checks!.outcomes.some(blocking)) this.scheduleChecksFailed(run.unattended, conv, msg.checks!);
   }
 
   /**
@@ -2756,7 +2767,7 @@ export class Orchestrator {
       if (baseline) this.store.saveChecksBaseline(conv.id, next.id, baseline);
       const posted = next;
       const work = (async () => {
-        let why = t().stoppedNote;
+        let why: string | undefined;
         try {
           if (runs) {
             await this.runResultCommands(conv, posted, commands, {

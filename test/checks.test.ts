@@ -123,13 +123,27 @@ describe('check list and results', () => {
       status: 'done',
       ...(checks ? { checks } : {}),
     });
-    const failed = { status: 'failed' as const, when: 'run' as const, outcomes: [], checkedAt: 1 };
+    const failed = {
+      status: 'failed' as const,
+      when: 'run' as const,
+      outcomes: [{ rule: 'paths' as const, status: 'failed' as const }],
+      checkedAt: 1,
+    };
     const passed = { ...failed, status: 'passed' as const };
     expect(checksHold([msg('a')])).toBeUndefined();
     expect(checksHold([msg('a', failed), msg('b')])?.id).toBe('a');
     expect(checksHold([msg('a', failed), msg('b', passed)])).toBeUndefined();
     expect(checksHold([msg('a', { ...failed, skippedAt: 5 })])).toBeUndefined();
     expect(checksHold([msg('a', { ...failed, status: 'error' })])?.id).toBe('a');
+    // A result left only with commands that were stopped or cannot run here holds nothing.
+    const stopped = {
+      ...failed,
+      status: 'error' as const,
+      outcomes: [{ rule: 'command' as const, status: 'error' as const, notRun: 'stopped' as const }],
+    };
+    expect(checksHold([msg('a', stopped)])).toBeUndefined();
+    const both = { ...stopped, outcomes: [...stopped.outcomes, { rule: 'paths' as const, status: 'failed' as const }] };
+    expect(checksHold([msg('a', both)])?.id).toBe('a');
     expect(latestChecks([msg('a', failed), msg('b', passed), msg('c')])?.id).toBe('b');
   });
 });
