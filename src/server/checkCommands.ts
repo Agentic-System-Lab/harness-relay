@@ -1,8 +1,10 @@
-import { existsSync, mkdirSync, readdirSync, symlinkSync, type Dirent } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, symlinkSync, type Dirent } from 'node:fs';
 import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { CHECK_LIMITS, CHECK_RESULT_LIMITS, type CheckCommand, type CheckOutcome } from '../shared/types';
 import { AgentRunError } from './agents/types';
+import { removeTree } from './fsRemove';
 import { t } from './i18n';
+import { DATA_DIR } from './settings';
 import { runProcess, runShellScript, type SpawnResult } from './process';
 import {
   PROJECT_AGENT_CONFIG,
@@ -410,6 +412,24 @@ const DEPENDENCY_CACHES = new Set(['.cache', '.vite', '.vite-temp', '.vitest', '
  */
 export function linkDependencies(real: string, tree: string, exclude: readonly string[] = [], depth = 4): number {
   let linked = 0;
+  let realRoot = real;
+  try {
+    realRoot = realpathSync(real);
+  } catch {
+    /* as given */
+  }
+  // An entry that leads back into the repository itself (a workspace's own package, which npm, Yarn and
+  // pnpm install as a link to it) leads to the same place in the tree, which has the result; the others
+  // to the user's own dependencies.
+  const targetOf = (src: string): string => {
+    try {
+      const rel = relativeInside(realRoot, realpathSync(src));
+      if (rel !== undefined && !rel.split('/').includes('node_modules')) return join(tree, ...rel.split('/'));
+    } catch {
+      /* a link that leads nowhere: as it is */
+    }
+    return src;
+  };
   const walk = (rel: string, level: number) => {
     let entries: Dirent[];
     try {
@@ -428,7 +448,15 @@ export function linkDependencies(real: string, tree: string, exclude: readonly s
         if (existsSync(target) || !existsSync(dirname(target))) continue;
         if (e.name === 'node_modules') {
           mkdirSync(target);
-          for (const name of readdirSync(abs)) if (!DEPENDENCY_CACHES.has(name)) symlinkSync(join(abs, name), join(target, name));
+          for (const name of readdirSync(abs)) {
+            if (DEPENDENCY_CACHES.has(name)) continue;
+            const src = join(abs, name);
+            // A scope's folder (`@org`) holds packages of its own, each linked as a package is.
+            if (name.startsWith('@') && lstatSync(src).isDirectory()) {
+              mkdirSync(join(target, name));
+              for (const inner of readdirSync(src)) symlinkSync(targetOf(join(src, inner)), join(target, name, inner));
+            } else symlinkSync(targetOf(src), join(target, name));
+          }
         } else symlinkSync(abs, target, 'dir');
         linked++;
         continue;
@@ -439,6 +467,21 @@ export function linkDependencies(real: string, tree: string, exclude: readonly s
   };
   walk('', 0);
   return linked;
+}
+
+/** Where check trees are made (`checkBeforeApply()` in the orchestrator), in the data folder. */
+export function checkTreesDir(dataDir: string = DATA_DIR): string {
+  return join(dataDir, 'check-trees');
+}
+
+/**
+ * The check trees a stopped server left (none is in use at startup): removed without following their
+ * links into the user's dependencies. Their registrations in the user's repositories are pruned the
+ * next time a tree is made there.
+ */
+export function clearCheckTrees(dataDir: string = DATA_DIR): void {
+  const dir = checkTreesDir(dataDir);
+  if (existsSync(dir)) removeTree(dir);
 }
 
 /** A path relative to `dir`, `/`-separated, or undefined when it is outside it. */

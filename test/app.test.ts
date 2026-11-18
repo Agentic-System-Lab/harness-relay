@@ -636,10 +636,13 @@ describe('settings', () => {
           body === undefined ? { method: 'POST', headers: { ...HOST, 'content-type': 'application/json' } } : json('POST', body),
         );
       expect(await (await at()).json()).toEqual({ ok: true, files: [], held: 'card' });
-      expect(apply).toHaveBeenLastCalledWith('conv', 'b', { force: false });
+      expect(apply).toHaveBeenLastCalledWith('conv', 'b', { force: false, confirm: false });
       apply.mockResolvedValueOnce({ files: [{ path: 'a', status: 'A', added: 1, deleted: 0 }] });
       expect(await (await at({ force: true })).json()).toEqual({ ok: true, files: [{ path: 'a', status: 'A', added: 1, deleted: 0 }] });
-      expect(apply).toHaveBeenLastCalledWith('conv', 'b', { force: true });
+      expect(apply).toHaveBeenLastCalledWith('conv', 'b', { force: true, confirm: false });
+      apply.mockResolvedValueOnce({ files: [] });
+      await at({ confirm: true });
+      expect(apply).toHaveBeenLastCalledWith('conv', 'b', { force: false, confirm: true });
     } finally {
       apply.mockRestore();
     }

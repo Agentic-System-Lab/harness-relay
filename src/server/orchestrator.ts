@@ -110,6 +110,7 @@ import {
   PACKAGE_JSON_KEYS,
   checkConfigFiles,
   commandCwd,
+  checkTreesDir,
   defaultCheckCommandDeps,
   linkDependencies,
   namedFiles,
@@ -2044,41 +2045,59 @@ export class Orchestrator {
    * every patch is checked before any is applied, so a conflict in one changes nothing anywhere. With
    * team checks, the result is checked first, on the working directories as they are with it in them
    * (`checkBeforeApply()`): what does not pass is not applied (`held`, the card's id), until the user
-   * applies it anyway (`force`). Stop stops the checks, and nothing is applied then. What was sent
-   * meanwhile goes once it is done.
+   * applies it anyway (`force`: only the result that card checked; another one is checked again) or,
+   * when the result changed what the commands read, confirms that and has them run (`confirm`). Stop
+   * stops the checks, and nothing is applied then. What was sent meanwhile goes once they are done.
    */
-  async applyAgentWork(convId: string, agentId: string, o: { force?: boolean } = {}): Promise<{ files: FileChange[]; held?: string }> {
+  async applyAgentWork(
+    convId: string,
+    agentId: string,
+    o: { force?: boolean; confirm?: boolean } = {},
+  ): Promise<{ files: FileChange[]; held?: string }> {
     const conv = this.store.get(convId);
     if (!conv || this.deleting.has(convId)) throw new HttpError(404, t().conversationNotFound);
     if (!conv.worktrees[agentId]?.length) throw new HttpError(404, t().noWorktree);
     if (conv.worktrees[agentId]!.some((w) => w.needsReset)) throw new HttpError(409, t().resultStale);
     const abort = new AbortController();
+    let checkedFirst = false;
     // Reserved at once (before anything is awaited), so the team cannot start writing (and take over
     // these locks) while the patches are checked and applied.
-    const done = await this.exclusive(convId, t().busyApply, async () => {
+    const work = this.exclusive(convId, t().busyApply, async () => {
       const wts = await this.currentWorktrees(conv, agentId);
       if (!wts.length) throw new HttpError(400, t().nothingToApply);
       const roots = wts.map((w) => w.root);
       this.lockDirs(roots, conv);
       try {
         const checked: CheckedPatch[] = [];
+        const span = new Map<string, { base: string; head: string; files: Set<string> }>();
+        const heads: string[] = [];
         for (const wt of wts) {
-          const patch = await checkPatch(wt.root, wt.base, await worktreeHead(wt.path));
-          if (patch) checked.push(patch);
+          const head = await worktreeHead(wt.path);
+          heads.push(head);
+          const patch = await checkPatch(wt.root, wt.base, head);
+          if (!patch) continue;
+          checked.push(patch);
+          span.set(wt.root, { base: wt.base, head, files: new Set(patch.files.map((f) => f.path)) });
         }
         if (!checked.length) throw new HttpError(400, t().nothingToApply);
         const name = conv.agents.find((a) => a.id === agentId)?.name ?? agentId;
+        const of = { agentId, name, heads: heads.join(' ') };
         let card: ChatMessage | undefined;
-        // Applied anyway: the card that held it back says it was applied (it still did not pass).
-        if (o.force) {
+        // Applied anyway: the card that held this very result back says it was applied (it still did not
+        // pass). A result that changed since that card is checked again.
+        let force = Boolean(o.force);
+        if (force) {
           const latest = latestChecks(conv.messages);
-          if (latest?.checks?.when === 'apply' && latest.checks.applyOf?.agentId === agentId && !latest.checks.applied) card = latest;
+          const held = latest?.checks?.when === 'apply' && latest.checks.applyOf?.agentId === agentId ? latest : undefined;
+          if (held && held.checks!.applyOf!.heads !== of.heads) force = false;
+          else if (held && !held.checks!.applied) card = held;
         }
-        if (!o.force && hasChecks(conv.settings.checks)) {
+        if (!force && hasChecks(conv.settings.checks)) {
+          checkedFirst = true;
           this.checking.set(convId, abort);
           this.emitStatus(convId);
           try {
-            card = await this.checkBeforeApply(conv, { agentId, name }, checked, abort.signal);
+            card = await this.checkBeforeApply(conv, of, checked, span, abort.signal, Boolean(o.confirm));
           } finally {
             this.checking.delete(convId);
             this.emitStatus(convId);
@@ -2124,22 +2143,33 @@ export class Orchestrator {
         this.unlockDirs(roots, conv.id);
       }
     });
-    if (!abort.signal.aborted) this.startQueued(conv);
-    return done;
+    this.checkWork.add(work);
+    try {
+      return await work;
+    } finally {
+      this.checkWork.delete(work);
+      // Only after checks, during which what was sent waited: an apply alone holds nothing back.
+      if (checkedFirst && !abort.signal.aborted) this.startQueued(conv);
+    }
   }
 
   /**
    * Team checks of a member's parallel-mode result before it is applied, posted as a card: the
    * protected paths among the files it changes, and the commands, run in check trees (each repository's
    * working tree as it is now, its result applied on top, the installed dependencies linked in:
-   * `linkDependencies()`), never in the working directories, which still hold the code before it. The
-   * trees are removed afterwards.
+   * `linkDependencies()`), never in the working directories, which still hold the code before it. In
+   * Harness Relay's sandbox whenever it can start, with full access too: a result not applied yet must not
+   * change the user's own dependencies, which the trees link to. Commands held back when the result changed
+   * what they read, unless the user confirmed it (`confirm`); none on native Windows (no tree is made).
+   * The trees are removed afterwards.
    */
   private async checkBeforeApply(
     conv: Conversation,
-    of: { agentId: string; name: string },
+    of: { agentId: string; name: string; heads: string },
     checked: CheckedPatch[],
+    span: Map<string, { base: string; head: string; files: Set<string> }>,
     signal: AbortSignal,
+    confirm: boolean,
   ): Promise<ChatMessage> {
     const list = conv.settings.checks!;
     const started = Date.now();
@@ -2172,20 +2202,33 @@ export class Orchestrator {
     }
     if (list.commitPattern) outcomes.push({ rule: 'commits', status: 'na', reason: t().checksCommitsParallel });
     const commands = list.commands ?? [];
+    const windows = this.checkCommandDeps.platform === 'win32';
     const msg = this.postChecks(
       conv,
-      checksResult([...outcomes, ...commands.map((c) => this.commandPending(c))], {
-        when: 'apply',
-        applyOf: of,
-        checkedAt: started,
-        durationMs: Date.now() - started,
-      }),
+      checksResult(
+        [
+          ...outcomes,
+          ...commands.map((c) =>
+            windows
+              ? { ...this.commandPending(c), status: 'error' as const, reason: t().checksCommandWindows, notRun: 'platform' as const }
+              : this.commandPending(c),
+          ),
+        ],
+        { when: 'apply', applyOf: of, checkedAt: started, durationMs: Date.now() - started },
+      ),
     );
-    if (!commands.length) return msg;
-    const trees = join(DATA_DIR, 'check-trees', `${conv.id.slice(0, 8)}-${randomUUID().slice(0, 8)}`);
-    const made: { root: string; path: string }[] = [];
+    if (!commands.length || windows) return msg;
     let why: string | undefined;
+    // What the result changes that the commands read: they wait for the user's confirmation.
+    const gate = confirm ? [] : await this.configChangesIn(conv, span, commands).catch((err: Error) => ((why = err.message), []));
+    if (gate.length) {
+      await this.runResultCommands(conv, msg, commands, { signal, startedAt: started, gate: { files: gate, unattended: false } });
+      return msg;
+    }
+    const trees = join(checkTreesDir(), `${conv.id.slice(0, 8)}-${randomUUID().slice(0, 8)}`);
+    const made: { root: string; path: string }[] = [];
     try {
+      if (why) throw new Error(why);
       const paths = new Map<string, string>();
       for (const root of [...new Set(folders.map((f) => f.root))]) {
         const path = join(trees, String(paths.size));
@@ -2193,7 +2236,7 @@ export class Orchestrator {
         made.push({ root, path });
         const patch = checked.find((p) => p.root === root);
         if (patch) await applyPatchIn(path, patch);
-        if (this.checkCommandDeps.platform !== 'win32') linkDependencies(root, path, this.snapshotExcludes());
+        linkDependencies(root, path, this.snapshotExcludes());
         paths.set(root, path);
       }
       const cwds = folders.map((f) => worktreeCwd(f.root, f.cwd, paths.get(f.root)!));
@@ -2205,7 +2248,15 @@ export class Orchestrator {
         const rel = relativeInside(real(folders[at]!.cwd), real(c.cwd)) ?? '';
         return { ...c, cwd: rel ? join(cwds[at]!, ...rel.split('/')) : cwds[at]! };
       };
-      await this.runResultCommands(conv, msg, commands, { signal, startedAt: started, cwds, mapCommand });
+      // In the sandbox whenever it starts here; with full access and none, as the agents run.
+      const sandboxed = conv.settings.permission !== 'full' || (await this.checkCommandDeps.sandboxAvailable()).ok;
+      await this.runResultCommands(conv, msg, commands, {
+        signal,
+        startedAt: started,
+        cwds,
+        mapCommand,
+        as: sandboxed ? 'edit' : 'full',
+      });
     } catch (err) {
       why = (err as Error).message;
     } finally {
@@ -2542,15 +2593,6 @@ export class Orchestrator {
    * shown relative to the first working directory when they are in it.
    */
   private async changedCheckConfig(conv: Conversation, replies: ChatMessage[], commands: CheckCommand[]): Promise<string[]> {
-    const real = (p: string) => {
-      try {
-        return realpathSync(p);
-      } catch {
-        return p;
-      }
-    };
-    const cwds = cwdsOf(conv.settings);
-    const first = real(cwds[0]!);
     const span = new Map<string, { base: string; head: string; files: Set<string> }>();
     for (const m of replies) {
       for (const c of m.changes ?? []) {
@@ -2561,6 +2603,24 @@ export class Orchestrator {
         span.set(c.root, s);
       }
     }
+    return this.configChangesIn(conv, span, commands);
+  }
+
+  /** `changedCheckConfig()` for the changes base..head of each repository (`span`, files relative to its root). */
+  private async configChangesIn(
+    conv: Conversation,
+    span: Map<string, { base: string; head: string; files: Set<string> }>,
+    commands: CheckCommand[],
+  ): Promise<string[]> {
+    const real = (p: string) => {
+      try {
+        return realpathSync(p);
+      } catch {
+        return p;
+      }
+    };
+    const cwds = cwdsOf(conv.settings);
+    const first = real(cwds[0]!);
     const named = new Set(commands.flatMap((c) => namedFiles(c.run, real(commandCwd(c, cwds) ?? cwds[0]!))));
     const shown = (abs: string) => relativeInside(first, abs) ?? abs;
     const out: string[] = [];
@@ -2647,6 +2707,8 @@ export class Orchestrator {
       gate?: { files: string[]; unattended: boolean };
       /** Where they run instead of the working directories (a check tree's), and each command as it runs there. */
       cwds?: string[];
+      /** The permission they run with, instead of the conversation's (in the sandbox below full access). */
+      as?: Permission;
       mapCommand?: (c: CheckCommand) => CheckCommand;
     },
   ): Promise<void> {
@@ -2666,7 +2728,7 @@ export class Orchestrator {
       }
       return;
     }
-    const place = { ...this.commandPlace(conv, o.signal), ...(o.cwds ? { cwds: o.cwds } : {}) };
+    const place = { ...this.commandPlace(conv, o.signal, o.as), ...(o.cwds ? { cwds: o.cwds } : {}) };
     const roots = [...new Set(await Promise.all(place.cwds.map(async (cwd) => (await repoRoot(cwd).catch(() => null)) ?? cwd)))];
     const snap = async () => {
       const out = new Map<string, string>();

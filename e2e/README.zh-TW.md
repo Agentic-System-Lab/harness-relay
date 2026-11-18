@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 38 個 spec 檔、481 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 38 個 spec 檔、482 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -41,7 +41,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [範本](#範本) | [`templates.spec.ts`](specs/templates.spec.ts) | 6 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本) |
 | [修改對話的團隊](#修改對話的團隊) | [`team.spec.ts`](specs/team.spec.ts) | 5 | [使用者說明 → 對話中修改團隊](../docs/user-guide.zh-TW.md#對話中修改團隊) |
 | [首席 agent 的審閱](#首席-agent-的審閱) | [`review.spec.ts`](specs/review.spec.ts) | 13 | [使用者說明 → 首席 agent 審閱](../docs/user-guide.zh-TW.md#首席-agent-審閱)、[架構 → 首席 agent 審閱](../docs/architecture.zh-TW.md#首席-agent-審閱) |
-| [團隊檢查](#團隊檢查) | [`checks.spec.ts`](specs/checks.spec.ts) | 6 | [使用者說明 → 團隊檢查](../docs/user-guide.zh-TW.md#團隊檢查)、[架構 → 團隊檢查](../docs/architecture.zh-TW.md#團隊檢查) |
+| [團隊檢查](#團隊檢查) | [`checks.spec.ts`](specs/checks.spec.ts) | 7 | [使用者說明 → 團隊檢查](../docs/user-guide.zh-TW.md#團隊檢查)、[架構 → 團隊檢查](../docs/architecture.zh-TW.md#團隊檢查) |
 | [成員的模型與推理強度](#成員的模型與推理強度) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [使用者說明 → 預設模型與推理強度](../docs/user-guide.zh-TW.md#預設模型與推理強度)、[團隊成員](../docs/user-guide.zh-TW.md#團隊成員) |
 | [成員如何輪流發言](#成員如何輪流發言) | [`turns.spec.ts`](specs/turns.spec.ts) | 55 | [架構 → 發言排程](../docs/architecture.zh-TW.md#發言排程模式)、[agent 之間如何共享上下文](../docs/architecture.zh-TW.md#agent-之間如何共享上下文) |
 | [agent 回答前做了什麼](#agent-回答前做了什麼) | [`activity.spec.ts`](specs/activity.spec.ts) | 13 | [架構 → agent 活動](../docs/architecture.zh-TW.md#agent-活動) |
@@ -177,6 +177,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 未通過的指令顯示它怎麼結束和它的輸出；團隊設定可以試跑指令 | Claude Code | 在完整權限的對話裡，指令在 `broken.txt` 存在時會失敗；寫入它的回覆後，卡片顯示 **Failed**、指令列、「exit 3」、沒有在沙箱裡執行，以及 **Output (the end)** 裡它印出的內容。在 **Team settings** 按 **Add a command**、再按 **Try it**，顯示 **Passed**；存檔後對話有兩條指令。Windows 上略過（那裡還不能執行指令）。 |
 | 低於完整權限時，指令在 Harness Relay 自己的沙箱裡執行，不能寫到工作目錄以外 | Claude Code | 在編輯對話裡，寫入工作目錄的指令通過，並說明它自己改了 `inside.txt`；寫到家目錄的指令無法執行（被沙箱擋下），整份結果也是無法執行，絕不是 **Failed**。Harness Relay 自己的沙箱不能用的地方略過。 |
 | 平行模式下，沒通過檢查的結果不會套用，直到使用者仍要套用 | Claude Code | 在保護 `secret.txt` 的平行編輯對話裡，回覆在它的 worktree 裡寫入它，回覆後的卡片在那裡找到它。按 **Apply to working directory** 會貼出套用前檢查的卡片（目前的工作目錄加上 @Claude 的結果），顯示 **Failed** 和沒有套用，工作目錄裡也沒有這個檔案；按 **Apply anyway**（確認）會套用它，按鈕也隨之消失。 |
+| 平行模式下，結果的指令在 Harness Relay 自己的沙箱裡、在加上結果的工作目錄上執行 | Claude Code | 在平行編輯對話裡，指令需要 `result.txt`；套用回覆的結果時，會在真正的沙箱裡、在檢查樹上檢查它：卡片顯示 **Passed** 和已套用，檔案進了工作目錄，指令寫出的檔案則沒有。Harness Relay 自己的沙箱不能用的地方略過。 |
 
 ## 成員的模型與推理強度
 
@@ -668,7 +669,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 - OpenHands 在 macOS 上要在完全存取以外執行，需要沙箱裡的終端機：測試的伺服器會打開它的開關，而關掉開關的測試只在 macOS 上執行。
 - OpenCode 在完全存取以下、經由沙箱對 gateway 連接埠的開放使用 Harness Relay 自己的工具，這個測試只在 macOS 上執行，也就是 OpenCode 能在完全存取以下執行的地方。
 - [在 Windows 上是腳本的 CLI](#在-windows-上是腳本的-cli)只在 Windows 上執行。
-- [團隊檢查](#團隊檢查)裡，未通過指令的測試在 Windows 上略過（那裡還不能執行指令檢查），在 Harness Relay 自己沙箱裡執行的測試只在那個沙箱能用的地方執行（macOS，以及裝了 bubblewrap、socat 和 ripgrep 的 Linux）。
+- [團隊檢查](#團隊檢查)裡，未通過指令的測試在 Windows 上略過（那裡還不能執行指令檢查），在 Harness Relay 自己沙箱裡執行的兩個測試（一輪之後的指令，以及套用平行模式結果時的指令）只在那個沙箱能用的地方執行（macOS，以及裝了 bubblewrap、socat 和 ripgrep 的 Linux）。
 - 在[安裝 CLI](#安裝-cli)中，Grok 的卡片在 macOS 與 Linux 上提供官方 bash 腳本，在 Windows 上提供它的 PowerShell 安裝程式；假的 npm 在每個系統上都照 npm 的方式安裝（macOS 與 Linux 上是連結，Windows 上是 npm 給程式的 `.cmd` shim）。
 - 選擇資料夾視窗的測試只在 Linux 上執行：Linux 從 PATH 找它的視窗，假的視窗可以替代；macOS 與 Windows 以完整路徑開啟自己的視窗。
 - 「對話沒有的資料夾碰不到」在 Windows 上跳過 Grok，因為它在那裡沒有沙箱（[各平台的作業系統沙箱](../docs/sandboxing.zh-TW.md)）。

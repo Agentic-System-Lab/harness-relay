@@ -446,7 +446,7 @@ interface Props {
   onSkipChecks?: (messageId: string) => Promise<unknown>;
   onFixChecks?: (messageId: string, agentId: string) => Promise<unknown>;
   /** Apply a member's parallel-mode result the team checks held back. */
-  onApplyAnyway?: (agentId: string) => Promise<unknown>;
+  onApplyAnyway?: (agentId: string, how: 'force' | 'confirm') => Promise<unknown>;
 }
 
 /** Names the conversation's scheduled message @mentions that a team design does not have. */

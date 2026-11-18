@@ -470,6 +470,8 @@ export async function removeWorktree(root: string, path: string, branch?: string
  * working directory as it is, before it is applied). Remove it with `removeWorktree()`.
  */
 export async function addCheckTree(root: string, path: string, commit: string): Promise<void> {
+  // A tree a stopped server left is gone (removed at startup), but still registered: pruned first.
+  await git(root, ['worktree', 'prune'], { allowFail: true });
   if (existsSync(path)) await removeWorktree(root, path);
   mkdirSync(join(path, '..'), { recursive: true });
   await git(root, ['worktree', 'add', '-q', '-f', '--detach', path, commit]);

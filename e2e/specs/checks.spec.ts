@@ -181,4 +181,27 @@ test.describe('team checks', () => {
     expect(readFileSync(join(relay.workDir, 'secret.txt'), 'utf8')).toContain('Claude');
     await expect(card.getByRole('button', { name: 'Apply anyway' })).toHaveCount(0);
   });
+
+  test("in parallel mode, a result's command runs in Harness Relay's own sandbox on the working directory with the result in it", async ({
+    page,
+    relay,
+  }) => {
+    const sandbox = relaySandbox();
+    test.skip(!sandbox.ok, `Harness Relay's own sandbox does not work here: ${sandbox.reason}`);
+    await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], {
+      permission: 'edit',
+      mode: 'parallel',
+      checks: { commands: [{ id: 'has', run: 'test -f result.txt && echo checked > from-check.txt' }] },
+    });
+    await send(page, 'Make it e2e:write=result.txt');
+    const reply = await finishedReply(page, 'Claude');
+    acceptNextDialog(page);
+    await reply.getByRole('button', { name: 'Apply to working directory' }).click();
+    const card = checkCards(page).last();
+    await expect(card.locator('.plan-head .checks-status')).toHaveText('Passed', { timeout: 60_000 });
+    await expect(card).toContainText('Applied to the working directory');
+    await expect.poll(() => existsSync(join(relay.workDir, 'result.txt'))).toBe(true);
+    // What the check wrote stayed in its own tree.
+    expect(existsSync(join(relay.workDir, 'from-check.txt'))).toBe(false);
+  });
 });

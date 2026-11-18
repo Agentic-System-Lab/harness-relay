@@ -398,7 +398,9 @@ describe('the dependencies a check tree is given', () => {
       expect(linkDependencies(real, tree, [join(real, 'home')])).toBe(3);
       expect(lstatSync(join(tree, 'node_modules')).isDirectory()).toBe(true);
       expect(readlinkSync(join(tree, 'node_modules', 'vitest'))).toBe(join(real, 'node_modules', 'vitest'));
-      expect(readlinkSync(join(tree, 'node_modules', '@scope'))).toBe(join(real, 'node_modules', '@scope'));
+      // A scope's folder is the tree's own, with a link for each of its packages.
+      expect(lstatSync(join(tree, 'node_modules', '@scope')).isDirectory()).toBe(true);
+      expect(readlinkSync(join(tree, 'node_modules', '@scope', 'pkg'))).toBe(join(real, 'node_modules', '@scope', 'pkg'));
       expect(existsSync(join(tree, 'node_modules', '.vite'))).toBe(false);
       expect(readlinkSync(join(tree, 'packages', 'a', 'node_modules', 'x'))).toBe(join(real, 'packages', 'a', 'node_modules', 'x'));
       expect(readlinkSync(join(tree, '.venv'))).toBe(join(real, '.venv'));
@@ -406,6 +408,37 @@ describe('the dependencies a check tree is given', () => {
       expect(existsSync(join(tree, 'packages', 'b', 'node_modules', 'own'))).toBe(false);
       expect(existsSync(join(tree, 'dist'))).toBe(false);
       expect(existsSync(join(tree, 'home', 'node_modules'))).toBe(false);
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'links a workspace’s own packages to the tree, which has the result, and removes leftover trees without following links',
+    async () => {
+      const { linkDependencies, clearCheckTrees, checkTreesDir } = await import('../src/server/checkCommands');
+      const { readlinkSync, symlinkSync, writeFileSync, existsSync } = await import('node:fs');
+      const real = join(dir, 'repo');
+      const tree = join(dir, 'tree');
+      mkdirSync(join(real, 'packages', 'a'), { recursive: true });
+      mkdirSync(join(real, 'packages', 'b'), { recursive: true });
+      mkdirSync(join(real, 'node_modules', '@scope'), { recursive: true });
+      mkdirSync(join(real, 'node_modules', 'dep'), { recursive: true });
+      symlinkSync(join('..', 'packages', 'a'), join(real, 'node_modules', 'a'));
+      symlinkSync(join('..', '..', 'packages', 'b'), join(real, 'node_modules', '@scope', 'b'));
+      mkdirSync(join(tree, 'packages', 'a'), { recursive: true });
+      linkDependencies(real, tree);
+      const realRoot = realpathSync(real);
+      expect(readlinkSync(join(tree, 'node_modules', 'a'))).toBe(join(tree, 'packages', 'a'));
+      expect(readlinkSync(join(tree, 'node_modules', '@scope', 'b'))).toBe(join(tree, 'packages', 'b'));
+      expect(readlinkSync(join(tree, 'node_modules', 'dep'))).toBe(join(realRoot, 'node_modules', 'dep'));
+      // A stopped server's trees go, and what they link to stays.
+      const data = join(dir, 'data');
+      const left = join(checkTreesDir(data), 'x', '0');
+      mkdirSync(join(left, 'node_modules'), { recursive: true });
+      writeFileSync(join(real, 'node_modules', 'dep', 'keep.txt'), 'keep');
+      symlinkSync(join(real, 'node_modules', 'dep'), join(left, 'node_modules', 'dep'));
+      clearCheckTrees(data);
+      expect(existsSync(checkTreesDir(data))).toBe(false);
+      expect(existsSync(join(real, 'node_modules', 'dep', 'keep.txt'))).toBe(true);
     },
   );
 });

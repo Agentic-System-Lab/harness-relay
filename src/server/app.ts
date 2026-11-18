@@ -2047,15 +2047,20 @@ export function createApp({
   app.post('/api/conversations/:id/agents/:agentId/apply', async (c) => {
     // No body at all (as before `force`) is an apply with the checks.
     const text = await c.req.text();
-    let force = false;
+    type ApplyBody = { force?: unknown; confirm?: unknown } | null;
+    let b: ApplyBody = null;
     if (text.trim()) {
       try {
-        force = (JSON.parse(text) as { force?: unknown } | null)?.force === true;
+        b = JSON.parse(text) as ApplyBody;
       } catch {
         throw new HttpError(400, 'Invalid JSON body');
       }
     }
-    const { files, held } = await orchestrator.applyAgentWork(c.req.param('id'), c.req.param('agentId'), { force });
+    // `confirm`: the result changed what the commands read, and the user had them run all the same.
+    const { files, held } = await orchestrator.applyAgentWork(c.req.param('id'), c.req.param('agentId'), {
+      force: b?.force === true,
+      confirm: b?.confirm === true,
+    });
     return c.json({ ok: true, files, ...(held ? { held } : {}) });
   });
 

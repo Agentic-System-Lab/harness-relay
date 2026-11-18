@@ -1195,7 +1195,11 @@ export interface ChecksResult {
    * they were with that result in them: whose, and whether it was then applied (not when it did not pass,
    * until the user applies it anyway).
    */
-  applyOf?: { agentId: string; name: string };
+  applyOf?: {
+    agentId: string;
+    name: string;
+    /** The member's worktree heads it checked: Apply anyway applies only that result. */ heads?: string;
+  };
   applied?: boolean;
   outcomes: CheckOutcome[];
   /** The replies whose work it checked (message ids), oldest first. */

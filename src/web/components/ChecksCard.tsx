@@ -14,8 +14,11 @@ interface Props {
   onRecheck: (messageId: string, confirm?: boolean) => Promise<unknown>;
   onSkip: (messageId: string) => Promise<unknown>;
   onFix: (messageId: string, agentId: string) => Promise<unknown>;
-  /** Apply a member's parallel-mode result that the checks held back (its card's "Apply anyway"). */
-  onApplyAnyway: (agentId: string) => Promise<unknown>;
+  /**
+   * Apply a member's parallel-mode result that the checks held back: without checking (`force`, its
+   * card's "Apply anyway"), or having the commands run that its changed settings held back (`confirm`).
+   */
+  onApplyAnyway: (agentId: string, how: 'force' | 'confirm') => Promise<unknown>;
 }
 
 /** One finding: the file and what happened to it, or the commit and its subject; and whose turn it was in. */
@@ -170,9 +173,18 @@ export function ChecksCard({ msg, latest, agents, running, onRecheck, onSkip, on
           <button
             type="button"
             className="ghost small-button"
-            onClick={() => confirm(t.checks.applyAnywayAsk(c.applyOf!.name)) && void act(() => onApplyAnyway(heldFor))}
+            onClick={() => confirm(t.checks.applyAnywayAsk(c.applyOf!.name)) && void act(() => onApplyAnyway(heldFor, 'force'))}
           >
             {t.checks.applyAnyway}
+          </button>
+        )}
+        {heldFor && gatedFiles(msg).length > 0 && (
+          <button
+            type="button"
+            className="ghost small-button"
+            onClick={() => confirm(t.checks.confirmRunAsk(gatedFiles(msg).join('\n'))) && void act(() => onApplyAnyway(heldFor, 'confirm'))}
+          >
+            {t.checks.confirmApply}
           </button>
         )}
         {actions.skip && (

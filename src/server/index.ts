@@ -32,6 +32,7 @@ import { clearRunTmp, dataDirInTemp, makeCodespaceGhDir, relayTmpDir, voiceDirPr
 import { CONFIG, CONFIG_PROBLEMS } from './config';
 import { OPEN_PROVIDERS, type Lang } from '../shared/types';
 import { RUN_TMP_DIR, clearOpenRunLeftovers } from './agents/open';
+import { clearCheckTrees } from './checkCommands';
 import {
   clearRelaySandboxLeftovers,
   gatewayNode,
@@ -262,6 +263,12 @@ try {
   swept = clearRelaySandboxLeftovers();
 } catch (err) {
   console.error('[server] could not clear the relay sandbox folders:', err);
+}
+// The check trees of a parallel result's checks a stopped server left (none is in use yet).
+try {
+  clearCheckTrees();
+} catch (err) {
+  console.error('[server] could not clear the team checks folders:', err);
 }
 // Where open agents' runs keep their temp folders: there before any run, so that every sandboxed run
 // is kept from reading other runs' folders in them from the first turn (`privateRoots`).

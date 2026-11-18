@@ -815,4 +815,102 @@ describe('team checks: applying a parallel result', () => {
     expect(commandOf(conv)).toMatchObject({ status: 'error', notRun: 'platform' });
     expect(existsSync(join(project, 'Bob.txt'))).toBe(true);
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'holds back a result that changes what the commands read until the user confirms, then runs them and applies it',
+    async () => {
+      const conv = parallel({ commands: [{ id: 'c', run: 'true' }] });
+      fake.during = (name, cwd) => name === 'Bob' && writeFileSync(join(cwd, '.npmrc'), 'script-shell=true\n');
+      await orchestrator.send(conv.id, 'go');
+      await finish(conv.id);
+      fake.during = undefined;
+      const held = await orchestrator.applyAgentWork(conv.id, 'b');
+      expect(held.held).toBeDefined();
+      expect(commandOf(conv)).toMatchObject({ status: 'error', configChanged: ['.npmrc'] });
+      expect(existsSync(join(project, '.npmrc'))).toBe(false);
+      const confirmed = await orchestrator.applyAgentWork(conv.id, 'b', { confirm: true });
+      expect(confirmed.held).toBeUndefined();
+      expect(commandOf(conv)).toMatchObject({ status: 'passed' });
+      expect(existsSync(join(project, '.npmrc'))).toBe(true);
+    },
+  );
+
+  it('runs the commands in the sandbox with full access too when it can start here, and without it only when it cannot', async () => {
+    const conv = parallel({ commands: [{ id: 'c', run: 'npm test' }] });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const ok = {
+      code: 0,
+      signal: null,
+      stdout: '',
+      stdoutBytes: Buffer.alloc(0),
+      stdoutTruncated: false,
+      stdoutSize: 0,
+      stderr: '',
+      aborted: false,
+      timedOut: false,
+    };
+    let sandboxed = 0;
+    let bare = 0;
+    const deps = (available: boolean) => ({
+      ...defaultCheckCommandDeps,
+      platform: 'linux' as const,
+      sandboxAvailable: async () => (available ? { ok: true as const } : { ok: false as const, reason: 'no bubblewrap' }),
+      makeRunDirs: () => ({ tmp: join(project, '.run-tmp'), hostTmp: join(project, '.run-host') }),
+      sandboxCommand: (async (_b: string, _a: string[], env: NodeJS.ProcessEnv) => {
+        sandboxed++;
+        return { bin: 'host', args: [], env, channel: {}, failure: () => undefined, dispose: async () => undefined, run: {} };
+      }) as never,
+      runProcess: (async () => ok) as never,
+      runShellScript: (async () => {
+        bare++;
+        return ok;
+      }) as never,
+    });
+    orchestrator.checkCommandDeps = deps(true);
+    expect((await orchestrator.applyAgentWork(conv.id, 'b')).held).toBeUndefined();
+    expect([sandboxed, bare]).toEqual([1, 0]);
+    expect(commandOf(conv).unsandboxed).toBeUndefined();
+    await orchestrator.send(conv.id, 'again');
+    await finish(conv.id);
+    orchestrator.checkCommandDeps = deps(false);
+    expect((await orchestrator.applyAgentWork(conv.id, 'a')).held).toBeUndefined();
+    expect([sandboxed, bare]).toEqual([1, 1]);
+    expect(commandOf(conv).unsandboxed).toBe(true);
+  });
+
+  it('applies anyway only the result its card checked: one that changed since is checked again', async () => {
+    const conv = parallel({ protectedPaths: ['Bob.txt'] });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    const first = (await orchestrator.applyAgentWork(conv.id, 'b')).held;
+    expect(first).toBeDefined();
+    // The member worked on in its worktree since.
+    const wt = conv.worktrees.b![0]!;
+    writeFileSync(join(wt.path, 'more.txt'), 'more\n');
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'add', '-A'], { cwd: wt.path });
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', 'more'], { cwd: wt.path });
+    const again = await orchestrator.applyAgentWork(conv.id, 'b', { force: true });
+    expect(again.held).toBeDefined();
+    expect(again.held).not.toBe(first);
+    expect(existsSync(join(project, 'Bob.txt'))).toBe(false);
+  });
+
+  it('makes no check tree on native Windows, where no command runs', async () => {
+    const conv = parallel({ commands: [{ id: 'c', run: 'npm test' }] });
+    await orchestrator.send(conv.id, 'go');
+    await finish(conv.id);
+    let ran = false;
+    orchestrator.checkCommandDeps = {
+      ...defaultCheckCommandDeps,
+      platform: 'win32',
+      runShellScript: (async () => ((ran = true), {})) as never,
+    };
+    const trees = join(root, 'data', 'check-trees');
+    const before = existsSync(trees) ? readdirSync(trees).length : 0;
+    expect((await orchestrator.applyAgentWork(conv.id, 'b')).held).toBeUndefined();
+    expect(commandOf(conv)).toMatchObject({ status: 'error', notRun: 'platform' });
+    expect(ran).toBe(false);
+    expect(existsSync(trees) ? readdirSync(trees).length : 0).toBe(before);
+  });
 });

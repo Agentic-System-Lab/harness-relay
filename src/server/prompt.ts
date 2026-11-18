@@ -93,11 +93,13 @@ export function checkRuleLines(list: CheckList, mode: Mode, platform: NodeJS.Pla
   if (list.commitPattern && mode !== 'parallel') {
     lines.push(`Every commit's subject must match this regular expression: /${list.commitPattern}/`);
   }
-  if (list.commands?.length && mode !== 'parallel' && platform !== 'win32') {
+  if (list.commands?.length && platform !== 'win32') {
     const each = list.commands.map((c) => `\`${c.run}\`${c.cwd ? ` (in ${c.cwd})` : ''}`).join(', ');
-    lines.push(
-      `These commands must succeed, run by Harness Relay in the working directory with CI=1 and, below full access, without network: ${each}`,
-    );
+    const when =
+      mode === 'parallel'
+        ? "when a member's result is applied, on the working directory with it in it, in Harness Relay's sandbox without network"
+        : 'in the working directory, below full access without network';
+    lines.push(`These commands must succeed, run by Harness Relay with CI=1 ${when}: ${each}`);
   }
   return lines;
 }

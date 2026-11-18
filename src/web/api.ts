@@ -419,11 +419,11 @@ export const api = {
   messageDiff: (id: string, messageId: string) => requestText(`/api/conversations/${id}/messages/${messageId}/diff`),
   agentDiff: (id: string, agentId: string) => requestText(`/api/conversations/${id}/agents/${agentId}/diff`),
   /** Team checks run first: one that does not pass applies nothing (`held`, its card's id), unless `force`. */
-  applyAgent: (id: string, agentId: string, force = false) =>
+  applyAgent: (id: string, agentId: string, o: { force?: boolean; confirm?: boolean } = {}) =>
     request<{ ok: true; files: FileChange[]; held?: string }>(
       'POST',
       `/api/conversations/${id}/agents/${agentId}/apply`,
-      force ? { force } : undefined,
+      o.force || o.confirm ? o : undefined,
     ),
 
   // presets

@@ -944,6 +944,7 @@ export const en: Messages = {
     applied: 'Applied to the working directory',
     held: 'It did not pass, so it was not applied: apply it again once fixed, or apply it anyway',
     applyAnyway: 'Apply anyway',
+    confirmApply: 'Confirm, run the commands and apply if they pass',
     applyAnywayAsk: (name) => `The team checks did not pass. Apply @${name}'s result to the working directory anyway? The failure is kept.`,
     rules: { paths: 'Protected paths', commits: 'Commit format', command: 'Command' },
     change: { added: 'added', changed: 'changed', removed: 'removed' },

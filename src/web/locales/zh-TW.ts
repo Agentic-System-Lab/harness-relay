@@ -960,6 +960,7 @@ export const zhTW = {
     applied: '已套用到工作目錄',
     held: '沒有通過，所以沒有套用；修正後再套用一次，或仍要套用',
     applyAnyway: '仍要套用',
+    confirmApply: '確認後執行指令，通過就套用',
     applyAnywayAsk: (name: string) => `團隊檢查沒有通過。仍要把 @${name} 的結果套用到工作目錄？未通過的紀錄會保留。`,
     rules: { paths: '受保護路徑', commits: 'commit 格式', command: '指令' },
     change: { added: '新增', changed: '修改', removed: '刪除' },
