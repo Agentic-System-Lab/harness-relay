@@ -78,6 +78,7 @@ export const IGNORES: Record<Scope, readonly string[]> = {
     '.github/workflows/e2e.yml',
     '.github/workflows/pages.yml',
     '.github/workflows/release.yml',
+    '.github/workflows/cli-versions.yml',
   ],
   // The packaged app is the server and the UI (src/), the app itself (desktop/), the installers'
   // names (site/assets/downloads.js), the LICENSE it ships, the scripts it imports (release.ts,
@@ -100,9 +101,12 @@ export const IGNORES: Record<Scope, readonly string[]> = {
     'scripts/login.ts',
     'scripts/preview-site.ts',
     'scripts/sandbox-check.ts',
+    'scripts/cli-check.ts',
+    'scripts/cli-check/**',
     '.github/workflows/e2e.yml',
     '.github/workflows/pages.yml',
     '.github/workflows/release.yml',
+    '.github/workflows/cli-versions.yml',
   ],
   // The end-to-end tests are the server and the UI (src/), the specs and the fake CLIs (e2e/), and
   // the check of Harness Relay's own sandbox the workflow runs first (scripts/sandbox-check.ts).
@@ -123,6 +127,7 @@ export const IGNORES: Record<Scope, readonly string[]> = {
     '.github/workflows/ci.yml',
     '.github/workflows/pages.yml',
     '.github/workflows/release.yml',
+    '.github/workflows/cli-versions.yml',
   ],
 };
 

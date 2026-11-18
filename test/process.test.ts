@@ -9,6 +9,7 @@ import {
   frame,
   killAll,
   needsConsole,
+  recordSpawns,
   runProcess,
   runShellScript,
   runSync,
@@ -158,6 +159,92 @@ describe('runProcess', () => {
     const script = cli('fake-cli.sh', 'echo ok');
     const res = await capture(`./${relative(process.cwd(), script)}`, [], process.env, { cwd: tmpdir() });
     expect(res.stdout).toBe('ok\n');
+  });
+});
+
+describe('recordSpawns (scripts/cli-check.ts)', () => {
+  it('tells a recorder what a process was started with, what went through its stdin and stdout, and how it ended', async () => {
+    const seen: { start?: { bin: string; args: readonly string[] }; data: Record<string, string>; exit?: number | null } = { data: {} };
+    recordSpawns({
+      start: (o) => {
+        seen.start = { bin: o.bin, args: o.args };
+        return {
+          data: (stream, chunk) => (seen.data[stream] = (seen.data[stream] ?? '') + chunk.toString('utf8')),
+          exit: (code) => (seen.exit = code),
+        };
+      },
+    });
+    try {
+      const echo =
+        'process.stdin.on("data", (d) => process.stdout.write("got " + d)); process.stdin.on("end", () => process.stderr.write("bye"))';
+      let child: import('node:child_process').ChildProcess | undefined;
+      const res = await runProcess({
+        bin: process.execPath,
+        args: ['-e', echo],
+        env: process.env,
+        keepStdinOpen: true,
+        onSpawn: (c) => {
+          child = c;
+          c.stdin!.write('one\n');
+          c.stdin!.end('two\n');
+        },
+      });
+      expect(child).toBeDefined();
+      expect(res.stdout).toContain('got one');
+      expect(seen.start).toEqual({ bin: process.execPath, args: ['-e', echo] });
+      expect(seen.data.stdin).toBe('one\ntwo\n');
+      expect(seen.data.stdout).toContain('got one');
+      expect(seen.data.stderr).toBe('bye');
+      expect(seen.exit).toBe(0);
+    } finally {
+      recordSpawns(undefined);
+    }
+  });
+
+  it('records nothing once it is unset, and a recorder that throws never stops the process', async () => {
+    let calls = 0;
+    try {
+      recordSpawns({
+        start: () => ({
+          data: () => {
+            calls++;
+            throw new Error('a broken recorder');
+          },
+          exit: () => undefined,
+        }),
+      });
+      const res = await capture(process.execPath, ['-e', 'console.log("still here")'], process.env);
+      expect(res.stdout.trim()).toBe('still here');
+      expect(calls).toBeGreaterThan(0);
+    } finally {
+      recordSpawns(undefined);
+    }
+    const before = calls;
+    await capture(process.execPath, ['-e', 'console.log("again")'], process.env);
+    expect(calls).toBe(before);
+  });
+
+  it('runs a process to its end when the recorder throws as it starts or as it ends', async () => {
+    try {
+      recordSpawns({
+        start: () => {
+          throw new Error('no recording');
+        },
+      });
+      expect((await capture(process.execPath, ['-e', 'console.log("started")'], process.env)).stdout.trim()).toBe('started');
+      recordSpawns({
+        start: () => ({
+          data: () => undefined,
+          exit: () => {
+            throw new Error('no end');
+          },
+        }),
+      });
+      const res = await capture(process.execPath, ['-e', 'console.log("ended")'], process.env);
+      expect(res).toMatchObject({ code: 0, stdout: 'ended\n' });
+    } finally {
+      recordSpawns(undefined);
+    }
   });
 });
 

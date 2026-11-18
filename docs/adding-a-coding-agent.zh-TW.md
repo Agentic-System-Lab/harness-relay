@@ -79,6 +79,7 @@
 - `npm run typecheck`、`npm test`、`npm run build`、`npm run test:e2e`（它的假 CLI 的測試、有它的團隊測試，以及設定頁與側邊欄的數量，它們會算進每個 CLI），沙箱相關檔案有改時再跑 `npx tsx scripts/sandbox-check.ts`。改到 `desktop/` 時跑 `npm run desktop:typecheck`。
 - **在 agent 會執行的每個系統上**：macOS、Linux（一台機器，或用 Docker 跑 relay 沙箱：[各平台的作業系統沙箱](sandboxing.zh-TW.md)）、Windows（一台電腦或 VM；那裡用 npm 安裝的 CLI 是 `.cmd` shim，照 `winLaunch.ts` 的方式啟動，Copilot 的 `copilot.cmd` 就是這樣）。在那裡跑測試，以及對真正的 CLI 跑錄製過的情境：工具可能因系統而不同（Muse Code 的 shell 工具在 Windows 上是 `powershell`，其他系統是 `bash`）。
 - 有模型伺服器或登入時跑 `npm run test:e2e:live`。把 CLI 加進 `e2e/live/live.ts`：加到 `CLIS` 的預設清單，並依它能跑在哪裡加到 `ENDPOINT_CLIS`、`OPEN` 或 `CLOUD_CLIS`（Copilot 同時在 `ENDPOINT_CLIS` 與 `CLOUD_CLIS`），實機的模型、團隊、寫入與沙箱測試才會納入它；只有它會做的事，再寫一個它自己的測試（例如 Antigravity 被拒絕後會結束這一輪，或 Copilot 在啟動前先詢問專案的 hook）。
+- **存下新版本將來要比對的東西**（[檢查 CLI 的新版本](developer-guide.zh-TW.md#檢查-cli-的新版本)）：在 `src/shared/cliVersions.ts` 寫下驗證過的版本；把這個 CLI 加進 `scripts/cli-check.ts` 為每個 CLI 保留的清單（`VERSION_SOURCES`：從哪裡讀它的最新版本，照它自己的安裝程式讀的地方；`NOTES_SOURCES`：它的版本說明；`HELP_ARGS`：它的 help 與 adapter 用的子命令；`scenarios.ts` 的 `placement()`：怎麼讓它跑在照腳本回答的模型上，或在 `NO_RUN` 寫明為什麼不能；以及 `obtain.ts` 的 `artifactFor()`：它的版本在各系統上的位置，給 CLI versions workflow 在 Linux 上檢查用）；然後在這個版本上跑 `npx tsx scripts/cli-check.ts probe <cli> --accept` 與 `run <cli> --accept`，存下的形狀（`test/fixtures/cli-check/<cli>/`）跟 adapter 一起提交。每個情境都要先通過：被拒絕的寫入留下了檔案、或受保護檔案的內容到了模型，是 adapter 的漏洞，不是該存下來的形狀。
 
 ## 8. 寫文件，兩種語言
 
@@ -89,3 +90,7 @@
 - 一個（或少數幾個）commit，標題說明使用者得到什麼（`Add Cursor as a fourth coding agent, run over ACP with every command asked below full access`），內文依區域分組：adapter、設定與登入、UI 與 prompt、測試、文件；schema 有沒有變。
 - Pull request 寫明試過哪些真正的 CLI、版本與系統。預期會有好幾輪 review：Cursor 與開源 agent 的工作就經過好幾輪（`close the gaps the review found`），每一輪都在同一個 commit 裡補上測試與文件。
 - 側邊欄或「設定」有明顯變化時，demo 可能要重新錄（`npm run demo`）。
+
+## 它更新的時候
+
+已經加入的 CLI 出了新版本，也用同樣的方式分層檢查，便宜的先跑：`npx tsx scripts/cli-check.ts <cli> --bin <新版本，照第 2 步另外安裝>`，看廠商說改了什麼、它不用 prompt 時怎麼回答、在照腳本回答的模型上跑錄製情境，以及它需要的較慢檢查；開發者指南的[檢查 CLI 的新版本](developer-guide.zh-TW.md#檢查-cli-的新版本)說明每一層做什麼、拿到報告後怎麼做。有新版本出來時，CLI versions workflow 會開一個 issue（標籤 `cli-check`），在 Linux 上拿它和驗證過的版本比較檢查，並把報告貼在那裡：你自己也在能用的每個系統上跑一次檢查。某一層發現的事要回到上面的步驟處理：行為上的改變（拒絕、session、沙箱）從第 3 步開始，錄音與假 CLI 從第 6 步開始；什麼都不剩、也跑過實機測試之後，才把它的版本往前推，連同存下的形狀、使用指南那一行，以及用它重新試過之後，其他說明某個行為是在哪個版本看到的文件（[開源 agent](open-agents.zh-TW.md) 裡它的段落、[各平台的作業系統沙箱](sandboxing.zh-TW.md) 的「已測試的範圍」、網站首頁）。

@@ -115,7 +115,7 @@ Agents can change your files and run commands, so Harness Relay keeps them withi
 | `npm run dev` | For development: the API server (port 8789, auto-restart) and Vite (port 5173) |
 | `npm run format:check`, `npm run typecheck`, `npm test`, `npm run build` | What CI runs for every pull request (`npm run format` formats the code with Prettier) |
 
-The other commands (end-to-end tests, the desktop app, the website, the demo) are in the [developer guide](docs/developer-guide.md#running), with what [CI](docs/developer-guide.md#continuous-integration) runs.
+The other commands (end-to-end tests, the desktop app, the website, the demo, [checking an agent CLI's new version](docs/developer-guide.md#checking-a-clis-new-version)) are in the [developer guide](docs/developer-guide.md#running), with what [CI](docs/developer-guide.md#continuous-integration) runs.
 
 ## Documentation
 

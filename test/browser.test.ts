@@ -808,14 +808,18 @@ describe.skipIf(!chromium)('the browser itself', () => {
       let turn = new AbortController();
       // Ended as the button's request comes, well inside the second and a half a click waits for a page.
       onRequest = (url) => url === '/noop-click' && turn.abort();
-      let clicking = browser.click(ctx({ ...own, signal: turn.signal }), refIn(stay.text, 'button "Stay"'));
+      // Its failure is awaited from the start: the click wakes up to a second after its turn ended, so it
+      // can fail before the wait below has seen the turn end, which left the failure unhandled.
+      const stayed = expect(browser.click(ctx({ ...own, signal: turn.signal }), refIn(stay.text, 'button "Stay"'))).rejects.toThrow(
+        'The turn ended',
+      );
       await vi.waitFor(() => expect(turn.signal.aborted).toBe(true), { timeout: slow(5000) });
       onRequest = undefined;
-      await expect(clicking).rejects.toThrow('The turn ended');
+      await stayed;
       // A page that is there, but never finishes loading.
       const link = await browser.open(ctx(own), `http://127.0.0.1:${port}/never-loads-link`);
       turn = new AbortController();
-      clicking = browser.click(ctx({ ...own, signal: turn.signal }), refIn(link.text, 'link "Never loads"'));
+      const clicking = browser.click(ctx({ ...own, signal: turn.signal }), refIn(link.text, 'link "Never loads"'));
       await vi.waitFor(() => expect(hits).toContain('/hang?from=img'), { timeout: slow(20_000) });
       turn.abort();
       await expect(clicking).rejects.toThrow('The turn ended');

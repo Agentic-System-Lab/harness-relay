@@ -1,0 +1,204 @@
+name: CLI versions
+
+# Every day, whether a newer version of an agent CLI than the one Harness Relay was checked with
+# (src/shared/cliVersions.ts) is out, and the new version checked on Linux (docs/developer-guide.md,
+# "Checking a CLI's new version"):
+# - versions: layer 1 of scripts/cli-check.ts, from the makers' own public sources. It keeps one open
+#   issue labelled cli-check for each CLI that is behind, and lists the new versions whose issue holds
+#   no report yet;
+# - check: for each of them, the new version and the one checked, got apart from where their makers
+#   publish them, layers 2 to 4 of each, the new one compared with the one checked as it ran here
+#   (scripts/cli-check/ci.ts). It runs what it downloads, so it gets a token that reads only, and every
+#   CLI runs in scratch folders with none of the job's variables;
+# - report: each check's report posted to its CLI's issue, once.
+# A pull request that changes the check runs the checks for every CLI's newest version, and posts nothing.
+on:
+  schedule:
+    # 09:23 in Taiwan.
+    - cron: '23 1 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/cli-check.ts'
+      - 'scripts/cli-check/**'
+      - 'src/shared/cliVersions.ts'
+      - '.github/workflows/cli-versions.yml'
+
+# Each job asks for what it needs; none by default.
+permissions: {}
+
+# One run at a time, so that two never open the same issue; a pull request's newer push replaces its run.
+concurrency:
+  group: cli-versions-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  versions:
+    name: Agent CLIs' newest versions
+    # Not in a fork: its issues are not the project's. Not for a pull request: the next job.
+    if: github.repository == 'Agentic-System-Lab/harness-relay' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      count: ${{ steps.matrix.outputs.count }}
+    steps:
+      # Its token, which can write issues, is not left in .git/config for what npm ci runs.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # The token reads GitHub's releases (a higher rate limit) and keeps the issues, through gh.
+      - name: Compare and keep the issues
+        run: npx tsx scripts/cli-check.ts versions --issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: The new versions to check
+        id: matrix
+        run: npx tsx scripts/cli-check/ci.ts matrix
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+
+  # On a pull request that changes the check: every CLI's newest version, with a token that reads only.
+  newest:
+    name: Agent CLIs' newest versions (pull request)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      count: ${{ steps.matrix.outputs.count }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: The newest versions
+        id: matrix
+        run: npx tsx scripts/cli-check/ci.ts matrix
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  check:
+    name: Check ${{ matrix.cli }} ${{ matrix.version }}
+    needs: [versions, newest]
+    # One of the two jobs before ran (the other was skipped) and found something to check.
+    if: ${{ !cancelled() && (needs.versions.outputs.count || needs.newest.outputs.count || '0') != '0' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # It runs the CLIs it downloads: its token reads only, and it has no secret.
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.versions.outputs.matrix || needs.newest.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # The sandboxes the CLIs run in below full access (docs/sandboxing.md): Harness Relay's own
+      # (bubblewrap, socat, ripgrep), with the AppArmor profile Ubuntu 23.10 and later need for
+      # /usr/bin/bwrap; Copilot's and Muse Code's, which bring a bubblewrap of their own and need
+      # unprivileged user and network namespaces, which Ubuntu restricts by default (Copilot's also
+      # slirp4netns); uv for OpenHands.
+      - name: Set up the sandboxes
+        run: |
+          missing=$(for p in bubblewrap socat ripgrep slirp4netns; do dpkg -s "$p" >/dev/null 2>&1 || echo "$p"; done)
+          if [ -n "$missing" ]; then sudo apt-get update -q && sudo apt-get install -y -q $missing; fi
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
+            sudo tee /etc/apparmor.d/bwrap > /dev/null <<'EOF'
+          abi <abi/4.0>,
+          include <tunables/global>
+
+          profile bwrap /usr/bin/bwrap flags=(unconfined) {
+            userns,
+            include if exists <local/bwrap>
+          }
+          EOF
+            sudo apparmor_parser -r /etc/apparmor.d/bwrap
+          fi
+          bwrap --ro-bind / / true && echo "bubblewrap works"
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          pipx install uv
+
+      # The values go through the environment, never into the script's text.
+      - name: Check it
+        run: npx tsx scripts/cli-check/ci.ts check "$CLI" "$VERSION"
+        env:
+          CLI: ${{ matrix.cli }}
+          VERSION: ${{ matrix.version }}
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: cli-check-${{ matrix.cli }}
+          path: ${{ runner.temp }}/cli-check-${{ matrix.cli }}/report.json
+          if-no-files-found: ignore
+
+  report:
+    name: Post the reports
+    needs: [versions, check]
+    if: ${{ !cancelled() && needs.versions.result == 'success' && needs.versions.outputs.count != '0' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: cli-check-*
+          path: ${{ runner.temp }}/reports
+
+      - name: Post them to the issues
+        run: npx tsx scripts/cli-check/ci.ts report "$RUNNER_TEMP/reports"
+        env:
+          GH_TOKEN: ${{ github.token }}

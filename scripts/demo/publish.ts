@@ -16,7 +16,10 @@ const GUIDELINES = 'site/DESIGN-GUIDELINES.md';
 
 /** The design guidelines with the poster's frame time for `lang` brought up to date. */
 export function retimeGuidelines(md: string, lang: DemoLang, at: number): string {
-  const re = new RegExp(`(Frame at )\\d+:\\d+(?:\\.\\d+)?( of \`docs/media/demo-${lang.replace('-', '\\-')}\\.mp4\`)`, 'g');
+  const re = new RegExp(
+    `(Frame at )\\d+:\\d+(?:\\.\\d+)?( of \`docs/media/demo-${lang.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.mp4\`)`,
+    'g',
+  );
   return md.replace(re, `$1${stamp(at)}$2`);
 }
 
