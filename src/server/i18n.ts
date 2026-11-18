@@ -546,7 +546,7 @@ const zhTW = {
   mcpNoEndpoints: (issuer: string) => `授權伺服器 ${issuer} 的中繼資料沒有授權或權杖端點`,
   mcpNoPkce: (issuer: string) => `授權伺服器 ${issuer} 不支援 S256 的 PKCE，而 Harness Relay 一定要用它`,
   mcpNoRegistration: (issuer: string) =>
-    `授權伺服器 ${issuer} 不能動態註冊用戶端：這個伺服器需要手動註冊的用戶端，Harness Relay 目前還不支援`,
+    `授權伺服器 ${issuer} 不讓 Harness Relay 自己註冊（它不支援動態用戶端註冊），所以 Harness Relay 目前還不能登入它。如果這個服務提供存取權杖（例如 GitHub 的 personal access token），請按「編輯」，加一個 HTTP 標頭：名稱填 Authorization，值填 Bearer <你的權杖>`,
   mcpRegistrationFailed: (issuer: string, why: string) => `在 ${issuer} 註冊用戶端被拒絕了：${why}`,
   mcpSignInNotHttp: (name: string) => `MCP 伺服器「${name}」不是 HTTP 伺服器：只有 HTTP 的 MCP 伺服器能登入`,
   mcpSignInCannotStart: (name: string, why: string) => `無法開始 MCP 伺服器「${name}」的登入：${why}`,
@@ -1397,7 +1397,7 @@ const en: ServerMessages = {
   mcpNoEndpoints: (issuer) => `the metadata of the authorization server ${issuer} has no authorization or token endpoint`,
   mcpNoPkce: (issuer) => `the authorization server ${issuer} does not support PKCE with S256, which Harness Relay requires`,
   mcpNoRegistration: (issuer) =>
-    `the authorization server ${issuer} has no dynamic client registration: the server needs a client registered by hand, which Harness Relay does not take yet`,
+    `the authorization server ${issuer} does not let Harness Relay register itself (it has no dynamic client registration), so Harness Relay cannot sign in to it yet. If the service gives you an access token (a GitHub personal access token, say), click Edit and add the HTTP header Authorization with the value Bearer <your token>`,
   mcpRegistrationFailed: (issuer, why) => `registering a client at ${issuer} was refused: ${why}`,
   mcpSignInNotHttp: (name) => `The MCP server "${name}" is not an HTTP server: only HTTP MCP servers sign in`,
   mcpSignInCannotStart: (name, why) => `The sign-in of the MCP server "${name}" could not start: ${why}`,

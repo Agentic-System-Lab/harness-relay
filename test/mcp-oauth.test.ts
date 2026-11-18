@@ -200,7 +200,10 @@ describe('discovery', () => {
       await expect(discoverMcpAuth(fake.mcpUrl)).rejects.toThrow('does not support PKCE with S256');
       fake.pkce = true;
       fake.registration = false;
-      await expect(discoverMcpAuth(fake.mcpUrl)).rejects.toThrow('needs a client registered by hand');
+      // It says how to use the server all the same: a token of the service's own in its headers.
+      await expect(discoverMcpAuth(fake.mcpUrl)).rejects.toThrow(
+        /does not let Harness Relay register itself[\s\S]*click Edit and add the HTTP header Authorization with the value Bearer <your token>/,
+      );
       fake.registration = true;
       fake.resource = 'https://elsewhere.example/mcp';
       await expect(discoverMcpAuth(fake.mcpUrl)).rejects.toThrow('its metadata is for another resource');
