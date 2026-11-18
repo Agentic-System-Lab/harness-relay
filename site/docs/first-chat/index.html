@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Your first chat · Harness Relay docs</title>
+    <meta
+      name="description"
+      content="Harness Relay docs: start a chat, ask your question, confirm the team the lead agent designs, talk with it while it works, and read its review."
+    />
+    <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/docs/first-chat/" />
+    <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/first-chat/" />
+    <link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/first-chat/" />
+    <link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/first-chat/" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141415" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Harness Relay" />
+    <meta property="og:title" content="Your first chat · Harness Relay docs" />
+    <meta
+      property="og:description"
+      content="Your first chat in Harness Relay: choose the folder and the permission, ask, confirm the team the lead agent designs, add to the discussion while the agents reply, answer their questions, and read the lead agent's review of their replies."
+    />
+    <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/first-chat/" />
+    <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="zh_TW" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="../../favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="../../assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="../../assets/site.css" />
+    <script>
+      document.documentElement.classList.add('js');
+      // The theme the visitor picked with the theme button (assets/theme.js), set before anything is drawn
+      // so that it does not flash. Until they pick one, the page follows the system's light or dark mode.
+      try {
+        var theme = localStorage.getItem('harness-relay.theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {}
+      // Show the language the visitor picked last time. Before they pick one, follow the
+      // browser like the app does: Chinese gets the Traditional Chinese page.
+      try {
+        var lang = localStorage.getItem('harness-relay.lang');
+        var browserZh = /^zh/i.test((navigator.languages || [])[0] || navigator.language || '');
+        if (lang === 'zh-TW' || (!lang && browserZh)) location.replace('../../zh-TW/docs/first-chat/' + location.hash);
+      } catch (e) {}
+    </script>
+    <script src="../../assets/site.js" defer></script>
+    <script type="module" src="../../assets/theme.js"></script>
+    <!-- What search and answer engines read about the page (test/site-docs.test.ts keeps it in step with the page). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "@id": "https://agentic-system-lab.github.io/harness-relay/docs/first-chat/#webpage",
+        "url": "https://agentic-system-lab.github.io/harness-relay/docs/first-chat/",
+        "name": "Your first chat · Harness Relay docs",
+        "description": "Harness Relay docs: start a chat, ask your question, confirm the team the lead agent designs, talk with it while it works, and read its review.",
+        "inLanguage": "en",
+        "isPartOf": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
+        },
+        "about": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#app"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-github" viewBox="0 0 16 16">
+          <path
+            fill="currentColor"
+            d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+          />
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+          <path d="M12 3.86 14.22 9.8l6.34.28-4.97 3.95 1.7 6.11L12 16.64l-5.29 3.5 1.7-6.11-4.97-3.95 6.34-.28Z" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2.75v1.5M12 19.75v1.5M2.75 12h1.5M19.75 12h1.5M5.46 5.46l1.06 1.06M17.48 17.48l1.06 1.06M5.46 18.54l1.06-1.06M17.48 6.52l1.06-1.06" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 13.6A8 8 0 1 1 10.4 4a6.25 6.25 0 0 0 9.6 9.6Z" />
+        </symbol>
+        <symbol id="i-mark" viewBox="0 0 32 32">
+          <circle cx="9" cy="16" r="6" fill="#d97757" />
+          <circle cx="23" cy="10" r="5" fill="#10a37f" />
+          <circle cx="23" cy="23" r="5" fill="#7c5cff" />
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6.5 9.5 5.5 5.5 5.5-5.5" />
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.75" />
+          <path d="M12 11v5.5M12 7.6v.1" />
+        </symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M12 2.5c.8 5.9 3.6 8.7 9.5 9.5-5.9.8-8.7 3.6-9.5 9.5-.8-5.9-3.6-8.7-9.5-9.5 5.9-.8 8.7-3.6 9.5-9.5Z" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.7 7 9 4.1-1.3 7-4.7 7-9V6.2Z" />
+          <path d="m9 12 2.2 2.2L15.2 10" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
+        </symbol>
+        <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+        </symbol>
+        <symbol id="i-os-win" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+          <path d="M12 4.5v15M3.5 12h17" />
+        </symbol>
+        <symbol id="i-os-linux" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3c-2.3 0-3.6 1.9-3.6 4.4 0 1.5.4 2.4-.7 3.8C6.4 12.9 5.4 14.8 5.4 17c0 2.6 2.9 4 6.6 4s6.6-1.4 6.6-4c0-2.2-1-4.1-2.3-5.8-1.1-1.4-.7-2.3-.7-3.8C15.6 4.9 14.3 3 12 3Z" />
+          <path d="M9.6 14.6c0-1.6 1-2.7 2.4-2.7s2.4 1.1 2.4 2.7v1.6c0 1.5-1 2.6-2.4 2.6s-2.4-1.1-2.4-2.6Z" />
+          <path d="M10.6 9.2 12 10.3l1.4-1.1" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="wrap header-row">
+        <a class="brand" href="../../" aria-label="Harness Relay, home">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="site-nav" aria-label="Sections">
+          <a href="../../#demo">Demo</a>
+          <a href="../../use-cases/">Use cases</a>
+          <a href="../../#modes">Modes</a>
+          <a href="../../#teams">Teams</a>
+          <a href="../../#safety">Safety</a>
+          <a href="../../#start">Quick start</a>
+          <a href="../" aria-current="true">Docs</a>
+        </nav>
+        <div class="header-tools">
+          <nav class="lang" aria-label="Language">
+            <a href="./" hreflang="en" lang="en" aria-current="page" data-lang="en">EN</a>
+            <a href="../../zh-TW/docs/first-chat/" hreflang="zh-TW" lang="zh-Hant-TW" data-lang="zh-TW">中文</a>
+          </nav>
+          <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            <span class="gh-label">GitHub</span>
+            <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> stars</span></span>
+          </a>
+          <button class="btn btn-ghost theme-toggle" type="button" data-theme-toggle data-to-dark="Switch to dark theme" data-to-light="Switch to light theme" aria-label="Switch to dark theme">
+            <svg class="i-moon" aria-hidden="true"><use href="#i-moon" /></svg>
+            <svg class="i-sun" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="wrap doc-layout">
+      <nav class="doc-nav" aria-label="Docs" data-doc-nav>
+        <button class="doc-nav-toggle" type="button" aria-expanded="false" aria-controls="doc-pages" data-doc-nav-toggle>
+          <span>Docs</span>
+          <b>Your first chat</b>
+          <svg aria-hidden="true"><use href="#i-chevron" /></svg>
+        </button>
+        <div class="doc-nav-list" id="doc-pages">
+          <p class="doc-nav-title">Get started</p>
+          <ul>
+            <li><a href="../">Overview</a></li>
+            <li><a href="../install/">Install</a></li>
+            <li><a href="../agents/">Connect your agents</a></li>
+            <li><a href="../first-chat/" aria-current="page">Your first chat</a></li>
+          </ul>
+          <p class="doc-nav-title">Work with the team</p>
+          <ul>
+            <li><a href="../teams/">Teams and modes</a></li>
+            <li><a href="../permissions/">Permissions and approvals</a></li>
+            <li><a href="../conversations/">Conversations</a></li>
+            <li><a href="../automations/">Automations</a></li>
+            <li><a href="../tools/">Tools</a></li>
+          </ul>
+          <p class="doc-nav-title">More</p>
+          <ul>
+            <li><a href="../phone/">Use it from your phone</a></li>
+            <li><a href="../troubleshooting/">Troubleshooting</a></li>
+          </ul>
+          <a class="doc-nav-out" href="https://github.com/Agentic-System-Lab/harness-relay#documentation">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            Technical docs on GitHub
+          </a>
+        </div>
+      </nav>
+
+      <header class="doc-head">
+        <h1>Your first chat</h1>
+        <p class="lead">
+          Start a chat, ask your question and confirm the team: the agents answer in the same chat, and you can join in
+          at any time. This page walks through one question from start to finish.
+        </p>
+      </header>
+
+      <nav class="doc-toc" aria-label="On this page">
+        <p class="doc-toc-title">On this page</p>
+        <ol>
+          <li><a href="#new-chat">Start a new chat</a></li>
+          <li><a href="#ask">Ask your question</a></li>
+          <li><a href="#team-design">Confirm the team</a></li>
+          <li><a href="#while-they-work">While the team works</a></li>
+          <li><a href="#questions">When an agent asks you</a></li>
+          <li><a href="#lead-review">The lead agent's review</a></li>
+        </ol>
+      </nav>
+
+      <div class="doc-body">
+        <section id="new-chat" aria-labelledby="new-chat-title">
+          <h2 id="new-chat-title">Start a new chat</h2>
+          <p>
+            Click <b>New chat</b> at the top of the sidebar. The page that opens shows your templates, then the
+            <b>Conversation rules</b>, where you decide where the team works and what it may do. You don't choose a team
+            here: the lead agent designs one for each question.
+          </p>
+          <ul>
+            <li>
+              <b>Working directories</b>: the folder the agents work in. Type a path and press <kbd>Enter</kbd>, pick one
+              you used before from the list, or, in a browser on the computer that runs Harness Relay, use the folder button to choose it in your system's own dialog. You can
+              add up to eight; the agents start in the first. If a folder does not exist yet, Harness Relay asks whether
+              to create it.
+            </li>
+            <li>
+              <b>File permission</b>: what every agent may do without asking you: <b>Read-only</b>, <b>Edit</b> or
+              <b>Full access</b>. If you are not sure, start with read-only. <a href="../permissions/#levels">What each level allows</a>
+            </li>
+            <li>
+              <b>Actions beyond the permission</b>: <b>Ask me</b> (the chat asks you, and the agent waits) or
+              <b>Refuse automatically</b> (the agent is told no, and tries another way).
+            </li>
+            <li>
+              <b>Use the lead agent's team without asking me</b>: leave it unticked to confirm each team before it
+              answers. The page remembers your choice.
+            </li>
+            <li>
+              <b>Have the lead agent review the team's replies</b>: ticked in every new chat. Once the team has
+              answered, the lead agent reads the replies and points out what to check (see
+              <a href="#lead-review">below</a>).
+            </li>
+          </ul>
+          <p>Then click <b>Start chat</b> and type your first question.</p>
+          <figure class="doc-figure">
+            <img
+              src="../../assets/media/docs/first-chat-new-chat-en.webp"
+              width="1280"
+              height="800"
+              alt="The New chat page in Harness Relay: under Conversation rules, the box Use the lead agent's team without asking me is unticked, Have the lead agent review the team's replies is ticked, the working directory is a folder named bill-split, the file permission is being set to Edit, actions beyond the permission are set to Ask me, and the Start chat button is at the bottom right."
+              loading="lazy"
+            />
+            <figcaption>
+              The New chat page's conversation rules, from the use case
+              <a href="../../use-cases/#fix-a-bug">Fix a bug three ways, keep the best one</a>.
+            </figcaption>
+          </figure>
+        </section>
+
+        <section id="ask" aria-labelledby="ask-title">
+          <h2 id="ask-title">Ask your question</h2>
+          <p>
+            Write your question as you would to a colleague: what you need, what you have tried, and what a good answer
+            looks like. <kbd>Enter</kbd> sends it, and <kbd>Shift</kbd>+<kbd>Enter</kbd> starts a new line. On a phone
+            or tablet, <kbd>Enter</kbd> starts a new line and the arrow button sends.
+          </p>
+          <ul>
+            <li>
+              <b>Attach files</b>: paste a screenshot straight into the message box, drag files onto it, or click the
+              paper clip. Up to 10 files of 20 MB each go with a message. Every agent that reads it can open them, and
+              it sees the images too.
+            </li>
+            <li>
+              <b>Address members</b>: type <code>@</code> to pick a teammate. When your message mentions members, only
+              they reply; without a mention, the whole team takes part.
+            </li>
+            <li>
+              <b>Speak instead of typing</b>: press the microphone button next to the send button, speak, and press it
+              again. The text appears in the message box for you to fix and send. It is turned into text on your
+              computer, and the recording is never uploaded; the first time, a dialog explains what it downloads.
+            </li>
+          </ul>
+        </section>
+
+        <section id="team-design" aria-labelledby="team-design-title">
+          <h2 id="team-design-title">Confirm the team</h2>
+          <p>
+            Before anyone answers, the lead agent reads your question and puts a <b>Team design</b> card in the chat:
+            the team it chose (the current team, one of your templates, a template it adapted, or a new team), why, and
+            each member's role. Until you answer it, the sidebar marks the chat <b>Confirm the team</b>.
+          </p>
+          <ul>
+            <li><b>Confirm team</b>: the team starts on your question.</li>
+            <li>
+              <b>Adjust team</b>: opens the team settings, where you change members, roles or the mode yourself, or ask
+              the lead agent to. Saving there confirms the team.
+            </li>
+            <li>
+              <b>No, keep the current team</b>: the team you already had answers instead. It is not offered for the
+              first question.
+            </li>
+            <li>
+              <b>Save as template</b>: keep a team the lead agent designed or adapted, so it can pick it again later.
+            </li>
+          </ul>
+          <p>
+            Whatever you write while the card waits goes to the team together with your question. Only new questions
+            get a new design: an answer to an agent's question, a message that <code>@mentions</code> members, and
+            <b>Continue</b> go to the team you have. <a href="../teams/#auto-team">How the lead agent chooses</a>
+          </p>
+        </section>
+
+        <section id="while-they-work" aria-labelledby="while-they-work-title">
+          <h2 id="while-they-work-title">While the team works</h2>
+          <p>
+            Replies appear as they are written, and the chips under the chat's title show who is speaking. The steps an
+            agent takes (reading files, running commands) and its thinking between them are folded into one row under
+            its name, such as <b>5 actions · 4 thoughts</b>; open it to see every step, and what failed or was refused.
+            Each reply shows how long it took, and its cost and tokens when the agent reports them.
+          </p>
+          <ul>
+            <li>
+              <b>Add to the discussion</b>: the message box stays open. <kbd>Enter</kbd> puts your message in a tray
+              above the box, and it reaches the next agent before its turn. Until then you can <b>Edit</b> it or
+              <b>Withdraw</b> it; once delivered, it is marked <b>Added mid-reply</b>.
+            </li>
+            <li>
+              <b>Stop and ask this instead</b>: <kbd>⌘</kbd>+<kbd>Enter</kbd> (<kbd>Ctrl</kbd>+<kbd>Enter</kbd> on
+              Windows and Linux) stops the team and sends your message right away.
+            </li>
+            <li>
+              <b>Stop</b> ends the current run. Messages still waiting stay in the tray, marked <b>Not delivered yet</b>,
+              to send, edit or withdraw.
+            </li>
+            <li>
+              <b>Continue</b> lets the team go on without a new message: another set of rounds, or another relay. It is
+              handy when a relay reached its limit of hand-offs.
+            </li>
+          </ul>
+          <p>
+            An agent with nothing to add says so with <code>[PASS]</code>, shown dimmed as <i>Nothing to add (PASS)</i>.
+            When an agent wants to do something its permission does not cover, its reply shows an approval card and it
+            waits for you: see <a href="../permissions/#approvals">Approvals</a>.
+          </p>
+        </section>
+
+        <section id="questions" aria-labelledby="questions-title">
+          <h2 id="questions-title">When an agent asks you</h2>
+          <p>
+            When a good answer depends on something only you know, such as your situation, your goal or what you prefer,
+            an agent asks you instead of guessing. The team stops: nobody else speaks, the question is marked
+            <b>Waiting for your answer</b> and the sidebar shows <b>Answer needed</b>.
+          </p>
+          <p>
+            Reply in the message box. The agent that asked answers first, with your answer in hand, then the rest of the
+            team goes on. To let them go on without your answer, press <b>Skip question</b> (or
+            <b>Skip, let the team go on</b> under the question).
+          </p>
+        </section>
+
+        <section id="lead-review" aria-labelledby="lead-review-title">
+          <h2 id="lead-review-title">The lead agent's review</h2>
+          <p>
+            With lead review on, the lead agent reads the team's new replies once they are done and adds a
+            <b>Lead agent's review</b> card after them:
+          </p>
+          <ul>
+            <li>A summary of where the team got to.</li>
+            <li>
+              <b>Look closely</b>: the places that need your attention, each marked <b>Risk</b>, <b>Your call</b>,
+              <b>Disagreement</b>, <b>Check this</b> or <b>Note</b>, with the member's words it is about. Click the
+              member's name to jump to those words, which are also marked in the reply itself.
+            </li>
+            <li>
+              <b>Suggested next steps</b>, the most important first: what only you can do, and what the team can do
+              next. <b>Ask the team</b> puts that step's message in the message box, for you to change or send.
+            </li>
+          </ul>
+          <figure class="doc-figure">
+            <img
+              src="../../assets/media/docs/first-chat-review-en.webp"
+              width="1280"
+              height="800"
+              alt="A Lead agent's review card under the team's replies: a summary paragraph, then Look closely with points marked Check this and Disagreement, each naming @Claude_Synthesizer, quoting the words of its reply and saying why they need a check."
+              loading="lazy"
+            />
+            <figcaption>
+              The lead agent's review, from the use case
+              <a href="../../use-cases/#literature-review">What the research says, with every source</a>.
+            </figcaption>
+          </figure>
+          <p>
+            The lead agent only reads: it changes no file, and the agents never see its review. Each review is one more
+            run of the lead agent's coding agent, and the chat stays busy until it ends; sending a message stops the
+            review and goes at once. To turn it off for a chat, untick <b>Have the lead agent review the team's replies</b>
+            in <b>Team settings</b>, or on the latest team design card.
+          </p>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-spark" /></svg>
+            <div>
+              <p>
+                <b>Tip:</b> to try another direction without losing this one, branch the conversation from a reply:
+                see <a href="../conversations/">Conversations</a>.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <aside class="doc-more" aria-label="Technical details">
+          <svg aria-hidden="true"><use href="#i-github" /></svg>
+          <div>
+            <p>Every detail of a chat (attachments, streaming, the review's timing and cost) is in the user guide on GitHub:</p>
+            <ul>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#3-start-a-chat--new-chat-and-templates">Start a chat</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#4-chat">Chat</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#lead-review">Lead review</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#voice-input">Voice input</a></li>
+            </ul>
+          </div>
+        </aside>
+
+        <nav class="doc-pager" aria-label="Pages">
+          <a href="../agents/" rel="prev"><span>Previous</span><b>Connect your agents</b></a>
+          <a href="../teams/" rel="next"><span>Next</span><b>Teams and modes</b></a>
+        </nav>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-row">
+        <a class="brand" href="../../" aria-label="Harness Relay, home">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="footer-links" aria-label="Footer">
+          <a href="../">Docs</a>
+          <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE">Sustainable Use License</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

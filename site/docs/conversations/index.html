@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Your conversations · Harness Relay docs</title>
+    <meta
+      name="description"
+      content="Harness Relay docs: keep your conversations in order with pins, groups and search, branch a chat, browse its files, share it, and get notified."
+    />
+    <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/docs/conversations/" />
+    <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/conversations/" />
+    <link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/conversations/" />
+    <link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/conversations/" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141415" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Harness Relay" />
+    <meta property="og:title" content="Your conversations · Harness Relay docs" />
+    <meta
+      property="og:description"
+      content="How to find, pin, group and search your Harness Relay conversations, branch one to try another way, browse and download the files the agents made, share a conversation as a link, and be told when the team is done or needs you."
+    />
+    <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/conversations/" />
+    <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="zh_TW" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="../../favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="../../assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="../../assets/site.css" />
+    <script>
+      document.documentElement.classList.add('js');
+      // The theme the visitor picked with the theme button (assets/theme.js), set before anything is drawn
+      // so that it does not flash. Until they pick one, the page follows the system's light or dark mode.
+      try {
+        var theme = localStorage.getItem('harness-relay.theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {}
+      // Show the language the visitor picked last time. Before they pick one, follow the
+      // browser like the app does: Chinese gets the Traditional Chinese page.
+      try {
+        var lang = localStorage.getItem('harness-relay.lang');
+        var browserZh = /^zh/i.test((navigator.languages || [])[0] || navigator.language || '');
+        if (lang === 'zh-TW' || (!lang && browserZh)) location.replace('../../zh-TW/docs/conversations/' + location.hash);
+      } catch (e) {}
+    </script>
+    <script src="../../assets/site.js" defer></script>
+    <script type="module" src="../../assets/theme.js"></script>
+    <!-- What search and answer engines read about the page (test/site-docs.test.ts keeps it in step with the page). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "@id": "https://agentic-system-lab.github.io/harness-relay/docs/conversations/#webpage",
+        "url": "https://agentic-system-lab.github.io/harness-relay/docs/conversations/",
+        "name": "Your conversations · Harness Relay docs",
+        "description": "Harness Relay docs: keep your conversations in order with pins, groups and search, branch a chat, browse its files, share it, and get notified.",
+        "inLanguage": "en",
+        "isPartOf": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
+        },
+        "about": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#app"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-github" viewBox="0 0 16 16">
+          <path
+            fill="currentColor"
+            d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+          />
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+          <path d="M12 3.86 14.22 9.8l6.34.28-4.97 3.95 1.7 6.11L12 16.64l-5.29 3.5 1.7-6.11-4.97-3.95 6.34-.28Z" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2.75v1.5M12 19.75v1.5M2.75 12h1.5M19.75 12h1.5M5.46 5.46l1.06 1.06M17.48 17.48l1.06 1.06M5.46 18.54l1.06-1.06M17.48 6.52l1.06-1.06" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 13.6A8 8 0 1 1 10.4 4a6.25 6.25 0 0 0 9.6 9.6Z" />
+        </symbol>
+        <symbol id="i-mark" viewBox="0 0 32 32">
+          <circle cx="9" cy="16" r="6" fill="#d97757" />
+          <circle cx="23" cy="10" r="5" fill="#10a37f" />
+          <circle cx="23" cy="23" r="5" fill="#7c5cff" />
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6.5 9.5 5.5 5.5 5.5-5.5" />
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.75" />
+          <path d="M12 11v5.5M12 7.6v.1" />
+        </symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M12 2.5c.8 5.9 3.6 8.7 9.5 9.5-5.9.8-8.7 3.6-9.5 9.5-.8-5.9-3.6-8.7-9.5-9.5 5.9-.8 8.7-3.6 9.5-9.5Z" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.7 7 9 4.1-1.3 7-4.7 7-9V6.2Z" />
+          <path d="m9 12 2.2 2.2L15.2 10" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
+        </symbol>
+        <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+        </symbol>
+        <symbol id="i-os-win" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+          <path d="M12 4.5v15M3.5 12h17" />
+        </symbol>
+        <symbol id="i-os-linux" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3c-2.3 0-3.6 1.9-3.6 4.4 0 1.5.4 2.4-.7 3.8C6.4 12.9 5.4 14.8 5.4 17c0 2.6 2.9 4 6.6 4s6.6-1.4 6.6-4c0-2.2-1-4.1-2.3-5.8-1.1-1.4-.7-2.3-.7-3.8C15.6 4.9 14.3 3 12 3Z" />
+          <path d="M9.6 14.6c0-1.6 1-2.7 2.4-2.7s2.4 1.1 2.4 2.7v1.6c0 1.5-1 2.6-2.4 2.6s-2.4-1.1-2.4-2.6Z" />
+          <path d="M10.6 9.2 12 10.3l1.4-1.1" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="wrap header-row">
+        <a class="brand" href="../../" aria-label="Harness Relay, home">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="site-nav" aria-label="Sections">
+          <a href="../../#demo">Demo</a>
+          <a href="../../use-cases/">Use cases</a>
+          <a href="../../#modes">Modes</a>
+          <a href="../../#teams">Teams</a>
+          <a href="../../#safety">Safety</a>
+          <a href="../../#start">Quick start</a>
+          <a href="../" aria-current="true">Docs</a>
+        </nav>
+        <div class="header-tools">
+          <nav class="lang" aria-label="Language">
+            <a href="./" hreflang="en" lang="en" aria-current="page" data-lang="en">EN</a>
+            <a href="../../zh-TW/docs/conversations/" hreflang="zh-TW" lang="zh-Hant-TW" data-lang="zh-TW">中文</a>
+          </nav>
+          <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            <span class="gh-label">GitHub</span>
+            <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> stars</span></span>
+          </a>
+          <button class="btn btn-ghost theme-toggle" type="button" data-theme-toggle data-to-dark="Switch to dark theme" data-to-light="Switch to light theme" aria-label="Switch to dark theme">
+            <svg class="i-moon" aria-hidden="true"><use href="#i-moon" /></svg>
+            <svg class="i-sun" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="wrap doc-layout">
+      <nav class="doc-nav" aria-label="Docs" data-doc-nav>
+        <button class="doc-nav-toggle" type="button" aria-expanded="false" aria-controls="doc-pages" data-doc-nav-toggle>
+          <span>Docs</span>
+          <b>Conversations</b>
+          <svg aria-hidden="true"><use href="#i-chevron" /></svg>
+        </button>
+        <div class="doc-nav-list" id="doc-pages">
+          <p class="doc-nav-title">Get started</p>
+          <ul>
+            <li><a href="../">Overview</a></li>
+            <li><a href="../install/">Install</a></li>
+            <li><a href="../agents/">Connect your agents</a></li>
+            <li><a href="../first-chat/">Your first chat</a></li>
+          </ul>
+          <p class="doc-nav-title">Work with the team</p>
+          <ul>
+            <li><a href="../teams/">Teams and modes</a></li>
+            <li><a href="../permissions/">Permissions and approvals</a></li>
+            <li><a href="../conversations/" aria-current="page">Conversations</a></li>
+            <li><a href="../automations/">Automations</a></li>
+            <li><a href="../tools/">Tools</a></li>
+          </ul>
+          <p class="doc-nav-title">More</p>
+          <ul>
+            <li><a href="../phone/">Use it from your phone</a></li>
+            <li><a href="../troubleshooting/">Troubleshooting</a></li>
+          </ul>
+          <a class="doc-nav-out" href="https://github.com/Agentic-System-Lab/harness-relay#documentation">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            Technical docs on GitHub
+          </a>
+        </div>
+      </nav>
+
+      <header class="doc-head">
+        <h1>Your conversations</h1>
+        <p class="lead">
+          Everything the team says stays in its conversation, listed in the sidebar. This page shows how to keep them
+          in order, go back and try another way, look at the files the agents made, share a conversation, and be told
+          when the team is done or needs you.
+        </p>
+      </header>
+
+      <nav class="doc-toc" aria-label="On this page">
+        <p class="doc-toc-title">On this page</p>
+        <ol>
+          <li><a href="#list">The conversation list</a></li>
+          <li><a href="#organize">Pin, group and search</a></li>
+          <li><a href="#messages">Copy, edit, retry and branch</a></li>
+          <li><a href="#files">Browse the files</a></li>
+          <li><a href="#share">Share a conversation</a></li>
+          <li><a href="#notifications">Notifications</a></li>
+        </ol>
+      </nav>
+
+      <div class="doc-body">
+        <section id="list" aria-labelledby="list-title">
+          <h2 id="list-title">The conversation list</h2>
+          <p>
+            The sidebar lists your conversations, newest first. Each one keeps running when you switch to another or
+            close the tab, and a badge under its title says where it stands:
+          </p>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">Badge</th>
+                <th scope="col">What it means</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Needs you</th>
+                <td>An agent is waiting for your approval.</td>
+              </tr>
+              <tr>
+                <th scope="row">Confirm the team</th>
+                <td>The lead agent designed a team for your question. Confirm it and the team answers.</td>
+              </tr>
+              <tr>
+                <th scope="row">Answer needed</th>
+                <td>An agent asked you something, and the team waits for your answer.</td>
+              </tr>
+              <tr>
+                <th scope="row">Goal held up</th>
+                <td>The goal an <a href="../automations/">automation</a> tracks is held up, and the latest reply says what it needs from you.</td>
+              </tr>
+              <tr>
+                <th scope="row">Replying</th>
+                <td>The team is working.</td>
+              </tr>
+              <tr>
+                <th scope="row">New reply</th>
+                <td>It finished while you were looking at something else.</td>
+              </tr>
+              <tr>
+                <th scope="row">Error</th>
+                <td>The last reply ended with an error you have not looked at yet.</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            A clock before the time means the conversation has an automation. Point at it to see the next time; it turns
+            amber when the last time was not sent, or its last check failed.
+          </p>
+          <ul>
+            <li><b>Rename</b> a conversation: click its title at the top of the chat.</li>
+            <li>
+              <b>Delete</b> one: point at it in the sidebar and click ×. Conversations branched from it stay.
+            </li>
+            <li>
+              <b>Make room</b>: the panel button next to <b>Harness Relay</b> at the top of the sidebar collapses it, and the
+              button left in the corner brings it back. This browser remembers the choice.
+            </li>
+          </ul>
+          <p>
+            On a phone, the sidebar is a drawer: open it with the menu button, or swipe right anywhere on the page, and
+            swipe left to close it. See <a href="../phone/">Use it from your phone</a>.
+          </p>
+        </section>
+
+        <section id="organize" aria-labelledby="organize-title">
+          <h2 id="organize-title">Pin, group and search</h2>
+          <h3>Pin a conversation</h3>
+          <p>
+            Point at a conversation and click the pin at its top-left corner (on a phone or tablet the pin is always
+            there). It is then listed under <b>Pinned</b>, above your groups, and stays in its group too. Click the yellow
+            pin to unpin it. Pins are the same in every browser you use.
+          </p>
+          <h3>Groups</h3>
+          <ul>
+            <li>
+              <b>Make a group</b>: click <b>New group</b>, the folder button beside <b>Search</b>, type a name and press
+              <kbd>Enter</kbd>.
+            </li>
+            <li>
+              <b>Move a conversation</b>: drag it onto a group, or point at it, click its folder button and pick a group.
+              On a phone or tablet, use the folder button.
+            </li>
+            <li>
+              <b>Other</b> comes last and always exists: conversations in no group are there. Deleting a group moves its
+              conversations to <b>Other</b>; none is deleted.
+            </li>
+            <li>Click a group's name to collapse it. To rename or delete it, point at its name and click the pencil or ×.</li>
+          </ul>
+          <p>
+            Once you have groups, the lead agent sorts each new conversation for you: it reads the first message and puts
+            the conversation in the group it fits (it says <b>Sorting…</b> meanwhile), or leaves it in <b>Other</b>. It
+            does so once per conversation, and never moves one you moved yourself.
+          </p>
+          <h3>Search</h3>
+          <p>
+            Click <b>Search</b> under <b>New chat</b> and type. You get the conversations whose title or messages contain
+            every word you typed, ignoring case, with the words highlighted; those whose title matches come first. Click
+            one to open it, or press <kbd>Esc</kbd> to go back to your groups. Chinese works without spaces.
+          </p>
+        </section>
+
+        <section id="messages" aria-labelledby="messages-title">
+          <h2 id="messages-title">Copy, edit, retry and branch</h2>
+          <p>
+            The small buttons under a message are icons: point at one to see its name. Under an agent's reply they are
+            always there; under your own message they show when you point at it (always, on a phone or tablet).
+          </p>
+          <ul>
+            <li>
+              <b>Copy</b> copies the message as Markdown, exactly as it was written, links and tables included.
+            </li>
+            <li>
+              <b>Edit</b>, under your own message, lets you change it and send it again. Everything after it is deleted
+              and the team answers again from there. Files the deleted replies changed are <b>not</b> changed back: if
+              any changed files, you are asked to confirm first.
+            </li>
+            <li>
+              <b>Retry</b>, under a reply, has that agent answer again. Its reply and everything after it are deleted;
+              outside relay mode, the agents after it in the same round answer again too.
+            </li>
+          </ul>
+          <h3>Branch a conversation</h3>
+          <p>
+            To try another direction without losing where you are, click <b>Branch conversation</b> under an agent's
+            reply. A new conversation opens, named <b>Branch · </b> and the original's title, with a copy of every message
+            up to that reply, and the team, settings and group the original has now. The original stays exactly as it
+            was, and both go their own way from there.
+          </p>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-info" /></svg>
+            <div>
+              <p>
+                <b>Files are not rewound.</b> Both conversations work in the same folder, as the original left it, not as
+                it was at the reply you branched from. The agents in the branch are told so.
+              </p>
+            </div>
+          </div>
+          <p>
+            The branch is listed under the conversation it came from, and the two stay together in one group: moving one
+            moves both. The first message you send in the branch names it. To ask something else after one of your own
+            questions, branch from the reply before it, or edit the question.
+          </p>
+          <figure class="doc-figure">
+            <img
+              src="../../assets/media/docs/conversations-branch-en.webp"
+              width="1280"
+              height="800"
+              alt="Harness Relay with a branch open: in the sidebar, the branch “Now the Instagram version…” is listed under the conversation “Our Studio plan launches…”, which shows one branch; the chat's title says Continued from Our Studio…."
+              loading="lazy"
+            />
+            <figcaption>
+              A branch, listed under the conversation it came from. A frame of the use case
+              <a href="../../use-cases/#launch-copy">Read the competition, then write the launch</a>.
+            </figcaption>
+          </figure>
+        </section>
+
+        <section id="files" aria-labelledby="files-title">
+          <h2 id="files-title">Browse the files</h2>
+          <p>
+            <b>Files</b>, at the top of the chat, opens the conversation's working directory. Click a file to preview it:
+            code with line numbers, Markdown as it reads (or its source), images and videos.
+          </p>
+          <ul>
+            <li><b>Download</b> saves any file to the device you are using, a phone included, also one that cannot be previewed, such as a PDF or slides.</li>
+            <li><b>Copy path</b> copies the file's full path.</li>
+            <li>
+              The download button at the end of the toolbar saves the folder you are in as a ZIP file; so does the one
+              beside a folder in the list. A folder too large to zip, usually because of <code>node_modules</code> and the
+              like, is offered without the files git ignores when it is in a git repository.
+            </li>
+            <li>In parallel mode you can also pick an agent's own copy of the folder, to look at its result before you apply it.</li>
+          </ul>
+          <p>
+            Files an agent made for you also show as links in its reply, with a download arrow: click one to save the
+            file. On a phone, the list and the preview take turns; <b>Back to the list</b> returns.
+          </p>
+        </section>
+
+        <section id="share" aria-labelledby="share-title">
+          <h2 id="share-title">Share a conversation</h2>
+          <p>
+            <b>Share</b> at the top of the chat shares the whole conversation; <b>Share</b> under a reply shares
+            everything up to that reply. Tool calls, thinking, to-do lists, approvals and changed files are left out.
+            The dialog offers two ways:
+          </p>
+          <ul>
+            <li><b>Copy as Markdown</b> copies the text, each message labelled with who said it.</li>
+            <li>
+              <b>Create link</b> makes a page that looks like the chat on screen and puts it on the web as a
+              <i>secret gist</i>, with your GitHub CLI (<code>gh</code>). Anyone with the link can open it, but it is not
+              listed or searchable.
+            </li>
+          </ul>
+          <p>
+            The link needs the <a href="https://cli.github.com">GitHub CLI</a>, signed in to your GitHub account. When it is
+            missing, the dialog says how to install it; when it is signed out, <b>Sign in to GitHub</b> there shows a
+            one-time code to enter on GitHub's page, with no terminal needed. That signs in <code>gh</code> on the computer
+            running Harness Relay, for every program there that uses it, the agents included.
+          </p>
+          <p>
+            When the replies link to files on your computer, such as a report an agent wrote, the dialog lists them and
+            you choose which go along. Files whose names suggest secrets, such as <code>.env</code> or a key, are not
+            ticked at first.
+          </p>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-shield" /></svg>
+            <div>
+              <p>
+                A secret gist is unlisted, not private: anyone who has the link can open the page and download the files
+                that went along with it.
+              </p>
+            </div>
+          </div>
+          <p>
+            <b>Settings → Shared conversations</b> lists every link you made. Removing one deletes it on GitHub, so the
+            link and its files stop working.
+          </p>
+        </section>
+
+        <section id="notifications" aria-labelledby="notifications-title">
+          <h2 id="notifications-title">Notifications</h2>
+          <p>
+            Harness Relay can tell you when the team finishes replying and when it needs you: an approval, a team to
+            confirm or a question. Turn it on under <b>Settings &amp; sign-in → Notifications and sound</b>, in each
+            browser and on each phone you use:
+          </p>
+          <ul>
+            <li><b>Show notifications</b> shows a system notification with the conversation's title, who replied and the start of the reply. Click it to open the chat.</li>
+            <li><b>Play a sound</b>: two notes when a reply is done, three when you are needed.</li>
+            <li><b>Tell me when</b> picks which of the two you hear about, and <b>Send a test notification</b> tries it out.</li>
+          </ul>
+          <p>
+            Nothing is shown for the conversation you are looking at while its window is in front. On a phone,
+            notifications can reach you even while it is locked: see <a href="../phone/">Use it from your phone</a>. In the
+            desktop app they show while its window is open; to hear about replies with the window closed, open Harness
+            Relay in your browser too and turn notifications on there.
+          </p>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-shield" /></svg>
+            <div>
+              <p>
+                A notification shows the start of a reply, or the command an approval is about, so it can show on a locked
+                phone. To keep that private, hide notification previews on the lock screen in the phone's settings.
+              </p>
+            </div>
+          </div>
+          <h3>The bell</h3>
+          <p>
+            The bell at the top of the sidebar keeps every notification, whatever you chose above: replies done or ended
+            with an error, approvals and items waiting for you, teams to confirm, questions and goals held up. Its red
+            count is how many you have not read, and the list is the same in every signed-in browser. Click one to open
+            its chat; opening a chat marks its notifications read. <b>Mark all as read</b> and <b>Clear all</b> are at the
+            bottom of the list.
+          </p>
+          <figure class="doc-figure">
+            <img
+              src="../../assets/media/docs/conversations-inbox-en.webp"
+              width="1280"
+              height="800"
+              alt="The Notifications list, opened from the bell at the top of the sidebar: one unread notification says Log_Reader finished replying, with the start of its reply; an older one says the lead agent's team is ready to confirm. Clear all and Mark all as read are at the bottom."
+              loading="lazy"
+            />
+            <figcaption>
+              The bell's list, after the team finished. A frame of the use case
+              <a href="../../use-cases/#triage-an-alert">Triage an alert the moment it fires</a>.
+            </figcaption>
+          </figure>
+        </section>
+
+        <aside class="doc-more" aria-label="Technical details">
+          <svg aria-hidden="true"><use href="#i-github" /></svg>
+          <div>
+            <p>Every badge, how branches sit in the sidebar, the limits on shared pages and files, and push notifications in detail are in the user guide:</p>
+            <ul>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#conversation-list">Conversation list</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#branching-a-conversation">Branching a conversation</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#sharing-a-conversation">Sharing a conversation</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#notifications-and-sound">Notifications and sound</a></li>
+            </ul>
+          </div>
+        </aside>
+
+        <nav class="doc-pager" aria-label="Pages">
+          <a href="../permissions/" rel="prev"><span>Previous</span><b>Permissions and approvals</b></a>
+          <a href="../automations/" rel="next"><span>Next</span><b>Automations</b></a>
+        </nav>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-row">
+        <a class="brand" href="../../" aria-label="Harness Relay, home">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="footer-links" aria-label="Footer">
+          <a href="../">Docs</a>
+          <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE">Sustainable Use License</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

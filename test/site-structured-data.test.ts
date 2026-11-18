@@ -346,10 +346,11 @@ describe('site/llms.txt', () => {
   });
 
   it('links to the pages at their canonical addresses, and to files that are in the repository', () => {
-    // The home pages, and the use-cases pages (test/site-use-cases.test.ts checks theirs).
+    // The home pages, and the use-cases pages and the docs' overviews (test/site-use-cases.test.ts and
+    // test/site-docs.test.ts check theirs).
     const canonical = [
       ...PAGES.map(({ file }) => page(file).canonical),
-      ...['site/use-cases/index.html', 'site/zh-TW/use-cases/index.html'].map(
+      ...['site/use-cases/index.html', 'site/zh-TW/use-cases/index.html', 'site/docs/index.html', 'site/zh-TW/docs/index.html'].map(
         (file) => read(file).match(/<link rel="canonical" href="([^"]+)" \/>/)![1],
       ),
     ];

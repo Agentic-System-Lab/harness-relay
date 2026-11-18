@@ -1,6 +1,6 @@
 // Harness Relay website: copy buttons, the GitHub star count, the videos' chapter rails, the mode
-// diagrams and the language preference. Everything on the page works without this file; it only adds
-// behaviour.
+// diagrams, the docs' menu and contents, and the language preference. Everything on the page works
+// without this file; it only adds behaviour.
 
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
@@ -327,6 +327,61 @@ if (tabs.length && tabs.length === panels.length) {
     select(0, false);
   }
   reduceMotion.addEventListener?.('change', () => select(Math.max(0, active), false));
+}
+
+// ---------- The docs: their pages behind a button on a narrow screen, and the section on screen ----------
+// At 920px and narrower the docs' pages fold behind a button (site.css shows them only with .is-open); the
+// page's sections in "On this page" mark the one being read: the last whose heading has passed under the
+// header, or the last one once the page is scrolled to its end.
+
+const docNav = document.querySelector('[data-doc-nav]');
+const docNavToggle = docNav?.querySelector('[data-doc-nav-toggle]');
+if (docNav && docNavToggle) {
+  const setOpen = (open) => {
+    docNav.classList.toggle('is-open', open);
+    docNavToggle.setAttribute('aria-expanded', String(open));
+  };
+  docNavToggle.addEventListener('click', () => setOpen(!docNav.classList.contains('is-open')));
+  // The button stays at the top over the page, so the open menu closes on a click or tap beside it, and on Esc.
+  document.addEventListener('click', (event) => {
+    if (docNav.classList.contains('is-open') && !docNav.contains(event.target)) setOpen(false);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !docNav.classList.contains('is-open')) return;
+    setOpen(false);
+    docNavToggle.focus();
+  });
+}
+
+const tocLinks = [...document.querySelectorAll('.doc-toc a[href^="#"]')];
+const tocSections = tocLinks.map((link) => document.getElementById(decodeURIComponent(link.hash.slice(1))));
+if (tocLinks.length && tocSections.every(Boolean)) {
+  let queued = false;
+  const mark = () => {
+    queued = false;
+    const atEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+    let current = 0;
+    tocSections.forEach((section, i) => {
+      if (section.getBoundingClientRect().top < 120) current = i;
+    });
+    if (atEnd) current = tocSections.length - 1;
+    tocLinks.forEach((link, i) => {
+      if (i === current) link.setAttribute('aria-current', 'true');
+      else link.removeAttribute('aria-current');
+    });
+  };
+  mark();
+  window.addEventListener(
+    'scroll',
+    () => {
+      if (!queued) {
+        queued = true;
+        requestAnimationFrame(mark);
+      }
+    },
+    { passive: true },
+  );
+  window.addEventListener('resize', mark, { passive: true });
 }
 
 // ---------- Codespaces: what to expect, before GitHub's page ----------

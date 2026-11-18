@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { PAGE_FILES } from './site-pages';
 
 // The landing page's header on a narrow screen: the name, the language switch and the buttons each stay on
 // one line (measured in Chromium at every width from 320px to 1300px, in both languages), and where the
@@ -28,7 +29,7 @@ describe("the landing page's header", () => {
     expect(css.match(/\.brand span \{\s*display: none;/g)).toHaveLength(1);
     // Screen readers still hear the name: the rule hides it in every one of the mark's links (the header's and
     // the footer's), so each has a label, one per language, that starts with the name it shows (WCAG's label in name).
-    for (const page of ['site/index.html', 'site/zh-TW/index.html', 'site/use-cases/index.html', 'site/zh-TW/use-cases/index.html']) {
+    for (const page of PAGE_FILES) {
       const html = read(page);
       const links = [...html.matchAll(/<a\b([^>]*\bclass="(?:[^"]*\s)?brand(?:\s[^"]*)?"[^>]*)>([\s\S]*?)<\/a>/g)].map((m) => ({
         label: m[1].match(/\baria-label="([^"]*)"/)?.[1],

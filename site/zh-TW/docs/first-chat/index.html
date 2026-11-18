@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>第一個對話 · Harness Relay 文件</title>
+    <meta
+      name="description"
+      content="Harness Relay 文件：開一個對話、提出問題、確認首席 agent 組的團隊、在它工作時和它對話，並看它的審閱。"
+    />
+    <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/first-chat/" />
+    <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/first-chat/" />
+    <link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/first-chat/" />
+    <link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/first-chat/" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141415" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Harness Relay" />
+    <meta property="og:title" content="第一個對話 · Harness Relay 文件" />
+    <meta
+      property="og:description"
+      content="在 Harness Relay 開始第一個對話：選資料夾與權限、提問、確認首席 agent 設計的團隊、在 agent 回覆時插話、回答它們的提問，並閱讀首席 agent 對回覆的審閱。"
+    />
+    <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/first-chat/" />
+    <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="zh_TW" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="../../../favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="../../../assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="../../../assets/site.css" />
+    <script>
+      document.documentElement.classList.add('js');
+      // The theme the visitor picked with the theme button (assets/theme.js), set before anything is drawn
+      // so that it does not flash. Until they pick one, the page follows the system's light or dark mode.
+      try {
+        var theme = localStorage.getItem('harness-relay.theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {}
+      // The visitor picked English last time: show the English page.
+      try {
+        if (localStorage.getItem('harness-relay.lang') === 'en') location.replace('../../../docs/first-chat/' + location.hash);
+      } catch (e) {}
+    </script>
+    <script src="../../../assets/site.js" defer></script>
+    <script type="module" src="../../../assets/theme.js"></script>
+    <!-- What search and answer engines read about the page (test/site-docs.test.ts keeps it in step with the page). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/first-chat/#webpage",
+        "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/first-chat/",
+        "name": "第一個對話 · Harness Relay 文件",
+        "description": "Harness Relay 文件：開一個對話、提出問題、確認首席 agent 組的團隊、在它工作時和它對話，並看它的審閱。",
+        "inLanguage": "zh-TW",
+        "isPartOf": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
+        },
+        "about": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#app"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-github" viewBox="0 0 16 16">
+          <path
+            fill="currentColor"
+            d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+          />
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+          <path d="M12 3.86 14.22 9.8l6.34.28-4.97 3.95 1.7 6.11L12 16.64l-5.29 3.5 1.7-6.11-4.97-3.95 6.34-.28Z" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2.75v1.5M12 19.75v1.5M2.75 12h1.5M19.75 12h1.5M5.46 5.46l1.06 1.06M17.48 17.48l1.06 1.06M5.46 18.54l1.06-1.06M17.48 6.52l1.06-1.06" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 13.6A8 8 0 1 1 10.4 4a6.25 6.25 0 0 0 9.6 9.6Z" />
+        </symbol>
+        <symbol id="i-mark" viewBox="0 0 32 32">
+          <circle cx="9" cy="16" r="6" fill="#d97757" />
+          <circle cx="23" cy="10" r="5" fill="#10a37f" />
+          <circle cx="23" cy="23" r="5" fill="#7c5cff" />
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6.5 9.5 5.5 5.5 5.5-5.5" />
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.75" />
+          <path d="M12 11v5.5M12 7.6v.1" />
+        </symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M12 2.5c.8 5.9 3.6 8.7 9.5 9.5-5.9.8-8.7 3.6-9.5 9.5-.8-5.9-3.6-8.7-9.5-9.5 5.9-.8 8.7-3.6 9.5-9.5Z" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.7 7 9 4.1-1.3 7-4.7 7-9V6.2Z" />
+          <path d="m9 12 2.2 2.2L15.2 10" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
+        </symbol>
+        <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+        </symbol>
+        <symbol id="i-os-win" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+          <path d="M12 4.5v15M3.5 12h17" />
+        </symbol>
+        <symbol id="i-os-linux" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3c-2.3 0-3.6 1.9-3.6 4.4 0 1.5.4 2.4-.7 3.8C6.4 12.9 5.4 14.8 5.4 17c0 2.6 2.9 4 6.6 4s6.6-1.4 6.6-4c0-2.2-1-4.1-2.3-5.8-1.1-1.4-.7-2.3-.7-3.8C15.6 4.9 14.3 3 12 3Z" />
+          <path d="M9.6 14.6c0-1.6 1-2.7 2.4-2.7s2.4 1.1 2.4 2.7v1.6c0 1.5-1 2.6-2.4 2.6s-2.4-1.1-2.4-2.6Z" />
+          <path d="M10.6 9.2 12 10.3l1.4-1.1" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <a class="skip" href="#main">跳到主要內容</a>
+
+    <header class="site-header">
+      <div class="wrap header-row">
+        <a class="brand" href="../../" aria-label="Harness Relay 首頁">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="site-nav" aria-label="頁面段落">
+          <a href="../../#demo">示範</a>
+          <a href="../../use-cases/">使用情境</a>
+          <a href="../../#modes">對話模式</a>
+          <a href="../../#teams">團隊</a>
+          <a href="../../#safety">安全</a>
+          <a href="../../#start">快速開始</a>
+          <a href="../" aria-current="true">文件</a>
+        </nav>
+        <div class="header-tools">
+          <nav class="lang" aria-label="語言">
+            <a href="../../../docs/first-chat/" hreflang="en" lang="en" data-lang="en">EN</a>
+            <a href="./" hreflang="zh-TW" lang="zh-Hant-TW" aria-current="page" data-lang="zh-TW">中文</a>
+          </nav>
+          <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            <span class="gh-label">GitHub</span>
+            <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> 顆星</span></span>
+          </a>
+          <button class="btn btn-ghost theme-toggle" type="button" data-theme-toggle data-to-dark="切換成深色主題" data-to-light="切換成淺色主題" aria-label="切換成深色主題">
+            <svg class="i-moon" aria-hidden="true"><use href="#i-moon" /></svg>
+            <svg class="i-sun" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="wrap doc-layout">
+      <nav class="doc-nav" aria-label="文件" data-doc-nav>
+        <button class="doc-nav-toggle" type="button" aria-expanded="false" aria-controls="doc-pages" data-doc-nav-toggle>
+          <span>文件</span>
+          <b>第一個對話</b>
+          <svg aria-hidden="true"><use href="#i-chevron" /></svg>
+        </button>
+        <div class="doc-nav-list" id="doc-pages">
+          <p class="doc-nav-title">開始使用</p>
+          <ul>
+            <li><a href="../">總覽</a></li>
+            <li><a href="../install/">安裝</a></li>
+            <li><a href="../agents/">連接你的 agent</a></li>
+            <li><a href="../first-chat/" aria-current="page">第一個對話</a></li>
+          </ul>
+          <p class="doc-nav-title">和團隊一起工作</p>
+          <ul>
+            <li><a href="../teams/">團隊與對話模式</a></li>
+            <li><a href="../permissions/">權限與核准</a></li>
+            <li><a href="../conversations/">對話</a></li>
+            <li><a href="../automations/">自動任務</a></li>
+            <li><a href="../tools/">工具</a></li>
+          </ul>
+          <p class="doc-nav-title">更多</p>
+          <ul>
+            <li><a href="../phone/">在手機上使用</a></li>
+            <li><a href="../troubleshooting/">疑難排解</a></li>
+          </ul>
+          <a class="doc-nav-out" href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/README.zh-TW.md#文件">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            GitHub 上的技術文件
+          </a>
+        </div>
+      </nav>
+
+      <header class="doc-head">
+        <h1>第一個對話</h1>
+        <p class="lead">
+          開一個對話、提出問題、確認團隊：agent 會在同一個對話裡回答，你隨時都可以加入討論。這一頁以一個問題為例，從頭到尾走一遍。
+        </p>
+      </header>
+
+      <nav class="doc-toc" aria-label="本頁內容">
+        <p class="doc-toc-title">本頁內容</p>
+        <ol>
+          <li><a href="#new-chat">開一個新對話</a></li>
+          <li><a href="#ask">提出問題</a></li>
+          <li><a href="#team-design">確認團隊</a></li>
+          <li><a href="#while-they-work">團隊工作時</a></li>
+          <li><a href="#questions">agent 向你提問時</a></li>
+          <li><a href="#lead-review">首席 agent 的審閱</a></li>
+        </ol>
+      </nav>
+
+      <div class="doc-body">
+        <section id="new-chat" aria-labelledby="new-chat-title">
+          <h2 id="new-chat-title">開一個新對話</h2>
+          <p>
+            按側邊欄上方的<b>新對話</b>。打開的頁面會先列出你的範本，接著是<b>對話規則</b>，在這裡決定團隊在哪裡工作、可以做什麼。這裡不用選團隊：首席
+            agent 會為每個問題設計一個。
+          </p>
+          <ul>
+            <li>
+              <b>工作目錄</b>：agent 工作的資料夾。輸入路徑後按 <kbd>Enter</kbd>、從清單挑一個用過的，或在執行 Harness Relay 的那台電腦的瀏覽器裡，用資料夾按鈕在系統自己的對話框裡選。最多可以加八個；agent
+              從第一個開始。資料夾還不存在時，Harness Relay 會問你要不要建立。
+            </li>
+            <li>
+              <b>檔案權限</b>：每個 agent 不必問你就能做的事：<b>唯讀</b>、<b>可編輯</b>或<b>完全存取</b>。不確定的話，先用唯讀。<a href="../permissions/#levels">各級權限允許什麼</a>
+            </li>
+            <li>
+              <b>權限範圍以外的動作</b>：<b>詢問我</b>（在對話中問你，agent 會等你）或<b>自動拒絕</b>（agent 會被告知不行，改用其他方式）。
+            </li>
+            <li>
+              <b>直接採用首席 agent 組的團隊，不必等我確認</b>：不勾的話，每個團隊開始回答前都會先等你確認。頁面會記住你的選擇。
+            </li>
+            <li>
+              <b>團隊回答後，請首席 agent 審閱回覆</b>：每個新對話都預設勾選。團隊回答完，首席 agent 會讀過回覆，指出該檢查的地方（見<a href="#lead-review">下方</a>）。
+            </li>
+          </ul>
+          <p>接著按<b>開始對話</b>，輸入你的第一個問題。</p>
+          <figure class="doc-figure">
+            <img
+              src="../../../assets/media/docs/first-chat-new-chat-zh-TW.webp"
+              width="1280"
+              height="800"
+              alt="Harness Relay 的新對話頁：對話規則下，「直接採用首席 agent 組的團隊，不必等我確認」沒有勾選，「團隊回答後，請首席 agent 審閱回覆」已勾選，工作目錄是名為 bill-split 的資料夾，檔案權限正要選「可編輯」，權限範圍以外的動作是「詢問我」，右下角是「開始對話」按鈕。"
+              loading="lazy"
+            />
+            <figcaption>
+              新對話頁的對話規則，取自使用情境「<a href="../../use-cases/#fix-a-bug">一個 bug 三種修法，留下最好的</a>」。
+            </figcaption>
+          </figure>
+        </section>
+
+        <section id="ask" aria-labelledby="ask-title">
+          <h2 id="ask-title">提出問題</h2>
+          <p>
+            像問同事一樣寫下問題：你需要什麼、試過什麼，以及怎樣才算好的答案。按 <kbd>Enter</kbd> 送出，<kbd>Shift</kbd>+<kbd>Enter</kbd>
+            換行。在手機或平板上，<kbd>Enter</kbd> 是換行，按箭頭按鈕送出。
+          </p>
+          <ul>
+            <li>
+              <b>附加檔案</b>：把截圖直接貼到輸入框、把檔案拖到輸入框上，或按迴紋針。每則訊息最多可以附 10 個檔案、每個 20 MB。讀到這則訊息的
+              agent 都打得開，圖片也看得到。
+            </li>
+            <li>
+              <b>指定成員</b>：輸入 <code>@</code> 挑一位隊友。訊息裡 @ 了成員時，只有他們會回覆；沒有 @ 時，整個團隊都會參與。
+            </li>
+            <li>
+              <b>用說的</b>：按送出按鈕旁的麥克風按鈕，說完再按一次，文字就會出現在輸入框裡，讓你修改後再送出。語音在你的電腦上轉成文字，錄音不會上傳；第一次使用時，會有對話框說明要下載什麼。
+            </li>
+          </ul>
+        </section>
+
+        <section id="team-design" aria-labelledby="team-design-title">
+          <h2 id="team-design-title">確認團隊</h2>
+          <p>
+            在任何人回答之前，首席 agent 會先讀你的問題，在對話中放一張<b>團隊設計</b>卡片：它選的團隊（目前的團隊、你的某個範本、它調整過的範本，或全新的團隊）、為什麼，以及每位成員的角色。在你回應之前，側邊欄會把這個對話標為<b>等你確認團隊</b>。
+          </p>
+          <ul>
+            <li><b>確認團隊</b>：團隊開始處理你的問題。</li>
+            <li>
+              <b>調整團隊</b>：打開團隊設定，你可以自己改成員、角色或對話模式，也可以請首席 agent 改。在那裡儲存就等於確認團隊。
+            </li>
+            <li>
+              <b>不採用，沿用目前的團隊</b>：改由你原本的團隊回答。第一個問題不會出現這個選項。
+            </li>
+            <li>
+              <b>存成範本</b>：把首席 agent 設計或調整的團隊留下來，之後它就能直接選用。
+            </li>
+          </ul>
+          <p>
+            卡片等你確認的期間，你寫的訊息會和問題一起交給團隊。只有新問題才會重新組隊：回答 agent 的提問、@ 了成員的訊息，以及<b>繼續</b>，都會交給目前的團隊。<a href="../teams/#auto-team">首席
+            agent 怎麼挑團隊</a>
+          </p>
+        </section>
+
+        <section id="while-they-work" aria-labelledby="while-they-work-title">
+          <h2 id="while-they-work-title">團隊工作時</h2>
+          <p>
+            回覆會一邊產生一邊顯示，對話標題下方的成員標籤會標出誰正在發言。agent 的步驟（讀檔、執行指令）和步驟之間的思考，會收在它名字下方的一列裡，例如 <b>5 個動作 · 4 段思考</b>；展開就能看到每一步，以及哪些失敗或被拒絕。每則回覆都會顯示花了多久，agent 有回報時也會顯示費用與 token 數。
+          </p>
+          <ul>
+            <li>
+              <b>插話</b>：輸入框一直可以用。按 <kbd>Enter</kbd>，訊息會先放在輸入框上方的等待區，在下一位 agent 發言前送到。送到之前可以<b>編輯</b>或<b>撤回</b>；送到後會標上<b>插話</b>。
+            </li>
+            <li>
+              <b>停止並改問這個</b>：按 <kbd>⌘</kbd>+<kbd>Enter</kbd>（Windows 與 Linux 為 <kbd>Ctrl</kbd>+<kbd>Enter</kbd>）會停止團隊，並立刻送出你的訊息。
+            </li>
+            <li>
+              <b>停止</b>會結束目前這次執行。還在等待的訊息會留在等待區，標示<b>這些訊息還沒送出</b>，可以送出、編輯或撤回。
+            </li>
+            <li>
+              <b>繼續</b>讓團隊不必等新訊息就接著做：再跑一組輪次，或再接力一次。接力達到交棒上限時特別好用。
+            </li>
+          </ul>
+          <p>
+            沒有補充的 agent 會回 <code>[PASS]</code>，以淡色的<i>沒有補充（PASS）</i>顯示。agent 想做權限沒涵蓋的事時，它的回覆會出現核准卡片並等你決定：見<a href="../permissions/#approvals">核准</a>。
+          </p>
+        </section>
+
+        <section id="questions" aria-labelledby="questions-title">
+          <h2 id="questions-title">agent 向你提問時</h2>
+          <p>
+            好答案取決於只有你知道的事（例如你的情況、目標或偏好）時，agent 會先問你，而不是亂猜。這時團隊會停下來：其他人不會發言，問題會標上<b>等你回答</b>，側邊欄也顯示<b>等你回答</b>。
+          </p>
+          <p>
+            直接在輸入框回覆。提問的 agent 會先帶著你的回答作答，接著團隊其他人繼續。想讓大家不等你的回答繼續做，按<b>略過問題</b>（或問題下方的<b>略過，讓團隊繼續</b>）。
+          </p>
+        </section>
+
+        <section id="lead-review" aria-labelledby="lead-review-title">
+          <h2 id="lead-review-title">首席 agent 的審閱</h2>
+          <p>
+            開著首席 agent 審閱時，團隊回答完，首席 agent 會讀過新的回覆，在後面加上一張<b>首席 agent 的審閱</b>卡片：
+          </p>
+          <ul>
+            <li>一段摘要，說明團隊做到哪裡。</li>
+            <li>
+              <b>特別注意</b>：需要你留意的地方，各自標成<b>風險</b>、<b>待你決定</b>、<b>意見分歧</b>、<b>待確認</b>或<b>注意</b>，並引用它所指的成員原話。點成員的名字會跳到那段話，回覆本身也會把那段話標示出來。
+            </li>
+            <li>
+              <b>建議的下一步</b>，最重要的排在前面：只有你能做的事，以及團隊接下來可以做的事。按<b>交給團隊</b>，那一步的訊息就會放進輸入框，讓你修改或送出。
+            </li>
+          </ul>
+          <figure class="doc-figure">
+            <img
+              src="../../../assets/media/docs/first-chat-review-zh-TW.webp"
+              width="1280"
+              height="800"
+              alt="團隊回覆下方的「首席 agent 的審閱」卡片：一段摘要，接著是「特別注意」，列出標為「待確認」、「注意」與「待你決定」的幾點，每點都指向 @Claude_Lead，引用它回覆中的原話，並說明為什麼需要留意。"
+              loading="lazy"
+            />
+            <figcaption>
+              首席 agent 的審閱，取自使用情境「<a href="../../use-cases/#literature-review">研究怎麼說，每個來源都附上</a>」。
+            </figcaption>
+          </figure>
+          <p>
+            首席 agent 只讀不改：它不會修改任何檔案，agent 也看不到它的審閱。每次審閱都會多執行一次首席 agent 的 coding agent，審閱結束前對話會一直忙碌；這時送出訊息會停止審閱並立刻送出。要在某個對話關掉它，在<b>團隊設定</b>或最新的團隊設計卡片上，取消勾選<b>團隊回答後，請首席
+            agent 審閱回覆</b>。
+          </p>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-spark" /></svg>
+            <div>
+              <p>
+                <b>小技巧：</b>想試另一個方向又不想丟掉現在這個，可以從某則回覆分支對話：見<a href="../conversations/">對話</a>。
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <aside class="doc-more" aria-label="技術細節">
+          <svg aria-hidden="true"><use href="#i-github" /></svg>
+          <div>
+            <p>對話的每個細節（附加檔案、即時串流、審閱的時機與費用）都在 GitHub 上的使用者說明裡：</p>
+            <ul>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#3-開始對話新對話與範本">開始對話</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#4-對話">對話</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#首席-agent-審閱">首席 agent 審閱</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#語音輸入">語音輸入</a></li>
+            </ul>
+          </div>
+        </aside>
+
+        <nav class="doc-pager" aria-label="頁面">
+          <a href="../agents/" rel="prev"><span>上一頁</span><b>連接你的 agent</b></a>
+          <a href="../teams/" rel="next"><span>下一頁</span><b>團隊與對話模式</b></a>
+        </nav>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-row">
+        <a class="brand" href="../../" aria-label="Harness Relay 首頁">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="footer-links" aria-label="頁尾">
+          <a href="../">文件</a>
+          <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE">Sustainable Use License</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

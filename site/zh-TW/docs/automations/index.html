@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>自動任務 · Harness Relay 文件</title>
+    <meta
+      name="description"
+      content="Harness Relay 文件：在設定的時間，或收到郵件、行程即將開始、GitHub 有新動態、檔案出現時，把訊息傳給團隊，並跨次追蹤目標。"
+    />
+    <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/automations/" />
+    <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/automations/" />
+    <link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/automations/" />
+    <link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/automations/" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141415" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Harness Relay" />
+    <meta property="og:title" content="自動任務 · Harness Relay 文件" />
+    <meta
+      property="og:description"
+      content="怎麼讓 Harness Relay 在設定的時間、收到新郵件、行程即將開始、有新的 pull request 或 CI 失敗、檔案出現時，或程式呼叫它的 webhook 時，把訊息傳給團隊，並跨次追蹤目標直到達成。"
+    />
+    <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/automations/" />
+    <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="zh_TW" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="../../../favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="../../../assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="../../../assets/site.css" />
+    <script>
+      document.documentElement.classList.add('js');
+      // The theme the visitor picked with the theme button (assets/theme.js), set before anything is drawn
+      // so that it does not flash. Until they pick one, the page follows the system's light or dark mode.
+      try {
+        var theme = localStorage.getItem('harness-relay.theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {}
+      // The visitor picked English last time: show the English page.
+      try {
+        if (localStorage.getItem('harness-relay.lang') === 'en') location.replace('../../../docs/automations/' + location.hash);
+      } catch (e) {}
+    </script>
+    <script src="../../../assets/site.js" defer></script>
+    <script type="module" src="../../../assets/theme.js"></script>
+    <!-- What search and answer engines read about the page (test/site-docs.test.ts keeps it in step with the page). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/automations/#webpage",
+        "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/automations/",
+        "name": "自動任務 · Harness Relay 文件",
+        "description": "Harness Relay 文件：在設定的時間，或收到郵件、行程即將開始、GitHub 有新動態、檔案出現時，把訊息傳給團隊，並跨次追蹤目標。",
+        "inLanguage": "zh-TW",
+        "isPartOf": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
+        },
+        "about": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#app"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-github" viewBox="0 0 16 16">
+          <path
+            fill="currentColor"
+            d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+          />
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+          <path d="M12 3.86 14.22 9.8l6.34.28-4.97 3.95 1.7 6.11L12 16.64l-5.29 3.5 1.7-6.11-4.97-3.95 6.34-.28Z" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2.75v1.5M12 19.75v1.5M2.75 12h1.5M19.75 12h1.5M5.46 5.46l1.06 1.06M17.48 17.48l1.06 1.06M5.46 18.54l1.06-1.06M17.48 6.52l1.06-1.06" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 13.6A8 8 0 1 1 10.4 4a6.25 6.25 0 0 0 9.6 9.6Z" />
+        </symbol>
+        <symbol id="i-mark" viewBox="0 0 32 32">
+          <circle cx="9" cy="16" r="6" fill="#d97757" />
+          <circle cx="23" cy="10" r="5" fill="#10a37f" />
+          <circle cx="23" cy="23" r="5" fill="#7c5cff" />
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6.5 9.5 5.5 5.5 5.5-5.5" />
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.75" />
+          <path d="M12 11v5.5M12 7.6v.1" />
+        </symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M12 2.5c.8 5.9 3.6 8.7 9.5 9.5-5.9.8-8.7 3.6-9.5 9.5-.8-5.9-3.6-8.7-9.5-9.5 5.9-.8 8.7-3.6 9.5-9.5Z" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.7 7 9 4.1-1.3 7-4.7 7-9V6.2Z" />
+          <path d="m9 12 2.2 2.2L15.2 10" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
+        </symbol>
+        <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+        </symbol>
+        <symbol id="i-os-win" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+          <path d="M12 4.5v15M3.5 12h17" />
+        </symbol>
+        <symbol id="i-os-linux" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3c-2.3 0-3.6 1.9-3.6 4.4 0 1.5.4 2.4-.7 3.8C6.4 12.9 5.4 14.8 5.4 17c0 2.6 2.9 4 6.6 4s6.6-1.4 6.6-4c0-2.2-1-4.1-2.3-5.8-1.1-1.4-.7-2.3-.7-3.8C15.6 4.9 14.3 3 12 3Z" />
+          <path d="M9.6 14.6c0-1.6 1-2.7 2.4-2.7s2.4 1.1 2.4 2.7v1.6c0 1.5-1 2.6-2.4 2.6s-2.4-1.1-2.4-2.6Z" />
+          <path d="M10.6 9.2 12 10.3l1.4-1.1" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <a class="skip" href="#main">跳到主要內容</a>
+
+    <header class="site-header">
+      <div class="wrap header-row">
+        <a class="brand" href="../../" aria-label="Harness Relay 首頁">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="site-nav" aria-label="頁面段落">
+          <a href="../../#demo">示範</a>
+          <a href="../../use-cases/">使用情境</a>
+          <a href="../../#modes">對話模式</a>
+          <a href="../../#teams">團隊</a>
+          <a href="../../#safety">安全</a>
+          <a href="../../#start">快速開始</a>
+          <a href="../" aria-current="true">文件</a>
+        </nav>
+        <div class="header-tools">
+          <nav class="lang" aria-label="語言">
+            <a href="../../../docs/automations/" hreflang="en" lang="en" data-lang="en">EN</a>
+            <a href="./" hreflang="zh-TW" lang="zh-Hant-TW" aria-current="page" data-lang="zh-TW">中文</a>
+          </nav>
+          <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            <span class="gh-label">GitHub</span>
+            <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> 顆星</span></span>
+          </a>
+          <button class="btn btn-ghost theme-toggle" type="button" data-theme-toggle data-to-dark="切換成深色主題" data-to-light="切換成淺色主題" aria-label="切換成深色主題">
+            <svg class="i-moon" aria-hidden="true"><use href="#i-moon" /></svg>
+            <svg class="i-sun" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="wrap doc-layout">
+      <nav class="doc-nav" aria-label="文件" data-doc-nav>
+        <button class="doc-nav-toggle" type="button" aria-expanded="false" aria-controls="doc-pages" data-doc-nav-toggle>
+          <span>文件</span>
+          <b>自動任務</b>
+          <svg aria-hidden="true"><use href="#i-chevron" /></svg>
+        </button>
+        <div class="doc-nav-list" id="doc-pages">
+          <p class="doc-nav-title">開始使用</p>
+          <ul>
+            <li><a href="../">總覽</a></li>
+            <li><a href="../install/">安裝</a></li>
+            <li><a href="../agents/">連接你的 agent</a></li>
+            <li><a href="../first-chat/">第一個對話</a></li>
+          </ul>
+          <p class="doc-nav-title">和團隊一起工作</p>
+          <ul>
+            <li><a href="../teams/">團隊與對話模式</a></li>
+            <li><a href="../permissions/">權限與核准</a></li>
+            <li><a href="../conversations/">對話</a></li>
+            <li><a href="../automations/" aria-current="page">自動任務</a></li>
+            <li><a href="../tools/">工具</a></li>
+          </ul>
+          <p class="doc-nav-title">更多</p>
+          <ul>
+            <li><a href="../phone/">在手機上使用</a></li>
+            <li><a href="../troubleshooting/">疑難排解</a></li>
+          </ul>
+          <a class="doc-nav-out" href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/README.zh-TW.md#文件">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            GitHub 上的技術文件
+          </a>
+        </div>
+      </nav>
+
+      <header class="doc-head">
+        <h1>自動任務</h1>
+        <p class="lead">
+          自動任務會像你自己送出的一樣，把一則訊息傳給團隊：在你設定的時間、某件事發生時，或你按下執行時。你不在的時候團隊照樣工作，回來再看它做了什麼。
+        </p>
+      </header>
+
+      <nav class="doc-toc" aria-label="本頁內容">
+        <p class="doc-toc-title">本頁內容</p>
+        <ol>
+          <li><a href="#what">自動任務做什麼</a></li>
+          <li><a href="#create">建立自動任務</a></li>
+          <li><a href="#when">什麼時候執行</a></li>
+          <li><a href="#unattended">沒人看著的時候</a></li>
+          <li><a href="#goal">追蹤目標</a></li>
+          <li><a href="#webhook">讓程式啟動它</a></li>
+        </ol>
+      </nav>
+
+      <div class="doc-body">
+        <section id="what" aria-labelledby="what-title">
+          <h2 id="what-title">自動任務做什麼</h2>
+          <p>幾個可以交出去的例子：</p>
+          <ul>
+            <li>每個平日 09:00：「@Reviewer 看一下昨天合併的 PR，列出可能的風險。」</li>
+            <li>客戶來信時：「整理這封信並擬一份回覆。」</li>
+            <li>CI 失敗時：「CI 失敗了，找出原因。」</li>
+          </ul>
+          <p>有兩種方式可以開始：</p>
+          <ul>
+            <li><b>新自動任務</b>：側邊欄 <b>新對話</b> 旁邊、有閃電圖示的按鈕。它會為自動任務開一個對話，首席 agent 再為它的訊息設計團隊。</li>
+            <li>現有對話上方的 <b>自動任務</b>。訊息會交給這個對話的團隊，所以要先確認過團隊。</li>
+          </ul>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-info" /></svg>
+            <div>
+              <p>Harness Relay 只在執行中、而且電腦沒有睡眠時才會送出。每個對話只有一個自動任務。</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="create" aria-labelledby="create-title">
+          <h2 id="create-title">建立自動任務</h2>
+          <ol class="doc-steps">
+            <li>按側邊欄的 <b>新自動任務</b>。</li>
+            <li>寫下 <b>要傳給團隊的訊息</b>。和在對話裡一樣，被 <code>@mention</code> 的成員才會回答；首席 agent 會用訊息裡 @ 的名字為團隊成員命名。</li>
+            <li>選擇執行的 <b>時間</b>（見下方），需要的話再寫下 <b>追蹤的目標</b>。</li>
+            <li>和開新對話一樣，選擇工作目錄與權限，以及是否請首席 agent 審閱團隊的回覆。</li>
+            <li>按 <b>建立自動任務</b>。它的對話會打開，首席 agent 為這則訊息設計團隊：請在團隊卡片上確認。這時還不會執行：團隊會在你設定的時間收到訊息。</li>
+          </ol>
+          <figure class="doc-figure">
+            <img
+              src="../../../assets/media/docs/automations-new-zh-TW.webp"
+              width="1280"
+              height="800"
+              alt="「新自動任務」頁面：要傳給團隊的訊息、追蹤的目標（每張逾期發票都已付清，或客戶已用書面同意付款日期）、時間選「每週」的週一到週五 09:00 並列出接下來三次的時間，最下方是「建立自動任務」。"
+              loading="lazy"
+            />
+            <figcaption>
+              一個每個平日 09:00 執行、有追蹤目標的新自動任務。取自使用情境<a href="../../use-cases/#collect-payments">追逾期帳款，追到收齊為止</a>的一個畫面。
+            </figcaption>
+          </figure>
+          <h3>立即執行、暫停、刪除</h3>
+          <p>
+            在它的對話上方按 <b>自動任務</b>，可以再打開這個自動任務。在那裡，<b>立即執行一次</b> 會馬上送出訊息，讓你在第一次到時間前先試試看；取消勾選 <b>啟用</b> 可以暫停而不刪除（不定時的自動任務沒有可以暫停的時間）；<b>刪除自動任務</b> 會移除它。
+          </p>
+          <p>
+            側邊欄的對話旁出現時鐘，代表它有自動任務（滑過可看下一次的時間）。上次沒有送出，或上次檢查等待的事情失敗時，時鐘會變成琥珀色。它送出的訊息在對話裡標有 <b>自動任務</b>。到時間時團隊還在回覆的話，訊息會排隊等待，就像你那時送出的訊息一樣。
+          </p>
+        </section>
+
+        <section id="when" aria-labelledby="when-title">
+          <h2 id="when-title">什麼時候執行</h2>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">時間</th>
+                <th scope="col">什麼時候送出訊息</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row"><span class="keep">不定時</span></th>
+                <td>只有按 <b>立即執行一次</b>，或程式呼叫它的 webhook 時。適合偶爾自己啟動的工作。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">一次</span></th>
+                <td>某個日期與時間。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">每天</span></th>
+                <td>每天的某個時間。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">每週</span></th>
+                <td>你選的星期幾的某個時間。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">每隔幾小時</span></th>
+                <td>每隔幾個小時，從你設定時算起。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">當某件事發生時</span></th>
+                <td>它在等的事有了新動靜（見下方）。</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>儲存前會顯示接下來三次的時間，以自動任務的時區計算。</p>
+          <h3>當某件事發生時</h3>
+          <p>在 <b>要等的事</b> 選擇由什麼啟動它。Harness Relay 會自己每隔幾分鐘檢查一次：</p>
+          <ul>
+            <li>
+              <b>收到新郵件</b>：你的某個郵件帳號、你選的資料夾（預設是收件匣），也可以只看某個寄件者，或主旨含有某些字的郵件。郵件伺服器能在收到郵件時馬上通知的話（Gmail 和 iCloud 都可以），幾秒內就會啟動。
+            </li>
+            <li><b>行程即將開始</b>：你的某個行事曆，在每個行程開始前幾分鐘。</li>
+            <li><b>GitHub 上有新的 pull request 或 CI 失敗</b>：你指定的某個儲存庫，用你自己已登入的 GitHub CLI（<code>gh</code>）檢查。</li>
+            <li><b>工作目錄中的檔案出現或變動</b>：符合某個樣式的檔案，例如 <code>reports/*.csv</code>。團隊自己在那裡改動的檔案不會再啟動它。</li>
+          </ul>
+          <p>
+            郵件帳號與行事曆是你在 <b>設定 → 工具庫</b> 加入的那些（見<a href="../tools/">工具</a>）。第一次檢查只會記下已經在的東西：之後新來的才會啟動自動任務，並附上新東西的清單給 agent 讀。<b>再等一件事</b> 可以多等一件事，最多五件，任何一件發生都會啟動它。<b>立即檢查</b> 會馬上檢查並說明找到什麼。檢查失敗時（例如密碼錯誤），自動任務會說明原因。
+          </p>
+        </section>
+
+        <section id="unattended" aria-labelledby="unattended-title">
+          <h2 id="unattended-title">沒人看著的時候</h2>
+          <p>自動任務可能在你不在時執行，所以有三個選項決定那時會怎樣：</p>
+          <dl class="doc-terms">
+            <dt>權限範圍以外的動作</dt>
+            <dd>
+              預設是 <b>自動拒絕</b>：agent 想做的、超出對話權限的事都會被拒絕，但你已在這個對話中一律允許的除外；agent 會被告知並改用其他方式，對話中也會顯示拒絕了什麼。選 <b>詢問我</b> 則和平常一樣在對話中詢問你，agent 會等你回來，每一回合最多等一天。
+            </dd>
+            <dt>錯過的時間</dt>
+            <dd>Harness Relay 關閉或電腦睡眠期間錯過的時間，可以 <b>略過</b> 並在對話中留下說明，或在 Harness Relay 再次執行時 <b>開啟後補送一次</b>，錯過幾次都只補一次。</dd>
+            <dt>每次開新對話</dt>
+            <dd>
+              不在這個對話送出，而是每次開一個新對話，沿用同樣的團隊與設定。每次都從乾淨的狀態開始，這個對話也不會越來越長；但 agent 不記得前幾次做過什麼，要延續的事，請 agent 寫進工作目錄的檔案。
+            </dd>
+          </dl>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-shield" /></svg>
+            <div>
+              <p>有完全存取權限時，自動任務的 agent 不必詢問就能執行任何指令，而且沒有人在旁邊看著。有自動任務的對話擁有完全存取權限時，團隊設定會提醒你。見<a href="../permissions/">權限與核准</a>。</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="goal" aria-labelledby="goal-title">
+          <h2 id="goal-title">追蹤目標</h2>
+          <p><b>追蹤的目標</b> 用你自己的話寫下怎樣算完成，例如「main 分支的 CI 全部通過，而且 issue #42 已關閉」。這樣自動任務就會跨次、跨天地追蹤這件事：</p>
+          <ul>
+            <li>每次執行時，agent 都會看到目標和前幾次回報的進度，並在回覆最後說明目前進度。這會在回覆中顯示成一張小小的 <b>進度</b> 卡片，也列在自動任務的 <b>進度</b> 裡。</li>
+            <li>有 agent 回報目標已達成時，自動任務會自己關閉，並在對話中留下說明。</li>
+            <li>有 agent 回報卡住了，對話會標為 <b>目標卡住了</b> 並通知你，直到之後的回覆不再這麼說。</li>
+            <li>一次執行的回覆全部失敗時（例如碰到用量上限），同一次執行會在 5、30、120 分鐘後重試。</li>
+          </ul>
+          <figure class="doc-figure">
+            <img
+              src="../../../assets/media/docs/automations-progress-zh-TW.webp"
+              width="1280"
+              height="800"
+              alt="自動任務的「進度」，標示「已達成」：@MailReader 與 @Bookkeeper 每次執行的紀錄，最新的在最上面，最新兩則說目標已達成；上方是「立即執行一次」與「刪除自動任務」，下方的「啟用」已取消勾選，因為自動任務自己關閉了。"
+              loading="lazy"
+            />
+            <figcaption>每次執行的進度，直到目標達成、自動任務自己關閉。取自使用情境<a href="../../use-cases/#collect-payments">追逾期帳款，追到收齊為止</a>的一個畫面。</figcaption>
+          </figure>
+        </section>
+
+        <section id="webhook" aria-labelledby="webhook-title">
+          <h2 id="webhook-title">讓程式啟動它</h2>
+          <p>
+            大多數自動任務都用不到，所以它收在 <b>讓其他程式啟動它（Webhook）</b> 裡。webhook 是一個網址，這台電腦上的程式呼叫它，就能立刻送出自動任務的訊息，例如 git hook、在這台電腦上執行的 CI runner 或腳本。自動任務的時間關閉時也能用。
+          </p>
+          <ul>
+            <li>在 <b>新自動任務</b> 頁面勾選 <b>同時建立 webhook</b>；已經儲存的自動任務，則按 <b>建立 webhook</b>。</li>
+            <li>程式呼叫時要帶上 webhook 的權杖。權杖<b>只會顯示一次</b>，並附上呼叫的範例：請當下複製。<b>換一個新的權杖</b> 會取代它，<b>移除 webhook</b> 會拿掉 webhook。</li>
+            <li>程式送來的內容會附在訊息後面，顯示在 <b>Webhook 傳來的內容</b> 下，agent 會把它當成資料來讀，絕不當成指示。</li>
+          </ul>
+          <p>Harness Relay 只接受這台電腦上的程式呼叫。要轉送網路上的事件，請在這台電腦上執行一個程式接收它們，再呼叫這個 webhook。</p>
+        </section>
+
+        <aside class="doc-more" aria-label="技術細節">
+          <svg aria-hidden="true"><use href="#i-github" /></svg>
+          <div>
+            <p>每種事件怎麼檢查、執行怎麼排隊與重試，以及怎麼呼叫 webhook，都在使用者說明裡：</p>
+            <ul>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#自動任務">自動任務</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆">郵件與行事曆帳號</a></li>
+            </ul>
+          </div>
+        </aside>
+
+        <nav class="doc-pager" aria-label="頁面">
+          <a href="../conversations/" rel="prev"><span>上一頁</span><b>對話</b></a>
+          <a href="../tools/" rel="next"><span>下一頁</span><b>工具</b></a>
+        </nav>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-row">
+        <a class="brand" href="../../" aria-label="Harness Relay 首頁">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="footer-links" aria-label="頁尾">
+          <a href="../">文件</a>
+          <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE">Sustainable Use License</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

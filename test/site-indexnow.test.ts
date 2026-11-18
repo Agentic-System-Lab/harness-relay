@@ -3,6 +3,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rm
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
+import { PAGE_FILES, SITE_PAGES } from './site-pages';
 import { slow } from './timeouts';
 import { jobsIn, pagesStep, pagesWorkflow, stepsOf } from './workflow-steps';
 
@@ -16,14 +17,13 @@ const SITE = /^ {2}SITE: (\S+)$/m.exec(workflow)?.[1];
 const KEY = /^ {2}INDEXNOW_KEY: (\S+)$/m.exec(workflow)?.[1];
 const FIND = 'Find the pages the deployment changes';
 const TELL = 'Tell IndexNow which pages changed';
-const PAGES = ['site/index.html', 'site/zh-TW/index.html', 'site/use-cases/index.html', 'site/zh-TW/use-cases/index.html'];
+const PAGES = PAGE_FILES;
 const EN = 'https://agentic-system-lab.github.io/harness-relay/';
 const ZH = 'https://agentic-system-lab.github.io/harness-relay/zh-TW/';
-/** The use-cases pages, in each language. */
-const EN_UC = `${EN}use-cases/`;
-const ZH_UC = `${ZH}use-cases/`;
 /** Every page of the sitemap, in its order. */
-const ALL = [EN, ZH, EN_UC, ZH_UC];
+const ALL = SITE_PAGES.map((p) => p.url);
+/** The Chinese pages, all under zh-TW/, in the sitemap's order. */
+const ZH_ALL = ALL.filter((url) => url.startsWith(ZH));
 
 describe("IndexNow's key", () => {
   it('is one the protocol takes, and the site serves it as it is, at the top of the site', () => {
@@ -263,7 +263,7 @@ describe.skipIf(process.platform === 'win32')('finding the pages the deployment 
     // The Chinese pages' folder, both of them.
     const r = step(FIND, { live: (dir) => rmSync(join(dir, 'zh-TW'), { recursive: true }) });
     expect(r.status, r.out).toBe(0);
-    expect(r.changed).toEqual([ZH, ZH_UC]);
+    expect(r.changed).toEqual(ZH_ALL);
   });
 
   it('finds a page the live sitemap lists and the new one does not: a removed page', () => {
@@ -299,7 +299,7 @@ describe.skipIf(process.platform === 'win32')('telling IndexNow', { timeout: slo
     expect(found.status, found.out).toBe(0);
     const r = step(TELL, { changed: found.outputs.pages });
     expect(r.status, r.out).toBe(0);
-    expect(r.body).toMatchObject({ urlList: [ZH, ZH_UC] });
+    expect(r.body).toMatchObject({ urlList: ZH_ALL });
     const blank = step(TELL, { changed: `\n${EN}\n\n${ZH}\n` });
     expect(blank.body).toMatchObject({ urlList: [EN, ZH] });
     expect(blank.out).toBe('IndexNow was told of 2 changed page(s) (HTTP 200).\n');

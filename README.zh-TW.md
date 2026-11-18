@@ -2,7 +2,7 @@
 
 # Harness Relay
 
-**網站：** https://agentic-system-lab.github.io/harness-relay/zh-TW/
+**網站：** https://agentic-system-lab.github.io/harness-relay/zh-TW/ · **文件：** https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1)
 
@@ -120,6 +120,8 @@ agent 會修改你的檔案、執行指令，所以 Harness Relay 讓它們只�
 其他指令（端對端測試、桌面 app、網站、示範影片、[檢查 agent CLI 的新版本](docs/developer-guide.zh-TW.md#檢查-cli-的新版本)）都在[開發者說明](docs/developer-guide.zh-TW.md#執行)，也說明了 [CI](docs/developer-guide.zh-TW.md#持續整合ci) 會執行什麼。
 
 ## 文件
+
+想學會使用 Harness Relay，從[網站上的文件](https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/)開始，每項工作一頁。下面的文件則說明每個細節，以及它怎麼運作。
 
 | | English | 繁體中文 |
 | --- | --- | --- |

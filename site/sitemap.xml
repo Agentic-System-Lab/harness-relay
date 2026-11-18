@@ -24,4 +24,136 @@
     <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/" />
     <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/use-cases/" />
   </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/docs/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/docs/install/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/install/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/install/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/install/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/install/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/install/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/install/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/install/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/docs/agents/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/agents/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/agents/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/agents/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/agents/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/agents/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/agents/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/agents/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/docs/first-chat/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/first-chat/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/first-chat/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/first-chat/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/first-chat/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/first-chat/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/first-chat/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/first-chat/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/docs/teams/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/teams/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/teams/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/teams/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/teams/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/teams/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/teams/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/teams/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/docs/permissions/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/permissions/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/permissions/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/permissions/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/permissions/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/permissions/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/permissions/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/permissions/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/docs/conversations/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/conversations/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/conversations/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/conversations/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/conversations/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/conversations/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/conversations/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/conversations/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/docs/automations/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/automations/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/automations/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/automations/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/automations/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/automations/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/automations/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/automations/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/docs/tools/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/tools/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/tools/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/tools/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/tools/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/tools/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/tools/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/tools/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/docs/phone/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/phone/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/phone/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/phone/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/phone/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/phone/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/phone/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/phone/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/docs/troubleshooting/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/troubleshooting/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/troubleshooting/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/troubleshooting/" />
+  </url>
+  <url>
+    <loc>https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/troubleshooting/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/troubleshooting/" />
+    <xhtml:link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/troubleshooting/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/troubleshooting/" />
+  </url>
 </urlset>

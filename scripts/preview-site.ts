@@ -97,5 +97,7 @@ const server = createServer((req, res) => {
 });
 
 server.listen(port, '127.0.0.1', () => {
-  console.log(`Landing page preview: http://127.0.0.1:${port}/  (繁體中文: http://127.0.0.1:${port}/zh-TW/)`);
+  console.log(
+    `Landing page preview: http://127.0.0.1:${port}/  (繁體中文: http://127.0.0.1:${port}/zh-TW/; docs: http://127.0.0.1:${port}/docs/)`,
+  );
 });

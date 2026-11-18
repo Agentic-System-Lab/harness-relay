@@ -2,7 +2,7 @@
 
 # Harness Relay
 
-**Website:** https://agentic-system-lab.github.io/harness-relay/
+**Website:** https://agentic-system-lab.github.io/harness-relay/ · **Docs:** https://agentic-system-lab.github.io/harness-relay/docs/
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Agentic-System-Lab/harness-relay/tree/latest-release?quickstart=1)
 
@@ -120,6 +120,8 @@ Agents can change your files and run commands, so Harness Relay keeps them withi
 The other commands (end-to-end tests, the desktop app, the website, the demo, [checking an agent CLI's new version](docs/developer-guide.md#checking-a-clis-new-version)) are in the [developer guide](docs/developer-guide.md#running), with what [CI](docs/developer-guide.md#continuous-integration) runs.
 
 ## Documentation
+
+To learn to use Harness Relay, start with the [docs on the website](https://agentic-system-lab.github.io/harness-relay/docs/), a page per task. The documents below go into every detail, and into how it works.
 
 | | English | 繁體中文 |
 | --- | --- | --- |

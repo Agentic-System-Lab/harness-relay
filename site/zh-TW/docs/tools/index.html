@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>給團隊的工具 · Harness Relay 文件</title>
+    <meta
+      name="description"
+      content="Harness Relay 文件：給 agent 一個瀏覽器、你的郵件與行事曆，以及你自己的 MCP 伺服器、skill 與記憶，並選擇誰拿到哪一項。"
+    />
+    <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/tools/" />
+    <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/tools/" />
+    <link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/tools/" />
+    <link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/tools/" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141415" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Harness Relay" />
+    <meta property="og:title" content="給團隊的工具 · Harness Relay 文件" />
+    <meta
+      property="og:description"
+      content="給團隊比 agent 本身更多的工具：Harness Relay 自己的瀏覽器、郵件與行事曆，任何會送到別人那裡的東西都在待送出匣等你按「送出」；還有你自己的 MCP 伺服器、skill 與記憶筆記，設定一次就能給每個 agent 用。"
+    />
+    <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/tools/" />
+    <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-zh-TW.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="zh_TW" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="../../../favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="../../../assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="../../../assets/site.css" />
+    <script>
+      document.documentElement.classList.add('js');
+      // The theme the visitor picked with the theme button (assets/theme.js), set before anything is drawn
+      // so that it does not flash. Until they pick one, the page follows the system's light or dark mode.
+      try {
+        var theme = localStorage.getItem('harness-relay.theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {}
+      // The visitor picked English last time: show the English page.
+      try {
+        if (localStorage.getItem('harness-relay.lang') === 'en') location.replace('../../../docs/tools/' + location.hash);
+      } catch (e) {}
+    </script>
+    <script src="../../../assets/site.js" defer></script>
+    <script type="module" src="../../../assets/theme.js"></script>
+    <!-- What search and answer engines read about the page (test/site-docs.test.ts keeps it in step with the page). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "@id": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/tools/#webpage",
+        "url": "https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/tools/",
+        "name": "給團隊的工具 · Harness Relay 文件",
+        "description": "Harness Relay 文件：給 agent 一個瀏覽器、你的郵件與行事曆，以及你自己的 MCP 伺服器、skill 與記憶，並選擇誰拿到哪一項。",
+        "inLanguage": "zh-TW",
+        "isPartOf": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
+        },
+        "about": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#app"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-github" viewBox="0 0 16 16">
+          <path
+            fill="currentColor"
+            d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+          />
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+          <path d="M12 3.86 14.22 9.8l6.34.28-4.97 3.95 1.7 6.11L12 16.64l-5.29 3.5 1.7-6.11-4.97-3.95 6.34-.28Z" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2.75v1.5M12 19.75v1.5M2.75 12h1.5M19.75 12h1.5M5.46 5.46l1.06 1.06M17.48 17.48l1.06 1.06M5.46 18.54l1.06-1.06M17.48 6.52l1.06-1.06" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 13.6A8 8 0 1 1 10.4 4a6.25 6.25 0 0 0 9.6 9.6Z" />
+        </symbol>
+        <symbol id="i-mark" viewBox="0 0 32 32">
+          <circle cx="9" cy="16" r="6" fill="#d97757" />
+          <circle cx="23" cy="10" r="5" fill="#10a37f" />
+          <circle cx="23" cy="23" r="5" fill="#7c5cff" />
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6.5 9.5 5.5 5.5 5.5-5.5" />
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.75" />
+          <path d="M12 11v5.5M12 7.6v.1" />
+        </symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M12 2.5c.8 5.9 3.6 8.7 9.5 9.5-5.9.8-8.7 3.6-9.5 9.5-.8-5.9-3.6-8.7-9.5-9.5 5.9-.8 8.7-3.6 9.5-9.5Z" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.7 7 9 4.1-1.3 7-4.7 7-9V6.2Z" />
+          <path d="m9 12 2.2 2.2L15.2 10" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
+        </symbol>
+        <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+        </symbol>
+        <symbol id="i-os-win" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+          <path d="M12 4.5v15M3.5 12h17" />
+        </symbol>
+        <symbol id="i-os-linux" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3c-2.3 0-3.6 1.9-3.6 4.4 0 1.5.4 2.4-.7 3.8C6.4 12.9 5.4 14.8 5.4 17c0 2.6 2.9 4 6.6 4s6.6-1.4 6.6-4c0-2.2-1-4.1-2.3-5.8-1.1-1.4-.7-2.3-.7-3.8C15.6 4.9 14.3 3 12 3Z" />
+          <path d="M9.6 14.6c0-1.6 1-2.7 2.4-2.7s2.4 1.1 2.4 2.7v1.6c0 1.5-1 2.6-2.4 2.6s-2.4-1.1-2.4-2.6Z" />
+          <path d="M10.6 9.2 12 10.3l1.4-1.1" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <a class="skip" href="#main">跳到主要內容</a>
+
+    <header class="site-header">
+      <div class="wrap header-row">
+        <a class="brand" href="../../" aria-label="Harness Relay 首頁">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="site-nav" aria-label="頁面段落">
+          <a href="../../#demo">示範</a>
+          <a href="../../use-cases/">使用情境</a>
+          <a href="../../#modes">對話模式</a>
+          <a href="../../#teams">團隊</a>
+          <a href="../../#safety">安全</a>
+          <a href="../../#start">快速開始</a>
+          <a href="../" aria-current="true">文件</a>
+        </nav>
+        <div class="header-tools">
+          <nav class="lang" aria-label="語言">
+            <a href="../../../docs/tools/" hreflang="en" lang="en" data-lang="en">EN</a>
+            <a href="./" hreflang="zh-TW" lang="zh-Hant-TW" aria-current="page" data-lang="zh-TW">中文</a>
+          </nav>
+          <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            <span class="gh-label">GitHub</span>
+            <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> 顆星</span></span>
+          </a>
+          <button class="btn btn-ghost theme-toggle" type="button" data-theme-toggle data-to-dark="切換成深色主題" data-to-light="切換成淺色主題" aria-label="切換成深色主題">
+            <svg class="i-moon" aria-hidden="true"><use href="#i-moon" /></svg>
+            <svg class="i-sun" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="wrap doc-layout">
+      <nav class="doc-nav" aria-label="文件" data-doc-nav>
+        <button class="doc-nav-toggle" type="button" aria-expanded="false" aria-controls="doc-pages" data-doc-nav-toggle>
+          <span>文件</span>
+          <b>工具</b>
+          <svg aria-hidden="true"><use href="#i-chevron" /></svg>
+        </button>
+        <div class="doc-nav-list" id="doc-pages">
+          <p class="doc-nav-title">開始使用</p>
+          <ul>
+            <li><a href="../">總覽</a></li>
+            <li><a href="../install/">安裝</a></li>
+            <li><a href="../agents/">連接你的 agent</a></li>
+            <li><a href="../first-chat/">第一個對話</a></li>
+          </ul>
+          <p class="doc-nav-title">和團隊一起工作</p>
+          <ul>
+            <li><a href="../teams/">團隊與對話模式</a></li>
+            <li><a href="../permissions/">權限與核准</a></li>
+            <li><a href="../conversations/">對話</a></li>
+            <li><a href="../automations/">自動任務</a></li>
+            <li><a href="../tools/" aria-current="page">工具</a></li>
+          </ul>
+          <p class="doc-nav-title">更多</p>
+          <ul>
+            <li><a href="../phone/">在手機上使用</a></li>
+            <li><a href="../troubleshooting/">疑難排解</a></li>
+          </ul>
+          <a class="doc-nav-out" href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/README.zh-TW.md#文件">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            GitHub 上的技術文件
+          </a>
+        </div>
+      </nav>
+
+      <header class="doc-head">
+        <h1>給團隊的工具</h1>
+        <p class="lead">
+          每個 agent 都帶著自己的工具。Harness Relay 還能給整個團隊更多：一個瀏覽器、你的郵件與行事曆，以及你自己的
+          MCP 伺服器、skill 與筆記。在<b>設定 → 工具庫</b>設定一次，再選擇哪些 agent 拿到哪一項。
+        </p>
+      </header>
+
+      <nav class="doc-toc" aria-label="本頁內容">
+        <p class="doc-toc-title">本頁內容</p>
+        <ol>
+          <li><a href="#browser-mail-calendar">瀏覽器、郵件與行事曆</a></li>
+          <li><a href="#outbox">沒有你，什麼都不會送到別人那裡</a></li>
+          <li><a href="#accounts">你的郵件與行事曆帳號</a></li>
+          <li><a href="#library">你的 MCP 伺服器、skill 與記憶</a></li>
+          <li><a href="#per-member">給單一成員的工具</a></li>
+          <li><a href="#own-setup">各 agent 自己載入的內容</a></li>
+        </ol>
+      </nav>
+
+      <div class="doc-body">
+        <section id="browser-mail-calendar" aria-labelledby="browser-mail-calendar-title">
+          <h2 id="browser-mail-calendar-title">瀏覽器、郵件與行事曆</h2>
+          <p>
+            <b>設定 → 工具庫</b>最上面的 <b>Harness Relay 的工具</b>，是 Harness Relay 自己提供的三種工具。一開始都是關閉的：勾選要給哪些
+            agent 的成員使用。
+          </p>
+          <ul>
+            <li>
+              <b>瀏覽器</b>：每個對話一個 Harness Relay 自己的瀏覽器，沒有登入任何東西，刪除對話時一起刪除。agent
+              可以打開網頁、閱讀、點擊與輸入，也能截圖，截圖會顯示在回覆裡。它絕不是你自己的瀏覽器，也不用你的登入；下載與上傳檔案一律不行。
+            </li>
+            <li><b>郵件</b>：搜尋與閱讀你的郵件、存草稿，並透過待送出匣寄信。</li>
+            <li><b>行事曆</b>：列出你的活動、新增活動，並透過待送出匣寄出邀請。</li>
+          </ul>
+          <p>每次呼叫不必問你就能做什麼，取決於它做的事：</p>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th scope="col">呼叫的內容</th>
+                <th scope="col">會怎樣</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row"><span class="keep">讀取</span></th>
+                <td>打開並閱讀網頁、搜尋郵件、列出活動：直接執行，自動任務的執行也一樣。</td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">改變某些東西</span></th>
+                <td>
+                  在網頁上點擊或輸入、存草稿、新增沒有邀請對象的活動：在完全存取以下會先用卡片問你，並清楚說明它要做什麼。允許時可以選擇<b>本對話都允許</b>這個工具；自動任務的執行，除非你已經這樣允許過，否則會拒絕。
+                </td>
+              </tr>
+              <tr>
+                <th scope="row"><span class="keep">會送到別人那裡</span></th>
+                <td>寄信、有邀請對象的活動：絕不會在 agent 的那一回合送出。不論權限為何，都會在待送出匣等你。</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>在完全存取以下，瀏覽器要打開這個對話還沒開過的網站之前，也會先問你，就像這個畫面：</p>
+          <figure class="doc-figure">
+            <img
+              src="../../../assets/media/docs/tools-browser-zh-TW.webp"
+              width="1280"
+              height="800"
+              alt="對話中的一張核准卡片：@Researcher 想讀取網頁，列出它要打開的網址、一個可以告訴它改做什麼的欄位，以及「允許」、「本對話都允許」那個主機和「拒絕」三個按鈕。側邊欄把這個對話標示為「等你核准」。"
+              loading="lazy"
+            />
+            <figcaption>
+              瀏覽器打開新網站前會先問你。取自使用情境<a href="../../use-cases/#launch-copy">讀完競品，再寫上市文案</a>的一個畫面。
+            </figcaption>
+          </figure>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-info" /></svg>
+            <div>
+              <p>
+                Grok、Muse Code、Goose、Cline、OpenHands 與 Pi 只有在完全存取的對話裡才拿得到這些工具。你的密碼與帳號都留在 Harness Relay：agent
+                只看得到每次呼叫的結果，而且會被告知那是網頁、郵件或行事曆的資料，絕不是指令。
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="outbox" aria-labelledby="outbox-title">
+          <h2 id="outbox-title">沒有你，什麼都不會送到別人那裡</h2>
+          <p>agent 想寄信或寄邀請時，它的回覆會改成顯示一張卡片：照實際送出的樣子，一欄一欄列出內容。這時還沒有送出任何東西。</p>
+          <ul>
+            <li><b>送出</b>：照卡片上顯示的內容，用你的帳號送出。</li>
+            <li><b>捨棄</b>：丟掉它。</li>
+          </ul>
+          <p>
+            在你回應之前，這個對話會標示為<b>等你核准</b>，你也會收到通知，就像核准一樣。agent 不會等你：它的這一回合照常進行，所以你可以之後再看卡片、再送出，沒人看著的自動任務執行也一樣。
+          </p>
+          <figure class="doc-figure">
+            <img
+              src="../../../assets/media/docs/tools-outbox-zh-TW.webp"
+              width="1280"
+              height="800"
+              alt="@MailReader 回覆中的一張卡片：寄給 hana@paperlantern.example 的「付款提醒：發票 INV-1046」，列出寄件人、收件人、主旨與整封信的內容，下方是「送出」與「捨棄」按鈕，並標示等你決定。"
+              loading="lazy"
+            />
+            <figcaption>
+              在待送出匣等待的一封信。取自使用情境<a href="../../use-cases/#collect-payments">追逾期帳款，追到收齊為止</a>的一個畫面。
+            </figcaption>
+          </figure>
+        </section>
+
+        <section id="accounts" aria-labelledby="accounts-title">
+          <h2 id="accounts-title">你的郵件與行事曆帳號</h2>
+          <p>郵件與行事曆工具用的是<b>郵件與行事曆帳號</b>裡的帳號：</p>
+          <ul>
+            <li>
+              <b>郵件帳號</b>：選 Gmail、iCloud Mail、Fastmail 或 Yahoo Mail 會自動填入伺服器，或自己輸入。它需要一組<b>應用程式專用密碼</b>，在你的郵件服務的安全性設定中產生（Gmail
+              要先開啟兩步驟驗證）。
+            </li>
+            <li><b>行事曆</b>：選 iCloud 或 Fastmail，或輸入你的行事曆伺服器網址，再按<b>尋找行事曆</b>選一個。</li>
+          </ul>
+          <p><b>測試</b>只會登入，不會送出任何東西。密碼存在系統的金鑰儲存區，之後不會再顯示；任何 agent 都拿不到。</p>
+          <h3>Microsoft 365、Outlook.com 與 Google</h3>
+          <p>
+            這些帳號不用密碼，而是在<b>登入的帳號</b>裡用瀏覽器登入，用於行事曆、郵件或兩者。Harness Relay 目前還沒有在 Microsoft 或 Google
+            註冊自己的 app，所以要先在該服務註冊一個，把它的<b>用戶端 ID（Client ID）</b>填在<b>設定 app</b>；再勾選這次登入用於什麼，按<b>用 … 登入</b>。各服務的步驟見<a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆">使用者說明</a>。權杖存在你的金鑰儲存區，只會送到那個帳號自己的服務。
+          </p>
+        </section>
+
+        <section id="library" aria-labelledby="library-title">
+          <h2 id="library-title">你的 MCP 伺服器、skill 與記憶</h2>
+          <p>
+            <b>工具庫</b>其餘的部分放你自己加的東西。不管 agent 跑在哪個程式上都能用，而且是加在 agent 自己的設定之外。變更從 agent 的下一回合開始生效。
+          </p>
+          <dl class="doc-terms">
+            <dt>MCP 伺服器</dt>
+            <dd>
+              按<b>新增 MCP 伺服器</b>，取一個名稱，再選<b>本機指令（stdio）</b>或<b>網址（HTTP）</b>。它的環境變數與標頭的值通常是 token，會存進你的金鑰儲存區，畫面上只顯示遮蔽後的值。它的工具呼叫和其他動作一樣，受對話權限限制。
+            </dd>
+            <dt>需要登入的伺服器</dt>
+            <dd>
+              網路上有些伺服器要你登入，而不是收 token（Linear、Notion、Atlassian 等）：在那台伺服器的那一列按<b>登入</b>，再在打開的頁面上允許。登入頁面不在伺服器自己的登入服務所在的網站時，那一列會先告訴你會在哪裡登入：只有在你預期是那個頁面時才繼續。
+            </dd>
+            <dt>Skills</dt>
+            <dd>
+              加入一個有 <code>SKILL.md</code> 的資料夾，或一個放了多個 skill、可以從中挑選的資料夾。拿到它們的 agent 會知道每個 skill 的名稱與用途，任務需要時就會去讀那個 skill。
+            </dd>
+            <dt>記憶</dt>
+            <dd>每個 agent 在每個對話裡都會拿到的筆記，例如你的偏好與專案慣例：可以給<b>所有成員</b>，或寫在各 agent 自己的分頁裡，只給那種 agent。</dd>
+            <dt>預設提供給</dt>
+            <dd>每個 MCP 伺服器與 skill 都會給你選的 agent：全部（預設）、其中幾種，或都不給，這時只給你在團隊設定裡勾選的成員。</dd>
+          </dl>
+        </section>
+
+        <section id="per-member" aria-labelledby="per-member-title">
+          <h2 id="per-member-title">給單一成員的工具</h2>
+          <p>
+            在範本裡，或對話上方的<b>團隊設定</b>裡，每位成員的卡片會用標籤列出它從工具庫拿到的<b>工具</b>。按<b>調整</b>打開清單勾選：一開始照工具庫給那位成員所用 agent 的預設；只要你把
+            Harness Relay 的瀏覽器、郵件與行事曆給了任何 agent，它們也會在清單裡。所以你可以只讓一位成員使用你的郵件。
+          </p>
+        </section>
+
+        <section id="own-setup" aria-labelledby="own-setup-title">
+          <h2 id="own-setup-title">各 agent 自己載入的內容</h2>
+          <p>
+            你登入的 agent 也會載入它自己的設定，就像你自己執行它時一樣：它的 skill、MCP 伺服器、hook 與指示檔。想看有哪些，在<b>設定與登入</b>打開它的卡片，展開帳號框裡的<b>這個
+            CLI 自己載入的 skill、MCP、hook 與記憶等</b>，按<b>查詢</b>：它會列出來，不會送出 prompt。每個分頁也能讓 Harness Relay 啟動的執行不載入其中的項目，整類或逐項都可以，只要那個 agent
+            做得到（有些做不到，例如 Cursor 與 Antigravity），而且不會改動 agent 自己的設定。
+          </p>
+        </section>
+
+        <aside class="doc-more" aria-label="技術細節">
+          <svg aria-hidden="true"><use href="#i-github" /></svg>
+          <div>
+            <p>每種工具、每次呼叫能做什麼、需要登入的帳號，以及各 agent 能略過什麼，都在 GitHub 上的使用者說明裡：</p>
+            <ul>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#harness-relay-的工具瀏覽器郵件與行事曆">Harness Relay 的工具</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#工具庫mcp-伺服器skill-與記憶">工具庫</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.zh-TW.md#各-cli-自己載入的內容">各 agent 自己載入的內容</a></li>
+            </ul>
+          </div>
+        </aside>
+
+        <nav class="doc-pager" aria-label="頁面">
+          <a href="../automations/" rel="prev"><span>上一頁</span><b>自動任務</b></a>
+          <a href="../phone/" rel="next"><span>下一頁</span><b>在手機上使用</b></a>
+        </nav>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-row">
+        <a class="brand" href="../../" aria-label="Harness Relay 首頁">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="footer-links" aria-label="頁尾">
+          <a href="../">文件</a>
+          <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE">Sustainable Use License</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

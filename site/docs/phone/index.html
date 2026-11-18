@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Use it from your phone · Harness Relay docs</title>
+    <meta
+      name="description"
+      content="Harness Relay docs: open your chats on your phone, wherever you are, through Tailscale, add them to the home screen and get notifications."
+    />
+    <link rel="canonical" href="https://agentic-system-lab.github.io/harness-relay/docs/phone/" />
+    <link rel="alternate" hreflang="en" href="https://agentic-system-lab.github.io/harness-relay/docs/phone/" />
+    <link rel="alternate" hreflang="zh-TW" href="https://agentic-system-lab.github.io/harness-relay/zh-TW/docs/phone/" />
+    <link rel="alternate" hreflang="x-default" href="https://agentic-system-lab.github.io/harness-relay/docs/phone/" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141415" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Harness Relay" />
+    <meta property="og:title" content="Use it from your phone · Harness Relay docs" />
+    <meta
+      property="og:description"
+      content="Harness Relay runs on your computer; Tailscale lets your phone, a tablet or another computer open the same chats from anywhere, over HTTPS and only inside your own tailnet. Share it from the desktop app's menu, sign the phone in, add it to the home screen and turn on notifications."
+    />
+    <meta property="og:url" content="https://agentic-system-lab.github.io/harness-relay/docs/phone/" />
+    <meta property="og:image" content="https://agentic-system-lab.github.io/harness-relay/assets/media/og-en.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="zh_TW" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="../../favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="../../assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="../../assets/site.css" />
+    <script>
+      document.documentElement.classList.add('js');
+      // The theme the visitor picked with the theme button (assets/theme.js), set before anything is drawn
+      // so that it does not flash. Until they pick one, the page follows the system's light or dark mode.
+      try {
+        var theme = localStorage.getItem('harness-relay.theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {}
+      // Show the language the visitor picked last time. Before they pick one, follow the
+      // browser like the app does: Chinese gets the Traditional Chinese page.
+      try {
+        var lang = localStorage.getItem('harness-relay.lang');
+        var browserZh = /^zh/i.test((navigator.languages || [])[0] || navigator.language || '');
+        if (lang === 'zh-TW' || (!lang && browserZh)) location.replace('../../zh-TW/docs/phone/' + location.hash);
+      } catch (e) {}
+    </script>
+    <script src="../../assets/site.js" defer></script>
+    <script type="module" src="../../assets/theme.js"></script>
+    <!-- What search and answer engines read about the page (test/site-docs.test.ts keeps it in step with the page). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "@id": "https://agentic-system-lab.github.io/harness-relay/docs/phone/#webpage",
+        "url": "https://agentic-system-lab.github.io/harness-relay/docs/phone/",
+        "name": "Use it from your phone · Harness Relay docs",
+        "description": "Harness Relay docs: open your chats on your phone, wherever you are, through Tailscale, add them to the home screen and get notifications.",
+        "inLanguage": "en",
+        "isPartOf": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#website"
+        },
+        "about": {
+          "@id": "https://agentic-system-lab.github.io/harness-relay/#app"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-github" viewBox="0 0 16 16">
+          <path
+            fill="currentColor"
+            d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+          />
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+          <path d="M12 3.86 14.22 9.8l6.34.28-4.97 3.95 1.7 6.11L12 16.64l-5.29 3.5 1.7-6.11-4.97-3.95 6.34-.28Z" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2.75v1.5M12 19.75v1.5M2.75 12h1.5M19.75 12h1.5M5.46 5.46l1.06 1.06M17.48 17.48l1.06 1.06M5.46 18.54l1.06-1.06M17.48 6.52l1.06-1.06" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 13.6A8 8 0 1 1 10.4 4a6.25 6.25 0 0 0 9.6 9.6Z" />
+        </symbol>
+        <symbol id="i-mark" viewBox="0 0 32 32">
+          <circle cx="9" cy="16" r="6" fill="#d97757" />
+          <circle cx="23" cy="10" r="5" fill="#10a37f" />
+          <circle cx="23" cy="23" r="5" fill="#7c5cff" />
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6.5 9.5 5.5 5.5 5.5-5.5" />
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.75" />
+          <path d="M12 11v5.5M12 7.6v.1" />
+        </symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M12 2.5c.8 5.9 3.6 8.7 9.5 9.5-5.9.8-8.7 3.6-9.5 9.5-.8-5.9-3.6-8.7-9.5-9.5 5.9-.8 8.7-3.6 9.5-9.5Z" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.5 5 6.2v5.3c0 4.3 2.9 7.7 7 9 4.1-1.3 7-4.7 7-9V6.2Z" />
+          <path d="m9 12 2.2 2.2L15.2 10" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" />
+        </symbol>
+        <symbol id="i-os-mac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+        </symbol>
+        <symbol id="i-os-win" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+          <path d="M12 4.5v15M3.5 12h17" />
+        </symbol>
+        <symbol id="i-os-linux" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3c-2.3 0-3.6 1.9-3.6 4.4 0 1.5.4 2.4-.7 3.8C6.4 12.9 5.4 14.8 5.4 17c0 2.6 2.9 4 6.6 4s6.6-1.4 6.6-4c0-2.2-1-4.1-2.3-5.8-1.1-1.4-.7-2.3-.7-3.8C15.6 4.9 14.3 3 12 3Z" />
+          <path d="M9.6 14.6c0-1.6 1-2.7 2.4-2.7s2.4 1.1 2.4 2.7v1.6c0 1.5-1 2.6-2.4 2.6s-2.4-1.1-2.4-2.6Z" />
+          <path d="M10.6 9.2 12 10.3l1.4-1.1" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="wrap header-row">
+        <a class="brand" href="../../" aria-label="Harness Relay, home">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="site-nav" aria-label="Sections">
+          <a href="../../#demo">Demo</a>
+          <a href="../../use-cases/">Use cases</a>
+          <a href="../../#modes">Modes</a>
+          <a href="../../#teams">Teams</a>
+          <a href="../../#safety">Safety</a>
+          <a href="../../#start">Quick start</a>
+          <a href="../" aria-current="true">Docs</a>
+        </nav>
+        <div class="header-tools">
+          <nav class="lang" aria-label="Language">
+            <a href="./" hreflang="en" lang="en" aria-current="page" data-lang="en">EN</a>
+            <a href="../../zh-TW/docs/phone/" hreflang="zh-TW" lang="zh-Hant-TW" data-lang="zh-TW">中文</a>
+          </nav>
+          <a class="btn btn-ghost" href="https://github.com/Agentic-System-Lab/harness-relay">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            <span class="gh-label">GitHub</span>
+            <span class="stars" data-stars hidden><svg aria-hidden="true"><use href="#i-star" /></svg><span class="stars-n"></span><span class="visually-hidden"> stars</span></span>
+          </a>
+          <button class="btn btn-ghost theme-toggle" type="button" data-theme-toggle data-to-dark="Switch to dark theme" data-to-light="Switch to light theme" aria-label="Switch to dark theme">
+            <svg class="i-moon" aria-hidden="true"><use href="#i-moon" /></svg>
+            <svg class="i-sun" aria-hidden="true"><use href="#i-sun" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="wrap doc-layout">
+      <nav class="doc-nav" aria-label="Docs" data-doc-nav>
+        <button class="doc-nav-toggle" type="button" aria-expanded="false" aria-controls="doc-pages" data-doc-nav-toggle>
+          <span>Docs</span>
+          <b>Use it from your phone</b>
+          <svg aria-hidden="true"><use href="#i-chevron" /></svg>
+        </button>
+        <div class="doc-nav-list" id="doc-pages">
+          <p class="doc-nav-title">Get started</p>
+          <ul>
+            <li><a href="../">Overview</a></li>
+            <li><a href="../install/">Install</a></li>
+            <li><a href="../agents/">Connect your agents</a></li>
+            <li><a href="../first-chat/">Your first chat</a></li>
+          </ul>
+          <p class="doc-nav-title">Work with the team</p>
+          <ul>
+            <li><a href="../teams/">Teams and modes</a></li>
+            <li><a href="../permissions/">Permissions and approvals</a></li>
+            <li><a href="../conversations/">Conversations</a></li>
+            <li><a href="../automations/">Automations</a></li>
+            <li><a href="../tools/">Tools</a></li>
+          </ul>
+          <p class="doc-nav-title">More</p>
+          <ul>
+            <li><a href="../phone/" aria-current="page">Use it from your phone</a></li>
+            <li><a href="../troubleshooting/">Troubleshooting</a></li>
+          </ul>
+          <a class="doc-nav-out" href="https://github.com/Agentic-System-Lab/harness-relay#documentation">
+            <svg aria-hidden="true"><use href="#i-github" /></svg>
+            Technical docs on GitHub
+          </a>
+        </div>
+      </nav>
+
+      <header class="doc-head">
+        <h1>Use it from your phone</h1>
+        <p class="lead">
+          Harness Relay runs on your computer, with your agents, projects and sign-ins. With
+          <a href="https://tailscale.com">Tailscale</a>, a private network of your own devices, you can open the same chats
+          on your phone, a tablet or another computer, wherever you are, without opening Harness Relay to your Wi-Fi or the
+          internet.
+        </p>
+      </header>
+
+      <nav class="doc-toc" aria-label="On this page">
+        <p class="doc-toc-title">On this page</p>
+        <ol>
+          <li><a href="#share">Share it with your phone</a></li>
+          <li><a href="#sign-in">Sign the phone in</a></li>
+          <li><a href="#home-screen">Add it to the home screen</a></li>
+          <li><a href="#notifications">Notifications on the phone</a></li>
+          <li><a href="#keep-running">Keep it reachable</a></li>
+          <li><a href="#security">Who can reach it</a></li>
+        </ol>
+      </nav>
+
+      <div class="doc-body">
+        <section id="share" aria-labelledby="share-title">
+          <h2 id="share-title">Share it with your phone</h2>
+          <p>You need:</p>
+          <ul>
+            <li>Tailscale on the computer that runs Harness Relay and on the phone (the Tailscale app), signed in to the same tailnet.</li>
+            <li>MagicDNS and HTTPS certificates turned on in Tailscale's admin console, on its <b>DNS</b> page.</li>
+          </ul>
+          <p>Then, with the desktop app:</p>
+          <ol class="doc-steps">
+            <li>
+              Open Harness Relay's menu (the three dots in the menu bar on macOS, in the system tray on Windows and Linux) and
+              choose <b>Share with your phone (Tailscale)…</b>.
+            </li>
+            <li>
+              The first time, if your tailnet does not allow sharing or HTTPS yet, the app opens Tailscale's page for it in
+              your browser. Allow it there, then choose <b>Share with your phone</b> again.
+            </li>
+            <li>
+              The app shows the address to open on the phone, such as <code>https://my-computer.tail1234.ts.net</code>.
+              Later, <b>Copy phone address</b> in the same menu copies it.
+            </li>
+          </ol>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-info" /></svg>
+            <div>
+              <p>
+                On a Mac, the Tailscale app is enough. On Linux, if Tailscale does not let your user change its settings,
+                the app shows the one command to run first. Whatever else the computer already shares with your tailnet stays
+                as it is.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="sign-in" aria-labelledby="sign-in-title">
+          <h2 id="sign-in-title">Sign the phone in</h2>
+          <p>
+            Turn Tailscale on in the phone and open the address. The first time, it shows the sign-in page: on the computer,
+            open <b>Settings → Signed-in browsers → Sign in another device</b> and type the code it shows on the phone (or
+            open its link there). From then on the chat, the settings and voice input work as on the computer, laid out for a
+            small screen.
+          </p>
+          <ul>
+            <li><b>The working directories</b> are folders on the computer, not on the phone.</li>
+            <li>
+              <b>Files the agents make</b> (a PDF, slides, a spreadsheet): tap the link in the reply, or <b>Download</b> in
+              <b>Files</b>, and the file is saved on the phone.
+            </li>
+            <li>
+              <b>Conversations keep running</b> on the computer when the phone locks or you close the page. When you come
+              back, the page catches up.
+            </li>
+            <li>
+              <b>Signing an agent in from the phone</b>: pick a method that shows a link or a code. Codex's
+              <b>ChatGPT browser sign-in</b> opens a browser on the computer, so use <b>ChatGPT device code</b> instead.
+            </li>
+          </ul>
+        </section>
+
+        <section id="home-screen" aria-labelledby="home-screen-title">
+          <h2 id="home-screen-title">Add it to the home screen</h2>
+          <p>
+            An icon on the home screen, Harness Relay's three dots, opens the chat with one tap, full screen, like an app. It
+            works while Tailscale is on in the phone and the computer can be reached.
+          </p>
+          <h3>iPhone and iPad</h3>
+          <ol class="doc-steps">
+            <li>Open the address in Safari.</li>
+            <li>Tap <b>Share</b> (if you don't see it, tap the button with three dots first), then <b>Add to Home Screen</b>.</li>
+            <li>If you see <b>Open as Web App</b>, keep it on, then tap <b>Add</b>.</li>
+          </ol>
+          <h3>Android</h3>
+          <ol class="doc-steps">
+            <li>Open the address in Chrome.</li>
+            <li>
+              Tap the menu button (three dots) at the top right, then <b>Install app</b> (in some versions <b>Add to home screen</b> or
+              <b>Install and create shortcut</b>).
+            </li>
+            <li>Tap <b>Install</b>.</li>
+          </ol>
+        </section>
+
+        <section id="notifications" aria-labelledby="notifications-title">
+          <h2 id="notifications-title">Notifications on the phone</h2>
+          <p>
+            To know when the team finishes or needs you, with the phone in your pocket: on the phone, open
+            <b>Settings &amp; sign-in → Notifications and sound</b> and turn on <b>Show notifications</b>. On an iPhone or
+            iPad, do it in the icon on the home screen (iOS 16.4 or later): Safari's own tabs get no notifications.
+            <b>Send a test notification</b> tries it out.
+          </p>
+          <p>
+            The phone then gets them even when it is locked and the page is closed, as long as the computer runs Harness
+            Relay and is online. Tailscale need not be on in the phone for them, only to open the chat.
+          </p>
+          <div class="doc-note">
+            <svg aria-hidden="true"><use href="#i-shield" /></svg>
+            <div>
+              <p>
+                A notification shows the start of a reply, or the command an agent asks about, so it may show on a locked
+                screen. To keep that private, hide notification previews on the lock screen in the phone's settings.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="keep-running" aria-labelledby="keep-running-title">
+          <h2 id="keep-running-title">Keep it reachable</h2>
+          <p>
+            The phone reaches Harness Relay only while the computer is awake and Harness Relay runs. In the app's menu, turn on
+            <b>Open at login</b>, so it starts again after a restart, and <b>Keep this computer awake while running</b>. A
+            MacBook still sleeps when you close its lid.
+          </p>
+          <h3>Without the desktop app</h3>
+          <p>
+            If you run Harness Relay from its source, or on a server without a desktop, you share it with
+            <code>tailscale serve</code> yourself and start Harness Relay with the address's name. The
+            <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.md">phone guide on GitHub</a>
+            has the commands, and how to keep it running on a Mac or a Linux server.
+          </p>
+        </section>
+
+        <section id="security" aria-labelledby="security-title">
+          <h2 id="security-title">Who can reach it</h2>
+          <ul>
+            <li>
+              <b>Only devices in your tailnet</b>, over HTTPS. Harness Relay itself still listens only on the computer
+              (<code>127.0.0.1</code>); Tailscale passes your devices' requests on to it.
+            </li>
+            <li>
+              <b>Only browsers you signed in</b> can use it. Sign out a phone you no longer use in
+              <b>Settings → Signed-in browsers</b>. If other people share your tailnet, use Tailscale's access controls so
+              that only your own devices reach that computer.
+            </li>
+            <li>
+              <b>Never with Tailscale Funnel</b>, which would publish the page to the whole internet.
+            </li>
+            <li>
+              <b>Your computer's name becomes public</b>: with HTTPS on, Tailscale records the full name, such as
+              <code>my-computer.tail1234.ts.net</code>, in public certificate logs. Don't use a computer name you want to keep
+              private.
+            </li>
+          </ul>
+        </section>
+
+        <aside class="doc-more" aria-label="Technical details">
+          <svg aria-hidden="true"><use href="#i-github" /></svg>
+          <div>
+            <p>Sharing by hand, keeping it running on a server, browsing AgentsView from the phone and more troubleshooting are in the phone guide on GitHub:</p>
+            <ul>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.md">Use it from your phone (Tailscale)</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/remote-access.md#troubleshooting">Troubleshooting</a></li>
+              <li><a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/user-guide.md#notifications-and-sound">Notifications and sound</a></li>
+            </ul>
+          </div>
+        </aside>
+
+        <nav class="doc-pager" aria-label="Pages">
+          <a href="../tools/" rel="prev"><span>Previous</span><b>Tools</b></a>
+          <a href="../troubleshooting/" rel="next"><span>Next</span><b>Troubleshooting</b></a>
+        </nav>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-row">
+        <a class="brand" href="../../" aria-label="Harness Relay, home">
+          <svg aria-hidden="true"><use href="#i-mark" /></svg>
+          <span>Harness Relay</span>
+        </a>
+        <nav class="footer-links" aria-label="Footer">
+          <a href="../">Docs</a>
+          <a href="https://github.com/Agentic-System-Lab/harness-relay/blob/main/LICENSE">Sustainable Use License</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>
