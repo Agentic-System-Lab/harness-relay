@@ -359,6 +359,8 @@ describe.skipIf(process.platform === 'win32')('connect-only ports', () => {
     const config = JSON.parse(host.lines[0]!);
     expect(config.localPorts).toEqual([4096]);
     expect(config.srt.network.allowedDomains).toEqual(expect.arrayContaining(['127.0.0.1:7777', '127.0.0.1:4096']));
+    // sandbox-runtime runs its command with sh, never bash, which reads the agent home's .bashrc (#117).
+    expect(config.binShell).toBe('/bin/sh');
     await s.dispose();
   });
 });
@@ -657,6 +659,27 @@ describe.skipIf(process.platform === 'win32')('relaySandboxEnv', () => {
     expect(inside.filter((l) => l.startsWith(SANDBOX_EXEC_PREFIX))).toEqual([]);
     // A value that is not a string never reaches a command line.
     expect(() => relaySandboxEnv('/bin/sh', [42 as unknown as string], env, { tmp: '/r/tmp', loopback: false })).toThrow(TypeError);
+  });
+
+  it("runs no startup file of the agent's home before the agent, also with a socket as its stdin, as every agent has (#117)", async () => {
+    // OpenHands' run home has a .bashrc that gives its terminal's commands the user's own HOME back.
+    // bash, run with a socket as stdin, takes itself for a remote login and reads it (Debian's and
+    // Ubuntu's bash): the agent then got the user's HOME. The sandbox's command runs with sh, which reads none.
+    const agentHome = join(dir, 'agent-home-with-rc');
+    mkdirSync(agentHome, { recursive: true });
+    writeFileSync(join(agentHome, '.bashrc'), 'export HOME=/the/users/own/home\nexport RAN_BASHRC=1\n');
+    const own = relaySandboxEnv('/usr/bin/env', [], { ...env, HOME: agentHome }, { tmp: '/r/tmp', loopback: false });
+    // stdin a pipe of Node's (a socket pair on macOS and Linux), as runProcess gives every agent.
+    const r = await runProcess({
+      bin: ctx.tools.sh,
+      args: ['-c', own.command],
+      env: own.outerEnv,
+      keepStdinOpen: true,
+      onSpawn: (c) => c.stdin!.end(),
+    });
+    const inside = r.stdout.split('\n');
+    expect(inside).toContain(`HOME=${agentHome}`);
+    expect(inside.some((l) => l.startsWith('RAN_BASHRC='))).toBe(false);
   });
 
   it("keeps only loopback out of the proxy, and only the agent's own ports when a backend is on loopback", () => {

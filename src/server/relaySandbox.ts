@@ -178,7 +178,14 @@ export interface RelaySandboxContext {
 }
 
 export interface RelaySandboxTools {
-  /** The shell that starts the sandbox, and the one sandbox-runtime runs the command with in it. */
+  /**
+   * The shell that starts the sandbox, and the one sandbox-runtime runs the command with in it
+   * (`binShell`): never bash, which, run with a socket as its stdin (as every agent
+   * is: Node's pipes are socket pairs), takes itself for a remote login and reads `~/.bashrc` of the
+   * agent's home and `/etc/bash.bashrc` before the command (Debian's and Ubuntu's bash). OpenHands'
+   * run home has a `.bashrc` for its terminal, which gives commands the user's own `HOME` back: read
+   * there, it gave OpenHands itself the user's home, read-only in the sandbox (#117).
+   */
   sh: string;
   bash: string;
   /** Linux only. */
@@ -1514,7 +1521,7 @@ async function probe(ctx: RelaySandboxContext): Promise<HostFailure | undefined>
     {
       srt: relaySandboxConfig(paths, hosts, ctx),
       command: `printf '%s\\n' ${PROBE_EXPECT}`,
-      binShell: ctx.tools.bash,
+      binShell: ctx.tools.sh,
       outerEnv: { PATH: SYSTEM_PATH.join(':'), HOME: ctx.home },
       tmpdir: dirs.tmp,
       probe: { expect: PROBE_EXPECT },
@@ -1618,7 +1625,7 @@ export async function sandboxCommand(
           unixSocketDir: spec.allowUnixSocketsInTmp ? dirs.tmp : undefined,
         }),
         command,
-        binShell: ctx.tools.bash,
+        binShell: ctx.tools.sh,
         outerEnv,
         tmpdir: dirs.tmp,
         localPorts,
