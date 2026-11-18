@@ -851,6 +851,8 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
   });
 
   it("falls back to the legacy sandbox without the team's protected paths too, when Codex cannot load a profile", async () => {
+    // There, so that Linux too names it (only a path that is there).
+    writeFileSync(join(dir, '.env'), 'x');
     try {
       const guard = { dirs: [dir], patterns: ['.env'] };
       const r = run({ FAKE_CODEX_PROFILE_FAILS: '1' }, undefined, [], { permission: 'edit', guard });
@@ -859,6 +861,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       expect(starts[0]).toMatchObject({ permissions: expect.stringMatching(/^harness-relay-/), sandbox: null });
       expect(starts[1]).toMatchObject({ permissions: null, sandbox: 'workspace-write' });
     } finally {
+      rmSync(join(dir, '.env'), { force: true });
       resetCodexProfiles();
     }
   });
@@ -993,8 +996,8 @@ describe.skipIf(process.platform === 'win32')("Codex and the team checks' protec
   // The team checks' protected paths (a guard's folders are real paths; these are not on disk, and on Windows a path is another shape).
   const guard = { dirs: ['/w/app'], patterns: ['.env', 'config/prod.yml', '*.pem'] };
   it('makes them read-only in its profile in edit mode: each plain pattern where it is anchored, and what matches now', () => {
-    expect(codexGuardReads(guard, ['/w/app/sub/k.pem'])).toEqual(['/w/app/.env', '/w/app/config/prod.yml', '/w/app/sub/k.pem']);
-    expect(codexGuardReads(guard, ['/w/app/k[1].pem'])).not.toContain('/w/app/k[1].pem');
+    expect(codexGuardReads(guard, ['/w/app/sub/k.pem'], 'darwin')).toEqual(['/w/app/.env', '/w/app/config/prod.yml', '/w/app/sub/k.pem']);
+    expect(codexGuardReads(guard, ['/w/app/k[1].pem'], 'darwin')).not.toContain('/w/app/k[1].pem');
     expect(codexProfile('edit', ['/x'], 'darwin', [], guard, [])).toEqual({
       extends: ':workspace',
       filesystem: { '/w/app/.env': 'read', '/w/app/config/prod.yml': 'read', '/x': 'deny' },
