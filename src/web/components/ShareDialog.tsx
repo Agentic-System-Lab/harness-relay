@@ -16,7 +16,7 @@ import { ApiError, api } from '../api';
 import { conversationMarkdown, speaker } from '../copy';
 import { useI18n } from '../i18n';
 import { settingsHref } from '../route';
-import { shareSize } from '../../shared/share';
+import { megabytesOver, shareSize } from '../../shared/share';
 import { chosenFileRefs, fileSelection, ghProblem, looksSecret, messagesUpTo, nextFileSelection, stillStreaming } from '../share';
 import { ShareTooLargeError, linkedFiles, sharePage } from '../sharePage';
 import { CopyButton } from './CopyButton';
@@ -153,9 +153,7 @@ export function ShareDialog({ conv, upTo, chat, onClose }: Props) {
       if (problem) setGh(problem);
       else
         setError(
-          e instanceof ShareTooLargeError
-            ? t.share.tooLarge((e.bytes / 1_000_000).toFixed(1), shareSize(SHARE_MAX_BYTES))
-            : (e as Error).message,
+          e instanceof ShareTooLargeError ? t.share.tooLarge(megabytesOver(e.bytes), shareSize(SHARE_MAX_BYTES)) : (e as Error).message,
         );
       // A file changed since it was checked: check them all again.
       if (e instanceof ApiError && e.code === SHARE_FILE_REFUSED) setRecheck((n) => n + 1);

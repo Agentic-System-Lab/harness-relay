@@ -2,11 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <!-- Its own script only. What the frame shows inherits this policy too: images and styles of its own
-         alone, and no frame, form or connection of its own (it runs no script anyway: sandbox). -->
+    <!-- Its own script only, reading GitHub's raw files (and its API, only when they cannot say where a
+         gist is). What the frame shows inherits this policy too: its own styles and data: images alone,
+         and no frame, form or connection of its own (it runs no script anyway: sandbox). -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src https://gist.githubusercontent.com; frame-src 'none'; base-uri 'none'; form-action 'none'"
+      content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; connect-src https://gist.githubusercontent.com https://api.github.com; frame-src 'none'; base-uri 'none'; form-action 'none'"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="no-referrer" />
@@ -14,7 +15,8 @@
     <meta name="robots" content="noindex, nofollow" />
     <meta name="color-scheme" content="light dark" />
     <title>Shared conversation · Harness Relay</title>
-    <link rel="icon" href="../favicon.svg" type="image/svg+xml" />
+    <!-- The site's favicon.svg, as a data URL: the policy (which the frame inherits) allows no other image. -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ccircle cx=%229%22 cy=%2216%22 r=%226%22 fill=%22%23d97757%22/%3E%3Ccircle cx=%2223%22 cy=%2210%22 r=%225%22 fill=%22%2310a37f%22/%3E%3Ccircle cx=%2223%22 cy=%2223%22 r=%225%22 fill=%22%237c5cff%22/%3E%3C/svg%3E" type="image/svg+xml" />
     <style>
       /* The app's colours (src/web/styles.css), as the shared page under the bar has them. */
       :root {
@@ -119,7 +121,14 @@
       </noscript>
     </main>
     <!-- No allow-scripts, no allow-same-origin: nothing the gist holds runs, and it has an origin of its own.
-         Its links open in a new tab, as a normal page (allow-popups-to-escape-sandbox). -->
-    <iframe id="share-frame" class="share-frame" sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" hidden></iframe>
+         Its links open in a new tab, as a normal page (allow-popups-to-escape-sandbox), and the files that
+         went along download from there (allow-downloads: browsers count those the frame's own). -->
+    <iframe
+      id="share-frame"
+      class="share-frame"
+      sandbox="allow-downloads allow-popups allow-popups-to-escape-sandbox"
+      referrerpolicy="no-referrer"
+      hidden
+    ></iframe>
   </body>
 </html>

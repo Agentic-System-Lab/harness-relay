@@ -38,6 +38,7 @@ import {
   measureShareFile,
   parseCreatedGist,
   parseGhVersion,
+  PAGE_TIMEOUT_MS,
   parseGistUrl,
   parseFoundGists,
   parseShareFileRefs,
@@ -97,10 +98,10 @@ describe('the gist a shared conversation goes into', () => {
     expect(parseGistUrl(`https://gist.github.com/me/${ID}`)?.url).toBe(shareViewerUrl('me', ID));
   });
 
-  it("gives gistpreview's link, which needs no owner, for an address without one", () => {
+  it("gives the viewer's link by the id alone for an address without its owner (the viewer asks GitHub for it)", () => {
     expect(parseGistUrl(`- Creating gist index.html\n✓ Created secret gist index.html\nhttps://gist.github.com/${ID}`)).toEqual({
       id: ID,
-      url: `https://gistpreview.github.io/?${ID}`,
+      url: `https://agentic-system-lab.github.io/harness-relay/share/#${ID}`,
       gistUrl: `https://gist.github.com/${ID}`,
     });
   });
@@ -122,6 +123,9 @@ describe('shareToGist', () => {
     expect(seen?.bin).toMatch(/(^|[\\/])gh(\.exe)?$/i);
     expect(seen?.args).toEqual(gistArgs('Chat · Harness Relay'));
     expect(seen?.stdin).toBe('<!doctype html>…');
+    // Time enough for a page of up to 10 MB on a slow line.
+    expect(seen?.timeoutMs).toBe(PAGE_TIMEOUT_MS);
+    expect(PAGE_TIMEOUT_MS).toBeGreaterThanOrEqual(300_000);
     expect(link).toEqual({ id: ID, url: shareViewerUrl('me', ID), gistUrl: `https://gist.github.com/me/${ID}` });
   });
 
@@ -448,7 +452,7 @@ describe('the files a shared page takes along', () => {
         .filter((c) => gitCommand(c.args) === 'hash-object')
         .map((c) => c.stdin),
     ).toEqual(files.map((f) => f.data));
-    // The page alone in its gist, as a share without files is made (gistpreview, for an address without its owner, reads nothing else first).
+    // The page alone in its gist, as a share without files is made.
     expect(gh.ghCalls()[2]!.stdin).toBe(
       `<!doctype html><a class="file-link" href="${raw('report.pdf')}">report</a> <a class="file-link" href="${raw('Q3 & 報告.csv')}">data</a> <a class="file-link" href="${raw('report.pdf')}">again</a>`,
     );
@@ -693,7 +697,7 @@ describe('the files a shared page takes along', () => {
     expect(CREATED_JQ).not.toContain('content');
     expect(parseCreatedGist(created(['a.md']))).toEqual({
       id: FILES_ID,
-      link: { id: FILES_ID, url: `https://gistpreview.github.io/?${FILES_ID}`, gistUrl: `https://gist.github.com/${FILES_ID}` },
+      link: { id: FILES_ID, url: shareViewerUrl(undefined, FILES_ID), gistUrl: `https://gist.github.com/${FILES_ID}` },
       htmlUrl: `https://gist.github.com/${FILES_ID}`,
       raw: new Map([['a.md', raw('a.md')]]),
     });

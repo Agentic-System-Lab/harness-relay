@@ -3618,7 +3618,8 @@ describe('sharing conversations', () => {
     expect(SHARE_MAX_BYTES).toBe(10_000_000);
     const big = await send(conv.id, { html: 'é'.repeat(SHARE_MAX_BYTES / 2 + 1) });
     expect(big.status).toBe(413);
-    expect((await big.json()).error).toBe('這個分享頁有 10.0 MB，超過分享頁能放的 10 MB。請改成分享到比較前面的某則回覆。');
+    // Rounded up: 2 bytes over reads 10.1 MB, never "10.0 MB, over the 10 MB".
+    expect((await big.json()).error).toBe('這個分享頁有 10.1 MB，超過分享頁能放的 10 MB。請改成分享到比較前面的某則回覆。');
     expect((await send('missing', { html: '<p>hi</p>' })).status).toBe(404);
     expect(store.listShares()).toEqual([]);
   });

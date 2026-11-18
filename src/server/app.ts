@@ -72,7 +72,7 @@ import { byteRange, contentDisposition, mediaRoots, mediaType, resolveDownload, 
 import { HttpError, forClient, scheduleForClient, titleFrom, type Orchestrator } from './orchestrator';
 import { KeyOnlyAccountError, type ProviderService } from './providers';
 import type { SettingsStore } from './settings';
-import { fileLinkCount, fileLinksIn, replaceFileLinks, shareFileHref, shareSize } from '../shared/share';
+import { fileLinkCount, fileLinksIn, megabytesOver, replaceFileLinks, shareFileHref, shareSize } from '../shared/share';
 import {
   ShareError,
   findShareFiles,
@@ -219,7 +219,7 @@ function refuseShareFiles(found: FoundShareFile[]): void {
   if (found.length > SHARE_FILES_MAX) throw new HttpError(413, t().shareFilesTooMany(SHARE_FILES_MAX));
   const total = found.reduce((sum, f) => sum + (f.info.size ?? 0), 0);
   if (total > SHARE_FILES_MAX_BYTES) {
-    throw new HttpError(413, t().shareFilesTooLarge((total / 1_000_000).toFixed(1), shareSize(SHARE_FILES_MAX_BYTES)));
+    throw new HttpError(413, t().shareFilesTooLarge(megabytesOver(total), shareSize(SHARE_FILES_MAX_BYTES)));
   }
 }
 
@@ -1633,7 +1633,7 @@ export function createApp({
     if (!refs || linked.some((n) => n >= refs.length)) throw new HttpError(400, t().shareBadFiles);
     // Each link to a file grows to its address on GitHub.
     const bytes = Buffer.byteLength(b.html) + fileLinkCount(b.html) * SHARE_FILE_URL_MAX;
-    if (bytes > SHARE_MAX_BYTES) throw new HttpError(413, t().shareTooLarge((bytes / 1_000_000).toFixed(1), shareSize(SHARE_MAX_BYTES)));
+    if (bytes > SHARE_MAX_BYTES) throw new HttpError(413, t().shareTooLarge(megabytesOver(bytes), shareSize(SHARE_MAX_BYTES)));
     const upTo = typeof b.upTo === 'string' ? b.upTo : undefined;
     // Measured first, and read only when they can all go along; checked again as read (one may have
     // changed since), never more than the limits in all.

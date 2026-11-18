@@ -812,16 +812,16 @@ export interface ZipCheck {
 /**
  * The largest shared page, in UTF-8 bytes. A shared page is a secret GitHub gist that Harness Relay's
  * viewer reads from GitHub's raw files, which serve a gist's file whole up to 10 MB (a larger one only
- * through git): a page of 9.9 MB went up with `gh gist create` and came back from them the same. (It
- * was 1 MB while shares were read on gistpreview.github.io, which reads GitHub's API: that cuts a file's
- * content off at 1 MB, so a gistpreview link, for a gist address without its owner, shows no more.)
+ * through git): a page of 9.9 MB went up with `gh gist create` and came back from them the same, also
+ * one of nothing but tags. (It was 1 MB while shares were read on gistpreview.github.io, which reads
+ * GitHub's API: that cuts a file's content off at 1 MB.)
  */
 export const SHARE_MAX_BYTES = 10_000_000;
 
 /**
  * Where a shared conversation can be read: the page (`url`, on Harness Relay's viewer, `shareViewerUrl()`
- * in src/shared/share.ts; on gistpreview.github.io for a share made before it, or a gist address gh
- * printed without its owner) and its gist (`id`, and `gistUrl` on GitHub). `filesGist`: the id of the
+ * in src/shared/share.ts; on gistpreview.github.io for a share made before it) and its gist (`id`, and
+ * `gistUrl` on GitHub). `filesGist`: the id of the
  * second secret gist that holds the files the page links to, when files went along (kept apart from the
  * page: see shareToGist() in src/server/share.ts).
  */

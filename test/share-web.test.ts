@@ -11,7 +11,7 @@ import {
   type ChatMessage,
   type ShareFileInfo,
 } from '../src/shared/types';
-import { fileLinkCount, fileLinksIn, replaceFileLinks, shareFileHref, shareSize } from '../src/shared/share';
+import { fileLinkCount, fileLinksIn, megabytesOver, replaceFileLinks, shareFileHref, shareSize } from '../src/shared/share';
 import {
   HARNESS_RELAY_URL,
   anchorPlan,
@@ -585,6 +585,14 @@ describe('the files a shared page links to', () => {
     expect(shareSize(SHARE_FILE_MAX_BYTES)).toBe('50 MB');
     expect(shareSize(0)).toBe('0 B'); // an empty file goes along too
     expect(shareSize(1_250_000)).toBe('1.3 MB');
+    expect(shareSize(SHARE_MAX_BYTES)).toBe('10 MB');
+  });
+
+  it('gives a size over a limit rounded up, so that it never reads as the limit itself', () => {
+    expect(megabytesOver(SHARE_MAX_BYTES + 1)).toBe('10.1');
+    expect(megabytesOver(10_100_000)).toBe('10.1');
+    expect(megabytesOver(10_100_001)).toBe('10.2');
+    expect(megabytesOver(SHARE_FILES_MAX_BYTES + 2)).toBe('100.1');
   });
 
   it('marks the links to files with placeholders the server fills in, escaped', () => {

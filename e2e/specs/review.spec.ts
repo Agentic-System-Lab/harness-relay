@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
 import type { RelayServer } from '../support/relay';
-import { openShared } from '../support/share';
+import { fakeGithub, openShared } from '../support/share';
 import {
   LEAD_REVIEW,
   awaitingPlan,
@@ -342,7 +342,7 @@ test.describe('lead review', () => {
 
     // Opened on Harness Relay's viewer, in its frame that runs no script, the link brings the words into
     // view, set apart from other marks; the viewer's own address stays as it was.
-    const shared = await openShared(page.context(), relay, url);
+    const shared = await openShared(page.context(), fakeGithub(relay), url);
     const words = shared.frame.locator('mark.review-quote-mark');
     await shared.frame.locator('.messages').evaluate((el) => el.scrollTo(0, el.scrollHeight));
     await expect(words).not.toBeInViewport();
