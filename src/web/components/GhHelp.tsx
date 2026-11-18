@@ -5,6 +5,7 @@ import { useT } from '../i18n';
 import { GH_INSTALL, GH_LINKS, ghLoginCommand } from '../share';
 import { CopyButton } from './CopyButton';
 import { CopyIcon } from './icons';
+import { LogoSpinner } from './Logo';
 import { LoginLinks, LoginOutput } from './LoginLinks';
 
 /** A command to type in a terminal, with a button that copies it. */
@@ -105,7 +106,7 @@ function GhSignIn({ onSignedIn }: { onSignedIn?: () => void }) {
       {login && (
         <div className={`login-panel ${login.state}`}>
           <div className="login-state">
-            {running && <span className="pulse" />}
+            {running && <LogoSpinner />}
             <strong>{t.settings.loginState[login.state]}</strong>
             {running && (
               <button className="ghost small-button" onClick={cancel}>

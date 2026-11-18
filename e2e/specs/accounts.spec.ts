@@ -173,11 +173,14 @@ test.describe('more than one account', () => {
       await work.getByRole('button', { name: 'Sign in', exact: true }).click();
       const login = work.locator('.login-panel');
       await expect(login).toContainText('Waiting for authorisation…');
+      // While it waits, the app's loader (the Logo turning) beside its state.
+      await expect(login.locator('.login-state .logo-spinner')).toBeVisible();
       await expect(login.getByRole('link', { name: /claude\.example\.invalid\/e2e-login/ })).toBeVisible();
       // The fake signs in as the account the code names.
       await login.getByPlaceholder('Paste the code').fill('work@example.com');
       await login.getByRole('button', { name: 'Submit' }).click();
       await expect(login).toContainText('Signed in ✓');
+      await expect(login.locator('.logo-spinner')).toHaveCount(0);
       await expect(work.locator('.pill')).toHaveText('Signed in');
       await expect(work.locator('.account-head')).toContainText('work@example.com');
       await expect(main.locator('.account-head')).toContainText('e2e@example.com');

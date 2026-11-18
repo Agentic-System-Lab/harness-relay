@@ -1,6 +1,6 @@
 import { expect, test } from '../fixtures';
-import { finishedReply, openTeamChat, send } from '../support/app';
-import { basePermission, chatWith, CLIS, eachCli, listToolAt, showsTodo } from '../support/clis';
+import { finishedReply, openTeamChat, replies, send } from '../support/app';
+import { basePermission, chatWith, CLIS, eachCli, listToolAt, needsBelowFull, showsTodo } from '../support/clis';
 
 test.describe('what an agent does on its way to a reply', () => {
   // Each CLI's own tool for the listing (`listTool`), which runs without asking in a read-only chat.
@@ -32,6 +32,43 @@ test.describe('what an agent does on its way to a reply', () => {
       await expect(todo.locator('.todo-item.completed')).toHaveText(/Read the question/);
       await expect(todo.locator('.todo-item.in_progress')).toHaveText(/Write the answer/);
     });
+  });
+
+  test("a step in progress shows the app's loader in its row, the Logo turning, and the step's icon once it is done", async ({
+    page,
+    relay,
+  }) => {
+    // Codex reports its command before it asks about it: the step runs while the approval card waits.
+    needsBelowFull('codex');
+    await openTeamChat(page, relay, [{ name: 'Codex', provider: 'codex' }], { permission: 'read-only' });
+    await send(page, 'Print a line e2e:approve');
+    const card = page.getByRole('region', { name: '@Codex wants to run a command' });
+    await expect(card).toBeVisible();
+    const summary = replies(page, 'Codex').last().locator('details.tool-group > summary');
+    await expect(summary).toContainText('Shell');
+    await expect(summary.locator('.logo-spinner .logo-dot')).toHaveCount(3);
+
+    // The team design card's turns, from the first moment (no delay) and again and again, on the
+    // orbit alone: the dots are in place at once, with none of their spiral in, so that a loader
+    // coming and going as steps start and end never flickers.
+    const parts = await summary.evaluate((s) =>
+      s.getAnimations({ subtree: true }).map((a) => ({
+        name: (a as CSSAnimation).animationName,
+        on: ((a.effect as KeyframeEffect).target as Element).className,
+        delay: a.effect!.getTiming().delay,
+        duration: a.effect!.getTiming().duration,
+        iterations: a.effect!.getTiming().iterations,
+      })),
+    );
+    expect(parts).toEqual([{ name: 'logo-turn', on: 'logo-motion-orbit', delay: 0, duration: 1900, iterations: Infinity }]);
+    const box = (await summary.locator('.logo-spinner').boundingBox())!;
+    expect(box.width).toBeCloseTo(14, 0);
+    expect(box.height).toBeCloseTo(14, 0);
+
+    await card.getByRole('button', { name: 'Allow', exact: true }).click();
+    const reply = await finishedReply(page, 'Codex');
+    await expect(reply.locator('.logo-spinner')).toHaveCount(0);
+    await expect(reply.locator('details.tool-group > summary .tool-icon')).toHaveText('⚙');
   });
 
   test('a reply in Markdown is rendered: heading, list, table and highlighted code', async ({ page, relay }) => {

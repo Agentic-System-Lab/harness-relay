@@ -7,6 +7,7 @@ import { sectionId } from '../route';
 import { byHand, canInstall, setupRunning, usersText } from '../sandboxSetup';
 import { useSandboxSetup } from '../useSandboxSetup';
 import { CopyButton } from './CopyButton';
+import { LogoSpinner } from './Logo';
 import { SectionTitle } from './SectionTitle';
 
 /** One missing thing, in words: what it is, and whose sandboxes run it. */
@@ -69,7 +70,7 @@ export function SandboxSetupBody({ view, onView }: { view: SandboxSetupView | un
       {running && job && (
         <div className="login-panel running" aria-live="polite">
           <div className="login-state">
-            <span className="pulse" />
+            <LogoSpinner />
             <strong>{s.installing}</strong>
             {view.cancellable && (
               <button className="ghost small-button" onClick={() => void cancel()}>

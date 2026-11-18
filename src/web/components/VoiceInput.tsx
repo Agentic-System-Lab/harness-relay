@@ -8,6 +8,7 @@ import { useVoiceStatus } from '../useVoice';
 import { formatBytes } from '../util';
 import { encodeWav, formatClock, isSilent, jobPercent, jobSecondsLeft, setupBytes, toBase64, voiceMode } from '../voice';
 import { MicIcon } from './icons';
+import { LogoSpinner } from './Logo';
 import { useDialog } from './useDialog';
 import { settingsHref } from '../route';
 
@@ -152,7 +153,7 @@ export function VoiceButton({ onText, onError }: { onText: (text: string) => voi
           aria-label={label}
           title={label}
         >
-          {rec === 'idle' ? <MicIcon /> : <span className="spinner" aria-hidden="true" />}
+          {rec === 'idle' ? <MicIcon /> : <LogoSpinner size={16} />}
           {mode === 'installing' && <span className="mic-badge" aria-hidden="true" />}
         </button>
       )}
@@ -302,7 +303,7 @@ export function JobProgress({ job, onCancel }: { job: VoiceJobView; onCancel?: (
   return (
     <div className={`login-panel voice-job ${job.state}`}>
       <div className="login-state">
-        {job.state === 'running' && <span className="pulse" />}
+        {job.state === 'running' && <LogoSpinner />}
         <strong>{t.voice.jobState[job.state]}</strong>
         {job.state === 'running' && onCancel && (
           <button className="ghost small-button" onClick={onCancel}>
@@ -321,7 +322,7 @@ export function JobProgress({ job, onCancel }: { job: VoiceJobView; onCancel?: (
               </span>
               <span>{text}</span>
               <span className="visually-hidden">{t.voice.stepState[state]}</span>
-              {state === 'now' && pct === undefined && <span className="spinner" aria-hidden="true" />}
+              {state === 'now' && pct === undefined && <LogoSpinner />}
             </li>
           );
         })}
