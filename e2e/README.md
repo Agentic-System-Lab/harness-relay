@@ -6,7 +6,7 @@ What the end-to-end tests (`npm run test:e2e`) try today, area by area. They dri
 
 How they work, how to run one and how to write one is in the developer guide, [End-to-end tests](../docs/developer-guide.md#end-to-end-tests). This page is the list of scenarios: when you add, change or remove an end-to-end test, change this page and [its Chinese copy](README.zh-TW.md) in the same commit ([AGENTS.md](../AGENTS.md), "Documentation").
 
-There are 474 tests in 37 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
+There are 475 tests in 37 spec files, in each browser that runs them (Chromium by default). Some run only on some systems, or only where Harness Relay's own sandbox works: see [Platforms and browsers](#platforms-and-browsers).
 
 ## Running them
 
@@ -37,7 +37,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | --- | --- | --- | --- |
 | [Signing in](#signing-in) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [Architecture → Signing in](../docs/architecture.md#signing-in) |
 | [The home page](#the-home-page) | [`home.spec.ts`](specs/home.spec.ts) | 5 | [User guide → Start a chat](../docs/user-guide.md#3-start-a-chat--new-chat-and-templates) |
-| [A new chat and the lead agent's team](#a-new-chat-and-the-lead-agents-team) | [`chat.spec.ts`](specs/chat.spec.ts) | 5 | [User guide → Auto team](../docs/user-guide.md#auto-team), [Architecture → Auto team](../docs/architecture.md#auto-team) |
+| [A new chat and the lead agent's team](#a-new-chat-and-the-lead-agents-team) | [`chat.spec.ts`](specs/chat.spec.ts) | 6 | [User guide → Auto team](../docs/user-guide.md#auto-team), [Architecture → Auto team](../docs/architecture.md#auto-team) |
 | [Templates](#templates) | [`templates.spec.ts`](specs/templates.spec.ts) | 6 | [User guide → Templates](../docs/user-guide.md#templates) |
 | [Changing a chat's team](#changing-a-chats-team) | [`team.spec.ts`](specs/team.spec.ts) | 5 | [User guide → Editing the team mid-chat](../docs/user-guide.md#editing-the-team-mid-chat) |
 | [The lead agent's review](#the-lead-agents-review) | [`review.spec.ts`](specs/review.spec.ts) | 13 | [User guide → Lead review](../docs/user-guide.md#lead-review), [Architecture → Lead review](../docs/architecture.md#lead-review) |
@@ -112,6 +112,7 @@ In the tables below, the CLI column says which CLIs a test runs with: **each** m
 | Scenario | CLI | What is checked |
 | --- | --- | --- |
 | The lead agent proposes a team, and once it is confirmed the team answers | Claude Code | The team card names the team, the reason and the member; after **Confirm team** the reply comes with its CLI's tag; the chat is in the sidebar under its first question, and the reply is stored as done. |
+| While the lead agent designs the team, its card shows the home page's logo, turning again and again with half a second still after each turn, and still with reduced motion | Claude Code | With a lead agent that takes its time (`e2e:slowplan`), the card that says it is choosing a team shows the home page's mark at the 18px of the card's Logo: its dots spiral in once while it turns (`logo-join-*`, `logo-orbit`), then it turns again and again (`logo-turn`, running): 1.4 s in each 1.9 s, from half a second after the first turn ends, all with `transform` and `opacity` alone. Its turns paused and sought, the mark is turning at 0.3 s, 2.2 s and 4.1 s and still at 1.5, 1.8, 3.4 and 3.7 s. **■ Stop** leaves the card stopped, with no mark and nothing animating; with reduced motion the next design's card shows the mark standing still. |
 | The lead agent's teams used without asking | Claude Code | The card says **Used without asking** and the team answers without waiting. |
 | A team of every CLI answers in turn | two teams | Each member answers with its own CLI's tag, in roundtable order: Claude Code, Codex, Grok, Cursor; Antigravity, Copilot, Muse Code; and OpenCode, Goose, Cline, OpenHands, Pi (a team with a CLI that runs only with full access here in a chat with full access). The lead agent puts at most five members in a team for a new question, so the seven with a sign-in answer as two teams, of four and three, each in a chat of its own. |
 | A follow-up question gets a team again | Claude Code, Codex | The second question gets a team of its own, and only its member answers it. |

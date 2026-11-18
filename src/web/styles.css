@@ -1136,28 +1136,39 @@ p {
 }
 
 /*
- * The Logo's drawing (a 32-unit square) at 96px: 3px a unit. On each load the three dots spiral in
- * from outside and meet, one after another, while the mark turns once: transform and opacity only,
- * so it runs on the compositor (no layout, no paint), once (about 1.4 s), and not at all with
- * reduced motion (the prefers-reduced-motion rule further down). Filled both ways: a finished
- * animation stays applied and costs nothing more, where dropping it would lay out and paint again
- * as each one ends (measured in a Chrome trace).
+ * The Logo's drawing (a 32-unit square) made of three elements, `--u` pixels a unit: the home page's
+ * mark at 96px, and a team design's card's while the lead agent designs it (`.plan-logo`). As it
+ * appears, the three dots spiral in from outside and meet, one after another, while the mark turns
+ * once (about 1.4 s); the card's (`.turning`) then turns again and again, each turn as long and eased
+ * as the first, half a second still after each one, until the design is in. Transform and opacity
+ * only, so it runs on the compositor (no layout, no paint), and not at all with reduced motion (the
+ * prefers-reduced-motion rule further down: the mark stands still). Filled both ways: a finished
+ * animation stays applied and costs nothing more, where dropping it would lay out and paint again as
+ * each one ends (measured in a Chrome trace).
  */
-.home-logo {
+.logo-motion {
+  --u: 3px;
   position: relative;
-  width: 96px;
-  height: 96px;
+  width: calc(32 * var(--u));
+  height: calc(32 * var(--u));
   flex: none;
 }
 
-.home-logo-orbit {
+.logo-motion-orbit {
   position: absolute;
   inset: 0;
-  animation: home-orbit 1.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: logo-orbit 1.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* The next turn starts half a second after the first one ends, and so on: 1.4 s turning in each 1.9 s. */
+.logo-motion.turning .logo-motion-orbit {
+  animation:
+    logo-orbit 1.4s cubic-bezier(0.22, 1, 0.36, 1) both,
+    logo-turn 1.9s cubic-bezier(0.22, 1, 0.36, 1) 1.9s infinite;
 }
 
 /* Longhands, not the `animation` shorthand: without a name in it, the minifier turns it into `animation: none`. */
-.home-dot {
+.logo-dot {
   position: absolute;
   border-radius: 50%;
   animation-duration: 0.9s;
@@ -1165,36 +1176,37 @@ p {
   animation-fill-mode: both;
 }
 
-.home-dot-claude {
-  left: 9px;
-  top: 30px;
-  width: 36px;
-  height: 36px;
+/* Each dot where the Logo draws its circle: its centre less its radius, and its diameter. */
+.logo-dot-claude {
+  left: calc(3 * var(--u));
+  top: calc(10 * var(--u));
+  width: calc(12 * var(--u));
+  height: calc(12 * var(--u));
   background: var(--claude);
-  animation-name: home-join-claude;
+  animation-name: logo-join-claude;
 }
 
-.home-dot-codex {
-  left: 54px;
-  top: 15px;
-  width: 30px;
-  height: 30px;
+.logo-dot-codex {
+  left: calc(18 * var(--u));
+  top: calc(5 * var(--u));
+  width: calc(10 * var(--u));
+  height: calc(10 * var(--u));
   background: var(--codex);
-  animation-name: home-join-codex;
+  animation-name: logo-join-codex;
   animation-delay: 0.12s;
 }
 
-.home-dot-grok {
-  left: 54px;
-  top: 54px;
-  width: 30px;
-  height: 30px;
+.logo-dot-grok {
+  left: calc(18 * var(--u));
+  top: calc(18 * var(--u));
+  width: calc(10 * var(--u));
+  height: calc(10 * var(--u));
   background: var(--grok);
-  animation-name: home-join-grok;
+  animation-name: logo-join-grok;
   animation-delay: 0.24s;
 }
 
-@keyframes home-orbit {
+@keyframes logo-orbit {
   from {
     transform: rotate(-300deg);
   }
@@ -1203,11 +1215,24 @@ p {
   }
 }
 
-/* Each dot comes in from farther out along its own direction from the centre. */
-@keyframes home-join-claude {
+/* One turn in the first 1.4 s of 1.9 (73.684%), then still. */
+@keyframes logo-turn {
+  from {
+    transform: rotate(0deg);
+  }
+  73.684% {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Each dot comes in from farther out along its own direction from the centre, in its own sizes (at 96px: 28px left; 24px right, 20px up; 24px right and down). */
+@keyframes logo-join-claude {
   from {
     opacity: 0;
-    transform: translate(-28px, 0) scale(0.2);
+    transform: translate(-77.78%, 0) scale(0.2);
   }
   to {
     opacity: 1;
@@ -1215,10 +1240,10 @@ p {
   }
 }
 
-@keyframes home-join-codex {
+@keyframes logo-join-codex {
   from {
     opacity: 0;
-    transform: translate(24px, -20px) scale(0.2);
+    transform: translate(80%, -66.67%) scale(0.2);
   }
   to {
     opacity: 1;
@@ -1226,10 +1251,10 @@ p {
   }
 }
 
-@keyframes home-join-grok {
+@keyframes logo-join-grok {
   from {
     opacity: 0;
-    transform: translate(24px, 24px) scale(0.2);
+    transform: translate(80%, 80%) scale(0.2);
   }
   to {
     opacity: 1;
@@ -5284,6 +5309,11 @@ details.sub summary {
   font-size: 13.5px;
   color: var(--muted);
   padding: 10px 14px;
+}
+
+/* While the lead agent designs the team, the home page's mark turning (`.logo-motion`), at the 18px of the card's Logo once the design is in. */
+.logo-motion.plan-logo {
+  --u: calc(18px / 32);
 }
 
 /* The app mark leads the plan card: the lead agent speaks for the whole team. */

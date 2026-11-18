@@ -48,11 +48,11 @@ test.describe('the home page', () => {
     // for no time at all), once, and changes only what the compositor can animate by itself.
     const first = await animations(page);
     expect(first.map((a) => a.name).sort()).toEqual([
-      'home-join-claude',
-      'home-join-codex',
-      'home-join-grok',
       'home-line-in',
-      'home-orbit',
+      'logo-join-claude',
+      'logo-join-codex',
+      'logo-join-grok',
+      'logo-orbit',
     ]);
     for (const a of first) {
       expect(a.duration, a.name).toBeGreaterThan(0);
