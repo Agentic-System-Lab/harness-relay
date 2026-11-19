@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import {
-  PROVIDER_LABEL,
   cwdsOf,
   type Conversation,
   type ConversationSchedule,
@@ -16,9 +15,23 @@ import { draftFrom, draftProblems, handOverHook, toUpdate, type ScheduleDraft } 
 import { leadLabel } from '../util';
 import { autoTeam, lastAutoConfirm, rememberAutoConfirm } from './NewChat';
 import { ScheduleForm } from './ScheduleForm';
-import { TeamEditor, teamProblems, type Team } from './TeamEditor';
+import { TemplateLibrary } from './TemplateLibrary';
+import { settingsHref } from '../route';
+import { CreationOptions, TeamConfirmation } from './CreationOptions';
+import { teamProblems, type Team } from './TeamEditor';
+
+export interface NewAutomationDraft {
+  form: ScheduleDraft;
+  title: string;
+  withHook: boolean;
+  team?: Team;
+}
 
 interface Props {
+  draft: NewAutomationDraft | null;
+  onDraft: (draft: NewAutomationDraft) => void;
+  busy: boolean;
+  setBusy: (busy: boolean) => void;
   providers: ProviderStatus[];
   catalog: ProviderModels[];
   onCreated: (c: Conversation) => void;
@@ -29,42 +42,43 @@ interface Props {
  * conversation it lives in. Once created, the lead agent designs the team for the message; nothing runs
  * until the schedule sends it.
  */
-export function NewSchedule({ providers, catalog, onCreated }: Props) {
+export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, onDraft, busy, setBusy }: Props) {
   const { t, lang } = useI18n();
   const { maxTeamAgents } = useLimits();
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
-  const [team, setTeam] = useState<Team | null>(null);
-  const [draft, setDraft] = useState<ScheduleDraft>(() => draftFrom(undefined, Date.now()));
-  /** The user changed the form: its problems are shown from then on. */
-  const [touched, setTouched] = useState(false);
-  const [title, setTitle] = useState('');
-  /** Create a webhook too: its token is shown in the automation's drawer, once, as its chat opens. */
-  const [withHook, setWithHook] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [defaults, setDefaults] = useState<Team | null>(null);
+  const [initial] = useState<NewAutomationDraft>(() => ({ form: draftFrom(undefined, Date.now()), title: '', withHook: false }));
+  const current = savedDraft ?? initial;
+  const { form: draft, title, withHook } = current;
+  const team = current.team ?? defaults;
   const [error, setError] = useState('');
 
   useEffect(() => {
+    let live = true;
     api
       .getSettings()
       .then((settings) => {
+        if (!live) return;
         setLead(settings.lead);
         // The default working directory from Settings; asking first unless the last chat did not.
-        setTeam(
-          (current) => current ?? autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm()),
-        );
+        setDefaults(autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm()));
       })
-      .catch((e) => setError(String(e.message ?? e)));
+      .catch((e) => {
+        if (live) setError(String(e.message ?? e));
+      });
+    return () => {
+      live = false;
+    };
   }, [lang]);
 
-  if (!team) return <div className="page-center muted">{error || t.common.loading}</div>;
+  if (!team || !lead) return <div className="page-center muted">{error || t.common.loading}</div>;
 
   const edit = (patch: Partial<ScheduleDraft>) => {
-    setDraft((d) => ({ ...d, ...patch }));
-    setTouched(true);
+    onDraft({ ...current, form: { ...draft, ...patch } });
     setError('');
   };
   const problems = [...draftProblems(draft, Date.now(), t), ...teamProblems(team, t, { maxAgents: maxTeamAgents })];
-  const leadText = lead ? leadLabel(lead) : PROVIDER_LABEL.claude;
+  const automatic = Boolean(team.settings.autoConfirm);
   // What the team editor warns about: the runs this schedule starts may have nobody watching.
   const schedule: ConversationSchedule = { ...toUpdate(draft), lang, updatedAt: 0 };
 
@@ -102,35 +116,48 @@ export function NewSchedule({ providers, catalog, onCreated }: Props) {
         <div className="page-inner">
           <header className="page-head">
             <h1>{t.newSchedule.title}</h1>
-            <p className="muted">{t.newSchedule.intro(leadText)}</p>
+            <p className="muted">
+              {t.newSchedule.intro(leadLabel(lead), automatic)} <a href={settingsHref('lead')}>{t.newChat.changeLead}</a>
+            </p>
           </header>
-
-          <section>
-            <div className="section-head">
-              <h3>{t.newSchedule.schedule}</h3>
+          <fieldset className="first-task automation-task" disabled={busy} aria-label={t.newSchedule.title}>
+            <ScheduleForm
+              draft={draft}
+              onEdit={edit}
+              settings={team.settings}
+              creation={{ withHook, onHook: (checked) => onDraft({ ...current, withHook: checked }) }}
+            />
+            <CreationOptions
+              team={team}
+              onTeam={(next) => onDraft({ ...current, team: next })}
+              providers={providers}
+              catalog={catalog}
+              title={title}
+              onTitle={(next) => onDraft({ ...current, title: next })}
+              titlePlaceholder={t.newSchedule.titlePlaceholder}
+              schedule={schedule}
+            />
+            <TemplateLibrary providers={providers} catalog={catalog} />
+            <div className="start-bar first-task-actions">
+              <TeamConfirmation
+                automatic={automatic}
+                automaticLabel={t.newSchedule.useTeam}
+                onChange={(auto) =>
+                  onDraft({ ...current, team: { ...team, settings: { ...team.settings, autoConfirm: auto || undefined } } })
+                }
+              />
+              <button className="primary" onClick={create} disabled={busy || problems.length > 0}>
+                {busy ? t.newSchedule.creating : t.newSchedule.create}
+              </button>
             </div>
-            <ScheduleForm draft={draft} onEdit={edit} settings={team.settings} hook={{ checked: withHook, onChange: setWithHook }} />
-          </section>
-
-          <TeamEditor value={team} onChange={setTeam} providers={providers} catalog={catalog} leadLabel={leadText} schedule={schedule} />
+            {(error || (savedDraft && problems.length > 0)) && (
+              <p role="alert" className="error-line">
+                {error || problems[0]}
+              </p>
+            )}
+          </fieldset>
         </div>
       </div>
-
-      {/* Outside the scrolling area, so it stays at the bottom of the window. */}
-      <footer className="start-dock">
-        <div className="start-bar">
-          <input
-            className="title-input"
-            value={title}
-            placeholder={t.newSchedule.titlePlaceholder}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-          <button className="primary" onClick={create} disabled={busy || problems.length > 0}>
-            {busy ? t.newSchedule.creating : t.newSchedule.create}
-          </button>
-        </div>
-        {(error || (touched && problems[0])) && <p className="error-line">{error || problems[0]}</p>}
-      </footer>
     </div>
   );
 }

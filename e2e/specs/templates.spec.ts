@@ -1,5 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
+import { en } from '../../src/web/locales/en';
 import {
   askAndConfirm,
   awaitingPlan,
@@ -74,6 +75,32 @@ test.describe('templates on the CLIs that can run here', () => {
 });
 
 test.describe('templates', () => {
+  test('a template saved from New automation is shared with New chat and the automation draft survives', async ({ page }) => {
+    await page.getByRole('button', { name: en.newSchedule.title }).click();
+    const task = page.getByRole('textbox', { name: en.newSchedule.task });
+    const goal = page.getByRole('textbox', { name: en.schedule.goal });
+    const when = page.getByRole('combobox', { name: en.schedule.repeat });
+    await task.fill('Review incoming work');
+    await goal.fill('Each issue has an owner');
+    await when.selectOption('weekly');
+    const library = page.locator('.first-task > .template-library:has(+ .start-bar .team-confirmation)');
+    await expect(library).toBeVisible();
+    await library.locator('summary').click();
+    await library.getByRole('button', { name: /Three-way debate/ }).click();
+    const editor = page.getByRole('dialog');
+    await editor.getByRole('textbox', { name: en.template.name, exact: true }).fill('Triage crew');
+    await editor.getByRole('button', { name: en.template.saveCopy }).click();
+    await expect(editor).toBeHidden();
+    await expect(library.getByRole('button', { name: /Triage crew/ })).toBeVisible();
+    await openNewChat(page);
+    await library.locator('summary').click();
+    await expect(library.getByRole('button', { name: /Triage crew/ })).toBeVisible();
+    await page.getByRole('button', { name: en.newSchedule.title }).click();
+    await expect(task).toHaveValue('Review incoming work');
+    await expect(goal).toHaveValue('Each issue has an owner');
+    await expect(when).toHaveValue('weekly');
+  });
+
   test('the built-in templates are listed, and one opens to show its members', async ({ page }) => {
     await openNewChat(page);
     await page.locator('.template-library > summary').click();

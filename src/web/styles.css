@@ -1326,7 +1326,7 @@ p {
 
 .preset-row {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
   /* Every row as tall as the tallest: with names on one line and descriptions on three at most, the cards are all one size. */
   grid-auto-rows: 1fr;
   gap: 10px;
@@ -2219,7 +2219,7 @@ details.sub .model-picker {
   font-weight: 600;
   margin-bottom: 12px;
 }
-.first-task textarea {
+.first-task .task-input {
   width: 100%;
   min-height: 108px;
   padding: 12px;
@@ -2232,12 +2232,12 @@ details.sub .model-picker {
 .chat-options {
   margin: 12px 0 16px;
 }
-.chat-options summary,
+.chat-options > summary,
 .template-library summary {
   cursor: pointer;
   padding: 10px 0;
 }
-.chat-options summary span {
+.chat-options > summary span {
   display: block;
   padding-inline-start: 1em;
   overflow-wrap: anywhere;
@@ -2246,7 +2246,7 @@ details.sub .model-picker {
   margin: 14px 0;
 }
 .template-library {
-  border-top: 1px solid var(--border);
+  margin-bottom: 8px;
 }
 .template-library summary {
   font-weight: 600;
@@ -2284,16 +2284,29 @@ details.sub .model-picker {
   margin: 0;
 }
 
-/* Same width as .page-inner; above the home indicator on phones. */
-.start-dock {
-  width: 100%;
-  max-width: 1000px;
-  margin: 0 auto;
-  padding: 0 24px env(safe-area-inset-bottom);
+.automation-task .first-question {
+  margin: 0;
 }
-
-.start-dock > .error-line {
-  margin: 0 0 12px;
+.automation-task .schedule-form select {
+  max-width: 100%;
+}
+.automation-options > summary {
+  cursor: pointer;
+  padding: 8px 0;
+  font-weight: 600;
+}
+.schedule-form-options {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 8px 0;
+}
+@media (max-width: 360px) {
+  /* Keep the form border while leaving the fields as wide as the page heading. */
+  .first-task {
+    margin-inline: -8px;
+    padding: 12px 7px;
+  }
 }
 
 .start-bar {
@@ -5284,11 +5297,6 @@ details.sub summary {
   .page-inner {
     --page-pad: 16px;
     padding: 60px 16px 40px;
-  }
-
-  .start-dock {
-    padding-left: 16px;
-    padding-right: 16px;
   }
 
   .option-row {

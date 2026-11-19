@@ -447,9 +447,16 @@ export const en: Messages = {
 
   newSchedule: {
     title: 'New automation',
-    intro: (lead) =>
-      `An automation sends the team a message when you run it, at set times, when something happens (a new mail, an event about to begin, something new on GitHub, a file that changes), or when a program calls its webhook. Once you create it, the lead agent (${lead}) designs a team for the message; after you confirm the team, the automation can run. Nothing runs when you create it.`,
-    schedule: 'Automation',
+    intro: (lead, automatic) =>
+      automatic
+        ? `${lead} designs the team when you create the automation. It is accepted automatically and runs when triggered.`
+        : `${lead} designs the team when you create the automation. Once you confirm the team, it runs when triggered.`,
+    task: 'What should the team do?',
+    example: 'For example, summarize yesterday’s merged pull requests and list anything that needs follow-up.',
+    goalHint: 'Each run reports progress. The automation turns off when an agent reports that the goal is met.',
+    runOptions: 'Webhooks and run settings',
+    returnToDraft: 'Return to automation draft',
+    useTeam: 'Accept the team automatically',
     titlePlaceholder: 'Chat name (optional; the first line of the message by default)',
     create: 'Create automation',
     creating: 'Creating…',

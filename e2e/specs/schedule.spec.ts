@@ -2,6 +2,8 @@ import { mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { expect, test } from '../fixtures';
+import type { Conversation } from '../../src/shared/types';
+import { en } from '../../src/web/locales/en';
 import { confirmTeam, finishedReply, openTeamChat, send } from '../support/app';
 
 test.describe('schedules', () => {
@@ -143,16 +145,86 @@ test.describe('schedules', () => {
     await expect(hook.getByRole('button', { name: 'New token' })).toBeVisible();
   });
 
+  test('a weekly automation keeps its message and choices through lead settings and starts only when triggered', async ({
+    page,
+    relay,
+  }) => {
+    await page.getByRole('button', { name: 'New automation' }).click();
+    const task = page.getByRole('textbox', { name: en.newSchedule.task });
+    const when = page.getByRole('combobox', { name: en.schedule.repeat });
+    const extras = page.getByText(en.newSchedule.runOptions, { exact: true });
+    const goal = page.getByPlaceholder(en.schedule.goalPlaceholder);
+    const options = page.locator('.chat-options > summary');
+    const title = page.getByPlaceholder(en.newSchedule.titlePlaceholder);
+    const create = page.getByRole('button', { name: en.newSchedule.create });
+    await expect(create).toBeDisabled();
+    await expect(goal).toBeVisible();
+    await task.press('Tab');
+    await expect(goal).toBeFocused();
+    await goal.press('Tab');
+    await expect(when).toBeFocused();
+    await expect(title).toBeHidden();
+    await task.fill('Summarize merged pull requests');
+    await goal.fill('All changes reviewed');
+    await when.selectOption('weekly');
+    await page.getByLabel(en.schedule.time, { exact: true }).fill('11:15');
+    await extras.click();
+    await page.getByRole('checkbox', { name: en.schedule.newChat }).check();
+    await options.click();
+    await title.fill('Weekly review');
+    await page.getByRole('radio', { name: en.newSchedule.useTeam }).check();
+    await page.getByRole('link', { name: en.newChat.changeLead }).click();
+    await page.getByRole('link', { name: en.newSchedule.returnToDraft }).click();
+    await expect(task).toHaveValue('Summarize merged pull requests');
+    await expect(when).toHaveValue('weekly');
+    await expect(page.getByRole('radio', { name: en.newSchedule.useTeam })).toBeChecked();
+    await create.click();
+    await page.waitForURL(/#\/c\//);
+    const conv = await relay.api<Conversation>('/api/conversations/' + page.url().split('/').pop());
+    expect(conv).toMatchObject({
+      title: 'Weekly review',
+      settings: { autoConfirm: true },
+      schedule: {
+        text: 'Summarize merged pull requests',
+        goal: 'All changes reviewed',
+        repeat: { kind: 'weekly', time: '11:15' },
+        newChat: true,
+      },
+    });
+    expect(conv.messages.filter((m) => m.author.kind === 'user')).toHaveLength(0);
+    await page.getByRole('button', { name: 'New automation' }).click();
+    await expect(task).toHaveValue('');
+    await expect(when).toHaveValue('manual');
+    await expect(page.getByRole('radio', { name: en.newSchedule.useTeam })).toBeChecked();
+  });
+
+  test('an event automation keeps its trigger when visiting connector settings', async ({ page, relay }) => {
+    await page.getByRole('button', { name: 'New automation' }).click();
+    const task = page.getByRole('textbox', { name: en.newSchedule.task });
+    await task.fill('Review changed files');
+    await page.getByRole('combobox', { name: en.schedule.repeat }).selectOption('event');
+    await page.getByRole('link', { name: en.schedule.watch.openSettings }).click();
+    await page.getByRole('link', { name: en.newSchedule.returnToDraft }).click();
+    await expect(task).toHaveValue('Review changed files');
+    await expect(page.getByRole('combobox', { name: en.schedule.repeat })).toHaveValue('event');
+    await page.getByRole('combobox', { name: en.schedule.watch.source }).selectOption('file');
+    await page.getByPlaceholder(en.schedule.watch.patternPlaceholder).fill('notes/*.md');
+    await page.getByRole('button', { name: en.newSchedule.create }).click();
+    await page.waitForURL(/#\/c\//);
+    const conv = await relay.api<Conversation>('/api/conversations/' + page.url().split('/').pop());
+    expect(conv.schedule?.repeat).toEqual({ kind: 'event', triggers: [{ source: 'file', pattern: 'notes/*.md' }] });
+  });
+
   test("New automation's Create a webhook too opens the automation's chat with its token shown once, which a program then calls", async ({
     page,
   }) => {
     await page.getByRole('button', { name: 'New automation' }).click();
-    await page.getByRole('textbox', { name: 'Message to send the team' }).fill('Deploy finished');
-    await page.getByRole('radio', { name: 'No set times' }).click();
+    await page.getByRole('textbox', { name: en.newSchedule.task }).fill('Deploy finished');
+    await page.getByRole('combobox', { name: en.schedule.repeat }).selectOption('manual');
     // Folded away at first, under words anyone can read.
     const withHook = page.getByRole('checkbox', { name: 'Create a webhook too' });
     await expect(withHook).toBeHidden();
-    await page.getByText('Let another program start it (webhook)').click();
+    await page.getByText(en.newSchedule.runOptions, { exact: true }).click();
     await expect(withHook).not.toBeChecked();
     await withHook.check();
     await expect(page.getByText("the automation's drawer opens with the webhook's address and token")).toBeVisible();

@@ -17,7 +17,7 @@ import { Home } from './components/Home';
 import { InboxButton } from './components/InboxButton';
 import { GitInstallDialog } from './components/GitInstallDialog';
 import { NewChat, emptyChatDraft } from './components/NewChat';
-import { NewSchedule } from './components/NewSchedule';
+import { NewSchedule, type NewAutomationDraft } from './components/NewSchedule';
 import { SignIn } from './components/SignIn';
 import { UpdateDialog } from './components/UpdateDialog';
 import { hashFor, routeFromHash, type Route } from './route';
@@ -180,7 +180,9 @@ function RelayApp() {
   const [route, setRoute] = useState<Route>(parseHash);
   const [chatDraft, setChatDraft] = useState(emptyChatDraft);
   const [startingChat, setStartingChat] = useState(false);
-  const [returnToNewChat, setReturnToNewChat] = useState(false);
+  const [scheduleDraft, setScheduleDraft] = useState<NewAutomationDraft | null>(null);
+  const [creatingSchedule, setCreatingSchedule] = useState(false);
+  const [draftPage, setDraftPage] = useState<'new' | 'schedule'>();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [groups, setGroups] = useState<ConversationGroup[]>([]);
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
@@ -201,10 +203,13 @@ function RelayApp() {
   };
 
   useEffect(() => {
+    let previous = parseHash();
     const onHash = () => {
       const next = parseHash();
       setRoute(next);
-      if (next.page !== 'settings') setReturnToNewChat(false);
+      if (next.page !== 'settings') setDraftPage(undefined);
+      else if (previous.page === 'new' || previous.page === 'schedule') setDraftPage(previous.page);
+      previous = next;
       setSidebarOpen(false);
     };
     window.addEventListener('hashchange', onHash);
@@ -540,7 +545,6 @@ function RelayApp() {
           <NewChat
             draft={chatDraft}
             onDraft={setChatDraft}
-            onVisitLead={() => setReturnToNewChat(true)}
             busy={startingChat}
             setBusy={setStartingChat}
             providers={providers}
@@ -554,9 +558,14 @@ function RelayApp() {
         )}
         {route.page === 'schedule' && (
           <NewSchedule
+            draft={scheduleDraft}
+            onDraft={setScheduleDraft}
+            busy={creatingSchedule}
+            setBusy={setCreatingSchedule}
             providers={providers}
             catalog={catalog}
             onCreated={(conv) => {
+              setScheduleDraft(null);
               refreshConversations();
               navigate({ page: 'chat', id: conv.id });
             }}
@@ -575,7 +584,7 @@ function RelayApp() {
         {route.page === 'settings' && (
           <Deferred inPage>
             <SettingsPage
-              returnToNewChat={returnToNewChat}
+              draftPage={draftPage}
               section={route.section}
               providers={providers}
               catalog={catalog}

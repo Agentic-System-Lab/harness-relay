@@ -270,22 +270,22 @@
         <section id="create" aria-labelledby="create-title">
           <h2 id="create-title">建立自動任務</h2>
           <ol class="doc-steps">
-            <li>按側邊欄的 <b>新自動任務</b>。</li>
-            <li>寫下 <b>要傳給團隊的訊息</b>。和在對話裡一樣，被 <code>@mention</code> 的成員才會回答；首席 agent 會用訊息裡 @ 的名字為團隊成員命名。</li>
-            <li>選擇執行的 <b>時間</b>（見下方），需要的話再寫下 <b>追蹤的目標</b>。</li>
-            <li>和開新對話一樣，選擇工作目錄與權限，以及是否請首席 agent 審閱團隊的回覆。</li>
-            <li>按 <b>建立自動任務</b>。它的對話會打開，首席 agent 為這則訊息設計團隊：請在團隊卡片上確認。這時還不會執行：團隊會在你設定的時間收到訊息。</li>
+            <li>按側邊欄的 <b>新自動任務</b>，寫下想讓團隊做的事。你可以在訊息中用 <code>@</code> 指定成員。</li>
+            <li>需要時填寫 <b>追蹤的目標</b>，再從 <b>時間</b> 選單選擇如何觸發任務。若要每次開新對話，展開 <b>Webhook 與執行設定</b>。</li>
+            <li>在 <b>工作目錄與對話設定</b> 可以調整資料夾、檔案權限、標題與首席 agent 審閱。</li>
+            <li>選擇 <b>等我確認團隊</b> 或 <b>自動採用團隊</b>，再按 <b>建立自動任務</b>。建立時會開啟對話並組隊；任務會在觸發時執行。</li>
           </ol>
+          <p>「本次組隊後」上方的 <b>管理團隊範本</b> 可以編輯與新對話共用的範本。</p>
           <figure class="doc-figure">
             <img
               src="../../../assets/media/docs/automations-new-zh-TW.webp"
               width="1280"
-              height="800"
+              height="980"
               alt="「新自動任務」頁面：要傳給團隊的訊息、追蹤的目標（每張逾期發票都已付清，或客戶已用書面同意付款日期）、時間選「每週」的週一到週五 09:00 並列出接下來三次的時間，最下方是「建立自動任務」。"
               loading="lazy"
             />
             <figcaption>
-              一個每個平日 09:00 執行、有追蹤目標的新自動任務。取自使用情境<a href="../../use-cases/#collect-payments">追逾期帳款，追到收齊為止</a>的一個畫面。
+              每個平日 09:00 追蹤逾期發票，直到達成目標。相關案例：<a href="../../use-cases/#collect-payments">追逾期帳款，追到收齊為止</a>。
             </figcaption>
           </figure>
           <h3>立即執行、暫停、刪除</h3>
@@ -389,17 +389,17 @@
               alt="自動任務的「進度」，標示「已達成」：@MailReader 與 @Bookkeeper 每次執行的紀錄，最新的在最上面，最新兩則說目標已達成；上方是「立即執行一次」與「刪除自動任務」，下方的「啟用」已取消勾選，因為自動任務自己關閉了。"
               loading="lazy"
             />
-            <figcaption>每次執行的進度，直到目標達成、自動任務自己關閉。取自使用情境<a href="../../use-cases/#collect-payments">追逾期帳款，追到收齊為止</a>的一個畫面。</figcaption>
+            <figcaption>每次執行的進度，直到目標達成、自動任務自己關閉。取自使用情境<a href="../../use-cases/#collect-payments">追逾期帳款，追到收齊為止</a>。</figcaption>
           </figure>
         </section>
 
         <section id="webhook" aria-labelledby="webhook-title">
           <h2 id="webhook-title">讓程式啟動它</h2>
           <p>
-            大多數自動任務都用不到，所以它收在 <b>讓其他程式啟動它（Webhook）</b> 裡。webhook 是一個網址，這台電腦上的程式呼叫它，就能立刻送出自動任務的訊息，例如 git hook、在這台電腦上執行的 CI runner 或腳本。自動任務的時間關閉時也能用。
+            儲存自動任務後，可以在對話裡的 <b>讓其他程式啟動它（Webhook）</b> 裡設定 webhook。webhook 是一個網址，這台電腦上的程式呼叫它，就能立刻送出自動任務的訊息，例如 git hook、在這台電腦上執行的 CI runner 或腳本。自動任務的時間關閉時也能用。
           </p>
           <ul>
-            <li>在 <b>新自動任務</b> 頁面勾選 <b>同時建立 webhook</b>；已經儲存的自動任務，則按 <b>建立 webhook</b>。</li>
+            <li>在 <b>新自動任務</b> 頁面展開 <b>Webhook 與執行設定</b>，勾選 <b>同時建立 webhook</b>；已經儲存的自動任務，則按 <b>建立 webhook</b>。</li>
             <li>程式呼叫時要帶上 webhook 的權杖。權杖<b>只會顯示一次</b>，並附上呼叫的範例：請當下複製。<b>換一個新的權杖</b> 會取代它，<b>移除 webhook</b> 會拿掉 webhook。</li>
             <li>程式送來的內容會附在訊息後面，顯示在 <b>Webhook 傳來的內容</b> 下，agent 會把它當成資料來讀，絕不當成指示。</li>
           </ul>

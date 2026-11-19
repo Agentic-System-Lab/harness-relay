@@ -22,7 +22,7 @@ import { SectionTitle } from './SectionTitle';
 import { useDialog } from './useDialog';
 
 /** Settings → Tool library: MCP servers, skills and the shared memory every agent can be given. */
-export function ToolsCard() {
+export function ToolsCard({ draftLink }: { draftLink?: React.ReactNode }) {
   const t = useT();
   const [lib, setLib] = useState<ToolLibraryView | null>(null);
   const [error, setError] = useState('');
@@ -46,6 +46,7 @@ export function ToolsCard() {
   return (
     <section className="card tools-card" id={sectionId('tools')}>
       <SectionTitle section="tools">{t.tools.title}</SectionTitle>
+      {draftLink}
       <p className="muted small">{t.tools.hint}</p>
       {error && <p className="error-line">{error}</p>}
       {!lib ? (

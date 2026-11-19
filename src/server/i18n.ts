@@ -693,7 +693,7 @@ const zhTW = {
   tooManyAccounts: (provider: string, max: number) => `${provider} 最多 ${max} 個帳號（含預設帳號）`,
   badAccountLabel: (max: number) => `帳號名稱最多 ${max} 個字，不能換行`,
   defaultAccountStays: '預設帳號不能移除',
-  accountBusy: '有對話正在執行，或首席 agent 正在替對話分群或調整團隊。請等它們結束（或停止對話、關閉團隊設定）再移除帳號。',
+  accountBusy: '有對話正在執行，或首席助理正在替對話分群或調整團隊。請等它們結束（或停止對話、關閉團隊設定）再移除帳號。',
   presetNameRequired: '請輸入範本名稱',
   otherGroup: '其他',
   groupNameRequired: '請輸入群組名稱',
@@ -727,8 +727,7 @@ const zhTW = {
   agentHomeNotAbsolute: (dir: string) => `請填完整路徑，或以 ~ 開頭的路徑（例如 ~/.relay-agents），不要用 ${dir}`,
   agentHomeInside: (dir: string, folder: string) =>
     `${dir} 在 ${folder} 裡面：那裡的快照會把各 CLI 的登入與 session 紀錄一起收進去。請選這個資料夾以外的位置，例如 ~/.relay-agents`,
-  agentHomeBusy:
-    '有對話正在執行，或首席 agent 正在替對話分群或調整團隊。請等它們結束（或停止對話、關閉團隊設定）再更改各 CLI 自己的資料夾。',
+  agentHomeBusy: '有對話正在執行，或首席助理正在替對話分群或調整團隊。請等它們結束（或停止對話、關閉團隊設定）再更改各 CLI 自己的資料夾。',
   agentsViewLinkInvalid: (url: string) =>
     `開啟 AgentsView 的網址無效：${url}。請填 http:// 或 https:// 開頭的網址，例如 https://my-computer.tail1234.ts.net:9999`,
   agentsViewUrlInvalid: (url: string) => `AgentsView 網址無效：${url}。只接受這台電腦上的 http(s) 位址，例如 http://127.0.0.1:8080`,
@@ -802,7 +801,7 @@ const zhTW = {
   cliInstallNone: (cli: string) => `目前沒有進行中的 ${cli} 安裝`,
   cliAlreadyInstalled: (cli: string) => `Harness Relay 已經安裝了 ${cli}。要重新安裝，請先移除它。`,
   cliNotInstalledHere: (cli: string) => `${cli} 不是透過 Harness Relay 安裝的，這裡沒有可以移除的東西。`,
-  cliRemoveBusy: (cli: string) => `有對話正在執行，或首席 agent 正在替對話分群或調整團隊。請等它們結束（或停止對話）再移除 ${cli}。`,
+  cliRemoveBusy: (cli: string) => `有對話正在執行，或首席助理正在替對話分群或調整團隊。請等它們結束（或停止對話）再移除 ${cli}。`,
   cliInstallBlocked: (cli: string, block: CliInstallBlock) =>
     block === 'system'
       ? `Harness Relay 無法在這個系統上安裝 ${cli}，請照它官方頁面的說明安裝。`

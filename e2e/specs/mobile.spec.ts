@@ -595,8 +595,8 @@ test.describe('on a phone', () => {
         const on = row.querySelector('button.on')!.getBoundingClientRect();
         return on.left >= box.left - 1 && on.right <= box.right + 1;
       });
-    // The five kinds of schedule stay on one row, which scrolls sideways where they do not fit (they need
-    // about 440px in English and 280px in Chinese). The week's seven days need about 310px in English
+    // The creation page uses a select, and the drawer scrolls its kinds horizontally.
+    // The week's seven days need about 310px in English
     // and 276px in Chinese: below that they go onto two rows.
     const widths = [320, 280];
     const widthsOf = { en: [...widths, 400, 430], 'zh-TW': [...widths, 250, 360] };
@@ -611,9 +611,16 @@ test.describe('on a phone', () => {
       await page.goto(`${relay.base}/#/schedule`);
       // Only the hash changes from one language to the next: load the page again in the new one.
       await page.reload();
+      await page.setViewportSize({ width: 250, height: 640 });
+      const library = page.locator('.first-task > .template-library');
+      await library.locator('summary').tap();
+      await expect(library.locator('.preset-card').first()).toBeVisible();
+      expect(await sideways(), `${lang}, expanded team templates`).toEqual([]);
+      await library.locator('summary').tap();
       for (const kind of SCHEDULE_KINDS) {
         await page.setViewportSize(viewport);
-        await page.getByRole('radiogroup', { name: s.repeat }).getByRole('radio', { name: s.kinds[kind], exact: true }).tap();
+        const when = page.getByRole('combobox', { name: s.repeat });
+        await when.selectOption(kind);
         if (kind === 'interval') {
           // The interval's unit is only "hours", next to its box; its hint, a line of its own, still describes the box.
           await expect(page.locator('.schedule-form .field.inline .unit')).toHaveText(s.hoursUnit);
@@ -622,7 +629,7 @@ test.describe('on a phone', () => {
         for (const width of widthsOf[lang]) {
           await page.setViewportSize({ width, height: 640 });
           expect(await sideways(), `${lang}, ${kind}, ${width}px`).toEqual([]);
-          expect(await rows('.schedule-kinds'), `the kinds, ${lang}, ${width}px`).toBe(1);
+          await expect(when).toHaveValue(kind);
           if (kind === 'weekly') expect(await rows('.day-picker'), `the days, ${lang}, ${width}px`).toBe(dayRows(lang, width));
         }
         // Waiting for several things: each in a box of its own, with its Remove, still within the page.

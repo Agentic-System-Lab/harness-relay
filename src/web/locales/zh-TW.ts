@@ -178,7 +178,7 @@ export const zhTW = {
     newTemplateDescription: '自己決定成員、各自的定位與輪流方式，存成範本給首席 agent 選用。',
     autoNote: (lead: string) =>
       `每個問題的成員、對話模式與輪數都由首席 agent（${lead}）決定；你決定工作目錄、檔案權限，以及要不要先確認它組的團隊。`,
-    changeLead: '更換首席 agent →',
+    changeLead: '更換首席助理 →',
     deleteTemplate: '刪除範本',
     confirmDeleteTemplate: (name: string) => `刪除範本「${name}」？`,
     confirmCreateCwd: (dirs: string) => `工作目錄不存在：\n${dirs}\n要建立並開始對話嗎？`,
@@ -459,9 +459,16 @@ export const zhTW = {
 
   newSchedule: {
     title: '新自動任務',
-    intro: (lead: string) =>
-      `自動任務會在你執行它、到了設定的時間、某件事發生（收到新郵件、行程即將開始、GitHub 上的新動態、檔案變動），或程式呼叫它的 webhook 時，把一則訊息傳給團隊。建立後，首席 agent（${lead}）會為這則訊息組隊；你確認團隊後，自動任務就可以執行。建立時不會先執行。`,
-    schedule: '自動任務',
+    intro: (lead: string, automatic: boolean) =>
+      automatic
+        ? `建立時由 ${lead} 組隊並自動採用；任務會在你設定的條件觸發時執行。`
+        : `建立時由 ${lead} 組隊。等你確認後，任務才會在觸發時執行。`,
+    task: '你想讓團隊做什麼？',
+    example: '例如：整理昨天合併的 PR，列出需要追蹤的問題。',
+    goalHint: '每次執行都會回報進度。有成員回報達標時，自動任務就會關閉。',
+    runOptions: 'Webhook 與執行設定',
+    returnToDraft: '返回自動任務草稿',
+    useTeam: '自動採用團隊',
     titlePlaceholder: '對話名稱（選填，預設用訊息的第一行）',
     create: '建立自動任務',
     creating: '建立中…',
@@ -896,7 +903,7 @@ export const zhTW = {
 
   plan: {
     leadUnavailable: (lead: string) => `首席 agent（${lead}）本次無法使用。`,
-    leadUnavailableHint: '你可以到「設定與登入 → 首席 agent」切換。',
+    leadUnavailableHint: '你可以到「設定與登入 → 首席助理」切換。',
     preparingFallback: '正在準備備援團隊…',
     checkOnConfirm: '確認這個團隊後，會先測試模型再開始回答。',
     activity: '團隊設計進度',
@@ -1742,12 +1749,12 @@ export const zhTW = {
     appearance: '外觀',
     appearanceHint: '介面要用淺色還是深色背景。記在這個瀏覽器；「跟隨系統」會隨電腦或手機的淺色／深色模式切換。',
     themes: { system: '跟隨系統', light: '淺色', dark: '深色' } as Record<ThemeChoice, string>,
-    lead: '首席 agent',
-    leadHint: '每個新問題，由這個 agent 讀問題與先前的對話，沿用目前的團隊、挑選範本、依範本調整，或設計新的團隊。',
-    leadSaved: '已儲存首席 agent',
-    leadNotReady: (p: string) => `${p} 目前無法使用，請先登入或改選其他 agent。`,
-    leadNoBackend: (p: string) => `${p} 還沒有模型來源：請先設定一個，或改選其他 agent。`,
-    leadNotInstalled: (p: string) => `這台電腦上找不到 ${p}：請先安裝（或在它的卡片指定執行檔路徑），或改選其他 agent。`,
+    lead: '首席助理',
+    leadHint: '收到新問題時，首席助理會參考先前的對話，決定要沿用目前的團隊、使用或調整範本，還是組建新團隊。',
+    leadSaved: '已儲存首席助理',
+    leadNotReady: (p: string) => `${p} 目前無法使用，請先登入或改選其他助理。`,
+    leadNoBackend: (p: string) => `${p} 還沒有模型來源：請先設定一個，或改選其他助理。`,
+    leadNotInstalled: (p: string) => `這台電腦上找不到 ${p}：請先安裝（或在它的卡片指定執行檔路徑），或改選其他助理。`,
     goCard: (p: string) => `前往 ${p} →`,
     goSignIn: (p: string) => `前往 ${p} 登入 →`,
     sections: '設定頁的區塊',
@@ -1760,7 +1767,7 @@ export const zhTW = {
       notifications: '通知',
       sandboxes: '沙箱',
       backends: '模型來源',
-      lead: '首席 agent',
+      lead: '首席助理',
       tools: '工具庫',
       voice: '語音輸入',
       cwd: '預設工作目錄',
@@ -1967,7 +1974,7 @@ export const zhTW = {
     keyEnvHint: (v: string) => `不想存進資料庫的話，可以改在啟動 Harness Relay 前設定環境變數 ${v}。`,
     defaults: '預設模型與推理強度',
     defaultsHint: (p: string) =>
-      `使用這個帳號的成員（以及用這個帳號的首席 agent）模型 / 推理強度選「預設」時，使用這裡的值；這裡也選「CLI 預設」就交給 ${p} 在這個帳號資料夾裡的設定。每個帳號各自設定。`,
+      `使用這個帳號的成員（以及用這個帳號的首席助理）模型 / 推理強度選「預設」時，使用這裡的值；這裡也選「CLI 預設」就交給 ${p} 在這個帳號資料夾裡的設定。每個帳號各自設定。`,
     modelsError: (e: string) => `無法從 CLI 取得模型清單：${e}`,
     cliDefault: (v: string) => `CLI 預設：${v}`,
     unknown: '未知',
@@ -2129,7 +2136,7 @@ export const zhTW = {
           '選「等我確認團隊」可以先看組隊結果，選「直接開始回答」就會立即採用。下次開新對話會記住這次的選擇，也可以在團隊設定裡更改。',
           '確認前寫的訊息，確認後會跟問題一起送給團隊；@ 成員的訊息則直接交給他，不重新組隊',
           '「團隊回答後，請首席 agent 審閱回覆」（每個新對話都預設開啟，由你關閉；團隊設計卡片上也有）：團隊回答完，首席 agent 會在回覆中標出需要特別注意的地方，並建議接下來的步驟',
-          '首席 agent 可以在設定頁更換；檔案權限一律由你決定，首席 agent 不會改動',
+          '首席助理可以在設定頁更換；檔案權限一律由你決定，首席助理不會改動',
         ],
       },
       {
@@ -2261,7 +2268,7 @@ export const zhTW = {
       },
       {
         title: '隨時調整',
-        body: '在設定頁可以切換介面語言（繁體中文 / English）、設定模型來源（開源 agent 用它，Claude Code、Codex 與 Grok 也能用它的自訂端點）、更換首席 agent、查看各 CLI 自己載入的 skill、MCP 與記憶、設定新對話的預設工作目錄、開關通知與提示音、管理語音輸入、agent 的 session 與分享的對話，也能重新觀看這份導覽。上方的區塊連結會帶你直接跳到每一項。',
+        body: '在設定頁可以切換介面語言（繁體中文 / English）、設定模型來源（開源 agent 用它，Claude Code、Codex 與 Grok 也能用它的自訂端點）、更換首席助理、查看各 CLI 自己載入的 skill、MCP 與記憶、設定新對話的預設工作目錄、開關通知與提示音、管理語音輸入、agent 的 session 與分享的對話，也能重新觀看這份導覽。上方的區塊連結會帶你直接跳到每一項。',
         points: [
           '最前面的「版本」：目前的版本；桌面版每小時檢查一次有沒有新版本，有的話會跳出一次對話框，可以從那裡、這張卡片或選單更新',
           '「設定與登入」那一行最右邊的對話框按鈕可以用電子郵件回報問題或建議，附上版本與系統資訊，也可以附上截圖',

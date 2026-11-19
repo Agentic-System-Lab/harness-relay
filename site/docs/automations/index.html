@@ -284,31 +284,22 @@
         <section id="create" aria-labelledby="create-title">
           <h2 id="create-title">Create one</h2>
           <ol class="doc-steps">
-            <li>Click <b>New automation</b> in the sidebar.</li>
-            <li>
-              Write the <b>Message to send the team</b>. As in a chat, members you <code>@mention</code> answer it alone;
-              the lead agent names the team's members after the names you mention.
-            </li>
-            <li>Choose <b>When</b> it runs (see below), and, if you like, a <b>Goal to track</b>.</li>
-            <li>
-              Choose the working directory and the permission, as for a new chat, and whether the lead agent reviews the
-              team's replies.
-            </li>
-            <li>
-              Click <b>Create automation</b>. Its chat opens and the lead agent designs a team for the message: confirm
-              it on its card. Nothing runs yet: the team gets the message at the times you set.
-            </li>
+            <li>Click <b>New automation</b> in the sidebar and write what the team should do. You can address individual members with <code>@mentions</code>.</li>
+            <li>Optionally fill in <b>Goal to track</b>, then choose a trigger under <b>When</b>. <b>Webhooks and run settings</b> lets you start a new chat for each run.</li>
+            <li>Open <b>Workspace and chat settings</b> to change the folders, file permission, title or lead review.</li>
+            <li>Choose <b>Wait for my confirmation</b> or <b>Accept the team automatically</b>, then click <b>Create automation</b>. Its chat opens for team design. The task runs when triggered.</li>
           </ol>
+          <p>Use <b>Manage team templates</b> above the confirmation options to edit the same templates available in New chat.</p>
           <figure class="doc-figure">
             <img
               src="../../assets/media/docs/automations-new-en.webp"
               width="1280"
-              height="800"
+              height="980"
               alt="The New automation page: the message to send the team, a goal to track (each overdue invoice paid, or a date agreed in writing), When set to Every week on Monday to Friday at 09:00 with the next three times shown, and Create automation at the bottom."
               loading="lazy"
             />
             <figcaption>
-              A new automation, every weekday at 09:00, with a goal to track. A frame of the use case
+              A reminder scheduled for 09:00 every weekday, with a goal to track. See the related use case
               <a href="../../use-cases/#collect-payments">Chase overdue invoices until they are settled</a>.
             </figcaption>
           </figure>
@@ -463,13 +454,13 @@
         <section id="webhook" aria-labelledby="webhook-title">
           <h2 id="webhook-title">Let a program start it</h2>
           <p>
-            Most automations never need this, so it is folded away under <b>Let another program start it (webhook)</b>.
+            In a saved automation, webhook controls are under <b>Let another program start it (webhook)</b>.
             A webhook is an address a program on this computer can call to send the automation's message at once: a git
             hook, a CI runner on this computer or a script, say. It works while the automation's times are off too.
           </p>
           <ul>
             <li>
-              On the <b>New automation</b> page, tick <b>Create a webhook too</b>; for an automation already saved, click
+              On the <b>New automation</b> page, open <b>Webhooks and run settings</b> and tick <b>Create a webhook too</b>; for an automation already saved, click
               <b>Add a webhook</b>.
             </li>
             <li>

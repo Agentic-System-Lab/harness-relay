@@ -42,7 +42,7 @@ test.describe('limits the environment sets', () => {
 
   test("a schedule's hint gives the turn timeout RELAY_TURN_TIMEOUT_MIN sets", async ({ page }) => {
     await page.getByRole('button', { name: 'New automation' }).click();
-    // The schedule's own choice (the team's is above it).
+    await page.locator('.automation-options > summary').click();
     await page.getByRole('radiogroup', { name: 'Actions outside the permission' }).getByRole('radio', { name: 'Ask me' }).click();
     await expect(page.getByText('while you are away the agent waits (up to 90 minutes per turn)')).toBeVisible();
   });

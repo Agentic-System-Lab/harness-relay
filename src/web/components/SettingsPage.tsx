@@ -45,6 +45,7 @@ import {
   revealLink,
   scrollToSection,
   sectionId,
+  hashFor,
   settingsHref,
   type SettingsSection,
 } from '../route';
@@ -76,7 +77,7 @@ import { LogoSpinner } from './Logo';
 interface Props {
   /** The card to scroll to (#/settings/<section>). */
   section?: SettingsSection;
-  returnToNewChat?: boolean;
+  draftPage?: 'new' | 'schedule';
   providers: ProviderStatus[];
   catalog: ProviderModels[];
   refreshProviders: (force?: boolean) => Promise<void>;
@@ -116,7 +117,7 @@ const KEY_PLACEHOLDER: Record<SignInCli, string> = {
 
 export function SettingsPage({
   section,
-  returnToNewChat,
+  draftPage,
   providers,
   catalog,
   refreshProviders,
@@ -128,6 +129,11 @@ export function SettingsPage({
   const { t, lang, setLang } = useI18n();
   /** A language chosen whose words could not be loaded. */
   const [langFailed, setLangFailed] = useState<Lang | null>(null);
+  const draftLink = draftPage && (
+    <a className="settings-return-draft" href={hashFor({ page: draftPage })}>
+      <span aria-hidden="true">←</span> {draftPage === 'new' ? t.newChat.returnToDraft : t.newSchedule.returnToDraft}
+    </a>
+  );
   const theme = useThemeChoice();
   const [settings, setSettings] = useState<SettingsView | null>(null);
   /** The default working directories, as the box has them (saved or not). */
@@ -200,6 +206,7 @@ export function SettingsPage({
           </div>
         </header>
 
+        {section !== 'lead' && section !== 'tools' && draftLink}
         <SettingsNav section={section} />
 
         <AssistantOverview providers={providers} installs={installs.views} />
@@ -295,14 +302,14 @@ export function SettingsPage({
         {settings && (
           <LeadCard
             lead={settings.lead}
-            returnToNewChat={returnToNewChat}
+            draftLink={section === 'lead' ? draftLink : undefined}
             providers={providers}
             catalog={catalog}
             onSettings={setSettings}
           />
         )}
 
-        <ToolsCard />
+        <ToolsCard draftLink={section === 'tools' ? draftLink : undefined} />
 
         <VoiceCard />
 
@@ -422,13 +429,13 @@ function AssistantOverview({ providers, installs }: { providers: ProviderStatus[
 /** The agent that designs the team in auto-team conversations. */
 function LeadCard({
   lead: saved,
-  returnToNewChat,
+  draftLink,
   providers,
   catalog,
   onSettings,
 }: {
   lead: LeadAgentSettings;
-  returnToNewChat?: boolean;
+  draftLink?: React.ReactNode;
   providers: ProviderStatus[];
   catalog: ProviderModels[];
   onSettings: (s: SettingsView) => void;
@@ -469,11 +476,7 @@ function LeadCard({
   return (
     <section className="card" id={sectionId('lead')} style={{ ['--accent' as string]: PROVIDER_COLOR[lead.provider] }}>
       <SectionTitle section="lead">✦ {t.settings.lead}</SectionTitle>
-      {returnToNewChat && (
-        <a className="settings-return-draft" href="#/new">
-          <span aria-hidden="true">←</span> {t.newChat.returnToDraft}
-        </a>
-      )}
+      {draftLink}
       <p className="muted small">{t.settings.leadHint}</p>
       <CliPicker
         value={lead.provider}

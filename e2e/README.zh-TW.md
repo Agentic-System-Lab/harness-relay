@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 38 個 spec 檔、492 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 38 個 spec 檔、495 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -38,7 +38,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [登入](#登入) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [架構 → 登入](../docs/architecture.zh-TW.md#登入) |
 | [首頁](#首頁) | [`home.spec.ts`](specs/home.spec.ts) | 6 | [使用者說明 → 開始對話](../docs/user-guide.zh-TW.md#對話規則) |
 | [新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊) | [`chat.spec.ts`](specs/chat.spec.ts) | 12 | [使用者說明 → 自動組隊](../docs/user-guide.zh-TW.md#自動組隊)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
-| [範本](#範本) | [`templates.spec.ts`](specs/templates.spec.ts) | 6 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本) |
+| [範本](#範本) | [`templates.spec.ts`](specs/templates.spec.ts) | 7 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本) |
 | [修改對話的團隊](#修改對話的團隊) | [`team.spec.ts`](specs/team.spec.ts) | 5 | [使用者說明 → 對話中修改團隊](../docs/user-guide.zh-TW.md#對話中修改團隊) |
 | [首席 agent 的審閱](#首席-agent-的審閱) | [`review.spec.ts`](specs/review.spec.ts) | 13 | [使用者說明 → 首席 agent 審閱](../docs/user-guide.zh-TW.md#首席-agent-審閱)、[架構 → 首席 agent 審閱](../docs/architecture.zh-TW.md#首席-agent-審閱) |
 | [成員的模型與推理強度](#成員的模型與推理強度) | [`models.spec.ts`](specs/models.spec.ts) | 13 | [使用者說明 → 預設模型與推理強度](../docs/user-guide.zh-TW.md#預設模型與推理強度)、[團隊成員](../docs/user-guide.zh-TW.md#團隊成員) |
@@ -56,8 +56,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [修改對話的歷史](#修改對話的歷史) | [`history.spec.ts`](specs/history.spec.ts) | 3 | [使用者說明 → 複製、編輯與重試](../docs/user-guide.zh-TW.md#複製編輯與重試)、[分支對話](../docs/user-guide.zh-TW.md#分支對話) |
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 15 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 12 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
-| [自動任務](#自動任務) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 9 | [使用者說明 → 自動任務](../docs/user-guide.zh-TW.md#自動任務)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
-| [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 18 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席-agent)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
+| [自動任務](#自動任務) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 11 | [使用者說明 → 自動任務](../docs/user-guide.zh-TW.md#自動任務)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
+| [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 18 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席助理)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
 | [安裝 CLI](#安裝-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [使用者說明 → 從設定頁安裝 CLI](../docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[架構 → 從設定頁安裝 CLI](../docs/architecture.zh-TW.md#從設定頁安裝-cli) |
 | [安裝 Git](#安裝-git) | [`git-install.spec.ts`](specs/git-install.spec.ts) | 3 | [使用者說明 → 對話設定](../docs/user-guide.zh-TW.md#對話規則) |
 | [沙箱需要的元件](#沙箱需要的元件) | [`sandbox-setup.spec.ts`](specs/sandbox-setup.spec.ts) | 6 | [使用者說明 → 安裝沙箱需要的元件](../docs/user-guide.zh-TW.md#安裝沙箱需要的元件)、[各平台的 OS 沙箱 → 由 Harness Relay 安裝它們需要的東西](../docs/sandboxing.zh-TW.md#由-harness-relay-安裝它們需要的東西) |
@@ -133,6 +133,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
+| 在新自動任務另存範本後，可在新對話找到它 | — | 兩個表單都把範本放在「本次組隊後」上方。另存後返回自動任務，任務內容、目標和每週排程都還在。 |
 | 列出內建範本，打開其中一個可看到成員 | — | 「三方辯論」（Three-way debate）標為內建，對話框列出 Proposer、Pragmatist 與 Skeptic。 |
 | 新範本只放這裡已安裝 CLI 的成員，在各 CLI 狀態還沒到時打開也一樣 | — | 重新載入後擋住 `/api/providers`，**＋ 新增範本**打開時沒有成員；狀態到了之後，Claude Code、Codex 與 Grok（測試伺服器的）各一位，關閉時不會詢問。 |
 | 範本裡用了這裡沒安裝的 CLI 的成員改用已安裝的，會說明，也能照這樣儲存 | — | 沒有安裝 Grok 時：新範本只有 Claude Code 與 Codex；打開「三方辯論」時 Skeptic 改用 Claude Code（另外兩個 CLI 都已用到），對話框列出 Skeptic 被改過，雖然沒有其他修改，**另存成我的範本**（Save as my template）也可以按。 |
@@ -392,7 +393,9 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 工作目錄中出現檔案時啟動的自動任務：第一次檢查記下已經在的檔案，新的檔案以路徑送到團隊，從不送出內容 | Codex | **要等的事** → **工作目錄中的檔案出現或變動**（When something happens → A file appears or changes in the working directory），樣式 `reports/*.csv`；說明寫著只列出檔名、不列內容，側邊欄的時鐘寫著 **when a file matching reports/\*.csv appears or changes in the working directory**。**立即檢查** 記下 `reports/jan.csv`，什麼都不送；新的 `reports/feb.csv`（以及樣式不包含的 `notes.txt`），都在一分鐘前就寫完了，讓下一次 **立即檢查** 送出訊息一次，它的 **The files that appeared or changed** 區塊把 `reports/feb.csv` 列為新檔案，沒有 `jan.csv`、`notes.txt`，也沒有檔案裡的內容；agent 收到的是 `<event source="file">` |
 | 等兩件事的自動任務，任何一件發生都會啟動：每件各自檢查、各一行顯示，各送自己的訊息 | Codex | **當某件事發生時**選**工作目錄中的檔案出現或變動**（A file appears or changes in the working directory），樣式 `reports/*.csv`：只有一件時沒有**移除**（Remove）；**再等一件事**（Add another）加上**要等的第 2 件事**（Thing 2 to wait for），同樣是檔案樣式，樣式還是空的。在那裡填 `./reports/*.csv` 時表單說 **Two of the things to wait for are the same**，**儲存**變灰；改填 `invoices/*.pdf` 就能儲存，說明寫著每件各自檢查，側邊欄的時鐘寫著 **when a file matching reports/\*.csv appears or changes in the working directory, or when a file matching invoices/\*.pdf appears or changes in the working directory**。再打開時抽屜列出兩件，各在自己的群組裡、各有**移除**；**立即檢查**記下已經在的檔案，什麼都不送，狀態裡每件的檢查情況各一行。新的 `reports/feb.csv` 讓下一次**立即檢查**送出訊息一次，它的區塊寫著 `reports/*.csv` 並列出 `reports/feb.csv`；Codex 回覆之後，新的 `invoices/inv-7.pdf` 讓再下一次送出另一則訊息，只列出這張發票（沒有 `feb.csv`，也沒有舊的發票）；Codex 收到的是 `<event source="file">`。關掉之後（取消勾選**啟用**（On）並儲存），狀態寫著兩件事與 **paused**，沒有每件一行；**移除要等的第 1 件事**（Remove thing 1 to wait for）之後只剩 `invoices/*.pdf`，不在群組裡，也沒有**移除**，儲存後狀態只寫著它，仍然是 **paused**。 |
 | GitHub 上開了 pull request 時啟動的自動任務：透過 gh 檢查，第一次檢查記下已經在的，新開的以資料送到團隊 | Codex | **要等的事** → **GitHub 上有新的 pull request 或 CI 失敗**（A pull request or a failed CI run on GitHub）；填 `not a repo` 時表單說 **Give the GitHub repository as owner/name**（和伺服器一樣），`https://github.com/octo/app` 當作 `octo/app`；說明提到你自己的 GitHub CLI，側邊欄的時鐘寫著 **when a pull request is opened in octo/app**。**立即檢查** 執行假的 `gh`（`pr list --repo octo/app --state all …`），記下 #41，什麼都不送；標題含有 `</event>` 的 #42 讓下一次 **立即檢查** 送出訊息一次，它的 **What is new on GitHub** 區塊列出 #42 與它的分支，沒有 #41；Codex 收到的是 `<event source="github">`，標題的 `<` 寫成 `\u003c`。 |
-| 新自動任務的**同時建立 webhook**會打開自動任務的對話並顯示一次權杖，之後程式用它呼叫 | Claude（首席 agent 組的團隊） | 在**新自動任務**（New automation）選**不定時**（No set times），這個方塊收在**時間**下方的**讓其他程式啟動它（Webhook）**裡；打開後它沒勾，勾選後顯示它的說明；按**建立自動任務**（Create automation）會打開對話，**自動任務**（Automation）抽屜已經打開，webhook 區塊（打開的）顯示一次權杖與呼叫它的範例；關掉再打開就沒有權杖（**還沒有被呼叫過**，Not called yet）。確認團隊後，在瀏覽器外用這個權杖呼叫會被接受（202），訊息送出，Claude 會回覆。 |
+| 每週自動任務草稿 | Claude Code | 經過首席設定仍保留訊息、時間、目標、標題、執行與確認方式。建立時只組隊，下次新建是空白任務。 |
+| 事件草稿 | Claude Code | 從連接帳號設定返回，保留事件草稿，改選檔案事件並儲存。 |
+| 建立 webhook | Claude Code | 從「Webhook 與執行設定」建立 webhook；權杖只顯示一次，外部程式可用它啟動任務。 |
 
 ## 設定
 
@@ -598,7 +601,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 很長的訊息不會讓頁面左右捲動 | Claude Code | 300 個字元的單字與 Markdown 回答都不會造成左右捲動。 |
 | 往上捲之後，回到最後的箭頭在訊息框上方中間，點一下就把對話帶到那裡 | Claude Code | 長回覆（`e2e:long`）往上捲 800px 後出現箭頭，與訊息框置中對齊（誤差一個像素內）、在它上方，顯示的圓形是 36px，手指可點的範圍是 48px（圓形四邊外 5px 仍是箭頭）。點一下對話回到最後、箭頭消失，手機的鍵盤維持原狀：沒有焦點的訊息框仍然沒有，有焦點的則保有焦點。 |
 | 很窄的手機上，範本編輯視窗和團隊設定不會左右捲動，新增成員卡列出所有 CLI | — | 在 320px（比 290px 的成員卡加上邊距還窄）和 280px（英文的 **hand-offs / message** 會自己換到下一行）下，內建接力範本的編輯視窗和接力對話的**團隊設定**左右捲動都不超過一個像素；只有一欄時，新增成員卡全部列出所有 CLI，不必自己捲動。 |
-| 很窄的手機上，任何一種新排程都不會左右捲動（兩種語言），對話的排程也不會 | — | 在新自動任務頁，每一種排程方式在 320px 和 280px 下、英文另外在 400px 和 430px、中文另外在 250px 和 360px 下，都沒有東西會左右捲動。五種排程方式維持一列，只有這一列可以左右捲動（英文約需 440px，中文約 280px）。一週七天在英文 320px、280px 與中文 280px、250px 時排成兩列，其他時候一列。選**每隔幾小時**時，間隔的單位只有「小時」，說明另起一行，並且是小時數字框的無障礙說明。選**當某件事發生時**時，**再等一件事**把第二件要等的事放在自己的框裡、附上**移除**，在這些寬度下仍然不會左右捲動。對話的**自動任務**抽屜選**每週**時，在 320px 和 280px 下也不會左右捲動；儲存為這一列最後的**每隔幾小時**後，在 280px 再打開時，它在這一列的可見範圍內。 |
+| 很窄的手機上，任何一種新排程都不會左右捲動（兩種語言），對話的排程也不會 | — | 在新自動任務頁，每一種排程方式在 320px 和 280px 下、英文另外在 400px 和 430px、中文另外在 250px 和 360px 下，都沒有東西會左右捲動。兩種語言在 250px 展開團隊範本也不會左右捲動。建立頁的時間選單在各種寬度下都會顯示選定的觸發方式。一週七天在英文 320px、280px 與中文 280px、250px 時排成兩列，其他時候一列。選**每隔幾小時**時，間隔的單位只有「小時」，說明另起一行，並且是小時數字框的無障礙說明。選**當某件事發生時**時，**再等一件事**把第二件要等的事放在自己的框裡、附上**移除**，在這些寬度下仍然不會左右捲動。對話的**自動任務**抽屜選**每週**時，在 320px 和 280px 下也不會左右捲動；儲存為這一列最後的**每隔幾小時**後，在 280px 再打開時，它在這一列的可見範圍內。 |
 | 首頁的標語變小，每一行都不換行，點 logo 會收起側邊欄 | — | 標語小於 22px，英文兩行、中文一行，頁面不會左右捲動；在首頁點側邊欄的 **Harness Relay** 會收起側邊欄。 |
 
 ## 各 CLI 一覽
