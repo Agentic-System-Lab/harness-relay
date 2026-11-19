@@ -541,6 +541,7 @@ test.describe('on a phone', () => {
     const widths = [320, 280];
     await page.getByRole('button', { name: 'Open sidebar' }).tap();
     await page.getByRole('button', { name: 'New chat' }).first().tap();
+    await page.locator('.template-library > summary').tap();
     // A relay template: its rules have the hand-off limit, a number box with its unit.
     await page.locator('.preset-card', { hasText: 'Architect → Builder → Reviewer' }).locator('.preset-main').tap();
     const editor = page.getByRole('dialog');

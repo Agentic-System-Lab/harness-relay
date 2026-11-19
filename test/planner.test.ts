@@ -122,11 +122,11 @@ describe('lead agent reply', () => {
     ).toThrow();
   });
 
-  it('falls back to the general template, with the reason in the UI language', () => {
+  it('falls back to the general template and keeps the diagnostic apart from the team description', () => {
     const d = withLang('en', () => fallbackPlan(ctx, lead, 'no JSON'));
     expect(d).toMatchObject({ source: 'fallback', presetId: 'builtin-general' });
-    expect(d.reason).toContain('no JSON');
-    expect(d.reason).toContain('default template');
+    expect(d.fallback).toEqual({ diagnostic: 'no JSON' });
+    expect(d.reason).toBe('');
   });
 
   it('keeps every team it designs within the team limit RELAY_MAX_TEAM_AGENTS sets', () => {
@@ -407,7 +407,7 @@ describe('a question in a conversation', () => {
     const d = withLang('en', () => fallbackPlan(ctx, lead, 'no JSON', current));
     expect(d).toMatchObject({ source: 'fallback', agents: team });
     expect(d.presetId).toBeUndefined();
-    expect(d.reason).toContain('keeping the current team');
+    expect(d.fallback).toEqual({ diagnostic: 'no JSON' });
     expect(fallbackPlan(ctx, lead, 'no JSON').presetId).toBe('builtin-general');
   });
 

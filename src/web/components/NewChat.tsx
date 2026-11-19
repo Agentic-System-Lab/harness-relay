@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  PROVIDER_LABEL,
   cwdSettings,
   cwdsOf,
   type Conversation,
@@ -12,6 +11,7 @@ import {
 import { api, orCreateCwd } from '../api';
 import { useI18n } from '../i18n';
 import { useLimits } from '../limits';
+import { settingsHref } from '../route';
 import { leadLabel } from '../util';
 import { Deferred, lazyPart } from './Deferred';
 import { MemberDots } from './MemberDots';
@@ -70,50 +70,73 @@ export function autoTeam(cwds: string[], autoConfirm: boolean): Team {
 /** The template open in the dialog (none: a new one); `key` gives each opening a fresh editor. */
 type Editing = { key: string; preset?: TeamPreset };
 
+/** Kept by the signed-in application while the user visits settings or another chat. */
+export interface NewChatDraft {
+  question: string;
+  title: string;
+  team?: Team;
+}
+export const emptyChatDraft: NewChatDraft = { question: '', title: '' };
+
 interface Props {
+  draft: NewChatDraft;
+  onDraft: (draft: NewChatDraft) => void;
+  onVisitLead: () => void;
+  busy: boolean;
+  setBusy: (busy: boolean) => void;
   providers: ProviderStatus[];
   catalog: ProviderModels[];
   onCreated: (c: Conversation) => void;
 }
 
-export function NewChat({ providers, catalog, onCreated }: Props) {
+export function NewChat({ providers, catalog, draft, onDraft, onVisitLead, busy, setBusy, onCreated }: Props) {
   const { t, lang } = useI18n();
   const { maxTeamAgents } = useLimits();
   const [presets, setPresets] = useState<TeamPreset[]>([]);
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
-  const [team, setTeam] = useState<Team | null>(null);
+  const [defaults, setDefaults] = useState<Team | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
-  const [title, setTitle] = useState('');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const initialized = useRef(false);
+  const team = draft.team ?? defaults;
 
   // Built-in templates come back in the UI language, so reload them when it changes.
   useEffect(() => {
+    let current = true;
     Promise.all([api.listPresets(), api.getSettings()])
       .then(([ps, settings]) => {
+        if (!current) return;
         setPresets(ps);
         setLead(settings.lead);
-        if (initialized.current) return;
-        initialized.current = true;
         // The default working directory from Settings; asking first unless the last chat did not.
-        setTeam(autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm()));
+        setDefaults(autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm()));
       })
-      .catch((e) => setError(String(e.message ?? e)));
+      .catch((e) => {
+        if (current) setError(String(e.message ?? e));
+      });
+    return () => {
+      current = false;
+    };
   }, [lang]);
 
-  if (!team) return <div className="page-center muted">{error || t.common.loading}</div>;
+  if (!team || !lead) return <div className="page-center muted">{error || t.common.loading}</div>;
 
   const problems = teamProblems(team, t, { maxAgents: maxTeamAgents });
-  const leadText = lead ? leadLabel(lead) : PROVIDER_LABEL.claude;
+  const leadText = leadLabel(lead);
 
   const start = async () => {
     setBusy(true);
     setError('');
     try {
       const conv = await orCreateCwd(
-        (createCwd) => api.createConversation({ title, agents: [], settings: team.settings, createCwd }),
+        (createCwd) =>
+          api.createConversation({
+            title: draft.title,
+            firstMessage: draft.question.trim() || undefined,
+            agents: [],
+            settings: team.settings,
+            createCwd,
+          }),
         (missing) => confirm(t.newChat.confirmCreateCwd(missing)),
       );
       rememberAutoConfirm(team.settings.autoConfirm);
@@ -149,14 +172,75 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
         <div className="page-inner">
           <header className="page-head">
             <h1>{t.newChat.title}</h1>
-            <p className="muted">{t.newChat.intro(leadText)}</p>
+            <p className="muted">
+              {t.newChat.intro(leadText, Boolean(team.settings.autoConfirm))}{' '}
+              <a href={settingsHref('lead')} onClick={onVisitLead}>
+                {t.newChat.changeLead}
+              </a>
+            </p>
           </header>
-
-          <section>
-            <div className="section-head">
-              <h3>{t.newChat.templates}</h3>
-              <span className="muted small">{t.newChat.templatesHint}</span>
+          <fieldset className="first-task" disabled={busy} aria-label={t.newChat.title}>
+            <label className="first-question" htmlFor="first-question">
+              {t.newChat.question}
+            </label>
+            <textarea
+              id="first-question"
+              rows={4}
+              value={draft.question}
+              onChange={(e) => onDraft({ ...draft, question: e.target.value })}
+            />
+            <details className="chat-options">
+              <summary>
+                <strong>{t.newChat.options}</strong>
+                <span className="muted small">{[t.permissions[team.settings.permission].label, ...cwdsOf(team.settings)].join(' · ')}</span>
+              </summary>
+              <TeamEditor
+                value={team}
+                onChange={(next) => onDraft({ ...draft, team: next })}
+                providers={providers}
+                catalog={catalog}
+                confirmInEditor={false}
+              />
+              <label className="field">
+                <span>{t.newChat.optionalTitle}</span>
+                <input
+                  className="title-input"
+                  value={draft.title}
+                  placeholder={t.newChat.titlePlaceholder}
+                  onChange={(e) => onDraft({ ...draft, title: e.target.value })}
+                />
+              </label>
+            </details>
+            <div className="start-bar first-task-actions">
+              <fieldset className="team-confirmation">
+                <legend>{t.newChat.afterDesign}</legend>
+                {[false, true].map((auto) => (
+                  <label key={String(auto)}>
+                    <input
+                      type="radio"
+                      name="team-confirmation"
+                      checked={Boolean(team.settings.autoConfirm) === auto}
+                      onChange={() =>
+                        onDraft({ ...draft, team: { ...team, settings: { ...team.settings, autoConfirm: auto || undefined } } })
+                      }
+                    />
+                    {auto ? t.newChat.startImmediately : t.newChat.waitForMe}
+                  </label>
+                ))}
+              </fieldset>
+              <button className="primary" onClick={start} disabled={busy || problems.length > 0}>
+                {busy ? t.newChat.creating : draft.question.trim() ? t.newChat.sendQuestion : t.newChat.start}
+              </button>
             </div>
+            {(problems.length > 0 || error) && (
+              <p role="alert" className="error-line">
+                {error || problems[0]}
+              </p>
+            )}
+          </fieldset>
+          <details className="template-library">
+            <summary>{t.newChat.templates}</summary>
+            <p className="muted small">{t.newChat.templatesHint}</p>
             <div className="preset-row">
               {presets.map((p) => (
                 <div key={p.id} className="preset-card">
@@ -189,27 +273,9 @@ export function NewChat({ providers, catalog, onCreated }: Props) {
                 </button>
               </div>
             </div>
-          </section>
-
-          <TeamEditor value={team} onChange={setTeam} providers={providers} catalog={catalog} leadLabel={leadText} />
+          </details>
         </div>
       </div>
-
-      {/* Outside the scrolling area, so it stays at the bottom of the window. */}
-      <footer className="start-dock">
-        <div className="start-bar">
-          <input
-            className="title-input"
-            value={title}
-            placeholder={t.newChat.titlePlaceholder}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-          <button className="primary" onClick={start} disabled={busy || problems.length > 0}>
-            {busy ? t.newChat.creating : t.newChat.start}
-          </button>
-        </div>
-        {(problems.length > 0 || error) && <p className="error-line">{error || problems[0]}</p>}
-      </footer>
       {editing && (
         <Deferred onClose={() => setEditing(null)}>
           <TemplateEditor

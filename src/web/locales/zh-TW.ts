@@ -88,7 +88,7 @@ export const zhTW = {
   },
 
   /** The home page (#/): the logo and this tagline under it (`\n` starts a new line). */
-  home: { tagline: '讓你的 agent 團隊從此為你幹活' },
+  home: { tagline: '讓你的 agent 團隊從此為你幹活', start: '開始新對話', waiting: (title: string) => `確認「${title}」的團隊` },
 
   sidebar: {
     newChat: '新對話',
@@ -161,9 +161,17 @@ export const zhTW = {
 
   newChat: {
     title: '新對話',
-    intro: (lead: string) =>
-      `每個問題都由首席 agent（${lead}）根據問題與先前的對話組隊：沿用目前的團隊、直接套用範本、依範本調整，或設計新的團隊。預設由你確認後，團隊才開始回答。`,
-    templates: '範本',
+    intro: (lead: string, auto: boolean) =>
+      auto ? `${lead} 會為你的問題組隊，團隊隨即開始回答。` : `${lead} 會為你的問題組隊，等你確認後才開始回答。`,
+    question: '你想完成什麼？',
+    sendQuestion: '送出第一個問題',
+    options: '工作目錄與對話設定',
+    optionalTitle: '對話標題（選填）',
+    afterDesign: '本次組隊後',
+    startImmediately: '直接開始回答',
+    waitForMe: '等我確認團隊',
+    returnToDraft: '返回新對話草稿',
+    templates: '管理團隊範本',
     templatesHint: '首席 agent 從這些範本挑選或調整。點範本可以檢視、修改，也可以新增你自己設計的範本。',
     builtin: '內建',
     newTemplate: '新增範本',
@@ -898,6 +906,15 @@ export const zhTW = {
     template: (name: string) => `使用範本「${name}」`,
     custom: (name: string) => `自訂團隊「${name}」`,
     adapted: (name: string, base: string) => `依範本「${base}」調整的團隊「${name}」`,
+    defaultTeam: (name: string) => `本次改用預設團隊「${name}」`,
+    noDesign: (lead: string) => `首席 agent（${lead}）未能提供可用的團隊設計。`,
+    usageLimit: '用量',
+    limitReached: (lead: string, limit: string) => `首席 agent（${lead}）的${limit}已達上限。`,
+    limitReset: (when: string) => `服務回報的重設時間為 ${when}。`,
+    technicalDetails: '技術細節',
+    teamWorking: '團隊正在處理你的問題，回覆會出現在下方。',
+    canContinue: '你可以繼續提問。',
+    scheduleReady: '自動任務執行時，這個團隊會收到訊息。',
     fallback: (name: string) => `改用範本「${name}」`,
     kept: '沿用目前的團隊',
     howTheyWork: (mode: string, detail: string) => `${mode} · ${detail}`,
@@ -1686,6 +1703,21 @@ export const zhTW = {
     title: '設定與登入',
     checking: '檢查中…',
     recheck: '重新檢查狀態',
+    assistants: {
+      title: '可用的 AI 助理',
+      empty: '還沒有可用的助理。請在下方選擇一位來完成設定。',
+      connect: '連接另一個助理',
+      connectFirst: '連接助理',
+      ready: '已可用',
+      readyAccount: (name: string) => `已可用 · ${name}`,
+      signIn: '需要登入',
+      install: '需要安裝',
+      backend: '設定模型來源',
+      requirements: '查看安裝需求',
+      executable: '檢查執行檔',
+      installing: '安裝中…',
+      unknown: '確認連線狀態',
+    },
     version: {
       title: '版本',
       current: '目前版本',
@@ -1721,6 +1753,7 @@ export const zhTW = {
     sections: '設定頁的區塊',
     /** The links at the top of the page: short, so they stay on one line. */
     nav: {
+      overview: '助理總覽',
       version: '版本',
       language: '介面語言',
       appearance: '外觀',
@@ -1736,8 +1769,8 @@ export const zhTW = {
       browsers: '已登入的瀏覽器',
       tour: '使用導覽',
       /** One entry for every agent's card: a menu of them; while one is read, its name too. */
-      agents: 'Agents',
-      agentsAt: (name: string) => `Agents：${name}`,
+      agents: '助理設定',
+      agentsAt: (name: string) => `助理設定：${name}`,
       /** The open-source agents' heading in that menu. */
       openAgents: '開源 agent',
     },
@@ -2073,7 +2106,7 @@ export const zhTW = {
       },
       {
         title: '先確認各 agent 可以使用',
-        body: 'Harness Relay 直接呼叫你電腦上的 CLI。左下角的燈號是各 agent 的狀態；到「設定與登入」可以登入 Claude Code、Codex、Grok、Cursor、Antigravity 與 Copilot，設定 API key 與預設模型。它只接受你登入過的瀏覽器：要用手機使用，請到「設定 → 已登入的瀏覽器」取得代碼。',
+        body: '到「設定與登入」查看哪些 AI 助理已可用。點選助理可以安裝 CLI、登入或連接模型來源。有一位可用助理就能開始。若要從手機使用，到「已登入的瀏覽器」取得代碼。',
       },
       {
         title: '開源 agent 與模型來源',
@@ -2087,13 +2120,13 @@ export const zhTW = {
       },
       {
         title: '建立新對話',
-        body: '新對話只需要選工作目錄與檔案權限。團隊設計放在範本裡：在新對話頁可以檢視內建範本，或新增、修改你自己的範本，決定每位成員的定位、模型與推理強度。',
+        body: '在首頁點「開始新對話」，寫下你想完成的事。確認下方的工作目錄與檔案權限後，就能送出第一個問題。若要先附檔，可以留空並開啟對話。內建與自訂範本都在「管理團隊範本」。',
       },
       {
         title: '每個問題自動組隊',
-        body: '每個新問題，首席 agent 都會根據問題與先前的對話組隊：沿用目前的團隊、套用範本、依範本調整，或設計新團隊。你確認後，團隊就開始回答。它設計或調整的團隊可以一鍵存成範本。',
+        body: '每個新問題，首席 agent 都會根據問題與先前的對話組隊：沿用目前的團隊、套用範本、依範本調整，或設計新團隊。它設計或調整的團隊可以一鍵存成範本。',
         points: [
-          '在新對話頁或團隊設定勾選「直接採用首席 agent 組的團隊，不必等我確認」，就不必每次確認；不想用它提的團隊，可以按「不採用，沿用目前的團隊」',
+          '選「等我確認團隊」可以先看組隊結果，選「直接開始回答」就會立即採用。下次開新對話會記住這次的選擇，也可以在團隊設定裡更改。',
           '確認前寫的訊息，確認後會跟問題一起送給團隊；@ 成員的訊息則直接交給他，不重新組隊',
           '「團隊回答後，請首席 agent 審閱回覆」（每個新對話都預設開啟，由你關閉；團隊設計卡片上也有）：團隊回答完，首席 agent 會在回覆中標出需要特別注意的地方，並建議接下來的步驟',
           '首席 agent 可以在設定頁更換；檔案權限一律由你決定，首席 agent 不會改動',

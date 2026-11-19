@@ -40,6 +40,54 @@ test.describe('the home page', () => {
     expect(new URL(page.url()).hash).toBe('#/');
   });
 
+  test('a first question and its workspace survive a trip to lead settings and are submitted once', async ({ page, relay }) => {
+    await page.getByRole('button', { name: 'Collapse sidebar' }).click();
+    await page.getByRole('link', { name: 'Start a new chat' }).click();
+    const question = page.getByRole('textbox', { name: 'What would you like to accomplish?' });
+    const options = page.locator('.chat-options > summary');
+    const wait = page.getByRole('radio', { name: 'Wait for my confirmation' });
+    const direct = page.getByRole('radio', { name: 'Start answering right away' });
+    await expect(wait).toBeChecked();
+    await expect(page.locator('.template-library .preset-main').first()).toBeHidden();
+    await question.fill('Prepare a release summary');
+    await options.click();
+    await page.getByPlaceholder(/Conversation title/).fill('Release notes');
+    const extra = relay.addProject('release');
+    const folders = page.getByRole('combobox', { name: 'Working directories' });
+    await folders.fill(extra);
+    await folders.press('Enter');
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await direct.check();
+    await expect(page.locator('.page-head')).toContainText('answer right away');
+    await page.getByRole('link', { name: 'Change the lead agent' }).click();
+    await page.getByRole('link', { name: 'Return to new chat draft' }).click();
+    await expect(question).toHaveValue('Prepare a release summary');
+    await expect(direct).toBeChecked();
+    await expect(options).toContainText('Edit');
+    await expect(options).toContainText(extra);
+    await options.click();
+    await expect(page.getByPlaceholder(/Conversation title/)).toHaveValue('Release notes');
+    await wait.check();
+    await expect(page.locator('.page-head')).toContainText('wait for your confirmation');
+    await page.getByRole('button', { name: 'Send first question' }).click();
+    await expect(page.locator('.plan-card.awaiting')).toBeVisible();
+    await expect(page.locator('.msg-user')).toHaveCount(1);
+    await expect(page.locator('.msg-user')).toContainText('Prepare a release summary');
+    await page.getByRole('button', { name: 'Expand sidebar' }).click();
+    await page.getByRole('link', { name: 'Harness Relay', exact: true }).click();
+    await page.getByRole('link', { name: 'Confirm the team for “Release notes”' }).click();
+    await expect(page.locator('.plan-card.awaiting')).toBeVisible();
+    await openNewChat(page);
+    await expect(question).toHaveValue('');
+    await expect(wait).toBeChecked();
+    await direct.check();
+    await page.getByRole('button', { name: 'Start chat →' }).click();
+    await page.waitForURL(/#\/c\//);
+    await openNewChat(page);
+    await expect(direct).toBeChecked();
+    await expect(page.locator('.page-head')).toContainText('answer right away');
+  });
+
   test('the logo plays its animation once on each visit, with transform and opacity alone, and not with reduced motion', async ({
     page,
   }) => {

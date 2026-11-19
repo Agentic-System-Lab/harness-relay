@@ -45,6 +45,7 @@ describe('client routes', () => {
   it('has a settings section for every CLI', () => {
     // The model backends come before every CLI: the open agents run on them, and the others on their endpoints too.
     expect(SETTINGS_SECTIONS).toEqual([
+      'overview',
       'version',
       'language',
       'appearance',
@@ -83,6 +84,7 @@ describe("the settings links row's agents' menu", () => {
     const first = SETTINGS_SECTIONS.indexOf(AGENT_SECTIONS[0]!);
     expect(SETTINGS_SECTIONS.slice(first, first + AGENT_SECTIONS.length)).toEqual(AGENT_SECTIONS);
     expect(SETTINGS_NAV).toEqual([
+      'overview',
       'version',
       'language',
       'appearance',

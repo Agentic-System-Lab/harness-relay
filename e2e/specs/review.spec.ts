@@ -112,6 +112,7 @@ test.describe('lead review', () => {
     // Every new chat starts with it on, whatever the last one had.
     await startChat(page, { leadReview: false });
     await openNewChat(page);
+    await page.locator('.chat-options > summary').click();
     await expect(page.getByRole('checkbox', { name: LEAD_REVIEW })).toBeChecked();
   });
 

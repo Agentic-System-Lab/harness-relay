@@ -180,6 +180,7 @@ describe('the use-cases pages', () => {
         expect(cta, `${lang} ${word}`).toContain(word);
       // The requirements, the other systems and Codespaces: the landing page's quick start, in the page's language.
       expect(cta, lang).toContain('href="../#start"');
+      expect(cta, lang).toContain('data-quick-start="../#start"');
       expect(html, lang).toContain(`<script type="module" src="${lang === 'en' ? '../' : '../../'}assets/downloads.js"></script>`);
       // The page's last section.
       expect(html.indexOf(cta) + cta.length, lang).toBe(html.indexOf('</section>\n    </main>') + '</section>'.length);
@@ -288,6 +289,18 @@ describe('the use-cases pages’ structured data', () => {
 });
 
 describe('the use cases on the home pages and in the READMEs', () => {
+  it('feature a sourced excerpt of the recorded product spec beside the hero download', () => {
+    for (const lang of LANGS) {
+      const hero = read(HOME[lang]).match(/<section class="hero"[^>]*>[\s\S]*?<\/section>/)![0];
+      expect(hero, lang).toMatch(
+        /<figure class="hero-example">[\s\S]*?<blockquote cite="https:\/\/gist\.githubusercontent\.com\/[^"]+\/PRD\.md">[^<]+<\/blockquote>/,
+      );
+      const actions = hero.match(/<div class="download-row">[\s\S]*?<\/div>/)![0];
+      expect(actions, lang).toContain('data-download-primary');
+      expect(actions, lang).toContain('href="use-cases/#product-spec"');
+    }
+  });
+
   it('are listed on each home page, in order, each card linking to its section and showing its poster', () => {
     for (const lang of LANGS) {
       const html = read(HOME[lang]);

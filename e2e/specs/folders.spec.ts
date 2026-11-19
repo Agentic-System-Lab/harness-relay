@@ -55,6 +55,7 @@ test.describe('several working directories', () => {
     const second = relay.addProject('second');
     const third = relay.addProject('third');
     await page.getByRole('button', { name: 'New chat' }).first().click();
+    await page.locator('.chat-options > summary').click();
     const box = page.getByRole('combobox', { name: 'Working directories' });
     const chips = page.locator('.cwd-chip-path');
     await expect(chips).toHaveText([relay.workDir]);
@@ -67,7 +68,7 @@ test.describe('several working directories', () => {
     await expect(chips).toHaveText([relay.workDir, second]);
 
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
-    await page.getByRole('checkbox', { name: "Use the lead agent's team without asking me" }).check();
+    await page.getByRole('radio', { name: 'Start answering right away' }).check();
     // No lead review here (the page ticks it in every new chat): these tests are about the folders.
     await page.getByRole('checkbox', { name: LEAD_REVIEW }).uncheck();
     await page.getByRole('button', { name: 'Start chat →' }).click();
@@ -162,6 +163,7 @@ test.describe('several working directories', () => {
     await expect(card).toContainText('Default working directories saved');
 
     await page.getByRole('button', { name: 'New chat' }).first().click();
+    await page.locator('.chat-options > summary').click();
     await expect(page.locator('.cwd-chip-path')).toHaveText([relay.workDir, second]);
   });
 });
@@ -183,6 +185,7 @@ test.describe('the folder dialog', () => {
       const second = relay.addProject('second');
       const third = relay.addProject('third');
       await page.getByRole('button', { name: 'New chat' }).first().click();
+      await page.locator('.chat-options > summary').click();
       const chips = page.locator('.cwd-chip-path');
       await expect(chips).toHaveText([relay.workDir]);
       // The button shows once the box's list has told it the server has a dialog.
@@ -198,7 +201,7 @@ test.describe('the folder dialog', () => {
       );
 
       await page.getByRole('button', { name: 'Edit', exact: true }).click();
-      await page.getByRole('checkbox', { name: "Use the lead agent's team without asking me" }).check();
+      await page.getByRole('radio', { name: 'Start answering right away' }).check();
       await page.getByRole('checkbox', { name: LEAD_REVIEW }).uncheck();
       await page.getByRole('button', { name: 'Start chat →' }).click();
       await page.waitForURL(/#\/c\//);
@@ -213,6 +216,7 @@ test.describe('the folder dialog', () => {
 
     test('opens with the title in Chinese and a UTF-8 character set, and Cancel adds nothing', async ({ page, relay }) => {
       await page.getByRole('button', { name: '新對話' }).first().click();
+      await page.locator('.chat-options > summary').click();
       await expect(page.getByRole('heading', { name: '新對話' })).toBeVisible();
       const chips = page.locator('.cwd-chip-path');
       await expect(chips).toHaveText([relay.workDir]);

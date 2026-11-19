@@ -16,7 +16,7 @@ import { Deferred, lazyPart } from './components/Deferred';
 import { Home } from './components/Home';
 import { InboxButton } from './components/InboxButton';
 import { GitInstallDialog } from './components/GitInstallDialog';
-import { NewChat } from './components/NewChat';
+import { NewChat, emptyChatDraft } from './components/NewChat';
 import { NewSchedule } from './components/NewSchedule';
 import { SignIn } from './components/SignIn';
 import { UpdateDialog } from './components/UpdateDialog';
@@ -178,6 +178,9 @@ function RelayApp() {
   const t = useT();
   const [tourOpen, setTourOpen] = useState(() => !onboardingDone());
   const [route, setRoute] = useState<Route>(parseHash);
+  const [chatDraft, setChatDraft] = useState(emptyChatDraft);
+  const [startingChat, setStartingChat] = useState(false);
+  const [returnToNewChat, setReturnToNewChat] = useState(false);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [groups, setGroups] = useState<ConversationGroup[]>([]);
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
@@ -199,7 +202,9 @@ function RelayApp() {
 
   useEffect(() => {
     const onHash = () => {
-      setRoute(parseHash());
+      const next = parseHash();
+      setRoute(next);
+      if (next.page !== 'settings') setReturnToNewChat(false);
       setSidebarOpen(false);
     };
     window.addEventListener('hashchange', onHash);
@@ -530,12 +535,18 @@ function RelayApp() {
             <InboxButton unread={inbox.unread} onOpen={() => setInboxOpen(true)} />
           </div>
         )}
-        {route.page === 'home' && <Home />}
+        {route.page === 'home' && <Home waiting={conversations.find((c) => c.confirmTeam)} />}
         {route.page === 'new' && (
           <NewChat
+            draft={chatDraft}
+            onDraft={setChatDraft}
+            onVisitLead={() => setReturnToNewChat(true)}
+            busy={startingChat}
+            setBusy={setStartingChat}
             providers={providers}
             catalog={catalog}
             onCreated={(conv) => {
+              setChatDraft(emptyChatDraft);
               refreshConversations();
               navigate({ page: 'chat', id: conv.id });
             }}
@@ -564,6 +575,7 @@ function RelayApp() {
         {route.page === 'settings' && (
           <Deferred inPage>
             <SettingsPage
+              returnToNewChat={returnToNewChat}
               section={route.section}
               providers={providers}
               catalog={catalog}

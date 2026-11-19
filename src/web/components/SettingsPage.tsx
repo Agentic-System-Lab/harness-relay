@@ -49,7 +49,7 @@ import {
   type SettingsSection,
 } from '../route';
 import { hasNativePanel } from '../native';
-import { statusBeforeInstall } from '../clis';
+import { assistantReadiness, statusBeforeInstall } from '../clis';
 import { useCliInstalls } from '../useCliInstalls';
 import { PROVIDER_COLOR, accountName, accountOf, accountState, inheritModelLabel, switchProvider, type ModelChoice } from '../util';
 import { AccountPicker } from './AccountPicker';
@@ -76,6 +76,7 @@ import { LogoSpinner } from './Logo';
 interface Props {
   /** The card to scroll to (#/settings/<section>). */
   section?: SettingsSection;
+  returnToNewChat?: boolean;
   providers: ProviderStatus[];
   catalog: ProviderModels[];
   refreshProviders: (force?: boolean) => Promise<void>;
@@ -113,7 +114,17 @@ const KEY_PLACEHOLDER: Record<SignInCli, string> = {
   muse: 'meta-…',
 };
 
-export function SettingsPage({ section, providers, catalog, refreshProviders, onShowTour, update, onCheckUpdate, onInstallUpdate }: Props) {
+export function SettingsPage({
+  section,
+  returnToNewChat,
+  providers,
+  catalog,
+  refreshProviders,
+  onShowTour,
+  update,
+  onCheckUpdate,
+  onInstallUpdate,
+}: Props) {
   const { t, lang, setLang } = useI18n();
   /** A language chosen whose words could not be loaded. */
   const [langFailed, setLangFailed] = useState<Lang | null>(null);
@@ -190,6 +201,8 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
         </header>
 
         <SettingsNav section={section} />
+
+        <AssistantOverview providers={providers} installs={installs.views} />
 
         <VersionCard status={update} onUpdate={onInstallUpdate} />
 
@@ -279,7 +292,15 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
           ))}
         </div>
 
-        {settings && <LeadCard lead={settings.lead} providers={providers} catalog={catalog} onSettings={setSettings} />}
+        {settings && (
+          <LeadCard
+            lead={settings.lead}
+            returnToNewChat={returnToNewChat}
+            providers={providers}
+            catalog={catalog}
+            onSettings={setSettings}
+          />
+        )}
 
         <ToolsCard />
 
@@ -325,14 +346,89 @@ export function SettingsPage({ section, providers, catalog, refreshProviders, on
   );
 }
 
+/** The first Settings card. The same links work when bookmarked or when the destination is already in the URL. */
+function AssistantOverview({ providers, installs }: { providers: ProviderStatus[]; installs: CliInstallView[] }) {
+  const t = useT();
+  const a = t.settings.assistants;
+  const assistants = PROVIDERS.map((provider) => {
+    const status = providers.find((s) => s.provider === provider);
+    return {
+      provider,
+      state: assistantReadiness(
+        status,
+        installs.find((i) => i.provider === provider),
+      ),
+      installed: status?.installed,
+    };
+  });
+  const ready = assistants.filter(({ state }) => state.kind === 'ready');
+  const others = assistants
+    .filter(({ state }) => state.kind !== 'ready')
+    .sort((left, right) => Number(!!right.installed) - Number(!!left.installed));
+  const checking = assistants.some(({ state }) => state.kind === 'checking');
+
+  const links = (items: typeof assistants) => (
+    <ul className="settings-assistant-list">
+      {items.map(({ provider, state }) => {
+        const target = state.kind === 'backend' ? 'backends' : provider;
+        const label =
+          state.kind === 'checking'
+            ? t.settings.checking
+            : state.kind === 'ready' && state.account
+              ? a.readyAccount(accountName(state.account, t))
+              : a[state.kind];
+        return (
+          <li key={provider}>
+            <a href={settingsHref(target)} onClick={() => scrollToSection(target)} className="settings-assistant-link">
+              <span className="settings-assistant-name">
+                <i style={{ background: PROVIDER_COLOR[provider] }} aria-hidden="true" />
+                {PROVIDER_LABEL[provider]}
+              </span>
+              <span className="settings-assistant-state">
+                {state.kind === 'ready' && <CheckIcon size={13} />}
+                {label}
+              </span>
+              <ChevronIcon size={15} />
+            </a>
+          </li>
+        );
+      })}
+    </ul>
+  );
+
+  return (
+    <section className="card settings-overview" id={sectionId('overview')}>
+      <SectionTitle section="overview">{a.title}</SectionTitle>
+      {ready.length > 0 ? (
+        links(ready)
+      ) : (
+        <p className="muted small" role="status">
+          {checking ? t.settings.checking : a.empty}
+        </p>
+      )}
+      {providers.length > 0 && others.length > 0 && (
+        <details className="settings-assistant-more" open={!ready.length}>
+          <summary>
+            <ChevronIcon size={16} />
+            {ready.length ? a.connect : a.connectFirst}
+          </summary>
+          {links(others)}
+        </details>
+      )}
+    </section>
+  );
+}
+
 /** The agent that designs the team in auto-team conversations. */
 function LeadCard({
   lead: saved,
+  returnToNewChat,
   providers,
   catalog,
   onSettings,
 }: {
   lead: LeadAgentSettings;
+  returnToNewChat?: boolean;
   providers: ProviderStatus[];
   catalog: ProviderModels[];
   onSettings: (s: SettingsView) => void;
@@ -373,6 +469,11 @@ function LeadCard({
   return (
     <section className="card" id={sectionId('lead')} style={{ ['--accent' as string]: PROVIDER_COLOR[lead.provider] }}>
       <SectionTitle section="lead">✦ {t.settings.lead}</SectionTitle>
+      {returnToNewChat && (
+        <a className="settings-return-draft" href="#/new">
+          <span aria-hidden="true">←</span> {t.newChat.returnToDraft}
+        </a>
+      )}
       <p className="muted small">{t.settings.leadHint}</p>
       <CliPicker
         value={lead.provider}
@@ -1503,22 +1604,6 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
 
   // Short labels, so the links fit on one line in every language (the cards keep their full titles).
   const short = t.settings.nav;
-  const label: Record<Exclude<SettingsSection, Provider>, string> = {
-    version: short.version,
-    language: short.language,
-    appearance: short.appearance,
-    notifications: short.notifications,
-    sandboxes: short.sandboxes,
-    backends: short.backends,
-    lead: short.lead,
-    tools: short.tools,
-    voice: short.voice,
-    cwd: short.cwd,
-    sessions: short.sessions,
-    shares: short.shares,
-    browsers: short.browsers,
-    tour: short.tour,
-  };
   return (
     <>
       <span ref={marker} className="settings-nav-marker" aria-hidden="true" />
@@ -1566,7 +1651,7 @@ function SettingsNav({ section }: { section?: SettingsSection }) {
                   scrollToSection(s);
                 }}
               >
-                {label[s]}
+                {short[s]}
               </a>
             ),
           )}

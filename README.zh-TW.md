@@ -80,7 +80,7 @@ npm run build
 npm start
 ```
 
-打開 `npm start` 在終端機印出的登入連結（`http://127.0.0.1:8787/#code=…`；Harness Relay 只接受登入過的瀏覽器，見[安全性](#安全性)），先到「**設定與登入**」確認每個 agent 都已登入（開源 agent 則設定模型來源，見下方），再點「**新對話**」，選好工作目錄與權限，直接提出第一個問題：首席 agent 會先為它組隊。
+打開 `npm start` 在終端機印出的登入連結（`http://127.0.0.1:8787/#code=…`；Harness Relay 只接受登入過的瀏覽器，見[安全性](#安全性)），到「**設定與登入**」找一位已可用的助理，或連接一位助理。點「**開始新對話**」，寫下問題，確認工作目錄與權限後就能送出。你可以先確認團隊，也可以讓團隊直接回答。
 
 - `git pull` 之後，請重新執行 `npm install` 和 `npm run build`，再執行 `npm start`。
 - 要用手機使用，把它分享到你的 tailnet：詳見[用手機連線（Tailscale）](docs/remote-access.zh-TW.md#1-把伺服器分享到-tailnet)。

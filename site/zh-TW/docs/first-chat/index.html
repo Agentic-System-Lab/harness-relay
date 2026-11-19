@@ -148,6 +148,15 @@
           <a href="../" aria-current="true">文件</a>
         </nav>
         <div class="header-tools">
+          <details class="explore">
+            <summary>探索</summary>
+            <nav aria-label="探索">
+              <a href="../../#demo">看示範</a>
+              <a href="../../use-cases/">使用情境</a>
+              <a href="../../#start">安裝指南</a>
+              <a href="../" aria-current="true">文件</a>
+            </nav>
+          </details>
           <nav class="lang" aria-label="語言">
             <a href="../../../docs/first-chat/" hreflang="en" lang="en" data-lang="en">EN</a>
             <a href="./" hreflang="zh-TW" lang="zh-Hant-TW" aria-current="page" data-lang="zh-TW">中文</a>
@@ -239,10 +248,7 @@
       <div class="doc-body">
         <section id="new-chat" aria-labelledby="new-chat-title">
           <h2 id="new-chat-title">開一個新對話</h2>
-          <p>
-            按側邊欄上方的<b>新對話</b>。打開的頁面會先列出你的範本，接著是<b>對話規則</b>，在這裡決定團隊在哪裡工作、可以做什麼。這裡不用選團隊：首席
-            agent 會為每個問題設計一個。
-          </p>
+          <p>在首頁選<b>開始新對話</b>，或在側邊欄選<b>新對話</b>，直接輸入第一個問題。展開<b>工作目錄與對話設定</b>可更換資料夾、權限或標題。前往設定更換首席 agent 後，選<b>返回新對話草稿</b>可繼續使用這個視窗裡原有的問題與設定。</p>
           <ul>
             <li>
               <b>工作目錄</b>：agent 工作的資料夾。輸入路徑後按 <kbd>Enter</kbd>、從清單挑一個用過的，或在執行 Harness Relay 的那台電腦的瀏覽器裡，用資料夾按鈕在系統自己的對話框裡選。最多可以加八個；agent
@@ -255,13 +261,13 @@
               <b>權限範圍以外的動作</b>：<b>詢問我</b>（在對話中問你，agent 會等你）或<b>自動拒絕</b>（agent 會被告知不行，改用其他方式）。
             </li>
             <li>
-              <b>直接採用首席 agent 組的團隊，不必等我確認</b>：不勾的話，每個團隊開始回答前都會先等你確認。頁面會記住你的選擇。
+              在<b>本次組隊後</b>選<b>等我確認團隊</b>或<b>直接開始回答</b>。下一個新對話會記住這次的選擇。
             </li>
             <li>
               <b>團隊回答後，請首席 agent 審閱回覆</b>：每個新對話都預設勾選。團隊回答完，首席 agent 會讀過回覆，指出該檢查的地方（見<a href="#lead-review">下方</a>）。
             </li>
           </ul>
-          <p>接著按<b>開始對話</b>，輸入你的第一個問題。</p>
+          <p>按<b>送出第一個問題</b>。若要先附加檔案，可將問題留空並按<b>開始對話</b>。</p>
           <figure class="doc-figure">
             <img
               src="../../../assets/media/docs/first-chat-new-chat-zh-TW.webp"
@@ -271,7 +277,7 @@
               loading="lazy"
             />
             <figcaption>
-              新對話頁的對話規則，取自使用情境「<a href="../../use-cases/#fix-a-bug">一個 bug 三種修法，留下最好的</a>」。
+              這張錄影截圖保留了舊版新對話頁的對話規則，取自使用情境「<a href="../../use-cases/#fix-a-bug">一個 bug 三種修法，留下最好的</a>」。
             </figcaption>
           </figure>
         </section>

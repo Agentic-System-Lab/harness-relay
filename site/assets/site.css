@@ -590,21 +590,42 @@ p {
   color: var(--text);
 }
 
-/* The docs' link beside the language switch, on the home and use-cases pages: only where the section links,
-   which hold it, are gone (980px and narrower). */
-.header-docs {
+.explore {
   display: none;
+  position: relative;
   flex: none;
-  padding: 4px 2px;
-  color: var(--muted);
-  font-size: 14px;
-  font-weight: 600;
-  text-decoration: none;
-  white-space: nowrap;
 }
 
-.header-docs:hover {
-  color: var(--text);
+.explore summary {
+  padding: 8px 0;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.explore nav {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1;
+  min-width: max-content;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+}
+
+.explore nav a {
+  display: block;
+  padding: 9px 14px;
+  border-radius: 7px;
+  text-decoration: none;
+}
+
+.explore nav a:hover,
+.explore nav a:focus-visible {
+  background: var(--surface);
 }
 
 .header-tools .btn {
@@ -704,9 +725,28 @@ html:not(.js) .theme-toggle {
   display: contents;
 }
 
-.hero-grid .lead {
+.hero-story {
   grid-column: 1;
   grid-row: 2 / span 2;
+}
+
+.hero-example {
+  margin: 1em 0 0;
+  padding-inline-start: 1em;
+  border-inline-start: 3px solid var(--border);
+}
+
+.hero-example figcaption {
+  font-weight: 700;
+}
+
+.hero-example blockquote {
+  margin: 3px 0;
+}
+
+.hero-example small,
+.install-link {
+  color: var(--muted);
 }
 
 .hero-grid .download {
@@ -821,7 +861,7 @@ html:not(.js) .theme-toggle {
   justify-items: start;
 }
 
-/* The download button, with the link to the requirements and the other systems beside it. */
+/* The download button and its companion link. */
 .download-row {
   display: flex;
   flex-wrap: wrap;
@@ -2305,6 +2345,31 @@ html:not(.js) .theme-toggle {
   gap: 12px;
 }
 
+.current-installer:empty {
+  display: none;
+}
+
+.current-installer:not(:empty),
+.install-details[open] > .step-body {
+  display: grid;
+  gap: 12px;
+}
+
+.install-details summary {
+  width: fit-content;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.install-details[open] > summary {
+  margin-bottom: 12px;
+}
+
+.install-details p + ul,
+.phone-setup {
+  margin-top: 16px;
+}
+
 .start-foot {
   display: flex;
   flex-wrap: wrap;
@@ -2383,12 +2448,12 @@ html:not(.js) .theme-toggle {
     display: none;
   }
 
-  /* Where the docs' link takes the section links' place, the GitHub button gives up its star count for it. */
-  .header-docs {
-    display: inline-block;
+  /* Keep the section links within reach while the header fits on one line. */
+  .explore {
+    display: block;
   }
 
-  .site-header .header-tools:has(.header-docs) .stars {
+  .site-header .header-tools .stars {
     display: none;
   }
 }
@@ -2436,7 +2501,7 @@ html:not(.js) .theme-toggle {
     justify-items: start;
   }
 
-  .hero-grid .lead,
+  .hero-story,
   .hero-grid .download,
   .hero-grid .cta-row,
   .safety-copy h2,
@@ -2497,7 +2562,7 @@ html:not(.js) .theme-toggle {
     padding-right: 12px;
   }
 
-  .site-header .header-tools:has(.header-docs) .btn:has(.stars) {
+  .site-header .header-tools .btn:has(.stars) {
     padding-right: 9px;
   }
 
@@ -2579,6 +2644,14 @@ html:not(.js) .theme-toggle {
    breaks where it must, the approval and changes cards' buttons wrap, the headline scales with the
    screen so that the phrases it keeps whole fit, and the header's controls draw closer. */
 @media (max-width: 480px) {
+  .hero-grid .download-row {
+    gap: 8px 12px;
+  }
+
+  .hero-grid .btn-download {
+    padding-inline: 18px;
+  }
+
   :not(pre) > code {
     white-space: normal;
     overflow-wrap: anywhere;
@@ -2624,12 +2697,12 @@ html:not(.js) .theme-toggle {
     padding-right: 10px;
   }
 
-  .site-header .header-tools:has(.header-docs) .btn:has(.stars) {
+  .site-header .header-tools .btn:has(.stars) {
     padding-right: 8px;
   }
 
-  .header-docs {
-    font-size: 13.5px;
+  .explore summary {
+    font-size: 13px;
   }
 
   .header-tools .btn.theme-toggle {

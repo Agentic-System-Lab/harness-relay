@@ -33,6 +33,7 @@ test.describe('templates on the CLIs that can run here', () => {
     });
     await page.reload();
     await openNewChat(page);
+    await page.locator('.template-library > summary').click();
     await page.locator('.preset-card.new-template .preset-main').click();
     const editor = page.getByRole('dialog');
     await expect(editor.getByRole('heading', { name: 'New template' })).toBeVisible();
@@ -53,6 +54,7 @@ test.describe('templates on the CLIs that can run here', () => {
       page,
     }) => {
       await openNewChat(page);
+      await page.locator('.template-library > summary').click();
       // A new template: only the two installed.
       await page.locator('.preset-card.new-template .preset-main').click();
       await expect.poll(() => memberClis(page)).toEqual(['Claude Code', 'Codex']);
@@ -74,6 +76,7 @@ test.describe('templates on the CLIs that can run here', () => {
 test.describe('templates', () => {
   test('the built-in templates are listed, and one opens to show its members', async ({ page }) => {
     await openNewChat(page);
+    await page.locator('.template-library > summary').click();
     const card = page.locator('.preset-card', { hasText: 'Three-way debate' });
     await expect(card).toBeVisible();
     await expect(card).toContainText('Built-in');
@@ -90,6 +93,7 @@ test.describe('templates', () => {
   }) => {
     await page.setViewportSize({ width: 1280, height: 1300 });
     await openNewChat(page);
+    await page.locator('.template-library > summary').click();
     await page.locator('.preset-card', { hasText: 'Architect → Builder → Reviewer' }).locator('.preset-main').click();
     const editor = page.getByRole('dialog');
     const members = editor.locator('.agent-card:not(.add-card)');
@@ -152,6 +156,7 @@ test.describe('templates', () => {
     await expect(plan).toContainText('Saved as the template "Release crew"');
 
     await page.getByRole('button', { name: 'New chat' }).first().click();
+    await page.locator('.template-library > summary').click();
     await expect(page.locator('.preset-card', { hasText: 'Release crew' })).toBeVisible();
   });
 });

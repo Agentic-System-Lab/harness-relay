@@ -92,7 +92,7 @@ export interface UseCase {
 }
 
 const M = (s: Session) => UI[s.lang];
-const NEW_CHAT = { hash: '#/new', ready: '.new-chat-page .preset-card' };
+const NEW_CHAT = { hash: '#/new', ready: '.new-chat-page .first-question' };
 const re = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** A working directory made anew: the last recording's left nothing behind. */
@@ -118,6 +118,7 @@ async function startChat(s: Session, o: { permission: Permission; leadReview: bo
   const { page, moveClick, mark } = s;
   await s.moveTo(700, 420, 300);
   await sleep(1200);
+  if (o.permission !== 'read-only' || !o.leadReview) await moveClick('.chat-options > summary');
   if (o.permission !== 'read-only') {
     await moveClick(page.locator('.new-chat-page').getByRole('button', { name: M(s).permissions[o.permission].label, exact: true }), {
       after: 900,
@@ -1319,7 +1320,7 @@ const contractReview: UseCase = {
       await sleep(3000);
     }
     await moveClick(page.getByRole('button', { name: T.sidebar.newChat, exact: true }), { after: 900 });
-    await page.waitForSelector('.new-chat-page .preset-card');
+    await page.waitForSelector('.new-chat-page .first-question');
     const id = await startChat(s, { permission: 'edit', leadReview: false });
     const plan = await askTeam(s, id, this.text[s.lang]!.question!, { replies: allOf });
     const off = (plan?.agents ?? []).filter((a) => a.model && a.model !== ENDPOINT.member());

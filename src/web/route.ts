@@ -17,6 +17,7 @@ export type Route =
  * on their endpoints too.
  */
 export const SETTINGS_SECTIONS = [
+  'overview',
   'version',
   'language',
   'appearance',

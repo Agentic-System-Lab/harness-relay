@@ -1299,11 +1299,13 @@ export function createApp({
   });
 
   /** Save a new conversation and set up its working directory; one that cannot be set up is not kept. */
-  async function newConversation(conv: Conversation): Promise<void> {
+  async function newConversation(conv: Conversation, firstMessage?: string): Promise<void> {
     store.create(conv);
     // Agents that may write need a git repository; set it up now so problems surface immediately.
     try {
-      await orchestrator.prepareWorkspace(conv);
+      // Sending the first question prepares the same workspace as opening an empty chat.
+      if (firstMessage) await orchestrator.send(conv.id, firstMessage);
+      else await orchestrator.prepareWorkspace(conv);
     } catch (err) {
       store.delete(conv.id);
       throw err;
@@ -1311,7 +1313,9 @@ export function createApp({
   }
 
   app.post('/api/conversations', async (c) => {
-    const b = await body<Partial<Conversation> & { createCwd?: unknown }>(c);
+    const b = await body<Partial<Conversation> & { createCwd?: unknown; firstMessage?: unknown }>(c);
+    if (b.firstMessage !== undefined && typeof b.firstMessage !== 'string') throw new HttpError(400, t().invalidField('firstMessage'));
+    const firstMessage = b.firstMessage?.trim();
     const now = Date.now();
     // Auto team: the lead agent designs the team for each question, starting with the first.
     // The agents first: creating a missing working directory is a side effect.
@@ -1329,7 +1333,7 @@ export function createApp({
       agentState: {},
       worktrees: {},
     };
-    await newConversation(conv);
+    await newConversation(conv, firstMessage);
     return c.json(forClient(conv));
   });
 

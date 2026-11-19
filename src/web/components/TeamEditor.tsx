@@ -61,6 +61,8 @@ interface Props {
   proposed?: boolean;
   /** Auto team: who designs the team, named in the note. */
   leadLabel?: string;
+  /** New chat has its confirmation choices beside the start button. */
+  confirmInEditor?: boolean;
   /** The conversation's schedule: its runs may have nobody watching. */
   schedule?: ConversationSchedule;
 }
@@ -100,6 +102,7 @@ export function TeamEditor({
   template = false,
   proposed = false,
   leadLabel,
+  confirmInEditor = true,
   schedule,
 }: Props) {
   const t = useT();
@@ -274,7 +277,7 @@ export function TeamEditor({
         <div className="section-head">
           <h3>{t.team.rules}</h3>
         </div>
-        {auto && (
+        {auto && confirmInEditor && (
           <div className="field auto-team">
             {/* With members to edit, the note above them says how the lead agent chooses the team. */}
             {leadLabel && !showMembers && (

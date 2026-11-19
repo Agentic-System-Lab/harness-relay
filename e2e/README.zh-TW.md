@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 38 個 spec 檔、489 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 38 個 spec 檔、492 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -36,8 +36,8 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 分區 | Spec | 測試數 | 相關文件 |
 | --- | --- | --- | --- |
 | [登入](#登入) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [架構 → 登入](../docs/architecture.zh-TW.md#登入) |
-| [首頁](#首頁) | [`home.spec.ts`](specs/home.spec.ts) | 5 | [使用者說明 → 開始對話](../docs/user-guide.zh-TW.md#對話規則) |
-| [新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊) | [`chat.spec.ts`](specs/chat.spec.ts) | 11 | [使用者說明 → 自動組隊](../docs/user-guide.zh-TW.md#自動組隊)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
+| [首頁](#首頁) | [`home.spec.ts`](specs/home.spec.ts) | 6 | [使用者說明 → 開始對話](../docs/user-guide.zh-TW.md#對話規則) |
+| [新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊) | [`chat.spec.ts`](specs/chat.spec.ts) | 12 | [使用者說明 → 自動組隊](../docs/user-guide.zh-TW.md#自動組隊)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
 | [範本](#範本) | [`templates.spec.ts`](specs/templates.spec.ts) | 6 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本) |
 | [修改對話的團隊](#修改對話的團隊) | [`team.spec.ts`](specs/team.spec.ts) | 5 | [使用者說明 → 對話中修改團隊](../docs/user-guide.zh-TW.md#對話中修改團隊) |
 | [首席 agent 的審閱](#首席-agent-的審閱) | [`review.spec.ts`](specs/review.spec.ts) | 13 | [使用者說明 → 首席 agent 審閱](../docs/user-guide.zh-TW.md#首席-agent-審閱)、[架構 → 首席 agent 審閱](../docs/architecture.zh-TW.md#首席-agent-審閱) |
@@ -57,7 +57,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | [複製與分享](#複製與分享) | [`share.spec.ts`](specs/share.spec.ts) | 15 | [使用者說明 → 分享對話](../docs/user-guide.zh-TW.md#分享對話)、[架構 → 分享對話](../docs/architecture.zh-TW.md#分享對話) |
 | [側邊欄](#側邊欄) | [`sidebar.spec.ts`](specs/sidebar.spec.ts) | 12 | [使用者說明 → 群組](../docs/user-guide.zh-TW.md#群組)、[釘選的對話](../docs/user-guide.zh-TW.md#釘選的對話)、[搜尋](../docs/user-guide.zh-TW.md#搜尋)、[在 GitHub 給 Harness Relay 一顆星星](../docs/user-guide.zh-TW.md#在-github-給-harness-relay-一顆星星) |
 | [自動任務](#自動任務) | [`schedule.spec.ts`](specs/schedule.spec.ts) | 9 | [使用者說明 → 自動任務](../docs/user-guide.zh-TW.md#自動任務)、[架構 → 排程](../docs/architecture.zh-TW.md#排程) |
-| [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 17 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席-agent)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
+| [設定](#設定) | [`settings.spec.ts`](specs/settings.spec.ts) | 18 | [使用者說明 → 登入](../docs/user-guide.zh-TW.md#登入)、[首席 agent](../docs/user-guide.zh-TW.md#首席-agent)、[開源 agent → 模型來源](../docs/open-agents.zh-TW.md#模型來源) |
 | [安裝 CLI](#安裝-cli) | [`install.spec.ts`](specs/install.spec.ts) | 3 | [使用者說明 → 從設定頁安裝 CLI](../docs/user-guide.zh-TW.md#從設定頁安裝-cli)、[架構 → 從設定頁安裝 CLI](../docs/architecture.zh-TW.md#從設定頁安裝-cli) |
 | [安裝 Git](#安裝-git) | [`git-install.spec.ts`](specs/git-install.spec.ts) | 3 | [使用者說明 → 對話設定](../docs/user-guide.zh-TW.md#對話規則) |
 | [沙箱需要的元件](#沙箱需要的元件) | [`sandbox-setup.spec.ts`](specs/sandbox-setup.spec.ts) | 6 | [使用者說明 → 安裝沙箱需要的元件](../docs/user-guide.zh-TW.md#安裝沙箱需要的元件)、[各平台的 OS 沙箱 → 由 Harness Relay 安裝它們需要的東西](../docs/sandboxing.zh-TW.md#由-harness-relay-安裝它們需要的東西) |
@@ -102,6 +102,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | 檢查的內容 |
 | --- | --- |
+| 從收合側欄的首頁提出第一個問題 | 前往首席 agent 設定再返回後，問題、標題、資料夾、權限與組隊確認方式都保留。問題只送出一次，首頁能回到待確認團隊，下一個對話反映記住的確認偏好。 |
 | app 打開時是首頁，點 logo 與名稱會回到首頁 | 首頁顯示 logo 與下面的標語；從新對話頁和對話中點側邊欄的 logo 與 **Harness Relay**（在首頁時標為目前的頁面），都會回到首頁（`#/`）。 |
 | logo 每次進入首頁播放一次動畫，只動 transform 與 opacity，減少動態效果時不播放 | logo 的圓點、轉圈與標語都有一段播放時間（而不是像沒寫名稱的 `animation` 簡寫被壓縮成 `none` 那樣完全不播），只播一次，只改變 `transform` 與 `opacity`；播完會自己結束，再次打開首頁時會重播；開啟減少動態效果時完全沒有動畫。 |
 | 載入不了的頁面部分：頁面為它重新載入一次，之後說明原因；說明可以關閉，「重新載入」會把它找回來 | 回報對話框的檔案不見時（404，就像頁面在更新前就開著），點 **回報問題** 會讓頁面重新載入一次；一分鐘內再點一次，會顯示說明而不是一片空白：按 **關閉** 會關掉它，按 **重新載入** 會重新載入頁面，之後對話框就能打開。每個頁面在開始時就計數，不會漏算。 |
@@ -120,7 +121,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 所有 CLI 組成的團隊依序回答 | 兩個團隊 | 每位成員帶著自己 CLI 的標籤回答，依圓桌順序：Claude Code、Codex、Grok、Cursor；Antigravity、Copilot、Muse Code；以及 OpenCode、Goose、Cline、OpenHands、Pi（團隊裡有在這裡只能以完全存取執行的 CLI 時，對話以完全存取執行）。首席 agent 為新問題組的團隊最多五位成員，所以有登入的七個分成四人與三人的兩個團隊，各在自己的對話中回答。 |
 | 追問時再組一次團隊 | Claude Code、Codex | 第二個問題有自己的團隊，只有那位成員回答。 |
 | 下一次設計重新查詢額度 | Claude Code、Codex | Claude Code 回答第一個問題。它的額度用完後，第二次組隊不提供它作為候選，首席 agent 仍選到它時也會用 Codex 取代。 |
-| 指定的首席 agent 無法使用 | Claude Code | 備援團隊卡片標明額度用盡的首席 agent，提示可到設定切換。重新載入後提示仍在。 |
+| 指定的首席 agent 無法使用 | Claude Code | 卡片先列出這次採用的預設團隊，再說明首席 agent 的五小時額度已用盡，並顯示回報的重設時間。重新載入後仍看得到。 |
 | 沒有可用的模型 | Claude Code、Codex、Grok | 三個 CLI 的額度都用完時，失敗卡片標明無法使用的首席 agent，並說明直接採用為何無法啟動團隊。 |
 | 可展開的團隊設計進度 | Claude Code | 在設計卡片裡展開進度，模型實測完成後仍在同一卡片內維持展開。團隊回答前，模型只收到固定測試提示。 |
 | 完全存取團隊確認後才實測 | Claude Code | 等待確認時沒有用完全存取實測。確認後才實測並啟動團隊。 |
@@ -146,7 +147,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
 | 請首席 agent 調整團隊，儲存後新成員回答 | Claude Code、Grok | 在**團隊設定 → 請首席 agent 調整**（Team settings → Ask the lead agent）中，要求會交給首席 agent；它工作時（`e2e:slowrevise=2`），app 的載入標示排在它說的話前面，在同一行裡：14px，在文字之前並對齊文字的中線；之後抽屜顯示它加入的成員，按**儲存**後兩位成員都回答。 |
-| 首席 agent 的回答無法解讀時，改用範本 | Claude Code | 回答不是 JSON 時改用「一般問題智囊團」（General-question panel），由它的三位成員回答。 |
+| 首席 agent 的回答無法解讀時，改用範本 | Claude Code | 卡片顯示改用的預設團隊，原始回應收在「技術細節」。確認到完成期間會顯示任務狀態，提出新問題後，舊卡片的即時狀態會消失。 |
 | 拒絕為新問題提議的團隊 | Claude Code、Codex | 按**不採用，沿用目前的團隊**（No, keep the current team）：卡片顯示沒有採用，由目前的團隊回答，提議的成員不回答。 |
 | agent 工作時（團隊回答中、首席 agent 審閱中）團隊設計卡片的「調整團隊」不能按，調整團隊後卡片顯示調整後的團隊 | Claude Code | 回覆緩慢串流時，卡片的**調整團隊**（Adjust team）是停用的，提示說明原因，審閱很慢時也一樣；按 **■ 停止**停止審閱後可以按。在它開啟的抽屜中為成員改名並儲存：卡片列出 **@Ada** 而不是 **@Claude**，寫著*你調整過這個團隊*（You adjusted this team），伺服器保存的設計（`adjustedAt`）與重新載入後的卡片也是。 |
 | 新增成員卡和旁邊的成員一樣高，下面還有 CLI 時底部有陰影，自己一列時列出所有 CLI，一張卡變高只撐高自己那一列 | — | 在**團隊設定**中（1280px 下兩欄），清單是名為**新增成員**（Add member）的群組：在一位成員旁邊時，那位成員保有自己的高度（隱藏新增成員卡再量一次比對），十二個 CLI 的清單可以捲動。瀏覽器支援捲動驅動動畫時，清單底部邊緣有陰影（那一條的截圖和拿掉陰影時不同），減少動態效果時也有，取得焦點的每個按鈕都停在它上方，捲到底後陰影消失。兩位成員時它自己一列，全部列出、不用捲動，也沒有陰影；硬讓它取用沒有給它的高度時（欄數算錯時就會這樣），它至少有 280px 高並可以捲動，不會變成空框。在第三位旁邊時那一位保有自己的高度，而第一列的角色框拉高後，第二列的卡片高度不變。 |
@@ -399,13 +400,14 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 
 | 情境 | CLI | 檢查的內容 |
 | --- | --- | --- |
+| 全新安裝時會先檢查助理，再展開初次設定選項 | — | 繁中介面的總覽先顯示檢查中，取得狀態後列出需要安裝的助理，點 Codex 可前往它的設定卡。 |
 | 找到每個 CLI，顯示版本，且已登入 | 各一，同一個測試 | 每張卡片顯示 CLI 的版本，以及**已登入**（Claude Code 附帳號），開源 agent 在假端點上則是**可使用**（Ready）；側邊欄十二個狀態點都正常（「12/12 ready」，開源 agent 的標題是「Model backends set up」）；要求時顯示它們的名稱，重新載入後仍保留。 |
-| 未安裝的 CLI 在設定與側邊欄顯示未安裝 | Cursor、Antigravity | 設成未安裝（`missingClis`）：它們的狀態點與卡片顯示**未安裝**（Not installed）。 |
-| 沒有模型來源的開源 agent 還不能用，它的回合說明要先設定一個 | OpenCode | `openBackend: false`：狀態點寫著「No model backend yet」，卡片顯示**尚未就緒**（Not ready）與「No model backend set up yet (Settings → Model backends)」，回答的錯誤說 OpenCode 沒有模型。 |
+| 未安裝的 CLI 在設定與側邊欄顯示未安裝 | Cursor、Antigravity | 設成未安裝（`missingClis`）：它們的狀態點與卡片顯示**未安裝**（Not installed）。助理總覽顯示 Claude Code 已可用，展開**連接另一個助理**就能選 Cursor 前往設定。 |
+| 沒有模型來源的開源 agent 還不能用，它的回合說明要先設定一個 | OpenCode | `openBackend: false`：助理總覽裡的 OpenCode 連到**模型來源**。狀態點寫著「No model backend yet」，卡片顯示**尚未就緒**（Not ready）與「No model backend set up yet (Settings → Model backends)」，回答的錯誤說 OpenCode 沒有模型。 |
 | 可以指定 CLI 的執行檔路徑，錯誤的路徑顯示找不到 | Grok | 不存在的路徑顯示**未安裝**（Not installed）；清空後又找到它。 |
-| 連結列把 agent 合成一個選單，選單通往每個 agent 的卡片，並顯示正在看的那一個 | — | 連結列是除了 agent 以外每張卡片的連結（包括**模型來源**（Model backends）與 **Agent 的 session**（Agent sessions）），模型來源與首席 agent 之間有一個 **Agents** 按鈕。打開後選單列出十二個 agent，開源 agent 在名為**開源 agent**（Open-source agents）的群組中，焦點在第一個；方向鍵（到兩端會繞回）、Home、End 與 Escape（回到按鈕）可以移動與關閉；在按鈕上按 ArrowUp 會打開並停在最後一個，Tab 會關閉並移到**首席 agent**（Lead agent），Shift+Tab 回到按鈕。點選單的標題時焦點留在原本的項目，按鍵照常有效；焦點移到別的連結會關閉選單。選 **Codex** 會關閉選單、前往 `#/settings/codex` 且卡片在畫面內，按鈕的名稱是 **Agents：Codex**（Agents: Codex）並標亮；再打開時 Codex 有標記與焦點；點別處會關閉。點**首席 agent** 後標亮回到它，而且它不會移動（按鈕寬度不變）；`#/settings/opencode` 的按鈕名稱是 **Agents：OpenCode**（Agents: OpenCode）。 |
+| 連結列把 agent 合成一個選單，選單通往每個 agent 的卡片，並顯示正在看的那一個 | — | 連結列從**助理總覽**開始，放著除了 agent 以外每張卡片的連結（包括**模型來源**（Model backends）與 **Agent 的 session**（Agent sessions）），模型來源與首席 agent 之間有一個**助理設定**（Agents）按鈕。打開後選單列出十二個 agent，開源 agent 在名為**開源 agent**（Open-source agents）的群組中，焦點在第一個；方向鍵（到兩端會繞回）、Home、End 與 Escape（回到按鈕）可以移動與關閉；在按鈕上按 ArrowUp 會打開並停在最後一個，Tab 會關閉並移到**首席 agent**（Lead agent），Shift+Tab 回到按鈕。點選單的標題時焦點留在原本的項目，按鍵照常有效；焦點移到別的連結會關閉選單。選 **Codex** 會關閉選單、前往 `#/settings/codex` 且卡片在畫面內，按鈕的名稱是 **助理設定：Codex**（Agents: Codex）並標亮；再打開時 Codex 有標記與焦點；點別處會關閉。點**首席 agent** 後標亮回到它，而且它不會移動（按鈕寬度不變）；`#/settings/opencode` 的按鈕名稱是 **助理設定：OpenCode**（Agents: OpenCode）。 |
 | 在矮的視窗裡，agent 選單留在視窗內，按鍵會顯示移到的項目 | — | 在 1280×480 下，從設定頁頂端（連結列比固定後低）打開時，選單底部在視窗內；End 讓 **Pi** 取得焦點並捲進選單的可見範圍，Home 回到第一個。 |
-| 在手機上，agent 按鈕完整顯示，選單留在螢幕內並跟著按鈕，並通往卡片 | — | 在 390×844 下，從 `#/settings/codex` 進來時連結列會讓出左上角按鈕的位置而變窄，**Agent：Codex**（Agents: Codex）仍完整顯示；用 Tab 離開選單時會把**首席 agent**（Lead agent）捲進畫面；按鈕在連結列右端時選單在螢幕內打開，連結列捲動時選單保持打開並跟著按鈕移動；選 **Pi** 會前往它的卡片。 |
+| 在手機上，agent 按鈕完整顯示，選單留在螢幕內並跟著按鈕，並通往卡片 | — | 在 390×844 下，從 `#/settings/codex` 進來時連結列會讓出左上角按鈕的位置而變窄，**助理設定：Codex**（Agents: Codex）仍完整顯示；用 Tab 離開選單時會把**首席 agent**（Lead agent）捲進畫面；按鈕在連結列右端時選單在螢幕內打開，連結列捲動時選單保持打開並跟著按鈕移動；選 **Pi** 會前往它的卡片。 |
 | 連結列在收合的側邊欄按鈕旁固定時，agent 選單跟著按鈕移動 | — | 在 900×900 下收合側邊欄，在設定頁頂端打開選單；用滾輪捲動頁面後連結列固定並往右移，選單跟著按鈕移動。 |
 | 切換語言，選擇會保留 | — | 選繁體中文後頁面改變，重新載入後仍保留，選 English 再改回來。 |
 | 選另一個 CLI 擔任首席 agent | Codex 當首席 agent | 新對話頁寫出它，團隊卡片寫著「Lead agent: Codex」，首席 agent 的 prompt 交給了 Codex。 |

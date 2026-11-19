@@ -91,7 +91,7 @@ export async function record(opts: RecordOptions, base: string, log: Log): Promi
     base,
     log,
     '#/new',
-    '.new-chat-page .preset-card',
+    '.new-chat-page .first-question',
     async (s) => {
       const { page, mark, moveTo, moveClick, typeSlow, ask, scrollMessages, conversation, agentReplies } = s;
       await moveTo(700, 420, 300);
@@ -106,6 +106,7 @@ export async function record(opts: RecordOptions, base: string, log: Log): Promi
       mark('group-made', { group: L.groupName });
 
       // Templates are where teams are designed: open one.
+      await moveClick('.template-library > summary');
       await moveClick(page.locator('.preset-card', { hasText: L.template }).locator('.preset-main'), { after: 600 });
       await page.waitForSelector('.modal.template-editor');
       await sleep(1800);
@@ -122,6 +123,7 @@ export async function record(opts: RecordOptions, base: string, log: Log): Promi
 
       // Start the chat and ask straight away. Without lead review (the page ticks it in every new chat),
       // which the chapters and stills do not show.
+      await moveClick('.chat-options > summary');
       await page.locator('.lead-review input[type="checkbox"]').uncheck();
       await moveClick('.start-bar .primary', { after: 900 });
       await page.waitForURL(/#\/c\//);

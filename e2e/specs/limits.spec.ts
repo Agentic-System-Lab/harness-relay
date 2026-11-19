@@ -24,6 +24,7 @@ test.describe('limits the environment sets', () => {
   test('a template larger than the limit says why it cannot be used, and the lead agent does not pick one', async ({ page, relay }) => {
     // The built-in templates have three members.
     await openNewChat(page);
+    await page.locator('.template-library > summary').click();
     await page.locator('.preset-card', { hasText: 'Three-way debate' }).locator('.preset-main').click();
     await expect(page.getByRole('dialog')).toContainText('A team may have at most 2 members');
     await page.keyboard.press('Escape');
@@ -31,7 +32,7 @@ test.describe('limits the environment sets', () => {
     const id = await startChat(page);
     await send(page, 'Should we rewrite it? e2e:template=builtin-debate');
     const card = awaitingPlan(page);
-    await expect(card).toContainText('Using the template "General-question panel" instead');
+    await expect(card).toContainText('Default team for this task · General-question panel');
     await expect(card).toContainText('the template "Three-way debate" has more members than a team may have (2)');
     await card.getByRole('button', { name: 'Confirm team' }).click();
     const conv = await settled(relay, id);

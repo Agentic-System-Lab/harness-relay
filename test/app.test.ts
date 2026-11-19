@@ -15,6 +15,7 @@ import {
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { HttpError } from '../src/server/errors';
 import { removeTree } from '../src/server/fsRemove';
 import { triggerKey } from '../src/shared/schedule';
 import {
@@ -119,6 +120,31 @@ async function createConversation(settings: Record<string, unknown> = {}): Promi
   expect(res.status).toBe(200);
   return (await res.json()) as Conversation;
 }
+
+describe('creating a chat with its first question', () => {
+  const create = (firstMessage: unknown) =>
+    app.request(
+      '/api/conversations',
+      json('POST', {
+        firstMessage,
+        settings: { autoTeam: true, permission: 'read-only', cwd: project },
+      }),
+    );
+
+  it('checks the question before creating a chat and rolls back a refused send', async () => {
+    expect((await create({ text: 'bad input' })).status).toBe(400);
+    const send = vi.spyOn(orchestrator, 'send').mockRejectedValueOnce(new HttpError(409, 'busy'));
+    try {
+      expect((await create('  My first task  ')).status).toBe(409);
+      expect(send).toHaveBeenCalledWith(expect.any(String), 'My first task');
+      expect(await (await get('/api/conversations')).json()).toEqual([]);
+      expect((await create('  ')).status).toBe(200);
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      send.mockRestore();
+    }
+  });
+});
 
 describe("Harness Relay's own folder as a working directory", () => {
   it('is refused in edit mode, on creating, scheduling and changing a conversation', async () => {

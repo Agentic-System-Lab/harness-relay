@@ -30,8 +30,8 @@ import {
   type ToolPart,
   type OutboxPart,
 } from '../chat';
-import { mentionWarning, messageText, planChecksMentions, planHeadline, planWording, speaker } from '../copy';
-import { useT } from '../i18n';
+import { fallbackExplanation, mentionWarning, messageText, planChecksMentions, planHeadline, planWording, speaker } from '../copy';
+import { useI18n, useT } from '../i18n';
 import { PROVIDER_COLOR, formatBytes, formatDuration, formatTokens, initials, leadLabel } from '../util';
 import { ChangesCard, type ApplyState } from './ChangesCard';
 import { CopyButton } from './CopyButton';
@@ -424,6 +424,8 @@ interface Props {
   onDeclinePlan: (messageId: string) => Promise<void>;
   /** The conversation's latest team design: one used at once still says how Grok trusts the folder. */
   latestPlan?: boolean;
+  /** What the user can do now, only on a fallback card for the current question. */
+  fallbackStatus?: string;
   /** The message of the conversation's schedule: a team design should have the members it @mentions. */
   scheduleText?: string;
   /** Save the team the lead agent designed (auto team) as a template. */
@@ -466,6 +468,7 @@ function PlanCard({
   cwd,
   agents,
   latestPlan,
+  fallbackStatus,
   scheduleText,
   onConfirmPlan,
   onDeclinePlan,
@@ -480,6 +483,7 @@ function PlanCard({
   | 'cwd'
   | 'agents'
   | 'latestPlan'
+  | 'fallbackStatus'
   | 'scheduleText'
   | 'onConfirmPlan'
   | 'onDeclinePlan'
@@ -489,7 +493,7 @@ function PlanCard({
   | 'leadReview'
   | 'onLeadReview'
 >) {
-  const t = useT();
+  const { t, lang } = useI18n();
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const plan = msg.plan!;
@@ -571,19 +575,56 @@ function PlanCard({
     }
   };
 
+  const confirmation = awaiting && (
+    <div className="plan-confirm">
+      <span className="small">{plan.checkOnConfirm ? t.plan.checkOnConfirm : wording.confirmHint}</span>
+      <button type="button" className="primary small-button" onClick={() => answer(onConfirmPlan)} disabled={confirming || running}>
+        {confirming || msg.status === 'streaming' ? t.plan.confirming : t.plan.confirm}
+      </button>
+      {adjust}
+      {declinable && (
+        <button type="button" className="ghost small-button" onClick={() => answer(onDeclinePlan)} disabled={confirming || running}>
+          {t.plan.decline}
+        </button>
+      )}
+    </div>
+  );
+  const fallback = plan.source === 'fallback' ? fallbackExplanation(plan, t, lang) : undefined;
   return (
     <PlanCardLayout msg={msg} className={`${plan.source ?? ''} ${awaiting ? 'awaiting' : ''}`}>
       <header className="plan-head">
         <Logo size={18} />
-        <strong>{t.plan.title}</strong>
-        {!plan.leadUnavailable && <span className="muted small">{t.plan.by(lead)}</span>}
+        <strong>{fallback ? planHeadline(plan, t) : t.plan.title}</strong>
+        {!fallback && !plan.leadUnavailable && <span className="muted small">{t.plan.by(lead)}</span>}
       </header>
-      {leadWarning}
-      <p className="plan-headline">
-        <strong>{planHeadline(plan, t)}</strong>
-        <span className="muted small">{t.plan.howTheyWork(t.modes[s.mode].label, detail)}</span>
-      </p>
-      {plan.reason && <p className="plan-reason">{plan.reason}</p>}
+      {fallback ? (
+        <>
+          {fallback.explanation && <p className="plan-reason">{fallback.explanation}</p>}
+          {plan.fallback && plan.reason && <p className="plan-reason">{plan.reason}</p>}
+          {confirmation}
+          {fallbackStatus && (
+            <p className="plan-next plan-reason" role="status">
+              {fallbackStatus}
+            </p>
+          )}
+          {fallback.diagnostic && (
+            <details className="plan-diagnostic">
+              <summary>{t.plan.technicalDetails}</summary>
+              <pre>{fallback.diagnostic}</pre>
+            </details>
+          )}
+          <span className="muted small">{t.plan.howTheyWork(t.modes[s.mode].label, detail)}</span>
+        </>
+      ) : (
+        <>
+          {leadWarning}
+          <p className="plan-headline">
+            <strong>{planHeadline(plan, t)}</strong>
+            <span className="muted small">{t.plan.howTheyWork(t.modes[s.mode].label, detail)}</span>
+          </p>
+          {plan.reason && <p className="plan-reason">{plan.reason}</p>}
+        </>
+      )}
       <ul className="plan-members">
         {plan.agents?.map((a) => (
           <li key={a.id} style={{ ['--accent' as string]: PROVIDER_COLOR[a.provider] }}>
@@ -604,20 +645,7 @@ function PlanCard({
       )}
       {/* Before the user lets a team with a Grok member answer: Grok may not load this project's own setup. */}
       {(awaiting || (plan.autoConfirmed && latestPlan)) && asksGrokTrust(plan.agents ?? [], cwd) && <GrokTrustNote cwd={cwd} />}
-      {awaiting && (
-        <div className="plan-confirm">
-          <span className="small">{plan.checkOnConfirm ? t.plan.checkOnConfirm : wording.confirmHint}</span>
-          <button type="button" className="primary small-button" onClick={() => answer(onConfirmPlan)} disabled={confirming || running}>
-            {confirming || msg.status === 'streaming' ? t.plan.confirming : t.plan.confirm}
-          </button>
-          {adjust}
-          {declinable && (
-            <button type="button" className="ghost small-button" onClick={() => answer(onDeclinePlan)} disabled={confirming || running}>
-              {t.plan.decline}
-            </button>
-          )}
-        </div>
-      )}
+      {!fallback && confirmation}
       <div className="plan-actions">
         {plan.confirmedAt && <span className="small plan-saved">✓ {plan.autoConfirmed ? t.plan.autoConfirmed : t.plan.confirmed}</span>}
         {plan.declinedAt && <span className="small plan-saved">{t.plan.declined}</span>}
@@ -1038,6 +1066,7 @@ export const MessageItem = memo(function MessageItem({
   onConfirmPlan,
   onDeclinePlan,
   latestPlan,
+  fallbackStatus,
   scheduleText,
   onSavePlan,
   onAdjustTeam,
@@ -1064,6 +1093,7 @@ export const MessageItem = memo(function MessageItem({
           cwd={cwd}
           agents={agents}
           latestPlan={latestPlan}
+          fallbackStatus={fallbackStatus}
           scheduleText={scheduleText}
           onConfirmPlan={onConfirmPlan}
           onDeclinePlan={onDeclinePlan}

@@ -22,6 +22,7 @@ test('offers Git only when an edit action needs it, and preserves the chat form 
   });
 
   await openNewChat(page);
+  await page.locator('.chat-options > summary').click();
   const dialog = page.getByRole('dialog', { name: 'Git is required' });
   const title = page.getByPlaceholder(/Conversation title/);
   const start = page.getByRole('button', { name: 'Start chat →' });
