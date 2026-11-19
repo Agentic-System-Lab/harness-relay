@@ -8,7 +8,12 @@ import {
   cwdSettings,
   cwdsOf,
   effortsFor,
+  isApiBackend,
+  isEndpointCli,
+  isOpenProvider,
+  parseBackendModel,
   toolKey,
+  type AccountUsage,
   type AgentConfig,
   type ChatMessage,
   type ConversationSettings,
@@ -75,7 +80,7 @@ export interface LibraryItem {
 
 /** What the lead agent may choose from. */
 export interface PlannerContext {
-  /** CLIs that are installed and signed in; empty = unknown (nothing is remapped). */
+  /** CLIs with a usable account and model. Empty without staffing data means unknown. */
   available: Provider[];
   /**
    * The accounts of each available CLI that agents can run as, in order ('' = the default account).
@@ -84,6 +89,8 @@ export interface PlannerContext {
   accounts?: Partial<Record<Provider, string[]>>;
   catalog: ProviderModels[];
   presets: TeamPreset[];
+  /** A snapshot for auto team, including any usage that answered before the deadline. */
+  staffing?: { usage: AccountUsage[]; now: number; backends?: { configured: string[]; deletedEndpoints: string[] } };
   /**
    * What each available CLI loads by itself in the working directory (as Harness Relay runs it), asked
    * in the home of the account its new members get; a CLI that was not asked is absent.
@@ -97,6 +104,8 @@ export interface PlannerContext {
 
 /** How long a design waits for a CLI to say what it loads by itself (the CLIs' probes go on, and are kept). */
 export const NATIVE_WAIT_MS = 20_000;
+/** Usage probes that take longer still populate the provider service's cache for the next design. */
+const USAGE_WAIT_MS = 10_000;
 /** At most this many names per list, and characters per description, in what the lead reads of the tools. */
 const TOOL_NAMES_MAX = 40;
 const TOOL_ABOUT_MAX = 160;
@@ -173,6 +182,8 @@ export function memberLibraryTools(
 export interface PlannerSources {
   statuses(): Promise<ProviderStatus[]>;
   catalog(): Promise<ProviderModels[]>;
+  usage?(p: Provider, account: string): Promise<AccountUsage | undefined>;
+  backends?(): NonNullable<Staffing['backends']>;
   presets(): TeamPreset[];
   library(): Pick<ToolLibraryView, 'mcpServers' | 'skills' | 'memory'>;
   /**
@@ -188,6 +199,127 @@ export interface PlannerSources {
   ): Promise<Pick<NativeSetup, 'skills' | 'mcpServers' | 'builtinTools' | 'agents' | 'plugins'> & { problems?: NativeProblem[] }>;
 }
 
+type Staffing = NonNullable<PlannerContext['staffing']>;
+
+/** A design that should stop without starting a fallback team. */
+export class PlanUnavailableError extends Error {}
+
+function scopeMatches(provider: Provider, scope: string, model: string, label?: string): boolean {
+  const normalize = (s: string) =>
+    s
+      .trim()
+      .toLowerCase()
+      .replace(/[._ -]+/g, '-');
+  const name = normalize(scope);
+  const id = normalize(model).replace(/\[1m\]$/, '');
+  if (name === id || (label && name === normalize(label))) return true;
+  // Claude reports family names as well as exact versions. A dated ID and the family alias share
+  // the family quota, while a surface name such as Cowork does not refer to a CLI model.
+  return (
+    provider === 'claude' &&
+    /^(fable|opus|sonnet|haiku)$/.test(name) &&
+    (id.startsWith(`claude-${name}-`) || (id === 'opusplan' && (name === 'opus' || name === 'sonnet')))
+  );
+}
+
+function privateEndpoint(provider: Provider, model: string | undefined, staffing: Staffing): string | undefined {
+  if (!model || (!isEndpointCli(provider) && !isOpenProvider(provider))) return undefined;
+  const id = parseBackendModel(model)?.backend;
+  const backends = staffing.backends;
+  if (id && !isApiBackend(id) && (backends?.configured.includes(id) || backends?.deletedEndpoints.includes(id))) return id;
+  return undefined;
+}
+
+function modelAllowed(
+  provider: Provider,
+  catalog: ProviderModels | undefined,
+  chosen: string | undefined,
+  usage: AccountUsage | undefined,
+  staffing: Staffing,
+  requireListed = false,
+): boolean {
+  const model = chosen || catalog?.defaultModel;
+  const option = catalog?.models.find((m) => m.id === model);
+  const endpoint = privateEndpoint(provider, model, staffing);
+  if (endpoint && staffing.backends?.deletedEndpoints.includes(endpoint)) return false;
+  if (requireListed && chosen && !option && chosen !== catalog?.defaultModel) return false;
+  if (isOpenProvider(provider)) {
+    const backend = model && parseBackendModel(model)?.backend;
+    if (!backend || (staffing.backends && !staffing.backends.configured.includes(backend))) return false;
+  }
+  if (usage?.problem === 'cliMissing') return false;
+  // An endpoint uses its own backend, even when the same CLI's subscription is exhausted.
+  if (option?.endpoint || endpoint) return true;
+  if (usage?.planUsageBlocked || usage?.none === 'signedOut' || usage?.none === 'noAllowance') return false;
+  return !usage?.limits.some((limit) => {
+    if (limit.usedPercent < 100 || (limit.resetsAt !== undefined && limit.resetsAt <= staffing.now)) return false;
+    // Copilot's completions are unrelated to chat. Premium request quotas do not apply to every
+    // model it lists, and the catalog does not say which models consume them.
+    if (limit.kind === 'completions' || limit.kind === 'premiumRequests') return false;
+    if (!limit.scope && !limit.model) return true;
+    const scopes = [
+      ...(limit.model ? [limit.model] : []),
+      ...(limit.scope ? (provider === 'antigravity' ? limit.scope.split(' · ') : [limit.scope]) : []),
+    ];
+    return scopes.some((scope) =>
+      model
+        ? scopeMatches(provider, scope, model, option?.label)
+        : catalog?.models.some((m) => !m.endpoint && scopeMatches(provider, scope, m.id, m.label)),
+    );
+  });
+}
+
+/** Whether this exact assignment can be used, including the account's default when no model was picked. */
+export function memberAvailable(
+  ctx: PlannerContext,
+  member: Pick<AgentConfig, 'provider' | 'account' | 'model'>,
+  requireListed = false,
+): boolean {
+  if (!ctx.staffing) return true;
+  const { provider, model, account = '' } = member;
+  return Boolean(
+    ctx.accounts?.[provider]?.includes(account) &&
+    modelAllowed(
+      provider,
+      catalogFor(ctx.catalog, provider, account),
+      model,
+      usageFor(ctx.staffing, provider, account),
+      ctx.staffing,
+      requireListed,
+    ),
+  );
+}
+
+function usageFor(staffing: Staffing, provider: Provider, account: string): AccountUsage | undefined {
+  return staffing.usage.find((u) => u.provider === provider && u.account === account);
+}
+
+async function staffingUsage(
+  ask: NonNullable<PlannerSources['usage']>,
+  usable: { provider: Provider; ids: string[] }[],
+  waitMs: number,
+): Promise<Staffing> {
+  const usage: AccountUsage[] = [];
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<void>((resolve) => (timer = setTimeout(resolve, waitMs)));
+  try {
+    const pending = usable.flatMap(({ provider, ids }) =>
+      ids.map(async (id) => {
+        try {
+          const answer = await ask(provider, id);
+          if (answer?.provider === provider && answer.account === id) usage.push(answer);
+        } catch (err) {
+          console.warn(`[planner] could not read ${provider} usage:`, (err as Error).message);
+        }
+      }),
+    );
+    await Promise.race([Promise.all(pending), deadline]);
+    return { usage: [...usage], now: Date.now() };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * The lead's context: the CLIs available (any usable account) and their accounts, models and templates;
  * the tool library; and, for a working directory, what each available CLI loads by itself there, asked
@@ -201,11 +333,32 @@ export async function plannerContext(
   waitMs = NATIVE_WAIT_MS,
   addDirs: readonly string[] = [],
 ): Promise<PlannerContext> {
-  const [statuses, catalog] = await Promise.all([src.statuses(), src.catalog()]);
-  // A CLI is available with any account agents can run as; its members get one of those.
-  const usable = statuses.map((s) => ({ provider: s.provider, ids: s.installed ? s.accounts.filter(accountUsable).map((a) => a.id) : [] }));
-  const available = usable.filter((u) => u.ids.length).map((u) => u.provider);
-  const accounts = Object.fromEntries(usable.filter((u) => u.ids.length).map((u) => [u.provider, u.ids]));
+  const usage = src.usage;
+  const signedIn = src
+    .statuses()
+    .then((statuses) =>
+      statuses.map((s) => ({ provider: s.provider, ids: s.installed ? s.accounts.filter(accountUsable).map((a) => a.id) : [] })),
+    );
+  const [usable, catalog, staffing] = await Promise.all([
+    signedIn,
+    src.catalog(),
+    usage && signedIn.then((accounts) => staffingUsage(usage, accounts, Math.min(waitMs, USAGE_WAIT_MS))),
+  ]);
+  if (staffing && src.backends) staffing.backends = src.backends();
+  // Keep accounts with at least one usable model, even when their default cannot run.
+  const accounts: NonNullable<PlannerContext['accounts']> = {};
+  const available = usable.flatMap(({ provider, ids }) => {
+    const kept = staffing
+      ? ids.filter((id) => {
+          const c = catalogFor(catalog, provider, id);
+          const usage = usageFor(staffing, provider, id);
+          return [undefined, ...(c?.models.map((m) => m.id) ?? [])].some((m) => modelAllowed(provider, c, m, usage, staffing));
+        })
+      : ids;
+    if (!kept.length) return [];
+    accounts[provider] = kept;
+    return [provider];
+  });
   let library: LibraryItem[] | undefined;
   try {
     library = libraryForLead(src.library());
@@ -238,7 +391,15 @@ export async function plannerContext(
       }),
     );
   }
-  return { available, accounts, catalog, presets: src.presets(), ...(cwd ? { native } : {}), ...(library ? { library } : {}) };
+  return {
+    available,
+    accounts,
+    catalog,
+    presets: src.presets(),
+    ...(staffing ? { staffing } : {}),
+    ...(cwd ? { native } : {}),
+    ...(library ? { library } : {}),
+  };
 }
 
 /** The conversation a question is asked in. */
@@ -410,12 +571,23 @@ function modelsForLead(p: Provider, c: ProviderModels, guided: boolean): string 
  * from the tool library by default.
  */
 function agentsForLead(ctx: PlannerContext, guided: boolean): string {
-  const available = ctx.available.length ? ctx.available : (Object.keys(PROVIDER_LABEL) as Provider[]);
+  const available = ctx.staffing || ctx.available.length ? ctx.available : PROVIDERS;
   return available
     .map((p) => {
       const lines = [`- ${p} (${PROVIDER_LABEL[p]})`];
       // As its new members run it: in the home of the account they get, with that account's defaults.
-      const c = catalogFor(ctx.catalog, p, ctx.accounts?.[p]?.[0]);
+      const account = ctx.accounts?.[p]?.[0];
+      const catalog = catalogFor(ctx.catalog, p, account);
+      const defaultAllowed = memberAvailable(ctx, { provider: p, account });
+      const c =
+        catalog && ctx.staffing
+          ? {
+              ...catalog,
+              models: catalog.models.filter((m) => memberAvailable(ctx, { provider: p, account, model: m.id })),
+              defaultModel: defaultAllowed ? catalog.defaultModel : undefined,
+            }
+          : catalog;
+      if (!defaultAllowed) lines.push('  The default model is unavailable. Choose an explicit model below.');
       if (c?.models.length) lines.push(`  Models: ${modelsForLead(p, c, guided)}`);
       const unlisted =
         guided && c?.defaultModel && !c.models.some((m) => m.id === c.defaultModel) ? familyOf(p, c.defaultModel) : undefined;
@@ -424,7 +596,7 @@ function agentsForLead(ctx: PlannerContext, guided: boolean): string {
         c?.defaultEffort ? `effort ${c.defaultEffort}` : '',
       ].filter(Boolean);
       if (defaults.length) lines.push(`  Default ${defaults.join(', ')}`);
-      const ownFamily = guided ? unlistedFamily(p, c) : undefined;
+      const ownFamily = guided && defaultAllowed ? unlistedFamily(p, c) : undefined;
       if (ownFamily) lines.push(`  Its own models (not listed): ${guideMark(ownFamily)}`);
       else if (c?.efforts.length && !c.models.length) lines.push(`  Efforts: ${c.efforts.join('/')}`);
       const own = ctx.native?.[p];
@@ -513,6 +685,7 @@ export function buildPlannerPrompt(
     2,
   );
   const current = conv.current?.agents.length ? conv.current : undefined;
+  const canKeep = current && current.agents.every((a) => memberAvailable(ctx, a));
   const history = conv.history?.trim();
   // Like a template, without an id: it is not one.
   const currentTeam = current && JSON.stringify(teamForLead(current.settings, current.agents, ctx.library), null, 2);
@@ -534,12 +707,12 @@ export function buildPlannerPrompt(
     : current
       ? 'The user asked a new question in this conversation.'
       : 'The user started a new conversation with this question.';
-  const options = current
+  const options = canKeep
     ? 'keep the current team, use one of the templates below as it is, adapt one of them to this question, or design a new team from scratch'
     : 'use one of the templates below as it is, adapt one of them to this question, or design a new team from scratch';
 
   const choices = [
-    ...(current
+    ...(canKeep
       ? [
           '"keep": the current team suits this question as it is, for example a follow-up on the work it just did. Prefer this whenever it is true: its members keep what they learned in this conversation. Your reason tells the user why the team still fits.',
         ]
@@ -582,7 +755,7 @@ It @mentions ${addressed.map((n) => `@${n}`).join(', ')}. If these name the peop
 }
 Coding agents you can use (only these), with what their members can use:
 ${agents}
-${libraryForPrompt(ctx)}
+${ctx.staffing ? 'Some models or accounts may be unavailable because their quota is exhausted. Use only the coding agents and models listed above, even when adapting a template or the current team. Keep a team or template as it is only if all its assignments are available.\n' : ''}${libraryForPrompt(ctx)}
 Conversation modes:
 ${MODES.map((m) => `- ${m}: ${MODE_HELP[m]}`).join('\n')}
 
@@ -608,7 +781,7 @@ ${guides}
 Write the reason (and for a new team its name, description and roles) in the language of the user's question. Do not use tools unless the choice depends on the files in the working directory.
 
 Reply with only one of these JSON objects, in a \`\`\`json code block:
-${current ? '- current team as it is: {"choice": "keep", "reason": "<why it still fits: one or two sentences for the user>"}\n' : ''}- template as it is: {"choice": "template", "templateId": "<id>", "reason": "<why it fits: one or two sentences for the user>"}
+${canKeep ? '- current team as it is: {"choice": "keep", "reason": "<why it still fits: one or two sentences for the user>"}\n' : ''}- template as it is: {"choice": "template", "templateId": "<id>", "reason": "<why it fits: one or two sentences for the user>"}
 - adapted template: {"choice": "adapted", "baseTemplateId": "<id>", ${TEAM_FIELDS}, "reason": "<what you changed and why: one or two sentences for the user>"}
 - new team: {"choice": "custom", ${TEAM_FIELDS}, "reason": "<why no template fits: one or two sentences for the user>"}`;
 }
@@ -636,20 +809,69 @@ function clampInt(v: unknown, min: number, max: number, fallback: number): numbe
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
 }
 
+/** Keep the requested model if another account offers it, then try that CLI's other models. */
+function fitAssignment(ctx: PlannerContext, member: AgentConfig, lead: LeadAgentSettings, requireListed: boolean): void {
+  if (memberAvailable(ctx, member, requireListed)) return;
+  const { provider, model, account } = member;
+  const effective = model || catalogFor(ctx.catalog, provider, account)?.defaultModel;
+  const staffing = ctx.staffing!;
+  const endpoint = privateEndpoint(provider, effective, staffing);
+  if (endpoint && staffing.backends?.deletedEndpoints.includes(endpoint)) {
+    throw new PlanUnavailableError(t().endpointDeleted(PROVIDER_LABEL[provider], endpoint, effective!));
+  }
+
+  const providers = [...new Set([provider, lead.provider, ...ctx.available])];
+  for (const p of providers) {
+    const accounts = ctx.accounts?.[p] ?? [];
+    const sameModel =
+      p === provider &&
+      accounts
+        .map((account) => ({
+          provider: p,
+          account,
+          model: !model && effective === catalogFor(ctx.catalog, p, account)?.defaultModel ? undefined : effective,
+        }))
+        .find((a) => memberAvailable(ctx, a, true));
+    const choices = accounts.flatMap((account) => {
+      const c = catalogFor(ctx.catalog, p, account);
+      return [undefined, ...(c?.models.map((m) => m.id) ?? [])].map((model) => ({ provider: p, account, model }));
+    });
+    // A private model can be reassigned to another signed-in account on the same CLI. Keep its
+    // backend when no such account exists, so automatic staffing cannot send the prompt elsewhere.
+    const next = sameModel || (!endpoint && choices.find((a) => memberAvailable(ctx, a)));
+    if (!next) continue;
+    if (provider !== next.provider || effective !== (next.model || catalogFor(ctx.catalog, p, next.account)?.defaultModel)) {
+      delete member.effort;
+    }
+    member.provider = next.provider;
+    member.model = next.model;
+    if (next.account) member.account = next.account;
+    else delete member.account;
+    return;
+  }
+  throw new PlanUnavailableError(endpoint ? t().planEndpointUnavailable(effective!) : t().planNoAvailableModel(false));
+}
+
 /**
  * Make members runnable here: signed-in CLIs only, signed-in accounts of them only, and only models /
  * efforts those CLIs offer as the member's account runs them.
  *
  * `staying`: the conversation's current team. A member who stays on (same name, ignoring case, and
- * same CLI, matched as `keepMemberIds` matches them) keeps the account the user set, which
- * `keepMemberIds` gives back: its model and effort are checked against that account's models.
+ * same CLI) starts with the user's account. Automatic designs keep it if the assignment is available.
+ * Models and efforts are checked against the account that runs them.
  */
-export function fitAgents(agents: AgentConfig[], ctx: PlannerContext, lead: LeadAgentSettings, staying?: AgentConfig[]): AgentConfig[] {
+export function fitAgents(
+  agents: AgentConfig[],
+  ctx: PlannerContext,
+  lead: LeadAgentSettings,
+  staying?: AgentConfig[],
+  requireListed = true,
+): AgentConfig[] {
   const fallbackProvider = ctx.available.includes(lead.provider) ? lead.provider : (ctx.available[0] ?? lead.provider);
   const taken = new Set<string>();
   return agents.map((a) => {
     const out: AgentConfig = { ...a, id: randomUUID() };
-    if (ctx.available.length && !ctx.available.includes(out.provider)) {
+    if (!ctx.staffing && ctx.available.length && !ctx.available.includes(out.provider)) {
       out.provider = fallbackProvider;
       out.model = undefined;
       out.effort = undefined;
@@ -662,18 +884,29 @@ export function fitAgents(agents: AgentConfig[], ctx: PlannerContext, lead: Lead
       else delete out.account;
     }
     const usable = ctx.accounts?.[out.provider];
-    if (!same && usable?.length && !usable.includes(out.account ?? '')) {
+    if (ctx.staffing) fitAssignment(ctx, out, lead, requireListed && (!same || same.model !== out.model));
+    else if (!same && usable?.length && !usable.includes(out.account ?? '')) {
       if (usable[0]) out.account = usable[0];
       else delete out.account;
     }
     const c = catalogFor(ctx.catalog, out.provider, out.account);
-    if (out.model && c?.models.length && !c.models.some((m) => m.id === out.model)) out.model = undefined;
+    if (!ctx.staffing && out.model && c?.models.length && !c.models.some((m) => m.id === out.model)) out.model = undefined;
     if (out.effort && c) {
       const efforts = effortsFor(c, out.model || c.defaultModel);
       if (efforts.length && !efforts.includes(out.effort)) out.effort = undefined;
     }
     return out;
   });
+}
+
+function staffingReason(reason: string, ctx: PlannerContext, requested: AgentConfig[], fitted: AgentConfig[]): string {
+  const adjusted =
+    ctx.staffing &&
+    fitted.some((a, i) => {
+      const before = requested[i]!;
+      return a.provider !== before.provider || (a.model || '') !== (before.model || '') || (a.account || '') !== (before.account || '');
+    });
+  return adjusted ? [reason, t().planAssignmentsAdjusted].filter(Boolean).join(' ') : reason;
 }
 
 /** A template's team, as it is. */
@@ -685,15 +918,17 @@ function templateDecision(
   lead: LeadAgentSettings,
   staying?: AgentConfig[],
 ): PlanDecision {
+  // A fallback template may be larger when the team limit is low.
+  const requested = preset.agents.slice(0, teamLimit(ctx));
+  const agents = fitAgents(requested, ctx, lead, staying, false);
   return {
     source,
     presetId: preset.id,
     name: preset.name,
     description: preset.description,
-    reason,
+    reason: staffingReason(reason, ctx, requested, agents),
     settings: { mode: preset.settings.mode, rounds: preset.settings.rounds, maxHops: preset.settings.maxHops },
-    // Within the team limit: a fallback template may be larger when the limit is low.
-    agents: fitAgents(preset.agents.slice(0, teamLimit(ctx)), ctx, lead, staying),
+    agents,
   };
 }
 
@@ -744,6 +979,7 @@ export function decidePlan(
     .slice(0, 800);
   if (raw.choice === 'keep') {
     if (!current?.agents.length) throw new Error(t().planNoCurrentTeam);
+    if (!current.agents.every((a) => memberAvailable(ctx, a))) throw new Error(t().planCurrentUnavailable);
     return keptDecision(current, 'kept', reason || t().planKeepFits);
   }
   if (raw.choice === 'template') {
@@ -772,6 +1008,8 @@ export function decidePlan(
   const same = usablePresets(ctx).find((p) => sameTeam(p, settings, agents));
   if (same) return templateDecision(same, 'template', t().planTemplateFits(same.name), ctx, lead, current?.agents);
   const base = raw.choice === 'adapted' ? usablePresets(ctx).find((p) => p.id === String(raw.baseTemplateId ?? '')) : undefined;
+  const requested = base ? fromTemplate(agents, base) : agents;
+  const fitted = fitAgents(requested, ctx, lead, current?.agents);
   return {
     source: base ? 'adapted' : 'custom',
     ...(base ? { basedOn: { id: base.id, name: base.name } } : {}),
@@ -783,9 +1021,9 @@ export function decidePlan(
       String(raw.description ?? '')
         .trim()
         .slice(0, 200) || undefined,
-    reason,
+    reason: staffingReason(reason, ctx, requested, fitted),
     settings,
-    agents: fitAgents(base ? fromTemplate(agents, base) : agents, ctx, lead, current?.agents),
+    agents: fitted,
   };
 }
 
@@ -796,7 +1034,13 @@ export function fallbackPlan(
   why: string,
   current?: PlanConversation['current'],
 ): PlanDecision {
-  if (current?.agents.length) return keptDecision(current, 'fallback', t().planFailedKept(why));
+  if (current?.agents.length) {
+    if (current.agents.every((a) => memberAvailable(ctx, a))) return keptDecision(current, 'fallback', t().planFailedKept(why));
+    return {
+      ...keptDecision(current, 'fallback', t().planFailedAdjusted(why)),
+      agents: fitAgents(current.agents, ctx, lead, undefined, false),
+    };
+  }
   // A template within the team limit, else the general one cut to it.
   const usable = usablePresets(ctx);
   const preset =
@@ -807,16 +1051,17 @@ export function fallbackPlan(
 /**
  * Members who stay on from the current team (same name, ignoring case, and same CLI) keep their ids,
  * so their CLI sessions — what they learned in this conversation — carry on, and their accounts and
- * tools as the user set them (the lead reads tools, it does not change them).
+ * tools as the user set them. Automatic designs pass the account already selected by availability.
  */
-export function keepMemberIds(next: AgentConfig[], current: AgentConfig[]): AgentConfig[] {
+export function keepMemberIds(next: AgentConfig[], current: AgentConfig[], keepAccount = true): AgentConfig[] {
   const taken = new Set<string>();
   return next.map((a) => {
     const same = current.find((c) => !taken.has(c.id) && c.provider === a.provider && c.name.toLowerCase() === a.name.toLowerCase());
     if (!same) return a;
     taken.add(same.id);
     const { account: _account, tools: _tools, ...rest } = a;
-    return { ...rest, id: same.id, ...(same.tools ? { tools: same.tools } : {}), ...(same.account ? { account: same.account } : {}) };
+    const account = keepAccount ? same.account : a.account;
+    return { ...rest, id: same.id, ...(same.tools ? { tools: same.tools } : {}), ...(account ? { account } : {}) };
   });
 }
 

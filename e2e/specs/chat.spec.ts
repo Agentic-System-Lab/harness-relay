@@ -1,3 +1,5 @@
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures';
 import {
@@ -94,6 +96,46 @@ const LOGO_DOTS = [
   { cx: 23, cy: 10, r: 5 },
   { cx: 23, cy: 23, r: 5 },
 ];
+
+test.describe('auto team with exhausted CLI quotas', () => {
+  test.use({ openBackend: false });
+
+  test('refreshes quota before starting the next team and replaces a newly exhausted model', async ({ page, relay }) => {
+    await relay.api('/api/settings', { method: 'PUT', body: { lead: { provider: 'codex' } } });
+    const id = await startChat(page, { autoConfirm: true, permission: 'read-only' });
+    await send(page, 'Choose Claude first e2e:team=claude');
+    await expect((await finishedReply(page, 'Claude')).locator('.provider-tag')).toHaveText('Claude Code');
+    await settled(relay, id);
+
+    const claudeUsage = relay.fakeLog().find((entry) => entry.cli === 'claude' && entry.usage === 42);
+    expect(claudeUsage?.home).toBeTruthy();
+    writeFileSync(join(claudeUsage!.home!, 'e2e-plan-exhausted'), '');
+    await send(page, 'Choose Claude again e2e:team=claude');
+    await expect(page.locator('.plan-card').last()).toContainText('adjusted to use available accounts or models');
+    await expect((await finishedReply(page, 'Claude')).locator('.provider-tag')).toHaveText('Codex');
+
+    const conv = await settled(relay, id);
+    expect(conv.messages.findLast((m) => m.plan)?.plan?.agents?.map((a) => a.provider)).toEqual(['codex']);
+    const lead = relay.fakeLog().findLast((entry) => entry.cli === 'codex' && entry.prompt?.includes('Coding agents you can use'));
+    expect(lead?.prompt).toBeDefined();
+    expect(lead?.prompt).not.toContain('- claude (Claude Code)');
+  });
+
+  test.describe('all CLIs are exhausted', () => {
+    test.use({ serverEnv: { E2E_EXHAUSTED_CLIS: 'claude,codex,grok' } });
+
+    test('explains why it cannot start a team', async ({ page, relay }) => {
+      const id = await startChat(page, { autoConfirm: true, permission: 'read-only' });
+      await send(page, 'Choose a team');
+      await expect(page.getByRole('status').filter({ hasText: 'No models are available for this team.' })).toBeVisible();
+
+      const conv = await settled(relay, id);
+      expect(conv.messages.find((m) => m.plan)?.plan?.status).toBe('failed');
+      expect(conv.agents).toEqual([]);
+      expect(conv.messages.some((m) => m.author.kind === 'agent')).toBe(false);
+    });
+  });
+});
 
 test.describe('a new chat', () => {
   test('the lead agent proposes a team, and once it is confirmed the team answers', async ({ page, relay }) => {

@@ -95,10 +95,13 @@ function firstTime(text) {
 /**
  * How much of its plan the account signed in here has used, as each fake reports it (Claude Code's
  * `get_usage`, Codex's `account/rateLimits/read`, Grok's `_x.ai/billing`, `muse usage --json`): 42%
- * for the default sign-in (e2e@example.com), 7% for any other, so that each account shows its own.
+ * for the default sign-in (e2e@example.com) and 7% for any other. A test can exhaust a CLI through
+ * E2E_EXHAUSTED_CLIS or exhaust one account by placing the marker in its home.
  */
 function planUsedPercent() {
-  const used = signIn.email() === 'e2e@example.com' ? 42 : 7;
+  const exhausted =
+    fs.existsSync(path.join(self.home(), 'e2e-plan-exhausted')) || process.env.E2E_EXHAUSTED_CLIS?.split(',').includes(self.cli());
+  const used = exhausted ? 100 : signIn.email() === 'e2e@example.com' ? 42 : 7;
   record({ usage: used, home: self.home() });
   return used;
 }

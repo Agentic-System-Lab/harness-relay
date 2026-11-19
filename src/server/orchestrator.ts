@@ -61,6 +61,7 @@ import { AutoGrouper } from './grouping';
 import type { Hub } from './hub';
 import {
   PLANNER_BRIEFING,
+  PlanUnavailableError,
   REVISER_BRIEFING,
   buildPlannerPrompt,
   buildRevisePrompt,
@@ -70,6 +71,7 @@ import {
   fallbackPlan,
   historyForLead,
   keepMemberIds,
+  memberAvailable,
   planFollowsTeam,
   parsePlanReply,
   teamSettings,
@@ -313,12 +315,12 @@ const MAX_PRESET_NAME = 100;
  * waits for its team, so Continue designs it again.
  */
 function designOwed(messages: ChatMessage[]): boolean {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i]!;
-    if (m.author.kind === 'agent') return false;
-    if (m.plan) return m.plan.status !== 'ready';
-  }
-  return false;
+  const plan = latestDesignSinceReply(messages);
+  return Boolean(plan && plan.status !== 'ready');
+}
+
+function latestDesignSinceReply(messages: ChatMessage[]): ChatMessage['plan'] {
+  return messages.findLast((m) => m.author.kind === 'agent' || m.plan)?.plan;
 }
 
 /**
@@ -335,7 +337,7 @@ export interface PlannerSource {
    * What the lead may choose from; with `cwd`, also what each CLI loads by itself there (with the
    * other working directories, `addDirs`, as runs have them).
    */
-  context(cwd?: string, addDirs?: readonly string[]): Promise<PlannerContext>;
+  context(cwd?: string, addDirs?: readonly string[], checkUsage?: boolean): Promise<PlannerContext>;
   /**
    * The model an open agent with none of its own runs on: the one its model picker shows as the
    * default (Settings' default, else its CLI catalog's default on a configured backend). The other
@@ -1332,6 +1334,7 @@ export class Orchestrator {
    */
   startQueued(conv: Conversation): boolean {
     if (!conv.queue?.length || !this.mayStart(conv)) return false;
+    if (latestDesignSinceReply(conv.messages)?.status === 'failed') return false;
     // An agent asked the user something: what was written before the question waits for the answer.
     if (conv.pause) return false;
     // Only the schedule's message waits: nobody may be watching this run either.
@@ -2108,11 +2111,15 @@ export class Orchestrator {
       : undefined;
     const history = historyForLead(conv.messages.slice(0, since));
     const started = Date.now();
-    let ctx: PlannerContext = { available: [], catalog: [], presets: this.store.listPresets() };
+    let ctx: PlannerContext | undefined;
+    let failure: string | undefined;
     let decision: PlanDecision | undefined;
     let result: RunResult | undefined;
     try {
-      ctx = await this.planner.context(conv.settings.cwd, conv.settings.extraCwds);
+      ctx = await this.planner.context(conv.settings.cwd, conv.settings.extraCwds, true);
+      run.abort.signal.throwIfAborted();
+      if (ctx.staffing && !ctx.available.length) throw new PlanUnavailableError(t().planNoAvailableModel(run.designFor !== undefined));
+      if (!memberAvailable(ctx, lead)) throw new Error(t().planLeadUnavailable);
       let reply = '';
       result = await runners[lead.provider].run({
         bin: this.settings.bin(lead.provider),
@@ -2144,7 +2151,14 @@ export class Orchestrator {
     } catch (err) {
       if (!run.abort.signal.aborted) {
         console.warn('[orchestrator] team design failed:', (err as Error).message);
-        decision = fallbackPlan(ctx, lead, (err as Error).message, current);
+        failure = (err as Error).message;
+        if (ctx && !(err instanceof PlanUnavailableError)) {
+          try {
+            decision = fallbackPlan(ctx, lead, failure, current);
+          } catch (fallbackError) {
+            failure = (fallbackError as Error).message;
+          }
+        }
       }
     }
 
@@ -2154,11 +2168,14 @@ export class Orchestrator {
       inputTokens: result?.inputTokens,
       outputTokens: result?.outputTokens,
     };
-    if (run.abort.signal.aborted || !decision) {
+    if (run.abort.signal.aborted) {
       msg.status = 'aborted';
+    } else if (!decision) {
+      msg.plan = { ...msg.plan!, status: 'failed', reason: failure };
+      msg.status = 'done';
     } else {
       // Members who stay on keep their ids, and with them their sessions.
-      const agents = keepMemberIds(decision.agents, conv.agents);
+      const agents = keepMemberIds(decision.agents, conv.agents, !ctx?.staffing);
       const now = Boolean(conv.settings.autoConfirm);
       msg.plan = {
         status: 'ready',

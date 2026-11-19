@@ -483,6 +483,13 @@ function PlanCard({
   const lead = leadLabel(plan.lead);
   const wording = planWording(plan, t, lead);
 
+  if (plan.status === 'failed')
+    return (
+      <div className="msg-error" role="status">
+        ⚠ {plan.reason}
+      </div>
+    );
+
   if (plan.status === 'planning') {
     const live = msg.status === 'streaming';
     return (

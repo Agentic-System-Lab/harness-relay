@@ -1089,7 +1089,7 @@ export interface LeadAgentSettings {
 
 /** What the lead agent decided for a question in an auto-team conversation (shown as a card in the chat). */
 export interface TeamPlan {
-  status: 'planning' | 'ready';
+  status: 'planning' | 'ready' | 'failed';
   lead: LeadAgentSettings;
   /**
    * kept: the current team, as it is; template: an existing template, as it is; adapted: a template
@@ -2103,6 +2103,8 @@ export interface UsageLimit {
   kind?: UsageKind;
   /** What it is for, when not the whole plan: a model ("Fable"), or the CLI's own name for the limit. */
   scope?: string;
+  /** A model ID associated with the quota, when the CLI reports one separately from the display scope. */
+  model?: string;
   /** How much of it is used, 0–100. */
   usedPercent: number;
   /** When it starts over (ms since the epoch). */
@@ -2135,6 +2137,8 @@ export interface AccountUsage {
   /** The plan, as the CLI names it ("max", "prolite", "SuperGrok"). */
   plan?: string;
   limits: UsageLimit[];
+  /** The CLI explicitly says ordinary usage on this plan is blocked. */
+  planUsageBlocked?: boolean;
   /** Credits beside the plan's limits (Codex's), when the account has some. */
   credits?: { balance?: number; unlimited?: boolean };
   /** No limits to show, and why. */

@@ -7,6 +7,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import type { PlannerContext } from '../src/server/planner';
 import type { Conversation, ConversationSchedule } from '../src/shared/types';
 import {
   agentMessages,
@@ -31,6 +32,96 @@ import {
 } from './orchestrator-harness';
 
 describe('a team the lead agent designs', () => {
+  it('does not start a team or drain its queue when all available models are exhausted', async () => {
+    const context = vi.fn<() => Promise<PlannerContext>>(async () => ({
+      available: [],
+      accounts: {},
+      catalog: [],
+      presets: store.listPresets(),
+      staffing: { usage: [], now: Date.now() },
+    }));
+    setOrchestrator(new Orchestrator(store, new Hub(), settings, { context }));
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, autoConfirm: true, rounds: 1 });
+    await orchestrator.send(conv.id, 'design my team');
+    await orchestrator.send(conv.id, 'and cover edge cases');
+    await finish(conv.id);
+
+    expect(calls).toEqual([]);
+    expect(conv.messages.find((m) => m.plan)?.plan).toMatchObject({ status: 'failed', reason: expect.any(String) });
+    expect(conv.queue?.map(textOf)).toEqual(['and cover edge cases']);
+
+    context.mockResolvedValue({
+      available: ['claude'],
+      accounts: { claude: [''] },
+      catalog: [],
+      presets: store.listPresets(),
+      staffing: { usage: [], now: Date.now() },
+    });
+    fake.leadReply = JSON.stringify({ choice: 'keep' });
+    await orchestrator.send(conv.id, '');
+    await finish(conv.id);
+    expect(calls[0]?.prompt).toContain('design my team\n\nand cover edge cases');
+    expect(conv.messages.findLast((m) => m.plan)?.plan?.status).toBe('ready');
+    expect(agentMessages(conv).filter((m) => m.status === 'done')).toHaveLength(2);
+  });
+
+  it('uses a different account when the configured lead and the current member have exhausted their quota', async () => {
+    const work = settings.addAccount('claude', 'Work');
+    setOrchestrator(
+      new Orchestrator(store, new Hub(), settings, {
+        context: async () => ({
+          available: ['claude'],
+          accounts: { claude: [work] },
+          catalog: [],
+          presets: store.listPresets(),
+          staffing: {
+            now: Date.now(),
+            usage: [{ provider: 'claude', account: '', checkedAt: Date.now(), limits: [{ usedPercent: 100 }] }],
+          },
+        }),
+      }),
+    );
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, autoConfirm: true, rounds: 1 });
+    const member = conv.agents[0]!;
+    conv.agents = [{ ...member, tools: { memory: false } }];
+    store.saveMeta(conv);
+
+    await orchestrator.send(conv.id, 'design my team');
+    await finish(conv.id);
+
+    expect(calls.map((c) => [c.name, c.home])).toEqual([[member.name, settings.env('claude', work).CLAUDE_CONFIG_DIR]]);
+    expect(conv.agents[0]).toMatchObject({ id: member.id, provider: 'claude', account: work, tools: { memory: false } });
+    expect(conv.messages.find((m) => m.plan)?.plan).toMatchObject({ status: 'ready', source: 'fallback' });
+  });
+
+  it('stops a kept team whose private endpoint has been deleted', async () => {
+    setOrchestrator(
+      new Orchestrator(store, new Hub(), settings, {
+        context: async () => ({
+          available: ['claude'],
+          accounts: { claude: [''] },
+          catalog: [],
+          presets: store.listPresets(),
+          staffing: { usage: [], now: Date.now(), backends: { configured: [], deletedEndpoints: ['private'] } },
+        }),
+      }),
+    );
+    const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, autoConfirm: true, rounds: 1 });
+    conv.agents = [{ ...conv.agents[0]!, model: 'private/local-model' }];
+    store.saveMeta(conv);
+    fake.leadReply = JSON.stringify({ choice: 'keep' });
+
+    await orchestrator.send(conv.id, 'design my team');
+    await finish(conv.id);
+
+    expect(calls.map((c) => c.name)).toEqual(['lead']);
+    expect(conv.messages.find((m) => m.plan)?.plan).toMatchObject({
+      status: 'failed',
+      reason: expect.stringContaining('private/local-model'),
+    });
+    expect(conv.agents[0]?.model).toBe('private/local-model');
+  });
+
   it("keeps the tools and account the user set for a member who stays on, and gives new members their CLI's defaults", async () => {
     const work = settings.addAccount('claude', 'Work');
     const conv = conversation({ mode: 'roundtable', permission: 'read-only', autoTeam: true, rounds: 1 });
