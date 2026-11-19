@@ -17,7 +17,7 @@ import { CommandOutcome } from './ChecksCard';
 
 interface Props {
   env?: Environment;
-  includeHooks?: boolean;
+  variant: 'defaults' | 'team' | 'template';
   value: CheckList | undefined;
   onChange: (next: CheckList | undefined) => void;
   /** The permission the team has: read-only changes no files, so nothing is checked (absent: a template). */
@@ -44,7 +44,7 @@ const newId = () => Math.random().toString(36).slice(2, 10);
  * a line each, the commit format, commands that must succeed, and hooks around the members' tool calls.
  * Folded away until it is opened, or while it has rules.
  */
-export function ChecksEditor({ value, onChange, permission, convId, env, includeHooks = true }: Props) {
+export function ChecksEditor({ value, onChange, permission, convId, env, variant }: Props) {
   const t = useT();
   const pathsId = useId();
   const pathsHint = useId();
@@ -88,174 +88,177 @@ export function ChecksEditor({ value, onChange, permission, convId, env, include
   const mac = !env || env.platform === 'darwin';
   const linux = !env || env.platform === 'linux';
 
-  return (
-    <details className="field checks-editor" open={openAtStart}>
-      <summary>
-        <span>{t.checks.editorTitle}</span>
-        {rules > 0 && <span className="muted small"> · {t.checks.count(rules)}</span>}
-      </summary>
-      {/* The layout lives on a wrapper: some browsers ignore display: flex on <details>. */}
-      <div className="checks-editor-body">
-        {includeHooks && <p className="small muted">{t.checks.editorHint}</p>}
-        {permission === 'read-only' && rules > 0 && <p className="small warn-text">{t.checks.readOnlyNote}</p>}
-        <div className="checks-field">
-          <label htmlFor={pathsId}>{t.checks.protectedPaths}</label>
-          <textarea
-            id={pathsId}
-            rows={3}
+  const fields = (
+    <div className="checks-editor-body">
+      {variant !== 'defaults' && <p className="small muted">{t.checks.editorHint}</p>}
+      {permission === 'read-only' && rules > 0 && <p className="small warn-text">{t.checks.readOnlyNote}</p>}
+      <div className="checks-field">
+        <label htmlFor={pathsId}>{t.checks.protectedPaths}</label>
+        <textarea
+          id={pathsId}
+          rows={3}
+          spellCheck={false}
+          aria-describedby={pathsHint}
+          aria-invalid={Boolean(wrongPath)}
+          placeholder={'.env\n*.pem\nsecrets/'}
+          value={paths}
+          onChange={(e) => update({ paths: e.target.value })}
+        />
+        <span className="small muted" id={pathsHint}>
+          {t.checks.protectedPathsHint} {t.checks.protectedPathsBefore}
+        </span>
+        {wrongPath && <span className="small warn-text">{t.checks.badPath(wrongPath)}</span>}
+      </div>
+      <div className="checks-field">
+        <label htmlFor={patternId}>{t.checks.commitPattern}</label>
+        <div className="checks-pattern">
+          <input
+            id={patternId}
+            type="text"
             spellCheck={false}
-            aria-describedby={pathsHint}
-            aria-invalid={Boolean(wrongPath)}
-            placeholder={'.env\n*.pem\nsecrets/'}
-            value={paths}
-            onChange={(e) => update({ paths: e.target.value })}
+            aria-describedby={patternHint}
+            aria-invalid={Boolean(wrongPattern)}
+            value={pattern}
+            onChange={(e) => update({ pattern: e.target.value })}
           />
-          <span className="small muted" id={pathsHint}>
-            {t.checks.protectedPathsHint} {t.checks.protectedPathsBefore}
-          </span>
-          {wrongPath && <span className="small warn-text">{t.checks.badPath(wrongPath)}</span>}
+          <button type="button" className="ghost small-button" onClick={() => update({ pattern: CONVENTIONAL_COMMIT_PATTERN })}>
+            {t.checks.conventional}
+          </button>
         </div>
-        <div className="checks-field">
-          <label htmlFor={patternId}>{t.checks.commitPattern}</label>
-          <div className="checks-pattern">
-            <input
-              id={patternId}
-              type="text"
-              spellCheck={false}
-              aria-describedby={patternHint}
-              aria-invalid={Boolean(wrongPattern)}
-              value={pattern}
-              onChange={(e) => update({ pattern: e.target.value })}
-            />
-            <button type="button" className="ghost small-button" onClick={() => update({ pattern: CONVENTIONAL_COMMIT_PATTERN })}>
-              {t.checks.conventional}
-            </button>
-          </div>
-          <span className="small muted" id={patternHint}>
-            {t.checks.commitPatternHint}
-          </span>
-          {wrongPattern && <span className="small warn-text">{t.checks.badPattern(wrongPattern)}</span>}
-        </div>
-        <div className="checks-field">
-          <span className="checks-commands-title">{t.checks.commands}</span>
-          <span className="small muted" id={commandsHint}>
-            {t.checks.commandsHint}
-          </span>
-          {env?.platform === 'win32' && <span className="small warn-text">{t.checks.windowsNote}</span>}
-          {/* Read-only runs no command: the note above says so. */}
-          {env?.sandbox && env.platform !== 'win32' && permission !== 'full' && permission !== 'read-only' && commands.length > 0 && (
-            <span className="small warn-text">{t.checks.noSandbox(env.sandbox)}</span>
-          )}
-          <ul className="checks-commands">
-            {commands.map((c) => {
-              const problem = c.run.trim() ? commandProblem(c) : undefined;
-              const result = tried[c.id];
-              return (
-                <li key={c.id} className="checks-command-row">
-                  <div className="checks-command-line">
+        <span className="small muted" id={patternHint}>
+          {t.checks.commitPatternHint}
+        </span>
+        {wrongPattern && <span className="small warn-text">{t.checks.badPattern(wrongPattern)}</span>}
+      </div>
+      <div className="checks-field">
+        <span className="checks-commands-title">{t.checks.commands}</span>
+        <span className="small muted" id={commandsHint}>
+          {t.checks.commandsHint}
+        </span>
+        {env?.platform === 'win32' && <span className="small warn-text">{t.checks.windowsNote}</span>}
+        {/* Read-only runs no command: the note above says so. */}
+        {env?.sandbox && env.platform !== 'win32' && permission !== 'full' && permission !== 'read-only' && commands.length > 0 && (
+          <span className="small warn-text">{t.checks.noSandbox(env.sandbox)}</span>
+        )}
+        <ul className="checks-commands">
+          {commands.map((c) => {
+            const problem = c.run.trim() ? commandProblem(c) : undefined;
+            const result = tried[c.id];
+            return (
+              <li key={c.id} className="checks-command-row">
+                <div className="checks-command-line">
+                  <input
+                    type="text"
+                    spellCheck={false}
+                    aria-label={t.checks.commandRun}
+                    aria-describedby={commandsHint}
+                    placeholder="npm test"
+                    value={c.run}
+                    onChange={(e) => setCommand(c.id, { run: e.target.value })}
+                  />
+                  <button
+                    type="button"
+                    className="ghost small-button"
+                    aria-label={t.checks.removeCommand}
+                    title={t.checks.removeCommand}
+                    onClick={() => update({ commands: commands.filter((x) => x.id !== c.id) })}
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="checks-command-options">
+                  <label>
+                    <span className="small muted">{t.checks.commandFolder}</span>
                     <input
                       type="text"
                       spellCheck={false}
-                      aria-label={t.checks.commandRun}
-                      aria-describedby={commandsHint}
-                      placeholder="npm test"
-                      value={c.run}
-                      onChange={(e) => setCommand(c.id, { run: e.target.value })}
+                      value={c.cwd ?? ''}
+                      onChange={(e) => setCommand(c.id, { cwd: e.target.value || undefined })}
                     />
-                    <button
-                      type="button"
-                      className="ghost small-button"
-                      aria-label={t.checks.removeCommand}
-                      title={t.checks.removeCommand}
-                      onClick={() => update({ commands: commands.filter((x) => x.id !== c.id) })}
-                    >
-                      ×
+                  </label>
+                  <label>
+                    <span className="small muted">{t.checks.commandTimeout}</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={CHECK_LIMITS.maxTimeoutMin}
+                      value={c.timeoutMin ?? CHECK_LIMITS.timeoutMin}
+                      onChange={(e) => setCommand(c.id, { timeoutMin: e.target.value === '' ? undefined : Number(e.target.value) })}
+                    />
+                  </label>
+                </div>
+                {mac && (
+                  <label className="check-row">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(c.localPorts)}
+                      onChange={(e) => setCommand(c.id, { localPorts: e.target.checked || undefined })}
+                    />
+                    <span>
+                      {t.checks.localPorts}
+                      <span className="small muted"> · {t.checks.localPortsHint}</span>
+                    </span>
+                  </label>
+                )}
+                {linux && (
+                  <label className="check-row">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(c.unixSockets)}
+                      onChange={(e) => setCommand(c.id, { unixSockets: e.target.checked || undefined })}
+                    />
+                    <span>
+                      {t.checks.unixSockets}
+                      <span className="small muted"> · {t.checks.unixSocketsHint}</span>
+                    </span>
+                  </label>
+                )}
+                {problem === 'folder' && <span className="small warn-text">{t.checks.badFolder(c.cwd ?? '')}</span>}
+                {problem === 'timeout' && <span className="small warn-text">{t.checks.badTimeout(CHECK_LIMITS.maxTimeoutMin)}</span>}
+                {convId && c.run.trim() && !problem && permission !== 'read-only' && (
+                  <div className="checks-try">
+                    <button type="button" className="ghost small-button" disabled={result === 'running'} onClick={() => void tryIt(c)}>
+                      {result === 'running' ? t.checks.trying : t.checks.tryIt}
                     </button>
+                    {result === undefined && <span className="small muted">{t.checks.tryFirst}</span>}
                   </div>
-                  <div className="checks-command-options">
-                    <label>
-                      <span className="small muted">{t.checks.commandFolder}</span>
-                      <input
-                        type="text"
-                        spellCheck={false}
-                        value={c.cwd ?? ''}
-                        onChange={(e) => setCommand(c.id, { cwd: e.target.value || undefined })}
-                      />
-                    </label>
-                    <label>
-                      <span className="small muted">{t.checks.commandTimeout}</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={CHECK_LIMITS.maxTimeoutMin}
-                        value={c.timeoutMin ?? CHECK_LIMITS.timeoutMin}
-                        onChange={(e) => setCommand(c.id, { timeoutMin: e.target.value === '' ? undefined : Number(e.target.value) })}
-                      />
-                    </label>
+                )}
+                {result !== undefined && result !== 'running' && (
+                  <div className="checks-tried" role="status">
+                    {typeof result === 'string' ? (
+                      <span className="small warn-text">{t.checks.failedAction(result)}</span>
+                    ) : (
+                      <CommandOutcome o={result} />
+                    )}
                   </div>
-                  {mac && (
-                    <label className="check-row">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(c.localPorts)}
-                        onChange={(e) => setCommand(c.id, { localPorts: e.target.checked || undefined })}
-                      />
-                      <span>
-                        {t.checks.localPorts}
-                        <span className="small muted"> · {t.checks.localPortsHint}</span>
-                      </span>
-                    </label>
-                  )}
-                  {linux && (
-                    <label className="check-row">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(c.unixSockets)}
-                        onChange={(e) => setCommand(c.id, { unixSockets: e.target.checked || undefined })}
-                      />
-                      <span>
-                        {t.checks.unixSockets}
-                        <span className="small muted"> · {t.checks.unixSocketsHint}</span>
-                      </span>
-                    </label>
-                  )}
-                  {problem === 'folder' && <span className="small warn-text">{t.checks.badFolder(c.cwd ?? '')}</span>}
-                  {problem === 'timeout' && <span className="small warn-text">{t.checks.badTimeout(CHECK_LIMITS.maxTimeoutMin)}</span>}
-                  {convId && c.run.trim() && !problem && permission !== 'read-only' && (
-                    <div className="checks-try">
-                      <button type="button" className="ghost small-button" disabled={result === 'running'} onClick={() => void tryIt(c)}>
-                        {result === 'running' ? t.checks.trying : t.checks.tryIt}
-                      </button>
-                      {result === undefined && <span className="small muted">{t.checks.tryFirst}</span>}
-                    </div>
-                  )}
-                  {result !== undefined && result !== 'running' && (
-                    <div className="checks-tried" role="status">
-                      {typeof result === 'string' ? (
-                        <span className="small warn-text">{t.checks.failedAction(result)}</span>
-                      ) : (
-                        <CommandOutcome o={result} />
-                      )}
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-          {commands.length < CHECK_LIMITS.commands && (
-            <button
-              type="button"
-              className="ghost small-button checks-add"
-              onClick={() => update({ commands: [...commands, { id: newId(), run: '' }] })}
-            >
-              {t.checks.addCommand}
-            </button>
-          )}
-        </div>
-        {includeHooks && (
-          <HooksEditor value={value?.hooks} onChange={(hooks) => update({ hooks })} permission={permission} env={env} showTitle />
+                )}
+              </li>
+            );
+          })}
+        </ul>
+        {commands.length < CHECK_LIMITS.commands && (
+          <button
+            type="button"
+            className="ghost small-button checks-add"
+            onClick={() => update({ commands: [...commands, { id: newId(), run: '' }] })}
+          >
+            {t.checks.addCommand}
+          </button>
         )}
       </div>
+      {variant !== 'defaults' && (
+        <HooksEditor value={value?.hooks} onChange={(hooks) => update({ hooks })} permission={permission} env={env} showTitle />
+      )}
+    </div>
+  );
+  if (variant === 'defaults') return fields;
+  return (
+    <details className="field checks-editor" open={openAtStart}>
+      <summary>
+        <span>{variant === 'template' ? t.checks.title : t.checks.advancedSettings}</span>
+        {rules > 0 && <span className="muted small"> · {t.checks.count(rules)}</span>}
+      </summary>
+      {fields}
     </details>
   );
 }

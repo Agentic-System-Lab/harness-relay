@@ -985,7 +985,7 @@ export const zhTW = {
     skipConfirm: '略過這份未通過的檢查？排隊的訊息會送出，agent 不會再被要求修正它。未通過的紀錄會保留，不會變成通過。',
     failedAction: (why: string) => `操作失敗：${why}`,
     // Team settings and the template editor.
-    editorTitle: '團隊檢查',
+    advancedSettings: '進階設定',
     editorHint:
       'Harness Relay 會在可編輯與完全存取的對話中依這些規則檢查成果。Hook 會在支援的工具呼叫前後執行，成果檢查的結果會顯示在對話裡。',
     protectedPaths: '受保護路徑',

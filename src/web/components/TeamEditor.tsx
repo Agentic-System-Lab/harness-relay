@@ -150,6 +150,21 @@ export function TeamEditor({
     setAgents(next);
   };
 
+  const checksEditor = (
+    <ChecksEditor
+      key={checksEditorVersion}
+      variant={template ? 'template' : 'team'}
+      value={settings.checks}
+      env={checksEnv}
+      permission={template ? undefined : settings.permission}
+      convId={template ? undefined : convId}
+      onChange={(checks) => {
+        const { checks: _old, ...rest } = settings;
+        onChange({ ...value, settings: checks === undefined ? rest : { ...rest, checks } });
+      }}
+    />
+  );
+
   return (
     <div className="team-editor">
       {showMembers && (
@@ -322,17 +337,7 @@ export function TeamEditor({
             </span>
           </div>
         )}
-        <ChecksEditor
-          key={checksEditorVersion}
-          value={settings.checks}
-          env={checksEnv}
-          permission={template ? undefined : settings.permission}
-          convId={template ? undefined : convId}
-          onChange={(checks) => {
-            const { checks: _old, ...rest } = settings;
-            onChange({ ...value, settings: checks === undefined ? rest : { ...rest, checks } });
-          }}
-        />
+        {template && checksEditor}
         {showMembers && (
           <div className="option-row">
             {MODES.map((m) => (
@@ -448,6 +453,7 @@ export function TeamEditor({
             )}
           </div>
         )}
+        {!template && checksEditor}
       </section>
     </div>
   );

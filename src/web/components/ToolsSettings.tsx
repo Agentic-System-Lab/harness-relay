@@ -739,7 +739,7 @@ function ChecksDefaultSection({
         {hooksOnly ? (
           <HooksEditor key={opened} value={saved.hooks} env={env} onChange={(hooks) => edit({ hooks: hooksFromRows(hooks) })} />
         ) : (
-          <ChecksEditor key={opened} value={draft} onChange={edit} env={env} includeHooks={false} />
+          <ChecksEditor key={opened} value={draft} onChange={edit} env={env} variant="defaults" />
         )}
       </fieldset>
       {(problem || error) && <p className="error-line">{problem || error}</p>}

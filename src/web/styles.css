@@ -5597,10 +5597,8 @@ details.sub summary {
   align-self: flex-start;
 }
 
-/* Team settings and the template editor: folded away until it is opened or has rules. The layout
-   lives on a wrapper: some browsers ignore display: flex on <details>. */
-/* Apart from what follows it (the modes, the working directories), as those rows are apart from each other. */
-.checks-editor {
+/* The template editor has more fields below the checks. */
+.checks-editor:not(:last-child) {
   margin-bottom: 16px;
 }
 
@@ -5609,11 +5607,14 @@ details.sub summary {
   font-weight: 500;
 }
 
+summary + .checks-editor-body {
+  padding-top: 8px;
+}
+
 .checks-editor-body {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding-top: 8px;
   min-width: 0;
 }
 
@@ -5636,7 +5637,7 @@ details.sub summary {
   color: var(--muted);
 }
 
-.checks-editor textarea {
+.checks-editor-body textarea {
   font-family: var(--mono);
   font-size: 13px;
 }

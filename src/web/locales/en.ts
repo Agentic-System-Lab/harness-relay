@@ -969,7 +969,7 @@ export const en: Messages = {
     skipConfirm:
       'Skip this failed check? The waiting messages are sent, and agents are no longer asked to fix it. The failure is kept: it does not become a pass.',
     failedAction: (why) => `That did not work: ${why}`,
-    editorTitle: 'Team checks',
+    advancedSettings: 'Advanced settings',
     editorHint:
       'Harness Relay checks these rules in chats with Edit or Full access. Hooks run around supported tool calls, and results for completed work appear in the chat.',
     protectedPaths: 'Protected paths',

@@ -12,6 +12,7 @@ import { relaySandbox } from '../support/clis';
  * the replies says what failed and lets the user check again, ask a member to fix it, or skip it.
  */
 const checkCards = (page: Page) => page.locator('.checks-card');
+const lastTeamField = (page: Page) => page.locator('.team-editor > section:last-child > :last-child');
 
 test.describe('team checks', () => {
   test('a protected file the team writes fails the check, holds what the user wrote meanwhile, and Skip lets it go', async ({
@@ -55,19 +56,17 @@ test.describe('team checks', () => {
     const id = await openTeamChat(page, relay, [{ name: 'Claude', provider: 'claude' }], { permission: 'edit' });
     await page.locator('.chat-head').getByRole('button', { name: 'Team settings' }).click();
     const drawer = page.getByRole('dialog', { name: 'Team settings' });
-    await drawer.locator('.checks-editor summary').click();
-    // Laid out in a column (some browsers ignore display: flex on <details>): each rule's name above
-    // what is typed, and its last button (Add a hook) apart from the row after the editor.
-    const editor = drawer.locator('.checks-editor');
-    const gaps = await editor.evaluate((el) => {
-      const rect = (q: string) => el.querySelector(q)!.getBoundingClientRect();
-      return {
-        label: rect('textarea').top - rect('.checks-field > label').bottom,
-        after: el.nextElementSibling!.getBoundingClientRect().top - rect('.checks-add-hook').bottom,
-      };
-    });
-    expect(gaps.label).toBeGreaterThanOrEqual(0);
-    expect(gaps.after).toBeGreaterThanOrEqual(12);
+    const editor = lastTeamField(page);
+    const summary = editor.locator('summary');
+    await expect(summary).toHaveText('Advanced settings');
+    await summary.click();
+    // Each rule's label stays above its input in the expanded section.
+    const labelGap = await editor.evaluate(
+      (el) =>
+        el.querySelector('textarea')!.getBoundingClientRect().top -
+        el.querySelector('.checks-field > label')!.getBoundingClientRect().bottom,
+    );
+    expect(labelGap).toBeGreaterThanOrEqual(0);
     await drawer.getByLabel('Protected paths').fill('../outside');
     await expect(drawer.locator('.checks-editor')).toContainText('"../outside" cannot be used');
     await drawer.getByLabel('Protected paths').fill('*.key\n');
@@ -309,7 +308,8 @@ test.describe('team checks', () => {
     const hooks = page.getByRole('region', { name: 'Hooks', exact: true });
     const checks = page.getByRole('region', { name: 'Default team checks', exact: true });
     await expect(page.locator('.tools-section:has(.memory-input) + section')).toHaveAccessibleName('Hooks');
-    await checks.locator('.checks-editor summary').click();
+    await expect(checks.getByLabel('Protected paths')).toBeVisible();
+    await expect(checks.locator('details')).toHaveCount(0);
     await expect(checks.getByRole('button', { name: 'Add a hook' })).toHaveCount(0);
 
     const saveHooks = hooks.getByRole('button', { name: 'Save', exact: true });
@@ -352,13 +352,19 @@ test.describe('team checks', () => {
     const remove = hooks.getByRole('button', { name: 'Remove this hook' });
     for (const width of [1280, 320]) {
       await page.setViewportSize({ width, height: 800 });
-      const button = (await remove.boundingBox())!;
-      const when = (await hooks.getByText('When', { exact: true }).boundingBox())!;
-      const calls = (await hooks.getByRole('combobox', { name: 'Which calls' }).boundingBox())!;
-      const input = (await hook.boundingBox())!;
-      expect(button.y).toBeCloseTo(when.y, 0);
-      expect(button.x).toBeGreaterThan(calls.x + calls.width);
-      expect(button.x + button.width).toBeCloseTo(input.x + input.width, 0);
+      // Read one layout frame: the settings page can still shift as CLI status cards load.
+      const gaps = await hooks.locator('.checks-hook-row').evaluate((row) => {
+        const rect = (selector: string) => row.querySelector(selector)!.getBoundingClientRect();
+        const button = rect('button');
+        return {
+          top: button.top - rect('label').top,
+          beside: button.left - rect('label:last-child select').right,
+          right: button.right - rect('input[type="text"]').right,
+        };
+      });
+      expect(gaps.top).toBeCloseTo(0);
+      expect(gaps.beside).toBeGreaterThan(0);
+      expect(gaps.right).toBeCloseTo(0);
     }
     await remove.click();
     await saveHooks.click();
@@ -369,7 +375,6 @@ test.describe('team checks', () => {
   test('a default set in Settings starts each new chat and automation, which can change or remove it', async ({ page, relay }) => {
     await page.goto(`${relay.base}/#/settings/tools`);
     const section = page.locator('.checks-default');
-    await section.locator('.checks-editor summary').click();
     await section.getByLabel('Protected paths').fill('.env\n*.pem');
     await section.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(section).toContainText('Saved');
@@ -378,7 +383,8 @@ test.describe('team checks', () => {
 
     // A new chat starts with it, marked as the default (a template's own list replaces it).
     await openNewChat(page);
-    const editor = page.locator('.checks-editor');
+    const editor = lastTeamField(page);
+    await expect(editor.locator('summary')).toContainText('Advanced settings');
     await expect(editor.getByLabel('Protected paths')).toHaveValue('.env\n*.pem');
     await page.getByRole('button', { name: 'Start chat →' }).click();
     await page.waitForURL(/#\/c\//);
@@ -387,6 +393,7 @@ test.describe('team checks', () => {
 
     // So does a new automation; removed there, it has none.
     await page.getByRole('button', { name: 'New automation' }).click();
+    await expect(editor.locator('summary')).toContainText('Advanced settings');
     await expect(editor.getByLabel('Protected paths')).toHaveValue('.env\n*.pem');
     await editor.getByLabel('Protected paths').fill('');
     await page.getByRole('textbox', { name: 'Message to send the team' }).fill('Check the build');
