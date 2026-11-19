@@ -16,6 +16,7 @@ import {
   commentIsWorthy,
   fenced,
   postReports,
+  previousSeenRun,
   readSeen,
   reportComment,
   reportIsWorthy,
@@ -1336,6 +1337,13 @@ describe("the workflow's checks (scripts/cli-check/ci.ts)", () => {
     expect(ciMatrix([row('grok', '1.0.89')], [])).toEqual([{ cli: 'grok', version: '1.0.89' }]);
     // A version already settled, clean or not, is not checked again.
     expect(ciMatrix([row('grok', '1.0.89')], [], [{ cli: 'grok', version: '1.0.89' }])).toEqual([]);
+    // A source that names an older version than the one remembered, or than the open issue tells of,
+    // is not checked. Another build of the same numbers still is.
+    expect(ciMatrix([row('copilot', '1.0.110')], [], [{ cli: 'copilot', version: '1.0.114' }])).toEqual([]);
+    expect(ciMatrix([row('copilot', '1.0.110')], [withComments(137, 'copilot', '1.0.114')])).toEqual([]);
+    expect(ciMatrix([row('cursor', '2026.11.19-bbbb')], [], [{ cli: 'cursor', version: '2026.11.19-aaaa' }])).toEqual([
+      { cli: 'cursor', version: '2026.11.19-bbbb' },
+    ]);
     // On a pull request: every CLI's newest, behind or not.
     expect(
       ciMatrix(
@@ -1523,6 +1531,58 @@ describe("the workflow's checks (scripts/cli-check/ci.ts)", () => {
     expect(again.seen.find((s) => s.cli === 'claude')).toEqual({ cli: 'claude', version: '2.1.330' });
   });
 
+  it('does not close an issue that tells of a newer version when a source names an older one', async () => {
+    const calls: string[][] = [];
+    const oldClean =
+      '### Copilot\n\nChecked. It found something to look at: the report says what, layer by layer.\n\n<details><summary>The report</summary>\n\n```text\n== 2. Copilot\n      + session/update:name=rubber-duck\n== 3. Copilot\n  7 of 7 scenarios passed\n```\n\n</details>\n\n' +
+      reportMarker('copilot', '1.0.112');
+    const issue = withComments(137, 'copilot', '1.0.114', [oldClean]);
+    const gh = async (args: string[]) => {
+      calls.push(args);
+      return args[1] === 'list' ? JSON.stringify([issue]) : '';
+    };
+    const lagged = report({
+      cli: 'copilot',
+      version: '1.0.110',
+      checked: '1.0.109',
+      exit: 0,
+      text: '== 2. Copilot\n  same shape\n== 3. Copilot\n  7 of 7 scenarios passed\n',
+    });
+    const { lines, seen } = await postReports([lagged], gh, [{ cli: 'copilot', version: '1.0.114' }]);
+    expect(lines).toEqual(['Copilot 1.0.110: left #137, which tells of 1.0.114']);
+    expect(calls.map((c) => c[1])).toEqual(['list']);
+    expect(seen).toEqual([{ cli: 'copilot', version: '1.0.114' }]);
+    // The same numbers with another build replace the one remembered.
+    const cursor = report({
+      cli: 'cursor',
+      version: '2026.11.19-bbbb',
+      checked: '2026.11.14-aaaa',
+      exit: 0,
+      text: '== 2. Cursor\n  same shape\n',
+    });
+    const replaced = await postReports([cursor], async (args) => (args[1] === 'list' ? '[]' : ''), [
+      { cli: 'cursor', version: '2026.11.19-aaaa' },
+    ]);
+    expect(replaced.seen).toEqual([{ cli: 'cursor', version: '2026.11.19-bbbb' }]);
+    // No report this call: an older not-worthy comment does not close an issue that tells of a newer version.
+    const settled = await postReports([], gh);
+    expect(settled.lines).toEqual([]);
+    expect(calls.filter((c) => c[1] === 'close')).toEqual([]);
+  });
+
+  it('reads the memory from the newest success that was not a pull request', () => {
+    const runs = [
+      { databaseId: 30, event: 'pull_request' },
+      { databaseId: 20, event: 'workflow_dispatch' },
+      { databaseId: 10, event: 'schedule' },
+    ];
+    expect(previousSeenRun(runs)).toBe(20);
+    expect(previousSeenRun([{ databaseId: 30, event: 'pull_request' }])).toBeUndefined();
+    expect(previousSeenRun([])).toBeUndefined();
+    expect(previousSeenRun(null)).toBeUndefined();
+    expect(previousSeenRun([{ event: 'schedule' }, { databaseId: 0, event: 'schedule' }, { databaseId: 4, event: 'schedule' }])).toBe(4);
+  });
+
   it('reads the settled versions, and nothing when the file is missing or not one', () => {
     expect(reportIsWorthy(report())).toBe(false);
     expect(reportIsWorthy(report({ exit: 1, text: '== 2. x\n      + config.a:boolean\n  7 of 7 scenarios passed\n' }))).toBe(false);
@@ -1563,6 +1623,8 @@ describe("the workflow's checks (scripts/cli-check/ci.ts)", () => {
     expect(jobs.get('report')).toMatch(/needs\.versions\.result == 'success'/);
     expect(wf).toContain('name: cli-check-seen');
     expect(wf).toContain('CLI_CHECK_SEEN:');
+    expect(wf).toContain('--json databaseId,event | npx tsx scripts/cli-check/ci.ts seen-run');
+    expect(wf).not.toContain('--json databaseId --jq');
     expect(jobs.get('check')).toContain('run: npx tsx scripts/cli-check/ci.ts check "$CLI" "$VERSION"');
     expect(wf).toMatch(/^permissions: \{\}$/m);
     for (const [name, text] of jobs) expect(text, name).toMatch(/persist-credentials: false/);

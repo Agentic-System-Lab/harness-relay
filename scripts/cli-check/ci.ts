@@ -6,6 +6,9 @@
  *                                                         remembered), and whose open issue, if it has one,
  *                                                         holds no report of that version yet (on a pull
  *                                                         request: every CLI's newest, reported nowhere)
+ *   npx tsx scripts/cli-check/ci.ts seen-run              which previous run holds that memory: the newest
+ *                                                         success that was not a pull request, from the
+ *                                                         JSON of `gh run list` on stdin
  *   npx tsx scripts/cli-check/ci.ts check <cli> <version> gets that version and the one checked apart
  *                                                         (`obtain.ts`), records what the one checked says
  *                                                         here (`--record`), checks the new one against it
@@ -27,7 +30,17 @@ import { CHECKED_VERSIONS } from '../../src/shared/cliVersions';
 import { PROVIDERS, PROVIDER_LABEL, type Provider } from '../../src/shared/types';
 import type { Gh } from './issues';
 import { obtain } from './obtain';
-import { ISSUE_LABEL, issueBody, issueTitle, parseMarker, versionRows, type OpenIssue, type VersionRow } from './versions';
+import {
+  ISSUE_LABEL,
+  compareVersions,
+  issueBody,
+  issueTitle,
+  parseMarker,
+  versionCore,
+  versionRows,
+  type OpenIssue,
+  type VersionRow,
+} from './versions';
 
 export interface MatrixEntry {
   cli: Provider;
@@ -65,15 +78,47 @@ export function ciMatrix(
   seen: readonly Seen[] = [],
 ): MatrixEntry[] {
   if (issues === 'pull_request') return rows.filter((r) => r.latest).map((r) => ({ cli: r.provider, version: r.latest! }));
-  const done = new Set(seen.map((s) => `${s.cli}\t${s.version}`));
+  const settled = new Map<Provider, string>();
+  for (const s of seen) settled.set(s.cli, s.version);
   return rows
     .filter((r) => r.status === 'behind' && r.latest)
     .filter((r) => {
-      if (done.has(`${r.provider}\t${r.latest}`)) return false;
+      const latest = r.latest!;
+      const kept = settled.get(r.provider);
+      // The same version, or an older one than a version already settled (a source that still names
+      // the one before): nothing to check. Another build of the same numbers is still checked.
+      if (kept === latest || (kept !== undefined && newerCore(kept, latest))) return false;
       const issue = issues.find((i) => parseMarker(i.body)?.provider === r.provider);
-      return !issue || !reported(issue, r.provider, r.latest!);
+      if (!issue) return true;
+      const told = parseMarker(issue.body)?.latest;
+      // The issue tells of a newer version than the source names now: leave it, as planIssues does.
+      if (told && newerCore(told, latest)) return false;
+      return !reported(issue, r.provider, latest);
     })
     .map((r) => ({ cli: r.provider, version: r.latest! }));
+}
+
+/** Whether `a`'s numbers are newer than `b`'s. Another build of the same numbers is not. */
+function newerCore(a: string, b: string): boolean {
+  return compareVersions(versionCore(a), versionCore(b)) > 0;
+}
+
+/**
+ * The run whose `cli-check-seen` artifact is the memory. `runs` is newest first, as `gh run list`
+ * prints them. A pull request posts nothing and uploads no artifact, so its success is not that run;
+ * the first other success is. Anything that is not a run list remembers nothing, and the next day
+ * checks again.
+ */
+export function previousSeenRun(runs: unknown): number | undefined {
+  if (!Array.isArray(runs)) return undefined;
+  for (const r of runs) {
+    if (!r || typeof r !== 'object') continue;
+    const event = (r as { event?: unknown }).event;
+    const id = (r as { databaseId?: unknown }).databaseId;
+    if (event === 'pull_request') continue;
+    if (typeof id === 'number' && Number.isInteger(id) && id > 0) return id;
+  }
+  return undefined;
 }
 
 /** The versions a previous run settled (`CLI_CHECK_SEEN`), or nothing when the file is missing or not one. */
@@ -312,8 +357,15 @@ export async function postReports(
   const seen = new Map<Provider, string>(prevSeen.map((s) => [s.cli, s.version]));
   const fresh = new Set<Provider>();
   const closed = new Set<number>();
-  const remember = (cli: Provider, version: string) => {
+  // An older core never replaces a newer one (a source still naming the version before). The same
+  // numbers with another build do: that build is the one just settled.
+  const settleVersion = (cli: Provider, version: string) => {
+    const prev = seen.get(cli);
+    if (prev !== undefined && newerCore(prev, version)) return;
     seen.set(cli, version);
+  };
+  const remember = (cli: Provider, version: string) => {
+    settleVersion(cli, version);
     fresh.add(cli);
   };
   for (const r of reports) {
@@ -321,15 +373,21 @@ export async function postReports(
     const issue = issues.find((i) => parseMarker(i.body)?.provider === r.cli);
     if (issue && reported(issue, r.cli, r.version)) {
       lines.push(`${label}: already reported in #${issue.number}`);
-      if (!seen.has(r.cli)) seen.set(r.cli, r.version);
+      settleVersion(r.cli, r.version);
       continue;
     }
     if (!reportIsWorthy(r)) {
-      if (issue && !closed.has(issue.number)) {
+      const told = issue && parseMarker(issue.body)?.latest;
+      // The issue tells of a newer version than this report (a source that lagged). Closing it would
+      // drop a problem the versions step left open, and an older comment must not do that either:
+      // `fresh` keeps the settle below from reading that comment.
+      const tellsOfNewer = Boolean(told && newerCore(told, r.version));
+      if (issue && !closed.has(issue.number) && !tellsOfNewer) {
         await gh(['issue', 'close', String(issue.number), '--comment', CLEAN_CLOSE]);
         closed.add(issue.number);
         lines.push(`${label}: closed #${issue.number}`);
-      } else if (!issue) lines.push(`${label}: no issue opened`);
+      } else if (issue && tellsOfNewer) lines.push(`${label}: left #${issue.number}, which tells of ${told}`);
+      else if (!issue) lines.push(`${label}: no issue opened`);
       remember(r.cli, r.version);
       continue;
     }
@@ -357,11 +415,13 @@ export async function postReports(
     const last = issue.comments.filter((c) => c.body.includes('cli-check-report')).at(-1);
     if (!last) continue;
     const version = /<!-- cli-check-report provider=[a-z]+ version=(\S+) -->/.exec(last.body)?.[1];
-    if (!commentIsWorthy(last.body)) {
+    // A comment about an older version than the issue tells of is not a verdict on that version.
+    const commentOlder = Boolean(version && newerCore(parsed.latest, version));
+    if (!commentIsWorthy(last.body) && !commentOlder) {
       await gh(['issue', 'close', String(issue.number), '--comment', CLEAN_CLOSE]);
       lines.push(`${PROVIDER_LABEL[parsed.provider]}${version ? ` ${version}` : ''}: closed #${issue.number}`);
     }
-    if (version && !seen.has(parsed.provider)) seen.set(parsed.provider, version);
+    if (version) settleVersion(parsed.provider, version);
   }
   return { lines, seen: PROVIDERS.filter((p) => seen.has(p)).map((cli) => ({ cli, version: seen.get(cli)! })) };
 }
@@ -468,6 +528,15 @@ async function main(argv: string[]): Promise<void> {
     console.log(matrix.length ? matrix.map((m) => `${m.cli} ${m.version}`).join('\n') : 'Nothing new to check.');
     output('matrix', JSON.stringify(matrix));
     output('count', String(matrix.length));
+  } else if (command === 'seen-run') {
+    const raw = readFileSync(0, 'utf8').trim();
+    if (!raw) return;
+    try {
+      const id = previousSeenRun(JSON.parse(raw));
+      if (id !== undefined) console.log(String(id));
+    } catch {
+      // Not a run list: the next day checks again, as a missing artifact does.
+    }
   } else if (command === 'check' && a && b && (PROVIDERS as readonly string[]).includes(a)) {
     await check(a as Provider, b);
   } else if (command === 'report' && a) {
@@ -479,7 +548,7 @@ async function main(argv: string[]): Promise<void> {
       writeFileSync(out, seenText(seen));
     }
   } else {
-    console.error('Usage: npx tsx scripts/cli-check/ci.ts matrix | check <cli> <version> | report <folder>');
+    console.error('Usage: npx tsx scripts/cli-check/ci.ts matrix | seen-run | check <cli> <version> | report <folder>');
     process.exit(2);
   }
 }

@@ -612,7 +612,7 @@ npx tsx scripts/cli-check.ts pi --bin <新版> --against pi.json # 另一個版�
 
 **在哪裡跑。** 第 2、3 層在 macOS 與 Linux 上跑；第 1、4 層哪裡都能跑。每個 CLI 都在自己的暫存資料夾裡跑（`scratch.ts`），腳本在引入伺服器的任何模組之前，就把它們變成自己全部的環境（那些模組一載入就會讀資料資料夾），並在裡面工作：自己的家目錄、XDG 資料夾、`CLAUDE_CONFIG_DIR` 與 Harness Relay 的資料資料夾，裡面有它的資料庫與金鑰的替身；你的環境變數只留 `PATH`、語系，以及終端機與使用者的名稱（`KEPT`），所以找不到你的任何登入、key 或設定資料夾；不用 keyring、關掉 CLI 的自動更新、不開瀏覽器（會告訴 agy 它是透過 SSH 連線；Cursor 這樣會拒絕啟動）。Harness Relay 的資料資料夾與暫存資料夾在 `/tmp`（`CLI_CHECK_DIR` 可以指定別處），因為它自己的沙箱需要短的路徑放 socket。家目錄、工作目錄與工作目錄以外的資料夾在 `/var/tmp/harness-relay-cli-check`（`CLI_CHECK_WORK_DIR`），不在暫存資料夾裡（CLI 的沙箱允許指令寫入暫存資料夾，檢查預期會被拒絕的寫入在那裡會成功），也不在你的家目錄裡：CLI 會在工作目錄以上的每一層資料夾找 skill、指示與設定，在那裡就會載入你的（腳本會拒絕在你家目錄裡的 `CLI_CHECK_WORK_DIR`）。每個工作目錄都是一個 git repository，`GIT_CEILING_DIRECTORIES` 設在暫存資料夾。結束時兩者都會刪除，按 Ctrl-C 時也一樣（連同它啟動的 CLI），除非加上 `--keep`。不會登入任何東西：真正的登入會改變的事（CLI 自己的模型、方案用量）交給實機測試。
 
-**在 CI 上。** 維護完 issue 之後，CLI versions workflow 會檢查還沒檢查過的新版本，開著的 issue 若已有那個版本的報告就跳過。檢查過的版本會記下來，沒有問題的不會再跑（`scripts/cli-check/ci.ts`，每個 CLI 一個 job，跑在 GitHub 的 Ubuntu runner 上，照端對端測試的方式準備好 Harness Relay 的沙箱，為 Copilot 與 Muse Code 自帶的沙箱開放 unprivileged user 與 network namespace（Ubuntu 預設會限制；它們需要什麼見[各平台的作業系統沙箱](sandboxing.zh-TW.md#linux)），並裝好 slirp4netns 與 uv）：
+**在 CI 上。** 維護完 issue 之後，CLI versions workflow 會檢查還沒檢查過的新版本，開著的 issue 若已有那個版本的報告就跳過。檢查過的版本會記下來，沒有問題的不會再跑。這份紀錄來自上一輪成功、且不是 pull request 的執行：pull request 不貼文，也不上傳這份紀錄，所以它的成功不算那一輪。來源說出的版本比記住的、或比開著的 issue 說的更舊時，就維持原狀：不檢查那個版本、不關閉那個 issue，記住的版本也不換掉（`scripts/cli-check/ci.ts`，每個 CLI 一個 job，跑在 GitHub 的 Ubuntu runner 上，照端對端測試的方式準備好 Harness Relay 的沙箱，為 Copilot 與 Muse Code 自帶的沙箱開放 unprivileged user 與 network namespace（Ubuntu 預設會限制；它們需要什麼見[各平台的作業系統沙箱](sandboxing.zh-TW.md#linux)），並裝好 slirp4netns 與 uv）：
 - 從廠商發布的地方另外取得新版本與驗證過的版本（`scripts/cli-check/obtain.ts`：npm、uv、GitHub 的 release、廠商自己的安裝程式會下載的檔案，廠商有公布 checksum 的就拿來比對，從不執行安裝腳本；Muse Code 驗證過的版本以它完整的 build 取得，`MUSE_BUILDS`）；
 - 先在那裡把驗證過的版本第 2、3 層的結果記下來（`--record`），再對新版本跑第 1 到 4 層，和它比較（`--against`），而不是和存下的形狀比較：存下的形狀是在 Mac 上錄的，也會顯示兩個系統的差異。Antigravity 驗證過的版本取得不到（它的 manifest 只列最新版），所以和存下的形狀比較，報告會寫明。Harness Relay 在 Linux 上只以完全存取執行的 CLI（OpenCode：它的 adapter 的 `sandboxUnsupported`），在那裡以完全存取跑它的情境，低於完全存取的情境不跑；
 - 只有檢查失敗或有東西消失時才開 issue（標籤 `cli-check`），並把報告貼到那裡，每個版本只貼一次（留言裡有標記）。兩者都沒有時不開 issue，那個 CLI 已開著的 issue 則關閉。摺起的報告之前，留言先說明第 2、3 層發現了什麼：沒有變化、只有新欄位、消失了什麼，或是有檢查失敗，這些行放在自己的 code block 裡。整份報告仍放在 code block 裡，版本說明中的 `@名字` 在那裡不會通知任何人。
@@ -965,7 +965,7 @@ npx playwright show-report playwright-report-live
 
 每個 workflow 最後都有一個代表它所有 job 的檢查，**CI passed** 與 **End-to-end passed**：改動不需要的 job 算通過，失敗或被取消的 job 會讓它失敗。若要在檢查通過前禁止合併，請在 repository 設定中替 `main` 加上 ruleset（或 branch protection rule），把這兩個設為必要，而不是 job 自己的檢查：被略過的 matrix job 只會以未展開的名稱回報一個檢查，不會每一組各回報一個，要求其中一組檢查的 ruleset 會一直等下去。
 
-[`.github/workflows/cli-versions.yml`](../.github/workflows/cli-versions.yml) 每天（也可以手動）只在這個 repository 上執行：`scripts/cli-check.ts` 的第 1 層，比對各 agent CLI 的最新版本與驗證過的版本，接著在 Linux 上拿每個新版本和驗證過的版本比較檢查，只檢查一次，只有檢查失敗或有東西消失才開標籤為 `cli-check` 的 issue 並把報告貼到那裡。沒有問題的檢查會記下來，不開 issue；修改這個檢查的 pull request 會對每個 CLI 跑這些檢查，但不貼文。見[檢查 CLI 的新版本](#檢查-cli-的新版本)的「在 CI 上」。
+[`.github/workflows/cli-versions.yml`](../.github/workflows/cli-versions.yml) 每天（也可以手動）只在這個 repository 上執行：`scripts/cli-check.ts` 的第 1 層，比對各 agent CLI 的最新版本與驗證過的版本，接著在 Linux 上拿每個新版本和驗證過的版本比較檢查，只檢查一次，只有檢查失敗或有東西消失才開標籤為 `cli-check` 的 issue 並把報告貼到那裡。沒有問題的檢查會記下來（來自上一輪成功、且不是 pull request 的執行），不開 issue；修改這個檢查的 pull request 會對每個 CLI 跑這些檢查，但不貼文。來源說出的版本比記住的、或比開著的 issue 說的更舊時，不會關閉那個 issue，也不會換掉記住的版本。見[檢查 CLI 的新版本](#檢查-cli-的新版本)的「在 CI 上」。
 
 ### 網站
 

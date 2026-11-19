@@ -5,7 +5,9 @@ name: CLI versions
 # "Checking a CLI's new version"):
 # - versions: layer 1 of scripts/cli-check.ts, from the makers' own public sources. It updates or closes
 #   the open cli-check issues, and lists each new version not checked yet. A check that already settled
-#   is remembered from the previous run's cli-check-seen artifact, so a clean one is not run again;
+#   is remembered from the previous successful run that was not a pull request (its cli-check-seen
+#   artifact), so a clean one is not run again. A pull request uploads no artifact, so its success
+#   is not that run;
 # - check: for each of them, the new version and the one checked, got apart from where their makers
 #   publish them, layers 2 to 4 of each, the new one compared with the one checked as it ran here
 #   (scripts/cli-check/ci.ts). It runs what it downloads, so it gets a token that reads only, and every
@@ -69,11 +71,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
 
-      # The previous successful run's settled versions. This run is still in progress, so it is not
-      # the one listed. A run with no such artifact (the first, or a download that failed) checks again.
+      # The previous successful run's settled versions, skipping a pull request: one posts nothing
+      # and uploads no artifact, but its checks can still succeed. This run is still in progress, so
+      # it is not the one listed. A run with no such artifact (the first, or a download that failed)
+      # checks again.
       - name: Versions already checked
         run: |
-          id=$(gh run list --workflow cli-versions.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+          id=$(gh run list --workflow cli-versions.yml --status success --limit 100 --json databaseId,event | npx tsx scripts/cli-check/ci.ts seen-run)
           if [ -n "$id" ]; then
             gh run download "$id" --name cli-check-seen --dir "$RUNNER_TEMP/cli-check-seen" || true
           fi
@@ -211,9 +215,10 @@ jobs:
       - name: Install
         run: npm ci
 
+      # The same previous run as the versions job reads. A pull request's success is not it.
       - name: Versions already checked
         run: |
-          id=$(gh run list --workflow cli-versions.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+          id=$(gh run list --workflow cli-versions.yml --status success --limit 100 --json databaseId,event | npx tsx scripts/cli-check/ci.ts seen-run)
           if [ -n "$id" ]; then
             gh run download "$id" --name cli-check-seen --dir "$RUNNER_TEMP/cli-check-seen-prev" || true
           fi
