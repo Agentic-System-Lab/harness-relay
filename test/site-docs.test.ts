@@ -152,6 +152,7 @@ describe('the docs', () => {
       expect(page.head, page.file).toContain(`<link rel="stylesheet" href="${up}assets/site.css" />`);
       expect(page.head, page.file).toContain(`<script src="${up}assets/site.js" defer></script>`);
       expect(page.head, page.file).toContain(`<script type="module" src="${up}assets/theme.js"></script>`);
+      expect(page.head, page.file).toContain(`<script type="module" src="${up}assets/docs.js"></script>`);
       // downloads.js only where there are download links.
       expect(page.head.includes('assets/downloads.js'), page.file).toBe(page.body.includes('data-downloads'));
       const target = page.head.match(/location\.replace\('([^']+)' \+ location\.hash\)/)?.[1];
@@ -232,6 +233,76 @@ describe('the docs', () => {
     expect(narrow).toContain('.site-nav {\n    display: none;');
     expect(narrow).toContain('.header-docs {\n    display: inline-block;');
     expect(narrow).toContain('.site-header .header-tools:has(.header-docs) .stars {\n    display: none;');
+  });
+
+  it('offer search and a button that copies the page, in the page’s language, and only once JavaScript runs', () => {
+    const words = {
+      en: {
+        search: 'Search the docs',
+        placeholder: 'Search',
+        empty: 'No matching pages',
+        pending: 'Searching…',
+        failed: 'Search is unavailable',
+        results: '{n} matching pages',
+        resultsOne: '1 matching page',
+        copy: 'Copy page',
+        copied: 'Copied',
+        copyFailed: 'Could not copy',
+      },
+      'zh-TW': {
+        search: '搜尋文件',
+        placeholder: '搜尋文件',
+        empty: '沒有符合的頁面',
+        pending: '搜尋中…',
+        failed: '目前無法搜尋',
+        results: '找到 {n} 頁',
+        copy: '複製本頁',
+        copied: '已複製',
+        copyFailed: '無法複製',
+      },
+    };
+    for (const page of docs) {
+      const own = words[page.lang];
+      const other = words[page.lang === 'en' ? 'zh-TW' : 'en'];
+      expect(page.menu, page.file).toMatch(/<nav class="doc-nav"[^>]*>\s*<form class="doc-search"/);
+      expect(page.menu, page.file).toContain(`data-empty="${own.empty}"`);
+      expect(page.menu, page.file).toContain(`data-pending="${own.pending}"`);
+      expect(page.menu, page.file).toContain(`data-failed="${own.failed}"`);
+      expect(page.menu, page.file).toContain(`data-results="${own.results}"`);
+      if (page.lang === 'en') expect(page.menu, page.file).toContain(`data-results-one="${words.en.resultsOne}"`);
+      else expect(page.menu, page.file).not.toContain('data-results-one');
+      expect(page.menu, page.file).toContain(`>${own.search}</label>`);
+      expect(page.menu, page.file).toContain(`placeholder="${own.placeholder}"`);
+      expect(page.menu, page.file).not.toContain(other.search);
+      const head = slice(page.body, '<header class="doc-head">', '</header>');
+      expect(head, page.file).toContain(`data-copied="${own.copied}"`);
+      expect(head, page.file).toContain(`data-failed="${own.copyFailed}"`);
+      expect(head, page.file).toContain(`<span>${own.copy}</span>`);
+      expect(head, page.file).not.toContain(`<span>${other.copy}</span>`);
+      expect(head, page.file).toContain('<use href="#i-copy" />');
+      expect(page.menu, page.file).toContain('<use href="#i-search" />');
+    }
+    const css = read('site/assets/site.css');
+    expect(css).toContain('.doc-search,\n.doc-actions {\n  display: none;\n}');
+    expect(css).toMatch(/\.js \.doc-search \{[^}]*display: block;/s);
+    expect(css).toMatch(/\.js \.doc-actions \{[^}]*display: block;/s);
+    expect(css).toMatch(/\.doc-search-field:focus-within \{[^}]*box-shadow: inset 0 0 0 1px var\(--grok-ink\)/s);
+    expect(css).not.toMatch(/\.doc-search-field:focus-within \{[^}]*outline-offset/s);
+    // On a narrow screen the search field and the docs' button share one row. The field stays the narrower
+    // one until it is opened, then it fills the row, and a jumped-to heading clears that one row.
+    expect(css).toMatch(/@media \(max-width: 920px\) \{[\s\S]*\.js \.doc-search \{[^}]*max-width: 42%;/);
+    expect(css).toMatch(/\.js \.doc-search:focus-within,\s*\.js \.doc-search\.is-wide \{[^}]*max-width: 100%;/s);
+    expect(css).toMatch(
+      /\.js \.doc-search:focus-within ~ \.doc-nav-toggle,\s*\.js \.doc-search\.is-wide ~ \.doc-nav-toggle \{[^}]*display: none;/s,
+    );
+    const narrowPad = css.match(/html\.js:has\(\.doc-nav\) \{\n {4}scroll-padding-top: (\d+)px;\n {2}\}/);
+    expect(narrowPad?.[1]).toBeTruthy();
+    const behavior = read('site/assets/site.js');
+    expect(behavior).toContain(`: ${narrowPad?.[1]}) + 24`);
+    expect(read('site/assets/docs.js')).toContain("form.classList.add('is-wide')");
+    expect(behavior).toContain("matchMedia('(max-width: 920px)')");
+    expect(behavior).toContain('scrollPaddingTop');
+    expect(behavior).not.toContain('getBoundingClientRect().top < 120');
   });
 
   it("list every page of the docs in their menu, in order, the same on each page, this page's current", () => {
