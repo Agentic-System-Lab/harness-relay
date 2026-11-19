@@ -118,14 +118,31 @@ export function signInCode(base: string): string {
 export async function api<T>(base: string, path: string, body?: unknown, method?: 'POST' | 'PUT' | 'DELETE'): Promise<T> {
   const auth = signedIn.get(base);
   const signed: Record<string, string> = auth ? { cookie: auth.cookie, [AUTH_KEY_HEADER]: auth.key } : {};
-  const r = await fetch(base + path, {
-    method: method ?? (body === undefined ? 'GET' : 'POST'),
-    headers: body === undefined ? signed : { ...signed, 'content-type': 'application/json', origin: base },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  const request = () =>
+    fetch(base + path, {
+      method: method ?? (body === undefined ? 'GET' : 'POST'),
+      headers: body === undefined ? signed : { ...signed, 'content-type': 'application/json', origin: base },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  // A dropped loopback connection while polling a long turn need not discard its footage.
+  // Only reads are safe to repeat: the server may already have acted on a write.
+  let r: Response;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      r = await request();
+      break;
+    } catch (error) {
+      if (body !== undefined || method || attempt >= 5) throw error;
+      await sleep(1000);
+    }
+  }
   if (!r.ok) throw new Error(`${path}: ${r.status} ${await r.text()}`);
   return (await r.json()) as T;
 }
+
+// The languages' servers share Grok's trust file. Let one write and verify its entry before the next
+// server reads the file, or a failed verification can restore a copy without the other folder.
+let grokTrustCheck = Promise.resolve();
 
 /** These CLIs installed and signed in, and Grok trusting `cwd` (it asks otherwise, and the recording would stop there). */
 export async function checkProviders(base: string, log: Log, providers: readonly Provider[], cwd = ROOT): Promise<void> {
@@ -138,11 +155,15 @@ export async function checkProviders(base: string, log: Log, providers: readonly
     log('provider', p.provider, p.version ?? '', p.installed ? (p.auth.loggedIn === false ? 'not signed in' : 'ready') : 'not installed');
   if (missing.length) throw new Error(`The recording needs these CLIs, installed and signed in: ${missing.join(', ')}`);
   if (!providers.includes('grok')) return;
-  const trust = await api<{ folder: string; trusted?: boolean }>(base, '/api/providers/grok/folder-trust', { cwd });
-  if (trust.trusted === false) {
-    log('Grok does not trust', trust.folder, 'yet: trusting it, as `grok --trust` would');
-    await api(base, '/api/providers/grok/folder-trust', { cwd, trust: true, folder: trust.folder });
-  }
+  const check = grokTrustCheck.then(async () => {
+    const trust = await api<{ folder: string; trusted?: boolean }>(base, '/api/providers/grok/folder-trust', { cwd });
+    if (trust.trusted === false) {
+      log('Grok does not trust', trust.folder, 'yet: trusting it, as `grok --trust` would');
+      await api(base, '/api/providers/grok/folder-trust', { cwd, trust: true, folder: trust.folder });
+    }
+  });
+  grokTrustCheck = check.catch(() => {});
+  return check;
 }
 
 // --- A recording session ------------------------------------------------------------------------

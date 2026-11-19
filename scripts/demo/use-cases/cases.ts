@@ -928,7 +928,7 @@ const collectPayments: UseCase = {
         at: 'q2-answered',
         kind: 'team',
         team: 'q1',
-        say: 'They read the new mail, knowing what the last run found: nothing left to chase.',
+        say: 'Bayside pays the first half. Paper Lantern gives a payment date in writing, and the team drafts a reply to confirm it.',
       },
       { at: 'progress', kind: 'you', say: 'The automation’s progress, run by run: the goal is reached.' },
     ],
