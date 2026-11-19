@@ -1370,7 +1370,12 @@ const contractReview: UseCase = {
       { at: 'q1-plan', kind: 'lead', team: 'q1', say: '{plan}：{names}，以接力進行、都用你的伺服器，並說明原因。' },
       { at: 'q1-confirmed', kind: 'team', team: 'q1', say: '一位改條款、一位檢查每處修改、一位寫給廠商的說明。' },
       { at: 'approval', kind: 'agent', say: '要執行權限之外的指令前先問你：你選擇允許。' },
-      { at: 'q1-answered', kind: 'team', team: 'q1', say: '每則回覆都列出它改了哪些檔案：先是合約，再是說明。' },
+      {
+        at: 'q1-answered',
+        kind: 'team',
+        team: 'q1',
+        say: 'Codex 指出第五條少了「以」字。Claude Code 補字後，團隊交付修過七處的合約與備忘錄。',
+      },
       { at: 'redline', kind: 'you', say: '打開 @{redline:agent} 改 contract.md 的差異：逐條的修訂紀錄。' },
       { at: 'files', kind: 'you', say: '在「檔案」打開 REDLINE-MEMO.md：每處修改、依據的準則，以及要跟廠商說什麼。' },
     ],
