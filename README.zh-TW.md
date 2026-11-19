@@ -32,7 +32,7 @@
 
 ## 使用情境
 
-交給團隊的十二種工作，每件都是實際執行的錄影，附章節，放在[官網](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/)：
+這十二個範例只是起點。帶著好奇心，把自己想解決的問題交給團隊，探索更多可能性。每個範例都有實際執行的錄影，可到[官網](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/)依章節觀看。
 
 - **[一個 bug 三種修法，留下最好的](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#fix-a-bug)**：在平行模式下，Claude Code、Codex 和 Grok 各在自己的 git worktree 裡修好失敗的測試；你看過差異，把其中一個套用到工作目錄。
 - **[把客戶訪談變成產品規格](https://agentic-system-lab.github.io/harness-relay/zh-TW/use-cases/#product-spec)**：附上五份客戶訪談；在接力模式下，一位整理痛點，下一位寫 PRD，最後一位挑戰它；動筆之前，他們會先問你要先為哪一群客戶做。

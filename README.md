@@ -32,7 +32,7 @@ For each question, a lead agent picks the team from your templates (or adapts on
 
 ## Use cases
 
-Twelve kinds of work to hand the team, each a real run recorded as it happened, with its chapters, on the [website](https://agentic-system-lab.github.io/harness-relay/use-cases/):
+These twelve examples are just a starting point. Bring your curiosity and a task of your own, and see what else your team can do. Each example has a recording of the real run, with chapters, on the [website](https://agentic-system-lab.github.io/harness-relay/use-cases/).
 
 - **[Fix a bug three ways, keep the best one](https://agentic-system-lab.github.io/harness-relay/use-cases/#fix-a-bug)**: in parallel mode, Claude Code, Codex and Grok each fix a failing test in a git worktree of its own; you read the diffs and apply one to your working directory.
 - **[Turn customer interviews into a spec](https://agentic-system-lab.github.io/harness-relay/use-cases/#product-spec)**: attach five customer interviews; in relay mode one agent pulls out the pain points, the next writes the PRD, the last challenges it, and before the PRD is written they ask you which customers come first.
