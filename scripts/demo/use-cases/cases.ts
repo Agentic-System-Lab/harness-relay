@@ -1065,7 +1065,12 @@ const callBrief: UseCase = {
       { at: 'start', kind: 'you', say: 'New automation: what to hand the team before each customer call, read-only.' },
       { at: 'when', kind: 'you', say: 'It waits for the calendar: 30 minutes before each event whose title has “Customer call”.' },
       { at: 'new-chat-each', kind: 'you', say: 'A new chat for each call, so that each brief starts afresh.' },
-      { at: 'q1-plan', kind: 'lead', team: 'q1', say: 'Designs the team for the message: {names}, {rounds} of roundtable, and says why.' },
+      {
+        at: 'q1-plan',
+        kind: 'lead',
+        team: 'q1',
+        say: 'The lead assigns {names} their roles in the relay and explains how they will prepare the brief.',
+      },
       { at: 'first-check', kind: 'you', say: 'Check now: the first check only notes what is about to begin, so nothing starts.' },
       { at: 'call-soon', kind: 'you', say: 'Later: the renewal call with Harbor & Pine is less than half an hour away. Check again.' },
       { at: 'opened', kind: 'you', say: 'The check finds the call and starts a new chat for it: open it from the sidebar.' },
@@ -1081,7 +1086,7 @@ const callBrief: UseCase = {
         at: 'q1-answered',
         kind: 'team',
         team: 'q1',
-        say: 'Their CFO asks the three hardest questions, the brief answers each from PRICING.md, and the CFO flags one answer that goes beyond it.',
+        say: 'Grok plays the CFO. The final brief answers three questions about seat count, SSO and discounts, and flags terms that need approval.',
       },
     ],
     'zh-TW': [
@@ -1100,7 +1105,12 @@ const callBrief: UseCase = {
         say: '他們用 Harness Relay 的工具讀上次會議的紀錄和往來的信，再讀筆記和使用量。',
       },
       { at: 'approval', kind: 'agent', say: '要執行唯讀權限本身不涵蓋的指令前先問你：你選擇允許。' },
-      { at: 'q1-answered', kind: 'team', team: 'q1', say: '他們的財務長提出最難的問題；簡報依 PRICING.md 一一回答。' },
+      {
+        at: 'q1-answered',
+        kind: 'team',
+        team: 'q1',
+        say: 'Grok 扮演財務長，追問席次、漲價和 SSO。Claude 整理成會前簡報，標出哪些條件還要找主管確認。',
+      },
     ],
   },
 };
