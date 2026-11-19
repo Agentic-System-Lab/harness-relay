@@ -782,7 +782,7 @@ const reconcile: UseCase = {
         at: 'review',
         kind: 'lead',
         team: 'q1',
-        say: 'Reviews the three: the same differences found, the balances re-checked, and what to confirm yourself.',
+        say: 'The lead compares six differences, notes that all three agree on $25,821.28, and flags the suspected duplicate ledger entry for verification.',
       },
     ],
     'zh-TW': [
@@ -792,7 +792,12 @@ const reconcile: UseCase = {
       { at: 'q1-confirmed', kind: 'team', team: 'q1', say: '每位自己寫程式逐筆比對兩份檔案，看不到其他人的結果。' },
       { at: 'approval', kind: 'agent', say: '要執行唯讀權限本身不涵蓋的指令前先問你：你選擇允許。' },
       { at: 'q1-answered', kind: 'team', team: 'q1', say: '三份調節表：每筆差異、是時間差還是錯誤，以及調整分錄。' },
-      { at: 'review', kind: 'lead', team: 'q1', say: '審閱三份結果：找到的差異相同、重算餘額，並列出該由你親自確認的事。' },
+      {
+        at: 'review',
+        kind: 'lead',
+        team: 'q1',
+        say: '三位成員都列出六項差異，調整後餘額都是 258,216 元。首席 agent 指出哪幾筆還要用原始憑證核對。',
+      },
     ],
   },
 };
