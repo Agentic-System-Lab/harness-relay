@@ -11,7 +11,19 @@ import {
   releaseNotes,
 } from '../scripts/cli-check/changelog';
 import { parseArgs } from '../scripts/cli-check/args';
-import { ciMatrix, fenced, postReports, reportComment, reportMarker, type Report } from '../scripts/cli-check/ci';
+import {
+  ciMatrix,
+  commentIsWorthy,
+  fenced,
+  postReports,
+  readSeen,
+  reportComment,
+  reportIsWorthy,
+  reportMarker,
+  seenText,
+  triageReport,
+  type Report,
+} from '../scripts/cli-check/ci';
 import { MUSE_BUILDS, artifactFor, manifestDownload, obtain, thisSystem } from '../scripts/cli-check/obtain';
 import { jobsIn } from './workflow-steps';
 import { keepIssues } from '../scripts/cli-check/issues';
@@ -266,15 +278,8 @@ describe("layer 1: the CLI versions workflow's issues", () => {
     expect(parseMarker(body)).toEqual({ provider: 'claude', latest: '2.1.327' });
   });
 
-  it('opens one for a CLI that is behind and has none', () => {
-    const actions = planIssues([behind('claude', '2.1.327')], []);
-    expect(actions).toEqual([
-      expect.objectContaining({
-        kind: 'create',
-        provider: 'claude',
-        title: `Check Claude Code 2.1.327 (checked with ${CHECKED_VERSIONS.claude})`,
-      }),
-    ]);
+  it('opens none for a CLI that is behind until the check finds a problem', () => {
+    expect(planIssues([behind('claude', '2.1.327')], [])).toEqual([]);
   });
 
   it('leaves one that tells of the newest as it is, and updates one when a newer version came out', () => {
@@ -348,30 +353,14 @@ describe("layer 1: the CLI versions workflow's issues", () => {
       'issue edit',
       'issue comment',
       'issue close',
-      'issue create',
     ]);
     expect(calls[0]!.args).toContain('--force');
+    expect(calls[0]!.args).toContain('A new agent CLI version whose check found something to fix');
     expect(calls[2]!.args).toEqual(['issue', 'edit', '7', '--title', expect.stringContaining('2.1.330'), '--body-file', '-']);
     expect(parseMarker(calls[2]!.stdin!)?.latest).toBe('2.1.330');
     expect(calls[3]!.stdin).toContain('2.1.330 is out now');
     expect(calls[6]!.args).toEqual(['issue', 'close', '11', '--comment', expect.stringContaining('3.0.75')]);
-    expect(calls[7]!.args).toEqual([
-      'issue',
-      'create',
-      '--title',
-      expect.stringContaining('Pi 1.5.2'),
-      '--label',
-      ISSUE_LABEL,
-      '--body-file',
-      '-',
-    ]);
-    expect(calls[7]!.stdin).toContain('npx tsx scripts/cli-check.ts pi');
-    expect(lines).toEqual([
-      expect.stringMatching(/^Updated #7: /),
-      expect.stringMatching(/^Updated #9: /),
-      'Closed #11 (Cline)',
-      expect.stringMatching(/^Opened an issue: Check Pi 1\.5\.2/),
-    ]);
+    expect(lines).toEqual([expect.stringMatching(/^Updated #7: /), expect.stringMatching(/^Updated #9: /), 'Closed #11 (Cline)']);
   });
 
   it('with --dry-run only reads the open issues, and says what it would have done', async () => {
@@ -380,9 +369,7 @@ describe("layer 1: the CLI versions workflow's issues", () => {
       calls.push(args);
       return '[]';
     };
-    expect(await keepIssues([behind('pi', '1.5.2')], true, gh)).toEqual([
-      expect.stringMatching(/^Would have: Opened an issue: Check Pi 1\.5\.2/),
-    ]);
+    expect(await keepIssues([behind('pi', '1.5.2')], true, gh)).toEqual(['Issues: nothing to change.']);
     expect(calls).toEqual([['issue', 'list', '--label', ISSUE_LABEL, '--state', 'open', '--json', 'number,title,body', '--limit', '200']]);
     expect(await keepIssues([row('cline', '3.0.74')], true, gh)).toEqual(['Issues: nothing to change.']);
   });
@@ -1333,7 +1320,7 @@ describe("the workflow's checks (scripts/cli-check/ci.ts)", () => {
     comments: comments.map((body) => ({ body })),
   });
 
-  it("checks each CLI that is behind once its issue is open, until its issue holds that version's report", () => {
+  it('checks each CLI that is behind once, until that version was checked or its issue holds the report', () => {
     const rows = [row('claude', '2.1.327'), row('cline', CHECKED_VERSIONS.cline), row('pi', '1.5.2'), row('codex', '0.170.0')];
     const issues = [
       withComments(1, 'claude', '2.1.327'),
@@ -1345,8 +1332,10 @@ describe("the workflow's checks (scripts/cli-check/ci.ts)", () => {
       { cli: 'claude', version: '2.1.327' },
       { cli: 'codex', version: '0.170.0' },
     ]);
-    // A CLI with no open issue (its source fails, say) is not checked: there is nowhere to report.
-    expect(ciMatrix([row('grok', '1.0.89')], [])).toEqual([]);
+    // No issue yet: still checked. The report step opens one only when the check found a problem.
+    expect(ciMatrix([row('grok', '1.0.89')], [])).toEqual([{ cli: 'grok', version: '1.0.89' }]);
+    // A version already settled, clean or not, is not checked again.
+    expect(ciMatrix([row('grok', '1.0.89')], [], [{ cli: 'grok', version: '1.0.89' }])).toEqual([]);
     // On a pull request: every CLI's newest, behind or not.
     expect(
       ciMatrix(
@@ -1377,10 +1366,13 @@ describe("the workflow's checks (scripts/cli-check/ci.ts)", () => {
     expect(c).toContain('found nothing new');
     expect(c).toContain('````text\n== 2. Codex');
     expect(c).toContain('@akira-oai\n```js');
+    expect(c.split('@akira-oai').length - 1).toBe(1);
     expect(c).not.toContain('\u001b[');
     expect(c.trimEnd().endsWith(reportMarker('codex', '0.170.0'))).toBe(true);
     expect(fenced('a ````` b')).toMatch(/^``````text\n/);
-    expect(reportComment(report({ exit: 1 }))).toContain('found something to look at');
+    expect(
+      reportComment(report({ exit: 1, text: '== 2. Codex\n  not installed, or it did not say its version: nothing more to ask' })),
+    ).toContain('found something to look at');
     expect(reportComment(report({ error: 'HTTP 404', exit: undefined, text: '' }))).toContain('could not be checked: HTTP 404');
     expect(reportComment(report({ against: false, againstError: 'cannot be had' }))).toContain(
       'recorded on another system (0.167.0 could not be compared with here: cannot be had)',
@@ -1388,21 +1380,174 @@ describe("the workflow's checks (scripts/cli-check/ci.ts)", () => {
     expect(reportComment(report({ text: 'x'.repeat(70_000) })).length).toBeLessThan(65_536);
   });
 
-  it("posts each report to its CLI's open issue once", async () => {
+  it('says before the folded report whether layers 2 and 3 failed, removed something, or only added fields', () => {
+    const notes = '\n== 4. Codex: what its release notes say\n  ! - Removed the sandbox @someone\n';
+    const onlyNew = report({
+      exit: 1,
+      text:
+        '== 3. Codex\n  ok   reply\n  7 of 7 scenarios passed\n  shapes:\n      + config.daybreak_program_propagation:boolean\n      + config.daybreak_program_propagation:boolean\n' +
+        notes,
+    });
+    expect(triageReport(onlyNew.text)).toMatchObject({ failures: [], removed: [], added: 1, scenariosPassed: true });
+    const added = reportComment(onlyNew);
+    expect(added).toContain('found only new fields (1). Every scenario that ran passed.');
+    expect(added).toContain('Read the release notes');
+    expect(added.split('@someone').length - 1).toBe(1);
+
+    const gone = report({
+      exit: 1,
+      text:
+        '== 2. Copilot\n    probe: differs\n      - flag --plain-diff (its help no longer lists it)\n== 3. Copilot\n  7 of 7 scenarios passed\n      + session/update:name=rubber-duck\n' +
+        notes,
+    });
+    const removed = reportComment(gone);
+    expect(removed).toContain('found something removed, and 1 new field. Every scenario that ran passed.');
+    expect(removed).toContain('```text\n- flag --plain-diff (its help no longer lists it)\n```');
+    expect(removed).toContain('Look at what was removed');
+    expect(removed.indexOf('--plain-diff')).toBeLessThan(removed.indexOf('<details>'));
+
+    const failed = report({
+      exit: 1,
+      text:
+        '== 3. Claude Code\n  FAIL read-only-write\n       ✗ SECURITY: a write in read-only went through\n      - flag --old\n  6 of 7 scenarios passed\n' +
+        notes,
+    });
+    const bad = reportComment(failed);
+    expect(bad).toContain('found a failed check');
+    expect(bad).toContain('FAIL read-only-write');
+    expect(bad).toContain('✗ SECURITY: a write in read-only went through');
+    expect(bad).toContain('- flag --old');
+    expect(bad).toContain('The report below has the rest.');
+    expect(bad).not.toContain('move it forward');
+
+    const fresh = report({
+      cli: 'antigravity',
+      exit: 1,
+      text: '== 2. Antigravity\n    probe: none saved for Antigravity\n== 3. Antigravity\n  7 of 7 scenarios passed\n',
+    });
+    expect(reportComment(fresh)).toContain(
+      "no saved shape to compare with, so this version's shape is all new. Every scenario that ran passed.",
+    );
+
+    const stopped = report({ exit: 1, text: '\n  STOPPED: Codex says it is signed in.\n' });
+    expect(reportComment(stopped)).toContain('The check stopped before it finished.');
+    expect(reportComment(stopped)).toContain('STOPPED: Codex says it is signed in.');
+  });
+
+  const cleanClose = 'Layers 2 and 3 found nothing that needs a change, so this issue is closed.';
+
+  it('opens an issue only when the check found a problem, and remembers a clean one', async () => {
     const calls: { args: string[]; stdin?: string }[] = [];
     const issues = [withComments(9, 'codex', '0.170.0'), withComments(7, 'claude', '2.1.327', [reportMarker('claude', '2.1.327')])];
     const gh = async (args: string[], stdin?: string) => {
       calls.push({ args, ...(stdin !== undefined ? { stdin } : {}) });
+      if (args[1] === 'list') return JSON.stringify(issues);
+      if (args[1] === 'create') return 'https://github.com/Agentic-System-Lab/harness-relay/issues/142\n';
+      return '';
+    };
+    const removed = report({
+      cli: 'copilot',
+      version: '1.0.114',
+      checked: '1.0.109',
+      exit: 1,
+      text: '== 2. Copilot\n      - flag --plain-diff (its help no longer lists it)\n== 3. Copilot\n  7 of 7 scenarios passed\n== 4. Copilot\n  ! - Removed the sandbox @someone\n',
+    });
+    const { lines, seen } = await postReports(
+      [report(), report({ cli: 'claude', version: '2.1.327' }), report({ cli: 'pi', version: '1.5.2' }), removed],
+      gh,
+    );
+    expect(lines).toEqual([
+      'Codex 0.170.0: closed #9',
+      'Claude Code 2.1.327: already reported in #7',
+      'Pi 1.5.2: no issue opened',
+      'Copilot 1.0.114: opened #142',
+    ]);
+    expect(calls.map((c) => c.args.slice(0, 3).join(' '))).toEqual([
+      'issue list --label',
+      'issue close 9',
+      'issue create --title',
+      'issue comment 142',
+    ]);
+    expect(calls[1]!.args).toEqual(['issue', 'close', '9', '--comment', cleanClose]);
+    expect(calls[2]!.stdin).toContain('opens this issue only when the check on Linux finds a failed check or something removed');
+    expect(calls[3]!.stdin).toContain(reportMarker('copilot', '1.0.114'));
+    expect(calls[3]!.stdin).toContain('found something removed');
+    expect(calls[3]!.stdin!.split('@someone').length - 1).toBe(1);
+    expect(seen).toEqual([
+      { cli: 'claude', version: '2.1.327' },
+      { cli: 'codex', version: '0.170.0' },
+      { cli: 'copilot', version: '1.0.114' },
+      { cli: 'pi', version: '1.5.2' },
+    ]);
+    await expect(postReports([removed], async (args) => (args[1] === 'list' ? '[]' : ''))).rejects.toThrow('did not print an issue number');
+  });
+
+  it('closes an open issue whose posted report found nothing to fix, and keeps one that did', async () => {
+    const calls: string[][] = [];
+    const old = (p: Provider, version: string, reportText: string, lead: string) =>
+      withComments(p === 'claude' ? 132 : 137, p, version, [
+        `### ${p}\n\nChecked. ${lead}\n\n<details><summary>The report</summary>\n\n\`\`\`text\n${reportText}\n\`\`\`\n\n</details>\n\n${reportMarker(p, version)}`,
+      ]);
+    const issues = [
+      old(
+        'claude',
+        '2.1.328',
+        '== 2. Claude\n      + config.x:boolean\n== 3. Claude\n  7 of 7 scenarios passed\n== 4. Claude\n  ! - Removed the sandbox @someone\n',
+        'It found something to look at: the report says what, layer by layer.',
+      ),
+      old(
+        'copilot',
+        '1.0.114',
+        '== 2. Copilot\n      - flag --plain-diff (its help no longer lists it)\n== 3. Copilot\n  7 of 7 scenarios passed\n',
+        'It found something to look at: the report says what, layer by layer.',
+      ),
+    ];
+    const gh = async (args: string[]) => {
+      calls.push(args);
       return args[1] === 'list' ? JSON.stringify(issues) : '';
     };
-    const lines = await postReports([report(), report({ cli: 'claude', version: '2.1.327' }), report({ cli: 'pi', version: '1.5.2' })], gh);
-    expect(lines).toEqual([
-      'Codex 0.170.0: reported in #9',
-      'Claude Code 2.1.327: already reported in #7',
-      'Pi 1.5.2: no open issue to report to',
+    expect(commentIsWorthy(issues[0]!.comments[0]!.body)).toBe(false);
+    expect(commentIsWorthy(issues[1]!.comments[0]!.body)).toBe(true);
+    expect(commentIsWorthy(reportMarker('claude', '2.1.327'))).toBe(true);
+    const { lines, seen } = await postReports([], gh, [{ cli: 'pi', version: '1.5.2' }]);
+    expect(lines).toEqual(['Claude Code 2.1.328: closed #132']);
+    expect(calls.map((c) => c.slice(0, 3).join(' '))).toEqual(['issue list --label', 'issue close 132']);
+    expect(calls[1]).toEqual(['issue', 'close', '132', '--comment', cleanClose]);
+    expect(seen).toEqual([
+      { cli: 'claude', version: '2.1.328' },
+      { cli: 'copilot', version: '1.0.114' },
+      { cli: 'pi', version: '1.5.2' },
     ]);
-    expect(calls.map((c) => c.args.slice(0, 3).join(' '))).toEqual(['issue list --label', 'issue comment 9']);
-    expect(calls[1]!.stdin).toContain(reportMarker('codex', '0.170.0'));
+    // An older comment does not replace a version this run, or a previous run, already settled.
+    const again = await postReports([], gh, [{ cli: 'claude', version: '2.1.330' }]);
+    expect(again.seen.find((s) => s.cli === 'claude')).toEqual({ cli: 'claude', version: '2.1.330' });
+  });
+
+  it('reads the settled versions, and nothing when the file is missing or not one', () => {
+    expect(reportIsWorthy(report())).toBe(false);
+    expect(reportIsWorthy(report({ exit: 1, text: '== 2. x\n      + config.a:boolean\n  7 of 7 scenarios passed\n' }))).toBe(false);
+    expect(reportIsWorthy(report({ exit: 1, text: '== 2. x\n    probe: none saved\n  7 of 7 scenarios passed\n' }))).toBe(false);
+    expect(reportIsWorthy(report({ exit: 1, text: '== 2. x\n      - flag --plain-diff\n' }))).toBe(true);
+    expect(reportIsWorthy(report({ exit: 1, text: '== 3. x\n  FAIL read-only-write\n' }))).toBe(true);
+    expect(reportIsWorthy(report({ error: 'HTTP 404', exit: undefined, text: '' }))).toBe(true);
+    expect(reportIsWorthy(report({ exit: undefined, text: '' }))).toBe(true);
+    const dir = mkdtempSync(join(tmpdir(), 'cli-check-seen-'));
+    try {
+      expect(readSeen(undefined)).toEqual([]);
+      expect(readSeen(join(dir, 'missing.json'))).toEqual([]);
+      writeFileSync(join(dir, 'bad.json'), '{');
+      expect(readSeen(join(dir, 'bad.json'))).toEqual([]);
+      writeFileSync(
+        join(dir, 'seen.json'),
+        seenText([
+          { cli: 'pi', version: '1.5.2' },
+          { cli: 'nope' as Report['cli'], version: 'x' },
+        ]),
+      );
+      expect(readSeen(join(dir, 'seen.json'))).toEqual([{ cli: 'pi', version: '1.5.2' }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('runs what it downloads with a token that reads only, and posts from another job', () => {
@@ -1413,7 +1558,11 @@ describe("the workflow's checks (scripts/cli-check/ci.ts)", () => {
     expect(jobs.get('check')).not.toMatch(/issues: write|GH_TOKEN|GITHUB_TOKEN|secrets\./);
     expect(jobs.get('newest')).not.toMatch(/issues: write/);
     expect(jobs.get('report')).toMatch(/issues: write/);
+    expect(jobs.get('report')).toMatch(/actions: read/);
+    expect(jobs.get('versions')).toMatch(/actions: read/);
     expect(jobs.get('report')).toMatch(/needs\.versions\.result == 'success'/);
+    expect(wf).toContain('name: cli-check-seen');
+    expect(wf).toContain('CLI_CHECK_SEEN:');
     expect(jobs.get('check')).toContain('run: npx tsx scripts/cli-check/ci.ts check "$CLI" "$VERSION"');
     expect(wf).toMatch(/^permissions: \{\}$/m);
     for (const [name, text] of jobs) expect(text, name).toMatch(/persist-credentials: false/);

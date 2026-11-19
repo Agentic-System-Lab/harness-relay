@@ -1,7 +1,8 @@
 /**
  * Layer 1 of `scripts/cli-check.ts`: the version each agent CLI was checked with (`CHECKED_VERSIONS`),
  * the newest its maker has published, and the one on this computer; and the issues the CLI versions
- * workflow (`.github/workflows/cli-versions.yml`) keeps, one open for each CLI that is behind.
+ * workflow (`.github/workflows/cli-versions.yml`) keeps: an open one only after the Linux check found
+ * a failed check or something removed.
  *
  * Where each maker says what its newest version is (`VERSION_SOURCES`) is read from the addresses its
  * own installer reads, never from a page meant for people: npm's registry, PyPI, GitHub's releases,
@@ -262,7 +263,7 @@ export function issueBody(r: VersionRow): string {
     'What each layer does and what to do when one finds something: [the developer guide, "Checking a CLI\'s new version"](https://github.com/Agentic-System-Lab/harness-relay/blob/main/docs/developer-guide.md#checking-a-clis-new-version).',
     "Once nothing is left to fix and its live tests ran, move the version forward in one commit with the shapes it saved (`--accept`), the user guide's line in both languages, and the other docs that say which version a behaviour was seen with, once tried again with it; close this issue from that pull request.",
     '',
-    'This issue is kept by the CLI versions workflow (`.github/workflows/cli-versions.yml`): it checks each new version on Linux against the version checked and posts the report here, says so here when a newer version comes out, and closes the issue once the version checked is the newest.',
+    'The CLI versions workflow (`.github/workflows/cli-versions.yml`) opens this issue only when the check on Linux finds a failed check or something removed. It says so here when a newer version comes out, and closes the issue once the version checked is the newest.',
     '',
     issueMarker(r.provider, r.latest!),
   ].join('\n');
@@ -285,8 +286,9 @@ export type IssueAction =
   | { kind: 'close'; provider: Provider; number: number; comment: string };
 
 /**
- * What the workflow does with the open issues it keeps (`open`, the label's): one open issue for each
- * CLI that is behind, updated when a newer version comes out or the version checked moved, closed
+ * What the workflow does with the open issues it keeps (`open`, the label's). An issue is not opened
+ * here: the Linux check opens one only when it finds a failed check or something removed (`ci.ts`).
+ * One that is open is updated when a newer version comes out or the version checked moved, and closed
  * once the version checked has caught up with the one the issue told of. A CLI whose source could not
  * be read is left as it is, and so is one not in `rows`. A source that names an older version again
  * (a CDN still serving the one before) closes nothing: the version checked has not caught up.
@@ -316,22 +318,21 @@ export function planIssues(rows: readonly VersionRow[], open: readonly OpenIssue
     const [first, ...extra] = mine;
     // What the source names now against what the issue told of: newer (or another build of the same
     // numbers), the same, or older (a source still serving the one before: the issue stays as it is).
+    // No issue yet: nothing is opened. The check opens one only when it finds a problem.
     const told = first && normalizeVersion(r.provider, first.latest);
     const order = told ? compareVersions(versionCore(r.latest!), versionCore(told)) : 0;
-    if (!first) {
-      actions.push({ kind: 'create', provider: r.provider, title: issueTitle(r), body: issueBody(r) });
-    } else if (order < 0) {
+    if (first && order < 0) {
       // Older than the issue's: nothing changes.
-    } else if (told !== r.latest) {
+    } else if (first && told !== r.latest) {
       actions.push({
         kind: 'update',
         provider: r.provider,
         number: first.issue.number,
         title: issueTitle(r),
         body: issueBody(r),
-        comment: `${PROVIDER_LABEL[r.provider]} ${r.latest} is out now (this issue told of ${first.latest}): check that one instead.`,
+        comment: `${PROVIDER_LABEL[r.provider]} ${r.latest} is out now (this issue told of ${first.latest}). The workflow checks that one.`,
       });
-    } else if (first.issue.title !== issueTitle(r)) {
+    } else if (first && first.issue.title !== issueTitle(r)) {
       // The version checked moved forward, not yet to the newest: the issue says so, without a comment.
       actions.push({ kind: 'update', provider: r.provider, number: first.issue.number, title: issueTitle(r), body: issueBody(r) });
     }
