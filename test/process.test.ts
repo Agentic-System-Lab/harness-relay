@@ -8,7 +8,7 @@ import {
   capture,
   frame,
   killAll,
-  needsConsole,
+  detachedChild,
   recordSpawns,
   runProcess,
   runShellScript,
@@ -305,18 +305,13 @@ describe('runShellScript', () => {
 });
 
 describe('PowerShell on Windows', () => {
-  it('gets a console of its own there, which a detached child has none of', () => {
-    expect(needsConsole('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', 'win32')).toBe(true);
-    expect(needsConsole('C:\\Program Files\\PowerShell\\7\\PWSH.EXE', 'win32')).toBe(true);
-    expect(needsConsole('powershell', 'win32')).toBe(true);
-    expect(needsConsole('C:\\tools\\node\\node.exe', 'win32')).toBe(false);
-    expect(needsConsole('C:\\tools\\powershell-helper.exe', 'win32')).toBe(false);
-    // Elsewhere every child is detached, in a process group of its own.
-    expect(needsConsole('/usr/local/bin/pwsh', 'linux')).toBe(false);
+  it('starts every Windows child attached, so a hidden console is inherited', () => {
+    expect(detachedChild('win32')).toBe(false);
+    expect(detachedChild('linux')).toBe(true);
+    expect(detachedChild('darwin')).toBe(true);
   });
 
-  // Started detached, Windows PowerShell ran nothing and exited with 0: Settings' installers and the
-  // folder dialog did nothing.
+  // Attached, with a hidden console. Detached, Windows PowerShell ran nothing and exited with 0.
   it.skipIf(process.platform !== 'win32')(
     'runs a script file and a command, with their output and exit code',
     async () => {
