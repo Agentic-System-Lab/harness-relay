@@ -196,7 +196,21 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         return send({ jsonrpc: '2.0', id: 'p-1', method: 'session/request_permission', params: { sessionId: sid, toolCall: { toolCallId: 't-1', kind: 'execute', title: 'cat ~/.copilot/settings.json', rawInput: { command: 'cat ~/.copilot/settings.json' } }, options: [{ optionId: 'allow_once', kind: 'allow_once' }, { optionId: 'allow_always', kind: 'allow_always' }, { optionId: 'reject_once', kind: 'reject_once' }, { optionId: 'reject_always', kind: 'reject_always' }] } });
       }
       if (text === '/sandbox policy') { say(sid, policy()); return send({ jsonrpc: '2.0', id: m.id, result: { stopReason: 'end_turn' } }); }
-      if (env.FAKE_COPILOT_CANCELLED) return send({ jsonrpc: '2.0', id: m.id, result: { stopReason: 'cancelled' } });
+      if (text === '/env') {
+      const entries = [];
+      const dir = path.join(home, 'hooks');
+      if (fs.existsSync(dir) && !env.FAKE_COPILOT_MISSING_TEAM_HOOKS) {
+        for (const name of fs.readdirSync(dir)) {
+          if (!name.startsWith('harness-relay-')) continue;
+          const file = path.join(dir, name);
+          const hook = JSON.parse(fs.readFileSync(file, 'utf8')).hooks;
+          for (const event of Object.keys(hook)) entries.push('- ' + event + ': 1 hook (sources: ' + String.fromCharCode(96) + file + String.fromCharCode(96) + ')');
+        }
+      }
+      say(sid, '**Hooks**\\n\\n' + entries.join('\\n') + '\\n\\n**Extensions**\\n');
+      return send({ jsonrpc: '2.0', id: m.id, result: { stopReason: 'end_turn' } });
+    }
+    if (env.FAKE_COPILOT_CANCELLED) return send({ jsonrpc: '2.0', id: m.id, result: { stopReason: 'cancelled' } });
       if (env.FAKE_COPILOT_MODEL_DOWN) { say(sid, 'Error: Could not connect to local model provider at http://127.0.0.1:9/v1.'); return send({ jsonrpc: '2.0', id: m.id, result: { stopReason: 'end_turn' } }); }
       say(sid, 'hello');
       return send({ jsonrpc: '2.0', id: m.id, result: { stopReason: 'end_turn', usage: { inputTokens: 3, outputTokens: 1 } } });

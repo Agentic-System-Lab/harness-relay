@@ -1,6 +1,7 @@
 import { userInfo } from 'node:os';
 import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
 import { PROVIDER_LABEL } from '../../shared/types';
+import { patchFilePaths } from '../patchFiles';
 import { HOOK_WAIT, commandHookHandler, shellWords, type HookResult, type TurnHooks } from '../hooks';
 import { t } from '../i18n';
 import { AgentRunError } from './types';
@@ -9,32 +10,6 @@ const EVENTS = [
   { name: 'PreToolUse', eventName: 'preToolUse', when: 'before' },
   { name: 'PostToolUse', eventName: 'postToolUse', when: 'after' },
 ] as const;
-
-/** Read the file headers of a patch that Codex parses with StreamingPatchParser. */
-function codexPatchFiles(patch: unknown, cwd: string): string[] {
-  if (typeof patch !== 'string') return [];
-  const files = new Set<string>();
-  const moveMarker = '*** Move to: ';
-  let inUpdate = false;
-  let canMove = false;
-  for (const raw of patch.split('\n')) {
-    // Inside Update File, leading spaces mark context lines. Elsewhere Codex trims the header
-    // before reading its marker. Neither case trims the path following the marker.
-    const endTrimmed = raw.replace(/\p{White_Space}+$/u, '');
-    const line = inUpdate ? endTrimmed : endTrimmed.replace(/^\p{White_Space}+/u, '');
-    const header = /^\*\*\* (Add|Delete|Update) File: (.+)$/su.exec(line);
-    if (line === '*** End Patch') break;
-    if (header) {
-      files.add(resolve(cwd, header[2]!));
-      inUpdate = header[1] === 'Update';
-      canMove = inUpdate;
-      continue;
-    }
-    if (canMove && line.startsWith(moveMarker)) files.add(resolve(cwd, line.slice(moveMarker.length)));
-    if (line !== '*** End of File') canMove = false;
-  }
-  return [...files];
-}
 
 export function codexHookCall(payload: Record<string, any>, cwd: string): HookResult {
   const tool = payload.tool_name;
@@ -48,7 +23,7 @@ export function codexHookCall(payload: Record<string, any>, cwd: string): HookRe
   if (tool === 'Bash') return { ...result, kind: 'command', command: typeof input?.command === 'string' ? input.command : undefined };
   if (tool === 'apply_patch') {
     const dir = typeof payload.cwd === 'string' ? resolve(cwd, payload.cwd) : cwd;
-    return { ...result, kind: 'edit', files: codexPatchFiles(input?.command, dir) };
+    return { ...result, kind: 'edit', files: patchFilePaths(input?.command, dir) };
   }
   return { ...result, kind: 'other' };
 }

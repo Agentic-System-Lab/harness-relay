@@ -1141,7 +1141,7 @@ export interface CheckHook {
  * The CLIs whose adapters run the team's hooks around their tool calls (`RunOptions.hooks`): the others'
  * members work without them, and the chat says so.
  */
-export const HOOK_PROVIDERS: readonly Provider[] = ['claude', 'codex', 'muse', 'pi'];
+export const HOOK_PROVIDERS: readonly Provider[] = ['claude', 'codex', 'copilot', 'muse', 'pi'];
 
 /**
  * How many protected path patterns a list may have, the longest pattern and commit pattern, how many

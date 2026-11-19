@@ -1,11 +1,12 @@
 /*
  * The program a CLI runs as its own hook command for the team's hooks (`src/server/hooks.ts`), for a CLI
- * whose hooks are commands (Codex and Muse Code): the server writes a copy for each turn into its own temporary
+ * whose hooks are commands (Codex, Copilot and Muse Code): the server writes a copy for each turn into its own temporary
  * folder, beside the turn's token (`ToolGateway.hookProgram()`), where sandboxed commands can neither
  * read nor change it. It takes the gateway's socket, the token's file, when it runs (`before` or
  * `after`) and how many seconds it waits for an answer as its arguments, since a CLI may give its
  * hooks no environment of its own; reads the call the CLI gives it on stdin; passes it to the server
- * over the socket; and prints what the server answers, exiting with its code. It decides nothing itself.
+ * over the socket; and prints what the server answers, exiting with its code. Copilot runs the
+ * same source inline, with the token in the hook command's own environment. It decides nothing itself.
  *
  * It fails closed: before a call, anything that keeps it from an answer (no token, no server, a bad
  * answer, none within its time limit, a call too large to pass on whole) refuses the call, with exit 2 and the reason on stderr, which a CLI with hooks in Claude
@@ -19,6 +20,8 @@
  * and then its arguments are left out to fit.
  */
 export const HOOK_SHIM_MAX = 3 * 1024 * 1024;
+
+export const HOOK_INLINE_TOKEN_ENV = 'RELAY_HOOK_TOKEN';
 
 export const HOOK_SHIM_SOURCE = `// Harness Relay's hook program (written by the server; do not edit).
 import { readFileSync } from 'node:fs';
@@ -36,8 +39,10 @@ function done(code, stdout, stderr) {
   process.exitCode = code;
 }
 function failed(why) {
-  if (when === 'before') done(2, '', "Refused: the team's hook could not be asked (" + why + ').');
-  else done(0);
+  if (when !== 'before') return done(0);
+  const reason = "Refused: the team's hook could not be asked (" + why + ').';
+  if (tokenFile) done(2, '', reason);
+  else done(2, JSON.stringify({ permissionDecision: 'deny', permissionDecisionReason: reason }), reason);
 }
 // Its own time limit (seconds, its fourth argument): no answer by then is a refusal, before the CLI's
 // time limit for its hook ends (a CLI may let the call go on then). It exits, whatever is still open.
@@ -66,7 +71,8 @@ process.stdin.on('end', () => {
   }
   let token = '';
   try {
-    token = readFileSync(tokenFile || '', 'utf8').trim();
+    token = tokenFile ? readFileSync(tokenFile, 'utf8').trim() : process.env.${HOOK_INLINE_TOKEN_ENV};
+    if (!token) return failed('the turn is over');
   } catch {
     return failed('the turn is over');
   }
@@ -75,8 +81,10 @@ process.stdin.on('end', () => {
   if (line.length > MAX) {
     // Before a call, nothing is left out: the hooks would decide about what they did not see.
     if (when === 'before') return failed('the call is too large for it to read');
-    line = lineOf({ ...payload, tool_response: '' });
-    if (line.length > MAX) line = lineOf({ ...payload, tool_response: '', tool_input: {} });
+    const short = { ...payload, tool_response: '', toolResult: undefined,
+      ...(typeof payload.error === 'string' ? { error: '' } : {}) };
+    line = lineOf(short);
+    if (line.length > MAX) line = lineOf({ ...short, tool_input: {}, toolArgs: {} });
     if (line.length > MAX) return failed('the call is too large for it to read');
   }
   let buffer = '';

@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { hasChecks, hasRules, hookApplies, hookFilePatterns, protectedPatterns } from '../src/shared/checks';
 import type { CheckHook } from '../src/shared/types';
@@ -353,9 +353,12 @@ describe.skipIf(process.platform === 'win32')('the hook program through the gate
   afterEach(() => gateway.stop());
 
   /** Runs the program as a CLI runs its hook command: the call on stdin, `when` after its arguments. */
-  const runProgram = (args: string[], when: string, input: string) =>
+  const runProgram = (args: string[], when: string, input: string, env?: Record<string, string>) =>
     new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
-      const child = spawn(process.execPath, when ? [...args, when] : args, { stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = spawn(process.execPath, when ? [...args, when] : args, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        ...(env ? { env: { ...process.env, ...env } } : {}),
+      });
       let stdout = '';
       let stderr = '';
       child.stdout.on('data', (d) => (stdout += d));
@@ -392,6 +395,19 @@ describe.skipIf(process.platform === 'win32')('the hook program through the gate
     },
     slow(20_000),
   );
+
+  it('runs the inline program with a hook-only token and revokes it with the turn', async () => {
+    const grant = gateway.hookProgram(async () => ({ code: 0, stdout: 'inline acknowledged' }), 'inline')!;
+    const { args, env } = grant.program;
+    expect(JSON.stringify(args)).not.toContain(env!.RELAY_HOOK_TOKEN);
+    expect(grant.program.socketDir).toBe(realpathSync(dirname(gateway.socketPath)));
+    expect(await runProgram(args, 'before', '{}', env)).toEqual({ code: 0, stdout: 'inline acknowledged', stderr: '' });
+    const missing = await runProgram(args, 'before', '{}');
+    expect(missing.code).toBe(2);
+    expect(JSON.parse(missing.stdout)).toMatchObject({ permissionDecision: 'deny' });
+    grant.revoke();
+    expect((await runProgram(args, 'before', '{}', env)).code).toBe(2);
+  });
 
   it(
     'refuses the call before it when it gets no answer (the turn is over, input that is not JSON), and says nothing after it',
