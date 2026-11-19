@@ -284,6 +284,8 @@ describe('the docs', () => {
     expect(css).toContain('.doc-search,\n.doc-actions {\n  display: none;\n}');
     expect(css).toMatch(/\.js \.doc-search \{[^}]*display: block;/s);
     expect(css).toMatch(/\.js \.doc-actions \{[^}]*display: block;/s);
+    expect(css).toMatch(/\.doc-search-field:focus-within \{[^}]*box-shadow: inset 0 0 0 1px var\(--grok-ink\)/s);
+    expect(css).not.toMatch(/\.doc-search-field:focus-within \{[^}]*outline-offset/s);
     const behavior = read('site/assets/site.js');
     expect(behavior).toContain("matchMedia('(max-width: 920px)')");
     expect(behavior).toContain('scrollPaddingTop');

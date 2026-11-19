@@ -2974,10 +2974,12 @@ body:has(.cs-dialog[open]) {
   background: var(--bg);
 }
 
+/* The menu scrolls, and the field sits against the top and left of that column, so an outline
+   outside the field is clipped and reads as a second border shifted off the radius. The ring
+   stays inside the field. */
 .doc-search-field:focus-within {
-  outline: 2px solid var(--grok-ink);
-  outline-offset: 2px;
-  border-color: color-mix(in srgb, var(--text) 45%, var(--border));
+  border-color: var(--grok-ink);
+  box-shadow: inset 0 0 0 1px var(--grok-ink);
 }
 
 .doc-search input:focus-visible {
@@ -2997,6 +2999,7 @@ body:has(.cs-dialog[open]) {
   width: 100%;
   border: 0;
   padding: 0;
+  appearance: none;
   background: transparent;
   color: var(--text);
   font: inherit;
