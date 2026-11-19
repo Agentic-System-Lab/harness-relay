@@ -13,7 +13,7 @@ import { useLimits } from '../limits';
 import { settingsHref } from '../route';
 import { leadLabel } from '../util';
 import { TemplateLibrary } from './TemplateLibrary';
-import { CreationOptions, TeamConfirmation } from './CreationOptions';
+import { CreationOptions, CreationTeamOptions } from './CreationOptions';
 import { teamProblems, type Team } from './TeamEditor';
 
 /** Whether the last new chat used the lead agent's teams without asking ("1"), so the next one starts the same way. */
@@ -76,17 +76,19 @@ interface Props {
   onDraft: (draft: NewChatDraft) => void;
   busy: boolean;
   setBusy: (busy: boolean) => void;
+  error: string;
+  setError: (message: string) => void;
   providers: ProviderStatus[];
   catalog: ProviderModels[];
   onCreated: (c: Conversation) => void;
 }
 
-export function NewChat({ providers, catalog, draft, onDraft, busy, setBusy, onCreated }: Props) {
+export function NewChat({ providers, catalog, draft, onDraft, busy, setBusy, error, setError, onCreated }: Props) {
   const { t, lang } = useI18n();
   const { maxTeamAgents } = useLimits();
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
   const [defaults, setDefaults] = useState<Team | null>(null);
-  const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   const team = draft.team ?? defaults;
 
@@ -101,14 +103,14 @@ export function NewChat({ providers, catalog, draft, onDraft, busy, setBusy, onC
         setDefaults(autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm()));
       })
       .catch((e) => {
-        if (current) setError(String(e.message ?? e));
+        if (current) setLoadError(String(e.message ?? e));
       });
     return () => {
       current = false;
     };
   }, [lang]);
 
-  if (!team || !lead) return <div className="page-center muted">{error || t.common.loading}</div>;
+  if (!team || !lead) return <div className="page-center muted">{loadError || t.common.loading}</div>;
 
   const problems = teamProblems(team, t, { maxAgents: maxTeamAgents });
   const leadText = leadLabel(lead);
@@ -169,12 +171,10 @@ export function NewChat({ providers, catalog, draft, onDraft, busy, setBusy, onC
             />
             <TemplateLibrary providers={providers} catalog={catalog} />
             <div className="start-bar first-task-actions">
-              <TeamConfirmation
-                automatic={Boolean(team.settings.autoConfirm)}
+              <CreationTeamOptions
+                team={team}
+                onTeam={(next) => onDraft({ ...draft, team: next })}
                 automaticLabel={t.newChat.startImmediately}
-                onChange={(auto) =>
-                  onDraft({ ...draft, team: { ...team, settings: { ...team.settings, autoConfirm: auto || undefined } } })
-                }
               />
               <button className="primary" onClick={start} disabled={busy || problems.length > 0}>
                 {busy ? t.newChat.creating : draft.question.trim() ? t.newChat.sendQuestion : t.newChat.start}

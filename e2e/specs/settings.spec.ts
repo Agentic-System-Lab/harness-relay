@@ -28,7 +28,10 @@ test.describe('assistant setup on a fresh installation', () => {
     }
     const setup = overview.getByRole('link', { name: /^Codex (需要安裝|查看安裝需求)$/ });
     await expect(setup).toBeVisible();
-    await setup.click();
+    await setup.press('Enter');
+    await expect(page.locator('#settings-codex .section-title a')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#settings-codex :focus')).toHaveCount(1);
     await expect(page.locator('#settings-codex')).toBeInViewport();
   });
 });
@@ -109,7 +112,10 @@ test.describe('an open agent without a model backend', () => {
     await page.getByRole('link', { name: /Settings & sign-in/ }).click();
     const overview = page.locator('#settings-overview');
     await overview.getByText('Connect another assistant').click();
-    await overview.getByRole('link', { name: `${cli!.label} Set up a model backend` }).click();
+    await overview.getByRole('link', { name: `${cli!.label} Set up a model backend` }).press('Enter');
+    await expect(page.locator('#settings-backends .section-title a')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#settings-backends :focus')).toHaveCount(1);
     await expect(page.locator('#settings-backends')).toBeInViewport();
     const card = page.locator(`#settings-${cli!.provider}`);
     await expect(card.locator('.provider-head .pill')).toHaveText('Not ready');

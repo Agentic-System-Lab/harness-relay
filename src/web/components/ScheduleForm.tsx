@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   SCHEDULE_KINDS,
   SCHEDULE_LIMITS,
@@ -42,6 +42,7 @@ export function ScheduleForm({
   settings,
   team,
   creation,
+  children,
 }: {
   draft: ScheduleDraft;
   onEdit: (patch: Partial<ScheduleDraft>) => void;
@@ -53,6 +54,7 @@ export function ScheduleForm({
   team?: string[];
   /** New automation only: Create a webhook too, under optional run settings (the drawer adds one to a saved automation). */
   creation?: { withHook: boolean; onHook: (on: boolean) => void };
+  children?: ReactNode;
 }) {
   const { t, lang } = useI18n();
   const w = t.schedule.watch;
@@ -381,19 +383,22 @@ export function ScheduleForm({
       </div>
 
       {creation ? (
-        <details className="automation-options">
-          <summary>{t.newSchedule.runOptions}</summary>
-          <div className="schedule-form-options">
-            <div className="field">
-              <label className="check-row">
-                <input type="checkbox" checked={creation.withHook} onChange={(e) => creation.onHook(e.target.checked)} />
-                {t.newSchedule.withHook}
-              </label>
-              <span className="small muted">{creation.withHook ? t.newSchedule.withHookHint : t.schedule.hook.intro}</span>
+        <div className="automation-settings">
+          {children}
+          <details className="automation-options">
+            <summary>{t.newSchedule.runOptions}</summary>
+            <div className="schedule-form-options">
+              <div className="field">
+                <label className="check-row">
+                  <input type="checkbox" checked={creation.withHook} onChange={(e) => creation.onHook(e.target.checked)} />
+                  {t.newSchedule.withHook}
+                </label>
+                <span className="small muted">{creation.withHook ? t.newSchedule.withHookHint : t.schedule.hook.intro}</span>
+              </div>
+              {runOptions}
             </div>
-            {runOptions}
-          </div>
-        </details>
+          </details>
+        </div>
       ) : (
         runOptions
       )}

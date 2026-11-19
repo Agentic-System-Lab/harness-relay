@@ -136,6 +136,7 @@ test.describe('auto team with exhausted CLI quotas', () => {
       await expect(card).toContainText('Default team for this task · General-question panel');
       await page.reload();
       await expect(warning).toBeVisible();
+      await expect(card.getByRole('link', { name: /choose another lead in Settings/i })).toHaveAttribute('href', '#/settings/lead');
 
       const conv = await settled(relay, id);
       expect(conv.messages.find((m) => m.plan)?.plan).toMatchObject({ leadUnavailable: true, status: 'ready', source: 'fallback' });

@@ -123,7 +123,6 @@ export async function record(opts: RecordOptions, base: string, log: Log): Promi
 
       // Start the chat and ask straight away. Without lead review (the page ticks it in every new chat),
       // which the chapters and stills do not show.
-      await moveClick('.chat-options > summary');
       await page.locator('.lead-review input[type="checkbox"]').uncheck();
       await moveClick('.start-bar .primary', { after: 900 });
       await page.waitForURL(/#\/c\//);

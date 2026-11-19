@@ -17,7 +17,7 @@ import { autoTeam, lastAutoConfirm, rememberAutoConfirm } from './NewChat';
 import { ScheduleForm } from './ScheduleForm';
 import { TemplateLibrary } from './TemplateLibrary';
 import { settingsHref } from '../route';
-import { CreationOptions, TeamConfirmation } from './CreationOptions';
+import { CreationOptions, CreationTeamOptions } from './CreationOptions';
 import { teamProblems, type Team } from './TeamEditor';
 
 export interface NewAutomationDraft {
@@ -32,6 +32,8 @@ interface Props {
   onDraft: (draft: NewAutomationDraft) => void;
   busy: boolean;
   setBusy: (busy: boolean) => void;
+  error: string;
+  setError: (message: string) => void;
   providers: ProviderStatus[];
   catalog: ProviderModels[];
   onCreated: (c: Conversation) => void;
@@ -42,7 +44,7 @@ interface Props {
  * conversation it lives in. Once created, the lead agent designs the team for the message; nothing runs
  * until the schedule sends it.
  */
-export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, onDraft, busy, setBusy }: Props) {
+export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, onDraft, busy, setBusy, error, setError }: Props) {
   const { t, lang } = useI18n();
   const { maxTeamAgents } = useLimits();
   const [lead, setLead] = useState<LeadAgentSettings | null>(null);
@@ -51,7 +53,7 @@ export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, 
   const current = savedDraft ?? initial;
   const { form: draft, title, withHook } = current;
   const team = current.team ?? defaults;
-  const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     let live = true;
@@ -64,14 +66,14 @@ export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, 
         setDefaults(autoTeam(cwdsOf({ cwd: settings.defaultCwd, extraCwds: settings.defaultExtraCwds }), lastAutoConfirm()));
       })
       .catch((e) => {
-        if (live) setError(String(e.message ?? e));
+        if (live) setLoadError(String(e.message ?? e));
       });
     return () => {
       live = false;
     };
   }, [lang]);
 
-  if (!team || !lead) return <div className="page-center muted">{error || t.common.loading}</div>;
+  if (!team || !lead) return <div className="page-center muted">{loadError || t.common.loading}</div>;
 
   const edit = (patch: Partial<ScheduleDraft>) => {
     onDraft({ ...current, form: { ...draft, ...patch } });
@@ -126,25 +128,24 @@ export function NewSchedule({ providers, catalog, onCreated, draft: savedDraft, 
               onEdit={edit}
               settings={team.settings}
               creation={{ withHook, onHook: (checked) => onDraft({ ...current, withHook: checked }) }}
-            />
-            <CreationOptions
-              team={team}
-              onTeam={(next) => onDraft({ ...current, team: next })}
-              providers={providers}
-              catalog={catalog}
-              title={title}
-              onTitle={(next) => onDraft({ ...current, title: next })}
-              titlePlaceholder={t.newSchedule.titlePlaceholder}
-              schedule={schedule}
-            />
+            >
+              <CreationOptions
+                team={team}
+                onTeam={(next) => onDraft({ ...current, team: next })}
+                providers={providers}
+                catalog={catalog}
+                title={title}
+                onTitle={(next) => onDraft({ ...current, title: next })}
+                titlePlaceholder={t.newSchedule.titlePlaceholder}
+                schedule={schedule}
+              />
+            </ScheduleForm>
             <TemplateLibrary providers={providers} catalog={catalog} />
             <div className="start-bar first-task-actions">
-              <TeamConfirmation
-                automatic={automatic}
+              <CreationTeamOptions
+                team={team}
+                onTeam={(next) => onDraft({ ...current, team: next })}
                 automaticLabel={t.newSchedule.useTeam}
-                onChange={(auto) =>
-                  onDraft({ ...current, team: { ...team, settings: { ...team.settings, autoConfirm: auto || undefined } } })
-                }
               />
               <button className="primary" onClick={create} disabled={busy || problems.length > 0}>
                 {busy ? t.newSchedule.creating : t.newSchedule.create}

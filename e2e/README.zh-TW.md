@@ -6,7 +6,7 @@
 
 它們如何運作、怎麼執行單一測試、怎麼撰寫新測試，見開發者說明的[端對端測試](../docs/developer-guide.zh-TW.md#端對端測試)。這一頁是情境清單：新增、修改或刪除端對端測試時，請在同一個 commit 裡一起修改這一頁與[英文版](README.md)（見 [AGENTS.md](../AGENTS.md) 的「Documentation」）。
 
-目前共有 38 個 spec 檔、495 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
+目前共有 38 個 spec 檔、497 個測試，在每個執行的瀏覽器中各跑一次（預設是 Chromium）。有些只在某些系統上執行，或只在 Harness Relay 自己的沙箱能運作的地方執行：見[平台與瀏覽器](#平台與瀏覽器)。
 
 ## 執行
 
@@ -36,7 +36,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 分區 | Spec | 測試數 | 相關文件 |
 | --- | --- | --- | --- |
 | [登入](#登入) | [`signin.spec.ts`](specs/signin.spec.ts) | 14 | [架構 → 登入](../docs/architecture.zh-TW.md#登入) |
-| [首頁](#首頁) | [`home.spec.ts`](specs/home.spec.ts) | 6 | [使用者說明 → 開始對話](../docs/user-guide.zh-TW.md#對話規則) |
+| [首頁](#首頁) | [`home.spec.ts`](specs/home.spec.ts) | 8 | [使用者說明 → 開始對話](../docs/user-guide.zh-TW.md#對話規則) |
 | [新對話與首席 agent 的團隊](#新對話與首席-agent-的團隊) | [`chat.spec.ts`](specs/chat.spec.ts) | 12 | [使用者說明 → 自動組隊](../docs/user-guide.zh-TW.md#自動組隊)、[架構 → 自動組隊](../docs/architecture.zh-TW.md#自動組隊) |
 | [範本](#範本) | [`templates.spec.ts`](specs/templates.spec.ts) | 7 | [使用者說明 → 範本](../docs/user-guide.zh-TW.md#範本) |
 | [修改對話的團隊](#修改對話的團隊) | [`team.spec.ts`](specs/team.spec.ts) | 5 | [使用者說明 → 對話中修改團隊](../docs/user-guide.zh-TW.md#對話中修改團隊) |
@@ -103,6 +103,7 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 情境 | 檢查的內容 |
 | --- | --- |
 | 從收合側欄的首頁提出第一個問題 | 前往首席 agent 設定再返回後，問題、標題、資料夾、權限與組隊確認方式都保留。問題只送出一次，首頁能回到待確認團隊，下一個對話反映記住的確認偏好。 |
+| 新對話與新自動任務的建立請求較慢時（各測一次） | 從設定返回後，失敗訊息、草稿與表單上的審閱選擇都保留。重試成功時仍停留在設定，可從側欄開啟新對話或取得自動任務的一次性 webhook 權杖。 |
 | app 打開時是首頁，點 logo 與名稱會回到首頁 | 首頁顯示 logo 與下面的標語；從新對話頁和對話中點側邊欄的 logo 與 **Harness Relay**（在首頁時標為目前的頁面），都會回到首頁（`#/`）。 |
 | logo 每次進入首頁播放一次動畫，只動 transform 與 opacity，減少動態效果時不播放 | logo 的圓點、轉圈與標語都有一段播放時間（而不是像沒寫名稱的 `animation` 簡寫被壓縮成 `none` 那樣完全不播），只播一次，只改變 `transform` 與 `opacity`；播完會自己結束，再次打開首頁時會重播；開啟減少動態效果時完全沒有動畫。 |
 | 載入不了的頁面部分：頁面為它重新載入一次，之後說明原因；說明可以關閉，「重新載入」會把它找回來 | 回報對話框的檔案不見時（404，就像頁面在更新前就開著），點 **回報問題** 會讓頁面重新載入一次；一分鐘內再點一次，會顯示說明而不是一片空白：按 **關閉** 會關掉它，按 **重新載入** 會重新載入頁面，之後對話框就能打開。每個頁面在開始時就計數，不會漏算。 |
@@ -406,9 +407,9 @@ npx playwright test --ui                      # 在 Playwright 的視窗中挑�
 | 全新安裝時會先檢查助理，再展開初次設定選項 | — | 繁中介面的總覽先顯示檢查中，取得狀態後列出需要安裝的助理，點 Codex 可前往它的設定卡。 |
 | 找到每個 CLI，顯示版本，且已登入 | 各一，同一個測試 | 每張卡片顯示 CLI 的版本，以及**已登入**（Claude Code 附帳號），開源 agent 在假端點上則是**可使用**（Ready）；側邊欄十二個狀態點都正常（「12/12 ready」，開源 agent 的標題是「Model backends set up」）；要求時顯示它們的名稱，重新載入後仍保留。 |
 | 未安裝的 CLI 在設定與側邊欄顯示未安裝 | Cursor、Antigravity | 設成未安裝（`missingClis`）：它們的狀態點與卡片顯示**未安裝**（Not installed）。助理總覽顯示 Claude Code 已可用，展開**連接另一個助理**就能選 Cursor 前往設定。 |
-| 沒有模型來源的開源 agent 還不能用，它的回合說明要先設定一個 | OpenCode | `openBackend: false`：助理總覽裡的 OpenCode 連到**模型來源**。狀態點寫著「No model backend yet」，卡片顯示**尚未就緒**（Not ready）與「No model backend set up yet (Settings → Model backends)」，回答的錯誤說 OpenCode 沒有模型。 |
+| 沒有模型來源的開源 agent 還不能用，它的回合說明要先設定一個 | OpenCode | `openBackend: false`：助理總覽裡的 OpenCode 連到**模型來源**。按 Enter 後焦點到達標題，Tab 會走進該區的設定。狀態點寫著「No model backend yet」，卡片顯示**尚未就緒**（Not ready）與「No model backend set up yet (Settings → Model backends)」，回答的錯誤說 OpenCode 沒有模型。 |
 | 可以指定 CLI 的執行檔路徑，錯誤的路徑顯示找不到 | Grok | 不存在的路徑顯示**未安裝**（Not installed）；清空後又找到它。 |
-| 連結列把 agent 合成一個選單，選單通往每個 agent 的卡片，並顯示正在看的那一個 | — | 連結列從**助理總覽**開始，放著除了 agent 以外每張卡片的連結（包括**模型來源**（Model backends）與 **Agent 的 session**（Agent sessions）），模型來源與首席 agent 之間有一個**助理設定**（Agents）按鈕。打開後選單列出十二個 agent，開源 agent 在名為**開源 agent**（Open-source agents）的群組中，焦點在第一個；方向鍵（到兩端會繞回）、Home、End 與 Escape（回到按鈕）可以移動與關閉；在按鈕上按 ArrowUp 會打開並停在最後一個，Tab 會關閉並移到**首席 agent**（Lead agent），Shift+Tab 回到按鈕。點選單的標題時焦點留在原本的項目，按鍵照常有效；焦點移到別的連結會關閉選單。選 **Codex** 會關閉選單、前往 `#/settings/codex` 且卡片在畫面內，按鈕的名稱是 **助理設定：Codex**（Agents: Codex）並標亮；再打開時 Codex 有標記與焦點；點別處會關閉。點**首席 agent** 後標亮回到它，而且它不會移動（按鈕寬度不變）；`#/settings/opencode` 的按鈕名稱是 **助理設定：OpenCode**（Agents: OpenCode）。 |
+| 連結列把 agent 合成一個選單，選單通往每個 agent 的卡片，並顯示正在看的那一個 | — | 連結列從**助理總覽**開始，放著除了 agent 以外每張卡片的連結（包括**模型來源**（Model backends）與 **Agent 的 session**（Agent sessions）），模型來源與首席助理之間有一個**助理設定**（Agents）按鈕。打開後選單列出十二個 agent，開源 agent 在名為**開源 agent**（Open-source agents）的群組中，焦點在第一個；方向鍵（到兩端會繞回）、Home、End 與 Escape（回到按鈕）可以移動與關閉；在按鈕上按 ArrowUp 會打開並停在最後一個，Tab 會關閉並移到**首席 agent**（Lead agent），Shift+Tab 回到按鈕。點選單的標題時焦點留在原本的項目，按鍵照常有效；焦點移到別的連結會關閉選單。選 **Codex** 會關閉選單、前往 `#/settings/codex` 且卡片在畫面內，按鈕的名稱是 **助理設定：Codex**（Agents: Codex）並標亮；再打開時 Codex 有標記與焦點；點別處會關閉。點**首席 agent** 後標亮回到它，而且它不會移動（按鈕寬度不變）；`#/settings/opencode` 的按鈕名稱是 **助理設定：OpenCode**（Agents: OpenCode）。 |
 | 在矮的視窗裡，agent 選單留在視窗內，按鍵會顯示移到的項目 | — | 在 1280×480 下，從設定頁頂端（連結列比固定後低）打開時，選單底部在視窗內；End 讓 **Pi** 取得焦點並捲進選單的可見範圍，Home 回到第一個。 |
 | 在手機上，agent 按鈕完整顯示，選單留在螢幕內並跟著按鈕，並通往卡片 | — | 在 390×844 下，從 `#/settings/codex` 進來時連結列會讓出左上角按鈕的位置而變窄，**助理設定：Codex**（Agents: Codex）仍完整顯示；用 Tab 離開選單時會把**首席 agent**（Lead agent）捲進畫面；按鈕在連結列右端時選單在螢幕內打開，連結列捲動時選單保持打開並跟著按鈕移動；選 **Pi** 會前往它的卡片。 |
 | 連結列在收合的側邊欄按鈕旁固定時，agent 選單跟著按鈕移動 | — | 在 900×900 下收合側邊欄，在設定頁頂端打開選單；用滾輪捲動頁面後連結列固定並往右移，選單跟著按鈕移動。 |

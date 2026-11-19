@@ -47,7 +47,7 @@ export async function openNewChat(page: Page): Promise<void> {
 /** Starts a chat from the New chat page (the lead agent designs each question's team) and waits for it to open. */
 export async function startChat(page: Page, o: NewChatOptions = {}): Promise<string> {
   await openNewChat(page);
-  await page.locator('.chat-options > summary').click();
+  if (o.permission || o.title) await page.locator('.chat-options > summary').click();
   if (o.permission) await page.getByRole('button', { name: permissionLabel(o.permission), exact: true }).click();
   if (o.autoConfirm !== undefined)
     await page.getByRole('radio', { name: o.autoConfirm ? 'Start answering right away' : 'Wait for my confirmation' }).check();

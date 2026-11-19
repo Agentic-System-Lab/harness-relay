@@ -97,8 +97,10 @@ export const sectionId = (section: SettingsSection) => `settings-${section}`;
  * Scrolls to a settings card. Links call it too, because following a link to the hash already in
  * the address bar does not change the route.
  */
-export function scrollToSection(section: SettingsSection): void {
-  document.getElementById(sectionId(section))?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+export function scrollToSection(section: SettingsSection, focusTitle = false): void {
+  const card = document.getElementById(sectionId(section));
+  if (focusTitle) card?.querySelector<HTMLElement>('.section-title a')?.focus({ preventScroll: true });
+  card?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
 /** The settings card being read: the last one whose top has scrolled up to `line`, else the first card. */

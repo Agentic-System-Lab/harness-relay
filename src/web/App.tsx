@@ -180,8 +180,10 @@ function RelayApp() {
   const [route, setRoute] = useState<Route>(parseHash);
   const [chatDraft, setChatDraft] = useState(emptyChatDraft);
   const [startingChat, setStartingChat] = useState(false);
+  const [chatError, setChatError] = useState('');
   const [scheduleDraft, setScheduleDraft] = useState<NewAutomationDraft | null>(null);
   const [creatingSchedule, setCreatingSchedule] = useState(false);
+  const [scheduleError, setScheduleError] = useState('');
   const [draftPage, setDraftPage] = useState<'new' | 'schedule'>();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [groups, setGroups] = useState<ConversationGroup[]>([]);
@@ -547,12 +549,14 @@ function RelayApp() {
             onDraft={setChatDraft}
             busy={startingChat}
             setBusy={setStartingChat}
+            error={chatError}
+            setError={setChatError}
             providers={providers}
             catalog={catalog}
             onCreated={(conv) => {
               setChatDraft(emptyChatDraft);
               refreshConversations();
-              navigate({ page: 'chat', id: conv.id });
+              if (parseHash().page === 'new') navigate({ page: 'chat', id: conv.id });
             }}
           />
         )}
@@ -562,12 +566,14 @@ function RelayApp() {
             onDraft={setScheduleDraft}
             busy={creatingSchedule}
             setBusy={setCreatingSchedule}
+            error={scheduleError}
+            setError={setScheduleError}
             providers={providers}
             catalog={catalog}
             onCreated={(conv) => {
               setScheduleDraft(null);
               refreshConversations();
-              navigate({ page: 'chat', id: conv.id });
+              if (parseHash().page === 'schedule') navigate({ page: 'chat', id: conv.id });
             }}
           />
         )}

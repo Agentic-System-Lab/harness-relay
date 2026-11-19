@@ -16,6 +16,7 @@ import { mostSerious, type ReplyMarks } from '../../shared/review';
 import { splitAsk } from '../../shared/ask';
 import { withoutProgressTail } from '../../shared/tracking';
 import { api } from '../api';
+import { settingsHref } from '../route';
 import {
   activityCounts,
   enterSends,
@@ -499,10 +500,11 @@ function PlanCard({
   const plan = msg.plan!;
   const lead = leadLabel(plan.lead);
   const wording = planWording(plan, t, lead);
+  const changeLead = plan.leadUnavailable && <a href={settingsHref('lead')}>{t.plan.leadUnavailableHint}</a>;
   const leadWarning = plan.leadUnavailable && (
     <div className="plan-lead-warning" role="status">
       <strong>{t.plan.leadUnavailable(lead)}</strong>
-      <span>{t.plan.leadUnavailableHint}</span>
+      {changeLead}
     </div>
   );
 
@@ -601,6 +603,7 @@ function PlanCard({
         <>
           {fallback.explanation && <p className="plan-reason">{fallback.explanation}</p>}
           {plan.fallback && plan.reason && <p className="plan-reason">{plan.reason}</p>}
+          {changeLead && <p className="small">{changeLead}</p>}
           {confirmation}
           {fallbackStatus && (
             <p className="plan-next plan-reason" role="status">

@@ -386,7 +386,13 @@ function AssistantOverview({ providers, installs }: { providers: ProviderStatus[
               : a[state.kind];
         return (
           <li key={provider}>
-            <a href={settingsHref(target)} onClick={() => scrollToSection(target)} className="settings-assistant-link">
+            <a
+              href={settingsHref(target)}
+              onClick={(e) => {
+                if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) scrollToSection(target, true);
+              }}
+              className="settings-assistant-link"
+            >
               <span className="settings-assistant-name">
                 <i style={{ background: PROVIDER_COLOR[provider] }} aria-hidden="true" />
                 {PROVIDER_LABEL[provider]}

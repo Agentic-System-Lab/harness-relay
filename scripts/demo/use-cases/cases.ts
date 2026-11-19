@@ -118,8 +118,8 @@ async function startChat(s: Session, o: { permission: Permission; leadReview: bo
   const { page, moveClick, mark } = s;
   await s.moveTo(700, 420, 300);
   await sleep(1200);
-  if (o.permission !== 'read-only' || !o.leadReview) await moveClick('.chat-options > summary');
   if (o.permission !== 'read-only') {
+    await moveClick('.chat-options > summary');
     await moveClick(page.locator('.new-chat-page').getByRole('button', { name: M(s).permissions[o.permission].label, exact: true }), {
       after: 900,
     });
@@ -333,7 +333,7 @@ async function newAutomation(
     await moveClick(approvals.getByRole('radio', { name: T.schedule.approvalsAsk, exact: true }), { after: 900 });
     mark('ask-unwatched');
   }
-  await moveClick('.chat-options > summary', { after: 350 });
+  if ((o.permission && o.permission !== 'read-only') || o.title) await moveClick('.chat-options > summary', { after: 350 });
   if (o.permission && o.permission !== 'read-only') {
     await moveClick(page.locator('.new-chat-page').getByRole('button', { name: T.permissions[o.permission].label, exact: true }), {
       after: 900,

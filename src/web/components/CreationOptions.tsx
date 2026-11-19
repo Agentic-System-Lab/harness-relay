@@ -1,6 +1,6 @@
 import { cwdsOf, type ConversationSchedule, type ProviderModels, type ProviderStatus } from '../../shared/types';
 import { useT } from '../i18n';
-import { TeamEditor, type Team } from './TeamEditor';
+import { LeadReviewOption, TeamEditor, type Team } from './TeamEditor';
 
 export function CreationOptions({
   team,
@@ -28,7 +28,7 @@ export function CreationOptions({
         <strong>{t.newChat.options}</strong>
         <span className="muted small">{[t.permissions[team.settings.permission].label, ...cwdsOf(team.settings)].join(' · ')}</span>
       </summary>
-      <TeamEditor value={team} onChange={onTeam} providers={providers} catalog={catalog} confirmInEditor={false} schedule={schedule} />
+      <TeamEditor value={team} onChange={onTeam} providers={providers} catalog={catalog} teamOptionsInEditor={false} schedule={schedule} />
       <label className="field">
         <span>{t.newChat.optionalTitle}</span>
         <input className="title-input" value={title} placeholder={titlePlaceholder} onChange={(e) => onTitle(e.target.value)} />
@@ -37,25 +37,36 @@ export function CreationOptions({
   );
 }
 
-export function TeamConfirmation({
-  automatic,
-  onChange,
+export function CreationTeamOptions({
+  team,
+  onTeam,
   automaticLabel,
 }: {
-  automatic: boolean;
-  onChange: (automatic: boolean) => void;
+  team: Team;
+  onTeam: (team: Team) => void;
   automaticLabel: string;
 }) {
   const t = useT();
   return (
-    <fieldset className="team-confirmation">
-      <legend>{t.newChat.afterDesign}</legend>
-      {[false, true].map((auto) => (
-        <label key={String(auto)}>
-          <input type="radio" name="team-confirmation" checked={automatic === auto} onChange={() => onChange(auto)} />
-          {auto ? automaticLabel : t.newChat.waitForMe}
-        </label>
-      ))}
-    </fieldset>
+    <div className="creation-team-options">
+      <fieldset className="team-confirmation">
+        <legend>{t.newChat.afterDesign}</legend>
+        {[false, true].map((auto) => (
+          <label key={String(auto)}>
+            <input
+              type="radio"
+              name="team-confirmation"
+              checked={Boolean(team.settings.autoConfirm) === auto}
+              onChange={() => onTeam({ ...team, settings: { ...team.settings, autoConfirm: auto || undefined } })}
+            />
+            {auto ? automaticLabel : t.newChat.waitForMe}
+          </label>
+        ))}
+      </fieldset>
+      <LeadReviewOption
+        enabled={Boolean(team.settings.leadReview)}
+        onChange={(on) => onTeam({ ...team, settings: { ...team.settings, leadReview: on || undefined } })}
+      />
+    </div>
   );
 }

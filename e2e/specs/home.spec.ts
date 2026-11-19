@@ -54,6 +54,9 @@ test.describe('the home page', () => {
     await page.getByPlaceholder(/Conversation title/).fill('Release notes');
     const extra = relay.addProject('release');
     const folders = page.getByRole('combobox', { name: 'Working directories' });
+    const folderLabel = page.locator('.settings-grid label', { hasText: 'Working directories' });
+    const [labelBox, pickerBox] = await Promise.all([folderLabel.boundingBox(), page.locator('.chat-options .cwd-input').boundingBox()]);
+    expect(pickerBox!.y).toBeGreaterThanOrEqual(labelBox!.y + labelBox!.height);
     await folders.fill(extra);
     await folders.press('Enter');
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -87,6 +90,69 @@ test.describe('the home page', () => {
     await expect(direct).toBeChecked();
     await expect(page.locator('.page-head')).toContainText('answer right away');
   });
+
+  for (const automation of [false, true]) {
+    const name = automation ? 'New automation' : 'New chat';
+    test(`${name} keeps a failed draft and leaves the current page in place after a background retry`, async ({ page }) => {
+      const path = automation ? '/api/schedules' : '/api/conversations';
+      await page.getByRole('button', { name, exact: true }).first().click();
+      const message = page.locator('.first-task .task-input');
+      await message.fill('Review this week’s invoices');
+      const review = page.locator('.first-task-actions').getByRole('checkbox', { name: /review the team.s replies/i });
+      await expect(review).toBeChecked();
+      await review.uncheck();
+      const expectedSections = automation
+        ? ['.chat-options', '.automation-options', '.template-library']
+        : ['.chat-options', '.template-library'];
+      const boxes = await Promise.all(expectedSections.map((selector) => page.locator(selector + ' > summary').boundingBox()));
+      for (let i = 1; i < boxes.length; i++) {
+        const gap = boxes[i]!.y - (boxes[i - 1]!.y + boxes[i - 1]!.height);
+        expect(gap).toBeGreaterThanOrEqual(-1);
+        expect(gap).toBeLessThanOrEqual(4);
+      }
+      if (automation) {
+        await page.locator('.automation-options > summary').click();
+        await page.getByRole('checkbox', { name: 'Create a webhook too' }).check();
+      }
+      for (const fail of [true, false]) {
+        let finish!: () => void;
+        const held = new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        await page.route('**' + path, async (route) => {
+          if (route.request().method() !== 'POST') return route.continue();
+          await held;
+          if (fail) await route.fulfill({ status: 503, json: { error: 'Creation temporarily unavailable' } });
+          else await route.continue();
+        });
+        const requested = page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname === path);
+        const responded = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === path);
+        await page.locator('.first-task-actions button.primary').click();
+        await requested;
+        try {
+          await page.getByRole('link', { name: /Change the lead agent/ }).click();
+          await expect(page).toHaveURL(/#\/settings\/lead$/);
+        } finally {
+          finish();
+        }
+        const response = await responded;
+        await page.unroute('**' + path);
+        if (fail) {
+          await page.getByRole('link', { name: /Return to .*draft/ }).click();
+          await expect(page.getByRole('alert')).toContainText('Creation temporarily unavailable');
+          await expect(message).toHaveValue('Review this week’s invoices');
+          await expect(review).not.toBeChecked();
+        } else {
+          const { id } = await response.json();
+          const created = page.locator(`.sidebar a[href="#/c/${id}"]`);
+          await expect(created).toBeVisible();
+          await expect(page).toHaveURL(/#\/settings\/lead$/);
+          await created.click();
+          if (automation) await expect(page.getByRole('dialog', { name: 'Automation' })).toContainText('The token is shown only this once');
+        }
+      }
+    });
+  }
 
   test('the logo plays its animation once on each visit, with transform and opacity alone, and not with reduced motion', async ({
     page,
