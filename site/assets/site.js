@@ -331,8 +331,9 @@ if (tabs.length && tabs.length === panels.length) {
 
 // ---------- The docs: their pages behind a button on a narrow screen, and the section on screen ----------
 // At 920px and narrower the docs' pages fold behind a button (site.css shows them only with .is-open); the
-// page's sections in "On this page" mark the one being read: the last whose heading has passed under the
-// header, or the last one once the page is scrolled to its end.
+// page's sections in "On this page" mark the one being read: the last whose heading has passed the line
+// under the header (on a narrow screen, under the sticky row of the search field and the docs' button), or the last
+// one once the page is scrolled to its end.
 
 const docNav = document.querySelector('[data-doc-nav]');
 const docNavToggle = docNav?.querySelector('[data-doc-nav-toggle]');
@@ -360,9 +361,14 @@ if (tocLinks.length && tocSections.every(Boolean)) {
   const mark = () => {
     queued = false;
     const atEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+    const narrow = window.matchMedia('(max-width: 920px)').matches;
+    const pad = Number.parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop);
+    // Wide: a heading has passed once it is under the header. Narrow: a jumped-to heading rests at
+    // scroll-padding, below the sticky row, so the line sits under that.
+    const line = narrow ? (Number.isFinite(pad) && pad > 0 ? pad : 126) + 24 : 120;
     let current = 0;
     tocSections.forEach((section, i) => {
-      if (section.getBoundingClientRect().top < 120) current = i;
+      if (section.getBoundingClientRect().top < line) current = i;
     });
     if (atEnd) current = tocSections.length - 1;
     tocLinks.forEach((link, i) => {

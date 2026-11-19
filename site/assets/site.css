@@ -2910,10 +2910,13 @@ body:has(.cs-dialog[open]) {
 /* ---------- The docs (docs/ and zh-TW/docs/) ----------
    For people who use Harness Relay: a page per task, in the landing page's world, its type, tokens and
    hairlines at reading scale. The technical details stay in the repository's docs on GitHub, which every
-   page names at its end (.doc-more). On a wide screen, three columns: the docs' pages (.doc-nav), the page,
-   and its sections (.doc-toc), both sticky; at 1180px and narrower the sections go above the page's text, in
-   a box, and at 920px and narrower the pages fold behind a button that stays at the top, under the header
-   (with JavaScript; without it they show in full above the page). */
+   page names at its end (.doc-more). On a wide screen, three columns: the docs' pages (.doc-nav, a search
+   field above them), the page (its title and a button that copies it as Markdown), and its sections
+   (.doc-toc), the menu and the contents sticky; at 1180px and narrower the sections go above the page's text,
+   in a box, and at 920px and narrower the pages fold behind a button that shares one row with the search
+   field, under the header. The field is the narrower of the two until it is opened, when it fills the row
+   (with JavaScript; without it the pages show in full above the page, and the search field and the copy
+   button stay hidden). */
 
 .doc-layout {
   display: grid;
@@ -2942,6 +2945,128 @@ body:has(.cs-dialog[open]) {
   overscroll-behavior: contain;
   scrollbar-width: thin;
   font-size: 14.5px;
+}
+
+/* Search and the button that copies the page need JavaScript (docs.js). Without it the pages read as written. */
+.doc-search,
+.doc-actions {
+  display: none;
+}
+
+.js .doc-search {
+  display: block;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  /* The current page's highlight sits 10px left of this column. Cover it while the menu scrolls under the field. */
+  margin: 0 0 16px -10px;
+  padding-left: 10px;
+  background: var(--bg);
+}
+
+.doc-search-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 10px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+/* The menu scrolls, and the field sits against the top and left of that column, so an outline
+   outside the field is clipped and reads as a second border shifted off the radius. The ring
+   stays inside the field. */
+.doc-search-field:focus-within {
+  border-color: var(--grok-ink);
+  box-shadow: inset 0 0 0 1px var(--grok-ink);
+}
+
+.doc-search input:focus-visible {
+  outline: none;
+}
+
+.doc-search-field svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--muted);
+}
+
+.doc-search input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  appearance: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14.5px;
+}
+
+.doc-search-panel {
+  position: fixed;
+  z-index: 45;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+}
+
+.doc-search-panel ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.doc-search-panel a {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.doc-search-panel a[aria-selected='true'],
+.doc-search-panel a:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.doc-search-title {
+  color: var(--text);
+  font-size: 14.5px;
+  font-weight: 650;
+}
+
+.doc-search-heading {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.doc-search-snippet {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.doc-search-panel mark {
+  background: color-mix(in srgb, var(--grok) 28%, transparent);
+  color: inherit;
+  border-radius: 3px;
+}
+
+.doc-search-empty {
+  margin: 0;
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 14px;
 }
 
 .doc-nav-toggle {
@@ -3023,6 +3148,61 @@ body:has(.cs-dialog[open]) {
 :lang(zh) .doc-head h1 {
   letter-spacing: -0.01em;
   line-height: 1.16;
+}
+
+.doc-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 16px;
+}
+
+.doc-title-row h1 {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.doc-actions {
+  flex: none;
+  padding-top: 0.4rem;
+}
+
+.js .doc-actions {
+  display: block;
+}
+
+.doc-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.doc-copy svg {
+  width: 16px;
+  height: 16px;
+}
+
+.doc-copy:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text) 35%, var(--border));
+}
+
+.doc-copy.is-done {
+  color: var(--text);
+}
+
+.doc-copy.is-failed {
+  color: var(--danger);
 }
 
 /* The page's sections, the one on screen marked (site.js). */
@@ -3467,25 +3647,62 @@ body:has(.cs-dialog[open]) {
     background: var(--bg);
   }
 
-  /* With JavaScript, the docs' button stays at the top while the page scrolls, under the header, on the page's
-     background from edge to edge; its pages, opened, scroll inside the screen that is left. (Without it the
-     pages show in full, and scroll away with the page.) */
+  /* With JavaScript, the search field and the docs' button share one row and stay at the top while the page
+     scrolls, under the header, on the page's background from edge to edge; the pages, opened, scroll inside
+     the screen that is left. (Without it the pages show in full, and scroll away with the page.) The field
+     is the narrower of the two. Opening it (or leaving its results open) lets the field fill the row. */
   .js .doc-nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 8px;
     position: sticky;
     top: 64px;
     z-index: 40;
   }
 
-  /* A section a link leads to starts below the header and the docs' button. */
+  .js .doc-search {
+    /* Narrower than the docs' button. 7.75rem fits 搜尋文件 and "Search"; the cap keeps that on a small screen. */
+    flex: 0 1 7.75rem;
+    max-width: 42%;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    position: static;
+    background: transparent;
+    transition:
+      max-width 0.16s var(--ease),
+      flex-basis 0.16s var(--ease);
+  }
+
+  .js .doc-search:focus-within,
+  .js .doc-search.is-wide {
+    flex-basis: 100%;
+    max-width: 100%;
+  }
+
+  .js .doc-search:focus-within ~ .doc-nav-toggle,
+  .js .doc-search.is-wide ~ .doc-nav-toggle {
+    display: none;
+  }
+
+  .js .doc-search-field {
+    height: 46px;
+    border-radius: 12px;
+  }
+
+  /* A section a link leads to starts below the header and that one row (padding 8 + the row 46 + padding 8). */
   html.js:has(.doc-nav) {
-    scroll-padding-top: 136px;
+    scroll-padding-top: 126px;
   }
 
   .js .doc-nav-toggle {
     display: flex;
     align-items: center;
     gap: 10px;
-    width: 100%;
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
     min-height: 46px;
     padding: 8px 14px;
     border: 1px solid var(--border);
@@ -3502,6 +3719,9 @@ body:has(.cs-dialog[open]) {
   .doc-nav-toggle b {
     flex: 1;
     min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-weight: 650;
   }
 
@@ -3522,8 +3742,9 @@ body:has(.cs-dialog[open]) {
   }
 
   .js .doc-nav-list {
-    max-height: calc(100vh - 64px - 78px);
-    max-height: calc(100dvh - 64px - 78px);
+    flex: 1 0 100%;
+    max-height: calc(100vh - 64px - 70px);
+    max-height: calc(100dvh - 64px - 70px);
     margin-top: 8px;
     padding: 14px 16px 16px 26px;
     overflow-y: auto;
@@ -3532,6 +3753,12 @@ body:has(.cs-dialog[open]) {
     border-radius: 12px;
     background: var(--bg);
     box-shadow: var(--shadow);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .js .doc-search {
+      transition: none;
+    }
   }
 }
 

@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions as ChildOptions, type SpawnSyncReturns } from 'node:child_process';
 import { accessSync, closeSync, constants as fsConstants, existsSync, openSync, readSync, statSync } from 'node:fs';
-import { isAbsolute, posix, resolve, win32 } from 'node:path';
+import { isAbsolute, posix, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Duplex } from 'node:stream';
 import { t } from './i18n';
@@ -309,14 +309,22 @@ export function runShellScript(shell: string, flags: readonly string[], script: 
 }
 
 /**
- * Whether `bin` must start with a console of its own: on Windows, Windows PowerShell and PowerShell 7,
- * which without one run nothing and exit at once with code 0 (seen with Windows PowerShell 5.1 on
- * Windows 11, for `-File` and `-Command` alike). A detached child gets none there (Node starts it
- * `DETACHED_PROCESS`); started attached, hidden and with its stdio piped, it gets a hidden console of
- * its own (`CREATE_NO_WINDOW`), not the server's.
+ * Whether a child is started detached, in a process group of its own.
+ *
+ * On macOS and Linux, yes: `killTree` signals the group, so a shell or a test runner the CLI started
+ * is stopped with it.
+ *
+ * On Windows, no. Detached makes Node pass `DETACHED_PROCESS`, and Windows then ignores
+ * `CREATE_NO_WINDOW` (`windowsHide`). The child has no console, so each console program it starts
+ * (Git Bash, `git`, `node`) is given a window of its own. With Windows Terminal as the default
+ * terminal, that window stays open, empty (its output is piped here), titled with the program's path.
+ * Started attached and hidden, the child gets a console of its own whose window is not shown, and
+ * programs it starts inherit that console instead of opening one. Windows PowerShell is the same: a
+ * detached one has no console, runs nothing and exits 0 (seen with Windows PowerShell 5.1 on Windows
+ * 11, for `-File` and `-Command` alike). Windows has no process groups; `killTree` ends the child itself.
  */
-export function needsConsole(bin: string, platform: NodeJS.Platform = process.platform): boolean {
-  return platform === 'win32' && /^(powershell|pwsh)(\.exe)?$/i.test(win32.basename(bin));
+export function detachedChild(platform: NodeJS.Platform = process.platform): boolean {
+  return platform !== 'win32';
 }
 
 /** Starts the child with `start`, follows it to its end, and stops it when asked; `name` is what a missing command is reported as. */
@@ -350,10 +358,10 @@ function supervise(
     const child = start({
       cwd: o.cwd,
       env: o.env,
-      // Its own process group, which killTree signals; on Windows that also means no console, which
-      // PowerShell cannot run without (`needsConsole`).
-      detached: !needsConsole(name),
-      // On Windows, no window: a console given to the child is hidden.
+      // Own process group on macOS and Linux, which killTree signals. Not on Windows (`detachedChild`):
+      // detached there drops the hidden console, and programs the child starts each open a window.
+      detached: detachedChild(),
+      // On Windows, no window: the child gets a hidden console, which programs it starts inherit.
       windowsHide: true,
       stdio: [
         o.stdin === undefined && !o.keepStdinOpen ? 'ignore' : 'pipe',
@@ -640,7 +648,7 @@ export function spawnInteractive(bin: string, args: string[], env: NodeJS.Proces
   const launch = launchOf(bin, args, env);
   const child = spawn(launch.file, launch.args, {
     env: withLaunchEnv(env, launch),
-    detached: true,
+    detached: detachedChild(),
     windowsHide: true,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -653,8 +661,10 @@ export function spawnInteractive(bin: string, args: string[], env: NodeJS.Proces
 /**
  * Starts a program that must outlive this process, and is not waited for (the desktop app's update
  * starts the installer, or waits for the app to exit before opening the new one). It is left out of
- * `killAll`, and its own process group keeps it from the signals sent to this one. `bin` is a full
- * path. Resolves once it started, or rejects when it could not.
+ * `killAll`, and its own process group keeps it from the signals sent to this one. It stays detached
+ * on Windows too, so it is not killed when this process exits; that also means `windowsHide` does not
+ * hide a console there (`detachedChild`). `bin` is a full path. Resolves once it started, or rejects
+ * when it could not.
  */
 export function spawnDetached(bin: string, args: readonly string[], env: NodeJS.ProcessEnv): Promise<void> {
   return new Promise((done, fail) => {
