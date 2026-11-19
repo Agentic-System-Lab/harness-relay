@@ -5543,6 +5543,13 @@ details.sub summary {
   min-width: 0;
 }
 
+.checks-hook-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
 .checks-command-line {
   display: flex;
   gap: 8px;

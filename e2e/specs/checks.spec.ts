@@ -349,7 +349,18 @@ test.describe('team checks', () => {
     await page.reload();
     await expect(hook).toHaveValue('echo hook');
     await expect(command).toHaveValue('echo check');
-    await hooks.getByRole('button', { name: 'Remove this hook' }).click();
+    const remove = hooks.getByRole('button', { name: 'Remove this hook' });
+    for (const width of [1280, 320]) {
+      await page.setViewportSize({ width, height: 800 });
+      const button = (await remove.boundingBox())!;
+      const when = (await hooks.getByText('When', { exact: true }).boundingBox())!;
+      const calls = (await hooks.getByRole('combobox', { name: 'Which calls' }).boundingBox())!;
+      const input = (await hook.boundingBox())!;
+      expect(button.y).toBeCloseTo(when.y, 0);
+      expect(button.x).toBeGreaterThan(calls.x + calls.width);
+      expect(button.x + button.width).toBeCloseTo(input.x + input.width, 0);
+    }
+    await remove.click();
     await saveHooks.click();
     await expect(hooks.getByRole('status')).toHaveText('Saved');
     expect(await defaults()).toEqual({ commands: [expect.objectContaining({ run: 'echo check', timeoutMin: 1 })] });

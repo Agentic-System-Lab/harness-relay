@@ -297,24 +297,35 @@ export function HooksEditor({
           const problem = h.run.trim() ? hookProblem(h) : undefined;
           return (
             <li key={h.id} className="checks-hook-row">
-              <div className="checks-command-options">
-                <label>
-                  <span className="small muted">{t.checks.hookWhen}</span>
-                  <select value={h.when} onChange={(e) => setHook(h.id, { when: e.target.value as CheckHook['when'] })}>
-                    <option value="before">{t.checks.hookBefore}</option>
-                    <option value="after">{t.checks.hookAfter}</option>
-                  </select>
-                </label>
-                <label>
-                  <span className="small muted">{t.checks.hookTools}</span>
-                  <select value={h.tools} onChange={(e) => setHook(h.id, { tools: e.target.value as CheckHook['tools'] })}>
-                    {(['command', 'edit', 'any'] as const).map((k) => (
-                      <option key={k} value={k}>
-                        {t.checks.hookToolsLabel[k]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+              <div className="checks-hook-head">
+                <div className="checks-command-options">
+                  <label>
+                    <span className="small muted">{t.checks.hookWhen}</span>
+                    <select value={h.when} onChange={(e) => setHook(h.id, { when: e.target.value as CheckHook['when'] })}>
+                      <option value="before">{t.checks.hookBefore}</option>
+                      <option value="after">{t.checks.hookAfter}</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span className="small muted">{t.checks.hookTools}</span>
+                    <select value={h.tools} onChange={(e) => setHook(h.id, { tools: e.target.value as CheckHook['tools'] })}>
+                      {(['command', 'edit', 'any'] as const).map((k) => (
+                        <option key={k} value={k}>
+                          {t.checks.hookToolsLabel[k]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  className="ghost small-button"
+                  aria-label={t.checks.removeHook}
+                  title={t.checks.removeHook}
+                  onClick={() => update(hooks.filter((x) => x.id !== h.id))}
+                >
+                  ×
+                </button>
               </div>
               <div className="checks-command-line">
                 <input
@@ -326,15 +337,6 @@ export function HooksEditor({
                   value={h.run}
                   onChange={(e) => setHook(h.id, { run: e.target.value })}
                 />
-                <button
-                  type="button"
-                  className="ghost small-button"
-                  aria-label={t.checks.removeHook}
-                  title={t.checks.removeHook}
-                  onClick={() => update(hooks.filter((x) => x.id !== h.id))}
-                >
-                  ×
-                </button>
               </div>
               <div className="checks-command-options">
                 <label>
