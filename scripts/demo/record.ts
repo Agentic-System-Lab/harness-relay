@@ -120,10 +120,16 @@ export async function record(opts: RecordOptions, base: string, log: Log): Promi
       await sleep(1500);
       mark('template-shown', { template: L.template });
       await moveClick(page.locator('.template-editor-foot .ghost'), { after: 700 });
+      await moveClick('.template-library > summary');
 
-      // Start the chat and ask straight away. Without lead review (the page ticks it in every new chat),
-      // which the chapters and stills do not show.
+      // Send the first question from New chat. The dry run opens an empty chat without starting a team.
       await page.locator('.lead-review input[type="checkbox"]').uncheck();
+      if (!opts.dry) {
+        await moveClick('#first-question');
+        mark('first-question');
+        await typeSlow(L.question);
+        await sleep(600);
+      }
       await moveClick('.start-bar .primary', { after: 900 });
       await page.waitForURL(/#\/c\//);
       const id = decodeURIComponent(/#\/c\/([^/?]+)/.exec(page.url())?.[1] ?? '');
@@ -136,7 +142,6 @@ export async function record(opts: RecordOptions, base: string, log: Log): Promi
         return;
       }
 
-      await ask(L.question);
       mark('asked', { question: L.question });
       const first = await s.designAndConfirm(id, 'q1', { poster: true }); // the first team, all three agents on the card
       await s.waitAnswered(id, 'q1', firstRound(first));

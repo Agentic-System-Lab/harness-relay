@@ -41,7 +41,7 @@ export const RAILS: Record<DemoLang, RailSpec> = {
     lead: 'Lead agent',
     chapters: [
       { at: 'start', kind: 'you', say: 'Create a group, “{group}”, and open a template: teams are designed in templates.' },
-      { at: 'chat-open', kind: 'you', say: 'Start a new conversation and ask straight away: “Is relay mode a good design?”' },
+      { at: 'first-question', kind: 'you', say: 'Type “Is relay mode a good design?” on the New chat page and send the first question.' },
       { at: 'q1-plan', kind: 'lead', team: 'q1', say: 'Sorts the conversation into {group}, {plan}, and says why.' },
       {
         at: 'q1-confirmed',
@@ -57,7 +57,12 @@ export const RAILS: Record<DemoLang, RailSpec> = {
       { at: 'q1-answered', kind: 'team', team: 'q1', say: 'The answers, down to a ranked list of what to change first.' },
       { at: 'q1-read', kind: 'you', say: 'Ask a new question: a short README note on relay mode.' },
       { at: 'q2-plan', kind: 'lead', team: 'q2', say: 'Picks a team for it: {names}, {rounds}. The review team stays until you confirm.' },
-      { at: 'q2-confirmed', kind: 'team', team: 'q2', say: 'Draft the note and check it against the code.' },
+      {
+        at: 'q2-confirmed',
+        kind: 'team',
+        team: 'q2',
+        say: 'Claude uses the code review to draft the relay-mode note for the English and Traditional Chinese READMEs.',
+      },
       {
         at: 'files',
         kind: 'you',
@@ -72,7 +77,7 @@ export const RAILS: Record<DemoLang, RailSpec> = {
     lead: '首席 agent',
     chapters: [
       { at: 'start', kind: 'you', say: '新增群組「{group}」，再打開一個範本：團隊就是在範本裡設計的。' },
-      { at: 'chat-open', kind: 'you', say: '開新對話，直接提問：「接力模式的設計好嗎？」' },
+      { at: 'first-question', kind: 'you', say: '在「新對話」頁面輸入「接力模式的設計好嗎？」，送出第一個問題。' },
       { at: 'q1-plan', kind: 'lead', team: 'q1', say: '依你的第一則訊息把對話歸進「{group}」，{plan}，並說明原因。' },
       { at: 'q1-confirmed', kind: 'team', team: 'q1', say: '確認後{rounds}圓桌：依序讀程式碼，每位都接續並挑戰前面的說法。' },
       {
